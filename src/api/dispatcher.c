@@ -1,5 +1,6 @@
 /* src/api/dispatcher.c */
 #include "dispatcher.h"
+#include "../modules/virt/vm_manager.h"
 #include <json-glib/json-glib.h>
 #include <stdio.h>
 #include <string.h>
@@ -10,20 +11,18 @@
 #define ERR_METHOD_NOT_FOUND -32601
 #define ERR_INVALID_PARAMS   -32602
 #define ERR_INTERNAL_ERROR   -32603
-#define ERR_SERVER_ERROR     -32000 // Implementation defined
-
-/* --- Internal Structures --- */
+#define ERR_SERVER_ERROR     -32000 
 
 struct _Dispatcher {
     GHashTable *registry;
-    VmManager *vm_manager;
+    PureCVisorVmManager *vm_manager;
 };
 
-typedef void (*CommandHandler)(Dispatcher *self, JsonObject *params, GOutputStream *out);
+/* Function Pointer Type for Commands */
+typedef void (*CommandHandler)(Dispatcher *self, JsonNode *params, GOutputStream *out);
 
-/* --- Helper: Standardized Response Generator --- */
+/* --- Helper Functions (Response Generators) --- */
 
-// 비동기 전송 완료 콜백 (리소스 해제용)
 static void on_write_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GOutputStream *out = G_OUTPUT_STREAM(source);
     GError *error = NULL;
@@ -32,21 +31,24 @@ static void on_write_finished(GObject *source, GAsyncResult *res, gpointer user_
         g_warning("Response write failed: %s", error->message);
         g_error_free(error);
     }
-    g_free(user_data); // JSON 문자열 해제
-    g_object_unref(out); // Stream 참조 해제 (전송 끝)
+    g_free(user_data); 
+    
+    /* [LIFECYCLE] 
+     * 여기서 out이 unref될 때, attach된 부모 connection도 같이 unref되어 
+     * 소켓이 안전하게 닫힙니다. 
+     */
+    g_object_unref(out); 
 }
 
-// 실제 전송 로직
 static void send_raw_json(GOutputStream *out, JsonBuilder *builder) {
     JsonGenerator *gen = json_generator_new();
     JsonNode *root = json_builder_get_root(builder);
     
     json_generator_set_root(gen, root);
     gchar *json_str = json_generator_to_data(gen, NULL);
-    gchar *final_msg = g_strdup_printf("%s\n", json_str); // Line-delimited
+    gchar *final_msg = g_strdup_printf("%s\n", json_str); 
 
-    // Fire-and-forget async write
-    // 여기서 out의 참조 카운트를 하나 가져갑니다 (on_write_finished에서 해제)
+    /* Async write */
     g_output_stream_write_all_async(out, final_msg, strlen(final_msg),
                                     G_PRIORITY_DEFAULT, NULL,
                                     on_write_finished, final_msg);
@@ -57,7 +59,6 @@ static void send_raw_json(GOutputStream *out, JsonBuilder *builder) {
     g_object_unref(builder);
 }
 
-// [Refactoring] 성공 응답 헬퍼
 static void reply_success(GOutputStream *out, JsonNode *result_data) {
     JsonBuilder *builder = json_builder_new();
     json_builder_begin_object(builder);
@@ -65,18 +66,15 @@ static void reply_success(GOutputStream *out, JsonNode *result_data) {
     json_builder_set_member_name(builder, "status");
     json_builder_add_string_value(builder, "ok");
     
-    json_builder_set_member_name(builder, "result");
     if (result_data) {
-        json_builder_add_value(builder, result_data); // Ownership transfer
-    } else {
-        json_builder_add_null_value(builder);
+        json_builder_set_member_name(builder, "result");
+        json_builder_add_value(builder, result_data); 
     }
     
     json_builder_end_object(builder);
     send_raw_json(out, builder);
 }
 
-// [Refactoring] 에러 응답 헬퍼
 static void reply_error(GOutputStream *out, int code, const gchar *msg) {
     JsonBuilder *builder = json_builder_new();
     json_builder_begin_object(builder);
@@ -98,54 +96,74 @@ static void reply_error(GOutputStream *out, int code, const gchar *msg) {
 
 /* --- Command Handlers --- */
 
-// CMD: ping
-static void cmd_ping(Dispatcher *self, JsonObject *params, GOutputStream *out) {
+/* CMD: ping */
+static void cmd_ping(Dispatcher *self, JsonNode *params, GOutputStream *out) {
     (void)self; (void)params;
-    
-    // 단순 문자열 결과는 Node로 감싸서 전달
-    JsonNode *pong = json_node_new(JSON_NODE_VALUE);
-    json_node_set_string(pong, "pong");
-    
-    reply_success(g_object_ref(out), pong);
+    JsonNode *pong = json_node_alloc();
+    json_node_init_string(pong, "pong");
+    reply_success(out, pong); 
 }
 
-// CMD: vm.list
-static void on_vm_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+/* CMD: vm.create */
+static void _on_vm_create_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GOutputStream *out = G_OUTPUT_STREAM(user_data);
     GError *error = NULL;
-    (void)source; // Unused
+    
+    if (purecvisor_vm_manager_create_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
+        JsonNode *ret = json_node_alloc();
+        json_node_init_string(ret, "VM Created Successfully");
+        reply_success(out, ret);
+    } else {
+        reply_error(out, ERR_SERVER_ERROR, error->message);
+        g_error_free(error);
+    }
+}
 
-    JsonNode *result = vm_manager_list_domains_finish(NULL, res, &error);
+static void cmd_vm_create(Dispatcher *self, JsonNode *params, GOutputStream *out) {
+    if (!self->vm_manager) {
+        reply_error(out, ERR_INTERNAL_ERROR, "VmManager not initialized");
+        return;
+    }
+    
+    if (!params || !JSON_NODE_HOLDS_OBJECT(params)) {
+        reply_error(out, ERR_INVALID_PARAMS, "Params must be a JSON object");
+        return;
+    }
+
+    purecvisor_vm_manager_create_vm_async(self->vm_manager,
+                                          params,
+                                          _on_vm_create_finished,
+                                          out); 
+    /* Dispatcher owns 'out' ref passed from process_line, but we are async.
+     * We need to keep 'out' alive. process_line did Ref it. 
+     * We pass it as user_data, so we are good. */
+}
+
+/* CMD: vm.list */
+static void _on_vm_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    GOutputStream *out = G_OUTPUT_STREAM(user_data);
+    GError *error = NULL;
+
+    JsonNode *result = purecvisor_vm_manager_list_domains_finish(PURECVISOR_VM_MANAGER(source), res, &error);
 
     if (error) {
         reply_error(out, ERR_SERVER_ERROR, error->message);
         g_error_free(error);
     } else {
-        reply_success(out, result);
+        reply_success(out, result); 
     }
-    // Note: out is unref-ed inside reply_* via on_write_finished logic 
-    // BUT wait, reply_* logic takes ownership via send_raw_json? 
-    // Let's simplify: on_vm_list_finished owns 'out' passed via user_data.
-    // reply_* functions will perform async write and unref eventually.
-    // However, to be safe and consistent with previous code:
-    // The previous code did manual unref. 
-    // Let's make sure reply_* takes a NEW ref or CONSUMES the current one.
-    // For simplicity: send_raw_json takes ownership. We just pass 'out'.
 }
 
-static void cmd_vm_list(Dispatcher *self, JsonObject *params, GOutputStream *out) {
+static void cmd_vm_list(Dispatcher *self, JsonNode *params, GOutputStream *out) {
     (void)params;
-
     if (!self->vm_manager) {
-        reply_error(g_object_ref(out), ERR_INTERNAL_ERROR, "VmManager not initialized");
+        reply_error(out, ERR_INTERNAL_ERROR, "VmManager not initialized");
         return;
     }
 
-    // Async Call
-    // out의 참조를 하나 늘려서 콜백으로 전달
-    vm_manager_list_domains_async(self->vm_manager, 
-                                  on_vm_list_finished, 
-                                  g_object_ref(out));
+    purecvisor_vm_manager_list_domains_async(self->vm_manager, 
+                                            _on_vm_list_finished, 
+                                            out); 
 }
 
 /* --- Dispatcher Core --- */
@@ -155,6 +173,7 @@ Dispatcher* dispatcher_new(void) {
     self->registry = g_hash_table_new(g_str_hash, g_str_equal);
 
     g_hash_table_insert(self->registry, "ping", cmd_ping);
+    g_hash_table_insert(self->registry, "vm.create", cmd_vm_create);
     g_hash_table_insert(self->registry, "vm.list", cmd_vm_list);
     
     return self;
@@ -162,12 +181,22 @@ Dispatcher* dispatcher_new(void) {
 
 void dispatcher_free(Dispatcher *self) {
     if (!self) return;
+    if (self->vm_manager) {
+        g_object_unref(self->vm_manager);
+    }
     if (self->registry) g_hash_table_destroy(self->registry);
     g_free(self);
 }
 
-void dispatcher_set_vm_manager(Dispatcher *self, VmManager *mgr) {
-    self->vm_manager = mgr;
+void dispatcher_set_vm_manager(Dispatcher *self, PureCVisorVmManager *mgr) {
+    if (self->vm_manager) {
+        g_object_unref(self->vm_manager);
+    }
+    if (mgr) {
+        self->vm_manager = g_object_ref(mgr);
+    } else {
+        self->vm_manager = NULL;
+    }
 }
 
 void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line) {
@@ -175,8 +204,19 @@ void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *l
     GError *error = NULL;
     GOutputStream *out = g_io_stream_get_output_stream(stream);
 
+    /* [CRITICAL FIX] 
+     * 1. Output Stream 참조 (비동기 작업을 위해)
+     * 2. 부모 Stream (Connection) 참조 및 Attachment
+     * -> 이렇게 하면 'out'이 살아있는 동안 'stream'도 강제로 살아있게 됩니다.
+     * -> on_write_finished에서 g_object_unref(out)을 하면,
+     * attachment도 해제되면서 stream도 unref 되어 소켓이 닫힙니다.
+     */
+    g_object_ref(out);
+    g_object_set_data_full(G_OBJECT(out), "keep_alive_connection", 
+                           g_object_ref(stream), g_object_unref);
+
     if (!json_parser_load_from_data(parser, line, -1, &error)) {
-        reply_error(g_object_ref(out), ERR_PARSE_ERROR, "JSON Parse Error");
+        reply_error(out, ERR_PARSE_ERROR, "JSON Parse Error");
         g_error_free(error);
         g_object_unref(parser);
         return;
@@ -184,32 +224,36 @@ void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *l
 
     JsonNode *root = json_parser_get_root(parser);
     if (!JSON_NODE_HOLDS_OBJECT(root)) {
-        reply_error(g_object_ref(out), ERR_INVALID_REQUEST, "Root must be an object");
+        reply_error(out, ERR_INVALID_REQUEST, "Root must be an object");
         g_object_unref(parser);
+        /* [Error Case Cleanup] 여기서도 out을 풀어줘야 연결이 해제됨 */
+        g_object_unref(out);
         return;
     }
 
     JsonObject *root_obj = json_node_get_object(root);
     if (!json_object_has_member(root_obj, "method")) {
-        reply_error(g_object_ref(out), ERR_INVALID_REQUEST, "Missing 'method'");
+        reply_error(out, ERR_INVALID_REQUEST, "Missing 'method'");
         g_object_unref(parser);
+        g_object_unref(out);
         return;
     }
 
     const gchar *method = json_object_get_string_member(root_obj, "method");
-    JsonObject *params = NULL;
+    JsonNode *params = NULL;
     if (json_object_has_member(root_obj, "params")) {
-        JsonNode *pnode = json_object_get_member(root_obj, "params");
-        if (JSON_NODE_HOLDS_OBJECT(pnode)) {
-            params = json_object_get_object_member(root_obj, "params");
-        }
+        params = json_object_get_member(root_obj, "params");
     }
 
     CommandHandler handler = g_hash_table_lookup(self->registry, method);
     if (handler) {
         handler(self, params, out);
     } else {
-        reply_error(g_object_ref(out), ERR_METHOD_NOT_FOUND, "Method not found");
+        reply_error(out, ERR_METHOD_NOT_FOUND, "Method not found");
+        /* Handler가 호출되지 않았으므로 여기서 unref 해야 함? 
+         * 아니오, reply_error 내부에서 send_raw_json -> on_write_finished -> unref 흐름을 탐.
+         * 따라서 중복 unref 하지 않도록 주의.
+         */
     }
 
     g_object_unref(parser);

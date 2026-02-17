@@ -2,19 +2,25 @@
 #ifndef PURECVISOR_UDS_SERVER_H
 #define PURECVISOR_UDS_SERVER_H
 
-// GObject 의존성 포함
 #include <glib-object.h>
-#include "modules/virt/vm_manager.h" // 추가
+#include "../modules/virt/vm_manager.h" 
 
-typedef struct _UdsServer UdsServer;
+G_BEGIN_DECLS
 
-// 생성자 (서버 시작 포함)
-UdsServer* uds_server_new(const char *socket_path);
+/* * [수정됨] 두 번째 인자를 'purecvisor_uds_server'로 변경했습니다.
+ * 이제 이 매크로는 'purecvisor_uds_server_get_type' 함수를 선언합니다.
+ * 이는 C 파일의 G_DEFINE_TYPE 생성 결과와 정확히 일치합니다.
+ */
+#define PURECVISOR_TYPE_UDS_SERVER (purecvisor_uds_server_get_type())
 
-// 소멸자 (서버 중지 포함)
-void uds_server_free(UdsServer *server);
+G_DECLARE_FINAL_TYPE(UdsServer, purecvisor_uds_server, PURECVISOR, UDS_SERVER, GObject)
 
-// [New] VmManager 설정
-void uds_server_set_vm_manager(UdsServer *server, VmManager *mgr);
+UdsServer *uds_server_new(const gchar *socket_path);
 
-#endif // PURECVISOR_UDS_SERVER_H
+void uds_server_set_vm_manager(UdsServer *self, VmManager *mgr);
+gboolean uds_server_start(UdsServer *self, GError **error);
+void uds_server_stop(UdsServer *self);
+
+G_END_DECLS
+
+#endif /* PURECVISOR_UDS_SERVER_H */
