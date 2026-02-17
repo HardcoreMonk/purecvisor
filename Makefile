@@ -34,7 +34,8 @@ SRCS = src/main.c \
        src/utils/arena.c \
        src/modules/storage/zfs_driver.c \
        src/api/uds_server.c \
-       src/api/dispatcher.c
+       src/api/dispatcher.c \
+	   src/modules/virt/vm_manager.c
 
 # [OBJECT FILES]
 # 소스 파일(.c)을 오브젝트 파일(.o)로 변환 (경로 유지)

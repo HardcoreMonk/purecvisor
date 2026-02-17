@@ -4,6 +4,7 @@
 
 #include <glib-object.h>
 #include <gio/gio.h>
+#include "modules/virt/vm_manager.h" // VmManager 헤더 추가
 
 G_BEGIN_DECLS
 
@@ -26,6 +27,9 @@ void dispatcher_free(Dispatcher *self);
  * @param line 수신된 JSON 문자열 (NULL-terminated)
  */
 void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line);
+
+// [New] VmManager 주입 함수
+void dispatcher_set_vm_manager(Dispatcher *self, VmManager *mgr);
 
 G_END_DECLS
 

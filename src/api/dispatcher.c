@@ -8,10 +8,12 @@
 
 struct _Dispatcher {
     GHashTable *registry; // Key: Method Name (string), Value: Function Pointer
+    VmManager *vm_manager; // [New] VmManager 참조
 };
 
 // 명령 핸들러 함수 프로토타입
 typedef void (*CommandHandler)(Dispatcher *self, JsonObject *params, GOutputStream *out);
+
 
 /* --- Helper Functions --- */
 
@@ -76,6 +78,50 @@ static void send_error(GOutputStream *out, int code, const gchar *message) {
     send_json_response(out, builder);
 }
 
+/* --- New Command Handler: vm.list --- */
+
+// 비동기 콜백 (Libvirt -> Dispatcher -> Client)
+static void on_vm_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    VmManager *mgr = (VmManager *)source;
+    GOutputStream *out = G_OUTPUT_STREAM(user_data);
+    GError *error = NULL;
+
+    // 결과 가져오기 (JSON Node)
+    JsonNode *result_node = vm_manager_list_domains_finish(mgr, res, &error);
+
+    if (error) {
+        send_error(out, -32000, error->message);
+        g_error_free(error);
+    } else {
+        // 성공 응답 구성
+        JsonBuilder *builder = json_builder_new();
+        json_builder_begin_object(builder);
+        json_builder_set_member_name(builder, "status");
+        json_builder_add_string_value(builder, "ok");
+        json_builder_set_member_name(builder, "result");
+        json_builder_add_value(builder, result_node); // Node 소유권 이전
+        json_builder_end_object(builder);
+
+        send_json_response(out, builder);
+    }
+
+    g_object_unref(out);
+}
+
+static void cmd_vm_list(Dispatcher *self, JsonObject *params, GOutputStream *out) {
+    (void)params; // 파라미터 없음
+
+    if (!self->vm_manager) {
+        send_error(out, -32603, "Internal Error: VmManager not initialized");
+        return;
+    }
+
+       
+
+    // VmManager 호출
+    vm_manager_list_domains_async(self->vm_manager, on_vm_list_finished, g_object_ref(out));
+}
+
 /* --- Command Handlers --- */
 
 // CMD: "ping" -> {"result": "pong", "status": "ok"}
@@ -97,6 +143,8 @@ static void cmd_ping(Dispatcher *self, JsonObject *params, GOutputStream *out) {
     send_json_response(out, builder);
 }
 
+
+
 /* --- Dispatcher Core --- */
 
 Dispatcher* dispatcher_new(void) {
@@ -107,7 +155,10 @@ Dispatcher* dispatcher_new(void) {
 
     // [Command Registration]
     g_hash_table_insert(self->registry, "ping", cmd_ping);
-    
+
+    // [New] vm.list 명령 등록
+    g_hash_table_insert(self->registry, "vm.list", cmd_vm_list);
+        
     return self;
 }
 
@@ -118,6 +169,11 @@ void dispatcher_free(Dispatcher *self) {
         g_hash_table_destroy(self->registry);
     
     g_free(self);
+}
+
+void dispatcher_set_vm_manager(Dispatcher *self, VmManager *mgr) {
+    self->vm_manager = mgr; 
+    // 단순 참조만 하므로 ref counting은 하지 않음 (Main에서 수명 관리)
 }
 
 void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line) {

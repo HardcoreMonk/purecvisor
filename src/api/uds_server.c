@@ -115,3 +115,9 @@ void uds_server_free(UdsServer *server) {
     }
     g_free(server);
 }
+
+void uds_server_set_vm_manager(UdsServer *server, VmManager *mgr) {
+    if (server && server->dispatcher) {
+        dispatcher_set_vm_manager(server->dispatcher, mgr);
+    }
+}

@@ -3,16 +3,11 @@
 #include <stdio.h>
 #include <stdlib.h>
 #include <signal.h>
-
-// Phase 2: 새로운 헤더 경로 사용
 #include "api/uds_server.h"
-#include "api/dispatcher.h" 
-#include "modules/virt/vm_manager.h" // 추가
+#include "modules/virt/vm_manager.h" 
 
-// 전역 루프 변수 (시그널 핸들러용)
 static GMainLoop *loop = NULL;
 
-// 시그널 핸들러 (Ctrl+C)
 static void signal_handler(int signo) {
     if (loop && g_main_loop_is_running(loop)) {
         g_message("Caught signal %d, stopping...", signo);
@@ -20,51 +15,43 @@ static void signal_handler(int signo) {
     }
 }
 
-// [New] 하이퍼바이저 연결 콜백
 static void on_hypervisor_connected(GObject *source, GAsyncResult *res, gpointer user_data) {
-    VmManager *mgr = (VmManager *)source;
+    (void)source; // source is NULL (safe to ignore)
+    (void)user_data;
+    
+    // vm_manager_connect_finish는 첫 인자를 쓰지 않으므로 NULL 전달해도 안전
     GError *error = NULL;
-
-    if (vm_manager_connect_finish(mgr, res, &error)) {
-        g_message("✅ Connected to Hypervisor (QEMU/KVM) successfully.");
+    if (vm_manager_connect_finish(NULL, res, &error)) {
+        g_message("[Success] Connected to Hypervisor (QEMU/KVM).");
     } else {
-        g_warning("❌ Failed to connect to Hypervisor: %s", error->message);
-        // 실패해도 데몬은 계속 실행 (재시도 로직은 추후 구현)
+        g_warning("[Failed] Could not connect to Hypervisor: %s", error->message);
     }
 }
 
 int main(int argc, char **argv) {
-    (void)argc;
-    (void)argv;
-
+    (void)argc; (void)argv;
     g_message("Starting PureCVisor Engine (Phase 2)...");
 
-    // 1. 시그널 처리 설정
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
-    // 1. VmManager 생성
-    VmManager *vm_mgr = vm_manager_new();
-    
-    // 2. 메인 루프 생성
     loop = g_main_loop_new(NULL, FALSE);
 
-    // 3. UDS 서버 시작 (내부적으로 Dispatcher 포함)
-    // 주의: uds_server_new 내부에서 이미 start가 수행됨
+    VmManager *vm_mgr = vm_manager_new();
     UdsServer *server = uds_server_new("/tmp/purecvisor.sock");
-    if (!server) {
-        g_error("Failed to start UDS Server");
-        return 1;
-    }
+    if (!server) return 1;
+
+    uds_server_set_vm_manager(server, vm_mgr);
+
+    g_message("Connecting to qemu:///system ...");
+    vm_manager_connect_async(vm_mgr, on_hypervisor_connected, NULL);
 
     g_message("Engine is running. Listening on /tmp/purecvisor.sock");
-    
-    // 4. 이벤트 루프 실행 (Blocking)
     g_main_loop_run(loop);
 
-    // 5. 종료 및 정리
     g_message("Engine stopping...");
     uds_server_free(server);
+    vm_manager_free(vm_mgr);
     g_main_loop_unref(loop);
 
     return 0;
