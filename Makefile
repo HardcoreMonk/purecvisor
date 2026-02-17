@@ -1,21 +1,13 @@
-# ==========================================
-# PureCVisor-engine Makefile
-# Target: Linux (GNU11), Single Process
-# Phase: 2 (JSON Dispatcher & Libvirt Integration)
-# ==========================================
-
 CC = gcc
-
-# [PKG-CONFIG]
-# Phase 1: glib-2.0 gio-2.0 gio-unix-2.0
-# Phase 2 Update: 
-#   - json-glib-1.0 : JSON 명령 파싱용 (Task A)
-#   - libvirt-gobject-1.0 : VM 관리를 위한 GObject 래퍼 (Task B 대비, 기존 libvirt-glib 상위 호환)
+CFLAGS = -Wall -Wextra -std=c11 -g
+# 필요한 라이브러리 목록
 PKGS = glib-2.0 gio-2.0 gio-unix-2.0 json-glib-1.0 libvirt-glib-1.0 libvirt-gobject-1.0
 
-# [CFLAGS: 컴파일 옵션]
-# -D_GNU_SOURCE: GNU 확장 기능 사용
-# -Iinclude -Isrc: 헤더 파일 경로 지정
+# pkg-config 설정
+INCLUDES = $(shell pkg-config --cflags $(PKGS))
+LIBS = $(shell pkg-config --libs $(PKGS))
+
+# 헤더 경로
 CFLAGS  = -std=gnu11 -Wall -Wextra -g -D_GNU_SOURCE
 CFLAGS += -Iinclude -Isrc
 CFLAGS += $(shell pkg-config --cflags $(PKGS))
@@ -25,49 +17,39 @@ CFLAGS += $(shell pkg-config --cflags $(PKGS))
 LDFLAGS  = $(shell pkg-config --libs $(PKGS))
 LDFLAGS += -lvirt 
 
-# [SOURCE FILES]
-# Phase 0: main.c, daemon.c, arena.c
-# Phase 1: zfs_driver.c, uds_server.c
-# Phase 2: dispatcher.c (New)
-SRCS = src/main.c \
-       src/core/daemon.c \
-       src/utils/arena.c \
-       src/modules/storage/zfs_driver.c \
-       src/api/uds_server.c \
-       src/api/dispatcher.c \
-	   src/modules/virt/vm_manager.c
+# --- 소스 파일 정의 ---
+# 1. 공통 모듈 (테스트와 메인 모두 사용)
+COMMON_SRCS = src/modules/virt/vm_config_builder.c \
+              src/modules/storage/zfs_driver.c
 
-# [OBJECT FILES]
-# 소스 파일(.c)을 오브젝트 파일(.o)로 변환 (경로 유지)
-OBJS = $(SRCS:.c=.o)
+# 2. 메인 데몬용 소스 (Phase 1, 2 파일들 포함)
+# 주의: src/main.c, src/api/dispatcher.c 등이 있다고 가정
+DAEMON_SRCS = src/main.c \
+              src/api/dispatcher.c \
+              src/api/uds_server.c \
+              src/modules/virt/vm_manager.c \
+              $(COMMON_SRCS)
 
-# [TARGET]
-# 최종 바이너리 경로
-TARGET = bin/purecvisord
+# 3. 테스트 러너용 소스
+TEST_SRCS = test_runner.c $(COMMON_SRCS)
 
-# ==========================================
-# Rules
-# ==========================================
+# --- 타겟 정의 ---
+DAEMON_BIN = bin/purecvisord
+TEST_BIN = test_runner
 
-.PHONY: all clean dir
+# 기본 타겟: 데몬 빌드
+all: $(DAEMON_BIN)
 
-all: dir $(TARGET)
-
-# 링킹 단계
-$(TARGET): $(OBJS)
-	@echo "  LINK    $@"
-	@$(CC) $(OBJS) -o $@ $(LDFLAGS)
-
-# 컴파일 단계
-%.o: %.c
-	@echo "  CC      $<"
-	@$(CC) $(CFLAGS) -c $< -o $@
-
-# 디렉토리 생성 (bin 폴더가 없으면 생성)
-dir:
+# 데몬 빌드 규칙
+$(DAEMON_BIN): $(DAEMON_SRCS)
 	@mkdir -p bin
+	@echo "Building Daemon: $@"
+	$(CC) $(CFLAGS) $(INCLUDES) -o $@ $(DAEMON_SRCS) $(LIBS)
+
+# 테스트 러너 빌드 규칙 (별도 타겟)
+test_runner: $(TEST_SRCS)
+	@echo "Building Test Runner: $@"
+	$(CC) $(CFLAGS) $(INCLUDES) -o $(TEST_BIN) $(TEST_SRCS) $(LIBS)
 
 clean:
-	@echo "  CLEAN"
-	@rm -f $(OBJS) $(TARGET)
-	@rm -rf bin
+	rm -f $(DAEMON_BIN) $(TEST_BIN) src/modules/virt/*.o src/modules/storage/*.o *.o
