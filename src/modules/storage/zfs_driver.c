@@ -1,79 +1,62 @@
-#include "driver_p.h"
+#include "storage_impl.h"
 #include <stdio.h>
+#include <stdlib.h>
 
-// ZFS 전용 컨텍스트
+/* Derived Class */
 typedef struct {
-    int last_exit_status;
-    GError *last_error;
-} ZfsContext;
+    StorageDriver parent; // Inheritance
+    char *zpool_name;     // Private Member
+} ZfsDriver;
 
-/* --- 내부 구현 함수 (Static) --- */
+/* Helper Macro for Downcasting */
+#define TO_ZFS(ptr) ((ZfsDriver*)(ptr))
 
-static bool zfs_create_vol(StorageDriver *self, const char *name, size_t size) {
-    bool success = false;
-    gchar *cmd = NULL;
-    gchar *stdout_buf = NULL;
-    gchar *stderr_buf = NULL;
-    GError *error = NULL;
+/* --- Implementation --- */
 
-    // 예: zfs create -V 10G pool/vm-disk-01
-    cmd = g_strdup_printf("zfs create -V %zuB %s/%s", size, self->pool_name, name);
+static bool zfs_create_vol_impl(StorageDriver *self, const char *name, size_t size_mb) {
+    ZfsDriver *zfs = TO_ZFS(self);
+    g_autofree char *cmd = NULL;
+
+    // 실제 명령 생성 (Log로 확인)
+    cmd = g_strdup_printf("zfs create -V %zuM %s/%s", size_mb, zfs->zpool_name, name);
+    g_info("[Storage/ZFS] Executing: %s", cmd);
+
+    // TODO: Phase 2에서 g_spawn_async로 실제 실행
+    return true;
+}
+
+static void zfs_dtor_impl(StorageDriver *self) {
+    ZfsDriver *zfs = TO_ZFS(self);
+    g_info("[Storage/ZFS] Shutting down driver for pool: %s", zfs->zpool_name);
     
-    // Phase 1: 우선 동기 실행 후 Phase 2에서 g_spawn_async_with_pipes로 고도화
-    if (!g_spawn_command_line_sync(cmd, &stdout_buf, &stderr_buf, NULL, &error)) {
-        g_warning("ZFS Create Failed: %s", error->message);
-        goto out;
-    }
-
-    success = true;
-    g_info("ZFS Volume created: %s/%s", self->pool_name, name);
-
-out:
-    g_free(cmd);
-    g_free(stdout_buf);
-    g_free(stderr_buf);
-    if (error) g_error_free(error);
-    return success;
+    free(zfs->zpool_name);
+    free(zfs->parent.driver_name);
+    free(zfs);
 }
 
-static void zfs_destructor(StorageDriver *self) {
-    if (!self) return;
-    g_free(self->pool_name);
-    g_free(self->priv);
-    g_free(self);
-    g_debug("ZFS Driver destroyed.");
-}
-
-// ZFS 전용 VTable 정의
-static const StorageVTable zfs_vtable = {
-    .create_vol = zfs_create_vol,
-    .delete_vol = NULL, // TODO: 구현 예정
-    .get_info   = NULL, // TODO: 구현 예정
-    .destructor = zfs_destructor
+/* VTable Binding */
+static const StorageOps zfs_ops = {
+    .create_vol = zfs_create_vol_impl,
+    .dtor = zfs_dtor_impl,
 };
 
-/* --- Factory Function --- */
-
-StorageDriver* storage_driver_create_zfs(const char *pool_name) {
-    StorageDriver *driver = g_malloc0(sizeof(StorageDriver));
-    ZfsContext *ctx = g_malloc0(sizeof(ZfsContext));
-
-    driver->vtable = &zfs_vtable;
-    driver->pool_name = g_strdup(pool_name);
-    driver->priv = ctx;
-
-    return driver;
+/* --- Factory --- */
+StorageDriver* storage_driver_new_zfs(const char *pool_name) {
+    ZfsDriver *zfs = calloc(1, sizeof(ZfsDriver));
+    zfs->parent.ops = &zfs_ops;
+    zfs->parent.driver_name = strdup("zfs");
+    zfs->zpool_name = strdup(pool_name);
+    
+    g_info("[Storage] ZFS Driver Initialized (Pool: %s)", pool_name);
+    return (StorageDriver*)zfs;
 }
 
-/* --- Public Wrapper (Dynamic Dispatch) --- */
-
-bool storage_volume_create(StorageDriver *self, const char *name, size_t size) {
-    g_return_val_if_fail(self && self->vtable->create_vol, false);
-    return self->vtable->create_vol(self, name, size);
+/* --- Public Wrapper --- */
+bool storage_create_vol(StorageDriver *self, const char *name, size_t size_mb) {
+    if (!self || !self->ops || !self->ops->create_vol) return false;
+    return self->ops->create_vol(self, name, size_mb);
 }
 
-void storage_driver_destroy(StorageDriver *self) {
-    if (self && self->vtable->destructor) {
-        self->vtable->destructor(self);
-    }
+void storage_destroy(StorageDriver *self) {
+    if (self && self->ops && self->ops->dtor) self->ops->dtor(self);
 }

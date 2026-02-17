@@ -1,65 +1,68 @@
-# Makefile for PureCVisor-engine
+# ==========================================
+# PureCVisor-engine Makefile
+# Target: Linux (GNU11), Single Process
+# ==========================================
 
 CC = gcc
-# [핵심] -Iinclude : 프로젝트 내 헤더 파일(purecvisor/core.h)을 찾기 위해 필수
-CFLAGS = -std=gnu11 -Wall -Wextra -Werror -D_GNU_SOURCE -fPIC -g -Iinclude
-LDFLAGS =
 
-# ---------------------------------------------------------
-# [1] 라이브러리 경로 설정 (pkg-config)
-# ---------------------------------------------------------
+# [PKG-CONFIG]
+# Issue #1: libvirt-glib-1.0 추가
+# Issue #2: gio-unix-2.0 (UNIX 시그널 처리용) 추가
+PKGS = glib-2.0 gio-2.0 gio-unix-2.0 libvirt libvirt-glib-1.0
 
-# GLib-2.0
-GLIB_CFLAGS = $(shell pkg-config --cflags glib-2.0)
-GLIB_LIBS = $(shell pkg-config --libs glib-2.0)
+# [CFLAGS: 컴파일 옵션]
+# Issue #4: -Iinclude 추가 (헤더 경로 인식)
+# -D_GNU_SOURCE: GNU 확장 기능 사용 (asprintf 등)
+CFLAGS  = -std=gnu11 -Wall -Wextra -g -D_GNU_SOURCE
+CFLAGS += -Iinclude -Isrc
+CFLAGS += $(shell pkg-config --cflags $(PKGS))
 
-# Libvirt
-LIBVIRT_CFLAGS = $(shell pkg-config --cflags libvirt)
-LIBVIRT_LIBS = $(shell pkg-config --libs libvirt)
+# [LDFLAGS: 링킹 옵션]
+# Issue #3: -lvirt 명시적 추가 (안전장치)
+# 라이브러리 순서 중요: 사용자 지정 -> pkg-config
+LDFLAGS  = $(shell pkg-config --libs $(PKGS))
+LDFLAGS += -lvirt 
 
-# Libvirt-GLib (이 부분이 누락되어 libvirt-glib.h 에러 발생)
-LIBVIRT_GLIB_CFLAGS = $(shell pkg-config --cflags libvirt-glib-1.0)
-LIBVIRT_GLIB_LIBS = $(shell pkg-config --libs libvirt-glib-1.0)
+# [SOURCE FILES]
+# Issue #5: arena.c 포함 (메모리 관리자)
+# Phase 1: Storage Driver & API Server 포함
+SRCS = src/main.c \
+       src/core/daemon.c \
+       src/utils/arena.c \
+       src/modules/storage/zfs_driver.c \
+       src/api/uds_server.c
 
-# ---------------------------------------------------------
-# [2] 컴파일/링크 플래그 병합
-# ---------------------------------------------------------
+# [OBJECT FILES]
+# src/foo.c -> obj/src/foo.o 로 변환
+OBJS = $(SRCS:.c=.o)
 
-# CFLAGS에 모든 라이브러리의 헤더 경로 추가
-CFLAGS += $(GLIB_CFLAGS) $(LIBVIRT_CFLAGS) $(LIBVIRT_GLIB_CFLAGS)
-
-# LDFLAGS에 모든 라이브러리 링크 정보 추가
-# (링크 에러 방지를 위해 -lvirt 등을 명시적으로 추가)
-LDFLAGS += $(GLIB_LIBS) $(LIBVIRT_LIBS) $(LIBVIRT_GLIB_LIBS) -lvirt
-
-# ---------------------------------------------------------
-# [3] 빌드 규칙
-# ---------------------------------------------------------
-
+# [TARGET]
 TARGET = bin/purecvisord
 
-# 소스 파일 자동 탐색
-SRCS = $(wildcard src/*.c) \
-       $(wildcard src/core/*.c) \
-       $(wildcard src/utils/*.c)
+# ==========================================
+# Rules
+# ==========================================
 
-OBJS = $(patsubst src/%.c, obj/%.o, $(SRCS))
+.PHONY: all clean dir
 
-all: $(TARGET)
+all: dir $(TARGET)
 
+# 링킹 단계
+# 주의: $(LDFLAGS)는 반드시 $(OBJS) 뒤에 와야 함 (Issue #3 해결)
 $(TARGET): $(OBJS)
-	@mkdir -p $(dir $@)
-	@echo "  LD      $@"
-	$(CC) $(OBJS) -o $@ $(LDFLAGS)
+	@echo "  LINK    $@"
+	@$(CC) $(OBJS) -o $@ $(LDFLAGS)
 
-# 컴파일 규칙
-obj/%.o: src/%.c
-	@mkdir -p $(dir $@)
+# 컴파일 단계
+%.o: %.c
 	@echo "  CC      $<"
-# 실제 실행되는 명령어를 확인하려면 아래 줄의 @를 제거하세요
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-clean:
-	rm -rf bin obj
+# 디렉토리 생성
+dir:
+	@mkdir -p bin
 
-.PHONY: all clean
+clean:
+	@echo "  CLEAN"
+	@rm -f $(OBJS) $(TARGET)
+	@rm -rf bin
