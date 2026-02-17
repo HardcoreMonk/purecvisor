@@ -1,0 +1,174 @@
+/* src/api/dispatcher.c */
+#include "dispatcher.h"
+#include <json-glib/json-glib.h>
+#include <stdio.h>
+#include <string.h>
+
+/* --- Internal Structures --- */
+
+struct _Dispatcher {
+    GHashTable *registry; // Key: Method Name (string), Value: Function Pointer
+};
+
+// 명령 핸들러 함수 프로토타입
+typedef void (*CommandHandler)(Dispatcher *self, JsonObject *params, GOutputStream *out);
+
+/* --- Helper Functions --- */
+
+// 비동기 쓰기 완료 콜백 (Fire-and-forget 방식)
+static void on_write_finished(GObject *source_object, GAsyncResult *res, gpointer user_data) {
+    GOutputStream *out = G_OUTPUT_STREAM(source_object);
+    GError *error = NULL;
+    
+    // 쓰기 결과 확인 (실패 시 로그만 남김)
+    if (!g_output_stream_write_all_finish(out, res, NULL, &error)) {
+        g_warning("Failed to send response: %s", error->message);
+        g_error_free(error);
+    }
+    
+    // user_data로 넘겨받은 버퍼 해제
+    g_free(user_data); 
+}
+
+// JSON 응답 전송 헬퍼
+static void send_json_response(GOutputStream *out, JsonBuilder *builder) {
+    JsonGenerator *gen = json_generator_new();
+    JsonNode *root = json_builder_get_root(builder);
+    
+    json_generator_set_root(gen, root);
+    gchar *json_str = json_generator_to_data(gen, NULL);
+    
+    // Line-based 프로토콜: 끝에 개행 문자 추가
+    gchar *final_msg = g_strdup_printf("%s\n", json_str);
+    
+    // 비동기 전송 (Non-blocking)
+    g_output_stream_write_all_async(out, 
+                                    final_msg, 
+                                    strlen(final_msg), 
+                                    G_PRIORITY_DEFAULT, 
+                                    NULL, 
+                                    on_write_finished, 
+                                    final_msg); // 콜백에서 해제하도록 전달
+
+    g_free(json_str);
+    g_object_unref(gen);
+    json_node_free(root);
+    g_object_unref(builder);
+}
+
+// 에러 응답 전송 헬퍼
+static void send_error(GOutputStream *out, int code, const gchar *message) {
+    JsonBuilder *builder = json_builder_new();
+    json_builder_begin_object(builder);
+    
+    json_builder_set_member_name(builder, "status");
+    json_builder_add_string_value(builder, "error");
+    
+    json_builder_set_member_name(builder, "error");
+    json_builder_begin_object(builder);
+    json_builder_set_member_name(builder, "code");
+    json_builder_add_int_value(builder, code);
+    json_builder_set_member_name(builder, "message");
+    json_builder_add_string_value(builder, message);
+    json_builder_end_object(builder);
+    
+    json_builder_end_object(builder);
+    send_json_response(out, builder);
+}
+
+/* --- Command Handlers --- */
+
+// CMD: "ping" -> {"result": "pong", "status": "ok"}
+static void cmd_ping(Dispatcher *self, JsonObject *params, GOutputStream *out) {
+    (void)self;
+    (void)params; // ping은 파라미터 무시
+
+    JsonBuilder *builder = json_builder_new();
+    json_builder_begin_object(builder);
+    
+    json_builder_set_member_name(builder, "status");
+    json_builder_add_string_value(builder, "ok");
+    
+    json_builder_set_member_name(builder, "result");
+    json_builder_add_string_value(builder, "pong");
+    
+    json_builder_end_object(builder);
+    
+    send_json_response(out, builder);
+}
+
+/* --- Dispatcher Core --- */
+
+Dispatcher* dispatcher_new(void) {
+    Dispatcher *self = g_new0(Dispatcher, 1);
+    
+    // 해시 테이블 생성 (String Key, Pointer Value)
+    self->registry = g_hash_table_new(g_str_hash, g_str_equal);
+
+    // [Command Registration]
+    g_hash_table_insert(self->registry, "ping", cmd_ping);
+    
+    return self;
+}
+
+void dispatcher_free(Dispatcher *self) {
+    if (!self) return;
+    
+    if (self->registry)
+        g_hash_table_destroy(self->registry);
+    
+    g_free(self);
+}
+
+void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line) {
+    JsonParser *parser = json_parser_new();
+    GError *error = NULL;
+    GOutputStream *out = g_io_stream_get_output_stream(stream);
+
+    // 1. JSON Parsing
+    if (!json_parser_load_from_data(parser, line, -1, &error)) {
+        g_warning("JSON Parse Error: %s", error->message);
+        send_error(out, -32700, "Parse error"); // JSON-RPC Parse error code
+        g_error_free(error);
+        goto cleanup;
+    }
+
+    JsonNode *root = json_parser_get_root(parser);
+    if (!JSON_NODE_HOLDS_OBJECT(root)) {
+        send_error(out, -32600, "Invalid Request: Root must be an object");
+        goto cleanup;
+    }
+
+    JsonObject *root_obj = json_node_get_object(root);
+
+    // 2. Validate "method"
+    if (!json_object_has_member(root_obj, "method")) {
+        send_error(out, -32600, "Invalid Request: Missing 'method'");
+        goto cleanup;
+    }
+
+    const gchar *method = json_object_get_string_member(root_obj, "method");
+    JsonObject *params = NULL;
+    
+    if (json_object_has_member(root_obj, "params")) {
+        // params가 있다면 Object인지 확인 (Array 지원 등은 추후 확장)
+        if (json_object_get_member(root_obj, "params") != NULL && 
+            JSON_NODE_HOLDS_OBJECT(json_object_get_member(root_obj, "params"))) {
+            params = json_object_get_object_member(root_obj, "params");
+        }
+    }
+
+    // 3. Command Routing
+    CommandHandler handler = g_hash_table_lookup(self->registry, method);
+    
+    if (handler) {
+        // g_message("Dispatching command: %s", method);
+        handler(self, params, out);
+    } else {
+        g_warning("Unknown method: %s", method);
+        send_error(out, -32601, "Method not found");
+    }
+
+cleanup:
+    g_object_unref(parser);
+}

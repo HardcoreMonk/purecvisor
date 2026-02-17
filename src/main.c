@@ -1,64 +1,54 @@
+/* src/main.c */
 #include <glib.h>
-#include <glib-unix.h>
+#include <stdio.h>
+#include <stdlib.h>
 #include <signal.h>
-#include "purecvisor/storage.h"
-#include "purecvisor/server.h"
 
-/* 전역 컨텍스트 (Phase 0) */
-typedef struct {
-    GMainLoop *loop;
-    StorageDriver *storage;
-    UdsServer *api;
-} AppContext;
+// Phase 2: 새로운 헤더 경로 사용
+#include "api/uds_server.h"
+#include "api/dispatcher.h" 
 
-/* Signal Handler (Phase 0: Graceful Shutdown) */
-static gboolean on_signal(gpointer user_data) {
-    AppContext *app = (AppContext *)user_data;
-    g_message("Caught signal, shutting down...");
-    g_main_loop_quit(app->loop);
-    return FALSE; // Remove source
+// 전역 루프 변수 (시그널 핸들러용)
+static GMainLoop *loop = NULL;
+
+// 시그널 핸들러 (Ctrl+C)
+static void signal_handler(int signo) {
+    if (loop && g_main_loop_is_running(loop)) {
+        g_message("Caught signal %d, stopping...", signo);
+        g_main_loop_quit(loop);
+    }
 }
 
-int main(int argc, char *argv[]) {
+int main(int argc, char **argv) {
     (void)argc;
     (void)argv;
-    AppContext app = {0};
-    GError *err = NULL;
 
-    // 1. Setup Phase 0 (Logging & MainLoop)
-    g_log_set_writer_func(g_log_writer_standard_streams, NULL, NULL);
-    app.loop = g_main_loop_new(NULL, FALSE);
+    g_message("Starting PureCVisor Engine (Phase 2)...");
 
-    // 2. Setup Phase 0 (Signal Handling)
-    g_unix_signal_add(SIGINT, on_signal, &app);
-    g_unix_signal_add(SIGTERM, on_signal, &app);
+    // 1. 시그널 처리 설정
+    signal(SIGINT, signal_handler);
+    signal(SIGTERM, signal_handler);
 
-    // 3. Init Phase 1 (Storage)
-    g_message("Initializing Storage Subsystem...");
-    app.storage = storage_driver_new_zfs("tank_pool");
-    
-    // Test: 가상 볼륨 생성 (부팅 시 초기화 로직 시뮬레이션)
-    storage_create_vol(app.storage, "boot_volume", 2048);
+    // 2. 메인 루프 생성
+    loop = g_main_loop_new(NULL, FALSE);
 
-    // 4. Init Phase 1 (API Server)
-    g_message("Starting API Server...");
-    app.api = uds_server_new("/tmp/purecvisor.sock");
-    
-    if (!uds_server_start(app.api, &err)) {
-        g_error("Failed to start server: %s", err->message);
+    // 3. UDS 서버 시작 (내부적으로 Dispatcher 포함)
+    // 주의: uds_server_new 내부에서 이미 start가 수행됨
+    UdsServer *server = uds_server_new("/tmp/purecvisor.sock");
+    if (!server) {
+        g_error("Failed to start UDS Server");
         return 1;
     }
 
-    // 5. Run Loop (Blocking)
-    g_message(">> PureCVisor Engine Phase 1 Ready <<");
-    g_main_loop_run(app.loop);
+    g_message("Engine is running. Listening on /tmp/purecvisor.sock");
+    
+    // 4. 이벤트 루프 실행 (Blocking)
+    g_main_loop_run(loop);
 
-    // 6. Cleanup (Phase 0)
-    g_message("Cleaning up resources...");
-    uds_server_stop(app.api);
-    storage_destroy(app.storage);
-    g_main_loop_unref(app.loop);
+    // 5. 종료 및 정리
+    g_message("Engine stopping...");
+    uds_server_free(server);
+    g_main_loop_unref(loop);
 
-    g_message("Bye.");
     return 0;
 }

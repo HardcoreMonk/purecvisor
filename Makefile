@@ -1,42 +1,47 @@
 # ==========================================
 # PureCVisor-engine Makefile
 # Target: Linux (GNU11), Single Process
+# Phase: 2 (JSON Dispatcher & Libvirt Integration)
 # ==========================================
 
 CC = gcc
 
 # [PKG-CONFIG]
-# Issue #1: libvirt-glib-1.0 추가
-# Issue #2: gio-unix-2.0 (UNIX 시그널 처리용) 추가
-PKGS = glib-2.0 gio-2.0 gio-unix-2.0 libvirt libvirt-glib-1.0
+# Phase 1: glib-2.0 gio-2.0 gio-unix-2.0
+# Phase 2 Update: 
+#   - json-glib-1.0 : JSON 명령 파싱용 (Task A)
+#   - libvirt-gobject-1.0 : VM 관리를 위한 GObject 래퍼 (Task B 대비, 기존 libvirt-glib 상위 호환)
+PKGS = glib-2.0 gio-2.0 gio-unix-2.0 json-glib-1.0 libvirt-glib-1.0 libvirt-gobject-1.0
 
 # [CFLAGS: 컴파일 옵션]
-# Issue #4: -Iinclude 추가 (헤더 경로 인식)
-# -D_GNU_SOURCE: GNU 확장 기능 사용 (asprintf 등)
+# -D_GNU_SOURCE: GNU 확장 기능 사용
+# -Iinclude -Isrc: 헤더 파일 경로 지정
 CFLAGS  = -std=gnu11 -Wall -Wextra -g -D_GNU_SOURCE
 CFLAGS += -Iinclude -Isrc
 CFLAGS += $(shell pkg-config --cflags $(PKGS))
 
 # [LDFLAGS: 링킹 옵션]
-# Issue #3: -lvirt 명시적 추가 (안전장치)
-# 라이브러리 순서 중요: 사용자 지정 -> pkg-config
+# -lvirt: libvirt 저수준 API 링크 (안전장치)
 LDFLAGS  = $(shell pkg-config --libs $(PKGS))
 LDFLAGS += -lvirt 
 
 # [SOURCE FILES]
-# Issue #5: arena.c 포함 (메모리 관리자)
-# Phase 1: Storage Driver & API Server 포함
+# Phase 0: main.c, daemon.c, arena.c
+# Phase 1: zfs_driver.c, uds_server.c
+# Phase 2: dispatcher.c (New)
 SRCS = src/main.c \
        src/core/daemon.c \
        src/utils/arena.c \
        src/modules/storage/zfs_driver.c \
-       src/api/uds_server.c
+       src/api/uds_server.c \
+       src/api/dispatcher.c
 
 # [OBJECT FILES]
-# src/foo.c -> obj/src/foo.o 로 변환
+# 소스 파일(.c)을 오브젝트 파일(.o)로 변환 (경로 유지)
 OBJS = $(SRCS:.c=.o)
 
 # [TARGET]
+# 최종 바이너리 경로
 TARGET = bin/purecvisord
 
 # ==========================================
@@ -48,7 +53,6 @@ TARGET = bin/purecvisord
 all: dir $(TARGET)
 
 # 링킹 단계
-# 주의: $(LDFLAGS)는 반드시 $(OBJS) 뒤에 와야 함 (Issue #3 해결)
 $(TARGET): $(OBJS)
 	@echo "  LINK    $@"
 	@$(CC) $(OBJS) -o $@ $(LDFLAGS)
@@ -58,7 +62,7 @@ $(TARGET): $(OBJS)
 	@echo "  CC      $<"
 	@$(CC) $(CFLAGS) -c $< -o $@
 
-# 디렉토리 생성
+# 디렉토리 생성 (bin 폴더가 없으면 생성)
 dir:
 	@mkdir -p bin
 
