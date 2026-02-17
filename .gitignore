@@ -1,0 +1,17 @@
+# Binaries
+bin/
+obj/
+*.o
+*.so
+*.a
+*.out
+
+# Debug
+*.dSYM/
+core
+
+# IDE & System
+.vscode/
+.idea/
+.DS_Store
+compile_commands.json
