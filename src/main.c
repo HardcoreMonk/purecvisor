@@ -7,6 +7,7 @@
 // Phase 2: 새로운 헤더 경로 사용
 #include "api/uds_server.h"
 #include "api/dispatcher.h" 
+#include "modules/virt/vm_manager.h" // 추가
 
 // 전역 루프 변수 (시그널 핸들러용)
 static GMainLoop *loop = NULL;
@@ -16,6 +17,19 @@ static void signal_handler(int signo) {
     if (loop && g_main_loop_is_running(loop)) {
         g_message("Caught signal %d, stopping...", signo);
         g_main_loop_quit(loop);
+    }
+}
+
+// [New] 하이퍼바이저 연결 콜백
+static void on_hypervisor_connected(GObject *source, GAsyncResult *res, gpointer user_data) {
+    VmManager *mgr = (VmManager *)source;
+    GError *error = NULL;
+
+    if (vm_manager_connect_finish(mgr, res, &error)) {
+        g_message("✅ Connected to Hypervisor (QEMU/KVM) successfully.");
+    } else {
+        g_warning("❌ Failed to connect to Hypervisor: %s", error->message);
+        // 실패해도 데몬은 계속 실행 (재시도 로직은 추후 구현)
     }
 }
 
@@ -29,6 +43,9 @@ int main(int argc, char **argv) {
     signal(SIGINT, signal_handler);
     signal(SIGTERM, signal_handler);
 
+    // 1. VmManager 생성
+    VmManager *vm_mgr = vm_manager_new();
+    
     // 2. 메인 루프 생성
     loop = g_main_loop_new(NULL, FALSE);
 
