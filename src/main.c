@@ -1,81 +1,87 @@
-/* src/main.c */
 #include <glib.h>
-#include <libvirt-gobject/libvirt-gobject.h>
-#include <signal.h>
+#include <glib-unix.h>
+#include <locale.h>
+#include <stdlib.h>
 #include <stdio.h>
 
 #include "api/uds_server.h"
-#include "modules/virt/vm_manager.h"
+#include "api/dispatcher.h"
+#include "utils/logger.h"
+#include <libvirt-gobject/libvirt-gobject.h>
 
-static GMainLoop *loop;
+#include "api/dispatcher.h"
+#include "api/uds_server.h"
 
-/* Signal Handler */
-static void on_signal(int signo) {
-    if (loop && g_main_loop_is_running(loop)) {
-        g_print("\nReceived signal %d, quitting...\n", signo);
-        g_main_loop_quit(loop);
-    }
+#define SOCKET_PATH "/tmp/purecvisor.sock"
+
+/* Global Main Loop for Signal Handling */
+static GMainLoop *loop = NULL;
+
+/* ------------------------------------------------------------------------
+ * Signal Handler (Ctrl+C, SIGTERM)
+ * ------------------------------------------------------------------------ */
+static gboolean
+on_signal_received(gpointer user_data)
+{
+    g_info("Received signal, shutting down...");
+    if (loop) g_main_loop_quit(loop);
+    return G_SOURCE_REMOVE;
 }
 
-/* Libvirt Connection Callback */
-static void on_connection_open(GObject *source, GAsyncResult *res, gpointer user_data) {
-    GVirConnection *conn = GVIR_CONNECTION(source);
-    /* [FIX] 올바른 캐스팅 매크로 사용 */
-    UdsServer *server = PURECVISOR_UDS_SERVER(user_data);    
+int main(int argc, char *argv[])
+{
     GError *error = NULL;
+    PureCVisorDispatcher *dispatcher = NULL;
+    UdsServer *server = NULL;
 
-    if (!gvir_connection_open_finish(conn, res, &error)) {
-        g_printerr("Failed to connect to Hypervisor: %s\n", error->message);
-        g_error_free(error);
-        g_main_loop_quit(loop);
-        return;
+    setlocale(LC_ALL, "");
+    purecvisor_logger_init();
+    g_info("PureCVisor Engine (Phase 4) Starting...");
+
+    /* [CRITICAL FIX] gvir_init_object returns void in newer versions */
+    gvir_init_object(&argc, &argv);
+
+    /* Create Dispatcher */
+    dispatcher = purecvisor_dispatcher_new();
+    if (!dispatcher) {
+        g_critical("Failed to create Dispatcher Service.");
+        return EXIT_FAILURE;
     }
 
-    g_print("Connected to Hypervisor (QEMU/KVM).\n");
+    /* Create UDS Server */
+    server = uds_server_new(SOCKET_PATH);
+    if (!server) {
+        g_critical("Failed to create UDS Server.");
+        g_object_unref(dispatcher);
+        return EXIT_FAILURE;
+    }
 
-    /* [FIX] Phase 3: Create Manager WITH Connection */
-    VmManager *vm_mgr = purecvisor_vm_manager_new(conn);
-
-    /* Inject Manager into Server */
-    uds_server_set_vm_manager(server, vm_mgr);
+    /* Dependency Injection */
+    uds_server_set_dispatcher(server, dispatcher);
 
     /* Start Server */
-    GError *srv_err = NULL;
-    if (!uds_server_start(server, &srv_err)) {
-        g_printerr("Failed to start UDS Server: %s\n", srv_err->message);
-        g_error_free(srv_err);
-        g_main_loop_quit(loop);
+    if (!uds_server_start(server, &error)) {
+        g_critical("Failed to start UDS Server: %s", error->message);
+        g_error_free(error);
+        g_object_unref(server);
+        g_object_unref(dispatcher);
+        return EXIT_FAILURE;
     }
+    g_info("Listening on UNIX Socket: %s", SOCKET_PATH);
 
-    /* Cleanup (Manager is ref-ed by Server now) */
-    g_object_unref(vm_mgr);
-}
-
-int main(int argc, char **argv) {
-    (void)argc; (void)argv;
-
-    signal(SIGINT, on_signal);
-    signal(SIGTERM, on_signal);
-
-    // g_type_init(); // Deprecated 
+    /* Main Loop */
     loop = g_main_loop_new(NULL, FALSE);
+    g_unix_signal_add(SIGINT, on_signal_received, NULL);
+    g_unix_signal_add(SIGTERM, on_signal_received, NULL);
 
-    /* 1. Create Libvirt Connection First */
-    GVirConnection *conn = gvir_connection_new("qemu:///system");
-
-    /* 2. Create Server (Wait for connection before starting) */
-    UdsServer *server = uds_server_new("/tmp/purecvisor.sock");
-
-    /* 3. Open Connection Async */
-    gvir_connection_open_async(conn, NULL, on_connection_open, server);
-
-    g_print("PureCVisor Engine Started. Connecting to Hypervisor...\n");
+    g_info("Entering Main Loop...");
     g_main_loop_run(loop);
 
     /* Cleanup */
-    g_object_unref(conn);
-    g_object_unref(server);
-    g_main_loop_unref(loop);
+    uds_server_stop(server);
+    if (server) g_object_unref(server);
+    if (dispatcher) g_object_unref(dispatcher);
+    if (loop) g_main_loop_unref(loop);
 
-    return 0;
+    return EXIT_SUCCESS;
 }
