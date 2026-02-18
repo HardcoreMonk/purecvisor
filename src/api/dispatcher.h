@@ -4,32 +4,26 @@
 
 #include <glib-object.h>
 #include <gio/gio.h>
-#include "modules/virt/vm_manager.h" // VmManager 헤더 추가
+#include "../modules/virt/vm_manager.h" // VmManager 헤더 추가
 
 G_BEGIN_DECLS
 
-typedef struct _Dispatcher Dispatcher;
+#define PURECVISOR_TYPE_DISPATCHER (purecvisor_dispatcher_get_type())
 
-/**
- * Dispatcher 생성자
- */
-Dispatcher* dispatcher_new(void);
+/* [CRITICAL FIX] Type Declaration & Forward Declaration */
+typedef struct _PureCVisorDispatcher PureCVisorDispatcher;
+G_DECLARE_FINAL_TYPE(PureCVisorDispatcher, purecvisor_dispatcher, PURECVISOR, DISPATCHER, GObject)
 
-/**
- * Dispatcher 소멸자
- */
-void dispatcher_free(Dispatcher *self);
+PureCVisorDispatcher *purecvisor_dispatcher_new(void);
 
-/**
- * 수신된 라인(JSON) 처리
- * @param self Dispatcher 인스턴스
- * @param stream 클라이언트와의 양방향 스트림 (응답 전송용)
- * @param line 수신된 JSON 문자열 (NULL-terminated)
- */
-void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line);
+void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
+                                   JsonNode *request_node,
+                                   GOutputStream *output);
 
-// [New] VmManager 주입 함수
-void dispatcher_set_vm_manager(Dispatcher *self, VmManager *mgr);
+// [FIX] Old type 'VmManager' removed, use 'PureCVisorVmManager'
+// This function might not be needed if 'new' handles initialization internally,
+// but keeping definition correct just in case.
+void dispatcher_set_vm_manager(PureCVisorDispatcher *self, PureCVisorVmManager *mgr);
 
 G_END_DECLS
 

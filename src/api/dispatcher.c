@@ -1,260 +1,253 @@
-/* src/api/dispatcher.c */
 #include "dispatcher.h"
 #include "../modules/virt/vm_manager.h"
 #include <json-glib/json-glib.h>
-#include <stdio.h>
-#include <string.h>
+#include <gio/gio.h>
 
-/* --- Constants: JSON-RPC Error Codes --- */
-#define ERR_PARSE_ERROR      -32700
-#define ERR_INVALID_REQUEST  -32600
-#define ERR_METHOD_NOT_FOUND -32601
-#define ERR_INVALID_PARAMS   -32602
-#define ERR_INTERNAL_ERROR   -32603
-#define ERR_SERVER_ERROR     -32000 
+/* ------------------------------------------------------------------------
+ * Internal Structures
+ * ------------------------------------------------------------------------ */
 
-struct _Dispatcher {
-    GHashTable *registry;
+struct _PureCVisorDispatcher {
+    GObject parent_instance;
     PureCVisorVmManager *vm_manager;
 };
 
-/* Function Pointer Type for Commands */
-typedef void (*CommandHandler)(Dispatcher *self, JsonNode *params, GOutputStream *out);
+G_DEFINE_TYPE(PureCVisorDispatcher, purecvisor_dispatcher, G_TYPE_OBJECT)
 
-/* --- Helper Functions (Response Generators) --- */
+typedef struct {
+    PureCVisorDispatcher *dispatcher;
+    GOutputStream *output_stream;
+    JsonNode *request_id;
+} DispatcherRequestContext;
 
-static void on_write_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    GOutputStream *out = G_OUTPUT_STREAM(source);
-    GError *error = NULL;
-    g_output_stream_write_all_finish(out, res, NULL, &error);
-    if (error) {
-        g_warning("Response write failed: %s", error->message);
-        g_error_free(error);
-    }
-    g_free(user_data); 
-    
-    /* [LIFECYCLE] 
-     * 여기서 out이 unref될 때, attach된 부모 connection도 같이 unref되어 
-     * 소켓이 안전하게 닫힙니다. 
-     */
-    g_object_unref(out); 
+/* ------------------------------------------------------------------------
+ * Helper Functions
+ * ------------------------------------------------------------------------ */
+
+static void
+dispatcher_request_context_free(DispatcherRequestContext *ctx) {
+    if (ctx->output_stream) g_object_unref(ctx->output_stream);
+    if (ctx->request_id) json_node_unref(ctx->request_id);
+    g_free(ctx);
 }
 
-static void send_raw_json(GOutputStream *out, JsonBuilder *builder) {
+static void
+send_json_response(DispatcherRequestContext *ctx, JsonNode *result, GError *error) {
+    JsonBuilder *builder = json_builder_new();
+    
+    json_builder_begin_object(builder);
+    
+    json_builder_set_member_name(builder, "jsonrpc");
+    json_builder_add_string_value(builder, "2.0");
+
+    if (error) {
+        json_builder_set_member_name(builder, "error");
+        json_builder_begin_object(builder);
+        json_builder_set_member_name(builder, "code");
+        json_builder_add_int_value(builder, error->code ? error->code : -32603);
+        json_builder_set_member_name(builder, "message");
+        json_builder_add_string_value(builder, error->message);
+        json_builder_end_object(builder);
+    } else {
+        json_builder_set_member_name(builder, "result");
+        if (result) {
+            /* [FIX] add_node -> add_value */
+            json_builder_add_value(builder, json_node_copy(result));
+        } else {
+            json_builder_add_string_value(builder, "OK");
+        }
+    }
+
+    if (ctx->request_id) {
+        json_builder_set_member_name(builder, "id");
+        json_builder_add_value(builder, json_node_copy(ctx->request_id));
+    } else {
+        json_builder_set_member_name(builder, "id");
+        json_builder_add_null_value(builder);
+    }
+
+    json_builder_end_object(builder);
+
     JsonGenerator *gen = json_generator_new();
     JsonNode *root = json_builder_get_root(builder);
-    
     json_generator_set_root(gen, root);
-    gchar *json_str = json_generator_to_data(gen, NULL);
-    gchar *final_msg = g_strdup_printf("%s\n", json_str); 
+    
+    gsize len;
+    gchar *data = json_generator_to_data(gen, &len);
+    
+    GError *write_err = NULL;
+    g_output_stream_write_all(ctx->output_stream, data, len, NULL, NULL, &write_err);
+    if (!write_err) {
+        g_output_stream_write_all(ctx->output_stream, "\n", 1, NULL, NULL, NULL);
+    } else {
+        g_warning("Failed to write response: %s", write_err->message);
+        g_error_free(write_err);
+    }
 
-    /* Async write */
-    g_output_stream_write_all_async(out, final_msg, strlen(final_msg),
-                                    G_PRIORITY_DEFAULT, NULL,
-                                    on_write_finished, final_msg);
-
-    g_free(json_str);
+    g_free(data);
     g_object_unref(gen);
-    json_node_free(root);
+    json_node_unref(root);
     g_object_unref(builder);
 }
 
-static void reply_success(GOutputStream *out, JsonNode *result_data) {
-    JsonBuilder *builder = json_builder_new();
-    json_builder_begin_object(builder);
-    
-    json_builder_set_member_name(builder, "status");
-    json_builder_add_string_value(builder, "ok");
-    
-    if (result_data) {
-        json_builder_set_member_name(builder, "result");
-        json_builder_add_value(builder, result_data); 
-    }
-    
-    json_builder_end_object(builder);
-    send_raw_json(out, builder);
-}
+/* ------------------------------------------------------------------------
+ * Callbacks & Handlers (No changes required in logic)
+ * ------------------------------------------------------------------------ */
 
-static void reply_error(GOutputStream *out, int code, const gchar *msg) {
-    JsonBuilder *builder = json_builder_new();
-    json_builder_begin_object(builder);
-    
-    json_builder_set_member_name(builder, "status");
-    json_builder_add_string_value(builder, "error");
-    
-    json_builder_set_member_name(builder, "error");
-    json_builder_begin_object(builder);
-    json_builder_set_member_name(builder, "code");
-    json_builder_add_int_value(builder, code);
-    json_builder_set_member_name(builder, "message");
-    json_builder_add_string_value(builder, msg);
-    json_builder_end_object(builder);
-    
-    json_builder_end_object(builder);
-    send_raw_json(out, builder);
-}
-
-/* --- Command Handlers --- */
-
-/* CMD: ping */
-static void cmd_ping(Dispatcher *self, JsonNode *params, GOutputStream *out) {
-    (void)self; (void)params;
-    JsonNode *pong = json_node_alloc();
-    json_node_init_string(pong, "pong");
-    reply_success(out, pong); 
-}
-
-/* CMD: vm.create */
-static void _on_vm_create_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    GOutputStream *out = G_OUTPUT_STREAM(user_data);
+static void on_create_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = user_data;
     GError *error = NULL;
-    
-    if (purecvisor_vm_manager_create_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
-        JsonNode *ret = json_node_alloc();
-        json_node_init_string(ret, "VM Created Successfully");
-        reply_success(out, ret);
-    } else {
-        reply_error(out, ERR_SERVER_ERROR, error->message);
+    if (!purecvisor_vm_manager_create_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
+        send_json_response(ctx, NULL, error);
         g_error_free(error);
+    } else {
+        JsonNode *ret = json_node_new(JSON_NODE_VALUE);
+        json_node_set_string(ret, "created");
+        send_json_response(ctx, ret, NULL);
+        json_node_unref(ret);
     }
+    dispatcher_request_context_free(ctx);
 }
 
-static void cmd_vm_create(Dispatcher *self, JsonNode *params, GOutputStream *out) {
-    if (!self->vm_manager) {
-        reply_error(out, ERR_INTERNAL_ERROR, "VmManager not initialized");
-        return;
-    }
-    
-    if (!params || !JSON_NODE_HOLDS_OBJECT(params)) {
-        reply_error(out, ERR_INVALID_PARAMS, "Params must be a JSON object");
-        return;
-    }
-
-    purecvisor_vm_manager_create_vm_async(self->vm_manager,
-                                          params,
-                                          _on_vm_create_finished,
-                                          out); 
-    /* Dispatcher owns 'out' ref passed from process_line, but we are async.
-     * We need to keep 'out' alive. process_line did Ref it. 
-     * We pass it as user_data, so we are good. */
-}
-
-/* CMD: vm.list */
-static void _on_vm_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    GOutputStream *out = G_OUTPUT_STREAM(user_data);
+static void on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = user_data;
     GError *error = NULL;
+    if (!purecvisor_vm_manager_start_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
+        send_json_response(ctx, NULL, error);
+        g_error_free(error);
+    } else {
+        JsonNode *ret = json_node_new(JSON_NODE_VALUE);
+        json_node_set_string(ret, "started");
+        send_json_response(ctx, ret, NULL);
+        json_node_unref(ret);
+    }
+    dispatcher_request_context_free(ctx);
+}
 
-    JsonNode *result = purecvisor_vm_manager_list_domains_finish(PURECVISOR_VM_MANAGER(source), res, &error);
+static void on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = user_data;
+    GError *error = NULL;
+    if (!purecvisor_vm_manager_stop_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
+        send_json_response(ctx, NULL, error);
+        g_error_free(error);
+    } else {
+        JsonNode *ret = json_node_new(JSON_NODE_VALUE);
+        json_node_set_string(ret, "stopped");
+        send_json_response(ctx, ret, NULL);
+        json_node_unref(ret);
+    }
+    dispatcher_request_context_free(ctx);
+}
 
+static void on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = user_data;
+    GError *error = NULL;
+    if (!purecvisor_vm_manager_delete_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
+        send_json_response(ctx, NULL, error);
+        g_error_free(error);
+    } else {
+        JsonNode *ret = json_node_new(JSON_NODE_VALUE);
+        json_node_set_string(ret, "deleted");
+        send_json_response(ctx, ret, NULL);
+        json_node_unref(ret);
+    }
+    dispatcher_request_context_free(ctx);
+}
+
+static void on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = user_data;
+    GError *error = NULL;
+    JsonNode *result = purecvisor_vm_manager_list_vms_finish(PURECVISOR_VM_MANAGER(source), res, &error);
     if (error) {
-        reply_error(out, ERR_SERVER_ERROR, error->message);
+        send_json_response(ctx, NULL, error);
         g_error_free(error);
     } else {
-        reply_success(out, result); 
+        send_json_response(ctx, result, NULL);
+        json_node_unref(result);
     }
+    dispatcher_request_context_free(ctx);
 }
 
-static void cmd_vm_list(Dispatcher *self, JsonNode *params, GOutputStream *out) {
-    (void)params;
-    if (!self->vm_manager) {
-        reply_error(out, ERR_INTERNAL_ERROR, "VmManager not initialized");
+static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    if (!params || !json_object_has_member(params, "name")) {
+        GError *err = g_error_new(G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Missing parameter: name");
+        send_json_response(ctx, NULL, err);
+        g_error_free(err);
+        dispatcher_request_context_free(ctx);
         return;
     }
-
-    purecvisor_vm_manager_list_domains_async(self->vm_manager, 
-                                            _on_vm_list_finished, 
-                                            out); 
-}
-
-/* --- Dispatcher Core --- */
-
-Dispatcher* dispatcher_new(void) {
-    Dispatcher *self = g_new0(Dispatcher, 1);
-    self->registry = g_hash_table_new(g_str_hash, g_str_equal);
-
-    g_hash_table_insert(self->registry, "ping", cmd_ping);
-    g_hash_table_insert(self->registry, "vm.create", cmd_vm_create);
-    g_hash_table_insert(self->registry, "vm.list", cmd_vm_list);
+    PureCVisorVmConfig config = {0};
+    config.name = g_strdup(json_object_get_string_member(params, "name"));
     
-    return self;
+    if (json_object_has_member(params, "vcpu")) config.vcpu = json_object_get_int_member(params, "vcpu");
+    else config.vcpu = 1;
+    if (json_object_has_member(params, "memory_mb")) config.memory_mb = json_object_get_int_member(params, "memory_mb");
+    else config.memory_mb = 1024;
+    if (json_object_has_member(params, "disk_size_gb")) config.disk_size_gb = json_object_get_int_member(params, "disk_size_gb");
+    else config.disk_size_gb = 10;
+    if (json_object_has_member(params, "iso_path")) config.iso_path = g_strdup(json_object_get_string_member(params, "iso_path"));
+
+    purecvisor_vm_manager_create_vm_async(self->vm_manager, &config, NULL, on_create_finished, ctx);
+    g_free(config.name);
+    g_free(config.iso_path);
 }
 
-void dispatcher_free(Dispatcher *self) {
-    if (!self) return;
-    if (self->vm_manager) {
-        g_object_unref(self->vm_manager);
-    }
-    if (self->registry) g_hash_table_destroy(self->registry);
-    g_free(self);
+static void handle_vm_start(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    const gchar *name = json_object_get_string_member(params, "name");
+    purecvisor_vm_manager_start_vm_async(self->vm_manager, name, NULL, on_start_finished, ctx);
 }
 
-void dispatcher_set_vm_manager(Dispatcher *self, PureCVisorVmManager *mgr) {
-    if (self->vm_manager) {
-        g_object_unref(self->vm_manager);
-    }
-    if (mgr) {
-        self->vm_manager = g_object_ref(mgr);
-    } else {
-        self->vm_manager = NULL;
-    }
+static void handle_vm_stop(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    const gchar *name = json_object_get_string_member(params, "name");
+    gboolean force = FALSE;
+    if (json_object_has_member(params, "force")) force = json_object_get_boolean_member(params, "force");
+    purecvisor_vm_manager_stop_vm_async(self->vm_manager, name, force, NULL, on_stop_finished, ctx);
 }
 
-void dispatcher_process_line(Dispatcher *self, GIOStream *stream, const gchar *line) {
-    JsonParser *parser = json_parser_new();
-    GError *error = NULL;
-    GOutputStream *out = g_io_stream_get_output_stream(stream);
+static void handle_vm_delete(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    const gchar *name = json_object_get_string_member(params, "name");
+    purecvisor_vm_manager_delete_vm_async(self->vm_manager, name, NULL, on_delete_finished, ctx);
+}
 
-    /* [CRITICAL FIX] 
-     * 1. Output Stream 참조 (비동기 작업을 위해)
-     * 2. 부모 Stream (Connection) 참조 및 Attachment
-     * -> 이렇게 하면 'out'이 살아있는 동안 'stream'도 강제로 살아있게 됩니다.
-     * -> on_write_finished에서 g_object_unref(out)을 하면,
-     * attachment도 해제되면서 stream도 unref 되어 소켓이 닫힙니다.
-     */
-    g_object_ref(out);
-    g_object_set_data_full(G_OBJECT(out), "keep_alive_connection", 
-                           g_object_ref(stream), g_object_unref);
+static void handle_vm_list(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    purecvisor_vm_manager_list_vms_async(self->vm_manager, NULL, on_list_finished, ctx);
+}
 
-    if (!json_parser_load_from_data(parser, line, -1, &error)) {
-        reply_error(out, ERR_PARSE_ERROR, "JSON Parse Error");
-        g_error_free(error);
-        g_object_unref(parser);
-        return;
-    }
-
-    JsonNode *root = json_parser_get_root(parser);
-    if (!JSON_NODE_HOLDS_OBJECT(root)) {
-        reply_error(out, ERR_INVALID_REQUEST, "Root must be an object");
-        g_object_unref(parser);
-        /* [Error Case Cleanup] 여기서도 out을 풀어줘야 연결이 해제됨 */
-        g_object_unref(out);
-        return;
-    }
-
-    JsonObject *root_obj = json_node_get_object(root);
-    if (!json_object_has_member(root_obj, "method")) {
-        reply_error(out, ERR_INVALID_REQUEST, "Missing 'method'");
-        g_object_unref(parser);
-        g_object_unref(out);
-        return;
-    }
+void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self, JsonNode *request_node, GOutputStream *output) {
+    if (json_node_get_node_type(request_node) != JSON_NODE_OBJECT) return;
+    JsonObject *root_obj = json_node_get_object(request_node);
+    if (!json_object_has_member(root_obj, "method")) return;
 
     const gchar *method = json_object_get_string_member(root_obj, "method");
-    JsonNode *params = NULL;
+    JsonObject *params = NULL;
     if (json_object_has_member(root_obj, "params")) {
-        params = json_object_get_member(root_obj, "params");
+        JsonNode *p_node = json_object_get_member(root_obj, "params");
+        if (json_node_get_node_type(p_node) == JSON_NODE_OBJECT) params = json_node_get_object(p_node);
     }
 
-    CommandHandler handler = g_hash_table_lookup(self->registry, method);
-    if (handler) {
-        handler(self, params, out);
-    } else {
-        reply_error(out, ERR_METHOD_NOT_FOUND, "Method not found");
-        /* Handler가 호출되지 않았으므로 여기서 unref 해야 함? 
-         * 아니오, reply_error 내부에서 send_raw_json -> on_write_finished -> unref 흐름을 탐.
-         * 따라서 중복 unref 하지 않도록 주의.
-         */
-    }
+    DispatcherRequestContext *ctx = g_new0(DispatcherRequestContext, 1);
+    ctx->dispatcher = self;
+    ctx->output_stream = g_object_ref(output);
+    if (json_object_has_member(root_obj, "id")) ctx->request_id = json_node_copy(json_object_get_member(root_obj, "id"));
 
-    g_object_unref(parser);
+    if (g_strcmp0(method, "vm.create") == 0) handle_vm_create(self, params, ctx);
+    else if (g_strcmp0(method, "vm.start") == 0) handle_vm_start(self, params, ctx);
+    else if (g_strcmp0(method, "vm.stop") == 0) handle_vm_stop(self, params, ctx);
+    else if (g_strcmp0(method, "vm.delete") == 0) handle_vm_delete(self, params, ctx);
+    else if (g_strcmp0(method, "vm.list") == 0) handle_vm_list(self, params, ctx);
+    else {
+        GError *err = g_error_new(G_IO_ERROR, G_IO_ERROR_FAILED, "Method not found");
+        send_json_response(ctx, NULL, err);
+        g_error_free(err);
+        dispatcher_request_context_free(ctx);
+    }
 }
+
+static void purecvisor_dispatcher_dispose(GObject *object) {
+    PureCVisorDispatcher *self = PURECVISOR_DISPATCHER(object);
+    if (self->vm_manager) { g_object_unref(self->vm_manager); self->vm_manager = NULL; }
+    G_OBJECT_CLASS(purecvisor_dispatcher_parent_class)->dispose(object);
+}
+static void purecvisor_dispatcher_class_init(PureCVisorDispatcherClass *klass) { G_OBJECT_CLASS(klass)->dispose = purecvisor_dispatcher_dispose; }
+static void purecvisor_dispatcher_init(PureCVisorDispatcher *self) { self->vm_manager = purecvisor_vm_manager_new(); }
+PureCVisorDispatcher *purecvisor_dispatcher_new(void) { return g_object_new(PURECVISOR_TYPE_DISPATCHER, NULL); }
