@@ -1,87 +1,80 @@
+/* src/main.c */
+
 #include <glib.h>
 #include <glib-unix.h>
-#include <locale.h>
-#include <stdlib.h>
+#include <libvirt-gobject/libvirt-gobject.h>
 #include <stdio.h>
 
 #include "api/uds_server.h"
 #include "api/dispatcher.h"
 #include "utils/logger.h"
-#include <libvirt-gobject/libvirt-gobject.h>
-
-#include "api/dispatcher.h"
-#include "api/uds_server.h"
 
 #define SOCKET_PATH "/tmp/purecvisor.sock"
 
-/* Global Main Loop for Signal Handling */
-static GMainLoop *loop = NULL;
+static GMainLoop *loop;
 
-/* ------------------------------------------------------------------------
- * Signal Handler (Ctrl+C, SIGTERM)
- * ------------------------------------------------------------------------ */
-static gboolean
-on_signal_received(gpointer user_data)
-{
-    g_info("Received signal, shutting down...");
-    if (loop) g_main_loop_quit(loop);
-    return G_SOURCE_REMOVE;
+static gboolean on_signal_received(gpointer user_data) {
+    (void)user_data;
+    g_message("Signal received, stopping...");
+    g_main_loop_quit(loop);
+    return FALSE;
 }
 
-int main(int argc, char *argv[])
-{
+int main(int argc, char *argv[]) {
     GError *error = NULL;
-    PureCVisorDispatcher *dispatcher = NULL;
-    UdsServer *server = NULL;
 
-    setlocale(LC_ALL, "");
+    // 1. Logger & Type System Init
     purecvisor_logger_init();
-    g_info("PureCVisor Engine (Phase 4) Starting...");
+    
+    #if !GLIB_CHECK_VERSION(2, 36, 0)
+    g_type_init();
+    #endif
 
-    /* [CRITICAL FIX] gvir_init_object returns void in newer versions */
     gvir_init_object(&argc, &argv);
 
-    /* Create Dispatcher */
-    dispatcher = purecvisor_dispatcher_new();
-    if (!dispatcher) {
-        g_critical("Failed to create Dispatcher Service.");
-        return EXIT_FAILURE;
+    g_message("Starting PureCVisor Engine (Phase 5)...");
+
+    // 2. Libvirt Connection
+    // 로컬 시스템 KVM 연결 (qemu:///system)
+    GVirConnection *conn = gvir_connection_new("qemu:///system");
+    if (!gvir_connection_open(conn, NULL, &error)) {
+        g_critical("Failed to connect to libvirt: %s", error->message);
+        g_error_free(error);
+        return 1;
     }
 
-    /* Create UDS Server */
-    server = uds_server_new(SOCKET_PATH);
-    if (!server) {
-        g_critical("Failed to create UDS Server.");
-        g_object_unref(dispatcher);
-        return EXIT_FAILURE;
-    }
+    // 3. Components Init
+    // Dispatcher 생성 (Connection 주입 X -> SetConnection 사용하거나 생성자 변경)
+    // 현재 dispatcher_new는 인자가 없으므로, 생성 후 Connection 설정
+    PureCVisorDispatcher *dispatcher = purecvisor_dispatcher_new();
+    purecvisor_dispatcher_set_connection(dispatcher, conn);
 
-    /* Dependency Injection */
+    // UDS Server 생성
+    UdsServer *server = uds_server_new(SOCKET_PATH);
+    
+    // Dispatcher 연결
     uds_server_set_dispatcher(server, dispatcher);
 
-    /* Start Server */
+    // 4. Start Server
     if (!uds_server_start(server, &error)) {
-        g_critical("Failed to start UDS Server: %s", error->message);
+        g_critical("Failed to start UDS server: %s", error->message);
         g_error_free(error);
-        g_object_unref(server);
-        g_object_unref(dispatcher);
-        return EXIT_FAILURE;
+        return 1;
     }
-    g_info("Listening on UNIX Socket: %s", SOCKET_PATH);
 
-    /* Main Loop */
+    // 5. Main Loop
     loop = g_main_loop_new(NULL, FALSE);
     g_unix_signal_add(SIGINT, on_signal_received, NULL);
     g_unix_signal_add(SIGTERM, on_signal_received, NULL);
 
-    g_info("Entering Main Loop...");
+    g_message("Daemon is running. Waiting for requests...");
     g_main_loop_run(loop);
 
-    /* Cleanup */
-    uds_server_stop(server);
-    if (server) g_object_unref(server);
-    if (dispatcher) g_object_unref(dispatcher);
-    if (loop) g_main_loop_unref(loop);
+    // 6. Cleanup
+    g_object_unref(server);
+    g_object_unref(dispatcher);
+    g_object_unref(conn);
+    g_main_loop_unref(loop);
 
-    return EXIT_SUCCESS;
+    return 0;
 }
