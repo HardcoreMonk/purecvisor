@@ -16,6 +16,8 @@
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
 #include <libvirt-gobject/libvirt-gobject.h>
+#include <libvirt/libvirt.h>
+#include <libvirt/virterror.h>
 
 struct _PureCVisorVmManager {
     GObject parent_instance;
@@ -474,4 +476,120 @@ JsonNode *purecvisor_vm_manager_list_vms_finish(PureCVisorVmManager *manager G_G
                                                 GAsyncResult *res,
                                                 GError **error) {
     return g_task_propagate_pointer(G_TASK(res), error);
+}
+
+/* ========================================================================= */
+/* Phase 6-2: Runtime Resource Tuning (근본 해결책: Raw Libvirt API 사용)    */
+/* ========================================================================= */
+
+// --- 헬퍼 구조체 ---
+typedef struct {
+    gchar *vm_name;
+    guint target_value;
+} ResourceTuningData;
+
+static void resource_tuning_data_free(ResourceTuningData *data) {
+    if (data) {
+        g_free(data->vm_name);
+        g_free(data);
+    }
+}
+
+// --- 1. Memory Tuning (Worker Thread) ---
+static void set_memory_thread_impl(GTask *task, gpointer source_object, gpointer task_data, GCancellable *cancellable) {
+    ResourceTuningData *data = (ResourceTuningData *)task_data;
+
+    // 1. 스레드 독립적인 Raw Libvirt 커넥션 오픈 (Wrapper 우회)
+    virConnectPtr raw_conn = virConnectOpen("qemu:///system");
+    if (!raw_conn) {
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to open raw libvirt connection");
+        return;
+    }
+
+    // 2. Raw 도메인 검색
+    virDomainPtr raw_domain = virDomainLookupByName(raw_conn, data->vm_name);
+    if (!raw_domain) {
+        virConnectClose(raw_conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "VM '%s' not found", data->vm_name);
+        return;
+    }
+
+    // 3. 동적 메모리 조절 (Live & Config 영구 적용)
+    guint memory_kb = data->target_value * 1024;
+    int ret = virDomainSetMemoryFlags(raw_domain, memory_kb, VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG);
+    
+    if (ret < 0) {
+        virErrorPtr vir_err = virGetLastError();
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, 
+                                "Memory tuning failed: %s", vir_err ? vir_err->message : "Unknown error");
+    } else {
+        g_task_return_boolean(task, TRUE);
+    }
+
+    // 4. 자원 해제
+    virDomainFree(raw_domain);
+    virConnectClose(raw_conn);
+}
+
+void purecvisor_vm_manager_set_memory_async(PureCVisorVmManager *self, const gchar *name, guint memory_mb, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data) {
+    GTask *task = g_task_new(self, cancellable, callback, user_data);
+    ResourceTuningData *data = g_new0(ResourceTuningData, 1);
+    data->vm_name = g_strdup(name);
+    data->target_value = memory_mb;
+    
+    g_task_set_task_data(task, data, (GDestroyNotify)resource_tuning_data_free);
+    g_task_run_in_thread(task, set_memory_thread_impl);
+    g_object_unref(task);
+}
+
+gboolean purecvisor_vm_manager_set_memory_finish(PureCVisorVmManager *self, GAsyncResult *res, GError **error) {
+    return g_task_propagate_boolean(G_TASK(res), error);
+}
+
+// --- 2. vCPU Tuning (Worker Thread) ---
+static void set_vcpu_thread_impl(GTask *task, gpointer source_object, gpointer task_data, GCancellable *cancellable) {
+    ResourceTuningData *data = (ResourceTuningData *)task_data;
+
+    // 1. 스레드 독립 커넥션
+    virConnectPtr raw_conn = virConnectOpen("qemu:///system");
+    if (!raw_conn) {
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to open raw libvirt connection");
+        return;
+    }
+
+    virDomainPtr raw_domain = virDomainLookupByName(raw_conn, data->vm_name);
+    if (!raw_domain) {
+        virConnectClose(raw_conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "VM '%s' not found", data->vm_name);
+        return;
+    }
+
+    // 2. vCPU 개수 조절
+    int ret = virDomainSetVcpusFlags(raw_domain, data->target_value, VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG);
+    
+    if (ret < 0) {
+        virErrorPtr vir_err = virGetLastError();
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, 
+                                "vCPU tuning failed: %s", vir_err ? vir_err->message : "Unknown error");
+    } else {
+        g_task_return_boolean(task, TRUE);
+    }
+
+    virDomainFree(raw_domain);
+    virConnectClose(raw_conn);
+}
+
+void purecvisor_vm_manager_set_vcpu_async(PureCVisorVmManager *self, const gchar *name, guint vcpu_count, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data) {
+    GTask *task = g_task_new(self, cancellable, callback, user_data);
+    ResourceTuningData *data = g_new0(ResourceTuningData, 1);
+    data->vm_name = g_strdup(name);
+    data->target_value = vcpu_count;
+    
+    g_task_set_task_data(task, data, (GDestroyNotify)resource_tuning_data_free);
+    g_task_run_in_thread(task, set_vcpu_thread_impl);
+    g_object_unref(task);
+}
+
+gboolean purecvisor_vm_manager_set_vcpu_finish(PureCVisorVmManager *self, GAsyncResult *res, GError **error) {
+    return g_task_propagate_boolean(G_TASK(res), error);
 }

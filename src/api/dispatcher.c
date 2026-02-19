@@ -182,6 +182,32 @@ static void on_list_finished(GObject *source, GAsyncResult *res, gpointer user_d
     dispatcher_request_context_free(ctx);
 }
 
+static void on_set_memory_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+    GError *err = NULL;
+
+    if (purecvisor_vm_manager_set_memory_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+        _send_success_bool(ctx, TRUE);
+    } else {
+        _send_error(ctx, -32000, err ? err->message : "Memory tuning failed");
+        if (err) g_error_free(err);
+    }
+    dispatcher_request_context_free(ctx);
+}
+
+static void on_set_vcpu_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+    GError *err = NULL;
+
+    if (purecvisor_vm_manager_set_vcpu_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+        _send_success_bool(ctx, TRUE);
+    } else {
+        _send_error(ctx, -32000, err ? err->message : "vCPU tuning failed");
+        if (err) g_error_free(err);
+    }
+    dispatcher_request_context_free(ctx);
+}
+
 /* --- Handlers --- */
 
 static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
@@ -249,6 +275,30 @@ static void handle_vm_delete(PureCVisorDispatcher *self, JsonObject *params, Dis
 
 static void handle_vm_list(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
     purecvisor_vm_manager_list_vms_async(self->vm_manager, on_list_finished, ctx);
+}
+
+static void handle_vm_set_memory(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "memory_mb")) {
+        _send_error(ctx, -32602, "Missing parameter: vm_name or memory_mb");
+        dispatcher_request_context_free(ctx);
+        return;
+    }
+    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
+    guint memory_mb = (guint)json_object_get_int_member(params, "memory_mb");
+
+    purecvisor_vm_manager_set_memory_async(self->vm_manager, vm_name, memory_mb, NULL, on_set_memory_finished, ctx);
+}
+
+static void handle_vm_set_vcpu(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+    if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "vcpu_count")) {
+        _send_error(ctx, -32602, "Missing parameter: vm_name or vcpu_count");
+        dispatcher_request_context_free(ctx);
+        return;
+    }
+    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
+    guint vcpu_count = (guint)json_object_get_int_member(params, "vcpu_count");
+
+    purecvisor_vm_manager_set_vcpu_async(self->vm_manager, vm_name, vcpu_count, NULL, on_set_vcpu_finished, ctx);
 }
 
 /* --- Initialization --- */
@@ -344,6 +394,10 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     } else if (g_strcmp0(method, "vm.snapshot.delete") == 0) {
         handle_vm_snapshot_delete(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "vm.set_memory") == 0) {
+        handle_vm_set_memory(self, params, ctx);
+    } else if (g_strcmp0(method, "vm.set_vcpu") == 0) {
+        handle_vm_set_vcpu(self, params, ctx);
     } else {
         // Method Not Found
         gchar *err_resp = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND, "Method not found");

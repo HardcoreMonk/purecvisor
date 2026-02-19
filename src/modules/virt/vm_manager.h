@@ -67,6 +67,35 @@ JsonNode *purecvisor_vm_manager_list_vms_finish(PureCVisorVmManager *manager,
                                                 GAsyncResult *res,
                                                 GError **error);
 
+/* ========================================================================= */
+/* Phase 6-2: Runtime Resource Tuning (동적 리소스 튜닝)                     */
+/* ========================================================================= */
+
+// 1. Memory Ballooning
+void purecvisor_vm_manager_set_memory_async(PureCVisorVmManager *self, 
+                                            const gchar *name, 
+                                            guint memory_mb, 
+                                            GCancellable *cancellable, 
+                                            GAsyncReadyCallback callback, 
+                                            gpointer user_data);
+
+gboolean purecvisor_vm_manager_set_memory_finish(PureCVisorVmManager *self, 
+                                                 GAsyncResult *res, 
+                                                 GError **error);
+
+// 2. vCPU Tuning
+void purecvisor_vm_manager_set_vcpu_async(PureCVisorVmManager *self, 
+                                          const gchar *name, 
+                                          guint vcpu_count, 
+                                          GCancellable *cancellable, 
+                                          GAsyncReadyCallback callback, 
+                                          gpointer user_data);
+
+gboolean purecvisor_vm_manager_set_vcpu_finish(PureCVisorVmManager *self, 
+                                               GAsyncResult *res, 
+                                               GError **error);
+
+
 G_END_DECLS
 
 #endif /* PURECVISOR_VM_MANAGER_H */
