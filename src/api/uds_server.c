@@ -142,7 +142,7 @@ void uds_server_stop(UdsServer *self) {
         g_socket_service_stop(self->service);
 }
 
-void uds_server_send_response(UdsServer *self, GSocketConnection *connection, const gchar *response) {
+void pure_uds_server_send_response(UdsServer *self, GSocketConnection *connection, const gchar *response) {
     (void)self;
     GOutputStream *output = g_io_stream_get_output_stream(G_IO_STREAM(connection));
     GError *error = NULL;
