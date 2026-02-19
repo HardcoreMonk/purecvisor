@@ -27,6 +27,8 @@ DAEMON_SRCS = src/main.c \
               src/api/uds_server.c \
               src/modules/virt/vm_manager.c \
               src/utils/logger.c \
+			  src/modules/dispatcher/handler_snapshot.c \
+       		  src/modules/dispatcher/rpc_utils.c \
               $(COMMON_SRCS)
 
 # 3. 테스트 러너용 소스

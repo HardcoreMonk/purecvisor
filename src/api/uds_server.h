@@ -25,7 +25,7 @@ gboolean uds_server_start(UdsServer *self, GError **error);
 void uds_server_stop(UdsServer *self);
 
 // Dispatcher가 응답을 보낼 때 사용하는 함수
-void uds_server_send_response(UdsServer *self, GSocketConnection *connection, const gchar *response);
+void pure_uds_server_send_response(UdsServer *self, GSocketConnection *connection, const gchar *response);
 
 G_END_DECLS
 
