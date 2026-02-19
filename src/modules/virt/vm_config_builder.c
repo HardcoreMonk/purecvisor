@@ -1,120 +1,126 @@
+/* src/modules/virt/vm_config_builder.c */
+
 #include "vm_config_builder.h"
-#include <libvirt-gconfig/libvirt-gconfig.h>
-#include <gio/gio.h>
+#include <libvirt-gobject/libvirt-gobject.h>
+#include <glib.h>
 
-/* ... _build_os_section, _build_cpu_mem 함수는 기존과 동일 ... */
-static void _build_os_section(GVirConfigDomain *domain, PureCVisorVmConfig *config) {
-    GVirConfigDomainOs *os = gvir_config_domain_os_new();
-    gvir_config_domain_os_set_os_type(os, GVIR_CONFIG_DOMAIN_OS_TYPE_HVM);
-    gvir_config_domain_os_set_arch(os, "x86_64");
-    
-    GList *boot_devs = NULL;
-    boot_devs = g_list_append(boot_devs, (gpointer)GVIR_CONFIG_DOMAIN_OS_BOOT_DEVICE_CDROM);
-    boot_devs = g_list_append(boot_devs, (gpointer)GVIR_CONFIG_DOMAIN_OS_BOOT_DEVICE_HD);
-    gvir_config_domain_os_set_boot_devices(os, boot_devs);
-    g_list_free(boot_devs);
+struct _PureCVisorVmConfig {
+    gchar *name;
+    gint vcpu;
+    gint memory_mb;
+    gchar *disk_path;
+    gchar *iso_path;
+    gchar *network_bridge; // [Phase 5-2] Bridge Name (e.g., "br0", "virbr0")
+};
 
-    gvir_config_domain_set_os(domain, os);
-    g_object_unref(os);
+PureCVisorVmConfig *purecvisor_vm_config_new(const gchar *name, gint vcpu, gint ram_mb) {
+    PureCVisorVmConfig *config = g_new0(PureCVisorVmConfig, 1);
+    config->name = g_strdup(name);
+    config->vcpu = vcpu;
+    config->memory_mb = ram_mb;
+    config->network_bridge = NULL; // Default to NAT
+    return config;
 }
 
-static void _build_cpu_mem(GVirConfigDomain *domain, PureCVisorVmConfig *config) {
+void purecvisor_vm_config_free(PureCVisorVmConfig *config) {
+    if (!config) return;
+    g_free(config->name);
+    g_free(config->disk_path);
+    g_free(config->iso_path);
+    g_free(config->network_bridge);
+    g_free(config);
+}
+
+void purecvisor_vm_config_set_disk(PureCVisorVmConfig *config, const gchar *path) {
+    if (config->disk_path) g_free(config->disk_path);
+    config->disk_path = g_strdup(path);
+}
+
+void purecvisor_vm_config_set_iso(PureCVisorVmConfig *config, const gchar *path) {
+    if (config->iso_path) g_free(config->iso_path);
+    config->iso_path = g_strdup(path);
+}
+
+// [Phase 5-2] Bridge 설정 Setter
+void purecvisor_vm_config_set_network_bridge(PureCVisorVmConfig *config, const gchar *bridge_name) {
+    if (config->network_bridge) g_free(config->network_bridge);
+    config->network_bridge = g_strdup(bridge_name);
+}
+
+GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
+    GVirConfigDomain *domain = gvir_config_domain_new();
+    
+    // 하드웨어 가속(KVM)을 지원하지 않는 환경(예: 단순 가상머신 위에서 개발 중)이라면 GVIR_CONFIG_DOMAIN_VIRT_KVM 대신 GVIR_CONFIG_DOMAIN_VIRT_QEMU를 사용
+    // [Fix] 가상화 타입(KVM) 명시 (이 부분이 누락되어 Libvirt가 거부함)
+    gvir_config_domain_set_virt_type(domain, GVIR_CONFIG_DOMAIN_VIRT_KVM);
+
+    // 1. Basic Info
+    gvir_config_domain_set_name(domain, config->name);
     gvir_config_domain_set_memory(domain, config->memory_mb * 1024);
     gvir_config_domain_set_vcpus(domain, config->vcpu);
     
-    GVirConfigDomainCpu *cpu = gvir_config_domain_cpu_new();
-    gvir_config_domain_cpu_set_mode(cpu, GVIR_CONFIG_DOMAIN_CPU_MODE_HOST_MODEL);
-    gvir_config_domain_set_cpu(domain, cpu);
-    g_object_unref(cpu);
-}
+    // 2. OS & Features
+    GVirConfigDomainOs *os = gvir_config_domain_os_new();
+    gvir_config_domain_os_set_os_type(os, GVIR_CONFIG_DOMAIN_OS_TYPE_HVM);
+    gvir_config_domain_set_os(domain, os);
+    g_object_unref(os);
 
-/* [Helper] Disk Driver 설정 */
-static void _set_disk_driver(GVirConfigDomainDisk *disk, const gchar *name, GVirConfigDomainDiskFormat format) {
-    GVirConfigDomainDiskDriver *driver = gvir_config_domain_disk_driver_new();
-    gvir_config_domain_disk_driver_set_name(driver, name);
-    gvir_config_domain_disk_driver_set_format(driver, format);
-    gvir_config_domain_disk_set_driver(disk, driver);
-    g_object_unref(driver);
-}
+    // 3. Disk (ZVol)
+    if (config->disk_path) {
+        GVirConfigDomainDisk *disk = gvir_config_domain_disk_new();
+        gvir_config_domain_disk_set_type(disk, GVIR_CONFIG_DOMAIN_DISK_BLOCK);
+        gvir_config_domain_disk_set_source(disk, config->disk_path);
+        
+        GVirConfigDomainDiskDriver *driver = gvir_config_domain_disk_driver_new();
+        gvir_config_domain_disk_driver_set_name(driver, "qemu");
+        gvir_config_domain_disk_driver_set_format(driver, GVIR_CONFIG_DOMAIN_DISK_FORMAT_RAW);
+        gvir_config_domain_disk_set_driver(disk, driver);
+        g_object_unref(driver);
+        
+        gvir_config_domain_disk_set_target_bus(disk, GVIR_CONFIG_DOMAIN_DISK_BUS_VIRTIO);
+        gvir_config_domain_disk_set_target_dev(disk, "vda");
+        
+        gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(disk));
+        g_object_unref(disk);
+    }
 
-static void _build_disk_device(GVirConfigDomain *domain, PureCVisorVmConfig *config) {
-    /* 1. Main Disk (ZFS Volume) -> BLOCK DEVICE */
-    gchar *zvol_path = g_strdup_printf("/dev/zvol/tank/%s", config->name);
-    
-    GVirConfigDomainDisk *disk = gvir_config_domain_disk_new();
-    
-    // [CRITICAL FIX] ZVol은 블록 장치이므로 GVIR_CONFIG_DOMAIN_DISK_BLOCK 사용
-    gvir_config_domain_disk_set_type(disk, GVIR_CONFIG_DOMAIN_DISK_BLOCK);
-    
-    gvir_config_domain_disk_set_guest_device_type(disk, GVIR_CONFIG_DOMAIN_DISK_GUEST_DEVICE_DISK);
-    
-    // Driver: qemu, Format: raw
-    _set_disk_driver(disk, "qemu", GVIR_CONFIG_DOMAIN_DISK_FORMAT_RAW);
-    
-    gvir_config_domain_disk_set_source(disk, zvol_path);
-    gvir_config_domain_disk_set_target_bus(disk, GVIR_CONFIG_DOMAIN_DISK_BUS_VIRTIO);
-    gvir_config_domain_disk_set_target_dev(disk, "vda");
-    
-    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(disk));
-    g_free(zvol_path);
-    g_object_unref(disk);
-
-    /* 2. CD-ROM (ISO) -> FILE DEVICE */
-    if (config->iso_path && g_strcmp0(config->iso_path, "") != 0) {
+    // 4. ISO (CDROM)
+    if (config->iso_path) {
         GVirConfigDomainDisk *cdrom = gvir_config_domain_disk_new();
-        
-        // [NOTE] ISO 파일은 일반 파일이므로 GVIR_CONFIG_DOMAIN_DISK_FILE 유지
         gvir_config_domain_disk_set_type(cdrom, GVIR_CONFIG_DOMAIN_DISK_FILE);
-        
         gvir_config_domain_disk_set_guest_device_type(cdrom, GVIR_CONFIG_DOMAIN_DISK_GUEST_DEVICE_CDROM);
-        
-        _set_disk_driver(cdrom, "qemu", GVIR_CONFIG_DOMAIN_DISK_FORMAT_RAW);
-        
         gvir_config_domain_disk_set_source(cdrom, config->iso_path);
-        gvir_config_domain_disk_set_target_bus(cdrom, GVIR_CONFIG_DOMAIN_DISK_BUS_SATA);
         gvir_config_domain_disk_set_target_dev(cdrom, "hda");
         gvir_config_domain_disk_set_readonly(cdrom, TRUE);
-
+        
         gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(cdrom));
         g_object_unref(cdrom);
     }
-}
 
-static void _build_net_interface(GVirConfigDomain *domain, PureCVisorVmConfig *config) {
-    GVirConfigDomainInterfaceNetwork *net = gvir_config_domain_interface_network_new();
-    gvir_config_domain_interface_network_set_source(net, "default");
-    gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(net), "virtio");
-    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(net));
-    g_object_unref(net);
-}
-
-static void _build_graphics(GVirConfigDomain *domain, PureCVisorVmConfig *config) {
-    GVirConfigDomainGraphicsVnc *vnc = gvir_config_domain_graphics_vnc_new();
-    gvir_config_domain_graphics_vnc_set_autoport(vnc, TRUE);
-    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(vnc));
-    g_object_unref(vnc);
+    // 5. VNC Graphics
+    GVirConfigDomainGraphicsVnc *graphics = gvir_config_domain_graphics_vnc_new();
+    gvir_config_domain_graphics_vnc_set_autoport(graphics, TRUE);
+    // 외부 접속을 위해 0.0.0.0 바인딩 (보안상 주의 필요하나 개발용으로 허용)
+    // gvir_config_domain_graphics_set_listen(GVIR_CONFIG_DOMAIN_GRAPHICS(graphics), "0.0.0.0");
     
-    GVirConfigDomainVideo *video = gvir_config_domain_video_new();
-    gvir_config_domain_video_set_model(video, GVIR_CONFIG_DOMAIN_VIDEO_MODEL_QXL);
-    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(video));
-    g_object_unref(video);
-}
+    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(graphics));
+    g_object_unref(graphics);
 
-GVirConfigDomain *purecvisor_vm_config_builder_create_config(PureCVisorVmConfig *config, GError **error) {
-    if (!config || !config->name) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "Invalid VM Configuration");
-        return NULL;
+    // 6. Network (Bridge Support)
+    if (config->network_bridge) {
+        // Bridge Mode (e.g., br0)
+        GVirConfigDomainInterfaceBridge *iface = gvir_config_domain_interface_bridge_new();
+        gvir_config_domain_interface_bridge_set_source(iface, config->network_bridge);
+        gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(iface), "virtio");
+        gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
+        g_object_unref(iface);
+    } else {
+        // User Mode (NAT / Default)
+        GVirConfigDomainInterfaceUser *iface = gvir_config_domain_interface_user_new();
+        gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(iface), "virtio");
+        gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
+        g_object_unref(iface);
     }
-
-    GVirConfigDomain *domain = gvir_config_domain_new();
-    gvir_config_domain_set_name(domain, config->name);
-    gvir_config_domain_set_virt_type(domain, GVIR_CONFIG_DOMAIN_VIRT_KVM);
-    
-    _build_os_section(domain, config);
-    _build_cpu_mem(domain, config);
-    _build_disk_device(domain, config);
-    _build_net_interface(domain, config);
-    _build_graphics(domain, config);
 
     return domain;
 }

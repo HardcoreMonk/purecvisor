@@ -1,17 +1,25 @@
-#pragma once
+/* src/modules/virt/vm_config_builder.h */
 
-#include <glib-object.h>
-#include <libvirt-gconfig/libvirt-gconfig.h>
-#include "vm_types.h" // 공통 타입 포함
+#ifndef PURECVISOR_VM_CONFIG_BUILDER_H
+#define PURECVISOR_VM_CONFIG_BUILDER_H
 
-G_BEGIN_DECLS
+#include <glib.h>
+#include <libvirt-gobject/libvirt-gobject.h>
 
-// 구조체 정의 제거됨 (vm_types.h로 이동)
+// 불투명 구조체 (Opaque struct)로 사용하거나 정의 필요. 
+// 여기서는 헤더에 구조체 정의를 포함하거나 typedef만 하고 .c에서 정의.
+// 컴파일을 위해 typedef만 선언
+typedef struct _PureCVisorVmConfig PureCVisorVmConfig;
 
-/**
- * VM 설정을 담은 GVirConfigDomain 객체를 생성하여 반환합니다.
- * Caller는 반환된 객체를 g_object_unref() 해야 합니다.
- */
-GVirConfigDomain *purecvisor_vm_config_builder_create_config(PureCVisorVmConfig *config, GError **error);
+PureCVisorVmConfig *purecvisor_vm_config_new(const gchar *name, gint vcpu, gint ram_mb);
+void purecvisor_vm_config_free(PureCVisorVmConfig *config);
 
-G_END_DECLS
+void purecvisor_vm_config_set_disk(PureCVisorVmConfig *config, const gchar *path);
+void purecvisor_vm_config_set_iso(PureCVisorVmConfig *config, const gchar *path);
+
+// [Added] Bridge 설정 함수
+void purecvisor_vm_config_set_network_bridge(PureCVisorVmConfig *config, const gchar *bridge_name);
+
+GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config);
+
+#endif
