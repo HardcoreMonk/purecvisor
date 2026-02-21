@@ -7,6 +7,10 @@
 #include <glib.h>
 #include "../modules/dispatcher/handler_snapshot.h"
 #include "../modules/dispatcher/rpc_utils.h"
+#include "modules/dispatcher/handler_vnc.h"
+#include "modules/dispatcher/handler_vm_start.h"
+#include "modules/dispatcher/handler_vm_lifecycle.h"
+#include "modules/dispatcher/handler_vm_hotplug.h"
 
 struct _PureCVisorDispatcher {
     GObject parent_instance;
@@ -104,109 +108,109 @@ static void on_create_finished(GObject *source, GAsyncResult *res, gpointer user
     dispatcher_request_context_free(ctx);
 }
 
-static void on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
+// static void on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
 
-    if (purecvisor_vm_manager_start_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-        _send_success_bool(ctx, TRUE);
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "Start failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//     if (purecvisor_vm_manager_start_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+//         _send_success_bool(ctx, TRUE);
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "Start failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
-static void on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
+// static void on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
 
-    if (purecvisor_vm_manager_stop_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-        _send_success_bool(ctx, TRUE);
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "Stop failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//     if (purecvisor_vm_manager_stop_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+//         _send_success_bool(ctx, TRUE);
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "Stop failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
-static void on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
+// static void on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
 
-    if (purecvisor_vm_manager_delete_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-        _send_success_bool(ctx, TRUE);
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "Delete failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//     if (purecvisor_vm_manager_delete_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+//         _send_success_bool(ctx, TRUE);
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "Delete failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
-static void on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
-    JsonNode *result_node = purecvisor_vm_manager_list_vms_finish(PURECVISOR_VM_MANAGER(source), res, &err);
+// static void on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
+//     JsonNode *result_node = purecvisor_vm_manager_list_vms_finish(PURECVISOR_VM_MANAGER(source), res, &err);
 
-    if (result_node) {
-        JsonBuilder *builder = json_builder_new();
-        json_builder_begin_object(builder);
-        json_builder_set_member_name(builder, "jsonrpc");
-        json_builder_add_string_value(builder, "2.0");
+//     if (result_node) {
+//         JsonBuilder *builder = json_builder_new();
+//         json_builder_begin_object(builder);
+//         json_builder_set_member_name(builder, "jsonrpc");
+//         json_builder_add_string_value(builder, "2.0");
         
-        JsonNode *root = json_node_new(JSON_NODE_OBJECT);
-        JsonObject *root_obj = json_object_new();
-        json_object_set_string_member(root_obj, "jsonrpc", "2.0");
-        json_object_set_member(root_obj, "result", result_node); 
-        json_object_set_int_member(root_obj, "id", ctx->request_id);
-        json_node_set_object(root, root_obj);
+//         JsonNode *root = json_node_new(JSON_NODE_OBJECT);
+//         JsonObject *root_obj = json_object_new();
+//         json_object_set_string_member(root_obj, "jsonrpc", "2.0");
+//         json_object_set_member(root_obj, "result", result_node); 
+//         json_object_set_int_member(root_obj, "id", ctx->request_id);
+//         json_node_set_object(root, root_obj);
 
-        JsonGenerator *gen = json_generator_new();
-        json_generator_set_root(gen, root);
-        gsize len;
-        gchar *json_str = json_generator_to_data(gen, &len);
+//         JsonGenerator *gen = json_generator_new();
+//         json_generator_set_root(gen, root);
+//         gsize len;
+//         gchar *json_str = json_generator_to_data(gen, &len);
         
-        GString *msg = g_string_new(json_str);
-        g_string_append_c(msg, '\n');
-        pure_uds_server_send_response(ctx->server, ctx->connection, msg->str);
+//         GString *msg = g_string_new(json_str);
+//         g_string_append_c(msg, '\n');
+//         pure_uds_server_send_response(ctx->server, ctx->connection, msg->str);
 
-        g_string_free(msg, TRUE);
-        g_free(json_str);
-        g_object_unref(gen);
-        json_node_free(root); 
-        g_object_unref(builder); 
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "List failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//         g_string_free(msg, TRUE);
+//         g_free(json_str);
+//         g_object_unref(gen);
+//         json_node_free(root); 
+//         g_object_unref(builder); 
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "List failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
-static void on_set_memory_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
+// static void on_set_memory_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
 
-    if (purecvisor_vm_manager_set_memory_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-        _send_success_bool(ctx, TRUE);
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "Memory tuning failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//     if (purecvisor_vm_manager_set_memory_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+//         _send_success_bool(ctx, TRUE);
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "Memory tuning failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
-static void on_set_vcpu_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-    DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-    GError *err = NULL;
+// static void on_set_vcpu_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
+//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
+//     GError *err = NULL;
 
-    if (purecvisor_vm_manager_set_vcpu_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-        _send_success_bool(ctx, TRUE);
-    } else {
-        _send_error(ctx, -32000, err ? err->message : "vCPU tuning failed");
-        if (err) g_error_free(err);
-    }
-    dispatcher_request_context_free(ctx);
-}
+//     if (purecvisor_vm_manager_set_vcpu_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
+//         _send_success_bool(ctx, TRUE);
+//     } else {
+//         _send_error(ctx, -32000, err ? err->message : "vCPU tuning failed");
+//         if (err) g_error_free(err);
+//     }
+//     dispatcher_request_context_free(ctx);
+// }
 
 /* --- Handlers --- */
 
@@ -243,63 +247,63 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, Dis
                                           ctx);
 }
 
-static void handle_vm_start(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    if (!json_object_has_member(params, "name")) {
-        _send_error(ctx, -32602, "Missing parameter: name");
-        dispatcher_request_context_free(ctx);
-        return;
-    }
-    const gchar *name = json_object_get_string_member(params, "name");
-    purecvisor_vm_manager_start_vm_async(self->vm_manager, name, on_start_finished, ctx);
-}
+// static void handle_vm_start(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     if (!json_object_has_member(params, "name")) {
+//         _send_error(ctx, -32602, "Missing parameter: name");
+//         dispatcher_request_context_free(ctx);
+//         return;
+//     }
+//     const gchar *name = json_object_get_string_member(params, "name");
+//     purecvisor_vm_manager_start_vm_async(self->vm_manager, name, on_start_finished, ctx);
+// }
 
-static void handle_vm_stop(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    if (!json_object_has_member(params, "name")) {
-        _send_error(ctx, -32602, "Missing parameter: name");
-        dispatcher_request_context_free(ctx);
-        return;
-    }
-    const gchar *name = json_object_get_string_member(params, "name");
-    purecvisor_vm_manager_stop_vm_async(self->vm_manager, name, on_stop_finished, ctx);
-}
+// static void handle_vm_stop(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     if (!json_object_has_member(params, "name")) {
+//         _send_error(ctx, -32602, "Missing parameter: name");
+//         dispatcher_request_context_free(ctx);
+//         return;
+//     }
+//     const gchar *name = json_object_get_string_member(params, "name");
+//     purecvisor_vm_manager_stop_vm_async(self->vm_manager, name, on_stop_finished, ctx);
+// }
 
-static void handle_vm_delete(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    if (!json_object_has_member(params, "name")) {
-        _send_error(ctx, -32602, "Missing parameter: name");
-        dispatcher_request_context_free(ctx);
-        return;
-    }
-    const gchar *name = json_object_get_string_member(params, "name");
-    purecvisor_vm_manager_delete_vm_async(self->vm_manager, name, on_delete_finished, ctx);
-}
+// static void handle_vm_delete(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     if (!json_object_has_member(params, "name")) {
+//         _send_error(ctx, -32602, "Missing parameter: name");
+//         dispatcher_request_context_free(ctx);
+//         return;
+//     }
+//     const gchar *name = json_object_get_string_member(params, "name");
+//     purecvisor_vm_manager_delete_vm_async(self->vm_manager, name, on_delete_finished, ctx);
+// }
 
-static void handle_vm_list(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    purecvisor_vm_manager_list_vms_async(self->vm_manager, on_list_finished, ctx);
-}
+// static void handle_vm_list(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     purecvisor_vm_manager_list_vms_async(self->vm_manager, on_list_finished, ctx);
+// }
 
-static void handle_vm_set_memory(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "memory_mb")) {
-        _send_error(ctx, -32602, "Missing parameter: vm_name or memory_mb");
-        dispatcher_request_context_free(ctx);
-        return;
-    }
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-    guint memory_mb = (guint)json_object_get_int_member(params, "memory_mb");
+// static void handle_vm_set_memory(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "memory_mb")) {
+//         _send_error(ctx, -32602, "Missing parameter: vm_name or memory_mb");
+//         dispatcher_request_context_free(ctx);
+//         return;
+//     }
+//     const gchar *vm_name = json_object_get_string_member(params, "vm_name");
+//     guint memory_mb = (guint)json_object_get_int_member(params, "memory_mb");
 
-    purecvisor_vm_manager_set_memory_async(self->vm_manager, vm_name, memory_mb, NULL, on_set_memory_finished, ctx);
-}
+//     purecvisor_vm_manager_set_memory_async(self->vm_manager, vm_name, memory_mb, NULL, on_set_memory_finished, ctx);
+// }
 
-static void handle_vm_set_vcpu(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-    if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "vcpu_count")) {
-        _send_error(ctx, -32602, "Missing parameter: vm_name or vcpu_count");
-        dispatcher_request_context_free(ctx);
-        return;
-    }
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-    guint vcpu_count = (guint)json_object_get_int_member(params, "vcpu_count");
+// static void handle_vm_set_vcpu(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
+//     if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "vcpu_count")) {
+//         _send_error(ctx, -32602, "Missing parameter: vm_name or vcpu_count");
+//         dispatcher_request_context_free(ctx);
+//         return;
+//     }
+//     const gchar *vm_name = json_object_get_string_member(params, "vm_name");
+//     guint vcpu_count = (guint)json_object_get_int_member(params, "vcpu_count");
 
-    purecvisor_vm_manager_set_vcpu_async(self->vm_manager, vm_name, vcpu_count, NULL, on_set_vcpu_finished, ctx);
-}
+//     purecvisor_vm_manager_set_vcpu_async(self->vm_manager, vm_name, vcpu_count, NULL, on_set_vcpu_finished, ctx);
+// }
 
 /* --- Initialization --- */
 
@@ -372,16 +376,24 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     ctx->request_id = id;
 
     // --- 라우팅 ---
+    
     if (g_strcmp0(method, "vm.create") == 0) {
         handle_vm_create(self, params, ctx);
     } else if (g_strcmp0(method, "vm.start") == 0) {
-        handle_vm_start(self, params, ctx);
+        // 우리가 만든 최신 비동기 & Lock-Free 스케줄러 핸들러로 교체!
+        handle_vm_start_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+        // handle_vm_start(self, params, ctx);
+    // 🚀 [수정됨] 새롭게 추가된 생명주기 API 라우팅
     } else if (g_strcmp0(method, "vm.stop") == 0) {
-        handle_vm_stop(self, params, ctx);
+        handle_vm_stop_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
     } else if (g_strcmp0(method, "vm.delete") == 0) {
-        handle_vm_delete(self, params, ctx);
+        handle_vm_delete_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
     } else if (g_strcmp0(method, "vm.list") == 0) {
-        handle_vm_list(self, params, ctx);
+        handle_vm_list_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
     } else if (g_strcmp0(method, "vm.snapshot.create") == 0) {
         handle_vm_snapshot_create(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx); // Phase 6는 자체 context(RpcAsyncContext)를 쓰므로 메모리 해제
@@ -391,13 +403,22 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     } else if (g_strcmp0(method, "vm.snapshot.rollback") == 0) {
         handle_vm_snapshot_rollback(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
+
+    // 🚀 [수정됨] 새롭게 분리된 핫플러그 API 라우팅
+    } else if (g_strcmp0(method, "vm.set_memory") == 0) {
+        handle_vm_set_memory_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "vm.set_vcpu") == 0) {
+        handle_vm_set_vcpu_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+
     } else if (g_strcmp0(method, "vm.snapshot.delete") == 0) {
         handle_vm_snapshot_delete(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
-    } else if (g_strcmp0(method, "vm.set_memory") == 0) {
-        handle_vm_set_memory(self, params, ctx);
-    } else if (g_strcmp0(method, "vm.set_vcpu") == 0) {
-        handle_vm_set_vcpu(self, params, ctx);
+    // 🚀 [수정됨] VNC 요청을 else if 체인 안으로 편입하고, Phase 6 파라미터 적용
+    } else if (g_strcmp0(method, "get_vnc_info") == 0) {
+        handle_vnc_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx); // 비동기로 별도 동작하므로 기존 ctx는 해제
     } else {
         // Method Not Found
         gchar *err_resp = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND, "Method not found");
@@ -405,6 +426,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         g_free(err_resp);    
         dispatcher_request_context_free(ctx);
     }
+    
 
     g_free(rpc_id_str); // 문자열 ID 메모리 정리
     g_object_unref(parser);
