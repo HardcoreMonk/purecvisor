@@ -301,6 +301,114 @@ void cmd_monitor_metrics(int argc, char *argv[]) {
     g_free(response);
 }
 
+void cmd_storage_pool(int argc, char *argv[]) {
+    if (argc < 4 || g_strcmp0(argv[3], "list") != 0) {
+        printf(CYBER_YELLOW "Usage: purecvisorctl storage pool list\n" CYBER_RESET); return;
+    }
+    
+    GError *error = NULL;
+    gchar *response = purectl_send_request("storage.pool.list", json_object_new(), &error);
+    if (error) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, error->message); g_error_free(error); return; }
+
+    JsonParser *parser = json_parser_new();
+    json_parser_load_from_data(parser, response, -1, NULL);
+    JsonArray *result_arr = json_object_get_array_member(json_node_get_object(json_parser_get_root(parser)), "result");
+    
+    print_cyber_banner();
+    printf(CYBER_CYAN CYBER_BOLD " %-15s │ %-10s │ %-10s │ %-10s │ %-10s\n" CYBER_RESET, "POOL_NAME", "TOTAL_SIZE", "ALLOCATED", "FREE_SPACE", "HEALTH");
+    printf(CYBER_CYAN "─────────────────┼────────────┼────────────┼────────────┼────────────\n" CYBER_RESET);
+    
+    if (!result_arr || json_array_get_length(result_arr) == 0) {
+        printf(CYBER_DIM " [ NO ZFS POOLS DETECTED IN MAINFRAME ]\n" CYBER_RESET);
+    } else {
+        for (guint i = 0; i < json_array_get_length(result_arr); i++) {
+            JsonObject *row = json_array_get_object_element(result_arr, i);
+            const gchar *health = json_object_get_string_member(row, "health");
+            const gchar *h_color = g_strcmp0(health, "ONLINE") == 0 ? CYBER_GREEN : CYBER_RED;
+            
+            printf(CYBER_DIM " %-15s" CYBER_RESET " │ %-10s │ " CYBER_YELLOW "%-10s" CYBER_RESET " │ %-10s │ %s%-10s" CYBER_RESET "\n", 
+                json_object_get_string_member(row, "name"), json_object_get_string_member(row, "size"),
+                json_object_get_string_member(row, "alloc"), json_object_get_string_member(row, "free"), h_color, health);
+        }
+    }
+    printf(CYBER_CYAN "─────────────────┴────────────┴────────────┴────────────┴────────────\n\n" CYBER_RESET);
+    g_object_unref(parser); g_free(response);
+}
+
+void cmd_storage_zvol(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf(CYBER_YELLOW "Usage:\n");
+        printf("  purecvisorctl storage zvol list\n");
+        printf("  purecvisorctl storage zvol create <pool/path> --size <size>\n");
+        printf("  purecvisorctl storage zvol delete <pool/path>\n" CYBER_RESET);
+        return;
+    }
+
+    const gchar *action = argv[3];
+
+    // --- 1. LIST ---
+    if (g_strcmp0(action, "list") == 0) {
+        GError *err = NULL;
+        gchar *res = purectl_send_request("storage.zvol.list", json_object_new(), &err);
+        if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+
+        JsonParser *parser = json_parser_new();
+        json_parser_load_from_data(parser, res, -1, NULL);
+        JsonArray *arr = json_object_get_array_member(json_node_get_object(json_parser_get_root(parser)), "result");
+        
+        print_cyber_banner();
+        printf(CYBER_CYAN CYBER_BOLD " %-40s │ %-10s │ %-10s\n" CYBER_RESET, "ZVOL_PATH (BLOCK DEVICE)", "VOL_SIZE", "ACTUAL_USED");
+        printf(CYBER_CYAN "──────────────────────────────────────────┼────────────┼────────────\n" CYBER_RESET);
+        if (!arr || json_array_get_length(arr) == 0) {
+            printf(CYBER_DIM " [ NO ZVOL BLOCK DEVICES DETECTED ]\n" CYBER_RESET);
+        } else {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *row = json_array_get_object_element(arr, i);
+                printf(CYBER_DIM " %-40s" CYBER_RESET " │ " CYBER_GREEN "%-10s" CYBER_RESET " │ " CYBER_YELLOW "%-10s" CYBER_RESET "\n", 
+                    json_object_get_string_member(row, "name"), json_object_get_string_member(row, "volsize"), json_object_get_string_member(row, "used"));
+            }
+        }
+        printf(CYBER_CYAN "──────────────────────────────────────────┴────────────┴────────────\n\n" CYBER_RESET);
+        g_object_unref(parser); g_free(res);
+    } 
+    // --- 2. CREATE ---
+    else if (g_strcmp0(action, "create") == 0) {
+        if (argc < 7 || g_strcmp0(argv[5], "--size") != 0) {
+            printf(CYBER_YELLOW "Usage: purecvisorctl storage zvol create <pool/path> --size <size>\n" CYBER_RESET);
+            printf("Example: purecvisorctl storage zvol create tank/vms/pure-vm1 --size 20G\n");
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "zvol_path", argv[4]);
+        json_object_set_string_member(params, "size", argv[6]);
+
+        GError *err = NULL;
+        gchar *res = purectl_send_request("storage.zvol.create", params, &err);
+        if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+        print_action_response(res, "ZVOL_CREATE");
+        g_free(res);
+    } 
+    // --- 3. DELETE ---
+    else if (g_strcmp0(action, "delete") == 0) {
+        if (argc < 5) {
+            printf(CYBER_YELLOW "Usage: purecvisorctl storage zvol delete <pool/path>\n" CYBER_RESET);
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "zvol_path", argv[4]);
+
+        GError *err = NULL;
+        gchar *res = purectl_send_request("storage.zvol.delete", params, &err);
+        if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+        print_action_response(res, "ZVOL_DELETE");
+        g_free(res);
+    } 
+    else {
+        printf(CYBER_RED "[!] UNKNOWN ZVOL ACTION: %s\n" CYBER_RESET, action);
+    }
+}
+
+
 // =================================================================
 // 🚀 [라우팅 테이블] 구조체 배열 기반 우아한 명령어 라우터
 // =================================================================
@@ -322,6 +430,8 @@ CommandRoute routes[] = {
     {"monitor", "metrics", cmd_monitor_metrics, "Show realtime VM resource usage"}, // 🚀 신규 추가
     {"network", "create", cmd_net_create, "Create a network (nat/bridge)"},
     {"network", "delete", cmd_net_delete, "Delete a network"},
+    {"storage", "pool", cmd_storage_pool, "Manage ZFS Storage Pools (e.g., list)"},
+    {"storage", "zvol", cmd_storage_zvol, "Manage ZVOL Block Devices (e.g., list)"},
     // 💡 새로운 기능이 생기면 이 배열에 한 줄만 추가하면 끝입니다!
     {NULL, NULL, NULL, NULL}
 };

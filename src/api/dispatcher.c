@@ -12,6 +12,7 @@
 #include "modules/dispatcher/handler_vm_lifecycle.h"
 #include "modules/dispatcher/handler_vm_hotplug.h"
 #include "modules/network/network_manager.h"
+#include "modules/dispatcher/handler_storage.h"
 
 struct _PureCVisorDispatcher {
     GObject parent_instance;
@@ -381,6 +382,20 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         handle_vm_metrics_request(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
     
+    } else if (g_strcmp0(method, "storage.pool.list") == 0) {
+        handle_storage_pool_list_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "storage.zvol.list") == 0) {
+        handle_storage_zvol_list_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+
+    // ... (기존 storage.pool.list 와 storage.zvol.list 아래에 추가) ...
+    } else if (g_strcmp0(method, "storage.zvol.create") == 0) {
+        handle_storage_zvol_create_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "storage.zvol.delete") == 0) {
+        handle_storage_zvol_delete_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
 
     } else {
         // Method Not Found
