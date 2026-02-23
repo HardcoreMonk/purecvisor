@@ -11,6 +11,7 @@
 #include "modules/dispatcher/handler_vm_start.h"
 #include "modules/dispatcher/handler_vm_lifecycle.h"
 #include "modules/dispatcher/handler_vm_hotplug.h"
+#include "modules/network/network_manager.h"
 
 struct _PureCVisorDispatcher {
     GObject parent_instance;
@@ -247,63 +248,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, Dis
                                           ctx);
 }
 
-// static void handle_vm_start(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     if (!json_object_has_member(params, "name")) {
-//         _send_error(ctx, -32602, "Missing parameter: name");
-//         dispatcher_request_context_free(ctx);
-//         return;
-//     }
-//     const gchar *name = json_object_get_string_member(params, "name");
-//     purecvisor_vm_manager_start_vm_async(self->vm_manager, name, on_start_finished, ctx);
-// }
 
-// static void handle_vm_stop(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     if (!json_object_has_member(params, "name")) {
-//         _send_error(ctx, -32602, "Missing parameter: name");
-//         dispatcher_request_context_free(ctx);
-//         return;
-//     }
-//     const gchar *name = json_object_get_string_member(params, "name");
-//     purecvisor_vm_manager_stop_vm_async(self->vm_manager, name, on_stop_finished, ctx);
-// }
-
-// static void handle_vm_delete(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     if (!json_object_has_member(params, "name")) {
-//         _send_error(ctx, -32602, "Missing parameter: name");
-//         dispatcher_request_context_free(ctx);
-//         return;
-//     }
-//     const gchar *name = json_object_get_string_member(params, "name");
-//     purecvisor_vm_manager_delete_vm_async(self->vm_manager, name, on_delete_finished, ctx);
-// }
-
-// static void handle_vm_list(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     purecvisor_vm_manager_list_vms_async(self->vm_manager, on_list_finished, ctx);
-// }
-
-// static void handle_vm_set_memory(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "memory_mb")) {
-//         _send_error(ctx, -32602, "Missing parameter: vm_name or memory_mb");
-//         dispatcher_request_context_free(ctx);
-//         return;
-//     }
-//     const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-//     guint memory_mb = (guint)json_object_get_int_member(params, "memory_mb");
-
-//     purecvisor_vm_manager_set_memory_async(self->vm_manager, vm_name, memory_mb, NULL, on_set_memory_finished, ctx);
-// }
-
-// static void handle_vm_set_vcpu(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
-//     if (!json_object_has_member(params, "vm_name") || !json_object_has_member(params, "vcpu_count")) {
-//         _send_error(ctx, -32602, "Missing parameter: vm_name or vcpu_count");
-//         dispatcher_request_context_free(ctx);
-//         return;
-//     }
-//     const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-//     guint vcpu_count = (guint)json_object_get_int_member(params, "vcpu_count");
-
-//     purecvisor_vm_manager_set_vcpu_async(self->vm_manager, vm_name, vcpu_count, NULL, on_set_vcpu_finished, ctx);
-// }
 
 /* --- Initialization --- */
 
@@ -415,10 +360,28 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     } else if (g_strcmp0(method, "vm.snapshot.delete") == 0) {
         handle_vm_snapshot_delete(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "network.create") == 0) {
+        handle_network_create_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    // 🚀 [추가] 네트워크 삭제 API 라우팅
+    } else if (g_strcmp0(method, "network.delete") == 0) {
+        handle_network_delete_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
     // 🚀 [수정됨] VNC 요청을 else if 체인 안으로 편입하고, Phase 6 파라미터 적용
     } else if (g_strcmp0(method, "get_vnc_info") == 0) {
         handle_vnc_request(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx); // 비동기로 별도 동작하므로 기존 ctx는 해제
+
+    } else if (g_strcmp0(method, "vm.limit") == 0) {
+        handle_vm_limit_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+
+    // 🚀 [신규 추가] 실시간 텔레메트리 API 라우팅
+    } else if (g_strcmp0(method, "vm.metrics") == 0) {
+        handle_vm_metrics_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    
+
     } else {
         // Method Not Found
         gchar *err_resp = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND, "Method not found");

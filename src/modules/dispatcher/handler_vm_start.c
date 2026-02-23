@@ -15,6 +15,9 @@
 #include "modules/core/vm_state.h"
 #include "modules/core/cpu_allocator.h"
 
+// 라이프사이클 모듈에 구현된 다형성 검색 함수를 연결 (Linkage)
+extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier);
+
 #define MAX_PHYSICAL_CPUS 256
 
 typedef struct {
@@ -49,9 +52,11 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
         return;
     }
 
-    virDomainPtr dom = virDomainLookupByUUIDString(conn, ctx->vm_id);
+    
+    // 🚀 다형성 검색 함수(UUID or Name)로 완벽 교체!
+    virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
     if (!dom) {
-        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "VM UUID %s not found.", ctx->vm_id);
+        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Entity '%s' not found.", ctx->vm_id);
         goto cleanup_conn;
     }
 
