@@ -288,35 +288,53 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     g_object_unref(task);
 }
 
-// VM.DELETE 진입점
+// =================================================================
+// [가상 머신 삭제] 강제 종료 및 XML 뼈대 파괴 (Undefine)
+// =================================================================
 void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
-    if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' missing");
-        pure_uds_server_send_response(server, connection, err_resp);
-        g_free(err_resp); return;
-    }
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
-
-    gchar *err_msg = NULL;
-    if (!lock_vm_operation(vm_id, 3, &err_msg)) { // 3 = OP_DELETING
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, err_msg);
-        pure_uds_server_send_response(server, connection, err_resp);
-        g_free(err_resp); g_free(err_msg); return;
+    if (!vm_id) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: vm_id");
+        pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
-    VmLifecycleCtx *ctx = g_new0(VmLifecycleCtx, 1);
-    ctx->vm_id = g_strdup(vm_id); ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
-    // 🚀 추가: 워커 스레드에게 "이것은 delete 명령이야"라고 알려줍니다.
-    ctx->action = g_strdup("delete"); 
-    ctx->rpc_id = g_strdup(rpc_id);
-    
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    if (!conn) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor Connection Failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err); return;
+    }
 
-    GTask *task = g_task_new(NULL, NULL, vm_action_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
-    g_object_set_data(G_OBJECT(task), "is_delete", GINT_TO_POINTER(TRUE));
-    g_task_run_in_thread(task, vm_action_worker);
-    g_object_unref(task);
+    // 1. 다형성 검색 (이름 or UUID)
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+    if (!dom) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM Entity not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virConnectClose(conn); return;
+    }
+
+    // 2. 만약 VM이 켜져있다면 강제로 전원 차단 (Destroy)
+    virDomainInfo info;
+    virDomainGetInfo(dom, &info);
+    if (info.state != VIR_DOMAIN_SHUTOFF) {
+        virDomainDestroy(dom);
+    }
+
+    // 3. Libvirt에서 가상 머신 뼈대(XML) 완전히 소각 (Undefine)
+    int ret = virDomainUndefine(dom);
+    
+    virDomainFree(dom);
+    virConnectClose(conn);
+
+    // 4. 결과 반환
+    if (ret == 0) {
+        JsonNode *res_node = json_node_new(JSON_NODE_VALUE);
+        json_node_set_boolean(res_node, TRUE);
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+    } else {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Failed to undefine VM from Libvirt");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    }
 }
 
 // 🚀 Limit 전용 요청 핸들러

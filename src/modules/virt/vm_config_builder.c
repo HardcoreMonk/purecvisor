@@ -62,6 +62,10 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
     // 2. OS & Features
     GVirConfigDomainOs *os = gvir_config_domain_os_new();
     gvir_config_domain_os_set_os_type(os, GVIR_CONFIG_DOMAIN_OS_TYPE_HVM);
+
+    // 🚀 [추가] 1996년산 i440fx 대신, 핫플러그를 네이티브 지원하는 최신 q35 마더보드로 강제 업그레이드!
+    gvir_config_domain_os_set_machine(os, "q35");
+
     gvir_config_domain_set_os(domain, os);
     g_object_unref(os);
 
@@ -90,7 +94,11 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
         gvir_config_domain_disk_set_type(cdrom, GVIR_CONFIG_DOMAIN_DISK_FILE);
         gvir_config_domain_disk_set_guest_device_type(cdrom, GVIR_CONFIG_DOMAIN_DISK_GUEST_DEVICE_CDROM);
         gvir_config_domain_disk_set_source(cdrom, config->iso_path);
-        gvir_config_domain_disk_set_target_dev(cdrom, "hda");
+
+        // 🚀 [수정됨] q35 보드는 IDE(hda)를 버렸으므로, 네이티브 SATA(sda) 버스로 장착!
+        gvir_config_domain_disk_set_target_bus(cdrom, GVIR_CONFIG_DOMAIN_DISK_BUS_SATA);
+        gvir_config_domain_disk_set_target_dev(cdrom, "sda");
+
         gvir_config_domain_disk_set_readonly(cdrom, TRUE);
         
         gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(cdrom));

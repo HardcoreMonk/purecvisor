@@ -13,6 +13,10 @@
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/dispatcher/handler_vm_hotplug.h"
 
+// 라이프사이클 모듈에 있는 다형성 검색 함수를 재사용합니다.
+extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier);
+
+
 // =================================================================
 // 공통 컨텍스트 구조체
 // =================================================================
@@ -163,4 +167,120 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
     g_task_set_task_data(task, ctx, free_hotplug_ctx);
     g_task_run_in_thread(task, vm_set_vcpu_worker);
     g_object_unref(task);
+}
+
+// =================================================================
+// [API 진입점] 라이브 디스크 장착 (Attach)
+// =================================================================
+void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    const gchar *source_dev = json_object_get_string_member(params, "source");
+    const gchar *target_dev = json_object_get_string_member(params, "target");
+
+    if (!vm_id || !source_dev || !target_dev) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing vm_id, source, or target");
+        pure_uds_server_send_response(server, connection, err); g_free(err); return;
+    }
+
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+
+    if (!dom) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virConnectClose(conn); return;
+    }
+
+    // 🚀 [핵심] ZVOL을 위한 블록 디바이스 XML 조립 (virtio 버스 사용)
+    gchar *xml_payload = g_strdup_printf(
+        "<disk type='block' device='disk'>\n"
+        "  <driver name='qemu' type='raw' cache='none' io='native'/>\n"
+        "  <source dev='%s'/>\n"
+        "  <target dev='%s' bus='virtio'/>\n"
+        "</disk>", source_dev, target_dev);
+
+    // VIR_DOMAIN_AFFECT_LIVE: 켜져 있는 상태에 즉시 반영
+    // VIR_DOMAIN_AFFECT_CONFIG: 재부팅 후에도 유지되도록 설정 파일에 저장
+    unsigned int flags = VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG;
+
+    if (virDomainAttachDeviceFlags(dom, xml_payload, flags) < 0) {
+        virErrorPtr libvirt_err = virGetLastError();
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Attach failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    } else {
+        JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(res_node, json_object_new());
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    }
+
+    g_free(xml_payload);
+    virDomainFree(dom);
+    virConnectClose(conn);
+}
+
+// =================================================================
+// [블록 디바이스 적출] Live XML 파싱 기반 완벽 적출 엔진
+// =================================================================
+void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    const gchar *target_dev = json_object_get_string_member(params, "target");
+
+    if (!vm_id || !target_dev) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing vm_id or target");
+        pure_uds_server_send_response(server, connection, err); g_free(err); return;
+    }
+
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+
+    if (!dom) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virConnectClose(conn); return;
+    }
+
+    // 1. 가동 중인 가상 머신의 실시간(Live) XML을 가져옵니다.
+    gchar *live_xml = virDomainGetXMLDesc(dom, 0);
+    gchar *target_tag = g_strdup_printf("<target dev='%s'", target_dev);
+    
+    // 2. XML 내부에서 타겟 디바이스(예: vdb)의 위치를 찾습니다.
+    gchar *target_pos = strstr(live_xml, target_tag);
+    
+    if (!target_pos) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Device not found in live XML");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        g_free(live_xml); g_free(target_tag); virDomainFree(dom); virConnectClose(conn); return;
+    }
+
+    // 3. 해당 타겟을 감싸고 있는 <disk> 태그의 시작과 끝을 역추적하여 완벽하게 발라냅니다.
+    gchar *disk_start = target_pos;
+    while (disk_start >= live_xml && strncmp(disk_start, "<disk ", 6) != 0 && strncmp(disk_start, "<disk>", 6) != 0) {
+        disk_start--;
+    }
+    
+    gchar *disk_end = strstr(target_pos, "</disk>");
+    if (disk_end) disk_end += 7; // "</disk>" 문자열 길이 포함
+
+    // 발라낸 100% 순정 디스크 XML
+    gchar *exact_xml = g_strndup(disk_start, disk_end - disk_start);
+
+    // 4. 완벽한 XML로 적출(Detach) 타격!
+    // unsigned int flags = VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG;
+    unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
+    if (virDomainDetachDeviceFlags(dom, exact_xml, flags) < 0) {
+        virErrorPtr libvirt_err = virGetLastError();
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Detach failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    } else {
+        JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(res_node, json_object_new());
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    }
+
+    // 메모리 대청소
+    g_free(exact_xml);
+    g_free(target_tag);
+    g_free(live_xml);
+    virDomainFree(dom);
+    virConnectClose(conn);
 }
