@@ -147,6 +147,64 @@ void print_action_response(const gchar *json_string, const gchar *action_name) {
 // =================================================================
 // [핸들러 구현] 개별 명령어 실행 로직
 // =================================================================
+
+// =================================================================
+// [커맨드 라우팅] VM 생성 (Create)
+// =================================================================
+void cmd_vm_create(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf(CYBER_YELLOW "Usage: purecvisorctl vm create <name> [--vcpu <cores>] [--memory_mb <mb>] [--disk_size_gb <gb>] [--iso_path <path>] [--network_bridge <bridge>]\n" CYBER_RESET);
+        printf("Example: purecvisorctl vm create big-vm --vcpu 4 --memory_mb 4096 --disk_size_gb 20\n");
+        return;
+    }
+
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[3]);
+
+    // 파라미터 동적 파싱
+    for (int i = 4; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--vcpu") == 0 && i+1 < argc) {
+            json_object_set_int_member(params, "vcpu", atoi(argv[++i]));
+        } else if (g_strcmp0(argv[i], "--memory_mb") == 0 && i+1 < argc) {
+            json_object_set_int_member(params, "memory_mb", atoi(argv[++i]));
+        } else if (g_strcmp0(argv[i], "--disk_size_gb") == 0 && i+1 < argc) {
+            json_object_set_int_member(params, "disk_size_gb", atoi(argv[++i]));
+        } else if (g_strcmp0(argv[i], "--iso_path") == 0 && i+1 < argc) {
+            json_object_set_string_member(params, "iso_path", argv[++i]);
+        } else if (g_strcmp0(argv[i], "--network_bridge") == 0 && i+1 < argc) {
+            json_object_set_string_member(params, "network_bridge", argv[++i]);
+        }
+    }
+
+    GError *error = NULL;
+    gchar *response = purectl_send_request("vm.create", params, &error);
+    if (error) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, error->message); g_error_free(error); return; }
+
+    print_action_response(response, "VM_CREATE");
+    g_free(response);
+}
+
+// =================================================================
+// [커맨드 라우팅] VM 삭제 (Delete)
+// =================================================================
+void cmd_vm_delete(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf(CYBER_YELLOW "Usage: purecvisorctl vm delete <uuid_or_name>\n" CYBER_RESET);
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+
+    GError *error = NULL;
+    gchar *response = purectl_send_request("vm.delete", params, &error);
+    if (error) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, error->message); g_error_free(error); return; }
+
+    print_action_response(response, "VM_DELETE");
+    g_free(response);
+}
+
+
+
 void cmd_vm_list(int argc, char *argv[]) {
     GError *error = NULL;
     gchar *response = purectl_send_request("vm.list", json_object_new(), &error);
@@ -408,6 +466,51 @@ void cmd_storage_zvol(int argc, char *argv[]) {
     }
 }
 
+void cmd_device_disk(int argc, char *argv[]) {
+    if (argc < 6) {
+        printf(CYBER_YELLOW "Usage:\n");
+        printf("  purecvisorctl device disk attach <vm_id> --source <zvol_path> --target <vdb|vdc>\n");
+        printf("  purecvisorctl device disk detach <vm_id> --target <vdb|vdc>\n" CYBER_RESET);
+        printf("Example: purecvisorctl device disk attach big-vm --source /dev/zvol/tank/vms/test --target vdb\n");
+        return;
+    }
+
+    const gchar *action = argv[3];
+    const gchar *vm_id = argv[4];
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", vm_id);
+
+    // 파라미터 파싱
+    for (int i = 5; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--source") == 0 && i+1 < argc) {
+            json_object_set_string_member(params, "source", argv[++i]);
+        } else if (g_strcmp0(argv[i], "--target") == 0 && i+1 < argc) {
+            json_object_set_string_member(params, "target", argv[++i]);
+        }
+        // 🚀 신규: --bus 파싱 추가
+        else if (g_strcmp0(argv[i], "--bus") == 0 && i+1 < argc) {
+            json_object_set_string_member(params, "bus", argv[++i]);
+        }
+    }
+
+    GError *err = NULL;
+    gchar *res = NULL;
+
+    if (g_strcmp0(action, "attach") == 0) {
+        res = purectl_send_request("device.disk.attach", params, &err);
+        if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+        print_action_response(res, "DISK_ATTACH");
+    } else if (g_strcmp0(action, "detach") == 0) {
+        res = purectl_send_request("device.disk.detach", params, &err);
+        if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+        print_action_response(res, "DISK_DETACH");
+    } else {
+        printf(CYBER_RED "[!] UNKNOWN DISK ACTION: %s\n" CYBER_RESET, action);
+    }
+    
+    if (res) g_free(res);
+}
+
 
 // =================================================================
 // 🚀 [라우팅 테이블] 구조체 배열 기반 우아한 명령어 라우터
@@ -422,6 +525,8 @@ typedef struct {
 } CommandRoute;
 
 CommandRoute routes[] = {
+    {"vm", "create", cmd_vm_create, "Create a new virtual machine"},
+    {"vm", "delete", cmd_vm_delete, "Delete a virtual machine"},
     {"vm", "list", cmd_vm_list, "List all virtual machines"},
     {"vm", "start", cmd_vm_start, "Start a VM by UUID or Name"},
     {"vm", "stop", cmd_vm_stop, "Stop a VM forcefully"},
@@ -432,6 +537,7 @@ CommandRoute routes[] = {
     {"network", "delete", cmd_net_delete, "Delete a network"},
     {"storage", "pool", cmd_storage_pool, "Manage ZFS Storage Pools (e.g., list)"},
     {"storage", "zvol", cmd_storage_zvol, "Manage ZVOL Block Devices (e.g., list)"},
+    {"device", "disk", cmd_device_disk, "Live Attach/Detach Block Devices (ZVOL)"},
     // 💡 새로운 기능이 생기면 이 배열에 한 줄만 추가하면 끝입니다!
     {NULL, NULL, NULL, NULL}
 };

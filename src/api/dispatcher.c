@@ -110,110 +110,6 @@ static void on_create_finished(GObject *source, GAsyncResult *res, gpointer user
     dispatcher_request_context_free(ctx);
 }
 
-// static void on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-
-//     if (purecvisor_vm_manager_start_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-//         _send_success_bool(ctx, TRUE);
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "Start failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
-// static void on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-
-//     if (purecvisor_vm_manager_stop_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-//         _send_success_bool(ctx, TRUE);
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "Stop failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
-// static void on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-
-//     if (purecvisor_vm_manager_delete_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-//         _send_success_bool(ctx, TRUE);
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "Delete failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
-// static void on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-//     JsonNode *result_node = purecvisor_vm_manager_list_vms_finish(PURECVISOR_VM_MANAGER(source), res, &err);
-
-//     if (result_node) {
-//         JsonBuilder *builder = json_builder_new();
-//         json_builder_begin_object(builder);
-//         json_builder_set_member_name(builder, "jsonrpc");
-//         json_builder_add_string_value(builder, "2.0");
-        
-//         JsonNode *root = json_node_new(JSON_NODE_OBJECT);
-//         JsonObject *root_obj = json_object_new();
-//         json_object_set_string_member(root_obj, "jsonrpc", "2.0");
-//         json_object_set_member(root_obj, "result", result_node); 
-//         json_object_set_int_member(root_obj, "id", ctx->request_id);
-//         json_node_set_object(root, root_obj);
-
-//         JsonGenerator *gen = json_generator_new();
-//         json_generator_set_root(gen, root);
-//         gsize len;
-//         gchar *json_str = json_generator_to_data(gen, &len);
-        
-//         GString *msg = g_string_new(json_str);
-//         g_string_append_c(msg, '\n');
-//         pure_uds_server_send_response(ctx->server, ctx->connection, msg->str);
-
-//         g_string_free(msg, TRUE);
-//         g_free(json_str);
-//         g_object_unref(gen);
-//         json_node_free(root); 
-//         g_object_unref(builder); 
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "List failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
-// static void on_set_memory_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-
-//     if (purecvisor_vm_manager_set_memory_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-//         _send_success_bool(ctx, TRUE);
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "Memory tuning failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
-// static void on_set_vcpu_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
-//     DispatcherRequestContext *ctx = (DispatcherRequestContext *)user_data;
-//     GError *err = NULL;
-
-//     if (purecvisor_vm_manager_set_vcpu_finish(PURECVISOR_VM_MANAGER(source), res, &err)) {
-//         _send_success_bool(ctx, TRUE);
-//     } else {
-//         _send_error(ctx, -32000, err ? err->message : "vCPU tuning failed");
-//         if (err) g_error_free(err);
-//     }
-//     dispatcher_request_context_free(ctx);
-// }
-
 /* --- Handlers --- */
 
 static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
@@ -226,7 +122,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, Dis
     const gchar *name = json_object_get_string_member(params, "name");
     gint vcpu = 1;
     gint memory_mb = 1024;
-    gint disk_size_gb = 10;
+    gint disk_size_gb = 50;
     const gchar *iso_path = NULL;
     const gchar *bridge = NULL;
 
@@ -395,6 +291,13 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         dispatcher_request_context_free(ctx);
     } else if (g_strcmp0(method, "storage.zvol.delete") == 0) {
         handle_storage_zvol_delete_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+
+    } else if (g_strcmp0(method, "device.disk.attach") == 0) {
+        handle_device_disk_attach(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+    } else if (g_strcmp0(method, "device.disk.detach") == 0) {
+        handle_device_disk_detach(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
 
     } else {

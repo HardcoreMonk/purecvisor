@@ -126,77 +126,73 @@ static void create_vm_task_data_free(CreateVmTaskData *data) {
     g_free(data);
 }
 
-static void create_vm_thread(GTask *task, 
-                             gpointer source_object G_GNUC_UNUSED, 
-                             gpointer task_data, 
-                             GCancellable *cancellable G_GNUC_UNUSED) {
+// =================================================================
+// [워커 스레드] ZFS 동적 할당 및 XML 뼈대/SCSI 컨트롤러 이식 엔진
+// =================================================================
+static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_data, GCancellable *cancellable) {
     CreateVmTaskData *data = (CreateVmTaskData *)task_data;
-    GError *err = NULL;
-    PureCVisorVmConfig *vm_conf = NULL;
-    GVirConfigDomain *domain_conf = NULL;
-    gchar *xml_content = NULL;
-    GVirDomain *domain = NULL;
-  
-
-    // [Step 1] ZFS Volume 생성 (Storage)
-    // 인자로 받은 크기를 문자열로 변환 (예: 20 -> "20G")
-    gchar *size_str = g_strdup_printf("%dG", data->disk_size_gb);
+    GError *error = NULL;
     
-    if (!purecvisor_zfs_create_volume("tank/vms", data->name, size_str, &err)) {
-        g_free(size_str);
-        g_task_return_error(task, err);
-        return; // 스토리지 실패 시 즉시 종료
-    }
-    g_free(size_str);
-
-    // 2. VM Config 객체 생성
-    vm_conf = purecvisor_vm_config_new(data->name, data->vcpu, data->ram_mb);
+    // 1. ZFS ZVOL 자동 프로비저닝 (최소 50GB 보장)
+    gint final_disk_size = (data->disk_size_gb > 0) ? data->disk_size_gb : 50;
+    gchar *zvol_name = g_strdup_printf("rpool/vms/%s", data->name);
+    gchar *zvol_dev = g_strdup_printf("/dev/zvol/%s", zvol_name);
     
-    // Bridge 설정 적용
-    if (data->network_bridge) {
-        purecvisor_vm_config_set_network_bridge(vm_conf, data->network_bridge);
+    // zfs create -V 50G tank/vms/가상머신이름
+    gchar *zfs_cmd = g_strdup_printf("zfs create -V %dG %s", final_disk_size, zvol_name);
+    gint exit_status = 0;
+    gchar *std_err = NULL; // 🚀 신규: ZFS의 진짜 에러(stderr)를 잡을 그물
+
+    if (!g_spawn_command_line_sync(zfs_cmd, NULL, &std_err, &exit_status, &error) || exit_status != 0) {
+        gchar *err_msg = error ? error->message : (std_err ? g_strstrip(std_err) : "Unknown ZFS error");
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "ZFS Provisioning Failed: %s", err_msg);
+        
+        if (error) g_error_free(error);
+        if (std_err) g_free(std_err);
+        g_free(zvol_name); g_free(zvol_dev); g_free(zfs_cmd);
+        return;
     }
+    if (std_err) g_free(std_err); // 성공 시 그물 해제
+    
 
-    // ZFS Vol 경로 설정 (/dev/zvol/tank/vms/<name>)
-    gchar *zvol_dev_path = g_strdup_printf("/dev/zvol/tank/vms/%s", data->name);
-    purecvisor_vm_config_set_disk(vm_conf, zvol_dev_path);
-    g_free(zvol_dev_path);
+    // 2. VM 뼈대(XML) 조립 및 방금 만든 ZVOL 마운트
+    PureCVisorVmConfig *config = purecvisor_vm_config_new(data->name, data->vcpu, data->ram_mb);
+    
+    // 🚀 깎아낸 ZVOL 블록 디바이스 경로를 메인 디스크로 장착!
+    purecvisor_vm_config_set_disk(config, zvol_dev); 
+    
+    if (data->iso_path) purecvisor_vm_config_set_iso(config, data->iso_path);
+    if (data->network_bridge) purecvisor_vm_config_set_network_bridge(config, data->network_bridge);
 
-    if (data->iso_path) {
-        purecvisor_vm_config_set_iso(vm_conf, data->iso_path);
-    }
+    GVirConfigDomain *domain_config = purecvisor_vm_config_build(config);
+    gchar *raw_xml = gvir_config_object_to_xml(GVIR_CONFIG_OBJECT(domain_config));
 
-    // [Fix] Bridge 설정 적용
-    if (data->network_bridge) {
-        purecvisor_vm_config_set_network_bridge(vm_conf, data->network_bridge);
-    }
+    // 3. [흑마법] 통곡의 벽 파괴자: virtio-scsi 컨트롤러 척추 이식
+    gchar *scsi_xml = "<controller type='scsi' index='0' model='virtio-scsi'/>\n  </devices>";
+    gchar **xml_parts = g_strsplit(raw_xml, "</devices>", 2);
+    gchar *final_xml = g_strjoinv(scsi_xml, xml_parts);
 
-    // 3. Libvirt XML 생성
-    domain_conf = purecvisor_vm_config_build(vm_conf);
-    xml_content = gvir_config_object_to_xml(GVIR_CONFIG_OBJECT(domain_conf));
-
-    // 4. 도메인 정의 (Define)
-    domain = gvir_connection_create_domain(data->manager->conn, domain_conf, &err);
-    if (!domain) {
-        // [CRITICAL] VM 생성 실패 시 ZFS 볼륨 롤백 (삭제)
-        g_warning("VM definition failed. Rolling back ZFS volume for %s...", data->name);
-        GError *rollback_err = NULL;
-        if (!purecvisor_zfs_destroy_volume("tank/vms", data->name, &rollback_err)) {
-             g_critical("Rollback failed! Orphan volume '%s' exists: %s", data->name, rollback_err->message);
-             g_error_free(rollback_err);
-        }
-        // 실패 시 ZVol 롤백 고려 가능
-        g_task_return_error(task, err);
+    // 4. 네이티브 Libvirt API를 통한 최종 등록
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virDomainPtr dom = virDomainDefineXML(conn, final_xml);
+    
+    if (!dom) {
+        virErrorPtr libvirt_err = virGetLastError();
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, 
+            "Failed to define VM XML: %s", libvirt_err ? libvirt_err->message : "Unknown");
     } else {
-        // 성공
-        g_task_return_boolean(task, TRUE);
-        g_object_unref(domain);
+        virDomainFree(dom);
+        g_task_return_boolean(task, TRUE); // 성공!
     }
 
-    // 정리
-    g_free(xml_content);
-    g_object_unref(domain_conf);
-    purecvisor_vm_config_free(vm_conf);
+    // 메모리 정리
+    virConnectClose(conn);
+    g_strfreev(xml_parts);
+    g_free(final_xml);
+    g_free(raw_xml);
+    g_object_unref(domain_config);
+    purecvisor_vm_config_free(config);
+    g_free(zvol_name); g_free(zvol_dev); g_free(zfs_cmd);
 }
 
 void purecvisor_vm_manager_create_vm_async(PureCVisorVmManager *self,

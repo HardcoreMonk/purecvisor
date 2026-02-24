@@ -115,8 +115,10 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
         gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
         g_object_unref(iface);
     } else {
-        // User Mode (NAT / Default)
-        GVirConfigDomainInterfaceUser *iface = gvir_config_domain_interface_user_new();
+        
+        // 🚀 High-Performance NAT (Libvirt 'default' network)
+        GVirConfigDomainInterfaceNetwork *iface = gvir_config_domain_interface_network_new();
+        gvir_config_domain_interface_network_set_source(iface, "default"); // virbr0와 연결되는 기본 NAT 망
         gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(iface), "virtio");
         gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
         g_object_unref(iface);
