@@ -44,31 +44,36 @@ DAEMON_SRCS = \
     src/modules/network/network_firewall.c \
     src/modules/network/network_dhcp.c \
     src/modules/dispatcher/handler_storage.c \
+    src/modules/dispatcher/handler_monitor.c \
     $(COMMON_SRCS)
 
 # [3-3] 테스트 러너 및 CLI 소스
 TEST_SRCS = test_runner.c $(COMMON_SRCS)
 CLI_SRCS  = src/cli/purecvisorctl.c
+TUI_SRCS  = src/cli/purecvisortui.c
 
 # --- [4. 오브젝트 및 의존성 파일 변환] ---
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 TEST_OBJS   = $(TEST_SRCS:.c=.o)
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
-DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
+TUI_OBJS    = $(TUI_SRCS:.c=.o)
+DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d) $(TUI_SRCS:.c=.d)
 
 # --- [5. 빌드 타겟 이름 정의] ---
 DAEMON_BIN = bin/purecvisord
 TEST_BIN   = test_runner
 CLI_BIN    = bin/purecvisorctl
+TUI_BIN    = bin/purecvisortui
 
 # ==========================================================
 # 🚀 기본 타겟 (반드시 파일의 첫 번째 타겟이어야 함)
 # ==========================================================
-all: $(DAEMON_BIN) $(CLI_BIN)
+all: $(DAEMON_BIN) $(CLI_BIN) $(TUI_BIN)
 
 # 명시적 호출용 타겟
 daemon: $(DAEMON_BIN)
 cli: $(CLI_BIN)
+tui: $(TUI_BIN)
 
 # [데몬 링킹]
 $(DAEMON_BIN): $(DAEMON_OBJS)
@@ -81,6 +86,13 @@ $(CLI_BIN): $(CLI_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking CLI Client: $@"
 	$(CC) -o $@ $(CLI_OBJS) $(LDFLAGS)
+
+
+# [TUI 클라이언트 링킹]
+$(TUI_BIN): $(TUI_OBJS)
+	@mkdir -p bin
+	@echo "🔗 Linking TUI Client: $@"
+	$(CC) -o $@ $(TUI_OBJS) $(LDFLAGS)
 
 # [테스트 러너 링킹]
 test_runner: $(TEST_OBJS)

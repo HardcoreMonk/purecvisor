@@ -14,6 +14,12 @@
 #include "modules/network/network_manager.h"
 #include "modules/dispatcher/handler_storage.h"
 
+// 🚀 컴파일러의 잔소리(Warning)를 없애기 위한 명시적 함수 선언
+void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
+void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
+
+
+
 struct _PureCVisorDispatcher {
     GObject parent_instance;
     PureCVisorVmManager *vm_manager;
@@ -217,6 +223,8 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     ctx->connection = g_object_ref(connection);
     ctx->request_id = id;
 
+
+
     // --- 라우팅 ---
     
     if (g_strcmp0(method, "vm.create") == 0) {
@@ -299,6 +307,10 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     } else if (g_strcmp0(method, "device.disk.detach") == 0) {
         handle_device_disk_detach(params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
+    
+    // 🚀 [신규 추가] 모니터링 메트릭스 라우팅 이정표!
+    } else if (g_strcmp0(method, "monitor.metrics") == 0) {
+        handle_monitor_metrics(params, rpc_id_str, server, connection);
 
     } else {
         // Method Not Found
