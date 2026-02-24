@@ -511,6 +511,147 @@ void cmd_device_disk(int argc, char *argv[]) {
     if (res) g_free(res);
 }
 
+// =================================================================
+// [커맨드 라우팅] VNC 디스플레이 정보 조회
+// =================================================================
+void cmd_vm_vnc(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf(CYBER_YELLOW "Usage: purecvisorctl vm vnc <vm_id_or_name>\n" CYBER_RESET);
+        return;
+    }
+
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+
+    GError *error = NULL;
+    // 데몬의 라우터는 "get_vnc_info"라는 구형 메서드명을 기다리고 있음
+    gchar *response = purectl_send_request("get_vnc_info", params, &error);
+    
+    if (error) { 
+        g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, error->message); 
+        g_error_free(error); 
+        return; 
+    }
+
+    JsonParser *parser = json_parser_new();
+    json_parser_load_from_data(parser, response, -1, NULL);
+    JsonObject *root_obj = json_node_get_object(json_parser_get_root(parser));
+
+    if (json_object_has_member(root_obj, "error")) {
+        JsonObject *err_obj = json_object_get_object_member(root_obj, "error");
+        printf(CYBER_RED "[!] ERROR: %s\n" CYBER_RESET, json_object_get_string_member(err_obj, "message"));
+    } else if (json_object_has_member(root_obj, "result")) {
+        JsonNode *res_node = json_object_get_member(root_obj, "result");
+        
+        print_cyber_banner();
+        printf(CYBER_CYAN " [ VNC DISPLAY SIGNAL INTERCEPTED ]\n\n" CYBER_RESET);
+        printf(CYBER_DIM " TARGET VM : " CYBER_RESET "%s\n", argv[3]);
+        
+        // 결과가 JSON Object 형태일 경우 (host, port 파싱)
+        if (JSON_NODE_HOLDS_OBJECT(res_node)) {
+            JsonObject *res_obj = json_node_get_object(res_node);
+            const gchar *host = json_object_has_member(res_obj, "host") ? json_object_get_string_member(res_obj, "host") : "127.0.0.1";
+            gchar *port_str = NULL;
+            
+            if (json_object_has_member(res_obj, "port")) {
+                JsonNode *port_node = json_object_get_member(res_obj, "port");
+                if (json_node_get_value_type(port_node) == G_TYPE_INT || json_node_get_value_type(port_node) == G_TYPE_INT64) {
+                    port_str = g_strdup_printf("%ld", (long)json_node_get_int(port_node));
+                } else {
+                    port_str = g_strdup(json_node_get_string(port_node));
+                }
+            }
+            printf(CYBER_DIM " ADDRESS   : " CYBER_GREEN "%s:%s\n" CYBER_RESET, host, port_str ? port_str : "UNKNOWN");
+            if (port_str) g_free(port_str);
+        } 
+        // 결과가 단순 문자열일 경우
+        else if (JSON_NODE_HOLDS_VALUE(res_node)) {
+            printf(CYBER_DIM " ADDRESS   : " CYBER_GREEN "%s\n" CYBER_RESET, json_node_get_string(res_node));
+        }
+        printf(CYBER_CYAN "────────────────────────────────────────────────\n" CYBER_RESET);
+    }
+
+    g_object_unref(parser);
+    g_free(response);
+}
+
+// =================================================================
+// [커맨드 라우팅] 시간 조작 (ZFS Snapshot)
+// =================================================================
+void cmd_snapshot_create(int argc, char *argv[]) {
+    if (argc < 5) { printf(CYBER_YELLOW "Usage: purecvisorctl snapshot create <vm_name> <snap_name>\n" CYBER_RESET); return; }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+    json_object_set_string_member(params, "snap_name", argv[4]);
+
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.snapshot.create", params, &err);
+    if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+    print_action_response(res, "SNAPSHOT_CREATE"); g_free(res);
+}
+
+void cmd_snapshot_rollback(int argc, char *argv[]) {
+    if (argc < 5) { printf(CYBER_YELLOW "Usage: purecvisorctl snapshot rollback <vm_name> <snap_name>\n" CYBER_RESET); return; }
+    
+    printf(CYBER_RED "[!] WARNING: Time manipulation initiated. VM must be STOPPED to prevent severe disk corruption!\n" CYBER_RESET);
+    
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+    json_object_set_string_member(params, "snap_name", argv[4]);
+
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.snapshot.rollback", params, &err);
+    if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+    print_action_response(res, "SNAPSHOT_ROLLBACK"); g_free(res);
+}
+
+void cmd_snapshot_list(int argc, char *argv[]) {
+    if (argc < 4) { printf(CYBER_YELLOW "Usage: purecvisorctl snapshot list <vm_name>\n" CYBER_RESET); return; }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.snapshot.list", params, &err);
+    if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+    
+    JsonParser *parser = json_parser_new();
+    json_parser_load_from_data(parser, res, -1, NULL);
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    
+    if (json_object_has_member(root, "result")) {
+        print_cyber_banner();
+        printf(CYBER_CYAN " [ ZFS TIMELINES INTERCEPTED ]\n\n" CYBER_RESET);
+        printf(CYBER_GREEN "%s\n" CYBER_RESET, json_node_get_string(json_object_get_member(root, "result")));
+        printf(CYBER_CYAN "────────────────────────────────────────────────\n" CYBER_RESET);
+    }
+    g_object_unref(parser); g_free(res);
+}
+
+// =================================================================
+// [커맨드 라우팅] 시간 조작 (ZFS Snapshot Delete)
+// =================================================================
+void cmd_snapshot_delete(int argc, char *argv[]) {
+    if (argc < 5) { 
+        printf(CYBER_YELLOW "Usage: purecvisorctl snapshot delete <vm_name> <snap_name>\n" CYBER_RESET); 
+        return; 
+    }
+    
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
+    json_object_set_string_member(params, "snap_name", argv[4]);
+
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.snapshot.delete", params, &err);
+    
+    if (err) { 
+        g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); 
+        g_error_free(err); 
+        return; 
+    }
+    
+    print_action_response(res, "SNAPSHOT_DELETE"); 
+    g_free(res);
+}
 
 // =================================================================
 // 🚀 [라우팅 테이블] 구조체 배열 기반 우아한 명령어 라우터
@@ -531,13 +672,19 @@ CommandRoute routes[] = {
     {"vm", "start", cmd_vm_start, "Start a VM by UUID or Name"},
     {"vm", "stop", cmd_vm_stop, "Stop a VM forcefully"},
     {"vm", "pause", cmd_vm_pause, "Pause a running VM"},
-    {"vm", "limit", cmd_vm_limit, "Dynamically limit cgroup resources"}, // 🚀 새로 추가된 줄!
-    {"monitor", "metrics", cmd_monitor_metrics, "Show realtime VM resource usage"}, // 🚀 신규 추가
+    {"vm", "limit", cmd_vm_limit, "Dynamically limit cgroup resources"},
+    {"vm", "vnc", cmd_vm_vnc, "Get VNC display connection info"},
+    {"monitor", "metrics", cmd_monitor_metrics, "Show realtime VM resource usage"},
     {"network", "create", cmd_net_create, "Create a network (nat/bridge)"},
     {"network", "delete", cmd_net_delete, "Delete a network"},
     {"storage", "pool", cmd_storage_pool, "Manage ZFS Storage Pools (e.g., list)"},
     {"storage", "zvol", cmd_storage_zvol, "Manage ZVOL Block Devices (e.g., list)"},
     {"device", "disk", cmd_device_disk, "Live Attach/Detach Block Devices (ZVOL)"},
+    // 🚀 ZFS Snapshot 명령어 추가
+    {"snapshot", "create", cmd_snapshot_create, "Freeze VM state (ZFS Snapshot)"},
+    {"snapshot", "list", cmd_snapshot_list, "List all timelines for a VM"},
+    {"snapshot", "rollback", cmd_snapshot_rollback, "Rewind VM to a previous timeline"},
+    {"snapshot", "delete", cmd_snapshot_delete, "Destroy a specific ZFS timeline"}, // 👈 신규 추가!    
     // 💡 새로운 기능이 생기면 이 배열에 한 줄만 추가하면 끝입니다!
     {NULL, NULL, NULL, NULL}
 };

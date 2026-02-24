@@ -142,70 +142,87 @@ on_snapshot_list_completed(GObject *source_object, GAsyncResult *res, gpointer u
         return; \
     }
 
-void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
-{
-    VALIDATE_PARAMS(params, rpc_id, server, connection);
-    
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-    const gchar *snap_name = json_object_get_string_member(params, "snap_name");
-    const gchar *pool_name = "tank";
-    
-    RpcAsyncContext *ctx = g_new0(RpcAsyncContext, 1);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
 
-    purecvisor_zfs_snapshot_create_async(pool_name, vm_name, snap_name, NULL, on_snapshot_create_completed, ctx);
+
+// 1. [창조] 0.1초 만에 시간의 흐름을 얼려버립니다.
+void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    const gchar *snap_name = json_object_get_string_member(params, "snap_name");
+    
+    // 타격 명령어: zfs snapshot rpool/vms/target-vm@snap1
+    gchar *cmd = g_strdup_printf("zfs snapshot rpool/vms/%s@%s", vm_id, snap_name);
+    gchar *std_err = NULL; gint exit_status = 0;
+
+    if (!g_spawn_command_line_sync(cmd, NULL, &std_err, &exit_status, NULL) || exit_status != 0) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, std_err ? g_strstrip(std_err) : "Snapshot Create Failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    } else {
+        JsonNode *res = json_node_new(JSON_NODE_VALUE); json_node_set_boolean(res, TRUE);
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    }
+    g_free(cmd); if (std_err) g_free(std_err);
 }
 
-void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
-{
-    VALIDATE_PARAMS(params, rpc_id, server, connection);
-    
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
+// 2. [회귀] 특정 시점의 과거로 디스크 블록을 완벽하게 되돌립니다.
+void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
     const gchar *snap_name = json_object_get_string_member(params, "snap_name");
-    const gchar *pool_name = "tank";
     
-    RpcAsyncContext *ctx = g_new0(RpcAsyncContext, 1);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
+    // 타격 명령어: zfs rollback -r rpool/vms/target-vm@snap1 
+    // (-r 플래그는 돌아가려는 과거 이후에 생긴 미래의 스냅샷들을 자비 없이 파괴합니다)
+    gchar *cmd = g_strdup_printf("zfs rollback -r rpool/vms/%s@%s", vm_id, snap_name);
+    gchar *std_err = NULL; gint exit_status = 0;
 
-    purecvisor_zfs_snapshot_rollback_async(pool_name, vm_name, snap_name, NULL, on_snapshot_rollback_completed, ctx);
+    if (!g_spawn_command_line_sync(cmd, NULL, &std_err, &exit_status, NULL) || exit_status != 0) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, std_err ? g_strstrip(std_err) : "Rollback Failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    } else {
+        JsonNode *res = json_node_new(JSON_NODE_VALUE); json_node_set_boolean(res, TRUE);
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    }
+    g_free(cmd); if (std_err) g_free(std_err);
 }
 
-void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
-{
-    VALIDATE_PARAMS(params, rpc_id, server, connection);
-    
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-    const gchar *snap_name = json_object_get_string_member(params, "snap_name");
-    const gchar *pool_name = "tank";
-    
-    RpcAsyncContext *ctx = g_new0(RpcAsyncContext, 1);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
+// 3. [조회] 얼어붙은 시간선(타임라인)들을 나열합니다.
+void handle_vm_snapshot_list(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    gchar *cmd = g_strdup_printf("zfs list -H -o name,creation -t snapshot -r rpool/vms/%s", vm_id);
+    gchar *std_out = NULL; gchar *std_err = NULL; gint exit_status = 0;
 
-    purecvisor_zfs_snapshot_delete_async(pool_name, vm_name, snap_name, NULL, on_snapshot_delete_completed, ctx);
+    if (g_spawn_command_line_sync(cmd, &std_out, &std_err, &exit_status, NULL) && exit_status == 0) {
+        JsonNode *res = json_node_new(JSON_NODE_VALUE);
+        json_node_set_string(res, std_out && strlen(std_out) > 0 ? g_strstrip(std_out) : "[ NO SNAPSHOTS DETECTED ]");
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    } else {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, std_err ? g_strstrip(std_err) : "List Failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    }
+    g_free(cmd); if (std_out) g_free(std_out); if (std_err) g_free(std_err);
 }
 
-void handle_vm_snapshot_list(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection)
-{
-    if (!json_object_has_member(params, "vm_name")) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing vm_name");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
+// =================================================================
+// 4. [소멸] 얼어붙은 시간선(스냅샷)을 영구적으로 파괴합니다.
+// =================================================================
+void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    const gchar *snap_name = json_object_get_string_member(params, "snap_name");
+    
+    // 타격 명령어: zfs destroy rpool/vms/target-vm@snap1
+    gchar *cmd = g_strdup_printf("zfs destroy rpool/vms/%s@%s", vm_id, snap_name);
+    gchar *std_err = NULL; gint exit_status = 0;
+
+    if (!g_spawn_command_line_sync(cmd, NULL, &std_err, &exit_status, NULL) || exit_status != 0) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, std_err ? g_strstrip(std_err) : "Snapshot Delete Failed");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    } else {
+        JsonNode *res = json_node_new(JSON_NODE_VALUE); json_node_set_boolean(res, TRUE);
+        gchar *resp = pure_rpc_build_success_response(rpc_id, res);
+        pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
     
-    const gchar *vm_name = json_object_get_string_member(params, "vm_name");
-    const gchar *pool_name = "tank";
-
-    RpcAsyncContext *ctx = g_new0(RpcAsyncContext, 1);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-    purecvisor_zfs_snapshot_list_async(pool_name, vm_name, NULL, on_snapshot_list_completed, ctx);
+    g_free(cmd); if (std_err) g_free(std_err);
 }
+
