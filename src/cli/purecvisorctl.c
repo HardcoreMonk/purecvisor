@@ -184,27 +184,6 @@ void cmd_vm_create(int argc, char *argv[]) {
     g_free(response);
 }
 
-// =================================================================
-// [커맨드 라우팅] VM 삭제 (Delete)
-// =================================================================
-void cmd_vm_delete(int argc, char *argv[]) {
-    if (argc < 4) {
-        printf(CYBER_YELLOW "Usage: purecvisorctl vm delete <uuid_or_name>\n" CYBER_RESET);
-        return;
-    }
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "vm_id", argv[3]);
-
-    GError *error = NULL;
-    gchar *response = purectl_send_request("vm.delete", params, &error);
-    if (error) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, error->message); g_error_free(error); return; }
-
-    print_action_response(response, "VM_DELETE");
-    g_free(response);
-}
-
-
-
 void cmd_vm_list(int argc, char *argv[]) {
     GError *error = NULL;
     gchar *response = purectl_send_request("vm.list", json_object_new(), &error);
@@ -624,7 +603,90 @@ void cmd_vm_vnc(int argc, char *argv[]) {
     g_object_unref(parser); g_free(res);
 }
 
+// =================================================================
+// [커맨드 라우팅] ISO 사출 (Eject)
+// =================================================================
+void cmd_vm_eject(int argc, char *argv[]) {
+    if (argc < 4) { printf(CYBER_YELLOW "Usage: purecvisorctl vm eject <vm_name>\n" CYBER_RESET); return; }
+    
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[3]);
 
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.eject", params, &err);
+    if (err) { g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); g_error_free(err); return; }
+
+    print_cyber_banner();
+    printf(CYBER_CYAN " [ OPTICAL DRIVE PURGED ]\n\n" CYBER_RESET);
+    printf(CYBER_GREEN " TARGET VM : %s\n" CYBER_RESET, argv[3]);
+    printf(CYBER_DIM " ISO media has been successfully ejected from 'sda'.\n\n" CYBER_RESET);
+    printf(CYBER_CYAN "────────────────────────────────────────────────\n" CYBER_RESET);
+    
+    g_free(res);
+}
+
+// =================================================================
+// [커맨드 라우팅] 가상 머신 삭제 (Safety Catch 탑재형)
+// =================================================================
+void cmd_vm_delete(int argc, char *argv[]) {
+    if (argc < 4) { 
+        printf(CYBER_YELLOW "Usage: purecvisorctl vm delete <vm_name>\n" CYBER_RESET); 
+        return; 
+    }
+    
+    const char *target_vm = argv[3];
+
+    // ---------------------------------------------------------
+    // 🛡️ 1단계: 파괴 전 경고문 출력 및 디스크 자동 삭제 고지
+    // ---------------------------------------------------------
+    print_cyber_banner();
+    printf(CYBER_RED " [!] WARNING: DESTRUCTIVE OPERATION INITIATED [!]\n" CYBER_RESET);
+    printf(CYBER_YELLOW " You are about to permanently delete the virtual machine: " CYBER_RED "%s\n" CYBER_RESET, target_vm);
+    printf(" This operation will annihilate:\n");
+    printf("  1. The VM's XML configuration (Bone structure).\n");
+    printf("  2. The associated ZFS volume (ZVOL) and all internal data.\n");
+    printf("  3. All ZFS snapshots related to this dataset.\n");
+    printf(CYBER_RED " This action CANNOT be undone.\n\n" CYBER_RESET);
+
+    // ---------------------------------------------------------
+    // 🛡️ 2단계: 타겟 이름 강제 입력 확인 (Safety Catch)
+    // ---------------------------------------------------------
+    printf(" To confirm, please type the exact name of the VM ('%s'): ", target_vm);
+    
+    char input_buffer[256];
+    if (fgets(input_buffer, sizeof(input_buffer), stdin) != NULL) {
+        // 입력받은 문자열 끝의 개행 문자(\n)를 제거합니다.
+        input_buffer[strcspn(input_buffer, "\n")] = 0;
+        
+        // 입력한 이름과 타겟 VM 이름이 정확히 일치하는지 검사
+        if (strcmp(input_buffer, target_vm) != 0) {
+            printf(CYBER_YELLOW "\n [!] ABORTED: The entered name does not match. VM deletion cancelled.\n" CYBER_RESET);
+            return; // 👈 일치하지 않으면 즉각 함수를 종료하여 파괴를 막습니다!
+        }
+    } else {
+        return; // EOF 등의 입력 오류 시에도 안전하게 종료
+    }
+
+    printf(CYBER_CYAN "\n [!] AUTHORIZATION ACCEPTED. COMMENCING ANNIHILATION SEQUENCE...\n" CYBER_RESET);
+
+    // ---------------------------------------------------------
+    // 💣 3단계: 확인 완료 후 데몬에 파괴 명령(RPC) 전송
+    // ---------------------------------------------------------
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", target_vm);
+
+    GError *err = NULL;
+    gchar *res = purectl_send_request("vm.delete", params, &err);
+    if (err) { 
+        g_printerr(CYBER_RED "[!] LINK_SEVERED: %s\n" CYBER_RESET, err->message); 
+        g_error_free(err); 
+        return; 
+    }
+
+    // 결과 출력
+    print_action_response(res, "VM_DELETE");
+    g_free(res);
+}
 // =================================================================
 // 🚀 [라우팅 테이블] 구조체 배열 기반 우아한 명령어 라우터
 // =================================================================
@@ -646,6 +708,7 @@ CommandRoute routes[] = {
     {"vm", "pause", cmd_vm_pause, "Pause a running VM"},
     {"vm", "limit", cmd_vm_limit, "Dynamically limit cgroup resources"},
     {"vm", "vnc", cmd_vm_vnc, "Get VNC display port for a running VM"},    
+    {"vm", "eject", cmd_vm_eject, "Eject mounted ISO media from the VM"},
     {"monitor", "metrics", cmd_monitor_metrics, "Show realtime VM resource usage"},
     {"network", "create", cmd_net_create, "Create a network (nat/bridge)"},
     {"network", "delete", cmd_net_delete, "Delete a network"},

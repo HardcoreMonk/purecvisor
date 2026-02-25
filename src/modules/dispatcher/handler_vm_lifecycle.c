@@ -2,13 +2,14 @@
  * @file handler_vm_lifecycle.c
  * @brief VM 상태 조회, 종료, 삭제를 담당하는 비동기 디스패처 (Phase 6)
  */
+#include <unistd.h>
 #include <glib.h>
 #include <gio/gio.h>
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
-
+#include <stdio.h>
 #include "api/uds_server.h"
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/core/vm_state.h"
@@ -131,7 +132,7 @@ virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier) {
 }
 static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_data, GCancellable *cancellable) {
     VmLifecycleCtx *ctx = (VmLifecycleCtx *)task_data;
-    gboolean is_delete = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(task), "is_delete"));
+    // 비동기 워커 미사용 gboolean is_delete = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(task), "is_delete"));
     GError *error = NULL;
     // 1. 하이퍼바이저 연결
     virConnectPtr conn = virConnectOpen("qemu:///system");
@@ -288,54 +289,6 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     g_object_unref(task);
 }
 
-// =================================================================
-// [가상 머신 삭제] 강제 종료 및 XML 뼈대 파괴 (Undefine)
-// =================================================================
-void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
-    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
-    if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: vm_id");
-        pure_uds_server_send_response(server, connection, err); g_free(err); return;
-    }
-
-    virConnectPtr conn = virConnectOpen("qemu:///system");
-    if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor Connection Failed");
-        pure_uds_server_send_response(server, connection, err); g_free(err); return;
-    }
-
-    // 1. 다형성 검색 (이름 or UUID)
-    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
-    if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM Entity not found");
-        pure_uds_server_send_response(server, connection, err); g_free(err); virConnectClose(conn); return;
-    }
-
-    // 2. 만약 VM이 켜져있다면 강제로 전원 차단 (Destroy)
-    virDomainInfo info;
-    virDomainGetInfo(dom, &info);
-    if (info.state != VIR_DOMAIN_SHUTOFF) {
-        virDomainDestroy(dom);
-    }
-
-    // 3. Libvirt에서 가상 머신 뼈대(XML) 완전히 소각 (Undefine)
-    int ret = virDomainUndefine(dom);
-    
-    virDomainFree(dom);
-    virConnectClose(conn);
-
-    // 4. 결과 반환
-    if (ret == 0) {
-        JsonNode *res_node = json_node_new(JSON_NODE_VALUE);
-        json_node_set_boolean(res_node, TRUE);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp);
-    } else {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Failed to undefine VM from Libvirt");
-        pure_uds_server_send_response(server, connection, err); g_free(err);
-    }
-}
 
 // 🚀 Limit 전용 요청 핸들러
 void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
@@ -451,3 +404,169 @@ void handle_vm_metrics_request(JsonObject *params, const gchar *rpc_id, UdsServe
     g_task_run_in_thread(task, vm_metrics_worker);
     g_object_unref(task);
 }
+
+// =================================================================
+// [가상 머신 시각 피질] 실시간 VNC 포트 추출기
+// =================================================================
+void handle_vm_vnc_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    if (!vm_id) return;
+
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+    
+    if (!dom) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virConnectClose(conn); return;
+    }
+
+    // 1. 살아있는(RUNNING) 상태인지 확인 (꺼져있으면 포트가 없음)
+    virDomainInfo info;
+    virDomainGetInfo(dom, &info);
+    if (info.state != VIR_DOMAIN_RUNNING) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM is not running. No VNC port active.");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virDomainFree(dom); virConnectClose(conn); return;
+    }
+
+    // 2. 실시간 메모리 XML을 스캔하여 VNC 포트 번호 획득
+    gchar *xml = virDomainGetXMLDesc(dom, 0);
+    gchar *port_start = strstr(xml, "graphics type='vnc' port='");
+    
+    if (port_start) {
+        port_start += 26; // 문자열 길이만큼 이동
+        gchar *port_end = strchr(port_start, '\'');
+        if (port_end) {
+            gchar *port_str = g_strndup(port_start, port_end - port_start);
+            
+            JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
+            JsonObject *res_obj = json_object_new();
+            json_object_set_string_member(res_obj, "vnc_port", port_str);
+            json_node_take_object(res_node, res_obj);
+
+            gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
+            pure_uds_server_send_response(server, connection, resp);
+            g_free(resp);
+            g_free(port_str);
+        }
+    } else {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VNC Graphics adapter not found in XML");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+    }
+
+    g_free(xml); virDomainFree(dom); virConnectClose(conn);
+}
+
+// ===================================================================================================
+// [VM Lifecycle] 궁극의 파괴 엔진 (XML + ZVOL + Partition Exorcism + Validation & Error Reporting 탑재)
+// ===================================================================================================
+
+void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
+    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
+    if (!vm_id) return;
+
+    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
+
+    gchar *zvol_path = g_strdup_printf("/dev/zvol/rpool/vms/%s", vm_id);
+    gchar *zfs_dataset = g_strdup_printf("rpool/vms/%s", vm_id);
+
+    // ---------------------------------------------------------
+    // 🛡️ 1단계: 존재 유무 절대 검증 (Physical & Logical)
+    // ---------------------------------------------------------
+    // 쉘(Shell) 상태에 의존하던 불확실한 방식을 버리고, 
+    // OS 레벨의 물리적 파일/심볼릭링크 존재 여부(access)로 확실하게 팩트 체크합니다!
+    gboolean zfs_exists = (access(zvol_path, F_OK) == 0);
+
+    // 뼈대(XML)도 없고 디스크(ZFS)도 아예 없다면 완벽한 유령이므로 즉시 에러 튕겨내기!
+    if (!dom && !zfs_exists) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found: The specified VM does not exist.");
+        pure_uds_server_send_response(server, connection, err);
+        g_free(err); g_free(zvol_path); g_free(zfs_dataset); 
+        if (conn) virConnectClose(conn); 
+        return;
+    }
+
+    // ---------------------------------------------------------
+    // 💀 2단계: 가상 머신 숨통 끊기 및 뼈대 완벽 소각 (Zombie 방지)
+    // ---------------------------------------------------------
+    if (dom) {
+        virDomainInfo info;
+        virDomainGetInfo(dom, &info);
+        
+        if (info.state == VIR_DOMAIN_RUNNING || info.state == VIR_DOMAIN_PAUSED) {
+            virDomainDestroy(dom); 
+        }
+        
+        // 🚀 완벽한 뼈대 소각을 위한 2단 Fallback 체인!
+        // 플래그 삭제가 실패할 경우, 무식하고 확실한 기본 삭제 명령으로 2차 타격을 가합니다.
+        if (virDomainUndefineFlags(dom, VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA | VIR_DOMAIN_UNDEFINE_MANAGED_SAVE) < 0) {
+            virDomainUndefine(dom); 
+        }
+        virDomainFree(dom);
+    }
+    if (conn) virConnectClose(conn);
+
+    // ---------------------------------------------------------
+    // 💣 3단계: 호스트 멱살 강제 해제 및 ZFS 연쇄 파괴
+    // ---------------------------------------------------------
+    gboolean zfs_success = TRUE;
+    gchar *zfs_err_msg = g_strdup("Success");
+
+    if (zfs_exists) {
+        gchar *cmd_exorcism = g_strdup_printf(
+            "fuser -k -9 %s >/dev/null 2>&1; " 
+            "VG_NAME=$(pvs --noheadings -o vg_name $(ls %s-part* 2>/dev/null) 2>/dev/null | awk '{print $1}' | sort -u); "
+            "for vg in $VG_NAME; do vgchange -a n \"$vg\" >/dev/null 2>&1; done; "
+            "wipefs -a %s >/dev/null 2>&1; "   
+            "dd if=/dev/zero of=%s bs=1M count=10 status=none; "
+            "partx -d %s >/dev/null 2>&1; "    
+            "kpartx -d %s >/dev/null 2>&1; "   
+            "partprobe >/dev/null 2>&1; "
+            "udevadm settle; "
+            "sleep 2", 
+            zvol_path, zvol_path, zvol_path, zvol_path, zvol_path, zvol_path); // %s 6개 유지
+        
+        system(cmd_exorcism);
+        g_free(cmd_exorcism);
+
+        gchar *cmd_zfs = g_strdup_printf("zfs destroy -R %s 2>&1", zfs_dataset);
+        FILE *fp = popen(cmd_zfs, "r");
+        if (fp) {
+            char output[512] = {0};
+            if (fgets(output, sizeof(output)-1, fp) != NULL) {
+                output[strcspn(output, "\n")] = 0; 
+                g_free(zfs_err_msg);
+                zfs_err_msg = g_strdup(output);
+            }
+            int ret = pclose(fp);
+            if (ret != 0) zfs_success = FALSE; 
+        }
+        g_free(cmd_zfs);
+    }
+
+    g_free(zvol_path);
+    g_free(zfs_dataset);
+
+    // ---------------------------------------------------------
+    // 📡 4단계: 결과 전송 
+    // ---------------------------------------------------------
+    if (!zfs_success) {
+        gchar *fail_reason = g_strdup_printf("VM XML deleted, but ZFS destroy failed: %s", zfs_err_msg);
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, fail_reason);
+        pure_uds_server_send_response(server, connection, err);
+        
+        g_free(err); g_free(fail_reason); g_free(zfs_err_msg); return;
+    }
+
+    JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
+    JsonObject *res_obj = json_object_new();
+    json_object_set_boolean_member(res_obj, "deleted", TRUE);
+    json_node_take_object(res_node, res_obj);
+
+    gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
+    pure_uds_server_send_response(server, connection, resp);
+    
+    g_free(resp);
+    g_free(zfs_err_msg);
+}
+
