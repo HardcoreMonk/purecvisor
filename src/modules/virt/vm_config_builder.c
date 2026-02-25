@@ -134,23 +134,17 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
     gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(video));
     g_object_unref(video);
 
-    // 6. Network (Bridge Support)
-    if (config->network_bridge) {
-        // Bridge Mode (e.g., br0)
-        GVirConfigDomainInterfaceBridge *iface = gvir_config_domain_interface_bridge_new();
-        gvir_config_domain_interface_bridge_set_source(iface, config->network_bridge);
-        gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(iface), "virtio");
-        gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
-        g_object_unref(iface);
-    } else {
-        
-        // 🚀 High-Performance NAT (Libvirt 'default' network)
-        GVirConfigDomainInterfaceNetwork *iface = gvir_config_domain_interface_network_new();
-        gvir_config_domain_interface_network_set_source(iface, "default"); // virbr0와 연결되는 기본 NAT 망
-        gvir_config_domain_interface_set_model(GVIR_CONFIG_DOMAIN_INTERFACE(iface), "virtio");
-        gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(iface));
-        g_object_unref(iface);
-    }
+    // ==========================================
+    // 🖥️ Graphics (VNC Socket Binding)
+    // ==========================================
 
+    GVirConfigDomainGraphicsVnc *graphics = gvir_config_domain_graphics_vnc_new();
+
+    // 🚀 수정 완료: 컴파일러의 조언대로 VNC 전용 함수를 사용하고, 불필요한 캐스팅을 벗겨냅니다.
+    gvir_config_domain_graphics_vnc_set_autoport(graphics, TRUE);
+
+    gvir_config_domain_add_device(domain, GVIR_CONFIG_DOMAIN_DEVICE(graphics));
+    g_object_unref(graphics);
+        
     return domain;
 }

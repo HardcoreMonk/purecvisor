@@ -592,11 +592,16 @@ void cmd_vm_vnc(int argc, char *argv[]) {
         print_cyber_banner();
         printf(CYBER_CYAN " [ OPTIC NERVE CONNECTED ]\n\n" CYBER_RESET);
         printf(CYBER_GREEN " VNC DISPLAY PORT : %s\n" CYBER_RESET, port);
-        printf(CYBER_DIM " LOCAL BIND ADDRESS : 127.0.0.1\n\n" CYBER_RESET);
-        printf(" 💡 HOW TO CONNECT:\n");
-        printf(" 1. Setup SSH Tunnel : ssh -L %s:localhost:%s user@server_ip\n", port, port);
-        printf(" 2. Open VNC Viewer  : connect to localhost:%s\n", port);
+        // 🚀 BIND ADDRESS를 0.0.0.0 으로 명시
+        printf(CYBER_DIM " BIND ADDRESS     : 0.0.0.0 (All Host Interfaces)\n\n" CYBER_RESET); 
+        
+        printf(CYBER_YELLOW "💡 HOW TO CONNECT (DIRECT MODE):\n" CYBER_RESET);
+        printf(" 1. Open RealVNC Viewer on your Windows PC.\n");
+        printf(" 2. Connect directly to:\n");
+        // 🚀 터널링 없이 우분투 호스트 서버의 IP와 VNC 포트로 바로 붙으라고 안내합니다.
+        printf(CYBER_CYAN "    => [Host_IP_Address]:%s\n" CYBER_RESET, port); 
         printf(CYBER_CYAN "────────────────────────────────────────────────\n" CYBER_RESET);
+        
     } else {
         print_action_response(res, "VNC_QUERY");
     }
