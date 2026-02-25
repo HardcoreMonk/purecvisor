@@ -117,6 +117,7 @@ static void on_create_finished(GObject *source, GAsyncResult *res, gpointer user
 }
 
 /* --- Handlers --- */
+void handle_vm_vnc_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, DispatcherRequestContext *ctx) {
     if (!json_object_has_member(params, "name")) {
@@ -150,6 +151,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params, Dis
                                           on_create_finished, 
                                           ctx);
 }
+
 
 
 
@@ -311,7 +313,13 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     // 🚀 [신규 추가] 모니터링 메트릭스 라우팅 이정표!
     } else if (g_strcmp0(method, "monitor.metrics") == 0) {
         handle_monitor_metrics(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
 
+    // 🚀 [신규 추가] VNC 시각 피질 라우팅 이정표!
+    } else if (g_strcmp0(method, "vm.vnc") == 0) {
+        handle_vm_vnc_request(params, rpc_id_str, server, connection);
+        dispatcher_request_context_free(ctx);
+        
     } else {
         // Method Not Found
         gchar *err_resp = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND, "Method not found");
