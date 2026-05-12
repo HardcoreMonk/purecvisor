@@ -124,7 +124,9 @@ python3 scripts/check_xss.py
 ```
 
 Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다.
+
 운영 이벤트를 한 화면에서 triage하는 `이벤트 센터`는 `운영 > 이벤트 센터` 또는 `/ui#/ops-triage`에서 확인합니다.
+
 UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
 
 ```bash
