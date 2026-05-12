@@ -178,7 +178,9 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
 | Metrics | `http://localhost:80/api/v1/metrics` |
 | UDS socket | `/var/run/purecvisor/daemon.sock` |
 
-첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다. 셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
+첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다.
+
+셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
 
 ## 예시
 
