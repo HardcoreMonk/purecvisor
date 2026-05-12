@@ -72,8 +72,11 @@ System: libvirt, qemu-kvm, LXC, ZFS, OVS/OVN, nftables, dnsmasq
 ```
 
 핵심은 단일 프로세스 데몬과 `GMainLoop` 이벤트 루프입니다.
+
 요청은 디스패처를 지나면서 role 정책과 operator VM owner-scope 검사를 받습니다.
+
 오래 걸리는 작업은 먼저 Job ID를 돌려주고 `GTask` 워커에서 실행합니다.
+
 완료 결과는 WebSocket push와 polling으로 확인할 수 있습니다.
 
 ## 빠른 시작
