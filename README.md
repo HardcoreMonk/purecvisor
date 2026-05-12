@@ -1,10 +1,16 @@
 # PureCVisor
 
-PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 C23 기반 컨트롤 플레인입니다. KVM VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 백업, 인증, Web UI를 한 흐름에서 관리합니다.
+PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 C23 기반 컨트롤 플레인입니다.
 
-이 공개 저장소는 Single Edge 구성에 초점을 맞춥니다. 복잡한 클러스터부터 시작하지 않고, 먼저 단일 노드에서 실제로 VM과 컨테이너를 만들고 운영하는 데 필요한 기능을 담았습니다.
+KVM VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 백업, 인증, Web UI를 한 흐름에서 관리합니다.
 
-라이선스는 비상업용 무료 사용을 허용하는 source-available 라이선스입니다. 자세한 조건은 [LICENSE](LICENSE)를 확인하세요.
+이 공개 저장소는 Single Edge 구성에 초점을 맞춥니다.
+
+복잡한 클러스터부터 시작하지 않고, 먼저 단일 노드에서 실제로 VM과 컨테이너를 만들고 운영하는 데 필요한 기능을 담았습니다.
+
+라이선스는 비상업용 무료 사용을 허용하는 source-available 라이선스입니다.
+
+자세한 조건은 [LICENSE](LICENSE)를 확인하세요.
 
 ## 저작 기록 (Authorship)
 
