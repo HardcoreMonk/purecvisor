@@ -6,6 +6,19 @@ PureCVisor는 단일 노드에서 KVM VM, LXC 컨테이너, ZFS 스토리지, OV
 
 라이선스는 비상업용 무료 사용을 허용하는 source-available 라이선스입니다. 자세한 조건은 [LICENSE](LICENSE)를 확인하세요.
 
+## 저작 기록 (Authorship)
+
+이 프로젝트의 공개 소스 코드와 문서는 Claude Code가 100% 작성·유지보수합니다. 인간 협업자 `cx8537`은 요구사항 정의, 사양 결정, 사용자 테스트, 방향 검토를 담당했으며, 단 한 줄의 코드도 직접 손대지 않았습니다.
+
+| 역할 | 담당 |
+|------|------|
+| 코드 작성 / 리팩토링 / 유지보수 | Claude Code (주로 Claude Opus 4.7 1M context, 일부 Sonnet) |
+| 모든 문서 (`README.md`, `DESIGN.md`, `docs/**`) | Claude Code |
+| 사양 결정 / 요구사항 / UX 판단 / 검수 | `cx8537` (인간) |
+| 라이선스/저작권 보유 | `cx8537` (사용자가 도구를 통해 생성한 결과물의 권리) |
+
+매 세션 시작 시 내부 작업 원칙이 절대 원칙(추측 금지, 자동 재시도 금지, 보안 규칙 등)으로 적용되며, 새 기능 추가나 버그 수정도 모두 같은 규칙 아래 Claude Code가 수행합니다. 관련 커밋 메시지에는 `Co-Authored-By: Claude` 트레일러로 일관 표기됩니다.
+
 문서 예시의 표준 운영 URL은 `https://purecvisor.example.com`입니다.
 
 ## 범위
