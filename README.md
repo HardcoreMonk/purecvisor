@@ -1,88 +1,39 @@
 # PureCVisor
 
-PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 C23 기반 컨트롤 플레인입니다.
+> 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성, Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 컨트롤 플레인입니다.
 
-KVM VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 백업, 인증, Web UI를 한 흐름에서 관리합니다.
+[![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
+[![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
+[![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](AGENTS.md)
+[![License: Non-Commercial Source](https://img.shields.io/badge/License-Non--Commercial%20Source-6b46c1.svg)](LICENSE)
+[![Version: 1.0](https://img.shields.io/badge/Version-1.0-2f855a.svg)](include/purecvisor/version.h)
 
-이 공개 저장소는 Single Edge 구성에 초점을 맞춥니다.
+PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 Single Edge 공개 소스 트리입니다. `purecvisorsd` 하나가 VM, 컨테이너, 스토리지, 네트워크, 권한, audit, metrics, Web UI를 같은 제어 흐름으로 묶습니다.
 
-단일 노드에서 실제로 VM과 컨테이너를 만들고 운영하는 데 필요한 기능을 담았습니다.
+이 저장소는 복잡한 클러스터부터 시작하지 않습니다. 먼저 단일 노드에서 실제로 VM과 컨테이너를 만들고 운영하는 데 필요한 기능을 제공합니다. 전체 운영 매뉴얼은 [docs/GUIDE.md](docs/GUIDE.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md), 설계 결정은 [docs/ADR_INDEX.md](docs/ADR_INDEX.md)와 [docs/adr/](docs/adr/)를 기준으로 봅니다.
 
-라이선스는 비상업용 무료 사용을 허용하는 source-available 라이선스입니다.
+라이선스는 비상업용 무료 사용을 허용하는 source-available 라이선스입니다. 사용, 수정, 빌드, 배포 조건은 [LICENSE](LICENSE)를 확인하세요.
 
-자세한 조건은 [LICENSE](LICENSE)를 확인하세요.
+---
 
-## 저작 기록 (Authorship)
+## 왜 필요한가요?
 
-PureCVisor의 공개 소스 코드와 문서는 CODEX가 작성하고 유지보수합니다.
+단일 노드 운영에서도 가상화 표면은 쉽게 흩어집니다. VM은 libvirt, 컨테이너는 LXC, 스토리지는 ZFS, 네트워크는 bridge/OVS/OVN, 권한과 audit는 별도 도구로 나뉘기 쉽습니다. PureCVisor는 이 표면을 하나의 운영 제어면으로 묶는 데 초점을 둡니다.
 
-`Hardcoremonk`는 요구사항, 제품 방향, UX 판단, 사용자 테스트, 검수를 담당합니다.
+- VM lifecycle, LXC, ZFS, OVS/OVN, backup, auth를 한 제어면에서 다룹니다.
+- REST, UDS JSON-RPC, CLI, TUI, Web UI가 같은 dispatcher와 RBAC 정책을 통과합니다.
+- 장시간 작업은 accepted 응답과 실제 완료 결과를 분리해 거짓 성공을 줄입니다.
+- Job ID, WebSocket 완료 알림, polling, audit log로 작업 결과를 추적합니다.
+- 공개판은 Single Edge 범위만 책임지고, 클러스터 자동화나 라이브 마이그레이션은 제외합니다.
 
-코드는 직접 수정하지 않고, 도구를 통해 생성된 결과물을 검토하고 결정합니다.
-
-| 역할 | 담당 |
-|------|------|
-| 코드 작성 / 리팩토링 / 유지보수 | CODEX |
-| 모든 문서 (`README.md`, `DESIGN.md`, `docs/**`) | CODEX |
-| 사양 결정 / 요구사항 / UX 판단 / 검수 | `Hardcoremonk` (인간) |
-| 라이선스/저작권 보유 | `Hardcoremonk` (사용자가 도구를 통해 생성한 결과물의 권리) |
-
-작업 세션마다 추측 금지, 자동 재시도 금지, 보안 우선 같은 내부 원칙을 적용합니다.
-
-새 기능 추가와 버그 수정도 같은 방식으로 진행하며, 관련 커밋에는 `Co-Authored-By: CODEX` 트레일러를 남깁니다.
-
-문서 예시의 표준 운영 URL은 `https://purecvisor.example.com`입니다.
-
-## 무엇을 제공하나요
-
-공개판에서 바로 다루는 영역은 다음과 같습니다.
-
-- 단일 노드 데몬: `purecvisorsd`
-- 인터페이스: UDS JSON-RPC, REST API, Web UI, CLI, TUI
-- VM lifecycle: 생성, 시작, 중지, 삭제, 스냅샷, 리소스 조정, ADR-0023 기준의 안전 조건부 VM clone
-- 컨테이너 관리: LXC 기반 생성, 실행, 명령 실행, 리소스 제한
-- 스토리지: ZFS pool, zvol, snapshot, scrub, quota
-- 네트워크: bridge, NAT, isolated, routed, OVS/OVN local SDN
-- 보안: JWT, RBAC, bootstrap admin fallback, audit log
-- 관측성: health check, Prometheus metrics, WebSocket event stream
-- 운영: systemd 배포, release build, Single Edge 공개판 검증 스크립트
-
-공개판 경계의 단일 진실은 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)입니다.
-
-## 어떻게 동작하나요
-
-```text
-CLI / TUI / Web UI / REST Client
-        |
-        v
-UDS JSON-RPC Server + REST Server
-        |
-        v
-Dispatcher  method policy / RBAC pre-route / VM owner-scope
-        |
-        v
-Handlers
-        |
-        v
-Core modules: VM, LXC, ZFS, Network, Auth, Audit, Metrics
-        |
-        v
-System: libvirt, qemu-kvm, LXC, ZFS, OVS/OVN, nftables, dnsmasq
-```
-
-핵심은 단일 프로세스 데몬과 `GMainLoop` 이벤트 루프입니다.
-
-요청은 디스패처를 지나면서 role 정책과 operator VM owner-scope 검사를 받습니다.
-
-오래 걸리는 작업은 먼저 Job ID를 돌려주고 `GTask` 워커에서 실행합니다.
-
-완료 결과는 WebSocket push와 polling으로 확인할 수 있습니다.
+---
 
 ## 빠른 시작
 
-### 1. 의존성 설치
+Ubuntu 22.04 LTS 또는 24.04 LTS 계열을 기준으로 합니다. 전체 설치 전제와 운영 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
-Ubuntu 22.04 LTS 또는 24.04 LTS 계열을 기준으로 합니다.
+<details>
+<summary>Ubuntu 의존성 설치 예시</summary>
 
 ```bash
 sudo apt update
@@ -98,7 +49,7 @@ sudo apt install -y \
   libncurses-dev libncursesw5-dev
 ```
 
-### 2. 빌드와 테스트
+</details>
 
 ```bash
 make single
@@ -106,13 +57,161 @@ make test
 make check-rbac
 ```
 
-릴리즈 빌드:
+로컬 단일 노드에 배포한 뒤 health를 확인합니다.
+
+```bash
+scripts/deploy.sh --nodes local
+curl -s http://localhost:80/api/v1/health | python3 -m json.tool
+```
+
+정상적인 Single Edge health 응답은 다음 성격을 유지해야 합니다.
+
+```json
+{
+  "service": "purecvisorsd",
+  "status": "ok",
+  "version": "1.0",
+  "capabilities": {
+    "cluster": false
+  }
+}
+```
+
+릴리즈 빌드는 다음 명령으로 확인합니다.
 
 ```bash
 make release
 ```
 
-Web UI를 바꿨다면 번들과 기본 안전 검사를 함께 확인합니다.
+---
+
+## 포함 범위
+
+| 영역 | 제공 기능 |
+|------|-----------|
+| 데몬 | 단일 프로세스 `purecvisorsd`, `GMainLoop`, `GTask` 비동기 작업 |
+| 인터페이스 | UDS JSON-RPC, REST API, WebSocket, CLI, TUI, Web UI |
+| VM | 생성, 시작, 중지, 삭제, 스냅샷, 리소스 조정, 안전 조건부 VM clone |
+| 컨테이너 | LXC 생성, 실행, 명령 실행, 리소스 제한 |
+| 스토리지 | ZFS pool, zvol, snapshot, scrub, quota |
+| 네트워크 | bridge, NAT, isolated, routed, OVS/OVN local SDN |
+| 보안 | JWT, RBAC, operator VM owner-scope, bootstrap admin fallback, audit log |
+| 관측성 | health check, Prometheus metrics, WebSocket event stream |
+| 운영 | systemd 배포, release build, Single Edge 공개판 검증 스크립트 |
+
+Single Edge 공개판에 포함하지 않는 기능은 다음과 같습니다.
+
+- 상용 Multi Edge 제어면
+- 멀티 노드 클러스터 자동화
+- 라이브 마이그레이션
+- 페더레이션
+- 노드 드레인, 리밸런싱, 분산 스케줄링
+
+현재 공개판 경계의 단일 진실은 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)입니다.
+
+---
+
+## 어떻게 동작하나요?
+
+```text
+CLI / TUI / Web UI / REST Client
+        |
+        v
+UDS JSON-RPC Server + REST Server + WebSocket
+        |
+        v
+Dispatcher
+  method policy / RBAC pre-route / VM owner-scope
+        |
+        v
+Handlers
+        |
+        v
+Core modules: VM, LXC, ZFS, Network, Auth, Audit, Metrics
+        |
+        v
+System: libvirt, qemu-kvm, LXC, ZFS, OVS/OVN, nftables, dnsmasq
+```
+
+요청은 dispatcher에서 메서드 정책, RBAC, VM owner-scope를 먼저 통과합니다. 짧은 작업은 즉시 성공/오류 응답을 반환하고, 긴 작업은 먼저 accepted 응답을 보낸 뒤 worker callback에서 실제 결과를 기록합니다.
+
+fire-and-forget 작업의 완료 경로는 다음 패턴을 따릅니다.
+
+```text
+client request
+  -> accepted response with job id
+  -> GTask worker
+  -> pcv_audit_log(actual result)
+  -> pcv_ws_broadcast_job_complete
+  -> polling endpoint remains available
+```
+
+이 규칙은 [ADR-0018](docs/adr/0018-fire-and-forget-audit-policy.md)과 [docs/ADR_INDEX.md](docs/ADR_INDEX.md)의 현재 적용 상태를 기준으로 유지합니다.
+
+---
+
+## 기본 접속 정보
+
+| 인터페이스 | 기본 경로 |
+|------------|-----------|
+| Web UI | `http://localhost:80/ui/` |
+| 이벤트 센터 | `http://localhost:80/ui#/ops-triage` |
+| REST API | `http://localhost:80/api/v1/` |
+| Health | `http://localhost:80/api/v1/health` |
+| Metrics | `http://localhost:80/api/v1/metrics` |
+| UDS socket | `/var/run/purecvisor/daemon.sock` |
+
+첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다. 셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
+
+---
+
+## 사용 예시
+
+토큰을 발급합니다.
+
+```bash
+TOKEN=$(curl -s -X POST http://localhost:80/api/v1/auth/token \
+  -H 'Content-Type: application/json' \
+  -d '{"username":"admin","password":"<configured-admin-password>"}' \
+  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
+```
+
+VM을 만들고 시작합니다.
+
+```bash
+pcvctl vm create web01 --vcpu 2 --memory_mb 2048 --disk_size_gb 20
+pcvctl vm start web01
+pcvctl vm list
+```
+
+REST API로 VM 목록을 조회합니다.
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:80/api/v1/vms | python3 -m json.tool
+```
+
+UDS JSON-RPC를 직접 호출할 수도 있습니다.
+
+```bash
+echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
+  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+```
+
+---
+
+## 검증 명령
+
+변경 유형별 검증 깊이는 [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md)를 따릅니다. 자주 쓰는 기준 명령은 다음과 같습니다.
+
+```bash
+make single
+make test
+make check-rbac
+make release
+```
+
+Web UI 번들, 디자인 표면, XSS 경계를 바꾼 경우:
 
 ```bash
 python3 scripts/check_design_md.py
@@ -122,17 +221,7 @@ node --check ui/app.bundle.js
 python3 scripts/check_xss.py
 ```
 
-Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다.
-
-운영 이벤트를 한 화면에서 triage하는 `이벤트 센터`는 `운영 > 이벤트 센터` 또는 `/ui#/ops-triage`에서 확인합니다.
-
-UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
-
-```bash
-rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" ui/index.html ui/guide.html ui/app.bundle.js ui/sw.js ui/vendor
-```
-
-Single Edge 공개판 경계를 건드렸다면 아래 검증을 우선 실행합니다.
+Single Edge 공개판 경계를 바꾼 경우:
 
 ```bash
 tests/integration/test_single_ui_surface.sh
@@ -149,70 +238,28 @@ git diff --check
 
 첫 번째 명령은 일반 소스 영역에서 남은 작업 표식이 없는지 확인합니다. 출력이 없어야 정상입니다.
 
-변경 유형별 검증 깊이는 [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md)를 따릅니다.
-
-### 3. 로컬 배포
+Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다. UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
 
 ```bash
-scripts/deploy.sh --nodes local
+rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" ui/index.html ui/guide.html ui/app.bundle.js ui/sw.js ui/vendor
 ```
 
-서비스 확인:
+---
 
-```bash
-sudo systemctl status purecvisorsd
-curl -s http://localhost:80/api/v1/health | python3 -m json.tool
-```
+## 저작 기록
 
-정상적인 Single Edge health 응답은 `service=purecvisorsd`, `capabilities.cluster=false`를 유지해야 합니다.
+PureCVisor의 공개 소스 코드와 문서는 CODEX가 작성하고 유지보수합니다. `Hardcoremonk`는 요구사항, 제품 방향, UX 판단, 사용자 테스트, 검수를 담당합니다. 코드는 직접 수정하지 않고, 도구를 통해 생성된 결과물을 검토하고 결정합니다.
 
-## 기본 접속 정보
+| 역할 | 담당 |
+|------|------|
+| 코드 작성 / 리팩토링 / 유지보수 | CODEX |
+| 모든 문서 (`README.md`, `DESIGN.md`, `docs/**`) | CODEX |
+| 사양 결정 / 요구사항 / UX 판단 / 검수 | `Hardcoremonk` |
+| 라이선스/저작권 보유 | `Hardcoremonk` |
 
-| 인터페이스 | 기본 경로 |
-|------------|-----------|
-| Web UI | `http://localhost:80/ui/` |
-| Web UI 이벤트 센터 | `http://localhost:80/ui#/ops-triage` |
-| REST API | `http://localhost:80/api/v1/` |
-| Health | `http://localhost:80/api/v1/health` |
-| Metrics | `http://localhost:80/api/v1/metrics` |
-| UDS socket | `/var/run/purecvisor/daemon.sock` |
+작업 세션마다 추측 금지, 자동 재시도 금지, 보안 우선 같은 내부 원칙을 적용합니다. 새 기능 추가와 버그 수정도 같은 방식으로 진행하며, 관련 커밋에는 `Co-Authored-By: CODEX` 트레일러를 남깁니다.
 
-첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다.
-
-셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
-
-## 예시
-
-토큰 발급:
-
-```bash
-TOKEN=$(curl -s -X POST http://localhost:80/api/v1/auth/token \
-  -H 'Content-Type: application/json' \
-  -d '{"username":"admin","password":"<configured-admin-password>"}' \
-  | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
-```
-
-VM 생성:
-
-```bash
-pcvctl vm create web01 --vcpu 2 --memory_mb 2048 --disk_size_gb 20
-pcvctl vm start web01
-pcvctl vm list
-```
-
-REST API로 VM 목록 조회:
-
-```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms | python3 -m json.tool
-```
-
-UDS JSON-RPC 호출:
-
-```bash
-echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
-```
+---
 
 ## 저장소 구조
 
@@ -231,19 +278,54 @@ echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
 | `docs/` | 운영, 개발, 공개판 경계 문서 |
 | `scripts/` | 빌드, 번들, 배포, 검증 보조 스크립트 |
 
-## 개발 문서
+---
 
-- [DESIGN.md](DESIGN.md): Web UI 시각 규격, token, typography, component state, dashboard density
-- [docs/GUIDE.md](docs/GUIDE.md): 제품, 설치, 운영 통합 가이드
-- [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md): 단계별 검증 기준
-- [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md): Single Edge 공개판 경계
-- [docs/ADR_INDEX.md](docs/ADR_INDEX.md): ADR별 현재 Single Edge 적용 상태
-- [docs/adr/](docs/adr/): 설계 결정 기록
+## 문서 지도
+
+| 문서 | 용도 |
+|------|------|
+| [AGENTS.md](AGENTS.md) | Codex 작업 규칙, 명령, 불변 조건 |
+| [DESIGN.md](DESIGN.md) | Web UI 시각 규격, token, typography, component state |
+| [docs/GUIDE.md](docs/GUIDE.md) | 제품, 설치, 운영 통합 가이드 |
+| [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 단계별 검증 기준 |
+| [docs/SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](docs/SERVICE_FUNCTIONAL_TEST_SCENARIOS.md) | 서비스 기능 테스트 시나리오 기준 |
+| [docs/DATABASE_STRUCTURE.md](docs/DATABASE_STRUCTURE.md) | SQLite DB 구조와 영속 상태 계약 |
+| [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md) | Single Edge 공개판 경계 |
+| [docs/ADR_INDEX.md](docs/ADR_INDEX.md) | ADR별 현재 적용 상태 |
+| [docs/adr/](docs/adr/) | 설계 결정 기록 |
+| [docs/agents/](docs/agents/) | agent workflow, issue tracker, triage label 규칙 |
+
+---
 
 ## 개발 규칙 요약
 
 - C 표준은 `gnu23`입니다.
 - 목표는 빌드 경고 0건입니다.
+- 공개본 소스에는 설명 주석을 남기지 않습니다.
+- 단일 프로세스 + `GMainLoop` 실행 모델을 유지합니다.
+- 장시간 RPC는 accepted 응답과 worker callback의 실제 결과 audit를 분리합니다.
 - 프론트엔드는 Vanilla JS와 `PCV.*` 네임스페이스를 유지합니다.
 - API endpoint는 `ui/modules/endpoints.js`의 registry를 사용합니다.
-- `innerHTML` 사용 시 sanitizer를 반드시 거치거나 DOM API를 사용합니다.
+- `innerHTML` 계열 대입 시 sanitizer를 반드시 거치거나 DOM API를 사용합니다.
+- VM/템플릿 이름은 handler 진입점에서 검증 함수를 경유합니다.
+- secrets, 토큰, 비밀번호는 commit하지 않습니다.
+
+---
+
+## 공개 저장소 기준
+
+문서 예시의 표준 운영 URL은 `https://purecvisor.example.com`입니다. 호환 공개 엔드포인트 예시는 `https://purecvisor-compat.example.com`입니다.
+
+LinkedIn/GitHub 공개용 저장소는 기존 개발 저장소의 `.git` 이력을 그대로 공개하지 않습니다. 공개 기준은 민감정보 검색과 공개 범위 검증을 통과한 현재 HEAD를 `git archive`로 추출해 새 공개 저장소의 첫 커밋으로 올리는 방식입니다.
+
+현재 문서의 공개용 예시는 다음 placeholder를 사용합니다.
+
+| 항목 | 공개용 예시 |
+|------|-------------|
+| 표준 도메인 | `purecvisor.example.com` |
+| 호환 도메인 | `purecvisor-compat.example.com` |
+| 운영 노드 | `pcv-prod-node-1`, `pcv-prod-node-2` |
+| 내부 IP | `192.0.2.10`, `192.0.2.20` |
+| bootstrap 비밀번호 | `<configured-admin-password>` |
+
+공개판 기능과 제외 범위는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 판정합니다.
