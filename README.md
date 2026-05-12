@@ -22,14 +22,6 @@ PureCVisor는 단일 노드에서 KVM VM, LXC 컨테이너, ZFS 스토리지, OV
 - 관측성: health check, Prometheus metrics, WebSocket event stream
 - 운영: systemd 배포, release build, Single Edge 공개판 검증 스크립트
 
-포함되지 않는 기능:
-
-- 상용 Multi Edge 제어면
-- 멀티 노드 클러스터 자동화
-- 라이브 마이그레이션
-- 페더레이션
-- 노드 드레인, 리밸런싱, 분산 스케줄링
-
 공개판 경계의 단일 진실은 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)입니다.
 
 ## 아키텍처 요약
