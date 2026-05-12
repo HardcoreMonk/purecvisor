@@ -1,0 +1,366 @@
+<!doctype html>
+<html lang="ko" data-theme="supanova">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PureCVisor Design System Preview</title>
+  <link rel="stylesheet" href="../vendor/pretendard/pretendard.css">
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    body.design-preview {
+      min-height: 100vh;
+      margin: 0;
+      overflow: auto;
+    }
+    .design-preview-shell {
+      width: min(1240px, calc(100vw - 32px));
+      margin: 0 auto;
+      padding: 24px 0 40px;
+    }
+    .design-preview-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 16px;
+      align-items: end;
+      padding: 10px 0 18px;
+      border-bottom: 1px solid var(--border-panel);
+    }
+    .design-preview-kicker {
+      color: var(--accent);
+      font: 700 11px/1.3 var(--font-mono);
+      text-transform: uppercase;
+    }
+    .design-preview-title {
+      margin: 6px 0 0;
+      color: var(--fg);
+      font: 800 28px/1.1 var(--font-display);
+      letter-spacing: 0;
+    }
+    .design-preview-sub {
+      margin: 8px 0 0;
+      max-width: 720px;
+      color: var(--fg2);
+      font-size: 13px;
+      line-height: 1.55;
+    }
+    .design-preview-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 12px;
+      margin-top: 16px;
+    }
+    .design-span-3 { grid-column: span 3; }
+    .design-span-4 { grid-column: span 4; }
+    .design-span-5 { grid-column: span 5; }
+    .design-span-7 { grid-column: span 7; }
+    .design-span-12 { grid-column: span 12; }
+    .design-card-title {
+      margin: 0 0 10px;
+      color: var(--fg);
+      font: 800 13px/1.25 var(--font-display);
+    }
+    .design-card-note {
+      margin: 0 0 14px;
+      color: var(--fg2);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .token-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .token-swatch {
+      display: grid;
+      grid-template-columns: 36px minmax(0, 1fr);
+      gap: 8px;
+      align-items: center;
+      min-height: 48px;
+      padding: 8px;
+      border: 1px solid var(--border-panel);
+      border-radius: var(--r);
+      background: rgba(255,255,255,.025);
+    }
+    .token-color {
+      width: 36px;
+      height: 28px;
+      border-radius: 6px;
+      border: 1px solid rgba(255,255,255,.14);
+      background: var(--token-color);
+    }
+    .token-name {
+      color: var(--fg);
+      font: 700 11px/1.3 var(--font-mono);
+    }
+    .token-role {
+      margin-top: 2px;
+      color: var(--fg2);
+      font-size: 11px;
+    }
+    .metric-row {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 10px;
+    }
+    .metric-tile {
+      min-height: 88px;
+      padding: 12px;
+      border: 1px solid var(--border-panel);
+      border-radius: var(--r);
+      background: rgba(255,255,255,.025);
+    }
+    .metric-label {
+      color: var(--fg2);
+      font-size: 11px;
+      font-weight: 700;
+    }
+    .metric-value {
+      margin-top: 8px;
+      color: var(--fg);
+      font: 800 24px/1 var(--font-mono);
+    }
+    .metric-delta {
+      margin-top: 8px;
+      color: var(--green);
+      font: 700 11px/1.3 var(--font-mono);
+    }
+    .state-row {
+      display: flex;
+      flex-wrap: wrap;
+      gap: 8px;
+      align-items: center;
+    }
+    .icon-sample-grid {
+      display: grid;
+      grid-template-columns: repeat(4, minmax(0, 1fr));
+      gap: 8px;
+    }
+    .icon-sample {
+      min-height: 52px;
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      padding: 10px;
+      border: 1px solid var(--border-panel);
+      border-radius: var(--r);
+      background: rgba(255,255,255,.025);
+      color: var(--fg);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+    .icon-sample .ci-icon {
+      width: 18px;
+      height: 18px;
+      color: var(--accent);
+    }
+    .btn[aria-disabled="true"] {
+      cursor: not-allowed;
+      opacity: .48;
+    }
+    .btn.is-loading {
+      min-width: 92px;
+      color: var(--fg2);
+    }
+    .btn.is-danger {
+      border-color: rgba(244,63,94,.5);
+      color: var(--red);
+    }
+    .modal.design-modal-static {
+      position: relative;
+      inset: auto;
+      display: block;
+      width: auto;
+      min-width: 0;
+      max-width: none;
+      transform: none;
+      margin: 0;
+      box-shadow: 0 18px 48px rgba(0,0,0,.28);
+    }
+    .modal-footer-sample {
+      display: flex;
+      justify-content: flex-end;
+      gap: 8px;
+      margin-top: 16px;
+      padding-top: 12px;
+      border-top: 1px solid var(--border-panel);
+    }
+    .design-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border-panel);
+      border-radius: var(--r);
+    }
+    .design-table-wrap table {
+      min-width: 620px;
+    }
+    @media (max-width: 900px) {
+      .design-preview-head { grid-template-columns: 1fr; align-items: start; }
+      .design-span-3,
+      .design-span-4,
+      .design-span-5,
+      .design-span-7 { grid-column: span 12; }
+      .token-grid,
+      .icon-sample-grid,
+      .metric-row { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+    }
+    @media (max-width: 520px) {
+      .design-preview-shell { width: min(100vw - 20px, 1240px); padding-top: 16px; }
+      .token-grid,
+      .icon-sample-grid,
+      .metric-row { grid-template-columns: 1fr; }
+      .design-preview-title { font-size: 22px; }
+    }
+  </style>
+</head>
+<body class="design-preview">
+  <main class="design-preview-shell">
+    <header class="design-preview-head">
+      <div>
+        <div class="design-preview-kicker">DESIGN.md preview</div>
+        <h1 class="design-preview-title">PureCVisor Single Edge UI 규격</h1>
+        <p class="design-preview-sub">
+          DESIGN.md의 token, Pretendard 본문 리듬, Coolicons, dashboard density,
+          table, card, button, modal 규칙을 같은 런타임 stylesheet 위에서 확인하는
+          정적 프리뷰다.
+        </p>
+      </div>
+      <div class="state-row" aria-label="preview actions">
+        <a class="btn" href="../guide-content.md">Guide Content</a>
+        <a class="btn btn-primary" href="../guide.html">Guide</a>
+      </div>
+    </header>
+
+    <section class="design-preview-grid" aria-label="design tokens">
+      <article class="hc design-span-12">
+        <h2 class="design-card-title">Color Tokens & Roles</h2>
+        <p class="design-card-note">운영 화면은 neutral surface와 semantic state color를 함께 사용한다.</p>
+        <div class="token-grid">
+          <div class="token-swatch" style="--token-color: var(--bg);">
+            <div class="token-color"></div><div><div class="token-name">--bg</div><div class="token-role">root background</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--bg3);">
+            <div class="token-color"></div><div><div class="token-name">--bg3</div><div class="token-role">field surface</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--accent);">
+            <div class="token-color"></div><div><div class="token-name">--accent</div><div class="token-role">focus/selected</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--green);">
+            <div class="token-color"></div><div><div class="token-name">--green</div><div class="token-role">healthy</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--yellow);">
+            <div class="token-color"></div><div><div class="token-name">--yellow</div><div class="token-role">warning</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--red);">
+            <div class="token-color"></div><div><div class="token-name">--red</div><div class="token-role">error/destructive</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--border);">
+            <div class="token-color"></div><div><div class="token-name">--border</div><div class="token-role">divider</div></div>
+          </div>
+          <div class="token-swatch" style="--token-color: var(--fg2);">
+            <div class="token-color"></div><div><div class="token-name">--fg2</div><div class="token-role">secondary text</div></div>
+          </div>
+        </div>
+      </article>
+
+      <article class="hc design-span-7">
+        <h2 class="design-card-title">Dashboard Density</h2>
+        <p class="design-card-note">첫 viewport에서 상태, 경고, activity, primary action을 비교할 수 있게 유지한다.</p>
+        <div class="metric-row">
+          <div class="metric-tile">
+            <div class="metric-label">VM RUNNING</div>
+            <div class="metric-value">12</div>
+            <div class="metric-delta">+2 today</div>
+          </div>
+          <div class="metric-tile">
+            <div class="metric-label">CPU LOAD</div>
+            <div class="metric-value">2.0%</div>
+            <div class="pb" aria-label="VM CPU 2.0%">
+              <div class="pb-f scan-anim" style="width:2%;background:var(--green)"></div>
+              <div class="pb-t">2.0%</div>
+            </div>
+          </div>
+          <div class="metric-tile">
+            <div class="metric-label">ZFS USED</div>
+            <div class="metric-value">71%</div>
+            <div class="metric-delta">stable</div>
+          </div>
+          <div class="metric-tile">
+            <div class="metric-label">HIPS BLOCK</div>
+            <div class="metric-value">03</div>
+            <div class="metric-delta" style="color: var(--red);">review</div>
+          </div>
+        </div>
+      </article>
+
+      <article class="hc design-span-5">
+        <h2 class="design-card-title">Button & Component States</h2>
+        <p class="design-card-note">button 폭과 상태 표현은 loading/disabled에서도 layout shift를 만들지 않는다.</p>
+        <div class="state-row">
+          <button class="btn" type="button"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-settings"></use></svg>Normal</button>
+          <button class="btn btn-primary" type="button"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-play"></use></svg>Primary</button>
+          <button class="btn is-danger" type="button"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-trash-empty"></use></svg>Destroy</button>
+          <button class="btn is-loading" type="button"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-refresh"></use></svg>Loading</button>
+          <button class="btn" type="button" aria-disabled="true">Disabled</button>
+        </div>
+      </article>
+
+      <article class="hc design-span-5">
+        <h2 class="design-card-title">Typography & Icons</h2>
+        <p class="design-card-note">본문은 Pretendard, line-height 1.5, letter-spacing 0을 기준으로 읽기 밀도를 맞춘다.</p>
+        <div class="icon-sample-grid">
+          <div class="icon-sample"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg><span>VM 자산</span></div>
+          <div class="icon-sample"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-layers"></use></svg><span>컨테이너</span></div>
+          <div class="icon-sample"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-bell"></use></svg><span>알림</span></div>
+          <div class="icon-sample"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-shield-check"></use></svg><span>보안</span></div>
+        </div>
+      </article>
+
+      <article class="hc design-span-7">
+        <h2 class="design-card-title">Table Rules</h2>
+        <p class="design-card-note">반복 운영 데이터는 compact table을 기본으로 두고, 모바일 카드 전환은 opt-in 한다.</p>
+        <div class="design-table-wrap">
+          <table class="card-mobile">
+            <thead>
+              <tr>
+                <th>VM</th>
+                <th>Status</th>
+                <th>CPU</th>
+                <th>Memory</th>
+                <th>Action</th>
+              </tr>
+            </thead>
+            <tbody>
+              <tr>
+                <td data-label="VM">naverblog</td>
+                <td data-label="Status"><span class="status-badge s-ok">running</span></td>
+                <td data-label="CPU">42%</td>
+                <td data-label="Memory">6.1 GiB</td>
+                <td data-label="Action"><button class="btn" type="button">Inspect</button></td>
+              </tr>
+              <tr>
+                <td data-label="VM">builder-01</td>
+                <td data-label="Status"><span class="status-badge s-warn">pending</span></td>
+                <td data-label="CPU">08%</td>
+                <td data-label="Memory">2.4 GiB</td>
+                <td data-label="Action"><button class="btn" type="button">Audit</button></td>
+              </tr>
+            </tbody>
+          </table>
+        </div>
+      </article>
+
+      <article class="design-span-5">
+        <div class="modal design-modal-static" role="dialog" aria-modal="false" aria-labelledby="modal-preview-title">
+          <h2 id="modal-preview-title">Modal Rules</h2>
+          <p class="design-card-note">제목, 요약, 제어, footer action 순서를 유지하고 destructive 대상은 plain text로 확인한다.</p>
+          <label style="display:block;color:var(--fg2);font-size:12px;margin-bottom:6px;" for="sample-vm-name">대상 VM</label>
+          <input id="sample-vm-name" value="naverblog" readonly style="width:100%;box-sizing:border-box;">
+          <div class="modal-footer-sample">
+            <button class="btn" type="button">Cancel</button>
+            <button class="btn btn-primary" type="button">Apply</button>
+          </div>
+        </div>
+      </article>
+    </section>
+  </main>
+</body>
+</html>

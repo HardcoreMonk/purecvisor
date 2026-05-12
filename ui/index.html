@@ -1,0 +1,655 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="PureCVisor Single Edge는 단일 노드 환경을 위한 가상화 콘솔입니다. VM, 컨테이너, ZFS 스토리지와 운영 API를 한 화면에서 다룹니다.">
+<meta property="og:title" content="PureCVisor Single Edge | 단일 노드 가상화 콘솔">
+<meta property="og:description" content="단일 노드 운영에 필요한 VM, 컨테이너, ZFS 스토리지와 운영 API를 한 콘솔에 모았습니다.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ko_KR">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss: https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<base href="/ui/">
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.0">
+<link rel="stylesheet" href="style.css?v=1.0">
+<script>
+
+
+  (function() {
+    var allowed = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
+    var t = localStorage.getItem('pcv-theme') || '';
+    if (allowed.indexOf(t) < 0) {
+      t = 'supanova';
+      localStorage.setItem('pcv-theme', t);
+    }
+    document.documentElement.setAttribute('data-theme', t);
+  })();
+</script>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="/ui/icon-192.png">
+<link rel="shortcut icon" href="/ui/icon-192.png">
+
+<meta name="theme-color" content="#00f0ff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="black-translucent">
+<title>PureCVisor Single Edge | 단일 노드 가상화 콘솔</title>
+</head>
+<body class="login-active">
+<svg class="pcv-icon-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="pcv-i-server" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20H7m11-3h-2m-3-8H6.2c-1.12 0-1.68 0-2.108.218a2 2 0 0 0-.874.874C3 10.52 3 11.08 3 12.2v1.6c0 1.12 0 1.68.218 2.107c.192.377.497.683.874.875c.427.218.987.218 2.105.218H13m0-8v8m0-8V7.2c0-1.12 0-1.68.218-2.108a2 2 0 0 1 .874-.874C14.52 4 15.08 4 16.2 4h1.6c1.12 0 1.68 0 2.107.218c.377.192.683.497.875.874c.218.427.218.987.218 2.105v9.606c0 1.118 0 1.677-.218 2.104a2 2 0 0 1-.875.875c-.427.218-.986.218-2.104.218h-1.606c-1.118 0-1.678 0-2.105-.218a2 2 0 0 1-.874-.875c-.205-.401-.217-.919-.218-1.907m4.002-10v.002H17V7z"/></symbol>
+    <symbol id="pcv-i-pulse" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15v1.8c0 1.12 0 1.68.218 2.108a2 2 0 0 0 .874.874c.427.218.987.218 2.105.218H21M3 15V5m0 10l3.853-3.21l.004-.003c.697-.581 1.046-.872 1.425-.99a2 2 0 0 1 1.362.061c.367.153.688.474 1.332 1.118l.006.006c.654.654.981.982 1.354 1.133a2 2 0 0 0 1.385.046c.383-.128.733-.434 1.433-1.046L21 7"/></symbol>
+    <symbol id="pcv-i-monitor" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 20H9m-5-6.2V8.2c0-1.12 0-1.68.218-2.108c.192-.377.497-.682.874-.874C5.52 5 6.08 5 7.2 5h9.6c1.12 0 1.68 0 2.107.218c.377.192.683.497.875.874c.218.427.218.987.218 2.105v5.606c0 1.118 0 1.677-.218 2.104a2 2 0 0 1-.875.875c-.427.218-.986.218-2.104.218H7.197c-1.118 0-1.678 0-2.105-.218a2 2 0 0 1-.874-.875C4 15.48 4 14.92 4 13.8"/></symbol>
+    <symbol id="pcv-i-database" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12v5c0 1.657-2.686 3-6 3s-6-1.343-6-3v-5m12 0V7m0 5c0 1.657-2.686 3-6 3s-6-1.343-6-3m12-5c0-1.657-2.686-3-6-3S6 5.343 6 7m12 0c0 1.657-2.686 3-6 3S6 8.657 6 7m0 5V7"/></symbol>
+    <symbol id="pcv-i-user" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21a7 7 0 1 0-14 0m7-10a4 4 0 1 1 0-8a4 4 0 0 1 0 8"/></symbol>
+    <symbol id="pcv-i-lock" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.23 9H7.2c-1.12 0-1.68 0-2.108.218a2 2 0 0 0-.874.874C4 10.52 4 11.08 4 12.2v5.6c0 1.12 0 1.68.218 2.108a2 2 0 0 0 .874.874c.427.218.987.218 2.105.218h9.606c1.118 0 1.677 0 2.104-.218c.377-.192.683-.498.875-.874c.218-.428.218-.986.218-2.104v-5.607c0-1.118 0-1.678-.218-2.105a2 2 0 0 0-.875-.874C18.48 9 17.92 9 16.8 9h-2.03M9.23 9h5.539M9.23 9A.23.23 0 0 1 9 8.77V6a3 3 0 1 1 6 0v2.77a.23.23 0 0 1-.231.23"/></symbol>
+    <symbol id="pcv-i-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M3.587 13.779c1.78 1.769 4.883 4.22 8.413 4.22s6.634-2.451 8.413-4.22c.47-.467.705-.7.854-1.159c.107-.327.107-.913 0-1.24c-.15-.458-.385-.692-.854-1.159C18.633 8.452 15.531 6 12 6c-3.53 0-6.634 2.452-8.413 4.221c-.47.467-.705.7-.854 1.159c-.107.327-.107.913 0 1.24c.15.458.384.692.854 1.159"/><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0-4 0"/></g></symbol>
+    <symbol id="pcv-i-eye-off" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m4 4l16 16m-3.5-3.244C15.147 17.485 13.618 18 12 18c-3.53 0-6.634-2.452-8.413-4.221c-.47-.467-.705-.7-.854-1.159c-.107-.327-.107-.913 0-1.24c.15-.459.385-.693.855-1.16c.897-.892 2.13-1.956 3.584-2.793M19.5 14.634c.333-.293.638-.582.912-.854l.003-.003c.468-.466.703-.7.852-1.156c.107-.327.107-.914 0-1.241c-.15-.458-.384-.692-.854-1.159C18.633 8.452 15.531 6 12 6q-.507 0-1 .064m2.323 7.436a2 2 0 0 1-2.762-2.889"/></symbol>
+    <symbol id="pcv-i-arrow-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  </defs>
+</svg>
+<div id="splash" role="status" aria-live="polite" aria-label="Loading PureCVisor" style="position:fixed;inset:0;z-index:100000;background:#05050a;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.5s">
+  <div style="font-family:'Outfit','Pretendard',sans-serif;font-size:56px;font-weight:800;color:#00f0ff;letter-spacing:4px;margin-bottom:16px">PureCVisor</div>
+  <div style="width:200px;height:3px;background:rgba(255,255,255,0.1);border-radius:2px;overflow:hidden">
+    <div id="splash-bar" style="width:0%;height:100%;background:linear-gradient(90deg,#00f0ff,#00ff88);transition:width 0.3s"></div>
+  </div>
+  <div style="margin-top:12px;font-size:20px;color:rgba(255,255,255,0.75)">모듈을 불러오는 중입니다...</div>
+</div>
+
+<a href="#cb" class="skip-link">본문으로 건너뛰기</a>
+
+
+<div class="toast-c" id="toasts" role="status" aria-live="polite"></div>
+
+
+<div class="ctx" id="ctx" role="menu" aria-label="Context menu"></div>
+
+
+<div id="login-page" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-card-title">
+
+  <div class="login-mesh" aria-hidden="true">
+    <div class="login-orb login-orb-1"></div>
+    <div class="login-orb login-orb-2"></div>
+    <div class="login-orb login-orb-3"></div>
+  </div>
+
+
+  <header class="login-topbar" role="banner">
+    <a href="#" class="login-brand" onclick="event.preventDefault()">
+      <span class="login-brand-mark" aria-hidden="true">
+        <svg class="pcv-icon"><use href="#pcv-i-server"></use></svg>
+      </span>
+      <span class="login-brand-name">PureCVisor</span>
+    </a>
+    <div class="login-topbar-meta">
+      <span id="login-tls" class="login-tls" role="status"></span>
+    </div>
+  </header>
+
+
+  <main class="login-main">
+    <div class="login-split">
+
+      <section class="login-pitch">
+        <span class="login-eyebrow" data-edition-tag>
+          <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-pulse"></use></svg>
+          <span data-edition-text>Single Edge · 단일 노드</span>
+        </span>
+        <h1 class="login-hero ko-tight">
+          단일 엣지 운영을,<br>
+          <span class="login-hero-accent">한 콘솔에.</span>
+        </h1>
+        <p class="login-lede ko">
+          <span data-edition-lede-1>KVM · LXC · ZFS · 스냅샷 · 백업 복구까지.</span><br>
+          <span data-edition-lede-2>단일 노드 운영에 필요한 웹 콘솔 · REST API · 스토리지 흐름을 한곳에 모았습니다.</span>
+        </p>
+        <div class="login-mobile-proof ko" aria-label="모바일 운영 표면 요약">
+          <span>VM</span>
+          <span>LXC</span>
+          <span>ZFS</span>
+          <span>Jobs</span>
+          <span>REST API</span>
+        </div>
+        <div class="login-proof-grid" aria-label="Single Edge 운영 표면">
+          <article class="login-proof-card">
+            <div class="login-proof-icon" aria-hidden="true">
+              <svg class="pcv-icon"><use href="#pcv-i-server"></use></svg>
+            </div>
+            <div class="login-proof-copy-wrap">
+              <div class="login-proof-label">워크로드</div>
+              <div class="login-proof-value">VM 관리</div>
+              <p class="login-proof-copy ko">생성, 전원 제어, 콘솔, 스냅샷 흐름을 한곳에서 다룹니다.</p>
+            </div>
+          </article>
+          <article class="login-proof-card">
+            <div class="login-proof-icon" aria-hidden="true">
+              <svg class="pcv-icon"><use href="#pcv-i-monitor"></use></svg>
+            </div>
+            <div class="login-proof-copy-wrap">
+              <div class="login-proof-label">컨테이너</div>
+              <div class="login-proof-value">LXC 컨테이너</div>
+              <p class="login-proof-copy ko">컨테이너 상태와 실행 표면을 VM 자산과 같은 콘솔에서 봅니다.</p>
+            </div>
+          </article>
+          <article class="login-proof-card">
+            <div class="login-proof-icon" aria-hidden="true">
+              <svg class="pcv-icon"><use href="#pcv-i-database"></use></svg>
+            </div>
+            <div class="login-proof-copy-wrap">
+              <div class="login-proof-label">스토리지</div>
+              <div class="login-proof-value">ZFS 스토리지</div>
+              <p class="login-proof-copy ko">pool, dataset, zvol, 백업 복구 경로를 운영 상태와 연결합니다.</p>
+            </div>
+          </article>
+          <article class="login-proof-card">
+            <div class="login-proof-icon" aria-hidden="true">
+              <svg class="pcv-icon"><use href="#pcv-i-pulse"></use></svg>
+            </div>
+            <div class="login-proof-copy-wrap">
+              <div class="login-proof-label">결과 추적</div>
+              <div class="login-proof-value">Jobs · Audit</div>
+              <p class="login-proof-copy ko">장시간 작업은 job 결과와 audit 기록으로 추적합니다.</p>
+            </div>
+          </article>
+          <article class="login-proof-card">
+            <div class="login-proof-icon" aria-hidden="true">
+              <svg class="pcv-icon"><use href="#pcv-i-arrow-right"></use></svg>
+            </div>
+            <div class="login-proof-copy-wrap">
+              <div class="login-proof-label">연동</div>
+              <div class="login-proof-value">REST API</div>
+              <p class="login-proof-copy ko">웹 콘솔과 같은 상태 표면을 API에서도 확인합니다.</p>
+            </div>
+          </article>
+        </div>
+        <div class="login-console-preview" aria-label="운영 콘솔 미리보기">
+          <div class="login-console-head">
+            <div>
+              <span class="login-console-kicker">운영 표면 미리보기</span>
+              <strong>Node pcv-edge-1</strong>
+            </div>
+            <span class="login-console-state">Single Edge</span>
+          </div>
+          <div class="login-console-status" aria-label="노드 상태 요약">
+            <span><b>ONLINE</b> Host</span>
+            <span><b>KVM READY</b> Virtualization</span>
+            <span><b>ZFS HEALTHY</b> Storage</span>
+            <span><b>API OK</b> REST</span>
+          </div>
+          <div class="login-console-grid" aria-label="운영 지표 예시">
+            <div><span>VM</span><strong>12 running</strong></div>
+            <div><span>LXC</span><strong>8 running</strong></div>
+            <div><span>Snapshots</span><strong>42 kept</strong></div>
+            <div><span>Jobs</span><strong>0 failed</strong></div>
+          </div>
+        </div>
+        <ul class="login-chips ko" data-edition-chips aria-label="핵심 역량" hidden></ul>
+      </section>
+
+
+      <section class="login-aside">
+        <div class="login-bezel">
+          <div class="login-bezel-core">
+            <div class="login-card-head">
+              <div class="login-card-eyebrow">관리자 인증</div>
+              <h2 class="login-card-title ko-tight" id="login-card-title" data-i18n="login.title">보안 로그인</h2>
+              <p class="login-card-sub ko">로컬 운영 계정으로 접속하세요.</p>
+              <p class="login-security-note ko">로그인 실패와 세션 변경은 audit 기록에 남습니다.</p>
+            </div>
+
+            <form class="login-form" onsubmit="event.preventDefault();doLoginPage();return false;" autocomplete="on">
+              <div class="login-field">
+                <label class="login-label" for="login-user">계정 이름</label>
+                <div class="login-input-wrap">
+                  <svg class="pcv-icon login-input-icon" aria-hidden="true"><use href="#pcv-i-user"></use></svg>
+                  <input id="login-user" class="login-input" placeholder="계정 이름" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="계정 이름">
+                </div>
+              </div>
+
+              <div class="login-field">
+                <label class="login-label" for="login-pass">비밀번호</label>
+                <div class="login-input-wrap">
+                  <svg class="pcv-icon login-input-icon" aria-hidden="true"><use href="#pcv-i-lock"></use></svg>
+                  <input id="login-pass" type="password" class="login-input" placeholder="••••••••" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="비밀번호" onkeydown="if(event.key==='Enter')doLoginPage()">
+                  <button type="button" class="login-pass-toggle" aria-label="비밀번호 표시 전환" onclick="(function(b){var i=document.getElementById('login-pass');var hidden=i.type==='password';i.type=hidden?'text':'password';b.querySelector('use').setAttribute('href',hidden?'#pcv-i-eye-off':'#pcv-i-eye');})(this)">
+                    <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-eye"></use></svg>
+                  </button>
+                </div>
+              </div>
+
+              <div id="login-err" class="login-err" role="alert" aria-live="assertive"></div>
+
+              <button type="submit" class="login-submit" aria-label="로그인" data-i18n="login">
+                <span class="login-submit-label">로그인</span>
+                <span class="login-submit-arrow" aria-hidden="true">
+                  <svg class="pcv-icon"><use href="#pcv-i-arrow-right"></use></svg>
+                </span>
+              </button>
+
+              <div class="login-alt">
+                <button type="button" class="login-link login-link-button" onclick="showRegisterModal()">첫 계정 생성</button>
+                <span class="login-alt-sep" aria-hidden="true">·</span>
+                <a href="/ui/guide.html" class="login-link">운영 가이드</a>
+              </div>
+            </form>
+          </div>
+        </div>
+      </section>
+    </div>
+  </main>
+
+
+  <footer class="login-footer ko" role="contentinfo">
+    <div>&copy; 2026 PureCVisor Single Edge</div>
+    <div class="login-footer-meta" data-edition-meta hidden></div>
+  </footer>
+
+
+  <script>
+  (function() {
+    var EDITION = {
+      tag: 'Single Edge · 단일 노드',
+      lede1: 'KVM · LXC · ZFS · 스냅샷 · 백업 복구까지.',
+      lede2: '단일 노드 운영에 필요한 웹 콘솔 · REST API · 스토리지 흐름을 한곳에 모았습니다.',
+      chips: [],
+      meta: ''
+    };
+
+    function escAttr(s) {
+      return String(s).replace(/[&<>"']/g, function(c) {
+        return { '&': '&amp;', '<': '&lt;', '>': '&gt;', '"': '&quot;', "'": '&#39;' }[c];
+      });
+    }
+
+    function paint() {
+      var e = EDITION;
+      var tagEl  = document.querySelector('[data-edition-text]');
+      var l1     = document.querySelector('[data-edition-lede-1]');
+      var l2     = document.querySelector('[data-edition-lede-2]');
+      var chips  = document.querySelector('[data-edition-chips]');
+      var meta   = document.querySelector('[data-edition-meta]');
+      if (tagEl) tagEl.textContent = e.tag;
+      if (l1)    l1.textContent    = e.lede1;
+      if (l2)    l2.textContent    = e.lede2;
+      if (meta) {
+        meta.textContent = e.meta;
+        meta.hidden = !e.meta;
+      }
+      if (chips) {
+        chips.innerHTML = e.chips.map(function(c) {
+          return '<li><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-pulse"></use></svg> '
+               + escAttr(c.label) + '</li>';
+        }).join('');
+        chips.hidden = e.chips.length === 0;
+      }
+      document.documentElement.setAttribute('data-edition', 'single');
+    }
+
+    paint();
+  })();
+  </script>
+</div>
+
+
+
+
+<header class="app-header">
+<div class="menubar" role="menubar" aria-label="Main menu">
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.file">파일</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="showCreate()" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.file.new_vm">New VM...<span class="shortcut">Ctrl+N</span></div>
+    <div class="mi" onclick="showNetCreate()" role="menuitem" data-i18n="menu.file.new_network">New Network...</div>
+    <div class="mi" onclick="showPoolCreate()" role="menuitem" data-i18n="menu.file.new_pool">New Pool...</div>
+    <div class="mi" onclick="showZvol()" role="menuitem" data-i18n="menu.file.new_zvol">New Zvol...</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="showImportOva()" role="menuitem" data-i18n="menu.file.import_ova">Import OVA...</div>
+    <div class="mi" onclick="showConnect()" role="menuitem" data-i18n="menu.file.connect">Connect to Server...</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="showPrefs()" role="menuitem" data-i18n="menu.file.preferences">Preferences<span class="shortcut">Ctrl+,</span></div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.edit">편집</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="showSettings()" role="menuitem" data-i18n="menu.edit.vm_settings">VM Settings...<span class="shortcut">Ctrl+D</span></div>
+    <div class="mi" onclick="showSnap()" role="menuitem" data-i18n="menu.edit.snapshots">Snapshots...</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="showAgentConfig()" role="menuitem" data-i18n="menu.edit.agent_config">AI Agent Config...</div>
+    <div class="mi" onclick="navigateTo('config-mgmt')" role="menuitem" data-i18n="menu.edit.config_mgmt">Config Management</div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.view">보기</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="toggleSB()" role="menuitem" data-i18n="menu.view.toggle_sidebar">Toggle Sidebar<span class="shortcut">Ctrl+B</span></div>
+    <div class="mi" onclick="toggleFS()" role="menuitem" data-i18n="menu.view.fullscreen">Full Screen<span class="shortcut">F11</span></div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="switchSbTab('vms');navigateTo('summary')" role="menuitem" data-i18n="menu.view.vm_library">VM Library</div>
+    <div class="mi" onclick="switchSbTab('containers');navigateTo('containers')" role="menuitem" data-i18n="menu.view.container_library">Container Library</div>
+
+    <div class="mi" onclick="switchSbTab('infra')" role="menuitem" data-i18n="menu.view.infrastructure">Infrastructure</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="showVnc()" role="menuitem" data-i18n="menu.view.vnc_console">VNC Console...</div>
+    <div class="mi" onclick="toggleTheme()" role="menuitem" data-i18n="menu.view.color_theme">Color Theme</div>
+    <div class="mi" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true}))" role="menuitem" data-i18n="menu.view.cmd_palette">Command Palette<span class="shortcut">Ctrl+K</span></div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.go">이동</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="navigateTo('networks')" role="menuitem" data-i18n="menu.go.networks">네트워크</div>
+    <div class="mi" onclick="navigateTo('storage')" role="menuitem" data-i18n="menu.go.storage">스토리지</div>
+    <div class="mi" onclick="navigateTo('containers')" role="menuitem" data-i18n="menu.go.containers">LXC Containers</div>
+    <div class="mi" onclick="navigateTo('host')" role="menuitem" data-i18n="menu.go.host">Host</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="navigateTo('ovn')" role="menuitem" data-i18n="menu.go.ovn">OVN SDN</div>
+    <div class="mi" onclick="navigateTo('security-groups')" role="menuitem" data-i18n="menu.go.security_groups">Security Groups</div>
+    <div class="mi" onclick="navigateTo('gpu')" role="menuitem" data-i18n="menu.go.gpu">GPU Devices</div>
+    <div class="mi" onclick="navigateTo('templates')" role="menuitem" data-i18n="menu.go.templates">Templates</div>
+
+    <div class="sep" role="separator"></div>
+
+    <div class="mi" onclick="navigateTo('cloud-migration')" role="menuitem" data-i18n="menu.go.cloud_migration">Cloud Migration</div>
+
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.run">실행</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="vmPower('start')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.power_on">Power On<span class="shortcut">F5</span></div>
+    <div class="mi" onclick="vmPower('stop')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.power_off">Power Off<span class="shortcut">Shift+F5</span></div>
+    <div class="mi" onclick="vmPower('suspend')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.suspend">Suspend (Pause)</div>
+    <div class="mi" onclick="vmPower('resume')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.resume">Resume</div>
+    <div class="sep" role="separator"></div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.terminal">관제</span>
+  <div class="menu-drop" role="menu">
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="navigateTo('mon-overview')" role="menuitem" data-i18n="menu.terminal.monitor_overview">Monitor Overview</div>
+    <div class="mi" onclick="navigateTo('mon-hosts')" role="menuitem" data-i18n="menu.terminal.host_monitor">Host Monitor</div>
+    <div class="mi" onclick="navigateTo('mon-security')" role="menuitem" data-i18n="menu.terminal.security_events">Security Events</div>
+    <div class="mi" onclick="navigateTo('mon-audit')" role="menuitem" data-i18n="menu.terminal.audit_log">Audit Log</div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.accounts">계정</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="navigateTo('accounts')" role="menuitem" data-role="ADMIN" data-i18n="menu.accounts.users_roles">Users &amp; Roles (RBAC)</div>
+    <div class="mi" onclick="navigateTo('apimgmt')" role="menuitem" data-role="ADMIN" data-i18n="menu.accounts.api_mgmt">API Management</div>
+  </div>
+</div>
+<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.help">도움말</span>
+  <div class="menu-drop" role="menu">
+    <div class="mi" onclick="navigateTo('serviceguide')" role="menuitem" data-i18n="menu.help.welcome">Welcome<span class="shortcut">F1</span></div>
+    <div class="mi" onclick="navigateTo('helppage')" role="menuitem" data-i18n="menu.help.cmd_reference">Command Reference</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="navigateTo('restguide')" role="menuitem" data-i18n="menu.help.rest_guide">REST API Guide</div>
+    <div class="mi" onclick="navigateTo('apihelp')" role="menuitem" data-i18n="menu.help.swagger">Swagger API</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="window.open('/ui/guide.html','_blank')" role="menuitem" data-i18n="menu.help.complete_guide">Complete Guide</div>
+    <div class="sep" role="separator"></div>
+    <div class="mi" onclick="showAbout()" role="menuitem" data-i18n="menu.help.about">About</div>
+    <div class="mi" onclick="toast('Version check: '+new Date().toLocaleDateString())" role="menuitem" data-i18n="menu.help.check_updates">Check for Updates...</div>
+  </div>
+</div>
+</div>
+
+
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileSB()"></div>
+
+
+<div class="toolbar" role="toolbar" aria-label="Main toolbar">
+<button id="mobile-menu-btn" class="mobile-menu-btn" onclick="toggleMobileSB()" aria-label="사이드바 열기"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-menu-alt-01"></use></svg></button>
+<div class="toolbar-title">
+  <div class="toolbar-kicker">운영 콘솔</div>
+  <h1><span>PureCVisor</span></h1>
+  <p class="toolbar-summary">단일 노드 워크로드와 호스트 상태를 한 화면에서 관리합니다.</p>
+</div>
+<div class="pwr" role="group" aria-label="Power controls">
+  <button title="시작" onclick="vmPower('start')" data-role="OPERATOR,ADMIN" aria-label="VM 시작"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-play"></use></svg></button>
+  <button title="일시 정지" onclick="vmPower('suspend')" data-role="OPERATOR,ADMIN" aria-label="VM 일시 정지"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-pause"></use></svg></button>
+  <button title="재개" onclick="vmPower('resume')" data-role="OPERATOR,ADMIN" aria-label="VM 재개"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-refresh"></use></svg></button>
+  <button class="stop" title="중지" onclick="vmPower('stop')" data-role="OPERATOR,ADMIN" aria-label="VM 중지"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-stop"></use></svg></button>
+</div>
+<button class="tb" onclick="showCreate()" data-role="OPERATOR,ADMIN" aria-label="Create new VM" data-i18n="vm.new"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg>+ 새 VM</button>
+<button class="tb" onclick="showSnap()" aria-label="Snapshot management" data-i18n="toolbar.snap"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-camera"></use></svg>스냅샷</button>
+<button class="tb" onclick="showSettings()" aria-label="VM settings" data-i18n="toolbar.settings"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg>설정</button>
+<button class="tb" onclick="bulkStop()" id="bbtn" style="display:none" aria-label="Stop selected VMs" data-i18n="toolbar.stop_selected"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-stop"></use></svg>선택 항목 중지</button>
+<div class="toolbar-r">
+  <select id="theme-select" class="theme-select" onchange="changeTheme(this.value)" aria-label="Theme selector">
+    <option value="supanova">SUPANOVA (Teal)</option>
+    <option value="supanova-cyan">SUPANOVA CYAN</option>
+    <option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option>
+  </select>
+
+  <select id="lang-select" class="theme-select" onchange="I18N.setLang(this.value);if(typeof applyI18n==='function')applyI18n();else location.reload()" aria-label="Language selector">
+    <option value="ko">한국어</option>
+    <option value="en">English</option>
+  </select>
+  <span id="ws-s" class="ws-status" role="status" aria-label="WebSocket status"></span>
+  <span id="la" class="toolbar-session">
+    <span class="toolbar-session-copy">
+      <strong>세션 준비됨</strong>
+      <span>로그인 화면에서 인증을 마치면 운영 콘솔을 바로 사용할 수 있습니다.</span>
+    </span>
+    <button class="btn" type="button" onclick="if(window.pcvSetLoginVisible){pcvSetLoginVisible(true)}else{document.getElementById('login-page').style.display='flex';document.body.classList.add('login-active')}var lu=document.getElementById('login-user');if(lu)lu.focus()">로그인 화면</button>
+  </span>
+  <span id="us" class="hidden toolbar-user">
+    <span class="toolbar-user-copy">
+      <span class="toolbar-user-kicker">운영 세션</span>
+      <span id="us-name" class="toolbar-user-name"></span>
+    </span>
+    <button class="btn" onclick="showChangePwModal()" style="font-size:12px;padding:5px 12px;margin-right:6px" title="비밀번호 변경"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-lock"></use></svg>비밀번호</button>
+    <button class="btn btn-r" onclick="doLogout()" style="font-size:12px;padding:5px 14px" data-i18n="logout">로그아웃</button>
+  </span>
+</div>
+</div>
+</header>
+
+
+<div class="main main-with-activity">
+
+<div class="activity-bar" id="activity-bar">
+  <div class="activity-icon active" data-panel="vms" onclick="switchActivity('vms')" title="VM 자산" role="button" aria-label="VM 자산"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></div>
+  <div class="activity-icon" data-panel="containers" onclick="switchActivity('containers')" title="컨테이너" role="button" aria-label="컨테이너"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></div>
+  <div class="activity-icon" data-panel="infra" onclick="switchActivity('infra')" title="운영" role="button" aria-label="운영"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></div>
+  <div class="activity-icon" data-panel="search" onclick="toggleGlobalSearch()" title="검색" role="button" aria-label="검색"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-search"></use></svg></div>
+  <div class="activity-spacer"></div>
+  <div class="activity-icon" data-panel="notifications" onclick="toggleNotifCenter()" title="알림" role="button" aria-label="알림"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-bell"></use></svg></div>
+  <div class="activity-icon" onclick="showPrefs()" title="설정" role="button" aria-label="설정"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg></div>
+</div>
+
+
+<div class="sidebar-panel" id="sidebar-panel" role="navigation" aria-label="Main navigation">
+
+  <div class="ct sb-tabs" id="sb-tabs">
+    <button class="active" data-sb="vms" onclick="switchSbTab('vms')" data-i18n="sidebar.vm">VM 자산</button>
+    <button data-sb="containers" onclick="switchSbTab('containers')" data-i18n="sidebar.container">컨테이너</button>
+    <button data-sb="infra" onclick="switchSbTab('infra')" data-i18n="sidebar.infra">운영</button>
+  </div>
+
+
+  <div id="pinned-bar" style="display:none"></div>
+
+
+  <div id="sb-vms">
+    <div class="sb-head"><span>VM 자산</span><span id="vc">0</span></div>
+    <div style="padding:4px 8px">
+      <input class="sb-search" id="vf" placeholder="이름으로 찾기" oninput="render()" aria-label="VM 이름으로 찾기">
+      <div class="flex gap-6" style="justify-content:center">
+        <span class="sb-sort" onclick="setSort('name')" role="button" tabindex="0">이름</span>
+        <span class="sb-sort" onclick="setSort('cpu')" role="button" tabindex="0">CPU</span>
+        <span class="sb-sort" onclick="setSort('mem')" role="button" tabindex="0">MEM</span>
+        <span class="sb-sort" onclick="setSort('state')" role="button" tabindex="0">상태</span>
+      </div>
+    </div>
+    <div class="vm-list" id="vl" role="listbox" aria-label="Virtual machines"></div>
+  </div>
+
+
+  <div id="sb-containers" class="hidden">
+    <div class="sb-head"><span>컨테이너</span><span id="ctr-count">0</span></div>
+    <div style="padding:4px 8px">
+      <input class="sb-search" id="ctr-filter" placeholder="이름으로 찾기" oninput="renderContainerList()" aria-label="컨테이너 이름으로 찾기">
+      <div class="flex gap-6" style="justify-content:center">
+        <span class="sb-sort" onclick="setCtrSort('name')" role="button" tabindex="0">이름</span>
+        <span class="sb-sort" onclick="setCtrSort('state')" role="button" tabindex="0">상태</span>
+        <span class="sb-sort" onclick="setCtrSort('ip')" role="button" tabindex="0">IP</span>
+      </div>
+    </div>
+    <div class="vm-list" id="ctr-list" role="listbox" aria-label="LXC Containers"></div>
+  </div>
+
+
+
+  <div id="sb-infra" class="hidden sb-infra-panel">
+    <div class="infra" id="nav-infra" style="flex:1;overflow-y:auto">
+      <div class="sb-head">
+        <span>운영 바로가기</span>
+        <span id="infra-sort-btn" class="sb-sort" onclick="toggleInfraSort()" role="button" tabindex="0" title="정렬 전환" style="cursor:pointer;font-size:11px">A-Z</span>
+      </div>
+      <div class="infra-group">
+        <div class="infra-group-title">상태와 제어</div>
+        <div class="vi" draggable="true" data-nav="mon-overview" onclick="navigateTo('mon-overview')" role="link" tabindex="0"><span class="nav-icon color-green"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg></span><span class="nm">운영 개요</span></div>
+        <div class="vi" draggable="true" data-nav="ops-triage" onclick="navigateTo('ops-triage')" role="link" tabindex="0"><span class="nav-icon color-accent"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg></span><span class="nm">이벤트 센터</span></div>
+        <div class="vi" draggable="true" data-nav="host" onclick="navigateTo('host')" role="link" tabindex="0"><span class="nav-icon color-green"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></span><span class="nm">호스트 상태</span></div>
+        <div class="vi" draggable="true" data-nav="mon-alerts" onclick="navigateTo('mon-alerts')" role="link" tabindex="0"><span class="nav-icon color-red"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-bell"></use></svg></span><span class="nm">알림</span></div>
+        <div class="vi" draggable="true" data-nav="mon-security" onclick="navigateTo('mon-security')" role="link" tabindex="0"><span class="nav-icon color-yellow"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-shield-check"></use></svg></span><span class="nm">보안 이벤트</span></div>
+        <div class="vi" draggable="true" data-nav="mon-audit" onclick="navigateTo('mon-audit')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--magenta)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-search"></use></svg></span><span class="nm">감사 로그</span></div>
+        <div class="vi" draggable="true" data-nav="activity-log" onclick="navigateTo('activity-log')" role="link" tabindex="0"><span class="nav-icon color-cyan"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-file-document"></use></svg></span><span class="nm">활동 로그</span></div>
+        <div class="vi" draggable="true" data-nav="mon-storage" onclick="navigateTo('mon-storage')" role="link" tabindex="0"><span class="nav-icon color-peach"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-data"></use></svg></span><span class="nm">스토리지 모니터</span></div>
+        <div class="vi" draggable="true" data-nav="mon-vms" onclick="navigateTo('mon-vms')" role="link" tabindex="0"><span class="nav-icon color-yellow"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-monitor"></use></svg></span><span class="nm">VM 모니터</span></div>
+      </div>
+      <div class="infra-group">
+        <div class="infra-group-title">네트워크와 스토리지</div>
+        <div class="vi" draggable="true" data-nav="networks" onclick="navigateTo('networks')" role="link" tabindex="0"><span class="nav-icon color-cyan"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></span><span class="nm">네트워크</span></div>
+        <div class="vi" draggable="true" data-nav="ovn" onclick="navigateTo('ovn')" role="link" tabindex="0"><span class="nav-icon color-peach"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></span><span class="nm">OVN SDN</span></div>
+        <div class="vi" draggable="true" data-nav="overlay" onclick="navigateTo('overlay')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--cyan)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></span><span class="nm">오버레이 네트워크</span></div>
+        <div class="vi" draggable="true" data-nav="security-groups" onclick="navigateTo('security-groups')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--red)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-shield"></use></svg></span><span class="nm">보안 그룹</span></div>
+        <div class="vi" draggable="true" data-nav="storage" onclick="navigateTo('storage')" role="link" tabindex="0"><span class="nav-icon color-peach"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-data"></use></svg></span><span class="nm">스토리지</span></div>
+        <div class="vi" draggable="true" data-nav="backup" onclick="navigateTo('backup')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--green)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-save"></use></svg></span><span class="nm">백업</span></div>
+        <div class="vi" draggable="true" data-nav="iscsi" onclick="navigateTo('iscsi')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--peach)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-data"></use></svg></span><span class="nm">iSCSI 타깃</span></div>
+      </div>
+      <div class="infra-group">
+        <div class="infra-group-title">고급 기능과 지원</div>
+        <div class="vi" draggable="true" data-nav="accounts" onclick="navigateTo('accounts')" role="link" tabindex="0" data-role="ADMIN"><span class="nav-icon color-magenta"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-users"></use></svg></span><span class="nm">계정과 권한</span></div>
+        <div class="vi" draggable="true" data-nav="apimgmt" onclick="navigateTo('apimgmt')" role="link" tabindex="0" data-role="ADMIN"><span class="nav-icon color-yellow"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-terminal"></use></svg></span><span class="nm">API 관리</span></div>
+        <div class="vi" draggable="true" data-nav="api-perf" onclick="navigateTo('api-perf')" role="link" tabindex="0"><span class="nav-icon color-green"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg></span><span class="nm">API 성능</span></div>
+        <div class="vi" draggable="true" data-nav="config-mgmt" onclick="navigateTo('config-mgmt')" role="link" tabindex="0"><span class="nav-icon color-yellow"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg></span><span class="nm">설정 관리</span></div>
+        <div class="vi" draggable="true" data-nav="gpu" onclick="navigateTo('gpu')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--green)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-monitor"></use></svg></span><span class="nm">GPU 장치</span></div>
+        <div class="vi" draggable="true" data-nav="dpdk" onclick="navigateTo('dpdk')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--accent)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></span><span class="nm">DPDK</span></div>
+        <div class="vi" draggable="true" data-nav="sriov" onclick="navigateTo('sriov')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--yellow)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></span><span class="nm">SR-IOV</span></div>
+        <div class="vi" draggable="true" data-nav="templates" onclick="navigateTo('templates')" role="link" tabindex="0"><span class="nav-icon color-cyan"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-file-document"></use></svg></span><span class="nm">템플릿</span></div>
+        <div class="vi" draggable="true" data-nav="cloud-migration" onclick="navigateTo('cloud-migration')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--accent)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-cloud"></use></svg></span><span class="nm">클라우드 마이그레이션</span></div>
+        <div class="vi" draggable="true" data-nav="topology" onclick="navigateTo('topology')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--cyan)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></span><span class="nm">토폴로지</span></div>
+        <div class="vi" draggable="true" data-nav="heatmap" onclick="navigateTo('heatmap')" role="link" tabindex="0"><span class="nav-icon" style="color:var(--red)"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg></span><span class="nm">히트맵</span></div>
+        <div class="vi" draggable="true" data-nav="selfhealing" onclick="navigateTo('selfhealing')" role="link" tabindex="0"><span class="nav-icon color-magenta"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-shield-check"></use></svg></span><span class="nm">자동 복구</span></div>
+        <div class="vi" draggable="true" data-nav="serviceguide" onclick="navigateTo('serviceguide')" role="link" tabindex="0"><span class="nav-icon color-green"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-book"></use></svg></span><span class="nm">서비스 가이드</span></div>
+        <div class="vi" draggable="true" data-nav="helppage" onclick="navigateTo('helppage')" role="link" tabindex="0"><span class="nav-icon color-accent"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-book"></use></svg></span><span class="nm">도움말</span></div>
+        <div class="vi" draggable="true" data-nav="restguide" onclick="navigateTo('restguide')" role="link" tabindex="0"><span class="nav-icon color-cyan"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-file-document"></use></svg></span><span class="nm">REST API 가이드</span></div>
+        <div class="vi" draggable="true" data-nav="apihelp" onclick="navigateTo('apihelp')" role="link" tabindex="0"><span class="nav-icon color-muted"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-book"></use></svg></span><span class="nm">Swagger API</span></div>
+      </div>
+    </div>
+  </div>
+  <div class="sb-resize" id="sb-resize"></div>
+</div>
+
+
+<div style="display:flex;flex-direction:column;flex:1;overflow:hidden">
+
+<div class="content" role="main" aria-label="Content area">
+
+  <div class="editor-tabs" id="editor-tabs"></div>
+
+  <div class="breadcrumbs" id="breadcrumbs"></div>
+  <div class="ct" id="ct">
+    <button class="active" data-t="summary" data-i18n="tab.summary">요약</button>
+    <button data-t="console" data-i18n="tab.console">콘솔</button>
+    <button data-t="snapshots" data-i18n="tab.snapshots">스냅샷</button>
+    <button data-t="performance" data-i18n="tab.performance">성능</button>
+    <button class="tb" data-t="timeline" data-i18n="tab.timeline">운영 타임라인</button>
+  </div>
+  <div class="cb" id="cb"></div>
+</div>
+
+
+</div>
+</div>
+
+
+<div class="sb-bar" role="contentinfo">
+<span id="sb1">연결 대기</span>
+<span id="sb2">VM 미선택</span>
+<span id="sb3">-</span>
+<span id="sb-ctx" class="color-muted" style="font-size:10px"></span>
+<span class="ml-auto flex gap-8" style="align-items:center">
+  <span>PureCVisor Single Edge &copy; 2026</span>
+</span>
+</div>
+
+
+<div id="ev-side" class="ev-side" style="display:none" aria-live="polite" aria-label="Event log panel">
+<div id="evp" class="ev-content">이벤트 대기 중...</div>
+<div class="ev-footer">
+  <span id="ev-count">0 events</span>
+  <span id="ev-status">Idle</span>
+</div>
+</div>
+
+
+<div id="mbg" class="modal-bg hidden" onclick="if(event.target===this)closeModal()" role="dialog" aria-modal="true" aria-label="Dialog">
+<div class="modal" id="mc" tabindex="-1"></div>
+</div>
+
+
+<script src="vendor/chart.umd.min.js?v=1.0"></script>
+<script src="i18n.js?v=1.0"></script>
+
+<script src="app.bundle.js?v=1.0"></script>
+<script src="app.js?v=1.0"></script>
+<div class="mobile-nav" id="mobile-nav">
+<div class="mobile-nav-items">
+  <div class="mobile-nav-item" onclick="navigateTo('dashboard')"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-house-01"></use></svg></span><span>개요</span></div>
+  <div class="mobile-nav-item" onclick="switchSbTab('vms');navigateTo('summary')"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></span><span>VM</span></div>
+  <div class="mobile-nav-item" onclick="switchSbTab('containers');navigateTo('containers')"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></span><span>컨테이너</span></div>
+  <div class="mobile-nav-item" onclick="navigateTo('mon-overview')"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg></span><span>상태</span></div>
+  <div class="mobile-nav-item" onclick="toggleMobileSB()"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-menu-alt-01"></use></svg></span><span>전체</span></div>
+</div>
+</div>
+<script>
+
+  var _pcvSplashDismissed = false;
+  function _pcvSplashRemove() {
+    if (_pcvSplashDismissed) return;
+    _pcvSplashDismissed = true;
+    var splashBar = document.getElementById('splash-bar');
+    if (splashBar) splashBar.style.width = '100%';
+    requestAnimationFrame(function() {
+      var splash = document.getElementById('splash');
+      if (splash) { splash.style.opacity = '0'; setTimeout(function() { splash.remove(); }, 180); }
+    });
+  }
+  window.__pcvDismissSplash = _pcvSplashRemove;
+  function _pcvInitUI() {
+    var langSel = document.getElementById('lang-select');
+    if (langSel && typeof I18N !== 'undefined') langSel.value = I18N.getLang();
+    if (typeof applyI18n === 'function') applyI18n();
+    _pcvSplashRemove();
+  }
+
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _pcvInitUI, { once: true });
+  } else {
+    _pcvInitUI();
+  }
+  window.addEventListener('load', _pcvSplashRemove, { once: true });
+
+  setTimeout(function() {
+    var splash = document.getElementById('splash');
+    if (splash) {
+      _pcvSplashDismissed = true;
+      splash.remove();
+      var lp = document.getElementById('login-page');
+      if (lp) lp.style.display = 'flex';
+    }
+  }, 3000);
+</script>
+</body>
+</html>

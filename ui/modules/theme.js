@@ -1,0 +1,218 @@
+
+
+
+
+
+window.PCV = window.PCV || {};
+(function(PCV) {
+
+
+var THEME_PREVIEWS = [
+  { id: 'supanova',         name: 'SUPANOVA (Teal)',  colors: ['#07090c','#14b8a6','#34d399','#f43f5e'] },
+  { id: 'supanova-cyan',    name: 'SUPANOVA CYAN',    colors: ['#07090c','#0891b2','#34d399','#f43f5e'] },
+  { id: 'supanova-hicontrast', name: 'SUPANOVA HI-CONTRAST', colors: ['#030405','#facc15','#ffffff','#ff4d6d'] },
+];
+
+
+var SUPANOVA_THEMES = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
+function sanitizeTheme(t) {
+  return SUPANOVA_THEMES.indexOf(t) >= 0 ? t : 'supanova';
+}
+
+function changeTheme(t) {
+  t = sanitizeTheme(t);
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('pcv-theme', t);
+
+  destroyAllCharts();
+
+  try { window.dispatchEvent(new Event('pcv-theme-change')); } catch (_) {}
+  if (typeof renderContent === 'function') {
+    try { renderContent(); } catch(e) {}
+  }
+}
+
+function toggleTheme() {
+  const themes = SUPANOVA_THEMES;
+  const cur = document.documentElement.getAttribute('data-theme') || 'supanova';
+  const idx = (themes.indexOf(cur) + 1) % themes.length;
+  changeTheme(themes[idx]);
+  const s = document.getElementById('theme-select');
+  if (s) s.value = themes[idx];
+}
+
+
+
+
+
+var THEME_VARS = ['bg','bg2','bg3','fg','fg2','accent','green','red','yellow','cyan','peach','magenta','border'];
+
+function openThemeEditor() {
+  var originalTheme = document.documentElement.getAttribute('data-theme') || '';
+  const style = getComputedStyle(document.documentElement);
+  let h = '<h2>Theme Editor</h2>';
+  h += '<div class="theme-editor"><div class="theme-editor-grid">';
+  THEME_VARS.forEach(v => {
+    const cur = style.getPropertyValue('--' + v).trim();
+    const hex = cssColorToHex(cur);
+    h += '<div class="theme-editor-item"><label>--' + v + '</label><input type="color" value="' + hex + '" data-var="' + v + '" onchange="previewThemeVar(this)"><span style="font-size:9px;color:var(--fg2)" id="te-val-' + v + '">' + hex + '</span></div>';
+  });
+  h += '</div></div>';
+  h += '<div class="theme-editor-actions">';
+  h += '<button class="btn btn-g" onclick="saveCustomTheme()">Save as Custom</button>';
+  h += '<button class="btn" onclick="exportTheme()">Export JSON</button>';
+  h += '<button class="btn" onclick="importTheme()">Import</button>';
+  h += '<button class="btn btn-r" onclick="changeTheme(\'' + originalTheme + '\');closeModal()" style="margin-left:8px">' + (_L ? _L('원래 테마로', 'Reset to Original') : 'Reset to Original') + '</button>';
+  h += '<button class="btn btn-r" onclick="closeModal()">Cancel</button>';
+  h += '</div>';
+  showModal(h);
+}
+
+function cssColorToHex(c) {
+  if (!c) return '#000000';
+  c = c.trim();
+  if (c.startsWith('#')) return c.length === 4 ? '#' + c[1]+c[1]+c[2]+c[2]+c[3]+c[3] : c;
+  const m = c.match(/rgba?\((\d+),\s*(\d+),\s*(\d+)/);
+  if (m) return '#' + [m[1],m[2],m[3]].map(x => parseInt(x).toString(16).padStart(2,'0')).join('');
+  return '#000000';
+}
+
+function previewThemeVar(el) {
+  const v = el.dataset.var;
+  document.documentElement.style.setProperty('--' + v, el.value);
+  const span = document.getElementById('te-val-' + v);
+  if (span) span.textContent = el.value;
+}
+
+function saveCustomTheme() {
+  const custom = {};
+  THEME_VARS.forEach(v => {
+    const el = document.querySelector('.theme-editor-item input[data-var="' + v + '"]');
+    if (el) custom[v] = el.value;
+  });
+  localStorage.setItem('pcv-custom-theme', JSON.stringify(custom));
+  applyCustomTheme(custom);
+  toast('Custom theme saved');
+  closeModal();
+}
+
+function applyCustomTheme(vars) {
+  Object.entries(vars).forEach(([k, v]) => {
+    document.documentElement.style.setProperty('--' + k, v);
+  });
+  document.documentElement.setAttribute('data-theme', 'custom');
+  localStorage.setItem('pcv-theme', 'custom');
+  const s = document.getElementById('theme-select');
+  if (s) s.value = 'custom';
+}
+
+function exportTheme() {
+  const custom = {};
+  THEME_VARS.forEach(v => {
+    const el = document.querySelector('.theme-editor-item input[data-var="' + v + '"]');
+    if (el) custom[v] = el.value;
+  });
+  const blob = new Blob([JSON.stringify(custom, null, 2)], { type: 'application/json' });
+  const a = document.createElement('a'); a.href = URL.createObjectURL(blob);
+  a.download = 'pcv-theme.json'; a.click();
+  toast(t('msg.theme_exported'));
+}
+
+function importTheme() {
+  const input = document.createElement('input'); input.type = 'file'; input.accept = '.json';
+  input.onchange = e => {
+    const file = e.target.files[0]; if (!file) return;
+    const reader = new FileReader();
+    reader.onload = ev => {
+      try {
+        const vars = JSON.parse(ev.target.result);
+        localStorage.setItem('pcv-custom-theme', JSON.stringify(vars));
+        applyCustomTheme(vars);
+        toast(t('msg.theme_imported'));
+        closeModal();
+      } catch (err) { toast(t('msg.invalid_theme'), false); }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+
+
+function exportUiSettings() {
+  var settings = {
+    theme: document.documentElement.getAttribute('data-theme') || '',
+    sidebarWidth: localStorage.getItem('pcv-sb-width') || '',
+    vmViewMode: localStorage.getItem('pcv-vm-view') || 'list',
+    language: typeof I18N !== 'undefined' ? I18N.getLang() : 'ko',
+    autoTheme: localStorage.getItem('pcv-auto-theme') || 'false',
+    favorites: localStorage.getItem('pcv-favorites') || '[]',
+    customTheme: localStorage.getItem('pcv-custom-theme') || '',
+  };
+  var blob = new Blob([JSON.stringify(settings, null, 2)], { type: 'application/json' });
+  var a = document.createElement('a');
+  a.href = URL.createObjectURL(blob);
+  a.download = 'purecvisor-settings.json';
+  a.click();
+  toast(_L ? _L('설정 내보내기 완료', 'Settings exported') : 'Settings exported');
+}
+
+function importUiSettings() {
+  var input = document.createElement('input');
+  input.type = 'file'; input.accept = '.json';
+  input.onchange = function() {
+    var file = input.files[0]; if (!file) return;
+    var reader = new FileReader();
+    reader.onload = function(e) {
+      try {
+        var s = JSON.parse(e.target.result);
+        if (s.theme !== undefined) { changeTheme(s.theme); }
+        if (s.sidebarWidth) localStorage.setItem('pcv-sb-width', s.sidebarWidth);
+        if (s.vmViewMode) localStorage.setItem('pcv-vm-view', s.vmViewMode);
+        if (s.language && typeof I18N !== 'undefined') { I18N.setLang(s.language); if (typeof applyI18n === 'function') applyI18n(); }
+        if (s.autoTheme) localStorage.setItem('pcv-auto-theme', s.autoTheme);
+        if (s.favorites) localStorage.setItem('pcv-favorites', s.favorites);
+        if (s.customTheme) localStorage.setItem('pcv-custom-theme', s.customTheme);
+        toast(_L ? _L('설정 가져오기 완료 — 새로고침 권장', 'Settings imported — refresh recommended') : 'Settings imported');
+      } catch (err) {
+        toast(_L ? _L('잘못된 설정 파일', 'Invalid settings file') : 'Invalid', false);
+      }
+    };
+    reader.readAsText(file);
+  };
+  input.click();
+}
+window.exportUiSettings = exportUiSettings;
+window.importUiSettings = importUiSettings;
+
+
+PCV.theme = {
+  PREVIEWS: THEME_PREVIEWS,
+  VARS: THEME_VARS,
+  change: changeTheme,
+  toggle: toggleTheme,
+  sanitize: sanitizeTheme,
+  openEditor: openThemeEditor,
+  cssColorToHex: cssColorToHex,
+  previewVar: previewThemeVar,
+  saveCustom: saveCustomTheme,
+  applyCustom: applyCustomTheme,
+  exportTheme: exportTheme,
+  importTheme: importTheme,
+  exportUiSettings: exportUiSettings,
+  importUiSettings: importUiSettings
+};
+
+
+window.THEME_PREVIEWS = THEME_PREVIEWS;
+window.changeTheme = changeTheme;
+window.toggleTheme = toggleTheme;
+window.sanitizeTheme = sanitizeTheme;
+window.THEME_VARS = THEME_VARS;
+window.openThemeEditor = openThemeEditor;
+window.cssColorToHex = cssColorToHex;
+window.previewThemeVar = previewThemeVar;
+window.saveCustomTheme = saveCustomTheme;
+window.applyCustomTheme = applyCustomTheme;
+window.exportTheme = exportTheme;
+window.importTheme = importTheme;
+})(window.PCV);

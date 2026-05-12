@@ -1,0 +1,94 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<title>PureCVisor — Offline</title>
+<style>
+  body {
+    margin: 0;
+    min-height: 100vh;
+    background: #05050a;
+    color: #e0f0ff;
+    font-family: 'Inter', system-ui, sans-serif;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 20px;
+  }
+  .box {
+    text-align: center;
+    max-width: 480px;
+  }
+  .icon {
+    font-size: 72px;
+    margin-bottom: 16px;
+    color: #00f0ff;
+  }
+  h1 {
+    font-family: 'Outfit', 'Pretendard', sans-serif;
+    font-size: 28px;
+    color: #00f0ff;
+    margin: 0 0 12px;
+    letter-spacing: 2px;
+  }
+  p {
+    color: #b8c4d8;
+    line-height: 1.6;
+    margin: 8px 0;
+  }
+  .btn {
+    display: inline-block;
+    margin-top: 24px;
+    padding: 10px 24px;
+    background: transparent;
+    color: #00f0ff;
+    border: 1px solid #00f0ff;
+    border-radius: 4px;
+    cursor: pointer;
+    font-family: inherit;
+    font-size: 14px;
+    text-decoration: none;
+    transition: all 0.2s;
+  }
+  .btn:hover {
+    background: #00f0ff;
+    color: #05050a;
+    box-shadow: 0 0 16px rgba(0, 240, 255, 0.4);
+  }
+  .status {
+    margin-top: 16px;
+    font-size: 12px;
+    color: #b8c4d8;
+  }
+  .dot {
+    display: inline-block;
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: #ff2266;
+    margin-right: 6px;
+    animation: pulse 1.5s ease-in-out infinite;
+  }
+  @keyframes pulse { 0%,100%{opacity:1} 50%{opacity:0.3} }
+</style>
+</head>
+<body>
+  <main class="box">
+    <div class="icon" aria-hidden="true">&#128268;</div>
+    <h1>PureCVisor</h1>
+    <p><b>오프라인 모드</b></p>
+    <p>네트워크 연결이 끊어졌습니다.<br>서버 또는 인터넷 연결을 확인하세요.</p>
+    <button class="btn" onclick="location.reload()">&#x21bb; 다시 시도</button>
+    <div class="status" role="status"><span class="dot" aria-hidden="true"></span>서버 연결 끊김</div>
+  </main>
+  <script>
+
+    setInterval(function() {
+      fetch('/api/v1/health', { cache: 'no-store' })
+        .then(function(r) { if (r.ok) location.reload(); })
+        .catch(function() {});
+    }, 10000);
+  </script>
+</body>
+</html>

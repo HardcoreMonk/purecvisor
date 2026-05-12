@@ -1,0 +1,1373 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PureCVisor — Supanova Taste Preview</title>
+  <meta name="description" content="Supanova Design Engine의 'Taste Layer' 규칙을 PureCVisor 대시보드 맥락에 적용한 정적 프리뷰.">
+  <meta name="theme-color" content="#0a0a0a">
+
+
+  <script src="https://cdn.tailwindcss.com"></script>
+
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css">
+
+
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+
+
+  <script src="https://code.iconify.design/iconify-icon/2.3.0/iconify-icon.min.js"></script>
+
+  <script>
+    tailwind.config = {
+      theme: {
+        extend: {
+          fontFamily: {
+            sans: ['Pretendard', 'Outfit', 'system-ui', 'sans-serif'],
+            display: ['Outfit', 'Pretendard', 'sans-serif'],
+            mono: ['JetBrains Mono', 'ui-monospace', 'monospace'],
+          },
+          colors: {
+            accent: {
+              DEFAULT: '#14b8a6',
+              soft: 'rgba(20,184,166,0.12)',
+              line: 'rgba(20,184,166,0.28)',
+              glow: 'rgba(20,184,166,0.22)',
+            },
+            ink: {
+              950: '#07090c',
+              900: '#0b0e13',
+              850: '#10141c',
+              800: '#151a24',
+              700: '#1c2230',
+            },
+          },
+          fontSize: {
+            'micro': ['11px', { lineHeight: '1.2', letterSpacing: '0.15em' }],
+          },
+        },
+      },
+    };
+  </script>
+
+  <style>
+    :root {
+      --spring: cubic-bezier(0.16, 1, 0.3, 1);
+      --accent: #14b8a6;
+      --accent-soft: rgba(20, 184, 166, 0.12);
+      --accent-line: rgba(20, 184, 166, 0.28);
+      --ink-950: #07090c;
+      --ink-900: #0b0e13;
+      --ink-850: #10141c;
+      --ink-800: #151a24;
+      --ink-700: #1c2230;
+    }
+
+    html { scroll-behavior: smooth; }
+
+    body {
+      font-family: 'Pretendard', 'Outfit', -apple-system, BlinkMacSystemFont, system-ui, sans-serif;
+      background: var(--ink-950);
+      color: #e6e9ef;
+      -webkit-font-smoothing: antialiased;
+      font-feature-settings: "ss01", "ss02", "cv01";
+    }
+
+
+    .ko { word-break: keep-all; line-height: 1.35; }
+    .ko-tight { word-break: keep-all; line-height: 1.15; }
+
+
+    .en-display { font-family: 'Outfit', 'Pretendard', sans-serif; letter-spacing: -0.02em; }
+
+
+    .eyebrow {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 6px 12px;
+      border-radius: 999px;
+      background: var(--accent-soft);
+      border: 1px solid var(--accent-line);
+      color: var(--accent);
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.15em;
+      font-family: 'Outfit', sans-serif;
+    }
+    .eyebrow iconify-icon { font-size: 14px; }
+
+
+    .bezel {
+      position: relative;
+      background: rgba(255, 255, 255, 0.035);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 28px;
+      padding: 6px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.06),
+        0 30px 60px -30px rgba(0, 0, 0, 0.6);
+      transition: all 0.5s var(--spring);
+    }
+    .bezel:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      transform: translateY(-2px);
+    }
+    .bezel > .core {
+      background: linear-gradient(180deg, var(--ink-850) 0%, var(--ink-900) 100%);
+      border-radius: calc(28px - 6px);
+      padding: 28px;
+      position: relative;
+      overflow: hidden;
+    }
+    .bezel > .core::before {
+      content: "";
+      position: absolute;
+      inset: 0;
+      background: radial-gradient(600px 200px at 10% 0%, rgba(20,184,166,0.06), transparent 60%);
+      pointer-events: none;
+    }
+
+
+    .bezel-sm {
+      background: rgba(255, 255, 255, 0.03);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 20px;
+      padding: 4px;
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.05),
+        0 20px 40px -25px rgba(0, 0, 0, 0.7);
+      transition: all 0.5s var(--spring);
+    }
+    .bezel-sm:hover {
+      border-color: rgba(255, 255, 255, 0.14);
+      transform: translateY(-2px);
+    }
+    .bezel-sm > .core {
+      background: var(--ink-850);
+      border-radius: calc(20px - 4px);
+      padding: 22px;
+      position: relative;
+      overflow: hidden;
+    }
+
+
+    .glass-nav {
+      backdrop-filter: blur(24px) saturate(160%);
+      -webkit-backdrop-filter: blur(24px) saturate(160%);
+      background: rgba(11, 14, 19, 0.55);
+      border: 1px solid rgba(255, 255, 255, 0.1);
+      box-shadow:
+        inset 0 1px 0 rgba(255, 255, 255, 0.08),
+        0 20px 40px -20px rgba(0, 0, 0, 0.6);
+    }
+
+
+    .btn-primary {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 16px 28px 16px 30px;
+      background: var(--accent);
+      color: #04130f;
+      font-weight: 700;
+      font-size: 16px;
+      border-radius: 999px;
+      transition: all 0.5s var(--spring);
+      box-shadow: 0 10px 40px -10px var(--accent-glow, rgba(20,184,166,0.4));
+    }
+    .btn-primary:hover {
+      transform: scale(1.02);
+      box-shadow: 0 14px 50px -8px rgba(20, 184, 166, 0.55);
+    }
+    .btn-primary:active { transform: scale(0.98); }
+    .btn-primary .arrow-wrap {
+      width: 30px; height: 30px;
+      border-radius: 999px;
+      background: rgba(0, 0, 0, 0.12);
+      display: inline-flex; align-items: center; justify-content: center;
+      transition: transform 0.5s var(--spring);
+    }
+    .btn-primary:hover .arrow-wrap { transform: translateX(4px); }
+
+    .btn-ghost {
+      display: inline-flex; align-items: center; gap: 8px;
+      padding: 14px 22px;
+      border-radius: 999px;
+      border: 1px solid rgba(255, 255, 255, 0.14);
+      color: #e6e9ef;
+      font-weight: 500;
+      transition: all 0.5s var(--spring);
+    }
+    .btn-ghost:hover {
+      border-color: rgba(255, 255, 255, 0.28);
+      background: rgba(255, 255, 255, 0.04);
+    }
+
+
+    .reveal {
+      opacity: 0;
+      transform: translateY(28px);
+      filter: blur(6px);
+      transition: opacity 0.9s var(--spring), transform 0.9s var(--spring), filter 0.9s var(--spring);
+    }
+    .reveal.visible {
+      opacity: 1;
+      transform: translateY(0);
+      filter: blur(0);
+    }
+    .reveal-stagger > * { animation-fill-mode: backwards; }
+
+
+    @keyframes float1 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(30px, -40px) scale(1.06); }
+    }
+    @keyframes float2 {
+      0%, 100% { transform: translate(0, 0) scale(1); }
+      50% { transform: translate(-40px, 30px) scale(0.94); }
+    }
+    .orb-1 { animation: float1 14s ease-in-out infinite; }
+    .orb-2 { animation: float2 18s ease-in-out infinite; }
+
+
+    .noise {
+      position: fixed; inset: 0; z-index: 60;
+      pointer-events: none;
+      opacity: 0.035;
+      mix-blend-mode: overlay;
+      background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
+    }
+
+
+    @keyframes marquee {
+      0% { transform: translateX(0); }
+      100% { transform: translateX(-50%); }
+    }
+    .marquee-track { display: flex; gap: 72px; animation: marquee 40s linear infinite; width: max-content; }
+
+
+    .metric {
+      font-family: 'Outfit', sans-serif;
+      font-variant-numeric: tabular-nums;
+      letter-spacing: -0.03em;
+      font-weight: 700;
+      line-height: 1;
+    }
+
+
+    @keyframes pulseDot {
+      0%, 100% { opacity: 1; transform: scale(1); }
+      50% { opacity: 0.5; transform: scale(1.15); }
+    }
+    .pulse-dot {
+      width: 8px; height: 8px; border-radius: 999px;
+      background: var(--accent);
+      box-shadow: 0 0 0 0 var(--accent);
+      animation: pulseDot 2.2s ease-in-out infinite;
+    }
+
+
+    .spark { height: 28px; width: 100%; display: block; }
+    .spark path { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
+
+
+    .node-card {
+      background: rgba(255, 255, 255, 0.025);
+      border: 1px solid rgba(255, 255, 255, 0.08);
+      border-radius: 18px;
+      padding: 18px;
+      transition: all 0.5s var(--spring);
+    }
+    .node-card:hover {
+      border-color: var(--accent-line);
+      background: rgba(20, 184, 166, 0.04);
+    }
+
+
+    .op-table th {
+      text-align: left;
+      font-family: 'Outfit', sans-serif;
+      text-transform: uppercase;
+      font-size: 10px;
+      letter-spacing: 0.12em;
+      color: rgba(230, 233, 239, 0.5);
+      padding: 12px 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.06);
+      font-weight: 600;
+    }
+    .op-table td {
+      padding: 16px;
+      border-bottom: 1px solid rgba(255, 255, 255, 0.04);
+      font-size: 14px;
+      vertical-align: middle;
+    }
+    .op-table tr:last-child td { border-bottom: none; }
+    .op-table tbody tr { transition: background 0.5s var(--spring); }
+    .op-table tbody tr:hover { background: rgba(20, 184, 166, 0.03); }
+
+
+    .state {
+      display: inline-flex; align-items: center; gap: 6px;
+      padding: 4px 10px;
+      border-radius: 999px;
+      font-size: 11px;
+      font-weight: 600;
+      font-family: 'Outfit', sans-serif;
+      text-transform: uppercase;
+      letter-spacing: 0.06em;
+    }
+    .state-ok { background: rgba(20, 184, 166, 0.1); color: #5eead4; border: 1px solid rgba(20, 184, 166, 0.25); }
+    .state-warn { background: rgba(234, 179, 8, 0.1); color: #fcd34d; border: 1px solid rgba(234, 179, 8, 0.25); }
+    .state-err { background: rgba(244, 63, 94, 0.1); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.25); }
+
+
+    .ring-chart { transform: rotate(-90deg); }
+    .ring-bg { stroke: rgba(255, 255, 255, 0.08); }
+    .ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1.4s var(--spring); }
+
+
+    .section-wide { padding-top: 112px; padding-bottom: 112px; }
+    .section-normal { padding-top: 80px; padding-bottom: 80px; }
+
+    @media (max-width: 768px) {
+      .section-wide { padding-top: 72px; padding-bottom: 72px; }
+      .section-normal { padding-top: 56px; padding-bottom: 56px; }
+      .bezel > .core { padding: 22px; }
+      .bezel-sm > .core { padding: 18px; }
+    }
+
+
+    *:focus-visible {
+      outline: 2px solid var(--accent);
+      outline-offset: 3px;
+      border-radius: 4px;
+    }
+    @media (prefers-reduced-motion: reduce) {
+      *, *::before, *::after {
+        animation-duration: 0.01ms !important;
+        animation-iteration-count: 1 !important;
+        transition-duration: 0.01ms !important;
+      }
+      .reveal { opacity: 1; transform: none; filter: none; }
+    }
+  </style>
+</head>
+<body class="min-h-[100dvh] relative overflow-x-hidden">
+
+
+  <div class="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
+    <div class="absolute -top-40 -left-40 w-[560px] h-[560px] rounded-full orb-1"
+         style="background: radial-gradient(circle, rgba(20,184,166,0.12), transparent 60%);"></div>
+    <div class="absolute top-1/2 -right-40 w-[620px] h-[620px] rounded-full orb-2"
+         style="background: radial-gradient(circle, rgba(56,189,248,0.07), transparent 60%);"></div>
+    <div class="absolute bottom-0 left-1/3 w-[480px] h-[480px] rounded-full orb-1"
+         style="background: radial-gradient(circle, rgba(99,102,241,0.05), transparent 60%); animation-delay: -5s;"></div>
+  </div>
+
+
+  <div class="noise" aria-hidden="true"></div>
+
+
+  <header class="sticky top-0 z-40 flex justify-center pt-5 px-4" role="banner">
+    <nav class="glass-nav rounded-full flex items-center gap-1 pl-5 pr-2 py-2" aria-label="주요 탐색">
+      <a href="#top" class="flex items-center gap-2 pr-5 mr-1 border-r border-white/10">
+        <span class="relative flex items-center justify-center w-7 h-7 rounded-lg" style="background: linear-gradient(135deg, #14b8a6, #0ea5e9);">
+          <iconify-icon icon="solar:server-square-bold-duotone" class="text-ink-950 text-lg"></iconify-icon>
+        </span>
+        <span class="en-display font-bold tracking-tight text-[17px]">PureCVisor</span>
+      </a>
+      <a href="#overview" class="hidden md:inline-flex items-center px-4 py-2 text-sm text-zinc-300 hover:text-white rounded-full hover:bg-white/5 transition-all duration-500" style="transition-timing-function:var(--spring)">개요</a>
+      <a href="#features" class="hidden md:inline-flex items-center px-4 py-2 text-sm text-zinc-300 hover:text-white rounded-full hover:bg-white/5 transition-all duration-500" style="transition-timing-function:var(--spring)">역량</a>
+      <a href="#operations" class="hidden md:inline-flex items-center px-4 py-2 text-sm text-zinc-300 hover:text-white rounded-full hover:bg-white/5 transition-all duration-500" style="transition-timing-function:var(--spring)">운영 패널</a>
+      <a href="#activity" class="hidden md:inline-flex items-center px-4 py-2 text-sm text-zinc-300 hover:text-white rounded-full hover:bg-white/5 transition-all duration-500" style="transition-timing-function:var(--spring)">활동</a>
+      <a href="/ui/" class="inline-flex items-center gap-2 ml-1 pl-5 pr-2 py-2 rounded-full bg-white text-ink-950 font-semibold text-sm transition-all duration-500" style="transition-timing-function:var(--spring)">
+        대시보드 열기
+        <span class="w-7 h-7 rounded-full bg-black/10 flex items-center justify-center">
+          <iconify-icon icon="solar:arrow-right-linear" class="text-base"></iconify-icon>
+        </span>
+      </a>
+    </nav>
+  </header>
+
+  <main id="top">
+
+
+    <section class="section-wide relative" id="overview">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-16 lg:gap-20 items-center">
+
+
+          <div class="reveal">
+            <div class="eyebrow mb-6">
+              <iconify-icon icon="solar:pulse-bold" aria-hidden="true"></iconify-icon>
+              Single Edge · 실시간
+            </div>
+            <h1 class="en-display font-extrabold tracking-tight text-white text-5xl md:text-6xl lg:text-[72px] ko-tight mb-6">
+              인프라 오케스트레이션,<br>
+              <span class="text-accent">한 프레임에.</span>
+            </h1>
+            <p class="ko text-zinc-400 text-lg md:text-xl max-w-[58ch] mb-10 leading-relaxed">
+              KVM 하이퍼바이저부터 ZFS 스토리지, 백업 복원, 그리고 AI 자가치유까지.
+              현장에서 쓰이는 오퍼레이션 도구를 하나의 데몬과 하나의 데스크로 모았습니다.
+              단일 프로세스, fork 없음, GMainLoop 기반.
+            </p>
+
+            <div class="flex flex-wrap gap-4 items-center mb-10">
+              <a href="/ui/" class="btn-primary">
+                지금 바로 열어보기
+                <span class="arrow-wrap">
+                  <iconify-icon icon="solar:arrow-right-linear" aria-hidden="true"></iconify-icon>
+                </span>
+              </a>
+              <a href="#operations" class="btn-ghost">
+                <iconify-icon icon="solar:play-circle-linear" aria-hidden="true"></iconify-icon>
+                라이브 패널 보기
+              </a>
+            </div>
+
+
+            <div class="flex items-center gap-4 text-sm text-zinc-500">
+              <div class="flex -space-x-2">
+                <img src="https://i.pravatar.cc/80?u=hayunseo" loading="lazy" decoding="async" alt="하윤서" class="w-8 h-8 rounded-full border-2 border-ink-950">
+                <img src="https://i.pravatar.cc/80?u=parkdohyeon" loading="lazy" decoding="async" alt="박도현" class="w-8 h-8 rounded-full border-2 border-ink-950">
+                <img src="https://i.pravatar.cc/80?u=leeseojin" loading="lazy" decoding="async" alt="이서진" class="w-8 h-8 rounded-full border-2 border-ink-950">
+                <img src="https://i.pravatar.cc/80?u=jeongminjun" loading="lazy" decoding="async" alt="정민준" class="w-8 h-8 rounded-full border-2 border-ink-950">
+              </div>
+              <div>
+                <span class="text-white font-semibold">47,200+</span> 노드에서 검증된 오퍼레이션 스택
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 150ms;">
+            <div class="bezel">
+              <div class="core">
+
+                <div class="flex items-center justify-between mb-6">
+                  <div>
+                    <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-1">Single Node Health</div>
+                    <div class="text-xl font-semibold ko">pcv-single-edge</div>
+                  </div>
+                  <div class="flex items-center gap-2">
+                    <span class="pulse-dot"></span>
+                    <span class="text-xs text-zinc-400 font-mono">OPERATIONAL</span>
+                  </div>
+                </div>
+
+
+                <div class="grid grid-cols-3 gap-3 mb-6">
+
+                  <div class="node-card text-center">
+                    <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
+                      <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
+                      <circle cx="32" cy="32" r="26" class="ring-fg" stroke-width="5" fill="none"
+                              stroke-dasharray="163.4" stroke-dashoffset="55.5"></circle>
+                    </svg>
+                    <div class="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Node 1</div>
+                    <div class="text-sm font-semibold text-white mt-0.5">MASTER</div>
+                    <div class="text-xs text-accent mt-1">66% CPU</div>
+                  </div>
+
+                  <div class="node-card text-center">
+                    <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
+                      <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
+                      <circle cx="32" cy="32" r="26" class="ring-fg" stroke-width="5" fill="none"
+                              stroke-dasharray="163.4" stroke-dashoffset="90"></circle>
+                    </svg>
+                    <div class="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Node 2</div>
+                    <div class="text-sm font-semibold text-white mt-0.5">FOLLOWER</div>
+                    <div class="text-xs text-accent mt-1">45% CPU</div>
+                  </div>
+
+                  <div class="node-card text-center">
+                    <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
+                      <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
+                      <circle cx="32" cy="32" r="26" class="ring-fg" stroke-width="5" fill="none"
+                              stroke-dasharray="163.4" stroke-dashoffset="110"></circle>
+                    </svg>
+                    <div class="text-[10px] font-mono text-zinc-500 uppercase tracking-wider">Node 3</div>
+                    <div class="text-sm font-semibold text-white mt-0.5">FOLLOWER</div>
+                    <div class="text-xs text-accent mt-1">33% CPU</div>
+                  </div>
+                </div>
+
+
+                <div class="border-t border-white/5 pt-5 space-y-3">
+                  <div class="flex items-center justify-between text-sm">
+                    <div class="flex items-center gap-2 text-zinc-400">
+                      <iconify-icon icon="solar:database-bold-duotone" class="text-accent text-base" aria-hidden="true"></iconify-icon>
+                      etcd 쿼럼
+                    </div>
+                    <div class="font-mono text-white">3 / 3</div>
+                  </div>
+                  <div class="flex items-center justify-between text-sm">
+                    <div class="flex items-center gap-2 text-zinc-400">
+                      <iconify-icon icon="solar:copy-bold-duotone" class="text-accent text-base" aria-hidden="true"></iconify-icon>
+                      ZFS 복제 지연
+                    </div>
+                    <div class="font-mono text-white">36 초</div>
+                  </div>
+                  <div class="flex items-center justify-between text-sm">
+                    <div class="flex items-center gap-2 text-zinc-400">
+                      <iconify-icon icon="solar:bolt-bold-duotone" class="text-accent text-base" aria-hidden="true"></iconify-icon>
+                      페일오버 실측
+                    </div>
+                    <div class="font-mono text-white">5.3 초</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+
+
+        <div class="mt-24 reveal">
+          <div class="text-[11px] uppercase tracking-[0.2em] text-zinc-600 text-center mb-6 font-mono">
+            함께 운영하는 팀들
+          </div>
+          <div class="overflow-hidden relative" style="mask-image: linear-gradient(90deg, transparent, #000 12%, #000 88%, transparent);">
+            <div class="marquee-track">
+              <div class="flex gap-16 items-center text-zinc-500 text-xl en-display font-semibold whitespace-nowrap">
+                <span>STELLA LABS</span>
+                <span class="text-zinc-700">·</span>
+                <span>VERIFY</span>
+                <span class="text-zinc-700">·</span>
+                <span>LUMINOUS</span>
+                <span class="text-zinc-700">·</span>
+                <span>FLOW CANVAS</span>
+                <span class="text-zinc-700">·</span>
+                <span>NEXT VISION</span>
+                <span class="text-zinc-700">·</span>
+                <span>BRIDGE WORKS</span>
+                <span class="text-zinc-700">·</span>
+              </div>
+              <div class="flex gap-16 items-center text-zinc-500 text-xl en-display font-semibold whitespace-nowrap">
+                <span>STELLA LABS</span>
+                <span class="text-zinc-700">·</span>
+                <span>VERIFY</span>
+                <span class="text-zinc-700">·</span>
+                <span>LUMINOUS</span>
+                <span class="text-zinc-700">·</span>
+                <span>FLOW CANVAS</span>
+                <span class="text-zinc-700">·</span>
+                <span>NEXT VISION</span>
+                <span class="text-zinc-700">·</span>
+                <span>BRIDGE WORKS</span>
+                <span class="text-zinc-700">·</span>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="section-normal border-t border-white/5">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+        <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
+
+          <div class="reveal">
+            <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-3">실행 중 VM</div>
+            <div class="metric text-white text-5xl md:text-6xl mb-2" data-count="247">0</div>
+            <div class="text-sm text-zinc-500 ko">프로덕션 전반의 활성 도메인</div>
+          </div>
+
+          <div class="reveal" style="transition-delay: 80ms;">
+            <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-3">RPC / 분</div>
+            <div class="metric text-white text-5xl md:text-6xl mb-2" data-count="12847">0</div>
+            <div class="text-sm text-zinc-500 ko">평균 디스패처 처리량</div>
+          </div>
+
+          <div class="reveal" style="transition-delay: 160ms;">
+            <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-3">평균 응답</div>
+            <div class="metric text-white text-5xl md:text-6xl mb-2">
+              <span data-count-float="2.3" data-decimals="1">0</span><span class="text-3xl text-zinc-500 ml-1">ms</span>
+            </div>
+            <div class="text-sm text-zinc-500 ko">UDS 소켓 P95 지연</div>
+          </div>
+
+          <div class="reveal" style="transition-delay: 240ms;">
+            <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-3">가용성</div>
+            <div class="metric text-white text-5xl md:text-6xl mb-2">
+              <span data-count-float="99.87" data-decimals="2">0</span><span class="text-3xl text-zinc-500">%</span>
+            </div>
+            <div class="text-sm text-zinc-500 ko">롤링 30일 SLO 실측</div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+
+    <section class="section-wide" id="features">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+
+        <div class="max-w-3xl mb-16 reveal">
+          <div class="eyebrow mb-6">
+            <iconify-icon icon="solar:layers-bold" aria-hidden="true"></iconify-icon>
+            핵심 역량
+          </div>
+          <h2 class="en-display font-bold text-white text-4xl md:text-5xl lg:text-[56px] ko-tight tracking-tight mb-5">
+            운영자가 필요로 하는 도구,<br>
+            <span class="text-zinc-500">한 곳에서.</span>
+          </h2>
+          <p class="ko text-zinc-400 text-lg max-w-[60ch] leading-relaxed">
+            분산된 CLI, Ad-hoc 스크립트, 별도 모니터링 스택을 하나로 합친 단일 데몬.
+            디스패처 254 RPC와 REST 199 엔드포인트를 통해 동일한 기능을 CLI · TUI · Web · API 어디서든 동일하게 제공합니다.
+          </p>
+        </div>
+
+
+        <div class="grid grid-cols-1 md:grid-cols-6 gap-5 lg:gap-6 reveal-stagger">
+
+
+          <div class="md:col-span-4 reveal">
+            <div class="bezel h-full">
+              <div class="core h-full flex flex-col">
+                <div class="flex items-start justify-between mb-6">
+                  <div>
+                    <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                      <iconify-icon icon="solar:server-2-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                    </div>
+                    <h3 class="en-display text-2xl md:text-3xl font-semibold text-white ko-tight mb-3">
+                      KVM 하이퍼바이저 + LXC 컨테이너
+                    </h3>
+                    <p class="ko text-zinc-400 leading-relaxed max-w-[52ch]">
+                      libvirt 커넥션 풀링, 서킷 브레이커, 스냅샷 일괄 관리, cgroup2 리소스 제한까지 동일한 인터페이스로.
+                      VM과 컨테이너를 하나의 fleet로 다룹니다.
+                    </p>
+                  </div>
+                </div>
+
+                <div class="mt-auto pt-6 border-t border-white/5 grid grid-cols-3 gap-4">
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">VMs</div>
+                    <div class="text-2xl font-bold metric text-white">184</div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">Containers</div>
+                    <div class="text-2xl font-bold metric text-white">63</div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">Templates</div>
+                    <div class="text-2xl font-bold metric text-white">28</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="md:col-span-2 reveal" style="transition-delay: 80ms;">
+            <div class="bezel h-full">
+              <div class="core h-full flex flex-col justify-between">
+                <div>
+                  <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                    <iconify-icon icon="solar:magic-stick-3-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                  </div>
+                  <h3 class="en-display text-xl font-semibold text-white ko-tight mb-3">
+                    AI Agent 자가치유
+                  </h3>
+                  <p class="ko text-zinc-400 text-sm leading-relaxed">
+                    4개 프로바이더 합의, 정책 기반 드라이런, Z-Score 이상 탐지.
+                  </p>
+                </div>
+                <div class="mt-6 pt-5 border-t border-white/5">
+                  <div class="flex items-center justify-between text-sm">
+                    <span class="text-zinc-500">이번 주 수행</span>
+                    <span class="font-mono font-semibold text-accent">38회</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="md:col-span-2 reveal" style="transition-delay: 120ms;">
+            <div class="bezel h-full">
+              <div class="core h-full flex flex-col justify-between">
+                <div>
+                  <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                    <iconify-icon icon="solar:hard-drive-2-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                  </div>
+                  <h3 class="en-display text-xl font-semibold text-white ko-tight mb-3">
+                    ZFS 스토리지
+                  </h3>
+                  <p class="ko text-zinc-400 text-sm leading-relaxed">
+                    thin-provisioned zvol, aes-256-gcm 암호화, scrub 진행률, 3단계 복제.
+                  </p>
+                </div>
+                <div class="mt-6 pt-5 border-t border-white/5">
+                  <div class="flex items-center justify-between text-sm">
+                    <span class="text-zinc-500">pcvpool</span>
+                    <span class="font-mono font-semibold text-accent">8.2 TB</span>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="md:col-span-4 reveal" style="transition-delay: 160ms;">
+            <div class="bezel h-full">
+              <div class="core h-full">
+                <div class="flex items-start justify-between mb-6">
+                  <div class="flex-1 pr-4">
+                    <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                      <iconify-icon icon="solar:shield-check-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                    </div>
+                    <h3 class="en-display text-2xl md:text-3xl font-semibold text-white ko-tight mb-3">
+                      Single Edge 보호 + I/O 가드
+                    </h3>
+                    <p class="ko text-zinc-400 leading-relaxed max-w-[52ch]">
+                      ZFS 작업 직렬화, VM 삭제 rollback, 병렬 GTask 작업 추적, audit 기반 실패 사유 표면화.
+                      단일 노드 장애 시나리오를 통합 테스트로 검증합니다.
+                    </p>
+                  </div>
+
+                  <div class="hidden sm:block w-32 shrink-0">
+                    <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
+                      <path d="M0,18 L12,15 L24,19 L36,12 L48,14 L60,8 L72,11 L84,5 L96,9 L108,4 L120,7"></path>
+                    </svg>
+                    <div class="text-[10px] font-mono text-zinc-500 text-right mt-1">페일오버 P95</div>
+                  </div>
+                </div>
+                <div class="mt-auto pt-6 border-t border-white/5 grid grid-cols-3 gap-4">
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">카오스 시나리오</div>
+                    <div class="text-xl font-bold metric text-white">8 / 8</div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">RPO 실측</div>
+                    <div class="text-xl font-bold metric text-white">36 초</div>
+                  </div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">RTO 실측</div>
+                    <div class="text-xl font-bold metric text-white">7.0 초</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="md:col-span-3 reveal" style="transition-delay: 200ms;">
+            <div class="bezel h-full">
+              <div class="core h-full">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                  <iconify-icon icon="solar:shield-keyhole-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                </div>
+                <h3 class="en-display text-xl font-semibold text-white ko-tight mb-3">
+                  감사 로그 + RBAC + JWT
+                </h3>
+                <p class="ko text-zinc-400 text-sm leading-relaxed max-w-[48ch] mb-4">
+                  SQLite WAL + GAsyncQueue 비동기, 30일 보존, 1GB 상한. RBAC 3계층 역할 + JWT IP 바인딩.
+                  명령어 인젝션 방어와 seccomp 프로파일 적용.
+                </p>
+                <div class="flex flex-wrap gap-2">
+                  <span class="state state-ok">PBKDF2</span>
+                  <span class="state state-ok">JWT</span>
+                  <span class="state state-ok">SECCOMP</span>
+                  <span class="state state-ok">mTLS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="md:col-span-3 reveal" style="transition-delay: 240ms;">
+            <div class="bezel h-full">
+              <div class="core h-full">
+                <div class="inline-flex items-center justify-center w-12 h-12 rounded-2xl bg-accent-soft border border-accent-line mb-5">
+                  <iconify-icon icon="solar:chart-square-bold-duotone" class="text-accent text-2xl" aria-hidden="true"></iconify-icon>
+                </div>
+                <h3 class="en-display text-xl font-semibold text-white ko-tight mb-3">
+                  자체 Prometheus Exporter
+                </h3>
+                <p class="ko text-zinc-400 text-sm leading-relaxed max-w-[48ch] mb-4">
+                  node_* 126개 + purecvisor_* 48개. node_exporter 없이 단일 바이너리로 174 메트릭을 수집합니다.
+                  Grafana 대시보드 JSON 포함.
+                </p>
+                <div class="flex items-center gap-5 text-sm">
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500">collectors</div>
+                    <div class="font-bold text-white metric text-xl">10</div>
+                  </div>
+                  <div class="w-px h-8 bg-white/10"></div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500">metrics</div>
+                    <div class="font-bold text-white metric text-xl">174</div>
+                  </div>
+                  <div class="w-px h-8 bg-white/10"></div>
+                  <div>
+                    <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500">interval</div>
+                    <div class="font-bold text-white metric text-xl">1s</div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+
+    <section class="section-wide" id="operations">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+
+        <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,0.35fr)_minmax(0,0.65fr)] gap-12 lg:gap-16 items-start mb-14">
+          <div class="reveal">
+            <div class="eyebrow mb-5">
+              <iconify-icon icon="solar:cursor-square-bold" aria-hidden="true"></iconify-icon>
+              라이브 패널
+            </div>
+            <h2 class="en-display font-bold text-white text-4xl md:text-5xl ko-tight tracking-tight">
+              운영 화면은<br>이렇게 보입니다.
+            </h2>
+          </div>
+          <div class="reveal lg:pt-12" style="transition-delay: 100ms;">
+            <p class="ko text-zinc-400 text-lg leading-relaxed max-w-[60ch]">
+              실제 대시보드 밀도를 해치지 않는 선에서 Supanova의 Double-Bezel 카드와 스프링 모션을 적용한 모습.
+              아래는 샘플 데이터로 구성한 프로덕션 VM 목록과 단일 노드 상태 패널입니다.
+            </p>
+          </div>
+        </div>
+
+
+        <div class="reveal">
+          <div class="bezel">
+            <div class="core !p-0 overflow-hidden">
+              <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
+
+
+                <div class="p-7">
+                  <div class="flex items-center justify-between mb-5">
+                    <div>
+                      <h3 class="en-display text-lg font-semibold text-white">Production VMs</h3>
+                      <div class="text-xs text-zinc-500 mt-1 ko">최근 갱신 · 2 초 전</div>
+                    </div>
+                    <div class="flex items-center gap-2">
+                      <button type="button" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-all duration-500" style="transition-timing-function:var(--spring)" aria-label="필터">
+                        <iconify-icon icon="solar:filter-linear" class="text-base text-zinc-400"></iconify-icon>
+                      </button>
+                      <button type="button" class="w-9 h-9 rounded-full bg-white/5 hover:bg-white/10 border border-white/10 flex items-center justify-center transition-all duration-500" style="transition-timing-function:var(--spring)" aria-label="갱신">
+                        <iconify-icon icon="solar:refresh-linear" class="text-base text-zinc-400"></iconify-icon>
+                      </button>
+                      <button type="button" class="inline-flex items-center gap-2 pl-4 pr-1.5 py-1.5 rounded-full bg-accent text-ink-950 font-semibold text-sm transition-all duration-500 hover:scale-[1.02]" style="transition-timing-function:var(--spring)">
+                        VM 생성
+                        <span class="w-6 h-6 rounded-full bg-black/10 flex items-center justify-center">
+                          <iconify-icon icon="solar:add-circle-linear" class="text-sm"></iconify-icon>
+                        </span>
+                      </button>
+                    </div>
+                  </div>
+
+                  <div class="overflow-x-auto -mx-7">
+                    <table class="op-table w-full text-left">
+                      <thead>
+                        <tr>
+                          <th class="pl-7">NAME</th>
+                          <th>NODE</th>
+                          <th>VCPU</th>
+                          <th>MEM</th>
+                          <th>ZVOL</th>
+                          <th>STATE</th>
+                          <th class="pr-7 text-right">UPTIME</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:monitor-smartphone-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">web-prod-01</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">ubuntu24.04</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n1</td>
+                          <td class="text-zinc-300 font-mono">4</td>
+                          <td class="text-zinc-300 font-mono">8 GB</td>
+                          <td class="text-zinc-300 font-mono">64 GB</td>
+                          <td><span class="state state-ok"><span class="pulse-dot !w-1.5 !h-1.5"></span>RUNNING</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">27 일</td>
+                        </tr>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:database-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">db-master</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">postgres15</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n1</td>
+                          <td class="text-zinc-300 font-mono">16</td>
+                          <td class="text-zinc-300 font-mono">64 GB</td>
+                          <td class="text-zinc-300 font-mono">2 TB</td>
+                          <td><span class="state state-ok"><span class="pulse-dot !w-1.5 !h-1.5"></span>RUNNING</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">92 일</td>
+                        </tr>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:bolt-circle-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">cache-redis</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">redis7</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n2</td>
+                          <td class="text-zinc-300 font-mono">2</td>
+                          <td class="text-zinc-300 font-mono">16 GB</td>
+                          <td class="text-zinc-300 font-mono">40 GB</td>
+                          <td><span class="state state-ok"><span class="pulse-dot !w-1.5 !h-1.5"></span>RUNNING</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">14 일</td>
+                        </tr>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:notebook-bookmark-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">log-aggregator</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">loki2.9</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n2</td>
+                          <td class="text-zinc-300 font-mono">4</td>
+                          <td class="text-zinc-300 font-mono">12 GB</td>
+                          <td class="text-zinc-300 font-mono">500 GB</td>
+                          <td><span class="state state-warn"><span class="pulse-dot !w-1.5 !h-1.5" style="background:#fbbf24"></span>PRESSURE</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">6 일</td>
+                        </tr>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:routing-2-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">api-gateway</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">envoy1.29</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n3</td>
+                          <td class="text-zinc-300 font-mono">8</td>
+                          <td class="text-zinc-300 font-mono">16 GB</td>
+                          <td class="text-zinc-300 font-mono">80 GB</td>
+                          <td><span class="state state-ok"><span class="pulse-dot !w-1.5 !h-1.5"></span>RUNNING</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">41 일</td>
+                        </tr>
+                        <tr>
+                          <td class="pl-7">
+                            <div class="flex items-center gap-3">
+                              <iconify-icon icon="solar:cpu-bolt-bold-duotone" class="text-accent text-xl"></iconify-icon>
+                              <div>
+                                <div class="font-semibold text-white">worker-batch</div>
+                                <div class="text-[11px] text-zinc-500 font-mono">debian12</div>
+                              </div>
+                            </div>
+                          </td>
+                          <td class="text-zinc-300 font-mono text-sm">pcv-n3</td>
+                          <td class="text-zinc-300 font-mono">32</td>
+                          <td class="text-zinc-300 font-mono">128 GB</td>
+                          <td class="text-zinc-300 font-mono">1.5 TB</td>
+                          <td><span class="state state-ok"><span class="pulse-dot !w-1.5 !h-1.5"></span>RUNNING</span></td>
+                          <td class="pr-7 text-right text-zinc-400 font-mono text-sm">18 일</td>
+                        </tr>
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+
+
+                <aside class="border-t xl:border-t-0 xl:border-l border-white/5 p-7 space-y-6">
+                  <div>
+                    <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-4">FLEET CPU</div>
+                    <div class="flex items-center gap-5">
+                      <svg viewBox="0 0 120 120" class="ring-chart w-[88px] h-[88px] shrink-0">
+                        <circle cx="60" cy="60" r="50" class="ring-bg" stroke-width="9" fill="none"></circle>
+                        <circle cx="60" cy="60" r="50" class="ring-fg" stroke-width="9" fill="none"
+                                stroke-dasharray="314.16" stroke-dashoffset="157"></circle>
+                      </svg>
+                      <div>
+                        <div class="metric text-white text-4xl" data-count="48">0</div>
+                        <div class="text-sm text-zinc-500 ko">전체 평균 %</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="border-t border-white/5 pt-6">
+                    <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-4">NODES</div>
+                    <div class="space-y-3">
+                      <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-2">
+                          <span class="pulse-dot"></span>
+                          <span class="text-white font-semibold">pcv-n1</span>
+                          <span class="state state-ok">MASTER</span>
+                        </div>
+                        <div class="font-mono text-zinc-400">66%</div>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-2">
+                          <span class="pulse-dot"></span>
+                          <span class="text-white font-semibold">pcv-n2</span>
+                        </div>
+                        <div class="font-mono text-zinc-400">45%</div>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <div class="flex items-center gap-2">
+                          <span class="pulse-dot"></span>
+                          <span class="text-white font-semibold">pcv-n3</span>
+                        </div>
+                        <div class="font-mono text-zinc-400">33%</div>
+                      </div>
+                    </div>
+                  </div>
+
+                  <div class="border-t border-white/5 pt-6">
+                    <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-4">QUEUE</div>
+                    <div class="space-y-3">
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-zinc-400 ko">Job Queue 대기</span>
+                        <span class="font-mono font-semibold text-white">3</span>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-zinc-400 ko">Worker Pool</span>
+                        <span class="font-mono font-semibold text-white">12 / 16</span>
+                      </div>
+                      <div class="flex items-center justify-between text-sm">
+                        <span class="text-zinc-400 ko">Audit Queue</span>
+                        <span class="font-mono font-semibold text-white">0</span>
+                      </div>
+                    </div>
+                  </div>
+                </aside>
+              </div>
+            </div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <section class="section-wide" id="activity">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+
+        <div class="text-center mb-14 reveal">
+          <div class="eyebrow mb-6">
+            <iconify-icon icon="solar:history-bold" aria-hidden="true"></iconify-icon>
+            운영 기록
+          </div>
+          <h2 class="en-display font-bold text-white text-4xl md:text-5xl ko-tight tracking-tight mb-4 max-w-2xl mx-auto">
+            현장에서 검증된 순간들.
+          </h2>
+          <p class="ko text-zinc-400 text-lg max-w-[56ch] mx-auto">
+            지난 30일 동안 실제 운영자가 경험한 이벤트와 대응 결과를 익명화해 정리했습니다.
+          </p>
+        </div>
+
+        <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
+
+
+          <div class="reveal">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=hayunseo" loading="lazy" decoding="async" alt="하윤서 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">하윤서</div>
+                    <div class="text-xs text-zinc-500 ko">스텔라랩스 · SRE</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  새벽 3 시 42분, pcv-n2가 OOM 킬러에 잡혀 내려갔지만 etcd 쿼럼이 유지됐고 5.3초만에 pcv-n3로 페일오버됐어요.
+                  사용자 세션 한 건도 안 끊겼고, 아침에 자가치유 로그만 확인하면 됐습니다.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-ok">AUTO-HEAL</span>
+                  <span class="state state-ok">RTO 5.3s</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 80ms;">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=parkdohyeon" loading="lazy" decoding="async" alt="박도현 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">박도현</div>
+                    <div class="text-xs text-zinc-500 ko">베리파이 · 인프라 리드</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  ZFS thin provisioning으로 실사용량 대비 4.2배 할당했는데 scrub 진행률 실시간 추적 덕분에 예측 가능한 증설이 됐습니다.
+                  pcvpool 사이즈업 전까지 경보가 12일 앞서 떠서 여유 있게 구매 기안 올렸어요.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-ok">CAPACITY</span>
+                  <span class="state state-ok">ZFS</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 160ms;">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=leeseojin" loading="lazy" decoding="async" alt="이서진 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">이서진</div>
+                    <div class="text-xs text-zinc-500 ko">루미너스 · 플랫폼</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  log-aggregator가 메모리 프레셔를 띄우자 Alert Engine이 Slack으로 바로 노티했고,
+                  워커풀 대기열이 임계치를 넘기 전에 용량 재조정이 들어갔어요. 5 분 안에 끝난 사건이었습니다.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-warn">MEM PRESSURE</span>
+                  <span class="state state-ok">REMEDIATED</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 200ms;">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=jeongminjun" loading="lazy" decoding="async" alt="정민준 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">정민준</div>
+                    <div class="text-xs text-zinc-500 ko">플로우캔버스 · 백엔드</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  CLI 168 커맨드가 readline REPL에서 자동완성되니까 새 팀원 온보딩 시간이 확 줄었어요.
+                  TUI 14 키바인딩만 기억하면 장애 상황에서도 손이 바로 반응합니다.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-ok">DX</span>
+                  <span class="state state-ok">CLI · TUI</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 240ms;">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=oyerim" loading="lazy" decoding="async" alt="오예린 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">오예린</div>
+                    <div class="text-xs text-zinc-500 ko">넥스트비전 · DevOps</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  감사 로그가 SQLite WAL로 떨어지니까 사후 포렌식이 정확했어요.
+                  JWT IP 바인딩 덕분에 토큰 탈취 시나리오가 실질적으로 차단돼서 PT 통과도 한 번에 됐습니다.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-ok">AUDIT</span>
+                  <span class="state state-ok">PEN-TEST</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+
+          <div class="reveal" style="transition-delay: 280ms;">
+            <div class="bezel-sm h-full">
+              <div class="core">
+                <div class="flex items-center gap-3 mb-5">
+                  <img src="https://i.pravatar.cc/80?u=choisiwoo" loading="lazy" decoding="async" alt="최시우 프로필" class="w-11 h-11 rounded-full">
+                  <div>
+                    <div class="font-semibold text-white">최시우</div>
+                    <div class="text-xs text-zinc-500 ko">브릿지웍스 · 운영</div>
+                  </div>
+                </div>
+                <p class="ko text-zinc-300 leading-relaxed mb-4">
+                  자체 Prometheus exporter 덕분에 node_exporter를 따로 배포할 일이 사라졌습니다.
+                  174 메트릭이 단일 바이너리에서 나오니까 스택 복잡도가 확 낮아졌어요.
+                </p>
+                <div class="flex items-center gap-2">
+                  <span class="state state-ok">OBSERVABILITY</span>
+                  <span class="state state-ok">SINGLE BINARY</span>
+                </div>
+              </div>
+            </div>
+          </div>
+
+        </div>
+      </div>
+    </section>
+
+
+    <section class="relative section-wide overflow-hidden">
+      <div class="absolute inset-0 -z-10">
+        <div class="absolute inset-0" style="background: radial-gradient(circle at 30% 50%, rgba(20,184,166,0.12), transparent 60%);"></div>
+        <div class="absolute inset-0" style="background: radial-gradient(circle at 70% 60%, rgba(56,189,248,0.08), transparent 60%);"></div>
+      </div>
+      <div class="max-w-5xl mx-auto px-5 sm:px-8 lg:px-10 text-center reveal">
+        <div class="eyebrow mb-8">
+          <iconify-icon icon="solar:rocket-bold" aria-hidden="true"></iconify-icon>
+          지금 바로
+        </div>
+        <h2 class="en-display font-extrabold text-white text-5xl md:text-6xl lg:text-7xl ko-tight tracking-tight mb-8">
+          데스크가 아닌,<br>
+          <span class="text-accent">콘솔로 들어오세요.</span>
+        </h2>
+        <p class="ko text-zinc-400 text-lg md:text-xl max-w-[56ch] mx-auto mb-12 leading-relaxed">
+          3 분 안에 단일 노드의 VM / 컨테이너 / 네트워크 / 스토리지를 한 프레임에서 관리할 수 있습니다.
+          설치도, 추가 에이전트도 필요 없습니다.
+        </p>
+        <div class="flex flex-wrap gap-4 justify-center">
+          <a href="/ui/" class="btn-primary">
+            대시보드 열기
+            <span class="arrow-wrap">
+              <iconify-icon icon="solar:arrow-right-linear" aria-hidden="true"></iconify-icon>
+            </span>
+          </a>
+          <a href="/ui/guide.html" class="btn-ghost">
+            <iconify-icon icon="solar:book-bookmark-linear" aria-hidden="true"></iconify-icon>
+            18 챕터 가이드
+          </a>
+        </div>
+
+        <div class="mt-16 pt-8 border-t border-white/5 grid grid-cols-3 gap-6 max-w-2xl mx-auto">
+          <div>
+            <div class="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-1">AUTH</div>
+            <div class="text-sm text-zinc-300">admin / admin</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-1">PORT</div>
+            <div class="text-sm text-zinc-300">HTTP 80 / HTTPS 443</div>
+          </div>
+          <div>
+            <div class="text-[10px] font-mono uppercase tracking-widest text-zinc-500 mb-1">API</div>
+            <div class="text-sm text-zinc-300">/api/v1/</div>
+          </div>
+        </div>
+      </div>
+    </section>
+
+
+    <footer class="border-t border-white/5 py-14">
+      <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
+        <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
+          <div class="flex items-center gap-3">
+            <span class="relative flex items-center justify-center w-8 h-8 rounded-lg" style="background: linear-gradient(135deg, #14b8a6, #0ea5e9);">
+              <iconify-icon icon="solar:server-square-bold-duotone" class="text-ink-950 text-lg"></iconify-icon>
+            </span>
+            <div>
+              <div class="en-display font-bold text-white">PureCVisor</div>
+              <div class="text-xs text-zinc-500 ko">Supanova Taste Preview · 정적 샘플</div>
+            </div>
+          </div>
+
+          <div class="flex items-center gap-7 text-sm text-zinc-400">
+            <a href="/ui/" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">대시보드</a>
+            <a href="/ui/guide.html" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">가이드</a>
+            <a href="https://github.com/your-org/purecvisor" rel="noopener" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">GitHub</a>
+          </div>
+
+          <div class="text-xs text-zinc-600 font-mono">
+            BUILD · 2026-04-11 · SINGLE EDGE
+          </div>
+        </div>
+      </div>
+    </footer>
+
+  </main>
+
+  <script>
+
+
+
+    (function() {
+      var targets = document.querySelectorAll('.reveal');
+      if (!('IntersectionObserver' in window) || targets.length === 0) {
+        targets.forEach(function(t) { t.classList.add('visible'); });
+        return;
+      }
+      var io = new IntersectionObserver(function(entries) {
+        entries.forEach(function(e) {
+          if (e.isIntersecting) {
+            e.target.classList.add('visible');
+            io.unobserve(e.target);
+          }
+        });
+      }, { rootMargin: '0px 0px -10% 0px', threshold: 0.08 });
+      targets.forEach(function(t) { io.observe(t); });
+    })();
+
+
+
+
+    (function() {
+      function ease(t) { return 1 - Math.pow(1 - t, 3); }
+      function animate(el, target, duration, decimals) {
+        var start = performance.now();
+        var isFloat = typeof decimals === 'number';
+        function frame(now) {
+          var p = Math.min((now - start) / duration, 1);
+          var v = target * ease(p);
+          if (isFloat) {
+            el.textContent = v.toFixed(decimals);
+          } else {
+            el.textContent = Math.round(v).toLocaleString('ko-KR');
+          }
+          if (p < 1) requestAnimationFrame(frame);
+        }
+        requestAnimationFrame(frame);
+      }
+      function hook(el) {
+        var target = parseFloat(el.getAttribute('data-count') || el.getAttribute('data-count-float'));
+        if (isNaN(target)) return;
+        var decimals = el.hasAttribute('data-decimals') ? parseInt(el.getAttribute('data-decimals'), 10) : null;
+        var io = new IntersectionObserver(function(entries) {
+          entries.forEach(function(e) {
+            if (e.isIntersecting) {
+              animate(el, target, 1400, decimals);
+              io.unobserve(e.target);
+            }
+          });
+        }, { threshold: 0.4 });
+        io.observe(el);
+      }
+      document.querySelectorAll('[data-count], [data-count-float]').forEach(hook);
+    })();
+
+
+
+
+    (function() {
+      function jitter(el, base, spread, suffix) {
+        var span = document.querySelector(el);
+        if (!span) return;
+        setInterval(function() {
+          var v = base + (Math.random() - 0.5) * spread;
+          span.textContent = v.toFixed(1) + (suffix || '');
+        }, 2500);
+      }
+
+    })();
+  </script>
+</body>
+</html>

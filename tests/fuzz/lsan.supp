@@ -1,0 +1,3 @@
+leak:json_parser_load_from_data
+leak:json_node_alloc
+leak:json_array_new

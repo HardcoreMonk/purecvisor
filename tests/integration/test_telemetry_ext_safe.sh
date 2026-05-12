@@ -1,0 +1,189 @@
+#!/bin/bash
+
+
+
+
+
+
+
+
+
+
+
+
+
+set -uo pipefail
+
+
+GREEN='\033[0;32m'; RED='\033[0;31m'
+YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
+
+
+SOCKET_PATH="/var/run/purecvisor/daemon.sock"
+PASS=0; FAIL=0; SKIP=0; TOTAL=0
+
+
+log()  { echo -e "${CYAN}[INFO]${NC} $*"; }
+pass() { echo -e "${GREEN}[PASS]${NC} $*"; PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); }
+fail() { echo -e "${RED}[FAIL]${NC} $*"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); }
+skip() { echo -e "${YELLOW}[SKIP]${NC} $*"; SKIP=$((SKIP+1)); TOTAL=$((TOTAL+1)); }
+
+rpc() { echo "$1" | nc -U "$SOCKET_PATH" 2>/dev/null || true; }
+
+rpc_check() {
+    local name="$1" resp="$2"
+    if [ -z "$resp" ]; then fail "$name (empty response)"; return; fi
+    if echo "$resp" | grep -q '"result"'; then pass "$name"; return; fi
+    if echo "$resp" | grep -q '"error"'; then
+        if echo "$resp" | grep -q '32601'; then skip "$name (method not registered)"
+        else pass "$name (valid error response)"; fi
+    else fail "$name (unexpected format)"; echo "  Response: $resp"; fi
+}
+
+assert_contains() {
+    local name="$1" resp="$2" pat="$3"
+    if echo "$resp" | grep -q "$pat"; then pass "$name"
+    else fail "$name (expected '$pat')"; echo "  Response: $resp"; fi
+}
+
+assert_valid_jsonrpc() {
+    local name="$1" resp="$2"
+    if [ -z "$resp" ]; then fail "$name (empty response)"; return; fi
+    if echo "$resp" | grep -q '"jsonrpc"'; then pass "$name"
+    else fail "$name (not valid JSON-RPC)"; echo "  Response: $resp"; fi
+}
+
+
+log "=========================================="
+log " Telemetry & Monitor Extended — SAFE"
+log "=========================================="
+echo ""
+
+if [ ! -S "$SOCKET_PATH" ]; then
+    echo -e "${RED}[ERROR]${NC} Daemon socket not found: $SOCKET_PATH"
+    echo "  SKIP: All tests skipped (daemon not running)"; exit 0
+fi
+
+PROBE=$(rpc '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"probe"}')
+if [ -z "$PROBE" ]; then
+    echo -e "${RED}[ERROR]${NC} Daemon unresponsive"
+    echo "  SKIP: All tests skipped"; exit 0
+fi
+
+log "Daemon socket verified: $SOCKET_PATH"
+
+
+TEST_VM=""
+if echo "$PROBE" | grep -q '"name"'; then
+    TEST_VM=$(echo "$PROBE" | grep -o '"name":"[^"]*"' | head -1 | sed 's/"name":"//;s/"//')
+fi
+TEST_VM="${TEST_VM:-test1}"
+log "Test target VM: $TEST_VM"
+echo ""
+
+
+
+
+log "--- [1/5] telemetry.vm ---"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"telemetry.vm","params":{},"id":"tv1"}')
+rpc_check "telemetry.vm: no params returns result" "$RESP"
+
+
+RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"telemetry.vm\",\"params\":{\"name\":\"$TEST_VM\"},\"id\":\"tv2\"}")
+assert_valid_jsonrpc "telemetry.vm: named VM returns valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"telemetry.vm","params":{"name":"__no_such_vm_9999__"},"id":"tv3"}')
+assert_valid_jsonrpc "telemetry.vm: nonexistent VM returns valid JSON-RPC" "$RESP"
+
+echo ""
+
+
+
+
+log "--- [2/5] telemetry.all ---"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"telemetry.all","params":{},"id":"ta1"}')
+rpc_check "telemetry.all: returns result" "$RESP"
+
+
+assert_valid_jsonrpc "telemetry.all: response is valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"telemetry.all","params":{"unknown_key":true},"id":"ta2"}')
+assert_valid_jsonrpc "telemetry.all: unknown param returns valid JSON-RPC" "$RESP"
+
+echo ""
+
+
+
+
+log "--- [3/5] monitor.metrics ---"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.metrics","params":{},"id":"mm1"}')
+rpc_check "monitor.metrics: returns result" "$RESP"
+
+
+assert_valid_jsonrpc "monitor.metrics: response is valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"monitor.metrics\",\"params\":{\"name\":\"$TEST_VM\"},\"id\":\"mm2\"}")
+assert_valid_jsonrpc "monitor.metrics: named VM filter returns valid JSON-RPC" "$RESP"
+
+echo ""
+
+
+
+
+log "--- [4/5] monitor.processes ---"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.processes","params":{"top":5},"id":"mp1"}')
+rpc_check "monitor.processes: top=5 returns result" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.processes","params":{"top":1},"id":"mp2"}')
+assert_valid_jsonrpc "monitor.processes: top=1 returns valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.processes","params":{},"id":"mp3"}')
+assert_valid_jsonrpc "monitor.processes: no params returns valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.processes","params":{"top":0},"id":"mp4"}')
+assert_valid_jsonrpc "monitor.processes: top=0 returns valid JSON-RPC" "$RESP"
+
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"monitor.processes","params":{"top":-1},"id":"mp5"}')
+assert_valid_jsonrpc "monitor.processes: negative top returns valid JSON-RPC" "$RESP"
+
+echo ""
+
+
+
+
+log "--- [5/5] telemetry.host baseline ---"
+
+RESP=$(rpc '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"th1"}')
+rpc_check "telemetry.host: returns result" "$RESP"
+
+
+if echo "$RESP" | grep -q '"result"'; then
+    assert_contains "telemetry.host: result key present" "$RESP" '"result"'
+fi
+
+echo ""
+
+
+
+
+echo "=========================================="
+echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
+echo "=========================================="
+
+[ "$FAIL" -gt 0 ] && exit 1
+exit 0

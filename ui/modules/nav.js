@@ -1,0 +1,918 @@
+
+
+
+
+
+
+
+
+window.PCV = window.PCV || {};
+(function(PCV) {
+
+
+var _pinnedPages = JSON.parse(localStorage.getItem('pcv-pinned') || '[]');
+
+function togglePin(pageId) {
+  var idx = _pinnedPages.indexOf(pageId);
+  if (idx >= 0) _pinnedPages.splice(idx, 1);
+  else _pinnedPages.push(pageId);
+  localStorage.setItem('pcv-pinned', JSON.stringify(_pinnedPages));
+  renderPinnedBar();
+}
+
+function renderPinnedBar() {
+  var el = document.getElementById('pinned-bar');
+  if (!el) return;
+  if (_pinnedPages.length === 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  el.style.display = 'block';
+  var h = '<div style="padding:4px 8px;font-size:10px;color:var(--fg2);border-bottom:1px solid var(--border)">' + _L('고정됨', 'Pinned') + '</div>';
+  _pinnedPages.forEach(function(p) {
+    h += '<div class="vi" style="padding:4px 8px;font-size:11px" onclick="navigateTo(\'' + p + '\')"><span class="color-yellow" style="cursor:pointer;margin-right:4px" onclick="event.stopPropagation();togglePin(\'' + p + '\')">&#128204;</span>' + p + '</div>';
+  });
+  el.innerHTML = h;
+}
+window.togglePin = togglePin;
+window.renderPinnedBar = renderPinnedBar;
+
+
+window._navGeneration = 0;
+function navigateTo(n) {
+  if (window.pcvClusterEnabled === false && window.PCV_CLUSTER_ONLY_NAV && window.PCV_CLUSTER_ONLY_NAV.includes(n)) {
+    if (typeof toast === 'function') toast(_L('Single Edge 공개 리포에는 포함되지 않는 화면입니다', 'This screen is not included in Single Edge'), false);
+    n = 'dashboard';
+  }
+
+  window._navGeneration = (window._navGeneration || 0) + 1;
+
+  if (typeof _cloudCleanupTimer === 'function' && currentTab === 'cloud-migration' && n !== 'cloud-migration') {
+    _cloudCleanupTimer();
+  }
+
+  if (typeof stopAdaptivePolling === 'function' && currentTab && currentTab.startsWith('mon-') && !(n && n.startsWith('mon-'))) {
+    stopAdaptivePolling('mon-refresh');
+  }
+
+  if (typeof clearAllFormDirty === 'function') clearAllFormDirty();
+
+  var vmTabs = ['summary', 'console', 'snapshots', 'performance', 'timeline'];
+  if (vmTabs.includes(n)) localStorage.setItem('pcv-last-vm-tab', n);
+  currentTab = n;
+  document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
+  const containerPages = ['containers', 'docker'];
+
+  const infraPages = PCV.filterEditionItems([
+    { id: 'networks' }, { id: 'storage' }, { id: 'host' }, { id: 'ovn' },
+    { id: 'accounts' }, { id: 'security-groups' }, { id: 'gpu' }, { id: 'templates' },
+    { id: 'config-mgmt' }, { id: 'apimgmt' }, { id: 'apihelp' }, { id: 'helppage' },
+    { id: 'serviceguide' }, { id: 'restguide' }, { id: 'mon-hosts' }, { id: 'mon-vms' },
+    { id: 'mon-alerts' }, { id: 'mon-security' }, { id: 'mon-audit' }, { id: 'overlay' },
+    { id: 'iscsi' }, { id: 'dpdk' }, { id: 'sriov' }, { id: 'heatmap' }, { id: 'api-perf' },
+    { id: 'activity-log' }, { id: 'topology' }, { id: 'backup' },
+    { id: 'ops-triage' },
+    { id: 'mon-overview' }, { id: 'mon-storage' },
+    { id: 'cloud-migration' }, { id: 'selfhealing' }
+  ]).map(function(item) { return item.id; });
+  if (containerPages.includes(n)) switchSbTab('containers');
+  else if (infraPages.includes(n)) switchSbTab('infra');
+  else { switchSbTab('vms'); }
+  renderContent();
+}
+window.navigateTo = navigateTo;
+
+window.go = navigateTo;
+
+function pcvRoleAllows(minRole) {
+  var roleRank = { viewer: 0, operator: 1, admin: 2 };
+  var current = String((window.currentUser && window.currentUser.role) || '').toLowerCase();
+  var required = String(minRole || 'viewer').toLowerCase();
+  return (roleRank[current] ?? -1) >= (roleRank[required] ?? 0);
+}
+window.pcvRoleAllows = pcvRoleAllows;
+
+
+function switchSbTab(tab) {
+  ['vms', 'containers', 'infra'].forEach(t => {
+    const panel = document.getElementById('sb-' + t);
+    if (panel) panel.classList.toggle('hidden', t !== tab);
+  });
+  document.querySelectorAll('#sb-tabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.sb === tab);
+  });
+  const ct = document.getElementById('ct');
+  if (ct) ct.style.display = (tab === 'vms') ? 'flex' : 'none';
+  if (tab === 'containers') renderContainerList();
+}
+window.switchSbTab = switchSbTab;
+
+
+function renderContent() {
+  destroyAllCharts();
+  var cb = document.getElementById('cb');
+  if (cb) cb.classList.add('fade-out');
+  const b = cb, v = vmList[selectedVmIndex];
+
+  var gen = window._navGeneration || 0;
+  try {
+    var fn = (function() {
+      var routes = {
+      dashboard: () => renderDashboard(b),
+      summary: () => renderSummary(b, v),
+      console: () => renderConsole(b, v),
+      snapshots: () => renderSnapshots(b, v),
+      performance: () => renderPerformance(b, v),
+      timeline: () => renderTimeline(b, v),
+      networks: () => renderNetworks(b),
+      storage: () => renderStorage(b),
+      containers: () => renderContainers(b),
+      host: () => renderHost(b),
+      ovn: () => renderOvn(b),
+      accounts: () => renderAccounts(b),
+      apimgmt: () => renderApiManagement(b),
+      'mon-overview': () => renderMonitoring(b, 'overview'),
+      'ops-triage': () => renderOpsTriage(b),
+      'mon-hosts': () => renderMonitoring(b, 'hosts'),
+      'mon-vms': () => renderMonitoring(b, 'vms'),
+      'mon-storage': () => renderMonitoring(b, 'storage'),
+      'mon-alerts': () => renderAlerts(b),
+      'mon-security': () => PCV.security.render(b),
+      'mon-audit': () => renderAudit(b),
+      'security-groups': () => renderSecGroups(b),
+      'gpu': () => renderGpu(b),
+      'templates': () => renderTemplates(b),
+      'config-mgmt': () => renderConfigMgmt(b),
+      'docker': () => renderDocker(b),
+      'terraform': () => renderTerraform(b),
+      'cloud-migration': () => renderCloudMigration(b),
+      'overlay': () => renderOverlayNetworks(b),
+      'iscsi': () => renderIscsi(b),
+      'dpdk': () => renderDpdk(b),
+      'sriov': () => renderSriov(b),
+      'heatmap': () => renderHeatmap(b),
+      'api-perf': () => renderApiPerf(b),
+      'activity-log': () => renderActivityLog(b),
+      'topology': () => renderTopology(b),
+      'backup': () => renderBackup(b),
+      apihelp: () => renderSwaggerApi(b),
+      helppage: () => renderHelp(b),
+      serviceguide: () => renderServiceGuide(b),
+      restguide: () => renderRestGuide(b),
+
+      'selfhealing': () => renderSelfHealing(b)
+      };
+      return routes;
+    })()[currentTab];
+    if (fn) {
+      var result = fn();
+      if (result && typeof result.catch === 'function') {
+        result.catch(function(err) {
+          if ((window._navGeneration || 0) !== gen) return;
+          if (b) b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(err.message || '') + '</p><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
+          if (_DEBUG) console.error('renderContent async error:', err);
+        });
+      }
+    }
+    else if (_DEBUG) console.warn('Unknown tab:', currentTab);
+  } catch (renderErr) {
+    if ((window._navGeneration || 0) !== gen) {  }
+    else {
+      b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(renderErr.message || '') + '</p><pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--red);text-align:left;max-height:200px;overflow:auto">' + esc(renderErr.stack || '') + '</pre><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
+      if (_DEBUG) console.error('renderContent error:', renderErr);
+    }
+  }
+  setTimeout(function() { if (cb) cb.classList.remove('fade-out'); }, 50);
+  if (typeof updateStatusBar === 'function') updateStatusBar();
+  if (typeof updateBreadcrumbs === 'function') updateBreadcrumbs();
+}
+window.renderContent = renderContent;
+
+
+function updateStatusBar() {
+  var el = document.getElementById('sb-ctx');
+  if (!el) return;
+  var parts = [];
+  if (vmList && vmList.length) {
+    var running = vmList.filter(function(v) { return v.state === 'running'; }).length;
+    parts.push('VM: ' + running + '/' + vmList.length);
+  }
+  parts.push(currentTab || 'dashboard');
+  if (wsConnection && wsConnection.readyState === 1) parts.push('WS: Live');
+  var elapsed = Math.round((Date.now() - (lastLoadTime || Date.now())) / 1000);
+  parts.push('Sync: ' + elapsed + 's ago');
+  if (window._perfMetrics) parts.push('API: ' + (_perfMetrics.avgApiTime || 0) + 'ms avg');
+
+  var wsStat = '&#9679;';
+  if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1) {
+    wsStat = '<span style="color:var(--green)">&#9679;</span>';
+  } else if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 0) {
+    wsStat = '<span style="color:var(--yellow)">&#9679;</span>';
+  } else {
+    wsStat = '<span style="color:var(--red)">&#9679;</span>';
+  }
+  parts.unshift(wsStat);
+  if (window._perfMetrics && _perfMetrics.avgApiTime > 0) {
+    var latColor = _perfMetrics.avgApiTime < 100 ? 'var(--green)' : _perfMetrics.avgApiTime < 500 ? 'var(--yellow)' : 'var(--red)';
+    parts.push('<span style="color:' + latColor + '">' + _perfMetrics.avgApiTime + 'ms</span>');
+  }
+  el.innerHTML = parts.join(' | ');
+  if (typeof updateFavicon === 'function') updateFavicon();
+}
+window.updateStatusBar = updateStatusBar;
+setInterval(updateStatusBar, 2000);
+
+
+function updateFavicon() {
+  var running = 0;
+  if (vmList) running = vmList.filter(function(v) { return v.state === 'running'; }).length;
+
+
+  document.title = 'PureCVisor' + (running > 0 ? ' (' + running + ' VMs)' : '');
+
+
+  var canvas = document.createElement('canvas');
+  canvas.width = 32; canvas.height = 32;
+  var ctx = canvas.getContext('2d');
+
+  var color = running > 0 ? '#00ff88' : (vmList && vmList.length > 0 ? '#ffee00' : '#ff2266');
+  ctx.beginPath(); ctx.arc(16, 16, 14, 0, Math.PI * 2);
+  ctx.fillStyle = color; ctx.fill();
+
+  ctx.fillStyle = '#000'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+  ctx.fillText(running > 0 ? running.toString() : '!', 16, 17);
+
+  var link = document.getElementById('dynamic-favicon');
+  if (!link) {
+    link = document.createElement('link');
+    link.id = 'dynamic-favicon';
+    link.rel = 'icon';
+    link.type = 'image/png';
+    document.head.appendChild(link);
+  }
+  link.href = canvas.toDataURL('image/png');
+}
+window.updateFavicon = updateFavicon;
+
+
+function toggleSB() {
+  const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar');
+  if (sb) sb.classList.toggle('collapsed');
+}
+window.toggleSB = toggleSB;
+
+
+function toggleFS() {
+  document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
+}
+window.toggleFS = toggleFS;
+
+
+var infraSortAsc = true;
+window.infraSortAsc = infraSortAsc;
+
+function toggleInfraSort() {
+  infraSortAsc = !infraSortAsc;
+  window.infraSortAsc = infraSortAsc;
+  const container = document.getElementById('nav-infra');
+  if (!container) return;
+  const items = Array.from(container.querySelectorAll('.vi'));
+  items.sort((a, b) => {
+    const ta = (a.querySelector('.nm')?.textContent || '').toLowerCase();
+    const tb = (b.querySelector('.nm')?.textContent || '').toLowerCase();
+    return infraSortAsc ? ta.localeCompare(tb) : tb.localeCompare(ta);
+  });
+  items.forEach(el => container.appendChild(el));
+  const btn = document.getElementById('infra-sort-btn');
+  if (btn) btn.textContent = infraSortAsc ? 'A-Z' : 'Z-A';
+}
+window.toggleInfraSort = toggleInfraSort;
+
+
+var bottomPanelTab = 'terminal';
+var bottomPanelExpanded = false;
+
+function switchPanelTab(tab) {
+  bottomPanelTab = tab;
+  document.querySelectorAll('.panel-tab').forEach(el => el.classList.toggle('active', el.dataset.panel === tab));
+  ['terminal', 'events', 'alerts', 'output'].forEach(t => {
+    const el = document.getElementById('panel-' + t);
+    if (el) el.classList.toggle('hidden', t !== tab);
+  });
+}
+window.switchPanelTab = switchPanelTab;
+
+function toggleBottomPanel() {
+  const panel = document.getElementById('bottom-panel');
+  if (panel) panel.classList.toggle('collapsed');
+}
+window.toggleBottomPanel = toggleBottomPanel;
+
+function togglePanelSize() {
+  const panel = document.getElementById('bottom-panel');
+  if (!panel) return;
+  bottomPanelExpanded = !bottomPanelExpanded;
+  panel.style.height = bottomPanelExpanded ? '50vh' : '200px';
+}
+window.togglePanelSize = togglePanelSize;
+
+
+var CMD_ACTIONS = PCV.filterEditionItems([
+  { icon: '+', label: _L('새 VM', 'New VM'), hint: 'Ctrl+N', role: 'operator', action: () => showCreate() },
+  { icon: '#', label: _L('운영 개요', 'Operations Overview'), action: () => navigateTo('mon-overview') },
+  { icon: '!', label: _L('이벤트 센터', 'Event Center'), action: () => navigateTo('ops-triage') },
+  { icon: '>', label: _L('VM 자산', 'VM Inventory'), action: () => switchSbTab('vms') },
+  { icon: '~', label: _L('네트워크', 'Networks'), action: () => navigateTo('networks') },
+  { icon: '=', label: _L('스토리지', 'Storage'), action: () => navigateTo('storage') },
+  { icon: '@', label: _L('컨테이너', 'Containers'), action: () => navigateTo('containers') },
+  { icon: '!', label: _L('알림', 'Alerts'), action: () => navigateTo('mon-alerts') },
+  { icon: 'S', label: _L('보안 이벤트', 'Security Events'), action: () => navigateTo('mon-security') },
+  { icon: '&', label: _L('계정과 권한', 'Accounts'), role: 'admin', action: () => navigateTo('accounts') },
+  { icon: '%', label: _L('API 관리', 'API Management'), role: 'admin', action: () => navigateTo('apimgmt') },
+  { icon: '?', label: 'Swagger API', action: () => navigateTo('apihelp') },
+  { icon: 'i', label: _L('서비스 가이드', 'Service Guide'), action: () => navigateTo('serviceguide') },
+  { icon: 'h', label: _L('도움말', 'Help'), action: () => navigateTo('helppage') },
+  { icon: 'A', label: _L('AI Agent 설정', 'AI Agent Config'), action: () => showAgentConfig() },
+  { icon: 'P', label: _L('환경설정', 'Preferences'), action: () => showPrefs() },
+  { icon: 'T', label: _L('테마 전환', 'Toggle Theme'), action: () => toggleTheme() },
+  { icon: '\u{1F3A8}', label: _L('테마 편집기', 'Theme Editor'), action: () => openThemeEditor() },
+  { icon: 'L', label: _L('언어 전환', 'Toggle Language'), action: () => { I18N.toggle(); location.reload(); } },
+  { icon: 'F', label: _L('전체 화면', 'Fullscreen'), hint: 'F11', action: () => toggleFS() },
+]);
+window.CMD_ACTIONS = CMD_ACTIONS;
+
+
+function fuzzyMatch(text, query) {
+  if (!query) return true;
+  var ti = 0, qi = 0;
+  var tLow = text.toLowerCase(), qLow = query.toLowerCase();
+  while (ti < tLow.length && qi < qLow.length) {
+    if (tLow[ti] === qLow[qi]) qi++;
+    ti++;
+  }
+  return qi === qLow.length;
+}
+window.fuzzyMatch = fuzzyMatch;
+
+var cmdPaletteOpen = false;
+window.cmdPaletteOpen = cmdPaletteOpen;
+var cmdSelectedIndex = 0;
+window.cmdSelectedIndex = cmdSelectedIndex;
+
+function openCmdPalette() {
+  cmdPaletteOpen = true; cmdSelectedIndex = 0;
+  window.cmdPaletteOpen = cmdPaletteOpen;
+  window.cmdSelectedIndex = cmdSelectedIndex;
+  const ov = document.createElement('div'); ov.id = 'cmd-palette-overlay';
+  ov.style.cssText = 'position:fixed;top:0;left:0;width:100%;height:100%;background:rgba(0,0,0,.5);display:flex;justify-content:center;padding-top:15vh;z-index:300';
+  ov.addEventListener('click', e => { if (e.target === ov) closeCmdPalette(); });
+  const box = document.createElement('div'); box.id = 'cmd-palette';
+  box.style.cssText = 'background:var(--bg-panel);backdrop-filter:blur(20px);border:1px solid var(--accent);border-radius:12px;width:500px;max-width:90vw;max-height:60vh;display:flex;flex-direction:column;box-shadow:0 0 40px var(--neon-glow);overflow:hidden';
+  box.innerHTML = '<input id="cmd-input" placeholder="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" style="padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--fg);font-size:15px;outline:none;font-family:var(--font-mono)" autocomplete="off"><div id="cmd-list" style="overflow-y:auto;flex:1;padding:4px 0"></div>';
+  ov.appendChild(box); document.body.appendChild(ov);
+  const inp = document.getElementById('cmd-input'); inp.focus();
+  renderCmdPalette('');
+  inp.addEventListener('input', () => { cmdSelectedIndex = 0; renderCmdPalette(inp.value); });
+  inp.addEventListener('keydown', e => {
+    const items = document.querySelectorAll('.cmd-item');
+    if (e.key === 'ArrowDown') { e.preventDefault(); cmdSelectedIndex = Math.min(cmdSelectedIndex + 1, items.length - 1); renderCmdPalette(inp.value); }
+    else if (e.key === 'ArrowUp') { e.preventDefault(); cmdSelectedIndex = Math.max(cmdSelectedIndex - 1, 0); renderCmdPalette(inp.value); }
+    else if (e.key === 'Enter') { e.preventDefault(); if (items[cmdSelectedIndex]) items[cmdSelectedIndex].click(); }
+  });
+}
+window.openCmdPalette = openCmdPalette;
+
+function closeCmdPalette() {
+  cmdPaletteOpen = false;
+  window.cmdPaletteOpen = cmdPaletteOpen;
+  const el = document.getElementById('cmd-palette-overlay'); if (el) el.remove();
+}
+window.closeCmdPalette = closeCmdPalette;
+
+function renderCmdPalette(filter) {
+  const list = document.getElementById('cmd-list'); if (!list) return;
+  const q = (filter || '').toLowerCase();
+  const filtered = CMD_ACTIONS.filter(a => {
+    if (a.cluster && !window.pcvClusterEnabled) return false;
+    if (a.role && !pcvRoleAllows(a.role)) return false;
+    return !q || fuzzyMatch(a.label, q);
+  });
+  list.innerHTML = filtered.map((a, i) => '<div class="cmd-item" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:13px;background:' + (i === cmdSelectedIndex ? 'var(--bg3)' : 'transparent') + ';border-left:3px solid ' + (i === cmdSelectedIndex ? 'var(--accent)' : 'transparent') + '" onclick="CMD_ACTIONS.find(x=>x.label===\'' + a.label.replace(/'/g, "\\'") + '\').action();closeCmdPalette()"><span style="width:22px;text-align:center;font-size:14px">' + a.icon + '</span><span style="flex:1">' + a.label + '</span>' + (a.hint ? '<span class="stat-label">' + a.hint + '</span>' : '') + '</div>').join('');
+}
+window.renderCmdPalette = renderCmdPalette;
+
+
+function openInPopup(pageId) {
+  var page = pageId || currentTab;
+  var w = window.open('', 'pcv-' + page, 'width=1200,height=800,menubar=no,toolbar=no');
+  if (!w) { toast(_L('팝업 차단됨', 'Popup blocked'), false); return; }
+  var theme = document.documentElement.getAttribute('data-theme') || '';
+  w.document.write('<!DOCTYPE html><html lang="ko"' + (theme ? ' data-theme="' + theme + '"' : '') + '>'
+    + '<head><meta charset="UTF-8"><title>PureCVisor \u2014 ' + page + '</title>'
+    + '<link rel="stylesheet" href="/ui/style.css">'
+    + '<style>body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font-family:var(--font-mono)}</style>'
+    + '</head><body><div id="popup-content"><span class="spinner"></span> Loading...</div>'
+    + '<script src="/ui/i18n.js"><\/script>'
+    + '<script src="/ui/modules/api.js"><\/script>'
+    + '<script src="/ui/modules/ui.js"><\/script>'
+    + '<script>authToken="' + (authToken || '') + '";<\/script>'
+    + '</body></html>');
+  w.document.close();
+
+  setTimeout(function() {
+    var cb = w.document.getElementById('popup-content');
+    if (!cb) return;
+    var content = document.getElementById('cb');
+    if (content) cb.innerHTML = content.innerHTML;
+  }, 500);
+}
+window.openInPopup = openInPopup;
+
+
+function toggleMobileSB() {
+  const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
+  if (sb.classList.contains('mobile-open')) { closeMobileSB(); }
+  else { sb.classList.add('mobile-open'); sb.classList.remove('collapsed'); ov.style.display = 'block'; }
+}
+window.toggleMobileSB = toggleMobileSB;
+
+function closeMobileSB() {
+  const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
+  sb.classList.remove('mobile-open'); ov.style.display = 'none';
+}
+window.closeMobileSB = closeMobileSB;
+
+
+var currentActivity = 'vms';
+window.currentActivity = currentActivity;
+
+function switchActivity(panel) {
+  if (currentActivity === panel) {
+    document.getElementById('sidebar-panel')?.classList.toggle('collapsed');
+    return;
+  }
+  currentActivity = panel;
+  window.currentActivity = currentActivity;
+  document.getElementById('sidebar-panel')?.classList.remove('collapsed');
+  document.querySelectorAll('.activity-icon[data-panel]').forEach(el => {
+    el.classList.toggle('active', el.dataset.panel === panel);
+  });
+  ['vms', 'containers', 'infra'].forEach(t => {
+    const el = document.getElementById('sb-' + t);
+    if (el) el.classList.toggle('hidden', t !== panel);
+  });
+
+  document.querySelectorAll('#sb-tabs button').forEach(b => {
+    b.classList.toggle('active', b.dataset.sb === panel);
+  });
+  const ct = document.getElementById('ct');
+  if (ct) ct.style.display = (panel === 'vms') ? 'flex' : 'none';
+  if (panel === 'containers') { navigateTo('containers'); }
+  if (panel === 'infra') { navigateTo('mon-overview'); }
+}
+window.switchActivity = switchActivity;
+
+
+var editorTabs = [];
+var activeEditorTab = null;
+
+function openEditorTab(id, label, icon) {
+  if (!editorTabs.find(t => t.id === id)) {
+    editorTabs.push({ id, label, icon: icon || '' });
+  }
+  activeEditorTab = id;
+  renderEditorTabs();
+}
+window.openEditorTab = openEditorTab;
+
+function closeEditorTab(id) {
+  editorTabs = editorTabs.filter(t => t.id !== id);
+  if (activeEditorTab === id) {
+    activeEditorTab = editorTabs.length > 0 ? editorTabs[editorTabs.length - 1].id : null;
+    if (activeEditorTab) navigateTo(activeEditorTab);
+  }
+  renderEditorTabs();
+}
+window.closeEditorTab = closeEditorTab;
+
+function renderEditorTabs() {
+  const container = document.getElementById('editor-tabs');
+  if (!container) return;
+  container.innerHTML = editorTabs.map(t =>
+    '<div class="editor-tab ' + (t.id === activeEditorTab ? 'active' : '') + '" onclick="navigateTo(\'' + t.id + '\')">' +
+    '<span class="tab-icon">' + t.icon + '</span>' +
+    '<span class="tab-label">' + escapeHtml(t.label) + '</span>' +
+    '<span class="tab-close" onclick="event.stopPropagation();closeEditorTab(\'' + t.id + '\')">&times;</span>' +
+    '</div>'
+  ).join('');
+}
+window.renderEditorTabs = renderEditorTabs;
+
+
+function updateBreadcrumbs(page) {
+  var el = document.getElementById('breadcrumbs');
+  if (!el) return;
+  var pg = page || currentTab || 'dashboard';
+  var parts = [{ label: _L('대시보드', 'Dashboard'), tab: 'dashboard' }];
+  var tabLabels = {
+    'summary': _L('요약', 'Summary'), 'console': _L('콘솔', 'Console'),
+    'snapshots': _L('스냅샷', 'Snapshots'), 'performance': _L('성능', 'Performance'),
+    'timeline': _L('타임라인', 'Timeline'), 'networks': _L('네트워크', 'Networks'),
+    'storage': _L('스토리지', 'Storage'), 'cluster': _L('클러스터', 'Cluster'),
+    'containers': _L('컨테이너', 'Containers'), 'mon-overview': _L('운영 개요', 'Operations Overview'),
+    'ops-triage': _L('이벤트 센터', 'Event Center'),
+    'dashboard': _L('대시보드', 'Dashboard'),
+    'host': _L('호스트 상태', 'Host Health'),
+  };
+  if (pg && pg !== 'dashboard') {
+    var label = tabLabels[pg] || pg.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+    parts.push({ label: label, tab: pg });
+    if (['summary','console','snapshots','performance','timeline'].indexOf(pg) !== -1 && vmList[selectedVmIndex]) {
+      parts.push({ label: vmList[selectedVmIndex].name, tab: null });
+    }
+  }
+  var h = parts.map(function(p, i) {
+    var isLast = i === parts.length - 1;
+    if (isLast) return '<span class="color-accent" style="font-size:11px">' + esc(p.label) + '</span>';
+    return '<span style="cursor:pointer;font-size:11px;color:var(--fg2)" onclick="navigateTo(\'' + (p.tab || 'dashboard') + '\')">' + esc(p.label) + '</span>';
+  }).join(' <span class="color-muted" style="font-size:10px">&#9656;</span> ');
+  h += ' <span style="cursor:pointer;font-size:10px;color:' + (_pinnedPages.includes(currentTab) ? 'var(--yellow)' : 'var(--fg2)') + '" onclick="togglePin(\'' + currentTab + '\');updateBreadcrumbs()">&#128204;</span>';
+  h += ' <span style="cursor:pointer;font-size:10px;color:var(--fg2)" onclick="openInPopup()" title="' + _L('새 창에서 열기', 'Open in new window') + '">&#128194;</span>';
+  el.innerHTML = h;
+}
+window.updateBreadcrumbs = updateBreadcrumbs;
+
+
+window.globalSearchOpen = false;
+
+function toggleGlobalSearch() {
+  if (window.globalSearchOpen) { closeGlobalSearch(); return; }
+  window.globalSearchOpen = true;
+  const ov = document.createElement('div');
+  ov.id = 'global-search-overlay';
+  ov.className = 'global-search-overlay';
+  ov.onclick = e => { if (e.target === ov) closeGlobalSearch(); };
+  ov.innerHTML = '<div class="global-search-box">' +
+    '<input class="global-search-input" id="global-search-input" placeholder="Search VMs, containers, networks, settings..." oninput="(window._gs || (window._gs = pcvDebounce(doGlobalSearch, 200)))(this.value)" autofocus>' +
+    '<div class="global-search-results" id="global-search-results"></div></div>';
+  document.body.appendChild(ov);
+  setTimeout(() => document.getElementById('global-search-input')?.focus(), 50);
+}
+window.toggleGlobalSearch = toggleGlobalSearch;
+
+function closeGlobalSearch() {
+  window.globalSearchOpen = false;
+  document.getElementById('global-search-overlay')?.remove();
+}
+window.closeGlobalSearch = closeGlobalSearch;
+
+function doGlobalSearch(query) {
+  const results = document.getElementById('global-search-results');
+  if (!results || !query) { if (results) results.innerHTML = ''; return; }
+  const q = query.toLowerCase();
+  let html = '';
+
+
+  const matchedVMs = vmList.filter(v => fuzzyMatch(v.name, q));
+  if (matchedVMs.length > 0) {
+    html += '<div class="global-search-group"><div class="global-search-group-title">Virtual Machines</div>';
+    matchedVMs.forEach(v => {
+      html += '<div class="global-search-item" onclick="closeGlobalSearch();selectedVmIndex=' + vmList.indexOf(v) + ';switchActivity(\'vms\');render()"><span class="search-icon">&#128187;</span><span class="search-label">' + escapeHtml(v.name) + '</span><span class="search-type">' + (v.state || '') + '</span></div>';
+    });
+    html += '</div>';
+  }
+
+
+  const pages = PCV.filterEditionItems([
+    { id: 'networks', label: _L('네트워크', 'Networks'), icon: '&#127760;' },
+    { id: 'storage', label: _L('스토리지', 'Storage'), icon: '&#128190;' },
+    { id: 'containers', label: _L('컨테이너', 'Containers'), icon: '&#9783;' },
+    { id: 'mon-overview', label: _L('운영 개요', 'Monitoring Overview'), icon: '&#128200;' },
+    { id: 'ops-triage', label: _L('이벤트 센터', 'Event Center'), icon: '&#9889;' },
+    { id: 'mon-alerts', label: _L('알림', 'Alerts'), icon: '&#128276;' },
+    { id: 'mon-security', label: _L('보안 이벤트', 'Security Events'), icon: '&#128737;' },
+    { id: 'accounts', label: _L('계정과 권한', 'Accounts'), icon: '&#128100;', role: 'admin' },
+    { id: 'security-groups', label: _L('보안 그룹', 'Security Groups'), icon: '&#128737;' },
+    { id: 'gpu', label: _L('GPU 장치', 'GPU'), icon: '&#127918;' },
+
+
+    { id: 'apihelp', label: _L('Swagger API', 'Swagger API'), icon: '&#128214;' },
+    { id: 'serviceguide', label: _L('서비스 가이드', 'Service Guide'), icon: '&#128218;' },
+    { id: 'overlay', label: _L('오버레이 네트워크', 'Overlay Networks'), icon: '&#127760;' },
+    { id: 'iscsi', label: _L('iSCSI 타깃', 'iSCSI Targets'), icon: '&#128190;' },
+    { id: 'dpdk', label: 'DPDK', icon: '&#9889;' },
+    { id: 'sriov', label: 'SR-IOV', icon: '&#128268;' },
+  ]);
+  const matchedPages = pages.filter(p => {
+    if (p.cluster && !window.pcvClusterEnabled) return false;
+    if (p.role && !pcvRoleAllows(p.role)) return false;
+    return fuzzyMatch(p.label, q);
+  });
+  if (matchedPages.length > 0) {
+    html += '<div class="global-search-group"><div class="global-search-group-title">Pages</div>';
+    matchedPages.forEach(p => {
+      html += '<div class="global-search-item" onclick="closeGlobalSearch();navigateTo(\'' + p.id + '\')"><span class="search-icon">' + p.icon + '</span><span class="search-label">' + p.label + '</span><span class="search-type">Page</span></div>';
+    });
+    html += '</div>';
+  }
+
+  if (!html) html = '<div style="padding:20px;text-align:center;color:var(--fg2)">No results for "' + escapeHtml(query) + '"</div>';
+  results.innerHTML = html;
+}
+window.doGlobalSearch = doGlobalSearch;
+
+
+window.zenMode = false;
+function toggleZenMode() {
+  window.zenMode = !window.zenMode;
+  document.body.classList.toggle('zen-mode', window.zenMode);
+  if (window.zenMode) toast('Zen Mode \u2014 press Escape to exit');
+}
+window.toggleZenMode = toggleZenMode;
+
+
+var notifications = [];
+window.notifCenterOpen = false;
+var notifFilter = 'all';
+
+function addNotification(type, title, msg) {
+  notifications.unshift({ type: type, title: title, msg: msg || '', time: new Date(), read: false, id: Date.now() });
+  if (notifications.length > 50) notifications.pop();
+  updateNotifBadge();
+  if (typeof sendBrowserNotif === 'function') sendBrowserNotif(title, msg);
+  if (typeof playNotifSound === 'function') playNotifSound(type === 'error' ? 'error' : type === 'warning' ? 'warning' : 'success');
+}
+window.addNotification = addNotification;
+
+function updateNotifBadge() {
+  var unread = notifications.filter(function(n) { return !n.read; }).length;
+  var badge = document.getElementById('alert-badge');
+  if (badge) { badge.textContent = unread; badge.style.display = unread > 0 ? '' : 'none'; }
+  var actBadge = document.querySelector('.activity-icon[data-panel="notifications"] .activity-badge');
+  if (actBadge) { actBadge.textContent = unread; actBadge.style.display = unread > 0 ? '' : 'none'; }
+
+  var toolbarBadge = document.getElementById('notif-toolbar-badge');
+  if (toolbarBadge) { toolbarBadge.textContent = unread; toolbarBadge.style.display = unread > 0 ? '' : 'none'; }
+}
+window.updateNotifBadge = updateNotifBadge;
+
+function _renderNotifList(container, filter) {
+  var filtered = notifications;
+  if (filter && filter !== 'all') {
+    filtered = notifications.filter(function(n) { return n.type === filter; });
+  }
+  if (filtered.length === 0) {
+    container.innerHTML = '<div class="notif-center-empty">&#128276; No ' + (filter !== 'all' ? filter + ' ' : '') + 'notifications</div>';
+    return;
+  }
+  var list = '';
+  filtered.forEach(function(n) {
+    var icon = n.type === 'error' ? '&#10060;' : n.type === 'warning' ? '&#9888;' : '&#9989;';
+    var timeAgo = _notifTimeAgo(n.time);
+    list += '<div class="notif-item ' + (n.read ? '' : 'unread') + '" onclick="markRead(' + n.id + ');this.classList.remove(\'unread\')">'
+      + '<span class="notif-icon">' + icon + '</span>'
+      + '<div class="notif-body">'
+      + '<div class="notif-title">' + escapeHtml(n.title) + '</div>'
+      + (n.msg ? '<div class="notif-msg">' + escapeHtml(n.msg) + '</div>' : '')
+      + '<div class="notif-time">' + timeAgo + '</div>'
+      + '</div></div>';
+  });
+  container.innerHTML = list;
+}
+
+function _notifTimeAgo(date) {
+  var diff = Math.floor((Date.now() - date.getTime()) / 1000);
+  if (diff < 60) return diff + 's ago';
+  if (diff < 3600) return Math.floor(diff / 60) + 'm ago';
+  if (diff < 86400) return Math.floor(diff / 3600) + 'h ago';
+  return date.toLocaleDateString();
+}
+
+function toggleNotifCenter() {
+  if (window.notifCenterOpen) { closeNotifCenter(); return; }
+  window.notifCenterOpen = true;
+  notifFilter = 'all';
+  var unread = notifications.filter(function(n) { return !n.read; }).length;
+  var el = document.createElement('div');
+  el.id = 'notif-center';
+  el.className = 'notif-center';
+
+
+  var header = '<div class="notif-center-header">'
+    + '<span>Notifications' + (unread > 0 ? ' <span class="notif-header-badge">' + unread + ' unread</span>' : '') + '</span>'
+    + '<div style="display:flex;gap:6px">'
+    + '<button class="btn" style="font-size:9px;padding:2px 8px" onclick="markAllRead()">Mark all read</button>'
+    + '<button class="btn btn-r" style="font-size:9px;padding:2px 8px" onclick="clearNotifications()">Clear</button>'
+    + '<button class="panel-action-btn" onclick="closeNotifCenter()">&#10005;</button>'
+    + '</div></div>';
+
+
+  var filterBar = '<div class="notif-filter-bar">'
+    + '<button class="notif-filter-btn active" data-filter="all" onclick="setNotifFilter(\'all\')">All (' + notifications.length + ')</button>'
+    + '<button class="notif-filter-btn" data-filter="error" onclick="setNotifFilter(\'error\')">Error (' + notifications.filter(function(n){ return n.type==='error'; }).length + ')</button>'
+    + '<button class="notif-filter-btn" data-filter="warning" onclick="setNotifFilter(\'warning\')">Warning (' + notifications.filter(function(n){ return n.type==='warning'; }).length + ')</button>'
+    + '<button class="notif-filter-btn" data-filter="info" onclick="setNotifFilter(\'info\')">Info (' + notifications.filter(function(n){ return n.type==='info'; }).length + ')</button>'
+    + '</div>';
+
+  el.innerHTML = header + filterBar + '<div class="notif-center-list" id="notif-list-container"></div>';
+  document.body.appendChild(el);
+
+
+  var listContainer = document.getElementById('notif-list-container');
+  _renderNotifList(listContainer, 'all');
+}
+window.toggleNotifCenter = toggleNotifCenter;
+
+function setNotifFilter(filter) {
+  notifFilter = filter;
+
+  document.querySelectorAll('.notif-filter-btn').forEach(function(btn) {
+    btn.classList.toggle('active', btn.dataset.filter === filter);
+  });
+  var listContainer = document.getElementById('notif-list-container');
+  if (listContainer) _renderNotifList(listContainer, filter);
+}
+window.setNotifFilter = setNotifFilter;
+
+function closeNotifCenter() {
+  window.notifCenterOpen = false;
+  var el = document.getElementById('notif-center');
+  if (el) el.remove();
+}
+window.closeNotifCenter = closeNotifCenter;
+
+function markAllRead() {
+  notifications.forEach(function(n) { n.read = true; });
+  updateNotifBadge();
+  closeNotifCenter(); toggleNotifCenter();
+}
+window.markAllRead = markAllRead;
+
+function markRead(id) {
+  var n = notifications.find(function(x) { return x.id === id; });
+  if (n) n.read = true;
+  updateNotifBadge();
+}
+window.markRead = markRead;
+
+function clearNotifications() {
+  notifications = [];
+  updateNotifBadge();
+  closeNotifCenter(); toggleNotifCenter();
+}
+window.clearNotifications = clearNotifications;
+
+
+var hoverCardTimeout = null;
+var hoverCard = document.createElement('div');
+hoverCard.className = 'hover-card';
+hoverCard.id = 'hover-card';
+document.body.appendChild(hoverCard);
+
+function showHoverCard(e, vm) {
+  clearTimeout(hoverCardTimeout);
+  hoverCardTimeout = setTimeout(() => {
+    const on = vm.state === 'running';
+    hoverCard.innerHTML = '<div class="hover-card-title"><span class="dot ' + (on ? 'on' : 'off') + '"></span>' + escapeHtml(vm.name) + '</div>' +
+      '<div class="hover-card-row"><span class="hc-k">State</span><span class="hc-v">' + (vm.state || '-') + '</span></div>' +
+      '<div class="hover-card-row"><span class="hc-k">vCPU</span><span class="hc-v">' + (vm.vcpu || '-') + '</span></div>' +
+      '<div class="hover-card-row"><span class="hc-k">Memory</span><span class="hc-v">' + (vm.memory_mb || '-') + ' MB</span></div>' +
+      '<div class="hover-card-row"><span class="hc-k">CPU</span><span class="hc-v">' + ((vm.live_cpu_pct || 0).toFixed(1)) + '%</span></div>';
+    hoverCard.style.left = (e.clientX + 16) + 'px';
+    hoverCard.style.top = (e.clientY - 10) + 'px';
+    hoverCard.classList.add('visible');
+  }, 300);
+}
+window.showHoverCard = showHoverCard;
+
+function hideHoverCard() {
+  clearTimeout(hoverCardTimeout);
+  hoverCard.classList.remove('visible');
+}
+window.hideHoverCard = hideHoverCard;
+
+
+function highlightText(text, query) {
+  if (!query || !text) return esc(text);
+  var escaped = esc(text);
+  var re = new RegExp('(' + query.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi');
+  return escaped.replace(re, '<mark style="background:var(--yellow);color:#000;padding:0 2px;border-radius:2px">$1</mark>');
+}
+window.highlightText = highlightText;
+
+
+(function() {
+  var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
+  document.addEventListener('touchstart', function(e) {
+    touchStartX = e.touches[0].clientX;
+    touchStartY = e.touches[0].clientY;
+    touchStartTime = Date.now();
+  }, { passive: true });
+
+  document.addEventListener('touchend', function(e) {
+    var dx = e.changedTouches[0].clientX - touchStartX;
+    var dy = e.changedTouches[0].clientY - touchStartY;
+    var dt = Date.now() - touchStartTime;
+    if (dt > 500 || Math.abs(dx) < 50) return;
+    if (Math.abs(dy) > Math.abs(dx)) return;
+
+    var tabs = ['summary', 'console', 'snapshots', 'performance', 'timeline'];
+    var idx = tabs.indexOf(currentTab);
+    if (idx === -1) return;
+
+    if (dx < -50 && idx < tabs.length - 1) {
+      currentTab = tabs[idx + 1];
+      renderContent();
+    } else if (dx > 50 && idx > 0) {
+      currentTab = tabs[idx - 1];
+      renderContent();
+    }
+  }, { passive: true });
+
+
+  var longPressTimer = null;
+  document.addEventListener('touchstart', function(e) {
+    var vi = e.target.closest('.vi');
+    if (!vi) return;
+    longPressTimer = setTimeout(function() {
+      var idx = Array.from(vi.parentElement.children).filter(function(c) { return c.classList.contains('vi'); }).indexOf(vi);
+      if (idx >= 0 && typeof showCtx === 'function') {
+        showCtx({ preventDefault: function(){}, pageX: e.touches[0].clientX, pageY: e.touches[0].clientY }, idx);
+      }
+    }, 600);
+  }, { passive: true });
+  document.addEventListener('touchend', function() { clearTimeout(longPressTimer); }, { passive: true });
+  document.addEventListener('touchmove', function() { clearTimeout(longPressTimer); }, { passive: true });
+})();
+
+
+(function() {
+  var handle = document.getElementById('sb-resize');
+  var sidebar = document.querySelector('.sidebar-panel') || document.querySelector('.sidebar');
+  if (!handle || !sidebar) return;
+  var startX, startW;
+  handle.addEventListener('mousedown', function(e) {
+    e.preventDefault();
+    startX = e.clientX;
+    startW = sidebar.offsetWidth;
+    handle.classList.add('active');
+    function onMove(e2) {
+      var newW = Math.max(180, Math.min(500, startW + e2.clientX - startX));
+      sidebar.style.width = newW + 'px';
+      document.documentElement.style.setProperty('--sw', newW + 'px');
+    }
+    function onUp() {
+      handle.classList.remove('active');
+      document.removeEventListener('mousemove', onMove);
+      document.removeEventListener('mouseup', onUp);
+      localStorage.setItem('pcv-sb-width', sidebar.style.width);
+    }
+    document.addEventListener('mousemove', onMove);
+    document.addEventListener('mouseup', onUp);
+  });
+  var saved = localStorage.getItem('pcv-sb-width');
+  if (saved) { sidebar.style.width = saved; document.documentElement.style.setProperty('--sw', saved); }
+})();
+
+
+PCV.nav = {
+  togglePin: togglePin,
+  renderPinnedBar: renderPinnedBar,
+  navigateTo: navigateTo,
+  switchSbTab: switchSbTab,
+  renderContent: renderContent,
+  updateStatusBar: updateStatusBar,
+  updateFavicon: updateFavicon,
+  toggleSB: toggleSB,
+  toggleFS: toggleFS,
+  toggleInfraSort: toggleInfraSort,
+  switchPanelTab: switchPanelTab,
+  toggleBottomPanel: toggleBottomPanel,
+  togglePanelSize: togglePanelSize,
+  CMD_ACTIONS: CMD_ACTIONS,
+  fuzzyMatch: fuzzyMatch,
+  openCmdPalette: openCmdPalette,
+  closeCmdPalette: closeCmdPalette,
+  renderCmdPalette: renderCmdPalette,
+  openInPopup: openInPopup,
+  toggleMobileSB: toggleMobileSB,
+  closeMobileSB: closeMobileSB,
+  switchActivity: switchActivity,
+  openEditorTab: openEditorTab,
+  closeEditorTab: closeEditorTab,
+  renderEditorTabs: renderEditorTabs,
+  updateBreadcrumbs: updateBreadcrumbs,
+  toggleGlobalSearch: toggleGlobalSearch,
+  closeGlobalSearch: closeGlobalSearch,
+  doGlobalSearch: doGlobalSearch,
+  toggleZenMode: toggleZenMode,
+  addNotification: addNotification,
+  updateNotifBadge: updateNotifBadge,
+  toggleNotifCenter: toggleNotifCenter,
+  setNotifFilter: setNotifFilter,
+  closeNotifCenter: closeNotifCenter,
+  markAllRead: markAllRead,
+  markRead: markRead,
+  clearNotifications: clearNotifications,
+  showHoverCard: showHoverCard,
+  hideHoverCard: hideHoverCard,
+  highlightText: highlightText
+};
+})(window.PCV);

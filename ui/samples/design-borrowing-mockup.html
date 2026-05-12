@@ -1,0 +1,1076 @@
+<!doctype html>
+<html lang="ko" data-theme="supanova">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width,initial-scale=1">
+  <title>PureCVisor Operations Triage Mockup</title>
+  <link rel="stylesheet" href="../vendor/pretendard/pretendard.css">
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    body.borrow-preview {
+      min-height: 100vh;
+      margin: 0;
+      overflow: hidden;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: var(--font-sans);
+      letter-spacing: 0;
+    }
+
+    .borrow-shell {
+      display: grid;
+      grid-template-columns: 244px minmax(0, 1fr);
+      grid-template-rows: 52px minmax(0, 1fr) 30px;
+      height: 100vh;
+      min-width: 0;
+    }
+
+    .borrow-topbar {
+      grid-column: 1 / -1;
+      display: grid;
+      grid-template-columns: 244px minmax(0, 1fr) auto;
+      align-items: center;
+      min-width: 0;
+      border-bottom: 1px solid var(--border-panel);
+      background: rgba(7, 9, 12, .96);
+    }
+
+    .borrow-brand {
+      display: flex;
+      align-items: center;
+      gap: 10px;
+      min-width: 0;
+      height: 100%;
+      padding: 0 14px;
+      border-right: 1px solid var(--border-panel);
+    }
+
+    .borrow-brand-mark {
+      width: 28px;
+      height: 28px;
+      display: grid;
+      place-items: center;
+      flex: 0 0 auto;
+      border: 1px solid var(--accent-hover-border);
+      border-radius: 8px;
+      background: var(--accent-tint-10);
+      color: var(--accent);
+      font: 800 12px/1 var(--font-mono);
+    }
+
+    .borrow-brand-text {
+      min-width: 0;
+      color: var(--fg);
+      font: 800 14px/1.2 var(--font-display);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .borrow-breadcrumbs {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      padding: 0 16px;
+      color: var(--fg2);
+      font-size: 12px;
+      white-space: nowrap;
+      overflow: hidden;
+    }
+
+    .borrow-breadcrumbs strong {
+      color: var(--fg);
+      font-weight: 700;
+    }
+
+    .borrow-actions {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      padding: 0 14px;
+    }
+
+    .borrow-chip,
+    .borrow-icon-button,
+    .borrow-action,
+    .borrow-tab,
+    .borrow-field {
+      min-height: 32px;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      background: rgba(255,255,255,.03);
+      color: var(--fg);
+    }
+
+    .borrow-chip {
+      display: inline-flex;
+      align-items: center;
+      gap: 7px;
+      padding: 0 10px;
+      color: var(--fg2);
+      font: 700 11px/1.3 var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .borrow-dot {
+      width: 7px;
+      height: 7px;
+      border-radius: 50%;
+      background: var(--fg2);
+    }
+
+    .borrow-dot.ok { background: var(--green); }
+    .borrow-dot.warn { background: var(--yellow); }
+    .borrow-dot.bad { background: var(--red); }
+
+    .borrow-icon-button {
+      width: 32px;
+      padding: 0;
+      display: grid;
+      place-items: center;
+      color: var(--fg2);
+      cursor: pointer;
+    }
+
+    .borrow-icon-button:hover,
+    .borrow-action:hover,
+    .borrow-tab:hover {
+      border-color: var(--accent-hover-border);
+      color: var(--fg);
+      background: var(--accent-tint-06);
+    }
+
+    .borrow-rail {
+      grid-row: 2;
+      min-width: 0;
+      overflow: auto;
+      border-right: 1px solid var(--border-panel);
+      background: rgba(255,255,255,.018);
+      padding: 12px 10px;
+    }
+
+    .borrow-nav-group {
+      margin-bottom: 16px;
+    }
+
+    .borrow-nav-label {
+      padding: 0 8px 7px;
+      color: var(--fg2);
+      font: 800 10px/1.3 var(--font-mono);
+      text-transform: uppercase;
+    }
+
+    .borrow-nav-item {
+      display: grid;
+      grid-template-columns: 24px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 8px;
+      min-height: 34px;
+      margin: 2px 0;
+      padding: 0 8px;
+      border: 1px solid transparent;
+      border-radius: 8px;
+      color: var(--fg2);
+      font-size: 12px;
+    }
+
+    .borrow-nav-item.is-active {
+      border-color: var(--accent-hover-border);
+      background: var(--accent-tint-10);
+      color: var(--fg);
+    }
+
+    .borrow-nav-item .ci-icon,
+    .borrow-icon-button .ci-icon,
+    .borrow-action .ci-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    .borrow-count {
+      min-width: 20px;
+      padding: 2px 6px;
+      border-radius: 999px;
+      background: rgba(255,255,255,.045);
+      color: var(--fg2);
+      font: 800 10px/1 var(--font-mono);
+      text-align: center;
+    }
+
+    .borrow-main {
+      grid-row: 2;
+      min-width: 0;
+      overflow: auto;
+      padding: 16px;
+    }
+
+    .borrow-page-head {
+      display: grid;
+      grid-template-columns: minmax(0, 1fr) auto;
+      gap: 14px;
+      align-items: start;
+      margin-bottom: 14px;
+    }
+
+    .borrow-kicker {
+      margin-bottom: 7px;
+      color: var(--accent);
+      font: 800 10px/1.3 var(--font-mono);
+      text-transform: uppercase;
+    }
+
+    .borrow-title {
+      margin: 0;
+      color: var(--fg);
+      font: 800 24px/1.15 var(--font-display);
+      letter-spacing: 0;
+    }
+
+    .borrow-subtitle {
+      max-width: 720px;
+      margin: 8px 0 0;
+      color: var(--fg2);
+      font-size: 12px;
+      line-height: 1.5;
+    }
+
+    .borrow-tabs {
+      display: flex;
+      flex-wrap: wrap;
+      justify-content: flex-end;
+      gap: 7px;
+    }
+
+    .borrow-tab {
+      display: inline-flex;
+      align-items: center;
+      padding: 0 10px;
+      color: var(--fg2);
+      font: 800 11px/1.3 var(--font-mono);
+    }
+
+    .borrow-tab.is-active {
+      border-color: var(--accent-hover-border);
+      background: var(--accent-tint-10);
+      color: var(--accent);
+    }
+
+    .borrow-grid {
+      display: grid;
+      grid-template-columns: repeat(12, minmax(0, 1fr));
+      gap: 12px;
+      align-items: stretch;
+    }
+
+    .borrow-span-3 { grid-column: span 3; }
+    .borrow-span-4 { grid-column: span 4; }
+    .borrow-span-5 { grid-column: span 5; }
+    .borrow-span-7 { grid-column: span 7; }
+    .borrow-span-8 { grid-column: span 8; }
+    .borrow-span-12 { grid-column: span 12; }
+
+    .borrow-card {
+      min-width: 0;
+      min-height: 0;
+      padding: 13px;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      background: rgba(20,25,30,.46);
+      box-shadow: inset 0 1px 0 rgba(255,255,255,.035);
+    }
+
+    .borrow-card-head {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 10px;
+      margin-bottom: 10px;
+    }
+
+    .borrow-card-title {
+      margin: 0;
+      color: var(--fg);
+      font: 800 13px/1.25 var(--font-display);
+      letter-spacing: 0;
+    }
+
+    .borrow-card-meta {
+      color: var(--fg2);
+      font: 700 10px/1.3 var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .borrow-metric {
+      min-height: 104px;
+    }
+
+    .borrow-metric-label {
+      color: var(--fg2);
+      font-size: 11px;
+      font-weight: 700;
+    }
+
+    .borrow-metric-value {
+      margin-top: 8px;
+      color: var(--fg);
+      font: 900 27px/1 var(--font-mono);
+      letter-spacing: 0;
+    }
+
+    .borrow-metric-foot {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-top: 10px;
+      color: var(--fg2);
+      font-size: 11px;
+    }
+
+    .borrow-status {
+      display: inline-flex;
+      align-items: center;
+      gap: 6px;
+      min-height: 22px;
+      padding: 0 7px;
+      border: 1px solid var(--border-panel);
+      border-radius: 999px;
+      background: rgba(255,255,255,.025);
+      color: var(--fg2);
+      font: 800 10px/1 var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .borrow-status.ok { color: var(--green); border-color: rgba(52,211,153,.35); background: rgba(52,211,153,.08); }
+    .borrow-status.warn { color: var(--yellow); border-color: rgba(234,179,8,.38); background: rgba(234,179,8,.08); }
+    .borrow-status.bad { color: var(--red); border-color: rgba(244,63,94,.42); background: rgba(244,63,94,.09); }
+    .borrow-status.info { color: var(--accent); border-color: var(--accent-hover-border); background: var(--accent-tint-06); }
+
+    .borrow-list {
+      display: grid;
+      gap: 8px;
+    }
+
+    .borrow-event {
+      display: grid;
+      grid-template-columns: 9px minmax(0, 1fr) auto;
+      gap: 10px;
+      align-items: start;
+      min-height: 54px;
+      padding: 9px 10px;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      background: rgba(255,255,255,.025);
+    }
+
+    .borrow-severity {
+      width: 9px;
+      height: 100%;
+      min-height: 36px;
+      border-radius: 999px;
+      background: var(--fg2);
+    }
+
+    .borrow-severity.bad { background: var(--red); }
+    .borrow-severity.warn { background: var(--yellow); }
+    .borrow-severity.ok { background: var(--green); }
+
+    .borrow-event-title {
+      margin: 0;
+      color: var(--fg);
+      font-size: 12px;
+      font-weight: 800;
+      line-height: 1.35;
+    }
+
+    .borrow-event-sub {
+      margin-top: 4px;
+      color: var(--fg2);
+      font-size: 11px;
+      line-height: 1.45;
+    }
+
+    .borrow-event-time {
+      color: var(--fg2);
+      font: 800 10px/1.3 var(--font-mono);
+      white-space: nowrap;
+    }
+
+    .borrow-toolbar {
+      display: flex;
+      align-items: center;
+      justify-content: space-between;
+      gap: 8px;
+      margin-bottom: 9px;
+      flex-wrap: wrap;
+    }
+
+    .borrow-field {
+      width: min(320px, 100%);
+      padding: 0 10px;
+      outline: none;
+      color: var(--fg);
+      font-size: 12px;
+    }
+
+    .borrow-field:focus {
+      border-color: var(--accent-hover-border);
+      box-shadow: 0 0 0 3px var(--accent-tint-10);
+    }
+
+    .borrow-action {
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      gap: 6px;
+      min-height: 32px;
+      padding: 0 11px;
+      color: var(--fg2);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+    }
+
+    .borrow-action.primary {
+      border-color: transparent;
+      background: var(--accent);
+      color: var(--bg);
+    }
+
+    .borrow-table-wrap {
+      overflow: auto;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+    }
+
+    .borrow-table {
+      min-width: 760px;
+    }
+
+    .borrow-table td,
+    .borrow-table th {
+      padding: 9px 10px;
+    }
+
+    .borrow-table th {
+      color: var(--fg2);
+      border-bottom: 1px solid var(--border-panel);
+      letter-spacing: 0;
+    }
+
+    .borrow-table td {
+      border-bottom-color: var(--border-panel);
+    }
+
+    .borrow-name {
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      min-width: 0;
+      font-weight: 800;
+    }
+
+    .borrow-name .ci-icon {
+      width: 15px;
+      height: 15px;
+      color: var(--accent);
+    }
+
+    .borrow-mono {
+      font-family: var(--font-mono);
+      font-variant-numeric: tabular-nums;
+    }
+
+    .borrow-bar {
+      position: relative;
+      min-width: 76px;
+      height: 18px;
+      overflow: hidden;
+      border: 1px solid var(--border-panel);
+      border-radius: 999px;
+      background: rgba(255,255,255,.025);
+    }
+
+    .borrow-bar-fill {
+      height: 100%;
+      width: var(--value);
+      min-width: 26px;
+      background: var(--accent-tint-15);
+      border-right: 1px solid var(--accent-hover-border);
+    }
+
+    .borrow-bar-label {
+      position: absolute;
+      inset: 0;
+      display: grid;
+      place-items: center;
+      color: var(--fg);
+      font: 800 10px/1 var(--font-mono);
+      text-shadow: 0 1px 2px rgba(0,0,0,.7);
+    }
+
+    .borrow-command {
+      display: grid;
+      gap: 8px;
+    }
+
+    .borrow-command-row {
+      display: grid;
+      grid-template-columns: 52px minmax(0, 1fr) auto;
+      gap: 8px;
+      align-items: center;
+      min-height: 34px;
+      padding: 7px 9px;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      background: rgba(255,255,255,.025);
+      color: var(--fg2);
+      font-size: 12px;
+    }
+
+    .borrow-command-row.is-active {
+      border-color: var(--accent-hover-border);
+      background: var(--accent-tint-10);
+      color: var(--fg);
+    }
+
+    .borrow-key {
+      display: inline-grid;
+      place-items: center;
+      min-width: 44px;
+      height: 20px;
+      padding: 0 7px;
+      border: 1px solid var(--border-panel);
+      border-radius: 5px;
+      color: var(--fg2);
+      background: rgba(255,255,255,.035);
+      font: 800 10px/1 var(--font-mono);
+    }
+
+    .borrow-topology {
+      display: grid;
+      grid-template-columns: 1fr;
+      gap: 8px;
+    }
+
+    .borrow-node {
+      display: grid;
+      grid-template-columns: 34px minmax(0, 1fr) auto;
+      align-items: center;
+      gap: 9px;
+      min-height: 46px;
+      padding: 8px;
+      border: 1px solid var(--border-panel);
+      border-radius: 8px;
+      background: rgba(255,255,255,.025);
+    }
+
+    .borrow-node-icon {
+      width: 34px;
+      height: 30px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--accent-hover-border);
+      border-radius: 7px;
+      background: var(--accent-tint-06);
+      color: var(--accent);
+    }
+
+    .borrow-node-icon .ci-icon {
+      width: 16px;
+      height: 16px;
+    }
+
+    .borrow-node-name {
+      color: var(--fg);
+      font-size: 12px;
+      font-weight: 800;
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .borrow-node-sub {
+      margin-top: 2px;
+      color: var(--fg2);
+      font: 700 10px/1.4 var(--font-mono);
+      white-space: nowrap;
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    .borrow-flow {
+      display: grid;
+      grid-template-columns: 1fr auto 1fr auto 1fr;
+      align-items: center;
+      gap: 6px;
+      margin: 10px 0 2px;
+      color: var(--fg2);
+      font: 800 10px/1.3 var(--font-mono);
+    }
+
+    .borrow-flow-box {
+      min-height: 28px;
+      display: grid;
+      place-items: center;
+      border: 1px solid var(--border-panel);
+      border-radius: 7px;
+      background: rgba(255,255,255,.025);
+      text-align: center;
+    }
+
+    .borrow-bottom {
+      grid-column: 1 / -1;
+      display: flex;
+      align-items: center;
+      gap: 14px;
+      min-width: 0;
+      padding: 0 14px;
+      border-top: 1px solid var(--border-panel);
+      background: rgba(7, 9, 12, .96);
+      color: var(--fg2);
+      font: 700 10px/1.3 var(--font-mono);
+      overflow: hidden;
+      white-space: nowrap;
+    }
+
+    .borrow-bottom span {
+      overflow: hidden;
+      text-overflow: ellipsis;
+    }
+
+    @media (max-width: 1100px) {
+      .borrow-shell {
+        grid-template-columns: 72px minmax(0, 1fr);
+      }
+      .borrow-topbar {
+        grid-template-columns: 72px minmax(0, 1fr) auto;
+      }
+      .borrow-brand-text,
+      .borrow-nav-label,
+      .borrow-nav-item span:nth-child(2),
+      .borrow-count {
+        display: none;
+      }
+      .borrow-nav-item {
+        grid-template-columns: 1fr;
+        place-items: center;
+        padding: 0;
+      }
+      .borrow-span-3,
+      .borrow-span-4 {
+        grid-column: span 6;
+      }
+      .borrow-span-5,
+      .borrow-span-7,
+      .borrow-span-8 {
+        grid-column: span 12;
+      }
+    }
+
+    @media (max-width: 760px) {
+      body.borrow-preview {
+        overflow: auto;
+      }
+      .borrow-shell {
+        display: block;
+        height: auto;
+        min-height: 100vh;
+      }
+      .borrow-topbar {
+        display: flex;
+        position: sticky;
+        top: 0;
+        z-index: 5;
+      }
+      .borrow-brand {
+        width: auto;
+        border-right: 0;
+      }
+      .borrow-breadcrumbs {
+        display: none;
+      }
+      .borrow-actions {
+        margin-left: auto;
+      }
+      .borrow-actions .borrow-chip {
+        display: none;
+      }
+      .borrow-rail {
+        display: none;
+      }
+      .borrow-main {
+        overflow: visible;
+        padding: 12px;
+      }
+      .borrow-page-head {
+        grid-template-columns: 1fr;
+      }
+      .borrow-tabs {
+        justify-content: flex-start;
+      }
+      .borrow-span-3,
+      .borrow-span-4,
+      .borrow-span-5,
+      .borrow-span-7,
+      .borrow-span-8 {
+        grid-column: span 12;
+      }
+      .borrow-bottom {
+        position: static;
+        min-height: 30px;
+      }
+    }
+  </style>
+</head>
+<body class="borrow-preview">
+  <div class="borrow-shell">
+    <header class="borrow-topbar">
+      <div class="borrow-brand">
+        <div class="borrow-brand-mark">PCV</div>
+        <div class="borrow-brand-text">PureCVisor</div>
+      </div>
+      <div class="borrow-breadcrumbs" aria-label="현재 위치">
+        <span>운영</span>
+        <span>/</span>
+        <span>이벤트 센터</span>
+        <span>/</span>
+        <strong>단일 노드 상태</strong>
+      </div>
+      <div class="borrow-actions">
+        <div class="borrow-chip"><span class="borrow-dot ok"></span>API 200</div>
+        <div class="borrow-chip"><span class="borrow-dot warn"></span>WARN 3</div>
+        <button class="borrow-icon-button" type="button" aria-label="검색">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-search"></use></svg>
+        </button>
+        <button class="borrow-icon-button" type="button" aria-label="설정">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-settings"></use></svg>
+        </button>
+      </div>
+    </header>
+
+    <aside class="borrow-rail" aria-label="샘플 내비게이션">
+      <section class="borrow-nav-group">
+        <div class="borrow-nav-label">Observe</div>
+        <div class="borrow-nav-item is-active">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-chart-line"></use></svg>
+          <span>운영 이벤트</span>
+          <span class="borrow-count">12</span>
+        </div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-bell"></use></svg>
+          <span>알림</span>
+          <span class="borrow-count">3</span>
+        </div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-shield-check"></use></svg>
+          <span>보안 이벤트</span>
+          <span class="borrow-count">1</span>
+        </div>
+      </section>
+      <section class="borrow-nav-group">
+        <div class="borrow-nav-label">Assets</div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg>
+          <span>VM 자산</span>
+          <span class="borrow-count">5</span>
+        </div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-layers"></use></svg>
+          <span>OVN SDN</span>
+          <span class="borrow-count">4</span>
+        </div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-data"></use></svg>
+          <span>ZFS 스토리지</span>
+          <span class="borrow-count">2</span>
+        </div>
+      </section>
+      <section class="borrow-nav-group">
+        <div class="borrow-nav-label">Control</div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-terminal"></use></svg>
+          <span>명령 팔레트</span>
+          <span class="borrow-count">K</span>
+        </div>
+        <div class="borrow-nav-item">
+          <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-file-document"></use></svg>
+          <span>감사 로그</span>
+          <span class="borrow-count">98</span>
+        </div>
+      </section>
+    </aside>
+
+    <main class="borrow-main">
+      <header class="borrow-page-head">
+        <div>
+          <div class="borrow-kicker">Single Edge operations</div>
+          <h1 class="borrow-title">운영 이벤트 센터</h1>
+          <p class="borrow-subtitle">
+            VM, OVN, ZFS, 보안 이벤트를 한 화면에서 triage하고 즉시 조치하는 운영자용 샘플 화면입니다.
+          </p>
+        </div>
+        <div class="borrow-tabs" role="tablist" aria-label="시간 범위">
+          <button class="borrow-tab is-active" type="button">LIVE</button>
+          <button class="borrow-tab" type="button">1H</button>
+          <button class="borrow-tab" type="button">24H</button>
+          <button class="borrow-tab" type="button">AUDIT</button>
+        </div>
+      </header>
+
+      <section class="borrow-grid" aria-label="운영 상태 샘플">
+        <article class="borrow-card borrow-metric borrow-span-3">
+          <div class="borrow-metric-label">호스트 CPU</div>
+          <div class="borrow-metric-value">2.0%</div>
+          <div class="borrow-metric-foot">
+            <span>8 vCPU 중 0.16 사용</span>
+            <span class="borrow-status ok"><span class="borrow-dot ok"></span>정상</span>
+          </div>
+        </article>
+        <article class="borrow-card borrow-metric borrow-span-3">
+          <div class="borrow-metric-label">메모리</div>
+          <div class="borrow-metric-value">41%</div>
+          <div class="borrow-metric-foot">
+            <span>32GB 중 13.1GB</span>
+            <span class="borrow-status ok"><span class="borrow-dot ok"></span>여유</span>
+          </div>
+        </article>
+        <article class="borrow-card borrow-metric borrow-span-3">
+          <div class="borrow-metric-label">OVN 게이트웨이</div>
+          <div class="borrow-metric-value">10.77.0.1</div>
+          <div class="borrow-metric-foot">
+            <span>pcv-demo-lr</span>
+            <span class="borrow-status info"><span class="borrow-dot ok"></span>ACTIVE</span>
+          </div>
+        </article>
+        <article class="borrow-card borrow-metric borrow-span-3">
+          <div class="borrow-metric-label">열린 작업</div>
+          <div class="borrow-metric-value">7</div>
+          <div class="borrow-metric-foot">
+            <span>복제 1, 백업 2, 점검 4</span>
+            <span class="borrow-status warn"><span class="borrow-dot warn"></span>확인</span>
+          </div>
+        </article>
+
+        <article class="borrow-card borrow-span-5">
+          <div class="borrow-card-head">
+            <h2 class="borrow-card-title">이벤트 triage</h2>
+            <span class="borrow-card-meta">최근 15분</span>
+          </div>
+          <div class="borrow-list">
+            <div class="borrow-event">
+              <div class="borrow-severity bad"></div>
+              <div>
+                <p class="borrow-event-title">viewer 계정 로그인 시도 증가</p>
+                <div class="borrow-event-sub">203.0.113.10, nginx access log, 동일 User-Agent 9회 반복</div>
+              </div>
+              <div class="borrow-event-time">12:21</div>
+            </div>
+            <div class="borrow-event">
+              <div class="borrow-severity warn"></div>
+              <div>
+                <p class="borrow-event-title">pcv-demo-vm exporter scrape 지연</p>
+                <div class="borrow-event-sub">Prometheus full exporter, 평균 응답 842ms</div>
+              </div>
+              <div class="borrow-event-time">12:18</div>
+            </div>
+            <div class="borrow-event">
+              <div class="borrow-severity ok"></div>
+              <div>
+                <p class="borrow-event-title">OVN demo NAT 흐름 정상</p>
+                <div class="borrow-event-sub">ovn-demo-a → pcv-demo-ls → pcv-demo-lr → external</div>
+              </div>
+              <div class="borrow-event-time">12:13</div>
+            </div>
+          </div>
+        </article>
+
+        <article class="borrow-card borrow-span-7">
+          <div class="borrow-card-head">
+            <h2 class="borrow-card-title">VM 및 서비스 상태</h2>
+            <span class="borrow-card-meta">5 assets</span>
+          </div>
+          <div class="borrow-toolbar">
+            <input class="borrow-field" type="search" value="demo" aria-label="자산 검색">
+            <div>
+              <button class="borrow-action" type="button">
+                <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-refresh"></use></svg>
+                새로고침
+              </button>
+              <button class="borrow-action primary" type="button">
+                <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-play"></use></svg>
+                조치 실행
+              </button>
+            </div>
+          </div>
+          <div class="borrow-table-wrap">
+            <table class="borrow-table">
+              <thead>
+                <tr>
+                  <th>이름</th>
+                  <th>역할</th>
+                  <th>IP</th>
+                  <th>CPU</th>
+                  <th>메모리</th>
+                  <th>상태</th>
+                </tr>
+              </thead>
+              <tbody>
+                <tr>
+                  <td>
+                    <div class="borrow-name">
+                      <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg>
+                      pcv-demo-vm
+                    </div>
+                  </td>
+                  <td>공개 데모</td>
+                  <td class="borrow-mono">192.0.2.12</td>
+                  <td><div class="borrow-bar" style="--value:28%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">2.0%</div></div></td>
+                  <td><div class="borrow-bar" style="--value:48%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">48%</div></div></td>
+                  <td><span class="borrow-status ok"><span class="borrow-dot ok"></span>RUNNING</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="borrow-name">
+                      <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-layers"></use></svg>
+                      ovn-demo-a
+                    </div>
+                  </td>
+                  <td>테넌트 A</td>
+                  <td class="borrow-mono">10.77.0.12</td>
+                  <td><div class="borrow-bar" style="--value:31%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">12%</div></div></td>
+                  <td><div class="borrow-bar" style="--value:34%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">34%</div></div></td>
+                  <td><span class="borrow-status ok"><span class="borrow-dot ok"></span>HTTP 200</span></td>
+                </tr>
+                <tr>
+                  <td>
+                    <div class="borrow-name">
+                      <svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-layers"></use></svg>
+                      ovn-demo-b
+                    </div>
+                  </td>
+                  <td>테넌트 B</td>
+                  <td class="borrow-mono">10.77.0.13</td>
+                  <td><div class="borrow-bar" style="--value:36%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">16%</div></div></td>
+                  <td><div class="borrow-bar" style="--value:41%"><div class="borrow-bar-fill"></div><div class="borrow-bar-label">41%</div></div></td>
+                  <td><span class="borrow-status warn"><span class="borrow-dot warn"></span>CHECK</span></td>
+                </tr>
+              </tbody>
+            </table>
+          </div>
+        </article>
+
+        <article class="borrow-card borrow-span-4">
+          <div class="borrow-card-head">
+            <h2 class="borrow-card-title">명령 팔레트</h2>
+            <span class="borrow-card-meta">Ctrl K</span>
+          </div>
+          <div class="borrow-command">
+            <div class="borrow-command-row is-active">
+              <span class="borrow-key">RUN</span>
+              <span>pcv-demo-vm qemu-guest-agent 설치 확인</span>
+              <span class="borrow-key">Enter</span>
+            </div>
+            <div class="borrow-command-row">
+              <span class="borrow-key">NET</span>
+              <span>OVN NAT 및 logical router 상태 확인</span>
+              <span class="borrow-key">N</span>
+            </div>
+            <div class="borrow-command-row">
+              <span class="borrow-key">LOG</span>
+              <span>viewer 성공 로그인 IP 목록 열기</span>
+              <span class="borrow-key">L</span>
+            </div>
+            <div class="borrow-command-row">
+              <span class="borrow-key">JOB</span>
+              <span>실패 작업만 필터링</span>
+              <span class="borrow-key">J</span>
+            </div>
+          </div>
+        </article>
+
+        <article class="borrow-card borrow-span-4">
+          <div class="borrow-card-head">
+            <h2 class="borrow-card-title">OVN 서비스 흐름</h2>
+            <span class="borrow-card-meta">demo</span>
+          </div>
+          <div class="borrow-topology">
+            <div class="borrow-node">
+              <div class="borrow-node-icon"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></div>
+              <div>
+                <div class="borrow-node-name">ovn-demo-a</div>
+                <div class="borrow-node-sub">10.77.0.12:8080</div>
+              </div>
+              <span class="borrow-status ok">WEB</span>
+            </div>
+            <div class="borrow-node">
+              <div class="borrow-node-icon"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-layers"></use></svg></div>
+              <div>
+                <div class="borrow-node-name">pcv-demo-ls</div>
+                <div class="borrow-node-sub">logical switch</div>
+              </div>
+              <span class="borrow-status info">L2</span>
+            </div>
+            <div class="borrow-node">
+              <div class="borrow-node-icon"><svg class="ci-icon" aria-hidden="true"><use href="../vendor/coolicons/coolicons.svg#ci-globe"></use></svg></div>
+              <div>
+                <div class="borrow-node-name">pcv-demo-lr</div>
+                <div class="borrow-node-sub">gateway 10.77.0.1</div>
+              </div>
+              <span class="borrow-status ok">NAT</span>
+            </div>
+          </div>
+          <div class="borrow-flow" aria-label="서비스 흐름">
+            <div class="borrow-flow-box">VM</div>
+            <div>→</div>
+            <div class="borrow-flow-box">LS</div>
+            <div>→</div>
+            <div class="borrow-flow-box">LR</div>
+          </div>
+        </article>
+
+        <article class="borrow-card borrow-span-4">
+          <div class="borrow-card-head">
+            <h2 class="borrow-card-title">감사 추적</h2>
+            <span class="borrow-card-meta">audit</span>
+          </div>
+          <div class="borrow-list">
+            <div class="borrow-event">
+              <div class="borrow-severity ok"></div>
+              <div>
+                <p class="borrow-event-title">vm.guest.exec</p>
+                <div class="borrow-event-sub">target=pcv-demo-vm, result=ok, job_id=81f2</div>
+              </div>
+              <div class="borrow-event-time">12:22</div>
+            </div>
+            <div class="borrow-event">
+              <div class="borrow-severity warn"></div>
+              <div>
+                <p class="borrow-event-title">security.event</p>
+                <div class="borrow-event-sub">target=viewer, source=nginx, result=warn</div>
+              </div>
+              <div class="borrow-event-time">12:21</div>
+            </div>
+            <div class="borrow-event">
+              <div class="borrow-severity ok"></div>
+              <div>
+                <p class="borrow-event-title">ovn.status</p>
+                <div class="borrow-event-sub">target=pcv-demo-lr, result=ok</div>
+              </div>
+              <div class="borrow-event-time">12:19</div>
+            </div>
+          </div>
+        </article>
+      </section>
+    </main>
+
+    <footer class="borrow-bottom">
+      <span><span class="borrow-dot ok"></span> purecvisorsd active</span>
+      <span><span class="borrow-dot ok"></span> nginx proxy active</span>
+      <span><span class="borrow-dot warn"></span> exporter latency 842ms</span>
+      <span>viewer scope: read-only demo</span>
+    </footer>
+  </div>
+</body>
+</html>

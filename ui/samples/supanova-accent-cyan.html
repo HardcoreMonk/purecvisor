@@ -1,0 +1,227 @@
+<!DOCTYPE html>
+<html lang="ko" data-theme="supanova">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Supanova Accent Preview — Cyan-600 #0891b2 (경계)</title>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css">
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://code.iconify.design/iconify-icon/2.3.0/iconify-icon.min.js"></script>
+  <link rel="stylesheet" href="../style.css">
+  <style>
+
+    html[data-theme="supanova"] { --accent: #0891b2; }
+
+    body {
+      margin: 0;
+      background: var(--bg);
+      color: var(--fg);
+      font-family: 'Pretendard', 'Outfit', system-ui, sans-serif;
+      min-height: 100dvh;
+      padding: 40px 32px 60px;
+    }
+    .preview-wrap { max-width: 1100px; margin: 0 auto; }
+    .accent-label {
+      display: inline-flex; align-items: center; gap: 10px;
+      padding: 8px 16px;
+      background: color-mix(in srgb, var(--accent) 12%, transparent);
+      border: 1px solid color-mix(in srgb, var(--accent) 30%, transparent);
+      color: var(--accent);
+      border-radius: 999px;
+      font-family: 'Outfit', sans-serif;
+      font-size: 12px;
+      font-weight: 700;
+      text-transform: uppercase;
+      letter-spacing: 0.12em;
+      margin-bottom: 24px;
+    }
+    .accent-swatch {
+      width: 14px; height: 14px; border-radius: 50%;
+      background: var(--accent);
+      border: 1px solid color-mix(in srgb, var(--accent) 60%, white);
+    }
+    .preview-title {
+      font-family: 'Outfit', sans-serif;
+      font-size: clamp(32px, 4vw, 48px);
+      font-weight: 800;
+      letter-spacing: -0.022em;
+      line-height: 1.1;
+      margin: 0 0 14px;
+      color: var(--fg);
+    }
+    .preview-title .accent { color: var(--accent); }
+    .preview-lede {
+      font-size: 15px;
+      color: var(--fg2);
+      max-width: 56ch;
+      line-height: 1.7;
+      margin: 0 0 40px;
+    }
+    .section-h {
+      font-family: 'Outfit', sans-serif;
+      font-size: 11px;
+      font-weight: 600;
+      text-transform: uppercase;
+      letter-spacing: 0.14em;
+      color: var(--fg2);
+      margin: 40px 0 16px;
+    }
+    .btn-row { display: flex; gap: 12px; flex-wrap: wrap; margin-bottom: 8px; }
+    .vi-demo {
+      max-width: 280px;
+      background: rgba(255,255,255,0.02);
+      border: 1px solid rgba(255,255,255,0.06);
+      border-radius: 12px;
+      padding: 6px;
+    }
+    .vi-demo .vi {
+      display: block;
+      padding: 10px 14px;
+      font-size: 13px;
+      color: var(--fg);
+      cursor: pointer;
+      border-left: 3px solid transparent;
+    }
+    .input-demo {
+      display: flex; gap: 12px; align-items: center; flex-wrap: wrap;
+    }
+    .input-demo input {
+      width: 260px;
+      padding: 12px 16px;
+      color: var(--fg);
+      font-family: 'Pretendard', 'Outfit', sans-serif;
+      font-size: 14px;
+      outline: none;
+    }
+    .table-demo {
+      width: 100%; max-width: 700px;
+      border-collapse: collapse;
+      font-size: 13px;
+    }
+    .color-accent { color: var(--accent); }
+    .link-demo {
+      color: var(--accent);
+      text-decoration: underline;
+      text-underline-offset: 3px;
+    }
+    .warn-note {
+      display: flex; align-items: flex-start; gap: 10px;
+      padding: 12px 16px;
+      background: color-mix(in srgb, var(--red) 8%, transparent);
+      border: 1px solid color-mix(in srgb, var(--red) 24%, transparent);
+      border-left: 3px solid var(--red);
+      border-radius: 10px;
+      color: var(--fg);
+      font-size: 13px;
+      max-width: 600px;
+      margin: 16px 0;
+    }
+    .warn-note strong { color: var(--red); }
+  </style>
+</head>
+<body>
+  <div class="preview-wrap">
+
+    <div class="accent-label">
+      <span class="accent-swatch"></span>
+      Cyan-600 · #0891b2 · 경계
+    </div>
+
+    <h1 class="preview-title">
+      Supanova 테마, <span class="accent">Cyan-600</span>.
+    </h1>
+    <p class="preview-lede">
+      기존 PureCVisor NEON_DARK의 cyan 계열과 연속감이 가장 강한 선택. "같은 브랜드의
+      성숙한 버전" 느낌을 주지만, 채도가 92%로 Supanova의 &lt; 80% 규율 경계선을 넘습니다.
+    </p>
+
+    <div class="warn-note">
+      <iconify-icon icon="solar:danger-triangle-bold" style="font-size:18px;color:var(--red)" aria-hidden="true"></iconify-icon>
+      <div>
+        <strong>Supanova 규율 경계선</strong> — Cyan-600의 채도는 92%로 "&lt; 80%" 원칙을
+        초과합니다. 원칙을 엄격히 따르려면 기본 Teal을 선택하는 것이 안전합니다.
+        이 프리뷰는 비교 참고용.
+      </div>
+    </div>
+
+
+    <div class="section-h">Status Cards (.hc + .stat-lg)</div>
+    <div class="sg grid-4">
+      <div class="hc">
+        <h4>가상 머신</h4>
+        <div class="stat-lg color-accent">247</div>
+        <div class="hr"><span class="k">실행 중</span><span class="v" style="color:var(--green)">184</span></div>
+        <div class="hr"><span class="k">중지</span><span class="v" style="color:var(--fg2)">63</span></div>
+      </div>
+      <div class="hc">
+        <h4>컨테이너</h4>
+        <div class="stat-lg color-accent">63</div>
+        <div class="hr"><span class="k">실행 중</span><span class="v" style="color:var(--green)">58</span></div>
+        <div class="hr"><span class="k">중지</span><span class="v" style="color:var(--fg2)">5</span></div>
+      </div>
+      <div class="hc">
+        <h4>단일 노드</h4>
+        <div class="stat-lg color-accent">1</div>
+        <div class="hr"><span class="k">데몬</span><span class="v" style="color:var(--green)">OK</span></div>
+        <div class="hr"><span class="k">헬스</span><span class="v">정상</span></div>
+      </div>
+      <div class="hc">
+        <h4>알림</h4>
+        <div class="stat-lg color-accent">2</div>
+        <div class="hr"><span class="k">최근</span><span class="v">5 건</span></div>
+        <div class="hr"><span class="k">상태</span><span class="v" style="color:var(--green)">정상</span></div>
+      </div>
+    </div>
+
+
+    <div class="section-h">Buttons (.btn / .tb)</div>
+    <div class="btn-row">
+      <button class="btn">Primary · 새 VM</button>
+      <button class="tb">Secondary</button>
+      <button class="tb" style="opacity:0.4;pointer-events:none">Disabled</button>
+    </div>
+
+
+    <div class="section-h">Sidebar Items (.vi)</div>
+    <div class="vi-demo">
+      <div class="vi">VM 라이브러리</div>
+      <div class="vi active">컨테이너 <span style="float:right;color:var(--fg2);font-size:11px">RUNNING</span></div>
+      <div class="vi">네트워크</div>
+      <div class="vi">스토리지</div>
+      <div class="vi">백업</div>
+    </div>
+
+
+    <div class="section-h">Input Focus Ring</div>
+    <div class="input-demo">
+      <input type="text" placeholder="VM 이름 검색…">
+      <a href="#" class="link-demo" onclick="event.preventDefault()">가이드 링크 예시</a>
+    </div>
+
+
+    <div class="section-h">Table Row Hover (.hc 내부)</div>
+    <div class="hc" style="padding:0;overflow:hidden">
+      <table class="table-demo">
+        <thead>
+          <tr><th style="padding:10px 16px">이름</th><th>노드</th><th>상태</th><th style="text-align:right;padding-right:16px">Uptime</th></tr>
+        </thead>
+        <tbody>
+          <tr><td style="padding:10px 16px"><b>web-prod-01</b></td><td>pcv-n1</td><td style="color:var(--green)">RUNNING</td><td style="text-align:right;padding-right:16px;color:var(--fg2)">27 일</td></tr>
+          <tr><td style="padding:10px 16px"><b>db-master</b></td><td>pcv-n1</td><td style="color:var(--green)">RUNNING</td><td style="text-align:right;padding-right:16px;color:var(--fg2)">92 일</td></tr>
+          <tr><td style="padding:10px 16px"><b>cache-redis</b></td><td>pcv-n2</td><td style="color:var(--green)">RUNNING</td><td style="text-align:right;padding-right:16px;color:var(--fg2)">14 일</td></tr>
+          <tr><td style="padding:10px 16px"><b>log-aggregator</b></td><td>pcv-n2</td><td style="color:var(--yellow)">PRESSURE</td><td style="text-align:right;padding-right:16px;color:var(--fg2)">6 일</td></tr>
+        </tbody>
+      </table>
+    </div>
+
+
+    <div class="section-h">Navigation</div>
+    <div style="display:flex;gap:12px;flex-wrap:wrap;font-size:13px">
+      <a href="supanova-accent-teal.html" class="link-demo">▸ Teal-500 비교</a>
+      <a href="supanova-accent-cyan.html" class="link-demo">▸ Cyan-600 (현재 보는 중)</a>
+      <a href="../" class="link-demo">▸ 실 대시보드로</a>
+    </div>
+
+  </div>
+</body>
+</html>

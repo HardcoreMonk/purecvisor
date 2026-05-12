@@ -1,0 +1,8 @@
+{
+   libvirt-vir-class-new-global
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect
+   fun:calloc
+   fun:g_malloc0
+   fun:virClassNew
+}

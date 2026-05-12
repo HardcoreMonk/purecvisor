@@ -1,0 +1,182 @@
+
+
+syntax = "proto3";
+package purecvisor.v1;
+
+
+
+
+message Empty {}
+
+message ActionResponse {
+    bool   success = 1;
+    string message = 2;
+}
+
+message ErrorResponse {
+    int32  code    = 1;
+    string message = 2;
+}
+
+
+
+
+message VmInfo {
+    string name       = 1;
+    string state      = 2;
+    int32  vcpu       = 3;
+    int64  memory_mb  = 4;
+    string uuid       = 5;
+    double cpu_pct    = 6;
+    double mem_pct    = 7;
+    int64  disk_rd    = 8;
+    int64  disk_wr    = 9;
+    int64  net_rx     = 10;
+    int64  net_tx     = 11;
+}
+
+message VmListResponse {
+    repeated VmInfo vms = 1;
+}
+
+message VmCreateRequest {
+    string name           = 1;
+    int32  vcpu           = 2;
+    int32  memory_mb      = 3;
+    int32  disk_size_gb   = 4;
+    string iso_path       = 5;
+    string network_bridge = 6;
+    int32  boot_mode      = 7;
+    bool   tpm            = 8;
+    int32  cpu_mode       = 9;
+    bool   hugepages      = 10;
+}
+
+message VmNameRequest {
+    string name = 1;
+}
+
+message ResizeDiskRequest {
+    string name        = 1;
+    int32  new_size_gb = 2;
+    string target      = 3;
+}
+
+message VmCloneRequest {
+    string source = 1;
+    string target = 2;
+}
+
+
+
+
+message NetworkInfo {
+    string name     = 1;
+    string mode     = 2;
+    string state    = 3;
+    string ip_cidr  = 4;
+    bool   dhcp     = 5;
+    int32  vm_count = 6;
+    string subnet   = 7;
+}
+
+message NetworkListResponse {
+    repeated NetworkInfo networks = 1;
+}
+
+message NetworkCreateRequest {
+    string bridge_name = 1;
+    string mode        = 2;
+    string cidr        = 3;
+    string physical_if = 4;
+    int32  mtu         = 5;
+}
+
+
+
+
+message PoolInfo {
+    string name   = 1;
+    string size   = 2;
+    string alloc  = 3;
+    string free_  = 4;
+    string health = 5;
+}
+
+message PoolListResponse {
+    repeated PoolInfo pools = 1;
+}
+
+
+
+
+message MetricsResponse {
+    double cpu_pct  = 1;
+    double mem_pct  = 2;
+    double disk_pct = 3;
+    int32  vm_count = 4;
+    int32  running  = 5;
+}
+
+message AuditEntry {
+    string ts       = 1;
+    string username = 2;
+    string method   = 3;
+    string target   = 4;
+    string result   = 5;
+    string src_ip   = 6;
+}
+
+message AuditSearchRequest {
+    string from_ts  = 1;
+    string to_ts    = 2;
+    string username = 3;
+    string method   = 4;
+    int32  limit    = 5;
+}
+
+message AuditSearchResponse {
+    repeated AuditEntry entries = 1;
+}
+
+
+
+
+message VersionResponse {
+    string version     = 1;
+    int32  rpc_methods = 2;
+    string build_date  = 3;
+}
+
+
+
+
+service VmService {
+    rpc List(Empty)             returns (VmListResponse);
+    rpc Create(VmCreateRequest) returns (ActionResponse);
+    rpc Start(VmNameRequest)    returns (ActionResponse);
+    rpc Stop(VmNameRequest)     returns (ActionResponse);
+    rpc Delete(VmNameRequest)   returns (ActionResponse);
+    rpc ResizeDisk(ResizeDiskRequest) returns (ActionResponse);
+    rpc Clone(VmCloneRequest)   returns (ActionResponse);
+}
+
+service NetworkService {
+    rpc List(Empty)                      returns (NetworkListResponse);
+    rpc Create(NetworkCreateRequest)     returns (ActionResponse);
+    rpc Delete(VmNameRequest)            returns (ActionResponse);
+}
+
+service StorageService {
+    rpc ListPools(Empty)  returns (PoolListResponse);
+}
+
+service MonitorService {
+    rpc Fleet(Empty)      returns (MetricsResponse);
+    rpc AuditSearch(AuditSearchRequest) returns (AuditSearchResponse);
+}
+
+service SystemService {
+    rpc Version(Empty)    returns (VersionResponse);
+    rpc Health(Empty)     returns (ActionResponse);
+}

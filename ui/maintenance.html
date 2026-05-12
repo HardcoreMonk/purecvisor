@@ -1,0 +1,830 @@
+<!doctype html>
+<html lang="ko">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="robots" content="noindex,nofollow">
+<meta name="description" content="PureCVisor 서비스 점검 및 복구 안내 페이지">
+<meta name="theme-color" content="#080b0f">
+<meta http-equiv="refresh" content="60">
+<meta name="design-system" content="Supanova Design Skill inspired">
+<title>PureCVisor 서비스 상태</title>
+<style>
+  :root {
+    color-scheme: dark;
+    --bg: #080b0f;
+    --bg-2: #0d1118;
+    --ink: #f3f6f9;
+    --muted: #aeb8c6;
+    --soft: #7f8a99;
+    --line: rgba(255,255,255,.12);
+    --line-strong: rgba(255,255,255,.22);
+    --glass: rgba(15,19,27,.72);
+    --glass-strong: rgba(20,25,35,.88);
+    --teal: #17c3b2;
+    --aqua: #74e4d8;
+    --amber: #f6c85f;
+    --coral: #ef7b72;
+    --steel: #89a8d8;
+    --violet: #b8a7ff;
+    --shadow: 0 34px 90px rgba(0,0,0,.44);
+    --shadow-soft: 0 18px 60px rgba(12,20,30,.34);
+    --spring: cubic-bezier(.16,1,.3,1);
+  }
+
+  * { box-sizing: border-box; }
+  html { min-height: 100%; }
+  body {
+    min-height: 100dvh;
+    margin: 0;
+    color: var(--ink);
+    background:
+      linear-gradient(150deg, rgba(116,228,216,.10), transparent 31%),
+      linear-gradient(28deg, rgba(239,123,114,.07), transparent 44%),
+      linear-gradient(180deg, rgba(8,11,15,.98), rgba(8,11,15,.94) 48%, #080b0f),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.035) 0 1px, transparent 1px 112px),
+      repeating-linear-gradient(0deg, rgba(255,255,255,.025) 0 1px, transparent 1px 112px);
+    font-family: Pretendard, Outfit, "Apple SD Gothic Neo", "Malgun Gothic", system-ui, -apple-system, BlinkMacSystemFont, sans-serif;
+    font-feature-settings: "ss01", "ss02", "cv01";
+    letter-spacing: 0;
+    word-break: keep-all;
+  }
+
+  body::before {
+    content: "";
+    position: fixed;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(90deg, transparent 0 9%, rgba(255,255,255,.045) 9% 9.4%, transparent 9.4% 100%),
+      linear-gradient(180deg, rgba(255,255,255,.04), transparent 30%, rgba(255,255,255,.025));
+    opacity: .55;
+    z-index: 0;
+  }
+
+  a { color: inherit; }
+  .noise {
+    position: fixed;
+    inset: 0;
+    z-index: 0;
+    pointer-events: none;
+    opacity: .12;
+    mix-blend-mode: soft-light;
+    background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='180' height='180' viewBox='0 0 180 180'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='.78' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='180' height='180' filter='url(%23n)' opacity='.65'/%3E%3C/svg%3E");
+  }
+
+  .shell {
+    position: relative;
+    z-index: 1;
+    width: min(1180px, calc(100% - 34px));
+    min-height: 100dvh;
+    margin: 0 auto;
+    display: grid;
+    grid-template-rows: auto 1fr auto;
+    gap: 24px;
+    padding: 22px 0 24px;
+  }
+
+  .topbar {
+    position: sticky;
+    top: 16px;
+    z-index: 40;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    min-height: 62px;
+    padding: 10px 12px;
+    border: 1px solid rgba(255,255,255,.13);
+    border-radius: 999px;
+    background: rgba(9,12,17,.58);
+    backdrop-filter: blur(18px);
+    box-shadow: 0 14px 40px rgba(0,0,0,.22), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+
+  .brand {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+    min-width: 0;
+    font-weight: 780;
+  }
+
+  .brand-mark {
+    width: 42px;
+    height: 42px;
+    flex: 0 0 auto;
+    border-radius: 14px;
+    display: grid;
+    place-items: center;
+    background: linear-gradient(180deg, rgba(116,228,216,.19), rgba(246,200,95,.08));
+    border: 1px solid rgba(255,255,255,.18);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.12), 0 16px 36px rgba(23,195,178,.11);
+  }
+
+  .brand-mark svg { width: 24px; height: 24px; }
+  .brand-name {
+    display: grid;
+    gap: 2px;
+    line-height: 1.05;
+  }
+  .brand-name small {
+    color: var(--soft);
+    font-size: 11px;
+    font-weight: 680;
+  }
+
+  .environment {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 38px;
+    padding: 8px 13px;
+    border-radius: 999px;
+    color: #ffe3a0;
+    border: 1px solid rgba(246,200,95,.30);
+    background: rgba(246,200,95,.09);
+    font-size: 13px;
+    font-weight: 730;
+    white-space: nowrap;
+  }
+
+  .signal {
+    width: 10px;
+    height: 10px;
+    flex: 0 0 auto;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 0 5px rgba(246,200,95,.13), 0 0 26px rgba(246,200,95,.36);
+  }
+
+  .hero {
+    align-self: center;
+    display: grid;
+    grid-template-columns: minmax(0, .95fr) minmax(370px, 1.05fr);
+    gap: 34px;
+    align-items: center;
+    padding: 14px 0 18px;
+  }
+
+  .copy {
+    padding: 22px 0;
+  }
+
+  .eyebrow {
+    display: inline-flex;
+    align-items: center;
+    gap: 9px;
+    min-height: 36px;
+    padding: 8px 12px;
+    border-radius: 999px;
+    color: #ffe1a1;
+    background: rgba(246,200,95,.10);
+    border: 1px solid rgba(246,200,95,.30);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    font-size: 12px;
+    font-weight: 780;
+  }
+
+  h1 {
+    max-width: 820px;
+    margin: 22px 0 18px;
+    font-size: 66px;
+    line-height: 1.08;
+    letter-spacing: 0;
+    text-wrap: balance;
+  }
+
+  .accent {
+    color: transparent;
+    background: linear-gradient(90deg, #fff7dc, var(--aqua) 56%, #bfe6ff);
+    -webkit-background-clip: text;
+    background-clip: text;
+  }
+
+  .lede {
+    max-width: 690px;
+    margin: 0;
+    color: var(--muted);
+    font-size: 18px;
+    line-height: 1.78;
+    text-wrap: pretty;
+  }
+
+  .actions {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 10px;
+    margin-top: 30px;
+  }
+
+  .button {
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 9px;
+    min-height: 46px;
+    padding: 10px 17px;
+    border-radius: 999px;
+    border: 1px solid var(--line-strong);
+    color: var(--ink);
+    text-decoration: none;
+    font-weight: 760;
+    background: rgba(255,255,255,.055);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.06);
+    transition: transform .42s var(--spring), border-color .42s var(--spring), background .42s var(--spring), box-shadow .42s var(--spring);
+  }
+
+  .button:hover {
+    transform: translateY(-2px);
+    border-color: rgba(255,255,255,.34);
+    background: rgba(255,255,255,.09);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.09), 0 14px 40px rgba(0,0,0,.28);
+  }
+
+  .button.primary {
+    color: #051310;
+    border-color: rgba(116,228,216,.82);
+    background: linear-gradient(180deg, #9af3e9, #1fc8b8 70%, #0ea798);
+    box-shadow: 0 20px 48px rgba(23,195,178,.20), inset 0 1px 0 rgba(255,255,255,.42);
+  }
+
+  .button svg { width: 18px; height: 18px; flex: 0 0 auto; }
+  .micro {
+    max-width: 610px;
+    margin: 18px 0 0;
+    color: var(--soft);
+    font-size: 13px;
+    line-height: 1.65;
+  }
+
+  .status-grid {
+    display: grid;
+    grid-template-columns: repeat(3, minmax(0, 1fr));
+    gap: 12px;
+    max-width: 760px;
+    margin-top: 30px;
+  }
+
+  .tile {
+    min-height: 102px;
+    border-radius: 18px;
+    padding: 15px;
+    background: rgba(255,255,255,.045);
+    border: 1px solid rgba(255,255,255,.10);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.04);
+    transition: transform .42s var(--spring), border-color .42s var(--spring), background .42s var(--spring);
+  }
+
+  .tile:hover {
+    transform: translateY(-2px);
+    background: rgba(255,255,255,.065);
+    border-color: rgba(255,255,255,.18);
+  }
+
+  .tile .k {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    color: var(--muted);
+    font-size: 12px;
+    margin-bottom: 10px;
+  }
+
+  .tile .k::before {
+    content: "";
+    width: 8px;
+    height: 8px;
+    border-radius: 50%;
+    background: currentColor;
+    opacity: .85;
+  }
+
+  .tile .v {
+    display: block;
+    font-weight: 780;
+    line-height: 1.42;
+  }
+
+  .tile.warn { border-color: rgba(246,200,95,.28); }
+  .tile.warn .k { color: #ffd987; }
+  .tile.ok { border-color: rgba(116,228,216,.24); }
+  .tile.ok .k { color: #94efe5; }
+  .tile.info { border-color: rgba(137,168,216,.28); }
+  .tile.info .k { color: #b8cdf4; }
+
+  .bezel {
+    position: relative;
+    border: 1px solid rgba(255,255,255,.12);
+    border-radius: 30px;
+    padding: 7px;
+    background: linear-gradient(180deg, rgba(255,255,255,.09), rgba(255,255,255,.025));
+    box-shadow: var(--shadow), inset 0 1px 0 rgba(255,255,255,.08);
+  }
+
+  .bezel::before {
+    content: "";
+    position: absolute;
+    inset: 7px;
+    border-radius: 23px;
+    border: 1px solid rgba(255,255,255,.055);
+    pointer-events: none;
+  }
+
+  .core {
+    position: relative;
+    overflow: hidden;
+    border-radius: 23px;
+    background:
+      linear-gradient(145deg, rgba(26,31,42,.98), rgba(11,14,20,.99) 62%, rgba(18,20,27,.98)),
+      repeating-linear-gradient(90deg, rgba(255,255,255,.04) 0 1px, transparent 1px 58px);
+    border: 1px solid rgba(255,255,255,.07);
+  }
+
+  .core::after {
+    content: "";
+    position: absolute;
+    inset: 0;
+    pointer-events: none;
+    background:
+      linear-gradient(180deg, rgba(255,255,255,.08), transparent 18%),
+      linear-gradient(90deg, transparent, rgba(116,228,216,.07), transparent);
+  }
+
+  .status-head {
+    position: relative;
+    z-index: 1;
+    display: flex;
+    align-items: flex-start;
+    justify-content: space-between;
+    gap: 14px;
+    padding: 22px 22px 18px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .status-title {
+    display: grid;
+    gap: 6px;
+  }
+
+  .status-title strong { font-size: 18px; }
+  .status-title span {
+    color: var(--muted);
+    font-size: 13px;
+    line-height: 1.45;
+  }
+
+  .http-code {
+    min-width: 88px;
+    padding: 7px 9px;
+    border-radius: 9px;
+    color: #ffdf9d;
+    text-align: center;
+    border: 1px solid rgba(246,200,95,.32);
+    background: rgba(246,200,95,.10);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 12px;
+    font-weight: 720;
+  }
+
+  .map {
+    position: relative;
+    z-index: 1;
+    min-height: 274px;
+    padding: 24px 22px 22px;
+    border-bottom: 1px solid var(--line);
+  }
+
+  .flow {
+    display: grid;
+    grid-template-columns: 104px 1fr 124px 1fr 104px;
+    gap: 10px;
+    align-items: center;
+  }
+
+  .node {
+    min-height: 78px;
+    border-radius: 18px;
+    display: grid;
+    place-items: center;
+    padding: 10px;
+    text-align: center;
+    font-size: 12px;
+    font-weight: 790;
+    line-height: 1.35;
+    background: rgba(255,255,255,.052);
+    border: 1px solid rgba(255,255,255,.13);
+    box-shadow: inset 0 1px 0 rgba(255,255,255,.05);
+  }
+
+  .node.customer { border-color: rgba(137,168,216,.33); }
+  .node.edge {
+    border-color: rgba(116,228,216,.36);
+    background: rgba(23,195,178,.075);
+  }
+  .node.guard {
+    border-color: rgba(246,200,95,.34);
+    background: rgba(246,200,95,.075);
+  }
+
+  .path {
+    position: relative;
+    height: 2px;
+    border-radius: 99px;
+    background: linear-gradient(90deg, rgba(137,168,216,.24), rgba(246,200,95,.78), rgba(116,228,216,.25));
+    overflow: visible;
+  }
+
+  .path::after {
+    content: "";
+    position: absolute;
+    top: -5px;
+    left: calc(50% - 6px);
+    width: 12px;
+    height: 12px;
+    border-radius: 50%;
+    background: var(--amber);
+    box-shadow: 0 0 0 6px rgba(246,200,95,.12), 0 0 24px rgba(246,200,95,.34);
+  }
+
+  .service-stack {
+    display: grid;
+    grid-template-columns: repeat(3, 1fr);
+    gap: 10px;
+    margin-top: 24px;
+  }
+
+  .service {
+    min-height: 78px;
+    border-radius: 15px;
+    padding: 13px;
+    background: rgba(255,255,255,.04);
+    border: 1px solid rgba(255,255,255,.10);
+  }
+
+  .service b {
+    display: block;
+    font-size: 13px;
+    margin-bottom: 7px;
+  }
+
+  .service span {
+    display: block;
+    color: var(--muted);
+    font-size: 12px;
+    line-height: 1.5;
+  }
+
+  .meter {
+    display: grid;
+    grid-template-columns: 1fr auto;
+    gap: 12px;
+    align-items: center;
+    margin-top: 20px;
+    padding: 13px;
+    border-radius: 16px;
+    background: rgba(255,255,255,.035);
+    border: 1px solid rgba(255,255,255,.09);
+  }
+
+  .meter-label {
+    color: var(--muted);
+    font-size: 12px;
+  }
+
+  .meter-track {
+    height: 8px;
+    margin-top: 8px;
+    border-radius: 999px;
+    background: rgba(255,255,255,.08);
+    overflow: hidden;
+  }
+
+  .meter-track span {
+    display: block;
+    width: 72%;
+    height: 100%;
+    border-radius: inherit;
+    background: linear-gradient(90deg, var(--teal), var(--amber), var(--coral));
+  }
+
+  .meter-code {
+    padding: 6px 8px;
+    border-radius: 8px;
+    color: #ffd98b;
+    background: rgba(246,200,95,.09);
+    border: 1px solid rgba(246,200,95,.24);
+    font-family: "JetBrains Mono", "Fira Code", ui-monospace, SFMono-Regular, Menlo, Consolas, monospace;
+    font-size: 11px;
+  }
+
+  .rows {
+    position: relative;
+    z-index: 1;
+    display: grid;
+  }
+
+  .row {
+    display: grid;
+    grid-template-columns: 138px minmax(0, 1fr);
+    gap: 14px;
+    padding: 16px 22px;
+    border-bottom: 1px solid rgba(255,255,255,.075);
+  }
+
+  .row:last-child { border-bottom: 0; }
+  .label {
+    color: var(--muted);
+    font-size: 13px;
+  }
+  .value {
+    font-weight: 710;
+    line-height: 1.52;
+    overflow-wrap: anywhere;
+  }
+
+  .footer {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+    color: var(--soft);
+    font-size: 13px;
+    line-height: 1.55;
+  }
+
+  .footer strong {
+    color: var(--muted);
+    font-weight: 700;
+  }
+
+  .has-motion [data-reveal] {
+    opacity: 0;
+    transform: translateY(18px);
+  }
+
+  .has-motion.is-ready [data-reveal] {
+    animation: reveal-up .76s var(--spring) both;
+    animation-delay: calc(var(--i, 0) * 70ms);
+  }
+
+  @keyframes reveal-up {
+    from { opacity: 0; transform: translateY(18px); }
+    to { opacity: 1; transform: translateY(0); }
+  }
+
+  @media (max-width: 1020px) {
+    .hero {
+      grid-template-columns: 1fr;
+      align-self: start;
+      padding-top: 26px;
+    }
+    h1 { font-size: 54px; }
+    .status-grid { max-width: none; }
+  }
+
+  @media (max-width: 720px) {
+    .shell {
+      width: min(100% - 24px, 680px);
+      gap: 18px;
+      padding: 14px 0 20px;
+    }
+    .topbar {
+      position: static;
+      align-items: flex-start;
+      flex-direction: column;
+      border-radius: 24px;
+      padding: 12px;
+    }
+    .environment {
+      white-space: normal;
+      width: 100%;
+      justify-content: center;
+    }
+    h1 { font-size: 40px; }
+    .lede { font-size: 16px; line-height: 1.7; }
+    .status-grid { grid-template-columns: 1fr; }
+    .flow {
+      grid-template-columns: 1fr;
+      gap: 12px;
+    }
+    .path {
+      width: 2px;
+      height: 42px;
+      justify-self: center;
+      background: linear-gradient(180deg, rgba(137,168,216,.24), rgba(246,200,95,.78), rgba(116,228,216,.25));
+    }
+    .path::after {
+      top: calc(50% - 6px);
+      left: -5px;
+    }
+    .service-stack { grid-template-columns: 1fr; }
+    .meter { grid-template-columns: 1fr; }
+    .row { grid-template-columns: 1fr; gap: 6px; }
+    .footer {
+      align-items: flex-start;
+      flex-direction: column;
+    }
+  }
+
+  @media (max-width: 420px) {
+    .actions { flex-direction: column; }
+    .button { width: 100%; }
+    h1 { font-size: 34px; }
+    .status-head { flex-direction: column; }
+    .http-code { width: fit-content; }
+  }
+
+  @media (prefers-reduced-motion: reduce) {
+    *, *::before, *::after {
+      animation-duration: .001ms !important;
+      animation-iteration-count: 1 !important;
+      scroll-behavior: auto !important;
+      transition-duration: .001ms !important;
+    }
+    .has-motion [data-reveal] {
+      opacity: 1;
+      transform: none;
+    }
+  }
+</style>
+</head>
+<body>
+<div class="noise" aria-hidden="true"></div>
+<div class="shell">
+  <header class="topbar" data-reveal style="--i:0">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" fill="none">
+          <path d="M12 3.4 19.5 7.7v8.6L12 20.6l-7.5-4.3V7.7L12 3.4Z" stroke="#17c3b2" stroke-width="1.6"/>
+          <path d="M8.2 9.8 12 12l3.8-2.2M12 12v4.4" stroke="#f3f6f9" stroke-width="1.5" stroke-linecap="round" stroke-linejoin="round"/>
+        </svg>
+      </span>
+      <span class="brand-name">
+        <span>PureCVisor</span>
+        <small>Single Edge</small>
+      </span>
+    </div>
+    <div class="environment" role="status">
+      <span class="signal" aria-hidden="true"></span>
+      <span id="state-label">서비스 점검 중</span>
+    </div>
+  </header>
+
+  <main class="hero">
+    <section class="copy" aria-labelledby="title">
+      <div class="eyebrow" data-reveal style="--i:1">
+        <span class="signal" aria-hidden="true"></span>
+        Single Edge Service Notice
+      </div>
+      <h1 id="title" data-reveal style="--i:2">서비스를 안정화하는 동안 <span class="accent">워크로드를 우선 보호합니다</span></h1>
+      <p class="lede" id="impact" data-reveal style="--i:3">웹 콘솔 및 API 접속이 일시적으로 제한됩니다. 운영팀은 고객 VM, 스토리지 데이터, 네트워크 경로를 우선순위로 확인하고 있습니다.</p>
+      <div class="actions" data-reveal style="--i:4">
+        <a class="button primary" href="/ui/" aria-label="PureCVisor 콘솔 다시 접속">
+          다시 접속
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M5 12h14m-6-6 6 6-6 6" stroke="currentColor" stroke-width="2" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+        <a class="button" id="support-link" href="mailto:support@purecvisor.example.com">
+          지원 요청
+          <svg viewBox="0 0 24 24" fill="none" aria-hidden="true"><path d="M4 6.8h16v10.4H4V6.8Z" stroke="currentColor" stroke-width="1.8" stroke-linejoin="round"/><path d="m5 8 7 5 7-5" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"/></svg>
+        </a>
+      </div>
+      <p class="micro" data-reveal style="--i:5">현재 페이지는 60초 주기로 갱신됩니다. 백엔드 헬스체크가 정상화되면 콘솔 경로로 자동 복귀합니다.</p>
+
+      <div class="status-grid" aria-label="운영 상태 요약" data-reveal style="--i:6">
+        <div class="tile warn">
+          <span class="k">현재 상태</span>
+          <span class="v" id="summary-state">점검 페이지 제공 중</span>
+        </div>
+        <div class="tile ok">
+          <span class="k">데이터 보호</span>
+          <span class="v">고객 데이터 우선 확인</span>
+        </div>
+        <div class="tile info">
+          <span class="k">다음 갱신</span>
+          <span class="v">60초 자동 새로고침</span>
+        </div>
+      </div>
+    </section>
+
+    <aside class="bezel" aria-label="서비스 상태 상세" data-reveal style="--i:7">
+      <div class="core">
+        <div class="status-head">
+          <div class="status-title">
+            <strong>Service Control Plane</strong>
+            <span>공개 콘솔 대신 고객 안내 응답을 우선 제공합니다.</span>
+          </div>
+          <span class="http-code">HTTP 503</span>
+        </div>
+
+        <div class="map" aria-hidden="true">
+          <div class="flow">
+            <div class="node customer">Customer<br>Browser</div>
+            <div class="path"></div>
+            <div class="node guard">Maintenance<br>Guard</div>
+            <div class="path"></div>
+            <div class="node edge">PureCVisor<br>Edge</div>
+          </div>
+          <div class="service-stack">
+            <div class="service">
+              <b>Console</b>
+              <span>접속 제한</span>
+            </div>
+            <div class="service">
+              <b>API</b>
+              <span>점검 응답</span>
+            </div>
+            <div class="service">
+              <b>Workloads</b>
+              <span>보호 우선</span>
+            </div>
+          </div>
+          <div class="meter">
+            <div>
+              <div class="meter-label">복구 확인 흐름</div>
+              <div class="meter-track"><span></span></div>
+            </div>
+            <div class="meter-code">Retry-After 60</div>
+          </div>
+        </div>
+
+        <div class="rows">
+          <div class="row">
+            <div class="label">영향 범위</div>
+            <div class="value" id="scope">웹 콘솔 및 API 접속</div>
+          </div>
+          <div class="row">
+            <div class="label">데이터 상태</div>
+            <div class="value" id="data-status">고객 VM과 스토리지 데이터 보호를 우선으로 확인 중입니다.</div>
+          </div>
+          <div class="row">
+            <div class="label">예상 복구</div>
+            <div class="value" id="eta">점검 중</div>
+          </div>
+          <div class="row">
+            <div class="label">최근 업데이트</div>
+            <div class="value" id="updated">운영팀 확인 후 갱신</div>
+          </div>
+        </div>
+      </div>
+    </aside>
+  </main>
+
+  <footer class="footer" data-reveal style="--i:8">
+    <span>내부 인프라 정보는 보안상 공개하지 않습니다.</span>
+    <span><strong>Support</strong> <span id="support-mail">support@purecvisor.example.com</span></span>
+  </footer>
+</div>
+
+<script>
+(function () {
+  document.body.classList.add('has-motion');
+  requestAnimationFrame(function () {
+    document.body.classList.add('is-ready');
+  });
+
+  function text(id, value) {
+    if (!value) return;
+    var el = document.getElementById(id);
+    if (el) el.textContent = value;
+  }
+
+  function cleanEmail(value) {
+    if (typeof value !== 'string') return null;
+    var trimmed = value.trim();
+    return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : null;
+  }
+
+  fetch('/maintenance-status.json', { cache: 'no-store' })
+    .then(function (res) { return res.ok ? res.json() : null; })
+    .then(function (status) {
+      if (!status) return;
+      text('state-label', status.title);
+      text('summary-state', status.title);
+      text('impact', status.impact);
+      text('scope', status.impact);
+      text('data-status', status.data_status);
+      text('eta', status.eta);
+      text('updated', status.updated_at);
+
+      var support = cleanEmail(status.support);
+      if (support) {
+        var mail = document.getElementById('support-link');
+        var label = document.getElementById('support-mail');
+        if (mail) mail.href = 'mailto:' + support;
+        if (label) label.textContent = support;
+      }
+    })
+    .catch(function () {});
+
+  setInterval(function () {
+    fetch('/api/v1/health', { cache: 'no-store' })
+      .then(function (res) {
+        if (res.ok) window.location.href = '/ui/';
+      })
+      .catch(function () {});
+  }, 15000);
+}());
+</script>
+</body>
+</html>

@@ -1,0 +1,1865 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>PureCVisor Single Edge Guide</title>
+
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.0">
+<style>
+
+:root {
+  --bg-sidebar: #f7f7f7;
+  --bg-content: #ffffff;
+  --bg-code: #f4f6f9;
+  --bg-hover: #eef1f6;
+  --fg: #2c3e50;
+  --fg-dim: #5a6566;
+  --accent: #1f6390;
+  --accent2: #8e44ad;
+  --green: #27ae60;
+  --yellow: #f39c12;
+  --red: #c0392b;
+  --border: #dce1e8;
+
+  --font-sans: 'Pretendard', 'Outfit', system-ui, -apple-system, sans-serif;
+  --font-display: 'Outfit', 'Pretendard', sans-serif;
+  --font-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
+  --pcv-spring: cubic-bezier(0.16, 1, 0.3, 1);
+  --sidebar-w: 300px;
+}
+
+
+.ko { word-break: keep-all; line-height: 1.5; }
+.ko-tight { word-break: keep-all; line-height: 1.15; }
+
+* { box-sizing: border-box; margin: 0; padding: 0; }
+
+body {
+  font-family: var(--font-sans);
+  background: var(--bg-content);
+  color: var(--fg);
+  line-height: 1.5;
+  letter-spacing: 0;
+  font-size: 14px;
+}
+.pcv-icon-defs { position: absolute; width: 0; height: 0; overflow: hidden; }
+.pcv-icon {
+  width: 1em;
+  height: 1em;
+  display: inline-block;
+  flex: none;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+
+.topbar {
+  position: fixed; top: 0; left: 0; right: 0; z-index: 100;
+  height: 48px;
+  background: var(--bg-sidebar);
+  border-bottom: 1px solid var(--border);
+  display: flex; align-items: center; padding: 0 16px; gap: 16px;
+}
+.topbar .logo {
+  font-weight: 700; color: var(--accent); font-size: 15px;
+  white-space: nowrap;
+}
+.topbar .logo span { color: var(--fg-dim); font-weight: 400; font-size: 12px; }
+.topbar .search {
+  flex: 1; max-width: 400px;
+  background: var(--bg-content); border: 1px solid var(--border);
+  border-radius: 6px; padding: 6px 12px; color: var(--fg);
+  font-size: 13px; outline: none;
+}
+.topbar .search:focus { border-color: var(--accent); }
+.topbar .search::placeholder { color: var(--fg-dim); }
+.topbar .version-badge {
+  background: var(--accent); color: #fff; padding: 2px 8px;
+  border-radius: 4px; font-size: 11px; font-weight: 700;
+}
+.topbar .back-link {
+  color: var(--fg-dim); text-decoration: none; font-size: 12px;
+  white-space: nowrap;
+}
+.topbar .back-link:hover { color: var(--accent); }
+.topbar .doc-map-btn {
+  color: var(--fg-dim);
+  background: var(--bg-content);
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  padding: 5px 10px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.topbar .doc-map-btn:hover { color: var(--accent); border-color: var(--accent); }
+.hamburger { display: none; cursor: pointer; font-size: 20px; color: var(--fg); background: none; border: none; }
+
+
+.sidebar {
+  position: fixed; top: 48px; left: 0; bottom: 0;
+  width: var(--sidebar-w); overflow-y: auto;
+  background: var(--bg-sidebar);
+  border-right: 1px solid var(--border);
+  padding: 16px 0;
+  scrollbar-width: thin;
+  scrollbar-color: var(--border) transparent;
+}
+.sidebar::-webkit-scrollbar { width: 4px; }
+.sidebar::-webkit-scrollbar-thumb { background: var(--border); border-radius: 2px; }
+
+.toc-chapter {
+  padding: 8px 16px; cursor: pointer;
+  color: var(--fg); font-size: 13px; font-weight: 600;
+  display: flex; align-items: center; gap: 6px;
+  transition: background 0.15s, color 0.15s;
+  border-left: 3px solid transparent;
+  user-select: none;
+}
+.toc-chapter:hover { background: var(--bg-hover); color: var(--accent); }
+.toc-chapter.active {
+  background: var(--bg-hover);
+  color: var(--accent);
+  border-left-color: var(--accent);
+}
+.toc-chapter .arrow {
+  font-size: 10px; transition: transform 0.2s; color: var(--fg-dim);
+  flex-shrink: 0;
+}
+.toc-chapter.expanded .arrow { transform: rotate(90deg); }
+
+.toc-sub {
+  display: none; padding-left: 28px;
+}
+.toc-chapter.expanded + .toc-sub { display: block; }
+
+.toc-sub a {
+  display: block; padding: 4px 16px;
+  color: var(--fg-dim); font-size: 12px;
+  text-decoration: none;
+  transition: color 0.15s;
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+.toc-sub a:hover, .toc-sub a.active { color: var(--accent); }
+
+
+.content {
+  margin-left: var(--sidebar-w);
+  margin-top: 48px;
+  padding: 32px 48px 64px;
+  max-width: 900px;
+}
+
+
+.breadcrumb {
+  font-size: 12px; color: var(--fg-dim);
+  margin-bottom: 16px;
+}
+.breadcrumb a,
+.content .breadcrumb a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
+.breadcrumb a:hover { text-decoration: underline; }
+
+
+.content h1 { font-size: 28px; color: var(--accent); margin: 32px 0 16px; border-bottom: 2px solid var(--accent); padding-bottom: 8px; }
+.content h2 { font-size: 22px; color: var(--accent); margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
+.content h3 { font-size: 17px; color: var(--fg); margin: 24px 0 8px; }
+.content h4 { font-size: 14px; color: var(--fg-dim); margin: 16px 0 6px; }
+
+
+.content p { margin: 10px 0; }
+.content ul, .content ol { padding-left: 24px; margin: 8px 0; }
+.content li { margin: 4px 0; }
+
+
+.content code {
+  font-family: var(--font-mono); font-size: 12px;
+  background: var(--bg-code); color: #c0392b;
+  padding: 2px 6px; border-radius: 3px;
+}
+.content pre {
+  background: var(--bg-code); border: 1px solid var(--border);
+  border-radius: 6px; padding: 14px 16px;
+  overflow-x: auto; margin: 12px 0;
+  font-size: 12px; line-height: 1.6;
+  position: relative;
+}
+.content pre code {
+  background: none; padding: 0; color: #c0392b;
+}
+.content pre .copy-btn {
+  position: absolute; top: 6px; right: 6px;
+  background: var(--border); border: none; color: var(--fg-dim);
+  padding: 2px 8px; border-radius: 3px; cursor: pointer; font-size: 11px;
+}
+.content pre .copy-btn:hover { color: var(--accent); }
+
+
+.content table {
+  width: 100%; border-collapse: collapse; margin: 12px 0;
+  font-size: 13px;
+}
+.content th {
+  background: var(--bg-sidebar); color: var(--accent);
+  padding: 8px 12px; text-align: left;
+  border: 1px solid var(--border);
+}
+.content td {
+  padding: 6px 12px; border: 1px solid var(--border);
+}
+.content tr:hover td { background: var(--bg-hover); }
+
+
+.content blockquote {
+  position: relative;
+  padding: 16px 20px 16px 22px;
+  margin: 18px 0;
+  background: rgba(31, 99, 144, 0.05);
+  border: 1px solid rgba(31, 99, 144, 0.18);
+  border-left: 3px solid var(--accent);
+  border-radius: 12px;
+  box-shadow: inset 0 1px 0 rgba(255, 255, 255, 0.8), 0 4px 12px -8px rgba(0, 0, 0, 0.06);
+  font-size: 13px;
+  color: var(--fg);
+  word-break: keep-all;
+}
+.content blockquote strong { color: var(--accent); font-weight: 700; }
+.content blockquote p { margin: 6px 0; }
+.content blockquote p:first-child { margin-top: 0; }
+.content blockquote p:last-child { margin-bottom: 0; }
+
+
+.content strong { color: var(--fg); }
+.content em { color: var(--fg-dim); font-style: italic; }
+.content a { color: var(--accent); text-decoration: none; }
+.content a:hover { text-decoration: underline; }
+.content p a,
+.content li a,
+.content blockquote a,
+.content td a {
+  text-decoration: underline;
+  text-underline-offset: 2px;
+}
+.content hr { border: none; border-top: 1px solid var(--border); margin: 32px 0; }
+.content del { color: var(--fg-dim); text-decoration: line-through; }
+.content img { max-width: 100%; border-radius: 4px; }
+
+
+.nav-footer {
+  display: flex; justify-content: space-between;
+  margin-top: 56px; padding-top: 28px;
+  border-top: 1px solid var(--border);
+  gap: 12px;
+}
+.nav-btn {
+  padding: 14px 22px; border-radius: 999px;
+  background: var(--bg-sidebar); border: 1px solid var(--border);
+  color: var(--fg); cursor: pointer; font-size: 13px;
+  font-weight: 500; font-family: var(--font-sans);
+  text-decoration: none;
+  display: inline-flex; align-items: center; gap: 10px;
+  max-width: 320px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  transition: all 0.5s var(--pcv-spring);
+  box-shadow: 0 4px 14px -10px rgba(0, 0, 0, 0.1);
+}
+.nav-btn:hover {
+  transform: translateY(-1px);
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(31, 99, 144, 0.04);
+  box-shadow: 0 8px 24px -12px rgba(31, 99, 144, 0.3);
+}
+.nav-btn.disabled,
+.nav-btn:disabled { opacity: 0.3; pointer-events: none; transform: none; }
+
+
+.search-results {
+  position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
+  width: 600px; max-height: 400px; overflow-y: auto;
+  background: var(--bg-sidebar); border: 1px solid var(--accent);
+  border-radius: 8px; padding: 8px; z-index: 200;
+  display: none; box-shadow: 0 8px 32px rgba(0,0,0,0.5);
+}
+.search-results .sr-item {
+  padding: 8px 12px; cursor: pointer; border-radius: 4px;
+  font-size: 13px;
+}
+.search-results .sr-item:hover { background: var(--bg-hover); }
+.search-results .sr-item .sr-chapter { color: var(--accent); font-weight: 600; }
+.search-results .sr-item .sr-text { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
+.search-results mark { background: var(--yellow); color: #000; border-radius: 2px; padding: 0 1px; }
+
+
+.back-to-top {
+  position: fixed; bottom: 24px; right: 24px;
+  width: 40px; height: 40px; border-radius: 50%;
+  background: var(--accent); color: #fff;
+  display: none; align-items: center; justify-content: center;
+  cursor: pointer; font-size: 18px; z-index: 50;
+  box-shadow: 0 4px 12px rgba(41,128,185,0.3);
+  border: none; font-weight: 700;
+}
+.back-to-top.show { display: flex; }
+
+
+.loading {
+  text-align: center; padding: 80px 0; color: var(--fg-dim);
+}
+.loading .spinner {
+  width: 32px; height: 32px; border: 3px solid var(--border);
+  border-top-color: var(--accent); border-radius: 50%;
+  animation: spin 0.8s linear infinite;
+  margin: 0 auto 16px;
+}
+@keyframes spin { to { transform: rotate(360deg); } }
+
+
+.chapter-count {
+  display: inline-block; background: var(--bg-code); color: var(--fg-dim);
+  font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: auto;
+  flex-shrink: 0;
+}
+
+
+.content h1:hover .anchor,
+.content h2:hover .anchor,
+.content h3:hover .anchor {
+  opacity: 1;
+}
+.anchor {
+  color: var(--accent); text-decoration: none; opacity: 0;
+  transition: opacity 0.15s; margin-left: 6px; font-size: 0.8em;
+}
+
+
+@media (max-width: 768px) {
+  .sidebar { transform: translateX(-100%); transition: transform 0.3s; z-index: 90; width: 280px; }
+  .sidebar.open { transform: translateX(0); }
+  .content { margin-left: 0; padding: 24px 16px 48px; }
+  .hamburger { display: block; }
+  .topbar .search { max-width: 200px; }
+  .search-results { width: calc(100% - 32px); left: 16px; transform: none; }
+  .topbar .back-link { display: none; }
+}
+@media (max-width: 480px) {
+  .content { padding: 16px 12px 48px; }
+  .content h1 { font-size: 22px; }
+  .content h2 { font-size: 18px; }
+  .content pre { font-size: 11px; padding: 10px; }
+}
+
+
+
+.guide-hero {
+  position: relative;
+  padding: 56px 48px 64px;
+  margin: -32px -48px 48px;
+  background:
+    linear-gradient(180deg, #f7faff 0%, #fdfdff 40%, var(--bg-content) 100%);
+  border-bottom: 1px solid var(--border);
+  overflow: hidden;
+  font-family: var(--font-sans);
+}
+.guide-hero::before {
+  content: "";
+  position: absolute;
+  top: -140px; left: -120px;
+  width: 440px; height: 440px;
+  background: radial-gradient(circle, rgba(31, 99, 144, 0.10), transparent 62%);
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(4px);
+}
+.guide-hero::after {
+  content: "";
+  position: absolute;
+  top: 30%; right: -180px;
+  width: 500px; height: 500px;
+  background: radial-gradient(circle, rgba(142, 68, 173, 0.06), transparent 62%);
+  pointer-events: none;
+  border-radius: 50%;
+  filter: blur(4px);
+}
+.guide-hero-inner {
+  position: relative;
+  max-width: 820px;
+  z-index: 1;
+}
+.guide-hero-eyebrow {
+  display: inline-flex; align-items: center; gap: 8px;
+  padding: 7px 14px;
+  border-radius: 999px;
+  background: rgba(31, 99, 144, 0.08);
+  border: 1px solid rgba(31, 99, 144, 0.25);
+  color: var(--accent);
+  font-family: var(--font-display);
+  font-size: 11px; font-weight: 600;
+  text-transform: uppercase;
+  letter-spacing: 0.15em;
+  margin-bottom: 28px;
+}
+.guide-hero-eyebrow .pcv-icon { font-size: 14px; }
+
+.guide-hero-title {
+  font-family: var(--font-display);
+  font-size: clamp(36px, 5.2vw, 58px);
+  font-weight: 800;
+  letter-spacing: -0.022em;
+  color: var(--fg);
+  line-height: 1.1;
+  margin: 0 0 20px;
+  word-break: keep-all;
+
+  border-bottom: none;
+  padding-bottom: 0;
+}
+.guide-hero-title .accent { color: var(--accent); }
+
+.guide-hero-lede {
+  font-size: 17px;
+  color: var(--fg-dim);
+  max-width: 58ch;
+  line-height: 1.7;
+  margin: 0 0 36px;
+  word-break: keep-all;
+}
+
+.guide-hero-meta {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-bottom: 32px;
+  max-width: 720px;
+}
+.guide-meta-card {
+  position: relative;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid var(--border);
+  border-radius: 16px;
+  padding: 5px;
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 8px 22px -15px rgba(31, 99, 144, 0.18);
+  transition: all 0.5s var(--pcv-spring);
+}
+.guide-meta-card:hover {
+  transform: translateY(-2px);
+  border-color: rgba(31, 99, 144, 0.4);
+  box-shadow:
+    inset 0 1px 0 rgba(255, 255, 255, 0.9),
+    0 14px 30px -15px rgba(31, 99, 144, 0.28);
+}
+.guide-meta-card-core {
+  background: #ffffff;
+  border-radius: calc(16px - 5px);
+  padding: 14px 16px;
+}
+.guide-meta-card .label {
+  font-family: var(--font-display);
+  font-size: 10px;
+  font-weight: 600;
+  color: var(--fg-dim);
+  text-transform: uppercase;
+  letter-spacing: 0.12em;
+  margin-bottom: 6px;
+}
+.guide-meta-card .value {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  color: var(--accent);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.01em;
+  line-height: 1;
+}
+.guide-meta-card .unit {
+  font-size: 13px;
+  color: var(--fg-dim);
+  font-weight: 500;
+  margin-left: 4px;
+}
+
+.guide-hero-ctas {
+  display: flex;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+.guide-hero-cta {
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  padding: 14px 14px 14px 24px;
+  border-radius: 999px;
+  background: var(--accent);
+  color: #ffffff;
+  text-decoration: none;
+  font-family: var(--font-sans);
+  font-weight: 600;
+  font-size: 15px;
+  border: none;
+  cursor: pointer;
+  transition: all 0.5s var(--pcv-spring);
+  box-shadow: 0 12px 30px -12px rgba(31, 99, 144, 0.55);
+}
+.guide-hero-cta:hover {
+  transform: scale(1.02);
+  box-shadow: 0 16px 40px -10px rgba(31, 99, 144, 0.65);
+  text-decoration: none;
+}
+.guide-hero-cta:active { transform: scale(0.98); }
+.guide-hero-cta .arrow-wrap {
+  width: 34px; height: 34px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.2);
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  transition: transform 0.5s var(--pcv-spring);
+}
+.guide-hero-cta:hover .arrow-wrap { transform: translateX(4px); }
+.guide-hero-cta .arrow-wrap .pcv-icon { color: #fff; font-size: 18px; }
+
+.guide-hero-cta-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 10px;
+  padding: 14px 24px;
+  border-radius: 999px;
+  background: transparent;
+  color: var(--fg);
+  text-decoration: none;
+  font-family: var(--font-sans);
+  font-weight: 500;
+  font-size: 14px;
+  border: 1px solid var(--border);
+  cursor: pointer;
+  transition: all 0.5s var(--pcv-spring);
+}
+.guide-hero-cta-ghost:hover {
+  border-color: var(--accent);
+  color: var(--accent);
+  background: rgba(31, 99, 144, 0.04);
+  text-decoration: none;
+}
+.guide-hero-cta-ghost .pcv-icon { font-size: 16px; }
+
+.guide-audience-panel {
+  margin: -18px 0 34px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fbfcfd;
+}
+.guide-audience-head {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 14px;
+}
+.guide-audience-kicker {
+  font-size: 11px;
+  font-weight: 700;
+  color: #0f766e;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.guide-audience-title {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--fg);
+}
+.guide-audience-copy {
+  max-width: 420px;
+  font-size: 13px;
+  color: var(--fg-dim);
+  line-height: 1.6;
+  text-align: right;
+}
+.guide-audience-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 12px;
+}
+.guide-audience-card {
+  display: block;
+  padding: 16px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--fg);
+  text-decoration: none;
+  min-height: 148px;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.guide-audience-card:hover {
+  text-decoration: none;
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 28px -22px rgba(31, 99, 144, 0.45);
+}
+.guide-audience-card .label {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  min-height: 24px;
+  padding: 2px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.09);
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 800;
+}
+.guide-audience-card .title {
+  margin-top: 12px;
+  font-size: 16px;
+  font-weight: 800;
+  color: var(--fg);
+}
+.guide-audience-card .body {
+  margin-top: 8px;
+  font-size: 13px;
+  color: var(--fg-dim);
+  line-height: 1.55;
+}
+.guide-audience-card .jump {
+  margin-top: 12px;
+  font-size: 12px;
+  font-weight: 700;
+  color: var(--accent);
+}
+
+.guide-decision-panel {
+  margin: 0 0 38px;
+  padding: 18px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #f8fbfc;
+}
+.guide-decision-head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 18px;
+  margin-bottom: 16px;
+}
+.guide-decision-kicker {
+  font-size: 11px;
+  font-weight: 800;
+  color: #0f766e;
+  text-transform: uppercase;
+  letter-spacing: 0;
+}
+.guide-decision-title {
+  margin-top: 4px;
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--fg);
+}
+.guide-decision-copy {
+  max-width: 470px;
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.6;
+  text-align: right;
+}
+.guide-decision-grid {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 10px;
+}
+.guide-decision-card {
+  text-align: left;
+  min-height: 144px;
+  padding: 14px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: #fff;
+  color: var(--fg);
+  font-family: var(--font-sans);
+  cursor: pointer;
+  transition: border-color 0.2s ease, transform 0.2s ease, box-shadow 0.2s ease;
+}
+.guide-decision-card:hover {
+  border-color: var(--accent);
+  transform: translateY(-1px);
+  box-shadow: 0 12px 26px -22px rgba(31, 99, 144, 0.45);
+}
+.guide-decision-card .adr-id,
+.adr-ref {
+  display: inline-flex;
+  align-items: center;
+  min-height: 22px;
+  padding: 2px 7px;
+  border-radius: 999px;
+  border: 1px solid rgba(31, 99, 144, 0.22);
+  background: rgba(31, 99, 144, 0.06);
+  color: var(--accent);
+  font-family: var(--font-mono);
+  font-size: 11px;
+  font-weight: 700;
+  line-height: 1;
+}
+.guide-decision-card .title {
+  margin-top: 10px;
+  font-size: 15px;
+  font-weight: 800;
+  color: var(--fg);
+}
+.guide-decision-card .body {
+  margin-top: 7px;
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.55;
+  word-break: keep-all;
+}
+.guide-decision-card .status {
+  margin-top: 10px;
+  color: #0f766e;
+  font-size: 12px;
+  font-weight: 700;
+}
+.adr-ref {
+  border: 0;
+  margin: 0 1px;
+  cursor: pointer;
+  vertical-align: baseline;
+}
+.adr-ref:hover { text-decoration: underline; }
+.adr-link {
+  color: var(--accent);
+  font-weight: 700;
+  text-decoration: none;
+}
+.adr-link:hover { text-decoration: underline; }
+.adr-dialog-backdrop {
+  position: fixed;
+  inset: 0;
+  display: none;
+  align-items: center;
+  justify-content: center;
+  padding: 20px;
+  background: rgba(20, 30, 40, 0.35);
+  z-index: 500;
+}
+.adr-dialog-backdrop.open { display: flex; }
+.adr-dialog {
+  width: min(720px, 100%);
+  max-height: min(84vh, 720px);
+  overflow: auto;
+  background: #fff;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  box-shadow: 0 28px 80px -40px rgba(0, 0, 0, 0.55);
+}
+.adr-dialog-head {
+  display: flex;
+  justify-content: space-between;
+  gap: 16px;
+  padding: 18px 20px 14px;
+  border-bottom: 1px solid var(--border);
+}
+.adr-dialog-title {
+  font-size: 18px;
+  font-weight: 800;
+  color: var(--fg);
+}
+.adr-dialog-status {
+  display: inline-flex;
+  margin-top: 8px;
+  padding: 3px 8px;
+  border-radius: 999px;
+  background: rgba(15, 118, 110, 0.09);
+  color: #0f766e;
+  font-size: 11px;
+  font-weight: 800;
+}
+.adr-dialog-close {
+  width: 32px;
+  height: 32px;
+  border-radius: 999px;
+  border: 1px solid var(--border);
+  background: var(--bg-content);
+  color: var(--fg-dim);
+  cursor: pointer;
+  font-size: 18px;
+  line-height: 1;
+}
+.adr-dialog-close:hover { color: var(--accent); border-color: var(--accent); }
+.adr-dialog-body {
+  padding: 18px 20px 20px;
+}
+.adr-dialog-body h3 {
+  margin: 16px 0 8px;
+  color: var(--fg);
+  font-size: 14px;
+}
+.adr-dialog-body p,
+.adr-dialog-body li {
+  color: var(--fg-dim);
+  font-size: 13px;
+  line-height: 1.65;
+}
+.adr-dialog-body ul { margin: 8px 0 0; padding-left: 18px; }
+.adr-path {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  margin-top: 18px;
+  padding: 10px 12px;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  background: var(--bg-code);
+}
+.adr-path code {
+  background: transparent;
+  color: var(--fg);
+  padding: 0;
+  word-break: break-all;
+}
+.adr-copy {
+  border: 1px solid var(--border);
+  border-radius: 6px;
+  background: #fff;
+  color: var(--accent);
+  padding: 5px 8px;
+  font-family: var(--font-sans);
+  font-size: 12px;
+  cursor: pointer;
+  white-space: nowrap;
+}
+.adr-copy:hover { border-color: var(--accent); }
+
+
+@media (max-width: 768px) {
+  .guide-hero {
+    padding: 40px 16px 48px;
+    margin: -24px -16px 36px;
+  }
+  .guide-hero-eyebrow { margin-bottom: 20px; }
+  .guide-hero-title { font-size: clamp(30px, 8vw, 40px); }
+  .guide-hero-lede { font-size: 15px; margin-bottom: 28px; }
+  .guide-hero-meta { grid-template-columns: repeat(2, minmax(0, 1fr)); gap: 10px; }
+  .guide-hero-cta { padding: 12px 12px 12px 20px; font-size: 14px; }
+  .guide-hero-cta-ghost { padding: 12px 20px; font-size: 13px; }
+  .guide-meta-card .value { font-size: 19px; }
+  .guide-audience-panel { margin: -8px 0 28px; padding: 14px; }
+  .guide-audience-head { display: block; }
+  .guide-audience-copy { text-align: left; margin-top: 8px; }
+  .guide-audience-grid { grid-template-columns: 1fr; }
+  .guide-audience-card { min-height: auto; }
+  .guide-decision-head { display: block; }
+  .guide-decision-copy { text-align: left; margin-top: 8px; }
+  .guide-decision-grid { grid-template-columns: 1fr; }
+  .guide-decision-card { min-height: auto; }
+  .topbar .doc-map-btn { display: none; }
+}
+@media (max-width: 480px) {
+  .guide-hero {
+    padding: 32px 12px 40px;
+    margin: -16px -12px 28px;
+  }
+  .guide-hero-ctas { flex-direction: column; align-items: stretch; }
+  .guide-hero-cta, .guide-hero-cta-ghost { justify-content: center; }
+}
+
+
+@media (prefers-reduced-motion: reduce) {
+  .guide-meta-card, .guide-hero-cta, .guide-hero-cta-ghost,
+  .nav-btn, .guide-hero-cta .arrow-wrap, .content blockquote {
+    transition: none;
+  }
+}
+</style>
+</head>
+<body>
+<svg class="pcv-icon-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="pcv-guide-book" viewBox="0 0 24 24"><path d="M5 4h10a4 4 0 0 1 4 4v12H8a3 3 0 0 0-3 3V4Z"/><path d="M5 20V4a3 3 0 0 1 3-3h11v19"/><path d="M9 7h6M9 11h5"/></symbol>
+    <symbol id="pcv-guide-arrow-right" viewBox="0 0 24 24"><path d="M5 12h14"/><path d="m13 6 6 6-6 6"/></symbol>
+    <symbol id="pcv-guide-arrow-left" viewBox="0 0 24 24"><path d="M19 12H5"/><path d="m11 6-6 6 6 6"/></symbol>
+  </defs>
+</svg>
+
+
+<header class="topbar">
+  <button class="hamburger" id="hamburger-btn" aria-label="Toggle sidebar">&#9776;</button>
+  <h1 class="logo">PureCVisor <span>Single Edge Guide</span></h1>
+  <input class="search" id="search-input" type="text" placeholder="Search... (Ctrl+K)" autocomplete="off" aria-label="Search guide">
+  <span class="version-badge">Single</span>
+  <button class="doc-map-btn" id="decision-map-btn" type="button">설계 결정</button>
+  <a class="back-link" href="/ui/">&larr; Back to Dashboard</a>
+</header>
+
+
+<nav class="sidebar" id="sidebar" aria-label="Table of Contents" tabindex="0"></nav>
+
+
+<div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
+
+
+<main class="content" id="content">
+  <div class="loading">
+    <div class="spinner"></div>
+    Loading guide...
+  </div>
+</main>
+
+
+<button class="back-to-top" id="btt" aria-label="Back to top">&#8593;</button>
+
+<script>
+(function() {
+  'use strict';
+
+
+
+
+  function parseMd(md) {
+    var lines = md.split('\n');
+    var html = [];
+    var inCode = false, codeLang = '', codeLines = [];
+    var inTable = false, tableRows = [];
+    var inList = false, listType = '', listItems = [];
+    var inBlockquote = false, bqLines = [];
+
+    function flushList() {
+      if (!inList) return;
+      var tag = listType === 'ol' ? 'ol' : 'ul';
+      html.push('<' + tag + '>' + listItems.join('') + '</' + tag + '>');
+      listItems = []; inList = false;
+    }
+    function flushTable() {
+      if (!inTable) return;
+      if (tableRows.length < 2) { tableRows = []; inTable = false; return; }
+      var t = '<table><thead><tr>';
+      var hdr = tableRows[0];
+      for (var ci = 0; ci < hdr.length; ci++) { t += '<th>' + inline(hdr[ci].trim()) + '</th>'; }
+      t += '</tr></thead><tbody>';
+      for (var ri = 2; ri < tableRows.length; ri++) {
+        t += '<tr>';
+        for (var ci2 = 0; ci2 < tableRows[ri].length; ci2++) {
+          t += '<td>' + inline((tableRows[ri][ci2] || '').trim()) + '</td>';
+        }
+        t += '</tr>';
+      }
+      t += '</tbody></table>';
+      html.push(t);
+      tableRows = []; inTable = false;
+    }
+    function flushBlockquote() {
+      if (!inBlockquote) return;
+      html.push('<blockquote>' + bqLines.join('<br>') + '</blockquote>');
+      bqLines = []; inBlockquote = false;
+    }
+    function inline(s) {
+      return s
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/`([^`]+)`/g, '<code>$1</code>')
+        .replace(/\*\*([^*]+)\*\*/g, '<strong>$1</strong>')
+        .replace(/\*([^*]+)\*/g, '<em>$1</em>')
+        .replace(/\[([^\]]+)\]\(([^)]+)\)/g, '<a href="$2" target="_blank" rel="noopener">$1</a>')
+        .replace(/~~([^~]+)~~/g, '<del>$1</del>');
+    }
+
+    for (var i = 0; i < lines.length; i++) {
+      var L = lines[i];
+
+      if (/^```/.test(L)) {
+        if (inCode) {
+          var codeText = codeLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
+          html.push('<pre><code class="lang-' + esc(codeLang) + '">' + codeText + '</code></pre>');
+          codeLines = []; inCode = false; codeLang = '';
+        } else {
+          flushList(); flushTable(); flushBlockquote();
+          inCode = true; codeLang = L.replace(/^```\s*/, '').trim() || 'text';
+        }
+        continue;
+      }
+      if (inCode) { codeLines.push(L); continue; }
+
+      if (/^\|/.test(L)) {
+        flushList(); flushBlockquote();
+        var cells = L.split('|').slice(1);
+        if (cells.length > 0 && cells[cells.length - 1].trim() === '') cells.pop();
+        if (!inTable) inTable = true;
+        tableRows.push(cells);
+        continue;
+      } else if (inTable) { flushTable(); }
+
+      var hm = L.match(/^(#{1,4})\s+(.*)/);
+      if (hm) {
+        flushList(); flushBlockquote();
+        var lvl = hm[1].length;
+        var text = hm[2];
+        var id = text.toLowerCase()
+          .replace(/[`*\[\]()]/g, '')
+          .replace(/[^a-z0-9가-힣\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        html.push('<h' + lvl + ' id="' + esc(id) + '">' + inline(text) + '<a class="anchor" href="#' + esc(id) + '">#</a></h' + lvl + '>');
+        continue;
+      }
+
+
+      if (/^>\s?/.test(L)) {
+        flushList();
+        inBlockquote = true;
+        bqLines.push(inline(L.replace(/^>\s?/, '')));
+        continue;
+      } else if (inBlockquote) { flushBlockquote(); }
+
+
+      if (/^---+$/.test(L)) { flushList(); flushBlockquote(); html.push('<hr>'); continue; }
+
+
+      var ulm = L.match(/^(\s*)[-*]\s+(.*)/);
+      if (ulm) {
+        flushBlockquote();
+        if (!inList || listType !== 'ul') { flushList(); inList = true; listType = 'ul'; }
+        listItems.push('<li>' + inline(ulm[2]) + '</li>');
+        continue;
+      }
+
+      var olm = L.match(/^(\s*)\d+\.\s+(.*)/);
+      if (olm) {
+        flushBlockquote();
+        if (!inList || listType !== 'ol') { flushList(); inList = true; listType = 'ol'; }
+        listItems.push('<li>' + inline(olm[2]) + '</li>');
+        continue;
+      }
+
+
+      if (L.trim() === '') { flushList(); flushBlockquote(); continue; }
+
+
+      flushList(); flushBlockquote();
+      html.push('<p>' + inline(L) + '</p>');
+    }
+    flushList(); flushTable(); flushBlockquote();
+    return html.join('\n');
+  }
+
+
+
+
+  var chapters = [];
+  var currentChapter = 0;
+  var guideMd = '';
+  var searchTimeout = null;
+
+
+
+
+  function buildToc(md) {
+    var lines = md.split('\n');
+    chapters = [];
+    var current = null;
+    for (var i = 0; i < lines.length; i++) {
+      var L = lines[i];
+      var m2 = L.match(/^## (.*)/);
+      if (m2) {
+        var title = m2[1].trim();
+        var id = title.toLowerCase()
+          .replace(/[`*\[\]()]/g, '')
+          .replace(/[^a-z0-9가-힣\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        current = { title: title, id: id, subs: [] };
+        chapters.push(current);
+        continue;
+      }
+      var m3 = L.match(/^### (.*)/);
+      if (m3 && current) {
+        var st = m3[1].trim();
+        var sid = st.toLowerCase()
+          .replace(/[`*\[\]()]/g, '')
+          .replace(/[^a-z0-9가-힣\s-]/g, '')
+          .replace(/\s+/g, '-')
+          .replace(/^-+|-+$/g, '');
+        current.subs.push({ title: st, id: sid });
+      }
+    }
+    renderToc();
+  }
+
+  function renderToc() {
+    var sb = document.getElementById('sidebar');
+    var h = '';
+    for (var idx = 0; idx < chapters.length; idx++) {
+      var ch = chapters[idx];
+      var isActive = idx === currentChapter;
+      var cls = 'toc-chapter' + (isActive ? ' active expanded' : '');
+      h += '<div class="' + cls + '" data-idx="' + idx + '">';
+      h += '<span class="arrow">&#9654;</span> <span style="flex:1;overflow:hidden;text-overflow:ellipsis;white-space:nowrap">' + esc(ch.title) + '</span>';
+      if (ch.subs.length > 0) h += '<span class="chapter-count">' + ch.subs.length + '</span>';
+      h += '</div>';
+      h += '<div class="toc-sub">';
+      for (var si = 0; si < ch.subs.length; si++) {
+        h += '<a href="#' + esc(ch.subs[si].id) + '">' + esc(ch.subs[si].title) + '</a>';
+      }
+      h += '</div>';
+    }
+    sb.innerHTML = h;
+
+
+    var tocItems = sb.querySelectorAll('.toc-chapter');
+    for (var ti = 0; ti < tocItems.length; ti++) {
+      (function(el) {
+        el.addEventListener('click', function() {
+          var idx = parseInt(el.getAttribute('data-idx'));
+          goChapter(idx);
+        });
+      })(tocItems[ti]);
+    }
+  }
+
+  function goChapter(idx) {
+    if (idx < 0 || idx >= chapters.length) return;
+    currentChapter = idx;
+    var el = document.getElementById(chapters[idx].id);
+    if (el) {
+      var topOffset = 48 + 16;
+      var elTop = el.getBoundingClientRect().top + window.pageYOffset - topOffset;
+      window.scrollTo({ top: elTop, behavior: 'smooth' });
+    }
+    renderToc();
+    try { localStorage.setItem('pcv_guide_chapter', idx); } catch(e) {}
+
+    document.getElementById('sidebar').classList.remove('open');
+    updateNavFooter();
+  }
+
+
+
+
+  function updateNavFooter() {
+    var footer = document.getElementById('nav-footer');
+    if (!footer) return;
+    var prevBtn = footer.querySelector('.nav-prev');
+    var nextBtn = footer.querySelector('.nav-next');
+    if (currentChapter <= 0) {
+      prevBtn.classList.add('disabled');
+      prevBtn.disabled = true;
+      prevBtn.setAttribute('aria-label', '이전 장 없음');
+      prevBtn.textContent = '';
+    } else {
+      prevBtn.classList.remove('disabled');
+      prevBtn.disabled = false;
+      prevBtn.setAttribute('aria-label', '이전 장: ' + chapters[currentChapter - 1].title);
+      prevBtn.innerHTML = '&#8592; ' + esc(chapters[currentChapter - 1].title);
+    }
+    if (currentChapter >= chapters.length - 1) {
+      nextBtn.classList.add('disabled');
+      nextBtn.disabled = true;
+      nextBtn.setAttribute('aria-label', '다음 장 없음');
+      nextBtn.textContent = '';
+    } else {
+      nextBtn.classList.remove('disabled');
+      nextBtn.disabled = false;
+      nextBtn.setAttribute('aria-label', '다음 장: ' + chapters[currentChapter + 1].title);
+      nextBtn.innerHTML = esc(chapters[currentChapter + 1].title) + ' &#8594;';
+    }
+  }
+
+
+
+
+  var searchInput = document.getElementById('search-input');
+  var searchResults = document.getElementById('search-results');
+
+  searchInput.addEventListener('input', function() {
+    clearTimeout(searchTimeout);
+    searchTimeout = setTimeout(doSearch, 150);
+  });
+
+  function doSearch() {
+    var q = searchInput.value.trim().toLowerCase();
+    if (q.length < 2) { searchResults.style.display = 'none'; return; }
+
+    var results = [];
+    var lines = guideMd.split('\n');
+    var currentCh = '';
+    var currentChIdx = -1;
+    var re;
+    try { re = new RegExp('(' + q.replace(/[.*+?^${}()|[\]\\]/g, '\\$&') + ')', 'gi'); } catch(e) { return; }
+
+    for (var li = 0; li < lines.length; li++) {
+      var L = lines[li];
+      var m = L.match(/^## (.*)/);
+      if (m) { currentCh = m[1]; currentChIdx++; }
+      if (L.toLowerCase().indexOf(q) !== -1 && results.length < 30) {
+        results.push({ chapter: currentCh, chIdx: currentChIdx, text: L.substring(0, 150) });
+      }
+    }
+
+    if (results.length === 0) {
+      searchResults.innerHTML = '<div class="sr-item" style="color:var(--fg-dim)">No results found</div>';
+    } else {
+      var h = '';
+
+      var shown = 0;
+      for (var ri = 0; ri < results.length && shown < 20; ri++) {
+        var r = results[ri];
+        var highlighted = r.text.replace(re, '<mark>$1</mark>');
+        h += '<div class="sr-item" data-ch="' + r.chIdx + '">';
+        h += '<div class="sr-chapter">' + esc(r.chapter || 'Introduction') + '</div>';
+        h += '<div class="sr-text">' + highlighted + '</div>';
+        h += '</div>';
+        shown++;
+      }
+      searchResults.innerHTML = h;
+
+
+      var items = searchResults.querySelectorAll('.sr-item[data-ch]');
+      for (var ii = 0; ii < items.length; ii++) {
+        (function(item) {
+          item.addEventListener('click', function() {
+            var chIdx = parseInt(item.getAttribute('data-ch'));
+            if (chIdx >= 0) goChapter(chIdx);
+            searchResults.style.display = 'none';
+            searchInput.value = '';
+          });
+        })(items[ii]);
+      }
+    }
+    searchResults.style.display = 'block';
+  }
+
+  searchInput.addEventListener('blur', function() {
+    setTimeout(function() { searchResults.style.display = 'none'; }, 200);
+  });
+
+  searchInput.addEventListener('keydown', function(e) {
+    if (e.key === 'Escape') {
+      searchResults.style.display = 'none';
+      searchInput.blur();
+    }
+  });
+
+
+
+
+  document.addEventListener('keydown', function(e) {
+    if (e.ctrlKey && e.key === 'k') {
+      e.preventDefault();
+      searchInput.focus();
+      searchInput.select();
+      return;
+    }
+    if (e.target === searchInput) return;
+    if (e.key === 'ArrowLeft') goChapter(currentChapter - 1);
+    if (e.key === 'ArrowRight') goChapter(currentChapter + 1);
+  });
+
+
+
+
+  var btt = document.getElementById('btt');
+  btt.addEventListener('click', function() {
+    window.scrollTo({ top: 0, behavior: 'smooth' });
+  });
+
+  var scrollDebounce = null;
+  window.addEventListener('scroll', function() {
+    btt.classList.toggle('show', window.scrollY > 300);
+
+    clearTimeout(scrollDebounce);
+    scrollDebounce = setTimeout(function() {
+
+      for (var i = chapters.length - 1; i >= 0; i--) {
+        var el = document.getElementById(chapters[i].id);
+        if (el && el.getBoundingClientRect().top <= 100) {
+          if (currentChapter !== i) {
+            currentChapter = i;
+            renderToc();
+            updateNavFooter();
+            try { localStorage.setItem('pcv_guide_chapter', i); } catch(e) {}
+          }
+          break;
+        }
+      }
+    }, 50);
+  });
+
+
+
+
+  document.getElementById('hamburger-btn').addEventListener('click', function() {
+    document.getElementById('sidebar').classList.toggle('open');
+  });
+
+
+  document.getElementById('content').addEventListener('click', function() {
+    document.getElementById('sidebar').classList.remove('open');
+  });
+
+
+
+
+  function addCopyButtons() {
+    var pres = document.querySelectorAll('.content pre');
+    for (var pi = 0; pi < pres.length; pi++) {
+      (function(pre) {
+        var btn = document.createElement('button');
+        btn.className = 'copy-btn';
+        btn.textContent = 'Copy';
+        btn.addEventListener('click', function() {
+          var codeEl = pre.querySelector('code');
+          var text = codeEl ? codeEl.textContent : pre.textContent;
+          if (navigator.clipboard) {
+            navigator.clipboard.writeText(text).then(function() {
+              btn.textContent = 'Copied!';
+              setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+            });
+          } else {
+
+            var ta = document.createElement('textarea');
+            ta.value = text;
+            ta.style.position = 'fixed';
+            ta.style.left = '-9999px';
+            document.body.appendChild(ta);
+            ta.select();
+            document.execCommand('copy');
+            document.body.removeChild(ta);
+            btn.textContent = 'Copied!';
+            setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
+          }
+        });
+        pre.appendChild(btn);
+      })(pres[pi]);
+    }
+  }
+
+
+
+
+  function initDecisionPanel(contentEl) {
+    var decisionBtn = document.getElementById('decision-map-btn');
+    if (decisionBtn) {
+      decisionBtn.addEventListener('click', function() {
+        var target = document.getElementById('guide-decision-map');
+        if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+      });
+    }
+
+    contentEl.addEventListener('click', function(ev) {
+      var trigger = ev.target.closest ? ev.target.closest('[data-adr]') : null;
+      if (!trigger) return;
+      var adrId = trigger.getAttribute('data-adr');
+      if (!adrId) return;
+      ev.preventDefault();
+      openAdrDialog(adrId);
+    });
+
+    var backdrop = document.getElementById('adr-dialog-backdrop');
+    var closeBtn = document.getElementById('adr-dialog-close');
+    if (closeBtn) closeBtn.addEventListener('click', closeAdrDialog);
+    if (backdrop) {
+      backdrop.addEventListener('click', function(ev) {
+        if (ev.target === backdrop) closeAdrDialog();
+      });
+    }
+    document.addEventListener('keydown', function(ev) {
+      if (ev.key === 'Escape') closeAdrDialog();
+    });
+  }
+
+  function enhanceAdrReferences(root) {
+    var anchors = root.querySelectorAll('a[href*="adr/"], a[href*="ADR-"]');
+    for (var ai = 0; ai < anchors.length; ai++) {
+      var a = anchors[ai];
+      var m = (a.textContent + ' ' + a.getAttribute('href')).match(/ADR-?(\d{4})|\/(\d{4})-/i);
+      if (!m) continue;
+      var num = m[1] || m[2];
+      var id = 'ADR-' + num;
+      if (!ADR_DATA[id]) continue;
+      a.classList.add('adr-link');
+      a.setAttribute('data-adr', id);
+      a.setAttribute('href', '#' + id.toLowerCase());
+      a.removeAttribute('target');
+      a.removeAttribute('rel');
+    }
+
+    var walker = document.createTreeWalker(root, NodeFilter.SHOW_TEXT, {
+      acceptNode: function(node) {
+        if (!node.nodeValue || !/ADR-\d{4}/.test(node.nodeValue)) return NodeFilter.FILTER_REJECT;
+        var parent = node.parentElement;
+        if (!parent) return NodeFilter.FILTER_REJECT;
+        if (parent.closest('pre, code, a, button, script, style, .guide-decision-panel, .adr-dialog-backdrop')) {
+          return NodeFilter.FILTER_REJECT;
+        }
+        return NodeFilter.FILTER_ACCEPT;
+      }
+    });
+
+    var nodes = [];
+    while (walker.nextNode()) nodes.push(walker.currentNode);
+
+    for (var ni = 0; ni < nodes.length; ni++) {
+      var textNode = nodes[ni];
+      var text = textNode.nodeValue;
+      var frag = document.createDocumentFragment();
+      var last = 0;
+      text.replace(/ADR-\d{4}/g, function(match, offset) {
+        if (!ADR_DATA[match]) return match;
+        if (offset > last) frag.appendChild(document.createTextNode(text.slice(last, offset)));
+        var btn = document.createElement('button');
+        btn.type = 'button';
+        btn.className = 'adr-ref';
+        btn.setAttribute('data-adr', match);
+        btn.textContent = match;
+        frag.appendChild(btn);
+        last = offset + match.length;
+        return match;
+      });
+      if (last === 0) continue;
+      if (last < text.length) frag.appendChild(document.createTextNode(text.slice(last)));
+      textNode.parentNode.replaceChild(frag, textNode);
+    }
+  }
+
+  function openAdrDialog(id) {
+    var adr = ADR_DATA[id];
+    if (!adr) return;
+    var title = document.getElementById('adr-dialog-title');
+    var status = document.getElementById('adr-dialog-status');
+    var body = document.getElementById('adr-dialog-body');
+    var backdrop = document.getElementById('adr-dialog-backdrop');
+    if (!title || !status || !body || !backdrop) return;
+
+    title.textContent = id + ': ' + adr.title;
+    status.textContent = adr.status + ' · Single Edge 적용 기준';
+
+    var points = '';
+    if (adr.points && adr.points.length) {
+      points = '<h3>운영/개발 판단 기준</h3><ul>';
+      for (var i = 0; i < adr.points.length; i++) points += '<li>' + esc(adr.points[i]) + '</li>';
+      points += '</ul>';
+    }
+    var related = '';
+    if (adr.related && adr.related.length) {
+      related = '<h3>가이드에서 같이 볼 곳</h3><ul>';
+      for (var ri = 0; ri < adr.related.length; ri++) related += '<li>' + esc(adr.related[ri]) + '</li>';
+      related += '</ul>';
+    }
+
+    body.innerHTML =
+      '<p class="ko">' + esc(adr.summary) + '</p>' +
+      points +
+      related +
+      '<div class="adr-path">' +
+      '  <code>' + esc(adr.path) + '</code>' +
+      '  <button class="adr-copy" type="button" data-copy-path="' + esc(adr.path) + '">경로 복사</button>' +
+      '</div>';
+
+    var copyBtn = body.querySelector('[data-copy-path]');
+    if (copyBtn) {
+      copyBtn.addEventListener('click', function() {
+        var path = copyBtn.getAttribute('data-copy-path');
+        if (navigator.clipboard) {
+          navigator.clipboard.writeText(path).then(function() {
+            copyBtn.textContent = '복사됨';
+            setTimeout(function() { copyBtn.textContent = '경로 복사'; }, 1400);
+          });
+        }
+      });
+    }
+
+    backdrop.classList.add('open');
+    document.body.style.overflow = 'hidden';
+  }
+
+  function closeAdrDialog() {
+    var backdrop = document.getElementById('adr-dialog-backdrop');
+    if (!backdrop || !backdrop.classList.contains('open')) return;
+    backdrop.classList.remove('open');
+    document.body.style.overflow = '';
+  }
+
+
+
+
+  function esc(s) {
+    if (!s) return '';
+    var d = document.createElement('div');
+    d.textContent = s;
+    return d.innerHTML;
+  }
+
+  function headingLevel(line) {
+    var m = line.match(/^(#{2,6})\s+/);
+    return m ? m[1].length : 0;
+  }
+
+  function stripHeadingSection(md, headingPattern) {
+    var lines = md.split('\n');
+    var out = [];
+    var skipLevel = 0;
+
+    for (var i = 0; i < lines.length; i++) {
+      var line = lines[i];
+      var level = headingLevel(line);
+
+      if (skipLevel) {
+        if (level && level <= skipLevel) {
+          skipLevel = 0;
+        } else {
+          continue;
+        }
+      }
+
+      if (headingPattern.test(line)) {
+        skipLevel = level || 0;
+        continue;
+      }
+
+      out.push(line);
+    }
+
+    return out.join('\n');
+  }
+
+  function transformGuideMdForEdition(md) {
+    return md;
+  }
+
+
+
+
+
+  var pcvEdition = 'single';
+  function loadEdition() {
+    pcvEdition = 'single';
+    return Promise.resolve();
+  }
+
+  function editionLabelOnly() {
+    if (pcvEdition === 'single') return 'Single Edge Edition';
+    return 'Standalone';
+  }
+
+  var ADR_DATA = {
+    'ADR-0001': {
+      title: '단일 프로세스 + GMainLoop, fork 금지',
+      status: 'accepted',
+      path: 'docs/adr/0001-no-fork-single-daemon.md',
+      summary: 'Single Edge 데몬은 단일 프로세스와 GMainLoop 이벤트 루프를 기준으로 유지한다. 장시간 작업은 GTask 등 비동기 worker로 넘기며 handler 경로에서 fork 중심 설계를 만들지 않는다.',
+      points: ['데몬 안정성과 관측 가능성을 단일 runtime 안에서 유지한다.', '외부 명령 실행은 공통 spawn helper의 argv 배열 경로를 사용한다.'],
+      related: ['1장 아키텍처 개요', '19장 개발 불변 규칙']
+    },
+    'ADR-0012': {
+      title: 'fire-and-forget 결과 채널',
+      status: 'accepted',
+      path: 'docs/adr/0012-async-result-channel.md',
+      summary: '장시간 RPC는 즉시 accepted 응답을 보내고, 실제 완료 여부는 Job ID, WebSocket completion, polling 또는 audit로 확인한다.',
+      points: ['accepted는 작업 완료가 아니라 접수 완료다.', 'UI와 CLI는 worker 완료 채널을 별도로 확인해야 한다.'],
+      related: ['3장 VM clone', '22장 품질 게이트']
+    },
+    'ADR-0013': {
+      title: '프론트엔드 IIFE 모듈 스코프',
+      status: 'accepted',
+      path: 'docs/adr/0013-frontend-iife-module-scope.md',
+      summary: 'Vanilla JS를 유지하면서 전역 오염을 줄이기 위해 UI 모듈은 PCV.* 네임스페이스 아래 IIFE 형태로 둔다.',
+      points: ['새 UI 모듈은 PCV.* 아래에 배치한다.', 'API 경로는 ui/modules/endpoints.js의 EP 레지스트리를 우선한다.'],
+      related: ['13장 Web UI', '19장 개발자 & 엔지니어 가이드']
+    },
+    'ADR-0014': {
+      title: 'CSRF 제거, JWT Bearer 전용 인증',
+      status: 'accepted',
+      path: 'docs/adr/0014-remove-csrf-jwt-bearer.md',
+      summary: 'REST API는 쿠키 세션이 아니라 Authorization: Bearer JWT를 사용한다. 브라우저가 Authorization 헤더를 자동 첨부하지 않기 때문에 별도 CSRF 토큰 모델을 운영하지 않는다.',
+      points: ['세션 쿠키 기반 보안 설명을 하지 않는다.', 'REST 호출 예시는 Bearer 토큰과 RBAC 기준으로 유지한다.'],
+      related: ['10장 보안', '14장 REST API']
+    },
+    'ADR-0016': {
+      title: 'Supanova 테마 축소와 accent 변수화',
+      status: 'accepted',
+      path: 'docs/adr/0016-supanova-theme-reduction.md',
+      summary: 'Web UI 테마는 과도한 변형을 줄이고 accent 변수를 중심으로 관리한다. 허용 목록을 바꾸면 Supanova 정적 테스트도 함께 갱신한다.',
+      points: ['테마 추가는 제품 품질 게이트와 함께 판단한다.', '색상/테마 변경은 UI 정적 테스트 대상이다.'],
+      related: ['13장 Web UI', '22장 품질 게이트']
+    },
+    'ADR-0017': {
+      title: 'VM 삭제 원자성 복구와 XML rollback',
+      status: 'accepted',
+      path: 'docs/adr/0017-vm-delete-atomicity-rollback.md',
+      summary: 'vm.delete는 libvirt domain과 실제 VM disk의 관계를 보존하며, 삭제 실패 시 가능한 rollback과 cleanup 기준을 유지한다.',
+      points: ['CD-ROM ISO source를 VM disk로 오인해 삭제하지 않는다.', 'destructive RPC는 실패 경로 증거와 cleanup을 함께 본다.'],
+      related: ['3장 VM 관리', '17장 트러블슈팅']
+    },
+    'ADR-0018': {
+      title: 'fire-and-forget audit 기록 정책',
+      status: 'accepted',
+      path: 'docs/adr/0018-fire-and-forget-audit-policy.md',
+      summary: 'fire-and-forget RPC는 dispatcher 접수 로그만으로 성공을 판단하지 않는다. worker callback에서 실제 성공/실패 결과를 audit와 WebSocket completion으로 남긴다.',
+      points: ['장시간 RPC 추가 시 worker callback audit가 필수다.', 'scripts/check_audit_placement.py가 회귀를 차단한다.'],
+      related: ['19장 개발 불변 규칙', '22장 품질 게이트']
+    },
+    'ADR-0019': {
+      title: 'RBAC UDS 우회 방어 정책',
+      status: 'accepted',
+      path: 'docs/adr/0019-rbac-uds-bypass-policy.md',
+      summary: 'REST 인증 주체와 UDS 호출 경로 모두 method policy와 VM owner-scope를 통과해야 한다. operator의 VM 단일 대상 action은 owner metadata 일치가 필요하다.',
+      points: ['권한 변경 후 make check-rbac를 실행한다.', 'REST 계층만 믿지 않고 dispatcher 정책도 유지한다.'],
+      related: ['10장 보안', '15장 CLI 레퍼런스']
+    },
+    'ADR-0021': {
+      title: 'ZFS pool 분산 락 기록',
+      status: 'historical',
+      path: 'docs/adr/0021-zfs-pool-distributed-lock.md',
+      summary: '분산 ZFS lock 논의 기록이다. 현재 Single Edge 공개판은 단일 노드 intra-node 보호와 공개판 경계를 우선한다.',
+      points: ['멀티 노드 자동화 약속으로 설명하지 않는다.', '스토리지 lock/metric 변경은 관련 정적 검사를 함께 본다.'],
+      related: ['5장 스토리지', '7장 멀티 제어면 참고 기록']
+    },
+    'ADR-0022': {
+      title: 'VM 생성 저장 위치 계약',
+      status: 'accepted',
+      path: 'docs/adr/0022-vm-create-storage-location-contract.md',
+      summary: 'vm.create는 storage_type과 storage_pool 또는 image_dir 조합으로 저장 위치를 명시한다. 기본값 추정과 실제 배치 위치가 어긋나지 않도록 계약을 유지한다.',
+      points: ['zvol은 storage_pool, qcow2/raw는 image_dir 계약을 따른다.', '문서 예시는 실제 CLI/REST 파라미터와 일치해야 한다.'],
+      related: ['3장 VM 생성', '16장 설정 레퍼런스']
+    },
+    'ADR-0023': {
+      title: 'VM clone 오픈 베타 안전장치',
+      status: 'accepted',
+      path: 'docs/adr/0023-vm-clone-beta-safety-guard.md',
+      summary: 'vm.clone은 source VM이 shut off 상태이고 단일 data disk 조건을 만족할 때만 허용한다. prepared template 또는 libguestfs 기반 guest reset 중 하나를 선택해야 하며, disk source는 libvirt XML의 실제 경로를 기준으로 계산한다.',
+      points: ['power on VM clone은 거부한다.', 'qcow2/raw는 full clone만 허용한다.', 'guest reset에는 libguestfs-tools가 필요하다.', 'accepted 이후 audit와 job completion으로 최종 결과를 확인한다.'],
+      related: ['3장 VM 복제', '17장 clone 트러블슈팅']
+    }
+  };
+
+  var DECISION_CARDS = ['ADR-0023', 'ADR-0022', 'ADR-0019', 'ADR-0018', 'ADR-0014', 'ADR-0013'];
+
+
+  function guideHero(chapterCount) {
+    var count = chapterCount || 21;
+    var editionLabel = editionLabelOnly();
+    return '' +
+      '<section class="guide-hero" aria-labelledby="guide-hero-title">' +
+      '  <div class="guide-hero-inner">' +
+      '    <span class="guide-hero-eyebrow">' +
+      '      <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-guide-book"></use></svg>' +
+      '      Single Edge Guide · Open Edition' +
+      '    </span>' +
+      '    <h1 class="guide-hero-title ko-tight" id="guide-hero-title">' +
+      '      <span class="accent">PureCVisor Single Edge</span> 운영 가이드' +
+      '    </h1>' +
+      '    <p class="guide-hero-lede ko">' +
+      '      VM, 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 백업, 보안, Web UI까지.<br>' +
+      '      Single Edge 단독 운영과 출시 범위만 실전 기준으로 정리한 가이드.' +
+      '    </p>' +
+      '    <div class="guide-hero-meta">' +
+      '      <div class="guide-meta-card"><div class="guide-meta-card-core">' +
+      '        <div class="label">챕터</div>' +
+      '        <div class="value" data-chapter-count>' + count + '</div>' +
+      '      </div></div>' +
+      '      <div class="guide-meta-card"><div class="guide-meta-card-core">' +
+      '        <div class="label">분량</div>' +
+      '        <div class="value">~60<span class="unit">분</span></div>' +
+      '      </div></div>' +
+      '      <div class="guide-meta-card"><div class="guide-meta-card-core">' +
+      '        <div class="label">갱신</div>' +
+      '        <div class="value">04-30<span class="unit">(2026)</span></div>' +
+      '      </div></div>' +
+      '      <div class="guide-meta-card"><div class="guide-meta-card-core">' +
+      '        <div class="label">에디션</div>' +
+      '        <div class="value" style="font-size:17px">' + editionLabel + '</div>' +
+      '      </div></div>' +
+      '    </div>' +
+      '    <div class="guide-hero-ctas">' +
+      '      <a href="#" class="guide-hero-cta" data-hero-start>' +
+      '        첫 챕터 시작하기' +
+      '        <span class="arrow-wrap"><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-guide-arrow-right"></use></svg></span>' +
+      '      </a>' +
+      '      <a href="/ui/" class="guide-hero-cta-ghost">' +
+      '        <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-guide-arrow-left"></use></svg>' +
+      '        대시보드로' +
+      '      </a>' +
+      '    </div>' +
+      '  </div>' +
+      '</section>';
+  }
+
+  function guideAudiencePanel() {
+    return '' +
+      '<section class="guide-audience-panel" aria-labelledby="guide-audience-title">' +
+      '  <div class="guide-audience-head">' +
+      '    <div>' +
+      '      <div class="guide-audience-kicker">Audience tracks</div>' +
+      '      <div class="guide-audience-title" id="guide-audience-title">역할별 빠른 진입</div>' +
+      '    </div>' +
+      '    <p class="guide-audience-copy ko">운영 절차만 훑는 문서가 아니라, 구현자와 사업 담당자가 각자 바로 쓸 수 있는 판단 기준까지 연결합니다.</p>' +
+      '  </div>' +
+      '  <div class="guide-audience-grid">' +
+      '    <a class="guide-audience-card" href="#19-개발자-엔지니어-가이드">' +
+      '      <span class="label">Build</span>' +
+      '      <div class="title">개발자 &amp; 엔지니어</div>' +
+      '      <div class="body ko">소스 구조, RPC 변경, 검증 게이트, 운영 디버깅을 한 흐름으로 봅니다.</div>' +
+      '      <div class="jump">19장으로 이동</div>' +
+      '    </a>' +
+      '    <a class="guide-audience-card" href="#20-영업-마케팅-가이드">' +
+      '      <span class="label">Go-to-market</span>' +
+      '      <div class="title">영업 &amp; 마케팅</div>' +
+      '      <div class="body ko">포지셔닝, 데모 흐름, 가치 메시지, 반론 대응을 제품 사실 기준으로 정리합니다.</div>' +
+      '      <div class="jump">20장으로 이동</div>' +
+      '    </a>' +
+      '    <a class="guide-audience-card" href="#22-품질-게이트-가이드">' +
+      '      <span class="label">Release</span>' +
+      '      <div class="title">출시 검증</div>' +
+      '      <div class="body ko">Single Edge 공개 범위에서 통과해야 하는 빌드, 테스트, 문서 게이트를 확인합니다.</div>' +
+      '      <div class="jump">22장으로 이동</div>' +
+      '    </a>' +
+      '  </div>' +
+      '</section>';
+  }
+
+  function guideDecisionPanel() {
+    var h = '' +
+      '<section class="guide-decision-panel" id="guide-decision-map" aria-labelledby="guide-decision-title">' +
+      '  <div class="guide-decision-head">' +
+      '    <div>' +
+      '      <div class="guide-decision-kicker">Architecture decisions</div>' +
+      '      <div class="guide-decision-title" id="guide-decision-title">설계 결정 바로 보기</div>' +
+      '    </div>' +
+      '    <p class="guide-decision-copy ko">가이드 본문에서 <strong>ADR-0023</strong>처럼 언급되는 결정은 클릭하면 요약과 원문 경로를 바로 확인할 수 있습니다. 운영자는 결론을, 개발자는 근거 문서를 빠르게 추적합니다.</p>' +
+      '  </div>' +
+      '  <div class="guide-decision-grid">';
+    for (var i = 0; i < DECISION_CARDS.length; i++) {
+      var id = DECISION_CARDS[i];
+      var adr = ADR_DATA[id];
+      if (!adr) continue;
+      h += '' +
+        '<button class="guide-decision-card" type="button" data-adr="' + esc(id) + '">' +
+        '  <span class="adr-id">' + esc(id) + '</span>' +
+        '  <div class="title">' + esc(adr.title) + '</div>' +
+        '  <div class="body ko">' + esc(adr.summary) + '</div>' +
+        '  <div class="status">' + esc(adr.status) + ' · 요약 열기</div>' +
+        '</button>';
+    }
+    h += '  </div></section>';
+    return h;
+  }
+
+  function adrDialogShell() {
+    return '' +
+      '<div class="adr-dialog-backdrop" id="adr-dialog-backdrop" role="dialog" aria-modal="true" aria-labelledby="adr-dialog-title">' +
+      '  <section class="adr-dialog">' +
+      '    <div class="adr-dialog-head">' +
+      '      <div>' +
+      '        <div class="adr-dialog-title" id="adr-dialog-title">ADR</div>' +
+      '        <div class="adr-dialog-status" id="adr-dialog-status"></div>' +
+      '      </div>' +
+      '      <button class="adr-dialog-close" id="adr-dialog-close" type="button" aria-label="닫기">&times;</button>' +
+      '    </div>' +
+      '    <div class="adr-dialog-body" id="adr-dialog-body"></div>' +
+      '  </section>' +
+      '</div>';
+  }
+
+  loadEdition().then(function(){
+  fetch('/ui/guide-content.md')
+    .then(function(r) {
+      if (!r.ok) throw new Error('HTTP ' + r.status);
+      return r.text();
+    })
+    .then(function(md) {
+      md = transformGuideMdForEdition(md);
+      guideMd = md;
+      var guideHtml = parseMd(md);
+      if (pcvEdition === 'single') {
+        document.body.classList.add('pcv-single-edge');
+        document.title = 'PureCVisor Single Edge Guide';
+      }
+
+
+      var contentEl = document.getElementById('content');
+
+      var chapterCount = (md.match(/^## \d+\./gm) || []).length;
+      contentEl.innerHTML =
+        guideHero(chapterCount) +
+        '<div class="breadcrumb"><a href="/ui/">Dashboard</a> &rsaquo; <span>Single Edge Guide</span></div>' +
+        guideAudiencePanel() +
+        guideDecisionPanel() +
+        guideHtml +
+        '<div class="nav-footer" id="nav-footer">' +
+        '<button class="nav-btn nav-prev disabled" type="button" aria-label="이전 장 없음" disabled></button>' +
+        '<button class="nav-btn nav-next" type="button" aria-label="다음 장"></button>' +
+        '</div>' +
+        adrDialogShell();
+
+      enhanceAdrReferences(contentEl);
+      initDecisionPanel(contentEl);
+
+
+      var heroStart = contentEl.querySelector('[data-hero-start]');
+      if (heroStart) {
+        heroStart.addEventListener('click', function(ev) {
+          ev.preventDefault();
+
+          var firstNumbered = 0;
+          for (var ci = 0; ci < chapters.length; ci++) {
+            if (/^\d+\./.test(chapters[ci].title)) { firstNumbered = ci; break; }
+          }
+          goChapter(firstNumbered);
+        });
+      }
+
+
+      buildToc(md);
+
+
+      addCopyButtons();
+
+
+      var footer = document.getElementById('nav-footer');
+      footer.querySelector('.nav-prev').addEventListener('click', function() {
+        goChapter(currentChapter - 1);
+      });
+      footer.querySelector('.nav-next').addEventListener('click', function() {
+        goChapter(currentChapter + 1);
+      });
+
+
+      var saved = 0;
+      try { saved = parseInt(localStorage.getItem('pcv_guide_chapter') || '0'); } catch(e) {}
+      if (saved > 0 && saved < chapters.length) {
+        setTimeout(function() { goChapter(saved); }, 200);
+      }
+      updateNavFooter();
+
+
+      if (window.location.hash) {
+        setTimeout(function() {
+          var target = document.getElementById(window.location.hash.substring(1));
+          if (target) target.scrollIntoView({ behavior: 'smooth', block: 'start' });
+        }, 300);
+      }
+    })
+    .catch(function(e) {
+      document.getElementById('content').innerHTML =
+        '<div style="text-align:center;padding:80px;color:var(--red)">' +
+        '<h2>Guide not available</h2>' +
+        '<p style="margin-top:8px">' + esc(e.message) + '</p>' +
+        '<p style="margin-top:12px;color:var(--fg-dim)">Ensure GUIDE.md is deployed to /ui/guide-content.md</p>' +
+        '<a href="/ui/" style="display:inline-block;margin-top:24px;color:var(--accent)">&larr; Back to Dashboard</a>' +
+        '</div>';
+    });
+  });
+
+})();
+</script>
+</body>
+</html>

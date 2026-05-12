@@ -1,0 +1,136 @@
+<!DOCTYPE html>
+<html lang="ko">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>PureCVisor — Single Edge Login Preview</title>
+  <meta name="description" content="Supanova Taste · Single Edge 로그인 정적 프리뷰">
+
+  <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
+  <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css">
+  <link rel="preconnect" href="https://fonts.googleapis.com">
+  <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+  <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
+  <script src="https://code.iconify.design/iconify-icon/2.3.0/iconify-icon.min.js"></script>
+
+
+  <link rel="stylesheet" href="../style.css">
+  <style>
+    body { margin: 0; background: var(--bg); color: var(--fg); }
+    .preview-tag {
+      position: fixed; top: 18px; right: 18px; z-index: 999;
+      padding: 6px 12px; border-radius: 999px;
+      background: rgba(0,0,0,0.65); color: #fff;
+      font-family: 'Outfit', sans-serif;
+      font-size: 10px; font-weight: 700;
+      letter-spacing: 0.14em; text-transform: uppercase;
+      border: 1px solid rgba(255,255,255,0.2);
+      pointer-events: none;
+    }
+  </style>
+</head>
+<body>
+  <span class="preview-tag">Static Preview · Single Edge</span>
+
+
+  <div id="login-page" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-card-title" style="display:flex">
+    <div class="login-mesh" aria-hidden="true">
+      <div class="login-orb login-orb-1"></div>
+      <div class="login-orb login-orb-2"></div>
+      <div class="login-orb login-orb-3"></div>
+    </div>
+
+    <header class="login-topbar" role="banner">
+      <a href="#" class="login-brand" onclick="event.preventDefault()">
+        <span class="login-brand-mark" aria-hidden="true">
+          <iconify-icon icon="solar:server-square-bold-duotone"></iconify-icon>
+        </span>
+        <span class="login-brand-name">PureCVisor</span>
+      </a>
+      <div class="login-topbar-meta">
+        <span class="login-tls" role="status">
+          <span style="color: var(--green)">&#128274;</span> TLS Secured Connection
+        </span>
+      </div>
+    </header>
+
+    <main class="login-main">
+      <div class="login-split">
+        <section class="login-pitch">
+          <span class="login-eyebrow">
+            <iconify-icon icon="solar:pulse-bold" aria-hidden="true"></iconify-icon>
+            Single Edge · Standalone
+          </span>
+          <h1 class="login-hero ko-tight">
+            인프라 오케스트레이션,<br>
+            <span class="login-hero-accent">한 프레임에.</span>
+          </h1>
+          <p class="login-lede ko">
+            KVM · LXC · ZFS · AI 자가치유까지.<br>
+            단일 노드, 단일 데몬, 단일 콘솔로. 군더더기 없이.
+          </p>
+          <ul class="login-chips ko" aria-label="핵심 역량">
+            <li><iconify-icon icon="solar:shield-check-bold-duotone" aria-hidden="true"></iconify-icon> JWT · RBAC</li>
+            <li><iconify-icon icon="solar:database-bold-duotone" aria-hidden="true"></iconify-icon> ZFS · Snapshot</li>
+            <li><iconify-icon icon="solar:chart-square-bold-duotone" aria-hidden="true"></iconify-icon> 174 Metrics</li>
+            <li><iconify-icon icon="solar:cpu-bolt-bold-duotone" aria-hidden="true"></iconify-icon> io_uring · UDS</li>
+          </ul>
+        </section>
+
+        <section class="login-aside">
+          <div class="login-bezel">
+            <div class="login-bezel-core">
+              <div class="login-card-head">
+                <div class="login-card-eyebrow">SECURE SIGN-IN</div>
+                <h2 class="login-card-title ko-tight" id="login-card-title">보안 로그인</h2>
+                <p class="login-card-sub ko">관리자 또는 운영자 계정으로 접속하세요.</p>
+              </div>
+
+              <form class="login-form" onsubmit="event.preventDefault();return false;" autocomplete="off">
+                <div class="login-field">
+                  <label class="login-label" for="preview-user">USERNAME</label>
+                  <div class="login-input-wrap">
+                    <iconify-icon class="login-input-icon" icon="solar:user-linear" aria-hidden="true"></iconify-icon>
+                    <input id="preview-user" class="login-input" placeholder="admin" autocomplete="username" aria-label="Username">
+                  </div>
+                </div>
+
+                <div class="login-field">
+                  <label class="login-label" for="preview-pass">PASSWORD</label>
+                  <div class="login-input-wrap">
+                    <iconify-icon class="login-input-icon" icon="solar:lock-password-linear" aria-hidden="true"></iconify-icon>
+                    <input id="preview-pass" type="password" class="login-input" placeholder="••••••••" autocomplete="current-password" aria-label="Password">
+                    <button type="button" class="login-pass-toggle" aria-label="Toggle password visibility" onclick="(function(b){var i=document.getElementById('preview-pass');var hidden=i.type==='password';i.type=hidden?'text':'password';b.querySelector('iconify-icon').setAttribute('icon',hidden?'solar:eye-closed-linear':'solar:eye-linear');})(this)">
+                      <iconify-icon icon="solar:eye-linear" aria-hidden="true"></iconify-icon>
+                    </button>
+                  </div>
+                </div>
+
+                <div class="login-err" role="alert" aria-live="assertive"></div>
+
+                <button type="submit" class="login-submit" aria-label="Login">
+                  <span class="login-submit-label">로그인</span>
+                  <span class="login-submit-arrow" aria-hidden="true">
+                    <iconify-icon icon="solar:arrow-right-linear"></iconify-icon>
+                  </span>
+                </button>
+
+                <div class="login-alt">
+                  <a href="#" class="login-link" onclick="event.preventDefault()">회원가입</a>
+                  <span class="login-alt-sep" aria-hidden="true">·</span>
+                  <a href="#" class="login-link" onclick="event.preventDefault()">완벽 가이드</a>
+                </div>
+              </form>
+            </div>
+          </div>
+        </section>
+      </div>
+    </main>
+
+    <footer class="login-footer ko" role="contentinfo">
+      <div>&copy; 2026 PureCVisor — Hypervisor Orchestrator</div>
+      <div class="login-footer-meta">BUILD · SINGLE EDGE · 2026-04-11</div>
+    </footer>
+  </div>
+</body>
+</html>
