@@ -177,7 +177,9 @@ if (!window.H) {
     sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
   };
 } else {
-  var H = window.H;
+  // var 아님(no-redeclare) — 위 if 분기의 `var H`가 이미 이 스코프에
+  // hoisting 되어 있으므로 재선언 없이 같은 변수에 대입 (동작 동일).
+  H = window.H;
 }
 
 /* ═══ UTILITIES ═══ */
@@ -394,9 +396,9 @@ function showConnect() { let ch = '<h2>Connect to Server</h2><div class="sg">'; 
 
 function showPrefs() {
   let h = '<h2>Preferences</h2>';
-  h += '<div class="fr"><label>Default Pool</label><input value="pcvpool/vms" disabled></div>';
-  h += '<div class="fr"><label>API Port</label><input value="8080" disabled></div>';
-  h += '<div class="fr"><label>Theme</label><select onchange="changeTheme(this.value);document.getElementById(\'theme-select\').value=this.value"><option value="supanova">SUPANOVA (Teal)</option><option value="supanova-cyan">SUPANOVA CYAN</option><option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option></select></div>';
+  h += '<div class="fr"><label for="app-default-pool">Default Pool</label><input id="app-default-pool" value="pcvpool/vms" disabled></div>';
+  h += '<div class="fr"><label for="app-api-port">API Port</label><input id="app-api-port" value="8080" disabled></div>';
+  h += '<div class="fr"><label for="app-theme">Theme</label><select id="app-theme" onchange="changeTheme(this.value);document.getElementById(\'theme-select\').value=this.value"><option value="supanova">SUPANOVA (Teal)</option><option value="supanova-cyan">SUPANOVA CYAN</option><option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option></select></div>';
   h += '<div style="margin:12px 0"><label style="font-size:12px;color:var(--fg2)">Theme Preview</label>';
   h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px">';
   const curTheme = document.documentElement.getAttribute('data-theme') || '';
@@ -422,7 +424,16 @@ function showAbout() {
   fetchGet(API_BASE + '/health').then(r => {
     var d = unwrapData(r);
     var el = document.getElementById('about-ver');
-    if (el) el.innerHTML = esc(d.version || '1.0') + ' <span class="stat-label">(' + esc(d.status || 'ok') + ')</span>';
+    /* ADR-013 DOM-safe 전환(#5): 서버 응답(d.version/d.status)을 innerHTML
+     * 문자열 결합 대신 PCV.uxlib.el/frag로 조립 — createTextNode만 쓰이므로
+     * esc() 없이도 HTML 파싱 경로 자체가 없다. */
+    if (el) {
+      PCV.uxlib.clearEl(el);
+      el.appendChild(PCV.uxlib.frag(
+        String(d.version || '1.0') + ' ',
+        PCV.uxlib.el('span', { class: 'stat-label' }, '(' + (d.status || 'ok') + ')')
+      ));
+    }
     var rpc_el = document.getElementById('about-rpc');
     if (rpc_el) rpc_el.textContent = (d.rpc_methods || '265') + ' + plugins';
     var rest_el = document.getElementById('about-rest');
@@ -936,7 +947,8 @@ async function pcvPostLoginInit() {
   if (typeof navigateToHash === 'function') navigateToHash();
 }
 window.pcvPostLoginInit = pcvPostLoginInit;
-setInterval(() => { if (authToken) loadAll(true); }, 10e3);
+/* 프론트 #4-A: 비가시 탭 폴링 중단 — document.hidden이면 콜백 진입부에서 스킵 */
+setInterval(() => { if (document.hidden) return; if (authToken) loadAll(true); }, 10e3);
 
 /* ═══ HOST METRICS COLLECTION ═══ */
 async function collectHostMetrics() {
@@ -955,9 +967,19 @@ async function collectHostMetrics() {
     hostMemHistory.push(mem); hostMemHistory.shift();
   } catch (e) { /* metrics endpoint may be unavailable */ }
 }
-setInterval(collectHostMetrics, 5000);
-/* G-4: auto-refresh indicator update */
-setInterval(() => { const sb3 = document.getElementById('sb3'); if (sb3 && authToken) { const elapsed = Math.round((Date.now() - lastLoadTime) / 1000); sb3.textContent = 'Updated ' + elapsed + 's ago'; } }, 1000);
+setInterval(() => { if (document.hidden) return; collectHostMetrics(); }, 5000);
+/* G-4: auto-refresh indicator update — 네트워크 호출 없이 로컬 텍스트만 갱신하지만
+   비가시 시 불필요한 DOM 작업이라 동일하게 스킵 */
+setInterval(() => { if (document.hidden) return; const sb3 = document.getElementById('sb3'); if (sb3 && authToken) { const elapsed = Math.round((Date.now() - lastLoadTime) / 1000); sb3.textContent = 'Updated ' + elapsed + 's ago'; } }, 1000);
+
+/* 탭 가시 복귀 시 loadAll·collectHostMetrics·updateStatusBar를 즉시 1회 실행해
+   백그라운드 동안 밀린 화면을 따라잡는다 (clock은 다음 tick으로 충분 — 별도 처리 불필요) */
+document.addEventListener('visibilitychange', () => {
+  if (document.hidden) return;
+  if (authToken) loadAll(true);
+  collectHostMetrics();
+  if (typeof updateStatusBar === 'function') updateStatusBar();
+});
 
 /* ═══ KEYBOARD SHORTCUTS ═══ */
 document.addEventListener('keydown', e => {

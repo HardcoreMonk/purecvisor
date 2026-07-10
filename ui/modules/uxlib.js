@@ -138,7 +138,7 @@ window.PCV = window.PCV || {};
     var html = '<h2 style="color:var(--red)">&#9888; ' + escapeHtml(title) + '</h2>' +
       '<p class="color-yellow">' + escapeHtml(warn) + '</p>' +
       '<p class="text-13">계속하려면 <code class="color-red">' + escapeHtml(name) + '</code> 을(를) 정확히 입력하세요:</p>' +
-      '<input id="dc-input" class="login-input" style="width:100%;margin:8px 0" autocomplete="off">' +
+      '<input id="dc-input" aria-label="' + escapeHtml(name) + ' 확인 입력" class="login-input" style="width:100%;margin:8px 0" autocomplete="off">' +
       '<div id="dc-msg" class="text-xs color-red" style="min-height:18px"></div>' +
       '<div style="text-align:right;margin-top:12px">' +
       '<button class="btn" onclick="closeModal()">취소</button> ' +
@@ -413,6 +413,72 @@ window.PCV = window.PCV || {};
   window.addEventListener('hashchange', navigateToHash);
   /* 초기 로드 시 hash 적용은 인증 완료 후 호출 (app.js에서) */
 
+  /* ── #5 DOM-safe 빌더 (ADR-013) ─────────────────── */
+  /* innerHTML/outerHTML/insertAdjacentHTML/document.write 금지(ADR-013)를
+   * 코드로 강제하는 최소 빌더. el()/frag()에 넘긴 문자열은 어떤 경로로도
+   * HTML로 파싱되지 않고 항상 텍스트 노드로만 삽입된다. */
+
+  /* el/frag 공용 children 평탄화. 문자열/숫자 → TextNode, Node → 그대로,
+   * 배열 → 재귀 평탄화, null/undefined/false → skip(조건부 렌더링 관용구). */
+  function _appendChildren(node, children) {
+    (children || []).forEach(function (child) {
+      if (child === null || child === undefined || child === false) return;
+      if (Array.isArray(child)) { _appendChildren(node, child); return; }
+      if (child instanceof Node) { node.appendChild(child); return; }
+      /* 문자열/숫자는 반드시 createTextNode만 — 마크업 해석 경로 없음 */
+      node.appendChild(document.createTextNode(String(child)));
+    });
+  }
+
+  /**
+   * el(tag, attrs, ...children) — createElement + 속성 + 자식 합성.
+   * attrs(객체|null) 처리 규칙:
+   *   class/className → node.className
+   *   dataset(객체)    → Object.assign(node.dataset, value) (병합)
+   *   style(문자열)    → node.style.cssText = value
+   *   on*(함수)        → addEventListener(이벤트명 소문자, fn) — 예: onClick → 'click'
+   *   그 외            → setAttribute(key, value) (aria-*, role, id, href, ...)
+   *   value가 null/undefined/false면 해당 속성은 건너뜀.
+   * 사용례: el('span', { class: 'badge' }, 'Running')
+   */
+  function el(tag, attrs, ...children) {
+    var node = document.createElement(tag);
+    if (attrs) {
+      Object.keys(attrs).forEach(function (key) {
+        var value = attrs[key];
+        if (value === null || value === undefined || value === false) return;
+        if (key === 'class' || key === 'className') {
+          node.className = value;
+        } else if (key === 'dataset') {
+          Object.assign(node.dataset, value);
+        } else if (key === 'style' && typeof value === 'string') {
+          node.style.cssText = value;
+        } else if (key.slice(0, 2) === 'on' && typeof value === 'function') {
+          node.addEventListener(key.slice(2).toLowerCase(), value);
+        } else {
+          node.setAttribute(key, value);
+        }
+      });
+    }
+    _appendChildren(node, children);
+    return node;
+  }
+
+  /** frag(...children) — DocumentFragment 생성. children 규칙은 el()과 동일.
+   *  여러 형제 노드를 한 번의 appendChild로 삽입할 때 사용. */
+  function frag(...children) {
+    var fragment = document.createDocumentFragment();
+    _appendChildren(fragment, children);
+    return fragment;
+  }
+
+  /** clearEl(node) — 자식 전량 제거 (innerHTML = '' 대체). */
+  function clearEl(node) {
+    if (!node) return;
+    if (typeof node.replaceChildren === 'function') node.replaceChildren();
+    else while (node.firstChild) node.removeChild(node.firstChild);
+  }
+
   /* ── PCV.uxlib namespace export ─────────────────── */
   PCV.uxlib = {
     showToastQueued: showToastQueued,
@@ -439,6 +505,9 @@ window.PCV = window.PCV || {};
     renderBreadcrumbs: renderBreadcrumbs,
     parseHashRoute: parseHash,
     navigateToHash: navigateToHash,
-    setHashRoute: setHashRoute
+    setHashRoute: setHashRoute,
+    el: el,
+    frag: frag,
+    clearEl: clearEl
   };
 })(window.PCV);

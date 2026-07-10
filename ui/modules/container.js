@@ -89,7 +89,7 @@ async function renderContainers(b) {
     l.forEach(v => {
       const on = v.state === 'RUNNING';
       const s = selCtr === v.name;
-      h += '<div onclick="selCtr=\'' + v.name + '\';ctrTab=\'summary\';renderContainers(document.getElementById(\'cb\'))" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'var(--bg3)' : 'transparent') + '">';
+      h += '<div onclick="selCtr=\'' + escapeAttr(v.name) + '\';ctrTab=\'summary\';renderContainers(document.getElementById(\'cb\'))" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'var(--bg3)' : 'transparent') + '">';
       h += '<div class="flex items-center gap-6"><span style="font-size:9px;color:' + (on ? 'var(--green)' : 'var(--fg2)') + '">&#9679;</span><span style="font-size:13px;font-weight:' + (s ? '600' : '400') + '">' + escapeHtml(v.name) + '</span></div>';
       h += '<div class="stat-label" style="margin-left:15px">' + v.state + (on ? ' &bull; ' + (v.ip_addr || '') : '') + '</div></div>';
     });
@@ -101,12 +101,12 @@ async function renderContainers(b) {
       h += '<div style="padding:10px 14px;border-bottom:1px solid var(--border)" class="justify-between items-center">';
       h += '<div><span style="font-size:15px;font-weight:700">' + escapeHtml(cv.name) + '</span> ' + H.badge(cv.state, on ? 'g' : 'r') + '</div>';
       h += '<div class="flex gap-4">';
-      if (!on) h += '<button class="btn btn-g text-12 px-12 py-4" onclick="ctrA(\'' + cv.name + '\',\'start\')">&#9654; ' + t('power.start') + '</button>';
+      if (!on) h += '<button class="btn btn-g text-12 px-12 py-4" onclick="ctrA(\'' + escapeAttr(cv.name) + '\',\'start\')">&#9654; ' + t('power.start') + '</button>';
       if (on) {
-        h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrA(\'' + cv.name + '\',\'stop\')">&#9632; ' + t('power.stop') + '</button>';
-        h += '<button class="btn text-12 px-12 py-4" onclick="ctrReboot(\'' + cv.name + '\')">&#8635; Reboot</button>';
+        h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrA(\'' + escapeAttr(cv.name) + '\',\'stop\')">&#9632; ' + t('power.stop') + '</button>';
+        h += '<button class="btn text-12 px-12 py-4" onclick="ctrReboot(\'' + escapeAttr(cv.name) + '\')">&#8635; Reboot</button>';
       }
-      h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrDel(\'' + cv.name + '\')">&#128465; ' + t('btn.delete') + '</button>';
+      h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrDel(\'' + escapeAttr(cv.name) + '\')">&#128465; ' + t('btn.delete') + '</button>';
       h += '</div></div>';
       const tabs = ['summary', 'console', 'resources', 'network', 'dns', 'options', 'snapshots', 'notes', 'tasks'];
       h += '<div class="flex" style="border-bottom:1px solid var(--border);padding:0 10px;gap:2px;overflow-x:auto">';
@@ -149,7 +149,7 @@ async function ctrRenderTab(tb, cv) {
     tb.innerHTML = '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:0;font-family:monospace;display:flex;flex-direction:column;height:100%">'
     + '<div class="justify-between stat-label" style="padding:6px 10px;border-bottom:1px solid var(--border)"><span>&#9000; ' + n + ' — Shell</span><span class="color-green">' + t('connected') + '</span></div>'
     + '<pre id="ctr-output" style="flex:1;padding:8px 10px;margin:0;overflow-y:auto;font-size:11px;color:var(--green);white-space:pre-wrap;min-height:250px;max-height:400px">root@' + n + ':~# \n</pre>'
-    + '<div class="flex" style="border-top:1px solid var(--border)"><span style="padding:6px 8px;color:var(--green);font-size:12px">$</span><input id="ctr-cmd" style="flex:1;background:transparent;border:none;color:var(--fg);font-family:monospace;font-size:12px;padding:6px 0;outline:none" placeholder="Type command..." onkeydown="if(event.key===\'Enter\')ctrRunCmd(\'' + n + '\')"></div></div>';
+    + '<div class="flex" style="border-top:1px solid var(--border)"><span style="padding:6px 8px;color:var(--green);font-size:12px">$</span><input aria-label="Type command..." id="ctr-cmd" style="flex:1;background:transparent;border:none;color:var(--fg);font-family:monospace;font-size:12px;padding:6px 0;outline:none" placeholder="Type command..." onkeydown="if(event.key===\'Enter\')ctrRunCmd(\'' + n + '\')"></div></div>';
     setTimeout(() => { document.getElementById('ctr-cmd')?.focus(); }, 100);
   } else if (ctrTab === 'resources') {
     let info = { cpu: '', mem: '', disk: '', procs: '' };
@@ -163,13 +163,13 @@ async function ctrRenderTab(tb, cv) {
     + '</div>'
     + '<h3 class="section-title-md mt-14">Resource Limits (cgroup v2)</h3>'
     + '<div class="sg grid-2">'
-    + H.card('Set CPU Limit', '<div class="fr"><label>CPU Shares</label><input id="ctr-cpu-shares" type="number" value="1024"></div><div class="fr"><label>CPU Quota (µs)</label><input id="ctr-cpu-quota" type="number" value="100000"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'cpu\')">Apply CPU Limit</button>')
-    + H.card('Set Memory Limit', '<div class="fr"><label>Memory Limit (MB)</label><input id="ctr-mem-limit" type="number" value="512"></div><div class="fr"><label>Swap Limit (MB)</label><input id="ctr-swap-limit" type="number" value="0"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'mem\')">Apply Memory Limit</button>')
+    + H.card('Set CPU Limit', '<div class="fr"><label for="ctr-cpu-shares">CPU Shares</label><input id="ctr-cpu-shares" type="number" value="1024"></div><div class="fr"><label for="ctr-cpu-quota">CPU Quota (µs)</label><input id="ctr-cpu-quota" type="number" value="100000"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'cpu\')">Apply CPU Limit</button>')
+    + H.card('Set Memory Limit', '<div class="fr"><label for="ctr-mem-limit">Memory Limit (MB)</label><input id="ctr-mem-limit" type="number" value="512"></div><div class="fr"><label for="ctr-swap-limit">Swap Limit (MB)</label><input id="ctr-swap-limit" type="number" value="0"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'mem\')">Apply Memory Limit</button>')
     + '</div>';
   } else if (ctrTab === 'network') {
     tb.innerHTML = '<h3 class="section-title-md">Network Interfaces <button class="btn btn-g" style="font-size:10px;margin-left:8px" onclick="ctrNicAdd(\'' + escapeHtml(n) + '\')">+ Add NIC</button></h3><div id="ctr-nic-list"><span class="spinner"></span> Loading NICs...</div>';
     tb.innerHTML += '<h3 class="section-title-md mt-14">Bandwidth QoS</h3><div class="sg grid-2">'
-    + H.card('Set Bandwidth Limit', '<div class="fr"><label>Interface</label><input id="ctr-bw-nic" value="eth0" class="w-80"></div><div class="fr"><label>Inbound (Kbps)</label><input id="ctr-bw-in" type="number" value="0" placeholder="0 = unlimited"></div><div class="fr"><label>Outbound (Kbps)</label><input id="ctr-bw-out" type="number" value="0" placeholder="0 = unlimited"></div><button class="btn btn-g mt-8" onclick="ctrSetBandwidth(\'' + escapeHtml(n) + '\')">Apply QoS</button>')
+    + H.card('Set Bandwidth Limit', '<div class="fr"><label for="ctr-bw-nic">Interface</label><input id="ctr-bw-nic" value="eth0" class="w-80"></div><div class="fr"><label for="ctr-bw-in">Inbound (Kbps)</label><input id="ctr-bw-in" type="number" value="0" placeholder="0 = unlimited"></div><div class="fr"><label for="ctr-bw-out">Outbound (Kbps)</label><input id="ctr-bw-out" type="number" value="0" placeholder="0 = unlimited"></div><button class="btn btn-g mt-8" onclick="ctrSetBandwidth(\'' + escapeHtml(n) + '\')">Apply QoS</button>')
     + H.card('Routing &amp; Addresses', '<div id="ctr-net-info"><span class="spinner"></span></div>')
     + '</div>';
     /* Load NIC list */
@@ -205,7 +205,7 @@ async function ctrRenderTab(tb, cv) {
     let dns = ''; if (on) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'cat /etc/resolv.conf 2>/dev/null' }); dns = unwrapData(r).output || ''; } catch (e) { if(_DEBUG) console.warn('dns:', e.message); } }
     tb.innerHTML = '<h3 class="section-title-md">DNS</h3>' + H.card('Resolver Configuration',
     (on ? '<pre style="font-size:11px;color:var(--fg);margin:8px 0;white-space:pre-wrap;background:var(--bg);padding:10px;border-radius:4px;border:1px solid var(--border)">' + dns.replace(/</g, '&lt;') + '</pre>'
-    + '<div class="mt-8"><div class="fr"><label>Add Nameserver</label><input id="dns-ns" placeholder="8.8.8.8" class="flex-1"><button class="btn btn-g" style="margin-left:6px" onclick="ctrDnsAdd(\'' + n + '\')">Add</button></div></div>'
+    + '<div class="mt-8"><div class="fr"><label for="dns-ns">Add Nameserver</label><input id="dns-ns" placeholder="8.8.8.8" class="flex-1"><button class="btn btn-g" style="margin-left:6px" onclick="ctrDnsAdd(\'' + n + '\')">Add</button></div></div>'
     : '<p class="color-muted">' + t('ctr.console.stopped') + '</p>'));
   } else if (ctrTab === 'options') {
     tb.innerHTML = '<h3 class="section-title-md">Options</h3><div class="sg">'
@@ -224,7 +224,7 @@ async function ctrRenderTab(tb, cv) {
       sh += '</tbody></table>'; document.getElementById('ctr-snap-list').innerHTML = sh;
     } catch (e) { document.getElementById('ctr-snap-list').innerHTML = '<p class="color-muted">' + t('snap.none') + '</p>'; }
   } else if (ctrTab === 'notes') {
-    tb.innerHTML = '<h3 class="section-title-md">Notes</h3>' + H.card('Container Notes', '<textarea id="ctr-notes" style="width:100%;min-height:150px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:10px;font-family:monospace;font-size:12px;resize:vertical" placeholder="Add notes...">' + escapeHtml(localStorage.getItem('ctr-note-' + n) || '') + '</textarea><button class="btn mt-8" onclick="localStorage.setItem(\'ctr-note-' + escapeHtml(n) + '\',document.getElementById(\'ctr-notes\').value);toast(\'' + t('btn.save') + '\')">' + t('btn.save') + '</button>');
+    tb.innerHTML = '<h3 class="section-title-md">Notes</h3>' + H.card('Container Notes', '<textarea aria-label="Add notes..." id="ctr-notes" style="width:100%;min-height:150px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:10px;font-family:monospace;font-size:12px;resize:vertical" placeholder="Add notes...">' + escapeHtml(localStorage.getItem('ctr-note-' + n) || '') + '</textarea><button class="btn mt-8" onclick="localStorage.setItem(\'ctr-note-' + escapeHtml(n) + '\',document.getElementById(\'ctr-notes\').value);toast(\'' + t('btn.save') + '\')">' + t('btn.save') + '</button>');
   } else if (ctrTab === 'tasks') {
     tb.innerHTML = '<h3 class="section-title-md">Task History</h3>' + H.card('Recent Events', '<div style="max-height:300px;overflow-y:auto;font-size:11px;font-family:monospace;color:var(--accent)">' + eventLog.filter(e => { var s = (e.msg || e.raw || String(e)).toLowerCase(); return s.includes('ctr') || s.includes(n.toLowerCase()); }).map(e => '<div style="padding:2px 0;border-bottom:1px solid var(--border)">' + escapeHtml(e.msg || e.raw || String(e)) + '</div>').join('') + '<div class="color-muted" style="padding:4px 0">' + eventLog.length + ' total events</div></div>');
   }
@@ -331,7 +331,7 @@ async function ctrExec(n) {
   selCtr = n; ctrTab = 'console'; renderContainers(document.getElementById('cb'));
 }
 
-function ctrDel(n) { showModal('<h2 class="color-red">&#9888; ' + t('ctr.destroying') + '</h2><p class="mb-12">' + t('ctr.delete.confirm') + ' <b class="color-accent">' + n + '</b></p><p class="mb-12">' + t('ctr.delete.type_name') + '</p><div class="fr"><label>Name</label><input id="del-ctr-confirm" placeholder="' + n + '"></div><div class="text-right mt-14"><button class="btn btn-r" onclick="doCtrDel(\'' + n + '\')">' + t('btn.delete') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>'); }
+function ctrDel(n) { showModal('<h2 class="color-red">&#9888; ' + t('ctr.destroying') + '</h2><p class="mb-12">' + t('ctr.delete.confirm') + ' <b class="color-accent">' + n + '</b></p><p class="mb-12">' + t('ctr.delete.type_name') + '</p><div class="fr"><label for="del-ctr-confirm">Name</label><input id="del-ctr-confirm" placeholder="' + n + '"></div><div class="text-right mt-14"><button class="btn btn-r" onclick="doCtrDel(\'' + n + '\')">' + t('btn.delete') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>'); }
 
 async function doCtrDel(n) {
   const c = document.getElementById('del-ctr-confirm')?.value; if (c !== n) { toast(t('vm.name_mismatch'), false); return; }
@@ -354,21 +354,21 @@ function showCtrCreate() {
   /* 왼쪽: 기본 설정 */
   h += '<div>';
   h += '<h4 class="mb-8">&#9783; Basic</h4>';
-  h += '<div class="fr"><label class="min-w-80">Name</label><input id="cc-name" placeholder="my-container" class="flex-1"></div>';
-  h += '<div class="fr"><label class="min-w-80">Distribution</label><select id="cc-dist" onchange="ctrDistChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ubuntu">Ubuntu</option><option value="debian">Debian</option><option value="alpine">Alpine</option><option value="centos">CentOS</option><option value="fedora">Fedora</option><option value="archlinux">Arch Linux</option></select></div>';
-  h += '<div class="fr"><label class="min-w-80">Release</label><input id="cc-rel" value="jammy" placeholder="jammy / bookworm / 3.19" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-name" class="min-w-80">Name</label><input id="cc-name" placeholder="my-container" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-dist" class="min-w-80">Distribution</label><select id="cc-dist" onchange="ctrDistChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ubuntu">Ubuntu</option><option value="debian">Debian</option><option value="alpine">Alpine</option><option value="centos">CentOS</option><option value="fedora">Fedora</option><option value="archlinux">Arch Linux</option></select></div>';
+  h += '<div class="fr"><label for="cc-rel" class="min-w-80">Release</label><input id="cc-rel" value="jammy" placeholder="jammy / bookworm / 3.19" class="flex-1"></div>';
   h += '</div>';
   /* 오른쪽: 네트워크 + 리소스 */
   h += '<div>';
   h += '<h4 class="mb-8">&#127760; Network</h4>';
-  h += '<div class="fr"><label class="min-w-70">Bridge</label><div class="flex gap-6 flex-1"><select id="cc-br" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="pcvbr0">pcvbr0 (default)</option></select><button class="btn text-xs" onclick="ctrLoadBridges()">&#128260;</button></div></div>';
-  h += '<div class="fr"><label class="min-w-70">IP Mode</label><select id="cc-ipmode" onchange="ctrIpModeChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="dhcp">DHCP (auto)</option><option value="static">Static IP</option></select></div>';
-  h += '<div class="fr hidden" id="cc-static-row"><label class="min-w-70">Static IP</label><input id="cc-ip" placeholder="10.0.3.100/24" class="flex-1"></div>';
-  h += '<div class="fr hidden" id="cc-gw-row"><label class="min-w-70">Gateway</label><input id="cc-gw" placeholder="10.0.3.1" class="flex-1"></div>';
-  h += '<div class="fr"><label class="min-w-70">DNS</label><input id="cc-dns" placeholder="8.8.8.8 (optional)" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-br" class="min-w-70">Bridge</label><div class="flex gap-6 flex-1"><select id="cc-br" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="pcvbr0">pcvbr0 (default)</option></select><button class="btn text-xs" onclick="ctrLoadBridges()">&#128260;</button></div></div>';
+  h += '<div class="fr"><label for="cc-ipmode" class="min-w-70">IP Mode</label><select id="cc-ipmode" onchange="ctrIpModeChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="dhcp">DHCP (auto)</option><option value="static">Static IP</option></select></div>';
+  h += '<div class="fr hidden" id="cc-static-row"><label for="cc-ip" class="min-w-70">Static IP</label><input id="cc-ip" placeholder="10.0.3.100/24" class="flex-1"></div>';
+  h += '<div class="fr hidden" id="cc-gw-row"><label for="cc-gw" class="min-w-70">Gateway</label><input id="cc-gw" placeholder="10.0.3.1" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-dns" class="min-w-70">DNS</label><input id="cc-dns" placeholder="8.8.8.8 (optional)" class="flex-1"></div>';
   h += '<h4 style="margin:12px 0 8px">&#9881; Resources</h4>';
-  h += '<div class="fr"><label class="min-w-70">vCPU</label><input id="cc-vcpu" type="number" value="1" min="1" max="64" class="flex-1"></div>';
-  h += '<div class="fr"><label class="min-w-70">Memory (MB)</label><input id="cc-mem" type="number" value="512" min="64" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-vcpu" class="min-w-70">vCPU</label><input id="cc-vcpu" type="number" value="1" min="1" max="64" class="flex-1"></div>';
+  h += '<div class="fr"><label for="cc-mem" class="min-w-70">Memory (MB)</label><input id="cc-mem" type="number" value="512" min="64" class="flex-1"></div>';
   h += '</div></div>';
   h += '<div class="text-right mt-14"><button class="btn btn-g" onclick="doCtrCreate()">' + t('btn.create') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
   /* 넓은 모달 클래스 적용 */
@@ -482,7 +482,7 @@ async function ctrSetLimits(name, type) {
 
 /* ═══ LXC NIC MANAGEMENT ═══ */
 function ctrNicAdd(name) {
-  showModal('<h2>Add NIC to ' + escapeHtml(name) + '</h2><div class="fr"><label>Bridge</label><input id="ctr-nic-br" value="pcvbr0" placeholder="pcvbr0"></div><div class="fr"><label>MAC (optional)</label><input id="ctr-nic-mac" placeholder="auto"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doCtrNicAdd(\'' + escapeHtml(name) + '\')">Add NIC</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>Add NIC to ' + escapeHtml(name) + '</h2><div class="fr"><label for="ctr-nic-br">Bridge</label><input id="ctr-nic-br" value="pcvbr0" placeholder="pcvbr0"></div><div class="fr"><label for="ctr-nic-mac">MAC (optional)</label><input id="ctr-nic-mac" placeholder="auto"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doCtrNicAdd(\'' + escapeHtml(name) + '\')">Add NIC</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doCtrNicAdd(name) {
@@ -551,9 +551,9 @@ window.ctrSetBandwidth = ctrSetBandwidth;
 
 /* ═══ CONTAINER CLONE (백엔드 4차) ═══ */
 async function showCtrClone(name) {
-  var html = '<div class="form-group"><label>' + _L('원본', 'Source') + '</label>';
-  html += '<input class="input-field" value="' + esc(name) + '" disabled></div>';
-  html += '<div class="form-group"><label>' + _L('클론 이름', 'Clone Name') + '</label>';
+  var html = '<div class="form-group"><label for="ctr-source">' + _L('원본', 'Source') + '</label>';
+  html += '<input id="ctr-source" class="input-field" value="' + esc(name) + '" disabled></div>';
+  html += '<div class="form-group"><label for="ctr-clone-name">' + _L('클론 이름', 'Clone Name') + '</label>';
   html += '<input id="ctr-clone-name" class="input-field" placeholder="' + esc(name) + '-clone"></div>';
   showModal(_L('컨테이너 클론', 'Clone Container'), html, async function() {
     var dst = document.getElementById('ctr-clone-name').value.trim();

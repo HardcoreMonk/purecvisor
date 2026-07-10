@@ -55,7 +55,7 @@ function openThemeEditor() {
   THEME_VARS.forEach(v => {
     const cur = style.getPropertyValue('--' + v).trim();
     const hex = cssColorToHex(cur);
-    h += '<div class="theme-editor-item"><label>--' + v + '</label><input type="color" value="' + hex + '" data-var="' + v + '" onchange="previewThemeVar(this)"><span style="font-size:9px;color:var(--fg2)" id="te-val-' + v + '">' + hex + '</span></div>';
+    h += '<div class="theme-editor-item"><label for="cv-' + v + '">--' + v + '</label><input type="color" id="cv-' + v + '" value="' + hex + '" data-var="' + v + '" onchange="previewThemeVar(this)"><span style="font-size:9px;color:var(--fg2)" id="te-val-' + v + '">' + hex + '</span></div>';
   });
   h += '</div></div>';
   h += '<div class="theme-editor-actions">';
@@ -168,7 +168,7 @@ function importUiSettings() {
         if (s.theme !== undefined) { changeTheme(s.theme); }
         if (s.sidebarWidth) localStorage.setItem('pcv-sb-width', s.sidebarWidth);
         if (s.vmViewMode) localStorage.setItem('pcv-vm-view', s.vmViewMode);
-        if (s.language && typeof I18N !== 'undefined') { I18N.setLang(s.language); if (typeof applyI18n === 'function') applyI18n(); }
+        if (s.language && typeof I18N !== 'undefined') { I18N.setLang(s.language); if (typeof applyI18n === 'function') applyI18n(); if (typeof renderContent === 'function') { try { renderContent(); } catch (e) {} } }
         if (s.autoTheme) localStorage.setItem('pcv-auto-theme', s.autoTheme);
         if (s.favorites) localStorage.setItem('pcv-favorites', s.favorites);
         if (s.customTheme) localStorage.setItem('pcv-custom-theme', s.customTheme);

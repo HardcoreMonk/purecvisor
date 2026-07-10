@@ -178,13 +178,13 @@ window.PCV = window.PCV || {};
     /* ── Built-in: 회원가입 ─────────────────────────── */
     showRegister: function() {
       var body =
-        '<div style="margin-bottom:12px"><input id="pcv-reg-user" class="login-input" ' +
+        '<div style="margin-bottom:12px"><input aria-label="' + _t('register.user_ph', 'Username (3-32, a-z 0-9 _)') + '" id="pcv-reg-user" class="login-input" ' +
         'placeholder="' + _t('register.user_ph', 'Username (3-32, a-z 0-9 _)') + '" ' +
         'autocomplete="username" style="width:100%"></div>' +
-        '<div style="margin-bottom:12px"><input id="pcv-reg-pass" type="password" class="login-input" ' +
+        '<div style="margin-bottom:12px"><input aria-label="' + _t('register.pass_ph', 'Password (8자 이상)') + '" id="pcv-reg-pass" type="password" class="login-input" ' +
         'placeholder="' + _t('register.pass_ph', 'Password (8자 이상)') + '" ' +
         'autocomplete="new-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:16px"><input id="pcv-reg-pass2" type="password" class="login-input" ' +
+        '<div style="margin-bottom:16px"><input aria-label="' + _t('register.pass2_ph', 'Password 확인') + '" id="pcv-reg-pass2" type="password" class="login-input" ' +
         'placeholder="' + _t('register.pass2_ph', 'Password 확인') + '" ' +
         'autocomplete="new-password" style="width:100%"></div>' +
         '<div id="pcv-modal-msg" class="text-sm" style="min-height:18px" role="alert" aria-live="assertive"></div>' +
@@ -237,13 +237,13 @@ window.PCV = window.PCV || {};
     /* ── Built-in: 비밀번호 변경 ─────────────────────── */
     showChangePassword: function() {
       var body =
-        '<div style="margin-bottom:12px"><input id="pcv-cp-old" type="password" class="login-input" ' +
+        '<div style="margin-bottom:12px"><input aria-label="' + _t('changepw.old_ph', '현재 비밀번호') + '" id="pcv-cp-old" type="password" class="login-input" ' +
         'placeholder="' + _t('changepw.old_ph', '현재 비밀번호') + '" ' +
         'autocomplete="current-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:12px"><input id="pcv-cp-new" type="password" class="login-input" ' +
+        '<div style="margin-bottom:12px"><input aria-label="' + _t('changepw.new_ph', '새 비밀번호 (8자 이상)') + '" id="pcv-cp-new" type="password" class="login-input" ' +
         'placeholder="' + _t('changepw.new_ph', '새 비밀번호 (8자 이상)') + '" ' +
         'autocomplete="new-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:16px"><input id="pcv-cp-new2" type="password" class="login-input" ' +
+        '<div style="margin-bottom:16px"><input aria-label="' + _t('changepw.new2_ph', '새 비밀번호 확인') + '" id="pcv-cp-new2" type="password" class="login-input" ' +
         'placeholder="' + _t('changepw.new2_ph', '새 비밀번호 확인') + '" ' +
         'autocomplete="new-password" style="width:100%"></div>' +
         '<div id="pcv-modal-msg" class="text-sm" style="min-height:18px" role="alert" aria-live="assertive"></div>' +

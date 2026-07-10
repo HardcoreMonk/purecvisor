@@ -200,7 +200,7 @@ function updateStatusBar() {
   parts.push('Sync: ' + elapsed + 's ago');
   if (window._perfMetrics) parts.push('API: ' + (_perfMetrics.avgApiTime || 0) + 'ms avg');
   /* Connection quality dot */
-  var wsStat = '&#9679;';
+  var wsStat;
   if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1) {
     wsStat = '<span style="color:var(--green)">&#9679;</span>';
   } else if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 0) {
@@ -217,7 +217,8 @@ function updateStatusBar() {
   if (typeof updateFavicon === 'function') updateFavicon();
 }
 window.updateStatusBar = updateStatusBar;
-setInterval(updateStatusBar, 2000);
+/* 프론트 #4-A: 비가시 탭 폴링 중단 — document.hidden이면 콜백 진입부에서 스킵 */
+setInterval(() => { if (document.hidden) return; updateStatusBar(); }, 2000);
 
 /* ═══ DYNAMIC FAVICON + TAB TITLE (N5) ═══ */
 function updateFavicon() {
@@ -365,7 +366,7 @@ function openCmdPalette() {
   ov.addEventListener('click', e => { if (e.target === ov) closeCmdPalette(); });
   const box = document.createElement('div'); box.id = 'cmd-palette';
   box.style.cssText = 'background:var(--bg-panel);backdrop-filter:blur(20px);border:1px solid var(--accent);border-radius:12px;width:500px;max-width:90vw;max-height:60vh;display:flex;flex-direction:column;box-shadow:0 0 40px var(--neon-glow);overflow:hidden';
-  box.innerHTML = '<input id="cmd-input" placeholder="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" style="padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--fg);font-size:15px;outline:none;font-family:var(--font-mono)" autocomplete="off"><div id="cmd-list" style="overflow-y:auto;flex:1;padding:4px 0"></div>';
+  box.innerHTML = '<input aria-label="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" id="cmd-input" placeholder="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" style="padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--fg);font-size:15px;outline:none;font-family:var(--font-mono)" autocomplete="off"><div id="cmd-list" style="overflow-y:auto;flex:1;padding:4px 0"></div>';
   ov.appendChild(box); document.body.appendChild(ov);
   const inp = document.getElementById('cmd-input'); inp.focus();
   renderCmdPalette('');
@@ -409,10 +410,10 @@ function openInPopup(pageId) {
     + '<link rel="stylesheet" href="/ui/style.css">'
     + '<style>body{margin:0;padding:16px;background:var(--bg);color:var(--fg);font-family:var(--font-mono)}</style>'
     + '</head><body><div id="popup-content"><span class="spinner"></span> Loading...</div>'
-    + '<script src="/ui/i18n.js"><\/script>'
-    + '<script src="/ui/modules/api.js"><\/script>'
-    + '<script src="/ui/modules/ui.js"><\/script>'
-    + '<script>authToken="' + (authToken || '') + '";<\/script>'
+    + '<script src="/ui/i18n.js"></script>'
+    + '<script src="/ui/modules/api.js"></script>'
+    + '<script src="/ui/modules/ui.js"></script>'
+    + '<script>authToken="' + (authToken || '') + '";</script>'
     + '</body></html>');
   w.document.close();
   /* Render content into popup after scripts load */
@@ -550,7 +551,7 @@ function toggleGlobalSearch() {
   ov.className = 'global-search-overlay';
   ov.onclick = e => { if (e.target === ov) closeGlobalSearch(); };
   ov.innerHTML = '<div class="global-search-box">' +
-    '<input class="global-search-input" id="global-search-input" placeholder="Search VMs, containers, networks, settings..." oninput="(window._gs || (window._gs = pcvDebounce(doGlobalSearch, 200)))(this.value)" autofocus>' +
+    '<input aria-label="Search VMs, containers, networks, settings..." class="global-search-input" id="global-search-input" placeholder="Search VMs, containers, networks, settings..." oninput="(window._gs || (window._gs = pcvDebounce(doGlobalSearch, 200)))(this.value)" autofocus>' +
     '<div class="global-search-results" id="global-search-results"></div></div>';
   document.body.appendChild(ov);
   setTimeout(() => document.getElementById('global-search-input')?.focus(), 50);
@@ -870,6 +871,203 @@ window.highlightText = highlightText;
   var saved = localStorage.getItem('pcv-sb-width');
   if (saved) { sidebar.style.width = saved; document.documentElement.style.setProperty('--sw', saved); }
 })();
+
+/* ═══ 메뉴바 키보드 접근 (프론트 #3, 3-1) + roving tabindex (프론트 #4-C1) ═══
+ * 기존에는 style.css의 .menu-item:hover .menu-drop { display:block } 만이
+ * 드롭다운을 여는 유일한 트리거였다 — 키보드/터치로는 File/Edit/View 등
+ * 메뉴를 열 수 없었다. click/keydown 위임으로 .open 토글을 추가해
+ * 열기/닫기 키보드 수단을 확보한다. (:focus-within 을 열기 트리거로
+ * 쓰지 않는 이유: Esc 후에도 포커스가 트리거에 남아 드롭다운이
+ * 시각적으로 계속 열려 보이는 문제 — 포커스만으로는 열지 않는 게
+ * disclosure 표준 동작이기도 하다. 83e4e7f에서 이미 제거됨.)
+ *
+ * #4-C1: WAI-ARIA menubar 패턴의 roving tabindex를 완성한다.
+ * - top-level .menu-item 8개: 탭 스톱 1개만 유지(활성 항목만 tabindex=0,
+ *   나머지 -1) — roving. 드롭다운 .mi 45개: 전부 tabindex=-1로 JS가
+ *   일괄 초기화(45개 정적 수정보다 유지보수 안전 — 컨트롤러 결정).
+ *   tabindex=-1이어도 el.focus()로 프로그램적 포커스는 가능하다.
+ * - Enter/Space/ArrowDown으로 열면 첫 .mi로 포커스 진입, 드롭다운
+ *   안에서는 ↑/↓로 .mi 간 순환 이동, ←/→는 현재 메뉴를 닫고 인접
+ *   top-level 메뉴를 열어 그 첫 .mi로 이동한다. top-level 자체에서
+ *   ←/→는 인접 top-level로 포커스만 이동(끝에서 순환) — 이미 메뉴가
+ *   열려 있었을 때만 이동한 메뉴도 함께 열어 hover와 동일한 UX를 낸다.
+ * - Enter/Space는 이 IIFE에서 의도적으로 가로채지 않는다: 3-3 전역
+ *   위임(document keydown, 아래)이 버블링으로 el.click()을 발화한다
+ *   (vm.js F1 핸들러의 위젯 가드 — 별도 수정 — 덕분에 더 이상 가로채지
+ *   않음을 확인했다). */
+(function() {
+  var menubar = document.querySelector('.menubar');
+  if (!menubar) return;
+  var items = menubar.querySelectorAll('.menu-item');
+
+  /* roving tabindex 초기 상태: 첫 top-level만 탭 스톱, 나머지 -1.
+   * 드롭다운 .mi는 전부 -1(포커스는 오직 JS가 명시적으로 옮긴다). */
+  items.forEach(function(mi, idx) { mi.setAttribute('tabindex', idx === 0 ? '0' : '-1'); });
+  menubar.querySelectorAll('.mi').forEach(function(mi) { mi.setAttribute('tabindex', '-1'); });
+
+  function closeAll(except) {
+    items.forEach(function(mi) {
+      if (mi !== except) { mi.classList.remove('open'); mi.setAttribute('aria-expanded', 'false'); }
+    });
+  }
+
+  function openItem(item) {
+    closeAll(item);
+    item.classList.add('open');
+    item.setAttribute('aria-expanded', 'true');
+  }
+
+  /* 탭 스톱(roving tabindex=0)을 el로 옮긴다 — 나머지 top-level은 -1. */
+  function setActiveTopLevel(el) {
+    items.forEach(function(mi) { mi.setAttribute('tabindex', mi === el ? '0' : '-1'); });
+  }
+
+  function topIndex(item) { return Array.prototype.indexOf.call(items, item); }
+  function topLevelAt(idx) {
+    var n = items.length;
+    return items[((idx % n) + n) % n];
+  }
+
+  /* item의 드롭다운 안 .mi 목록 — separator(.sep) 제외, role 가시성으로
+   * display:none 처리된 항목(#15 데코 가드)도 이동/포커스 대상에서 제외. */
+  function menuItemsOf(item) {
+    var drop = item.querySelector('.menu-drop');
+    if (!drop) return [];
+    return Array.prototype.filter.call(drop.querySelectorAll('.mi'), function(el) {
+      return el.style.display !== 'none';
+    });
+  }
+
+  menubar.addEventListener('click', function(e) {
+    var item = e.target.closest('.menu-item');
+    if (!item) return;
+    if (e.target.closest('.mi')) {
+      /* 드롭다운 안 menuitem 클릭 실행(기존 onclick 그대로 발화) 후 메뉴 닫기 */
+      closeAll(null);
+      return;
+    }
+    var willOpen = !item.classList.contains('open');
+    closeAll(item);
+    item.classList.toggle('open', willOpen);
+    item.setAttribute('aria-expanded', String(willOpen));
+  });
+
+  /* 마우스 클릭도 tabindex=-1인 top-level item을 포커스시킬 수 있어
+   * (클릭 포커스는 tabindex 값과 무관하게 동작) focusin 한 곳에서 roving
+   * 상태를 일관되게 갱신한다 — 클릭 자체의 열기/닫기 UX는 위 click
+   * 핸들러 그대로, 변경 없음. */
+  menubar.addEventListener('focusin', function(e) {
+    if (e.target.classList && e.target.classList.contains('menu-item')) {
+      setActiveTopLevel(e.target);
+    }
+  });
+
+  menubar.addEventListener('keydown', function(e) {
+    var mi = e.target.closest('.mi');
+    if (mi) {
+      var miItem = mi.closest('.menu-item');
+      if (!miItem) return;
+      if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+        /* 드롭다운 안 .mi 간 순환 이동 */
+        e.preventDefault();
+        e.stopPropagation();
+        var mis = menuItemsOf(miItem);
+        var idx = mis.indexOf(mi);
+        if (idx === -1 || mis.length === 0) return;
+        var delta = e.key === 'ArrowDown' ? 1 : -1;
+        var n = mis.length;
+        mis[((idx + delta) % n + n) % n].focus();
+      } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+        /* 현재 메뉴 닫고 인접 top-level 메뉴를 열어 그 첫 .mi로 이동 */
+        e.preventDefault();
+        e.stopPropagation();
+        var idx2 = topIndex(miItem);
+        var delta2 = e.key === 'ArrowRight' ? 1 : -1;
+        var next = topLevelAt(idx2 + delta2);
+        setActiveTopLevel(next);
+        openItem(next);
+        var fmi = menuItemsOf(next)[0];
+        if (fmi) fmi.focus(); else next.focus();
+      } else if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        miItem.classList.remove('open');
+        miItem.setAttribute('aria-expanded', 'false');
+        setActiveTopLevel(miItem);
+        miItem.focus();
+      }
+      /* Enter/Space는 여기서 처리하지 않고 그대로 버블링시켜 3-3 전역
+       * 위임(document keydown)이 el.click()으로 실행하게 둔다. */
+      return;
+    }
+
+    var item = e.target.closest('.menu-item');
+    if (!item) return;
+    if (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar' || e.key === 'ArrowDown') {
+      /* stopPropagation 필수: document 레벨의 다른 전역 keydown(예: vm.js의
+       * VM 목록 j/k/Enter 탐색)이 같은 Enter를 가로채 화면을 전환하는
+       * 충돌이 실측에서 확인됨(currentTab이 dashboard/summary 등일 때
+       * 메뉴 Enter가 VM Summary로 넘어가버림) — 위젯이 키를 완전히
+       * 소비했음을 명시해 document까지 버블링되지 않게 막는다. */
+      e.preventDefault();
+      e.stopPropagation();
+      setActiveTopLevel(item);
+      openItem(item);
+      var firstMi = menuItemsOf(item)[0];
+      if (firstMi) firstMi.focus();
+    } else if (e.key === 'Escape' && item.classList.contains('open')) {
+      e.preventDefault();
+      e.stopPropagation();
+      item.classList.remove('open');
+      item.setAttribute('aria-expanded', 'false');
+      item.focus();
+    } else if (e.key === 'ArrowLeft' || e.key === 'ArrowRight') {
+      /* top-level 사이 순환 이동. 이미 열려 있던 메뉴가 있었을 때만
+       * 이동한 메뉴도 함께 열어 hover와 동일한 UX를 낸다. */
+      e.preventDefault();
+      e.stopPropagation();
+      var idx3 = topIndex(item);
+      var delta3 = e.key === 'ArrowRight' ? 1 : -1;
+      var wasOpen = item.classList.contains('open');
+      var next2 = topLevelAt(idx3 + delta3);
+      setActiveTopLevel(next2);
+      next2.focus();
+      if (wasOpen) openItem(next2);
+    }
+  });
+
+  /* 메뉴바 바깥 클릭 시 전부 닫기 */
+  document.addEventListener('click', function(e) {
+    if (!menubar.contains(e.target)) closeAll(null);
+  });
+
+  /* 포커스가 메뉴바 밖으로 나가면 전부 닫기 — Tab 이탈 시 .open 이
+   * 남아 드롭다운이 열린 채 방치되는 것을 방지 (relatedTarget 이 null
+   * 인 경우(창 포커스 이탈 등)도 닫는 쪽이 안전) */
+  menubar.addEventListener('focusout', function(e) {
+    if (!menubar.contains(e.relatedTarget)) closeAll(null);
+  });
+})();
+
+/* ═══ 인터랙티브 div/span 키보드 활성화 (프론트 #3, 3-3) ═══
+ * <div role="button|menuitem|link"> 100+ 개가 onclick 만으로 구현되어
+ * Enter/Space에 무반응이었다(네이티브 button/a 가 아니므로 브라우저가
+ * 자동으로 keydown→click 을 발생시켜주지 않음). 전역 keydown 위임 1개로
+ * 보정 — 기존 단축키(app.js: Ctrl+K/N/D/P·Esc·F11)와는 대상 태그가
+ * 겹치지 않아 충돌 없음. defaultPrevented 체크로 상위 메뉴바(3-1, top-level
+ * .menu-item 도 role="menuitem")의 자체 Enter/Space 처리와 이중 발화 방지. */
+document.addEventListener('keydown', function(e) {
+  if (e.defaultPrevented) return;
+  var el = e.target.closest && e.target.closest('[role="button"], [role="menuitem"], [role="link"]');
+  if (!el) return;
+  var tag = el.tagName;
+  if (tag === 'BUTTON' || tag === 'A' || tag === 'INPUT' || tag === 'SELECT' || tag === 'TEXTAREA') return;
+  var role = el.getAttribute('role');
+  var activate = (role === 'link') ? (e.key === 'Enter') : (e.key === 'Enter' || e.key === ' ' || e.key === 'Spacebar');
+  if (!activate) return;
+  e.preventDefault();
+  el.click();
+});
 
 /* ── PCV.nav namespace export ─────────────────────── */
 PCV.nav = {

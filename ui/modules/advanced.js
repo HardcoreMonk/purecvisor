@@ -31,7 +31,7 @@ async function renderTemplates(b) {
 }
 
 function showTemplateCreate() {
-  showModal('<h2>Create VM Template</h2><div class="fr"><label>Name</label><input id="tpl-name" placeholder="web-small"></div><div class="fr"><label>vCPU</label><input id="tpl-vcpu" type="number" value="2"></div><div class="fr"><label>Memory (MB)</label><input id="tpl-mem" type="number" value="2048"></div><div class="fr"><label>Disk (GB)</label><input id="tpl-disk" type="number" value="20"></div><div class="fr"><label>OS Variant</label><input id="tpl-os" value="ubuntu24.04"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doTemplateCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>Create VM Template</h2><div class="fr"><label for="tpl-name">Name</label><input id="tpl-name" placeholder="web-small"></div><div class="fr"><label for="tpl-vcpu">vCPU</label><input id="tpl-vcpu" type="number" value="2"></div><div class="fr"><label for="tpl-mem">Memory (MB)</label><input id="tpl-mem" type="number" value="2048"></div><div class="fr"><label for="tpl-disk">Disk (GB)</label><input id="tpl-disk" type="number" value="20"></div><div class="fr"><label for="tpl-os">OS Variant</label><input id="tpl-os" value="ubuntu24.04"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doTemplateCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doTemplateCreate() {
@@ -91,7 +91,7 @@ async function renderDocker(b) {
 }
 
 function showDockerPull() {
-  showModal('<h2>&#128229; Pull OCI Image</h2><div class="fr"><label>Image</label><input id="dk-image" placeholder="nginx:latest" class="flex-1"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerPull()">Pull</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>&#128229; Pull OCI Image</h2><div class="fr"><label for="dk-image">Image</label><input id="dk-image" placeholder="nginx:latest" class="flex-1"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerPull()">Pull</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doDockerPull() {
@@ -105,7 +105,7 @@ async function doDockerPull() {
 }
 
 function showDockerRun() {
-  showModal('<h2>&#9654; Run OCI Container</h2><div class="fr"><label>Image</label><input id="dkr-image" placeholder="nginx:latest" class="flex-1"></div><div class="fr"><label>Name</label><input id="dkr-name" placeholder="my-container"></div><div class="fr"><label>Ports</label><input id="dkr-ports" placeholder="8080:80"></div><div class="fr"><label>Environment</label><input id="dkr-env" placeholder="KEY=VAL,KEY2=VAL2"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerRun()">Run</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>&#9654; Run OCI Container</h2><div class="fr"><label for="dkr-image">Image</label><input id="dkr-image" placeholder="nginx:latest" class="flex-1"></div><div class="fr"><label for="dkr-name">Name</label><input id="dkr-name" placeholder="my-container"></div><div class="fr"><label for="dkr-ports">Ports</label><input id="dkr-ports" placeholder="8080:80"></div><div class="fr"><label for="dkr-env">Environment</label><input id="dkr-env" placeholder="KEY=VAL,KEY2=VAL2"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerRun()">Run</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doDockerRun() {
@@ -130,7 +130,7 @@ async function renderTerraform(b) {
   b.innerHTML = showSkeleton();
   let h = H.section('&#127981; Terraform IaC Integration');
   h += '<div class="sg grid-2 mb-14">';
-  h += H.card('&#128203; Terraform Plan', '<p class="stat-label mb-8">Preview infrastructure changes before applying.</p><div class="fr"><label>Config (HCL/JSON)</label><textarea id="tf-config" placeholder="resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px"></textarea></div><div class="flex gap-6 mt-8"><button class="btn" onclick="tfPlan()">&#128203; Plan</button><button class="btn btn-g" onclick="tfApply()">&#9989; Apply</button></div><div id="tf-plan-result" class="mt-8"></div>');
+  h += H.card('&#128203; Terraform Plan', '<p class="stat-label mb-8">Preview infrastructure changes before applying.</p><div class="fr"><label for="tf-config">Config (HCL/JSON)</label><textarea id="tf-config" placeholder="resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px"></textarea></div><div class="flex gap-6 mt-8"><button class="btn" onclick="tfPlan()">&#128203; Plan</button><button class="btn btn-g" onclick="tfApply()">&#9989; Apply</button></div><div id="tf-plan-result" class="mt-8"></div>');
   h += H.card('&#128202; Terraform State', '<div id="tf-state"><span class="spinner"></span> Loading state...</div>');
   h += '</div>';
   b.innerHTML = h;
@@ -218,9 +218,9 @@ async function renderConfigMgmt(b) {
        + 'Image Dir: qcow2 fallback path for non-ZFS (e.g. /var/lib/libvirt/images)<br>'
        + 'ISO Dirs: ISO/IMG scan paths (comma separated)')
     + '</p>'
-    + '<div class="fr"><label style="min-width:140px">VM ZFS Pool</label><input id="cfg-zvol" value="' + escapeHtml(stg.zvol_pool || 'pcvpool/vms') + '" placeholder="pcvpool/vms" class="flex-1"></div>'
-    + '<div class="fr"><label style="min-width:140px">Image Dir (qcow2)</label><input id="cfg-imgdir" value="' + escapeHtml(stg.image_dir || '/var/lib/libvirt/images') + '" placeholder="/var/lib/libvirt/images" class="flex-1"></div>'
-    + '<div class="fr"><label style="min-width:140px">ISO Dirs</label><input id="cfg-iso" value="' + escapeHtml(stg.iso_dirs || '') + '" placeholder="/pcvpool/iso,/iso" class="flex-1"></div>'
+    + '<div class="fr"><label for="cfg-zvol" style="min-width:140px">VM ZFS Pool</label><input id="cfg-zvol" value="' + escapeHtml(stg.zvol_pool || 'pcvpool/vms') + '" placeholder="pcvpool/vms" class="flex-1"></div>'
+    + '<div class="fr"><label for="cfg-imgdir" style="min-width:140px">Image Dir (qcow2)</label><input id="cfg-imgdir" value="' + escapeHtml(stg.image_dir || '/var/lib/libvirt/images') + '" placeholder="/var/lib/libvirt/images" class="flex-1"></div>'
+    + '<div class="fr"><label for="cfg-iso" style="min-width:140px">ISO Dirs</label><input id="cfg-iso" value="' + escapeHtml(stg.iso_dirs || '') + '" placeholder="/pcvpool/iso,/iso" class="flex-1"></div>'
     + '<button class="btn btn-g mt-8" onclick="saveStorageCfg(\'vm\')">&#128190; ' + _L('저장', 'Save') + '</button>'
     + '<div id="cfg-vm-result" style="margin-top:6px;font-size:11px"></div>');
   h += H.card('&#9783; Container Storage', ''
@@ -230,8 +230,8 @@ async function renderConfigMgmt(b) {
          'ZFS Pool: Container ZFS dataset (e.g. pcvpool/containers)<br>'
        + 'LXC Path: Container config/rootfs storage path')
     + '</p>'
-    + '<div class="fr"><label style="min-width:140px">Container ZFS Pool</label><input id="cfg-ctrpool" value="' + escapeHtml(stg.container_pool || 'pcvpool/containers') + '" placeholder="pcvpool/containers" class="flex-1"></div>'
-    + '<div class="fr"><label style="min-width:140px">LXC Path</label><input id="cfg-lxcpath" value="' + escapeHtml(ctr.lxc_path || '/var/lib/purecvisor/lxc') + '" placeholder="/var/lib/purecvisor/lxc" class="flex-1"></div>'
+    + '<div class="fr"><label for="cfg-ctrpool" style="min-width:140px">Container ZFS Pool</label><input id="cfg-ctrpool" value="' + escapeHtml(stg.container_pool || 'pcvpool/containers') + '" placeholder="pcvpool/containers" class="flex-1"></div>'
+    + '<div class="fr"><label for="cfg-lxcpath" style="min-width:140px">LXC Path</label><input id="cfg-lxcpath" value="' + escapeHtml(ctr.lxc_path || '/var/lib/purecvisor/lxc') + '" placeholder="/var/lib/purecvisor/lxc" class="flex-1"></div>'
     + '<button class="btn btn-g mt-8" onclick="saveStorageCfg(\'ctr\')">&#128190; ' + _L('저장', 'Save') + '</button>'
     + '<div id="cfg-ctr-result" style="margin-top:6px;font-size:11px"></div>');
   h += '</div>';
@@ -247,7 +247,7 @@ async function renderConfigMgmt(b) {
 }
 
 async function saveStorageCfg(type) {
-  var pairs = [];
+  var pairs;
   var resultEl;
   if (type === 'vm') {
     resultEl = document.getElementById('cfg-vm-result');
@@ -307,7 +307,7 @@ async function loadConfigHistoryInline() {
 
 /* ═══ OVA IMPORT ═══ */
 function showImportOva() {
-  showModal('<h2>&#128230; Import OVA</h2><div class="fr"><label>OVA Path</label><input id="ova-path" placeholder="/path/to/vm.ova" class="flex-1"></div><div class="fr"><label>VM Name</label><input id="ova-name" placeholder="imported-vm"></div><div class="fr"><label>Pool</label><input id="ova-pool" value="pcvpool/vms"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doImportOva()">Import</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>&#128230; Import OVA</h2><div class="fr"><label for="ova-path">OVA Path</label><input id="ova-path" placeholder="/path/to/vm.ova" class="flex-1"></div><div class="fr"><label for="ova-name">VM Name</label><input id="ova-name" placeholder="imported-vm"></div><div class="fr"><label for="ova-pool">Pool</label><input id="ova-pool" value="pcvpool/vms"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doImportOva()">Import</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doImportOva() {
@@ -360,7 +360,7 @@ async function doConfigReload() {
 
 /* ═══ BACKUP SNAPSHOT VERIFY ═══ */
 async function showBackupVerify() {
-  var html = '<div class="form-group"><label>' + _L('스냅샷 이름', 'Snapshot Name') + '</label>';
+  var html = '<div class="form-group"><label for="verify-snap">' + _L('스냅샷 이름', 'Snapshot Name') + '</label>';
   html += '<input id="verify-snap" class="input-field" placeholder="pcvpool/vms/web-prod@daily-20260401"></div>';
   showModal(_L('스냅샷 무결성 검증', 'Verify Snapshot Integrity'), html, async function() {
     var snap = document.getElementById('verify-snap').value.trim();

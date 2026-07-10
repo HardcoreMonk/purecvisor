@@ -112,6 +112,9 @@ case "$1" in
         cp -a /etc/purecvisor/daemon.conf.sample /etc/purecvisor/daemon.conf
         echo "purecvisor-single: /etc/purecvisor/daemon.conf 생성(sample 기반) — admin_password 등 편집 필요"
     fi
+    # admin_password 등 자격증명이 담기므로 root 전용 권한 강제 (world-readable 방지)
+    chmod 600 /etc/purecvisor/daemon.conf 2>/dev/null || true
+    chown root:root /etc/purecvisor/daemon.conf 2>/dev/null || true
     systemctl daemon-reload || true
     systemctl enable purecvisorsd.service || true
     echo "purecvisor-single 설치 완료. 시작: systemctl start purecvisorsd"

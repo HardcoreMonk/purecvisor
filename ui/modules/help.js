@@ -31,7 +31,7 @@ function renderHelp(b) {
     + '<div style="flex:1;min-width:200px"><div style="font-size:15px;font-weight:600;color:var(--accent);margin-bottom:4px">' + _L('PureCVisor 완벽 가이드', 'PureCVisor Complete Guide') + '</div>'
     + '<div style="font-size:12px;color:var(--fg2)">' + _L('18개 챕터, 설치부터 트러블슈팅까지 전체 문서를 ReadTheDocs 스타일로 탐색하세요.', 'Browse all 18 chapters from installation to troubleshooting in a ReadTheDocs-style viewer.') + '</div></div>'
     + '<a href="/ui/guide.html" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;background:var(--accent);color:#000;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">&#128214; ' + _L('가이드 열기', 'Open Guide') + '</a></div>';
-  h += '<div class="mb-16"><input id="help-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterHelp()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
+  h += '<div class="mb-16"><input aria-label="' + t('search') + '" id="help-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterHelp()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
   h += '<div id="help-content">';
   var helpData = buildHelpData();
   function buildHelpData() {
@@ -162,7 +162,7 @@ window.renderRestGuide = renderRestGuide;
 /* ═══ SERVICE GUIDE ═══ */
 function renderServiceGuide(b) {
   var h = H.sectionLg(_L('PureCVisor 서비스 가이드', 'PureCVisor Service Guide'));
-  h += '<div class="mb-16"><input id="guide-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterGuide()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
+  h += '<div class="mb-16"><input aria-label="' + t('search') + '" id="guide-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterGuide()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
   h += '<div id="guide-content">';
 
   var services = [
@@ -415,7 +415,7 @@ function renderSwaggerApi(b) {
   var h = '<h3 style="font-family:var(--font-display);margin-bottom:8px">&#128214; PureCVisor REST API</h3>';
   h += '<div class="flex gap-10 mb-8">' + H.badge('OpenAPI 3.0', 'g') + H.badge(total + ' ' + _L('엔드포인트', 'Endpoints'), 'y') + H.badge('JWT + RBAC', 'r') + '</div>';
   h += '<div class="stat-label mb-12">' + _L('기본', 'Base') + ': <code>/api/v1</code> | ' + _L('인증', 'Auth') + ': <code>Bearer JWT</code></div>';
-  h += '<div class="mb-12"><input id="sw-search" class="sb-search" placeholder="' + _L('엔드포인트 검색...', 'Search endpoints...') + '" oninput="filterSwagger()" style="max-width:500px;font-size:13px;padding:8px 12px;border-radius:6px"></div>';
+  h += '<div class="mb-12"><input aria-label="' + _L('엔드포인트 검색...', 'Search endpoints...') + '" id="sw-search" class="sb-search" placeholder="' + _L('엔드포인트 검색...', 'Search endpoints...') + '" oninput="filterSwagger()" style="max-width:500px;font-size:13px;padding:8px 12px;border-radius:6px"></div>';
   endpoints.forEach(function(g) {
     h += '<div class="mb-16 sw-group"><div style="font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid rgba(0,240,255,.15);padding:6px 0;margin-bottom:4px">' + g.tag + '</div>';
     g.endpoints.forEach(function(e, i) { var id = 'sw-' + g.tag.replace(/\W/g, '') + i;

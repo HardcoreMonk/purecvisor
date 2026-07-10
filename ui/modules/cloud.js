@@ -27,25 +27,25 @@ async function renderCloudMigration(b) {
   /* Import 폼 */
   h += '<div class="hc"><h4 style="color:var(--accent)">&#128229; Import (EC2 &#8594; PureCVisor)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">AWS EC2 AMI를 PureCVisor VM으로 가져옵니다. EBS→S3→다운로드→qcow2 변환→VM 생성</p>';
-  h += '<div class="fr"><label>VM Name</label><input id="cm-imp-name" placeholder="web-prod"></div>';
-  h += '<div class="fr"><label>AMI ID</label><input id="cm-imp-ami" placeholder="ami-0abcdef1234"></div>';
-  h += '<div class="fr"><label>Region</label><select id="cm-imp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option><option value="ap-southeast-1">ap-southeast-1 (Singapore)</option></select></div>';
-  h += '<div class="fr"><label>S3 Bucket</label><input id="cm-imp-bucket" placeholder="pcv-migration"></div>';
-  h += '<div class="fr"><label>vCPU</label><input id="cm-imp-vcpu" type="number" value="2" min="1" max="64" style="width:80px"></div>';
-  h += '<div class="fr"><label>Memory (MB)</label><input id="cm-imp-mem" type="number" value="2048" style="width:100px"></div>';
-  h += '<div class="fr"><label>Bridge</label><input id="cm-imp-br" value="pcvbr0" style="width:120px"></div>';
-  h += '<div class="fr"><label>Mode</label><select id="cm-imp-mode" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="standard">Standard (full download)</option><option value="near-live">Near-Live (2-phase, minimal downtime)</option></select></div>';
+  h += '<div class="fr"><label for="cm-imp-name">VM Name</label><input id="cm-imp-name" placeholder="web-prod"></div>';
+  h += '<div class="fr"><label for="cm-imp-ami">AMI ID</label><input id="cm-imp-ami" placeholder="ami-0abcdef1234"></div>';
+  h += '<div class="fr"><label for="cm-imp-region">Region</label><select id="cm-imp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option><option value="ap-southeast-1">ap-southeast-1 (Singapore)</option></select></div>';
+  h += '<div class="fr"><label for="cm-imp-bucket">S3 Bucket</label><input id="cm-imp-bucket" placeholder="pcv-migration"></div>';
+  h += '<div class="fr"><label for="cm-imp-vcpu">vCPU</label><input id="cm-imp-vcpu" type="number" value="2" min="1" max="64" style="width:80px"></div>';
+  h += '<div class="fr"><label for="cm-imp-mem">Memory (MB)</label><input id="cm-imp-mem" type="number" value="2048" style="width:100px"></div>';
+  h += '<div class="fr"><label for="cm-imp-br">Bridge</label><input id="cm-imp-br" value="pcvbr0" style="width:120px"></div>';
+  h += '<div class="fr"><label for="cm-imp-mode">Mode</label><select id="cm-imp-mode" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="standard">Standard (full download)</option><option value="near-live">Near-Live (2-phase, minimal downtime)</option></select></div>';
   h += '<button class="btn btn-g" onclick="cmDoImport()" style="margin-top:8px;width:100%">&#128229; Start Import</button>';
   h += '</div>';
 
   /* Export 폼 */
   h += '<div class="hc"><h4 style="color:var(--green)">&#128230; Export (PureCVisor &#8594; EC2)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">PureCVisor VM을 AWS EC2 AMI로 내보냅니다. qcow2→RAW→S3→AMI 등록</p>';
-  h += '<div class="fr"><label>VM Name</label><select id="cm-exp-name" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">' + t('loading') + '</option></select></div>';
-  h += '<div class="fr"><label>Region</label><select id="cm-exp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option></select></div>';
-  h += '<div class="fr"><label>S3 Bucket</label><input id="cm-exp-bucket" placeholder="pcv-migration"></div>';
-  h += '<div class="fr"><label>AMI Name</label><input id="cm-exp-ami-name" placeholder="web-prod-exported"></div>';
-  h += '<div class="fr"><label>Description</label><input id="cm-exp-desc" placeholder="Exported from PureCVisor"></div>';
+  h += '<div class="fr"><label for="cm-exp-name">VM Name</label><select id="cm-exp-name" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">' + t('loading') + '</option></select></div>';
+  h += '<div class="fr"><label for="cm-exp-region">Region</label><select id="cm-exp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option></select></div>';
+  h += '<div class="fr"><label for="cm-exp-bucket">S3 Bucket</label><input id="cm-exp-bucket" placeholder="pcv-migration"></div>';
+  h += '<div class="fr"><label for="cm-exp-ami-name">AMI Name</label><input id="cm-exp-ami-name" placeholder="web-prod-exported"></div>';
+  h += '<div class="fr"><label for="cm-exp-desc">Description</label><input id="cm-exp-desc" placeholder="Exported from PureCVisor"></div>';
   h += '<button class="btn btn-g" onclick="cmDoExport()" style="margin-top:8px;width:100%">&#128230; Start Export</button>';
   h += '</div></div>';
 
@@ -73,7 +73,8 @@ async function renderCloudMigration(b) {
   /* 작업 상태 로드 + 폴링 시작 */
   cmLoadJobs();
   if (_cloudPollTimer) clearInterval(_cloudPollTimer);
-  _cloudPollTimer = setInterval(cmLoadJobs, 5000);
+  /* 프론트 #4-A: 비가시 탭 폴링 중단 — document.hidden이면 콜백 진입부에서 스킵 */
+  _cloudPollTimer = setInterval(() => { if (document.hidden) return; cmLoadJobs(); }, 5000);
 }
 window.renderCloudMigration = renderCloudMigration;
 

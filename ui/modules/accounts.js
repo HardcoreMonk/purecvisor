@@ -67,9 +67,9 @@ async function renderAccounts(b) {
         ],
         rows: l.map(function(u) {
           var rc = u.role === 'admin' ? 'var(--red)' : u.role === 'operator' ? 'var(--yellow)' : 'var(--fg2)';
-          var actions = '';
+          var actions;
           if (u.username !== 'admin') {
-            actions = '<select id="role-' + escapeHtml(u.username) + '" style="background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:2px 6px;font-size:10px"><option ' + (u.role === 'viewer' ? 'selected' : '') + '>viewer</option><option ' + (u.role === 'operator' ? 'selected' : '') + '>operator</option><option ' + (u.role === 'admin' ? 'selected' : '') + '>admin</option></select> <button class="btn btn-xxs" onclick="acctRole(\'' + escapeHtml(u.username) + '\')">Set</button> <button class="btn btn-r btn-xxs" onclick="acctDel(\'' + escapeHtml(u.username) + '\')">' + t('btn.delete') + '</button>';
+            actions = '<select id="role-' + escapeHtml(u.username) + '" aria-label="' + escapeHtml(u.username) + ' role" style="background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:2px 6px;font-size:10px"><option ' + (u.role === 'viewer' ? 'selected' : '') + '>viewer</option><option ' + (u.role === 'operator' ? 'selected' : '') + '>operator</option><option ' + (u.role === 'admin' ? 'selected' : '') + '>admin</option></select> <button class="btn btn-xxs" onclick="acctRole(\'' + escapeHtml(u.username) + '\')">Set</button> <button class="btn btn-r btn-xxs" onclick="acctDel(\'' + escapeHtml(u.username) + '\')">' + t('btn.delete') + '</button>';
           } else {
             actions = '<span class="stat-label">System admin</span>';
           }
@@ -85,7 +85,7 @@ async function renderAccounts(b) {
         emptyText: 'No users'
       });
     }, 0);
-    h += H.card(t('btn.create') + ' User', '<div class="fr"><label>Username</label><input id="acct-user" placeholder="newuser"></div><div class="fr"><label>Password</label><input id="acct-pass" type="password" placeholder="password"></div><div class="fr"><label>Role</label><select id="acct-role" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option>viewer</option><option selected>operator</option><option>admin</option></select></div><button class="btn btn-g mt-8 w-full" onclick="acctCreate()">' + t('btn.create') + ' User</button>');
+    h += H.card(t('btn.create') + ' User', '<div class="fr"><label for="acct-user">Username</label><input id="acct-user" placeholder="newuser"></div><div class="fr"><label for="acct-pass">Password</label><input id="acct-pass" type="password" placeholder="password"></div><div class="fr"><label for="acct-role">Role</label><select id="acct-role" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option>viewer</option><option selected>operator</option><option>admin</option></select></div><button class="btn btn-g mt-8 w-full" onclick="acctCreate()">' + t('btn.create') + ' User</button>');
     h += '</div>';
     b.innerHTML = h;
   } catch (e) { b.innerHTML = '<p class="color-red">Error loading accounts</p>'; }
@@ -130,16 +130,16 @@ async function renderApiManagement(b) {
     var rl = document.getElementById('api-rl-count');
     if (rl) rl.textContent = '600 req/min';
   });
-  h += H.card('<span class="color-accent">&#128272; JWT Token — Quick Test</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><input id="apimgmt-user" value="admin" placeholder="Username" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><input id="apimgmt-pass" type="password" value="admin" placeholder="Password" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><button class="btn btn-g" onclick="apiMgmtGetToken()">&#9654; Get Token</button><button class="btn" onclick="apiMgmtTestHealth()">&#128994; Health Check</button></div><div id="apimgmt-token-result" class="stat-label" style="word-break:break-all;max-height:60px;overflow:auto"></div>', 'mb-14');
-  h += H.card('<span class="color-green">&#128640; API Request Tester</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><select id="apimgmt-method" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><input id="apimgmt-path" value="/api/v1/vms" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px"><button class="btn btn-g" onclick="apiMgmtSend()">&#9654; Send</button></div><textarea id="apimgmt-body" placeholder="Request body (JSON)" rows="2" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical"></textarea><div id="apimgmt-result" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none"></div>', 'mb-14');
+  h += H.card('<span class="color-accent">&#128272; JWT Token — Quick Test</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><input aria-label="Username" id="apimgmt-user" value="admin" placeholder="Username" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><input aria-label="Password" id="apimgmt-pass" type="password" value="admin" placeholder="Password" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><button class="btn btn-g" onclick="apiMgmtGetToken()">&#9654; Get Token</button><button class="btn" onclick="apiMgmtTestHealth()">&#128994; Health Check</button></div><div id="apimgmt-token-result" class="stat-label" style="word-break:break-all;max-height:60px;overflow:auto"></div>', 'mb-14');
+  h += H.card('<span class="color-green">&#128640; API Request Tester</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><select id="apimgmt-method" aria-label="HTTP method" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><input id="apimgmt-path" aria-label="API endpoint path" value="/api/v1/vms" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px"><button class="btn btn-g" onclick="apiMgmtSend()">&#9654; Send</button></div><textarea aria-label="Request body (JSON)" id="apimgmt-body" placeholder="Request body (JSON)" rows="2" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical"></textarea><div id="apimgmt-result" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none"></div>', 'mb-14');
   h += H.card('<span class="color-yellow">&#128268; gRPC Server</span>', '<div id="grpc-status" class="text-12 color-muted">Checking...</div><div style="margin-top:6px;font-size:11px;color:var(--fg2)">Port: 50051 | Protocol: protobuf-c binary framing<br>Transport: TCP (HTTP/2 planned)<br>Config: daemon.conf <code>[grpc] enabled=true</code></div>', 'mb-14');
 
   /* API Key Management */
   h += '<div class="hc mb-14"><h4>&#128273; API Keys</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.</p>';
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
-  h += '<input id="apikey-desc" placeholder="Key description (e.g. CI pipeline)" style="flex:1;min-width:180px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px">';
-  h += '<input id="apikey-expiry" type="number" value="90" min="1" max="365" style="width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px" title="Expiry (days)">';
+  h += '<input aria-label="Key description (e.g. CI pipeline)" id="apikey-desc" placeholder="Key description (e.g. CI pipeline)" style="flex:1;min-width:180px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px">';
+  h += '<input id="apikey-expiry" aria-label="Expiry (days)" type="number" value="90" min="1" max="365" style="width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px" title="Expiry (days)">';
   h += '<span class="color-muted" style="font-size:11px;align-self:center">days</span>';
   h += '<button class="btn btn-g" onclick="apiKeyCreate()">+ Create Key</button>';
   h += '</div>';
@@ -191,11 +191,11 @@ function renderAgentTab(d) { const b = document.getElementById('agent-tab-body')
 function renderAgentProviders(b, d) {
   const provs = d.providers || []; let h = '';
   provs.forEach((p, i) => { const ico = { Claude: '&#129302;', OpenAI: '&#9889;', Gemini: '&#128142;', Ollama: '&#128026;' }[p.name] || '&#9881;';
-    h += '<div class="hc mb-10"><h4 class="justify-between items-center"><span>' + ico + ' ' + p.name + '</span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px"><input type="checkbox" id="agen' + i + '" ' + (p.enabled ? 'checked' : '') + ' style="accent-color:var(--accent)">' + (p.enabled ? '<span class="color-green">ENABLED</span>' : '<span class="color-muted">DISABLED</span>') + '</label></h4>';
-    h += '<div class="fr"><label>Model</label><input id="agm' + i + '" value="' + (p.model || '') + '" class="text-11"></div>';
-    h += '<div class="fr"><label>API Key</label><div class="flex gap-4 flex-1"><input id="agk' + i + '" type="password" value="' + (p.api_key || '') + '" class="text-11 flex-1"><button class="btn" onclick="toggleKeyVis(' + i + ')" style="font-size:10px;padding:4px 8px" id="agt' + i + '">Show</button></div></div>';
-    h += '<div class="fr"><label>Endpoint</label><input id="age' + i + '" value="' + (p.endpoint || '') + '" class="text-11"></div>';
-    h += '<div class="flex gap-6 mt-8"><button class="btn" onclick="testProvider(' + i + ',\'' + p.name + '\')" style="font-size:10px;padding:4px 10px">&#9889; Test</button>';
+    h += '<div class="hc mb-10"><h4 class="justify-between items-center"><span>' + ico + ' ' + escapeHtml(p.name) + '</span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px"><input type="checkbox" id="agen' + i + '" ' + (p.enabled ? 'checked' : '') + ' style="accent-color:var(--accent)">' + (p.enabled ? '<span class="color-green">ENABLED</span>' : '<span class="color-muted">DISABLED</span>') + '</label></h4>';
+    h += '<div class="fr"><label for="agm' + i + '">Model</label><input id="agm' + i + '" value="' + escapeAttr(p.model || '') + '" class="text-11"></div>';
+    h += '<div class="fr"><label for="agk' + i + '">API Key</label><div class="flex gap-4 flex-1"><input id="agk' + i + '" type="password" value="' + escapeAttr(p.api_key || '') + '" class="text-11 flex-1"><button class="btn" onclick="toggleKeyVis(' + i + ')" style="font-size:10px;padding:4px 8px" id="agt' + i + '">Show</button></div></div>';
+    h += '<div class="fr"><label for="age' + i + '">Endpoint</label><input id="age' + i + '" value="' + escapeAttr(p.endpoint || '') + '" class="text-11"></div>';
+    h += '<div class="flex gap-6 mt-8"><button class="btn" onclick="testProvider(' + i + ',\'' + escapeAttr(p.name) + '\')" style="font-size:10px;padding:4px 10px">&#9889; Test</button>';
     h += (i === 0 ? '<button class="btn" onclick="testAllProviders()" style="font-size:10px;padding:4px 10px">&#9889; Test All</button>' : '');
     h += '<span id="agr' + i + '" class="text-11"></span></div></div>'; });
   h += '<div class="flex gap-8 justify-end mt-14"><button class="btn btn-g" onclick="saveAgentConfig()">' + t('btn.save') + ' All</button><button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
@@ -204,8 +204,8 @@ function renderAgentProviders(b, d) {
 
 function renderAgentSettings(b, d) {
   let h = '<div class="hc mb-10"><h4>&#9881; General ' + t('vm.settings') + '</h4>';
-  h += '<div class="fr"><label>Rate Limit</label><div class="flex gap-6 items-center flex-1"><input id="ag-rate" type="number" value="' + (d.rate_limit_sec || 300) + '" class="text-11 w-80"><span class="stat-label">seconds between queries</span></div></div>';
-  h += '<div class="fr"><label>Timeout</label><div class="flex gap-6 items-center flex-1"><input id="ag-timeout" type="number" value="' + (d.timeout_sec || 10) + '" class="text-11 w-80"><span class="stat-label">seconds per request</span></div></div></div>';
+  h += '<div class="fr"><label for="ag-rate">Rate Limit</label><div class="flex gap-6 items-center flex-1"><input id="ag-rate" type="number" value="' + (d.rate_limit_sec || 300) + '" class="text-11 w-80"><span class="stat-label">seconds between queries</span></div></div>';
+  h += '<div class="fr"><label for="ag-timeout">Timeout</label><div class="flex gap-6 items-center flex-1"><input id="ag-timeout" type="number" value="' + (d.timeout_sec || 10) + '" class="text-11 w-80"><span class="stat-label">seconds per request</span></div></div></div>';
   h += '<div class="hc mb-10"><h4>&#128202; Statistics</h4>' + H.row('Total Queries', '<span class="color-accent">' + (d.total_queries || 0) + '</span>');
   const en = ((d.providers || []).filter(p => p.enabled).length);
   h += H.row('Active Providers', '<span class="color-green">' + en + ' / ' + (d.providers || []).length + '</span>') + '</div>';
@@ -377,7 +377,7 @@ async function renderSessions(b) {
   var h = H.section(_L('세션 관리', 'Session Management'));
   h += '<div class="mb-8">' + _L('활성 JWT 세션을 관리합니다.', 'Manage active JWT sessions.') + '</div>';
   h += '<div class="flex gap-8 mb-12">';
-  h += '<input id="revoke-jti" placeholder="' + _L('세션 JTI 입력', 'Enter session JTI') + '" class="input-field flex-1">';
+  h += '<input aria-label="' + _L('세션 JTI 입력', 'Enter session JTI') + '" id="revoke-jti" placeholder="' + _L('세션 JTI 입력', 'Enter session JTI') + '" class="input-field flex-1">';
   h += '<button class="btn btn-r" onclick="revokeSession()" aria-label="' + _L('세션 강제 해제', 'Revoke session') + '">' + _L('강제 해제', 'Force Logout') + '</button>';
   h += '</div>';
   h += '<div class="empty-state p-20 text-center">';
@@ -428,9 +428,9 @@ async function renderApiKeys(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 async function showApiKeyCreate() {
-  var html = '<div class="form-group"><label>' + _L('클라이언트 이름', 'Client Name') + '</label>';
+  var html = '<div class="form-group"><label for="ak-name">' + _L('클라이언트 이름', 'Client Name') + '</label>';
   html += '<input id="ak-name" class="input-field" placeholder="grafana-scraper"></div>';
-  html += '<div class="form-group"><label>' + _L('역할', 'Role') + '</label>';
+  html += '<div class="form-group"><label for="ak-role">' + _L('역할', 'Role') + '</label>';
   html += '<select id="ak-role" class="input-field"><option value="0">viewer</option><option value="1" selected>operator</option><option value="2">admin</option></select></div>';
   showModal(_L('API 키 생성', 'Create API Key'), html, async function() {
     var name = document.getElementById('ak-name').value.trim();

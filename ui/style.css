@@ -93,7 +93,8 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   display: none; z-index: 300;
   box-shadow: 0 8px 30px rgba(0,0,0,.35);
 }
-.menu-item:hover .menu-drop { display: block; }
+.menu-item:hover .menu-drop,
+.menu-item.open .menu-drop { display: block; }
 .menu-drop .mi {
   padding: 6px 24px 6px 12px; font-size: 12px; cursor: pointer;
   display: flex; justify-content: space-between; align-items: center;

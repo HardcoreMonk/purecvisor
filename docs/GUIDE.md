@@ -157,12 +157,12 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "1.0",
+    "version": "1.1.1",
     "node_name": "standalone"
 }
 ```
 
-제품 버전의 현재 공개 표기는 `1.0`이다. 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
+제품 버전의 현재 공개 표기는 `1.1`이다(태그 `v1.1.1`). 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
 
 ```bash
 # 3. bootstrap admin으로 첫 인증 토큰 발급
@@ -1230,7 +1230,7 @@ pcvctl vm import-ova /tmp/web-prod.ova web-imported
 
 ### 3.7 Guest Agent 연동
 
-QEMU Guest Agent는 VM 내부 패키지와 libvirt channel이 함께 있어야 사용할 수 있다. PureCVisor는 상태 진단과 channel 보정을 제공하고, 패키지 설치는 VM 내부에서 운영자가 수행한다.
+QEMU Guest Agent는 VM 내부 패키지와 libvirt channel이 함께 있어야 사용할 수 있다. **v1.1부터 `vm create`가 생성하는 VM에는 guest-agent channel이 기본 포함**되므로 신규 VM은 별도 보정이 필요 없다(패키지만 VM 내부에서 설치). `guest-agent-ensure-channel`은 채널이 없는 **기존/레거시 VM 보정**용이다. PureCVisor는 상태 진단과 channel 보정을 함께 제공한다.
 
 Web UI에서는 `대시보드 > 요약`에서 VM을 선택한 뒤 Storage 카드의 `디스크 사용량` 버튼으로 게스트 파일시스템 사용량을 확인한다.
 이 조회는 qemu-guest-agent의 고정 `guest-get-fsinfo` 명령만 사용하며, 임의 guest-exec 명령을 실행하지 않는다.
@@ -2623,9 +2623,13 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 
 권장 순서:
 1. `admin_password`를 명시 설정한 뒤 bootstrap admin으로 첫 로그인
-2. `pcvctl auth create <name> <password> admin`으로 전용 admin 생성
+2. `pcvctl auth create <name> <password> admin`으로 전용 admin 생성 (또는 `POST /api/v1/auth/users`)
 3. `daemon.conf`의 bootstrap admin 비밀번호를 강한 값으로 교체
 4. 이후 일상 운영과 API 사용은 전용 admin으로 수행
+
+> **평문 완전 제거 변형(선택)**: 3단계에서 강한 값으로 교체하는 대신 `admin_password=`를 **비우고** 데몬을 재기동하면 bootstrap admin이 비활성화되어 `daemon.conf`에 평문 자격증명이 전혀 남지 않는다. 전용 admin(RBAC DB 해시)만으로 운영. **트레이드오프**: 비상 진입 계정이 사라지므로, 전용 admin 자격증명 분실 시 다시 `admin_password`를 설정·재기동해야 재진입할 수 있다.
+>
+> **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 `chmod 600 root:root`** 여야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
 
 per-user 쿼터 (v1.0): 사용자별 VM 수, CPU 코어, 메모리 상한 설정 가능.
 

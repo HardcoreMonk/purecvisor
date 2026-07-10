@@ -183,21 +183,24 @@ if $HAS_UI_CHANGES; then
         pass "프론트엔드 패턴 검증 통과"
     fi
 
-    # ESLint (errors only) — node 있을 때만
+    # ESLint (errors only, 프론트 #4-B) — 설치 시에만 실행.
+    # node_modules 존재 여부가 아니라 `npx --no-install eslint` 자체 가용성으로
+    # 판별 (Makefile ui-bundle의 esbuild 감지와 동일 관례) — puppeteer 등
+    # 다른 devDependency만 설치되고 eslint 미설치인 환경에서도 정확히 skip.
     if command -v node &>/dev/null && [ -f package.json ]; then
         GATE=$((GATE+1))
         echo -e "${CYAN}[$GATE] ESLint (zero errors)${NC}"
-        if [ -d node_modules ]; then
-            ES_OUT=$(npx eslint ui/modules ui/app.js ui/i18n.js 2>&1)
+        if npx --no-install eslint --version >/dev/null 2>&1; then
+            ES_OUT=$(npx --no-install eslint ui/app.js ui/i18n.js ui/sw.js ui/modules 2>&1)
             ES_EXIT=$?
             if [ $ES_EXIT -ne 0 ]; then
                 fail "ESLint 에러 — npx eslint 출력 확인"
                 echo "$ES_OUT" | tail -10
             else
-                pass "$(echo "$ES_OUT" | grep -oE '[0-9]+ problems.*' | head -1 || echo 'ESLint 통과')"
+                pass "$(echo "$ES_OUT" | grep -oE '[0-9]+ problems.*' | head -1 || echo 'ESLint 통과 (0 errors)')"
             fi
         else
-            skip "node_modules 없음 — npm install 필요"
+            skip "ESLint 미설치 — npm install 필요"
         fi
     fi
 

@@ -3,6 +3,24 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.1.2 — 2026-07-07
+
+프론트엔드 전수조사 백로그 #1~#5 완결 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만).
+
+### UI / Accessibility
+- 메뉴바 WAI-ARIA roving tabindex 완성: top-level 8개 단일 탭 스톱(활성만 tabindex=0), 드롭다운 `.mi` 45개 JS 일괄 tabindex=-1, Enter/Space/↓ 열기→첫 항목 포커스, ↑/↓ 순환, 드롭다운 내 ←/→ 인접 메뉴 이동, Esc 닫기+복귀. activity-bar 아이콘 6개 키보드 도달 가능.
+- vm.js F1 전역 keydown 위젯 가드(defaultPrevented + 메뉴바/role 위젯 제외) — 메뉴 Enter가 VM Summary로 화면을 가로채던 충돌 근본 해소. j/k/Enter VM 탐색 불변.
+
+### UI / Architecture
+- vm.js(2643 LOC)를 vm / vm-console / vm-lifecycle / vm-guest 4모듈로 분할 — 조각별 완결 IIFE(ADR-0013), export 재배치(PCV.vm 41키·window shim 99개 보존), 본문 순수 이동.
+- DOM-safe 기반(zone ADR-013): `PCV.uxlib.el/frag/clearEl` 빌더(HTML 파싱 경로 없음), `npm run lint:domsafe` 가시성 래칫, 프로젝트 CLAUDE.md invariant 신설.
+
+### Tooling / Docs
+- UI 실브라우저 검증 레시피 `.claude/skills/verify/SKILL.md` (목 API + Playwright).
+- 배포 handoff: `docs/operations/2026-07-07-frontend-batch-deploy-handoff.md`.
+
+---
+
 ## v1.1.1 — 2026-07-06
 
 패키징·빌드 위생 패치 릴리스 (신규 기능 없음). 런타임 버전 표시를 full semver(1.1.1)로 정합.

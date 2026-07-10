@@ -401,7 +401,7 @@ function _opsVmRows(sourceVms) {
 }
 
 function _opsAuditRows() {
-  var raw = [];
+  var raw;
   try { raw = (window.eventLog || eventLog || []).slice(-3).reverse(); } catch (e) { raw = []; }
   if (raw.length === 0) {
     raw = [
@@ -427,8 +427,8 @@ async function renderOpsTriage(b) {
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   b.innerHTML = showSkeleton();
-  var all = [];
-  var apiVms = [];
+  var all;
+  var apiVms;
   try {
     var result = await Promise.all([
       fetchAllMetrics().catch(function() { return []; }),
@@ -914,17 +914,17 @@ async function renderAlerts(b) {
   h += '<div class="sg grid-3 mb-16">';
   [{ name: 'CPU', warn: 'cpu_warn', crit: 'cpu_crit' }, { name: 'Memory', warn: 'mem_warn', crit: 'mem_crit' }, { name: 'Disk', warn: 'disk_warn', crit: 'disk_crit' }].forEach(m => {
     const wv = v(m.warn, 80), cv2 = v(m.crit, 95);
-    h += '<div class="hc"><h4>' + m.name + ' Thresholds</h4><div style="margin:8px 0">' + H.row('Warning (%)', '<input type="number" id="al-' + m.warn + '" value="' + wv + '" min="0" max="100" style="width:60px;background:var(--bg);color:var(--yellow);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">') + H.row('Critical (%)', '<input type="number" id="al-' + m.crit + '" value="' + cv2 + '" min="0" max="100" style="width:60px;background:var(--bg);color:var(--red);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">') + '</div>';
+    h += '<div class="hc"><h4>' + m.name + ' Thresholds</h4><div style="margin:8px 0">' + H.row('Warning (%)', '<input type="number" id="al-' + m.warn + '" aria-label="' + m.name + ' warning threshold (%)" value="' + wv + '" min="0" max="100" style="width:60px;background:var(--bg);color:var(--yellow);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">') + H.row('Critical (%)', '<input type="number" id="al-' + m.crit + '" aria-label="' + m.name + ' critical threshold (%)" value="' + cv2 + '" min="0" max="100" style="width:60px;background:var(--bg);color:var(--red);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">') + '</div>';
     h += '<div style="height:8px;background:var(--bg);border-radius:4px;overflow:hidden;position:relative;margin-top:4px"><div style="position:absolute;left:0;width:' + wv + '%;height:100%;background:var(--green)"></div><div style="position:absolute;left:' + wv + '%;width:' + (cv2 - wv) + '%;height:100%;background:var(--yellow)"></div><div style="position:absolute;left:' + cv2 + '%;width:' + (100 - cv2) + '%;height:100%;background:var(--red)"></div></div></div>'; });
   h += '</div>';
   h += '<div class="sg grid-2 mb-16">';
-  h += H.card('Evaluation Period', H.row('Hold time (sec)', '<input type="number" id="al-eval_period" value="' + v('eval_period', 30) + '" min="5" max="600" style="width:80px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">'));
-  h += '<div class="hc"><h4>Webhook</h4>' + H.row('Format', '<select id="al-webhook_format" class="input-pcv">' + ['slack', 'telegram', 'generic'].map(f => '<option value="' + f + '"' + (v('webhook_format', 'generic') === f ? ' selected' : '') + '>' + f + '</option>').join('') + '</select>') + H.row('URL', '<input type="text" id="al-webhook_url" value="' + v('webhook_url', '') + '" placeholder="https://hooks.slack.com/..." style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:3px 8px;font-size:11px">') + H.row('Telegram Chat ID', '<input type="text" id="al-telegram_chat_id" value="' + v('telegram_chat_id', '') + '" placeholder="optional" style="width:120px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:2px 6px;font-size:11px">') + '</div></div>';
+  h += H.card('Evaluation Period', H.row('Hold time (sec)', '<input type="number" id="al-eval_period" aria-label="Hold time (sec)" value="' + v('eval_period', 30) + '" min="5" max="600" style="width:80px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:2px 6px;text-align:center">'));
+  h += '<div class="hc"><h4>Webhook</h4>' + H.row('Format', '<select id="al-webhook_format" aria-label="Webhook format" class="input-pcv">' + ['slack', 'telegram', 'generic'].map(f => '<option value="' + f + '"' + (v('webhook_format', 'generic') === f ? ' selected' : '') + '>' + f + '</option>').join('') + '</select>') + H.row('URL', '<input aria-label="https://hooks.slack.com/..." type="text" id="al-webhook_url" value="' + v('webhook_url', '') + '" placeholder="https://hooks.slack.com/..." style="width:100%;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:3px 8px;font-size:11px">') + H.row('Telegram Chat ID', '<input aria-label="optional" type="text" id="al-telegram_chat_id" value="' + v('telegram_chat_id', '') + '" placeholder="optional" style="width:120px;background:var(--bg);color:var(--fg);border:1px solid var(--border);border-radius:3px;padding:2px 6px;font-size:11px">') + '</div></div>';
   h += '<div class="mb-16"><button onclick="alertSave()" style="background:linear-gradient(135deg,var(--accent),var(--green));color:var(--bg);border:none;padding:8px 24px;border-radius:var(--r);cursor:pointer;font-weight:700;font-size:12px;text-transform:uppercase">' + t('btn.save') + '</button><span id="al-status" style="margin-left:12px;font-size:11px"></span></div>';
   h += H.card('&#128276; Alert History (' + hist.length + ' events)',
     hist.length === 0 ? '<div class="color-muted text-xs" style="padding:8px">No alerts fired yet</div>' :
     '<table class="text-11"><thead><tr><th>Time</th><th>Severity</th><th>Metric</th><th>Value</th><th>Message</th></tr></thead><tbody>' +
-    [...hist].reverse().map(a => '<tr><td>' + new Date(a.timestamp * 1000).toLocaleString() + '</td><td>' + H.badge(a.severity.toUpperCase(), a.severity === 'crit' ? 'r' : 'y') + '</td><td>' + a.metric + '</td><td>' + a.value.toFixed(1) + '%</td><td class="color-muted">' + a.message + '</td></tr>').join('') +
+    [...hist].reverse().map(a => '<tr><td>' + new Date(a.timestamp * 1000).toLocaleString() + '</td><td>' + H.badge(a.severity.toUpperCase(), a.severity === 'crit' ? 'r' : 'y') + '</td><td>' + esc(a.metric) + '</td><td>' + a.value.toFixed(1) + '%</td><td class="color-muted">' + esc(a.message) + '</td></tr>').join('') +
     '</tbody></table>');
   h += '<div class="hc mt-12"><h4 class="color-yellow">&#128232; \uC6F9\uD6C5 \uC804\uC1A1 \uC2E4\uD328 (DLQ)</h4>';
   h += '<div class="mt-8"><button class="btn" onclick="loadWebhookDlq()">DLQ \uC870\uD68C</button>';
@@ -937,11 +937,11 @@ async function renderAlerts(b) {
     var c = unwrapData(cfg2);
     h += '<div class="sg grid-2">';
     h += H.card('CPU ' + _L('임계값', 'Thresholds'),
-      '<div class="fr"><label>Warning (%)</label><input type="range" id="alert-cpu-warn" min="50" max="100" value="' + (c.cpu_warn || 80) + '" oninput="document.getElementById(\'acw-val\').textContent=this.value+\'%\'" class="flex-1"><span id="acw-val" class="min-w-40 text-right">' + (c.cpu_warn || 80) + '%</span></div>'
-      + '<div class="fr"><label>Critical (%)</label><input type="range" id="alert-cpu-crit" min="50" max="100" value="' + (c.cpu_crit || 95) + '" oninput="document.getElementById(\'acc-val\').textContent=this.value+\'%\'" class="flex-1"><span id="acc-val" class="min-w-40 text-right">' + (c.cpu_crit || 95) + '%</span></div>');
+      '<div class="fr"><label for="alert-cpu-warn">Warning (%)</label><input type="range" id="alert-cpu-warn" min="50" max="100" value="' + (c.cpu_warn || 80) + '" oninput="document.getElementById(\'acw-val\').textContent=this.value+\'%\'" class="flex-1"><span id="acw-val" class="min-w-40 text-right">' + (c.cpu_warn || 80) + '%</span></div>'
+      + '<div class="fr"><label for="alert-cpu-crit">Critical (%)</label><input type="range" id="alert-cpu-crit" min="50" max="100" value="' + (c.cpu_crit || 95) + '" oninput="document.getElementById(\'acc-val\').textContent=this.value+\'%\'" class="flex-1"><span id="acc-val" class="min-w-40 text-right">' + (c.cpu_crit || 95) + '%</span></div>');
     h += H.card(_L('메모리 임계값', 'Memory Thresholds'),
-      '<div class="fr"><label>Warning (%)</label><input type="range" id="alert-mem-warn" min="50" max="100" value="' + (c.mem_warn || 85) + '" oninput="document.getElementById(\'amw-val\').textContent=this.value+\'%\'" class="flex-1"><span id="amw-val" class="min-w-40 text-right">' + (c.mem_warn || 85) + '%</span></div>'
-      + '<div class="fr"><label>Critical (%)</label><input type="range" id="alert-mem-crit" min="50" max="100" value="' + (c.mem_crit || 95) + '" oninput="document.getElementById(\'amc-val\').textContent=this.value+\'%\'" class="flex-1"><span id="amc-val" class="min-w-40 text-right">' + (c.mem_crit || 95) + '%</span></div>');
+      '<div class="fr"><label for="alert-mem-warn">Warning (%)</label><input type="range" id="alert-mem-warn" min="50" max="100" value="' + (c.mem_warn || 85) + '" oninput="document.getElementById(\'amw-val\').textContent=this.value+\'%\'" class="flex-1"><span id="amw-val" class="min-w-40 text-right">' + (c.mem_warn || 85) + '%</span></div>'
+      + '<div class="fr"><label for="alert-mem-crit">Critical (%)</label><input type="range" id="alert-mem-crit" min="50" max="100" value="' + (c.mem_crit || 95) + '" oninput="document.getElementById(\'amc-val\').textContent=this.value+\'%\'" class="flex-1"><span id="amc-val" class="min-w-40 text-right">' + (c.mem_crit || 95) + '%</span></div>');
     h += '</div>';
     h += '<div class="flex gap-6 mt-8"><button class="btn btn-g" onclick="saveAlertConfig()">' + t('btn.save') + '</button></div>';
   } catch (e) { h += '<p class="color-muted">Alert config unavailable</p>'; }
@@ -972,10 +972,10 @@ async function renderAudit(b) {
   h += '<div class="sg" style="grid-template-columns:1fr;margin-bottom:12px">';
   h += '<div class="hc">';
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px">';
-  h += '<input id="audit-user" placeholder="\uC0AC\uC6A9\uC790" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:120px">';
-  h += '<input id="audit-method" placeholder="\uBA54\uC11C\uB4DC (\uC608: vm.delete)" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:180px">';
-  h += '<input id="audit-from" type="date" class="input-pcv-lg">';
-  h += '<input id="audit-to" type="date" class="input-pcv-lg">';
+  h += '<input aria-label="\uC0AC\uC6A9\uC790" id="audit-user" placeholder="\uC0AC\uC6A9\uC790" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:120px">';
+  h += '<input aria-label="\uBA54\uC11C\uB4DC (\uC608: vm.delete)" id="audit-method" placeholder="\uBA54\uC11C\uB4DC (\uC608: vm.delete)" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:180px">';
+  h += '<input id="audit-from" aria-label="Audit log from date" type="date" class="input-pcv-lg">';
+  h += '<input id="audit-to" aria-label="Audit log to date" type="date" class="input-pcv-lg">';
   h += '<button class="btn btn-g" onclick="doAuditSearch()">&#128269; \uAC80\uC0C9</button>';
   h += '</div>';
   h += '<div id="audit-results"><p class="color-muted text-12">\uAC80\uC0C9 \uC870\uAC74\uC744 \uC785\uB825\uD558\uACE0 \uAC80\uC0C9 \uBC84\uD2BC\uC744 \uD074\uB9AD\uD558\uC138\uC694.</p></div>';
@@ -994,8 +994,8 @@ async function renderGpu(b) {
   h += '<div id="gpu-list-result" class="mt-8"></div></div>';
   h += '<div class="hc"><h4>&#9881; GPU \uC791\uC5C5</h4>';
   h += '<div class="mb-8">';
-  h += '<div class="fr"><label>PCI Address</label><input id="gpu-pci" placeholder="0000:01:00.0" class="w-160"></div>';
-  h += '<div class="fr"><label>VM Name</label><input id="gpu-vm" placeholder="gpu-vm-01" class="w-140"></div>';
+  h += '<div class="fr"><label for="gpu-pci">PCI Address</label><input id="gpu-pci" placeholder="0000:01:00.0" class="w-160"></div>';
+  h += '<div class="fr"><label for="gpu-vm">VM Name</label><input id="gpu-vm" placeholder="gpu-vm-01" class="w-140"></div>';
   h += '<div class="flex gap-6 flex-wrap">';
   h += '<button class="btn" onclick="gpuPassthrough()">VFIO Passthrough</button>';
   h += '<button class="btn" onclick="gpuMdevCreate()">vGPU \uC0DD\uC131</button>';
@@ -1060,8 +1060,8 @@ async function renderDpdk(b) {
     }
     h += H.section('DPDK Operations');
     h += '<div class="sg grid-2">';
-    h += H.card('Bind NIC to DPDK', '<div class="fr"><label>PCI Address</label><input id="dpdk-pci" placeholder="0000:03:00.0" class="w-full"></div><div class="fr"><label>Driver</label><input id="dpdk-drv" value="vfio-pci" class="w-full"></div><button class="btn btn-g" onclick="dpdkBind()" class="mt-8">Bind</button>');
-    h += H.card('Unbind NIC', '<div class="fr"><label>PCI Address</label><input id="dpdk-unbind-pci" placeholder="0000:03:00.0" class="w-full"></div><button class="btn btn-r" onclick="dpdkUnbind()" class="mt-8">Unbind</button>');
+    h += H.card('Bind NIC to DPDK', '<div class="fr"><label for="dpdk-pci">PCI Address</label><input id="dpdk-pci" placeholder="0000:03:00.0" class="w-full"></div><div class="fr"><label for="dpdk-drv">Driver</label><input id="dpdk-drv" value="vfio-pci" class="w-full"></div><button class="btn btn-g" onclick="dpdkBind()" class="mt-8">Bind</button>');
+    h += H.card('Unbind NIC', '<div class="fr"><label for="dpdk-unbind-pci">PCI Address</label><input id="dpdk-unbind-pci" placeholder="0000:03:00.0" class="w-full"></div><button class="btn btn-r" onclick="dpdkUnbind()" class="mt-8">Unbind</button>');
     h += '</div>';
     b.innerHTML = h;
   } catch (e) { b.innerHTML = H.section('DPDK') + '<p class="color-muted">Failed to load</p>'; }
@@ -1115,8 +1115,8 @@ async function renderSriov(b) {
     }
     h += H.section('SR-IOV Operations');
     h += '<div class="sg grid-2">';
-    h += H.card('Enable VFs', '<div class="fr"><label>Physical NIC (PF)</label><input id="sriov-pf" placeholder="enp3s0f0" class="w-full"></div><div class="fr"><label>Num VFs</label><input id="sriov-numvf" type="number" value="4" min="1" max="64" class="w-80"></div><button class="btn btn-g" onclick="sriovEnable()" class="mt-8">Enable</button> <button class="btn btn-r" onclick="sriovDisable()" class="mt-8">Disable</button>');
-    h += H.card('Attach VF to VM', '<div class="fr"><label>VM Name</label><input id="sriov-vm" placeholder="web-prod" class="w-full"></div><div class="fr"><label>PCI Address (VF)</label><input id="sriov-vf-pci" placeholder="0000:03:10.0" class="w-full"></div><button class="btn btn-g" onclick="sriovAttach()" class="mt-8">Attach</button> <button class="btn btn-r" onclick="sriovDetach()" class="mt-8">Detach</button>');
+    h += H.card('Enable VFs', '<div class="fr"><label for="sriov-pf">Physical NIC (PF)</label><input id="sriov-pf" placeholder="enp3s0f0" class="w-full"></div><div class="fr"><label for="sriov-numvf">Num VFs</label><input id="sriov-numvf" type="number" value="4" min="1" max="64" class="w-80"></div><button class="btn btn-g" onclick="sriovEnable()" class="mt-8">Enable</button> <button class="btn btn-r" onclick="sriovDisable()" class="mt-8">Disable</button>');
+    h += H.card('Attach VF to VM', '<div class="fr"><label for="sriov-vm">VM Name</label><input id="sriov-vm" placeholder="web-prod" class="w-full"></div><div class="fr"><label for="sriov-vf-pci">PCI Address (VF)</label><input id="sriov-vf-pci" placeholder="0000:03:10.0" class="w-full"></div><button class="btn btn-g" onclick="sriovAttach()" class="mt-8">Attach</button> <button class="btn btn-r" onclick="sriovDetach()" class="mt-8">Detach</button>');
     h += '</div>';
     b.innerHTML = h;
   } catch (e) { b.innerHTML = H.section('SR-IOV') + '<p class="color-muted">Failed to load</p>'; }
@@ -1275,11 +1275,11 @@ async function renderAlertSilences(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 async function showSilenceCreate() {
-  var html = '<div class="form-group"><label>' + _L('메트릭', 'Metric') + '</label>';
+  var html = '<div class="form-group"><label for="sil-metric">' + _L('메트릭', 'Metric') + '</label>';
   html += '<select id="sil-metric" class="input-field"><option>cpu</option><option>mem</option><option>disk</option></select></div>';
-  html += '<div class="form-group"><label>' + _L('기간 (분)', 'Duration (min)') + '</label>';
+  html += '<div class="form-group"><label for="sil-dur">' + _L('기간 (분)', 'Duration (min)') + '</label>';
   html += '<input id="sil-dur" type="number" value="60" min="1" max="1440" class="input-field"></div>';
-  html += '<div class="form-group"><label>' + _L('사유', 'Reason') + '</label>';
+  html += '<div class="form-group"><label for="sil-reason">' + _L('사유', 'Reason') + '</label>';
   html += '<input id="sil-reason" class="input-field" placeholder="' + _L('유지보수 예정', 'Planned maintenance') + '"></div>';
   showModal(_L('알림 음소거', 'Silence Alert'), html, async function() {
     var metric = document.getElementById('sil-metric').value;
@@ -1298,11 +1298,11 @@ async function renderAlertRouting(b) {
   b.innerHTML = showSkeleton();
   var h = H.section(_L('알림 라우팅 설정', 'Alert Routing Configuration'));
   h += '<div class="sg p-12">';
-  h += '<div class="form-group"><label>WARN ' + _L('Webhook URL', 'Webhook URL') + '</label>';
+  h += '<div class="form-group"><label for="route-warn-url">WARN ' + _L('Webhook URL', 'Webhook URL') + '</label>';
   h += '<input id="route-warn-url" class="input-field" placeholder="https://hooks.slack.com/..." aria-label="Warning webhook URL"></div>';
-  h += '<div class="form-group"><label>CRIT ' + _L('Webhook URL (에스컬레이션)', 'Webhook URL (escalation)') + '</label>';
+  h += '<div class="form-group"><label for="route-crit-url">CRIT ' + _L('Webhook URL (에스컬레이션)', 'Webhook URL (escalation)') + '</label>';
   h += '<input id="route-crit-url" class="input-field" placeholder="https://pagerduty.com/..." aria-label="Critical webhook URL"></div>';
-  h += '<div class="form-group"><label>Webhook Secret (HMAC)</label>';
+  h += '<div class="form-group"><label for="route-secret">Webhook Secret (HMAC)</label>';
   h += '<input id="route-secret" type="password" class="input-field" placeholder="' + _L('서명 키', 'Signing secret') + '" aria-label="Webhook HMAC secret"></div>';
   h += '<button class="btn mt-8" onclick="saveAlertRouting()" aria-label="' + _L('라우팅 저장', 'Save routing') + '">' + _L('저장', 'Save') + '</button>';
   h += '</div>';

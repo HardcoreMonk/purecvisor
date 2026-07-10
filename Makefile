@@ -501,8 +501,15 @@ UI_DIR = ui
 # 번들 헤더 버전 — version.h(PCV_PRODUCT_VERSION) 단일 소스에서 파생.
 # date 대신 이 값을 박아 ui-bundle 산출을 결정적(reproducible)으로 만든다.
 PCV_UI_VERSION := $(shell sed -n 's/.*PCV_PRODUCT_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' include/purecvisor/version.h)
+# 순서 의존: ui(escapeHtml/H 빌더) → uxlib(filterEditionItems/customConfirm) →
+# modal/charts/security → 나머지. nav.js 가 top-level 에서 PCV.filterEditionItems 를
+# 호출하므로 uxlib 는 반드시 nav 이전. (누락 시 번들이 nav 에서 throw → 뒷부분 미실행.)
 UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/modules/ui.js \
-    $(UI_DIR)/modules/monitor.js $(UI_DIR)/modules/vm.js \
+    $(UI_DIR)/modules/uxlib.js $(UI_DIR)/modules/modal.js $(UI_DIR)/modules/charts.js \
+    $(UI_DIR)/modules/security.js \
+    $(UI_DIR)/modules/monitor.js \
+    $(UI_DIR)/modules/vm.js $(UI_DIR)/modules/vm-console.js $(UI_DIR)/modules/vm-lifecycle.js \
+    $(UI_DIR)/modules/vm-guest.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js \
     $(UI_DIR)/modules/storage.js \
     $(UI_DIR)/modules/cloud.js $(UI_DIR)/modules/help.js \
@@ -512,11 +519,30 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
     $(UI_DIR)/app.js
 
 ui-bundle: $(UI_MODULES)
+	@for f in $(UI_DIR)/modules/*.js; do \
+		case " $(UI_MODULES) " in \
+			*" $$f "*) ;; \
+			*) echo "❌ $$f 가 UI_MODULES 에 없음 — 번들 누락(BUG-22류). Makefile UI_MODULES 갱신 필요"; exit 1;; \
+		esac; \
+	done
 	@echo "📦 Bundling UI: $(UI_DIR)/bundle.js"
 	@cat $(UI_MODULES) > $(UI_DIR)/bundle.js
 	@echo "/* PureCVisor UI Bundle v$(PCV_UI_VERSION) — $$(wc -l < $(UI_DIR)/bundle.js) LOC (deterministic: no build timestamp) */" >> $(UI_DIR)/bundle.js
-	@cp $(UI_DIR)/bundle.js $(UI_DIR)/app.bundle.js
-	@echo "✅ Bundle: $(UI_DIR)/bundle.js + app.bundle.js ($$(wc -c < $(UI_DIR)/bundle.js | tr -d ' ') bytes)"
+	@SRC=$$(cat $(UI_MODULES) | sha1sum | cut -c1-8); \
+	if npx --no-install esbuild --version >/dev/null 2>&1; then \
+		npx --no-install esbuild $(UI_DIR)/bundle.js --minify --sourcemap --sources-content=true \
+			--target=es2020 --log-level=warning \
+			--banner:js="/* PureCVisor UI Bundle v$(PCV_UI_VERSION) (minified; src-sha1 $$SRC; source map: app.bundle.js.map) */" \
+			--outfile=$(UI_DIR)/app.bundle.js; \
+		echo "✅ Bundle: bundle.js $$(wc -c < $(UI_DIR)/bundle.js | tr -d ' ')B → app.bundle.js $$(wc -c < $(UI_DIR)/app.bundle.js | tr -d ' ')B (minified +map, src-sha1 $$SRC)"; \
+	else \
+		cp $(UI_DIR)/bundle.js $(UI_DIR)/app.bundle.js; \
+		rm -f $(UI_DIR)/app.bundle.js.map; \
+		echo "⚠️  esbuild 없음(npm install 필요) — 무민파이 concat 폴백: app.bundle.js $$(wc -c < $(UI_DIR)/app.bundle.js | tr -d ' ')B"; \
+	fi
+	@H=$$(sha1sum $(UI_DIR)/app.bundle.js | cut -c1-8); \
+	sed -i "s|const CACHE_NAME = 'pcv-ui-v[^']*';|const CACHE_NAME = 'pcv-ui-v$$H';|" $(UI_DIR)/sw.js; \
+	echo "✅ sw.js CACHE_NAME → pcv-ui-v$$H (프리캐시 무효화 자동 bump)"
 
 ui-prod: ui-bundle
 	@echo "📦 Generating production index.html"

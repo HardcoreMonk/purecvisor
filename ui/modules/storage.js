@@ -75,12 +75,12 @@ async function renderStorage(b) {
       setTimeout(function() { pl.forEach(function(v, pi) { var canvas = document.getElementById('pool-donut-' + pi); if (!canvas) return; var ctx = canvas.getContext('2d'); var sz = parseSize(v.size), us = parseSize(v.alloc || v.used); var pct = sz > 0 ? us / sz : 0; var r = 50, cx = 60, cy = 60, lw = 14; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); try { ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(pct > 0.85 ? '--red' : pct > 0.6 ? '--yellow' : '--green').trim(); } catch(e) {} ctx.stroke(); }); }, 100);
       return; }
     if (!window._zvolSel) window._zvolSel = new Set();
-    h += '<table class="table-sticky"><thead><tr><th><input type="checkbox" id="zvol-all" onclick="zvolToggleAll(this.checked)"></th><th>Path</th><th>Size</th><th>Used</th><th>' + _L('압축비', 'Compress') + '</th><th>Dedup</th><th>Written</th><th>' + t('vm.settings') + '</th></tr></thead><tbody>';
+    h += '<table class="table-sticky"><thead><tr><th><input type="checkbox" id="zvol-all" aria-label="' + _L('전체 선택', 'Select all zvols') + '" onclick="zvolToggleAll(this.checked)"></th><th>Path</th><th>Size</th><th>Used</th><th>' + _L('압축비', 'Compress') + '</th><th>Dedup</th><th>Written</th><th>' + t('vm.settings') + '</th></tr></thead><tbody>';
     zl.forEach(v => {
       const vn = v.name || v.path;
       const checked = window._zvolSel.has(vn) ? 'checked' : '';
       const rowCls = window._zvolSel.has(vn) ? ' class="multi-selected"' : '';
-      h += `<tr${rowCls} oncontextmenu="event.preventDefault();zvolCtxMenu(event,'${escapeAttr(vn)}')"><td><input type="checkbox" ${checked} onclick="zvolToggleSel('${escapeAttr(vn)}',this.checked)"></td><td><span class="text-ellipsis" title="${escapeHtml(vn)}">${escapeHtml(vn)}</span></td><td>${escapeHtml(v.volsize || v.size || '-')}</td><td>${escapeHtml(v.used || '-')}</td><td>${escapeHtml(v.compression_ratio || '-')}</td><td>${escapeHtml(v.dedup || '-')}</td><td>${escapeHtml(v.written || '-')}</td><td><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="zvolDel('${escapeAttr(vn)}')">${t('btn.delete')}</button></td></tr>`;
+      h += `<tr${rowCls} oncontextmenu="event.preventDefault();zvolCtxMenu(event,'${escapeAttr(vn)}')"><td><input type="checkbox" ${checked} aria-label="${escapeHtml(vn)}" onclick="zvolToggleSel('${escapeAttr(vn)}',this.checked)"></td><td><span class="text-ellipsis" title="${escapeHtml(vn)}">${escapeHtml(vn)}</span></td><td>${escapeHtml(v.volsize || v.size || '-')}</td><td>${escapeHtml(v.used || '-')}</td><td>${escapeHtml(v.compression_ratio || '-')}</td><td>${escapeHtml(v.dedup || '-')}</td><td>${escapeHtml(v.written || '-')}</td><td><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="zvolDel('${escapeAttr(vn)}')">${t('btn.delete')}</button></td></tr>`;
     });
     b.innerHTML = h + '</tbody></table>';
     if (window._zvolSel.size > 0) {
@@ -112,7 +112,7 @@ async function renderStorage(b) {
 }
 
 function showPoolCreate() {
-  showModal('<h2>Create ZFS Pool</h2><div class="fr"><label>Pool Name</label><input id="pc-name" placeholder="newpool"></div><div class="fr"><label>Disks (space sep)</label><input id="pc-disks" placeholder="/dev/sdb /dev/sdc"></div><div class="fr"><label>RAID Level</label><select id="pc-raid" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">Stripe (default)</option><option value="mirror">Mirror</option><option value="raidz">RAIDZ</option><option value="raidz2">RAIDZ2</option></select></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doPoolCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  showModal('<h2>Create ZFS Pool</h2><div class="fr"><label for="pc-name">Pool Name</label><input id="pc-name" placeholder="newpool"></div><div class="fr"><label for="pc-disks">Disks (space sep)</label><input id="pc-disks" placeholder="/dev/sdb /dev/sdc"></div><div class="fr"><label for="pc-raid">RAID Level</label><select id="pc-raid" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">Stripe (default)</option><option value="mirror">Mirror</option><option value="raidz">RAIDZ</option><option value="raidz2">RAIDZ2</option></select></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doPoolCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
 
 async function doPoolCreate() {
@@ -163,8 +163,8 @@ async function showZvol() {
   var pool = 'pcvpool/vms';
   try { var cfg = await fetchGet(EP.CONFIG_DAEMON()); var d = cfg.result || cfg.data || cfg; if (d.storage && d.storage.zvol_pool) pool = d.storage.zvol_pool; } catch(e) {}
   showModal(`<h2>${t('btn.create')} Zvol</h2>`
-    + `<div class="fr"><label>Name</label><input id="zn" placeholder="data-disk" oninput="document.getElementById('zvol-preview').textContent='${escapeHtml(pool)}/' + (this.value||'name')"></div>`
-    + `<div class="fr"><label>Size GB</label><input id="zs" type="number" value="20" min="1" max="2048"></div>`
+    + `<div class="fr"><label for="zn">Name</label><input id="zn" placeholder="data-disk" oninput="document.getElementById('zvol-preview').textContent='${escapeHtml(pool)}/' + (this.value||'name')"></div>`
+    + `<div class="fr"><label for="zs">Size GB</label><input id="zs" type="number" value="20" min="1" max="2048"></div>`
     + `<div style="margin:8px 0 4px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:11px;font-family:var(--font-mono)">`
     + `<span class="color-muted">${_L('생성 경로', 'Path')}:</span> <span id="zvol-preview" class="color-accent">${escapeHtml(pool)}/name</span></div>`
     + `<div class="text-right mt-12"><button class="btn btn-g" onclick="doZvol()">${t('btn.create')}</button> <button class="btn btn-r" onclick="closeModal()">${t('btn.cancel')}</button></div>`);
@@ -186,7 +186,7 @@ function zvolDel(name) {
     + `<p class="mb-12">${_L('Zvol을 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.', 'Permanently destroy this zvol. This action cannot be undone.')}</p>`
     + `<div style="margin-bottom:12px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-mono);font-size:12px"><span class="color-muted">${_L('대상', 'Target')}:</span> <b class="color-accent">${escapeHtml(name)}</b></div>`
     + `<p class="mb-8 text-11">${_L('확인을 위해 아래에 전체 zvol 경로를 입력하세요:', 'Type the full zvol path below to confirm:')}</p>`
-    + `<div class="fr"><label>${_L('경로', 'Path')}</label><input id="del-zvol-confirm" placeholder="${escapeHtml(name)}"></div>`
+    + `<div class="fr"><label for="del-zvol-confirm">${_L('경로', 'Path')}</label><input id="del-zvol-confirm" placeholder="${escapeHtml(name)}"></div>`
     + `<div class="text-right mt-14"><button class="btn btn-r" onclick="doZvolDel('${escapeAttr(name)}')">${t('btn.delete')}</button> <button class="btn" onclick="closeModal()">${t('btn.cancel')}</button></div>`);
 }
 
@@ -277,13 +277,13 @@ async function renderBackup(b) {
 
   /* History */
   h += '<div class="hc mb-14"><h4>' + _L('스냅샷 히스토리', 'Snapshot History') + '</h4>';
-  h += '<div class="flex gap-8 mb-8"><input id="backup-hist-vm" class="input" placeholder="VM name (empty=all)" class="w-200"><button class="btn" onclick="backupLoadHistory()">' + _L('조회', 'Search') + '</button></div>';
+  h += '<div class="flex gap-8 mb-8"><input aria-label="VM name (empty=all)" id="backup-hist-vm" class="input" placeholder="VM name (empty=all)" class="w-200"><button class="btn" onclick="backupLoadHistory()">' + _L('조회', 'Search') + '</button></div>';
   h += '<div id="backup-history" class="skeleton-box" style="min-height:100px"></div></div>';
 
   /* Restore */
   h += '<div class="hc mb-14"><h4>' + _L('복원', 'Restore') + '</h4>';
   h += '<p class="stat-label">' + _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.') + '</p>';
-  h += '<div class="flex gap-8 mt-8"><input id="backup-restore-vm" class="input" placeholder="VM name" class="w-160"><input id="backup-restore-snap" class="input" placeholder="Snapshot name" class="w-200"><button class="btn btn-r" onclick="backupRestore()">' + _L('롤백', 'Rollback') + '</button></div></div>';
+  h += '<div class="flex gap-8 mt-8"><input aria-label="VM name" id="backup-restore-vm" class="input" placeholder="VM name" class="w-160"><input aria-label="Snapshot name" id="backup-restore-snap" class="input" placeholder="Snapshot name" class="w-200"><button class="btn btn-r" onclick="backupRestore()">' + _L('롤백', 'Rollback') + '</button></div></div>';
 
   b.innerHTML = h;
 
@@ -314,9 +314,9 @@ async function renderBackup(b) {
 function backupAddPolicy() {
   showModal(
     '<h2>' + _L('백업 정책 추가', 'Add Backup Policy') + '</h2>'
-    + '<div class="fr"><label>VM</label><input id="bp-vm" class="input" placeholder="VM name (* = all)" value="*"></div>'
-    + '<div class="fr"><label>' + _L('주기(시간)', 'Interval (hours)') + '</label><input id="bp-interval" class="input" type="number" value="24" min="1"></div>'
-    + '<div class="fr"><label>' + _L('보존 수', 'Retention count') + '</label><input id="bp-retention" class="input" type="number" value="7" min="1"></div>'
+    + '<div class="fr"><label for="bp-vm">VM</label><input id="bp-vm" class="input" placeholder="VM name (* = all)" value="*"></div>'
+    + '<div class="fr"><label for="bp-interval">' + _L('주기(시간)', 'Interval (hours)') + '</label><input id="bp-interval" class="input" type="number" value="24" min="1"></div>'
+    + '<div class="fr"><label for="bp-retention">' + _L('보존 수', 'Retention count') + '</label><input id="bp-retention" class="input" type="number" value="7" min="1"></div>'
     + '<div class="text-right mt-12"><button class="btn btn-g" onclick="doBackupAddPolicy()">' + _L('추가', 'Add') + '</button> <button class="btn btn-r" onclick="closeModal()">' + _L('취소', 'Cancel') + '</button></div>'
   );
 }

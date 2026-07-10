@@ -11,7 +11,7 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss: https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <base href="/ui/">
-<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.0">
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.1.2">
 <link rel="stylesheet" href="style.css?v=1.0">
 <script>
   /* 레거시 테마 → supanova 마이그레이션 + 초기 렌더 전에 즉시 적용
@@ -296,7 +296,7 @@
 <!-- Menu Bar (VS Code style) -->
 <header class="app-header">
 <div class="menubar" role="menubar" aria-label="Main menu">
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.file">파일</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.file">파일</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="showCreate()" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.file.new_vm">New VM...<span class="shortcut">Ctrl+N</span></div>
     <div class="mi" onclick="showNetCreate()" role="menuitem" data-i18n="menu.file.new_network">New Network...</div>
@@ -309,7 +309,7 @@
     <div class="mi" onclick="showPrefs()" role="menuitem" data-i18n="menu.file.preferences">Preferences<span class="shortcut">Ctrl+,</span></div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.edit">편집</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.edit">편집</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="showSettings()" role="menuitem" data-i18n="menu.edit.vm_settings">VM Settings...<span class="shortcut">Ctrl+D</span></div>
     <div class="mi" onclick="showSnap()" role="menuitem" data-i18n="menu.edit.snapshots">Snapshots...</div>
@@ -318,7 +318,7 @@
     <div class="mi" onclick="navigateTo('config-mgmt')" role="menuitem" data-i18n="menu.edit.config_mgmt">Config Management</div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.view">보기</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.view">보기</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="toggleSB()" role="menuitem" data-i18n="menu.view.toggle_sidebar">Toggle Sidebar<span class="shortcut">Ctrl+B</span></div>
     <div class="mi" onclick="toggleFS()" role="menuitem" data-i18n="menu.view.fullscreen">Full Screen<span class="shortcut">F11</span></div>
@@ -333,7 +333,7 @@
     <div class="mi" onclick="document.dispatchEvent(new KeyboardEvent('keydown',{key:'k',ctrlKey:true}))" role="menuitem" data-i18n="menu.view.cmd_palette">Command Palette<span class="shortcut">Ctrl+K</span></div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.go">이동</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.go">이동</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="navigateTo('networks')" role="menuitem" data-i18n="menu.go.networks">네트워크</div>
     <div class="mi" onclick="navigateTo('storage')" role="menuitem" data-i18n="menu.go.storage">스토리지</div>
@@ -351,7 +351,7 @@
     <!-- Terraform IaC 제거됨 -->
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.run">실행</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.run">실행</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="vmPower('start')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.power_on">Power On<span class="shortcut">F5</span></div>
     <div class="mi" onclick="vmPower('stop')" role="menuitem" data-role="OPERATOR,ADMIN" data-i18n="menu.run.power_off">Power Off<span class="shortcut">Shift+F5</span></div>
@@ -360,7 +360,7 @@
     <div class="sep" role="separator"></div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.terminal">관제</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.terminal">관제</span>
   <div class="menu-drop" role="menu">
     <div class="sep" role="separator"></div>
     <div class="mi" onclick="navigateTo('mon-overview')" role="menuitem" data-i18n="menu.terminal.monitor_overview">Monitor Overview</div>
@@ -369,13 +369,13 @@
     <div class="mi" onclick="navigateTo('mon-audit')" role="menuitem" data-i18n="menu.terminal.audit_log">Audit Log</div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.accounts">계정</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.accounts">계정</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="navigateTo('accounts')" role="menuitem" data-role="ADMIN" data-i18n="menu.accounts.users_roles">Users &amp; Roles (RBAC)</div>
     <div class="mi" onclick="navigateTo('apimgmt')" role="menuitem" data-role="ADMIN" data-i18n="menu.accounts.api_mgmt">API Management</div>
   </div>
 </div>
-<div class="menu-item" role="menuitem" tabindex="0"><span data-i18n="menu.help">도움말</span>
+<div class="menu-item" role="menuitem" tabindex="0" aria-haspopup="true" aria-expanded="false"><span data-i18n="menu.help">도움말</span>
   <div class="menu-drop" role="menu">
     <div class="mi" onclick="navigateTo('serviceguide')" role="menuitem" data-i18n="menu.help.welcome">Welcome<span class="shortcut">F1</span></div>
     <div class="mi" onclick="navigateTo('helppage')" role="menuitem" data-i18n="menu.help.cmd_reference">Command Reference</div>
@@ -419,7 +419,7 @@
     <option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option>
   </select>
   <!-- F-4: Language selector -->
-  <select id="lang-select" class="theme-select" onchange="I18N.setLang(this.value);if(typeof applyI18n==='function')applyI18n();else location.reload()" aria-label="Language selector">
+  <select id="lang-select" class="theme-select" onchange="I18N.setLang(this.value);if(typeof applyI18n==='function'){applyI18n();if(typeof renderContent==='function'){try{renderContent();}catch(e){}}}else location.reload()" aria-label="Language selector">
     <option value="ko">한국어</option>
     <option value="en">English</option>
   </select>
@@ -447,13 +447,13 @@
 <div class="main main-with-activity">
 <!-- V-1: Activity Bar -->
 <div class="activity-bar" id="activity-bar">
-  <div class="activity-icon active" data-panel="vms" onclick="switchActivity('vms')" title="VM 자산" role="button" aria-label="VM 자산"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></div>
-  <div class="activity-icon" data-panel="containers" onclick="switchActivity('containers')" title="컨테이너" role="button" aria-label="컨테이너"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></div>
-  <div class="activity-icon" data-panel="infra" onclick="switchActivity('infra')" title="운영" role="button" aria-label="운영"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></div>
-  <div class="activity-icon" data-panel="search" onclick="toggleGlobalSearch()" title="검색" role="button" aria-label="검색"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-search"></use></svg></div>
+  <div class="activity-icon active" data-panel="vms" onclick="switchActivity('vms')" title="VM 자산" role="button" tabindex="0" aria-label="VM 자산"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-desktop-tower"></use></svg></div>
+  <div class="activity-icon" data-panel="containers" onclick="switchActivity('containers')" title="컨테이너" role="button" tabindex="0" aria-label="컨테이너"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-layers"></use></svg></div>
+  <div class="activity-icon" data-panel="infra" onclick="switchActivity('infra')" title="운영" role="button" tabindex="0" aria-label="운영"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-globe"></use></svg></div>
+  <div class="activity-icon" data-panel="search" onclick="toggleGlobalSearch()" title="검색" role="button" tabindex="0" aria-label="검색"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-search"></use></svg></div>
   <div class="activity-spacer"></div>
-  <div class="activity-icon" data-panel="notifications" onclick="toggleNotifCenter()" title="알림" role="button" aria-label="알림"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-bell"></use></svg></div>
-  <div class="activity-icon" onclick="showPrefs()" title="설정" role="button" aria-label="설정"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg></div>
+  <div class="activity-icon" data-panel="notifications" onclick="toggleNotifCenter()" title="알림" role="button" tabindex="0" aria-label="알림"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-bell"></use></svg></div>
+  <div class="activity-icon" onclick="showPrefs()" title="설정" role="button" tabindex="0" aria-label="설정"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg></div>
 </div>
 
 <!-- Sidebar Panel (was .sidebar) -->
@@ -601,9 +601,9 @@
 <!-- Scripts: local Chart.js → i18n → app -->
 <script src="vendor/chart.umd.min.js?v=1.0"></script>
 <script src="i18n.js?v=1.0"></script>
-<!-- F-5: 단일 번들 (modules/*.js 결합 — scripts/bundle-ui.sh로 생성) -->
-<script src="app.bundle.js?v=1.0"></script>
-<script src="app.js?v=1.0"></script>
+<!-- F-5: 단일 번들 (modules/*.js+app.js 결합·민파이 — make ui-bundle 로 생성, scripts/bundle-ui.sh 는 래퍼) -->
+<script src="app.bundle.js?v=1.1.2"></script>
+<!-- [perf] app.js 는 app.bundle.js(UI_MODULES 마지막)에 포함됨 — 별도 로드 시 타이머/폴링/리스너 이중 실행 -->
 <div class="mobile-nav" id="mobile-nav">
 <div class="mobile-nav-items">
   <div class="mobile-nav-item" onclick="navigateTo('dashboard')"><span><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-house-01"></use></svg></span><span>개요</span></div>

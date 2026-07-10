@@ -94,7 +94,7 @@ var esc = escapeHtml;
  */
 function escapeAttr(s) {
   if (!s) return '';
-  return String(s).replace(/[^a-zA-Z0-9_.\-]/g, function(c) {
+  return String(s).replace(/[^a-zA-Z0-9_.-]/g, function(c) {
     return '\\x' + c.charCodeAt(0).toString(16).padStart(2, '0');
   });
 }
@@ -113,7 +113,9 @@ function toast(m, ok = true) {
   var icon = ok ? '&#9989; ' : '&#10060; ';
   const d = document.createElement('div');
   d.className = 'toast ' + (ok ? 't-ok' : 't-er');
-  d.innerHTML = icon + m;
+  /* [보안] innerHTML 대신 textContent — 숫자 엔티티(&#NNN; 아이콘)만 디코드하고
+   * 태그/속성은 텍스트로 남겨 XSS 차단(호출부가 리소스명/에러를 raw 전달해도 안전). */
+  d.textContent = String(icon + m).replace(/&#(\d+);/g, function (_, n) { return String.fromCodePoint(+n); });
   d.style.cssText = 'transform:translateX(100%);transition:transform 0.3s ease-out';
   requestAnimationFrame(function() { d.style.transform = 'translateX(0)'; });
   d.onclick = function() { d.style.transform = 'translateX(100%)'; setTimeout(function() { d.remove(); }, 300); };
@@ -279,7 +281,7 @@ function showInputModal(title, label, defaultVal, callback) {
   return new Promise(function(resolve) {
     var id = 'modal-input-' + Date.now();
     var html = '<h2>' + escapeHtml(title) + '</h2>'
-      + '<div class="fr"><label>' + escapeHtml(label) + '</label>'
+      + '<div class="fr"><label for="' + id + '">' + escapeHtml(label) + '</label>'
       + '<input id="' + id + '" class="input" value="' + escapeHtml(defaultVal || '') + '" autofocus '
       + 'style="flex:1;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px"></div>'
       + '<div style="text-align:right;margin-top:12px">'
@@ -407,7 +409,7 @@ function createDataTable(containerId, config) {
       displayRows = filteredRows.slice(start, start + pageSize);
     }
     if (cfg.searchable) {
-      h += '<div class="flex gap-8 items-center mb-8"><input id="' + tableId + '-search" class="sb-search" placeholder="' + tFn('search') + '" oninput="window._dtFilter(\'' + tableId + '\')" style="max-width:300px;font-size:12px;padding:6px 10px;border-radius:4px">';
+      h += '<div class="flex gap-8 items-center mb-8"><input aria-label="' + tFn('search') + '" id="' + tableId + '-search" class="sb-search" placeholder="' + tFn('search') + '" oninput="window._dtFilter(\'' + tableId + '\')" style="max-width:300px;font-size:12px;padding:6px 10px;border-radius:4px">';
       if (cfg.exportable) h += '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="window._dtExport(\'' + tableId + '\')">CSV</button>';
       h += '<span class="color-muted text-xs">' + filteredRows.length + ' rows</span></div>';
     }

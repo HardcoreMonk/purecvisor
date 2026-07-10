@@ -154,12 +154,12 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "1.0",
+    "version": "1.1.1",
     "node_name": "standalone"
 }
 ```
 
-제품 버전의 현재 공개 표기는 `1.0`이다. 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
+제품 버전의 현재 공개 표기는 `1.1`이다(태그 `v1.1.1`). 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
 
 ```bash
 # 3. bootstrap admin으로 첫 인증 토큰 발급
@@ -1143,7 +1143,7 @@ pcvctl vm import-ova /tmp/web-prod.ova web-imported
 
 ### 3.7 Guest Agent 연동
 
-QEMU Guest Agent는 VM 내부 패키지와 libvirt channel이 함께 있어야 사용할 수 있다. PureCVisor는 상태 진단과 channel 보정을 제공하고, 패키지 설치는 VM 내부에서 운영자가 수행한다.
+QEMU Guest Agent는 VM 내부 패키지와 libvirt channel이 함께 있어야 사용할 수 있다. **v1.1부터 `vm create`가 생성하는 VM에는 guest-agent channel이 기본 포함**되므로 신규 VM은 별도 보정이 필요 없다(패키지만 VM 내부에서 설치). `guest-agent-ensure-channel`은 채널이 없는 **기존/레거시 VM 보정**용이다. PureCVisor는 상태 진단과 channel 보정을 함께 제공한다.
 
 Web UI에서는 `대시보드 > 요약`에서 VM을 선택한 뒤 Storage 카드의 `디스크 사용량` 버튼으로 게스트 파일시스템 사용량을 확인한다.
 이 조회는 qemu-guest-agent의 고정 `guest-get-fsinfo` 명령만 사용하며, 임의 guest-exec 명령을 실행하지 않는다.
