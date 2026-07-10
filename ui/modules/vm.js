@@ -143,58 +143,63 @@ function _renderCore(skipContent) {
     }));
     return;
   }
-  let h = '';
-  h += '<div class="flex gap-4 mb-8 justify-end">';
-  h += '<button class="btn ' + (vmViewMode === 'list' ? 'btn-g' : '') + ' btn-xs" onclick="toggleVmView()">&#9776; ' + _L('목록', 'List') + '</button>';
-  h += '<button class="btn ' + (vmViewMode === 'card' ? 'btn-g' : '') + ' btn-xs" onclick="toggleVmView()">&#9638; ' + _L('카드', 'Card') + '</button>';
-  h += '<button class="btn" onclick="showVmCompare()" class="btn-xs">' + _L('비교', 'Compare') + '</button>';
-  h += '<button class="btn" onclick="showBulkActions()" class="btn-xs" data-role="OPERATOR,ADMIN">' + _L('일괄 작업', 'Bulk') + '</button>';
-  h += '</div>';
+  var el = PCV.uxlib.el;
+  var parts = [];
+  parts.push(el('div', { class: 'flex gap-4 mb-8 justify-end' },
+    el('button', { class: 'btn ' + (vmViewMode === 'list' ? 'btn-g' : '') + ' btn-xs', onclick: 'toggleVmView()' }, '☰ ' + _L('목록', 'List')),
+    el('button', { class: 'btn ' + (vmViewMode === 'card' ? 'btn-g' : '') + ' btn-xs', onclick: 'toggleVmView()' }, '▦ ' + _L('카드', 'Card')),
+    el('button', { class: 'btn', onclick: 'showVmCompare()' }, _L('비교', 'Compare')),
+    el('button', { class: 'btn', onclick: 'showBulkActions()', 'data-role': 'OPERATOR,ADMIN' }, _L('일괄 작업', 'Bulk'))));
   if (vmViewMode === 'card') {
-    h += '<div class="sg grid-3">';
+    var cardGrid = el('div', { class: 'sg grid-3' });
     l.forEach(function(v, ri) {
       var on = v.state === 'running';
       var cp = v.live_cpu_pct || 0;
       var mp = v.mem_percent || 0;
-      h += '<div class="hc" draggable="true" ondragstart="event.dataTransfer.setData(\'text/plain\',\'' + esc(v.name) + '\')" style="cursor:grab;border-left:3px solid ' + (on ? 'var(--green)' : 'var(--red)') + '" onclick="selectedVmIndex=' + vmList.indexOf(v) + ';currentTab=\'summary\';switchSbTab(\'vms\');render()">';
-      h += '<div class="flex items-center gap-6 mb-6"><span style="font-size:8px;color:' + (on ? 'var(--green)' : 'var(--red)') + '">&#9679;</span><b>' + esc(v.name) + '</b></div>';
-      h += '<div class="flex gap-8 text-11">';
-      h += '<div class="flex-1"><div class="color-muted">CPU</div>' + renderProgressBar(cp) + '</div>';
-      h += '<div class="flex-1"><div class="color-muted">MEM</div>' + renderProgressBar(mp) + '</div>';
-      h += '</div>';
-      h += '<div class="flex gap-8 mt-6 text-xs color-muted">';
-      h += '<span>' + (v.vcpu || '?') + ' vCPU</span>';
-      h += '<span>' + (v.memory_mb || '?') + ' MB</span>';
-      h += '<span>' + H.badge(v.state || '?', on ? 'g' : 'r') + '</span>';
-      h += '</div></div>';
+      cardGrid.appendChild(el('div', { class: 'hc', draggable: 'true', ondragstart: "event.dataTransfer.setData('text/plain','" + v.name + "')", style: 'cursor:grab;border-left:3px solid ' + (on ? 'var(--green)' : 'var(--red)'), onclick: 'selectedVmIndex=' + vmList.indexOf(v) + ";currentTab='summary';switchSbTab('vms');render()" },
+        el('div', { class: 'flex items-center gap-6 mb-6' },
+          el('span', { style: 'font-size:8px;color:' + (on ? 'var(--green)' : 'var(--red)') }, '●'),
+          el('b', null, v.name)),
+        el('div', { class: 'flex gap-8 text-11' },
+          el('div', { class: 'flex-1' }, el('div', { class: 'color-muted' }, 'CPU'), _vmProgressBar(cp)),
+          el('div', { class: 'flex-1' }, el('div', { class: 'color-muted' }, 'MEM'), _vmProgressBar(mp))),
+        el('div', { class: 'flex gap-8 mt-6 text-xs color-muted' },
+          el('span', null, (v.vcpu || '?') + ' vCPU'),
+          el('span', null, (v.memory_mb || '?') + ' MB'),
+          el('span', null, HN.badge(v.state || '?', on ? 'g' : 'r')))));
     });
-    h += '</div>';
+    parts.push(cardGrid);
     /* D3: Migration drop zone for cluster nodes */
-    h += '<h3 style="margin:16px 0 8px">' + _L('마이그레이션 대상 노드', 'Migration Target Nodes') + '</h3>';
-    h += '<div class="sg grid-3">';
+    parts.push(el('h3', { style: 'margin:16px 0 8px' }, _L('마이그레이션 대상 노드', 'Migration Target Nodes')));
+    var nodeGrid = el('div', { class: 'sg grid-3' });
     var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
     nodes.forEach(function(nd) {
-      h += '<div class="hc" style="text-align:center;padding:20px;border:2px dashed var(--border);transition:border-color 0.2s" '
-        + 'ondragover="event.preventDefault();this.style.borderColor=\'var(--accent)\'" '
-        + 'ondragleave="this.style.borderColor=\'var(--border)\'" '
-        + 'ondrop="event.preventDefault();this.style.borderColor=\'var(--border)\';vmMigrateDrop(event.dataTransfer.getData(\'text/plain\'),\'' + esc(nd.ip) + '\',\'' + esc(nd.name) + '\')">'
-        + '<div style="font-size:24px;margin-bottom:6px">&#128421;</div>'
-        + '<div class="text-13 font-600">' + esc(nd.name) + '</div>'
-        + '<div class="color-muted text-xs">' + esc(nd.ip) + '</div>'
-        + '</div>';
+      nodeGrid.appendChild(el('div', { class: 'hc', style: 'text-align:center;padding:20px;border:2px dashed var(--border);transition:border-color 0.2s', ondragover: "event.preventDefault();this.style.borderColor='var(--accent)'", ondragleave: "this.style.borderColor='var(--border)'", ondrop: "event.preventDefault();this.style.borderColor='var(--border)';vmMigrateDrop(event.dataTransfer.getData('text/plain'),'" + nd.ip + "','" + nd.name + "')" },
+        el('div', { style: 'font-size:24px;margin-bottom:6px' }, '🖥'),
+        el('div', { class: 'text-13 font-600' }, nd.name),
+        el('div', { class: 'color-muted text-xs' }, nd.ip)));
     });
-    h += '</div>';
+    parts.push(nodeGrid);
   } else {
     l.forEach((v, i) => {
       const ri = vmList.indexOf(v);
       const on = v.state === 'running';
       const cp = v.live_cpu_pct || 0;
       const c = cp > 85 ? 'var(--red)' : cp > 60 ? 'var(--yellow)' : 'var(--green)';
-      const star = favs.includes(v.name) ? '&#9733;' : '&#9734;';
-      h += `<div class="vi ${ri === selectedVmIndex ? 'active' : ''}" onclick="selectedVmIndex=${ri};currentTab=localStorage.getItem('pcv-last-vm-tab')||'summary';switchSbTab('vms');document.querySelectorAll('#ct button').forEach(b=>b.classList.toggle('active',b.dataset.t==='summary'));render()" oncontextmenu="showCtx(event,${ri})"><input type="checkbox" ${checkedVms.has(ri) ? 'checked' : ''} aria-label="Select ${escapeHtml(v.name)}" onclick="event.stopPropagation();toggleChk(${ri})"><span class="fav-star" onclick="event.stopPropagation();toggleFavorite('${escapeAttr(v.name)}')" title="Favorite">${star}</span><span class="dot ${on ? 'on' : 'off'}"></span><span class="nm">${escapeHtml(v.name)}</span><span class="mini-bar"><span class="mini-fill pcv-bar-fill-inline" style="--bw:${cp}%;--bc:${c}"></span></span><span class="st">${cp.toFixed(0)}%</span><canvas class="vm-spark" id="spark-${esc(v.name)}" width="40" height="14" style="vertical-align:middle;margin-left:4px"></canvas></div>`;
+      const star = favs.includes(v.name) ? '★' : '☆';
+      parts.push(el('div', { class: 'vi ' + (ri === selectedVmIndex ? 'active' : ''), onclick: 'selectedVmIndex=' + ri + ";currentTab=localStorage.getItem('pcv-last-vm-tab')||'summary';switchSbTab('vms');document.querySelectorAll('#ct button').forEach(b=>b.classList.toggle('active',b.dataset.t==='summary'));render()", oncontextmenu: 'showCtx(event,' + ri + ')' },
+        el('input', { type: 'checkbox', checked: checkedVms.has(ri) ? '' : null, 'aria-label': 'Select ' + v.name, onclick: 'event.stopPropagation();toggleChk(' + ri + ')' }),
+        el('span', { class: 'fav-star', onclick: "event.stopPropagation();toggleFavorite('" + escapeAttr(v.name) + "')", title: 'Favorite' }, star),
+        el('span', { class: 'dot ' + (on ? 'on' : 'off') }),
+        el('span', { class: 'nm' }, v.name),
+        el('span', { class: 'mini-bar' }, el('span', { class: 'mini-fill pcv-bar-fill-inline', style: '--bw:' + cp + '%;--bc:' + c })),
+        el('span', { class: 'st' }, cp.toFixed(0) + '%'),
+        el('canvas', { class: 'vm-spark', id: 'spark-' + v.name, width: '40', height: '14', style: 'vertical-align:middle;margin-left:4px' })));
     });
   }
-  document.getElementById('vl').innerHTML = h;
+  var vl = document.getElementById('vl');
+  PCV.uxlib.clearEl(vl);
+  vl.appendChild(PCV.uxlib.frag(parts));
   /* D2: Draw sparklines */
   setTimeout(function() {
     vmList.forEach(function(v) {
@@ -334,41 +339,40 @@ function _vmNetworkMap(networks) {
 
 function _vmNicDns(nic, netMap) {
   var raw = String((nic && nic.dns) || '').trim();
-  if (raw && raw !== 'off') return escapeHtml(raw);
-  if (raw === 'off') return '<span class="color-muted">OFF</span>';
+  if (raw && raw !== 'off') return raw;
+  if (raw === 'off') return PCV.uxlib.el('span', { class: 'color-muted' }, 'OFF');
 
   var source = _vmNetSource(nic);
   var meta = netMap[source];
   if (meta && meta.dhcp && meta.ip_cidr)
-    return escapeHtml(_vmStripCidr(meta.ip_cidr));
+    return _vmStripCidr(meta.ip_cidr);
   return '-';
 }
 
 function _vmRenderNicDetails(nics, networks, v) {
+  var el = PCV.uxlib.el;
   var netMap = _vmNetworkMap(networks);
   if (!Array.isArray(nics) || nics.length === 0) {
     var count = v && v.network_count ? String(v.network_count) : '0';
-    return '<div class="color-muted text-xs" style="margin-top:8px">' +
-      (count === '0' ? _L('할당된 NIC 없음', 'No assigned NICs')
-                     : _L('NIC 상세 조회 불가', 'NIC details unavailable')) +
-      '</div>';
+    return el('div', { class: 'color-muted text-xs', style: 'margin-top:8px' },
+      count === '0' ? _L('할당된 NIC 없음', 'No assigned NICs')
+                    : _L('NIC 상세 조회 불가', 'NIC details unavailable'));
   }
 
-  var h = '<div style="margin-top:8px;border-top:1px solid var(--border);padding-top:6px">';
+  var wrap = el('div', { style: 'margin-top:8px;border-top:1px solid var(--border);padding-top:6px' });
   nics.forEach(function(nic, idx) {
     var source = _vmNetSource(nic);
     var ip = nic.ip || '';
     var model = nic.model || 'virtio';
     var mac = nic.mac || '-';
     var target = nic.target ? ' / ' + nic.target : '';
-    h += '<div style="padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)">';
-    h += H.row('NIC ' + (idx + 1), '<span class="color-accent">' + escapeHtml(source) + '</span> <span class="color-muted text-xs">' + escapeHtml(model + target) + '</span>');
-    h += H.row('MAC', '<span class="text-xs">' + escapeHtml(mac) + '</span>');
-    h += H.row('IP', ip ? '<span class="color-green">' + escapeHtml(ip) + '</span>' : '<span class="color-muted">-</span>');
-    h += H.row('DNS', _vmNicDns(nic, netMap));
-    h += '</div>';
+    wrap.appendChild(el('div', { style: 'padding:5px 0;border-bottom:1px solid rgba(255,255,255,.06)' },
+      HN.row('NIC ' + (idx + 1), [el('span', { class: 'color-accent' }, source), ' ', el('span', { class: 'color-muted text-xs' }, model + target)]),
+      HN.row('MAC', el('span', { class: 'text-xs' }, mac)),
+      HN.row('IP', ip ? el('span', { class: 'color-green' }, ip) : el('span', { class: 'color-muted' }, '-')),
+      HN.row('DNS', _vmNicDns(nic, netMap))));
   });
-  return h + '</div>';
+  return wrap;
 }
 
 function _vmPrimaryNicValue(nics, field) {
@@ -377,6 +381,16 @@ function _vmPrimaryNicValue(nics, field) {
     if (nics[i] && nics[i][field]) return nics[i][field];
   }
   return '';
+}
+
+/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
+function _vmProgressBar(p, c) {
+  var el = PCV.uxlib.el;
+  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  var anim = p > 85 ? ' pulse-anim' : '';
+  return el('div', { class: 'pb' + anim },
+    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
 }
 
 /* ═══ VM SUMMARY ═══ */
@@ -412,8 +426,8 @@ async function renderSummary(b, v) {
   var primaryIp = _vmPrimaryNicValue(nics, 'ip') || v.ip || '-';
   var primaryDns = nics.length ? _vmNicDns(nics[0], _vmNetworkMap(networks)) : '-';
   var diskUsageAction = on
-    ? '<button class="btn btn-xs" onclick="showVmDiskUsage()">&#128202; ' + _L('디스크 사용량', 'Disk Usage') + '</button>'
-    : '<span class="color-muted text-xs">' + _L('실행 중인 VM에서 확인 가능', 'Available while running') + '</span>';
+    ? PCV.uxlib.el('button', { class: 'btn btn-xs', onclick: 'showVmDiskUsage()' }, '📊 ' + _L('디스크 사용량', 'Disk Usage'))
+    : PCV.uxlib.el('span', { class: 'color-muted text-xs' }, _L('실행 중인 VM에서 확인 가능', 'Available while running'));
 
   /* live 데이터를 vmList에도 반영 (사이드바 프로그레스바용) */
   v.live_cpu_pct = cpuPct;
@@ -423,19 +437,75 @@ async function renderSummary(b, v) {
   v.ip = primaryIp;
 
   const cpuHi = cpuPct > 85;
-  b.innerHTML = '<div class="flex gap-10 items-center mb-14"><span class="neon-blink color-accent">&gt;&gt;</span><h2 style="font-family:var(--font-display);font-size:16px;letter-spacing:.05em">' + escapeHtml(v.name) + '</h2>' + H.badge(v.state + (cpuHi ? ' [HIGH_LOAD]' : ''), on ? 'g' : 'r') + '</div>'
-+ '<div class="sg">'
-+ H.card('&#128187; System', H.row('Guest OS', 'Linux (KVM)') + H.row('UUID', '<span class="text-xs">' + escapeHtml(v.uuid || '-') + '</span>') + H.row(_L('부트', 'Boot'), escapeHtml((v.boot_mode || 'bios').toUpperCase())) + H.row(_L('자동시작', 'Auto Start'), v.auto_start ? '<span class="color-green">ON</span>' : '<span class="color-muted">OFF</span>'))
-+ H.card('&#9881; CPU', H.row('vCPU', escapeHtml(String(vcpu))) + H.row(_L('사용률', 'Usage'), '<span class="' + (cpuHi ? 'color-red' : 'color-green') + '">' + cpuPct.toFixed(1) + '%</span>') + renderProgressBar(cpuPct))
-+ H.card('&#128204; ' + _L('메모리', 'Memory'), H.row(_L('할당', 'Allocated'), escapeHtml(String(memMb)) + ' MB') + H.row(_L('사용률', 'Usage'), memPct.toFixed(1) + '%') + renderProgressBar(memPct))
-+ H.card('&#128190; ' + _L('스토리지', 'Storage'), H.row(_L('타입', 'Type'), H.badge(escapeHtml(v.storage_type || '-'), v.storage_type === 'zvol' ? 'g' : 'y')) + H.row(_L('포맷', 'Format'), escapeHtml(v.disk_format || '-')) + H.row(_L('경로', 'Path'), '<span class="text-xs">' + escapeHtml(v.disk_path || '-') + '</span>') + H.row(_L('게스트 사용량', 'Guest Usage'), diskUsageAction) + H.row(_L('스냅샷', 'Snapshots'), escapeHtml(String(v.snapshot_count || 0))) + H.row('NIC', escapeHtml(String(v.network_count || 0))))
-+ H.card('&#128190; Disk I/O', H.row(_L('읽기', 'Read'), '<span class="color-cyan">' + formatBytes(diskRd) + '</span>') + H.row(_L('쓰기', 'Write'), '<span class="color-peach">' + formatBytes(diskWr) + '</span>') + H.row('IOPS R', '<span class="color-cyan">' + (metrics.disk_rd_req || 0).toLocaleString() + '</span>') + H.row('IOPS W', '<span class="color-peach">' + (metrics.disk_wr_req || 0).toLocaleString() + '</span>'))
-+ '<div class="hc glitch-panel"><h4>&#127760; ' + _L('네트워크', 'Network') + '</h4>' + H.row('RX', '<span class="color-yellow">' + formatBytes(netRx) + '</span>') + H.row('TX', '<span class="color-yellow">' + formatBytes(netTx) + '</span>') + H.row('IP', primaryIp && primaryIp !== '-' ? '<span class="color-green">' + escapeHtml(primaryIp) + '</span>' : '<span class="color-muted">-</span>') + H.row('DNS', primaryDns) + H.row('RX pps', '<span class="color-muted">' + (metrics.net_rx_pkts || 0).toLocaleString() + '</span>') + H.row('TX pps', '<span class="color-muted">' + (metrics.net_tx_pkts || 0).toLocaleString() + '</span>') + _vmRenderNicDetails(nics, networks, v) + '</div>'
-+ '<div class="hc" style="grid-column:1/-1"><h4>' + _L('작업', 'Actions') + '</h4>'
-+ '<div class="flex gap-4 flex-wrap mb-8"><button class="btn btn-g" onclick="vmPower(\'start\')">&#9654; ' + t('power.start') + '</button><button class="btn" onclick="vmPower(\'suspend\')">&#10074;&#10074; ' + t('power.pause') + '</button><button class="btn" onclick="vmPower(\'resume\')">&#9654;&#9654; ' + t('power.resume') + '</button><button class="btn btn-r" onclick="vmPower(\'stop\')">&#9632; ' + t('power.stop') + '</button></div>'
-+ '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:4px"><button class="btn" onclick="showSnap()">' + t('vm.snapshot') + '</button><button class="btn" onclick="showSettings()">' + t('vm.settings') + '</button><button class="btn" onclick="showRenameVm()">&#9998; ' + _L('이름', 'Rename') + '</button><button class="btn" onclick="showNicMgr()">NIC</button><button class="btn" onclick="vmClone(' + selectedVmIndex + ')">&#128203; Clone</button><button class="btn" onclick="vmExportOva(' + selectedVmIndex + ')">&#128230; Export</button><button class="btn" onclick="showImportOva()">&#128229; Import</button><button class="btn" onclick="showMemStats()">&#128204; Mem</button><button class="btn" onclick="showCpuStats()">&#9881; CPU</button><button class="btn" onclick="showVmDiskUsage()">&#128202; ' + _L('디스크 사용량', 'Disk Usage') + '</button><button class="btn" onclick="showDiskLiveResize()">&#128190; Disk</button><button class="btn" onclick="showBlkioEditor()">&#9881; I/O</button><button class="btn" onclick="showGuestAgent()">&#128172; Agent</button></div>'
-+ '</div>'
-+ '</div>';
+  var el = PCV.uxlib.el;
+  var header = el('div', { class: 'flex gap-10 items-center mb-14' },
+    el('span', { class: 'neon-blink color-accent' }, '>>'),
+    el('h2', { style: 'font-family:var(--font-display);font-size:16px;letter-spacing:.05em' }, v.name),
+    HN.badge(v.state + (cpuHi ? ' [HIGH_LOAD]' : ''), on ? 'g' : 'r'));
+  var sg = el('div', { class: 'sg' },
+    HN.card('💻 System', [
+      HN.row('Guest OS', 'Linux (KVM)'),
+      HN.row('UUID', el('span', { class: 'text-xs' }, v.uuid || '-')),
+      HN.row(_L('부트', 'Boot'), (v.boot_mode || 'bios').toUpperCase()),
+      HN.row(_L('자동시작', 'Auto Start'), v.auto_start ? el('span', { class: 'color-green' }, 'ON') : el('span', { class: 'color-muted' }, 'OFF'))
+    ]),
+    HN.card('⚙ CPU', [
+      HN.row('vCPU', String(vcpu)),
+      HN.row(_L('사용률', 'Usage'), el('span', { class: cpuHi ? 'color-red' : 'color-green' }, cpuPct.toFixed(1) + '%')),
+      _vmProgressBar(cpuPct)
+    ]),
+    HN.card('📌 ' + _L('메모리', 'Memory'), [
+      HN.row(_L('할당', 'Allocated'), String(memMb) + ' MB'),
+      HN.row(_L('사용률', 'Usage'), memPct.toFixed(1) + '%'),
+      _vmProgressBar(memPct)
+    ]),
+    HN.card('💾 ' + _L('스토리지', 'Storage'), [
+      HN.row(_L('타입', 'Type'), HN.badge(escapeHtml(v.storage_type || '-'), v.storage_type === 'zvol' ? 'g' : 'y')),
+      HN.row(_L('포맷', 'Format'), v.disk_format || '-'),
+      HN.row(_L('경로', 'Path'), el('span', { class: 'text-xs' }, v.disk_path || '-')),
+      HN.row(_L('게스트 사용량', 'Guest Usage'), diskUsageAction),
+      HN.row(_L('스냅샷', 'Snapshots'), String(v.snapshot_count || 0)),
+      HN.row('NIC', String(v.network_count || 0))
+    ]),
+    HN.card('💾 Disk I/O', [
+      HN.row(_L('읽기', 'Read'), el('span', { class: 'color-cyan' }, formatBytes(diskRd))),
+      HN.row(_L('쓰기', 'Write'), el('span', { class: 'color-peach' }, formatBytes(diskWr))),
+      HN.row('IOPS R', el('span', { class: 'color-cyan' }, (metrics.disk_rd_req || 0).toLocaleString())),
+      HN.row('IOPS W', el('span', { class: 'color-peach' }, (metrics.disk_wr_req || 0).toLocaleString()))
+    ]),
+    el('div', { class: 'hc glitch-panel' },
+      el('h4', null, '🌐 ' + _L('네트워크', 'Network')),
+      HN.row('RX', el('span', { class: 'color-yellow' }, formatBytes(netRx))),
+      HN.row('TX', el('span', { class: 'color-yellow' }, formatBytes(netTx))),
+      HN.row('IP', primaryIp && primaryIp !== '-' ? el('span', { class: 'color-green' }, primaryIp) : el('span', { class: 'color-muted' }, '-')),
+      HN.row('DNS', primaryDns),
+      HN.row('RX pps', el('span', { class: 'color-muted' }, (metrics.net_rx_pkts || 0).toLocaleString())),
+      HN.row('TX pps', el('span', { class: 'color-muted' }, (metrics.net_tx_pkts || 0).toLocaleString())),
+      _vmRenderNicDetails(nics, networks, v)),
+    el('div', { class: 'hc', style: 'grid-column:1/-1' },
+      el('h4', null, _L('작업', 'Actions')),
+      el('div', { class: 'flex gap-4 flex-wrap mb-8' },
+        el('button', { class: 'btn btn-g', onclick: "vmPower('start')" }, '▶ ' + t('power.start')),
+        el('button', { class: 'btn', onclick: "vmPower('suspend')" }, '❚❚ ' + t('power.pause')),
+        el('button', { class: 'btn', onclick: "vmPower('resume')" }, '▶▶ ' + t('power.resume')),
+        el('button', { class: 'btn btn-r', onclick: "vmPower('stop')" }, '■ ' + t('power.stop'))),
+      el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:4px' },
+        el('button', { class: 'btn', onclick: 'showSnap()' }, t('vm.snapshot')),
+        el('button', { class: 'btn', onclick: 'showSettings()' }, t('vm.settings')),
+        el('button', { class: 'btn', onclick: 'showRenameVm()' }, '✎ ' + _L('이름', 'Rename')),
+        el('button', { class: 'btn', onclick: 'showNicMgr()' }, 'NIC'),
+        el('button', { class: 'btn', onclick: 'vmClone(' + selectedVmIndex + ')' }, '📋 Clone'),
+        el('button', { class: 'btn', onclick: 'vmExportOva(' + selectedVmIndex + ')' }, '📦 Export'),
+        el('button', { class: 'btn', onclick: 'showImportOva()' }, '📥 Import'),
+        el('button', { class: 'btn', onclick: 'showMemStats()' }, '📌 Mem'),
+        el('button', { class: 'btn', onclick: 'showCpuStats()' }, '⚙ CPU'),
+        el('button', { class: 'btn', onclick: 'showVmDiskUsage()' }, '📊 ' + _L('디스크 사용량', 'Disk Usage')),
+        el('button', { class: 'btn', onclick: 'showDiskLiveResize()' }, '💾 Disk'),
+        el('button', { class: 'btn', onclick: 'showBlkioEditor()' }, '⚙ I/O'),
+        el('button', { class: 'btn', onclick: 'showGuestAgent()' }, '💬 Agent'))));
+  PCV.uxlib.clearEl(b);
+  b.appendChild(header);
+  b.appendChild(sg);
 }
 
 /* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══

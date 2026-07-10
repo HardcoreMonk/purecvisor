@@ -16,20 +16,46 @@ window.PCV = window.PCV || {};
  *    5. <script type="module"> 동적 삽입으로 ESM import 수행 */
 async function renderConsole(b, v) {
   if (!v) return;
-  let vncHtml = '<div class="text-center p-20"><p class="text-14">&#128424; ' + escapeHtml(v.name) + '</p><p class="stat-label mt-8">' + t('loading') + '</p></div>';
-  b.innerHTML = '<div style="background:#000;border:1px solid var(--border);border-radius:var(--r);min-height:500px;height:calc(100vh - 200px);position:relative" id="vnc-frame">' + vncHtml + '</div>';
+  var el = PCV.uxlib.el;
+  var vncHtml = el('div', { class: 'text-center p-20' },
+    el('p', { class: 'text-14' }, '🖨 ' + v.name),
+    el('p', { class: 'stat-label mt-8' }, t('loading')));
+  PCV.uxlib.clearEl(b);
+  b.appendChild(el('div', { style: 'background:#000;border:1px solid var(--border);border-radius:var(--r);min-height:500px;height:calc(100vh - 200px);position:relative', id: 'vnc-frame' }, vncHtml));
   try {
     const r = await fetchGet(EP.VNC(v.name));
     const d = unwrapData(r);
     const addr = d.vnc_address || d.address || 'localhost';
     const port = d.vnc_port || d.port || '';
     if (port && v.state === 'running') {
-      document.getElementById('vnc-frame').innerHTML = `<div class="p-12"><div class="flex gap-12 items-center mb-12 flex-wrap">${H.badge('VNC ' + t('vnc.connected'), 'g')}<span class="text-13 font-600">${escapeHtml(addr)}:${escapeHtml(String(port))}</span><button class="btn btn-g" onclick="openNoVNCPopup('${escapeAttr(addr)}','${escapeAttr(String(port))}','${escapeAttr(v.name)}')">&#128424; ${t('vnc.open_popup')}</button><button class="btn" onclick="openNoVNC('${escapeAttr(addr)}','${escapeAttr(String(port))}')">${t('vnc.embedded')}</button><button class="btn" onclick="copyVncAddr('${escapeAttr(String(port))}')">&#128203; ${t('vnc.copy_addr')}</button></div><div id="vnc-placeholder" style="background:#111;height:calc(100vh - 280px);min-height:400px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--fg2)"><div class="text-center"><p class="text-lg">&#128424; ${escapeHtml(v.name)}</p><p class="mt-8">"${t('vnc.open_popup')}"</p><p class="stat-label mt-4">VNC: ${location.hostname}:${escapeHtml(String(port))}</p></div></div></div>`;
+      const frame = document.getElementById('vnc-frame');
+      PCV.uxlib.clearEl(frame);
+      frame.appendChild(el('div', { class: 'p-12' },
+        el('div', { class: 'flex gap-12 items-center mb-12 flex-wrap' },
+          HN.badge('VNC ' + t('vnc.connected'), 'g'),
+          el('span', { class: 'text-13 font-600' }, addr + ':' + String(port)),
+          el('button', { class: 'btn btn-g', onclick: "openNoVNCPopup('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "','" + escapeAttr(v.name) + "')" }, '🖨 ' + t('vnc.open_popup')),
+          el('button', { class: 'btn', onclick: "openNoVNC('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "')" }, t('vnc.embedded')),
+          el('button', { class: 'btn', onclick: "copyVncAddr('" + escapeAttr(String(port)) + "')" }, '📋 ' + t('vnc.copy_addr'))),
+        el('div', { id: 'vnc-placeholder', style: 'background:#111;height:calc(100vh - 280px);min-height:400px;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--fg2)' },
+          el('div', { class: 'text-center' },
+            el('p', { class: 'text-lg' }, '🖨 ' + v.name),
+            el('p', { class: 'mt-8' }, '"' + t('vnc.open_popup') + '"'),
+            el('p', { class: 'stat-label mt-4' }, 'VNC: ' + location.hostname + ':' + String(port))))));
     } else {
-      document.getElementById('vnc-frame').innerHTML = `<div class="text-center color-muted p-20"><p class="text-14">&#128424; ${escapeHtml(v.name)}</p><p class="mt-8">${v.state === 'running' ? _L('VNC 포트를 사용할 수 없습니다', 'VNC port not available') : _L('VM이 중지 상태입니다', 'VM is stopped')}</p><button class="btn mt-12" onclick="showVnc()">${_L('VNC 확인', 'Check VNC')}</button></div>`;
+      const frame = document.getElementById('vnc-frame');
+      PCV.uxlib.clearEl(frame);
+      frame.appendChild(el('div', { class: 'text-center color-muted p-20' },
+        el('p', { class: 'text-14' }, '🖨 ' + v.name),
+        el('p', { class: 'mt-8' }, v.state === 'running' ? _L('VNC 포트를 사용할 수 없습니다', 'VNC port not available') : _L('VM이 중지 상태입니다', 'VM is stopped')),
+        el('button', { class: 'btn mt-12', onclick: 'showVnc()' }, _L('VNC 확인', 'Check VNC'))));
     }
   } catch (e) {
-    document.getElementById('vnc-frame').innerHTML = '<div class="text-center color-muted p-20"><p>' + escapeHtml(t('vnc.unavailable')) + '</p><button class="btn mt-8" onclick="showVnc()">' + escapeHtml(t('vnc.manual_check')) + '</button></div>';
+    const frame = document.getElementById('vnc-frame');
+    PCV.uxlib.clearEl(frame);
+    frame.appendChild(el('div', { class: 'text-center color-muted p-20' },
+      el('p', null, t('vnc.unavailable')),
+      el('button', { class: 'btn mt-8', onclick: 'showVnc()' }, t('vnc.manual_check'))));
   }
 }
 
@@ -47,7 +73,17 @@ function openNoVNC(addr, port) {
   const errorSuffixText = t('vnc.error_suffix');
   const securityFailureText = t('vnc.security_failure');
   const statusEndpoint = escapeHtml(addr) + ':' + escapeHtml(String(port));
-  frame.innerHTML = '<div class="flex gap-6 mb-6 items-center"><button class="btn" onclick="vncFullscreen()" title="' + escapeAttr(fullscreenText) + '">&#9974; ' + escapeHtml(fullscreenText) + '</button><button class="btn" onclick="vncFitWindow()" title="' + escapeAttr(fitText) + '">&#128300; ' + escapeHtml(fitText) + '</button><span id="vnc-res" class="stat-label"></span></div><div id="vnc-container" style="width:100%;height:calc(100vh - 220px);min-height:500px;background:#000;border-radius:var(--r);position:relative"><div id="vnc-status" style="position:absolute;top:8px;left:8px;z-index:10;font-size:11px;color:var(--green);background:rgba(0,0,0,.7);padding:4px 10px;border-radius:4px"><span class="spinner"></span> ' + escapeHtml(loadingConnectingText) + ' ' + statusEndpoint + '...</div>' + vncIsoEjectTipHtml() + '</div>';
+  var el = PCV.uxlib.el;
+  PCV.uxlib.clearEl(frame);
+  frame.appendChild(el('div', { class: 'flex gap-6 mb-6 items-center' },
+    el('button', { class: 'btn', onclick: 'vncFullscreen()', title: escapeAttr(fullscreenText) }, '⛶ ' + fullscreenText),
+    el('button', { class: 'btn', onclick: 'vncFitWindow()', title: escapeAttr(fitText) }, '🔬 ' + fitText),
+    el('span', { id: 'vnc-res', class: 'stat-label' })));
+  frame.appendChild(el('div', { id: 'vnc-container', style: 'width:100%;height:calc(100vh - 220px);min-height:500px;background:#000;border-radius:var(--r);position:relative' },
+    el('div', { id: 'vnc-status', style: 'position:absolute;top:8px;left:8px;z-index:10;font-size:11px;color:var(--green);background:rgba(0,0,0,.7);padding:4px 10px;border-radius:4px' },
+      el('span', { class: 'spinner' }),
+      ' ' + loadingConnectingText + ' ' + statusEndpoint + '...'),
+    vncIsoEjectTipHtml()));
   const existing = document.getElementById('novnc-loader');
   if (existing) existing.remove();
   const m = document.createElement('script');
@@ -78,10 +114,10 @@ function openNoVNC(addr, port) {
 }
 
 function vncIsoEjectTipHtml() {
-  return '<div id="vnc-iso-tip" style="position:absolute;top:10px;right:10px;z-index:11;max-width:340px;background:rgba(8,12,18,.82);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:8px 10px;color:#e8f6ff;box-shadow:0 8px 28px rgba(0,0,0,.32);font-family:var(--font-ui,system-ui,sans-serif);pointer-events:none">'
-    + '<div style="font-size:11px;font-weight:700;color:#80eaff;margin-bottom:3px">' + escapeHtml(t('vnc.iso_eject_title')) + '</div>'
-    + '<div style="font-size:11px;line-height:1.45;color:#d9e7ef">' + escapeHtml(t('vnc.iso_eject_body')) + '</div>'
-    + '</div>';
+  var el = PCV.uxlib.el;
+  return el('div', { id: 'vnc-iso-tip', style: 'position:absolute;top:10px;right:10px;z-index:11;max-width:340px;background:rgba(8,12,18,.82);border:1px solid rgba(255,255,255,.18);border-radius:6px;padding:8px 10px;color:#e8f6ff;box-shadow:0 8px 28px rgba(0,0,0,.32);font-family:var(--font-ui,system-ui,sans-serif);pointer-events:none' },
+    el('div', { style: 'font-size:11px;font-weight:700;color:#80eaff;margin-bottom:3px' }, t('vnc.iso_eject_title')),
+    el('div', { style: 'font-size:11px;line-height:1.45;color:#d9e7ef' }, t('vnc.iso_eject_body')));
 }
 
 function vncFullscreen() {
@@ -194,7 +230,17 @@ function copyVncAddr(port) {
  *    snapDeleteAll → prefix 필터 + keep_recent → 미리보기(sdaPreview) → 실행(sdaExec). */
 async function renderSnapshots(b, v) {
   if (!v) return;
-  b.innerHTML = '<div><div class="justify-between items-center mb-12"><h3>' + t('vm.snapshot') + ': ' + esc(v.name) + '</h3><div class="flex gap-6"><button class="btn btn-g" onclick="takeSnap()" class="text-12">+ ' + t('btn.create') + '</button><button class="btn btn-r" onclick="snapDeleteAll(\'' + escapeAttr(v.name) + '\')" class="text-12">&#128465; Delete All</button></div></div><div id="stree"><span class="spinner"></span> ' + t('loading') + '</div></div>';
+  var el = PCV.uxlib.el;
+  PCV.uxlib.clearEl(b);
+  b.appendChild(el('div', null,
+    el('div', { class: 'justify-between items-center mb-12' },
+      el('h3', null, t('vm.snapshot') + ': ' + v.name),
+      el('div', { class: 'flex gap-6' },
+        el('button', { class: 'btn btn-g', onclick: 'takeSnap()' }, '+ ' + t('btn.create')),
+        el('button', { class: 'btn btn-r', onclick: "snapDeleteAll('" + escapeAttr(v.name) + "')" }, '🗑 Delete All'))),
+    el('div', { id: 'stree' },
+      el('span', { class: 'spinner' }),
+      ' ' + t('loading'))));
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(v.name));
     const raw = unwrapList(r);
@@ -208,19 +254,25 @@ async function renderSnapshots(b, v) {
       return { name: s.name || s, full_path: s.name || s, time: s.creation_time || '' };
     });
     if (!snaps.length) { PCV.uxlib.setMsg('stree', 'muted', { tag: 'p' }, t('snap.none')); return; }
-    let h = '<table><thead><tr><th>Snapshot</th><th>Created</th><th class="w-140">Actions</th></tr></thead><tbody>';
+    const el = PCV.uxlib.el;
+    const tbody = el('tbody');
     snaps.forEach(s => {
-      h += '<tr><td><b>' + esc(s.name) + '</b></td>';
-      h += '<td class="text-xs color-muted">' + esc(s.time) + '</td>';
-      h += '<td class="nowrap">';
       const safeName = v.name.replace(/'/g, "\\'");
       const safeSnap = s.name.replace(/'/g, "\\'");
-      h += '<button class="btn" style="font-size:10px;padding:3px 8px;margin-right:4px" onclick="snapRb(\'' + safeName + '\',\'' + safeSnap + '\')">' + t('snap.revert_confirm') + '</button>';
-      h += '<button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="snapDl(\'' + safeName + '\',\'' + safeSnap + '\')">' + t('btn.delete') + '</button>';
-      h += '</td></tr>';
+      tbody.appendChild(el('tr', null,
+        el('td', null, el('b', null, s.name)),
+        el('td', { class: 'text-xs color-muted' }, s.time),
+        el('td', { class: 'nowrap' },
+          el('button', { class: 'btn', style: 'font-size:10px;padding:3px 8px;margin-right:4px', onclick: "snapRb('" + safeName + "','" + safeSnap + "')" }, t('snap.revert_confirm')),
+          el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "snapDl('" + safeName + "','" + safeSnap + "')" }, t('btn.delete')))));
     });
-    h += '</tbody></table>';
-    document.getElementById('stree').innerHTML = h;
+    const table = el('table', null,
+      el('thead', null, el('tr', null,
+        el('th', null, 'Snapshot'), el('th', null, 'Created'), el('th', { class: 'w-140' }, 'Actions'))),
+      tbody);
+    const stree = document.getElementById('stree');
+    PCV.uxlib.clearEl(stree);
+    stree.appendChild(table);
   } catch (e) { PCV.uxlib.setMsg('stree', 'err', { tag: 'p' }, e.message); }
 }
 
@@ -231,30 +283,32 @@ async function takeSnap() {
   const ts = new Date().toISOString().replace(/[-:T]/g, '').substring(0, 14);
   const defaultName = 'snap-' + ts;
 
-  let h = '<h2 class="mb-14">&#128247; Create Snapshot</h2>';
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<div class="flex items-center gap-8 mb-8"><span style="font-size:18px">&#128187;</span><div><b>' + esc(v.name) + '</b><div class="text-xs">' + (on ? '<span class="color-green">Running</span>' : '<span class="color-muted">Stopped</span>') + ' &bull; ' + (v.vcpu || '?') + ' vCPU &bull; ' + (v.memory_mb || '?') + ' MB</div></div></div>';
-  if (on) h += '<div class="text-xs" style="color:var(--yellow);padding:4px 8px;background:rgba(255,200,0,.08);border-radius:4px">&#9888; VM is running. Snapshot will capture live state (crash-consistent).</div>';
-  h += '</div>';
-
-  h += '<div class="mb-12"><label for="snap-name-input" class="text-12 font-600">Snapshot Name</label>';
-  h += '<input id="snap-name-input" value="' + defaultName + '" class="w-full mt-4" oninput="snapNameValidate()" placeholder="alphanumeric, dash, underscore"></div>';
-  h += '<div id="snap-name-err" style="font-size:11px;min-height:16px;margin-bottom:8px"></div>';
-
-  h += '<div class="mb-14"><label for="snap-desc-input" class="text-12 font-600">Description <span class="color-muted">(optional)</span></label>';
-  h += '<input id="snap-desc-input" placeholder="e.g. Before upgrade, pre-migration backup" class="w-full mt-4"></div>';
-
-  h += '<div id="snap-preview" style="margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:11px">';
-  h += '<div class="color-muted mb-4 font-600">Preview</div>';
-  h += '<div>ZFS: <code>' + esc(v.name) + '@' + defaultName + '</code></div>';
-  h += '</div>';
-
-  h += '<div class="flex gap-6 justify-end">';
-  h += '<button class="btn" onclick="closeModal()">Cancel</button>';
-  h += '<button class="btn btn-g" id="snap-create-btn" onclick="snapCreateExec()">&#128247; Create Snapshot</button>';
-  h += '</div>';
-
-  showModal(h);
+  var mk = PCV.uxlib.el;
+  showModal([
+    mk('h2', { class: 'mb-14' }, '📷 Create Snapshot'),
+    mk('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      mk('div', { class: 'flex items-center gap-8 mb-8' },
+        mk('span', { style: 'font-size:18px' }, '💻'),
+        mk('div', null,
+          mk('b', null, v.name),
+          mk('div', { class: 'text-xs' },
+            on ? mk('span', { class: 'color-green' }, 'Running') : mk('span', { class: 'color-muted' }, 'Stopped'),
+            ' • ' + (v.vcpu || '?') + ' vCPU • ' + (v.memory_mb || '?') + ' MB'))),
+      on ? mk('div', { class: 'text-xs', style: 'color:var(--yellow);padding:4px 8px;background:rgba(255,200,0,.08);border-radius:4px' }, '⚠ VM is running. Snapshot will capture live state (crash-consistent).') : null),
+    mk('div', { class: 'mb-12' },
+      mk('label', { for: 'snap-name-input', class: 'text-12 font-600' }, 'Snapshot Name'),
+      mk('input', { id: 'snap-name-input', value: defaultName, class: 'w-full mt-4', oninput: 'snapNameValidate()', placeholder: 'alphanumeric, dash, underscore' })),
+    mk('div', { id: 'snap-name-err', style: 'font-size:11px;min-height:16px;margin-bottom:8px' }),
+    mk('div', { class: 'mb-14' },
+      mk('label', { for: 'snap-desc-input', class: 'text-12 font-600' }, 'Description ', mk('span', { class: 'color-muted' }, '(optional)')),
+      mk('input', { id: 'snap-desc-input', placeholder: 'e.g. Before upgrade, pre-migration backup', class: 'w-full mt-4' })),
+    mk('div', { id: 'snap-preview', style: 'margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:6px;font-size:11px' },
+      mk('div', { class: 'color-muted mb-4 font-600' }, 'Preview'),
+      mk('div', null, 'ZFS: ', mk('code', null, v.name + '@' + defaultName))),
+    mk('div', { class: 'flex gap-6 justify-end' },
+      mk('button', { class: 'btn', onclick: 'closeModal()' }, 'Cancel'),
+      mk('button', { class: 'btn btn-g', id: 'snap-create-btn', onclick: 'snapCreateExec()' }, '📷 Create Snapshot'))
+  ]);
   setTimeout(() => { const el = document.getElementById('snap-name-input'); if (el) { el.focus(); el.select(); } }, 100);
 }
 
@@ -273,7 +327,13 @@ function snapNameValidate() {
   }
   if (btn) btn.disabled = !valid || !n;
   const v = vmList[selectedVmIndex];
-  if (preview && v) preview.innerHTML = '<div class="color-muted mb-4 font-600">Preview</div><div>ZFS: <code>' + esc(v.name) + '@' + esc(n) + '</code></div>';
+  if (preview && v) {
+    var mk = PCV.uxlib.el;
+    PCV.uxlib.clearEl(preview);
+    preview.appendChild(PCV.uxlib.frag(
+      mk('div', { class: 'color-muted mb-4 font-600' }, 'Preview'),
+      mk('div', null, 'ZFS: ', mk('code', null, v.name + '@' + n))));
+  }
 }
 
 async function snapCreateExec() {
@@ -297,33 +357,31 @@ async function snapRb(vm, s) {
   const v = vmList.find(x => x.name === vm);
   const on = v && v.state === 'running';
 
-  let h = '<h2 class="mb-14">&#9194; Rollback Snapshot</h2>';
-
-  /* 경고 배너 */
-  h += '<div style="margin-bottom:14px;padding:12px;border:1px solid var(--red);border-radius:6px;background:rgba(255,60,60,.06)">';
-  h += '<div style="font-weight:700;color:var(--red);margin-bottom:6px">&#9888; Destructive Operation</div>';
-  h += '<div class="text-xs color-muted">This will revert the VM disk to the snapshot point-in-time. <b>All data written after this snapshot will be permanently lost.</b></div>';
-  if (on) h += '<div class="text-xs" style="color:var(--yellow);margin-top:6px">&#9889; VM is currently <b>running</b> — it will be <b>force-stopped</b> before rollback, then automatically restarted.</div>';
-  h += '</div>';
-
-  /* 상세 정보 */
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<div style="display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px">';
-  h += '<span class="color-muted">VM</span><span><b>' + esc(vm) + '</b> ' + (on ? '<span class="color-green">Running</span>' : '<span class="color-muted">Stopped</span>') + '</span>';
-  h += '<span class="color-muted">Snapshot</span><span><code>' + esc(s) + '</code></span>';
-  h += '<span class="color-muted">ZFS Path</span><span class="text-xs"><code>' + esc(vm) + '@' + esc(s) + '</code></span>';
-  h += '</div></div>';
-
-  /* 확인 입력 */
-  h += '<div class="mb-14"><label for="rb-confirm-input" class="text-12 font-600">Type VM name to confirm: <code>' + esc(vm) + '</code></label>';
-  h += '<input id="rb-confirm-input" placeholder="' + esc(vm) + '" class="w-full mt-4" oninput="rbValidate(\'' + escapeAttr(vm) + '\')"></div>';
-
-  h += '<div class="flex gap-6 justify-end">';
-  h += '<button class="btn" onclick="closeModal()">Cancel</button>';
-  h += '<button class="btn btn-r" id="rb-exec-btn" disabled onclick="rbExec(\'' + vm.replace(/'/g, "\\'") + '\',\'' + s.replace(/'/g, "\\'") + '\')">&#9194; Rollback</button>';
-  h += '</div>';
-
-  showModal(h);
+  var mk = PCV.uxlib.el;
+  showModal([
+    mk('h2', { class: 'mb-14' }, '⏪ Rollback Snapshot'),
+    /* 경고 배너 */
+    mk('div', { style: 'margin-bottom:14px;padding:12px;border:1px solid var(--red);border-radius:6px;background:rgba(255,60,60,.06)' },
+      mk('div', { style: 'font-weight:700;color:var(--red);margin-bottom:6px' }, '⚠ Destructive Operation'),
+      mk('div', { class: 'text-xs color-muted' }, 'This will revert the VM disk to the snapshot point-in-time. ', mk('b', null, 'All data written after this snapshot will be permanently lost.')),
+      on ? mk('div', { class: 'text-xs', style: 'color:var(--yellow);margin-top:6px' }, '⚡ VM is currently ', mk('b', null, 'running'), ' — it will be ', mk('b', null, 'force-stopped'), ' before rollback, then automatically restarted.') : null),
+    /* 상세 정보 */
+    mk('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      mk('div', { style: 'display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px' },
+        mk('span', { class: 'color-muted' }, 'VM'),
+        mk('span', null, mk('b', null, vm), ' ', on ? mk('span', { class: 'color-green' }, 'Running') : mk('span', { class: 'color-muted' }, 'Stopped')),
+        mk('span', { class: 'color-muted' }, 'Snapshot'),
+        mk('span', null, mk('code', null, s)),
+        mk('span', { class: 'color-muted' }, 'ZFS Path'),
+        mk('span', { class: 'text-xs' }, mk('code', null, vm + '@' + s)))),
+    /* 확인 입력 */
+    mk('div', { class: 'mb-14' },
+      mk('label', { for: 'rb-confirm-input', class: 'text-12 font-600' }, 'Type VM name to confirm: ', mk('code', null, vm)),
+      mk('input', { id: 'rb-confirm-input', placeholder: esc(vm), class: 'w-full mt-4', oninput: "rbValidate('" + escapeAttr(vm) + "')" })),
+    mk('div', { class: 'flex gap-6 justify-end' },
+      mk('button', { class: 'btn', onclick: 'closeModal()' }, 'Cancel'),
+      mk('button', { class: 'btn btn-r', id: 'rb-exec-btn', disabled: '', onclick: "rbExec('" + vm.replace(/'/g, "\\'") + "','" + s.replace(/'/g, "\\'") + "')" }, '⏪ Rollback'))
+  ]);
   setTimeout(() => { const el = document.getElementById('rb-confirm-input'); if (el) el.focus(); }, 100);
 }
 
@@ -376,25 +434,24 @@ async function snapDeleteAll(vm) {
   if (snaps.length === 0) { toast('No snapshots to delete'); return; }
 
   /* 2. 모달 UI */
-  let h = '<h2 class="mb-12">&#128465; Bulk Delete Snapshots</h2>';
-  h += '<div class="mb-12"><span class="color-muted">VM:</span> <b>' + esc(vm) + '</b> &mdash; <span class="color-accent">' + snaps.length + '</span> snapshots</div>';
-
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<div style="margin-bottom:8px;font-weight:600;font-size:12px">Options</div>';
-  h += '<div class="mb-8"><label for="sda-prefix" class="text-12">Prefix filter <span class="color-muted">(empty = all)</span></label>';
-  h += '<input id="sda-prefix" placeholder="e.g. pcv-repl-" class="w-full mt-4" oninput="sdaPreview()"></div>';
-  h += '<div><label for="sda-keep" class="text-12">Keep recent</label>';
-  h += '<input id="sda-keep" type="number" min="0" value="0" style="width:80px;margin-left:8px" oninput="sdaPreview()"> <span class="color-muted text-xs">snapshots</span></div>';
-  h += '</div>';
-
-  h += '<div id="sda-preview" style="margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto;font-size:11px"></div>';
-
-  h += '<div class="flex gap-6 justify-end">';
-  h += '<button class="btn" onclick="closeModal()">Cancel</button>';
-  h += '<button class="btn btn-r" id="sda-exec-btn" onclick="sdaExec(\'' + vm.replace(/'/g, "\\'") + '\')">&#128465; Delete <span id="sda-count">0</span> Snapshots</button>';
-  h += '</div>';
-
-  showModal(h);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', { class: 'mb-12' }, '🗑 Bulk Delete Snapshots'),
+    el('div', { class: 'mb-12' },
+      el('span', { class: 'color-muted' }, 'VM:'), ' ', el('b', null, vm), ' — ', el('span', { class: 'color-accent' }, snaps.length), ' snapshots'),
+    el('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      el('div', { style: 'margin-bottom:8px;font-weight:600;font-size:12px' }, 'Options'),
+      el('div', { class: 'mb-8' },
+        el('label', { for: 'sda-prefix', class: 'text-12' }, 'Prefix filter ', el('span', { class: 'color-muted' }, '(empty = all)')),
+        el('input', { id: 'sda-prefix', placeholder: 'e.g. pcv-repl-', class: 'w-full mt-4', oninput: 'sdaPreview()' })),
+      el('div', null,
+        el('label', { for: 'sda-keep', class: 'text-12' }, 'Keep recent'),
+        el('input', { id: 'sda-keep', type: 'number', min: '0', value: '0', style: 'width:80px;margin-left:8px', oninput: 'sdaPreview()' }), ' ', el('span', { class: 'color-muted text-xs' }, 'snapshots'))),
+    el('div', { id: 'sda-preview', style: 'margin-bottom:14px;padding:10px;border:1px solid var(--border);border-radius:6px;max-height:200px;overflow-y:auto;font-size:11px' }),
+    el('div', { class: 'flex gap-6 justify-end' },
+      el('button', { class: 'btn', onclick: 'closeModal()' }, 'Cancel'),
+      el('button', { class: 'btn btn-r', id: 'sda-exec-btn', onclick: "sdaExec('" + vm.replace(/'/g, "\\'") + "')" }, '🗑 Delete ', el('span', { id: 'sda-count' }, '0'), ' Snapshots'))
+  ]);
 
   /* 스냅샷 데이터를 전역에 임시 저장 */
   window._sdaSnaps = snaps;
@@ -417,21 +474,24 @@ function sdaPreview() {
   const delList = filtered.slice(0, toDelete);
   const keepList = filtered.slice(toDelete);
 
-  let h = '<div style="font-weight:600;margin-bottom:6px;color:var(--red)">Will DELETE: ' + delList.length + '</div>';
+  var mk = PCV.uxlib.el;
+  var parts = [];
+  parts.push(mk('div', { style: 'font-weight:600;margin-bottom:6px;color:var(--red)' }, 'Will DELETE: ' + delList.length));
   if (delList.length > 0) {
     delList.forEach(s => {
-      h += '<div style="color:var(--red);padding:1px 0">&#10060; ' + esc(s.name) + ' <span class="color-muted">' + esc(s.time) + '</span></div>';
+      parts.push(mk('div', { style: 'color:var(--red);padding:1px 0' }, '❌ ' + s.name + ' ', mk('span', { class: 'color-muted' }, s.time)));
     });
   } else {
-    h += '<div class="color-muted">No snapshots match the criteria</div>';
+    parts.push(mk('div', { class: 'color-muted' }, 'No snapshots match the criteria'));
   }
   if (keepList.length > 0) {
-    h += '<div style="font-weight:600;margin-top:8px;margin-bottom:4px;color:var(--green)">Will KEEP: ' + keepList.length + '</div>';
+    parts.push(mk('div', { style: 'font-weight:600;margin-top:8px;margin-bottom:4px;color:var(--green)' }, 'Will KEEP: ' + keepList.length));
     keepList.forEach(s => {
-      h += '<div style="color:var(--green);padding:1px 0">&#9989; ' + esc(s.name) + ' <span class="color-muted">' + esc(s.time) + '</span></div>';
+      parts.push(mk('div', { style: 'color:var(--green);padding:1px 0' }, '✅ ' + s.name + ' ', mk('span', { class: 'color-muted' }, s.time)));
     });
   }
-  el.innerHTML = h;
+  PCV.uxlib.clearEl(el);
+  el.appendChild(PCV.uxlib.frag(parts));
   if (countEl) countEl.textContent = delList.length;
 
   const btn = document.getElementById('sda-exec-btn');
@@ -460,6 +520,16 @@ async function sdaExec(vm) {
 /* ═══ PERFORMANCE ═══ */
 var perfLayout = 'auto';
 
+/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
+function _vmcProgressBar(p, c) {
+  var el = PCV.uxlib.el;
+  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  var anim = p > 85 ? ' pulse-anim' : '';
+  return el('div', { class: 'pb' + anim },
+    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
+}
+
 async function renderPerformance(b, v) {
   if (!v) return;
   /* 실시간 메트릭 조회 */
@@ -477,13 +547,35 @@ async function renderPerformance(b, v) {
   var chartH = perfLayout === 'manual' ? '120px' : '80px';
   var gridCls = perfLayout === 'auto' ? 'sg grid-2' : '';
   var gridStyle = perfLayout === 'auto' ? '' : 'display:flex;flex-direction:column;gap:12px';
-  b.innerHTML = '<div class="justify-between items-center mb-12"><h3>' + t('tab.performance') + ': ' + escapeHtml(v.name) + '</h3><div class="flex gap-6"><button class="tb ' + (perfLayout === 'auto' ? '' : 'btn') + '" onclick="perfLayout=\'auto\';renderPerformance(document.getElementById(\'cb\'),vmList[selectedVmIndex])" class="text-11">&#9638; Auto</button><button class="tb ' + (perfLayout === 'manual' ? '' : 'btn') + '" onclick="perfLayout=\'manual\';renderPerformance(document.getElementById(\'cb\'),vmList[selectedVmIndex])" class="text-11">&#9776; Stack</button></div></div>'
-+ '<div class="' + gridCls + '" style="' + gridStyle + '">'
-+ H.card('CPU Usage (60s) — ' + cpuPct.toFixed(1) + '%', renderProgressBar(cpuPct) + '<div style="position:relative;height:' + chartH + ';width:100%;margin-top:6px"><canvas id="cg"></canvas></div>')
-+ H.card('Memory Usage (60s) — ' + memPct.toFixed(1) + '%', renderProgressBar(memPct) + '<div style="position:relative;height:' + chartH + ';width:100%;margin-top:6px"><canvas id="mg"></canvas></div>')
-+ H.card('Disk IOPS', H.row(_L('읽기', 'Read'), '<span class="color-cyan">' + (metrics.disk_rd_req || 0).toLocaleString() + ' ops</span>') + H.row(_L('쓰기', 'Write'), '<span class="color-peach">' + (metrics.disk_wr_req || 0).toLocaleString() + ' ops</span>') + H.row('I/O Read', '<span class="color-cyan">' + formatBytes(metrics.disk_rd || 0) + '</span>') + H.row('I/O Write', '<span class="color-peach">' + formatBytes(metrics.disk_wr || 0) + '</span>'))
-+ H.card('Network Packets', H.row('RX', '<span class="color-yellow">' + formatBytes(metrics.net_rx || 0) + '</span> (' + (metrics.net_rx_pkts || 0).toLocaleString() + ' pps)') + H.row('TX', '<span class="color-yellow">' + formatBytes(metrics.net_tx || 0) + '</span> (' + (metrics.net_tx_pkts || 0).toLocaleString() + ' pps)'))
-+ '</div>';
+  var el = PCV.uxlib.el;
+  var header = el('div', { class: 'justify-between items-center mb-12' },
+    el('h3', null, t('tab.performance') + ': ' + v.name),
+    el('div', { class: 'flex gap-6' },
+      el('button', { class: 'tb ' + (perfLayout === 'auto' ? '' : 'btn'), onclick: "perfLayout='auto';renderPerformance(document.getElementById('cb'),vmList[selectedVmIndex])" }, '▦ Auto'),
+      el('button', { class: 'tb ' + (perfLayout === 'manual' ? '' : 'btn'), onclick: "perfLayout='manual';renderPerformance(document.getElementById('cb'),vmList[selectedVmIndex])" }, '☰ Stack')));
+  var perfGrid = el('div', { class: gridCls },
+    HN.card('CPU Usage (60s) — ' + cpuPct.toFixed(1) + '%', [
+      _vmcProgressBar(cpuPct),
+      el('div', { style: 'position:relative;height:' + chartH + ';width:100%;margin-top:6px' }, el('canvas', { id: 'cg' }))
+    ]),
+    HN.card('Memory Usage (60s) — ' + memPct.toFixed(1) + '%', [
+      _vmcProgressBar(memPct),
+      el('div', { style: 'position:relative;height:' + chartH + ';width:100%;margin-top:6px' }, el('canvas', { id: 'mg' }))
+    ]),
+    HN.card('Disk IOPS', [
+      HN.row(_L('읽기', 'Read'), el('span', { class: 'color-cyan' }, (metrics.disk_rd_req || 0).toLocaleString() + ' ops')),
+      HN.row(_L('쓰기', 'Write'), el('span', { class: 'color-peach' }, (metrics.disk_wr_req || 0).toLocaleString() + ' ops')),
+      HN.row('I/O Read', el('span', { class: 'color-cyan' }, formatBytes(metrics.disk_rd || 0))),
+      HN.row('I/O Write', el('span', { class: 'color-peach' }, formatBytes(metrics.disk_wr || 0)))
+    ]),
+    HN.card('Network Packets', [
+      HN.row('RX', [el('span', { class: 'color-yellow' }, formatBytes(metrics.net_rx || 0)), ' (' + (metrics.net_rx_pkts || 0).toLocaleString() + ' pps)']),
+      HN.row('TX', [el('span', { class: 'color-yellow' }, formatBytes(metrics.net_tx || 0)), ' (' + (metrics.net_tx_pkts || 0).toLocaleString() + ' pps)'])
+    ]));
+  perfGrid.setAttribute('style', gridStyle);
+  PCV.uxlib.clearEl(b);
+  b.appendChild(header);
+  b.appendChild(perfGrid);
   setTimeout(function() {
     createLineChart('cg', cpuHistory, 'CPU %', getChartColor('cpu'));
     createLineChart('mg', memHistory, 'MEM %', getChartColor('mem'));
@@ -498,26 +590,30 @@ function renderTimeline(b, v) {
     return msg.includes(v.name.toLowerCase());
   }).slice(-20);
 
-  var h = '<h3 class="mb-14">' + _L('타임라인', 'Timeline') + ': ' + esc(v.name) + '</h3>';
+  var el = PCV.uxlib.el;
+  var parts = [];
+  parts.push(el('h3', { class: 'mb-14' }, _L('타임라인', 'Timeline') + ': ' + v.name));
   if (events.length === 0) {
-    h += '<div class="empty-state" style="text-align:center;padding:30px"><div style="font-size:36px;opacity:.5">&#128337;</div><div class="color-muted mt-8">' + _L('이벤트 없음', 'No events yet') + '</div></div>';
+    parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:30px' },
+      el('div', { style: 'font-size:36px;opacity:.5' }, '🕑'),
+      el('div', { class: 'color-muted mt-8' }, _L('이벤트 없음', 'No events yet'))));
   } else {
-    h += '<div style="position:relative;padding-left:24px;border-left:2px solid var(--border)">';
+    var timeline = el('div', { style: 'position:relative;padding-left:24px;border-left:2px solid var(--border)' });
     events.forEach(function(e) {
       var msg = e.msg || e.raw || '';
       var isErr = msg.toLowerCase().includes('error') || msg.toLowerCase().includes('fail');
       var isOk = msg.toLowerCase().includes('start') || msg.toLowerCase().includes('created') || msg.toLowerCase().includes('completed');
       var color = isErr ? 'var(--red)' : isOk ? 'var(--green)' : 'var(--accent)';
-      var icon = isErr ? '&#10060;' : isOk ? '&#9989;' : '&#128312;';
-      h += '<div style="position:relative;margin-bottom:14px">';
-      h += '<div style="position:absolute;left:-30px;top:2px;width:12px;height:12px;border-radius:50%;background:' + color + ';border:2px solid var(--bg)"></div>';
-      h += '<div style="font-size:10px;color:var(--fg2);margin-bottom:2px">' + esc(e.time || '') + '</div>';
-      h += '<div style="font-size:12px;color:var(--fg);padding:6px 10px;background:var(--bg2);border-radius:4px;border-left:3px solid ' + color + '">' + icon + ' ' + esc(msg) + '</div>';
-      h += '</div>';
+      var icon = isErr ? '❌' : isOk ? '✅' : '🔸';
+      timeline.appendChild(el('div', { style: 'position:relative;margin-bottom:14px' },
+        el('div', { style: 'position:absolute;left:-30px;top:2px;width:12px;height:12px;border-radius:50%;background:' + color + ';border:2px solid var(--bg)' }),
+        el('div', { style: 'font-size:10px;color:var(--fg2);margin-bottom:2px' }, e.time || ''),
+        el('div', { style: 'font-size:12px;color:var(--fg);padding:6px 10px;background:var(--bg2);border-radius:4px;border-left:3px solid ' + color }, icon + ' ' + msg)));
     });
-    h += '</div>';
+    parts.push(timeline);
   }
-  b.innerHTML = h;
+  PCV.uxlib.clearEl(b);
+  b.appendChild(PCV.uxlib.frag(parts));
 }
 /* ═══ VM COMPARE ═══ */
 async function showVmCompare() {
@@ -538,10 +634,9 @@ async function showVmCompare() {
       } catch(e) {}
     }
   }));
-  var h = '<h2>' + _L('VM 비교', 'VM Comparison') + '</h2>';
-  h += '<table class="text-12 w-full"><thead><tr><th>' + _L('항목', 'Property') + '</th>';
-  selected.forEach(function(v) { h += '<th>' + esc(v.name) + '</th>'; });
-  h += '</tr></thead><tbody>';
+  var el = PCV.uxlib.el;
+  var headRow = el('tr', null, el('th', null, _L('항목', 'Property')));
+  selected.forEach(function(v) { headRow.appendChild(el('th', null, v.name)); });
   var props = [
     { key: 'state', label: _L('상태', 'State') },
     { key: 'vcpu', label: 'vCPU' },
@@ -554,21 +649,26 @@ async function showVmCompare() {
     { key: 'net_tx', label: 'Net TX' },
     { key: 'uuid', label: 'UUID' },
   ];
-  props.forEach(function(p) {
-    h += '<tr><td class="color-muted"><b>' + p.label + '</b></td>';
+  var bodyRows = props.map(function(p) {
+    var tr = el('tr', null, el('td', { class: 'color-muted' }, el('b', null, p.label)));
     selected.forEach(function(v) {
       var val = v[p.key];
-      if (p.key === 'state') val = H.badge(val || '?', val === 'running' ? 'g' : 'r');
+      if (p.key === 'state') val = HN.badge(val || '?', val === 'running' ? 'g' : 'r');
       else if (p.key === 'live_cpu_pct' || p.key === 'mem_percent') val = (val || 0).toFixed(1) + '%';
       else if (p.key === 'disk_rd' || p.key === 'disk_wr' || p.key === 'net_rx' || p.key === 'net_tx') val = formatBytes(val || 0);
-      else val = esc(String(val || '-'));
-      h += '<td>' + val + '</td>';
+      else val = String(val || '-');
+      tr.appendChild(el('td', null, val));
     });
-    h += '</tr>';
+    return tr;
   });
-  h += '</tbody></table>';
-  h += '<div class="text-right mt-14"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  showModal([
+    el('h2', null, _L('VM 비교', 'VM Comparison')),
+    el('table', { class: 'text-12 w-full' },
+      el('thead', null, headRow),
+      el('tbody', null, bodyRows)),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
 }
 /* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
  *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.

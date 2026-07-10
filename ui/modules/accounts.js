@@ -40,12 +40,14 @@ async function isAdminAccountView() {
 }
 
 function renderAdminOnlyNotice(b) {
-  b.innerHTML = '<div style="padding:40px;text-align:center">'
-    + '<div style="font-size:44px;margin-bottom:12px">&#128274;</div>'
-    + '<h3 style="color:var(--yellow);margin-bottom:10px">' + _L('관리자 전용 화면', 'Admin-only page') + '</h3>'
-    + '<p class="color-muted" style="margin-bottom:14px">' + _L('계정과 API 키 관리는 admin 역할에서만 사용할 수 있습니다.', 'Account and API key management are available only to the admin role.') + '</p>'
-    + '<button class="btn" onclick="navigateTo(\'dashboard\')">' + _L('대시보드로 이동', 'Go to Dashboard') + '</button>'
-    + '</div>';
+  var mk = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
+  clearEl(b);
+  b.appendChild(
+    mk('div', { style: 'padding:40px;text-align:center' },
+      mk('div', { style: 'font-size:44px;margin-bottom:12px' }, '🔒'),
+      mk('h3', { style: 'color:var(--yellow);margin-bottom:10px' }, _L('관리자 전용 화면', 'Admin-only page')),
+      mk('p', { class: 'color-muted', style: 'margin-bottom:14px' }, _L('계정과 API 키 관리는 admin 역할에서만 사용할 수 있습니다.', 'Account and API key management are available only to the admin role.')),
+      mk('button', { class: 'btn', onclick: "navigateTo('dashboard')" }, _L('대시보드로 이동', 'Go to Dashboard'))));
 }
 
 async function renderAccounts(b) {
@@ -55,8 +57,7 @@ async function renderAccounts(b) {
   }
   showSkeleton(b);
   try { const r = await fetchGet(EP.AUTH_USERS()); const l = unwrapList(r);
-    let h = '<h3 class="mb-14">&#128100; Account Management ' + H.badge('RBAC', 'y') + '</h3>';
-    h += '<div class="sg grid-2" style="gap:14px"><div><div id="acct-table"></div></div>';
+    var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
     setTimeout(function() {
       createDataTable('acct-table', {
         headers: [
@@ -85,9 +86,27 @@ async function renderAccounts(b) {
         emptyText: 'No users'
       });
     }, 0);
-    h += H.card(t('btn.create') + ' User', '<div class="fr"><label for="acct-user">Username</label><input id="acct-user" placeholder="newuser"></div><div class="fr"><label for="acct-pass">Password</label><input id="acct-pass" type="password" placeholder="password"></div><div class="fr"><label for="acct-role">Role</label><select id="acct-role" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option>viewer</option><option selected>operator</option><option>admin</option></select></div><button class="btn btn-g mt-8 w-full" onclick="acctCreate()">' + t('btn.create') + ' User</button>');
-    h += '</div>';
-    b.innerHTML = h;
+    var heading = mk('h3', { class: 'mb-14' }, '👤 Account Management ', HN.badge('RBAC', 'y'));
+    var card = HN.card(t('btn.create') + ' User', [
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'acct-user' }, 'Username'),
+        mk('input', { id: 'acct-user', placeholder: 'newuser' })),
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'acct-pass' }, 'Password'),
+        mk('input', { id: 'acct-pass', type: 'password', placeholder: 'password' })),
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'acct-role' }, 'Role'),
+        mk('select', { id: 'acct-role', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+          mk('option', null, 'viewer'),
+          mk('option', { selected: '' }, 'operator'),
+          mk('option', null, 'admin'))),
+      mk('button', { class: 'btn btn-g mt-8 w-full', onclick: 'acctCreate()' }, t('btn.create') + ' User')
+    ]);
+    var grid = mk('div', { class: 'sg grid-2', style: 'gap:14px' },
+      mk('div', null, mk('div', { id: 'acct-table' })),
+      card);
+    clearEl(b);
+    b.appendChild(frag(heading, grid));
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, 'Error loading accounts'); }
 }
 
@@ -110,13 +129,16 @@ async function renderApiManagement(b) {
     renderAdminOnlyNotice(b);
     return;
   }
-  let h = '<div class="flex items-center gap-10 mb-16"><span class="neon-blink color-yellow">&gt;&gt;</span><h2 style="font-family:var(--font-display);font-size:16px">API Management</h2></div>';
-  h += H.grid(4,
-    H.card('&#128268; Total Endpoints', '<div class="stat-xl color-accent" id="api-ep-count">...</div>')
-  + H.card('&#128274; Auth', '<div class="stat-md color-green">JWT HS256</div>')
-  + H.card('&#128101; RBAC', '<div class="stat-md" style="color:var(--magenta)">3 Levels</div>')
-  + H.card('&#9889; Rate Limit', '<div class="stat-md color-yellow" id="api-rl-count">...</div>')
-  ) + '<div class="mb-16"></div>';
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var header = mk('div', { class: 'flex items-center gap-10 mb-16' },
+    mk('span', { class: 'neon-blink color-yellow' }, '>>'),
+    mk('h2', { style: 'font-family:var(--font-display);font-size:16px' }, 'API Management'));
+  var statGrid = HN.grid(4,
+    HN.card('🔌 Total Endpoints', mk('div', { class: 'stat-xl color-accent', id: 'api-ep-count' }, '...')),
+    HN.card('🔒 Auth', mk('div', { class: 'stat-md color-green' }, 'JWT HS256')),
+    HN.card('👥 RBAC', mk('div', { class: 'stat-md', style: 'color:var(--magenta)' }, '3 Levels')),
+    HN.card('⚡ Rate Limit', mk('div', { class: 'stat-md color-yellow', id: 'api-rl-count' }, '...')));
+  var spacer = mk('div', { class: 'mb-16' });
   /* /health에서 동적 데이터 로드 */
   fetchGet(EP.HEALTH()).then(function(r) {
     var d = unwrapData(r);
@@ -130,29 +152,73 @@ async function renderApiManagement(b) {
     var rl = document.getElementById('api-rl-count');
     if (rl) rl.textContent = '600 req/min';
   });
-  h += H.card('<span class="color-accent">&#128272; JWT Token — Quick Test</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><input aria-label="Username" id="apimgmt-user" value="admin" placeholder="Username" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><input aria-label="Password" id="apimgmt-pass" type="password" value="admin" placeholder="Password" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px"><button class="btn btn-g" onclick="apiMgmtGetToken()">&#9654; Get Token</button><button class="btn" onclick="apiMgmtTestHealth()">&#128994; Health Check</button></div><div id="apimgmt-token-result" class="stat-label" style="word-break:break-all;max-height:60px;overflow:auto"></div>', 'mb-14');
-  h += H.card('<span class="color-green">&#128640; API Request Tester</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><select id="apimgmt-method" aria-label="HTTP method" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><input id="apimgmt-path" aria-label="API endpoint path" value="/api/v1/vms" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px"><button class="btn btn-g" onclick="apiMgmtSend()">&#9654; Send</button></div><textarea aria-label="Request body (JSON)" id="apimgmt-body" placeholder="Request body (JSON)" rows="2" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical"></textarea><div id="apimgmt-result" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none"></div>', 'mb-14');
-  h += H.card('<span class="color-yellow">&#128268; gRPC Server</span>', '<div id="grpc-status" class="text-12 color-muted">Checking...</div><div style="margin-top:6px;font-size:11px;color:var(--fg2)">Port: 50051 | Protocol: protobuf-c binary framing<br>Transport: TCP (HTTP/2 planned)<br>Config: daemon.conf <code>[grpc] enabled=true</code></div>', 'mb-14');
+  var jwtCard = HN.card(
+    mk('span', { class: 'color-accent' }, '🔐 JWT Token — Quick Test'),
+    [
+      mk('div', { class: 'flex gap-8 items-center mb-8 flex-wrap' },
+        mk('input', { 'aria-label': 'Username', id: 'apimgmt-user', value: 'admin', placeholder: 'Username', style: 'padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px' }),
+        mk('input', { 'aria-label': 'Password', id: 'apimgmt-pass', type: 'password', value: 'admin', placeholder: 'Password', style: 'padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px;width:140px' }),
+        mk('button', { class: 'btn btn-g', onclick: 'apiMgmtGetToken()' }, '▶ Get Token'),
+        mk('button', { class: 'btn', onclick: 'apiMgmtTestHealth()' }, '🟢 Health Check')),
+      mk('div', { id: 'apimgmt-token-result', class: 'stat-label', style: 'word-break:break-all;max-height:60px;overflow:auto' })
+    ], 'mb-14');
+  var testerCard = HN.card(
+    mk('span', { class: 'color-green' }, '🚀 API Request Tester'),
+    [
+      mk('div', { class: 'flex gap-8 items-center mb-8 flex-wrap' },
+        mk('select', { id: 'apimgmt-method', 'aria-label': 'HTTP method', style: 'padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700' },
+          mk('option', null, 'GET'),
+          mk('option', null, 'POST'),
+          mk('option', null, 'PUT'),
+          mk('option', null, 'DELETE')),
+        mk('input', { id: 'apimgmt-path', 'aria-label': 'API endpoint path', value: '/api/v1/vms', style: 'flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
+        mk('button', { class: 'btn btn-g', onclick: 'apiMgmtSend()' }, '▶ Send')),
+      mk('textarea', { 'aria-label': 'Request body (JSON)', id: 'apimgmt-body', placeholder: 'Request body (JSON)', rows: '2', style: 'width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical' }),
+      mk('div', { id: 'apimgmt-result', style: 'background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none' })
+    ], 'mb-14');
+  var grpcCard = HN.card(
+    mk('span', { class: 'color-yellow' }, '🔌 gRPC Server'),
+    [
+      mk('div', { id: 'grpc-status', class: 'text-12 color-muted' }, 'Checking...'),
+      mk('div', { style: 'margin-top:6px;font-size:11px;color:var(--fg2)' },
+        'Port: 50051 | Protocol: protobuf-c binary framing',
+        mk('br'),
+        'Transport: TCP (HTTP/2 planned)',
+        mk('br'),
+        'Config: daemon.conf ',
+        mk('code', null, '[grpc] enabled=true'))
+    ], 'mb-14');
 
   /* API Key Management */
-  h += '<div class="hc mb-14"><h4>&#128273; API Keys</h4>';
-  h += '<p class="stat-label" style="margin-bottom:10px">Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.</p>';
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
-  h += '<input aria-label="Key description (e.g. CI pipeline)" id="apikey-desc" placeholder="Key description (e.g. CI pipeline)" style="flex:1;min-width:180px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px">';
-  h += '<input id="apikey-expiry" aria-label="Expiry (days)" type="number" value="90" min="1" max="365" style="width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px" title="Expiry (days)">';
-  h += '<span class="color-muted" style="font-size:11px;align-self:center">days</span>';
-  h += '<button class="btn btn-g" onclick="apiKeyCreate()">+ Create Key</button>';
-  h += '</div>';
-  h += '<div id="apikey-new-result" style="display:none;margin-bottom:12px;padding:10px;border:1px solid var(--green);border-radius:6px;background:rgba(0,255,0,.04);font-size:11px"></div>';
-  h += '<div id="apikey-list"><span class="spinner"></span> Loading keys...</div>';
-  h += '</div>';
+  var apiKeysBlock = mk('div', { class: 'hc mb-14' },
+    mk('h4', null, '🔑 API Keys'),
+    mk('p', { class: 'stat-label', style: 'margin-bottom:10px' }, 'Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.'),
+    mk('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px' },
+      mk('input', { 'aria-label': 'Key description (e.g. CI pipeline)', id: 'apikey-desc', placeholder: 'Key description (e.g. CI pipeline)', style: 'flex:1;min-width:180px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
+      mk('input', { id: 'apikey-expiry', 'aria-label': 'Expiry (days)', type: 'number', value: '90', min: '1', max: '365', style: 'width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px', title: 'Expiry (days)' }),
+      mk('span', { class: 'color-muted', style: 'font-size:11px;align-self:center' }, 'days'),
+      mk('button', { class: 'btn btn-g', onclick: 'apiKeyCreate()' }, '+ Create Key')),
+    mk('div', { id: 'apikey-new-result', style: 'display:none;margin-bottom:12px;padding:10px;border:1px solid var(--green);border-radius:6px;background:rgba(0,255,0,.04);font-size:11px' }),
+    mk('div', { id: 'apikey-list' },
+      mk('span', { class: 'spinner' }),
+      ' Loading keys...'));
 
-  h += '<div class="flex gap-8 flex-wrap"><button class="btn" onclick="navigateTo(\'apihelp\')">&#128214; Swagger API</button><button class="btn" onclick="navigateTo(\'restguide\')">&#128220; REST API Guide</button><button class="btn" onclick="navigateTo(\'accounts\')">&#128100; Accounts</button></div>';
-  b.innerHTML = h;
+  var navRow = mk('div', { class: 'flex gap-8 flex-wrap' },
+    mk('button', { class: 'btn', onclick: "navigateTo('apihelp')" }, '📖 Swagger API'),
+    mk('button', { class: 'btn', onclick: "navigateTo('restguide')" }, '📜 REST API Guide'),
+    mk('button', { class: 'btn', onclick: "navigateTo('accounts')" }, '👤 Accounts'));
+  clearEl(b);
+  b.appendChild(frag(header, statGrid, spacer, jwtCard, testerCard, grpcCard, apiKeysBlock, navRow));
   setTimeout(() => {
     const el = document.getElementById('grpc-status');
     if (!el) return;  /* DOM 교체된 경우 정상 종료 */
-    el.innerHTML = H.badge('Config-based', 'y') + ' daemon.conf [grpc] enabled check required<br><code class="text-xs color-cyan">pcvctl grpc status</code> to verify from CLI';
+    clearEl(el);
+    el.appendChild(frag(
+      HN.badge('Config-based', 'y'),
+      ' daemon.conf [grpc] enabled check required',
+      mk('br'),
+      mk('code', { class: 'text-xs color-cyan' }, 'pcvctl grpc status'),
+      ' to verify from CLI'));
   }, 100);
   setTimeout(() => {
     /* 모달/페이지 닫힌 후 호출 방지 */
@@ -161,87 +227,172 @@ async function renderApiManagement(b) {
 }
 
 async function apiMgmtGetToken() { const u = document.getElementById('apimgmt-user').value, p = document.getElementById('apimgmt-pass').value; const el = document.getElementById('apimgmt-token-result');
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try { const r = await fetch(EP.AUTH_TOKEN(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) }); const d = await r.json();
-    if (d.access_token) { el.innerHTML = '<span class="color-green">&#9989; Token:</span> <code class="color-accent">' + escapeHtml(d.access_token.substring(0, 50)) + '...</code>'; }
+    if (d.access_token) { clearEl(el); el.appendChild(frag(mk('span', { class: 'color-green' }, '✅ Token:'), ' ', mk('code', { class: 'color-accent' }, d.access_token.substring(0, 50) + '...'))); }
     else { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + JSON.stringify(d)); }
   } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + e.message); } }
 
 async function apiMgmtTestHealth() { const el = document.getElementById('apimgmt-token-result');
-  try { const r = await fetchGet(EP.HEALTH()); const d = unwrapData(r); el.innerHTML = '<span class="color-green">&#9989; Status: ' + esc(d.status || 'ok') + '</span> | edition: ' + esc(window.PCV_UI_EDITION || 'single'); } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + e.message); } }
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  try { const r = await fetchGet(EP.HEALTH()); const d = unwrapData(r); clearEl(el); el.appendChild(frag(mk('span', { class: 'color-green' }, '✅ Status: ' + (d.status || 'ok')), ' | edition: ' + (window.PCV_UI_EDITION || 'single'))); } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + e.message); } }
 
 async function apiMgmtSend() { const m = document.getElementById('apimgmt-method').value, path = document.getElementById('apimgmt-path').value; const body = document.getElementById('apimgmt-body').value, el = document.getElementById('apimgmt-result');
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   el.style.display = 'block'; el.textContent = t('loading');
   try { const opts = { method: m, headers: {} }; if (authToken) opts.headers['Authorization'] = 'Bearer ' + authToken;
     if ((m === 'POST' || m === 'PUT') && body) { opts.headers['Content-Type'] = 'application/json'; opts.body = body; }
     const r = await fetch(location.origin + path, opts); const txt = await r.text(); let pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { if(_DEBUG) console.warn('apiMgmtSend:', e.message); }
-    el.innerHTML = '<div class="mb-6">' + H.badge(String(r.status), r.ok ? 'g' : 'r') + ' <span class="color-muted">' + escapeHtml(m) + ' ' + escapeHtml(path) + '</span></div><pre style="white-space:pre-wrap">' + escapeHtml(pretty) + '</pre>';
+    clearEl(el);
+    el.appendChild(frag(
+      mk('div', { class: 'mb-6' },
+        HN.badge(String(r.status), r.ok ? 'g' : 'r'),
+        ' ',
+        mk('span', { class: 'color-muted' }, m + ' ' + path)),
+      mk('pre', { style: 'white-space:pre-wrap' }, pretty)));
   } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Error: ' + e.message); } }
 
 /* ═══ AI AGENT ═══ */
 async function showAgentConfig() {
   try { const r = await fetchGet(EP.AGENT_CONFIG()); const d = unwrapData(r); window._agentCfg = d;
-    let h = '<h2>&#129302; AI Agent Configuration</h2>';
-    h += '<div class="flex" style="border-bottom:1px solid var(--border);margin-bottom:12px;gap:2px">';
-    ['providers', 'settings', 'history', 'status'].forEach(t2 => { h += '<div onclick="agentTab=\'' + t2 + '\';showAgentConfig()" style="padding:8px 16px;font-size:12px;cursor:pointer;border-bottom:2px solid ' + (agentTab === t2 ? 'var(--accent)' : 'transparent') + ';color:' + (agentTab === t2 ? 'var(--accent)' : 'var(--fg2)') + ';font-weight:' + (agentTab === t2 ? '600' : '400') + '">' + { providers: 'Providers', settings: t('vm.settings'), history: 'History', status: 'Status' }[t2] + '</div>'; });
-    h += '</div><div id="agent-tab-body"></div>'; showModal(h); setTimeout(() => renderAgentTab(d), 50);
+    var el = PCV.uxlib.el;
+    var tabs = ['providers', 'settings', 'history', 'status'].map(t2 => el('div', {
+      onclick: 'agentTab=\'' + t2 + '\';showAgentConfig()',
+      style: 'padding:8px 16px;font-size:12px;cursor:pointer;border-bottom:2px solid ' + (agentTab === t2 ? 'var(--accent)' : 'transparent') + ';color:' + (agentTab === t2 ? 'var(--accent)' : 'var(--fg2)') + ';font-weight:' + (agentTab === t2 ? '600' : '400')
+    }, { providers: 'Providers', settings: t('vm.settings'), history: 'History', status: 'Status' }[t2]));
+    showModal([
+      el('h2', null, '🤖 AI Agent Configuration'),
+      el('div', { class: 'flex', style: 'border-bottom:1px solid var(--border);margin-bottom:12px;gap:2px' }, tabs),
+      el('div', { id: 'agent-tab-body' })
+    ]);
+    setTimeout(() => renderAgentTab(d), 50);
   } catch (e) { toast('Failed to load agent config: ' + e.message, false); }
 }
 function renderAgentTab(d) { const b = document.getElementById('agent-tab-body'); if (!b) return; if (agentTab === 'providers') renderAgentProviders(b, d); else if (agentTab === 'settings') renderAgentSettings(b, d); else if (agentTab === 'history') renderAgentHistory(b); else if (agentTab === 'status') renderAgentStatus(b, d); }
 
 function renderAgentProviders(b, d) {
-  const provs = d.providers || []; let h = '';
-  provs.forEach((p, i) => { const ico = { Claude: '&#129302;', OpenAI: '&#9889;', Gemini: '&#128142;', Ollama: '&#128026;' }[p.name] || '&#9881;';
-    h += '<div class="hc mb-10"><h4 class="justify-between items-center"><span>' + ico + ' ' + escapeHtml(p.name) + '</span><label style="display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px"><input type="checkbox" id="agen' + i + '" ' + (p.enabled ? 'checked' : '') + ' style="accent-color:var(--accent)">' + (p.enabled ? '<span class="color-green">ENABLED</span>' : '<span class="color-muted">DISABLED</span>') + '</label></h4>';
-    h += '<div class="fr"><label for="agm' + i + '">Model</label><input id="agm' + i + '" value="' + escapeAttr(p.model || '') + '" class="text-11"></div>';
-    h += '<div class="fr"><label for="agk' + i + '">API Key</label><div class="flex gap-4 flex-1"><input id="agk' + i + '" type="password" value="' + escapeAttr(p.api_key || '') + '" class="text-11 flex-1"><button class="btn" onclick="toggleKeyVis(' + i + ')" style="font-size:10px;padding:4px 8px" id="agt' + i + '">Show</button></div></div>';
-    h += '<div class="fr"><label for="age' + i + '">Endpoint</label><input id="age' + i + '" value="' + escapeAttr(p.endpoint || '') + '" class="text-11"></div>';
-    h += '<div class="flex gap-6 mt-8"><button class="btn" onclick="testProvider(' + i + ',\'' + escapeAttr(p.name) + '\')" style="font-size:10px;padding:4px 10px">&#9889; Test</button>';
-    h += (i === 0 ? '<button class="btn" onclick="testAllProviders()" style="font-size:10px;padding:4px 10px">&#9889; Test All</button>' : '');
-    h += '<span id="agr' + i + '" class="text-11"></span></div></div>'; });
-  h += '<div class="flex gap-8 justify-end mt-14"><button class="btn btn-g" onclick="saveAgentConfig()">' + t('btn.save') + ' All</button><button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
-  b.innerHTML = h;
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  const provs = d.providers || [];
+  var cards = provs.map((p, i) => {
+    const ico = { Claude: '🤖', OpenAI: '⚡', Gemini: '💎', Ollama: '🐚' }[p.name] || '⚙';
+    return mk('div', { class: 'hc mb-10' },
+      mk('h4', { class: 'justify-between items-center' },
+        mk('span', null, ico + ' ' + p.name),
+        mk('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px' },
+          mk('input', { type: 'checkbox', id: 'agen' + i, checked: p.enabled ? '' : null, style: 'accent-color:var(--accent)' }),
+          p.enabled ? mk('span', { class: 'color-green' }, 'ENABLED') : mk('span', { class: 'color-muted' }, 'DISABLED'))),
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'agm' + i }, 'Model'),
+        mk('input', { id: 'agm' + i, value: escapeAttr(p.model || ''), class: 'text-11' })),
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'agk' + i }, 'API Key'),
+        mk('div', { class: 'flex gap-4 flex-1' },
+          mk('input', { id: 'agk' + i, type: 'password', value: escapeAttr(p.api_key || ''), class: 'text-11 flex-1' }),
+          mk('button', { class: 'btn', onclick: 'toggleKeyVis(' + i + ')', style: 'font-size:10px;padding:4px 8px', id: 'agt' + i }, 'Show'))),
+      mk('div', { class: 'fr' },
+        mk('label', { for: 'age' + i }, 'Endpoint'),
+        mk('input', { id: 'age' + i, value: escapeAttr(p.endpoint || ''), class: 'text-11' })),
+      mk('div', { class: 'flex gap-6 mt-8' },
+        mk('button', { class: 'btn', onclick: "testProvider(" + i + ",'" + escapeAttr(p.name) + "')", style: 'font-size:10px;padding:4px 10px' }, '⚡ Test'),
+        i === 0 ? mk('button', { class: 'btn', onclick: 'testAllProviders()', style: 'font-size:10px;padding:4px 10px' }, '⚡ Test All') : null,
+        mk('span', { id: 'agr' + i, class: 'text-11' })));
+  });
+  var footer = mk('div', { class: 'flex gap-8 justify-end mt-14' },
+    mk('button', { class: 'btn btn-g', onclick: 'saveAgentConfig()' }, t('btn.save') + ' All'),
+    mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')));
+  clearEl(b);
+  b.appendChild(frag(cards, footer));
 }
 
 function renderAgentSettings(b, d) {
-  let h = '<div class="hc mb-10"><h4>&#9881; General ' + t('vm.settings') + '</h4>';
-  h += '<div class="fr"><label for="ag-rate">Rate Limit</label><div class="flex gap-6 items-center flex-1"><input id="ag-rate" type="number" value="' + (d.rate_limit_sec || 300) + '" class="text-11 w-80"><span class="stat-label">seconds between queries</span></div></div>';
-  h += '<div class="fr"><label for="ag-timeout">Timeout</label><div class="flex gap-6 items-center flex-1"><input id="ag-timeout" type="number" value="' + (d.timeout_sec || 10) + '" class="text-11 w-80"><span class="stat-label">seconds per request</span></div></div></div>';
-  h += '<div class="hc mb-10"><h4>&#128202; Statistics</h4>' + H.row('Total Queries', '<span class="color-accent">' + (d.total_queries || 0) + '</span>');
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const en = ((d.providers || []).filter(p => p.enabled).length);
-  h += H.row('Active Providers', '<span class="color-green">' + en + ' / ' + (d.providers || []).length + '</span>') + '</div>';
-  h += '<div class="flex gap-8 justify-end mt-14"><button class="btn btn-g" onclick="saveAgentSettings()">' + t('btn.save') + '</button><button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
-  b.innerHTML = h;
+  var general = mk('div', { class: 'hc mb-10' },
+    mk('h4', null, '⚙ General ' + t('vm.settings')),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'ag-rate' }, 'Rate Limit'),
+      mk('div', { class: 'flex gap-6 items-center flex-1' },
+        mk('input', { id: 'ag-rate', type: 'number', value: (d.rate_limit_sec || 300), class: 'text-11 w-80' }),
+        mk('span', { class: 'stat-label' }, 'seconds between queries'))),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'ag-timeout' }, 'Timeout'),
+      mk('div', { class: 'flex gap-6 items-center flex-1' },
+        mk('input', { id: 'ag-timeout', type: 'number', value: (d.timeout_sec || 10), class: 'text-11 w-80' }),
+        mk('span', { class: 'stat-label' }, 'seconds per request'))));
+  var stats = mk('div', { class: 'hc mb-10' },
+    mk('h4', null, '📊 Statistics'),
+    HN.row('Total Queries', mk('span', { class: 'color-accent' }, (d.total_queries || 0))),
+    HN.row('Active Providers', mk('span', { class: 'color-green' }, en + ' / ' + (d.providers || []).length)));
+  var footer = mk('div', { class: 'flex gap-8 justify-end mt-14' },
+    mk('button', { class: 'btn btn-g', onclick: 'saveAgentSettings()' }, t('btn.save')),
+    mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')));
+  clearEl(b);
+  b.appendChild(frag(general, stats, footer));
 }
 
 async function renderAgentHistory(b) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   PCV.uxlib.setMsg(b, 'loading', { tag: 'div', cls: 'text-center p-20' }, t('loading'));
   try { const r = await fetchGet(EP.AGENT_HISTORY()); const d = unwrapData(r);
-    if (!d || !d.consensus) { b.innerHTML = H.card('&#128202; History', '<p class="color-muted text-12 mt-8">No data yet.</p>'); return; }
-    let h = '<div class="hc mb-10"><h4>&#128202; Last Consensus Result</h4>';
-    h += H.row('Action', '<span class="color-accent">' + d.consensus + '</span>');
-    h += H.row('Confidence', '<span class="color-green">' + (d.confidence || 0).toFixed(2) + '</span>');
-    h += H.row('Avg Latency', (d.avg_latency_ms || 0).toFixed(0) + ' ms');
-    if (d.timestamp) { h += H.row('Timestamp', '<span class="text-xs">' + new Date(d.timestamp * 1000).toLocaleString() + '</span>'); }
-    h += '</div>';
-    if (d.providers && d.providers.length) { h += H.card('&#129302; Per-Provider Results', '<table><thead><tr><th>Provider</th><th>Action</th><th>Target</th><th>Confidence</th><th>Latency</th><th>Urgency</th><th>Status</th></tr></thead><tbody>' +
-      d.providers.map(p => '<tr><td><b>' + p.provider + '</b><br><span class="stat-label">' + p.model + '</span></td><td>' + p.action + '</td><td>' + (p.target_vm || '-') + (p.from_node ? ' <span class="color-muted">' + p.from_node + '→' + p.to_node + '</span>' : '') + '</td><td class="color-green">' + (p.confidence || 0).toFixed(2) + '</td><td>' + (p.latency_ms || 0).toFixed(0) + 'ms</td><td>' + H.badge(p.urgency || '-', p.urgency === 'high' ? 'r' : p.urgency === 'medium' ? 'y' : 'g') + '</td><td>' + (p.success ? '<span class="color-green">OK</span>' : '<span class="color-red">' + (p.error || 'FAIL') + '</span>') + '</td></tr>').join('') + '</tbody></table>');
-      if (d.providers[0] && d.providers[0].reason) { h += '<div class="hc mt-10"><h4>&#128172; Reasoning</h4>'; d.providers.forEach(p => { if (p.reason) h += '<div class="mb-6"><b class="color-accent">' + p.provider + ':</b> <span class="text-11">' + p.reason + '</span></div>'; }); h += '</div>'; } }
-    b.innerHTML = h;
-  } catch (e) { b.innerHTML = H.card('', '<p class="color-red">Failed: ' + escapeHtml(e.message) + '</p>'); }
+    if (!d || !d.consensus) { clearEl(b); b.appendChild(HN.card('📊 History', mk('p', { class: 'color-muted text-12 mt-8' }, 'No data yet.'))); return; }
+    var consensusRows = [
+      HN.row('Action', mk('span', { class: 'color-accent' }, d.consensus)),
+      HN.row('Confidence', mk('span', { class: 'color-green' }, (d.confidence || 0).toFixed(2))),
+      HN.row('Avg Latency', (d.avg_latency_ms || 0).toFixed(0) + ' ms')
+    ];
+    if (d.timestamp) consensusRows.push(HN.row('Timestamp', mk('span', { class: 'text-xs' }, new Date(d.timestamp * 1000).toLocaleString())));
+    var parts = [mk('div', { class: 'hc mb-10' }, mk('h4', null, '📊 Last Consensus Result'), consensusRows)];
+    if (d.providers && d.providers.length) {
+      var provRows = d.providers.map(p =>
+        mk('tr', null,
+          mk('td', null, mk('b', null, p.provider), mk('br'), mk('span', { class: 'stat-label' }, p.model)),
+          mk('td', null, p.action),
+          mk('td', null, (p.target_vm || '-'), p.from_node ? [' ', mk('span', { class: 'color-muted' }, p.from_node + '→' + p.to_node)] : null),
+          mk('td', { class: 'color-green' }, (p.confidence || 0).toFixed(2)),
+          mk('td', null, (p.latency_ms || 0).toFixed(0) + 'ms'),
+          mk('td', null, HN.badge(p.urgency || '-', p.urgency === 'high' ? 'r' : p.urgency === 'medium' ? 'y' : 'g')),
+          mk('td', null, p.success ? mk('span', { class: 'color-green' }, 'OK') : mk('span', { class: 'color-red' }, p.error || 'FAIL'))));
+      var provTable = mk('table', null,
+        mk('thead', null, mk('tr', null,
+          mk('th', null, 'Provider'), mk('th', null, 'Action'), mk('th', null, 'Target'),
+          mk('th', null, 'Confidence'), mk('th', null, 'Latency'), mk('th', null, 'Urgency'), mk('th', null, 'Status'))),
+        mk('tbody', null, provRows));
+      parts.push(HN.card('🤖 Per-Provider Results', provTable));
+      if (d.providers[0] && d.providers[0].reason) {
+        var reasoningKids = [mk('h4', null, '💬 Reasoning')];
+        d.providers.forEach(p => { if (p.reason) reasoningKids.push(mk('div', { class: 'mb-6' }, mk('b', { class: 'color-accent' }, p.provider + ':'), ' ', mk('span', { class: 'text-11' }, p.reason))); });
+        parts.push(mk('div', { class: 'hc mt-10' }, reasoningKids));
+      }
+    }
+    clearEl(b);
+    b.appendChild(frag(parts));
+  } catch (e) { clearEl(b); b.appendChild(HN.card('', mk('p', { class: 'color-red' }, 'Failed: ' + e.message))); }
 }
 
 function renderAgentStatus(b, d) {
+  var mk = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   const provs = d.providers || []; const en = provs.filter(p => p.enabled);
-  let h = '<div class="sg">';
-  h += H.card('&#128994; Agent Status', '<div class="stat-xl" style="color:' + (en.length > 0 ? 'var(--green)' : 'var(--fg2)') + ';margin:8px 0">' + (en.length > 0 ? 'ACTIVE' : 'INACTIVE') + '</div>' + H.row('Enabled Providers', en.length + ' / ' + provs.length) + H.row('Total Queries', d.total_queries || 0));
-  provs.forEach(p => { const ico = { Claude: '&#129302;', OpenAI: '&#9889;', Gemini: '&#128142;', Ollama: '&#128026;' }[p.name] || '&#9881;';
-    h += H.card(ico + ' ' + p.name, '<div style="font-size:14px;font-weight:700;color:' + (p.enabled ? 'var(--green)' : 'var(--fg2)') + ';margin:4px 0">' + (p.enabled ? 'ONLINE' : 'OFFLINE') + '</div>' + H.row('Model', '<span class="text-xs">' + (p.model || '-') + '</span>') + H.row('API Key', '<span class="text-xs">' + (p.api_key && p.api_key !== '' ? 'Configured' : 'Not set') + '</span>')); });
-  h += '</div>'; b.innerHTML = h;
+  var statusCard = HN.card('🟢 Agent Status', [
+    mk('div', { class: 'stat-xl', style: 'color:' + (en.length > 0 ? 'var(--green)' : 'var(--fg2)') + ';margin:8px 0' }, en.length > 0 ? 'ACTIVE' : 'INACTIVE'),
+    HN.row('Enabled Providers', en.length + ' / ' + provs.length),
+    HN.row('Total Queries', d.total_queries || 0)
+  ]);
+  var provCards = provs.map(p => {
+    const ico = { Claude: '🤖', OpenAI: '⚡', Gemini: '💎', Ollama: '🐚' }[p.name] || '⚙';
+    return HN.card(ico + ' ' + p.name, [
+      mk('div', { style: 'font-size:14px;font-weight:700;color:' + (p.enabled ? 'var(--green)' : 'var(--fg2)') + ';margin:4px 0' }, p.enabled ? 'ONLINE' : 'OFFLINE'),
+      HN.row('Model', mk('span', { class: 'text-xs' }, p.model || '-')),
+      HN.row('API Key', mk('span', { class: 'text-xs' }, p.api_key && p.api_key !== '' ? 'Configured' : 'Not set'))
+    ]);
+  });
+  clearEl(b);
+  b.appendChild(mk('div', { class: 'sg' }, statusCard, provCards));
 }
 
 function toggleKeyVis(i) { const el = document.getElementById('agk' + i); const bt = document.getElementById('agt' + i); if (el.type === 'password') { el.type = 'text'; bt.textContent = 'Hide'; } else { el.type = 'password'; bt.textContent = 'Show'; } }
 
 async function testProvider(i, name) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const rEl = document.getElementById('agr' + i); const key = document.getElementById('agk' + i).value; const model = document.getElementById('agm' + i).value; const endpoint = document.getElementById('age' + i).value;
   if (!key || key.startsWith('***')) { PCV.uxlib.setMsg(rEl, null, { cls: 'color-red' }, 'No API key set'); return; }
   PCV.uxlib.setMsg(rEl, 'loading', null, 'Testing...');
@@ -251,9 +402,9 @@ async function testProvider(i, name) {
     else if (name === 'Gemini') { const r = await fetch((endpoint || 'https://generativelanguage.googleapis.com/v1beta') + '/models?key=' + key); ok = r.ok; detail = r.ok ? 'OK' : 'HTTP ' + r.status; }
     else if (name === 'Ollama') { const r = await fetch((endpoint || 'http://localhost:11434') + '/api/tags'); ok = r.ok; detail = r.ok ? 'OK' : 'HTTP ' + r.status; }
     const ms = Math.round(performance.now() - t0);
-    if (ok) { rEl.innerHTML = H.badge('Connected', 'g') + ' <span class="stat-label">' + ms + 'ms</span>'; }
-    else { rEl.innerHTML = H.badge('Failed', 'r') + ' <span class="stat-label">' + detail + '</span>'; }
-  } catch (e) { rEl.innerHTML = H.badge('Error', 'r') + ' <span class="text-xs color-red">' + escapeHtml(e.message) + '</span>'; }
+    if (ok) { clearEl(rEl); rEl.appendChild(frag(HN.badge('Connected', 'g'), ' ', mk('span', { class: 'stat-label' }, ms + 'ms'))); }
+    else { clearEl(rEl); rEl.appendChild(frag(HN.badge('Failed', 'r'), ' ', mk('span', { class: 'stat-label' }, detail))); }
+  } catch (e) { clearEl(rEl); rEl.appendChild(frag(HN.badge('Error', 'r'), ' ', mk('span', { class: 'text-xs color-red' }, e.message))); }
 }
 
 async function testAllProviders() { const provNames = ['Claude', 'OpenAI', 'Gemini', 'Ollama']; for (let i = 0; i < provNames.length; i++) { const k = document.getElementById('agk' + i); if (k && k.value && !k.value.startsWith('***')) await testProvider(i, provNames[i]); } }
@@ -277,10 +428,10 @@ async function saveAgentSettings() {
 
 /* ═══ API PERFORMANCE ═══ */
 async function renderApiPerf(b) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts', '/processes'];
   var results = [];
-  var h = H.section(_L('API 응답 시간', 'API Response Times'));
 
   for (var i = 0; i < endpoints.length; i++) {
     var ep = endpoints[i];
@@ -296,30 +447,47 @@ async function renderApiPerf(b) {
   }
 
   var avg = results.reduce(function(s, r) { return s + r.time; }, 0) / results.length;
-  h += '<div class="sg grid-3">';
-  h += H.card(_L('평균 응답', 'Average'), '<div class="stat-lg ' + (avg < 100 ? 'color-green' : avg < 500 ? 'color-yellow' : 'color-red') + '">' + avg.toFixed(0) + 'ms</div>');
-  h += H.card(_L('최고', 'Fastest'), '<div class="stat-lg color-green">' + Math.min.apply(null, results.map(function(r){return r.time;})) + 'ms</div>');
-  h += H.card(_L('최저', 'Slowest'), '<div class="stat-lg color-red">' + Math.max.apply(null, results.map(function(r){return r.time;})) + 'ms</div>');
-  h += '</div>';
+  var grid = mk('div', { class: 'sg grid-3' },
+    HN.card(_L('평균 응답', 'Average'), mk('div', { class: 'stat-lg ' + (avg < 100 ? 'color-green' : avg < 500 ? 'color-yellow' : 'color-red') }, avg.toFixed(0) + 'ms')),
+    HN.card(_L('최고', 'Fastest'), mk('div', { class: 'stat-lg color-green' }, Math.min.apply(null, results.map(function(r){return r.time;})) + 'ms')),
+    HN.card(_L('최저', 'Slowest'), mk('div', { class: 'stat-lg color-red' }, Math.max.apply(null, results.map(function(r){return r.time;})) + 'ms')));
 
-  h += '<table class="text-12 mt-12"><thead><tr><th>Endpoint</th><th>' + _L('응답 시간', 'Response') + '</th><th>' + _L('상태', 'Status') + '</th><th>' + _L('등급', 'Grade') + '</th></tr></thead><tbody>';
   results.sort(function(a, b) { return a.time - b.time; });
-  results.forEach(function(r) {
+  var rows = results.map(function(r) {
     var grade = r.time < 50 ? 'A+' : r.time < 100 ? 'A' : r.time < 300 ? 'B' : r.time < 500 ? 'C' : 'D';
     var gradeColor = r.time < 100 ? 'g' : r.time < 300 ? 'y' : 'r';
-    h += '<tr><td><code>' + esc(r.endpoint) + '</code></td><td><b>' + r.time + 'ms</b></td><td>' + H.badge(r.status, r.status === 'ok' ? 'g' : 'r') + '</td><td>' + H.badge(grade, gradeColor) + '</td></tr>';
+    return mk('tr', null,
+      mk('td', null, mk('code', null, r.endpoint)),
+      mk('td', null, mk('b', null, r.time + 'ms')),
+      mk('td', null, HN.badge(r.status, r.status === 'ok' ? 'g' : 'r')),
+      mk('td', null, HN.badge(grade, gradeColor)));
   });
-  h += '</tbody></table>';
-  h += '<button class="btn mt-12" onclick="renderApiPerf(document.getElementById(\'cb\'))">&#128260; ' + _L('재측정', 'Re-run') + '</button>';
-  h += '<button class="btn" onclick="runApiBenchmark()" style="margin-left:8px">&#9889; ' + _L('벤치마크', 'Benchmark') + ' (5x)</button>';
-  b.innerHTML = h;
+  var table = mk('table', { class: 'text-12 mt-12' },
+    mk('thead', null, mk('tr', null,
+      mk('th', null, 'Endpoint'),
+      mk('th', null, _L('응답 시간', 'Response')),
+      mk('th', null, _L('상태', 'Status')),
+      mk('th', null, _L('등급', 'Grade')))),
+    mk('tbody', null, rows));
+  var rerunBtn = mk('button', { class: 'btn mt-12', onclick: "renderApiPerf(document.getElementById('cb'))" }, '🔄 ' + _L('재측정', 'Re-run'));
+  var benchBtn = mk('button', { class: 'btn', onclick: 'runApiBenchmark()', style: 'margin-left:8px' }, '⚡ ' + _L('벤치마크', 'Benchmark') + ' (5x)');
+  clearEl(b);
+  b.appendChild(frag(HN.section(_L('API 응답 시간', 'API Response Times')), grid, table, rerunBtn, benchBtn));
 }
 window.renderApiPerf = renderApiPerf;
 
 async function runApiBenchmark() {
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts'];
   var iterations = 5;
-  showModal('<h2>&#9889; ' + _L('벤치마크 실행 중', 'Running Benchmark') + '</h2><div class="prog-bar"><div class="prog-fill" id="bench-prog" class="w-pct-0"></div></div><div id="bench-st" class="prog-status"><span class="spinner"></span> 0/' + (endpoints.length * iterations) + '</div>');
+  var el = PCV.uxlib.el;
+  /* 원본 prog-fill div 는 class 속성이 중복(class="prog-fill"..class="w-pct-0")이라
+   * HTML 파서상 첫 class="prog-fill" 만 적용되고 w-pct-0 는 무시됨 — 렌더 동등 보존.
+   * (진행률은 done 루프에서 bench-prog.style.width 로 직접 설정.) */
+  showModal([
+    el('h2', null, '⚡ ' + _L('벤치마크 실행 중', 'Running Benchmark')),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'bench-prog' })),
+    el('div', { id: 'bench-st', class: 'prog-status' }, el('span', { class: 'spinner' }), ' 0/' + (endpoints.length * iterations))
+  ]);
   var results = {};
   var total = endpoints.length * iterations;
   var done = 0;
@@ -336,54 +504,76 @@ async function runApiBenchmark() {
       if (ps) PCV.uxlib.setMsg(ps, 'loading', null, done + '/' + total + ' — ' + endpoints[i]);
     }
   }
-  var h = '<h2>&#9889; ' + _L('벤치마크 결과', 'Benchmark Results') + '</h2>';
-  h += '<table class="text-12"><thead><tr><th>Endpoint</th><th>Avg</th><th>Min</th><th>Max</th><th>P95</th></tr></thead><tbody>';
-  Object.keys(results).forEach(function(ep) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var rows = Object.keys(results).map(function(ep) {
     var times = results[ep].sort(function(a,b){return a-b;});
     var avg = Math.round(times.reduce(function(s,t2){return s+t2;},0) / times.length);
     var p95 = times[Math.floor(times.length * 0.95)] || times[times.length-1];
-    h += '<tr><td><code>' + esc(ep) + '</code></td><td><b>' + avg + 'ms</b></td><td class="color-green">' + times[0] + 'ms</td><td class="color-red">' + times[times.length-1] + 'ms</td><td>' + p95 + 'ms</td></tr>';
+    return mk('tr', null,
+      mk('td', null, mk('code', null, ep)),
+      mk('td', null, mk('b', null, avg + 'ms')),
+      mk('td', { class: 'color-green' }, times[0] + 'ms'),
+      mk('td', { class: 'color-red' }, times[times.length-1] + 'ms'),
+      mk('td', null, p95 + 'ms'));
   });
-  h += '</tbody></table><div class="text-right mt-12"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
+  var table = mk('table', { class: 'text-12' },
+    mk('thead', null, mk('tr', null,
+      mk('th', null, 'Endpoint'), mk('th', null, 'Avg'), mk('th', null, 'Min'), mk('th', null, 'Max'), mk('th', null, 'P95'))),
+    mk('tbody', null, rows));
+  var footer = mk('div', { class: 'text-right mt-12' }, mk('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')));
   var mc = document.getElementById('mc');
-  if (mc) mc.innerHTML = h;
+  if (mc) { clearEl(mc); mc.appendChild(frag(mk('h2', null, '⚡ ' + _L('벤치마크 결과', 'Benchmark Results')), table, footer)); }
 }
 window.runApiBenchmark = runApiBenchmark;
 
 /* ═══ API ACTIVITY LOG ═══ */
 function renderActivityLog(b) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var log = (eventLog || []).filter(function(e) { return e && e.msg; });
-  var h = H.section(_L('API 활동 로그', 'API Activity Log'));
-  h += '<div class="flex gap-6 mb-8"><span class="color-muted text-xs">' + log.length + ' ' + _L('건', 'requests') + '</span><button class="btn btn-xs" onclick="window.eventLog=[];renderActivityLog(document.getElementById(\'cb\'))">Clear</button></div>';
+  var toolbar = mk('div', { class: 'flex gap-6 mb-8' },
+    mk('span', { class: 'color-muted text-xs' }, log.length + ' ' + _L('건', 'requests')),
+    mk('button', { class: 'btn btn-xs', onclick: "window.eventLog=[];renderActivityLog(document.getElementById('cb'))" }, 'Clear'));
+  var body;
   if (log.length === 0) {
-    h += '<div class="empty-state p-20 text-center"><div style="font-size:36px;opacity:.5">&#128196;</div><div class="color-muted">' + _L('기록 없음', 'No activity yet') + '</div></div>';
+    body = mk('div', { class: 'empty-state p-20 text-center' },
+      mk('div', { style: 'font-size:36px;opacity:.5' }, '📄'),
+      mk('div', { class: 'color-muted' }, _L('기록 없음', 'No activity yet')));
   } else {
-    h += '<table class="text-11"><thead><tr><th>' + _L('시각', 'Time') + '</th><th>' + _L('이벤트', 'Event') + '</th></tr></thead><tbody>';
-    log.slice().reverse().forEach(function(l) {
+    var rows = log.slice().reverse().map(function(l) {
       var timeStr = l.ts ? new Date(l.ts).toLocaleTimeString() : '';
       var msg = l.msg || String(l);
       var isApi = msg.includes('API') || msg.includes('fetch') || msg.includes('GET') || msg.includes('POST') || msg.includes('Auth') || msg.includes('WS');
-      h += '<tr><td class="color-muted">' + esc(timeStr) + '</td><td>' + (isApi ? '<span class="color-accent">' : '<span>') + esc(msg) + '</span></td></tr>';
+      return mk('tr', null,
+        mk('td', { class: 'color-muted' }, timeStr),
+        mk('td', null, mk('span', isApi ? { class: 'color-accent' } : null, msg)));
     });
-    h += '</tbody></table>';
+    body = mk('table', { class: 'text-11' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, _L('시각', 'Time')),
+        mk('th', null, _L('이벤트', 'Event')))),
+      mk('tbody', null, rows));
   }
-  b.innerHTML = h;
+  clearEl(b);
+  b.appendChild(frag(HN.section(_L('API 활동 로그', 'API Activity Log')), toolbar, body));
 }
 window.renderActivityLog = renderActivityLog;
 
 /* ═══ SESSION MANAGEMENT (백엔드 4차) ═══ */
 async function renderSessions(b) {
+  var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
-  var h = H.section(_L('세션 관리', 'Session Management'));
-  h += '<div class="mb-8">' + _L('활성 JWT 세션을 관리합니다.', 'Manage active JWT sessions.') + '</div>';
-  h += '<div class="flex gap-8 mb-12">';
-  h += '<input aria-label="' + _L('세션 JTI 입력', 'Enter session JTI') + '" id="revoke-jti" placeholder="' + _L('세션 JTI 입력', 'Enter session JTI') + '" class="input-field flex-1">';
-  h += '<button class="btn btn-r" onclick="revokeSession()" aria-label="' + _L('세션 강제 해제', 'Revoke session') + '">' + _L('강제 해제', 'Force Logout') + '</button>';
-  h += '</div>';
-  h += '<div class="empty-state p-20 text-center">';
-  h += '<div style="font-size:36px;opacity:.5">&#128274;</div>';
-  h += '<div class="color-muted">' + _L('JTI를 입력하여 특정 세션을 무효화합니다', 'Enter JTI to revoke a specific session') + '</div></div>';
-  b.innerHTML = h;
+  var controls = mk('div', { class: 'flex gap-8 mb-12' },
+    mk('input', { 'aria-label': _L('세션 JTI 입력', 'Enter session JTI'), id: 'revoke-jti', placeholder: _L('세션 JTI 입력', 'Enter session JTI'), class: 'input-field flex-1' }),
+    mk('button', { class: 'btn btn-r', onclick: 'revokeSession()', 'aria-label': _L('세션 강제 해제', 'Revoke session') }, _L('강제 해제', 'Force Logout')));
+  var empty = mk('div', { class: 'empty-state p-20 text-center' },
+    mk('div', { style: 'font-size:36px;opacity:.5' }, '🔒'),
+    mk('div', { class: 'color-muted' }, _L('JTI를 입력하여 특정 세션을 무효화합니다', 'Enter JTI to revoke a specific session')));
+  clearEl(b);
+  b.appendChild(frag(
+    HN.section(_L('세션 관리', 'Session Management')),
+    mk('div', { class: 'mb-8' }, _L('활성 JWT 세션을 관리합니다.', 'Manage active JWT sessions.')),
+    controls,
+    empty));
 }
 async function revokeSession() {
   var jti = document.getElementById('revoke-jti');
@@ -402,29 +592,37 @@ async function renderApiKeys(b) {
   try {
     var r = await fetchGet(EP.AUTH_APIKEY_LIST());
     var list = unwrapList(r);
-    var h = H.section(_L('API 키 관리', 'API Key Management'));
-    h += '<button class="btn mb-8" onclick="showApiKeyCreate()" aria-label="' + _L('새 API 키 생성', 'Create new API key') + '">+ ' + _L('새 키 생성', 'New Key') + '</button>';
+    var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+    var createBtn = mk('button', { class: 'btn mb-8', onclick: 'showApiKeyCreate()', 'aria-label': _L('새 API 키 생성', 'Create new API key') }, '+ ' + _L('새 키 생성', 'New Key'));
+    var body;
     if (list.length === 0) {
-      h += '<div class="empty-state p-20 text-center"><div style="font-size:36px;opacity:.5">&#128273;</div>';
-      h += '<div class="color-muted">' + _L('등록된 API 키가 없습니다', 'No API keys registered') + '</div></div>';
+      body = mk('div', { class: 'empty-state p-20 text-center' },
+        mk('div', { style: 'font-size:36px;opacity:.5' }, '🔑'),
+        mk('div', { class: 'color-muted' }, _L('등록된 API 키가 없습니다', 'No API keys registered')));
     } else {
-      h += '<table class="data-table text-11"><thead><tr>';
-      h += '<th>' + _L('클라이언트', 'Client') + '</th><th>' + _L('역할', 'Role') + '</th>';
-      h += '<th>' + _L('생성일', 'Created') + '</th><th>' + _L('최종 사용', 'Last Used') + '</th>';
-      h += '<th>' + _L('상태', 'Status') + '</th><th></th></tr></thead><tbody>';
-      list.forEach(function(k) {
-        var st = k.revoked ? '<span class="badge badge-r">' + _L('폐기', 'Revoked') + '</span>'
-                           : '<span class="badge badge-g">' + _L('활성', 'Active') + '</span>';
-        h += '<tr><td><b>' + esc(k.client_name) + '</b></td>';
-        h += '<td>' + esc(['viewer','operator','admin'][k.role] || '?') + '</td>';
-        h += '<td class="color-muted">' + esc(k.created_at || '') + '</td>';
-        h += '<td class="color-muted">' + esc(k.last_used_at || _L('미사용', 'Never')) + '</td>';
-        h += '<td>' + st + '</td>';
-        h += '<td>' + (k.revoked ? '' : '<button class="btn btn-r btn-xxs" onclick="revokeApiKey(\'' + esc(k.client_name) + '\')" aria-label="' + _L('키 폐기', 'Revoke key') + '">' + _L('폐기', 'Revoke') + '</button>') + '</td></tr>';
+      var rows = list.map(function(k) {
+        var st = k.revoked ? mk('span', { class: 'badge badge-r' }, _L('폐기', 'Revoked'))
+                           : mk('span', { class: 'badge badge-g' }, _L('활성', 'Active'));
+        return mk('tr', null,
+          mk('td', null, mk('b', null, k.client_name)),
+          mk('td', null, ['viewer','operator','admin'][k.role] || '?'),
+          mk('td', { class: 'color-muted' }, k.created_at || ''),
+          mk('td', { class: 'color-muted' }, k.last_used_at || _L('미사용', 'Never')),
+          mk('td', null, st),
+          mk('td', null, k.revoked ? null : mk('button', { class: 'btn btn-r btn-xxs', onclick: "revokeApiKey('" + esc(k.client_name) + "')", 'aria-label': _L('키 폐기', 'Revoke key') }, _L('폐기', 'Revoke'))));
       });
-      h += '</tbody></table>';
+      body = mk('table', { class: 'data-table text-11' },
+        mk('thead', null, mk('tr', null,
+          mk('th', null, _L('클라이언트', 'Client')),
+          mk('th', null, _L('역할', 'Role')),
+          mk('th', null, _L('생성일', 'Created')),
+          mk('th', null, _L('최종 사용', 'Last Used')),
+          mk('th', null, _L('상태', 'Status')),
+          mk('th'))),
+        mk('tbody', null, rows));
     }
-    b.innerHTML = h;
+    clearEl(b);
+    b.appendChild(frag(HN.section(_L('API 키 관리', 'API Key Management')), createBtn, body));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 async function showApiKeyCreate() {

@@ -135,15 +135,18 @@ window.PCV = window.PCV || {};
     var title = opts.title || '삭제 확인';
     var name = opts.name || '';
     var warn = opts.warning || '이 작업은 되돌릴 수 없습니다.';
-    var html = '<h2 style="color:var(--red)">&#9888; ' + escapeHtml(title) + '</h2>' +
-      '<p class="color-yellow">' + escapeHtml(warn) + '</p>' +
-      '<p class="text-13">계속하려면 <code class="color-red">' + escapeHtml(name) + '</code> 을(를) 정확히 입력하세요:</p>' +
-      '<input id="dc-input" aria-label="' + escapeHtml(name) + ' 확인 입력" class="login-input" style="width:100%;margin:8px 0" autocomplete="off">' +
-      '<div id="dc-msg" class="text-xs color-red" style="min-height:18px"></div>' +
-      '<div style="text-align:right;margin-top:12px">' +
-      '<button class="btn" onclick="closeModal()">취소</button> ' +
-      '<button class="btn btn-r" id="dc-go">삭제</button></div>';
-    if (typeof showModal === 'function') showModal(html);
+    var body = [
+      el('h2', { style: 'color:var(--red)' }, '\u{26A0} ', title),
+      el('p', { class: 'color-yellow' }, warn),
+      el('p', { class: 'text-13' }, '계속하려면 ', el('code', { class: 'color-red' }, name), ' 을(를) 정확히 입력하세요:'),
+      el('input', { id: 'dc-input', 'aria-label': escapeHtml(name) + ' 확인 입력', class: 'login-input', style: 'width:100%;margin:8px 0', autocomplete: 'off' }),
+      el('div', { id: 'dc-msg', class: 'text-xs color-red', style: 'min-height:18px' }),
+      el('div', { style: 'text-align:right;margin-top:12px' },
+        el('button', { class: 'btn', onclick: 'closeModal()' }, '취소'),
+        ' ',
+        el('button', { class: 'btn btn-r', id: 'dc-go' }, '삭제'))
+    ];
+    if (typeof showModal === 'function') showModal(body);
     setTimeout(function () {
       var i = document.getElementById('dc-input');
       var b = document.getElementById('dc-go');

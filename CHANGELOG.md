@@ -3,6 +3,29 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.1.4 — 2026-07-08
+
+innerHTML→DOM-safe 전환 에픽 6~8차 완결 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만). 래칫 **165→15** (에픽 누계 422→15, −96%).
+
+### UI / Security hardening (zone ADR-013)
+- 6차: advanced·accounts·network·app.js 4모듈 HN 노드화(H.* 호출 178곳) — renderDashboard·renderOvn 대형 렌더 포함. 골든 스냅샷 diff 34/36 바이트 동일 검증.
+- 7차: 잔여 9모듈(container·vm-lifecycle·nav·vm·vm-console·vm-guest·storage·cloud·security) — VM 목록 중심 렌더(스파크라인·roving tabindex 보존), 전역 크롬(브레드크럼·알림센터·커맨드팔레트), security 렌더 체인 통째 노드화. body 단위 골든 diff 32/36 동일.
+- 8차: **showModal 노드 계약** — body `Node|배열` 표준(문자열은 레거시 단일 엔트리), 모달 스택 라이브 노드 보존(중첩 복원 시 입력 상태 유지), 소비부 55곳 전환, hw* 설정 체인 9종 노드 반환화, Modal.show 스캐폴드 노드화.
+- 잔존 15: 레거시 문자열 엔트리 2, DataTable 문자열 컴포넌트 2, help 정적 템플릿 4, 의도적 직렬화-복사 관용구 3(split-view·popup — 리스너 소거 계약) 등.
+
+### UI / Design
+- 대시보드 아이콘 coolicons SVG(ci-*) 통일 — 컬러/모노크롬 이모지 혼용(OS 폰트 의존) 제거, 크기 위계(타일 30px/칩·카드 상속)와 타일 색상 아이덴티티 유지.
+
+### UI / Fixes
+- Terraform textarea placeholder 수복 — 비이스케이프 따옴표로 placeholder 절단+쓰레기 속성 8개가 생기던 malformed DOM.
+- (기지 이슈 목록화) 사장된 3-인자 `showModal(title, body, cb)` 호출 6곳 — 컨테이너 클론/메모리 상세, 백업 검증, 알림 음소거 생성, API 키 생성 모달이 제목만 렌더되던 기존 깨진 기능. 복원은 후속 배치.
+
+### Tooling / Docs
+- verify 스킬: body 단위 골든 diff(속성 정렬 정준화)·비로그인 스윕 함정·모달 프로브 레시피.
+- L4 규약: showModal 노드 표준, ui.js↔uxlib 로드 순서, HN/msg 표준 경로.
+
+---
+
 ## v1.1.3 — 2026-07-07
 
 innerHTML→DOM-safe 전환 에픽 1~5차 배치 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만).

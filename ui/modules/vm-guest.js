@@ -8,7 +8,14 @@ window.PCV = window.PCV || {};
 
 /* ═══ CPU PINNING ═══ */
 function hwCpuPin() {
-  return '<h4>&#128204; CPU Pinning</h4><p class="stat-label mb-8">Pin vCPUs to physical cores for performance isolation.</p><div class="fr"><label for="scpin">vCPU Map</label><input id="scpin" placeholder="0:0,1:2,2:4" class="flex-1"></div><p class="stat-label">Format: vCPU:pCPU pairs, comma separated (e.g., 0:0,1:2)</p><button class="btn btn-g mt-8" onclick="doCpuPin()">' + t('btn.apply') + '</button>';
+  var el = PCV.uxlib.el;
+  return [
+    el('h4', null, '📌 CPU Pinning'),
+    el('p', { class: 'stat-label mb-8' }, 'Pin vCPUs to physical cores for performance isolation.'),
+    el('div', { class: 'fr' }, el('label', { for: 'scpin' }, 'vCPU Map'), el('input', { id: 'scpin', placeholder: '0:0,1:2,2:4', class: 'flex-1' })),
+    el('p', { class: 'stat-label' }, 'Format: vCPU:pCPU pairs, comma separated (e.g., 0:0,1:2)'),
+    el('button', { class: 'btn btn-g mt-8', onclick: 'doCpuPin()' }, t('btn.apply'))
+  ];
 }
 
 async function doCpuPin() {
@@ -24,7 +31,15 @@ async function doCpuPin() {
 
 /* ═══ BANDWIDTH QoS ═══ */
 function hwBandwidth() {
-  return '<h4>&#128246; Network Bandwidth (QoS)</h4><p class="stat-label mb-8">Set network bandwidth limits for VM interfaces.</p><div class="fr"><label for="sbw-in">Inbound (Mbps)</label><input id="sbw-in" type="number" value="1000" placeholder="1000"></div><div class="fr"><label for="sbw-out">Outbound (Mbps)</label><input id="sbw-out" type="number" value="1000" placeholder="1000"></div><div class="fr"><label for="sbw-burst">Burst (KB)</label><input id="sbw-burst" type="number" value="1024" placeholder="1024"></div><button class="btn btn-g mt-8" onclick="doBandwidth()">' + t('btn.apply') + '</button>';
+  var el = PCV.uxlib.el;
+  return [
+    el('h4', null, '📶 Network Bandwidth (QoS)'),
+    el('p', { class: 'stat-label mb-8' }, 'Set network bandwidth limits for VM interfaces.'),
+    el('div', { class: 'fr' }, el('label', { for: 'sbw-in' }, 'Inbound (Mbps)'), el('input', { id: 'sbw-in', type: 'number', value: '1000', placeholder: '1000' })),
+    el('div', { class: 'fr' }, el('label', { for: 'sbw-out' }, 'Outbound (Mbps)'), el('input', { id: 'sbw-out', type: 'number', value: '1000', placeholder: '1000' })),
+    el('div', { class: 'fr' }, el('label', { for: 'sbw-burst' }, 'Burst (KB)'), el('input', { id: 'sbw-burst', type: 'number', value: '1024', placeholder: '1024' })),
+    el('button', { class: 'btn btn-g mt-8', onclick: 'doBandwidth()' }, t('btn.apply'))
+  ];
 }
 
 async function doBandwidth() {
@@ -43,10 +58,12 @@ async function doBandwidth() {
 /* ═══ VM MEMORY STATS ═══ */
 async function showMemStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
-  var h = '<h2>&#128204; Memory Stats: ' + esc(v.name) + '</h2>';
-  h += '<div id="mem-stats-body"><span class="spinner"></span> ' + t('loading') + '</div>';
-  h += '<div class="text-right mt-12"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  var mkEl = PCV.uxlib.el;
+  showModal([
+    mkEl('h2', null, '📌 Memory Stats: ' + v.name),
+    mkEl('div', { id: 'mem-stats-body' }, mkEl('span', { class: 'spinner' }), ' ' + t('loading')),
+    mkEl('div', { class: 'text-right mt-12' }, mkEl('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.memory.stats', params: { name: v.name } });
     var d = unwrapData(r);
@@ -57,18 +74,18 @@ async function showMemStats() {
       if (kb >= 1024) return (kb / 1024).toFixed(1) + ' MB';
       return kb + ' KB';
     };
-    var sh = '<div style="border:1px solid var(--border);border-radius:6px;padding:12px">';
-    sh += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px">';
-    sh += '<div>' + H.row('Actual Balloon', '<span class="color-accent">' + fmtKb(d.actual_balloon_kb || d.actual) + '</span>') + '</div>';
-    sh += '<div>' + H.row('RSS', '<span class="color-green">' + fmtKb(d.rss_kb || d.rss) + '</span>') + '</div>';
-    sh += '<div>' + H.row('Unused', '<span class="color-muted">' + fmtKb(d.unused_kb || d.unused) + '</span>') + '</div>';
-    sh += '<div>' + H.row('Available', '<span class="color-cyan">' + fmtKb(d.available_kb || d.available) + '</span>') + '</div>';
-    sh += '<div>' + H.row('Swap In', fmtKb(d.swap_in_kb || d.swap_in || 0)) + '</div>';
-    sh += '<div>' + H.row('Swap Out', fmtKb(d.swap_out_kb || d.swap_out || 0)) + '</div>';
-    sh += '<div>' + H.row('Major Fault', String(d.major_fault || d.majflt || 0)) + '</div>';
-    sh += '<div>' + H.row('Minor Fault', String(d.minor_fault || d.minflt || 0)) + '</div>';
-    sh += '</div></div>';
-    el.innerHTML = sh;
+    var mk = PCV.uxlib.el;
+    var grid = mk('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px;font-size:12px' },
+      mk('div', null, HN.row('Actual Balloon', mk('span', { class: 'color-accent' }, fmtKb(d.actual_balloon_kb || d.actual)))),
+      mk('div', null, HN.row('RSS', mk('span', { class: 'color-green' }, fmtKb(d.rss_kb || d.rss)))),
+      mk('div', null, HN.row('Unused', mk('span', { class: 'color-muted' }, fmtKb(d.unused_kb || d.unused)))),
+      mk('div', null, HN.row('Available', mk('span', { class: 'color-cyan' }, fmtKb(d.available_kb || d.available)))),
+      mk('div', null, HN.row('Swap In', fmtKb(d.swap_in_kb || d.swap_in || 0))),
+      mk('div', null, HN.row('Swap Out', fmtKb(d.swap_out_kb || d.swap_out || 0))),
+      mk('div', null, HN.row('Major Fault', String(d.major_fault || d.majflt || 0))),
+      mk('div', null, HN.row('Minor Fault', String(d.minor_fault || d.minflt || 0))));
+    PCV.uxlib.clearEl(el);
+    el.appendChild(mk('div', { style: 'border:1px solid var(--border);border-radius:6px;padding:12px' }, grid));
   } catch (e) {
     // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
     // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
@@ -80,36 +97,44 @@ async function showMemStats() {
 /* ═══ VM CPU STATS ═══ */
 async function showCpuStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
-  var h = '<h2>&#9881; CPU Stats: ' + esc(v.name) + '</h2>';
-  h += '<div id="cpu-stats-body"><span class="spinner"></span> ' + t('loading') + '</div>';
-  h += '<div class="text-right mt-12"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  var mkEl = PCV.uxlib.el;
+  showModal([
+    mkEl('h2', null, '⚙ CPU Stats: ' + v.name),
+    mkEl('div', { id: 'cpu-stats-body' }, mkEl('span', { class: 'spinner' }), ' ' + t('loading')),
+    mkEl('div', { class: 'text-right mt-12' }, mkEl('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.cpu.stats', params: { name: v.name } });
     var d = unwrapData(r);
     var el = document.getElementById('cpu-stats-body'); if (!el) return;
     var vcpuCount = d.vcpu_count || d.vcpu || v.vcpu || 0;
     var maxVcpu = d.max_vcpu || d.max || vcpuCount;
-    var sh = '<div class="mb-12">';
-    sh += H.row('vCPU Count', '<span class="color-accent">' + vcpuCount + '</span>');
-    sh += H.row('Max vCPU', '<span class="color-muted">' + maxVcpu + '</span>');
-    sh += H.row('CPU Time (ns)', '<span class="color-green">' + (d.cpu_time || 0) + '</span>');
-    sh += '</div>';
+    var mk = PCV.uxlib.el;
+    var parts = [];
+    parts.push(mk('div', { class: 'mb-12' },
+      HN.row('vCPU Count', mk('span', { class: 'color-accent' }, vcpuCount)),
+      HN.row('Max vCPU', mk('span', { class: 'color-muted' }, maxVcpu)),
+      HN.row('CPU Time (ns)', mk('span', { class: 'color-green' }, d.cpu_time || 0))));
     var vcpus = d.vcpus || d.vcpu_list || [];
     if (vcpus.length > 0) {
-      sh += '<table><thead><tr><th>vCPU</th><th>State</th><th>CPU Time (ns)</th><th>Physical CPU</th></tr></thead><tbody>';
+      var tbody = mk('tbody');
       vcpus.forEach(function(vc, i) {
-        var state = vc.state === 1 || vc.state === 'running' ? '<span class="color-green">Running</span>' : '<span class="color-muted">Offline</span>';
-        sh += '<tr><td><b>' + (vc.number !== undefined ? vc.number : i) + '</b></td>';
-        sh += '<td>' + state + '</td>';
-        sh += '<td>' + (vc.cpu_time || 0) + '</td>';
-        sh += '<td>' + (vc.cpu !== undefined ? vc.cpu : '-') + '</td></tr>';
+        var state = (vc.state === 1 || vc.state === 'running') ? mk('span', { class: 'color-green' }, 'Running') : mk('span', { class: 'color-muted' }, 'Offline');
+        tbody.appendChild(mk('tr', null,
+          mk('td', null, mk('b', null, vc.number !== undefined ? vc.number : i)),
+          mk('td', null, state),
+          mk('td', null, vc.cpu_time || 0),
+          mk('td', null, vc.cpu !== undefined ? vc.cpu : '-')));
       });
-      sh += '</tbody></table>';
+      parts.push(mk('table', null,
+        mk('thead', null, mk('tr', null,
+          mk('th', null, 'vCPU'), mk('th', null, 'State'), mk('th', null, 'CPU Time (ns)'), mk('th', null, 'Physical CPU'))),
+        tbody));
     } else {
-      sh += '<p class="color-muted text-12">Detailed per-vCPU info not available (VM may be stopped)</p>';
+      parts.push(mk('p', { class: 'color-muted text-12' }, 'Detailed per-vCPU info not available (VM may be stopped)'));
     }
-    el.innerHTML = sh;
+    PCV.uxlib.clearEl(el);
+    el.appendChild(PCV.uxlib.frag(parts));
   } catch (e) {
     // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
     // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
@@ -121,15 +146,17 @@ async function showCpuStats() {
 /* ═══ VM DISK LIVE RESIZE (MODAL) ═══ */
 function showDiskLiveResize() {
   var v = vmList[selectedVmIndex]; if (!v) return;
-  var h = '<h2>&#128190; Disk Live Resize: ' + esc(v.name) + '</h2>';
-  h += '<p class="stat-label mb-12">Resize a VM disk while the VM is running. The guest OS may need to rescan partitions.</p>';
-  h += '<div class="fr"><label for="dlr-target">Target Device</label><input id="dlr-target" value="vda" placeholder="vda" class="w-120"></div>';
-  h += '<div class="fr"><label for="dlr-size">New Size (GB)</label><input id="dlr-size" type="number" value="40" min="1" placeholder="40" class="w-120"></div>';
-  h += '<div class="text-right mt-14">';
-  h += '<button class="btn btn-g" onclick="doDiskLiveResize()">&#128190; Resize</button> ';
-  h += '<button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button>';
-  h += '</div>';
-  showModal(h);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '💾 Disk Live Resize: ' + v.name),
+    el('p', { class: 'stat-label mb-12' }, 'Resize a VM disk while the VM is running. The guest OS may need to rescan partitions.'),
+    el('div', { class: 'fr' }, el('label', { for: 'dlr-target' }, 'Target Device'), el('input', { id: 'dlr-target', value: 'vda', placeholder: 'vda', class: 'w-120' })),
+    el('div', { class: 'fr' }, el('label', { for: 'dlr-size' }, 'New Size (GB)'), el('input', { id: 'dlr-size', type: 'number', value: '40', min: '1', placeholder: '40', class: 'w-120' })),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn btn-g', onclick: 'doDiskLiveResize()' }, '💾 Resize'),
+      ' ',
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doDiskLiveResize() {
@@ -155,9 +182,22 @@ function _vmDiskUsagePct(fs) {
   return total > 0 ? (used * 100 / total) : null;
 }
 
+/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
+function _vmgProgressBar(p, c) {
+  var el = PCV.uxlib.el;
+  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  var anim = p > 85 ? ' pulse-anim' : '';
+  return el('div', { class: 'pb' + anim },
+    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
+}
+
 function _vmDiskUsageBar(pct) {
-  if (pct === null || isNaN(pct)) return '<span class="color-muted">-</span>';
-  return '<div style="min-width:120px">' + renderProgressBar(Math.max(0, Math.min(100, pct))) + '<div class="text-xs color-muted mt-4">' + pct.toFixed(1) + '%</div></div>';
+  var el = PCV.uxlib.el;
+  if (pct === null || isNaN(pct)) return el('span', { class: 'color-muted' }, '-');
+  return el('div', { style: 'min-width:120px' },
+    _vmgProgressBar(Math.max(0, Math.min(100, pct))),
+    el('div', { class: 'text-xs color-muted mt-4' }, pct.toFixed(1) + '%'));
 }
 
 function _vmDiskUsageSeverity(pct) {
@@ -168,18 +208,27 @@ function _vmDiskUsageSeverity(pct) {
 }
 
 function _vmRenderDiskUsage(d) {
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
   var filesystems = Array.isArray(d.filesystems) ? d.filesystems : [];
   var total = Number(d.total_bytes || 0);
   var used = Number(d.used_bytes || 0);
   var pct = d.usage_percent !== undefined ? Number(d.usage_percent) : (total > 0 ? used * 100 / total : null);
-  var h = '<div class="mb-12">';
-  h += '<div class="sg grid-3">';
-  h += H.card(_L('전체 사용량', 'Total Usage'), H.row(_L('사용', 'Used'), used ? formatBytes(used) : '-') + H.row(_L('전체', 'Total'), total ? formatBytes(total) : '-') + H.row(_L('상태', 'Status'), H.badge(pct === null ? _L('알 수 없음', 'Unknown') : pct.toFixed(1) + '%', _vmDiskUsageSeverity(pct))) + _vmDiskUsageBar(pct));
-  h += H.card(_L('마운트', 'Mounts'), H.row(_L('파일시스템', 'Filesystems'), String(filesystems.length)) + H.row(_L('수집 방식', 'Source'), 'qemu-guest-agent') + H.row(_L('대상', 'Target'), escapeHtml(d.name || '-')));
-  h += '</div></div>';
+  var summary = el('div', { class: 'mb-12' },
+    el('div', { class: 'sg grid-3' },
+      HN.card(_L('전체 사용량', 'Total Usage'), [
+        HN.row(_L('사용', 'Used'), used ? formatBytes(used) : '-'),
+        HN.row(_L('전체', 'Total'), total ? formatBytes(total) : '-'),
+        HN.row(_L('상태', 'Status'), HN.badge(pct === null ? _L('알 수 없음', 'Unknown') : pct.toFixed(1) + '%', _vmDiskUsageSeverity(pct))),
+        _vmDiskUsageBar(pct)
+      ]),
+      HN.card(_L('마운트', 'Mounts'), [
+        HN.row(_L('파일시스템', 'Filesystems'), String(filesystems.length)),
+        HN.row(_L('수집 방식', 'Source'), 'qemu-guest-agent'),
+        HN.row(_L('대상', 'Target'), d.name || '-')
+      ])));
 
   if (!filesystems.length) {
-    return h + '<p class="color-muted text-12">' + _L('게스트 파일시스템 정보가 없습니다.', 'No guest filesystem data returned.') + '</p>';
+    return frag(summary, el('p', { class: 'color-muted text-12' }, _L('게스트 파일시스템 정보가 없습니다.', 'No guest filesystem data returned.')));
   }
 
   filesystems.sort(function(a, b) {
@@ -190,36 +239,40 @@ function _vmRenderDiskUsage(d) {
     return am.localeCompare(bm);
   });
 
-  h += '<table><thead><tr>'
-    + '<th>' + _L('마운트', 'Mount') + '</th>'
-    + '<th>' + _L('타입', 'Type') + '</th>'
-    + '<th>' + _L('사용', 'Used') + '</th>'
-    + '<th>' + _L('전체', 'Total') + '</th>'
-    + '<th>' + _L('사용률', 'Usage') + '</th>'
-    + '</tr></thead><tbody>';
+  var tbody = el('tbody');
   filesystems.forEach(function(fs) {
     var fsPct = _vmDiskUsagePct(fs);
     var fsUsed = Number(fs.used_bytes || 0);
     var fsTotal = Number(fs.total_bytes || 0);
-    h += '<tr>';
-    h += '<td><b>' + escapeHtml(fs.mountpoint || '-') + '</b><div class="text-xs color-muted">' + escapeHtml(fs.name || fs.device || '') + '</div></td>';
-    h += '<td>' + escapeHtml(fs.type || '-') + '</td>';
-    h += '<td>' + (fsUsed ? formatBytes(fsUsed) : '-') + '</td>';
-    h += '<td>' + (fsTotal ? formatBytes(fsTotal) : '-') + '</td>';
-    h += '<td>' + _vmDiskUsageBar(fsPct) + '</td>';
-    h += '</tr>';
+    tbody.appendChild(el('tr', null,
+      el('td', null,
+        el('b', null, fs.mountpoint || '-'),
+        el('div', { class: 'text-xs color-muted' }, fs.name || fs.device || '')),
+      el('td', null, fs.type || '-'),
+      el('td', null, fsUsed ? formatBytes(fsUsed) : '-'),
+      el('td', null, fsTotal ? formatBytes(fsTotal) : '-'),
+      el('td', null, _vmDiskUsageBar(fsPct))));
   });
-  h += '</tbody></table>';
-  return h;
+  var table = el('table', null,
+    el('thead', null, el('tr', null,
+      el('th', null, _L('마운트', 'Mount')),
+      el('th', null, _L('타입', 'Type')),
+      el('th', null, _L('사용', 'Used')),
+      el('th', null, _L('전체', 'Total')),
+      el('th', null, _L('사용률', 'Usage')))),
+    tbody);
+  return frag(summary, table);
 }
 
 async function showVmDiskUsage() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var running = v.state === 'running';
-  var h = '<h2>&#128202; ' + _L('디스크 사용량', 'Disk Usage') + ': ' + esc(v.name) + '</h2>';
-  h += '<div id="vm-disk-usage-body" style="min-height:90px"><span class="spinner"></span> ' + t('loading') + '</div>';
-  h += '<div class="text-right mt-14"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '📊 ' + _L('디스크 사용량', 'Disk Usage') + ': ' + v.name),
+    el('div', { id: 'vm-disk-usage-body', style: 'min-height:90px' }, el('span', { class: 'spinner' }), ' ' + t('loading')),
+    el('div', { class: 'text-right mt-14' }, el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
 
   var body = document.getElementById('vm-disk-usage-body');
   if (!running) {
@@ -231,11 +284,16 @@ async function showVmDiskUsage() {
     var r = await fetchGet(EP.VM_DISK_USAGE(v.name));
     if (r.error) throw new Error(r.error.message || 'disk usage failed');
     var d = unwrapData(r) || {};
-    if (body) body.innerHTML = _vmRenderDiskUsage(d);
+    if (body) { PCV.uxlib.clearEl(body); body.appendChild(_vmRenderDiskUsage(d)); }
   } catch (e) {
-    if (body) body.innerHTML = '<p class="color-red">' + esc(e.message) + '</p>'
-      + '<p class="color-muted text-xs mt-8">' + _L('qemu-guest-agent 채널과 게스트 내부 에이전트 상태를 확인하세요.', 'Check the qemu-guest-agent channel and guest agent status.') + '</p>'
-      + '<button class="btn btn-g mt-8" onclick="closeModal();showGuestAgent()">&#128172; Guest Agent</button>';
+    if (body) {
+      var mk = PCV.uxlib.el;
+      PCV.uxlib.clearEl(body);
+      body.appendChild(PCV.uxlib.frag(
+        mk('p', { class: 'color-red' }, e.message),
+        mk('p', { class: 'color-muted text-xs mt-8' }, _L('qemu-guest-agent 채널과 게스트 내부 에이전트 상태를 확인하세요.', 'Check the qemu-guest-agent channel and guest agent status.')),
+        mk('button', { class: 'btn btn-g mt-8', onclick: 'closeModal();showGuestAgent()' }, '💬 Guest Agent')));
+    }
   }
 }
 
@@ -244,33 +302,28 @@ var _gaInstallCommands = {};
 
 function showGuestAgent() {
   var v = vmList[selectedVmIndex]; if (!v) return;
-  var h = '<h2>&#128172; Guest Agent: ' + esc(v.name) + '</h2>';
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px">';
-  h += '<button class="btn" onclick="gaRefreshStatus()">&#8635; Status</button>';
-  h += '<button class="btn btn-g" onclick="gaEnsureChannel()">Channel</button>';
-  h += '<button class="btn btn-g" onclick="gaPing()">&#128994; Ping</button>';
-  h += '<button class="btn btn-r" onclick="gaShutdown()">&#9888; Graceful Shutdown</button>';
-  h += '</div>';
-  h += '<div id="ga-status-body" style="font-size:12px;min-height:48px;margin-bottom:10px"><span class="spinner"></span> Checking...</div>';
-  h += '<div id="ga-ping-result" style="font-size:12px;min-height:20px;margin-bottom:8px"></div>';
-  h += '</div>';
-
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<h4 class="mb-8">Install qemu-guest-agent</h4>';
-  h += '<div id="ga-install-body" class="text-12 color-muted"></div>';
-  h += '</div>';
-
-  h += '<div class="mb-14 p-10 border-muted rounded-md">';
-  h += '<h4 class="mb-8">&#128187; Execute Command</h4>';
-  h += '<div class="fr"><label for="ga-cmd">Command</label><input id="ga-cmd" placeholder="cat /etc/hostname" class="flex-1"></div>';
-  h += '<div class="fr"><label for="ga-args">Args</label><input id="ga-args" placeholder="(optional, space separated)" class="flex-1"></div>';
-  h += '<button class="btn btn-g" onclick="gaExec()" style="margin-top:6px">&#9654; Execute</button>';
-  h += '<div id="ga-exec-result" style="margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:250px;overflow:auto;font-size:11px;font-family:var(--font-mono);white-space:pre-wrap;display:none"></div>';
-  h += '</div>';
-
-  h += '<div class="text-right"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '💬 Guest Agent: ' + v.name),
+    el('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:10px' },
+        el('button', { class: 'btn', onclick: 'gaRefreshStatus()' }, '↻ Status'),
+        el('button', { class: 'btn btn-g', onclick: 'gaEnsureChannel()' }, 'Channel'),
+        el('button', { class: 'btn btn-g', onclick: 'gaPing()' }, '🟢 Ping'),
+        el('button', { class: 'btn btn-r', onclick: 'gaShutdown()' }, '⚠ Graceful Shutdown')),
+      el('div', { id: 'ga-status-body', style: 'font-size:12px;min-height:48px;margin-bottom:10px' }, el('span', { class: 'spinner' }), ' Checking...'),
+      el('div', { id: 'ga-ping-result', style: 'font-size:12px;min-height:20px;margin-bottom:8px' })),
+    el('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      el('h4', { class: 'mb-8' }, 'Install qemu-guest-agent'),
+      el('div', { id: 'ga-install-body', class: 'text-12 color-muted' })),
+    el('div', { class: 'mb-14 p-10 border-muted rounded-md' },
+      el('h4', { class: 'mb-8' }, '💻 Execute Command'),
+      el('div', { class: 'fr' }, el('label', { for: 'ga-cmd' }, 'Command'), el('input', { id: 'ga-cmd', placeholder: 'cat /etc/hostname', class: 'flex-1' })),
+      el('div', { class: 'fr' }, el('label', { for: 'ga-args' }, 'Args'), el('input', { id: 'ga-args', placeholder: '(optional, space separated)', class: 'flex-1' })),
+      el('button', { class: 'btn btn-g', onclick: 'gaExec()', style: 'margin-top:6px' }, '▶ Execute'),
+      el('div', { id: 'ga-exec-result', style: 'margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:250px;overflow:auto;font-size:11px;font-family:var(--font-mono);white-space:pre-wrap;display:none' })),
+    el('div', { class: 'text-right' }, el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
   setTimeout(gaRefreshStatus, 20);
 }
 
@@ -282,46 +335,49 @@ function gaCommand(key) {
 }
 
 function gaStatusBadge(status) {
-  if (status === 'ok') return H.badge('OK', 'g');
-  if (status === 'vm_stopped') return H.badge('Stopped', 'y');
-  if (status === 'reboot_required') return H.badge('Reboot needed', 'y');
-  if (status === 'agent_unavailable') return H.badge('Install needed', 'y');
-  return H.badge('Channel missing', 'r');
+  if (status === 'ok') return HN.badge('OK', 'g');
+  if (status === 'vm_stopped') return HN.badge('Stopped', 'y');
+  if (status === 'reboot_required') return HN.badge('Reboot needed', 'y');
+  if (status === 'agent_unavailable') return HN.badge('Install needed', 'y');
+  return HN.badge('Channel missing', 'r');
 }
 
 function gaRenderInstallCommands(cmds) {
   _gaInstallCommands = cmds || {};
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
   var rows = [
     ['debian_ubuntu', 'Debian / Ubuntu'],
     ['rhel_rocky_fedora', 'RHEL / Rocky / Fedora'],
     ['suse', 'SUSE']
   ];
-  var h = '';
+  var out = frag();
   rows.forEach(function(row) {
     var key = row[0], label = row[1], cmd = gaCommand(key);
-    h += '<div class="mb-8">';
-    h += '<div class="justify-between mb-4"><b>' + esc(label) + '</b><button class="btn" style="font-size:11px;padding:3px 8px" onclick="gaCopyInstall(\'' + escapeAttr(key) + '\')">Copy</button></div>';
-    h += '<pre style="margin:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap;overflow:auto">' + esc(cmd) + '</pre>';
-    h += '</div>';
+    out.appendChild(el('div', { class: 'mb-8' },
+      el('div', { class: 'justify-between mb-4' },
+        el('b', null, label),
+        el('button', { class: 'btn', style: 'font-size:11px;padding:3px 8px', onclick: "gaCopyInstall('" + escapeAttr(key) + "')" }, 'Copy')),
+      el('pre', { style: 'margin:0;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:8px;white-space:pre-wrap;overflow:auto' }, cmd)));
   });
-  return h;
+  return out;
 }
 
 function gaRenderStatus(d) {
+  var el = PCV.uxlib.el;
   var statusEl = document.getElementById('ga-status-body');
   var installEl = document.getElementById('ga-install-body');
-  if (installEl) installEl.innerHTML = gaRenderInstallCommands(d.install_commands || {});
+  if (installEl) { PCV.uxlib.clearEl(installEl); installEl.appendChild(gaRenderInstallCommands(d.install_commands || {})); }
   if (!statusEl) return;
-  var h = '<div style="display:grid;grid-template-columns:1fr 1fr;gap:8px 16px">';
-  h += H.row('Status', gaStatusBadge(d.status));
-  h += H.row('Running', d.running ? H.badge('Yes', 'g') : H.badge('No', 'y'));
-  h += H.row('Config channel', d.channel_configured ? H.badge('Yes', 'g') : H.badge('No', 'r'));
-  h += H.row('Live channel', d.channel_live ? H.badge('Yes', 'g') : H.badge('No', d.running ? 'y' : 'r'));
-  h += H.row('Agent ping', d.agent_ping ? H.badge('OK', 'g') : H.badge('No response', 'y'));
-  h += H.row('Next action', esc(d.message || '-'));
-  if (d.agent_error) h += H.row('Agent error', '<span class="color-muted text-11">' + esc(d.agent_error) + '</span>');
-  h += '</div>';
-  statusEl.innerHTML = h;
+  var grid = el('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px' },
+    HN.row('Status', gaStatusBadge(d.status)),
+    HN.row('Running', d.running ? HN.badge('Yes', 'g') : HN.badge('No', 'y')),
+    HN.row('Config channel', d.channel_configured ? HN.badge('Yes', 'g') : HN.badge('No', 'r')),
+    HN.row('Live channel', d.channel_live ? HN.badge('Yes', 'g') : HN.badge('No', d.running ? 'y' : 'r')),
+    HN.row('Agent ping', d.agent_ping ? HN.badge('OK', 'g') : HN.badge('No response', 'y')),
+    HN.row('Next action', d.message || '-'),
+    d.agent_error ? HN.row('Agent error', el('span', { class: 'color-muted text-11' }, d.agent_error)) : null);
+  PCV.uxlib.clearEl(statusEl);
+  statusEl.appendChild(grid);
 }
 
 async function gaRefreshStatus() {
@@ -394,13 +450,14 @@ async function gaExec() {
     var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params);
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Error: ' + (r.error.message || '')); return; }
     var d = unwrapData(r);
-    var out = '';
-    if (d.stdout) out += '<div class="mb-6"><span class="color-green">stdout:</span></div><div>' + esc(d.stdout) + '</div>';
-    if (d.stderr) out += '<div class="mt-8"><span class="color-red">stderr:</span></div><div>' + esc(d.stderr) + '</div>';
+    var mk = PCV.uxlib.el;
+    var parts = [];
+    if (d.stdout) parts.push(mk('div', { class: 'mb-6' }, mk('span', { class: 'color-green' }, 'stdout:')), mk('div', null, d.stdout));
+    if (d.stderr) parts.push(mk('div', { class: 'mt-8' }, mk('span', { class: 'color-red' }, 'stderr:')), mk('div', null, d.stderr));
     var exitCode = d.exitcode !== undefined ? d.exitcode : d.exit_code;
-    if (exitCode !== undefined) out += '<div style="margin-top:6px;color:var(--fg2)">Exit code: ' + exitCode + '</div>';
-    if (!out) out = '<span class="color-muted">Command executed (no output)</span>';
-    if (el) el.innerHTML = out;
+    if (exitCode !== undefined) parts.push(mk('div', { style: 'margin-top:6px;color:var(--fg2)' }, 'Exit code: ' + exitCode));
+    if (!parts.length) parts.push(mk('span', { class: 'color-muted' }, 'Command executed (no output)'));
+    if (el) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.frag(parts)); }
   } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, e.message); }
 }
 
@@ -412,7 +469,13 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
   }
   if (!await customConfirm(_L('라이브 마이그레이션', 'Live Migration'),
     vmName + ' → ' + targetName + ' (' + targetIp + ')?')) return;
-  showModal('<h2>&#128640; ' + _L('마이그레이션', 'Migrating') + '</h2><p>' + esc(vmName) + ' → ' + esc(targetName) + '</p><div class="prog-bar"><div class="prog-fill" id="mig-prog" class="w-pct-20"></div></div><div class="prog-status" id="mig-st"><span class="spinner"></span> ' + _L('전송 중...', 'Transferring...') + '</div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '🚀 ' + _L('마이그레이션', 'Migrating')),
+    el('p', null, vmName + ' → ' + targetName),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'mig-prog' })),
+    el('div', { class: 'prog-status', id: 'mig-st' }, el('span', { class: 'spinner' }), ' ' + _L('전송 중...', 'Transferring...'))
+  ]);
   try {
     var migrateEndpoint = PCV.getOptionalEndpoint('VM_MIGRATE', vmName);
     if (!migrateEndpoint) {
@@ -441,21 +504,31 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
 /* ═══ DISK I/O THROTTLE EDITOR ═══ */
 function showBlkioEditor() {
   var v = vmList[selectedVmIndex]; if (!v) return;
-  var h = '<h2>&#128190; ' + (t('vm.blkio_title') || 'Disk I/O Limits') + ': ' + esc(v.name) + '</h2>';
-  h += '<p class="stat-label mb-12">'
-    + (t('vm.blkio_desc') || 'Set disk I/O throttle limits. Values in bytes/sec and IOPS. Set 0 for unlimited.')
-    + '</p>';
-  h += '<div class="fr"><label for="blkio-rd-bytes">' + (t('vm.read_bytes_sec') || 'Read (MB/s)') + '</label><input id="blkio-rd-bytes" type="number" value="0" min="0" placeholder="0" class="w-140"><span class="stat-label ml-4">MB/s</span></div>';
-  h += '<div class="fr"><label for="blkio-wr-bytes">' + (t('vm.write_bytes_sec') || 'Write (MB/s)') + '</label><input id="blkio-wr-bytes" type="number" value="0" min="0" placeholder="0" class="w-140"><span class="stat-label ml-4">MB/s</span></div>';
-  h += '<div class="fr"><label for="blkio-rd-iops">' + (t('vm.read_iops_sec') || 'Read IOPS') + '</label><input id="blkio-rd-iops" type="number" value="0" min="0" placeholder="0" class="w-140"></div>';
-  h += '<div class="fr"><label for="blkio-wr-iops">' + (t('vm.write_iops_sec') || 'Write IOPS') + '</label><input id="blkio-wr-iops" type="number" value="0" min="0" placeholder="0" class="w-140"></div>';
-  h += '<div id="blkio-status" style="font-size:11px;min-height:20px;margin:8px 0"></div>';
-  h += '<div class="text-right mt-14">';
-  h += '<button class="btn" onclick="blkioGet()" style="margin-right:4px">&#128269; ' + (t('vm.blkio_get') || 'Get Current') + '</button>';
-  h += '<button class="btn btn-g" onclick="blkioSet()">&#9989; ' + (t('vm.blkio_apply') || 'Apply') + '</button> ';
-  h += '<button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button>';
-  h += '</div>';
-  showModal(h);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '💾 ' + (t('vm.blkio_title') || 'Disk I/O Limits') + ': ' + v.name),
+    el('p', { class: 'stat-label mb-12' }, t('vm.blkio_desc') || 'Set disk I/O throttle limits. Values in bytes/sec and IOPS. Set 0 for unlimited.'),
+    el('div', { class: 'fr' },
+      el('label', { for: 'blkio-rd-bytes' }, t('vm.read_bytes_sec') || 'Read (MB/s)'),
+      el('input', { id: 'blkio-rd-bytes', type: 'number', value: '0', min: '0', placeholder: '0', class: 'w-140' }),
+      el('span', { class: 'stat-label ml-4' }, 'MB/s')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'blkio-wr-bytes' }, t('vm.write_bytes_sec') || 'Write (MB/s)'),
+      el('input', { id: 'blkio-wr-bytes', type: 'number', value: '0', min: '0', placeholder: '0', class: 'w-140' }),
+      el('span', { class: 'stat-label ml-4' }, 'MB/s')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'blkio-rd-iops' }, t('vm.read_iops_sec') || 'Read IOPS'),
+      el('input', { id: 'blkio-rd-iops', type: 'number', value: '0', min: '0', placeholder: '0', class: 'w-140' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'blkio-wr-iops' }, t('vm.write_iops_sec') || 'Write IOPS'),
+      el('input', { id: 'blkio-wr-iops', type: 'number', value: '0', min: '0', placeholder: '0', class: 'w-140' })),
+    el('div', { id: 'blkio-status', style: 'font-size:11px;min-height:20px;margin:8px 0' }),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn', onclick: 'blkioGet()', style: 'margin-right:4px' }, '🔍 ' + (t('vm.blkio_get') || 'Get Current')),
+      el('button', { class: 'btn btn-g', onclick: 'blkioSet()' }, '✅ ' + (t('vm.blkio_apply') || 'Apply')),
+      ' ',
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function blkioGet() {

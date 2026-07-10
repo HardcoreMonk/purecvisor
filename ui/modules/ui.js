@@ -48,7 +48,9 @@
  *   클릭 시 즉시 제거 (슬라이드 아웃).
  *
  * [모달 스택 (F3)]
- *   showModal()을 중첩 호출하면 이전 모달 HTML이 _modalStack에 push된다.
+ *   showModal()을 중첩 호출하면 이전 모달의 라이브 노드 배열이 _modalStack에
+ *   push된다 (8차 배치에서 HTML 문자열 스냅샷 → 노드 보존으로 전환 — 복원 시
+ *   입력값 등 런타임 상태 유지). body는 Node/배열이 표준, 문자열은 레거시.
  *   closeModal() 시 스택에서 pop하여 이전 모달을 복원한다.
  *   스택이 비어있으면 모달 배경(#mbg)을 숨긴다.
  *   모달 내 Tab 키는 포커스 트랩이 적용되어 모달 밖으로 나가지 않는다 (접근성).
@@ -214,6 +216,23 @@ function _evtClass(m) {
   return '';
 }
 
+/* ADR-013 DOM-safe: addEvt/_syncPopoutLog 이벤트 아이콘 — _evtIcon()이 반환하는
+ * <svg><use href="..."></use></svg> 문자열(ciIcon() 고정 포맷, 내부 생성·비-사용자
+ * 입력)을 el()/frag() 텍스트 자식이 아닌 실제 SVG 네임스페이스 노드로 재구성
+ * (monitor.js _svgEl/_svgIcon, app.js ciIconNode 선례). _evtIcon/EVT_ICONS/ciIcon
+ * 자체는 수정하지 않는다(다른 렌더 경로가 여전히 문자열 형태로 소비). */
+var _EVT_SVGNS = 'http://www.w3.org/2000/svg';
+function _evtIconNode(iconHtml) {
+  var m = /#ci-([\w-]+)/.exec(iconHtml || '');
+  var svg = document.createElementNS(_EVT_SVGNS, 'svg');
+  svg.setAttribute('class', 'ci-icon');
+  svg.setAttribute('aria-hidden', 'true');
+  var use = document.createElementNS(_EVT_SVGNS, 'use');
+  use.setAttribute('href', '/ui/vendor/coolicons/coolicons.svg#ci-' + (m ? m[1] : 'info'));
+  svg.appendChild(use);
+  return svg;
+}
+
 function addEvt(m) {
   const ts = new Date().toLocaleTimeString('ko-KR', { hour12: false, hour: '2-digit', minute: '2-digit', second: '2-digit' });
   const ms = String(Date.now() % 1000).padStart(3, '0');
@@ -222,14 +241,16 @@ function addEvt(m) {
   if (window.eventLog.length > 200) window.eventLog.shift();
   const ep = document.getElementById('evp');
   if (ep) {
-    ep.innerHTML = window.eventLog.map(e => {
+    var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+    clearEl(ep);
+    ep.appendChild(frag(window.eventLog.map(e => {
       const icon = _evtIcon(e.msg);
       const cls = _evtClass(e.msg);
-      return '<div style="padding:2px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:baseline;font-size:11px">'
-        + '<span class="color-muted" style="font-size:9px;white-space:nowrap;min-width:72px">' + escapeHtml(e.time) + '</span>'
-        + '<span style="font-size:12px">' + icon + '</span>'
-        + '<span class="' + cls + '" style="flex:1;word-break:break-word">' + escapeHtml(e.msg) + '</span></div>';
-    }).join('');
+      return el('div', { style: 'padding:2px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:baseline;font-size:11px' },
+        el('span', { class: 'color-muted', style: 'font-size:9px;white-space:nowrap;min-width:72px' }, e.time),
+        el('span', { style: 'font-size:12px' }, _evtIconNode(icon)),
+        el('span', { class: cls, style: 'flex:1;word-break:break-word' }, e.msg));
+    })));
     ep.scrollTop = ep.scrollHeight;
   }
   _updateEvFooter();
@@ -257,7 +278,7 @@ function _updateEvFooter() {
 function clearEvts() {
   window.eventLog = [];
   const ep = document.getElementById('evp');
-  if (ep) ep.innerHTML = typeof t === 'function' ? t('events.waiting') : 'Waiting...';
+  if (ep) { PCV.uxlib.clearEl(ep); ep.appendChild(PCV.uxlib.frag(typeof t === 'function' ? t('events.waiting') : 'Waiting...')); }
   if (window._evPopout && !window._evPopout.closed) _syncPopoutLog();
 }
 
@@ -267,32 +288,46 @@ function _syncPopoutLog() {
   const body = w.document.getElementById('ev-body');
   const count = w.document.getElementById('ev-count');
   if (!body) return;
-  body.innerHTML = window.eventLog.map(e => {
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  clearEl(body);
+  body.appendChild(frag(window.eventLog.map(e => {
     const icon = _evtIcon(e.msg);
     const cls = _evtClass(e.msg);
-    return '<div class="ev-row">'
-      + '<span class="color-muted" style="font-size:9px;white-space:nowrap;min-width:72px">' + escapeHtml(e.time) + '</span>'
-      + '<span style="font-size:12px">' + icon + '</span>'
-      + '<span class="' + cls + '" style="flex:1;word-break:break-word">' + escapeHtml(e.msg) + '</span></div>';
-  }).join('');
+    return el('div', { class: 'ev-row' },
+      el('span', { class: 'color-muted', style: 'font-size:9px;white-space:nowrap;min-width:72px' }, e.time),
+      el('span', { style: 'font-size:12px' }, _evtIconNode(icon)),
+      el('span', { class: cls, style: 'flex:1;word-break:break-word' }, e.msg));
+  })));
   body.scrollTop = body.scrollHeight;
   if (count) count.textContent = window.eventLog.length + ' events';
 }
 
 /* ═══ MODAL (F3: Stack support) ═══
  *  모달 중첩이 필요한 이유: VM 설정 모달 안에서 ISO 브라우저 모달을 열 때,
- *  이전 모달 HTML을 보존해야 한다. _modalStack이 이를 관리한다.
- *  closeModal() 시 스택에 항목이 있으면 pop하여 복원, 없으면 #mbg를 숨긴다. */
+ *  이전 모달 내용을 보존해야 한다. _modalStack이 이를 관리한다.
+ *  closeModal() 시 스택에 항목이 있으면 pop하여 복원, 없으면 #mbg를 숨긴다.
+ *
+ *  8차 배치(ADR-013): body는 Node/Node배열이 표준 — 스택도 라이브 노드
+ *  배열로 보존한다(직렬화 왕복 제거: 복원 시 입력값 등 런타임 상태 유지).
+ *  HTML 문자열 body는 레거시 경로로만 허용(_setModalBody의 단일 innerHTML
+ *  파싱 지점) — 신규 코드에서 문자열 전달 금지. */
 var _modalStack = [];
+
+/* body: Node | Node배열(el()/frag() 산출) | HTML 문자열(레거시 전용). */
+function _setModalBody(mc, body) {
+  if (typeof body === 'string') { mc.innerHTML = body; return; }
+  PCV.uxlib.clearEl(mc);
+  mc.appendChild(PCV.uxlib.frag(body));
+}
 
 function showModal(h, opts) {
   opts = opts || {};
   var mc = document.getElementById('mc');
   var bg = document.getElementById('mbg');
-  if (!opts.replace && mc && mc.innerHTML && bg && !bg.classList.contains('hidden')) {
-    _modalStack.push(mc.innerHTML);
+  if (!opts.replace && mc && mc.childNodes.length && bg && !bg.classList.contains('hidden')) {
+    _modalStack.push(Array.prototype.slice.call(mc.childNodes));
   }
-  if (mc) mc.innerHTML = h;
+  if (mc) _setModalBody(mc, h);
   bg?.classList.remove('hidden');
   mc?.focus();
 }
@@ -301,14 +336,14 @@ function closeModal(force) {
   if (force) {
     _modalStack.length = 0;
     var forcedMc = document.getElementById('mc');
-    if (forcedMc) forcedMc.innerHTML = '';
+    if (forcedMc) PCV.uxlib.clearEl(forcedMc);
     document.getElementById('mbg')?.classList.add('hidden');
     return;
   }
   if (_modalStack.length > 0) {
     var prev = _modalStack.pop();
     var mc = document.getElementById('mc');
-    if (mc) mc.innerHTML = prev;
+    if (mc) { PCV.uxlib.clearEl(mc); mc.appendChild(PCV.uxlib.frag(prev)); }
   } else {
     document.getElementById('mbg')?.classList.add('hidden');
   }
@@ -318,14 +353,17 @@ function closeModal(force) {
 function showInputModal(title, label, defaultVal, callback) {
   return new Promise(function(resolve) {
     var id = 'modal-input-' + Date.now();
-    var html = '<h2>' + escapeHtml(title) + '</h2>'
-      + '<div class="fr"><label for="' + id + '">' + escapeHtml(label) + '</label>'
-      + '<input id="' + id + '" class="input" value="' + escapeHtml(defaultVal || '') + '" autofocus '
-      + 'style="flex:1;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px"></div>'
-      + '<div style="text-align:right;margin-top:12px">'
-      + '<button class="btn btn-g" id="' + id + '-ok">' + (typeof t === 'function' ? t('btn.confirm') : 'OK') + '</button> '
-      + '<button class="btn btn-r" id="' + id + '-cancel">' + (typeof t === 'function' ? t('btn.cancel') : 'Cancel') + '</button></div>';
-    showModal(html);
+    var mkEl = PCV.uxlib.el;
+    showModal([
+      mkEl('h2', null, title),
+      mkEl('div', { class: 'fr' },
+        mkEl('label', { for: id }, label),
+        mkEl('input', { id: id, class: 'input', value: defaultVal || '', autofocus: '', style: 'flex:1;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px' })),
+      mkEl('div', { style: 'text-align:right;margin-top:12px' },
+        mkEl('button', { class: 'btn btn-g', id: id + '-ok' }, typeof t === 'function' ? t('btn.confirm') : 'OK'),
+        ' ',
+        mkEl('button', { class: 'btn btn-r', id: id + '-cancel' }, typeof t === 'function' ? t('btn.cancel') : 'Cancel'))
+    ]);
     setTimeout(function() {
       var inp = document.getElementById(id);
       var okBtn = document.getElementById(id + '-ok');
@@ -356,10 +394,17 @@ function showInputModal(title, label, defaultVal, callback) {
 function customConfirm(title, message) {
   return new Promise(resolve => {
     const tFn = typeof t === 'function' ? t : k => k;
-    const body = escapeHtml(message || '').replace(/\n/g, '<br>');
-    const html = `<h2>${escapeHtml(title)}</h2><p class="mb-12">${body}</p><div style="text-align:right"><button class="btn btn-r" onclick="document.getElementById('mbg').classList.add('hidden');window._confirmResolve(true)">${tFn('btn.confirm')}</button> <button class="btn" onclick="document.getElementById('mbg').classList.add('hidden');window._confirmResolve(false)">${tFn('btn.cancel')}</button></div>`;
+    const mkEl = PCV.uxlib.el;
+    const msgParts = String(message || '').split('\n').flatMap((line, i) => i === 0 ? [line] : [mkEl('br'), line]);
     window._confirmResolve = resolve;
-    showModal(html);
+    showModal([
+      mkEl('h2', null, title),
+      mkEl('p', { class: 'mb-12' }, msgParts),
+      mkEl('div', { style: 'text-align:right' },
+        mkEl('button', { class: 'btn btn-r', onclick: "document.getElementById('mbg').classList.add('hidden');window._confirmResolve(true)" }, tFn('btn.confirm')),
+        ' ',
+        mkEl('button', { class: 'btn', onclick: "document.getElementById('mbg').classList.add('hidden');window._confirmResolve(false)" }, tFn('btn.cancel')))
+    ]);
   });
 }
 

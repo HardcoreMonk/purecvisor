@@ -12,26 +12,71 @@
 window.PCV = window.PCV || {};
 (function(PCV) {
 
+/* ADR-013 DOM-safe: i18n 설명 문자열에 포함된 <br> 마크업을 [텍스트, <br> 노드, ...]
+ * 배열로 분해. innerHTML 경로에서 <br> 가 요소로 파싱되던 것을 노드 조립에서 동형
+ * 재현한다. (PCV.uxlib 는 늦게 로드되므로 el() 은 호출 시점에 해소.) */
+function _splitBr(s) {
+  var out = [];
+  String(s).split('<br>').forEach(function (seg, i) {
+    if (i > 0) out.push(PCV.uxlib.el('br'));
+    out.push(seg);
+  });
+  return out;
+}
+
 /* ═══ TEMPLATES ═══ */
 async function renderTemplates(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const r = await fetchGet(EP.TEMPLATES());
     const list = unwrapList(r);
-    let h = H.section('&#128195; VM Templates <button class="btn btn-g" onclick="showTemplateCreate()" style="margin-left:8px">+ Create Template</button> <button class="btn" onclick="loadTemplateHistory()" style="margin-left:4px">&#128203; History</button>');
-    if (list.length === 0) { h += '<div class="empty-state" style="text-align:center;padding:40px 20px"><div style="font-size:48px;margin-bottom:12px;opacity:.5">&#128195;</div><div style="font-size:14px;color:var(--fg2);margin-bottom:16px">No templates found</div><button class="btn btn-g" onclick="showTemplateCreate()" class="text-12">+ Create Template</button></div>'; b.innerHTML = h; return; }
-    h += '<table><thead><tr><th>Name</th><th>vCPU</th><th>Memory</th><th>Disk</th><th>OS</th><th>Actions</th></tr></thead><tbody>';
-    list.forEach(t2 => {
-      h += '<tr><td><b>' + escapeHtml(t2.name || '-') + '</b></td><td>' + (t2.vcpu || '-') + '</td><td>' + (t2.memory_mb || '-') + ' MB</td><td>' + (t2.disk_gb || '-') + ' GB</td><td>' + escapeHtml(t2.os_variant || '-') + '</td><td><button class="btn" style="font-size:10px;padding:3px 8px" onclick="templateUse(\'' + escapeHtml(t2.name) + '\')">Use</button> <button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="templateDel(\'' + escapeHtml(t2.name) + '\')">' + t('btn.delete') + '</button></td></tr>';
-    });
-    h += '</tbody></table>';
-    h += '<div id="tpl-history"></div>';
-    b.innerHTML = h;
+    var parts = [HN.section([
+      '\u{1F4C3} VM Templates ',
+      el('button', { class: 'btn btn-g', onclick: 'showTemplateCreate()', style: 'margin-left:8px' }, '+ Create Template'),
+      ' ',
+      el('button', { class: 'btn', onclick: 'loadTemplateHistory()', style: 'margin-left:4px' }, '\u{1F4CB} History')
+    ])];
+    if (list.length === 0) {
+      parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:40px 20px' },
+        el('div', { style: 'font-size:48px;margin-bottom:12px;opacity:.5' }, '\u{1F4C3}'),
+        el('div', { style: 'font-size:14px;color:var(--fg2);margin-bottom:16px' }, 'No templates found'),
+        el('button', { class: 'btn btn-g', onclick: 'showTemplateCreate()' }, '+ Create Template')));
+      clearEl(b); b.appendChild(frag(parts)); return;
+    }
+    var rows = list.map(t2 => el('tr', null,
+      el('td', null, el('b', null, t2.name || '-')),
+      el('td', null, t2.vcpu || '-'),
+      el('td', null, (t2.memory_mb || '-') + ' MB'),
+      el('td', null, (t2.disk_gb || '-') + ' GB'),
+      el('td', null, t2.os_variant || '-'),
+      el('td', null,
+        el('button', { class: 'btn', style: 'font-size:10px;padding:3px 8px', onclick: "templateUse('" + escapeHtml(t2.name) + "')" }, 'Use'),
+        ' ',
+        el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "templateDel('" + escapeHtml(t2.name) + "')" }, t('btn.delete')))));
+    parts.push(el('table', null,
+      el('thead', null, el('tr', null,
+        el('th', null, 'Name'), el('th', null, 'vCPU'), el('th', null, 'Memory'), el('th', null, 'Disk'), el('th', null, 'OS'), el('th', null, 'Actions'))),
+      el('tbody', null, rows)));
+    parts.push(el('div', { id: 'tpl-history' }));
+    clearEl(b); b.appendChild(frag(parts));
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, e.message); }
 }
 
 function showTemplateCreate() {
-  showModal('<h2>Create VM Template</h2><div class="fr"><label for="tpl-name">Name</label><input id="tpl-name" placeholder="web-small"></div><div class="fr"><label for="tpl-vcpu">vCPU</label><input id="tpl-vcpu" type="number" value="2"></div><div class="fr"><label for="tpl-mem">Memory (MB)</label><input id="tpl-mem" type="number" value="2048"></div><div class="fr"><label for="tpl-disk">Disk (GB)</label><input id="tpl-disk" type="number" value="20"></div><div class="fr"><label for="tpl-os">OS Variant</label><input id="tpl-os" value="ubuntu24.04"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doTemplateCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, 'Create VM Template'),
+    el('div', { class: 'fr' }, el('label', { for: 'tpl-name' }, 'Name'), el('input', { id: 'tpl-name', placeholder: 'web-small' })),
+    el('div', { class: 'fr' }, el('label', { for: 'tpl-vcpu' }, 'vCPU'), el('input', { id: 'tpl-vcpu', type: 'number', value: '2' })),
+    el('div', { class: 'fr' }, el('label', { for: 'tpl-mem' }, 'Memory (MB)'), el('input', { id: 'tpl-mem', type: 'number', value: '2048' })),
+    el('div', { class: 'fr' }, el('label', { for: 'tpl-disk' }, 'Disk (GB)'), el('input', { id: 'tpl-disk', type: 'number', value: '20' })),
+    el('div', { class: 'fr' }, el('label', { for: 'tpl-os' }, 'OS Variant'), el('input', { id: 'tpl-os', value: 'ubuntu24.04' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doTemplateCreate()' }, t('btn.create')),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doTemplateCreate() {
@@ -57,41 +102,81 @@ async function templateDel(name) {
 }
 
 async function loadTemplateHistory() {
+  var el = PCV.uxlib.el;
   try {
     const r = await fetchGet(EP.TEMPLATE_HISTORY());
     const list = unwrapList(r);
-    let h = '<h2>&#128203; Template History</h2>';
-    if (list.length === 0) { h += '<p class="color-muted">No template changes recorded</p>'; }
+    var parts = [el('h2', null, '\u{1F4CB} Template History')];
+    if (list.length === 0) { parts.push(el('p', { class: 'color-muted' }, 'No template changes recorded')); }
     else {
-      h += '<table><thead><tr><th>Timestamp</th><th>Action</th><th>Template</th><th>User</th></tr></thead><tbody>';
-      list.forEach(e => { h += '<tr><td class="text-xs">' + escapeHtml(e.timestamp || '-') + '</td><td>' + H.badge(e.action || '-', e.action === 'create' ? 'g' : e.action === 'delete' ? 'r' : 'y') + '</td><td>' + escapeHtml(e.template || e.name || '-') + '</td><td>' + escapeHtml(e.user || '-') + '</td></tr>'; });
-      h += '</tbody></table>';
+      var rows = list.map(e => el('tr', null,
+        el('td', { class: 'text-xs' }, e.timestamp || '-'),
+        el('td', null, HN.badge(e.action || '-', e.action === 'create' ? 'g' : e.action === 'delete' ? 'r' : 'y')),
+        el('td', null, e.template || e.name || '-'),
+        el('td', null, e.user || '-')));
+      parts.push(el('table', null,
+        el('thead', null, el('tr', null,
+          el('th', null, 'Timestamp'), el('th', null, 'Action'), el('th', null, 'Template'), el('th', null, 'User'))),
+        el('tbody', null, rows)));
     }
-    h += '<div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-    showModal(h);
+    parts.push(el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close'))));
+    showModal(parts);
   } catch (e) { toast('Template history error: ' + e.message, false); }
 }
 
 /* ═══ DOCKER/OCI CONTAINERS ═══ */
 async function renderDocker(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const r = await fetchGet(EP.DOCKER_LIST());
     const list = unwrapList(r);
-    let h = H.section('&#128051; Docker/OCI Containers');
-    h += '<div class="flex gap-6 mb-14"><button class="btn btn-g" onclick="showDockerPull()">&#128229; Pull Image</button><button class="btn btn-g" onclick="showDockerRun()">&#9654; Run Container</button></div>';
-    if (list.length === 0) { h += '<div class="empty-state" style="text-align:center;padding:40px 20px"><div style="font-size:48px;margin-bottom:12px;opacity:.5">&#128051;</div><div style="font-size:14px;color:var(--fg2);margin-bottom:16px">No Docker containers running</div><button class="btn btn-g" onclick="showDockerPull()" class="text-12">Pull Image</button></div>'; b.innerHTML = h; return; }
-    h += '<table><thead><tr><th>Name/ID</th><th>Image</th><th>State</th><th>Ports</th><th>Actions</th></tr></thead><tbody>';
-    list.forEach(c => {
-      h += '<tr><td><b>' + escapeHtml(c.name || c.id || '-') + '</b></td><td>' + escapeHtml(c.image || '-') + '</td><td>' + H.badge(c.state || c.status || '-', (c.state || '').toLowerCase() === 'running' ? 'g' : 'r') + '</td><td class="text-xs">' + escapeHtml(c.ports || '-') + '</td><td><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="dockerStop(\'' + escapeHtml(c.name || c.id || '') + '\')">Stop</button></td></tr>';
-    });
-    h += '</tbody></table>';
-    b.innerHTML = h;
-  } catch (e) { b.innerHTML = H.section('&#128051; Docker/OCI Containers') + '<div class="flex gap-6 mb-14"><button class="btn btn-g" onclick="showDockerPull()">&#128229; Pull Image</button><button class="btn btn-g" onclick="showDockerRun()">&#9654; Run Container</button></div><p class="color-muted">Docker/OCI backend not available. Containers will appear here when docker.list RPC is implemented.</p>'; }
+    var parts = [
+      HN.section('\u{1F433} Docker/OCI Containers'),
+      el('div', { class: 'flex gap-6 mb-14' },
+        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, '\u{1F4E5} Pull Image'),
+        el('button', { class: 'btn btn-g', onclick: 'showDockerRun()' }, '\u{25B6} Run Container'))
+    ];
+    if (list.length === 0) {
+      parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:40px 20px' },
+        el('div', { style: 'font-size:48px;margin-bottom:12px;opacity:.5' }, '\u{1F433}'),
+        el('div', { style: 'font-size:14px;color:var(--fg2);margin-bottom:16px' }, 'No Docker containers running'),
+        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, 'Pull Image')));
+      clearEl(b); b.appendChild(frag(parts)); return;
+    }
+    var rows = list.map(c => el('tr', null,
+      el('td', null, el('b', null, c.name || c.id || '-')),
+      el('td', null, c.image || '-'),
+      el('td', null, HN.badge(c.state || c.status || '-', (c.state || '').toLowerCase() === 'running' ? 'g' : 'r')),
+      el('td', { class: 'text-xs' }, c.ports || '-'),
+      el('td', null, el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "dockerStop('" + escapeHtml(c.name || c.id || '') + "')" }, 'Stop'))));
+    parts.push(el('table', null,
+      el('thead', null, el('tr', null,
+        el('th', null, 'Name/ID'), el('th', null, 'Image'), el('th', null, 'State'), el('th', null, 'Ports'), el('th', null, 'Actions'))),
+      el('tbody', null, rows)));
+    clearEl(b); b.appendChild(frag(parts));
+  } catch (e) {
+    clearEl(b);
+    b.appendChild(frag(
+      HN.section('\u{1F433} Docker/OCI Containers'),
+      el('div', { class: 'flex gap-6 mb-14' },
+        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, '\u{1F4E5} Pull Image'),
+        el('button', { class: 'btn btn-g', onclick: 'showDockerRun()' }, '\u{25B6} Run Container')),
+      el('p', { class: 'color-muted' }, 'Docker/OCI backend not available. Containers will appear here when docker.list RPC is implemented.')));
+  }
 }
 
 function showDockerPull() {
-  showModal('<h2>&#128229; Pull OCI Image</h2><div class="fr"><label for="dk-image">Image</label><input id="dk-image" placeholder="nginx:latest" class="flex-1"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerPull()">Pull</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '\u{1F4E5} Pull OCI Image'),
+    el('div', { class: 'fr' }, el('label', { for: 'dk-image' }, 'Image'), el('input', { id: 'dk-image', placeholder: 'nginx:latest', class: 'flex-1' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doDockerPull()' }, 'Pull'),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doDockerPull() {
@@ -105,7 +190,18 @@ async function doDockerPull() {
 }
 
 function showDockerRun() {
-  showModal('<h2>&#9654; Run OCI Container</h2><div class="fr"><label for="dkr-image">Image</label><input id="dkr-image" placeholder="nginx:latest" class="flex-1"></div><div class="fr"><label for="dkr-name">Name</label><input id="dkr-name" placeholder="my-container"></div><div class="fr"><label for="dkr-ports">Ports</label><input id="dkr-ports" placeholder="8080:80"></div><div class="fr"><label for="dkr-env">Environment</label><input id="dkr-env" placeholder="KEY=VAL,KEY2=VAL2"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doDockerRun()">Run</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '\u{25B6} Run OCI Container'),
+    el('div', { class: 'fr' }, el('label', { for: 'dkr-image' }, 'Image'), el('input', { id: 'dkr-image', placeholder: 'nginx:latest', class: 'flex-1' })),
+    el('div', { class: 'fr' }, el('label', { for: 'dkr-name' }, 'Name'), el('input', { id: 'dkr-name', placeholder: 'my-container' })),
+    el('div', { class: 'fr' }, el('label', { for: 'dkr-ports' }, 'Ports'), el('input', { id: 'dkr-ports', placeholder: '8080:80' })),
+    el('div', { class: 'fr' }, el('label', { for: 'dkr-env' }, 'Environment'), el('input', { id: 'dkr-env', placeholder: 'KEY=VAL,KEY2=VAL2' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doDockerRun()' }, 'Run'),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doDockerRun() {
@@ -128,12 +224,27 @@ async function dockerStop(name) {
 /* ═══ TERRAFORM IaC ═══ */
 async function renderTerraform(b) {
   showSkeleton(b);
-  let h = H.section('&#127981; Terraform IaC Integration');
-  h += '<div class="sg grid-2 mb-14">';
-  h += H.card('&#128203; Terraform Plan', '<p class="stat-label mb-8">Preview infrastructure changes before applying.</p><div class="fr"><label for="tf-config">Config (HCL/JSON)</label><textarea id="tf-config" placeholder="resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px"></textarea></div><div class="flex gap-6 mt-8"><button class="btn" onclick="tfPlan()">&#128203; Plan</button><button class="btn btn-g" onclick="tfApply()">&#9989; Apply</button></div><div id="tf-plan-result" class="mt-8"></div>');
-  h += H.card('&#128202; Terraform State', '<div id="tf-state"><span class="spinner"></span> Loading state...</div>');
-  h += '</div>';
-  b.innerHTML = h;
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  /* NOTE(6차): 원본 placeholder 는 \" (백슬래시+따옴표) 를 innerHTML 에 직접 넣어
+   * HTML 파서가 첫 따옴표에서 속성값을 절단, placeholder="resource \" + garbage 속성
+   * 8개로 파싱되던 malformed 마크업이었다. 노드 조립은 placeholder 를 온전한 리터럴로
+   * 세팅(well-formed). 렌더 결과가 원본의 깨진 파싱과 달라지는 유일 지점 → 보고. */
+  var planBody = [
+    el('p', { class: 'stat-label mb-8' }, 'Preview infrastructure changes before applying.'),
+    el('div', { class: 'fr' },
+      el('label', { for: 'tf-config' }, 'Config (HCL/JSON)'),
+      el('textarea', { id: 'tf-config', placeholder: 'resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}', style: 'width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px' })),
+    el('div', { class: 'flex gap-6 mt-8' },
+      el('button', { class: 'btn', onclick: 'tfPlan()' }, '\u{1F4CB} Plan'),
+      el('button', { class: 'btn btn-g', onclick: 'tfApply()' }, '\u{2705} Apply')),
+    el('div', { id: 'tf-plan-result', class: 'mt-8' })
+  ];
+  clearEl(b);
+  b.appendChild(frag(
+    HN.section('\u{1F3ED} Terraform IaC Integration'),
+    el('div', { class: 'sg grid-2 mb-14' },
+      HN.card('\u{1F4CB} Terraform Plan', planBody),
+      HN.card('\u{1F4CA} Terraform State', [el('div', { id: 'tf-state' }, el('span', { class: 'spinner' }), ' Loading state...')]))));
   setTimeout(loadTfState, 50);
 }
 
@@ -143,7 +254,8 @@ async function tfPlan() {
   PCV.uxlib.setMsg(el, 'loading', null, 'Planning...');
   try { const r = await fetchPost(EP.TERRAFORM_PLAN(), { config: config || '' });
     const d = unwrapData(r);
-    el.innerHTML = '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--green);white-space:pre-wrap">' + escapeHtml(d.plan || d.output || JSON.stringify(d, null, 2)) + '</pre>';
+    PCV.uxlib.clearEl(el);
+    el.appendChild(PCV.uxlib.el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--green);white-space:pre-wrap' }, d.plan || d.output || JSON.stringify(d, null, 2)));
   } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Plan error: ', e.message); }
 }
 
@@ -153,22 +265,28 @@ async function tfApply() {
   const config = document.getElementById('tf-config')?.value;
   try { const r = await fetchPost(EP.TERRAFORM_APPLY(), { config: config || '' });
     const d = unwrapData(r);
-    if (el) el.innerHTML = '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--accent);white-space:pre-wrap">' + escapeHtml(d.output || JSON.stringify(d, null, 2)) + '</pre>';
+    if (el) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--accent);white-space:pre-wrap' }, d.output || JSON.stringify(d, null, 2))); }
     toast('Terraform apply complete'); addEvt('Terraform apply');
   } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Apply error: ', e.message); }
 }
 
 async function loadTfState() {
-  const el = document.getElementById('tf-state'); if (!el) return;
+  const box = document.getElementById('tf-state'); if (!box) return;
+  var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   try { const r = await fetchGet(EP.TERRAFORM_STATE());
     const d = unwrapData(r);
     const resources = d.resources || d.state || [];
     if (Array.isArray(resources) && resources.length > 0) {
-      let h = '<table class="text-11"><thead><tr><th>Type</th><th>Name</th><th>Status</th></tr></thead><tbody>';
-      resources.forEach(res => { h += '<tr><td>' + escapeHtml(res.type || '-') + '</td><td>' + escapeHtml(res.name || '-') + '</td><td>' + H.badge(res.status || 'managed', 'g') + '</td></tr>'; });
-      h += '</tbody></table>'; el.innerHTML = h;
-    } else { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'No Terraform state. Use Plan + Apply to manage infrastructure as code.'); }
-  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'Terraform state not available. Configure terraform.* RPC handlers to enable IaC.'); }
+      var rows = resources.map(res => el('tr', null,
+        el('td', null, res.type || '-'),
+        el('td', null, res.name || '-'),
+        el('td', null, HN.badge(res.status || 'managed', 'g'))));
+      clearEl(box);
+      box.appendChild(el('table', { class: 'text-11' },
+        el('thead', null, el('tr', null, el('th', null, 'Type'), el('th', null, 'Name'), el('th', null, 'Status'))),
+        el('tbody', null, rows)));
+    } else { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'No Terraform state. Use Plan + Apply to manage infrastructure as code.'); }
+  } catch (e) { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'Terraform state not available. Configure terraform.* RPC handlers to enable IaC.'); }
 }
 
 /* ═══ CONFIG MANAGEMENT ═══ */
@@ -182,67 +300,93 @@ async function configBackup() {
 }
 
 async function configHistory() {
+  var el = PCV.uxlib.el;
   try {
     const r = await fetchGet(EP.CONFIG_HISTORY());
     const list = unwrapList(r);
-    let h = '<h2>&#128203; Configuration History</h2>';
-    if (list.length === 0) { h += '<p class="color-muted">No configuration changes recorded</p>'; }
+    var parts = [el('h2', null, '\u{1F4CB} Configuration History')];
+    if (list.length === 0) { parts.push(el('p', { class: 'color-muted' }, 'No configuration changes recorded')); }
     else {
-      h += '<table><thead><tr><th>Timestamp</th><th>Key</th><th>Old Value</th><th>New Value</th><th>User</th></tr></thead><tbody>';
-      list.forEach(e => { h += '<tr><td class="text-xs">' + escapeHtml(e.timestamp || e.time || '-') + '</td><td>' + escapeHtml(e.key || e.param || '-') + '</td><td>' + escapeHtml(e.old_value || '-') + '</td><td class="color-accent">' + escapeHtml(e.new_value || e.value || '-') + '</td><td>' + escapeHtml(e.user || '-') + '</td></tr>'; });
-      h += '</tbody></table>';
+      var rows = list.map(e => el('tr', null,
+        el('td', { class: 'text-xs' }, e.timestamp || e.time || '-'),
+        el('td', null, e.key || e.param || '-'),
+        el('td', null, e.old_value || '-'),
+        el('td', { class: 'color-accent' }, e.new_value || e.value || '-'),
+        el('td', null, e.user || '-')));
+      parts.push(el('table', null,
+        el('thead', null, el('tr', null,
+          el('th', null, 'Timestamp'), el('th', null, 'Key'), el('th', null, 'Old Value'), el('th', null, 'New Value'), el('th', null, 'User'))),
+        el('tbody', null, rows)));
     }
-    h += '<div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-    showModal(h);
+    parts.push(el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close'))));
+    showModal(parts);
   } catch (e) { toast('Config history error: ' + e.message, false); }
 }
 
 async function renderConfigMgmt(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = {};
   try { var r = await fetchGet(EP.CONFIG_DAEMON()); cfg = unwrapData(r) || r || {}; } catch(e) {}
   var stg = cfg.storage || {};
   var ctr = cfg.container || {};
 
-  var h = H.section('&#9881; Configuration Management');
+  clearEl(b);
+  b.appendChild(frag(
+    HN.section('\u{2699} Configuration Management'),
 
-  /* 스토리지 풀 설정 */
-  h += '<h3 style="margin:16px 0 10px">&#128190; ' + _L('스토리지 풀 설정', 'Storage Pool Settings') + '</h3>';
-  h += '<div class="sg grid-2 mb-14">';
-  h += H.card('&#128190; VM Storage', ''
-    + '<p class="stat-label" style="margin-bottom:10px;line-height:1.6">'
-    + _L('ZFS Pool: ZFS 데이터셋 이름 (예: pcvpool/vms) — zvol 블록 디바이스로 VM 디스크 생성<br>'
-       + 'Image Dir: ZFS 미사용 시 qcow2 파일 저장 경로 (예: /var/lib/libvirt/images)<br>'
-       + 'ISO Dirs: ISO/IMG 파일 탐색 경로 (콤마 구분)',
-         'ZFS Pool: ZFS dataset name (e.g. pcvpool/vms) — creates zvol block devices<br>'
-       + 'Image Dir: qcow2 fallback path for non-ZFS (e.g. /var/lib/libvirt/images)<br>'
-       + 'ISO Dirs: ISO/IMG scan paths (comma separated)')
-    + '</p>'
-    + '<div class="fr"><label for="cfg-zvol" style="min-width:140px">VM ZFS Pool</label><input id="cfg-zvol" value="' + escapeHtml(stg.zvol_pool || 'pcvpool/vms') + '" placeholder="pcvpool/vms" class="flex-1"></div>'
-    + '<div class="fr"><label for="cfg-imgdir" style="min-width:140px">Image Dir (qcow2)</label><input id="cfg-imgdir" value="' + escapeHtml(stg.image_dir || '/var/lib/libvirt/images') + '" placeholder="/var/lib/libvirt/images" class="flex-1"></div>'
-    + '<div class="fr"><label for="cfg-iso" style="min-width:140px">ISO Dirs</label><input id="cfg-iso" value="' + escapeHtml(stg.iso_dirs || '') + '" placeholder="/pcvpool/iso,/iso" class="flex-1"></div>'
-    + '<button class="btn btn-g mt-8" onclick="saveStorageCfg(\'vm\')">&#128190; ' + _L('저장', 'Save') + '</button>'
-    + '<div id="cfg-vm-result" style="margin-top:6px;font-size:11px"></div>');
-  h += H.card('&#9783; Container Storage', ''
-    + '<p class="stat-label" style="margin-bottom:10px;line-height:1.6">'
-    + _L('ZFS Pool: 컨테이너 ZFS 데이터셋 (예: pcvpool/containers)<br>'
-       + 'LXC Path: 컨테이너 설정/rootfs 저장 경로',
-         'ZFS Pool: Container ZFS dataset (e.g. pcvpool/containers)<br>'
-       + 'LXC Path: Container config/rootfs storage path')
-    + '</p>'
-    + '<div class="fr"><label for="cfg-ctrpool" style="min-width:140px">Container ZFS Pool</label><input id="cfg-ctrpool" value="' + escapeHtml(stg.container_pool || 'pcvpool/containers') + '" placeholder="pcvpool/containers" class="flex-1"></div>'
-    + '<div class="fr"><label for="cfg-lxcpath" style="min-width:140px">LXC Path</label><input id="cfg-lxcpath" value="' + escapeHtml(ctr.lxc_path || '/var/lib/purecvisor/lxc') + '" placeholder="/var/lib/purecvisor/lxc" class="flex-1"></div>'
-    + '<button class="btn btn-g mt-8" onclick="saveStorageCfg(\'ctr\')">&#128190; ' + _L('저장', 'Save') + '</button>'
-    + '<div id="cfg-ctr-result" style="margin-top:6px;font-size:11px"></div>');
-  h += '</div>';
+    /* 스토리지 풀 설정 */
+    el('h3', { style: 'margin:16px 0 10px' }, '\u{1F4BE} ' + _L('스토리지 풀 설정', 'Storage Pool Settings')),
+    el('div', { class: 'sg grid-2 mb-14' },
+      HN.card('\u{1F4BE} VM Storage', [
+        el('p', { class: 'stat-label', style: 'margin-bottom:10px;line-height:1.6' },
+          _splitBr(_L('ZFS Pool: ZFS 데이터셋 이름 (예: pcvpool/vms) — zvol 블록 디바이스로 VM 디스크 생성<br>'
+             + 'Image Dir: ZFS 미사용 시 qcow2 파일 저장 경로 (예: /var/lib/libvirt/images)<br>'
+             + 'ISO Dirs: ISO/IMG 파일 탐색 경로 (콤마 구분)',
+               'ZFS Pool: ZFS dataset name (e.g. pcvpool/vms) — creates zvol block devices<br>'
+             + 'Image Dir: qcow2 fallback path for non-ZFS (e.g. /var/lib/libvirt/images)<br>'
+             + 'ISO Dirs: ISO/IMG scan paths (comma separated)'))),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cfg-zvol', style: 'min-width:140px' }, 'VM ZFS Pool'),
+          el('input', { id: 'cfg-zvol', value: escapeHtml(stg.zvol_pool || 'pcvpool/vms'), placeholder: 'pcvpool/vms', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cfg-imgdir', style: 'min-width:140px' }, 'Image Dir (qcow2)'),
+          el('input', { id: 'cfg-imgdir', value: escapeHtml(stg.image_dir || '/var/lib/libvirt/images'), placeholder: '/var/lib/libvirt/images', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cfg-iso', style: 'min-width:140px' }, 'ISO Dirs'),
+          el('input', { id: 'cfg-iso', value: escapeHtml(stg.iso_dirs || ''), placeholder: '/pcvpool/iso,/iso', class: 'flex-1' })),
+        el('button', { class: 'btn btn-g mt-8', onclick: "saveStorageCfg('vm')" }, '\u{1F4BE} ' + _L('저장', 'Save')),
+        el('div', { id: 'cfg-vm-result', style: 'margin-top:6px;font-size:11px' })
+      ]),
+      HN.card('\u{2637} Container Storage', [
+        el('p', { class: 'stat-label', style: 'margin-bottom:10px;line-height:1.6' },
+          _splitBr(_L('ZFS Pool: 컨테이너 ZFS 데이터셋 (예: pcvpool/containers)<br>'
+             + 'LXC Path: 컨테이너 설정/rootfs 저장 경로',
+               'ZFS Pool: Container ZFS dataset (e.g. pcvpool/containers)<br>'
+             + 'LXC Path: Container config/rootfs storage path'))),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cfg-ctrpool', style: 'min-width:140px' }, 'Container ZFS Pool'),
+          el('input', { id: 'cfg-ctrpool', value: escapeHtml(stg.container_pool || 'pcvpool/containers'), placeholder: 'pcvpool/containers', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cfg-lxcpath', style: 'min-width:140px' }, 'LXC Path'),
+          el('input', { id: 'cfg-lxcpath', value: escapeHtml(ctr.lxc_path || '/var/lib/purecvisor/lxc'), placeholder: '/var/lib/purecvisor/lxc', class: 'flex-1' })),
+        el('button', { class: 'btn btn-g mt-8', onclick: "saveStorageCfg('ctr')" }, '\u{1F4BE} ' + _L('저장', 'Save')),
+        el('div', { id: 'cfg-ctr-result', style: 'margin-top:6px;font-size:11px' })
+      ])),
 
-  /* 기존 백업/히스토리 */
-  h += '<h3 style="margin:16px 0 10px">&#128203; ' + _L('설정 관리', 'Config Management') + '</h3>';
-  h += '<div class="sg grid-2 mb-14">';
-  h += H.card('&#128190; Config Backup', '<p class="stat-label mb-8">' + _L('현재 daemon.conf를 백업합니다.', 'Create a backup of current daemon.conf.') + '</p><button class="btn btn-g" onclick="configBackup()">&#128190; Create Backup</button><div id="cfg-backup-result" class="mt-8"></div>');
-  h += H.card('&#128203; Config History', '<div id="cfg-history"><span class="spinner"></span> Loading...</div>');
-  h += '</div>';
-  b.innerHTML = h;
+    /* 기존 백업/히스토리 */
+    el('h3', { style: 'margin:16px 0 10px' }, '\u{1F4CB} ' + _L('설정 관리', 'Config Management')),
+    el('div', { class: 'sg grid-2 mb-14' },
+      HN.card('\u{1F4BE} Config Backup', [
+        el('p', { class: 'stat-label mb-8' }, _L('현재 daemon.conf를 백업합니다.', 'Create a backup of current daemon.conf.')),
+        el('button', { class: 'btn btn-g', onclick: 'configBackup()' }, '\u{1F4BE} Create Backup'),
+        el('div', { id: 'cfg-backup-result', class: 'mt-8' })
+      ]),
+      HN.card('\u{1F4CB} Config History', [
+        el('div', { id: 'cfg-history' }, el('span', { class: 'spinner' }), ' Loading...')
+      ]))
+  ));
   setTimeout(loadConfigHistoryInline, 50);
 }
 
@@ -292,22 +436,37 @@ async function saveStorageCfg(type) {
 }
 
 async function loadConfigHistoryInline() {
-  const el = document.getElementById('cfg-history'); if (!el) return;
+  const box = document.getElementById('cfg-history'); if (!box) return;
+  var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   try {
     const r = await fetchGet(EP.CONFIG_HISTORY());
     const list = unwrapList(r);
-    if (list.length === 0) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'No configuration changes recorded.'); return; }
-    let h = '<table class="text-11"><thead><tr><th>Time</th><th>Key</th><th>Value</th></tr></thead><tbody>';
-    list.slice(0, 20).forEach(e => { h += '<tr><td class="text-xs">' + escapeHtml(e.timestamp || e.time || '-') + '</td><td>' + escapeHtml(e.key || '-') + '</td><td class="color-accent">' + escapeHtml(e.new_value || e.value || '-') + '</td></tr>'; });
-    h += '</tbody></table>';
-    if (list.length > 20) h += '<p class="stat-label">Showing 20 of ' + list.length + ' entries</p>';
-    el.innerHTML = h;
-  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'Config history not available.'); }
+    if (list.length === 0) { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'No configuration changes recorded.'); return; }
+    var rows = list.slice(0, 20).map(e => el('tr', null,
+      el('td', { class: 'text-xs' }, e.timestamp || e.time || '-'),
+      el('td', null, e.key || '-'),
+      el('td', { class: 'color-accent' }, e.new_value || e.value || '-')));
+    clearEl(box);
+    box.appendChild(el('table', { class: 'text-11' },
+      el('thead', null, el('tr', null, el('th', null, 'Time'), el('th', null, 'Key'), el('th', null, 'Value'))),
+      el('tbody', null, rows)));
+    if (list.length > 20) box.appendChild(el('p', { class: 'stat-label' }, 'Showing 20 of ' + list.length + ' entries'));
+  } catch (e) { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'Config history not available.'); }
 }
 
 /* ═══ OVA IMPORT ═══ */
 function showImportOva() {
-  showModal('<h2>&#128230; Import OVA</h2><div class="fr"><label for="ova-path">OVA Path</label><input id="ova-path" placeholder="/path/to/vm.ova" class="flex-1"></div><div class="fr"><label for="ova-name">VM Name</label><input id="ova-name" placeholder="imported-vm"></div><div class="fr"><label for="ova-pool">Pool</label><input id="ova-pool" value="pcvpool/vms"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doImportOva()">Import</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '\u{1F4E6} Import OVA'),
+    el('div', { class: 'fr' }, el('label', { for: 'ova-path' }, 'OVA Path'), el('input', { id: 'ova-path', placeholder: '/path/to/vm.ova', class: 'flex-1' })),
+    el('div', { class: 'fr' }, el('label', { for: 'ova-name' }, 'VM Name'), el('input', { id: 'ova-name', placeholder: 'imported-vm' })),
+    el('div', { class: 'fr' }, el('label', { for: 'ova-pool' }, 'Pool'), el('input', { id: 'ova-pool', value: 'pcvpool/vms' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doImportOva()' }, 'Import'),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doImportOva() {
@@ -376,55 +535,63 @@ async function showBackupVerify() {
 /* ═══ PERSISTENT JOBS ═══ */
 async function renderPersistentJobs(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     var r = await fetchGet(EP.JOBS_PERSIST());
     var list = unwrapList(r);
-    var h = H.section(_L('영속 작업 목록', 'Persistent Jobs'));
+    var parts = [HN.section(_L('영속 작업 목록', 'Persistent Jobs'))];
     if (list.length === 0) {
-      h += '<div class="empty-state" style="padding:30px;text-align:center"><div style="font-size:36px;opacity:.5">&#128203;</div>';
-      h += '<div class="color-muted">' + _L('진행 중인 작업 없음', 'No pending jobs') + '</div></div>';
+      parts.push(el('div', { class: 'empty-state', style: 'padding:30px;text-align:center' },
+        el('div', { style: 'font-size:36px;opacity:.5' }, '\u{1F4CB}'),
+        el('div', { class: 'color-muted' }, _L('진행 중인 작업 없음', 'No pending jobs'))));
     } else {
-      h += '<table class="data-table text-11"><thead><tr>';
-      h += '<th>ID</th><th>' + _L('유형', 'Type') + '</th><th>' + _L('상태', 'Status') + '</th><th>' + _L('VM', 'VM') + '</th></tr></thead><tbody>';
-      list.forEach(function(j) {
-        h += '<tr><td>' + esc(j.job_id || '') + '</td><td>' + esc(j.type || '') + '</td>';
-        h += '<td>' + esc(j.status || '') + '</td><td>' + esc(j.vm_name || '') + '</td></tr>';
+      var rows = list.map(function(j) {
+        return el('tr', null,
+          el('td', null, j.job_id || ''),
+          el('td', null, j.type || ''),
+          el('td', null, j.status || ''),
+          el('td', null, j.vm_name || ''));
       });
-      h += '</tbody></table>';
+      parts.push(el('table', { class: 'data-table text-11' },
+        el('thead', null, el('tr', null,
+          el('th', null, 'ID'), el('th', null, _L('유형', 'Type')), el('th', null, _L('상태', 'Status')), el('th', null, _L('VM', 'VM')))),
+        el('tbody', null, rows)));
     }
-    b.innerHTML = h;
+    clearEl(b); b.appendChild(frag(parts));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
 /* ═══ DB MIGRATION STATUS ═══ */
 async function renderDbMigration(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     var r = await fetchGet(EP.DB_MIGRATION());
     var d = unwrapData(r);
-    var h = H.section(_L('DB 스키마 상태', 'Database Schema Status'));
-    h += '<div class="grid-3" style="gap:12px">';
-    h += H.statCard(_L('스키마 버전', 'Schema Version'), d.schema_version || 1, '📋');
-    h += H.statCard(_L('상태', 'Status'), d.status || 'ok', '✅');
-    h += H.statCard('RBAC DB', d.rbac_db || '-', '🗄️');
-    h += '</div>';
-    b.innerHTML = h;
+    clearEl(b);
+    b.appendChild(frag(
+      HN.section(_L('DB 스키마 상태', 'Database Schema Status')),
+      el('div', { class: 'grid-3', style: 'gap:12px' },
+        HN.statCard(_L('스키마 버전', 'Schema Version'), d.schema_version || 1, '📋'),
+        HN.statCard(_L('상태', 'Status'), d.status || 'ok', '✅'),
+        HN.statCard('RBAC DB', d.rbac_db || '-', '🗄️'))));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
 /* ═══ DEEP HEALTH (확장) ═══ */
 async function renderDeepHealth(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     var r = await fetchGet(EP.HEALTH_DEEP());
     var d = unwrapData(r);
-    var h = H.section(_L('심화 헬스 체크', 'Deep Health Check'));
-    h += '<div class="grid-3" style="gap:12px">';
-    h += H.statCard('ZFS Pool', d.zfs_pool || '?', d.zfs_pool === 'ok' ? '🟢' : '🔴');
-    h += H.statCard('nftables', (d.nftables_rules || 0) + _L('개 규칙', ' rules'), '🛡️');
-    h += H.statCard(_L('전체', 'Overall'), d.status || '?', d.status === 'ok' ? '✅' : '⚠️');
-    h += '</div>';
-    b.innerHTML = h;
+    clearEl(b);
+    b.appendChild(frag(
+      HN.section(_L('심화 헬스 체크', 'Deep Health Check')),
+      el('div', { class: 'grid-3', style: 'gap:12px' },
+        HN.statCard('ZFS Pool', d.zfs_pool || '?', d.zfs_pool === 'ok' ? '🟢' : '🔴'),
+        HN.statCard('nftables', (d.nftables_rules || 0) + _L('개 규칙', ' rules'), '🛡️'),
+        HN.statCard(_L('전체', 'Overall'), d.status || '?', d.status === 'ok' ? '✅' : '⚠️'))));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 

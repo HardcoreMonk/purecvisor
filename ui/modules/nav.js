@@ -25,11 +25,14 @@ function renderPinnedBar() {
   if (!el) return;
   if (_pinnedPages.length === 0) { PCV.uxlib.clearEl(el); el.style.display = 'none'; return; }
   el.style.display = 'block';
-  var h = '<div style="padding:4px 8px;font-size:10px;color:var(--fg2);border-bottom:1px solid var(--border)">' + _L('고정됨', 'Pinned') + '</div>';
+  var mk = PCV.uxlib.el;
+  PCV.uxlib.clearEl(el);
+  el.appendChild(mk('div', { style: 'padding:4px 8px;font-size:10px;color:var(--fg2);border-bottom:1px solid var(--border)' }, _L('고정됨', 'Pinned')));
   _pinnedPages.forEach(function(p) {
-    h += '<div class="vi" style="padding:4px 8px;font-size:11px" onclick="navigateTo(\'' + p + '\')"><span class="color-yellow" style="cursor:pointer;margin-right:4px" onclick="event.stopPropagation();togglePin(\'' + p + '\')">&#128204;</span>' + p + '</div>';
+    el.appendChild(mk('div', { class: 'vi', style: 'padding:4px 8px;font-size:11px', onclick: "navigateTo('" + p + "')" },
+      mk('span', { class: 'color-yellow', style: 'cursor:pointer;margin-right:4px', onclick: "event.stopPropagation();togglePin('" + p + "')" }, '📌'),
+      p));
   });
-  el.innerHTML = h;
 }
 window.togglePin = togglePin;
 window.renderPinnedBar = renderPinnedBar;
@@ -112,6 +115,7 @@ function renderContent() {
   const b = cb, v = vmList[selectedVmIndex];
   /* BUG-6 fix: 비동기 렌더러의 stale 콜백이 DOM을 오염시키지 않도록 generation 캡처 */
   var gen = window._navGeneration || 0;
+  var mk = PCV.uxlib.el;
   try {
     var fn = (function() {
       var routes = {
@@ -166,7 +170,14 @@ function renderContent() {
       if (result && typeof result.catch === 'function') {
         result.catch(function(err) {
           if ((window._navGeneration || 0) !== gen) return;
-          if (b) b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(err.message || '') + '</p><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
+          if (b) {
+            PCV.uxlib.clearEl(b);
+            b.appendChild(mk('div', { style: 'padding:40px;text-align:center' },
+              mk('div', { style: 'font-size:48px;margin-bottom:12px' }, '⚠'),
+              mk('h3', { style: 'color:var(--red)' }, _L('렌더링 오류', 'Rendering Error')),
+              mk('p', { class: 'color-muted', style: 'margin:12px 0' }, err.message || ''),
+              mk('button', { class: 'btn', onclick: "navigateTo('dashboard')", style: 'margin-top:12px' }, _L('대시보드로', 'Go to Dashboard'))));
+          }
           if (_DEBUG) console.error('renderContent async error:', err);
         });
       }
@@ -175,7 +186,13 @@ function renderContent() {
   } catch (renderErr) {
     if ((window._navGeneration || 0) !== gen) { /* stale page — ignore */ }
     else {
-      b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(renderErr.message || '') + '</p><pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--red);text-align:left;max-height:200px;overflow:auto">' + esc(renderErr.stack || '') + '</pre><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
+      PCV.uxlib.clearEl(b);
+      b.appendChild(mk('div', { style: 'padding:40px;text-align:center' },
+        mk('div', { style: 'font-size:48px;margin-bottom:12px' }, '⚠'),
+        mk('h3', { style: 'color:var(--red)' }, _L('렌더링 오류', 'Rendering Error')),
+        mk('p', { class: 'color-muted', style: 'margin:12px 0' }, renderErr.message || ''),
+        mk('pre', { style: 'background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--red);text-align:left;max-height:200px;overflow:auto' }, renderErr.stack || ''),
+        mk('button', { class: 'btn', onclick: "navigateTo('dashboard')", style: 'margin-top:12px' }, _L('대시보드로', 'Go to Dashboard'))));
       if (_DEBUG) console.error('renderContent error:', renderErr);
     }
   }
@@ -200,20 +217,26 @@ function updateStatusBar() {
   parts.push('Sync: ' + elapsed + 's ago');
   if (window._perfMetrics) parts.push('API: ' + (_perfMetrics.avgApiTime || 0) + 'ms avg');
   /* Connection quality dot */
+  var mk = PCV.uxlib.el;
   var wsStat;
   if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1) {
-    wsStat = '<span style="color:var(--green)">&#9679;</span>';
+    wsStat = mk('span', { style: 'color:var(--green)' }, '●');
   } else if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 0) {
-    wsStat = '<span style="color:var(--yellow)">&#9679;</span>';
+    wsStat = mk('span', { style: 'color:var(--yellow)' }, '●');
   } else {
-    wsStat = '<span style="color:var(--red)">&#9679;</span>';
+    wsStat = mk('span', { style: 'color:var(--red)' }, '●');
   }
   parts.unshift(wsStat);
   if (window._perfMetrics && _perfMetrics.avgApiTime > 0) {
     var latColor = _perfMetrics.avgApiTime < 100 ? 'var(--green)' : _perfMetrics.avgApiTime < 500 ? 'var(--yellow)' : 'var(--red)';
-    parts.push('<span style="color:' + latColor + '">' + _perfMetrics.avgApiTime + 'ms</span>');
+    parts.push(mk('span', { style: 'color:' + latColor }, _perfMetrics.avgApiTime + 'ms'));
   }
-  el.innerHTML = parts.join(' | ');
+  /* parts: 문자열(plain-text)과 노드(색상 span) 혼합 — ' | ' 텍스트 노드로 이어붙인다. */
+  PCV.uxlib.clearEl(el);
+  parts.forEach(function(part, i) {
+    if (i > 0) el.appendChild(document.createTextNode(' | '));
+    el.appendChild(part instanceof Node ? part : document.createTextNode(String(part)));
+  });
   if (typeof updateFavicon === 'function') updateFavicon();
 }
 window.updateStatusBar = updateStatusBar;
@@ -366,7 +389,15 @@ function openCmdPalette() {
   ov.addEventListener('click', e => { if (e.target === ov) closeCmdPalette(); });
   const box = document.createElement('div'); box.id = 'cmd-palette';
   box.style.cssText = 'background:var(--bg-panel);backdrop-filter:blur(20px);border:1px solid var(--accent);border-radius:12px;width:500px;max-width:90vw;max-height:60vh;display:flex;flex-direction:column;box-shadow:0 0 40px var(--neon-glow);overflow:hidden';
-  box.innerHTML = '<input aria-label="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" id="cmd-input" placeholder="' + _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name') + '" style="padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--fg);font-size:15px;outline:none;font-family:var(--font-mono)" autocomplete="off"><div id="cmd-list" style="overflow-y:auto;flex:1;padding:4px 0"></div>';
+  var mk = PCV.uxlib.el;
+  box.appendChild(mk('input', {
+    'aria-label': _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name'),
+    id: 'cmd-input',
+    placeholder: _L('명령이나 화면 이름을 입력하세요', 'Type a command or page name'),
+    style: 'padding:14px 16px;background:transparent;border:none;border-bottom:1px solid var(--border);color:var(--fg);font-size:15px;outline:none;font-family:var(--font-mono)',
+    autocomplete: 'off'
+  }));
+  box.appendChild(mk('div', { id: 'cmd-list', style: 'overflow-y:auto;flex:1;padding:4px 0' }));
   ov.appendChild(box); document.body.appendChild(ov);
   const inp = document.getElementById('cmd-input'); inp.focus();
   renderCmdPalette('');
@@ -387,6 +418,18 @@ function closeCmdPalette() {
 }
 window.closeCmdPalette = closeCmdPalette;
 
+/* 아이콘 필드가 app.js(openEditorTab·CMD_ACTIONS.push, 스코프 밖)에서
+ * '&#NNN;'/'&#xHH;' 수치 문자 참조 문자열로 주입된다 — 텍스트 노드로 넣기 전에
+ * HTML 파서와 동일하게 수치 엔티티만 글리프로 디코드한다(명명 엔티티/일반
+ * 글리프는 그대로 통과). innerHTML 경유 없음(ADR-013). */
+function _decodeIconGlyph(s) {
+  if (s === null || s === undefined) return '';
+  return String(s).replace(/&#(x[0-9a-fA-F]+|\d+);/g, function(m, code) {
+    var cp = (code[0] === 'x' || code[0] === 'X') ? parseInt(code.slice(1), 16) : parseInt(code, 10);
+    return isNaN(cp) ? m : String.fromCodePoint(cp);
+  });
+}
+
 function renderCmdPalette(filter) {
   const list = document.getElementById('cmd-list'); if (!list) return;
   const q = (filter || '').toLowerCase();
@@ -395,7 +438,18 @@ function renderCmdPalette(filter) {
     if (a.role && !pcvRoleAllows(a.role)) return false;
     return !q || fuzzyMatch(a.label, q);
   });
-  list.innerHTML = filtered.map((a, i) => '<div class="cmd-item" style="padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:13px;background:' + (i === cmdSelectedIndex ? 'var(--bg3)' : 'transparent') + ';border-left:3px solid ' + (i === cmdSelectedIndex ? 'var(--accent)' : 'transparent') + '" onclick="CMD_ACTIONS.find(x=>x.label===\'' + a.label.replace(/'/g, "\\'") + '\').action();closeCmdPalette()"><span style="width:22px;text-align:center;font-size:14px">' + a.icon + '</span><span style="flex:1">' + a.label + '</span>' + (a.hint ? '<span class="stat-label">' + a.hint + '</span>' : '') + '</div>').join('');
+  var mk = PCV.uxlib.el;
+  PCV.uxlib.clearEl(list);
+  filtered.forEach(function(a, i) {
+    list.appendChild(mk('div', {
+      class: 'cmd-item',
+      style: 'padding:10px 16px;cursor:pointer;display:flex;align-items:center;gap:12px;font-size:13px;background:' + (i === cmdSelectedIndex ? 'var(--bg3)' : 'transparent') + ';border-left:3px solid ' + (i === cmdSelectedIndex ? 'var(--accent)' : 'transparent'),
+      onclick: "CMD_ACTIONS.find(x=>x.label==='" + a.label.replace(/'/g, "\\'") + "').action();closeCmdPalette()"
+    },
+      mk('span', { style: 'width:22px;text-align:center;font-size:14px' }, _decodeIconGlyph(a.icon)),
+      mk('span', { style: 'flex:1' }, a.label),
+      a.hint ? mk('span', { class: 'stat-label' }, a.hint) : null));
+  });
 }
 window.renderCmdPalette = renderCmdPalette;
 
@@ -496,13 +550,14 @@ window.closeEditorTab = closeEditorTab;
 function renderEditorTabs() {
   const container = document.getElementById('editor-tabs');
   if (!container) return;
-  container.innerHTML = editorTabs.map(t =>
-    '<div class="editor-tab ' + (t.id === activeEditorTab ? 'active' : '') + '" onclick="navigateTo(\'' + t.id + '\')">' +
-    '<span class="tab-icon">' + t.icon + '</span>' +
-    '<span class="tab-label">' + escapeHtml(t.label) + '</span>' +
-    '<span class="tab-close" onclick="event.stopPropagation();closeEditorTab(\'' + t.id + '\')">&times;</span>' +
-    '</div>'
-  ).join('');
+  var mk = PCV.uxlib.el;
+  PCV.uxlib.clearEl(container);
+  editorTabs.forEach(function(t) {
+    container.appendChild(mk('div', { class: 'editor-tab ' + (t.id === activeEditorTab ? 'active' : ''), onclick: "navigateTo('" + t.id + "')" },
+      mk('span', { class: 'tab-icon' }, _decodeIconGlyph(t.icon)),
+      mk('span', { class: 'tab-label' }, t.label),
+      mk('span', { class: 'tab-close', onclick: "event.stopPropagation();closeEditorTab('" + t.id + "')" }, '×')));
+  });
 }
 window.renderEditorTabs = renderEditorTabs;
 
@@ -529,14 +584,33 @@ function updateBreadcrumbs(page) {
       parts.push({ label: vmList[selectedVmIndex].name, tab: null });
     }
   }
-  var h = parts.map(function(p, i) {
+  var mk = PCV.uxlib.el;
+  var crumbNodes = parts.map(function(p, i) {
     var isLast = i === parts.length - 1;
-    if (isLast) return '<span class="color-accent" style="font-size:11px">' + esc(p.label) + '</span>';
-    return '<span style="cursor:pointer;font-size:11px;color:var(--fg2)" onclick="navigateTo(\'' + (p.tab || 'dashboard') + '\')">' + esc(p.label) + '</span>';
-  }).join(' <span class="color-muted" style="font-size:10px">&#9656;</span> ');
-  h += ' <span style="cursor:pointer;font-size:10px;color:' + (_pinnedPages.includes(currentTab) ? 'var(--yellow)' : 'var(--fg2)') + '" onclick="togglePin(\'' + currentTab + '\');updateBreadcrumbs()">&#128204;</span>';
-  h += ' <span style="cursor:pointer;font-size:10px;color:var(--fg2)" onclick="openInPopup()" title="' + _L('새 창에서 열기', 'Open in new window') + '">&#128194;</span>';
-  el.innerHTML = h;
+    if (isLast) return mk('span', { class: 'color-accent', style: 'font-size:11px' }, p.label);
+    return mk('span', { style: 'cursor:pointer;font-size:11px;color:var(--fg2)', onclick: "navigateTo('" + (p.tab || 'dashboard') + "')" }, p.label);
+  });
+  PCV.uxlib.clearEl(el);
+  /* join(' <span>▸</span> ') 재현: 크럼 사이에 ' ' + 구분자 span + ' ' */
+  crumbNodes.forEach(function(node, i) {
+    if (i > 0) {
+      el.appendChild(document.createTextNode(' '));
+      el.appendChild(mk('span', { class: 'color-muted', style: 'font-size:10px' }, '▸'));
+      el.appendChild(document.createTextNode(' '));
+    }
+    el.appendChild(node);
+  });
+  el.appendChild(document.createTextNode(' '));
+  el.appendChild(mk('span', {
+    style: 'cursor:pointer;font-size:10px;color:' + (_pinnedPages.includes(currentTab) ? 'var(--yellow)' : 'var(--fg2)'),
+    onclick: "togglePin('" + currentTab + "');updateBreadcrumbs()"
+  }, '📌'));
+  el.appendChild(document.createTextNode(' '));
+  el.appendChild(mk('span', {
+    style: 'cursor:pointer;font-size:10px;color:var(--fg2)',
+    onclick: 'openInPopup()',
+    title: _L('새 창에서 열기', 'Open in new window')
+  }, '📂'));
 }
 window.updateBreadcrumbs = updateBreadcrumbs;
 
@@ -550,9 +624,17 @@ function toggleGlobalSearch() {
   ov.id = 'global-search-overlay';
   ov.className = 'global-search-overlay';
   ov.onclick = e => { if (e.target === ov) closeGlobalSearch(); };
-  ov.innerHTML = '<div class="global-search-box">' +
-    '<input aria-label="Search VMs, containers, networks, settings..." class="global-search-input" id="global-search-input" placeholder="Search VMs, containers, networks, settings..." oninput="(window._gs || (window._gs = pcvDebounce(doGlobalSearch, 200)))(this.value)" autofocus>' +
-    '<div class="global-search-results" id="global-search-results"></div></div>';
+  var mk = PCV.uxlib.el;
+  ov.appendChild(mk('div', { class: 'global-search-box' },
+    mk('input', {
+      'aria-label': 'Search VMs, containers, networks, settings...',
+      class: 'global-search-input',
+      id: 'global-search-input',
+      placeholder: 'Search VMs, containers, networks, settings...',
+      oninput: "(window._gs || (window._gs = pcvDebounce(doGlobalSearch, 200)))(this.value)",
+      autofocus: ''
+    }),
+    mk('div', { class: 'global-search-results', id: 'global-search-results' })));
   document.body.appendChild(ov);
   setTimeout(() => document.getElementById('global-search-input')?.focus(), 50);
 }
@@ -568,16 +650,21 @@ function doGlobalSearch(query) {
   const results = document.getElementById('global-search-results');
   if (!results || !query) { if (results) PCV.uxlib.clearEl(results); return; }
   const q = query.toLowerCase();
-  let html = '';
+  var mk = PCV.uxlib.el;
+  var groups = [];
 
   /* Search VMs */
   const matchedVMs = vmList.filter(v => fuzzyMatch(v.name, q));
   if (matchedVMs.length > 0) {
-    html += '<div class="global-search-group"><div class="global-search-group-title">Virtual Machines</div>';
-    matchedVMs.forEach(v => {
-      html += '<div class="global-search-item" onclick="closeGlobalSearch();selectedVmIndex=' + vmList.indexOf(v) + ';switchActivity(\'vms\');render()"><span class="search-icon">&#128187;</span><span class="search-label">' + escapeHtml(v.name) + '</span><span class="search-type">' + (v.state || '') + '</span></div>';
+    var vmItems = matchedVMs.map(function(v) {
+      return mk('div', { class: 'global-search-item', onclick: "closeGlobalSearch();selectedVmIndex=" + vmList.indexOf(v) + ";switchActivity('vms');render()" },
+        mk('span', { class: 'search-icon' }, '💻'),
+        mk('span', { class: 'search-label' }, v.name),
+        mk('span', { class: 'search-type' }, v.state || ''));
     });
-    html += '</div>';
+    groups.push(mk('div', { class: 'global-search-group' },
+      mk('div', { class: 'global-search-group-title' }, 'Virtual Machines'),
+      vmItems));
   }
 
   /* Search pages */
@@ -607,15 +694,23 @@ function doGlobalSearch(query) {
     return fuzzyMatch(p.label, q);
   });
   if (matchedPages.length > 0) {
-    html += '<div class="global-search-group"><div class="global-search-group-title">Pages</div>';
-    matchedPages.forEach(p => {
-      html += '<div class="global-search-item" onclick="closeGlobalSearch();navigateTo(\'' + p.id + '\')"><span class="search-icon">' + p.icon + '</span><span class="search-label">' + p.label + '</span><span class="search-type">Page</span></div>';
+    var pageItems = matchedPages.map(function(p) {
+      return mk('div', { class: 'global-search-item', onclick: "closeGlobalSearch();navigateTo('" + p.id + "')" },
+        mk('span', { class: 'search-icon' }, _decodeIconGlyph(p.icon)),
+        mk('span', { class: 'search-label' }, p.label),
+        mk('span', { class: 'search-type' }, 'Page'));
     });
-    html += '</div>';
+    groups.push(mk('div', { class: 'global-search-group' },
+      mk('div', { class: 'global-search-group-title' }, 'Pages'),
+      pageItems));
   }
 
-  if (!html) html = '<div style="padding:20px;text-align:center;color:var(--fg2)">No results for "' + escapeHtml(query) + '"</div>';
-  results.innerHTML = html;
+  PCV.uxlib.clearEl(results);
+  if (groups.length === 0) {
+    results.appendChild(mk('div', { style: 'padding:20px;text-align:center;color:var(--fg2)' }, 'No results for "' + query + '"'));
+  } else {
+    groups.forEach(function(g) { results.appendChild(g); });
+  }
 }
 window.doGlobalSearch = doGlobalSearch;
 
@@ -659,23 +754,24 @@ function _renderNotifList(container, filter) {
   if (filter && filter !== 'all') {
     filtered = notifications.filter(function(n) { return n.type === filter; });
   }
+  var mk = PCV.uxlib.el;
   if (filtered.length === 0) {
-    container.innerHTML = '<div class="notif-center-empty">&#128276; No ' + (filter !== 'all' ? filter + ' ' : '') + 'notifications</div>';
+    PCV.uxlib.clearEl(container);
+    container.appendChild(mk('div', { class: 'notif-center-empty' }, '🔔 No ' + (filter !== 'all' ? filter + ' ' : '') + 'notifications'));
     return;
   }
-  var list = '';
-  filtered.forEach(function(n) {
-    var icon = n.type === 'error' ? '&#10060;' : n.type === 'warning' ? '&#9888;' : '&#9989;';
+  var items = filtered.map(function(n) {
+    var icon = n.type === 'error' ? '❌' : n.type === 'warning' ? '⚠' : '✅';
     var timeAgo = _notifTimeAgo(n.time);
-    list += '<div class="notif-item ' + (n.read ? '' : 'unread') + '" onclick="markRead(' + n.id + ');this.classList.remove(\'unread\')">'
-      + '<span class="notif-icon">' + icon + '</span>'
-      + '<div class="notif-body">'
-      + '<div class="notif-title">' + escapeHtml(n.title) + '</div>'
-      + (n.msg ? '<div class="notif-msg">' + escapeHtml(n.msg) + '</div>' : '')
-      + '<div class="notif-time">' + timeAgo + '</div>'
-      + '</div></div>';
+    return mk('div', { class: 'notif-item ' + (n.read ? '' : 'unread'), onclick: 'markRead(' + n.id + ");this.classList.remove('unread')" },
+      mk('span', { class: 'notif-icon' }, icon),
+      mk('div', { class: 'notif-body' },
+        mk('div', { class: 'notif-title' }, n.title),
+        n.msg ? mk('div', { class: 'notif-msg' }, n.msg) : null,
+        mk('div', { class: 'notif-time' }, timeAgo)));
   });
-  container.innerHTML = list;
+  PCV.uxlib.clearEl(container);
+  items.forEach(function(it) { container.appendChild(it); });
 }
 
 function _notifTimeAgo(date) {
@@ -695,24 +791,28 @@ function toggleNotifCenter() {
   el.id = 'notif-center';
   el.className = 'notif-center';
 
+  var mk = PCV.uxlib.el;
+
   /* Header with title and actions */
-  var header = '<div class="notif-center-header">'
-    + '<span>Notifications' + (unread > 0 ? ' <span class="notif-header-badge">' + unread + ' unread</span>' : '') + '</span>'
-    + '<div style="display:flex;gap:6px">'
-    + '<button class="btn" style="font-size:9px;padding:2px 8px" onclick="markAllRead()">Mark all read</button>'
-    + '<button class="btn btn-r" style="font-size:9px;padding:2px 8px" onclick="clearNotifications()">Clear</button>'
-    + '<button class="panel-action-btn" onclick="closeNotifCenter()">&#10005;</button>'
-    + '</div></div>';
+  var header = mk('div', { class: 'notif-center-header' },
+    mk('span', null,
+      'Notifications',
+      unread > 0 ? [' ', mk('span', { class: 'notif-header-badge' }, unread + ' unread')] : null),
+    mk('div', { style: 'display:flex;gap:6px' },
+      mk('button', { class: 'btn', style: 'font-size:9px;padding:2px 8px', onclick: 'markAllRead()' }, 'Mark all read'),
+      mk('button', { class: 'btn btn-r', style: 'font-size:9px;padding:2px 8px', onclick: 'clearNotifications()' }, 'Clear'),
+      mk('button', { class: 'panel-action-btn', onclick: 'closeNotifCenter()' }, '✕')));
 
   /* Filter bar */
-  var filterBar = '<div class="notif-filter-bar">'
-    + '<button class="notif-filter-btn active" data-filter="all" onclick="setNotifFilter(\'all\')">All (' + notifications.length + ')</button>'
-    + '<button class="notif-filter-btn" data-filter="error" onclick="setNotifFilter(\'error\')">Error (' + notifications.filter(function(n){ return n.type==='error'; }).length + ')</button>'
-    + '<button class="notif-filter-btn" data-filter="warning" onclick="setNotifFilter(\'warning\')">Warning (' + notifications.filter(function(n){ return n.type==='warning'; }).length + ')</button>'
-    + '<button class="notif-filter-btn" data-filter="info" onclick="setNotifFilter(\'info\')">Info (' + notifications.filter(function(n){ return n.type==='info'; }).length + ')</button>'
-    + '</div>';
+  var filterBar = mk('div', { class: 'notif-filter-bar' },
+    mk('button', { class: 'notif-filter-btn active', 'data-filter': 'all', onclick: "setNotifFilter('all')" }, 'All (' + notifications.length + ')'),
+    mk('button', { class: 'notif-filter-btn', 'data-filter': 'error', onclick: "setNotifFilter('error')" }, 'Error (' + notifications.filter(function(n){ return n.type==='error'; }).length + ')'),
+    mk('button', { class: 'notif-filter-btn', 'data-filter': 'warning', onclick: "setNotifFilter('warning')" }, 'Warning (' + notifications.filter(function(n){ return n.type==='warning'; }).length + ')'),
+    mk('button', { class: 'notif-filter-btn', 'data-filter': 'info', onclick: "setNotifFilter('info')" }, 'Info (' + notifications.filter(function(n){ return n.type==='info'; }).length + ')'));
 
-  el.innerHTML = header + filterBar + '<div class="notif-center-list" id="notif-list-container"></div>';
+  el.appendChild(header);
+  el.appendChild(filterBar);
+  el.appendChild(mk('div', { class: 'notif-center-list', id: 'notif-list-container' }));
   document.body.appendChild(el);
 
   /* Render list */
@@ -771,11 +871,23 @@ function showHoverCard(e, vm) {
   clearTimeout(hoverCardTimeout);
   hoverCardTimeout = setTimeout(() => {
     const on = vm.state === 'running';
-    hoverCard.innerHTML = '<div class="hover-card-title"><span class="dot ' + (on ? 'on' : 'off') + '"></span>' + escapeHtml(vm.name) + '</div>' +
-      '<div class="hover-card-row"><span class="hc-k">State</span><span class="hc-v">' + (vm.state || '-') + '</span></div>' +
-      '<div class="hover-card-row"><span class="hc-k">vCPU</span><span class="hc-v">' + (vm.vcpu || '-') + '</span></div>' +
-      '<div class="hover-card-row"><span class="hc-k">Memory</span><span class="hc-v">' + (vm.memory_mb || '-') + ' MB</span></div>' +
-      '<div class="hover-card-row"><span class="hc-k">CPU</span><span class="hc-v">' + ((vm.live_cpu_pct || 0).toFixed(1)) + '%</span></div>';
+    var mk = PCV.uxlib.el;
+    PCV.uxlib.clearEl(hoverCard);
+    hoverCard.appendChild(mk('div', { class: 'hover-card-title' },
+      mk('span', { class: 'dot ' + (on ? 'on' : 'off') }),
+      vm.name));
+    hoverCard.appendChild(mk('div', { class: 'hover-card-row' },
+      mk('span', { class: 'hc-k' }, 'State'),
+      mk('span', { class: 'hc-v' }, vm.state || '-')));
+    hoverCard.appendChild(mk('div', { class: 'hover-card-row' },
+      mk('span', { class: 'hc-k' }, 'vCPU'),
+      mk('span', { class: 'hc-v' }, vm.vcpu || '-')));
+    hoverCard.appendChild(mk('div', { class: 'hover-card-row' },
+      mk('span', { class: 'hc-k' }, 'Memory'),
+      mk('span', { class: 'hc-v' }, (vm.memory_mb || '-') + ' MB')));
+    hoverCard.appendChild(mk('div', { class: 'hover-card-row' },
+      mk('span', { class: 'hc-k' }, 'CPU'),
+      mk('span', { class: 'hc-v' }, (vm.live_cpu_pct || 0).toFixed(1) + '%')));
     hoverCard.style.left = (e.clientX + 16) + 'px';
     hoverCard.style.top = (e.clientY - 10) + 'px';
     hoverCard.classList.add('visible');

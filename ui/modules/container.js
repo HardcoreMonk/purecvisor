@@ -23,8 +23,9 @@ function setCtrSort(k) {
 
 /* ═══ SIDEBAR CONTAINER LIST ═══ */
 async function renderContainerList() {
-  const el = document.getElementById('ctr-list');
-  if (!el) return;
+  const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  const listEl = document.getElementById('ctr-list');
+  if (!listEl) return;
   try {
     const c = await fetchGet(EP.CTR_LIST());
     const l = unwrapList(c);
@@ -44,29 +45,36 @@ async function renderContainerList() {
     });
 
     if (fl.length === 0) {
-      el.innerHTML = '<div class="empty-state" style="padding:24px;text-align:center"><div style="font-size:32px;margin-bottom:8px">&#9783;</div><div class="text-xs color-muted">' + t('msg.no_containers') + '</div><button class="btn btn-g mt-12 text-11" onclick="showCtrCreate()">+ ' + t('ctr.new') + '</button></div>';
+      clearEl(listEl);
+      listEl.appendChild(el('div', { class: 'empty-state', style: 'padding:24px;text-align:center' },
+        el('div', { style: 'font-size:32px;margin-bottom:8px' }, '☷'),
+        el('div', { class: 'text-xs color-muted' }, t('msg.no_containers')),
+        el('button', { class: 'btn btn-g mt-12 text-11', onclick: 'showCtrCreate()' }, '+ ' + t('ctr.new'))));
       return;
     }
-    let h = '';
-    fl.forEach(v => {
+    const items = fl.map(v => {
       const on = v.state === 'RUNNING';
       const s = selCtr === v.name;
-      h += '<div onclick="selCtr=\'' + esc(v.name) + '\';currentTab=\'containers\';renderContent();renderContainerList()" class="vm-item' + (s ? ' sel' : '') + '" style="padding:6px 8px;cursor:pointer;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'rgba(0,240,255,.06)' : 'transparent') + '">';
-      h += '<div class="flex items-center gap-6">';
-      h += '<span style="font-size:8px;color:' + (on ? 'var(--green)' : 'var(--red)') + '">&#9679;</span>';
-      h += '<span style="font-size:12px;font-weight:' + (s ? '700' : '400') + '">' + esc(v.name) + '</span>';
-      h += '</div>';
-      h += '<div style="display:flex;justify-content:space-between;margin-left:14px;margin-top:1px">';
-      h += '<span class="stat-label text-xs">' + (on ? t('status.running') : t('status.stopped')) + '</span>';
-      if (on && v.ip_addr) h += '<span class="stat-label text-xs color-green">' + esc(v.ip_addr) + '</span>';
-      h += '</div></div>';
+      return el('div', {
+        onclick: "selCtr='" + v.name + "';currentTab='containers';renderContent();renderContainerList()",
+        class: 'vm-item' + (s ? ' sel' : ''),
+        style: 'padding:6px 8px;cursor:pointer;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'rgba(0,240,255,.06)' : 'transparent')
+      },
+        el('div', { class: 'flex items-center gap-6' },
+          el('span', { style: 'font-size:8px;color:' + (on ? 'var(--green)' : 'var(--red)') }, '●'),
+          el('span', { style: 'font-size:12px;font-weight:' + (s ? '700' : '400') }, v.name)),
+        el('div', { style: 'display:flex;justify-content:space-between;margin-left:14px;margin-top:1px' },
+          el('span', { class: 'stat-label text-xs' }, on ? t('status.running') : t('status.stopped')),
+          (on && v.ip_addr) ? el('span', { class: 'stat-label text-xs color-green' }, v.ip_addr) : null));
     });
-    el.innerHTML = h;
-  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'div', cls: 'text-xs color-muted', style: 'padding:8px' }, 'Failed to load containers.'); }
+    clearEl(listEl);
+    listEl.appendChild(frag(items));
+  } catch (e) { PCV.uxlib.setMsg(listEl, null, { tag: 'div', cls: 'text-xs color-muted', style: 'padding:8px' }, 'Failed to load containers.'); }
 }
 
 /* ═══ MAIN CONTAINER PANEL ═══ */
 async function renderContainers(b) {
+  const el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
   try {
     const c = await fetchGet(EP.CTR_LIST());
@@ -82,49 +90,76 @@ async function renderContainers(b) {
       }));
       return;
     }
-    let h = '<div style="display:flex;gap:0;height:calc(100vh - 280px);min-height:400px">';
-    h += '<div style="min-width:220px;max-width:220px;border-right:1px solid var(--border);overflow-y:auto;padding:8px">';
-    h += '<div class="justify-between items-center mb-8"><span class="text-xs font-bold" style="text-transform:uppercase;letter-spacing:.06em;color:var(--fg2)">' + t('nav.containers') + '</span><div class="flex gap-6 items-center">' + H.badge(String(l.length), 'y') + '<button class="btn btn-g" style="font-size:11px;padding:4px 10px" onclick="showCtrCreate()">+ ' + t('ctr.new') + '</button></div></div>';
-    l.forEach(v => {
+    const listItems = l.map(v => {
       const on = v.state === 'RUNNING';
       const s = selCtr === v.name;
-      h += '<div onclick="selCtr=\'' + escapeAttr(v.name) + '\';ctrTab=\'summary\';renderContainers(document.getElementById(\'cb\'))" style="padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'var(--bg3)' : 'transparent') + '">';
-      h += '<div class="flex items-center gap-6"><span style="font-size:9px;color:' + (on ? 'var(--green)' : 'var(--fg2)') + '">&#9679;</span><span style="font-size:13px;font-weight:' + (s ? '600' : '400') + '">' + escapeHtml(v.name) + '</span></div>';
-      h += '<div class="stat-label" style="margin-left:15px">' + v.state + (on ? ' &bull; ' + (v.ip_addr || '') : '') + '</div></div>';
+      return el('div', {
+        onclick: "selCtr='" + escapeAttr(v.name) + "';ctrTab='summary';renderContainers(document.getElementById('cb'))",
+        style: 'padding:6px 8px;cursor:pointer;border-radius:4px;margin-bottom:2px;border-left:3px solid ' + (s ? 'var(--accent)' : 'transparent') + ';background:' + (s ? 'var(--bg3)' : 'transparent')
+      },
+        el('div', { class: 'flex items-center gap-6' },
+          el('span', { style: 'font-size:9px;color:' + (on ? 'var(--green)' : 'var(--fg2)') }, '●'),
+          el('span', { style: 'font-size:13px;font-weight:' + (s ? '600' : '400') }, v.name)),
+        el('div', { class: 'stat-label', style: 'margin-left:15px' }, v.state + (on ? ' • ' + (v.ip_addr || '') : '')));
     });
-    h += '</div>';
-    h += '<div style="flex:1;overflow-y:auto;display:flex;flex-direction:column">';
+    const sidebar = el('div', { style: 'min-width:220px;max-width:220px;border-right:1px solid var(--border);overflow-y:auto;padding:8px' },
+      el('div', { class: 'justify-between items-center mb-8' },
+        el('span', { class: 'text-xs font-bold', style: 'text-transform:uppercase;letter-spacing:.06em;color:var(--fg2)' }, t('nav.containers')),
+        el('div', { class: 'flex gap-6 items-center' },
+          HN.badge(String(l.length), 'y'),
+          el('button', { class: 'btn btn-g', onclick: 'showCtrCreate()', style: 'font-size:11px;padding:4px 10px' }, '+ ' + t('ctr.new')))),
+      listItems);
     const cv = l.find(x => x.name === selCtr);
+    const detailKids = [];
     if (cv) {
       const on = cv.state === 'RUNNING';
-      h += '<div style="padding:10px 14px;border-bottom:1px solid var(--border)" class="justify-between items-center">';
-      h += '<div><span style="font-size:15px;font-weight:700">' + escapeHtml(cv.name) + '</span> ' + H.badge(cv.state, on ? 'g' : 'r') + '</div>';
-      h += '<div class="flex gap-4">';
-      if (!on) h += '<button class="btn btn-g text-12 px-12 py-4" onclick="ctrA(\'' + escapeAttr(cv.name) + '\',\'start\')">&#9654; ' + t('power.start') + '</button>';
+      const actions = [];
+      if (!on) actions.push(el('button', { class: 'btn btn-g text-12 px-12 py-4', onclick: "ctrA('" + escapeAttr(cv.name) + "','start')" }, '▶ ' + t('power.start')));
       if (on) {
-        h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrA(\'' + escapeAttr(cv.name) + '\',\'stop\')">&#9632; ' + t('power.stop') + '</button>';
-        h += '<button class="btn text-12 px-12 py-4" onclick="ctrReboot(\'' + escapeAttr(cv.name) + '\')">&#8635; Reboot</button>';
+        actions.push(el('button', { class: 'btn btn-r text-12 px-12 py-4', onclick: "ctrA('" + escapeAttr(cv.name) + "','stop')" }, '■ ' + t('power.stop')));
+        actions.push(el('button', { class: 'btn text-12 px-12 py-4', onclick: "ctrReboot('" + escapeAttr(cv.name) + "')" }, '↻ Reboot'));
       }
-      h += '<button class="btn btn-r text-12 px-12 py-4" onclick="ctrDel(\'' + escapeAttr(cv.name) + '\')">&#128465; ' + t('btn.delete') + '</button>';
-      h += '</div></div>';
+      actions.push(el('button', { class: 'btn btn-r text-12 px-12 py-4', onclick: "ctrDel('" + escapeAttr(cv.name) + "')" }, '🗑 ' + t('btn.delete')));
+      detailKids.push(el('div', { class: 'justify-between items-center', style: 'padding:10px 14px;border-bottom:1px solid var(--border)' },
+        el('div', null,
+          el('span', { style: 'font-size:15px;font-weight:700' }, cv.name),
+          ' ',
+          HN.badge(cv.state, on ? 'g' : 'r')),
+        el('div', { class: 'flex gap-4' }, actions)));
       const tabs = ['summary', 'console', 'resources', 'network', 'dns', 'options', 'snapshots', 'notes', 'tasks'];
-      h += '<div class="flex" style="border-bottom:1px solid var(--border);padding:0 10px;gap:2px;overflow-x:auto">';
-      tabs.forEach(t2 => {
-        h += '<div onclick="ctrTab=\'' + t2 + '\';renderContainers(document.getElementById(\'cb\'))" style="padding:9px 14px;font-size:13px;cursor:pointer;white-space:nowrap;border-bottom:2px solid ' + (ctrTab === t2 ? 'var(--accent)' : 'transparent') + ';color:' + (ctrTab === t2 ? 'var(--accent)' : 'var(--fg2)') + ';font-weight:' + (ctrTab === t2 ? '600' : '400') + ';transition:color .15s">' + t2.charAt(0).toUpperCase() + t2.slice(1) + '</div>';
-      });
-      h += '</div>';
-      h += '<div style="padding:14px;flex:1" id="ctr-tab-content"></div>';
+      detailKids.push(el('div', { class: 'flex', style: 'border-bottom:1px solid var(--border);padding:0 10px;gap:2px;overflow-x:auto' },
+        tabs.map(t2 => el('div', {
+          onclick: "ctrTab='" + t2 + "';renderContainers(document.getElementById('cb'))",
+          style: 'padding:9px 14px;font-size:13px;cursor:pointer;white-space:nowrap;border-bottom:2px solid ' + (ctrTab === t2 ? 'var(--accent)' : 'transparent') + ';color:' + (ctrTab === t2 ? 'var(--accent)' : 'var(--fg2)') + ';font-weight:' + (ctrTab === t2 ? '600' : '400') + ';transition:color .15s'
+        }, t2.charAt(0).toUpperCase() + t2.slice(1)))));
+      detailKids.push(el('div', { id: 'ctr-tab-content', style: 'padding:14px;flex:1' }));
     } else {
-      h += '<div style="flex:1;display:flex;align-items:center;justify-content:center;color:var(--fg2)"><div class="text-center"><div style="font-size:32px;margin-bottom:8px">&#9783;</div><p>' + t('ctr.select') + '</p></div></div>';
+      detailKids.push(el('div', { style: 'flex:1;display:flex;align-items:center;justify-content:center;color:var(--fg2)' },
+        el('div', { class: 'text-center' },
+          el('div', { style: 'font-size:32px;margin-bottom:8px' }, '☷'),
+          el('p', null, t('ctr.select')))));
     }
-    h += '</div></div>';
-    b.innerHTML = h;
+    const detail = el('div', { style: 'flex:1;overflow-y:auto;display:flex;flex-direction:column' }, detailKids);
+    clearEl(b);
+    b.appendChild(el('div', { style: 'display:flex;gap:0;height:calc(100vh - 280px);min-height:400px' }, sidebar, detail));
     if (cv) { const tb = document.getElementById('ctr-tab-content'); if (tb) await ctrRenderTab(tb, cv); }
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, e.message); }
 }
 
 /* ═══ CONTAINER TAB RENDERING ═══ */
+/* renderProgressBar(p,c) 의 노드 등가물 (app.js _progressBar 선례). 문자열 반환
+ * 헬퍼를 카드 body 노드 조립에 끼워넣기 위한 로컬 헬퍼. */
+function _ctrProgressBar(p, c) {
+  const el = PCV.uxlib.el;
+  const cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  const anim = p > 85 ? ' pulse-anim' : '';
+  return el('div', { class: 'pb' + anim },
+    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
+}
+
 async function ctrRenderTab(tb, cv) {
+  const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const n = cv.name;
   const on = cv.state === 'RUNNING';
   if (ctrTab === 'summary') {
@@ -134,104 +169,214 @@ async function ctrRenderTab(tb, cv) {
       for (const [k, c] of cmds) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: c }); info[k] = unwrapData(r).output?.trim() || ''; } catch (e) { if(_DEBUG) console.warn('ctrRenderTab:', e.message); } } }
     const cpu = m.cpu_percent || 0, mem_u = m.mem_used_mb || 0, mem_l = m.mem_limit_mb || 0, mem_p = mem_l > 0 ? mem_u / mem_l * 100 : 0;
     const nrx = m.net_rx_mb || 0, ntx = m.net_tx_mb || 0;
-    tb.innerHTML = H.grid(4,
-      H.card('Status', '<div class="stat-lg" style="color:' + (on ? 'var(--green)' : 'var(--fg2)') + '">' + (on ? t('status.running') : t('status.stopped')) + '</div><div class="stat-label mt-4">' + (on ? 'PID: ' + (m.init_pid || '-') : '') + '</div>')
-    + H.card('CPU', '<div class="stat-md">' + cpu.toFixed(1) + '%</div>' + renderProgressBar(cpu) + '<div class="stat-label">' + (info.nproc || '?') + ' cores</div>')
-    + H.card('Memory', '<div class="stat-md">' + (mem_l > 0 ? mem_p.toFixed(1) + '%' : mem_u.toFixed(0) + ' MB') + '</div>' + (mem_l > 0 ? renderProgressBar(mem_p) : ''))
-    + H.card('Network', H.row('RX', nrx.toFixed(1) + ' MB') + H.row('TX', ntx.toFixed(1) + ' MB') + H.row('IP', '<span class="color-accent">' + escapeHtml(cv.ip_addr || '-') + '</span>'))
-    ) + '<div class="sg grid-2 mt-12">'
-    + H.card('System Info', H.row('Hostname', escapeHtml(info.hostname || '-')) + H.row('Uptime', escapeHtml(info.uptime || '-')) + H.row('Kernel', escapeHtml(info.kernel || '-')) + H.row('Image', escapeHtml(cv.image || '-')))
-    + H.card('Configuration', H.row('Bridge', 'pcvbr0') + H.row('AppArmor', 'unconfined') + H.row('Type', 'LXC (unprivileged: no)') + H.row('Node', location.hostname))
-    + '</div>';
+    clearEl(tb);
+    tb.appendChild(frag(
+      HN.grid(4,
+        HN.card('Status', [
+          el('div', { class: 'stat-lg', style: 'color:' + (on ? 'var(--green)' : 'var(--fg2)') }, on ? t('status.running') : t('status.stopped')),
+          el('div', { class: 'stat-label mt-4' }, on ? 'PID: ' + (m.init_pid || '-') : '')
+        ]),
+        HN.card('CPU', [
+          el('div', { class: 'stat-md' }, cpu.toFixed(1) + '%'),
+          _ctrProgressBar(cpu),
+          el('div', { class: 'stat-label' }, (info.nproc || '?') + ' cores')
+        ]),
+        HN.card('Memory', [
+          el('div', { class: 'stat-md' }, mem_l > 0 ? mem_p.toFixed(1) + '%' : mem_u.toFixed(0) + ' MB'),
+          mem_l > 0 ? _ctrProgressBar(mem_p) : null
+        ]),
+        HN.card('Network', [
+          HN.row('RX', nrx.toFixed(1) + ' MB'),
+          HN.row('TX', ntx.toFixed(1) + ' MB'),
+          HN.row('IP', el('span', { class: 'color-accent' }, cv.ip_addr || '-'))
+        ])),
+      el('div', { class: 'sg grid-2 mt-12' },
+        HN.card('System Info', [
+          HN.row('Hostname', info.hostname || '-'),
+          HN.row('Uptime', info.uptime || '-'),
+          HN.row('Kernel', info.kernel || '-'),
+          HN.row('Image', cv.image || '-')
+        ]),
+        HN.card('Configuration', [
+          HN.row('Bridge', 'pcvbr0'),
+          HN.row('AppArmor', 'unconfined'),
+          HN.row('Type', 'LXC (unprivileged: no)'),
+          HN.row('Node', location.hostname)
+        ]))
+    ));
   } else if (ctrTab === 'console') {
-    if (!on) { tb.innerHTML = H.card('&#9000; ' + t('tab.console'), '<p class="color-muted">' + t('ctr.console.stopped') + '</p>'); return; }
-    tb.innerHTML = '<div style="background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:0;font-family:monospace;display:flex;flex-direction:column;height:100%">'
-    + '<div class="justify-between stat-label" style="padding:6px 10px;border-bottom:1px solid var(--border)"><span>&#9000; ' + n + ' — Shell</span><span class="color-green">' + t('connected') + '</span></div>'
-    + '<pre id="ctr-output" style="flex:1;padding:8px 10px;margin:0;overflow-y:auto;font-size:11px;color:var(--green);white-space:pre-wrap;min-height:250px;max-height:400px">root@' + n + ':~# \n</pre>'
-    + '<div class="flex" style="border-top:1px solid var(--border)"><span style="padding:6px 8px;color:var(--green);font-size:12px">$</span><input aria-label="Type command..." id="ctr-cmd" style="flex:1;background:transparent;border:none;color:var(--fg);font-family:monospace;font-size:12px;padding:6px 0;outline:none" placeholder="Type command..." onkeydown="if(event.key===\'Enter\')ctrRunCmd(\'' + n + '\')"></div></div>';
+    if (!on) { clearEl(tb); tb.appendChild(HN.card('⌨ ' + t('tab.console'), el('p', { class: 'color-muted' }, t('ctr.console.stopped')))); return; }
+    clearEl(tb);
+    tb.appendChild(
+      el('div', { style: 'background:var(--bg);border:1px solid var(--border);border-radius:var(--r);padding:0;font-family:monospace;display:flex;flex-direction:column;height:100%' },
+        el('div', { class: 'justify-between stat-label', style: 'padding:6px 10px;border-bottom:1px solid var(--border)' },
+          el('span', null, '⌨ ' + n + ' — Shell'),
+          el('span', { class: 'color-green' }, t('connected'))),
+        el('pre', { id: 'ctr-output', style: 'flex:1;padding:8px 10px;margin:0;overflow-y:auto;font-size:11px;color:var(--green);white-space:pre-wrap;min-height:250px;max-height:400px' }, 'root@' + n + ':~# \n'),
+        el('div', { class: 'flex', style: 'border-top:1px solid var(--border)' },
+          el('span', { style: 'padding:6px 8px;color:var(--green);font-size:12px' }, '$'),
+          el('input', { 'aria-label': 'Type command...', id: 'ctr-cmd', placeholder: 'Type command...', onkeydown: "if(event.key==='Enter')ctrRunCmd('" + n + "')", style: 'flex:1;background:transparent;border:none;color:var(--fg);font-family:monospace;font-size:12px;padding:6px 0;outline:none' }))));
     setTimeout(() => { document.getElementById('ctr-cmd')?.focus(); }, 100);
   } else if (ctrTab === 'resources') {
     let info = { cpu: '', mem: '', disk: '', procs: '' };
     if (on) { for (const [k, c] of [['cpu', 'nproc'], ['mem', 'free -h | head -2'], ['disk', 'df -h / 2>/dev/null | tail -1'], ['procs', 'ps aux --no-headers 2>/dev/null | wc -l']]) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: c }); info[k] = unwrapData(r).output?.trim() || '-'; } catch (e) { info[k] = '-'; } } }
     const memLines = (info.mem || '').split('\n'); const memHeader = memLines[0] || ''; const memData = memLines[1] || '';
-    tb.innerHTML = '<h3 class="section-title-md">Resources</h3><div class="sg">'
-    + H.card('CPU', H.row('Cores', info.cpu || '-') + H.row('Type', 'host (KVM passthrough)'))
-    + H.card('Memory', '<pre class="stat-label" style="margin:0;white-space:pre;overflow-x:auto">' + memHeader + '\n' + memData + '</pre>')
-    + H.card('Disk (rootfs)', '<pre class="stat-label" style="margin:0;white-space:pre;overflow-x:auto">' + (info.disk || 'N/A') + '</pre>')
-    + H.card('Processes', H.row('Running', info.procs || '-'))
-    + '</div>'
-    + '<h3 class="section-title-md mt-14">Resource Limits (cgroup v2)</h3>'
-    + '<div class="sg grid-2">'
-    + H.card('Set CPU Limit', '<div class="fr"><label for="ctr-cpu-shares">CPU Shares</label><input id="ctr-cpu-shares" type="number" value="1024"></div><div class="fr"><label for="ctr-cpu-quota">CPU Quota (µs)</label><input id="ctr-cpu-quota" type="number" value="100000"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'cpu\')">Apply CPU Limit</button>')
-    + H.card('Set Memory Limit', '<div class="fr"><label for="ctr-mem-limit">Memory Limit (MB)</label><input id="ctr-mem-limit" type="number" value="512"></div><div class="fr"><label for="ctr-swap-limit">Swap Limit (MB)</label><input id="ctr-swap-limit" type="number" value="0"></div><button class="btn btn-g mt-8" onclick="ctrSetLimits(\'' + escapeHtml(n) + '\',\'mem\')">Apply Memory Limit</button>')
-    + '</div>';
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'Resources'),
+      el('div', { class: 'sg' },
+        HN.card('CPU', [HN.row('Cores', info.cpu || '-'), HN.row('Type', 'host (KVM passthrough)')]),
+        HN.card('Memory', el('pre', { class: 'stat-label', style: 'margin:0;white-space:pre;overflow-x:auto' }, memHeader + '\n' + memData)),
+        HN.card('Disk (rootfs)', el('pre', { class: 'stat-label', style: 'margin:0;white-space:pre;overflow-x:auto' }, info.disk || 'N/A')),
+        HN.card('Processes', HN.row('Running', info.procs || '-'))),
+      el('h3', { class: 'section-title-md mt-14' }, 'Resource Limits (cgroup v2)'),
+      el('div', { class: 'sg grid-2' },
+        HN.card('Set CPU Limit', [
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-shares' }, 'CPU Shares'), el('input', { id: 'ctr-cpu-shares', type: 'number', value: '1024' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-quota' }, 'CPU Quota (µs)'), el('input', { id: 'ctr-cpu-quota', type: 'number', value: '100000' })),
+          el('button', { class: 'btn btn-g mt-8', onclick: "ctrSetLimits('" + n + "','cpu')" }, 'Apply CPU Limit')
+        ]),
+        HN.card('Set Memory Limit', [
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-mem-limit' }, 'Memory Limit (MB)'), el('input', { id: 'ctr-mem-limit', type: 'number', value: '512' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-swap-limit' }, 'Swap Limit (MB)'), el('input', { id: 'ctr-swap-limit', type: 'number', value: '0' })),
+          el('button', { class: 'btn btn-g mt-8', onclick: "ctrSetLimits('" + n + "','mem')" }, 'Apply Memory Limit')
+        ]))
+    ));
   } else if (ctrTab === 'network') {
-    tb.innerHTML = '<h3 class="section-title-md">Network Interfaces <button class="btn btn-g" style="font-size:10px;margin-left:8px" onclick="ctrNicAdd(\'' + escapeHtml(n) + '\')">+ Add NIC</button></h3><div id="ctr-nic-list"><span class="spinner"></span> Loading NICs...</div>';
-    tb.innerHTML += '<h3 class="section-title-md mt-14">Bandwidth QoS</h3><div class="sg grid-2">'
-    + H.card('Set Bandwidth Limit', '<div class="fr"><label for="ctr-bw-nic">Interface</label><input id="ctr-bw-nic" value="eth0" class="w-80"></div><div class="fr"><label for="ctr-bw-in">Inbound (Kbps)</label><input id="ctr-bw-in" type="number" value="0" placeholder="0 = unlimited"></div><div class="fr"><label for="ctr-bw-out">Outbound (Kbps)</label><input id="ctr-bw-out" type="number" value="0" placeholder="0 = unlimited"></div><button class="btn btn-g mt-8" onclick="ctrSetBandwidth(\'' + escapeHtml(n) + '\')">Apply QoS</button>')
-    + H.card('Routing &amp; Addresses', '<div id="ctr-net-info"><span class="spinner"></span></div>')
-    + '</div>';
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'Network Interfaces ',
+        el('button', { class: 'btn btn-g', onclick: "ctrNicAdd('" + n + "')", style: 'font-size:10px;margin-left:8px' }, '+ Add NIC')),
+      el('div', { id: 'ctr-nic-list' }, el('span', { class: 'spinner' }), ' Loading NICs...'),
+      el('h3', { class: 'section-title-md mt-14' }, 'Bandwidth QoS'),
+      el('div', { class: 'sg grid-2' },
+        HN.card('Set Bandwidth Limit', [
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-bw-nic' }, 'Interface'), el('input', { id: 'ctr-bw-nic', value: 'eth0', class: 'w-80' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-bw-in' }, 'Inbound (Kbps)'), el('input', { id: 'ctr-bw-in', type: 'number', value: '0', placeholder: '0 = unlimited' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-bw-out' }, 'Outbound (Kbps)'), el('input', { id: 'ctr-bw-out', type: 'number', value: '0', placeholder: '0 = unlimited' })),
+          el('button', { class: 'btn btn-g mt-8', onclick: "ctrSetBandwidth('" + n + "')" }, 'Apply QoS')
+        ]),
+        HN.card('Routing & Addresses', el('div', { id: 'ctr-net-info' }, el('span', { class: 'spinner' }))))
+    ));
     /* Load NIC list */
     try {
       const r = await fetchGet(EP.CTR_NICS(n));
       const nics = unwrapList(r);
-      const el = document.getElementById('ctr-nic-list');
-      if (el) {
-        if (nics.length === 0) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted' }, 'No NICs configured'); }
+      const nicEl = document.getElementById('ctr-nic-list');
+      if (nicEl) {
+        if (nics.length === 0) { PCV.uxlib.setMsg(nicEl, null, { tag: 'p', cls: 'color-muted' }, 'No NICs configured'); }
         else {
-          let h = '<table class="table-sticky"><thead><tr><th>Name</th><th>Type</th><th>Bridge</th><th>MAC</th><th>IPv4</th><th>Actions</th></tr></thead><tbody>';
-          nics.forEach(nc => {
-            h += '<tr><td><b>' + escapeHtml(nc.name || '-') + '</b></td><td>' + escapeHtml(nc.type || 'veth') + '</td><td>' + H.badge(escapeHtml(nc.bridge || '-'), 'y') + '</td><td class="text-xs">' + escapeHtml(nc.hwaddr || 'auto') + '</td><td class="color-accent">' + escapeHtml(nc.ipv4 || '-') + '</td><td>';
-            if (nc.name !== 'eth0') h += '<button class="btn btn-r" style="font-size:9px;padding:2px 6px" onclick="ctrNicDel(\'' + escapeHtml(n) + '\',\'' + escapeHtml(nc.name) + '\')">Remove</button>';
-            else h += '<span class="color-muted text-xs">primary</span>';
-            h += '</td></tr>';
-          });
-          h += '</tbody></table>';
-          el.innerHTML = h;
+          const rows = nics.map(nc => el('tr', null,
+            el('td', null, el('b', null, nc.name || '-')),
+            el('td', null, nc.type || 'veth'),
+            el('td', null, HN.badge(escapeHtml(nc.bridge || '-'), 'y')),
+            el('td', { class: 'text-xs' }, nc.hwaddr || 'auto'),
+            el('td', { class: 'color-accent' }, nc.ipv4 || '-'),
+            el('td', null,
+              nc.name !== 'eth0'
+                ? el('button', { class: 'btn btn-r', onclick: "ctrNicDel('" + n + "','" + nc.name + "')", style: 'font-size:9px;padding:2px 6px' }, 'Remove')
+                : el('span', { class: 'color-muted text-xs' }, 'primary'))));
+          clearEl(nicEl);
+          nicEl.appendChild(el('table', { class: 'table-sticky' },
+            el('thead', null, el('tr', null,
+              el('th', null, 'Name'), el('th', null, 'Type'), el('th', null, 'Bridge'),
+              el('th', null, 'MAC'), el('th', null, 'IPv4'), el('th', null, 'Actions'))),
+            el('tbody', null, rows)));
         }
       }
     } catch (e) {
-      const el = document.getElementById('ctr-nic-list');
-      if (el) el.innerHTML = H.card('Interface eth0', H.row('IP Address', '<span class="color-accent">' + escapeHtml(cv.ip_addr || '-') + '</span>') + H.row('Bridge', 'pcvbr0') + H.row('Type', 'veth'));
+      const nicEl = document.getElementById('ctr-nic-list');
+      if (nicEl) { clearEl(nicEl); nicEl.appendChild(HN.card('Interface eth0', [
+        HN.row('IP Address', el('span', { class: 'color-accent' }, cv.ip_addr || '-')),
+        HN.row('Bridge', 'pcvbr0'),
+        HN.row('Type', 'veth')])); }
     }
     /* Load routing info */
     if (on) {
-      try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<pre class="stat-label" style="margin:0;white-space:pre-wrap;overflow-x:auto">' + escapeHtml(unwrapData(r).output || '') + '</pre>'; } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Unable to fetch'); }
+      try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) { clearEl(ni); ni.appendChild(el('pre', { class: 'stat-label', style: 'margin:0;white-space:pre-wrap;overflow-x:auto' }, unwrapData(r).output || '')); } } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Unable to fetch'); }
     } else {
       const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Container is stopped');
     }
   } else if (ctrTab === 'dns') {
     let dns = ''; if (on) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'cat /etc/resolv.conf 2>/dev/null' }); dns = unwrapData(r).output || ''; } catch (e) { if(_DEBUG) console.warn('dns:', e.message); } }
-    tb.innerHTML = '<h3 class="section-title-md">DNS</h3>' + H.card('Resolver Configuration',
-    (on ? '<pre style="font-size:11px;color:var(--fg);margin:8px 0;white-space:pre-wrap;background:var(--bg);padding:10px;border-radius:4px;border:1px solid var(--border)">' + dns.replace(/</g, '&lt;') + '</pre>'
-    + '<div class="mt-8"><div class="fr"><label for="dns-ns">Add Nameserver</label><input id="dns-ns" placeholder="8.8.8.8" class="flex-1"><button class="btn btn-g" style="margin-left:6px" onclick="ctrDnsAdd(\'' + n + '\')">Add</button></div></div>'
-    : '<p class="color-muted">' + t('ctr.console.stopped') + '</p>'));
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'DNS'),
+      HN.card('Resolver Configuration',
+        on
+          ? [
+              el('pre', { style: 'font-size:11px;color:var(--fg);margin:8px 0;white-space:pre-wrap;background:var(--bg);padding:10px;border-radius:4px;border:1px solid var(--border)' }, dns),
+              el('div', { class: 'mt-8' },
+                el('div', { class: 'fr' },
+                  el('label', { for: 'dns-ns' }, 'Add Nameserver'),
+                  el('input', { id: 'dns-ns', placeholder: '8.8.8.8', class: 'flex-1' }),
+                  el('button', { class: 'btn btn-g', onclick: "ctrDnsAdd('" + n + "')", style: 'margin-left:6px' }, 'Add')))
+            ]
+          : el('p', { class: 'color-muted' }, t('ctr.console.stopped')))
+    ));
   } else if (ctrTab === 'options') {
-    tb.innerHTML = '<h3 class="section-title-md">Options</h3><div class="sg">'
-    + H.card('General', H.row('Start on boot', 'No') + H.row('Start order', '---') + H.row('Protection', 'No') + H.row('Unprivileged', 'No'))
-    + H.card('Security', H.row('AppArmor', 'unconfined') + H.row('Keyctl', 'No') + H.row('Nesting', 'No') + H.row('FUSE', 'No'))
-    + H.card('Signals', H.row('Halt', 'SIGRTMIN+3') + H.row('Reboot', 'SIGTERM'))
-    + '</div>';
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'Options'),
+      el('div', { class: 'sg' },
+        HN.card('General', [HN.row('Start on boot', 'No'), HN.row('Start order', '---'), HN.row('Protection', 'No'), HN.row('Unprivileged', 'No')]),
+        HN.card('Security', [HN.row('AppArmor', 'unconfined'), HN.row('Keyctl', 'No'), HN.row('Nesting', 'No'), HN.row('FUSE', 'No')]),
+        HN.card('Signals', [HN.row('Halt', 'SIGRTMIN+3'), HN.row('Reboot', 'SIGTERM')]))
+    ));
   } else if (ctrTab === 'snapshots') {
-    tb.innerHTML = '<h3 class="section-title-md">' + t('vm.snapshot') + ' <button class="btn btn-g" style="font-size:10px;margin-left:8px" onclick="ctrSnapCreate(\'' + escapeHtml(n) + '\')">+ ' + t('btn.create') + '</button></h3><div id="ctr-snap-list"><span class="spinner"></span> ' + t('loading') + '</div>';
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, t('vm.snapshot') + ' ',
+        el('button', { class: 'btn btn-g', onclick: "ctrSnapCreate('" + n + "')", style: 'font-size:10px;margin-left:8px' }, '+ ' + t('btn.create'))),
+      el('div', { id: 'ctr-snap-list' }, el('span', { class: 'spinner' }), ' ' + t('loading'))));
     try {
       const r = await fetchGet(EP.CTR_SNAPSHOTS(n)).catch(() => ({ data: [] }));
       const sl = unwrapList(r);
-      let sh = '<table class="table-sticky"><thead><tr><th>Name</th><th>' + t('vm.settings') + '</th></tr></thead><tbody>';
-      if (sl.length === 0) sh += '<tr><td colspan="2" class="color-muted">' + t('snap.none') + '</td></tr>';
-      sl.forEach(s => { const sn = typeof s === 'string' ? s : (s.name || s); sh += '<tr><td>' + escapeHtml(sn) + '</td><td><button class="btn text-9" onclick="ctrSnapRb(\'' + escapeHtml(n) + '\',\'' + escapeHtml(sn) + '\')">Rollback</button> <button class="btn btn-r text-9" onclick="ctrSnapDel(\'' + escapeHtml(n) + '\',\'' + escapeHtml(sn) + '\')">' + t('btn.delete') + '</button></td></tr>'; });
-      sh += '</tbody></table>'; document.getElementById('ctr-snap-list').innerHTML = sh;
+      const tbodyKids = [];
+      if (sl.length === 0) tbodyKids.push(el('tr', null, el('td', { colspan: '2', class: 'color-muted' }, t('snap.none'))));
+      sl.forEach(s => { const sn = typeof s === 'string' ? s : (s.name || s); tbodyKids.push(el('tr', null,
+        el('td', null, sn),
+        el('td', null,
+          el('button', { class: 'btn text-9', onclick: "ctrSnapRb('" + n + "','" + sn + "')" }, 'Rollback'),
+          ' ',
+          el('button', { class: 'btn btn-r text-9', onclick: "ctrSnapDel('" + n + "','" + sn + "')" }, t('btn.delete'))))); });
+      const tableNode = el('table', { class: 'table-sticky' },
+        el('thead', null, el('tr', null, el('th', null, 'Name'), el('th', null, t('vm.settings')))),
+        el('tbody', null, tbodyKids));
+      const snapEl = document.getElementById('ctr-snap-list'); clearEl(snapEl); snapEl.appendChild(tableNode);
     } catch (e) { PCV.uxlib.setMsg('ctr-snap-list', null, { tag: 'p', cls: 'color-muted' }, t('snap.none')); }
   } else if (ctrTab === 'notes') {
-    tb.innerHTML = '<h3 class="section-title-md">Notes</h3>' + H.card('Container Notes', '<textarea aria-label="Add notes..." id="ctr-notes" style="width:100%;min-height:150px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:10px;font-family:monospace;font-size:12px;resize:vertical" placeholder="Add notes...">' + escapeHtml(localStorage.getItem('ctr-note-' + n) || '') + '</textarea><button class="btn mt-8" onclick="localStorage.setItem(\'ctr-note-' + escapeHtml(n) + '\',document.getElementById(\'ctr-notes\').value);toast(\'' + t('btn.save') + '\')">' + t('btn.save') + '</button>');
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'Notes'),
+      HN.card('Container Notes', [
+        el('textarea', { 'aria-label': 'Add notes...', id: 'ctr-notes', placeholder: 'Add notes...', style: 'width:100%;min-height:150px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:10px;font-family:monospace;font-size:12px;resize:vertical' }, localStorage.getItem('ctr-note-' + n) || ''),
+        el('button', { class: 'btn mt-8', onclick: "localStorage.setItem('ctr-note-" + n + "',document.getElementById('ctr-notes').value);toast('" + t('btn.save') + "')" }, t('btn.save'))
+      ])));
   } else if (ctrTab === 'tasks') {
-    tb.innerHTML = '<h3 class="section-title-md">Task History</h3>' + H.card('Recent Events', '<div style="max-height:300px;overflow-y:auto;font-size:11px;font-family:monospace;color:var(--accent)">' + eventLog.filter(e => { var s = (e.msg || e.raw || String(e)).toLowerCase(); return s.includes('ctr') || s.includes(n.toLowerCase()); }).map(e => '<div style="padding:2px 0;border-bottom:1px solid var(--border)">' + escapeHtml(e.msg || e.raw || String(e)) + '</div>').join('') + '<div class="color-muted" style="padding:4px 0">' + eventLog.length + ' total events</div></div>');
+    clearEl(tb);
+    tb.appendChild(frag(
+      el('h3', { class: 'section-title-md' }, 'Task History'),
+      HN.card('Recent Events',
+        el('div', { style: 'max-height:300px;overflow-y:auto;font-size:11px;font-family:monospace;color:var(--accent)' },
+          eventLog.filter(e => { var s = (e.msg || e.raw || String(e)).toLowerCase(); return s.includes('ctr') || s.includes(n.toLowerCase()); })
+            .map(e => el('div', { style: 'padding:2px 0;border-bottom:1px solid var(--border)' }, e.msg || e.raw || String(e))),
+          el('div', { class: 'color-muted', style: 'padding:4px 0' }, eventLog.length + ' total events')))));
   }
 }
 
 /* ═══ CONTAINER ACTIONS ═══ */
 async function ctrA(n, a) {
-  showModal('<h2>' + (a === 'start' ? '&#9654; ' + t('ctr.starting') : '&#9632; ' + t('ctr.stopping')) + '</h2><p class="mb-8"><b class="color-accent">' + n + '</b></p><div class="prog-bar"><div class="prog-fill" id="ctr-prog" class="w-pct-10"></div></div><div class="prog-status" id="ctr-st"><span class="spinner"></span>Sending ' + a + ' command...</div>');
+  const el = PCV.uxlib.el;
+  /* prog-fill: 원본 class 속성 중복(class="prog-fill" ... class="w-pct-10") — HTML
+   * 파서가 첫 class만 적용하고 w-pct-* 는 무시. 노드도 class:'prog-fill' 만
+   * 유지(렌더 동등, 7차 doCtrDel 주석 선례). 이하 진행모달 전부 동일. */
+  showModal([
+    el('h2', null, (a === 'start' ? '▶ ' + t('ctr.starting') : '■ ' + t('ctr.stopping'))),
+    el('p', { class: 'mb-8' }, el('b', { class: 'color-accent' }, n)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'ctr-prog' })),
+    el('div', { class: 'prog-status', id: 'ctr-st' }, el('span', { class: 'spinner' }), 'Sending ' + a + ' command...')
+  ]);
   const pf = document.getElementById('ctr-prog'), ps = document.getElementById('ctr-st');
   try {
     pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting for container ' + a + '...');
@@ -262,7 +407,13 @@ async function ctrDnsAdd(n) { const ns = document.getElementById('dns-ns')?.valu
   try { await fetchPost(EP.CTR_EXEC(n), { command: 'echo "nameserver ' + ns + '" >> /etc/resolv.conf' }); toast('Nameserver added'); ctrTab = 'dns'; renderContainers(document.getElementById('cb')); } catch (e) { toast(e.message, false); } }
 
 async function ctrReboot(n) {
-  showModal('<h2>&#128260; Rebooting</h2><p><b class="color-accent">' + esc(n) + '</b></p><div class="prog-bar"><div class="prog-fill" id="cr-p" class="w-pct-10"></div></div><div class="prog-status" id="cr-s"><span class="spinner"></span> Stopping...</div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '🔄 Rebooting'),
+    el('p', null, el('b', { class: 'color-accent' }, n)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'cr-p' })),
+    el('div', { class: 'prog-status', id: 'cr-s' }, el('span', { class: 'spinner' }), ' Stopping...')
+  ]);
   var pf = document.getElementById('cr-p'), ps = document.getElementById('cr-s');
   try {
     if (pf) pf.style.width = '30%';
@@ -282,7 +433,13 @@ async function ctrReboot(n) {
 }
 
 async function ctrSnapCreate(n) { var s = await showInputModal(t('snap.name_prompt') || 'Snapshot name', t('snap.name_prompt') || 'Name', 'snap-' + Date.now()); if (!s) return;
-  showModal('<h2>&#128247; ' + t('snap.created') + '</h2><p><b class="color-accent">' + esc(n) + '@' + esc(s) + '</b></p><div class="prog-bar"><div class="prog-fill" id="cs-p" class="w-pct-20"></div></div><div class="prog-status" id="cs-s"><span class="spinner"></span> Creating snapshot...</div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '📷 ' + t('snap.created')),
+    el('p', null, el('b', { class: 'color-accent' }, n + '@' + s)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'cs-p' })),
+    el('div', { class: 'prog-status', id: 'cs-s' }, el('span', { class: 'spinner' }), ' Creating snapshot...')
+  ]);
   var pf = document.getElementById('cs-p'), ps = document.getElementById('cs-s');
   try {
     if (pf) pf.style.width = '60%';
@@ -296,7 +453,13 @@ async function ctrSnapCreate(n) { var s = await showInputModal(t('snap.name_prom
   }
 }
 async function ctrSnapRb(n, s) { if (!await customConfirm('Rollback', n + ' → ' + s + '?')) return;
-  showModal('<h2>&#9194; Rollback</h2><p><b class="color-accent">' + esc(n) + '@' + esc(s) + '</b></p><div class="prog-bar"><div class="prog-fill" id="crb-p" class="w-pct-20"></div></div><div class="prog-status" id="crb-s"><span class="spinner"></span> Rolling back...</div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '⏪ Rollback'),
+    el('p', null, el('b', { class: 'color-accent' }, n + '@' + s)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'crb-p' })),
+    el('div', { class: 'prog-status', id: 'crb-s' }, el('span', { class: 'spinner' }), ' Rolling back...')
+  ]);
   var pf = document.getElementById('crb-p'), ps = document.getElementById('crb-s');
   try {
     if (pf) pf.style.width = '60%';
@@ -310,7 +473,13 @@ async function ctrSnapRb(n, s) { if (!await customConfirm('Rollback', n + ' → 
   }
 }
 async function ctrSnapDel(n, s) { if (!await customConfirm(t('btn.delete'), s + '?')) return;
-  showModal('<h2>&#128465; ' + t('snap.deleted') + '</h2><p><b class="color-accent">' + esc(n) + '@' + esc(s) + '</b></p><div class="prog-bar"><div class="prog-fill" id="csd-p" class="w-pct-20"></div></div><div class="prog-status" id="csd-s"><span class="spinner"></span> Deleting...</div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, '🗑 ' + t('snap.deleted')),
+    el('p', null, el('b', { class: 'color-accent' }, n + '@' + s)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'csd-p' })),
+    el('div', { class: 'prog-status', id: 'csd-s' }, el('span', { class: 'spinner' }), ' Deleting...')
+  ]);
   var pf = document.getElementById('csd-p'), ps = document.getElementById('csd-s');
   try {
     if (pf) pf.style.width = '60%';
@@ -330,11 +499,35 @@ async function ctrExec(n) {
   selCtr = n; ctrTab = 'console'; renderContainers(document.getElementById('cb'));
 }
 
-function ctrDel(n) { showModal('<h2 class="color-red">&#9888; ' + t('ctr.destroying') + '</h2><p class="mb-12">' + t('ctr.delete.confirm') + ' <b class="color-accent">' + n + '</b></p><p class="mb-12">' + t('ctr.delete.type_name') + '</p><div class="fr"><label for="del-ctr-confirm">Name</label><input id="del-ctr-confirm" placeholder="' + n + '"></div><div class="text-right mt-14"><button class="btn btn-r" onclick="doCtrDel(\'' + n + '\')">' + t('btn.delete') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>'); }
+function ctrDel(n) {
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', { class: 'color-red' }, '⚠ ' + t('ctr.destroying')),
+    el('p', { class: 'mb-12' }, t('ctr.delete.confirm') + ' ', el('b', { class: 'color-accent' }, n)),
+    el('p', { class: 'mb-12' }, t('ctr.delete.type_name')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'del-ctr-confirm' }, 'Name'),
+      el('input', { id: 'del-ctr-confirm', placeholder: n })),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn btn-r', onclick: "doCtrDel('" + n + "')" }, t('btn.delete')),
+      ' ',
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
+}
 
 async function doCtrDel(n) {
   const c = document.getElementById('del-ctr-confirm')?.value; if (c !== n) { toast(t('vm.name_mismatch'), false); return; }
-  const mc = document.getElementById('mc'); mc.innerHTML = '<h2 class="color-red">&#9888; ' + t('ctr.destroying') + '</h2><p><b class="color-accent">' + escapeHtml(n) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dc-p" class="w-pct-10"></div></div><div class="prog-status" id="dc-s"><span class="spinner"></span>Stopping...</div>';
+  /* prog-fill div 는 원본이 class 속성 중복(class="prog-fill" .. class="w-pct-10") — HTML
+   * 파서상 첫 class="prog-fill" 만 적용되고 w-pct-10 은 무시됨 (렌더 동등 보존). */
+  const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  const mc = document.getElementById('mc');
+  clearEl(mc);
+  mc.appendChild(frag(
+    el('h2', { class: 'color-red' }, '⚠ ' + t('ctr.destroying')),
+    el('p', null, el('b', { class: 'color-accent' }, n)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'dc-p' })),
+    el('div', { class: 'prog-status', id: 'dc-s' }, el('span', { class: 'spinner' }), 'Stopping...')
+  ));
   const pf = document.getElementById('dc-p'), ps = document.getElementById('dc-s');
   try { pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Destroying...');
     const d = await fetchDelete(EP.CTR_DETAIL(n)).catch(() => ({}));
@@ -347,31 +540,66 @@ async function doCtrDel(n) {
 /* ═══ CONTAINER CREATE WIZARD ═══ */
 function showCtrCreate() {
   if (typeof markFormDirty === 'function') markFormDirty('ctr-create');
-  let h = '<h2>' + t('ctr.new') + '</h2>';
-  /* 단일 컬럼 레이아웃 — 모달 잘림 방지 */
-  h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
-  /* 왼쪽: 기본 설정 */
-  h += '<div>';
-  h += '<h4 class="mb-8">&#9783; Basic</h4>';
-  h += '<div class="fr"><label for="cc-name" class="min-w-80">Name</label><input id="cc-name" placeholder="my-container" class="flex-1"></div>';
-  h += '<div class="fr"><label for="cc-dist" class="min-w-80">Distribution</label><select id="cc-dist" onchange="ctrDistChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ubuntu">Ubuntu</option><option value="debian">Debian</option><option value="alpine">Alpine</option><option value="centos">CentOS</option><option value="fedora">Fedora</option><option value="archlinux">Arch Linux</option></select></div>';
-  h += '<div class="fr"><label for="cc-rel" class="min-w-80">Release</label><input id="cc-rel" value="jammy" placeholder="jammy / bookworm / 3.19" class="flex-1"></div>';
-  h += '</div>';
-  /* 오른쪽: 네트워크 + 리소스 */
-  h += '<div>';
-  h += '<h4 class="mb-8">&#127760; Network</h4>';
-  h += '<div class="fr"><label for="cc-br" class="min-w-70">Bridge</label><div class="flex gap-6 flex-1"><select id="cc-br" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="pcvbr0">pcvbr0 (default)</option></select><button class="btn text-xs" onclick="ctrLoadBridges()">&#128260;</button></div></div>';
-  h += '<div class="fr"><label for="cc-ipmode" class="min-w-70">IP Mode</label><select id="cc-ipmode" onchange="ctrIpModeChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="dhcp">DHCP (auto)</option><option value="static">Static IP</option></select></div>';
-  h += '<div class="fr hidden" id="cc-static-row"><label for="cc-ip" class="min-w-70">Static IP</label><input id="cc-ip" placeholder="10.0.3.100/24" class="flex-1"></div>';
-  h += '<div class="fr hidden" id="cc-gw-row"><label for="cc-gw" class="min-w-70">Gateway</label><input id="cc-gw" placeholder="10.0.3.1" class="flex-1"></div>';
-  h += '<div class="fr"><label for="cc-dns" class="min-w-70">DNS</label><input id="cc-dns" placeholder="8.8.8.8 (optional)" class="flex-1"></div>';
-  h += '<h4 style="margin:12px 0 8px">&#9881; Resources</h4>';
-  h += '<div class="fr"><label for="cc-vcpu" class="min-w-70">vCPU</label><input id="cc-vcpu" type="number" value="1" min="1" max="64" class="flex-1"></div>';
-  h += '<div class="fr"><label for="cc-mem" class="min-w-70">Memory (MB)</label><input id="cc-mem" type="number" value="512" min="64" class="flex-1"></div>';
-  h += '</div></div>';
-  h += '<div class="text-right mt-14"><button class="btn btn-g" onclick="doCtrCreate()">' + t('btn.create') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
+  var el = PCV.uxlib.el;
+  var selStyle = 'flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px';
+  showModal([
+    el('h2', null, t('ctr.new')),
+    /* 단일 컬럼 레이아웃 — 모달 잘림 방지 */
+    el('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:16px' },
+      /* 왼쪽: 기본 설정 */
+      el('div', null,
+        el('h4', { class: 'mb-8' }, '☷ Basic'),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-name', class: 'min-w-80' }, 'Name'),
+          el('input', { id: 'cc-name', placeholder: 'my-container', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-dist', class: 'min-w-80' }, 'Distribution'),
+          el('select', { id: 'cc-dist', onchange: 'ctrDistChanged()', style: selStyle },
+            el('option', { value: 'ubuntu' }, 'Ubuntu'),
+            el('option', { value: 'debian' }, 'Debian'),
+            el('option', { value: 'alpine' }, 'Alpine'),
+            el('option', { value: 'centos' }, 'CentOS'),
+            el('option', { value: 'fedora' }, 'Fedora'),
+            el('option', { value: 'archlinux' }, 'Arch Linux'))),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-rel', class: 'min-w-80' }, 'Release'),
+          el('input', { id: 'cc-rel', value: 'jammy', placeholder: 'jammy / bookworm / 3.19', class: 'flex-1' }))),
+      /* 오른쪽: 네트워크 + 리소스 */
+      el('div', null,
+        el('h4', { class: 'mb-8' }, '🌐 Network'),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-br', class: 'min-w-70' }, 'Bridge'),
+          el('div', { class: 'flex gap-6 flex-1' },
+            el('select', { id: 'cc-br', style: selStyle },
+              el('option', { value: 'pcvbr0' }, 'pcvbr0 (default)')),
+            el('button', { class: 'btn text-xs', onclick: 'ctrLoadBridges()' }, '🔄'))),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-ipmode', class: 'min-w-70' }, 'IP Mode'),
+          el('select', { id: 'cc-ipmode', onchange: 'ctrIpModeChanged()', style: selStyle },
+            el('option', { value: 'dhcp' }, 'DHCP (auto)'),
+            el('option', { value: 'static' }, 'Static IP'))),
+        el('div', { class: 'fr hidden', id: 'cc-static-row' },
+          el('label', { for: 'cc-ip', class: 'min-w-70' }, 'Static IP'),
+          el('input', { id: 'cc-ip', placeholder: '10.0.3.100/24', class: 'flex-1' })),
+        el('div', { class: 'fr hidden', id: 'cc-gw-row' },
+          el('label', { for: 'cc-gw', class: 'min-w-70' }, 'Gateway'),
+          el('input', { id: 'cc-gw', placeholder: '10.0.3.1', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-dns', class: 'min-w-70' }, 'DNS'),
+          el('input', { id: 'cc-dns', placeholder: '8.8.8.8 (optional)', class: 'flex-1' })),
+        el('h4', { style: 'margin:12px 0 8px' }, '⚙ Resources'),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-vcpu', class: 'min-w-70' }, 'vCPU'),
+          el('input', { id: 'cc-vcpu', type: 'number', value: '1', min: '1', max: '64', class: 'flex-1' })),
+        el('div', { class: 'fr' },
+          el('label', { for: 'cc-mem', class: 'min-w-70' }, 'Memory (MB)'),
+          el('input', { id: 'cc-mem', type: 'number', value: '512', min: '64', class: 'flex-1' })))),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn btn-g', onclick: 'doCtrCreate()' }, t('btn.create')),
+      ' ',
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
   /* 넓은 모달 클래스 적용 */
-  showModal(h);
   var mc = document.getElementById('mc');
   if (mc) mc.classList.add('modal-wide');
   setTimeout(ctrLoadBridges, 80);
@@ -392,16 +620,18 @@ function ctrIpModeChanged() {
 }
 
 async function ctrLoadBridges() {
+  const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const sel = document.getElementById('cc-br'); if (!sel) return;
   try {
     const r = await fetchGet(EP.NET_LIST());
     const nl = unwrapList(r);
-    let h = '';
+    const opts = [];
     nl.forEach(n => { const name = n.name || ''; if (!name) return; const mode = n.mode || ''; const ip = n.ip_cidr || '';
-      h += '<option value="' + escapeHtml(name) + '"' + (name === 'pcvbr0' ? ' selected' : '') + '>' + escapeHtml(name) + (mode ? ' (' + mode + ')' : '') + (ip ? ' ' + ip : '') + '</option>'; });
-    if (!h) h = '<option value="pcvbr0">pcvbr0</option>';
-    sel.innerHTML = h;
-  } catch (e) { sel.innerHTML = '<option value="pcvbr0">pcvbr0</option>'; }
+      opts.push(el('option', { value: name, selected: name === 'pcvbr0' ? '' : null }, name + (mode ? ' (' + mode + ')' : '') + (ip ? ' ' + ip : ''))); });
+    clearEl(sel);
+    if (opts.length === 0) sel.appendChild(el('option', { value: 'pcvbr0' }, 'pcvbr0'));
+    else sel.appendChild(frag(opts));
+  } catch (e) { clearEl(sel); sel.appendChild(el('option', { value: 'pcvbr0' }, 'pcvbr0')); }
 }
 
 async function doCtrCreate() {
@@ -481,7 +711,20 @@ async function ctrSetLimits(name, type) {
 
 /* ═══ LXC NIC MANAGEMENT ═══ */
 function ctrNicAdd(name) {
-  showModal('<h2>Add NIC to ' + escapeHtml(name) + '</h2><div class="fr"><label for="ctr-nic-br">Bridge</label><input id="ctr-nic-br" value="pcvbr0" placeholder="pcvbr0"></div><div class="fr"><label for="ctr-nic-mac">MAC (optional)</label><input id="ctr-nic-mac" placeholder="auto"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doCtrNicAdd(\'' + escapeHtml(name) + '\')">Add NIC</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, 'Add NIC to ' + name),
+    el('div', { class: 'fr' },
+      el('label', { for: 'ctr-nic-br' }, 'Bridge'),
+      el('input', { id: 'ctr-nic-br', value: 'pcvbr0', placeholder: 'pcvbr0' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'ctr-nic-mac' }, 'MAC (optional)'),
+      el('input', { id: 'ctr-nic-mac', placeholder: 'auto' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: "doCtrNicAdd('" + escapeHtml(name) + "')" }, 'Add NIC'),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doCtrNicAdd(name) {

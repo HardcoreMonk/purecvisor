@@ -166,27 +166,47 @@ function applyEditionCapabilities() {
 /* 페이지 로드 시 즉시 실행 (인증 불필요 엔드포인트) */
 applyEditionCapabilities();
 
-/* ═══ HTML BUILDER UTILITY (G-2, FE-6: ui.js에서 정의된 경우 재사용) ═══ */
-if (!window.H) {
-  var H = {
-    card: (title, body, cls) => `<div class="hc ${cls||''}">${title?'<h4>'+title+'</h4>':''}${body}</div>`,
-    row: (key, val, cls) => `<div class="hr"><span class="k">${key}</span><span class="v ${cls||''}">${val}</span></div>`,
-    badge: (text, type) => `<span class="badge b-${type}">${escapeHtml(text)}</span>`,
-    grid: (cols, content) => `<div class="sg grid-${cols}">${content}</div>`,
-    section: (title) => `<h3 class="section-title">${title}</h3>`,
-    sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
-  };
-} else {
-  // var 아님(no-redeclare) — 위 if 분기의 `var H`가 이미 이 스코프에
-  // hoisting 되어 있으므로 재선언 없이 같은 변수에 대입 (동작 동일).
-  H = window.H;
-}
+/* ═══ HTML BUILDER UTILITY (G-2, FE-6) ═══
+ * 문자열 HTML 빌더 H 는 app.js 내 마지막 소비부(showConnect/showAbout/
+ * showPrefs 등)가 8차 배치에서 HN 노드 빌더로 전환되며 미사용이 되어 제거.
+ * 노드 컴포넌트가 필요하면 ui.js 의 전역 HN.* 사용 (ADR-013). */
 
 /* ═══ UTILITIES ═══ */
 var esc = escapeHtml;
 
 function ciIcon(name) {
   return '<svg class="ci-icon" aria-hidden="true"><use href="/ui/vendor/coolicons/coolicons.svg#ci-' + name + '"></use></svg>';
+}
+
+/* ADR-013 DOM-safe: ciIcon()의 SVG 노드 등가물. el()은 HTML NS createElement라
+ * SVG가 실제 렌더되지 않고 href/viewBox 등이 소문자화된다 → createElementNS 로컬
+ * 헬퍼 (monitor.js _svgEl/_svgIcon 선례). 함수 선언이라 로그인 IIFE(로드시)에 hoist. */
+function _svgEl(tag, attrs, children) {
+  var node = document.createElementNS('http://www.w3.org/2000/svg', tag);
+  if (attrs) Object.keys(attrs).forEach(function (k) {
+    var v = attrs[k];
+    if (v === null || v === undefined || v === false) return;
+    node.setAttribute(k, v);
+  });
+  (children || []).forEach(function (c) {
+    if (c === null || c === undefined || c === false) return;
+    node.appendChild(c instanceof Node ? c : document.createTextNode(String(c)));
+  });
+  return node;
+}
+function ciIconNode(name) {
+  return _svgEl('svg', { class: 'ci-icon', 'aria-hidden': 'true' }, [
+    _svgEl('use', { href: '/ui/vendor/coolicons/coolicons.svg#ci-' + name })
+  ]);
+}
+/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지)의 노드 등가물 — class/구조 동형. */
+function _progressBar(p, c) {
+  var el = PCV.uxlib.el;
+  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  var anim = p > 85 ? ' pulse-anim' : '';
+  return el('div', { class: 'pb' + anim },
+    el('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
 }
 
 var EVT_ICONS = {
@@ -232,12 +252,20 @@ window.popoutEventLog = popoutEventLog;
 
 /* ═══ LOGIN ═══ */
 (function() {
+  var mk = PCV.uxlib.el;
   const tls = document.getElementById('login-tls');
   if (!tls) return;
+  PCV.uxlib.clearEl(tls);
   if (location.protocol === 'https:') {
-    tls.innerHTML = '<span class="login-tls-compact color-green">' + ciIcon('lock') + '<span class="login-tls-label">' + t('login.tls.secure') + '</span></span>';
+    tls.appendChild(mk('span', { class: 'login-tls-compact color-green' },
+      ciIconNode('lock'),
+      mk('span', { class: 'login-tls-label' }, t('login.tls.secure'))));
   } else {
-    tls.innerHTML = '<span class="login-tls-compact color-yellow">' + ciIcon('warning') + '<span class="login-tls-label">' + t('login.tls.insecure') + '</span><span aria-hidden="true">—</span><a class="login-tls-action" href="https://' + encodeURIComponent(location.hostname) + ':443' + encodeURI(location.pathname) + '">' + t('login.tls.switch') + '</a></span>';
+    tls.appendChild(mk('span', { class: 'login-tls-compact color-yellow' },
+      ciIconNode('warning'),
+      mk('span', { class: 'login-tls-label' }, t('login.tls.insecure')),
+      mk('span', { 'aria-hidden': 'true' }, '—'),
+      mk('a', { class: 'login-tls-action', href: 'https://' + encodeURIComponent(location.hostname) + ':443' + encodeURI(location.pathname) }, t('login.tls.switch'))));
   }
 })();
 
@@ -392,34 +420,83 @@ window.closeM = closeModal;
 /* ═══ ZVOL ═══ */
 
 /* ═══ CONNECT / PREFS / ABOUT ═══ */
-function showConnect() { let ch = '<h2>Connect to Server</h2><div class="sg">'; MON_NODES.forEach((nd, i) => { ch += H.card(nd.name + (i === 0 ? ' (Current)' : ''), H.row('IP', nd.ip) + H.row('Port', '8080') + H.row('Status', '<span class="color-green">' + t('connected') + '</span>')); }); ch += '</div><div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>'; showModal(ch); }
+function showConnect() {
+  var el = PCV.uxlib.el;
+  var cards = MON_NODES.map((nd, i) => HN.card(nd.name + (i === 0 ? ' (Current)' : ''), [
+    HN.row('IP', nd.ip),
+    HN.row('Port', '8080'),
+    HN.row('Status', el('span', { class: 'color-green' }, t('connected')))
+  ]));
+  showModal([
+    el('h2', null, 'Connect to Server'),
+    el('div', { class: 'sg' }, cards),
+    el('div', { style: 'text-align:right;margin-top:12px' },
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
+}
 
 function showPrefs() {
-  let h = '<h2>Preferences</h2>';
-  h += '<div class="fr"><label for="app-default-pool">Default Pool</label><input id="app-default-pool" value="pcvpool/vms" disabled></div>';
-  h += '<div class="fr"><label for="app-api-port">API Port</label><input id="app-api-port" value="8080" disabled></div>';
-  h += '<div class="fr"><label for="app-theme">Theme</label><select id="app-theme" onchange="changeTheme(this.value);document.getElementById(\'theme-select\').value=this.value"><option value="supanova">SUPANOVA (Teal)</option><option value="supanova-cyan">SUPANOVA CYAN</option><option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option></select></div>';
-  h += '<div style="margin:12px 0"><label style="font-size:12px;color:var(--fg2)">Theme Preview</label>';
-  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px">';
+  var el = PCV.uxlib.el;
   const curTheme = document.documentElement.getAttribute('data-theme') || '';
-  THEME_PREVIEWS.forEach(tp => {
+  var previews = THEME_PREVIEWS.map(tp => {
     const sel = tp.id === curTheme;
-    h += '<div onclick="changeTheme(\'' + tp.id + '\');document.getElementById(\'theme-select\').value=\'' + tp.id + '\';showPrefs()" style="cursor:pointer;padding:8px;border-radius:8px;border:2px solid ' + (sel ? 'var(--accent)' : 'var(--border)') + ';background:var(--bg2);text-align:center' + (sel ? ';box-shadow:0 0 8px var(--accent)' : '') + '">';
-    h += '<div style="display:flex;gap:3px;justify-content:center;margin-bottom:6px">';
-    tp.colors.forEach(c => { h += '<div style="width:20px;height:20px;border-radius:4px;background:' + c + ';border:1px solid rgba(255,255,255,0.1)"></div>'; });
-    h += '</div><div style="font-size:9px;color:var(--fg2);white-space:nowrap">' + tp.name + '</div></div>';
+    return el('div', {
+      onclick: 'changeTheme(\'' + tp.id + '\');document.getElementById(\'theme-select\').value=\'' + tp.id + '\';showPrefs()',
+      style: 'cursor:pointer;padding:8px;border-radius:8px;border:2px solid ' + (sel ? 'var(--accent)' : 'var(--border)') + ';background:var(--bg2);text-align:center' + (sel ? ';box-shadow:0 0 8px var(--accent)' : '')
+    },
+      el('div', { style: 'display:flex;gap:3px;justify-content:center;margin-bottom:6px' },
+        tp.colors.map(c => el('div', { style: 'width:20px;height:20px;border-radius:4px;background:' + c + ';border:1px solid rgba(255,255,255,0.1)' }))),
+      el('div', { style: 'font-size:9px;color:var(--fg2);white-space:nowrap' }, tp.name));
   });
-  h += '</div></div>';
-  /* Auto Theme 토글 제거 — pure-light/pure-dark 테마 삭제와 함께 무의미해짐 */
-  h += '<div style="margin:14px 0;border-top:1px solid var(--border);padding-top:12px"><h4 style="margin-bottom:8px">Configuration Management</h4>';
-  h += '<div class="flex gap-6"><button class="btn btn-g" onclick="configBackup()">&#128190; Backup Config</button><button class="btn" onclick="configHistory()">&#128203; Config History</button></div></div>';
-  h += '<div class="flex gap-6 mt-12"><button class="btn" onclick="exportUiSettings()">' + _L('설정 내보내기', 'Export Settings') + '</button><button class="btn" onclick="importUiSettings()">' + _L('설정 가져오기', 'Import Settings') + '</button></div>';
-  h += '<div style="text-align:right;margin-top:12px"><button class="btn" onclick="openThemeEditor()" style="margin-right:8px">Theme Editor</button><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>';
-  showModal(h);
+  showModal([
+    el('h2', null, 'Preferences'),
+    el('div', { class: 'fr' },
+      el('label', { for: 'app-default-pool' }, 'Default Pool'),
+      el('input', { id: 'app-default-pool', value: 'pcvpool/vms', disabled: '' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'app-api-port' }, 'API Port'),
+      el('input', { id: 'app-api-port', value: '8080', disabled: '' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'app-theme' }, 'Theme'),
+      el('select', { id: 'app-theme', onchange: 'changeTheme(this.value);document.getElementById(\'theme-select\').value=this.value' },
+        el('option', { value: 'supanova' }, 'SUPANOVA (Teal)'),
+        el('option', { value: 'supanova-cyan' }, 'SUPANOVA CYAN'),
+        el('option', { value: 'supanova-hicontrast' }, 'SUPANOVA HI-CONTRAST'))),
+    el('div', { style: 'margin:12px 0' },
+      el('label', { style: 'font-size:12px;color:var(--fg2)' }, 'Theme Preview'),
+      el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px' }, previews)),
+    /* Auto Theme 토글 제거 — pure-light/pure-dark 테마 삭제와 함께 무의미해짐 */
+    el('div', { style: 'margin:14px 0;border-top:1px solid var(--border);padding-top:12px' },
+      el('h4', { style: 'margin-bottom:8px' }, 'Configuration Management'),
+      el('div', { class: 'flex gap-6' },
+        el('button', { class: 'btn btn-g', onclick: 'configBackup()' }, '💾 Backup Config'),
+        el('button', { class: 'btn', onclick: 'configHistory()' }, '📋 Config History'))),
+    el('div', { class: 'flex gap-6 mt-12' },
+      el('button', { class: 'btn', onclick: 'exportUiSettings()' }, _L('설정 내보내기', 'Export Settings')),
+      el('button', { class: 'btn', onclick: 'importUiSettings()' }, _L('설정 가져오기', 'Import Settings'))),
+    el('div', { style: 'text-align:right;margin-top:12px' },
+      el('button', { class: 'btn', onclick: 'openThemeEditor()', style: 'margin-right:8px' }, 'Theme Editor'),
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
 }
 
 function showAbout() {
-  showModal(`<h2>About PureCVisor</h2>${H.card('', H.row('Version', '<span id="about-ver">Loading...</span>') + H.row('LOC', '<span id="about-loc">Loading...</span>') + H.row('Files', '<span id="about-files">Loading...</span>') + H.row('RPC', '<span id="about-rpc">Loading...</span>') + H.row('REST Endpoints', '<span id="about-rest">Loading...</span>') + H.row('Prometheus Metrics', '<span id="about-prom">Loading...</span>') + H.row('Subsystems', 'io_uring, OVN, DPDK, SR-IOV, gRPC, WebSocket') + H.row('Author', 'HardcoreMonk'))}<div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, 'About PureCVisor'),
+    HN.card('', [
+      HN.row('Version', el('span', { id: 'about-ver' }, 'Loading...')),
+      HN.row('LOC', el('span', { id: 'about-loc' }, 'Loading...')),
+      HN.row('Files', el('span', { id: 'about-files' }, 'Loading...')),
+      HN.row('RPC', el('span', { id: 'about-rpc' }, 'Loading...')),
+      HN.row('REST Endpoints', el('span', { id: 'about-rest' }, 'Loading...')),
+      HN.row('Prometheus Metrics', el('span', { id: 'about-prom' }, 'Loading...')),
+      HN.row('Subsystems', 'io_uring, OVN, DPDK, SR-IOV, gRPC, WebSocket'),
+      HN.row('Author', 'HardcoreMonk')
+    ]),
+    el('div', { style: 'text-align:right;margin-top:12px' },
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
+  ]);
   /* /health에서 동적 데이터 로드 */
   fetchGet(API_BASE + '/health').then(r => {
     var d = unwrapData(r);
@@ -500,14 +577,21 @@ window.sgListRules = async function() {
     const r = await fetchGet(API_BASE + '/ovn/acl?switch=' + encodeURIComponent(sw));
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
     if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'ACL 규칙 없음'); return; }
-    let h = '<table style="font-size:11px"><thead><tr><th>Direction</th><th>Priority</th><th>Match</th><th>Action</th></tr></thead><tbody>';
-    list.forEach(a => {
-      const entry = typeof a === 'string' ? a : '';
-      if (entry) { h += '<tr><td colspan="4">' + escapeHtml(entry) + '</td></tr>'; }
-      else { h += '<tr><td>' + escapeHtml(a.direction || '') + '</td><td>' + escapeHtml(String(a.priority || '')) + '</td><td>' + escapeHtml(a.match || '') + '</td><td>' + escapeHtml(a.action || '') + '</td></tr>'; }
+    var mk = PCV.uxlib.el;
+    var rows = list.map(function(a) {
+      var entry = typeof a === 'string' ? a : '';
+      if (entry) return mk('tr', null, mk('td', { colspan: '4' }, entry));
+      return mk('tr', null,
+        mk('td', null, a.direction || ''),
+        mk('td', null, String(a.priority || '')),
+        mk('td', null, a.match || ''),
+        mk('td', null, a.action || ''));
     });
-    h += '</tbody></table>';
-    if (el) el.innerHTML = h;
+    var table = mk('table', { style: 'font-size:11px' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, 'Direction'), mk('th', null, 'Priority'), mk('th', null, 'Match'), mk('th', null, 'Action'))),
+      mk('tbody', null, rows));
+    if (el) { PCV.uxlib.clearEl(el); el.appendChild(table); }
   } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
 };
 
@@ -521,10 +605,19 @@ window.testGpuList = async function() {
     const r = await fetchGet(API_BASE + '/gpu/list');
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
     if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'GPU 디바이스 없음'); return; }
-    let h = '<table style="font-size:11px"><thead><tr><th>PCI</th><th>Name</th><th>Driver</th><th>Type</th></tr></thead><tbody>';
-    list.forEach(g => { h += '<tr><td>' + escapeHtml(g.pci || g.address || '') + '</td><td>' + escapeHtml(g.name || g.device || '') + '</td><td>' + escapeHtml(g.driver || '') + '</td><td>' + escapeHtml(g.type || '') + '</td></tr>'; });
-    h += '</tbody></table>';
-    el.innerHTML = h;
+    var mk = PCV.uxlib.el;
+    var rows = list.map(function(g) {
+      return mk('tr', null,
+        mk('td', null, g.pci || g.address || ''),
+        mk('td', null, g.name || g.device || ''),
+        mk('td', null, g.driver || ''),
+        mk('td', null, g.type || ''));
+    });
+    var table = mk('table', { style: 'font-size:11px' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, 'PCI'), mk('th', null, 'Name'), mk('th', null, 'Driver'), mk('th', null, 'Type'))),
+      mk('tbody', null, rows));
+    PCV.uxlib.clearEl(el); el.appendChild(table);
   } catch (e) { PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'GPU REST 엔드포인트 미구현. CLI 사용: ', PCV.uxlib.el('code', null, 'pcvctl gpu list')); }
 };
 
@@ -573,12 +666,22 @@ window.doAuditSearch = async function() {
     const r = await fetchGet(url);
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
     if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p' }, '검색 결과 없음'); return; }
-    let h = '<table style="font-size:11px"><thead><tr><th>시각</th><th>사용자</th><th>메서드</th><th>대상</th><th>결과</th><th>IP</th></tr></thead><tbody>';
-    list.forEach(e => {
-      h += '<tr><td>' + escapeHtml(e.ts || e.timestamp || '') + '</td><td>' + escapeHtml(e.username || e.user || '') + '</td><td>' + escapeHtml(e.method || e.action || '') + '</td><td>' + escapeHtml(e.target || '') + '</td><td>' + escapeHtml(e.result || e.status || '') + '</td><td>' + escapeHtml(e.src_ip || e.ip || '') + '</td></tr>';
+    var mk = PCV.uxlib.el;
+    var rows = list.map(function(e) {
+      return mk('tr', null,
+        mk('td', null, e.ts || e.timestamp || ''),
+        mk('td', null, e.username || e.user || ''),
+        mk('td', null, e.method || e.action || ''),
+        mk('td', null, e.target || ''),
+        mk('td', null, e.result || e.status || ''),
+        mk('td', null, e.src_ip || e.ip || ''));
     });
-    h += '</tbody></table>';
-    el.innerHTML = h;
+    var table = mk('table', { style: 'font-size:11px' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, '시각'), mk('th', null, '사용자'), mk('th', null, '메서드'),
+        mk('th', null, '대상'), mk('th', null, '결과'), mk('th', null, 'IP'))),
+      mk('tbody', null, rows));
+    PCV.uxlib.clearEl(el); el.appendChild(table);
   } catch (e) { PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
 };
 
@@ -595,15 +698,19 @@ window.loadWebhookDlq = async function() {
     }
     var items = Array.isArray(r) ? r : (r.data || r.result || []);
     if (items.length === 0) { PCV.uxlib.setMsg(el, 'ok', { tag: 'div', cls: 'stat-label' }, _L('DLQ 비어있음', 'DLQ empty')); return; }
-    var h = '<table class="tbl" style="font-size:11px"><thead><tr><th>URL</th><th>Payload</th><th>' + _L('시각','Time') + '</th><th></th></tr></thead><tbody>';
-    items.forEach(function(d, i) {
-      h += '<tr><td>' + esc((d.url || d.webhook_url || '').substring(0, 40)) + '</td>';
-      h += '<td><code>' + esc((d.payload || d.metric || d.error || '').substring(0, 60)) + '</code></td>';
-      h += '<td>' + esc(d.timestamp || d.ts || '-') + '</td>';
-      h += '<td><button class="btn btn-sm" onclick="retryDlqItem(' + i + ')">' + _L('재시도','Retry') + '</button></td></tr>';
+    var mk = PCV.uxlib.el;
+    var rows = items.map(function(d, i) {
+      return mk('tr', null,
+        mk('td', null, (d.url || d.webhook_url || '').substring(0, 40)),
+        mk('td', null, mk('code', null, (d.payload || d.metric || d.error || '').substring(0, 60))),
+        mk('td', null, d.timestamp || d.ts || '-'),
+        mk('td', null, mk('button', { class: 'btn btn-sm', onclick: 'retryDlqItem(' + i + ')' }, _L('재시도', 'Retry'))));
     });
-    h += '</tbody></table>';
-    el.innerHTML = h;
+    var table = mk('table', { class: 'tbl', style: 'font-size:11px' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, 'URL'), mk('th', null, 'Payload'), mk('th', null, _L('시각', 'Time')), mk('th'))),
+      mk('tbody', null, rows));
+    PCV.uxlib.clearEl(el); el.appendChild(table);
     /* DLQ 항목 저장 (개별 재시도용) */
     window._dlqItems = items;
   } catch (e) {
@@ -653,9 +760,15 @@ async function apiKeyCreate() {
     var newEl = document.getElementById('apikey-new-result');
     if (newEl && d.api_key) {
       newEl.style.display = 'block';
-      newEl.innerHTML = '<span class="color-green">&#9989; New API Key created. Copy it now (it won\'t be shown again):</span><br>'
-        + '<code style="color:var(--accent);font-size:13px;word-break:break-all;user-select:all">' + escapeHtml(d.api_key) + '</code>'
-        + '<br><button class="btn" style="margin-top:6px;font-size:10px" onclick="navigator.clipboard.writeText(\'' + escapeHtml(d.api_key).replace(/'/g, "\\'") + '\');toast(\'Copied!\')">&#128203; Copy</button>';
+      var mk = PCV.uxlib.el;
+      PCV.uxlib.clearEl(newEl);
+      newEl.appendChild(PCV.uxlib.frag(
+        mk('span', { class: 'color-green' }, '✅ New API Key created. Copy it now (it won\'t be shown again):'),
+        mk('br'),
+        mk('code', { style: 'color:var(--accent);font-size:13px;word-break:break-all;user-select:all' }, d.api_key),
+        mk('br'),
+        mk('button', { class: 'btn', style: 'margin-top:6px;font-size:10px', onclick: "navigator.clipboard.writeText('" + escapeHtml(d.api_key).replace(/'/g, "\\'") + "');toast('Copied!')" }, '📋 Copy')
+      ));
     }
     toast('API key created: ' + desc);
     addEvt('API Key created: ' + desc);
@@ -674,25 +787,28 @@ async function apiKeyList() {
       PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'No API keys. Create one above.');
       return;
     }
-    var h = '<table style="font-size:11px"><thead><tr><th>Description</th><th>Key (masked)</th><th>Created</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>';
-    keys.forEach(function(k) {
+    var mk = PCV.uxlib.el;
+    var rows = keys.map(function(k) {
       var keyMasked = k.key_prefix ? k.key_prefix + '...' : (k.api_key ? k.api_key.substring(0, 8) + '...' : '***...');
       var expired = k.expired || (k.expires_at && new Date(k.expires_at) < new Date());
-      var statusBadge = expired ? H.badge('Expired', 'r') : (k.revoked ? H.badge('Revoked', 'r') : H.badge('Active', 'g'));
-      h += '<tr>';
-      h += '<td><b>' + escapeHtml(k.description || '-') + '</b></td>';
-      h += '<td><code class="color-muted">' + escapeHtml(keyMasked) + '</code></td>';
-      h += '<td class="text-xs">' + escapeHtml(k.created_at || k.created || '-') + '</td>';
-      h += '<td class="text-xs">' + escapeHtml(k.expires_at || k.expires || '-') + '</td>';
-      h += '<td>' + statusBadge + '</td>';
-      h += '<td>';
-      if (!k.revoked && !expired) {
-        h += '<button class="btn btn-r" style="font-size:9px;padding:2px 8px" onclick="apiKeyRevoke(\'' + escapeHtml(k.id || k.key_id || '') + '\',\'' + escapeHtml(k.description || '') + '\')">Revoke</button>';
-      }
-      h += '</td></tr>';
+      var statusBadge = expired ? HN.badge('Expired', 'r') : (k.revoked ? HN.badge('Revoked', 'r') : HN.badge('Active', 'g'));
+      var actionCell = (!k.revoked && !expired)
+        ? mk('button', { class: 'btn btn-r', style: 'font-size:9px;padding:2px 8px', onclick: "apiKeyRevoke('" + escapeHtml(k.id || k.key_id || '') + "','" + escapeHtml(k.description || '') + "')" }, 'Revoke')
+        : null;
+      return mk('tr', null,
+        mk('td', null, mk('b', null, k.description || '-')),
+        mk('td', null, mk('code', { class: 'color-muted' }, keyMasked)),
+        mk('td', { class: 'text-xs' }, k.created_at || k.created || '-'),
+        mk('td', { class: 'text-xs' }, k.expires_at || k.expires || '-'),
+        mk('td', null, statusBadge),
+        mk('td', null, actionCell));
     });
-    h += '</tbody></table>';
-    el.innerHTML = h;
+    var table = mk('table', { style: 'font-size:11px' },
+      mk('thead', null, mk('tr', null,
+        mk('th', null, 'Description'), mk('th', null, 'Key (masked)'), mk('th', null, 'Created'),
+        mk('th', null, 'Expires'), mk('th', null, 'Status'), mk('th'))),
+      mk('tbody', null, rows));
+    PCV.uxlib.clearEl(el); el.appendChild(table);
   } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'API Keys not available: ' + e.message); }
 }
 window.apiKeyList = apiKeyList;
@@ -755,129 +871,187 @@ async function renderDashboard(b) {
     var totalWorkloads = vms.length + ctrs.length;
     var connectedWorkloads = runVms + runCtrs;
 
-    var h = '<section class="ops-hero">';
-    h += '<div class="ops-hero-copy">';
-    h += '<span class="ops-kicker">' + _L('Single Edge', 'Single Edge') + '</span>';
-    h += '<h2>' + _L('싱글 엣지 운영 대시보드', 'Single Edge Operations Dashboard') + '</h2>';
-    h += '<p>' + _L('호스트 상태, 워크로드, 최근 경고를 한 화면에서 확인합니다.', 'See host health, workloads, and recent alerts in one place.') + '</p>';
-    h += '<div class="ops-pill-row">';
-    h += '<span class="ops-pill">' + _L('활성 워크로드', 'Active workloads') + ' <b>' + connectedWorkloads + '/' + totalWorkloads + '</b></span>';
-    h += '<span class="ops-pill">' + _L('호스트 모드', 'Host mode') + ' <b>' + _L('단일 노드', 'Single node') + '</b></span>';
-    h += '<span class="ops-pill">' + _L('최근 경고', 'Recent alerts') + ' <b>' + alertData.length + '</b></span>';
-    h += '</div></div>';
-    h += '<div class="ops-hero-aside hc">';
-    h += '<h4>' + _L('운영 메모', 'Operations note') + '</h4>';
-    h += H.row(_L('현재 역할', 'Current role'), H.badge(role === 'standalone' ? _L('단독 운영', 'Standalone') : role, role === 'standalone' ? 'g' : 'y'));
-    h += H.row(_L('웹소켓', 'WebSocket'), document.getElementById('ws-s') && document.getElementById('ws-s').textContent ? _L('연결됨', 'Connected') : _L('연결 대기', 'Pending'));
-    h += H.row(_L('운영 우선순위', 'Priority'), alertData.length > 0 ? _L('경고 확인', 'Review alerts') : _L('자원 추이 점검', 'Review resource trend'));
-    h += '</div></section>';
+    var mk = PCV.uxlib.el;
+    var parts = [];
+
+    parts.push(mk('section', { class: 'ops-hero' },
+      mk('div', { class: 'ops-hero-copy' },
+        mk('span', { class: 'ops-kicker' }, _L('Single Edge', 'Single Edge')),
+        mk('h2', null, _L('싱글 엣지 운영 대시보드', 'Single Edge Operations Dashboard')),
+        mk('p', null, _L('호스트 상태, 워크로드, 최근 경고를 한 화면에서 확인합니다.', 'See host health, workloads, and recent alerts in one place.')),
+        mk('div', { class: 'ops-pill-row' },
+          mk('span', { class: 'ops-pill' }, _L('활성 워크로드', 'Active workloads') + ' ', mk('b', null, connectedWorkloads + '/' + totalWorkloads)),
+          mk('span', { class: 'ops-pill' }, _L('호스트 모드', 'Host mode') + ' ', mk('b', null, _L('단일 노드', 'Single node'))),
+          mk('span', { class: 'ops-pill' }, _L('최근 경고', 'Recent alerts') + ' ', mk('b', null, alertData.length)))),
+      mk('div', { class: 'ops-hero-aside hc' },
+        mk('h4', null, _L('운영 메모', 'Operations note')),
+        HN.row(_L('현재 역할', 'Current role'), HN.badge(role === 'standalone' ? _L('단독 운영', 'Standalone') : role, role === 'standalone' ? 'g' : 'y')),
+        HN.row(_L('웹소켓', 'WebSocket'), document.getElementById('ws-s') && document.getElementById('ws-s').textContent ? _L('연결됨', 'Connected') : _L('연결 대기', 'Pending')),
+        HN.row(_L('운영 우선순위', 'Priority'), alertData.length > 0 ? _L('경고 확인', 'Review alerts') : _L('자원 추이 점검', 'Review resource trend')))));
 
     /* F6: Widget toggle bar */
-    h += '<div class="ops-section-heading">';
-    h += '<div><h3>' + _L('표시 항목', 'Visible sections') + '</h3><p>' + _L('대시보드에서 바로 보고 싶은 카드만 켜 두십시오.', 'Keep only the sections you want to see on the dashboard.') + '</p></div>';
-    h += '</div>';
-    h += '<div class="flex gap-4 mb-12" style="flex-wrap:wrap">';
+    parts.push(mk('div', { class: 'ops-section-heading' },
+      mk('div', null,
+        mk('h3', null, _L('표시 항목', 'Visible sections')),
+        mk('p', null, _L('대시보드에서 바로 보고 싶은 카드만 켜 두십시오.', 'Keep only the sections you want to see on the dashboard.')))));
+    /* 아이콘은 coolicons SVG(ci-*)로 통일 — 이모지 혼용(컬러/모노크롬 글리프,
+     * OS 폰트 의존)이 '제각각' 인상의 원인이라 사이드바와 같은 시스템 사용.
+     * 크기는 컨테이너 font-size 위계(칩 12px/카드 11px/타일 30px) 상속. */
     var _dwList = [
-      {key:'stats', label: _L('운영 요약','Operations summary'), icon:'&#128202;'},
-      {key:'actions', label: _L('빠른 작업','Quick actions'), icon:'&#128640;'},
-      {key:'charts', label: _L('자원 추이','Resource charts'), icon:'&#128200;'},
-      {key:'alerts', label: _L('최근 경고','Recent alerts'), icon:'&#128276;'},
-      {key:'vms', label: _L('워크로드 표','Workload tables'), icon:'&#128187;'}
+      {key:'stats', label: _L('운영 요약','Operations summary'), icon:'house-01'},
+      {key:'actions', label: _L('빠른 작업','Quick actions'), icon:'plus-circle'},
+      {key:'charts', label: _L('자원 추이','Resource charts'), icon:'chart-line'},
+      {key:'alerts', label: _L('최근 경고','Recent alerts'), icon:'bell'},
+      {key:'vms', label: _L('워크로드 표','Workload tables'), icon:'menu-alt-01'}
     ];
-    _dwList.forEach(function(w) {
-      var on = _dashWidgets[w.key] !== false;
-      h += '<button class="btn dash-widget-toggle ' + (on ? 'is-active' : '') + '" onclick="toggleDashWidget(\'' + w.key + '\')">' + w.icon + ' ' + w.label + '</button>';
-    });
-    h += '</div>';
+    parts.push(mk('div', { class: 'flex gap-4 mb-12', style: 'flex-wrap:wrap' },
+      _dwList.map(function(w) {
+        var on = _dashWidgets[w.key] !== false;
+        return mk('button', { class: 'btn dash-widget-toggle ' + (on ? 'is-active' : ''), onclick: "toggleDashWidget('" + w.key + "')" }, ciIconNode(w.icon), ' ' + w.label);
+      })));
 
     /* 상태 카드 */
     if (_dashWidgets.stats !== false) {
-    h += '<div class="ops-section-heading"><div><h3>' + _L('운영 요약', 'Operations summary') + '</h3><p>' + _L('가상 머신, 컨테이너, 호스트 상태를 한 번에 확인합니다.', 'Review virtual machines, containers, and host status at a glance.') + '</p></div></div>';
-    h += '<div class="sg grid-4">';
-    h += H.card('&#128187; ' + _L('가상 머신', 'Virtual Machines'), '<div class="stat-lg color-accent">' + vms.length + '</div>' + H.row(_L('실행 중', 'Running'), '<span class="color-green">' + runVms + '</span>') + H.row(_L('정지', 'Stopped'), '<span class="color-muted">' + (vms.length - runVms) + '</span>'));
-    h += H.card('&#9783; ' + _L('컨테이너', 'Containers'), '<div class="stat-lg color-green">' + ctrs.length + '</div>' + H.row(_L('실행 중', 'Running'), '<span class="color-green">' + runCtrs + '</span>') + H.row(_L('정지', 'Stopped'), '<span class="color-muted">' + (ctrs.length - runCtrs) + '</span>'));
-    if (window.pcvClusterEnabled) {
-      h += H.card('&#9741; ' + _L('클러스터', 'Cluster'), '<div class="stat-lg" style="color:var(--yellow)">' + nodeCount + ' ' + _L('노드', 'Nodes') + '</div>' + H.row(_L('역할', 'Role'), H.badge(role, role === 'leader' ? 'g' : 'y')) + H.row('etcd', H.badge(clusterData.etcd_connected ? 'Connected' : 'N/A', clusterData.etcd_connected ? 'g' : 'r')));
-    } else {
-      h += H.card('&#128421; ' + _L('호스트', 'Host'), '<div class="stat-lg" style="color:var(--yellow)">' + _L('정상', 'Healthy') + '</div>' + H.row(_L('모드', 'Mode'), H.badge('Single Edge', 'g')) + H.row(_L('상태', 'Status'), H.badge(_L('운영 중', 'Active'), 'g')));
-    }
-    h += H.card('&#128276; ' + _L('경고', 'Alerts'), '<div class="stat-lg color-red">' + alertData.length + '</div>' + H.row(_L('최근', 'Recent'), recentAlerts.length + _L('건', ' items')));
-    h += '</div>';
+      parts.push(mk('div', { class: 'ops-section-heading' },
+        mk('div', null,
+          mk('h3', null, _L('운영 요약', 'Operations summary')),
+          mk('p', null, _L('가상 머신, 컨테이너, 호스트 상태를 한 번에 확인합니다.', 'Review virtual machines, containers, and host status at a glance.')))));
+      var statCards = [
+        HN.card([ciIconNode('monitor'), ' ' + _L('가상 머신', 'Virtual Machines')], [
+          mk('div', { class: 'stat-lg color-accent' }, vms.length),
+          HN.row(_L('실행 중', 'Running'), mk('span', { class: 'color-green' }, runVms)),
+          HN.row(_L('정지', 'Stopped'), mk('span', { class: 'color-muted' }, vms.length - runVms))
+        ]),
+        HN.card([ciIconNode('layers'), ' ' + _L('컨테이너', 'Containers')], [
+          mk('div', { class: 'stat-lg color-green' }, ctrs.length),
+          HN.row(_L('실행 중', 'Running'), mk('span', { class: 'color-green' }, runCtrs)),
+          HN.row(_L('정지', 'Stopped'), mk('span', { class: 'color-muted' }, ctrs.length - runCtrs))
+        ]),
+        window.pcvClusterEnabled
+          ? HN.card([ciIconNode('copy'), ' ' + _L('클러스터', 'Cluster')], [
+              mk('div', { class: 'stat-lg', style: 'color:var(--yellow)' }, nodeCount + ' ' + _L('노드', 'Nodes')),
+              HN.row(_L('역할', 'Role'), HN.badge(role, role === 'leader' ? 'g' : 'y')),
+              HN.row('etcd', HN.badge(clusterData.etcd_connected ? 'Connected' : 'N/A', clusterData.etcd_connected ? 'g' : 'r'))
+            ])
+          : HN.card([ciIconNode('desktop-tower'), ' ' + _L('호스트', 'Host')], [
+              mk('div', { class: 'stat-lg', style: 'color:var(--yellow)' }, _L('정상', 'Healthy')),
+              HN.row(_L('모드', 'Mode'), HN.badge('Single Edge', 'g')),
+              HN.row(_L('상태', 'Status'), HN.badge(_L('운영 중', 'Active'), 'g'))
+            ]),
+        HN.card([ciIconNode('bell'), ' ' + _L('경고', 'Alerts')], [
+          mk('div', { class: 'stat-lg color-red' }, alertData.length),
+          HN.row(_L('최근', 'Recent'), recentAlerts.length + _L('건', ' items'))
+        ])
+      ];
+      parts.push(mk('div', { class: 'sg grid-4' }, statCards));
     }
 
     /* 바로가기 그리드 */
     if (_dashWidgets.actions !== false) {
-    h += '<div class="ops-section-heading"><div><h3>' + _L('빠른 작업', 'Quick actions') + '</h3><p>' + _L('생성, 네트워크, 스토리지, 모니터링처럼 자주 쓰는 작업만 앞으로 배치했습니다.', 'The most common actions are kept in front: create, networking, storage, and monitoring.') + '</p></div></div>';
-    h += '<div class="sg grid-4">';
-    var shortcuts = [
-      { icon: '&#128187;', label: _L('새 VM', 'New VM'), action: 'showCreate()', color: 'var(--green)' },
-      { icon: '&#9783;', label: _L('새 컨테이너', 'New Container'), action: 'showCtrCreate()', color: 'var(--cyan)' },
-      { icon: '&#127760;', label: _L('네트워크', 'Networks'), action: "navigateTo('networks')", color: 'var(--accent)' },
-      { icon: '&#128190;', label: _L('스토리지', 'Storage'), action: "navigateTo('storage')", color: 'var(--peach)' },
-      { icon: '&#128200;', label: _L('운영 개요', 'Operations Overview'), action: "navigateTo('mon-overview')", color: 'var(--yellow)' },
-      { icon: '&#128187;', label: _L('호스트 상태', 'Host Health'), action: "navigateTo('host')", color: 'var(--cyan)' },
-      { icon: '&#128218;', label: _L('서비스 가이드', 'Service Guide'), action: "navigateTo('serviceguide')", color: 'var(--green)' },
-    ];
-    if (window.pcvClusterEnabled) {
-      shortcuts.splice(5, 0, { icon: '&#9741;', label: _L('클러스터', 'Cluster'), action: "navigateTo('cluster')", color: 'var(--magenta)' });
-    }
-    shortcuts.forEach(function(s) {
-      h += '<div class="hc ops-shortcut-card" onclick="' + s.action + '">';
-      h += '<div class="ops-shortcut-icon">' + s.icon + '</div>';
-      h += '<div class="ops-shortcut-label" style="color:' + s.color + '">' + s.label + '</div>';
-      h += '</div>';
-    });
-    h += '</div>';
+      parts.push(mk('div', { class: 'ops-section-heading' },
+        mk('div', null,
+          mk('h3', null, _L('빠른 작업', 'Quick actions')),
+          mk('p', null, _L('생성, 네트워크, 스토리지, 모니터링처럼 자주 쓰는 작업만 앞으로 배치했습니다.', 'The most common actions are kept in front: create, networking, storage, and monitoring.')))));
+      var shortcuts = [
+        { icon: 'monitor', label: _L('새 VM', 'New VM'), action: 'showCreate()', color: 'var(--green)' },
+        { icon: 'layers', label: _L('새 컨테이너', 'New Container'), action: 'showCtrCreate()', color: 'var(--cyan)' },
+        { icon: 'globe', label: _L('네트워크', 'Networks'), action: "navigateTo('networks')", color: 'var(--accent)' },
+        { icon: 'save', label: _L('스토리지', 'Storage'), action: "navigateTo('storage')", color: 'var(--peach)' },
+        { icon: 'chart-line', label: _L('운영 개요', 'Operations Overview'), action: "navigateTo('mon-overview')", color: 'var(--yellow)' },
+        { icon: 'desktop-tower', label: _L('호스트 상태', 'Host Health'), action: "navigateTo('host')", color: 'var(--cyan)' },
+        { icon: 'book', label: _L('서비스 가이드', 'Service Guide'), action: "navigateTo('serviceguide')", color: 'var(--green)' },
+      ];
+      if (window.pcvClusterEnabled) {
+        shortcuts.splice(5, 0, { icon: 'copy', label: _L('클러스터', 'Cluster'), action: "navigateTo('cluster')", color: 'var(--magenta)' });
+      }
+      parts.push(mk('div', { class: 'sg grid-4' },
+        shortcuts.map(function(s) {
+          return mk('div', { class: 'hc ops-shortcut-card', onclick: s.action },
+            mk('div', { class: 'ops-shortcut-icon', style: 'color:' + s.color }, ciIconNode(s.icon)),
+            mk('div', { class: 'ops-shortcut-label', style: 'color:' + s.color }, s.label));
+        })));
     }
 
     /* 호스트 메트릭 차트 */
     if (_dashWidgets.charts !== false) {
-    /* 호스트 메트릭 최신값 표시 */
-    var hostCpu = hostCpuHistory[hostCpuHistory.length - 1] || 0;
-    var hostMem = hostMemHistory[hostMemHistory.length - 1] || 0;
-    h += '<div class="ops-section-heading"><div><h3>' + _L('실시간 자원 추이', 'Live resource trend') + '</h3><p>' + _L('CPU와 메모리 사용률이 최근 수집값 기준으로 즉시 갱신됩니다.', 'CPU and memory usage update from the latest collected samples.') + '</p></div></div>';
-    h += '<div class="sg grid-2">';
-    h += H.card('CPU ' + _L('사용률', 'Usage') + ' — ' + hostCpu.toFixed(1) + '%', renderProgressBar(hostCpu) + '<div style="position:relative;height:120px;width:100%;margin-top:8px"><canvas id="dash-cpu-chart"></canvas></div>');
-    h += H.card(_L('메모리 사용률', 'Memory Usage') + ' — ' + hostMem.toFixed(1) + '%', renderProgressBar(hostMem) + '<div style="position:relative;height:120px;width:100%;margin-top:8px"><canvas id="dash-mem-chart"></canvas></div>');
-    h += '</div>';
+      /* 호스트 메트릭 최신값 표시 */
+      var hostCpu = hostCpuHistory[hostCpuHistory.length - 1] || 0;
+      var hostMem = hostMemHistory[hostMemHistory.length - 1] || 0;
+      parts.push(mk('div', { class: 'ops-section-heading' },
+        mk('div', null,
+          mk('h3', null, _L('실시간 자원 추이', 'Live resource trend')),
+          mk('p', null, _L('CPU와 메모리 사용률이 최근 수집값 기준으로 즉시 갱신됩니다.', 'CPU and memory usage update from the latest collected samples.')))));
+      parts.push(mk('div', { class: 'sg grid-2' },
+        HN.card('CPU ' + _L('사용률', 'Usage') + ' — ' + hostCpu.toFixed(1) + '%', [
+          _progressBar(hostCpu),
+          mk('div', { style: 'position:relative;height:120px;width:100%;margin-top:8px' }, mk('canvas', { id: 'dash-cpu-chart' }))
+        ]),
+        HN.card(_L('메모리 사용률', 'Memory Usage') + ' — ' + hostMem.toFixed(1) + '%', [
+          _progressBar(hostMem),
+          mk('div', { style: 'position:relative;height:120px;width:100%;margin-top:8px' }, mk('canvas', { id: 'dash-mem-chart' }))
+        ])));
     }
 
     /* 최근 알림 */
     if (_dashWidgets.alerts !== false && recentAlerts.length > 0) {
-      h += '<div class="ops-section-heading"><div><h3>' + _L('최근 경고', 'Recent alerts') + '</h3><p>' + _L('실시간 이벤트 중 운영에 바로 영향을 주는 항목만 먼저 확인합니다.', 'Review only the alerts that need immediate operational attention.') + '</p></div></div>';
-      h += '<table style="font-size:12px"><thead><tr><th>' + _L('시각', 'Time') + '</th><th>' + _L('유형', 'Type') + '</th><th>' + _L('내용', 'Message') + '</th></tr></thead><tbody>';
-      recentAlerts.forEach(function(a) {
-        h += '<tr><td class="color-muted">' + esc(a.timestamp || a.time || '-') + '</td><td>' + H.badge(a.level || a.type || '?', a.level === 'critical' ? 'r' : 'y') + '</td><td>' + esc(a.message || a.detail || '-') + '</td></tr>';
+      parts.push(mk('div', { class: 'ops-section-heading' },
+        mk('div', null,
+          mk('h3', null, _L('최근 경고', 'Recent alerts')),
+          mk('p', null, _L('실시간 이벤트 중 운영에 바로 영향을 주는 항목만 먼저 확인합니다.', 'Review only the alerts that need immediate operational attention.')))));
+      var alertRows = recentAlerts.map(function(a) {
+        return mk('tr', null,
+          mk('td', { class: 'color-muted' }, a.timestamp || a.time || '-'),
+          mk('td', null, HN.badge(a.level || a.type || '?', a.level === 'critical' ? 'r' : 'y')),
+          mk('td', null, a.message || a.detail || '-'));
       });
-      h += '</tbody></table>';
+      parts.push(mk('table', { style: 'font-size:12px' },
+        mk('thead', null, mk('tr', null,
+          mk('th', null, _L('시각', 'Time')), mk('th', null, _L('유형', 'Type')), mk('th', null, _L('내용', 'Message')))),
+        mk('tbody', null, alertRows)));
     }
 
     /* VM 목록 요약 */
     if (_dashWidgets.vms !== false && vms.length > 0) {
-      h += '<div class="ops-section-heading"><div><h3>' + _L('워크로드 현황', 'Workload overview') + '</h3><p>' + _L('대시보드에서는 최근 상태만 보고, 세부 조작은 각 화면에서 이어갑니다.', 'Use the dashboard for status checks, then continue detailed actions in each screen.') + '</p></div></div>';
-      h += '<h3 style="margin:8px 0 12px">' + _L('VM 현황', 'VM Status') + ' (' + vms.length + ')</h3>';
-      h += '<table style="font-size:12px"><thead><tr><th>' + _L('이름', 'Name') + '</th><th>' + _L('상태', 'State') + '</th><th>vCPU</th><th>' + _L('메모리', 'Memory') + '</th></tr></thead><tbody>';
-      vms.slice(0, 10).forEach(function(v) {
+      parts.push(mk('div', { class: 'ops-section-heading' },
+        mk('div', null,
+          mk('h3', null, _L('워크로드 현황', 'Workload overview')),
+          mk('p', null, _L('대시보드에서는 최근 상태만 보고, 세부 조작은 각 화면에서 이어갑니다.', 'Use the dashboard for status checks, then continue detailed actions in each screen.')))));
+      parts.push(mk('h3', { style: 'margin:8px 0 12px' }, ciIconNode('monitor'), ' ' + _L('VM 현황', 'VM Status') + ' (' + vms.length + ')'));
+      var vmRows = vms.slice(0, 10).map(function(v) {
         var on = v.state === 'running';
-        h += '<tr style="cursor:pointer" onclick="selectedVmIndex=' + vms.indexOf(v) + ';currentTab=\'summary\';switchSbTab(\'vms\');render()"><td><b>' + esc(v.name) + '</b></td><td>' + H.badge(v.state || '?', on ? 'g' : 'r') + '</td><td>' + (v.vcpu || '-') + '</td><td>' + (v.memory_mb || '-') + ' MB</td></tr>';
+        return mk('tr', { style: 'cursor:pointer', onclick: 'selectedVmIndex=' + vms.indexOf(v) + ";currentTab='summary';switchSbTab('vms');render()" },
+          mk('td', null, mk('b', null, v.name)),
+          mk('td', null, HN.badge(v.state || '?', on ? 'g' : 'r')),
+          mk('td', null, v.vcpu || '-'),
+          mk('td', null, (v.memory_mb || '-') + ' MB'));
       });
-      if (vms.length > 10) h += '<tr><td colspan="4" class="color-muted text-center">... ' + _L('외', 'and') + ' ' + (vms.length - 10) + _L('개', ' more') + '</td></tr>';
-      h += '</tbody></table>';
+      if (vms.length > 10) vmRows.push(mk('tr', null, mk('td', { colspan: '4', class: 'color-muted text-center' }, '... ' + _L('외', 'and') + ' ' + (vms.length - 10) + _L('개', ' more'))));
+      parts.push(mk('table', { style: 'font-size:12px' },
+        mk('thead', null, mk('tr', null,
+          mk('th', null, _L('이름', 'Name')), mk('th', null, _L('상태', 'State')), mk('th', null, 'vCPU'), mk('th', null, _L('메모리', 'Memory')))),
+        mk('tbody', null, vmRows)));
     }
 
     /* 컨테이너 목록 */
     if (ctrs.length > 0) {
-      h += '<h3 style="margin:20px 0 12px">&#9783; ' + _L('컨테이너 현황', 'Container Status') + ' (' + ctrs.length + ')</h3>';
-      h += '<table style="font-size:12px"><thead><tr><th>' + _L('이름', 'Name') + '</th><th>' + _L('상태', 'State') + '</th><th>IP</th><th>' + _L('이미지', 'Image') + '</th></tr></thead><tbody>';
-      ctrs.slice(0, 10).forEach(function(c) {
+      parts.push(mk('h3', { style: 'margin:20px 0 12px' }, ciIconNode('layers'), ' ' + _L('컨테이너 현황', 'Container Status') + ' (' + ctrs.length + ')'));
+      var ctrRows = ctrs.slice(0, 10).map(function(c) {
         var on = c.state === 'RUNNING';
-        h += '<tr style="cursor:pointer" onclick="selCtr=\'' + esc(c.name) + '\';currentTab=\'containers\';renderContent();renderContainerList()"><td><b>' + esc(c.name) + '</b></td><td>' + H.badge(c.state || '?', on ? 'g' : 'r') + '</td><td>' + esc(c.ip_addr || c.ip || '-') + '</td><td class="color-muted">' + esc(c.image || '-') + '</td></tr>';
+        return mk('tr', { style: 'cursor:pointer', onclick: "selCtr='" + esc(c.name) + "';currentTab='containers';renderContent();renderContainerList()" },
+          mk('td', null, mk('b', null, c.name)),
+          mk('td', null, HN.badge(c.state || '?', on ? 'g' : 'r')),
+          mk('td', null, c.ip_addr || c.ip || '-'),
+          mk('td', { class: 'color-muted' }, c.image || '-'));
       });
-      if (ctrs.length > 10) h += '<tr><td colspan="4" class="color-muted text-center">... ' + _L('외', 'and') + ' ' + (ctrs.length - 10) + _L('개', ' more') + '</td></tr>';
-      h += '</tbody></table>';
+      if (ctrs.length > 10) ctrRows.push(mk('tr', null, mk('td', { colspan: '4', class: 'color-muted text-center' }, '... ' + _L('외', 'and') + ' ' + (ctrs.length - 10) + _L('개', ' more'))));
+      parts.push(mk('table', { style: 'font-size:12px' },
+        mk('thead', null, mk('tr', null,
+          mk('th', null, _L('이름', 'Name')), mk('th', null, _L('상태', 'State')), mk('th', null, 'IP'), mk('th', null, _L('이미지', 'Image')))),
+        mk('tbody', null, ctrRows)));
     }
 
-    b.innerHTML = h;
+    PCV.uxlib.clearEl(b);
+    b.appendChild(PCV.uxlib.frag(parts));
 
     /* Initialize dashboard charts */
     setTimeout(function() {
@@ -887,7 +1061,12 @@ async function renderDashboard(b) {
       }
     }, 100);
   } catch (e) {
-    b.innerHTML = '<h2>' + _L('대시보드', 'Dashboard') + '</h2><p class="color-red">' + _L('오류', 'Error') + ': ' + esc(e.message) + '</p>';
+    var mkErr = PCV.uxlib.el;
+    PCV.uxlib.clearEl(b);
+    b.appendChild(PCV.uxlib.frag(
+      mkErr('h2', null, _L('대시보드', 'Dashboard')),
+      mkErr('p', { class: 'color-red' }, _L('오류', 'Error') + ': ' + e.message)
+    ));
   }
 }
 window.renderDashboard = renderDashboard;
@@ -1269,7 +1448,11 @@ function toggleSplitView() {
     const split = document.createElement('div');
     split.id = 'split-container';
     split.className = 'split-container';
-    split.innerHTML = '<div class="split-pane" id="split-left"></div><div class="split-divider" id="split-divider"></div><div class="split-pane" id="split-right"></div>';
+    split.appendChild(PCV.uxlib.frag(
+      PCV.uxlib.el('div', { class: 'split-pane', id: 'split-left' }),
+      PCV.uxlib.el('div', { class: 'split-divider', id: 'split-divider' }),
+      PCV.uxlib.el('div', { class: 'split-pane', id: 'split-right' })
+    ));
     cb.parentNode.insertBefore(split, cb.nextSibling);
     /* Render current page in left, monitoring in right */
     renderContent();
@@ -1356,10 +1539,20 @@ if (typeof registerShortcut === 'function') {
 }
 function showShortcutsHelp() {
   if (typeof listShortcuts !== 'function' || typeof showModal !== 'function') return;
+  var el = PCV.uxlib.el;
   var sc = listShortcuts();
   var rows = Object.keys(sc).map(function(k){
-    return '<tr><td><span class="kbd">' + k + '</span></td><td>' + (sc[k].label || '') + '</td></tr>';
-  }).join('');
-  showModal('<h2>&#9000; 단축키 도움말</h2><table><thead><tr><th>키</th><th>동작</th></tr></thead><tbody>' + rows + '</tbody></table><div style="text-align:right;margin-top:12px"><button class="btn" onclick="closeModal()">닫기</button></div>');
+    return el('tr', null,
+      el('td', null, el('span', { class: 'kbd' }, k)),
+      el('td', null, sc[k].label || ''));
+  });
+  showModal([
+    el('h2', null, '⌨ 단축키 도움말'),
+    el('table', null,
+      el('thead', null, el('tr', null, el('th', null, '키'), el('th', null, '동작'))),
+      el('tbody', null, rows)),
+    el('div', { style: 'text-align:right;margin-top:12px' },
+      el('button', { class: 'btn', onclick: 'closeModal()' }, '닫기'))
+  ]);
 }
 window.showShortcutsHelp = showShortcutsHelp;

@@ -48,24 +48,28 @@ function toggleTheme() {
 var THEME_VARS = ['bg','bg2','bg3','fg','fg2','accent','green','red','yellow','cyan','peach','magenta','border'];
 
 function openThemeEditor() {
+  var el = PCV.uxlib.el;
   var originalTheme = document.documentElement.getAttribute('data-theme') || '';
   const style = getComputedStyle(document.documentElement);
-  let h = '<h2>Theme Editor</h2>';
-  h += '<div class="theme-editor"><div class="theme-editor-grid">';
-  THEME_VARS.forEach(v => {
+  var items = THEME_VARS.map(v => {
     const cur = style.getPropertyValue('--' + v).trim();
     const hex = cssColorToHex(cur);
-    h += '<div class="theme-editor-item"><label for="cv-' + v + '">--' + v + '</label><input type="color" id="cv-' + v + '" value="' + hex + '" data-var="' + v + '" onchange="previewThemeVar(this)"><span style="font-size:9px;color:var(--fg2)" id="te-val-' + v + '">' + hex + '</span></div>';
+    return el('div', { class: 'theme-editor-item' },
+      el('label', { for: 'cv-' + v }, '--' + v),
+      el('input', { type: 'color', id: 'cv-' + v, value: hex, 'data-var': v, onchange: 'previewThemeVar(this)' }),
+      el('span', { style: 'font-size:9px;color:var(--fg2)', id: 'te-val-' + v }, hex));
   });
-  h += '</div></div>';
-  h += '<div class="theme-editor-actions">';
-  h += '<button class="btn btn-g" onclick="saveCustomTheme()">Save as Custom</button>';
-  h += '<button class="btn" onclick="exportTheme()">Export JSON</button>';
-  h += '<button class="btn" onclick="importTheme()">Import</button>';
-  h += '<button class="btn btn-r" onclick="changeTheme(\'' + originalTheme + '\');closeModal()" style="margin-left:8px">' + (_L ? _L('원래 테마로', 'Reset to Original') : 'Reset to Original') + '</button>';
-  h += '<button class="btn btn-r" onclick="closeModal()">Cancel</button>';
-  h += '</div>';
-  showModal(h);
+  showModal([
+    el('h2', null, 'Theme Editor'),
+    el('div', { class: 'theme-editor' },
+      el('div', { class: 'theme-editor-grid' }, items)),
+    el('div', { class: 'theme-editor-actions' },
+      el('button', { class: 'btn btn-g', onclick: 'saveCustomTheme()' }, 'Save as Custom'),
+      el('button', { class: 'btn', onclick: 'exportTheme()' }, 'Export JSON'),
+      el('button', { class: 'btn', onclick: 'importTheme()' }, 'Import'),
+      el('button', { class: 'btn btn-r', onclick: "changeTheme('" + originalTheme + "');closeModal()", style: 'margin-left:8px' }, _L ? _L('원래 테마로', 'Reset to Original') : 'Reset to Original'),
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, 'Cancel'))
+  ]);
 }
 
 function cssColorToHex(c) {

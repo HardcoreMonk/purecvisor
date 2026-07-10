@@ -68,24 +68,25 @@ window.PCV = window.PCV || {};
   }
 
   function badgeSeverity(sev) {
-    if (sev === 'crit') return H.badge('CRIT', 'r');
-    if (sev === 'warn') return H.badge('WARN', 'y');
-    return H.badge('INFO', 'g');
+    if (sev === 'crit') return HN.badge('CRIT', 'r');
+    if (sev === 'warn') return HN.badge('WARN', 'y');
+    return HN.badge('INFO', 'g');
   }
 
   function badgeStatus(status) {
-    if (status === 'resolved' || status === 'suppressed') return H.badge(upper(status), 'g');
-    if (status === 'action_pending') return H.badge('PENDING', 'y');
-    if (status === 'open') return H.badge('OPEN', 'y');
-    return H.badge(status || '-', 'y');
+    if (status === 'resolved' || status === 'suppressed') return HN.badge(upper(status), 'g');
+    if (status === 'action_pending') return HN.badge('PENDING', 'y');
+    if (status === 'open') return HN.badge('OPEN', 'y');
+    return HN.badge(status || '-', 'y');
   }
 
   function statusCard(title, value, hint, type) {
+    var el = PCV.uxlib.el;
     var cls = type === 'r' ? 'color-red' : type === 'y' ? 'color-yellow' : 'color-green';
-    return H.card(esc(title),
-      '<div class="stat-md ' + cls + '">' + esc(value) + '</div>'
-      + '<div class="stat-label mt-4">' + esc(hint || '') + '</div>',
-      'text-center');
+    return HN.card(title, [
+      el('div', { class: 'stat-md ' + cls }, value),
+      el('div', { class: 'stat-label mt-4' }, hint || '')
+    ], 'text-center');
   }
 
   function renderStatusBar(status, pendingCount) {
@@ -93,6 +94,7 @@ window.PCV = window.PCV || {};
      * First screen answers four operational questions: is Guard enabled, is the
      * baseline trusted, is there open risk, and is any action waiting for approval.
      */
+    var el = PCV.uxlib.el;
     var guard = status && status.enabled ? 'enabled' : 'disabled';
     var baseline = (status && status.baseline_status) || 'unknown';
     var degraded = status && status.degraded;
@@ -105,17 +107,24 @@ window.PCV = window.PCV || {};
     var risk = String((status && status.open_risk) || 0);
     var pending = String((status && status.pending_actions) || pendingCount || 0);
 
-    return H.grid(4,
-      statusCard('Guard', upper(guard), guardHint, guard === 'enabled' ? 'g' : 'r')
-      + statusCard('Baseline', upper(baseline), baselineHint, baseline === 'trusted' ? 'g' : 'y')
-      + statusCard(_L('Open Risk', 'Open Risk'), risk, degraded ? _L('store degraded', 'store degraded') : _L('CRIT/WARN 가중치', 'CRIT/WARN weighted'), Number(risk) > 0 ? 'r' : 'g')
-      + statusCard(_L('Pending Actions', 'Pending Actions'), pending, _L('수동 승인 전용', 'manual approval only'), Number(pending) > 0 ? 'y' : 'g')
-    ) + '<div class="hc mb-12"><div class="flex gap-8 flex-wrap items-center">'
-      + '<button class="btn" type="button" data-sec-refresh="1">&#10227; ' + _L('새로고침', 'Refresh') + '</button>'
-      + (canRole('admin')
-        ? '<label class="text-xs" style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-sec-enabled="1" ' + (guard === 'enabled' ? 'checked' : '') + '> ' + _L('Security Guard 활성', 'Enable Security Guard') + '</label>'
-        : '<span class="stat-label">' + _L('Guard 변경은 admin 권한이 필요합니다.', 'Changing Guard state requires admin.') + '</span>')
-      + '</div></div>';
+    var grid = HN.grid(4,
+      statusCard('Guard', upper(guard), guardHint, guard === 'enabled' ? 'g' : 'r'),
+      statusCard('Baseline', upper(baseline), baselineHint, baseline === 'trusted' ? 'g' : 'y'),
+      statusCard(_L('Open Risk', 'Open Risk'), risk, degraded ? _L('store degraded', 'store degraded') : _L('CRIT/WARN 가중치', 'CRIT/WARN weighted'), Number(risk) > 0 ? 'r' : 'g'),
+      statusCard(_L('Pending Actions', 'Pending Actions'), pending, _L('수동 승인 전용', 'manual approval only'), Number(pending) > 0 ? 'y' : 'g'));
+
+    var controlsRow = canRole('admin')
+      ? el('label', { class: 'text-xs', style: 'display:flex;align-items:center;gap:6px' },
+          el('input', { type: 'checkbox', 'data-sec-enabled': '1', checked: guard === 'enabled' ? '' : null }),
+          ' ' + _L('Security Guard 활성', 'Enable Security Guard'))
+      : el('span', { class: 'stat-label' }, _L('Guard 변경은 admin 권한이 필요합니다.', 'Changing Guard state requires admin.'));
+
+    var bar = el('div', { class: 'hc mb-12' },
+      el('div', { class: 'flex gap-8 flex-wrap items-center' },
+        el('button', { class: 'btn', type: 'button', 'data-sec-refresh': '1' }, '⟳ ' + _L('새로고침', 'Refresh')),
+        controlsRow));
+
+    return [grid, bar];
   }
 
   function uniqueValues(items, key) {
@@ -131,124 +140,144 @@ window.PCV = window.PCV || {};
     return out.sort();
   }
 
-  function optionHtml(value, label) {
-    return '<option value="' + esc(value) + '">' + esc(label || value) + '</option>';
+  function optionNode(value, label) {
+    return PCV.uxlib.el('option', { value: value }, label || value);
   }
 
   function renderFilters(events) {
+    var el = PCV.uxlib.el;
     var sources = uniqueValues(events, 'source');
     var statuses = uniqueValues(events, 'status');
-    return '<div class="hc mb-12"><div class="flex gap-8 flex-wrap items-end">'
-      + '<label class="text-xs">' + _L('심각도', 'Severity')
-      + '<select id="sec-filter-sev" class="input-pcv">'
-      + optionHtml('', _L('전체', 'All'))
-      + optionHtml('crit', 'CRIT') + optionHtml('warn', 'WARN') + optionHtml('info', 'INFO')
-      + '</select></label>'
-      + '<label class="text-xs">' + _L('소스', 'Source')
-      + '<select id="sec-filter-source" class="input-pcv">' + optionHtml('', _L('전체', 'All'))
-      + sources.map(function(v) { return optionHtml(v, v); }).join('') + '</select></label>'
-      + '<label class="text-xs">' + _L('상태', 'Status')
-      + '<select id="sec-filter-status" class="input-pcv">' + optionHtml('', _L('전체', 'All'))
-      + statuses.map(function(v) { return optionHtml(v, v); }).join('') + '</select></label>'
-      + '<label class="text-xs" style="flex:1;min-width:220px">' + _L('검색', 'Search')
-      + '<input id="sec-filter-q" class="input-pcv" type="search" placeholder="target, summary, event_id" style="width:100%"></label>'
-      + '</div></div>';
+    return el('div', { class: 'hc mb-12' },
+      el('div', { class: 'flex gap-8 flex-wrap items-end' },
+        el('label', { class: 'text-xs' }, _L('심각도', 'Severity'),
+          el('select', { id: 'sec-filter-sev', class: 'input-pcv' },
+            optionNode('', _L('전체', 'All')),
+            optionNode('crit', 'CRIT'), optionNode('warn', 'WARN'), optionNode('info', 'INFO'))),
+        el('label', { class: 'text-xs' }, _L('소스', 'Source'),
+          el('select', { id: 'sec-filter-source', class: 'input-pcv' },
+            optionNode('', _L('전체', 'All')),
+            sources.map(function(v) { return optionNode(v, v); }))),
+        el('label', { class: 'text-xs' }, _L('상태', 'Status'),
+          el('select', { id: 'sec-filter-status', class: 'input-pcv' },
+            optionNode('', _L('전체', 'All')),
+            statuses.map(function(v) { return optionNode(v, v); }))),
+        el('label', { class: 'text-xs', style: 'flex:1;min-width:220px' }, _L('검색', 'Search'),
+          el('input', { id: 'sec-filter-q', class: 'input-pcv', type: 'search', placeholder: 'target, summary, event_id', style: 'width:100%' }))));
   }
 
   function renderEventTable(events) {
+    var el = PCV.uxlib.el;
     if (!events.length) {
-      return '<div class="empty-state p-20 text-center">'
-        + '<div class="empty-title">' + _L('보안 이벤트 없음', 'No security events') + '</div>'
-        + '<div class="empty-desc">' + _L('WARN/CRIT 이벤트는 audit target과 event_id를 공유합니다.', 'WARN/CRIT events share audit target with event_id.') + '</div>'
-        + '</div>';
+      return el('div', { class: 'empty-state p-20 text-center' },
+        el('div', { class: 'empty-title' }, _L('보안 이벤트 없음', 'No security events')),
+        el('div', { class: 'empty-desc' }, _L('WARN/CRIT 이벤트는 audit target과 event_id를 공유합니다.', 'WARN/CRIT events share audit target with event_id.')));
     }
 
     var rows = events.map(function(ev) {
       var text = [
         ev.event_id, ev.source, ev.status, ev.target, ev.summary, ev.recommended_action
       ].join(' ').toLowerCase();
-      return '<tr class="sec-event-row" data-sec-event-id="' + esc(ev.event_id || '') + '"'
-        + ' data-sec-severity="' + esc(ev.severity || '') + '"'
-        + ' data-sec-source="' + esc(ev.source || '') + '"'
-        + ' data-sec-status="' + esc(ev.status || '') + '"'
-        + ' data-sec-text="' + esc(text) + '" tabindex="0" style="cursor:pointer">'
-        + '<td class="color-muted nowrap">' + esc(formatTs(ev.timestamp)) + '</td>'
-        + '<td>' + badgeSeverity(ev.severity || 'info') + '</td>'
-        + '<td>' + esc(ev.source || '-') + '</td>'
-        + '<td><code class="text-xs">' + esc(ev.target || '-') + '</code></td>'
-        + '<td>' + esc(ev.summary || '-') + '</td>'
-        + '<td>' + badgeStatus(ev.status || '-') + '</td>'
-        + '<td>' + esc(ev.recommended_action || '-') + '</td></tr>';
-    }).join('');
+      return el('tr', {
+        class: 'sec-event-row',
+        'data-sec-event-id': ev.event_id || '',
+        'data-sec-severity': ev.severity || '',
+        'data-sec-source': ev.source || '',
+        'data-sec-status': ev.status || '',
+        'data-sec-text': text,
+        tabindex: '0',
+        style: 'cursor:pointer'
+      },
+        el('td', { class: 'color-muted nowrap' }, formatTs(ev.timestamp)),
+        el('td', null, badgeSeverity(ev.severity || 'info')),
+        el('td', null, ev.source || '-'),
+        el('td', null, el('code', { class: 'text-xs' }, ev.target || '-')),
+        el('td', null, ev.summary || '-'),
+        el('td', null, badgeStatus(ev.status || '-')),
+        el('td', null, ev.recommended_action || '-'));
+    });
 
-    return '<div style="overflow:auto;max-height:560px">'
-      + '<table class="data-table text-11"><thead><tr>'
-      + '<th>' + _L('시간', 'Time') + '</th><th>' + _L('심각도', 'Severity') + '</th>'
-      + '<th>' + _L('소스', 'Source') + '</th><th>' + _L('대상', 'Target') + '</th>'
-      + '<th>' + _L('요약', 'Summary') + '</th><th>' + _L('상태', 'Status') + '</th>'
-      + '<th>' + _L('권고', 'Action') + '</th></tr></thead><tbody>'
-      + rows
-      + '<tr id="sec-filter-empty" style="display:none"><td colspan="7" class="color-muted text-center p-12">'
-      + _L('필터 조건과 일치하는 이벤트가 없습니다.', 'No events match the current filters.')
-      + '</td></tr></tbody></table></div>';
+    return el('div', { style: 'overflow:auto;max-height:560px' },
+      el('table', { class: 'data-table text-11' },
+        el('thead', null, el('tr', null,
+          el('th', null, _L('시간', 'Time')), el('th', null, _L('심각도', 'Severity')),
+          el('th', null, _L('소스', 'Source')), el('th', null, _L('대상', 'Target')),
+          el('th', null, _L('요약', 'Summary')), el('th', null, _L('상태', 'Status')),
+          el('th', null, _L('권고', 'Action')))),
+        el('tbody', null,
+          rows,
+          el('tr', { id: 'sec-filter-empty', style: 'display:none' },
+            el('td', { colspan: '7', class: 'color-muted text-center p-12' }, _L('필터 조건과 일치하는 이벤트가 없습니다.', 'No events match the current filters.'))))));
   }
 
   function renderPendingActions(actions) {
+    var el = PCV.uxlib.el;
     if (!actions.length) {
-      return H.card(_L('Pending Approval Queue', 'Pending Approval Queue'),
-        '<div class="empty-state p-20 text-center"><div class="empty-title">'
-        + _L('승인 대기 없음', 'No pending approvals') + '</div></div>');
+      return HN.card(_L('Pending Approval Queue', 'Pending Approval Queue'),
+        el('div', { class: 'empty-state p-20 text-center' },
+          el('div', { class: 'empty-title' }, _L('승인 대기 없음', 'No pending approvals'))));
     }
 
-    var body = '<div style="overflow:auto;max-height:260px"><table class="data-table text-11"><thead><tr>'
-      + '<th>event_id</th><th>' + _L('대응', 'Action') + '</th><th>' + _L('대상', 'Target') + '</th>'
-      + '<th>TTL</th><th>' + _L('처리', 'Controls') + '</th></tr></thead><tbody>';
-    actions.forEach(function(action) {
+    var rows = actions.map(function(action) {
       var name = action.action || '';
       var executable = name === 'block_ip' || name === 'revoke_api_key';
       /*
        * The browser mirrors the backend allowlist but never relies on it for
        * safety. Backend RPC rejects non-executable actions again before running.
        */
-      var controls = executable
+      var controls = [];
+      controls.push(executable
         ? (canRole('admin')
-          ? '<button class="btn btn-r" type="button" data-sec-approve="' + esc(action.event_id || '') + '">' + _L('승인', 'Approve') + '</button>'
-          : '<span class="stat-label">' + _L('admin 승인 필요', 'admin approval required') + '</span>')
-        : '<span class="stat-label">' + _L('수동 runbook', 'manual runbook') + '</span>';
+          ? el('button', { class: 'btn btn-r', type: 'button', 'data-sec-approve': action.event_id || '' }, _L('승인', 'Approve'))
+          : el('span', { class: 'stat-label' }, _L('admin 승인 필요', 'admin approval required')))
+        : el('span', { class: 'stat-label' }, _L('수동 runbook', 'manual runbook')));
       if (canRole('operator')) {
-        controls += ' <button class="btn" type="button" data-sec-dismiss="' + esc(action.event_id || '') + '">' + _L('거부', 'Dismiss') + '</button>';
+        controls.push(' ', el('button', { class: 'btn', type: 'button', 'data-sec-dismiss': action.event_id || '' }, _L('거부', 'Dismiss')));
       }
-      body += '<tr data-sec-action-event-id="' + esc(action.event_id || '') + '" style="cursor:pointer">'
-        + '<td><code class="text-xs">' + esc(action.event_id || '-') + '</code></td>'
-        + '<td>' + H.badge(name || '-', executable ? 'r' : 'y') + '</td>'
-        + '<td><code class="text-xs">' + esc(action.target || '-') + '</code></td>'
-        + '<td>' + esc(String(action.ttl_sec || '-')) + 's</td>'
-        + '<td class="nowrap">' + controls + '</td></tr>';
+      return el('tr', { 'data-sec-action-event-id': action.event_id || '', style: 'cursor:pointer' },
+        el('td', null, el('code', { class: 'text-xs' }, action.event_id || '-')),
+        el('td', null, HN.badge(name || '-', executable ? 'r' : 'y')),
+        el('td', null, el('code', { class: 'text-xs' }, action.target || '-')),
+        el('td', null, String(action.ttl_sec || '-') + 's'),
+        el('td', { class: 'nowrap' }, controls));
     });
-    body += '</tbody></table></div>';
-    return H.card(_L('Pending Approval Queue', 'Pending Approval Queue'), body);
+
+    var body = el('div', { style: 'overflow:auto;max-height:260px' },
+      el('table', { class: 'data-table text-11' },
+        el('thead', null, el('tr', null,
+          el('th', null, 'event_id'), el('th', null, _L('대응', 'Action')), el('th', null, _L('대상', 'Target')),
+          el('th', null, 'TTL'), el('th', null, _L('처리', 'Controls')))),
+        el('tbody', null, rows)));
+    return HN.card(_L('Pending Approval Queue', 'Pending Approval Queue'), body);
   }
 
   function renderVerificationCard() {
-    return H.card(_L('Verification Gates', 'Verification Gates'),
-      H.row('Viewer', H.badge('READ', 'g'))
-      + H.row('Operator', H.badge('DISMISS', 'y'))
-      + H.row('Admin', H.badge('APPROVE', 'r'))
-      + H.row('ADR-0018', H.badge('ASYNC', 'g'))
-      + H.row('Audit', '<code>target = event_id</code>'));
+    var el = PCV.uxlib.el;
+    return HN.card(_L('Verification Gates', 'Verification Gates'), [
+      HN.row('Viewer', HN.badge('READ', 'g')),
+      HN.row('Operator', HN.badge('DISMISS', 'y')),
+      HN.row('Admin', HN.badge('APPROVE', 'r')),
+      HN.row('ADR-0018', HN.badge('ASYNC', 'g')),
+      HN.row('Audit', el('code', null, 'target = event_id'))
+    ]);
   }
 
   function renderShell(cfg, events, actions) {
-    var h = H.section('&#128737; ' + _L('보안 이벤트', 'Security Events'));
-    h += renderStatusBar(cfg || {}, actions.length);
-    h += renderFilters(events);
-    h += '<div class="sg grid-2 mb-12">';
-    h += H.card(_L('Event Queue', 'Event Queue'), renderEventTable(events));
-    h += '<div id="security-detail" class="hc"><h4>' + _L('Selected Event', 'Selected Event') + '</h4>'
-      + '<p class="color-muted text-12">' + _L('이벤트를 선택하세요.', 'Select an event.') + '</p></div>';
-    h += '</div>';
-    h += '<div class="sg grid-2">' + renderPendingActions(actions) + renderVerificationCard() + '</div>';
-    return h;
+    /* ADR-013 DOM-safe: 노드 반환 — 호출부가 clearEl+appendChild 로 삽입 (내부
+     * 문자열 헬퍼 전체를 el/HN 노드 조립으로 전환한 캐스케이드, monitor.js 선례). */
+    var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
+    var statusBar = renderStatusBar(cfg || {}, actions.length);
+    return frag(
+      HN.section('🛡 ' + _L('보안 이벤트', 'Security Events')),
+      statusBar,
+      renderFilters(events),
+      el('div', { class: 'sg grid-2 mb-12' },
+        HN.card(_L('Event Queue', 'Event Queue'), renderEventTable(events)),
+        el('div', { id: 'security-detail', class: 'hc' },
+          el('h4', null, _L('Selected Event', 'Selected Event')),
+          el('p', { class: 'color-muted text-12' }, _L('이벤트를 선택하세요.', 'Select an event.')))),
+      el('div', { class: 'sg grid-2' }, renderPendingActions(actions), renderVerificationCard())
+    );
   }
 
   function applyFilters(root) {
@@ -334,7 +363,8 @@ window.PCV = window.PCV || {};
       var events = asArray(loaded[1], 'events');
       var actions = asArray(loaded[2], 'actions');
       lastEvents = events;
-      b.innerHTML = renderShell(cfg, events, actions);
+      PCV.uxlib.clearEl(b);
+      b.appendChild(renderShell(cfg, events, actions));
       bindSecurityHandlers(b);
       applyFilters(b);
       if (currentEventId && events.some(function(ev) { return ev.event_id === currentEventId; })) {
@@ -355,35 +385,38 @@ window.PCV = window.PCV || {};
   }
 
   function renderEventDetail(ev) {
+    /* ADR-013 DOM-safe: 노드 반환 — 호출부가 clearEl+appendChild 로 삽입. */
+    var el = PCV.uxlib.el;
     var action = ev.recommended_action || '';
     var executable = action === 'block_ip' || action === 'revoke_api_key';
-    var controls = '';
+    var controls = [];
     if (executable) {
-      controls += canRole('admin')
-        ? '<button class="btn btn-r" type="button" data-sec-approve="' + esc(ev.event_id || '') + '">' + _L('승인', 'Approve') + '</button>'
-        : '<span class="stat-label">' + _L('admin 승인 필요', 'admin approval required') + '</span>';
+      controls.push(canRole('admin')
+        ? el('button', { class: 'btn btn-r', type: 'button', 'data-sec-approve': ev.event_id || '' }, _L('승인', 'Approve'))
+        : el('span', { class: 'stat-label' }, _L('admin 승인 필요', 'admin approval required')));
     } else if (action === 'manual_runbook') {
-      controls += '<span class="stat-label">' + _L('수동 runbook 후보입니다. 자동 실행하지 않습니다.', 'Manual runbook candidate. It will not execute automatically.') + '</span>';
+      controls.push(el('span', { class: 'stat-label' }, _L('수동 runbook 후보입니다. 자동 실행하지 않습니다.', 'Manual runbook candidate. It will not execute automatically.')));
     }
     if (canRole('operator')) {
-      controls += ' <button class="btn" type="button" data-sec-dismiss="' + esc(ev.event_id || '') + '">' + _L('거부', 'Dismiss') + '</button>';
+      controls.push(' ', el('button', { class: 'btn', type: 'button', 'data-sec-dismiss': ev.event_id || '' }, _L('거부', 'Dismiss')));
     }
 
-    return '<h4>' + _L('Selected Event', 'Selected Event') + ' ' + badgeSeverity(ev.severity || 'info') + '</h4>'
-      + '<div class="mb-8"><b>' + esc(ev.summary || ev.event_id || '-') + '</b></div>'
-      + H.row('event_id', '<code>' + esc(ev.event_id || '') + '</code>')
-      + H.row(_L('소스', 'Source'), esc(ev.source || '-'))
-      + H.row(_L('대상 유형', 'Target Kind'), esc(ev.target_kind || '-'))
-      + H.row(_L('대상', 'Target'), '<code class="text-xs">' + esc(ev.target || '-') + '</code>')
-      + H.row(_L('상태', 'Status'), badgeStatus(ev.status || '-'))
-      + H.row(_L('신뢰도', 'Confidence'), esc(String(ev.confidence || 0)) + '%')
-      + H.row(_L('권고 대응', 'Recommended Response'), H.badge(action || '-', executable ? 'r' : 'y'))
-      + H.row(_L('감사 상관키', 'Audit Correlation'), '<code>security.event target=' + esc(ev.event_id || '') + '</code>')
-      + H.row(_L('발생 횟수', 'Occurrences'), esc(String(ev.occurrence_count || 1)))
-      + '<div class="mt-10 mb-8"><b class="text-12">' + _L('Evidence', 'Evidence') + '</b></div>'
-      + '<pre class="stat-label" style="white-space:pre-wrap;overflow:auto;max-height:260px;margin:0">'
-      + esc(ev.evidence_json || '{}') + '</pre>'
-      + '<div class="flex gap-6 mt-10 flex-wrap">' + controls + '</div>';
+    return PCV.uxlib.frag(
+      el('h4', null, _L('Selected Event', 'Selected Event') + ' ', badgeSeverity(ev.severity || 'info')),
+      el('div', { class: 'mb-8' }, el('b', null, ev.summary || ev.event_id || '-')),
+      HN.row('event_id', el('code', null, ev.event_id || '')),
+      HN.row(_L('소스', 'Source'), ev.source || '-'),
+      HN.row(_L('대상 유형', 'Target Kind'), ev.target_kind || '-'),
+      HN.row(_L('대상', 'Target'), el('code', { class: 'text-xs' }, ev.target || '-')),
+      HN.row(_L('상태', 'Status'), badgeStatus(ev.status || '-')),
+      HN.row(_L('신뢰도', 'Confidence'), String(ev.confidence || 0) + '%'),
+      HN.row(_L('권고 대응', 'Recommended Response'), HN.badge(action || '-', executable ? 'r' : 'y')),
+      HN.row(_L('감사 상관키', 'Audit Correlation'), el('code', null, 'security.event target=' + (ev.event_id || ''))),
+      HN.row(_L('발생 횟수', 'Occurrences'), String(ev.occurrence_count || 1)),
+      el('div', { class: 'mt-10 mb-8' }, el('b', { class: 'text-12' }, _L('Evidence', 'Evidence'))),
+      el('pre', { class: 'stat-label', style: 'white-space:pre-wrap;overflow:auto;max-height:260px;margin:0' }, ev.evidence_json || '{}'),
+      el('div', { class: 'flex gap-6 mt-10 flex-wrap' }, controls)
+    );
   }
 
   async function selectEvent(eventId) {
@@ -394,7 +427,8 @@ window.PCV = window.PCV || {};
     showSkeleton(detail);
     try {
       var ev = await rpc('security.event.get', { event_id: eventId });
-      detail.innerHTML = renderEventDetail(ev || {});
+      PCV.uxlib.clearEl(detail);
+      detail.appendChild(renderEventDetail(ev || {}));
       bindSecurityHandlers(detail);
       document.querySelectorAll('.sec-event-row').forEach(function(row) {
         row.classList.toggle('selected', row.getAttribute('data-sec-event-id') === eventId);

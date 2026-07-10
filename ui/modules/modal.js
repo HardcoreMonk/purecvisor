@@ -76,11 +76,6 @@ window.PCV = window.PCV || {};
     }
   }
 
-  function _esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
 
   var Modal = {
     show: function(opts) {
@@ -89,42 +84,31 @@ window.PCV = window.PCV || {};
       prevFocus = document.activeElement;
 
       var width = (opts.width || 360) + 'px';
-      var actionsHtml = '';
+      var mkEl = PCV.uxlib.el;
+      var actionsEl = null;
       if (opts.actions && opts.actions.length) {
-        actionsHtml = '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">';
-        opts.actions.forEach(function(a, i) {
-          var bg = a.primary ? '' :
-                   a.danger  ? 'background:var(--red);color:#fff' :
-                              'background:var(--bg3)';
-          var cls = a.primary ? 'btn login-btn' : a.danger ? 'btn btn-r' : 'btn';
-          actionsHtml += '<button class="' + cls + '" data-pcv-action="' + i + '" ' +
-                         'style="margin:0;' + bg + '">' + _esc(a.label) + '</button>';
-        });
-        actionsHtml += '</div>';
+        actionsEl = mkEl('div', { style: 'display:flex;gap:8px;justify-content:flex-end;margin-top:16px' },
+          opts.actions.map(function(a, i) {
+            var bg = a.primary ? '' :
+                     a.danger  ? 'background:var(--red);color:#fff' :
+                                'background:var(--bg3)';
+            var cls = a.primary ? 'btn login-btn' : a.danger ? 'btn btn-r' : 'btn';
+            return mkEl('button', { class: cls, 'data-pcv-action': String(i), style: 'margin:0;' + bg }, a.label);
+          }));
       }
 
-      var bodyHtml = (typeof opts.body === 'string') ? opts.body : '';
+      /* body: Node(권장) | HTML 문자열(레거시 — innerHTML 파싱 경로) */
+      var bodyEl = mkEl('div', { id: 'pcv-modal-body' });
+      if (typeof opts.body === 'string') { bodyEl.innerHTML = opts.body; }
+      else if (opts.body && opts.body.nodeType) { bodyEl.appendChild(opts.body); }
 
-      overlay.innerHTML =
-        '<div role="document" style="background:var(--bg2);border:1px solid var(--accent);' +
-        'border-radius:8px;padding:24px;min-width:' + width + ';max-width:90vw;' +
-        'box-shadow:0 0 24px rgba(0,240,255,0.2);color:var(--fg)">' +
-          '<div style="font-size:18px;font-weight:bold;color:var(--accent);' +
-          'margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">' +
-            '<span>' + _esc(opts.title || '') + '</span>' +
-            '<button id="pcv-modal-close-x" aria-label="Close" ' +
-            'style="background:none;border:none;color:var(--fg2);font-size:20px;cursor:pointer;padding:0 4px">&times;</button>' +
-          '</div>' +
-          '<div id="pcv-modal-body">' + bodyHtml + '</div>' +
-          actionsHtml +
-        '</div>';
-
-      /* If body was a DOM node, replace placeholder */
-      if (opts.body && typeof opts.body !== 'string' && opts.body.nodeType) {
-        var bodyEl = overlay.querySelector('#pcv-modal-body');
-        PCV.uxlib.clearEl(bodyEl);
-        bodyEl.appendChild(opts.body);
-      }
+      PCV.uxlib.clearEl(overlay);
+      overlay.appendChild(mkEl('div', { role: 'document', style: 'background:var(--bg2);border:1px solid var(--accent);border-radius:8px;padding:24px;min-width:' + width + ';max-width:90vw;box-shadow:0 0 24px rgba(0,240,255,0.2);color:var(--fg)' },
+        mkEl('div', { style: 'font-size:18px;font-weight:bold;color:var(--accent);margin-bottom:16px;display:flex;justify-content:space-between;align-items:center' },
+          mkEl('span', null, opts.title || ''),
+          mkEl('button', { id: 'pcv-modal-close-x', 'aria-label': 'Close', style: 'background:none;border:none;color:var(--fg2);font-size:20px;cursor:pointer;padding:0 4px' }, '×')),
+        bodyEl,
+        actionsEl));
 
       /* Wire close button */
       overlay.querySelector('#pcv-modal-close-x').addEventListener('click', Modal.close);

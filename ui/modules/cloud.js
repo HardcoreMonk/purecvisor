@@ -21,45 +21,66 @@ window._cloudCleanupTimer = _cloudCleanupTimer;
 
 async function renderCloudMigration(b) {
   showSkeleton(b);
-  let h = H.section('&#9729; Cloud Migration — AWS EC2 &#8596; PureCVisor');
-  h += '<div class="sg grid-2 mb-14">';
+  /* ADR-013 DOM-safe: 정적 폼 템플릿을 el/frag 로 조립. 인라인 onclick 문자열은
+   * 원본 그대로(함수 전역 호출) 유지, HTML 엔티티(&#9729; 등)는 동일 코드포인트
+   * 리터럴 글리프로 치환. */
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var importPanel = el('div', { class: 'hc' },
+    el('h4', { style: 'color:var(--accent)' }, '📥 Import (EC2 → PureCVisor)'),
+    el('p', { class: 'stat-label', style: 'margin-bottom:10px' }, 'AWS EC2 AMI를 PureCVisor VM으로 가져옵니다. EBS→S3→다운로드→qcow2 변환→VM 생성'),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-name' }, 'VM Name'), el('input', { id: 'cm-imp-name', placeholder: 'web-prod' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-ami' }, 'AMI ID'), el('input', { id: 'cm-imp-ami', placeholder: 'ami-0abcdef1234' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-region' }, 'Region'),
+      el('select', { id: 'cm-imp-region', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+        el('option', { value: 'ap-northeast-2' }, 'ap-northeast-2 (Seoul)'),
+        el('option', { value: 'us-east-1' }, 'us-east-1 (Virginia)'),
+        el('option', { value: 'us-west-2' }, 'us-west-2 (Oregon)'),
+        el('option', { value: 'eu-west-1' }, 'eu-west-1 (Ireland)'),
+        el('option', { value: 'ap-southeast-1' }, 'ap-southeast-1 (Singapore)'))),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-bucket' }, 'S3 Bucket'), el('input', { id: 'cm-imp-bucket', placeholder: 'pcv-migration' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-vcpu' }, 'vCPU'), el('input', { id: 'cm-imp-vcpu', type: 'number', value: '2', min: '1', max: '64', style: 'width:80px' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-mem' }, 'Memory (MB)'), el('input', { id: 'cm-imp-mem', type: 'number', value: '2048', style: 'width:100px' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-br' }, 'Bridge'), el('input', { id: 'cm-imp-br', value: 'pcvbr0', style: 'width:120px' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-imp-mode' }, 'Mode'),
+      el('select', { id: 'cm-imp-mode', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+        el('option', { value: 'standard' }, 'Standard (full download)'),
+        el('option', { value: 'near-live' }, 'Near-Live (2-phase, minimal downtime)'))),
+    el('button', { class: 'btn btn-g', onclick: 'cmDoImport()', style: 'margin-top:8px;width:100%' }, '📥 Start Import'));
 
-  /* Import 폼 */
-  h += '<div class="hc"><h4 style="color:var(--accent)">&#128229; Import (EC2 &#8594; PureCVisor)</h4>';
-  h += '<p class="stat-label" style="margin-bottom:10px">AWS EC2 AMI를 PureCVisor VM으로 가져옵니다. EBS→S3→다운로드→qcow2 변환→VM 생성</p>';
-  h += '<div class="fr"><label for="cm-imp-name">VM Name</label><input id="cm-imp-name" placeholder="web-prod"></div>';
-  h += '<div class="fr"><label for="cm-imp-ami">AMI ID</label><input id="cm-imp-ami" placeholder="ami-0abcdef1234"></div>';
-  h += '<div class="fr"><label for="cm-imp-region">Region</label><select id="cm-imp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option><option value="ap-southeast-1">ap-southeast-1 (Singapore)</option></select></div>';
-  h += '<div class="fr"><label for="cm-imp-bucket">S3 Bucket</label><input id="cm-imp-bucket" placeholder="pcv-migration"></div>';
-  h += '<div class="fr"><label for="cm-imp-vcpu">vCPU</label><input id="cm-imp-vcpu" type="number" value="2" min="1" max="64" style="width:80px"></div>';
-  h += '<div class="fr"><label for="cm-imp-mem">Memory (MB)</label><input id="cm-imp-mem" type="number" value="2048" style="width:100px"></div>';
-  h += '<div class="fr"><label for="cm-imp-br">Bridge</label><input id="cm-imp-br" value="pcvbr0" style="width:120px"></div>';
-  h += '<div class="fr"><label for="cm-imp-mode">Mode</label><select id="cm-imp-mode" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="standard">Standard (full download)</option><option value="near-live">Near-Live (2-phase, minimal downtime)</option></select></div>';
-  h += '<button class="btn btn-g" onclick="cmDoImport()" style="margin-top:8px;width:100%">&#128229; Start Import</button>';
-  h += '</div>';
+  var exportPanel = el('div', { class: 'hc' },
+    el('h4', { style: 'color:var(--green)' }, '📦 Export (PureCVisor → EC2)'),
+    el('p', { class: 'stat-label', style: 'margin-bottom:10px' }, 'PureCVisor VM을 AWS EC2 AMI로 내보냅니다. qcow2→RAW→S3→AMI 등록'),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-exp-name' }, 'VM Name'),
+      el('select', { id: 'cm-exp-name', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+        el('option', { value: '' }, t('loading')))),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-exp-region' }, 'Region'),
+      el('select', { id: 'cm-exp-region', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+        el('option', { value: 'ap-northeast-2' }, 'ap-northeast-2 (Seoul)'),
+        el('option', { value: 'us-east-1' }, 'us-east-1 (Virginia)'),
+        el('option', { value: 'us-west-2' }, 'us-west-2 (Oregon)'),
+        el('option', { value: 'eu-west-1' }, 'eu-west-1 (Ireland)'))),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-exp-bucket' }, 'S3 Bucket'), el('input', { id: 'cm-exp-bucket', placeholder: 'pcv-migration' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-exp-ami-name' }, 'AMI Name'), el('input', { id: 'cm-exp-ami-name', placeholder: 'web-prod-exported' })),
+    el('div', { class: 'fr' }, el('label', { for: 'cm-exp-desc' }, 'Description'), el('input', { id: 'cm-exp-desc', placeholder: 'Exported from PureCVisor' })),
+    el('button', { class: 'btn btn-g', onclick: 'cmDoExport()', style: 'margin-top:8px;width:100%' }, '📦 Start Export'));
 
-  /* Export 폼 */
-  h += '<div class="hc"><h4 style="color:var(--green)">&#128230; Export (PureCVisor &#8594; EC2)</h4>';
-  h += '<p class="stat-label" style="margin-bottom:10px">PureCVisor VM을 AWS EC2 AMI로 내보냅니다. qcow2→RAW→S3→AMI 등록</p>';
-  h += '<div class="fr"><label for="cm-exp-name">VM Name</label><select id="cm-exp-name" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">' + t('loading') + '</option></select></div>';
-  h += '<div class="fr"><label for="cm-exp-region">Region</label><select id="cm-exp-region" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ap-northeast-2">ap-northeast-2 (Seoul)</option><option value="us-east-1">us-east-1 (Virginia)</option><option value="us-west-2">us-west-2 (Oregon)</option><option value="eu-west-1">eu-west-1 (Ireland)</option></select></div>';
-  h += '<div class="fr"><label for="cm-exp-bucket">S3 Bucket</label><input id="cm-exp-bucket" placeholder="pcv-migration"></div>';
-  h += '<div class="fr"><label for="cm-exp-ami-name">AMI Name</label><input id="cm-exp-ami-name" placeholder="web-prod-exported"></div>';
-  h += '<div class="fr"><label for="cm-exp-desc">Description</label><input id="cm-exp-desc" placeholder="Exported from PureCVisor"></div>';
-  h += '<button class="btn btn-g" onclick="cmDoExport()" style="margin-top:8px;width:100%">&#128230; Start Export</button>';
-  h += '</div></div>';
+  var jobsPanel = el('div', { class: 'hc', style: 'margin-bottom:14px' },
+    el('h4', null, '📊 Migration Jobs'),
+    el('div', { id: 'cm-jobs' }, el('span', { class: 'spinner' }), ' Loading...'));
 
-  /* 진행 상태 */
-  h += '<div class="hc" style="margin-bottom:14px"><h4>&#128202; Migration Jobs</h4>';
-  h += '<div id="cm-jobs"><span class="spinner"></span> Loading...</div></div>';
+  var pipelineCard = HN.card('🛠 Pipeline Reference',
+    el('div', { style: 'font-size:11px;line-height:1.8;color:var(--fg2)' },
+      el('b', { style: 'color:var(--accent)' }, 'Import:'), ' aws sts verify → ec2 export-image → S3 download → qemu-img convert → virt-customize → VM define', el('br'),
+      el('b', { style: 'color:var(--green)' }, 'Export:'), ' qemu-img convert → S3 upload → ec2 import-image → AMI ready', el('br'),
+      el('b', { style: 'color:var(--yellow)' }, 'Near-Live:'), ' Phase1 사전동기화(실행 중) → Phase2 델타전송(2~5분 중단)'));
 
-  /* 파이프라인 다이어그램 */
-  h += H.card('&#128736; Pipeline Reference', '<div style="font-size:11px;line-height:1.8;color:var(--fg2)">'
-    + '<b style="color:var(--accent)">Import:</b> aws sts verify &#8594; ec2 export-image &#8594; S3 download &#8594; qemu-img convert &#8594; virt-customize &#8594; VM define<br>'
-    + '<b style="color:var(--green)">Export:</b> qemu-img convert &#8594; S3 upload &#8594; ec2 import-image &#8594; AMI ready<br>'
-    + '<b style="color:var(--yellow)">Near-Live:</b> Phase1 사전동기화(실행 중) &#8594; Phase2 델타전송(2~5분 중단)</div>');
-
-  b.innerHTML = h;
+  clearEl(b);
+  b.appendChild(frag(
+    HN.section('☁ Cloud Migration — AWS EC2 ↔ PureCVisor'),
+    el('div', { class: 'sg grid-2 mb-14' }, importPanel, exportPanel),
+    jobsPanel,
+    pipelineCard
+  ));
 
   /* VM 목록 로드 → Export 드롭다운 */
   try {
@@ -95,31 +116,34 @@ async function cmLoadJobs() {
       return;
     }
 
-    let html = '<table><thead><tr><th>VM</th><th>Dir</th><th>Status</th><th>Progress</th><th>Detail</th><th>Elapsed</th><th></th></tr></thead><tbody>';
-    for (const j of jobs) {
+    /* ADR-013 DOM-safe: el 지역변수는 DOM 노드라 빌더는 PCV.uxlib.* 를 mk 로 별칭.
+     * cancel/finalize onclick 문자열의 esc(j.name)은 원본 그대로(escapeAttr 아님) 보존. */
+    var mk = PCV.uxlib.el;
+    var thead = mk('thead', null, mk('tr', null,
+      mk('th', null, 'VM'), mk('th', null, 'Dir'), mk('th', null, 'Status'),
+      mk('th', null, 'Progress'), mk('th', null, 'Detail'), mk('th', null, 'Elapsed'), mk('th')));
+    var tbody = mk('tbody', null, jobs.map(function(j) {
       const pct = j.progress_percent || 0;
       const st = j.status || '?';
       const color = st === 'done' ? 'var(--green)' : st === 'failed' ? 'var(--red)' : 'var(--accent)';
       const active = st !== 'done' && st !== 'failed';
       const awaitingCutover = st === 'awaiting_cutover';
-      const cancelBtn = active && !awaitingCutover
-        ? '<button class="btn btn-r" style="font-size:10px;padding:2px 8px" onclick="cmCancelJob(\'' + esc(j.name) + '\')">Cancel</button>'
-        : '';
-      const finalizeBtn = awaitingCutover
-        ? '<button class="btn btn-g" style="font-size:10px;padding:2px 8px" onclick="cmFinalize(\'' + esc(j.name) + '\')">Finalize</button>'
-        : '';
-      html += '<tr>'
-        + '<td><b>' + esc(j.name || '') + '</b></td>'
-        + '<td>' + H.badge(j.direction || '?', j.direction === 'import' ? 'y' : 'g') + '</td>'
-        + '<td>' + H.badge(st, st === 'done' ? 'g' : st === 'failed' ? 'r' : awaitingCutover ? 'y' : 'y') + '</td>'
-        + '<td><div class="pb" style="min-width:120px"><div class="pb-f" style="width:' + pct + '%;background:' + color + '"></div><div class="pb-t">' + pct + '%</div></div></td>'
-        + '<td class="text-xs">' + esc(j.detail || '-') + '</td>'
-        + '<td class="text-xs">' + (j.elapsed_sec || 0) + 's</td>'
-        + '<td>' + cancelBtn + finalizeBtn + '</td>'
-        + '</tr>';
-    }
-    html += '</tbody></table>';
-    el.innerHTML = html;
+      var actions = [];
+      if (active && !awaitingCutover) actions.push(mk('button', { class: 'btn btn-r', style: 'font-size:10px;padding:2px 8px', onclick: "cmCancelJob('" + esc(j.name) + "')" }, 'Cancel'));
+      if (awaitingCutover) actions.push(mk('button', { class: 'btn btn-g', style: 'font-size:10px;padding:2px 8px', onclick: "cmFinalize('" + esc(j.name) + "')" }, 'Finalize'));
+      return mk('tr', null,
+        mk('td', null, mk('b', null, j.name || '')),
+        mk('td', null, HN.badge(j.direction || '?', j.direction === 'import' ? 'y' : 'g')),
+        mk('td', null, HN.badge(st, st === 'done' ? 'g' : st === 'failed' ? 'r' : awaitingCutover ? 'y' : 'y')),
+        mk('td', null, mk('div', { class: 'pb', style: 'min-width:120px' },
+          mk('div', { class: 'pb-f', style: 'width:' + pct + '%;background:' + color }),
+          mk('div', { class: 'pb-t' }, pct + '%'))),
+        mk('td', { class: 'text-xs' }, j.detail || '-'),
+        mk('td', { class: 'text-xs' }, (j.elapsed_sec || 0) + 's'),
+        mk('td', null, actions));
+    }));
+    PCV.uxlib.clearEl(el);
+    el.appendChild(mk('table', null, thead, tbody));
   } catch (e) { /* ignore polling errors */ }
 }
 window.cmLoadJobs = cmLoadJobs;

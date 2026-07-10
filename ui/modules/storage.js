@@ -21,13 +21,36 @@ function storagePctText(totalBytes, usedBytes) {
   return storagePct(totalBytes, usedBytes).toFixed(1) + '%';
 }
 
+/* ADR-013 DOM-safe: renderProgressBar(ui.js 문자열 헬퍼, 수정 금지)의 노드 등가물 —
+ * class/구조 동형 (app.js _progressBar 선례). */
+function _progressBar(p, c) {
+  var mk = PCV.uxlib.el;
+  var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
+  var anim = p > 85 ? ' pulse-anim' : '';
+  return mk('div', { class: 'pb' + anim },
+    mk('div', { class: 'pb-f scan-anim', style: 'width:' + p + '%;background:' + (c || cl) }),
+    mk('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
+}
+
 async function renderStorage(b) {
   showSkeleton(b);
+  /* ADR-013 DOM-safe: `h +=` 문자열 누적 대신 최상위 형제 노드 배열 parts 에
+   * el/HN 노드를 push, 마지막에 clearEl+frag 로 일괄 삽입 (network.js 선례). */
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const p = await fetchGet(EP.STORAGE_POOLS());
     const pl = unwrapList(p);
-    let h = '<div class="ops-section-heading"><div><h3>' + _L('스토리지 운영 개요', 'Storage operations overview') + '</h3><p>' + _L('풀 상태, 용량 계획, Zvol 작업을 한 화면에서 정리합니다.', 'Review pool health, capacity planning, and zvol operations in one place.') + '</p></div><button class="btn btn-g" onclick="showPoolCreate()">+ ' + _L('풀 생성', 'Create pool') + '</button></div>';
-    if (pl.length === 0) { h += '<div class="empty-state" style="text-align:center;padding:40px 20px"><div style="font-size:48px;margin-bottom:12px;opacity:.5">&#128190;</div><div style="font-size:14px;color:var(--fg2);margin-bottom:16px">' + _L('구성된 ZFS 풀이 없습니다', 'No configured ZFS pools') + '</div><button class="btn btn-g" onclick="showPoolCreate()" class="text-12">+ ' + _L('풀 생성', 'Create pool') + '</button></div>'; }
+    var parts = [el('div', { class: 'ops-section-heading' },
+      el('div', null,
+        el('h3', null, _L('스토리지 운영 개요', 'Storage operations overview')),
+        el('p', null, _L('풀 상태, 용량 계획, Zvol 작업을 한 화면에서 정리합니다.', 'Review pool health, capacity planning, and zvol operations in one place.'))),
+      el('button', { class: 'btn btn-g', onclick: 'showPoolCreate()' }, '+ ' + _L('풀 생성', 'Create pool')))];
+    if (pl.length === 0) {
+      parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:40px 20px' },
+        el('div', { style: 'font-size:48px;margin-bottom:12px;opacity:.5' }, '💾'),
+        el('div', { style: 'font-size:14px;color:var(--fg2);margin-bottom:16px' }, _L('구성된 ZFS 풀이 없습니다', 'No configured ZFS pools')),
+        el('button', { class: 'btn btn-g', onclick: 'showPoolCreate()' }, '+ ' + _L('풀 생성', 'Create pool'))));
+    }
     if (pl.length > 0) {
       const totalBytes = pl.reduce(function(sum, v) { return sum + parseSize(v.size); }, 0);
       const usedBytes = pl.reduce(function(sum, v) { return sum + parseSize(v.alloc || v.used); }, 0);
@@ -38,51 +61,103 @@ async function renderStorage(b) {
         const pct = storagePct(sz, us);
         return v.health !== 'ONLINE' || pct >= 80;
       }).length;
-      h += '<div class="sg grid-3">';
-      h += H.card(_L('풀 상태', 'Pool health'), '<div class="stat-lg color-accent">' + pl.length + '</div>' + H.row(_L('정상', 'Healthy'), '<span class="color-green">' + (pl.length - warningPools) + '</span>') + H.row(_L('주의 필요', 'Needs attention'), '<span class="color-yellow">' + warningPools + '</span>'));
-      h += H.card(_L('사용 중 용량', 'Used capacity'), '<div class="stat-lg color-green">' + fmtBytes(usedBytes) + '</div>' + renderProgressBar(Math.min(totalPct, 100)) + H.row(_L('전체', 'Total'), fmtBytes(totalBytes)) + H.row(_L('사용률', 'Usage'), storagePctText(totalBytes, usedBytes)));
-      h += H.card(_L('운영 원칙', 'Operating rule'), '<div class="stat-label" style="line-height:1.7">' + _L('스크럽과 삭제는 풀 상태를 먼저 확인한 뒤 실행합니다.', 'Run scrub and destroy only after checking pool health.') + '</div>');
-      h += '</div>';
-      h += '<div class="ops-section-heading"><div><h3>' + _L('풀 상태', 'Pool status') + '</h3><p>' + _L('각 풀의 용량과 건강 상태를 확인한 뒤 유지보수 작업을 선택합니다.', 'Review each pool before choosing maintenance actions.') + '</p></div></div>';
+      parts.push(el('div', { class: 'sg grid-3' },
+        HN.card(_L('풀 상태', 'Pool health'), [
+          el('div', { class: 'stat-lg color-accent' }, pl.length),
+          HN.row(_L('정상', 'Healthy'), el('span', { class: 'color-green' }, pl.length - warningPools)),
+          HN.row(_L('주의 필요', 'Needs attention'), el('span', { class: 'color-yellow' }, warningPools))]),
+        HN.card(_L('사용 중 용량', 'Used capacity'), [
+          el('div', { class: 'stat-lg color-green' }, fmtBytes(usedBytes)),
+          _progressBar(Math.min(totalPct, 100)),
+          HN.row(_L('전체', 'Total'), fmtBytes(totalBytes)),
+          HN.row(_L('사용률', 'Usage'), storagePctText(totalBytes, usedBytes))]),
+        HN.card(_L('운영 원칙', 'Operating rule'),
+          el('div', { class: 'stat-label', style: 'line-height:1.7' }, _L('스크럽과 삭제는 풀 상태를 먼저 확인한 뒤 실행합니다.', 'Run scrub and destroy only after checking pool health.')))));
+      parts.push(el('div', { class: 'ops-section-heading' },
+        el('div', null,
+          el('h3', null, _L('풀 상태', 'Pool status')),
+          el('p', null, _L('각 풀의 용량과 건강 상태를 확인한 뒤 유지보수 작업을 선택합니다.', 'Review each pool before choosing maintenance actions.')))));
     }
     pl.forEach(v => {
       const sz = parseSize(v.size), us = parseSize(v.alloc || v.used), pct = storagePct(sz, us);
-      h += H.card('&#128190; ' + escapeHtml(v.name) + ' ' + H.badge(v.health, v.health === 'ONLINE' ? 'g' : 'r'), H.row(_L('총 용량', 'Total size'), fmtBytes(sz)) + H.row(_L('사용량', 'Used'), fmtBytes(us)) + H.row(_L('건강 상태', 'Health'), escapeHtml(v.health || '-')) + renderProgressBar(Math.min(pct, 100)) + H.row(_L('사용률', 'Usage'), storagePctText(sz, us)) + '<div class="flex gap-4 ops-action-row" style="margin-top:10px"><button class="btn btn-soft" style="font-size:10px;padding:3px 8px" onclick="poolScrub(\'' + escapeAttr(v.name) + '\')">&#128260; ' + _L('스크럽', 'Scrub') + '</button><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="poolDestroy(\'' + escapeAttr(v.name) + '\')">&#128465; ' + _L('영구 삭제', 'Destroy') + '</button></div>', 'mb-8');
+      parts.push(HN.card(
+        ['💾 ' + v.name + ' ', HN.badge(v.health, v.health === 'ONLINE' ? 'g' : 'r')],
+        [
+          HN.row(_L('총 용량', 'Total size'), fmtBytes(sz)),
+          HN.row(_L('사용량', 'Used'), fmtBytes(us)),
+          HN.row(_L('건강 상태', 'Health'), v.health || '-'),
+          _progressBar(Math.min(pct, 100)),
+          HN.row(_L('사용률', 'Usage'), storagePctText(sz, us)),
+          el('div', { class: 'flex gap-4 ops-action-row', style: 'margin-top:10px' },
+            el('button', { class: 'btn btn-soft', style: 'font-size:10px;padding:3px 8px', onclick: "poolScrub('" + escapeAttr(v.name) + "')" }, '🔄 ' + _L('스크럽', 'Scrub')),
+            el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "poolDestroy('" + escapeAttr(v.name) + "')" }, '🗑 ' + _L('영구 삭제', 'Destroy')))
+        ],
+        'mb-8'));
     });
     /* Storage usage donut */
     if (pl.length > 0) {
-      h += '<div class="sg grid-2">';
-      pl.forEach(function(v, pi) {
+      parts.push(el('div', { class: 'sg grid-2' }, pl.map(function(v, pi) {
         var sz = parseSize(v.size), us = parseSize(v.alloc || v.used), pct = storagePct(sz, us);
-        h += H.card(esc(v.name) + ' ' + _L('사용량', 'Usage'), '<div style="position:relative;width:120px;height:120px;margin:0 auto">'
-          + '<canvas id="pool-donut-' + pi + '" width="120" height="120"></canvas>'
-          + '<div style="position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:16px;font-weight:700;color:var(--accent)">' + pct.toFixed(0) + '%</div>'
-          + '</div>' + H.row(_L('전체', 'Total'), fmtBytes(sz)) + H.row(_L('사용', 'Used'), fmtBytes(us)));
-      });
-      h += '</div>';
+        return HN.card(v.name + ' ' + _L('사용량', 'Usage'), [
+          el('div', { style: 'position:relative;width:120px;height:120px;margin:0 auto' },
+            el('canvas', { id: 'pool-donut-' + pi, width: 120, height: 120 }),
+            el('div', { style: 'position:absolute;top:50%;left:50%;transform:translate(-50%,-50%);font-size:16px;font-weight:700;color:var(--accent)' }, pct.toFixed(0) + '%')),
+          HN.row(_L('전체', 'Total'), fmtBytes(sz)),
+          HN.row(_L('사용', 'Used'), fmtBytes(us))
+        ]);
+      })));
     }
 
     /* Storage forecast panel */
-    h += '<div class="hc mb-14"><h4>&#128200; ' + _L('용량 예측', 'Capacity planning') + '</h4>';
-    h += '<p class="color-muted text-11 mb-8">' + _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.') + '</p>';
-    h += '<div id="storage-forecast"><span class="spinner"></span> ' + (t('loading') || 'Loading...') + '</div></div>';
+    parts.push(el('div', { class: 'hc mb-14' },
+      el('h4', null, '📈 ' + _L('용량 예측', 'Capacity planning')),
+      el('p', { class: 'color-muted text-11 mb-8' }, _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.')),
+      el('div', { id: 'storage-forecast' }, el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...'))));
     setTimeout(loadStorageForecast, 100);
 
     const z = await fetchGet(EP.STORAGE_ZVOLS());
     const zl = unwrapList(z);
-    h += '<div class="ops-section-heading"><div><h3>' + _L('Zvol 볼륨', 'Zvol volumes') + '</h3><p>' + _L('디스크 볼륨은 표로 관리하고, 대량 삭제는 선택 상태에서만 노출합니다.', 'Manage disk volumes in a table and expose bulk delete only after selection.') + '</p></div><div class="flex gap-8 ops-action-row"><button class="btn btn-primary" onclick="showZvol()">+ ' + t('btn.create') + '</button> <button class="btn btn-r" id="zvol-bulk-del" style="display:none" onclick="zvolBulkDelete()">&#128465; ' + _L('선택 삭제', 'Delete Selected') + ' (<span id="zvol-sel-count">0</span>)</button></div></div>';
-    if (zl.length === 0) { h += '<div class="empty-state"><div class="empty-state-icon">&#128190;</div><div class="empty-state-text">' + _L('아직 생성된 Zvol이 없습니다', 'No zvols created yet') + '</div><div class="color-muted text-12">' + _L('추가 디스크가 필요할 때 생성 버튼으로 바로 만들 수 있습니다.', 'Use the create button when a workload needs an additional disk.') + '</div></div>'; b.innerHTML = h;
+    parts.push(el('div', { class: 'ops-section-heading' },
+      el('div', null,
+        el('h3', null, _L('Zvol 볼륨', 'Zvol volumes')),
+        el('p', null, _L('디스크 볼륨은 표로 관리하고, 대량 삭제는 선택 상태에서만 노출합니다.', 'Manage disk volumes in a table and expose bulk delete only after selection.'))),
+      el('div', { class: 'flex gap-8 ops-action-row' },
+        el('button', { class: 'btn btn-primary', onclick: 'showZvol()' }, '+ ' + t('btn.create')),
+        ' ',
+        el('button', { class: 'btn btn-r', id: 'zvol-bulk-del', style: 'display:none', onclick: 'zvolBulkDelete()' },
+          '🗑 ' + _L('선택 삭제', 'Delete Selected') + ' (', el('span', { id: 'zvol-sel-count' }, '0'), ')'))));
+    if (zl.length === 0) {
+      parts.push(el('div', { class: 'empty-state' },
+        el('div', { class: 'empty-state-icon' }, '💾'),
+        el('div', { class: 'empty-state-text' }, _L('아직 생성된 Zvol이 없습니다', 'No zvols created yet')),
+        el('div', { class: 'color-muted text-12' }, _L('추가 디스크가 필요할 때 생성 버튼으로 바로 만들 수 있습니다.', 'Use the create button when a workload needs an additional disk.'))));
+      clearEl(b);
+      b.appendChild(frag(parts));
       setTimeout(function() { pl.forEach(function(v, pi) { var canvas = document.getElementById('pool-donut-' + pi); if (!canvas) return; var ctx = canvas.getContext('2d'); var sz = parseSize(v.size), us = parseSize(v.alloc || v.used); var pct = sz > 0 ? us / sz : 0; var r = 50, cx = 60, cy = 60, lw = 14; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); try { ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(pct > 0.85 ? '--red' : pct > 0.6 ? '--yellow' : '--green').trim(); } catch(e) {} ctx.stroke(); }); }, 100);
-      return; }
+      return;
+    }
     if (!window._zvolSel) window._zvolSel = new Set();
-    h += '<table class="table-sticky"><thead><tr><th><input type="checkbox" id="zvol-all" aria-label="' + _L('전체 선택', 'Select all zvols') + '" onclick="zvolToggleAll(this.checked)"></th><th>Path</th><th>Size</th><th>Used</th><th>' + _L('압축비', 'Compress') + '</th><th>Dedup</th><th>Written</th><th>' + t('vm.settings') + '</th></tr></thead><tbody>';
-    zl.forEach(v => {
+    var thead = el('thead', null, el('tr', null,
+      el('th', null, el('input', { type: 'checkbox', id: 'zvol-all', 'aria-label': _L('전체 선택', 'Select all zvols'), onclick: 'zvolToggleAll(this.checked)' })),
+      el('th', null, 'Path'), el('th', null, 'Size'), el('th', null, 'Used'),
+      el('th', null, _L('압축비', 'Compress')), el('th', null, 'Dedup'), el('th', null, 'Written'),
+      el('th', null, t('vm.settings'))));
+    var tbody = el('tbody', null, zl.map(function(v) {
       const vn = v.name || v.path;
-      const checked = window._zvolSel.has(vn) ? 'checked' : '';
-      const rowCls = window._zvolSel.has(vn) ? ' class="multi-selected"' : '';
-      h += `<tr${rowCls} oncontextmenu="event.preventDefault();zvolCtxMenu(event,'${escapeAttr(vn)}')"><td><input type="checkbox" ${checked} aria-label="${escapeHtml(vn)}" onclick="zvolToggleSel('${escapeAttr(vn)}',this.checked)"></td><td><span class="text-ellipsis" title="${escapeHtml(vn)}">${escapeHtml(vn)}</span></td><td>${escapeHtml(v.volsize || v.size || '-')}</td><td>${escapeHtml(v.used || '-')}</td><td>${escapeHtml(v.compression_ratio || '-')}</td><td>${escapeHtml(v.dedup || '-')}</td><td>${escapeHtml(v.written || '-')}</td><td><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="zvolDel('${escapeAttr(vn)}')">${t('btn.delete')}</button></td></tr>`;
-    });
-    b.innerHTML = h + '</tbody></table>';
+      const selected = window._zvolSel.has(vn);
+      return el('tr', { class: selected ? 'multi-selected' : null, oncontextmenu: "event.preventDefault();zvolCtxMenu(event,'" + escapeAttr(vn) + "')" },
+        el('td', null, el('input', { type: 'checkbox', checked: selected ? '' : null, 'aria-label': vn, onclick: "zvolToggleSel('" + escapeAttr(vn) + "',this.checked)" })),
+        el('td', null, el('span', { class: 'text-ellipsis', title: vn }, vn)),
+        el('td', null, v.volsize || v.size || '-'),
+        el('td', null, v.used || '-'),
+        el('td', null, v.compression_ratio || '-'),
+        el('td', null, v.dedup || '-'),
+        el('td', null, v.written || '-'),
+        el('td', null, el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "zvolDel('" + escapeAttr(vn) + "')" }, t('btn.delete'))));
+    }));
+    parts.push(el('table', { class: 'table-sticky' }, thead, tbody));
+    clearEl(b);
+    b.appendChild(frag(parts));
     if (window._zvolSel.size > 0) {
       var bd = document.getElementById('zvol-bulk-del');
       var sc = document.getElementById('zvol-sel-count');
@@ -112,7 +187,27 @@ async function renderStorage(b) {
 }
 
 function showPoolCreate() {
-  showModal('<h2>Create ZFS Pool</h2><div class="fr"><label for="pc-name">Pool Name</label><input id="pc-name" placeholder="newpool"></div><div class="fr"><label for="pc-disks">Disks (space sep)</label><input id="pc-disks" placeholder="/dev/sdb /dev/sdc"></div><div class="fr"><label for="pc-raid">RAID Level</label><select id="pc-raid" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">Stripe (default)</option><option value="mirror">Mirror</option><option value="raidz">RAIDZ</option><option value="raidz2">RAIDZ2</option></select></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doPoolCreate()">' + t('btn.create') + '</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, 'Create ZFS Pool'),
+    el('div', { class: 'fr' },
+      el('label', { for: 'pc-name' }, 'Pool Name'),
+      el('input', { id: 'pc-name', placeholder: 'newpool' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'pc-disks' }, 'Disks (space sep)'),
+      el('input', { id: 'pc-disks', placeholder: '/dev/sdb /dev/sdc' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'pc-raid' }, 'RAID Level'),
+      el('select', { id: 'pc-raid', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
+        el('option', { value: '' }, 'Stripe (default)'),
+        el('option', { value: 'mirror' }, 'Mirror'),
+        el('option', { value: 'raidz' }, 'RAIDZ'),
+        el('option', { value: 'raidz2' }, 'RAIDZ2'))),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doPoolCreate()' }, t('btn.create')),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doPoolCreate() {
@@ -162,12 +257,24 @@ async function poolDestroy(name) {
 async function showZvol() {
   var pool = 'pcvpool/vms';
   try { var cfg = await fetchGet(EP.CONFIG_DAEMON()); var d = cfg.result || cfg.data || cfg; if (d.storage && d.storage.zvol_pool) pool = d.storage.zvol_pool; } catch(e) {}
-  showModal(`<h2>${t('btn.create')} Zvol</h2>`
-    + `<div class="fr"><label for="zn">Name</label><input id="zn" placeholder="data-disk" oninput="document.getElementById('zvol-preview').textContent='${escapeHtml(pool)}/' + (this.value||'name')"></div>`
-    + `<div class="fr"><label for="zs">Size GB</label><input id="zs" type="number" value="20" min="1" max="2048"></div>`
-    + `<div style="margin:8px 0 4px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:11px;font-family:var(--font-mono)">`
-    + `<span class="color-muted">${_L('생성 경로', 'Path')}:</span> <span id="zvol-preview" class="color-accent">${escapeHtml(pool)}/name</span></div>`
-    + `<div class="text-right mt-12"><button class="btn btn-g" onclick="doZvol()">${t('btn.create')}</button> <button class="btn btn-r" onclick="closeModal()">${t('btn.cancel')}</button></div>`);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, t('btn.create') + ' Zvol'),
+    el('div', { class: 'fr' },
+      el('label', { for: 'zn' }, 'Name'),
+      el('input', { id: 'zn', placeholder: 'data-disk', oninput: "document.getElementById('zvol-preview').textContent='" + escapeHtml(pool) + "/' + (this.value||'name')" })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'zs' }, 'Size GB'),
+      el('input', { id: 'zs', type: 'number', value: '20', min: '1', max: '2048' })),
+    el('div', { style: 'margin:8px 0 4px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-size:11px;font-family:var(--font-mono)' },
+      el('span', { class: 'color-muted' }, _L('생성 경로', 'Path') + ':'),
+      ' ',
+      el('span', { id: 'zvol-preview', class: 'color-accent' }, pool + '/name')),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doZvol()' }, t('btn.create')),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 async function doZvol() {
   var _btn = document.activeElement;
@@ -182,12 +289,23 @@ async function doZvol() {
 }
 
 function zvolDel(name) {
-  showModal(`<h2 class="color-red">&#9888; ${t('btn.delete')} Zvol</h2>`
-    + `<p class="mb-12">${_L('Zvol을 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.', 'Permanently destroy this zvol. This action cannot be undone.')}</p>`
-    + `<div style="margin-bottom:12px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-mono);font-size:12px"><span class="color-muted">${_L('대상', 'Target')}:</span> <b class="color-accent">${escapeHtml(name)}</b></div>`
-    + `<p class="mb-8 text-11">${_L('확인을 위해 아래에 전체 zvol 경로를 입력하세요:', 'Type the full zvol path below to confirm:')}</p>`
-    + `<div class="fr"><label for="del-zvol-confirm">${_L('경로', 'Path')}</label><input id="del-zvol-confirm" placeholder="${escapeHtml(name)}"></div>`
-    + `<div class="text-right mt-14"><button class="btn btn-r" onclick="doZvolDel('${escapeAttr(name)}')">${t('btn.delete')}</button> <button class="btn" onclick="closeModal()">${t('btn.cancel')}</button></div>`);
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', { class: 'color-red' }, '⚠ ' + t('btn.delete') + ' Zvol'),
+    el('p', { class: 'mb-12' }, _L('Zvol을 영구 삭제합니다. 이 작업은 되돌릴 수 없습니다.', 'Permanently destroy this zvol. This action cannot be undone.')),
+    el('div', { style: 'margin-bottom:12px;padding:8px 10px;background:var(--bg3);border:1px solid var(--border);border-radius:6px;font-family:var(--font-mono);font-size:12px' },
+      el('span', { class: 'color-muted' }, _L('대상', 'Target') + ':'),
+      ' ',
+      el('b', { class: 'color-accent' }, name)),
+    el('p', { class: 'mb-8 text-11' }, _L('확인을 위해 아래에 전체 zvol 경로를 입력하세요:', 'Type the full zvol path below to confirm:')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'del-zvol-confirm' }, _L('경로', 'Path')),
+      el('input', { id: 'del-zvol-confirm', placeholder: escapeHtml(name) })),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn btn-r', onclick: "doZvolDel('" + escapeAttr(name) + "')" }, t('btn.delete')),
+      ' ',
+      el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 async function doZvolDel(name) { const c = document.getElementById('del-zvol-confirm')?.value; if (c !== name) { toast(t('vm.name_mismatch'), false); return; }
@@ -214,9 +332,8 @@ async function doZvolDel(name) { const c = document.getElementById('del-zvol-con
 /* ═══ STORAGE CAPACITY FORECAST ═══ */
 async function loadStorageForecast() {
   var el = document.getElementById('storage-forecast'); if (!el) return;
-  /* ADR-013 DOM-safe: 로딩/빈/에러 상태는 el/frag 로 조립(el 지역변수는 DOM 노드라
-   * 빌더는 PCV.uxlib.* 로 직접 호출). 표 본문(h)은 renderProgressBar/H.badge 문자열
-   * 헬퍼를 소비하므로 이번 배치 skip. */
+  /* ADR-013 DOM-safe: el 지역변수는 DOM 노드라 빌더는 PCV.uxlib.* 로 직접 호출.
+   * 표 본문은 _progressBar(renderProgressBar 노드 등가물)/HN.badge 로 조립. */
   PCV.uxlib.clearEl(el);
   el.appendChild(PCV.uxlib.frag(PCV.uxlib.el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...')));
   try {
@@ -224,31 +341,30 @@ async function loadStorageForecast() {
     var d = unwrapData(r);
     var pools = Array.isArray(d) ? d : (d.pools || [d]);
     if (pools.length === 0) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, t('storage.no_forecast') || 'No forecast data available')); return; }
-    var h = '<table class="text-12"><thead><tr>'
-      + '<th>' + (t('storage.pool') || 'Pool') + '</th>'
-      + '<th>' + (t('storage.used_pct') || 'Used %') + '</th>'
-      + '<th>' + (t('storage.daily_growth') || 'Daily Growth') + '</th>'
-      + '<th>' + (t('storage.days_to_full') || 'Days to Full') + '</th>'
-      + '<th>' + (t('storage.predicted_date') || 'Predicted Date') + '</th>'
-      + '<th>' + (t('storage.status') || 'Status') + '</th>'
-      + '</tr></thead><tbody>';
-    pools.forEach(function(p) {
+    var mk = PCV.uxlib.el;
+    var thead = mk('thead', null, mk('tr', null,
+      mk('th', null, t('storage.pool') || 'Pool'),
+      mk('th', null, t('storage.used_pct') || 'Used %'),
+      mk('th', null, t('storage.daily_growth') || 'Daily Growth'),
+      mk('th', null, t('storage.days_to_full') || 'Days to Full'),
+      mk('th', null, t('storage.predicted_date') || 'Predicted Date'),
+      mk('th', null, t('storage.status') || 'Status')));
+    var tbody = mk('tbody', null, pools.map(function(p) {
       var usedPct = (p.used_percent || p.used_pct || 0).toFixed(1);
       var dailyGrowth = p.daily_growth_gb || p.daily_growth || 0;
       var daysToFull = p.days_to_full || 0;
       var predDate = p.predicted_full_date || p.full_date || '-';
       var severity = _forecastSeverity(daysToFull);
-      h += '<tr>';
-      h += '<td><b>' + esc(p.name || p.pool || '-') + '</b></td>';
-      h += '<td>' + renderProgressBar(parseFloat(usedPct)) + '<span class="text-xs">' + usedPct + '%</span></td>';
-      h += '<td>' + (dailyGrowth > 0 ? dailyGrowth.toFixed(2) + ' GB/day' : '<span class="color-muted">stable</span>') + '</td>';
-      h += '<td><span style="color:' + severity.color + ';font-weight:700">' + (daysToFull > 0 ? daysToFull + ' ' + (t('storage.days') || 'days') : '&#8734;') + '</span></td>';
-      h += '<td><span class="text-11">' + esc(String(predDate)) + '</span></td>';
-      h += '<td>' + H.badge(severity.label, severity.badge) + '</td>';
-      h += '</tr>';
-    });
-    h += '</tbody></table>';
-    el.innerHTML = h;
+      return mk('tr', null,
+        mk('td', null, mk('b', null, p.name || p.pool || '-')),
+        mk('td', null, _progressBar(parseFloat(usedPct)), mk('span', { class: 'text-xs' }, usedPct + '%')),
+        mk('td', null, dailyGrowth > 0 ? (dailyGrowth.toFixed(2) + ' GB/day') : mk('span', { class: 'color-muted' }, 'stable')),
+        mk('td', null, mk('span', { style: 'color:' + severity.color + ';font-weight:700' }, daysToFull > 0 ? (daysToFull + ' ' + (t('storage.days') || 'days')) : '∞')),
+        mk('td', null, mk('span', { class: 'text-11' }, String(predDate))),
+        mk('td', null, HN.badge(severity.label, severity.badge)));
+    }));
+    PCV.uxlib.clearEl(el);
+    el.appendChild(mk('table', { class: 'text-12' }, thead, tbody));
   } catch (e) {
     PCV.uxlib.clearEl(el);
     el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, (t('storage.forecast_unavailable') || 'Forecast unavailable') + ': ' + e.message));
@@ -265,21 +381,33 @@ function _forecastSeverity(daysToFull) {
 /* ═══ iSCSI TARGETS ═══ */
 async function renderIscsi(b) {
   showSkeleton(b);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const r = await fetchGet(EP.ISCSI_TARGETS());
     const l = unwrapList(r);
-    let h = H.section('iSCSI Targets');
+    var body;
     if (!Array.isArray(l) || l.length === 0) {
-      h += '<div class="empty-state"><div class="empty-state-icon">&#128190;</div><div class="empty-state-text">No iSCSI targets configured</div></div>';
+      body = el('div', { class: 'empty-state' },
+        el('div', { class: 'empty-state-icon' }, '💾'),
+        el('div', { class: 'empty-state-text' }, 'No iSCSI targets configured'));
     } else {
-      h += '<table><thead><tr><th>IQN</th><th>LUN</th><th>Size</th><th>State</th></tr></thead><tbody>';
-      l.forEach(function(tgt) {
-        h += '<tr><td><b>' + esc(tgt.iqn || tgt.name || '?') + '</b></td><td>' + (tgt.lun || '-') + '</td><td>' + (tgt.size || '-') + '</td><td>' + H.badge(tgt.state || '?', 'g') + '</td></tr>';
-      });
-      h += '</tbody></table>';
+      var tbody = el('tbody', null, l.map(function(tgt) {
+        return el('tr', null,
+          el('td', null, el('b', null, tgt.iqn || tgt.name || '?')),
+          el('td', null, tgt.lun || '-'),
+          el('td', null, tgt.size || '-'),
+          el('td', null, HN.badge(tgt.state || '?', 'g')));
+      }));
+      body = el('table', null,
+        el('thead', null, el('tr', null, el('th', null, 'IQN'), el('th', null, 'LUN'), el('th', null, 'Size'), el('th', null, 'State'))),
+        tbody);
     }
-    b.innerHTML = h;
-  } catch (e) { b.innerHTML = H.section('iSCSI Targets') + '<p class="color-muted">Failed to load</p>'; }
+    clearEl(b);
+    b.appendChild(frag(HN.section('iSCSI Targets'), body));
+  } catch (e) {
+    clearEl(b);
+    b.appendChild(frag(HN.section('iSCSI Targets'), el('p', { class: 'color-muted' }, 'Failed to load')));
+  }
 }
 window.renderIscsi = renderIscsi;
 
@@ -368,13 +496,23 @@ async function renderBackup(b) {
 }
 
 function backupAddPolicy() {
-  showModal(
-    '<h2>' + _L('백업 정책 추가', 'Add Backup Policy') + '</h2>'
-    + '<div class="fr"><label for="bp-vm">VM</label><input id="bp-vm" class="input" placeholder="VM name (* = all)" value="*"></div>'
-    + '<div class="fr"><label for="bp-interval">' + _L('주기(시간)', 'Interval (hours)') + '</label><input id="bp-interval" class="input" type="number" value="24" min="1"></div>'
-    + '<div class="fr"><label for="bp-retention">' + _L('보존 수', 'Retention count') + '</label><input id="bp-retention" class="input" type="number" value="7" min="1"></div>'
-    + '<div class="text-right mt-12"><button class="btn btn-g" onclick="doBackupAddPolicy()">' + _L('추가', 'Add') + '</button> <button class="btn btn-r" onclick="closeModal()">' + _L('취소', 'Cancel') + '</button></div>'
-  );
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, _L('백업 정책 추가', 'Add Backup Policy')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'bp-vm' }, 'VM'),
+      el('input', { id: 'bp-vm', class: 'input', placeholder: 'VM name (* = all)', value: '*' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'bp-interval' }, _L('주기(시간)', 'Interval (hours)')),
+      el('input', { id: 'bp-interval', class: 'input', type: 'number', value: '24', min: '1' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'bp-retention' }, _L('보존 수', 'Retention count')),
+      el('input', { id: 'bp-retention', class: 'input', type: 'number', value: '7', min: '1' })),
+    el('div', { class: 'text-right mt-12' },
+      el('button', { class: 'btn btn-g', onclick: 'doBackupAddPolicy()' }, _L('추가', 'Add')),
+      ' ',
+      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, _L('취소', 'Cancel')))
+  ]);
 }
 
 async function doBackupAddPolicy() {

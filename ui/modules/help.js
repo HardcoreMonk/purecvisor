@@ -440,7 +440,14 @@ async function swTry(m, p, body) {
   try { var opts = { headers: { Authorization: 'Bearer ' + authToken } };
     if (m === 'POST' || m === 'PUT' || m === 'DELETE') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
     var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* not JSON */ }
-    showModal('<h2>' + _L('응답', 'Response') + ': ' + m + ' ' + p + '</h2>' + H.row(_L('상태', 'Status'), '<span style="color:' + (r.ok ? 'var(--green)' : 'var(--red)') + '">' + r.status + '</span>') + '<pre style="background:var(--bg);padding:12px;border-radius:6px;max-height:400px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap">' + pretty.replace(/</g, '&lt;') + '</pre><div style="text-align:right;margin-top:12px"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>');
+    var el = PCV.uxlib.el;
+    showModal([
+      el('h2', null, _L('응답', 'Response') + ': ' + m + ' ' + p),
+      HN.row(_L('상태', 'Status'), el('span', { style: 'color:' + (r.ok ? 'var(--green)' : 'var(--red)') }, r.status)),
+      el('pre', { style: 'background:var(--bg);padding:12px;border-radius:6px;max-height:400px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap' }, pretty),
+      el('div', { style: 'text-align:right;margin-top:12px' },
+        el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
+    ]);
   } catch (e) { toast(_L('요청 실패', 'Request failed') + ': ' + e.message, false); }
 }
 window.swTry = swTry;
