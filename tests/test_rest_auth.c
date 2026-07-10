@@ -3,10 +3,10 @@
 
 #include "../src/api/rest_auth.h"
 
-
-
-
-
+/*
+ * Bootstrap fallback is intentionally narrow: default credentials may recover
+ * first login, but locked accounts and RBAC DB failures must not bypass auth.
+ */
 static void
 test_bootstrap_fallback_no_error(void)
 {

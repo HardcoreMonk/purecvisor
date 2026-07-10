@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
-
+# Build an Ubuntu Server autoinstall ISO for web-service VMs.
+# The source ISO is not modified. The generated ISO installs an optimized
+# baseline with nginx, qemu-guest-agent, tuned, sysctl, limits, and nginx
+# worker settings suitable for HTTP/HTTPS workloads.
 
 SRC_ISO="${1:-/var/lib/libvirt/images/iso-fast/ubuntu-24.04.4-live-server-amd64.iso}"
 OUT_ISO="${2:-/var/lib/libvirt/images/iso-fast/ubuntu-24.04.4-live-server-amd64-webperf-autoinstall.iso}"
@@ -138,11 +138,11 @@ local-hostname: ${HOSTNAME}
 EOF_META
 
 cat > "$WORK_DIR/nocloud/files/pcv-webperf-install.sh" <<'EOF_INSTALL'
-
+#!/usr/bin/env bash
 set -euo pipefail
 
 cat > /etc/sysctl.d/99-webservice-performance.conf <<'EOF_SYSCTL'
-
+# PureCVisor web-service performance baseline.
 fs.file-max = 2097152
 net.core.somaxconn = 65535
 net.core.netdev_max_backlog = 250000
@@ -236,7 +236,7 @@ EOF_NGINX
 fi
 
 cat > /usr/local/sbin/pcv-webperf-apply <<'EOF_APPLY'
-
+#!/usr/bin/env bash
 set -euo pipefail
 modprobe tcp_bbr 2>/dev/null || true
 sysctl --system >/dev/null || true
@@ -259,7 +259,7 @@ sed -i "s|__PCV_USERNAME__|${USERNAME}|g" "$WORK_DIR/nocloud/files/pcv-webperf-i
 chmod 755 "$WORK_DIR/nocloud/files/pcv-webperf-install.sh"
 
 cat > "$WORK_DIR/nocloud/user-data" <<EOF_USERDATA
-
+#cloud-config
 autoinstall:
   version: 1
   locale: en_US.UTF-8
@@ -304,7 +304,7 @@ for grub_path in /boot/grub/grub.cfg /boot/grub/loopback.cfg; do
             -e 's| ---| autoinstall ds=nocloud\\;s=/cdrom/nocloud/ ---|g' \
             -e 's/^set timeout=.*/set timeout=5/' \
             "$target"
-
+        # Avoid duplicate kernel arguments if both patterns matched.
         sed -i 's|autoinstall ds=nocloud\\;s=/cdrom/nocloud/ autoinstall ds=nocloud\\;s=/cdrom/nocloud/|autoinstall ds=nocloud\\;s=/cdrom/nocloud/|g' "$target"
     else
         rm -f "$target"

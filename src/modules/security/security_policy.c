@@ -1,10 +1,10 @@
 #include "modules/security/security_policy.h"
 
-
-
-
-
-
+/*
+ * Security policy is deliberately deterministic. It upgrades severity and picks
+ * candidate actions from event shape only, so audit, tests, and UI all agree on
+ * why an event became CRIT/WARN or pending action.
+ */
 static gboolean
 has_prefix(const gchar *s, const gchar *prefix)
 {
@@ -14,10 +14,10 @@ has_prefix(const gchar *s, const gchar *prefix)
 static gboolean
 contains_purecvisor_control_plane_path(const gchar *target)
 {
-
-
-
-
+    /*
+     * These paths are the local control plane. Writes here can change daemon
+     * behavior, credentials, RBAC, or systemd service state, so they escalate.
+     */
     return has_prefix(target, "/etc/purecvisor")
         || has_prefix(target, "/etc/systemd/system/purecvisor")
         || has_prefix(target, "/lib/systemd/system/purecvisor")
@@ -63,10 +63,10 @@ pcv_security_policy_recommend_action(const PcvSecurityEvent *ev)
         return "manual_runbook";
     }
 
-
-
-
-
+    /*
+     * Only actions supported by HIPS v1 are recommended as executable. Everything
+     * else stays manual_runbook even if the event is CRIT.
+     */
     if (ev->target_kind == PCV_SECURITY_TARGET_IP
         && ev->type == PCV_SECURITY_EVENT_AUTH_BRUTEFORCE) {
         return "block_ip";

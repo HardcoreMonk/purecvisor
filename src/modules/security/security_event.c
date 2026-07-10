@@ -1,10 +1,10 @@
 #include "modules/security/security_event.h"
 
-
-
-
-
-
+/*
+ * Security events cross process boundaries as stable lowercase strings. These
+ * maps are the canonical translation layer between C enums, SQLite rows, JSON
+ * RPC responses, and Web UI filters.
+ */
 typedef struct {
     gint value;
     const gchar *name;
@@ -217,10 +217,24 @@ pcv_security_event_from_json(JsonObject *obj, PcvSecurityEvent *out)
     g_strlcpy(out->recommended_action,
               json_get_string_or_empty(obj, "recommended_action"),
               sizeof out->recommended_action);
-    g_strlcpy(out->evidence_json,
-              json_get_string_or_empty(obj, "evidence_json"),
-              sizeof out->evidence_json);
+    /* [B-2] 역직렬화 site 도 프로듀서와 동일 가드 — 저장값이 버퍼 초과면
+     * 중간 절단된 invalid JSON 대신 유효 fallback (M-10 대칭성 완결). */
+    pcv_security_event_set_evidence(out->evidence_json,
+                                    sizeof out->evidence_json,
+                                    json_get_string_or_empty(obj, "evidence_json"));
     return TRUE;
+}
+
+/* [M-10/B-2] evidence_json 고정 버퍼 가드 — 프로듀서(SG 2곳)와 역직렬화 site 공용.
+ * 초과 시 값 중간 절단(invalid JSON) 대신 유효 fallback 을 저장한다. */
+void
+pcv_security_event_set_evidence(gchar *dst, gsize dstsz, const gchar *ejstr)
+{
+    if (ejstr && strlen(ejstr) < dstsz)
+        g_strlcpy(dst, ejstr, dstsz);
+    else
+        g_snprintf(dst, dstsz, "{\"evidence_truncated\":true,\"bytes\":%zu}",
+                   ejstr ? strlen(ejstr) : 0);
 }
 
 void
@@ -243,10 +257,10 @@ pcv_security_event_coalesce_key(const PcvSecurityEvent *ev)
         return g_strdup("");
     }
 
-
-
-
-
+    /*
+     * Exclude event_id and timestamp so repeated observations of the same risk
+     * merge into one open queue item until the operator resolves or suppresses it.
+     */
     return g_strdup_printf("%s:%s:%s:%s:%s",
                            pcv_security_source_to_string(ev->source),
                            pcv_security_type_to_string(ev->type),

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-
-
-
+# =============================================================================
+# Full Feature Verification — 삭제진행표시 + 컨테이너IP폴링 + Swagger + 전체 회귀
+# =============================================================================
 set -uo pipefail
 trap '' PIPE
 
@@ -49,9 +49,9 @@ TOKEN=$(curl -s -X POST "$API/auth/token" -d "{\"username\":\"${PCV_TEST_ADMIN_U
 TOTAL=$((TOTAL+1))
 if [ -n "$TOKEN" ]; then PASS=$((PASS+1));echo -e "  ${GRN}PASS${NC} JWT issued"; else FAIL=$((FAIL+1));echo -e "  ${RED}FAIL${NC} JWT failed"; fi
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# A. ZVOL DELETE (-r 재귀 + name 필드)
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[A] Zvol Delete — -r recursive + name field${NC}"
 r=$(rpc 'storage.zvol.delete' '{"name":"pcvpool/vms/nonexist-test"}')
 ac "zvol.delete name field works" "$r" "dataset does not exist"
@@ -59,21 +59,21 @@ an "no (null) in zvol delete" "$r" "(null)"
 r=$(rpc 'storage.zvol.delete' '{}')
 ac "zvol.delete missing param → error" "$r" "Missing"
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# B. CONTAINER LIFECYCLE (START→IP→EXEC→STOP→DELETE)
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[B] Container Lifecycle${NC}"
 r=$(rpc 'container.list')
 ac "container.list" "$r" '"result"'
 HAS_CTR=0; echo "$r"|grep -q 'web-ctr-1' && HAS_CTR=1
 
 if [ "$HAS_CTR" -eq 1 ]; then
-
+    # B1. START
     r=$(rpc 'container.start' '{"name":"web-ctr-1"}')
     ac "container.start UDS" "$r" '"result"'
     an "no /bin/sh error" "$r" "non-zero"
 
-
+    # B2. IP POLLING (최대 12초)
     GOT_IP=0
     for i in $(seq 1 8); do
         sleep 1.5
@@ -88,25 +88,25 @@ if [ "$HAS_CTR" -eq 1 ]; then
         FAIL=$((FAIL+1)); echo -e "  ${RED}FAIL${NC} container IP not acquired in 12s"
     fi
 
-
+    # B3. EXEC via UDS
     r=$(rpc 'container.exec' '{"name":"web-ctr-1","cmd":"cat /etc/hostname"}')
     ac "container.exec UDS output" "$r" '"output"'
 
-
+    # B4. EXEC via REST (command→cmd mapping)
     r=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
         -d '{"command":"uname -r"}' "$API/containers/web-ctr-1/exec" 2>/dev/null)
     ac "REST exec command→cmd" "$r" "output"
 
-
+    # B5. STOP
     r=$(rpc 'container.stop' '{"name":"web-ctr-1"}')
     ac "container.stop" "$r" '"result"'
     sleep 3
 
-
+    # B6. verify stopped
     r=$(rpc 'container.list')
     ac "container state STOPPED" "$r" "STOPPED"
 
-
+    # B7. REST lifecycle
     r=$(curl -s -X POST -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" -d '{}' "$API/containers/web-ctr-1/start" 2>/dev/null)
     ac "REST start" "$r" "success"
     sleep 2
@@ -115,16 +115,16 @@ if [ "$HAS_CTR" -eq 1 ]; then
     if ! echo "$r"|grep -q '"error"' 2>/dev/null; then PASS=$((PASS+1));echo -e "  ${GRN}PASS${NC} REST stop"; else FAIL=$((FAIL+1));echo -e "  ${RED}FAIL${NC} REST stop error";fi
     sleep 3
 
-
+    # B8. daemon stability after stop
     r=$(curl -s "$API/health" 2>/dev/null)
     ac "daemon stable after container stop" "$r" '"ok"'
 else
     echo -e "  ${CYN}SKIP${NC} No container — B tests skipped"
 fi
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# C. UI STRUCTURE — 진행표시 + Swagger + 컨테이너 삭제
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[C] UI Structure — Progress + Swagger + Delete${NC}"
 curl -s "$REST/ui/" > /tmp/_pcv_ui.html 2>/dev/null
 uisz=$(wc -c < /tmp/_pcv_ui.html)
@@ -141,9 +141,9 @@ for kw in "prog-bar" "prog-fill" "spinner" "prog-status" "ctrDel" "doCtrDel" "de
 done
 rm -f /tmp/_pcv_ui.html
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# D. SWAGGER API — Try-It 실제 호출 시뮬레이션
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[D] Swagger Try-It API Calls${NC}"
 r=$(curl -s "$API/health" 2>/dev/null)
 ac "GET /health" "$r" '"ok"'
@@ -172,9 +172,9 @@ ac "GET /sriov/status" "$r" "available"
 r=$(curl -s "$API/metrics" 2>/dev/null)
 ac "GET /metrics (Prometheus)" "$r" "purecvisor_rpc_requests_total"
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# E. REGRESSION — 핵심 기능 회귀 테스트
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[E] Regression — Core Functions${NC}"
 r=$(rpc "vm.list")
 ac "UDS vm.list" "$r" '"result"'
@@ -186,24 +186,24 @@ if [ "$ws_code" != "404" ] && [ "$ws_code" != "000" ]; then PASS=$((PASS+1));ech
 r=$(rpc 'dpdk.bind' '{"pci_addr":"../../etc"}')
 ae "path traversal rejected" "$r"
 
-
+# seccomp disabled
 pid=$(systemctl show -p MainPID "$(detect_daemon_service)" --value 2>/dev/null)
 init_log=$(journalctl _PID=$pid --no-pager 2>/dev/null | head -100)
 ac "seccomp skipped" "$init_log" "seccomp skipped"
 ac "io_uring mode" "$init_log" "io_uring"
 
-
+# path traversal UI block
 code=$(curl -s -o /dev/null -w "%{http_code}" "$REST/ui/../../etc/passwd" 2>/dev/null)
 TOTAL=$((TOTAL+1))
 if [ "$code" = "403" ] || [ "$code" = "404" ]; then PASS=$((PASS+1));echo -e "  ${GRN}PASS${NC} UI path traversal blocked ($code)"; else FAIL=$((FAIL+1));echo -e "  ${RED}FAIL${NC} UI path traversal ($code)";fi
 
-
+# audit
 TOTAL=$((TOTAL+1))
 if [ -f /var/lib/purecvisor/pcv_audit.db ]; then PASS=$((PASS+1));echo -e "  ${GRN}PASS${NC} audit.db exists"; else FAIL=$((FAIL+1));echo -e "  ${RED}FAIL${NC} audit.db missing";fi
 
-
-
-
+# ═══════════════════════════════════════════════════════
+# F. 3-NODE CONSISTENCY
+# ═══════════════════════════════════════════════════════
 echo -e "\n${YLW}[F] 3-Node Consistency${NC}"
 for i in 1 2; do
     ip="${NODES[$i]}"; nm="${NNAMES[$i]}"

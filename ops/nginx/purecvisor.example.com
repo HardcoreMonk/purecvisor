@@ -107,6 +107,7 @@ server {
         proxy_pass http://127.0.0.1:8080;
     }
 
+    # pcv static browser assets served directly to preserve MIME under nosniff
     location ~ ^/ui/.+\.(png|ico|svg|webp|woff|woff2)$ {
         if (-f /usr/local/share/purecvisor/fallback/maintenance.enabled) {
             return 503;

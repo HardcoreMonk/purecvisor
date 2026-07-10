@@ -1,10 +1,11 @@
 #!/usr/bin/env python3
-
-
-
-
-
-
+# This guard is intentionally stricter than a markdown linter.
+# It protects the repository contract that UI visual rules live in DESIGN.md,
+# while GUIDE.md and the in-app guide only link to that visual source.
+# The checker fails on missing sections, token names, preview wiring, and deploy
+# coverage so future UI work cannot silently split the design system again.
+# Keep the assertions literal: vague prose matches would hide drift.
+"""DESIGN.md visual contract static guard."""
 
 from __future__ import annotations
 
@@ -100,6 +101,7 @@ def require_section(text: str, section: str) -> None:
 
 def main() -> int:
     design = read("DESIGN.md")
+    agents = read("AGENTS.md")
     guide = read("docs/GUIDE.md")
     ui_guide = read("ui/guide-content.md")
     style = read("ui/style.css")
@@ -122,6 +124,15 @@ def main() -> int:
     require(
         "DESIGN.md must define the current typography/icon baseline",
         all(term in design for term in ("Pretendard", "line-height", "1.5", "letter-spacing", "Coolicons")),
+    )
+
+    require(
+        "AGENTS.md must require DESIGN.md before UI work",
+        "UI 작업 전" in agents and "DESIGN.md" in agents,
+    )
+    require(
+        "AGENTS.md must mention scripts/check_design_md.py",
+        "scripts/check_design_md.py" in agents,
     )
 
     for path, text in (("docs/GUIDE.md", guide), ("ui/guide-content.md", ui_guide)):

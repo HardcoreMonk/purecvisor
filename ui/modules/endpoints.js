@@ -1,16 +1,16 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @module endpoints
+ * @description REST API 엔드포인트 중앙 레지스트리
+ *
+ * [목적]
+ *   80+ 엔드포인트 경로를 한 곳에서 관리하여:
+ *   1. 백엔드 경로 변경 시 수정 지점 단일화
+ *   2. 프론트엔드↔백엔드 정합성 자동 검증 가능
+ *   3. 오타/불일치 방지
+ *
+ * [사용법]
+ *   var url = EP.VM_STOP('web-prod');  // → '/api/v1/vms/web-prod/stop'
+ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
@@ -20,7 +20,7 @@ var EP = (function() {
   var enc = encodeURIComponent;
 
   var COMMON_ENDPOINTS = {
-
+    /* ═══ VM ═══ */
     VM_LIST:              function()     { return B() + '/vms'; },
     VM_CREATE:            function()     { return B() + '/vms'; },
     VM_DETAIL:            function(n)    { return B() + '/vms/' + enc(n); },
@@ -53,7 +53,7 @@ var EP = (function() {
     VM_DISK_USAGE:        function(n)    { return B() + '/vms/' + enc(n) + '/disk-usage'; },
     VNC:                  function(n)    { return B() + '/vnc/' + enc(n); },
 
-
+    /* ═══ CONTAINER ═══ */
     CTR_LIST:             function()     { return B() + '/containers'; },
     CTR_CREATE:           function()     { return B() + '/containers'; },
     CTR_DETAIL:           function(n)    { return B() + '/containers/' + enc(n); },
@@ -68,13 +68,13 @@ var EP = (function() {
     CTR_LIMITS:           function(n)    { return B() + '/containers/' + enc(n) + '/limits'; },
     CTR_BANDWIDTH:        function(n)    { return B() + '/containers/' + enc(n) + '/bandwidth'; },
 
-
+    /* ═══ STORAGE ═══ */
     STORAGE_POOLS:        function()     { return B() + '/storage/pools'; },
     STORAGE_SCRUB:        function()     { return B() + '/storage/pools/scrub'; },
     STORAGE_ZVOLS:        function()     { return B() + '/storage/zvols'; },
     ISCSI_TARGETS:        function()     { return B() + '/iscsi/targets'; },
 
-
+    /* ═══ NETWORK ═══ */
     NET_LIST:             function()     { return B() + '/networks'; },
     NET_DETAIL:           function(n)    { return B() + '/networks/' + enc(n); },
     NET_MODE:             function(n)    { return B() + '/networks/' + enc(n) + '/mode'; },
@@ -85,13 +85,13 @@ var EP = (function() {
     DEMO_OVN_HEALTH:      function()     { return B() + '/demo/ovn-ovs/health'; },
     OVERLAY_LIST:         function()     { return B() + '/overlay'; },
 
-
+    /* ═══ CLOUD ═══ */
     CLOUD_JOBS:           function()     { return B() + '/cloud/jobs'; },
     CLOUD_CANCEL:         function()     { return B() + '/cloud/cancel'; },
     CLOUD_IMPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/import-ec2'; },
     CLOUD_EXPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/export-ec2'; },
 
-
+    /* ═══ AUTH ═══ */
     AUTH_TOKEN:           function()     { return B() + '/auth/token'; },
     AUTH_REGISTER:        function()     { return B() + '/auth/register'; },
     AUTH_PASSWORD:        function()     { return B() + '/auth/password'; },
@@ -100,7 +100,7 @@ var EP = (function() {
     AUTH_USER:            function(u)    { return B() + '/auth/users/' + enc(u); },
     AUTH_ROLE:            function()     { return B() + '/auth/role'; },
 
-
+    /* ═══ MONITOR ═══ */
     HEALTH:               function()     { return B() + '/health'; },
     ALERTS:               function()     { return B() + '/alerts'; },
     ALERTS_CONFIG:        function()     { return B() + '/alerts/config'; },
@@ -118,7 +118,7 @@ var EP = (function() {
     SRIOV_ATTACH:         function()     { return B() + '/sriov/attach'; },
     SRIOV_DETACH:         function()     { return B() + '/sriov/detach'; },
 
-
+    /* ═══ ADVANCED ═══ */
     TEMPLATES:            function()     { return B() + '/templates'; },
     TEMPLATE:             function(n)    { return B() + '/templates/' + enc(n); },
     TEMPLATE_HISTORY:     function()     { return B() + '/templates/history'; },
@@ -137,22 +137,22 @@ var EP = (function() {
     AGENT_CONFIG:         function()     { return B() + '/agent/config'; },
     AGENT_HISTORY:        function()     { return B() + '/agent/history'; },
 
-
+    /* ═══ ISO ═══ */
     ISO_LIST:             function()     { return B() + '/iso'; },
 
+    /* ═══ [백엔드 4차] 신규 엔드포인트 ═══ */
 
-
-
+    /* 보안 — API Key + 세션 */
     AUTH_APIKEY_CREATE:   function()     { return B() + '/auth/apikeys'; },
     AUTH_APIKEY_LIST:     function()     { return B() + '/auth/apikeys'; },
     AUTH_APIKEY_REVOKE:   function(n)    { return B() + '/auth/apikeys/' + enc(n) + '/revoke'; },
     AUTH_SESSION_REVOKE:  function()     { return B() + '/auth/sessions/revoke'; },
 
-
+    /* VM 배치 + 필터 */
     VM_BATCH:             function()     { return B() + '/vms/batch'; },
     VM_LIST_FILTERED:     function()     { return B() + '/vms/filtered'; },
 
-
+    /* 운영 */
     CONFIG_RELOAD:        function()     { return B() + '/config/reload'; },
     HEALTH_DEEP:          function()     { return B() + '/health/deep'; },
     BACKUP_VERIFY:        function()     { return B() + '/backup/verify'; },
@@ -160,20 +160,20 @@ var EP = (function() {
     POOL_CONNINFO:        function()     { return B() + '/pool/conninfo'; },
     DB_MIGRATION:         function()     { return B() + '/db/migration'; },
 
-
+    /* 알림 음소거/라우팅 */
     ALERT_SILENCE:        function()     { return B() + '/alerts/silence'; },
     ALERT_SILENCE_LIST:   function()     { return B() + '/alerts/silences'; },
     ALERT_ROUTING:        function()     { return B() + '/alerts/routing'; },
 
-
+    /* 컨테이너 확장 */
     CTR_CLONE:            function(n)    { return B() + '/containers/' + enc(n) + '/clone'; },
     CTR_MEMORY_STATS:     function(n)    { return B() + '/containers/' + enc(n) + '/memory-stats'; },
     CTR_HEALTH:           function(n)    { return B() + '/containers/' + enc(n) + '/health'; },
 
-
+    /* ═══ OVA ═══ */
     OVA_IMPORT:           function()     { return B() + '/vms/import/import'; },
 
-
+    /* ═══ GENERIC RPC ═══ */
     RPC:                  function()     { return B() + '/rpc'; }
   };
 
@@ -203,9 +203,9 @@ var EP = (function() {
   return applyEditionEndpointSurface('single');
 })();
 
-
+/* ── PCV.endpoints namespace export ─────────────── */
 PCV.endpoints = EP;
 
-
+/* ── Backward-compat global shim ────────────────── */
 window.EP = EP;
 })(window.PCV);

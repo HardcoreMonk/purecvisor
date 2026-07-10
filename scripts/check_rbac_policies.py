@@ -1,4 +1,30 @@
 #!/usr/bin/env python3
+"""
+ADR-0019 정적 분석 — RBAC 정책 매핑 누락 및 정책 계약 회귀 검출
+
+[목적]
+  dispatcher.c::g_rpc_routes에 등록된 모든 RPC 메서드가 g_method_policies에
+  최소 role 매핑을 가지는지 검증. 매핑되지 않은 메서드는 VIEWER로 처리되어
+  destructive RPC가 권한 없이 실행될 위험.
+  또한 제품 정책상 operator에게 열리되 VM owner-scope를 반드시 통과해야 하는
+  메서드가 admin-only로 회귀하거나 owner-scope에서 빠지는지 검증.
+
+[검사 대상]
+  src/api/dispatcher.c
+    - g_rpc_routes에 g_hash_table_insert로 등록된 메서드 이름
+    - g_method_policies 배열의 매핑 항목
+
+[방식]
+  1. dispatcher.c에서 g_rpc_routes 등록 패턴 추출
+  2. g_method_policies 배열에서 매핑된 메서드 추출
+  3. 등록되었지만 정책 없는 메서드 → 보고
+     (단, vm.list/metrics 등 조회성은 매핑 없어도 VIEWER로 안전)
+  4. 정책 계약 메서드의 최소 role과 owner-scope 포함 여부 검증
+
+[종료 코드]
+  0: 모든 등록 메서드가 정책 매핑 있음 (또는 의도적 default), 계약 준수
+  1: destructive 메서드 매핑 누락 또는 정책 계약 회귀 (CRITICAL)
+"""
 from __future__ import annotations
 from dataclasses import dataclass
 import re
@@ -8,12 +34,12 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 
-
+# g_hash_table_insert(g_rpc_routes, "method.name", ...) 패턴
 ROUTE_RE = re.compile(
     r'g_hash_table_insert\s*\(\s*g_rpc_routes\s*,\s*"([a-z][a-z0-9_.]+)"',
 )
 
-
+# g_method_policies = { ... { "method.name", N } ... }
 POLICY_BLOCK = re.compile(
     r'g_method_policies\[\]\s*=\s*\{(.*?)\n\};',
     re.DOTALL,
@@ -31,13 +57,13 @@ ROLE_VALUES = {
     "ADMIN": 2,
 }
 
-
-
-
-
-
-
-
+# Keep this list broad enough to fail closed for mutating RPCs, but not so broad
+# that read-only discovery routes need redundant policy rows. g_method_policies
+# remains the source of explicit roles; this tuple decides which omissions are
+# severe enough to stop the build.
+# When adding a new destructive verb, add the verb here before relying on
+# make check-rbac as a release gate.
+# destructive 패턴 — 정책 매핑 필수
 DESTRUCTIVE_KEYWORDS = (
     ".delete", ".destroy", ".create", ".update", ".set", ".push",
     ".trigger", ".reset", ".rollback", ".restore", ".replicate", ".enter", ".exit",
@@ -56,11 +82,11 @@ class PolicyContract:
     reason: str
 
 
-
-
-
-
-
+# 제품 정책으로 고정할 계약. UI에서는 VM 단일 대상 action이지만 내부 RPC
+# 메서드명이 vm.*가 아닌 항목을 여기에 넣어 회귀를 즉시 차단한다.
+# These entries are stronger than the generic keyword gate: they assert both the
+# role floor and the owner-scope boundary. Without this explicit list, a route
+# can remain "mapped" while accidentally becoming admin-only or global-scope.
 POLICY_CONTRACTS = (
     PolicyContract(
         method="backup.replicate",

@@ -1,28 +1,28 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file test_job_queue.c
+ * @brief pcv_job_queue 유닛 테스트 (PCV_JOBS_DB_PATH 격리)
+ *
+ * ============================================================================
+ *  이 파일이 테스트하는 것
+ * ============================================================================
+ *  pcv_job_queue.h (src/utils/)의 SQLite 기반 비동기 작업 큐를 검증한다.
+ *  10개 테스트 케이스.
+ *
+ *  Job Queue는 장기 실행 작업(OVA 내보내기, 클라우드 마이그레이션 등)의
+ *  진행 상태를 SQLite에 영속 저장한다. 데몬 재시작 후에도 작업 상태 조회 가능.
+ *
+ *  검증 항목:
+ *  - CRUD: create → get(PENDING) → update(RUNNING/42%) → set_result(COMPLETED)
+ *  - 취소: PENDING 상태만 취소 가능, COMPLETED는 거부
+ *  - 목록 조회: 최근 N개 작업 반환
+ *  - 존재하지 않는 ID: get=NULL, cancel=FALSE
+ *  - 정리: max_age_hours 기준으로 완료된 작업 삭제
+ *  - 멱등성: init/shutdown 여러 번 호출 안전
+ *
+ *  테스트 격리: PCV_JOBS_DB_PATH 환경변수로 임시 디렉터리에 DB 생성.
+ *  teardown에서 DB 파일 + WAL/SHM 사이드카 파일까지 정리.
+ * ============================================================================
+ */
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <gio/gio.h>
@@ -45,7 +45,7 @@ static void teardown_db(void) {
     pcv_job_queue_shutdown();
     g_unsetenv("PCV_JOBS_DB_PATH");
     if (g_dbpath) { g_unlink(g_dbpath); g_free(g_dbpath); g_dbpath = NULL; }
-
+    /* WAL/SHM 사이드카도 정리 */
     if (g_tmpdir) {
         gchar *wal = g_strconcat(g_tmpdir, "/jobs.db-wal", NULL);
         gchar *shm = g_strconcat(g_tmpdir, "/jobs.db-shm", NULL);
@@ -54,13 +54,13 @@ static void teardown_db(void) {
     }
 }
 
-
+/* ── 케이스 ───────────────────────────────────────────────── */
 
 static void test_init_shutdown_idempotent(void) {
     setup_db();
-    pcv_job_queue_init();
+    pcv_job_queue_init();  /* 재호출 안전 */
     pcv_job_queue_shutdown();
-    pcv_job_queue_shutdown();
+    pcv_job_queue_shutdown();  /* 재호출 안전 */
     teardown_db();
 }
 
@@ -119,7 +119,7 @@ static void test_cancel_pending(void) {
     JsonObject *job = pcv_job_get(id);
     g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_CANCELLED);
     json_object_unref(job);
-
+    /* 재취소: 이미 cancelled 상태 → FALSE */
     g_assert_false(pcv_job_cancel(id));
     g_free(id);
     teardown_db();
@@ -162,8 +162,8 @@ static void test_cleanup_old(void) {
     setup_db();
     gchar *id = pcv_job_create("backup", "vm-old", NULL);
     pcv_job_set_result(id, PCV_JOB_COMPLETED, NULL);
-
-
+    /* max_age_hours=-1 → cutoff가 미래 → 모든 완료 작업 삭제
+       (0이면 같은 초에 updated_at < now가 false라 안 지워짐) */
     pcv_job_queue_cleanup_old(-1);
     JsonObject *job = pcv_job_get(id);
     g_assert_null(job);

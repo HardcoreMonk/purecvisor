@@ -1,9 +1,16 @@
 #!/usr/bin/env python3
+# OVA import/export are fire-and-forget RPCs, so accepted != complete.
+# This guard keeps the C worker wired to job state, audit result, WS completion,
+# and failure cleanup without needing to run qemu-img/tar in CI.
+# The patterns below are narrow by design: a missing literal usually means the
+# observable async contract changed and needs an explicit review.
+"""
+OVA import/export async result static guard.
 
-
-
-
-
+This catches the vm.clone-class failure mode where an accepted fire-and-forget
+RPC later records a false success, loses its job id, or skips the WS completion
+channel after the worker actually fails.
+"""
 
 from __future__ import annotations
 
@@ -55,15 +62,17 @@ def _fail(message: str) -> int:
 
 def main() -> int:
     text = _read(DISPATCHER_C)
-    ctx_match = re.search(r"typedef struct \{(?P<ctx>.*?)\}\s*OvaExportCtx;", text, re.DOTALL)
-    if not ctx_match:
-        return _fail("could not find OvaExportCtx")
-    import_ctx_match = re.search(r"typedef struct \{.*?\}\s*OvaImportCtx;", text[ctx_match.end():], re.DOTALL)
-    if not import_ctx_match:
-        return _fail("could not find OvaImportCtx")
+    section_match = re.search(
+        r"typedef struct \{(?P<ctx>.*?)\} OvaExportCtx;(?P<section>.*?)"
+        r"/\* ── OVA Import",
+        text,
+        re.DOTALL,
+    )
+    if not section_match:
+        return _fail("could not find the OVA export section")
 
-    ctx_body = ctx_match.group("ctx")
-    section = text[ctx_match.end():ctx_match.end() + import_ctx_match.start()]
+    ctx_body = section_match.group("ctx")
+    section = section_match.group("section")
     worker = _function_body(text, "_ova_export_worker")
     import_worker = _function_body(text, "_ova_import_worker")
     import_handler = _function_body(text, "_handle_vm_import_ova")

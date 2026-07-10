@@ -2,20 +2,20 @@
 
 #include <gio/gio.h>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+ * Single Edge용 클러스터 매니저 stub.
+ *
+ * [비전공자 설명]
+ * 단독 서버에는 quorum, 복제, 노드 drain 같은 "여러 서버를 묶는 기능"이
+ * 없습니다. 그래도 화면이나 health check가 클러스터 상태를 물어볼 수 있으므로
+ * 이 파일은 항상 일관된 standalone/unsupported 응답을 반환합니다.
+ *
+ * [주니어 참고]
+ * 빈 함수와 FALSE 반환은 미완성이 아니라 제품 경계입니다. 예외적으로
+ * maintenance flag처럼 단일 서버에서도 의미가 있는 상태만 메모리에 보관합니다.
+ * weak 함수들은 클러스터 빌드나 테스트에서 더 구체적인 구현으로 대체될 수
+ * 있도록 남겨 둔 링크 경계입니다.
+ */
 static gboolean g_single_maintenance = FALSE;
 
 static JsonObject *

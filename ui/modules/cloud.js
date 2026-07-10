@@ -1,19 +1,19 @@
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/cloud.js
+   Cloud Migration (AWS EC2 <-> PureCVisor)
+   ADR-0013: IIFE module scope — PCV.cloud namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var _cloudPollTimer = null;
 
-
+/* 페이지 이탈 시 타이머 정리 (FE-4: 폴 타이머 누수 방지) */
 window.addEventListener('beforeunload', function() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 });
 
-
+/* 네비게이션 변경 시 타이머 정리 */
 function _cloudCleanupTimer() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 }
@@ -24,7 +24,7 @@ async function renderCloudMigration(b) {
   let h = H.section('&#9729; Cloud Migration — AWS EC2 &#8596; PureCVisor');
   h += '<div class="sg grid-2 mb-14">';
 
-
+  /* Import 폼 */
   h += '<div class="hc"><h4 style="color:var(--accent)">&#128229; Import (EC2 &#8594; PureCVisor)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">AWS EC2 AMI를 PureCVisor VM으로 가져옵니다. EBS→S3→다운로드→qcow2 변환→VM 생성</p>';
   h += '<div class="fr"><label>VM Name</label><input id="cm-imp-name" placeholder="web-prod"></div>';
@@ -38,7 +38,7 @@ async function renderCloudMigration(b) {
   h += '<button class="btn btn-g" onclick="cmDoImport()" style="margin-top:8px;width:100%">&#128229; Start Import</button>';
   h += '</div>';
 
-
+  /* Export 폼 */
   h += '<div class="hc"><h4 style="color:var(--green)">&#128230; Export (PureCVisor &#8594; EC2)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">PureCVisor VM을 AWS EC2 AMI로 내보냅니다. qcow2→RAW→S3→AMI 등록</p>';
   h += '<div class="fr"><label>VM Name</label><select id="cm-exp-name" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">' + t('loading') + '</option></select></div>';
@@ -49,11 +49,11 @@ async function renderCloudMigration(b) {
   h += '<button class="btn btn-g" onclick="cmDoExport()" style="margin-top:8px;width:100%">&#128230; Start Export</button>';
   h += '</div></div>';
 
-
+  /* 진행 상태 */
   h += '<div class="hc" style="margin-bottom:14px"><h4>&#128202; Migration Jobs</h4>';
   h += '<div id="cm-jobs"><span class="spinner"></span> Loading...</div></div>';
 
-
+  /* 파이프라인 다이어그램 */
   h += H.card('&#128736; Pipeline Reference', '<div style="font-size:11px;line-height:1.8;color:var(--fg2)">'
     + '<b style="color:var(--accent)">Import:</b> aws sts verify &#8594; ec2 export-image &#8594; S3 download &#8594; qemu-img convert &#8594; virt-customize &#8594; VM define<br>'
     + '<b style="color:var(--green)">Export:</b> qemu-img convert &#8594; S3 upload &#8594; ec2 import-image &#8594; AMI ready<br>'
@@ -61,16 +61,16 @@ async function renderCloudMigration(b) {
 
   b.innerHTML = h;
 
-
+  /* VM 목록 로드 → Export 드롭다운 */
   try {
     const vl = vmList.length ? vmList : [];
     const sel = document.getElementById('cm-exp-name');
     if (sel && vl.length) {
       sel.innerHTML = vl.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + ' (' + v.state + ')</option>').join('');
     } else if (sel) { sel.innerHTML = '<option value="">No VMs</option>'; }
-  } catch (e) {  }
+  } catch (e) { /* ignore */ }
 
-
+  /* 작업 상태 로드 + 폴링 시작 */
   cmLoadJobs();
   if (_cloudPollTimer) clearInterval(_cloudPollTimer);
   _cloudPollTimer = setInterval(cmLoadJobs, 5000);
@@ -114,7 +114,7 @@ async function cmLoadJobs() {
     }
     html += '</tbody></table>';
     el.innerHTML = html;
-  } catch (e) {  }
+  } catch (e) { /* ignore polling errors */ }
 }
 window.cmLoadJobs = cmLoadJobs;
 
@@ -186,7 +186,7 @@ async function cmFinalize(name) {
 }
 window.cmFinalize = cmFinalize;
 
-
+/* ═══ PCV.cloud namespace export ═══ */
 PCV.cloud = {
   renderCloudMigration: renderCloudMigration,
   cmLoadJobs: cmLoadJobs,

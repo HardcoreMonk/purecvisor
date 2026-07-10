@@ -17,9 +17,9 @@ require_literal() {
   fi
 }
 
-
-
-
+# purecvisor-single 공개 리포는 Single Edge 전용이다. 따라서 통합 리포 시절의
+# Multi Edge 소스 집합을 되살리지 않고, 공개 범위 allowlist와 Single 부트스트랩
+# 집합만 Makefile에 남아 있는지 검증한다.
 require_literal "DAEMON_COMMON_SRCS =" "Makefile must declare DAEMON_COMMON_SRCS"
 require_literal "COMMON_SINGLE_ALLOWED_NET_SRCS =" "Makefile must declare COMMON_SINGLE_ALLOWED_NET_SRCS"
 require_literal "SINGLE_BOOTSTRAP_SRCS =" "Makefile must declare SINGLE_BOOTSTRAP_SRCS"

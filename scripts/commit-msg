@@ -1,12 +1,20 @@
 #!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+# PureCVisor commit-msg hook — Conventional Commits 포맷 검사
+#
+# 허용 접두사: feat, fix, refactor, perf, docs, chore, test, ci, style
+# 형식: <type>: <description>  또는  <type>(scope): <description>
+# ═══════════════════════════════════════════════════════════════
 
 MSG_FILE="$1"
 MSG=$(head -1 "$MSG_FILE")
 
+# Merge 커밋은 건너뜀
 if echo "$MSG" | grep -qE "^Merge "; then
     exit 0
 fi
 
+# Conventional Commits 패턴
 PATTERN="^(feat|fix|refactor|perf|docs|chore|test|ci|style)(\(.+\))?: .+"
 
 if ! echo "$MSG" | grep -qE "$PATTERN"; then

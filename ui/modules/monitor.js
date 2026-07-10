@@ -1,22 +1,22 @@
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/monitor.js
+   Monitoring, Alerts, Audit, GPU, Host renderers
+   ADR-0013: IIFE module scope — PCV.monitor namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Monitoring is the highest-churn UI module: it parses Prometheus text,
+ * maintains Chart.js instances across innerHTML replacement, and renders both
+ * Single Edge local metrics and legacy multi-node shaped data. Helper comments
+ * below mark the ownership boundaries that keep those concerns separate.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ CHART.JS REGISTRY ═══ */
 var chartRegistry = {};
 window.chartRegistry = chartRegistry;
 
-
+/* Destroy all Chart.js instances — call before innerHTML replacement */
 function destroyAllCharts() {
   for (const id of Object.keys(chartRegistry)) {
     try { chartRegistry[id].destroy(); } catch (e) { if(_DEBUG) console.warn('destroyAllCharts:', e.message); }
@@ -28,7 +28,7 @@ window.destroyAllCharts = destroyAllCharts;
 function createLineChart(canvasId, data, label, color) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-
+  /* If registry has a stale entry (canvas replaced by innerHTML), destroy it */
   if (chartRegistry[canvasId]) {
     if (chartRegistry[canvasId].canvas === canvas) {
       const chart = chartRegistry[canvasId];
@@ -37,7 +37,7 @@ function createLineChart(canvasId, data, label, color) {
       chart.update('none');
       return;
     }
-
+    /* Stale — canvas was replaced */
     try { chartRegistry[canvasId].destroy(); } catch (e) { if(_DEBUG) console.warn('createLineChart:', e.message); }
     delete chartRegistry[canvasId];
   }
@@ -96,14 +96,14 @@ function drawGraphFallback(id, data, color) {
 }
 window.drawGraphFallback = drawGraphFallback;
 
-
+/* ═══ CHART COLOR ═══ */
 function getChartColor(name) {
   try { return getComputedStyle(document.documentElement).getPropertyValue('--chart-' + name).trim() || name; }
   catch(e) { return name; }
 }
 window.getChartColor = getChartColor;
 
-
+/* ═══ MONITORING CONSTANTS (R-9: cluster.js에�� 동적 로드된 노드 사용) ═══ */
 var _PROD_NODES = window._PROD_NODES || [{ name: 'Local', ip: window.location.hostname || '127.0.0.1' }];
 var _VIP = window._VIP || null;
 var _curHost = window._curHost || window.location.hostname;
@@ -112,7 +112,7 @@ window._isProd = _isProd;
 window._curHost = _curHost;
 var MON_NODES = _PROD_NODES;
 window.MON_NODES = MON_NODES;
-
+/* cluster.js의 _loadClusterNodes() 완료 후 MON_NODES 갱신 */
 async function _refreshMonNodes() {
   if (window._loadClusterNodes) await window._loadClusterNodes();
   _PROD_NODES = window._PROD_NODES || _PROD_NODES;
@@ -176,7 +176,7 @@ async function _fetchMetricsText(url) {
   return r.text();
 }
 
-
+/* G-2: Promise.all parallel fetch */
 async function fetchAllMetrics() {
   const all = await Promise.all(MON_NODES.map(async (nd) => {
     try {
@@ -252,7 +252,7 @@ async function fetchAllMetrics() {
 }
 window.fetchAllMetrics = fetchAllMetrics;
 
-
+/* ═══ FORMATTERS ═══ */
 function fmtBytes(b) { if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB'; if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'; if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'; if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB'; return b + ' B'; }
 window.fmtBytes = fmtBytes;
 
@@ -262,7 +262,7 @@ window.fmtRate = fmtRate;
 function fmtUptime(s) { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mi = Math.floor(s % 3600 / 60); return d + 'd ' + h + 'h ' + mi + 'm'; }
 window.fmtUptime = fmtUptime;
 
-
+/* ═══ CANVAS DRAWING ═══ */
 function drawLine(id, data, color, unit, max) {
   const cv = document.getElementById(id); if (!cv) return;
   const x = cv.getContext('2d'); cv.width = cv.offsetWidth; cv.height = cv.offsetHeight;
@@ -284,9 +284,9 @@ function gauge(pct, label, color) {
 }
 window.gauge = gauge;
 
-
+/* ═══ MONITORING RENDER — G-2 Split into sub-functions ═══ */
 async function renderMonitoring(b, tab) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   b.innerHTML = showSkeleton();
@@ -303,7 +303,7 @@ async function renderMonitoring(b, tab) {
   else if (tab === 'vms') renderMonVms(b, allVms, running);
   else if (tab === 'storage') renderMonStorage(b, all, allVms, totalRam);
 
-
+  /* FE-4: 모니터링 페이지 열린 동안 자동 갱신 (10초) */
   if (typeof startAdaptivePolling === 'function') {
     startAdaptivePolling('mon-refresh', function() {
       if (window.currentTab && window.currentTab.startsWith('mon-')) {
@@ -319,7 +319,7 @@ async function renderMonitoring(b, tab) {
           else if (window.currentTab === 'mon-hosts') renderMonHosts(cb, fresh);
           else if (window.currentTab === 'mon-vms') renderMonVms(cb, freshVms, r);
           else if (window.currentTab === 'mon-storage') renderMonStorage(cb, fresh, freshVms, tr);
-        }).catch(function() {  });
+        }).catch(function() { /* 갱신 실패 시 무시 */ });
       } else {
         if (typeof stopAdaptivePolling === 'function') stopAdaptivePolling('mon-refresh');
       }
@@ -363,7 +363,7 @@ function _opsVmStatus(v) {
 
 function _opsFallbackVms() {
   return [
-    { name: 'pcv-demo-vm', role: '공개 데모', ip: '192.0.2.12', cpu: 2.0, mem: 48, state: 'running', running: 1 },
+    { name: 'pcv-demo-vm', role: '공개 데모', ip: '192.0.2.10', cpu: 2.0, mem: 48, state: 'running', running: 1 },
     { name: 'ovn-demo-a', role: '테넌트 A', ip: '10.77.0.12', cpu: 12, mem: 34, state: 'http 200', running: 1 },
     { name: 'ovn-demo-b', role: '테넌트 B', ip: '10.77.0.13', cpu: 16, mem: 41, state: 'unknown', running: 1 }
   ];
@@ -518,7 +518,7 @@ async function renderOpsTriage(b) {
 }
 window.renderOpsTriage = renderOpsTriage;
 
-
+/* ═══ DEEP HEALTH DASHBOARD ═══ */
 async function loadDeepHealth() {
   var el = document.getElementById('deep-health'); if (!el) return;
   el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
@@ -539,7 +539,7 @@ async function loadDeepHealth() {
 
     var subsysKeys = Object.keys(subsystems);
     if (subsysKeys.length === 0) {
-
+      /* If no subsystems object, try top-level known fields */
       var knownSubs = ['libvirt', 'etcd', 'zfs', 'vm_state_db', 'audit_db', 'tls', 'cluster'];
       knownSubs.forEach(function(k) { if (d[k] !== undefined) subsystems[k] = d[k]; });
       subsysKeys = Object.keys(subsystems);
@@ -596,15 +596,15 @@ function _healthBadgeColor(sc) {
 }
 
 function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
-
+  /* Deep Health section at top */
   let h = '<div class="hc mb-14"><h4>&#129657; ' + (t('monitor.system_health') || 'System Health') + '</h4>';
   h += '<p class="color-muted text-11 mb-8">' + (t('monitor.health_desc') || 'Deep health probe of all subsystems. Updated on each page load.') + '</p>';
   h += '<div id="deep-health"><span class="spinner"></span> ' + (t('loading') || 'Loading...') + '</div></div>';
 
-
+  /* F-1: Cluster Timeline Chart (CPU/MEM/DISK 시계열) */
   h += '<div class="hc mb-12"><h4>&#128202; ' + (t('monitor.cluster_timeline') || '리소스 흐름 (최근 5분)') + '</h4>';
   h += '<div class="grid-3 gap-12" style="display:grid;grid-template-columns:1fr 1fr 1fr">';
   h += '<div style="position:relative;height:180px"><canvas id="pcv-chart-cpu"></canvas></div>';
@@ -634,7 +634,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     h += H.row('Net I/O', '<span class="color-cyan">&#9650; ' + fmtRate(hi.netRx, hi.netRx.length - 1) + ' &#9660; ' + fmtRate(hi.netTx, hi.netTx.length - 1) + '</span>');
     h += H.row('Sockets', (n.sockstat.sockets_used || 0) + ' (TCP:' + (n.sockstat.TCP_inuse || 0) + ' UDP:' + (n.sockstat.UDP_inuse || 0) + ')') + '</div>'; });
   h += '</div>';
-
+  /* AI Ops panels */
   h += '<div class="sg grid-3 mb-12">';
   h += '<div class="hc"><h4 class="color-red">&#9888; 이상 징후</h4><div style="font-size:12px;color:var(--fg2);margin-bottom:8px;line-height:1.6;border-left:2px solid var(--red);padding-left:8px"><b>Z-Score</b> 기반 이상 탐지<br>&#8226; 최근 60개 샘플(약 5분)<br>&#8226; Z &gt; 1.5 경고, Z &gt; 2.5 위험</div>';
   const totalAnom = all.reduce((s, n) => s + (n.anomaly_active || 0), 0);
@@ -660,15 +660,15 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     Object.entries(agentProv).forEach(([name, d]) => { h += '<tr><td>' + name + '</td><td>' + (d.confidence || 0).toFixed(2) + '</td><td>' + (d.latency || 0).toFixed(0) + 'ms</td></tr>'; });
     h += '</tbody></table>'; if (n1.agent_conf !== undefined) h += '<div class="stat-label mt-4">Consensus <span class="color-green font-bold">' + n1.agent_conf.toFixed(2) + '</span></div>'; h += '</div>'; }
   h += '<div style="margin-top:6px"><button class="btn" onclick="showAgentConfig()" class="btn-xs">&#9881; Configure AI Agent</button></div></div></div>';
-
+  /* Self-Healing Pending Actions */
   h += '<div class="hc mb-14"><h4 class="color-yellow">&#9888; ' + _L('자가치유 대기 액션', 'Self-Healing Pending Actions') + '</h4>';
   h += '<div id="healing-pending-list" class="skeleton-box" style="min-height:60px"></div></div>';
-
+  /* keepalived */
   h += '<div class="sg grid-1 mb-12">' + H.card('&#9741; keepalived VRRP Status', '<table class="text-12"><thead><tr><th>Node</th><th>keepalived</th><th>VRRP Role</th><th>VIP Owner</th></tr></thead><tbody>' +
   all.map(n => { const kaA = n.keepalived_active === 1; const kaM = n.keepalived_master === 1; const kaV = n.keepalived_vip_owner === 1;
     return '<tr><td><b>' + n.node + '</b> <span class="stat-label">' + n.ip + '</span></td><td>' + H.badge(kaA ? 'ACTIVE' : 'DOWN', kaA ? 'g' : 'r') + '</td><td>' + H.badge(kaM ? 'MASTER' : 'BACKUP', kaM ? 'g' : 'y') + '</td><td>' + (kaV ? '<span class="color-green font-bold">' + escapeHtml(_VIP || 'VIP') + '</span>' : '-') + '</td></tr>'; }).join('') +
   '</tbody></table>') + '</div>';
-
+  /* Top 5 */
   const runVms = allVms.filter(v => v.running === 1);
   function top5Tbl(title, items, valFn, unit) { let t2 = '<div class="hc"><h4>' + title + '</h4><table class="text-11"><tbody>';
     items.forEach((v, i) => { t2 += '<tr><td class="w-16 color-muted">' + (i + 1) + '</td><td><b>' + v.name + '</b></td><td class="color-muted">' + v.node + '</td><td class="text-right font-bold color-accent">' + valFn(v) + unit + '</td></tr>'; });
@@ -682,16 +682,16 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
   h += H.card('All VMs (' + allVms.length + ')', '<table class="table-sticky"><thead><tr><th>Name</th><th>State</th><th>Node</th><th>vCPU</th><th>Max MB</th><th>Used MB</th></tr></thead><tbody>' +
   allVms.map(v => '<tr><td><b>' + v.name + '</b></td><td>' + H.badge(v.running === 1 ? 'running' : 'off', v.running === 1 ? 'g' : 'r') + '</td><td>' + v.node + '</td><td>' + (v.vcpu || '-') + '</td><td>' + (v.memory_max_mb || '-') + '</td><td>' + (v.memory_used_mb > 0 ? v.memory_used_mb : '-') + '</td></tr>').join('') +
   '</tbody></table>');
-
+  /* 1.0: AI Ops Self-Healing 패널 mount point (selfhealing.js가 채움) */
   h += '<div id="selfhealing-panel" class="hc mb-14" style="margin-top:24px"></div>';
   b.innerHTML = h;
   setTimeout(loadDeepHealth, 50);
   setTimeout(loadHealingPending, 100);
-
-
+  /* 1.0 functional: AI Ops Self-Healing 패널 자동 mount.
+   * 패널 컨테이너는 monitor 페이지 끝에 추가되어 있고 render는 selfhealing.js가 담당. */
   setTimeout(function() { if (window.PCV && PCV.selfhealing) PCV.selfhealing.refresh(); }, 150);
   setTimeout(() => { all.forEach(n => { const hi = monHist[n.ip] || { cpu: [], mem: [] }; drawLine('mc-' + n.ip + '-cpu', hi.cpu, getChartColor('cpu'), '%'); drawLine('mc-' + n.ip + '-mem', hi.mem, getChartColor('mem'), '%'); }); }, 50);
-
+  /* F-1: Render Chart.js timeline charts (CPU / MEM / NET per node) */
   setTimeout(function() {
     if (typeof pcvTimeSeries !== 'function') return;
     var cpuSeries = all.map(function(n) {
@@ -718,7 +718,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
 window.renderMonOverview = renderMonOverview;
 
 function renderMonCluster(b, all) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#9741; Cluster Status') + '<div class="sg grid-3 mb-12">';
@@ -737,7 +737,7 @@ function renderMonCluster(b, all) {
 window.renderMonCluster = renderMonCluster;
 
 function renderMonHosts(b, all) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#128187; Host Performance');
@@ -751,7 +751,7 @@ function renderMonHosts(b, all) {
     + H.card('Total RAM', '<div class="stat-md">' + ((n.ram_total || 0) / 1073741824).toFixed(1) + ' GB</div>')
     );
     h += '<div class="sg grid-3">' + H.card('CPU History', '<canvas id="hc-' + n.ip + '" class="sparkline-md"></canvas>') + H.card('Memory History', '<canvas id="hm-' + n.ip + '" class="sparkline-md"></canvas>') + H.card('Disk History', '<canvas id="hd-' + n.ip + '" class="sparkline-md"></canvas>') + '</div>';
-
+    /* Memory breakdown — Used/Buf/Cache/Slab/Free 비율을 CSS 변수 --bw로 주입 */
     const mi = n.memInfo || {};
     const mtotal = mi.MemTotal || 1;
     const mUsed = mtotal - (mi.MemAvailable || 0);
@@ -777,18 +777,18 @@ function renderMonHosts(b, all) {
        + '<span>&#9632; <span class="color-magenta">Slab</span> ' + fmtBytes(mSlab) + '</span>'
        + '<span>&#9632; <span class="color-green">Free</span> ' + fmtBytes(mFree) + '</span>'
        + '</div></div>';
-
+    /* CPU per-core */
     const coreIds = Object.keys(n.cores || {}).filter(c => parseInt(c) < 64).sort((a, b) => parseInt(a) - parseInt(b));
     if (coreIds.length > 0) { h += '<div class="hc mt-8"><h4>CPU per Core (' + coreIds.length + ')</h4><div class="flex" style="flex-wrap:wrap;gap:3px">';
       coreIds.forEach(c => { const cd = n.cores[c]; const total = Object.values(cd).reduce((s, v) => s + v, 0); const pct = total > 0 ? (1 - (cd.idle || 0) / total) * 100 : 0; const cl = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--green)';
         h += '<div class="w-28 text-center" title="Core ' + c + ': ' + pct.toFixed(1) + '%"><div style="height:24px;background:var(--bg);border-radius:2px;border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;bottom:0;width:100%;height:' + pct + '%;background:' + cl + '"></div></div><div style="font-size:8px;color:var(--fg2)">' + c + '</div></div>'; });
       h += '</div></div>'; }
-
+    /* Network interfaces */
     const ndevs = Object.entries(n.netdevs || {}).filter(([d]) => !['lo', 'ovs-system', 'br-int'].includes(d));
     if (ndevs.length > 0) { h += '<div class="hc mt-8"><h4>&#127760; Network Interfaces</h4><table class="text-11"><thead><tr><th>Device</th><th>RX</th><th>TX</th><th>Errors</th><th>Drops</th></tr></thead><tbody>';
       ndevs.forEach(([d, s]) => { h += '<tr><td><b>' + d + '</b></td><td>' + fmtBytes(s.receive_bytes_total || 0) + '</td><td>' + fmtBytes(s.transmit_bytes_total || 0) + '</td><td>' + (s.receive_errs_total || 0) + '</td><td>' + (s.receive_drop_total || 0) + '</td></tr>'; });
       h += '</tbody></table></div>'; }
-
+    /* Disk I/O */
     const ddevs = Object.entries(n.disks || {}).filter(([d]) => d.match(/^(nvme\d+n\d+|sd[a-z])$/));
     if (ddevs.length > 0) { h += '<div class="hc mt-8"><h4>&#128190; Disk I/O</h4><table class="text-11"><thead><tr><th>Device</th><th>Read</th><th>Written</th><th>IOPS</th></tr></thead><tbody>';
       ddevs.forEach(([d, s]) => { h += '<tr><td><b>' + d + '</b></td><td>' + fmtBytes(s.read_bytes_total || 0) + '</td><td>' + fmtBytes(s.written_bytes_total || 0) + '</td><td>' + (s.reads_completed_total || 0) + '/' + (s.writes_completed_total || 0) + '</td></tr>'; });
@@ -800,7 +800,7 @@ function renderMonHosts(b, all) {
 window.renderMonHosts = renderMonHosts;
 
 function renderMonVms(b, allVms, running) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#9881; Virtual Machines');
@@ -863,7 +863,7 @@ function _zfsLockPanel(all) {
 }
 
 function renderMonStorage(b, all, allVms, totalRam) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#128190; Storage & Capacity');
@@ -881,13 +881,13 @@ function renderMonStorage(b, all, allVms, totalRam) {
   h += '</div><div class="hc"><h4>Memory per Node</h4>';
   all.forEach(n => { const gb = (n.ram_total || 0) / 1073741824; h += '<div class="mb-6"><div class="justify-between text-11"><span>' + n.node + '</span><span>' + gb.toFixed(1) + ' GB</span></div><div style="height:14px;background:var(--bg);border-radius:3px;border:1px solid var(--border);overflow:hidden"><div style="height:100%;width:' + (gb / 64 * 100) + '%;background:var(--accent);border-radius:3px"></div></div></div>'; });
   h += '</div></div>';
-
+  /* Filesystems */
   all.forEach(n => { const fsList = (n.filesystems || []).filter(f => f.fstype === 'zfs' || f.fstype === 'ext4' || f.fstype === 'xfs');
     if (fsList.length === 0) return;
     h += '<div class="hc mb-12"><h4>' + n.node + ' \u2014 Filesystems</h4><table class="text-11"><thead><tr><th>Mount</th><th>Type</th><th>Size</th><th>Avail</th><th>Used %</th></tr></thead><tbody>';
     fsList.forEach(f => { const sz = f.size_bytes || 0; const av = f.avail_bytes || 0; const pct = sz > 0 ? (sz - av) / sz * 100 : 0; h += '<tr><td><b>' + f.mount + '</b></td><td>' + f.fstype + '</td><td>' + fmtBytes(sz) + '</td><td>' + fmtBytes(av) + '</td><td style="color:' + (pct > 85 ? 'var(--red)' : 'var(--green)') + '">' + pct.toFixed(1) + '%</td></tr>'; });
     h += '</tbody></table></div>'; });
-
+  /* Disk I/O summary */
   h += H.card('Disk I/O (All Nodes)', '<table class="text-11"><thead><tr><th>Node</th><th>Device</th><th>Read</th><th>Written</th><th>Read IOPS</th><th>Write IOPS</th></tr></thead><tbody>' +
   all.map(n => Object.entries(n.disks || {}).filter(([d]) => d.match(/^(nvme\d+n\d+|sd[a-z])$/)).map(([d, s]) =>
     '<tr><td>' + n.node + '</td><td><b>' + d + '</b></td><td>' + fmtBytes(s.read_bytes_total || 0) + '</td><td>' + fmtBytes(s.written_bytes_total || 0) + '</td><td>' + (s.reads_completed_total || 0).toLocaleString() + '</td><td>' + (s.writes_completed_total || 0).toLocaleString() + '</td></tr>').join('')).join('') +
@@ -897,7 +897,7 @@ function renderMonStorage(b, all, allVms, totalRam) {
 }
 window.renderMonStorage = renderMonStorage;
 
-
+/* ═══ ALERTS ═══ */
 async function renderAlerts(b) {
   b.innerHTML = showSkeleton();
   const hdr = { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' };
@@ -930,7 +930,7 @@ async function renderAlerts(b) {
   h += '<div class="mt-8"><button class="btn" onclick="loadWebhookDlq()">DLQ \uC870\uD68C</button>';
   h += '<button class="btn btn-g" onclick="retryWebhookDlq()" style="margin-left:6px">\uC804\uCCB4 \uC7AC\uC2DC\uB3C4</button></div>';
   h += '<div id="dlq-list" class="mt-8"></div></div>';
-
+  /* Alert config editor */
   h += H.section(_L('알림 설정', 'Alert Configuration'));
   try {
     var cfg2 = await fetchGet(EP.ALERTS_CONFIG());
@@ -966,7 +966,7 @@ async function saveAlertConfig() {
 }
 window.saveAlertConfig = saveAlertConfig;
 
-
+/* ═══ AUDIT LOG SEARCH ═══ */
 async function renderAudit(b) {
   let h = H.section('&#128270; \uAC10\uC0AC \uB85C\uADF8 \uAC80\uC0C9');
   h += '<div class="sg" style="grid-template-columns:1fr;margin-bottom:12px">';
@@ -984,7 +984,7 @@ async function renderAudit(b) {
 }
 window.renderAudit = renderAudit;
 
-
+/* ═══ GPU MONITORING ═══ */
 async function renderGpu(b) {
   let h = H.section('&#127918; GPU \uBAA8\uB2C8\uD130\uB9C1');
   h += '<div class="sg grid-2 mb-16">';
@@ -1007,12 +1007,12 @@ async function renderGpu(b) {
     '<code class="color-accent">pcvctl gpu metrics</code> &mdash; GPU \uBA54\uD2B8\uB9AD \uC870\uD68C<br>' +
     '<code class="color-accent">pcvctl gpu passthrough &lt;pci&gt; &lt;vm&gt;</code> &mdash; VFIO \uD328\uC2A4\uC2A4\uB8E8<br>' +
     '<code class="color-accent">pcvctl gpu mdev create &lt;pci&gt; &lt;type&gt;</code> &mdash; vGPU \uC0DD\uC131</div>');
-
+  /* GPU 활용 차트 */
   h += '<div class="hc mb-14"><h4>' + _L('GPU 활용률', 'GPU Utilization') + '</h4>';
   h += '<canvas id="gpu-chart" width="600" height="200" style="max-width:100%"></canvas>';
   h += '<div class="stat-label mt-8">' + _L('GPU 메트릭은 nvidia-smi 또는 lspci 기반으로 수집됩니다.', 'GPU metrics collected via nvidia-smi or lspci.') + '</div></div>';
   b.innerHTML = h;
-
+  /* GPU 활용 차트 그리기 */
   try {
     var gr = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'gpu.list', params:{}, id:'gl1'});
     var gpus = unwrapList(gr);
@@ -1035,7 +1035,7 @@ async function renderGpu(b) {
 }
 window.renderGpu = renderGpu;
 
-
+/* ═══ DPDK STATUS ═══ */
 async function renderDpdk(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -1093,7 +1093,7 @@ window.renderDpdk = renderDpdk;
 window.dpdkBind = dpdkBind;
 window.dpdkUnbind = dpdkUnbind;
 
-
+/* ═══ SR-IOV STATUS ═══ */
 async function renderSriov(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -1172,7 +1172,7 @@ window.sriovDisable = sriovDisable;
 window.sriovAttach = sriovAttach;
 window.sriovDetach = sriovDetach;
 
-
+/* ═══ HOST ═══ */
 async function renderHost(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -1208,10 +1208,10 @@ async function renderHost(b) {
 }
 window.renderHost = renderHost;
 
-
+/* ═══ RESOURCE HEATMAP ═══ */
 function renderHeatmap(b) {
   b.innerHTML = showSkeleton();
-
+  /* Single Edge는 클러스터 VM 엔드포인트를 제공하지 않으므로 로컬 VM 목록만 조회한다. */
   fetchGet(EP.VM_LIST()).then(function(r) {
     var vms = unwrapList(r);
     if (!vms || vms.length === 0) {
@@ -1249,7 +1249,7 @@ function renderHeatmap(b) {
 window.renderHeatmap = renderHeatmap;
 window.loadDeepHealth = loadDeepHealth;
 
-
+/* ═══ ALERT SILENCE (백엔드 4차) ═══ */
 async function renderAlertSilences(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -1293,7 +1293,7 @@ async function showSilenceCreate() {
   });
 }
 
-
+/* ═══ ALERT ROUTING CONFIG ═══ */
 async function renderAlertRouting(b) {
   b.innerHTML = showSkeleton();
   var h = H.section(_L('알림 라우팅 설정', 'Alert Routing Configuration'));
@@ -1322,7 +1322,7 @@ async function saveAlertRouting() {
   } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ CONNECTION POOL INFO ═══ */
 async function renderPoolInfo(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -1347,9 +1347,9 @@ window.renderAlertRouting = renderAlertRouting;
 window.saveAlertRouting = saveAlertRouting;
 window.renderPoolInfo = renderPoolInfo;
 
-
+/* ═══ SELF-HEALING PENDING ACTIONS (FE-A6) ═══ */
 async function loadHealingPending() {
-
+  /* ai.healing.pending RPC 미구현 — healing.history에서 status='pending' 필터링 */
   try {
     var r;
     try {
@@ -1409,7 +1409,7 @@ window.loadHealingPending = loadHealingPending;
 window.healingApprove = healingApprove;
 window.healingReject = healingReject;
 
-
+/* ═══ PCV.monitor namespace export ═══ */
 PCV.monitor = {
   destroyAllCharts: destroyAllCharts,
   createLineChart: createLineChart,

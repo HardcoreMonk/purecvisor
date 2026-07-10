@@ -1,5 +1,7 @@
 #include "modules/security/security_store.h"
 
+#include "utils/pcv_config.h"          /* pcv_config_get_string (ensure_open 경로) */
+#include <glib/gstdio.h>               /* g_mkdir_with_parents */
 #include "modules/audit/pcv_audit.h"
 #include "modules/daemons/alert_engine.h"
 #include "modules/security/security_policy.h"
@@ -7,12 +9,12 @@
 #include <sqlite3.h>
 #include <time.h>
 
-
-
-
-
-
-
+/*
+ * Security Guard persistence lives in one local SQLite database so Web UI,
+ * CLI/TUI, UDS handlers, audit, and HIPS approval state all read the same
+ * event stream. Reads intentionally return empty JSON containers on store
+ * failures while G.degraded records that the operator should investigate.
+ */
 static struct {
     sqlite3 *db;
     GMutex mu;
@@ -22,6 +24,27 @@ static struct {
 } G = {0};
 
 static gsize g_mutex_once = 0;
+
+/*
+ * Retention cap for terminal (resolved/suppressed) security_events rows.
+ * Attacker-influenced distinct coalesce keys and post-resolution re-occurrences
+ * append rows without bound; capping the terminal history prevents a
+ * disk-exhaustion DoS. open/action_pending rows are never pruned so the live
+ * operator queue is preserved.
+ */
+#define PCV_MAX_RETAINED_EVENTS 20000
+
+static gint g_retention_cap = PCV_MAX_RETAINED_EVENTS;
+
+/*
+ * Test-only hook (no header declaration; tests forward-declare it, matching the
+ * pcv_test_* pattern). cap <= 0 restores the compiled default.
+ */
+void
+pcv_security_store_set_retention_cap_for_test(gint cap)
+{
+    g_retention_cap = (cap > 0) ? cap : PCV_MAX_RETAINED_EVENTS;
+}
 
 static void
 ensure_mutex(void)
@@ -82,11 +105,11 @@ exec_sql(const gchar *sql, GError **error)
 static gboolean
 init_schema(GError **error)
 {
-
-
-
-
-
+    /*
+     * The partial unique index is the coalescing contract: repeated open risks
+     * update occurrence_count instead of creating unbounded rows. Resolved or
+     * suppressed history stays immutable for audit review.
+     */
     static const gchar *schema[] = {
         "PRAGMA journal_mode=WAL",
         "CREATE TABLE IF NOT EXISTS security_events ("
@@ -190,6 +213,39 @@ pcv_security_store_open(const gchar *path)
     return ok;
 }
 
+gboolean
+pcv_security_store_ensure_open(void)
+{
+    /* 전용 init 뮤텍스로 check→open 을 원자화해 동시 RPC 하에서도 단일 open 보장.
+     * pcv_security_store_open 은 G.mu 를 자체 획득하므로 여기선 G.mu 를 보유하지 않는다. */
+    static GMutex ensure_mu;
+    static gsize  ensure_mu_init = 0;
+    if (g_once_init_enter(&ensure_mu_init)) {
+        g_mutex_init(&ensure_mu);
+        g_once_init_leave(&ensure_mu_init, 1);
+    }
+    g_mutex_lock(&ensure_mu);
+
+    ensure_mutex();
+    g_mutex_lock(&G.mu);
+    gboolean already = (G.db != NULL);
+    g_mutex_unlock(&G.mu);
+
+    gboolean ok = already;
+    if (!already) {
+        const gchar *path = pcv_config_get_string("security", "db_path",
+                                                  PCV_SECURITY_DB_DEFAULT);
+        if (path && *path) {
+            gchar *dir = g_path_get_dirname(path);
+            if (dir && *dir) (void)g_mkdir_with_parents(dir, 0750);
+            g_free(dir);
+        }
+        ok = pcv_security_store_open(path);
+    }
+    g_mutex_unlock(&ensure_mu);
+    return ok;
+}
+
 void
 pcv_security_store_close(void)
 {
@@ -211,10 +267,10 @@ pcv_security_store_close(void)
 static gboolean
 update_existing_event(const PcvSecurityEvent *ev, const gchar *key, GError **error)
 {
-
-
-
-
+    /*
+     * Coalescing preserves the first event_id as the operator/audit anchor while
+     * refreshing the evidence and last_seen fields with the newest observation.
+     */
     const gchar *sql =
         "UPDATE security_events "
         "SET occurrence_count=occurrence_count+1, last_seen=?, timestamp=?, "
@@ -245,6 +301,42 @@ update_existing_event(const PcvSecurityEvent *ev, const gchar *key, GError **err
         return FALSE;
     }
     return sqlite3_changes(G.db) > 0;
+}
+
+static void
+enforce_event_retention(void)
+{
+    /*
+     * Prune the OLDEST terminal (resolved/suppressed) rows beyond the retention
+     * cap, keeping the newest g_retention_cap of them. open/action_pending rows
+     * are excluded from both the delete and the keep-set, so live queue state is
+     * never dropped. Ordering uses timestamp then rowid: the table has a TEXT
+     * PRIMARY KEY (event_id) and no explicit id column, so SQLite's implicit
+     * rowid is the monotonic insertion-order tiebreak for "oldest".
+     *
+     * Called under G.mu (held by the insert). Best-effort: a retention failure
+     * is logged but must not fail the triggering insert.
+     */
+    const gchar *sql =
+        "DELETE FROM security_events "
+        "WHERE status IN ('resolved','suppressed') AND rowid NOT IN ("
+        "SELECT rowid FROM security_events "
+        "WHERE status IN ('resolved','suppressed') "
+        "ORDER BY timestamp DESC, rowid DESC LIMIT ?1)";
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        g_warning("security_store: prepare retention prune failed: %s",
+                  sqlite3_errmsg(G.db));
+        return;
+    }
+    sqlite3_bind_int(stmt, 1, g_retention_cap);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_DONE) {
+        g_warning("security_store: execute retention prune failed: %s",
+                  sqlite3_errmsg(G.db));
+    }
 }
 
 gboolean
@@ -314,6 +406,8 @@ pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error)
     if (!ok) {
         set_sqlite_error(error, rc, "execute insert event");
         G.degraded = TRUE;
+    } else {
+        enforce_event_retention();
     }
     g_mutex_unlock(&G.mu);
     return ok;
@@ -331,11 +425,11 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
     if (ev->event_id[0] == '\0') {
         pcv_security_event_make_id(ev, "sec");
     }
-
-
-
-
-
+    /*
+     * Policy normalization happens at submit time so every consumer sees the
+     * same severity and action, regardless of whether the event came from HIDS,
+     * runtime probes, logs, or future adapters.
+     */
     ev->severity = pcv_security_policy_normalize_severity(ev);
 
     const gchar *action = pcv_security_policy_recommend_action(ev);
@@ -347,10 +441,10 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
     }
 
     if (pcv_security_policy_should_audit(ev)) {
-
-
-
-
+        /*
+         * WARN/CRIT security events use event_id as the audit target. That gives
+         * the UI, audit log, and pending action table one correlation key.
+         */
         const gchar *severity = pcv_security_severity_to_string(ev->severity);
         pcv_audit_log(NULL, "security.event", ev->event_id,
                       "ok", 0, 0, "local");
@@ -362,11 +456,11 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
 static JsonObject *
 row_to_event_json(sqlite3_stmt *stmt)
 {
-
-
-
-
-
+    /*
+     * JSON field names are the public Security Events contract. Keep this row
+     * mapper boring and one-to-one with the SELECT list so REST, UDS, CLI/TUI,
+     * and Web UI all observe the same shape.
+     */
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "event_id", col_text(stmt, 0));
     json_object_set_int_member(obj, "timestamp", sqlite3_column_int64(stmt, 1));
@@ -393,10 +487,10 @@ pcv_security_store_list_events(gint offset, gint limit,
                                const gchar *source,
                                const gchar *status)
 {
-
-
-
-
+    /*
+     * Bound list size at the store layer. UI filters can request subsets, but a
+     * broken caller cannot force the daemon to materialize the whole event DB.
+     */
     JsonArray *arr = json_array_new();
     if (offset < 0) {
         offset = 0;
@@ -504,11 +598,11 @@ pcv_security_store_update_event_status(const gchar *event_id,
                                        PcvSecurityStatus status,
                                        GError **error)
 {
-
-
-
-
-
+    /*
+     * Event status is updated independently from action status. A user can
+     * suppress or resolve an event without pretending an executable HIPS action
+     * was approved.
+     */
     if (!event_id || !*event_id) {
         g_set_error(error, security_store_error_quark(), SQLITE_MISUSE,
                     "event_id is required");
@@ -549,10 +643,10 @@ pcv_security_store_update_event_status(const gchar *event_id,
 gint
 pcv_security_store_count_by_coalesce_key(const gchar *coalesce_key)
 {
-
-
-
-
+    /*
+     * Tests use this to prove coalescing remains bounded. Production callers
+     * should prefer list/get APIs instead of depending on the partial index.
+     */
     if (!coalesce_key) {
         return 0;
     }
@@ -584,10 +678,10 @@ pcv_security_store_count_by_coalesce_key(const gchar *coalesce_key)
 gboolean
 pcv_security_store_get_bool_config(const gchar *key, gboolean def)
 {
-
-
-
-
+    /*
+     * Config reads fail closed to the caller-provided default. Security Guard
+     * startup should not crash the daemon if the local SQLite file is missing.
+     */
     if (!key || !*key) {
         return def;
     }
@@ -691,11 +785,11 @@ pcv_security_store_upsert_pending_action(const PcvSecurityEvent *ev,
     }
 
     const gchar *sql =
-
-
-
-
-
+        /*
+         * Re-opening a still-pending event resets the decision fields. This is
+         * deliberate: a new observation should require a fresh operator decision
+         * instead of silently inheriting an older approval/dismissal.
+         */
         "INSERT INTO security_actions("
         "event_id,action,target_kind,target,status,ttl_sec,expires_at,requested_at"
         ") VALUES(?,?,?,?,?,?,?,?) "
@@ -737,11 +831,11 @@ pcv_security_store_upsert_pending_action(const PcvSecurityEvent *ev,
 static JsonObject *
 row_to_action_json(sqlite3_stmt *stmt)
 {
-
-
-
-
-
+    /*
+     * Pending action JSON is consumed by both approve/dismiss handlers and the
+     * UI review table. Preserve job_id/error even when empty so async completion
+     * state can be rendered without schema probing.
+     */
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "event_id", col_text(stmt, 0));
     json_object_set_string_member(obj, "action", col_text(stmt, 1));
@@ -856,10 +950,10 @@ pcv_security_store_update_action_status(const gchar *event_id,
     }
 
     const gchar *sql =
-
-
-
-
+        /*
+         * Only pending actions can transition. Once approved or dismissed, the
+         * row becomes decision history and cannot be replayed by a stale button.
+         */
         "UPDATE security_actions "
         "SET status=?, decided_at=?, decided_by=?, reason=? "
         "WHERE event_id=? AND status='pending'";

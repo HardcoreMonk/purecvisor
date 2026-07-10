@@ -1,64 +1,64 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file pcv_rbac.c
+ * @brief RBAC 멀티테넌트 인증 모듈 — SQLite 사용자/역할 DB + SHA256 해싱 + JWT 발급
+ *
+ * [파일 역할]
+ *   PureCVisor의 인증/인가(AuthN/AuthZ) 핵심 모듈.
+ *   SQLite DB에 사용자/역할/테넌트 정보를 저장하고, 로그인 시 SHA256으로
+ *   비밀번호를 검증한 뒤 JWT 토큰을 발급합니다. RPC 요청마다 사용자의 역할이
+ *   해당 메서드의 최소 요구 역할 이상인지 확인하여 접근을 제어합니다.
+ *
+ * [아키텍처 위치]
+ *   main.c (데몬 시작)
+ *     -> pcv_rbac_init(db_path) -> _ensure_table() -> _ensure_admin_user()
+ *   rest_server.c (POST /auth/token)
+ *     -> pcv_rbac_authenticate(user, pass) -> SHA256 검증 -> pcv_jwt_sign()
+ *   dispatcher.c (모든 RPC 처리 전)
+ *     -> pcv_rbac_check_permission(user, method) -> 역할 >= 최소 역할 확인
+ *   handler_auth.c (auth.* RPC)
+ *     -> pcv_rbac_user_create/delete/list/set_role()
+ *
+ * [DB 스키마]
+ *   경로: /var/lib/purecvisor/rbac.db (WAL 모드)
+ *   테이블: users
+ *     - username      TEXT PK   : 로그인 ID
+ *     - password_hash TEXT      : SHA256(salt + password) 결과 hex 문자열
+ *     - salt          TEXT      : 16바이트 랜덤 -> 32자리 hex
+ *     - role          INTEGER   : 0=VIEWER, 1=OPERATOR, 2=ADMIN
+ *     - tenant        TEXT      : 테넌트 격리 키 (NULL=전체 접근)
+ *
+ * [권한 모델 — 누적 계층형 (상위 역할은 하위 권한 포함)]
+ *   VIEWER(0)  : 읽기 전용 (*.list, *.get, *.metrics, monitor.*, telemetry.*)
+ *   OPERATOR(1): VIEWER + 운영. 단, VM 단일 대상 action은 dispatcher.c에서
+ *                libvirt owner metadata를 추가 확인하여 "자신이 만든 VM"으로 제한
+ *   ADMIN(2)   : 전체 (auth.*, *.delete, failover.test, 설정 변경 등)
+ *   권한 판정: user_role >= _method_min_role(method) -> 허용
+ *
+ * [비전공자 설명]
+ * 역할(role)은 건물 출입 등급과 비슷합니다. VIEWER는 보기만 가능하고,
+ * OPERATOR는 기계를 조작할 수 있으며, ADMIN은 전체 관리가 가능합니다.
+ * 다만 OPERATOR끼리는 서로의 VM을 만질 수 없도록 VM 소유자 이름표를
+ * 한 번 더 확인합니다. 이 두 단계 검사가 RBAC + owner-scope입니다.
+ *
+ * [핵심 패턴]
+ *   - 비밀번호 해싱: SHA256(salt + password)
+ *     salt는 사용자 생성 시 16바이트 랜덤 생성, hex 인코딩하여 DB 저장
+ *     검증 시 DB의 salt를 읽어 동일 해싱 후 hash 비교
+ *   - JWT 발급: pcv_jwt_sign(username)으로 HS256 토큰 생성
+ *     REST API는 Authorization: Bearer <token> 헤더로 인증
+ *   - 초기 관리자: pcv_rbac_init() 시 admin 사용자가 없으면
+ *     daemon.conf의 [daemon] admin_user/admin_password가 명시된 경우 자동 생성
+ *
+ * [스레드 안전]
+ *   GMutex(g_rbac_mutex)로 모든 SQLite 접근을 직렬화합니다.
+ *   REST 서버 스레드와 메인 스레드 양쪽에서 호출되므로 Mutex 필수.
+ *
+ * [주의사항]
+ *   - pcv_rbac_init()은 pcv_config_init() 및 pcv_jwt_init() 이후에 호출해야 함
+ *   - SQLite는 단일 파일 DB이므로 프로세스 간 동시 접근 시 WAL 모드 필요
+ *   - pcv_rbac_get_tenant() 반환값은 TLS 버퍼이므로 g_free() 금지
+ *   - 빌드 의존성: libsqlite3-dev, libcrypto (openssl EVP)
+ */
 
 #include "pcv_rbac.h"
 #include "../../utils/pcv_jwt.h"
@@ -76,19 +76,19 @@
 #include <stdio.h>
 
 #define RBAC_LOG_DOM  "pcv_rbac"
-#define SALT_LEN      16
+#define SALT_LEN      16   /* 16 bytes → hex 변환 시 32 chars */
 
+/* ── 세션/토큰 만료 상수 ──────────────────────────────────── */
+#define ACCESS_TOKEN_EXPIRY   900     /* 15분 (보안 강화: 기존 3600 → 900) */
+#define REFRESH_TOKEN_EXPIRY  604800  /* 7일 */
+#define REFRESH_TOKEN_BYTES   32      /* 32 bytes → 64 hex chars */
 
-#define ACCESS_TOKEN_EXPIRY   900
-#define REFRESH_TOKEN_EXPIRY  604800
-#define REFRESH_TOKEN_BYTES   32
+/* ══════════════════════════════════════════════════════════════
+ * [1] 모듈 전역 상태
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-static sqlite3 *g_rbac_db    = nullptr;
-static GMutex   g_rbac_mutex;
+static sqlite3 *g_rbac_db    = nullptr;   /* RBAC SQLite DB 핸들 (프로세스 수명) */
+static GMutex   g_rbac_mutex;          /* 모든 DB 접근을 직렬화하는 뮤텍스 */
 
 static void
 _fill_random_bytes(guchar *buf, gsize len)
@@ -109,27 +109,27 @@ _fill_random_bytes(guchar *buf, gsize len)
     }
 }
 
-
-
-
-
-
-
-
+/* ══════════════════════════════════════════════════════════════
+ * [1-B] 브루트포스 방어 — 인메모리 로그인 시도 추적
+ *
+ * 연속 실패 5회 → 계정 잠금 (지수 백오프: 30s, 60s, 300s, 3600s)
+ * 성공 시 카운터 초기화.
+ * GHashTable(username → LoginAttemptInfo)로 추적.
+ * ══════════════════════════════════════════════════════════════ */
 
 typedef struct {
-    gint    attempts;
-    gint    lockout_count;
-    gint64  locked_until;
+    gint    attempts;       /* 연속 실패 횟수 */
+    gint    lockout_count;  /* 잠금 발동 횟수 (백오프 단계) */
+    gint64  locked_until;   /* 잠금 해제 시각 (monotonic µs), 0이면 잠기지 않음 */
 } LoginAttemptInfo;
 
-static GHashTable *g_login_attempts = nullptr;
+static GHashTable *g_login_attempts = nullptr;  /* username → LoginAttemptInfo* */
 static GMutex      g_attempts_mu;
 
-
-
-
-static GHashTable *g_ip_attempts = nullptr;
+/* B6-M1: IP-based brute force defense — per-IP failed-login counter.
+ * username 기반과 독립적으로 동작: 다수 username을 시도하는 credential stuffing 방어.
+ * 임계: IP당 20회 실패 → 5분 잠금 (단일 단계, 지수 백오프 없음). */
+static GHashTable *g_ip_attempts = nullptr;     /* client_ip → LoginAttemptInfo* */
 
 #define BRUTE_MAX_ATTEMPTS  5
 static const gint  BRUTE_BACKOFF_SEC[] = { 30, 60, 300, 3600 };
@@ -162,9 +162,9 @@ _brute_get_info(const gchar *username)
     return info;
 }
 
-
-
-
+/**
+ * _brute_check_locked — 잠금 여부 확인 (g_attempts_mu 보유 상태에서 호출)
+ */
 static gboolean
 _brute_check_locked(const gchar *username)
 {
@@ -172,7 +172,7 @@ _brute_check_locked(const gchar *username)
     if (info->locked_until <= 0) return FALSE;
     gint64 now = g_get_monotonic_time();
     if (now >= info->locked_until) {
-
+        /* 잠금 해제 — 시도 카운터만 리셋 (lockout_count는 유지하여 백오프 증가) */
         info->locked_until = 0;
         info->attempts = 0;
         return FALSE;
@@ -180,9 +180,9 @@ _brute_check_locked(const gchar *username)
     return TRUE;
 }
 
-
-
-
+/**
+ * _brute_record_failure — 실패 기록 + 필요 시 잠금 (g_attempts_mu 보유 상태에서 호출)
+ */
 static void
 _brute_record_failure(const gchar *username)
 {
@@ -204,9 +204,9 @@ _brute_record_failure(const gchar *username)
     }
 }
 
-
-
-
+/**
+ * _brute_record_success — 성공 시 카운터 초기화 (g_attempts_mu 보유 상태에서 호출)
+ */
 static void
 _brute_record_success(const gchar *username)
 {
@@ -216,7 +216,7 @@ _brute_record_success(const gchar *username)
     info->lockout_count = 0;
 }
 
-
+/* ── B6-M1: IP-based brute force helpers (g_attempts_mu 보유 상태 호출) ── */
 
 static LoginAttemptInfo *
 _brute_ip_get_info(const gchar *ip)
@@ -268,22 +268,22 @@ _brute_ip_record_success(const gchar *ip)
     info->locked_until = 0;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [2] 내부 헬퍼 — salt 생성 / 비밀번호 해싱
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _generate_salt:
+ *
+ * 16바이트 암호학적 랜덤 데이터를 생성하고, 32자 hex 문자열로 변환합니다.
+ * /dev/urandom에서 읽기를 시도하고, 실패 시 GLib 난수로 폴백합니다.
+ *
+ * 왜 salt를 쓰는가:
+ *   동일한 비밀번호라도 salt가 다르면 해시값이 달라져서,
+ *   레인보우 테이블 공격을 방지할 수 있습니다.
+ *
+ * Returns: (transfer full): hex 문자열 (g_free 필요)
+ */
 static gchar *
 _generate_salt(void)
 {
@@ -297,18 +297,18 @@ _generate_salt(void)
     return g_string_free(hex, FALSE);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _hash_password_legacy:
+ * @salt:     hex 문자열 (32 chars)
+ * @password: 사용자 입력 평문 비밀번호
+ *
+ * [레거시] salt + password를 연결하여 단일 SHA256 해시를 계산합니다.
+ * 기존 사용자 비밀번호 검증용으로만 사용. 신규 사용자는 PBKDF2를 사용합니다.
+ *
+ * 흐름: "salt" + "password" → SHA256 → "a3b1c2..." (64 hex chars)
+ *
+ * Returns: (transfer full): 64자 hex 해시 문자열 (g_free 필요)
+ */
 static gchar *
 _hash_password_legacy(const gchar *salt, const gchar *password)
 {
@@ -318,7 +318,7 @@ _hash_password_legacy(const gchar *salt, const gchar *password)
     guchar digest[EVP_MAX_MD_SIZE];
     guint  digest_len = 0;
 
-
+    /* OpenSSL EVP 3단계: Init → Update(데이터 투입) → Final(해시 추출) */
     EVP_MD_CTX *ctx = EVP_MD_CTX_new();
     if (ctx) {
         EVP_DigestInit_ex(ctx, EVP_sha256(), NULL);
@@ -335,26 +335,26 @@ _hash_password_legacy(const gchar *salt, const gchar *password)
     return g_string_free(hex, FALSE);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _hash_password_pbkdf2:
+ * @salt:     hex 문자열 (32 chars)
+ * @password: 사용자 입력 평문 비밀번호
+ *
+ * PBKDF2-SHA256 (100,000 iterations) 해싱. 브루트포스/레인보우 테이블 공격에
+ * 강한 키 스트레칭을 적용합니다.
+ *
+ * 결과: "pbkdf2:" 접두사 + 64자 hex 문자열 (총 71자)
+ *
+ * Returns: (transfer full): "pbkdf2:" 접두사 포함 해시 문자열 (g_free 필요)
+ */
 static gchar *
 _hash_password_pbkdf2(const gchar *salt, const gchar *password)
 {
-    guchar dk[32];
-
-
-
-
+    guchar dk[32]; /* SHA256 = 32 bytes */
+    /* B6-M1 (Phase 6): PBKDF2 iteration을 daemon.conf에서 설정 가능하게.
+     * 기본 100,000은 OWASP 2023 권장(600k) 대비 낮음. 하드웨어 성능이 향상된
+     * 환경에서는 200k~600k로 상향할 수 있도록 config 훅 추가. 하한 100k로
+     * 고정해 downgrade 공격 방지. */
     gint iter = pcv_config_get_int("auth", "pbkdf2_iterations", 100000);
     if (iter < 100000) iter = 100000;
     PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
@@ -369,42 +369,42 @@ _hash_password_pbkdf2(const gchar *salt, const gchar *password)
     return g_string_free(hex, FALSE);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _hash_password:
+ * @salt:     hex 문자열 (32 chars)
+ * @password: 사용자 입력 평문 비밀번호
+ *
+ * 기본 해싱 함수. PBKDF2-SHA256을 사용합니다.
+ * 결과에 "pbkdf2:" 접두사가 포함되어 레거시 SHA256과 구분됩니다.
+ *
+ * [마이그레이션 경로]
+ *   - 신규 사용자: PBKDF2 해시로 저장 (접두사 "pbkdf2:")
+ *   - 기존 사용자: 로그인 시 레거시 SHA256으로 검증 성공 후
+ *     DB의 해시를 PBKDF2로 자동 업데이트 (로그인 성공 시 마이그레이션)
+ *
+ * Returns: (transfer full): "pbkdf2:" 접두사 포함 해시 문자열 (g_free 필요)
+ */
 static gchar *
 _hash_password(const gchar *salt, const gchar *password)
 {
     return _hash_password_pbkdf2(salt, password);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _ensure_table:
+ *
+ * users 테이블이 없으면 CREATE TABLE로 생성합니다.
+ * "IF NOT EXISTS"이므로 이미 존재해도 안전합니다.
+ *
+ * 테이블 스키마:
+ *   username      TEXT PK  — 로그인 ID (고유)
+ *   password_hash TEXT     — SHA256(salt + password) hex 문자열
+ *   salt          TEXT     — 16바이트 랜덤 hex
+ *   role          INTEGER  — 0=VIEWER, 1=OPERATOR, 2=ADMIN
+ *   tenant        TEXT     — 테넌트 격리 키 (NULL=전체 접근)
+ *
+ * Returns: 성공 시 TRUE
+ */
 static gboolean
 _ensure_table(void)
 {
@@ -427,7 +427,7 @@ _ensure_table(void)
         return FALSE;
     }
 
-
+    /* ── sessions 테이블: refresh token 기반 세션 관리 ──────── */
     const gchar *sql_sessions =
         "CREATE TABLE IF NOT EXISTS sessions ("
         "  id                 INTEGER PRIMARY KEY AUTOINCREMENT,"
@@ -448,7 +448,7 @@ _ensure_table(void)
         return FALSE;
     }
 
-
+    /* sessions 검색 성능을 위한 인덱스 */
     sqlite3_exec(g_rbac_db,
         "CREATE INDEX IF NOT EXISTS idx_sessions_hash "
         "ON sessions(refresh_token_hash);",
@@ -458,7 +458,7 @@ _ensure_table(void)
         "ON sessions(username, revoked);",
         NULL, NULL, NULL);
 
-
+    /* ── api_keys 테이블: CI/자동화용 프로그래밍 방식 인증 ──── */
     const gchar *sql_api_keys =
         "CREATE TABLE IF NOT EXISTS api_keys ("
         "  key_hash    TEXT PRIMARY KEY,"
@@ -482,17 +482,17 @@ _ensure_table(void)
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _ensure_admin_user:
+ *
+ * 최초 실행 시 관리자 계정이 없으면 자동 생성합니다.
+ * daemon.conf의 admin_user/admin_password 설정을 사용합니다.
+ * 공개 배포 안전을 위해 미설정 상태에서는 내장 기본 비밀번호로 생성하지 않습니다.
+ *
+ * 왜 필요한가:
+ *   RBAC DB가 비어 있으면 누구도 JWT 토큰을 발급받을 수 없으므로,
+ *   최소 1명의 ADMIN 사용자가 반드시 존재해야 합니다.
+ */
 static void
 _ensure_admin_user(void)
 {
@@ -507,7 +507,7 @@ _ensure_admin_user(void)
         return;
     }
 
-
+    /* Check if admin exists */
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
                                 "SELECT username FROM users WHERE username = ?;",
@@ -519,13 +519,13 @@ _ensure_admin_user(void)
     sqlite3_finalize(stmt);
 
     if (rc == SQLITE_ROW) {
-
+        /* Admin already exists */
         PCV_LOG_DEBUG(RBAC_LOG_DOM,
                       "Admin user '%s' already exists in RBAC DB", admin_user);
         return;
     }
 
-
+    /* Create admin user */
     GError *err = nullptr;
     gboolean ok = pcv_rbac_user_create(admin_user, admin_pass,
                                        PCV_ROLE_ADMIN, NULL, &err);
@@ -540,32 +540,32 @@ _ensure_admin_user(void)
     }
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [3] 권한 매핑 — RPC 메서드 → 최소 필요 역할
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _method_min_role:
+ * @method: RPC 메서드 이름 (예: "vm.delete", "vm.list")
+ *
+ * 주어진 RPC 메서드를 실행하기 위해 필요한 최소 역할을 반환합니다.
+ * 역할 비교는 숫자 크기로 이루어집니다 (user_role >= min_role → 허용).
+ *
+ * 매핑 전략 (3단계):
+ *   1) 접미사/접두사 패턴으로 VIEWER 판별 (*.list, *.metrics, monitor.* 등)
+ *   2) 위험한 메서드는 명시적으로 ADMIN 지정 (*.delete, auth.*, failover 등)
+ *   3) 나머지는 OPERATOR (start/stop/create, snapshot, migrate 등)
+ *
+ * Returns: 최소 필요 PcvRole
+ */
 static PcvRole
 _method_min_role(const gchar *method)
 {
-
+    /* 메서드가 NULL이면 최대 권한 요구 — 안전 기본값 (deny by default) */
     if (!method || !*method) return PCV_ROLE_ADMIN;
 
-
-
+    /* ── VIEWER methods ──────────────────────────────────── */
+    /* Suffix-based: *.list, *.get, *.metrics, *.info */
     if (g_str_has_suffix(method, ".list") ||
         g_str_has_suffix(method, ".get")  ||
         g_str_has_suffix(method, ".metrics") ||
@@ -574,14 +574,14 @@ _method_min_role(const gchar *method)
         return PCV_ROLE_VIEWER;
     }
 
-
+    /* Prefix-based: monitor.*, telemetry.* */
     if (g_str_has_prefix(method, "monitor.") ||
         g_str_has_prefix(method, "telemetry."))
     {
         return PCV_ROLE_VIEWER;
     }
 
-
+    /* Specific viewer methods */
     if (g_strcmp0(method, "iso.list") == 0        ||
         g_strcmp0(method, "vm.limit") == 0        ||
         g_strcmp0(method, "ovn.status") == 0      ||
@@ -600,7 +600,7 @@ _method_min_role(const gchar *method)
     }
 #endif
 
-
+    /* ── ADMIN-only methods ──────────────────────────────── */
     if (g_str_has_prefix(method, "auth."))
         return PCV_ROLE_ADMIN;
 
@@ -618,9 +618,9 @@ _method_min_role(const gchar *method)
     {
         return PCV_ROLE_ADMIN;
     }
-
-
-
+    /* VM 단일 대상 operator action은 base role만 OPERATOR로 열고,
+     * 실제 허용 여부는 dispatcher가 libvirt owner metadata와 인증 주체를
+     * 비교해 결정한다. */
 #if PCV_CLUSTER_ENABLED
     if (g_strcmp0(method, "cluster.failover.test") == 0 ||
         g_strcmp0(method, "cluster.peer.set") == 0 ||
@@ -630,11 +630,11 @@ _method_min_role(const gchar *method)
     }
 #endif
 
-
-
-
-
-
+    /* ── OPERATOR: known operational methods ───────────────── */
+    /* vm.start, vm.stop, vm.create, vm.snapshot.*, vm.set_vcpu, vm.set_memory,
+     * vm.eject, vm.vnc/get_vnc_info, container.start/stop/create/exec,
+     * container.snapshot.*, network.create, network.mode_set,
+     * storage.zvol.create, device.*, overlay.create, overlay.add_peer, etc. */
     if (g_str_has_prefix(method, "vm.") ||
         g_strcmp0(method, "get_vnc_info") == 0 ||
         g_str_has_prefix(method, "container.") ||
@@ -660,25 +660,25 @@ _method_min_role(const gchar *method)
     }
 #endif
 
-
+    /* fail-secure: unlisted methods require ADMIN */
     return PCV_ROLE_ADMIN;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [3-B] Per-user 스토리지 쿼터 (BE-A9)
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
+/**
+ * _ensure_quota_columns:
+ *
+ * users 테이블에 quota_vm_count, quota_storage_gb 컬럼을 추가합니다.
+ * SQLite ALTER TABLE은 이미 존재하는 컬럼 추가 시 실패하므로 무시합니다.
+ */
 static void
 _ensure_quota_columns(void)
 {
     if (!g_rbac_db) return;
-
+    /* SQLite ALTER TABLE은 컬럼이 이미 있으면 실패하므로 무시 */
     sqlite3_exec(g_rbac_db,
         "ALTER TABLE users ADD COLUMN quota_vm_count INTEGER DEFAULT 0",
         NULL, NULL, NULL);
@@ -687,16 +687,16 @@ _ensure_quota_columns(void)
         NULL, NULL, NULL);
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_check_quota:
+ * @username:          사용자 이름
+ * @current_vm_count:  현재 사용자가 보유한 VM 수
+ *
+ * 사용자의 VM 쿼터를 확인합니다.
+ * quota_vm_count가 0이면 무제한으로 간주합니다.
+ *
+ * Returns: 쿼터 이내이면 TRUE, 초과 시 FALSE
+ */
 gboolean
 pcv_rbac_check_quota(const gchar *username, gint current_vm_count)
 {
@@ -708,7 +708,7 @@ pcv_rbac_check_quota(const gchar *username, gint current_vm_count)
         "SELECT quota_vm_count FROM users WHERE username=?",
         -1, &stmt, NULL) != SQLITE_OK || !stmt) {
         g_mutex_unlock(&g_rbac_mutex);
-        return TRUE;
+        return TRUE;  /* prepare 실패 시 제한 없음으로 처리 */
     }
     sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
 
@@ -718,20 +718,20 @@ pcv_rbac_check_quota(const gchar *username, gint current_vm_count)
     sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);
 
-    if (quota <= 0) return TRUE;
+    if (quota <= 0) return TRUE;  /* 0 = unlimited */
     return current_vm_count < quota;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_set_quota:
+ * @username:    사용자 이름
+ * @vm_count:    VM 생성 한도 (0 = 무제한)
+ * @storage_gb:  스토리지 한도 GB (0 = 무제한)
+ *
+ * 사용자의 리소스 쿼터를 설정합니다.
+ *
+ * Returns: 성공 시 TRUE
+ */
 gboolean
 pcv_rbac_set_quota(const gchar *username, gint vm_count, gint storage_gb)
 {
@@ -760,26 +760,26 @@ pcv_rbac_set_quota(const gchar *username, gint vm_count, gint storage_gb)
     return ok;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [4] 공개 API — 초기화 / 종료
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_init:
+ * @db_path: SQLite DB 경로 (NULL이면 /var/lib/purecvisor/rbac.db 사용)
+ *
+ * RBAC 모듈을 초기화합니다. 호출 순서:
+ *   1) GMutex 초기화
+ *   2) SQLite DB 열기 + WAL 모드 설정
+ *   3) users 테이블 보장 (_ensure_table)
+ *   4) 관리자 계정 보장 (_ensure_admin_user)
+ *
+ * WAL(Write-Ahead Logging) 모드:
+ *   읽기와 쓰기가 동시에 가능해져서, 텔레메트리 등 읽기 빈번한
+ *   환경에서 DB 잠금 경합을 줄여줍니다.
+ *
+ * main.c에서 pcv_config_init(), pcv_jwt_init() 이후에 호출해야 합니다.
+ */
 
 void
 pcv_rbac_init(const gchar *db_path)
@@ -796,25 +796,25 @@ pcv_rbac_init(const gchar *db_path)
         return;
     }
 
-
+    /* Enable WAL mode for concurrent readers */
     sqlite3_exec(g_rbac_db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
 
     if (!_ensure_table()) return;
 
     _ensure_admin_user();
 
-
+    /* BE-A9: 사용자별 스토리지 쿼터 컬럼 보장 */
     _ensure_quota_columns();
 
     PCV_LOG_INFO(RBAC_LOG_DOM, "RBAC module initialized (DB: %s)", path);
 }
 
-
-
-
-
-
-
+/**
+ * pcv_rbac_shutdown:
+ *
+ * SQLite 연결을 닫고 뮤텍스를 정리합니다.
+ * 그레이스풀 드레인 완료 후 main.c에서 호출됩니다.
+ */
 void
 pcv_rbac_shutdown(void)
 {
@@ -829,25 +829,25 @@ pcv_rbac_shutdown(void)
     PCV_LOG_INFO(RBAC_LOG_DOM, "RBAC module shut down");
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [5] 공개 API — 사용자 CRUD
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_user_create:
+ * @username: 사용자 이름 (고유, NULL/빈문자열 불가)
+ * @password: 평문 비밀번호 (SHA256 해싱 후 저장, 평문은 메모리에서 즉시 해제)
+ * @role:     PCV_ROLE_VIEWER / PCV_ROLE_OPERATOR / PCV_ROLE_ADMIN
+ * @tenant:   테넌트 격리 키 (NULL이면 전체 접근)
+ * @error:    GError 반환 (중복 사용자, DB 오류 시)
+ *
+ * 새 사용자를 RBAC DB에 등록합니다.
+ * 16바이트 랜덤 salt를 생성하고, SHA256(salt + password)로 해싱하여 저장합니다.
+ *
+ * 감사 로그: PCV_LOG_AUDIT로 사용자 생성 이벤트를 기록합니다.
+ *
+ * Returns: 성공 시 TRUE, 실패 시 FALSE + error 설정
+ */
 
 gboolean
 pcv_rbac_user_create(const gchar *username,
@@ -910,16 +910,16 @@ pcv_rbac_user_create(const gchar *username,
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_user_delete:
+ * @username: 삭제할 사용자 이름
+ * @error:    GError 반환
+ *
+ * RBAC DB에서 사용자를 삭제합니다.
+ * sqlite3_changes()로 실제 삭제 여부를 확인하여, 존재하지 않는 사용자는 에러 반환합니다.
+ *
+ * Returns: 성공 시 TRUE
+ */
 gboolean
 pcv_rbac_user_delete(const gchar *username, GError **error)
 {
@@ -963,16 +963,16 @@ pcv_rbac_user_delete(const gchar *username, GError **error)
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_user_list:
+ *
+ * 모든 사용자 목록을 조회합니다 (비밀번호 해시/salt는 포함하지 않음).
+ * username 알파벳순으로 정렬하여 반환합니다.
+ *
+ * Returns: (transfer full): GPtrArray of PcvUser*
+ *   호출자가 g_ptr_array_unref()로 해제해야 합니다.
+ *   (GPtrArray의 free_func이 pcv_user_free이므로 원소도 자동 해제)
+ */
 GPtrArray *
 pcv_rbac_user_list(void)
 {
@@ -1005,17 +1005,17 @@ pcv_rbac_user_list(void)
     return arr;
 }
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_user_set_role:
+ * @username: 대상 사용자
+ * @role:     새 역할 (PcvRole 열거형)
+ * @error:    GError 반환
+ *
+ * 기존 사용자의 역할을 변경합니다.
+ * 존재하지 않는 사용자에 대해서는 에러를 반환합니다.
+ *
+ * Returns: 성공 시 TRUE
+ */
 gboolean
 pcv_rbac_user_set_role(const gchar *username,
                        PcvRole      role,
@@ -1066,10 +1066,10 @@ pcv_rbac_user_set_role(const gchar *username,
     return TRUE;
 }
 
-
-
-
-
+/**
+ * pcv_rbac_change_password:
+ * 본인 비밀번호 변경. old_password 검증 후 새 salt+hash로 교체합니다.
+ */
 gboolean
 pcv_rbac_change_password(const gchar *username,
                          const gchar *old_password,
@@ -1147,28 +1147,28 @@ pcv_rbac_change_password(const gchar *username,
     return TRUE;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [6] 공개 API — 인증 (로그인 → JWT 발급)
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_authenticate:
+ * @username: 사용자 이름
+ * @password: 평문 비밀번호
+ * @error:    GError 반환 (인증 실패 시)
+ *
+ * DB에서 해당 사용자의 salt를 꺼내 비밀번호 해시를 계산하고,
+ * 저장된 해시와 비교합니다. PBKDF2 ("pbkdf2:" 접두사) 및
+ * 레거시 SHA256 형식을 모두 지원합니다.
+ *
+ * 인증 성공 시 pcv_jwt_sign()으로 JWT 토큰을 발급합니다.
+ * 이 토큰은 REST API 요청 시 Authorization: Bearer <token> 헤더에 사용됩니다.
+ *
+ * 보안: constant-time CRYPTO_memcmp로 64바이트 고정 비교,
+ *       실패 시 "Invalid credentials"만 반환하여 사용자 존재 여부 미노출.
+ *
+ * Returns: (transfer full): JWT 토큰 문자열 (g_free 필요), 실패 시 NULL
+ */
 
 gchar *
 pcv_rbac_authenticate(const gchar *username,
@@ -1178,7 +1178,7 @@ pcv_rbac_authenticate(const gchar *username,
     g_return_val_if_fail(username && *username, NULL);
     g_return_val_if_fail(password && *password, NULL);
 
-
+    /* Brute-force check */
     _brute_ensure_init();
     g_mutex_lock(&g_attempts_mu);
     if (_brute_check_locked(username)) {
@@ -1222,34 +1222,34 @@ pcv_rbac_authenticate(const gchar *username,
 
     gchar *computed_hash = _hash_password(stored_salt, password);
 
-
-
-
-
+    /* PBKDF2 / 레거시 SHA256 자동 감지 비교
+     * stored_hash가 "pbkdf2:" 접두사를 가지면 PBKDF2 검증,
+     * 그렇지 않으면 레거시 SHA256 검증 (하위 호환).
+     * constant-time 비교: 고정 64바이트 CRYPTO_memcmp 사용. */
     gboolean match = FALSE;
     if (g_str_has_prefix(stored_hash, "pbkdf2:")) {
-
+        /* PBKDF2 해시 검증 */
         gchar *pbkdf2_hash = _hash_password_pbkdf2(stored_salt, password);
-        const gchar *stored_hex = stored_hash + 7;
+        const gchar *stored_hex = stored_hash + 7;  /* "pbkdf2:" 접두사 이후 */
         const gchar *computed_hex = pbkdf2_hash + 7;
         match = (strlen(stored_hex) >= 64) &&
                 (CRYPTO_memcmp(stored_hex, computed_hex, 64) == 0);
         g_free(pbkdf2_hash);
     } else {
-
+        /* 레거시 SHA256 해시 검증 (기존 사용자 하위 호환) */
         gchar *legacy_hash = _hash_password_legacy(stored_salt, password);
         match = (strlen(stored_hash) >= 64) &&
                 (CRYPTO_memcmp(stored_hash, legacy_hash, 64) == 0);
         g_free(legacy_hash);
 
-
+        /* B6-M2: 레거시 SHA256 사용을 INFO 로그로 가시화 — 마이그레이션 진행 추적 */
         if (match) {
             PCV_LOG_INFO(RBAC_LOG_DOM,
                 "Legacy SHA256 hash accepted for '%s' — will auto-migrate",
                 username);
         }
 
-
+        /* 레거시 SHA256 해시 → PBKDF2 자동 마이그레이션 */
         if (match) {
             gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
             if (new_hash) {
@@ -1275,7 +1275,7 @@ pcv_rbac_authenticate(const gchar *username,
     g_mutex_unlock(&g_rbac_mutex);
 
     if (!match) {
-
+        /* Brute-force: record failure */
         g_mutex_lock(&g_attempts_mu);
         _brute_record_failure(username);
         g_mutex_unlock(&g_attempts_mu);
@@ -1288,12 +1288,12 @@ pcv_rbac_authenticate(const gchar *username,
         return NULL;
     }
 
-
+    /* Brute-force: record success */
     g_mutex_lock(&g_attempts_mu);
     _brute_record_success(username);
     g_mutex_unlock(&g_attempts_mu);
 
-
+    /* 인증 성공 → JWT 발급 (subject=username, expiry=0은 기본 만료 사용) */
     gchar *token = pcv_jwt_sign(username, 0, error);
     if (token) {
         PCV_LOG_INFO(RBAC_LOG_DOM,
@@ -1303,18 +1303,18 @@ pcv_rbac_authenticate(const gchar *username,
     return token;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [6-B] 내부 헬퍼 — refresh token 생성 / 해싱
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _generate_refresh_token:
+ *
+ * 32바이트 암호학적 랜덤 데이터를 생성하고, 64자 hex 문자열로 반환합니다.
+ * /dev/urandom 사용, 실패 시 GLib 난수 폴백.
+ *
+ * Returns: (transfer full): 64자 hex 문자열 (g_free 필요)
+ */
 static gchar *
 _generate_refresh_token(void)
 {
@@ -1328,15 +1328,15 @@ _generate_refresh_token(void)
     return g_string_free(hex, FALSE);
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * _hash_refresh_token:
+ * @token: refresh token 평문 (64 hex chars)
+ *
+ * GChecksum SHA256으로 해싱합니다. DB에는 해시만 저장하여
+ * DB 유출 시 refresh token 원문 노출을 방지합니다.
+ *
+ * Returns: (transfer full): 64자 hex SHA256 해시 (g_free 필요)
+ */
 static gchar *
 _hash_refresh_token(const gchar *token)
 {
@@ -1347,16 +1347,16 @@ _hash_refresh_token(const gchar *token)
     return hex;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * _store_session:
+ * @username:      세션 소유자
+ * @token_hash:    refresh token의 SHA256 해시 (64 hex chars)
+ *
+ * sessions 테이블에 새 세션을 INSERT합니다.
+ * 호출자가 g_rbac_mutex를 잡고 호출해야 합니다.
+ *
+ * Returns: 성공 시 TRUE
+ */
 static gboolean
 _store_session(const gchar *username, const gchar *token_hash)
 {
@@ -1393,20 +1393,20 @@ _store_session(const gchar *username, const gchar *token_hash)
     return TRUE;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [6-C] 공개 API — pcv_rbac_authenticate_v2 (access + refresh token)
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_authenticate_v2:
+ *
+ * pcv_rbac_authenticate()의 확장 버전.
+ * 인증 성공 시 access_token(JWT, 15분) + refresh_token(랜덤 64hex, 7일) 발급.
+ * refresh_token은 SHA256 해시를 sessions 테이블에 저장합니다.
+ *
+ * out_refresh_token이 NULL이면 refresh token을 생성하지 않습니다
+ * (기존 pcv_rbac_authenticate와 동일 동작).
+ */
 gchar *
 pcv_rbac_authenticate_v2(const gchar *username,
                          const gchar *password,
@@ -1416,7 +1416,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
     g_return_val_if_fail(username && *username, NULL);
     g_return_val_if_fail(password && *password, NULL);
 
-
+    /* Brute-force check */
     _brute_ensure_init();
     g_mutex_lock(&g_attempts_mu);
     if (_brute_check_locked(username)) {
@@ -1429,7 +1429,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
     }
     g_mutex_unlock(&g_attempts_mu);
 
-
+    /* ── 비밀번호 검증 (pcv_rbac_authenticate와 동일 로직) ─── */
     g_mutex_lock(&g_rbac_mutex);
 
     sqlite3_stmt *stmt = nullptr;
@@ -1459,7 +1459,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
     const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
     const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
 
-
+    /* PBKDF2 / 레거시 SHA256 자동 감지 비교 */
     gboolean match = FALSE;
     if (g_str_has_prefix(stored_hash, "pbkdf2:")) {
         gchar *pbkdf2_hash = _hash_password_pbkdf2(stored_salt, password);
@@ -1474,7 +1474,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
                 (CRYPTO_memcmp(stored_hash, legacy_hash, 64) == 0);
         g_free(legacy_hash);
 
-
+        /* 레거시 SHA256 해시 → PBKDF2 자동 마이그레이션 */
         if (match) {
             gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
             if (new_hash) {
@@ -1500,7 +1500,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
     if (!match) {
         g_mutex_unlock(&g_rbac_mutex);
 
-
+        /* Brute-force: record failure */
         g_mutex_lock(&g_attempts_mu);
         _brute_record_failure(username);
         g_mutex_unlock(&g_attempts_mu);
@@ -1513,12 +1513,12 @@ pcv_rbac_authenticate_v2(const gchar *username,
         return NULL;
     }
 
-
+    /* Brute-force: record success (still holding g_rbac_mutex, acquire g_attempts_mu separately) */
     g_mutex_lock(&g_attempts_mu);
     _brute_record_success(username);
     g_mutex_unlock(&g_attempts_mu);
 
-
+    /* ── refresh token 생성 + DB 저장 (mutex 보유 상태) ─────── */
     gchar *refresh = nullptr;
     if (out_refresh_token) {
         refresh = _generate_refresh_token();
@@ -1537,7 +1537,7 @@ pcv_rbac_authenticate_v2(const gchar *username,
 
     g_mutex_unlock(&g_rbac_mutex);
 
-
+    /* ── JWT access token 발급 (15분) ──────────────────────── */
     gchar *token = pcv_jwt_sign(username, ACCESS_TOKEN_EXPIRY, error);
     if (token) {
         if (out_refresh_token)
@@ -1553,16 +1553,16 @@ pcv_rbac_authenticate_v2(const gchar *username,
     return token;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [6-D] 공개 API — refresh token 갱신 / 세션 취소 / 만료 정리
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_refresh_token:
+ *
+ * refresh token을 검증하고 새 access_token + 새 refresh token을 발급합니다.
+ * 기존 refresh token은 revoke 처리하여 재사용을 방지합니다 (토큰 회전).
+ */
 gchar *
 pcv_rbac_refresh_token(const gchar *refresh_token,
                        gchar      **out_new_refresh,
@@ -1575,7 +1575,7 @@ pcv_rbac_refresh_token(const gchar *refresh_token,
 
     g_mutex_lock(&g_rbac_mutex);
 
-
+    /* ── 세션 조회: 유효한(미취소 + 미만료) refresh token 검색 ── */
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
         "SELECT id, username FROM sessions "
@@ -1609,7 +1609,7 @@ pcv_rbac_refresh_token(const gchar *refresh_token,
     gchar *username = g_strdup((const gchar *)sqlite3_column_text(stmt, 1));
     sqlite3_finalize(stmt);
 
-
+    /* ── 기존 refresh token 무효화 (토큰 회전) ─────────────── */
     stmt = nullptr;
     rc = sqlite3_prepare_v2(g_rbac_db,
         "UPDATE sessions SET revoked = 1 WHERE id = ?;",
@@ -1621,7 +1621,7 @@ pcv_rbac_refresh_token(const gchar *refresh_token,
         sqlite3_finalize(stmt);
     }
 
-
+    /* ── 새 refresh token 생성 + 저장 ─────────────────────── */
     gchar *new_refresh = nullptr;
     if (out_new_refresh) {
         new_refresh = _generate_refresh_token();
@@ -1643,7 +1643,7 @@ pcv_rbac_refresh_token(const gchar *refresh_token,
     g_mutex_unlock(&g_rbac_mutex);
     g_free(token_hash);
 
-
+    /* ── 새 access token 발급 ─────────────────────────────── */
     gchar *access_token = pcv_jwt_sign(username, ACCESS_TOKEN_EXPIRY, error);
     if (access_token) {
         if (out_new_refresh)
@@ -1659,11 +1659,11 @@ pcv_rbac_refresh_token(const gchar *refresh_token,
     return access_token;
 }
 
-
-
-
-
-
+/**
+ * pcv_rbac_revoke_session:
+ *
+ * 해당 사용자의 모든 활성 세션을 무효화합니다.
+ */
 gboolean
 pcv_rbac_revoke_session(const gchar *username, GError **error)
 {
@@ -1701,12 +1701,12 @@ pcv_rbac_revoke_session(const gchar *username, GError **error)
     return TRUE;
 }
 
-
-
-
-
-
-
+/**
+ * pcv_rbac_cleanup_expired_sessions:
+ *
+ * 만료되거나 무효화된 세션을 sessions 테이블에서 삭제합니다.
+ * 주기적 호출 권장 (예: 1시간마다, audit DB retention과 유사).
+ */
 gint
 pcv_rbac_cleanup_expired_sessions(void)
 {
@@ -1738,19 +1738,19 @@ pcv_rbac_cleanup_expired_sessions(void)
     return changes;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [6-E] 공개 API — 활성 세션 목록 조회 / 개별 세션 해지
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_list_sessions:
+ * @username: 세션을 조회할 사용자
+ *
+ * 해당 사용자의 활성(만료되지 않고 무효화되지 않은) 세션 목록을 반환합니다.
+ *
+ * Returns: (transfer full): JsonArray of {id, created_at, expires_at}.
+ *   호출자가 json_array_unref()로 해제해야 합니다.
+ */
 JsonArray *
 pcv_rbac_list_sessions(const gchar *username)
 {
@@ -1782,16 +1782,16 @@ pcv_rbac_list_sessions(const gchar *username)
     return arr;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_revoke_session_by_id:
+ * @username:   세션 소유자 (권한 확인용)
+ * @session_id: 해지할 세션 ID (sessions.id)
+ *
+ * 특정 세션을 개별적으로 무효화합니다.
+ * username이 일치하는 세션만 해지하여 타 사용자 세션 탈취를 방지합니다.
+ *
+ * Returns: 성공 시 TRUE, 대상 없거나 권한 불일치 시 FALSE
+ */
 gboolean
 pcv_rbac_revoke_session_by_id(const gchar *username, gint64 session_id)
 {
@@ -1825,25 +1825,25 @@ pcv_rbac_revoke_session_by_id(const gchar *username, gint64 session_id)
     return ok;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [7] 공개 API — 권한 확인
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_check_permission:
+ * @username: 인증된 사용자 이름
+ * @method:   실행하려는 RPC 메서드 (예: "vm.delete")
+ *
+ * 사용자의 역할(role)이 해당 메서드의 최소 요구 역할 이상인지 확인합니다.
+ * 역할 비교: user_role >= min_role (숫자가 클수록 높은 권한)
+ *
+ * 예) ADMIN(2) >= OPERATOR(1) → 허용
+ *     VIEWER(0) >= ADMIN(2) → 거부
+ *
+ * dispatcher.c에서 RPC 처리 전에 호출됩니다.
+ *
+ * Returns: 허용 시 TRUE, 거부 시 FALSE
+ */
 
 gboolean
 pcv_rbac_check_permission(const gchar *username,
@@ -1857,19 +1857,19 @@ pcv_rbac_check_permission(const gchar *username,
     return (user_role >= min_role);
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_get_role:
+ * @username: 조회할 사용자 이름
+ *
+ * DB에서 사용자의 역할을 조회합니다.
+ * 사용자가 없거나 DB 오류 시 PCV_ROLE_VIEWER(최소 권한)를 반환합니다.
+ *
+ * Returns: PcvRole 열거형 값
+ */
 PcvRole
 pcv_rbac_get_role(const gchar *username)
 {
-
+    /* 안전 기본값: 알 수 없는 사용자는 최소 권한 부여 */
     if (!username || !*username) return PCV_ROLE_VIEWER;
 
     g_mutex_lock(&g_rbac_mutex);
@@ -1897,24 +1897,24 @@ pcv_rbac_get_role(const gchar *username)
     return role;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_get_tenant:
+ * @username: 조회할 사용자 이름
+ *
+ * 사용자의 테넌트 값을 조회합니다.
+ * 멀티테넌트 환경에서 사용자가 접근 가능한 VM/네트워크를 필터링할 때 사용됩니다.
+ *
+ * 스레드 안전 주의:
+ *   __thread (TLS) 정적 버퍼에 값을 복사하여 반환합니다.
+ *   따라서 반환된 포인터는 같은 스레드에서 다음 호출 전까지만 유효합니다.
+ *   g_free() 하면 안 됩니다 (transfer none).
+ *
+ * Returns: (transfer none): 테넌트 문자열, 전체 접근 시 NULL
+ */
 const gchar *
 pcv_rbac_get_tenant(const gchar *username)
 {
-
+    /* TLS(Thread-Local Storage) 버퍼 — 스레드마다 독립 공간을 가짐 */
     static __thread gchar t_tenant[256];
 
     if (!username || !*username) return NULL;
@@ -1949,19 +1949,19 @@ pcv_rbac_get_tenant(const gchar *username)
     return result;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [8] 유틸리티 — 역할 문자열 변환 / PcvUser 해제
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_role_to_str:
+ * @role: PcvRole 열거형
+ *
+ * 역할 열거형을 사람이 읽을 수 있는 문자열로 변환합니다.
+ * JSON 응답, 로그 출력에 사용됩니다.
+ *
+ * Returns: (transfer none): 정적 문자열 ("viewer"/"operator"/"admin"/"unknown")
+ */
 
 const gchar *
 pcv_rbac_role_to_str(PcvRole role)
@@ -1974,15 +1974,15 @@ pcv_rbac_role_to_str(PcvRole role)
     }
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_str_to_role:
+ * @str: 역할 문자열 ("admin", "operator", "viewer" — 대소문자 무시)
+ *
+ * 문자열을 PcvRole 열거형으로 변환합니다.
+ * 알 수 없는 값이면 PCV_ROLE_VIEWER(최소 권한)를 반환합니다.
+ *
+ * Returns: PcvRole 열거형 값
+ */
 PcvRole
 pcv_rbac_str_to_role(const gchar *str)
 {
@@ -1993,16 +1993,16 @@ pcv_rbac_str_to_role(const gchar *str)
     return PCV_ROLE_VIEWER;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [8] API Key 인증 — CI/자동화용 프로그래밍 방식 접근
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
+/**
+ * _sha256_hex:
+ * 입력 데이터의 SHA256 해시를 64자 hex 문자열로 반환합니다.
+ *
+ * Returns: (transfer full): 64자 hex 문자열 (g_free 필요)
+ */
 static gchar *
 _sha256_hex(const gchar *data, gsize len)
 {
@@ -2041,7 +2041,7 @@ pcv_rbac_create_api_key(const gchar *username,
         return NULL;
     }
 
-
+    /* 32바이트 랜덤 → 64자 hex */
     guchar raw[32];
     _fill_random_bytes(raw, sizeof(raw));
 
@@ -2051,7 +2051,7 @@ pcv_rbac_create_api_key(const gchar *username,
         g_string_append_printf(key_str, "%02x", raw[i]);
     gchar *plaintext_key = g_string_free(key_str, FALSE);
 
-
+    /* SHA256 해시만 DB에 저장 */
     gchar *key_hash = _sha256_hex(plaintext_key, strlen(plaintext_key));
 
     gint64 now = (gint64)time(NULL);
@@ -2159,9 +2159,9 @@ pcv_rbac_revoke_api_key(const gchar *key_prefix, GError **error)
         return FALSE;
     }
 
-
-
-
+    /* Fix 5: The DB stores SHA256(full_key), not the plaintext key.
+     * A LIKE match on hash column with a "pcv_..." prefix never works.
+     * Instead, hash the full key and match by exact hash. */
     gchar *key_hash = _sha256_hex(key_prefix, strlen(key_prefix));
 
     g_mutex_lock(&g_rbac_mutex);
@@ -2259,19 +2259,19 @@ pcv_rbac_list_api_keys(const gchar *username)
     return arr;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [8-B] API Key 만료 임박 경고 (BE-A10)
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_get_expiring_api_keys:
+ * @days_threshold: 만료까지 남은 일수 이내인 키를 조회 (예: 7이면 7일 이내 만료)
+ *
+ * 만료가 임박한 활성(비취소) API 키 목록을 반환합니다.
+ * 자동 갱신 경고용 API로, 주기적 점검에 활용합니다.
+ *
+ * Returns: (transfer full): JsonArray of {key_prefix, username, expires_at}
+ */
 JsonArray *
 pcv_rbac_get_expiring_api_keys(gint days_threshold)
 {
@@ -2304,13 +2304,13 @@ pcv_rbac_get_expiring_api_keys(gint days_threshold)
     return arr;
 }
 
-
-
-
-
-
-
-
+/**
+ * pcv_user_free:
+ * @u: 해제할 PcvUser 구조체 (NULL 안전)
+ *
+ * PcvUser의 모든 동적 할당 멤버(username, tenant)와 구조체 자체를 해제합니다.
+ * GPtrArray의 free_func으로 등록되어 g_ptr_array_unref() 시 자동 호출됩니다.
+ */
 void
 pcv_user_free(PcvUser *u)
 {
@@ -2320,9 +2320,9 @@ pcv_user_free(PcvUser *u)
     g_free(u);
 }
 
-
-
-
+/* ══════════════════════════════════════════════════════════════
+ * [9] 브루트포스 방어 — 공개 API
+ * ══════════════════════════════════════════════════════════════ */
 
 gboolean
 pcv_rbac_is_locked(const gchar *username)
@@ -2352,7 +2352,7 @@ pcv_rbac_get_remaining_lockout(const gchar *username)
     return remaining;
 }
 
-
+/* B6-M1: IP-based brute force — public API */
 
 gint
 pcv_rbac_get_ip_remaining_lockout(const gchar *ip)
@@ -2360,7 +2360,7 @@ pcv_rbac_get_ip_remaining_lockout(const gchar *ip)
     if (!ip || !*ip) return 0;
     _brute_ensure_init();
     g_mutex_lock(&g_attempts_mu);
-
+    /* _brute_ip_check_locked는 잠금 만료 시 자동 리셋도 수행 */
     gboolean locked = _brute_ip_check_locked(ip);
     gint remaining = 0;
     if (locked) {
@@ -2395,12 +2395,12 @@ pcv_rbac_ip_record_auth_success(const gchar *ip)
     g_mutex_unlock(&g_attempts_mu);
 }
 
-
-
-
-
-
-
+/* ══════════════════════════════════════════════════════════════
+ * [10] API Key 관리 — 머신 인증용 장기 토큰
+ *
+ * SQLite api_keys 테이블: key_hash(SHA256), client_name, role,
+ * created_at, last_used_at, revoked (0/1)
+ * ══════════════════════════════════════════════════════════════ */
 
 static void _ensure_apikey_table(void) {
     const char *sql =
@@ -2415,26 +2415,26 @@ static void _ensure_apikey_table(void) {
     sqlite3_exec(g_rbac_db, sql, NULL, NULL, NULL);
 }
 
-
-
-
-
-
-
-
+/**
+ * pcv_rbac_apikey_create — 새 API Key 생성
+ * @client_name: 클라이언트 식별 이름 (예: "grafana-scraper")
+ * @role: 권한 역할 (PCV_ROLE_VIEWER/OPERATOR/ADMIN)
+ * @out_key: (out) 생성된 평문 키 (호출자가 g_free)
+ * @return TRUE 성공
+ */
 gboolean
 pcv_rbac_apikey_create(const gchar *client_name, PcvRole role, gchar **out_key, GError **error)
 {
     _ensure_apikey_table();
 
-
+    /* 32바이트 랜덤 키 생성 → hex 인코딩 (64자) */
     guint8 raw[32];
     _fill_random_bytes(raw, sizeof(raw));
 
     GString *key_str = g_string_new("pcv_");
     for (int i = 0; i < 32; i++) g_string_append_printf(key_str, "%02x", raw[i]);
 
-
+    /* SHA256 해시 저장 (평문 키는 DB에 저장하지 않음) */
     gchar *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, key_str->str, -1);
 
     g_mutex_lock(&g_rbac_mutex);
@@ -2462,10 +2462,10 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role, gchar **out_key, 
     return TRUE;
 }
 
-
-
-
-
+/**
+ * pcv_rbac_apikey_validate — API Key 검증 + role 반환
+ * @return PcvRole (유효), -1 (무효/폐기)
+ */
 gint
 pcv_rbac_apikey_validate(const gchar *api_key)
 {
@@ -2485,7 +2485,7 @@ pcv_rbac_apikey_validate(const gchar *api_key)
     }
     if (stmt) sqlite3_finalize(stmt);
 
-
+    /* last_used_at 갱신 — prepared stmt로 SQL injection 방지 */
     if (role >= 0) {
         sqlite3_stmt *upd = nullptr;
         if (sqlite3_prepare_v2(g_rbac_db,
@@ -2501,9 +2501,9 @@ pcv_rbac_apikey_validate(const gchar *api_key)
     return role;
 }
 
-
-
-
+/**
+ * pcv_rbac_apikey_list — 전체 API Key 목록 (평문 키 제외)
+ */
 JsonArray *
 pcv_rbac_apikey_list(void)
 {
@@ -2531,15 +2531,15 @@ pcv_rbac_apikey_list(void)
     return arr;
 }
 
-
-
-
+/**
+ * pcv_rbac_apikey_revoke — API Key 폐기
+ */
 gboolean
 pcv_rbac_apikey_revoke(const gchar *client_name, GError **error)
 {
     _ensure_apikey_table();
     g_mutex_lock(&g_rbac_mutex);
-
+    /* security: prepared stmt prevents SQL injection via client_name */
     sqlite3_stmt *upd = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
         "UPDATE api_keys SET revoked=1 WHERE client_name=?",
@@ -2559,11 +2559,11 @@ pcv_rbac_apikey_revoke(const gchar *client_name, GError **error)
     return TRUE;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [11] 세션 블랙리스트 — JWT 로그아웃 무효화
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-static GHashTable *g_session_blacklist = nullptr;
+static GHashTable *g_session_blacklist = nullptr;  /* jti → revoked_at (gint64) */
 static GMutex      g_blacklist_mu;
 
 void pcv_rbac_session_revoke(const gchar *jti) {
@@ -2587,15 +2587,15 @@ gboolean pcv_rbac_session_is_revoked(const gchar *jti) {
     return revoked;
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [12] RBAC 권한 캐싱 — SQLite 라운드트립 절감
+ *
+ * 캐시: GHashTable("username:method" → min_role 충족 여부)
+ * TTL: 60초, auth.user.set_role/delete 시 무효화
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-static GHashTable *g_perm_cache    = nullptr;
-static GHashTable *g_perm_cache_ts = nullptr;
+static GHashTable *g_perm_cache    = nullptr;  /* "user:method" → GINT_TO_POINTER(allowed) */
+static GHashTable *g_perm_cache_ts = nullptr;  /* "user:method" → gint64* (timestamp) */
 static GMutex      g_perm_cache_mu;
 #define PERM_CACHE_TTL_SEC 60
 
@@ -2608,7 +2608,7 @@ void pcv_rbac_perm_cache_init(void) {
 void pcv_rbac_perm_cache_invalidate(const gchar *username) {
     if (!g_perm_cache) return;
     g_mutex_lock(&g_perm_cache_mu);
-
+    /* 해당 사용자의 모든 캐시 엔트리 제거 */
     GHashTableIter iter;
     gpointer key, value;
     GList *to_remove = nullptr;
@@ -2626,8 +2626,8 @@ void pcv_rbac_perm_cache_invalidate(const gchar *username) {
 }
 
 gint pcv_rbac_perm_cache_check(const gchar *username, const gchar *method) {
-    if (!g_perm_cache || !username || !method) return -1;
-
+    if (!g_perm_cache || !username || !method) return -1;  /* -1 = cache miss */
+    /* perf: stack key avoids heap alloc on every permission check hot path */
     gchar key[192];
     g_snprintf(key, sizeof(key), "%s:%s", username, method);
     gint result = -1;
@@ -2638,20 +2638,20 @@ gint pcv_rbac_perm_cache_check(const gchar *username, const gchar *method) {
     if (val && ts) {
         gint64 now = g_get_monotonic_time() / G_USEC_PER_SEC;
         if (now - *ts < PERM_CACHE_TTL_SEC)
-            result = GPOINTER_TO_INT(val);
+            result = GPOINTER_TO_INT(val);  /* 1=allowed, 0=denied */
         else {
             g_hash_table_remove(g_perm_cache, key);
             g_hash_table_remove(g_perm_cache_ts, key);
         }
     }
     g_mutex_unlock(&g_perm_cache_mu);
-
+    /* perf: no g_free needed — key is stack-allocated */
     return result;
 }
 
 void pcv_rbac_perm_cache_set(const gchar *username, const gchar *method, gboolean allowed) {
     if (!g_perm_cache || !username || !method) return;
-
+    /* perf: stack key for lookup; g_strdup(key) only for hash table ownership */
     gchar key[192];
     g_snprintf(key, sizeof(key), "%s:%s", username, method);
     gint64 *ts = g_new(gint64, 1);
@@ -2663,14 +2663,14 @@ void pcv_rbac_perm_cache_set(const gchar *username, const gchar *method, gboolea
     g_mutex_unlock(&g_perm_cache_mu);
 }
 
+/* ══════════════════════════════════════════════════════════════
+ * [13] Per-user Rate Limiting — 토큰 버킷
+ * ══════════════════════════════════════════════════════════════ */
 
-
-
-
-static GHashTable *g_user_rate = nullptr;
+static GHashTable *g_user_rate = nullptr;  /* username → {count, window_start} */
 static GMutex      g_user_rate_mu;
-#define USER_RATE_LIMIT  100
-#define USER_RATE_WINDOW  60
+#define USER_RATE_LIMIT  100   /* 분당 최대 요청 */
+#define USER_RATE_WINDOW  60   /* 윈도우 (초) */
 
 typedef struct { gint count; gint64 window_start; } UserRateInfo;
 

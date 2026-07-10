@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
+# Host integration smoke for qcow2 snapshot rollback.
+# Requires a running daemon, qemu-guest-agent, and the named validation VM.
+# The guest file mutation is the proof: command success alone is not enough.
 
 SOCK="/var/run/purecvisor/daemon.sock"
 VM="se-validate-001"

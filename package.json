@@ -1,7 +1,4 @@
 {
-  "name": "purecvisor",
-  "private": true,
-  "license": "SEE LICENSE IN LICENSE",
   "devDependencies": {
     "axe-core": "^4.11.4",
     "puppeteer": "^24.42.0"

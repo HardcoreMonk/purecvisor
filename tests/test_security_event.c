@@ -32,8 +32,28 @@ test_security_event_roundtrip(void)
     json_object_unref(obj);
 }
 
+/* [B-2] evidence 가드 — 정상 통과 / 초과 시 유효 fallback JSON */
+static void
+test_security_event_evidence_guard(void)
+{
+    gchar buf[64];
+
+    pcv_security_event_set_evidence(buf, sizeof buf, "{\"k\":1}");
+    g_assert_cmpstr(buf, ==, "{\"k\":1}");
+
+    gchar *big = g_strnfill(200, 'x');
+    pcv_security_event_set_evidence(buf, sizeof buf, big);
+    g_assert_true(g_str_has_prefix(buf, "{\"evidence_truncated\":true"));
+    g_assert_true(g_str_has_suffix(buf, "}"));   /* 유효 JSON 로 닫힘 */
+    g_free(big);
+
+    pcv_security_event_set_evidence(buf, sizeof buf, NULL);
+    g_assert_true(g_str_has_prefix(buf, "{\"evidence_truncated\":true"));
+}
+
 void
 test_security_event_register(void)
 {
     g_test_add_func("/security/event/roundtrip", test_security_event_roundtrip);
+    g_test_add_func("/security/event/evidence_guard", test_security_event_evidence_guard);
 }

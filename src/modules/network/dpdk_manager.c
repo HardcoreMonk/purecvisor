@@ -1,66 +1,66 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file dpdk_manager.c
+ * @brief OVS-DPDK 매니저 -- 커널 바이패스 데이터플레인 관리
+ *
+ * ====================================================================
+ * [아키텍처 위치]
+ *   handler_accel.c --> dpdk_manager (이 파일)
+ *
+ *   handler_accel.c 에서 dpdk.* RPC 7개를 처리할 때 이 모듈의
+ *   함수를 호출한다. DPDK(Data Plane Development Kit)를 통해
+ *   커널 네트워크 스택을 바이패스하여 고성능 패킷 처리를 제공한다.
+ *
+ * [담당 RPC 메서드] (7개, handler_accel.c 경유)
+ *   dpdk.status        - DPDK 초기화 상태 + OVS 버전 정보
+ *   dpdk.bind          - NIC을 DPDK 드라이버에 바인딩 (dpdk-devbind.py)
+ *   dpdk.unbind        - NIC을 커널 드라이버로 복원
+ *   dpdk.list          - DPDK 바인딩된 디바이스 목록
+ *   dpdk.bridge.create - DPDK 가속 OVS 브릿지 생성
+ *   dpdk.bridge.delete - DPDK OVS 브릿지 삭제
+ *   dpdk.hugepage.info - hugepage 할당 현황 (/sys/kernel/mm/hugepages)
+ *
+ * [핵심 동작 흐름 -- dpdk.bridge.create]
+ *   1. ovs-vsctl add-br <name> -- --set bridge <name> datapath_type=netdev
+ *   2. ovs-vsctl add-port <name> <dpdk_port>
+ *        -- --set Interface <dpdk_port> type=dpdk
+ *           options:dpdk-devargs=<pci_addr>
+ *   VM 연결 시 vhost-user 소켓 사용:
+ *     /var/run/purecvisor/vhost-<vm_name>.sock
+ *
+ * [DPDK 전제 조건]
+ *   - OVS에 dpdk-init=true 설정 필요:
+ *     ovs-vsctl set Open_vSwitch . other_config:dpdk-init=true
+ *   - hugepage 할당 필요 (최소 2MB x 1024 = 2GB 권장):
+ *     echo 1024 > /sys/kernel/mm/hugepages/hugepages-2048kB/nr_hugepages
+ *   - dpdk-devbind.py (dpdk-tools 패키지) 설치 필요
+ *
+ * [Graceful Degradation]
+ *   pcv_dpdk_init() 에서 _check_dpdk_init() 으로 OVS dpdk-init 확인.
+ *   dpdk-init=true 아닌 경우:
+ *     - G.available=FALSE 설정
+ *     - status: available=false 포함 JSON 반환
+ *     - bind/bridge.create 등: GError 반환
+ *     - list: 빈 JsonArray 반환
+ *
+ * [vhost-user 소켓]
+ *   pcv_dpdk_vhost_socket_path(vm_name) 으로 VM별 소켓 경로 생성.
+ *   VM XML 에서 <interface type='vhostuser'> 로 참조.
+ *   경로: /var/run/purecvisor/vhost-<vm_name>.sock
+ *
+ * [의존 모듈]
+ *   pcv_spawn.h    - ovs-vsctl, dpdk-devbind.py 명령 실행
+ *   pcv_log.h      - DPDK_LOG_DOM 도메인 로깅
+ *   pcv_validate.h - PCI 주소 형식 검증
+ *
+ * [주의사항]
+ *   - dpdk-devbind.py 는 root 권한 필요.
+ *   - NIC을 DPDK에 바인딩하면 해당 NIC의 커널 네트워크 인터페이스가
+ *     사라진다. 관리 NIC(eno1)을 바인딩하면 SSH 접속 불가.
+ *   - hugepage 부족 시 OVS DPDK 데이터패스가 시작되지 않는다.
+ *   - _check_dpdk_init() 은 ovs-vsctl get 명령의 출력에서
+ *     따옴표 포함 문자열("true")을 처리한다.
+ * ====================================================================
+ */
 #include "dpdk_manager.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_log.h"
@@ -78,19 +78,19 @@ static struct {
     GMutex   mu;
 } G = {0};
 
+/* ── helpers ──────────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _run_cmd — 셸 명령 동기 실행 내부 헬퍼
+ * @cmd: 실행할 셸 명령 문자열
+ * @out: (nullable): 표준 출력을 받을 포인터
+ * @error: (nullable): 에러 반환 포인터
+ *
+ * /bin/sh -c 형태로 pcv_spawn_sync()를 호출.
+ * 실패 시 stderr를 PCV_LOG_WARN으로 기록.
+ *
+ * @return 성공 시 TRUE
+ */
 static gboolean
 _run_cmd(const gchar *cmd, gchar **out, GError **error)
 {
@@ -104,15 +104,15 @@ _run_cmd(const gchar *cmd, gchar **out, GError **error)
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * _check_dpdk_init — OVS의 DPDK 초기화 상태 확인
+ *
+ * ovs-vsctl get Open_vSwitch . other_config:dpdk-init 명령으로
+ * dpdk-init=true 여부를 확인한다.
+ * ovs-vsctl 출력은 따옴표를 포함할 수 있으므로 ("true") 양쪽 모두 검사.
+ *
+ * @return dpdk-init=true이면 TRUE
+ */
 static gboolean
 _check_dpdk_init(void)
 {
@@ -128,15 +128,15 @@ _check_dpdk_init(void)
     return yes;
 }
 
+/* ── lifecycle ────────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_init — OVS-DPDK 매니저 초기화
+ *
+ * _check_dpdk_init()으로 OVS에 dpdk-init=true가 설정되었는지 확인.
+ * 미설정 시 G.available=FALSE로 graceful degradation 모드 진입.
+ * 데몬 시작 시 main.c에서 호출.
+ */
 void
 pcv_dpdk_init(void)
 {
@@ -147,7 +147,7 @@ pcv_dpdk_init(void)
                  G.available ? "available" : "not available (dpdk-init != true)");
 }
 
-
+/** pcv_dpdk_shutdown — OVS-DPDK 매니저 종료. 뮤텍스 해제. */
 void
 pcv_dpdk_shutdown(void)
 {
@@ -155,29 +155,29 @@ pcv_dpdk_shutdown(void)
     G.initialized = FALSE;
 }
 
-
+/** pcv_dpdk_is_available — DPDK 가용 여부 반환 (dpdk-init=true 확인 결과) */
 gboolean
 pcv_dpdk_is_available(void)
 {
     return G.available;
 }
 
+/* ── status ───────────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_status — DPDK 전체 상태 조회
+ *
+ * 반환 JsonObject:
+ *   available:    DPDK 가용 여부
+ *   vdev_count:   DPDK 바인딩된 포트 수
+ *   pmd_cpu_mask: PMD(Poll Mode Driver) CPU 마스크
+ *   socket_mem:   DPDK 소켓 메모리 설정값
+ *
+ * DPDK 미가용 시 available=false + 기본값(0/"") 반환.
+ * ovs-vsctl get 출력에서 따옴표를 제거하여 정리된 값을 반환한다.
+ *
+ * @return (transfer full): 상태 JsonObject (호출자 unref)
+ */
 JsonObject *
 pcv_dpdk_status(void)
 {
@@ -191,12 +191,12 @@ pcv_dpdk_status(void)
         return obj;
     }
 
-
+    /* PMD CPU mask */
     gchar *pmd = NULL;
     if (_run_cmd("ovs-vsctl get Open_vSwitch . other_config:pmd-cpu-mask 2>/dev/null",
                  &pmd, NULL) && pmd) {
         g_strstrip(pmd);
-
+        /* ovs-vsctl 출력은 따옴표 포함 가능 */
         gchar *clean = g_strdup(pmd);
         g_strdelimit(clean, "\"", ' ');
         g_strstrip(clean);
@@ -207,7 +207,7 @@ pcv_dpdk_status(void)
     }
     g_free(pmd);
 
-
+    /* socket memory */
     gchar *smem = NULL;
     if (_run_cmd("ovs-vsctl get Open_vSwitch . other_config:dpdk-socket-mem 2>/dev/null",
                  &smem, NULL) && smem) {
@@ -222,12 +222,12 @@ pcv_dpdk_status(void)
     }
     g_free(smem);
 
-
+    /* DPDK port count */
     gchar *ports = NULL;
     gint vdev_count = 0;
     if (_run_cmd("ovs-vsctl --columns=name,type find interface type=dpdk 2>/dev/null",
                  &ports, NULL) && ports) {
-
+        /* 각 줄에 name 이 있으면 1개 포트 */
         gchar **lines = g_strsplit(ports, "\n", -1);
         for (gint i = 0; lines[i]; i++)
             if (g_str_has_prefix(g_strstrip(lines[i]), "name"))
@@ -240,25 +240,25 @@ pcv_dpdk_status(void)
     return obj;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_hugepage_info — hugepage 할당 현황 조회
+ *
+ * /sys/kernel/mm/hugepages/ 에서 1GB와 2MB hugepage의
+ * 총 수(nr_hugepages)와 여유 수(free_hugepages)를 읽어 반환.
+ *
+ * 반환 JsonObject:
+ *   hugepage_1g_total/free, hugepage_1g_size_mb(=1024)
+ *   hugepage_2m_total/free, hugepage_2m_size_mb(=2)
+ *   total_mb, free_mb (합산 MB)
+ *
+ * @return (transfer full): hugepage 정보 JsonObject (호출자 unref)
+ */
 JsonObject *
 pcv_dpdk_hugepage_info(void)
 {
     JsonObject *obj = json_object_new();
 
-
+    /* 1GB hugepages */
     gchar *nr1g = NULL;
     gint64 total_1g = 0, free_1g = 0;
     if (g_file_get_contents(DPDK_HUGEPAGE "/hugepages-1048576kB/nr_hugepages",
@@ -276,7 +276,7 @@ pcv_dpdk_hugepage_info(void)
     json_object_set_int_member(obj, "hugepage_1g_free", free_1g);
     json_object_set_int_member(obj, "hugepage_1g_size_mb", 1024);
 
-
+    /* 2MB hugepages */
     gchar *nr2m = NULL;
     gint64 total_2m = 0, free_2m = 0;
     if (g_file_get_contents(DPDK_HUGEPAGE "/hugepages-2048kB/nr_hugepages",
@@ -302,22 +302,22 @@ pcv_dpdk_hugepage_info(void)
     return obj;
 }
 
+/* ── NIC binding ──────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_bind — NIC을 DPDK 드라이버에 바인딩
+ * @pci_addr: PCI 주소 (예: "0000:01:00.0")
+ * @driver: (nullable): DPDK 드라이버 이름 (기본: "vfio-pci")
+ * @error: 에러 반환 포인터
+ *
+ * dpdk-devbind.py --bind=<driver> <pci_addr> 명령을 실행한다.
+ * dpdk-devbind.py의 경로가 시스템마다 다르므로 두 경로를 OR로 시도.
+ *
+ * [주의] 관리 NIC(eno1)을 바인딩하면 SSH 접속이 불가해진다.
+ * DPDK 미가용 시 GError 반환.
+ *
+ * @return 성공 시 TRUE
+ */
 gboolean
 pcv_dpdk_bind(const gchar *pci_addr, const gchar *driver, GError **error)
 {
@@ -334,7 +334,7 @@ pcv_dpdk_bind(const gchar *pci_addr, const gchar *driver, GError **error)
     }
 
     const gchar *drv = driver ? driver : "vfio-pci";
-
+    /* driver 이름 검증: [a-zA-Z0-9_-] 만 허용 (shell 인젝션 방지) */
     if (!pcv_validate_bridge_name(drv)) {
         g_set_error(error, g_quark_from_static_string("dpdk"), 2,
                     "Invalid driver name: %s", drv);
@@ -355,15 +355,15 @@ pcv_dpdk_bind(const gchar *pci_addr, const gchar *driver, GError **error)
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_unbind — NIC을 DPDK에서 언바인드 (커널 드라이버 복원, 멱등)
+ * @pci_addr: PCI 주소
+ * @error: 에러 반환 포인터
+ *
+ * 이미 언바인드 상태이면 성공으로 처리 ("; true" 사용).
+ *
+ * @return 성공 시 TRUE
+ */
 gboolean
 pcv_dpdk_unbind(const gchar *pci_addr, GError **error)
 {
@@ -373,7 +373,7 @@ pcv_dpdk_unbind(const gchar *pci_addr, GError **error)
         return FALSE;
     }
 
-
+    /* 멱등: 이미 언바인드 상태이면 성공 */
     gchar *cmd = g_strdup_printf(
         "dpdk-devbind.py --unbind %s 2>/dev/null || "
         "python3 /usr/share/dpdk/usertools/dpdk-devbind.py --unbind %s 2>/dev/null; true",
@@ -386,18 +386,18 @@ pcv_dpdk_unbind(const gchar *pci_addr, GError **error)
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_list — DPDK 바인딩된 네트워크 디바이스 목록 조회
+ *
+ * dpdk-devbind.py --status-dev net 출력을 파싱하여
+ * "Network devices using DPDK-compatible driver" 섹션의
+ * 디바이스를 JsonArray로 반환.
+ *
+ * 각 디바이스: {pci_addr, driver, status("dpdk-bound")}
+ * DPDK 미가용 시 빈 배열 반환.
+ *
+ * @return (transfer full): 디바이스 JsonObject 배열
+ */
 JsonArray *
 pcv_dpdk_list(void)
 {
@@ -415,12 +415,12 @@ pcv_dpdk_list(void)
         return arr;
     }
 
-
-
-
-
-
-
+    /*
+     * 출력 형식 (DPDK 바인딩 섹션):
+     * Network devices using DPDK-compatible driver
+     * ============================================
+     * 0000:01:00.0 'X710 ...' drv=vfio-pci unused=i40e
+     */
     gboolean in_dpdk_section = FALSE;
     gchar **lines = g_strsplit(out, "\n", -1);
     for (gint i = 0; lines[i]; i++) {
@@ -440,13 +440,13 @@ pcv_dpdk_list(void)
 
         if (in_dpdk_section && strlen(line) > 12) {
             JsonObject *dev = json_object_new();
-
+            /* PCI 주소 (첫 12자) */
             gchar pci[16] = {0};
             g_strlcpy(pci, line, MIN((gsize)13, strlen(line) + 1));
             g_strstrip(pci);
             json_object_set_string_member(dev, "pci_addr", pci);
 
-
+            /* 드라이버 파싱 */
             gchar *drv_pos = strstr(line, "drv=");
             if (drv_pos) {
                 drv_pos += 4;
@@ -466,24 +466,24 @@ pcv_dpdk_list(void)
     return arr;
 }
 
+/* ── DPDK bridge ──────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_bridge_create — DPDK 가속 OVS 브릿지 생성
+ * @name: 브릿지 이름
+ * @dpdk_port: (nullable): DPDK 포트 PCI 주소 (있으면 자동 연결)
+ * @error: 에러 반환 포인터
+ *
+ * 실행 순서:
+ *   1) ovs-vsctl add-br <name> -- set bridge datapath_type=netdev
+ *      (datapath_type=netdev가 DPDK 데이터패스 활성화의 핵심)
+ *   2) ip link set <name> up
+ *   3) (dpdk_port 있으면) add-port + type=dpdk + dpdk-devargs=<pci>
+ *
+ * DPDK 미가용 시 GError 반환.
+ *
+ * @return 성공 시 TRUE
+ */
 gboolean
 pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port, GError **error)
 {
@@ -499,30 +499,48 @@ pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port, GError **error
         return FALSE;
     }
 
-
-    gchar *cmd = g_strdup_printf(
-        "ovs-vsctl --may-exist add-br %s -- set bridge %s datapath_type=netdev",
-        name, name);
-
-    g_mutex_lock(&G.mu);
-    gboolean ok = _run_cmd(cmd, NULL, error);
-    g_free(cmd);
-
-    if (ok) {
-        cmd = g_strdup_printf("ip link set %s up", name);
-        _run_cmd(cmd, NULL, NULL);
-        g_free(cmd);
+    /* dpdk_port(PCI BDF) 검증 — 미지정(NULL/빈문자열) 허용, 값이 있으면 형식 강제 */
+    if (dpdk_port && *dpdk_port && !pcv_validate_pci_addr(dpdk_port)) {
+        g_set_error(error, g_quark_from_static_string("dpdk"), 2,
+                    "Invalid dpdk_port PCI address: %s", dpdk_port);
+        return FALSE;
     }
 
+    g_mutex_lock(&G.mu);
 
-    if (ok && dpdk_port && strlen(dpdk_port) > 0) {
+    /* 브릿지 생성 (datapath_type=netdev) — argv 배열, 셸 미경유 */
+    const gchar *br_argv[] = {
+        "ovs-vsctl", "--may-exist", "add-br", name,
+        "--", "set", "bridge", name, "datapath_type=netdev", NULL
+    };
+    gchar *serr = NULL;
+    gboolean ok = pcv_spawn_sync(br_argv, NULL, &serr, error);
+    if (!ok)
+        PCV_LOG_WARN(DPDK_LOG_DOM, "ovs-vsctl add-br failed: %s",
+                     serr ? serr : "(null)");
+    g_free(serr);
+
+    if (ok) {
+        const gchar *up_argv[] = {"ip", "link", "set", name, "up", NULL};
+        pcv_spawn_sync(up_argv, NULL, NULL, NULL);   /* best-effort */
+    }
+
+    /* DPDK 포트 추가 (선택) */
+    if (ok && dpdk_port && *dpdk_port) {
         gchar *port_name = g_strdup_printf("dpdk-p-%s", name);
-        cmd = g_strdup_printf(
-            "ovs-vsctl --may-exist add-port %s %s "
-            "-- set interface %s type=dpdk options:dpdk-devargs=%s",
-            name, port_name, port_name, dpdk_port);
-        ok = _run_cmd(cmd, NULL, error);
-        g_free(cmd);
+        /* dpdk-devargs 는 셸 분리 없이 단일 argv 원소로 그대로 전달 */
+        gchar *devargs = g_strdup_printf("options:dpdk-devargs=%s", dpdk_port);
+        const gchar *port_argv[] = {
+            "ovs-vsctl", "--may-exist", "add-port", name, port_name,
+            "--", "set", "interface", port_name, "type=dpdk", devargs, NULL
+        };
+        gchar *serr2 = NULL;
+        ok = pcv_spawn_sync(port_argv, NULL, &serr2, error);
+        if (!ok)
+            PCV_LOG_WARN(DPDK_LOG_DOM, "ovs-vsctl add-port failed: %s",
+                         serr2 ? serr2 : "(null)");
+        g_free(serr2);
+        g_free(devargs);
         g_free(port_name);
     }
     g_mutex_unlock(&G.mu);
@@ -532,16 +550,16 @@ pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port, GError **error
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_bridge_delete — DPDK OVS 브릿지 삭제 (멱등)
+ * @name: 삭제할 브릿지 이름
+ * @error: 에러 반환 포인터
+ *
+ * ovs-vsctl --if-exists del-br 로 멱등 삭제.
+ * 브릿지 이름 누락 시 GError 반환.
+ *
+ * @return 성공 시 TRUE
+ */
 gboolean
 pcv_dpdk_bridge_delete(const gchar *name, GError **error)
 {
@@ -551,7 +569,7 @@ pcv_dpdk_bridge_delete(const gchar *name, GError **error)
         return FALSE;
     }
 
-
+    /* 멱등 삭제 */
     gchar *cmd = g_strdup_printf("ovs-vsctl --if-exists del-br %s", name);
     g_mutex_lock(&G.mu);
     gboolean ok = _run_cmd(cmd, NULL, error);
@@ -563,18 +581,18 @@ pcv_dpdk_bridge_delete(const gchar *name, GError **error)
     return ok;
 }
 
+/* ── vhost-user ───────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_dpdk_vhost_socket_path — VM별 vhost-user 소켓 경로 생성
+ * @vm_name: VM 이름
+ *
+ * DPDK 가속 VM 연결 시 사용하는 vhost-user 소켓 경로를 생성.
+ * VM XML에서 <interface type='vhostuser'>로 참조.
+ * 경로: /var/run/purecvisor/vhost-<vm_name>.sock
+ *
+ * @return (transfer full): 소켓 경로 (호출자 g_free), vm_name=NULL이면 NULL
+ */
 gchar *
 pcv_dpdk_vhost_socket_path(const gchar *vm_name)
 {

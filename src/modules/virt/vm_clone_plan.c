@@ -1,12 +1,12 @@
-
-
-
-
-
-
-
-
-
+/**
+ * @file vm_clone_plan.c
+ * @brief VM clone preflight에서 쓰는 libvirt XML disk resolver.
+ *
+ * 비전공자 기준으로 보면, clone은 "복사할 하드디스크가 정확히 무엇인지"를
+ * 먼저 알아야 한다. 이 파일은 VM 정의 XML에서 설치 ISO가 아닌 data disk만
+ * 세고, 그 disk가 ZFS zvol인지 qcow2 파일인지 raw 파일인지 분류한다.
+ * 이후 storage별로 "새 VM이 사용할 target disk 경로"까지 계산한다.
+ */
 
 #include "vm_clone_plan.h"
 
@@ -358,18 +358,18 @@ program_available(const gchar *name)
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_vm_clone_copy_file_disk:
+ * @plan: qcow2/raw clone disk plan
+ * @error: 실패 원인을 담는 GError
+ *
+ * qemu-img convert로 파일 기반 VM 디스크를 새 target file로 full copy한다.
+ * 원본 파일을 공유하지 않는 것이 핵심 계약이다. 같은 경로, 상대 경로, 이미
+ * 존재하는 target은 모두 거부한다.
+ *
+ * 파일 기반 clone 실행 경로에서 worker가 호출한다. guest identity reset은
+ * 이 함수의 책임이 아니라, 복제된 target disk에 대해 별도 단계로 수행한다.
+ */
 gboolean
 pcv_vm_clone_copy_file_disk(const PcvVmCloneDiskPlan *plan,
                             GError **error)
@@ -438,8 +438,8 @@ pcv_vm_clone_file_copy_available(void)
 gboolean
 pcv_vm_clone_guest_reset_available(void)
 {
-
-
+    /* 일반 VM clone은 네 도구가 모두 있어야 identity, FS UUID, fstab,
+     * boot artifact를 한 worker 흐름에서 끝낼 수 있다. */
     return program_available("virt-sysprep") &&
            program_available("virt-customize") &&
            program_available("virt-filesystems") &&
@@ -507,8 +507,8 @@ static GPtrArray *
 collect_ext_filesystem_uuids(const PcvVmCloneDiskPlan *plan,
                              gchar **error_msg)
 {
-
-
+    /* virt-sysprep fs-uuids가 ext UUID를 실제로 바꾸지 못하는 환경이 있어,
+     * guestfish 보정 전후 비교용으로 ext filesystem과 UUID를 직접 수집한다. */
     const gchar *format = disk_guestfs_format(plan->kind);
     gchar *format_arg = g_strdup_printf("--format=%s", format);
     const gchar *argv[] = {
@@ -579,8 +579,8 @@ update_guest_fstab_uuid_refs(const PcvVmCloneDiskPlan *plan,
                              GPtrArray *after,
                              gchar **error_msg)
 {
-
-
+    /* UUID를 강제로 바꾼 뒤 guest의 /etc/fstab이 옛 UUID를 가리키면
+     * boot가 깨질 수 있으므로, 바뀐 ext UUID만 치환한다. */
     const gchar *format = disk_guestfs_format(plan->kind);
     GString *cmd = g_string_new("if [ -f /etc/fstab ]; then sed -i");
     guint replacements = 0;
@@ -653,8 +653,8 @@ static gboolean
 randomize_ext_filesystem_uuids(const PcvVmCloneDiskPlan *plan,
                                gchar **error_msg)
 {
-
-
+    /* guestfish는 여러 ext filesystem을 한 libguestfs 세션에서 처리한다.
+     * e2fsck-f 후 set-uuid-random을 실행해야 ext4 UUID 변경이 안정적이다. */
     const gchar *format = disk_guestfs_format(plan->kind);
     GPtrArray *before = collect_ext_filesystem_uuids(plan, error_msg);
     if (!before)

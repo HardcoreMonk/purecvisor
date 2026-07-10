@@ -1,7 +1,7 @@
 # DB 구조 설명
 
 > 기준 시점: 2026-05-05
-> 대상: `purecvisor` Single Edge 저장소의 SQLite 기반 영속 상태
+> 대상: `purecvisor-single` Single Edge 저장소의 SQLite 기반 영속 상태
 
 이 문서는 소스코드에 분산된 SQLite DB 구조를 한곳에서 설명한다. 실제 스키마의 단일 진실은 각 모듈의 `CREATE TABLE IF NOT EXISTS` 코드이며, 이 문서는 운영자, 아키텍트, 주니어 개발자가 같은 그림을 보고 대화할 수 있도록 만든 해설 문서다.
 
@@ -9,7 +9,7 @@
 
 ## 1. 전체 DB 지도
 
-`purecvisor`는 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 여러 개로 상태를 나눠 저장한다. 각 DB는 책임 영역이 다르며, 대부분 WAL 모드로 열린다.
+`purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 여러 개로 상태를 나눠 저장한다. 각 DB는 책임 영역이 다르며, 대부분 WAL 모드로 열린다.
 
 | DB 파일 | 주 모듈 | 저장 내용 | 기본 경로 | 경로 오버라이드 |
 |---|---|---|---|---|
@@ -438,7 +438,7 @@ Security Group DB는 VM에 적용할 네트워크 접근 정책을 저장한다.
 
 ### 목적
 
-Cloud Jobs DB는 `src/modules/cloud/cloud_migration.c`의 cloud migration 작업 상태를 저장한다. 현재 `purecvisor` 공개 범위 판단은 [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md)를 우선해야 하며, 이 DB는 코드상 존재하는 기능별 상태 저장소로 이해한다.
+Cloud Jobs DB는 `src/modules/cloud/cloud_migration.c`의 cloud migration 작업 상태를 저장한다. 현재 `purecvisor-single` 공개 범위 판단은 [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md)를 우선해야 하며, 이 DB는 코드상 존재하는 기능별 상태 저장소로 이해한다.
 
 ### 위치와 초기화
 

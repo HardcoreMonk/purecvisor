@@ -1,4 +1,5 @@
 #!/usr/bin/env python3
+"""ZFS inflight lock monitor panel static contract guard."""
 
 from __future__ import annotations
 

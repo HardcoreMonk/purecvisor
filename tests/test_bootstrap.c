@@ -1,10 +1,10 @@
 #include <glib.h>
 #include "bootstrap/pcv_bootstrap.h"
 
-
-
-
-
+/*
+ * Bootstrap tests pin the public Single Edge identity. These assertions catch
+ * accidental reintroduction of multi-edition service names or cluster capability.
+ */
 static void
 test_bootstrap_reports_current_edition(void)
 {

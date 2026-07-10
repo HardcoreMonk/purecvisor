@@ -1,19 +1,19 @@
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/theme.js
+   Theme management: previews, editor, auto-theme, custom themes
+   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* Supanova 변형만 유지 — 나머지 테마는 전부 삭제 */
 var THEME_PREVIEWS = [
   { id: 'supanova',         name: 'SUPANOVA (Teal)',  colors: ['#07090c','#14b8a6','#34d399','#f43f5e'] },
   { id: 'supanova-cyan',    name: 'SUPANOVA CYAN',    colors: ['#07090c','#0891b2','#34d399','#f43f5e'] },
   { id: 'supanova-hicontrast', name: 'SUPANOVA HI-CONTRAST', colors: ['#030405','#facc15','#ffffff','#ff4d6d'] },
 ];
 
-
+/* 레거시 테마 id → supanova 마이그레이션 */
 var SUPANOVA_THEMES = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
 function sanitizeTheme(t) {
   return SUPANOVA_THEMES.indexOf(t) >= 0 ? t : 'supanova';
@@ -23,9 +23,9 @@ function changeTheme(t) {
   t = sanitizeTheme(t);
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('pcv-theme', t);
-
+  /* T-2/B: 테마 전환 시 Chart.js 색상 즉시 반영 */
   destroyAllCharts();
-
+  /* #12: uxlib에 등록된 리스너에게 알림 (pcvCharts 추가 정리) */
   try { window.dispatchEvent(new Event('pcv-theme-change')); } catch (_) {}
   if (typeof renderContent === 'function') {
     try { renderContent(); } catch(e) {}
@@ -41,10 +41,10 @@ function toggleTheme() {
   if (s) s.value = themes[idx];
 }
 
+/* Time-based auto theme · prefers-color-scheme listener 제거
+   (pure-light/pure-dark 테마 삭제에 따라 더 이상 무의미) */
 
-
-
-
+/* Custom Theme Editor */
 var THEME_VARS = ['bg','bg2','bg3','fg','fg2','accent','green','red','yellow','cyan','peach','magenta','border'];
 
 function openThemeEditor() {
@@ -137,7 +137,7 @@ function importTheme() {
   input.click();
 }
 
-
+/* ═══ UI SETTINGS EXPORT/IMPORT ═══ */
 function exportUiSettings() {
   var settings = {
     theme: document.documentElement.getAttribute('data-theme') || '',
@@ -184,7 +184,7 @@ function importUiSettings() {
 window.exportUiSettings = exportUiSettings;
 window.importUiSettings = importUiSettings;
 
-
+/* ── PCV.theme namespace export ────────────────────── */
 PCV.theme = {
   PREVIEWS: THEME_PREVIEWS,
   VARS: THEME_VARS,
@@ -202,7 +202,7 @@ PCV.theme = {
   importUiSettings: importUiSettings
 };
 
-
+/* ═══ BACKWARD-COMPAT WINDOW REGISTRATIONS ═══ */
 window.THEME_PREVIEWS = THEME_PREVIEWS;
 window.changeTheme = changeTheme;
 window.toggleTheme = toggleTheme;

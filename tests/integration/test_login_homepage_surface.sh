@@ -30,9 +30,9 @@ reject_literal() {
   fi
 }
 
-
-
-
+# The unauthenticated homepage must sell the operational surface, not only the
+# login form. These strings/classes are intentionally static because they are
+# public pre-login copy.
 require_literal "login-console-preview" "$INDEX" "login page must include an operational console preview"
 require_literal "login-mobile-proof" "$INDEX" "mobile login page must keep a compact operational proof near the hero"
 require_literal "Node pcv-edge-1" "$INDEX" "console preview must show the single edge node context"
@@ -47,8 +47,8 @@ require_literal 'id="login-user" class="login-input" placeholder="계정 이름"
 require_literal 'id="login-pass" type="password" class="login-input" placeholder="••••••••" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false"' "$INDEX" "password input must disable mobile autocorrect/autocapitalize"
 require_literal "document.getElementById('login-user')?.value.trim()" "$API_JS" "login code must trim username copy/paste whitespace"
 
-
-
+# Mobile must not expose authenticated navigation while the login overlay is
+# visible.
 require_literal "body.login-active .mobile-nav" "$STYLE" "CSS must hide mobile nav while login is active"
 require_literal ".login-mobile-proof" "$STYLE" "CSS must style the compact mobile proof strip"
 require_literal "pcvSetLoginVisible" "$API_JS" "auth module must toggle login-active state"

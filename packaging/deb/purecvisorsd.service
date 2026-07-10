@@ -1,0 +1,34 @@
+[Unit]
+Description=PureCVisor Single Edge - KVM Hypervisor Orchestrator
+Documentation=file:/usr/local/share/purecvisor/ui/guide.html
+After=network-online.target libvirtd.service ovs-vswitchd.service ovn-controller.service
+Wants=network-online.target
+
+[Service]
+Type=notify
+NotifyAccess=all
+ExecStart=/usr/local/bin/purecvisorsd
+ExecReload=/bin/kill -HUP $MAINPID
+Restart=on-failure
+RestartSec=3
+WatchdogSec=60
+TimeoutStartSec=90
+TimeoutStopSec=90
+KillSignal=SIGTERM
+# [B-3] 데몬이 스폰한 dnsmasq(자식 cgroup)를 재시작 시 함께 죽이지 않는다 —
+# 관리형 NAT DHCP/DNS 공백 방지. 데몬은 부팅 시 생존 게이트로 재점검한다.
+KillMode=process
+UMask=0077
+LimitNOFILE=1048576
+TasksMax=4096
+Delegate=yes
+Nice=-5
+IOSchedulingClass=best-effort
+IOSchedulingPriority=2
+Environment=LIBVIRT_DEFAULT_URI=qemu:///system
+ExecStartPost=/bin/sh -c 'for i in $(seq 1 50); do if [ -S /var/run/purecvisor/daemon.sock ]; then chown root:root /var/run/purecvisor/daemon.sock; chmod 0600 /var/run/purecvisor/daemon.sock; exit 0; fi; sleep 0.1; done; exit 0'
+StandardOutput=journal
+StandardError=journal
+
+[Install]
+WantedBy=multi-user.target

@@ -1,10 +1,10 @@
 #!/usr/bin/env bash
 
-
-
-
-
-
+# Common auth helper for integration tests.
+# Goal: avoid hardcoded admin credentials in local SAFE runs.
+# Resolution order is explicit: test env, daemon env, then daemon.conf.
+# Public tests must not carry built-in admin password examples; older local
+# installs should set PCV_TEST_ADMIN_PASSWORD explicitly.
 
 pcv_trim() {
     local value="$1"

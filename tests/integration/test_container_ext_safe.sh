@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_container_ext_safe.sh
+#
+# SAFE-tier Integration Tests — Container Extended
+# Tests: container.list, container.destroy (idempotent), container.snapshot.list,
+#        container.health.set/get/delete, container.nic.list
+#
+# 사전 조건:
+#   - purecvisorsd 또는 purecvisormd 실행 중
+#   - /var/run/purecvisor/daemon.sock 존재
+#   - nc (netcat) 설치
+#
+# 실행: sudo bash tests/integration/test_container_ext_safe.sh
 
 set -uo pipefail
 
@@ -71,7 +71,7 @@ assert_result_or_known_error() {
     fi
 }
 
-
+# ── 사전 조건 ────────────────────────────────────────────
 log "=========================================="
 log " Container Extended Integration Tests (SAFE)"
 log "=========================================="
@@ -92,9 +92,9 @@ fi
 log "Daemon socket verified: $SOCKET_PATH"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [1] container.list
+# ══════════════════════════════════════════════════════
 log "--- [1/7] container.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.list","params":{},"id":"cl1"}')
@@ -105,9 +105,9 @@ assert_result_or_known_error "container.list: filter by status" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [2] container.destroy — nonexistent (idempotent)
+# ══════════════════════════════════════════════════════
 log "--- [2/7] container.destroy (nonexistent, idempotent) ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.destroy","params":{"name":"nonexistent"},"id":"cd1"}')
@@ -118,9 +118,9 @@ assert_valid_jsonrpc "container.destroy: missing name returns valid JSON-RPC" "$
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [3] container.snapshot.list
+# ══════════════════════════════════════════════════════
 log "--- [3/7] container.snapshot.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.snapshot.list","params":{"name":"test-ct"},"id":"csl1"}')
@@ -134,9 +134,9 @@ assert_valid_jsonrpc "container.snapshot.list: missing name returns valid JSON-R
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [4] container.health.set
+# ══════════════════════════════════════════════════════
 log "--- [4/7] container.health.set ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.health.set","params":{"name":"test","cmd":"true","interval":60},"id":"chs1"}')
@@ -150,9 +150,9 @@ assert_valid_jsonrpc "container.health.set: invalid interval returns valid JSON-
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [5] container.health.get
+# ══════════════════════════════════════════════════════
 log "--- [5/7] container.health.get ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.health.get","params":{"name":"test"},"id":"chg1"}')
@@ -166,15 +166,15 @@ assert_valid_jsonrpc "container.health.get: missing name returns valid JSON-RPC"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [6] container.health.delete
+# ══════════════════════════════════════════════════════
 log "--- [6/7] container.health.delete ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.health.delete","params":{"name":"test"},"id":"chd1"}')
 assert_result_or_known_error "container.health.delete: 'test' returns result or known error" "$RESP"
 
-
+# idempotent — second call must not crash
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.health.delete","params":{"name":"test"},"id":"chd2"}')
 assert_result_or_known_error "container.health.delete: idempotent on second call" "$RESP"
 
@@ -183,9 +183,9 @@ assert_valid_jsonrpc "container.health.delete: missing name returns valid JSON-R
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [7] container.nic.list
+# ══════════════════════════════════════════════════════
 log "--- [7/7] container.nic.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"container.nic.list","params":{"name":"test"},"id":"cnl1"}')
@@ -199,9 +199,9 @@ assert_valid_jsonrpc "container.nic.list: missing name returns valid JSON-RPC" "
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

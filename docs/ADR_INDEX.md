@@ -1,6 +1,6 @@
 # ADR 적용 상태 인덱스
 
-> **대상:** `purecvisor` Single Edge
+> **대상:** `purecvisor-single`
 > **현행화 기준:** 2026-05-04
 > **목적:** ADR 원문 중 현재 Single Edge 공개 리포에 직접 적용되는 결정과 역사 기록으로만 보존되는 결정을 구분한다.
 
@@ -63,6 +63,8 @@
 - 기존 ADR을 폐기하거나 대체해야 하는 경우
 
 새 ADR에는 반드시 `Single Edge 적용 상태`를 명시한다.
+새 ADR 상태명은 lifecycle contract의 `Draft -> Review -> Approved -> Implemented -> Verified -> Archived`를 사용한다.
+기존 ADR의 `Accepted`는 `Approved`의 legacy alias로 해석한다.
 
 ---
 

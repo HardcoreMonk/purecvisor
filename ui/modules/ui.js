@@ -1,97 +1,97 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @module ui
+ * @description PureCVisor UI 유틸리티 — HTML 빌더, 토스트, 모달, 이벤트 로그, 테마
+ * ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.ui 네임스페이스
+ */
+
+/*
+ * ===== ui.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   UI 공용 유틸리티 모듈. 다른 모든 페이지 모듈(vm.js, container.js 등)이
+ *   이 모듈의 함수를 사용하여 HTML을 생성하고, 토스트를 표시하고,
+ *   모달을 열고 닫는다. DOM 조작의 "표준 라이브러리" 역할.
+ *
+ * [PCV 네임스페이스 (ADR-0013)]
+ *   IIFE 안에서 정의 후 PCV.ui = { ... }로 노출.
+ *   하위 호환 심(window.toast = toast 등)은 전환기 코드.
+ *
+ * [XSS 방지: escapeHtml vs escapeAttr — 반드시 구분]
+ *
+ *   escapeHtml(s): HTML 태그/엔티티 이스케이프 (&, <, >, ", ').
+ *     용도: innerHTML에 사용자 문자열을 삽입할 때.
+ *     예: '<b>' + escapeHtml(v.name) + '</b>'
+ *
+ *   escapeAttr(s): 모든 비-알파뉴메릭을 \xHH로 변환.
+ *     용도: onclick="func('${escapeAttr(val)}')" 같은 인라인 JS 문자열 안.
+ *     왜 escapeHtml로는 부족한가:
+ *       HTML 파서가 onclick 속성값의 &quot;를 먼저 "로 디코딩한 뒤
+ *       JS 엔진에 넘긴다. 따라서 사용자 입력에 ' 또는 \가 있으면
+ *       JS 문자열 리터럴을 탈출할 수 있다 (XSS).
+ *       escapeAttr은 모든 특수문자를 \x27 같은 JS 이스케이프로 바꿔
+ *       HTML + JS 양쪽에서 안전하다.
+ *
+ *   실전 예:
+ *     잘못: onclick="doSomething('${escapeHtml(userInput)}')"  // XSS 가능!
+ *     올바름: onclick="doSomething('${escapeAttr(userInput)}')"
+ *
+ * [H 빌더 객체]
+ *   H.card(), H.row(), H.badge() 등은 반복되는 HTML 패턴을 함수화한 것.
+ *   템플릿 리터럴로 HTML 문자열을 반환한다 (DOM 요소가 아님).
+ *   innerHTML += H.card('Title', H.row('key', 'val')) 형태로 합성한다.
+ *   왜 DOM createElement를 안 쓰나: 성능보다 가독성을 우선한 설계 결정.
+ *   수십 개의 카드를 한 번에 그릴 때 innerHTML 할당이 더 빠르다.
+ *
+ * [토스트 큐]
+ *   동시에 최대 3개까지 표시. 초과 시 가장 오래된 것을 즉시 제거.
+ *   3초 후 자동 사라짐 + 프로그레스 바 애니메이션.
+ *   클릭 시 즉시 제거 (슬라이드 아웃).
+ *
+ * [모달 스택 (F3)]
+ *   showModal()을 중첩 호출하면 이전 모달 HTML이 _modalStack에 push된다.
+ *   closeModal() 시 스택에서 pop하여 이전 모달을 복원한다.
+ *   스택이 비어있으면 모달 배경(#mbg)을 숨긴다.
+ *   모달 내 Tab 키는 포커스 트랩이 적용되어 모달 밖으로 나가지 않는다 (접근성).
+ *
+ * [DataTable 내부 구조]
+ *   createDataTable()은 window['_dt_'+tableId] 전역 객체에
+ *   행/헤더/정렬/페이지 상태를 저장한다.
+ *   HTML onclick에서 window._dtSort(id, col) 형태로 호출되므로
+ *   반드시 window에 등록해야 한다.
+ *   검색은 HTML 태그를 strip한 뒤 텍스트에서 필터링한다.
+ *   CSV 내보내기도 태그를 제거하여 순수 텍스트만 출력한다.
+ *
+ * [흔한 실수]
+ *   - toast()의 두 번째 인자를 생략하면 ok=true (녹색). false를 넣어야 빨간색.
+ *   - showModal(html) 호출 후 50ms setTimeout 없이 getElementById 하면
+ *     innerHTML이 아직 파싱되지 않아 null이 반환될 수 있다.
+ *   - customConfirm은 Promise를 반환한다. 반드시 await로 받아야 한다.
+ *   - withSpinner은 버튼의 dataset.pcvBusy로 더블클릭을 차단한다.
+ *     수동으로 disabled 관리하지 말고 이 래퍼를 사용하라.
+ */
+
+/* ═══ DEFAULTS ═══ */
 if (!window.eventLog) window.eventLog = [];
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
-
+/* ═══ HTML BUILDER ═══
+ *  escapeHtml: innerHTML 삽입용. HTML 5대 특수문자만 이스케이프.
+ *  escapeAttr: onclick 등 인라인 JS 문자열용. 모든 비-알파뉴메릭을 \xHH로.
+ *  두 함수의 차이를 모르면 XSS 취약점이 생긴다. 위 모듈 주석 참조. */
 function escapeHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 var esc = escapeHtml;
 
-
-
-
-
-
-
+/**
+ * escapeAttr — onclick 등 HTML 속성 내 JS 문자열 리터럴 안전 이스케이프.
+ * HTML 파서가 엔티티를 디코드한 뒤 JS 엔진에 전달하므로,
+ * escapeHtml만으로는 JS 문자열 탈출을 방지할 수 없다.
+ * 이 함수는 모든 비-알파뉴메릭을 \\xHH로 변환하여 JS+HTML 양쪽 안전.
+ */
 function escapeAttr(s) {
   if (!s) return '';
   return String(s).replace(/[^a-zA-Z0-9_.\-]/g, function(c) {
@@ -108,7 +108,7 @@ var H = {
   sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
 };
 
-
+/* ═══ TOAST ═══ */
 function toast(m, ok = true) {
   var icon = ok ? '&#9989; ' : '&#10060; ';
   const d = document.createElement('div');
@@ -126,13 +126,13 @@ function toast(m, ok = true) {
   while (container.children.length > 3) container.removeChild(container.firstChild);
   requestAnimationFrame(() => { prog.style.width = '0%'; });
   setTimeout(() => d.remove(), 3e3);
-
+  /* B2: Feed toast into notification center */
   if (typeof addNotification === 'function') {
     addNotification(ok ? 'info' : 'error', m, '');
   }
 }
 
-
+/* ═══ EVENT LOG ═══ */
 function ciIcon(name) {
   return '<svg class="ci-icon" aria-hidden="true"><use href="/ui/vendor/coolicons/coolicons.svg#ci-' + name + '"></use></svg>';
 }
@@ -239,10 +239,10 @@ function _syncPopoutLog() {
   if (count) count.textContent = window.eventLog.length + ' events';
 }
 
-
-
-
-
+/* ═══ MODAL (F3: Stack support) ═══
+ *  모달 중첩이 필요한 이유: VM 설정 모달 안에서 ISO 브라우저 모달을 열 때,
+ *  이전 모달 HTML을 보존해야 한다. _modalStack이 이를 관리한다.
+ *  closeModal() 시 스택에 항목이 있으면 pop하여 복원, 없으면 #mbg를 숨긴다. */
 var _modalStack = [];
 
 function showModal(h, opts) {
@@ -274,7 +274,7 @@ function closeModal(force) {
   }
 }
 
-
+/* ═══ CUSTOM INPUT MODAL (FE-4: prompt() 대체) ═══ */
 function showInputModal(title, label, defaultVal, callback) {
   return new Promise(function(resolve) {
     var id = 'modal-input-' + Date.now();
@@ -312,7 +312,7 @@ function showInputModal(title, label, defaultVal, callback) {
   });
 }
 
-
+/* ═══ CUSTOM CONFIRM ═══ */
 function customConfirm(title, message) {
   return new Promise(resolve => {
     const tFn = typeof t === 'function' ? t : k => k;
@@ -323,7 +323,7 @@ function customConfirm(title, message) {
   });
 }
 
-
+/* ═══ UTILITIES ═══ */
 function renderProgressBar(p, c) {
   const cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
   const anim = p > 85 ? ' pulse-anim' : '';
@@ -378,11 +378,11 @@ function renderSortableTable(containerId, headers, rows, options) {
   el.innerHTML = h;
 }
 
-
-
-
-
-
+/* ═══ DATA TABLE (B3: sortable, searchable, exportable) ═══
+ *  createDataTable은 내부 상태(정렬/검색/페이지)를 window['_dt_'+tableId]에 저장한다.
+ *  HTML onclick에서 window._dtSort(id, col)로 호출되므로 window 등록 필수.
+ *  검색/정렬 시 HTML 태그를 strip(.replace(/<[^>]+>/g,''))하여 텍스트만 비교.
+ *  pageSize를 config에 넘기면 페이지네이션이 자동 활성화된다 (pageSize=0이면 비활성). */
 function createDataTable(containerId, config) {
   var el = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!el) return;
@@ -395,7 +395,7 @@ function createDataTable(containerId, config) {
 
   function renderTable(filteredRows) {
     var h = '';
-
+    /* 페이지네이션 계산 */
     var pageSize = cfg.pageSize || 0;
     var dt = window['_dt_' + tableId];
     var currentPage = (dt && dt.currentPage) ? dt.currentPage : 1;
@@ -428,7 +428,7 @@ function createDataTable(containerId, config) {
       h += '<tr>'; row.forEach(function(cell) { h += '<td>' + cell + '</td>'; }); h += '</tr>';
     });
     h += '</tbody></table>';
-
+    /* 페이지네이션 UI */
     if (pageSize > 0 && totalPages > 1) {
       h += '<div class="flex items-center gap-8 mt-8">';
       h += '<button class="btn btn-sm" ' + (currentPage <= 1 ? 'disabled' : '') + ' onclick="window._dtPage(\'' + tableId + '\',' + (currentPage - 1) + ')">Prev</button>';
@@ -437,7 +437,7 @@ function createDataTable(containerId, config) {
       h += '</div>';
     }
     el.innerHTML = h;
-
+    /* 현재 페이지 저장 */
     if (dt) dt.currentPage = currentPage;
   }
 
@@ -477,11 +477,11 @@ function _dtExport(id) {
 function _dtPage(id, page) {
   var dt = window['_dt_' + id]; if (!dt) return;
   dt.currentPage = page;
-
+  /* 재검색 적용 */
   var searchEl = document.getElementById(id + '-search');
   var q = (searchEl ? searchEl.value : '').toLowerCase();
   var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return (cell || '').toString().replace(/<[^>]+>/g, '').toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
-
+  /* 정렬 적용 */
   if (dt.sortCol >= 0) {
     filtered = filtered.slice().sort(function(a, b) {
       var va = (a[dt.sortCol] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
@@ -502,10 +502,10 @@ async function fetchWithRetry(fn, retries) {
   }
 }
 
-
+/* ═══ DEBUG FLAG (I2) ═══ */
 var _DEBUG = localStorage.getItem('pcv-debug') === 'true';
 
-
+/* ═══ SAFE ASYNC WRAPPER (I1) ═══ */
 function safeAsync(fn, fallbackMsg) {
   return async function() {
     try { return await fn.apply(this, arguments); }
@@ -516,7 +516,7 @@ function safeAsync(fn, fallbackMsg) {
   };
 }
 
-
+/* ═══ FAVORITES ═══ */
 function getFavorites() {
   try { return JSON.parse(localStorage.getItem('pcv-favorites') || '[]'); } catch(e) { return []; }
 }
@@ -529,7 +529,7 @@ function toggleFavorite(name) {
 }
 function isFavorite(name) { return getFavorites().includes(name); }
 
-
+/* ═══ POPOUT EVENT LOG ═══ */
 function popoutEventLog() {
   const w = window.open('', 'pcv-event-log', 'width=700,height=500,menubar=no,toolbar=no,location=no,status=no');
   if (!w) { toast(t('msg.popup_blocked'), false); return; }
@@ -551,7 +551,7 @@ function popoutEventLog() {
   _syncPopoutLog();
 }
 
-
+/* ═══ 모달 포커스 트랩 (접근성, FE-5: 셀렉터 수정) ═══ */
 document.addEventListener('keydown', function(e) {
   var modal = document.querySelector('#mbg:not(.hidden)');
   if (!modal || e.key !== 'Tab') return;
@@ -565,17 +565,17 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
+/* ═══ 빈 상태 헬퍼 ═══ */
 function emptyState(icon, msg) {
   return '<div class="empty-state" style="padding:40px;text-align:center" role="status">'
     + '<div style="font-size:42px;opacity:.4">' + icon + '</div>'
     + '<div class="color-muted mt-8">' + msg + '</div></div>';
 }
 
-
+/* ═══ 비동기 작업 로딩 래퍼 (#1/#3 더블클릭 dedup) ═══ */
 async function withSpinner(btn, asyncFn) {
   if (!btn) { await asyncFn(); return; }
-
+  /* #3 진행 중 재진입 차단 */
   if (btn.dataset.pcvBusy === '1') return;
   btn.dataset.pcvBusy = '1';
   btn.classList.add('is-loading');
@@ -594,9 +594,9 @@ async function withSpinner(btn, asyncFn) {
   }
 }
 
-
+/* ═══ 빈 상태 컴포넌트 강화 (#16) ═══ */
 function emptyStatePro(opts) {
-
+  /* opts: { icon, title, desc, ctaLabel, ctaAction } */
   var i = opts.icon || '&#128230;';
   var t = escapeHtml(opts.title || 'No items');
   var d = escapeHtml(opts.desc || '');
@@ -609,13 +609,13 @@ function emptyStatePro(opts) {
     '<div class="empty-desc">' + d + '</div>' + btn + '</div>';
 }
 
-
+/* ═══ 색맹 보조 상태 배지 (#18) ═══ */
 function statusBadge(text, kind) {
-
+  /* kind: 'ok' | 'warn' | 'err' | 'off' */
   return '<span class="status-badge s-' + (kind || 'off') + '">' + escapeHtml(text) + '</span>';
 }
 
-
+/* ═══ 사이드바 키보드 활성화 (FE-5: Enter/Space로 클릭) ═══ */
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' || e.key === ' ') {
     var tgt = e.target;
@@ -626,7 +626,7 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
+/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══ */
 PCV.ui = {
   escapeHtml: escapeHtml,
   escapeAttr: escapeAttr,
@@ -659,7 +659,7 @@ PCV.ui = {
   _modalStack: _modalStack
 };
 
-
+/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.H = H;
 window.escapeHtml = escapeHtml;
 window.esc = esc;

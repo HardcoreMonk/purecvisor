@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
+# Security Guard surface smoke for local binaries.
+# The CLI help list is the user-facing contract; TUI string checks ensure the
+# menu can still discover the security.event.list RPC after refactors.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"

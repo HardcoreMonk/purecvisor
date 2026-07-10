@@ -1,19 +1,19 @@
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/container.js
+   Container List, Rendering, Actions, Create Wizard, NIC Ops
+   ADR-0013: IIFE module scope — PCV.container namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
+/* ═══ CONTAINER STATE VARIABLES ═══ */
+/* These must be on window.* because inline onclick handlers (e.g. selCtr='name')
+   set window-scoped globals. Functions here must read/write window.* to stay in sync. */
 window.selCtr = window.selCtr || null;
 window.ctrTab = window.ctrTab || 'summary';
 window.ctrHist = window.ctrHist || [];
 
-
+/* ═══ CONTAINER SORT ═══ */
 window.ctrSortKey = window.ctrSortKey || 'name';
 window.ctrSortDir = window.ctrSortDir || 1;
 function setCtrSort(k) {
@@ -21,7 +21,7 @@ function setCtrSort(k) {
   renderContainerList();
 }
 
-
+/* ═══ SIDEBAR CONTAINER LIST ═══ */
 async function renderContainerList() {
   const el = document.getElementById('ctr-list');
   if (!el) return;
@@ -65,7 +65,7 @@ async function renderContainerList() {
   } catch (e) { el.innerHTML = '<div class="text-xs color-muted" style="padding:8px">Failed to load containers.</div>'; }
 }
 
-
+/* ═══ MAIN CONTAINER PANEL ═══ */
 async function renderContainers(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -124,7 +124,7 @@ async function renderContainers(b) {
   } catch (e) { b.innerHTML = '<p class="color-red">' + escapeHtml(e.message) + '</p>'; }
 }
 
-
+/* ═══ CONTAINER TAB RENDERING ═══ */
 async function ctrRenderTab(tb, cv) {
   const n = cv.name;
   const on = cv.state === 'RUNNING';
@@ -172,7 +172,7 @@ async function ctrRenderTab(tb, cv) {
     + H.card('Set Bandwidth Limit', '<div class="fr"><label>Interface</label><input id="ctr-bw-nic" value="eth0" class="w-80"></div><div class="fr"><label>Inbound (Kbps)</label><input id="ctr-bw-in" type="number" value="0" placeholder="0 = unlimited"></div><div class="fr"><label>Outbound (Kbps)</label><input id="ctr-bw-out" type="number" value="0" placeholder="0 = unlimited"></div><button class="btn btn-g mt-8" onclick="ctrSetBandwidth(\'' + escapeHtml(n) + '\')">Apply QoS</button>')
     + H.card('Routing &amp; Addresses', '<div id="ctr-net-info"><span class="spinner"></span></div>')
     + '</div>';
-
+    /* Load NIC list */
     try {
       const r = await fetchGet(EP.CTR_NICS(n));
       const nics = unwrapList(r);
@@ -195,7 +195,7 @@ async function ctrRenderTab(tb, cv) {
       const el = document.getElementById('ctr-nic-list');
       if (el) el.innerHTML = H.card('Interface eth0', H.row('IP Address', '<span class="color-accent">' + escapeHtml(cv.ip_addr || '-') + '</span>') + H.row('Bridge', 'pcvbr0') + H.row('Type', 'veth'));
     }
-
+    /* Load routing info */
     if (on) {
       try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<pre class="stat-label" style="margin:0;white-space:pre-wrap;overflow-x:auto">' + escapeHtml(unwrapData(r).output || '') + '</pre>'; } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<span class="color-muted">Unable to fetch</span>'; }
     } else {
@@ -230,7 +230,7 @@ async function ctrRenderTab(tb, cv) {
   }
 }
 
-
+/* ═══ CONTAINER ACTIONS ═══ */
 async function ctrA(n, a) {
   showModal('<h2>' + (a === 'start' ? '&#9654; ' + t('ctr.starting') : '&#9632; ' + t('ctr.stopping')) + '</h2><p class="mb-8"><b class="color-accent">' + n + '</b></p><div class="prog-bar"><div class="prog-fill" id="ctr-prog" class="w-pct-10"></div></div><div class="prog-status" id="ctr-st"><span class="spinner"></span>Sending ' + a + ' command...</div>');
   const pf = document.getElementById('ctr-prog'), ps = document.getElementById('ctr-st');
@@ -345,20 +345,20 @@ async function doCtrDel(n) {
   } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); }
 }
 
-
+/* ═══ CONTAINER CREATE WIZARD ═══ */
 function showCtrCreate() {
   if (typeof markFormDirty === 'function') markFormDirty('ctr-create');
   let h = '<h2>' + t('ctr.new') + '</h2>';
-
+  /* 단일 컬럼 레이아웃 — 모달 잘림 방지 */
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
-
+  /* 왼쪽: 기본 설정 */
   h += '<div>';
   h += '<h4 class="mb-8">&#9783; Basic</h4>';
   h += '<div class="fr"><label class="min-w-80">Name</label><input id="cc-name" placeholder="my-container" class="flex-1"></div>';
   h += '<div class="fr"><label class="min-w-80">Distribution</label><select id="cc-dist" onchange="ctrDistChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ubuntu">Ubuntu</option><option value="debian">Debian</option><option value="alpine">Alpine</option><option value="centos">CentOS</option><option value="fedora">Fedora</option><option value="archlinux">Arch Linux</option></select></div>';
   h += '<div class="fr"><label class="min-w-80">Release</label><input id="cc-rel" value="jammy" placeholder="jammy / bookworm / 3.19" class="flex-1"></div>';
   h += '</div>';
-
+  /* 오른쪽: 네트워크 + 리소스 */
   h += '<div>';
   h += '<h4 class="mb-8">&#127760; Network</h4>';
   h += '<div class="fr"><label class="min-w-70">Bridge</label><div class="flex gap-6 flex-1"><select id="cc-br" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="pcvbr0">pcvbr0 (default)</option></select><button class="btn text-xs" onclick="ctrLoadBridges()">&#128260;</button></div></div>';
@@ -371,7 +371,7 @@ function showCtrCreate() {
   h += '<div class="fr"><label class="min-w-70">Memory (MB)</label><input id="cc-mem" type="number" value="512" min="64" class="flex-1"></div>';
   h += '</div></div>';
   h += '<div class="text-right mt-14"><button class="btn btn-g" onclick="doCtrCreate()">' + t('btn.create') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
-
+  /* 넓은 모달 클래스 적용 */
   showModal(h);
   var mc = document.getElementById('mc');
   if (mc) mc.classList.add('modal-wide');
@@ -418,7 +418,7 @@ async function doCtrCreate() {
   const dns = document.getElementById('cc-dns')?.value;
   if (!n) { toast(t('msg.name_required'), false); return; }
 
-
+  /* 모달 즉시 닫고 백그라운드 처리 시작 */
   if (typeof clearFormDirty === 'function') clearFormDirty('ctr-create');
   closeModal();
   toast('&#9783; ' + escapeHtml(n) + ' ' + _L('생성 시작...', 'Creating...'), 's');
@@ -430,14 +430,14 @@ async function doCtrCreate() {
   try {
     const r = await fetchPost(EP.CTR_LIST(), body);
 
-
+    /* 에러 응답 처리 */
     if (r && r.error) {
       var errMsg = r.error.message || r.error.data || JSON.stringify(r.error);
       toast('&#10060; ' + _L('컨테이너 생성 실패', 'Container creation failed') + ': ' + errMsg, false);
       return;
     }
 
-
+    /* 백그라운드 폴링 — 컨테이너 목록에 나타날 때까지 (최대 90초) */
     addEvt('LXC Creating — ' + n + ' (' + dist + ':' + rel + ', ' + br + ', ' + vcpu + 'vCPU, ' + mem + 'MB)');
     var created = false;
     for (var pi = 0; pi < 18; pi++) {
@@ -463,7 +463,7 @@ async function doCtrCreate() {
   }
 }
 
-
+/* ═══ CONTAINER SET LIMITS ═══ */
 async function ctrSetLimits(name, type) {
   const body = { name };
   if (type === 'cpu') {
@@ -480,7 +480,7 @@ async function ctrSetLimits(name, type) {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ LXC NIC MANAGEMENT ═══ */
 function ctrNicAdd(name) {
   showModal('<h2>Add NIC to ' + escapeHtml(name) + '</h2><div class="fr"><label>Bridge</label><input id="ctr-nic-br" value="pcvbr0" placeholder="pcvbr0"></div><div class="fr"><label>MAC (optional)</label><input id="ctr-nic-mac" placeholder="auto"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doCtrNicAdd(\'' + escapeHtml(name) + '\')">Add NIC</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
@@ -521,9 +521,9 @@ async function ctrSetBandwidth(name) {
   } catch (e) { toast(e.message, false); }
 }
 
-
-
-
+/* ═══ REGISTER ALL ON WINDOW ═══ */
+/* State variables (selCtr, ctrTab, ctrHist, ctrSortKey, ctrSortDir)
+   are already initialized on window.* at the top of this file. */
 window.setCtrSort = setCtrSort;
 window.renderContainerList = renderContainerList;
 window.renderContainers = renderContainers;
@@ -549,7 +549,7 @@ window.doCtrNicAdd = doCtrNicAdd;
 window.ctrNicDel = ctrNicDel;
 window.ctrSetBandwidth = ctrSetBandwidth;
 
-
+/* ═══ CONTAINER CLONE (백엔드 4차) ═══ */
 async function showCtrClone(name) {
   var html = '<div class="form-group"><label>' + _L('원본', 'Source') + '</label>';
   html += '<input class="input-field" value="' + esc(name) + '" disabled></div>';
@@ -565,7 +565,7 @@ async function showCtrClone(name) {
   });
 }
 
-
+/* ═══ CONTAINER MEMORY STATS (cgroup v2) ═══ */
 async function showCtrMemoryStats(name) {
   try {
     var r = await fetchGet(EP.CTR_MEMORY_STATS(name));
@@ -590,7 +590,7 @@ async function showCtrMemoryStats(name) {
   } catch(e) { toast(_L('로드 실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ CONTAINER HEALTH CHECK ═══ */
 async function checkCtrHealth(name) {
   try {
     var r = await fetchGet(EP.CTR_HEALTH(name));
@@ -600,12 +600,12 @@ async function checkCtrHealth(name) {
   } catch(e) { toast(_L('헬스 체크 실패', 'Health check failed'), 'e'); }
 }
 
-
+/* ═══ BACKWARD COMPAT SHIMS ═══ */
 window.showCtrClone = showCtrClone;
 window.showCtrMemoryStats = showCtrMemoryStats;
 window.checkCtrHealth = checkCtrHealth;
 
-
+/* ═══ PCV.container namespace export ═══ */
 PCV.container = {
   setCtrSort: setCtrSort,
   renderContainerList: renderContainerList,

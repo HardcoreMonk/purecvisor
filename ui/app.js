@@ -1,56 +1,56 @@
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — app.js (Entry Point)
+   Modular Web UI Dashboard
+   Modules: api.js, ui.js (Phase 1 분리 완료)
+   ═══════════════════════════════════════════════════════════════ */
 
+/*
+ * ===== app.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   Web UI의 진입점(entry point). index.html의 <script> 순서에서
+ *   api.js, ui.js 다음에 로드된다. 다른 모듈이 IIFE 안에서 PCV.*에
+ *   등록한 함수를 이 파일이 **글로벌(window) 변수**로 묶어 최종 결합한다.
+ *
+ * [PCV 네임스페이스 전략 (ADR-0013)]
+ *   - 각 모듈은 (function(PCV){ ... })(window.PCV) 안에서 PCV.api, PCV.ui,
+ *     PCV.vm 등에 함수를 등록한다.
+ *   - app.js는 IIFE를 쓰지 않는다. var 선언은 자동으로 window.*가 된다.
+ *     이것이 의도적이다 — 다른 모듈과 HTML onclick에서 직접 참조해야 하므로.
+ *   - PCV.state는 Object.defineProperty getter로 정의되어, 호출할 때마다
+ *     최신 vmList/selectedVmIndex를 반환한다 (복사본이 아닌 라이브 참조).
+ *   - PCV.config는 빌드 시점의 정적 값이다 (REST_COUNT 등). /health에서
+ *     동적으로 갱신되지 않는다.
+ *
+ * [글로벌 상태 변수]
+ *   - vmList: VM 목록 배열. loadAll()이 10초마다 갱신한다.
+ *   - selectedVmIndex: 현재 선택된 VM의 vmList 인덱스.
+ *   - currentTab: 현재 표시 중인 탭 ('dashboard', 'summary', 'console' 등).
+ *   - cpuHistory/memHistory: 60초 링 버퍼. renderPerformance()가 그래프용으로 사용.
+ *   - window.authToken: JWT 토큰. sessionStorage에도 동기 저장된다.
+ *     **왜 window에?** — api.js, vm.js 등 모든 모듈이 fetch 헤더에 사용해야
+ *     하므로, 네임스페이스가 아닌 window에 둔다.
+ *
+ * [주요 함수]
+ *   - loadAll(skipContent): VM 목록 fetch + render. skipContent=true면 폴링.
+ *   - renderDashboard(b): 대시보드 홈 화면 렌더링.
+ *   - applyEditionCapabilities(): /health에서 cluster 지원 여부 판별.
+ *   - pcvPostLoginInit(): 로그인 후 RBAC role 가시성 + hash 라우팅 적용.
+ *
+ * [흔한 실수]
+ *   - var 대신 let/const를 쓰면 window에 등록되지 않아 다른 모듈에서 참조 불가.
+ *   - selectedVmIndex를 변경한 뒤 render()를 호출하지 않으면 사이드바가 갱신 안 됨.
+ *   - loadAll 내부의 cachedFetch는 skipContent=true(폴링)일 때만 작동한다.
+ *     명시 호출 시 항상 fresh fetch를 한다.
+ *   - HTML onclick="..." 안의 문자열에 사용자 입력을 넣을 때 반드시
+ *     escapeAttr()를 사용하라 (escapeHtml 아님). 차이는 ui.js 주석 참조.
+ */
 
+/* ═══ MODULE: api.js, ui.js 는 index.html에서 먼저 로드됨 ═══ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══ STATE VARIABLES (var = window 글로벌 스코프) ═══
+ *  var로 선언하는 이유: 번들러 없이 <script>로 로드하므로 var = window 속성이 됨.
+ *  let/const로 바꾸면 다른 파일에서 참조 불가 — 절대 변경 금지. */
 var API_BASE = '/api/v1';
 var authToken = sessionStorage.getItem('pcv_token') || '';
 var wsConnection = null;
@@ -68,19 +68,19 @@ var eventLog = [];
 var lastLoadTime = Date.now();
 var _dashWidgets = JSON.parse(localStorage.getItem('pcv-dash-widgets') || '{"stats":true,"actions":true,"charts":true,"alerts":true,"vms":true}');
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══ PCV NAMESPACE (structured state access) ═══ */
+/* ADR-0013: merge into existing PCV namespace (modules add PCV.api, PCV.ui, PCV.vm)
+ *
+ * Object.assign을 쓰지 않는 이유:
+ *   api.js 등이 이미 window.PCV = window.PCV || {} 로 초기화한 뒤
+ *   PCV.api = {...}를 등록해둔 상태. 여기서 Object.assign(window, {PCV: ...})하면
+ *   기존 PCV.api가 덮어써진다. 따라서 PCV 객체를 새로 만들지 않고,
+ *   기존 객체에 .state, .config, .auth 속성만 추가한다.
+ *
+ * PCV.state가 getter인 이유:
+ *   vmList 등은 var 선언이라 값이 계속 바뀐다. 일반 프로퍼티로 복사하면
+ *   스냅샷이 되어 최신값을 반영하지 못한다. getter는 호출 시점의 라이브 값을 반환.
+ */
 window.PCV = window.PCV || {};
 Object.defineProperty(window.PCV, 'state', {
   get: function() {
@@ -111,11 +111,11 @@ Object.defineProperty(window.PCV, 'auth', {
   configurable: true
 });
 
+/* Functions removed — provided by modules/*.js (api.js, ui.js, vm.js, container.js, network.js, storage.js, cluster.js, monitor.js, cloud.js, nav.js, help.js) */
 
-
-
+/* ═══ CLEANUP ON TAB CLOSE ═══ */
 window.addEventListener('beforeunload', (e) => {
-
+  /* 로그인 상태에서 대시보드 이탈 시 경고 팝업 */
   if (authToken) {
     e.preventDefault();
     e.returnValue = '';
@@ -124,15 +124,15 @@ window.addEventListener('beforeunload', (e) => {
   if (wsConnection) wsConnection.close();
 });
 
-
-
-
-
-
-
-
-
-
+/* ═══ EDITION CAPABILITY DETECTION ═══ */
+/**
+ * /health 응답의 capabilities.cluster를 확인하여
+ * Single Edge에서 클러스터 UI 요소를 숨김.
+ * 로그인 성공 후 1회 호출.
+ */
+/* Single Edge(capabilities.cluster=false)에서 숨길 페이지 네비게이션 키.
+   마크업 수정 없이 중앙 리스트로 관리하여 신규 cluster 의존 페이지 추가 시
+   이 배열만 갱신하면 된다. data-nav 속성과 onclick="navigateTo('...')" 양쪽 커버. */
 var PCV_CLUSTER_ONLY_NAV = ['cluster', 'mon-cluster', 'federation'];
 
 function applyEditionCapabilities() {
@@ -148,14 +148,14 @@ function applyEditionCapabilities() {
       document.querySelectorAll('.cluster-only').forEach(function(el) {
         el.style.display = 'none';
       });
-
+      /* data-nav/onclick 기반 cluster 전용 메뉴 자동 hide (사이드바·팔레트 공통) */
       PCV_CLUSTER_ONLY_NAV.forEach(function(nav) {
         var sel = '[data-nav="' + nav + '"],[onclick*="navigateTo(\'' + nav + '\')"]';
         document.querySelectorAll(sel).forEach(function(el) {
           el.style.display = 'none';
         });
       });
-
+      /* 싱글 엣지: 기본 사이드바를 VM 탭으로 */
       var clusterTab = document.querySelector('[data-sb="cluster"]');
       if (clusterTab && clusterTab.classList.contains('active')) {
         switchSbTab('vms');
@@ -163,10 +163,10 @@ function applyEditionCapabilities() {
     }
   }).catch(function() {});
 }
-
+/* 페이지 로드 시 즉시 실행 (인증 불필요 엔드포인트) */
 applyEditionCapabilities();
 
-
+/* ═══ HTML BUILDER UTILITY (G-2, FE-6: ui.js에서 정의된 경우 재사용) ═══ */
 if (!window.H) {
   var H = {
     card: (title, body, cls) => `<div class="hc ${cls||''}">${title?'<h4>'+title+'</h4>':''}${body}</div>`,
@@ -180,7 +180,7 @@ if (!window.H) {
   var H = window.H;
 }
 
-
+/* ═══ UTILITIES ═══ */
 var esc = escapeHtml;
 
 function ciIcon(name) {
@@ -195,7 +195,7 @@ var EVT_ICONS = {
   error: ciIcon('close-circle'), ok: ciIcon('circle-check'), info: ciIcon('info')
 };
 
-
+/* ═══ EVENT LOG POPOUT WINDOW ═══ */
 function popoutEventLog() {
   const w = window.open('', 'pcv-event-log', 'width=700,height=500,menubar=no,toolbar=no,location=no,status=no');
   if (!w) { toast('팝업이 차단되었습니다', false); return; }
@@ -218,17 +218,17 @@ function popoutEventLog() {
 }
 window.popoutEventLog = popoutEventLog;
 
+/* ═══ VM FAVORITES (G-4) ═══ */
 
+/* ═══ CUSTOM CONFIRM DIALOG (G-4) ═══ */
 
+/* ═══ SKELETON LOADING ═══ */
 
+/* ═══ SORTABLE TABLE UTILITY ═══ */
 
+/* ═══ ERROR HANDLING WRAPPER ═══ */
 
-
-
-
-
-
-
+/* ═══ LOGIN ═══ */
 (function() {
   const tls = document.getElementById('login-tls');
   if (!tls) return;
@@ -239,16 +239,16 @@ window.popoutEventLog = popoutEventLog;
   }
 })();
 
+/* ═══ API HELPERS ═══ */
 
+/* ═══ WEBSOCKET ═══ */
 
-
-
-
+/* THEME — modules/theme.js로 이관됨 */
 
 window.addEventListener('DOMContentLoaded', () => {
-
-
-
+  /* 테마는 index.html의 inline head script에서 이미 sanitize + 적용됨.
+     여기서는 URL 파라미터 override와 select UI 동기화만 담당.
+     Supanova 변형만 허용. */
   const ALLOWED = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
   const urlTheme = new URLSearchParams(window.location.search).get('theme');
   let t = urlTheme || localStorage.getItem('pcv-theme') || 'supanova';
@@ -259,9 +259,9 @@ window.addEventListener('DOMContentLoaded', () => {
   if (s) s.value = t;
 });
 
+/* Session restore — api.js restoreSession()으로 이관됨 (파일 끝에서 호출) */
 
-
-
+/* ═══ SIDEBAR ═══ */
 
 var ctrSortKey = 'name', ctrSortDir = 1;
 
@@ -269,7 +269,7 @@ window.setCtrSort = setCtrSort;
 
 window.toggleInfraSort = toggleInfraSort;
 
-
+/* ═══ DRAG AND DROP NAV REORDER ═══ */
 (function() {
   let dragEl = null;
   function initDrag(container) {
@@ -305,12 +305,12 @@ window.toggleInfraSort = toggleInfraSort;
   });
 })();
 
+/* ═══ SORT / FILTER / RENDER ═══ */
 
-
-
+/* ═══ CONTEXT MENU ═══ */
 document.addEventListener('click', () => { document.getElementById('ctx').style.display = 'none'; });
 
-
+/* ═══ CONTENT TABS ═══ */
 document.getElementById('ct').addEventListener('click', e => {
   if (e.target.tagName === 'BUTTON') {
     document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
@@ -320,13 +320,13 @@ document.getElementById('ct').addEventListener('click', e => {
   }
 });
 
+/* navigateTo + renderContent — modules/nav.js로 이관됨 */
 
+/* ═══ VM SUMMARY ═══ */
 
+/* ═══ CONSOLE / VNC ═══ */
 
-
-
-
-
+/* ═══ SNAPSHOTS ═══ */
 
 window.snapNameValidate = snapNameValidate;
 window.snapCreateExec = snapCreateExec;
@@ -338,18 +338,18 @@ window.snapDeleteAll = snapDeleteAll;
 window.sdaPreview = sdaPreview;
 window.sdaExec = sdaExec;
 
+/* ═══ PERFORMANCE ═══ */
 
+/* ═══ NETWORKS ═══ */
 
+/* ═══ STORAGE ═══ */
 
-
-
-
-
+/* ═══ CONTAINERS ═══ */
 var selCtr = null, ctrTab = 'summary', ctrHist = [];
 
+/* ═══ CONTAINER TAB RENDERING ═══ */
 
-
-
+/* ═══ CONTAINER ACTIONS ═══ */
 
 window.ctrDistChanged = ctrDistChanged;
 
@@ -357,39 +357,39 @@ window.ctrIpModeChanged = ctrIpModeChanged;
 
 window.ctrLoadBridges = ctrLoadBridges;
 
+/* ═══ HOST ═══ */
 
+/* ═══ CLUSTER ═══ */
 
+/* FE-6: addAffinityRule — cluster.js에서 정의, 중복 제거 */
+/* window.addAffinityRule은 cluster.js에서 등록됨 */
 
+/* ═══ OVN ═══ */
 
-
-
-
-
-
-
-
+/* ═══ POWER / VM DELETE ═══ */
+/* Keep global alias */
 window.pw = vmPower;
 
-
-
+/* ═══ MODALS ═══ */
+/* Keep global aliases */
 window.showM = showModal;
 window.closeM = closeModal;
 
+/* ═══ VM CREATE WIZARD ═══ */
 
+/* ═══ SETTINGS ═══ */
 
+/* ═══ SNAPSHOT SHORTCUT ═══ */
 
+/* ═══ NIC MANAGER ═══ */
 
+/* ═══ VNC MODAL ═══ */
 
+/* ═══ NETWORK CREATE / EDIT ═══ */
 
+/* ═══ ZVOL ═══ */
 
-
-
-
-
-
-
-
-
+/* ═══ CONNECT / PREFS / ABOUT ═══ */
 function showConnect() { let ch = '<h2>Connect to Server</h2><div class="sg">'; MON_NODES.forEach((nd, i) => { ch += H.card(nd.name + (i === 0 ? ' (Current)' : ''), H.row('IP', nd.ip) + H.row('Port', '8080') + H.row('Status', '<span class="color-green">' + t('connected') + '</span>')); }); ch += '</div><div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>'; showModal(ch); }
 
 function showPrefs() {
@@ -408,7 +408,7 @@ function showPrefs() {
     h += '</div><div style="font-size:9px;color:var(--fg2);white-space:nowrap">' + tp.name + '</div></div>';
   });
   h += '</div></div>';
-
+  /* Auto Theme 토글 제거 — pure-light/pure-dark 테마 삭제와 함께 무의미해짐 */
   h += '<div style="margin:14px 0;border-top:1px solid var(--border);padding-top:12px"><h4 style="margin-bottom:8px">Configuration Management</h4>';
   h += '<div class="flex gap-6"><button class="btn btn-g" onclick="configBackup()">&#128190; Backup Config</button><button class="btn" onclick="configHistory()">&#128203; Config History</button></div></div>';
   h += '<div class="flex gap-6 mt-12"><button class="btn" onclick="exportUiSettings()">' + _L('설정 내보내기', 'Export Settings') + '</button><button class="btn" onclick="importUiSettings()">' + _L('설정 가져오기', 'Import Settings') + '</button></div>';
@@ -418,7 +418,7 @@ function showPrefs() {
 
 function showAbout() {
   showModal(`<h2>About PureCVisor</h2>${H.card('', H.row('Version', '<span id="about-ver">Loading...</span>') + H.row('LOC', '<span id="about-loc">Loading...</span>') + H.row('Files', '<span id="about-files">Loading...</span>') + H.row('RPC', '<span id="about-rpc">Loading...</span>') + H.row('REST Endpoints', '<span id="about-rest">Loading...</span>') + H.row('Prometheus Metrics', '<span id="about-prom">Loading...</span>') + H.row('Subsystems', 'io_uring, OVN, DPDK, SR-IOV, gRPC, WebSocket') + H.row('Author', 'HardcoreMonk'))}<div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
-
+  /* /health에서 동적 데이터 로드 */
   fetchGet(API_BASE + '/health').then(r => {
     var d = unwrapData(r);
     var el = document.getElementById('about-ver');
@@ -436,21 +436,21 @@ function showAbout() {
   if (files_el) files_el.textContent = 'Single Edge public tree';
 }
 
+/* ACCOUNTS/AGENT — modules/accounts.js로 이관됨 */
 
+/* ═══ ACCOUNTS — modules/accounts.js로 이관됨 ═══ */
 
+/* ═══ MONITORING ═══ */
 
+/* G-2: Promise.all parallel fetch */
 
+/* fmtBytes — modules/monitor.js로 이관됨 */
+/* fmtRate — modules/monitor.js로 이관됨 */
+/* fmtUptime — modules/monitor.js로 이관됨 */
 
+/* ═══ MONITORING RENDER — G-2 Split into sub-functions ═══ */
 
-
-
-
-
-
-
-
-
-
+/* ═══ ALERTS ═══ */
 
 window.alertSave = async function() {
   const cfg = { enabled: document.getElementById('al-enabled')?.checked || false, cpu_warn: parseInt(document.getElementById('al-cpu_warn')?.value || 80), cpu_crit: parseInt(document.getElementById('al-cpu_crit')?.value || 95), mem_warn: parseInt(document.getElementById('al-mem_warn')?.value || 85), mem_crit: parseInt(document.getElementById('al-mem_crit')?.value || 95), disk_warn: parseInt(document.getElementById('al-disk_warn')?.value || 80), disk_crit: parseInt(document.getElementById('al-disk_crit')?.value || 90), eval_period: parseInt(document.getElementById('al-eval_period')?.value || 30), webhook_url: document.getElementById('al-webhook_url')?.value || '', webhook_format: document.getElementById('al-webhook_format')?.value || 'generic', telegram_chat_id: document.getElementById('al-telegram_chat_id')?.value || '' };
@@ -460,9 +460,9 @@ window.alertSave = async function() {
   } catch (e) { const st = document.getElementById('al-status'); if (st) { st.textContent = t('error') + ': ' + e.message; st.style.color = 'var(--red)'; } }
 };
 
+/* ═══ HA OPERATIONS ═══ */
 
-
-
+/* ═══ SECURITY GROUPS ═══ */
 
 window.sgAddRule = async function() {
   const el = document.getElementById('sg-result');
@@ -500,7 +500,7 @@ window.sgListRules = async function() {
   } catch (e) { if (el) el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
 };
 
-
+/* ═══ GPU MONITORING ═══ */
 
 window.testGpuList = async function() {
   const el = document.getElementById('gpu-list-result');
@@ -542,7 +542,7 @@ window.gpuMdevCreate = async function() {
   } catch (e) { if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu mdev create ' + escapeHtml(pci) + '</code></span>'; }
 };
 
-
+/* ═══ AUDIT LOG SEARCH ═══ */
 
 window.doAuditSearch = async function() {
   const el = document.getElementById('audit-results');
@@ -571,13 +571,13 @@ window.doAuditSearch = async function() {
   } catch (e) { el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
 };
 
-
+/* ═══ WEBHOOK DLQ ═══ */
 window.loadWebhookDlq = async function() {
   var el = document.getElementById('dlq-list');
   if (!el) return;
   el.innerHTML = '<span class="spinner"></span> DLQ 조회 중...';
   try {
-
+    /* REST 우선 시도, 실패 시 RPC 폴백 */
     var r;
     try { r = await fetchGet(API_BASE + '/alerts/dlq'); } catch(e1) {
       r = await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.list', params:{}, id:'dlq1'});
@@ -593,7 +593,7 @@ window.loadWebhookDlq = async function() {
     });
     h += '</tbody></table>';
     el.innerHTML = h;
-
+    /* DLQ 항목 저장 (개별 재시도용) */
     window._dlqItems = items;
   } catch (e) {
     el.innerHTML = '<div class="stat-label" style="color:var(--yellow)">' + _L('DLQ 조회 불가', 'DLQ unavailable') + '</div>';
@@ -626,11 +626,11 @@ window.retryDlqItem = async function(index) {
   }
 };
 
+/* ═══ HELP/GUIDE/SWAGGER — modules/help.js로 이관됨 ═══ */
 
+/* ═══ API MANAGEMENT — modules/accounts.js로 이관됨 ═══ */
 
-
-
-
+/* ═══ API KEY MANAGEMENT ═══ */
 async function apiKeyCreate() {
   var desc = (document.getElementById('apikey-desc')?.value || '').trim();
   var expiry = parseInt(document.getElementById('apikey-expiry')?.value) || 90;
@@ -698,23 +698,23 @@ async function apiKeyRevoke(keyId, desc) {
 }
 window.apiKeyRevoke = apiKeyRevoke;
 
-
+/* ═══ DASHBOARD HOME ═══ */
 async function renderDashboard(b) {
   b.innerHTML = showSkeleton();
-
+  /* 호스트 메트릭 즉시 수집 */
   await collectHostMetrics();
   try {
     var vms = [], ctrs = [], clusterData = {}, alertData = [];
-
-
+    /* 빠른 API(VM/컨테이너)를 먼저 로드하여 즉시 렌더링,
+       느린 API(클러스터/알림)는 비동기로 나중에 갱신 */
     var fastResults = await Promise.all([
       fetchGet(API_BASE + '/vms').catch(function() { return { data: [] }; }),
       fetchGet(API_BASE + '/containers').catch(function() { return { data: [] }; })
     ]);
     vms = Array.isArray(fastResults[0]) ? fastResults[0] : (fastResults[0].data || []);
     ctrs = Array.isArray(fastResults[1]) ? fastResults[1] : (fastResults[1].data || []);
-
-
+    /* 클러스터: /health에서 cluster 정보 추출 (인증 불필요, 즉시 응답)
+     * /cluster/status는 REST 스레드 블로킹 시 3초 타임아웃 → standalone 표시 방지 */
     var clusterPromise = fetchGet(API_BASE + '/health').then(function(h) {
       var c = h.checks || {};
       var isStandalone = !h.capabilities || !h.capabilities.cluster;
@@ -761,7 +761,7 @@ async function renderDashboard(b) {
     h += H.row(_L('운영 우선순위', 'Priority'), alertData.length > 0 ? _L('경고 확인', 'Review alerts') : _L('자원 추이 점검', 'Review resource trend'));
     h += '</div></section>';
 
-
+    /* F6: Widget toggle bar */
     h += '<div class="ops-section-heading">';
     h += '<div><h3>' + _L('표시 항목', 'Visible sections') + '</h3><p>' + _L('대시보드에서 바로 보고 싶은 카드만 켜 두십시오.', 'Keep only the sections you want to see on the dashboard.') + '</p></div>';
     h += '</div>';
@@ -779,7 +779,7 @@ async function renderDashboard(b) {
     });
     h += '</div>';
 
-
+    /* 상태 카드 */
     if (_dashWidgets.stats !== false) {
     h += '<div class="ops-section-heading"><div><h3>' + _L('운영 요약', 'Operations summary') + '</h3><p>' + _L('가상 머신, 컨테이너, 호스트 상태를 한 번에 확인합니다.', 'Review virtual machines, containers, and host status at a glance.') + '</p></div></div>';
     h += '<div class="sg grid-4">';
@@ -794,7 +794,7 @@ async function renderDashboard(b) {
     h += '</div>';
     }
 
-
+    /* 바로가기 그리드 */
     if (_dashWidgets.actions !== false) {
     h += '<div class="ops-section-heading"><div><h3>' + _L('빠른 작업', 'Quick actions') + '</h3><p>' + _L('생성, 네트워크, 스토리지, 모니터링처럼 자주 쓰는 작업만 앞으로 배치했습니다.', 'The most common actions are kept in front: create, networking, storage, and monitoring.') + '</p></div></div>';
     h += '<div class="sg grid-4">';
@@ -819,9 +819,9 @@ async function renderDashboard(b) {
     h += '</div>';
     }
 
-
+    /* 호스트 메트릭 차트 */
     if (_dashWidgets.charts !== false) {
-
+    /* 호스트 메트릭 최신값 표시 */
     var hostCpu = hostCpuHistory[hostCpuHistory.length - 1] || 0;
     var hostMem = hostMemHistory[hostMemHistory.length - 1] || 0;
     h += '<div class="ops-section-heading"><div><h3>' + _L('실시간 자원 추이', 'Live resource trend') + '</h3><p>' + _L('CPU와 메모리 사용률이 최근 수집값 기준으로 즉시 갱신됩니다.', 'CPU and memory usage update from the latest collected samples.') + '</p></div></div>';
@@ -831,7 +831,7 @@ async function renderDashboard(b) {
     h += '</div>';
     }
 
-
+    /* 최근 알림 */
     if (_dashWidgets.alerts !== false && recentAlerts.length > 0) {
       h += '<div class="ops-section-heading"><div><h3>' + _L('최근 경고', 'Recent alerts') + '</h3><p>' + _L('실시간 이벤트 중 운영에 바로 영향을 주는 항목만 먼저 확인합니다.', 'Review only the alerts that need immediate operational attention.') + '</p></div></div>';
       h += '<table style="font-size:12px"><thead><tr><th>' + _L('시각', 'Time') + '</th><th>' + _L('유형', 'Type') + '</th><th>' + _L('내용', 'Message') + '</th></tr></thead><tbody>';
@@ -841,7 +841,7 @@ async function renderDashboard(b) {
       h += '</tbody></table>';
     }
 
-
+    /* VM 목록 요약 */
     if (_dashWidgets.vms !== false && vms.length > 0) {
       h += '<div class="ops-section-heading"><div><h3>' + _L('워크로드 현황', 'Workload overview') + '</h3><p>' + _L('대시보드에서는 최근 상태만 보고, 세부 조작은 각 화면에서 이어갑니다.', 'Use the dashboard for status checks, then continue detailed actions in each screen.') + '</p></div></div>';
       h += '<h3 style="margin:8px 0 12px">' + _L('VM 현황', 'VM Status') + ' (' + vms.length + ')</h3>';
@@ -854,7 +854,7 @@ async function renderDashboard(b) {
       h += '</tbody></table>';
     }
 
-
+    /* 컨테이너 목록 */
     if (ctrs.length > 0) {
       h += '<h3 style="margin:20px 0 12px">&#9783; ' + _L('컨테이너 현황', 'Container Status') + ' (' + ctrs.length + ')</h3>';
       h += '<table style="font-size:12px"><thead><tr><th>' + _L('이름', 'Name') + '</th><th>' + _L('상태', 'State') + '</th><th>IP</th><th>' + _L('이미지', 'Image') + '</th></tr></thead><tbody>';
@@ -868,7 +868,7 @@ async function renderDashboard(b) {
 
     b.innerHTML = h;
 
-
+    /* Initialize dashboard charts */
     setTimeout(function() {
       if (typeof createLineChart === 'function') {
         createLineChart('dash-cpu-chart', hostCpuHistory, 'CPU %', getChartColor('cpu'));
@@ -881,7 +881,7 @@ async function renderDashboard(b) {
 }
 window.renderDashboard = renderDashboard;
 
-
+/* F6: Dashboard widget toggle */
 function toggleDashWidget(key) {
   _dashWidgets[key] = !(_dashWidgets[key] !== false);
   localStorage.setItem('pcv-dash-widgets', JSON.stringify(_dashWidgets));
@@ -889,19 +889,19 @@ function toggleDashWidget(key) {
 }
 window.toggleDashWidget = toggleDashWidget;
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══ LOAD ALL ═══
+ * skipContent=true: 10초 폴링 (캐시 OK, dedup 효과)
+ * skipContent=false (또는 미지정): 명시 호출 — 항상 fresh, 캐시 무효화
+ *
+ * [왜 이 분기가 중요한가]
+ *   10초 setInterval에서 호출할 때는 skipContent=true를 넘긴다.
+ *   cachedFetch(uxlib.js)가 500ms TTL 동안 동일 요청을 병합(coalescing)하여
+ *   WS 이벤트와 폴링이 동시에 발생해도 중복 fetch를 방지한다.
+ *   사용자가 명시적으로 loadAll()을 호출하면 캐시를 무효화하여
+ *   항상 최신 데이터를 가져온다.
+ *
+ *   render(skipContent)에서도 skipContent=true면 vmList 해시가
+ *   변하지 않았을 때 DOM 업데이트를 건너뛴다 — 깜박임 방지. */
 window._loadAllInFlight = false;
 async function loadAll(skipContent) {
   if (window._loadAllInFlight) return;
@@ -924,7 +924,7 @@ async function loadAll(skipContent) {
 }
 window.loadAll = loadAll;
 
-
+/* #14 hash routing 초기 적용 + #15 role 가시성 + 사용자 정보 캐시 */
 async function pcvPostLoginInit() {
   try {
     const u = await fetchGet(API_BASE + '/auth/whoami').catch(function(){ return null; });
@@ -938,7 +938,7 @@ async function pcvPostLoginInit() {
 window.pcvPostLoginInit = pcvPostLoginInit;
 setInterval(() => { if (authToken) loadAll(true); }, 10e3);
 
-
+/* ═══ HOST METRICS COLLECTION ═══ */
 async function collectHostMetrics() {
   var token = window.authToken || authToken;
   if (!token) return;
@@ -953,21 +953,21 @@ async function collectHostMetrics() {
     });
     hostCpuHistory.push(cpu); hostCpuHistory.shift();
     hostMemHistory.push(mem); hostMemHistory.shift();
-  } catch (e) {  }
+  } catch (e) { /* metrics endpoint may be unavailable */ }
 }
 setInterval(collectHostMetrics, 5000);
-
+/* G-4: auto-refresh indicator update */
 setInterval(() => { const sb3 = document.getElementById('sb3'); if (sb3 && authToken) { const elapsed = Math.round((Date.now() - lastLoadTime) / 1000); sb3.textContent = 'Updated ' + elapsed + 's ago'; } }, 1000);
 
-
+/* ═══ KEYBOARD SHORTCUTS ═══ */
 document.addEventListener('keydown', e => {
   if (e.key === 'F11') { e.preventDefault(); toggleFS(); }
   if (e.ctrlKey && e.key === 'n') { e.preventDefault(); showCreate(); }
   if (e.ctrlKey && e.key === 'd') { e.preventDefault(); showSettings(); }
   if (e.ctrlKey && e.key === 'p') { e.preventDefault(); showPrefs(); }
-
+  /* G-4: Command palette */
   if (e.ctrlKey && e.key === 'k') { e.preventDefault(); if (cmdPaletteOpen) closeCmdPalette(); else openCmdPalette(); }
-
+  /* F-2: Escape to close modals */
   if (e.key === 'Escape') {
     if (cmdPaletteOpen) { closeCmdPalette(); e.preventDefault(); return; }
     const mbg = document.getElementById('mbg');
@@ -975,7 +975,7 @@ document.addEventListener('keydown', e => {
     const iso = document.getElementById('iso-overlay');
     if (iso) { closeISOBrowser(); e.preventDefault(); }
   }
-
+  /* F-2: Tab focus trapping in modal */
   if (e.key === 'Tab') {
     const mbg = document.getElementById('mbg');
     if (mbg && !mbg.classList.contains('hidden')) {
@@ -990,7 +990,7 @@ document.addEventListener('keydown', e => {
   }
 });
 
-
+/* ═══ MOBILE ═══ */
 
 (document.getElementById('sidebar-panel') || document.getElementById('sidebar')).addEventListener('click', e => {
   if (window.innerWidth <= 768 && e.target.closest('.vi')) { setTimeout(closeMobileSB, 150); }
@@ -1015,11 +1015,11 @@ document.addEventListener('touchend', e => {
   else if (dx < -60 && (document.getElementById('sidebar-panel') || document.getElementById('sidebar')).classList.contains('mobile-open')) { closeMobileSB(); }
 }, { passive: true });
 
+/* ═══ COMMAND PALETTE (Ctrl+K) — G-4 ═══ */
 
+/* ═══ KEYBOARD HELP OVERLAY (? key) — I-1/E-6 ═══ */
 
-
-
-
+/* ═══ NOTIFICATION SOUND (Web Audio API) — I-1/E-3 ═══ */
 var audioCtx = null;
 function playNotifSound(type) {
   try {
@@ -1032,10 +1032,10 @@ function playNotifSound(type) {
     else if (type === 'warning') { osc.frequency.value = 500; osc.type = 'triangle'; }
     else { osc.frequency.value = 800; osc.type = 'sine'; }
     osc.start(); osc.stop(audioCtx.currentTime + 0.12);
-  } catch (e) {  }
+  } catch (e) { /* Audio not supported */ }
 }
 
-
+/* ═══ BROWSER NOTIFICATIONS — I-1/E-4 ═══ */
 var browserNotifEnabled = false;
 function requestBrowserNotif() {
   if (!('Notification' in window)) return;
@@ -1047,16 +1047,16 @@ function requestBrowserNotif() {
 function sendBrowserNotif(title, body, icon) {
   if (!browserNotifEnabled) return;
   try { new Notification(title, { body: body, icon: icon || '', tag: 'pcv-' + Date.now() }); }
-  catch (e) {  }
+  catch (e) { /* SW required on some browsers */ }
 }
-
+/* Request permission on first login */
 var _origDoLoginPage = typeof doLoginPage === 'function' ? doLoginPage : null;
 
-
+/* ═══ SERVICE WORKER (Network-First caching) ═══ */
 if ('serviceWorker' in navigator) {
   window.addEventListener('load', () => {
     navigator.serviceWorker.register('/ui/sw.js', { updateViaCache: 'none' }).then(reg => {
-
+      /* 새 SW가 waiting 상태이면 즉시 활성화 */
       if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
       reg.addEventListener('updatefound', () => {
         const nw = reg.installing;
@@ -1069,15 +1069,15 @@ if ('serviceWorker' in navigator) {
       });
       reg.update().catch(() => {});
     }).catch(() => {});
-
+    /* SW 컨트롤러가 교체되면 페이지 리로드 */
     navigator.serviceWorker.addEventListener('controllerchange', () => {
       window.location.reload();
     });
   });
 }
 
-
-
+/* ═══ KEYBOARD SHORTCUTS EXTENSION — I-1 ═══ */
+/* Add ? key handler to existing keydown listener */
 document.addEventListener('keydown', e => {
   if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey) {
     const tag = document.activeElement?.tagName;
@@ -1088,24 +1088,24 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && kbdHelpOpen) { e.preventDefault(); closeKbdHelp(); }
 });
 
-
+/* Request browser notification permission after login */
 requestBrowserNotif();
 
+/* ═══════════════════════════════════════════════════════════════
+   A+B: 26개 미반영 RPC Web UI 반영
+   Priority A: 실용적 (15개) + Priority B: 고급 기능 (11개)
+   ═══════════════════════════════════════════════════════════════ */
 
+/* A-1~B-EXTRA, LXC NIC, CLOUD MIGRATION 핸들러 — 전부 modules/*.js로 이관됨
+   (vm/storage/container/cluster/network/cloud/advanced 모듈에서 window 등록) */
 
-
-
-
-
-
-
-
+/* ═══ COMMAND PALETTE: Add new actions ═══ */
 CMD_ACTIONS.push(
   { icon: '&#128195;', label: 'Templates', action: () => navigateTo('templates') },
   { icon: '&#9881;', label: 'Config Management', action: () => navigateTo('config-mgmt') },
-
-
-
+  /* Docker/OCI 제거됨 */
+  /* Terraform 제거됨 */
+  /* Federation — 멀티 에디션 전용, cluster-only로 런타임 제어 */
   { icon: '&#128230;', label: 'Import OVA', action: () => showImportOva() },
   { icon: '&#9729;', label: 'Cloud Migration', action: () => navigateTo('cloud-migration') },
   { icon: '&#128269;', label: 'Global Search', hint: 'Ctrl+Shift+F', action: () => toggleGlobalSearch() },
@@ -1115,11 +1115,11 @@ CMD_ACTIONS.push(
   { icon: '&#9881;', label: 'Toggle Bottom Panel', action: () => toggleBottomPanel() }
 );
 
+/* ═══ V-1: ACTIVITY BAR ═══ */
 
+/* ═══ V-2: EDITOR TABS ═══ */
 
-
-
-
+/* Hook into navigateTo to auto-open tabs — BUG-9 fix: 재귀 가드 + 명시적 원본 참조 */
 if (!window._navTabsWrapped) {
   window._pcvOrigNavigateTo = navigateTo;
   window.navigateTo = function navigateToWithTabs(n) {
@@ -1193,9 +1193,9 @@ if (!window._navTabsWrapped) {
   window._navTabsWrapped = true;
 }
 
+/* ═══ V-3: BOTTOM PANEL ═══ */
 
-
-
+/* Panel resize drag */
 (function() {
   const handle = document.getElementById('panel-resize');
   const panel = document.getElementById('bottom-panel');
@@ -1211,7 +1211,7 @@ if (!window._navTabsWrapped) {
   });
 })();
 
-
+/* Redirect event log to bottom panel — BUG-5 fix: 이중 래핑 방어 */
 if (!window._addEvtPanelWrapped) {
   var _origAddEvt = addEvt;
   function addEvtToPanel(m) {
@@ -1232,11 +1232,11 @@ if (!window._addEvtPanelWrapped) {
   window._addEvtPanelWrapped = true;
 }
 
+/* ═══ V-4: BREADCRUMBS ═══ */
 
+/* ═══ V-5: GLOBAL SEARCH (Ctrl+Shift+F) ═══ */
 
-
-
-
+/* ═══ V-6: SPLIT VIEW ═══ */
 var splitViewActive = false;
 function toggleSplitView() {
   splitViewActive = !splitViewActive;
@@ -1249,7 +1249,7 @@ function toggleSplitView() {
     split.className = 'split-container';
     split.innerHTML = '<div class="split-pane" id="split-left"></div><div class="split-divider" id="split-divider"></div><div class="split-pane" id="split-right"></div>';
     cb.parentNode.insertBefore(split, cb.nextSibling);
-
+    /* Render current page in left, monitoring in right */
     renderContent();
     const leftContent = cb.innerHTML;
     document.getElementById('split-left').innerHTML = leftContent;
@@ -1277,20 +1277,20 @@ function initSplitDivider() {
   });
 }
 
+/* ═══ V-7: HOVER INFO ═══ */
+/* hoverCard already created and appended in modules/nav.js (lines 697-700) */
 
+/* ═══ V-8: NOTIFICATIONS CENTER ═══ */
 
+/* updateNotifBadge — modules/nav.js로 이관됨 */
 
+/* Hook toast to also create notifications
+ * NOTE: original toast() in ui.js already calls addNotification(),
+ * so we must NOT call it again here — just delegate to _origToast. */
 
+/* ═══ V-9: ZEN MODE ═══ */
 
-
-
-
-
-
-
-
-
-
+/* Keyboard: Ctrl+Shift+F for search, Ctrl+B toggle sidebar, Ctrl+\ split, Ctrl+Shift+Z zen */
 document.addEventListener('keydown', e => {
   if (e.ctrlKey && e.shiftKey && e.key === 'F') { e.preventDefault(); toggleGlobalSearch(); }
   if (e.ctrlKey && e.key === 'b') { e.preventDefault(); document.getElementById('sidebar-panel')?.classList.toggle('collapsed'); }
@@ -1301,11 +1301,11 @@ document.addEventListener('keydown', e => {
   if (e.key === 'Escape' && window.notifCenterOpen) { closeNotifCenter(); }
 });
 
-
+/* ═══ GLOBAL ALIASES (for onclick in HTML) ═══ */
 window.render = render;
 window.renderContent = renderContent;
 
-
+/* ═══ OFFLINE DETECTION ═══ */
 window.addEventListener('online', function() {
   var banner = document.getElementById('offline-banner');
   if (banner) banner.remove();
@@ -1321,10 +1321,10 @@ window.addEventListener('offline', function() {
   document.body.prepend(banner);
 });
 
-
+/* Session restore (api.js에서 제공) */
 restoreSession();
 
-
+/* #6 기본 단축키 등록 */
 if (typeof registerShortcut === 'function') {
   registerShortcut('/', function(){ if (typeof toggleGlobalSearch === 'function') toggleGlobalSearch(); }, '글로벌 검색');
   registerShortcut('n', function(){ if (typeof showCreate === 'function') showCreate(); }, '새 VM');

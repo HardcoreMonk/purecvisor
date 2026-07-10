@@ -1,7 +1,7 @@
-
-
-
-
+/* ============================================================
+   PureCVisor — i18n.js
+   F-4: 한국어/영어 국제화 모듈
+   ============================================================ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
@@ -10,7 +10,7 @@ var I18N = {
   _lang: localStorage.getItem('pcv-lang') || 'ko',
   _data: {
     ko: {
-
+      // Auth
       'login': '로그인',
       'logout': '로그아웃',
       'username': '사용자명',
@@ -32,7 +32,7 @@ var I18N = {
       'logged.in': '로그인 완료',
       'logged.out': '로그아웃 완료',
 
-
+      // F-7: Register / Change Password / Modal Common
       'register.title': '회원가입',
       'register.user_ph': '사용자명 (3-32, a-z 0-9 _)',
       'register.pass_ph': '비밀번호 (8자 이상)',
@@ -60,7 +60,7 @@ var I18N = {
       'msg.network_err': '네트워크 오류',
       'monitor.cluster_timeline': '리소스 흐름 (최근 5분)',
 
-
+      // Navigation
       'nav.vm_library': 'VM 자산',
       'nav.infrastructure': 'Infrastructure',
       'nav.monitor': 'Monitor',
@@ -77,7 +77,7 @@ var I18N = {
       'nav.help': 'Help',
       'nav.service_guide': 'Service Guide',
 
-
+      // Monitoring
       'mon.overview': 'Overview',
       'mon.cluster': 'Cluster',
       'mon.hosts': 'Hosts',
@@ -85,14 +85,14 @@ var I18N = {
       'mon.storage': 'Storage',
       'mon.alerts': 'Alerts',
 
-
+      // VM tabs
       'tab.summary': '요약',
       'tab.console': '콘솔',
       'tab.snapshots': '스냅샷',
       'tab.performance': '성능',
       'tab.timeline': '타임라인',
 
-
+      // VM actions
       'vm.new': '새 VM',
       'vm.create': 'VM 생성',
       'vm.creating': 'VM 생성 중',
@@ -106,13 +106,13 @@ var I18N = {
       'vm.settings': '설정',
       'vm.snapshot': '스냅샷',
 
-
+      // Power
       'power.start': '시작',
       'power.stop': '중지',
       'power.pause': '일시정지',
       'power.resume': '재개',
 
-
+      // Buttons
       'btn.create': '생성',
       'btn.delete': '삭제',
       'btn.save': '저장',
@@ -125,7 +125,7 @@ var I18N = {
       'btn.confirm': '확인',
       'btn.stop_selected': '선택 항목 중지',
 
-
+      // Network
       'net.new': '네트워크 추가',
       'net.created': '네트워크 생성됨',
       'net.deleted': '네트워크 삭제됨',
@@ -135,7 +135,7 @@ var I18N = {
       'net.mode.bridge': 'Bridge — 물리 NIC 바인딩',
       'net.phys_required': 'Bridge 모드에서는 물리 NIC 선택이 필요합니다',
 
-
+      // Container
       'ctr.new': '생성 CT',
       'ctr.select': '컨테이너를 선택하세요',
       'ctr.starting': '컨테이너 시작 중',
@@ -146,11 +146,11 @@ var I18N = {
       'ctr.delete.type_name': '확인을 위해 컨테이너 이름을 입력하세요:',
       'ctr.console.stopped': '콘솔 접근을 위해 먼저 컨테이너를 시작하세요.',
 
-
+      // Storage
       'stg.zvol_created': 'Zvol 생성됨',
       'stg.zvol_destroyed': 'Zvol 삭제됨',
 
-
+      // Snapshot
       'snap.name_prompt': '스냅샷 이름:',
       'snap.created': '스냅샷 생성됨',
       'snap.reverted': '되돌리기 완료',
@@ -158,12 +158,12 @@ var I18N = {
       'snap.none': '스냅샷 없음',
       'snap.revert_confirm': '되돌리기 하시겠습니까?',
 
-
+      // Alerts
       'alert.enabled': '알림 엔진 활성 중',
       'alert.disabled': '알림 비활성 — enabled=true로 활성화',
       'alert.saved': '설정 저장됨',
 
-
+      // VNC
       'vnc.popup_blocked': '팝업이 차단되었습니다. 브라우저 설정에서 허용하세요.',
       'vnc.open_popup': 'noVNC 새 창 열기',
       'vnc.embedded': '내장 noVNC',
@@ -184,7 +184,7 @@ var I18N = {
       'vnc.iso_eject_title': '설치 완료 후',
       'vnc.iso_eject_body': 'VM 설정 > CD/DVD (SATA)에서 Eject 후 콘솔에서 Enter',
 
-
+      // General
       'loading': '로딩 중...',
       'error': '오류',
       'connected': 'Connected',
@@ -196,11 +196,11 @@ var I18N = {
       'events.clear': '초기화',
       'events.log': '이벤트 로그',
 
-
+      // NIC
       'nic.added': 'NIC 추가됨',
       'nic.removed': 'NIC 제거됨',
 
-
+      // ISO
       'iso.mounted': '마운트됨',
       'iso.ejected': '꺼내기 완료',
       'iso.browser_title': 'ISO 이미지 탐색기',
@@ -208,24 +208,24 @@ var I18N = {
       'iso.not_found': 'ISO/IMG 파일을 찾을 수 없습니다',
       'iso.path_required': 'ISO 경로를 선택하세요.',
 
-
+      // Backup
       'backup.policy_set': '백업 정책 설정됨',
 
-
+      // Auth/RBAC
       'auth.user_created': '사용자 생성됨',
       'auth.user_deleted': '사용자 삭제됨',
       'auth.role_changed': '역할 변경됨',
       'auth.required': 'Username and password required',
 
-
+      // AI Agent
       'agent.config_saved': 'AI Agent 설정 저장됨',
       'agent.test_connection': 'Test Connection',
 
-
+      // WebSocket
       'ws.connected': 'WebSocket 연결됨',
       'ws.live': 'Live',
 
-
+      // A+B 26개 신규 기능
       'nav.templates': '템플릿',
       'nav.config': '설정 관리',
       'nav.docker': 'Docker/OCI',
@@ -249,7 +249,7 @@ var I18N = {
       'config.backup': '설정 백업',
       'config.history': '설정 변경 이력',
       'template.history': '템플릿 이력',
-
+      // Menu bar top-level
       'menu.file': '파일',
       'menu.edit': '편집',
       'menu.view': '보기',
@@ -258,7 +258,7 @@ var I18N = {
       'menu.terminal': '관제',
       'menu.accounts': '계정',
       'menu.help': '도움말',
-
+      // Menu — File
       'menu.file.new_vm': '새 VM...',
       'menu.file.new_network': '새 네트워크...',
       'menu.file.new_pool': '새 풀...',
@@ -266,12 +266,12 @@ var I18N = {
       'menu.file.import_ova': 'OVA 가져오기...',
       'menu.file.connect': '서버 연결...',
       'menu.file.preferences': '환경설정',
-
+      // Menu — Edit
       'menu.edit.vm_settings': 'VM 설정...',
       'menu.edit.snapshots': '스냅샷...',
       'menu.edit.agent_config': 'AI Agent 설정...',
       'menu.edit.config_mgmt': '설정 관리',
-
+      // Menu — View
       'menu.view.toggle_sidebar': '사이드바 전환',
       'menu.view.toggle_panel': '패널 전환',
       'menu.view.fullscreen': '전체 화면',
@@ -282,7 +282,7 @@ var I18N = {
       'menu.view.container_library': '컨테이너',
       'menu.view.cluster': '클러스터',
       'menu.view.infrastructure': '운영',
-
+      // Menu — Go
       'menu.go.networks': '네트워크',
       'menu.go.storage': '스토리지',
       'menu.go.lxc': 'LXC 컨테이너',
@@ -295,7 +295,7 @@ var I18N = {
       'menu.go.federation': '페더레이션',
       'menu.go.cloud_migration': '클라우드 마이그레이션',
       'menu.go.terraform': 'Terraform IaC',
-
+      // Menu — Run
       'menu.run.power_on': '전원 켜기',
       'menu.run.power_off': '전원 끄기',
       'menu.run.suspend': '일시 정지',
@@ -304,7 +304,7 @@ var I18N = {
       'menu.run.resume_node': '노드 재개...',
       'menu.run.maintenance_enter': '유지보수 진입...',
       'menu.run.maintenance_exit': '유지보수 해제...',
-
+      // Menu — Terminal
       'menu.terminal.new': '새 터미널',
       'menu.terminal.events': '이벤트',
       'menu.terminal.alerts': '알림',
@@ -315,17 +315,17 @@ var I18N = {
       'menu.terminal.mon_hosts': '호스트 상태',
       'menu.terminal.security_events': '보안 이벤트',
       'menu.terminal.audit_log': '감사 로그',
-
+      // Menu — Accounts
       'menu.accounts.users': '사용자 & 역할 (RBAC)',
       'menu.accounts.api_mgmt': 'API 관리',
-
+      // Menu — Help
       'menu.help.welcome': '시작하기',
       'menu.help.cmd_ref': '명령어 참조',
       'menu.help.rest_guide': 'REST API 가이드',
       'menu.help.swagger': 'Swagger API',
       'menu.help.about': '정보',
       'menu.help.updates': '업데이트 확인...',
-
+      // Aliases (HTML data-i18n key ↔ i18n key 불일치 보정)
       'menu.run.drain_node': '노드 드레인...',
       'menu.run.enter_maintenance': '유지보수 진입...',
       'menu.run.exit_maintenance': '유지보수 해제...',
@@ -338,26 +338,26 @@ var I18N = {
       'menu.help.complete_guide': '완벽 가이드',
       'menu.help.check_updates': '업데이트 확인...',
       'menu.go.containers': 'LXC 컨테이너',
-
+      // Status
       'status.running': '실행 중',
       'status.stopped': '중지됨',
       'status.paused': '일시 정지',
-
+      // Sidebar tabs
       'sidebar.vm': 'VM 자산',
       'sidebar.container': '컨테이너',
       'sidebar.cluster': 'CLUSTER',
       'sidebar.infra': '운영',
-
+      // Toolbar
       'toolbar.snap': '스냅샷',
       'toolbar.settings': '설정',
       'toolbar.stop_selected': '선택 항목 중지',
-
+      // Bottom panel
       'panel.terminal': '터미널',
       'panel.events': '이벤트',
       'panel.alerts': '알림',
       'panel.security_events': '보안 이벤트',
       'panel.output': '출력',
-
+      // Messages
       'msg.name_required': '이름은 필수입니다',
       'msg.no_containers': '컨테이너가 없습니다',
       'msg.no_snapshots': '삭제할 스냅샷 없음',
@@ -389,7 +389,7 @@ var I18N = {
       'msg.iso_mounted': 'ISO 마운트됨',
       'msg.iso_ejected': 'ISO 꺼내기 완료',
 
-
+      // 백엔드 4차 / 프론트엔드 10차
       'session.mgmt': '세션 관리',
       'session.revoke': '세션 강제 해제',
       'apikey.mgmt': 'API 키 관리',
@@ -436,7 +436,7 @@ var I18N = {
       'logged.in': 'Logged in',
       'logged.out': 'Logged out',
 
-
+      // Register / Change Password / Modal Common
       'register.title': 'Register',
       'register.user_ph': 'Username (3-32, a-z 0-9 _)',
       'register.pass_ph': 'Password (8+ chars)',
@@ -610,7 +610,7 @@ var I18N = {
       'ws.connected': 'WebSocket connected',
       'ws.live': 'Live',
 
-
+      // A+B 26 new features
       'nav.templates': 'Templates',
       'nav.config': 'Config',
       'nav.docker': 'Docker/OCI',
@@ -634,7 +634,7 @@ var I18N = {
       'config.backup': 'Config Backup',
       'config.history': 'Config History',
       'template.history': 'Template History',
-
+      // Menu bar top-level
       'menu.file': 'File',
       'menu.edit': 'Edit',
       'menu.view': 'View',
@@ -643,7 +643,7 @@ var I18N = {
       'menu.terminal': 'Operations',
       'menu.accounts': 'Accounts',
       'menu.help': 'Help',
-
+      // Menu — File
       'menu.file.new_vm': 'New VM...',
       'menu.file.new_network': 'New Network...',
       'menu.file.new_pool': 'New Pool...',
@@ -703,7 +703,7 @@ var I18N = {
       'menu.help.swagger': 'Swagger API',
       'menu.help.about': 'About',
       'menu.help.updates': 'Check for Updates...',
-
+      // Aliases (HTML data-i18n key match)
       'menu.run.drain_node': 'Drain Node...',
       'menu.run.enter_maintenance': 'Enter Maintenance...',
       'menu.run.exit_maintenance': 'Exit Maintenance...',
@@ -716,7 +716,7 @@ var I18N = {
       'menu.help.complete_guide': 'Complete Guide',
       'menu.help.check_updates': 'Check for Updates...',
       'menu.go.containers': 'LXC Containers',
-
+      // Status
       'status.running': 'Running',
       'status.stopped': 'Stopped',
       'status.paused': 'Paused',
@@ -763,7 +763,7 @@ var I18N = {
       'msg.iso_mounted': 'ISO mounted',
       'msg.iso_ejected': 'ISO ejected',
 
-
+      // Backend Phase 4 / Frontend Phase 10
       'session.mgmt': 'Session Management',
       'session.revoke': 'Force Logout',
       'apikey.mgmt': 'API Key Management',
@@ -789,12 +789,12 @@ var I18N = {
     }
   },
 
-
-
-
-
-
-
+  /**
+   * Get translated string
+   * @param {string} key - Translation key
+   * @param {Object} [params] - Interpolation params {name: 'value'}
+   * @returns {string}
+   */
   t(key, params) {
     const lang = this._data[this._lang] || this._data.ko;
     let str = lang[key] || this._data.ko[key] || key;
@@ -806,41 +806,41 @@ var I18N = {
     return str;
   },
 
-
+  /** Get current language */
   getLang() { return this._lang; },
 
-
+  /** Set language and persist */
   setLang(lang) {
     if (this._data[lang]) {
       this._lang = lang;
       localStorage.setItem('pcv-lang', lang);
-      document.documentElement.lang = lang;
+      document.documentElement.lang = lang;  /* FE-5: <html lang> 동적 변경 */
       return true;
     }
     return false;
   },
 
-
+  /** Toggle between ko/en */
   toggle() {
     this.setLang(this._lang === 'ko' ? 'en' : 'ko');
     return this._lang;
   },
 
-
+  /** Get available languages */
   getLanguages() {
     return Object.keys(this._data);
   }
 };
 
-
+/* Shorthand global function */
 function t(key, params) { return I18N.t(key, params); }
 
-
+/* Apply i18n to all elements with data-i18n attribute */
 function applyI18n() {
   document.querySelectorAll('[data-i18n]').forEach(function(el) {
     var key = el.getAttribute('data-i18n');
     var translated = t(key);
-
+    // Preserve child elements like <span class="shortcut">
     var icons = Array.prototype.slice.call(el.children).filter(function(child) {
       return child.classList && (child.classList.contains('ci-icon') || child.classList.contains('pcv-icon'));
     });
@@ -851,16 +851,16 @@ function applyI18n() {
     if (shortcut) el.appendChild(shortcut);
     if (badge) el.appendChild(badge);
   });
-
+  // Also apply to placeholder attributes
   document.querySelectorAll('[data-i18n-placeholder]').forEach(function(el) {
     el.placeholder = t(el.getAttribute('data-i18n-placeholder'));
   });
 }
 
-
+/* ── PCV.i18n namespace export ────────────────────── */
 PCV.i18n = I18N;
 
-
+/* ── Backward-compat global shims ─────────────────── */
 window.I18N = I18N;
 window.t = t;
 window.applyI18n = applyI18n;

@@ -6,7 +6,7 @@
 
 G_BEGIN_DECLS
 
-
+/* Unknown is the safe default: no baseline exists until an admin refreshes one. */
 typedef enum {
     PCV_HIDS_BASELINE_UNKNOWN,
     PCV_HIDS_BASELINE_TRUSTED,

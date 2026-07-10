@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-
-
-
+# =============================================================================
+# 아키텍처 고도화 Phase 3 통합 테스트 — B(GPU) + H(플러그인) + I(mTLS)
+# =============================================================================
 set -uo pipefail
 trap '' PIPE
 
@@ -44,33 +44,33 @@ echo " Phase 3 B+H+I Integration Test (3-Node)"
 echo "============================================================"
 echo ""
 
-
+# ── 초기화 로그 수집 ──
 pid=$(systemctl show -p MainPID "$(detect_daemon_service)" --value)
 init_log=$(journalctl _PID=$pid --no-pager 2>/dev/null | head -90)
 
-
-
-
+# ══════════════════════════════════════════════════════════
+# B: GPU Manager
+# ══════════════════════════════════════════════════════════
 echo -e "${YELLOW}[1/9] B: GPU Manager — 초기화${NC}"
 ac "gpu_manager init log" "$init_log" "GPU manager initialized"
 
 echo -e "${YELLOW}[2/9] B: GPU — 모듈 로드 확인${NC}"
-
+# GPU RPC는 dispatcher 라우팅 추가 전이므로 초기화 로그로 검증
 ac "gpu_manager module loaded" "$init_log" "gpu_manager"
-
+# 데몬 안정성 확인 (GPU init 후 RPC 동작)
 stable=$(rpc "vm.list")
 ac "daemon stable after GPU init" "$stable" '"result"'
 
-
-
-
+# ══════════════════════════════════════════════════════════
+# H: Plugin System
+# ══════════════════════════════════════════════════════════
 echo -e "${YELLOW}[3/9] H: Plugin Manager — 초기화${NC}"
 ac "plugin_mgr init log" "$init_log" "Plugin"
 
 echo -e "${YELLOW}[4/9] H: Plugin — dispatcher 플러그인 fallback 등록 확인${NC}"
-
+# 플러그인 fallback이 dispatcher에 삽입되었는지 확인 (초기화 로그)
 ac "plugin fallback in dispatcher" "$init_log" "plugin_mgr"
-
+# 기존 RPC가 여전히 동작 (플러그인 코드 삽입이 기존 라우팅을 깨지 않음)
 dpdk_ok=$(rpc "dpdk.status")
 ac "dpdk.status still works" "$dpdk_ok" '"available"'
 
@@ -78,9 +78,9 @@ echo -e "${YELLOW}[5/9] H: Plugin — 기존 RPC 정상 동작 (플러그인 삽
 vm_after=$(rpc "vm.list")
 ac "vm.list still works after plugin init" "$vm_after" '"result"'
 
-
-
-
+# ══════════════════════════════════════════════════════════
+# I: mTLS
+# ══════════════════════════════════════════════════════════
 echo -e "${YELLOW}[6/9] I: mTLS — 초기화 (graceful degradation)${NC}"
 ac "pcv_tls init log" "$init_log" "TLS disabled"
 
@@ -88,25 +88,25 @@ echo -e "${YELLOW}[7/9] I: mTLS — HTTP 평문 유지 확인${NC}"
 health=$(curl -s http://localhost:8080/api/v1/health 2>/dev/null)
 ac "REST /health still works (no TLS)" "$health" '"ok"'
 
-
-
-
+# ══════════════════════════════════════════════════════════
+# 기존 기능 회귀
+# ══════════════════════════════════════════════════════════
 echo -e "${YELLOW}[8/9] Regression — 핵심 기능 확인${NC}"
-
+# Prometheus
 met=$(curl -s http://localhost:8080/api/v1/metrics 2>/dev/null)
 ac "Prometheus metrics available" "$met" "purecvisor_rpc_requests_total"
-
+# Audit
 TOTAL=$((TOTAL+1))
 if [ -f /var/lib/purecvisor/pcv_audit.db ]; then PASS=$((PASS+1)); echo -e "  ${GREEN}PASS${NC} audit DB exists"
 else FAIL=$((FAIL+1)); echo -e "  ${RED}FAIL${NC} audit DB missing"; fi
-
+# io_uring
 ac "io_uring mode" "$init_log" "io_uring mode"
-
+# WebSocket
 ac "WebSocket registered" "$init_log" "WebSocket handler registered"
 
-
-
-
+# ══════════════════════════════════════════════════════════
+# 3-Node Consistency
+# ══════════════════════════════════════════════════════════
 echo -e "${YELLOW}[9/9] 3-Node Consistency${NC}"
 for i in 0 1 2; do
     ip="${NODES[$i]}"; name="${NODE_NAMES[$i]}"

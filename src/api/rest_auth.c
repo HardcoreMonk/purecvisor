@@ -2,14 +2,14 @@
 
 #include <gio/gio.h>
 
-
-
-
-
-
-
-
-
+/*
+ * REST 최초 부트스트랩 fallback 허용 조건.
+ *
+ * 이 함수는 daemon.conf의 관리자 계정이 아직 RBAC DB에 등록되지 않은
+ * 첫 설치 상태만 복구하기 위한 보안 게이트다. 계정 잠금, DB 장애, 다른
+ * 권한 거부 사유까지 JWT 직접 발급으로 우회하면 brute-force 방어와 RBAC
+ * 정책이 깨지므로 조건을 의도적으로 좁게 유지한다.
+ */
 gboolean
 pcv_rest_auth_should_fallback_bootstrap(const gchar *username,
                                         const gchar *password,

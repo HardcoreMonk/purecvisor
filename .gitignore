@@ -1,11 +1,15 @@
 .worktrees
 .worktrees/
+
+# Build outputs
 /bin/
 /test_runner
 *.o
 *.d
 .edition-state
 .edition-single
+
+# Test and analysis reports
 /test_results.txt
 /test_results_tap.txt
 /valgrind_report.txt
@@ -16,12 +20,17 @@
 *.gcno
 *.gcov
 /coverage/
-__pycache__/
-*.pyc
+
+# Generated UI scratch outputs. The tracked release bundle is intentionally
+# not ignored because it is part of the deployed static UI.
 /ui/bundle.js
 /ui/index.prod.html
+
+# Node-based validation tooling
 /node_modules/
 /.lazyweb/
+
+# Local secrets and operator-specific runtime material
 .env
 .env.*
 !.env.example
@@ -58,3 +67,6 @@ id_ed25519
 /tmp/
 /purecvisor-prod-*
 /purecvisor-*-credentials-*.txt
+
+# .deb 패키지 산출물 (make deb)
+dist/

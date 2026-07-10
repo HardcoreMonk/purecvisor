@@ -1,8 +1,8 @@
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/network.js
+   Network, OVN, NFV, Security Groups
+   ADR-0013: IIFE module scope — PCV.network namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -91,7 +91,7 @@ function ovnDemoHasEntry(list, name) {
 }
 
 function renderOvnDemoServiceComposition(dd, sd, sl, rl, hd) {
-  const publicDomain = 'demo.purecvisor.site';
+  const publicDomain = 'demo.purecvisor.example.com';
   const nodeName = hd.node_name || hd.node || 'PureCVisor-Prod-2';
   const switchName = dd.switch || 'pcv-demo-ls';
   const routerName = dd.router || 'pcv-demo-lr';
@@ -185,7 +185,7 @@ function netEditModeChanged() { const m = document.getElementById('ne-mode').val
 
 async function doNetEdit(name) { const mode = document.getElementById('ne-mode').value; try { const mr = await fetchPost(EP.NET_MODE(name), { mode: mode }); if (mr.error) { toast('Failed: ' + (mr.error.message || ''), false); return; } toast(name + ' updated'); addEvt('Network edit: ' + name); closeModal(); renderNetworks(document.getElementById('cb')); } catch (e) { toast('Edit failed: ' + e.message, false); } }
 
-
+/* ═══ OVN ═══ */
 async function renderOvn(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -254,7 +254,7 @@ async function nfvLbCreate() {
 }
 async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ SECURITY GROUPS ═══ */
 async function renderSecGroups(b) {
   b.innerHTML = showSkeleton();
   let h = H.section('&#128737; Security Groups');
@@ -316,7 +316,7 @@ window.sgListRules = async function() {
   } catch (e) { if (el) el.innerHTML = '<span class="color-red">오류: ' + escapeHtml(e.message) + '</span>'; }
 };
 
-
+/* ═══ OVERLAY NETWORKS ═══ */
 async function renderOverlayNetworks(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -337,7 +337,7 @@ async function renderOverlayNetworks(b) {
 }
 window.renderOverlayNetworks = renderOverlayNetworks;
 
-
+/* ═══ NETWORK TOPOLOGY ═══ */
 async function renderTopology(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -357,24 +357,24 @@ async function renderTopology(b) {
     h += '</div>';
     b.innerHTML = h;
 
-
+    /* Draw topology */
     setTimeout(function() {
       var canvas = document.getElementById('topo-canvas');
       if (!canvas) return;
       var ctx = canvas.getContext('2d');
       var W = canvas.width;
 
-
+      /* Compute styles */
       var style = getComputedStyle(document.documentElement);
       var accentColor = style.getPropertyValue('--accent').trim() || '#00f0ff';
       var greenColor = style.getPropertyValue('--green').trim() || '#00ff88';
       var fgColor = style.getPropertyValue('--fg').trim() || '#e0f0ff';
       var dimColor = style.getPropertyValue('--fg2').trim() || '#5a6a8a';
 
-
+      /* Layout: nodes across top, bridges in middle, VMs at bottom */
       var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
 
-
+      /* Draw nodes */
       var nodePositions = [];
       nodes.forEach(function(nd, i) {
         var x = (W / (nodes.length + 1)) * (i + 1);
@@ -389,7 +389,7 @@ async function renderTopology(b) {
         ctx.fillText(nd.ip, x, y + 34);
       });
 
-
+      /* Draw bridges */
       var bridgePositions = [];
       nets.slice(0, 6).forEach(function(net, i) {
         var x = (W / (Math.min(nets.length, 6) + 1)) * (i + 1);
@@ -400,7 +400,7 @@ async function renderTopology(b) {
         ctx.fillStyle = '#000';
         ctx.font = '9px monospace'; ctx.textAlign = 'center';
         ctx.fillText(net.name, x, y + 4);
-
+        /* Connect to closest node */
         var closest = nodePositions[0] || {x:x, y:50};
         ctx.strokeStyle = dimColor; ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
@@ -408,7 +408,7 @@ async function renderTopology(b) {
         ctx.setLineDash([]);
       });
 
-
+      /* Draw VMs */
       vms.slice(0, 12).forEach(function(vm, i) {
         var cols = Math.min(vms.length, 6);
         var row = Math.floor(i / cols);
@@ -422,7 +422,7 @@ async function renderTopology(b) {
         ctx.font = '8px monospace'; ctx.textAlign = 'center';
         var label = vm.name.length > 8 ? vm.name.substring(0, 8) + '..' : vm.name;
         ctx.fillText(label, x, y + 3);
-
+        /* Connect to a bridge */
         if (bridgePositions.length > 0) {
           var br = bridgePositions[i % bridgePositions.length];
           ctx.strokeStyle = on ? accentColor : 'rgba(90,106,138,0.3)';
@@ -435,7 +435,7 @@ async function renderTopology(b) {
 }
 window.renderTopology = renderTopology;
 
-
+/* ═══ FIREWALL RULE EDITOR ═══ */
 async function fwAddRule() {
   var dir = document.getElementById('fw-direction').value;
   var proto = document.getElementById('fw-protocol').value;
@@ -487,7 +487,7 @@ window.fwAddRule = fwAddRule;
 window.fwLoadRules = fwLoadRules;
 window.fwDelRule = fwDelRule;
 
-
+/* ═══ REGISTER ALL ON window ═══ */
 window.renderNetworks = renderNetworks;
 window.showNetCreate = showNetCreate;
 window.netModeChanged = netModeChanged;
@@ -504,9 +504,9 @@ window.loadLBList = loadLBList;
 window.nfvLbCreate = nfvLbCreate;
 window.nfvFwAdd = nfvFwAdd;
 window.renderSecGroups = renderSecGroups;
+/* sgAddRule and sgListRules already assigned to window above */
 
-
-
+/* ═══ PCV.network namespace export ═══ */
 PCV.network = {
   renderNetworks: renderNetworks,
   toggleFwPanel: toggleFwPanel,

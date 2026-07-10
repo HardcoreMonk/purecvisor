@@ -1,0 +1,27 @@
+# /etc/purecvisor/daemon.conf — PureCVisor Single Edge 설정 샘플
+# 실사용 시 daemon.conf 로 복사 후 편집. 설정 우선순위: 환경변수 > 이 파일 > 컴파일 기본값.
+
+[server]
+socket_path = /var/run/purecvisor/daemon.sock
+# nginx(:80/:443) 리버스 프록시 뒤에 두는 표준 배치에서는 8080 사용 (80은 nginx 소유)
+rest_port = 8080
+drain_timeout = 30
+pool_max_conn = 16
+# admin_password = <설정 필요: 미설정 시 bootstrap admin 자동생성 비활성>
+
+[storage]
+zvol_pool = pcvpool/vms
+image_dir = /var/lib/libvirt/images
+iso_dirs = /pcvpool/iso,/var/lib/libvirt/images
+
+# 관리형 기본 NAT 네트워크 (v1.1 — VP-1/VP-6)
+[network]
+default_bridge = pcvnat0
+default_subnet = 10.78.0.1/24
+default_ensure = 1
+# 호스트 방화벽(UFW/iptables-DROP) 자동 공존. off = 데몬이 방화벽 미개입
+firewall_integration = auto
+
+[security_group]
+# vnet 캐시 주기 재동기화 간격(초). 0/음수면 비활성
+resync_interval_sec = 300

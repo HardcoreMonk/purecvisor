@@ -13,11 +13,11 @@
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
   <script src="https://code.iconify.design/iconify-icon/2.3.0/iconify-icon.min.js"></script>
 
-
+  <!-- 실 대시보드와 동일한 CSS를 그대로 재사용 (login-*, ko, ko-tight) -->
   <link rel="stylesheet" href="../style.css">
   <style>
     body { margin: 0; background: var(--bg); color: var(--fg); }
-
+    /* 프리뷰 배지 — "정적 샘플" 표식 */
     .preview-tag {
       position: fixed; top: 18px; right: 18px; z-index: 999;
       padding: 6px 12px; border-radius: 999px;
@@ -33,7 +33,7 @@
 <body>
   <span class="preview-tag">Static Preview · Single Edge</span>
 
-
+  <!-- Login Page — Single Edge (정적) -->
   <div id="login-page" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-card-title" style="display:flex">
     <div class="login-mesh" aria-hidden="true">
       <div class="login-orb login-orb-1"></div>

@@ -1,15 +1,15 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_jobs_queue_safe.sh
+#
+# SAFE-tier Integration Tests — Job Queue
+# Tests: jobs.list, jobs.get (nonexistent), jobs.cancel (nonexistent)
+#
+# 사전 조건:
+#   - purecvisorsd 또는 purecvisormd 실행 중
+#   - /var/run/purecvisor/daemon.sock 존재
+#   - nc (netcat) 설치
+#
+# 실행: sudo bash tests/integration/test_jobs_queue_safe.sh
 
 set -uo pipefail
 
@@ -70,7 +70,7 @@ assert_result_or_known_error() {
     fi
 }
 
-
+# ── 사전 조건 ────────────────────────────────────────────
 log "=========================================="
 log " Job Queue Integration Tests (SAFE)"
 log "=========================================="
@@ -91,9 +91,9 @@ fi
 log "Daemon socket verified: $SOCKET_PATH"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [1] jobs.list
+# ══════════════════════════════════════════════════════
 log "--- [1/3] jobs.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"jobs.list","params":{},"id":"jl1"}')
@@ -107,9 +107,9 @@ assert_result_or_known_error "jobs.list: with limit param" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [2] jobs.get — nonexistent id
+# ══════════════════════════════════════════════════════
 log "--- [2/3] jobs.get (nonexistent) ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"jobs.get","params":{"id":"nonexistent"},"id":"jg1"}')
@@ -123,9 +123,9 @@ assert_result_or_known_error "jobs.get: zero-UUID returns valid response" "$RESP
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [3] jobs.cancel — nonexistent id
+# ══════════════════════════════════════════════════════
 log "--- [3/3] jobs.cancel (nonexistent) ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"jobs.cancel","params":{"id":"nonexistent"},"id":"jc1"}')
@@ -141,9 +141,9 @@ assert_result_or_known_error "jobs.cancel: idempotent on repeated calls (call 2)
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

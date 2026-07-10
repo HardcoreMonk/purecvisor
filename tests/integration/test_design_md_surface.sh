@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
+# Shell companion to scripts/check_design_md.py.
+# This test verifies the docs/files that should point at DESIGN.md exist before
+# invoking the Python checker for section/token-level validation.
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 
@@ -32,6 +32,8 @@ require_file "DESIGN.md"
 require_file "scripts/check_design_md.py"
 require_file "ui/samples/design-system-preview.html"
 
+require_literal "DESIGN.md" "AGENTS.md" "AGENTS.md must require DESIGN.md before UI work"
+require_literal "scripts/check_design_md.py" "AGENTS.md" "AGENTS.md must name the DESIGN.md checker"
 require_literal "DESIGN.md" "docs/GUIDE.md" "GUIDE.md must link to the separated visual contract"
 require_literal "ui/samples/design-system-preview.html" "docs/GUIDE.md" "GUIDE.md must link to the design preview"
 require_literal "DESIGN.md" "ui/guide-content.md" "UI guide content must mention the separated visual contract"

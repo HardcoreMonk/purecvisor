@@ -169,7 +169,7 @@ GLib GObject의 signal 메커니즘으로 Producer → Consumer 느슨 결합.
 
 ## 향후 작업
 
-- [ ] Producer 추가 시 이 ADR을 README처럼 참조하게 하는 공개 문서 링크
+- [ ] Producer 추가 시 이 ADR을 README처럼 참조하게 하는 `AGENTS.md` 링크
 - [ ] 복합 조건(2개+ 정책 동시 트리거) → AI Agent 합의 호출의 live 검증 환경
       (현재 stress-ng로 disk_io/network Z-Score 유도가 어려움 — 전용 fault
       injection 도구 필요)

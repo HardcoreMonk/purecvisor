@@ -2,16 +2,18 @@
 #include "modules/audit/pcv_audit.h"
 
 #include <errno.h>
+#include <fcntl.h>
 #include <glib/gstdio.h>
 #include <sqlite3.h>
 #include <sys/stat.h>
 #include <time.h>
+#include <unistd.h>
 
-
-
-
-
-
+/*
+ * Native HIDS v1 stores a tiny file baseline in the same security DB family.
+ * Refresh is explicit admin action; scan only reports drift and never mutates
+ * trusted state.
+ */
 static GQuark
 hids_file_integrity_error_quark(void)
 {
@@ -110,42 +112,68 @@ compute_file_state(const gchar *path,
                    gint64 *out_mtime,
                    GError **error)
 {
-
-
-
-
+    /*
+     * Tamper-evidence requires a SINGLE path resolution. We open the path once
+     * with O_NOFOLLOW (so a symlink swapped in at the final path component fails
+     * the open outright) and derive BOTH metadata (fstat) and the content hash
+     * (streamed read) from that same fd. The old code did g_stat() then a
+     * separate g_file_get_contents(): two independent resolutions that both
+     * followed symlinks, which a TOCTOU race or symlink swap defeats.
+     *
+     * Hashing streams the fd incrementally via GChecksum. g_checksum_get_string
+     * returns the same lowercase SHA-256 hex as g_compute_checksum_for_data, so
+     * existing baselines remain byte-for-byte comparable.
+     */
     if (!path || !*path) {
         g_set_error(error, hids_file_integrity_error_quark(), SQLITE_MISUSE,
                     "file path is required");
         return FALSE;
     }
 
+    int fd = open(path, O_RDONLY | O_NOFOLLOW | O_CLOEXEC);
+    if (fd < 0) {
+        gint saved_errno = errno;
+        g_set_error(error, G_FILE_ERROR, g_file_error_from_errno(saved_errno),
+                    "open %s: %s", path, g_strerror(saved_errno));
+        return FALSE;
+    }
+
     struct stat st;
-    if (g_stat(path, &st) != 0) {
+    if (fstat(fd, &st) != 0) {
         gint saved_errno = errno;
         g_set_error(error, G_FILE_ERROR, g_file_error_from_errno(saved_errno),
                     "stat %s: %s", path, g_strerror(saved_errno));
+        close(fd);
         return FALSE;
     }
     if (!S_ISREG(st.st_mode)) {
+        close(fd);
         g_set_error(error, hids_file_integrity_error_quark(), SQLITE_MISUSE,
                     "%s is not a regular file", path);
         return FALSE;
     }
 
-    gchar *contents = NULL;
-    gsize len = 0;
-    if (!g_file_get_contents(path, &contents, &len, error)) {
+    GChecksum *ck = g_checksum_new(G_CHECKSUM_SHA256);
+    guchar buf[65536];
+    ssize_t n;
+    while ((n = read(fd, buf, sizeof buf)) > 0) {
+        g_checksum_update(ck, buf, n);
+    }
+    if (n < 0) {
+        gint saved_errno = errno;
+        g_set_error(error, G_FILE_ERROR, g_file_error_from_errno(saved_errno),
+                    "read %s: %s", path, g_strerror(saved_errno));
+        g_checksum_free(ck);
+        close(fd);
         return FALSE;
     }
 
-    *out_sha256 = g_compute_checksum_for_data(G_CHECKSUM_SHA256,
-                                               (const guchar *)contents,
-                                               len);
-    g_free(contents);
+    *out_sha256 = g_strdup(g_checksum_get_string(ck));
+    g_checksum_free(ck);
     *out_size = (gint64)st.st_size;
     *out_mode = (gint64)st.st_mode;
     *out_mtime = (gint64)st.st_mtime;
+    close(fd);
     return TRUE;
 }
 
@@ -191,10 +219,10 @@ insert_baseline_row(sqlite3 *db,
 PcvHidsBaselineStatus
 pcv_hids_baseline_status(const gchar *db_path)
 {
-
-
-
-
+    /*
+     * "trusted" means an admin has refreshed at least one baseline row. Missing
+     * or unreadable DBs stay unknown rather than silently trusting the host.
+     */
     sqlite3 *db = NULL;
     GError *error = NULL;
     if (!open_db(db_path, &db, &error)) {
@@ -307,10 +335,10 @@ build_scan_event(const gchar *path,
 static void
 scan_one_path(sqlite3 *db, GPtrArray *changes, const gchar *path)
 {
-
-
-
-
+    /*
+     * Every scan finding is returned as JSON so callers can decide whether to
+     * convert it into a SecurityEvent, show it in UI, or keep it as diagnostics.
+     */
     g_autoptr(GError) error = NULL;
     g_autofree gchar *sha256 = NULL;
     gint64 size = 0;

@@ -1,7 +1,7 @@
 #!/usr/bin/env bash
-
-
-
+# =============================================================================
+# 아키텍처 고도화 Phase 1 통합 테스트 — D(ZDT) + G(Prometheus) + J(감사 로그)
+# =============================================================================
 set -uo pipefail
 trap '' PIPE
 
@@ -71,30 +71,30 @@ echo " Phase 1 D+G+J Integration Test"
 echo "============================================================"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════
+# G: Prometheus 메트릭 확장 검증
+# ══════════════════════════════════════════════════════════════
 echo -e "${YELLOW}[1/7] G: Prometheus Exporter — 초기화 로그 확인${NC}"
 pid=$(systemctl show -p MainPID "$(detect_daemon_service)" --value)
 init_log=$(journalctl _PID=$pid --no-pager 2>/dev/null | head -100)
 assert_contains "prom_export init log" "$init_log" "Prometheus exporter initialized"
 
 echo -e "${YELLOW}[2/7] G: Prometheus 메트릭 — RPC 후 카운터 증가${NC}"
-
+# RPC 3회 실행하여 카운터 누적
 rpc "vm.list" > /dev/null
 rpc "dpdk.status" > /dev/null
 rpc "sriov.status" > /dev/null
 sleep 1
 
-
+# /metrics에서 rpc_requests_total 확인
 metrics=$(curl -s http://localhost:8080/api/v1/metrics 2>/dev/null)
 assert_contains "metrics has purecvisor_rpc_requests_total" "$metrics" "purecvisor_rpc_requests_total"
 assert_contains "metrics has purecvisor_rpc_duration_ms" "$metrics" "purecvisor_rpc_duration_ms"
 assert_contains "metrics has purecvisor_info" "$metrics" "purecvisor_info"
 
-
-
-
+# ══════════════════════════════════════════════════════════════
+# J: 감사 로그 검증
+# ══════════════════════════════════════════════════════════════
 echo -e "${YELLOW}[3/7] J: Audit Trail — 초기화 로그 확인${NC}"
 assert_contains "audit init log" "$init_log" "Audit trail initialized"
 
@@ -111,8 +111,8 @@ else
 fi
 
 echo -e "${YELLOW}[5/7] J: Audit Trail — RPC 후 감사 로그 파일 확인${NC}"
-sleep 2
-
+sleep 2  # 비동기 워커 플러시 대기
+# audit.log에서 최근 감사 기록 확인 (PCV_LOG_AUDIT 경로)
 audit_log="/var/log/purecvisor/audit.log"
 if [ -f "$audit_log" ]; then
     audit_lines=$(tail -20 "$audit_log" 2>/dev/null | grep -c "vm.list\|dpdk.status\|sriov.status" 2>/dev/null || echo "0")
@@ -134,33 +134,33 @@ else
     echo -e "  ${RED}FAIL${NC} audit record check skipped"
 fi
 
-
-
-
+# ══════════════════════════════════════════════════════════════
+# D: 제로 다운타임 업그레이드 검증
+# ══════════════════════════════════════════════════════════════
 echo -e "${YELLOW}[6/7] D: Hot Reload — 버전 정보 확인${NC}"
-
-
+# hot_reload이 초기화되었으므로 RPC 후에도 데몬이 안정적으로 동작하는지 확인
+# SIGUSR2를 실제로 보내면 업그레이드가 진행되므로, 여기서는 데몬 안정성만 검증
 rpc_after=$(rpc "vm.list")
 assert_contains "daemon stable after D/G/J init" "$rpc_after" '"result"'
 
-
-
-
+# ══════════════════════════════════════════════════════════════
+# 3노드 일관성 확인
+# ══════════════════════════════════════════════════════════════
 echo -e "${YELLOW}[7/7] 3-Node Consistency — Prometheus + Audit${NC}"
 for i in 1 2; do
     ip="${NODES[$i]}"
     name="${NODE_NAMES[$i]}"
-
+    # Prometheus 메트릭 확인
     m=$($SSH_CMD pcvdev@"$ip" "curl -s http://localhost:8080/api/v1/metrics 2>/dev/null" 2>/dev/null)
     assert_contains "$name has purecvisor_info metric" "$m" "purecvisor_info"
-
+    # RPC 동작 확인
     r=$($SSH_CMD pcvdev@"$ip" 'echo "{\"jsonrpc\":\"2.0\",\"method\":\"vm.list\",\"params\":{},\"id\":\"1\"}" | sudo nc -N -U /var/run/purecvisor/daemon.sock 2>/dev/null' 2>/dev/null)
     assert_contains "$name UDS RPC works" "$r" '"result"'
 done
 
-
-
-
+# ══════════════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════════════
 echo ""
 echo "============================================================"
 echo -e " Results: ${GREEN}${PASS} passed${NC} / ${RED}${FAIL} failed${NC} / ${TOTAL} total"

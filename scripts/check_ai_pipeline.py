@@ -1,4 +1,16 @@
 #!/usr/bin/env python3
+"""
+check_ai_pipeline.py — ADR-0020 회귀 방지 정적 검증 (F-17)
+
+BUG-20 재발 방지:
+- anomaly_detector.c의 _emit_alert()가 pcv_healing_on_anomaly()를 호출하는가
+- virt_events.c의 VM 라이프사이클 콜백이 pcv_healing_on_anomaly()를 호출하는가
+- workload_predict.c의 pcv_predict_evaluate()가 pcv_healing_on_prediction()을 호출하는가
+- vm-unresponsive 정책의 trigger_metric이 빈 문자열이 아닌가
+
+pre-commit hook에서 AI 관련 C 파일이 변경되면 자동 실행.
+실패 시 exit 1로 커밋 차단.
+"""
 from __future__ import annotations
 import re
 import sys
@@ -7,10 +19,10 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 CHECKS = [
-
-
-
-
+# The AI pipeline has historically failed by becoming disconnected rather than
+# by throwing a local error. These checks therefore look for producer -> healing
+# call sites and the non-empty vm-unresponsive trigger metric that makes the
+# policy reachable.
     {
         "name": "anomaly_detector → self_healing",
         "file": "src/modules/ai/anomaly_detector.c",
@@ -35,8 +47,8 @@ CHECKS = [
     {
         "name": "vm-unresponsive 정책 trigger_metric 비공백",
         "file": "src/modules/ai/self_healing.c",
-
-
+        # _add_policy("vm-unresponsive", "vm-unresponsive", ...)
+        # 빈 문자열은 규칙 4 위반
         "pattern": r'_add_policy\s*\(\s*"vm-unresponsive"\s*,\s*"vm-unresponsive"',
         "min_count": 1,
         "rule": "ADR-0020 규칙 4",
@@ -50,6 +62,7 @@ RESET = "\033[0m"
 
 
 def check_one(c: dict) -> bool:
+    """Returns True if check passes."""
     path = REPO / c["file"]
     if not path.exists():
         print(f"{RED}[FAIL]{RESET} {c['name']} — file not found: {c['file']}")

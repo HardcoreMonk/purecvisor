@@ -6,21 +6,21 @@
 
 #define OVN_LOG_DOM "ovn_single"
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+ * Single Edge 로컬 OVN controller 준비.
+ *
+ * [비전공자 설명]
+ * OVN은 VM 네트워크를 가상 스위치처럼 연결하는 구성요소입니다. 클러스터
+ * 환경에서는 여러 서버의 OVN이 서로 통신하지만, Single Edge에서는 이 서버
+ * 내부의 ovn-controller가 로컬 southbound DB를 바라보도록 맞추는 것이 핵심입니다.
+ *
+ * [주니어 참고]
+ * 이 파일은 설정값(ovn.encap_ip, ovn.encap_type)이 있으면 우선 사용하고,
+ * 없으면 라우팅 테이블과 호스트명을 읽어 기본값을 추론합니다. 명령 실행은
+ * pcv_spawn_sync() 경유로 중앙화되어 로그/launcher 정책을 따릅니다. 새 명령을
+ * 추가할 때는 외부 입력을 문자열에 직접 섞지 말고, 가능한 argv 배열 기반
+ * helper를 먼저 검토하세요.
+ */
 static gboolean
 pcv_ovn_single_run_shell(const gchar *cmd, gchar **out, GError **error)
 {

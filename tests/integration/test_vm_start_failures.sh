@@ -1,23 +1,23 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ═══════════════════════════════════════════════════════════════
+# B2 회귀 테스트: vm.start 실패 시 audit DB가 진짜 결과를 기록하는가
+#
+# [목적] ADR-0018 검증 — fire-and-forget RPC가 거짓 'ok'를 기록하지 않고,
+#       실제 워커 결과를 audit_log 테이블에 정확히 남기는지 확인.
+#
+# [시나리오]
+#   1. 존재하지 않는 VM start → audit DB result=fail 기록 확인
+#   2. /health/recent-errors 엔드포인트로 동일 사유 조회 가능 확인
+#   3. (선택) 실제 broken VM start → 워커 실패 → audit DB fail
+#
+# [사전 조건]
+#   - purecvisorsd 실행 중
+#   - configured admin credential 로그인 가능
+#   - /var/lib/purecvisor/pcv_audit.db 접근 가능 (sudo)
+#
+# [사용법]
+#   bash tests/integration/test_vm_start_failures.sh [HOST]
+# ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
 HOST="${1:-localhost}"
@@ -31,9 +31,9 @@ pass() { PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); echo -e "  ${GREEN}[PASS]${NC} $1
 fail() { FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); echo -e "  ${RED}[FAIL]${NC} $1 — $2"; }
 info() { echo -e "${BLUE}[INFO]${NC} $1"; }
 
-
-
-
+# ─────────────────────────────────────────────────────
+# 사전 체크
+# ─────────────────────────────────────────────────────
 if ! command -v sudo >/dev/null && [ "$(id -u)" != "0" ]; then
     echo -e "${RED}FATAL: sudo 필요${NC}"; exit 2
 fi
@@ -41,7 +41,7 @@ if ! sudo test -r /var/lib/purecvisor/pcv_audit.db; then
     echo -e "${YELLOW}SKIP: audit DB 미존재${NC}"; exit 0
 fi
 
-
+# 인증 토큰
 TOKEN=$(curl -s --max-time 5 -X POST "${BASE}/auth/token" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"${PCV_TEST_ADMIN_USER:-${PURECVISOR_ADMIN_USER:-admin}}\",\"password\":\"${PCV_TEST_ADMIN_PASSWORD:-${PURECVISOR_ADMIN_PASSWORD:?set PURECVISOR_ADMIN_PASSWORD}}\"}" | \
@@ -59,9 +59,9 @@ echo "  Host: ${HOST}"
 echo "  Test VM (non-existent): ${NONEXIST_VM}"
 echo ""
 
-
-
-
+# ─────────────────────────────────────────────────────
+# Test 1: 존재하지 않는 VM 시작 → audit DB result=fail
+# ─────────────────────────────────────────────────────
 echo "[1] 존재하지 않는 VM start"
 RESP=$(curl -s --max-time 5 -X POST -H "$AUTH" "${BASE}/vms/${NONEXIST_VM}/start" -d '{}')
 if echo "$RESP" | grep -q '"accepted"'; then
@@ -70,10 +70,10 @@ else
     fail "API accepted" "$RESP"
 fi
 
-
+# 워커 완료 대기 (1-2초로 충분, 안전하게 4초)
 sleep 4
 
-
+# audit DB 확인
 ROW=$(sudo sqlite3 /var/lib/purecvisor/pcv_audit.db \
   "SELECT method, target, result, error_code FROM audit_log WHERE method='vm.start' AND target='${NONEXIST_VM}' ORDER BY id DESC LIMIT 1;" 2>&1)
 
@@ -85,9 +85,9 @@ else
     fail "audit DB 결과" "fail이 아님: $ROW"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# Test 2: /health/recent-errors 엔드포인트
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[2] /health/recent-errors 엔드포인트 조회"
 RESP=$(curl -s --max-time 5 "${BASE}/health/recent-errors?vm=${NONEXIST_VM}&limit=3")
@@ -97,7 +97,7 @@ else
     fail "/health/recent-errors" "조회 실패: $(echo "$RESP" | head -c 200)"
 fi
 
-
+# vm 필터 없이 호출도 작동 확인
 RESP=$(curl -s --max-time 5 "${BASE}/health/recent-errors?limit=3")
 COUNT=$(echo "$RESP" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data',[])))" 2>/dev/null || echo "0")
 if [ "$COUNT" -gt 0 ]; then
@@ -106,9 +106,9 @@ else
     fail "/health/recent-errors 필터 없음" "결과 0건"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# Test 3: 정상 vm.start (test VM이 있다면) → result=ok
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[3] 정상 VM start (있을 경우 ok 기록 확인)"
 EXISTING=$(curl -s --max-time 5 -H "$AUTH" "${BASE}/vms" | \
@@ -129,9 +129,9 @@ else
     info "기존 VM 없음 — Test 3 SKIP"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# Test 4: 거짓 'ok' 회귀 방지 — target=빈문자열로 vm.start 자동기록 없음
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[4] dispatcher 자동 audit 회귀 방지"
 DISP_LIES=$(sudo sqlite3 /var/lib/purecvisor/pcv_audit.db \
@@ -142,9 +142,9 @@ else
     fail "dispatcher 자동 audit 회귀" "target='' 빈 vm.start 레코드 ${DISP_LIES}건 발견"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# 요약
+# ─────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════"
 if [ $FAIL -eq 0 ]; then

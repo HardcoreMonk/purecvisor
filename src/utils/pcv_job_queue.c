@@ -1,22 +1,22 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file pcv_job_queue.c
+ * @brief 통합 작업 큐 — SQLite 기반 비동기 작업 상태 추적
+ *
+ * [동작 흐름]
+ *   pcv_job_create()       → INSERT (PENDING)
+ *   pcv_job_update_status() → UPDATE (RUNNING, progress%, detail)
+ *   pcv_job_set_result()    → UPDATE (COMPLETED/FAILED, result)
+ *   pcv_job_list()          → SELECT (newest first)
+ *   pcv_job_get()           → SELECT by job_id
+ *   pcv_job_cancel()        → UPDATE status=CANCELLED (PENDING/RUNNING만)
+ *
+ * [스레드 안전]
+ *   GMutex로 모든 DB 접근 직렬화.
+ *   SQLite WAL 모드로 읽기/쓰기 동시 접근 지원.
+ *
+ * [Job ID 형식]
+ *   "job-XXXXXXXX" (8자리 hex, g_random_int 기반)
+ */
 #include "pcv_job_queue.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_config.h"
@@ -44,7 +44,7 @@ ensure_mutex(void)
     }
 }
 
-
+/* ── 상태 → 문자열 변환 ─────────────────────────────────────── */
 static const gchar *
 _status_str(PcvJobStatus s)
 {
@@ -58,7 +58,7 @@ _status_str(PcvJobStatus s)
     }
 }
 
-
+/* ── 생명주기 ─────────────────────────────────────────────────── */
 
 void
 pcv_job_queue_init(void)
@@ -72,7 +72,7 @@ pcv_job_queue_init(void)
         return;
     }
 
-
+    /* 테스트 격리: 환경변수 우선 (PCV_JOBS_DB_PATH > daemon.conf > 기본값) */
     const gchar *env_path = g_getenv("PCV_JOBS_DB_PATH");
     const gchar *db_path = env_path && *env_path
         ? env_path
@@ -156,7 +156,7 @@ pcv_job_queue_cleanup_old(gint max_age_hours)
     g_mutex_unlock(&G.mu);
 }
 
-
+/* ── 작업 생성/갱신 ──────────────────────────────────────────── */
 
 gchar *
 pcv_job_create(const gchar *type, const gchar *target,
@@ -250,12 +250,12 @@ pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
     PCV_LOG_INFO(JOB_LOG_DOM, "Job %s finished: %s", job_id, _status_str(status));
 }
 
+/* ── 조회 ────────────────────────────────────────────────────── */
 
-
-
-
-
-
+/**
+ * _row_to_json:
+ * sqlite3_stmt의 현재 행을 JsonObject로 변환합니다.
+ */
 static JsonObject *
 _row_to_json(sqlite3_stmt *stmt)
 {
@@ -347,7 +347,7 @@ pcv_job_cancel(const gchar *job_id)
     g_mutex_lock(&G.mu);
     if (!G.db) { g_mutex_unlock(&G.mu); return FALSE; }
 
-
+    /* PENDING(0) 또는 RUNNING(1) 상태만 취소 가능 */
     const gchar *sql =
         "UPDATE jobs SET status=4, detail='Cancelled by user', updated_at=?"
         " WHERE job_id=? AND status < 2";

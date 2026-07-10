@@ -1,24 +1,24 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/accounts.js
+   Account management, API management, AI Agent configuration
+   ADR-0013: IIFE module scope — PCV.accounts namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * This module mixes three admin-facing surfaces: local accounts, API-key
+ * management, and AI agent configuration. Access checks stay in the renderer
+ * because the same routes can be reached through global search or restored tabs
+ * after login state changes.
+ *
+ * Backend RBAC is still authoritative. The UI gate only avoids exposing account
+ * editing controls to non-admin sessions and provides a stable fallback when
+ * whoami is unavailable during early boot.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var agentTab = 'providers';
 
-
+/* ═══ ACCOUNTS ═══ */
 async function getCurrentAccountRole() {
   if (window.currentUser && window.currentUser.role) {
     return String(window.currentUser.role).toLowerCase();
@@ -104,7 +104,7 @@ async function acctDel(u) { if (!await customConfirm(t('btn.delete'), 'User ' + 
   try { const res = await fetchDelete(EP.AUTH_USER(u));
     if (res.error) { toast(res.error.message || 'Failed', false); } else { toast(t('auth.user_deleted') + ': ' + u); addEvt('IAM User deleted — ' + u); renderAccounts(document.getElementById('cb')); } } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ API MANAGEMENT ═══ */
 async function renderApiManagement(b) {
   if (!await isAdminAccountView()) {
     renderAdminOnlyNotice(b);
@@ -117,7 +117,7 @@ async function renderApiManagement(b) {
   + H.card('&#128101; RBAC', '<div class="stat-md" style="color:var(--magenta)">3 Levels</div>')
   + H.card('&#9889; Rate Limit', '<div class="stat-md color-yellow" id="api-rl-count">...</div>')
   ) + '<div class="mb-16"></div>';
-
+  /* /health에서 동적 데이터 로드 */
   fetchGet(EP.HEALTH()).then(function(r) {
     var d = unwrapData(r);
     var ep = document.getElementById('api-ep-count');
@@ -134,7 +134,7 @@ async function renderApiManagement(b) {
   h += H.card('<span class="color-green">&#128640; API Request Tester</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><select id="apimgmt-method" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><input id="apimgmt-path" value="/api/v1/vms" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px"><button class="btn btn-g" onclick="apiMgmtSend()">&#9654; Send</button></div><textarea id="apimgmt-body" placeholder="Request body (JSON)" rows="2" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical"></textarea><div id="apimgmt-result" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none"></div>', 'mb-14');
   h += H.card('<span class="color-yellow">&#128268; gRPC Server</span>', '<div id="grpc-status" class="text-12 color-muted">Checking...</div><div style="margin-top:6px;font-size:11px;color:var(--fg2)">Port: 50051 | Protocol: protobuf-c binary framing<br>Transport: TCP (HTTP/2 planned)<br>Config: daemon.conf <code>[grpc] enabled=true</code></div>', 'mb-14');
 
-
+  /* API Key Management */
   h += '<div class="hc mb-14"><h4>&#128273; API Keys</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.</p>';
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
@@ -151,11 +151,11 @@ async function renderApiManagement(b) {
   b.innerHTML = h;
   setTimeout(() => {
     const el = document.getElementById('grpc-status');
-    if (!el) return;
+    if (!el) return;  /* DOM 교체된 경우 정상 종료 */
     el.innerHTML = H.badge('Config-based', 'y') + ' daemon.conf [grpc] enabled check required<br><code class="text-xs color-cyan">pcvctl grpc status</code> to verify from CLI';
   }, 100);
   setTimeout(() => {
-
+    /* 모달/페이지 닫힌 후 호출 방지 */
     if (document.getElementById('apikey-list-area')) apiKeyList();
   }, 120);
 }
@@ -177,7 +177,7 @@ async function apiMgmtSend() { const m = document.getElementById('apimgmt-method
     el.innerHTML = '<div class="mb-6">' + H.badge(String(r.status), r.ok ? 'g' : 'r') + ' <span class="color-muted">' + escapeHtml(m) + ' ' + escapeHtml(path) + '</span></div><pre style="white-space:pre-wrap">' + escapeHtml(pretty) + '</pre>';
   } catch (e) { el.innerHTML = '<span class="color-red">Error: ' + escapeHtml(e.message) + '</span>'; } }
 
-
+/* ═══ AI AGENT ═══ */
 async function showAgentConfig() {
   try { const r = await fetchGet(EP.AGENT_CONFIG()); const d = unwrapData(r); window._agentCfg = d;
     let h = '<h2>&#129302; AI Agent Configuration</h2>';
@@ -275,7 +275,7 @@ async function saveAgentSettings() {
   } catch (e) { toast('Save failed: ' + e.message, false); }
 }
 
-
+/* ═══ API PERFORMANCE ═══ */
 async function renderApiPerf(b) {
   b.innerHTML = showSkeleton();
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts', '/processes'];
@@ -350,7 +350,7 @@ async function runApiBenchmark() {
 }
 window.runApiBenchmark = runApiBenchmark;
 
-
+/* ═══ API ACTIVITY LOG ═══ */
 function renderActivityLog(b) {
   var log = (eventLog || []).filter(function(e) { return e && e.msg; });
   var h = H.section(_L('API 활동 로그', 'API Activity Log'));
@@ -371,7 +371,7 @@ function renderActivityLog(b) {
 }
 window.renderActivityLog = renderActivityLog;
 
-
+/* ═══ SESSION MANAGEMENT (백엔드 4차) ═══ */
 async function renderSessions(b) {
   b.innerHTML = showSkeleton();
   var h = H.section(_L('세션 관리', 'Session Management'));
@@ -396,7 +396,7 @@ async function revokeSession() {
   } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), 'e'); }
 }
 
-
+/* ═══ API KEY FULL CRUD (백엔드 4차) ═══ */
 async function renderApiKeys(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -453,7 +453,7 @@ async function revokeApiKey(name) {
   } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ WINDOW REGISTRATIONS ═══ */
 window.agentTab = agentTab;
 window.renderAccounts = renderAccounts;
 window.renderSessions = renderSessions;
@@ -480,7 +480,7 @@ window.testAllProviders = testAllProviders;
 window.saveAgentConfig = saveAgentConfig;
 window.saveAgentSettings = saveAgentSettings;
 
-
+/* ═══ PCV.accounts namespace export ═══ */
 PCV.accounts = {
   renderAccounts: renderAccounts,
   acctCreate: acctCreate,

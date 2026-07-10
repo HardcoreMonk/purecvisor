@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/monitor_signals.sh
+#
+# 실행 중인 daemon 의 signal_probe 이벤트를 실시간으로 모니터링합니다.
+#
+# 사용법:
+#   # 터미널 A — daemon 실행
+#   sudo ./purecvisor_daemon 2>&1 | tee /tmp/pcv.log
+#
+#   # 터미널 B — 신호 모니터링
+#   sudo bash tests/integration/monitor_signals.sh /tmp/pcv.log
+#
+#   # 터미널 C — VM 조작
+#   sudo ./purecvisorctl vm start myvm
 
 LOG_FILE="${1:-/tmp/purecvisor_integration_test.log}"
 GREEN='\033[0;32m'

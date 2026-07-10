@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-
-
-
+# ZFS lock metrics span two ownership areas: the storage driver emits outcomes
+# and the Prometheus exporter owns metric names/buckets.
+# This guard pins that cross-file contract after ADR-0021-related changes.
+"""ZFS inflight lock metric static contract guard."""
 
 from __future__ import annotations
 

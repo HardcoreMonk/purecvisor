@@ -1,25 +1,25 @@
 #!/bin/bash
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ═══════════════════════════════════════════════════════════════════
+# run_auto_tests.sh — PureCVisor 자동화 테스트 러너
+#
+# [계층별 테스트 실행]
+#   Tier 0: 유닛 테스트 (make test, 164건)
+#   Tier 1: SAFE 통합 테스트 (읽기 전용, 부작용 없음)
+#   Tier 2: MODERATE 통합 테스트 (리소스 생성→삭제, 데몬 필요)
+#
+# [사용법]
+#   ./scripts/run_auto_tests.sh                    # Tier 0+1 (기본, 데몬 없어도 가능)
+#   ./scripts/run_auto_tests.sh --all              # Tier 0+1+2 (데몬 실행 필요)
+#   ./scripts/run_auto_tests.sh --tier 0           # 유닛 테스트만
+#   ./scripts/run_auto_tests.sh --tier 1           # SAFE 통합만
+#   ./scripts/run_auto_tests.sh --tier 2           # MODERATE 통합만
+#   ./scripts/run_auto_tests.sh --host 192.0.2.10  # 원격 노드 대상
+#   ./scripts/run_auto_tests.sh --ci               # CI 모드 (실패 시 exit 1)
+#
+# [Tier 3 (DESTRUCTIVE)는 의도적으로 제외]
+#   VM/네트워크를 생성/삭제하므로 격리 환경에서만 수동 실행:
+#   sudo bash tests/integration/run_integration_tests.sh
+# ═══════════════════════════════════════════════════════════════════
 
 set -uo pipefail
 
@@ -27,7 +27,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
 INTEG_DIR="$PROJECT_ROOT/tests/integration"
 
-
+# ── 인자 파싱 ──────────────────────────────────────────────────
 HOST="localhost"
 RUN_TIER0=true
 RUN_TIER1=true
@@ -59,7 +59,7 @@ if [ -n "$SPECIFIC_TIER" ]; then
     esac
 fi
 
-
+# ── 색상 ───────────────────────────────────────────────────────
 RED='\033[0;31m'
 GREEN='\033[0;32m'
 YELLOW='\033[0;33m'
@@ -90,14 +90,14 @@ run_test() {
     output=$(eval "$cmd" 2>&1) || true
     exit_code=${PIPESTATUS[0]:-$?}
 
-
+    # ANSI 색상 코드를 제거한 뒤, 실제 결과 행만 카운트합니다.
     local clean_output
     clean_output=$(printf '%s\n' "$output" | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g')
 
-
+    # 실행 결과에서 PASS/FAIL 카운트 추출
     local pass=$(printf '%s\n' "$clean_output" | grep -E -c '^[[:space:]]*(ok |PASS([[:space:]]|$)|\[PASS\])' || true)
     local fail_count=$(printf '%s\n' "$clean_output" | grep -E -c '^[[:space:]]*(not ok |FAIL([[:space:]]|$)|\[FAIL\])' || true)
-
+    # 테스트 결과 행이 없으면 exit code로 판단
     if [ "$pass" -eq 0 ] && [ "$fail_count" -eq 0 ]; then
         if [ "$exit_code" -eq 0 ]; then
             pass=1
@@ -109,7 +109,7 @@ run_test() {
     local t_end=$(date +%s)
     local duration=$((t_end - t_start))
 
-
+    # 출력 (마지막 20줄만)
     echo "$output" | tail -20
 
     TOTAL_PASS=$((TOTAL_PASS + pass))
@@ -146,29 +146,29 @@ edition_service_hint() {
     fi
 }
 
-
+# ═══════════════════════════════════════════════════════════════
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 echo -e "${BOLD}  PureCVisor 자동화 테스트 러너${NC}"
 echo -e "${BOLD}  Host: $HOST | Tiers: $(${RUN_TIER0} && echo '0')$(${RUN_TIER1} && echo '+1')$(${RUN_TIER2} && echo '+2')${NC}"
 echo -e "${BOLD}═══════════════════════════════════════════════════════════${NC}"
 
-
+# ── Tier 0: 유닛 테스트 ────────────────────────────────────────
 if $RUN_TIER0; then
     echo ""
     echo -e "${BOLD}${CYAN}▶ TIER 0: 유닛 테스트 (외부 의존성 없음)${NC}"
 
-
+    # dpdk/bridge_delete는 ovs-vsctl 의존 — 빌드 환경에서 항상 실패하므로 제외
     run_test "make test (유닛 테스트)" \
         "cd '$PROJECT_ROOT' && make test 2>&1 | grep -v 'dpdk/bridge_delete' | grep -v '^$'" \
         "T0"
 fi
 
-
+# ── Tier 1: SAFE 통합 테스트 ───────────────────────────────────
 if $RUN_TIER1; then
     echo ""
     echo -e "${BOLD}${CYAN}▶ TIER 1: SAFE 통합 테스트 (읽기 전용, 부작용 없음)${NC}"
 
-
+    # 데몬 접근 가능 여부 확인
     if check_daemon; then
         echo -e "  ${GREEN}✓${NC} 데몬 접근 가능 (http://$HOST/api/v1/health)"
 
@@ -193,7 +193,7 @@ if $RUN_TIER1; then
     fi
 fi
 
-
+# ── Tier 2: MODERATE 통합 테스트 ───────────────────────────────
 if $RUN_TIER2; then
     echo ""
     echo -e "${BOLD}${CYAN}▶ TIER 2: MODERATE 통합 테스트 (리소스 생성→삭제)${NC}"
@@ -209,7 +209,7 @@ if $RUN_TIER2; then
             "sudo bash '$INTEG_DIR/test_core_enhancement.sh'" \
             "T2"
 
-
+        # Tier 2 후 리소스 잔류 확인
         echo ""
         echo -e "  ${CYAN}리소스 정리 확인:${NC}"
         LEAKED_USERS=$(echo '{"jsonrpc":"2.0","method":"auth.user.list","params":{},"id":"1"}' | \
@@ -229,7 +229,7 @@ if $RUN_TIER2; then
     fi
 fi
 
-
+# ── 결과 요약 ──────────────────────────────────────────────────
 END_TIME=$(date +%s)
 DURATION=$((END_TIME - START_TIME))
 

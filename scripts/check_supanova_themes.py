@@ -1,7 +1,8 @@
 #!/usr/bin/env python3
-
-
-
+# Theme names must stay synchronized across boot HTML, runtime modules,
+# generated bundle, and CSS overrides.
+# Missing or stale literals mean the UI can offer a theme that cannot actually render.
+"""Supanova theme static contract guard."""
 
 from __future__ import annotations
 

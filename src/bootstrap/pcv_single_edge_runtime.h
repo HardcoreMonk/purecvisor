@@ -6,21 +6,21 @@
 
 G_BEGIN_DECLS
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+ * Single Edge 호환 런타임 API.
+ *
+ * [비전공자 설명]
+ * 제품 안에는 "클러스터", "스케줄러", "federation"이라는 큰 기능 이름이
+ * 남아 있지만, 이 단독 버전에서는 실제 여러 서버 제어를 하지 않습니다.
+ * UI나 공통 핸들러가 같은 질문을 해도 서버가 죽지 않고 "지원하지 않음" 또는
+ * 빈 목록을 돌려주도록 이 헤더가 함수 모양을 제공합니다.
+ *
+ * [주니어 참고]
+ * 이 헤더는 클러스터 기능을 켜는 스위치가 아닙니다. 링크 단계에서 필요한
+ * 심볼을 Single 전용 stub으로 제공하는 계약입니다. 실제 분산 락, quorum,
+ * 노드 배치 같은 동작은 이 파일의 선언만으로 구현되지 않으며, ADR 적용
+ * 상태를 확인하지 않고 stub을 실제 동작처럼 바꾸면 안 됩니다.
+ */
 typedef struct _PcvEtcdClient PcvEtcdClient;
 
 typedef enum {
@@ -97,4 +97,4 @@ gboolean pcv_scheduler_node_label_delete(const gchar *node, const gchar *key);
 
 G_END_DECLS
 
-#endif
+#endif /* PCV_SINGLE_EDGE_RUNTIME_H */

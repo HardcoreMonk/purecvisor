@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# =============================================================================
+# PureCVisor — ZFS Kernel/Userland Version Sync Fix
+# =============================================================================
+# Ubuntu HWE 커널 업그레이드 시 커널 내장 ZFS 모듈만 올라가고
+# 유저랜드(zfsutils-linux)는 구버전에 고정되는 문제를 자동 해결한다.
+#
+# 사용법:
+#   scripts/fix_zfs_version.sh                    # 로컬 실행
+#   scripts/fix_zfs_version.sh --remote           # 3노드 원격 실행
+#   scripts/fix_zfs_version.sh --remote --nodes 1,2  # 특정 노드만
+#   scripts/fix_zfs_version.sh --check            # 점검만 (변경 없음)
+# =============================================================================
 set -euo pipefail
 
 if [ -n "${PCV_NODES:-}" ]; then
@@ -50,12 +50,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-
-
-
+# ---------------------------------------------------------------------------
+# ZFS 버전 동기화 로직 (로컬 실행용)
+# ---------------------------------------------------------------------------
 zfs_sync_payload() {
     cat <<'SYNC_SCRIPT'
-
+#!/usr/bin/env bash
 set -euo pipefail
 
 RED='\033[0;31m'; GREEN='\033[0;32m'; YELLOW='\033[1;33m'; NC='\033[0m'
@@ -65,9 +65,9 @@ error() { echo -e "${RED}[-]${NC} $*"; }
 
 CHECK_ONLY="${1:-0}"
 
-
+# 1) 버전 감지
 KMOD_VER=$(cat /sys/module/zfs/version 2>/dev/null || echo "unknown")
-
+# 실제 바이너리 버전 우선, 없으면 dpkg 폴백
 ZFS_VER_OUTPUT=$(zfs version 2>/dev/null | head -1 || echo "")
 if [[ -n "$ZFS_VER_OUTPUT" ]]; then
     USER_VER="$ZFS_VER_OUTPUT"
@@ -75,7 +75,7 @@ else
     USER_VER=$(dpkg-query -W -f='${Version}' zfsutils-linux 2>/dev/null || echo "unknown")
 fi
 
-
+# upstream 버전만 추출 (2.3.4-1ubuntu2 -> 2.3.4, zfs-2.3.4-1 -> 2.3.4)
 KMOD_UPSTREAM=$(echo "$KMOD_VER" | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 USER_UPSTREAM=$(echo "$USER_VER" | grep -oP '[0-9]+\.[0-9]+\.[0-9]+' | head -1)
 
@@ -94,7 +94,7 @@ if [[ "$CHECK_ONLY" == "1" ]]; then
     exit 1
 fi
 
-
+# 2) apt에 매칭 버전이 있는지 확인
 APT_MATCH=$(apt-cache madison zfsutils-linux 2>/dev/null | grep "$KMOD_UPSTREAM" | head -1 || true)
 if [[ -n "$APT_MATCH" ]]; then
     info "Found matching apt package — installing via apt..."
@@ -112,7 +112,7 @@ if [[ -n "$APT_MATCH" ]]; then
 else
     warn "No matching apt package for $KMOD_UPSTREAM — building from source..."
 
-
+    # 3) 소스 빌드 의존성 설치
     sudo apt-get update -qq
     sudo apt-get install -y \
         build-essential autoconf automake libtool gawk alien fakeroot dkms \
@@ -121,7 +121,7 @@ else
         python3-setuptools python3-cffi libffi-dev python3-packaging \
         libcurl4-openssl-dev libpam0g-dev libtirpc-dev 2>/dev/null
 
-
+    # 4) 소스 다운로드 및 빌드
     BUILD_DIR=$(mktemp -d /tmp/zfs-build-XXXXXX)
     cd "$BUILD_DIR"
 
@@ -146,13 +146,13 @@ else
     info "Installing..."
     sudo make install 2>&1 | tail -3
 
-
+    # 정리
     cd /
     rm -rf "$BUILD_DIR"
     info "Source build complete."
 fi
 
-
+# 5) 검증
 NEW_USER_VER=$(zfs version 2>/dev/null | head -1 || echo "unknown")
 info "Post-fix ZFS userland: $NEW_USER_VER"
 info "Post-fix ZFS kmod:     $KMOD_VER"
@@ -167,9 +167,9 @@ fi
 SYNC_SCRIPT
 }
 
-
-
-
+# ---------------------------------------------------------------------------
+# 실행
+# ---------------------------------------------------------------------------
 if [[ "$MODE" == "local" ]]; then
     header "ZFS Version Sync (local)"
     zfs_sync_payload | bash -s "$CHECK_ONLY"

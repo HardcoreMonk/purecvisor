@@ -1,28 +1,28 @@
-
-
-
-
-
-
-
-
-
-
-
-
+/* ============================================================
+   PureCVisor — modules/uxlib.js
+   3차 UX 점검 — 공통 헬퍼 모음
+   - toast queue + dedup (#10)
+   - request dedup / Promise coalescing (#3)
+   - fetch cache with TTL (#9)
+   - debounce / throttle (#17)
+   - ESC handler attach (#4)
+   - role-based UI hide (#15)
+   - dirty form tracking (#11)
+   - error toast classifier (#2)
+   ============================================================ */
 
 window.PCV = window.PCV || {};
 (function (PCV) {
   'use strict';
 
-
+  /* ── #10 Toast queue + dedup ─────────────────────── */
   var _toastQueue = [];
   var _toastShown = false;
-  var _toastDedup = {};
+  var _toastDedup = {};   /* msg → count */
   function showToastQueued(msg, ok) {
     if (!msg) return;
     var key = (ok === false ? 'E:' : 'I:') + msg;
-
+    /* 1.5초 내 동일 메시지 → 카운트 누적 */
     if (_toastDedup[key]) {
       _toastDedup[key].count++;
       return;
@@ -43,8 +43,8 @@ window.PCV = window.PCV || {};
   }
   window.showToastQueued = showToastQueued;
 
-
-
+  /* ── #2 Error toast classifier ──────────────────── */
+  /* 같은 에러 3회 연속 → toast, 1-2회는 status bar에만 */
   var _errCounters = {};
   function reportError(scope, err) {
     var key = scope + ':' + (err && err.message || String(err));
@@ -54,14 +54,14 @@ window.PCV = window.PCV || {};
       showToastQueued(scope + ' 반복 오류: ' + (err && err.message || err), false);
       _errCounters[key] = 0;
     }
-
+    /* 항상 콘솔/이벤트 로그 */
     if (typeof addEvt === 'function') {
       try { addEvt('[' + scope + '] ' + (err && err.message || err)); } catch (_) {}
     }
   }
   window.reportError = reportError;
 
-
+  /* ── #3 Request dedup / coalescing ──────────────── */
   var _pending = {};
   function dedupRequest(key, promiseFactory) {
     if (_pending[key]) return _pending[key];
@@ -72,7 +72,7 @@ window.PCV = window.PCV || {};
   }
   window.dedupRequest = dedupRequest;
 
-
+  /* ── #9 fetch cache with TTL ────────────────────── */
   var _cache = {};
   function cachedFetch(key, ttlMs, fetcher) {
     var now = Date.now();
@@ -94,7 +94,7 @@ window.PCV = window.PCV || {};
   window.cachedFetch = cachedFetch;
   window.invalidateCache = invalidateCache;
 
-
+  /* ── #17 debounce / throttle ────────────────────── */
   function debounce(fn, ms) {
     var t = null;
     return function () {
@@ -114,14 +114,14 @@ window.PCV = window.PCV || {};
   window.pcvDebounce = debounce;
   window.pcvThrottle = throttle;
 
-
+  /* ── #4 ESC handler attach for inline showModal ── */
   var _modalEscBound = false;
   function bindGlobalModalEsc() {
     if (_modalEscBound) return;
     _modalEscBound = true;
     document.addEventListener('keydown', function (e) {
       if (e.key !== 'Escape') return;
-
+      /* Modal.close가 우선, 없으면 closeModal */
       if (window.Modal && Modal._isOpen && Modal._isOpen()) { Modal.close(); return; }
       var m = document.getElementById('modal-bg');
       if (m && m.style.display !== 'none' && typeof closeModal === 'function') closeModal();
@@ -129,9 +129,9 @@ window.PCV = window.PCV || {};
   }
   window.bindGlobalModalEsc = bindGlobalModalEsc;
 
-
+  /* ── #5 destroyConfirm: 이름 타이핑 요구 ────────── */
   function destroyConfirm(opts) {
-
+    /* opts: { title, name, warning, onConfirm } */
     var title = opts.title || '삭제 확인';
     var name = opts.name || '';
     var warn = opts.warning || '이 작업은 되돌릴 수 없습니다.';
@@ -166,8 +166,8 @@ window.PCV = window.PCV || {};
   }
   window.destroyConfirm = destroyConfirm;
 
-
-
+  /* ── #15 Role-based UI hide ─────────────────────── */
+  /* data-role="ADMIN" 또는 data-role="OPERATOR,ADMIN" 속성 검사 */
   function applyRoleVisibility(role) {
     var elements = document.querySelectorAll('[data-role]');
     for (var i = 0; i < elements.length; i++) {
@@ -198,7 +198,7 @@ window.PCV = window.PCV || {};
   PCV.filterEditionItems = filterEditionItems;
   window.getUiEdition = getUiEdition;
 
-
+  /* ── #11 Form dirty tracking + beforeunload ────── */
   var _dirtyForms = new Set();
   function markFormDirty(id) { _dirtyForms.add(id); }
   function clearFormDirty(id) { _dirtyForms.delete(id); }
@@ -214,7 +214,7 @@ window.PCV = window.PCV || {};
     }
   });
 
-
+  /* ── #12 Theme change → chart rebuild trigger ──── */
   window.addEventListener('pcv-theme-change', function () {
     if (window.pcvCharts && typeof pcvCharts === 'object') {
       Object.keys(pcvCharts).forEach(function (id) {
@@ -224,14 +224,14 @@ window.PCV = window.PCV || {};
     }
   });
 
-
+  /* 자동 초기화 */
   if (document.readyState === 'loading') {
     document.addEventListener('DOMContentLoaded', bindGlobalModalEsc);
   } else {
     bindGlobalModalEsc();
   }
 
-
+  /* ── #10 숫자/바이트/시간 포맷 헬퍼 ──────────────── */
   function formatNumber(n) {
     if (n === null || n === undefined || isNaN(n)) return '-';
     try { return Number(n).toLocaleString('ko-KR'); }
@@ -262,13 +262,13 @@ window.PCV = window.PCV || {};
   window.formatBytes = formatBytes;
   window.formatRelativeTime = formatRelativeTime;
 
-
+  /* ── #13 재시도 가능한 toast — 마지막 액션 저장 ──── */
   var _lastFailedAction = null;
   function toastRetry(msg, action) {
-
+    /* action: { label, fn } */
     _lastFailedAction = action;
     if (typeof toast === 'function') toast(msg + '  [R]', false);
-
+    /* 키보드 R 키로 재시도 — 5초 윈도우 */
     var handler = function (e) {
       if (e.key === 'r' || e.key === 'R') {
         document.removeEventListener('keydown', handler);
@@ -283,17 +283,17 @@ window.PCV = window.PCV || {};
   }
   window.toastRetry = toastRetry;
 
-
+  /* ── #6 단축키 레지스트리 ───────────────────────── */
   var _shortcuts = {};
   function registerShortcut(combo, fn, label) {
-
+    /* combo 예: 'n', '/', '?', 'ctrl+k' */
     _shortcuts[combo.toLowerCase()] = { fn: fn, label: label || '' };
   }
   function listShortcuts() { return _shortcuts; }
   window.registerShortcut = registerShortcut;
   window.listShortcuts = listShortcuts;
   document.addEventListener('keydown', function (e) {
-
+    /* input/textarea 안에서는 무시 */
     var t = e.target;
     if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
     var key = '';
@@ -308,9 +308,9 @@ window.PCV = window.PCV || {};
     }
   });
 
-
+  /* ── #7 컨텍스트 메뉴 — 범용 ─────────────────── */
   function showCtxMenu(ev, items) {
-
+    /* items: [{label, fn, icon?}, ...] */
     if (ev && ev.preventDefault) ev.preventDefault();
     var existing = document.getElementById('pcv-ctx-menu');
     if (existing) existing.remove();
@@ -333,7 +333,7 @@ window.PCV = window.PCV || {};
     });
     document.body.appendChild(m);
     var x = ev.clientX, y = ev.clientY;
-
+    /* 화면 경계 보정 */
     var rect = m.getBoundingClientRect();
     if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
     if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
@@ -360,15 +360,15 @@ window.PCV = window.PCV || {};
   }
   window.showCtxMenu = showCtxMenu;
 
-
+  /* ── #14 (보강) 동적 <title> 변경 ───────────────── */
   function setPageTitle(name) {
     document.title = name ? ('PureCVisor — ' + name) : 'PureCVisor';
   }
   window.setPageTitle = setPageTitle;
 
-
+  /* ── #15 (보강) breadcrumb 렌더링 ───────────────── */
   function renderBreadcrumbs(items) {
-
+    /* items: [{label, page}, ...] */
     var el = document.getElementById('breadcrumbs');
     if (!el) return;
     if (!items || items.length === 0) { el.innerHTML = ''; return; }
@@ -383,8 +383,8 @@ window.PCV = window.PCV || {};
   }
   window.renderBreadcrumbs = renderBreadcrumbs;
 
-
-
+  /* ── #14 Hash routing — 페이지/리소스 deep link ── */
+  /* 형식: #/page  또는  #/page/resource-name */
   function parseHash() {
     var h = (location.hash || '').replace(/^#\/?/, '');
     if (!h) return { page: null, id: null };
@@ -411,9 +411,9 @@ window.PCV = window.PCV || {};
   window.navigateToHash = navigateToHash;
   window.setHashRoute = setHashRoute;
   window.addEventListener('hashchange', navigateToHash);
+  /* 초기 로드 시 hash 적용은 인증 완료 후 호출 (app.js에서) */
 
-
-
+  /* ── PCV.uxlib namespace export ─────────────────── */
   PCV.uxlib = {
     showToastQueued: showToastQueued,
     reportError: reportError,

@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_storage_query_safe.sh
+#
+# SAFE-tier Integration Tests — Storage Query
+# Tests: storage.zvol.list, storage.pool.list, storage.replicate.status,
+#        storage.pool.health (graceful error if no ZFS)
+#
+# 사전 조건:
+#   - purecvisorsd 또는 purecvisormd 실행 중
+#   - /var/run/purecvisor/daemon.sock 존재
+#   - nc (netcat) 설치
+#
+# 실행: sudo bash tests/integration/test_storage_query_safe.sh
 
 set -uo pipefail
 
@@ -71,7 +71,7 @@ assert_result_or_known_error() {
     fi
 }
 
-
+# ── 사전 조건 ────────────────────────────────────────────
 log "=========================================="
 log " Storage Query Integration Tests (SAFE)"
 log "=========================================="
@@ -90,7 +90,7 @@ if [ -z "$PROBE" ]; then
     exit 0
 fi
 
-
+# ZFS 사용 가능 여부 감지 (graceful degraded)
 ZFS_AVAIL=0
 if command -v zpool &>/dev/null && zpool list &>/dev/null 2>&1; then
     ZFS_AVAIL=1
@@ -99,9 +99,9 @@ log "Daemon socket verified: $SOCKET_PATH"
 log "ZFS available: $([ $ZFS_AVAIL -eq 1 ] && echo 'yes' || echo 'no — error responses expected')"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [1] storage.zvol.list
+# ══════════════════════════════════════════════════════
 log "--- [1/4] storage.zvol.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.zvol.list","params":{},"id":"szl1"}')
@@ -115,9 +115,9 @@ assert_result_or_known_error "storage.zvol.list: nonexistent pool returns valid 
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [2] storage.pool.list
+# ══════════════════════════════════════════════════════
 log "--- [2/4] storage.pool.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.pool.list","params":{},"id":"spl1"}')
@@ -128,9 +128,9 @@ assert_result_or_known_error "storage.pool.list: with detail flag" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [3] storage.replicate.status
+# ══════════════════════════════════════════════════════
 log "--- [3/4] storage.replicate.status ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.replicate.status","params":{},"id":"srs1"}')
@@ -141,9 +141,9 @@ assert_result_or_known_error "storage.replicate.status: nonexistent VM returns v
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [4] storage.pool.health — graceful if no ZFS
+# ══════════════════════════════════════════════════════
 log "--- [4/4] storage.pool.health ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.pool.health","params":{},"id":"sph1"}')
@@ -155,15 +155,15 @@ assert_result_or_known_error "storage.pool.health: pcvpool returns valid respons
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.pool.health","params":{"pool":"nonexistent-pool"},"id":"sph3"}')
 assert_result_or_known_error "storage.pool.health: nonexistent pool returns valid response" "$RESP"
 
-
+# pool 누락 시 기본 동작 확인
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"storage.pool.health","params":{"pool":""},"id":"sph4"}')
 assert_valid_jsonrpc "storage.pool.health: empty pool name returns valid JSON-RPC" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

@@ -1,35 +1,35 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file grpc_server.c
+ * @brief PureCVisor gRPC 서버 — protobuf-c 기반 내부 고속 API
+ *
+ * == 아키텍처 ==
+ *   gRPC 클라이언트 (Go/Python/Java/C)
+ *       ↓ protobuf 직렬화, HTTP/2
+ *   grpc_server.c (이 파일, 포트 50051)
+ *       ↓ protobuf → JSON 변환
+ *   UDS 소켓 → dispatcher.c (기존 156 RPC 재사용)
+ *       ↓ JSON-RPC 응답
+ *   grpc_server.c → protobuf 직렬화 → 클라이언트
+ *
+ * == 설계 결정 ==
+ *   gRPC Core C API는 비동기 completion queue 기반으로 매우 복잡합니다.
+ *   대신 별도 GThread에서 TCP 소켓을 열고, protobuf-c로 직렬화된
+ *   요청을 수신하여 기존 UDS JSON-RPC로 프록시합니다.
+ *
+ *   이 접근의 장점:
+ *   - dispatcher.c의 156 RPC를 그대로 재사용
+ *   - 새 RPC 추가 시 proto만 갱신 (서버 코드 변경 최소)
+ *   - REST와 gRPC가 동일한 비즈니스 로직 공유
+ *
+ * == 의존성 ==
+ *   - proto/purecvisor.proto (계약 문서)
+ *
+ * == 설정 ==
+ *   daemon.conf:
+ *     [grpc]
+ *     enabled = true
+ *     port = 50051
+ */
 
 #include "grpc_server.h"
 #include "utils/pcv_config.h"
@@ -48,9 +48,9 @@
 #include <errno.h>
 
 #define GRPC_LOG_DOM   "grpc_server"
-#define GRPC_MAX_MSG   (4 * 1024 * 1024)
+#define GRPC_MAX_MSG   (4 * 1024 * 1024)  /* 4MB 최대 메시지 */
 
-
+/* ── 내부 상태 ──────────────────────────────────────── */
 static struct {
     GThread  *thread;
     gboolean  running;
@@ -58,13 +58,13 @@ static struct {
     gint      listen_fd;
 } G = { .running = FALSE, .port = 50051, .listen_fd = -1 };
 
-
-
-
-
-
-
-
+/* ── UDS JSON-RPC 프록시 ────────────────────────────── */
+/**
+ * _rpc_call — 기존 UDS 소켓으로 JSON-RPC 호출
+ *
+ * gRPC 요청을 JSON-RPC 메시지로 변환하여 dispatcher에 전달합니다.
+ * rest_server.c의 _rpc_over_uds()와 동일한 패턴입니다.
+ */
 static gchar *
 _rpc_call(const gchar *method, const gchar *params_json)
 {
@@ -85,7 +85,7 @@ _rpc_call(const gchar *method, const gchar *params_json)
         return NULL;
     }
 
-
+    /* JSON-RPC 메시지 구성 */
     gchar *rpc_msg = g_strdup_printf(
         "{\"jsonrpc\":\"2.0\",\"method\":\"%s\",\"params\":%s,\"id\":\"grpc-1\"}",
         method, params_json ? params_json : "{}");
@@ -94,7 +94,7 @@ _rpc_call(const gchar *method, const gchar *params_json)
     g_free(rpc_msg);
     if (sent <= 0) { close(fd); return NULL; }
 
-
+    /* 응답 수신 */
     gchar buf[GRPC_MAX_MSG];
     ssize_t n = read(fd, buf, sizeof(buf) - 1);
     close(fd);
@@ -104,11 +104,11 @@ _rpc_call(const gchar *method, const gchar *params_json)
     return g_strdup(buf);
 }
 
+/* ── protobuf 헬퍼 ──────────────────────────────────── */
 
-
-
-
-
+/**
+ * _json_result_to_string — JSON-RPC 응답에서 result 추출
+ */
 static gchar *
 _extract_result(const gchar *json_resp)
 {
@@ -134,24 +134,24 @@ _extract_result(const gchar *json_resp)
     return g_strdup("{}");
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/* ── gRPC-like TCP 프로토콜 서버 ────────────────────── */
+/**
+ * 프로토콜 프레임:
+ *   [4바이트: method_len] [method_name] [4바이트: payload_len] [protobuf payload]
+ *
+ * 응답 프레임:
+ *   [4바이트: response_len] [JSON response]
+ *
+ * 이 간소화된 프로토콜은 gRPC HTTP/2 프레이밍 대신
+ * 순수 TCP 바이너리 프로토콜을 사용합니다.
+ * 향후 grpc-c 정식 래퍼로 전환 시 이 레이어만 교체합니다.
+ */
 
 static void
 _handle_client(int client_fd)
 {
-
-    extern gchar *G_grpc_auth_token;
+    /* 0. 인증 — daemon.conf [grpc] auth_token 설정 시 16바이트 prefix 검증 */
+    extern gchar *G_grpc_auth_token; /* set in pcv_grpc_server_start */
     if (G_grpc_auth_token && *G_grpc_auth_token) {
         guint32 tk_len = 0;
         if (read(client_fd, &tk_len, 4) != 4) return;
@@ -168,34 +168,34 @@ _handle_client(int client_fd)
         }
     }
 
-
+    /* 1. method name 길이 읽기 */
     guint32 method_len = 0;
     if (read(client_fd, &method_len, 4) != 4) return;
     method_len = GUINT32_FROM_BE(method_len);
     if (method_len > 256) return;
 
-
+    /* 2. method name 읽기 */
     gchar method[257] = {0};
     if (read(client_fd, method, method_len) != (ssize_t)method_len) return;
 
-
+    /* 3. payload 길이 읽기 */
     guint32 payload_len = 0;
     if (read(client_fd, &payload_len, 4) != 4) return;
     payload_len = GUINT32_FROM_BE(payload_len);
     if (payload_len > GRPC_MAX_MSG) return;
 
-
+    /* 4. payload 읽기 (JSON 또는 protobuf) */
     gchar *payload = g_malloc0(payload_len + 1);
     if (payload_len > 0) {
         ssize_t nr = read(client_fd, payload, payload_len);
         if (nr != (ssize_t)payload_len) { g_free(payload); return; }
     }
 
-
+    /* 5. 메서드 매핑 (gRPC service/method → JSON-RPC method) */
     const gchar *rpc_method = method;
 
-
-
+    /* gRPC 서비스 경로를 JSON-RPC 메서드로 변환 */
+    /* 예: "/purecvisor.v1.VmService/List" → "vm.list" */
     static const struct { const gchar *grpc; const gchar *rpc; } MAP[] = {
         {"/purecvisor.v1.VmService/List",       "vm.list"},
         {"/purecvisor.v1.VmService/Create",     "vm.create"},
@@ -211,7 +211,7 @@ _handle_client(int client_fd)
         {"/purecvisor.v1.MonitorService/Fleet",     "monitor.fleet"},
         {"/purecvisor.v1.MonitorService/AuditSearch","audit.search"},
         {"/purecvisor.v1.SystemService/Version",    "daemon.version"},
-        {"/purecvisor.v1.SystemService/Health",     "vm.list"},
+        {"/purecvisor.v1.SystemService/Health",     "vm.list"}, /* health proxy */
         {NULL, NULL}
     };
 
@@ -222,12 +222,12 @@ _handle_client(int client_fd)
         }
     }
 
-
+    /* 6. JSON-RPC 호출 */
     gchar *params = (payload_len > 0 && payload[0] == '{') ? payload : g_strdup("{}");
     gchar *resp = _rpc_call(rpc_method, params);
     if (params != payload) g_free(params);
 
-
+    /* 7. 응답 전송 */
     gchar *result = _extract_result(resp);
     g_free(resp);
 
@@ -240,11 +240,11 @@ _handle_client(int client_fd)
     g_free(payload);
 }
 
-
+/* ── 서버 스레드 ────────────────────────────────────── */
 static gpointer
 _grpc_thread(gpointer data __attribute__((unused)))
 {
-
+    /* 보안 기본값: 127.0.0.1 바인딩. daemon.conf [grpc] bind_addr=0.0.0.0 으로 노출 가능 */
     extern gchar *G_grpc_bind_addr;
     struct sockaddr_in saddr = {
         .sin_family = AF_INET,
@@ -294,7 +294,7 @@ _grpc_thread(gpointer data __attribute__((unused)))
             continue;
         }
 
-
+        /* 클라이언트 타임아웃 */
         struct timeval tv = { .tv_sec = 30, .tv_usec = 0 };
         setsockopt(client_fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
         setsockopt(client_fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
@@ -308,15 +308,15 @@ _grpc_thread(gpointer data __attribute__((unused)))
     return NULL;
 }
 
+/* ── 공개 API ───────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
+/**
+ * pcv_grpc_server_start — gRPC 서버 시작
+ *
+ * daemon.conf [grpc] enabled=true 시 별도 스레드에서 시작.
+ * main.c의 초기화 순서에서 REST 서버 이후에 호출합니다.
+ */
+/* 보안 설정 — daemon.conf [grpc] auth_token, bind_addr */
 gchar *G_grpc_auth_token = NULL;
 gchar *G_grpc_bind_addr  = NULL;
 
@@ -342,7 +342,7 @@ pcv_grpc_server_start(void)
         PCV_LOG_INFO(GRPC_LOG_DOM, "gRPC: no auth_token; restricted to 127.0.0.1");
     }
 
-
+    /* P2-2: non-loopback + no TLS → refuse to start (ADR-0015) */
     gboolean is_loopback = (g_strcmp0(G_grpc_bind_addr, "127.0.0.1") == 0 ||
                             g_strcmp0(G_grpc_bind_addr, "::1") == 0);
     if (!is_loopback && !pcv_tls_is_enabled()) {
@@ -361,9 +361,9 @@ pcv_grpc_server_start(void)
                  "gRPC server thread started (port %d)", G.port);
 }
 
-
-
-
+/**
+ * pcv_grpc_server_stop — gRPC 서버 종료
+ */
 void
 pcv_grpc_server_stop(void)
 {

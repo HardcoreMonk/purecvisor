@@ -1,4 +1,12 @@
 #!/usr/bin/env python3
+"""
+backup.replicate shell-free contract check.
+
+The replication path accepts a remote host and SSH username. Those values must
+never be interpolated into a local shell command. Keep this check narrow so
+other legacy backup paths can be remediated separately without weakening this
+high-risk RPC.
+"""
 from __future__ import annotations
 
 import re

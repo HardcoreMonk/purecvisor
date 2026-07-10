@@ -1,81 +1,81 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/vm.js
+   VM List, Summary, Console, Snapshots, Performance, Power,
+   Create Wizard, Settings, NIC Manager, Clone, Export
+   ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.vm 네임스페이스
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * ===== vm.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   VM 관련 모든 UI 로직. 사이드바 VM 목록 렌더링, 상세 정보(summary),
+ *   VNC 콘솔, 스냅샷 관리, 성능 차트, 전원 제어, 생성 위자드, NIC 관리 등.
+ *   이 파일이 가장 크다 (~1500 LOC). 기능별로 섹션 구분자(═══)를 따라가면 된다.
+ *
+ * [PCV 네임스페이스 (ADR-0013)]
+ *   IIFE 안에서 정의 후 PCV.vm = { ... }로 공개 API를 노출.
+ *   window.render, window.vmPower 등 하위 호환 심은 전환기 코드.
+ *   HTML onclick에서 직접 호출하는 함수는 window에 등록이 필수이다.
+ *
+ * [주요 함수]
+ *   - render(skipContent): 사이드바 VM 목록 렌더링. skipContent=true면
+ *     _lastVmListHash와 비교하여 변경 없으면 건너뛴다 (깜박임 방지).
+ *   - renderSummary(b, v): VM 상세 정보 카드 (CPU/MEM/Disk/Net + 액션 버튼).
+ *   - renderConsole(b, v): VNC 콘솔 연결 UI.
+ *   - renderSnapshots(b, v): 스냅샷 목록 + 생성/롤백/삭제.
+ *   - renderPerformance(b, v): 60초 히스토리 차트 (CPU/MEM).
+ *   - vmPower(action): 전원 제어 (start/stop/suspend/resume) + 상태 폴링.
+ *   - showCreate(): 3단계 VM 생성 위자드.
+ *
+ * [VM 목록 렌더링 성능]
+ *   _lastVmListHash는 "name+state+cpu" 를 | 로 연결한 문자열이다.
+ *   해시가 같으면 DOM 업데이트를 건너뛴다. 이렇게 하는 이유:
+ *   10초 폴링마다 innerHTML을 교체하면 스크롤 위치가 초기화되고,
+ *   사용자가 클릭 중인 요소가 사라져 UX가 나빠진다.
+ *   WS 이벤트로 VM 상태가 바뀌면 해시가 달라져서 자동 갱신된다.
+ *
+ * [스파크라인 캔버스 관리]
+ *   각 VM 사이드바 항목에 <canvas id="spark-{name}"> 이 있다.
+ *   render()가 innerHTML을 교체할 때 기존 캔버스가 파괴되고 새로 생성된다.
+ *   setTimeout(50ms) 후에 getContext('2d')로 그리는 이유:
+ *   innerHTML 할당 직후에는 브라우저가 아직 레이아웃을 계산하지 않아
+ *   캔버스 크기가 0일 수 있다.
+ *   _vmCpuHist[name]에 30개의 CPU% 이력을 유지하여 미니 차트를 그린다.
+ *
+ * [VNC 콘솔 연결 흐름]
+ *   1. fetchGet(EP.VNC(name))으로 VNC 포트 번호를 조회.
+ *   2. noVNC 라이브러리를 로컬 vendor ESM에서 동적 로딩.
+ *   3. WebSocket URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
+ *      (백엔드 ws_server.c가 WS↔VNC TCP를 프록시).
+ *   4. RFB 객체가 connect/disconnect/securityfailure 이벤트를 발생.
+ *   5. 팝업 창에서도 동일 흐름 (openNoVNCPopup).
+ *
+ * [스냅샷 트리 렌더링]
+ *   백엔드는 "pool/vm@snapname\tdate" 문자열 배열을 반환한다.
+ *   파싱하여 {name, full_path, time} 객체로 변환 후 테이블로 표시.
+ *   롤백은 파괴적 작업이므로 VM 이름 타이핑 확인(destroyConfirm 패턴)을 적용.
+ *   일괄 삭제는 prefix 필터 + keep_recent 옵션으로 미리보기 후 실행.
+ *
+ * [흔한 실수]
+ *   - vmList와 selectedVmIndex는 app.js의 var 전역이다.
+ *     이 모듈 안에서는 window.vmList로 참조되지만, var 선언이 같은 스코프가
+ *     아니므로 IIFE 안에서 vmList를 직접 쓰면 클로저 밖의 전역을 참조한다.
+ *   - render() 안에서 vmList를 변경하지 마라. loadAll()만 vmList를 갱신해야 한다.
+ *   - onclick 문자열 안에서 VM 이름을 넣을 때 escapeAttr()를 사용하라.
+ *     VM 이름에 - 이외의 특수문자는 없지만, 방어적 코딩 습관을 위해.
+ *   - showCreate() 호출 시 wizData를 항상 초기화한다. 이전 값이 남으면 혼란.
+ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
-
-
-
+/* ═══ SORT / FILTER / RENDER ═══ */
+/* _lastVmListHash: "name+state+cpu|name+state+cpu|..." 형태의 문자열.
+ *   render(skipContent=true) 시 이전 해시와 비교하여 변경이 없으면
+ *   DOM 업데이트를 건너뛴다. 폴링으로 인한 불필요한 리렌더링 방지.
+ * vmViewMode: 'list' 또는 'card'. localStorage에 영속 저장된다.
+ *   카드 뷰에서는 드래그&드롭 마이그레이션 영역도 표시된다. */
 var _lastVmListHash = '';
 var vmViewMode = localStorage.getItem('pcv-vm-view') || 'list';
 
@@ -102,7 +102,7 @@ function getFiltered() {
     else { va = a.name; vb = b.name; }
     return va < vb ? -sortDirection : va > vb ? sortDirection : 0;
   });
-
+  /* G-4: favorites sort to top */
   const favs = getFavorites();
   l.sort((a, b) => {
     const af = favs.includes(a.name) ? 0 : 1;
@@ -124,13 +124,13 @@ function _renderCore(skipContent) {
   _lastVmListHash = newHash;
   const l = getFiltered();
   const favs = getFavorites();
-
+  /* D2: Update sparkline history */
   vmList.forEach(function(v) {
     if (!_vmCpuHist[v.name]) _vmCpuHist[v.name] = [];
     _vmCpuHist[v.name].push(v.live_cpu_pct || 0);
     if (_vmCpuHist[v.name].length > 30) _vmCpuHist[v.name].shift();
   });
-
+  /* #16 빈 상태 — VM이 0개일 때 CTA 표시 */
   if (l.length === 0 && typeof emptyStatePro === 'function') {
     document.getElementById('vl').innerHTML = emptyStatePro({
       icon: '&#128187;',
@@ -167,7 +167,7 @@ function _renderCore(skipContent) {
       h += '</div></div>';
     });
     h += '</div>';
-
+    /* D3: Migration drop zone for cluster nodes */
     h += '<h3 style="margin:16px 0 8px">' + _L('마이그레이션 대상 노드', 'Migration Target Nodes') + '</h3>';
     h += '<div class="sg grid-3">';
     var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
@@ -193,7 +193,7 @@ function _renderCore(skipContent) {
     });
   }
   document.getElementById('vl').innerHTML = h;
-
+  /* D2: Draw sparklines */
   setTimeout(function() {
     vmList.forEach(function(v) {
       var canvas = document.getElementById('spark-' + v.name);
@@ -217,11 +217,11 @@ function _renderCore(skipContent) {
   document.getElementById('vc').textContent = vmList.length;
   document.getElementById('sb2').textContent = vmList[selectedVmIndex] ? vmList[selectedVmIndex].name : t('no_vm');
   document.getElementById('bbtn').style.display = checkedVms.size > 0 ? 'inline' : 'none';
-
+  /* G-4: auto-refresh indicator */
   const elapsed = Math.round((Date.now() - lastLoadTime) / 1000);
   const sb3 = document.getElementById('sb3');
   if (sb3) sb3.textContent = 'Updated ' + elapsed + 's ago';
-
+  /* VM 탭에서는 항상 콘텐츠 탭바(요약/콘솔/스냅샷/성능) 표시 */
   const ctBar = document.getElementById('ct');
   if (ctBar && ['summary','console','snapshots','performance','timeline'].includes(currentTab)) {
     ctBar.style.display = 'flex';
@@ -244,7 +244,7 @@ async function bulkStop() {
   setTimeout(loadAll, 1500);
 }
 
-
+/* ═══ F1: KEYBOARD NAVIGATION ═══ */
 document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (currentTab !== 'summary' && currentTab !== 'dashboard' && currentTab !== 'console' && currentTab !== 'snapshots' && currentTab !== 'performance') return;
@@ -260,14 +260,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
-
-
-
-
+/* ═══ D2: VM SPARKLINE MINI CHART ═══
+ *  _vmCpuHist[vmName] = [cpu%, cpu%, ...] (최대 30개)
+ *  render()에서 vmList.forEach로 최신 CPU%를 push하고, 30개 초과 시 shift.
+ *  setTimeout(50ms) 후 각 <canvas id="spark-{name}">에 꺾은선을 그린다.
+ *  캔버스가 innerHTML 교체 시 파괴되므로 매번 새로 그려야 한다. */
 var _vmCpuHist = {};
 
-
+/* ═══ CONTEXT MENU ═══ */
 function showCtx(e, i) {
   e.preventDefault();
   selectedVmIndex = i;
@@ -343,12 +343,12 @@ function _vmPrimaryNicValue(nics, field) {
   return '';
 }
 
-
+/* ═══ VM SUMMARY ═══ */
 async function renderSummary(b, v) {
   if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
   const on = v.state === 'running';
 
-
+  /* 실시간 메트릭 + NIC 상세 조회 */
   var metrics = {};
   var nics = [];
   var networks = [];
@@ -379,7 +379,7 @@ async function renderSummary(b, v) {
     ? '<button class="btn btn-xs" onclick="showVmDiskUsage()">&#128202; ' + _L('디스크 사용량', 'Disk Usage') + '</button>'
     : '<span class="color-muted text-xs">' + _L('실행 중인 VM에서 확인 가능', 'Available while running') + '</span>';
 
-
+  /* live 데이터를 vmList에도 반영 (사이드바 프로그레스바용) */
   v.live_cpu_pct = cpuPct;
   v.mem_percent = memPct;
   v.vcpu = vcpu;
@@ -402,14 +402,14 @@ async function renderSummary(b, v) {
 + '</div>';
 }
 
-
-
-
-
-
-
-
-
+/* ═══ CONSOLE / VNC ═══
+ *  [VNC 연결 흐름]
+ *    1. EP.VNC(name)으로 VNC 포트 조회 (백엔드: virDomainGetXMLDesc에서 추출)
+ *    2. VM running + 포트 있으면 → 로컬 noVNC ESM import로 RFB 객체 생성
+ *    3. WS URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
+ *       (ws_server.c가 WS 프레임 ↔ VNC TCP 패킷 변환)
+ *    4. 팝업(openNoVNCPopup) vs 임베디드(openNoVNC) 두 가지 모드 지원
+ *    5. <script type="module"> 동적 삽입으로 ESM import 수행 */
 async function renderConsole(b, v) {
   if (!v) return;
   let vncHtml = '<div class="text-center p-20"><p class="text-14">&#128424; ' + escapeHtml(v.name) + '</p><p class="stat-label mt-8">' + t('loading') + '</p></div>';
@@ -580,21 +580,21 @@ function copyVncAddr(port) {
   navigator.clipboard.writeText(addr).then(() => toast(t('vnc.addr_copied') + ': ' + addr)).catch(() => toast(addr, true));
 }
 
-
-
-
-
-
-
-
-
+/* ═══ SNAPSHOTS ═══
+ *  [백엔드 응답 형식]
+ *    "pcvpool/vms/web-prod@snap-20260410\t2026-04-10 15:30:00" 형태의 문자열 배열.
+ *    @ 뒤가 스냅샷 이름, \t 뒤가 생성 시간.
+ *  [롤백 안전 장치]
+ *    파괴적 작업이므로 VM 이름을 직접 타이핑해야 실행 가능 (rbValidate).
+ *  [일괄 삭제]
+ *    snapDeleteAll → prefix 필터 + keep_recent → 미리보기(sdaPreview) → 실행(sdaExec). */
 async function renderSnapshots(b, v) {
   if (!v) return;
   b.innerHTML = '<div><div class="justify-between items-center mb-12"><h3>' + t('vm.snapshot') + ': ' + esc(v.name) + '</h3><div class="flex gap-6"><button class="btn btn-g" onclick="takeSnap()" class="text-12">+ ' + t('btn.create') + '</button><button class="btn btn-r" onclick="snapDeleteAll(\'' + escapeAttr(v.name) + '\')" class="text-12">&#128465; Delete All</button></div></div><div id="stree"><span class="spinner"></span> ' + t('loading') + '</div></div>';
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(v.name));
     const raw = unwrapList(r);
-
+    /* 백엔드: "pool/vm@snapname\tdate" 문자열 배열 파싱 */
     const snaps = raw.map(s => {
       if (typeof s === 'string') {
         const [full, time] = s.split('\t');
@@ -695,14 +695,14 @@ async function snapRb(vm, s) {
 
   let h = '<h2 class="mb-14">&#9194; Rollback Snapshot</h2>';
 
-
+  /* 경고 배너 */
   h += '<div style="margin-bottom:14px;padding:12px;border:1px solid var(--red);border-radius:6px;background:rgba(255,60,60,.06)">';
   h += '<div style="font-weight:700;color:var(--red);margin-bottom:6px">&#9888; Destructive Operation</div>';
   h += '<div class="text-xs color-muted">This will revert the VM disk to the snapshot point-in-time. <b>All data written after this snapshot will be permanently lost.</b></div>';
   if (on) h += '<div class="text-xs" style="color:var(--yellow);margin-top:6px">&#9889; VM is currently <b>running</b> — it will be <b>force-stopped</b> before rollback, then automatically restarted.</div>';
   h += '</div>';
 
-
+  /* 상세 정보 */
   h += '<div class="mb-14 p-10 border-muted rounded-md">';
   h += '<div style="display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px">';
   h += '<span class="color-muted">VM</span><span><b>' + esc(vm) + '</b> ' + (on ? '<span class="color-green">Running</span>' : '<span class="color-muted">Stopped</span>') + '</span>';
@@ -710,7 +710,7 @@ async function snapRb(vm, s) {
   h += '<span class="color-muted">ZFS Path</span><span class="text-xs"><code>' + esc(vm) + '@' + esc(s) + '</code></span>';
   h += '</div></div>';
 
-
+  /* 확인 입력 */
   h += '<div class="mb-14"><label class="text-12 font-600">Type VM name to confirm: <code>' + esc(vm) + '</code></label>';
   h += '<input id="rb-confirm-input" placeholder="' + esc(vm) + '" class="w-full mt-4" oninput="rbValidate(\'' + vm.replace(/'/g, "\\'") + '\')"></div>';
 
@@ -754,7 +754,7 @@ async function snapDl(vm, s) {
 }
 
 async function snapDeleteAll(vm) {
-
+  /* 1. 스냅샷 목록 조회 */
   let snaps = [];
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(vm));
@@ -771,7 +771,7 @@ async function snapDeleteAll(vm) {
 
   if (snaps.length === 0) { toast('No snapshots to delete'); return; }
 
-
+  /* 2. 모달 UI */
   let h = '<h2 class="mb-12">&#128465; Bulk Delete Snapshots</h2>';
   h += '<div class="mb-12"><span class="color-muted">VM:</span> <b>' + esc(vm) + '</b> &mdash; <span class="color-accent">' + snaps.length + '</span> snapshots</div>';
 
@@ -792,7 +792,7 @@ async function snapDeleteAll(vm) {
 
   showModal(h);
 
-
+  /* 스냅샷 데이터를 전역에 임시 저장 */
   window._sdaSnaps = snaps;
   window._sdaVm = vm;
   sdaPreview();
@@ -806,7 +806,7 @@ function sdaPreview() {
   const countEl = document.getElementById('sda-count');
   if (!el) return;
 
-
+  /* 필터 적용 */
   let filtered = prefix ? snaps.filter(s => s.name.startsWith(prefix)) : [...snaps];
   const total = filtered.length;
   const toDelete = keep > 0 && keep < total ? total - keep : (keep >= total ? 0 : total);
@@ -853,12 +853,12 @@ async function sdaExec(vm) {
   if (btn) { btn.disabled = false; btn.innerHTML = '&#128465; Done'; }
 }
 
-
+/* ═══ PERFORMANCE ═══ */
 var perfLayout = 'auto';
 
 async function renderPerformance(b, v) {
   if (!v) return;
-
+  /* 실시간 메트릭 조회 */
   var metrics = {};
   if (v.state === 'running') {
     try { var mr = await fetchGet(EP.VM_DETAIL(v.name)); metrics = unwrapData(mr) || mr || {}; } catch(e) {}
@@ -886,7 +886,7 @@ async function renderPerformance(b, v) {
   }, 30);
 }
 
-
+/* ═══ VM TIMELINE ═══ */
 function renderTimeline(b, v) {
   if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
   var events = (eventLog || []).filter(function(e) {
@@ -915,11 +915,11 @@ function renderTimeline(b, v) {
   }
   b.innerHTML = h;
 }
-
+/* ═══ VM COMPARE ═══ */
 async function showVmCompare() {
   if (checkedVms.size < 2) { toast(_L('비교할 VM을 2개 이상 선택하세요', 'Select 2+ VMs to compare'), false); return; }
   var selected = vmList.filter(function(v, idx) { return checkedVms.has(idx); }).slice(0, 4);
-
+  /* 실시간 메트릭을 병합 */
   await Promise.all(selected.map(async function(v) {
     if (v.state === 'running') {
       try {
@@ -966,7 +966,7 @@ async function showVmCompare() {
   h += '<div class="text-right mt-14"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
   showModal(h);
 }
-
+/* ═══ BULK ACTIONS ═══ */
 function showBulkActions() {
   if (checkedVms.size === 0) { toast(_L('VM을 선택하세요', 'Select VMs first'), false); return; }
   var count = checkedVms.size;
@@ -1015,19 +1015,19 @@ async function bulkSnapshot() {
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
     if (ps) ps.innerHTML = '<span class="spinner"></span> ' + (i + 1) + '/' + names.length + ' — ' + esc(names[i]);
-    try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) {  }
+    try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) { /* continue */ }
   }
   if (ps) ps.innerHTML = '&#9989; ' + _L('완료', 'Done') + ': ' + names.length + ' snapshots';
   addEvt('Bulk snapshot: ' + snapName + ' → ' + names.join(', '));
   setTimeout(function() { closeModal(); loadAll(); }, 2000);
 }
 
-
-
-
+/* ADR-0018: VM 액션 실패 시 사용자에게 사유를 보여주는 헬퍼.
+ * /health/recent-errors 에서 audit DB의 최근 worker 실패 fail 레코드를 가져와 표시.
+ * 자동 닫기 없음 — 사용자가 [닫기] 버튼을 눌러야 닫힌다. */
 async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (progEl) { progEl.style.width = '100%'; progEl.style.background = 'var(--red)'; }
-
+  /* notification center 영구 기록 (모달 닫혀도 사용자가 추후 확인 가능) */
   if (typeof addNotification === 'function') {
     addNotification('error',
       (actionLabel || 'VM action') + ' failed: ' + vmName,
@@ -1036,7 +1036,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (typeof addEvt === 'function') {
     addEvt('FAIL ' + (actionLabel || 'action') + ' ' + vmName + ' — state change timeout');
   }
-
+  /* 정적 i18n 라벨 + escapeHtml(vmName) — XSS 안전 */
   var safeName = escapeHtml(vmName);
   var titleHtml = '&#10060; ' + _L('상태 변경 실패', 'State change failed') + ': ' + safeName;
   var subHtml = _L('백엔드 워커가 30초 내 상태 전이를 완료하지 못했습니다.', 'Backend worker did not complete the state transition within 30s.');
@@ -1047,7 +1047,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
     + '<div id="pwr-err-detail" class="text-xs mt-8" style="max-height:160px;overflow:auto;text-align:left;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px">' + loadingHtml + '</div>'
     + '<div class="mt-12">' + closeBtnHtml + '</div>';
   if (statusEl) statusEl.innerHTML = html;
-
+  /* 비동기 사유 조회 */
   try {
     var resp = await fetchGet('/api/v1/health/recent-errors?vm=' + encodeURIComponent(vmName) + '&limit=3');
     var errs = (resp && (resp.data || resp.errors)) || [];
@@ -1067,11 +1067,11 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   }
 }
 
-
-
-
-
-
+/* ═══ POWER / VM DELETE ═══
+ *  vmPower(action)는 진행 모달을 즉시 표시한 뒤 fetch → 상태 폴링 패턴을 사용.
+ *  백엔드가 fire-and-forget이므로 API 응답은 "accepted"일 뿐 완료가 아니다.
+ *  따라서 2초 간격으로 최대 5회 VM 상태를 폴링하여 실제 전이를 확인한다.
+ *  vmDel도 비슷하게 삭제 후 VM이 목록에서 사라질 때까지 폴링한다. */
 async function vmPower(a) {
   const v = vmList[selectedVmIndex]; if (!v) return;
   var actionLabels = {
@@ -1081,7 +1081,7 @@ async function vmPower(a) {
     resume: { icon: '&#9654;&#9654;', label: _L('재개', 'Resume'), past: _L('재개됨', 'Resumed'), color: 'var(--green)' }
   };
   var al = actionLabels[a] || { icon: '&#9881;', label: a, past: a, color: 'var(--accent)' };
-
+  /* 진행 모달 표시 */
   showModal('<div class="text-center p-20">'
     + '<div style="font-size:48px;margin-bottom:12px">' + al.icon + '</div>'
     + '<h2 class="mb-8">' + escapeHtml(v.name) + '</h2>'
@@ -1091,7 +1091,7 @@ async function vmPower(a) {
   try {
     var pf = document.getElementById('pwr-p'), ps = document.getElementById('pwr-s');
     var r = await fetchPost(EP.VM_ACTION(v.name, a), {});
-
+    /* API 에러 응답 체크 */
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
       if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(r.error.message || 'Failed');
@@ -1100,7 +1100,7 @@ async function vmPower(a) {
     }
     if (pf) pf.style.width = '60%';
     if (ps) ps.innerHTML = '<span class="spinner"></span> ' + _L('상태 확인 중...', 'Verifying state...');
-
+    /* W7 fix: 실제 VM 상태 폴링 최대 15회(30초), 2초 간격 — 느린 환경 허용 */
     var expectedState = (a === 'start' || a === 'resume') ? 'running' : (a === 'suspend') ? 'paused' : 'shutoff';
     var verified = false;
     var maxPolls = 15;
@@ -1120,8 +1120,8 @@ async function vmPower(a) {
       addEvt(v.name + ' ' + al.past);
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     } else {
-
-
+      /* ADR-0018 fix: 자동 닫기 금지. 사용자가 명시적으로 [닫기]를 눌러야 함.
+       * 백엔드 워커 실패 사유는 /health/recent-errors 에서 비동기 fetch */
       await showVmFailureDetail(ps, pf, v.name, al.label);
       loadAll();
     }
@@ -1129,17 +1129,17 @@ async function vmPower(a) {
     var pf2 = document.getElementById('pwr-p'), ps2 = document.getElementById('pwr-s');
     if (pf2) { pf2.style.width = '100%'; pf2.style.background = 'var(--red)'; }
     var errMsg = e.name === 'AbortError' ? _L('타임아웃 (10초)', 'timeout (10s)') : escapeHtml(e.message);
-
+    /* ADR-0018: 자동 닫기 제거 — 사용자가 [닫기] 버튼을 명시적으로 눌러야 함 */
     var btnHtml = '<div class="mt-12"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
     if (ps2) ps2.innerHTML = '&#10060; ' + _L('실패', 'Failed') + ': ' + errMsg + btnHtml;
   }
 }
 
-
+/* C4 fix: 공통 destroyConfirm 패턴으로 통일 (스냅샷 롤백과 동일 UX 수준) */
 async function vmDel() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   if (typeof destroyConfirm !== 'function') {
-
+    /* fallback — uxlib 미로드 환경 */
     if (!confirm(_L('VM 삭제: ', 'Delete VM: ') + v.name + '?')) return;
     return doVmDel(v.name);
   }
@@ -1153,8 +1153,8 @@ async function vmDel() {
   });
 }
 
-
-
+/* C5 fix: DELETE 응답이 에러여도 실제 상태 폴링을 끝까지 수행 (서버는 계속 진행 중일 수 있음).
+   W7-equivalent: 폴링을 10회(20초)로 확장. */
 async function doVmDel(n) {
   showModal('<h2 class="color-red">&#9888; Deleting VM</h2><p><b class="color-accent">' + escapeHtml(n) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dv-p" class="w-pct-10"></div></div><div class="prog-status" id="dv-s"><span class="spinner"></span>Sending delete request...</div>');
   const pf = document.getElementById('dv-p'), ps = document.getElementById('dv-s');
@@ -1164,7 +1164,7 @@ async function doVmDel(n) {
     const d = await fetchDelete(EP.VM_DETAIL(n)).catch(function(e) { return { error: { message: e && e.message || 'Network error' } }; });
     if (d && d.error) {
       deleteError = d.error.message || 'Failed';
-
+      /* 에러여도 폴링 수행 — 서버가 백그라운드로 처리 완료했을 수 있음 */
       if (ps) ps.innerHTML = '<span class="spinner"></span>&#9888; ' + escapeHtml(deleteError) + _L(' — 서버 상태 확인 중...', ' — polling server state...');
     } else {
       if (ps) ps.innerHTML = '<span class="spinner"></span>Waiting for zvol cleanup...';
@@ -1178,7 +1178,7 @@ async function doVmDel(n) {
         const vl = await fetchGet(EP.VM_LIST());
         const vms = unwrapList(vl);
         if (!vms.find(x => x.name === n)) {
-
+          /* VM이 목록에서 사라짐 → 실제 삭제 성공 */
           if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
           if (ps) ps.innerHTML = '&#9989; ' + t('vm.deleted');
           toast(t('vm.deleted'));
@@ -1188,7 +1188,7 @@ async function doVmDel(n) {
         }
       } catch (e) { if(typeof _DEBUG !== 'undefined' && _DEBUG) console.warn('vl:', e.message); }
     }
-
+    /* 폴링 타임아웃 — 아직 목록에 남아있음 */
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--yellow)'; }
     if (deleteError) {
       if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(deleteError);
@@ -1206,14 +1206,14 @@ async function doVmDel(n) {
   }
 }
 
-
-
-
-
-
-
-
-
+/* ═══ VM CREATE WIZARD ═══
+ *  3단계 위자드: 1) 이름 2) CPU/메모리 3) 디스크/ISO/네트워크
+ *  wizData에 각 단계의 입력값을 누적. wizSave()로 현재 단계 저장.
+ *  step 1→2 이동 시 VM 이름 정규식 검증 (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).
+ *  doCreate()에서 fire-and-forget 패턴: 모달 닫고 → 1초 폴링으로 생성 확인.
+ *  최대 20초(20회) 폴링 후 미확인이면 사용자에게 안내. */
+/* M4 fix: storage_type 기본값을 'auto'로 → 백엔드 자동 감지 사용.
+   사용자가 명시적으로 선택하지 않으면 body에서 storage_type 제거 (backend fallback 활용). */
 function wizDefaults() {
   return {
     name: '',
@@ -1252,7 +1252,7 @@ function wizSave() {
 }
 function wizGo(s) {
   wizSave();
-
+  /* Step 1 → 2 이동 시 VM 이름 검증 */
   if (wizStep === 1 && s > 1) {
     const name = wizData.name.trim();
     if (!name) { toast(_L('VM 이름을 입력하세요', 'VM name is required'), false); return; }
@@ -1364,8 +1364,8 @@ async function wizLoadStorageTargets(force) {
   wizStorageChanged(false);
 }
 
-
-
+/* M3 fix: 네트워크 목록 조회 실패 시 명시적 토스트 + 수동 입력 힌트
+   (이전엔 virbr0 하드코딩으로 숨김 → 브릿지 없는 환경에서 생성 실패) */
 async function wizLoadNets() {
   const sel = document.getElementById('wb'); if (!sel) return;
   try {
@@ -1439,11 +1439,11 @@ async function doCreate() {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) {
     toast(_L('VM 이름: 1-64자, 영문/숫자/_- 만 허용', 'VM name: 1-64 chars, [a-zA-Z0-9_-]'), false); return;
   }
-
+  /* M3 (cont.): 네트워크 브릿지 필수 — wizLoadNets에서 선택된 값이 있어야 함 */
   if (!d.bridge) {
     toast(_L('네트워크 브릿지를 선택하세요', 'Select a network bridge'), false); return;
   }
-
+  /* Client-side 수치 가드 (서버는 W5에서 엄격 검증) */
   if (!(d.vcpu >= 1 && d.vcpu <= 256)) {
     toast(_L('vCPU 는 1~256 사이', 'vCPU must be between 1 and 256'), false); return;
   }
@@ -1454,13 +1454,13 @@ async function doCreate() {
     toast(_L('디스크는 1~65536 GB 사이', 'Disk must be 1~65536 GB'), false); return;
   }
 
-
+  /* 모달 즉시 닫고 백그라운드 처리 */
   if (typeof clearFormDirty === 'function') clearFormDirty('vm-create');
   closeModal(true);
   toast('&#128187; ' + escapeHtml(name) + ' ' + _L('생성 시작...', 'Creating...'), 's');
 
   try {
-
+    /* M4: storage_type='auto'일 때 body에서 제외 → 백엔드가 ZFS 풀 감지 후 qcow2 폴백 */
     const body = { name: name, vcpu: d.vcpu, memory_mb: d.mem, disk_size_gb: d.disk, network_bridge: d.bridge };
     if (d.storage_type && d.storage_type !== 'auto') body.storage_type = d.storage_type;
     if (d.storage_pool) body.storage_pool = d.storage_pool;
@@ -1476,8 +1476,8 @@ async function doCreate() {
     toast('&#9989; ' + t('vm.created') + ': ' + escapeHtml(name), 's');
     const storageLabel = (d.storage_type && d.storage_type !== 'auto') ? d.storage_type : 'auto';
     addEvt(t('vm.created') + ': ' + name + ' (' + d.vcpu + 'vCPU, ' + d.mem + 'MB, ' + d.disk + 'GB, ' + storageLabel + ')');
-
-
+    /* W8 fix: fire-and-forget 백엔드 — 워커가 libvirt define 마칠 때까지 폴링 (최대 20초)
+       절대 타임아웃 25초 + 연속 에러 5회로 이중 안전장치 → interval 누수 방지 */
     if (typeof invalidateCache === 'function') invalidateCache('vm.list');
     var attempts = 0;
     var errStreak = 0;
@@ -1519,7 +1519,7 @@ async function doCreate() {
   }
 }
 
-
+/* ═══ SETTINGS ═══ */
 function showSettings() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   showModal(`<h2>${t('vm.settings')}: ${escapeHtml(v.name)}</h2><div class="split"><div class="left"><div class="hw-list"><div class="hw-item active" onclick="setHw(this,'identity')"><span class="hw-icon">&#9998;</span><span class="hw-label">Identity</span><span class="hw-val">${escapeHtml(v.name)}</span></div><div class="hw-item" onclick="setHw(this,'cpu')"><span class="hw-icon">&#9881;</span><span class="hw-label">CPU</span><span class="hw-val">${escapeHtml(String(v.vcpu || '-'))} vCPU</span></div><div class="hw-item" onclick="setHw(this,'mem')"><span class="hw-icon">&#128204;</span><span class="hw-label">Memory</span><span class="hw-val">${escapeHtml(String(v.memory_mb || '-'))} MB</span></div><div class="hw-item" onclick="setHw(this,'disk')"><span class="hw-icon">&#128190;</span><span class="hw-label">Disk Resize</span><span class="hw-val">Storage</span></div><div class="hw-item" onclick="setHw(this,'cpupin')"><span class="hw-icon">&#128204;</span><span class="hw-label">CPU Pinning</span><span class="hw-val">vCPU Pin</span></div><div class="hw-item" onclick="setHw(this,'bw')"><span class="hw-icon">&#128246;</span><span class="hw-label">Bandwidth</span><span class="hw-val">QoS</span></div><div class="hw-item" onclick="setHw(this,'cdrom')"><span class="hw-icon">&#128191;</span><span class="hw-label">CD/DVD (SATA)</span><span class="hw-val">ISO</span></div><div class="hw-item" onclick="setHw(this,'nic')"><span class="hw-icon">&#127760;</span><span class="hw-label">Network</span><span class="hw-val">Bridge</span></div><div class="hw-item" onclick="setHw(this,'autoprotect')"><span class="hw-icon">&#128737;</span><span class="hw-label">AutoProtect</span><span class="hw-val">Backup</span></div></div></div><div class="right"><div id="hw-edit">${hwIdentity()}</div></div></div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
@@ -1575,7 +1575,7 @@ async function browseISOForMount() {
     else { const dirs = {}; il.forEach(iso => { const d = iso.dir || '/pcvpool/iso'; if (!dirs[d]) dirs[d] = []; dirs[d].push(iso); });
       Object.entries(dirs).forEach(([dir, files]) => {
         h += '<div style="padding:6px 10px;font-size:10px;color:var(--accent);border-bottom:1px solid var(--border);font-weight:600">&#128194; ' + escapeHtml(dir) + '</div>';
-        files.forEach(iso => { const p = String(iso.path || iso.name || ''); const fn = (iso.name || p).replace(/^.*\//, ''); const sz = iso.size_human || '';
+        files.forEach(iso => { const p = String(iso.path || iso.name || ''); const fn = (iso.name || p).replace(/^.*\//, ''); const sz = iso.size_mb ? iso.size_mb + 'MB' : '';
           h += '<div onclick="selectISOForMount(' + escapeAttr(JSON.stringify(p)) + ')" style="padding:7px 12px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">';
           h += '<span class="color-accent">&#128191;</span><span class="flex-1">' + escapeHtml(fn) + '</span><span class="color-muted text-xs">' + escapeHtml(sz) + '</span></div>'; }); }); }
     h += '</div><div class="text-right mt-10"><button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
@@ -1687,20 +1687,20 @@ async function doEjt() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ SNAPSHOT SHORTCUT ═══ */
 function showSnap() { currentTab = 'snapshots'; document.querySelectorAll('#ct button').forEach(b => { b.classList.remove('active'); if (b.dataset.t === 'snapshots') b.classList.add('active'); }); renderContent(); }
 
-
+/* ═══ NIC MANAGER ═══ */
 async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return; showModal(`<h2>NIC: ${escapeHtml(v.name)}</h2><div id="nic-mgr">${t('loading')}</div><div class="mt-10"><div class="fr"><label>Bridge</label><input id="nm-br" value="pcvbr0"><button class="btn btn-g" onclick="nmAdd()">+ Add</button></div></div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
   try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); let h = '<table><thead><tr><th>MAC</th><th>Bridge</th><th>Model</th><th>IP</th><th>DNS</th><th></th></tr></thead><tbody>'; l.forEach(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); h += `<tr><td>${escapeHtml(c.mac || '-')}</td><td>${escapeHtml(c.bridge || c.source || '-')}</td><td>${escapeHtml(c.model || 'virtio')}</td><td>${escapeHtml(c.ip || '-')}</td><td>${escapeHtml(dns)}</td><td><button class="btn btn-r text-9" onclick="nmDel('${escapeAttr(c.mac)}')">${t('btn.delete')}</button></td></tr>`; }); document.getElementById('nic-mgr').innerHTML = l.length ? h + '</tbody></table>' : '<p class="color-muted">No NICs</p>'; } catch (e) { document.getElementById('nic-mgr').innerHTML = t('error'); } }
 async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ VNC MODAL ═══ */
 async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; showModal(`<h2>VNC: ${escapeHtml(v.name)}</h2><div id="vnc-info">${t('loading')}</div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
   try { const r = await fetchGet(EP.VNC(v.name)); const d = unwrapData(r); const stBadge = v.state === 'running' ? H.badge('Available', 'g') : H.badge('VM stopped', 'r'); document.getElementById('vnc-info').innerHTML = H.card('', H.row('Address', escapeHtml(d.vnc_address || d.address || 'localhost')) + H.row('Port', escapeHtml(String(d.vnc_port || d.port || '-'))) + H.row('Status', stBadge)); } catch (e) { document.getElementById('vnc-info').innerHTML = H.card('', '<p class="color-muted">VNC info unavailable</p>'); } }
 
-
+/* ═══ VM CLONE ═══ */
 function _vmCloneStorageKind(v) {
   const st = String(v?.storage_type || '').toLowerCase();
   const fmt = String(v?.disk_format || '').toLowerCase();
@@ -1917,7 +1917,7 @@ async function doVmClone() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ VM DISK RESIZE ═══ */
 function hwDisk() {
   return '<h4>&#128190; Disk Resize</h4><div class="fr"><label>New Size (GB)</label><input id="sd-size" type="number" value="40" placeholder="40"></div><div class="fr"><label>Disk Path</label><input id="sd-path" placeholder="vda (optional)"></div><button class="btn btn-g" onclick="doDiskResize()">' + t('btn.apply') + '</button><p class="stat-label mt-8">Live disk resize (qemu-img resize). VM can be running.</p>';
 }
@@ -1934,7 +1934,7 @@ async function doDiskResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-
+/* ═══ VM DELETE STATUS ═══ */
 async function vmDeleteStatus(name) {
   try {
     const r = await fetchGet(EP.VM_DELETE_STATUS(name));
@@ -1943,7 +1943,7 @@ async function vmDeleteStatus(name) {
   } catch (e) { return 'unknown'; }
 }
 
-
+/* ═══ VM EXPORT OVA ═══ */
 async function vmExportOva(idx) {
   const v = vmList[idx ?? selectedVmIndex]; if (!v) return;
   if (!await customConfirm('Export OVA', _L('VM을 OVA 파일로 내보내시겠습니까?', 'Export ' + v.name + ' as OVA file?') + '\n' + v.name)) return;
@@ -1956,7 +1956,7 @@ async function vmExportOva(idx) {
     pf.style.width = '70%'; ps.innerHTML = '<span class="spinner"></span> ' + _L('변환 진행 중...', 'Converting...');
     var d = unwrapData(r) || r;
     var path = d.path || d.ova_path || '';
-
+    /* 상태 폴링 (export-status 있으면) */
     for (var pi = 0; pi < 5; pi++) {
       await new Promise(function(res) { setTimeout(res, 2000); });
       pf.style.width = (75 + pi * 5) + '%';
@@ -1974,7 +1974,7 @@ async function vmExportOva(idx) {
   }
 }
 
-
+/* ═══ CPU PINNING ═══ */
 function hwCpuPin() {
   return '<h4>&#128204; CPU Pinning</h4><p class="stat-label mb-8">Pin vCPUs to physical cores for performance isolation.</p><div class="fr"><label>vCPU Map</label><input id="scpin" placeholder="0:0,1:2,2:4" class="flex-1"></div><p class="stat-label">Format: vCPU:pCPU pairs, comma separated (e.g., 0:0,1:2)</p><button class="btn btn-g mt-8" onclick="doCpuPin()">' + t('btn.apply') + '</button>';
 }
@@ -1990,7 +1990,7 @@ async function doCpuPin() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ BANDWIDTH QoS ═══ */
 function hwBandwidth() {
   return '<h4>&#128246; Network Bandwidth (QoS)</h4><p class="stat-label mb-8">Set network bandwidth limits for VM interfaces.</p><div class="fr"><label>Inbound (Mbps)</label><input id="sbw-in" type="number" value="1000" placeholder="1000"></div><div class="fr"><label>Outbound (Mbps)</label><input id="sbw-out" type="number" value="1000" placeholder="1000"></div><div class="fr"><label>Burst (KB)</label><input id="sbw-burst" type="number" value="1024" placeholder="1024"></div><button class="btn btn-g mt-8" onclick="doBandwidth()">' + t('btn.apply') + '</button>';
 }
@@ -2008,7 +2008,7 @@ async function doBandwidth() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ VM MEMORY STATS ═══ */
 async function showMemStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128204; Memory Stats: ' + esc(v.name) + '</h2>';
@@ -2043,7 +2043,7 @@ async function showMemStats() {
   }
 }
 
-
+/* ═══ VM CPU STATS ═══ */
 async function showCpuStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#9881; CPU Stats: ' + esc(v.name) + '</h2>';
@@ -2082,7 +2082,7 @@ async function showCpuStats() {
   }
 }
 
-
+/* ═══ VM DISK LIVE RESIZE (MODAL) ═══ */
 function showDiskLiveResize() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128190; Disk Live Resize: ' + esc(v.name) + '</h2>';
@@ -2110,7 +2110,7 @@ async function doDiskLiveResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-
+/* ═══ VM GUEST DISK USAGE ═══ */
 function _vmDiskUsagePct(fs) {
   if (!fs) return null;
   if (fs.usage_percent !== undefined) return Number(fs.usage_percent);
@@ -2203,7 +2203,7 @@ async function showVmDiskUsage() {
   }
 }
 
-
+/* ═══ GUEST AGENT ═══ */
 var _gaInstallCommands = {};
 
 function showGuestAgent() {
@@ -2368,7 +2368,7 @@ async function gaExec() {
   } catch (e) { if (el) el.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>'; }
 }
 
-
+/* ═══ D3: DRAG & DROP VM MIGRATION ═══ */
 async function vmMigrateDrop(vmName, targetIp, targetName) {
   if (!PCV.isMultiEdgeUI()) {
     toast(_L('클러스터 빌드 전용 기능입니다', 'This action is available only on the cluster build'), false);
@@ -2400,7 +2400,7 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
     if (ps) ps.innerHTML = '&#10060; ' + esc(e.message);
   }
 }
-
+/* ═══ DISK I/O THROTTLE EDITOR ═══ */
 function showBlkioEditor() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128190; ' + (t('vm.blkio_title') || 'Disk I/O Limits') + ': ' + esc(v.name) + '</h2>';
@@ -2476,11 +2476,11 @@ async function blkioSet() {
   }
 }
 
-
-
-
-
-
+/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
+ *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
+ *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
+ *  window.render() 등 직접 참조를 위한 전환기 코드.
+ *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
 PCV.vm = {
   render: render,
   setSort: setSort,
@@ -2525,7 +2525,7 @@ PCV.vm = {
   connectWS: connectWS
 };
 
-
+/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.render = render;
 window.setSort = setSort;
 window.getFiltered = getFiltered;

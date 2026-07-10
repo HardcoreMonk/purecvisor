@@ -2,7 +2,7 @@
 
 - **상태**: Accepted
 - **일자**: 2026-05-03
-- **Single Edge 적용 상태**: 활성. `purecvisor` 호스트 노드 보호 기능으로 제한한다.
+- **Single Edge 적용 상태**: 활성. `purecvisor-single` 호스트 노드 보호 기능으로 제한한다.
 - **관련**: ADR-0001, ADR-0007, ADR-0018, ADR-0019
 
 ## 맥락

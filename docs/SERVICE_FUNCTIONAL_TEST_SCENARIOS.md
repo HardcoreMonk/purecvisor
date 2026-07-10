@@ -3,7 +3,7 @@
 > **대상:** PureCVisor Single Edge 서비스 기능 검증
 > **목적:** 성능, 장시간 실행, 단순 API 성공 응답으로는 보장되지 않는 기능 정합성을 시나리오 단위로 검증하기 위한 기준
 > **현행화 기준:** 2026-05-04
-> **관련 문서:** [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md), [GUIDE.md](GUIDE.md), [ADR_INDEX.md](ADR_INDEX.md)
+> **관련 문서:** [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md), [GUIDE.md](GUIDE.md), [ADR_INDEX.md](ADR_INDEX.md), [2026-04-29-patch-work-report.md](2026-04-29-patch-work-report.md)
 
 ---
 

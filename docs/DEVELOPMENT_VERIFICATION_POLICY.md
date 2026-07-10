@@ -3,7 +3,7 @@
 > **대상:** PureCVisor Single Edge
 > **목적:** 기능 개발, 버그 수정, 릴리스 직전 검증을 같은 기준으로 운영하기 위한 공식 규칙
 > **현행화 기준:** 2026-05-04
-> **관련 문서:** [GUIDE.md](GUIDE.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
+> **관련 문서:** [GUIDE.md](GUIDE.md), [DEVELOPER_INDEX.md](DEVELOPER_INDEX.md), [SOURCE_CODE_COMMENTING_STANDARD.md](SOURCE_CODE_COMMENTING_STANDARD.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
 ---
 
@@ -25,7 +25,7 @@
 4. 릴리스 판단은 기능 수가 아니라 골든 시나리오와 운영 안정성 기준으로 내린다.
 5. 검증되지 않은 항목은 `정상`이 아니라 `미확인`으로 취급한다.
 6. 성능 테스트, 장시간 실행, API 응답 시간 측정은 기능 정합성 검증을 대체하지 않는다.
-7. 공개본 소스에는 설명 주석을 남기지 않는다.
+7. 의미 있는 소스 변경은 [SOURCE_CODE_COMMENTING_STANDARD.md](SOURCE_CODE_COMMENTING_STANDARD.md)의 주니어 개발자용 상세 설명과 비개발자용 영향 설명 기준을 함께 만족해야 한다.
 
 ---
 
@@ -69,18 +69,25 @@
 - 대상 바이너리 빌드 성공
 - 정적 품질 게이트 통과
 - 수정 경로에 대한 최소 1회 실행 검증
-- 공개본 소스에 설명 주석이 새로 생기지 않았는지 확인
+- 소스 변경이면 [SOURCE_CODE_COMMENTING_STANDARD.md](SOURCE_CODE_COMMENTING_STANDARD.md)에 맞춰 주니어 개발자용 상세 설명과 비개발자용 영향 설명을 갱신
 
-### 4.2.1 공개본 소스 주석 게이트
+### 4.2.1 소스코드 작성 및 주석 표준 게이트
 
 `src/`, `include/`, `ui/modules/`, `scripts/`, `tests/`에서 의미 있는 로직을 추가하거나 바꾸면 다음을 Level 1 검증에 포함한다.
 
 ```bash
+bash tests/integration/test_source_commenting_standard.sh
 rg -n "\b(TODO|FIXME|HACK|XXX)\b" src include tests ui/modules scripts
 git diff --check
 ```
 
-첫 번째 명령은 출력이 없어야 한다. 금지어 자체를 검사하는 테스트는 런타임 문자열 조합으로 작성해 부채 스캔과 충돌하지 않게 한다.
+첫 번째 명령은 작성 표준 문서가 개발 문서 진입점과 검증 정책에 연결되어 있는지 확인한다. 두 번째 명령은 출력이 없어야 한다. 금지어 자체를 검사하는 테스트는 런타임 문자열 조합으로 작성해 부채 스캔과 충돌하지 않게 한다.
+
+리뷰어는 다음 조건을 확인한다.
+
+- 신규 또는 변경된 핵심 entry point가 caller 계약, ownership, cleanup, 실패 경로를 설명하는가?
+- 사용자 데이터, 권한, 네트워크, 비동기 결과, 보안 경계에 닿는 변경에 비개발자용 영향 설명이 별도로 있는가?
+- 주석이 ADR, Single Edge 공개 경계, 실제 구현과 충돌하지 않는가?
 
 ### 4.3 ADR-0018 정적 게이트
 
@@ -187,7 +194,7 @@ scripts/check_vm_clone_cleanup.py
 PCV_NO_DEPLOY=1 scripts/bundle-ui.sh
 python3 scripts/check_ui_bundle_fresh.py
 for f in ui/app.js ui/modules/*.js ui/vendor/chart.umd.min.js ui/vendor/novnc/novnc.esm.js; do node -c "$f"; done
-git diff --check -- src/api/dispatcher.c src/modules/virt/vm_clone_plan.c src/modules/virt/vm_clone_plan.h src/modules/storage/zfs_driver.c src/modules/storage/zfs_driver.h src/utils/pcv_spawn.c src/utils/pcv_spawn.h src/cli/purecvisorctl.c ui/modules/vm.js ui/app.bundle.js tests/test_spawn_launcher.c tests/test_vm_clone_plan.c scripts/check_vm_clone_cleanup.py docs/adr/0023-vm-clone-beta-safety-guard.md docs/DEVELOPMENT_VERIFICATION_POLICY.md docs/GUIDE.md docs/ADR_INDEX.md Makefile tests/test_main.c
+git diff --check -- src/api/dispatcher.c src/modules/virt/vm_clone_plan.c src/modules/virt/vm_clone_plan.h src/modules/storage/zfs_driver.c src/modules/storage/zfs_driver.h src/utils/pcv_spawn.c src/utils/pcv_spawn.h src/cli/purecvisorctl.c ui/modules/vm.js ui/app.bundle.js tests/test_spawn_launcher.c tests/test_vm_clone_plan.c scripts/check_vm_clone_cleanup.py docs/adr/0023-vm-clone-beta-safety-guard.md docs/DEVELOPMENT_VERIFICATION_POLICY.md docs/GUIDE.md docs/SOURCE_LOGIC_STEP_BY_STEP_GUIDE.md docs/DEVELOPER_INDEX.md docs/ADR_INDEX.md follower.md Makefile tests/test_main.c
 ```
 
 필수 회귀 케이스:

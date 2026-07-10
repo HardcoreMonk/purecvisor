@@ -1,12 +1,12 @@
+# ==========================================================
+# PureCvisor Async Hypervisor Orchestrator Makefile
+# ==========================================================
 
-
-
-
-
-
+# gcc-14가 있으면 우선 사용한다. Ubuntu 24.04 기본 gcc-13은 -std=gnu23을
+# 지원하지 않고 -std=gnu2x까지만 지원하므로 C23 빌드가 즉시 실패한다.
 CC_BASE := $(shell command -v gcc-14 >/dev/null 2>&1 && echo gcc-14 || echo gcc)
 
-
+# ccache 자동 감지 (있으면 컴파일 캐시 사용 — clean 후 재빌드 5~10배 가속)
 CCACHE := $(shell command -v ccache 2>/dev/null)
 ifneq ($(CCACHE),)
     CC = ccache $(CC_BASE)
@@ -16,25 +16,25 @@ else
     $(info [ccache] not found — install: sudo apt install ccache)
 endif
 
-
+# --- [1. 의존성 패키지 및 라이브러리] ---
 PKGS = glib-2.0 gio-2.0 gio-unix-2.0 json-glib-1.0 libvirt-glib-1.0 libvirt-gobject-1.0 libvirt lxc libsoup-3.0 libcrypto
 
+# --- [2. 컴파일러 및 링커 옵션] ---
 
-
-
+# [2-1] 공통 기본 플래그
 CFLAGS  = -std=gnu23 -Wall -Wextra -D_GNU_SOURCE -Wno-unused-parameter
 CFLAGS += -Iinclude -Isrc -Iinclude/purecvisor -I.
 CFLAGS += $(shell pkg-config --cflags $(PKGS))
 CFLAGS += -MMD -MP
 
-
+# [2-2] 보안 강화 플래그 (D-1: Sprint D Build Hardening)
 CFLAGS += -fstack-protector-strong
 CFLAGS += -D_FORTIFY_SOURCE=2
 CFLAGS += -fPIE
 CFLAGS += -ffunction-sections -fdata-sections
 CFLAGS += -Wformat=2 -Wformat-security
 
-
+# [2-3] debug / release 모드 선택 (기본: debug)
 BUILD ?= debug
 ifeq ($(BUILD),release)
     CFLAGS  += -O2 -DNDEBUG -flto=auto
@@ -45,13 +45,13 @@ else
 endif
 LDFLAGS_EXTRA += -Wl,--gc-sections
 
-
+# [2-3b] CFLAGS_EXTRA / LDFLAGS_EXTRA — sanitize/coverage 등 외부 주입용
 CFLAGS += $(CFLAGS_EXTRA)
 
 LDFLAGS  = $(shell pkg-config --libs $(PKGS))
 LDFLAGS += -lvirt -lvirt-qemu -llxc -lsqlite3 -lm -lz $(LDFLAGS_EXTRA)
 
-
+# [2-4] D-3: libcap / libseccomp 조건부 감지
 ifneq ($(shell pkg-config --exists libcap 2>/dev/null && echo yes),)
     CFLAGS  += -DHAVE_LIBCAP $(shell pkg-config --cflags libcap)
     LDFLAGS += $(shell pkg-config --libs libcap)
@@ -68,15 +68,15 @@ else
     $(info [D-3] libseccomp: not found — seccomp filter will be skipped at runtime)
 endif
 
-
-
-
-
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [2-5] Sprint H: CLI 전용 readline 감지
+#
+#   readline 은 CLI(purecvisorctl)의 REPL/히스토리/Tab완성에만 사용.
+#   데몬(purecvisorsd)·TUI(purecvisortui) 빌드에는 영향 없음.
+#
+#   CLI_CFLAGS  : src/cli/purecvisorctl.c 컴파일 시 추가
+#   CLI_LDFLAGS : bin/pcvctl 링킹 시 추가
+# ──────────────────────────────────────────────────────────
 CLI_CFLAGS  :=
 CLI_LDFLAGS :=
 
@@ -93,9 +93,9 @@ else
     $(info [H]   readline: DISABLED (NO_READLINE=1))
 endif
 
-
-
-
+# ──────────────────────────────────────────────────────────
+# [2-6] io_uring 감지 (Phase U-1)
+# ──────────────────────────────────────────────────────────
 URING_SRCS :=
 ifneq ($(shell test -f /usr/include/liburing.h && echo yes),)
     CFLAGS  += -DHAVE_LIBURING -DPCV_URING_ENABLED=1
@@ -106,25 +106,25 @@ else
     $(info [U]   liburing: not found — GLib I/O fallback)
 endif
 
-
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [2-7] Edition 고정: purecvisor-single 공개 리포는 Single Edge 전용
+#
+#   이 리포는 오픈소스 공개 범위이므로 클러스터/Multi Edge 빌드 경로를
+#   제공하지 않는다. 상용 Multi Edge 코드는 별도 비공개 리포에서 관리한다.
+# ──────────────────────────────────────────────────────────
 EDITION ?= single
 EDITION_STATE_FILE = .edition-state
 
 ifneq ($(EDITION),single)
-    $(error purecvisor supports EDITION=single only)
+    $(error purecvisor-single supports EDITION=single only)
 endif
 
 CFLAGS += -DPCV_CLUSTER_ENABLED=0
 $(info [EDITION] Single Edge — public standalone build)
 
+# --- [3. 소스 파일 정의] ---
 
-
-
+# [3-1] 공통 allowlist manifests
 COMMON_CORE_SRCS = \
     src/bootstrap/pcv_bootstrap_info.c \
     src/modules/core/vm_state.c \
@@ -165,7 +165,7 @@ SINGLE_BOOTSTRAP_SRCS = \
     src/bootstrap/pcv_single_etcd_lock_stub.c \
     src/modules/network/ovn_single_local.c
 
-
+# [3-2] 메인 데몬용 소스
 DAEMON_COMMON_SRCS = \
     src/api/uds_server.c \
     src/api/dispatcher.c \
@@ -217,6 +217,10 @@ DAEMON_COMMON_SRCS = \
     src/utils/pcv_tls.c \
     src/modules/network/nfv_manager.c \
     src/modules/network/security_group.c \
+    src/modules/network/security_group_nft.c \
+    src/modules/network/vm_iface.c \
+    src/modules/network/vm_vnet_cache.c \
+    src/modules/network/network_firewall_host.c \
     src/modules/ai/anomaly_detector.c \
     src/modules/ai/workload_predict.c \
     src/modules/ai/self_healing.c \
@@ -229,7 +233,7 @@ DAEMON_COMMON_SRCS = \
 
 DAEMON_SRCS = src/main.c $(DAEMON_COMMON_SRCS) $(SINGLE_BOOTSTRAP_SRCS)
 
-
+# [3-3] 테스트 러너 소스
 TEST_COMMON_SRCS = \
     tests/test_stubs.c \
     tests/test_main.c \
@@ -242,6 +246,8 @@ TEST_COMMON_SRCS = \
     tests/test_spawn_launcher.c \
     tests/test_jwt.c \
     tests/test_network.c \
+    tests/test_security_group.c \
+    tests/test_sg_nft_builder.c \
     tests/test_container.c \
     tests/test_privdrop.c \
     tests/test_ovn.c \
@@ -280,6 +286,8 @@ TEST_COMMON_SRCS = \
     tests/test_security_policy.c \
     tests/test_security_actions.c \
     tests/test_hids_file_integrity.c \
+    tests/test_vm_iface.c \
+    tests/test_vm_vnet_cache.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
     src/modules/security/security_policy.c \
@@ -294,6 +302,11 @@ TEST_COMMON_SRCS = \
     src/modules/dispatcher/rpc_utils.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
+    src/modules/network/security_group.c \
+    src/modules/network/security_group_nft.c \
+    src/modules/network/vm_iface.c \
+    src/modules/network/vm_vnet_cache.c \
+    src/modules/network/network_firewall_host.c \
     $(URING_SRCS) \
     $(COMMON_CORE_SRCS)
 
@@ -310,12 +323,18 @@ TEST_SRCS = \
 CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c
 TUI_SRCS = src/tui/purecvisortui.c src/tui/tui_widgets.c src/tui/tui_rpc.c
 
-
+# --- [4. 오브젝트 및 의존성 파일 변환] ---
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 TEST_OBJS   = $(TEST_SRCS:.c=.o)
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
 TUI_OBJS    = $(TUI_SRCS:.c=.o)
 DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d) $(TUI_SRCS:.c=.d)
+
+# 헤더 의존 자동 추적: -MMD 로 생성된 .d 를 실제로 include 해야 헤더(예:
+# version.h) 변경이 재컴파일을 트리거한다. 누락 시 헤더만 바꾼 증분 빌드가
+# stale object 를 남긴다 (v1.1.0 릴리스에서 version.h 범프가 안 잡힌 원인).
+# '-' 접두: 최초 빌드(.d 부재) 시 경고 없이 진행.
+-include $(DEPENDS)
 
 ALL_DAEMON_SRCS = $(DAEMON_SRCS)
 ALL_TEST_SRCS = $(TEST_SRCS)
@@ -339,56 +358,56 @@ $(EDITION_STATE_FILE): FORCE
 		printf '%s\n' "$(EDITION)" > $@; \
 	fi
 
-
+# --- [5. 빌드 타겟 이름 정의] ---
 DAEMON_BIN = bin/purecvisorsd
 TEST_BIN   = test_runner
 CLI_BIN    = bin/pcvctl
 TUI_BIN    = bin/pcvtui
 
-
-
-
+# ==========================================================
+# 기본 타겟
+# ==========================================================
 all: $(DAEMON_BIN) $(CLI_BIN) $(TUI_BIN)
 
 daemon: $(DAEMON_BIN)
 cli:    $(CLI_BIN)
 tui:    $(TUI_BIN)
 
-
+# [데몬 링킹]
 $(DAEMON_BIN): $(DAEMON_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking Daemon: $@"
 	$(CC) -o $@ $(DAEMON_OBJS) $(LDFLAGS)
 
-
-
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [CLI 전용 컴파일 규칙] — Sprint H
+#
+#   공통 %.o 규칙 대신 명시적 패턴으로 CLI_CFLAGS 적용.
+#   이 규칙이 없으면 readline 매크로(-DHAVE_READLINE)가
+#   purecvisorctl.o 에 전달되지 않음.
+# ──────────────────────────────────────────────────────────
 src/cli/%.o: src/cli/%.c
 	@echo "🔨 Compiling CLI (readline=$(if $(findstring HAVE_READLINE,$(CLI_CFLAGS)),on,off)): $<"
 	$(CC) $(CFLAGS) $(CLI_CFLAGS) -c $< -o $@
 
-
+# [CLI 링킹] — CLI_LDFLAGS(-lreadline) 추가
 $(CLI_BIN): $(CLI_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking CLI Client: $@"
 	$(CC) -o $@ $(CLI_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
 
-
+# [TUI 링킹]
 $(TUI_BIN): $(TUI_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking TUI Client: $@"
 	$(CC) -o $@ $(TUI_OBJS) $(LDFLAGS) -lncursesw -lpthread
 
-
+# [테스트 러너 링킹]
 test_runner: $(TEST_OBJS)
 	@echo "🔗 Linking Test Runner: $@"
 	$(CC) -o $(TEST_BIN) $(TEST_OBJS) $(LDFLAGS)
 
-
+# [테스트 실행]
 test: test_runner
 	@echo "🧪 Running g_test_* suite..."
 	@sudo ./$(TEST_BIN) -v > test_results.txt 2>&1; \
@@ -404,12 +423,12 @@ test-tap: test_runner
 	 cat test_results_tap.txt; \
 	 exit $$status
 
-
+# [공통 컴파일 규칙]
 %.o: %.c
 	@echo "🔨 Compiling: $<"
 	$(CC) $(CFLAGS) -c $< -o $@
 
-
+# --- [6. 유틸리티 타겟] ---
 
 memcheck: test_runner
 	@echo "🔍 Running Valgrind on test suite..."
@@ -437,11 +456,11 @@ memcheck-daemon: $(DAEMON_BIN)
 		--track-origins=yes \
 		./$(DAEMON_BIN)
 
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [completion 설치] — Sprint H
+#   make install-completion      → bash + zsh 자동완성 설치
+#   make install-completion-user → ~/.bash_completion.d (비root)
+# ──────────────────────────────────────────────────────────
 BASHCOMPDIR ?= /etc/bash_completion.d
 ZSHCOMPDIR  ?= /usr/share/zsh/vendor-completions
 
@@ -475,10 +494,13 @@ clean:
 	      $(CLEAN_COVERAGE_ARTIFACTS) $(CLEAN_PROTO_ARTIFACTS) \
 	      $(CLEAN_UI_ARTIFACTS) \
 	      .edition-single $(EDITION_STATE_FILE)
-	rm -rf $(COV_DIR)
+	rm -rf $(COV_DIR) dist
 
-
+# ── UI Bundle ────────────────────────────────────────────────
 UI_DIR = ui
+# 번들 헤더 버전 — version.h(PCV_PRODUCT_VERSION) 단일 소스에서 파생.
+# date 대신 이 값을 박아 ui-bundle 산출을 결정적(reproducible)으로 만든다.
+PCV_UI_VERSION := $(shell sed -n 's/.*PCV_PRODUCT_VERSION[[:space:]]*"\([^"]*\)".*/\1/p' include/purecvisor/version.h)
 UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/modules/ui.js \
     $(UI_DIR)/modules/monitor.js $(UI_DIR)/modules/vm.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js \
@@ -492,6 +514,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
 ui-bundle: $(UI_MODULES)
 	@echo "📦 Bundling UI: $(UI_DIR)/bundle.js"
 	@cat $(UI_MODULES) > $(UI_DIR)/bundle.js
+	@echo "/* PureCVisor UI Bundle v$(PCV_UI_VERSION) — $$(wc -l < $(UI_DIR)/bundle.js) LOC (deterministic: no build timestamp) */" >> $(UI_DIR)/bundle.js
 	@cp $(UI_DIR)/bundle.js $(UI_DIR)/app.bundle.js
 	@echo "✅ Bundle: $(UI_DIR)/bundle.js + app.bundle.js ($$(wc -c < $(UI_DIR)/bundle.js | tr -d ' ') bytes)"
 
@@ -501,28 +524,28 @@ ui-prod: ui-bundle
 		$(UI_DIR)/index.html > $(UI_DIR)/index.prod.html
 	@echo "✅ Production: $(UI_DIR)/index.prod.html + $(UI_DIR)/bundle.js"
 
-
-
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [Sanitize 빌드] — ASan + UBSan
+#
+#   make sanitize        → test_runner를 ASan/UBSan으로 빌드 후 실행
+#   Valgrind 대비 ~10배 빠르며 race/UB까지 검출.
+#   pre-commit/CI에서 Valgrind 보완 게이트로 사용.
+# ──────────────────────────────────────────────────────────
 SAN_FLAGS = -fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g -U_FORTIFY_SOURCE
-
-
+# seccomp subprocess tests are incompatible with LeakSanitizer's process-exit
+# checks; leak coverage is handled by make memcheck.
 SAN_ASAN_OPTIONS ?= detect_leaks=0:abort_on_error=0:halt_on_error=0:print_summary=1
 SAN_UBSAN_OPTIONS ?= print_stacktrace=1:halt_on_error=1
 
-
-
-
-
-
-
-
-
-
+# ──────────────────────────────────────────────────────────
+# [libFuzzer 빌드] — clang + -fsanitize=fuzzer
+#
+#   make fuzz                   → fuzz_pcv_validate 빌드
+#   make fuzz-run FUZZ_TIME=300 → 300초 동안 퍼징
+#
+#   대상: src/utils/pcv_validate.c (입력 검증 레이어)
+#   harness: tests/fuzz/fuzz_pcv_validate.c
+# ──────────────────────────────────────────────────────────
 FUZZ_TIME ?= 60
 FUZZ_FLAGS = -fsanitize=fuzzer,address,undefined -fno-omit-frame-pointer -O1 -g -U_FORTIFY_SOURCE
 FUZZ_INC   = -Iinclude -Iinclude/purecvisor -Isrc $(shell pkg-config --cflags glib-2.0 gio-2.0 json-glib-1.0 libcrypto)
@@ -596,17 +619,26 @@ sanitize:
 release:
 	$(MAKE) BUILD=release all
 
+# --- [.deb 설치 패키지] ---
+# make deb          → dist/purecvisor-single_<ver>.0_amd64.deb (release 빌드 기반)
+# make deb DEB_PATCH=3 → ..._<ver>.3_amd64.deb (patch 지정)
+# 버전은 include/purecvisor/version.h(PCV_PRODUCT_VERSION) 단일 소스에서 파생.
+deb: release ui-bundle
+	@command -v dpkg-deb >/dev/null 2>&1 || { echo "make deb: dpkg-deb 필요 (sudo apt install dpkg-dev)"; exit 1; }
+	@command -v fakeroot >/dev/null 2>&1 || { echo "make deb: fakeroot 필요 (sudo apt install fakeroot)"; exit 1; }
+	@bash packaging/deb/build-deb.sh
+
 single:
 	$(MAKE) all
 
 multi:
-	@echo "purecvisor is Single Edge only; use the private Multi Edge repository." >&2
+	@echo "purecvisor-single is Single Edge only; use the private Multi Edge repository." >&2
 	@exit 2
 
-
-
-
-
+# --- [자동화 테스트] ---
+# make test-safe       → Tier 0(유닛) + Tier 1(SAFE 통합)
+# make test-all        → Tier 0+1+2 (MODERATE 포함, 데몬 필요)
+# make test-integ      → Tier 1+2 (통합 테스트만)
 test-safe:
 	@./scripts/run_auto_tests.sh --ci
 
@@ -617,16 +649,16 @@ test-integ:
 	@./scripts/run_auto_tests.sh --tier 1 --ci
 	@./scripts/run_auto_tests.sh --tier 2 --ci
 
-
+# --- [Git Hooks 설치] ---
 install-hooks:
 	@echo "🔗 Installing pre-commit hook..."
 	@cp scripts/pre-commit .git/hooks/pre-commit
 	@chmod +x .git/hooks/pre-commit
 	@echo "✅ pre-commit hook installed (.git/hooks/pre-commit)"
 
-
-
-
+# --- [정적 분석] ---
+# cppcheck: 소스 코드 정적 분석 (NULL 역참조, 메모리 누수, 미사용 변수 등)
+# compile_commands.json: clang-tidy/IDE 연동용
 cppcheck:
 	@echo "🔍 Running cppcheck static analysis..."
 	@cppcheck --enable=warning,performance,portability \
@@ -662,8 +694,8 @@ compile-commands:
 	@echo "]" >> compile_commands.json
 	@echo "✅ compile_commands.json generated ($$(wc -l < compile_commands.json) lines)"
 
-
-
+# --- [코드 커버리지] ---
+# make coverage: gcov 빌드 + 테스트 실행 + 리포트 생성
 COV_DIR = coverage_report
 COV_MIN ?= 52
 coverage:
@@ -694,8 +726,8 @@ coverage-html: coverage
 		exit 1; \
 	fi
 
-
-
+# coverage-check: lcov 요약에서 line 커버리지를 추출, COV_MIN 미만이면 exit 1
+# CI Gate 8 차단용 — coverage-html 실행 후 호출
 coverage-check: coverage-html
 	@PCT=$$(lcov --summary $(COV_DIR)/coverage_filtered.info 2>/dev/null | \
 	        grep -oP 'lines\.\.\.\.\.\.: \K[0-9.]+' | head -1); \
@@ -705,7 +737,7 @@ coverage-check: coverage-html
 	     { echo "❌ coverage $${PCT}% < $(COV_MIN)% 임계값"; exit 1; } || \
 	     echo "✅ coverage $${PCT}% ≥ $(COV_MIN)%"
 
-.PHONY: all clean release single multi test_runner test test-tap \
+.PHONY: all clean release deb single multi test_runner test test-tap \
         memcheck memcheck-daemon daemon cli tui sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \

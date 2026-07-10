@@ -1,22 +1,22 @@
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/help.js
+   Help, REST Guide, Service Guide, Swagger API, Keyboard Help
+   한국어/영어 동시 지원 (I18N.getLang() 기반)
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Help is a documentation surface inside the app shell, but it must still obey
+ * runtime contracts: all labels pass through _L(), endpoint counts come from
+ * PCV.config when available, and generated tables stay searchable without
+ * rebinding listeners after every render.
+ *
+ * The module intentionally keeps buildHelpData() local to renderHelp() until it
+ * exports the function for integration checks. That lets the Single Edge filter
+ * verify visible help content without coupling to the rest of the navigation
+ * lifecycle.
+ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ADR-0013 IIFE 전환 후 _L 공유를 위해 IIFE 바깥에 선언
+   (13개 모듈이 free identifier로 _L 호출 — 전역 스코프 필수) */
 var _L = window._L = function(ko, en) {
   return (typeof I18N !== 'undefined' && I18N.getLang() === 'en') ? en : ko;
 };
@@ -24,7 +24,7 @@ var _L = window._L = function(ko, en) {
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ HELP & REFERENCE ═══ */
 function renderHelp(b) {
   var h = H.sectionLg(_L('도움말 & 참조', 'Help & Reference'));
   h += '<div style="margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,rgba(0,240,255,0.08),rgba(0,255,136,0.05));border:1px solid var(--accent);border-radius:8px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
@@ -118,7 +118,7 @@ window.renderHelp = renderHelp;
 function filterHelp() { var q = document.getElementById('help-search').value.toLowerCase(); document.querySelectorAll('#help-content tr[data-search]').forEach(function(r) { r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none'; }); }
 window.filterHelp = filterHelp;
 
-
+/* ═══ REST API GUIDE ═══ */
 function renderRestGuide(b) {
   var h = H.sectionLg(_L('REST API 가이드', 'REST API Guide'));
   h += '<div class="sg grid-2">';
@@ -159,7 +159,7 @@ function renderRestGuide(b) {
 }
 window.renderRestGuide = renderRestGuide;
 
-
+/* ═══ SERVICE GUIDE ═══ */
 function renderServiceGuide(b) {
   var h = H.sectionLg(_L('PureCVisor 서비스 가이드', 'PureCVisor Service Guide'));
   h += '<div class="mb-16"><input id="guide-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterGuide()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
@@ -314,7 +314,7 @@ window.renderServiceGuide = renderServiceGuide;
 function filterGuide() { var q = document.getElementById('guide-search').value.toLowerCase(); document.querySelectorAll('#guide-content .hc[data-guide]').forEach(function(c) { c.style.display = !q || c.dataset.guide.includes(q) ? '' : 'none'; }); }
 window.filterGuide = filterGuide;
 
-
+/* ═══ SWAGGER API ═══ */
 function renderSwaggerApi(b) {
   var mc = function(m) { return m === 'GET' ? '#61affe' : m === 'POST' ? '#49cc90' : m === 'DELETE' ? '#f93e3e' : m === 'PUT' ? '#fca130' : '#00f0ff'; };
   var endpoints = [
@@ -439,13 +439,13 @@ async function swTry(m, p, body) {
   var url = API_BASE + p.replace(/\{[^}]+\}/g, 'test');
   try { var opts = { headers: { Authorization: 'Bearer ' + authToken } };
     if (m === 'POST' || m === 'PUT' || m === 'DELETE') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
-    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {  }
+    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* not JSON */ }
     showModal('<h2>' + _L('응답', 'Response') + ': ' + m + ' ' + p + '</h2>' + H.row(_L('상태', 'Status'), '<span style="color:' + (r.ok ? 'var(--green)' : 'var(--red)') + '">' + r.status + '</span>') + '<pre style="background:var(--bg);padding:12px;border-radius:6px;max-height:400px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap">' + pretty.replace(/</g, '&lt;') + '</pre><div style="text-align:right;margin-top:12px"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>');
   } catch (e) { toast(_L('요청 실패', 'Request failed') + ': ' + e.message, false); }
 }
 window.swTry = swTry;
 
-
+/* ═══ KEYBOARD HELP OVERLAY ═══ */
 var kbdHelpOpen = false;
 window.kbdHelpOpen = kbdHelpOpen;
 
@@ -476,7 +476,7 @@ window.toggleKbdHelp = toggleKbdHelp;
 function closeKbdHelp() { kbdHelpOpen = false; window.kbdHelpOpen = kbdHelpOpen; var el = document.getElementById('kbd-help-overlay'); if (el) el.remove(); }
 window.closeKbdHelp = closeKbdHelp;
 
-
+/* ── PCV.help namespace export ────────────────────── */
 PCV.help = {
   renderHelp: renderHelp,
   filterHelp: filterHelp,

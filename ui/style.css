@@ -1,20 +1,20 @@
+/* ============================================================
+   PureCVisor Dashboard — style.css
+   F-1: CSS 분리 + 인라인 스타일 클래스 전환
+   F-2: 스켈레톤 로딩, 포커스 트랩, 토스트 개선
+   F-4: WCAG 접근성, prefers-color-scheme
+   A4: CSS 모듈화 — Section markers
+   ============================================================ */
 
+/* ═══════════════════════════════════════════════════════════════
+   SECTION: Variables
+   — :root CSS custom properties, theme data-attributes, chart vars
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/* ── CSS Variables ──────────────────────────────────────────── */
 :root {
   --bg: #0a0f1a; --bg2: #0f1525; --bg3: #141c2e;
-  --fg: #e0f0ff; --fg2: #8895b5;
+  --fg: #e0f0ff; --fg2: #8895b5; /* WCAG AA: 4.6:1 on #0f1525 (NEON_DARK) */
   --accent: #22d3ee; --green: #34d399; --red: #f43f5e;
   --yellow: #fbbf24; --cyan: #22d3ee; --peach: #ff6600; --magenta: #ff00aa;
   --border: #1e293b;
@@ -27,18 +27,18 @@
   --bg-panel: rgba(15,21,37,.55);
   --border-panel: rgba(255,255,255,.06);
   --glass-shadow: inset 0 1px 0 rgba(255,255,255,0.04);
-
+  /* Phase 3: Supanova Taste Layer — 전역 스프링 모션 */
   --pcv-spring: cubic-bezier(0.16, 1, 0.3, 1);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SECTION: Layout
+   — Reset, body, .main, .sidebar, .menubar, .toolbar, .sb-bar,
+     .content, .ct, grid system, split pane, activity bar,
+     sidebar-panel, editor tabs, bottom panel, breadcrumbs
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
+/* ── Reset ─────────────────────────────────────────────────── */
 * { margin: 0; padding: 0; box-sizing: border-box; word-break: keep-all; }
 
 body {
@@ -50,7 +50,7 @@ body {
   -webkit-font-smoothing: antialiased; transition: background-color .4s ease;
 }
 
-
+/* F-4: Skip to content link */
 .skip-link {
   position: absolute; top: -40px; left: 0; z-index: 999;
   background: var(--accent); color: #000; padding: 8px 16px;
@@ -59,7 +59,7 @@ body {
 }
 .skip-link:focus { top: 0; }
 
-
+/* F-4: Focus visible (키보드 내비게이션) */
 :focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 2px;
@@ -71,7 +71,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 }
 :focus:not(:focus-visible) { outline: none; }
 
-
+/* ── Menu Bar ──────────────────────────────────────────────── */
 .menubar {
   background: linear-gradient(180deg, rgba(12, 18, 25, .96), rgba(10, 14, 20, .96));
   border-bottom: 1px solid rgba(255,255,255,.06);
@@ -108,7 +108,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   margin: 4px 8px;
 }
 
-
+/* ── Toolbar ───────────────────────────────────────────────── */
 .toolbar {
   background: linear-gradient(180deg, rgba(16, 22, 29, .96), rgba(10, 15, 22, .96));
   border-bottom: 1px solid rgba(255,255,255,.08);
@@ -165,7 +165,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .pwr button:first-child { border-radius: 4px 0 0 4px; }
 .pwr button:last-child { border-radius: 0 4px 4px 0; }
 
-
+/* ── Main Layout ───────────────────────────────────────────── */
 .main {
   display: flex; flex: 1; overflow: hidden;
   margin-right: 0;
@@ -241,7 +241,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   color: rgba(140, 159, 174, .72);
 }
 
-
+/* ── Content ───────────────────────────────────────────────── */
 .content { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
 .ct {
   background: var(--bg2); border-bottom: 1px solid var(--border);
@@ -256,16 +256,16 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .cb { flex: 1; overflow-y: auto; padding: 16px; transition: opacity 0.15s ease-in-out; }
 .cb.fade-out { opacity: 0; }
 
+/* ═══════════════════════════════════════════════════════════════
+   SECTION: Components
+   — .hc (card), .badge, .btn, table, .prog-bar, .toast, .spinner,
+     form inputs, progress bar, wizard steps, context menu, snapshot
+     tree, hardware list, terminal, VNC, container layout, code block,
+     swagger, alert config, favorites, confirm dialog, data table,
+     canvas charts, status bar, scrollbar, theme select
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
+/* ── Grid / Cards ──────────────────────────────────────────── */
 .sg {
   display: grid;
   grid-template-columns: repeat(auto-fill, minmax(280px, 1fr));
@@ -400,7 +400,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .hr .k { color: var(--fg2); }
 .hr .v { font-weight: 600; font-variant-numeric: tabular-nums; }
 
-
+/* ── Progress Bar ──────────────────────────────────────────── */
 .pb {
   background: rgba(0,240,255,.05); border: 1px solid rgba(0,240,255,.1);
   border-radius: 3px; height: 18px; position: relative; overflow: hidden; margin: 4px 0;
@@ -416,13 +416,13 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   font-weight: 700; text-shadow: 0 0 4px rgba(0,0,0,.8);
 }
 
-
+/* ── Canvas Charts ─────────────────────────────────────────── */
 .gc {
   width: 100%; height: 80px;
   background: var(--bg3); border-radius: var(--r); display: block;
 }
 
-
+/* ── Badge ─────────────────────────────────────────────────── */
 .badge {
   font-family: var(--font-display);
   display: inline-block; padding: 2px 8px; border-radius: 3px;
@@ -441,7 +441,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   border: 1px solid rgba(255,238,0,.3);
 }
 
-
+/* ── Hardware List (Settings) ──────────────────────────────── */
 .hw-list { border: 1px solid var(--border); border-radius: var(--r); overflow: hidden; }
 .hw-list .hw-item {
   padding: 8px 12px; display: flex; align-items: center;
@@ -454,19 +454,19 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .hw-list .hw-label { flex: 1; font-weight: 500; }
 .hw-list .hw-val { color: var(--fg2); font-size: 11px; }
 
-
+/* ── Split Pane ────────────────────────────────────────────── */
 .split { display: flex; gap: 12px; }
 .split .left { flex: 0 0 auto; min-width: 180px; max-width: 260px; }
 .split .right { flex: 1; min-width: 240px; }
 
+/* ═══════════════════════════════════════════════════════════════
+   SECTION: Modal
+   — #mbg, #mc, .modal-bg, .modal, .kbd-overlay, .kbd-box,
+     command palette, global search, confirm dialog, login overlay,
+     notification center, hover card, theme editor
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
+/* ── Modal ─────────────────────────────────────────────────── */
 .modal-bg {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,.5);
@@ -480,14 +480,14 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   overflow-y: auto; overflow-x: hidden;
   box-shadow: 0 0 30px var(--neon-glow), 0 20px 60px rgba(0,0,0,.6);
 }
-
+/* 넓은 모달 (VM/컨테이너 생성 등 grid-2 폼) */
 .modal.modal-wide { width: min(800px, 96vw); }
 .modal h2 {
   font-family: var(--font-display); font-size: 16px;
   font-weight: 700; margin-bottom: 14px; color: var(--accent);
 }
 
-
+/* ── Form ──────────────────────────────────────────────────── */
 .fr { display: flex; gap: 8px; margin-bottom: 8px; align-items: center; }
 .fr label { width: 90px; font-size: 12px; color: var(--fg2); font-weight: 500; }
 .fr input, .fr select {
@@ -497,7 +497,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 }
 .fr input:focus { border-color: var(--accent); }
 
-
+/* ── Buttons ───────────────────────────────────────────────── */
 .btn {
   background: rgba(255,255,255,.03); color: #d8e7f2;
   border: 1px solid rgba(126, 217, 255, .2); border-radius: 999px;
@@ -553,7 +553,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   min-width: 0;
 }
 
-
+/* VM clone modal */
 .vm-clone-choice-grid {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
@@ -654,7 +654,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   margin-top: 8px;
 }
 
-
+/* ── Wizard Steps ──────────────────────────────────────────── */
 .wizard-steps { display: flex; gap: 0; margin-bottom: 16px; }
 .wizard-steps .step {
   flex: 1; text-align: center; padding: 8px;
@@ -664,7 +664,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .wizard-steps .step.active { color: var(--accent); border-bottom-color: var(--accent); font-weight: 600; }
 .wizard-steps .step.done { color: var(--green); border-bottom-color: var(--green); }
 
-
+/* ── Context Menu / Toast / Events ─────────────────────────── */
 .ctx {
   position: fixed; background: var(--bg2);
   border: 1px solid var(--border); border-radius: 8px;
@@ -675,7 +675,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .ctx .ci:hover { background: var(--bg3); }
 .ctx .sep { height: 1px; background: var(--border); margin: 3px 0; }
 
-
+/* F-2: Toast 개선 — 타입 아이콘 + 진행 바 + 자동 닫힘 */
 .toast-c {
   position: fixed; top: 16px; right: 16px;
   z-index: 400; display: flex; flex-direction: column; gap: 8px;
@@ -707,7 +707,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   text-shadow: 0 0 8px var(--red);
 }
 
-
+/* ── Progress Bar (modal) ──────────────────────────────────── */
 .prog-bar {
   height: 4px; background: var(--bg3); border-radius: 9999px;
   margin: 10px 0; overflow: hidden;
@@ -719,7 +719,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 }
 .prog-status { font-size: 11px; color: var(--fg2); margin-top: 6px; min-height: 16px; }
 
-
+/* ── Animations ────────────────────────────────────────────── */
 @keyframes spin { to { transform: rotate(360deg); } }
 .spinner {
   display: inline-block; width: 14px; height: 14px;
@@ -750,7 +750,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   animation: dataScan 2.5s infinite linear;
 }
 
-
+/* F-2: Skeleton loading */
 @keyframes skeleton-pulse {
   0% { background-position: -200px 0; }
   100% { background-position: calc(200px + 100%) 0; }
@@ -765,7 +765,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .skeleton-card { height: 120px; border-radius: var(--r); }
 .skeleton-text { height: 12px; width: 60%; border-radius: 3px; }
 
-
+/* ── Status Bar ────────────────────────────────────────────── */
 .sb-bar {
   background: linear-gradient(180deg, rgba(13, 17, 23, .98), rgba(9, 13, 18, .98));
   border-top: 1px solid rgba(255,255,255,.06);
@@ -775,7 +775,7 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 }
 .sb-bar.ev-open { margin-right: 360px; }
 
-
+/* ── Table ─────────────────────────────────────────────────── */
 table { width: 100%; border-collapse: collapse; }
 th {
   font-family: var(--font-display);
@@ -791,7 +791,7 @@ td { padding: 8px 10px; border-bottom: 1px solid var(--border); font-size: 12px;
 tbody tr { border-left: 3px solid transparent; transition: all .2s; }
 tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 
-
+/* ── Operations Triage ─────────────────────────────────────── */
 .ops-triage-head {
   display: grid;
   grid-template-columns: minmax(0, 1fr) auto;
@@ -1201,7 +1201,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .ops-triage-card { padding: 12px; }
 }
 
-
+/* F-3: Table search/pagination */
 .table-controls {
   display: flex; gap: 8px; align-items: center;
   margin-bottom: 8px; flex-wrap: wrap;
@@ -1223,7 +1223,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .table-pagination button.active { border-color: var(--accent); color: var(--accent); }
 .table-pagination button:hover { border-color: var(--accent); }
 
-
+/* ── Snapshot Tree ─────────────────────────────────────────── */
 .snap-tree { list-style: none; padding-left: 16px; }
 .snap-tree li { padding: 4px 0; }
 .snap-item {
@@ -1232,12 +1232,12 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .snap-item:hover { background: var(--bg3); }
 
-
+/* ── Custom Scrollbar ──────────────────────────────────────── */
 .cb::-webkit-scrollbar, .vm-list::-webkit-scrollbar, #evp::-webkit-scrollbar { width: 8px; }
 .cb::-webkit-scrollbar-track, .vm-list::-webkit-scrollbar-track, #evp::-webkit-scrollbar-track { background: rgba(0,0,0,.05); }
 .cb::-webkit-scrollbar-thumb, .vm-list::-webkit-scrollbar-thumb, #evp::-webkit-scrollbar-thumb { background: var(--accent); border-radius: 4px; }
 
-
+/* ── Utilities ─────────────────────────────────────────────── */
 .hidden { display: none !important; }
 .flex { display: flex; }
 .flex-col { flex-direction: column; }
@@ -1279,21 +1279,21 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .w-full { width: 100%; }
 .nowrap { white-space: nowrap; }
 
+/* ═══════════════════════════════════════════════════════════════
+   LOGIN PAGE — Supanova Taste (Phase 1, 2026-04-11)
+   규율:
+   - NO neon glow / text-shadow / clip-path
+   - NO linear-gradient accents on buttons
+   - Spring motion: cubic-bezier(0.16, 1, 0.3, 1)
+   - Double-Bezel card 아키텍처
+   - Korean: break-keep-all, leading-tight
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
-
-
+/* Korean rhythm helpers (Phase 1 도입 → Phase 3 전역 재활용) */
 .ko { word-break: keep-all; line-height: 1.5; }
 .ko-tight { word-break: keep-all; line-height: 1.18; }
 
-
+/* ── 전체 오버레이 ─────────────────────────────────────────── */
 .login-overlay {
   position: fixed; inset: 0;
   z-index: 500;
@@ -1304,7 +1304,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   font-family: var(--font-sans);
 }
 
-
+/* ── Mesh 오브 배경 ────────────────────────────────────────── */
 .login-mesh {
   position: absolute; inset: 0; overflow: hidden;
   pointer-events: none; z-index: 0;
@@ -1342,7 +1342,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   50% { transform: translate(-40px, 30px) scale(.94); }
 }
 
-
+/* ── 플로팅 글래스 상단 바 ─────────────────────────────────── */
 .login-topbar {
   position: relative; z-index: 2;
   display: flex; align-items: center; justify-content: space-between;
@@ -1439,7 +1439,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   white-space: nowrap;
 }
 
-
+/* ── 메인 스플릿 ───────────────────────────────────────────── */
 .login-main {
   position: relative; z-index: 1;
   flex: 1 1 auto;
@@ -1455,7 +1455,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   align-items: center;
 }
 
-
+/* ── Left: Pitch ───────────────────────────────────────────── */
 .login-pitch { min-width: 0; }
 .login-eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
@@ -1734,7 +1734,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .login-chips .pcv-icon { color: var(--accent); font-size: 16px; }
 
-
+/* ── Right: Double-Bezel Login Card ────────────────────────── */
 .login-aside { min-width: 0; }
 .login-bezel {
   position: relative;
@@ -1777,7 +1777,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   }
 }
 
-
+/* ── Card head ─────────────────────────────────────────────── */
 .login-card-head { margin-bottom: 26px; position: relative; }
 .login-card-eyebrow {
   font-family: var(--font-display);
@@ -1814,7 +1814,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   }
 }
 
-
+/* ── Form ──────────────────────────────────────────────────── */
 .login-form { position: relative; display: flex; flex-direction: column; gap: 18px; }
 .login-field { display: flex; flex-direction: column; gap: 7px; }
 .login-label {
@@ -1836,7 +1836,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   transition: color .5s var(--pcv-spring);
 }
 
-
+/* .login-input — Register/ChangePassword 모달에서도 공유 */
 .login-input {
   width: 100%;
   padding: 14px 16px 14px 46px;
@@ -1863,16 +1863,16 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .login-input:focus ~ .login-input-icon,
 .login-input-wrap:focus-within .login-input-icon { color: var(--accent); }
 
-
+/* Register/ChangePassword 모달 호환성: icon/toggle 없는 경우 패딩 복원 */
 .login-input:not(.login-input-wrap > .login-input) {
-
+  /* 단독으로 쓰이는 경우 (모달) — 좌측 패딩 축소 */
 }
 .modal-content .login-input,
 .modal .login-input {
   padding-left: 16px;
 }
 
-
+/* 비밀번호 토글 버튼 */
 .login-pass-toggle {
   position: absolute; right: 10px;
   width: 34px; height: 34px;
@@ -1894,7 +1894,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .login-pass-toggle .pcv-icon { font-size: 18px; }
 
-
+/* 에러 영역 */
 .login-err {
   min-height: 18px;
   font-size: 13px;
@@ -1914,7 +1914,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   }
 }
 
-
+/* Submit 버튼 — Supanova premium CTA */
 .login-submit {
   display: inline-flex; align-items: center; justify-content: space-between;
   width: 100%;
@@ -1958,7 +1958,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .login-submit:hover .login-submit-arrow { transform: translateX(4px); }
 
-
+/* 보조 링크 */
 .login-alt {
   display: flex; align-items: center; justify-content: center;
   gap: 14px;
@@ -1981,7 +1981,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .login-link:hover { color: var(--accent); }
 
-
+/* ── Footer ────────────────────────────────────────────────── */
 .login-footer {
   position: relative; z-index: 1;
   display: flex; align-items: center; justify-content: space-between;
@@ -2000,7 +2000,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .login-footer-meta { opacity: .8; }
 }
 
-
+/* ── 반응형: ≤960px 단일 컬럼 ─────────────────────────────── */
 @media (max-width: 960px) {
   .login-topbar { padding: 16px 20px; gap: 14px; }
   .login-brand { min-width: 0; }
@@ -2063,7 +2063,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .login-console-grid { grid-template-columns: 1fr; }
 }
 
-
+/* ── 접근성 · 모션 축소 ────────────────────────────────────── */
 @media (prefers-reduced-motion: reduce) {
   .login-orb-1, .login-orb-2, .login-orb-3 { animation: none; }
   .login-brand, .login-bezel, .login-submit, .login-submit-arrow,
@@ -2073,14 +2073,14 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   }
 }
 
-
+/* ── 포커스 가시성 ─────────────────────────────────────────── */
 .login-overlay *:focus-visible {
   outline: 2px solid var(--accent);
   outline-offset: 3px;
   border-radius: 4px;
 }
 
-
+/* Event log panel — right sidebar slide */
 .ev-side {
   position: fixed; top: 0; right: 0;
   width: 360px; height: 100vh;
@@ -2118,13 +2118,13 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   background: var(--bg);
 }
 
-
+/* Mobile overlay backdrop */
 .mobile-overlay {
   display: none; position: fixed; top: 0; left: 0;
   width: 100%; height: 100%; background: rgba(0,0,0,.5); z-index: 99;
 }
 
-
+/* Theme select in toolbar */
 .theme-select {
   background: var(--bg-panel); color: var(--accent);
   border: 1px solid var(--accent); padding: 5px 10px;
@@ -2132,10 +2132,10 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   outline: none; cursor: pointer; border-radius: 4px;
 }
 
-
+/* WS status indicator */
 .ws-status { font-size: 13px; font-weight: 600; }
 
-
+/* Toolbar session area */
 .toolbar-session {
   display: flex;
   align-items: center;
@@ -2174,7 +2174,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 }
 .toolbar-user-name { font-weight: 600; color: #f2f8fc; }
 
-
+/* Sidebar tab bar */
 .sb-infra-panel { flex-direction: column; overflow: hidden; }
 #sb-infra:not(.hidden) { display: flex; }
 #nav-infra { flex: 1; overflow-y: auto; }
@@ -2182,27 +2182,27 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .sb-tabs button { font-size: 11px; padding: 8px 6px; font-weight: 600; flex: 1 1 0; text-align: center; white-space: nowrap; min-width: 0; border-right: 1px solid var(--border); }
 .sb-tabs button:last-child { border-right: none; }
 
-
+/* Mobile hamburger */
 .mobile-menu-btn {
   display: none; background: none; border: 1px solid var(--accent);
   color: var(--accent); font-size: 18px; padding: 4px 8px;
   border-radius: 4px; cursor: pointer; line-height: 1;
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   SECTION: Responsive
+   — All @media queries: iPad (1024px), mobile (768px),
+     small mobile (480px), prefers-color-scheme, zen mode,
+     mobile VS Code layout adjustments
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
+/* ── iPad / Tablet ─────────────────────────────────────────── */
 @media (max-width: 1024px) {
   .sidebar { width: 220px; }
   .sg { grid-template-columns: repeat(auto-fill, minmax(220px, 1fr)) !important; }
 }
 
-
+/* ── Mobile ────────────────────────────────────────────────── */
 @media (max-width: 768px) {
   .menubar { display: none; }
   .sidebar {
@@ -2242,7 +2242,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .mobile-menu-btn { display: block; }
 }
 
-
+/* ── Small Mobile ──────────────────────────────────────────── */
 @media (max-width: 480px) {
   .toolbar h1 { font-size: 12px; }
   .toolbar .tb { display: none; }
@@ -2257,9 +2257,9 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .modal { min-width: 95vw; max-width: 98vw; padding: 10px; }
 }
 
+/* ── G-1: Semantic classes (inline style replacement) ──────── */
 
-
-
+/* Layout grids */
 .grid-1 { grid-template-columns: 1fr !important; }
 .grid-2 { grid-template-columns: repeat(2, 1fr) !important; }
 .grid-3 { grid-template-columns: repeat(3, 1fr) !important; }
@@ -2268,22 +2268,22 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .grid-6 { grid-template-columns: repeat(6, 1fr) !important; }
 .grid-8 { grid-template-columns: repeat(8, 1fr) !important; }
 
-
+/* Stat values */
 .stat-xl { font-size: 28px; font-weight: 900; font-family: var(--font-display); }
 .stat-lg { font-size: 22px; font-weight: 700; }
 .stat-md { font-size: 20px; font-weight: 700; }
 .stat-sm { font-size: 18px; font-weight: 700; }
 .stat-label { font-size: 10px; color: var(--fg2); }
 
-
+/* Section headers */
 .section-title { margin-bottom: 12px; }
 .section-title-lg { font-family: var(--font-display); font-size: 18px; margin-bottom: 16px; }
 .section-title-md { font-size: 14px; margin-bottom: 12px; }
 
-
+/* Card variants */
 .hc-mb { margin-bottom: 14px; }
 
-
+/* Flex utilities extended */
 .flex-wrap { flex-wrap: wrap; }
 .flex-1 { flex: 1; }
 .flex-col { display: flex; flex-direction: column; }
@@ -2292,7 +2292,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .justify-between { display: flex; justify-content: space-between; }
 .inline-flex { display: inline-flex; }
 
-
+/* Spacing */
 .p-8 { padding: 8px; }
 .p-10 { padding: 10px; }
 .p-12 { padding: 12px; }
@@ -2310,8 +2310,8 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .mt-10 { margin-top: 10px; }
 .ml-8 { margin-left: 8px; }
 
-
-
+/* ── F-3: Phase 2 utility additions ─────────────────────── */
+/* Compact spacing */
 .gap-2 { gap: 2px; }
 .gap-16 { gap: 16px; }
 .p-2 { padding: 2px; }
@@ -2339,7 +2339,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .mt-14 { margin-top: 14px; }
 .mt-20 { margin-top: 20px; }
 
-
+/* Typography micro */
 .text-8  { font-size: 8px; }
 .text-9  { font-size: 9px; }
 .text-11 { font-size: 11px; }
@@ -2352,24 +2352,24 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .line-h-1 { line-height: 1; }
 .line-h-15 { line-height: 1.5; }
 
-
+/* Width / sizing */
 .w-auto { width: auto; }
 .w-50  { width: 50%; }
 .w-100 { width: 100%; }
 .min-w-0 { min-width: 0; }
 
-
+/* Layout extras */
 .items-start { align-items: flex-start; }
 .items-end   { align-items: flex-end; }
 .justify-start { justify-content: flex-start; }
 .justify-end   { justify-content: flex-end; }
 
-
+/* Background helpers (theme-aware) */
 .bg-2 { background: var(--bg2); }
 .bg-3 { background: var(--bg3); }
 .bg-panel { background: var(--bg-panel); }
 
-
+/* Borders */
 .border-accent { border: 1px solid var(--accent); }
 .border-muted  { border: 1px solid var(--border); }
 .border-dashed { border-style: dashed; }
@@ -2377,12 +2377,12 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .rounded-md { border-radius: 6px; }
 .rounded-lg { border-radius: 8px; }
 
-
+/* Cursor / interactive */
 .cursor-pointer { cursor: pointer; }
 .cursor-grab    { cursor: grab; }
 .cursor-default { cursor: default; }
 
-
+/* Compact button preset — 가장 빈번한 vm.js 패턴 23회 */
 .btn-xs {
   font-size: 10px;
   padding: 2px 8px;
@@ -2392,7 +2392,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   padding: 2px 6px;
 }
 
-
+/* Width presets */
 .w-16 { width: 16px; }
 .w-28 { width: 28px; }
 .w-30 { width: 30px; }
@@ -2409,7 +2409,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .min-w-80 { min-width: 80px; }
 .min-w-150 { min-width: 150px; }
 
-
+/* Width percentages (literal) */
 .w-pct-0  { width: 0%; }
 .w-pct-5  { width: 5%; }
 .w-pct-10 { width: 10%; }
@@ -2420,12 +2420,12 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .w-pct-50 { width: 50%; }
 .w-pct-100 { width: 100%; }
 
-
-
-
-
-
-
+/* ── Dynamic CSS variable injection patterns ────────────────
+   사용법: <div class="pcv-bar-track">
+              <div class="pcv-bar-fill" style="--bw:50%;--bc:var(--red)"></div>
+           </div>
+   장점: style 속성 길이 ~25자 (기존 ~80자), 색상/너비만 변수로 분리
+   ─────────────────────────────────────────────────────────── */
 .pcv-bar-track {
   background: var(--bg3);
   border-radius: 9999px;
@@ -2440,14 +2440,14 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   border-radius: 9999px;
   transition: width .5s cubic-bezier(.16, 1, .3, 1);
 }
-.pcv-bar-fill-inline {
+.pcv-bar-fill-inline { /* inline-block 변형 — 메모리 사용량 막대 */
   display: inline-block;
   height: 100%;
   width: var(--bw, 0%);
   background: var(--bc, var(--accent));
 }
 
-
+/* Dynamic color via data attribute (대안) */
 [data-pcv-color="red"]    { color: var(--red); }
 [data-pcv-color="green"]  { color: var(--green); }
 [data-pcv-color="yellow"] { color: var(--yellow); }
@@ -2455,7 +2455,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 [data-pcv-color="cyan"]   { color: var(--cyan); }
 [data-pcv-color="muted"]  { color: var(--fg2); }
 
-
+/* Form input preset — 자주 등장하는 PureCVisor 인풋 스타일 */
 .input-pcv {
   background: var(--bg);
   color: var(--fg);
@@ -2473,29 +2473,29 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   font-size: 12px;
 }
 
-
+/* Whitespace */
 .nowrap { white-space: nowrap; }
 .break-all { word-break: break-all; }
 
-
+/* Visibility */
 .hidden { display: none; }
 .inline-block { display: inline-block; }
 .block { display: block; }
 
-
+/* Position */
 .relative { position: relative; }
 .absolute { position: absolute; }
 
-
+/* Overflow */
 .overflow-auto { overflow: auto; }
 .overflow-hidden { overflow: hidden; }
+/* ── /F-3 ────────────────────────────────────────────────── */
 
-
-
-
-
+/* ═══════════════════════════════════════════════════════════
+   F-8: Mobile responsive — table → card view (≤768px)
+   ─────────────────────────────────────────────────────────── */
 @media (max-width: 768px) {
-
+  /* All tables: horizontal scroll fallback for safety */
   .cb table {
     display: block;
     overflow-x: auto;
@@ -2503,7 +2503,7 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
     max-width: 100%;
   }
 
-
+  /* Opt-in: <table class="card-mobile"> → row as card */
   .cb table.card-mobile {
     display: block;
     overflow-x: visible;
@@ -2535,18 +2535,18 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
     min-width: 80px;
   }
 
-
+  /* Compact spacing on mobile */
   .hc { padding: 10px; margin-bottom: 8px; }
   .stat-xl { font-size: 24px; }
   .stat-lg { font-size: 18px; }
 
-
+  /* Form inputs full width on mobile */
   .login-input, input.input-pcv, input.input-pcv-lg {
     width: 100%;
     box-sizing: border-box;
   }
 
-
+  /* Stack grid columns */
   .grid-2, .grid-3, .grid-4, .grid-5, .sg.grid-2, .sg.grid-3, .sg.grid-4, .sg.grid-5 {
     grid-template-columns: 1fr !important;
   }
@@ -2554,11 +2554,11 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
     grid-template-columns: 1fr 1fr !important;
   }
 
-
+  /* Pcv chart heights smaller on mobile */
   .h-180 { height: 140px; }
 }
 
-
+/* Very small mobile (≤480px) */
 @media (max-width: 480px) {
   .grid-8 {
     grid-template-columns: 1fr !important;
@@ -2567,38 +2567,38 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
   .h-180 { height: 120px; }
   .stat-xl { font-size: 20px; }
 }
+/* ── /F-8 ────────────────────────────────────────────────── */
 
-
-
+/* Typography */
 .text-mono { font-family: var(--font-mono); font-size: 12px; }
 .text-label { font-size: 12px; font-weight: 600; text-transform: uppercase; letter-spacing: .06em; }
 .truncate { overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
 
-
+/* Borders */
 .border-t { border-top: 1px solid var(--border); }
 .border-b { border-bottom: 1px solid var(--border); }
 .border-l-accent { border-left: 2px solid var(--accent); padding-left: 12px; }
 
-
+/* Canvas sparkline */
 .sparkline { width: 100%; height: 40px; border-radius: 3px; display: block; }
 .sparkline-sm { width: 100%; height: 35px; border-radius: 3px; display: block; }
 .sparkline-md { width: 100%; height: 60px; border-radius: 3px; display: block; }
 
-
+/* Memory breakdown bar */
 .mem-bar { display: flex; height: 18px; border-radius: 3px; overflow: hidden; margin-bottom: 4px; }
 .mem-legend { display: flex; gap: 12px; font-size: 10px; color: var(--fg2); flex-wrap: wrap; }
 
-
+/* Core bar (CPU per-core) */
 .core-cell { width: 28px; text-align: center; }
 .core-bar { height: 24px; background: var(--bg); border-radius: 2px; border: 1px solid var(--border); position: relative; overflow: hidden; }
 .core-fill { position: absolute; bottom: 0; width: 100%; transition: height .3s; }
 .core-label { font-size: 8px; color: var(--fg2); }
 
-
+/* Capacity bar */
 .capacity-bar { height: 20px; background: var(--bg); border-radius: 3px; border: 1px solid var(--border); overflow: hidden; }
 .capacity-fill { height: 100%; border-radius: 3px; transition: width .3s; }
 
-
+/* Terminal / Console */
 .terminal { background: var(--bg); border: 1px solid var(--border); border-radius: var(--r); font-family: monospace; display: flex; flex-direction: column; }
 .terminal-header { padding: 6px 10px; border-bottom: 1px solid var(--border); font-size: 10px; color: var(--fg2); display: flex; justify-content: space-between; }
 .terminal-output { flex: 1; padding: 8px 10px; margin: 0; overflow-y: auto; font-size: 11px; color: var(--green); white-space: pre-wrap; min-height: 250px; max-height: 400px; }
@@ -2606,11 +2606,11 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .terminal-prompt { padding: 6px 8px; color: var(--green); font-size: 12px; }
 .terminal-cmd { flex: 1; background: transparent; border: none; color: var(--fg); font-family: monospace; font-size: 12px; padding: 6px 0; outline: none; }
 
-
+/* VNC frame */
 .vnc-frame { background: #000; border: 1px solid var(--border); border-radius: var(--r); min-height: 500px; height: calc(100vh - 200px); position: relative; }
 .vnc-status { position: absolute; top: 8px; left: 8px; z-index: 10; font-size: 11px; color: var(--green); background: rgba(0,0,0,.7); padding: 4px 10px; border-radius: 4px; }
 
-
+/* Container layout */
 .ctr-layout { display: flex; gap: 0; height: calc(100vh - 280px); min-height: 400px; }
 .ctr-sidebar { min-width: 220px; max-width: 220px; border-right: 1px solid var(--border); overflow-y: auto; padding: 8px; }
 .ctr-content { flex: 1; overflow-y: auto; display: flex; flex-direction: column; }
@@ -2620,14 +2620,14 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .ctr-tab.active { border-bottom-color: var(--accent); color: var(--accent); font-weight: 600; }
 .ctr-tab-body { padding: 14px; flex: 1; }
 
-
+/* Code block */
 .code-block { background: var(--bg3); border: 1px solid var(--border); border-radius: 6px; padding: 10px 14px; font-size: 12px; line-height: 1.8; }
 .code-pre { font-size: 10px; color: var(--fg2); margin: 0; white-space: pre-wrap; overflow-x: auto; }
 
-
+/* Guide search */
 .guide-search { max-width: 600px; font-size: 15px; padding: 10px 14px; border-radius: 8px; }
 
-
+/* Swagger endpoint row */
 .sw-row { margin-bottom: 2px; border: 1px solid var(--border); border-radius: 4px; overflow: hidden; }
 .sw-header { display: flex; align-items: center; padding: 8px 12px; cursor: pointer; gap: 10px; background: var(--bg2); }
 .sw-method { color: #fff; font-size: 10px; font-weight: 700; padding: 2px 8px; border-radius: 3px; min-width: 52px; text-align: center; }
@@ -2635,17 +2635,17 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .sw-desc { font-size: 11px; color: var(--fg2); margin-left: auto; }
 .sw-body { padding: 10px 12px; background: var(--bg3); font-size: 11px; }
 
-
+/* Alert config bar */
 .alert-banner { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-radius: var(--r); margin-bottom: 16px; }
 .alert-banner-on { background: rgba(0,255,136,.08); border: 1px solid var(--green); }
 .alert-banner-off { background: rgba(255,34,102,.08); border: 1px solid var(--red); }
 .threshold-bar { height: 8px; background: var(--bg); border-radius: 4px; overflow: hidden; position: relative; margin-top: 4px; }
 .threshold-segment { position: absolute; height: 100%; }
 
-
+/* Progress modal */
 .prog-modal-title { margin-bottom: 8px; }
 
-
+/* Command palette (G-4) */
 .cmd-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.5); z-index: 500; display: flex; align-items: flex-start; justify-content: center; padding-top: 20vh; }
 .cmd-box { background: var(--bg2); border: 1px solid var(--accent); border-radius: 12px; width: 560px; max-width: 90vw; box-shadow: 0 0 40px var(--neon-glow), 0 20px 60px rgba(0,0,0,.6); overflow: hidden; }
 .cmd-input { width: 100%; padding: 16px 20px; background: transparent; border: none; border-bottom: 1px solid var(--border); color: var(--fg); font-size: 16px; font-family: var(--font-mono); outline: none; }
@@ -2658,72 +2658,72 @@ tbody tr:hover { background: var(--bg3); border-left-color: var(--accent); }
 .cmd-item-hint { font-size: 10px; color: var(--fg2); }
 .cmd-empty { padding: 20px; text-align: center; color: var(--fg2); font-size: 13px; }
 
-
+/* Favorites star */
 .fav-star { cursor: pointer; font-size: 14px; color: var(--fg2); transition: color .2s; }
 .fav-star:hover, .fav-star.active { color: var(--yellow); text-shadow: 0 0 6px var(--yellow); }
 
-
+/* Refresh indicator */
 .refresh-indicator { font-size: 10px; color: var(--fg2); display: flex; align-items: center; gap: 4px; }
 .refresh-dot { width: 6px; height: 6px; border-radius: 50%; background: var(--green); animation: pulse-dot 2s infinite; }
 @keyframes pulse-dot { 0%, 100% { opacity: 1; } 50% { opacity: .3; } }
 
-
+/* Custom confirm dialog */
 .confirm-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.6); z-index: 250; display: flex; align-items: center; justify-content: center; }
 .confirm-box { background: var(--bg-panel); backdrop-filter: blur(16px); border: 1px solid var(--accent); border-radius: 8px; padding: 24px; min-width: 380px; max-width: 90vw; box-shadow: 0 0 30px var(--neon-glow); }
 .confirm-title { font-family: var(--font-display); font-size: 14px; font-weight: 700; color: var(--accent); margin-bottom: 12px; }
 .confirm-msg { font-size: 13px; line-height: 1.6; margin-bottom: 16px; color: var(--fg); }
 .confirm-actions { display: flex; gap: 8px; justify-content: flex-end; }
 
+/* ── H-2: Micro-interactions & polish ──────────────────────── */
 
-
-
+/* Page transition fade-in */
 .cb { animation: page-fade .25s ease; }
 @keyframes page-fade { from { opacity: 0; transform: translateY(4px); } to { opacity: 1; transform: translateY(0); } }
 
-
+/* VM state change pulse */
 .vi.state-changed { animation: state-pulse .6s ease; }
 @keyframes state-pulse { 0% { background: rgba(0,240,255,.15); } 100% { background: transparent; } }
 
-
+/* Badge transition */
 .badge { transition: all .3s ease; }
 
-
+/* Toast stack limit (max 3 visible via CSS) */
 .toast-c .toast:nth-child(n+4) { opacity: 0; pointer-events: none; height: 0; padding: 0; margin: 0; border: 0; overflow: hidden; }
 
-
+/* Dark mode smooth transition */
 body, .sidebar, .toolbar, .menubar, .sb-bar, .hc, .modal, .ct {
   transition: background-color .3s ease, color .3s ease, border-color .3s ease;
 }
 
-
+/* Empty state */
 .empty-state { display: flex; flex-direction: column; align-items: center; justify-content: center; padding: 40px 20px; color: var(--fg2); }
 .empty-state-icon { font-size: 48px; margin-bottom: 12px; opacity: .5; }
 .empty-state-text { font-size: 14px; margin-bottom: 6px; }
 .empty-state-hint { font-size: 11px; color: var(--fg2); opacity: .7; }
 
-
+/* Notification badge */
 .notif-badge { position: absolute; top: -2px; right: -6px; background: var(--red); color: #fff; font-size: 8px; font-weight: 700; min-width: 14px; height: 14px; border-radius: 7px; display: flex; align-items: center; justify-content: center; padding: 0 3px; font-family: var(--font-mono); box-shadow: 0 0 6px var(--red); }
 .notif-wrapper { position: relative; display: inline-flex; }
 
-
+/* Skeleton shimmer for actual page loading */
 .skeleton-card { height: 120px; margin-bottom: 12px; }
 .skeleton-row { height: 40px; margin-bottom: 8px; }
 .skeleton-header { height: 24px; width: 200px; margin-bottom: 16px; }
 
+/* Hover lift for interactive cards */
 
+/* Button loading state */
 
-
-
-
+/* Smooth scrollbar appearance */
 .cb, .vm-list, .modal { scroll-behavior: smooth; }
 
-
+/* Table row highlight on hover (enhanced) */
 tbody tr { transition: background .15s ease, border-left-color .15s ease; }
 
-
+/* Active sidebar item glow */
 .vi.active { box-shadow: inset 3px 0 8px -2px var(--accent); }
 
-
+/* ── Chart.js overrides (F-3) ──────────────────────────────── */
 .chart-container {
   position: relative;
   width: 100%;
@@ -2736,7 +2736,7 @@ tbody tr { transition: background .15s ease, border-left-color .15s ease; }
 .chart-mini { height: 80px; }
 .chart-medium { height: 120px; }
 
-
+/* ── I-1: Keyboard help overlay ────────────────────────────── */
 .kbd-overlay { position: fixed; top: 0; left: 0; width: 100%; height: 100%; background: rgba(0,0,0,.6); z-index: 500; display: flex; align-items: center; justify-content: center; }
 .kbd-box { background: var(--bg2); border: 1px solid var(--accent); border-radius: 12px; width: 480px; max-width: 90vw; padding: 24px; box-shadow: 0 0 40px var(--neon-glow); }
 .kbd-title { font-family: var(--font-display); font-size: 16px; color: var(--accent); margin-bottom: 16px; text-transform: uppercase; letter-spacing: .06em; }
@@ -2746,17 +2746,17 @@ tbody tr { transition: background .15s ease, border-left-color .15s ease; }
 .kbd-desc { color: var(--fg2); }
 .kbd-close { margin-top: 16px; text-align: center; font-size: 11px; color: var(--fg2); }
 
-
+/* T-2/D: Extended transitions on toolbar h1 */
 .toolbar h1 span { transition: color .3s ease, text-shadow .3s ease; }
 
-
+/* T-2/D: Extended transition properties */
 body, .sidebar, .toolbar, .menubar, .sb-bar, .hc, .modal, .ct {
   transition: background-color .3s ease, color .3s ease, border-color .3s ease, box-shadow .3s ease;
 }
 .badge, .btn, .vi .dot { transition: all .3s ease; }
 svg path { transition: stroke .3s ease, fill .3s ease; }
 
-
+/* ── T-1: Chart Color Variables (theme-aware) ──────────────── */
 :root {
   --chart-cpu: rgb(0,255,136);
   --chart-mem: rgb(59,130,246);
@@ -2767,15 +2767,15 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   --chart-alt3: rgb(184,119,217);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 3 — SUPANOVA TASTE LAYER (utilities)
+   · --pcv-spring, .ko, .ko-tight 는 Phase 1에서 이미 등록됨
+   · 여기서는 대시보드 전역에서 재사용 가능한 컴포넌트 클래스를 추가
+   · 기존 클래스 / NEON_DARK 테마는 그대로 유지 (파괴적 변경 없음)
+   · 신규 [data-theme|="supanova"]는 블록 하단에 정의
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
+/* Eyebrow 마이크로 뱃지 — 섹션 타이틀 앞에 둘 작은 pill */
 .pcv-eyebrow {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 6px 12px;
@@ -2794,7 +2794,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .pcv-eyebrow .pcv-icon { font-size: 14px; }
 
-
+/* Double-Bezel 카드 — 프리미엄 컨테이너 */
 .pcv-bezel {
   position: relative;
   background: color-mix(in srgb, var(--fg) 4%, transparent);
@@ -2833,7 +2833,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   }
 }
 
-
+/* 소형 베젤 — 목록 카드용 */
 .pcv-bezel-sm {
   position: relative;
   background: color-mix(in srgb, var(--fg) 3%, transparent);
@@ -2853,7 +2853,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   padding: 18px;
 }
 
-
+/* Primary CTA — pill + nested arrow wrap */
 .pcv-cta-primary {
   display: inline-flex; align-items: center; gap: 10px;
   padding: 14px 14px 14px 24px;
@@ -2888,7 +2888,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .pcv-cta-primary:hover .arrow-wrap { transform: translateX(4px); }
 
-
+/* Ghost CTA — pill + border */
 .pcv-cta-ghost {
   display: inline-flex; align-items: center; gap: 8px;
   padding: 13px 22px;
@@ -2914,7 +2914,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   .pcv-cta-ghost:hover { background: rgba(34,211,238,.06); }
 }
 
-
+/* KPI Card — eyebrow + metric + optional sparkline */
 .pcv-kpi {
   display: flex; flex-direction: column; gap: 8px;
 }
@@ -2947,10 +2947,10 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .pcv-kpi-delta.up { color: var(--green); }
 .pcv-kpi-delta.down { color: var(--red); }
 
-
+/* Spring transition helper — 어디든 적용 가능 */
 .pcv-spring, .pcv-spring * { transition: all .5s var(--pcv-spring); }
 
-
+/* 모션 축소 */
 @media (prefers-reduced-motion: reduce) {
   .pcv-bezel, .pcv-bezel-sm, .pcv-cta-primary, .pcv-cta-ghost,
   .pcv-spring, .pcv-spring *, .pcv-cta-primary .arrow-wrap {
@@ -2958,36 +2958,36 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   }
 }
 
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 3 — [data-theme|="supanova"] (신규 선택 테마)
+   · NEON_DARK 의 neon glow / gradient / clip-path 를 Supanova 원칙으로
+     오버라이드 (사용자가 테마 스위처에서 명시적으로 선택)
+   · 기본 테마 / 기존 9개 테마는 영향 없음
+   ═══════════════════════════════════════════════════════════════ */
 [data-theme|="supanova"] {
-  --bg:  #07090c;
+  --bg:  #07090c;  /* Zinc-950 인접 */
   --bg2: #0b0e13;
   --bg3: #10141c;
   --fg:  #e6e9ef;
   --fg2: #94a0b4;
-  --accent: #14b8a6;
+  --accent: #14b8a6;  /* Teal-500, saturation 76% (< 80% rule) */
   --green:  #34d399;
   --red:    #f43f5e;
   --yellow: #eab308;
-  --cyan:   var(--accent);
+  --cyan:   var(--accent);  /* legacy alias → accent 따라가도록 */
   --peach:  #f97316;
-  --magenta: #f43f5e;
+  --magenta: #f43f5e; /* magenta 대신 rose — purple/cyan→magenta 그라디언트 억제 */
   --border: rgba(255,255,255,0.08);
-  --glow: none;
+  --glow: none;                    /* neon glow 제거 */
   --bg-panel: rgba(20,25,30,0.5);
   --border-panel: rgba(255,255,255,0.08);
   --glass-shadow: inset 0 1px 0 rgba(255,255,255,0.05);
-
-  --chart-cpu: rgb(20,184,166);
+  /* 차트 팔레트 — accent 기반 (chart-cpu는 accent 그대로, 나머지는 독립) */
+  --chart-cpu: rgb(20,184,166);  /* teal-500 — matches --accent */
   --chart-mem: rgb(56,189,248);
   --chart-disk: rgb(244,63,94);
   --chart-net: rgb(234,179,8);
-
+  /* Accent-derived tints — 단일 --accent 만 바꿔도 hover/tint 전체가 따라감 */
   --neon-glow:             color-mix(in srgb, var(--accent) 12%, transparent);
   --accent-hover-border:   color-mix(in srgb, var(--accent) 40%, transparent);
   --accent-tint-15:        color-mix(in srgb, var(--accent) 15%, transparent);
@@ -2995,7 +2995,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   --accent-tint-06:        color-mix(in srgb, var(--accent)  6%, transparent);
   --accent-tint-04:        color-mix(in srgb, var(--accent)  4%, transparent);
 }
-
+/* color-mix 폴백 — 구형 브라우저 대비 teal 리터럴 (base only) */
 @supports not (color: color-mix(in srgb, red, blue)) {
   [data-theme|="supanova"] {
     --neon-glow:           rgba(20,184,166,0.12);
@@ -3007,13 +3007,13 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   }
 }
 
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   SUPANOVA 유지 테마
+   · [data-theme|="supanova"] 기본 규칙을 그대로 상속
+   · cyan은 accent/charts만, hicontrast는 접근성 token set만 override
+   ═══════════════════════════════════════════════════════════════ */
 [data-theme="supanova-cyan"] {
-  --accent:    #0891b2;
+  --accent:    #0891b2;          /* Cyan-600, saturation 92% (경계) */
   --chart-cpu: rgb(8,145,178);
 }
 [data-theme="supanova-hicontrast"] {
@@ -3037,7 +3037,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   --chart-disk: rgb(255,77,109);
   --chart-net: rgb(74,222,128);
 }
-
+/* Supanova 규율 — 금칙 패턴 제거/중화 */
 [data-theme|="supanova"] .toolbar h1 span,
 [data-theme|="supanova"] .login-title,
 [data-theme|="supanova"] .stat-lg {
@@ -3046,7 +3046,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 [data-theme|="supanova"] .tb,
 [data-theme|="supanova"] .hc,
 [data-theme|="supanova"] .fr {
-  clip-path: none;
+  clip-path: none;  /* chamfered corners 제거 → 순수 rounded */
 }
 [data-theme|="supanova"] .hc {
   border-radius: 16px;
@@ -3099,15 +3099,15 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   font-family: var(--font-sans);
 }
 
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 4 — DASHBOARD APPLICATION (SUPANOVA theme only)
+   · [data-theme|="supanova"] 선택 시 실제 대시보드 컴포넌트에
+     Double-Bezel-like 카드 + Outfit 타이포 + 스프링 모션을 적용
+   · 다른 테마 / 기본 NEON_DARK에는 영향 없음
+   · JS 변경 없음 — 기존 .hc / .sg / .hr / .stat-lg 마크업 그대로
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
-
-
-
-
+/* ── Cards: .hc premium single-layer ─────────────────────── */
 [data-theme|="supanova"] .hc {
   background: rgba(255, 255, 255, 0.035);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -3139,7 +3139,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   z-index: 1;
 }
 
-
+/* ── Card headers (h4) ───────────────────────────────────── */
 [data-theme|="supanova"] .hc h4 {
   font-family: var(--font-display);
   font-size: 10px;
@@ -3150,7 +3150,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   margin-bottom: 12px;
 }
 
-
+/* ── Card rows (.hr) — 좀 더 공간감 있게 ──────────────────── */
 [data-theme|="supanova"] .hr {
   padding: 5px 0;
   font-size: 13px;
@@ -3164,7 +3164,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   font-weight: 600;
 }
 
-
+/* ── Grid gap tighten ────────────────────────────────────── */
 [data-theme|="supanova"] .sg {
   gap: 14px;
 }
@@ -3172,7 +3172,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
 }
 
-
+/* ── Stat values (.stat-lg) — Outfit tabular + tighter ──── */
 [data-theme|="supanova"] .stat-lg {
   font-family: var(--font-display);
   font-size: 36px;
@@ -3184,7 +3184,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   text-shadow: none;
 }
 
-
+/* ── Content area headings (h2/h3/h4) ────────────────────── */
 [data-theme|="supanova"] .cb h2,
 [data-theme|="supanova"] .content h2 {
   font-family: var(--font-display);
@@ -3222,7 +3222,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   word-break: keep-all;
 }
 
-
+/* ── Toolbar buttons & tabs — spring motion ──────────────── */
 [data-theme|="supanova"] .tb {
   transition: all 0.5s var(--pcv-spring);
   border-radius: 10px;
@@ -3235,7 +3235,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   transition: all 0.5s var(--pcv-spring);
 }
 
-
+/* ── Sidebar (.sb-bar) items ─────────────────────────────── */
 [data-theme|="supanova"] .vi {
   transition: all 0.5s var(--pcv-spring);
   border-radius: 8px;
@@ -3249,7 +3249,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   border-left-color: var(--accent);
 }
 
-
+/* ── Tables — 미세 조정 ──────────────────────────────────── */
 [data-theme|="supanova"] th {
   font-family: var(--font-display);
   font-size: 10px;
@@ -3271,7 +3271,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   border-bottom: 1px solid rgba(255, 255, 255, 0.04);
 }
 
-
+/* ── Badges — pill + tighter ─────────────────────────────── */
 [data-theme|="supanova"] .badge {
   font-family: var(--font-display);
   font-size: 10px;
@@ -3284,7 +3284,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   border-style: solid;
 }
 
-
+/* ── Toolbar brand — tighter typography ──────────────────── */
 [data-theme|="supanova"] .toolbar h1 {
   font-family: var(--font-display);
   font-weight: 800;
@@ -3296,7 +3296,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   color: var(--accent);
 }
 
-
+/* ── Progress bar — 중화된 네온 ──────────────────────────── */
 [data-theme|="supanova"] .pb {
   background: rgba(255, 255, 255, 0.04);
   border: 1px solid rgba(255, 255, 255, 0.08);
@@ -3315,7 +3315,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   font-weight: 600;
 }
 
-
+/* ── Menu bar — pill style ───────────────────────────────── */
 [data-theme|="supanova"] .menu-item {
   transition: all 0.5s var(--pcv-spring);
   border-radius: 8px;
@@ -3335,7 +3335,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   color: var(--accent);
 }
 
-
+/* ── Input fields — 좀 더 라운드 ─────────────────────────── */
 [data-theme|="supanova"] input[type="text"],
 [data-theme|="supanova"] input[type="password"],
 [data-theme|="supanova"] input[type="number"],
@@ -3358,7 +3358,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   box-shadow: 0 0 0 3px var(--accent-tint-15);
 }
 
-
+/* 모션 축소 */
 @media (prefers-reduced-motion: reduce) {
   [data-theme|="supanova"] .hc,
   [data-theme|="supanova"] .tb,
@@ -3370,7 +3370,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   }
 }
 
-
+/* ── T-1: Theme Editor CSS ─────────────────────────────────── */
 .theme-editor { max-height: 70vh; overflow-y: auto; }
 .theme-editor-grid { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
 .theme-editor-item { display: flex; align-items: center; gap: 8px; padding: 4px 0; }
@@ -3378,7 +3378,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .theme-editor-item input[type="color"] { width: 36px; height: 28px; border: 1px solid var(--border); border-radius: 4px; cursor: pointer; background: transparent; padding: 0; }
 .theme-editor-actions { display: flex; gap: 8px; margin-top: 12px; justify-content: flex-end; }
 
-
+/* ── T-1: Theme Preview Cards ──────────────────────────────── */
 .theme-preview-grid { display: grid; grid-template-columns: repeat(auto-fill, minmax(140px, 1fr)); gap: 10px; margin-bottom: 16px; }
 .theme-preview-card { cursor: pointer; border: 2px solid var(--border); border-radius: 8px; padding: 8px; text-align: center; transition: all .2s; overflow: hidden; }
 .theme-preview-card:hover { border-color: var(--accent); transform: translateY(-2px); }
@@ -3387,11 +3387,11 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .theme-preview-swatch > div { flex: 1; }
 .theme-preview-name { font-size: 10px; font-weight: 600; text-transform: uppercase; letter-spacing: .05em; }
 
+/* ═══════════════════════════════════════════════════════════════
+   VS Code UI/UX Patterns (V-1 ~ V-9)
+   ═══════════════════════════════════════════════════════════════ */
 
-
-
-
-
+/* ── V-1: Activity Bar (left icon strip) ───────────────────── */
 .activity-bar {
   width: 48px; background: var(--bg);
   border-right: 1px solid var(--border);
@@ -3425,7 +3425,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .activity-icon:hover::after { opacity: 1; }
 
-
+/* Sidebar adapts to activity bar */
 .main-with-activity { display: flex; flex: 1; overflow: hidden; }
 .sidebar-panel {
   position: relative;
@@ -3437,7 +3437,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .sidebar-panel.collapsed { width: 0; min-width: 0; border: none; overflow: hidden; }
 
-
+/* ═══ Sidebar Resize ═══ */
 .sb-resize {
   position: absolute; right: -3px; top: 0; bottom: 0; width: 6px;
   cursor: col-resize; z-index: 100;
@@ -3445,7 +3445,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .sb-resize:hover, .sb-resize.active { background: var(--accent); opacity: 0.5; }
 
-
+/* ── V-2: Editor Tabs (dynamic multi-tab) ──────────────────── */
 .editor-tabs {
   display: flex; background: var(--bg); border-bottom: 1px solid var(--border);
   overflow-x: auto; overflow-y: hidden; flex-shrink: 0;
@@ -3473,7 +3473,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .editor-tab .tab-close:hover { background: rgba(255,255,255,.1); color: var(--red); }
 .editor-tab.modified .tab-label::after { content: ' ●'; color: var(--accent); font-size: 8px; }
 
-
+/* ── V-3: Bottom Panel (resizable) ─────────────────────────── */
 .bottom-panel {
   display: flex; flex-direction: column;
   border-top: 1px solid var(--border);
@@ -3511,7 +3511,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .panel-action-btn:hover { color: var(--fg); background: var(--bg3); }
 .panel-content { flex: 1; overflow-y: auto; padding: 6px 12px; font-size: 12px; font-family: var(--font-mono); }
 
-
+/* ── V-4: Breadcrumbs ──────────────────────────────────────── */
 .breadcrumbs {
   display: flex; align-items: center; gap: 0;
   padding: 6px 12px; font-size: 11px; color: var(--fg2);
@@ -3526,7 +3526,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .breadcrumb-item.current { color: var(--fg); font-weight: 500; }
 .breadcrumb-sep { color: var(--fg2); opacity: .4; padding: 0 2px; font-size: 10px; }
 
-
+/* ── V-5: Global Search (Ctrl+Shift+F) ────────────────────── */
 .global-search-overlay {
   position: fixed; top: 0; left: 0; width: 100%; height: 100%;
   background: rgba(0,0,0,.4); z-index: 500;
@@ -3560,7 +3560,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .global-search-item .search-type { font-size: 10px; color: var(--fg2); padding: 1px 6px; background: var(--bg3); border-radius: 3px; }
 .global-search-item .search-highlight { color: var(--accent); font-weight: 600; }
 
-
+/* ── V-6: Split View ──────────────────────────────────────── */
 .split-container { display: flex; flex: 1; overflow: hidden; }
 .split-pane { flex: 1; overflow-y: auto; min-width: 200px; }
 .split-divider {
@@ -3569,7 +3569,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 }
 .split-divider:hover, .split-divider.dragging { background: var(--accent); }
 
-
+/* ── V-7: Hover Info (tooltip card) ────────────────────────── */
 .hover-card {
   position: fixed; z-index: 150; pointer-events: none;
   background: var(--bg2); border: 1px solid var(--accent);
@@ -3583,7 +3583,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
 .hover-card-row .hc-k { color: var(--fg2); }
 .hover-card-row .hc-v { font-weight: 500; }
 
-
+/* ── V-8: Notifications Center ─────────────────────────────── */
 .notif-center {
   position: fixed; top: 48px; right: 8px; width: 380px; max-height: 500px;
   background: var(--bg2); border: 1px solid var(--border);
@@ -3629,7 +3629,7 @@ svg path { transition: stroke .3s ease, fill .3s ease; }
   padding: 1px 6px; border-radius: 8px; margin-left: 6px;
 }
 
-
+/* ── V-9: Zen Mode ─────────────────────────────────────────── */
 body.zen-mode .menubar,
 body.zen-mode .toolbar,
 body.zen-mode .activity-bar,
@@ -3641,7 +3641,7 @@ body.zen-mode .bottom-panel { height: 0 !important; border: none; }
 body.zen-mode .cb { padding: 24px 48px; }
 body.zen-mode .content { border: none; }
 
-
+/* ── Mobile adjustments for VS Code layout ─────────────────── */
 @media (max-width: 768px) {
   .activity-bar { width: 0; display: none; }
   .sidebar-panel { position: fixed; z-index: 100; width: 280px; transform: translateX(-100%); }
@@ -3654,7 +3654,7 @@ body.zen-mode .content { border: none; }
   .global-search-box { width: 95vw; }
 }
 
-
+/* ═══ Mobile Bottom Nav ═══ */
 .mobile-nav { display: none; position: fixed; bottom: 0; left: 0; right: 0; height: 58px; background: rgba(11, 16, 22, .98); border-top: 1px solid rgba(255,255,255,.08); z-index: 999; }
 .mobile-nav-items { display: flex; height: 100%; }
 .mobile-nav-item { flex: 1; display: flex; flex-direction: column; align-items: center; justify-content: center; cursor: pointer; color: var(--fg2); font-size: 10px; transition: color 0.2s; }
@@ -3678,7 +3678,7 @@ body.zen-mode .content { border: none; }
   body.login-active .cb { padding-bottom: 0 !important; }
 }
 
-
+/* ═══ Mobile Card View Optimization ═══ */
 @media (max-width: 768px) {
   .sg.grid-2, .sg.grid-3, .sg.grid-4, .sg.grid-5 { grid-template-columns: 1fr !important; }
   .cb { padding: 12px !important; }
@@ -3723,7 +3723,7 @@ body.zen-mode .content { border: none; }
   }
 }
 
-
+/* ═══ Local font fallback ═══ */
 @font-face {
   font-family: 'Outfit';
   font-style: normal;
@@ -3746,8 +3746,8 @@ body.zen-mode .content { border: none; }
   font-display: swap;
 }
 
-
-
+/* ═══ SECTION: Accessibility ═══ */
+/* Reduced motion preference */
 @media (prefers-reduced-motion: reduce) {
   *, *::before, *::after {
     animation-duration: 0.01ms !important;
@@ -3755,14 +3755,14 @@ body.zen-mode .content { border: none; }
     transition-duration: 0.01ms !important;
   }
 }
-
+/* Screen reader only */
 .sr-only {
   position: absolute; width: 1px; height: 1px;
   padding: 0; margin: -1px; overflow: hidden;
   clip: rect(0,0,0,0); white-space: nowrap; border: 0;
 }
 
-
+/* ═══ SECTION: Print ═══ */
 @media print {
   body { background: #fff !important; color: #000 !important; }
   .menubar, .toolbar, .sidebar, .sb-bar, .sb-resize, #pinned-bar,
@@ -3781,11 +3781,11 @@ body.zen-mode .content { border: none; }
   pre, code { background: #f0f0f0 !important; color: #333 !important; border: 1px solid #ddd !important; }
 }
 
+/* ============================================================
+   3차 UX 점검 — 접근성 + 빈 상태 + 색맹 보조 + 로딩 (#1/#7/#16/#18)
+   ============================================================ */
 
-
-
-
-
+/* #7 터치 타겟 — 모바일에서만 강제 (데스크톱 레이아웃 보존) */
 @media (max-width: 768px) {
   .btn:not(.btn-xs):not(.btn-sm) {
     min-height: 44px;
@@ -3794,7 +3794,7 @@ body.zen-mode .content { border: none; }
   }
 }
 
-
+/* #16 Empty state */
 .empty-state {
   text-align: center;
   padding: 48px 16px;
@@ -3822,7 +3822,7 @@ body.zen-mode .content { border: none; }
   display: inline-block;
 }
 
-
+/* #18 색맹 보조 — 상태 배지 + 아이콘 + 텍스트 */
 .status-badge {
   display: inline-flex;
   align-items: center;
@@ -3839,15 +3839,15 @@ body.zen-mode .content { border: none; }
   line-height: 1;
 }
 .status-badge.s-ok    { color: var(--green); }
-.status-badge.s-ok::before    { content: "\2713"; }
+.status-badge.s-ok::before    { content: "\2713"; }   /* ✓ */
 .status-badge.s-warn  { color: var(--yellow); }
-.status-badge.s-warn::before  { content: "\26A0"; }
+.status-badge.s-warn::before  { content: "\26A0"; }    /* ⚠ */
 .status-badge.s-err   { color: var(--red); }
-.status-badge.s-err::before   { content: "\2717"; }
+.status-badge.s-err::before   { content: "\2717"; }    /* ✗ */
 .status-badge.s-off   { color: var(--fg2); }
-.status-badge.s-off::before   { content: "\25CB"; }
+.status-badge.s-off::before   { content: "\25CB"; }    /* ○ */
 
-
+/* #1 표준 로딩 인디케이터 */
 .btn.is-loading {
   position: relative;
   color: transparent !important;
@@ -3870,14 +3870,14 @@ body.zen-mode .content { border: none; }
 }
 .row-loading td { opacity: 0.5; transition: opacity 0.2s; }
 
-
+/* #6 키보드 포커스 표시 (focus-visible) */
 :focus-visible {
   outline: 2px solid var(--accent, #00f0ff);
   outline-offset: 2px;
   border-radius: 3px;
 }
 
-
+/* #4 모달 키보드 표시 hint — 모달 떠 있을 때만 */
 #modal-bg[style*="display:flex"]::after,
 #modal-bg[style*="display: flex"]::after {
   content: "ESC to close";
@@ -3889,37 +3889,37 @@ body.zen-mode .content { border: none; }
   z-index: 9999;
 }
 
-
-
-
+/* ============================================================
+   4차 UI 심층 개선 — 디자인 토큰 + sticky/ellipsis/breadcrumb
+   ============================================================ */
 
 :root {
-
+  /* #2 spacing 토큰 */
   --space-xs: 4px;
   --space-sm: 8px;
   --space-md: 12px;
   --space-lg: 16px;
   --space-xl: 24px;
   --space-2xl: 32px;
-
+  /* #3 폰트 크기 토큰 */
   --fs-xs: 10px;
   --fs-sm: 11px;
   --fs-md: 12px;
   --fs-lg: 13px;
   --fs-xl: 15px;
   --fs-2xl: 18px;
-
-  --chart-c1: #0072B2;
-  --chart-c2: #E69F00;
-  --chart-c3: #009E73;
-  --chart-c4: #CC79A7;
-  --chart-c5: #56B4E9;
-  --chart-c6: #D55E00;
-  --chart-c7: #F0E442;
-  --chart-c8: #999999;
+  /* #4 색맹 친화 차트 색 (Wong palette) */
+  --chart-c1: #0072B2; /* blue */
+  --chart-c2: #E69F00; /* orange */
+  --chart-c3: #009E73; /* green */
+  --chart-c4: #CC79A7; /* pink */
+  --chart-c5: #56B4E9; /* sky */
+  --chart-c6: #D55E00; /* vermillion */
+  --chart-c7: #F0E442; /* yellow */
+  --chart-c8: #999999; /* gray */
 }
 
-
+/* #1 sticky header */
 .table-sticky thead th {
   position: sticky;
   top: 0;
@@ -3928,7 +3928,7 @@ body.zen-mode .content { border: none; }
   box-shadow: 0 1px 0 var(--border, #333);
 }
 
-
+/* #9 ellipsis + tooltip */
 .text-ellipsis {
   overflow: hidden;
   text-overflow: ellipsis;
@@ -3937,7 +3937,7 @@ body.zen-mode .content { border: none; }
   max-width: 100%;
 }
 
-
+/* #15 breadcrumb */
 #breadcrumbs {
   display: flex;
   align-items: center;
@@ -3963,7 +3963,7 @@ body.zen-mode .content { border: none; }
   margin: 0 2px;
 }
 
-
+/* #6 단축키 도움말 모달 표 */
 .kbd {
   display: inline-block;
   padding: 2px 6px;
@@ -3975,24 +3975,24 @@ body.zen-mode .content { border: none; }
   margin: 0 2px;
 }
 
-
+/* #5 drag-drop 시각 피드백 */
 .drag-target {
   border: 2px dashed var(--accent, #00f0ff) !important;
   background: rgba(0, 240, 255, 0.06) !important;
   transition: border-color 0.15s, background 0.15s;
 }
 
-
+/* #8 multi-select row 표시 */
 tr.multi-selected, .multi-selected {
   background: rgba(0, 240, 255, 0.08);
   border-left: 3px solid var(--accent, #00f0ff);
 }
 
+/* ============================================================
+   Phase 3: Supanova — grain texture + table header + scrollbar
+   ============================================================ */
 
-
-
-
-
+/* Grain texture overlay (film grain effect) */
 body::after {
   content: '';
   position: fixed;
@@ -4003,7 +4003,7 @@ body::after {
   background-image: url("data:image/svg+xml,%3Csvg viewBox='0 0 256 256' xmlns='http://www.w3.org/2000/svg'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='4' stitchTiles='stitch'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)'/%3E%3C/svg%3E");
 }
 
-
+/* Global sticky table headers */
 thead {
   position: sticky;
   top: 0;
@@ -4011,7 +4011,7 @@ thead {
   background: var(--bg2);
 }
 
-
+/* Global smooth scrollbar */
 ::-webkit-scrollbar { width: 5px; }
 ::-webkit-scrollbar-track { background: transparent; }
 ::-webkit-scrollbar-thumb { background: var(--border); border-radius: 3px; }

@@ -1,14 +1,14 @@
 #!/bin/bash
-
-
-
-
-
-
-
-
-
-
+# ═══════════════════════════════════════════════════════════════
+# release.sh — PureCVisor Single Edge 릴리스 빌드 + 태깅
+#
+# 사용법:
+#   ./scripts/release.sh 1.0
+#   ./scripts/release.sh 1.0 --tag-only
+#
+# 태그:
+#   v{VERSION}-single
+# ═══════════════════════════════════════════════════════════════
 
 set -euo pipefail
 
@@ -63,7 +63,7 @@ if ! $TAG_ONLY; then
     for artifact in purecvisorsd pcvctl pcvtui; do
         cp "$STAGING_DIR/${artifact}" "$RELEASE_DIR/"
     done
-    tar czf "$RELEASE_DIR/purecvisor-ui-v${VERSION}.tar.gz" -C ui .
+    tar czf "$RELEASE_DIR/purecvisor-single-ui-v${VERSION}.tar.gz" -C ui .
 fi
 
 cd "$RELEASE_DIR"

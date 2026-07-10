@@ -1,11 +1,11 @@
-
-
-
-
-
-
-
-
+/*
+ * Pretendard self-hosted for PureCVisor Web UI.
+ * Source: https://github.com/orioncactus/pretendard
+ * License: SIL Open Font License 1.1
+ *
+ * Keep this file sourcemap-free. Browser devtools fetch CSS maps through
+ * connect-src, so CDN-generated maps create CSP console noise in production.
+ */
 @font-face {
   font-family: 'Pretendard';
   font-weight: 900;

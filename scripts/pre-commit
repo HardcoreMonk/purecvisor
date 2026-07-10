@@ -1,4 +1,34 @@
 #!/bin/bash
+# ═══════════════════════════════════════════════════════════════
+# PureCVisor pre-commit hook v1.0 — 커밋 전 품질 게이트
+#
+# [검증 단계] (조건부 최대 15단계)
+#   1.  클러스터 빌드 (경고 0)                [C 변경 시]
+#   2.  Single Edge 빌드 (경고 0)             [C 변경 시]
+#   3.  유닛 테스트 (≥200 PASS)               [C 변경 시]
+#   4.  REST↔RPC 정합성                       [REST/dispatcher 변경 시]
+#   4b. ADR-0019 RBAC 정책 계약               [dispatcher/RBAC 변경 시]
+#   5.  프론트엔드 패턴 (10건 초과 차단)      [UI 변경 시]
+#   5b. i18n 키 정합성 (ko/en)                [UI 변경 시]
+#   6.  cppcheck 정적 분석 (에러 차단)        [C 변경 + cppcheck 설치]
+#   7.  바이너리 크기 (3MB 상한)              [C 변경 시]
+#   8.  SAFE 통합 테스트                      [REST/UI 변경 + 데몬 실행]
+#   8b. 보안 스캔 (OWASP Top 10)              [REST/UI 변경 + 데몬 실행]
+#   9.  문서 정합성 (RPC/테스트 수)           [C 변경 시]
+#   10. 신규 부채 마커 warn                   [C 변경 시]
+#   11. ASan/UBSan test_runner (5분 타임아웃) [C 변경 + sanitize 가능]
+#   12. Valgrind definite leak                [C 변경 + valgrind 설치]
+#   13. gitleaks 시크릿 스캔                  [staged diff 대상]
+#
+# [설치]      make install-hooks
+# [건너뛰기]  git commit --no-verify (지양)
+#
+# [설치]
+#   make install-hooks
+#
+# [건너뛰기]
+#   git commit --no-verify
+# ══════════���════════════════════════════════════════════════════
 
 set -uo pipefail
 
@@ -17,6 +47,7 @@ fail() { echo -e "${RED}FAIL${NC} $1"; FAILED=1; }
 warn() { echo -e "${YELLOW}WARN${NC} $1"; }
 skip() { echo -e "${YELLOW}SKIP${NC} $1"; }
 
+# 변경된 파일 목록 (staged)
 STAGED=$(git diff --cached --name-only --diff-filter=ACMR)
 
 HAS_C_CHANGES=false
@@ -29,6 +60,7 @@ echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=
 echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
 
+# ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 클러스터 빌드 검증 (경고 0)${NC}"
@@ -44,19 +76,23 @@ else
     skip "[1] C 소스 변경 없음 — 빌드 검증 생략"
 fi
 
+# ── 2. Single Edge 빌드 검증 ──��──────────────────────────────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] Single Edge 빌드 검증${NC}"
     SINGLE_OUT=$(make clean >/dev/null 2>&1 && make single 2>&1)
+    # Week 4: 화이트리스트 부채 제거 — 실측 0 경고 확인 후 strict 전환
     SINGLE_WARNS=$(echo "$SINGLE_OUT" | grep -c "warning:" || true)
     if [ "$SINGLE_WARNS" -gt 0 ]; then
         fail "Single Edge 빌드 신규 경고 ${SINGLE_WARNS}건"
     else
         pass "Single Edge 빌드 경고 0건"
     fi
+    # Single Edge 빌드 상태 유지
     make clean >/dev/null 2>&1 && make single >/dev/null 2>&1
 fi
 
+# ── 3. 유닛 테스트 ──────────────────────────────────────���────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 유닛 테스트${NC}"
@@ -78,6 +114,7 @@ else
     skip "[3] C 소스 변경 없음 — 테스트 생략"
 fi
 
+# ── 4. REST ↔ RPC 정합성 ────────────────────────────────────
 if $HAS_API_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] REST ↔ RPC 정합성 검증${NC}"
@@ -99,6 +136,7 @@ else
     skip "[4] REST/Dispatcher 변경 없음 — 정합성 검증 생략"
 fi
 
+# ── 4b. ADR-0019 RBAC 정책 계약 ─────────────────────────────
 if $HAS_RBAC_POLICY_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] ADR-0019 RBAC 정책 계약${NC}"
@@ -114,6 +152,7 @@ else
     skip "[$((GATE+1))] RBAC 정책 변경 없음 — ADR-0019 계약 검증 생략"
 fi
 
+# ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────
 if $HAS_UI_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 프���트엔드 패턴 검증${NC}"
@@ -144,6 +183,7 @@ if $HAS_UI_CHANGES; then
         pass "프론트엔드 패턴 검증 통과"
     fi
 
+    # ESLint (errors only) — node 있을 때만
     if command -v node &>/dev/null && [ -f package.json ]; then
         GATE=$((GATE+1))
         echo -e "${CYAN}[$GATE] ESLint (zero errors)${NC}"
@@ -161,6 +201,7 @@ if $HAS_UI_CHANGES; then
         fi
     fi
 
+    # OpenAPI 동기화 (REST_ENDPOINTS.md ↔ openapi.yaml)
     if echo "$STAGED" | grep -qE "(REST_ENDPOINTS\.md|openapi\.yaml|gen_openapi\.py)"; then
         GATE=$((GATE+1))
         echo -e "${CYAN}[$GATE] OpenAPI 동기화${NC}"
@@ -172,6 +213,7 @@ if $HAS_UI_CHANGES; then
         fi
     fi
 
+    # UI 번들 최신성 (modules/*.js ↔ app.bundle.js ↔ sw.js CACHE_NAME)
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] UI 번들 최신성${NC}"
     if [ -x scripts/check_ui_bundle_fresh.py ]; then
@@ -184,6 +226,7 @@ if $HAS_UI_CHANGES; then
         fi
     fi
 
+    # XSS 스캐너 (프로젝트별 esc/H/_L/t 헬퍼 인식)
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] XSS 패턴 검증${NC}"
     if [ -x scripts/check_xss.py ]; then
@@ -196,6 +239,7 @@ if $HAS_UI_CHANGES; then
         fi
     fi
 
+    # i18n 키 정합성 (ko/en)
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] i18n 키 정합성 (ko/en)${NC}"
     SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
@@ -212,6 +256,7 @@ else
     skip "[$((GATE+1))] UI 변경 없음 — 프론트엔드/i18n 검증 생략"
 fi
 
+# ── 6. cppcheck 정적 분석 (C 소스 변경 시) ───────────────────
 if $HAS_C_CHANGES && command -v cppcheck &>/dev/null; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] cppcheck 정적 분석${NC}"
@@ -231,6 +276,7 @@ if $HAS_C_CHANGES && command -v cppcheck &>/dev/null; then
     fi
 fi
 
+# ── 7. 바이너리 크기 검증 ────────────────────────────────────
 if $HAS_C_CHANGES && [ -f bin/purecvisorsd ]; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3MB 상한)${NC}"
@@ -243,6 +289,7 @@ if $HAS_C_CHANGES && [ -f bin/purecvisorsd ]; then
     fi
 fi
 
+# ── 8. SAFE 통합 테스트 (데몬 실행 중) ───────────────────────
 if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
     if curl -s -o /dev/null -w "%{http_code}" "http://localhost/api/v1/health" 2>/dev/null | grep -q "200"; then
         GATE=$((GATE+1))
@@ -260,6 +307,7 @@ if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
             fi
         fi
 
+        # 보안 스캔 (OWASP Top 10) — 데몬 실행 중일 때만
         GATE=$((GATE+1))
         echo -e "${CYAN}[$GATE] 보안 스캔 (OWASP Top 10)${NC}"
         SEC_SCRIPT="$(git rev-parse --show-toplevel)/tests/integration/test_security_scan.sh"
@@ -286,12 +334,14 @@ else
     skip "[$((GATE+1))] REST/UI 변경 없음 — 통합/보안 검사 생략"
 fi
 
+# ── 9. 문서 정합성 검사 (C 소스 변경 시) ─────────────────────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 문서 정합성 검사${NC}"
     DOC_ISSUES=0
     PROJECT_ROOT="$(git rev-parse --show-toplevel)"
 
+    # RPC 수 검증: dispatcher.c 등록 수 vs CLAUDE.md 기재 수
     ACTUAL_RPC=$(grep -c "g_hash_table_insert.*g_rpc_routes" "$PROJECT_ROOT/src/api/dispatcher.c" || true)
     DOC_RPC=$(grep -oP "RPC.*?(\d+)개" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | head -1 | grep -oP "\d+" || echo 0)
     if [ "$ACTUAL_RPC" -gt 0 ] && [ "$DOC_RPC" -gt 0 ] && [ "$ACTUAL_RPC" != "$DOC_RPC" ]; then
@@ -299,6 +349,7 @@ if $HAS_C_CHANGES; then
         DOC_ISSUES=$((DOC_ISSUES + 1))
     fi
 
+    # 테스트 수 검증: 실제 PASS 수 vs CLAUDE.md 기재 수
     if [ -f "$PROJECT_ROOT/test_results.txt" ]; then
         ACTUAL_TESTS=$(grep -c "^ok" "$PROJECT_ROOT/test_results.txt" 2>/dev/null || true)
         DOC_TESTS=$(grep -oP "테스트.*?(\d+)" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | head -1 | grep -oP "\d+" | head -1 || echo 0)
@@ -313,12 +364,14 @@ if $HAS_C_CHANGES; then
     fi
 fi
 
+# ── 10. 신규 부채 마커 차단 ────────────────────────────────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 신규 부채 마커 검사${NC}"
     DEBT_MARK_1='TO''DO'
     DEBT_MARK_2='FIX''ME'
     DEBT_MARK_PATTERN="${DEBT_MARK_1}|${DEBT_MARK_2}"
+    # staged diff에서 신규 추가된 부채 마커만 검사 (+줄)
     NEW_DEBT_MARKS=$(git diff --cached --diff-filter=ACMR -U0 -- '*.c' '*.h' | grep "^+" | grep -v "^+++" | grep -iE "$DEBT_MARK_PATTERN" | wc -l || true)
     if [ "$NEW_DEBT_MARKS" -gt 0 ]; then
         warn "신규 부채 마커 ${NEW_DEBT_MARKS}건 (의도적이면 무시)"
@@ -328,7 +381,11 @@ if $HAS_C_CHANGES; then
     fi
 fi
 
+# ── 11. 커밋 메시지 포맷 검사 (commit-msg 대용) ──────────────
+# Note: 실제 커밋 메시지는 commit-msg hook에서 검사해야 하지만,
+# pre-commit에서는 staged 파일 기반 검사만 수행.
 
+# ── 12. Valgrind 빠른 검사 (test_runner 대상, C 변경 시) ─────
 if $HAS_C_CHANGES && command -v valgrind &>/dev/null && [ -f test_runner ]; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] Valgrind 빠른 검사${NC}"
@@ -348,6 +405,7 @@ if $HAS_C_CHANGES && command -v valgrind &>/dev/null && [ -f test_runner ]; then
     fi
 fi
 
+# ── 11. ASan/UBSan test_runner (Valgrind 보완, 빠름) ─────────
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] ASan/UBSan test_runner${NC}"
@@ -361,9 +419,11 @@ if $HAS_C_CHANGES; then
     else
         pass "ASan/UBSan 통과"
     fi
+    # 빌드 잔여물 정리 + Single Edge 복원
     make clean >/dev/null 2>&1 && make single >/dev/null 2>&1
 fi
 
+# ── 13. gitleaks 시크릿 스캔 (staged 대상) ───────────────────
 if command -v gitleaks &>/dev/null; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] gitleaks 시크릿 스캔${NC}"
@@ -379,6 +439,7 @@ else
     skip "[$((GATE+1))] gitleaks 미설치 — 권장: https://github.com/gitleaks/gitleaks"
 fi
 
+# ── 결과 ─────────────────────────────────────────────────────
 echo ""
 if [ "$FAILED" -ne 0 ]; then
     echo -e "${RED}═══ 커밋 차단: 품질 게이트 실패 ═══${NC}"

@@ -7,19 +7,19 @@
   <meta name="description" content="Supanova Design Engine의 'Taste Layer' 규칙을 PureCVisor 대시보드 맥락에 적용한 정적 프리뷰.">
   <meta name="theme-color" content="#0a0a0a">
 
-
+  <!-- Tailwind CDN (standalone, no prefix) -->
   <script src="https://cdn.tailwindcss.com"></script>
 
-
+  <!-- Pretendard (한국어 표준) -->
   <link rel="preconnect" href="https://cdn.jsdelivr.net" crossorigin>
   <link rel="stylesheet" href="https://cdn.jsdelivr.net/gh/orioncactus/pretendard/dist/web/static/pretendard.min.css">
 
-
+  <!-- Outfit (영문 디스플레이) -->
   <link rel="preconnect" href="https://fonts.googleapis.com">
   <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
   <link href="https://fonts.googleapis.com/css2?family=Outfit:wght@400;500;600;700;800&family=JetBrains+Mono:wght@400;500&display=swap" rel="stylesheet">
 
-
+  <!-- Iconify Solar -->
   <script src="https://code.iconify.design/iconify-icon/2.3.0/iconify-icon.min.js"></script>
 
   <script>
@@ -77,14 +77,14 @@
       font-feature-settings: "ss01", "ss02", "cv01";
     }
 
-
+    /* 한국어 블록 공통 */
     .ko { word-break: keep-all; line-height: 1.35; }
     .ko-tight { word-break: keep-all; line-height: 1.15; }
 
-
+    /* 영문 디스플레이 */
     .en-display { font-family: 'Outfit', 'Pretendard', sans-serif; letter-spacing: -0.02em; }
 
-
+    /* Eyebrow 마이크로 뱃지 */
     .eyebrow {
       display: inline-flex; align-items: center; gap: 8px;
       padding: 6px 12px;
@@ -100,7 +100,7 @@
     }
     .eyebrow iconify-icon { font-size: 14px; }
 
-
+    /* Double-Bezel 카드 — 글래스 트레이 안의 코어 */
     .bezel {
       position: relative;
       background: rgba(255, 255, 255, 0.035);
@@ -131,7 +131,7 @@
       pointer-events: none;
     }
 
-
+    /* 미니 베젤 (작은 카드용) */
     .bezel-sm {
       background: rgba(255, 255, 255, 0.03);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -154,7 +154,7 @@
       overflow: hidden;
     }
 
-
+    /* 플로팅 글래스 내비 */
     .glass-nav {
       backdrop-filter: blur(24px) saturate(160%);
       -webkit-backdrop-filter: blur(24px) saturate(160%);
@@ -165,7 +165,7 @@
         0 20px 40px -20px rgba(0, 0, 0, 0.6);
     }
 
-
+    /* 프리미엄 CTA 버튼 */
     .btn-primary {
       display: inline-flex; align-items: center; gap: 10px;
       padding: 16px 28px 16px 30px;
@@ -205,7 +205,7 @@
       background: rgba(255, 255, 255, 0.04);
     }
 
-
+    /* Reveal 애니메이션 (IntersectionObserver) */
     .reveal {
       opacity: 0;
       transform: translateY(28px);
@@ -219,7 +219,7 @@
     }
     .reveal-stagger > * { animation-fill-mode: backwards; }
 
-
+    /* 플로팅 오브 (배경) */
     @keyframes float1 {
       0%, 100% { transform: translate(0, 0) scale(1); }
       50% { transform: translate(30px, -40px) scale(1.06); }
@@ -231,7 +231,7 @@
     .orb-1 { animation: float1 14s ease-in-out infinite; }
     .orb-2 { animation: float2 18s ease-in-out infinite; }
 
-
+    /* 노이즈 오버레이 */
     .noise {
       position: fixed; inset: 0; z-index: 60;
       pointer-events: none;
@@ -240,14 +240,14 @@
       background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='200' height='200'%3E%3Cfilter id='n'%3E%3CfeTurbulence type='fractalNoise' baseFrequency='0.9' numOctaves='2'/%3E%3C/filter%3E%3Crect width='100%25' height='100%25' filter='url(%23n)' opacity='0.6'/%3E%3C/svg%3E");
     }
 
-
+    /* 로고 마키 */
     @keyframes marquee {
       0% { transform: translateX(0); }
       100% { transform: translateX(-50%); }
     }
     .marquee-track { display: flex; gap: 72px; animation: marquee 40s linear infinite; width: max-content; }
 
-
+    /* 카운터 값 */
     .metric {
       font-family: 'Outfit', sans-serif;
       font-variant-numeric: tabular-nums;
@@ -256,7 +256,7 @@
       line-height: 1;
     }
 
-
+    /* 실시간 펄스 점 */
     @keyframes pulseDot {
       0%, 100% { opacity: 1; transform: scale(1); }
       50% { opacity: 0.5; transform: scale(1.15); }
@@ -268,11 +268,11 @@
       animation: pulseDot 2.2s ease-in-out infinite;
     }
 
-
+    /* 미니 스파크라인 */
     .spark { height: 28px; width: 100%; display: block; }
     .spark path { fill: none; stroke: var(--accent); stroke-width: 1.8; stroke-linejoin: round; stroke-linecap: round; }
 
-
+    /* 인프라 노드 카드 미니 */
     .node-card {
       background: rgba(255, 255, 255, 0.025);
       border: 1px solid rgba(255, 255, 255, 0.08);
@@ -285,7 +285,7 @@
       background: rgba(20, 184, 166, 0.04);
     }
 
-
+    /* 테이블 */
     .op-table th {
       text-align: left;
       font-family: 'Outfit', sans-serif;
@@ -307,7 +307,7 @@
     .op-table tbody tr { transition: background 0.5s var(--spring); }
     .op-table tbody tr:hover { background: rgba(20, 184, 166, 0.03); }
 
-
+    /* 상태 pill */
     .state {
       display: inline-flex; align-items: center; gap: 6px;
       padding: 4px 10px;
@@ -322,12 +322,12 @@
     .state-warn { background: rgba(234, 179, 8, 0.1); color: #fcd34d; border: 1px solid rgba(234, 179, 8, 0.25); }
     .state-err { background: rgba(244, 63, 94, 0.1); color: #fb7185; border: 1px solid rgba(244, 63, 94, 0.25); }
 
-
+    /* 원형 진행도 */
     .ring-chart { transform: rotate(-90deg); }
     .ring-bg { stroke: rgba(255, 255, 255, 0.08); }
     .ring-fg { stroke: var(--accent); stroke-linecap: round; transition: stroke-dashoffset 1.4s var(--spring); }
 
-
+    /* 섹션 스페이싱 — Supanova 규율: py-24+ (랜딩 구역), py-16 (패널 구역) */
     .section-wide { padding-top: 112px; padding-bottom: 112px; }
     .section-normal { padding-top: 80px; padding-bottom: 80px; }
 
@@ -338,7 +338,7 @@
       .bezel-sm > .core { padding: 18px; }
     }
 
-
+    /* 접근성 */
     *:focus-visible {
       outline: 2px solid var(--accent);
       outline-offset: 3px;
@@ -356,7 +356,7 @@
 </head>
 <body class="min-h-[100dvh] relative overflow-x-hidden">
 
-
+  <!-- Background Mesh (fixed) -->
   <div class="fixed inset-0 -z-10 overflow-hidden" aria-hidden="true">
     <div class="absolute -top-40 -left-40 w-[560px] h-[560px] rounded-full orb-1"
          style="background: radial-gradient(circle, rgba(20,184,166,0.12), transparent 60%);"></div>
@@ -366,10 +366,10 @@
          style="background: radial-gradient(circle, rgba(99,102,241,0.05), transparent 60%); animation-delay: -5s;"></div>
   </div>
 
-
+  <!-- Noise Overlay -->
   <div class="noise" aria-hidden="true"></div>
 
-
+  <!-- Floating Glass Pill Nav -->
   <header class="sticky top-0 z-40 flex justify-center pt-5 px-4" role="banner">
     <nav class="glass-nav rounded-full flex items-center gap-1 pl-5 pr-2 py-2" aria-label="주요 탐색">
       <a href="#top" class="flex items-center gap-2 pr-5 mr-1 border-r border-white/10">
@@ -393,12 +393,14 @@
 
   <main id="top">
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         HERO — Split: text left, live single-node visual right
+         ══════════════════════════════════════════════════════════ -->
     <section class="section-wide relative" id="overview">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
         <div class="grid grid-cols-1 lg:grid-cols-[minmax(0,1.1fr)_minmax(0,0.9fr)] gap-16 lg:gap-20 items-center">
 
-
+          <!-- Left: Copy -->
           <div class="reveal">
             <div class="eyebrow mb-6">
               <iconify-icon icon="solar:pulse-bold" aria-hidden="true"></iconify-icon>
@@ -427,7 +429,7 @@
               </a>
             </div>
 
-
+            <!-- Trust 라인 -->
             <div class="flex items-center gap-4 text-sm text-zinc-500">
               <div class="flex -space-x-2">
                 <img src="https://i.pravatar.cc/80?u=hayunseo" loading="lazy" decoding="async" alt="하윤서" class="w-8 h-8 rounded-full border-2 border-ink-950">
@@ -441,11 +443,11 @@
             </div>
           </div>
 
-
+          <!-- Right: Live single-node visual (Double-Bezel) -->
           <div class="reveal" style="transition-delay: 150ms;">
             <div class="bezel">
               <div class="core">
-
+                <!-- 헤더 -->
                 <div class="flex items-center justify-between mb-6">
                   <div>
                     <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-1">Single Node Health</div>
@@ -457,9 +459,9 @@
                   </div>
                 </div>
 
-
+                <!-- Single Edge 상태 원형 -->
                 <div class="grid grid-cols-3 gap-3 mb-6">
-
+                  <!-- Node 1 (Master) -->
                   <div class="node-card text-center">
                     <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
                       <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
@@ -470,7 +472,7 @@
                     <div class="text-sm font-semibold text-white mt-0.5">MASTER</div>
                     <div class="text-xs text-accent mt-1">66% CPU</div>
                   </div>
-
+                  <!-- Node 2 -->
                   <div class="node-card text-center">
                     <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
                       <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
@@ -481,7 +483,7 @@
                     <div class="text-sm font-semibold text-white mt-0.5">FOLLOWER</div>
                     <div class="text-xs text-accent mt-1">45% CPU</div>
                   </div>
-
+                  <!-- Node 3 -->
                   <div class="node-card text-center">
                     <svg viewBox="0 0 64 64" class="ring-chart w-14 h-14 mx-auto mb-3">
                       <circle cx="32" cy="32" r="26" class="ring-bg" stroke-width="5" fill="none"></circle>
@@ -494,7 +496,7 @@
                   </div>
                 </div>
 
-
+                <!-- etcd 상태 라인 -->
                 <div class="border-t border-white/5 pt-5 space-y-3">
                   <div class="flex items-center justify-between text-sm">
                     <div class="flex items-center gap-2 text-zinc-400">
@@ -523,7 +525,7 @@
           </div>
         </div>
 
-
+        <!-- 로고 마키 (trust strip) -->
         <div class="mt-24 reveal">
           <div class="text-[11px] uppercase tracking-[0.2em] text-zinc-600 text-center mb-6 font-mono">
             함께 운영하는 팀들
@@ -564,7 +566,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         METRICS BAR — 4 organic-feeling numbers
+         ══════════════════════════════════════════════════════════ -->
     <section class="section-normal border-t border-white/5">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
         <div class="grid grid-cols-2 lg:grid-cols-4 gap-8 lg:gap-12">
@@ -601,7 +605,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         FEATURES — Asymmetric Bento Grid
+         ══════════════════════════════════════════════════════════ -->
     <section class="section-wide" id="features">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
 
@@ -620,10 +626,10 @@
           </p>
         </div>
 
-
+        <!-- Bento grid -->
         <div class="grid grid-cols-1 md:grid-cols-6 gap-5 lg:gap-6 reveal-stagger">
 
-
+          <!-- Card 1 — Wide (KVM + 컨테이너) -->
           <div class="md:col-span-4 reveal">
             <div class="bezel h-full">
               <div class="core h-full flex flex-col">
@@ -641,7 +647,7 @@
                     </p>
                   </div>
                 </div>
-
+                <!-- 내부 미니 통계 -->
                 <div class="mt-auto pt-6 border-t border-white/5 grid grid-cols-3 gap-4">
                   <div>
                     <div class="text-[10px] uppercase font-mono tracking-widest text-zinc-500 mb-1">VMs</div>
@@ -660,7 +666,7 @@
             </div>
           </div>
 
-
+          <!-- Card 2 — Narrow (AI 자가치유) -->
           <div class="md:col-span-2 reveal" style="transition-delay: 80ms;">
             <div class="bezel h-full">
               <div class="core h-full flex flex-col justify-between">
@@ -685,7 +691,7 @@
             </div>
           </div>
 
-
+          <!-- Card 3 — Narrow (ZFS) -->
           <div class="md:col-span-2 reveal" style="transition-delay: 120ms;">
             <div class="bezel h-full">
               <div class="core h-full flex flex-col justify-between">
@@ -710,7 +716,7 @@
             </div>
           </div>
 
-
+          <!-- Card 4 — Wide (Single Edge 보호) -->
           <div class="md:col-span-4 reveal" style="transition-delay: 160ms;">
             <div class="bezel h-full">
               <div class="core h-full">
@@ -727,7 +733,7 @@
                       단일 노드 장애 시나리오를 통합 테스트로 검증합니다.
                     </p>
                   </div>
-
+                  <!-- 미니 스파크라인 -->
                   <div class="hidden sm:block w-32 shrink-0">
                     <svg class="spark" viewBox="0 0 120 28" preserveAspectRatio="none" aria-hidden="true">
                       <path d="M0,18 L12,15 L24,19 L36,12 L48,14 L60,8 L72,11 L84,5 L96,9 L108,4 L120,7"></path>
@@ -753,7 +759,7 @@
             </div>
           </div>
 
-
+          <!-- Card 5 — (감사 + 보안) -->
           <div class="md:col-span-3 reveal" style="transition-delay: 200ms;">
             <div class="bezel h-full">
               <div class="core h-full">
@@ -777,7 +783,7 @@
             </div>
           </div>
 
-
+          <!-- Card 6 — (모니터링) -->
           <div class="md:col-span-3 reveal" style="transition-delay: 240ms;">
             <div class="bezel h-full">
               <div class="core h-full">
@@ -815,7 +821,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         LIVE OPERATIONS PANEL — Double-Bezel container
+         ══════════════════════════════════════════════════════════ -->
     <section class="section-wide" id="operations">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
 
@@ -837,13 +845,13 @@
           </div>
         </div>
 
-
+        <!-- Double-Bezel 컨테이너: 왼쪽 VM 테이블 + 오른쪽 사이드 카드들 -->
         <div class="reveal">
           <div class="bezel">
             <div class="core !p-0 overflow-hidden">
               <div class="grid grid-cols-1 xl:grid-cols-[minmax(0,1fr)_340px]">
 
-
+                <!-- VM 테이블 -->
                 <div class="p-7">
                   <div class="flex items-center justify-between mb-5">
                     <div>
@@ -987,7 +995,7 @@
                   </div>
                 </div>
 
-
+                <!-- 우측 사이드: 노드 상태 + CPU 게이지 -->
                 <aside class="border-t xl:border-t-0 xl:border-l border-white/5 p-7 space-y-6">
                   <div>
                     <div class="text-[11px] font-mono uppercase tracking-[0.15em] text-zinc-500 mb-4">FLEET CPU</div>
@@ -1057,7 +1065,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         ACTIVITY / TESTIMONIAL-STYLE MASONRY
+         ══════════════════════════════════════════════════════════ -->
     <section class="section-wide" id="activity">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
 
@@ -1076,7 +1086,7 @@
 
         <div class="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-5 lg:gap-6">
 
-
+          <!-- 카드 1 -->
           <div class="reveal">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1099,7 +1109,7 @@
             </div>
           </div>
 
-
+          <!-- 카드 2 -->
           <div class="reveal" style="transition-delay: 80ms;">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1122,7 +1132,7 @@
             </div>
           </div>
 
-
+          <!-- 카드 3 -->
           <div class="reveal" style="transition-delay: 160ms;">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1145,7 +1155,7 @@
             </div>
           </div>
 
-
+          <!-- 카드 4 -->
           <div class="reveal" style="transition-delay: 200ms;">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1168,7 +1178,7 @@
             </div>
           </div>
 
-
+          <!-- 카드 5 -->
           <div class="reveal" style="transition-delay: 240ms;">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1191,7 +1201,7 @@
             </div>
           </div>
 
-
+          <!-- 카드 6 -->
           <div class="reveal" style="transition-delay: 280ms;">
             <div class="bezel-sm h-full">
               <div class="core">
@@ -1218,7 +1228,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         FULL-BLEED CTA
+         ══════════════════════════════════════════════════════════ -->
     <section class="relative section-wide overflow-hidden">
       <div class="absolute inset-0 -z-10">
         <div class="absolute inset-0" style="background: radial-gradient(circle at 30% 50%, rgba(20,184,166,0.12), transparent 60%);"></div>
@@ -1267,7 +1279,9 @@
       </div>
     </section>
 
-
+    <!-- ══════════════════════════════════════════════════════════
+         MINIMAL FOOTER
+         ══════════════════════════════════════════════════════════ -->
     <footer class="border-t border-white/5 py-14">
       <div class="max-w-7xl mx-auto px-5 sm:px-8 lg:px-10">
         <div class="flex flex-col md:flex-row md:items-center md:justify-between gap-8">
@@ -1284,7 +1298,7 @@
           <div class="flex items-center gap-7 text-sm text-zinc-400">
             <a href="/ui/" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">대시보드</a>
             <a href="/ui/guide.html" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">가이드</a>
-            <a href="https://github.com/your-org/purecvisor" rel="noopener" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">GitHub</a>
+            <a href="https://github.com/your-org/purecvisor-single" rel="noopener" class="hover:text-white transition-all duration-500" style="transition-timing-function:var(--spring)">GitHub</a>
           </div>
 
           <div class="text-xs text-zinc-600 font-mono">
@@ -1297,9 +1311,9 @@
   </main>
 
   <script>
-
-
-
+    // ═══════════════════════════════════════════════════════════════
+    // Scroll Reveal — IntersectionObserver
+    // ═══════════════════════════════════════════════════════════════
     (function() {
       var targets = document.querySelectorAll('.reveal');
       if (!('IntersectionObserver' in window) || targets.length === 0) {
@@ -1317,9 +1331,9 @@
       targets.forEach(function(t) { io.observe(t); });
     })();
 
-
-
-
+    // ═══════════════════════════════════════════════════════════════
+    // Counter Animation — data-count / data-count-float
+    // ═══════════════════════════════════════════════════════════════
     (function() {
       function ease(t) { return 1 - Math.pow(1 - t, 3); }
       function animate(el, target, duration, decimals) {
@@ -1354,9 +1368,9 @@
       document.querySelectorAll('[data-count], [data-count-float]').forEach(hook);
     })();
 
-
-
-
+    // ═══════════════════════════════════════════════════════════════
+    // Live telemetry mock — 가벼운 값 변동 연출
+    // ═══════════════════════════════════════════════════════════════
     (function() {
       function jitter(el, base, spread, suffix) {
         var span = document.querySelector(el);
@@ -1366,7 +1380,7 @@
           span.textContent = v.toFixed(1) + (suffix || '');
         }, 2500);
       }
-
+      // CTA/metrics는 카운터가 이미 처리. 이 연출은 시각 피드백용으로만.
     })();
   </script>
 </body>

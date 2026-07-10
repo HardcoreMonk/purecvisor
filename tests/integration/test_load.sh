@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
+# ═══════════════════════════════════════════════════════════════
+# PureCVisor REST 비동기 성능 부하 테스트
+#
+# [목적] REST 비동기 전환 후 동시 요청 처리 성능 측정
+# [사용법] bash tests/integration/test_load.sh [HOST] [CONCURRENCY] [TOTAL]
+# [기본값] HOST=localhost, CONCURRENCY=10, TOTAL=100
+# ═══════════════════════════════════════════════════════════════
 
 set -uo pipefail
 
@@ -21,7 +21,7 @@ echo -e "  ${CYAN}PureCVisor REST Load Test${NC}"
 echo "  Host: ${HOST} | Concurrency: ${CONCURRENCY} | Total: ${TOTAL}"
 echo "═══════════════════════════════════════════════"
 
-
+# JWT 인증
 TOKEN=$(curl -s --max-time 5 -X POST "${BASE}/auth/token" \
   -H 'Content-Type: application/json' \
   -d "{\"username\":\"${PCV_TEST_ADMIN_USER:-${PURECVISOR_ADMIN_USER:-admin}}\",\"password\":\"${PCV_TEST_ADMIN_PASSWORD:-${PURECVISOR_ADMIN_PASSWORD:?set PURECVISOR_ADMIN_PASSWORD}}\"}" | \
@@ -35,14 +35,14 @@ fi
 AUTH="Authorization: Bearer ${TOKEN}"
 TMPDIR=$(mktemp -d)
 
-
+# ── 1. 인증 불필요 엔드포인트 (GET /health) ──
 echo ""
 echo -e "${CYAN}[1/4] GET /health (인증 불필요)${NC}"
 START=$(date +%s%3N)
 SUCCESS=0; ERRORS=0
 for i in $(seq 1 "$TOTAL"); do
     curl -s --max-time 3 -o /dev/null -w "%{http_code}" "${BASE}/health" > "$TMPDIR/r_$i" &
-
+    # 동시 실행 제어
     if [ $((i % CONCURRENCY)) -eq 0 ]; then wait; fi
 done
 wait
@@ -56,7 +56,7 @@ RPS=$((TOTAL * 1000 / (DURATION > 0 ? DURATION : 1)))
 echo -e "  ${GREEN}${SUCCESS}${NC}/${TOTAL} OK | ${RED}${ERRORS}${NC} ERR | ${DURATION}ms | ${CYAN}${RPS} req/s${NC}"
 rm -f "$TMPDIR"/r_*
 
-
+# ── 2. 인증 필요 (GET /vms) ──
 echo ""
 echo -e "${CYAN}[2/4] GET /vms (JWT 인증)${NC}"
 START=$(date +%s%3N)
@@ -76,7 +76,7 @@ RPS=$((TOTAL * 1000 / (DURATION > 0 ? DURATION : 1)))
 echo -e "  ${GREEN}${SUCCESS}${NC}/${TOTAL} OK | ${RED}${ERRORS}${NC} ERR | ${DURATION}ms | ${CYAN}${RPS} req/s${NC}"
 rm -f "$TMPDIR"/r_*
 
-
+# ── 3. 혼합 엔드포인트 ──
 echo ""
 echo -e "${CYAN}[3/4] 혼합 엔드포인트 (8종)${NC}"
 ENDPOINTS=("/vms" "/networks" "/containers" "/storage/pools" "/health" "/alerts" "/iso" "/auth/users")
@@ -100,12 +100,12 @@ RPS=$((COUNT * 1000 / (DURATION > 0 ? DURATION : 1)))
 echo -e "  ${GREEN}${SUCCESS}${NC}/${COUNT} OK | ${RED}${ERRORS}${NC} ERR | ${DURATION}ms | ${CYAN}${RPS} req/s${NC}"
 rm -f "$TMPDIR"/r_*
 
-
+# ── 4. CLOSE-WAIT 검증 ──
 echo ""
 echo -e "${CYAN}[4/4] CLOSE-WAIT 검증${NC}"
 if [ "$HOST" = "localhost" ] || [ "$HOST" = "127.0.0.1" ]; then
     CW=$(ss -tnp state close-wait dst :80 2>/dev/null | wc -l)
-    CW=$((CW - 1))
+    CW=$((CW - 1))  # 헤더 제외
     [ "$CW" -le 0 ] && CW=0
     if [ "$CW" -eq 0 ]; then
         echo -e "  ${GREEN}CLOSE-WAIT: ${CW}건${NC}"
@@ -116,7 +116,7 @@ else
     echo -e "  ${YELLOW}SKIP (원격 호스트 — 로컬에서만 검증 가능)${NC}"
 fi
 
-
+# ── 결과 요약 ──
 echo ""
 echo "═══════════════════════════════════════════════"
 echo -e "  부하 테스트 완료: ${TOTAL} × ${CONCURRENCY} 동시 요청"

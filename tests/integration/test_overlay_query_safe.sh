@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_overlay_query_safe.sh
+#
+# SAFE-tier Integration Tests — Overlay Network Query
+# Tests: overlay.list, overlay.info (nonexistent — expect error),
+#        overlay.delete (nonexistent — idempotent success)
+#
+# 사전 조건:
+#   - purecvisorsd 또는 purecvisormd 실행 중
+#   - /var/run/purecvisor/daemon.sock 존재
+#   - nc (netcat) 설치
+#
+# 실행: sudo bash tests/integration/test_overlay_query_safe.sh
 
 set -uo pipefail
 
@@ -71,7 +71,7 @@ assert_result_or_known_error() {
     fi
 }
 
-
+# ── 사전 조건 ────────────────────────────────────────────
 log "=========================================="
 log " Overlay Network Query Integration Tests (SAFE)"
 log "=========================================="
@@ -90,7 +90,7 @@ if [ -z "$PROBE" ]; then
     exit 0
 fi
 
-
+# OVS 사용 가능 여부 감지
 OVS_AVAIL=0
 if command -v ovs-vsctl &>/dev/null && ovs-vsctl show &>/dev/null 2>&1; then
     OVS_AVAIL=1
@@ -99,9 +99,9 @@ log "Daemon socket verified: $SOCKET_PATH"
 log "OVS available: $([ $OVS_AVAIL -eq 1 ] && echo 'yes' || echo 'no — error responses expected')"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [1] overlay.list
+# ══════════════════════════════════════════════════════
 log "--- [1/3] overlay.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.list","params":{},"id":"ol1"}')
@@ -112,9 +112,9 @@ assert_result_or_known_error "overlay.list: with detail flag" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [2] overlay.info — nonexistent (expect error)
+# ══════════════════════════════════════════════════════
 log "--- [2/3] overlay.info (nonexistent) ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.info","params":{"name":"nonexistent"},"id":"oi1"}')
@@ -128,32 +128,32 @@ assert_result_or_known_error "overlay.info: garbage name returns valid response"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [3] overlay.delete — nonexistent (idempotent)
+# ══════════════════════════════════════════════════════
 log "--- [3/3] overlay.delete (nonexistent, idempotent) ---"
 
-
+# overlay.delete は멱等 — 없는 이름도 성공 반환
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.delete","params":{"name":"nonexistent"},"id":"od1"}')
 assert_result_or_known_error "overlay.delete: nonexistent is idempotent (no crash)" "$RESP"
 
-
+# 두 번 연속 호출 — 멱등성 확인
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.delete","params":{"name":"nonexistent"},"id":"od2"}')
 assert_result_or_known_error "overlay.delete: second call idempotent" "$RESP"
 
-
+# 빈 name 처리
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.delete","params":{"name":""},"id":"od3"}')
 assert_valid_jsonrpc "overlay.delete: empty name returns valid JSON-RPC" "$RESP"
 
-
+# name 누락
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"overlay.delete","params":{},"id":"od4"}')
 assert_valid_jsonrpc "overlay.delete: missing name returns valid JSON-RPC" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

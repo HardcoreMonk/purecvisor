@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
+# Single Edge binary boundary gate.
+# It builds the single target, inspects linked symbols and embedded strings,
+# and fails if multi-only cluster/federation/migration surfaces leak back in.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 source "$ROOT_DIR/tests/integration/lib/backend_surface_common.sh"

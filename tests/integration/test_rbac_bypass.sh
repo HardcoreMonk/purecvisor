@@ -6,7 +6,7 @@ PASS=0; FAIL=0; TOTAL=0
 RED='\033[0;31m'; GREEN='\033[0;32m'; CYAN='\033[0;36m'; NC='\033[0m'
 pass() { PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); echo -e "  ${GREEN}[PASS]${NC} $1"; }
 fail() { FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); echo -e "  ${RED}[FAIL]${NC} $1 — $2"; }
-
+# blocked = 401/403/400/404(route mismatch)/500(server-side reject)/000(conn close)
 is_blocked() { [ "$1" = "401" ] || [ "$1" = "403" ] || [ "$1" = "400" ] || [ "$1" = "404" ] || [ "$1" = "500" ] || [ "$1" = "000" ]; }
 
 echo -e "${CYAN}═══ RBAC Bypass Attempt Test ═══${NC}"

@@ -1,28 +1,28 @@
-
-
-
-
-
-
-
+/**
+ * @file pcv_txn.c
+ * @brief 다단계 작업용 트랜잭션/롤백 유틸리티 구현
+ *
+ * GPtrArray에 롤백 엔트리를 저장하고, 실패 시 역순으로 실행합니다.
+ * 커밋되면 롤백 함수 없이 리소스만 해제합니다.
+ */
 #include "pcv_txn.h"
 #include "utils/pcv_log.h"
 
 #define TXN_LOG_DOM "txn"
 
-
+/** 개별 롤백 단계 */
 typedef struct {
-    PcvTxnRollbackFunc func;
-    gpointer           user_data;
-    GDestroyNotify     free_func;
+    PcvTxnRollbackFunc func;       /* 롤백 함수 */
+    gpointer           user_data;  /* 롤백 함수에 전달할 데이터 */
+    GDestroyNotify     free_func;  /* user_data 해제 함수 (NULL 가능) */
 } TxnEntry;
 
-
+/** 트랜잭션 컨텍스트 */
 struct PcvTxn {
-    gchar     *name;
-    GPtrArray *entries;
-    gboolean   committed;
-    gboolean   rolled_back;
+    gchar     *name;        /* 트랜잭션 이름 (로깅용) */
+    GPtrArray *entries;     /* TxnEntry* 배열 */
+    gboolean   committed;   /* 커밋 여부 */
+    gboolean   rolled_back; /* 롤백 완료 여부 */
 };
 
 static void
@@ -67,11 +67,11 @@ pcv_txn_rollback(PcvTxn *txn)
     PCV_LOG_WARN(TXN_LOG_DOM, "txn '%s': rolling back %u steps",
                  txn->name, txn->entries->len);
 
-
+    /* LIFO 순서: 마지막 등록된 것부터 역순 실행 */
     for (gint i = (gint)txn->entries->len - 1; i >= 0; i--) {
         TxnEntry *e = g_ptr_array_index(txn->entries, i);
         e->func(e->user_data);
-
+        /* user_data 소유권 정리는 등록된 free_func가 담당한다. */
     }
     txn->rolled_back = TRUE;
 }
@@ -92,7 +92,7 @@ pcv_txn_free(PcvTxn *txn)
 {
     if (!txn) return;
 
-
+    /* 미커밋 + 미롤백이면 자동 롤백 */
     if (!txn->committed && !txn->rolled_back)
         pcv_txn_rollback(txn);
 

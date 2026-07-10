@@ -1,56 +1,56 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @file self_healing.c
+ * @brief AI Ops Phase 3 — Self-Healing 정책 엔진
+ *
+ * [파일 역할]
+ *   anomaly_detector(Z-Score 이상 탐지)와 workload_predict(워크로드 예측)에서
+ *   이벤트를 수신하여, 사전 등록된 정책에 따라 자동 복구 액션을 실행하는 엔진.
+ *   정책 기반 자동화이므로 AI 모델 없이도 동작하며, 복합 조건 시에만
+ *   AI Agent(ai_agent.c)에 자문을 요청한다.
+ *
+ * [아키텍처 위치]
+ *   anomaly_detector.c (Z-Score 이상 감지)
+ *     → pcv_healing_on_anomaly()     [이 파일, 이벤트 수신]
+ *       → _try_policy()              [안전장치 검사 + 액션 실행]
+ *         → _execute_action()        [실제 액션 또는 dry run]
+ *         → _queue_approval()        [위험 액션 승인 대기]
+ *
+ *   workload_predict.c (EMA/OLS 예측)
+ *     → pcv_healing_on_prediction()  [이 파일, 예측 이벤트 수신]
+ *       → _try_policy()
+ *
+ *   handler_monitor.c (healing.approve / healing.dismiss RPC)
+ *     → pcv_healing_approve() / pcv_healing_dismiss()  [이 파일]
+ *
+ * [안전장치 — 5중 보호 (운영 안정성 최우선)]
+ *   1. Dry Run 모드: 기본값 TRUE — 모든 액션을 로그만 남기고 실행하지 않음.
+ *      daemon.conf [ai] mode=active로 명시 설정해야 실제 실행.
+ *   2. Approval Gate: require_approval=TRUE인 정책은 Web UI에서 관리자가
+ *      승인해야만 실행됨. (migrate 등 위험 액션에 적용)
+ *   3. Cooldown: 동일 정책이 cooldown_sec 이내에 재실행되지 않음.
+ *      실패 시 지수 백오프(×2, 최대 1시간)로 쿨다운이 늘어남.
+ *   4. Circuit Breaker: 연속 3회 실패(CIRCUIT_BREAKER_MAX) 시 정책 자동 비활성화.
+ *   5. Rate Limit: 5분(RATE_LIMIT_WINDOW) 내 최대 3개(RATE_LIMIT_MAX) 자동 액션.
+ *      alert_only는 레이트 리밋에서 제외.
+ *
+ * [내장 정책 목록 (pcv_healing_init에서 등록)]
+ *   cpu-overload:    CPU Z≥3.0 또는 예측>85% → migrate (승인 필요, 쿨다운 600초)
+ *   mem-pressure:    MEM Z≥2.5 또는 예측>90% → migrate (승인 필요)
+ *   thermal-alert:   온도 Z≥2.0 또는 >80도  → alert_only (쿨다운 1800초)
+ *   vm-unresponsive: (메트릭 없음, 수동 트리거) → restart (쿨다운 300초)
+ *   swap-storm:      swap 출력 Z≥2.5 → alert_only
+ *   disk-saturated:  disk I/O Z≥3.0 → alert_only
+ *   net-errors:      네트워크 에러 Z≥2.0 → alert_only
+ *   conntrack-full:  conntrack 엔트리 Z≥2.5 → alert_only
+ *
+ * [스레드 안전]
+ *   G.mu (GMutex): 정책 배열 + 승인 대기열 보호
+ *   g_healing_hist_mu (GMutex): 이력 링버퍼 보호
+ *   호출 컨텍스트: ebpf_telemetry 스레드에서 on_anomaly/on_prediction 호출,
+ *   메인 스레드에서 approve/dismiss/get_pending 호출 → 뮤텍스로 보호.
+ *
+ * 외부 의존성: 없음 (순수 C + GLib)
+ */
 #include "self_healing.h"
 #include "ai_agent.h"
 #include <string.h>
@@ -58,147 +58,147 @@
 #include "modules/daemons/prometheus_exporter.h"
 #include "modules/daemons/ebpf_telemetry.h"
 #include "modules/audit/pcv_audit.h"
-#include "utils/pcv_config.h"
+#include "utils/pcv_config.h"   /* Issue-M1: daemon.conf [ai] mode 읽기 */
 #include "utils/pcv_log.h"
 
+/*
+ * ============================================================================
+ *  [주니어 개발자 필독] 자가 치유 엔진 핵심 개념 정리
+ * ============================================================================
+ *
+ *  1. 5계층 안전 스택 (운영 안정성 최우선)
+ *     AI가 VM을 마음대로 마이그레이션/재시작하면 위험합니다.
+ *     5중 보호 계층이 순서대로 적용됩니다:
+ *
+ *     ┌─ 계층 1: Dry Run ─────────────────────────────────────┐
+ *     │ 기본값 TRUE — 모든 액션을 로그만 남기고 실행하지 않음   │
+ *     │ daemon.conf [ai] mode=active로 명시해야 실제 실행       │
+ *     ├─ 계층 2: Approval Gate ────────────────────────────────┤
+ *     │ require_approval=TRUE인 정책은 Web UI 관리자 승인 필요  │
+ *     │ migrate, restart 같은 위험 액션에 적용                   │
+ *     ├─ 계층 3: Cooldown ─────────────────────────────────────┤
+ *     │ 동일 정책이 cooldown_sec 이내에 재실행되지 않음          │
+ *     │ 실패 시 지수 백오프(×2, 최대 1시간)로 쿨다운 증가        │
+ *     ├─ 계층 4: Circuit Breaker ──────────────────────────────┤
+ *     │ 연속 3회 실패 시 정책 자동 비활성화 (OPEN 상태)          │
+ *     │ 같은 문제로 무한 재시도하는 것을 차단                    │
+ *     ├─ 계층 5: Rate Limit ───────────────────────────────────┤
+ *     │ 5분 내 최대 3개 자동 액션 (alert_only는 제외)           │
+ *     │ 여러 정책이 동시에 트리거되어도 과도한 액션 방지         │
+ *     └───────────────────────────────────────────────────────┘
+ *
+ *  2. per-policy dry-run (CE-A12)
+ *     HealingPolicy.policy_dry_run 필드로 정책별로 dry-run 모드를
+ *     오버라이드할 수 있습니다:
+ *       -1 = 글로벌 설정(G.dry_run) 상속 (기본값)
+ *        0 = 이 정책만 실제 실행 (다른 정책은 dry-run 유지)
+ *        1 = 이 정책만 dry-run (다른 정책이 active여도)
+ *     이를 통해 정책을 하나씩 점진적으로 활성화할 수 있습니다.
+ *
+ *  3. 승인 큐 타임아웃
+ *     PendingAction이 APPROVAL_TIMEOUT_SEC(1시간) 동안 승인되지 않으면
+ *     자동으로 resolved=TRUE 처리됩니다 (향후 구현).
+ *     무기한 대기하면 대기열이 쌓여 의미 있는 알림이 묻히므로
+ *     타임아웃으로 강제 정리합니다.
+ * ============================================================================
+ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/** 로그 도메인 — journalctl에서 "healing" 태그로 필터 가능 */
 #define HEALING_LOG_DOM       "healing"
-
+/** 등록 가능한 최대 정책 수 */
 constexpr int MAX_POLICIES        = 16;
-
+/** 승인 대기열 최대 크기 (초과 시 가장 오래된 항목 덮어씀) */
 constexpr int MAX_PENDING         = 8;
-
-constexpr int RATE_LIMIT_WINDOW   = 300;
-
+/** 레이트 리밋 윈도우 (초) — 이 시간 내 최대 RATE_LIMIT_MAX 액션 */
+constexpr int RATE_LIMIT_WINDOW   = 300;  /* 5분 */
+/** 레이트 리밋 윈도우 내 최대 자동 액션 수 */
 constexpr int RATE_LIMIT_MAX      = 3;
-
+/** 서킷 브레이커 임계값 — 연속 이 횟수만큼 실패하면 정책 비활성화 */
 constexpr int CIRCUIT_BREAKER_MAX = 3;
-
+/** 자가 치유 이력 링버퍼 최대 크기 */
 constexpr int HEALING_HISTORY_MAX = 100;
-
+/** 지수 백오프 쿨다운 상한 (초) — 아무리 실패해도 1시간 넘게 대기하지 않음 */
 constexpr int COOLDOWN_MAX_SEC    = 3600;
 
-
+/* ── C23 컴파일 타임 검증 ────────────────────────────────────── */
 static_assert(MAX_POLICIES >= 1);
 static_assert(MAX_PENDING >= 1);
 static_assert(RATE_LIMIT_MAX >= 1);
 
+/* ── 정책 정의 구조체 ────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @struct HealingPolicy
+ * @brief 단일 자가 치유 정책의 설정 + 런타임 상태
+ *
+ * 설정 필드 (init 시 _add_policy로 설정):
+ *   name             — 정책 식별자 (예: "cpu-overload")
+ *   trigger_metric   — 이상 감지 시 매칭할 Prometheus 메트릭 이름
+ *   trigger_zscore   — 이상 판정 Z-Score 임계값
+ *   predict_threshold — 예측값 임계값 (0이면 예측 트리거 비활성)
+ *   action           — 실행할 액션 ("migrate", "restart", "alert_only" 등)
+ *   cooldown_sec     — 현재 적용 중인 쿨다운 (실패 시 지수 증가)
+ *   base_cooldown_sec — 원래 쿨다운 값 (성공 시 리셋 대상)
+ *   require_approval — TRUE면 Web UI 승인 필요
+ *
+ * 런타임 필드 (정책 평가 중 자동 갱신):
+ *   last_trigger_us  — 마지막 트리거 시각 (쿨다운 판정용)
+ *   consecutive_failures — 서킷 브레이커용 연속 실패 카운터
+ */
 typedef struct {
-    gchar    name[64];
-    gchar    trigger_metric[128];
-    gdouble  trigger_zscore;
-    gdouble  predict_threshold;
-    gchar    action[32];
-    gint     cooldown_sec;
-    gint     base_cooldown_sec;
-    gboolean require_approval;
-    gboolean enabled;
-    gint     policy_dry_run;
-
-
-    gint64   last_trigger_us;
-    gint     consecutive_failures;
+    gchar    name[64];             /**< 정책 이름 (고유 식별자) */
+    gchar    trigger_metric[128];  /**< 매칭할 Prometheus 메트릭 이름 (부분 매칭) */
+    gdouble  trigger_zscore;       /**< 이상 판정 Z-Score 임계값 */
+    gdouble  predict_threshold;    /**< 예측값 임계값 (0이면 예측 트리거 비활성) */
+    gchar    action[32];           /**< 실행 액션 ("alert_only", "migrate", "restart") */
+    gint     cooldown_sec;         /**< 현재 쿨다운 (초, 실패 시 ×2 증가) */
+    gint     base_cooldown_sec;    /**< 원래 쿨다운 (성공 시 리셋) */
+    gboolean require_approval;     /**< TRUE면 Web UI 관리자 승인 필요 */
+    gboolean enabled;              /**< 정책 활성화 여부 */
+    gint     policy_dry_run;       /**< CE-A12: 정책별 dry_run 오버라이드.
+                                    *   -1=글로벌 설정 상속, 0=실행(live), 1=dry-run */
+    /* 런타임 상태 — _try_policy에서 자동 관리 */
+    gint64   last_trigger_us;      /**< 마지막 트리거 시각 (모노토닉, 마이크로초) */
+    gint     consecutive_failures; /**< 연속 실패 횟수 (서킷 브레이커 판정용) */
 } HealingPolicy;
 
+/* ── 승인 대기 액션 ──────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * @struct PendingAction
+ * @brief Web UI 관리자 승인을 기다리는 자가 치유 액션
+ *
+ * require_approval=TRUE인 정책이 트리거되면 즉시 실행하지 않고
+ * 이 구조체에 기록하여 승인 대기열에 추가한다.
+ * Web UI에서 관리자가 승인(approve)하면 _execute_action() 호출,
+ * 거부(dismiss)하면 resolved=TRUE로만 표시하고 실행하지 않는다.
+ */
 typedef struct {
-    gint     id;
-    gchar    policy_name[64];
-    gchar    action[32];
-    gchar    reason[256];
-    gint64   created_us;
-    gboolean resolved;
+    gint     id;                /**< 승인 요청 고유 ID (자동 증가) */
+    gchar    policy_name[64];   /**< 트리거된 정책 이름 */
+    gchar    action[32];        /**< 실행 예정 액션 (예: "migrate") */
+    gchar    reason[256];       /**< 트리거 사유 (메트릭 값 + Z-Score 포함) */
+    gint64   created_us;        /**< 생성 시각 (마이크로초, Unix epoch) */
+    gboolean resolved;          /**< 처리 완료 여부 (승인 또는 거부) */
 } PendingAction;
 
+/* ── 액션 이력 저널 (링버퍼) ─────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
+/**
+ * @struct HealingHistoryEntry
+ * @brief 자가 치유 액션 실행 이력 — 감사 추적 및 Web UI 표시용
+ *
+ * 모든 실행된 액션(성공/실패/dry_run/skipped)이 링버퍼에 기록된다.
+ * pcv_healing_get_history_json()으로 JSON 배열로 변환되어
+ * REST/RPC를 통해 Web UI에 표시된다.
+ */
 typedef struct {
-    gchar   action[64];
-    gchar   target[128];
-    gchar   reason[256];
-    gchar   result[64];
-    gint64  timestamp;
-    gint64  duration_ms;
+    gchar   action[64];       /**< 실행된 액션 (예: "migrate", "restart", "alert_only") */
+    gchar   target[128];      /**< 대상 (정책 이름 또는 VM 이름) */
+    gchar   reason[256];      /**< 실행 사유 (메트릭 값 + Z-Score 등) */
+    gchar   result[64];       /**< 결과 ("success", "failed", "dry_run", "skipped") */
+    gint64  timestamp;        /**< 실행 시각 (Unix epoch 초) */
+    gint64  duration_ms;      /**< 액션 소요 시간 (밀리초) */
 } HealingHistoryEntry;
 
 static HealingHistoryEntry g_healing_history[HEALING_HISTORY_MAX];
@@ -206,51 +206,51 @@ static gint g_healing_hist_idx   = 0;
 static gint g_healing_hist_count = 0;
 static GMutex g_healing_hist_mu;
 
+/* ── 모듈 전역 상태 ──────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @brief 자가 치유 엔진 전역 상태
+ *
+ * 단일 정적 구조체에 모든 상태를 모아 관리한다.
+ * {0}으로 zero-initialize되므로 초기 상태가 명확하다.
+ *
+ * 스레드 안전:
+ *   G.mu로 policies[], pending[] 동시 접근 보호.
+ *   Prometheus 카운터는 원자적 증가가 아니지만, 정확도보다
+ *   성능을 우선하여 락 없이 갱신한다 (카운터이므로 약간의 오차 허용).
+ */
 static struct {
-    HealingPolicy policies[MAX_POLICIES];
-    gint          policy_count;
-    PendingAction pending[MAX_PENDING];
-    gint          pending_pos;
-    gint          pending_count;
-    gint          next_action_id;
-    GMutex        mu;
-    gboolean      initialized;
-    gboolean      dry_run;
-
-
-    gint64        action_times[RATE_LIMIT_MAX];
-    gint          action_time_pos;
-
-    guint64       total_triggered;
-    guint64       total_executed;
-    guint64       total_pending;
+    HealingPolicy policies[MAX_POLICIES];  /**< 등록된 정책 배열 */
+    gint          policy_count;            /**< 현재 등록된 정책 수 */
+    PendingAction pending[MAX_PENDING];    /**< 승인 대기 액션 링버퍼 */
+    gint          pending_pos;             /**< 대기열 다음 쓰기 위치 */
+    gint          pending_count;           /**< 대기열 내 유효 항목 수 */
+    gint          next_action_id;          /**< 다음 승인 요청 ID (자동 증가) */
+    GMutex        mu;                      /**< 정책/대기열 접근 보호 뮤텍스 */
+    gboolean      initialized;            /**< init() 호출 여부 */
+    gboolean      dry_run;                /**< dry_run 모드 여부. TRUE면 액션 미실행, 로그만 기록.
+                                            *   기본값 TRUE — daemon.conf [ai] mode=active로 해제 */
+    /* 레이트 리밋 — 최근 RATE_LIMIT_MAX개 액션 시각을 기록하여 빈도 제한 */
+    gint64        action_times[RATE_LIMIT_MAX]; /**< 최근 액션 시각 (모노토닉, 마이크로초) */
+    gint          action_time_pos;              /**< 다음 기록 위치 (환형) */
+    /* Prometheus 카운터 */
+    guint64       total_triggered;  /**< 정책 트리거 누적 횟수 */
+    guint64       total_executed;   /**< 실제 액션 실행 누적 횟수 */
+    guint64       total_pending;    /**< 현재 승인 대기 중인 액션 수 */
 } G = {0};
 
-
-
-
-
-
-
-
-
-
+/* ───────────────────────────────────────────────────────────────
+ * 1.0: 시간 윈도우 anomaly 누적 → AI Agent 자동 트리거
+ *
+ * pcv_healing_on_anomaly의 "단일 호출 내 triggered_count >= 2" 조건은
+ * 정책이 모두 별도 메트릭을 트리거하는 현실에서 자연 발생이 어렵다.
+ *
+ * 보완: 60초 윈도우에서 distinct metric anomaly 3개 이상 누적되면
+ * AI Agent compare_async 호출. 같은 메트릭 반복은 1로 카운트.
+ * ─────────────────────────────────────────────────────────────── */
 #define MULTI_ANOMALY_WINDOW_SEC  60
 #define MULTI_ANOMALY_THRESHOLD   3
-#define MULTI_ANOMALY_MAX_TRACK   16
+#define MULTI_ANOMALY_MAX_TRACK   16   /* distinct metric 추적 상한 */
 
 typedef struct {
     gchar  metric[64];
@@ -260,11 +260,11 @@ typedef struct {
 static AnomalyTrack g_recent_anomalies[MULTI_ANOMALY_MAX_TRACK] = {0};
 static gint64       g_last_multi_agent_us = 0;
 
-
-
-
-
-
+/**
+ * _track_distinct_anomaly:
+ * 한 메트릭의 anomaly를 시간 윈도우에 기록.
+ * 윈도우 내 distinct count가 임계 도달 + 5분 쿨다운 통과 시 TRUE 반환.
+ */
 static gboolean
 _track_distinct_anomaly(const gchar *metric)
 {
@@ -272,14 +272,14 @@ _track_distinct_anomaly(const gchar *metric)
     gint64 now = g_get_monotonic_time();
     gint64 window_us = (gint64)MULTI_ANOMALY_WINDOW_SEC * G_USEC_PER_SEC;
 
-
+    /* 기존 항목 갱신 또는 빈 슬롯에 삽입 */
     gint distinct = 0;
     gint empty = -1;
     for (gint i = 0; i < MULTI_ANOMALY_MAX_TRACK; i++) {
         AnomalyTrack *t = &g_recent_anomalies[i];
         if (t->metric[0] == 0) { if (empty < 0) empty = i; continue; }
         if (now - t->last_seen_us > window_us) {
-            t->metric[0] = 0;
+            t->metric[0] = 0;     /* 만료 */
             if (empty < 0) empty = i;
             continue;
         }
@@ -290,7 +290,7 @@ _track_distinct_anomaly(const gchar *metric)
         }
         distinct++;
     }
-
+    /* 이 metric이 처음이면 새로 등록 */
     gboolean is_new = TRUE;
     for (gint i = 0; i < MULTI_ANOMALY_MAX_TRACK; i++) {
         if (g_strcmp0(g_recent_anomalies[i].metric, metric) == 0) { is_new = FALSE; break; }
@@ -302,7 +302,7 @@ _track_distinct_anomaly(const gchar *metric)
         distinct++;
     }
 
-
+    /* 임계 + 쿨다운 검사 (5분) */
     if (distinct >= MULTI_ANOMALY_THRESHOLD &&
         (now - g_last_multi_agent_us) > 300 * G_USEC_PER_SEC) {
         g_last_multi_agent_us = now;
@@ -311,28 +311,28 @@ _track_distinct_anomaly(const gchar *metric)
     return FALSE;
 }
 
-
+/* 외부에서 호출 가능: agent.compare_manual RPC 등 */
 gboolean pcv_healing_should_trigger_agent_now(void)
 {
     return (g_get_monotonic_time() - g_last_multi_agent_us) < 60 * G_USEC_PER_SEC;
 }
 
+/* ── 정책 등록 ───────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _add_policy — 자가 치유 정책을 배열에 추가한다.
+ *
+ * pcv_healing_init()에서 내장 정책을 등록할 때 호출된다.
+ * MAX_POLICIES(16)를 초과하면 무시한다.
+ *
+ * @param name              정책 이름 (고유 식별자)
+ * @param trigger_metric    매칭할 Prometheus 메트릭 이름 (부분 매칭)
+ * @param trigger_zscore    이상 판정 Z-Score 임계값
+ * @param predict_threshold 예측값 임계값 (0이면 비활성)
+ * @param action            실행 액션 ("migrate", "restart", "alert_only")
+ * @param cooldown_sec      쿨다운 시간 (초)
+ * @param require_approval  TRUE면 Web UI 승인 필요
+ */
 static void
 _add_policy(const gchar *name, const gchar *trigger_metric,
             gdouble trigger_zscore, gdouble predict_threshold,
@@ -351,21 +351,21 @@ _add_policy(const gchar *name, const gchar *trigger_metric,
     p->base_cooldown_sec = cooldown_sec;
     p->require_approval = require_approval;
     p->enabled = TRUE;
-    p->policy_dry_run = -1;
+    p->policy_dry_run = -1;  /* CE-A12: 기본값 = 글로벌 설정 상속 */
 }
 
+/* ── 레이트 리밋 — 5분 내 최대 3개 자동 액션 허용 ─────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _rate_check — 현재 레이트 리밋에 여유가 있는지 확인한다.
+ *
+ * 최근 RATE_LIMIT_WINDOW(5분) 내에 RATE_LIMIT_MAX(3)개 미만의
+ * 액션이 실행되었으면 TRUE를 반환한다.
+ * alert_only 액션은 _try_policy에서 이 검사를 건너뛰므로
+ * 레이트 리밋에 영향을 주지 않는다.
+ *
+ * Returns: 여유가 있으면 TRUE, 리밋 도달 시 FALSE
+ */
 static gboolean
 _rate_check(void)
 {
@@ -380,10 +380,10 @@ _rate_check(void)
     return recent < RATE_LIMIT_MAX;
 }
 
-
-
-
-
+/**
+ * _rate_record — 현재 시각을 레이트 리밋 기록에 추가한다.
+ * 환형 배열에 기록하므로 가장 오래된 항목이 자동으로 덮어쓰인다.
+ */
 static void
 _rate_record(void)
 {
@@ -391,15 +391,15 @@ _rate_record(void)
     G.action_time_pos = (G.action_time_pos + 1) % RATE_LIMIT_MAX;
 }
 
+/* ── 액션 이력 기록 ──────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
+/**
+ * _record_healing_action — 액션 실행 결과를 이력 링버퍼에 기록한다.
+ *
+ * g_healing_hist_mu 잠금 하에 HealingHistoryEntry를 채우고
+ * 인덱스를 순환 전진시킨다. 이 이력은 pcv_healing_get_history_json()으로
+ * JSON으로 변환되어 Web UI에 표시된다.
+ */
 static void
 _record_healing_action(const gchar *action, const gchar *target,
                        const gchar *reason, const gchar *result,
@@ -422,33 +422,33 @@ _record_healing_action(const gchar *action, const gchar *target,
     g_mutex_unlock(&g_healing_hist_mu);
 }
 
+/* ── 액션 실행 ───────────────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _execute_action — 정책에 따른 액션을 실행한다.
+ *
+ * @param p       실행할 정책
+ * @param reason  트리거 사유 문자열 (감사 로그/WebSocket 알림에 포함)
+ *
+ * dry_run=TRUE이면 로그만 남기고 실행하지 않는다.
+ * 실행 결과에 따라 적응형 쿨다운을 적용한다:
+ *   성공: 쿨다운을 base_cooldown_sec으로 리셋, 연속 실패 카운터 0
+ *   실패: 쿨다운을 2배로 증가 (최대 COOLDOWN_MAX_SEC=1시간),
+ *         연속 실패 카운터 +1 (CIRCUIT_BREAKER_MAX 도달 시 정책 비활성화)
+ *
+ * 부수 효과:
+ *   - 감사 로그 기록 (pcv_audit_log)
+ *   - Prometheus 카운터 갱신
+ *   - WebSocket 브로드캐스트 (Web UI 실시간 알림)
+ *   - 레이트 리밋 기록 (_rate_record)
+ *   - 이력 링버퍼 기록 (_record_healing_action)
+ */
 static void
 _execute_action(HealingPolicy *p, const gchar *reason)
 {
     gint64 start_us = g_get_monotonic_time();
 
-
+    /* CE-A12: 정책별 dry_run 오버라이드 — policy_dry_run >= 0 이면 정책 설정 우선 */
     gboolean effective_dry_run = (p->policy_dry_run >= 0)
         ? (gboolean)p->policy_dry_run : G.dry_run;
 
@@ -479,24 +479,24 @@ _execute_action(HealingPolicy *p, const gchar *reason)
     } else {
         PCV_LOG_WARN(HEALING_LOG_DOM,
             "ACTION: Policy '%s' executing '%s': %s", p->name, p->action, reason);
-
-
-
+        /* Real action execution would set action_succeeded=FALSE on failure.
+         * Currently all non-alert actions are logged (actual VM operations
+         * are dispatched via separate RPC calls). */
     }
 
-
+    /* Audit log */
     gchar detail[384];
     g_snprintf(detail, sizeof(detail), "action=%s reason=%s", p->action, reason);
     pcv_audit_log("ai-ops", "healing_action", p->name, detail, 0, 0, "local");
 
-
+    /* Prometheus counters */
     G.total_triggered++;
     G.total_executed++;
     gchar lbl[128];
     g_snprintf(lbl, sizeof(lbl), "policy=\"%s\",action=\"%s\"", p->name, p->action);
     pcv_prom_gauge_set_labels("purecvisor_healing_actions_total", lbl, (gdouble)G.total_executed);
 
-
+    /* WebSocket notification */
     extern void pcv_ws_broadcast(const gchar*, const gchar*);
     extern gint pcv_ws_client_count(void);
     if (pcv_ws_client_count() > 0) {
@@ -509,15 +509,15 @@ _execute_action(HealingPolicy *p, const gchar *reason)
 
     _rate_record();
 
-
-
-
-
-
-
-
+    /*
+     * 적응형 쿨다운 (Exponential Backoff with Reset)
+     * 성공: 쿨다운을 원래 값으로 리셋하여 정상 운영 복귀
+     * 실패: 쿨다운을 2배로 증가 (최대 1시간)하여 반복 실패 시
+     *       점점 더 오래 대기. 동일 문제가 해결되지 않은 상태에서
+     *       무의미한 재시도를 방지하는 안전장치.
+     */
     if (action_succeeded) {
-        p->cooldown_sec = p->base_cooldown_sec;
+        p->cooldown_sec = p->base_cooldown_sec;   /* 원래 쿨다운으로 리셋 */
         p->consecutive_failures = 0;
     } else {
         p->cooldown_sec = MIN(p->cooldown_sec * 2, COOLDOWN_MAX_SEC);
@@ -526,24 +526,24 @@ _execute_action(HealingPolicy *p, const gchar *reason)
                   p->name, p->cooldown_sec);
     }
 
-
+    /* Record action history */
     gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
     _record_healing_action(p->action, p->name, reason,
                            action_succeeded ? "success" : "failed", dur_ms);
 }
 
+/* ── 승인 대기열에 추가 ──────────────────────────────────────── */
 
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _queue_approval — 위험 액션을 Web UI 승인 대기열에 추가한다.
+ *
+ * require_approval=TRUE인 정책이 트리거되면 즉시 실행하지 않고
+ * PendingAction 링버퍼에 기록한다. Web UI에 WebSocket으로
+ * "healing-request" 이벤트를 브로드캐스트하여 관리자에게 알린다.
+ *
+ * @param p       트리거된 정책
+ * @param reason  트리거 사유 (관리자에게 표시)
+ */
 static void
 _queue_approval(HealingPolicy *p, const gchar *reason)
 {
@@ -561,7 +561,7 @@ _queue_approval(HealingPolicy *p, const gchar *reason)
     pcv_prom_gauge_set_labels("purecvisor_healing_pending_approvals", "",
         (gdouble)G.total_pending);
 
-
+    /* WebSocket push approval request */
     extern void pcv_ws_broadcast(const gchar*, const gchar*);
     extern gint pcv_ws_client_count(void);
     if (pcv_ws_client_count() > 0) {
@@ -577,40 +577,40 @@ _queue_approval(HealingPolicy *p, const gchar *reason)
         pa->id, p->name, p->action, reason);
 }
 
+/* ── 정책 매칭 — 5중 안전장치 검사 후 액션 실행 또는 승인 대기 ── */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * _try_policy:
+ * @p:      평가할 정책
+ * @metric: 트리거된 메트릭 이름
+ * @value:  현재 메트릭 값
+ * @zscore: 이상 탐지 Z-Score
+ * @reason: 트리거 사유 문자열
+ *
+ * 정책의 안전장치를 순서대로 검사한 후 액션을 실행하거나 승인 대기열에 추가합니다.
+ *
+ * 검사 순서 (하나라도 실패하면 즉시 반환):
+ *   1. enabled 확인 — 비활성 정책은 건너뜀
+ *   2. 쿨다운 확인 — cooldown_sec 이내 재실행 방지
+ *   3. 서킷 브레이커 — 연속 3회 실패 시 정책 비활성화 (OPEN 상태)
+ *   4. 레이트 리밋 — 5분 내 최대 3개 자동 액션 (alert_only는 제외)
+ *
+ * 모든 검사 통과 후:
+ *   - require_approval=TRUE: _queue_approval() → Web UI 승인 대기
+ *   - require_approval=FALSE 또는 alert_only: _execute_action() → 즉시 실행
+ */
 static void
 _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
             gdouble zscore, const gchar *reason)
 {
     if (!p->enabled) return;
 
-
+    /* Cooldown check */
     gint64 now = g_get_monotonic_time();
     if (now - p->last_trigger_us < p->cooldown_sec * G_USEC_PER_SEC)
         return;
 
-
+    /* Circuit breaker */
     if (p->consecutive_failures >= CIRCUIT_BREAKER_MAX) {
         PCV_LOG_WARN(HEALING_LOG_DOM,
             "Circuit breaker OPEN for policy '%s' (%d consecutive failures)",
@@ -618,7 +618,7 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
         return;
     }
 
-
+    /* Rate limit */
     if (g_strcmp0(p->action, "alert_only") != 0 && !_rate_check())
         return;
 
@@ -631,7 +631,7 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
     }
 }
 
-
+/* ── Public API ──────────────────────────────────────────────── */
 
 void
 pcv_healing_init(void)
@@ -640,22 +640,24 @@ pcv_healing_init(void)
     g_mutex_init(&g_healing_hist_mu);
     G.initialized = TRUE;
 
-
-
-
+    /* Issue-M1 fix: daemon.conf [ai] mode=active 설정 반영.
+     * 이전에는 항상 dry_run=TRUE로 고정되어 실제 자가치유가 실행되지 않았음.
+     * 지원 값: "active" → dry_run=FALSE, 그 외 → dry_run=TRUE (safe default). */
     const gchar *mode = pcv_config_get_string("ai", "mode", "dry_run");
     G.dry_run = (g_ascii_strcasecmp(mode, "active") != 0);
 
-
+    /* Built-in policies (architecture doc section 6.3) */
     _add_policy("cpu-overload", "purecvisor_host_cpu_percent",
         3.0, 85.0, "migrate", 600, TRUE);
     _add_policy("mem-pressure", "purecvisor_host_memory_percent",
         2.5, 90.0, "migrate", 600, TRUE);
+    /* single_edge 빌드는 마이그레이션 대상 노드가 없어 migrate가 무의미 —
+     * 승인 큐에 쌓이기만 하므로 alert_only로 운영한다. */
     _add_policy("thermal-alert", "node_hwmon_temp_celsius",
-        2.0, 80.0, "migrate", 1800, TRUE);
-
-
-
+        2.0, 80.0, "alert_only", 1800, FALSE);
+    /* BUG-20 fix: trigger_metric="vm-unresponsive"로 설정하여 virt_events.c의
+     * pcv_healing_on_anomaly("vm-unresponsive", ...) 호출이 매칭되도록 함.
+     * 이전에는 trigger_metric=""이어서 핸들러가 즉시 continue로 스킵했음. */
     _add_policy("vm-unresponsive", "vm-unresponsive",
         0, 0, "restart", 300, FALSE);
     _add_policy("swap-storm", "node_vmstat_pswpout",
@@ -666,16 +668,16 @@ pcv_healing_init(void)
         2.0, 0, "alert_only", 300, FALSE);
     _add_policy("conntrack-full", "node_nf_conntrack_entries",
         2.5, 0, "alert_only", 600, FALSE);
-
-
-
-
+    /* 1.0: vm-reboot-loop synthetic 정책 (ADR-0020 규칙 4 준수)
+     * - virt_events.c가 윈도우(10분) 내 5회+ stop 감지 시 호출
+     * - alert_only로 시작 (자동 migrate은 위험: 부팅 실패 원인 분석 우선)
+     * - 운영자가 audit 로그 확인 후 수동 처치 */
     _add_policy("vm-reboot-loop", "vm-reboot-loop",
         0, 0, "alert_only", 1200, FALSE);
-
-
-
-
+    /* 1.0: vm-migration-failed synthetic 정책
+     * - handler_cluster.c::_migrate_thread가 윈도우(30분) 내 3회+ 실패 시 호출
+     * - alert_only (자동 retry 위험: 동일 원인 반복 가능)
+     * - 운영자가 SSH key/네트워크/디스크 공간 확인 후 수동 재시도 */
     _add_policy("vm-migration-failed", "vm-migration-failed",
         0, 0, "alert_only", 1800, FALSE);
 
@@ -684,12 +686,12 @@ pcv_healing_init(void)
         G.policy_count, G.dry_run ? "dry_run" : "active");
 }
 
-
-
-
-
-
-
+/**
+ * Issue-M2 fix: 런타임 모드 전환.
+ * healing.set_mode RPC 경로: dispatcher → _handle_healing_set_mode →
+ * pcv_healing_set_mode → G.dry_run 변경.
+ * 감사 로그에 모드 변경 기록 (운영자 추적용).
+ */
 void
 pcv_healing_set_mode(gboolean dry_run)
 {
@@ -724,20 +726,20 @@ pcv_healing_shutdown(void)
     g_mutex_clear(&g_healing_hist_mu);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_healing_on_anomaly:
+ * @metric:    이상이 감지된 메트릭 이름
+ * @value:     현재 메트릭 값
+ * @zscore:    이상 탐지 Z-Score
+ * @threshold: 해당 메트릭의 Z-Score 임계값
+ *
+ * anomaly_detector에서 이상 감지 시 호출되는 이벤트 핸들러입니다.
+ * 등록된 정책 중 trigger_metric이 일치하고 zscore가 기준을 초과하는
+ * 정책을 찾아 _try_policy()로 평가합니다.
+ *
+ * 복합 조건: 2개 이상 정책이 동시 트리거되면 AI Agent에 자문을 요청합니다.
+ * → pcv_agent_compare_async()로 4개 프로바이더 병렬 질의
+ */
 void
 pcv_healing_on_anomaly(const gchar *metric, gdouble value,
                         gdouble zscore, gdouble threshold)
@@ -768,11 +770,11 @@ pcv_healing_on_anomaly(const gchar *metric, gdouble value,
 
     g_mutex_unlock(&G.mu);
 
-
-
+    /* 1.0: 시간 윈도우 누적 검사 — 60초 내 distinct metric 3개 이상이면
+     * triggered_count(단일 호출 내 정책 수)와 별개로 AI Agent 트리거 */
     gboolean window_trigger = _track_distinct_anomaly(metric);
 
-
+    /* 복합 조건: (단일 호출 내 2개+ 정책) 또는 (시간 윈도우 누적 3 metric+) */
     if (triggered_count >= 2 || window_trigger) {
         JsonObject *host = pcv_ebpf_telemetry_get_host();
         gchar *host_json = NULL;
@@ -806,19 +808,19 @@ pcv_healing_on_anomaly(const gchar *metric, gdouble value,
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_healing_on_prediction:
+ * @cpu_pred:  5분 후 CPU 예측값 (%)
+ * @mem_pred:  5분 후 MEM 예측값 (%)
+ * @cpu_trend: CPU 추세 기울기 (양수=상승)
+ * @mem_trend: MEM 추세 기울기
+ *
+ * workload_predict에서 예측값이 갱신될 때 호출되는 이벤트 핸들러입니다.
+ * predict_threshold가 설정된 정책에 대해, 예측값이 임계값을 초과하면
+ * _try_policy()를 호출하여 사전 대응(preventive action)을 수행합니다.
+ *
+ * 예) cpu-overload 정책: predict_threshold=85 → 5분 후 CPU 85% 예측 시 migrate 트리거
+ */
 void
 pcv_healing_on_prediction(gdouble cpu_pred, gdouble mem_pred,
                            gdouble cpu_trend, gdouble mem_trend)
@@ -850,15 +852,15 @@ pcv_healing_on_prediction(gdouble cpu_pred, gdouble mem_pred,
     g_mutex_unlock(&G.mu);
 }
 
-
-
-
-
-
-
-
-
-
+/**
+ * pcv_healing_get_pending_json:
+ *
+ * 승인 대기 중인 액션 목록을 JSON 배열 문자열로 반환합니다.
+ * Web UI의 Self-Healing 패널에서 관리자가 승인/거부할 수 있도록 표시됩니다.
+ * resolved=TRUE인 항목은 건너뛰고, 미처리 항목만 포함합니다.
+ *
+ * Returns: (transfer full): JSON 배열 문자열 (g_free 필요)
+ */
 gchar *
 pcv_healing_get_pending_json(void)
 {
@@ -882,13 +884,13 @@ pcv_healing_get_pending_json(void)
     return g_string_free(buf, FALSE);
 }
 
-
-
-
-
-
-
-
+/**
+ * pcv_healing_approve:
+ * @action_id: 승인할 액션 ID (Web UI에서 선택)
+ *
+ * 대기열에서 해당 ID의 액션을 찾아 승인 처리합니다.
+ * resolved=TRUE로 표시하고, 매칭되는 정책의 _execute_action()을 호출합니다.
+ */
 void
 pcv_healing_approve(gint action_id)
 {
@@ -900,7 +902,7 @@ pcv_healing_approve(gint action_id)
             pcv_prom_gauge_set_labels("purecvisor_healing_pending_approvals", "",
                 (gdouble)G.total_pending);
 
-
+            /* Find matching policy and execute */
             for (gint j = 0; j < G.policy_count; j++) {
                 if (g_strcmp0(G.policies[j].name, G.pending[i].policy_name) == 0) {
                     _execute_action(&G.policies[j], G.pending[i].reason);
@@ -916,13 +918,13 @@ pcv_healing_approve(gint action_id)
     g_mutex_unlock(&G.mu);
 }
 
-
-
-
-
-
-
-
+/**
+ * pcv_healing_dismiss:
+ * @action_id: 거부할 액션 ID
+ *
+ * 대기열에서 해당 ID의 액션을 찾아 거부 처리합니다.
+ * resolved=TRUE로 표시만 하고 액션은 실행하지 않습니다.
+ */
 void
 pcv_healing_dismiss(gint action_id)
 {
@@ -942,14 +944,14 @@ pcv_healing_dismiss(gint action_id)
     g_mutex_unlock(&G.mu);
 }
 
-
-
-
-
-
-
-
-
+/**
+ * pcv_healing_get_history_json:
+ *
+ * 자가 치유 액션 이력을 JSON 배열 문자열로 반환합니다.
+ * 최신 엔트리부터 역순으로 최대 HEALING_HISTORY_MAX개를 포함합니다.
+ *
+ * Returns: (transfer full): JSON 배열 문자열 (g_free 필요)
+ */
 gchar *
 pcv_healing_get_history_json(void)
 {
@@ -957,7 +959,7 @@ pcv_healing_get_history_json(void)
 
     GString *buf = g_string_new("[");
     for (gint i = 0; i < g_healing_hist_count; i++) {
-
+        /* iterate newest-first */
         gint idx = (g_healing_hist_idx - 1 - i + HEALING_HISTORY_MAX) % HEALING_HISTORY_MAX;
         HealingHistoryEntry *e = &g_healing_history[idx];
         if (buf->len > 1) g_string_append_c(buf, ',');

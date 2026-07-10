@@ -1,13 +1,13 @@
 #!/usr/bin/env node
-
-
-
-
-
-
-
-
-
+/**
+ * check_a11y.mjs — axe-core 정적 페이지 접근성 검증
+ *
+ * 대상: ui/guide.html (정적, 데몬 불필요)
+ * 임계값: AXE_MAX_VIOLATIONS 환경변수 (기본 0)
+ * 사용:
+ *   node scripts/check_a11y.mjs                # 0건 차단
+ *   AXE_MAX_VIOLATIONS=10 node scripts/...     # 10건까지 허용
+ */
 import { spawn } from 'node:child_process';
 import net from 'node:net';
 import { setTimeout as wait } from 'node:timers/promises';
@@ -20,7 +20,7 @@ const PAGES = (process.env.AXE_PAGES || 'guide.html,index.html,offline.html')
   .split(',')
   .map(normalizePage)
   .filter(Boolean);
-
+// 테마: 비어있으면 기본만, 'all'이면 현재 허용된 Supanova 변형 전체
 const THEMES = process.env.AXE_THEMES === 'all'
   ? [null, 'supanova', 'supanova-cyan', 'supanova-hicontrast']
   : (process.env.AXE_THEMES ? process.env.AXE_THEMES.split(',') : [null]);
@@ -56,7 +56,7 @@ async function waitForHttpServer(port, srv, getStderr) {
       const res = await fetch(`http://127.0.0.1:${port}/`);
       if (res.ok) return;
     } catch (_) {
-
+      // Server is still starting.
     }
     await wait(100);
   }

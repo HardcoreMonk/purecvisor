@@ -1,8 +1,8 @@
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/security.js
+   Native Host HIDS/HIPS event review UI
+   ADR-0013: IIFE module scope — PCV.security namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
   'use strict';
@@ -11,11 +11,11 @@ window.PCV = window.PCV || {};
   var currentEventId = '';
   var lastEvents = [];
 
-
-
-
-
-
+  /*
+   * Security UI is intentionally RPC-backed instead of using ad hoc REST paths:
+   * the CLI, TUI, and browser all exercise the same RBAC, audit, and job result
+   * contracts behind security.*.
+   */
   function _L(ko, en) {
     return (window.PCV_LANG === 'en') ? (en || ko) : ko;
   }
@@ -89,10 +89,10 @@ window.PCV = window.PCV || {};
   }
 
   function renderStatusBar(status, pendingCount) {
-
-
-
-
+    /*
+     * First screen answers four operational questions: is Guard enabled, is the
+     * baseline trusted, is there open risk, and is any action waiting for approval.
+     */
     var guard = status && status.enabled ? 'enabled' : 'disabled';
     var baseline = (status && status.baseline_status) || 'unknown';
     var degraded = status && status.degraded;
@@ -206,10 +206,10 @@ window.PCV = window.PCV || {};
     actions.forEach(function(action) {
       var name = action.action || '';
       var executable = name === 'block_ip' || name === 'revoke_api_key';
-
-
-
-
+      /*
+       * The browser mirrors the backend allowlist but never relies on it for
+       * safety. Backend RPC rejects non-executable actions again before running.
+       */
       var controls = executable
         ? (canRole('admin')
           ? '<button class="btn btn-r" type="button" data-sec-approve="' + esc(action.event_id || '') + '">' + _L('승인', 'Approve') + '</button>'
@@ -252,10 +252,10 @@ window.PCV = window.PCV || {};
   }
 
   function applyFilters(root) {
-
-
-
-
+    /*
+     * Filtering is DOM-local so refresh always starts from the authoritative
+     * backend list and never mutates lastEvents.
+     */
     root = root || document;
     var sev = (document.getElementById('sec-filter-sev') || {}).value || '';
     var source = (document.getElementById('sec-filter-source') || {}).value || '';
@@ -319,10 +319,10 @@ window.PCV = window.PCV || {};
   }
 
   async function renderSecurityEvents(b) {
-
-
-
-
+    /*
+     * Load config, event queue, and pending actions together. Splitting these
+     * requests would let the cards and tables disagree during rapid approvals.
+     */
     b.innerHTML = showSkeleton();
     try {
       var loaded = await Promise.all([
@@ -426,10 +426,10 @@ window.PCV = window.PCV || {};
       notify(_L('admin 권한이 필요합니다.', 'admin role required'), false);
       return;
     }
-
-
-
-
+    /*
+     * Approval starts an async job; the immediate success toast means accepted,
+     * not completed. Final failure still arrives through the shared WS path.
+     */
     if (!await askConfirm(_L('이 대응을 승인하시겠습니까?', 'Approve this response?') + '\n' + eventId)) return;
     try {
       await rpc('security.action.approve', { event_id: eventId });

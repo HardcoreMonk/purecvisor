@@ -1,15 +1,15 @@
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/nav.js
+   Navigation, Sidebar, Activity Bar, Command Palette, Mobile,
+   Keyboard Shortcuts, Editor Tabs, Breadcrumbs, Global Search,
+   Zen Mode, Notification Center, Hover Cards, Bottom Panel
+   Extracted from app.js — plain script, all functions on window.*
+   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ PINNED PAGES (J3) ═══ */
 var _pinnedPages = JSON.parse(localStorage.getItem('pcv-pinned') || '[]');
 
 function togglePin(pageId) {
@@ -34,32 +34,32 @@ function renderPinnedBar() {
 window.togglePin = togglePin;
 window.renderPinnedBar = renderPinnedBar;
 
-
+/* ═══ NAVIGATION ═══ */
 window._navGeneration = 0;
 function navigateTo(n) {
   if (window.pcvClusterEnabled === false && window.PCV_CLUSTER_ONLY_NAV && window.PCV_CLUSTER_ONLY_NAV.includes(n)) {
     if (typeof toast === 'function') toast(_L('Single Edge 공개 리포에는 포함되지 않는 화면입니다', 'This screen is not included in Single Edge'), false);
     n = 'dashboard';
   }
-
+  /* BUG-6 fix: 페이지 전환 시 generation 증가 → stale 비동기 콜백 차단 */
   window._navGeneration = (window._navGeneration || 0) + 1;
-
+  /* FE-4: Cloud 폴 타이머 정리 (이전 페이지가 cloud-migration인 경우) */
   if (typeof _cloudCleanupTimer === 'function' && currentTab === 'cloud-migration' && n !== 'cloud-migration') {
     _cloudCleanupTimer();
   }
-
+  /* FE-4: 모니터링 자동 갱신 정리 */
   if (typeof stopAdaptivePolling === 'function' && currentTab && currentTab.startsWith('mon-') && !(n && n.startsWith('mon-'))) {
     stopAdaptivePolling('mon-refresh');
   }
-
+  /* P2-5: clear dirty form tracking on navigation (prevents false beforeunload) */
   if (typeof clearAllFormDirty === 'function') clearAllFormDirty();
-
+  /* J1: Remember last VM detail tab */
   var vmTabs = ['summary', 'console', 'snapshots', 'performance', 'timeline'];
   if (vmTabs.includes(n)) localStorage.setItem('pcv-last-vm-tab', n);
   currentTab = n;
   document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
   const containerPages = ['containers', 'docker'];
-
+  /* sb-cluster 패널은 존재하지 않음 — cluster 관련 페이지도 INFRA 사이드바에 노출 */
   const infraPages = PCV.filterEditionItems([
     { id: 'networks' }, { id: 'storage' }, { id: 'host' }, { id: 'ovn' },
     { id: 'accounts' }, { id: 'security-groups' }, { id: 'gpu' }, { id: 'templates' },
@@ -78,7 +78,7 @@ function navigateTo(n) {
   renderContent();
 }
 window.navigateTo = navigateTo;
-
+/* Keep global alias */
 window.go = navigateTo;
 
 function pcvRoleAllows(minRole) {
@@ -89,7 +89,7 @@ function pcvRoleAllows(minRole) {
 }
 window.pcvRoleAllows = pcvRoleAllows;
 
-
+/* ═══ SIDEBAR ═══ */
 function switchSbTab(tab) {
   ['vms', 'containers', 'infra'].forEach(t => {
     const panel = document.getElementById('sb-' + t);
@@ -104,13 +104,13 @@ function switchSbTab(tab) {
 }
 window.switchSbTab = switchSbTab;
 
-
+/* ═══ CONTENT DISPATCH ═══ */
 function renderContent() {
   destroyAllCharts();
   var cb = document.getElementById('cb');
   if (cb) cb.classList.add('fade-out');
   const b = cb, v = vmList[selectedVmIndex];
-
+  /* BUG-6 fix: 비동기 렌더러의 stale 콜백이 DOM을 오염시키지 않도록 generation 캡처 */
   var gen = window._navGeneration || 0;
   try {
     var fn = (function() {
@@ -156,7 +156,7 @@ function renderContent() {
       helppage: () => renderHelp(b),
       serviceguide: () => renderServiceGuide(b),
       restguide: () => renderRestGuide(b),
-
+      /* 1.0: AI Self-Healing 별도 페이지 (Monitor Overview의 mount는 그대로 유지) */
       'selfhealing': () => renderSelfHealing(b)
       };
       return routes;
@@ -173,7 +173,7 @@ function renderContent() {
     }
     else if (_DEBUG) console.warn('Unknown tab:', currentTab);
   } catch (renderErr) {
-    if ((window._navGeneration || 0) !== gen) {  }
+    if ((window._navGeneration || 0) !== gen) { /* stale page — ignore */ }
     else {
       b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(renderErr.message || '') + '</p><pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--red);text-align:left;max-height:200px;overflow:auto">' + esc(renderErr.stack || '') + '</pre><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
       if (_DEBUG) console.error('renderContent error:', renderErr);
@@ -185,7 +185,7 @@ function renderContent() {
 }
 window.renderContent = renderContent;
 
-
+/* ═══ STATUS BAR CONTEXT ═══ */
 function updateStatusBar() {
   var el = document.getElementById('sb-ctx');
   if (!el) return;
@@ -199,7 +199,7 @@ function updateStatusBar() {
   var elapsed = Math.round((Date.now() - (lastLoadTime || Date.now())) / 1000);
   parts.push('Sync: ' + elapsed + 's ago');
   if (window._perfMetrics) parts.push('API: ' + (_perfMetrics.avgApiTime || 0) + 'ms avg');
-
+  /* Connection quality dot */
   var wsStat = '&#9679;';
   if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1) {
     wsStat = '<span style="color:var(--green)">&#9679;</span>';
@@ -219,23 +219,23 @@ function updateStatusBar() {
 window.updateStatusBar = updateStatusBar;
 setInterval(updateStatusBar, 2000);
 
-
+/* ═══ DYNAMIC FAVICON + TAB TITLE (N5) ═══ */
 function updateFavicon() {
   var running = 0;
   if (vmList) running = vmList.filter(function(v) { return v.state === 'running'; }).length;
 
-
+  /* Update tab title */
   document.title = 'PureCVisor' + (running > 0 ? ' (' + running + ' VMs)' : '');
 
-
+  /* Generate dynamic favicon */
   var canvas = document.createElement('canvas');
   canvas.width = 32; canvas.height = 32;
   var ctx = canvas.getContext('2d');
-
+  /* Background circle */
   var color = running > 0 ? '#00ff88' : (vmList && vmList.length > 0 ? '#ffee00' : '#ff2266');
   ctx.beginPath(); ctx.arc(16, 16, 14, 0, Math.PI * 2);
   ctx.fillStyle = color; ctx.fill();
-
+  /* Text */
   ctx.fillStyle = '#000'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(running > 0 ? running.toString() : '!', 16, 17);
 
@@ -251,20 +251,20 @@ function updateFavicon() {
 }
 window.updateFavicon = updateFavicon;
 
-
+/* ═══ TOGGLE SIDEBAR ═══ */
 function toggleSB() {
   const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar');
   if (sb) sb.classList.toggle('collapsed');
 }
 window.toggleSB = toggleSB;
 
-
+/* ═══ TOGGLE FULLSCREEN ═══ */
 function toggleFS() {
   document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 }
 window.toggleFS = toggleFS;
 
-
+/* ═══ INFRA SORT ═══ */
 var infraSortAsc = true;
 window.infraSortAsc = infraSortAsc;
 
@@ -285,7 +285,7 @@ function toggleInfraSort() {
 }
 window.toggleInfraSort = toggleInfraSort;
 
-
+/* ═══ BOTTOM PANEL ═══ */
 var bottomPanelTab = 'terminal';
 var bottomPanelExpanded = false;
 
@@ -313,7 +313,7 @@ function togglePanelSize() {
 }
 window.togglePanelSize = togglePanelSize;
 
-
+/* ═══ COMMAND PALETTE (Ctrl+K) — G-4 ═══ */
 var CMD_ACTIONS = PCV.filterEditionItems([
   { icon: '+', label: _L('새 VM', 'New VM'), hint: 'Ctrl+N', role: 'operator', action: () => showCreate() },
   { icon: '#', label: _L('운영 개요', 'Operations Overview'), action: () => navigateTo('mon-overview') },
@@ -338,7 +338,7 @@ var CMD_ACTIONS = PCV.filterEditionItems([
 ]);
 window.CMD_ACTIONS = CMD_ACTIONS;
 
-
+/* ═══ J2: FUZZY MATCH HELPER ═══ */
 function fuzzyMatch(text, query) {
   if (!query) return true;
   var ti = 0, qi = 0;
@@ -398,7 +398,7 @@ function renderCmdPalette(filter) {
 }
 window.renderCmdPalette = renderCmdPalette;
 
-
+/* ═══ J4: MULTI-WINDOW POPUP ═══ */
 function openInPopup(pageId) {
   var page = pageId || currentTab;
   var w = window.open('', 'pcv-' + page, 'width=1200,height=800,menubar=no,toolbar=no');
@@ -415,7 +415,7 @@ function openInPopup(pageId) {
     + '<script>authToken="' + (authToken || '') + '";<\/script>'
     + '</body></html>');
   w.document.close();
-
+  /* Render content into popup after scripts load */
   setTimeout(function() {
     var cb = w.document.getElementById('popup-content');
     if (!cb) return;
@@ -425,7 +425,7 @@ function openInPopup(pageId) {
 }
 window.openInPopup = openInPopup;
 
-
+/* ═══ MOBILE ═══ */
 function toggleMobileSB() {
   const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
   if (sb.classList.contains('mobile-open')) { closeMobileSB(); }
@@ -439,7 +439,7 @@ function closeMobileSB() {
 }
 window.closeMobileSB = closeMobileSB;
 
-
+/* ═══ V-1: ACTIVITY BAR ═══ */
 var currentActivity = 'vms';
 window.currentActivity = currentActivity;
 
@@ -458,7 +458,7 @@ function switchActivity(panel) {
     const el = document.getElementById('sb-' + t);
     if (el) el.classList.toggle('hidden', t !== panel);
   });
-
+  /* sync tab buttons */
   document.querySelectorAll('#sb-tabs button').forEach(b => {
     b.classList.toggle('active', b.dataset.sb === panel);
   });
@@ -469,7 +469,7 @@ function switchActivity(panel) {
 }
 window.switchActivity = switchActivity;
 
-
+/* ═══ V-2: EDITOR TABS ═══ */
 var editorTabs = [];
 var activeEditorTab = null;
 
@@ -505,7 +505,7 @@ function renderEditorTabs() {
 }
 window.renderEditorTabs = renderEditorTabs;
 
-
+/* ═══ V-4: BREADCRUMBS (G8: Interactive) ═══ */
 function updateBreadcrumbs(page) {
   var el = document.getElementById('breadcrumbs');
   if (!el) return;
@@ -539,7 +539,7 @@ function updateBreadcrumbs(page) {
 }
 window.updateBreadcrumbs = updateBreadcrumbs;
 
-
+/* ═══ V-5: GLOBAL SEARCH (Ctrl+Shift+F) ═══ */
 window.globalSearchOpen = false;
 
 function toggleGlobalSearch() {
@@ -569,7 +569,7 @@ function doGlobalSearch(query) {
   const q = query.toLowerCase();
   let html = '';
 
-
+  /* Search VMs */
   const matchedVMs = vmList.filter(v => fuzzyMatch(v.name, q));
   if (matchedVMs.length > 0) {
     html += '<div class="global-search-group"><div class="global-search-group-title">Virtual Machines</div>';
@@ -579,7 +579,7 @@ function doGlobalSearch(query) {
     html += '</div>';
   }
 
-
+  /* Search pages */
   const pages = PCV.filterEditionItems([
     { id: 'networks', label: _L('네트워크', 'Networks'), icon: '&#127760;' },
     { id: 'storage', label: _L('스토리지', 'Storage'), icon: '&#128190;' },
@@ -591,8 +591,8 @@ function doGlobalSearch(query) {
     { id: 'accounts', label: _L('계정과 권한', 'Accounts'), icon: '&#128100;', role: 'admin' },
     { id: 'security-groups', label: _L('보안 그룹', 'Security Groups'), icon: '&#128737;' },
     { id: 'gpu', label: _L('GPU 장치', 'GPU'), icon: '&#127918;' },
-
-
+    /* Docker/OCI 제거됨 */
+    /* Terraform 제거됨 */
     { id: 'apihelp', label: _L('Swagger API', 'Swagger API'), icon: '&#128214;' },
     { id: 'serviceguide', label: _L('서비스 가이드', 'Service Guide'), icon: '&#128218;' },
     { id: 'overlay', label: _L('오버레이 네트워크', 'Overlay Networks'), icon: '&#127760;' },
@@ -618,7 +618,7 @@ function doGlobalSearch(query) {
 }
 window.doGlobalSearch = doGlobalSearch;
 
-
+/* ═══ V-9: ZEN MODE ═══ */
 window.zenMode = false;
 function toggleZenMode() {
   window.zenMode = !window.zenMode;
@@ -627,7 +627,7 @@ function toggleZenMode() {
 }
 window.toggleZenMode = toggleZenMode;
 
-
+/* ═══ V-8: NOTIFICATIONS CENTER ═══ */
 var notifications = [];
 window.notifCenterOpen = false;
 var notifFilter = 'all';
@@ -647,7 +647,7 @@ function updateNotifBadge() {
   if (badge) { badge.textContent = unread; badge.style.display = unread > 0 ? '' : 'none'; }
   var actBadge = document.querySelector('.activity-icon[data-panel="notifications"] .activity-badge');
   if (actBadge) { actBadge.textContent = unread; actBadge.style.display = unread > 0 ? '' : 'none'; }
-
+  /* Update toolbar notif icon badge if present */
   var toolbarBadge = document.getElementById('notif-toolbar-badge');
   if (toolbarBadge) { toolbarBadge.textContent = unread; toolbarBadge.style.display = unread > 0 ? '' : 'none'; }
 }
@@ -694,7 +694,7 @@ function toggleNotifCenter() {
   el.id = 'notif-center';
   el.className = 'notif-center';
 
-
+  /* Header with title and actions */
   var header = '<div class="notif-center-header">'
     + '<span>Notifications' + (unread > 0 ? ' <span class="notif-header-badge">' + unread + ' unread</span>' : '') + '</span>'
     + '<div style="display:flex;gap:6px">'
@@ -703,7 +703,7 @@ function toggleNotifCenter() {
     + '<button class="panel-action-btn" onclick="closeNotifCenter()">&#10005;</button>'
     + '</div></div>';
 
-
+  /* Filter bar */
   var filterBar = '<div class="notif-filter-bar">'
     + '<button class="notif-filter-btn active" data-filter="all" onclick="setNotifFilter(\'all\')">All (' + notifications.length + ')</button>'
     + '<button class="notif-filter-btn" data-filter="error" onclick="setNotifFilter(\'error\')">Error (' + notifications.filter(function(n){ return n.type==='error'; }).length + ')</button>'
@@ -714,7 +714,7 @@ function toggleNotifCenter() {
   el.innerHTML = header + filterBar + '<div class="notif-center-list" id="notif-list-container"></div>';
   document.body.appendChild(el);
 
-
+  /* Render list */
   var listContainer = document.getElementById('notif-list-container');
   _renderNotifList(listContainer, 'all');
 }
@@ -722,7 +722,7 @@ window.toggleNotifCenter = toggleNotifCenter;
 
 function setNotifFilter(filter) {
   notifFilter = filter;
-
+  /* Update filter button states */
   document.querySelectorAll('.notif-filter-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
@@ -759,7 +759,7 @@ function clearNotifications() {
 }
 window.clearNotifications = clearNotifications;
 
-
+/* ═══ V-7: HOVER INFO ═══ */
 var hoverCardTimeout = null;
 var hoverCard = document.createElement('div');
 hoverCard.className = 'hover-card';
@@ -788,7 +788,7 @@ function hideHoverCard() {
 }
 window.hideHoverCard = hideHoverCard;
 
-
+/* ═══ G7: SEARCH RESULT HIGHLIGHT ═══ */
 function highlightText(text, query) {
   if (!query || !text) return esc(text);
   var escaped = esc(text);
@@ -797,7 +797,7 @@ function highlightText(text, query) {
 }
 window.highlightText = highlightText;
 
-
+/* ═══ G6: TOUCH GESTURES ═══ */
 (function() {
   var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
   document.addEventListener('touchstart', function(e) {
@@ -826,7 +826,7 @@ window.highlightText = highlightText;
     }
   }, { passive: true });
 
-
+  /* Long press for context menu */
   var longPressTimer = null;
   document.addEventListener('touchstart', function(e) {
     var vi = e.target.closest('.vi');
@@ -842,7 +842,7 @@ window.highlightText = highlightText;
   document.addEventListener('touchmove', function() { clearTimeout(longPressTimer); }, { passive: true });
 })();
 
-
+/* ═══ SIDEBAR RESIZE (D5) ═══ */
 (function() {
   var handle = document.getElementById('sb-resize');
   var sidebar = document.querySelector('.sidebar-panel') || document.querySelector('.sidebar');
@@ -871,7 +871,7 @@ window.highlightText = highlightText;
   if (saved) { sidebar.style.width = saved; document.documentElement.style.setProperty('--sw', saved); }
 })();
 
-
+/* ── PCV.nav namespace export ─────────────────────── */
 PCV.nav = {
   togglePin: togglePin,
   renderPinnedBar: renderPinnedBar,

@@ -1,17 +1,17 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
-
+# =============================================================================
+# PureCVisor 24h Load / Leak Test
+#
+# 목적: Single Edge 노드에 지속 RPC 트래픽을 주입하고 RSS/에러 모니터링.
+#   - 5초 간격 RPC 사이클 (vm.list, monitor.fleet, storage.zvol.list)
+#   - 30초 간격 RSS 기록
+#   - 에러 발생 시 로그
+#
+# 사용: bash scripts/load_test.sh [DURATION_HOURS] [HOST]
+#   기본: 24시간, HOST=127.0.0.1
+#
+# 출력: load_test_results.log
+# =============================================================================
 set -uo pipefail
 
 HOURS="${1:-24}"
@@ -32,7 +32,7 @@ fi
 echo "=== PureCVisor Load Test ===" | tee "$LOG"
 echo "Host: $HOST  Duration: ${HOURS}h  Started: $(date -Iseconds)" | tee -a "$LOG"
 
-
+# Get auth token
 TOKEN=$(curl -sf -X POST "$BASE/auth/token" \
   -H "Content-Type: application/json" \
   -d "{\"username\":\"$ADMIN_USER\",\"password\":\"$ADMIN_PASSWORD\"}" 2>/dev/null | \
@@ -45,7 +45,7 @@ fi
 echo "Token obtained: ${TOKEN:0:20}..." | tee -a "$LOG"
 
 AUTH="Authorization: Bearer $TOKEN"
-
+# RPC passthrough (/rpc POST) + REST GET 혼합
 RPCS=("vm.list" "monitor.fleet" "storage.zvol.list" "alert.history" "iso.list")
 REST_GETS=("/health")
 START=$(date +%s)
@@ -60,7 +60,7 @@ while true; do
 
   CYCLE=$((CYCLE + 1))
 
-
+  # RPC passthrough
   for rpc in "${RPCS[@]}"; do
     RESP=$(curl -sf -w "\n%{http_code}" -H "$AUTH" "$BASE/rpc" \
       -d "{\"jsonrpc\":\"2.0\",\"method\":\"$rpc\",\"params\":{},\"id\":\"$CYCLE\"}" 2>&1)
@@ -68,7 +68,7 @@ while true; do
     if [ "$CODE" != "200" ]; then
       ERRORS=$((ERRORS + 1))
       echo "[$(date -Iseconds)] ERROR cycle=$CYCLE rpc=$rpc code=$CODE" | tee -a "$LOG"
-
+      # token refresh on 401
       if [ "$CODE" = "401" ]; then
         TOKEN=$(curl -sf -X POST "$BASE/auth/token" \
           -H "Content-Type: application/json" \
@@ -79,7 +79,7 @@ while true; do
     fi
   done
 
-
+  # REST GET endpoints (UDS 디스패처 미등록 경로)
   for ep in "${REST_GETS[@]}"; do
     CODE=$(curl -sf -o /dev/null -w "%{http_code}" -H "$AUTH" "$BASE$ep" 2>&1)
     if [ "$CODE" != "200" ]; then
@@ -88,7 +88,7 @@ while true; do
     fi
   done
 
-
+  # RSS check every 30s
   if [ $((NOW - LAST_RSS_CHECK)) -ge "$RSS_INTERVAL" ]; then
     LAST_RSS_CHECK=$NOW
     RSS=$(ssh -o BatchMode=yes -o ConnectTimeout=3 pcvdev@$HOST \

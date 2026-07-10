@@ -1,3 +1,8 @@
+# LSan 억제 — 3rd-party 라이브러리의 알려진 리크
+#
+# json-glib: 다중 루트 JSON ("2[]" 등) 파싱 시 내부 노드 누수.
+# 데몬은 json-glib에 well-formed JSON-RPC만 전달하므로 운영 영향 없음.
+# 퍼징 입력에서만 트리거되어 게이트를 가리므로 억제.
 leak:json_parser_load_from_data
 leak:json_node_alloc
 leak:json_array_new

@@ -1,8 +1,8 @@
 #!/bin/bash
-
-
-
-
+# ============================================================
+# PureCVisor Frontend↔Backend Integration Test
+# 모든 UI 모듈의 API 엔드포인트 정상 동작 검증
+# ============================================================
 
 set -uo pipefail
 
@@ -12,7 +12,7 @@ SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 . "$SCRIPT_DIR/auth_test_lib.sh"
 PASS=0; FAIL=0; SKIP=0; TOTAL=0
 
-
+# Colors
 G='\033[0;32m'; R='\033[0;31m'; Y='\033[0;33m'; C='\033[0;36m'; N='\033[0m'
 
 log_pass() { ((PASS++)); ((TOTAL++)); echo -e "  ${G}PASS${N}  $1"; }
@@ -20,7 +20,7 @@ log_fail() { ((FAIL++)); ((TOTAL++)); echo -e "  ${R}FAIL${N}  $1 — $2"; }
 log_skip() { ((SKIP++)); ((TOTAL++)); echo -e "  ${Y}SKIP${N}  $1"; }
 section()  { echo -e "\n${C}═══ $1 ═══${N}"; }
 
-
+# ── Auth ──────────────────────────────────────────────────────
 section "1. AUTH (api.js)"
 if pcv_resolve_auth "$BASE"; then
   AUTH="$PCV_AUTH_RESPONSE"
@@ -68,7 +68,7 @@ check_post() {
   if [ "$code" = "200" ]; then log_pass "POST $path"; else log_fail "POST $path" "HTTP $code"; fi
 }
 
-
+# ── UI Static Files ───────────────────────────────────────────
 section "2. UI STATIC FILES"
 for f in "" "/index.html" "/style.css" "/app.js" "/i18n.js" "/sw.js" \
          "/modules/api.js" "/modules/ui.js" "/modules/vm.js" "/modules/container.js" \
@@ -78,11 +78,11 @@ for f in "" "/index.html" "/style.css" "/app.js" "/i18n.js" "/sw.js" \
   if [ "$code" = "200" ]; then log_pass "/ui$f ($code)"; else log_fail "/ui$f" "HTTP $code"; fi
 done
 
-
+# ── VM Module (vm.js) ─────────────────────────────────────────
 section "3. VM MODULE (vm.js)"
 check_get "VM list" "/vms"
 
-
+# Get first VM name
 VM=$(curl -s -H "$H" "$BASE/vms" 2>/dev/null | python3 -c "
 import sys,json
 d=json.load(sys.stdin)
@@ -96,7 +96,7 @@ if [ -n "$VM" ]; then
   check_get "VM delete status"   "/vms/$VM/delete-status"
   check_get "VM NIC list"        "/vms/$VM/nics"
 
-
+  # Snapshot create + delete
   SNAP_RESP=$(post "/vms/$VM/snapshot/create" "{\"snap_name\":\"e2e-test-snap\"}")
   SNAP_CODE=$(echo "$SNAP_RESP" | tail -1)
   if [ "$SNAP_CODE" = "200" ]; then
@@ -108,13 +108,13 @@ if [ -n "$VM" ]; then
     log_fail "Snapshot create" "HTTP $SNAP_CODE"
   fi
 
-
+  # Snapshot delete_all (dry run — keep all)
   check_post "Snapshot delete_all" "/vms/$VM/snapshot/delete_all" '{"keep_recent":9999}'
 else
   log_skip "No VMs found — skipping VM-specific tests"
 fi
 
-
+# ── Container Module (container.js) ───────────────────────────
 section "4. CONTAINER MODULE (container.js)"
 check_get "Container list" "/containers"
 
@@ -127,7 +127,7 @@ print(l[0]['name'] if l else '')
 
 if [ -n "$CTR" ]; then
   log_pass "Container detected: $CTR"
-
+  # Container snapshots — may fail if not ZFS-backed
   CSNAP_CODE=$(curl -s -o /dev/null -w '%{http_code}' -H "$H" "$BASE/containers/$CTR/snapshots" 2>/dev/null)
   if [ "$CSNAP_CODE" = "200" ]; then log_pass "GET /containers/$CTR/snapshots"
   elif [ "$CSNAP_CODE" = "500" ]; then log_skip "Container snapshots (non-ZFS rootfs)"
@@ -137,7 +137,7 @@ else
   log_skip "No containers — skipping"
 fi
 
-
+# ── Network Module (network.js) ───────────────────────────────
 section "5. NETWORK MODULE (network.js)"
 check_get "Network list"    "/networks"
 check_get "OVN status"      "/ovn/status"
@@ -145,30 +145,30 @@ check_get "OVN switches"    "/ovn/switches"
 check_get "OVN routers"     "/ovn/routers"
 check_get "OVN ACL"         "/ovn/acl"
 
-
+# ── Storage Module (storage.js) ───────────────────────────────
 section "6. STORAGE MODULE (storage.js)"
 check_get "Storage pools" "/storage/pools"
 check_get "Storage zvols" "/storage/zvols"
 
-
+# ── Cluster Module (cluster.js) ───────────────────────────────
 section "7. CLUSTER MODULE (cluster.js)"
 check_get "Cluster status"   "/cluster/status"
 check_get "Cluster VMs"      "/cluster/vms"
 check_get "Cluster quota"    "/cluster/quota"
 check_get "Cluster affinity" "/cluster/affinity"
 
-
+# ── Monitor Module (monitor.js) ───────────────────────────────
 section "8. MONITOR MODULE (monitor.js)"
 check_get "Health"       "/health"
 check_get "Metrics"      "/metrics"
 check_get "Processes"    "/processes"
 check_get "ISO list"     "/iso"
 
-
+# ── Cloud Module (cloud.js) ───────────────────────────────────
 section "9. CLOUD MODULE (cloud.js)"
 check_get "Cloud jobs" "/cloud/jobs"
 
-
+# Cloud import validation test
 if [ -n "$TOKEN" ] && [ -n "$CSRF" ]; then
   IMPORT_RESP=$(post "/vms/e2e-test/import-ec2" '{"ami_id":"bad"}')
   IMPORT_BODY=$(echo "$IMPORT_RESP" | head -1)
@@ -181,34 +181,34 @@ else
   log_skip "Import AMI validation"
 fi
 
-
+# ── Auth/Accounts (api.js) ────────────────────────────────────
 section "10. ACCOUNTS (api.js)"
 check_get "User list" "/auth/users"
 
-
+# ── Alert / Audit / Webhook ───────────────────────────────────
 section "11. ALERTS + AUDIT + WEBHOOK"
 check_get "Alert history"    "/alerts"
 check_get "Alert config"     "/alerts/config"
 check_get "Audit search"     "/audit/search"
 check_get "Webhook DLQ"      "/webhook/dlq"
 
-
+# ── Agent ─────────────────────────────────────────────────────
 section "12. AI AGENT"
 check_get "Agent config"  "/agent/config"
 check_get "Agent history" "/agent/history"
 
-
+# ── Backup / Templates ───────────────────────────────────────
 section "13. BACKUP + TEMPLATES"
 check_get "Backup policies" "/backup/policies"
-
+# Backup history requires vm_name in body — test via POST workaround
 BH_CODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "$H" -H "$HJ" -H "$HX" \
   -d '{"vm_name":"*"}' "$BASE/backup/history" 2>/dev/null)
-
+# Also accept 405 (GET-only) as valid routing
 [ "$BH_CODE" = "200" ] && log_pass "POST /backup/history" || log_skip "Backup history (requires vm_name param, $BH_CODE)"
 check_get "Template list"   "/templates"
 check_get "Config history"  "/config/history"
 
-
+# ── DPDK / SR-IOV ─────────────────────────────────────────────
 section "14. DPDK + SR-IOV"
 check_get "DPDK status"    "/dpdk/status"
 check_get "DPDK list"      "/dpdk/list"
@@ -216,15 +216,15 @@ check_get "DPDK hugepage"  "/dpdk/hugepage"
 check_get "SR-IOV status"  "/sriov/status"
 check_get "SR-IOV list"    "/sriov/list"
 
-
+# ── Federation / GPU / Docker ─────────────────────────────────
 section "15. FEDERATION + GPU + DOCKER"
 check_get "Federation status" "/federation/status"
 check_get "GPU list"          "/gpu/list"
 check_get "GPU metrics"       "/gpu/metrics"
 
-
+# ── RBAC ──────────────────────────────────────────────────────
 section "16. RBAC ENFORCEMENT"
-
+# Create viewer if not exists
 if [ -n "$TOKEN" ] && [ -n "$CSRF" ]; then
   post "/auth/users" '{"username":"e2e-viewer","password":"pass123","role":"viewer"}' > /dev/null 2>&1
 
@@ -237,14 +237,14 @@ else
 fi
 
 if [ -n "$VTOK" ]; then
-
+  # Viewer should access read endpoints
   VCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VTOK" "$BASE/vms" 2>/dev/null)
   [ "$VCODE" = "200" ] && log_pass "VIEWER → GET /vms (200)" || log_fail "VIEWER read" "HTTP $VCODE"
 
   VCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VTOK" "$BASE/cloud/jobs" 2>/dev/null)
   [ "$VCODE" = "200" ] && log_pass "VIEWER → GET /cloud/jobs (200)" || log_fail "VIEWER cloud read" "HTTP $VCODE"
 
-
+  # Viewer should be denied write endpoints
   VCODE=$(curl -s -o /dev/null -w '%{http_code}' -X POST -H "Authorization: Bearer $VTOK" -H "$HJ" -H "X-CSRF-Token: $VCSRF" \
     -d '{"ami_id":"ami-0abcdef123456789"}' "$BASE/vms/test/import-ec2" 2>/dev/null)
   [ "$VCODE" = "403" ] && log_pass "VIEWER → POST import-ec2 (403 FORBIDDEN)" || log_fail "VIEWER write block" "HTTP $VCODE (expected 403)"
@@ -252,7 +252,7 @@ else
   log_skip "RBAC viewer test — could not get viewer token"
 fi
 
-
+# ── SUMMARY ───────────────────────────────────────────────────
 echo ""
 echo -e "${C}═══════════════════════════════════════════════${N}"
 echo -e "  TOTAL: $TOTAL  ${G}PASS: $PASS${N}  ${R}FAIL: $FAIL${N}  ${Y}SKIP: $SKIP${N}"

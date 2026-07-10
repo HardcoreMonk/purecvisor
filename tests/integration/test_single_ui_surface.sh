@@ -1,12 +1,12 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
-
-
-
+# Static UI surface gate for the public Single Edge build.
+# The test is intentionally source-based: it prevents multi-node labels,
+# endpoints, and English fallback copy from reappearing before browser QA.
+# Positive checks pin the localized single-node operating surface.
+# Negative checks pin removed cluster/federation affordances.
+# Keep new assertions literal so copy and endpoint drift fails loudly.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
@@ -153,7 +153,7 @@ require_literal "외부 공개 시각 서비스 흐름" "ui/modules/network.js" 
 require_literal "내부 VM 점검 흐름" "ui/modules/network.js" "ovn screen must show the internal VM check flow"
 require_literal "/ovn-visual/" "ui/modules/network.js" "ovn screen must expose the public visual service proxy path"
 require_literal "외부 inbound 없음" "ui/modules/network.js" "ovn screen must state that the visual service has no external inbound path"
-require_literal "demo.purecvisor.site" "ui/modules/network.js" "ovn demo composition must show the public demo domain"
+require_literal "demo.purecvisor.example.com" "ui/modules/network.js" "ovn demo composition must show the public demo domain"
 require_literal "viewer 읽기 전용 경계" "ui/modules/network.js" "ovn demo composition must show the viewer read-only boundary"
 require_literal "논리 토폴로지" "ui/modules/network.js" "ovn screen must expose the new topology heading"
 require_literal "로드 밸런서 설정" "ui/modules/network.js" "ovn screen must expose the new load balancer heading"

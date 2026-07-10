@@ -1,18 +1,18 @@
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/advanced.js
+   Templates, Docker/OCI, Terraform, Config Management,
+   OVA Import
+   ADR-0013: IIFE module scope — PCV.advanced namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Advanced screens are optional capability frontends. A missing backend should
+ * render an explanatory empty state, while configured backends must still use
+ * EP registry helpers and sanitizer paths before inserting returned data.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ TEMPLATES ═══ */
 async function renderTemplates(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -72,7 +72,7 @@ async function loadTemplateHistory() {
   } catch (e) { toast('Template history error: ' + e.message, false); }
 }
 
-
+/* ═══ DOCKER/OCI CONTAINERS ═══ */
 async function renderDocker(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -125,7 +125,7 @@ async function dockerStop(name) {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ TERRAFORM IaC ═══ */
 async function renderTerraform(b) {
   b.innerHTML = showSkeleton();
   let h = H.section('&#127981; Terraform IaC Integration');
@@ -171,7 +171,7 @@ async function loadTfState() {
   } catch (e) { el.innerHTML = '<p class="color-muted text-12">Terraform state not available. Configure terraform.* RPC handlers to enable IaC.</p>'; }
 }
 
-
+/* ═══ CONFIG MANAGEMENT ═══ */
 async function configBackup() {
   toast('Backing up configuration...');
   try {
@@ -206,7 +206,7 @@ async function renderConfigMgmt(b) {
 
   var h = H.section('&#9881; Configuration Management');
 
-
+  /* 스토리지 풀 설정 */
   h += '<h3 style="margin:16px 0 10px">&#128190; ' + _L('스토리지 풀 설정', 'Storage Pool Settings') + '</h3>';
   h += '<div class="sg grid-2 mb-14">';
   h += H.card('&#128190; VM Storage', ''
@@ -236,7 +236,7 @@ async function renderConfigMgmt(b) {
     + '<div id="cfg-ctr-result" style="margin-top:6px;font-size:11px"></div>');
   h += '</div>';
 
-
+  /* 기존 백업/히스토리 */
   h += '<h3 style="margin:16px 0 10px">&#128203; ' + _L('설정 관리', 'Config Management') + '</h3>';
   h += '<div class="sg grid-2 mb-14">';
   h += H.card('&#128190; Config Backup', '<p class="stat-label mb-8">' + _L('현재 daemon.conf를 백업합니다.', 'Create a backup of current daemon.conf.') + '</p><button class="btn btn-g" onclick="configBackup()">&#128190; Create Backup</button><div id="cfg-backup-result" class="mt-8"></div>');
@@ -251,7 +251,7 @@ async function saveStorageCfg(type) {
   var resultEl;
   if (type === 'vm') {
     resultEl = document.getElementById('cfg-vm-result');
-
+    /* ZFS Pool 필드 검증: /로 시작하면 경고 */
     var zvolVal = (document.getElementById('cfg-zvol')?.value || '').trim();
     if (zvolVal.startsWith('/')) {
       if (resultEl) resultEl.innerHTML = '<span class="color-red">&#9888; ' + _L(
@@ -305,7 +305,7 @@ async function loadConfigHistoryInline() {
   } catch (e) { el.innerHTML = '<p class="color-muted text-12">Config history not available.</p>'; }
 }
 
-
+/* ═══ OVA IMPORT ═══ */
 function showImportOva() {
   showModal('<h2>&#128230; Import OVA</h2><div class="fr"><label>OVA Path</label><input id="ova-path" placeholder="/path/to/vm.ova" class="flex-1"></div><div class="fr"><label>VM Name</label><input id="ova-name" placeholder="imported-vm"></div><div class="fr"><label>Pool</label><input id="ova-pool" value="pcvpool/vms"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doImportOva()">Import</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
@@ -323,7 +323,7 @@ async function doImportOva() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ WINDOW REGISTRATIONS ═══ */
 window.renderTemplates = renderTemplates;
 window.showTemplateCreate = showTemplateCreate;
 window.doTemplateCreate = doTemplateCreate;
@@ -348,7 +348,7 @@ window.saveStorageCfg = saveStorageCfg;
 window.showImportOva = showImportOva;
 window.doImportOva = doImportOva;
 
-
+/* ═══ CONFIG RELOAD (백엔드 4차) ═══ */
 async function doConfigReload() {
   if (!await customConfirm(_L('데몬 설정을 리로드하시겠습니까?\n(webhook, rate limit, alert 임계값 등이 갱신됩니다)',
       'Reload daemon configuration?\n(webhook, rate limit, alert thresholds will be refreshed)'))) return;
@@ -358,7 +358,7 @@ async function doConfigReload() {
   } catch(e) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (e.message || ''), 'e'); }
 }
 
-
+/* ═══ BACKUP SNAPSHOT VERIFY ═══ */
 async function showBackupVerify() {
   var html = '<div class="form-group"><label>' + _L('스냅샷 이름', 'Snapshot Name') + '</label>';
   html += '<input id="verify-snap" class="input-field" placeholder="pcvpool/vms/web-prod@daily-20260401"></div>';
@@ -373,7 +373,7 @@ async function showBackupVerify() {
   });
 }
 
-
+/* ═══ PERSISTENT JOBS ═══ */
 async function renderPersistentJobs(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -396,7 +396,7 @@ async function renderPersistentJobs(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 
-
+/* ═══ DB MIGRATION STATUS ═══ */
 async function renderDbMigration(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -412,7 +412,7 @@ async function renderDbMigration(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 
-
+/* ═══ DEEP HEALTH (확장) ═══ */
 async function renderDeepHealth(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -434,7 +434,7 @@ window.renderPersistentJobs = renderPersistentJobs;
 window.renderDbMigration = renderDbMigration;
 window.renderDeepHealth = renderDeepHealth;
 
-
+/* ═══ PCV.advanced namespace export ═══ */
 PCV.advanced = {
   renderTemplates: renderTemplates,
   showTemplateCreate: showTemplateCreate,

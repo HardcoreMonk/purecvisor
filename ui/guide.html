@@ -4,24 +4,24 @@
 <meta charset="UTF-8">
 <meta name="viewport" content="width=device-width, initial-scale=1.0">
 <title>PureCVisor Single Edge Guide</title>
-
+<!-- Phase 2: Supanova Taste Layer — self-hosted Pretendard, runtime icons are local SVG -->
 <link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.0">
 <style>
-
+/* ReadTheDocs/Sphinx inspired PURE LIGHT theme */
 :root {
   --bg-sidebar: #f7f7f7;
   --bg-content: #ffffff;
   --bg-code: #f4f6f9;
   --bg-hover: #eef1f6;
   --fg: #2c3e50;
-  --fg-dim: #5a6566;
-  --accent: #1f6390;
+  --fg-dim: #5a6566;     /* WCAG AA: 4.5:1 on #f7f7f7 */
+  --accent: #1f6390;     /* WCAG AA: 4.5:1 on #ffffff */
   --accent2: #8e44ad;
   --green: #27ae60;
   --yellow: #f39c12;
-  --red: #c0392b;
+  --red: #c0392b;        /* WCAG AA: 4.5:1 on #ffffff */
   --border: #dce1e8;
-
+  /* Phase 2: Supanova Taste Layer — Pretendard + Outfit */
   --font-sans: 'Pretendard', 'Outfit', system-ui, -apple-system, sans-serif;
   --font-display: 'Outfit', 'Pretendard', sans-serif;
   --font-mono: 'Fira Code', 'Cascadia Code', 'JetBrains Mono', monospace;
@@ -29,7 +29,7 @@
   --sidebar-w: 300px;
 }
 
-
+/* Korean rhythm helpers */
 .ko { word-break: keep-all; line-height: 1.5; }
 .ko-tight { word-break: keep-all; line-height: 1.15; }
 
@@ -56,7 +56,7 @@ body {
   stroke-linejoin: round;
 }
 
-
+/* TOP BAR */
 .topbar {
   position: fixed; top: 0; left: 0; right: 0; z-index: 100;
   height: 48px;
@@ -100,7 +100,7 @@ body {
 .topbar .doc-map-btn:hover { color: var(--accent); border-color: var(--accent); }
 .hamburger { display: none; cursor: pointer; font-size: 20px; color: var(--fg); background: none; border: none; }
 
-
+/* SIDEBAR */
 .sidebar {
   position: fixed; top: 48px; left: 0; bottom: 0;
   width: var(--sidebar-w); overflow-y: auto;
@@ -149,7 +149,7 @@ body {
 }
 .toc-sub a:hover, .toc-sub a.active { color: var(--accent); }
 
-
+/* CONTENT */
 .content {
   margin-left: var(--sidebar-w);
   margin-top: 48px;
@@ -157,7 +157,7 @@ body {
   max-width: 900px;
 }
 
-
+/* Breadcrumb */
 .breadcrumb {
   font-size: 12px; color: var(--fg-dim);
   margin-bottom: 16px;
@@ -166,18 +166,18 @@ body {
 .content .breadcrumb a { color: var(--accent); text-decoration: underline; text-underline-offset: 2px; }
 .breadcrumb a:hover { text-decoration: underline; }
 
-
+/* Headings */
 .content h1 { font-size: 28px; color: var(--accent); margin: 32px 0 16px; border-bottom: 2px solid var(--accent); padding-bottom: 8px; }
 .content h2 { font-size: 22px; color: var(--accent); margin: 40px 0 12px; border-bottom: 1px solid var(--border); padding-bottom: 6px; }
 .content h3 { font-size: 17px; color: var(--fg); margin: 24px 0 8px; }
 .content h4 { font-size: 14px; color: var(--fg-dim); margin: 16px 0 6px; }
 
-
+/* Paragraphs, lists */
 .content p { margin: 10px 0; }
 .content ul, .content ol { padding-left: 24px; margin: 8px 0; }
 .content li { margin: 4px 0; }
 
-
+/* Code */
 .content code {
   font-family: var(--font-mono); font-size: 12px;
   background: var(--bg-code); color: #c0392b;
@@ -200,7 +200,7 @@ body {
 }
 .content pre .copy-btn:hover { color: var(--accent); }
 
-
+/* Tables */
 .content table {
   width: 100%; border-collapse: collapse; margin: 12px 0;
   font-size: 13px;
@@ -215,7 +215,7 @@ body {
 }
 .content tr:hover td { background: var(--bg-hover); }
 
-
+/* Blockquote (notes/warnings) — Phase 2: Supanova Taste */
 .content blockquote {
   position: relative;
   padding: 16px 20px 16px 22px;
@@ -234,7 +234,7 @@ body {
 .content blockquote p:first-child { margin-top: 0; }
 .content blockquote p:last-child { margin-bottom: 0; }
 
-
+/* Inline formatting */
 .content strong { color: var(--fg); }
 .content em { color: var(--fg-dim); font-style: italic; }
 .content a { color: var(--accent); text-decoration: none; }
@@ -250,7 +250,7 @@ body {
 .content del { color: var(--fg-dim); text-decoration: line-through; }
 .content img { max-width: 100%; border-radius: 4px; }
 
-
+/* Navigation footer — Phase 2: Spring motion, pill shape */
 .nav-footer {
   display: flex; justify-content: space-between;
   margin-top: 56px; padding-top: 28px;
@@ -279,7 +279,7 @@ body {
 .nav-btn.disabled,
 .nav-btn:disabled { opacity: 0.3; pointer-events: none; transform: none; }
 
-
+/* Search results */
 .search-results {
   position: fixed; top: 48px; left: 50%; transform: translateX(-50%);
   width: 600px; max-height: 400px; overflow-y: auto;
@@ -296,7 +296,7 @@ body {
 .search-results .sr-item .sr-text { color: var(--fg-dim); font-size: 12px; margin-top: 2px; }
 .search-results mark { background: var(--yellow); color: #000; border-radius: 2px; padding: 0 1px; }
 
-
+/* Back to top */
 .back-to-top {
   position: fixed; bottom: 24px; right: 24px;
   width: 40px; height: 40px; border-radius: 50%;
@@ -308,7 +308,7 @@ body {
 }
 .back-to-top.show { display: flex; }
 
-
+/* Loading spinner */
 .loading {
   text-align: center; padding: 80px 0; color: var(--fg-dim);
 }
@@ -320,14 +320,14 @@ body {
 }
 @keyframes spin { to { transform: rotate(360deg); } }
 
-
+/* Chapter count badge */
 .chapter-count {
   display: inline-block; background: var(--bg-code); color: var(--fg-dim);
   font-size: 10px; padding: 1px 6px; border-radius: 3px; margin-left: auto;
   flex-shrink: 0;
 }
 
-
+/* Heading anchor */
 .content h1:hover .anchor,
 .content h2:hover .anchor,
 .content h3:hover .anchor {
@@ -338,7 +338,7 @@ body {
   transition: opacity 0.15s; margin-left: 6px; font-size: 0.8em;
 }
 
-
+/* MOBILE */
 @media (max-width: 768px) {
   .sidebar { transform: translateX(-100%); transition: transform 0.3s; z-index: 90; width: 280px; }
   .sidebar.open { transform: translateX(0); }
@@ -354,9 +354,9 @@ body {
   .content h2 { font-size: 18px; }
   .content pre { font-size: 11px; padding: 10px; }
 }
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PHASE 2 — GUIDE HERO (Supanova Taste Layer)
+   ═══════════════════════════════════════════════════════════════ */
 .guide-hero {
   position: relative;
   padding: 56px 48px 64px;
@@ -416,7 +416,7 @@ body {
   line-height: 1.1;
   margin: 0 0 20px;
   word-break: keep-all;
-
+  /* h1 기본 스타일 오버라이드 (content h1 규칙과 충돌 방지) */
   border-bottom: none;
   padding-bottom: 0;
 }
@@ -839,7 +839,7 @@ body {
 }
 .adr-copy:hover { border-color: var(--accent); }
 
-
+/* Hero 모바일 대응 */
 @media (max-width: 768px) {
   .guide-hero {
     padding: 40px 16px 48px;
@@ -872,7 +872,7 @@ body {
   .guide-hero-cta, .guide-hero-cta-ghost { justify-content: center; }
 }
 
-
+/* 모션 축소 */
 @media (prefers-reduced-motion: reduce) {
   .guide-meta-card, .guide-hero-cta, .guide-hero-cta-ghost,
   .nav-btn, .guide-hero-cta .arrow-wrap, .content blockquote {
@@ -890,7 +890,7 @@ body {
   </defs>
 </svg>
 
-
+<!-- TOP BAR -->
 <header class="topbar">
   <button class="hamburger" id="hamburger-btn" aria-label="Toggle sidebar">&#9776;</button>
   <h1 class="logo">PureCVisor <span>Single Edge Guide</span></h1>
@@ -900,13 +900,13 @@ body {
   <a class="back-link" href="/ui/">&larr; Back to Dashboard</a>
 </header>
 
-
+<!-- SIDEBAR -->
 <nav class="sidebar" id="sidebar" aria-label="Table of Contents" tabindex="0"></nav>
 
-
+<!-- SEARCH RESULTS -->
 <div class="search-results" id="search-results" role="listbox" aria-label="Search results"></div>
 
-
+<!-- CONTENT -->
 <main class="content" id="content">
   <div class="loading">
     <div class="spinner"></div>
@@ -914,16 +914,16 @@ body {
   </div>
 </main>
 
-
+<!-- BACK TO TOP -->
 <button class="back-to-top" id="btt" aria-label="Back to top">&#8593;</button>
 
 <script>
 (function() {
   'use strict';
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Lightweight Markdown Parser (no dependencies)
+     ══════════════════════════════════════════════ */
   function parseMd(md) {
     var lines = md.split('\n');
     var html = [];
@@ -976,6 +976,7 @@ body {
     for (var i = 0; i < lines.length; i++) {
       var L = lines[i];
 
+      /* Code blocks */
       if (/^```/.test(L)) {
         if (inCode) {
           var codeText = codeLines.join('\n').replace(/&/g,'&amp;').replace(/</g,'&lt;').replace(/>/g,'&gt;');
@@ -989,6 +990,7 @@ body {
       }
       if (inCode) { codeLines.push(L); continue; }
 
+      /* Table */
       if (/^\|/.test(L)) {
         flushList(); flushBlockquote();
         var cells = L.split('|').slice(1);
@@ -998,6 +1000,7 @@ body {
         continue;
       } else if (inTable) { flushTable(); }
 
+      /* Headings */
       var hm = L.match(/^(#{1,4})\s+(.*)/);
       if (hm) {
         flushList(); flushBlockquote();
@@ -1012,7 +1015,7 @@ body {
         continue;
       }
 
-
+      /* Blockquote */
       if (/^>\s?/.test(L)) {
         flushList();
         inBlockquote = true;
@@ -1020,10 +1023,10 @@ body {
         continue;
       } else if (inBlockquote) { flushBlockquote(); }
 
-
+      /* Horizontal rule */
       if (/^---+$/.test(L)) { flushList(); flushBlockquote(); html.push('<hr>'); continue; }
 
-
+      /* Unordered list */
       var ulm = L.match(/^(\s*)[-*]\s+(.*)/);
       if (ulm) {
         flushBlockquote();
@@ -1031,7 +1034,7 @@ body {
         listItems.push('<li>' + inline(ulm[2]) + '</li>');
         continue;
       }
-
+      /* Ordered list */
       var olm = L.match(/^(\s*)\d+\.\s+(.*)/);
       if (olm) {
         flushBlockquote();
@@ -1040,10 +1043,10 @@ body {
         continue;
       }
 
-
+      /* Empty line */
       if (L.trim() === '') { flushList(); flushBlockquote(); continue; }
 
-
+      /* Paragraph */
       flushList(); flushBlockquote();
       html.push('<p>' + inline(L) + '</p>');
     }
@@ -1051,17 +1054,17 @@ body {
     return html.join('\n');
   }
 
-
-
-
+  /* ══════════════════════════════════════════════
+     App State
+     ══════════════════════════════════════════════ */
   var chapters = [];
   var currentChapter = 0;
   var guideMd = '';
   var searchTimeout = null;
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Build TOC from ## and ### headings
+     ══════════════════════════════════════════════ */
   function buildToc(md) {
     var lines = md.split('\n');
     chapters = [];
@@ -1113,7 +1116,7 @@ body {
     }
     sb.innerHTML = h;
 
-
+    /* Attach click handlers */
     var tocItems = sb.querySelectorAll('.toc-chapter');
     for (var ti = 0; ti < tocItems.length; ti++) {
       (function(el) {
@@ -1136,14 +1139,14 @@ body {
     }
     renderToc();
     try { localStorage.setItem('pcv_guide_chapter', idx); } catch(e) {}
-
+    /* Close mobile sidebar */
     document.getElementById('sidebar').classList.remove('open');
     updateNavFooter();
   }
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Navigation Footer (Prev/Next)
+     ══════════════════════════════════════════════ */
   function updateNavFooter() {
     var footer = document.getElementById('nav-footer');
     if (!footer) return;
@@ -1173,9 +1176,9 @@ body {
     }
   }
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Search
+     ══════════════════════════════════════════════ */
   var searchInput = document.getElementById('search-input');
   var searchResults = document.getElementById('search-results');
 
@@ -1208,7 +1211,7 @@ body {
       searchResults.innerHTML = '<div class="sr-item" style="color:var(--fg-dim)">No results found</div>';
     } else {
       var h = '';
-
+      /* Deduplicate by chapter, show max 20 */
       var shown = 0;
       for (var ri = 0; ri < results.length && shown < 20; ri++) {
         var r = results[ri];
@@ -1221,7 +1224,7 @@ body {
       }
       searchResults.innerHTML = h;
 
-
+      /* Attach click handlers */
       var items = searchResults.querySelectorAll('.sr-item[data-ch]');
       for (var ii = 0; ii < items.length; ii++) {
         (function(item) {
@@ -1248,9 +1251,9 @@ body {
     }
   });
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Keyboard Navigation
+     ══════════════════════════════════════════════ */
   document.addEventListener('keydown', function(e) {
     if (e.ctrlKey && e.key === 'k') {
       e.preventDefault();
@@ -1263,9 +1266,9 @@ body {
     if (e.key === 'ArrowRight') goChapter(currentChapter + 1);
   });
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Scroll: back-to-top + active chapter tracking
+     ══════════════════════════════════════════════ */
   var btt = document.getElementById('btt');
   btt.addEventListener('click', function() {
     window.scrollTo({ top: 0, behavior: 'smooth' });
@@ -1277,7 +1280,7 @@ body {
 
     clearTimeout(scrollDebounce);
     scrollDebounce = setTimeout(function() {
-
+      /* Update active chapter based on scroll position */
       for (var i = chapters.length - 1; i >= 0; i--) {
         var el = document.getElementById(chapters[i].id);
         if (el && el.getBoundingClientRect().top <= 100) {
@@ -1293,21 +1296,21 @@ body {
     }, 50);
   });
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Hamburger (mobile)
+     ══════════════════════════════════════════════ */
   document.getElementById('hamburger-btn').addEventListener('click', function() {
     document.getElementById('sidebar').classList.toggle('open');
   });
 
-
+  /* Close sidebar on content click (mobile) */
   document.getElementById('content').addEventListener('click', function() {
     document.getElementById('sidebar').classList.remove('open');
   });
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Copy Code Button
+     ══════════════════════════════════════════════ */
   function addCopyButtons() {
     var pres = document.querySelectorAll('.content pre');
     for (var pi = 0; pi < pres.length; pi++) {
@@ -1324,7 +1327,7 @@ body {
               setTimeout(function() { btn.textContent = 'Copy'; }, 1500);
             });
           } else {
-
+            /* Fallback */
             var ta = document.createElement('textarea');
             ta.value = text;
             ta.style.position = 'fixed';
@@ -1342,9 +1345,9 @@ body {
     }
   }
 
-
-
-
+  /* ══════════════════════════════════════════════
+     ADR references: inline summary drawer
+     ══════════════════════════════════════════════ */
   function initDecisionPanel(contentEl) {
     var decisionBtn = document.getElementById('decision-map-btn');
     if (decisionBtn) {
@@ -1488,9 +1491,9 @@ body {
     document.body.style.overflow = '';
   }
 
-
-
-
+  /* ══════════════════════════════════════════════
+     Utils
+     ══════════════════════════════════════════════ */
   function esc(s) {
     if (!s) return '';
     var d = document.createElement('div');
@@ -1535,10 +1538,10 @@ body {
     return md;
   }
 
-
-
-
-
+  /* ══════════════════════════════════════════════
+     Load GUIDE.md
+     ══════════════════════════════════════════════ */
+  /* Single Edge repository: guide content is already edition-specific. */
   var pcvEdition = 'single';
   function loadEdition() {
     pcvEdition = 'single';
@@ -1643,7 +1646,7 @@ body {
 
   var DECISION_CARDS = ['ADR-0023', 'ADR-0022', 'ADR-0019', 'ADR-0018', 'ADR-0014', 'ADR-0013'];
 
-
+  /* Phase 2: Supanova Taste Hero */
   function guideHero(chapterCount) {
     var count = chapterCount || 21;
     var editionLabel = editionLabelOnly();
@@ -1784,9 +1787,9 @@ body {
         document.title = 'PureCVisor Single Edge Guide';
       }
 
-
+      /* Add hero + breadcrumb + nav footer */
       var contentEl = document.getElementById('content');
-
+      /* Count numbered chapters from md for hero meta */
       var chapterCount = (md.match(/^## \d+\./gm) || []).length;
       contentEl.innerHTML =
         guideHero(chapterCount) +
@@ -1803,12 +1806,12 @@ body {
       enhanceAdrReferences(contentEl);
       initDecisionPanel(contentEl);
 
-
+      /* Hero CTA: 첫 numbered 챕터로 스크롤 */
       var heroStart = contentEl.querySelector('[data-hero-start]');
       if (heroStart) {
         heroStart.addEventListener('click', function(ev) {
           ev.preventDefault();
-
+          /* 첫 번째 "N. 제목" 챕터(= 목차 다음) 찾기. chapters[0]은 "목차"일 수 있음 */
           var firstNumbered = 0;
           for (var ci = 0; ci < chapters.length; ci++) {
             if (/^\d+\./.test(chapters[ci].title)) { firstNumbered = ci; break; }
@@ -1817,13 +1820,13 @@ body {
         });
       }
 
-
+      /* Build TOC */
       buildToc(md);
 
-
+      /* Add copy buttons */
       addCopyButtons();
 
-
+      /* Attach nav footer click handlers */
       var footer = document.getElementById('nav-footer');
       footer.querySelector('.nav-prev').addEventListener('click', function() {
         goChapter(currentChapter - 1);
@@ -1832,7 +1835,7 @@ body {
         goChapter(currentChapter + 1);
       });
 
-
+      /* Restore last chapter */
       var saved = 0;
       try { saved = parseInt(localStorage.getItem('pcv_guide_chapter') || '0'); } catch(e) {}
       if (saved > 0 && saved < chapters.length) {
@@ -1840,7 +1843,7 @@ body {
       }
       updateNavFooter();
 
-
+      /* Handle anchor links in URL */
       if (window.location.hash) {
         setTimeout(function() {
           var target = document.getElementById(window.location.hash.substring(1));
@@ -1857,7 +1860,7 @@ body {
         '<a href="/ui/" style="display:inline-block;margin-top:24px;color:var(--accent)">&larr; Back to Dashboard</a>' +
         '</div>';
     });
-  });
+  }); /* loadEdition().then */
 
 })();
 </script>

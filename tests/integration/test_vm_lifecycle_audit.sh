@@ -1,20 +1,20 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+# ═══════════════════════════════════════════════════════════════
+# PureCVisor VM 라이프사이클 감사 회귀 테스트 (C2/C3/C5)
+#
+# 커밋 94e394a(18건 수정) + 후속 A1/A3에서 수정된 라이프사이클 결함에
+# 대한 회귀 테스트. C1(vm.delete 롤백)은 ZFS destroy 실패 주입이 복잡해
+# 별도 단위 테스트로 다룬다. C4(_lock_expiry_for_op)는 test_vm_state.c에
+# 단위 테스트로 구현.
+#
+# [커버 범위]
+#   W2/C2: vm.delete idempotent success (존재하지 않는 VM 삭제 → accepted)
+#   W3/C3: vm.start on already-running (running VM에 재시작 → 성공)
+#   W5/C5: vm.create 수치 파라미터 범위 검증 (vcpu/mem/disk)
+#
+# [사용법]
+#   bash tests/integration/test_vm_lifecycle_audit.sh [HOST]
+# ═══════════════════════════════════════════════════════════════
 set -uo pipefail
 
 HOST="${1:-localhost}"
@@ -42,9 +42,9 @@ echo " VM Lifecycle Audit Regression Test"
 echo " Host: ${HOST}"
 echo "════════════════════════════════════════════════"
 
-
-
-
+# ─────────────────────────────────────────────────────
+# W5/C5: vm.create 수치 파라미터 범위 검증
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[C5] vm.create 수치 파라미터 범위 검증"
 echo "─────────────────────────────────────────"
@@ -90,14 +90,14 @@ assert_invalid_param "vlan_id=5000 거부" \
     '{"name":"audit-t6","vcpu":1,"memory_mb":512,"vlan_id":5000}' \
     "vlan"
 
-
-
-
+# ─────────────────────────────────────────────────────
+# W2/C2: vm.delete idempotent 성공 (존재하지 않는 VM)
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[C2] vm.delete 멱등성 (존재하지 않는 VM)"
 echo "─────────────────────────────────────────"
 
-
+# 다소 무작위성 있는 이름으로 충돌 회피
 MISSING_VM="audit-missing-$$-$(date +%s)"
 RESP=$(curl -s --max-time 10 -X DELETE -H "$AUTH" \
     "${BASE}/vms/${MISSING_VM}")
@@ -108,7 +108,7 @@ else
     fail "존재하지 않는 VM 삭제" "$RESP"
 fi
 
-
+# 2회 연속 호출 — 동일 결과
 RESP2=$(curl -s --max-time 10 -X DELETE -H "$AUTH" \
     "${BASE}/vms/${MISSING_VM}")
 if echo "$RESP2" | grep -q '"accepted"'; then
@@ -117,14 +117,14 @@ else
     fail "연속 2회 호출" "$RESP2"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# W3/C3: vm.start on already-running
+# ─────────────────────────────────────────────────────
 echo ""
 echo "[C3] vm.start on already-running (best-effort)"
 echo "─────────────────────────────────────────"
 
-
+# 기존 running VM 존재 시 테스트, 없으면 skip
 RUNNING_VM=$(curl -s --max-time 5 -H "$AUTH" "${BASE}/vms" | \
     python3 -c "
 import sys, json
@@ -149,9 +149,9 @@ else
     echo -e "  ${YELLOW}[SKIP]${NC} running VM 없음 — 수동 검증 필요"
 fi
 
-
-
-
+# ─────────────────────────────────────────────────────
+# 요약
+# ─────────────────────────────────────────────────────
 echo ""
 echo "════════════════════════════════════════════════"
 if [ $FAIL -eq 0 ]; then

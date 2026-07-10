@@ -6,10 +6,10 @@
 
 G_BEGIN_DECLS
 
-
-
-
-
+/*
+ * Keep enum order stable for C defaults, but serialize only the string names
+ * from security_event.c. RPC/DB/UI callers must not depend on numeric values.
+ */
 typedef enum {
     PCV_SECURITY_SOURCE_FILE_INTEGRITY,
     PCV_SECURITY_SOURCE_RUNTIME,
@@ -50,7 +50,7 @@ typedef enum {
 } PcvSecurityStatus;
 
 typedef struct {
-
+    /* Fixed-size fields keep RPC handler ownership simple and avoid partial frees. */
     gchar event_id[64];
     gint64 timestamp;
     PcvSecuritySource source;
@@ -75,6 +75,13 @@ gboolean pcv_security_severity_from_string(const gchar *s, PcvSecuritySeverity *
 gboolean pcv_security_status_from_string(const gchar *s, PcvSecurityStatus *out);
 JsonObject *pcv_security_event_to_json(const PcvSecurityEvent *ev);
 gboolean pcv_security_event_from_json(JsonObject *obj, PcvSecurityEvent *out);
+
+/**
+ * pcv_security_event_set_evidence — evidence_json 고정 버퍼 안전 기록 (M-10/B-2)
+ * 초과 시 값 중간 절단(invalid JSON) 대신 유효 fallback JSON 을 저장한다.
+ * 프로듀서(SG)와 역직렬화 site 가 공유하는 단일 가드.
+ */
+void pcv_security_event_set_evidence(gchar *dst, gsize dstsz, const gchar *ejstr);
 void pcv_security_event_make_id(PcvSecurityEvent *ev, const gchar *prefix);
 gchar *pcv_security_event_coalesce_key(const PcvSecurityEvent *ev);
 

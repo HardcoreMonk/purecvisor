@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_backup_ext_safe.sh
+#
+# SAFE-tier Integration Tests — Backup Extended
+# Tests: backup.policy.list, backup.history (nonexistent VM),
+#        snapshot.schedule.status, backup.restore (nonexistent VM/snapshot — expect error)
+#
+# 사전 조건:
+#   - purecvisorsd 또는 purecvisormd 실행 중
+#   - /var/run/purecvisor/daemon.sock 존재
+#   - nc (netcat) 설치
+#
+# 실행: sudo bash tests/integration/test_backup_ext_safe.sh
 
 set -uo pipefail
 
@@ -71,7 +71,7 @@ assert_result_or_known_error() {
     fi
 }
 
-
+# ── 사전 조건 ────────────────────────────────────────────
 log "=========================================="
 log " Backup Extended Integration Tests (SAFE)"
 log "=========================================="
@@ -92,9 +92,9 @@ fi
 log "Daemon socket verified: $SOCKET_PATH"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [1] backup.policy.list
+# ══════════════════════════════════════════════════════
 log "--- [1/4] backup.policy.list ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.policy.list","params":{},"id":"bpl1"}')
@@ -105,9 +105,9 @@ assert_result_or_known_error "backup.policy.list: filter by nonexistent VM" "$RE
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [2] backup.history — nonexistent VM
+# ══════════════════════════════════════════════════════
 log "--- [2/4] backup.history (nonexistent VM) ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.history","params":{"vm_name":"nonexistent"},"id":"bh1"}')
@@ -121,9 +121,9 @@ assert_result_or_known_error "backup.history: nonexistent VM with limit param" "
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [3] snapshot.schedule.status
+# ══════════════════════════════════════════════════════
 log "--- [3/4] snapshot.schedule.status ---"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"snapshot.schedule.status","params":{},"id":"sss1"}')
@@ -134,36 +134,36 @@ assert_result_or_known_error "snapshot.schedule.status: nonexistent VM returns v
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# [4] backup.restore — nonexistent VM/snapshot (expect error)
+# ══════════════════════════════════════════════════════
 log "--- [4/4] backup.restore (nonexistent VM/snapshot) ---"
 
-
+# nonexistent VM — must return an error (not crash)
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.restore","params":{"vm_name":"nonexistent","snapshot_name":"none"},"id":"br1"}')
 assert_result_or_known_error "backup.restore: nonexistent VM returns error (not crash)" "$RESP"
 
-
+# missing vm_name
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.restore","params":{"snapshot_name":"none"},"id":"br2"}')
 assert_valid_jsonrpc "backup.restore: missing vm_name returns valid JSON-RPC" "$RESP"
 
-
+# missing snapshot_name
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.restore","params":{"vm_name":"nonexistent"},"id":"br3"}')
 assert_valid_jsonrpc "backup.restore: missing snapshot_name returns valid JSON-RPC" "$RESP"
 
-
+# empty params
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.restore","params":{},"id":"br4"}')
 assert_valid_jsonrpc "backup.restore: empty params returns valid JSON-RPC" "$RESP"
 
-
+# SQL injection in vm_name
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"backup.restore","params":{"vm_name":"x; DROP TABLE vms;--","snapshot_name":"snap"},"id":"br5"}')
 assert_contains "backup.restore: SQL injection in vm_name rejected" "$RESP" '"error"'
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════
+# 결과 요약
+# ══════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

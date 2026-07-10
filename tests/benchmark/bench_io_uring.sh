@@ -1,16 +1,16 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
-
-
+# =============================================================================
+# Phase U-5: io_uring 성능 벤치마크
+# =============================================================================
+# 실행: sudo bash tests/benchmark/bench_io_uring.sh
+#
+# 측정 항목:
+#   1. UDS RPC 처리량 (requests/sec)
+#   2. UDS RPC 레이턴시 (p50/p95/p99)
+#   3. REST API 레이턴시 (p50/p95/p99)
+#   4. etcd cluster.status 응답 시간
+#   5. 메모리 사용량 (RSS)
+# =============================================================================
 set -uo pipefail
 
 SOCK="/var/run/purecvisor/daemon.sock"
@@ -49,7 +49,7 @@ echo " Iterations: $ITERATIONS (warmup: $WARM)"
 echo "============================================================"
 echo ""
 
-
+# ── 헬퍼: UDS RPC 1회 실행 + 시간 측정 (ms) ──────────────
 uds_rpc_ms() {
     local method="$1"
     local start end
@@ -60,7 +60,7 @@ uds_rpc_ms() {
     echo $(( (end - start) / 1000000 ))
 }
 
-
+# ── 헬퍼: REST GET 1회 실행 + 시간 측정 (ms) ──────────────
 rest_get_ms() {
     local path="$1" token="$2"
     local start end
@@ -70,13 +70,13 @@ rest_get_ms() {
     echo $(( (end - start) / 1000000 ))
 }
 
-
+# ── 헬퍼: 배열 통계 (p50/p95/p99/avg) ────────────────────
 calc_stats() {
     local -n arr=$1
-    local n=${
+    local n=${#arr[@]}
     if [ "$n" -eq 0 ]; then echo "0 0 0 0"; return; fi
 
-
+    # 정렬
     IFS=$'\n' sorted=($(sort -n <<<"${arr[*]}")); unset IFS
 
     local sum=0
@@ -92,7 +92,7 @@ calc_stats() {
     echo "$p50 $p95 $p99 $avg"
 }
 
-
+# ── 0. 메모리 사용량 (before) ──────────────────────────────
 echo -e "${YELLOW}[0/5] Memory Baseline${NC}"
 DAEMON_SERVICE=$(detect_daemon_service)
 PID=$(systemctl show -p MainPID "$DAEMON_SERVICE" --value)
@@ -100,10 +100,10 @@ RSS_BEFORE=$(ps -o rss= -p "$PID" 2>/dev/null | tr -d ' ')
 echo "  ${DAEMON_SERVICE} PID=$PID  RSS=${RSS_BEFORE}KB ($((RSS_BEFORE / 1024))MB)"
 echo ""
 
-
+# ── 1. UDS RPC 처리량 ─────────────────────────────────────
 echo -e "${YELLOW}[1/5] UDS RPC Throughput (vm.list x $ITERATIONS)${NC}"
 
-
+# 워밍업
 for i in $(seq 1 $WARM); do uds_rpc_ms "vm.list" > /dev/null; done
 
 times_uds=()
@@ -122,7 +122,7 @@ echo -e "  Throughput : ${GREEN}${rps} RPS${NC}"
 echo -e "  Latency    : p50=${CYAN}${p50}ms${NC}  p95=${CYAN}${p95}ms${NC}  p99=${CYAN}${p99}ms${NC}  avg=${avg}ms"
 echo ""
 
-
+# ── 2. UDS RPC 다양한 메서드 ───────────────────────────────
 echo -e "${YELLOW}[2/5] UDS RPC Latency (mixed methods x 50 each)${NC}"
 
 for method in "vm.list" "dpdk.status" "sriov.status" "network.list" "cluster.status"; do
@@ -136,10 +136,10 @@ for method in "vm.list" "dpdk.status" "sriov.status" "network.list" "cluster.sta
 done
 echo ""
 
-
+# ── 3. REST API 레이턴시 ──────────────────────────────────
 echo -e "${YELLOW}[3/5] REST API Latency${NC}"
 
-
+# JWT 토큰 발급
 TOKEN=$(curl -s -X POST "$REST/auth/token" \
     -d "{\"username\":\"${PCV_TEST_ADMIN_USER:-${PURECVISOR_ADMIN_USER:-admin}}\",\"password\":\"${PCV_TEST_ADMIN_PASSWORD:-${PURECVISOR_ADMIN_PASSWORD:?set PURECVISOR_ADMIN_PASSWORD}}\"}" 2>/dev/null \
     | python3 -c "import sys,json;print(json.load(sys.stdin).get('access_token',''))" 2>/dev/null)
@@ -147,7 +147,7 @@ TOKEN=$(curl -s -X POST "$REST/auth/token" \
 if [ -z "$TOKEN" ]; then
     echo -e "  ${RED}SKIP${NC} — JWT 토큰 발급 실패"
 else
-
+    # /health (인증 불필요)
     times_health=()
     for i in $(seq 1 50); do
         start=$(date +%s%N)
@@ -158,7 +158,7 @@ else
     read p50 p95 p99 avg <<< "$(calc_stats times_health)"
     printf "  %-20s p50=%3dms  p95=%3dms  avg=%3dms\n" "GET /health" "$p50" "$p95" "$avg"
 
-
+    # /vms (JWT)
     times_vms=()
     for i in $(seq 1 50); do
         ms=$(rest_get_ms "/vms" "$TOKEN")
@@ -167,7 +167,7 @@ else
     read p50 p95 p99 avg <<< "$(calc_stats times_vms)"
     printf "  %-20s p50=%3dms  p95=%3dms  avg=%3dms\n" "GET /vms" "$p50" "$p95" "$avg"
 
-
+    # /dpdk/status (JWT)
     times_dpdk=()
     for i in $(seq 1 50); do
         ms=$(rest_get_ms "/dpdk/status" "$TOKEN")
@@ -178,7 +178,7 @@ else
 fi
 echo ""
 
-
+# ── 4. etcd 응답 시간 ──────────────────────────────────────
 echo -e "${YELLOW}[4/5] etcd cluster.status Response Time${NC}"
 
 times_etcd=()
@@ -190,7 +190,7 @@ read p50 p95 p99 avg <<< "$(calc_stats times_etcd)"
 echo -e "  cluster.status (30x): p50=${CYAN}${p50}ms${NC}  p95=${CYAN}${p95}ms${NC}  p99=${CYAN}${p99}ms${NC}  avg=${avg}ms"
 echo ""
 
-
+# ── 5. 메모리 사용량 (after) ───────────────────────────────
 echo -e "${YELLOW}[5/5] Memory After Benchmark${NC}"
 RSS_AFTER=$(ps -o rss= -p "$PID" 2>/dev/null | tr -d ' ')
 RSS_DELTA=$((RSS_AFTER - RSS_BEFORE))
@@ -199,7 +199,7 @@ echo "  RSS after : ${RSS_AFTER}KB ($((RSS_AFTER / 1024))MB)"
 echo "  Delta     : ${RSS_DELTA}KB ($((RSS_DELTA / 1024))MB)"
 echo ""
 
-
+# ── 결과 요약 ──────────────────────────────────────────────
 echo "============================================================"
 echo " SUMMARY"
 echo "============================================================"

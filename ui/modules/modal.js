@@ -1,31 +1,31 @@
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/modal.js (F-2)
+   Unified Modal component. Replaces ad-hoc inline modals.
 
+   Usage:
+     Modal.show({
+       title: '제목',
+       body: '<p>HTML 또는 DOM 노드</p>',
+       width: 360,
+       actions: [
+         { label: '취소', secondary: true },
+         { label: '저장', primary: true, onClick: function(){...} }
+       ],
+       onClose: function(){...}
+     });
+     Modal.close();
 
+   Built-in helpers:
+     Modal.showRegister()
+     Modal.showChangePassword()
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   Features:
+     - Single overlay element reused (no DOM bloat)
+     - ESC key + backdrop click to close
+     - Focus trap (Tab cycles within modal)
+     - i18n hooks via t()
+     - Theme-aware (uses CSS variables)
+   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
@@ -119,17 +119,17 @@ window.PCV = window.PCV || {};
           actionsHtml +
         '</div>';
 
-
+      /* If body was a DOM node, replace placeholder */
       if (opts.body && typeof opts.body !== 'string' && opts.body.nodeType) {
         var bodyEl = overlay.querySelector('#pcv-modal-body');
         bodyEl.innerHTML = '';
         bodyEl.appendChild(opts.body);
       }
 
-
+      /* Wire close button */
       overlay.querySelector('#pcv-modal-close-x').addEventListener('click', Modal.close);
 
-
+      /* Wire action buttons */
       if (opts.actions) {
         var btns = overlay.querySelectorAll('[data-pcv-action]');
         btns.forEach(function(btn) {
@@ -147,7 +147,7 @@ window.PCV = window.PCV || {};
       }
 
       overlay.style.display = 'flex';
-
+      /* Focus first focusable */
       setTimeout(function() {
         var first = overlay.querySelector('input,select,textarea,button[data-pcv-action]');
         if (first) first.focus();
@@ -175,7 +175,7 @@ window.PCV = window.PCV || {};
       else el.style.color = '';
     },
 
-
+    /* ── Built-in: 회원가입 ─────────────────────────── */
     showRegister: function() {
       var body =
         '<div style="margin-bottom:12px"><input id="pcv-reg-user" class="login-input" ' +
@@ -228,13 +228,13 @@ window.PCV = window.PCV || {};
                 }
               })
               .catch(function(e) { Modal.setMessage((_t('msg.network_err', '네트워크 오류') + ': ' + e.message), 'error'); });
-            return false;
+            return false; /* keep modal open */
           }}
         ]
       });
     },
 
-
+    /* ── Built-in: 비밀번호 변경 ─────────────────────── */
     showChangePassword: function() {
       var body =
         '<div style="margin-bottom:12px"><input id="pcv-cp-old" type="password" class="login-input" ' +
@@ -288,10 +288,10 @@ window.PCV = window.PCV || {};
     }
   };
 
-
+  /* ── PCV.modal namespace export ─────────────────── */
   PCV.modal = Modal;
 
-
+  /* ── Backward-compat global shims ─────────────── */
   window.Modal = Modal;
   window.showRegisterModal = function() { Modal.showRegister(); };
   window.showChangePwModal = function() { Modal.showChangePassword(); };

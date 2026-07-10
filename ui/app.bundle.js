@@ -1,65 +1,275 @@
+/**
+ * @module endpoints
+ * @description REST API 엔드포인트 중앙 레지스트리
+ *
+ * [목적]
+ *   80+ 엔드포인트 경로를 한 곳에서 관리하여:
+ *   1. 백엔드 경로 변경 시 수정 지점 단일화
+ *   2. 프론트엔드↔백엔드 정합성 자동 검증 가능
+ *   3. 오타/불일치 방지
+ *
+ * [사용법]
+ *   var url = EP.VM_STOP('web-prod');  // → '/api/v1/vms/web-prod/stop'
+ */
 
+window.PCV = window.PCV || {};
+(function(PCV) {
 
+var EP = (function() {
+  var B = function() { return window.API_BASE || '/api/v1'; };
+  var enc = encodeURIComponent;
 
+  var COMMON_ENDPOINTS = {
+    /* ═══ VM ═══ */
+    VM_LIST:              function()     { return B() + '/vms'; },
+    VM_CREATE:            function()     { return B() + '/vms'; },
+    VM_DETAIL:            function(n)    { return B() + '/vms/' + enc(n); },
+    VM_STOP:              function(n)    { return B() + '/vms/' + enc(n) + '/stop'; },
+    VM_ACTION:            function(n,a)  { return B() + '/vms/' + enc(n) + '/' + enc(a); },
+    VM_SNAPSHOT_LIST:     function(n)    { return B() + '/vms/' + enc(n) + '/snapshot'; },
+    VM_SNAPSHOT_CREATE:   function(n)    { return B() + '/vms/' + enc(n) + '/snapshot/create'; },
+    VM_SNAPSHOT_ROLLBACK: function(n)    { return B() + '/vms/' + enc(n) + '/snapshot/rollback'; },
+    VM_SNAPSHOT_DELETE:   function(n,s)  { return B() + '/vms/' + enc(n) + '/snapshot/' + enc(s); },
+    VM_SNAPSHOT_DELETE_ALL:function(n)   { return B() + '/vms/' + enc(n) + '/snapshot/delete_all'; },
+    VM_NICS:              function(n)    { return B() + '/vms/' + enc(n) + '/nics'; },
+    VM_NIC_DETACH:        function(n,m)  { return B() + '/vms/' + enc(n) + '/nics/' + enc(m); },
+    VM_VCPU:              function(n)    { return B() + '/vms/' + enc(n) + '/vcpu'; },
+    VM_MEMORY:            function(n)    { return B() + '/vms/' + enc(n) + '/memory_mb'; },
+    VM_ISO:               function(n)    { return B() + '/vms/' + enc(n) + '/iso'; },
+    VM_CLONE:             function(n)    { return B() + '/vms/' + enc(n) + '/clone'; },
+    VM_DISK:              function(n)    { return B() + '/vms/' + enc(n) + '/disk'; },
+    VM_DELETE_STATUS:     function(n)    { return B() + '/vms/' + enc(n) + '/delete-status'; },
+    VM_RENAME:            function(n)    { return B() + '/vms/' + enc(n) + '/rename'; },
+    VM_EXPORT:            function(n)    { return B() + '/vms/' + enc(n) + '/export'; },
+    VM_CPU_PIN:           function(n)    { return B() + '/vms/' + enc(n) + '/cpu-pin'; },
+    VM_BANDWIDTH:         function(n)    { return B() + '/vms/' + enc(n) + '/bandwidth'; },
+    VM_RPC:               function(n)    { return B() + '/vms/' + enc(n) + '/rpc'; },
+    VM_DISK_RESIZE:       function(n)    { return B() + '/vms/' + enc(n) + '/disk-resize'; },
+    VM_GUEST_PING:        function(n)    { return B() + '/vms/' + enc(n) + '/guest-ping'; },
+    VM_GUEST_AGENT:       function(n)    { return B() + '/vms/' + enc(n) + '/guest-agent'; },
+    VM_GUEST_AGENT_CHANNEL:function(n)   { return B() + '/vms/' + enc(n) + '/guest-agent-channel'; },
+    VM_GUEST_SHUTDOWN:    function(n)    { return B() + '/vms/' + enc(n) + '/guest-shutdown'; },
+    VM_GUEST_EXEC:        function(n)    { return B() + '/vms/' + enc(n) + '/guest-exec'; },
+    VM_DISK_USAGE:        function(n)    { return B() + '/vms/' + enc(n) + '/disk-usage'; },
+    VNC:                  function(n)    { return B() + '/vnc/' + enc(n); },
 
+    /* ═══ CONTAINER ═══ */
+    CTR_LIST:             function()     { return B() + '/containers'; },
+    CTR_CREATE:           function()     { return B() + '/containers'; },
+    CTR_DETAIL:           function(n)    { return B() + '/containers/' + enc(n); },
+    CTR_METRICS:          function(n)    { return B() + '/containers/' + enc(n) + '/metrics'; },
+    CTR_EXEC:             function(n)    { return B() + '/containers/' + enc(n) + '/exec'; },
+    CTR_NICS:             function(n)    { return B() + '/containers/' + enc(n) + '/nics'; },
+    CTR_SNAPSHOTS:        function(n)    { return B() + '/containers/' + enc(n) + '/snapshots'; },
+    CTR_SNAP_DELETE:      function(n,s)  { return B() + '/containers/' + enc(n) + '/snapshots/' + enc(s); },
+    CTR_SNAP_ROLLBACK:    function(n)    { return B() + '/containers/' + enc(n) + '/snapshots/rollback'; },
+    CTR_STOP:             function(n)    { return B() + '/containers/' + enc(n) + '/stop'; },
+    CTR_START:            function(n)    { return B() + '/containers/' + enc(n) + '/start'; },
+    CTR_LIMITS:           function(n)    { return B() + '/containers/' + enc(n) + '/limits'; },
+    CTR_BANDWIDTH:        function(n)    { return B() + '/containers/' + enc(n) + '/bandwidth'; },
 
+    /* ═══ STORAGE ═══ */
+    STORAGE_POOLS:        function()     { return B() + '/storage/pools'; },
+    STORAGE_SCRUB:        function()     { return B() + '/storage/pools/scrub'; },
+    STORAGE_ZVOLS:        function()     { return B() + '/storage/zvols'; },
+    ISCSI_TARGETS:        function()     { return B() + '/iscsi/targets'; },
 
+    /* ═══ NETWORK ═══ */
+    NET_LIST:             function()     { return B() + '/networks'; },
+    NET_DETAIL:           function(n)    { return B() + '/networks/' + enc(n); },
+    NET_MODE:             function(n)    { return B() + '/networks/' + enc(n) + '/mode'; },
+    OVN_STATUS:           function()     { return B() + '/ovn/status'; },
+    OVN_SWITCHES:         function()     { return B() + '/ovn/switches'; },
+    OVN_ROUTERS:          function()     { return B() + '/ovn/routers'; },
+    OVN_ACL:              function()     { return B() + '/ovn/acl'; },
+    DEMO_OVN_HEALTH:      function()     { return B() + '/demo/ovn-ovs/health'; },
+    OVERLAY_LIST:         function()     { return B() + '/overlay'; },
 
+    /* ═══ CLOUD ═══ */
+    CLOUD_JOBS:           function()     { return B() + '/cloud/jobs'; },
+    CLOUD_CANCEL:         function()     { return B() + '/cloud/cancel'; },
+    CLOUD_IMPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/import-ec2'; },
+    CLOUD_EXPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/export-ec2'; },
 
+    /* ═══ AUTH ═══ */
+    AUTH_TOKEN:           function()     { return B() + '/auth/token'; },
+    AUTH_REGISTER:        function()     { return B() + '/auth/register'; },
+    AUTH_PASSWORD:        function()     { return B() + '/auth/password'; },
+    AUTH_REFRESH:         function()     { return B() + '/auth/refresh'; },
+    AUTH_USERS:           function()     { return B() + '/auth/users'; },
+    AUTH_USER:            function(u)    { return B() + '/auth/users/' + enc(u); },
+    AUTH_ROLE:            function()     { return B() + '/auth/role'; },
 
+    /* ═══ MONITOR ═══ */
+    HEALTH:               function()     { return B() + '/health'; },
+    ALERTS:               function()     { return B() + '/alerts'; },
+    ALERTS_CONFIG:        function()     { return B() + '/alerts/config'; },
+    METRICS:              function()     { return B() + '/metrics'; },
+    MONITOR_FLEET:        function()     { return B() + '/monitor/fleet'; },
+    DPDK_STATUS:          function()     { return B() + '/dpdk/status'; },
+    DPDK_LIST:            function()     { return B() + '/dpdk/list'; },
+    DPDK_HUGEPAGE:        function()     { return B() + '/dpdk/hugepage'; },
+    DPDK_BIND:            function()     { return B() + '/dpdk/bind'; },
+    DPDK_UNBIND:          function()     { return B() + '/dpdk/unbind'; },
+    SRIOV_STATUS:         function()     { return B() + '/sriov/status'; },
+    SRIOV_LIST:           function()     { return B() + '/sriov/list'; },
+    SRIOV_ENABLE:         function()     { return B() + '/sriov/enable'; },
+    SRIOV_DISABLE:        function()     { return B() + '/sriov/disable'; },
+    SRIOV_ATTACH:         function()     { return B() + '/sriov/attach'; },
+    SRIOV_DETACH:         function()     { return B() + '/sriov/detach'; },
 
+    /* ═══ ADVANCED ═══ */
+    TEMPLATES:            function()     { return B() + '/templates'; },
+    TEMPLATE:             function(n)    { return B() + '/templates/' + enc(n); },
+    TEMPLATE_HISTORY:     function()     { return B() + '/templates/history'; },
+    BACKUP_POLICIES:      function()     { return B() + '/backup/policies'; },
+    BACKUP_RESTORE:       function()     { return B() + '/backup/restore'; },
+    DOCKER_LIST:          function()     { return B() + '/docker'; },
+    DOCKER_PULL:          function()     { return B() + '/docker/pull'; },
+    DOCKER_RUN:           function()     { return B() + '/docker/run'; },
+    DOCKER_STOP:          function(n)    { return B() + '/docker/' + enc(n) + '/stop'; },
+    TERRAFORM_PLAN:       function()     { return B() + '/terraform/plan'; },
+    TERRAFORM_APPLY:      function()     { return B() + '/terraform/apply'; },
+    TERRAFORM_STATE:      function()     { return B() + '/terraform/state'; },
+    CONFIG_BACKUP:        function()     { return B() + '/config/backup'; },
+    CONFIG_HISTORY:       function()     { return B() + '/config/history'; },
+    CONFIG_DAEMON:        function()     { return B() + '/config/daemon'; },
+    AGENT_CONFIG:         function()     { return B() + '/agent/config'; },
+    AGENT_HISTORY:        function()     { return B() + '/agent/history'; },
 
+    /* ═══ ISO ═══ */
+    ISO_LIST:             function()     { return B() + '/iso'; },
 
+    /* ═══ [백엔드 4차] 신규 엔드포인트 ═══ */
 
+    /* 보안 — API Key + 세션 */
+    AUTH_APIKEY_CREATE:   function()     { return B() + '/auth/apikeys'; },
+    AUTH_APIKEY_LIST:     function()     { return B() + '/auth/apikeys'; },
+    AUTH_APIKEY_REVOKE:   function(n)    { return B() + '/auth/apikeys/' + enc(n) + '/revoke'; },
+    AUTH_SESSION_REVOKE:  function()     { return B() + '/auth/sessions/revoke'; },
 
+    /* VM 배치 + 필터 */
+    VM_BATCH:             function()     { return B() + '/vms/batch'; },
+    VM_LIST_FILTERED:     function()     { return B() + '/vms/filtered'; },
 
+    /* 운영 */
+    CONFIG_RELOAD:        function()     { return B() + '/config/reload'; },
+    HEALTH_DEEP:          function()     { return B() + '/health/deep'; },
+    BACKUP_VERIFY:        function()     { return B() + '/backup/verify'; },
+    JOBS_PERSIST:         function()     { return B() + '/jobs/persistent'; },
+    POOL_CONNINFO:        function()     { return B() + '/pool/conninfo'; },
+    DB_MIGRATION:         function()     { return B() + '/db/migration'; },
 
+    /* 알림 음소거/라우팅 */
+    ALERT_SILENCE:        function()     { return B() + '/alerts/silence'; },
+    ALERT_SILENCE_LIST:   function()     { return B() + '/alerts/silences'; },
+    ALERT_ROUTING:        function()     { return B() + '/alerts/routing'; },
 
+    /* 컨테이너 확장 */
+    CTR_CLONE:            function(n)    { return B() + '/containers/' + enc(n) + '/clone'; },
+    CTR_MEMORY_STATS:     function(n)    { return B() + '/containers/' + enc(n) + '/memory-stats'; },
+    CTR_HEALTH:           function(n)    { return B() + '/containers/' + enc(n) + '/health'; },
 
+    /* ═══ OVA ═══ */
+    OVA_IMPORT:           function()     { return B() + '/vms/import/import'; },
 
+    /* ═══ GENERIC RPC ═══ */
+    RPC:                  function()     { return B() + '/rpc'; }
+  };
 
+  function buildEndpointSurface(edition) {
+    (void edition);
+    return Object.assign({}, COMMON_ENDPOINTS);
+  }
 
+  function applyEditionEndpointSurface(edition) {
+    (void edition);
+    var surface = buildEndpointSurface('single');
+    window.PCV_UI_EDITION = 'single';
+    PCV.endpoints = surface;
+    window.EP = surface;
+    return surface;
+  }
 
+  PCV.buildEndpointSurface = buildEndpointSurface;
+  PCV.applyEditionEndpointSurface = applyEditionEndpointSurface;
+  PCV.getOptionalEndpoint = function(name) {
+    var registry = window.EP || {};
+    var fn = registry[name];
+    if (typeof fn !== 'function') return null;
+    return fn.apply(null, Array.prototype.slice.call(arguments, 1));
+  };
 
+  return applyEditionEndpointSurface('single');
+})();
 
+/* ── PCV.endpoints namespace export ─────────────── */
+PCV.endpoints = EP;
 
+/* ── Backward-compat global shim ────────────────── */
+window.EP = EP;
+})(window.PCV);
+/**
+ * @module api
+ * @description PureCVisor API 통신 계층 — fetch 래퍼, WebSocket, 인증
+ * ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.api 네임스페이스
+ */
 
+/*
+ * ===== api.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   백엔드(REST API)와의 모든 HTTP/WS 통신을 담당한다.
+ *   다른 모듈(vm.js, container.js 등)은 직접 fetch()를 호출하지 않고,
+ *   이 모듈의 fetchGet/fetchPost/fetchPut/fetchDelete를 사용한다.
+ *
+ * [IIFE 패턴 (ADR-0013)]
+ *   (function(PCV){ ... })(window.PCV) 로 감싸는 이유:
+ *   1. 내부 변수(_refreshInProgress 등)가 window를 오염시키지 않는다.
+ *   2. 모듈 끝에서 PCV.api = { ... }로 공개 API만 노출한다.
+ *   3. 하위 호환용 window.fetchGet = fetchGet 심은 전환기 코드이며,
+ *      ADR-0013 완료 후 제거 예정. 신규 코드는 PCV.api.fetchGet() 사용을 권장.
+ *
+ * [주요 함수]
+ *   - fetchGet(url): GET + JWT 인증 + 401 시 자동 토큰 리프레시 + 12초 타임아웃.
+ *   - fetchPost(url, body): POST. 동일 에러 처리 패턴.
+ *   - unwrapData(r) / unwrapList(r): 백엔드 응답의 {data:...} 래핑을 벗기는 헬퍼.
+ *     백엔드가 {data: [...]}, {result: [...]}, 또는 바로 [...]를 반환할 수 있어
+ *     모든 케이스를 통일 처리한다.
+ *   - connectWS(): WebSocket 연결 + 프로토콜 레벨 인증 (ADR-0010).
+ *   - startAdaptivePolling(id, fn, ms): 탭 비가시 시 자동 중단되는 폴링.
+ *
+ * [fetch 에러 패턴 (P1-4 수정)]
+ *   이전에는 !r.ok일 때 throw해서 호출부에서 catch가 필요했다.
+ *   현재는 !r.ok일 때 r.json()을 시도하여 에러 JSON을 반환한다.
+ *   → 호출부에서 if (r.error) 체크로 통일. throw는 네트워크 장애 시만 발생.
+ *
+ * [WS 프로토콜 인증 (ADR-0010)]
+ *   WebSocket URL에 토큰을 넣지 않는다 (URL이 서버 로그에 기록되므로).
+ *   대신 연결 후 첫 메시지로 {type:'auth', token:'...'} JSON을 보낸다.
+ *   서버가 {type:'auth_ok'}를 보내면 인증 완료. 이후 메시지는 이벤트 데이터.
+ *   auth_fail 시 WS는 닫기지 않고 배너 표시.
+ *
+ * [토큰 리프레시 흐름]
+ *   1. fetchGet 등에서 401 수신
+ *   2. _tryRefreshToken()으로 /auth/refresh 호출
+ *   3. 성공 시 새 access_token을 window.authToken + sessionStorage에 저장
+ *   4. 원래 요청을 새 토큰으로 자동 재시도
+ *   5. 실패 시 _redirectToLogin()으로 로그인 화면 전환
+ *   _refreshInProgress로 동시 다중 리프레시 방지 (Promise 공유).
+ *
+ * [흔한 실수]
+ *   - fetchGet의 반환값을 바로 배열로 사용하면 안 된다.
+ *     반드시 unwrapList(r) 또는 unwrapData(r)를 거쳐야 한다.
+ *   - window.authToken이 빈 문자열이면 WS 연결이 2초 후 재시도한다.
+ *     로그인 전에 connectWS를 호출하지 않도록 주의.
+ *   - 적응형 폴링 시작 후 반드시 stopAdaptivePolling(id)로 정리해야 한다.
+ *     안 하면 탭 전환 시 visibilitychange 리스너가 누적된다.
+ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══ DEFAULTS (app.js 로드 전 보장) ═══
+ *  api.js가 app.js보다 먼저 <script>로 로드될 수 있으므로,
+ *  app.js의 var 선언이 아직 없을 때를 대비한 방어 초기화. */
 if (!window.API_BASE) window.API_BASE = '/api/v1';
 if (!window.authToken) window.authToken = sessionStorage.getItem('pcv_token') || '';
 if (!window.eventLog) window.eventLog = [];
@@ -79,7 +289,7 @@ function pcvSetLoginVisible(visible) {
 }
 window.pcvSetLoginVisible = pcvSetLoginVisible;
 
-
+/* ═══ TOKEN REFRESH ═══ */
 var _refreshInProgress = null;
 
 async function _tryRefreshToken() {
@@ -113,7 +323,7 @@ function _redirectToLogin() {
   sessionStorage.removeItem('pcv_token');
   sessionStorage.removeItem('pcv_refresh_token');
   sessionStorage.removeItem('pcv_user');
-
+  /* pcv_pass는 더 이상 저장하지 않음 (보안 고도화) */
   if (window.wsConnection) window.wsConnection.close();
   pcvSetLoginVisible(true);
   var la = document.getElementById('la');
@@ -122,9 +332,9 @@ function _redirectToLogin() {
   if (us) { us.classList.add('hidden'); us.style.display = 'none'; }
 }
 
-
-
-
+/* 타임아웃 설정: 백엔드 REST→RPC는 per-method 타임아웃이 최대 60초이지만,
+ * 대부분의 엔드포인트는 8초 이내 응답한다. 12초 = 백엔드 8초 + 네트워크 여유.
+ * AbortController로 구현하여 브라우저가 소켓을 강제 해제한다. */
 var PCV_FETCH_TIMEOUT_MS = 12000;
 
 function _fetchWithTimeout(url, opts) {
@@ -139,7 +349,7 @@ async function _fetchWithRefresh(url, opts) {
   if (r.status === 401 && sessionStorage.getItem('pcv_refresh_token')) {
     var refreshed = await _tryRefreshToken();
     if (refreshed) {
-
+      /* Update auth header with new token and retry */
       if (opts.headers) {
         if (typeof opts.headers.set === 'function') opts.headers.set('Authorization', 'Bearer ' + window.authToken);
         else opts.headers['Authorization'] = 'Bearer ' + window.authToken;
@@ -153,15 +363,15 @@ async function _fetchWithRefresh(url, opts) {
   return r;
 }
 
-
-
-
-
-
-
-
-
-
+/* ═══ API HELPERS ═══
+ * [에러 반환 패턴]
+ *   모든 fetchXxx 함수는 HTTP 에러(4xx/5xx) 시 throw하지 않고,
+ *   r.json()을 시도하여 {error: {code, message}} 형태의 JSON을 반환한다.
+ *   이렇게 하면 호출부에서 try/catch 없이 if(r.error)로 분기할 수 있다.
+ *   네트워크 장애(DNS 실패, 타임아웃 등)만 throw가 발생한다.
+ *
+ *   r.json().catch()는 응답 body가 JSON이 아닌 경우(예: nginx 502 HTML)를
+ *   방어한다 — 이때 합성 에러 객체를 직접 만들어 반환한다. */
 function fetchGet(u) {
   return _fetchWithRefresh(u, { headers: { Authorization: 'Bearer ' + window.authToken } }).then(r => {
     if (!r.ok) return r.json().catch(() => ({ error: { code: r.status, message: 'HTTP ' + r.status } }));
@@ -203,18 +413,18 @@ function fetchPut(u, b) {
   });
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══ WEBSOCKET ═══
+ * [연결 흐름]
+ *   1. authToken 없으면 2초 후 재시도 (로그인 대기).
+ *   2. 5회 실패 시 배너 표시하고 포기. 배너의 "Retry" 클릭으로 수동 재시도.
+ *   3. 지수 백오프: 1s, 2s, 4s, 8s, 16s (최대 30초).
+ *
+ * [인증 프로토콜 (ADR-0010)]
+ *   URL에 토큰을 넣으면 프록시/CDN 로그에 노출될 위험이 있다.
+ *   따라서 onopen 시 첫 메시지로 {type:'auth', token:JWT}를 보내고,
+ *   서버 응답 {type:'auth_ok'}을 받은 후에만 이벤트 메시지를 처리한다.
+ *   _pcvAuthDone 플래그로 인증 전/후 메시지를 구분한다. */
+/* ADR-0018: WS job.complete fail 이벤트 처리 — 진행 중 모달이 있으면 사유 surface */
 function _onJobFailureEvent(m) {
   var detailEl = document.getElementById('pwr-err-detail');
   if (detailEl) {
@@ -228,18 +438,18 @@ function _onJobFailureEvent(m) {
   }
   var pfEl = document.getElementById('pwr-p');
   if (pfEl) { pfEl.style.width = '100%'; pfEl.style.background = 'var(--red)'; }
-
+  /* 토스트는 즉시 사라지므로 notification center에 영구 기록 */
   var rawMethod = m.method || '?';
   var rawError = m.error || 'unknown';
   var target = '';
   if (m.job_id) {
-
+    /* job_id 형식: "vm.start:vmname" */
     var colonIdx = m.job_id.indexOf(':');
     if (colonIdx > 0) target = m.job_id.substring(colonIdx + 1);
   }
   var title = rawMethod + (target ? ' failed: ' + target : ' failed');
-
-
+  /* addNotification 1회만 호출 — toast()도 내부적으로 addNotification을 부르므로
+   * 두 가지를 모두 호출하면 알림 센터에 중복 항목이 쌓인다. */
   if (typeof addNotification === 'function') {
     addNotification('error', title, rawError);
   }
@@ -261,11 +471,11 @@ function connectWS() {
     return;
   }
   const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
-
+  /* ADR-0010: 프로토콜 레벨 인증 — URL에 토큰 미포함, 첫 메시지로 인증 */
   const ws = new WebSocket(p + '//' + location.host + window.API_BASE + '/ws/events');
   window.wsConnection = ws;
   ws.onopen = () => {
-
+    /* 연결 즉시 인증 메시지 전송 */
     if (ws.readyState === WebSocket.OPEN) {
       ws.send(JSON.stringify({ type: 'auth', token: window.authToken }));
     }
@@ -280,7 +490,7 @@ function connectWS() {
     setTimeout(connectWS, delay);
   };
   ws.onmessage = function(e) {
-
+    /* ADR-0010: auth 응답 처리 */
     if (!ws._pcvAuthDone) {
       try {
         var d = JSON.parse(e.data);
@@ -298,12 +508,12 @@ function connectWS() {
           if (typeof toast === 'function') toast('WebSocket auth failed', false);
           return;
         }
-      } catch (_) {  }
+      } catch (_) { /* not JSON */ }
     }
     try {
       const m = JSON.parse(e.data);
       window.addEvt('WS Event — type: ' + m.type + (m.name ? ', target: ' + m.name : '') + (m.node ? ', node: ' + m.node : ''));
-
+      /* F4: Flash affected VM/CTR in sidebar */
       if (m.name) {
         var items = document.querySelectorAll('.vi .nm');
         items.forEach(function(el) {
@@ -314,20 +524,20 @@ function connectWS() {
           }
         });
       }
-
-
+      /* ADR-0018: 비동기 워커 실패 이벤트 — vmPower 모달이 열려있으면 즉시 사유 표시
+       * pcv_ws_broadcast가 {type, ts, payload}로 wrap하므로 payload 안에서 status 추출 */
       if (m.type === 'job.complete') {
-        var jobPayload = m.payload || m;
+        var jobPayload = m.payload || m;  /* 호환성: 직접 또는 payload 안 */
         if (jobPayload && jobPayload.status === 'fail') {
           try { _onJobFailureEvent(jobPayload); } catch (_) {}
         }
       }
       if (m.type && (m.type.startsWith('vm-') || m.type.startsWith('vm.'))) {
-
-
-
-
-
+        /* W6 fix: 이벤트 타입별 선택적 refetch — 불필요한 전체 목록 재조회 제거
+           - vm.state_changed / vm-state: 해당 VM 1건만 업데이트 시도, 실패 시 전체
+           - vm.created / vm-create: 전체 재조회 (새 VM이 목록에 없음)
+           - vm.deleted / vm-delete: 전체 재조회
+           - 기타: 전체 재조회 */
         var doFullRefresh = function(retry) {
           fetchGet(window.API_BASE + '/vms').then(function(r) {
             var list = unwrapList(r);
@@ -336,7 +546,7 @@ function connectWS() {
             window.lastLoadTime = Date.now();
             if (typeof render === 'function') render(true);
           }).catch(function() {
-
+            /* 실패 시 3초 후 최대 2회 재시도 (exponential 제한) */
             if (retry < 2) {
               setTimeout(function() { doFullRefresh(retry + 1); }, 3000 * (retry + 1));
             }
@@ -345,12 +555,12 @@ function connectWS() {
         var eventType = m.type;
         var isStateOnly = (eventType === 'vm.state_changed' || eventType === 'vm-state');
         if (isStateOnly && m.name && window.vmList) {
-
+          /* 개별 VM 상태만 패치 (전체 refetch 회피) */
           var idx = window.vmList.findIndex(function(v){ return v && v.name === m.name; });
           if (idx >= 0 && m.state) {
             window.vmList[idx].state = m.state;
             if (typeof render === 'function') render(true);
-            return;
+            return;  /* refetch 불필요 */
           }
         }
         doFullRefresh(0);
@@ -363,7 +573,7 @@ function connectWS() {
       } else {
         window.loadAll(true);
       }
-    } catch (x) {  }
+    } catch (x) { /* non-JSON WS message */ }
   };
 }
 
@@ -378,10 +588,10 @@ async function _readLoginResponse(r) {
   try {
     return JSON.parse(body);
   } catch (e) {
-
-
-
-
+    /*
+     * nginx/프록시 오류는 HTML을 돌려줄 수 있다. 로그인 화면에는 JSON parser의
+     * 원시 오류 문구나 HTML 일부를 노출하지 않고 상태만 전달한다.
+     */
     return {
       error: {
         code: r.status || 0,
@@ -422,7 +632,7 @@ function _loginNetworkFailureText(e) {
   return prefix + ': ' + detail;
 }
 
-
+/* ═══ LOGIN / LOGOUT ═══ */
 async function doLoginPage() {
   const user = document.getElementById('login-user')?.value.trim();
   const pass = document.getElementById('login-pass')?.value;
@@ -441,7 +651,7 @@ async function doLoginPage() {
       sessionStorage.setItem('pcv_token', window.authToken);
       if (d.refresh_token) sessionStorage.setItem('pcv_refresh_token', d.refresh_token);
       sessionStorage.setItem('pcv_user', user);
-
+      /* pcv_pass 저장 제거 — 평문 비밀번호 sessionStorage 노출 방지 */
       pcvSetLoginVisible(false);
       document.getElementById('la').classList.add('hidden');
       document.getElementById('us').classList.remove('hidden');
@@ -455,7 +665,7 @@ async function doLoginPage() {
       connectWS();
       startSessionWatch();
       if (typeof renderPinnedBar === 'function') renderPinnedBar();
-
+      /* #14/#15: hash 라우팅 + role 가시성 적용 */
       if (typeof pcvPostLoginInit === 'function') pcvPostLoginInit();
     } else {
       if (errEl) errEl.textContent = _loginFailureText(r.status);
@@ -480,7 +690,7 @@ async function doLogin() {
       sessionStorage.setItem('pcv_token', window.authToken);
       if (d.refresh_token) sessionStorage.setItem('pcv_refresh_token', d.refresh_token);
       sessionStorage.setItem('pcv_user', user);
-
+      /* pcv_pass 저장 제거 — 평문 비밀번호 sessionStorage 노출 방지 */
       document.getElementById('la').classList.add('hidden');
       document.getElementById('us').classList.remove('hidden');
       document.getElementById('us').style.display = 'flex';
@@ -505,7 +715,7 @@ function doLogout() {
   sessionStorage.removeItem('pcv_token');
   sessionStorage.removeItem('pcv_refresh_token');
   sessionStorage.removeItem('pcv_user');
-
+  /* pcv_pass는 더 이상 저장하지 않음 (보안 고도화) */
   if (window.wsConnection) window.wsConnection.close();
   window.wsConnection = null;
   window.vmList = [];
@@ -522,7 +732,7 @@ function doLogout() {
   window.addEvt(typeof t === 'function' ? t('logged.out') : 'Logged out');
 }
 
-
+/* ═══ SESSION EXPIRY WARNING ═══ */
 var _sessionCheckInterval = null;
 function startSessionWatch() {
   if (_sessionCheckInterval) clearInterval(_sessionCheckInterval);
@@ -534,12 +744,12 @@ function startSessionWatch() {
       var exp = payload.exp * 1000;
       var remaining = exp - Date.now();
       if (remaining < 0) {
-
+        /* Expired */
         clearInterval(_sessionCheckInterval);
         _redirectToLogin();
         toast(typeof _L === 'function' ? _L('세션 만료 — 다시 로그인하세요', 'Session expired — please login again') : 'Session expired', false);
       } else if (remaining < 300000) {
-
+        /* 5 min warning — try refresh */
         var mins = Math.ceil(remaining / 60000);
         var el = document.getElementById('session-warn');
         if (!el) {
@@ -551,7 +761,7 @@ function startSessionWatch() {
         var lblExpires = typeof _L === 'function' ? _L('세션 만료까지', 'Session expires in') : 'Expires in';
         var lblMin = typeof _L === 'function' ? _L('분', 'min') : 'min';
         el.innerHTML = '<span class="color-yellow">&#9888;</span> ' + lblExpires + ' ' + mins + lblMin;
-
+        /* Auto refresh attempt — refresh token 기반 (평문 비밀번호 미사용) */
         if (remaining < 120000) {
           _tryRefreshToken().then(function(ok) {
             if (ok) {
@@ -565,21 +775,21 @@ function startSessionWatch() {
         var warn = document.getElementById('session-warn');
         if (warn) warn.remove();
       }
-    } catch (e) {  }
+    } catch (e) { /* invalid JWT */ }
   }, 30000);
 }
 
-
+/* ═══ SESSION RESTORE ═══ */
 function restoreSession() {
   if (!window.authToken) {
-
+    /* 토큰 없음 → 로그인 페이지 표시 */
     pcvSetLoginVisible(true);
     var la = document.getElementById('la');
     if (la) la.classList.remove('hidden');
     return;
   }
   const savedUser = sessionStorage.getItem('pcv_user') || 'admin';
-
+  /* refresh token으로 세션 복원 (평문 비밀번호 미사용) */
   var refreshToken = sessionStorage.getItem('pcv_refresh_token');
   (refreshToken ? _tryRefreshToken().then(function(ok) {
     if (!ok) throw new Error('refresh failed');
@@ -598,15 +808,15 @@ function restoreSession() {
   }).catch(() => {
     sessionStorage.removeItem('pcv_token');
     sessionStorage.removeItem('pcv_user');
-
+    /* pcv_pass는 더 이상 저장하지 않음 (보안 고도화) */
     window.authToken = '';
   });
 }
 
-
+/* ═══ API ACTIVITY LOGGING ═══ */
 var _apiActivityLog = [];
 
-
+/* ═══ K2: PERFORMANCE METRICS ═══ */
 var _perfMetrics = {
   pageLoadTime: 0,
   firstContentfulPaint: 0,
@@ -615,7 +825,7 @@ var _perfMetrics = {
   avgApiTime: 0
 };
 
-
+/* Collect page load timing */
 window.addEventListener('load', function() {
   setTimeout(function() {
     if (window.performance && window.performance.timing) {
@@ -631,17 +841,17 @@ window.addEventListener('load', function() {
   }, 100);
 });
 
+/* ═══ RESPONSE UNWRAP HELPERS ═══ */
 
-
-
-
-
-
-
-
-
-
-
+/**
+ * unwrapData — 백엔드 응답에서 실제 데이터를 추출
+ *
+ * 백엔드는 RPC 결과를 {data: ...}로 래핑하지만, 일부 엔드포인트는
+ * {result: ...} 또는 raw 값을 반환할 수 있음. 이 함수가 모든 케이스를 처리.
+ *
+ * @param {*} r - fetch 응답 JSON
+ * @returns {*} 언래핑된 데이터
+ */
 function unwrapData(r) {
   if (r == null) return r;
   if (r.data !== undefined) return r.data;
@@ -649,35 +859,35 @@ function unwrapData(r) {
   return r;
 }
 
-
-
-
-
-
-
-
-
+/**
+ * unwrapList — 백엔드 응답에서 배열 데이터를 추출
+ *
+ * 목록 엔드포인트용. 배열이 아니면 빈 배열 반환.
+ *
+ * @param {*} r - fetch 응답 JSON
+ * @returns {Array} 언래핑된 배열 (또는 빈 배열)
+ */
 function unwrapList(r) {
   if (Array.isArray(r)) return r;
   var d = unwrapData(r);
   return Array.isArray(d) ? d : [];
 }
 
-
-
-
-
-
+/* ═══ 적응형 폴링 (Adaptive Polling) — 탭 비가시 시 중단 ═══
+ *  document.hidden이 true면 콜백 실행을 건너뛴다.
+ *  왜 필요한가: 백그라운드 탭에서 10초마다 /vms를 호출하면
+ *  서버에 불필요한 부하를 주고, per-user rate limit (1200 req/min)에
+ *  도달할 수 있다. visibilitychange 리스너로 탭 복귀 시 즉시 갱신. */
 var _pollingTimers = {};
 function startAdaptivePolling(id, fn, intervalMs) {
   stopAdaptivePolling(id);
   var run = function() {
-    if (document.hidden) return;
+    if (document.hidden) return;  /* 탭 비가시 시 스킵 */
     fn();
   };
   run();
   _pollingTimers[id] = setInterval(run, intervalMs);
-
+  /* Visibility API: 탭 전환 시 즉시 반영 — 리스너 ref를 저장해 stop에서 즉시 해제 */
   var _vc = function() {
     if (!_pollingTimers[id]) { document.removeEventListener('visibilitychange', _vc); return; }
     if (!document.hidden) run();
@@ -694,7 +904,7 @@ function stopAdaptivePolling(id) {
   }
 }
 
-
+/* ═══ K2: FETCH INTERCEPTOR FOR PERF METRICS ═══ */
 var _origFetch = window.fetch;
 window.fetch = function() {
   var url = arguments[0] || '';
@@ -710,10 +920,10 @@ window.fetch = function() {
   return _origFetch.apply(this, arguments);
 };
 
-
-
-
-
+/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
+ *  PCV.api에 등록되는 것이 이 모듈의 공식 인터페이스이다.
+ *  _로 시작하는 함수(_tryRefreshToken 등)도 디버깅용으로 노출하지만,
+ *  외부 모듈에서 직접 호출은 비권장. */
 PCV.api = {
   fetchGet: fetchGet,
   fetchPost: fetchPost,
@@ -735,12 +945,12 @@ PCV.api = {
   _perfMetrics: _perfMetrics
 };
 
-
-
-
-
-
-
+/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══
+ *  app.js와 HTML onclick="fetchGet(...)"에서 window 직접 참조를 사용하므로,
+ *  전환 완료 전까지 window에도 같은 함수를 등록한다.
+ *  신규 코드에서는 PCV.api.fetchGet()을 사용하라.
+ *  이 심 코드를 제거하려면 먼저 모든 HTML onclick과 다른 모듈의
+ *  window.fetchGet 참조를 PCV.api.fetchGet으로 변경해야 한다. */
 window.unwrapData = unwrapData;
 window.unwrapList = unwrapList;
 window.fetchGet = fetchGet;
@@ -759,317 +969,104 @@ window.startAdaptivePolling = startAdaptivePolling;
 window.stopAdaptivePolling = stopAdaptivePolling;
 window._apiActivityLog = _apiActivityLog;
 window._perfMetrics = _perfMetrics;
-
+/* _wsReconnectAttempt needed by inline onclick in WS reconnect banner */
 window._wsReconnectAttempt = 0;
 
 })(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-window.PCV = window.PCV || {};
-(function(PCV) {
-
-var EP = (function() {
-  var B = function() { return window.API_BASE || '/api/v1'; };
-  var enc = encodeURIComponent;
-
-  var COMMON_ENDPOINTS = {
-
-    VM_LIST:              function()     { return B() + '/vms'; },
-    VM_CREATE:            function()     { return B() + '/vms'; },
-    VM_DETAIL:            function(n)    { return B() + '/vms/' + enc(n); },
-    VM_STOP:              function(n)    { return B() + '/vms/' + enc(n) + '/stop'; },
-    VM_ACTION:            function(n,a)  { return B() + '/vms/' + enc(n) + '/' + enc(a); },
-    VM_SNAPSHOT_LIST:     function(n)    { return B() + '/vms/' + enc(n) + '/snapshot'; },
-    VM_SNAPSHOT_CREATE:   function(n)    { return B() + '/vms/' + enc(n) + '/snapshot/create'; },
-    VM_SNAPSHOT_ROLLBACK: function(n)    { return B() + '/vms/' + enc(n) + '/snapshot/rollback'; },
-    VM_SNAPSHOT_DELETE:   function(n,s)  { return B() + '/vms/' + enc(n) + '/snapshot/' + enc(s); },
-    VM_SNAPSHOT_DELETE_ALL:function(n)   { return B() + '/vms/' + enc(n) + '/snapshot/delete_all'; },
-    VM_NICS:              function(n)    { return B() + '/vms/' + enc(n) + '/nics'; },
-    VM_NIC_DETACH:        function(n,m)  { return B() + '/vms/' + enc(n) + '/nics/' + enc(m); },
-    VM_VCPU:              function(n)    { return B() + '/vms/' + enc(n) + '/vcpu'; },
-    VM_MEMORY:            function(n)    { return B() + '/vms/' + enc(n) + '/memory_mb'; },
-    VM_ISO:               function(n)    { return B() + '/vms/' + enc(n) + '/iso'; },
-    VM_CLONE:             function(n)    { return B() + '/vms/' + enc(n) + '/clone'; },
-    VM_DISK:              function(n)    { return B() + '/vms/' + enc(n) + '/disk'; },
-    VM_DELETE_STATUS:     function(n)    { return B() + '/vms/' + enc(n) + '/delete-status'; },
-    VM_RENAME:            function(n)    { return B() + '/vms/' + enc(n) + '/rename'; },
-    VM_EXPORT:            function(n)    { return B() + '/vms/' + enc(n) + '/export'; },
-    VM_CPU_PIN:           function(n)    { return B() + '/vms/' + enc(n) + '/cpu-pin'; },
-    VM_BANDWIDTH:         function(n)    { return B() + '/vms/' + enc(n) + '/bandwidth'; },
-    VM_RPC:               function(n)    { return B() + '/vms/' + enc(n) + '/rpc'; },
-    VM_DISK_RESIZE:       function(n)    { return B() + '/vms/' + enc(n) + '/disk-resize'; },
-    VM_GUEST_PING:        function(n)    { return B() + '/vms/' + enc(n) + '/guest-ping'; },
-    VM_GUEST_AGENT:       function(n)    { return B() + '/vms/' + enc(n) + '/guest-agent'; },
-    VM_GUEST_AGENT_CHANNEL:function(n)   { return B() + '/vms/' + enc(n) + '/guest-agent-channel'; },
-    VM_GUEST_SHUTDOWN:    function(n)    { return B() + '/vms/' + enc(n) + '/guest-shutdown'; },
-    VM_GUEST_EXEC:        function(n)    { return B() + '/vms/' + enc(n) + '/guest-exec'; },
-    VM_DISK_USAGE:        function(n)    { return B() + '/vms/' + enc(n) + '/disk-usage'; },
-    VNC:                  function(n)    { return B() + '/vnc/' + enc(n); },
-
-
-    CTR_LIST:             function()     { return B() + '/containers'; },
-    CTR_CREATE:           function()     { return B() + '/containers'; },
-    CTR_DETAIL:           function(n)    { return B() + '/containers/' + enc(n); },
-    CTR_METRICS:          function(n)    { return B() + '/containers/' + enc(n) + '/metrics'; },
-    CTR_EXEC:             function(n)    { return B() + '/containers/' + enc(n) + '/exec'; },
-    CTR_NICS:             function(n)    { return B() + '/containers/' + enc(n) + '/nics'; },
-    CTR_SNAPSHOTS:        function(n)    { return B() + '/containers/' + enc(n) + '/snapshots'; },
-    CTR_SNAP_DELETE:      function(n,s)  { return B() + '/containers/' + enc(n) + '/snapshots/' + enc(s); },
-    CTR_SNAP_ROLLBACK:    function(n)    { return B() + '/containers/' + enc(n) + '/snapshots/rollback'; },
-    CTR_STOP:             function(n)    { return B() + '/containers/' + enc(n) + '/stop'; },
-    CTR_START:            function(n)    { return B() + '/containers/' + enc(n) + '/start'; },
-    CTR_LIMITS:           function(n)    { return B() + '/containers/' + enc(n) + '/limits'; },
-    CTR_BANDWIDTH:        function(n)    { return B() + '/containers/' + enc(n) + '/bandwidth'; },
-
-
-    STORAGE_POOLS:        function()     { return B() + '/storage/pools'; },
-    STORAGE_SCRUB:        function()     { return B() + '/storage/pools/scrub'; },
-    STORAGE_ZVOLS:        function()     { return B() + '/storage/zvols'; },
-    ISCSI_TARGETS:        function()     { return B() + '/iscsi/targets'; },
-
-
-    NET_LIST:             function()     { return B() + '/networks'; },
-    NET_DETAIL:           function(n)    { return B() + '/networks/' + enc(n); },
-    NET_MODE:             function(n)    { return B() + '/networks/' + enc(n) + '/mode'; },
-    OVN_STATUS:           function()     { return B() + '/ovn/status'; },
-    OVN_SWITCHES:         function()     { return B() + '/ovn/switches'; },
-    OVN_ROUTERS:          function()     { return B() + '/ovn/routers'; },
-    OVN_ACL:              function()     { return B() + '/ovn/acl'; },
-    DEMO_OVN_HEALTH:      function()     { return B() + '/demo/ovn-ovs/health'; },
-    OVERLAY_LIST:         function()     { return B() + '/overlay'; },
-
-
-    CLOUD_JOBS:           function()     { return B() + '/cloud/jobs'; },
-    CLOUD_CANCEL:         function()     { return B() + '/cloud/cancel'; },
-    CLOUD_IMPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/import-ec2'; },
-    CLOUD_EXPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/export-ec2'; },
-
-
-    AUTH_TOKEN:           function()     { return B() + '/auth/token'; },
-    AUTH_REGISTER:        function()     { return B() + '/auth/register'; },
-    AUTH_PASSWORD:        function()     { return B() + '/auth/password'; },
-    AUTH_REFRESH:         function()     { return B() + '/auth/refresh'; },
-    AUTH_USERS:           function()     { return B() + '/auth/users'; },
-    AUTH_USER:            function(u)    { return B() + '/auth/users/' + enc(u); },
-    AUTH_ROLE:            function()     { return B() + '/auth/role'; },
-
-
-    HEALTH:               function()     { return B() + '/health'; },
-    ALERTS:               function()     { return B() + '/alerts'; },
-    ALERTS_CONFIG:        function()     { return B() + '/alerts/config'; },
-    METRICS:              function()     { return B() + '/metrics'; },
-    MONITOR_FLEET:        function()     { return B() + '/monitor/fleet'; },
-    DPDK_STATUS:          function()     { return B() + '/dpdk/status'; },
-    DPDK_LIST:            function()     { return B() + '/dpdk/list'; },
-    DPDK_HUGEPAGE:        function()     { return B() + '/dpdk/hugepage'; },
-    DPDK_BIND:            function()     { return B() + '/dpdk/bind'; },
-    DPDK_UNBIND:          function()     { return B() + '/dpdk/unbind'; },
-    SRIOV_STATUS:         function()     { return B() + '/sriov/status'; },
-    SRIOV_LIST:           function()     { return B() + '/sriov/list'; },
-    SRIOV_ENABLE:         function()     { return B() + '/sriov/enable'; },
-    SRIOV_DISABLE:        function()     { return B() + '/sriov/disable'; },
-    SRIOV_ATTACH:         function()     { return B() + '/sriov/attach'; },
-    SRIOV_DETACH:         function()     { return B() + '/sriov/detach'; },
-
-
-    TEMPLATES:            function()     { return B() + '/templates'; },
-    TEMPLATE:             function(n)    { return B() + '/templates/' + enc(n); },
-    TEMPLATE_HISTORY:     function()     { return B() + '/templates/history'; },
-    BACKUP_POLICIES:      function()     { return B() + '/backup/policies'; },
-    BACKUP_RESTORE:       function()     { return B() + '/backup/restore'; },
-    DOCKER_LIST:          function()     { return B() + '/docker'; },
-    DOCKER_PULL:          function()     { return B() + '/docker/pull'; },
-    DOCKER_RUN:           function()     { return B() + '/docker/run'; },
-    DOCKER_STOP:          function(n)    { return B() + '/docker/' + enc(n) + '/stop'; },
-    TERRAFORM_PLAN:       function()     { return B() + '/terraform/plan'; },
-    TERRAFORM_APPLY:      function()     { return B() + '/terraform/apply'; },
-    TERRAFORM_STATE:      function()     { return B() + '/terraform/state'; },
-    CONFIG_BACKUP:        function()     { return B() + '/config/backup'; },
-    CONFIG_HISTORY:       function()     { return B() + '/config/history'; },
-    CONFIG_DAEMON:        function()     { return B() + '/config/daemon'; },
-    AGENT_CONFIG:         function()     { return B() + '/agent/config'; },
-    AGENT_HISTORY:        function()     { return B() + '/agent/history'; },
-
-
-    ISO_LIST:             function()     { return B() + '/iso'; },
-
-
-
-
-    AUTH_APIKEY_CREATE:   function()     { return B() + '/auth/apikeys'; },
-    AUTH_APIKEY_LIST:     function()     { return B() + '/auth/apikeys'; },
-    AUTH_APIKEY_REVOKE:   function(n)    { return B() + '/auth/apikeys/' + enc(n) + '/revoke'; },
-    AUTH_SESSION_REVOKE:  function()     { return B() + '/auth/sessions/revoke'; },
-
-
-    VM_BATCH:             function()     { return B() + '/vms/batch'; },
-    VM_LIST_FILTERED:     function()     { return B() + '/vms/filtered'; },
-
-
-    CONFIG_RELOAD:        function()     { return B() + '/config/reload'; },
-    HEALTH_DEEP:          function()     { return B() + '/health/deep'; },
-    BACKUP_VERIFY:        function()     { return B() + '/backup/verify'; },
-    JOBS_PERSIST:         function()     { return B() + '/jobs/persistent'; },
-    POOL_CONNINFO:        function()     { return B() + '/pool/conninfo'; },
-    DB_MIGRATION:         function()     { return B() + '/db/migration'; },
-
-
-    ALERT_SILENCE:        function()     { return B() + '/alerts/silence'; },
-    ALERT_SILENCE_LIST:   function()     { return B() + '/alerts/silences'; },
-    ALERT_ROUTING:        function()     { return B() + '/alerts/routing'; },
-
-
-    CTR_CLONE:            function(n)    { return B() + '/containers/' + enc(n) + '/clone'; },
-    CTR_MEMORY_STATS:     function(n)    { return B() + '/containers/' + enc(n) + '/memory-stats'; },
-    CTR_HEALTH:           function(n)    { return B() + '/containers/' + enc(n) + '/health'; },
-
-
-    OVA_IMPORT:           function()     { return B() + '/vms/import/import'; },
-
-
-    RPC:                  function()     { return B() + '/rpc'; }
-  };
-
-  function buildEndpointSurface(edition) {
-    (void edition);
-    return Object.assign({}, COMMON_ENDPOINTS);
-  }
-
-  function applyEditionEndpointSurface(edition) {
-    (void edition);
-    var surface = buildEndpointSurface('single');
-    window.PCV_UI_EDITION = 'single';
-    PCV.endpoints = surface;
-    window.EP = surface;
-    return surface;
-  }
-
-  PCV.buildEndpointSurface = buildEndpointSurface;
-  PCV.applyEditionEndpointSurface = applyEditionEndpointSurface;
-  PCV.getOptionalEndpoint = function(name) {
-    var registry = window.EP || {};
-    var fn = registry[name];
-    if (typeof fn !== 'function') return null;
-    return fn.apply(null, Array.prototype.slice.call(arguments, 1));
-  };
-
-  return applyEditionEndpointSurface('single');
-})();
-
-
-PCV.endpoints = EP;
-
-
-window.EP = EP;
-})(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/**
+ * @module ui
+ * @description PureCVisor UI 유틸리티 — HTML 빌더, 토스트, 모달, 이벤트 로그, 테마
+ * ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.ui 네임스페이스
+ */
+
+/*
+ * ===== ui.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   UI 공용 유틸리티 모듈. 다른 모든 페이지 모듈(vm.js, container.js 등)이
+ *   이 모듈의 함수를 사용하여 HTML을 생성하고, 토스트를 표시하고,
+ *   모달을 열고 닫는다. DOM 조작의 "표준 라이브러리" 역할.
+ *
+ * [PCV 네임스페이스 (ADR-0013)]
+ *   IIFE 안에서 정의 후 PCV.ui = { ... }로 노출.
+ *   하위 호환 심(window.toast = toast 등)은 전환기 코드.
+ *
+ * [XSS 방지: escapeHtml vs escapeAttr — 반드시 구분]
+ *
+ *   escapeHtml(s): HTML 태그/엔티티 이스케이프 (&, <, >, ", ').
+ *     용도: innerHTML에 사용자 문자열을 삽입할 때.
+ *     예: '<b>' + escapeHtml(v.name) + '</b>'
+ *
+ *   escapeAttr(s): 모든 비-알파뉴메릭을 \xHH로 변환.
+ *     용도: onclick="func('${escapeAttr(val)}')" 같은 인라인 JS 문자열 안.
+ *     왜 escapeHtml로는 부족한가:
+ *       HTML 파서가 onclick 속성값의 &quot;를 먼저 "로 디코딩한 뒤
+ *       JS 엔진에 넘긴다. 따라서 사용자 입력에 ' 또는 \가 있으면
+ *       JS 문자열 리터럴을 탈출할 수 있다 (XSS).
+ *       escapeAttr은 모든 특수문자를 \x27 같은 JS 이스케이프로 바꿔
+ *       HTML + JS 양쪽에서 안전하다.
+ *
+ *   실전 예:
+ *     잘못: onclick="doSomething('${escapeHtml(userInput)}')"  // XSS 가능!
+ *     올바름: onclick="doSomething('${escapeAttr(userInput)}')"
+ *
+ * [H 빌더 객체]
+ *   H.card(), H.row(), H.badge() 등은 반복되는 HTML 패턴을 함수화한 것.
+ *   템플릿 리터럴로 HTML 문자열을 반환한다 (DOM 요소가 아님).
+ *   innerHTML += H.card('Title', H.row('key', 'val')) 형태로 합성한다.
+ *   왜 DOM createElement를 안 쓰나: 성능보다 가독성을 우선한 설계 결정.
+ *   수십 개의 카드를 한 번에 그릴 때 innerHTML 할당이 더 빠르다.
+ *
+ * [토스트 큐]
+ *   동시에 최대 3개까지 표시. 초과 시 가장 오래된 것을 즉시 제거.
+ *   3초 후 자동 사라짐 + 프로그레스 바 애니메이션.
+ *   클릭 시 즉시 제거 (슬라이드 아웃).
+ *
+ * [모달 스택 (F3)]
+ *   showModal()을 중첩 호출하면 이전 모달 HTML이 _modalStack에 push된다.
+ *   closeModal() 시 스택에서 pop하여 이전 모달을 복원한다.
+ *   스택이 비어있으면 모달 배경(#mbg)을 숨긴다.
+ *   모달 내 Tab 키는 포커스 트랩이 적용되어 모달 밖으로 나가지 않는다 (접근성).
+ *
+ * [DataTable 내부 구조]
+ *   createDataTable()은 window['_dt_'+tableId] 전역 객체에
+ *   행/헤더/정렬/페이지 상태를 저장한다.
+ *   HTML onclick에서 window._dtSort(id, col) 형태로 호출되므로
+ *   반드시 window에 등록해야 한다.
+ *   검색은 HTML 태그를 strip한 뒤 텍스트에서 필터링한다.
+ *   CSV 내보내기도 태그를 제거하여 순수 텍스트만 출력한다.
+ *
+ * [흔한 실수]
+ *   - toast()의 두 번째 인자를 생략하면 ok=true (녹색). false를 넣어야 빨간색.
+ *   - showModal(html) 호출 후 50ms setTimeout 없이 getElementById 하면
+ *     innerHTML이 아직 파싱되지 않아 null이 반환될 수 있다.
+ *   - customConfirm은 Promise를 반환한다. 반드시 await로 받아야 한다.
+ *   - withSpinner은 버튼의 dataset.pcvBusy로 더블클릭을 차단한다.
+ *     수동으로 disabled 관리하지 말고 이 래퍼를 사용하라.
+ */
+
+/* ═══ DEFAULTS ═══ */
 if (!window.eventLog) window.eventLog = [];
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
-
+/* ═══ HTML BUILDER ═══
+ *  escapeHtml: innerHTML 삽입용. HTML 5대 특수문자만 이스케이프.
+ *  escapeAttr: onclick 등 인라인 JS 문자열용. 모든 비-알파뉴메릭을 \xHH로.
+ *  두 함수의 차이를 모르면 XSS 취약점이 생긴다. 위 모듈 주석 참조. */
 function escapeHtml(s) {
   if (!s) return '';
   return String(s).replace(/&/g, '&amp;').replace(/</g, '&lt;').replace(/>/g, '&gt;').replace(/"/g, '&quot;').replace(/'/g, '&#39;');
 }
 var esc = escapeHtml;
 
-
-
-
-
-
-
+/**
+ * escapeAttr — onclick 등 HTML 속성 내 JS 문자열 리터럴 안전 이스케이프.
+ * HTML 파서가 엔티티를 디코드한 뒤 JS 엔진에 전달하므로,
+ * escapeHtml만으로는 JS 문자열 탈출을 방지할 수 없다.
+ * 이 함수는 모든 비-알파뉴메릭을 \\xHH로 변환하여 JS+HTML 양쪽 안전.
+ */
 function escapeAttr(s) {
   if (!s) return '';
   return String(s).replace(/[^a-zA-Z0-9_.\-]/g, function(c) {
@@ -1086,7 +1083,7 @@ var H = {
   sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
 };
 
-
+/* ═══ TOAST ═══ */
 function toast(m, ok = true) {
   var icon = ok ? '&#9989; ' : '&#10060; ';
   const d = document.createElement('div');
@@ -1104,13 +1101,13 @@ function toast(m, ok = true) {
   while (container.children.length > 3) container.removeChild(container.firstChild);
   requestAnimationFrame(() => { prog.style.width = '0%'; });
   setTimeout(() => d.remove(), 3e3);
-
+  /* B2: Feed toast into notification center */
   if (typeof addNotification === 'function') {
     addNotification(ok ? 'info' : 'error', m, '');
   }
 }
 
-
+/* ═══ EVENT LOG ═══ */
 function ciIcon(name) {
   return '<svg class="ci-icon" aria-hidden="true"><use href="/ui/vendor/coolicons/coolicons.svg#ci-' + name + '"></use></svg>';
 }
@@ -1217,10 +1214,10 @@ function _syncPopoutLog() {
   if (count) count.textContent = window.eventLog.length + ' events';
 }
 
-
-
-
-
+/* ═══ MODAL (F3: Stack support) ═══
+ *  모달 중첩이 필요한 이유: VM 설정 모달 안에서 ISO 브라우저 모달을 열 때,
+ *  이전 모달 HTML을 보존해야 한다. _modalStack이 이를 관리한다.
+ *  closeModal() 시 스택에 항목이 있으면 pop하여 복원, 없으면 #mbg를 숨긴다. */
 var _modalStack = [];
 
 function showModal(h, opts) {
@@ -1252,7 +1249,7 @@ function closeModal(force) {
   }
 }
 
-
+/* ═══ CUSTOM INPUT MODAL (FE-4: prompt() 대체) ═══ */
 function showInputModal(title, label, defaultVal, callback) {
   return new Promise(function(resolve) {
     var id = 'modal-input-' + Date.now();
@@ -1290,7 +1287,7 @@ function showInputModal(title, label, defaultVal, callback) {
   });
 }
 
-
+/* ═══ CUSTOM CONFIRM ═══ */
 function customConfirm(title, message) {
   return new Promise(resolve => {
     const tFn = typeof t === 'function' ? t : k => k;
@@ -1301,7 +1298,7 @@ function customConfirm(title, message) {
   });
 }
 
-
+/* ═══ UTILITIES ═══ */
 function renderProgressBar(p, c) {
   const cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
   const anim = p > 85 ? ' pulse-anim' : '';
@@ -1356,11 +1353,11 @@ function renderSortableTable(containerId, headers, rows, options) {
   el.innerHTML = h;
 }
 
-
-
-
-
-
+/* ═══ DATA TABLE (B3: sortable, searchable, exportable) ═══
+ *  createDataTable은 내부 상태(정렬/검색/페이지)를 window['_dt_'+tableId]에 저장한다.
+ *  HTML onclick에서 window._dtSort(id, col)로 호출되므로 window 등록 필수.
+ *  검색/정렬 시 HTML 태그를 strip(.replace(/<[^>]+>/g,''))하여 텍스트만 비교.
+ *  pageSize를 config에 넘기면 페이지네이션이 자동 활성화된다 (pageSize=0이면 비활성). */
 function createDataTable(containerId, config) {
   var el = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!el) return;
@@ -1373,7 +1370,7 @@ function createDataTable(containerId, config) {
 
   function renderTable(filteredRows) {
     var h = '';
-
+    /* 페이지네이션 계산 */
     var pageSize = cfg.pageSize || 0;
     var dt = window['_dt_' + tableId];
     var currentPage = (dt && dt.currentPage) ? dt.currentPage : 1;
@@ -1406,7 +1403,7 @@ function createDataTable(containerId, config) {
       h += '<tr>'; row.forEach(function(cell) { h += '<td>' + cell + '</td>'; }); h += '</tr>';
     });
     h += '</tbody></table>';
-
+    /* 페이지네이션 UI */
     if (pageSize > 0 && totalPages > 1) {
       h += '<div class="flex items-center gap-8 mt-8">';
       h += '<button class="btn btn-sm" ' + (currentPage <= 1 ? 'disabled' : '') + ' onclick="window._dtPage(\'' + tableId + '\',' + (currentPage - 1) + ')">Prev</button>';
@@ -1415,7 +1412,7 @@ function createDataTable(containerId, config) {
       h += '</div>';
     }
     el.innerHTML = h;
-
+    /* 현재 페이지 저장 */
     if (dt) dt.currentPage = currentPage;
   }
 
@@ -1455,11 +1452,11 @@ function _dtExport(id) {
 function _dtPage(id, page) {
   var dt = window['_dt_' + id]; if (!dt) return;
   dt.currentPage = page;
-
+  /* 재검색 적용 */
   var searchEl = document.getElementById(id + '-search');
   var q = (searchEl ? searchEl.value : '').toLowerCase();
   var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return (cell || '').toString().replace(/<[^>]+>/g, '').toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
-
+  /* 정렬 적용 */
   if (dt.sortCol >= 0) {
     filtered = filtered.slice().sort(function(a, b) {
       var va = (a[dt.sortCol] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
@@ -1480,10 +1477,10 @@ async function fetchWithRetry(fn, retries) {
   }
 }
 
-
+/* ═══ DEBUG FLAG (I2) ═══ */
 var _DEBUG = localStorage.getItem('pcv-debug') === 'true';
 
-
+/* ═══ SAFE ASYNC WRAPPER (I1) ═══ */
 function safeAsync(fn, fallbackMsg) {
   return async function() {
     try { return await fn.apply(this, arguments); }
@@ -1494,7 +1491,7 @@ function safeAsync(fn, fallbackMsg) {
   };
 }
 
-
+/* ═══ FAVORITES ═══ */
 function getFavorites() {
   try { return JSON.parse(localStorage.getItem('pcv-favorites') || '[]'); } catch(e) { return []; }
 }
@@ -1507,7 +1504,7 @@ function toggleFavorite(name) {
 }
 function isFavorite(name) { return getFavorites().includes(name); }
 
-
+/* ═══ POPOUT EVENT LOG ═══ */
 function popoutEventLog() {
   const w = window.open('', 'pcv-event-log', 'width=700,height=500,menubar=no,toolbar=no,location=no,status=no');
   if (!w) { toast(t('msg.popup_blocked'), false); return; }
@@ -1529,7 +1526,7 @@ function popoutEventLog() {
   _syncPopoutLog();
 }
 
-
+/* ═══ 모달 포커스 트랩 (접근성, FE-5: 셀렉터 수정) ═══ */
 document.addEventListener('keydown', function(e) {
   var modal = document.querySelector('#mbg:not(.hidden)');
   if (!modal || e.key !== 'Tab') return;
@@ -1543,17 +1540,17 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
+/* ═══ 빈 상태 헬퍼 ═══ */
 function emptyState(icon, msg) {
   return '<div class="empty-state" style="padding:40px;text-align:center" role="status">'
     + '<div style="font-size:42px;opacity:.4">' + icon + '</div>'
     + '<div class="color-muted mt-8">' + msg + '</div></div>';
 }
 
-
+/* ═══ 비동기 작업 로딩 래퍼 (#1/#3 더블클릭 dedup) ═══ */
 async function withSpinner(btn, asyncFn) {
   if (!btn) { await asyncFn(); return; }
-
+  /* #3 진행 중 재진입 차단 */
   if (btn.dataset.pcvBusy === '1') return;
   btn.dataset.pcvBusy = '1';
   btn.classList.add('is-loading');
@@ -1572,9 +1569,9 @@ async function withSpinner(btn, asyncFn) {
   }
 }
 
-
+/* ═══ 빈 상태 컴포넌트 강화 (#16) ═══ */
 function emptyStatePro(opts) {
-
+  /* opts: { icon, title, desc, ctaLabel, ctaAction } */
   var i = opts.icon || '&#128230;';
   var t = escapeHtml(opts.title || 'No items');
   var d = escapeHtml(opts.desc || '');
@@ -1587,13 +1584,13 @@ function emptyStatePro(opts) {
     '<div class="empty-desc">' + d + '</div>' + btn + '</div>';
 }
 
-
+/* ═══ 색맹 보조 상태 배지 (#18) ═══ */
 function statusBadge(text, kind) {
-
+  /* kind: 'ok' | 'warn' | 'err' | 'off' */
   return '<span class="status-badge s-' + (kind || 'off') + '">' + escapeHtml(text) + '</span>';
 }
 
-
+/* ═══ 사이드바 키보드 활성화 (FE-5: Enter/Space로 클릭) ═══ */
 document.addEventListener('keydown', function(e) {
   if (e.key === 'Enter' || e.key === ' ') {
     var tgt = e.target;
@@ -1604,7 +1601,7 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
+/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══ */
 PCV.ui = {
   escapeHtml: escapeHtml,
   escapeAttr: escapeAttr,
@@ -1637,7 +1634,7 @@ PCV.ui = {
   _modalStack: _modalStack
 };
 
-
+/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.H = H;
 window.escapeHtml = escapeHtml;
 window.esc = esc;
@@ -1675,993 +1672,25 @@ window.statusBadge = statusBadge;
 window.withSpinner = withSpinner;
 
 })(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-window.PCV = window.PCV || {};
-(function (PCV) {
-  'use strict';
-
-
-  var _toastQueue = [];
-  var _toastShown = false;
-  var _toastDedup = {};
-  function showToastQueued(msg, ok) {
-    if (!msg) return;
-    var key = (ok === false ? 'E:' : 'I:') + msg;
-
-    if (_toastDedup[key]) {
-      _toastDedup[key].count++;
-      return;
-    }
-    _toastDedup[key] = { count: 1, ts: Date.now() };
-    _toastQueue.push({ msg: msg, ok: ok, key: key });
-    setTimeout(function () { delete _toastDedup[key]; }, 1500);
-    _drainToasts();
-  }
-  function _drainToasts() {
-    if (_toastShown || !_toastQueue.length) return;
-    _toastShown = true;
-    var t = _toastQueue.shift();
-    var entry = _toastDedup[t.key];
-    var label = (entry && entry.count > 1) ? (t.msg + ' (×' + entry.count + ')') : t.msg;
-    if (typeof toast === 'function') toast(label, t.ok);
-    setTimeout(function () { _toastShown = false; _drainToasts(); }, 1800);
-  }
-  window.showToastQueued = showToastQueued;
-
-
-
-  var _errCounters = {};
-  function reportError(scope, err) {
-    var key = scope + ':' + (err && err.message || String(err));
-    _errCounters[key] = (_errCounters[key] || 0) + 1;
-    setTimeout(function () { _errCounters[key] = Math.max(0, (_errCounters[key] || 0) - 1); }, 30000);
-    if (_errCounters[key] >= 3) {
-      showToastQueued(scope + ' 반복 오류: ' + (err && err.message || err), false);
-      _errCounters[key] = 0;
-    }
-
-    if (typeof addEvt === 'function') {
-      try { addEvt('[' + scope + '] ' + (err && err.message || err)); } catch (_) {}
-    }
-  }
-  window.reportError = reportError;
-
-
-  var _pending = {};
-  function dedupRequest(key, promiseFactory) {
-    if (_pending[key]) return _pending[key];
-    var p = Promise.resolve().then(promiseFactory);
-    _pending[key] = p;
-    p.finally(function () { delete _pending[key]; });
-    return p;
-  }
-  window.dedupRequest = dedupRequest;
-
-
-  var _cache = {};
-  function cachedFetch(key, ttlMs, fetcher) {
-    var now = Date.now();
-    var hit = _cache[key];
-    if (hit && (now - hit.ts) < ttlMs) return Promise.resolve(hit.data);
-    return dedupRequest('cache:' + key, function () {
-      return fetcher().then(function (data) {
-        _cache[key] = { data: data, ts: Date.now() };
-        return data;
-      });
-    });
-  }
-  function invalidateCache(prefix) {
-    if (!prefix) { _cache = {}; return; }
-    Object.keys(_cache).forEach(function (k) {
-      if (k.indexOf(prefix) === 0) delete _cache[k];
-    });
-  }
-  window.cachedFetch = cachedFetch;
-  window.invalidateCache = invalidateCache;
-
-
-  function debounce(fn, ms) {
-    var t = null;
-    return function () {
-      var args = arguments, ctx = this;
-      clearTimeout(t);
-      t = setTimeout(function () { fn.apply(ctx, args); }, ms);
-    };
-  }
-  function throttle(fn, ms) {
-    var last = 0, pending = null;
-    return function () {
-      var args = arguments, ctx = this, now = Date.now();
-      if (now - last >= ms) { last = now; fn.apply(ctx, args); }
-      else { clearTimeout(pending); pending = setTimeout(function () { last = Date.now(); fn.apply(ctx, args); }, ms - (now - last)); }
-    };
-  }
-  window.pcvDebounce = debounce;
-  window.pcvThrottle = throttle;
-
-
-  var _modalEscBound = false;
-  function bindGlobalModalEsc() {
-    if (_modalEscBound) return;
-    _modalEscBound = true;
-    document.addEventListener('keydown', function (e) {
-      if (e.key !== 'Escape') return;
-
-      if (window.Modal && Modal._isOpen && Modal._isOpen()) { Modal.close(); return; }
-      var m = document.getElementById('modal-bg');
-      if (m && m.style.display !== 'none' && typeof closeModal === 'function') closeModal();
-    });
-  }
-  window.bindGlobalModalEsc = bindGlobalModalEsc;
-
-
-  function destroyConfirm(opts) {
-
-    var title = opts.title || '삭제 확인';
-    var name = opts.name || '';
-    var warn = opts.warning || '이 작업은 되돌릴 수 없습니다.';
-    var html = '<h2 style="color:var(--red)">&#9888; ' + escapeHtml(title) + '</h2>' +
-      '<p class="color-yellow">' + escapeHtml(warn) + '</p>' +
-      '<p class="text-13">계속하려면 <code class="color-red">' + escapeHtml(name) + '</code> 을(를) 정확히 입력하세요:</p>' +
-      '<input id="dc-input" class="login-input" style="width:100%;margin:8px 0" autocomplete="off">' +
-      '<div id="dc-msg" class="text-xs color-red" style="min-height:18px"></div>' +
-      '<div style="text-align:right;margin-top:12px">' +
-      '<button class="btn" onclick="closeModal()">취소</button> ' +
-      '<button class="btn btn-r" id="dc-go">삭제</button></div>';
-    if (typeof showModal === 'function') showModal(html);
-    setTimeout(function () {
-      var i = document.getElementById('dc-input');
-      var b = document.getElementById('dc-go');
-      var m = document.getElementById('dc-msg');
-      if (!i || !b) return;
-      i.focus();
-      b.addEventListener('click', function () {
-        if (i.value !== name) {
-          if (m) m.textContent = '이름이 일치하지 않습니다';
-          i.style.borderColor = 'var(--red)';
-          return;
-        }
-        if (typeof closeModal === 'function') closeModal();
-        try { opts.onConfirm && opts.onConfirm(); } catch (e) { reportError('destroyConfirm', e); }
-      });
-      i.addEventListener('keydown', function (e) {
-        if (e.key === 'Enter') b.click();
-      });
-    }, 100);
-  }
-  window.destroyConfirm = destroyConfirm;
-
-
-
-  function applyRoleVisibility(role) {
-    var elements = document.querySelectorAll('[data-role]');
-    for (var i = 0; i < elements.length; i++) {
-      var el = elements[i];
-      var allowed = (el.getAttribute('data-role') || '').split(',').map(function (s) { return s.trim().toUpperCase(); });
-      if (allowed.indexOf(String(role || '').toUpperCase()) === -1) {
-        el.style.display = 'none';
-      } else {
-        el.style.display = '';
-      }
-    }
-  }
-  window.applyRoleVisibility = applyRoleVisibility;
-
-  function getUiEdition() {
-    return 'single';
-  }
-  function isMultiEdgeUI() {
-    return false;
-  }
-  function filterEditionItems(items) {
-    return (items || []).filter(function(item) {
-      return !item || !item.multiOnly || isMultiEdgeUI();
-    });
-  }
-  PCV.getUiEdition = getUiEdition;
-  PCV.isMultiEdgeUI = isMultiEdgeUI;
-  PCV.filterEditionItems = filterEditionItems;
-  window.getUiEdition = getUiEdition;
-
-
-  var _dirtyForms = new Set();
-  function markFormDirty(id) { _dirtyForms.add(id); }
-  function clearFormDirty(id) { _dirtyForms.delete(id); }
-  function clearAllFormDirty() { _dirtyForms.clear(); }
-  window.markFormDirty = markFormDirty;
-  window.clearFormDirty = clearFormDirty;
-  window.clearAllFormDirty = clearAllFormDirty;
-  window.addEventListener('beforeunload', function (e) {
-    if (_dirtyForms.size > 0) {
-      e.preventDefault();
-      e.returnValue = '';
-      return '';
-    }
-  });
-
-
-  window.addEventListener('pcv-theme-change', function () {
-    if (window.pcvCharts && typeof pcvCharts === 'object') {
-      Object.keys(pcvCharts).forEach(function (id) {
-        try { pcvCharts[id].destroy(); } catch (_) {}
-        delete pcvCharts[id];
-      });
-    }
-  });
-
-
-  if (document.readyState === 'loading') {
-    document.addEventListener('DOMContentLoaded', bindGlobalModalEsc);
-  } else {
-    bindGlobalModalEsc();
-  }
-
-
-  function formatNumber(n) {
-    if (n === null || n === undefined || isNaN(n)) return '-';
-    try { return Number(n).toLocaleString('ko-KR'); }
-    catch (_) { return String(n); }
-  }
-  function formatBytes(b, decimals) {
-    if (b === null || b === undefined || isNaN(b)) return '-';
-    var d = decimals === undefined ? 1 : decimals;
-    var n = Number(b);
-    if (n === 0) return '0 B';
-    var k = 1024, units = ['B', 'KB', 'MB', 'GB', 'TB', 'PB'];
-    var i = Math.min(units.length - 1, Math.floor(Math.log(Math.abs(n)) / Math.log(k)));
-    return (n / Math.pow(k, i)).toFixed(d) + ' ' + units[i];
-  }
-  function formatRelativeTime(ts) {
-    if (!ts) return '-';
-    var t = (typeof ts === 'number') ? ts : Date.parse(ts);
-    if (isNaN(t)) return String(ts);
-    var diff = Math.floor((Date.now() - t) / 1000);
-    if (diff < 0) diff = 0;
-    if (diff < 60)    return diff + '초 전';
-    if (diff < 3600)  return Math.floor(diff / 60) + '분 전';
-    if (diff < 86400) return Math.floor(diff / 3600) + '시간 전';
-    if (diff < 604800) return Math.floor(diff / 86400) + '일 전';
-    return new Date(t).toISOString().slice(0, 10);
-  }
-  window.formatNumber = formatNumber;
-  window.formatBytes = formatBytes;
-  window.formatRelativeTime = formatRelativeTime;
-
-
-  var _lastFailedAction = null;
-  function toastRetry(msg, action) {
-
-    _lastFailedAction = action;
-    if (typeof toast === 'function') toast(msg + '  [R]', false);
-
-    var handler = function (e) {
-      if (e.key === 'r' || e.key === 'R') {
-        document.removeEventListener('keydown', handler);
-        if (_lastFailedAction && typeof _lastFailedAction.fn === 'function') {
-          _lastFailedAction.fn();
-          _lastFailedAction = null;
-        }
-      }
-    };
-    document.addEventListener('keydown', handler);
-    setTimeout(function () { document.removeEventListener('keydown', handler); }, 5000);
-  }
-  window.toastRetry = toastRetry;
-
-
-  var _shortcuts = {};
-  function registerShortcut(combo, fn, label) {
-
-    _shortcuts[combo.toLowerCase()] = { fn: fn, label: label || '' };
-  }
-  function listShortcuts() { return _shortcuts; }
-  window.registerShortcut = registerShortcut;
-  window.listShortcuts = listShortcuts;
-  document.addEventListener('keydown', function (e) {
-
-    var t = e.target;
-    if (t && (t.tagName === 'INPUT' || t.tagName === 'TEXTAREA' || t.isContentEditable)) return;
-    var key = '';
-    if (e.ctrlKey)  key += 'ctrl+';
-    if (e.altKey)   key += 'alt+';
-    if (e.shiftKey && e.key.length > 1) key += 'shift+';
-    key += e.key.toLowerCase();
-    var sc = _shortcuts[key];
-    if (sc && typeof sc.fn === 'function') {
-      e.preventDefault();
-      sc.fn();
-    }
-  });
-
-
-  function showCtxMenu(ev, items) {
-
-    if (ev && ev.preventDefault) ev.preventDefault();
-    var existing = document.getElementById('pcv-ctx-menu');
-    if (existing) existing.remove();
-    var m = document.createElement('div');
-    m.id = 'pcv-ctx-menu';
-    m.style.cssText = 'position:fixed;z-index:99999;background:var(--bg2,#1a1a2e);border:1px solid var(--border,#333);border-radius:4px;box-shadow:0 4px 12px rgba(0,0,0,0.6);padding:4px 0;min-width:160px;font-size:12px';
-    items.forEach(function (it) {
-      var row = document.createElement('div');
-      row.style.cssText = 'padding:8px 14px;cursor:pointer;color:var(--fg,#ccc);white-space:nowrap';
-      row.innerHTML = it.label;
-      row.addEventListener('mouseenter', function(){ row.style.background = 'rgba(0,240,255,0.08)'; });
-      row.addEventListener('mouseleave', function(){ row.style.background = ''; });
-      row.addEventListener('click', function () {
-        m.remove();
-        if (typeof it.fn === 'function') {
-          try { it.fn(); } catch (e) { reportError('ctx-menu', e); }
-        }
-      });
-      m.appendChild(row);
-    });
-    document.body.appendChild(m);
-    var x = ev.clientX, y = ev.clientY;
-
-    var rect = m.getBoundingClientRect();
-    if (x + rect.width > window.innerWidth) x = window.innerWidth - rect.width - 8;
-    if (y + rect.height > window.innerHeight) y = window.innerHeight - rect.height - 8;
-    m.style.left = x + 'px';
-    m.style.top = y + 'px';
-    var close = function (e) {
-      if (!m.contains(e.target)) {
-        m.remove();
-        document.removeEventListener('click', close);
-        document.removeEventListener('keydown', escClose);
-      }
-    };
-    var escClose = function (e) {
-      if (e.key === 'Escape') {
-        m.remove();
-        document.removeEventListener('click', close);
-        document.removeEventListener('keydown', escClose);
-      }
-    };
-    setTimeout(function () {
-      document.addEventListener('click', close);
-      document.addEventListener('keydown', escClose);
-    }, 0);
-  }
-  window.showCtxMenu = showCtxMenu;
-
-
-  function setPageTitle(name) {
-    document.title = name ? ('PureCVisor — ' + name) : 'PureCVisor';
-  }
-  window.setPageTitle = setPageTitle;
-
-
-  function renderBreadcrumbs(items) {
-
-    var el = document.getElementById('breadcrumbs');
-    if (!el) return;
-    if (!items || items.length === 0) { el.innerHTML = ''; return; }
-    var h = items.map(function (it, i) {
-      var last = i === items.length - 1;
-      var name = (typeof escapeHtml === 'function') ? escapeHtml(it.label) : it.label;
-      if (last) return '<span class="bc-item bc-active">' + name + '</span>';
-      if (it.page) return '<a class="bc-item" href="#/' + it.page + '" onclick="navigateTo(\'' + it.page + '\');return false">' + name + '</a><span class="bc-sep">›</span>';
-      return '<span class="bc-item">' + name + '</span><span class="bc-sep">›</span>';
-    }).join('');
-    el.innerHTML = h;
-  }
-  window.renderBreadcrumbs = renderBreadcrumbs;
-
-
-
-  function parseHash() {
-    var h = (location.hash || '').replace(/^#\/?/, '');
-    if (!h) return { page: null, id: null };
-    var parts = h.split('/');
-    return { page: parts[0] || null, id: parts[1] || null };
-  }
-  function navigateToHash() {
-    var p = parseHash();
-    if (!p.page) return;
-    if (typeof navigateTo === 'function') {
-      try { navigateTo(p.page); } catch (e) {}
-    }
-    if (p.id && typeof window.openResourceById === 'function') {
-      setTimeout(function () { window.openResourceById(p.page, p.id); }, 200);
-    }
-  }
-  function setHashRoute(page, id) {
-    var h = '#/' + page + (id ? '/' + encodeURIComponent(id) : '');
-    if (location.hash !== h) {
-      try { history.replaceState(null, '', h); } catch (_) { location.hash = h; }
-    }
-  }
-  window.parseHashRoute = parseHash;
-  window.navigateToHash = navigateToHash;
-  window.setHashRoute = setHashRoute;
-  window.addEventListener('hashchange', navigateToHash);
-
-
-
-  PCV.uxlib = {
-    showToastQueued: showToastQueued,
-    reportError: reportError,
-    dedupRequest: dedupRequest,
-    cachedFetch: cachedFetch,
-    invalidateCache: invalidateCache,
-    debounce: debounce,
-    throttle: throttle,
-    bindGlobalModalEsc: bindGlobalModalEsc,
-    destroyConfirm: destroyConfirm,
-    applyRoleVisibility: applyRoleVisibility,
-    markFormDirty: markFormDirty,
-    clearFormDirty: clearFormDirty,
-    clearAllFormDirty: clearAllFormDirty,
-    formatNumber: formatNumber,
-    formatBytes: formatBytes,
-    formatRelativeTime: formatRelativeTime,
-    toastRetry: toastRetry,
-    registerShortcut: registerShortcut,
-    listShortcuts: listShortcuts,
-    showCtxMenu: showCtxMenu,
-    setPageTitle: setPageTitle,
-    renderBreadcrumbs: renderBreadcrumbs,
-    parseHashRoute: parseHash,
-    navigateToHash: navigateToHash,
-    setHashRoute: setHashRoute
-  };
-})(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-window.PCV = window.PCV || {};
-(function(PCV) {
-  var overlay = null;
-  var prevFocus = null;
-  var currentOpts = null;
-
-  function _t(key, fallback) {
-    if (typeof t === 'function') {
-      var val = t(key);
-      if (val != null && val !== '') return val;
-    }
-    return fallback || key;
-  }
-
-  function _ensureOverlay() {
-    if (overlay) return overlay;
-    overlay = document.createElement('div');
-    overlay.id = 'pcv-modal-overlay';
-    overlay.setAttribute('role', 'dialog');
-    overlay.setAttribute('aria-modal', 'true');
-    overlay.style.cssText =
-      'display:none;position:fixed;inset:0;background:rgba(0,0,0,0.7);' +
-      'z-index:10000;align-items:center;justify-content:center;backdrop-filter:blur(4px)';
-    overlay.addEventListener('click', function(e) {
-      if (e.target === overlay) Modal.close();
-    });
-    document.body.appendChild(overlay);
-
-    document.addEventListener('keydown', function(e) {
-      if (overlay.style.display !== 'flex') return;
-      if (e.key === 'Escape') { Modal.close(); }
-      if (e.key === 'Tab') { _trapFocus(e); }
-    });
-    return overlay;
-  }
-
-  function _trapFocus(e) {
-    var focusables = overlay.querySelectorAll(
-      'input,button,select,textarea,a[href],[tabindex]:not([tabindex="-1"])'
-    );
-    if (focusables.length === 0) return;
-    var first = focusables[0], last = focusables[focusables.length - 1];
-    if (e.shiftKey && document.activeElement === first) {
-      e.preventDefault(); last.focus();
-    } else if (!e.shiftKey && document.activeElement === last) {
-      e.preventDefault(); first.focus();
-    }
-  }
-
-  function _esc(s) {
-    return String(s == null ? '' : s)
-      .replace(/&/g, '&amp;').replace(/</g, '&lt;')
-      .replace(/>/g, '&gt;').replace(/"/g, '&quot;');
-  }
-
-  var Modal = {
-    show: function(opts) {
-      currentOpts = opts || {};
-      _ensureOverlay();
-      prevFocus = document.activeElement;
-
-      var width = (opts.width || 360) + 'px';
-      var actionsHtml = '';
-      if (opts.actions && opts.actions.length) {
-        actionsHtml = '<div style="display:flex;gap:8px;justify-content:flex-end;margin-top:16px">';
-        opts.actions.forEach(function(a, i) {
-          var bg = a.primary ? '' :
-                   a.danger  ? 'background:var(--red);color:#fff' :
-                              'background:var(--bg3)';
-          var cls = a.primary ? 'btn login-btn' : a.danger ? 'btn btn-r' : 'btn';
-          actionsHtml += '<button class="' + cls + '" data-pcv-action="' + i + '" ' +
-                         'style="margin:0;' + bg + '">' + _esc(a.label) + '</button>';
-        });
-        actionsHtml += '</div>';
-      }
-
-      var bodyHtml = (typeof opts.body === 'string') ? opts.body : '';
-
-      overlay.innerHTML =
-        '<div role="document" style="background:var(--bg2);border:1px solid var(--accent);' +
-        'border-radius:8px;padding:24px;min-width:' + width + ';max-width:90vw;' +
-        'box-shadow:0 0 24px rgba(0,240,255,0.2);color:var(--fg)">' +
-          '<div style="font-size:18px;font-weight:bold;color:var(--accent);' +
-          'margin-bottom:16px;display:flex;justify-content:space-between;align-items:center">' +
-            '<span>' + _esc(opts.title || '') + '</span>' +
-            '<button id="pcv-modal-close-x" aria-label="Close" ' +
-            'style="background:none;border:none;color:var(--fg2);font-size:20px;cursor:pointer;padding:0 4px">&times;</button>' +
-          '</div>' +
-          '<div id="pcv-modal-body">' + bodyHtml + '</div>' +
-          actionsHtml +
-        '</div>';
-
-
-      if (opts.body && typeof opts.body !== 'string' && opts.body.nodeType) {
-        var bodyEl = overlay.querySelector('#pcv-modal-body');
-        bodyEl.innerHTML = '';
-        bodyEl.appendChild(opts.body);
-      }
-
-
-      overlay.querySelector('#pcv-modal-close-x').addEventListener('click', Modal.close);
-
-
-      if (opts.actions) {
-        var btns = overlay.querySelectorAll('[data-pcv-action]');
-        btns.forEach(function(btn) {
-          btn.addEventListener('click', function() {
-            var idx = parseInt(btn.getAttribute('data-pcv-action'), 10);
-            var a = opts.actions[idx];
-            if (a && typeof a.onClick === 'function') {
-              var keep = a.onClick();
-              if (keep !== false) Modal.close();
-            } else {
-              Modal.close();
-            }
-          });
-        });
-      }
-
-      overlay.style.display = 'flex';
-
-      setTimeout(function() {
-        var first = overlay.querySelector('input,select,textarea,button[data-pcv-action]');
-        if (first) first.focus();
-      }, 50);
-    },
-
-    close: function() {
-      if (!overlay) return;
-      overlay.style.display = 'none';
-      overlay.innerHTML = '';
-      if (currentOpts && typeof currentOpts.onClose === 'function') {
-        try { currentOpts.onClose(); } catch (e) {}
-      }
-      currentOpts = null;
-      if (prevFocus && prevFocus.focus) { try { prevFocus.focus(); } catch (e) {} }
-    },
-
-    setMessage: function(text, type) {
-      var el = overlay && overlay.querySelector('#pcv-modal-msg');
-      if (!el) return;
-      el.textContent = text || '';
-      el.className = 'text-sm';
-      if (type === 'error') el.style.color = 'var(--red)';
-      else if (type === 'success') el.style.color = 'var(--accent)';
-      else el.style.color = '';
-    },
-
-
-    showRegister: function() {
-      var body =
-        '<div style="margin-bottom:12px"><input id="pcv-reg-user" class="login-input" ' +
-        'placeholder="' + _t('register.user_ph', 'Username (3-32, a-z 0-9 _)') + '" ' +
-        'autocomplete="username" style="width:100%"></div>' +
-        '<div style="margin-bottom:12px"><input id="pcv-reg-pass" type="password" class="login-input" ' +
-        'placeholder="' + _t('register.pass_ph', 'Password (8자 이상)') + '" ' +
-        'autocomplete="new-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:16px"><input id="pcv-reg-pass2" type="password" class="login-input" ' +
-        'placeholder="' + _t('register.pass2_ph', 'Password 확인') + '" ' +
-        'autocomplete="new-password" style="width:100%"></div>' +
-        '<div id="pcv-modal-msg" class="text-sm" style="min-height:18px" role="alert" aria-live="assertive"></div>' +
-        '<div class="text-xs color-muted mt-12" style="text-align:center">' +
-        _t('register.note', '가입 후 기본 권한: VIEWER (조회 전용). 관리자가 권한 승격 가능.') + '</div>';
-
-      Modal.show({
-        title: _t('register.title', '회원가입'),
-        body: body,
-        width: 360,
-        actions: [
-          { label: _t('btn.cancel', '취소') },
-          { label: _t('btn.register', '가입'), primary: true, onClick: function() {
-            var u = document.getElementById('pcv-reg-user').value.trim();
-            var p = document.getElementById('pcv-reg-pass').value;
-            var p2 = document.getElementById('pcv-reg-pass2').value;
-            if (!/^[a-z0-9_]{3,32}$/.test(u)) { Modal.setMessage(_t('register.err_user', '사용자명은 3-32자 (a-z, 0-9, _)'), 'error'); return false; }
-            if (p.length < 8) { Modal.setMessage(_t('register.err_pass', '비밀번호는 8자 이상'), 'error'); return false; }
-            if (p !== p2) { Modal.setMessage(_t('register.err_match', '비밀번호 확인이 일치하지 않습니다'), 'error'); return false; }
-            if (u === p) { Modal.setMessage(_t('register.err_same', '비밀번호는 사용자명과 달라야 합니다'), 'error'); return false; }
-            Modal.setMessage(_t('msg.processing', '처리 중...'));
-            fetch(EP.AUTH_REGISTER(), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json' },
-              body: JSON.stringify({ username: u, password: p })
-            }).then(function(r) { return r.json().then(function(d) { return { status: r.status, body: d }; }); })
-              .then(function(res) {
-                if (res.status === 201) {
-                  Modal.setMessage(_t('register.ok', '가입 성공! 로그인 화면으로 돌아갑니다.'), 'success');
-                  setTimeout(function() {
-                    Modal.close();
-                    var lu = document.getElementById('login-user');
-                    var lp = document.getElementById('login-pass');
-                    if (lu) lu.value = u;
-                    if (lp) lp.focus();
-                  }, 1200);
-                } else {
-                  var em = (res.body && res.body.error && res.body.error.message) || ('HTTP ' + res.status);
-                  if (res.status === 403) em = _t('register.err_disabled', '회원가입이 비활성화되어 있습니다 (관리자에게 문의)');
-                  Modal.setMessage(em, 'error');
-                }
-              })
-              .catch(function(e) { Modal.setMessage((_t('msg.network_err', '네트워크 오류') + ': ' + e.message), 'error'); });
-            return false;
-          }}
-        ]
-      });
-    },
-
-
-    showChangePassword: function() {
-      var body =
-        '<div style="margin-bottom:12px"><input id="pcv-cp-old" type="password" class="login-input" ' +
-        'placeholder="' + _t('changepw.old_ph', '현재 비밀번호') + '" ' +
-        'autocomplete="current-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:12px"><input id="pcv-cp-new" type="password" class="login-input" ' +
-        'placeholder="' + _t('changepw.new_ph', '새 비밀번호 (8자 이상)') + '" ' +
-        'autocomplete="new-password" style="width:100%"></div>' +
-        '<div style="margin-bottom:16px"><input id="pcv-cp-new2" type="password" class="login-input" ' +
-        'placeholder="' + _t('changepw.new2_ph', '새 비밀번호 확인') + '" ' +
-        'autocomplete="new-password" style="width:100%"></div>' +
-        '<div id="pcv-modal-msg" class="text-sm" style="min-height:18px" role="alert" aria-live="assertive"></div>' +
-        '<div class="text-xs color-muted mt-12" style="text-align:center">' +
-        _t('changepw.note', '변경 후 다른 디바이스의 모든 세션이 자동 로그아웃됩니다.') + '</div>';
-
-      Modal.show({
-        title: '\uD83D\uDD12 ' + _t('changepw.title', '비밀번호 변경'),
-        body: body,
-        width: 360,
-        actions: [
-          { label: _t('btn.cancel', '취소') },
-          { label: _t('btn.change', '변경'), primary: true, onClick: function() {
-            var op = document.getElementById('pcv-cp-old').value;
-            var np = document.getElementById('pcv-cp-new').value;
-            var np2 = document.getElementById('pcv-cp-new2').value;
-            if (!op) { Modal.setMessage(_t('changepw.err_old', '현재 비밀번호를 입력하세요'), 'error'); return false; }
-            if (np.length < 8) { Modal.setMessage(_t('changepw.err_short', '새 비밀번호는 8자 이상'), 'error'); return false; }
-            if (np !== np2) { Modal.setMessage(_t('changepw.err_match', '새 비밀번호 확인이 일치하지 않습니다'), 'error'); return false; }
-            if (op === np) { Modal.setMessage(_t('changepw.err_same', '새 비밀번호는 현재와 달라야 합니다'), 'error'); return false; }
-            Modal.setMessage(_t('msg.processing', '처리 중...'));
-            var token = sessionStorage.getItem('pcv_token') || sessionStorage.getItem('access_token') || '';
-            fetch(EP.AUTH_PASSWORD(), {
-              method: 'POST',
-              headers: { 'Content-Type': 'application/json', 'Authorization': 'Bearer ' + token },
-              body: JSON.stringify({ old_password: op, new_password: np })
-            }).then(function(r) { return r.json().then(function(d) { return { status: r.status, body: d }; }); })
-              .then(function(res) {
-                if (res.status === 200) {
-                  Modal.setMessage(_t('changepw.ok', '변경 완료. 3초 후 다시 로그인합니다.'), 'success');
-                  setTimeout(function() { sessionStorage.clear(); location.reload(); }, 3000);
-                } else {
-                  var em = (res.body && res.body.error && res.body.error.message) || ('HTTP ' + res.status);
-                  Modal.setMessage(em, 'error');
-                }
-              })
-              .catch(function(e) { Modal.setMessage(_t('msg.network_err', '네트워크 오류') + ': ' + e.message, 'error'); });
-            return false;
-          }}
-        ]
-      });
-    }
-  };
-
-
-  PCV.modal = Modal;
-
-
-  window.Modal = Modal;
-  window.showRegisterModal = function() { Modal.showRegister(); };
-  window.showChangePwModal = function() { Modal.showChangePassword(); };
-})(window.PCV);
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/monitor.js
+   Monitoring, Alerts, Audit, GPU, Host renderers
+   ADR-0013: IIFE module scope — PCV.monitor namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Monitoring is the highest-churn UI module: it parses Prometheus text,
+ * maintains Chart.js instances across innerHTML replacement, and renders both
+ * Single Edge local metrics and legacy multi-node shaped data. Helper comments
+ * below mark the ownership boundaries that keep those concerns separate.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-var pcvCharts = {};
-window.pcvCharts = pcvCharts;
-
-
-var PCV_CHART_COLORS = [
-  '#00f0ff', '#00ff88', '#ff00aa', '#ffee00',
-  '#ff6600', '#a78bfa', '#22d3ee', '#f472b6'
-];
-
-function pcvChartTheme() {
-
-  var s = getComputedStyle(document.documentElement);
-  return {
-    fg: (s.getPropertyValue('--fg') || '#e0f0ff').trim(),
-    fg2: (s.getPropertyValue('--fg2') || '#5a6a8a').trim(),
-    border: (s.getPropertyValue('--border') || '#1a1a3a').trim(),
-    bg2: (s.getPropertyValue('--bg2') || '#0a0a14').trim()
-  };
-}
-
-
-
-
-function pcvDestroyChart(id) {
-  if (pcvCharts[id]) {
-    try { pcvCharts[id].destroy(); } catch (e) {}
-    delete pcvCharts[id];
-  }
-}
-window.pcvDestroyChart = pcvDestroyChart;
-
-
-
-
-
-
-
-
-
-function pcvTimeSeries(canvasId, series, opts) {
-  if (typeof Chart === 'undefined') return;
-  var el = document.getElementById(canvasId);
-  if (!el) return;
-  opts = opts || {};
-  var theme = pcvChartTheme();
-  var maxLen = Math.max.apply(null, series.map(function(s){return s.data.length;}).concat([1]));
-  var labels = [];
-  for (var i = 0; i < maxLen; i++) {
-    var ago = (maxLen - 1 - i) * 5;
-    labels.push(ago === 0 ? 'now' : '-' + ago + 's');
-  }
-
-  var datasets = series.map(function(s, idx) {
-    var c = s.color || PCV_CHART_COLORS[idx % PCV_CHART_COLORS.length];
-
-    var pr = s.data.length <= 2 ? 3 : 0;
-    return {
-      label: s.label,
-      data: s.data,
-      borderColor: c,
-      backgroundColor: opts.fill ? c + '33' : 'transparent',
-      borderWidth: 2,
-      pointRadius: pr,
-      pointHoverRadius: 4,
-      tension: 0.3,
-      fill: !!opts.fill
-    };
-  });
-
-
-  if (pcvCharts[canvasId]) {
-    var ch = pcvCharts[canvasId];
-    if (ch.canvas && document.body.contains(ch.canvas) && ch.canvas === el) {
-      ch.data.labels = labels;
-
-      ch.data.datasets = datasets;
-      ch.update('none');
-      return ch;
-    }
-
-    try { ch.destroy(); } catch (e) {}
-    delete pcvCharts[canvasId];
-  }
-
-  if (opts.height) el.style.height = opts.height + 'px';
-
-  var config = {
-    type: 'line',
-    data: { labels: labels, datasets: datasets },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 0 },
-      interaction: { mode: 'index', intersect: false },
-      plugins: {
-        legend: {
-          display: series.length > 1,
-          position: 'top',
-          align: 'end',
-          labels: { color: theme.fg, font: { size: 10 }, boxWidth: 10, padding: 8 }
-        },
-        title: opts.title ? {
-          display: true, text: opts.title, color: theme.fg,
-          font: { size: 12, weight: 'bold' }, padding: { bottom: 8 }
-        } : { display: false },
-        tooltip: {
-          backgroundColor: theme.bg2,
-          titleColor: theme.fg,
-          bodyColor: theme.fg,
-          borderColor: theme.border,
-          borderWidth: 1,
-          callbacks: {
-            label: function(ctx) {
-              return ctx.dataset.label + ': ' + ctx.parsed.y.toFixed(1) + (opts.unit || '');
-            }
-          }
-        }
-      },
-      scales: {
-        x: {
-          grid: { color: theme.border, drawBorder: false },
-          ticks: { color: theme.fg2, font: { size: 9 }, maxTicksLimit: 6 }
-        },
-        y: {
-          grid: { color: theme.border, drawBorder: false },
-          ticks: {
-            color: theme.fg2,
-            font: { size: 9 },
-            callback: function(v) { return v + (opts.unit || ''); }
-          },
-          min: 0,
-          max: opts.max || undefined
-        }
-      }
-    }
-  };
-
-  pcvCharts[canvasId] = new Chart(el, config);
-  return pcvCharts[canvasId];
-}
-window.pcvTimeSeries = pcvTimeSeries;
-
-
-
-
-
-function pcvDoughnut(canvasId, value, max, opts) {
-  if (typeof Chart === 'undefined') return;
-  var el = document.getElementById(canvasId);
-  if (!el) return;
-  opts = opts || {};
-  var theme = pcvChartTheme();
-  var pct = Math.min(100, Math.max(0, (value / max) * 100));
-  var color = opts.color ||
-    (pct > 90 ? '#ff2266' : pct > 75 ? '#ffee00' : '#00ff88');
-
-  if (pcvCharts[canvasId]) {
-    var ch = pcvCharts[canvasId];
-    ch.data.datasets[0].data = [value, Math.max(0, max - value)];
-    ch.data.datasets[0].backgroundColor[0] = color;
-    ch.update('none');
-    return ch;
-  }
-
-  if (opts.height) el.style.height = opts.height + 'px';
-
-  pcvCharts[canvasId] = new Chart(el, {
-    type: 'doughnut',
-    data: {
-      datasets: [{
-        data: [value, Math.max(0, max - value)],
-        backgroundColor: [color, theme.border],
-        borderWidth: 0,
-        cutout: '75%'
-      }]
-    },
-    options: {
-      responsive: true,
-      maintainAspectRatio: false,
-      animation: { duration: 300 },
-      plugins: { legend: { display: false }, tooltip: { enabled: false } }
-    }
-  });
-  return pcvCharts[canvasId];
-}
-window.pcvDoughnut = pcvDoughnut;
-
-
-
-
-
-function pcvDestroyAllInContainer(parentEl) {
-  Object.keys(pcvCharts).forEach(function(id) {
-    var el = document.getElementById(id);
-    if (!el || (parentEl && !parentEl.contains(el))) {
-      pcvDestroyChart(id);
-    }
-  });
-}
-window.pcvDestroyAllInContainer = pcvDestroyAllInContainer;
-
-
-PCV.charts = {
-  instances: pcvCharts,
-  colors: PCV_CHART_COLORS,
-  theme: pcvChartTheme,
-  destroy: pcvDestroyChart,
-  timeSeries: pcvTimeSeries,
-  doughnut: pcvDoughnut,
-  destroyAllInContainer: pcvDestroyAllInContainer
-};
-})(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-window.PCV = window.PCV || {};
-(function(PCV) {
-
-
+/* ═══ CHART.JS REGISTRY ═══ */
 var chartRegistry = {};
 window.chartRegistry = chartRegistry;
 
-
+/* Destroy all Chart.js instances — call before innerHTML replacement */
 function destroyAllCharts() {
   for (const id of Object.keys(chartRegistry)) {
     try { chartRegistry[id].destroy(); } catch (e) { if(_DEBUG) console.warn('destroyAllCharts:', e.message); }
@@ -2673,7 +1702,7 @@ window.destroyAllCharts = destroyAllCharts;
 function createLineChart(canvasId, data, label, color) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-
+  /* If registry has a stale entry (canvas replaced by innerHTML), destroy it */
   if (chartRegistry[canvasId]) {
     if (chartRegistry[canvasId].canvas === canvas) {
       const chart = chartRegistry[canvasId];
@@ -2682,7 +1711,7 @@ function createLineChart(canvasId, data, label, color) {
       chart.update('none');
       return;
     }
-
+    /* Stale — canvas was replaced */
     try { chartRegistry[canvasId].destroy(); } catch (e) { if(_DEBUG) console.warn('createLineChart:', e.message); }
     delete chartRegistry[canvasId];
   }
@@ -2741,14 +1770,14 @@ function drawGraphFallback(id, data, color) {
 }
 window.drawGraphFallback = drawGraphFallback;
 
-
+/* ═══ CHART COLOR ═══ */
 function getChartColor(name) {
   try { return getComputedStyle(document.documentElement).getPropertyValue('--chart-' + name).trim() || name; }
   catch(e) { return name; }
 }
 window.getChartColor = getChartColor;
 
-
+/* ═══ MONITORING CONSTANTS (R-9: cluster.js에�� 동적 로드된 노드 사용) ═══ */
 var _PROD_NODES = window._PROD_NODES || [{ name: 'Local', ip: window.location.hostname || '127.0.0.1' }];
 var _VIP = window._VIP || null;
 var _curHost = window._curHost || window.location.hostname;
@@ -2757,7 +1786,7 @@ window._isProd = _isProd;
 window._curHost = _curHost;
 var MON_NODES = _PROD_NODES;
 window.MON_NODES = MON_NODES;
-
+/* cluster.js의 _loadClusterNodes() 완료 후 MON_NODES 갱신 */
 async function _refreshMonNodes() {
   if (window._loadClusterNodes) await window._loadClusterNodes();
   _PROD_NODES = window._PROD_NODES || _PROD_NODES;
@@ -2821,7 +1850,7 @@ async function _fetchMetricsText(url) {
   return r.text();
 }
 
-
+/* G-2: Promise.all parallel fetch */
 async function fetchAllMetrics() {
   const all = await Promise.all(MON_NODES.map(async (nd) => {
     try {
@@ -2897,7 +1926,7 @@ async function fetchAllMetrics() {
 }
 window.fetchAllMetrics = fetchAllMetrics;
 
-
+/* ═══ FORMATTERS ═══ */
 function fmtBytes(b) { if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB'; if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'; if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'; if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB'; return b + ' B'; }
 window.fmtBytes = fmtBytes;
 
@@ -2907,7 +1936,7 @@ window.fmtRate = fmtRate;
 function fmtUptime(s) { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mi = Math.floor(s % 3600 / 60); return d + 'd ' + h + 'h ' + mi + 'm'; }
 window.fmtUptime = fmtUptime;
 
-
+/* ═══ CANVAS DRAWING ═══ */
 function drawLine(id, data, color, unit, max) {
   const cv = document.getElementById(id); if (!cv) return;
   const x = cv.getContext('2d'); cv.width = cv.offsetWidth; cv.height = cv.offsetHeight;
@@ -2929,9 +1958,9 @@ function gauge(pct, label, color) {
 }
 window.gauge = gauge;
 
-
+/* ═══ MONITORING RENDER — G-2 Split into sub-functions ═══ */
 async function renderMonitoring(b, tab) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   b.innerHTML = showSkeleton();
@@ -2948,7 +1977,7 @@ async function renderMonitoring(b, tab) {
   else if (tab === 'vms') renderMonVms(b, allVms, running);
   else if (tab === 'storage') renderMonStorage(b, all, allVms, totalRam);
 
-
+  /* FE-4: 모니터링 페이지 열린 동안 자동 갱신 (10초) */
   if (typeof startAdaptivePolling === 'function') {
     startAdaptivePolling('mon-refresh', function() {
       if (window.currentTab && window.currentTab.startsWith('mon-')) {
@@ -2964,7 +1993,7 @@ async function renderMonitoring(b, tab) {
           else if (window.currentTab === 'mon-hosts') renderMonHosts(cb, fresh);
           else if (window.currentTab === 'mon-vms') renderMonVms(cb, freshVms, r);
           else if (window.currentTab === 'mon-storage') renderMonStorage(cb, fresh, freshVms, tr);
-        }).catch(function() {  });
+        }).catch(function() { /* 갱신 실패 시 무시 */ });
       } else {
         if (typeof stopAdaptivePolling === 'function') stopAdaptivePolling('mon-refresh');
       }
@@ -3008,7 +2037,7 @@ function _opsVmStatus(v) {
 
 function _opsFallbackVms() {
   return [
-    { name: 'pcv-demo-vm', role: '공개 데모', ip: '192.0.2.12', cpu: 2.0, mem: 48, state: 'running', running: 1 },
+    { name: 'pcv-demo-vm', role: '공개 데모', ip: '192.0.2.10', cpu: 2.0, mem: 48, state: 'running', running: 1 },
     { name: 'ovn-demo-a', role: '테넌트 A', ip: '10.77.0.12', cpu: 12, mem: 34, state: 'http 200', running: 1 },
     { name: 'ovn-demo-b', role: '테넌트 B', ip: '10.77.0.13', cpu: 16, mem: 41, state: 'unknown', running: 1 }
   ];
@@ -3163,7 +2192,7 @@ async function renderOpsTriage(b) {
 }
 window.renderOpsTriage = renderOpsTriage;
 
-
+/* ═══ DEEP HEALTH DASHBOARD ═══ */
 async function loadDeepHealth() {
   var el = document.getElementById('deep-health'); if (!el) return;
   el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
@@ -3184,7 +2213,7 @@ async function loadDeepHealth() {
 
     var subsysKeys = Object.keys(subsystems);
     if (subsysKeys.length === 0) {
-
+      /* If no subsystems object, try top-level known fields */
       var knownSubs = ['libvirt', 'etcd', 'zfs', 'vm_state_db', 'audit_db', 'tls', 'cluster'];
       knownSubs.forEach(function(k) { if (d[k] !== undefined) subsystems[k] = d[k]; });
       subsysKeys = Object.keys(subsystems);
@@ -3241,15 +2270,15 @@ function _healthBadgeColor(sc) {
 }
 
 function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
-
+  /* Deep Health section at top */
   let h = '<div class="hc mb-14"><h4>&#129657; ' + (t('monitor.system_health') || 'System Health') + '</h4>';
   h += '<p class="color-muted text-11 mb-8">' + (t('monitor.health_desc') || 'Deep health probe of all subsystems. Updated on each page load.') + '</p>';
   h += '<div id="deep-health"><span class="spinner"></span> ' + (t('loading') || 'Loading...') + '</div></div>';
 
-
+  /* F-1: Cluster Timeline Chart (CPU/MEM/DISK 시계열) */
   h += '<div class="hc mb-12"><h4>&#128202; ' + (t('monitor.cluster_timeline') || '리소스 흐름 (최근 5분)') + '</h4>';
   h += '<div class="grid-3 gap-12" style="display:grid;grid-template-columns:1fr 1fr 1fr">';
   h += '<div style="position:relative;height:180px"><canvas id="pcv-chart-cpu"></canvas></div>';
@@ -3279,7 +2308,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     h += H.row('Net I/O', '<span class="color-cyan">&#9650; ' + fmtRate(hi.netRx, hi.netRx.length - 1) + ' &#9660; ' + fmtRate(hi.netTx, hi.netTx.length - 1) + '</span>');
     h += H.row('Sockets', (n.sockstat.sockets_used || 0) + ' (TCP:' + (n.sockstat.TCP_inuse || 0) + ' UDP:' + (n.sockstat.UDP_inuse || 0) + ')') + '</div>'; });
   h += '</div>';
-
+  /* AI Ops panels */
   h += '<div class="sg grid-3 mb-12">';
   h += '<div class="hc"><h4 class="color-red">&#9888; 이상 징후</h4><div style="font-size:12px;color:var(--fg2);margin-bottom:8px;line-height:1.6;border-left:2px solid var(--red);padding-left:8px"><b>Z-Score</b> 기반 이상 탐지<br>&#8226; 최근 60개 샘플(약 5분)<br>&#8226; Z &gt; 1.5 경고, Z &gt; 2.5 위험</div>';
   const totalAnom = all.reduce((s, n) => s + (n.anomaly_active || 0), 0);
@@ -3305,15 +2334,15 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     Object.entries(agentProv).forEach(([name, d]) => { h += '<tr><td>' + name + '</td><td>' + (d.confidence || 0).toFixed(2) + '</td><td>' + (d.latency || 0).toFixed(0) + 'ms</td></tr>'; });
     h += '</tbody></table>'; if (n1.agent_conf !== undefined) h += '<div class="stat-label mt-4">Consensus <span class="color-green font-bold">' + n1.agent_conf.toFixed(2) + '</span></div>'; h += '</div>'; }
   h += '<div style="margin-top:6px"><button class="btn" onclick="showAgentConfig()" class="btn-xs">&#9881; Configure AI Agent</button></div></div></div>';
-
+  /* Self-Healing Pending Actions */
   h += '<div class="hc mb-14"><h4 class="color-yellow">&#9888; ' + _L('자가치유 대기 액션', 'Self-Healing Pending Actions') + '</h4>';
   h += '<div id="healing-pending-list" class="skeleton-box" style="min-height:60px"></div></div>';
-
+  /* keepalived */
   h += '<div class="sg grid-1 mb-12">' + H.card('&#9741; keepalived VRRP Status', '<table class="text-12"><thead><tr><th>Node</th><th>keepalived</th><th>VRRP Role</th><th>VIP Owner</th></tr></thead><tbody>' +
   all.map(n => { const kaA = n.keepalived_active === 1; const kaM = n.keepalived_master === 1; const kaV = n.keepalived_vip_owner === 1;
     return '<tr><td><b>' + n.node + '</b> <span class="stat-label">' + n.ip + '</span></td><td>' + H.badge(kaA ? 'ACTIVE' : 'DOWN', kaA ? 'g' : 'r') + '</td><td>' + H.badge(kaM ? 'MASTER' : 'BACKUP', kaM ? 'g' : 'y') + '</td><td>' + (kaV ? '<span class="color-green font-bold">' + escapeHtml(_VIP || 'VIP') + '</span>' : '-') + '</td></tr>'; }).join('') +
   '</tbody></table>') + '</div>';
-
+  /* Top 5 */
   const runVms = allVms.filter(v => v.running === 1);
   function top5Tbl(title, items, valFn, unit) { let t2 = '<div class="hc"><h4>' + title + '</h4><table class="text-11"><tbody>';
     items.forEach((v, i) => { t2 += '<tr><td class="w-16 color-muted">' + (i + 1) + '</td><td><b>' + v.name + '</b></td><td class="color-muted">' + v.node + '</td><td class="text-right font-bold color-accent">' + valFn(v) + unit + '</td></tr>'; });
@@ -3327,16 +2356,16 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
   h += H.card('All VMs (' + allVms.length + ')', '<table class="table-sticky"><thead><tr><th>Name</th><th>State</th><th>Node</th><th>vCPU</th><th>Max MB</th><th>Used MB</th></tr></thead><tbody>' +
   allVms.map(v => '<tr><td><b>' + v.name + '</b></td><td>' + H.badge(v.running === 1 ? 'running' : 'off', v.running === 1 ? 'g' : 'r') + '</td><td>' + v.node + '</td><td>' + (v.vcpu || '-') + '</td><td>' + (v.memory_max_mb || '-') + '</td><td>' + (v.memory_used_mb > 0 ? v.memory_used_mb : '-') + '</td></tr>').join('') +
   '</tbody></table>');
-
+  /* 1.0: AI Ops Self-Healing 패널 mount point (selfhealing.js가 채움) */
   h += '<div id="selfhealing-panel" class="hc mb-14" style="margin-top:24px"></div>';
   b.innerHTML = h;
   setTimeout(loadDeepHealth, 50);
   setTimeout(loadHealingPending, 100);
-
-
+  /* 1.0 functional: AI Ops Self-Healing 패널 자동 mount.
+   * 패널 컨테이너는 monitor 페이지 끝에 추가되어 있고 render는 selfhealing.js가 담당. */
   setTimeout(function() { if (window.PCV && PCV.selfhealing) PCV.selfhealing.refresh(); }, 150);
   setTimeout(() => { all.forEach(n => { const hi = monHist[n.ip] || { cpu: [], mem: [] }; drawLine('mc-' + n.ip + '-cpu', hi.cpu, getChartColor('cpu'), '%'); drawLine('mc-' + n.ip + '-mem', hi.mem, getChartColor('mem'), '%'); }); }, 50);
-
+  /* F-1: Render Chart.js timeline charts (CPU / MEM / NET per node) */
   setTimeout(function() {
     if (typeof pcvTimeSeries !== 'function') return;
     var cpuSeries = all.map(function(n) {
@@ -3363,7 +2392,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
 window.renderMonOverview = renderMonOverview;
 
 function renderMonCluster(b, all) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#9741; Cluster Status') + '<div class="sg grid-3 mb-12">';
@@ -3382,7 +2411,7 @@ function renderMonCluster(b, all) {
 window.renderMonCluster = renderMonCluster;
 
 function renderMonHosts(b, all) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#128187; Host Performance');
@@ -3396,7 +2425,7 @@ function renderMonHosts(b, all) {
     + H.card('Total RAM', '<div class="stat-md">' + ((n.ram_total || 0) / 1073741824).toFixed(1) + ' GB</div>')
     );
     h += '<div class="sg grid-3">' + H.card('CPU History', '<canvas id="hc-' + n.ip + '" class="sparkline-md"></canvas>') + H.card('Memory History', '<canvas id="hm-' + n.ip + '" class="sparkline-md"></canvas>') + H.card('Disk History', '<canvas id="hd-' + n.ip + '" class="sparkline-md"></canvas>') + '</div>';
-
+    /* Memory breakdown — Used/Buf/Cache/Slab/Free 비율을 CSS 변수 --bw로 주입 */
     const mi = n.memInfo || {};
     const mtotal = mi.MemTotal || 1;
     const mUsed = mtotal - (mi.MemAvailable || 0);
@@ -3422,18 +2451,18 @@ function renderMonHosts(b, all) {
        + '<span>&#9632; <span class="color-magenta">Slab</span> ' + fmtBytes(mSlab) + '</span>'
        + '<span>&#9632; <span class="color-green">Free</span> ' + fmtBytes(mFree) + '</span>'
        + '</div></div>';
-
+    /* CPU per-core */
     const coreIds = Object.keys(n.cores || {}).filter(c => parseInt(c) < 64).sort((a, b) => parseInt(a) - parseInt(b));
     if (coreIds.length > 0) { h += '<div class="hc mt-8"><h4>CPU per Core (' + coreIds.length + ')</h4><div class="flex" style="flex-wrap:wrap;gap:3px">';
       coreIds.forEach(c => { const cd = n.cores[c]; const total = Object.values(cd).reduce((s, v) => s + v, 0); const pct = total > 0 ? (1 - (cd.idle || 0) / total) * 100 : 0; const cl = pct > 80 ? 'var(--red)' : pct > 50 ? 'var(--yellow)' : 'var(--green)';
         h += '<div class="w-28 text-center" title="Core ' + c + ': ' + pct.toFixed(1) + '%"><div style="height:24px;background:var(--bg);border-radius:2px;border:1px solid var(--border);position:relative;overflow:hidden"><div style="position:absolute;bottom:0;width:100%;height:' + pct + '%;background:' + cl + '"></div></div><div style="font-size:8px;color:var(--fg2)">' + c + '</div></div>'; });
       h += '</div></div>'; }
-
+    /* Network interfaces */
     const ndevs = Object.entries(n.netdevs || {}).filter(([d]) => !['lo', 'ovs-system', 'br-int'].includes(d));
     if (ndevs.length > 0) { h += '<div class="hc mt-8"><h4>&#127760; Network Interfaces</h4><table class="text-11"><thead><tr><th>Device</th><th>RX</th><th>TX</th><th>Errors</th><th>Drops</th></tr></thead><tbody>';
       ndevs.forEach(([d, s]) => { h += '<tr><td><b>' + d + '</b></td><td>' + fmtBytes(s.receive_bytes_total || 0) + '</td><td>' + fmtBytes(s.transmit_bytes_total || 0) + '</td><td>' + (s.receive_errs_total || 0) + '</td><td>' + (s.receive_drop_total || 0) + '</td></tr>'; });
       h += '</tbody></table></div>'; }
-
+    /* Disk I/O */
     const ddevs = Object.entries(n.disks || {}).filter(([d]) => d.match(/^(nvme\d+n\d+|sd[a-z])$/));
     if (ddevs.length > 0) { h += '<div class="hc mt-8"><h4>&#128190; Disk I/O</h4><table class="text-11"><thead><tr><th>Device</th><th>Read</th><th>Written</th><th>IOPS</th></tr></thead><tbody>';
       ddevs.forEach(([d, s]) => { h += '<tr><td><b>' + d + '</b></td><td>' + fmtBytes(s.read_bytes_total || 0) + '</td><td>' + fmtBytes(s.written_bytes_total || 0) + '</td><td>' + (s.reads_completed_total || 0) + '/' + (s.writes_completed_total || 0) + '</td></tr>'; });
@@ -3445,7 +2474,7 @@ function renderMonHosts(b, all) {
 window.renderMonHosts = renderMonHosts;
 
 function renderMonVms(b, allVms, running) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#9881; Virtual Machines');
@@ -3508,7 +2537,7 @@ function _zfsLockPanel(all) {
 }
 
 function renderMonStorage(b, all, allVms, totalRam) {
-
+  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   let h = H.section('&#128190; Storage & Capacity');
@@ -3526,13 +2555,13 @@ function renderMonStorage(b, all, allVms, totalRam) {
   h += '</div><div class="hc"><h4>Memory per Node</h4>';
   all.forEach(n => { const gb = (n.ram_total || 0) / 1073741824; h += '<div class="mb-6"><div class="justify-between text-11"><span>' + n.node + '</span><span>' + gb.toFixed(1) + ' GB</span></div><div style="height:14px;background:var(--bg);border-radius:3px;border:1px solid var(--border);overflow:hidden"><div style="height:100%;width:' + (gb / 64 * 100) + '%;background:var(--accent);border-radius:3px"></div></div></div>'; });
   h += '</div></div>';
-
+  /* Filesystems */
   all.forEach(n => { const fsList = (n.filesystems || []).filter(f => f.fstype === 'zfs' || f.fstype === 'ext4' || f.fstype === 'xfs');
     if (fsList.length === 0) return;
     h += '<div class="hc mb-12"><h4>' + n.node + ' \u2014 Filesystems</h4><table class="text-11"><thead><tr><th>Mount</th><th>Type</th><th>Size</th><th>Avail</th><th>Used %</th></tr></thead><tbody>';
     fsList.forEach(f => { const sz = f.size_bytes || 0; const av = f.avail_bytes || 0; const pct = sz > 0 ? (sz - av) / sz * 100 : 0; h += '<tr><td><b>' + f.mount + '</b></td><td>' + f.fstype + '</td><td>' + fmtBytes(sz) + '</td><td>' + fmtBytes(av) + '</td><td style="color:' + (pct > 85 ? 'var(--red)' : 'var(--green)') + '">' + pct.toFixed(1) + '%</td></tr>'; });
     h += '</tbody></table></div>'; });
-
+  /* Disk I/O summary */
   h += H.card('Disk I/O (All Nodes)', '<table class="text-11"><thead><tr><th>Node</th><th>Device</th><th>Read</th><th>Written</th><th>Read IOPS</th><th>Write IOPS</th></tr></thead><tbody>' +
   all.map(n => Object.entries(n.disks || {}).filter(([d]) => d.match(/^(nvme\d+n\d+|sd[a-z])$/)).map(([d, s]) =>
     '<tr><td>' + n.node + '</td><td><b>' + d + '</b></td><td>' + fmtBytes(s.read_bytes_total || 0) + '</td><td>' + fmtBytes(s.written_bytes_total || 0) + '</td><td>' + (s.reads_completed_total || 0).toLocaleString() + '</td><td>' + (s.writes_completed_total || 0).toLocaleString() + '</td></tr>').join('')).join('') +
@@ -3542,7 +2571,7 @@ function renderMonStorage(b, all, allVms, totalRam) {
 }
 window.renderMonStorage = renderMonStorage;
 
-
+/* ═══ ALERTS ═══ */
 async function renderAlerts(b) {
   b.innerHTML = showSkeleton();
   const hdr = { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' };
@@ -3575,7 +2604,7 @@ async function renderAlerts(b) {
   h += '<div class="mt-8"><button class="btn" onclick="loadWebhookDlq()">DLQ \uC870\uD68C</button>';
   h += '<button class="btn btn-g" onclick="retryWebhookDlq()" style="margin-left:6px">\uC804\uCCB4 \uC7AC\uC2DC\uB3C4</button></div>';
   h += '<div id="dlq-list" class="mt-8"></div></div>';
-
+  /* Alert config editor */
   h += H.section(_L('알림 설정', 'Alert Configuration'));
   try {
     var cfg2 = await fetchGet(EP.ALERTS_CONFIG());
@@ -3611,7 +2640,7 @@ async function saveAlertConfig() {
 }
 window.saveAlertConfig = saveAlertConfig;
 
-
+/* ═══ AUDIT LOG SEARCH ═══ */
 async function renderAudit(b) {
   let h = H.section('&#128270; \uAC10\uC0AC \uB85C\uADF8 \uAC80\uC0C9');
   h += '<div class="sg" style="grid-template-columns:1fr;margin-bottom:12px">';
@@ -3629,7 +2658,7 @@ async function renderAudit(b) {
 }
 window.renderAudit = renderAudit;
 
-
+/* ═══ GPU MONITORING ═══ */
 async function renderGpu(b) {
   let h = H.section('&#127918; GPU \uBAA8\uB2C8\uD130\uB9C1');
   h += '<div class="sg grid-2 mb-16">';
@@ -3652,12 +2681,12 @@ async function renderGpu(b) {
     '<code class="color-accent">pcvctl gpu metrics</code> &mdash; GPU \uBA54\uD2B8\uB9AD \uC870\uD68C<br>' +
     '<code class="color-accent">pcvctl gpu passthrough &lt;pci&gt; &lt;vm&gt;</code> &mdash; VFIO \uD328\uC2A4\uC2A4\uB8E8<br>' +
     '<code class="color-accent">pcvctl gpu mdev create &lt;pci&gt; &lt;type&gt;</code> &mdash; vGPU \uC0DD\uC131</div>');
-
+  /* GPU 활용 차트 */
   h += '<div class="hc mb-14"><h4>' + _L('GPU 활용률', 'GPU Utilization') + '</h4>';
   h += '<canvas id="gpu-chart" width="600" height="200" style="max-width:100%"></canvas>';
   h += '<div class="stat-label mt-8">' + _L('GPU 메트릭은 nvidia-smi 또는 lspci 기반으로 수집됩니다.', 'GPU metrics collected via nvidia-smi or lspci.') + '</div></div>';
   b.innerHTML = h;
-
+  /* GPU 활용 차트 그리기 */
   try {
     var gr = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'gpu.list', params:{}, id:'gl1'});
     var gpus = unwrapList(gr);
@@ -3680,7 +2709,7 @@ async function renderGpu(b) {
 }
 window.renderGpu = renderGpu;
 
-
+/* ═══ DPDK STATUS ═══ */
 async function renderDpdk(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -3738,7 +2767,7 @@ window.renderDpdk = renderDpdk;
 window.dpdkBind = dpdkBind;
 window.dpdkUnbind = dpdkUnbind;
 
-
+/* ═══ SR-IOV STATUS ═══ */
 async function renderSriov(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -3817,7 +2846,7 @@ window.sriovDisable = sriovDisable;
 window.sriovAttach = sriovAttach;
 window.sriovDetach = sriovDetach;
 
-
+/* ═══ HOST ═══ */
 async function renderHost(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -3853,10 +2882,10 @@ async function renderHost(b) {
 }
 window.renderHost = renderHost;
 
-
+/* ═══ RESOURCE HEATMAP ═══ */
 function renderHeatmap(b) {
   b.innerHTML = showSkeleton();
-
+  /* Single Edge는 클러스터 VM 엔드포인트를 제공하지 않으므로 로컬 VM 목록만 조회한다. */
   fetchGet(EP.VM_LIST()).then(function(r) {
     var vms = unwrapList(r);
     if (!vms || vms.length === 0) {
@@ -3894,7 +2923,7 @@ function renderHeatmap(b) {
 window.renderHeatmap = renderHeatmap;
 window.loadDeepHealth = loadDeepHealth;
 
-
+/* ═══ ALERT SILENCE (백엔드 4차) ═══ */
 async function renderAlertSilences(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -3938,7 +2967,7 @@ async function showSilenceCreate() {
   });
 }
 
-
+/* ═══ ALERT ROUTING CONFIG ═══ */
 async function renderAlertRouting(b) {
   b.innerHTML = showSkeleton();
   var h = H.section(_L('알림 라우팅 설정', 'Alert Routing Configuration'));
@@ -3967,7 +2996,7 @@ async function saveAlertRouting() {
   } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ CONNECTION POOL INFO ═══ */
 async function renderPoolInfo(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -3992,9 +3021,9 @@ window.renderAlertRouting = renderAlertRouting;
 window.saveAlertRouting = saveAlertRouting;
 window.renderPoolInfo = renderPoolInfo;
 
-
+/* ═══ SELF-HEALING PENDING ACTIONS (FE-A6) ═══ */
 async function loadHealingPending() {
-
+  /* ai.healing.pending RPC 미구현 — healing.history에서 status='pending' 필터링 */
   try {
     var r;
     try {
@@ -4054,7 +3083,7 @@ window.loadHealingPending = loadHealingPending;
 window.healingApprove = healingApprove;
 window.healingReject = healingReject;
 
-
+/* ═══ PCV.monitor namespace export ═══ */
 PCV.monitor = {
   destroyAllCharts: destroyAllCharts,
   createLineChart: createLineChart,
@@ -4098,556 +3127,84 @@ PCV.monitor = {
 };
 
 })(window.PCV);
-
-
-
-
-
-
-window.PCV = window.PCV || {};
-(function(PCV) {
-  'use strict';
-
-  var API = PCV.api || {};
-  var currentEventId = '';
-  var lastEvents = [];
-
-
-
-
-
-
-  function _L(ko, en) {
-    return (window.PCV_LANG === 'en') ? (en || ko) : ko;
-  }
-
-  async function rpc(method, params) {
-    var body = {
-      jsonrpc: '2.0',
-      method: method,
-      params: params || {},
-      id: 'sec-' + Date.now()
-    };
-    var json = API.fetchPost
-      ? await API.fetchPost(EP.RPC(), body)
-      : await fetchPost(EP.RPC(), body);
-    if (json && json.error) {
-      throw new Error(json.error.message || 'RPC failed');
-    }
-    return API.unwrapData ? API.unwrapData(json) : (json.result || json.data || json);
-  }
-
-  function canRole(role) {
-    return typeof pcvRoleAllows === 'function' ? pcvRoleAllows(role) : false;
-  }
-
-  function notify(msg, ok) {
-    if (typeof toast === 'function') toast(msg, ok !== false);
-  }
-
-  async function askConfirm(msg) {
-    if (typeof customConfirm === 'function') {
-      return customConfirm(msg);
-    }
-    return window.confirm(msg);
-  }
-
-  function asArray(value, key) {
-    if (Array.isArray(value)) return value;
-    if (value && Array.isArray(value[key])) return value[key];
-    return [];
-  }
-
-  function formatTs(ts) {
-    var n = Number(ts || 0);
-    if (!n) return '-';
-    return new Date(n * 1000).toLocaleString();
-  }
-
-  function upper(v) {
-    return String(v || '').toUpperCase();
-  }
-
-  function badgeSeverity(sev) {
-    if (sev === 'crit') return H.badge('CRIT', 'r');
-    if (sev === 'warn') return H.badge('WARN', 'y');
-    return H.badge('INFO', 'g');
-  }
-
-  function badgeStatus(status) {
-    if (status === 'resolved' || status === 'suppressed') return H.badge(upper(status), 'g');
-    if (status === 'action_pending') return H.badge('PENDING', 'y');
-    if (status === 'open') return H.badge('OPEN', 'y');
-    return H.badge(status || '-', 'y');
-  }
-
-  function statusCard(title, value, hint, type) {
-    var cls = type === 'r' ? 'color-red' : type === 'y' ? 'color-yellow' : 'color-green';
-    return H.card(esc(title),
-      '<div class="stat-md ' + cls + '">' + esc(value) + '</div>'
-      + '<div class="stat-label mt-4">' + esc(hint || '') + '</div>',
-      'text-center');
-  }
-
-  function renderStatusBar(status, pendingCount) {
-
-
-
-
-    var guard = status && status.enabled ? 'enabled' : 'disabled';
-    var baseline = (status && status.baseline_status) || 'unknown';
-    var degraded = status && status.degraded;
-    var guardHint = guard === 'enabled'
-      ? _L('탐지 경로 활성', 'Detection path active')
-      : _L('admin opt-in 필요', 'admin opt-in required');
-    var baselineHint = baseline === 'trusted'
-      ? _L('관리자 refresh 완료', 'admin refresh completed')
-      : _L('자동 trusted 전환 없음', 'never auto-trusted');
-    var risk = String((status && status.open_risk) || 0);
-    var pending = String((status && status.pending_actions) || pendingCount || 0);
-
-    return H.grid(4,
-      statusCard('Guard', upper(guard), guardHint, guard === 'enabled' ? 'g' : 'r')
-      + statusCard('Baseline', upper(baseline), baselineHint, baseline === 'trusted' ? 'g' : 'y')
-      + statusCard(_L('Open Risk', 'Open Risk'), risk, degraded ? _L('store degraded', 'store degraded') : _L('CRIT/WARN 가중치', 'CRIT/WARN weighted'), Number(risk) > 0 ? 'r' : 'g')
-      + statusCard(_L('Pending Actions', 'Pending Actions'), pending, _L('수동 승인 전용', 'manual approval only'), Number(pending) > 0 ? 'y' : 'g')
-    ) + '<div class="hc mb-12"><div class="flex gap-8 flex-wrap items-center">'
-      + '<button class="btn" type="button" data-sec-refresh="1">&#10227; ' + _L('새로고침', 'Refresh') + '</button>'
-      + (canRole('admin')
-        ? '<label class="text-xs" style="display:flex;align-items:center;gap:6px"><input type="checkbox" data-sec-enabled="1" ' + (guard === 'enabled' ? 'checked' : '') + '> ' + _L('Security Guard 활성', 'Enable Security Guard') + '</label>'
-        : '<span class="stat-label">' + _L('Guard 변경은 admin 권한이 필요합니다.', 'Changing Guard state requires admin.') + '</span>')
-      + '</div></div>';
-  }
-
-  function uniqueValues(items, key) {
-    var seen = {};
-    var out = [];
-    items.forEach(function(item) {
-      var v = String((item && item[key]) || '');
-      if (v && !seen[v]) {
-        seen[v] = true;
-        out.push(v);
-      }
-    });
-    return out.sort();
-  }
-
-  function optionHtml(value, label) {
-    return '<option value="' + esc(value) + '">' + esc(label || value) + '</option>';
-  }
-
-  function renderFilters(events) {
-    var sources = uniqueValues(events, 'source');
-    var statuses = uniqueValues(events, 'status');
-    return '<div class="hc mb-12"><div class="flex gap-8 flex-wrap items-end">'
-      + '<label class="text-xs">' + _L('심각도', 'Severity')
-      + '<select id="sec-filter-sev" class="input-pcv">'
-      + optionHtml('', _L('전체', 'All'))
-      + optionHtml('crit', 'CRIT') + optionHtml('warn', 'WARN') + optionHtml('info', 'INFO')
-      + '</select></label>'
-      + '<label class="text-xs">' + _L('소스', 'Source')
-      + '<select id="sec-filter-source" class="input-pcv">' + optionHtml('', _L('전체', 'All'))
-      + sources.map(function(v) { return optionHtml(v, v); }).join('') + '</select></label>'
-      + '<label class="text-xs">' + _L('상태', 'Status')
-      + '<select id="sec-filter-status" class="input-pcv">' + optionHtml('', _L('전체', 'All'))
-      + statuses.map(function(v) { return optionHtml(v, v); }).join('') + '</select></label>'
-      + '<label class="text-xs" style="flex:1;min-width:220px">' + _L('검색', 'Search')
-      + '<input id="sec-filter-q" class="input-pcv" type="search" placeholder="target, summary, event_id" style="width:100%"></label>'
-      + '</div></div>';
-  }
-
-  function renderEventTable(events) {
-    if (!events.length) {
-      return '<div class="empty-state p-20 text-center">'
-        + '<div class="empty-title">' + _L('보안 이벤트 없음', 'No security events') + '</div>'
-        + '<div class="empty-desc">' + _L('WARN/CRIT 이벤트는 audit target과 event_id를 공유합니다.', 'WARN/CRIT events share audit target with event_id.') + '</div>'
-        + '</div>';
-    }
-
-    var rows = events.map(function(ev) {
-      var text = [
-        ev.event_id, ev.source, ev.status, ev.target, ev.summary, ev.recommended_action
-      ].join(' ').toLowerCase();
-      return '<tr class="sec-event-row" data-sec-event-id="' + esc(ev.event_id || '') + '"'
-        + ' data-sec-severity="' + esc(ev.severity || '') + '"'
-        + ' data-sec-source="' + esc(ev.source || '') + '"'
-        + ' data-sec-status="' + esc(ev.status || '') + '"'
-        + ' data-sec-text="' + esc(text) + '" tabindex="0" style="cursor:pointer">'
-        + '<td class="color-muted nowrap">' + esc(formatTs(ev.timestamp)) + '</td>'
-        + '<td>' + badgeSeverity(ev.severity || 'info') + '</td>'
-        + '<td>' + esc(ev.source || '-') + '</td>'
-        + '<td><code class="text-xs">' + esc(ev.target || '-') + '</code></td>'
-        + '<td>' + esc(ev.summary || '-') + '</td>'
-        + '<td>' + badgeStatus(ev.status || '-') + '</td>'
-        + '<td>' + esc(ev.recommended_action || '-') + '</td></tr>';
-    }).join('');
-
-    return '<div style="overflow:auto;max-height:560px">'
-      + '<table class="data-table text-11"><thead><tr>'
-      + '<th>' + _L('시간', 'Time') + '</th><th>' + _L('심각도', 'Severity') + '</th>'
-      + '<th>' + _L('소스', 'Source') + '</th><th>' + _L('대상', 'Target') + '</th>'
-      + '<th>' + _L('요약', 'Summary') + '</th><th>' + _L('상태', 'Status') + '</th>'
-      + '<th>' + _L('권고', 'Action') + '</th></tr></thead><tbody>'
-      + rows
-      + '<tr id="sec-filter-empty" style="display:none"><td colspan="7" class="color-muted text-center p-12">'
-      + _L('필터 조건과 일치하는 이벤트가 없습니다.', 'No events match the current filters.')
-      + '</td></tr></tbody></table></div>';
-  }
-
-  function renderPendingActions(actions) {
-    if (!actions.length) {
-      return H.card(_L('Pending Approval Queue', 'Pending Approval Queue'),
-        '<div class="empty-state p-20 text-center"><div class="empty-title">'
-        + _L('승인 대기 없음', 'No pending approvals') + '</div></div>');
-    }
-
-    var body = '<div style="overflow:auto;max-height:260px"><table class="data-table text-11"><thead><tr>'
-      + '<th>event_id</th><th>' + _L('대응', 'Action') + '</th><th>' + _L('대상', 'Target') + '</th>'
-      + '<th>TTL</th><th>' + _L('처리', 'Controls') + '</th></tr></thead><tbody>';
-    actions.forEach(function(action) {
-      var name = action.action || '';
-      var executable = name === 'block_ip' || name === 'revoke_api_key';
-
-
-
-
-      var controls = executable
-        ? (canRole('admin')
-          ? '<button class="btn btn-r" type="button" data-sec-approve="' + esc(action.event_id || '') + '">' + _L('승인', 'Approve') + '</button>'
-          : '<span class="stat-label">' + _L('admin 승인 필요', 'admin approval required') + '</span>')
-        : '<span class="stat-label">' + _L('수동 runbook', 'manual runbook') + '</span>';
-      if (canRole('operator')) {
-        controls += ' <button class="btn" type="button" data-sec-dismiss="' + esc(action.event_id || '') + '">' + _L('거부', 'Dismiss') + '</button>';
-      }
-      body += '<tr data-sec-action-event-id="' + esc(action.event_id || '') + '" style="cursor:pointer">'
-        + '<td><code class="text-xs">' + esc(action.event_id || '-') + '</code></td>'
-        + '<td>' + H.badge(name || '-', executable ? 'r' : 'y') + '</td>'
-        + '<td><code class="text-xs">' + esc(action.target || '-') + '</code></td>'
-        + '<td>' + esc(String(action.ttl_sec || '-')) + 's</td>'
-        + '<td class="nowrap">' + controls + '</td></tr>';
-    });
-    body += '</tbody></table></div>';
-    return H.card(_L('Pending Approval Queue', 'Pending Approval Queue'), body);
-  }
-
-  function renderVerificationCard() {
-    return H.card(_L('Verification Gates', 'Verification Gates'),
-      H.row('Viewer', H.badge('READ', 'g'))
-      + H.row('Operator', H.badge('DISMISS', 'y'))
-      + H.row('Admin', H.badge('APPROVE', 'r'))
-      + H.row('ADR-0018', H.badge('ASYNC', 'g'))
-      + H.row('Audit', '<code>target = event_id</code>'));
-  }
-
-  function renderShell(cfg, events, actions) {
-    var h = H.section('&#128737; ' + _L('보안 이벤트', 'Security Events'));
-    h += renderStatusBar(cfg || {}, actions.length);
-    h += renderFilters(events);
-    h += '<div class="sg grid-2 mb-12">';
-    h += H.card(_L('Event Queue', 'Event Queue'), renderEventTable(events));
-    h += '<div id="security-detail" class="hc"><h4>' + _L('Selected Event', 'Selected Event') + '</h4>'
-      + '<p class="color-muted text-12">' + _L('이벤트를 선택하세요.', 'Select an event.') + '</p></div>';
-    h += '</div>';
-    h += '<div class="sg grid-2">' + renderPendingActions(actions) + renderVerificationCard() + '</div>';
-    return h;
-  }
-
-  function applyFilters(root) {
-
-
-
-
-    root = root || document;
-    var sev = (document.getElementById('sec-filter-sev') || {}).value || '';
-    var source = (document.getElementById('sec-filter-source') || {}).value || '';
-    var status = (document.getElementById('sec-filter-status') || {}).value || '';
-    var q = ((document.getElementById('sec-filter-q') || {}).value || '').trim().toLowerCase();
-    var visible = 0;
-    root.querySelectorAll('.sec-event-row').forEach(function(row) {
-      var ok = (!sev || row.getAttribute('data-sec-severity') === sev)
-        && (!source || row.getAttribute('data-sec-source') === source)
-        && (!status || row.getAttribute('data-sec-status') === status)
-        && (!q || (row.getAttribute('data-sec-text') || '').indexOf(q) >= 0);
-      row.style.display = ok ? '' : 'none';
-      if (ok) visible++;
-    });
-    var empty = document.getElementById('sec-filter-empty');
-    if (empty) empty.style.display = visible ? 'none' : '';
-  }
-
-  function bindSecurityHandlers(root) {
-    root.querySelectorAll('[data-sec-refresh]').forEach(function(btn) {
-      btn.addEventListener('click', refresh);
-    });
-    root.querySelectorAll('[data-sec-event-id]').forEach(function(row) {
-      row.addEventListener('click', function() {
-        selectEvent(row.getAttribute('data-sec-event-id') || '');
-      });
-      row.addEventListener('keydown', function(e) {
-        if (e.key === 'Enter' || e.key === ' ') {
-          e.preventDefault();
-          selectEvent(row.getAttribute('data-sec-event-id') || '');
-        }
-      });
-    });
-    root.querySelectorAll('[data-sec-action-event-id]').forEach(function(row) {
-      row.addEventListener('click', function(e) {
-        if (e.target && e.target.closest && e.target.closest('button')) return;
-        selectEvent(row.getAttribute('data-sec-action-event-id') || '');
-      });
-    });
-    root.querySelectorAll('[data-sec-approve]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        approveAction(btn.getAttribute('data-sec-approve') || '');
-      });
-    });
-    root.querySelectorAll('[data-sec-dismiss]').forEach(function(btn) {
-      btn.addEventListener('click', function() {
-        dismissAction(btn.getAttribute('data-sec-dismiss') || '');
-      });
-    });
-    root.querySelectorAll('#sec-filter-sev,#sec-filter-source,#sec-filter-status').forEach(function(el) {
-      el.addEventListener('change', function() { applyFilters(root); });
-    });
-    var q = root.querySelector('#sec-filter-q');
-    if (q) q.addEventListener('input', function() { applyFilters(root); });
-    var enabled = root.querySelector('[data-sec-enabled]');
-    if (enabled) {
-      enabled.addEventListener('change', function() {
-        setGuardEnabled(Boolean(enabled.checked));
-      });
-    }
-  }
-
-  async function renderSecurityEvents(b) {
-
-
-
-
-    b.innerHTML = showSkeleton();
-    try {
-      var loaded = await Promise.all([
-        rpc('security.config.get', {}),
-        rpc('security.event.list', { limit: 100 }),
-        rpc('security.action.pending', {})
-      ]);
-      var cfg = loaded[0] || {};
-      var events = asArray(loaded[1], 'events');
-      var actions = asArray(loaded[2], 'actions');
-      lastEvents = events;
-      b.innerHTML = renderShell(cfg, events, actions);
-      bindSecurityHandlers(b);
-      applyFilters(b);
-      if (currentEventId && events.some(function(ev) { return ev.event_id === currentEventId; })) {
-        selectEvent(currentEventId);
-      }
-    } catch (e) {
-      b.innerHTML = '<div class="hc"><h4 class="color-red">'
-        + _L('보안 이벤트 로드 실패', 'Failed to load security events')
-        + '</h4><p class="color-muted">' + esc(e.message || '') + '</p>'
-        + '<button class="btn" type="button" data-sec-refresh="1">Retry</button></div>';
-      bindSecurityHandlers(b);
-    }
-  }
-
-  function renderEventDetail(ev) {
-    var action = ev.recommended_action || '';
-    var executable = action === 'block_ip' || action === 'revoke_api_key';
-    var controls = '';
-    if (executable) {
-      controls += canRole('admin')
-        ? '<button class="btn btn-r" type="button" data-sec-approve="' + esc(ev.event_id || '') + '">' + _L('승인', 'Approve') + '</button>'
-        : '<span class="stat-label">' + _L('admin 승인 필요', 'admin approval required') + '</span>';
-    } else if (action === 'manual_runbook') {
-      controls += '<span class="stat-label">' + _L('수동 runbook 후보입니다. 자동 실행하지 않습니다.', 'Manual runbook candidate. It will not execute automatically.') + '</span>';
-    }
-    if (canRole('operator')) {
-      controls += ' <button class="btn" type="button" data-sec-dismiss="' + esc(ev.event_id || '') + '">' + _L('거부', 'Dismiss') + '</button>';
-    }
-
-    return '<h4>' + _L('Selected Event', 'Selected Event') + ' ' + badgeSeverity(ev.severity || 'info') + '</h4>'
-      + '<div class="mb-8"><b>' + esc(ev.summary || ev.event_id || '-') + '</b></div>'
-      + H.row('event_id', '<code>' + esc(ev.event_id || '') + '</code>')
-      + H.row(_L('소스', 'Source'), esc(ev.source || '-'))
-      + H.row(_L('대상 유형', 'Target Kind'), esc(ev.target_kind || '-'))
-      + H.row(_L('대상', 'Target'), '<code class="text-xs">' + esc(ev.target || '-') + '</code>')
-      + H.row(_L('상태', 'Status'), badgeStatus(ev.status || '-'))
-      + H.row(_L('신뢰도', 'Confidence'), esc(String(ev.confidence || 0)) + '%')
-      + H.row(_L('권고 대응', 'Recommended Response'), H.badge(action || '-', executable ? 'r' : 'y'))
-      + H.row(_L('감사 상관키', 'Audit Correlation'), '<code>security.event target=' + esc(ev.event_id || '') + '</code>')
-      + H.row(_L('발생 횟수', 'Occurrences'), esc(String(ev.occurrence_count || 1)))
-      + '<div class="mt-10 mb-8"><b class="text-12">' + _L('Evidence', 'Evidence') + '</b></div>'
-      + '<pre class="stat-label" style="white-space:pre-wrap;overflow:auto;max-height:260px;margin:0">'
-      + esc(ev.evidence_json || '{}') + '</pre>'
-      + '<div class="flex gap-6 mt-10 flex-wrap">' + controls + '</div>';
-  }
-
-  async function selectEvent(eventId) {
-    if (!eventId) return;
-    currentEventId = eventId;
-    var detail = document.getElementById('security-detail');
-    if (!detail) return;
-    detail.innerHTML = showSkeleton();
-    try {
-      var ev = await rpc('security.event.get', { event_id: eventId });
-      detail.innerHTML = renderEventDetail(ev || {});
-      bindSecurityHandlers(detail);
-      document.querySelectorAll('.sec-event-row').forEach(function(row) {
-        row.classList.toggle('selected', row.getAttribute('data-sec-event-id') === eventId);
-      });
-    } catch (e) {
-      detail.innerHTML = '<p class="color-red">' + esc(e.message || '') + '</p>';
-    }
-  }
-
-  function refresh() {
-    var b = document.getElementById('cb');
-    if (b) renderSecurityEvents(b);
-  }
-
-  async function setGuardEnabled(enabled) {
-    if (!canRole('admin')) {
-      notify(_L('admin 권한이 필요합니다.', 'admin role required'), false);
-      refresh();
-      return;
-    }
-    try {
-      await rpc('security.config.set', { enabled: enabled });
-      notify(enabled ? _L('Security Guard 활성화', 'Security Guard enabled') : _L('Security Guard 비활성화', 'Security Guard disabled'), true);
-      refresh();
-    } catch (e) {
-      notify(e.message || 'failed', false);
-      refresh();
-    }
-  }
-
-  async function approveAction(eventId) {
-    if (!eventId) return;
-    if (!canRole('admin')) {
-      notify(_L('admin 권한이 필요합니다.', 'admin role required'), false);
-      return;
-    }
-
-
-
-
-    if (!await askConfirm(_L('이 대응을 승인하시겠습니까?', 'Approve this response?') + '\n' + eventId)) return;
-    try {
-      await rpc('security.action.approve', { event_id: eventId });
-      notify(_L('승인 요청됨', 'Approval accepted'), true);
-      refresh();
-    } catch (e) {
-      notify(e.message || 'failed', false);
-    }
-  }
-
-  async function dismissAction(eventId) {
-    if (!eventId) return;
-    if (!canRole('operator')) {
-      notify(_L('operator 권한이 필요합니다.', 'operator role required'), false);
-      return;
-    }
-    try {
-      await rpc('security.action.dismiss', {
-        event_id: eventId,
-        reason: 'dismissed from UI'
-      });
-      notify(_L('거부 완료', 'Dismissed'), true);
-      refresh();
-    } catch (e) {
-      notify(e.message || 'failed', false);
-    }
-  }
-
-  PCV.security = {
-    render: renderSecurityEvents,
-    refresh: refresh,
-    selectEvent: selectEvent,
-    approveAction: approveAction,
-    dismissAction: dismissAction,
-    setGuardEnabled: setGuardEnabled,
-    _lastEvents: function() { return lastEvents.slice(); }
-  };
-})(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/vm.js
+   VM List, Summary, Console, Snapshots, Performance, Power,
+   Create Wizard, Settings, NIC Manager, Clone, Export
+   ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.vm 네임스페이스
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * ===== vm.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   VM 관련 모든 UI 로직. 사이드바 VM 목록 렌더링, 상세 정보(summary),
+ *   VNC 콘솔, 스냅샷 관리, 성능 차트, 전원 제어, 생성 위자드, NIC 관리 등.
+ *   이 파일이 가장 크다 (~1500 LOC). 기능별로 섹션 구분자(═══)를 따라가면 된다.
+ *
+ * [PCV 네임스페이스 (ADR-0013)]
+ *   IIFE 안에서 정의 후 PCV.vm = { ... }로 공개 API를 노출.
+ *   window.render, window.vmPower 등 하위 호환 심은 전환기 코드.
+ *   HTML onclick에서 직접 호출하는 함수는 window에 등록이 필수이다.
+ *
+ * [주요 함수]
+ *   - render(skipContent): 사이드바 VM 목록 렌더링. skipContent=true면
+ *     _lastVmListHash와 비교하여 변경 없으면 건너뛴다 (깜박임 방지).
+ *   - renderSummary(b, v): VM 상세 정보 카드 (CPU/MEM/Disk/Net + 액션 버튼).
+ *   - renderConsole(b, v): VNC 콘솔 연결 UI.
+ *   - renderSnapshots(b, v): 스냅샷 목록 + 생성/롤백/삭제.
+ *   - renderPerformance(b, v): 60초 히스토리 차트 (CPU/MEM).
+ *   - vmPower(action): 전원 제어 (start/stop/suspend/resume) + 상태 폴링.
+ *   - showCreate(): 3단계 VM 생성 위자드.
+ *
+ * [VM 목록 렌더링 성능]
+ *   _lastVmListHash는 "name+state+cpu" 를 | 로 연결한 문자열이다.
+ *   해시가 같으면 DOM 업데이트를 건너뛴다. 이렇게 하는 이유:
+ *   10초 폴링마다 innerHTML을 교체하면 스크롤 위치가 초기화되고,
+ *   사용자가 클릭 중인 요소가 사라져 UX가 나빠진다.
+ *   WS 이벤트로 VM 상태가 바뀌면 해시가 달라져서 자동 갱신된다.
+ *
+ * [스파크라인 캔버스 관리]
+ *   각 VM 사이드바 항목에 <canvas id="spark-{name}"> 이 있다.
+ *   render()가 innerHTML을 교체할 때 기존 캔버스가 파괴되고 새로 생성된다.
+ *   setTimeout(50ms) 후에 getContext('2d')로 그리는 이유:
+ *   innerHTML 할당 직후에는 브라우저가 아직 레이아웃을 계산하지 않아
+ *   캔버스 크기가 0일 수 있다.
+ *   _vmCpuHist[name]에 30개의 CPU% 이력을 유지하여 미니 차트를 그린다.
+ *
+ * [VNC 콘솔 연결 흐름]
+ *   1. fetchGet(EP.VNC(name))으로 VNC 포트 번호를 조회.
+ *   2. noVNC 라이브러리를 로컬 vendor ESM에서 동적 로딩.
+ *   3. WebSocket URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
+ *      (백엔드 ws_server.c가 WS↔VNC TCP를 프록시).
+ *   4. RFB 객체가 connect/disconnect/securityfailure 이벤트를 발생.
+ *   5. 팝업 창에서도 동일 흐름 (openNoVNCPopup).
+ *
+ * [스냅샷 트리 렌더링]
+ *   백엔드는 "pool/vm@snapname\tdate" 문자열 배열을 반환한다.
+ *   파싱하여 {name, full_path, time} 객체로 변환 후 테이블로 표시.
+ *   롤백은 파괴적 작업이므로 VM 이름 타이핑 확인(destroyConfirm 패턴)을 적용.
+ *   일괄 삭제는 prefix 필터 + keep_recent 옵션으로 미리보기 후 실행.
+ *
+ * [흔한 실수]
+ *   - vmList와 selectedVmIndex는 app.js의 var 전역이다.
+ *     이 모듈 안에서는 window.vmList로 참조되지만, var 선언이 같은 스코프가
+ *     아니므로 IIFE 안에서 vmList를 직접 쓰면 클로저 밖의 전역을 참조한다.
+ *   - render() 안에서 vmList를 변경하지 마라. loadAll()만 vmList를 갱신해야 한다.
+ *   - onclick 문자열 안에서 VM 이름을 넣을 때 escapeAttr()를 사용하라.
+ *     VM 이름에 - 이외의 특수문자는 없지만, 방어적 코딩 습관을 위해.
+ *   - showCreate() 호출 시 wizData를 항상 초기화한다. 이전 값이 남으면 혼란.
+ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
-
-
-
+/* ═══ SORT / FILTER / RENDER ═══ */
+/* _lastVmListHash: "name+state+cpu|name+state+cpu|..." 형태의 문자열.
+ *   render(skipContent=true) 시 이전 해시와 비교하여 변경이 없으면
+ *   DOM 업데이트를 건너뛴다. 폴링으로 인한 불필요한 리렌더링 방지.
+ * vmViewMode: 'list' 또는 'card'. localStorage에 영속 저장된다.
+ *   카드 뷰에서는 드래그&드롭 마이그레이션 영역도 표시된다. */
 var _lastVmListHash = '';
 var vmViewMode = localStorage.getItem('pcv-vm-view') || 'list';
 
@@ -4674,7 +3231,7 @@ function getFiltered() {
     else { va = a.name; vb = b.name; }
     return va < vb ? -sortDirection : va > vb ? sortDirection : 0;
   });
-
+  /* G-4: favorites sort to top */
   const favs = getFavorites();
   l.sort((a, b) => {
     const af = favs.includes(a.name) ? 0 : 1;
@@ -4696,13 +3253,13 @@ function _renderCore(skipContent) {
   _lastVmListHash = newHash;
   const l = getFiltered();
   const favs = getFavorites();
-
+  /* D2: Update sparkline history */
   vmList.forEach(function(v) {
     if (!_vmCpuHist[v.name]) _vmCpuHist[v.name] = [];
     _vmCpuHist[v.name].push(v.live_cpu_pct || 0);
     if (_vmCpuHist[v.name].length > 30) _vmCpuHist[v.name].shift();
   });
-
+  /* #16 빈 상태 — VM이 0개일 때 CTA 표시 */
   if (l.length === 0 && typeof emptyStatePro === 'function') {
     document.getElementById('vl').innerHTML = emptyStatePro({
       icon: '&#128187;',
@@ -4739,7 +3296,7 @@ function _renderCore(skipContent) {
       h += '</div></div>';
     });
     h += '</div>';
-
+    /* D3: Migration drop zone for cluster nodes */
     h += '<h3 style="margin:16px 0 8px">' + _L('마이그레이션 대상 노드', 'Migration Target Nodes') + '</h3>';
     h += '<div class="sg grid-3">';
     var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
@@ -4765,7 +3322,7 @@ function _renderCore(skipContent) {
     });
   }
   document.getElementById('vl').innerHTML = h;
-
+  /* D2: Draw sparklines */
   setTimeout(function() {
     vmList.forEach(function(v) {
       var canvas = document.getElementById('spark-' + v.name);
@@ -4789,11 +3346,11 @@ function _renderCore(skipContent) {
   document.getElementById('vc').textContent = vmList.length;
   document.getElementById('sb2').textContent = vmList[selectedVmIndex] ? vmList[selectedVmIndex].name : t('no_vm');
   document.getElementById('bbtn').style.display = checkedVms.size > 0 ? 'inline' : 'none';
-
+  /* G-4: auto-refresh indicator */
   const elapsed = Math.round((Date.now() - lastLoadTime) / 1000);
   const sb3 = document.getElementById('sb3');
   if (sb3) sb3.textContent = 'Updated ' + elapsed + 's ago';
-
+  /* VM 탭에서는 항상 콘텐츠 탭바(요약/콘솔/스냅샷/성능) 표시 */
   const ctBar = document.getElementById('ct');
   if (ctBar && ['summary','console','snapshots','performance','timeline'].includes(currentTab)) {
     ctBar.style.display = 'flex';
@@ -4816,7 +3373,7 @@ async function bulkStop() {
   setTimeout(loadAll, 1500);
 }
 
-
+/* ═══ F1: KEYBOARD NAVIGATION ═══ */
 document.addEventListener('keydown', function(e) {
   if (e.target.tagName === 'INPUT' || e.target.tagName === 'TEXTAREA' || e.target.tagName === 'SELECT') return;
   if (currentTab !== 'summary' && currentTab !== 'dashboard' && currentTab !== 'console' && currentTab !== 'snapshots' && currentTab !== 'performance') return;
@@ -4832,14 +3389,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-
-
-
-
-
+/* ═══ D2: VM SPARKLINE MINI CHART ═══
+ *  _vmCpuHist[vmName] = [cpu%, cpu%, ...] (최대 30개)
+ *  render()에서 vmList.forEach로 최신 CPU%를 push하고, 30개 초과 시 shift.
+ *  setTimeout(50ms) 후 각 <canvas id="spark-{name}">에 꺾은선을 그린다.
+ *  캔버스가 innerHTML 교체 시 파괴되므로 매번 새로 그려야 한다. */
 var _vmCpuHist = {};
 
-
+/* ═══ CONTEXT MENU ═══ */
 function showCtx(e, i) {
   e.preventDefault();
   selectedVmIndex = i;
@@ -4915,12 +3472,12 @@ function _vmPrimaryNicValue(nics, field) {
   return '';
 }
 
-
+/* ═══ VM SUMMARY ═══ */
 async function renderSummary(b, v) {
   if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
   const on = v.state === 'running';
 
-
+  /* 실시간 메트릭 + NIC 상세 조회 */
   var metrics = {};
   var nics = [];
   var networks = [];
@@ -4951,7 +3508,7 @@ async function renderSummary(b, v) {
     ? '<button class="btn btn-xs" onclick="showVmDiskUsage()">&#128202; ' + _L('디스크 사용량', 'Disk Usage') + '</button>'
     : '<span class="color-muted text-xs">' + _L('실행 중인 VM에서 확인 가능', 'Available while running') + '</span>';
 
-
+  /* live 데이터를 vmList에도 반영 (사이드바 프로그레스바용) */
   v.live_cpu_pct = cpuPct;
   v.mem_percent = memPct;
   v.vcpu = vcpu;
@@ -4974,14 +3531,14 @@ async function renderSummary(b, v) {
 + '</div>';
 }
 
-
-
-
-
-
-
-
-
+/* ═══ CONSOLE / VNC ═══
+ *  [VNC 연결 흐름]
+ *    1. EP.VNC(name)으로 VNC 포트 조회 (백엔드: virDomainGetXMLDesc에서 추출)
+ *    2. VM running + 포트 있으면 → 로컬 noVNC ESM import로 RFB 객체 생성
+ *    3. WS URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
+ *       (ws_server.c가 WS 프레임 ↔ VNC TCP 패킷 변환)
+ *    4. 팝업(openNoVNCPopup) vs 임베디드(openNoVNC) 두 가지 모드 지원
+ *    5. <script type="module"> 동적 삽입으로 ESM import 수행 */
 async function renderConsole(b, v) {
   if (!v) return;
   let vncHtml = '<div class="text-center p-20"><p class="text-14">&#128424; ' + escapeHtml(v.name) + '</p><p class="stat-label mt-8">' + t('loading') + '</p></div>';
@@ -5152,21 +3709,21 @@ function copyVncAddr(port) {
   navigator.clipboard.writeText(addr).then(() => toast(t('vnc.addr_copied') + ': ' + addr)).catch(() => toast(addr, true));
 }
 
-
-
-
-
-
-
-
-
+/* ═══ SNAPSHOTS ═══
+ *  [백엔드 응답 형식]
+ *    "pcvpool/vms/web-prod@snap-20260410\t2026-04-10 15:30:00" 형태의 문자열 배열.
+ *    @ 뒤가 스냅샷 이름, \t 뒤가 생성 시간.
+ *  [롤백 안전 장치]
+ *    파괴적 작업이므로 VM 이름을 직접 타이핑해야 실행 가능 (rbValidate).
+ *  [일괄 삭제]
+ *    snapDeleteAll → prefix 필터 + keep_recent → 미리보기(sdaPreview) → 실행(sdaExec). */
 async function renderSnapshots(b, v) {
   if (!v) return;
   b.innerHTML = '<div><div class="justify-between items-center mb-12"><h3>' + t('vm.snapshot') + ': ' + esc(v.name) + '</h3><div class="flex gap-6"><button class="btn btn-g" onclick="takeSnap()" class="text-12">+ ' + t('btn.create') + '</button><button class="btn btn-r" onclick="snapDeleteAll(\'' + escapeAttr(v.name) + '\')" class="text-12">&#128465; Delete All</button></div></div><div id="stree"><span class="spinner"></span> ' + t('loading') + '</div></div>';
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(v.name));
     const raw = unwrapList(r);
-
+    /* 백엔드: "pool/vm@snapname\tdate" 문자열 배열 파싱 */
     const snaps = raw.map(s => {
       if (typeof s === 'string') {
         const [full, time] = s.split('\t');
@@ -5267,14 +3824,14 @@ async function snapRb(vm, s) {
 
   let h = '<h2 class="mb-14">&#9194; Rollback Snapshot</h2>';
 
-
+  /* 경고 배너 */
   h += '<div style="margin-bottom:14px;padding:12px;border:1px solid var(--red);border-radius:6px;background:rgba(255,60,60,.06)">';
   h += '<div style="font-weight:700;color:var(--red);margin-bottom:6px">&#9888; Destructive Operation</div>';
   h += '<div class="text-xs color-muted">This will revert the VM disk to the snapshot point-in-time. <b>All data written after this snapshot will be permanently lost.</b></div>';
   if (on) h += '<div class="text-xs" style="color:var(--yellow);margin-top:6px">&#9889; VM is currently <b>running</b> — it will be <b>force-stopped</b> before rollback, then automatically restarted.</div>';
   h += '</div>';
 
-
+  /* 상세 정보 */
   h += '<div class="mb-14 p-10 border-muted rounded-md">';
   h += '<div style="display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px">';
   h += '<span class="color-muted">VM</span><span><b>' + esc(vm) + '</b> ' + (on ? '<span class="color-green">Running</span>' : '<span class="color-muted">Stopped</span>') + '</span>';
@@ -5282,7 +3839,7 @@ async function snapRb(vm, s) {
   h += '<span class="color-muted">ZFS Path</span><span class="text-xs"><code>' + esc(vm) + '@' + esc(s) + '</code></span>';
   h += '</div></div>';
 
-
+  /* 확인 입력 */
   h += '<div class="mb-14"><label class="text-12 font-600">Type VM name to confirm: <code>' + esc(vm) + '</code></label>';
   h += '<input id="rb-confirm-input" placeholder="' + esc(vm) + '" class="w-full mt-4" oninput="rbValidate(\'' + vm.replace(/'/g, "\\'") + '\')"></div>';
 
@@ -5326,7 +3883,7 @@ async function snapDl(vm, s) {
 }
 
 async function snapDeleteAll(vm) {
-
+  /* 1. 스냅샷 목록 조회 */
   let snaps = [];
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(vm));
@@ -5343,7 +3900,7 @@ async function snapDeleteAll(vm) {
 
   if (snaps.length === 0) { toast('No snapshots to delete'); return; }
 
-
+  /* 2. 모달 UI */
   let h = '<h2 class="mb-12">&#128465; Bulk Delete Snapshots</h2>';
   h += '<div class="mb-12"><span class="color-muted">VM:</span> <b>' + esc(vm) + '</b> &mdash; <span class="color-accent">' + snaps.length + '</span> snapshots</div>';
 
@@ -5364,7 +3921,7 @@ async function snapDeleteAll(vm) {
 
   showModal(h);
 
-
+  /* 스냅샷 데이터를 전역에 임시 저장 */
   window._sdaSnaps = snaps;
   window._sdaVm = vm;
   sdaPreview();
@@ -5378,7 +3935,7 @@ function sdaPreview() {
   const countEl = document.getElementById('sda-count');
   if (!el) return;
 
-
+  /* 필터 적용 */
   let filtered = prefix ? snaps.filter(s => s.name.startsWith(prefix)) : [...snaps];
   const total = filtered.length;
   const toDelete = keep > 0 && keep < total ? total - keep : (keep >= total ? 0 : total);
@@ -5425,12 +3982,12 @@ async function sdaExec(vm) {
   if (btn) { btn.disabled = false; btn.innerHTML = '&#128465; Done'; }
 }
 
-
+/* ═══ PERFORMANCE ═══ */
 var perfLayout = 'auto';
 
 async function renderPerformance(b, v) {
   if (!v) return;
-
+  /* 실시간 메트릭 조회 */
   var metrics = {};
   if (v.state === 'running') {
     try { var mr = await fetchGet(EP.VM_DETAIL(v.name)); metrics = unwrapData(mr) || mr || {}; } catch(e) {}
@@ -5458,7 +4015,7 @@ async function renderPerformance(b, v) {
   }, 30);
 }
 
-
+/* ═══ VM TIMELINE ═══ */
 function renderTimeline(b, v) {
   if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
   var events = (eventLog || []).filter(function(e) {
@@ -5487,11 +4044,11 @@ function renderTimeline(b, v) {
   }
   b.innerHTML = h;
 }
-
+/* ═══ VM COMPARE ═══ */
 async function showVmCompare() {
   if (checkedVms.size < 2) { toast(_L('비교할 VM을 2개 이상 선택하세요', 'Select 2+ VMs to compare'), false); return; }
   var selected = vmList.filter(function(v, idx) { return checkedVms.has(idx); }).slice(0, 4);
-
+  /* 실시간 메트릭을 병합 */
   await Promise.all(selected.map(async function(v) {
     if (v.state === 'running') {
       try {
@@ -5538,7 +4095,7 @@ async function showVmCompare() {
   h += '<div class="text-right mt-14"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
   showModal(h);
 }
-
+/* ═══ BULK ACTIONS ═══ */
 function showBulkActions() {
   if (checkedVms.size === 0) { toast(_L('VM을 선택하세요', 'Select VMs first'), false); return; }
   var count = checkedVms.size;
@@ -5587,19 +4144,19 @@ async function bulkSnapshot() {
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
     if (ps) ps.innerHTML = '<span class="spinner"></span> ' + (i + 1) + '/' + names.length + ' — ' + esc(names[i]);
-    try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) {  }
+    try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) { /* continue */ }
   }
   if (ps) ps.innerHTML = '&#9989; ' + _L('완료', 'Done') + ': ' + names.length + ' snapshots';
   addEvt('Bulk snapshot: ' + snapName + ' → ' + names.join(', '));
   setTimeout(function() { closeModal(); loadAll(); }, 2000);
 }
 
-
-
-
+/* ADR-0018: VM 액션 실패 시 사용자에게 사유를 보여주는 헬퍼.
+ * /health/recent-errors 에서 audit DB의 최근 worker 실패 fail 레코드를 가져와 표시.
+ * 자동 닫기 없음 — 사용자가 [닫기] 버튼을 눌러야 닫힌다. */
 async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (progEl) { progEl.style.width = '100%'; progEl.style.background = 'var(--red)'; }
-
+  /* notification center 영구 기록 (모달 닫혀도 사용자가 추후 확인 가능) */
   if (typeof addNotification === 'function') {
     addNotification('error',
       (actionLabel || 'VM action') + ' failed: ' + vmName,
@@ -5608,7 +4165,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (typeof addEvt === 'function') {
     addEvt('FAIL ' + (actionLabel || 'action') + ' ' + vmName + ' — state change timeout');
   }
-
+  /* 정적 i18n 라벨 + escapeHtml(vmName) — XSS 안전 */
   var safeName = escapeHtml(vmName);
   var titleHtml = '&#10060; ' + _L('상태 변경 실패', 'State change failed') + ': ' + safeName;
   var subHtml = _L('백엔드 워커가 30초 내 상태 전이를 완료하지 못했습니다.', 'Backend worker did not complete the state transition within 30s.');
@@ -5619,7 +4176,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
     + '<div id="pwr-err-detail" class="text-xs mt-8" style="max-height:160px;overflow:auto;text-align:left;background:rgba(0,0,0,0.2);padding:8px;border-radius:4px">' + loadingHtml + '</div>'
     + '<div class="mt-12">' + closeBtnHtml + '</div>';
   if (statusEl) statusEl.innerHTML = html;
-
+  /* 비동기 사유 조회 */
   try {
     var resp = await fetchGet('/api/v1/health/recent-errors?vm=' + encodeURIComponent(vmName) + '&limit=3');
     var errs = (resp && (resp.data || resp.errors)) || [];
@@ -5639,11 +4196,11 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   }
 }
 
-
-
-
-
-
+/* ═══ POWER / VM DELETE ═══
+ *  vmPower(action)는 진행 모달을 즉시 표시한 뒤 fetch → 상태 폴링 패턴을 사용.
+ *  백엔드가 fire-and-forget이므로 API 응답은 "accepted"일 뿐 완료가 아니다.
+ *  따라서 2초 간격으로 최대 5회 VM 상태를 폴링하여 실제 전이를 확인한다.
+ *  vmDel도 비슷하게 삭제 후 VM이 목록에서 사라질 때까지 폴링한다. */
 async function vmPower(a) {
   const v = vmList[selectedVmIndex]; if (!v) return;
   var actionLabels = {
@@ -5653,7 +4210,7 @@ async function vmPower(a) {
     resume: { icon: '&#9654;&#9654;', label: _L('재개', 'Resume'), past: _L('재개됨', 'Resumed'), color: 'var(--green)' }
   };
   var al = actionLabels[a] || { icon: '&#9881;', label: a, past: a, color: 'var(--accent)' };
-
+  /* 진행 모달 표시 */
   showModal('<div class="text-center p-20">'
     + '<div style="font-size:48px;margin-bottom:12px">' + al.icon + '</div>'
     + '<h2 class="mb-8">' + escapeHtml(v.name) + '</h2>'
@@ -5663,7 +4220,7 @@ async function vmPower(a) {
   try {
     var pf = document.getElementById('pwr-p'), ps = document.getElementById('pwr-s');
     var r = await fetchPost(EP.VM_ACTION(v.name, a), {});
-
+    /* API 에러 응답 체크 */
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
       if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(r.error.message || 'Failed');
@@ -5672,7 +4229,7 @@ async function vmPower(a) {
     }
     if (pf) pf.style.width = '60%';
     if (ps) ps.innerHTML = '<span class="spinner"></span> ' + _L('상태 확인 중...', 'Verifying state...');
-
+    /* W7 fix: 실제 VM 상태 폴링 최대 15회(30초), 2초 간격 — 느린 환경 허용 */
     var expectedState = (a === 'start' || a === 'resume') ? 'running' : (a === 'suspend') ? 'paused' : 'shutoff';
     var verified = false;
     var maxPolls = 15;
@@ -5692,8 +4249,8 @@ async function vmPower(a) {
       addEvt(v.name + ' ' + al.past);
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     } else {
-
-
+      /* ADR-0018 fix: 자동 닫기 금지. 사용자가 명시적으로 [닫기]를 눌러야 함.
+       * 백엔드 워커 실패 사유는 /health/recent-errors 에서 비동기 fetch */
       await showVmFailureDetail(ps, pf, v.name, al.label);
       loadAll();
     }
@@ -5701,17 +4258,17 @@ async function vmPower(a) {
     var pf2 = document.getElementById('pwr-p'), ps2 = document.getElementById('pwr-s');
     if (pf2) { pf2.style.width = '100%'; pf2.style.background = 'var(--red)'; }
     var errMsg = e.name === 'AbortError' ? _L('타임아웃 (10초)', 'timeout (10s)') : escapeHtml(e.message);
-
+    /* ADR-0018: 자동 닫기 제거 — 사용자가 [닫기] 버튼을 명시적으로 눌러야 함 */
     var btnHtml = '<div class="mt-12"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>';
     if (ps2) ps2.innerHTML = '&#10060; ' + _L('실패', 'Failed') + ': ' + errMsg + btnHtml;
   }
 }
 
-
+/* C4 fix: 공통 destroyConfirm 패턴으로 통일 (스냅샷 롤백과 동일 UX 수준) */
 async function vmDel() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   if (typeof destroyConfirm !== 'function') {
-
+    /* fallback — uxlib 미로드 환경 */
     if (!confirm(_L('VM 삭제: ', 'Delete VM: ') + v.name + '?')) return;
     return doVmDel(v.name);
   }
@@ -5725,8 +4282,8 @@ async function vmDel() {
   });
 }
 
-
-
+/* C5 fix: DELETE 응답이 에러여도 실제 상태 폴링을 끝까지 수행 (서버는 계속 진행 중일 수 있음).
+   W7-equivalent: 폴링을 10회(20초)로 확장. */
 async function doVmDel(n) {
   showModal('<h2 class="color-red">&#9888; Deleting VM</h2><p><b class="color-accent">' + escapeHtml(n) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dv-p" class="w-pct-10"></div></div><div class="prog-status" id="dv-s"><span class="spinner"></span>Sending delete request...</div>');
   const pf = document.getElementById('dv-p'), ps = document.getElementById('dv-s');
@@ -5736,7 +4293,7 @@ async function doVmDel(n) {
     const d = await fetchDelete(EP.VM_DETAIL(n)).catch(function(e) { return { error: { message: e && e.message || 'Network error' } }; });
     if (d && d.error) {
       deleteError = d.error.message || 'Failed';
-
+      /* 에러여도 폴링 수행 — 서버가 백그라운드로 처리 완료했을 수 있음 */
       if (ps) ps.innerHTML = '<span class="spinner"></span>&#9888; ' + escapeHtml(deleteError) + _L(' — 서버 상태 확인 중...', ' — polling server state...');
     } else {
       if (ps) ps.innerHTML = '<span class="spinner"></span>Waiting for zvol cleanup...';
@@ -5750,7 +4307,7 @@ async function doVmDel(n) {
         const vl = await fetchGet(EP.VM_LIST());
         const vms = unwrapList(vl);
         if (!vms.find(x => x.name === n)) {
-
+          /* VM이 목록에서 사라짐 → 실제 삭제 성공 */
           if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
           if (ps) ps.innerHTML = '&#9989; ' + t('vm.deleted');
           toast(t('vm.deleted'));
@@ -5760,7 +4317,7 @@ async function doVmDel(n) {
         }
       } catch (e) { if(typeof _DEBUG !== 'undefined' && _DEBUG) console.warn('vl:', e.message); }
     }
-
+    /* 폴링 타임아웃 — 아직 목록에 남아있음 */
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--yellow)'; }
     if (deleteError) {
       if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(deleteError);
@@ -5778,14 +4335,14 @@ async function doVmDel(n) {
   }
 }
 
-
-
-
-
-
-
-
-
+/* ═══ VM CREATE WIZARD ═══
+ *  3단계 위자드: 1) 이름 2) CPU/메모리 3) 디스크/ISO/네트워크
+ *  wizData에 각 단계의 입력값을 누적. wizSave()로 현재 단계 저장.
+ *  step 1→2 이동 시 VM 이름 정규식 검증 (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).
+ *  doCreate()에서 fire-and-forget 패턴: 모달 닫고 → 1초 폴링으로 생성 확인.
+ *  최대 20초(20회) 폴링 후 미확인이면 사용자에게 안내. */
+/* M4 fix: storage_type 기본값을 'auto'로 → 백엔드 자동 감지 사용.
+   사용자가 명시적으로 선택하지 않으면 body에서 storage_type 제거 (backend fallback 활용). */
 function wizDefaults() {
   return {
     name: '',
@@ -5824,7 +4381,7 @@ function wizSave() {
 }
 function wizGo(s) {
   wizSave();
-
+  /* Step 1 → 2 이동 시 VM 이름 검증 */
   if (wizStep === 1 && s > 1) {
     const name = wizData.name.trim();
     if (!name) { toast(_L('VM 이름을 입력하세요', 'VM name is required'), false); return; }
@@ -5936,8 +4493,8 @@ async function wizLoadStorageTargets(force) {
   wizStorageChanged(false);
 }
 
-
-
+/* M3 fix: 네트워크 목록 조회 실패 시 명시적 토스트 + 수동 입력 힌트
+   (이전엔 virbr0 하드코딩으로 숨김 → 브릿지 없는 환경에서 생성 실패) */
 async function wizLoadNets() {
   const sel = document.getElementById('wb'); if (!sel) return;
   try {
@@ -6011,11 +4568,11 @@ async function doCreate() {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) {
     toast(_L('VM 이름: 1-64자, 영문/숫자/_- 만 허용', 'VM name: 1-64 chars, [a-zA-Z0-9_-]'), false); return;
   }
-
+  /* M3 (cont.): 네트워크 브릿지 필수 — wizLoadNets에서 선택된 값이 있어야 함 */
   if (!d.bridge) {
     toast(_L('네트워크 브릿지를 선택하세요', 'Select a network bridge'), false); return;
   }
-
+  /* Client-side 수치 가드 (서버는 W5에서 엄격 검증) */
   if (!(d.vcpu >= 1 && d.vcpu <= 256)) {
     toast(_L('vCPU 는 1~256 사이', 'vCPU must be between 1 and 256'), false); return;
   }
@@ -6026,13 +4583,13 @@ async function doCreate() {
     toast(_L('디스크는 1~65536 GB 사이', 'Disk must be 1~65536 GB'), false); return;
   }
 
-
+  /* 모달 즉시 닫고 백그라운드 처리 */
   if (typeof clearFormDirty === 'function') clearFormDirty('vm-create');
   closeModal(true);
   toast('&#128187; ' + escapeHtml(name) + ' ' + _L('생성 시작...', 'Creating...'), 's');
 
   try {
-
+    /* M4: storage_type='auto'일 때 body에서 제외 → 백엔드가 ZFS 풀 감지 후 qcow2 폴백 */
     const body = { name: name, vcpu: d.vcpu, memory_mb: d.mem, disk_size_gb: d.disk, network_bridge: d.bridge };
     if (d.storage_type && d.storage_type !== 'auto') body.storage_type = d.storage_type;
     if (d.storage_pool) body.storage_pool = d.storage_pool;
@@ -6048,8 +4605,8 @@ async function doCreate() {
     toast('&#9989; ' + t('vm.created') + ': ' + escapeHtml(name), 's');
     const storageLabel = (d.storage_type && d.storage_type !== 'auto') ? d.storage_type : 'auto';
     addEvt(t('vm.created') + ': ' + name + ' (' + d.vcpu + 'vCPU, ' + d.mem + 'MB, ' + d.disk + 'GB, ' + storageLabel + ')');
-
-
+    /* W8 fix: fire-and-forget 백엔드 — 워커가 libvirt define 마칠 때까지 폴링 (최대 20초)
+       절대 타임아웃 25초 + 연속 에러 5회로 이중 안전장치 → interval 누수 방지 */
     if (typeof invalidateCache === 'function') invalidateCache('vm.list');
     var attempts = 0;
     var errStreak = 0;
@@ -6091,7 +4648,7 @@ async function doCreate() {
   }
 }
 
-
+/* ═══ SETTINGS ═══ */
 function showSettings() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   showModal(`<h2>${t('vm.settings')}: ${escapeHtml(v.name)}</h2><div class="split"><div class="left"><div class="hw-list"><div class="hw-item active" onclick="setHw(this,'identity')"><span class="hw-icon">&#9998;</span><span class="hw-label">Identity</span><span class="hw-val">${escapeHtml(v.name)}</span></div><div class="hw-item" onclick="setHw(this,'cpu')"><span class="hw-icon">&#9881;</span><span class="hw-label">CPU</span><span class="hw-val">${escapeHtml(String(v.vcpu || '-'))} vCPU</span></div><div class="hw-item" onclick="setHw(this,'mem')"><span class="hw-icon">&#128204;</span><span class="hw-label">Memory</span><span class="hw-val">${escapeHtml(String(v.memory_mb || '-'))} MB</span></div><div class="hw-item" onclick="setHw(this,'disk')"><span class="hw-icon">&#128190;</span><span class="hw-label">Disk Resize</span><span class="hw-val">Storage</span></div><div class="hw-item" onclick="setHw(this,'cpupin')"><span class="hw-icon">&#128204;</span><span class="hw-label">CPU Pinning</span><span class="hw-val">vCPU Pin</span></div><div class="hw-item" onclick="setHw(this,'bw')"><span class="hw-icon">&#128246;</span><span class="hw-label">Bandwidth</span><span class="hw-val">QoS</span></div><div class="hw-item" onclick="setHw(this,'cdrom')"><span class="hw-icon">&#128191;</span><span class="hw-label">CD/DVD (SATA)</span><span class="hw-val">ISO</span></div><div class="hw-item" onclick="setHw(this,'nic')"><span class="hw-icon">&#127760;</span><span class="hw-label">Network</span><span class="hw-val">Bridge</span></div><div class="hw-item" onclick="setHw(this,'autoprotect')"><span class="hw-icon">&#128737;</span><span class="hw-label">AutoProtect</span><span class="hw-val">Backup</span></div></div></div><div class="right"><div id="hw-edit">${hwIdentity()}</div></div></div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
@@ -6147,7 +4704,7 @@ async function browseISOForMount() {
     else { const dirs = {}; il.forEach(iso => { const d = iso.dir || '/pcvpool/iso'; if (!dirs[d]) dirs[d] = []; dirs[d].push(iso); });
       Object.entries(dirs).forEach(([dir, files]) => {
         h += '<div style="padding:6px 10px;font-size:10px;color:var(--accent);border-bottom:1px solid var(--border);font-weight:600">&#128194; ' + escapeHtml(dir) + '</div>';
-        files.forEach(iso => { const p = String(iso.path || iso.name || ''); const fn = (iso.name || p).replace(/^.*\//, ''); const sz = iso.size_human || '';
+        files.forEach(iso => { const p = String(iso.path || iso.name || ''); const fn = (iso.name || p).replace(/^.*\//, ''); const sz = iso.size_mb ? iso.size_mb + 'MB' : '';
           h += '<div onclick="selectISOForMount(' + escapeAttr(JSON.stringify(p)) + ')" style="padding:7px 12px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">';
           h += '<span class="color-accent">&#128191;</span><span class="flex-1">' + escapeHtml(fn) + '</span><span class="color-muted text-xs">' + escapeHtml(sz) + '</span></div>'; }); }); }
     h += '</div><div class="text-right mt-10"><button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
@@ -6259,20 +4816,20 @@ async function doEjt() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ SNAPSHOT SHORTCUT ═══ */
 function showSnap() { currentTab = 'snapshots'; document.querySelectorAll('#ct button').forEach(b => { b.classList.remove('active'); if (b.dataset.t === 'snapshots') b.classList.add('active'); }); renderContent(); }
 
-
+/* ═══ NIC MANAGER ═══ */
 async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return; showModal(`<h2>NIC: ${escapeHtml(v.name)}</h2><div id="nic-mgr">${t('loading')}</div><div class="mt-10"><div class="fr"><label>Bridge</label><input id="nm-br" value="pcvbr0"><button class="btn btn-g" onclick="nmAdd()">+ Add</button></div></div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
   try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); let h = '<table><thead><tr><th>MAC</th><th>Bridge</th><th>Model</th><th>IP</th><th>DNS</th><th></th></tr></thead><tbody>'; l.forEach(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); h += `<tr><td>${escapeHtml(c.mac || '-')}</td><td>${escapeHtml(c.bridge || c.source || '-')}</td><td>${escapeHtml(c.model || 'virtio')}</td><td>${escapeHtml(c.ip || '-')}</td><td>${escapeHtml(dns)}</td><td><button class="btn btn-r text-9" onclick="nmDel('${escapeAttr(c.mac)}')">${t('btn.delete')}</button></td></tr>`; }); document.getElementById('nic-mgr').innerHTML = l.length ? h + '</tbody></table>' : '<p class="color-muted">No NICs</p>'; } catch (e) { document.getElementById('nic-mgr').innerHTML = t('error'); } }
 async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ VNC MODAL ═══ */
 async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; showModal(`<h2>VNC: ${escapeHtml(v.name)}</h2><div id="vnc-info">${t('loading')}</div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
   try { const r = await fetchGet(EP.VNC(v.name)); const d = unwrapData(r); const stBadge = v.state === 'running' ? H.badge('Available', 'g') : H.badge('VM stopped', 'r'); document.getElementById('vnc-info').innerHTML = H.card('', H.row('Address', escapeHtml(d.vnc_address || d.address || 'localhost')) + H.row('Port', escapeHtml(String(d.vnc_port || d.port || '-'))) + H.row('Status', stBadge)); } catch (e) { document.getElementById('vnc-info').innerHTML = H.card('', '<p class="color-muted">VNC info unavailable</p>'); } }
 
-
+/* ═══ VM CLONE ═══ */
 function _vmCloneStorageKind(v) {
   const st = String(v?.storage_type || '').toLowerCase();
   const fmt = String(v?.disk_format || '').toLowerCase();
@@ -6489,7 +5046,7 @@ async function doVmClone() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ VM DISK RESIZE ═══ */
 function hwDisk() {
   return '<h4>&#128190; Disk Resize</h4><div class="fr"><label>New Size (GB)</label><input id="sd-size" type="number" value="40" placeholder="40"></div><div class="fr"><label>Disk Path</label><input id="sd-path" placeholder="vda (optional)"></div><button class="btn btn-g" onclick="doDiskResize()">' + t('btn.apply') + '</button><p class="stat-label mt-8">Live disk resize (qemu-img resize). VM can be running.</p>';
 }
@@ -6506,7 +5063,7 @@ async function doDiskResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-
+/* ═══ VM DELETE STATUS ═══ */
 async function vmDeleteStatus(name) {
   try {
     const r = await fetchGet(EP.VM_DELETE_STATUS(name));
@@ -6515,7 +5072,7 @@ async function vmDeleteStatus(name) {
   } catch (e) { return 'unknown'; }
 }
 
-
+/* ═══ VM EXPORT OVA ═══ */
 async function vmExportOva(idx) {
   const v = vmList[idx ?? selectedVmIndex]; if (!v) return;
   if (!await customConfirm('Export OVA', _L('VM을 OVA 파일로 내보내시겠습니까?', 'Export ' + v.name + ' as OVA file?') + '\n' + v.name)) return;
@@ -6528,7 +5085,7 @@ async function vmExportOva(idx) {
     pf.style.width = '70%'; ps.innerHTML = '<span class="spinner"></span> ' + _L('변환 진행 중...', 'Converting...');
     var d = unwrapData(r) || r;
     var path = d.path || d.ova_path || '';
-
+    /* 상태 폴링 (export-status 있으면) */
     for (var pi = 0; pi < 5; pi++) {
       await new Promise(function(res) { setTimeout(res, 2000); });
       pf.style.width = (75 + pi * 5) + '%';
@@ -6546,7 +5103,7 @@ async function vmExportOva(idx) {
   }
 }
 
-
+/* ═══ CPU PINNING ═══ */
 function hwCpuPin() {
   return '<h4>&#128204; CPU Pinning</h4><p class="stat-label mb-8">Pin vCPUs to physical cores for performance isolation.</p><div class="fr"><label>vCPU Map</label><input id="scpin" placeholder="0:0,1:2,2:4" class="flex-1"></div><p class="stat-label">Format: vCPU:pCPU pairs, comma separated (e.g., 0:0,1:2)</p><button class="btn btn-g mt-8" onclick="doCpuPin()">' + t('btn.apply') + '</button>';
 }
@@ -6562,7 +5119,7 @@ async function doCpuPin() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ BANDWIDTH QoS ═══ */
 function hwBandwidth() {
   return '<h4>&#128246; Network Bandwidth (QoS)</h4><p class="stat-label mb-8">Set network bandwidth limits for VM interfaces.</p><div class="fr"><label>Inbound (Mbps)</label><input id="sbw-in" type="number" value="1000" placeholder="1000"></div><div class="fr"><label>Outbound (Mbps)</label><input id="sbw-out" type="number" value="1000" placeholder="1000"></div><div class="fr"><label>Burst (KB)</label><input id="sbw-burst" type="number" value="1024" placeholder="1024"></div><button class="btn btn-g mt-8" onclick="doBandwidth()">' + t('btn.apply') + '</button>';
 }
@@ -6580,7 +5137,7 @@ async function doBandwidth() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ VM MEMORY STATS ═══ */
 async function showMemStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128204; Memory Stats: ' + esc(v.name) + '</h2>';
@@ -6615,7 +5172,7 @@ async function showMemStats() {
   }
 }
 
-
+/* ═══ VM CPU STATS ═══ */
 async function showCpuStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#9881; CPU Stats: ' + esc(v.name) + '</h2>';
@@ -6654,7 +5211,7 @@ async function showCpuStats() {
   }
 }
 
-
+/* ═══ VM DISK LIVE RESIZE (MODAL) ═══ */
 function showDiskLiveResize() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128190; Disk Live Resize: ' + esc(v.name) + '</h2>';
@@ -6682,7 +5239,7 @@ async function doDiskLiveResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-
+/* ═══ VM GUEST DISK USAGE ═══ */
 function _vmDiskUsagePct(fs) {
   if (!fs) return null;
   if (fs.usage_percent !== undefined) return Number(fs.usage_percent);
@@ -6775,7 +5332,7 @@ async function showVmDiskUsage() {
   }
 }
 
-
+/* ═══ GUEST AGENT ═══ */
 var _gaInstallCommands = {};
 
 function showGuestAgent() {
@@ -6940,7 +5497,7 @@ async function gaExec() {
   } catch (e) { if (el) el.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>'; }
 }
 
-
+/* ═══ D3: DRAG & DROP VM MIGRATION ═══ */
 async function vmMigrateDrop(vmName, targetIp, targetName) {
   if (!PCV.isMultiEdgeUI()) {
     toast(_L('클러스터 빌드 전용 기능입니다', 'This action is available only on the cluster build'), false);
@@ -6972,7 +5529,7 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
     if (ps) ps.innerHTML = '&#10060; ' + esc(e.message);
   }
 }
-
+/* ═══ DISK I/O THROTTLE EDITOR ═══ */
 function showBlkioEditor() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var h = '<h2>&#128190; ' + (t('vm.blkio_title') || 'Disk I/O Limits') + ': ' + esc(v.name) + '</h2>';
@@ -7048,11 +5605,11 @@ async function blkioSet() {
   }
 }
 
-
-
-
-
-
+/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
+ *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
+ *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
+ *  window.render() 등 직접 참조를 위한 전환기 코드.
+ *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
 PCV.vm = {
   render: render,
   setSort: setSort,
@@ -7097,7 +5654,7 @@ PCV.vm = {
   connectWS: connectWS
 };
 
-
+/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.render = render;
 window.setSort = setSort;
 window.getFiltered = getFiltered;
@@ -7199,23 +5756,22 @@ window.bulkSnapshot = bulkSnapshot;
 window.vmMigrateDrop = vmMigrateDrop;
 
 })(window.PCV);
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/container.js
+   Container List, Rendering, Actions, Create Wizard, NIC Ops
+   ADR-0013: IIFE module scope — PCV.container namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
-
-
+/* ═══ CONTAINER STATE VARIABLES ═══ */
+/* These must be on window.* because inline onclick handlers (e.g. selCtr='name')
+   set window-scoped globals. Functions here must read/write window.* to stay in sync. */
 window.selCtr = window.selCtr || null;
 window.ctrTab = window.ctrTab || 'summary';
 window.ctrHist = window.ctrHist || [];
 
-
+/* ═══ CONTAINER SORT ═══ */
 window.ctrSortKey = window.ctrSortKey || 'name';
 window.ctrSortDir = window.ctrSortDir || 1;
 function setCtrSort(k) {
@@ -7223,7 +5779,7 @@ function setCtrSort(k) {
   renderContainerList();
 }
 
-
+/* ═══ SIDEBAR CONTAINER LIST ═══ */
 async function renderContainerList() {
   const el = document.getElementById('ctr-list');
   if (!el) return;
@@ -7267,7 +5823,7 @@ async function renderContainerList() {
   } catch (e) { el.innerHTML = '<div class="text-xs color-muted" style="padding:8px">Failed to load containers.</div>'; }
 }
 
-
+/* ═══ MAIN CONTAINER PANEL ═══ */
 async function renderContainers(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -7326,7 +5882,7 @@ async function renderContainers(b) {
   } catch (e) { b.innerHTML = '<p class="color-red">' + escapeHtml(e.message) + '</p>'; }
 }
 
-
+/* ═══ CONTAINER TAB RENDERING ═══ */
 async function ctrRenderTab(tb, cv) {
   const n = cv.name;
   const on = cv.state === 'RUNNING';
@@ -7374,7 +5930,7 @@ async function ctrRenderTab(tb, cv) {
     + H.card('Set Bandwidth Limit', '<div class="fr"><label>Interface</label><input id="ctr-bw-nic" value="eth0" class="w-80"></div><div class="fr"><label>Inbound (Kbps)</label><input id="ctr-bw-in" type="number" value="0" placeholder="0 = unlimited"></div><div class="fr"><label>Outbound (Kbps)</label><input id="ctr-bw-out" type="number" value="0" placeholder="0 = unlimited"></div><button class="btn btn-g mt-8" onclick="ctrSetBandwidth(\'' + escapeHtml(n) + '\')">Apply QoS</button>')
     + H.card('Routing &amp; Addresses', '<div id="ctr-net-info"><span class="spinner"></span></div>')
     + '</div>';
-
+    /* Load NIC list */
     try {
       const r = await fetchGet(EP.CTR_NICS(n));
       const nics = unwrapList(r);
@@ -7397,7 +5953,7 @@ async function ctrRenderTab(tb, cv) {
       const el = document.getElementById('ctr-nic-list');
       if (el) el.innerHTML = H.card('Interface eth0', H.row('IP Address', '<span class="color-accent">' + escapeHtml(cv.ip_addr || '-') + '</span>') + H.row('Bridge', 'pcvbr0') + H.row('Type', 'veth'));
     }
-
+    /* Load routing info */
     if (on) {
       try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<pre class="stat-label" style="margin:0;white-space:pre-wrap;overflow-x:auto">' + escapeHtml(unwrapData(r).output || '') + '</pre>'; } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<span class="color-muted">Unable to fetch</span>'; }
     } else {
@@ -7432,7 +5988,7 @@ async function ctrRenderTab(tb, cv) {
   }
 }
 
-
+/* ═══ CONTAINER ACTIONS ═══ */
 async function ctrA(n, a) {
   showModal('<h2>' + (a === 'start' ? '&#9654; ' + t('ctr.starting') : '&#9632; ' + t('ctr.stopping')) + '</h2><p class="mb-8"><b class="color-accent">' + n + '</b></p><div class="prog-bar"><div class="prog-fill" id="ctr-prog" class="w-pct-10"></div></div><div class="prog-status" id="ctr-st"><span class="spinner"></span>Sending ' + a + ' command...</div>');
   const pf = document.getElementById('ctr-prog'), ps = document.getElementById('ctr-st');
@@ -7547,20 +6103,20 @@ async function doCtrDel(n) {
   } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); }
 }
 
-
+/* ═══ CONTAINER CREATE WIZARD ═══ */
 function showCtrCreate() {
   if (typeof markFormDirty === 'function') markFormDirty('ctr-create');
   let h = '<h2>' + t('ctr.new') + '</h2>';
-
+  /* 단일 컬럼 레이아웃 — 모달 잘림 방지 */
   h += '<div style="display:grid;grid-template-columns:1fr 1fr;gap:16px">';
-
+  /* 왼쪽: 기본 설정 */
   h += '<div>';
   h += '<h4 class="mb-8">&#9783; Basic</h4>';
   h += '<div class="fr"><label class="min-w-80">Name</label><input id="cc-name" placeholder="my-container" class="flex-1"></div>';
   h += '<div class="fr"><label class="min-w-80">Distribution</label><select id="cc-dist" onchange="ctrDistChanged()" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="ubuntu">Ubuntu</option><option value="debian">Debian</option><option value="alpine">Alpine</option><option value="centos">CentOS</option><option value="fedora">Fedora</option><option value="archlinux">Arch Linux</option></select></div>';
   h += '<div class="fr"><label class="min-w-80">Release</label><input id="cc-rel" value="jammy" placeholder="jammy / bookworm / 3.19" class="flex-1"></div>';
   h += '</div>';
-
+  /* 오른쪽: 네트워크 + 리소스 */
   h += '<div>';
   h += '<h4 class="mb-8">&#127760; Network</h4>';
   h += '<div class="fr"><label class="min-w-70">Bridge</label><div class="flex gap-6 flex-1"><select id="cc-br" style="flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="pcvbr0">pcvbr0 (default)</option></select><button class="btn text-xs" onclick="ctrLoadBridges()">&#128260;</button></div></div>';
@@ -7573,7 +6129,7 @@ function showCtrCreate() {
   h += '<div class="fr"><label class="min-w-70">Memory (MB)</label><input id="cc-mem" type="number" value="512" min="64" class="flex-1"></div>';
   h += '</div></div>';
   h += '<div class="text-right mt-14"><button class="btn btn-g" onclick="doCtrCreate()">' + t('btn.create') + '</button> <button class="btn" onclick="closeModal()">' + t('btn.cancel') + '</button></div>';
-
+  /* 넓은 모달 클래스 적용 */
   showModal(h);
   var mc = document.getElementById('mc');
   if (mc) mc.classList.add('modal-wide');
@@ -7620,7 +6176,7 @@ async function doCtrCreate() {
   const dns = document.getElementById('cc-dns')?.value;
   if (!n) { toast(t('msg.name_required'), false); return; }
 
-
+  /* 모달 즉시 닫고 백그라운드 처리 시작 */
   if (typeof clearFormDirty === 'function') clearFormDirty('ctr-create');
   closeModal();
   toast('&#9783; ' + escapeHtml(n) + ' ' + _L('생성 시작...', 'Creating...'), 's');
@@ -7632,14 +6188,14 @@ async function doCtrCreate() {
   try {
     const r = await fetchPost(EP.CTR_LIST(), body);
 
-
+    /* 에러 응답 처리 */
     if (r && r.error) {
       var errMsg = r.error.message || r.error.data || JSON.stringify(r.error);
       toast('&#10060; ' + _L('컨테이너 생성 실패', 'Container creation failed') + ': ' + errMsg, false);
       return;
     }
 
-
+    /* 백그라운드 폴링 — 컨테이너 목록에 나타날 때까지 (최대 90초) */
     addEvt('LXC Creating — ' + n + ' (' + dist + ':' + rel + ', ' + br + ', ' + vcpu + 'vCPU, ' + mem + 'MB)');
     var created = false;
     for (var pi = 0; pi < 18; pi++) {
@@ -7665,7 +6221,7 @@ async function doCtrCreate() {
   }
 }
 
-
+/* ═══ CONTAINER SET LIMITS ═══ */
 async function ctrSetLimits(name, type) {
   const body = { name };
   if (type === 'cpu') {
@@ -7682,7 +6238,7 @@ async function ctrSetLimits(name, type) {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ LXC NIC MANAGEMENT ═══ */
 function ctrNicAdd(name) {
   showModal('<h2>Add NIC to ' + escapeHtml(name) + '</h2><div class="fr"><label>Bridge</label><input id="ctr-nic-br" value="pcvbr0" placeholder="pcvbr0"></div><div class="fr"><label>MAC (optional)</label><input id="ctr-nic-mac" placeholder="auto"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doCtrNicAdd(\'' + escapeHtml(name) + '\')">Add NIC</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
@@ -7723,9 +6279,9 @@ async function ctrSetBandwidth(name) {
   } catch (e) { toast(e.message, false); }
 }
 
-
-
-
+/* ═══ REGISTER ALL ON WINDOW ═══ */
+/* State variables (selCtr, ctrTab, ctrHist, ctrSortKey, ctrSortDir)
+   are already initialized on window.* at the top of this file. */
 window.setCtrSort = setCtrSort;
 window.renderContainerList = renderContainerList;
 window.renderContainers = renderContainers;
@@ -7751,7 +6307,7 @@ window.doCtrNicAdd = doCtrNicAdd;
 window.ctrNicDel = ctrNicDel;
 window.ctrSetBandwidth = ctrSetBandwidth;
 
-
+/* ═══ CONTAINER CLONE (백엔드 4차) ═══ */
 async function showCtrClone(name) {
   var html = '<div class="form-group"><label>' + _L('원본', 'Source') + '</label>';
   html += '<input class="input-field" value="' + esc(name) + '" disabled></div>';
@@ -7767,7 +6323,7 @@ async function showCtrClone(name) {
   });
 }
 
-
+/* ═══ CONTAINER MEMORY STATS (cgroup v2) ═══ */
 async function showCtrMemoryStats(name) {
   try {
     var r = await fetchGet(EP.CTR_MEMORY_STATS(name));
@@ -7792,7 +6348,7 @@ async function showCtrMemoryStats(name) {
   } catch(e) { toast(_L('로드 실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ CONTAINER HEALTH CHECK ═══ */
 async function checkCtrHealth(name) {
   try {
     var r = await fetchGet(EP.CTR_HEALTH(name));
@@ -7802,12 +6358,12 @@ async function checkCtrHealth(name) {
   } catch(e) { toast(_L('헬스 체크 실패', 'Health check failed'), 'e'); }
 }
 
-
+/* ═══ BACKWARD COMPAT SHIMS ═══ */
 window.showCtrClone = showCtrClone;
 window.showCtrMemoryStats = showCtrMemoryStats;
 window.checkCtrHealth = checkCtrHealth;
 
-
+/* ═══ PCV.container namespace export ═══ */
 PCV.container = {
   setCtrSort: setCtrSort,
   renderContainerList: renderContainerList,
@@ -7843,12 +6399,11 @@ PCV.container = {
 window.showCtrClone = showCtrClone;
 window.showCtrMemoryStats = showCtrMemoryStats;
 window.checkCtrHealth = checkCtrHealth;
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/network.js
+   Network, OVN, NFV, Security Groups
+   ADR-0013: IIFE module scope — PCV.network namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -7937,7 +6492,7 @@ function ovnDemoHasEntry(list, name) {
 }
 
 function renderOvnDemoServiceComposition(dd, sd, sl, rl, hd) {
-  const publicDomain = 'demo.purecvisor.site';
+  const publicDomain = 'demo.purecvisor.example.com';
   const nodeName = hd.node_name || hd.node || 'PureCVisor-Prod-2';
   const switchName = dd.switch || 'pcv-demo-ls';
   const routerName = dd.router || 'pcv-demo-lr';
@@ -8031,7 +6586,7 @@ function netEditModeChanged() { const m = document.getElementById('ne-mode').val
 
 async function doNetEdit(name) { const mode = document.getElementById('ne-mode').value; try { const mr = await fetchPost(EP.NET_MODE(name), { mode: mode }); if (mr.error) { toast('Failed: ' + (mr.error.message || ''), false); return; } toast(name + ' updated'); addEvt('Network edit: ' + name); closeModal(); renderNetworks(document.getElementById('cb')); } catch (e) { toast('Edit failed: ' + e.message, false); } }
 
-
+/* ═══ OVN ═══ */
 async function renderOvn(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -8100,7 +6655,7 @@ async function nfvLbCreate() {
 }
 async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ SECURITY GROUPS ═══ */
 async function renderSecGroups(b) {
   b.innerHTML = showSkeleton();
   let h = H.section('&#128737; Security Groups');
@@ -8162,7 +6717,7 @@ window.sgListRules = async function() {
   } catch (e) { if (el) el.innerHTML = '<span class="color-red">오류: ' + escapeHtml(e.message) + '</span>'; }
 };
 
-
+/* ═══ OVERLAY NETWORKS ═══ */
 async function renderOverlayNetworks(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -8183,7 +6738,7 @@ async function renderOverlayNetworks(b) {
 }
 window.renderOverlayNetworks = renderOverlayNetworks;
 
-
+/* ═══ NETWORK TOPOLOGY ═══ */
 async function renderTopology(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -8203,24 +6758,24 @@ async function renderTopology(b) {
     h += '</div>';
     b.innerHTML = h;
 
-
+    /* Draw topology */
     setTimeout(function() {
       var canvas = document.getElementById('topo-canvas');
       if (!canvas) return;
       var ctx = canvas.getContext('2d');
       var W = canvas.width;
 
-
+      /* Compute styles */
       var style = getComputedStyle(document.documentElement);
       var accentColor = style.getPropertyValue('--accent').trim() || '#00f0ff';
       var greenColor = style.getPropertyValue('--green').trim() || '#00ff88';
       var fgColor = style.getPropertyValue('--fg').trim() || '#e0f0ff';
       var dimColor = style.getPropertyValue('--fg2').trim() || '#5a6a8a';
 
-
+      /* Layout: nodes across top, bridges in middle, VMs at bottom */
       var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
 
-
+      /* Draw nodes */
       var nodePositions = [];
       nodes.forEach(function(nd, i) {
         var x = (W / (nodes.length + 1)) * (i + 1);
@@ -8235,7 +6790,7 @@ async function renderTopology(b) {
         ctx.fillText(nd.ip, x, y + 34);
       });
 
-
+      /* Draw bridges */
       var bridgePositions = [];
       nets.slice(0, 6).forEach(function(net, i) {
         var x = (W / (Math.min(nets.length, 6) + 1)) * (i + 1);
@@ -8246,7 +6801,7 @@ async function renderTopology(b) {
         ctx.fillStyle = '#000';
         ctx.font = '9px monospace'; ctx.textAlign = 'center';
         ctx.fillText(net.name, x, y + 4);
-
+        /* Connect to closest node */
         var closest = nodePositions[0] || {x:x, y:50};
         ctx.strokeStyle = dimColor; ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
@@ -8254,7 +6809,7 @@ async function renderTopology(b) {
         ctx.setLineDash([]);
       });
 
-
+      /* Draw VMs */
       vms.slice(0, 12).forEach(function(vm, i) {
         var cols = Math.min(vms.length, 6);
         var row = Math.floor(i / cols);
@@ -8268,7 +6823,7 @@ async function renderTopology(b) {
         ctx.font = '8px monospace'; ctx.textAlign = 'center';
         var label = vm.name.length > 8 ? vm.name.substring(0, 8) + '..' : vm.name;
         ctx.fillText(label, x, y + 3);
-
+        /* Connect to a bridge */
         if (bridgePositions.length > 0) {
           var br = bridgePositions[i % bridgePositions.length];
           ctx.strokeStyle = on ? accentColor : 'rgba(90,106,138,0.3)';
@@ -8281,7 +6836,7 @@ async function renderTopology(b) {
 }
 window.renderTopology = renderTopology;
 
-
+/* ═══ FIREWALL RULE EDITOR ═══ */
 async function fwAddRule() {
   var dir = document.getElementById('fw-direction').value;
   var proto = document.getElementById('fw-protocol').value;
@@ -8333,7 +6888,7 @@ window.fwAddRule = fwAddRule;
 window.fwLoadRules = fwLoadRules;
 window.fwDelRule = fwDelRule;
 
-
+/* ═══ REGISTER ALL ON window ═══ */
 window.renderNetworks = renderNetworks;
 window.showNetCreate = showNetCreate;
 window.netModeChanged = netModeChanged;
@@ -8350,9 +6905,9 @@ window.loadLBList = loadLBList;
 window.nfvLbCreate = nfvLbCreate;
 window.nfvFwAdd = nfvFwAdd;
 window.renderSecGroups = renderSecGroups;
+/* sgAddRule and sgListRules already assigned to window above */
 
-
-
+/* ═══ PCV.network namespace export ═══ */
 PCV.network = {
   renderNetworks: renderNetworks,
   toggleFwPanel: toggleFwPanel,
@@ -8380,18 +6935,17 @@ PCV.network = {
 };
 
 })(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/storage.js
+   Storage (ZFS Pools + Zvols)
+   ADR-0013: IIFE module scope — PCV.storage namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Storage rendering treats pool state as operational data, not decoration.
+ * Destructive actions use typed confirmation helpers, capacity widgets tolerate
+ * absent metrics, and zvol selection is kept in window._zvolSel so rerenders do
+ * not expose bulk deletion before the user has selected rows again.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -8432,7 +6986,7 @@ async function renderStorage(b) {
       const sz = parseSize(v.size), us = parseSize(v.alloc || v.used), pct = storagePct(sz, us);
       h += H.card('&#128190; ' + escapeHtml(v.name) + ' ' + H.badge(v.health, v.health === 'ONLINE' ? 'g' : 'r'), H.row(_L('총 용량', 'Total size'), fmtBytes(sz)) + H.row(_L('사용량', 'Used'), fmtBytes(us)) + H.row(_L('건강 상태', 'Health'), escapeHtml(v.health || '-')) + renderProgressBar(Math.min(pct, 100)) + H.row(_L('사용률', 'Usage'), storagePctText(sz, us)) + '<div class="flex gap-4 ops-action-row" style="margin-top:10px"><button class="btn btn-soft" style="font-size:10px;padding:3px 8px" onclick="poolScrub(\'' + escapeAttr(v.name) + '\')">&#128260; ' + _L('스크럽', 'Scrub') + '</button><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="poolDestroy(\'' + escapeAttr(v.name) + '\')">&#128465; ' + _L('영구 삭제', 'Destroy') + '</button></div>', 'mb-8');
     });
-
+    /* Storage usage donut */
     if (pl.length > 0) {
       h += '<div class="sg grid-2">';
       pl.forEach(function(v, pi) {
@@ -8445,7 +6999,7 @@ async function renderStorage(b) {
       h += '</div>';
     }
 
-
+    /* Storage forecast panel */
     h += '<div class="hc mb-14"><h4>&#128200; ' + _L('용량 예측', 'Capacity planning') + '</h4>';
     h += '<p class="color-muted text-11 mb-8">' + _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.') + '</p>';
     h += '<div id="storage-forecast"><span class="spinner"></span> ' + (t('loading') || 'Loading...') + '</div></div>';
@@ -8473,7 +7027,7 @@ async function renderStorage(b) {
       if (sc) sc.textContent = window._zvolSel.size;
     }
 
-
+    /* Draw donut charts */
     setTimeout(function() {
       pl.forEach(function(v, pi) {
         var canvas = document.getElementById('pool-donut-' + pi);
@@ -8524,7 +7078,7 @@ async function poolScrub(name) {
 }
 
 async function poolDestroy(name) {
-
+  /* #5 destroyConfirm — 풀 이름 타이핑 요구 (영구 데이터 손실 방지) */
   destroyConfirm({
     title: 'ZFS Pool 영구 삭제',
     name: name,
@@ -8582,7 +7136,7 @@ async function doZvolDel(name) { const c = document.getElementById('del-zvol-con
     pf.style.width = '100%'; ps.innerHTML = '&#9989; ' + t('stg.zvol_destroyed'); toast(t('stg.zvol_destroyed')); addEvt(t('stg.zvol_destroyed') + ': ' + name); setTimeout(() => { closeModal(); renderStorage(document.getElementById('cb')); }, 1500);
   } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); } }
 
-
+/* ═══ STORAGE CAPACITY FORECAST ═══ */
 async function loadStorageForecast() {
   var el = document.getElementById('storage-forecast'); if (!el) return;
   el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
@@ -8628,7 +7182,7 @@ function _forecastSeverity(daysToFull) {
   return { color: 'var(--green)', label: 'Healthy', badge: 'g' };
 }
 
-
+/* ═══ iSCSI TARGETS ═══ */
 async function renderIscsi(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -8649,28 +7203,28 @@ async function renderIscsi(b) {
 }
 window.renderIscsi = renderIscsi;
 
-
+/* ═══ BACKUP MANAGEMENT ═══ */
 async function renderBackup(b) {
   var h = '<div class="flex items-center gap-10 mb-16"><span class="neon-blink color-cyan">&gt;&gt;</span><h2 style="font-family:var(--font-display);font-size:16px">' + _L('백업 관리', 'Backup Management') + '</h2></div>';
 
-
+  /* Policy List */
   h += '<div class="hc mb-14"><h4>' + _L('백업 정책', 'Backup Policies') + '</h4>';
   h += '<div class="flex gap-8 mb-8"><button class="btn btn-g" onclick="backupAddPolicy()">' + _L('정책 추가', 'Add Policy') + '</button></div>';
   h += '<div id="backup-policies" class="skeleton-box" style="min-height:100px"></div></div>';
 
-
+  /* History */
   h += '<div class="hc mb-14"><h4>' + _L('스냅샷 히스토리', 'Snapshot History') + '</h4>';
   h += '<div class="flex gap-8 mb-8"><input id="backup-hist-vm" class="input" placeholder="VM name (empty=all)" class="w-200"><button class="btn" onclick="backupLoadHistory()">' + _L('조회', 'Search') + '</button></div>';
   h += '<div id="backup-history" class="skeleton-box" style="min-height:100px"></div></div>';
 
-
+  /* Restore */
   h += '<div class="hc mb-14"><h4>' + _L('복원', 'Restore') + '</h4>';
   h += '<p class="stat-label">' + _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.') + '</p>';
   h += '<div class="flex gap-8 mt-8"><input id="backup-restore-vm" class="input" placeholder="VM name" class="w-160"><input id="backup-restore-snap" class="input" placeholder="Snapshot name" class="w-200"><button class="btn btn-r" onclick="backupRestore()">' + _L('롤백', 'Rollback') + '</button></div></div>';
 
   b.innerHTML = h;
 
-
+  /* Load policies */
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc: '2.0', method: 'backup.policy.list', params: {}, id: 'bp1' });
     var d = unwrapData(r);
@@ -8766,7 +7320,7 @@ window.backupLoadHistory = backupLoadHistory;
 window.backupRestore = backupRestore;
 window.backupDeletePolicy = backupDeletePolicy;
 
-
+/* ═══ REGISTER ALL ON window ═══ */
 window.renderStorage = renderStorage;
 window.showPoolCreate = showPoolCreate;
 window.doPoolCreate = doPoolCreate;
@@ -8778,7 +7332,7 @@ window.zvolDel = zvolDel;
 window.doZvolDel = doZvolDel;
 window.loadStorageForecast = loadStorageForecast;
 
-
+/* ─── Multi-select bulk + 컨텍스트 메뉴 (#7/#8) ─── */
 function zvolToggleSel(name, on) {
   if (!window._zvolSel) window._zvolSel = new Set();
   if (on) window._zvolSel.add(name); else window._zvolSel.delete(name);
@@ -8833,7 +7387,7 @@ function zvolCtxMenu(ev, name) {
       { label: '&#9881; ' + _L('선택', 'Select'), fn: function(){ zvolToggleSel(name, !window._zvolSel.has(name)); renderStorage(document.getElementById('cb')); } }
     ]);
   } else {
-
+    /* fallback: 단순 confirm */
     if (window.confirm(_L('삭제하시겠습니까? ', 'Delete? ') + name)) zvolDel(name);
   }
 }
@@ -8842,7 +7396,7 @@ window.zvolToggleAll = zvolToggleAll;
 window.zvolBulkDelete = zvolBulkDelete;
 window.zvolCtxMenu = zvolCtxMenu;
 
-
+/* ═══ PCV.storage namespace export ═══ */
 PCV.storage = {
   renderStorage: renderStorage,
   showPoolCreate: showPoolCreate,
@@ -8868,23 +7422,22 @@ PCV.storage = {
 };
 
 })(window.PCV);
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/cloud.js
+   Cloud Migration (AWS EC2 <-> PureCVisor)
+   ADR-0013: IIFE module scope — PCV.cloud namespace
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var _cloudPollTimer = null;
 
-
+/* 페이지 이탈 시 타이머 정리 (FE-4: 폴 타이머 누수 방지) */
 window.addEventListener('beforeunload', function() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 });
 
-
+/* 네비게이션 변경 시 타이머 정리 */
 function _cloudCleanupTimer() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 }
@@ -8895,7 +7448,7 @@ async function renderCloudMigration(b) {
   let h = H.section('&#9729; Cloud Migration — AWS EC2 &#8596; PureCVisor');
   h += '<div class="sg grid-2 mb-14">';
 
-
+  /* Import 폼 */
   h += '<div class="hc"><h4 style="color:var(--accent)">&#128229; Import (EC2 &#8594; PureCVisor)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">AWS EC2 AMI를 PureCVisor VM으로 가져옵니다. EBS→S3→다운로드→qcow2 변환→VM 생성</p>';
   h += '<div class="fr"><label>VM Name</label><input id="cm-imp-name" placeholder="web-prod"></div>';
@@ -8909,7 +7462,7 @@ async function renderCloudMigration(b) {
   h += '<button class="btn btn-g" onclick="cmDoImport()" style="margin-top:8px;width:100%">&#128229; Start Import</button>';
   h += '</div>';
 
-
+  /* Export 폼 */
   h += '<div class="hc"><h4 style="color:var(--green)">&#128230; Export (PureCVisor &#8594; EC2)</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">PureCVisor VM을 AWS EC2 AMI로 내보냅니다. qcow2→RAW→S3→AMI 등록</p>';
   h += '<div class="fr"><label>VM Name</label><select id="cm-exp-name" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option value="">' + t('loading') + '</option></select></div>';
@@ -8920,11 +7473,11 @@ async function renderCloudMigration(b) {
   h += '<button class="btn btn-g" onclick="cmDoExport()" style="margin-top:8px;width:100%">&#128230; Start Export</button>';
   h += '</div></div>';
 
-
+  /* 진행 상태 */
   h += '<div class="hc" style="margin-bottom:14px"><h4>&#128202; Migration Jobs</h4>';
   h += '<div id="cm-jobs"><span class="spinner"></span> Loading...</div></div>';
 
-
+  /* 파이프라인 다이어그램 */
   h += H.card('&#128736; Pipeline Reference', '<div style="font-size:11px;line-height:1.8;color:var(--fg2)">'
     + '<b style="color:var(--accent)">Import:</b> aws sts verify &#8594; ec2 export-image &#8594; S3 download &#8594; qemu-img convert &#8594; virt-customize &#8594; VM define<br>'
     + '<b style="color:var(--green)">Export:</b> qemu-img convert &#8594; S3 upload &#8594; ec2 import-image &#8594; AMI ready<br>'
@@ -8932,16 +7485,16 @@ async function renderCloudMigration(b) {
 
   b.innerHTML = h;
 
-
+  /* VM 목록 로드 → Export 드롭다운 */
   try {
     const vl = vmList.length ? vmList : [];
     const sel = document.getElementById('cm-exp-name');
     if (sel && vl.length) {
       sel.innerHTML = vl.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + ' (' + v.state + ')</option>').join('');
     } else if (sel) { sel.innerHTML = '<option value="">No VMs</option>'; }
-  } catch (e) {  }
+  } catch (e) { /* ignore */ }
 
-
+  /* 작업 상태 로드 + 폴링 시작 */
   cmLoadJobs();
   if (_cloudPollTimer) clearInterval(_cloudPollTimer);
   _cloudPollTimer = setInterval(cmLoadJobs, 5000);
@@ -8985,7 +7538,7 @@ async function cmLoadJobs() {
     }
     html += '</tbody></table>';
     el.innerHTML = html;
-  } catch (e) {  }
+  } catch (e) { /* ignore polling errors */ }
 }
 window.cmLoadJobs = cmLoadJobs;
 
@@ -9057,7 +7610,7 @@ async function cmFinalize(name) {
 }
 window.cmFinalize = cmFinalize;
 
-
+/* ═══ PCV.cloud namespace export ═══ */
 PCV.cloud = {
   renderCloudMigration: renderCloudMigration,
   cmLoadJobs: cmLoadJobs,
@@ -9069,26 +7622,25 @@ PCV.cloud = {
 };
 
 })(window.PCV);
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/help.js
+   Help, REST Guide, Service Guide, Swagger API, Keyboard Help
+   한국어/영어 동시 지원 (I18N.getLang() 기반)
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Help is a documentation surface inside the app shell, but it must still obey
+ * runtime contracts: all labels pass through _L(), endpoint counts come from
+ * PCV.config when available, and generated tables stay searchable without
+ * rebinding listeners after every render.
+ *
+ * The module intentionally keeps buildHelpData() local to renderHelp() until it
+ * exports the function for integration checks. That lets the Single Edge filter
+ * verify visible help content without coupling to the rest of the navigation
+ * lifecycle.
+ */
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ADR-0013 IIFE 전환 후 _L 공유를 위해 IIFE 바깥에 선언
+   (13개 모듈이 free identifier로 _L 호출 — 전역 스코프 필수) */
 var _L = window._L = function(ko, en) {
   return (typeof I18N !== 'undefined' && I18N.getLang() === 'en') ? en : ko;
 };
@@ -9096,7 +7648,7 @@ var _L = window._L = function(ko, en) {
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ HELP & REFERENCE ═══ */
 function renderHelp(b) {
   var h = H.sectionLg(_L('도움말 & 참조', 'Help & Reference'));
   h += '<div style="margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,rgba(0,240,255,0.08),rgba(0,255,136,0.05));border:1px solid var(--accent);border-radius:8px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
@@ -9190,7 +7742,7 @@ window.renderHelp = renderHelp;
 function filterHelp() { var q = document.getElementById('help-search').value.toLowerCase(); document.querySelectorAll('#help-content tr[data-search]').forEach(function(r) { r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none'; }); }
 window.filterHelp = filterHelp;
 
-
+/* ═══ REST API GUIDE ═══ */
 function renderRestGuide(b) {
   var h = H.sectionLg(_L('REST API 가이드', 'REST API Guide'));
   h += '<div class="sg grid-2">';
@@ -9231,7 +7783,7 @@ function renderRestGuide(b) {
 }
 window.renderRestGuide = renderRestGuide;
 
-
+/* ═══ SERVICE GUIDE ═══ */
 function renderServiceGuide(b) {
   var h = H.sectionLg(_L('PureCVisor 서비스 가이드', 'PureCVisor Service Guide'));
   h += '<div class="mb-16"><input id="guide-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterGuide()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
@@ -9386,7 +7938,7 @@ window.renderServiceGuide = renderServiceGuide;
 function filterGuide() { var q = document.getElementById('guide-search').value.toLowerCase(); document.querySelectorAll('#guide-content .hc[data-guide]').forEach(function(c) { c.style.display = !q || c.dataset.guide.includes(q) ? '' : 'none'; }); }
 window.filterGuide = filterGuide;
 
-
+/* ═══ SWAGGER API ═══ */
 function renderSwaggerApi(b) {
   var mc = function(m) { return m === 'GET' ? '#61affe' : m === 'POST' ? '#49cc90' : m === 'DELETE' ? '#f93e3e' : m === 'PUT' ? '#fca130' : '#00f0ff'; };
   var endpoints = [
@@ -9511,13 +8063,13 @@ async function swTry(m, p, body) {
   var url = API_BASE + p.replace(/\{[^}]+\}/g, 'test');
   try { var opts = { headers: { Authorization: 'Bearer ' + authToken } };
     if (m === 'POST' || m === 'PUT' || m === 'DELETE') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
-    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {  }
+    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* not JSON */ }
     showModal('<h2>' + _L('응답', 'Response') + ': ' + m + ' ' + p + '</h2>' + H.row(_L('상태', 'Status'), '<span style="color:' + (r.ok ? 'var(--green)' : 'var(--red)') + '">' + r.status + '</span>') + '<pre style="background:var(--bg);padding:12px;border-radius:6px;max-height:400px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap">' + pretty.replace(/</g, '&lt;') + '</pre><div style="text-align:right;margin-top:12px"><button class="btn" onclick="closeModal()">' + t('btn.close') + '</button></div>');
   } catch (e) { toast(_L('요청 실패', 'Request failed') + ': ' + e.message, false); }
 }
 window.swTry = swTry;
 
-
+/* ═══ KEYBOARD HELP OVERLAY ═══ */
 var kbdHelpOpen = false;
 window.kbdHelpOpen = kbdHelpOpen;
 
@@ -9548,7 +8100,7 @@ window.toggleKbdHelp = toggleKbdHelp;
 function closeKbdHelp() { kbdHelpOpen = false; window.kbdHelpOpen = kbdHelpOpen; var el = document.getElementById('kbd-help-overlay'); if (el) el.remove(); }
 window.closeKbdHelp = closeKbdHelp;
 
-
+/* ── PCV.help namespace export ────────────────────── */
 PCV.help = {
   renderHelp: renderHelp,
   filterHelp: filterHelp,
@@ -9562,19 +8114,18 @@ PCV.help = {
   closeKbdHelp: closeKbdHelp
 };
 })(window.PCV);
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/nav.js
+   Navigation, Sidebar, Activity Bar, Command Palette, Mobile,
+   Keyboard Shortcuts, Editor Tabs, Breadcrumbs, Global Search,
+   Zen Mode, Notification Center, Hover Cards, Bottom Panel
+   Extracted from app.js — plain script, all functions on window.*
+   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ PINNED PAGES (J3) ═══ */
 var _pinnedPages = JSON.parse(localStorage.getItem('pcv-pinned') || '[]');
 
 function togglePin(pageId) {
@@ -9599,32 +8150,32 @@ function renderPinnedBar() {
 window.togglePin = togglePin;
 window.renderPinnedBar = renderPinnedBar;
 
-
+/* ═══ NAVIGATION ═══ */
 window._navGeneration = 0;
 function navigateTo(n) {
   if (window.pcvClusterEnabled === false && window.PCV_CLUSTER_ONLY_NAV && window.PCV_CLUSTER_ONLY_NAV.includes(n)) {
     if (typeof toast === 'function') toast(_L('Single Edge 공개 리포에는 포함되지 않는 화면입니다', 'This screen is not included in Single Edge'), false);
     n = 'dashboard';
   }
-
+  /* BUG-6 fix: 페이지 전환 시 generation 증가 → stale 비동기 콜백 차단 */
   window._navGeneration = (window._navGeneration || 0) + 1;
-
+  /* FE-4: Cloud 폴 타이머 정리 (이전 페이지가 cloud-migration인 경우) */
   if (typeof _cloudCleanupTimer === 'function' && currentTab === 'cloud-migration' && n !== 'cloud-migration') {
     _cloudCleanupTimer();
   }
-
+  /* FE-4: 모니터링 자동 갱신 정리 */
   if (typeof stopAdaptivePolling === 'function' && currentTab && currentTab.startsWith('mon-') && !(n && n.startsWith('mon-'))) {
     stopAdaptivePolling('mon-refresh');
   }
-
+  /* P2-5: clear dirty form tracking on navigation (prevents false beforeunload) */
   if (typeof clearAllFormDirty === 'function') clearAllFormDirty();
-
+  /* J1: Remember last VM detail tab */
   var vmTabs = ['summary', 'console', 'snapshots', 'performance', 'timeline'];
   if (vmTabs.includes(n)) localStorage.setItem('pcv-last-vm-tab', n);
   currentTab = n;
   document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
   const containerPages = ['containers', 'docker'];
-
+  /* sb-cluster 패널은 존재하지 않음 — cluster 관련 페이지도 INFRA 사이드바에 노출 */
   const infraPages = PCV.filterEditionItems([
     { id: 'networks' }, { id: 'storage' }, { id: 'host' }, { id: 'ovn' },
     { id: 'accounts' }, { id: 'security-groups' }, { id: 'gpu' }, { id: 'templates' },
@@ -9643,7 +8194,7 @@ function navigateTo(n) {
   renderContent();
 }
 window.navigateTo = navigateTo;
-
+/* Keep global alias */
 window.go = navigateTo;
 
 function pcvRoleAllows(minRole) {
@@ -9654,7 +8205,7 @@ function pcvRoleAllows(minRole) {
 }
 window.pcvRoleAllows = pcvRoleAllows;
 
-
+/* ═══ SIDEBAR ═══ */
 function switchSbTab(tab) {
   ['vms', 'containers', 'infra'].forEach(t => {
     const panel = document.getElementById('sb-' + t);
@@ -9669,13 +8220,13 @@ function switchSbTab(tab) {
 }
 window.switchSbTab = switchSbTab;
 
-
+/* ═══ CONTENT DISPATCH ═══ */
 function renderContent() {
   destroyAllCharts();
   var cb = document.getElementById('cb');
   if (cb) cb.classList.add('fade-out');
   const b = cb, v = vmList[selectedVmIndex];
-
+  /* BUG-6 fix: 비동기 렌더러의 stale 콜백이 DOM을 오염시키지 않도록 generation 캡처 */
   var gen = window._navGeneration || 0;
   try {
     var fn = (function() {
@@ -9721,7 +8272,7 @@ function renderContent() {
       helppage: () => renderHelp(b),
       serviceguide: () => renderServiceGuide(b),
       restguide: () => renderRestGuide(b),
-
+      /* 1.0: AI Self-Healing 별도 페이지 (Monitor Overview의 mount는 그대로 유지) */
       'selfhealing': () => renderSelfHealing(b)
       };
       return routes;
@@ -9738,7 +8289,7 @@ function renderContent() {
     }
     else if (_DEBUG) console.warn('Unknown tab:', currentTab);
   } catch (renderErr) {
-    if ((window._navGeneration || 0) !== gen) {  }
+    if ((window._navGeneration || 0) !== gen) { /* stale page — ignore */ }
     else {
       b.innerHTML = '<div style="padding:40px;text-align:center"><div style="font-size:48px;margin-bottom:12px">&#9888;</div><h3 style="color:var(--red)">' + _L('렌더링 오류', 'Rendering Error') + '</h3><p class="color-muted" style="margin:12px 0">' + esc(renderErr.message || '') + '</p><pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--red);text-align:left;max-height:200px;overflow:auto">' + esc(renderErr.stack || '') + '</pre><button class="btn" onclick="navigateTo(\'dashboard\')" style="margin-top:12px">' + _L('대시보드로', 'Go to Dashboard') + '</button></div>';
       if (_DEBUG) console.error('renderContent error:', renderErr);
@@ -9750,7 +8301,7 @@ function renderContent() {
 }
 window.renderContent = renderContent;
 
-
+/* ═══ STATUS BAR CONTEXT ═══ */
 function updateStatusBar() {
   var el = document.getElementById('sb-ctx');
   if (!el) return;
@@ -9764,7 +8315,7 @@ function updateStatusBar() {
   var elapsed = Math.round((Date.now() - (lastLoadTime || Date.now())) / 1000);
   parts.push('Sync: ' + elapsed + 's ago');
   if (window._perfMetrics) parts.push('API: ' + (_perfMetrics.avgApiTime || 0) + 'ms avg');
-
+  /* Connection quality dot */
   var wsStat = '&#9679;';
   if (typeof wsConnection !== 'undefined' && wsConnection && wsConnection.readyState === 1) {
     wsStat = '<span style="color:var(--green)">&#9679;</span>';
@@ -9784,23 +8335,23 @@ function updateStatusBar() {
 window.updateStatusBar = updateStatusBar;
 setInterval(updateStatusBar, 2000);
 
-
+/* ═══ DYNAMIC FAVICON + TAB TITLE (N5) ═══ */
 function updateFavicon() {
   var running = 0;
   if (vmList) running = vmList.filter(function(v) { return v.state === 'running'; }).length;
 
-
+  /* Update tab title */
   document.title = 'PureCVisor' + (running > 0 ? ' (' + running + ' VMs)' : '');
 
-
+  /* Generate dynamic favicon */
   var canvas = document.createElement('canvas');
   canvas.width = 32; canvas.height = 32;
   var ctx = canvas.getContext('2d');
-
+  /* Background circle */
   var color = running > 0 ? '#00ff88' : (vmList && vmList.length > 0 ? '#ffee00' : '#ff2266');
   ctx.beginPath(); ctx.arc(16, 16, 14, 0, Math.PI * 2);
   ctx.fillStyle = color; ctx.fill();
-
+  /* Text */
   ctx.fillStyle = '#000'; ctx.font = 'bold 16px monospace'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
   ctx.fillText(running > 0 ? running.toString() : '!', 16, 17);
 
@@ -9816,20 +8367,20 @@ function updateFavicon() {
 }
 window.updateFavicon = updateFavicon;
 
-
+/* ═══ TOGGLE SIDEBAR ═══ */
 function toggleSB() {
   const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar');
   if (sb) sb.classList.toggle('collapsed');
 }
 window.toggleSB = toggleSB;
 
-
+/* ═══ TOGGLE FULLSCREEN ═══ */
 function toggleFS() {
   document.fullscreenElement ? document.exitFullscreen() : document.documentElement.requestFullscreen();
 }
 window.toggleFS = toggleFS;
 
-
+/* ═══ INFRA SORT ═══ */
 var infraSortAsc = true;
 window.infraSortAsc = infraSortAsc;
 
@@ -9850,7 +8401,7 @@ function toggleInfraSort() {
 }
 window.toggleInfraSort = toggleInfraSort;
 
-
+/* ═══ BOTTOM PANEL ═══ */
 var bottomPanelTab = 'terminal';
 var bottomPanelExpanded = false;
 
@@ -9878,7 +8429,7 @@ function togglePanelSize() {
 }
 window.togglePanelSize = togglePanelSize;
 
-
+/* ═══ COMMAND PALETTE (Ctrl+K) — G-4 ═══ */
 var CMD_ACTIONS = PCV.filterEditionItems([
   { icon: '+', label: _L('새 VM', 'New VM'), hint: 'Ctrl+N', role: 'operator', action: () => showCreate() },
   { icon: '#', label: _L('운영 개요', 'Operations Overview'), action: () => navigateTo('mon-overview') },
@@ -9903,7 +8454,7 @@ var CMD_ACTIONS = PCV.filterEditionItems([
 ]);
 window.CMD_ACTIONS = CMD_ACTIONS;
 
-
+/* ═══ J2: FUZZY MATCH HELPER ═══ */
 function fuzzyMatch(text, query) {
   if (!query) return true;
   var ti = 0, qi = 0;
@@ -9963,7 +8514,7 @@ function renderCmdPalette(filter) {
 }
 window.renderCmdPalette = renderCmdPalette;
 
-
+/* ═══ J4: MULTI-WINDOW POPUP ═══ */
 function openInPopup(pageId) {
   var page = pageId || currentTab;
   var w = window.open('', 'pcv-' + page, 'width=1200,height=800,menubar=no,toolbar=no');
@@ -9980,7 +8531,7 @@ function openInPopup(pageId) {
     + '<script>authToken="' + (authToken || '') + '";<\/script>'
     + '</body></html>');
   w.document.close();
-
+  /* Render content into popup after scripts load */
   setTimeout(function() {
     var cb = w.document.getElementById('popup-content');
     if (!cb) return;
@@ -9990,7 +8541,7 @@ function openInPopup(pageId) {
 }
 window.openInPopup = openInPopup;
 
-
+/* ═══ MOBILE ═══ */
 function toggleMobileSB() {
   const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar'), ov = document.getElementById('mobile-overlay');
   if (sb.classList.contains('mobile-open')) { closeMobileSB(); }
@@ -10004,7 +8555,7 @@ function closeMobileSB() {
 }
 window.closeMobileSB = closeMobileSB;
 
-
+/* ═══ V-1: ACTIVITY BAR ═══ */
 var currentActivity = 'vms';
 window.currentActivity = currentActivity;
 
@@ -10023,7 +8574,7 @@ function switchActivity(panel) {
     const el = document.getElementById('sb-' + t);
     if (el) el.classList.toggle('hidden', t !== panel);
   });
-
+  /* sync tab buttons */
   document.querySelectorAll('#sb-tabs button').forEach(b => {
     b.classList.toggle('active', b.dataset.sb === panel);
   });
@@ -10034,7 +8585,7 @@ function switchActivity(panel) {
 }
 window.switchActivity = switchActivity;
 
-
+/* ═══ V-2: EDITOR TABS ═══ */
 var editorTabs = [];
 var activeEditorTab = null;
 
@@ -10070,7 +8621,7 @@ function renderEditorTabs() {
 }
 window.renderEditorTabs = renderEditorTabs;
 
-
+/* ═══ V-4: BREADCRUMBS (G8: Interactive) ═══ */
 function updateBreadcrumbs(page) {
   var el = document.getElementById('breadcrumbs');
   if (!el) return;
@@ -10104,7 +8655,7 @@ function updateBreadcrumbs(page) {
 }
 window.updateBreadcrumbs = updateBreadcrumbs;
 
-
+/* ═══ V-5: GLOBAL SEARCH (Ctrl+Shift+F) ═══ */
 window.globalSearchOpen = false;
 
 function toggleGlobalSearch() {
@@ -10134,7 +8685,7 @@ function doGlobalSearch(query) {
   const q = query.toLowerCase();
   let html = '';
 
-
+  /* Search VMs */
   const matchedVMs = vmList.filter(v => fuzzyMatch(v.name, q));
   if (matchedVMs.length > 0) {
     html += '<div class="global-search-group"><div class="global-search-group-title">Virtual Machines</div>';
@@ -10144,7 +8695,7 @@ function doGlobalSearch(query) {
     html += '</div>';
   }
 
-
+  /* Search pages */
   const pages = PCV.filterEditionItems([
     { id: 'networks', label: _L('네트워크', 'Networks'), icon: '&#127760;' },
     { id: 'storage', label: _L('스토리지', 'Storage'), icon: '&#128190;' },
@@ -10156,8 +8707,8 @@ function doGlobalSearch(query) {
     { id: 'accounts', label: _L('계정과 권한', 'Accounts'), icon: '&#128100;', role: 'admin' },
     { id: 'security-groups', label: _L('보안 그룹', 'Security Groups'), icon: '&#128737;' },
     { id: 'gpu', label: _L('GPU 장치', 'GPU'), icon: '&#127918;' },
-
-
+    /* Docker/OCI 제거됨 */
+    /* Terraform 제거됨 */
     { id: 'apihelp', label: _L('Swagger API', 'Swagger API'), icon: '&#128214;' },
     { id: 'serviceguide', label: _L('서비스 가이드', 'Service Guide'), icon: '&#128218;' },
     { id: 'overlay', label: _L('오버레이 네트워크', 'Overlay Networks'), icon: '&#127760;' },
@@ -10183,7 +8734,7 @@ function doGlobalSearch(query) {
 }
 window.doGlobalSearch = doGlobalSearch;
 
-
+/* ═══ V-9: ZEN MODE ═══ */
 window.zenMode = false;
 function toggleZenMode() {
   window.zenMode = !window.zenMode;
@@ -10192,7 +8743,7 @@ function toggleZenMode() {
 }
 window.toggleZenMode = toggleZenMode;
 
-
+/* ═══ V-8: NOTIFICATIONS CENTER ═══ */
 var notifications = [];
 window.notifCenterOpen = false;
 var notifFilter = 'all';
@@ -10212,7 +8763,7 @@ function updateNotifBadge() {
   if (badge) { badge.textContent = unread; badge.style.display = unread > 0 ? '' : 'none'; }
   var actBadge = document.querySelector('.activity-icon[data-panel="notifications"] .activity-badge');
   if (actBadge) { actBadge.textContent = unread; actBadge.style.display = unread > 0 ? '' : 'none'; }
-
+  /* Update toolbar notif icon badge if present */
   var toolbarBadge = document.getElementById('notif-toolbar-badge');
   if (toolbarBadge) { toolbarBadge.textContent = unread; toolbarBadge.style.display = unread > 0 ? '' : 'none'; }
 }
@@ -10259,7 +8810,7 @@ function toggleNotifCenter() {
   el.id = 'notif-center';
   el.className = 'notif-center';
 
-
+  /* Header with title and actions */
   var header = '<div class="notif-center-header">'
     + '<span>Notifications' + (unread > 0 ? ' <span class="notif-header-badge">' + unread + ' unread</span>' : '') + '</span>'
     + '<div style="display:flex;gap:6px">'
@@ -10268,7 +8819,7 @@ function toggleNotifCenter() {
     + '<button class="panel-action-btn" onclick="closeNotifCenter()">&#10005;</button>'
     + '</div></div>';
 
-
+  /* Filter bar */
   var filterBar = '<div class="notif-filter-bar">'
     + '<button class="notif-filter-btn active" data-filter="all" onclick="setNotifFilter(\'all\')">All (' + notifications.length + ')</button>'
     + '<button class="notif-filter-btn" data-filter="error" onclick="setNotifFilter(\'error\')">Error (' + notifications.filter(function(n){ return n.type==='error'; }).length + ')</button>'
@@ -10279,7 +8830,7 @@ function toggleNotifCenter() {
   el.innerHTML = header + filterBar + '<div class="notif-center-list" id="notif-list-container"></div>';
   document.body.appendChild(el);
 
-
+  /* Render list */
   var listContainer = document.getElementById('notif-list-container');
   _renderNotifList(listContainer, 'all');
 }
@@ -10287,7 +8838,7 @@ window.toggleNotifCenter = toggleNotifCenter;
 
 function setNotifFilter(filter) {
   notifFilter = filter;
-
+  /* Update filter button states */
   document.querySelectorAll('.notif-filter-btn').forEach(function(btn) {
     btn.classList.toggle('active', btn.dataset.filter === filter);
   });
@@ -10324,7 +8875,7 @@ function clearNotifications() {
 }
 window.clearNotifications = clearNotifications;
 
-
+/* ═══ V-7: HOVER INFO ═══ */
 var hoverCardTimeout = null;
 var hoverCard = document.createElement('div');
 hoverCard.className = 'hover-card';
@@ -10353,7 +8904,7 @@ function hideHoverCard() {
 }
 window.hideHoverCard = hideHoverCard;
 
-
+/* ═══ G7: SEARCH RESULT HIGHLIGHT ═══ */
 function highlightText(text, query) {
   if (!query || !text) return esc(text);
   var escaped = esc(text);
@@ -10362,7 +8913,7 @@ function highlightText(text, query) {
 }
 window.highlightText = highlightText;
 
-
+/* ═══ G6: TOUCH GESTURES ═══ */
 (function() {
   var touchStartX = 0, touchStartY = 0, touchStartTime = 0;
   document.addEventListener('touchstart', function(e) {
@@ -10391,7 +8942,7 @@ window.highlightText = highlightText;
     }
   }, { passive: true });
 
-
+  /* Long press for context menu */
   var longPressTimer = null;
   document.addEventListener('touchstart', function(e) {
     var vi = e.target.closest('.vi');
@@ -10407,7 +8958,7 @@ window.highlightText = highlightText;
   document.addEventListener('touchmove', function() { clearTimeout(longPressTimer); }, { passive: true });
 })();
 
-
+/* ═══ SIDEBAR RESIZE (D5) ═══ */
 (function() {
   var handle = document.getElementById('sb-resize');
   var sidebar = document.querySelector('.sidebar-panel') || document.querySelector('.sidebar');
@@ -10436,7 +8987,7 @@ window.highlightText = highlightText;
   if (saved) { sidebar.style.width = saved; document.documentElement.style.setProperty('--sw', saved); }
 })();
 
-
+/* ── PCV.nav namespace export ─────────────────────── */
 PCV.nav = {
   togglePin: togglePin,
   renderPinnedBar: renderPinnedBar,
@@ -10481,23 +9032,22 @@ PCV.nav = {
   highlightText: highlightText
 };
 })(window.PCV);
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/theme.js
+   Theme management: previews, editor, auto-theme, custom themes
+   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* Supanova 변형만 유지 — 나머지 테마는 전부 삭제 */
 var THEME_PREVIEWS = [
   { id: 'supanova',         name: 'SUPANOVA (Teal)',  colors: ['#07090c','#14b8a6','#34d399','#f43f5e'] },
   { id: 'supanova-cyan',    name: 'SUPANOVA CYAN',    colors: ['#07090c','#0891b2','#34d399','#f43f5e'] },
   { id: 'supanova-hicontrast', name: 'SUPANOVA HI-CONTRAST', colors: ['#030405','#facc15','#ffffff','#ff4d6d'] },
 ];
 
-
+/* 레거시 테마 id → supanova 마이그레이션 */
 var SUPANOVA_THEMES = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
 function sanitizeTheme(t) {
   return SUPANOVA_THEMES.indexOf(t) >= 0 ? t : 'supanova';
@@ -10507,9 +9057,9 @@ function changeTheme(t) {
   t = sanitizeTheme(t);
   document.documentElement.setAttribute('data-theme', t);
   localStorage.setItem('pcv-theme', t);
-
+  /* T-2/B: 테마 전환 시 Chart.js 색상 즉시 반영 */
   destroyAllCharts();
-
+  /* #12: uxlib에 등록된 리스너에게 알림 (pcvCharts 추가 정리) */
   try { window.dispatchEvent(new Event('pcv-theme-change')); } catch (_) {}
   if (typeof renderContent === 'function') {
     try { renderContent(); } catch(e) {}
@@ -10525,10 +9075,10 @@ function toggleTheme() {
   if (s) s.value = themes[idx];
 }
 
+/* Time-based auto theme · prefers-color-scheme listener 제거
+   (pure-light/pure-dark 테마 삭제에 따라 더 이상 무의미) */
 
-
-
-
+/* Custom Theme Editor */
 var THEME_VARS = ['bg','bg2','bg3','fg','fg2','accent','green','red','yellow','cyan','peach','magenta','border'];
 
 function openThemeEditor() {
@@ -10621,7 +9171,7 @@ function importTheme() {
   input.click();
 }
 
-
+/* ═══ UI SETTINGS EXPORT/IMPORT ═══ */
 function exportUiSettings() {
   var settings = {
     theme: document.documentElement.getAttribute('data-theme') || '',
@@ -10668,7 +9218,7 @@ function importUiSettings() {
 window.exportUiSettings = exportUiSettings;
 window.importUiSettings = importUiSettings;
 
-
+/* ── PCV.theme namespace export ────────────────────── */
 PCV.theme = {
   PREVIEWS: THEME_PREVIEWS,
   VARS: THEME_VARS,
@@ -10686,7 +9236,7 @@ PCV.theme = {
   importUiSettings: importUiSettings
 };
 
-
+/* ═══ BACKWARD-COMPAT WINDOW REGISTRATIONS ═══ */
 window.THEME_PREVIEWS = THEME_PREVIEWS;
 window.changeTheme = changeTheme;
 window.toggleTheme = toggleTheme;
@@ -10700,28 +9250,27 @@ window.applyCustomTheme = applyCustomTheme;
 window.exportTheme = exportTheme;
 window.importTheme = importTheme;
 })(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/accounts.js
+   Account management, API management, AI Agent configuration
+   ADR-0013: IIFE module scope — PCV.accounts namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * This module mixes three admin-facing surfaces: local accounts, API-key
+ * management, and AI agent configuration. Access checks stay in the renderer
+ * because the same routes can be reached through global search or restored tabs
+ * after login state changes.
+ *
+ * Backend RBAC is still authoritative. The UI gate only avoids exposing account
+ * editing controls to non-admin sessions and provides a stable fallback when
+ * whoami is unavailable during early boot.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var agentTab = 'providers';
 
-
+/* ═══ ACCOUNTS ═══ */
 async function getCurrentAccountRole() {
   if (window.currentUser && window.currentUser.role) {
     return String(window.currentUser.role).toLowerCase();
@@ -10807,7 +9356,7 @@ async function acctDel(u) { if (!await customConfirm(t('btn.delete'), 'User ' + 
   try { const res = await fetchDelete(EP.AUTH_USER(u));
     if (res.error) { toast(res.error.message || 'Failed', false); } else { toast(t('auth.user_deleted') + ': ' + u); addEvt('IAM User deleted — ' + u); renderAccounts(document.getElementById('cb')); } } catch (e) { toast(e.message, false); } }
 
-
+/* ═══ API MANAGEMENT ═══ */
 async function renderApiManagement(b) {
   if (!await isAdminAccountView()) {
     renderAdminOnlyNotice(b);
@@ -10820,7 +9369,7 @@ async function renderApiManagement(b) {
   + H.card('&#128101; RBAC', '<div class="stat-md" style="color:var(--magenta)">3 Levels</div>')
   + H.card('&#9889; Rate Limit', '<div class="stat-md color-yellow" id="api-rl-count">...</div>')
   ) + '<div class="mb-16"></div>';
-
+  /* /health에서 동적 데이터 로드 */
   fetchGet(EP.HEALTH()).then(function(r) {
     var d = unwrapData(r);
     var ep = document.getElementById('api-ep-count');
@@ -10837,7 +9386,7 @@ async function renderApiManagement(b) {
   h += H.card('<span class="color-green">&#128640; API Request Tester</span>', '<div class="flex gap-8 items-center mb-8 flex-wrap"><select id="apimgmt-method" style="padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--accent);border-radius:6px;font-size:12px;font-weight:700"><option>GET</option><option>POST</option><option>PUT</option><option>DELETE</option></select><input id="apimgmt-path" value="/api/v1/vms" style="flex:1;min-width:200px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px"><button class="btn btn-g" onclick="apiMgmtSend()">&#9654; Send</button></div><textarea id="apimgmt-body" placeholder="Request body (JSON)" rows="2" style="width:100%;padding:6px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:11px;resize:vertical"></textarea><div id="apimgmt-result" style="background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:300px;overflow:auto;font-size:11px;color:var(--cyan);white-space:pre-wrap;display:none"></div>', 'mb-14');
   h += H.card('<span class="color-yellow">&#128268; gRPC Server</span>', '<div id="grpc-status" class="text-12 color-muted">Checking...</div><div style="margin-top:6px;font-size:11px;color:var(--fg2)">Port: 50051 | Protocol: protobuf-c binary framing<br>Transport: TCP (HTTP/2 planned)<br>Config: daemon.conf <code>[grpc] enabled=true</code></div>', 'mb-14');
 
-
+  /* API Key Management */
   h += '<div class="hc mb-14"><h4>&#128273; API Keys</h4>';
   h += '<p class="stat-label" style="margin-bottom:10px">Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.</p>';
   h += '<div style="display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px">';
@@ -10854,11 +9403,11 @@ async function renderApiManagement(b) {
   b.innerHTML = h;
   setTimeout(() => {
     const el = document.getElementById('grpc-status');
-    if (!el) return;
+    if (!el) return;  /* DOM 교체된 경우 정상 종료 */
     el.innerHTML = H.badge('Config-based', 'y') + ' daemon.conf [grpc] enabled check required<br><code class="text-xs color-cyan">pcvctl grpc status</code> to verify from CLI';
   }, 100);
   setTimeout(() => {
-
+    /* 모달/페이지 닫힌 후 호출 방지 */
     if (document.getElementById('apikey-list-area')) apiKeyList();
   }, 120);
 }
@@ -10880,7 +9429,7 @@ async function apiMgmtSend() { const m = document.getElementById('apimgmt-method
     el.innerHTML = '<div class="mb-6">' + H.badge(String(r.status), r.ok ? 'g' : 'r') + ' <span class="color-muted">' + escapeHtml(m) + ' ' + escapeHtml(path) + '</span></div><pre style="white-space:pre-wrap">' + escapeHtml(pretty) + '</pre>';
   } catch (e) { el.innerHTML = '<span class="color-red">Error: ' + escapeHtml(e.message) + '</span>'; } }
 
-
+/* ═══ AI AGENT ═══ */
 async function showAgentConfig() {
   try { const r = await fetchGet(EP.AGENT_CONFIG()); const d = unwrapData(r); window._agentCfg = d;
     let h = '<h2>&#129302; AI Agent Configuration</h2>';
@@ -10978,7 +9527,7 @@ async function saveAgentSettings() {
   } catch (e) { toast('Save failed: ' + e.message, false); }
 }
 
-
+/* ═══ API PERFORMANCE ═══ */
 async function renderApiPerf(b) {
   b.innerHTML = showSkeleton();
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts', '/processes'];
@@ -11053,7 +9602,7 @@ async function runApiBenchmark() {
 }
 window.runApiBenchmark = runApiBenchmark;
 
-
+/* ═══ API ACTIVITY LOG ═══ */
 function renderActivityLog(b) {
   var log = (eventLog || []).filter(function(e) { return e && e.msg; });
   var h = H.section(_L('API 활동 로그', 'API Activity Log'));
@@ -11074,7 +9623,7 @@ function renderActivityLog(b) {
 }
 window.renderActivityLog = renderActivityLog;
 
-
+/* ═══ SESSION MANAGEMENT (백엔드 4차) ═══ */
 async function renderSessions(b) {
   b.innerHTML = showSkeleton();
   var h = H.section(_L('세션 관리', 'Session Management'));
@@ -11099,7 +9648,7 @@ async function revokeSession() {
   } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), 'e'); }
 }
 
-
+/* ═══ API KEY FULL CRUD (백엔드 4차) ═══ */
 async function renderApiKeys(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11156,7 +9705,7 @@ async function revokeApiKey(name) {
   } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
 }
 
-
+/* ═══ WINDOW REGISTRATIONS ═══ */
 window.agentTab = agentTab;
 window.renderAccounts = renderAccounts;
 window.renderSessions = renderSessions;
@@ -11183,7 +9732,7 @@ window.testAllProviders = testAllProviders;
 window.saveAgentConfig = saveAgentConfig;
 window.saveAgentSettings = saveAgentSettings;
 
-
+/* ═══ PCV.accounts namespace export ═══ */
 PCV.accounts = {
   renderAccounts: renderAccounts,
   acctCreate: acctCreate,
@@ -11215,22 +9764,21 @@ PCV.accounts = {
 };
 
 })(window.PCV);
-
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/advanced.js
+   Templates, Docker/OCI, Terraform, Config Management,
+   OVA Import
+   ADR-0013: IIFE module scope — PCV.advanced namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Advanced screens are optional capability frontends. A missing backend should
+ * render an explanatory empty state, while configured backends must still use
+ * EP registry helpers and sanitizer paths before inserting returned data.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ TEMPLATES ═══ */
 async function renderTemplates(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11290,7 +9838,7 @@ async function loadTemplateHistory() {
   } catch (e) { toast('Template history error: ' + e.message, false); }
 }
 
-
+/* ═══ DOCKER/OCI CONTAINERS ═══ */
 async function renderDocker(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11343,7 +9891,7 @@ async function dockerStop(name) {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ TERRAFORM IaC ═══ */
 async function renderTerraform(b) {
   b.innerHTML = showSkeleton();
   let h = H.section('&#127981; Terraform IaC Integration');
@@ -11389,7 +9937,7 @@ async function loadTfState() {
   } catch (e) { el.innerHTML = '<p class="color-muted text-12">Terraform state not available. Configure terraform.* RPC handlers to enable IaC.</p>'; }
 }
 
-
+/* ═══ CONFIG MANAGEMENT ═══ */
 async function configBackup() {
   toast('Backing up configuration...');
   try {
@@ -11424,7 +9972,7 @@ async function renderConfigMgmt(b) {
 
   var h = H.section('&#9881; Configuration Management');
 
-
+  /* 스토리지 풀 설정 */
   h += '<h3 style="margin:16px 0 10px">&#128190; ' + _L('스토리지 풀 설정', 'Storage Pool Settings') + '</h3>';
   h += '<div class="sg grid-2 mb-14">';
   h += H.card('&#128190; VM Storage', ''
@@ -11454,7 +10002,7 @@ async function renderConfigMgmt(b) {
     + '<div id="cfg-ctr-result" style="margin-top:6px;font-size:11px"></div>');
   h += '</div>';
 
-
+  /* 기존 백업/히스토리 */
   h += '<h3 style="margin:16px 0 10px">&#128203; ' + _L('설정 관리', 'Config Management') + '</h3>';
   h += '<div class="sg grid-2 mb-14">';
   h += H.card('&#128190; Config Backup', '<p class="stat-label mb-8">' + _L('현재 daemon.conf를 백업합니다.', 'Create a backup of current daemon.conf.') + '</p><button class="btn btn-g" onclick="configBackup()">&#128190; Create Backup</button><div id="cfg-backup-result" class="mt-8"></div>');
@@ -11469,7 +10017,7 @@ async function saveStorageCfg(type) {
   var resultEl;
   if (type === 'vm') {
     resultEl = document.getElementById('cfg-vm-result');
-
+    /* ZFS Pool 필드 검증: /로 시작하면 경고 */
     var zvolVal = (document.getElementById('cfg-zvol')?.value || '').trim();
     if (zvolVal.startsWith('/')) {
       if (resultEl) resultEl.innerHTML = '<span class="color-red">&#9888; ' + _L(
@@ -11523,7 +10071,7 @@ async function loadConfigHistoryInline() {
   } catch (e) { el.innerHTML = '<p class="color-muted text-12">Config history not available.</p>'; }
 }
 
-
+/* ═══ OVA IMPORT ═══ */
 function showImportOva() {
   showModal('<h2>&#128230; Import OVA</h2><div class="fr"><label>OVA Path</label><input id="ova-path" placeholder="/path/to/vm.ova" class="flex-1"></div><div class="fr"><label>VM Name</label><input id="ova-name" placeholder="imported-vm"></div><div class="fr"><label>Pool</label><input id="ova-pool" value="pcvpool/vms"></div><div class="text-right mt-12"><button class="btn btn-g" onclick="doImportOva()">Import</button> <button class="btn btn-r" onclick="closeModal()">' + t('btn.cancel') + '</button></div>');
 }
@@ -11541,7 +10089,7 @@ async function doImportOva() {
   } catch (e) { toast(e.message, false); }
 }
 
-
+/* ═══ WINDOW REGISTRATIONS ═══ */
 window.renderTemplates = renderTemplates;
 window.showTemplateCreate = showTemplateCreate;
 window.doTemplateCreate = doTemplateCreate;
@@ -11566,7 +10114,7 @@ window.saveStorageCfg = saveStorageCfg;
 window.showImportOva = showImportOva;
 window.doImportOva = doImportOva;
 
-
+/* ═══ CONFIG RELOAD (백엔드 4차) ═══ */
 async function doConfigReload() {
   if (!await customConfirm(_L('데몬 설정을 리로드하시겠습니까?\n(webhook, rate limit, alert 임계값 등이 갱신됩니다)',
       'Reload daemon configuration?\n(webhook, rate limit, alert thresholds will be refreshed)'))) return;
@@ -11576,7 +10124,7 @@ async function doConfigReload() {
   } catch(e) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (e.message || ''), 'e'); }
 }
 
-
+/* ═══ BACKUP SNAPSHOT VERIFY ═══ */
 async function showBackupVerify() {
   var html = '<div class="form-group"><label>' + _L('스냅샷 이름', 'Snapshot Name') + '</label>';
   html += '<input id="verify-snap" class="input-field" placeholder="pcvpool/vms/web-prod@daily-20260401"></div>';
@@ -11591,7 +10139,7 @@ async function showBackupVerify() {
   });
 }
 
-
+/* ═══ PERSISTENT JOBS ═══ */
 async function renderPersistentJobs(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11614,7 +10162,7 @@ async function renderPersistentJobs(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 
-
+/* ═══ DB MIGRATION STATUS ═══ */
 async function renderDbMigration(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11630,7 +10178,7 @@ async function renderDbMigration(b) {
   } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
 }
 
-
+/* ═══ DEEP HEALTH (확장) ═══ */
 async function renderDeepHealth(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -11652,7 +10200,7 @@ window.renderPersistentJobs = renderPersistentJobs;
 window.renderDbMigration = renderDbMigration;
 window.renderDeepHealth = renderDeepHealth;
 
-
+/* ═══ PCV.advanced namespace export ═══ */
 PCV.advanced = {
   renderTemplates: renderTemplates,
   showTemplateCreate: showTemplateCreate,
@@ -11685,25 +10233,24 @@ PCV.advanced = {
 };
 
 })(window.PCV);
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/selfhealing.js
+   AI Ops Self-Healing Panel: pending / history / mode / approve / reject
+   ADR-0013: IIFE module scope — PCV.selfhealing namespace
+   ADR-0020: AI 파이프라인 호출 체인
+   1.0 functional: vm-reboot-loop + agent.compare_manual + 시간 윈도우 누적 트리거
+   ═══════════════════════════════════════════════════════════════ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-
+/* ═══ Common RPC helper ═══ */
 async function _rpc(method, params) {
   var body = { jsonrpc: '2.0', method: method, params: params || {}, id: 'sh-' + Date.now() };
   var r = await fetchPost(EP.RPC(), body);
   return unwrapData(r);
 }
 
-
+/* ═══ Time formatter ═══ */
 function _fmtTime(ts) {
   if (!ts) return '-';
   var d = new Date(ts * 1000);
@@ -11720,7 +10267,7 @@ function _fmtRelative(ts) {
   return Math.floor(diff / 86400) + 'd ago';
 }
 
-
+/* ═══ DOM builder (XSS-safe: textContent 사용) ═══ */
 function _el(tag, attrs, children) {
   var e = document.createElement(tag);
   if (attrs) {
@@ -11742,7 +10289,7 @@ function _el(tag, attrs, children) {
   return e;
 }
 
-
+/* ═══ State ═══ */
 var _state = {
   mode: null,
   pending: [],
@@ -11752,7 +10299,7 @@ var _state = {
   lastRefresh: 0
 };
 
-
+/* ═══ Data refresh ═══ */
 async function refresh() {
   _state.loading = true;
   try {
@@ -11771,7 +10318,7 @@ async function refresh() {
   render();
 }
 
-
+/* ═══ Mode toggle ═══ */
 async function setMode(mode) {
   if (mode !== 'active' && mode !== 'dry_run') return;
   var msg = mode === 'active'
@@ -11788,7 +10335,7 @@ async function setMode(mode) {
   } catch (e) { alert('모드 전환 실패: ' + (e.message || e)); }
 }
 
-
+/* ═══ Approve/Reject/Reset/Trigger ═══ */
 async function approve(actionId) {
   if (!confirm('action_id=' + actionId + ' 승인 → 실제 실행됩니다.\n\n계속?')) return;
   try {
@@ -11823,15 +10370,15 @@ async function triggerAgent() {
   } catch (e) { alert('AI Agent 호출 실패: ' + (e.message || e)); }
 }
 
-
+/* ═══ Render — DOM 조립 (textContent로 XSS-safe) ═══ */
 function render() {
   var root = document.getElementById('selfhealing-panel');
   if (!root) return;
 
-
+  /* clear */
   while (root.firstChild) root.removeChild(root.firstChild);
 
-
+  /* Header */
   var modeBadge = _el('span', {
     class: 'sh-badge ' + (_state.mode === 'active' ? 'sh-active' : 'sh-dry'),
     text: _state.mode === 'active' ? 'ACTIVE' : 'DRY RUN'
@@ -11852,7 +10399,7 @@ function render() {
     ctrls
   ]));
 
-
+  /* Pending section */
   var pendingSec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '⏳ 승인 대기 (' + _state.pending.length + ')' })
   ]);
@@ -11889,7 +10436,7 @@ function render() {
   }
   root.appendChild(pendingSec);
 
-
+  /* History section */
   var historySec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '📜 실행 이력 (' + _state.history.length + ')' })
   ]);
@@ -11924,7 +10471,7 @@ function render() {
   }
   root.appendChild(historySec);
 
-
+  /* Agent latest comparison */
   var agentSec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '🧠 AI Agent 최근 합의' })
   ]);
@@ -11964,14 +10511,14 @@ function render() {
   root.appendChild(agentSec);
 }
 
-
-
-
+/* ═══ 1.0: 별도 페이지 진입점 (nav.js 라우팅) ═══
+ * Monitor Overview에 통합된 mount point와 별개로 페이지 단독 렌더.
+ * b: page body container (#cb 등) */
 function renderSelfHealing(b) {
   if (!b) return;
-
+  /* clear */
   while (b.firstChild) b.removeChild(b.firstChild);
-
+  /* 페이지 헤더 + selfhealing-panel 컨테이너 */
   var header = _el('div', { class: 'sh-page-header' }, [
     _el('h1', { text: '🛡 AI Self-Healing 관리' }),
     _el('p', { class: 'color-muted',
@@ -11979,12 +10526,12 @@ function renderSelfHealing(b) {
   ]);
   b.appendChild(header);
   b.appendChild(_el('div', { id: 'selfhealing-panel', class: 'hc' }));
-
+  /* 즉시 데이터 로드 */
   setTimeout(refresh, 50);
 }
 window.renderSelfHealing = renderSelfHealing;
 
-
+/* ═══ Public API (PCV.selfhealing) ═══ */
 PCV.selfhealing = {
   refresh:        refresh,
   setMode:        setMode,
@@ -11998,3 +10545,1347 @@ PCV.selfhealing = {
 };
 
 })(window.PCV);
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — app.js (Entry Point)
+   Modular Web UI Dashboard
+   Modules: api.js, ui.js (Phase 1 분리 완료)
+   ═══════════════════════════════════════════════════════════════ */
+
+/*
+ * ===== app.js 모듈 개요 (주니어 개발자 필독) =====
+ *
+ * [역할]
+ *   Web UI의 진입점(entry point). index.html의 <script> 순서에서
+ *   api.js, ui.js 다음에 로드된다. 다른 모듈이 IIFE 안에서 PCV.*에
+ *   등록한 함수를 이 파일이 **글로벌(window) 변수**로 묶어 최종 결합한다.
+ *
+ * [PCV 네임스페이스 전략 (ADR-0013)]
+ *   - 각 모듈은 (function(PCV){ ... })(window.PCV) 안에서 PCV.api, PCV.ui,
+ *     PCV.vm 등에 함수를 등록한다.
+ *   - app.js는 IIFE를 쓰지 않는다. var 선언은 자동으로 window.*가 된다.
+ *     이것이 의도적이다 — 다른 모듈과 HTML onclick에서 직접 참조해야 하므로.
+ *   - PCV.state는 Object.defineProperty getter로 정의되어, 호출할 때마다
+ *     최신 vmList/selectedVmIndex를 반환한다 (복사본이 아닌 라이브 참조).
+ *   - PCV.config는 빌드 시점의 정적 값이다 (REST_COUNT 등). /health에서
+ *     동적으로 갱신되지 않는다.
+ *
+ * [글로벌 상태 변수]
+ *   - vmList: VM 목록 배열. loadAll()이 10초마다 갱신한다.
+ *   - selectedVmIndex: 현재 선택된 VM의 vmList 인덱스.
+ *   - currentTab: 현재 표시 중인 탭 ('dashboard', 'summary', 'console' 등).
+ *   - cpuHistory/memHistory: 60초 링 버퍼. renderPerformance()가 그래프용으로 사용.
+ *   - window.authToken: JWT 토큰. sessionStorage에도 동기 저장된다.
+ *     **왜 window에?** — api.js, vm.js 등 모든 모듈이 fetch 헤더에 사용해야
+ *     하므로, 네임스페이스가 아닌 window에 둔다.
+ *
+ * [주요 함수]
+ *   - loadAll(skipContent): VM 목록 fetch + render. skipContent=true면 폴링.
+ *   - renderDashboard(b): 대시보드 홈 화면 렌더링.
+ *   - applyEditionCapabilities(): /health에서 cluster 지원 여부 판별.
+ *   - pcvPostLoginInit(): 로그인 후 RBAC role 가시성 + hash 라우팅 적용.
+ *
+ * [흔한 실수]
+ *   - var 대신 let/const를 쓰면 window에 등록되지 않아 다른 모듈에서 참조 불가.
+ *   - selectedVmIndex를 변경한 뒤 render()를 호출하지 않으면 사이드바가 갱신 안 됨.
+ *   - loadAll 내부의 cachedFetch는 skipContent=true(폴링)일 때만 작동한다.
+ *     명시 호출 시 항상 fresh fetch를 한다.
+ *   - HTML onclick="..." 안의 문자열에 사용자 입력을 넣을 때 반드시
+ *     escapeAttr()를 사용하라 (escapeHtml 아님). 차이는 ui.js 주석 참조.
+ */
+
+/* ═══ MODULE: api.js, ui.js 는 index.html에서 먼저 로드됨 ═══ */
+
+/* ═══ STATE VARIABLES (var = window 글로벌 스코프) ═══
+ *  var로 선언하는 이유: 번들러 없이 <script>로 로드하므로 var = window 속성이 됨.
+ *  let/const로 바꾸면 다른 파일에서 참조 불가 — 절대 변경 금지. */
+var API_BASE = '/api/v1';
+var authToken = sessionStorage.getItem('pcv_token') || '';
+var wsConnection = null;
+var vmList = [];
+var selectedVmIndex = 0;
+var currentTab = 'dashboard';
+var sortField = 'name';
+var sortDirection = 1;
+var cpuHistory = Array(60).fill(0);
+var memHistory = Array(60).fill(0);
+var hostCpuHistory = Array(60).fill(0);
+var hostMemHistory = Array(60).fill(0);
+var checkedVms = new Set();
+var eventLog = [];
+var lastLoadTime = Date.now();
+var _dashWidgets = JSON.parse(localStorage.getItem('pcv-dash-widgets') || '{"stats":true,"actions":true,"charts":true,"alerts":true,"vms":true}');
+
+/* ═══ PCV NAMESPACE (structured state access) ═══ */
+/* ADR-0013: merge into existing PCV namespace (modules add PCV.api, PCV.ui, PCV.vm)
+ *
+ * Object.assign을 쓰지 않는 이유:
+ *   api.js 등이 이미 window.PCV = window.PCV || {} 로 초기화한 뒤
+ *   PCV.api = {...}를 등록해둔 상태. 여기서 Object.assign(window, {PCV: ...})하면
+ *   기존 PCV.api가 덮어써진다. 따라서 PCV 객체를 새로 만들지 않고,
+ *   기존 객체에 .state, .config, .auth 속성만 추가한다.
+ *
+ * PCV.state가 getter인 이유:
+ *   vmList 등은 var 선언이라 값이 계속 바뀐다. 일반 프로퍼티로 복사하면
+ *   스냅샷이 되어 최신값을 반영하지 못한다. getter는 호출 시점의 라이브 값을 반환.
+ */
+window.PCV = window.PCV || {};
+Object.defineProperty(window.PCV, 'state', {
+  get: function() {
+    return {
+      vmList: vmList,
+      selectedVmIndex: selectedVmIndex,
+      currentTab: currentTab,
+      eventLog: eventLog,
+      lastLoadTime: lastLoadTime
+    };
+  },
+  configurable: true
+});
+window.PCV.config = {
+  API_BASE: API_BASE,
+  VERSION: '1.0',
+  RPC_COUNT: 195,
+  REST_COUNT: 130,
+  METRICS_COUNT: 155
+};
+Object.defineProperty(window.PCV, 'auth', {
+  get: function() {
+    return {
+      token: authToken,
+      user: sessionStorage.getItem('pcv_user') || ''
+    };
+  },
+  configurable: true
+});
+
+/* Functions removed — provided by modules/*.js (api.js, ui.js, vm.js, container.js, network.js, storage.js, cluster.js, monitor.js, cloud.js, nav.js, help.js) */
+
+/* ═══ CLEANUP ON TAB CLOSE ═══ */
+window.addEventListener('beforeunload', (e) => {
+  /* 로그인 상태에서 대시보드 이탈 시 경고 팝업 */
+  if (authToken) {
+    e.preventDefault();
+    e.returnValue = '';
+  }
+  authToken = '';
+  if (wsConnection) wsConnection.close();
+});
+
+/* ═══ EDITION CAPABILITY DETECTION ═══ */
+/**
+ * /health 응답의 capabilities.cluster를 확인하여
+ * Single Edge에서 클러스터 UI 요소를 숨김.
+ * 로그인 성공 후 1회 호출.
+ */
+/* Single Edge(capabilities.cluster=false)에서 숨길 페이지 네비게이션 키.
+   마크업 수정 없이 중앙 리스트로 관리하여 신규 cluster 의존 페이지 추가 시
+   이 배열만 갱신하면 된다. data-nav 속성과 onclick="navigateTo('...')" 양쪽 커버. */
+var PCV_CLUSTER_ONLY_NAV = ['cluster', 'mon-cluster', 'federation'];
+
+function applyEditionCapabilities() {
+  fetch(API_BASE + '/health').then(function(r) { return r.json(); }).then(function(h) {
+    var hasCluster = h.capabilities && h.capabilities.cluster;
+    var edition = hasCluster ? 'multi' : 'single';
+    window.pcvClusterEnabled = hasCluster;
+    window.PCV_UI_EDITION = edition;
+    if (window.PCV && typeof PCV.applyEditionEndpointSurface === 'function') {
+      PCV.applyEditionEndpointSurface(edition);
+    }
+    if (!hasCluster) {
+      document.querySelectorAll('.cluster-only').forEach(function(el) {
+        el.style.display = 'none';
+      });
+      /* data-nav/onclick 기반 cluster 전용 메뉴 자동 hide (사이드바·팔레트 공통) */
+      PCV_CLUSTER_ONLY_NAV.forEach(function(nav) {
+        var sel = '[data-nav="' + nav + '"],[onclick*="navigateTo(\'' + nav + '\')"]';
+        document.querySelectorAll(sel).forEach(function(el) {
+          el.style.display = 'none';
+        });
+      });
+      /* 싱글 엣지: 기본 사이드바를 VM 탭으로 */
+      var clusterTab = document.querySelector('[data-sb="cluster"]');
+      if (clusterTab && clusterTab.classList.contains('active')) {
+        switchSbTab('vms');
+      }
+    }
+  }).catch(function() {});
+}
+/* 페이지 로드 시 즉시 실행 (인증 불필요 엔드포인트) */
+applyEditionCapabilities();
+
+/* ═══ HTML BUILDER UTILITY (G-2, FE-6: ui.js에서 정의된 경우 재사용) ═══ */
+if (!window.H) {
+  var H = {
+    card: (title, body, cls) => `<div class="hc ${cls||''}">${title?'<h4>'+title+'</h4>':''}${body}</div>`,
+    row: (key, val, cls) => `<div class="hr"><span class="k">${key}</span><span class="v ${cls||''}">${val}</span></div>`,
+    badge: (text, type) => `<span class="badge b-${type}">${escapeHtml(text)}</span>`,
+    grid: (cols, content) => `<div class="sg grid-${cols}">${content}</div>`,
+    section: (title) => `<h3 class="section-title">${title}</h3>`,
+    sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
+  };
+} else {
+  var H = window.H;
+}
+
+/* ═══ UTILITIES ═══ */
+var esc = escapeHtml;
+
+function ciIcon(name) {
+  return '<svg class="ci-icon" aria-hidden="true"><use href="/ui/vendor/coolicons/coolicons.svg#ci-' + name + '"></use></svg>';
+}
+
+var EVT_ICONS = {
+  auth: ciIcon('lock'), ws: ciIcon('globe'), vm: ciIcon('desktop-tower'), ctr: ciIcon('layers'), snap: ciIcon('camera'),
+  net: ciIcon('globe'), storage: ciIcon('data'), cluster: ciIcon('layers'), ovn: ciIcon('layers'),
+  alert: ciIcon('bell'), gpu: ciIcon('monitor'), docker: ciIcon('layers'), terraform: ciIcon('file-document'),
+  federation: ciIcon('cloud'), config: ciIcon('settings'), template: ciIcon('file-document'), backup: ciIcon('save'),
+  error: ciIcon('close-circle'), ok: ciIcon('circle-check'), info: ciIcon('info')
+};
+
+/* ═══ EVENT LOG POPOUT WINDOW ═══ */
+function popoutEventLog() {
+  const w = window.open('', 'pcv-event-log', 'width=700,height=500,menubar=no,toolbar=no,location=no,status=no');
+  if (!w) { toast('팝업이 차단되었습니다', false); return; }
+  window._evPopout = w;
+  const theme = document.documentElement.getAttribute('data-theme') || '';
+  w.document.write('<!DOCTYPE html><html lang="ko"><head><meta charset="UTF-8"><title>PureCVisor — Event Log</title>'
+    + '<link rel="stylesheet" href="/ui/style.css">'
+    + '<style>body{margin:0;padding:0;background:var(--bg);color:var(--fg);font-family:var(--font-mono);font-size:12px;overflow:hidden;display:flex;flex-direction:column;height:100vh}'
+    + '.ev-toolbar{padding:8px 12px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;background:var(--bg2)}'
+    + '.ev-body{flex:1;overflow-y:auto;padding:6px 10px}'
+    + '.ev-row{padding:2px 0;border-bottom:1px solid var(--border);display:flex;gap:6px;align-items:baseline;font-size:11px}'
+    + '</style></head><body' + (theme ? ' data-theme="' + theme + '"' : '') + '>'
+    + '<div class="ev-toolbar"><span style="font-weight:700">&#128220; PureCVisor Event Log</span>'
+    + '<div style="display:flex;gap:6px"><button class="btn" style="font-size:10px;padding:3px 8px" onclick="parent.clearEvts()">초기화</button>'
+    + '<span id="ev-count" class="color-muted" style="font-size:10px"></span></div></div>'
+    + '<div class="ev-body" id="ev-body"></div>'
+    + '</body></html>');
+  w.document.close();
+  _syncPopoutLog();
+}
+window.popoutEventLog = popoutEventLog;
+
+/* ═══ VM FAVORITES (G-4) ═══ */
+
+/* ═══ CUSTOM CONFIRM DIALOG (G-4) ═══ */
+
+/* ═══ SKELETON LOADING ═══ */
+
+/* ═══ SORTABLE TABLE UTILITY ═══ */
+
+/* ═══ ERROR HANDLING WRAPPER ═══ */
+
+/* ═══ LOGIN ═══ */
+(function() {
+  const tls = document.getElementById('login-tls');
+  if (!tls) return;
+  if (location.protocol === 'https:') {
+    tls.innerHTML = '<span class="login-tls-compact color-green">' + ciIcon('lock') + '<span class="login-tls-label">' + t('login.tls.secure') + '</span></span>';
+  } else {
+    tls.innerHTML = '<span class="login-tls-compact color-yellow">' + ciIcon('warning') + '<span class="login-tls-label">' + t('login.tls.insecure') + '</span><span aria-hidden="true">—</span><a class="login-tls-action" href="https://' + encodeURIComponent(location.hostname) + ':443' + encodeURI(location.pathname) + '">' + t('login.tls.switch') + '</a></span>';
+  }
+})();
+
+/* ═══ API HELPERS ═══ */
+
+/* ═══ WEBSOCKET ═══ */
+
+/* THEME — modules/theme.js로 이관됨 */
+
+window.addEventListener('DOMContentLoaded', () => {
+  /* 테마는 index.html의 inline head script에서 이미 sanitize + 적용됨.
+     여기서는 URL 파라미터 override와 select UI 동기화만 담당.
+     Supanova 변형만 허용. */
+  const ALLOWED = ['supanova', 'supanova-cyan', 'supanova-hicontrast'];
+  const urlTheme = new URLSearchParams(window.location.search).get('theme');
+  let t = urlTheme || localStorage.getItem('pcv-theme') || 'supanova';
+  if (ALLOWED.indexOf(t) < 0) t = 'supanova';
+  document.documentElement.setAttribute('data-theme', t);
+  localStorage.setItem('pcv-theme', t);
+  const s = document.getElementById('theme-select');
+  if (s) s.value = t;
+});
+
+/* Session restore — api.js restoreSession()으로 이관됨 (파일 끝에서 호출) */
+
+/* ═══ SIDEBAR ═══ */
+
+var ctrSortKey = 'name', ctrSortDir = 1;
+
+window.setCtrSort = setCtrSort;
+
+window.toggleInfraSort = toggleInfraSort;
+
+/* ═══ DRAG AND DROP NAV REORDER ═══ */
+(function() {
+  let dragEl = null;
+  function initDrag(container) {
+    const items = container.querySelectorAll('.vi[draggable]');
+    items.forEach(el => {
+      el.addEventListener('dragstart', e => { dragEl = el; el.style.opacity = '.4'; e.dataTransfer.effectAllowed = 'move'; });
+      el.addEventListener('dragend', () => { dragEl.style.opacity = ''; dragEl = null; container.querySelectorAll('.vi').forEach(v => v.style.borderTop = ''); });
+      el.addEventListener('dragover', e => { e.preventDefault(); e.dataTransfer.dropEffect = 'move'; el.style.borderTop = '2px solid var(--accent)'; });
+      el.addEventListener('dragleave', () => { el.style.borderTop = ''; });
+      el.addEventListener('drop', e => { e.preventDefault(); el.style.borderTop = ''; if (dragEl && dragEl !== el) { container.insertBefore(dragEl, el); saveNavOrder(container); } });
+    });
+    restoreNavOrder(container);
+  }
+  function saveNavOrder(c) {
+    const order = [...c.querySelectorAll('.vi[data-nav]')].map(v => v.dataset.nav);
+    localStorage.setItem('pcv-nav-' + c.id, JSON.stringify(order));
+  }
+  function restoreNavOrder(c) {
+    const saved = localStorage.getItem('pcv-nav-' + c.id);
+    if (!saved) return;
+    try {
+      const order = JSON.parse(saved);
+      const map = {}; c.querySelectorAll('.vi[data-nav]').forEach(v => { map[v.dataset.nav] = v; });
+      order.forEach(key => { if (map[key]) { c.appendChild(map[key]); delete map[key]; } });
+      Object.values(map).forEach(v => c.appendChild(v));
+    } catch (e) { if(_DEBUG) console.warn('restoreNavOrder:', e.message); }
+  }
+  window.addEventListener('DOMContentLoaded', () => {
+    const infra = document.getElementById('nav-infra');
+    const mon = document.getElementById('nav-mon');
+    if (infra) initDrag(infra);
+    if (mon) initDrag(mon);
+  });
+})();
+
+/* ═══ SORT / FILTER / RENDER ═══ */
+
+/* ═══ CONTEXT MENU ═══ */
+document.addEventListener('click', () => { document.getElementById('ctx').style.display = 'none'; });
+
+/* ═══ CONTENT TABS ═══ */
+document.getElementById('ct').addEventListener('click', e => {
+  if (e.target.tagName === 'BUTTON') {
+    document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
+    e.target.classList.add('active');
+    currentTab = e.target.dataset.t;
+    renderContent();
+  }
+});
+
+/* navigateTo + renderContent — modules/nav.js로 이관됨 */
+
+/* ═══ VM SUMMARY ═══ */
+
+/* ═══ CONSOLE / VNC ═══ */
+
+/* ═══ SNAPSHOTS ═══ */
+
+window.snapNameValidate = snapNameValidate;
+window.snapCreateExec = snapCreateExec;
+
+window.rbValidate = rbValidate;
+window.rbExec = rbExec;
+
+window.snapDeleteAll = snapDeleteAll;
+window.sdaPreview = sdaPreview;
+window.sdaExec = sdaExec;
+
+/* ═══ PERFORMANCE ═══ */
+
+/* ═══ NETWORKS ═══ */
+
+/* ═══ STORAGE ═══ */
+
+/* ═══ CONTAINERS ═══ */
+var selCtr = null, ctrTab = 'summary', ctrHist = [];
+
+/* ═══ CONTAINER TAB RENDERING ═══ */
+
+/* ═══ CONTAINER ACTIONS ═══ */
+
+window.ctrDistChanged = ctrDistChanged;
+
+window.ctrIpModeChanged = ctrIpModeChanged;
+
+window.ctrLoadBridges = ctrLoadBridges;
+
+/* ═══ HOST ═══ */
+
+/* ═══ CLUSTER ═══ */
+
+/* FE-6: addAffinityRule — cluster.js에서 정의, 중복 제거 */
+/* window.addAffinityRule은 cluster.js에서 등록됨 */
+
+/* ═══ OVN ═══ */
+
+/* ═══ POWER / VM DELETE ═══ */
+/* Keep global alias */
+window.pw = vmPower;
+
+/* ═══ MODALS ═══ */
+/* Keep global aliases */
+window.showM = showModal;
+window.closeM = closeModal;
+
+/* ═══ VM CREATE WIZARD ═══ */
+
+/* ═══ SETTINGS ═══ */
+
+/* ═══ SNAPSHOT SHORTCUT ═══ */
+
+/* ═══ NIC MANAGER ═══ */
+
+/* ═══ VNC MODAL ═══ */
+
+/* ═══ NETWORK CREATE / EDIT ═══ */
+
+/* ═══ ZVOL ═══ */
+
+/* ═══ CONNECT / PREFS / ABOUT ═══ */
+function showConnect() { let ch = '<h2>Connect to Server</h2><div class="sg">'; MON_NODES.forEach((nd, i) => { ch += H.card(nd.name + (i === 0 ? ' (Current)' : ''), H.row('IP', nd.ip) + H.row('Port', '8080') + H.row('Status', '<span class="color-green">' + t('connected') + '</span>')); }); ch += '</div><div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>'; showModal(ch); }
+
+function showPrefs() {
+  let h = '<h2>Preferences</h2>';
+  h += '<div class="fr"><label>Default Pool</label><input value="pcvpool/vms" disabled></div>';
+  h += '<div class="fr"><label>API Port</label><input value="8080" disabled></div>';
+  h += '<div class="fr"><label>Theme</label><select onchange="changeTheme(this.value);document.getElementById(\'theme-select\').value=this.value"><option value="supanova">SUPANOVA (Teal)</option><option value="supanova-cyan">SUPANOVA CYAN</option><option value="supanova-hicontrast">SUPANOVA HI-CONTRAST</option></select></div>';
+  h += '<div style="margin:12px 0"><label style="font-size:12px;color:var(--fg2)">Theme Preview</label>';
+  h += '<div style="display:grid;grid-template-columns:repeat(auto-fill,minmax(120px,1fr));gap:8px;margin-top:8px">';
+  const curTheme = document.documentElement.getAttribute('data-theme') || '';
+  THEME_PREVIEWS.forEach(tp => {
+    const sel = tp.id === curTheme;
+    h += '<div onclick="changeTheme(\'' + tp.id + '\');document.getElementById(\'theme-select\').value=\'' + tp.id + '\';showPrefs()" style="cursor:pointer;padding:8px;border-radius:8px;border:2px solid ' + (sel ? 'var(--accent)' : 'var(--border)') + ';background:var(--bg2);text-align:center' + (sel ? ';box-shadow:0 0 8px var(--accent)' : '') + '">';
+    h += '<div style="display:flex;gap:3px;justify-content:center;margin-bottom:6px">';
+    tp.colors.forEach(c => { h += '<div style="width:20px;height:20px;border-radius:4px;background:' + c + ';border:1px solid rgba(255,255,255,0.1)"></div>'; });
+    h += '</div><div style="font-size:9px;color:var(--fg2);white-space:nowrap">' + tp.name + '</div></div>';
+  });
+  h += '</div></div>';
+  /* Auto Theme 토글 제거 — pure-light/pure-dark 테마 삭제와 함께 무의미해짐 */
+  h += '<div style="margin:14px 0;border-top:1px solid var(--border);padding-top:12px"><h4 style="margin-bottom:8px">Configuration Management</h4>';
+  h += '<div class="flex gap-6"><button class="btn btn-g" onclick="configBackup()">&#128190; Backup Config</button><button class="btn" onclick="configHistory()">&#128203; Config History</button></div></div>';
+  h += '<div class="flex gap-6 mt-12"><button class="btn" onclick="exportUiSettings()">' + _L('설정 내보내기', 'Export Settings') + '</button><button class="btn" onclick="importUiSettings()">' + _L('설정 가져오기', 'Import Settings') + '</button></div>';
+  h += '<div style="text-align:right;margin-top:12px"><button class="btn" onclick="openThemeEditor()" style="margin-right:8px">Theme Editor</button><button class="btn btn-r" onclick="closeModal()">' + t('btn.close') + '</button></div>';
+  showModal(h);
+}
+
+function showAbout() {
+  showModal(`<h2>About PureCVisor</h2>${H.card('', H.row('Version', '<span id="about-ver">Loading...</span>') + H.row('LOC', '<span id="about-loc">Loading...</span>') + H.row('Files', '<span id="about-files">Loading...</span>') + H.row('RPC', '<span id="about-rpc">Loading...</span>') + H.row('REST Endpoints', '<span id="about-rest">Loading...</span>') + H.row('Prometheus Metrics', '<span id="about-prom">Loading...</span>') + H.row('Subsystems', 'io_uring, OVN, DPDK, SR-IOV, gRPC, WebSocket') + H.row('Author', 'HardcoreMonk'))}<div style="text-align:right;margin-top:12px"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
+  /* /health에서 동적 데이터 로드 */
+  fetchGet(API_BASE + '/health').then(r => {
+    var d = unwrapData(r);
+    var el = document.getElementById('about-ver');
+    if (el) el.innerHTML = esc(d.version || '1.0') + ' <span class="stat-label">(' + esc(d.status || 'ok') + ')</span>';
+    var rpc_el = document.getElementById('about-rpc');
+    if (rpc_el) rpc_el.textContent = (d.rpc_methods || '265') + ' + plugins';
+    var rest_el = document.getElementById('about-rest');
+    if (rest_el) rest_el.textContent = (d.rest_endpoints || '190') + '+';
+    var prom_el = document.getElementById('about-prom');
+    if (prom_el) prom_el.textContent = d.metrics_count || '~170';
+  }).catch(function() {});
+  var loc_el = document.getElementById('about-loc');
+  if (loc_el) loc_el.textContent = '~82,000 src / ~125,800 total';
+  var files_el = document.getElementById('about-files');
+  if (files_el) files_el.textContent = 'Single Edge public tree';
+}
+
+/* ACCOUNTS/AGENT — modules/accounts.js로 이관됨 */
+
+/* ═══ ACCOUNTS — modules/accounts.js로 이관됨 ═══ */
+
+/* ═══ MONITORING ═══ */
+
+/* G-2: Promise.all parallel fetch */
+
+/* fmtBytes — modules/monitor.js로 이관됨 */
+/* fmtRate — modules/monitor.js로 이관됨 */
+/* fmtUptime — modules/monitor.js로 이관됨 */
+
+/* ═══ MONITORING RENDER — G-2 Split into sub-functions ═══ */
+
+/* ═══ ALERTS ═══ */
+
+window.alertSave = async function() {
+  const cfg = { enabled: document.getElementById('al-enabled')?.checked || false, cpu_warn: parseInt(document.getElementById('al-cpu_warn')?.value || 80), cpu_crit: parseInt(document.getElementById('al-cpu_crit')?.value || 95), mem_warn: parseInt(document.getElementById('al-mem_warn')?.value || 85), mem_crit: parseInt(document.getElementById('al-mem_crit')?.value || 95), disk_warn: parseInt(document.getElementById('al-disk_warn')?.value || 80), disk_crit: parseInt(document.getElementById('al-disk_crit')?.value || 90), eval_period: parseInt(document.getElementById('al-eval_period')?.value || 30), webhook_url: document.getElementById('al-webhook_url')?.value || '', webhook_format: document.getElementById('al-webhook_format')?.value || 'generic', telegram_chat_id: document.getElementById('al-telegram_chat_id')?.value || '' };
+  try { await fetchPut(API_BASE + '/alerts/config', cfg);
+    const st = document.getElementById('al-status'); if (st) { st.textContent = t('alert.saved'); st.style.color = 'var(--green)'; setTimeout(() => { st.textContent = ''; }, 2000); }
+    setTimeout(() => renderContent(), 500);
+  } catch (e) { const st = document.getElementById('al-status'); if (st) { st.textContent = t('error') + ': ' + e.message; st.style.color = 'var(--red)'; } }
+};
+
+/* ═══ HA OPERATIONS ═══ */
+
+/* ═══ SECURITY GROUPS ═══ */
+
+window.sgAddRule = async function() {
+  const el = document.getElementById('sg-result');
+  const sw = document.getElementById('sg-switch')?.value;
+  const dir = document.getElementById('sg-dir')?.value;
+  const pri = document.getElementById('sg-pri')?.value;
+  const match = document.getElementById('sg-match')?.value;
+  const act = document.getElementById('sg-act')?.value;
+  if (!sw || !match) { if (el) el.innerHTML = '<span style="color:var(--red)">Switch와 Match는 필수입니다</span>'; return; }
+  if (el) el.innerHTML = '<span class="spinner"></span> 추가 중...';
+  try {
+    await fetchPost(API_BASE + '/ovn/acl', { switch_name: sw, direction: dir, priority: parseInt(pri), match: match, action: act });
+    if (el) el.innerHTML = '<span style="color:var(--green)">ACL 규칙 추가 완료</span>';
+    toast('ACL 규칙 추가: ' + escapeHtml(sw));
+  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+};
+
+window.sgListRules = async function() {
+  const el = document.getElementById('sg-rules');
+  const sw = document.getElementById('sg-list-switch')?.value;
+  if (!sw) { if (el) el.innerHTML = '<span style="color:var(--red)">Switch 이름을 입력하세요</span>'; return; }
+  if (el) el.innerHTML = '<span class="spinner"></span> 조회 중...';
+  try {
+    const r = await fetchGet(API_BASE + '/ovn/acl?switch=' + encodeURIComponent(sw));
+    const list = Array.isArray(r) ? r : (r.data || r.result || []);
+    if (list.length === 0) { if (el) el.innerHTML = '<p style="color:var(--fg2);font-size:12px">ACL 규칙 없음</p>'; return; }
+    let h = '<table style="font-size:11px"><thead><tr><th>Direction</th><th>Priority</th><th>Match</th><th>Action</th></tr></thead><tbody>';
+    list.forEach(a => {
+      const entry = typeof a === 'string' ? a : '';
+      if (entry) { h += '<tr><td colspan="4">' + escapeHtml(entry) + '</td></tr>'; }
+      else { h += '<tr><td>' + escapeHtml(a.direction || '') + '</td><td>' + escapeHtml(String(a.priority || '')) + '</td><td>' + escapeHtml(a.match || '') + '</td><td>' + escapeHtml(a.action || '') + '</td></tr>'; }
+    });
+    h += '</tbody></table>';
+    if (el) el.innerHTML = h;
+  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+};
+
+/* ═══ GPU MONITORING ═══ */
+
+window.testGpuList = async function() {
+  const el = document.getElementById('gpu-list-result');
+  if (!el) return;
+  el.innerHTML = '<span class="spinner"></span> GPU 목록 조회 중...';
+  try {
+    const r = await fetchGet(API_BASE + '/gpu/list');
+    const list = Array.isArray(r) ? r : (r.data || r.result || []);
+    if (list.length === 0) { el.innerHTML = '<p style="color:var(--fg2);font-size:12px">GPU 디바이스 없음</p>'; return; }
+    let h = '<table style="font-size:11px"><thead><tr><th>PCI</th><th>Name</th><th>Driver</th><th>Type</th></tr></thead><tbody>';
+    list.forEach(g => { h += '<tr><td>' + escapeHtml(g.pci || g.address || '') + '</td><td>' + escapeHtml(g.name || g.device || '') + '</td><td>' + escapeHtml(g.driver || '') + '</td><td>' + escapeHtml(g.type || '') + '</td></tr>'; });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+  } catch (e) { el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu list</code></span>'; }
+};
+
+window.gpuPassthrough = async function() {
+  const el = document.getElementById('gpu-action-result');
+  const pci = document.getElementById('gpu-pci')?.value;
+  const vm = document.getElementById('gpu-vm')?.value;
+  if (!pci || !vm) { if (el) el.innerHTML = '<span style="color:var(--red)">PCI 주소와 VM 이름을 입력하세요</span>'; return; }
+  if (el) el.innerHTML = '<span class="spinner"></span> VFIO 바인딩 중...';
+  try {
+    await fetchPost(API_BASE + '/gpu/passthrough', { pci_address: pci, vm_name: vm });
+    if (el) el.innerHTML = '<span style="color:var(--green)">VFIO 패스스루 완료: ' + escapeHtml(pci) + ' &rarr; ' + escapeHtml(vm) + '</span>';
+    toast('GPU Passthrough: ' + escapeHtml(pci));
+  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu passthrough ' + escapeHtml(pci) + ' ' + escapeHtml(vm) + '</code></span>'; }
+};
+
+window.gpuMdevCreate = async function() {
+  const el = document.getElementById('gpu-action-result');
+  const pci = document.getElementById('gpu-pci')?.value;
+  if (!pci) { if (el) el.innerHTML = '<span style="color:var(--red)">PCI 주소를 입력하세요</span>'; return; }
+  if (el) el.innerHTML = '<span class="spinner"></span> vGPU 생성 중...';
+  try {
+    await fetchPost(API_BASE + '/gpu/mdev', { pci_address: pci });
+    if (el) el.innerHTML = '<span style="color:var(--green)">vGPU 생성 완료: ' + escapeHtml(pci) + '</span>';
+    toast('vGPU created: ' + escapeHtml(pci));
+  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu mdev create ' + escapeHtml(pci) + '</code></span>'; }
+};
+
+/* ═══ AUDIT LOG SEARCH ═══ */
+
+window.doAuditSearch = async function() {
+  const el = document.getElementById('audit-results');
+  if (!el) return;
+  el.innerHTML = '<span class="spinner"></span> 검색 중...';
+  try {
+    const u = document.getElementById('audit-user')?.value;
+    const m = document.getElementById('audit-method')?.value;
+    const f = document.getElementById('audit-from')?.value;
+    const t2 = document.getElementById('audit-to')?.value;
+    let qs = 'limit=100';
+    if (u) qs += '&user=' + encodeURIComponent(u);
+    if (m) qs += '&action=' + encodeURIComponent(m);
+    if (f) qs += '&from=' + encodeURIComponent(f);
+    if (t2) qs += '&to=' + encodeURIComponent(t2);
+    const url = API_BASE + '/audit/search?' + qs;
+    const r = await fetchGet(url);
+    const list = Array.isArray(r) ? r : (r.data || r.result || []);
+    if (list.length === 0) { el.innerHTML = '<p style="color:var(--fg2)">검색 결과 없음</p>'; return; }
+    let h = '<table style="font-size:11px"><thead><tr><th>시각</th><th>사용자</th><th>메서드</th><th>대상</th><th>결과</th><th>IP</th></tr></thead><tbody>';
+    list.forEach(e => {
+      h += '<tr><td>' + escapeHtml(e.ts || e.timestamp || '') + '</td><td>' + escapeHtml(e.username || e.user || '') + '</td><td>' + escapeHtml(e.method || e.action || '') + '</td><td>' + escapeHtml(e.target || '') + '</td><td>' + escapeHtml(e.result || e.status || '') + '</td><td>' + escapeHtml(e.src_ip || e.ip || '') + '</td></tr>';
+    });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+  } catch (e) { el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+};
+
+/* ═══ WEBHOOK DLQ ═══ */
+window.loadWebhookDlq = async function() {
+  var el = document.getElementById('dlq-list');
+  if (!el) return;
+  el.innerHTML = '<span class="spinner"></span> DLQ 조회 중...';
+  try {
+    /* REST 우선 시도, 실패 시 RPC 폴백 */
+    var r;
+    try { r = await fetchGet(API_BASE + '/alerts/dlq'); } catch(e1) {
+      r = await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.list', params:{}, id:'dlq1'});
+    }
+    var items = Array.isArray(r) ? r : (r.data || r.result || []);
+    if (items.length === 0) { el.innerHTML = '<div class="stat-label" style="color:var(--green)">' + _L('DLQ 비어있음', 'DLQ empty') + '</div>'; return; }
+    var h = '<table class="tbl" style="font-size:11px"><thead><tr><th>URL</th><th>Payload</th><th>' + _L('시각','Time') + '</th><th></th></tr></thead><tbody>';
+    items.forEach(function(d, i) {
+      h += '<tr><td>' + esc((d.url || d.webhook_url || '').substring(0, 40)) + '</td>';
+      h += '<td><code>' + esc((d.payload || d.metric || d.error || '').substring(0, 60)) + '</code></td>';
+      h += '<td>' + esc(d.timestamp || d.ts || '-') + '</td>';
+      h += '<td><button class="btn btn-sm" onclick="retryDlqItem(' + i + ')">' + _L('재시도','Retry') + '</button></td></tr>';
+    });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+    /* DLQ 항목 저장 (개별 재시도용) */
+    window._dlqItems = items;
+  } catch (e) {
+    el.innerHTML = '<div class="stat-label" style="color:var(--yellow)">' + _L('DLQ 조회 불가', 'DLQ unavailable') + '</div>';
+  }
+};
+
+window.retryWebhookDlq = async function() {
+  const el = document.getElementById('dlq-list');
+  if (el) el.innerHTML = '<span class="spinner"></span> 재시도 중...';
+  try {
+    await fetchPost(API_BASE + '/alerts/dlq/retry', {});
+    toast('DLQ 전체 재시도 요청 완료');
+    if (el) el.innerHTML = '<p style="color:var(--green);font-size:12px">재시도 요청 전송 완료</p>';
+  } catch (e) {
+    toast('DLQ 재시도 실패: ' + e.message, false);
+    if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">DLQ 재시도 엔드포인트 미구현</span>';
+  }
+};
+
+window.retryDlqItem = async function(index) {
+  var items = window._dlqItems || [];
+  if (index < 0 || index >= items.length) return;
+  var item = items[index];
+  try {
+    await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.retry', params:{index: index, url: item.url || item.webhook_url || ''}, id:'dlqr1'});
+    toast(_L('재시도 요청 전송됨', 'Retry requested'));
+    window.loadWebhookDlq();
+  } catch (e) {
+    toast(_L('재시도 실패', 'Retry failed') + ': ' + e.message, false);
+  }
+};
+
+/* ═══ HELP/GUIDE/SWAGGER — modules/help.js로 이관됨 ═══ */
+
+/* ═══ API MANAGEMENT — modules/accounts.js로 이관됨 ═══ */
+
+/* ═══ API KEY MANAGEMENT ═══ */
+async function apiKeyCreate() {
+  var desc = (document.getElementById('apikey-desc')?.value || '').trim();
+  var expiry = parseInt(document.getElementById('apikey-expiry')?.value) || 90;
+  if (!desc) { toast('Description required', false); return; }
+  try {
+    var r = await fetchPost(API_BASE + '/auth/apikeys', { description: desc, expiry_days: expiry });
+    if (r.error) { toast('Create failed: ' + (r.error.message || ''), false); return; }
+    var d = r.data || r.result || r;
+    var newEl = document.getElementById('apikey-new-result');
+    if (newEl && d.api_key) {
+      newEl.style.display = 'block';
+      newEl.innerHTML = '<span class="color-green">&#9989; New API Key created. Copy it now (it won\'t be shown again):</span><br>'
+        + '<code style="color:var(--accent);font-size:13px;word-break:break-all;user-select:all">' + escapeHtml(d.api_key) + '</code>'
+        + '<br><button class="btn" style="margin-top:6px;font-size:10px" onclick="navigator.clipboard.writeText(\'' + escapeHtml(d.api_key).replace(/'/g, "\\'") + '\');toast(\'Copied!\')">&#128203; Copy</button>';
+    }
+    toast('API key created: ' + desc);
+    addEvt('API Key created: ' + desc);
+    document.getElementById('apikey-desc').value = '';
+    apiKeyList();
+  } catch (e) { toast('Error: ' + e.message, false); }
+}
+window.apiKeyCreate = apiKeyCreate;
+
+async function apiKeyList() {
+  var el = document.getElementById('apikey-list'); if (!el) return;
+  try {
+    var r = await fetchGet(API_BASE + '/auth/apikeys');
+    var keys = Array.isArray(r) ? r : (r.data || r.result || []);
+    if (!Array.isArray(keys) || keys.length === 0) {
+      el.innerHTML = '<p class="color-muted" style="font-size:12px">No API keys. Create one above.</p>';
+      return;
+    }
+    var h = '<table style="font-size:11px"><thead><tr><th>Description</th><th>Key (masked)</th><th>Created</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>';
+    keys.forEach(function(k) {
+      var keyMasked = k.key_prefix ? k.key_prefix + '...' : (k.api_key ? k.api_key.substring(0, 8) + '...' : '***...');
+      var expired = k.expired || (k.expires_at && new Date(k.expires_at) < new Date());
+      var statusBadge = expired ? H.badge('Expired', 'r') : (k.revoked ? H.badge('Revoked', 'r') : H.badge('Active', 'g'));
+      h += '<tr>';
+      h += '<td><b>' + escapeHtml(k.description || '-') + '</b></td>';
+      h += '<td><code class="color-muted">' + escapeHtml(keyMasked) + '</code></td>';
+      h += '<td class="text-xs">' + escapeHtml(k.created_at || k.created || '-') + '</td>';
+      h += '<td class="text-xs">' + escapeHtml(k.expires_at || k.expires || '-') + '</td>';
+      h += '<td>' + statusBadge + '</td>';
+      h += '<td>';
+      if (!k.revoked && !expired) {
+        h += '<button class="btn btn-r" style="font-size:9px;padding:2px 8px" onclick="apiKeyRevoke(\'' + escapeHtml(k.id || k.key_id || '') + '\',\'' + escapeHtml(k.description || '') + '\')">Revoke</button>';
+      }
+      h += '</td></tr>';
+    });
+    h += '</tbody></table>';
+    el.innerHTML = h;
+  } catch (e) { el.innerHTML = '<p class="color-muted" style="font-size:12px">API Keys not available: ' + escapeHtml(e.message) + '</p>'; }
+}
+window.apiKeyList = apiKeyList;
+
+async function apiKeyRevoke(keyId, desc) {
+  if (!await customConfirm('Revoke API Key', 'Revoke key "' + desc + '"? This cannot be undone.')) return;
+  try {
+    var r = await fetchDelete(API_BASE + '/auth/apikeys/' + encodeURIComponent(keyId));
+    if (r.error) { toast('Revoke failed: ' + (r.error.message || ''), false); return; }
+    toast('API key revoked: ' + desc);
+    addEvt('API Key revoked: ' + desc);
+    apiKeyList();
+  } catch (e) { toast('Error: ' + e.message, false); }
+}
+window.apiKeyRevoke = apiKeyRevoke;
+
+/* ═══ DASHBOARD HOME ═══ */
+async function renderDashboard(b) {
+  b.innerHTML = showSkeleton();
+  /* 호스트 메트릭 즉시 수집 */
+  await collectHostMetrics();
+  try {
+    var vms = [], ctrs = [], clusterData = {}, alertData = [];
+    /* 빠른 API(VM/컨테이너)를 먼저 로드하여 즉시 렌더링,
+       느린 API(클러스터/알림)는 비동기로 나중에 갱신 */
+    var fastResults = await Promise.all([
+      fetchGet(API_BASE + '/vms').catch(function() { return { data: [] }; }),
+      fetchGet(API_BASE + '/containers').catch(function() { return { data: [] }; })
+    ]);
+    vms = Array.isArray(fastResults[0]) ? fastResults[0] : (fastResults[0].data || []);
+    ctrs = Array.isArray(fastResults[1]) ? fastResults[1] : (fastResults[1].data || []);
+    /* 클러스터: /health에서 cluster 정보 추출 (인증 불필요, 즉시 응답)
+     * /cluster/status는 REST 스레드 블로킹 시 3초 타임아웃 → standalone 표시 방지 */
+    var clusterPromise = fetchGet(API_BASE + '/health').then(function(h) {
+      var c = h.checks || {};
+      var isStandalone = !h.capabilities || !h.capabilities.cluster;
+      return {
+        role: isStandalone ? 'standalone' : ((c.cluster && c.cluster.role) || 'unknown'),
+        etcd_connected: isStandalone ? false : (c.etcd && c.etcd.ok && !c.etcd.note),
+        leader: (c.cluster && c.cluster.role === 'leader') ? (h.node_name || '') : '',
+        etcd_endpoints_healthy: c.etcd ? (c.etcd.healthy || 0) : 0,
+        etcd_endpoints_total: c.etcd ? (c.etcd.total || 0) : 0,
+        node_name: h.node_name || '',
+        node_count: isStandalone ? 1 : undefined
+      };
+    }).catch(function() { return {}; });
+    var alertPromise = Promise.race([
+      fetchGet(API_BASE + '/alerts').catch(function() { return []; }),
+      new Promise(function(r) { setTimeout(function() { r([]); }, 3000); })
+    ]);
+    var slowResults = await Promise.all([clusterPromise, alertPromise]);
+    clusterData = slowResults[0].data || slowResults[0].result || slowResults[0] || {};
+    alertData = Array.isArray(slowResults[1]) ? slowResults[1] : (slowResults[1].data || []);
+
+    var runVms = vms.filter(function(v) { return v.state === 'running'; }).length;
+    var runCtrs = ctrs.filter(function(c) { return c.state === 'RUNNING'; }).length;
+    var nodeCount = clusterData.nodes ? clusterData.nodes.length : (clusterData.node_count || 1);
+    var role = clusterData.role || 'standalone';
+    var recentAlerts = alertData.slice(-5);
+    var totalWorkloads = vms.length + ctrs.length;
+    var connectedWorkloads = runVms + runCtrs;
+
+    var h = '<section class="ops-hero">';
+    h += '<div class="ops-hero-copy">';
+    h += '<span class="ops-kicker">' + _L('Single Edge', 'Single Edge') + '</span>';
+    h += '<h2>' + _L('싱글 엣지 운영 대시보드', 'Single Edge Operations Dashboard') + '</h2>';
+    h += '<p>' + _L('호스트 상태, 워크로드, 최근 경고를 한 화면에서 확인합니다.', 'See host health, workloads, and recent alerts in one place.') + '</p>';
+    h += '<div class="ops-pill-row">';
+    h += '<span class="ops-pill">' + _L('활성 워크로드', 'Active workloads') + ' <b>' + connectedWorkloads + '/' + totalWorkloads + '</b></span>';
+    h += '<span class="ops-pill">' + _L('호스트 모드', 'Host mode') + ' <b>' + _L('단일 노드', 'Single node') + '</b></span>';
+    h += '<span class="ops-pill">' + _L('최근 경고', 'Recent alerts') + ' <b>' + alertData.length + '</b></span>';
+    h += '</div></div>';
+    h += '<div class="ops-hero-aside hc">';
+    h += '<h4>' + _L('운영 메모', 'Operations note') + '</h4>';
+    h += H.row(_L('현재 역할', 'Current role'), H.badge(role === 'standalone' ? _L('단독 운영', 'Standalone') : role, role === 'standalone' ? 'g' : 'y'));
+    h += H.row(_L('웹소켓', 'WebSocket'), document.getElementById('ws-s') && document.getElementById('ws-s').textContent ? _L('연결됨', 'Connected') : _L('연결 대기', 'Pending'));
+    h += H.row(_L('운영 우선순위', 'Priority'), alertData.length > 0 ? _L('경고 확인', 'Review alerts') : _L('자원 추이 점검', 'Review resource trend'));
+    h += '</div></section>';
+
+    /* F6: Widget toggle bar */
+    h += '<div class="ops-section-heading">';
+    h += '<div><h3>' + _L('표시 항목', 'Visible sections') + '</h3><p>' + _L('대시보드에서 바로 보고 싶은 카드만 켜 두십시오.', 'Keep only the sections you want to see on the dashboard.') + '</p></div>';
+    h += '</div>';
+    h += '<div class="flex gap-4 mb-12" style="flex-wrap:wrap">';
+    var _dwList = [
+      {key:'stats', label: _L('운영 요약','Operations summary'), icon:'&#128202;'},
+      {key:'actions', label: _L('빠른 작업','Quick actions'), icon:'&#128640;'},
+      {key:'charts', label: _L('자원 추이','Resource charts'), icon:'&#128200;'},
+      {key:'alerts', label: _L('최근 경고','Recent alerts'), icon:'&#128276;'},
+      {key:'vms', label: _L('워크로드 표','Workload tables'), icon:'&#128187;'}
+    ];
+    _dwList.forEach(function(w) {
+      var on = _dashWidgets[w.key] !== false;
+      h += '<button class="btn dash-widget-toggle ' + (on ? 'is-active' : '') + '" onclick="toggleDashWidget(\'' + w.key + '\')">' + w.icon + ' ' + w.label + '</button>';
+    });
+    h += '</div>';
+
+    /* 상태 카드 */
+    if (_dashWidgets.stats !== false) {
+    h += '<div class="ops-section-heading"><div><h3>' + _L('운영 요약', 'Operations summary') + '</h3><p>' + _L('가상 머신, 컨테이너, 호스트 상태를 한 번에 확인합니다.', 'Review virtual machines, containers, and host status at a glance.') + '</p></div></div>';
+    h += '<div class="sg grid-4">';
+    h += H.card('&#128187; ' + _L('가상 머신', 'Virtual Machines'), '<div class="stat-lg color-accent">' + vms.length + '</div>' + H.row(_L('실행 중', 'Running'), '<span class="color-green">' + runVms + '</span>') + H.row(_L('정지', 'Stopped'), '<span class="color-muted">' + (vms.length - runVms) + '</span>'));
+    h += H.card('&#9783; ' + _L('컨테이너', 'Containers'), '<div class="stat-lg color-green">' + ctrs.length + '</div>' + H.row(_L('실행 중', 'Running'), '<span class="color-green">' + runCtrs + '</span>') + H.row(_L('정지', 'Stopped'), '<span class="color-muted">' + (ctrs.length - runCtrs) + '</span>'));
+    if (window.pcvClusterEnabled) {
+      h += H.card('&#9741; ' + _L('클러스터', 'Cluster'), '<div class="stat-lg" style="color:var(--yellow)">' + nodeCount + ' ' + _L('노드', 'Nodes') + '</div>' + H.row(_L('역할', 'Role'), H.badge(role, role === 'leader' ? 'g' : 'y')) + H.row('etcd', H.badge(clusterData.etcd_connected ? 'Connected' : 'N/A', clusterData.etcd_connected ? 'g' : 'r')));
+    } else {
+      h += H.card('&#128421; ' + _L('호스트', 'Host'), '<div class="stat-lg" style="color:var(--yellow)">' + _L('정상', 'Healthy') + '</div>' + H.row(_L('모드', 'Mode'), H.badge('Single Edge', 'g')) + H.row(_L('상태', 'Status'), H.badge(_L('운영 중', 'Active'), 'g')));
+    }
+    h += H.card('&#128276; ' + _L('경고', 'Alerts'), '<div class="stat-lg color-red">' + alertData.length + '</div>' + H.row(_L('최근', 'Recent'), recentAlerts.length + _L('건', ' items')));
+    h += '</div>';
+    }
+
+    /* 바로가기 그리드 */
+    if (_dashWidgets.actions !== false) {
+    h += '<div class="ops-section-heading"><div><h3>' + _L('빠른 작업', 'Quick actions') + '</h3><p>' + _L('생성, 네트워크, 스토리지, 모니터링처럼 자주 쓰는 작업만 앞으로 배치했습니다.', 'The most common actions are kept in front: create, networking, storage, and monitoring.') + '</p></div></div>';
+    h += '<div class="sg grid-4">';
+    var shortcuts = [
+      { icon: '&#128187;', label: _L('새 VM', 'New VM'), action: 'showCreate()', color: 'var(--green)' },
+      { icon: '&#9783;', label: _L('새 컨테이너', 'New Container'), action: 'showCtrCreate()', color: 'var(--cyan)' },
+      { icon: '&#127760;', label: _L('네트워크', 'Networks'), action: "navigateTo('networks')", color: 'var(--accent)' },
+      { icon: '&#128190;', label: _L('스토리지', 'Storage'), action: "navigateTo('storage')", color: 'var(--peach)' },
+      { icon: '&#128200;', label: _L('운영 개요', 'Operations Overview'), action: "navigateTo('mon-overview')", color: 'var(--yellow)' },
+      { icon: '&#128187;', label: _L('호스트 상태', 'Host Health'), action: "navigateTo('host')", color: 'var(--cyan)' },
+      { icon: '&#128218;', label: _L('서비스 가이드', 'Service Guide'), action: "navigateTo('serviceguide')", color: 'var(--green)' },
+    ];
+    if (window.pcvClusterEnabled) {
+      shortcuts.splice(5, 0, { icon: '&#9741;', label: _L('클러스터', 'Cluster'), action: "navigateTo('cluster')", color: 'var(--magenta)' });
+    }
+    shortcuts.forEach(function(s) {
+      h += '<div class="hc ops-shortcut-card" onclick="' + s.action + '">';
+      h += '<div class="ops-shortcut-icon">' + s.icon + '</div>';
+      h += '<div class="ops-shortcut-label" style="color:' + s.color + '">' + s.label + '</div>';
+      h += '</div>';
+    });
+    h += '</div>';
+    }
+
+    /* 호스트 메트릭 차트 */
+    if (_dashWidgets.charts !== false) {
+    /* 호스트 메트릭 최신값 표시 */
+    var hostCpu = hostCpuHistory[hostCpuHistory.length - 1] || 0;
+    var hostMem = hostMemHistory[hostMemHistory.length - 1] || 0;
+    h += '<div class="ops-section-heading"><div><h3>' + _L('실시간 자원 추이', 'Live resource trend') + '</h3><p>' + _L('CPU와 메모리 사용률이 최근 수집값 기준으로 즉시 갱신됩니다.', 'CPU and memory usage update from the latest collected samples.') + '</p></div></div>';
+    h += '<div class="sg grid-2">';
+    h += H.card('CPU ' + _L('사용률', 'Usage') + ' — ' + hostCpu.toFixed(1) + '%', renderProgressBar(hostCpu) + '<div style="position:relative;height:120px;width:100%;margin-top:8px"><canvas id="dash-cpu-chart"></canvas></div>');
+    h += H.card(_L('메모리 사용률', 'Memory Usage') + ' — ' + hostMem.toFixed(1) + '%', renderProgressBar(hostMem) + '<div style="position:relative;height:120px;width:100%;margin-top:8px"><canvas id="dash-mem-chart"></canvas></div>');
+    h += '</div>';
+    }
+
+    /* 최근 알림 */
+    if (_dashWidgets.alerts !== false && recentAlerts.length > 0) {
+      h += '<div class="ops-section-heading"><div><h3>' + _L('최근 경고', 'Recent alerts') + '</h3><p>' + _L('실시간 이벤트 중 운영에 바로 영향을 주는 항목만 먼저 확인합니다.', 'Review only the alerts that need immediate operational attention.') + '</p></div></div>';
+      h += '<table style="font-size:12px"><thead><tr><th>' + _L('시각', 'Time') + '</th><th>' + _L('유형', 'Type') + '</th><th>' + _L('내용', 'Message') + '</th></tr></thead><tbody>';
+      recentAlerts.forEach(function(a) {
+        h += '<tr><td class="color-muted">' + esc(a.timestamp || a.time || '-') + '</td><td>' + H.badge(a.level || a.type || '?', a.level === 'critical' ? 'r' : 'y') + '</td><td>' + esc(a.message || a.detail || '-') + '</td></tr>';
+      });
+      h += '</tbody></table>';
+    }
+
+    /* VM 목록 요약 */
+    if (_dashWidgets.vms !== false && vms.length > 0) {
+      h += '<div class="ops-section-heading"><div><h3>' + _L('워크로드 현황', 'Workload overview') + '</h3><p>' + _L('대시보드에서는 최근 상태만 보고, 세부 조작은 각 화면에서 이어갑니다.', 'Use the dashboard for status checks, then continue detailed actions in each screen.') + '</p></div></div>';
+      h += '<h3 style="margin:8px 0 12px">' + _L('VM 현황', 'VM Status') + ' (' + vms.length + ')</h3>';
+      h += '<table style="font-size:12px"><thead><tr><th>' + _L('이름', 'Name') + '</th><th>' + _L('상태', 'State') + '</th><th>vCPU</th><th>' + _L('메모리', 'Memory') + '</th></tr></thead><tbody>';
+      vms.slice(0, 10).forEach(function(v) {
+        var on = v.state === 'running';
+        h += '<tr style="cursor:pointer" onclick="selectedVmIndex=' + vms.indexOf(v) + ';currentTab=\'summary\';switchSbTab(\'vms\');render()"><td><b>' + esc(v.name) + '</b></td><td>' + H.badge(v.state || '?', on ? 'g' : 'r') + '</td><td>' + (v.vcpu || '-') + '</td><td>' + (v.memory_mb || '-') + ' MB</td></tr>';
+      });
+      if (vms.length > 10) h += '<tr><td colspan="4" class="color-muted text-center">... ' + _L('외', 'and') + ' ' + (vms.length - 10) + _L('개', ' more') + '</td></tr>';
+      h += '</tbody></table>';
+    }
+
+    /* 컨테이너 목록 */
+    if (ctrs.length > 0) {
+      h += '<h3 style="margin:20px 0 12px">&#9783; ' + _L('컨테이너 현황', 'Container Status') + ' (' + ctrs.length + ')</h3>';
+      h += '<table style="font-size:12px"><thead><tr><th>' + _L('이름', 'Name') + '</th><th>' + _L('상태', 'State') + '</th><th>IP</th><th>' + _L('이미지', 'Image') + '</th></tr></thead><tbody>';
+      ctrs.slice(0, 10).forEach(function(c) {
+        var on = c.state === 'RUNNING';
+        h += '<tr style="cursor:pointer" onclick="selCtr=\'' + esc(c.name) + '\';currentTab=\'containers\';renderContent();renderContainerList()"><td><b>' + esc(c.name) + '</b></td><td>' + H.badge(c.state || '?', on ? 'g' : 'r') + '</td><td>' + esc(c.ip_addr || c.ip || '-') + '</td><td class="color-muted">' + esc(c.image || '-') + '</td></tr>';
+      });
+      if (ctrs.length > 10) h += '<tr><td colspan="4" class="color-muted text-center">... ' + _L('외', 'and') + ' ' + (ctrs.length - 10) + _L('개', ' more') + '</td></tr>';
+      h += '</tbody></table>';
+    }
+
+    b.innerHTML = h;
+
+    /* Initialize dashboard charts */
+    setTimeout(function() {
+      if (typeof createLineChart === 'function') {
+        createLineChart('dash-cpu-chart', hostCpuHistory, 'CPU %', getChartColor('cpu'));
+        createLineChart('dash-mem-chart', hostMemHistory, 'MEM %', getChartColor('mem'));
+      }
+    }, 100);
+  } catch (e) {
+    b.innerHTML = '<h2>' + _L('대시보드', 'Dashboard') + '</h2><p class="color-red">' + _L('오류', 'Error') + ': ' + esc(e.message) + '</p>';
+  }
+}
+window.renderDashboard = renderDashboard;
+
+/* F6: Dashboard widget toggle */
+function toggleDashWidget(key) {
+  _dashWidgets[key] = !(_dashWidgets[key] !== false);
+  localStorage.setItem('pcv-dash-widgets', JSON.stringify(_dashWidgets));
+  renderDashboard(document.getElementById('cb'));
+}
+window.toggleDashWidget = toggleDashWidget;
+
+/* ═══ LOAD ALL ═══
+ * skipContent=true: 10초 폴링 (캐시 OK, dedup 효과)
+ * skipContent=false (또는 미지정): 명시 호출 — 항상 fresh, 캐시 무효화
+ *
+ * [왜 이 분기가 중요한가]
+ *   10초 setInterval에서 호출할 때는 skipContent=true를 넘긴다.
+ *   cachedFetch(uxlib.js)가 500ms TTL 동안 동일 요청을 병합(coalescing)하여
+ *   WS 이벤트와 폴링이 동시에 발생해도 중복 fetch를 방지한다.
+ *   사용자가 명시적으로 loadAll()을 호출하면 캐시를 무효화하여
+ *   항상 최신 데이터를 가져온다.
+ *
+ *   render(skipContent)에서도 skipContent=true면 vmList 해시가
+ *   변하지 않았을 때 DOM 업데이트를 건너뛴다 — 깜박임 방지. */
+window._loadAllInFlight = false;
+async function loadAll(skipContent) {
+  if (window._loadAllInFlight) return;
+  window._loadAllInFlight = true;
+  try {
+    if (!skipContent && typeof invalidateCache === 'function') invalidateCache('vm.list');
+    const r = (typeof cachedFetch === 'function' && skipContent)
+      ? await cachedFetch('vm.list', 500, function(){ return fetchGet(API_BASE + '/vms'); })
+      : await fetchGet(API_BASE + '/vms');
+    vmList = window.vmList = Array.isArray(r) ? r : (r.data || []);
+    if (selectedVmIndex >= vmList.length) selectedVmIndex = window.selectedVmIndex = 0;
+    lastLoadTime = Date.now();
+    render(skipContent);
+  } catch (e) {
+    if(_DEBUG) console.warn('r:', e.message);
+    if (typeof reportError === 'function') reportError('vm.list', e);
+  } finally {
+    window._loadAllInFlight = false;
+  }
+}
+window.loadAll = loadAll;
+
+/* #14 hash routing 초기 적용 + #15 role 가시성 + 사용자 정보 캐시 */
+async function pcvPostLoginInit() {
+  try {
+    const u = await fetchGet(API_BASE + '/auth/whoami').catch(function(){ return null; });
+    if (u && u.data) {
+      window.currentUser = u.data;
+      if (typeof applyRoleVisibility === 'function') applyRoleVisibility(u.data.role);
+    }
+  } catch (_) {}
+  if (typeof navigateToHash === 'function') navigateToHash();
+}
+window.pcvPostLoginInit = pcvPostLoginInit;
+setInterval(() => { if (authToken) loadAll(true); }, 10e3);
+
+/* ═══ HOST METRICS COLLECTION ═══ */
+async function collectHostMetrics() {
+  var token = window.authToken || authToken;
+  if (!token) return;
+  try {
+    var res = await fetch(EP.METRICS(), { headers: { Authorization: 'Bearer ' + token } });
+    if (!res.ok) return;
+    var met = await res.text();
+    var cpu = 0, mem = 0;
+    met.split('\n').forEach(function(l) {
+      if (l.startsWith('purecvisor_host_cpu_percent ')) cpu = parseFloat(l.split(' ')[1]);
+      if (l.startsWith('purecvisor_host_memory_percent ')) mem = parseFloat(l.split(' ')[1]);
+    });
+    hostCpuHistory.push(cpu); hostCpuHistory.shift();
+    hostMemHistory.push(mem); hostMemHistory.shift();
+  } catch (e) { /* metrics endpoint may be unavailable */ }
+}
+setInterval(collectHostMetrics, 5000);
+/* G-4: auto-refresh indicator update */
+setInterval(() => { const sb3 = document.getElementById('sb3'); if (sb3 && authToken) { const elapsed = Math.round((Date.now() - lastLoadTime) / 1000); sb3.textContent = 'Updated ' + elapsed + 's ago'; } }, 1000);
+
+/* ═══ KEYBOARD SHORTCUTS ═══ */
+document.addEventListener('keydown', e => {
+  if (e.key === 'F11') { e.preventDefault(); toggleFS(); }
+  if (e.ctrlKey && e.key === 'n') { e.preventDefault(); showCreate(); }
+  if (e.ctrlKey && e.key === 'd') { e.preventDefault(); showSettings(); }
+  if (e.ctrlKey && e.key === 'p') { e.preventDefault(); showPrefs(); }
+  /* G-4: Command palette */
+  if (e.ctrlKey && e.key === 'k') { e.preventDefault(); if (cmdPaletteOpen) closeCmdPalette(); else openCmdPalette(); }
+  /* F-2: Escape to close modals */
+  if (e.key === 'Escape') {
+    if (cmdPaletteOpen) { closeCmdPalette(); e.preventDefault(); return; }
+    const mbg = document.getElementById('mbg');
+    if (mbg && !mbg.classList.contains('hidden')) { closeModal(); e.preventDefault(); }
+    const iso = document.getElementById('iso-overlay');
+    if (iso) { closeISOBrowser(); e.preventDefault(); }
+  }
+  /* F-2: Tab focus trapping in modal */
+  if (e.key === 'Tab') {
+    const mbg = document.getElementById('mbg');
+    if (mbg && !mbg.classList.contains('hidden')) {
+      const modal = document.getElementById('mc');
+      const focusable = modal.querySelectorAll('input,select,textarea,button,[tabindex]');
+      if (focusable.length > 0) {
+        const first = focusable[0], last = focusable[focusable.length - 1];
+        if (e.shiftKey && document.activeElement === first) { e.preventDefault(); last.focus(); }
+        else if (!e.shiftKey && document.activeElement === last) { e.preventDefault(); first.focus(); }
+      }
+    }
+  }
+});
+
+/* ═══ MOBILE ═══ */
+
+(document.getElementById('sidebar-panel') || document.getElementById('sidebar')).addEventListener('click', e => {
+  if (window.innerWidth <= 768 && e.target.closest('.vi')) { setTimeout(closeMobileSB, 150); }
+});
+
+function handleResize() {
+  const btn = document.getElementById('mobile-menu-btn'); const sb = document.getElementById('sidebar-panel') || document.getElementById('sidebar');
+  if (window.innerWidth <= 768) { btn.style.display = 'block'; if (!sb.classList.contains('mobile-open')) { sb.classList.remove('collapsed'); } }
+  else { btn.style.display = 'none'; sb.classList.remove('mobile-open'); document.getElementById('mobile-overlay').style.display = 'none'; }
+}
+window.addEventListener('resize', handleResize);
+handleResize();
+
+var touchStartX = 0, touchStartY = 0;
+document.addEventListener('touchstart', e => { touchStartX = e.touches[0].clientX; touchStartY = e.touches[0].clientY; }, { passive: true });
+document.addEventListener('touchend', e => {
+  if (window.innerWidth > 768) return;
+  const dx = e.changedTouches[0].clientX - touchStartX;
+  const dy = Math.abs(e.changedTouches[0].clientY - touchStartY);
+  if (dy > 80) return;
+  if (dx > 60 && touchStartX < 40) { toggleMobileSB(); }
+  else if (dx < -60 && (document.getElementById('sidebar-panel') || document.getElementById('sidebar')).classList.contains('mobile-open')) { closeMobileSB(); }
+}, { passive: true });
+
+/* ═══ COMMAND PALETTE (Ctrl+K) — G-4 ═══ */
+
+/* ═══ KEYBOARD HELP OVERLAY (? key) — I-1/E-6 ═══ */
+
+/* ═══ NOTIFICATION SOUND (Web Audio API) — I-1/E-3 ═══ */
+var audioCtx = null;
+function playNotifSound(type) {
+  try {
+    if (!audioCtx) audioCtx = new (window.AudioContext || window.webkitAudioContext)();
+    const osc = audioCtx.createOscillator();
+    const gain = audioCtx.createGain();
+    osc.connect(gain); gain.connect(audioCtx.destination);
+    gain.gain.value = 0.08;
+    if (type === 'error') { osc.frequency.value = 300; osc.type = 'square'; }
+    else if (type === 'warning') { osc.frequency.value = 500; osc.type = 'triangle'; }
+    else { osc.frequency.value = 800; osc.type = 'sine'; }
+    osc.start(); osc.stop(audioCtx.currentTime + 0.12);
+  } catch (e) { /* Audio not supported */ }
+}
+
+/* ═══ BROWSER NOTIFICATIONS — I-1/E-4 ═══ */
+var browserNotifEnabled = false;
+function requestBrowserNotif() {
+  if (!('Notification' in window)) return;
+  if (Notification.permission === 'granted') { browserNotifEnabled = true; return; }
+  if (Notification.permission !== 'denied') {
+    Notification.requestPermission().then(p => { browserNotifEnabled = (p === 'granted'); });
+  }
+}
+function sendBrowserNotif(title, body, icon) {
+  if (!browserNotifEnabled) return;
+  try { new Notification(title, { body: body, icon: icon || '', tag: 'pcv-' + Date.now() }); }
+  catch (e) { /* SW required on some browsers */ }
+}
+/* Request permission on first login */
+var _origDoLoginPage = typeof doLoginPage === 'function' ? doLoginPage : null;
+
+/* ═══ SERVICE WORKER (Network-First caching) ═══ */
+if ('serviceWorker' in navigator) {
+  window.addEventListener('load', () => {
+    navigator.serviceWorker.register('/ui/sw.js', { updateViaCache: 'none' }).then(reg => {
+      /* 새 SW가 waiting 상태이면 즉시 활성화 */
+      if (reg.waiting) reg.waiting.postMessage({ type: 'SKIP_WAITING' });
+      reg.addEventListener('updatefound', () => {
+        const nw = reg.installing;
+        if (!nw) return;
+        nw.addEventListener('statechange', () => {
+          if (nw.state === 'installed' && navigator.serviceWorker.controller) {
+            nw.postMessage({ type: 'SKIP_WAITING' });
+          }
+        });
+      });
+      reg.update().catch(() => {});
+    }).catch(() => {});
+    /* SW 컨트롤러가 교체되면 페이지 리로드 */
+    navigator.serviceWorker.addEventListener('controllerchange', () => {
+      window.location.reload();
+    });
+  });
+}
+
+/* ═══ KEYBOARD SHORTCUTS EXTENSION — I-1 ═══ */
+/* Add ? key handler to existing keydown listener */
+document.addEventListener('keydown', e => {
+  if (e.key === '?' && !e.ctrlKey && !e.altKey && !e.metaKey) {
+    const tag = document.activeElement?.tagName;
+    if (tag === 'INPUT' || tag === 'TEXTAREA' || tag === 'SELECT') return;
+    e.preventDefault();
+    toggleKbdHelp();
+  }
+  if (e.key === 'Escape' && kbdHelpOpen) { e.preventDefault(); closeKbdHelp(); }
+});
+
+/* Request browser notification permission after login */
+requestBrowserNotif();
+
+/* ═══════════════════════════════════════════════════════════════
+   A+B: 26개 미반영 RPC Web UI 반영
+   Priority A: 실용적 (15개) + Priority B: 고급 기능 (11개)
+   ═══════════════════════════════════════════════════════════════ */
+
+/* A-1~B-EXTRA, LXC NIC, CLOUD MIGRATION 핸들러 — 전부 modules/*.js로 이관됨
+   (vm/storage/container/cluster/network/cloud/advanced 모듈에서 window 등록) */
+
+/* ═══ COMMAND PALETTE: Add new actions ═══ */
+CMD_ACTIONS.push(
+  { icon: '&#128195;', label: 'Templates', action: () => navigateTo('templates') },
+  { icon: '&#9881;', label: 'Config Management', action: () => navigateTo('config-mgmt') },
+  /* Docker/OCI 제거됨 */
+  /* Terraform 제거됨 */
+  /* Federation — 멀티 에디션 전용, cluster-only로 런타임 제어 */
+  { icon: '&#128230;', label: 'Import OVA', action: () => showImportOva() },
+  { icon: '&#9729;', label: 'Cloud Migration', action: () => navigateTo('cloud-migration') },
+  { icon: '&#128269;', label: 'Global Search', hint: 'Ctrl+Shift+F', action: () => toggleGlobalSearch() },
+  { icon: '&#9647;', label: 'Toggle Split View', hint: 'Ctrl+\\', action: () => toggleSplitView() },
+  { icon: '&#128276;', label: 'Notifications', action: () => toggleNotifCenter() },
+  { icon: '&#127748;', label: 'Zen Mode', hint: 'Ctrl+Shift+Z', action: () => toggleZenMode() },
+  { icon: '&#9881;', label: 'Toggle Bottom Panel', action: () => toggleBottomPanel() }
+);
+
+/* ═══ V-1: ACTIVITY BAR ═══ */
+
+/* ═══ V-2: EDITOR TABS ═══ */
+
+/* Hook into navigateTo to auto-open tabs — BUG-9 fix: 재귀 가드 + 명시적 원본 참조 */
+if (!window._navTabsWrapped) {
+  window._pcvOrigNavigateTo = navigateTo;
+  window.navigateTo = function navigateToWithTabs(n) {
+    if (navigateToWithTabs._busy) { window._pcvOrigNavigateTo(n); return; }
+    navigateToWithTabs._busy = true;
+    try {
+      var tabIcons = {
+        'networks': '&#127760;', 'storage': '&#128190;', 'containers': '&#9783;',
+        'host': '&#128187;', 'cluster': '&#9741;', 'ovn': '&#9707;',
+        'accounts': '&#128100;', 'mon-overview': '&#128200;', 'ops-triage': '&#9889;', 'mon-alerts': '&#128276;',
+        'mon-cluster': '&#9741;', 'mon-hosts': '&#128187;', 'mon-vms': '&#9881;',
+        'mon-storage': '&#128190;', 'mon-audit': '&#128270;',
+        'security-groups': '&#128737;', 'gpu': '&#127918;', 'docker': '&#128051;',
+        'terraform': '&#127981;', 'federation': '&#127758;', 'apihelp': '&#128214;',
+        'helppage': '&#10068;', 'serviceguide': '&#128218;', 'restguide': '&#128220;',
+        'apimgmt': '&#128268;', 'templates': '&#128195;', 'config-mgmt': '&#9881;',
+        'cloud-migration': '&#9729;',
+      };
+      var tabLabels = {
+        'dashboard': _L('대시보드', 'Dashboard'),
+        'summary': _L('요약', 'Summary'),
+        'console': _L('콘솔', 'Console'),
+        'snapshots': _L('스냅샷', 'Snapshots'),
+        'performance': _L('성능', 'Performance'),
+        'timeline': _L('타임라인', 'Timeline'),
+        'networks': _L('네트워크', 'Networks'),
+        'storage': _L('스토리지', 'Storage'),
+        'containers': _L('컨테이너', 'Containers'),
+        'host': _L('호스트 상태', 'Host Health'),
+        'cluster': _L('클러스터', 'Cluster'),
+        'ovn': 'OVN SDN',
+        'accounts': _L('계정과 권한', 'Accounts & Permissions'),
+        'mon-overview': _L('운영 개요', 'Operations Overview'),
+        'ops-triage': _L('이벤트 센터', 'Event Center'),
+        'mon-alerts': _L('알림', 'Alerts'),
+        'mon-cluster': _L('클러스터 모니터', 'Cluster Monitor'),
+        'mon-hosts': _L('호스트 상태', 'Host Health'),
+        'mon-vms': _L('VM 모니터', 'VM Monitor'),
+        'mon-storage': _L('스토리지 모니터', 'Storage Monitor'),
+        'mon-audit': _L('감사 로그', 'Audit Log'),
+        'security-groups': _L('보안 그룹', 'Security Groups'),
+        'gpu': _L('GPU 장치', 'GPU'),
+        'apihelp': _L('Swagger API', 'Swagger API'),
+        'helppage': _L('도움말', 'Help'),
+        'serviceguide': _L('서비스 가이드', 'Service Guide'),
+        'restguide': _L('REST API 가이드', 'REST API Guide'),
+        'apimgmt': _L('API 관리', 'API Management'),
+        'templates': _L('템플릿', 'Templates'),
+        'config-mgmt': _L('설정 관리', 'Configuration Management'),
+        'cloud-migration': _L('클라우드 마이그레이션', 'Cloud Migration')
+      };
+      var label = tabLabels[n] || n.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
+      openEditorTab(n, label, tabIcons[n] || '&#128196;');
+      window._pcvOrigNavigateTo(n);
+      updateBreadcrumbs(n);
+      if (typeof setHashRoute === 'function') setHashRoute(n);
+      if (typeof setPageTitle === 'function') setPageTitle(label);
+      if (typeof renderBreadcrumbs === 'function') {
+        var group = n.startsWith('mon-') ? _L('모니터링', 'Monitoring')
+                  : (['networks','storage','containers','host','cluster','ovn'].indexOf(n) >= 0 ? _L('운영', 'Operations')
+                  : (['accounts','apimgmt'].indexOf(n) >= 0 ? _L('인증', 'Auth')
+                  : (['apihelp','helppage','serviceguide','restguide'].indexOf(n) >= 0 ? _L('도움말', 'Help') : null)));
+        var items = [{ label: _L('대시보드', 'Dashboard'), page: 'dashboard' }];
+        if (group) items.push({ label: group });
+        items.push({ label: label });
+        renderBreadcrumbs(items);
+      }
+    } finally { navigateToWithTabs._busy = false; }
+  };
+  window.go = window.navigateTo;
+  window._navTabsWrapped = true;
+}
+
+/* ═══ V-3: BOTTOM PANEL ═══ */
+
+/* Panel resize drag */
+(function() {
+  const handle = document.getElementById('panel-resize');
+  const panel = document.getElementById('bottom-panel');
+  if (!handle || !panel) return;
+  let startY, startH;
+  handle.addEventListener('mousedown', e => {
+    startY = e.clientY; startH = panel.offsetHeight;
+    handle.classList.add('dragging');
+    const move = e2 => { panel.style.height = Math.max(100, Math.min(window.innerHeight * 0.7, startH - (e2.clientY - startY))) + 'px'; };
+    const up = () => { handle.classList.remove('dragging'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+})();
+
+/* Redirect event log to bottom panel — BUG-5 fix: 이중 래핑 방어 */
+if (!window._addEvtPanelWrapped) {
+  var _origAddEvt = addEvt;
+  function addEvtToPanel(m) {
+    _origAddEvt(m);
+    var panelEvents = document.getElementById('panel-events');
+    if (panelEvents) {
+      panelEvents.textContent = '';
+      eventLog.forEach(function(e) {
+        var div = document.createElement('div');
+        div.style.cssText = 'padding:1px 0;border-bottom:1px solid var(--border)';
+        div.textContent = typeof e === 'string' ? e : (e.raw || e.msg || '');
+        panelEvents.appendChild(div);
+      });
+      panelEvents.scrollTop = panelEvents.scrollHeight;
+    }
+  }
+  window.addEvt = addEvtToPanel;
+  window._addEvtPanelWrapped = true;
+}
+
+/* ═══ V-4: BREADCRUMBS ═══ */
+
+/* ═══ V-5: GLOBAL SEARCH (Ctrl+Shift+F) ═══ */
+
+/* ═══ V-6: SPLIT VIEW ═══ */
+var splitViewActive = false;
+function toggleSplitView() {
+  splitViewActive = !splitViewActive;
+  const cb = document.getElementById('cb');
+  if (!cb) return;
+  if (splitViewActive) {
+    cb.style.display = 'none';
+    const split = document.createElement('div');
+    split.id = 'split-container';
+    split.className = 'split-container';
+    split.innerHTML = '<div class="split-pane" id="split-left"></div><div class="split-divider" id="split-divider"></div><div class="split-pane" id="split-right"></div>';
+    cb.parentNode.insertBefore(split, cb.nextSibling);
+    /* Render current page in left, monitoring in right */
+    renderContent();
+    const leftContent = cb.innerHTML;
+    document.getElementById('split-left').innerHTML = leftContent;
+    document.getElementById('split-right').innerHTML = '<p style="color:var(--fg2);padding:20px">Select content for right pane from the sidebar</p>';
+    initSplitDivider();
+  } else {
+    document.getElementById('split-container')?.remove();
+    const cb2 = document.getElementById('cb');
+    if (cb2) cb2.style.display = '';
+  }
+}
+
+function initSplitDivider() {
+  const divider = document.getElementById('split-divider');
+  const left = document.getElementById('split-left');
+  if (!divider || !left) return;
+  let startX, startW;
+  divider.addEventListener('mousedown', e => {
+    startX = e.clientX; startW = left.offsetWidth;
+    divider.classList.add('dragging');
+    const move = e2 => { left.style.width = Math.max(200, startW + (e2.clientX - startX)) + 'px'; left.style.flex = 'none'; };
+    const up = () => { divider.classList.remove('dragging'); document.removeEventListener('mousemove', move); document.removeEventListener('mouseup', up); };
+    document.addEventListener('mousemove', move);
+    document.addEventListener('mouseup', up);
+  });
+}
+
+/* ═══ V-7: HOVER INFO ═══ */
+/* hoverCard already created and appended in modules/nav.js (lines 697-700) */
+
+/* ═══ V-8: NOTIFICATIONS CENTER ═══ */
+
+/* updateNotifBadge — modules/nav.js로 이관됨 */
+
+/* Hook toast to also create notifications
+ * NOTE: original toast() in ui.js already calls addNotification(),
+ * so we must NOT call it again here — just delegate to _origToast. */
+
+/* ═══ V-9: ZEN MODE ═══ */
+
+/* Keyboard: Ctrl+Shift+F for search, Ctrl+B toggle sidebar, Ctrl+\ split, Ctrl+Shift+Z zen */
+document.addEventListener('keydown', e => {
+  if (e.ctrlKey && e.shiftKey && e.key === 'F') { e.preventDefault(); toggleGlobalSearch(); }
+  if (e.ctrlKey && e.key === 'b') { e.preventDefault(); document.getElementById('sidebar-panel')?.classList.toggle('collapsed'); }
+  if (e.ctrlKey && e.key === '\\') { e.preventDefault(); toggleSplitView(); }
+  if (e.ctrlKey && e.shiftKey && e.key === 'Z') { e.preventDefault(); toggleZenMode(); }
+  if (e.key === 'Escape' && window.zenMode) { toggleZenMode(); }
+  if (e.key === 'Escape' && window.globalSearchOpen) { closeGlobalSearch(); }
+  if (e.key === 'Escape' && window.notifCenterOpen) { closeNotifCenter(); }
+});
+
+/* ═══ GLOBAL ALIASES (for onclick in HTML) ═══ */
+window.render = render;
+window.renderContent = renderContent;
+
+/* ═══ OFFLINE DETECTION ═══ */
+window.addEventListener('online', function() {
+  var banner = document.getElementById('offline-banner');
+  if (banner) banner.remove();
+  toast(_L ? _L('온라인 복구', 'Back online') : 'Back online');
+  loadAll();
+});
+window.addEventListener('offline', function() {
+  if (document.getElementById('offline-banner')) return;
+  var banner = document.createElement('div');
+  banner.id = 'offline-banner';
+  banner.style.cssText = 'position:fixed;top:0;left:0;right:0;z-index:99999;background:var(--red);color:#fff;text-align:center;padding:6px;font-size:12px;font-weight:700';
+  banner.textContent = (_L ? _L('오프라인 — 네트워크 연결을 확인하세요', 'Offline — Check network connection') : 'Offline');
+  document.body.prepend(banner);
+});
+
+/* Session restore (api.js에서 제공) */
+restoreSession();
+
+/* #6 기본 단축키 등록 */
+if (typeof registerShortcut === 'function') {
+  registerShortcut('/', function(){ if (typeof toggleGlobalSearch === 'function') toggleGlobalSearch(); }, '글로벌 검색');
+  registerShortcut('n', function(){ if (typeof showCreate === 'function') showCreate(); }, '새 VM');
+  registerShortcut('?', function(){ if (typeof showShortcutsHelp === 'function') showShortcutsHelp(); else showHelp && showHelp(); }, '단축키 도움말');
+  registerShortcut('g', function(){ navigateTo('dashboard'); }, '대시보드 이동');
+  registerShortcut('m', function(){ navigateTo('mon-overview'); }, '모니터링');
+}
+function showShortcutsHelp() {
+  if (typeof listShortcuts !== 'function' || typeof showModal !== 'function') return;
+  var sc = listShortcuts();
+  var rows = Object.keys(sc).map(function(k){
+    return '<tr><td><span class="kbd">' + k + '</span></td><td>' + (sc[k].label || '') + '</td></tr>';
+  }).join('');
+  showModal('<h2>&#9000; 단축키 도움말</h2><table><thead><tr><th>키</th><th>동작</th></tr></thead><tbody>' + rows + '</tbody></table><div style="text-align:right;margin-top:12px"><button class="btn" onclick="closeModal()">닫기</button></div>');
+}
+window.showShortcutsHelp = showShortcutsHelp;
+/* PureCVisor UI Bundle v1.1.1 — 11890 LOC (deterministic: no build timestamp) */

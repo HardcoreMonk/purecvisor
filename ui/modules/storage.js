@@ -1,14 +1,14 @@
-
-
-
-
-
-
-
-
-
-
-
+/* ═══════════════════════════════════════════════════════════════
+   PureCVisor — modules/storage.js
+   Storage (ZFS Pools + Zvols)
+   ADR-0013: IIFE module scope — PCV.storage namespace
+   ═══════════════════════════════════════════════════════════════ */
+/*
+ * Storage rendering treats pool state as operational data, not decoration.
+ * Destructive actions use typed confirmation helpers, capacity widgets tolerate
+ * absent metrics, and zvol selection is kept in window._zvolSel so rerenders do
+ * not expose bulk deletion before the user has selected rows again.
+ */
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -49,7 +49,7 @@ async function renderStorage(b) {
       const sz = parseSize(v.size), us = parseSize(v.alloc || v.used), pct = storagePct(sz, us);
       h += H.card('&#128190; ' + escapeHtml(v.name) + ' ' + H.badge(v.health, v.health === 'ONLINE' ? 'g' : 'r'), H.row(_L('총 용량', 'Total size'), fmtBytes(sz)) + H.row(_L('사용량', 'Used'), fmtBytes(us)) + H.row(_L('건강 상태', 'Health'), escapeHtml(v.health || '-')) + renderProgressBar(Math.min(pct, 100)) + H.row(_L('사용률', 'Usage'), storagePctText(sz, us)) + '<div class="flex gap-4 ops-action-row" style="margin-top:10px"><button class="btn btn-soft" style="font-size:10px;padding:3px 8px" onclick="poolScrub(\'' + escapeAttr(v.name) + '\')">&#128260; ' + _L('스크럽', 'Scrub') + '</button><button class="btn btn-r" style="font-size:10px;padding:3px 8px" onclick="poolDestroy(\'' + escapeAttr(v.name) + '\')">&#128465; ' + _L('영구 삭제', 'Destroy') + '</button></div>', 'mb-8');
     });
-
+    /* Storage usage donut */
     if (pl.length > 0) {
       h += '<div class="sg grid-2">';
       pl.forEach(function(v, pi) {
@@ -62,7 +62,7 @@ async function renderStorage(b) {
       h += '</div>';
     }
 
-
+    /* Storage forecast panel */
     h += '<div class="hc mb-14"><h4>&#128200; ' + _L('용량 예측', 'Capacity planning') + '</h4>';
     h += '<p class="color-muted text-11 mb-8">' + _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.') + '</p>';
     h += '<div id="storage-forecast"><span class="spinner"></span> ' + (t('loading') || 'Loading...') + '</div></div>';
@@ -90,7 +90,7 @@ async function renderStorage(b) {
       if (sc) sc.textContent = window._zvolSel.size;
     }
 
-
+    /* Draw donut charts */
     setTimeout(function() {
       pl.forEach(function(v, pi) {
         var canvas = document.getElementById('pool-donut-' + pi);
@@ -141,7 +141,7 @@ async function poolScrub(name) {
 }
 
 async function poolDestroy(name) {
-
+  /* #5 destroyConfirm — 풀 이름 타이핑 요구 (영구 데이터 손실 방지) */
   destroyConfirm({
     title: 'ZFS Pool 영구 삭제',
     name: name,
@@ -199,7 +199,7 @@ async function doZvolDel(name) { const c = document.getElementById('del-zvol-con
     pf.style.width = '100%'; ps.innerHTML = '&#9989; ' + t('stg.zvol_destroyed'); toast(t('stg.zvol_destroyed')); addEvt(t('stg.zvol_destroyed') + ': ' + name); setTimeout(() => { closeModal(); renderStorage(document.getElementById('cb')); }, 1500);
   } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); } }
 
-
+/* ═══ STORAGE CAPACITY FORECAST ═══ */
 async function loadStorageForecast() {
   var el = document.getElementById('storage-forecast'); if (!el) return;
   el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
@@ -245,7 +245,7 @@ function _forecastSeverity(daysToFull) {
   return { color: 'var(--green)', label: 'Healthy', badge: 'g' };
 }
 
-
+/* ═══ iSCSI TARGETS ═══ */
 async function renderIscsi(b) {
   b.innerHTML = showSkeleton();
   try {
@@ -266,28 +266,28 @@ async function renderIscsi(b) {
 }
 window.renderIscsi = renderIscsi;
 
-
+/* ═══ BACKUP MANAGEMENT ═══ */
 async function renderBackup(b) {
   var h = '<div class="flex items-center gap-10 mb-16"><span class="neon-blink color-cyan">&gt;&gt;</span><h2 style="font-family:var(--font-display);font-size:16px">' + _L('백업 관리', 'Backup Management') + '</h2></div>';
 
-
+  /* Policy List */
   h += '<div class="hc mb-14"><h4>' + _L('백업 정책', 'Backup Policies') + '</h4>';
   h += '<div class="flex gap-8 mb-8"><button class="btn btn-g" onclick="backupAddPolicy()">' + _L('정책 추가', 'Add Policy') + '</button></div>';
   h += '<div id="backup-policies" class="skeleton-box" style="min-height:100px"></div></div>';
 
-
+  /* History */
   h += '<div class="hc mb-14"><h4>' + _L('스냅샷 히스토리', 'Snapshot History') + '</h4>';
   h += '<div class="flex gap-8 mb-8"><input id="backup-hist-vm" class="input" placeholder="VM name (empty=all)" class="w-200"><button class="btn" onclick="backupLoadHistory()">' + _L('조회', 'Search') + '</button></div>';
   h += '<div id="backup-history" class="skeleton-box" style="min-height:100px"></div></div>';
 
-
+  /* Restore */
   h += '<div class="hc mb-14"><h4>' + _L('복원', 'Restore') + '</h4>';
   h += '<p class="stat-label">' + _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.') + '</p>';
   h += '<div class="flex gap-8 mt-8"><input id="backup-restore-vm" class="input" placeholder="VM name" class="w-160"><input id="backup-restore-snap" class="input" placeholder="Snapshot name" class="w-200"><button class="btn btn-r" onclick="backupRestore()">' + _L('롤백', 'Rollback') + '</button></div></div>';
 
   b.innerHTML = h;
 
-
+  /* Load policies */
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc: '2.0', method: 'backup.policy.list', params: {}, id: 'bp1' });
     var d = unwrapData(r);
@@ -383,7 +383,7 @@ window.backupLoadHistory = backupLoadHistory;
 window.backupRestore = backupRestore;
 window.backupDeletePolicy = backupDeletePolicy;
 
-
+/* ═══ REGISTER ALL ON window ═══ */
 window.renderStorage = renderStorage;
 window.showPoolCreate = showPoolCreate;
 window.doPoolCreate = doPoolCreate;
@@ -395,7 +395,7 @@ window.zvolDel = zvolDel;
 window.doZvolDel = doZvolDel;
 window.loadStorageForecast = loadStorageForecast;
 
-
+/* ─── Multi-select bulk + 컨텍스트 메뉴 (#7/#8) ─── */
 function zvolToggleSel(name, on) {
   if (!window._zvolSel) window._zvolSel = new Set();
   if (on) window._zvolSel.add(name); else window._zvolSel.delete(name);
@@ -450,7 +450,7 @@ function zvolCtxMenu(ev, name) {
       { label: '&#9881; ' + _L('선택', 'Select'), fn: function(){ zvolToggleSel(name, !window._zvolSel.has(name)); renderStorage(document.getElementById('cb')); } }
     ]);
   } else {
-
+    /* fallback: 단순 confirm */
     if (window.confirm(_L('삭제하시겠습니까? ', 'Delete? ') + name)) zvolDel(name);
   }
 }
@@ -459,7 +459,7 @@ window.zvolToggleAll = zvolToggleAll;
 window.zvolBulkDelete = zvolBulkDelete;
 window.zvolCtxMenu = zvolCtxMenu;
 
-
+/* ═══ PCV.storage namespace export ═══ */
 PCV.storage = {
   renderStorage: renderStorage,
   showPoolCreate: showPoolCreate,

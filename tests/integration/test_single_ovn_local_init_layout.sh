@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-
-
-
+# Source-level guard for single-node OVN bootstrap.
+# It pins the local init file, main.c call path, chassis reuse behavior, and
+# ovn-controller log safeguards without requiring a live OVN database.
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
 MAKEFILE="$ROOT/Makefile"

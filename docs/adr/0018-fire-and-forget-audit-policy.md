@@ -164,4 +164,4 @@ B3 smoke:      4/4 PASSED
 ## 후속 작업
 
 1. **pre-commit hook**: `scripts/check_audit_placement.py` — dispatcher.c의 g_async_methods 와 핸들러 콜백 audit 호출을 정적 검사한다.
-2. 신규 fire-and-forget RPC는 이 ADR의 규칙에 따라 worker callback audit과 `pcv_ws_broadcast_job_complete`를 함께 추가한다.
+2. 신규 fire-and-forget RPC는 `AGENTS.md`의 ADR-0018 규칙에 따라 worker callback audit과 `pcv_ws_broadcast_job_complete`를 함께 추가한다.

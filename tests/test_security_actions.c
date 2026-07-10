@@ -4,11 +4,11 @@
 #include "modules/security/hips_actions.h"
 #include "modules/security/security_store.h"
 
-
-
-
-
-
+/*
+ * HIPS tests guard the v1 safety boundary: only block_ip and revoke_api_key are
+ * executable, pending approvals survive restart, and unsafe targets never build
+ * argv for pcv_spawn_sync().
+ */
 static void
 cleanup_security_db(const gchar *path)
 {
@@ -35,7 +35,7 @@ test_hips_action_executable_allowlist(void)
 static void
 test_hips_action_pending_persistence(void)
 {
-
+    /* Pending action state must survive daemon restart before an admin decides. */
     gchar *path = g_strdup_printf("%s/pcv-hips-test-%u.db",
                                   g_get_tmp_dir(), g_random_int());
     cleanup_security_db(path);

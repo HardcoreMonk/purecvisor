@@ -1,29 +1,29 @@
 #!/bin/bash
-
-
-
-
-
-
-
-
-
-
-
-
+# tests/integration/test_security_groups_safe.sh
+# SAFE
+#
+# Security Group CRUD — SAFE Integration Tests
+# Full lifecycle: create → list → rule.add → rule.remove → delete
+#
+# Prerequisites:
+#   - purecvisorsd or purecvisormd running
+#   - /var/run/purecvisor/daemon.sock present
+#   - nc (netcat) installed
+#
+# Run: sudo bash tests/integration/test_security_groups_safe.sh
 
 set -uo pipefail
 
-
+# ── Colors ────────────────────────────────────────────────────────────
 GREEN='\033[0;32m'; RED='\033[0;31m'
 YELLOW='\033[1;33m'; CYAN='\033[0;36m'; NC='\033[0m'
 
-
+# ── Config ────────────────────────────────────────────────────────────
 SOCKET_PATH="/var/run/purecvisor/daemon.sock"
 PASS=0; FAIL=0; SKIP=0; TOTAL=0
-TEST_SG="test-sg-safe-$$"
+TEST_SG="test-sg-safe-$$"   # unique name per run to avoid collisions
 
-
+# ── Helpers ───────────────────────────────────────────────────────────
 log()  { echo -e "${CYAN}[INFO]${NC} $*"; }
 pass() { echo -e "${GREEN}[PASS]${NC} $*"; PASS=$((PASS+1)); TOTAL=$((TOTAL+1)); }
 fail() { echo -e "${RED}[FAIL]${NC} $*"; FAIL=$((FAIL+1)); TOTAL=$((TOTAL+1)); }
@@ -61,15 +61,15 @@ assert_result_or_known_error() {
     else fail "$name (unexpected format)"; echo "  Response: $resp"; fi
 }
 
-
+# ── Cleanup trap ──────────────────────────────────────────────────────
 cleanup() {
-
+    # Best-effort cleanup — ignore errors
     rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.delete\",\"params\":{\"name\":\"$TEST_SG\"},\"id\":\"cleanup\"}" \
         >/dev/null 2>&1 || true
 }
 trap cleanup EXIT
 
-
+# ── Preflight ─────────────────────────────────────────────────────────
 log "=========================================="
 log " Security Group CRUD — SAFE"
 log "=========================================="
@@ -90,38 +90,38 @@ log "Daemon socket verified: $SOCKET_PATH"
 log "Test security group name: $TEST_SG"
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [1] security_group.create
+# ══════════════════════════════════════════════════════════════════════
 log "--- [1/6] security_group.create ---"
 
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.create\",\"params\":{\"name\":\"$TEST_SG\",\"description\":\"SAFE integration test group\"},\"id\":\"sg1\"}")
 assert_result_or_known_error "security_group.create: creates new group" "$RESP"
 
-
+# Duplicate create — expect error or idempotent success
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.create\",\"params\":{\"name\":\"$TEST_SG\"},\"id\":\"sg2\"}")
 assert_valid_jsonrpc "security_group.create: duplicate name returns valid JSON-RPC" "$RESP"
 
-
+# Missing name — expect error
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.create","params":{},"id":"sg3"}')
 assert_contains "security_group.create: missing name returns error" "$RESP" '"error"'
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [2] security_group.list
+# ══════════════════════════════════════════════════════════════════════
 log "--- [2/6] security_group.list ---"
 
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.list","params":{},"id":"sl1"}')
 assert_result_or_known_error "security_group.list: returns result" "$RESP"
 
-
+# Verify our test group appears in the list (only if create succeeded)
 if echo "$RESP" | grep -q '"result"'; then
     if echo "$RESP" | grep -q "$TEST_SG"; then
         pass "security_group.list: test-sg appears in list"
     else
-
+        # create may have returned error — note but do not fail
         skip "security_group.list: test-sg not found (create may have errored)"
     fi
 else
@@ -130,9 +130,9 @@ fi
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [3] security_group.rule.add
+# ══════════════════════════════════════════════════════════════════════
 log "--- [3/6] security_group.rule.add ---"
 
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.rule.add\",\"params\":{\"name\":\"$TEST_SG\",\"protocol\":\"tcp\",\"port\":22,\"direction\":\"ingress\",\"action\":\"allow\"},\"id\":\"ra1\"}")
@@ -141,74 +141,74 @@ assert_result_or_known_error "security_group.rule.add: tcp/22 ingress allow" "$R
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.rule.add\",\"params\":{\"name\":\"$TEST_SG\",\"protocol\":\"tcp\",\"port\":443,\"direction\":\"ingress\",\"action\":\"allow\"},\"id\":\"ra2\"}")
 assert_result_or_known_error "security_group.rule.add: tcp/443 ingress allow" "$RESP"
 
-
+# Missing required fields
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.rule.add","params":{},"id":"ra3"}')
 assert_contains "security_group.rule.add: missing params returns error" "$RESP" '"error"'
 
-
+# Nonexistent group
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.rule.add","params":{"name":"__no_such_sg__","protocol":"tcp","port":22,"direction":"ingress","action":"allow"},"id":"ra4"}')
 assert_valid_jsonrpc "security_group.rule.add: nonexistent group returns valid JSON-RPC" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [4] security_group.rule.remove
+# ══════════════════════════════════════════════════════════════════════
 log "--- [4/6] security_group.rule.remove ---"
 
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.rule.remove\",\"params\":{\"name\":\"$TEST_SG\",\"protocol\":\"tcp\",\"port\":22,\"direction\":\"ingress\"},\"id\":\"rr1\"}")
 assert_result_or_known_error "security_group.rule.remove: removes tcp/22 rule" "$RESP"
 
-
+# Remove again (idempotent — should not crash)
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.rule.remove\",\"params\":{\"name\":\"$TEST_SG\",\"protocol\":\"tcp\",\"port\":22,\"direction\":\"ingress\"},\"id\":\"rr2\"}")
 assert_valid_jsonrpc "security_group.rule.remove: idempotent remove returns valid JSON-RPC" "$RESP"
 
-
+# Missing params
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.rule.remove","params":{},"id":"rr3"}')
 assert_contains "security_group.rule.remove: missing params returns error" "$RESP" '"error"'
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [5] security_group.delete
+# ══════════════════════════════════════════════════════════════════════
 log "--- [5/6] security_group.delete ---"
 
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.delete\",\"params\":{\"name\":\"$TEST_SG\"},\"id\":\"sd1\"}")
 assert_result_or_known_error "security_group.delete: deletes test group" "$RESP"
 
-
+# Delete again — idempotent
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.delete\",\"params\":{\"name\":\"$TEST_SG\"},\"id\":\"sd2\"}")
 assert_valid_jsonrpc "security_group.delete: idempotent delete returns valid JSON-RPC" "$RESP"
 
-
+# Missing name
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.delete","params":{},"id":"sd3"}')
 assert_contains "security_group.delete: missing name returns error" "$RESP" '"error"'
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# [6] Security / Validation Edge Cases
+# ══════════════════════════════════════════════════════════════════════
 log "--- [6/6] Validation Edge Cases ---"
 
-
+# SQL injection in SG name
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.create","params":{"name":"test; DROP TABLE security_groups;--"},"id":"e1"}')
 assert_valid_jsonrpc "security_group.create: SQL injection in name returns valid JSON-RPC" "$RESP"
 
-
+# XSS in description
 RESP=$(rpc '{"jsonrpc":"2.0","method":"security_group.create","params":{"name":"xss-test","description":"<script>alert(1)<\/script>"},"id":"e2"}')
 assert_valid_jsonrpc "security_group.create: XSS in description returns valid JSON-RPC" "$RESP"
 
-
+# Invalid port number
 RESP=$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.rule.add\",\"params\":{\"name\":\"$TEST_SG\",\"protocol\":\"tcp\",\"port\":99999,\"direction\":\"ingress\",\"action\":\"allow\"},\"id\":\"e3\"}")
 assert_valid_jsonrpc "security_group.rule.add: invalid port returns valid JSON-RPC" "$RESP"
 
 echo ""
 
-
-
-
+# ══════════════════════════════════════════════════════════════════════
+# Summary
+# ══════════════════════════════════════════════════════════════════════
 echo "=========================================="
 echo -e " Results: ${GREEN}PASS=${PASS}${NC}  ${RED}FAIL=${FAIL}${NC}  ${YELLOW}SKIP=${SKIP}${NC}  TOTAL=${TOTAL}"
 echo "=========================================="

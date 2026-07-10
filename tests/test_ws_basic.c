@@ -1,44 +1,44 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+/* tests/test_ws_basic.c
+ *
+ * WebSocket 기본 테스트 -- 이벤트 JSON 프로토콜 + 연결 관리 상수 검증
+ *
+ * ============================================================================
+ *  이 파일이 테스트하는 것
+ * ============================================================================
+ *  ws_server.c (src/api/)의 WebSocket 프로토콜 패턴을 libsoup3 없이
+ *  검증한다. 10개 테스트 케이스.
+ *
+ *  1. 이벤트 JSON 구조: {"type": "telemetry", "data": {...}} 형식
+ *     - telemetry (CPU/메모리 메트릭 push)
+ *     - vm_event (VM 상태 변경 알림)
+ *     - cluster_event (노드 가입/탈퇴 알림)
+ *     - null type은 이벤트 생성 거부, null data는 "data":null로 허용
+ *
+ *  2. 이벤트 타입 화이트리스트: telemetry/vm_event/cluster_event만 유효
+ *     대소문자 구분 ("Telemetry" 거부)
+ *
+ *  3. 연결 제한 상수: MAX_WS_CONNECTIONS=1000, IDLE_TIMEOUT=300초
+ *     IDLE > CHECK_INTERVAL 관계가 유지되는지 검증
+ *
+ *  4. VNC 프록시 경로: /api/v1/ws/events와 /api/v1/ws/vnc 분기 확인
+ * ============================================================================
+ */
 
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
 
-
+/* ws_server.c에 정의된 상수 재선언 */
 #define MAX_WS_CONNECTIONS 1000
 #define WS_IDLE_TIMEOUT_SEC 300
 #define WS_CHECK_INTERVAL_SEC 60
 
+/* ── 이벤트 JSON 구조 검증 ──────────────────────────────── */
 
-
-
-
-
-
+/**
+ * WebSocket 이벤트 메시지 구성 패턴 재현:
+ * {"type": "<event_type>", "data": { ... }}
+ */
 static JsonObject *
 _build_ws_event(const gchar *type, JsonObject *data)
 {
@@ -106,7 +106,7 @@ static void test_ws_event_null_data(void) {
     json_object_unref(evt);
 }
 
-
+/* ── 이벤트 타입 검증 ──────────────────────────────────── */
 
 static gboolean
 _validate_ws_event_type(const gchar *type)
@@ -127,10 +127,10 @@ static void test_ws_event_type_invalid(void) {
     g_assert_false(_validate_ws_event_type(NULL));
     g_assert_false(_validate_ws_event_type(""));
     g_assert_false(_validate_ws_event_type("unknown_event"));
-    g_assert_false(_validate_ws_event_type("Telemetry"));
+    g_assert_false(_validate_ws_event_type("Telemetry"));  /* case-sensitive */
 }
 
-
+/* ── 연결 제한 상수 ─────────────────────────────────────── */
 
 static void test_ws_connection_limits(void) {
     g_assert_cmpint(MAX_WS_CONNECTIONS, ==, 1000);
@@ -139,25 +139,25 @@ static void test_ws_connection_limits(void) {
     g_assert_cmpint(WS_IDLE_TIMEOUT_SEC, >, WS_CHECK_INTERVAL_SEC);
 }
 
-
-
-
+/**
+ * 연결 카운터 로직 시뮬레이션 — 최대 연결 초과 시 거부
+ */
 static void test_ws_connection_accept_logic(void) {
     gint current = 0;
-
+    /* 연결 수락 */
     g_assert_cmpint(current, <, MAX_WS_CONNECTIONS);
     current++;
     g_assert_cmpint(current, ==, 1);
 
-
+    /* 최대치 시뮬레이션 */
     current = MAX_WS_CONNECTIONS;
-    g_assert_false(current < MAX_WS_CONNECTIONS);
+    g_assert_false(current < MAX_WS_CONNECTIONS);  /* 거부 */
 
     current = MAX_WS_CONNECTIONS - 1;
-    g_assert_true(current < MAX_WS_CONNECTIONS);
+    g_assert_true(current < MAX_WS_CONNECTIONS);   /* 수락 */
 }
 
-
+/* ── VNC WebSocket 경로 검증 ────────────────────────────── */
 
 static void test_ws_vnc_path_pattern(void) {
     const gchar *events_path = "/api/v1/ws/events";
@@ -168,7 +168,7 @@ static void test_ws_vnc_path_pattern(void) {
     g_assert_cmpstr(events_path, !=, vnc_path);
 }
 
-
+/* ── 등록 ────────────────────────────────────────────────── */
 
 void test_ws_basic_register(void) {
     g_test_add_func("/ws/event/telemetry",          test_ws_event_telemetry);

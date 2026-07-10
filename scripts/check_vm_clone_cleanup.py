@@ -1,9 +1,20 @@
 #!/usr/bin/env python3
+# This is a source-shape regression test, not a full parser.
+# It checks only the worker contracts that cannot be exercised without a live
+# ZFS/libvirt host: accepted job identity, cleanup ordering, and guest reset.
+# String checks are deliberate because the worker is C code and the expected
+# branch names are part of ADR-0023's safety surface.
+"""
+ADR-0023 vm.clone cleanup static guard.
 
+The live ZFS rollback path cannot be covered by the normal unit test runner.
+This guard keeps the worker structure from regressing silently:
 
-
-
-
+* accepted responses expose the same job id used by WS completion.
+* snapshot-created failure paths call the common cleanup helper.
+* the helper destroys the target dataset before the source temporary snapshot.
+* file disk clone and guest reset stay wired into the worker.
+"""
 
 from __future__ import annotations
 

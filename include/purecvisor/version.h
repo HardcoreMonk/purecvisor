@@ -1,6 +1,6 @@
 #ifndef PURECVISOR_VERSION_H
 #define PURECVISOR_VERSION_H
 
-#define PCV_PRODUCT_VERSION "1.0"
+#define PCV_PRODUCT_VERSION "1.1.1"
 
-#endif
+#endif /* PURECVISOR_VERSION_H */

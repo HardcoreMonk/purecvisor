@@ -19,7 +19,7 @@ require_literal() {
   fi
 }
 
-
+# Single Edge에서는 멀티 전용 화면이 메뉴/라우트 양쪽에서 차단돼야 한다.
 require_literal "'cluster'" "$APP_JS" "PCV_CLUSTER_ONLY_NAV must include cluster"
 require_literal "'mon-cluster'" "$APP_JS" "PCV_CLUSTER_ONLY_NAV must include mon-cluster"
 require_literal "'federation'" "$APP_JS" "PCV_CLUSTER_ONLY_NAV must include federation"

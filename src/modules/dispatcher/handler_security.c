@@ -11,16 +11,13 @@
 
 #include <glib/gstdio.h>
 
-#define PCV_SECURITY_DB_DEFAULT "/var/lib/purecvisor/pcv_security.db"
+/* PCV_SECURITY_DB_DEFAULT 는 security_store.h 로 이동 (store 모듈 소유, SG restore 와 공유). */
 
-
-
-
-
-
-static GMutex g_security_store_init_mu;
-static gsize g_security_store_init_once = 0;
-static gboolean g_security_store_opened = FALSE;
+/*
+ * security.* handlers are the single UDS surface for Security Guard. Read calls
+ * return current local state; side-effecting action approval follows ADR-0018:
+ * send accepted first, execute in a worker, then audit and broadcast completion.
+ */
 
 typedef struct {
     gchar *event_id;
@@ -29,15 +26,6 @@ typedef struct {
     gchar *admin_user;
     gchar *job_id;
 } SecurityApproveTaskData;
-
-static void
-ensure_init_mutex(void)
-{
-    if (g_once_init_enter(&g_security_store_init_once)) {
-        g_mutex_init(&g_security_store_init_mu);
-        g_once_init_leave(&g_security_store_init_once, 1);
-    }
-}
 
 static const gchar *
 security_db_path(void)
@@ -48,24 +36,10 @@ security_db_path(void)
 static gboolean
 ensure_security_store_open(void)
 {
-
-
-
-
-
-    ensure_init_mutex();
-    g_mutex_lock(&g_security_store_init_mu);
-    if (!g_security_store_opened) {
-        const gchar *path = security_db_path();
-        g_autofree gchar *dir = g_path_get_dirname(path);
-        if (dir && *dir) {
-            (void)g_mkdir_with_parents(dir, 0750);
-        }
-        g_security_store_opened = pcv_security_store_open(path);
-    }
-    gboolean ok = g_security_store_opened;
-    g_mutex_unlock(&g_security_store_init_mu);
-    return ok;
+    /* store 모듈의 ensure-open 에 위임 — 경로/기본값/동시 open 직렬화를 store 가
+     * 단일 소유(중복 플래그 제거). 부팅 경로(SG restore)와 lazy RPC 오픈이 같은
+     * 진입점을 공유해 이중 open 이 사라진다. */
+    return pcv_security_store_ensure_open();
 }
 
 static const gchar *
@@ -105,10 +79,10 @@ json_int_default(JsonObject *params, const gchar *key, gint def)
 static const gchar *
 admin_user_from_params(JsonObject *params)
 {
-
-
-
-
+    /*
+     * REST middleware injects _pcv_username/_pcv_caller_sub. Direct UDS tests may
+     * omit both, so "system" is the explicit audit subject fallback.
+     */
     const gchar *user = json_string_default(params, "_pcv_username", NULL);
     if (user && *user) {
         return user;
@@ -185,10 +159,10 @@ baseline_status_to_string(PcvHidsBaselineStatus status)
 static gint
 compute_open_risk(void)
 {
-
-
-
-
+    /*
+     * This is intentionally a simple operator-facing score, not ML. CRIT events
+     * dominate the number so a single control-plane risk is visible immediately.
+     */
     JsonArray *events = pcv_security_store_list_events(0, 500, NULL, NULL, "open");
     gint risk = 0;
     guint len = json_array_get_length(events);
@@ -212,7 +186,7 @@ compute_open_risk(void)
 static gchar **
 extract_path_array(JsonObject *params, gsize *out_len, GError **error)
 {
-
+    /* Baseline refresh is admin supplied, so reject malformed path arrays early. */
     *out_len = 0;
     if (!params || !json_object_has_member(params, "paths")) {
         g_set_error(error, G_OPTION_ERROR, G_OPTION_ERROR_BAD_VALUE,
@@ -279,10 +253,10 @@ security_action_approve_worker(GTask *task,
                                gpointer task_data,
                                GCancellable *cancel __attribute__((unused)))
 {
-
-
-
-
+    /*
+     * Execute first, mark approved second. That ordering prevents the UI/audit
+     * layer from treating a failed firewall or RBAC operation as resolved.
+     */
     SecurityApproveTaskData *d = task_data;
     gint64 start_us = g_get_monotonic_time();
     GError *error = NULL;
@@ -394,10 +368,10 @@ handle_security_action_approve(JsonObject *params,
                                UdsServer *server,
                                GSocketConnection *connection)
 {
-
-
-
-
+    /*
+     * Approval is fire-and-forget. The accepted response gives the caller a
+     * trackable job_id while the worker owns the final audit/WS result.
+     */
     const gchar *event_id = json_string_default(params, "event_id", "");
     const gchar *admin_user = admin_user_from_params(params);
     if (!event_id[0]) {
@@ -447,7 +421,7 @@ handle_security_action_approve(JsonObject *params,
     d->admin_user = g_strdup(admin_user);
     d->job_id = g_strdup(job_id);
 
-
+    /* ADR-0018-audit: security.action.approve */
     GTask *task = g_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)security_approve_task_data_free);
     g_task_run_in_thread(task, security_action_approve_worker);
@@ -460,10 +434,10 @@ handle_security_action_dismiss(JsonObject *params,
                                UdsServer *server,
                                GSocketConnection *connection)
 {
-
-
-
-
+    /*
+     * Dismissal is synchronous because it only changes local decision state.
+     * Operator can suppress noise; admin is required only for executable action.
+     */
     const gchar *event_id = json_string_default(params, "event_id", "");
     const gchar *reason = json_string_default(params, "reason", "");
     const gchar *admin_user = admin_user_from_params(params);
@@ -513,10 +487,10 @@ handle_security_baseline_refresh(JsonObject *params,
                                  UdsServer *server,
                                  GSocketConnection *connection)
 {
-
-
-
-
+    /*
+     * Baseline trust is explicit. No scan result can auto-promote unknown files
+     * into trusted state; an admin must refresh the path set.
+     */
     const gchar *admin_user = admin_user_from_params(params);
     GError *error = NULL;
     gsize n_paths = 0;

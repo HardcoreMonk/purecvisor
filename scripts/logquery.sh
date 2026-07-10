@@ -1,14 +1,14 @@
 #!/usr/bin/env bash
-
-
-
-
-
-
-
-
-
-
+# =============================================================================
+# PureCVisor Single Edge 로그 조회 유틸리티
+# =============================================================================
+# 사용법:
+#   scripts/logquery.sh                     # local 최근 에러/경고
+#   scripts/logquery.sh -l warn -c 50      # WARN 레벨, 최근 50줄
+#   scripts/logquery.sh -d dispatcher      # 특정 도메인
+#   scripts/logquery.sh -s "1 hour ago"    # 시간 범위
+#   scripts/logquery.sh --errors           # 에러만 (중복 제거)
+# =============================================================================
 set -euo pipefail
 
 NODES=()
@@ -16,10 +16,10 @@ NODE_NAMES=()
 LOCAL_IP="${PCV_LOCAL_IP:-127.0.0.1}"
 SSH_USER="pcvdev"
 
-
-TARGET=""
-LEVEL=""
-DOMAIN=""
+# Defaults
+TARGET=""          # all nodes
+LEVEL=""           # all levels
+DOMAIN=""          # all domains
 COUNT=100
 SINCE=""
 ERRORS_ONLY=0
@@ -51,12 +51,12 @@ while [[ $# -gt 0 ]]; do
     esac
 done
 
-
+# Build journalctl command
 SERVICE_NAME="${SERVICE_NAME:-purecvisorsd}"
 JC="sudo journalctl -u ${SERVICE_NAME} --no-pager --output=cat"
 [[ -n "$SINCE" ]] && JC="$JC --since '$SINCE'" || JC="$JC -n $COUNT"
 
-
+# Build grep filter
 GREP=""
 if [[ $ERRORS_ONLY -eq 1 ]]; then
     GREP='grep -E "\"lvl\":\"(WARN|CRIT)\""'
@@ -72,7 +72,7 @@ query_node() {
     local name=$1 cmd=$2
     echo -e "${CYAN}═══ $name ═══${NC}"
     eval "$cmd" 2>/dev/null | while IFS= read -r line; do
-
+        # Color by level
         if echo "$line" | grep -q '"lvl":"CRIT"'; then
             echo -e "${RED}$line${NC}"
         elif echo "$line" | grep -q '"lvl":"WARN"'; then
@@ -84,7 +84,7 @@ query_node() {
     echo ""
 }
 
-
+# Execute
 if [[ "$TARGET" == "local" ]]; then
     CMD="$JC"
     [[ -n "$GREP" ]] && CMD="$CMD | $GREP"
@@ -95,13 +95,13 @@ elif [[ -n "$TARGET" ]]; then
     [[ -n "$GREP" ]] && CMD="$CMD | $GREP"
     query_node "${NODE_NAMES[$idx]} (${NODES[$idx]})" "$CMD"
 else
-
+    # All nodes
     for i in "${!NODES[@]}"; do
         CMD="ssh -o ConnectTimeout=3 ${SSH_USER}@${NODES[$i]} \"$JC\""
         [[ -n "$GREP" ]] && CMD="$CMD | $GREP"
         query_node "${NODE_NAMES[$i]} (${NODES[$i]})" "$CMD"
     done
-
+    # Local
     CMD="$JC"
     [[ -n "$GREP" ]] && CMD="$CMD | $GREP"
     query_node "Local-Dev ($LOCAL_IP)" "$CMD"

@@ -1,4 +1,35 @@
 #!/usr/bin/env python3
+"""
+ADR-0018 정적 분석 — fire-and-forget audit 위치 검증
+
+[목적]
+  dispatcher.c의 g_async_methods 집합에 등록된 RPC 메서드는 반드시
+  대응하는 워커 콜백에서 pcv_audit_log()를 호출해야 한다.
+  주요 accepted fire-and-forget RPC는 pcv_ws_broadcast_job_complete()도
+  함께 호출해야 한다.
+  자동 검사를 통해 신규 PR이 audit 무결성을 깨지 않도록 보장.
+
+[검사 대상]
+  src/api/dispatcher.c               — g_async_methods 집합 추출
+  src/modules/dispatcher/handler_*.c — 핸들러 콜백에서 pcv_audit_log 검색
+
+[방식 — heuristic]
+  1. dispatcher.c에서 g_async_methods 등록 메서드 목록 추출
+  2. 각 메서드 이름을 가진 pcv_audit_log() 호출 검색
+     (예: vm.start → grep 'pcv_audit_log.*"vm.start"' in handler_*.c + dispatcher.c)
+  3. 매칭이 0건이면 ❌
+  4. CI/pre-commit에서 호출 → 실패 시 차단
+
+[제한]
+  완벽한 정적 분석은 아님. 메서드 이름 문자열이 등록 위치 외에 다른 곳에서도
+  audit 호출에 사용되어야 한다. 동적 매크로/strdup_printf 패턴은 잡지 못함.
+  그러나 ADR-0018 위반의 90%는 잡을 수 있다.
+
+[종료 코드]
+  0: async registry/audit/WS completion 계약 통과
+  1: 누락된 메서드 발견
+  2: 파싱 실패
+"""
 
 from __future__ import annotations
 import re
@@ -10,8 +41,8 @@ DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 SEARCH_DIRS = [
     REPO_ROOT / "src" / "api",
     REPO_ROOT / "src" / "modules" / "dispatcher",
-    REPO_ROOT / "src" / "modules" / "cloud",
-    REPO_ROOT / "src" / "modules" / "virt",
+    REPO_ROOT / "src" / "modules" / "cloud",       # cloud_migration.c — 동적 cloud.<dir>
+    REPO_ROOT / "src" / "modules" / "virt",        # vm_manager 등 비동기 워커
 ]
 
 REQUIRED_FIRE_AND_FORGET_METHODS = [
@@ -28,19 +59,19 @@ REQUIRED_FIRE_AND_FORGET_METHODS = [
     "vm.import.ova",
 ]
 
+# This required set is the release gate for high-risk async work. The generic
+# g_async_methods scan catches newly registered async methods, while this list
+# protects known worker families that must have all three signals: registry,
+# actual-result audit, and WebSocket completion.
 
-
-
-
-
-
+# g_async_methods 등록 블록 패턴
 ASYNC_REG_BLOCK = re.compile(
     r'_async_method_names\[\]\s*=\s*\{(.*?)\};',
     re.DOTALL,
 )
 METHOD_LITERAL = re.compile(r'"([a-z][a-z0-9_.]+)"')
 
-
+# audit 호출 패턴 — pcv_audit_log(... "method.name" ...) 또는 pcv_audit_log_rpc("method.name", ...)
 AUDIT_CALL_RE = re.compile(
     r'pcv_audit_log(?:_rpc)?\s*\(\s*[^)]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
@@ -50,22 +81,11 @@ WS_COMPLETE_RE = re.compile(
     re.DOTALL,
 )
 
-
-
-DYNAMIC_AUDIT_RULES = [
-    (
-        {"vm.stop", "vm.pause", "vm.resume", "vm.limit"},
-        ('g_strdup_printf("vm.%s"', "ctx->action"),
-    ),
-    (
-        {"cloud.import", "cloud.export"},
-        ('g_strdup_printf("cloud.%s"', "_update_status("),
-    ),
-    (
-        {"cloud.import.finalize"},
-        ('g_str_has_prefix(job_id, "finalize-")', "import.finalize"),
-    ),
-]
+# 동적 메서드명 (g_strdup_printf 등) 처리용 명시 annotation
+# 형식: /* ADR-0018-audit: vm.stop, vm.pause, ... */
+ANNOTATION_RE = re.compile(
+    r'ADR-0018-audit:\s*([a-z0-9_.,\s]+)',
+)
 
 
 def extract_async_methods(dispatcher_text: str) -> list[str]:
@@ -97,9 +117,10 @@ def collect_audit_methods() -> set[str]:
             continue
         for c in d.glob("*.c"):
             txt = c.read_text(errors="replace")
-            for names, tokens in DYNAMIC_AUDIT_RULES:
-                if all(token in txt for token in tokens):
-                    found.update(names)
+            # 동적 메서드명을 명시 annotation으로 보완
+            for ann in ANNOTATION_RE.finditer(txt):
+                names = [s.strip() for s in ann.group(1).split(",") if s.strip()]
+                found.update(names)
     return found
 
 

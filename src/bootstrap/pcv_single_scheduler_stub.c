@@ -2,19 +2,19 @@
 
 #include <gio/gio.h>
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+/*
+ * Single Edge용 클러스터 스케줄러 stub.
+ *
+ * [비전공자 설명]
+ * 클러스터 스케줄러는 "어느 서버에 VM을 만들지" 고르는 기능입니다. 단독
+ * 서버에는 선택할 다른 노드가 없으므로 VM 생성 스케줄링은 지원하지 않습니다.
+ *
+ * [주니어 참고]
+ * create_vm은 NULL + NOT_SUPPORTED를 반환해 잘못된 API 사용을 즉시 드러냅니다.
+ * 반면 label/affinity 조회·삭제 계열은 빈 값 또는 성공 no-op으로 둡니다.
+ * 공통 UI가 설정 화면을 조회할 때 Single Edge 서버가 불필요하게 에러 상태로
+ * 보이지 않게 하기 위한 호환 계층입니다.
+ */
 void
 pcv_scheduler_init(const gchar *peers_csv, gint rest_port)
 {

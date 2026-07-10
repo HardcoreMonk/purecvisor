@@ -1,11 +1,11 @@
-
-
+// PureCVisor gRPC Service Definition
+// protoc-c --c_out=. proto/purecvisor.proto
 syntax = "proto3";
 package purecvisor.v1;
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * 공통 메시지
+ * ═══════════════════════════════════════════════════════════ */
 message Empty {}
 
 message ActionResponse {
@@ -18,9 +18,9 @@ message ErrorResponse {
     string message = 2;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * VM 서비스
+ * ═══════════════════════════════════════════════════════════ */
 message VmInfo {
     string name       = 1;
     string state      = 2;
@@ -46,9 +46,9 @@ message VmCreateRequest {
     int32  disk_size_gb   = 4;
     string iso_path       = 5;
     string network_bridge = 6;
-    int32  boot_mode      = 7;
+    int32  boot_mode      = 7;   // 0=BIOS, 1=UEFI, 2=UEFI+SecureBoot
     bool   tpm            = 8;
-    int32  cpu_mode       = 9;
+    int32  cpu_mode       = 9;   // 0=default, 1=host-passthrough, 2=host-model
     bool   hugepages      = 10;
 }
 
@@ -59,7 +59,7 @@ message VmNameRequest {
 message ResizeDiskRequest {
     string name        = 1;
     int32  new_size_gb = 2;
-    string target      = 3;
+    string target      = 3;  // default "vda"
 }
 
 message VmCloneRequest {
@@ -67,9 +67,9 @@ message VmCloneRequest {
     string target = 2;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * 네트워크 서비스
+ * ═══════════════════════════════════════════════════════════ */
 message NetworkInfo {
     string name     = 1;
     string mode     = 2;
@@ -92,14 +92,14 @@ message NetworkCreateRequest {
     int32  mtu         = 5;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * 스토리지 서비스
+ * ═══════════════════════════════════════════════════════════ */
 message PoolInfo {
     string name   = 1;
     string size   = 2;
     string alloc  = 3;
-    string free_  = 4;
+    string free_  = 4;  // 'free' is reserved
     string health = 5;
 }
 
@@ -107,9 +107,9 @@ message PoolListResponse {
     repeated PoolInfo pools = 1;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * 모니터링 서비스
+ * ═══════════════════════════════════════════════════════════ */
 message MetricsResponse {
     double cpu_pct  = 1;
     double mem_pct  = 2;
@@ -139,18 +139,18 @@ message AuditSearchResponse {
     repeated AuditEntry entries = 1;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * 버전/시스템 서비스
+ * ═══════════════════════════════════════════════════════════ */
 message VersionResponse {
     string version     = 1;
     int32  rpc_methods = 2;
     string build_date  = 3;
 }
 
-
-
-
+/* ═══════════════════════════════════════════════════════════
+ * gRPC 서비스 정의
+ * ═══════════════════════════════════════════════════════════ */
 service VmService {
     rpc List(Empty)             returns (VmListResponse);
     rpc Create(VmCreateRequest) returns (ActionResponse);

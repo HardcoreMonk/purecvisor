@@ -1,40 +1,40 @@
-
-
-
-
-
-
-
-
-
-
+/* ==========================================================================
+ * src/utils/pcv_zfs_lock.c
+ * PureCVisor — ZFS pool 수준 intra-node 직렬화 락 구현 (BUG-18 Phase 1)
+ *
+ * 구현 요점:
+ * - pool 이름(슬래시 이전 토큰)을 key로 하는 해시 테이블에 GMutex 보관
+ * - 첫 등장 pool은 lazy init (read_lock → upgrade write)
+ * - GMutex는 non-recursive, timed-acquire는 g_mutex_trylock + polling 루프
+ * - Prometheus 메트릭: purecvisor_zfs_pool_lock_wait_ms / contentions_total
+ * ========================================================================== */
 
 #include "pcv_zfs_lock.h"
 #include <string.h>
-#include <gio/gio.h>
+#include <gio/gio.h>         /* G_IO_ERROR_TIMED_OUT 등 에러 도메인 */
 #include "pcv_log.h"
 
-
-
-
-
-
-
-
-
+/* 최적화 (1.0): Prometheus 메트릭 노출
+ * - purecvisor_zfs_pool_lock_acquired_total{pool}: 누적 획득 수
+ * - purecvisor_zfs_pool_lock_contentions_total: 누적 타임아웃 수
+ * - purecvisor_zfs_pool_lock_wait_ms{pool}: 마지막 대기 시간 (gauge)
+ *
+ * 호출자: prometheus_exporter.c가 pcv_prom_gauge_set_labels로 push.
+ * 본 모듈은 카운터만 보관, exporter가 주기적으로 읽어가는 구조.
+ */
 extern void pcv_prom_gauge_set_labels(const gchar *name, const gchar *labels, gdouble value);
 
 #define ZFS_LOCK_DOM "zfs_lock"
 
-static GHashTable *g_pool_mutexes = NULL;
-static GMutex      g_registry_mu;
+static GHashTable *g_pool_mutexes = NULL;  /* pool_name(char*) → GMutex* */
+static GMutex      g_registry_mu;           /* protects g_pool_mutexes */
 static gboolean    g_initialized = FALSE;
-static gint        g_contentions = 0;
+static gint        g_contentions = 0;        /* GLib atomic int counter */
 
 static gchar *
 _pool_head(const gchar *pool)
 {
-
+    /* "pcvpool/vms" → "pcvpool" (pool 단위 락이므로 sub-dataset 무관) */
     if (!pool || !*pool) return g_strdup("");
     const gchar *slash = strchr(pool, '/');
     if (slash) return g_strndup(pool, (gsize)(slash - pool));
@@ -58,7 +58,7 @@ pcv_zfs_pool_lock_shutdown(void)
     if (!g_initialized) return;
     g_mutex_lock(&g_registry_mu);
     if (g_pool_mutexes) {
-
+        /* value(GMutex*)는 g_mutex_clear 후 free */
         GHashTableIter iter;
         gpointer k, v;
         g_hash_table_iter_init(&iter, g_pool_mutexes);
@@ -102,7 +102,7 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
     gchar *head = _pool_head(pool);
     GMutex *mu = _get_or_create_mutex(head);
 
-
+    /* Fast path: try immediate acquire */
     if (g_mutex_trylock(mu)) {
         gchar lbl[128];
         g_snprintf(lbl, sizeof(lbl), "pool=\"%s\"", head);
@@ -111,9 +111,9 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
         return TRUE;
     }
 
-
+    /* Slow path: poll with 20ms granularity until timeout */
     gint64 deadline = g_get_monotonic_time() + (gint64)timeout_ms * 1000;
-    gint64 poll_us = 20000;
+    gint64 poll_us = 20000;  /* 20ms */
     gint64 waited_ms = 0;
     while (g_get_monotonic_time() < deadline) {
         g_usleep((gulong)poll_us);
@@ -124,7 +124,7 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
                     "pool=%s op=%s acquired after %" G_GINT64_FORMAT "ms wait",
                     head, op ?: "?", waited_ms);
             }
-
+            /* Prometheus: 대기 시간 노출 */
             gchar lbl[128];
             g_snprintf(lbl, sizeof(lbl), "pool=\"%s\"", head);
             pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_wait_ms", lbl,
@@ -134,7 +134,7 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
         }
     }
 
-
+    /* Timeout */
     g_atomic_int_inc(&g_contentions);
     pcv_prom_gauge_set_labels("purecvisor_zfs_pool_lock_contentions_total",
                                 "", (gdouble)g_atomic_int_get(&g_contentions));

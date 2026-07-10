@@ -5,11 +5,11 @@
 
 G_BEGIN_DECLS
 
-
-
-
-
-
+/*
+ * HIPS action contract: build/list/approve/dismiss manage operator decision
+ * state; execute performs the side effect and must be called only after admin
+ * approval from an ADR-0018 worker.
+ */
 gboolean pcv_hips_action_is_executable(const gchar *action);
 JsonObject *pcv_hips_action_build_pending(const PcvSecurityEvent *ev);
 JsonArray *pcv_hips_action_list_pending(void);
