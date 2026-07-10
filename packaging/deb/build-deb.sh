@@ -52,9 +52,14 @@ strip "$STAGE/usr/local/bin/purecvisorsd" \
       "$STAGE/usr/local/bin/pcvtui" 2>/dev/null || true
 
 # UI 자산 (번들/모듈/vendor/에셋)
-cp -a ui/*.js ui/*.html ui/*.md ui/*.json ui/*.png "$STAGE/usr/local/share/purecvisor/ui/" 2>/dev/null || true
+cp -a ui/*.js ui/*.html ui/*.css ui/*.md ui/*.json ui/*.png "$STAGE/usr/local/share/purecvisor/ui/" 2>/dev/null || true
 [ -d ui/vendor ]  && cp -a ui/vendor  "$STAGE/usr/local/share/purecvisor/ui/"
 [ -d ui/modules ] && cp -a ui/modules "$STAGE/usr/local/share/purecvisor/ui/"
+# 위 cp 는 2>/dev/null || true 로 실패를 삼키므로, index.html/sw.js 가 참조하는
+# 필수 자산은 스테이징 존재를 명시 검증한다 (glob 누락 시 여기서 빌드 실패).
+for f in index.html style.css app.bundle.js sw.js i18n.js manifest.json; do
+    [ -f "$STAGE/usr/local/share/purecvisor/ui/$f" ] || { echo "[deb] ERROR: UI 필수 자산 누락: $f"; exit 1; }
+done
 
 # systemd 유닛 + 설정 샘플 (패키징 소스에서)
 install -m644 packaging/deb/purecvisorsd.service "$STAGE/etc/systemd/system/purecvisorsd.service"

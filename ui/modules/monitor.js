@@ -1703,23 +1703,32 @@ async function renderAlertSilences(b) {
     b.appendChild(frag(parts));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
-async function showSilenceCreate() {
-  var html = '<div class="form-group"><label for="sil-metric">' + _L('메트릭', 'Metric') + '</label>';
-  html += '<select id="sil-metric" class="input-field"><option>cpu</option><option>mem</option><option>disk</option></select></div>';
-  html += '<div class="form-group"><label for="sil-dur">' + _L('기간 (분)', 'Duration (min)') + '</label>';
-  html += '<input id="sil-dur" type="number" value="60" min="1" max="1440" class="input-field"></div>';
-  html += '<div class="form-group"><label for="sil-reason">' + _L('사유', 'Reason') + '</label>';
-  html += '<input id="sil-reason" class="input-field" placeholder="' + _L('유지보수 예정', 'Planned maintenance') + '"></div>';
-  showModal(_L('알림 음소거', 'Silence Alert'), html, async function() {
-    var metric = document.getElementById('sil-metric').value;
-    var dur = parseInt(document.getElementById('sil-dur').value) || 60;
-    var reason = document.getElementById('sil-reason').value.trim();
-    try {
-      await fetchPost(EP.ALERT_SILENCE(), { metric: metric, duration_min: dur, reason: reason });
-      toast(_L('음소거 적용', 'Silence applied'), 's');
-      renderAlertSilences(document.getElementById('cb'));
-    } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
-  });
+function showSilenceCreate() {
+  var mk = PCV.uxlib.el;
+  var metricSel = mk('select', { id: 'sil-metric' },
+    mk('option', null, 'cpu'), mk('option', null, 'mem'), mk('option', null, 'disk'));
+  var durInput = mk('input', { id: 'sil-dur', type: 'number', value: '60', min: '1', max: '1440' });
+  var reasonInput = mk('input', { id: 'sil-reason', placeholder: _L('유지보수 예정', 'Planned maintenance') });
+  showModal([
+    mk('h2', null, _L('알림 음소거', 'Silence Alert')),
+    mk('div', { class: 'fr' }, mk('label', { for: 'sil-metric' }, _L('메트릭', 'Metric')), metricSel),
+    mk('div', { class: 'fr' }, mk('label', { for: 'sil-dur' }, _L('기간 (분)', 'Duration (min)')), durInput),
+    mk('div', { class: 'fr' }, mk('label', { for: 'sil-reason' }, _L('사유', 'Reason')), reasonInput),
+    mk('div', { class: 'text-right mt-12' },
+      mk('button', { class: 'btn btn-g', onClick: async function() {
+        var metric = metricSel.value;
+        var dur = parseInt(durInput.value) || 60;
+        var reason = reasonInput.value.trim();
+        try {
+          await fetchPost(EP.ALERT_SILENCE(), { metric: metric, duration_min: dur, reason: reason });
+          toast(_L('음소거 적용', 'Silence applied'), 's');
+          closeModal();
+          renderAlertSilences(document.getElementById('cb'));
+        } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
+      } }, _L('적용', 'Apply')),
+      ' ',
+      mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 /* ═══ ALERT ROUTING CONFIG ═══ */

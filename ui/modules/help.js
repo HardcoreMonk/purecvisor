@@ -26,13 +26,14 @@ window.PCV = window.PCV || {};
 
 /* ═══ HELP & REFERENCE ═══ */
 function renderHelp(b) {
-  var h = H.sectionLg(_L('도움말 & 참조', 'Help & Reference'));
-  h += '<div style="margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,rgba(0,240,255,0.08),rgba(0,255,136,0.05));border:1px solid var(--accent);border-radius:8px;display:flex;align-items:center;gap:16px;flex-wrap:wrap">'
-    + '<div style="flex:1;min-width:200px"><div style="font-size:15px;font-weight:600;color:var(--accent);margin-bottom:4px">' + _L('PureCVisor 완벽 가이드', 'PureCVisor Complete Guide') + '</div>'
-    + '<div style="font-size:12px;color:var(--fg2)">' + _L('18개 챕터, 설치부터 트러블슈팅까지 전체 문서를 ReadTheDocs 스타일로 탐색하세요.', 'Browse all 18 chapters from installation to troubleshooting in a ReadTheDocs-style viewer.') + '</div></div>'
-    + '<a href="/ui/guide.html" target="_blank" style="display:inline-flex;align-items:center;gap:6px;padding:8px 20px;background:var(--accent);color:#000;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap">&#128214; ' + _L('가이드 열기', 'Open Guide') + '</a></div>';
-  h += '<div class="mb-16"><input aria-label="' + t('search') + '" id="help-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterHelp()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
-  h += '<div id="help-content">';
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var banner = el('div', { style: 'margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,rgba(0,240,255,0.08),rgba(0,255,136,0.05));border:1px solid var(--accent);border-radius:8px;display:flex;align-items:center;gap:16px;flex-wrap:wrap' },
+    el('div', { style: 'flex:1;min-width:200px' },
+      el('div', { style: 'font-size:15px;font-weight:600;color:var(--accent);margin-bottom:4px' }, _L('PureCVisor 완벽 가이드', 'PureCVisor Complete Guide')),
+      el('div', { style: 'font-size:12px;color:var(--fg2)' }, _L('18개 챕터, 설치부터 트러블슈팅까지 전체 문서를 ReadTheDocs 스타일로 탐색하세요.', 'Browse all 18 chapters from installation to troubleshooting in a ReadTheDocs-style viewer.'))),
+    el('a', { href: '/ui/guide.html', target: '_blank', style: 'display:inline-flex;align-items:center;gap:6px;padding:8px 20px;background:var(--accent);color:#000;border-radius:6px;font-size:13px;font-weight:600;text-decoration:none;white-space:nowrap' }, '📖 ' + _L('가이드 열기', 'Open Guide')));
+  var searchBar = el('div', { class: 'mb-16' },
+    el('input', { 'aria-label': t('search'), id: 'help-search', class: 'sb-search', placeholder: t('search'), oninput: 'filterHelp()', style: 'max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px' }));
   var helpData = buildHelpData();
   function buildHelpData() {
     var data = [
@@ -100,18 +101,38 @@ function renderHelp(b) {
     ]},
   ];
   helpData = helpData.concat(helpDataDetail);
-  helpData.forEach(function(cat) {
-    h += '<div class="hc mb-14"><h4 class="color-accent">' + cat.cat + '</h4><table style="font-size:12px"><thead><tr><th>RPC</th><th>CLI</th><th>TUI</th><th>Web UI</th><th>' + _L('설명', 'Description') + '</th></tr></thead><tbody>';
-    cat.items.forEach(function(i) { h += '<tr data-search="' + (i.cmd + ' ' + i.cli + ' ' + i.desc).toLowerCase() + '"><td style="color:var(--accent);font-family:var(--font-mono);font-size:11px">' + i.cmd + '</td><td style="font-size:11px">' + i.cli + '</td><td>' + i.tui + '</td><td>' + i.web + '</td><td class="color-muted">' + i.desc + '</td></tr>'; });
-    h += '</tbody></table></div>';
-  });
-  h += '</div>';
-  h += '<div class="sg grid-3">';
-  h += H.card(_L('&#9881; 시스템', '&#9881; System'), H.row(_L('RPC 메서드', 'RPC Methods'), (typeof PCV !== 'undefined' ? PCV.config.RPC_COUNT : 264) + '+') + H.row(_L('REST 엔드포인트', 'REST Endpoints'), (typeof PCV !== 'undefined' ? PCV.config.REST_COUNT : 195) + '+') + H.row(_L('CLI 커맨드', 'CLI Commands'), '168'));
-  h += H.card(_L('&#128200; 모니터링', '&#128200; Monitoring'), H.row('node_*', '126') + H.row('purecvisor_*', '44') + H.row(_L('Prometheus 합계', 'Total Prometheus'), '' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170)));
-  h += H.card(_L('&#128187; 인프라', '&#128187; Infrastructure'), H.row(_L('3노드 클러스터', '3-Node Cluster'), 'HA Active') + H.row(_L('Web UI 모듈', 'Web UI Modules'), '20 (12K LOC)') + H.row(_L('i18n 키', 'i18n Keys'), '280+'));
-  h += '</div>';
-  b.innerHTML = h;
+  var content = el('div', { id: 'help-content' },
+    helpData.map(function(cat) {
+      var tbody = el('tbody', null, cat.items.map(function(i) {
+        return el('tr', { 'data-search': (i.cmd + ' ' + i.cli + ' ' + i.desc).toLowerCase() },
+          el('td', { style: 'color:var(--accent);font-family:var(--font-mono);font-size:11px' }, i.cmd),
+          el('td', { style: 'font-size:11px' }, i.cli),
+          el('td', null, i.tui),
+          el('td', null, i.web),
+          el('td', { class: 'color-muted' }, i.desc));
+      }));
+      return el('div', { class: 'hc mb-14' },
+        el('h4', { class: 'color-accent' }, cat.cat),
+        el('table', { style: 'font-size:12px' },
+          el('thead', null, el('tr', null,
+            el('th', null, 'RPC'), el('th', null, 'CLI'), el('th', null, 'TUI'), el('th', null, 'Web UI'), el('th', null, _L('설명', 'Description')))),
+          tbody));
+    }));
+  var stats = el('div', { class: 'sg grid-3' },
+    HN.card('⚙ ' + _L('시스템', 'System'), [
+      HN.row(_L('RPC 메서드', 'RPC Methods'), (typeof PCV !== 'undefined' ? PCV.config.RPC_COUNT : 264) + '+'),
+      HN.row(_L('REST 엔드포인트', 'REST Endpoints'), (typeof PCV !== 'undefined' ? PCV.config.REST_COUNT : 195) + '+'),
+      HN.row(_L('CLI 커맨드', 'CLI Commands'), '168')]),
+    HN.card('📈 ' + _L('모니터링', 'Monitoring'), [
+      HN.row('node_*', '126'),
+      HN.row('purecvisor_*', '44'),
+      HN.row(_L('Prometheus 합계', 'Total Prometheus'), '' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170))]),
+    HN.card('💻 ' + _L('인프라', 'Infrastructure'), [
+      HN.row(_L('3노드 클러스터', '3-Node Cluster'), 'HA Active'),
+      HN.row(_L('Web UI 모듈', 'Web UI Modules'), '20 (12K LOC)'),
+      HN.row(_L('i18n 키', 'i18n Keys'), '280+')]));
+  clearEl(b);
+  b.appendChild(frag(HN.sectionLg(_L('도움말 & 참조', 'Help & Reference')), banner, searchBar, content, stats));
 }
 window.renderHelp = renderHelp;
 
@@ -120,28 +141,54 @@ window.filterHelp = filterHelp;
 
 /* ═══ REST API GUIDE ═══ */
 function renderRestGuide(b) {
-  var h = H.sectionLg(_L('REST API 가이드', 'REST API Guide'));
-  h += '<div class="sg grid-2">';
-  h += H.card(_L('&#128274; 인증', '&#128274; Authentication'), '<div style="font-size:13px;line-height:1.8">'
-    + '<div style="border-left:3px solid var(--accent);padding-left:12px;margin-bottom:10px"><b>1. ' + _L('로그인', 'Login') + '</b><pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px">curl -X POST /api/v1/auth/token \\\n  -d \'{"username":"admin","password":"&lt;configured-admin-password&gt;"}\'</pre></div>'
-    + '<div style="border-left:3px solid var(--green);padding-left:12px;margin-bottom:10px"><b>2. ' + _L('토큰 사용', 'Use Token') + '</b><pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px">curl -H "Authorization: Bearer eyJ..." \\\n  /api/v1/vms</pre></div>'
-    + '<div style="border-left:3px solid var(--yellow);padding-left:12px"><b>3. ' + _L('쓰기 작업', 'Write Operations') + '</b><pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px">curl -X POST \\\n  -H "Authorization: Bearer eyJ..." \\\n  /api/v1/vms/web-prod/start</pre></div></div>');
-  h += H.card(_L('&#128100; RBAC 역할', '&#128100; RBAC Roles'),
-    '<table style="font-size:13px;width:100%"><thead><tr><th>' + _L('역할', 'Role') + '</th><th>' + _L('레벨', 'Level') + '</th><th>' + _L('권한', 'Permissions') + '</th></tr></thead><tbody>'
-    + '<tr><td>' + H.badge('VIEWER', 'g') + '</td><td>0</td><td>' + _L('읽기 전용 (GET)', 'Read-only (GET endpoints)') + '</td></tr>'
-    + '<tr><td>' + H.badge('OPERATOR', 'y') + '</td><td>1</td><td>' + _L('VM/컨테이너 운영, VM action은 생성자 범위', 'VM/Container operations, VM actions scoped to creator') + '</td></tr>'
-    + '<tr><td>' + H.badge('ADMIN', 'r') + '</td><td>2</td><td>' + _L('전체 관리자', 'Full access') + '</td></tr></tbody></table>'
-    + '<div style="margin-top:10px;font-size:12px;color:var(--fg2)">' + _L('내장 기본 비밀번호 없음. 첫 로그인 전 daemon.conf 또는 PURECVISOR_ADMIN_PASSWORD로 bootstrap 비밀번호를 설정합니다.', 'No built-in default password. Set the bootstrap password in daemon.conf or PURECVISOR_ADMIN_PASSWORD before first login.') + '</div>'
-    + '<div style="margin-top:6px;font-size:12px;color:var(--fg2)">' + _L('OPERATOR는 libvirt domain metadata의 owner가 본인인 VM에만 시작, 중지, 삭제, 스냅샷, VNC, 일괄 작업을 수행할 수 있습니다.', 'OPERATOR can start, stop, delete, snapshot, access VNC, and batch-operate only VMs whose libvirt domain metadata owner matches the caller.') + '</div>');
-  h += '</div>';
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var authCard = HN.card('🔒 ' + _L('인증', 'Authentication'),
+    el('div', { style: 'font-size:13px;line-height:1.8' },
+      el('div', { style: 'border-left:3px solid var(--accent);padding-left:12px;margin-bottom:10px' },
+        el('b', null, '1. ' + _L('로그인', 'Login')),
+        el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px' }, 'curl -X POST /api/v1/auth/token \\\n  -d \'{"username":"admin","password":"<configured-admin-password>"}\'')),
+      el('div', { style: 'border-left:3px solid var(--green);padding-left:12px;margin-bottom:10px' },
+        el('b', null, '2. ' + _L('토큰 사용', 'Use Token')),
+        el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px' }, 'curl -H "Authorization: Bearer eyJ..." \\\n  /api/v1/vms')),
+      el('div', { style: 'border-left:3px solid var(--yellow);padding-left:12px' },
+        el('b', null, '3. ' + _L('쓰기 작업', 'Write Operations')),
+        el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;color:var(--green);margin-top:4px' }, 'curl -X POST \\\n  -H "Authorization: Bearer eyJ..." \\\n  /api/v1/vms/web-prod/start'))));
+  var rbacCard = HN.card('👤 ' + _L('RBAC 역할', 'RBAC Roles'), [
+    el('table', { style: 'font-size:13px;width:100%' },
+      el('thead', null, el('tr', null,
+        el('th', null, _L('역할', 'Role')), el('th', null, _L('레벨', 'Level')), el('th', null, _L('권한', 'Permissions')))),
+      el('tbody', null,
+        el('tr', null, el('td', null, HN.badge('VIEWER', 'g')), el('td', null, '0'), el('td', null, _L('읽기 전용 (GET)', 'Read-only (GET endpoints)'))),
+        el('tr', null, el('td', null, HN.badge('OPERATOR', 'y')), el('td', null, '1'), el('td', null, _L('VM/컨테이너 운영, VM action은 생성자 범위', 'VM/Container operations, VM actions scoped to creator'))),
+        el('tr', null, el('td', null, HN.badge('ADMIN', 'r')), el('td', null, '2'), el('td', null, _L('전체 관리자', 'Full access'))))),
+    el('div', { style: 'margin-top:10px;font-size:12px;color:var(--fg2)' }, _L('내장 기본 비밀번호 없음. 첫 로그인 전 daemon.conf 또는 PURECVISOR_ADMIN_PASSWORD로 bootstrap 비밀번호를 설정합니다.', 'No built-in default password. Set the bootstrap password in daemon.conf or PURECVISOR_ADMIN_PASSWORD before first login.')),
+    el('div', { style: 'margin-top:6px;font-size:12px;color:var(--fg2)' }, _L('OPERATOR는 libvirt domain metadata의 owner가 본인인 VM에만 시작, 중지, 삭제, 스냅샷, VNC, 일괄 작업을 수행할 수 있습니다.', 'OPERATOR can start, stop, delete, snapshot, access VNC, and batch-operate only VMs whose libvirt domain metadata owner matches the caller.'))
+  ]);
+  var grid1 = el('div', { class: 'sg grid-2' }, authCard, rbacCard);
 
-  h += '<div class="sg grid-3">';
-  h += H.card(_L('&#128737; 보안', '&#128737; Security'), H.row(_L('속도 제한', 'Rate Limit'), _L('600 IP / 1200 유저 / 60 인증', '600 IP / 1200 user / 60 auth')) + H.row(_L('JWT 알고리즘', 'JWT Algorithm'), 'HS256') + H.row(_L('JWT 만료', 'JWT Expiry'), '900s (15min) + refresh 7d') + H.row('CORS', _L('화이트리스트', 'Whitelist')) + H.row('ETag', _L('GET 응답 조건부 캐싱 (304)', 'GET conditional caching (304)')) + H.row(_L('JWT IP 바인딩', 'JWT IP Binding'), _L('선택적 클라이언트 IP 검증', 'Optional client IP verification')));
-  h += H.card(_L('&#127760; 엔드포인트', '&#127760; Endpoints'), H.row(_L('기본 URL', 'Base URL'), '<code>/api/v1</code>') + H.row(_L('포트', 'Port'), '80 / 443') + H.row(_L('합계', 'Total'), (typeof PCV !== 'undefined' ? PCV.config.REST_COUNT : 195) + '+') + H.row('WebSocket', '<code>/ws/events</code>'));
-  h += H.card(_L('&#128196; 응답 형식', '&#128196; Response Format'), H.row(_L('성공', 'Success'), '<code>{"data": ...}</code>') + H.row(_L('에러', 'Error'), '<code>{"error": {code, message}}</code>') + H.row('Content-Type', 'application/json') + H.row(_L('캐시', 'Cache'), _L('ETag + max-age=5 (GET) / no-store (POST)', 'ETag + max-age=5 (GET) / no-store (POST)')) + H.row(_L('페이지네이션', 'Pagination'), 'X-Total-Count + Link rel="next/prev"'));
-  h += '</div>';
+  var securityCard = HN.card('🛡 ' + _L('보안', 'Security'), [
+    HN.row(_L('속도 제한', 'Rate Limit'), _L('600 IP / 1200 유저 / 60 인증', '600 IP / 1200 user / 60 auth')),
+    HN.row(_L('JWT 알고리즘', 'JWT Algorithm'), 'HS256'),
+    HN.row(_L('JWT 만료', 'JWT Expiry'), '900s (15min) + refresh 7d'),
+    HN.row('CORS', _L('화이트리스트', 'Whitelist')),
+    HN.row('ETag', _L('GET 응답 조건부 캐싱 (304)', 'GET conditional caching (304)')),
+    HN.row(_L('JWT IP 바인딩', 'JWT IP Binding'), _L('선택적 클라이언트 IP 검증', 'Optional client IP verification'))
+  ]);
+  var endpointsCard = HN.card('🌐 ' + _L('엔드포인트', 'Endpoints'), [
+    HN.row(_L('기본 URL', 'Base URL'), el('code', null, '/api/v1')),
+    HN.row(_L('포트', 'Port'), '80 / 443'),
+    HN.row(_L('합계', 'Total'), (typeof PCV !== 'undefined' ? PCV.config.REST_COUNT : 195) + '+'),
+    HN.row('WebSocket', el('code', null, '/ws/events'))
+  ]);
+  var responseCard = HN.card('📄 ' + _L('응답 형식', 'Response Format'), [
+    HN.row(_L('성공', 'Success'), el('code', null, '{"data": ...}')),
+    HN.row(_L('에러', 'Error'), el('code', null, '{"error": {code, message}}')),
+    HN.row('Content-Type', 'application/json'),
+    HN.row(_L('캐시', 'Cache'), _L('ETag + max-age=5 (GET) / no-store (POST)', 'ETag + max-age=5 (GET) / no-store (POST)')),
+    HN.row(_L('페이지네이션', 'Pagination'), 'X-Total-Count + Link rel="next/prev"')
+  ]);
+  var grid2 = el('div', { class: 'sg grid-3' }, securityCard, endpointsCard, responseCard);
 
-  h += H.section('curl ' + _L('예제', 'Examples'));
   var examples = [
     { title: _L('VM 목록', 'List VMs'), cmd: 'curl -s -H "Authorization: Bearer $TOKEN" \\\n  http://HOST/api/v1/vms | jq' },
     { title: _L('VM 생성', 'Create VM'), cmd: 'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -H "Content-Type: application/json" \\\n  -d \'{"name":"web","vcpu":2,"memory_mb":2048,"disk_size_gb":20}\' \\\n  http://HOST/api/v1/vms' },
@@ -150,164 +197,182 @@ function renderRestGuide(b) {
     { title: _L('클라우드 임포트 (니어라이브)', 'Cloud Import (Near-Live)'), cmd: 'curl -X POST -H "Authorization: Bearer $TOKEN" \\\n  -d \'{"name":"web","ami_id":"ami-0abc","mode":"near-live"}\' \\\n  http://HOST/api/v1/vms/web/import-ec2' },
     { title: _L('WebSocket 이벤트', 'WebSocket Events'), cmd: 'wscat -c "ws://HOST/api/v1/ws/events?token=$TOKEN"' },
   ];
-  h += '<div class="sg grid-2">';
-  examples.forEach(function(ex) {
-    h += H.card(ex.title, '<pre style="background:var(--bg);padding:10px;border-radius:4px;font-size:11px;color:var(--green);overflow-x:auto;white-space:pre-wrap">' + esc(ex.cmd) + '</pre>');
-  });
-  h += '</div>';
-  b.innerHTML = h;
+  var examplesGrid = el('div', { class: 'sg grid-2' }, examples.map(function(ex) {
+    return HN.card(ex.title, el('pre', { style: 'background:var(--bg);padding:10px;border-radius:4px;font-size:11px;color:var(--green);overflow-x:auto;white-space:pre-wrap' }, ex.cmd));
+  }));
+
+  clearEl(b);
+  b.appendChild(frag(
+    HN.sectionLg(_L('REST API 가이드', 'REST API Guide')),
+    grid1, grid2,
+    HN.section('curl ' + _L('예제', 'Examples')),
+    examplesGrid
+  ));
 }
 window.renderRestGuide = renderRestGuide;
 
 /* ═══ SERVICE GUIDE ═══ */
 function renderServiceGuide(b) {
-  var h = H.sectionLg(_L('PureCVisor 서비스 가이드', 'PureCVisor Service Guide'));
-  h += '<div class="mb-16"><input aria-label="' + t('search') + '" id="guide-search" class="sb-search" placeholder="' + t('search') + '" oninput="filterGuide()" style="max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px"></div>';
-  h += '<div id="guide-content">';
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var searchBar = el('div', { class: 'mb-16' },
+    el('input', { 'aria-label': t('search'), id: 'guide-search', class: 'sb-search', placeholder: t('search'), oninput: 'filterGuide()', style: 'max-width:600px;font-size:15px;padding:10px 14px;border-radius:8px' }));
 
   var services = [
-    { title: _L('빠른 시작', 'Quick Start'), icon: '&#128640;', sections: [
+    { title: _L('빠른 시작', 'Quick Start'), icon: '🚀', sections: [
       { sub: _L('5분 설정', '5-Minute Setup'), content:
-        '<ol style="font-size:13px;line-height:2;padding-left:18px">'
-        + '<li>' + _L('로그인', 'Login') + ': <code>http://NODE_IP/ui/</code> (admin / configured password)</li>'
-        + '<li>' + _L('VM 생성: Ctrl+N → 이름, vCPU, 메모리, 디스크 → 생성', 'Create VM: Ctrl+N → Name, vCPU, Memory, Disk → Create') + '</li>'
-        + '<li>' + _L('VM 시작: VM 선택 → 시작 버튼 또는 우클릭 → 시작', 'Start VM: Select VM → Start button or right-click → Start') + '</li>'
-        + '<li>' + _L('VNC 콘솔: VM 선택 → 콘솔 탭 → noVNC', 'VNC Console: Select VM → Console tab → noVNC') + '</li>'
-        + '<li>' + _L('모니터링: INFRA 사이드바 → 모니터링 Overview', 'Monitor: INFRA sidebar → Monitoring Overview') + '</li></ol>' },
+        el('ol', { style: 'font-size:13px;line-height:2;padding-left:18px' },
+          el('li', null, _L('로그인', 'Login'), ': ', el('code', null, 'http://NODE_IP/ui/'), ' (admin / configured password)'),
+          el('li', null, _L('VM 생성: Ctrl+N → 이름, vCPU, 메모리, 디스크 → 생성', 'Create VM: Ctrl+N → Name, vCPU, Memory, Disk → Create')),
+          el('li', null, _L('VM 시작: VM 선택 → 시작 버튼 또는 우클릭 → 시작', 'Start VM: Select VM → Start button or right-click → Start')),
+          el('li', null, _L('VNC 콘솔: VM 선택 → 콘솔 탭 → noVNC', 'VNC Console: Select VM → Console tab → noVNC')),
+          el('li', null, _L('모니터링: INFRA 사이드바 → 모니터링 Overview', 'Monitor: INFRA sidebar → Monitoring Overview'))) },
       { sub: _L('CLI 빠른 시작', 'CLI Quick Start'), content:
-        '<pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto">'
-        + '# ' + _L('로그인', 'Login') + '\n'
-        + 'TOKEN=$(curl -s -X POST http://localhost/api/v1/auth/token \\\n'
-        + '  -d \'{"username":"admin","password":"configured-admin-password"}\' | jq -r .access_token)\n\n'
-        + '# VM\n'
-        + 'pcvctl vm list\n'
-        + 'pcvctl vm create web --vcpu 2 --memory_mb 2048 --disk_size_gb 20\n'
-        + 'pcvctl vm start web\n'
-        + 'pcvctl vm stop web\n\n'
-        + '# ' + _L('컨테이너', 'Container') + '\n'
-        + 'pcvctl container list\n'
-        + 'pcvctl container exec app-ctr "hostname -I"\n\n'
-        + '# ' + _L('모니터링', 'Monitoring') + '\n'
-        + 'pcvctl monitor fleet\n'
-        + 'pcvctl alert list</pre>' },
+        el('pre', { style: 'background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto' },
+          '# ' + _L('로그인', 'Login') + '\n'
+          + 'TOKEN=$(curl -s -X POST http://localhost/api/v1/auth/token \\\n'
+          + '  -d \'{"username":"admin","password":"configured-admin-password"}\' | jq -r .access_token)\n\n'
+          + '# VM\n'
+          + 'pcvctl vm list\n'
+          + 'pcvctl vm create web --vcpu 2 --memory_mb 2048 --disk_size_gb 20\n'
+          + 'pcvctl vm start web\n'
+          + 'pcvctl vm stop web\n\n'
+          + '# ' + _L('컨테이너', 'Container') + '\n'
+          + 'pcvctl container list\n'
+          + 'pcvctl container exec app-ctr "hostname -I"\n\n'
+          + '# ' + _L('모니터링', 'Monitoring') + '\n'
+          + 'pcvctl monitor fleet\n'
+          + 'pcvctl alert list') },
     ]},
-    { title: _L('아키텍처', 'Architecture'), icon: '&#127959;', sections: [
+    { title: _L('아키텍처', 'Architecture'), icon: '🏗', sections: [
       { sub: _L('시스템 개요', 'System Overview'), content:
-        '<pre style="background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--accent);overflow-x:auto">'
-        + _L('클라이언트', 'Client') + ' (pcvctl / pcvtui / Web UI / REST API)\n'
-        + '         |\n'
-        + '   UDS ' + _L('서버', 'Server') + ' (JSON-RPC 2.0) | REST ' + _L('서버', 'Server') + ' (HTTP+JWT)\n'
-        + '         |\n'
-        + '   ' + _L('디스패처', 'Dispatcher') + ' (' + (typeof PCV !== 'undefined' ? PCV.config.RPC_COUNT : 264) + '+ RPC ' + _L('메서드', 'methods') + ')\n'
-        + '     method policy / RBAC / VM owner-scope\n'
-        + '         |\n'
-        + '   ' + _L('핸들러 계층', 'Handler Layer') + ' (dispatcher/*.c)\n'
-        + '         |\n'
-        + '   ' + _L('코어 모듈', 'Core Modules') + ' (vm_manager, network, zfs, lxc)\n'
-        + '         |\n'
-        + '   ' + _L('시스템', 'System') + ' (libvirt, nftables, dnsmasq, ZFS, LXC)</pre>' },
+        el('pre', { style: 'background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--accent);overflow-x:auto' },
+          _L('클라이언트', 'Client') + ' (pcvctl / pcvtui / Web UI / REST API)\n'
+          + '         |\n'
+          + '   UDS ' + _L('서버', 'Server') + ' (JSON-RPC 2.0) | REST ' + _L('서버', 'Server') + ' (HTTP+JWT)\n'
+          + '         |\n'
+          + '   ' + _L('디스패처', 'Dispatcher') + ' (' + (typeof PCV !== 'undefined' ? PCV.config.RPC_COUNT : 264) + '+ RPC ' + _L('메서드', 'methods') + ')\n'
+          + '     method policy / RBAC / VM owner-scope\n'
+          + '         |\n'
+          + '   ' + _L('핸들러 계층', 'Handler Layer') + ' (dispatcher/*.c)\n'
+          + '         |\n'
+          + '   ' + _L('코어 모듈', 'Core Modules') + ' (vm_manager, network, zfs, lxc)\n'
+          + '         |\n'
+          + '   ' + _L('시스템', 'System') + ' (libvirt, nftables, dnsmasq, ZFS, LXC)') },
       { sub: _L('기술 스택', 'Tech Stack'), content:
-        '<table style="font-size:12px;width:100%"><tbody>'
-        + '<tr><td class="color-muted">' + _L('언어', 'Language') + '</td><td>C23 (gnu23)</td></tr>'
-        + '<tr><td class="color-muted">' + _L('이벤트 루프', 'Event Loop') + '</td><td>GMainLoop (GLib)</td></tr>'
-        + '<tr><td class="color-muted">' + _L('하이퍼바이저', 'Hypervisor') + '</td><td>KVM/QEMU via libvirt</td></tr>'
-        + '<tr><td class="color-muted">' + _L('컨테이너', 'Container') + '</td><td>LXC (liblxc)</td></tr>'
-        + '<tr><td class="color-muted">' + _L('스토리지', 'Storage') + '</td><td>ZFS (zvol + snapshots)</td></tr>'
-        + '<tr><td class="color-muted">' + _L('네트워크', 'Network') + '</td><td>nftables + OVS + OVN</td></tr>'
-        + '<tr><td class="color-muted">REST</td><td>libsoup3 (HTTP/HTTPS)</td></tr>'
-        + '<tr><td class="color-muted">' + _L('비동기 I/O', 'Async I/O') + '</td><td>io_uring</td></tr>'
-        + '<tr><td class="color-muted">' + _L('인증', 'Auth') + '</td><td>JWT HS256 + RBAC + VM owner-scope</td></tr>'
-        + '<tr><td class="color-muted">' + _L('모니터링', 'Monitoring') + '</td><td>' + _L('자체 node_exporter (' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170) + ' 메트릭)', 'Self node_exporter (' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170) + ' metrics)') + '</td></tr>'
-        + '<tr><td class="color-muted">Web UI</td><td>Vanilla JS (Single Edge modules)</td></tr>'
-        + '</tbody></table>' },
+        el('table', { style: 'font-size:12px;width:100%' },
+          el('tbody', null,
+            el('tr', null, el('td', { class: 'color-muted' }, _L('언어', 'Language')), el('td', null, 'C23 (gnu23)')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('이벤트 루프', 'Event Loop')), el('td', null, 'GMainLoop (GLib)')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('하이퍼바이저', 'Hypervisor')), el('td', null, 'KVM/QEMU via libvirt')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('컨테이너', 'Container')), el('td', null, 'LXC (liblxc)')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('스토리지', 'Storage')), el('td', null, 'ZFS (zvol + snapshots)')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('네트워크', 'Network')), el('td', null, 'nftables + OVS + OVN')),
+            el('tr', null, el('td', { class: 'color-muted' }, 'REST'), el('td', null, 'libsoup3 (HTTP/HTTPS)')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('비동기 I/O', 'Async I/O')), el('td', null, 'io_uring')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('인증', 'Auth')), el('td', null, 'JWT HS256 + RBAC + VM owner-scope')),
+            el('tr', null, el('td', { class: 'color-muted' }, _L('모니터링', 'Monitoring')), el('td', null, _L('자체 node_exporter (' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170) + ' 메트릭)', 'Self node_exporter (' + (typeof PCV !== 'undefined' ? PCV.config.METRICS_COUNT : 170) + ' metrics)'))),
+            el('tr', null, el('td', { class: 'color-muted' }, 'Web UI'), el('td', null, 'Vanilla JS (Single Edge modules)')))) },
     ]},
-    { title: _L('가상 머신', 'Virtual Machines'), icon: '&#128187;', sections: [
-      { sub: _L('라이프사이클', 'Lifecycle'), content:
-        H.row(_L('생성', 'Create'), _L('virt-install + XML 폴백, cloud-init 지원', 'virt-install + XML fallback, cloud-init support'))
-        + H.row(_L('시작/중지', 'Start/Stop'), _L('virDomainCreate / virDomainShutdown (graceful 30초 → 강제)', 'virDomainCreate / virDomainShutdown (graceful 30s → force)'))
-        + H.row(_L('일시정지/재개', 'Pause/Resume'), 'virDomainSuspend / virDomainResume')
-        + H.row(_L('삭제', 'Delete'), _L('virDomainUndefine + ZFS zvol 삭제 (비동기)', 'virDomainUndefine + ZFS zvol destroy (async)'))
-        + H.row(_L('복제', 'Clone'), _L('ZFS clone + 새 도메인 정의', 'ZFS clone + new domain define'))
-        + H.row(_L('가져오기/내보내기', 'Import/Export'), _L('qcow2 기반 VM 이미지 가져오기와 내보내기', 'qcow2-based VM image import and export')) },
-      { sub: _L('스냅샷', 'Snapshots'), content:
-        H.row(_L('생성', 'Create'), _L('ZFS 스냅샷 (크래시 일관성, 실행/중지 상태)', 'ZFS snapshot (crash-consistent, live or stopped)'))
-        + H.row(_L('롤백', 'Rollback'), _L('VM 중지 → zfs rollback -r → 재시작 (fire-and-forget)', 'VM stop → zfs rollback -r → restart (fire-and-forget)'))
-        + H.row(_L('일괄 삭제', 'Bulk Delete'), _L('vm.snapshot.delete_all — prefix 필터 + keep_recent', 'vm.snapshot.delete_all — prefix filter + keep_recent'))
-        + H.row('UI', _L('생성 모달 (검증+미리보기) + 롤백 (이름 타이핑 확인) + 일괄 삭제 (미리보기)', 'Create modal (validation+preview) + Rollback (name typing confirm) + Bulk delete (preview)')) },
-      { sub: _L('핫플러그', 'Hotplug'), content:
-        H.row('NIC', _L('device.nic.attach/detach — 브릿지 + 모델 (virtio)', 'device.nic.attach/detach — bridge + model (virtio)'))
-        + H.row('ISO', _L('vm.mount_iso / vm.eject — 핫 마운트/꺼내기', 'vm.mount_iso / vm.eject — hot mount/eject'))
-        + H.row('vCPU', _L('vm.set_vcpu — 라이브 조정', 'vm.set_vcpu — live adjust'))
-        + H.row(_L('메모리', 'Memory'), _L('vm.set_memory — 라이브 조정 (balloon)', 'vm.set_memory — live adjust (balloon)'))
-        + H.row(_L('디스크', 'Disk'), _L('vm.resize_disk — qemu-img resize + virDomainBlockResize', 'vm.resize_disk — qemu-img resize + virDomainBlockResize')) },
+    { title: _L('가상 머신', 'Virtual Machines'), icon: '💻', sections: [
+      { sub: _L('라이프사이클', 'Lifecycle'), content: [
+        HN.row(_L('생성', 'Create'), _L('virt-install + XML 폴백, cloud-init 지원', 'virt-install + XML fallback, cloud-init support')),
+        HN.row(_L('시작/중지', 'Start/Stop'), _L('virDomainCreate / virDomainShutdown (graceful 30초 → 강제)', 'virDomainCreate / virDomainShutdown (graceful 30s → force)')),
+        HN.row(_L('일시정지/재개', 'Pause/Resume'), 'virDomainSuspend / virDomainResume'),
+        HN.row(_L('삭제', 'Delete'), _L('virDomainUndefine + ZFS zvol 삭제 (비동기)', 'virDomainUndefine + ZFS zvol destroy (async)')),
+        HN.row(_L('복제', 'Clone'), _L('ZFS clone + 새 도메인 정의', 'ZFS clone + new domain define')),
+        HN.row(_L('가져오기/내보내기', 'Import/Export'), _L('qcow2 기반 VM 이미지 가져오기와 내보내기', 'qcow2-based VM image import and export'))
+      ] },
+      { sub: _L('스냅샷', 'Snapshots'), content: [
+        HN.row(_L('생성', 'Create'), _L('ZFS 스냅샷 (크래시 일관성, 실행/중지 상태)', 'ZFS snapshot (crash-consistent, live or stopped)')),
+        HN.row(_L('롤백', 'Rollback'), _L('VM 중지 → zfs rollback -r → 재시작 (fire-and-forget)', 'VM stop → zfs rollback -r → restart (fire-and-forget)')),
+        HN.row(_L('일괄 삭제', 'Bulk Delete'), _L('vm.snapshot.delete_all — prefix 필터 + keep_recent', 'vm.snapshot.delete_all — prefix filter + keep_recent')),
+        HN.row('UI', _L('생성 모달 (검증+미리보기) + 롤백 (이름 타이핑 확인) + 일괄 삭제 (미리보기)', 'Create modal (validation+preview) + Rollback (name typing confirm) + Bulk delete (preview)'))
+      ] },
+      { sub: _L('핫플러그', 'Hotplug'), content: [
+        HN.row('NIC', _L('device.nic.attach/detach — 브릿지 + 모델 (virtio)', 'device.nic.attach/detach — bridge + model (virtio)')),
+        HN.row('ISO', _L('vm.mount_iso / vm.eject — 핫 마운트/꺼내기', 'vm.mount_iso / vm.eject — hot mount/eject')),
+        HN.row('vCPU', _L('vm.set_vcpu — 라이브 조정', 'vm.set_vcpu — live adjust')),
+        HN.row(_L('메모리', 'Memory'), _L('vm.set_memory — 라이브 조정 (balloon)', 'vm.set_memory — live adjust (balloon)')),
+        HN.row(_L('디스크', 'Disk'), _L('vm.resize_disk — qemu-img resize + virDomainBlockResize', 'vm.resize_disk — qemu-img resize + virDomainBlockResize'))
+      ] },
     ]},
-    { title: _L('클라우드 마이그레이션', 'Cloud Migration'), icon: '&#9729;', sections: [
+    { title: _L('클라우드 마이그레이션', 'Cloud Migration'), icon: '☁', sections: [
       { sub: _L('AWS EC2 임포트', 'AWS EC2 Import'), content:
-        '<div style="font-size:13px;line-height:1.8">'
-        + '<b>' + _L('표준 임포트 (6단계):', 'Standard Import (6 stages):') + '</b>'
-        + '<ol style="padding-left:18px;margin:4px 0"><li>' + _L('AWS 자격증명 검증', 'AWS credential validation') + '</li><li>' + _L('AMI → S3 내보내기', 'AMI → S3 export') + '</li><li>' + _L('진행률 폴링', 'Progress polling') + '</li><li>' + _L('S3 다운로드', 'S3 download') + '</li><li>' + _L('RAW → qcow2 변환', 'RAW → qcow2 conversion') + '</li><li>' + _L('VM 정의 + 시작', 'VM define + start') + '</li></ol>'
-        + '<b>' + _L('니어라이브 임포트 (2단계):', 'Near-Live Import (2 phases):') + '</b>'
-        + '<ol style="padding-left:18px;margin:4px 0"><li><span class="color-green">' + _L('Phase 1', 'Phase 1') + '</span>: ' + _L('사전동기화 (기본 이미지 다운로드, 다운타임 0)', 'Pre-sync (base image download, no downtime)') + '</li>'
-        + '<li><span class="color-yellow">' + _L('Phase 2', 'Phase 2') + '</span>: ' + _L('최종전환 (EC2 중지 → 델타 스냅샷 → 리베이스 → VM 시작, ~2-5분)', 'Finalize (EC2 stop → delta snapshot → rebase → VM start, ~2-5min)') + '</li></ol></div>' },
+        el('div', { style: 'font-size:13px;line-height:1.8' },
+          el('b', null, _L('표준 임포트 (6단계):', 'Standard Import (6 stages):')),
+          el('ol', { style: 'padding-left:18px;margin:4px 0' },
+            el('li', null, _L('AWS 자격증명 검증', 'AWS credential validation')),
+            el('li', null, _L('AMI → S3 내보내기', 'AMI → S3 export')),
+            el('li', null, _L('진행률 폴링', 'Progress polling')),
+            el('li', null, _L('S3 다운로드', 'S3 download')),
+            el('li', null, _L('RAW → qcow2 변환', 'RAW → qcow2 conversion')),
+            el('li', null, _L('VM 정의 + 시작', 'VM define + start'))),
+          el('b', null, _L('니어라이브 임포트 (2단계):', 'Near-Live Import (2 phases):')),
+          el('ol', { style: 'padding-left:18px;margin:4px 0' },
+            el('li', null, el('span', { class: 'color-green' }, _L('Phase 1', 'Phase 1')), ': ', _L('사전동기화 (기본 이미지 다운로드, 다운타임 0)', 'Pre-sync (base image download, no downtime)')),
+            el('li', null, el('span', { class: 'color-yellow' }, _L('Phase 2', 'Phase 2')), ': ', _L('최종전환 (EC2 중지 → 델타 스냅샷 → 리베이스 → VM 시작, ~2-5분)', 'Finalize (EC2 stop → delta snapshot → rebase → VM start, ~2-5min)')))) },
     ]},
-    { title: _L('보안', 'Security'), icon: '&#128274;', sections: [
-      { sub: _L('보안 강화', 'Hardening'), content:
-        H.row('XSS', _L('escapeHtml() — 모든 사용자 입력', 'escapeHtml() — all user input'))
-        + H.row('CORS', _L('화이트리스트 모드', 'Whitelist mode'))
-        + H.row('RBAC', _L('디스패처 메서드 정책 + operator VM owner metadata 검사', 'Dispatcher method policy + operator VM owner metadata check'))
-        + H.row(_L('속도 제한', 'Rate Limit'), _L('600 IP / 1200 유저 / 60 인증', '600 IP / 1200 user / 60 auth'))
-        + H.row('SQL', _L('Prepared statements', 'Prepared statements'))
-        + H.row(_L('경로 순회', 'Path Traversal'), _L('realpath() 검증', 'realpath() validation'))
-        + H.row(_L('명령 주입', 'CMD Injection'), _L('pcv_spawn_sync() argv 배열 (쉘 없음)', 'pcv_spawn_sync() argv array (no shell)'))
-        + H.row(_L('패스워드', 'Password'), 'PBKDF2 (HMAC-SHA256) + ' + _L('자동 마이그레이션', 'auto-migration'))
-        + H.row('Seccomp', _L('시스콜 필터링', 'Syscall filtering'))
-        + H.row('WebSocket', _L('JWT 인증 + 300초 유휴 타임아웃', 'JWT auth + 300s idle timeout'))
-        + H.row(_L('보안 그룹', 'Security Groups'), _L('SQLite 영속화 + default-deny + 포트 범위', 'SQLite persistence + default-deny + port ranges'))
-        + H.row(_L('시크릿', 'Secrets'), _L('PCV_SECRET_* 환경변수 우선 로드', 'PCV_SECRET_* env var priority')) },
+    { title: _L('보안', 'Security'), icon: '🔒', sections: [
+      { sub: _L('보안 강화', 'Hardening'), content: [
+        HN.row('XSS', _L('escapeHtml() — 모든 사용자 입력', 'escapeHtml() — all user input')),
+        HN.row('CORS', _L('화이트리스트 모드', 'Whitelist mode')),
+        HN.row('RBAC', _L('디스패처 메서드 정책 + operator VM owner metadata 검사', 'Dispatcher method policy + operator VM owner metadata check')),
+        HN.row(_L('속도 제한', 'Rate Limit'), _L('600 IP / 1200 유저 / 60 인증', '600 IP / 1200 user / 60 auth')),
+        HN.row('SQL', _L('Prepared statements', 'Prepared statements')),
+        HN.row(_L('경로 순회', 'Path Traversal'), _L('realpath() 검증', 'realpath() validation')),
+        HN.row(_L('명령 주입', 'CMD Injection'), _L('pcv_spawn_sync() argv 배열 (쉘 없음)', 'pcv_spawn_sync() argv array (no shell)')),
+        HN.row(_L('패스워드', 'Password'), 'PBKDF2 (HMAC-SHA256) + ' + _L('자동 마이그레이션', 'auto-migration')),
+        HN.row('Seccomp', _L('시스콜 필터링', 'Syscall filtering')),
+        HN.row('WebSocket', _L('JWT 인증 + 300초 유휴 타임아웃', 'JWT auth + 300s idle timeout')),
+        HN.row(_L('보안 그룹', 'Security Groups'), _L('SQLite 영속화 + default-deny + 포트 범위', 'SQLite persistence + default-deny + port ranges')),
+        HN.row(_L('시크릿', 'Secrets'), _L('PCV_SECRET_* 환경변수 우선 로드', 'PCV_SECRET_* env var priority'))
+      ] },
     ]},
-    { title: _L('설정', 'Configuration'), icon: '&#9881;', sections: [
+    { title: _L('설정', 'Configuration'), icon: '⚙', sections: [
       { sub: 'daemon.conf', content:
-        '<pre style="background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto">'
-        + '[server]\nport = 80\ndrain_timeout = 30\n\n[tls]\nenabled = false\n\n[storage]\nzvol_pool = pcvpool/vms\nimage_dir = /var/lib/libvirt/images\niso_dirs = /pcvpool/iso,/var/lib/libvirt/images\n\n[alert]\nenabled = true\ncpu_warn = 80\ncpu_crit = 95\ndata_pool_warn = 80\ndata_pool_crit = 90\nwebhook_url = https://hooks.slack.com/...\nwebhook_format = slack\n\n[cpu]\nallow_overcommit = false</pre>' },
+        el('pre', { style: 'background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto' },
+          '[server]\nport = 80\ndrain_timeout = 30\n\n[tls]\nenabled = false\n\n[storage]\nzvol_pool = pcvpool/vms\nimage_dir = /var/lib/libvirt/images\niso_dirs = /pcvpool/iso,/var/lib/libvirt/images\n\n[alert]\nenabled = true\ncpu_warn = 80\ncpu_crit = 95\ndata_pool_warn = 80\ndata_pool_crit = 90\nwebhook_url = https://hooks.slack.com/...\nwebhook_format = slack\n\n[cpu]\nallow_overcommit = false') },
       { sub: _L('서비스 관리', 'Service Management'), content:
-        '<pre style="background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto">'
-        + 'sudo systemctl start purecvisorsd  # Single Edge\nsudo systemctl status purecvisorsd\njournalctl -u purecvisorsd -f\n\n# ' + _L('수동 RPC 테스트', 'Manual RPC test') + '\n'
-        + 'echo \'{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}\' \\\n  | nc -U /var/run/purecvisor/daemon.sock | jq</pre>' },
+        el('pre', { style: 'background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto' },
+          'sudo systemctl start purecvisorsd  # Single Edge\nsudo systemctl status purecvisorsd\njournalctl -u purecvisorsd -f\n\n# ' + _L('수동 RPC 테스트', 'Manual RPC test') + '\n'
+          + 'echo \'{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}\' \\\n  | nc -U /var/run/purecvisor/daemon.sock | jq') },
     ]},
-    { title: _L('트러블슈팅', 'Troubleshooting'), icon: '&#128295;', sections: [
+    { title: _L('트러블슈팅', 'Troubleshooting'), icon: '🔧', sections: [
       { sub: _L('자주 발생하는 문제', 'Common Issues'), content:
-        '<table style="font-size:12px;width:100%"><thead><tr><th>' + _L('증상', 'Symptom') + '</th><th>' + _L('원인', 'Cause') + '</th><th>' + _L('해결', 'Fix') + '</th></tr></thead><tbody>'
-        + '<tr><td>' + _L('VM 상태 "unknown"', 'VM state "unknown"') + '</td><td>' + _L('libvirt 연결 끊김', 'libvirt connection lost') + '</td><td><code>systemctl restart purecvisorsd</code></td></tr>'
-        + '<tr><td>/health ' + _L('느림 (30초)', 'slow (30s)') + '</td><td>' + _L('libvirt 프로브 타임아웃', 'libvirt probe timeout') + '</td><td><code>systemctl status libvirtd</code></td></tr>'
-        + '<tr><td>' + _L('스냅샷 500 에러', 'Snapshot 500 error') + '</td><td>' + _L('스냅샷 과다 (>1000개)', 'Too many snapshots (>1000)') + '</td><td><code>pcvctl vm snapshot delete-all --keep 10</code></td></tr>'
-        + '<tr><td>' + _L('컨테이너 IP 대기중', 'Container IP pending') + '</td><td>' + _L('DHCP 지연', 'DHCP delay') + '</td><td>' + _L('10-15초 대기 또는 브릿지 설정 확인', 'Wait 10-15s or check bridge config') + '</td></tr>'
-        + '<tr><td>REST 403 Forbidden</td><td>' + _L('RBAC 역할 부족 또는 VM owner 불일치', 'RBAC role insufficient or VM owner mismatch') + '</td><td><code>pcvctl auth list</code></td></tr>'
-        + '</tbody></table>' },
+        el('table', { style: 'font-size:12px;width:100%' },
+          el('thead', null, el('tr', null, el('th', null, _L('증상', 'Symptom')), el('th', null, _L('원인', 'Cause')), el('th', null, _L('해결', 'Fix')))),
+          el('tbody', null,
+            el('tr', null, el('td', null, _L('VM 상태 "unknown"', 'VM state "unknown"')), el('td', null, _L('libvirt 연결 끊김', 'libvirt connection lost')), el('td', null, el('code', null, 'systemctl restart purecvisorsd'))),
+            el('tr', null, el('td', null, '/health ' + _L('느림 (30초)', 'slow (30s)')), el('td', null, _L('libvirt 프로브 타임아웃', 'libvirt probe timeout')), el('td', null, el('code', null, 'systemctl status libvirtd'))),
+            el('tr', null, el('td', null, _L('스냅샷 500 에러', 'Snapshot 500 error')), el('td', null, _L('스냅샷 과다 (>1000개)', 'Too many snapshots (>1000)')), el('td', null, el('code', null, 'pcvctl vm snapshot delete-all --keep 10'))),
+            el('tr', null, el('td', null, _L('컨테이너 IP 대기중', 'Container IP pending')), el('td', null, _L('DHCP 지연', 'DHCP delay')), el('td', null, _L('10-15초 대기 또는 브릿지 설정 확인', 'Wait 10-15s or check bridge config'))),
+            el('tr', null, el('td', null, 'REST 403 Forbidden'), el('td', null, _L('RBAC 역할 부족 또는 VM owner 불일치', 'RBAC role insufficient or VM owner mismatch')), el('td', null, el('code', null, 'pcvctl auth list'))))) },
       { sub: _L('디버그 명령어', 'Debug Commands'), content:
-        '<pre style="background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto">'
-        + '# ' + _L('데몬 상태', 'Daemon status') + '\n'
-        + 'sudo systemctl status purecvisorsd\njournalctl -u purecvisorsd --since "5 min ago"\n\n'
-        + '# libvirt\nsudo virsh list --all\njournalctl -u libvirtd -n 50\n\n'
-        + '# ' + _L('네트워크', 'Network') + '\n'
-        + 'ip link show type bridge && brctl show\nsudo nft list table inet purecvisor\nsudo ovs-vsctl show\n\n'
-        + '# ZFS\nzpool status pcvpool\nzfs list -t snapshot -r pcvpool/vms</pre>' },
+        el('pre', { style: 'background:var(--bg);padding:10px;border-radius:6px;font-size:11px;color:var(--green);overflow-x:auto' },
+          '# ' + _L('데몬 상태', 'Daemon status') + '\n'
+          + 'sudo systemctl status purecvisorsd\njournalctl -u purecvisorsd --since "5 min ago"\n\n'
+          + '# libvirt\nsudo virsh list --all\njournalctl -u libvirtd -n 50\n\n'
+          + '# ' + _L('네트워크', 'Network') + '\n'
+          + 'ip link show type bridge && brctl show\nsudo nft list table inet purecvisor\nsudo ovs-vsctl show\n\n'
+          + '# ZFS\nzpool status pcvpool\nzfs list -t snapshot -r pcvpool/vms') },
     ]},
   ];
 
-  services.forEach(function(s) {
+  var guideCards = services.map(function(s) {
     var searchText = (s.title + ' ' + s.sections.map(function(x){return x.sub;}).join(' ')).toLowerCase().replace(/[^a-z0-9가-힣\s]/g, '');
-    h += '<div class="hc mb-14" data-guide="' + searchText + '">';
-    h += '<h4 style="font-size:16px;color:var(--accent);margin-bottom:12px;cursor:pointer" onclick="this.parentElement.classList.toggle(\'guide-collapsed\')">' + s.icon + ' ' + s.title + ' <span class="color-muted" style="font-size:11px">(' + s.sections.length + ' ' + _L('섹션', 'sections') + ')</span></h4>';
-    s.sections.forEach(function(sec) {
-      h += '<div style="margin-bottom:14px;padding-left:12px;border-left:2px solid var(--border)">';
-      h += '<div style="font-weight:600;font-size:13px;margin-bottom:6px;color:var(--fg)">' + sec.sub + '</div>';
-      h += '<div style="font-size:12px;color:var(--fg2)">' + sec.content + '</div>';
-      h += '</div>';
-    });
-    h += '</div>';
+    return el('div', { class: 'hc mb-14', 'data-guide': searchText },
+      el('h4', { style: 'font-size:16px;color:var(--accent);margin-bottom:12px;cursor:pointer', onclick: "this.parentElement.classList.toggle('guide-collapsed')" },
+        s.icon + ' ' + s.title + ' ',
+        el('span', { class: 'color-muted', style: 'font-size:11px' }, '(' + s.sections.length + ' ' + _L('섹션', 'sections') + ')')),
+      s.sections.map(function(sec) {
+        return el('div', { style: 'margin-bottom:14px;padding-left:12px;border-left:2px solid var(--border)' },
+          el('div', { style: 'font-weight:600;font-size:13px;margin-bottom:6px;color:var(--fg)' }, sec.sub),
+          el('div', { style: 'font-size:12px;color:var(--fg2)' }, sec.content));
+      }));
   });
-  h += '</div>';
-  b.innerHTML = h;
+  var content = el('div', { id: 'guide-content' }, guideCards);
+  clearEl(b);
+  b.appendChild(frag(HN.sectionLg(_L('PureCVisor 서비스 가이드', 'PureCVisor Service Guide')), searchBar, content));
 }
 window.renderServiceGuide = renderServiceGuide;
 
@@ -316,6 +381,7 @@ window.filterGuide = filterGuide;
 
 /* ═══ SWAGGER API ═══ */
 function renderSwaggerApi(b) {
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var mc = function(m) { return m === 'GET' ? '#61affe' : m === 'POST' ? '#49cc90' : m === 'DELETE' ? '#f93e3e' : m === 'PUT' ? '#fca130' : '#00f0ff'; };
   var endpoints = [
     { tag: 'Health & Auth (4)', endpoints: [
@@ -412,20 +478,31 @@ function renderSwaggerApi(b) {
     ]},
   ];
   var total = 0; endpoints.forEach(function(g) { total += g.endpoints.length; });
-  var h = '<h3 style="font-family:var(--font-display);margin-bottom:8px">&#128214; PureCVisor REST API</h3>';
-  h += '<div class="flex gap-10 mb-8">' + H.badge('OpenAPI 3.0', 'g') + H.badge(total + ' ' + _L('엔드포인트', 'Endpoints'), 'y') + H.badge('JWT + RBAC', 'r') + '</div>';
-  h += '<div class="stat-label mb-12">' + _L('기본', 'Base') + ': <code>/api/v1</code> | ' + _L('인증', 'Auth') + ': <code>Bearer JWT</code></div>';
-  h += '<div class="mb-12"><input aria-label="' + _L('엔드포인트 검색...', 'Search endpoints...') + '" id="sw-search" class="sb-search" placeholder="' + _L('엔드포인트 검색...', 'Search endpoints...') + '" oninput="filterSwagger()" style="max-width:500px;font-size:13px;padding:8px 12px;border-radius:6px"></div>';
-  endpoints.forEach(function(g) {
-    h += '<div class="mb-16 sw-group"><div style="font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid rgba(0,240,255,.15);padding:6px 0;margin-bottom:4px">' + g.tag + '</div>';
-    g.endpoints.forEach(function(e, i) { var id = 'sw-' + g.tag.replace(/\W/g, '') + i;
-      h += '<div class="mb-2 sw-ep" data-sw="' + (e.m + ' ' + e.p + ' ' + e.d).toLowerCase() + '" style="border:1px solid var(--border);border-radius:4px;overflow:hidden"><div onclick="document.getElementById(\'' + id + '\').classList.toggle(\'hidden\')" style="display:flex;align-items:center;padding:8px 12px;cursor:pointer;gap:10px;background:var(--bg2)"><span style="background:' + mc(e.m) + ';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;min-width:52px;text-align:center">' + e.m + '</span><span style="font-family:monospace;font-size:12px">' + e.p + '</span><span class="stat-label" style="margin-left:auto">' + e.d + '</span>' + (e.auth === false ? '' : '<span style="font-size:9px;color:var(--yellow)">&#128274;</span>') + '</div>';
-      h += '<div id="' + id + '" class="hidden" style="padding:10px 12px;background:var(--bg3);font-size:11px">';
-      if (e.body) h += '<div class="mb-6"><b>' + _L('요청 본문:', 'Request Body:') + '</b><pre style="background:var(--bg);padding:8px;border-radius:4px;color:var(--green);overflow-x:auto">' + e.body + '</pre></div>';
-      h += '<button class="btn" style="font-size:10px;padding:3px 10px" onclick="swTry(\'' + e.m + '\',\'' + e.p + '\',' + (e.body ? '\'' + e.body.replace(/'/g, "\\'") + '\'' : 'null') + ')">&#9654; ' + _L('실행', 'Try it') + '</button></div></div>'; });
-    h += '</div>';
+  var heading = el('h3', { style: 'font-family:var(--font-display);margin-bottom:8px' }, '📖 PureCVisor REST API');
+  var badges = el('div', { class: 'flex gap-10 mb-8' }, HN.badge('OpenAPI 3.0', 'g'), HN.badge(total + ' ' + _L('엔드포인트', 'Endpoints'), 'y'), HN.badge('JWT + RBAC', 'r'));
+  var statLine = el('div', { class: 'stat-label mb-12' }, _L('기본', 'Base'), ': ', el('code', null, '/api/v1'), ' | ', _L('인증', 'Auth'), ': ', el('code', null, 'Bearer JWT'));
+  var searchBar = el('div', { class: 'mb-12' },
+    el('input', { 'aria-label': _L('엔드포인트 검색...', 'Search endpoints...'), id: 'sw-search', class: 'sb-search', placeholder: _L('엔드포인트 검색...', 'Search endpoints...'), oninput: 'filterSwagger()', style: 'max-width:500px;font-size:13px;padding:8px 12px;border-radius:6px' }));
+  var groups = endpoints.map(function(g) {
+    var groupHeader = el('div', { style: 'font-family:var(--font-display);font-size:11px;font-weight:700;color:var(--accent);text-transform:uppercase;letter-spacing:.08em;border-bottom:1px solid rgba(0,240,255,.15);padding:6px 0;margin-bottom:4px' }, g.tag);
+    var epNodes = g.endpoints.map(function(e, i) {
+      var id = 'sw-' + g.tag.replace(/\W/g, '') + i;
+      var row = el('div', { onclick: "document.getElementById('" + id + "').classList.toggle('hidden')", style: 'display:flex;align-items:center;padding:8px 12px;cursor:pointer;gap:10px;background:var(--bg2)' },
+        el('span', { style: 'background:' + mc(e.m) + ';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;min-width:52px;text-align:center' }, e.m),
+        el('span', { style: 'font-family:monospace;font-size:12px' }, e.p),
+        el('span', { class: 'stat-label', style: 'margin-left:auto' }, e.d),
+        e.auth === false ? null : el('span', { style: 'font-size:9px;color:var(--yellow)' }, '🔒'));
+      var detail = el('div', { id: id, class: 'hidden', style: 'padding:10px 12px;background:var(--bg3);font-size:11px' },
+        e.body ? el('div', { class: 'mb-6' },
+          el('b', null, _L('요청 본문:', 'Request Body:')),
+          el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;color:var(--green);overflow-x:auto' }, e.body)) : null,
+        el('button', { class: 'btn', style: 'font-size:10px;padding:3px 10px', onclick: "swTry('" + e.m + "','" + e.p + "'," + (e.body ? "'" + e.body.replace(/'/g, "\\'") + "'" : 'null') + ")" }, '▶ ' + _L('실행', 'Try it')));
+      return el('div', { class: 'mb-2 sw-ep', 'data-sw': (e.m + ' ' + e.p + ' ' + e.d).toLowerCase(), style: 'border:1px solid var(--border);border-radius:4px;overflow:hidden' }, row, detail);
+    });
+    return el('div', { class: 'mb-16 sw-group' }, groupHeader, epNodes);
   });
-  b.innerHTML = h;
+  clearEl(b);
+  b.appendChild(frag(heading, badges, statLine, searchBar, groups));
 }
 window.renderSwaggerApi = renderSwaggerApi;
 

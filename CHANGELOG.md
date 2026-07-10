@@ -3,6 +3,20 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.1.5 — 2026-07-10
+
+깨진 모달 6곳 기능 복원 + deb 패키징 style.css 누락 핫픽스 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만). 래칫 **15→9**.
+
+### UI / Fixes
+- 사장된 3-인자 `showModal(title, body, cb)` 모달 6곳 복원 — 시그니처가 존재한 적 없어 제목만 렌더되던 깨진 기능을 노드 body+콜백 배선으로 실동작 복원: container 클론·메모리 상세, advanced 백업 검증, monitor 음소거 생성, accounts API 키 생성×2. 실브라우저 프로브로 제목+폼입력+확인/취소 렌더 검증.
+
+### UI / DOM-safe (zone ADR-013)
+- ui.js `createDataTable`/`renderSortableTable` 노드 반환화(셀 Node|배열|문자열 오버로드, `_dtCellText` 검색·CSV 정합) — ui.js innerHTML 3→1(레거시 `_setModalBody`만). accounts DataTable 소비부 4셀 노드화, help.js 정적 대형 템플릿 4곳(helppage/serviceguide/restguide/apihelp) 노드화(전사 353/353 `_L`쌍 일치).
+
+### Packaging
+- **deb UI 스테이징 `ui/*.css` 누락 보정** — 1.1.1~1.1.4 전 deb에서 index.html이 참조하는 `style.css` 미포함(신규 머신 deb 설치 시 UI 무스타일 렌더). cp glob이 `2>/dev/null || true`로 실패를 삼켜 4개 릴리스 동안 무증상이던 구조에 필수 자산 6종(index/style/app.bundle/sw/i18n/manifest) 스테이징 검증 게이트 추가 — 누락 시 빌드 즉시 실패.
+- 기배포 호스트는 구버전 잔존 `style.css`가 결함을 가리므로(실측: 4/30·5/7자 stale CSS를 v1.1.4 UI와 조합 서빙) v1.1.5 설치로 정정 — SW `CACHE_NAME` bump가 클라이언트 프리캐시의 stale CSS도 함께 해소.
+
 ## v1.1.4 — 2026-07-08
 
 innerHTML→DOM-safe 전환 에픽 6~8차 완결 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만). 래칫 **165→15** (에픽 누계 422→15, −96%).

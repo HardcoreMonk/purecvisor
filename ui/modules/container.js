@@ -793,43 +793,75 @@ window.ctrSetBandwidth = ctrSetBandwidth;
 
 /* ═══ CONTAINER CLONE (백엔드 4차) ═══ */
 async function showCtrClone(name) {
-  var html = '<div class="form-group"><label for="ctr-source">' + _L('원본', 'Source') + '</label>';
-  html += '<input id="ctr-source" class="input-field" value="' + esc(name) + '" disabled></div>';
-  html += '<div class="form-group"><label for="ctr-clone-name">' + _L('클론 이름', 'Clone Name') + '</label>';
-  html += '<input id="ctr-clone-name" class="input-field" placeholder="' + esc(name) + '-clone"></div>';
-  showModal(_L('컨테이너 클론', 'Clone Container'), html, async function() {
-    var dst = document.getElementById('ctr-clone-name').value.trim();
-    if (!dst) { toast(_L('이름 필수', 'Name required'), 'w'); return; }
-    try {
-      await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
-      toast(_L('클론 요청 완료', 'Clone requested'), 's');
-    } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
-  });
+  var el = PCV.uxlib.el;
+  showModal([
+    el('h2', null, _L('컨테이너 클론', 'Clone Container')),
+    el('div', { class: 'fr' },
+      el('label', { for: 'ctr-source' }, _L('원본', 'Source')),
+      el('input', { id: 'ctr-source', value: name, disabled: '' })),
+    el('div', { class: 'fr' },
+      el('label', { for: 'ctr-clone-name' }, _L('클론 이름', 'Clone Name')),
+      el('input', { id: 'ctr-clone-name', placeholder: name + '-clone' })),
+    el('div', { class: 'text-right mt-14' },
+      el('button', { class: 'btn btn-g', id: 'ctr-clone-ok' }, _L('클론', 'Clone')),
+      ' ',
+      el('button', { class: 'btn btn-r', id: 'ctr-clone-cancel' }, t('btn.cancel')))
+  ]);
+  setTimeout(function() {
+    var okBtn = document.getElementById('ctr-clone-ok');
+    var cancelBtn = document.getElementById('ctr-clone-cancel');
+    var inp = document.getElementById('ctr-clone-name');
+    if (inp) inp.focus();
+    if (cancelBtn) cancelBtn.addEventListener('click', function() { closeModal(); });
+    if (okBtn) okBtn.addEventListener('click', async function() {
+      var dst = document.getElementById('ctr-clone-name').value.trim();
+      if (!dst) { toast(_L('이름 필수', 'Name required'), false); return; }
+      try {
+        await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
+        toast(_L('클론 요청 완료', 'Clone requested'));
+        addEvt('LXC Clone requested — ' + name + ' → ' + dst);
+        closeModal();
+      } catch (e) { toast(_L('실패', 'Failed'), false); }
+    });
+    if (inp) inp.addEventListener('keydown', function(e) {
+      if (e.key === 'Enter') { e.preventDefault(); if (okBtn) okBtn.click(); }
+    });
+  }, 50);
 }
 
 /* ═══ CONTAINER MEMORY STATS (cgroup v2) ═══ */
 async function showCtrMemoryStats(name) {
   try {
     var r = await fetchGet(EP.CTR_MEMORY_STATS(name));
-    var d = unwrapData(r);
-    var h = '<h4>' + esc(name) + ' — ' + _L('메모리 상세', 'Memory Details') + '</h4>';
-    h += '<table class="data-table text-11"><thead><tr>';
-    h += '<th>' + _L('항목', 'Field') + '</th><th>' + _L('값', 'Value') + '</th></tr></thead><tbody>';
+    var d = unwrapData(r) || {};
+    var el = PCV.uxlib.el;
     var fields = ['anon', 'file', 'slab', 'sock', 'shmem', 'pgfault', 'pgmajfault'];
+    var rows = [];
     fields.forEach(function(f) {
       if (d[f] !== undefined) {
         var val = d[f] > 1048576 ? (d[f] / 1048576).toFixed(1) + ' MB' : d[f];
-        h += '<tr><td><b>' + esc(f) + '</b></td><td>' + val + '</td></tr>';
+        rows.push(el('tr', null, el('td', null, el('b', null, f)), el('td', null, String(val))));
       }
     });
     Object.keys(d).forEach(function(k) {
       if (fields.indexOf(k) === -1 && k !== 'container') {
-        h += '<tr><td class="color-muted">' + esc(k) + '</td><td>' + d[k] + '</td></tr>';
+        rows.push(el('tr', null, el('td', { class: 'color-muted' }, k), el('td', null, String(d[k]))));
       }
     });
-    h += '</tbody></table>';
-    showModal(_L('메모리 상세', 'Memory Stats'), h);
-  } catch(e) { toast(_L('로드 실패', 'Failed'), 'e'); }
+    var body = rows.length
+      ? el('table', { class: 'data-table text-11' },
+          el('thead', null, el('tr', null,
+            el('th', null, _L('항목', 'Field')),
+            el('th', null, _L('값', 'Value')))),
+          el('tbody', null, rows))
+      : PCV.uxlib.msg('muted', { tag: 'p' }, _L('메모리 데이터 없음', 'No memory data'));
+    showModal([
+      el('h2', null, name + ' — ' + _L('메모리 상세', 'Memory Details')),
+      body,
+      el('div', { class: 'text-right mt-12' },
+        el('button', { class: 'btn', onclick: 'closeModal()' }, _L('닫기', 'Close')))
+    ]);
+  } catch (e) { toast(_L('로드 실패', 'Failed'), false); }
 }
 
 /* ═══ CONTAINER HEALTH CHECK ═══ */

@@ -455,15 +455,22 @@ function renderSortableTable(containerId, headers, rows, options) {
   const opts = options || {};
   const el = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
   if (!el) return;
-  let h = '<table><thead><tr>';
-  headers.forEach(hdr => { h += '<th>' + (typeof hdr === 'string' ? hdr : hdr.label) + '</th>'; });
-  h += '</tr></thead><tbody>';
+  /* 9차: HTML 문자열 innerHTML → Node 조립(ADR-013). 셀은 Node/문자열 허용 —
+   * 문자열은 텍스트 노드로만 삽입(마크업 해석 없음), createDataTable 과 동일 계약. */
+  var mk = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
+  var headRow = mk('tr', null, headers.map(function(hdr) {
+    return mk('th', null, typeof hdr === 'string' ? hdr : hdr.label);
+  }));
+  var bodyRows;
   if (rows.length === 0) {
-    h += '<tr><td colspan="' + headers.length + '" class="text-center color-muted">' + (opts.emptyText || 'No data') + '</td></tr>';
+    bodyRows = [mk('tr', null, mk('td', { colspan: headers.length, class: 'text-center color-muted' }, opts.emptyText || 'No data'))];
+  } else {
+    bodyRows = rows.map(function(row) {
+      return mk('tr', null, row.map(function(cell) { return mk('td', null, cell); }));
+    });
   }
-  rows.forEach(row => { h += '<tr>'; row.forEach(cell => { h += '<td>' + cell + '</td>'; }); h += '</tr>'; });
-  h += '</tbody></table>';
-  el.innerHTML = h;
+  clearEl(el);
+  el.appendChild(mk('table', null, mk('thead', null, headRow), mk('tbody', null, bodyRows)));
 }
 
 /* ═══ DATA TABLE (B3: sortable, searchable, exportable) ═══
@@ -472,8 +479,16 @@ function renderSortableTable(containerId, headers, rows, options) {
  *  검색/정렬 시 HTML 태그를 strip(.replace(/<[^>]+>/g,''))하여 텍스트만 비교.
  *  pageSize를 config에 넘기면 페이지네이션이 자동 활성화된다 (pageSize=0이면 비활성). */
 function createDataTable(containerId, config) {
+  var mk = PCV.uxlib.el, mkFrag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var el = typeof containerId === 'string' ? document.getElementById(containerId) : containerId;
-  if (!el) return;
+  /* 9차(ADR-013): 내부 재렌더가 innerHTML 문자열 → Node 조립으로 전환.
+   * 컨테이너가 이미 DOM 에 있으면 그 자리에 렌더(레거시 render-into-container
+   * 계약 보존), 없으면 새 <div> 컨테이너를 만들어 반환한다(Node 반환 계약).
+   * 두 경로 모두 컨테이너 노드를 반환하므로 호출부는 append 하거나 무시 가능. */
+  if (!el) {
+    el = document.createElement('div');
+    if (typeof containerId === 'string') el.id = containerId;
+  }
   var cfg = config || {};
   var headers = cfg.headers || [];
   var rows = cfg.rows || [];
@@ -482,7 +497,6 @@ function createDataTable(containerId, config) {
   var tFn = typeof t === 'function' ? t : function(k) { return k; };
 
   function renderTable(filteredRows) {
-    var h = '';
     /* 페이지네이션 계산 */
     var pageSize = cfg.pageSize || 0;
     var dt = window['_dt_' + tableId];
@@ -494,51 +508,93 @@ function createDataTable(containerId, config) {
       var start = (currentPage - 1) * pageSize;
       displayRows = filteredRows.slice(start, start + pageSize);
     }
+    var children = [];
+    /* 검색 + CSV 바 */
     if (cfg.searchable) {
-      h += '<div class="flex gap-8 items-center mb-8"><input aria-label="' + tFn('search') + '" id="' + tableId + '-search" class="sb-search" placeholder="' + tFn('search') + '" oninput="window._dtFilter(\'' + tableId + '\')" style="max-width:300px;font-size:12px;padding:6px 10px;border-radius:4px">';
-      if (cfg.exportable) h += '<button class="btn" style="font-size:10px;padding:3px 8px" onclick="window._dtExport(\'' + tableId + '\')">CSV</button>';
-      h += '<span class="color-muted text-xs">' + filteredRows.length + ' rows</span></div>';
+      var bar = [mk('input', {
+        'aria-label': tFn('search'),
+        id: tableId + '-search',
+        class: 'sb-search',
+        placeholder: tFn('search'),
+        oninput: 'window._dtFilter(\'' + tableId + '\')',
+        style: 'max-width:300px;font-size:12px;padding:6px 10px;border-radius:4px'
+      })];
+      if (cfg.exportable) {
+        bar.push(mk('button', {
+          class: 'btn',
+          style: 'font-size:10px;padding:3px 8px',
+          onclick: 'window._dtExport(\'' + tableId + '\')'
+        }, 'CSV'));
+      }
+      bar.push(mk('span', { class: 'color-muted text-xs' }, filteredRows.length + ' rows'));
+      children.push(mk('div', { class: 'flex gap-8 items-center mb-8' }, bar));
     }
-    h += '<table id="' + tableId + '-table"><thead><tr>';
-    headers.forEach(function(hdr, ci) {
+    /* 헤더 */
+    var ths = headers.map(function(hdr, ci) {
       var dtx = window['_dt_' + tableId];
       var sc = dtx ? dtx.sortCol : sortCol;
       var sd = dtx ? dtx.sortDir : sortDir;
-      var arrow = sc === ci ? (sd > 0 ? ' &#9650;' : ' &#9660;') : '';
-      var sortAttr = hdr.sortable !== false ? ' style="cursor:pointer" onclick="window._dtSort(\'' + tableId + '\',' + ci + ')"' : '';
-      h += '<th' + sortAttr + '>' + (hdr.label || hdr.key || '') + arrow + '</th>';
+      /* 엔티티 → 글리프(textContent 경로): &#9650; → ▲, &#9660; → ▼ */
+      var arrow = sc === ci ? (sd > 0 ? ' ▲' : ' ▼') : null;
+      var attrs = hdr.sortable !== false
+        ? { style: 'cursor:pointer', onclick: 'window._dtSort(\'' + tableId + '\',' + ci + ')' }
+        : null;
+      return mk('th', attrs, hdr.label || hdr.key || '', arrow);
     });
-    h += '</tr></thead><tbody>';
+    /* 본문 */
+    var bodyRows;
     if (displayRows.length === 0) {
-      h += '<tr><td colspan="' + headers.length + '" class="text-center color-muted">' + (cfg.emptyText || 'No data') + '</td></tr>';
+      bodyRows = [mk('tr', null, mk('td', { colspan: headers.length, class: 'text-center color-muted' }, cfg.emptyText || 'No data'))];
+    } else {
+      bodyRows = displayRows.map(function(row) {
+        return mk('tr', null, row.map(function(cell) { return mk('td', null, cell); }));
+      });
     }
-    displayRows.forEach(function(row) {
-      h += '<tr>'; row.forEach(function(cell) { h += '<td>' + cell + '</td>'; }); h += '</tr>';
-    });
-    h += '</tbody></table>';
+    children.push(mk('table', { id: tableId + '-table' },
+      mk('thead', null, mk('tr', null, ths)),
+      mk('tbody', null, bodyRows)));
     /* 페이지네이션 UI */
     if (pageSize > 0 && totalPages > 1) {
-      h += '<div class="flex items-center gap-8 mt-8">';
-      h += '<button class="btn btn-sm" ' + (currentPage <= 1 ? 'disabled' : '') + ' onclick="window._dtPage(\'' + tableId + '\',' + (currentPage - 1) + ')">Prev</button>';
-      h += '<span class="stat-label">Page ' + currentPage + '/' + totalPages + '</span>';
-      h += '<button class="btn btn-sm" ' + (currentPage >= totalPages ? 'disabled' : '') + ' onclick="window._dtPage(\'' + tableId + '\',' + (currentPage + 1) + ')">Next</button>';
-      h += '</div>';
+      children.push(mk('div', { class: 'flex items-center gap-8 mt-8' },
+        mk('button', {
+          class: 'btn btn-sm',
+          disabled: currentPage <= 1 ? '' : null,
+          onclick: 'window._dtPage(\'' + tableId + '\',' + (currentPage - 1) + ')'
+        }, 'Prev'),
+        mk('span', { class: 'stat-label' }, 'Page ' + currentPage + '/' + totalPages),
+        mk('button', {
+          class: 'btn btn-sm',
+          disabled: currentPage >= totalPages ? '' : null,
+          onclick: 'window._dtPage(\'' + tableId + '\',' + (currentPage + 1) + ')'
+        }, 'Next')));
     }
-    el.innerHTML = h;
+    clearEl(el);
+    el.appendChild(mkFrag(children));
     /* 현재 페이지 저장 */
     if (dt) dt.currentPage = currentPage;
   }
 
   window['_dt_' + tableId] = { headers: headers, rows: rows, sortCol: sortCol, sortDir: sortDir, currentPage: 1, el: el, cfg: cfg, renderTable: renderTable };
   renderTable(rows);
+  return el;
+}
+
+/* 9차: 셀 표현이 HTML 문자열 → Node 로 전환됨에 따라 검색/정렬/CSV 의 텍스트
+ * 추출을 통일. Node → textContent, 문자열(레거시 HTML 조각) → 태그 strip,
+ * 배열(다중 노드 셀) → 자식 텍스트 결합. 기존 태그-strip 계약과 정합. */
+function _dtCellText(cell) {
+  if (cell === null || cell === undefined) return '';
+  if (cell instanceof Node) return cell.textContent || '';
+  if (Array.isArray(cell)) return cell.map(_dtCellText).join('');
+  return String(cell).replace(/<[^>]+>/g, '');
 }
 
 function _dtSort(id, col) {
   var dt = window['_dt_' + id]; if (!dt) return;
   if (dt.sortCol === col) dt.sortDir *= -1; else { dt.sortCol = col; dt.sortDir = 1; }
   var sorted = dt.rows.slice().sort(function(a, b) {
-    var va = (a[col] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
-    var vb = (b[col] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
+    var va = _dtCellText(a[col]).toLowerCase();
+    var vb = _dtCellText(b[col]).toLowerCase();
     var na = parseFloat(va), nb = parseFloat(vb);
     if (!isNaN(na) && !isNaN(nb)) return (na - nb) * dt.sortDir;
     return (va < vb ? -1 : va > vb ? 1 : 0) * dt.sortDir;
@@ -550,14 +606,14 @@ function _dtFilter(id) {
   var dt = window['_dt_' + id]; if (!dt) return;
   var searchEl = document.getElementById(id + '-search');
   var q = (searchEl ? searchEl.value : '').toLowerCase();
-  var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return (cell || '').toString().replace(/<[^>]+>/g, '').toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
+  var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return _dtCellText(cell).toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
   dt.renderTable(filtered);
 }
 
 function _dtExport(id) {
   var dt = window['_dt_' + id]; if (!dt) return;
   var csv = dt.headers.map(function(h) { return h.label || h.key || ''; }).join(',') + '\n';
-  dt.rows.forEach(function(row) { csv += row.map(function(cell) { return '"' + (cell || '').toString().replace(/<[^>]+>/g, '').replace(/"/g, '""') + '"'; }).join(',') + '\n'; });
+  dt.rows.forEach(function(row) { csv += row.map(function(cell) { return '"' + _dtCellText(cell).replace(/"/g, '""') + '"'; }).join(',') + '\n'; });
   var blob = new Blob([csv], { type: 'text/csv' });
   var a = document.createElement('a'); a.href = URL.createObjectURL(blob); a.download = 'purecvisor-export.csv'; a.click();
 }
@@ -568,12 +624,12 @@ function _dtPage(id, page) {
   /* 재검색 적용 */
   var searchEl = document.getElementById(id + '-search');
   var q = (searchEl ? searchEl.value : '').toLowerCase();
-  var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return (cell || '').toString().replace(/<[^>]+>/g, '').toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
+  var filtered = q ? dt.rows.filter(function(row) { return row.some(function(cell) { return _dtCellText(cell).toLowerCase().indexOf(q) !== -1; }); }) : dt.rows;
   /* 정렬 적용 */
   if (dt.sortCol >= 0) {
     filtered = filtered.slice().sort(function(a, b) {
-      var va = (a[dt.sortCol] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
-      var vb = (b[dt.sortCol] || '').toString().replace(/<[^>]+>/g, '').toLowerCase();
+      var va = _dtCellText(a[dt.sortCol]).toLowerCase();
+      var vb = _dtCellText(b[dt.sortCol]).toLowerCase();
       var na = parseFloat(va), nb = parseFloat(vb);
       if (!isNaN(na) && !isNaN(nb)) return (na - nb) * dt.sortDir;
       return (va < vb ? -1 : va > vb ? 1 : 0) * dt.sortDir;

@@ -518,18 +518,28 @@ async function doConfigReload() {
 }
 
 /* ═══ BACKUP SNAPSHOT VERIFY ═══ */
-async function showBackupVerify() {
-  var html = '<div class="form-group"><label for="verify-snap">' + _L('스냅샷 이름', 'Snapshot Name') + '</label>';
-  html += '<input id="verify-snap" class="input-field" placeholder="pcvpool/vms/web-prod@daily-20260401"></div>';
-  showModal(_L('스냅샷 무결성 검증', 'Verify Snapshot Integrity'), html, async function() {
-    var snap = document.getElementById('verify-snap').value.trim();
-    if (!snap) { toast(_L('스냅샷 이름 필수', 'Snapshot name required'), 'w'); return; }
-    try {
-      var r = await fetchPost(EP.BACKUP_VERIFY(), { snapshot: snap });
-      var d = unwrapData(r);
-      toast('✅ ' + esc(d.snapshot) + ': ' + (d.integrity || 'ok'), 's');
-    } catch(e) { toast(_L('검증 실패', 'Verification failed'), 'e'); }
-  });
+function showBackupVerify() {
+  var mk = PCV.uxlib.el;
+  var snapInput = mk('input', { id: 'verify-snap', placeholder: 'pcvpool/vms/web-prod@daily-20260401' });
+  showModal([
+    mk('h2', null, _L('스냅샷 무결성 검증', 'Verify Snapshot Integrity')),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'verify-snap' }, _L('스냅샷 이름', 'Snapshot Name')),
+      snapInput),
+    mk('div', { class: 'text-right mt-12' },
+      mk('button', { class: 'btn btn-g', onClick: async function() {
+        var snap = snapInput.value.trim();
+        if (!snap) { toast(_L('스냅샷 이름 필수', 'Snapshot name required'), 'w'); return; }
+        try {
+          var r = await fetchPost(EP.BACKUP_VERIFY(), { snapshot: snap });
+          var d = unwrapData(r) || {};
+          toast('✅ ' + esc(d.snapshot || snap) + ': ' + (d.integrity || 'ok'), 's');
+          closeModal();
+        } catch(e) { toast(_L('검증 실패', 'Verification failed'), 'e'); }
+      } }, _L('검증', 'Verify')),
+      ' ',
+      mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 
 /* ═══ PERSISTENT JOBS ═══ */

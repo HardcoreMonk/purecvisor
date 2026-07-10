@@ -70,14 +70,24 @@ async function renderAccounts(b) {
           var rc = u.role === 'admin' ? 'var(--red)' : u.role === 'operator' ? 'var(--yellow)' : 'var(--fg2)';
           var actions;
           if (u.username !== 'admin') {
-            actions = '<select id="role-' + escapeHtml(u.username) + '" aria-label="' + escapeHtml(u.username) + ' role" style="background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:2px 6px;font-size:10px"><option ' + (u.role === 'viewer' ? 'selected' : '') + '>viewer</option><option ' + (u.role === 'operator' ? 'selected' : '') + '>operator</option><option ' + (u.role === 'admin' ? 'selected' : '') + '>admin</option></select> <button class="btn btn-xxs" onclick="acctRole(\'' + escapeHtml(u.username) + '\')">Set</button> <button class="btn btn-r btn-xxs" onclick="acctDel(\'' + escapeHtml(u.username) + '\')">' + t('btn.delete') + '</button>';
+            /* 셀은 DataTable 노드 계약(9차) — 노드 배열로 조립, onclick은 문자열 유지 */
+            actions = [
+              mk('select', { id: 'role-' + u.username, 'aria-label': u.username + ' role', style: 'background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:2px 6px;font-size:10px' },
+                mk('option', u.role === 'viewer' ? { selected: '' } : null, 'viewer'),
+                mk('option', u.role === 'operator' ? { selected: '' } : null, 'operator'),
+                mk('option', u.role === 'admin' ? { selected: '' } : null, 'admin')),
+              ' ',
+              mk('button', { class: 'btn btn-xxs', onclick: "acctRole('" + escapeHtml(u.username) + "')" }, 'Set'),
+              ' ',
+              mk('button', { class: 'btn btn-r btn-xxs', onclick: "acctDel('" + escapeHtml(u.username) + "')" }, t('btn.delete'))
+            ];
           } else {
-            actions = '<span class="stat-label">System admin</span>';
+            actions = mk('span', { class: 'stat-label' }, 'System admin');
           }
           return [
-            '<b>' + escapeHtml(u.username) + '</b>',
-            '<span class="badge" style="border:1px solid ' + rc + ';color:' + rc + '">' + escapeHtml(u.role) + '</span>',
-            escapeHtml(u.tenant || '---'),
+            mk('b', null, u.username),
+            mk('span', { class: 'badge', style: 'border:1px solid ' + rc + ';color:' + rc }, u.role),
+            u.tenant || '---',
             actions
           ];
         }),
@@ -625,22 +635,27 @@ async function renderApiKeys(b) {
     b.appendChild(frag(HN.section(_L('API 키 관리', 'API Key Management')), createBtn, body));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
-async function showApiKeyCreate() {
-  var html = '<div class="form-group"><label for="ak-name">' + _L('클라이언트 이름', 'Client Name') + '</label>';
-  html += '<input id="ak-name" class="input-field" placeholder="grafana-scraper"></div>';
-  html += '<div class="form-group"><label for="ak-role">' + _L('역할', 'Role') + '</label>';
-  html += '<select id="ak-role" class="input-field"><option value="0">viewer</option><option value="1" selected>operator</option><option value="2">admin</option></select></div>';
-  showModal(_L('API 키 생성', 'Create API Key'), html, async function() {
-    var name = document.getElementById('ak-name').value.trim();
-    var role = parseInt(document.getElementById('ak-role').value);
-    if (!name) { toast(_L('이름 필수', 'Name required'), 'w'); return; }
-    try {
-      var r = await fetchPost(EP.AUTH_APIKEY_CREATE(), { client_name: name, role: role });
-      var data = unwrapData(r);
-      toast(_L('키 생성 완료', 'Key created') + ' — ' + _L('복사하세요', 'Copy it now'), 's');
-      showModal(_L('API 키', 'API Key'), '<div class="code-block break-all text-12">' + esc(data.api_key) + '</div><p class="color-muted text-xs">' + _L('이 키는 다시 표시되지 않습니다', 'This key will not be shown again') + '</p>');
-    } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), 'e'); }
-  });
+/* 폼(설명 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
+ * apiKeyCreate() 를 재사용한다 — apiKeyCreate 가 #apikey-desc / #apikey-expiry
+ * 를 읽어 POST 후 결과 키를 #apikey-new-result 에 인라인 렌더한다(중복 구현 금지).
+ * 생성된 키가 모달 안에 노출되도록 #apikey-new-result 컨테이너를 포함한다.
+ * (renderApiManagement 의 인라인 폼과 동일한 canonical description/expiry 모델) */
+function showApiKeyCreate() {
+  var mk = PCV.uxlib.el;
+  showModal([
+    mk('h2', null, _L('API 키 생성', 'Create API Key')),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'apikey-desc' }, _L('설명', 'Description')),
+      mk('input', { id: 'apikey-desc', placeholder: _L('예: CI 파이프라인', 'e.g. CI pipeline') })),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'apikey-expiry' }, _L('만료 (일)', 'Expiry (days)')),
+      mk('input', { id: 'apikey-expiry', type: 'number', value: '90', min: '1', max: '365' })),
+    mk('div', { id: 'apikey-new-result', class: 'break-all text-11', style: 'display:none;margin:8px 0;padding:10px;border:1px solid var(--green);border-radius:6px;background:rgba(0,255,0,.04)' }),
+    mk('div', { class: 'text-right mt-12' },
+      mk('button', { class: 'btn btn-g', onclick: 'apiKeyCreate()' }, t('btn.create')),
+      ' ',
+      mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
+  ]);
 }
 async function revokeApiKey(name) {
   if (!await customConfirm(_L('이 API 키를 폐기하시겠습니까?', 'Revoke this API key?') + '\n' + name)) return;

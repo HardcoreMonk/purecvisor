@@ -11,7 +11,7 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss: https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <base href="/ui/">
-<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.1.4">
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=1.1.5">
 <link rel="stylesheet" href="style.css?v=1.0">
 <script>
   /* 레거시 테마 → supanova 마이그레이션 + 초기 렌더 전에 즉시 적용
@@ -602,7 +602,7 @@
 <script src="vendor/chart.umd.min.js?v=1.0"></script>
 <script src="i18n.js?v=1.0"></script>
 <!-- F-5: 단일 번들 (modules/*.js+app.js 결합·민파이 — make ui-bundle 로 생성, scripts/bundle-ui.sh 는 래퍼) -->
-<script src="app.bundle.js?v=1.1.4"></script>
+<script src="app.bundle.js?v=1.1.5"></script>
 <!-- [perf] app.js 는 app.bundle.js(UI_MODULES 마지막)에 포함됨 — 별도 로드 시 타이머/폴링/리스너 이중 실행 -->
 <div class="mobile-nav" id="mobile-nav">
 <div class="mobile-nav-items">
