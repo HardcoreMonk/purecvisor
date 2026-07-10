@@ -336,8 +336,9 @@ _emit_alert(AnomalyMetric *m, gdouble value)
 
     /* BUG-20 fix: AI Ops 파이프라인 연결 — self_healing 정책 엔진으로 전파.
      * pcv_healing_on_anomaly()가 trigger_metric 매칭 정책 평가 + 2개+ 복합 조건 시
-     * AI Agent 합의 요청(pcv_agent_compare_async)까지 이어진다. */
-    pcv_healing_on_anomaly(m->name, value, z, m->threshold);
+     * AI Agent 합의 요청(pcv_agent_compare_async)까지 이어진다.
+     * AF-1: 메트릭 기반 이상탐지 경로는 특정 VM 대상이 없으므로 target_vm=NULL. */
+    pcv_healing_on_anomaly(m->name, value, z, m->threshold, NULL);
 }
 
 /* ── 공개 API ────────────────────────────────────────────────── */
@@ -440,7 +441,15 @@ pcv_anomaly_evaluate(void)
             g_snprintf(search_key, sizeof(search_key), "%s ", m->name);
         }
 
-        const gchar *found = strstr(last_render, search_key);
+        /* [감사 AF-O1] 값 줄(`<name> <value>`)만 매칭해야 하는데, 무라벨 검색키
+         * "<name> "가 먼저 등장하는 `# TYPE <name> gauge` 주석 줄에 오매칭돼
+         * strtod("gauge")=0 → zscore 영구 0으로 node_* 감시가 죽었다. 매치가
+         * 줄 시작(버퍼 첫 줄이거나 직전 문자가 '\n')일 때만 값 줄로 인정한다. */
+        const gchar *found = last_render;
+        while ((found = strstr(found, search_key)) != NULL) {
+            if (found == last_render || found[-1] == '\n') break;
+            found += 1;
+        }
         if (found) {
             const gchar *space = strrchr(search_key, ' ');
             if (!space) space = strchr(found + strlen(m->name), ' ');

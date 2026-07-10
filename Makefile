@@ -224,6 +224,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/ai/anomaly_detector.c \
     src/modules/ai/workload_predict.c \
     src/modules/ai/self_healing.c \
+    src/modules/ai/restart_breaker.c \
     src/modules/ai/ai_agent.c \
     src/modules/cloud/cloud_migration.c \
     src/modules/cloud/aws_client.c \
@@ -239,6 +240,7 @@ TEST_COMMON_SRCS = \
     tests/test_main.c \
     tests/test_validate.c \
     tests/test_circuit_breaker.c \
+    tests/test_restart_breaker.c \
     tests/test_cancellable_map.c \
     tests/test_cpu_allocator.c \
     tests/test_config.c \
@@ -288,6 +290,8 @@ TEST_COMMON_SRCS = \
     tests/test_hids_file_integrity.c \
     tests/test_vm_iface.c \
     tests/test_vm_vnet_cache.c \
+    src/modules/ai/restart_breaker.c \
+    tests/test_apikey.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
     src/modules/security/security_policy.c \
@@ -710,6 +714,14 @@ check-rbac:
 	@echo "🔐 Running ADR-0019 RBAC policy gate..."
 	@python3 scripts/check_rbac_policies.py
 
+check-rpc-consumers:
+	@echo "🔗 Running AF-C4 RPC consumer contract gate (소비 ⊆ 등록)..."
+	@python3 scripts/check_rpc_consumers.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록
+check-all: check-rbac check-rpc-consumers
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers)"
+
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
 	@echo "[" > compile_commands.json
@@ -767,4 +779,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli tui sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-all compile-commands coverage coverage-html coverage-check

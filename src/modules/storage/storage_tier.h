@@ -3,14 +3,17 @@
 
 /**
  * @file storage_tier.h
- * @brief 스토리지 티어링 — NVMe/SSD/HDD 자동 배치 + QoS (영역 E)
+ * @brief 스토리지 티어링 — 부팅 시 기본 SSD 티어 등록 (영역 E)
  *
- * ZFS 풀 기반 논리 티어 정의, 디바이스 타입 감지,
- * VM 생성 시 자동 티어 선택, QoS 정책 관리.
+ * 감사 재분류(2026-07-08, D8/M-1): 티어 CRUD·자동배치·온라인 마이그레이션·
+ * QoS API(9함수)는 대응 RPC가 배선된 적이 없어 호출부 0(도달불가)으로
+ * 확인되어 전면 삭제되었다. pcv_storage_tier_init()만 라이브 경로(기본
+ * ssd 티어 등록 + 통합테스트 test_phase2_ae.sh/test_webui_full.sh가
+ * init 로그에 의존)라 모듈 자체는 보존한다.
+ * 상세: docs/operations/2026-07-08-remediation-roadmap-delta.md D8.
  */
 
 #include <glib.h>
-#include <json-glib/json-glib.h>
 
 G_BEGIN_DECLS
 
@@ -22,28 +25,8 @@ typedef enum {
     PCV_TIER_AUTO = 99
 } PcvStorageTier;
 
-/* 초기화/해제 */
+/* 초기화 — 기본 ssd 티어 등록 (부팅 시 1회, main.c) */
 void pcv_storage_tier_init(void);
-void pcv_storage_tier_shutdown(void);
-
-/* 티어 CRUD */
-JsonArray  *pcv_storage_tier_list(void);
-JsonObject *pcv_storage_tier_info(const gchar *tier_name);
-gboolean    pcv_storage_tier_create(const gchar *name, const gchar *pool,
-                                     PcvStorageTier type, GError **error);
-
-/* 자동 배치 */
-const gchar *pcv_storage_tier_auto_select(gint vcpu, gint ram_mb);
-
-/* 티어 이동 */
-gboolean pcv_storage_tier_migrate(const gchar *vm_name, const gchar *target_tier,
-                                   GError **error);
-
-/* QoS */
-gboolean pcv_storage_qos_set(const gchar *vm_name, gint64 read_bps, gint64 write_bps,
-                              gint64 read_iops, gint64 write_iops, GError **error);
-JsonObject *pcv_storage_qos_get(const gchar *vm_name);
-gboolean pcv_storage_qos_delete(const gchar *vm_name, GError **error);
 
 G_END_DECLS
 

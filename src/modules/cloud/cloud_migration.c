@@ -786,6 +786,24 @@ _export_worker(GTask *task, gpointer src __attribute__((unused)),
         return;
     }
 
+    /* [감사 AF-S3] 실행 중 VM의 디스크를 정지/quiesce 없이 변환하면 crash
+     * inconsistent(손상) 이미지가 정상 AMI로 업로드된다(과거 stop_vm 플래그는
+     * 선언만 되고 읽히지 않았다). VM이 shut off가 아니면 거부한다 — 일관된
+     * export는 오프라인 상태를 요구한다. (자동 정지/재시작 배선은 후속.) */
+    {
+        const gchar *dsargv[] = {"virsh", "domstate", p->name, NULL};
+        gchar *dstate = NULL;
+        gboolean got = pcv_spawn_sync(dsargv, &dstate, NULL, NULL);
+        gboolean running = got && dstate && (strstr(dstate, "shut off") == NULL);
+        g_free(dstate);
+        if (running) {
+            _update_status(p->name, job, "export", PCV_CLOUD_STATUS_FAILED, 5,
+                "VM must be shut off before export (running VM would produce a corrupt image)");
+            g_task_return_boolean(task, FALSE);
+            return;
+        }
+    }
+
     /* 2. VM 디스크 경로 탐색 + qcow2 → RAW 변환 */
     _update_status(p->name, job, "export", PCV_CLOUD_STATUS_CONVERTING, 10,
                    "Finding VM disk and converting to RAW");
@@ -1401,15 +1419,29 @@ _finalize_worker(GTask *task, gpointer src __attribute__((unused)),
     /* 6. VM 시작 */
     _update_status(d->name, d->job_id, "import", PCV_CLOUD_STATUS_FINALIZING, 95,
                    "Starting VM");
+    gboolean started = FALSE;
     {
         const gchar *start_argv[] = {"virsh", "start", d->name, NULL};
         gchar *out = NULL, *verr = nullptr;
-        if (!pcv_spawn_sync(start_argv, &out, &verr, &err)) {
+        started = pcv_spawn_sync(start_argv, &out, &verr, &err);
+        if (!started) {
             PCV_LOG_WARN(CLOUD_LOG, "virsh start failed during finalize: %s",
                          verr ?: (err ? err->message : "unknown"));
             if (err) { g_error_free(err); err = nullptr; }
         }
         g_free(out); g_free(verr);
+    }
+
+    /* [감사 AF-S2] 이전에는 start 실패 시 warning만 찍고 무조건 DONE(100%)을 보고해,
+     * 정의된 적 없는 도메인 + 이미 정지된 원본 EC2로 "무-VM 아웃티지를 성공"으로
+     * 표기했다. start가 실패하면 FAILED로 정직하게 보고한다. (near-live가 libvirt
+     * 도메인을 define하지 않는 근본 결함의 완전 수정은 후속 — 여기서는 거짓 성공
+     * 보고를 차단해 운영자가 개입할 수 있게 한다.) */
+    if (!started) {
+        _update_status(d->name, d->job_id, "import", PCV_CLOUD_STATUS_FAILED, 95,
+            "VM failed to start after finalize (domain may not be defined) — no running VM");
+        g_task_return_boolean(task, FALSE);
+        return;
     }
 
     _update_status(d->name, d->job_id, "import", PCV_CLOUD_STATUS_DONE, 100,

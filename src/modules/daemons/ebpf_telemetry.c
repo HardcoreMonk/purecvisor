@@ -1433,6 +1433,23 @@ _ebpf_thread(gpointer data)
         G.host = h;
         g_mutex_unlock(&G.mu);
 
+        /* AF-O1(a): host CPU/MEM 사용률을 Prometheus 레지스트리에 push.
+         * 이전에는 REST /metrics 즉석 렌더(rest_server.c)에만 존재해
+         * anomaly_detector 가 pcv_prom_render() 에서 이 두 값을 못 읽고
+         * 상수 0/NaN 으로 처리 → cpu-overload/mem-pressure 정책이 트리거
+         * 자체가 안 됐다(AF-O1 self-healing 연쇄 사망). mem_percent 공식은
+         * pcv_ebpf_telemetry_get_host() 와 동일하게 유지한다. h 는 로컬
+         * 사본이라 락 없이 안전하게 참조. */
+        pcv_prom_gauge_set_labels("purecvisor_host_cpu_percent", "",
+                                  (gdouble)h.cpu_percent);
+        {
+            gdouble mem_pct = h.mem_total_kb > 0
+                ? 100.0 * (1.0 - (gdouble)h.mem_avail_kb / (gdouble)h.mem_total_kb)
+                : 0.0;
+            pcv_prom_gauge_set_labels("purecvisor_host_memory_percent", "",
+                                      mem_pct);
+        }
+
         /* Collect VM metrics */
         _collect_vm_metrics();
 

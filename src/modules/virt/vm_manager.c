@@ -2203,8 +2203,8 @@ audit_resize_disk_success(ResizeDiskData *d)
     gchar *target = g_strdup_printf("%s:%s", d->name, d->target ? d->target : "vda");
     gchar *job_id = g_strdup_printf("vm.resize_disk:%s", target);
     pcv_audit_log(NULL, "vm.resize_disk", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.resize_disk",
-                                  "completed", NULL);
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.resize_disk",
+                                     "completed", NULL);
     g_free(job_id);
     g_free(target);
 }
@@ -2215,8 +2215,8 @@ audit_resize_disk_failure(ResizeDiskData *d, const gchar *error_msg)
     gchar *target = g_strdup_printf("%s:%s", d->name, d->target ? d->target : "vda");
     gchar *job_id = g_strdup_printf("vm.resize_disk:%s", target);
     pcv_audit_log(NULL, "vm.resize_disk", target, "fail", -32000, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.resize_disk",
-                                  "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.resize_disk",
+                                     "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);
     g_free(target);
 }

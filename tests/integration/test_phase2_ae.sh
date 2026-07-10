@@ -109,8 +109,9 @@ echo -e "${YELLOW}[4/8] E: Storage Tier — 초기화 로그${NC}"
 assert_contains "storage_tier init log" "$init_log" "Storage tier initialized"
 
 echo -e "${YELLOW}[5/8] E: Storage Tier — tier.list (기본 프리셋)${NC}"
-# storage_tier.c의 pcv_storage_tier_list()를 직접 호출할 RPC가 아직 없으므로
-# 초기화 로그에서 기본 프리셋(ssd → pcvpool) 확인
+# storage_tier.c의 티어 CRUD/QoS API는 호출부 0(도달불가)으로 감사에서
+# 전면 삭제됨(pcv_storage_tier_init()만 보존) — 초기화 로그에서 기본 프리셋
+# (ssd → pcvpool) 확인
 assert_contains "default tier = ssd" "$init_log" "default: ssd"
 
 echo -e "${YELLOW}[6/8] E: Storage Tier — ZFS 풀 사용량 조회${NC}"

@@ -21,8 +21,9 @@
  * [DB 스키마]
  *   경로: /var/lib/purecvisor/pcv_audit.db (WAL 모드)
  *   테이블: audit_log
- *     id INTEGER PK, ts TEXT, node TEXT, username TEXT, method TEXT,
- *     target TEXT, result TEXT, error_code INTEGER, duration_ms INTEGER, src_ip TEXT
+ *     id INTEGER PK, ts TEXT(기록시각), event_ts TEXT(발생시각), node TEXT,
+ *     username TEXT, method TEXT, target TEXT, result TEXT,
+ *     error_code INTEGER, duration_ms INTEGER, src_ip TEXT
  *   인덱스: idx_audit_ts(ts), idx_audit_method(method)
  *
  * [보존 정책]
@@ -63,6 +64,10 @@ G_BEGIN_DECLS
  * @error_code:  에러 코드 (성공 시 0, JSON-RPC 에러코드)
  * @duration_ms: 처리 시간 (밀리초)
  * @src_ip:      요청 소스 IP (REST=클라이언트 IP, UDS="local")
+ * @event_us:    이벤트 발생시각 (epoch 마이크로초, UTC). pcv_audit_log 호출
+ *               즉시 _audit_record_copy에서 g_get_real_time()으로 캡처됩니다.
+ *               워커가 큐에서 pop해 INSERT하는 '기록시각'(ts)과 구분되어,
+ *               큐 지연/오버로드 상황에서도 발생 절대시각을 신뢰할 수 있게 합니다.
  */
 typedef struct {
     gchar  *username;
@@ -72,6 +77,7 @@ typedef struct {
     gint    error_code;
     gint64  duration_ms;
     gchar  *src_ip;
+    gint64  event_us;
 } PcvAuditRecord;
 
 /* ── 생명주기 ─────────────────────────────────────────────────── */

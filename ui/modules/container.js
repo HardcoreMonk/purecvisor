@@ -911,7 +911,3 @@ PCV.container = {
 };
 
 })(window.PCV);
-
-window.showCtrClone = showCtrClone;
-window.showCtrMemoryStats = showCtrMemoryStats;
-window.checkCtrHealth = checkCtrHealth;

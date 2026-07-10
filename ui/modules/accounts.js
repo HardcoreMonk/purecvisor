@@ -204,7 +204,8 @@ async function renderApiManagement(b) {
     mk('h4', null, '🔑 API Keys'),
     mk('p', { class: 'stat-label', style: 'margin-bottom:10px' }, 'Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.'),
     mk('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px' },
-      mk('input', { 'aria-label': 'Key description (e.g. CI pipeline)', id: 'apikey-desc', placeholder: 'Key description (e.g. CI pipeline)', style: 'flex:1;min-width:180px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
+      mk('input', { 'aria-label': 'Key name (e.g. ci-pipeline)', id: 'apikey-name', placeholder: 'Key name (e.g. ci-pipeline)', style: 'flex:1;min-width:140px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
+      mk('input', { 'aria-label': 'Key description (e.g. CI deploy)', id: 'apikey-desc', placeholder: 'Description (optional)', style: 'flex:1;min-width:160px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
       mk('input', { id: 'apikey-expiry', 'aria-label': 'Expiry (days)', type: 'number', value: '90', min: '1', max: '365', style: 'width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px', title: 'Expiry (days)' }),
       mk('span', { class: 'color-muted', style: 'font-size:11px;align-self:center' }, 'days'),
       mk('button', { class: 'btn btn-g', onclick: 'apiKeyCreate()' }, '+ Create Key')),
@@ -635,18 +636,21 @@ async function renderApiKeys(b) {
     b.appendChild(frag(HN.section(_L('API 키 관리', 'API Key Management')), createBtn, body));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
-/* 폼(설명 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
- * apiKeyCreate() 를 재사용한다 — apiKeyCreate 가 #apikey-desc / #apikey-expiry
- * 를 읽어 POST 후 결과 키를 #apikey-new-result 에 인라인 렌더한다(중복 구현 금지).
- * 생성된 키가 모달 안에 노출되도록 #apikey-new-result 컨테이너를 포함한다.
- * (renderApiManagement 의 인라인 폼과 동일한 canonical description/expiry 모델) */
+/* 폼(이름 + 설명 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
+ * apiKeyCreate() 를 재사용한다 — apiKeyCreate 가 #apikey-name / #apikey-desc /
+ * #apikey-expiry 를 읽어 POST 후 결과 키를 #apikey-new-result 에 인라인 렌더한다
+ * (중복 구현 금지). 생성된 키가 모달 안에 노출되도록 #apikey-new-result 컨테이너를 포함.
+ * BE 계약: name(필수, client_name)+description(옵션)+expires_at(옵션, epoch). */
 function showApiKeyCreate() {
   var mk = PCV.uxlib.el;
   showModal([
     mk('h2', null, _L('API 키 생성', 'Create API Key')),
     mk('div', { class: 'fr' },
+      mk('label', { for: 'apikey-name' }, _L('이름', 'Name')),
+      mk('input', { id: 'apikey-name', placeholder: _L('예: ci-파이프라인', 'e.g. ci-pipeline') })),
+    mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-desc' }, _L('설명', 'Description')),
-      mk('input', { id: 'apikey-desc', placeholder: _L('예: CI 파이프라인', 'e.g. CI pipeline') })),
+      mk('input', { id: 'apikey-desc', placeholder: _L('예: CI 배포 자동화', 'e.g. CI deploy automation') })),
     mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-expiry' }, _L('만료 (일)', 'Expiry (days)')),
       mk('input', { id: 'apikey-expiry', type: 'number', value: '90', min: '1', max: '365' })),

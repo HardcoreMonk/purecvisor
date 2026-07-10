@@ -51,6 +51,7 @@
 #include "modules/dispatcher/handler_vm_hotplug.h"
 #include "modules/audit/pcv_audit.h"
 #include "modules/virt/virt_conn_pool.h"
+#include "modules/core/vm_state.h"   /* AF-P1: lock_vm_operation / VM_OP_TUNING */
 #include "purecvisor/pcv_handler_util.h"
 #include "api/ws_server.h"
 #include "utils/pcv_spawn.h"
@@ -236,6 +237,10 @@ static void hotplug_callback(GObject *source_obj, GAsyncResult *res, gpointer us
     VmHotplugCtx *ctx = (VmHotplugCtx *)user_data;
     GError *error = NULL;
 
+    /* AF-P1: tuning 오퍼레이션 락 해제 — 콜백 최우선(성공/실패 무관 항상 실행).
+     * set_memory/set_vcpu 진입부에서 획득한 VM_OP_TUNING 을 여기서 반드시 푼다. */
+    unlock_vm_operation(ctx->vm_id);
+
     gboolean success = g_task_propagate_boolean(task, &error);
 
     if (!success) {
@@ -284,6 +289,22 @@ void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsSe
      *   1. g_new0: 0으로 초기화된 힙 메모리 할당
      *   2. g_strdup: 문자열 복사 (원본 JSON 파라미터 수명과 분리)
      *   3. g_object_ref: GObject 참조 카운트 증가 (소켓이 도중에 해제되는 것 방지) */
+    /* AF-P1: tuning op-lock 획득 — create/delete/start/stop 과 동일하게 라이브
+     * 리소스 변경(vCPU/Memory 핫플러그)을 직렬화한다(동시 tuning, 또는 tuning 중
+     * stop/delete 인터리브 차단). 해제는 완료 콜백 hotplug_callback 이 최우선으로
+     * 수행(항상 실행). 락 획득 이후~task 디스패치 사이에 조기 return 경로가 없어
+     * 락 누수는 발생하지 않는다. 실패 시 -32004(conflict/busy). */
+    {
+        const gchar *_lock_vm = json_object_get_string_member(params, "vm_id");
+        gchar *lock_err = NULL;
+        if (!lock_vm_operation(_lock_vm, VM_OP_TUNING, &lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           lock_err ? lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(lock_err);
+            return;
+        }
+    }
     VmHotplugCtx *ctx = g_new0(VmHotplugCtx, 1);
     ctx->vm_id = g_strdup(json_object_get_string_member(params, "vm_id"));
     ctx->target_value = json_object_get_int_member(params, "memory_mb");
@@ -324,6 +345,22 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
         return;
     }
 
+    /* AF-P1: tuning op-lock 획득 — create/delete/start/stop 과 동일하게 라이브
+     * 리소스 변경(vCPU/Memory 핫플러그)을 직렬화한다(동시 tuning, 또는 tuning 중
+     * stop/delete 인터리브 차단). 해제는 완료 콜백 hotplug_callback 이 최우선으로
+     * 수행(항상 실행). 락 획득 이후~task 디스패치 사이에 조기 return 경로가 없어
+     * 락 누수는 발생하지 않는다. 실패 시 -32004(conflict/busy). */
+    {
+        const gchar *_lock_vm = json_object_get_string_member(params, "vm_id");
+        gchar *lock_err = NULL;
+        if (!lock_vm_operation(_lock_vm, VM_OP_TUNING, &lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           lock_err ? lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(lock_err);
+            return;
+        }
+    }
     VmHotplugCtx *ctx = g_new0(VmHotplugCtx, 1);
     ctx->vm_id = g_strdup(json_object_get_string_member(params, "vm_id"));
     ctx->target_value = vcpu_count;
@@ -1709,8 +1746,8 @@ audit_disk_live_resize_success(DiskLiveResizeCtx *ctx)
     gchar *target = g_strdup_printf("%s:%s", ctx->vm_name, ctx->target);
     gchar *job_id = g_strdup_printf("vm.disk.live_resize:%s", target);
     pcv_audit_log(NULL, "vm.disk.live_resize", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.disk.live_resize",
-                                  "completed", NULL);
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.disk.live_resize",
+                                     "completed", NULL);
     g_free(job_id);
     g_free(target);
 }
@@ -1721,8 +1758,8 @@ audit_disk_live_resize_failure(DiskLiveResizeCtx *ctx, const gchar *error_msg)
     gchar *target = g_strdup_printf("%s:%s", ctx->vm_name, ctx->target);
     gchar *job_id = g_strdup_printf("vm.disk.live_resize:%s", target);
     pcv_audit_log(NULL, "vm.disk.live_resize", target, "fail", -32000, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.disk.live_resize",
-                                  "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.disk.live_resize",
+                                     "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);
     g_free(target);
 }

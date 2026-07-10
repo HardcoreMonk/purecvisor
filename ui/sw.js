@@ -4,7 +4,11 @@
    v14: app.bundle.js 단일 번들 + 오프라인 fallback
    ============================================================ */
 
-const CACHE_NAME = 'pcv-ui-vbae9c21e';
+<<<<<<< HEAD
+const CACHE_NAME = 'pcv-ui-v55450af5';
+=======
+const CACHE_NAME = 'pcv-ui-v55450af5';
+>>>>>>> fix/audit-remediation
 const OFFLINE_URL = '/ui/offline.html';
 
 const STATIC_ASSETS = [

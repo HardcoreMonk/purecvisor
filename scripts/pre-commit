@@ -59,6 +59,8 @@ echo "$STAGED" | grep -qE '\.(c|h)$' && HAS_C_CHANGES=true
 echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=true
 echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
+HAS_CONTRACT_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/cli/purecvisorctl\.c|src/tui/purecvisortui\.c|ui/.*\.js|scripts/check_rpc_consumers\.py)$' && HAS_CONTRACT_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -150,6 +152,22 @@ if $HAS_RBAC_POLICY_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] RBAC 정책 변경 없음 — ADR-0019 계약 검증 생략"
+fi
+
+# ── 4c. AF-C4 RPC 소비⊆등록 계약 (check-rpc-consumers) ─────────────────
+if $HAS_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] AF-C4 RPC 소비⊆등록 계약${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    RPC_OUT=$(python3 "$SCRIPT_DIR/check_rpc_consumers.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "미등록 RPC 메서드 소비 (CLI/TUI/FE 계약 파손 → -32601)"
+        echo "$RPC_OUT" | tail -20
+    else
+        pass "$(echo "$RPC_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 계약 소비/등록 변경 없음 — AF-C4 검증 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

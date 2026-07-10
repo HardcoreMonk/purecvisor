@@ -64,6 +64,7 @@
  */
 #include <stdio.h>
 #include <glib.h>
+#include <glib/gstdio.h>   /* g_mkdir_with_parents */
 #include <gio/gio.h>
 #include <string.h>
 #include <sys/stat.h>
@@ -105,8 +106,8 @@
  *
  *   [QoS 영속화가 필요한 이유]
  *     tc qdisc 설정은 커널 메모리에만 존재하므로 데몬/OS 재시작 시 사라집니다.
- *     /var/run/purecvisor/qos_rules.json에 인터페이스별 규칙을 저장하고,
- *     데몬 기동 시 pcv_qos_restore()로 복원합니다.
+ *     /var/lib/purecvisor/qos_rules.json에 인터페이스별 규칙을 저장하고,
+ *     데몬 기동 시 pcv_qos_restore()로 복원합니다. (비휘발 — 재부팅 유지)
  *
  *   [Bridge VLAN 필터링 (v1.0)]
  *     pcvbr0 등 Linux Bridge에서 VLAN 태깅/필터링을 활성화하면
@@ -116,14 +117,32 @@
  *     → 현재 network_manager에서는 기본 비활성 상태이며,
  *       필요 시 network.vlan.set RPC로 런타임 활성화 가능합니다.
  * ═══════════════════════════════════════════════════════════════════════ */
-#define QOS_PERSIST_PATH "/var/run/purecvisor/qos_rules.json"
+/* AF-N2: /var/run(tmpfs, 재부팅 휘발) → /var/lib(비휘발) 이전.
+ * save/remove/restore 3곳이 이 매크로를 공유한다. */
+#define QOS_PERSIST_PATH "/var/lib/purecvisor/qos_rules.json"
+
+/**
+ * _qos_ensure_dir — QoS 영속 파일의 부모 디렉토리 존재 보장
+ *
+ * QOS_PERSIST_PATH 가 /var/lib(비휘발)로 이전됨에 따라, 저장 전에
+ * 부모 디렉토리(/var/lib/purecvisor)를 생성한다. 이미 존재하면 no-op.
+ */
+static void
+_qos_ensure_dir(void)
+{
+    gchar *dir = g_path_get_dirname(QOS_PERSIST_PATH);
+    if (g_mkdir_with_parents(dir, 0700) != 0) {
+        PCV_LOG_WARN("QOS", "Cannot create dir %s: %s", dir, g_strerror(errno));
+    }
+    g_free(dir);
+}
 
 /**
  * _qos_persist_save — QoS 규칙을 JSON 파일에 저장 (영속화)
  *
  * [호출 시점] handle_network_qos_set()에서 tc 규칙 적용 성공 후 호출
  * [동작] 인터페이스+방향 키로 rate/burst 값을 JSON 파일에 기록
- * [파일] /var/run/purecvisor/qos_rules.json
+ * [파일] /var/lib/purecvisor/qos_rules.json
  * [멱등성] 동일 키로 재호출 시 기존 값을 덮어씀
  *
  * @param iface     인터페이스 이름 (예: "vnet0")
@@ -135,6 +154,8 @@ static void
 _qos_persist_save(const gchar *iface, const gchar *direction,
                   gint rate_mbps, gint burst_kb)
 {
+    _qos_ensure_dir();   /* AF-N2: /var/lib 이전에 따라 디렉토리 생성 보장 */
+
     /* 기존 규칙 파일 로드 */
     JsonParser *parser = json_parser_new();
     JsonObject *root = NULL;

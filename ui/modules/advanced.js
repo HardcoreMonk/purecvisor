@@ -1,7 +1,6 @@
 /* ═══════════════════════════════════════════════════════════════
    PureCVisor — modules/advanced.js
-   Templates, Docker/OCI, Terraform, Config Management,
-   OVA Import
+   Templates, Config Management, OVA Import
    ADR-0013: IIFE module scope — PCV.advanced namespace
    ═══════════════════════════════════════════════════════════════ */
 /*
@@ -123,170 +122,6 @@ async function loadTemplateHistory() {
       el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close'))));
     showModal(parts);
   } catch (e) { toast('Template history error: ' + e.message, false); }
-}
-
-/* ═══ DOCKER/OCI CONTAINERS ═══ */
-async function renderDocker(b) {
-  showSkeleton(b);
-  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
-  try {
-    const r = await fetchGet(EP.DOCKER_LIST());
-    const list = unwrapList(r);
-    var parts = [
-      HN.section('\u{1F433} Docker/OCI Containers'),
-      el('div', { class: 'flex gap-6 mb-14' },
-        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, '\u{1F4E5} Pull Image'),
-        el('button', { class: 'btn btn-g', onclick: 'showDockerRun()' }, '\u{25B6} Run Container'))
-    ];
-    if (list.length === 0) {
-      parts.push(el('div', { class: 'empty-state', style: 'text-align:center;padding:40px 20px' },
-        el('div', { style: 'font-size:48px;margin-bottom:12px;opacity:.5' }, '\u{1F433}'),
-        el('div', { style: 'font-size:14px;color:var(--fg2);margin-bottom:16px' }, 'No Docker containers running'),
-        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, 'Pull Image')));
-      clearEl(b); b.appendChild(frag(parts)); return;
-    }
-    var rows = list.map(c => el('tr', null,
-      el('td', null, el('b', null, c.name || c.id || '-')),
-      el('td', null, c.image || '-'),
-      el('td', null, HN.badge(c.state || c.status || '-', (c.state || '').toLowerCase() === 'running' ? 'g' : 'r')),
-      el('td', { class: 'text-xs' }, c.ports || '-'),
-      el('td', null, el('button', { class: 'btn btn-r', style: 'font-size:10px;padding:3px 8px', onclick: "dockerStop('" + escapeHtml(c.name || c.id || '') + "')" }, 'Stop'))));
-    parts.push(el('table', null,
-      el('thead', null, el('tr', null,
-        el('th', null, 'Name/ID'), el('th', null, 'Image'), el('th', null, 'State'), el('th', null, 'Ports'), el('th', null, 'Actions'))),
-      el('tbody', null, rows)));
-    clearEl(b); b.appendChild(frag(parts));
-  } catch (e) {
-    clearEl(b);
-    b.appendChild(frag(
-      HN.section('\u{1F433} Docker/OCI Containers'),
-      el('div', { class: 'flex gap-6 mb-14' },
-        el('button', { class: 'btn btn-g', onclick: 'showDockerPull()' }, '\u{1F4E5} Pull Image'),
-        el('button', { class: 'btn btn-g', onclick: 'showDockerRun()' }, '\u{25B6} Run Container')),
-      el('p', { class: 'color-muted' }, 'Docker/OCI backend not available. Containers will appear here when docker.list RPC is implemented.')));
-  }
-}
-
-function showDockerPull() {
-  var el = PCV.uxlib.el;
-  showModal([
-    el('h2', null, '\u{1F4E5} Pull OCI Image'),
-    el('div', { class: 'fr' }, el('label', { for: 'dk-image' }, 'Image'), el('input', { id: 'dk-image', placeholder: 'nginx:latest', class: 'flex-1' })),
-    el('div', { class: 'text-right mt-12' },
-      el('button', { class: 'btn btn-g', onclick: 'doDockerPull()' }, 'Pull'),
-      ' ',
-      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
-  ]);
-}
-
-async function doDockerPull() {
-  const img = document.getElementById('dk-image')?.value;
-  if (!img) { toast('Image name required', false); return; }
-  toast('Pulling ' + img + '...');
-  try { const r = await fetchPost(EP.DOCKER_PULL(), { image: img });
-    if (r.error) { toast('Pull failed: ' + (r.error.message || ''), false); return; }
-    toast('Image pulled: ' + img); addEvt('Docker pull: ' + img); closeModal();
-  } catch (e) { toast(e.message, false); }
-}
-
-function showDockerRun() {
-  var el = PCV.uxlib.el;
-  showModal([
-    el('h2', null, '\u{25B6} Run OCI Container'),
-    el('div', { class: 'fr' }, el('label', { for: 'dkr-image' }, 'Image'), el('input', { id: 'dkr-image', placeholder: 'nginx:latest', class: 'flex-1' })),
-    el('div', { class: 'fr' }, el('label', { for: 'dkr-name' }, 'Name'), el('input', { id: 'dkr-name', placeholder: 'my-container' })),
-    el('div', { class: 'fr' }, el('label', { for: 'dkr-ports' }, 'Ports'), el('input', { id: 'dkr-ports', placeholder: '8080:80' })),
-    el('div', { class: 'fr' }, el('label', { for: 'dkr-env' }, 'Environment'), el('input', { id: 'dkr-env', placeholder: 'KEY=VAL,KEY2=VAL2' })),
-    el('div', { class: 'text-right mt-12' },
-      el('button', { class: 'btn btn-g', onclick: 'doDockerRun()' }, 'Run'),
-      ' ',
-      el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
-  ]);
-}
-
-async function doDockerRun() {
-  const img = document.getElementById('dkr-image')?.value;
-  if (!img) { toast('Image required', false); return; }
-  try { const r = await fetchPost(EP.DOCKER_RUN(), { image: img, name: document.getElementById('dkr-name')?.value || '', ports: document.getElementById('dkr-ports')?.value || '', env: document.getElementById('dkr-env')?.value || '' });
-    if (r.error) { toast('Run failed: ' + (r.error.message || ''), false); return; }
-    toast('Container started: ' + img); addEvt('Docker run: ' + img); closeModal(); renderDocker(document.getElementById('cb'));
-  } catch (e) { toast(e.message, false); }
-}
-
-async function dockerStop(name) {
-  if (!await customConfirm('Stop Container', name + '?')) return;
-  try { const r = await fetchPost(EP.DOCKER_STOP(name), {});
-    if (r.error) { toast('Stop failed: ' + (r.error.message || ''), false); return; }
-    toast('Container stopped: ' + name); renderDocker(document.getElementById('cb'));
-  } catch (e) { toast(e.message, false); }
-}
-
-/* ═══ TERRAFORM IaC ═══ */
-async function renderTerraform(b) {
-  showSkeleton(b);
-  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
-  /* NOTE(6차): 원본 placeholder 는 \" (백슬래시+따옴표) 를 innerHTML 에 직접 넣어
-   * HTML 파서가 첫 따옴표에서 속성값을 절단, placeholder="resource \" + garbage 속성
-   * 8개로 파싱되던 malformed 마크업이었다. 노드 조립은 placeholder 를 온전한 리터럴로
-   * 세팅(well-formed). 렌더 결과가 원본의 깨진 파싱과 달라지는 유일 지점 → 보고. */
-  var planBody = [
-    el('p', { class: 'stat-label mb-8' }, 'Preview infrastructure changes before applying.'),
-    el('div', { class: 'fr' },
-      el('label', { for: 'tf-config' }, 'Config (HCL/JSON)'),
-      el('textarea', { id: 'tf-config', placeholder: 'resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}', style: 'width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px' })),
-    el('div', { class: 'flex gap-6 mt-8' },
-      el('button', { class: 'btn', onclick: 'tfPlan()' }, '\u{1F4CB} Plan'),
-      el('button', { class: 'btn btn-g', onclick: 'tfApply()' }, '\u{2705} Apply')),
-    el('div', { id: 'tf-plan-result', class: 'mt-8' })
-  ];
-  clearEl(b);
-  b.appendChild(frag(
-    HN.section('\u{1F3ED} Terraform IaC Integration'),
-    el('div', { class: 'sg grid-2 mb-14' },
-      HN.card('\u{1F4CB} Terraform Plan', planBody),
-      HN.card('\u{1F4CA} Terraform State', [el('div', { id: 'tf-state' }, el('span', { class: 'spinner' }), ' Loading state...')]))));
-  setTimeout(loadTfState, 50);
-}
-
-async function tfPlan() {
-  const el = document.getElementById('tf-plan-result'); if (!el) return;
-  const config = document.getElementById('tf-config')?.value;
-  PCV.uxlib.setMsg(el, 'loading', null, 'Planning...');
-  try { const r = await fetchPost(EP.TERRAFORM_PLAN(), { config: config || '' });
-    const d = unwrapData(r);
-    PCV.uxlib.clearEl(el);
-    el.appendChild(PCV.uxlib.el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--green);white-space:pre-wrap' }, d.plan || d.output || JSON.stringify(d, null, 2)));
-  } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Plan error: ', e.message); }
-}
-
-async function tfApply() {
-  if (!await customConfirm('Terraform Apply', 'Apply infrastructure changes?')) return;
-  const el = document.getElementById('tf-plan-result'); if (el) PCV.uxlib.setMsg(el, 'loading', null, 'Applying...');
-  const config = document.getElementById('tf-config')?.value;
-  try { const r = await fetchPost(EP.TERRAFORM_APPLY(), { config: config || '' });
-    const d = unwrapData(r);
-    if (el) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--accent);white-space:pre-wrap' }, d.output || JSON.stringify(d, null, 2))); }
-    toast('Terraform apply complete'); addEvt('Terraform apply');
-  } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Apply error: ', e.message); }
-}
-
-async function loadTfState() {
-  const box = document.getElementById('tf-state'); if (!box) return;
-  var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
-  try { const r = await fetchGet(EP.TERRAFORM_STATE());
-    const d = unwrapData(r);
-    const resources = d.resources || d.state || [];
-    if (Array.isArray(resources) && resources.length > 0) {
-      var rows = resources.map(res => el('tr', null,
-        el('td', null, res.type || '-'),
-        el('td', null, res.name || '-'),
-        el('td', null, HN.badge(res.status || 'managed', 'g'))));
-      clearEl(box);
-      box.appendChild(el('table', { class: 'text-11' },
-        el('thead', null, el('tr', null, el('th', null, 'Type'), el('th', null, 'Name'), el('th', null, 'Status'))),
-        el('tbody', null, rows)));
-    } else { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'No Terraform state. Use Plan + Apply to manage infrastructure as code.'); }
-  } catch (e) { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'Terraform state not available. Configure terraform.* RPC handlers to enable IaC.'); }
 }
 
 /* ═══ CONFIG MANAGEMENT ═══ */
@@ -489,16 +324,6 @@ window.doTemplateCreate = doTemplateCreate;
 window.templateUse = templateUse;
 window.templateDel = templateDel;
 window.loadTemplateHistory = loadTemplateHistory;
-window.renderDocker = renderDocker;
-window.showDockerPull = showDockerPull;
-window.doDockerPull = doDockerPull;
-window.showDockerRun = showDockerRun;
-window.doDockerRun = doDockerRun;
-window.dockerStop = dockerStop;
-window.renderTerraform = renderTerraform;
-window.tfPlan = tfPlan;
-window.tfApply = tfApply;
-window.loadTfState = loadTfState;
 window.configBackup = configBackup;
 window.configHistory = configHistory;
 window.renderConfigMgmt = renderConfigMgmt;
@@ -619,16 +444,6 @@ PCV.advanced = {
   templateUse: templateUse,
   templateDel: templateDel,
   loadTemplateHistory: loadTemplateHistory,
-  renderDocker: renderDocker,
-  showDockerPull: showDockerPull,
-  doDockerPull: doDockerPull,
-  showDockerRun: showDockerRun,
-  doDockerRun: doDockerRun,
-  dockerStop: dockerStop,
-  renderTerraform: renderTerraform,
-  tfPlan: tfPlan,
-  tfApply: tfApply,
-  loadTfState: loadTfState,
   configBackup: configBackup,
   configHistory: configHistory,
   renderConfigMgmt: renderConfigMgmt,

@@ -369,7 +369,7 @@ static void _restore_worker(GTask        *task,
                      "Async restore failed: %s@%s — %s",
                      d->vm_name, d->snapshot_name, err_msg);
         pcv_audit_log(NULL, "backup.restore", target, "fail", -32000, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.restore", "failed", err_msg);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.restore", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -381,7 +381,7 @@ static void _restore_worker(GTask        *task,
                      "Async restore complete: %s@%s",
                      d->vm_name, d->snapshot_name);
         pcv_audit_log(NULL, "backup.restore", target, "ok", 0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.restore", "completed", NULL);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.restore", "completed", NULL);
         g_task_return_boolean(task, TRUE);
     }
     g_free(job_id);
@@ -652,7 +652,7 @@ static void _replicate_worker(GTask        *task,
                      "Async replication failed: %s → %s — %s",
                      d->vm_name, d->target_node, err_msg);
         pcv_audit_log(NULL, "backup.replicate", target, "fail", -32000, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.replicate", "failed", err_msg);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.replicate", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -664,7 +664,7 @@ static void _replicate_worker(GTask        *task,
                      "Async replication complete: %s → %s",
                      d->vm_name, d->target_node);
         pcv_audit_log(NULL, "backup.replicate", target, "ok", 0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.replicate", "completed", NULL);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.replicate", "completed", NULL);
         g_task_return_boolean(task, TRUE);
     }
     g_free(job_id);

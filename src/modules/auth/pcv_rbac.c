@@ -90,6 +90,12 @@
 static sqlite3 *g_rbac_db    = nullptr;   /* RBAC SQLite DB 핸들 (프로세스 수명) */
 static GMutex   g_rbac_mutex;          /* 모든 DB 접근을 직렬화하는 뮤텍스 */
 
+/* F8: api_keys canonical schema#2 보장/마이그레이션 (정의는 하단 [10] 섹션) */
+static void _ensure_apikey_table(void);
+static void _migrate_api_keys_schema(void);
+/* apikey.create 계약 확장: schema#2 에 description/expires_at 컬럼 멱등 추가 */
+static void _migrate_apikey_columns(void);
+
 static void
 _fill_random_bytes(guchar *buf, gsize len)
 {
@@ -458,26 +464,10 @@ _ensure_table(void)
         "ON sessions(username, revoked);",
         NULL, NULL, NULL);
 
-    /* ── api_keys 테이블: CI/자동화용 프로그래밍 방식 인증 ──── */
-    const gchar *sql_api_keys =
-        "CREATE TABLE IF NOT EXISTS api_keys ("
-        "  key_hash    TEXT PRIMARY KEY,"
-        "  username    TEXT NOT NULL,"
-        "  description TEXT DEFAULT '',"
-        "  created_at  INTEGER NOT NULL,"
-        "  expires_at  INTEGER NOT NULL,"
-        "  revoked     INTEGER DEFAULT 0"
-        ");";
-
-    errmsg = nullptr;
-    rc = sqlite3_exec(g_rbac_db, sql_api_keys, NULL, NULL, &errmsg);
-    if (rc != SQLITE_OK) {
-        PCV_LOG_ERROR(RBAC_LOG_DOM,
-                      "Failed to create api_keys table: %s",
-                      errmsg ? errmsg : "unknown");
-        sqlite3_free(errmsg);
-        return FALSE;
-    }
+    /* api_keys 테이블은 canonical schema#2로 _migrate_api_keys_schema()가
+     * 별도 보장/마이그레이션한다 (F8: 이중 스키마 단일화). 여기서 생성하지 않음 —
+     * schema#1(username/expires_at) CREATE가 먼저 실행되어 schema#2 컬럼을
+     * 물리적으로 가리던 근본 원인 제거. */
 
     return TRUE;
 }
@@ -781,6 +771,110 @@ pcv_rbac_set_quota(const gchar *username, gint vm_count, gint storage_gb)
  * main.c에서 pcv_config_init(), pcv_jwt_init() 이후에 호출해야 합니다.
  */
 
+/**
+ * _migrate_api_keys_schema:
+ *
+ * api_keys 테이블을 canonical schema#2(key_hash/client_name/role/created_at/
+ * last_used_at/revoked)로 멱등 보장합니다. 과거 배포에 남아 있을 수 있는
+ * schema#1(username/description/expires_at)을 감지하면 재작성합니다.
+ * 데몬 리스너(REST/RPC) 개시 전 init 경로에서 1회만 호출되므로 동시 접근이 없습니다.
+ *
+ * 절차:
+ *   1) PRAGMA table_info(api_keys)로 테이블/`client_name` 컬럼 존재 여부 탐지.
+ *   2) 테이블 부재 또는 이미 schema#2 → _ensure_apikey_table()로 보장 후 종료.
+ *   3) schema#1 감지 시:
+ *        - 행 0개  → DROP TABLE 후 schema#2 CREATE (데이터 없음 확실, 최단·안전).
+ *        - 행 >0개 → api_keys_new(schema#2) 생성 → INSERT SELECT(username→client_name,
+ *                    role 기본 1=OPERATOR, revoked COALESCE) → DROP old → RENAME.
+ *   ALTER ADD COLUMN 단독 금지: schema#1 expires_at INTEGER NOT NULL(기본값 없음)이
+ *   남으면 schema#2 INSERT가 NOT NULL 위반 → 테이블 재작성 필수.
+ */
+static void
+_migrate_api_keys_schema(void)
+{
+    if (!g_rbac_db) return;
+
+    /* 1) 테이블 존재 + client_name 컬럼 존재 여부 탐지 */
+    gboolean table_exists    = FALSE;
+    gboolean has_client_name = FALSE;
+    sqlite3_stmt *pragma = nullptr;
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "PRAGMA table_info(api_keys);", -1, &pragma, NULL) == SQLITE_OK) {
+        while (sqlite3_step(pragma) == SQLITE_ROW) {
+            table_exists = TRUE;
+            const char *col = (const char *)sqlite3_column_text(pragma, 1);
+            if (col && g_strcmp0(col, "client_name") == 0)
+                has_client_name = TRUE;
+        }
+        sqlite3_finalize(pragma);
+    }
+
+    /* 2) 테이블 부재 또는 이미 canonical → 보장 후 종료 */
+    if (!table_exists || has_client_name) {
+        _ensure_apikey_table();
+        return;
+    }
+
+    /* 3) schema#1 감지 — 행 수 확인 */
+    gint64 row_count = 0;
+    sqlite3_stmt *cnt = nullptr;
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "SELECT COUNT(*) FROM api_keys;", -1, &cnt, NULL) == SQLITE_OK) {
+        if (sqlite3_step(cnt) == SQLITE_ROW)
+            row_count = sqlite3_column_int64(cnt, 0);
+        sqlite3_finalize(cnt);
+    }
+
+    gchar *errmsg = nullptr;
+    if (row_count == 0) {
+        /* 데이터 없음 확실 → DROP 후 재생성 (최단·안전) */
+        int rc = sqlite3_exec(g_rbac_db, "DROP TABLE api_keys;",
+                              NULL, NULL, &errmsg);
+        if (rc != SQLITE_OK) {
+            PCV_LOG_ERROR(RBAC_LOG_DOM,
+                          "api_keys schema#2 migration: DROP failed: %s",
+                          errmsg ? errmsg : "unknown");
+            sqlite3_free(errmsg);
+            return;
+        }
+        _ensure_apikey_table();
+        PCV_LOG_INFO(RBAC_LOG_DOM,
+                     "api_keys migrated to canonical schema#2 "
+                     "(empty legacy schema#1 table dropped)");
+        return;
+    }
+
+    /* 방어적 경로: 기존 행 보존 재작성 */
+    const char *migrate_sql =
+        "BEGIN IMMEDIATE;"
+        "CREATE TABLE api_keys_new ("
+        "  key_hash     TEXT PRIMARY KEY,"
+        "  client_name  TEXT NOT NULL,"
+        "  role         INTEGER NOT NULL DEFAULT 1,"
+        "  created_at   TEXT NOT NULL DEFAULT (datetime('now')),"
+        "  last_used_at TEXT,"
+        "  revoked      INTEGER NOT NULL DEFAULT 0"
+        ");"
+        "INSERT INTO api_keys_new (key_hash, client_name, role, revoked) "
+        "  SELECT key_hash, username, 1, COALESCE(revoked, 0) FROM api_keys;"
+        "DROP TABLE api_keys;"
+        "ALTER TABLE api_keys_new RENAME TO api_keys;"
+        "COMMIT;";
+    int rc = sqlite3_exec(g_rbac_db, migrate_sql, NULL, NULL, &errmsg);
+    if (rc != SQLITE_OK) {
+        PCV_LOG_ERROR(RBAC_LOG_DOM,
+                      "api_keys schema#2 migration (table rewrite) failed: %s",
+                      errmsg ? errmsg : "unknown");
+        sqlite3_free(errmsg);
+        sqlite3_exec(g_rbac_db, "ROLLBACK;", NULL, NULL, NULL);
+        return;
+    }
+    PCV_LOG_INFO(RBAC_LOG_DOM,
+                 "api_keys migrated to canonical schema#2 "
+                 "(%lld legacy row(s) preserved, role defaulted to OPERATOR)",
+                 (long long)row_count);
+}
+
 void
 pcv_rbac_init(const gchar *db_path)
 {
@@ -800,6 +894,14 @@ pcv_rbac_init(const gchar *db_path)
     sqlite3_exec(g_rbac_db, "PRAGMA journal_mode=WAL;", NULL, NULL, NULL);
 
     if (!_ensure_table()) return;
+
+    /* F8: api_keys 이중 스키마 단일화 — canonical schema#2 보장 + 멱등 마이그레이션.
+     * 리스너 개시 전이라 동시 접근 없음. */
+    _migrate_api_keys_schema();
+
+    /* apikey.create 계약 확장: 기존 schema#2 배포에 description/expires_at 컬럼 보강.
+     * 신규 설치는 _ensure_apikey_table() 이 이미 포함하므로 ALTER 는 no-op(무시). */
+    _migrate_apikey_columns();
 
     _ensure_admin_user();
 
@@ -2024,84 +2126,12 @@ _sha256_hex(const gchar *data, gsize len)
     return g_string_free(hex, FALSE);
 }
 
-gchar *
-pcv_rbac_create_api_key(const gchar *username,
-                        const gchar *description,
-                        gint         expires_days,
-                        GError     **error)
-{
-    if (!username || !*username) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "username is required");
-        return NULL;
-    }
-    if (expires_days < 1 || expires_days > 365) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "expires_days must be 1-365");
-        return NULL;
-    }
-
-    /* 32바이트 랜덤 → 64자 hex */
-    guchar raw[32];
-    _fill_random_bytes(raw, sizeof(raw));
-
-    GString *key_str = g_string_sized_new(68 + 1);
-    g_string_append(key_str, "pcv_");
-    for (gsize i = 0; i < sizeof(raw); i++)
-        g_string_append_printf(key_str, "%02x", raw[i]);
-    gchar *plaintext_key = g_string_free(key_str, FALSE);
-
-    /* SHA256 해시만 DB에 저장 */
-    gchar *key_hash = _sha256_hex(plaintext_key, strlen(plaintext_key));
-
-    gint64 now = (gint64)time(NULL);
-    gint64 expires_at = now + (gint64)expires_days * 86400;
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO api_keys (key_hash, username, description, created_at, expires_at) "
-        "VALUES (?, ?, ?, ?, ?);",
-        -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_free(plaintext_key);
-        g_free(key_hash);
-        return NULL;
-    }
-
-    sqlite3_bind_text(stmt, 1, key_hash, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, username, -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, description ? description : "", -1, SQLITE_STATIC);
-    sqlite3_bind_int64(stmt, 4, now);
-    sqlite3_bind_int64(stmt, 5, expires_at);
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    if (rc != SQLITE_DONE) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB insert failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_free(plaintext_key);
-        g_free(key_hash);
-        return NULL;
-    }
-
-    g_free(key_hash);
-
-    pcv_audit_log(username, "auth.apikey.create",
-                  description ? description : "", "ok", 0, 0, NULL);
-    PCV_LOG_INFO(RBAC_LOG_DOM,
-                 "API key created for user '%s' (expires in %d days)",
-                 username, expires_days);
-
-    return plaintext_key;
-}
-
+/* F8: pcv_rbac_verify_api_key — REST X-API-Key 인증 (rest_server.c 소비).
+ * canonical schema#2(api_keys) 조회. 키의 SHA256 hex는 apikey_create가 쓰는
+ * g_compute_checksum_for_string(SHA256)과 _sha256_hex(OpenSSL EVP)가 동일 값이므로
+ * apikey_create로 발급된 키가 그대로 검증된다. revoked=0 확인에 더해, 계약 확장으로
+ * 도입된 expires_at(epoch 초; 0=무기한)을 현재 시각과 대조해 만료 키를 거부(집행)한다.
+ * 유효하면 client_name을 신원으로 반환한다. */
 gchar *
 pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
 {
@@ -2114,14 +2144,15 @@ pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
     }
 
     gchar *key_hash = _sha256_hex(api_key, strlen(api_key));
-    gint64 now = (gint64)time(NULL);
+    gint64 now_epoch = g_get_real_time() / G_USEC_PER_SEC;
 
     g_mutex_lock(&g_rbac_mutex);
 
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT username FROM api_keys "
-        "WHERE key_hash = ? AND revoked = 0 AND expires_at > ?;",
+        "SELECT client_name FROM api_keys "
+        "WHERE key_hash = ? AND revoked = 0 "
+        "AND (expires_at = 0 OR expires_at > ?);",
         -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         g_mutex_unlock(&g_rbac_mutex);
@@ -2132,177 +2163,29 @@ pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
     }
 
     sqlite3_bind_text(stmt, 1, key_hash, -1, SQLITE_STATIC);
-    sqlite3_bind_int64(stmt, 2, now);
+    sqlite3_bind_int64(stmt, 2, now_epoch);
 
-    gchar *username = nullptr;
+    gchar *client_name = nullptr;
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
-        username = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));
+        client_name = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));
     }
     sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);
     g_free(key_hash);
 
-    if (!username) {
+    if (!client_name) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "API key invalid, expired, or revoked");
+                    "API key invalid or revoked");
     }
-    return username;
+    return client_name;
 }
 
-gboolean
-pcv_rbac_revoke_api_key(const gchar *key_prefix, GError **error)
-{
-    if (!key_prefix || strlen(key_prefix) < 12) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "key_prefix must be at least 12 characters");
-        return FALSE;
-    }
-
-    /* Fix 5: The DB stores SHA256(full_key), not the plaintext key.
-     * A LIKE match on hash column with a "pcv_..." prefix never works.
-     * Instead, hash the full key and match by exact hash. */
-    gchar *key_hash = _sha256_hex(key_prefix, strlen(key_prefix));
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "UPDATE api_keys SET revoked = 1 "
-        "WHERE key_hash = ? AND revoked = 0;",
-        -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed");
-        g_free(key_hash);
-        return FALSE;
-    }
-
-    sqlite3_bind_text(stmt, 1, key_hash, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    gint changes = sqlite3_changes(g_rbac_db);
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-    g_free(key_hash);
-
-    if (rc != SQLITE_DONE) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB update failed");
-        return FALSE;
-    }
-
-    if (changes == 0) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                    "No active API key found (hash mismatch or already revoked)");
-        return FALSE;
-    }
-
-    pcv_audit_log(NULL, "auth.apikey.revoke", key_prefix, "ok", 0, 0, NULL);
-    PCV_LOG_INFO(RBAC_LOG_DOM,
-                 "Revoked %d API key(s) by exact hash match",
-                 changes);
-    return TRUE;
-}
-
-JsonArray *
-pcv_rbac_list_api_keys(const gchar *username)
-{
-    JsonArray *arr = json_array_new();
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc;
-
-    if (username && *username) {
-        rc = sqlite3_prepare_v2(g_rbac_db,
-            "SELECT substr(key_hash, 1, 8), username, description, "
-            "created_at, expires_at, revoked FROM api_keys "
-            "WHERE username = ? ORDER BY created_at DESC;",
-            -1, &stmt, NULL);
-        if (rc == SQLITE_OK)
-            sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    } else {
-        rc = sqlite3_prepare_v2(g_rbac_db,
-            "SELECT substr(key_hash, 1, 8), username, description, "
-            "created_at, expires_at, revoked FROM api_keys "
-            "ORDER BY created_at DESC;",
-            -1, &stmt, NULL);
-    }
-
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return arr;
-    }
-
-    while (sqlite3_step(stmt) == SQLITE_ROW) {
-        JsonObject *obj = json_object_new();
-        json_object_set_string_member(obj, "key_prefix",
-            (const gchar *)sqlite3_column_text(stmt, 0));
-        json_object_set_string_member(obj, "username",
-            (const gchar *)sqlite3_column_text(stmt, 1));
-        json_object_set_string_member(obj, "description",
-            (const gchar *)sqlite3_column_text(stmt, 2));
-        json_object_set_int_member(obj, "created_at",
-            sqlite3_column_int64(stmt, 3));
-        json_object_set_int_member(obj, "expires_at",
-            sqlite3_column_int64(stmt, 4));
-        json_object_set_boolean_member(obj, "revoked",
-            sqlite3_column_int(stmt, 5) != 0);
-        json_array_add_object_element(arr, obj);
-    }
-
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    return arr;
-}
-
-/* ══════════════════════════════════════════════════════════════
- * [8-B] API Key 만료 임박 경고 (BE-A10)
- * ══════════════════════════════════════════════════════════════ */
-
-/**
- * pcv_rbac_get_expiring_api_keys:
- * @days_threshold: 만료까지 남은 일수 이내인 키를 조회 (예: 7이면 7일 이내 만료)
- *
- * 만료가 임박한 활성(비취소) API 키 목록을 반환합니다.
- * 자동 갱신 경고용 API로, 주기적 점검에 활용합니다.
- *
- * Returns: (transfer full): JsonArray of {key_prefix, username, expires_at}
- */
-JsonArray *
-pcv_rbac_get_expiring_api_keys(gint days_threshold)
-{
-    JsonArray *arr = json_array_new();
-    if (!g_rbac_db) return arr;
-
-    g_mutex_lock(&g_rbac_mutex);
-    sqlite3_stmt *stmt = nullptr;
-    gchar *sql = g_strdup_printf(
-        "SELECT substr(key_hash, 1, 8), username, expires_at FROM api_keys "
-        "WHERE revoked=0 AND expires_at > 0 "
-        "AND expires_at <= (strftime('%%s','now') + %d * 86400)",
-        days_threshold);
-
-    if (sqlite3_prepare_v2(g_rbac_db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-        while (sqlite3_step(stmt) == SQLITE_ROW) {
-            JsonObject *k = json_object_new();
-            const char *prefix = (const char *)sqlite3_column_text(stmt, 0);
-            const char *user   = (const char *)sqlite3_column_text(stmt, 1);
-            if (prefix) json_object_set_string_member(k, "key_prefix", prefix);
-            if (user)   json_object_set_string_member(k, "username", user);
-            json_object_set_int_member(k, "expires_at",
-                                       sqlite3_column_int64(stmt, 2));
-            json_array_add_object_element(arr, k);
-        }
-        sqlite3_finalize(stmt);
-    }
-    g_mutex_unlock(&g_rbac_mutex);
-    g_free(sql);
-    return arr;
-}
+/* F8: schema#1 기반 dead API Key 함수 제거 —
+ *   pcv_rbac_revoke_api_key / pcv_rbac_list_api_keys / pcv_rbac_get_expiring_api_keys.
+ * 세 함수 모두 호출자 0(라이브 소비자는 apikey_revoke/apikey_list, schema#2)이었고
+ * schema#1 컬럼(username/description/expires_at)을 참조해 schema#2 단일화 후
+ * 잔존 시 재파손 위험이 있어 삭제. */
 
 /**
  * pcv_user_free:
@@ -2403,27 +2286,55 @@ pcv_rbac_ip_record_auth_success(const gchar *ip)
  * ══════════════════════════════════════════════════════════════ */
 
 static void _ensure_apikey_table(void) {
+    /* 신규 설치는 full canonical schema(description/expires_at 포함)를 바로 생성한다.
+     * 기존 schema#2 배포(컬럼 부재)는 _migrate_apikey_columns() 가 ALTER 로 보강. */
     const char *sql =
         "CREATE TABLE IF NOT EXISTS api_keys ("
         "  key_hash     TEXT PRIMARY KEY,"
         "  client_name  TEXT NOT NULL,"
         "  role         INTEGER NOT NULL DEFAULT 1,"
+        "  description  TEXT NOT NULL DEFAULT '',"
         "  created_at   TEXT NOT NULL DEFAULT (datetime('now')),"
         "  last_used_at TEXT,"
+        "  expires_at   INTEGER NOT NULL DEFAULT 0,"  /* epoch 초, 0 = 무기한 */
         "  revoked      INTEGER NOT NULL DEFAULT 0"
         ")";
     sqlite3_exec(g_rbac_db, sql, NULL, NULL, NULL);
+}
+
+/* _migrate_apikey_columns:
+ *
+ * canonical schema#2 api_keys 테이블에 description/expires_at 컬럼을 멱등 추가한다.
+ * SQLite ALTER TABLE ADD COLUMN 은 이미 존재하는 컬럼 추가 시 에러이므로 무시한다
+ * (users quota 컬럼 보강과 동일 패턴). 데몬 리스너 개시 전 init 경로에서 1회 호출. */
+static void _migrate_apikey_columns(void)
+{
+    if (!g_rbac_db) return;
+    const char *alters[] = {
+        "ALTER TABLE api_keys ADD COLUMN description TEXT NOT NULL DEFAULT ''",
+        "ALTER TABLE api_keys ADD COLUMN expires_at  INTEGER NOT NULL DEFAULT 0",
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(alters); i++) {
+        char *errmsg = nullptr;
+        /* 컬럼이 이미 있으면 실패 → 무시 (멱등) */
+        sqlite3_exec(g_rbac_db, alters[i], NULL, NULL, &errmsg);
+        sqlite3_free(errmsg);
+    }
 }
 
 /**
  * pcv_rbac_apikey_create — 새 API Key 생성
  * @client_name: 클라이언트 식별 이름 (예: "grafana-scraper")
  * @role: 권한 역할 (PCV_ROLE_VIEWER/OPERATOR/ADMIN)
+ * @description: 키 용도 메모 (NULL/"" 허용, 저장)
+ * @expires_at: 만료 시각 (epoch 초). 0 = 무기한. 인증 경로에서 만료 거부로 집행.
  * @out_key: (out) 생성된 평문 키 (호출자가 g_free)
  * @return TRUE 성공
  */
 gboolean
-pcv_rbac_apikey_create(const gchar *client_name, PcvRole role, gchar **out_key, GError **error)
+pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
+                       const gchar *description, gint64 expires_at,
+                       gchar **out_key, GError **error)
 {
     _ensure_apikey_table();
 
@@ -2440,11 +2351,14 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role, gchar **out_key, 
     g_mutex_lock(&g_rbac_mutex);
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO api_keys (key_hash, client_name, role) VALUES (?, ?, ?)", -1, &stmt, NULL);
+        "INSERT INTO api_keys (key_hash, client_name, role, description, expires_at) "
+        "VALUES (?, ?, ?, ?, ?)", -1, &stmt, NULL);
     if (rc == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_TRANSIENT);
         sqlite3_bind_text(stmt, 2, client_name, -1, SQLITE_TRANSIENT);
         sqlite3_bind_int(stmt, 3, (int)role);
+        sqlite3_bind_text(stmt, 4, description ? description : "", -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 5, expires_at > 0 ? expires_at : 0);
         rc = sqlite3_step(stmt);
     }
     if (stmt) sqlite3_finalize(stmt);
@@ -2474,12 +2388,16 @@ pcv_rbac_apikey_validate(const gchar *api_key)
 
     gchar *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, api_key, -1);
     gint role = -1;
+    gint64 now_epoch = g_get_real_time() / G_USEC_PER_SEC;
 
     g_mutex_lock(&g_rbac_mutex);
     sqlite3_stmt *stmt = nullptr;
+    /* revoked=0 + 만료(expires_at) 집행 — verify_api_key 와 동일 계약 */
     if (sqlite3_prepare_v2(g_rbac_db,
-        "SELECT role FROM api_keys WHERE key_hash = ? AND revoked = 0", -1, &stmt, NULL) == SQLITE_OK) {
+        "SELECT role FROM api_keys WHERE key_hash = ? AND revoked = 0 "
+        "AND (expires_at = 0 OR expires_at > ?)", -1, &stmt, NULL) == SQLITE_OK) {
         sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_TRANSIENT);
+        sqlite3_bind_int64(stmt, 2, now_epoch);
         if (sqlite3_step(stmt) == SQLITE_ROW)
             role = sqlite3_column_int(stmt, 0);
     }
@@ -2513,16 +2431,21 @@ pcv_rbac_apikey_list(void)
     g_mutex_lock(&g_rbac_mutex);
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(g_rbac_db,
-        "SELECT client_name, role, created_at, last_used_at, revoked FROM api_keys ORDER BY created_at DESC",
+        "SELECT client_name, role, description, created_at, last_used_at, "
+        "expires_at, revoked FROM api_keys ORDER BY created_at DESC",
         -1, &stmt, NULL) == SQLITE_OK) {
         while (sqlite3_step(stmt) == SQLITE_ROW) {
             JsonObject *obj = json_object_new();
             json_object_set_string_member(obj, "client_name", (const char *)sqlite3_column_text(stmt, 0));
             json_object_set_int_member(obj, "role", sqlite3_column_int(stmt, 1));
-            json_object_set_string_member(obj, "created_at", (const char *)sqlite3_column_text(stmt, 2));
-            const char *lu = (const char *)sqlite3_column_text(stmt, 3);
+            const char *desc = (const char *)sqlite3_column_text(stmt, 2);
+            json_object_set_string_member(obj, "description", desc ? desc : "");
+            json_object_set_string_member(obj, "created_at", (const char *)sqlite3_column_text(stmt, 3));
+            const char *lu = (const char *)sqlite3_column_text(stmt, 4);
             if (lu) json_object_set_string_member(obj, "last_used_at", lu);
-            json_object_set_boolean_member(obj, "revoked", sqlite3_column_int(stmt, 4) != 0);
+            /* expires_at: epoch 초, 0 = 무기한 */
+            json_object_set_int_member(obj, "expires_at", sqlite3_column_int64(stmt, 5));
+            json_object_set_boolean_member(obj, "revoked", sqlite3_column_int(stmt, 6) != 0);
             json_array_add_object_element(arr, obj);
         }
     }

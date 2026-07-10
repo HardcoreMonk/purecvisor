@@ -935,6 +935,12 @@ _parse_body(SoupServerMessage *msg)
     gsize        len  = (gsize)body->length;
     if (len > REST_MAX_BODY) return NULL;
 
+    /* [감사 SEC-F2] 깊은 중첩 JSON은 재귀 파서 스택오버플로우로 데몬을 크래시시킨다.
+     * 이 경로는 /auth/token 등 사전인증 엔드포인트도 통과하므로(미인증 원격 크래시),
+     * 파싱 전에 깊이 상한으로 사전 거부한다. (libsoup body->data는 NUL 종단.) */
+    if (!pcv_rpc_json_depth_ok(data, PCV_RPC_JSON_MAX_DEPTH))
+        return NULL;
+
     JsonParser *p = json_parser_new();
     GError     *e = nullptr;
     if (!json_parser_load_from_data(p, data, (gssize)len, &e)) {
@@ -3516,6 +3522,21 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 rpc = _build_rpc("container.env.delete", p);
                 json_object_unref(p);
             }
+
+        /* ── D-4: POST /containers/{n}/clone → container.clone (AF-C1) ──
+         * 경로의 {n}을 source로 주입, dest는 body에서 (dispatcher가 검증) */
+        } else if (g_strcmp0(action, "clone") == 0 && g_strcmp0(method, "POST") == 0) {
+            JsonObject *p = body ? json_object_ref(body) : json_object_new();
+            json_object_set_string_member(p, "source", name);
+            rpc = _build_rpc("container.clone", p);
+            json_object_unref(p);
+
+        /* ── D-5: GET /containers/{n}/memory-stats → container.memory.stats (AF-C1) ── */
+        } else if (g_strcmp0(action, "memory-stats") == 0 && g_strcmp0(method, "GET") == 0) {
+            JsonObject *p = json_object_new();
+            json_object_set_string_member(p, "name", name);
+            rpc = _build_rpc("container.memory.stats", p);
+            json_object_unref(p);
         }
     }
 
@@ -3537,6 +3558,20 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         } else if (g_strcmp0(name, "actions") == 0) {
             if (g_strcmp0(method, "GET") == 0)
                 rpc = _build_rpc("alert.action.list", NULL);
+        } else if (g_strcmp0(name, "silence") == 0) {
+            /* POST /alerts/silence → alert.silence (AF-C1) */
+            if (g_strcmp0(method, "POST") == 0)
+                rpc = _build_rpc("alert.silence", body);
+        } else if (g_strcmp0(name, "silences") == 0) {
+            /* GET /alerts/silences → alert.silence.list
+             * (AF-C1: 아래 else의 alert.history 오라우팅을 차단하기 위해 명시 분기) */
+            if (g_strcmp0(method, "GET") == 0)
+                rpc = _build_rpc("alert.silence.list", NULL);
+        } else if (g_strcmp0(name, "dlq") == 0) {
+            /* GET /alerts/dlq → alert.dlq.list (AF-C4: FE 는 이 경로 실패 시 /rpc 로
+             * 폴백하나, 매 로드 404 를 피하려 명시 배선. else(alert.history) 위에 둠) */
+            if (g_strcmp0(method, "GET") == 0)
+                rpc = _build_rpc("alert.dlq.list", NULL);
         } else {
             if (g_strcmp0(method, "GET") == 0)
                 rpc = _build_rpc("alert.history", NULL);
@@ -3547,6 +3582,25 @@ _on_request(SoupServer        *server   __attribute__((unused)),
     else if (g_strcmp0(resource, "prometheus") == 0) {
         if (g_strcmp0(name, "sd") == 0 && g_strcmp0(method, "GET") == 0)
             rpc = _build_rpc("prometheus.sd", NULL);
+    }
+
+    /* ── /api/v1/health/deep (AF-C1) ────────────────────── *
+     * 주: 위쪽 exact-path /health, /health/recent-errors 이후에만 도달 */
+    else if (g_strcmp0(resource, "health") == 0) {
+        if (g_strcmp0(name, "deep") == 0 && g_strcmp0(method, "GET") == 0)
+            rpc = _build_rpc("health.deep", NULL);
+    }
+
+    /* ── /api/v1/pool/conninfo (AF-C1) ──────────────────── */
+    else if (g_strcmp0(resource, "pool") == 0) {
+        if (g_strcmp0(name, "conninfo") == 0 && g_strcmp0(method, "GET") == 0)
+            rpc = _build_rpc("pool.conninfo", NULL);
+    }
+
+    /* ── /api/v1/db/migration (AF-C1) ───────────────────── */
+    else if (g_strcmp0(resource, "db") == 0) {
+        if (g_strcmp0(name, "migration") == 0 && g_strcmp0(method, "GET") == 0)
+            rpc = _build_rpc("db.migration.status", NULL);
     }
 
     /* ── /api/v1/audit/search ───────────────────────────── */
@@ -3576,6 +3630,11 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             json_object_set_string_member(p, "job_id", name);
             rpc = _build_rpc("jobs.cancel", p);
             json_object_unref(p);
+        } else if (g_strcmp0(name, "persistent") == 0 && *action == '\0'
+                   && g_strcmp0(method, "GET") == 0) {
+            /* GET /jobs/persistent → jobs.persist.list
+             * (AF-C1: 아래 jobs.get(job_id="persistent") 오라우팅 차단을 위해 앞에 배치) */
+            rpc = _build_rpc("jobs.persist.list", NULL);
         } else if (*name != '\0' && *action == '\0'
                    && g_strcmp0(method, "GET") == 0) {
             JsonObject *p = json_object_new();
@@ -3856,6 +3915,29 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 rpc = _build_rpc("auth.user.delete", body);
         } else if (g_strcmp0(name, "role") == 0 && g_strcmp0(method, "POST") == 0) {
             rpc = _build_rpc("auth.role.set", body);
+        } else if (g_strcmp0(name, "sessions") == 0
+                   && g_strcmp0(action, "revoke") == 0
+                   && g_strcmp0(method, "POST") == 0) {
+            /* POST /auth/sessions/revoke → auth.session.revoke (AF-C1: jti 필수 in body) */
+            rpc = _build_rpc("auth.session.revoke", body);
+        } else if (g_strcmp0(name, "apikeys") == 0) {
+            /* AF-C1 + 계약 확장: apikey REST 배선 (F8 스키마 통합 후 활성).
+             * create 는 FE↔BE 계약 정합(name+description+expires_at) 후 배선.
+             * client_name 은 revoke 경로 세그먼트에서 취한다. */
+            if (g_strcmp0(action, "") == 0 && g_strcmp0(method, "GET") == 0) {
+                /* GET /auth/apikeys → auth.apikey.list */
+                rpc = _build_rpc("auth.apikey.list", NULL);
+            } else if (g_strcmp0(action, "") == 0 && g_strcmp0(method, "POST") == 0) {
+                /* POST /auth/apikeys → auth.apikey.create
+                 * body: { name(필수), role?, description?, expires_at?(epoch) } */
+                rpc = _build_rpc("auth.apikey.create", body);
+            } else if (g_strcmp0(sub, "revoke") == 0 && g_strcmp0(method, "POST") == 0) {
+                /* POST /auth/apikeys/{client_name}/revoke → auth.apikey.revoke */
+                JsonObject *p = json_object_new();
+                json_object_set_string_member(p, "client_name", action);
+                rpc = _build_rpc("auth.apikey.revoke", p);
+                json_object_unref(p);
+            }
         }
     }
 
@@ -3869,6 +3951,9 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         }
         else if (g_strcmp0(name, "history") == 0 && g_strcmp0(method, "GET") == 0)
             rpc = _build_rpc("config.history", NULL);
+        /* POST /config/reload → config.reload (AF-C1: SIGHUP 핫 리로드) */
+        else if (g_strcmp0(name, "reload") == 0 && g_strcmp0(method, "POST") == 0)
+            rpc = _build_rpc("config.reload", NULL);
         /* GET /config/daemon — daemon.conf 설정 조회 */
         else if (g_strcmp0(name, "daemon") == 0 && g_strcmp0(method, "GET") == 0)
             rpc = _build_rpc("daemon.config.get", body);

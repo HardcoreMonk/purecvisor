@@ -2145,6 +2145,10 @@ _vm_delete_callback(GObject *src __attribute__((unused)), GAsyncResult *res,
     VmDeleteCtx *ctx = user_data;
     GError      *err = NULL;
 
+    /* [감사 AF-P1] 오퍼레이션 잠금 해제 — 반드시 최우선(컨테이너 핸들러 규약과 동일).
+     * GTask 콜백은 워커 완료 시 항상 실행되므로 여기서 해제하면 모든 경로를 커버한다. */
+    unlock_vm_operation(ctx->vm_id);
+
     gboolean ok = g_task_propagate_boolean(G_TASK(res), &err);
     /* [W1 fix] vm.delete 감사 로그 — 성공/실패 모두 기록 */
     pcv_audit_log(NULL, "vm.delete", ctx->vm_id,
@@ -2188,6 +2192,20 @@ void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id,
             "Missing or invalid param: vm_id (alphanumeric, -, _ only)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
+        return;
+    }
+
+    /* [감사 AF-P1] vm.delete를 오퍼레이션 잠금으로 보호한다. 이전에는 VM delete가
+     * 무락이라 동시 vm.create(ZFS create)/vm.start와 무보호 병행했다(ZFS destroy -r
+     * vs create 경합, virDomainDestroy+fuser -k vs virDomainCreate). 컨테이너
+     * delete 핸들러와 동일 패턴. 잠금은 _vm_delete_callback에서 반드시 해제한다.
+     * accepted 응답 전에 획득해야 실패 시 busy로 거부할 수 있다. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_DELETING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
+                       lock_err ? lock_err : "VM is busy (another operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
         return;
     }
 

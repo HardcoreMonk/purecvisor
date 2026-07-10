@@ -53,13 +53,23 @@
  */
 #include "self_healing.h"
 #include "ai_agent.h"
+#include "restart_breaker.h"      /* AF-1 후속: VM 단위 재시작 서킷 브레이커 */
 #include <string.h>
 #include <stdio.h>
+#include <libvirt/libvirt.h>      /* AF-1: restart 실배선 — virDomain* API */
+#include <libvirt/virterror.h>    /* AF-1: virGetLastError() 명시적 선언 */
 #include "modules/daemons/prometheus_exporter.h"
 #include "modules/daemons/ebpf_telemetry.h"
 #include "modules/audit/pcv_audit.h"
+#include "modules/virt/virt_conn_pool.h"  /* AF-1: 워커에서 virConnectPtr 획득 */
+#include "utils/pcv_worker_pool.h"        /* AF-1: 재시작을 워커 풀로 오프로드 */
 #include "utils/pcv_config.h"   /* Issue-M1: daemon.conf [ai] mode 읽기 */
 #include "utils/pcv_log.h"
+
+/* AF-1: 다형성 도메인 조회(UUID→이름). handler_vm_lifecycle.c 정의.
+ * virt_events.c 는 UUID 문자열을 target 으로 전달하므로 UUID 우선 조회가 필수 —
+ * virDomainLookupByName 단독으로는 UUID target 을 찾지 못한다. */
+extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier);
 
 /*
  * ============================================================================
@@ -117,8 +127,10 @@ constexpr int RATE_LIMIT_MAX      = 3;
 constexpr int CIRCUIT_BREAKER_MAX = 3;
 /** 자가 치유 이력 링버퍼 최대 크기 */
 constexpr int HEALING_HISTORY_MAX = 100;
-/** 지수 백오프 쿨다운 상한 (초) — 아무리 실패해도 1시간 넘게 대기하지 않음 */
-constexpr int COOLDOWN_MAX_SEC    = 3600;
+/** 지수 백오프 쿨다운 상한 (초) — 아무리 실패해도 1시간 넘게 대기하지 않음.
+ * [감사 AF-1] 실제 실행이 미배선이라 현재 backoff 경로가 없어 미사용 — restart/
+ * migrate 실배선 시 실패 backoff와 함께 재사용된다. */
+[[maybe_unused]] constexpr int COOLDOWN_MAX_SEC = 3600;
 
 /* ── C23 컴파일 타임 검증 ────────────────────────────────────── */
 static_assert(MAX_POLICIES >= 1);
@@ -422,13 +434,162 @@ _record_healing_action(const gchar *action, const gchar *target,
     g_mutex_unlock(&g_healing_hist_mu);
 }
 
+/* ── AF-1: restart 실배선 — 실제 VM 재시작을 워커 풀로 오프로드 ──── */
+
+/**
+ * @struct RestartCtx
+ * @brief _vm_restart_worker 로 소유권 이전되는 재시작 컨텍스트.
+ *
+ * self_healing 이벤트 콜체인은 메인/이벤트 스레드에서 실행되므로,
+ * 수십 초 블로킹할 수 있는 virDomainCreate 는 워커 스레드로 넘긴다.
+ * 세 문자열은 g_strdup 복사본으로, _restart_ctx_free 가 해제한다.
+ */
+typedef struct {
+    gchar *policy_name;  /**< 트리거 정책 이름 (감사/이력용) */
+    gchar *vm;           /**< 대상 VM 식별자 (UUID 또는 이름) */
+    gchar *reason;       /**< 트리거 사유 */
+} RestartCtx;
+
+static void
+_restart_ctx_free(gpointer data)
+{
+    RestartCtx *c = data;
+    if (!c) return;
+    g_free(c->policy_name);
+    g_free(c->vm);
+    g_free(c->reason);
+    g_free(c);
+}
+
+/**
+ * _vm_restart_worker — 워커 스레드에서 실제 VM 재시작을 수행한다.
+ *
+ * 실행 순서:
+ *   1. virt_conn_pool_acquire() 로 libvirt 커넥션 획득
+ *   2. pure_virt_get_domain() 다형성 조회 (UUID→이름)
+ *   3. running-guard: virDomainIsActive()>0 이면 skip (이미 실행 중 — 재시작 안 함)
+ *   4. virDomainCreate() 로 실제 기동
+ *
+ * 안전판:
+ *   - 메인 스레드 블로킹 금지 (워커 풀에서 실행)
+ *   - running-guard 로 정상 실행 중 VM 오재시작 차단
+ *   - executed 카운트/WS "executed"/actions_total 은 **실제 재시작 성공 시에만** 갱신
+ *     (running-guard skip·조회 실패·create 실패는 executed 로 세지 않는다 — 정직 보고)
+ *   - 결과(success/skipped/failed)를 이력 링버퍼 + 감사 로그에 기록
+ */
+static void
+_vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *c)
+{
+    (void)src; (void)c;
+    RestartCtx *ctx = task_data;
+    gint64 start_us = g_get_monotonic_time();
+    const gchar *result = "failed";
+    /* AF-1 후속: VM 단위 브레이커 되먹임 신호.
+     *  +1 = 성공(카운터 리셋/CLOSED), -1 = 재시작 실패(카운터++/OPEN 가능),
+     *   0 = 미반영(커넥션 획득 실패·도메인 조회 실패는 VM 고장이 아니므로 카운트 제외 —
+     *       libvirt-down 은 커넥션 브레이커 소관, 조회 실패는 별도 즉시 로그). */
+    gint rb_feedback = 0;
+
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        PCV_LOG_WARN(HEALING_LOG_DOM,
+            "[restart] VM '%s': libvirt 커넥션 획득 실패 — 재시작 중단", ctx->vm);
+    } else {
+        virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm);
+        if (!dom) {
+            PCV_LOG_WARN(HEALING_LOG_DOM,
+                "[restart] VM '%s' 조회 실패 (UUID/이름 불일치) — 재시작 중단", ctx->vm);
+        } else if (virDomainIsActive(dom) > 0) {
+            /* running-guard: 이미 실행(또는 paused=active) 중 → 재시작하지 않는다.
+             * VM 이 건강하다는 신호이므로 브레이커를 성공으로 취급해 리셋한다. */
+            PCV_LOG_INFO(HEALING_LOG_DOM,
+                "[restart] VM '%s' 이미 실행 중 — running-guard skip", ctx->vm);
+            result = "skipped";
+            rb_feedback = +1;
+        } else if (virDomainCreate(dom) == 0) {
+            result = "success";
+            rb_feedback = +1;
+            PCV_LOG_WARN(HEALING_LOG_DOM,
+                "[restart] VM '%s' 재시작 성공 (policy=%s)", ctx->vm, ctx->policy_name);
+        } else {
+            virErrorPtr err = virGetLastError();
+            rb_feedback = -1;   /* 진짜 재시작 실패(virDomainCreate) → 브레이커 카운트 */
+            PCV_LOG_WARN(HEALING_LOG_DOM,
+                "[restart] VM '%s' 재시작 실패: %s", ctx->vm,
+                (err && err->message) ? err->message : "(unknown)");
+        }
+        if (dom) virDomainFree(dom);
+        virt_conn_pool_release(conn);
+    }
+
+    /* AF-1 후속: 워커 결과를 VM 단위 브레이커에 되먹인다(G.mu 미보유 — g_rb 뮤텍스만).
+     * 이 되먹임이 반복 create 실패 시 계층4(OPEN)를 개방해 무한 재시도를 끊는다. */
+    if (rb_feedback > 0)      rb_record(ctx->vm, TRUE);
+    else if (rb_feedback < 0) rb_record(ctx->vm, FALSE);
+
+    gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
+
+    /* executed 회계는 실제 재시작 성공 시에만 (규약: total_executed / actions_total / WS "executed") */
+    if (g_strcmp0(result, "success") == 0) {
+        g_mutex_lock(&G.mu);
+        G.total_executed++;
+        gchar lbl[128];
+        g_snprintf(lbl, sizeof(lbl), "policy=\"%s\",action=\"restart\"", ctx->policy_name);
+        pcv_prom_gauge_set_labels("purecvisor_healing_actions_total", lbl,
+                                  (gdouble)G.total_executed);
+        g_mutex_unlock(&G.mu);
+
+        extern void pcv_ws_broadcast(const gchar*, const gchar*);
+        extern gint pcv_ws_client_count(void);
+        if (pcv_ws_client_count() > 0) {
+            gchar payload[512];
+            g_snprintf(payload, sizeof(payload),
+                "{\"policy\":\"%s\",\"action\":\"restart\",\"target\":\"%s\","
+                "\"reason\":\"%s\",\"dry_run\":false,\"executed\":true}",
+                ctx->policy_name, ctx->vm, ctx->reason);
+            pcv_ws_broadcast("healing", payload);
+        }
+    }
+
+    /* 감사 로그 + 이력: 결과와 무관하게 기록 (정직 보고) */
+    gchar detail[384];
+    g_snprintf(detail, sizeof(detail), "action=restart target=%s result=%s reason=%s",
+               ctx->vm, result, ctx->reason);
+    pcv_audit_log("ai-ops", "healing_action", ctx->policy_name, detail, 0, 0, "local");
+    _record_healing_action("restart", ctx->vm, ctx->reason, result, dur_ms);
+
+    g_task_return_boolean(task, TRUE);
+}
+
+/**
+ * _dispatch_vm_restart — 재시작 작업을 워커 풀에 넣는다 (fire-and-forget).
+ * _schedule_sg_sync(virt_events.c) 와 동일한 GTask 오프로드 관례.
+ */
+static void
+_dispatch_vm_restart(const gchar *policy_name, const gchar *vm, const gchar *reason)
+{
+    RestartCtx *ctx = g_new0(RestartCtx, 1);
+    ctx->policy_name = g_strdup(policy_name);
+    ctx->vm          = g_strdup(vm);
+    ctx->reason      = g_strdup(reason);
+
+    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    g_task_set_task_data(task, ctx, _restart_ctx_free);
+    pcv_worker_pool_push(task, _vm_restart_worker);
+    g_object_unref(task);  /* 워커 풀이 참조 유지 → 여기서 unref 안전 (dispatcher.c 관례) */
+}
+
 /* ── 액션 실행 ───────────────────────────────────────────────── */
 
 /**
  * _execute_action — 정책에 따른 액션을 실행한다.
  *
- * @param p       실행할 정책
- * @param reason  트리거 사유 문자열 (감사 로그/WebSocket 알림에 포함)
+ * @param p          실행할 정책
+ * @param reason     트리거 사유 문자열 (감사 로그/WebSocket 알림에 포함)
+ * @param target_vm  (nullable) restart 액션의 실제 대상 VM(UUID/이름). AF-1:
+ *                   action="restart" + target_vm 비-NULL + active 모드일 때만
+ *                   _dispatch_vm_restart() 로 실제 재시작을 워커에 오프로드한다.
+ *                   그 외(alert_only/migrate/미구현)는 기존 경로 그대로.
  *
  * dry_run=TRUE이면 로그만 남기고 실행하지 않는다.
  * 실행 결과에 따라 적응형 쿨다운을 적용한다:
@@ -444,18 +605,28 @@ _record_healing_action(const gchar *action, const gchar *target,
  *   - 이력 링버퍼 기록 (_record_healing_action)
  */
 static void
-_execute_action(HealingPolicy *p, const gchar *reason)
+_execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
 {
     gint64 start_us = g_get_monotonic_time();
+
+    /* AF-1: 대상 VM 이 있는 restart 인지 — dry_run/active 양 분기에서 공용 판정 */
+    gboolean restart_with_target =
+        (g_strcmp0(p->action, "restart") == 0) && target_vm && *target_vm;
 
     /* CE-A12: 정책별 dry_run 오버라이드 — policy_dry_run >= 0 이면 정책 설정 우선 */
     gboolean effective_dry_run = (p->policy_dry_run >= 0)
         ? (gboolean)p->policy_dry_run : G.dry_run;
 
     if (effective_dry_run) {
-        PCV_LOG_INFO(HEALING_LOG_DOM,
-            "[DRY RUN] Policy '%s' would execute '%s': %s",
-            p->name, p->action, reason);
+        /* AF-1: dry_run 존중 — 실제 재시작 없이 "would restart <vm>" 로그만 */
+        if (restart_with_target)
+            PCV_LOG_INFO(HEALING_LOG_DOM,
+                "[DRY RUN] Policy '%s' would restart VM '%s': %s",
+                p->name, target_vm, reason);
+        else
+            PCV_LOG_INFO(HEALING_LOG_DOM,
+                "[DRY RUN] Policy '%s' would execute '%s': %s",
+                p->name, p->action, reason);
 
         gchar detail[384];
         g_snprintf(detail, sizeof(detail), "[DRY_RUN] action=%s reason=%s", p->action, reason);
@@ -467,69 +638,112 @@ _execute_action(HealingPolicy *p, const gchar *reason)
             metric_label, (gdouble)(++G.total_triggered));
 
         gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
-        _record_healing_action(p->action, p->name, reason, "dry_run", dur_ms);
+        _record_healing_action(p->action, restart_with_target ? target_vm : p->name,
+                               reason, "dry_run", dur_ms);
         return;
     }
 
-    gboolean action_succeeded = TRUE;
+    /* AF-1: active 모드 + 대상 VM 이 있는 restart → 실제 재시작을 워커로 오프로드.
+     * executed 카운트/WS "executed"/이력(success·skipped·failed)/감사 로그는
+     * 워커(_vm_restart_worker)가 실제 결과로 소유·기록한다. 여기서는 트리거 회계와
+     * 레이트 리밋·쿨다운만 처리하고 조기 반환 (아래 기존 경로는 건드리지 않음). */
+    if (restart_with_target) {
+        /* AF-1 후속: VM 단위 재시작 브레이커 게이트. 반복 create 실패로 OPEN 되면
+         * cooldown 동안 재시작을 건너뛴다(계층4 실제 개방). cooldown 경과 시
+         * rb_allow() 가 HALF_OPEN 프로브 1회를 허용한다. */
+        if (!rb_allow(target_vm)) {
+            PCV_LOG_WARN(HEALING_LOG_DOM,
+                "ACTION: Policy '%s' restart of VM '%s' SKIPPED — 재시작 브레이커 OPEN "
+                "(반복 재시작 실패, cooldown 중): %s", p->name, target_vm, reason);
 
-    if (g_strcmp0(p->action, "alert_only") == 0) {
+            gchar detail[384];
+            g_snprintf(detail, sizeof(detail),
+                "action=restart target=%s result=skipped reason=breaker-open trigger=%s",
+                target_vm, reason);
+            pcv_audit_log("ai-ops", "healing_action_skipped", p->name, detail, 0, 0, "local");
+
+            gchar skip_reason[320];
+            g_snprintf(skip_reason, sizeof(skip_reason),
+                "breaker-open (재시작 브레이커 차단); trigger=%s", reason);
+            gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
+            _record_healing_action("restart", target_vm, skip_reason, "skipped", dur_ms);
+
+            /* 트리거는 발생했으나 실행하지 않음 — total_triggered 만 갱신하고
+             * rate_record/executed 는 갱신하지 않는다(no-op 이라 rate 예산 미소비). */
+            G.total_triggered++;
+            return;
+        }
+
+        PCV_LOG_WARN(HEALING_LOG_DOM,
+            "ACTION: Policy '%s' dispatching restart of VM '%s': %s",
+            p->name, target_vm, reason);
+        _dispatch_vm_restart(p->name, target_vm, reason);
+
+        G.total_triggered++;
+        _rate_record();
+        /* 디스패치 성공 → 정책 쿨다운을 원래 값으로 리셋. 워커 측 create 결과는
+         * _vm_restart_worker 가 rb_record() 로 VM 단위 브레이커에 되먹인다
+         * (AF-1 후속: 비동기 실패 되먹임 배선 완료). */
+        p->cooldown_sec = p->base_cooldown_sec;
+        p->consecutive_failures = 0;
+        return;
+    }
+
+    /* [감사 AF-1] alert_only만 실제로 동작한다(경고 발생). restart/migrate 등
+     * 비-alert 액션은 실제 VM 오퍼레이션을 디스패치하는 코드가 없어(아래 주석의
+     * "separate RPC calls"는 미배선) 아무 복구도 하지 않는다. 이전에는 그럼에도
+     * total_executed 증가·dry_run:false 성공 브로드캐스트·이력 "success"를 기록해
+     * 운영자에게 거짓 복구 확신을 줬다. 실제 실행 여부를 정직하게 반영한다.
+     * (restart/migrate 실배선은 A6-6[graceful/crash 구분]·AF-O1[죽은 메트릭 수복]
+     * 선행 후 별도 처리 — 그 전까지는 정상 정지 VM 자동재시작 위험으로 배선 금지.) */
+    gboolean action_executed = (g_strcmp0(p->action, "alert_only") == 0);
+
+    if (action_executed) {
         PCV_LOG_WARN(HEALING_LOG_DOM,
             "ALERT: Policy '%s' triggered: %s", p->name, reason);
     } else {
         PCV_LOG_WARN(HEALING_LOG_DOM,
-            "ACTION: Policy '%s' executing '%s': %s", p->name, p->action, reason);
-        /* Real action execution would set action_succeeded=FALSE on failure.
-         * Currently all non-alert actions are logged (actual VM operations
-         * are dispatched via separate RPC calls). */
+            "ACTION-NOT-IMPLEMENTED: Policy '%s' action '%s' is not wired to a real "
+            "VM operation — no remediation performed: %s", p->name, p->action, reason);
     }
 
-    /* Audit log */
+    /* Audit log — 실행 여부를 event 종류·detail에 반영 */
     gchar detail[384];
-    g_snprintf(detail, sizeof(detail), "action=%s reason=%s", p->action, reason);
-    pcv_audit_log("ai-ops", "healing_action", p->name, detail, 0, 0, "local");
+    g_snprintf(detail, sizeof(detail), "action=%s reason=%s executed=%s",
+               p->action, reason, action_executed ? "true" : "false");
+    pcv_audit_log("ai-ops",
+                  action_executed ? "healing_action" : "healing_action_skipped",
+                  p->name, detail, 0, 0, "local");
 
-    /* Prometheus counters */
+    /* Prometheus counters — trigger는 항상, executed(actions_total)는 실제 실행분만 */
     G.total_triggered++;
-    G.total_executed++;
+    if (action_executed) G.total_executed++;
     gchar lbl[128];
     g_snprintf(lbl, sizeof(lbl), "policy=\"%s\",action=\"%s\"", p->name, p->action);
     pcv_prom_gauge_set_labels("purecvisor_healing_actions_total", lbl, (gdouble)G.total_executed);
 
-    /* WebSocket notification */
+    /* WebSocket notification — 실제 실행 여부를 정확히 표기 */
     extern void pcv_ws_broadcast(const gchar*, const gchar*);
     extern gint pcv_ws_client_count(void);
     if (pcv_ws_client_count() > 0) {
         gchar payload[512];
         g_snprintf(payload, sizeof(payload),
-            "{\"policy\":\"%s\",\"action\":\"%s\",\"reason\":\"%s\",\"dry_run\":false}",
-            p->name, p->action, reason);
+            "{\"policy\":\"%s\",\"action\":\"%s\",\"reason\":\"%s\",\"dry_run\":false,\"executed\":%s}",
+            p->name, p->action, reason, action_executed ? "true" : "false");
         pcv_ws_broadcast("healing", payload);
     }
 
     _rate_record();
 
-    /*
-     * 적응형 쿨다운 (Exponential Backoff with Reset)
-     * 성공: 쿨다운을 원래 값으로 리셋하여 정상 운영 복귀
-     * 실패: 쿨다운을 2배로 증가 (최대 1시간)하여 반복 실패 시
-     *       점점 더 오래 대기. 동일 문제가 해결되지 않은 상태에서
-     *       무의미한 재시도를 방지하는 안전장치.
-     */
-    if (action_succeeded) {
-        p->cooldown_sec = p->base_cooldown_sec;   /* 원래 쿨다운으로 리셋 */
-        p->consecutive_failures = 0;
-    } else {
-        p->cooldown_sec = MIN(p->cooldown_sec * 2, COOLDOWN_MAX_SEC);
-        p->consecutive_failures++;
-        g_warning("[self_healing] Action failed for '%s', extending cooldown to %ds",
-                  p->name, p->cooldown_sec);
-    }
+    /* 트리거를 처리했으므로 쿨다운은 기본값으로 리셋(실제 실행 실패 경로는
+     * restart/migrate 실배선 시 추가 — 그때 backoff 재도입). */
+    p->cooldown_sec = p->base_cooldown_sec;
+    p->consecutive_failures = 0;
 
-    /* Record action history */
+    /* Record action history — 미실행 액션은 "not_implemented"로 정직 기록 */
     gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
     _record_healing_action(p->action, p->name, reason,
-                           action_succeeded ? "success" : "failed", dur_ms);
+                           action_executed ? "success" : "not_implemented", dur_ms);
 }
 
 /* ── 승인 대기열에 추가 ──────────────────────────────────────── */
@@ -548,6 +762,14 @@ static void
 _queue_approval(HealingPolicy *p, const gchar *reason)
 {
     PendingAction *pa = &G.pending[G.pending_pos];
+    /* A6-5: 고정 링버퍼(MAX_PENDING)에서 관리자가 승인/거부하기 전에 슬롯이
+     * 덮어써지면(eviction) 그 액션의 id 가 사라져 approve/dismiss 가 영영
+     * 찾지 못하고 total_pending-- 기회가 없어져 gauge 가 무한 증가한다.
+     * 덮어쓰기 직전, 기존 슬롯이 미해결이면 eviction 을 dismiss 와 동등하게
+     * 취급해 카운터를 내린다(id!=0 으로 초기 미사용 슬롯과 구분). */
+    if (pa->id != 0 && !pa->resolved && G.total_pending > 0) {
+        G.total_pending--;
+    }
     pa->id = ++G.next_action_id;
     g_strlcpy(pa->policy_name, p->name, sizeof(pa->policy_name));
     g_strlcpy(pa->action, p->action, sizeof(pa->action));
@@ -601,7 +823,7 @@ _queue_approval(HealingPolicy *p, const gchar *reason)
  */
 static void
 _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
-            gdouble zscore, const gchar *reason)
+            gdouble zscore, const gchar *reason, const gchar *target_vm)
 {
     if (!p->enabled) return;
 
@@ -627,7 +849,7 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
     if (p->require_approval && g_strcmp0(p->action, "alert_only") != 0) {
         _queue_approval(p, reason);
     } else {
-        _execute_action(p, reason);
+        _execute_action(p, reason, target_vm);
     }
 }
 
@@ -646,13 +868,28 @@ pcv_healing_init(void)
     const gchar *mode = pcv_config_get_string("ai", "mode", "dry_run");
     G.dry_run = (g_ascii_strcasecmp(mode, "active") != 0);
 
-    /* Built-in policies (architecture doc section 6.3) */
+    /* AF-1 후속: VM 단위 재시작 서킷 브레이커 초기화.
+     * _vm_restart_worker 의 virDomainCreate 실패는 비동기라 정책 쿨다운(300s)만
+     * 지나면 무한 재시도된다. 브레이커가 VM 별 연속 실패를 누적해 계층4를 실제로
+     * 개방(OPEN)하여 되먹임 고리를 닫는다. threshold/cooldown 은 [ai] 로 설정. */
+    rb_init();
+    gint rb_threshold = pcv_config_get_int("ai", "restart_breaker_threshold",
+                                           RESTART_BREAKER_THRESHOLD_DEFAULT);
+    gint rb_cooldown  = pcv_config_get_int("ai", "restart_breaker_cooldown_sec",
+                                           RESTART_BREAKER_COOLDOWN_SEC_DEFAULT);
+    rb_configure(rb_threshold, rb_cooldown);
+
+    /* Built-in policies (architecture doc section 6.3)
+     *
+     * AF-O1(a): single_edge 빌드는 마이그레이션 대상 노드가 없어 migrate가
+     * 무의미하다 — AF-O1(a) 로 host cpu/mem 메트릭이 이제 실제 트리거되므로,
+     * "migrate" 로 두면 실행 불가능한 액션이 승인 큐에만 쌓인다(감사 테마 #1
+     * "보고성공-무동작" 신규 인스턴스). 따라서 cpu-overload/mem-pressure 는
+     * thermal-alert 와 동일하게 alert_only(무승인)로 운영한다. */
     _add_policy("cpu-overload", "purecvisor_host_cpu_percent",
-        3.0, 85.0, "migrate", 600, TRUE);
+        3.0, 85.0, "alert_only", 600, FALSE);
     _add_policy("mem-pressure", "purecvisor_host_memory_percent",
-        2.5, 90.0, "migrate", 600, TRUE);
-    /* single_edge 빌드는 마이그레이션 대상 노드가 없어 migrate가 무의미 —
-     * 승인 큐에 쌓이기만 하므로 alert_only로 운영한다. */
+        2.5, 90.0, "alert_only", 600, FALSE);
     _add_policy("thermal-alert", "node_hwmon_temp_celsius",
         2.0, 80.0, "alert_only", 1800, FALSE);
     /* BUG-20 fix: trigger_metric="vm-unresponsive"로 설정하여 virt_events.c의
@@ -722,6 +959,7 @@ pcv_healing_shutdown(void)
 {
     if (!G.initialized) return;
     G.initialized = FALSE;
+    rb_shutdown();   /* AF-1 후속: 재시작 브레이커 자원 해제 */
     g_mutex_clear(&G.mu);
     g_mutex_clear(&g_healing_hist_mu);
 }
@@ -742,7 +980,8 @@ pcv_healing_shutdown(void)
  */
 void
 pcv_healing_on_anomaly(const gchar *metric, gdouble value,
-                        gdouble zscore, gdouble threshold)
+                        gdouble zscore, gdouble threshold,
+                        const gchar *target_vm)
 {
     if (!G.initialized) return;
 
@@ -765,7 +1004,7 @@ pcv_healing_on_anomaly(const gchar *metric, gdouble value,
         gchar reason[256];
         g_snprintf(reason, sizeof(reason),
             "%s Z=%.2f (>%.1f) val=%.2f", metric, zscore, threshold, value);
-        _try_policy(p, metric, value, zscore, reason);
+        _try_policy(p, metric, value, zscore, reason, target_vm);
     }
 
     g_mutex_unlock(&G.mu);
@@ -838,14 +1077,14 @@ pcv_healing_on_prediction(gdouble cpu_pred, gdouble mem_pred,
             g_snprintf(reason, sizeof(reason),
                 "CPU predicted %.1f%% in 5min (threshold %.0f%%, trend=%.4f)",
                 cpu_pred, p->predict_threshold, cpu_trend);
-            _try_policy(p, "cpu_predicted", cpu_pred, 0, reason);
+            _try_policy(p, "cpu_predicted", cpu_pred, 0, reason, NULL);
         }
         if (strstr(p->trigger_metric, "memory") && mem_pred > p->predict_threshold) {
             gchar reason[256];
             g_snprintf(reason, sizeof(reason),
                 "MEM predicted %.1f%% in 5min (threshold %.0f%%, trend=%.4f)",
                 mem_pred, p->predict_threshold, mem_trend);
-            _try_policy(p, "mem_predicted", mem_pred, 0, reason);
+            _try_policy(p, "mem_predicted", mem_pred, 0, reason, NULL);
         }
     }
 
@@ -902,10 +1141,12 @@ pcv_healing_approve(gint action_id)
             pcv_prom_gauge_set_labels("purecvisor_healing_pending_approvals", "",
                 (gdouble)G.total_pending);
 
-            /* Find matching policy and execute */
+            /* Find matching policy and execute.
+             * 승인 큐에는 대상 VM 이 저장되지 않으므로 target_vm=NULL.
+             * (restart 는 require_approval=FALSE 라 승인 경로를 타지 않는다.) */
             for (gint j = 0; j < G.policy_count; j++) {
                 if (g_strcmp0(G.policies[j].name, G.pending[i].policy_name) == 0) {
-                    _execute_action(&G.policies[j], G.pending[i].reason);
+                    _execute_action(&G.policies[j], G.pending[i].reason, NULL);
                     break;
                 }
             }

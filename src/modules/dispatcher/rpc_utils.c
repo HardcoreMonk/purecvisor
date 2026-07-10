@@ -49,6 +49,27 @@
 
 #include "rpc_utils.h"
 
+/* 감사 SEC-F2 — 파싱 전 JSON 중첩 깊이 사전 스캔(스택오버플로우 크래시 차단). */
+gboolean pcv_rpc_json_depth_ok(const gchar *json, gint max_depth)
+{
+    if (!json) return TRUE;
+    gint depth = 0;
+    gboolean in_str = FALSE, esc = FALSE;
+    for (const gchar *p = json; *p; p++) {
+        gchar c = *p;
+        if (in_str) {
+            if (esc)            esc = FALSE;
+            else if (c == '\\') esc = TRUE;
+            else if (c == '"')  in_str = FALSE;
+            continue;
+        }
+        if (c == '"')                   in_str = TRUE;
+        else if (c == '[' || c == '{') { if (++depth > max_depth) return FALSE; }
+        else if (c == ']' || c == '}')  { if (depth > 0) depth--; }
+    }
+    return TRUE;
+}
+
 gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
                                       const gchar *primary_key,
                                       const gchar *alias_key,

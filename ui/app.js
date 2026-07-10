@@ -750,11 +750,19 @@ window.retryDlqItem = async function(index) {
 
 /* ═══ API KEY MANAGEMENT ═══ */
 async function apiKeyCreate() {
+  var name = (document.getElementById('apikey-name')?.value || '').trim();
   var desc = (document.getElementById('apikey-desc')?.value || '').trim();
-  var expiry = parseInt(document.getElementById('apikey-expiry')?.value) || 90;
-  if (!desc) { toast('Description required', false); return; }
+  var expiryDays = parseInt(document.getElementById('apikey-expiry')?.value, 10);
+  if (!name) { toast('Name required', false); return; }
+  /* BE 계약(dispatcher auth.apikey.create): name(필수)+description(옵션)+
+   * expires_at(옵션, epoch 초; 0/미전송 = 무기한). 폼은 만료를 '일'로 받으므로
+   * 여기서 epoch 초로 환산해 canonical 키로 전송한다. */
+  var payload = { name: name, description: desc };
+  if (Number.isFinite(expiryDays) && expiryDays > 0) {
+    payload.expires_at = Math.floor(Date.now() / 1000) + expiryDays * 86400;
+  }
   try {
-    var r = await fetchPost(API_BASE + '/auth/apikeys', { description: desc, expiry_days: expiry });
+    var r = await fetchPost(API_BASE + '/auth/apikeys', payload);
     if (r.error) { toast('Create failed: ' + (r.error.message || ''), false); return; }
     var d = r.data || r.result || r;
     var newEl = document.getElementById('apikey-new-result');
@@ -770,9 +778,10 @@ async function apiKeyCreate() {
         mk('button', { class: 'btn', style: 'margin-top:6px;font-size:10px', onclick: "navigator.clipboard.writeText('" + escapeHtml(d.api_key).replace(/'/g, "\\'") + "');toast('Copied!')" }, '📋 Copy')
       ));
     }
-    toast('API key created: ' + desc);
-    addEvt('API Key created: ' + desc);
-    document.getElementById('apikey-desc').value = '';
+    toast('API key created: ' + name);
+    addEvt('API Key created: ' + name);
+    var nameEl = document.getElementById('apikey-name'); if (nameEl) nameEl.value = '';
+    var descEl = document.getElementById('apikey-desc'); if (descEl) descEl.value = '';
     apiKeyList();
   } catch (e) { toast('Error: ' + e.message, false); }
 }
@@ -1304,8 +1313,6 @@ requestBrowserNotif();
 CMD_ACTIONS.push(
   { icon: '&#128195;', label: 'Templates', action: () => navigateTo('templates') },
   { icon: '&#9881;', label: 'Config Management', action: () => navigateTo('config-mgmt') },
-  /* Docker/OCI 제거됨 */
-  /* Terraform 제거됨 */
   /* Federation — 멀티 에디션 전용, cluster-only로 런타임 제어 */
   { icon: '&#128230;', label: 'Import OVA', action: () => showImportOva() },
   { icon: '&#9729;', label: 'Cloud Migration', action: () => navigateTo('cloud-migration') },
@@ -1333,8 +1340,8 @@ if (!window._navTabsWrapped) {
         'accounts': '&#128100;', 'mon-overview': '&#128200;', 'ops-triage': '&#9889;', 'mon-alerts': '&#128276;',
         'mon-cluster': '&#9741;', 'mon-hosts': '&#128187;', 'mon-vms': '&#9881;',
         'mon-storage': '&#128190;', 'mon-audit': '&#128270;',
-        'security-groups': '&#128737;', 'gpu': '&#127918;', 'docker': '&#128051;',
-        'terraform': '&#127981;', 'federation': '&#127758;', 'apihelp': '&#128214;',
+        'security-groups': '&#128737;', 'gpu': '&#127918;',
+        'federation': '&#127758;', 'apihelp': '&#128214;',
         'helppage': '&#10068;', 'serviceguide': '&#128218;', 'restguide': '&#128220;',
         'apimgmt': '&#128268;', 'templates': '&#128195;', 'config-mgmt': '&#9881;',
         'cloud-migration': '&#9729;',

@@ -427,6 +427,79 @@ pcv_spawn_sync(const gchar * const *argv,
     return pcv_spawn_sync_timeout(argv, stdout_out, stderr_out, 0, error);
 }
 
+/**
+ * pcv_spawn_sync_env - envp를 이 자식에만 전달하는 동기 실행 (블로킹)
+ *
+ * 공유 싱글턴 g_launcher를 쓰지 않고 호출 단위 전용 GSubprocessLauncher를
+ * 새로 만든다. 이렇게 하면 AWS 자격증명 같은 값을 g_setenv()로 데몬 전역
+ * environ에 주입(→/proc/pid/environ 잔류 + 이후 spawn 상속 + 동시 spawn race)
+ * 하지 않고, 이 자식 프로세스에만 안전하게 전달할 수 있다.
+ *
+ * 공통 환경(PATH/HOME/LANG/cwd)은 pcv_spawn_launcher_init()과 동일하게 세팅한 뒤,
+ * 호출자가 넘긴 envp("KEY=VALUE") 항목을 g_subprocess_launcher_setenv()로 얹는다.
+ * launcher는 공유 상태가 아니므로 뮤텍스가 필요 없으며, 호출 종료 시 unref한다.
+ */
+gboolean
+pcv_spawn_sync_env(const gchar * const *argv,
+                   const gchar * const *envp,
+                   gchar              **stdout_out,
+                   gchar              **stderr_out,
+                   GError             **error)
+{
+    g_return_val_if_fail(argv && argv[0], FALSE);
+
+    GSubprocessFlags flags = G_SUBPROCESS_FLAGS_NONE;
+    if (stdout_out) flags |= G_SUBPROCESS_FLAGS_STDOUT_PIPE;
+    else            flags |= G_SUBPROCESS_FLAGS_STDOUT_SILENCE;
+    if (stderr_out) flags |= G_SUBPROCESS_FLAGS_STDERR_PIPE;
+    else            flags |= G_SUBPROCESS_FLAGS_STDERR_SILENCE;
+
+    /* 호출 단위 전용 launcher — 공유 싱글턴이 아니므로 뮤텍스 불필요.
+     * flags를 생성 시 확정하므로 set_flags 재설정도 필요 없다. */
+    GSubprocessLauncher *launcher = g_subprocess_launcher_new(flags);
+
+    /* pcv_spawn_launcher_init()과 동일한 공통 환경 복제 (환경 통일) */
+    g_subprocess_launcher_setenv(launcher, "PATH",
+        "/usr/sbin:/usr/bin:/sbin:/bin", TRUE);
+    g_subprocess_launcher_setenv(launcher, "HOME", "/root", TRUE);
+    g_subprocess_launcher_setenv(launcher, "LANG", "C.UTF-8", TRUE);
+    g_subprocess_launcher_set_cwd(launcher, "/");
+
+    /* 호출자 envp("KEY=VALUE")를 이 자식에만 얹는다 (데몬 전역 environ 무변) */
+    for (const gchar * const *e = envp; e && *e; e++) {
+        const gchar *eq = strchr(*e, '=');
+        if (!eq)
+            continue;
+        gchar *key = g_strndup(*e, (gsize)(eq - *e));
+        g_subprocess_launcher_setenv(launcher, key, eq + 1, TRUE);
+        g_free(key);
+    }
+
+    GSubprocess *proc = g_subprocess_launcher_spawnv(launcher, argv, error);
+    if (!proc) {
+        g_object_unref(launcher);
+        return FALSE;
+    }
+
+    gchar *captured_out = NULL, *captured_err = NULL;
+    if (!g_subprocess_communicate_utf8(proc, NULL, NULL,
+                                       stdout_out ? &captured_out : NULL,
+                                       stderr_out ? &captured_err : NULL,
+                                       error)) {
+        g_object_unref(proc);
+        g_object_unref(launcher);
+        return FALSE;
+    }
+    if (stdout_out) *stdout_out = captured_out;
+    if (stderr_out) *stderr_out = captured_err;
+
+    gboolean ok = _spawn_judge_exit(proc, argv[0],
+                                    stderr_out ? *stderr_out : NULL, error);
+    g_object_unref(proc);
+    g_object_unref(launcher);
+    return ok;
+}
+
 static gchar *
 _read_stream_to_string(GInputStream *stream)
 {

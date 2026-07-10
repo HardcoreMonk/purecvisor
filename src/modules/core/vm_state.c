@@ -136,22 +136,27 @@
 #define LOCK_EXPIRY_SEC       LOCK_EXPIRY_MIGRATE
 
 /**
- * op_type → expiry 매핑. op_type 상수는 handler에서 사용:
- *   VM_OP_CREATING=1 / VM_OP_STOPPING=2 / VM_OP_STARTING=3 /
- *   VM_OP_DELETING=4 / VM_OP_SNAPSHOTTING=5 / VM_OP_MIGRATING=6 / ...
- */
+ * op_type → expiry 매핑 (W4 설계 의도: start/stop→60, create/delete→600,
+ * migrate→1800, 기타→300).
+ *
+ * [감사 AF-P2] 이전 구현은 정본 enum(vm_state.h: STARTING=1/STOPPING=2/
+ * DELETING=3/CREATING=4/TUNING=5/SNAPSHOT=6/MIGRATING=7)과 어긋난 stale 정수
+ * case(CREATING=1/DELETING=4/MIGRATING=6)를 써서 실효 TTL이 뒤바뀌었다 —
+ * 특히 DELETING(3)이 의도 600s 대신 FAST 60s로 조기 만료돼, 삭제(ZFS destroy)가
+ * 60s를 넘기면 락이 stale 판정되어 경쟁 op가 탈취할 수 있었다. 매직넘버를 제거하고
+ * 정본 enum 상수로 재작성한다. */
 static gint _lock_expiry_for_op(gint op_type) {
     switch (op_type) {
-        case 1: /* CREATING */
-        case 4: /* DELETING */
-            return LOCK_EXPIRY_ZFS;
-        case 2: /* STOPPING */
-        case 3: /* STARTING */
-            return LOCK_EXPIRY_FAST;
-        case 6: /* MIGRATING */
-            return LOCK_EXPIRY_MIGRATE;
-        default:
-            return LOCK_EXPIRY_DEFAULT;
+        case VM_OP_STARTING:
+        case VM_OP_STOPPING:
+            return LOCK_EXPIRY_FAST;    /* 60s */
+        case VM_OP_CREATING:
+        case VM_OP_DELETING:
+            return LOCK_EXPIRY_ZFS;     /* 600s (ZFS create/destroy 포함) */
+        case VM_OP_MIGRATING:
+            return LOCK_EXPIRY_MIGRATE; /* 1800s */
+        default:                        /* TUNING, SNAPSHOT, NONE */
+            return LOCK_EXPIRY_DEFAULT; /* 300s */
     }
 }
 

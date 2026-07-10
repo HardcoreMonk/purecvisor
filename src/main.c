@@ -141,6 +141,7 @@
 
 /* ── 네트워크/스토리지 모듈 ───────────────────────────────────── */
 #include "modules/network/ovs_overlay.h"   /* 에디션 공용 OVS overlay 코어 + Multi 자동화 */
+#include "modules/network/network_manager.h" /* QoS 재수화(pcv_qos_restore) 부팅 배선 */
 #include "modules/network/ovn_manager.h"   /* 에디션 공용 OVN 코어 + Multi 자동화 */
 #include "modules/storage/iscsi_manager.h" /* iSCSI 타겟/이니시에이터 (tgtadm/iscsiadm) */
 #include "modules/network/dpdk_manager.h"  /* OVS-DPDK 커널 바이패스 (Phase 4) */
@@ -1021,6 +1022,11 @@ int main(int argc, char *argv[]) {
 
     STAGE_BEGIN("network-storage");
     pcv_overlay_init(pcv_config_get_string("overlay", "tunnel_ip", ""));
+    /* AF-N3: 영속 메타(/var/lib/purecvisor/overlay)에서 오버레이 재구성.
+     * pcv_overlay_init 직후 배치 — OVS(ovsdb/ovs-vswitchd)는 systemd 선행
+     * 서비스라 이 시점에 ovs-vsctl 가용. best-effort: 개별 실패는 WARN 후
+     * 계속하며 부팅을 막지 않는다. [E2E 재부팅-복원 검증은 별도 게이트] */
+    pcv_overlay_restore();
     pcv_iscsi_init();
     pcv_ovn_init();
 
@@ -1341,6 +1347,13 @@ int main(int argc, char *argv[]) {
     STAGE_BEGIN("overlay-provision");
     pcv_bootstrap_init_runtime_network();
 
+    /* AF-N2: 가장 늦은 네트워크 스테이지에서 QoS 재수화.
+     * tc 는 대상 vnet* 인터페이스가 존재해야 성공 — init_runtime_network 로
+     * 런타임 네트워크가 올라온 직후에 배치한다. best-effort: 대상 iface 미존재
+     * 시 tc 실패는 내부적으로 무시되고 부팅은 계속(크래시 없음).
+     * [E2E 재부팅-복원 검증(tc 재적용 실관측)은 별도 게이트] */
+    pcv_qos_restore();
+
     STAGE_END("overlay-provision");
 
     /* ── 전체 초기화 완료 시간 ──────────────────────────────────── */
@@ -1554,6 +1567,11 @@ int main(int argc, char *argv[]) {
     pcv_security_group_resync_timer_shutdown();  /* [I2-R1] resync 타이머 해제 */
     pcv_vm_template_shutdown();       /* VM 템플릿 */
     pcv_rbac_shutdown();              /* RBAC DB 종료 */
+    /* [감사 AF-3] AI-Ops self-healing 타이머/상태 정지 — teardown 중 헬링 타이머가
+     * 이미 해제된 서브시스템(cpu_allocator/ws/audit)을 건드리는 것을 방지한다.
+     * shutdown 함수는 self_healing.c에 이미 구현돼 있었으나 cleanup 배선만 누락됐다. */
+    extern void pcv_healing_shutdown(void);
+    pcv_healing_shutdown();
     pcv_process_monitor_shutdown();   /* Process monitor 스레드 join */
     pcv_alert_engine_shutdown();      /* Alert engine 스레드 join */
     pcv_ebpf_telemetry_shutdown();    /* eBPF 텔레메트리 스레드 join */

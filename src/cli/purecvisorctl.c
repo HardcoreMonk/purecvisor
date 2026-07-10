@@ -4490,7 +4490,7 @@ void cmd_billing_report(int argc __attribute__((unused)), char *argv[] __attribu
 /** cmd_job_list - 비동기 작업 목록. job.list RPC. */
 void cmd_job_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
-    gchar  *resp  = purectl_send_request("job.list", NULL, &error);
+    gchar  *resp  = purectl_send_request("jobs.list", NULL, &error);  /* [감사 AF-C2] 오타 수정: 백엔드 등록명은 복수형 jobs.list */
     if (error) {
         g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
         g_error_free(error); return;
@@ -6352,7 +6352,7 @@ static void cmd_backup_restore(int argc, char *argv[]) {
 static void cmd_backup_incremental(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup incremental <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
-    json_object_set_string_member(p, "vm_name", argv[2]);
+    json_object_set_string_member(p, "name", argv[2]);
     GError *e = NULL; gchar *r = purectl_send_request("backup.incremental", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
     print_action_response(r, "BACKUP_INCREMENTAL"); g_free(r);
@@ -6362,7 +6362,7 @@ static void cmd_backup_incremental(int argc, char *argv[]) {
 static void cmd_backup_verify(int argc, char *argv[]) {
     if (argc < 4) { printf("%sUsage: pcvctl backup verify <name> <snapshot>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
-    json_object_set_string_member(p, "vm_name", argv[2]);
+    json_object_set_string_member(p, "name", argv[2]);
     json_object_set_string_member(p, "snapshot", argv[3]);
     GError *e = NULL; gchar *r = purectl_send_request("backup.verify", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6373,12 +6373,12 @@ static void cmd_backup_verify(int argc, char *argv[]) {
 static void cmd_backup_replicate(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup replicate <name> --target <ip> --user <user>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
-    json_object_set_string_member(p, "vm_name", argv[2]);
+    json_object_set_string_member(p, "name", argv[2]);
     for (int i = 3; i < argc; i++) {
         if (g_strcmp0(argv[i], "--target") == 0 && i + 1 < argc)
-            json_object_set_string_member(p, "target", argv[++i]);
+            json_object_set_string_member(p, "target_node", argv[++i]);
         else if (g_strcmp0(argv[i], "--user") == 0 && i + 1 < argc)
-            json_object_set_string_member(p, "user", argv[++i]);
+            json_object_set_string_member(p, "ssh_user", argv[++i]);
     }
     GError *e = NULL; gchar *r = purectl_send_request("backup.replicate", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6389,7 +6389,7 @@ static void cmd_backup_replicate(int argc, char *argv[]) {
 static void cmd_backup_export_s3(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup export-s3 <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
-    json_object_set_string_member(p, "vm_name", argv[2]);
+    json_object_set_string_member(p, "name", argv[2]);
     GError *e = NULL; gchar *r = purectl_send_request("backup.export_s3", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
     print_action_response(r, "BACKUP_EXPORT_S3"); g_free(r);

@@ -135,6 +135,20 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
                                       const gchar *alias_key,
                                       gint *out_value);
 
+/* JSON-RPC 요청의 최대 허용 중첩 깊이 (감사 SEC-F2).
+ * 정상 요청은 수 단계에 그친다. json-glib의 재귀 하강 파서는 깊은 중첩
+ * (`[[[…]]]`)에서 스택오버플로우로 데몬을 크래시시키므로, 파싱 전에 이 상한으로
+ * 사전 거부한다. 크래시 임계(스택 크기에 따라 수천~수만 depth)보다 훨씬 낮고
+ * 실사용 페이로드보다 훨씬 높은 값. */
+#define PCV_RPC_JSON_MAX_DEPTH 128
+
+/**
+ * pcv_rpc_json_depth_ok — JSON 문자열의 괄호 중첩 깊이가 max_depth 이하인지
+ * 파싱 없이 스캔한다. 문자열 리터럴 내부의 괄호는 세지 않는다(이스케이프 처리).
+ * @return 깊이가 상한 이하이거나 json이 NULL이면 TRUE, 초과하면 FALSE.
+ */
+gboolean pcv_rpc_json_depth_ok(const gchar *json, gint max_depth);
+
 G_END_DECLS
 
 #endif /* PURECVISOR_RPC_UTILS_H */

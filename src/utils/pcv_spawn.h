@@ -118,6 +118,31 @@ gboolean pcv_spawn_sync_timeout(const gchar * const *argv,
                                 guint timeout_sec, GError **error);
 
 /**
+ * pcv_spawn_sync_env:
+ * @argv:       NULL로 끝나는 argv 배열 (셸 해석 없음).
+ * @envp:       (nullable) NULL로 끝나는 "KEY=VALUE" 환경변수 배열.
+ *              이 자식 프로세스에만 적용되며 데몬 전역 environ은 건드리지 않는다.
+ *              NULL이면 pcv_spawn_sync()와 동일한 공통 환경만 적용.
+ * @stdout_out: (nullable)(out): stdout 캡처. 호출자가 g_free().
+ * @stderr_out: (nullable)(out): stderr 캡처. 호출자가 g_free().
+ * @error:      GError** (nullable)
+ *
+ * pcv_spawn_sync()와 동일하나, 공유 싱글턴 launcher가 아니라 **호출 단위 전용**
+ * GSubprocessLauncher를 새로 만들어 @envp 항목을 그 자식에만 얹는다. 따라서
+ * AWS 자격증명 같은 민감한 값을 g_setenv()로 데몬 전역 environ에 주입하지 않고
+ * 특정 자식에게만 전달할 수 있다 (전역 오염 + 이후 spawn 상속 + 동시 spawn race 제거).
+ * 공통 환경(PATH/HOME/LANG/cwd)은 pcv_spawn_launcher_init()과 동일하게 세팅된다.
+ * 공유 상태가 아니므로 뮤텍스가 필요 없다.
+ *
+ * [중요] 블로킹 — GTask 워커 스레드에서만 호출.
+ */
+gboolean pcv_spawn_sync_env(const gchar * const *argv,
+                            const gchar * const *envp,
+                            gchar              **stdout_out,
+                            gchar              **stderr_out,
+                            GError             **error);
+
+/**
  * pcv_spawn_fire:
  * @argv: NULL로 끝나는 argv 배열.
  *        예: {"nft", "add", "table", "inet", "purecvisor", NULL}

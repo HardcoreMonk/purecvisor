@@ -61,7 +61,7 @@ function navigateTo(n) {
   if (vmTabs.includes(n)) localStorage.setItem('pcv-last-vm-tab', n);
   currentTab = n;
   document.querySelectorAll('#ct button').forEach(b => b.classList.remove('active'));
-  const containerPages = ['containers', 'docker'];
+  const containerPages = ['containers'];
   /* sb-cluster 패널은 존재하지 않음 — cluster 관련 페이지도 INFRA 사이드바에 노출 */
   const infraPages = PCV.filterEditionItems([
     { id: 'networks' }, { id: 'storage' }, { id: 'host' }, { id: 'ovn' },
@@ -144,8 +144,6 @@ function renderContent() {
       'gpu': () => renderGpu(b),
       'templates': () => renderTemplates(b),
       'config-mgmt': () => renderConfigMgmt(b),
-      'docker': () => renderDocker(b),
-      'terraform': () => renderTerraform(b),
       'cloud-migration': () => renderCloudMigration(b),
       'overlay': () => renderOverlayNetworks(b),
       'iscsi': () => renderIscsi(b),
@@ -679,8 +677,6 @@ function doGlobalSearch(query) {
     { id: 'accounts', label: _L('계정과 권한', 'Accounts'), icon: '&#128100;', role: 'admin' },
     { id: 'security-groups', label: _L('보안 그룹', 'Security Groups'), icon: '&#128737;' },
     { id: 'gpu', label: _L('GPU 장치', 'GPU'), icon: '&#127918;' },
-    /* Docker/OCI 제거됨 */
-    /* Terraform 제거됨 */
     { id: 'apihelp', label: _L('Swagger API', 'Swagger API'), icon: '&#128214;' },
     { id: 'serviceguide', label: _L('서비스 가이드', 'Service Guide'), icon: '&#128218;' },
     { id: 'overlay', label: _L('오버레이 네트워크', 'Overlay Networks'), icon: '&#127760;' },

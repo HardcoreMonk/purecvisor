@@ -84,6 +84,9 @@ _audit_record_copy(const gchar *username, const gchar *method,
     rec->error_code  = error_code;
     rec->duration_ms = duration_ms;
     rec->src_ip      = g_strdup(src_ip ? src_ip : "");
+    /* 이벤트 발생시각(epoch µs, UTC) — pcv_audit_log 호출 즉시 캡처.
+     * 워커의 INSERT 시각(ts=datetime('now'))과 달리 큐 지연에 영향받지 않는다. */
+    rec->event_us    = g_get_real_time();
     return rec;
 }
 
@@ -106,8 +109,8 @@ _audit_worker(gpointer data __attribute__((unused)))
 {
     sqlite3_stmt *stmt = NULL;
     const gchar *sql =
-        "INSERT INTO audit_log(ts,node,username,method,target,result,error_code,duration_ms,src_ip) "
-        "VALUES(datetime('now'),?,?,?,?,?,?,?,?)";
+        "INSERT INTO audit_log(ts,node,username,method,target,result,error_code,duration_ms,src_ip,event_ts) "
+        "VALUES(datetime('now'),?,?,?,?,?,?,?,?,?)";
 
     if (G.db)
         sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
@@ -127,10 +130,26 @@ _audit_worker(gpointer data __attribute__((unused)))
             sqlite3_bind_int(stmt, 6, rec->error_code);
             sqlite3_bind_int64(stmt, 7, rec->duration_ms);
             sqlite3_bind_text(stmt, 8, rec->src_ip, -1, SQLITE_TRANSIENT);
+            /* event_ts: 발생시각(rec->event_us)을 UTC ISO8601(µs 포함)로 포맷.
+             * ts(datetime('now'))가 초 단위 기록시각인 반면, event_ts는 발생
+             * 절대시각을 µs 정밀도로 보존해 큐 지연 분석을 가능하게 한다. */
+            GDateTime *edt =
+                g_date_time_new_from_unix_utc(rec->event_us / G_USEC_PER_SEC);
+            gchar *event_ts = NULL;
+            if (edt) {
+                gchar *base = g_date_time_format(edt, "%Y-%m-%d %H:%M:%S");
+                event_ts = g_strdup_printf("%s.%06d", base,
+                                           (gint)(rec->event_us % G_USEC_PER_SEC));
+                g_free(base);
+                g_date_time_unref(edt);
+            }
+            sqlite3_bind_text(stmt, 9, event_ts ? event_ts : "", -1,
+                              SQLITE_TRANSIENT);
             int rc = sqlite3_step(stmt);
             if (rc != SQLITE_DONE) {
                 g_warning("[audit] SQLite INSERT failed: %s", sqlite3_errmsg(G.db));
             }
+            g_free(event_ts);
         }
 
         /* 파일 기록 (기존 PCV_LOG_AUDIT 경로) */
@@ -201,6 +220,7 @@ pcv_audit_init(const gchar *db_path)
             "CREATE TABLE IF NOT EXISTS audit_log ("
             "  id INTEGER PRIMARY KEY AUTOINCREMENT,"
             "  ts TEXT NOT NULL,"
+            "  event_ts TEXT,"
             "  node TEXT NOT NULL,"
             "  username TEXT,"
             "  method TEXT NOT NULL,"
@@ -210,6 +230,30 @@ pcv_audit_init(const gchar *db_path)
             "  duration_ms INTEGER,"
             "  src_ip TEXT"
             ")", NULL, NULL, NULL);
+        /* 기존 DB 마이그레이션(멱등): event_ts 컬럼이 없으면 추가한다.
+         * CREATE TABLE IF NOT EXISTS는 이미 존재하는 테이블에 새 컬럼을
+         * 반영하지 않으므로, PRAGMA table_info로 부재 확인 후 ALTER 한다. */
+        {
+            gboolean has_event_ts = FALSE;
+            sqlite3_stmt *pragma_stmt = NULL;
+            if (sqlite3_prepare_v2(G.db, "PRAGMA table_info(audit_log)",
+                                   -1, &pragma_stmt, NULL) == SQLITE_OK) {
+                while (sqlite3_step(pragma_stmt) == SQLITE_ROW) {
+                    const gchar *cname =
+                        (const gchar *)sqlite3_column_text(pragma_stmt, 1);
+                    if (cname && g_strcmp0(cname, "event_ts") == 0) {
+                        has_event_ts = TRUE;
+                        break;
+                    }
+                }
+                sqlite3_finalize(pragma_stmt);
+            }
+            if (!has_event_ts) {
+                sqlite3_exec(G.db,
+                    "ALTER TABLE audit_log ADD COLUMN event_ts TEXT",
+                    NULL, NULL, NULL);
+            }
+        }
         sqlite3_exec(G.db, "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)",
                      NULL, NULL, NULL);
         sqlite3_exec(G.db, "CREATE INDEX IF NOT EXISTS idx_audit_method ON audit_log(method)",
@@ -408,11 +452,11 @@ pcv_audit_recent_failures(const gchar *target_filter, gint limit)
 
     /* result='fail' 인 레코드만, target 옵션 필터링 */
     const gchar *sql_with_target =
-        "SELECT ts, method, target, result, error_code, duration_ms "
+        "SELECT ts, method, target, result, error_code, duration_ms, event_ts "
         "FROM audit_log WHERE result='fail' AND target=? "
         "ORDER BY id DESC LIMIT ?";
     const gchar *sql_all =
-        "SELECT ts, method, target, result, error_code, duration_ms "
+        "SELECT ts, method, target, result, error_code, duration_ms, event_ts "
         "FROM audit_log WHERE result='fail' "
         "ORDER BY id DESC LIMIT ?";
 
@@ -430,11 +474,13 @@ pcv_audit_recent_failures(const gchar *target_filter, gint limit)
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         JsonObject *obj = json_object_new();
-        const gchar *col_ts     = (const gchar *)sqlite3_column_text(stmt, 0);
-        const gchar *col_method = (const gchar *)sqlite3_column_text(stmt, 1);
-        const gchar *col_target = (const gchar *)sqlite3_column_text(stmt, 2);
-        const gchar *col_result = (const gchar *)sqlite3_column_text(stmt, 3);
+        const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 0);
+        const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 1);
+        const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 2);
+        const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 3);
+        const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 6);
         json_object_set_string_member(obj, "ts",       col_ts     ? col_ts     : "");
+        json_object_set_string_member(obj, "event_ts", col_event_ts ? col_event_ts : "");
         json_object_set_string_member(obj, "method",   col_method ? col_method : "");
         json_object_set_string_member(obj, "target",   col_target ? col_target : "");
         json_object_set_string_member(obj, "result",   col_result ? col_result : "");
@@ -462,7 +508,7 @@ pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
     if (!G.db) return arr;
 
     const gchar *sql =
-        "SELECT ts, username, method, target, result, src_ip, duration_ms "
+        "SELECT ts, username, method, target, result, src_ip, duration_ms, event_ts "
         "FROM audit_log WHERE 1=1 "
         "AND (? IS NULL OR ts >= ?) "
         "AND (? IS NULL OR ts <= ?) "
@@ -485,13 +531,15 @@ pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
 
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         JsonObject *obj = json_object_new();
-        const gchar *col_ts     = (const gchar *)sqlite3_column_text(stmt, 0);
-        const gchar *col_user   = (const gchar *)sqlite3_column_text(stmt, 1);
-        const gchar *col_method = (const gchar *)sqlite3_column_text(stmt, 2);
-        const gchar *col_target = (const gchar *)sqlite3_column_text(stmt, 3);
-        const gchar *col_result = (const gchar *)sqlite3_column_text(stmt, 4);
-        const gchar *col_srcip  = (const gchar *)sqlite3_column_text(stmt, 5);
+        const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 0);
+        const gchar *col_user     = (const gchar *)sqlite3_column_text(stmt, 1);
+        const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 2);
+        const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 3);
+        const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 4);
+        const gchar *col_srcip    = (const gchar *)sqlite3_column_text(stmt, 5);
+        const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 7);
         json_object_set_string_member(obj, "ts",       col_ts     ? col_ts     : "");
+        json_object_set_string_member(obj, "event_ts", col_event_ts ? col_event_ts : "");
         json_object_set_string_member(obj, "username", col_user   ? col_user   : "");
         json_object_set_string_member(obj, "method",   col_method ? col_method : "");
         json_object_set_string_member(obj, "target",   col_target ? col_target : "");

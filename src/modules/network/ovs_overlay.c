@@ -56,9 +56,13 @@
 #include "utils/pcv_log.h"
 #include <string.h>
 #include <stdio.h>
+#include <errno.h>
+#include <glib/gstdio.h>   /* g_mkdir_with_parents */
 
 #define OVERLAY_LOG_DOM   "ovs_overlay"
-#define OVERLAY_META_DIR  "/var/run/purecvisor"
+/* AF-N3: /var/run(tmpfs, 재부팅 휘발) → /var/lib(비휘발) 이전.
+ * _save_meta/_load(restore)/삭제 경로가 이 매크로를 공유한다. */
+#define OVERLAY_META_DIR  "/var/lib/purecvisor/overlay"
 #define OVERLAY_MAX       16
 
 typedef struct {
@@ -143,16 +147,32 @@ _run_argv(const gchar * const *argv, GError **error)
 }
 
 /**
+ * _ensure_meta_dir — 메타 디렉토리(/var/lib/purecvisor/overlay) 존재 보장
+ *
+ * AF-N3: OVERLAY_META_DIR 가 /var/run(tmpfs) → /var/lib(비휘발)로 이전됨에
+ * 따라, 저장/복원 전에 디렉토리를 생성한다. 이미 존재하면 no-op.
+ */
+static void
+_ensure_meta_dir(void)
+{
+    if (g_mkdir_with_parents(OVERLAY_META_DIR, 0700) != 0) {
+        PCV_LOG_WARN(OVERLAY_LOG_DOM, "Cannot create meta dir %s: %s",
+                     OVERLAY_META_DIR, g_strerror(errno));
+    }
+}
+
+/**
  * _save_meta — 오버레이 메타데이터를 JSON 파일로 영속화
  * @net: 저장할 오버레이 네트워크 구조체
  *
- * /var/run/purecvisor/overlay-<name>.meta 파일에 이름, VNI, CIDR,
- * 피어 목록을 JSON 형식으로 저장한다.
+ * /var/lib/purecvisor/overlay/overlay-<name>.meta 파일에 이름, VNI, CIDR,
+ * 피어 목록을 JSON 형식으로 저장한다 (비휘발 — 재부팅 유지).
  * 호출자는 G.mu 잠금 상태에서 호출해야 한다.
  */
 static void
 _save_meta(OverlayNet *net)
 {
+    _ensure_meta_dir();   /* AF-N3: /var/lib 이전에 따라 디렉토리 생성 보장 */
     gchar *path = g_strdup_printf(OVERLAY_META_DIR "/overlay-%s.meta", net->name);
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "name", net->name);
@@ -219,6 +239,131 @@ pcv_overlay_shutdown(void)
     g_mutex_unlock(&G.mu);
     g_mutex_clear(&G.mu);
     G.initialized = FALSE;
+}
+
+/**
+ * pcv_overlay_restore — 부팅 시 영속화된 오버레이 메타를 스캔·재구성 (best-effort)
+ *
+ * [배경 — AF-N3]
+ *   _save_meta 가 남긴 overlay-<name>.meta 파일이 유일한 영속 상태다.
+ *   기존엔 로드/복원 경로가 없어(_load 부재) 재부팅 시 인메모리 G.nets[] 가
+ *   비어 있었고, 메타 또한 tmpfs(/var/run)라 휘발했다. → 메타를 /var/lib(비휘발)로
+ *   이전하고, 이 함수로 부팅 시 재구성한다.
+ *
+ * [동작]
+ *   1. OVERLAY_META_DIR 를 g_dir_open 으로 스캔
+ *   2. 각 overlay-*.meta JSON 파싱 → name/vni/cidr/peers 추출
+ *   3. pcv_overlay_create() 로 멱등 재적용 (ovs-vsctl --may-exist add-br)
+ *   4. 각 peer 를 pcv_overlay_add_peer() 로 재적용 (--may-exist add-port)
+ *
+ * [멱등성] pcv_overlay_create / add_peer 가 모두 멱등(--may-exist)이라
+ *   기존 OVS 상태가 남아 있어도 안전하게 재적용된다.
+ *
+ * [best-effort] 개별 파일 파싱·재적용 실패는 WARN 로그 후 계속한다.
+ *   부팅을 막지 않으며 크래시/abort 하지 않는다.
+ *
+ * [호출 시점] pcv_overlay_init() 이후(OVS 가용). G.mu 는 잡지 않는다
+ *   (공개 함수 create/add_peer 가 내부적으로 잠근다).
+ *
+ * [주의] 실환경 재부팅-복원 정합(ovs-vsctl 재적용)은 E2E 게이트에서 관측 필요.
+ */
+void
+pcv_overlay_restore(void)
+{
+    if (!G.initialized) {
+        PCV_LOG_INFO(OVERLAY_LOG_DOM, "Overlay disabled — skipping restore");
+        return;
+    }
+
+    _ensure_meta_dir();
+
+    GError *derr = NULL;
+    GDir *dir = g_dir_open(OVERLAY_META_DIR, 0, &derr);
+    if (!dir) {
+        /* 디렉토리 미존재/열기 실패 — 복원할 것 없음 (best-effort) */
+        if (derr) {
+            PCV_LOG_INFO(OVERLAY_LOG_DOM, "No overlay meta to restore (%s): %s",
+                         OVERLAY_META_DIR, derr->message);
+            g_error_free(derr);
+        }
+        return;
+    }
+
+    gint restored = 0;
+    const gchar *fname;
+    while ((fname = g_dir_read_name(dir)) != NULL) {
+        if (!g_str_has_prefix(fname, "overlay-") ||
+            !g_str_has_suffix(fname, ".meta"))
+            continue;
+
+        gchar *path = g_build_filename(OVERLAY_META_DIR, fname, NULL);
+        JsonParser *parser = json_parser_new();
+        GError *perr = NULL;
+        if (!json_parser_load_from_file(parser, path, &perr)) {
+            PCV_LOG_WARN(OVERLAY_LOG_DOM, "meta parse failed (%s): %s",
+                         path, perr ? perr->message : "unknown");
+            if (perr) g_error_free(perr);
+            g_object_unref(parser);
+            g_free(path);
+            continue;
+        }
+
+        JsonNode *root_n = json_parser_get_root(parser);
+        if (!root_n || json_node_get_node_type(root_n) != JSON_NODE_OBJECT) {
+            PCV_LOG_WARN(OVERLAY_LOG_DOM, "meta not a JSON object: %s", path);
+            g_object_unref(parser);
+            g_free(path);
+            continue;
+        }
+        JsonObject *root = json_node_get_object(root_n);
+
+        const gchar *name = json_object_has_member(root, "name")
+            ? json_object_get_string_member(root, "name") : NULL;
+        if (!name || !*name) {
+            PCV_LOG_WARN(OVERLAY_LOG_DOM, "meta missing 'name': %s", path);
+            g_object_unref(parser);
+            g_free(path);
+            continue;
+        }
+        gint vni = json_object_has_member(root, "vni")
+            ? (gint)json_object_get_int_member(root, "vni") : 100;
+        const gchar *cidr = json_object_has_member(root, "cidr")
+            ? json_object_get_string_member(root, "cidr") : NULL;
+
+        /* 멱등 재적용: ovs-vsctl --may-exist add-br + IP 재할당 */
+        GError *cerr = NULL;
+        if (!pcv_overlay_create(name, vni,
+                                (cidr && *cidr) ? cidr : NULL, &cerr)) {
+            PCV_LOG_WARN(OVERLAY_LOG_DOM, "overlay '%s' restore failed: %s",
+                         name, cerr ? cerr->message : "unknown");
+            if (cerr) g_error_free(cerr);
+            g_object_unref(parser);
+            g_free(path);
+            continue;
+        }
+
+        /* peer(VXLAN 터널) 재적용 — 개별 실패 무시 (best-effort) */
+        if (json_object_has_member(root, "peers")) {
+            JsonArray *peers = json_object_get_array_member(root, "peers");
+            guint n = peers ? json_array_get_length(peers) : 0;
+            for (guint i = 0; i < n; i++) {
+                const gchar *pip = json_array_get_string_element(peers, i);
+                if (pip && *pip)
+                    pcv_overlay_add_peer(name, pip, NULL);
+            }
+        }
+
+        restored++;
+        PCV_LOG_INFO(OVERLAY_LOG_DOM, "Restored overlay '%s' (VNI=%d, CIDR=%s)",
+                     name, vni, (cidr && *cidr) ? cidr : "-");
+        g_object_unref(parser);
+        g_free(path);
+    }
+    g_dir_close(dir);
+
+    if (restored > 0)
+        PCV_LOG_INFO(OVERLAY_LOG_DOM, "Restored %d overlay network(s) from %s",
+                     restored, OVERLAY_META_DIR);
 }
 
 /* ── overlay CRUD ─────────────────────────────────────────────── */

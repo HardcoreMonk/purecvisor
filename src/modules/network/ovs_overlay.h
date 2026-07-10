@@ -76,6 +76,15 @@ void pcv_overlay_init(const gchar *local_tunnel_ip);
  */
 void pcv_overlay_shutdown(void);
 
+/**
+ * pcv_overlay_restore -- 부팅 시 영속화된 오버레이 메타를 스캔·재구성 (best-effort)
+ *
+ * OVERLAY_META_DIR(/var/lib/purecvisor/overlay)의 overlay-*.meta 파일을 파싱하여
+ * pcv_overlay_create/add_peer 로 멱등 재적용한다. 개별 파일 실패는 WARN 후 계속하며
+ * 부팅을 막지 않는다. pcv_overlay_init() 이후(OVS 가용) 호출해야 한다. (AF-N3)
+ */
+void pcv_overlay_restore(void);
+
 /* ---- Overlay network CRUD ---- */
 
 /**

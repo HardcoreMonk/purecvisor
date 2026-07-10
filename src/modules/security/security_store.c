@@ -866,10 +866,14 @@ pcv_security_store_list_pending_actions(void)
         return arr;
     }
 
+    /* [감사 NEW-A2] 이전에는 expires_at를 기록만 하고 어디서도 읽지 않아, TTL이 지난
+     * pending HIPS 액션이 무기한 승인 가능 상태로 잔존했다(예: TTL 1h인 block_ip를
+     * 3일 뒤 승인). 만료된 pending을 결과에서 제외한다(ttl_sec<=0은 무만료로 취급). */
     const gchar *sql =
         "SELECT event_id,action,target_kind,target,status,ttl_sec,expires_at,requested_at,"
         "decided_at,decided_by,reason,job_id,error "
-        "FROM security_actions WHERE status='pending' ORDER BY requested_at DESC";
+        "FROM security_actions WHERE status='pending' "
+        "AND (ttl_sec <= 0 OR expires_at > ?1) ORDER BY requested_at DESC";
     sqlite3_stmt *stmt = NULL;
     gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -877,6 +881,7 @@ pcv_security_store_list_pending_actions(void)
         g_mutex_unlock(&G.mu);
         return arr;
     }
+    sqlite3_bind_int64(stmt, 1, now_sec());
 
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
         JsonObject *obj = row_to_action_json(stmt);
@@ -953,10 +958,13 @@ pcv_security_store_update_action_status(const gchar *event_id,
         /*
          * Only pending actions can transition. Once approved or dismissed, the
          * row becomes decision history and cannot be replayed by a stale button.
+         * [감사 NEW-A2] 만료된 pending은 'approved' 전이를 거부한다(TTL 지난 액션을
+         * 뒤늦게 승인·실행 차단). dismiss는 만료여도 허용(정리 목적).
          */
         "UPDATE security_actions "
-        "SET status=?, decided_at=?, decided_by=?, reason=? "
-        "WHERE event_id=? AND status='pending'";
+        "SET status=?1, decided_at=?2, decided_by=?3, reason=?4 "
+        "WHERE event_id=?5 AND status='pending' "
+        "AND (?1 <> 'approved' OR ttl_sec <= 0 OR expires_at > ?6)";
     sqlite3_stmt *stmt = NULL;
     gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -972,6 +980,7 @@ pcv_security_store_update_action_status(const gchar *event_id,
                       -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 4, reason ? reason : "", -1, SQLITE_TRANSIENT);
     sqlite3_bind_text(stmt, 5, event_id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int64(stmt, 6, now_sec());
     rc = sqlite3_step(stmt);
     gboolean ok = (rc == SQLITE_DONE && sqlite3_changes(G.db) > 0);
     sqlite3_finalize(stmt);

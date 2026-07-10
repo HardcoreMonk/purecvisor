@@ -95,7 +95,7 @@ _reboot_tracker_init_once(void)
  * @vm_name: VM 이름 (로그용)
  *
  * VM stop 이벤트 시각을 기록하고, 윈도우 내 임계 초과면 alert.
- * pcv_healing_on_anomaly("vm-reboot-loop", count, 99.0, 0.0) 호출.
+ * pcv_healing_on_anomaly("vm-reboot-loop", count, 99.0, 0.0, NULL) 호출.
  */
 static void
 _track_vm_stop(const gchar *uuid, const gchar *vm_name)
@@ -133,8 +133,9 @@ _track_vm_stop(const gchar *uuid, const gchar *vm_name)
     if (alert) {
         g_warning("🔁 [vm-reboot-loop] VM %s (%s) stopped %d times within %ds — possible boot failure or OOM",
                   vm_name ? vm_name : "(unknown)", uuid, recent, REBOOT_LOOP_WINDOW_SEC);
-        /* synthetic anomaly: ADR-0020 규칙 4 (trigger_metric 비공백) */
-        pcv_healing_on_anomaly("vm-reboot-loop", (gdouble)recent, 99.0, 0.0);
+        /* synthetic anomaly: ADR-0020 규칙 4 (trigger_metric 비공백).
+         * vm-reboot-loop 는 alert_only 정책이므로 restart target 불필요 → NULL. */
+        pcv_healing_on_anomaly("vm-reboot-loop", (gdouble)recent, 99.0, 0.0, NULL);
     }
 }
 
@@ -162,7 +163,9 @@ static gboolean handle_vm_death_in_main_thread(gpointer user_data) {
     //    self_healing.c의 "vm-unresponsive" 정책이 trigger_metric="vm-unresponsive"로
     //    등록되어 있고 restart 액션을 갖는다. Z=99.0은 확정적 이상을 의미하는
     //    senti nel 값(정책 trigger_zscore=0이므로 항상 매칭).
-    pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0);
+    // AF-1: vm_id(UUID)를 restart 대상으로 전달 → self_healing 이 active 모드에서
+    //    running-guard 통과 시 실제 재시작을 워커로 오프로드한다.
+    pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, vm_id);
 
     // 3. 향후 네트워크 브릿지 포트 정리(OVS port 딜리트)나 ZFS 데이터셋 언마운트 등의
     // 추가적인 클린업 로직을 이곳에 배치할 수 있습니다.
@@ -210,7 +213,7 @@ _schedule_sg_sync(const char *vm_name)
 static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
                                int event, int detail, void *opaque)
 {
-    (void)conn; (void)detail; (void)opaque; // 미사용 파라미터 경고 방지
+    (void)conn; (void)opaque; // 미사용 파라미터 경고 방지 (detail은 A6-6에서 사용)
 
     char uuid[VIR_UUID_STRING_BUFLEN];
     const char *vm_name = virDomainGetName(dom);
@@ -242,14 +245,21 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
         _track_vm_stop(uuid, vm_name);
     }
 
-    // 관심 있는 이벤트 필터링: VM이 완전히 정지되었거나(STOPPED) 크래시(CRASHED) 난 경우
-    if (event == VIR_DOMAIN_EVENT_STOPPED || event == VIR_DOMAIN_EVENT_CRASHED) {
-        
+    /* [감사 A6-6] 이전에는 STOPPED 전체에 대해 self-healing "vm-unresponsive"
+     * 재시작을 트리거해, 운영자가 정상 종료(ACPI shutdown·vm.stop)하거나 마이그레이션·
+     * 저장한 VM까지 자동 재시작할 위험이 있었다(AF-1 restart 실배선 시 운영자와 충돌).
+     * detail로 크래시 계열만 구분해 트리거한다: CRASHED 이벤트, 또는 STOPPED 중
+     * 하이퍼바이저 실패(FAILED)·게스트 크래시(CRASHED)만. 정상종료(SHUTDOWN)·강제정지
+     * (DESTROYED)·마이그레이션(MIGRATED)·저장(SAVED)은 제외. */
+    gboolean crash_like =
+        (event == VIR_DOMAIN_EVENT_CRASHED) ||
+        (event == VIR_DOMAIN_EVENT_STOPPED &&
+         (detail == VIR_DOMAIN_EVENT_STOPPED_FAILED ||
+          detail == VIR_DOMAIN_EVENT_STOPPED_CRASHED));
+    if (crash_like) {
         if (virDomainGetUUIDString(dom, uuid) == 0) {
-            
             // 🚀 핵심: 메인 스레드로 안전하게 넘겨주기 위해 문자열 복사본 생성
             gchar *uuid_copy = g_strdup(uuid);
-            
             // Event 스레드에서 Main 스레드의 큐(Queue)로 작업을 밀어넣음 (스레드 격리)
             g_main_context_invoke(NULL, handle_vm_death_in_main_thread, uuid_copy);
         }

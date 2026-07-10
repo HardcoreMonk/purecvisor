@@ -3,6 +3,76 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.0 — 2026-07-11
+
+8도메인 전수 아키텍처 감사(`arch-audit-final`)의 Tier0~2 시정 + 후속 판단 트랜치 통합. **데몬 라인 첫 대규모 릴리스** — "정의만 되고 실제로는 동작하지 않던" 다수의 안전 통제를 실배선했다. 전부 하위호환(신규 config는 기본값 존재, apikey `client_name` 레거시 fallback 유지). 검증: 전 커밋 `make single` 0-warning + `make test` **607/0** + `make check-all` PASS + 실-VM/ZFS/재부팅 E2E(AF-1/AF-S4/AF-N2·N3/apikey 계약).
+
+> ⚠️ **동작 변경 포함 릴리스** — 배포 전 `### Upgrade notes` 확인 필수. 특히 self-healing(기본 `dry_run`)·API 키 만료 집행·백업 리텐션·apikey DB 마이그레이션.
+
+### Security hardening (Tier0 — 원격 크래시·RCE·데이터 파괴 차단)
+- **미인증 요청 크래시 방어** — 루트 타입·method NULL 가드(`-32600`), 파싱 실패 `-32700`. 인증 전 임의 페이로드로 데몬을 죽일 수 있던 표면 차단.
+- **JSON 중첩 깊이 폭탄 차단** — `pcv_rpc_json_depth_ok`(≤128)를 dispatcher·`_parse_body`에 배선.
+- **컨테이너 NIC 셸인젝션 RCE 차단** — `container.nic` 4핸들러의 vm_name/bridge/iface 검증(SEC-F1).
+- **ZFS 데이터 파괴 방어** — zvol 재귀 파괴 화이트리스트+타입 확인(AF-S1), 클라우드 데이터안전 3종(AF-S5 import 덮어쓰기 거부·AF-S3 실행중 export 거부·AF-S2 near-live 거짓성공 정정).
+
+### Self-Healing / AI Ops
+- **VM 자동 재시작 실배선 (AF-1)** — 크래시 이벤트(`CRASHED`/비정상 `STOPPED`) → UUID 조회 → running-guard → `virDomainCreate`. 이전에는 콜체인에 VM 타깃이 관통되지 않아 완전 no-op이었다. 정상 종료(graceful shutdown)는 크래시 게이트(A6-6)에 걸러져 오재시작하지 않는다. **안전판: `[ai] mode` 기본 `dry_run`** — 실 재시작은 `active` 명시 전환 시에만.
+- **재시작 서킷브레이커 (신규)** — 반복 재시작 실패를 VM 단위로 격리 차단. 연속 실패 임계 초과 → OPEN(cooldown 동안 skip, audit `result=skipped reason=breaker-open`) → HALF_OPEN 1프로브 → 성공 시 복귀. 무한 재시작 루프 방지.
+- **AI 합의 최소 정족수 (A6-7)** — 이상탐지 응답자 1명일 때 1/1=100% 합의로 조치를 승격하던 결함 수정. `[ai] min_quorum`(기본 2) 미만이면 저신뢰로 판정해 알림만.
+- **알림 음소거 실집행 (AF-O2)** — `alert.silence`가 정의만 되고 발화 경로에서 확인되지 않아 무동작이던 것을, 발화 진입부에서 음소거 확인 후 건너뛰도록 배선.
+- **이상탐지 메트릭·파서 정합 (AF-O1)** — host cpu/mem 사용률을 레지스트리에 push(죽은 메트릭에 걸려 트리거 자체가 안 되던 정책 활성화) + 파서 `#` 주석줄 오매칭 수정. AI 캐시 키를 cpu/mem 사용률만 양자화(단조증가 카운터 포함으로 상시 miss→유료 API 재질의하던 것 해소, A6-8).
+- **self-healing 셔터다운 배선 (AF-3)**.
+
+### Storage / Backup
+- **백업 스냅샷 리텐션 (AF-S4) — 풀 잠식 방지** — `s3-`/`incr-` 스냅샷이 리텐션 없이 무한 누적→ZFS 풀 잠식→전 VM I/O 정지 위험이던 것을, 최신 N개(`[backup] s3_retention_count`/`incr_retention_count`, 기본 7)만 보존하고 초과분 자동 prune. 증분은 base 보존 위해 send 후, S3는 생성 직후 prune.
+- **VM 오퍼레이션 락 (AF-P1)** — create/delete/tuning(set_memory·set_vcpu)/snapshot(create·rollback·delete·delete_all)에 VM 단위 직렬화 락. 무락 경합 + create의 무제한 `zfs list`가 ZFS hang 시 전 데몬 프리즈를 유발할 수 있던 위험 제거.
+- **create dup-check 논블로킹 (NEW-2)** — 메인스레드 `zfs list`에 타임아웃(hang → 데몬 프리즈 차단).
+- **S3 자격증명 격리 (M-9)** — AWS 자격증명을 전역 `environ` 오염 없이 호출 단위 `envp`로 전달.
+- **iSCSI 안전화 (M-2/M-3)** — 셸 연산자 리터럴 제거 + 삭제 반환값 반영.
+
+### Network
+- **QoS·오버레이 재수화 (AF-N2/N3)** — tc 대역제한·VXLAN 오버레이가 `/var/run`(tmpfs)라 재부팅 시 소실되던 것을 `/var/lib`(비휘발)로 이전 + 부팅 스테이지 자동 복원(멱등 재적용). 실 재부팅 E2E로 OVS/ovsdb 기동 후 재적용 정합 실증.
+
+### Auth / Security
+- **API 키 스키마 단일화 (F8)** — 이중 스키마(schema#1/#2)를 schema#2 canonical로 통합 + 멱등 마이그레이션(dead 함수 4 제거).
+- **API 키 생성 계약 정합 + 만료 집행 (apikey.create)** — 생성 파라미터를 `name`(정본)+`client_name`(레거시 fallback)+`description`+`expires_at`(epoch)로 확장, description/expires_at 컬럼 멱등 추가. **만료 집행**: 인증 술어 `expires_at = 0 OR expires_at > now`(0=무기한, 만료 초과 시 거부) — verify·role 조회 양 경로. FE 생성 폼 name 필드 + 전송 페이로드 정합(실브라우저 검증).
+- **OPERATOR 권한 상승 차단 (SEC-F3)** — 호스트 파괴 가능 메서드 17개를 ADMIN 정책에 매핑(FE 실버튼 노출이라 시급).
+- **보안 액션 TTL 집행 (NEW-A2)** — 만료된 pending HIPS 액션이 무기한 승인 가능하던 것 차단.
+
+### Contract / API
+- **FE→BE 계약 라우트 배선 (AF-C1)** — FE가 호출하지만 404/오라우팅이던 REST 10라우트 브리지 + apikey REST(list/revoke, F8 통합 후 활성).
+- **미구현 RPC/CLI 핸들러 배선 (AF-C2)** — numa.info/autostart/sla.report/capacity.forecast 실배선(`-32601` 해소), schedule/billing은 backing 부재라 `not_available` 정직 스텁.
+- **CLI 백업 커맨드 복구** — `pcvctl backup incremental`·`export-s3`·`verify`·`replicate`가 파라미터 키 불일치로 **도입 이래 무동작**(`-32602`)이던 것을 복구(E2E 발견).
+- **alert DLQ 노출 (AF-C4 발굴)** — `alert.dlq.list`/`retry` RPC 등록 + REST GET.
+
+### Observability / Audit
+- **fire-and-forget WS 마샬링 (A2-2)** — 워커 스레드에서 발화하던 9개 표면의 WS 브로드캐스트를 메인 컨텍스트로 마샬링(libsoup 스레드 어피니티 위반 해소).
+- **audit 이벤트 발생시각 분리 (A6-9)** — `event_ts`(발생시각)를 기록시각과 별도 기록.
+- **알림 에스컬레이션 (A6-3/A6-4)** — 에스컬레이션 JSON 래핑 + webhook_secret/crit_url 로드.
+- **process_monitor PID 누수 (A6-10)** 수정.
+
+### Internal / Cleanup
+- **storage_tier dead 함수 전면삭제 (M-1)** — 호출부 0인 9함수(list/info/create/auto_select/migrate/qos set·get·delete + shutdown)·dead 헬퍼·미사용 include 제거(≈410줄 감축). init(살아있는 유일 경로) 보존.
+- **Docker/OCI·Terraform 프론트 잔재 완전 제거 (NEW-D1)** — 불완전 제거로 `#docker` 직접 진입 시 404이던 미배선 route.
+- storage.tier.set 고아 정책 제거(M-1, 모듈 keep) / container.js IIFE 밖 재대입 3줄 삭제(AF-F3).
+
+### Tooling / CI
+- **RPC 소비⊆등록 계약 게이트 (AF-C4)** — `check_rpc_consumers.py`: FE/CLI/TUI가 소비하는 모든 RPC가 등록됐는지 검사(계약 파손=404/-32601 재발 차단). `make check-all` 집계(RBAC+RPC) + pre-commit 훅 승격 — 파손 유발 커밋 자체 차단.
+
+### Config (신규 키 — 전부 기본값 존재, 무설정 시 종전 동작 유지)
+- `[ai] mode`(기본 `dry_run`) — self-healing 실행 모드. `active`로 전환해야 실제 조치.
+- `[ai] min_quorum`(기본 2) — AI 합의 최소 응답자 수.
+- `[ai] restart_breaker_threshold`(기본 3) / `restart_breaker_cooldown_sec`(기본 1800) — 재시작 서킷브레이커.
+- `[backup] s3_retention_count` / `incr_retention_count`(각 기본 7) — 백업 스냅샷 보존 개수.
+- `[overlay] tunnel_ip` — 오버레이 활성화(미설정 시 오버레이 비활성).
+
+### Upgrade notes
+- **DB 마이그레이션은 전진 전용** — api_keys 스키마 단일화(F8) + description/expires_at 컬럼 추가는 멱등 ALTER로 안전하나 되돌릴 수 없다. **배포 전 `rbac.db` 백업 권장**. 구버전(1.1.x) 데몬으로 롤백 시 새 컬럼을 무시(기능 저하만, 크래시 아님).
+- **API 키 만료 집행** — 기존 무기한 키는 `expires_at=0`이라 영향 없음. 만료일이 설정된 키는 이제 실제로 만료 후 거부되므로, 만료됐지만 사용 중이던 키가 있으면 재발급 필요.
+- **self-healing은 기본 dry_run** — 자동 재시작을 원하면 `[ai] mode=active` 전환. 켤 때 서킷브레이커 기본값(3회/1800초)으로 재부팅 루프가 차단됨을 확인.
+- **백업 리텐션 기본 7** — 기존에 8개 이상 `s3-`/`incr-` 스냅샷을 쌓아둔 VM은 다음 백업 실행 시 오래된 것부터 7개로 정리된다. 더 긴 보존이 필요하면 배포 전 config로 상향.
+- 데몬 재시작(다운타임 수 초) 수반. `.deb` postinst는 재시작하지 않으므로 `systemctl restart purecvisorsd` 필수.
+
 ## v1.1.5 — 2026-07-10
 
 깨진 모달 6곳 기능 복원 + deb 패키징 style.css 누락 핫픽스 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만). 래칫 **15→9**.

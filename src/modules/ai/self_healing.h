@@ -59,13 +59,19 @@ void pcv_healing_shutdown(void);
  * @value:     현재 메트릭 값
  * @zscore:    이상 탐지 Z-Score
  * @threshold: 해당 메트릭의 Z-Score 임계값
+ * @target_vm: (nullable) 액션 대상 VM 식별자(UUID 또는 이름). restart 액션의
+ *             실제 재시작 대상. VM 컨텍스트가 없는 호출부는 NULL 을 전달한다.
  *
  * anomaly_detector에서 이상 감지 시 호출. 등록된 정책 중
  * trigger_metric이 일치하고 zscore가 기준을 초과하는 정책을 찾아 평가.
  * 복합 조건(2개+ 동시 트리거) 시 AI Agent 자문 요청.
+ *
+ * AF-1: target_vm 이 비-NULL 이고 매칭 정책 action="restart" 이면 실제 VM 재시작을
+ * 워커 풀로 오프로드한다(dry_run/running-guard 안전판 적용).
  */
 void pcv_healing_on_anomaly(const gchar *metric, gdouble value,
-                             gdouble zscore, gdouble threshold);
+                             gdouble zscore, gdouble threshold,
+                             const gchar *target_vm);
 
 /**
  * pcv_healing_on_prediction:

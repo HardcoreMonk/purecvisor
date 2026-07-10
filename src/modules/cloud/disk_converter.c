@@ -52,6 +52,16 @@ pcv_disk_convert_raw_to_qcow2(const gchar *raw_path, const gchar *vm_name,
     gchar *out_path = g_strdup_printf("%s/%s.qcow2",
         output_dir ? output_dir : "/var/lib/libvirt/images", vm_name);
 
+    /* [감사 AF-S5] 대상 경로에 이미 디스크가 있으면 덮어쓰기를 거부한다. 이전에는
+     * 존재검사 없이 qemu-img convert가 동명 기존 VM의 디스크를 파괴할 수 있었다
+     * (import가 사용자 지정 vm_name으로 /var/lib/libvirt/images/<name>.qcow2에 기록). */
+    if (g_file_test(out_path, G_FILE_TEST_EXISTS)) {
+        g_set_error(error, g_quark_from_static_string("disk_converter"), 1,
+                    "target disk already exists, refusing to overwrite: %s", out_path);
+        g_free(out_path);
+        return NULL;
+    }
+
     const gchar *argv[] = {
         "qemu-img", "convert",
         "-f", "raw", "-O", "qcow2",

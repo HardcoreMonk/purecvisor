@@ -675,6 +675,10 @@ _collect_processes(void)
         ? (gdouble)(now_us - G.prev_time_us) / G_USEC_PER_SEC
         : 0.0;
 
+    /* [감사 A6-10] 이번 스캔에서 살아있는 것으로 확인된 PID 집합 — 스캔 종료 후
+     * prev_ticks에서 종료된 PID 엔트리를 프룬하는 데 사용(무한 성장 방지). */
+    g_autoptr(GHashTable) seen = g_hash_table_new(g_direct_hash, g_direct_equal);
+
     struct dirent *ent;
     while ((ent = readdir(d)) != NULL && count < PROC_MAX) {
         /* /proc 아래에서 숫자로 시작하는 디렉터리만 PID 디렉터리 */
@@ -714,9 +718,23 @@ _collect_processes(void)
         }
         /* 현재 tick을 저장 → 다음 수집 시 delta 계산에 사용 */
         g_hash_table_insert(G.prev_ticks, GINT_TO_POINTER(pid), GSIZE_TO_POINTER(total_ticks));
+        g_hash_table_add(seen, GINT_TO_POINTER(pid));   /* [A6-10] 생존 PID 기록 */
         count++;
     }
     closedir(d);
+
+    /* [감사 A6-10] prev_ticks에서 종료된 PID 엔트리를 정리한다. 이전에는 매 스캔
+     * insert만 하고 제거가 없어 장기 실행 시 무한 성장(PID 재사용 전까지 누수)했다.
+     * 전체 /proc를 다 훑은 스캔에서만(count < PROC_MAX) 프룬해 캡 도달 시 오프룬 방지. */
+    if (count < PROC_MAX) {
+        GHashTableIter it;
+        gpointer k, v;
+        g_hash_table_iter_init(&it, G.prev_ticks);
+        while (g_hash_table_iter_next(&it, &k, &v)) {
+            if (!g_hash_table_contains(seen, k))
+                g_hash_table_iter_remove(&it);
+        }
+    }
 
     /*
      * CPU% 내림차순 정렬 → procs[0]이 가장 CPU를 많이 쓰는 프로세스.

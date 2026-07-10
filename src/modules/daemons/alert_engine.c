@@ -634,6 +634,15 @@ _get_vm_webhook(const gchar *metric)
 static void
 _fire_alert(const gchar *metric, AlertLevel level, gdouble value)
 {
+    /* AF-O2: 음소거 확인 — pcv_alert_add_silence(alert.silence RPC) 로 등록된
+     * 메트릭이면 알림을 발화하지 않는다. 이전에는 pcv_alert_is_silenced 가 정의만
+     * 되고 이 발화 경로에서 호출되지 않아 음소거가 완전 무동작이었다(레코드·웹훅
+     * 모두 발생 = 감사 테마 "통제가 보고만 성공, 실제 무동작"). */
+    if (pcv_alert_is_silenced(metric)) {
+        PCV_LOG_INFO(ALERT_LOG_DOM, "Alert suppressed (silenced): metric=%s", metric);
+        return;
+    }
+
     const gchar *sev = (level == ALERT_CRIT) ? "CRIT" : "WARN";
     gchar hostname[64] = "unknown";
     gethostname(hostname, sizeof(hostname));
@@ -1060,7 +1069,35 @@ _alert_thread(gpointer data)
                                "[ESCALATION] Unacknowledged CRIT (id=%" G_GINT64_FORMAT "): %s",
                                r->alert_id, r->message);
                     g_mutex_unlock(&G.mu);
-                    _webhook_post_async(NULL, esc_msg);
+                    /* A6-3: 정상 경로(674~689)와 동일하게 webhook_format 별 JSON
+                     * 으로 래핑한다. 이전에는 평문 esc_msg 를 그대로 전송 →
+                     * _webhook_post 가 강제하는 Content-Type application/json 과
+                     * 불일치 → Slack/Telegram/generic 수신 서버가 파싱 실패로
+                     * 거부(에스컬레이션 무효화). 이스케이프는 정상 경로와 동일. */
+                    GString *esc_esc = g_string_new("");
+                    for (const char *p = esc_msg; *p; p++) {
+                        if (*p == '"')       g_string_append(esc_esc, "\\\"");
+                        else if (*p == '\\') g_string_append(esc_esc, "\\\\");
+                        else if (*p == '\n') g_string_append(esc_esc, "\\n");
+                        else                 g_string_append_c(esc_esc, *p);
+                    }
+                    gchar esc_payload[768];
+                    if (g_strcmp0(G.webhook_format, "slack") == 0) {
+                        g_snprintf(esc_payload, sizeof(esc_payload),
+                            "{\"text\":\"%s\"}", esc_esc->str);
+                    } else if (g_strcmp0(G.webhook_format, "telegram") == 0) {
+                        g_snprintf(esc_payload, sizeof(esc_payload),
+                            "{\"chat_id\":\"%s\",\"text\":\"%s\"}",
+                            G.telegram_chat_id, esc_esc->str);
+                    } else {
+                        g_snprintf(esc_payload, sizeof(esc_payload),
+                            "{\"severity\":\"CRIT\",\"event\":\"escalation\","
+                            "\"text\":\"%s\"}", esc_esc->str);
+                    }
+                    g_string_free(esc_esc, TRUE);
+                    /* 에스컬레이션은 항상 CRIT — CRIT 전용 URL 우선(정상 경로 동일) */
+                    const gchar *esc_url = G.webhook_crit_url[0] ? G.webhook_crit_url : NULL;
+                    _webhook_post_async(esc_url, esc_payload);
                     PCV_LOG_WARN(ALERT_LOG_DOM, "%s", esc_msg);
                     g_mutex_lock(&G.mu);
                 }
@@ -1148,6 +1185,19 @@ pcv_alert_engine_init(void)
 
     const gchar *chat_id = pcv_config_get_string("alert", "telegram_chat_id", "");
     g_strlcpy(G.telegram_chat_id, chat_id, sizeof(G.telegram_chat_id));
+
+    /* A6-4: HMAC 서명키(webhook_secret) + CRIT 전용 URL(webhook_crit_url) 로드.
+     * 이전에는 init 이 이 둘을 안 읽어 G.webhook_secret[0]=='\0' → _webhook_post
+     * 의 HMAC 서명 분기(481행)가 항상 거짓 → 서명 미적용. secret 은
+     * s3_secret_key/chap_password 와 동일하게 get_secret(env 우선 + ENC: 복호화)
+     * 으로 로드한다. (런타임 set_config 는 반영하나 daemon.conf 재기록이 없어
+     * 재시작 시 유실됐다 — 부팅 로드가 정본 경로.) */
+    gchar *secret = pcv_config_get_secret("alert", "webhook_secret", "");
+    g_strlcpy(G.webhook_secret, secret, sizeof(G.webhook_secret));
+    g_free(secret);
+
+    const gchar *crit_url = pcv_config_get_string("alert", "webhook_crit_url", "");
+    g_strlcpy(G.webhook_crit_url, crit_url, sizeof(G.webhook_crit_url));
 
     /* 평가 스레드 시작 */
     G.running = TRUE;

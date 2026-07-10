@@ -72,10 +72,13 @@ static struct {
 
 /**
  * _run:
- * 셸 명령을 동기적으로 실행하는 내부 헬퍼입니다.
- * tgtadm/iscsiadm CLI를 /bin/sh -c로 실행합니다.
+ * tgtadm/iscsiadm CLI를 동기 실행하는 내부 헬퍼입니다.
+ * NOTE: 실제로는 셸(/bin/sh -c)이 아니라 g_shell_parse_argv 로 토큰화한 뒤
+ *       pcv_spawn_sync(execvp 계열)로 실행합니다 — 즉 셸 연산자
+ *       (파이프/리다이렉트/글롭)는 해석되지 않고 리터럴 argv 로 전달됩니다.
+ *       셸 연산자나 외부 입력 인자가 필요한 명령은 _run_argv 를 쓰십시오.
  *
- * @param cmd   셸 명령 문자열 (파이프/리다이렉트 가능)
+ * @param cmd   명령 문자열 (셸 연산자 금지 — tid 등 신뢰 인자만)
  * @param out   stdout 출력 버퍼 (NULL 가능 — 필요 없을 때)
  * @param error GError** (NULL 가능)
  * @return TRUE: exit code 0, FALSE: 실패
@@ -96,6 +99,50 @@ _run(const gchar *cmd, gchar **out, GError **error)
     g_free(std_err);
     g_strfreev(parsed);
     return ok;
+}
+
+/**
+ * _run_argv:
+ * argv 배열을 g_shell_parse_argv 없이 직접 pcv_spawn_sync(execvp)로 실행합니다.
+ * _run 과 달리 문자열 재토큰화가 없어, 인자에 공백/따옴표/셸 연산자가 있어도
+ * 재분할·인젝션이 발생하지 않습니다(M-2). target_ip 등 외부 입력을 인자로 받는
+ * iSCSI initiator 명령에 사용합니다.
+ */
+static gboolean
+_run_argv(const gchar *const *argv, gchar **out, GError **error)
+{
+    gchar *std_err = NULL;
+    gboolean ok = pcv_spawn_sync(argv, out, &std_err, error);
+    if (!ok && std_err)
+        PCV_LOG_WARN(ISCSI_LOG_DOM, "cmd failed: %s → %s",
+                     (argv && argv[0]) ? argv[0] : "?", std_err);
+    g_free(std_err);
+    return ok;
+}
+
+/**
+ * _find_iscsi_device:
+ * /dev/disk/by-path/ 에서 target_ip 를 포함하고 "lun-1" 로 끝나는 항목을 찾아
+ * 전체 경로를 반환합니다(호출자 g_free). 없으면 NULL.
+ * 이전에는 `ls` + 글롭(ip 포함, lun-1 접미) + 파이프 head 셸 명령이었으나
+ * 셸 부재로 글롭 미확장·파이프 리터럴화되어 항상 실패했습니다(M-2).
+ */
+static gchar *
+_find_iscsi_device(const gchar *target_ip)
+{
+    const gchar *dir = "/dev/disk/by-path";
+    GDir *d = g_dir_open(dir, 0, NULL);
+    if (!d) return NULL;
+    gchar *found = NULL;
+    const gchar *name;
+    while ((name = g_dir_read_name(d))) {
+        if (g_strstr_len(name, -1, target_ip) && g_str_has_suffix(name, "lun-1")) {
+            found = g_build_filename(dir, name, NULL);
+            break;
+        }
+    }
+    g_dir_close(d);
+    return found;
 }
 
 /**
@@ -289,8 +336,20 @@ pcv_iscsi_target_delete(const gchar *vm_name, GError **error)
 
     gchar *cmd = g_strdup_printf(
         "tgtadm --lld iscsi --op delete --mode target --tid %d --force", t->tid);
-    _run(cmd, NULL, error);
+    gboolean del_ok = _run(cmd, NULL, error);
     g_free(cmd);
+
+    if (!del_ok) {
+        /* M-3: 이전에는 _run 반환값을 무시하고 무조건 TRUE 를 반환 → tgtadm 삭제가
+         * 실패(타겟 busy 등)해도 성공으로 보고. 이제 실제 결과를 반영한다. 인메모리
+         * 레코드는 그대로 두어(swap-remove 안 함) 재시도 가능하게 하고, tgtd 에 타겟이
+         * 잔존할 수 있음을 FALSE 로 호출자에 알린다. */
+        PCV_LOG_WARN(ISCSI_LOG_DOM,
+                     "tgtadm target delete failed (tid=%d, vm=%s) — may persist in tgtd",
+                     t->tid, vm_name);
+        g_mutex_unlock(&G.mu);
+        return FALSE;
+    }
 
     g_free(t->vm_name);
     /* swap-remove: 삭제된 슬롯에 배열 마지막 요소를 복사하여 빈 공간 제거
@@ -419,62 +478,48 @@ pcv_iscsi_initiator_connect(const gchar *target_ip, const gchar *vm_name,
 {
     gchar *iqn = g_strdup_printf("%s:%s", ISCSI_IQN_PFX, vm_name);
 
-    /* 1. Discovery */
-    gchar *cmd1 = g_strdup_printf(
-        "iscsiadm -m discovery -t sendtargets -p %s 2>/dev/null", target_ip);
-    _run(cmd1, NULL, NULL);  /* soft-fail if already discovered */
-    g_free(cmd1);
+    /* M-2: 전 명령을 argv 직접 실행(_run_argv)으로 전환 — 셸 부재로 리터럴화되던
+     * 리다이렉트(2>/dev/null·2>&1)를 제거하고, target_ip/chap 인자를 g_shell
+     * 재토큰화 없이 단일 argv 원소로 전달(인젝션 표면 제거). */
+
+    /* 1. Discovery (soft-fail if already discovered) */
+    const gchar *disc[] = { "iscsiadm", "-m", "discovery", "-t", "sendtargets",
+                            "-p", target_ip, NULL };
+    _run_argv(disc, NULL, NULL);
 
     /* 2. CHAP authentication setup (if configured in daemon.conf) */
     {
         const gchar *chap_user = pcv_config_get_string("iscsi", "chap_user", NULL);
         gchar *chap_pass = pcv_config_get_secret("iscsi", "chap_password", NULL);
         if (chap_user && chap_pass && *chap_user && *chap_pass) {
-            gchar *auth_method = g_strdup_printf(
-                "iscsiadm -m node -T %s -p %s --op=update -n node.session.auth.authmethod -v CHAP",
-                iqn, target_ip);
-            _run(auth_method, NULL, NULL);
-            g_free(auth_method);
+            const gchar *a_method[] = { "iscsiadm", "-m", "node", "-T", iqn, "-p", target_ip,
+                "--op=update", "-n", "node.session.auth.authmethod", "-v", "CHAP", NULL };
+            _run_argv(a_method, NULL, NULL);
 
-            gchar *auth_user = g_strdup_printf(
-                "iscsiadm -m node -T %s -p %s --op=update -n node.session.auth.username -v %s",
-                iqn, target_ip, chap_user);
-            _run(auth_user, NULL, NULL);
-            g_free(auth_user);
+            const gchar *a_user[] = { "iscsiadm", "-m", "node", "-T", iqn, "-p", target_ip,
+                "--op=update", "-n", "node.session.auth.username", "-v", chap_user, NULL };
+            _run_argv(a_user, NULL, NULL);
 
-            gchar *auth_pass = g_strdup_printf(
-                "iscsiadm -m node -T %s -p %s --op=update -n node.session.auth.password -v %s",
-                iqn, target_ip, chap_pass);
-            _run(auth_pass, NULL, NULL);
-            g_free(auth_pass);
+            const gchar *a_pass[] = { "iscsiadm", "-m", "node", "-T", iqn, "-p", target_ip,
+                "--op=update", "-n", "node.session.auth.password", "-v", chap_pass, NULL };
+            _run_argv(a_pass, NULL, NULL);
 
             PCV_LOG_INFO(ISCSI_LOG_DOM, "CHAP auth configured for %s@%s", chap_user, target_ip);
         }
         g_free(chap_pass);
     }
 
-    /* 3. Login */
-    gchar *cmd2 = g_strdup_printf(
-        "iscsiadm -m node --targetname %s --portal %s --login 2>&1", iqn, target_ip);
-    if (!_run(cmd2, NULL, error)) {
-        g_free(cmd2); g_free(iqn);
+    /* 3. Login (에러는 error 파라미터로 캡처 — 2>&1 불필요) */
+    const gchar *login[] = { "iscsiadm", "-m", "node", "--targetname", iqn,
+                             "--portal", target_ip, "--login", NULL };
+    if (!_run_argv(login, NULL, error)) {
+        g_free(iqn);
         return FALSE;
     }
-    g_free(cmd2);
 
-    /* 4. Find device path */
+    /* 4. Find device path — 셸 glob/pipe 대신 /dev/disk/by-path 를 C 로 스캔 */
     if (device_path) {
-        gchar *cmd3 = g_strdup_printf(
-            "ls /dev/disk/by-path/*%s*lun-1 2>/dev/null | head -1", target_ip);
-        gchar *dev = NULL;
-        _run(cmd3, &dev, NULL);
-        g_free(cmd3);
-        if (dev && *dev) {
-            *device_path = g_strstrip(g_strdup(dev));
-        } else {
-            *device_path = NULL;
-        }
-        g_free(dev);
+        *device_path = _find_iscsi_device(target_ip);
     }
 
     PCV_LOG_INFO(ISCSI_LOG_DOM, "iSCSI initiator connected: %s@%s", iqn, target_ip);
@@ -497,10 +542,10 @@ pcv_iscsi_initiator_disconnect(const gchar *target_ip, const gchar *vm_name,
                                 GError **error)
 {
     gchar *iqn = g_strdup_printf("%s:%s", ISCSI_IQN_PFX, vm_name);
-    gchar *cmd = g_strdup_printf(
-        "iscsiadm -m node --targetname %s --portal %s --logout 2>&1", iqn, target_ip);
-    gboolean ok = _run(cmd, NULL, error);
-    g_free(cmd);
+    /* M-2: argv 직접 실행, 2>&1 제거(에러는 error 파라미터로 캡처) */
+    const gchar *logout[] = { "iscsiadm", "-m", "node", "--targetname", iqn,
+                              "--portal", target_ip, "--logout", NULL };
+    gboolean ok = _run_argv(logout, NULL, error);
     g_free(iqn);
 
     if (ok)

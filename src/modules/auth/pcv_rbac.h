@@ -266,52 +266,17 @@ const gchar *pcv_rbac_get_tenant(const gchar *username);
 /* ── API Key 인증 (CI/자동화용 프로그래밍 방식 접근) ──────── */
 
 /**
- * pcv_rbac_create_api_key:
- * @username:    키를 소유할 사용자
- * @description: 키 설명 (용도 메모)
- * @expires_days: 만료일 수 (1~365)
- * @error:       GError 반환
- *
- * 68자 API 키("pcv_" + 64 hex)를 생성합니다. SHA256 해시만 DB에 저장되며,
- * 평문 키는 이 함수 반환값으로만 1회 확인 가능합니다.
- *
- * Returns: (transfer full): 평문 API 키 (g_free 필요), 실패 시 NULL
- */
-gchar *pcv_rbac_create_api_key(const gchar *username,
-                               const gchar *description,
-                               gint         expires_days,
-                               GError     **error);
-
-/**
- * pcv_rbac_revoke_api_key:
- * @key_prefix: API 키의 처음 12자 이상 (해시 조회용)
- * @error:      GError 반환
- *
- * Returns: 성공 시 TRUE
- */
-gboolean pcv_rbac_revoke_api_key(const gchar *key_prefix,
-                                 GError     **error);
-
-/**
  * pcv_rbac_verify_api_key:
  * @api_key: 전체 API 키 문자열 ("pcv_..." 68자)
  * @error:   GError 반환
  *
- * 키를 SHA256 해시하여 DB 조회. 유효하면 소유자 username을 반환합니다.
+ * 키를 SHA256 해시하여 api_keys(canonical schema#2) 조회. 유효하면
+ * client_name을 반환합니다. (F8: schema#2 단일화 — apikey_* 계열과 동일 테이블)
  *
- * Returns: (transfer full): 사용자명 (g_free 필요), 실패 시 NULL
+ * Returns: (transfer full): client_name (g_free 필요), 실패 시 NULL
  */
 gchar *pcv_rbac_verify_api_key(const gchar *api_key,
                                GError     **error);
-
-/**
- * pcv_rbac_list_api_keys:
- * @username: 필터할 사용자 (NULL이면 전체)
- *
- * Returns: (transfer full): JsonArray of {key_prefix, username, description,
- *          created_at, expires_at, revoked}. 호출자가 json_array_unref().
- */
-JsonArray *pcv_rbac_list_api_keys(const gchar *username);
 
 /* ── 브루트포스 방어 ─────────────────────────────────────── */
 
@@ -355,7 +320,12 @@ PcvRole      pcv_rbac_str_to_role(const gchar *str);
 void pcv_user_free(PcvUser *u);
 
 /* ── [백엔드 4차] API Key 관리 ─────────────────────────────── */
-gboolean   pcv_rbac_apikey_create(const gchar *client_name, PcvRole role, gchar **out_key, GError **error);
+/* apikey.create 계약 확장 (감사 잔여 트랜치): client_name(필수) + role +
+ * description(옵션, 저장) + expires_at(옵션, epoch 초; 0 = 무기한). expires_at 은
+ * 인증 경로(pcv_rbac_verify_api_key/apikey_validate)에서 만료 거부로 집행된다. */
+gboolean   pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
+                                  const gchar *description, gint64 expires_at,
+                                  gchar **out_key, GError **error);
 gint       pcv_rbac_apikey_validate(const gchar *api_key);
 JsonArray *pcv_rbac_apikey_list(void);
 gboolean   pcv_rbac_apikey_revoke(const gchar *client_name, GError **error);
@@ -391,16 +361,6 @@ gboolean pcv_rbac_check_quota(const gchar *username, gint current_vm_count);
  * @storage_gb:  스토리지 한도 GB (0 = 무제한)
  */
 gboolean pcv_rbac_set_quota(const gchar *username, gint vm_count, gint storage_gb);
-
-/* ── API Key 만료 임박 경고 (BE-A10) ─────────────────────── */
-
-/**
- * pcv_rbac_get_expiring_api_keys:
- * @days_threshold: 만료까지 남은 일수 이내인 키 조회
- *
- * Returns: (transfer full): JsonArray of {key_prefix, username, expires_at}
- */
-JsonArray *pcv_rbac_get_expiring_api_keys(gint days_threshold);
 
 G_END_DECLS
 

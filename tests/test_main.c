@@ -50,6 +50,7 @@
 
 void test_validate_register(void);
 void test_circuit_breaker_register(void);
+void test_restart_breaker_register(void);   /* AF-1 후속: VM 재시작 브레이커 */
 void test_cancellable_map_register(void);
 void test_cpu_allocator_register(void);
 void test_config_register(void);
@@ -99,6 +100,7 @@ void test_security_actions_register(void);  /* Native Host HIDS/HIPS action queu
 void test_hids_file_integrity_register(void); /* Native Host HIDS file integrity */
 void test_vm_iface_register(void);          /* VM 인터페이스 해석 (virsh domiflist 파서) */
 void test_vm_vnet_cache_register(void);     /* I-2: vnet 캐시 */
+void test_apikey_register(void);            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
 
 /*
  * 테스트 환경 전용 로그 핸들러
@@ -221,12 +223,16 @@ int main(int argc, char *argv[]) {
     g_log_set_handler("circuit_breaker",
                       G_LOG_LEVEL_WARNING | G_LOG_FLAG_FATAL,
                       _test_log_handler, NULL);
+    g_log_set_handler("restart_breaker",
+                      G_LOG_LEVEL_WARNING | G_LOG_FLAG_FATAL,
+                      _test_log_handler, NULL);
     g_log_set_handler("conn_pool",
                       G_LOG_LEVEL_WARNING | G_LOG_FLAG_FATAL,
                       _test_log_handler, NULL);
 
     test_validate_register();
     test_circuit_breaker_register();
+    test_restart_breaker_register();  /* AF-1 후속: VM 재시작 브레이커 */
     test_cancellable_map_register();
     test_cpu_allocator_register();
     test_config_register();
@@ -275,6 +281,7 @@ int main(int argc, char *argv[]) {
     test_hids_file_integrity_register(); /* Native Host HIDS file integrity */
     test_vm_iface_register();          /* VM 인터페이스 해석 (virsh domiflist 파서) */
     test_vm_vnet_cache_register();     /* I-2: vnet 캐시 */
+    test_apikey_register();            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
     test_dpdk_register();             /* OVS-DPDK Phase 4 — 환경 의존, 마지막 실행 */
 
     return g_test_run();

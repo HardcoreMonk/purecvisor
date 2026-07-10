@@ -277,8 +277,8 @@ security_action_approve_worker(GTask *task,
     if (ok) {
         pcv_audit_log(d->admin_user, "security.action.approve", d->event_id,
                       "ok", 0, duration_ms, "local");
-        pcv_ws_broadcast_job_complete(d->job_id, "security.action.approve",
-                                      "completed", NULL);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "security.action.approve",
+                                         "completed", NULL);
         g_task_return_boolean(task, TRUE);
         return;
     }
@@ -286,8 +286,8 @@ security_action_approve_worker(GTask *task,
     const gchar *message = error ? error->message : "security action approval failed";
     pcv_audit_log(d->admin_user, "security.action.approve", d->event_id,
                   "fail", PURE_RPC_ERR_INTERNAL_ERROR, duration_ms, "local");
-    pcv_ws_broadcast_job_complete(d->job_id, "security.action.approve",
-                                  "failed", message);
+    pcv_ws_broadcast_job_complete_mt(d->job_id, "security.action.approve",
+                                     "failed", message);
     if (error) {
         g_task_return_error(task, error);
     } else {

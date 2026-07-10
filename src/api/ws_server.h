@@ -127,6 +127,27 @@ gint pcv_ws_client_count(void);
 void pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
                                     const gchar *status, const gchar *error_msg);
 
+/**
+ * @brief job.complete 브로드캐스트를 메인 GMainContext로 마샬링하는 변형.
+ *
+ * A2-2: SoupWebsocketConnection 은 생성 GMainContext(메인 스레드)에 스레드
+ * 어피니티가 있으므로, GTask 워커 스레드(fire-and-forget 워커 바디)에서
+ * pcv_ws_broadcast_job_complete() 를 직접 호출하면 send_text 어피니티를
+ * 위반한다. 이 함수는 인자 문자열을 heap 으로 복사한 뒤
+ * g_main_context_invoke(NULL, ...) 로 메인 컨텍스트에 위임하여, 실제 전송이
+ * 메인 스레드에서 일어나도록 보장한다. 문자열 수명은 콜백에서 비동기 free.
+ *
+ * 메인 스레드(GAsyncReadyCallback 등)에서 호출해도 안전하나, 그 경우
+ * 지연 실행이 되므로 즉시 전송이 필요하면 non-_mt 변형을 쓴다.
+ *
+ * @param job_id    작업 ID
+ * @param method    RPC 메서드명
+ * @param status    "completed" 또는 "failed"
+ * @param error_msg 에러 메시지 (성공 시 NULL 허용)
+ */
+void pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
+                                       const gchar *status, const gchar *error_msg);
+
 G_END_DECLS
 
 #endif /* PURECVISOR_WS_SERVER_H */

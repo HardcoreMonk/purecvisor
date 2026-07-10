@@ -581,6 +581,102 @@ static void _destroy_snapshot(const gchar *vm_name, const gchar *snap_name)
     if (err) g_error_free(err);
 }
 
+/**
+ * _list_snapshots_by_prefix:
+ * @vm_name: 대상 VM 이름
+ * @prefix:  필터할 스냅샷 접두사 (예: "s3-", "incr-")
+ *
+ * `_list_auto_snapshots` 의 prefix-파라미터화 버전 — 동일 argv/필터 로직을 그대로
+ * 미러링하되 접두사만 인자로 받는다. creation 오름차순 정렬이므로
+ * [0]=가장 오래된, [len-1]=가장 최신.
+ *
+ * AF-S4: s3-/incr- 스냅샷 리텐션 prune 에서 사용. (pcv-auto- 경로는 회귀 방지를 위해
+ * 기존 `_list_auto_snapshots` 를 그대로 두고 건드리지 않는다.)
+ *
+ * Returns: (element-type gchar*) (transfer full): 스냅샷 이름 배열
+ */
+static GPtrArray *_list_snapshots_by_prefix(const gchar *vm_name,
+                                            const gchar *prefix)
+{
+    GPtrArray *result = g_ptr_array_new_with_free_func(g_free);
+    const gchar *pool = pcv_config_get_zvol_pool();
+    gchar *dataset = g_strdup_printf("%s/%s", pool, vm_name);
+
+    const gchar *argv[] = {
+        "zfs", "list", "-H", "-o", "name", "-s", "creation",
+        "-t", "snapshot", "-r", dataset, NULL
+    };
+
+    gchar *stdout_buf = nullptr;
+    gchar *stderr_buf = nullptr;
+    GError *err = nullptr;
+
+    gboolean ok = pcv_spawn_sync(argv, &stdout_buf, &stderr_buf, &err);
+    g_free(dataset);
+
+    if (!ok) {
+        g_free(stdout_buf);
+        g_free(stderr_buf);
+        if (err) g_error_free(err);
+        return result;
+    }
+
+    if (stdout_buf) {
+        gchar **lines = g_strsplit(g_strstrip(stdout_buf), "\n", -1);
+        for (gchar **l = lines; *l; l++) {
+            /* zfs list 출력: "pcvpool/vms/web-prod@<prefix>YYYYMMDD-HHMMSS"
+             * '@' 이후가 스냅샷 이름이므로, 주어진 prefix 로 필터링 */
+            const gchar *at = strrchr(*l, '@');
+            if (at && g_str_has_prefix(at + 1, prefix)) {
+                g_ptr_array_add(result, g_strdup(at + 1));
+            }
+        }
+        g_strfreev(lines);
+    }
+
+    g_free(stdout_buf);
+    g_free(stderr_buf);
+    if (err) g_error_free(err);
+    return result;
+}
+
+/**
+ * _prune_snapshots_by_prefix:
+ * @vm_name:         대상 VM 이름
+ * @prefix:          prune 대상 스냅샷 접두사 (예: "s3-", "incr-")
+ * @retention_count: 보존할 최신 스냅샷 개수. 0 이하면 prune 비활성(무제한 = 명시적 opt-out)
+ *
+ * AF-S4: 기존 pcv-auto- 리텐션(_apply_policy_for_vm) 의 prune 루프를 프리픽스별로
+ * 일반화한 best-effort 정리 함수. 주어진 VM·접두사의 스냅샷을 creation 순으로 조회한 뒤
+ * 개수가 retention_count 를 초과하면 가장 오래된 것부터 `zfs destroy` 한다.
+ *
+ * off-by-one 안전: 루프 조건이 `len > retention_count` 이므로 len == retention_count 이면
+ * 삭제하지 않는다. 삭제 대상은 항상 인덱스 0(=가장 오래된 것)이며, 가장 최신(index len-1,
+ * 방금 만든 스냅샷 포함)은 절대 삭제되지 않는다. 이는 검증된 pcv-auto- prune 루프와 동일 패턴.
+ *
+ * 실패(zfs destroy 오류)해도 호출측 백업은 성공 처리 — _destroy_snapshot 이 내부에서
+ * WARN 로그만 남기고 진행한다.
+ */
+static void _prune_snapshots_by_prefix(const gchar *vm_name,
+                                       const gchar *prefix,
+                                       gint retention_count)
+{
+    /* 0 이하 = prune 비활성 (무제한 보존, 명시적 opt-out) */
+    if (retention_count <= 0)
+        return;
+
+    GPtrArray *snaps = _list_snapshots_by_prefix(vm_name, prefix);
+
+    /* retention 초과 시 가장 오래된 것부터 삭제. 최신 N개는 절대 삭제하지 않는다. */
+    while ((gint)snaps->len > retention_count) {
+        const gchar *oldest = g_ptr_array_index(snaps, 0);
+        _destroy_snapshot(vm_name, oldest);
+        g_ptr_array_remove_index(snaps, 0);
+    }
+
+    g_ptr_array_unref(snaps);
+}
+
 /* ══════════════════════════════════════════════════════════════
  * [5] VM 이름 목록 조회 (libvirt)
  * ══════════════════════════════════════════════════════════════ */
@@ -1445,6 +1541,14 @@ JsonObject *pcv_backup_incremental(const gchar *vm_name, GError **error)
     g_free(out_file);
     g_free(base_snap_name);
     g_ptr_array_unref(snaps);
+
+    /* AF-S4: incr- 스냅샷 리텐션 — zfs send 완료 후 prune (best-effort).
+     * send 전에 prune 하면 증분 base(prev_snap)를 지워 send -i 가 깨질 수 있으므로
+     * 반드시 send 이후에 실행한다. 최신 N개(방금 만든 것 포함) 보존, 초과분만 오래된
+     * 순으로 삭제. prune 실패는 WARN 만 남기고 백업 자체는 이미 성공 처리됨. */
+    _prune_snapshots_by_prefix(vm_name, INCR_SNAP_PREFIX,
+                               pcv_config_get_int("backup", "incr_retention_count", 7));
+
     _vm_backup_unlock(vm_name);
     return result;
 }
@@ -1905,6 +2009,8 @@ _s3_build_env(const gchar *region)
  * @param endpoint    S3 엔드포인트 URL
  * @param bucket      S3 버킷 이름
  * @param region      AWS 리전
+ * @param envp        (nullable) 이 자식에만 적용할 "KEY=VALUE" 환경변수 배열
+ *                    (AWS 자격증명). 데몬 전역 environ은 건드리지 않는다.
  * @param error       GError 반환
  *
  * Returns: TRUE 성공
@@ -1912,7 +2018,8 @@ _s3_build_env(const gchar *region)
 static gboolean
 _s3_upload_multipart(const gchar *local_path, const gchar *s3_path,
                      const gchar *endpoint, const gchar *bucket,
-                     const gchar *region, GError **error)
+                     const gchar *region, const gchar * const *envp,
+                     GError **error)
 {
     gchar *s3_url = g_strdup_printf("s3://%s/%s", bucket, s3_path);
 
@@ -1944,8 +2051,8 @@ _s3_upload_multipart(const gchar *local_path, const gchar *s3_path,
 
     gchar *std_err = nullptr;
     GError *local_err = nullptr;
-    gboolean ok = pcv_spawn_sync((const gchar * const *)argv->pdata,
-                                  NULL, &std_err, &local_err);
+    gboolean ok = pcv_spawn_sync_env((const gchar * const *)argv->pdata,
+                                      envp, NULL, &std_err, &local_err);
     if (!ok) {
         PCV_LOG_WARN(BACKUP_LOG_DOM,
                      "S3 multipart upload failed for %s: %s",
@@ -1978,6 +2085,9 @@ _s3_upload_multipart(const gchar *local_path, const gchar *s3_path,
  * @param s3_key       S3 오브젝트 키 (경로)
  * @param local_path   로컬 파일 경로
  * @param content_type MIME 타입 (예: "application/gzip")
+ * @param region       AWS 리전 (resolve된 문자열, 멀티파트 --region 힌트용)
+ * @param envp         (nullable) 이 자식에만 적용할 "KEY=VALUE" 환경변수 배열
+ *                     (AWS 자격증명). 데몬 전역 environ은 건드리지 않는다.
  * @param error        GError 반환
  *
  * Returns: TRUE 성공
@@ -1985,7 +2095,8 @@ _s3_upload_multipart(const gchar *local_path, const gchar *s3_path,
 static gboolean
 _s3_upload_file(const gchar *endpoint, const gchar *bucket,
                 const gchar *s3_key, const gchar *local_path,
-                const gchar *content_type,
+                const gchar *content_type, const gchar *region,
+                const gchar * const *envp,
                 GError **error)
 {
     /* BE-A12: 100MB 초과 파일은 멀티파트 업로드로 자동 전환 */
@@ -1994,9 +2105,9 @@ _s3_upload_file(const gchar *endpoint, const gchar *bucket,
         PCV_LOG_INFO(BACKUP_LOG_DOM,
                      "File %s exceeds 100MB (%" G_GINT64_FORMAT "), using multipart upload",
                      local_path, (gint64)mp_st.st_size);
-        /* region은 환경 변수 AWS_DEFAULT_REGION에서 가져옴 */
+        /* region은 호출부에서 resolve해 명시 전달 (전역 environ 역참조 제거) */
         return _s3_upload_multipart(local_path, s3_key, endpoint, bucket,
-                                     g_getenv("AWS_DEFAULT_REGION"), error);
+                                     region, envp, error);
     }
 
     gchar *s3_uri = g_strdup_printf("s3://%s/%s", bucket, s3_key);
@@ -2020,8 +2131,8 @@ _s3_upload_file(const gchar *endpoint, const gchar *bucket,
 
     gchar *stderr_buf = nullptr;
     GError *local_err = nullptr;
-    gboolean ok = pcv_spawn_sync((const gchar * const *)argv->pdata,
-                                  NULL, &stderr_buf, &local_err);
+    gboolean ok = pcv_spawn_sync_env((const gchar * const *)argv->pdata,
+                                      envp, NULL, &stderr_buf, &local_err);
     if (!ok) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "S3 upload failed: %s — %s",
@@ -2065,6 +2176,9 @@ pcv_backup_export_s3(const gchar *vm_name,
         : pcv_config_get_string("backup", "s3_bucket", "");
     const gchar *prefix = (s3_key_prefix && *s3_key_prefix) ? s3_key_prefix
         : pcv_config_get_string("backup", "s3_key_prefix", "pcv-backup/");
+    /* region을 한 곳에서 resolve — envp의 AWS_DEFAULT_REGION과 멀티파트 --region이
+     * 동일 값을 쓰도록 보장 (전역 environ 역참조 제거) */
+    const gchar *region = pcv_config_get_string("backup", "s3_region", "ap-northeast-2");
 
     if (!bucket || !*bucket) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
@@ -2112,6 +2226,14 @@ pcv_backup_export_s3(const gchar *vm_name,
 
     PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: snapshot created %s", snap_full);
 
+    /* AF-S4: s3- 스냅샷 리텐션 — 새 스냅샷 생성 성공 직후 prune (best-effort).
+     * S3 export 는 full `zfs send`(증분 -i 아님)이라 오래된 s3- 스냅샷은 base 가
+     * 아니므로 send 이전에 정리해도 안전하다. 또한 이후 send/upload 실패 경로에서는
+     * s3- 스냅샷이 destroy 되지 않고 남으므로, 생성 직후 prune 해야 실패 반복 시에도
+     * 무한 누적을 막는다. 최신 N개(방금 만든 것 포함) 보존, 초과분만 오래된 순 삭제. */
+    _prune_snapshots_by_prefix(vm_name, S3_SNAP_PREFIX,
+                               pcv_config_get_int("backup", "s3_retention_count", 7));
+
     /* ── 4. zfs send | gzip → 임시 파일 ─────── */
     gchar *tmp_file = g_strdup_printf("%s/pcv-s3-%s-%s.zfs.gz",
                                        S3_TEMP_DIR, vm_name, ts);
@@ -2158,26 +2280,20 @@ pcv_backup_export_s3(const gchar *vm_name,
     PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: stream created %s (%" G_GINT64_FORMAT " bytes)",
                  tmp_file, file_size);
 
-    /* ── 5. S3 환경변수 설정 ─────────────────── */
-    gchar **s3_env = _s3_build_env(NULL);
-    /* Set environment for this process temporarily */
-    for (gchar **e = s3_env; e && *e; e++) {
-        gchar *eq = strchr(*e, '=');
-        if (eq) {
-            gchar *key = g_strndup(*e, (gsize)(eq - *e));
-            g_setenv(key, eq + 1, TRUE);
-            g_free(key);
-        }
-    }
-    g_strfreev(s3_env);
+    /* ── 5. S3 자격증명 envp 빌드 (전역 environ 오염 없음) ── */
+    /* M-9: g_setenv로 데몬 전역 environ에 주입하던 방식을 제거. envp를 빌드해
+     * pcv_spawn_sync_env()로 각 aws-cli 자식에만 전달한다. */
+    gchar **s3_env = _s3_build_env(region);
 
     /* ── 6. S3 업로드 (aws s3 cp — 자동 멀티파트) ── */
     gchar *s3_data_key = g_strdup_printf("%s%s/%s/backup.zfs.gz", prefix, vm_name, ts);
     ok = _s3_upload_file(endpoint, bucket, s3_data_key, tmp_file,
-                          "application/gzip", error);
+                          "application/gzip", region,
+                          (const gchar * const *)s3_env, error);
     g_free(s3_data_key);
 
     if (!ok) {
+        g_strfreev(s3_env);
         g_unlink(tmp_file);
         g_free(tmp_file);
         g_free(snap_name);
@@ -2225,12 +2341,14 @@ pcv_backup_export_s3(const gchar *vm_name,
     gchar *s3_meta_key = g_strdup_printf("%s%s/%s/metadata.json", prefix, vm_name, ts);
     GError *meta_err = nullptr;
     _s3_upload_file(endpoint, bucket, s3_meta_key, meta_file,
-                     "application/json", &meta_err);
+                     "application/json", region,
+                     (const gchar * const *)s3_env, &meta_err);
     if (meta_err) {
         PCV_LOG_WARN(BACKUP_LOG_DOM, "S3 metadata upload warning: %s", meta_err->message);
         g_error_free(meta_err);
     }
     g_free(s3_meta_key);
+    g_strfreev(s3_env);
 
     /* ── 8. 클린업 ───────────────────────────── */
     g_unlink(tmp_file);

@@ -149,6 +149,11 @@ void pcv_ws_broadcast_job_complete(const gchar *job_id __attribute__((unused)),
                                    const gchar *status __attribute__((unused)),
                                    const gchar *error_msg __attribute__((unused))) { }
 
+void pcv_ws_broadcast_job_complete_mt(const gchar *job_id __attribute__((unused)),
+                                      const gchar *method __attribute__((unused)),
+                                      const gchar *status __attribute__((unused)),
+                                      const gchar *error_msg __attribute__((unused))) { }
+
 gboolean pcv_rbac_apikey_revoke(const gchar *client_name __attribute__((unused)),
                                 GError **error __attribute__((unused)))
 {

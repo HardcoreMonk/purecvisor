@@ -103,12 +103,15 @@
 #include "modules/cloud/cloud_migration.h"
 #include "modules/storage/zfs_driver.h"
 #include "modules/backup/backup_scheduler.h"
+#include "modules/core/cpu_allocator.h"   /* AF-C2: vm.numa.info (global_allocator) */
+#include "modules/ai/workload_predict.h"  /* AF-C2: capacity.forecast */
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_worker_pool.h"
 #include "../utils/pcv_log.h"
 #include "../utils/pcv_validate.h"
 #include "utils/pcv_job_queue.h"
+#include "modules/core/vm_state.h"   /* [감사 AF-P1] lock_vm_operation / VM_OP_* */
 #include "ws_server.h"
 #include <sqlite3.h>
 #include <errno.h>
@@ -285,7 +288,10 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "sriov.set",                 2 },
     { "storage.pool.create",       2 },
     { "storage.pool.scrub",        2 },
-    { "storage.tier.set",          2 },
+    /* M-1: storage.tier.set 는 대응 RPC 라우트가 없는 고아 정책이었다(storage_tier
+     * CRUD/qos/migrate 는 호출부 0 = 도달불가). 고아 정책 제거. 모듈 자체는
+     * pcv_storage_tier_init() 이 라이브(기본 ssd 티어 등록 + 통합테스트가 init 로그
+     * 의존)이라 보존 — 나머지 dead 함수 전면 삭제는 통합테스트 갱신 동반이라 별도. */
     { "storage.zvol.create",       2 },
     { "storage.zvol.delete",       2 },
     { "template.create",           2 },
@@ -342,6 +348,40 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "cloud.job.cancel",          2 },
     { "cloud.jobs.list",           1 },   /* viewer가 진행 상황 확인 가능 */
     { "daemon.config.set",         2 },
+    /* [감사 SEC-F3] 호스트/네트워크에 파괴적이나 정책 미매핑이던 메서드들 —
+     * dispatcher fail-open(미매핑→VIEWER)으로 떨어져 RBAC prefix 층에만 의존해
+     * OPERATOR 도달했다(create/delete 형제는 전부 ADMIN). FE에 실버튼도 존재해
+     * OPERATOR가 UI만으로 호스트 네트워크 파괴·SDN ACL 변경·알림 은폐가 가능했다.
+     * 형제와 동일하게 ADMIN(2)로 명시한다. (check-rbac verb 목록 보강은 후속 —
+     * 여기서는 실제 노출된 메서드를 직접 매핑해 갭을 닫는다.) */
+    { "dpdk.bind",                 2 },
+    { "dpdk.unbind",               2 },
+    { "sriov.enable",              2 },
+    { "sriov.disable",             2 },
+    { "ovn.acl.add",               2 },
+    { "ovn.dhcp.enable",           2 },
+    { "ovn.port.add",              2 },
+    { "ovn.port.remove",           2 },
+    { "ovn.router.add_port",       2 },
+    { "iscsi.connect",             2 },
+    { "iscsi.disconnect",          2 },
+    { "network.qos.remove",        2 },
+    { "backup.export_s3",          2 },
+    { "backup.incremental",        2 },
+    { "backup.verify",             2 },
+    { "backup.snapshot.verify",    2 },
+    { "alert.silence",             2 },
+    { "alert.dlq.list",            2 },
+    { "alert.dlq.retry",           2 },
+
+    /* AF-C2: 미구현 CLI RPC 배선 — 조회성은 VIEWER, 쓰기는 OPERATOR */
+    { "vm.numa.info",              0 },   /* 호스트 NUMA/코어 조회 */
+    { "vm.sla.report",             0 },   /* 가동률 리포트 조회 */
+    { "vm.schedule.list",          0 },   /* 스케줄 목록 조회 */
+    { "capacity.forecast",         0 },   /* 용량 전망 조회 */
+    { "vm.billing.report",         0 },   /* 빌링 리포트 조회 */
+    { "vm.autostart",              1 },   /* 자동시작 설정(쓰기) — operator */
+    { "vm.schedule.set",           1 },   /* 스케줄 설정(쓰기) — operator */
     /* VIEWER (기본) — 조회/list/metrics는 명시 불필요 */
     { NULL, 0 }
 };
@@ -984,6 +1024,11 @@ _on_vm_create_finished(GObject *source_object,
 {
     VmCreateJobCtx *ctx = (VmCreateJobCtx *)user_data;
     GError *error = NULL;
+
+    /* [감사 AF-P1] 오퍼레이션 잠금 해제 — 최우선. 이 콜백은 create worker 완료 시
+     * 항상 호출되므로 여기서 해제하면 성공/실패/취소 모든 경로를 커버한다. */
+    unlock_vm_operation(ctx->vm_name);
+
     gboolean ok = purecvisor_vm_manager_create_vm_finish(
         PURECVISOR_VM_MANAGER(source_object), res, &error);
 
@@ -1127,7 +1172,7 @@ _audit_vm_clone_success(VmCloneCtx *ctx)
     gchar *target = _vm_clone_job_target(ctx);
     gchar *job_id = _vm_clone_job_id(ctx);
     pcv_audit_log(NULL, "vm.clone", target, "ok", 0, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.clone", "completed", NULL);
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.clone", "completed", NULL);
     g_free(job_id);
     g_free(target);
 }
@@ -1138,8 +1183,8 @@ _audit_vm_clone_failure(VmCloneCtx *ctx, const gchar *error_msg)
     gchar *target = _vm_clone_job_target(ctx);
     gchar *job_id = _vm_clone_job_id(ctx);
     pcv_audit_log(NULL, "vm.clone", target, "fail", -32000, 0, "local");
-    pcv_ws_broadcast_job_complete(job_id, "vm.clone",
-                                  "failed", error_msg ? error_msg : "unknown");
+    pcv_ws_broadcast_job_complete_mt(job_id, "vm.clone",
+                                     "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);
     g_free(target);
 }
@@ -1634,7 +1679,10 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         if (!exists) {
             gchar *dataset = g_strdup_printf("%s/%s", pcv_config_get_zvol_pool(), name);
             const gchar *zfs_argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
-            exists = pcv_spawn_sync(zfs_argv, NULL, NULL, NULL);
+            /* [감사 NEW-2] 메인스레드에서 무제한 zfs list는 ZFS 풀 hang 시 전 데몬
+             * 메인루프를 무기한 정지시킨다(모든 RPC/io_uring/타이머/watchdog). 상한을
+             * 두어 hang이 데몬 프리즈로 번지지 않게 한다(정상 pool은 ms 단위 응답). */
+            exists = pcv_spawn_sync_timeout(zfs_argv, NULL, NULL, 10, NULL);
             g_free(dataset);
         }
 
@@ -1836,7 +1884,10 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         if (!storage_type || g_strcmp0(storage_type, "zvol") == 0) {
             gchar *dataset = g_strdup_printf("%s/%s", effective_pool, name);
             const gchar *zfs_argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
-            exists = pcv_spawn_sync(zfs_argv, NULL, NULL, NULL);
+            /* [감사 NEW-2] 메인스레드에서 무제한 zfs list는 ZFS 풀 hang 시 전 데몬
+             * 메인루프를 무기한 정지시킨다(모든 RPC/io_uring/타이머/watchdog). 상한을
+             * 두어 hang이 데몬 프리즈로 번지지 않게 한다(정상 pool은 ms 단위 응답). */
+            exists = pcv_spawn_sync_timeout(zfs_argv, NULL, NULL, 10, NULL);
             g_free(dataset);
         }
 
@@ -1861,6 +1912,20 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
             g_free(err);
             return;
         }
+    }
+
+    /* [감사 AF-P1] vm.create를 오퍼레이션 잠금으로 보호한다. 이전에는 VM create가
+     * 무락이라 동시 vm.delete(ZFS destroy -r)/vm.start와 무보호 병행했고, 위 존재검사와
+     * 실제 생성 사이 TOCTOU도 열려 있었다(두 create가 동시에 존재검사를 통과). 잠금은
+     * 존재검사 이후·accepted 응답 이전에 획득해 실패 시 busy로 거부하고, 완료 콜백
+     * _on_vm_create_finished에서 해제한다(콜백은 항상 호출됨 → 모든 경로 커버). */
+    gchar *create_lock_err = NULL;
+    if (!lock_vm_operation(name, VM_OP_CREATING, &create_lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+                       create_lock_err ? create_lock_err : "VM is busy (another operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(create_lock_err);
+        return;
     }
 
     /* ── ADR-0012: Job ID 발행 + accepted 응답 ────────────────────────
@@ -2835,9 +2900,9 @@ _ova_export_record_result(OvaExportCtx *ctx, gboolean ok,
                        result_json);
     pcv_audit_log(NULL, "vm.export.ova", ctx->vm_name ?: "",
                   ok ? "ok" : "fail", ok ? 0 : -32000, 0, "local");
-    pcv_ws_broadcast_job_complete(ctx->job_id, "vm.export.ova",
-                                  ok ? "completed" : "failed",
-                                  ok ? NULL : (error_msg ?: "OVA export failed"));
+    pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.export.ova",
+                                     ok ? "completed" : "failed",
+                                     ok ? NULL : (error_msg ?: "OVA export failed"));
     g_free(result_json);
 }
 
@@ -3565,9 +3630,9 @@ import_cleanup:
     pcv_audit_log(NULL, "vm.import.ova", ctx->vm_name,
                   audit_ok ? "ok" : "fail", audit_ok ? 0 : -32000,
                   0, "local");
-    pcv_ws_broadcast_job_complete(ctx->job_id, "vm.import.ova",
-                                  audit_ok ? "completed" : "failed",
-                                  audit_ok ? NULL : audit_error);
+    pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.import.ova",
+                                     audit_ok ? "completed" : "failed",
+                                     audit_ok ? NULL : audit_error);
     g_free(disk_path);
     g_free(vmdk_path);
     g_free(created_zvol_dataset);
@@ -3727,20 +3792,55 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
  * [백엔드 4차] 28건 핸들러 구현
  * ═══════════════════════════════════════════════════════════════════ */
 
-/* A-1. auth.apikey.create — API Key 생성 */
+/* apikey.create 계약 확장: expires_at 파라미터 관용 파싱.
+ * 코드베이스 관용(sessions/api_keys 모두 epoch INTEGER)을 따라 epoch 초로 정규화한다.
+ *   - int/double  → 그대로 epoch 초
+ *   - "숫자문자열" → epoch 초로 파싱
+ *   - ISO8601 문자열 → g_date_time_new_from_iso8601 → epoch 초
+ *   - 부재/null/미해석 → 0 (무기한) */
+static gint64 _apikey_parse_expires_at(JsonObject *params)
+{
+    if (!params || !json_object_has_member(params, "expires_at")) return 0;
+    JsonNode *node = json_object_get_member(params, "expires_at");
+    if (!node || JSON_NODE_HOLDS_NULL(node) || !JSON_NODE_HOLDS_VALUE(node)) return 0;
+
+    GType vt = json_node_get_value_type(node);
+    if (vt == G_TYPE_INT64)  return json_node_get_int(node);
+    if (vt == G_TYPE_DOUBLE) return (gint64)json_node_get_double(node);
+    if (vt == G_TYPE_STRING) {
+        const gchar *s = json_node_get_string(node);
+        if (!s || !*s) return 0;
+        gchar *end = NULL;
+        gint64 v = g_ascii_strtoll(s, &end, 10);
+        if (end && *end == '\0') return v;  /* 순수 epoch 문자열 */
+        GDateTime *dt = g_date_time_new_from_iso8601(s, NULL);
+        if (dt) { gint64 u = g_date_time_to_unix(dt); g_date_time_unref(dt); return u; }
+    }
+    return 0;
+}
+
+/* A-1. auth.apikey.create — API Key 생성
+ * 계약: { name(필수, client_name 별칭), role(옵션, 기본 OPERATOR),
+ *        description(옵션, 저장), expires_at(옵션, epoch 초; 만료 거부 집행) } */
 static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *client_name = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
+    /* name(정본) 우선, client_name(레거시 별칭) fallback */
+    const gchar *client_name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
+    if (!client_name || !*client_name)
+        client_name = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
     gint role = (params && json_object_has_member(params, "role"))
         ? (gint)json_object_get_int_member(params, "role") : 1;
+    const gchar *description = params
+        ? json_object_get_string_member_with_default(params, "description", NULL) : NULL;
+    gint64 expires_at = _apikey_parse_expires_at(params);
     if (!client_name || !*client_name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "client_name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     gchar *key_out = nullptr;
     GError *err = nullptr;
-    if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, &key_out, &err)) {
+    if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, description, expires_at, &key_out, &err)) {
         gchar *r = pure_rpc_build_error_response(rpc_id, -32000, err ? err->message : "Create failed");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         if (err) g_error_free(err);
@@ -3749,6 +3849,8 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "api_key", key_out);
     json_object_set_string_member(res, "client_name", client_name);
+    if (description) json_object_set_string_member(res, "description", description);
+    if (expires_at > 0) json_object_set_int_member(res, "expires_at", expires_at);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
@@ -4021,6 +4123,32 @@ static void _handle_alert_silence_list(JsonObject *params, const gchar *rpc_id,
     JsonArray *arr = pcv_alert_get_silences();
     JsonNode *n = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(n, arr);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+/* C-6b. alert.dlq.list — 웹훅 전송 실패(DLQ) 목록.
+ * AF-C4 발굴: 백엔드 pcv_alert_engine_dlq_list() 는 존재하나 RPC 미등록이라 FE
+ * loadWebhookDlq() 버튼이 -32601 이었다("능력 구축 후 미배선" 테마). 배선. */
+static void _handle_alert_dlq_list(JsonObject *params, const gchar *rpc_id,
+                                    UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonArray *arr = pcv_alert_engine_dlq_list();
+    JsonNode *n = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(n, arr ? arr : json_array_new());
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+/* C-6c. alert.dlq.retry — DLQ 항목 재전송 시도 (백엔드 pcv_alert_engine_dlq_retry). */
+static void _handle_alert_dlq_retry(JsonObject *params, const gchar *rpc_id,
+                                     UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *res = pcv_alert_engine_dlq_retry();
+    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(n, res ? res : json_object_new());
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
@@ -4459,6 +4587,205 @@ static void _handle_vm_event_webhook_list(JsonObject *params, const gchar *rpc_i
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
+/* ════════════════════════════════════════════════════════════════════
+ *  AF-C2/AF-C4 — 미구현 CLI RPC 핸들러 배선 (numa/autostart/forecast 등)
+ *  CLI/TUI 가 호출하나 서버 미등록이던 7개를 배선하여 -32601 을 해소한다.
+ *  실제 backing capability 가 있으면 래핑, 없으면 not_available 플래그로
+ *  명시(감사 테마 #1 "보고성공-무동작" 재생산 금지).
+ * ════════════════════════════════════════════════════════════════════ */
+
+/* ── vm.numa.info — NUMA 토폴로지 조회 (실배선) ────────────────────
+ * global_allocator(main.c 의 cpu_allocator_new)의 NUMA/코어 상태를 반환.
+ * cpu_allocator_get_numa_info()가 소유권을 넘긴 JsonObject 를 그대로 감싼다.
+ * global_allocator 가 NULL 이면 빈 결과(total_cores=0). */
+static void _handle_vm_numa_info(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *info = cpu_allocator_get_numa_info(global_allocator);
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, info);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── vm.autostart — VM 자동시작 설정/조회 (실배선) ─────────────────
+ * params: { name, [enable(bool)] }
+ *   enable 제공  → virDomainSetAutostart 로 설정 후 최종 상태 반환.
+ *   enable 미제공 → virDomainGetAutostart 로 현재 상태만 조회.
+ * virt_conn_pool 로 libvirt 연결을 획득/반납한다. */
+static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
+    if (!name || !*name) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    gboolean has_enable  = params && json_object_has_member(params, "enable");
+    gboolean want_enable = has_enable && json_object_get_boolean_member(params, "enable");
+
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE, "libvirt connection unavailable");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    virDomainPtr dom = virDomainLookupByName(conn, name);
+    if (!dom) {
+        virResetLastError();
+        dom = virDomainLookupByUUIDString(conn, name);
+    }
+    if (!dom) {
+        virt_conn_pool_release(conn);
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_NOT_FOUND, "VM not found");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+
+    if (has_enable) {
+        if (virDomainSetAutostart(dom, want_enable ? 1 : 0) < 0) {
+            virDomainFree(dom);
+            virt_conn_pool_release(conn);
+            gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_SERVER, "failed to set autostart");
+            pure_uds_server_send_response(server, connection, r); g_free(r); return;
+        }
+    }
+
+    int autostart = 0;
+    if (virDomainGetAutostart(dom, &autostart) < 0) {
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_SERVER, "failed to read autostart");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    virDomainFree(dom);
+    virt_conn_pool_release(conn);
+
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "name", name);
+    json_object_set_boolean_member(res, "autostart", autostart ? TRUE : FALSE);
+    json_object_set_string_member(res, "action", has_enable ? "set" : "get");
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, res);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── vm.sla.report — VM 가동률(SLA) 리포트 (실배선) ────────────────
+ * params: { name }
+ * alert_engine 의 uptime/downtime 추적기(pcv_alert_get_sla)를 그대로 반환.
+ * 추적 이력이 없는 VM은 모듈 기본값(uptime_percent=100, seconds=0)을 준다. */
+static void _handle_vm_sla_report(JsonObject *params, const gchar *rpc_id,
+                                  UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
+    if (!name || !*name) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    JsonObject *sla = pcv_alert_get_sla(name);
+    json_object_set_string_member(sla, "vm", name);
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, sla);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── capacity.forecast — 워크로드 예측 기반 용량 전망 (실배선) ──────
+ * workload_predict 모듈의 예측 상태(pcv_predict_get_forecast_json)를
+ * JSON 배열로 파싱하여 forecasts 에 담아 반환. 파싱 실패/빈 예측이면
+ * 빈 배열 + note(예측 표본 부족)를 반환한다. */
+static void _handle_capacity_forecast(JsonObject *params, const gchar *rpc_id,
+                                      UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *res = json_object_new();
+    gchar *fjson = pcv_predict_get_forecast_json();
+
+    JsonNode *farr = NULL;
+    if (fjson && *fjson) {
+        JsonParser *p = json_parser_new();
+        if (json_parser_load_from_data(p, fjson, -1, NULL)) {
+            JsonNode *root = json_parser_get_root(p);
+            if (root && JSON_NODE_HOLDS_ARRAY(root))
+                farr = json_node_copy(root);
+        }
+        g_object_unref(p);
+    }
+    g_free(fjson);
+
+    if (farr) {
+        json_object_set_member(res, "forecasts", farr);   /* ownership → res */
+        json_object_set_string_member(res, "source", "workload_predict");
+    } else {
+        json_object_set_array_member(res, "forecasts", json_array_new());
+        json_object_set_string_member(res, "note", "no prediction samples yet");
+    }
+
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, res);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── vm.schedule.list — VM 시작/정지 스케줄 목록 (최소구현) ─────────
+ * VM cron 스케줄 백엔드가 아직 없다. -32601 은 없애되 없는 데이터를
+ * 지어내지 않도록 not_available 플래그로 명시한다(감사 테마 #1 회피). */
+static void _handle_vm_schedule_list(JsonObject *params, const gchar *rpc_id,
+                                     UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "status", "not_available");
+    json_object_set_string_member(res, "reason",
+        "VM start/stop schedule backend not implemented");
+    json_object_set_array_member(res, "schedules", json_array_new());
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, res);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── vm.schedule.set — VM 시작/정지 스케줄 설정 (최소구현) ──────────
+ * params: { name, [start_cron], [stop_cron] }
+ * 스케줄 백엔드 부재. 아무 것도 적용하지 않았음을 applied=false 로
+ * 명시한다(보고성공-무동작 재생산 금지). */
+static void _handle_vm_schedule_set(JsonObject *params, const gchar *rpc_id,
+                                    UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
+    if (!name || !*name) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "status", "not_available");
+    json_object_set_boolean_member(res, "applied", FALSE);
+    json_object_set_string_member(res, "name", name);
+    json_object_set_string_member(res, "reason",
+        "VM start/stop schedule backend not implemented");
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, res);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+/* ── vm.billing.report — VM 빌링 리포트 (최소구현) ─────────────────
+ * 리소스 미터링/과금 백엔드가 없다. not_available 플래그로 명시한다. */
+static void _handle_vm_billing_report(JsonObject *params, const gchar *rpc_id,
+                                      UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "status", "not_available");
+    json_object_set_string_member(res, "reason",
+        "resource metering/billing backend not implemented");
+    json_object_set_array_member(res, "records", json_array_new());
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, res);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
 /* ── quota.get ────────────────────────────────────────────────────────
  * 로컬 리소스 쿼터 조회 — 현재 하드코딩된 글로벌 쿼터
  *
@@ -4599,8 +4926,9 @@ static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
-    if (!ctr_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing required parameter: name");
+    /* [감사 SEC-F1] name이 무검증으로 lxc_driver의 `/bin/sh -c`에 보간되던 경로. */
+    if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -4635,8 +4963,14 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
         ? json_object_get_string_member(params, "bridge") : NULL;
     const gchar *mac = json_object_has_member(params, "hwaddr")
         ? json_object_get_string_member(params, "hwaddr") : NULL;
-    if (!ctr_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing required parameter: name");
+    /* [감사 SEC-F1] name/bridge를 검증 없이 lxc_driver의 `/bin/sh -c`에 보간해
+     * 셸 인젝션→root RCE였다. 형제 핸들러(handler_container.c:327/337)와 동일하게
+     * 진입점에서 검증한다([a-zA-Z0-9_-]만 허용 → 셸 메타문자 차단). */
+    if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
+        pure_uds_server_send_response(server, connection, e); g_free(e);
+    } else if (bridge && !pcv_validate_bridge_name(bridge)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid parameter: bridge");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -4665,8 +4999,12 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
         ? json_object_get_string_member(params, "name") : NULL;
     const gchar *nic_name = json_object_has_member(params, "nic_name")
         ? json_object_get_string_member(params, "nic_name") : NULL;
-    if (!ctr_name || !nic_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing required parameters: name, nic_name");
+    /* [감사 SEC-F1] name/nic_name이 무검증으로 lxc_driver의 `/bin/sh -c`에 보간됐다
+     * (nic_name의 `atoi("1; …")` eth-접두 게이트 우회 포함). iface 검증기는 선행
+     * `-`까지 거부해 옵션·셸 인젝션을 함께 차단한다. */
+    if (!ctr_name || !pcv_validate_vm_name(ctr_name) ||
+        !nic_name || !pcv_validate_iface_name(nic_name)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameters: name, nic_name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -4698,8 +5036,13 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
         ? (guint)json_object_get_int_member(params, "inbound_kbps") : 0;
     guint out_kbps = json_object_has_member(params, "outbound_kbps")
         ? (guint)json_object_get_int_member(params, "outbound_kbps") : 0;
-    if (!ctr_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing required parameter: name");
+    /* [감사 SEC-F1] name/nic_name이 무검증으로 lxc_driver의 awk 싱글쿼트 문자열 +
+     * `/bin/sh -c`에 보간돼 셸 인젝션→root RCE였다(컨테이너 존재 전제도 없음). */
+    if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
+        pure_uds_server_send_response(server, connection, e); g_free(e);
+    } else if (nic && !pcv_validate_iface_name(nic)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid parameter: nic_name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -5304,15 +5647,15 @@ static void _s3_export_worker(GTask *task, gpointer source __attribute__((unused
                   ctx->vm_name, err_msg);
         pcv_audit_log(NULL, "backup.export_s3", ctx->vm_name, "fail",
                       -32000, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.export_s3",
-                                      "failed", err_msg);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.export_s3",
+                                         "failed", err_msg);
         if (err) g_error_free(err);
     } else {
         g_message("[S3 Backup] Export completed for '%s'", ctx->vm_name);
         pcv_audit_log(NULL, "backup.export_s3", ctx->vm_name, "ok",
                       0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "backup.export_s3",
-                                      "completed", NULL);
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.export_s3",
+                                         "completed", NULL);
     }
     g_free(job_id);
     g_task_return_boolean(task, ok);
@@ -5784,20 +6127,45 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     JsonParser *parser = json_parser_new();
     GError *err = nullptr;
 
-    /* [Security Note] JSON depth is bounded by REST_MAX_BODY (1MB) size limit.
-     * A maximally nested JSON array [[[[...]]]] of 1MB = ~500K levels.
-     * json-glib uses GLib's GScanner-based iterative tokenizer, so stack overflow
-     * is not a risk. Memory usage is bounded by input size. */
+    /* [감사 SEC-F2] json-glib의 json_parser_load_from_data는 중첩(배열/객체)을
+     * 상호재귀로 처리하므로 깊은 `[[[…]]]` 입력에서 스택오버플로우로 데몬을
+     * 크래시시킨다(이전 주석의 "GScanner 반복 토크나이저라 안전"은 사실과 다름 —
+     * 토크나이저는 토큰만, 중첩은 재귀). 파싱 전 깊이 상한으로 사전 거부한다. */
+    if (!pcv_rpc_json_depth_ok(request_json, PCV_RPC_JSON_MAX_DEPTH)) {
+        gchar *derr = pure_rpc_build_error_response(NULL, PCV_ERR_INVALID_REQ,
+            "Invalid Request: JSON nesting too deep");
+        pure_uds_server_send_response(server, connection, derr);
+        g_free(derr);
+        g_object_unref(parser);
+        return;
+    }
     if (!json_parser_load_from_data(parser, request_json, -1, &err)) {
-        g_error_free(err);
+        /* [감사 A2-3] 파싱 실패 시 무응답 대신 -32700 Parse Error를 전송해
+         * 클라이언트가 무맥락 EOF 대신 원인을 받도록 한다. */
+        gchar *perr = pure_rpc_build_error_response(NULL, PCV_ERR_PARSE, "Parse error");
+        pure_uds_server_send_response(server, connection, perr);
+        g_free(perr);
+        if (err) g_error_free(err);
         g_object_unref(parser);
         return;
     }
 
     JsonNode *root = json_parser_get_root(parser);
-    JsonObject *obj = json_node_get_object(root);
-    
-    const gchar *method = json_object_get_string_member(obj, "method");
+    /* [감사 A2-1 fix] 루트가 객체가 아니거나(`[1,2]`/`"x"`/`123`) method 문자열이
+     * 없으면(`{"jsonrpc":"2.0","id":1}`) -32600으로 거부한다. 이전에는 무검증으로
+     * method=NULL이 g_hash_table_lookup(g_rpc_routes, NULL) → g_str_hash(NULL)
+     * NULL 역참조를 유발해 한 요청으로 데몬이 SIGSEGV 크래시했다(미인증 원격 DoS). */
+    JsonObject *obj = (root && JSON_NODE_HOLDS_OBJECT(root))
+                      ? json_node_get_object(root) : nullptr;
+    const gchar *method = obj ? json_object_get_string_member(obj, "method") : nullptr;
+    if (!obj || !method) {
+        gchar *ierr = pure_rpc_build_error_response(NULL, PCV_ERR_INVALID_REQ,
+            "Invalid Request: root must be an object with a string 'method'");
+        pure_uds_server_send_response(server, connection, ierr);
+        g_free(ierr);
+        g_object_unref(parser);
+        return;
+    }
     
     /* ── ID 추출 로직 (정수형/문자열 모두 지원) ───────────────────
      *
@@ -6522,6 +6890,8 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "jobs.persist.list",    (gpointer)_handle_jobs_persist_list);
     g_hash_table_insert(g_rpc_routes, "alert.silence",        (gpointer)_handle_alert_silence);
     g_hash_table_insert(g_rpc_routes, "alert.silence.list",   (gpointer)_handle_alert_silence_list);
+    g_hash_table_insert(g_rpc_routes, "alert.dlq.list",       (gpointer)_handle_alert_dlq_list);
+    g_hash_table_insert(g_rpc_routes, "alert.dlq.retry",      (gpointer)_handle_alert_dlq_retry);
     g_hash_table_insert(g_rpc_routes, "alert.config.routing", (gpointer)_handle_alert_routing);
     g_hash_table_insert(g_rpc_routes, "db.migration.status",  (gpointer)_handle_db_migration_status);
 
@@ -6532,6 +6902,15 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "container.clone",           (gpointer)_handle_container_clone);
     g_hash_table_insert(g_rpc_routes, "container.memory.stats",    (gpointer)_handle_container_memory_stats);
     g_hash_table_insert(g_rpc_routes, "container.health.check",    (gpointer)_handle_container_health_check);
+
+    /* ── AF-C2/AF-C4: 미구현 CLI RPC 핸들러 배선 (-32601 해소) ──── */
+    g_hash_table_insert(g_rpc_routes, "vm.numa.info",        (gpointer)_handle_vm_numa_info);
+    g_hash_table_insert(g_rpc_routes, "vm.autostart",        (gpointer)_handle_vm_autostart);
+    g_hash_table_insert(g_rpc_routes, "vm.sla.report",       (gpointer)_handle_vm_sla_report);
+    g_hash_table_insert(g_rpc_routes, "capacity.forecast",   (gpointer)_handle_capacity_forecast);
+    g_hash_table_insert(g_rpc_routes, "vm.schedule.list",    (gpointer)_handle_vm_schedule_list);
+    g_hash_table_insert(g_rpc_routes, "vm.schedule.set",     (gpointer)_handle_vm_schedule_set);
+    g_hash_table_insert(g_rpc_routes, "vm.billing.report",   (gpointer)_handle_vm_billing_report);
 
     g_message("[DISPATCHER] Route table initialized: %u methods registered",
               g_hash_table_size(g_rpc_routes));

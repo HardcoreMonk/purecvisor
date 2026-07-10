@@ -41,6 +41,8 @@
  *   - HTTP 타임아웃: 10초(AGENT_TIMEOUT_SEC) 초과 시 프로바이더 응답 무시
  *   - API 키 마스킹: REST/RPC 설정 조회 시 앞뒤 3자만 표시 ("sk-...xxx")
  *   - 비활성 기본값: daemon.conf에서 API 키 미설정 시 프로바이더 비활성
+ *   - A6-7 최소 정족수: daemon.conf [ai] min_quorum(기본 2) 미만 응답 시
+ *     단일 응답만으로는 액션 승격 불가 — alert_only 폴백 (_compute_consensus)
  *
  * [스레드 안전]
  *   G.mu (GMutex): 이력 링버퍼 + 프로바이더 설정 보호
@@ -196,10 +198,31 @@ static guint32
 _ai_cache_hash(const gchar *metrics_json)
 {
     if (!metrics_json) return 0;
-    /* djb2 해시 (메트릭 전체 문자열 기반) */
+    /* A6-8: 이전에는 metrics_json 전체 문자열을 djb2 해시했으나, 문자열에
+     * net_rx_bytes/pgfault 등 부팅 이후 단조증가 카운터가 포함돼 매 수집(5초)마다
+     * 키가 유일해져 캐시가 상시 MISS 였다(TTL·LRU 무의미, 유료 API 항상 재질의).
+     * docstring 의도대로 cpu/mem 사용률만 정수 반올림(양자화)해 해시 → "동일 부하
+     * 구간" 히트 발생. 임계 근처 변화(예: cpu 88→92)는 버킷이 달라져 재평가됨. */
     guint32 hash = 5381;
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, metrics_json, -1, NULL)) {
+        JsonNode *root = json_parser_get_root(parser);
+        if (root && JSON_NODE_HOLDS_OBJECT(root)) {
+            JsonObject *o = json_node_get_object(root);
+            gint cpu = json_object_has_member(o, "cpu_percent")
+                ? (gint)(json_object_get_double_member(o, "cpu_percent") + 0.5) : -1;
+            gint mem = json_object_has_member(o, "mem_percent")
+                ? (gint)(json_object_get_double_member(o, "mem_percent") + 0.5) : -1;
+            hash = ((hash << 5) + hash) + (guint32)(cpu + 1);
+            hash = ((hash << 5) + hash) + (guint32)(mem + 1);
+            g_object_unref(parser);
+            return hash;
+        }
+    }
+    /* 파싱 실패 폴백: 기존 전체 문자열 djb2 */
     for (const gchar *p = metrics_json; *p; p++)
         hash = ((hash << 5) + hash) + (guint32)*p;
+    g_object_unref(parser);
     return hash;
 }
 
@@ -880,9 +903,12 @@ static const gdouble PROVIDER_WEIGHTS[PCV_AI_PROVIDER_COUNT] = {
  * 알고리즘:
  *   1. 각 프로바이더의 추천 액션별로 score = Σ(confidence × weight) 계산
  *   2. 최고 score 액션 선택
- *   3. 채택 조건: 2개+ 프로바이더 동의 OR score > 0.8
- *   4. 미충족 시 "alert_only" (안전 기본값 — 자동 액션 실행하지 않음)
- *   5. 합의 액션의 평균 신뢰도와 전체 평균 레이턴시 계산
+ *   3. A6-7: 응답 프로바이더 수(n_responded) < min_quorum(기본 2)이면
+ *      즉시 정족수 미달 — "alert_only"로 폴백 (단일 응답으로는 절대 승격 불가)
+ *   4. 정족수 충족 시 채택 조건(CE-A11): agreed_ratio(동의 가중치/전체
+ *      가중치) >= 0.6 OR 2개+ 프로바이더 동일 액션 동의
+ *   5. 미충족 시 "alert_only" (안전 기본값 — 자동 액션 실행하지 않음)
+ *   6. 합의 액션의 평균 신뢰도와 전체 평균 레이턴시 계산
  */
 static void
 _compute_consensus(PcvAgentComparison *cmp)
@@ -926,14 +952,33 @@ _compute_consensus(PcvAgentComparison *cmp)
      * 기존: 단순 카운트(2개+) 또는 점수(0.8+) 기반
      * 변경: 전체 응답 프로바이더의 가중치 합산 대비 동의 가중치 비율 판정 */
     gdouble total_weight = 0.0;
+    gint n_responded = 0;
     for (gint i = 0; i < cmp->result_count; i++) {
         PcvAgentResult *r = &cmp->results[i];
-        if (r->success) total_weight += PROVIDER_WEIGHTS[r->provider];
+        if (r->success) {
+            total_weight += PROVIDER_WEIGHTS[r->provider];
+            n_responded++;
+        }
     }
     gdouble agreed_ratio = (total_weight > 0.0)
         ? votes[best].score / total_weight : 0.0;
 
-    if (agreed_ratio >= 0.6) {
+    /* A6-7: 최소 정족수(min_quorum) — 응답자가 1명뿐이면 agreed_ratio가
+     * 그 응답자 자신의 confidence/weight 비율로 축약되어(=자기 자신과
+     * 100% 합의) 단일 응답만으로 액션이 승격되는 결함이 있었다.
+     * daemon.conf [ai] min_quorum(기본 2) 미만 응답 시 정족수 미달로
+     * 처리 — 액션 승격 없이 기존 비합의 폴백(alert_only)을 유지한다.
+     * 정족수 충족 시 아래 가중 쿼럼/카운트 판정은 기존과 동일하다. */
+    gint min_quorum = pcv_config_get_int("ai", "min_quorum", 2);
+    if (min_quorum < 1) min_quorum = 1;
+
+    if (n_responded < min_quorum) {
+        PCV_LOG_WARN(AGENT_LOG_DOM,
+            "AI consensus low-confidence(단일 응답): 응답 프로바이더 %d개 "
+            "< min_quorum %d — 액션 승격 보류, alert_only 폴백",
+            n_responded, min_quorum);
+        g_strlcpy(cmp->consensus_action, "alert_only", sizeof(cmp->consensus_action));
+    } else if (agreed_ratio >= 0.6) {
         /* 가중 쿼럼 충족: 동의 가중치가 전체의 60% 이상 */
         g_strlcpy(cmp->consensus_action, votes[best].action, sizeof(cmp->consensus_action));
     } else if (votes[best].count >= 2) {

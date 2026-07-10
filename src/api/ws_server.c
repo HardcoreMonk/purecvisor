@@ -978,3 +978,49 @@ pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
     PCV_LOG_INFO(WS_LOG_DOM, "Broadcast job.complete: job_id=%s method=%s status=%s",
                  job_id, method, status);
 }
+
+/* ── A2-2: fire-and-forget 워커 스레드용 마샬링 래퍼 ────────────────────
+ * libsoup 연결(SoupWebsocketConnection)은 생성 GMainContext(=메인 스레드)에
+ * 스레드 어피니티가 있어, GTask 워커 스레드(g_task_run_in_thread / 워커 풀)에서
+ * soup_websocket_connection_send_text()를 직접 호출하면 어피니티 위반이다.
+ * pcv_ws_broadcast_job_complete()는 내부에서 pcv_ws_broadcast() →
+ * send_text()를 직접 호출하므로, 워커 바디에서 브로드캐스트할 때는 이 _mt
+ * 변형을 사용한다. 모든 인자 문자열을 heap 으로 복사(g_strdup)한 뒤
+ * g_main_context_invoke(NULL, ...)로 메인 컨텍스트에 마샬링하고, 실제 전송은
+ * 메인 스레드에서 원 pcv_ws_broadcast_job_complete()가 수행한다. */
+typedef struct {
+    gchar *job_id;
+    gchar *method;
+    gchar *status;
+    gchar *error_msg;   /* NULL 허용 (성공 시) */
+} WsJobCompleteMt;
+
+static gboolean
+_ws_broadcast_job_complete_mt_cb(gpointer user_data)
+{
+    WsJobCompleteMt *d = user_data;
+    /* 메인 스레드 컨텍스트에서 실행됨 — send_text 어피니티 만족 */
+    pcv_ws_broadcast_job_complete(d->job_id, d->method, d->status, d->error_msg);
+    g_free(d->job_id);
+    g_free(d->method);
+    g_free(d->status);
+    g_free(d->error_msg);
+    g_free(d);
+    return G_SOURCE_REMOVE;
+}
+
+void
+pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
+                                  const gchar *status, const gchar *error_msg)
+{
+    if (!job_id || !method || !status) return;
+
+    WsJobCompleteMt *d = g_new0(WsJobCompleteMt, 1);
+    d->job_id    = g_strdup(job_id);
+    d->method    = g_strdup(method);
+    d->status    = g_strdup(status);
+    d->error_msg = g_strdup(error_msg);   /* g_strdup(NULL) == NULL 이므로 NULL 보존 */
+
+    /* NULL context == 스레드 기본(메인) 컨텍스트. 다음 메인 루프 반복에서 _cb 실행. */
+    g_main_context_invoke(NULL, _ws_broadcast_job_complete_mt_cb, d);
+}

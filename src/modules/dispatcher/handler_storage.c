@@ -253,6 +253,37 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
         zvol_path = full_path;
     }
 
+    /* [감사 AF-S1] 이전엔 무검증 `zfs destroy -r <zvol_path>`라 zvol_path="pcvpool/vms"
+     * 같은 상위 데이터셋을 지정하면 하위 전 VM zvol을 재귀 삭제할 수 있었다.
+     * 방어 2중: (1) 문자 화이트리스트 + traversal 차단, (2) 대상이 실제 zvol(volume)
+     * 타입인지 확인 — 상위 데이터셋(filesystem)이면 거부. -r은 zvol의 스냅샷 정리에만
+     * 작용하고, volume은 데이터셋 자식이 없으므로 형제 파괴가 불가능해진다. */
+    {
+        gboolean bad = (zvol_path[0] == '/') || strstr(zvol_path, "..") || strstr(zvol_path, "//");
+        for (const gchar *c = zvol_path; !bad && *c; c++) {
+            if (!g_ascii_isalnum(*c) && *c != '_' && *c != '-' && *c != '.' && *c != '/')
+                bad = TRUE;
+        }
+        if (bad) {
+            gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid zvol_path");
+            pure_uds_server_send_response(server, connection, resp); g_free(resp);
+            g_free(full_path);
+            return;
+        }
+        const gchar *type_argv[] = {"zfs", "list", "-H", "-o", "type", zvol_path, NULL};
+        gchar *type_out = NULL;
+        gboolean ok = pcv_spawn_sync(type_argv, &type_out, NULL, NULL);
+        gboolean is_vol = ok && type_out && g_strcmp0(g_strstrip(type_out), "volume") == 0;
+        g_free(type_out);
+        if (!is_vol) {
+            gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+                "Refused: target is not a zvol (volume) — parent datasets cannot be recursively destroyed");
+            pure_uds_server_send_response(server, connection, resp); g_free(resp);
+            g_free(full_path);
+            return;
+        }
+    }
+
     /* pcv_spawn_sync argv 배열 방식 — command injection 방지 */
     const gchar *zfs_argv[] = {"zfs", "destroy", "-r", zvol_path, NULL};
     gchar *std_err = NULL;

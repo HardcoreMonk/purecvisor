@@ -52,6 +52,7 @@
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #include <string.h>
+#include "modules/core/vm_state.h"   /* AF-P1: lock_vm_operation / VM_OP_SNAPSHOT */
 
 #define SNAP_LOG_DOM "snapshot"
 
@@ -500,6 +501,8 @@ _on_rollback_done(GObject *src __attribute__((unused)),
 
     pure_uds_server_send_response(d->server, d->connection, resp);
     g_free(resp);
+    /* AF-P1: 핸들러가 잡은 VM_OP_SNAPSHOT 해제(async rollback 은 항상 락 보유). */
+    unlock_vm_operation(d->vm_name);
     /* B5-M1: d는 GTask의 task_data destroy notify(_rollback_task_data_free)가 해제.
      * GLib 보장: callback은 task_data destroy 전에 실행 완료됨 — UAF 아님. */
 }
@@ -521,6 +524,7 @@ typedef struct {
     gboolean  capture_stdout;
     gchar    *audit_method;
     gchar    *audit_target;
+    gchar    *lock_vm;        /* AF-P1: 설정 시 콜백에서 VM_OP_SNAPSHOT 해제 대상 VM (쓰기 op만; list 는 NULL) */
     /* 워커 → 콜백 결과 */
     gboolean  ok;
     gchar    *stdout_buf;
@@ -530,7 +534,7 @@ typedef struct {
 static void _snap_sync_ctx_free(gpointer p) {
     SnapSyncCtx *c = p;
     g_free(c->rpc_id); g_free(c->audit_method); g_free(c->audit_target);
-    g_free(c->stdout_buf); g_free(c->err_msg);
+    g_free(c->stdout_buf); g_free(c->err_msg); g_free(c->lock_vm);
     if (c->argv) g_ptr_array_unref(c->argv);
     if (c->server) g_object_unref(c->server);
     if (c->connection) g_object_unref(c->connection);
@@ -611,6 +615,8 @@ _snap_sync_callback(GObject *src __attribute__((unused)),
 
     pure_uds_server_send_response(c->server, c->connection, resp);
     g_free(resp);
+    /* AF-P1: 쓰기 op(create/delete)가 잡은 VM_OP_SNAPSHOT 해제. list 는 lock_vm=NULL. */
+    if (c->lock_vm) unlock_vm_operation(c->lock_vm);
     /* c는 GTask task_data destroy notify가 해제 */
 }
 
@@ -665,7 +671,23 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
         g_free(dataset);
     }
 
+    /* AF-P1: ZFS async 경로만 VM_OP_SNAPSHOT 락(동기 libvirt/quota 출구는 메인루프
+     * 단일스레드라 이미 직렬화 → 락 불필요). 해제는 _snap_sync_callback 이 c->lock_vm
+     * 로 수행. rollback 이 내부 정지/재기동을 virDomain* 직접호출로 하므로
+     * VM_OP_STOPPING/STARTING 재획득이 없어 자기충돌/데드락 없음. */
+    {
+        gchar *snap_lock_err = NULL;
+        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(snap_lock_err);
+            return;
+        }
+    }
+
     SnapSyncCtx *c = g_new0(SnapSyncCtx, 1);
+    c->lock_vm      = g_strdup(vm_id);   /* AF-P1: 콜백에서 unlock */
     c->rpc_id       = g_strdup(rpc_id);
     c->server       = g_object_ref(server);
     c->connection   = g_object_ref(connection);
@@ -729,6 +751,20 @@ void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
+    /* AF-P1: async rollback 경로만 VM_OP_SNAPSHOT 락. 해제는 _on_rollback_done.
+     * rollback 내부 정지→롤백→재기동은 virDomain* 직접호출(락 획득 RPC 아님)이라
+     * 자기충돌 없음. */
+    {
+        gchar *snap_lock_err = NULL;
+        if (!lock_vm_operation(vm_name, VM_OP_SNAPSHOT, &snap_lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(snap_lock_err);
+            return;
+        }
+    }
+
     RollbackTaskData *d = g_new0(RollbackTaskData, 1);
     d->vm_name   = g_strdup(vm_name);
     d->snap_name = g_strdup(snap_name);
@@ -756,7 +792,20 @@ void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
+    /* AF-P1: ZFS async 삭제 경로만 VM_OP_SNAPSHOT 락. 해제는 _snap_sync_callback. */
+    {
+        gchar *snap_lock_err = NULL;
+        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(snap_lock_err);
+            return;
+        }
+    }
+
     SnapSyncCtx *c = g_new0(SnapSyncCtx, 1);
+    c->lock_vm      = g_strdup(vm_id);   /* AF-P1: 콜백에서 unlock */
     c->rpc_id       = g_strdup(rpc_id);
     c->server       = g_object_ref(server);
     c->connection   = g_object_ref(connection);
@@ -863,6 +912,9 @@ _delete_all_callback(GObject *src __attribute__((unused)),
     GError *err = NULL;
     gboolean ok = g_task_propagate_boolean(G_TASK(res), &err);
 
+    /* AF-P1: 핸들러가 잡은 VM_OP_SNAPSHOT 해제 — 성공/실패 양 return 경로 최우선. */
+    unlock_vm_operation(d->vm_id);
+
     if (!ok || d->err_msg) {
         gchar *resp = pure_rpc_build_error_response(d->rpc_id, -32000,
             d->err_msg ? d->err_msg : (err ? err->message : "delete_all failed"));
@@ -928,6 +980,18 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
             }
             virDomainFree(dom);
             virt_conn_pool_release(qconn);
+        }
+    }
+
+    /* AF-P1: async bulk-delete 경로 VM_OP_SNAPSHOT 락. 해제는 _delete_all_callback. */
+    {
+        gchar *snap_lock_err = NULL;
+        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                           snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(snap_lock_err);
+            return;
         }
     }
 

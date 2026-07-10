@@ -1,7 +1,7 @@
 /* tests/test_ai_agent.c
  *
  * 대상 모듈: src/modules/ai/ — AI Agent 입력 위생 처리, 레이블 검증,
- *            프로바이더 응답 파싱, 결정 JSON 추출
+ *            프로바이더 응답 파싱, 결정 JSON 추출, 합의 최소 정족수
  *
  * 이 테스트가 검증하는 것:
  *   데몬 의존성 없이 검증 로직을 인라인으로 복제하여
@@ -11,6 +11,8 @@
  *   2. _sanitize_label         — AI 레이블 문자 집합 + 길이 검증
  *   3. _extract_text           — OpenAI / Anthropic 응답 JSON 파싱 분기
  *   4. _parse_decision         — 결정 JSON 추출 (action/confidence/reason)
+ *   5. _compute_consensus      — A6-7: 최소 정족수(min_quorum) 판정
+ *      (단일 응답자는 confidence가 높아도 합의 불성립 → alert_only 폴백)
  *
  * 실행: sudo ./test_runner -p /ai
  *
@@ -238,6 +240,102 @@ _parse_decision(const char *json_str)
     return d;
 }
 
+/* ── 5. 합의(consensus) 최소 정족수 판정 — A6-7 ────────────────────
+ * src/modules/ai/ai_agent.c::_compute_consensus()의 min_quorum 분기를
+ * 미러링한다. daemon.conf [ai] min_quorum 설정값 대신 파라미터로 받아
+ * pcv_config_get_int() / 데몬 초기화 의존 없이 테스트한다. */
+
+typedef enum {
+    MOCK_PROV_CLAUDE = 0,
+    MOCK_PROV_OPENAI,
+    MOCK_PROV_GEMINI,
+    MOCK_PROV_OLLAMA,
+    MOCK_PROV_COUNT
+} MockAiProvider;
+
+/* PROVIDER_WEIGHTS 미러 (ai_agent.c와 동일) */
+static const gdouble MOCK_PROVIDER_WEIGHTS[MOCK_PROV_COUNT] = { 1.0, 1.0, 0.9, 0.7 };
+
+typedef struct {
+    MockAiProvider provider;
+    gchar          action[32];
+    gdouble        confidence;
+    gboolean       success;
+} MockAgentResult;
+
+/**
+ * _compute_consensus_mirror:
+ * @results:      프로바이더별 응답 배열
+ * @result_count: results 길이
+ * @min_quorum:   합의 성립에 필요한 최소 응답자 수
+ * @out_action:   결과 버퍼 (최소 32바이트, 호출자 소유)
+ *
+ * ai_agent.c::_compute_consensus()의 액션 채택 로직을 그대로 미러링한다:
+ *   1. 액션별 가중 점수 집계 (score = Σ confidence × weight)
+ *   2. 최고 점수 액션 선택
+ *   3. A6-7: 응답자 수(n_responded) < min_quorum → 정족수 미달, alert_only
+ *   4. 정족수 충족 시 CE-A11: agreed_ratio >= 0.6 OR 2개+ 동의 → 채택
+ *   5. 미충족 시 alert_only
+ */
+static void
+_compute_consensus_mirror(MockAgentResult *results, gint result_count,
+                           gint min_quorum, gchar *out_action)
+{
+    typedef struct { gchar action[32]; gdouble score; gint count; } ActionVote;
+    ActionVote votes[MOCK_PROV_COUNT];
+    gint nvotes = 0;
+
+    for (gint i = 0; i < result_count; i++) {
+        MockAgentResult *r = &results[i];
+        if (!r->success || !r->action[0]) continue;
+
+        gint vi = -1;
+        for (gint j = 0; j < nvotes; j++) {
+            if (g_strcmp0(votes[j].action, r->action) == 0) { vi = j; break; }
+        }
+        if (vi < 0) {
+            vi = nvotes++;
+            memset(&votes[vi], 0, sizeof(ActionVote));
+            g_strlcpy(votes[vi].action, r->action, sizeof(votes[vi].action));
+        }
+        votes[vi].score += r->confidence * MOCK_PROVIDER_WEIGHTS[r->provider];
+        votes[vi].count++;
+    }
+
+    if (nvotes == 0) {
+        g_strlcpy(out_action, "alert_only", 32);
+        return;
+    }
+
+    gint best = 0;
+    for (gint i = 1; i < nvotes; i++) {
+        if (votes[i].score > votes[best].score) best = i;
+    }
+
+    gdouble total_weight = 0.0;
+    gint n_responded = 0;
+    for (gint i = 0; i < result_count; i++) {
+        MockAgentResult *r = &results[i];
+        if (r->success) {
+            total_weight += MOCK_PROVIDER_WEIGHTS[r->provider];
+            n_responded++;
+        }
+    }
+    gdouble agreed_ratio = (total_weight > 0.0) ? votes[best].score / total_weight : 0.0;
+
+    if (min_quorum < 1) min_quorum = 1;
+
+    if (n_responded < min_quorum) {
+        g_strlcpy(out_action, "alert_only", 32);
+    } else if (agreed_ratio >= 0.6) {
+        g_strlcpy(out_action, votes[best].action, 32);
+    } else if (votes[best].count >= 2) {
+        g_strlcpy(out_action, votes[best].action, 32);
+    } else {
+        g_strlcpy(out_action, "alert_only", 32);
+    }
+}
+
 
 /* ═══════════════════════════════════════════════════════════════════
  * 테스트 케이스
@@ -432,6 +530,64 @@ test_parse_decision_non_json(void)
     g_assert_null(_parse_decision(NULL));
 }
 
+/* ── 5. _compute_consensus — A6-7 최소 정족수 ──────────────────── */
+
+static void
+test_consensus_single_responder_below_quorum(void)
+{
+    /* 단일 응답(Claude, confidence=0.95) + 기본 min_quorum=2
+     * → agreed_ratio(=0.95)는 60% 기준을 넘지만 응답자 수가 정족수
+     *   미달이므로 액션 승격 없이 alert_only로 폴백해야 한다. */
+    MockAgentResult results[] = {
+        { MOCK_PROV_CLAUDE, "restart", 0.95, TRUE },
+    };
+    gchar action[32];
+    _compute_consensus_mirror(results, 1, /*min_quorum=*/2, action);
+    g_assert_cmpstr(action, ==, "alert_only");
+}
+
+static void
+test_consensus_two_responders_meet_quorum(void)
+{
+    /* 2개 프로바이더(Claude+OpenAI)가 동일 액션에 동의, min_quorum=2
+     * → 정족수 충족 + agreed_ratio>=0.6 → 해당 액션 채택. */
+    MockAgentResult results[] = {
+        { MOCK_PROV_CLAUDE, "restart", 0.9, TRUE },
+        { MOCK_PROV_OPENAI, "restart", 0.9, TRUE },
+    };
+    gchar action[32];
+    _compute_consensus_mirror(results, 2, /*min_quorum=*/2, action);
+    g_assert_cmpstr(action, ==, "restart");
+}
+
+static void
+test_consensus_quorum_boundary_below_configured(void)
+{
+    /* 2개 프로바이더가 완전 동의해도, min_quorum이 3으로 설정되면
+     * 여전히 정족수 미달 — 관리자가 daemon.conf로 정족수를 올릴 수
+     * 있음을 검증한다 (하드코딩된 2가 아니라 설정값 기반 판정). */
+    MockAgentResult results[] = {
+        { MOCK_PROV_CLAUDE, "restart", 0.9, TRUE },
+        { MOCK_PROV_OPENAI, "restart", 0.9, TRUE },
+    };
+    gchar action[32];
+    _compute_consensus_mirror(results, 2, /*min_quorum=*/3, action);
+    g_assert_cmpstr(action, ==, "alert_only");
+}
+
+static void
+test_consensus_quorum_configurable_below_default(void)
+{
+    /* min_quorum=1로 명시 설정하면 단일 응답도 통과 — 정족수 문턱이
+     * 설정 가능한 값임을 확인한다 (기본값 2와 별개). */
+    MockAgentResult results[] = {
+        { MOCK_PROV_CLAUDE, "restart", 0.9, TRUE },
+    };
+    gchar action[32];
+    _compute_consensus_mirror(results, 1, /*min_quorum=*/1, action);
+    g_assert_cmpstr(action, ==, "restart");
+}
+
 /* ═══════════════════════════════════════════════════════════════════
  * 등록
  * ═══════════════════════════════════════════════════════════════════ */
@@ -466,6 +622,16 @@ test_ai_agent_register(void)
     ADD("decision/valid",                 test_parse_decision_valid);
     ADD("decision/missing_field",         test_parse_decision_missing_field);
     ADD("decision/non_json",             test_parse_decision_non_json);
+
+    /* 5. 합의 최소 정족수 (A6-7) */
+    ADD("consensus/single_responder_below_quorum",
+                                           test_consensus_single_responder_below_quorum);
+    ADD("consensus/two_responders_meet_quorum",
+                                           test_consensus_two_responders_meet_quorum);
+    ADD("consensus/quorum_boundary_below_configured",
+                                           test_consensus_quorum_boundary_below_configured);
+    ADD("consensus/quorum_configurable_below_default",
+                                           test_consensus_quorum_configurable_below_default);
 
 #undef ADD
 }
