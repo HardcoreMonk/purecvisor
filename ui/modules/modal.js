@@ -122,7 +122,7 @@ window.PCV = window.PCV || {};
       /* If body was a DOM node, replace placeholder */
       if (opts.body && typeof opts.body !== 'string' && opts.body.nodeType) {
         var bodyEl = overlay.querySelector('#pcv-modal-body');
-        bodyEl.innerHTML = '';
+        PCV.uxlib.clearEl(bodyEl);
         bodyEl.appendChild(opts.body);
       }
 
@@ -157,7 +157,7 @@ window.PCV = window.PCV || {};
     close: function() {
       if (!overlay) return;
       overlay.style.display = 'none';
-      overlay.innerHTML = '';
+      PCV.uxlib.clearEl(overlay);
       if (currentOpts && typeof currentOpts.onClose === 'function') {
         try { currentOpts.onClose(); } catch (e) {}
       }

@@ -7,7 +7,7 @@ window.PCV = window.PCV || {};
 (function(PCV) {
 
 async function renderNetworks(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const n = await fetchGet(EP.NET_LIST());
     const l = unwrapList(n);
@@ -70,7 +70,7 @@ async function netDel(name) { showModal(`<h2 class="color-red">&#9888; ${t('btn.
 async function doNetDel(name) { const cv = document.getElementById('del-net-confirm')?.value; if (cv !== name) { toast(t('vm.name_mismatch'), false); return; }
   const mc = document.getElementById('mc'); mc.innerHTML = '<h2 class="color-red">&#9888; Deleting Network</h2><p><b class="color-accent">' + escapeHtml(name) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dn-p" class="w-pct-20"></div></div><div class="prog-status" id="dn-s"><span class="spinner"></span>Removing firewall rules & DHCP...</div>';
   const pf = document.getElementById('dn-p'), ps = document.getElementById('dn-s');
-  try { pf.style.width = '50%'; ps.innerHTML = '<span class="spinner"></span>Sending DELETE...';
+  try { pf.style.width = '50%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Sending DELETE...');
     const d = await fetchDelete(EP.NET_DETAIL(name)).catch(() => ({}));
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(d.error.message); toast(t('btn.delete') + ' failed', false); return; }
     pf.style.width = '100%'; ps.innerHTML = '&#9989; ' + t('net.deleted'); toast(t('net.deleted')); addEvt(t('net.deleted') + ': ' + name); setTimeout(() => { closeModal(); renderNetworks(document.getElementById('cb')); }, 1500);
@@ -187,7 +187,7 @@ async function doNetEdit(name) { const mode = document.getElementById('ne-mode')
 
 /* ═══ OVN ═══ */
 async function renderOvn(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const st = await fetchGet(EP.OVN_STATUS()); const sd = unwrapData(st);
     const sw = await fetchGet(EP.OVN_SWITCHES()); const sl = unwrapList(sw);
@@ -233,10 +233,10 @@ async function renderOvn(b) {
     h += '<div class="hc"><h4>&#128737; ' + _L('ACL 정책 추가', 'ACL policy add') + '</h4><p class="color-muted text-11 mb-8">' + _L('스위치 단위로 방향, 우선순위, 매치 조건을 입력해 ACL을 추가합니다.', 'Add ACLs per switch with direction, priority, and match conditions.') + '</p><div class="mb-8 ops-stack-form"><div class="fr"><label for="fw-sw">' + _L('스위치', 'Switch') + '</label><input id="fw-sw" placeholder="web-tier"></div><div class="fr"><label for="fw-dir">' + _L('방향', 'Direction') + '</label><select id="fw-dir"><option>from-lport</option><option>to-lport</option></select></div><div class="fr"><label for="fw-pri">' + _L('우선순위', 'Priority') + '</label><input id="fw-pri" type="number" value="1000"></div><div class="fr"><label for="fw-match">Match</label><input id="fw-match" placeholder="ip4.src==10.0.0.0/24"></div><div class="fr"><label for="fw-act">' + _L('동작', 'Action') + '</label><select id="fw-act"><option>allow</option><option>drop</option><option>reject</option></select></div><button class="btn btn-primary" onclick="nfvFwAdd()">' + _L('ACL 규칙 추가', 'Add ACL rule') + '</button></div></div>';
     h += '</div>';
     b.innerHTML = h; loadLBList();
-  } catch (e) { b.innerHTML = '<p class="color-red">' + _L('OVN 정보를 불러오지 못했습니다', 'Unable to load OVN data') + '</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, _L('OVN 정보를 불러오지 못했습니다', 'Unable to load OVN data')); }
 }
 
-async function loadLBList() { try { const el = document.getElementById('lb-list'); if (el) el.innerHTML = '<p class="color-muted text-xs">' + _L('로드 밸런서 상태 메모', 'Load balancer status note') + ': ' + _L('위 가용성 카드에서 OVN 상태를 먼저 확인한 뒤 LB를 추가하십시오.', 'Confirm OVN availability above before adding a load balancer.') + '</p>'; } catch (e) { if(_DEBUG) console.warn('loadLBList:', e.message); } }
+async function loadLBList() { try { const el = document.getElementById('lb-list'); if (el) PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-xs' }, _L('로드 밸런서 상태 메모', 'Load balancer status note'), ': ', _L('위 가용성 카드에서 OVN 상태를 먼저 확인한 뒤 LB를 추가하십시오.', 'Confirm OVN availability above before adding a load balancer.')); } catch (e) { if(_DEBUG) console.warn('loadLBList:', e.message); } }
 async function nfvLbCreate() {
   try {
     var name = document.getElementById('nfv-lb-name')?.value?.trim() || document.getElementById('lb-n')?.value?.trim();
@@ -256,7 +256,7 @@ async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.v
 
 /* ═══ SECURITY GROUPS ═══ */
 async function renderSecGroups(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   let h = H.section('&#128737; Security Groups');
   h += '<div class="sg grid-2 mb-16">';
   h += '<div class="hc"><h4>&#128737; OVN ACL 보안 그룹</h4>';
@@ -287,24 +287,24 @@ window.sgAddRule = async function() {
   const pri = document.getElementById('sg-pri')?.value;
   const match = document.getElementById('sg-match')?.value;
   const act = document.getElementById('sg-act')?.value;
-  if (!sw || !match) { if (el) el.innerHTML = '<span class="color-red">Switch와 Match는 필수입니다</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> 추가 중...';
+  if (!sw || !match) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Switch와 Match는 필수입니다'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, '추가 중...');
   try {
     await fetchPost(EP.OVN_ACL(), { switch_name: sw, direction: dir, priority: parseInt(pri), match: match, action: act });
-    if (el) el.innerHTML = '<span class="color-green">ACL 규칙 추가 완료</span>';
+    if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-green' }, 'ACL 규칙 추가 완료');
     toast('ACL 규칙 추가: ' + escapeHtml(sw));
-  } catch (e) { if (el) el.innerHTML = '<span class="color-red">오류: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', e.message); }
 };
 
 window.sgListRules = async function() {
   const el = document.getElementById('sg-rules');
   const sw = document.getElementById('sg-list-switch')?.value;
-  if (!sw) { if (el) el.innerHTML = '<span class="color-red">Switch 이름을 입력하세요</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> 조회 중...';
+  if (!sw) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Switch 이름을 입력하세요'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, '조회 중...');
   try {
     const r = await fetchGet(EP.OVN_ACL() + '?switch=' + encodeURIComponent(sw));
     const list = unwrapList(r);
-    if (list.length === 0) { if (el) el.innerHTML = '<p class="color-muted text-12">ACL 규칙 없음</p>'; return; }
+    if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'ACL 규칙 없음'); return; }
     let h = '<table class="text-11"><thead><tr><th>Direction</th><th>Priority</th><th>Match</th><th>Action</th></tr></thead><tbody>';
     list.forEach(a => {
       const entry = typeof a === 'string' ? a : '';
@@ -313,12 +313,12 @@ window.sgListRules = async function() {
     });
     h += '</tbody></table>';
     if (el) el.innerHTML = h;
-  } catch (e) { if (el) el.innerHTML = '<span class="color-red">오류: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', e.message); }
 };
 
 /* ═══ OVERLAY NETWORKS ═══ */
 async function renderOverlayNetworks(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const r = await fetchGet(EP.OVERLAY_LIST());
     const l = unwrapList(r);
@@ -339,7 +339,7 @@ window.renderOverlayNetworks = renderOverlayNetworks;
 
 /* ═══ NETWORK TOPOLOGY ═══ */
 async function renderTopology(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     var results = await Promise.all([
       fetchGet(EP.NET_LIST()).catch(function() { return { data: [] }; }),

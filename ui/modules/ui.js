@@ -106,6 +106,44 @@ var H = {
   grid: (cols, content) => `<div class="sg grid-${cols}">${content}</div>`,
   section: (title) => `<h3 class="section-title">${title}</h3>`,
   sectionLg: (title) => `<h3 class="section-title-lg">${title}</h3>`,
+  /* advanced/monitor 스탯 타일 — 도입 시점부터 정의가 누락돼 호출부 try/catch가
+   * TypeError를 삼키며 항상 '로드 실패'를 표시하던 경로의 수복. value/label은
+   * API 유래 가능이라 escape. */
+  statCard: (label, value, icon) => `<div class="hc" style="text-align:center;padding:12px">${icon ? '<div style="font-size:20px">' + icon + '</div>' : ''}<div style="font-size:18px;font-weight:600">${escapeHtml(String(value))}</div><div class="stat-label">${escapeHtml(String(label))}</div></div>`,
+};
+
+/* ═══ H 노드 빌더 (ADR-013 DOM-safe) ═══
+ * H.*와 동형의 컴포넌트를 문자열이 아닌 DOM 노드로 생성한다. 텍스트/children
+ * 인자 규칙은 PCV.uxlib.el()과 동일 — 문자열은 항상 텍스트 노드(마크업 해석
+ * 경로 없음), Node/배열/null 허용. `h +=` 누적 렌더의 전환 표적.
+ * PCV.uxlib는 본 모듈보다 늦게 로드되므로 반드시 호출 시점에 해소한다
+ * (톱레벨 별칭 금지). 클래스 문자열의 후행 공백은 H와의 직렬화 동형성을
+ * 위해 의도적으로 유지. */
+var HN = {
+  card: function (title, body, cls) {
+    var node = PCV.uxlib.el('div', { class: 'hc ' + (cls || '') });
+    if (title !== undefined && title !== null && title !== '') node.appendChild(PCV.uxlib.el('h4', null, title));
+    if (body !== undefined && body !== null) node.appendChild(PCV.uxlib.frag(body));
+    return node;
+  },
+  row: function (key, val, cls) {
+    return PCV.uxlib.el('div', { class: 'hr' },
+      PCV.uxlib.el('span', { class: 'k' }, key),
+      PCV.uxlib.el('span', { class: 'v ' + (cls || '') }, val));
+  },
+  badge: function (text, type) { return PCV.uxlib.el('span', { class: 'badge b-' + type }, text); },
+  grid: function (cols) {
+    var kids = Array.prototype.slice.call(arguments, 1);
+    return PCV.uxlib.el.apply(null, ['div', { class: 'sg grid-' + cols }].concat(kids));
+  },
+  section: function (title) { return PCV.uxlib.el('h3', { class: 'section-title' }, title); },
+  sectionLg: function (title) { return PCV.uxlib.el('h3', { class: 'section-title-lg' }, title); },
+  statCard: function (label, value, icon) {
+    return PCV.uxlib.el('div', { class: 'hc', style: 'text-align:center;padding:12px' },
+      icon ? PCV.uxlib.el('div', { style: 'font-size:20px' }, icon) : null,
+      PCV.uxlib.el('div', { style: 'font-size:18px;font-weight:600' }, String(value)),
+      PCV.uxlib.el('div', { class: 'stat-label' }, label));
+  },
 };
 
 /* ═══ TOAST ═══ */
@@ -351,18 +389,21 @@ function parseSize(s) {
   return v;
 }
 
+/* ADR-013 DOM-safe: skeleton 노드를 el/frag/clearEl 로 조립.
+ * 두 사용 모드 — (1) container(string id 또는 Node) 주어지면 clearEl 후 append,
+ * (2) container 없이 호출하면 DocumentFragment 를 반환(호출부가 직접 append). */
 function showSkeleton(container, count) {
-  let h = '';
-  for (let i = 0; i < (count || 3); i++) {
-    h += '<div class="hc skeleton" style="height:80px;margin-bottom:8px;background:var(--bg3);border-radius:var(--r);animation:skeleton-pulse 1.5s ease infinite"></div>';
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var fragment = frag();
+  for (var i = 0; i < (count || 3); i++) {
+    fragment.appendChild(el('div', {
+      class: 'hc skeleton',
+      style: 'height:80px;margin-bottom:8px;background:var(--bg3);border-radius:var(--r);animation:skeleton-pulse 1.5s ease infinite'
+    }));
   }
-  if (typeof container === 'string') {
-    const el = document.getElementById(container);
-    if (el) el.innerHTML = h;
-  } else if (container) {
-    container.innerHTML = h;
-  }
-  return h;
+  var target = typeof container === 'string' ? document.getElementById(container) : container;
+  if (target) { clearEl(target); target.appendChild(fragment); return; }
+  return fragment;
 }
 
 function renderSortableTable(containerId, headers, rows, options) {
@@ -596,19 +637,31 @@ async function withSpinner(btn, asyncFn) {
   }
 }
 
+/* 숫자 문자 참조(&#DDD; / &#xHH;) → 실제 코드포인트 문자.
+ * emptyStatePro 소비처가 icon 을 HTML 엔티티로 넘기던 관용구를 그대로 받되,
+ * DOM-safe(textContent) 경로에서 리터럴 엔티티가 아니라 글리프로 렌더되게 한다. */
+function decodeNumericEntities(s) {
+  return String(s)
+    .replace(/&#x([0-9a-fA-F]+);/g, function (_, hex) { return String.fromCodePoint(parseInt(hex, 16)); })
+    .replace(/&#(\d+);/g, function (_, dec) { return String.fromCodePoint(parseInt(dec, 10)); });
+}
+
 /* ═══ 빈 상태 컴포넌트 강화 (#16) ═══ */
+/* ADR-013 DOM-safe: HTMLElement 반환형. 내부 구조·클래스·텍스트 불변. */
 function emptyStatePro(opts) {
   /* opts: { icon, title, desc, ctaLabel, ctaAction } */
-  var i = opts.icon || '&#128230;';
-  var t = escapeHtml(opts.title || 'No items');
-  var d = escapeHtml(opts.desc || '');
-  var btn = '';
+  var el = PCV.uxlib.el;
+  var children = [
+    el('div', { class: 'empty-icon' }, decodeNumericEntities(opts.icon || '&#128230;')),
+    el('div', { class: 'empty-title' }, opts.title || 'No items'),
+    el('div', { class: 'empty-desc' }, opts.desc || '')
+  ];
   if (opts.ctaLabel && opts.ctaAction) {
-    btn = '<button class="btn" onclick="' + escapeHtml(opts.ctaAction) + '">' + escapeHtml(opts.ctaLabel) + '</button>';
+    /* ctaAction 은 하드코딩 리터럴('showCreate()' 등). setAttribute 경로로 인라인
+     * onclick 유지 — el() 은 on* 값이 문자열이면 setAttribute(key,value) 로 처리. */
+    children.push(el('button', { class: 'btn', onclick: opts.ctaAction }, opts.ctaLabel));
   }
-  return '<div class="empty-state"><div class="empty-icon">' + i + '</div>' +
-    '<div class="empty-title">' + t + '</div>' +
-    '<div class="empty-desc">' + d + '</div>' + btn + '</div>';
+  return el('div', { class: 'empty-state' }, children);
 }
 
 /* ═══ 색맹 보조 상태 배지 (#18) ═══ */
@@ -634,6 +687,7 @@ PCV.ui = {
   escapeAttr: escapeAttr,
   esc: escapeHtml,
   H: H,
+  HN: HN,
   toast: toast,
   addEvt: addEvt,
   toggleEvPanel: toggleEvPanel,
@@ -663,6 +717,7 @@ PCV.ui = {
 
 /* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.H = H;
+window.HN = HN;
 window.escapeHtml = escapeHtml;
 window.esc = esc;
 window.escapeAttr = escapeAttr;

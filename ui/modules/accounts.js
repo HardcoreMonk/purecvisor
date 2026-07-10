@@ -53,7 +53,7 @@ async function renderAccounts(b) {
     renderAdminOnlyNotice(b);
     return;
   }
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try { const r = await fetchGet(EP.AUTH_USERS()); const l = unwrapList(r);
     let h = '<h3 class="mb-14">&#128100; Account Management ' + H.badge('RBAC', 'y') + '</h3>';
     h += '<div class="sg grid-2" style="gap:14px"><div><div id="acct-table"></div></div>';
@@ -88,7 +88,7 @@ async function renderAccounts(b) {
     h += H.card(t('btn.create') + ' User', '<div class="fr"><label for="acct-user">Username</label><input id="acct-user" placeholder="newuser"></div><div class="fr"><label for="acct-pass">Password</label><input id="acct-pass" type="password" placeholder="password"></div><div class="fr"><label for="acct-role">Role</label><select id="acct-role" style="width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px"><option>viewer</option><option selected>operator</option><option>admin</option></select></div><button class="btn btn-g mt-8 w-full" onclick="acctCreate()">' + t('btn.create') + ' User</button>');
     h += '</div>';
     b.innerHTML = h;
-  } catch (e) { b.innerHTML = '<p class="color-red">Error loading accounts</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, 'Error loading accounts'); }
 }
 
 async function acctCreate() { const u = document.getElementById('acct-user')?.value; const p = document.getElementById('acct-pass')?.value; const r = document.getElementById('acct-role')?.value;
@@ -163,11 +163,11 @@ async function renderApiManagement(b) {
 async function apiMgmtGetToken() { const u = document.getElementById('apimgmt-user').value, p = document.getElementById('apimgmt-pass').value; const el = document.getElementById('apimgmt-token-result');
   try { const r = await fetch(EP.AUTH_TOKEN(), { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ username: u, password: p }) }); const d = await r.json();
     if (d.access_token) { el.innerHTML = '<span class="color-green">&#9989; Token:</span> <code class="color-accent">' + escapeHtml(d.access_token.substring(0, 50)) + '...</code>'; }
-    else { el.innerHTML = '<span class="color-red">&#10060; ' + escapeHtml(JSON.stringify(d)) + '</span>'; }
-  } catch (e) { el.innerHTML = '<span class="color-red">&#10060; ' + escapeHtml(e.message) + '</span>'; } }
+    else { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + JSON.stringify(d)); }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + e.message); } }
 
 async function apiMgmtTestHealth() { const el = document.getElementById('apimgmt-token-result');
-  try { const r = await fetchGet(EP.HEALTH()); const d = unwrapData(r); el.innerHTML = '<span class="color-green">&#9989; Status: ' + esc(d.status || 'ok') + '</span> | edition: ' + esc(window.PCV_UI_EDITION || 'single'); } catch (e) { el.innerHTML = '<span class="color-red">&#10060; ' + esc(e.message) + '</span>'; } }
+  try { const r = await fetchGet(EP.HEALTH()); const d = unwrapData(r); el.innerHTML = '<span class="color-green">&#9989; Status: ' + esc(d.status || 'ok') + '</span> | edition: ' + esc(window.PCV_UI_EDITION || 'single'); } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '❌ ' + e.message); } }
 
 async function apiMgmtSend() { const m = document.getElementById('apimgmt-method').value, path = document.getElementById('apimgmt-path').value; const body = document.getElementById('apimgmt-body').value, el = document.getElementById('apimgmt-result');
   el.style.display = 'block'; el.textContent = t('loading');
@@ -175,7 +175,7 @@ async function apiMgmtSend() { const m = document.getElementById('apimgmt-method
     if ((m === 'POST' || m === 'PUT') && body) { opts.headers['Content-Type'] = 'application/json'; opts.body = body; }
     const r = await fetch(location.origin + path, opts); const txt = await r.text(); let pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { if(_DEBUG) console.warn('apiMgmtSend:', e.message); }
     el.innerHTML = '<div class="mb-6">' + H.badge(String(r.status), r.ok ? 'g' : 'r') + ' <span class="color-muted">' + escapeHtml(m) + ' ' + escapeHtml(path) + '</span></div><pre style="white-space:pre-wrap">' + escapeHtml(pretty) + '</pre>';
-  } catch (e) { el.innerHTML = '<span class="color-red">Error: ' + escapeHtml(e.message) + '</span>'; } }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Error: ' + e.message); } }
 
 /* ═══ AI AGENT ═══ */
 async function showAgentConfig() {
@@ -214,7 +214,7 @@ function renderAgentSettings(b, d) {
 }
 
 async function renderAgentHistory(b) {
-  b.innerHTML = '<div class="text-center p-20"><span class="spinner"></span> ' + t('loading') + '</div>';
+  PCV.uxlib.setMsg(b, 'loading', { tag: 'div', cls: 'text-center p-20' }, t('loading'));
   try { const r = await fetchGet(EP.AGENT_HISTORY()); const d = unwrapData(r);
     if (!d || !d.consensus) { b.innerHTML = H.card('&#128202; History', '<p class="color-muted text-12 mt-8">No data yet.</p>'); return; }
     let h = '<div class="hc mb-10"><h4>&#128202; Last Consensus Result</h4>';
@@ -243,8 +243,8 @@ function toggleKeyVis(i) { const el = document.getElementById('agk' + i); const 
 
 async function testProvider(i, name) {
   const rEl = document.getElementById('agr' + i); const key = document.getElementById('agk' + i).value; const model = document.getElementById('agm' + i).value; const endpoint = document.getElementById('age' + i).value;
-  if (!key || key.startsWith('***')) { rEl.innerHTML = '<span class="color-red">No API key set</span>'; return; }
-  rEl.innerHTML = '<span class="spinner"></span> Testing...';
+  if (!key || key.startsWith('***')) { PCV.uxlib.setMsg(rEl, null, { cls: 'color-red' }, 'No API key set'); return; }
+  PCV.uxlib.setMsg(rEl, 'loading', null, 'Testing...');
   try { let ok = false, detail = ''; const t0 = performance.now();
     if (name === 'Claude') { const r = await fetch(endpoint || 'https://api.anthropic.com/v1/messages', { method: 'POST', headers: { 'Content-Type': 'application/json', 'x-api-key': key, 'anthropic-version': '2023-06-01' }, body: JSON.stringify({ model: model || 'claude-sonnet-4-20250514', max_tokens: 1, messages: [{ role: 'user', content: 'ping' }] }) }); ok = r.ok || r.status === 400; detail = r.ok ? 'OK' : 'HTTP ' + r.status; }
     else if (name === 'OpenAI') { const r = await fetch((endpoint || 'https://api.openai.com/v1') + '/models', { headers: { Authorization: 'Bearer ' + key } }); ok = r.ok; detail = r.ok ? 'OK' : 'HTTP ' + r.status; }
@@ -277,7 +277,7 @@ async function saveAgentSettings() {
 
 /* ═══ API PERFORMANCE ═══ */
 async function renderApiPerf(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts', '/processes'];
   var results = [];
   var h = H.section(_L('API 응답 시간', 'API Response Times'));
@@ -333,7 +333,7 @@ async function runApiBenchmark() {
       var pf = document.getElementById('bench-prog');
       var ps = document.getElementById('bench-st');
       if (pf) pf.style.width = (done / total * 100) + '%';
-      if (ps) ps.innerHTML = '<span class="spinner"></span> ' + done + '/' + total + ' — ' + endpoints[i];
+      if (ps) PCV.uxlib.setMsg(ps, 'loading', null, done + '/' + total + ' — ' + endpoints[i]);
     }
   }
   var h = '<h2>&#9889; ' + _L('벤치마크 결과', 'Benchmark Results') + '</h2>';
@@ -373,7 +373,7 @@ window.renderActivityLog = renderActivityLog;
 
 /* ═══ SESSION MANAGEMENT (백엔드 4차) ═══ */
 async function renderSessions(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   var h = H.section(_L('세션 관리', 'Session Management'));
   h += '<div class="mb-8">' + _L('활성 JWT 세션을 관리합니다.', 'Manage active JWT sessions.') + '</div>';
   h += '<div class="flex gap-8 mb-12">';
@@ -398,7 +398,7 @@ async function revokeSession() {
 
 /* ═══ API KEY FULL CRUD (백엔드 4차) ═══ */
 async function renderApiKeys(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     var r = await fetchGet(EP.AUTH_APIKEY_LIST());
     var list = unwrapList(r);
@@ -425,7 +425,7 @@ async function renderApiKeys(b) {
       h += '</tbody></table>';
     }
     b.innerHTML = h;
-  } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
+  } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 async function showApiKeyCreate() {
   var html = '<div class="form-group"><label for="ak-name">' + _L('클라이언트 이름', 'Client Name') + '</label>';

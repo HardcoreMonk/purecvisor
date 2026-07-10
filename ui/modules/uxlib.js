@@ -310,7 +310,7 @@ window.PCV = window.PCV || {};
 
   /* ── #7 컨텍스트 메뉴 — 범용 ─────────────────── */
   function showCtxMenu(ev, items) {
-    /* items: [{label, fn, icon?}, ...] */
+    /* items: [{label, fn, icon?}, ...] — label 은 plain-text (textContent 삽입) */
     if (ev && ev.preventDefault) ev.preventDefault();
     var existing = document.getElementById('pcv-ctx-menu');
     if (existing) existing.remove();
@@ -320,7 +320,9 @@ window.PCV = window.PCV || {};
     items.forEach(function (it) {
       var row = document.createElement('div');
       row.style.cssText = 'padding:8px 14px;cursor:pointer;color:var(--fg,#ccc);white-space:nowrap';
-      row.innerHTML = it.label;
+      /* ADR-013 DOM-safe: label 은 plain-text 계약(호출부가 유니코드 글리프 리터럴
+       * 사용, HTML 엔티티/마크업 아님) — innerHTML 대신 textContent. */
+      row.textContent = it.label;
       row.addEventListener('mouseenter', function(){ row.style.background = 'rgba(0,240,255,0.08)'; });
       row.addEventListener('mouseleave', function(){ row.style.background = ''; });
       row.addEventListener('click', function () {
@@ -369,17 +371,30 @@ window.PCV = window.PCV || {};
   /* ── #15 (보강) breadcrumb 렌더링 ───────────────── */
   function renderBreadcrumbs(items) {
     /* items: [{label, page}, ...] */
-    var el = document.getElementById('breadcrumbs');
-    if (!el) return;
-    if (!items || items.length === 0) { el.innerHTML = ''; return; }
-    var h = items.map(function (it, i) {
+    /* ADR-013 DOM-safe: 문자열 innerHTML 대신 el/frag/clearEl 로 조립.
+     * label 은 TextNode 로 삽입되므로 escapeHtml 불요, 인라인 onclick 은 클로저로.
+     * (지역 변수명은 헬퍼 el() 과 충돌하지 않도록 container 로.) */
+    var container = document.getElementById('breadcrumbs');
+    if (!container) return;
+    clearEl(container);
+    if (!items || items.length === 0) return;
+    items.forEach(function (it, i) {
       var last = i === items.length - 1;
-      var name = (typeof escapeHtml === 'function') ? escapeHtml(it.label) : it.label;
-      if (last) return '<span class="bc-item bc-active">' + name + '</span>';
-      if (it.page) return '<a class="bc-item" href="#/' + it.page + '" onclick="navigateTo(\'' + it.page + '\');return false">' + name + '</a><span class="bc-sep">›</span>';
-      return '<span class="bc-item">' + name + '</span><span class="bc-sep">›</span>';
-    }).join('');
-    el.innerHTML = h;
+      if (last) {
+        container.appendChild(el('span', { class: 'bc-item bc-active' }, it.label));
+        return;
+      }
+      if (it.page) {
+        container.appendChild(el('a', {
+          class: 'bc-item',
+          href: '#/' + it.page,
+          onClick: function (e) { e.preventDefault(); if (typeof navigateTo === 'function') navigateTo(it.page); }
+        }, it.label));
+      } else {
+        container.appendChild(el('span', { class: 'bc-item' }, it.label));
+      }
+      container.appendChild(el('span', { class: 'bc-sep' }, '›'));
+    });
   }
   window.renderBreadcrumbs = renderBreadcrumbs;
 
@@ -479,6 +494,37 @@ window.PCV = window.PCV || {};
     else while (node.firstChild) node.removeChild(node.firstChild);
   }
 
+  /* ── 상태 메시지 헬퍼 ─────────────────────────────
+   * 스피너/성공/오류/빈상태 원라이너의 innerHTML 대체 표준 경로.
+   * msg(kind, opts, ...children)
+   *   kind: 'loading'(스피너+공백 접두) | 'ok' | 'err' | 'warn' | 'muted' | null(무색)
+   *   opts: { tag: 'span'|'p'|'div' (기본 'span'), size: '12px', cls, style } 또는 null
+   *   children 규칙은 el()과 동일 — 문자열은 항상 텍스트 노드(마크업 해석 경로 없음).
+   *   인라인 <code>/<br> 등이 필요하면 el('code', null, ...) 노드를 자식으로 전달.
+   * setMsg(target, kind, opts, ...children)
+   *   target(id 문자열|Node)을 clearEl 후 msg() 노드 삽입. target 부재 시 null 반환. */
+  var MSG_COLOR = { ok: 'var(--green)', err: 'var(--red)', warn: 'var(--yellow)', muted: 'var(--fg2)' };
+  function msg(kind, opts, ...children) {
+    opts = opts || {};
+    var style = (MSG_COLOR[kind] ? 'color:' + MSG_COLOR[kind] + ';' : '') +
+                (opts.size ? 'font-size:' + opts.size + ';' : '') + (opts.style || '');
+    var node = el(opts.tag || 'span', { class: opts.cls || null, style: style || null });
+    if (kind === 'loading') {
+      node.appendChild(el('span', { class: 'spinner' }));
+      node.appendChild(document.createTextNode(' '));
+    }
+    _appendChildren(node, children);
+    return node;
+  }
+  function setMsg(target, kind, opts, ...children) {
+    var node = typeof target === 'string' ? document.getElementById(target) : target;
+    if (!node) return null;
+    clearEl(node);
+    var built = msg.apply(null, [kind, opts].concat(children));
+    node.appendChild(built);
+    return built;
+  }
+
   /* ── PCV.uxlib namespace export ─────────────────── */
   PCV.uxlib = {
     showToastQueued: showToastQueued,
@@ -508,6 +554,8 @@ window.PCV = window.PCV || {};
     setHashRoute: setHashRoute,
     el: el,
     frag: frag,
-    clearEl: clearEl
+    clearEl: clearEl,
+    msg: msg,
+    setMsg: setMsg
   };
 })(window.PCV);

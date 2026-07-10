@@ -23,7 +23,7 @@ function togglePin(pageId) {
 function renderPinnedBar() {
   var el = document.getElementById('pinned-bar');
   if (!el) return;
-  if (_pinnedPages.length === 0) { el.innerHTML = ''; el.style.display = 'none'; return; }
+  if (_pinnedPages.length === 0) { PCV.uxlib.clearEl(el); el.style.display = 'none'; return; }
   el.style.display = 'block';
   var h = '<div style="padding:4px 8px;font-size:10px;color:var(--fg2);border-bottom:1px solid var(--border)">' + _L('고정됨', 'Pinned') + '</div>';
   _pinnedPages.forEach(function(p) {
@@ -566,7 +566,7 @@ window.closeGlobalSearch = closeGlobalSearch;
 
 function doGlobalSearch(query) {
   const results = document.getElementById('global-search-results');
-  if (!results || !query) { if (results) results.innerHTML = ''; return; }
+  if (!results || !query) { if (results) PCV.uxlib.clearEl(results); return; }
   const q = query.toLowerCase();
   let html = '';
 

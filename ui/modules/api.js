@@ -254,7 +254,22 @@ function connectWS() {
       var banner = document.createElement('div');
       banner.id = 'ws-reconnect-banner';
       banner.style.cssText = 'position:fixed;bottom:40px;right:16px;background:var(--bg2);border:1px solid var(--red);border-radius:6px;padding:10px 16px;z-index:9999;font-size:12px;color:var(--fg)';
-      banner.innerHTML = '<span class="color-red">&#9888;</span> ' + (typeof _L === 'function' ? _L('WebSocket 연결 실패', 'WebSocket connection failed') : 'WS failed') + ' <button class="btn" style="font-size:10px;margin-left:8px" onclick="this.parentElement.remove();window._wsReconnectAttempt=0;connectWS()">' + (typeof _L === 'function' ? _L('재시도', 'Retry') : 'Retry') + '</button>';
+      /* ADR-013 DOM-safe: 배너 텍스트/버튼을 문자열 innerHTML 대신 el/frag 조립.
+       * Retry는 모듈 변수 _wsReconnectAttempt(위 임계 검사가 읽는 카운터)를
+       * 직접 리셋한다 — 구 인라인 onclick은 window._wsReconnectAttempt(별개
+       * 전역)를 리셋해 임계가 유지된 채 connectWS 재진입 → 배너가 즉시
+       * 재생성되던 버그가 있었다. 클로저는 IIFE 스코프라 직접 접근 가능. */
+      var wsFailMsg = (typeof _L === 'function' ? _L('WebSocket 연결 실패', 'WebSocket connection failed') : 'WS failed');
+      var wsRetryLabel = (typeof _L === 'function' ? _L('재시도', 'Retry') : 'Retry');
+      banner.appendChild(PCV.uxlib.frag(
+        PCV.uxlib.el('span', { class: 'color-red' }, '⚠'),
+        ' ' + wsFailMsg + ' ',
+        PCV.uxlib.el('button', { class: 'btn', style: 'font-size:10px;margin-left:8px', onClick: function() {
+          banner.remove();
+          _wsReconnectAttempt = 0;
+          connectWS();
+        } }, wsRetryLabel)
+      ));
       document.body.appendChild(banner);
     }
     return;
@@ -273,7 +288,7 @@ function connectWS() {
   ws.onclose = () => {
     if (window.wsConnection === ws) window.wsConnection = null;
     var wsStatus = document.getElementById('ws-s');
-    if (wsStatus) wsStatus.innerHTML = '<span class="color-red">&#9679;</span>';
+    if (wsStatus) { PCV.uxlib.clearEl(wsStatus); wsStatus.appendChild(PCV.uxlib.el('span', { class: 'color-red' }, '●')); }
     _wsReconnectAttempt++;
     var delay = Math.min(30000, 1000 * Math.pow(2, _wsReconnectAttempt));
     setTimeout(connectWS, delay);
@@ -289,7 +304,13 @@ function connectWS() {
           var wsBanner = document.getElementById('ws-reconnect-banner');
           if (wsBanner) wsBanner.remove();
           var wsStatus = document.getElementById('ws-s');
-          if (wsStatus) wsStatus.innerHTML = '<span class="neon-blink color-green" style="font-size:14px">&#9679;</span> ' + (typeof t === 'function' ? t('ws.live') : 'Live');
+          if (wsStatus) {
+            PCV.uxlib.clearEl(wsStatus);
+            wsStatus.appendChild(PCV.uxlib.frag(
+              PCV.uxlib.el('span', { class: 'neon-blink color-green', style: 'font-size:14px' }, '●'),
+              ' ' + (typeof t === 'function' ? t('ws.live') : 'Live')
+            ));
+          }
           window.addEvt('WS Connected — ' + p + '//' + location.host + ' (real-time events active)');
           return;
         }
@@ -513,9 +534,9 @@ function doLogout() {
   document.getElementById('us').classList.add('hidden');
   document.getElementById('us').style.display = 'none';
   document.getElementById('sb1').textContent = typeof t === 'function' ? t('not_connected') : 'Not connected';
-  document.getElementById('ws-s').innerHTML = '';
-  document.getElementById('vl').innerHTML = '';
-  document.getElementById('cb').innerHTML = '';
+  PCV.uxlib.clearEl(document.getElementById('ws-s'));
+  PCV.uxlib.clearEl(document.getElementById('vl'));
+  PCV.uxlib.clearEl(document.getElementById('cb'));
   document.getElementById('vc').textContent = '0';
   window.toast(typeof t === 'function' ? t('logged.out') : 'Logged out');
   window.addEvt(typeof t === 'function' ? t('logged.out') : 'Logged out');
@@ -549,7 +570,11 @@ function startSessionWatch() {
         }
         var lblExpires = typeof _L === 'function' ? _L('세션 만료까지', 'Session expires in') : 'Expires in';
         var lblMin = typeof _L === 'function' ? _L('분', 'min') : 'min';
-        el.innerHTML = '<span class="color-yellow">&#9888;</span> ' + lblExpires + ' ' + mins + lblMin;
+        PCV.uxlib.clearEl(el);
+        el.appendChild(PCV.uxlib.frag(
+          PCV.uxlib.el('span', { class: 'color-yellow' }, '⚠'),
+          ' ' + lblExpires + ' ' + mins + lblMin
+        ));
         /* Auto refresh attempt — refresh token 기반 (평문 비밀번호 미사용) */
         if (remaining < 120000) {
           _tryRefreshToken().then(function(ok) {
@@ -758,7 +783,7 @@ window.startAdaptivePolling = startAdaptivePolling;
 window.stopAdaptivePolling = stopAdaptivePolling;
 window._apiActivityLog = _apiActivityLog;
 window._perfMetrics = _perfMetrics;
-/* _wsReconnectAttempt needed by inline onclick in WS reconnect banner */
-window._wsReconnectAttempt = 0;
+/* window._wsReconnectAttempt 잔재 export 제거 — 구 인라인 onclick 전용이었고
+ * Retry 클로저가 모듈 변수를 직접 리셋하므로 더 이상 소비처 없음. */
 
 })(window.PCV);

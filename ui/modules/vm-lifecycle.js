@@ -32,7 +32,7 @@ async function bulkAction(action) {
   var failed = [];
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
-    if (ps) ps.innerHTML = '<span class="spinner"></span> ' + (i + 1) + '/' + names.length + ' — ' + esc(names[i]);
+    if (ps) PCV.uxlib.setMsg(ps, 'loading', null, (i + 1) + '/' + names.length + ' — ' + names[i]);
     try { await fetchPost(EP.VM_ACTION(names[i], action), {}); } catch (e) { failed.push(names[i] + ': ' + e.message); }
   }
   var okCount = names.length - failed.length;
@@ -54,10 +54,10 @@ async function bulkSnapshot() {
   var ps = document.getElementById('bulk-status');
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
-    if (ps) ps.innerHTML = '<span class="spinner"></span> ' + (i + 1) + '/' + names.length + ' — ' + esc(names[i]);
+    if (ps) PCV.uxlib.setMsg(ps, 'loading', null, (i + 1) + '/' + names.length + ' — ' + names[i]);
     try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) { /* continue */ }
   }
-  if (ps) ps.innerHTML = '&#9989; ' + _L('완료', 'Done') + ': ' + names.length + ' snapshots';
+  if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + _L('완료', 'Done') + ': ' + names.length + ' snapshots');
   addEvt('Bulk snapshot: ' + snapName + ' → ' + names.join(', '));
   setTimeout(function() { closeModal(); loadAll(); }, 2000);
 }
@@ -134,12 +134,12 @@ async function vmPower(a) {
     /* API 에러 응답 체크 */
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-      if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(r.error.message || 'Failed');
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || 'Failed'));
       setTimeout(closeModal, 3000);
       return;
     }
     if (pf) pf.style.width = '60%';
-    if (ps) ps.innerHTML = '<span class="spinner"></span> ' + _L('상태 확인 중...', 'Verifying state...');
+    if (ps) PCV.uxlib.setMsg(ps, 'loading', null, _L('상태 확인 중...', 'Verifying state...'));
     /* W7 fix: 실제 VM 상태 폴링 최대 15회(30초), 2초 간격 — 느린 환경 허용 */
     var expectedState = (a === 'start' || a === 'resume') ? 'running' : (a === 'suspend') ? 'paused' : 'shutoff';
     var verified = false;
@@ -156,7 +156,7 @@ async function vmPower(a) {
     }
     if (verified) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
-      if (ps) ps.innerHTML = '&#9989; ' + al.past;
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + al.past);
       addEvt(v.name + ' ' + al.past);
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     } else {
@@ -205,22 +205,22 @@ async function doVmDel(n) {
     if (d && d.error) {
       deleteError = d.error.message || 'Failed';
       /* 에러여도 폴링 수행 — 서버가 백그라운드로 처리 완료했을 수 있음 */
-      if (ps) ps.innerHTML = '<span class="spinner"></span>&#9888; ' + escapeHtml(deleteError) + _L(' — 서버 상태 확인 중...', ' — polling server state...');
+      if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), '⚠ ' + deleteError + _L(' — 서버 상태 확인 중...', ' — polling server state...'));
     } else {
-      if (ps) ps.innerHTML = '<span class="spinner"></span>Waiting for zvol cleanup...';
+      if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), 'Waiting for zvol cleanup...');
     }
     if (pf) pf.style.width = '50%';
     for (let i = 0; i < 10; i++) {
       await new Promise(r => setTimeout(r, 2000));
       if (pf) pf.style.width = Math.min(95, 55 + i * 4) + '%';
-      if (ps && !deleteError) ps.innerHTML = '<span class="spinner"></span>Cleaning up (' + (i + 1) + '/10)...';
+      if (ps && !deleteError) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), 'Cleaning up (' + (i + 1) + '/10)...');
       try {
         const vl = await fetchGet(EP.VM_LIST());
         const vms = unwrapList(vl);
         if (!vms.find(x => x.name === n)) {
           /* VM이 목록에서 사라짐 → 실제 삭제 성공 */
           if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
-          if (ps) ps.innerHTML = '&#9989; ' + t('vm.deleted');
+          if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('vm.deleted'));
           toast(t('vm.deleted'));
           addEvt(t('vm.deleted') + ': ' + n);
           setTimeout(function() { closeModal(); loadAll(); }, 1500);
@@ -231,16 +231,16 @@ async function doVmDel(n) {
     /* 폴링 타임아웃 — 아직 목록에 남아있음 */
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--yellow)'; }
     if (deleteError) {
-      if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(deleteError);
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + deleteError);
       toast('&#10060; ' + escapeHtml(deleteError), false);
     } else {
-      if (ps) ps.innerHTML = '&#9888; ' + _L('삭제가 오래 걸리고 있습니다', 'Delete taking longer than expected');
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '⚠ ' + _L('삭제가 오래 걸리고 있습니다', 'Delete taking longer than expected'));
       toast(_L('삭제가 오래 걸리고 있습니다. 잠시 후 새로고침하세요.', 'Delete taking longer than expected — refresh shortly.'), false);
     }
     setTimeout(function() { closeModal(); loadAll(); }, 2000);
   } catch (e) {
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) ps.innerHTML = '&#10060; ' + escapeHtml(e.message || 'Unknown error');
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (e.message || 'Unknown error'));
     toast(e.message || 'Unknown error', false);
     setTimeout(closeModal, 3000);
   }
@@ -465,7 +465,7 @@ async function browseISO() {
         lh += '<div onclick="isoSelect(\'' + p.replace(/'/g, "\\'") + '\')" style="padding:8px 12px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:8px;border-bottom:1px solid var(--border);transition:background .1s" onmouseover="this.style.background=\'var(--bg3)\'" onmouseout="this.style.background=\'\'">';
         lh += '<span class="text-lg">' + icon + '</span><span style="flex:1;font-weight:500">' + fn + '</span>' + H.badge(ext, 'y') + '<span class="color-muted" style="font-size:11px;min-width:60px;text-align:right">' + sz + '</span></div>'; }); }); }
     el.innerHTML = lh;
-  } catch (e) { const el = document.getElementById('iso-modal-list'); if (el) el.innerHTML = '<div class="p-12 color-red">&#10060; Error: ' + escapeHtml(e.message) + '</div>'; }
+  } catch (e) { const el = document.getElementById('iso-modal-list'); if (el) PCV.uxlib.setMsg(el, null, { tag: 'div', cls: 'p-12 color-red' }, '❌ Error: ' + e.message); }
 }
 
 function isoSelect(path) { wizData.iso = path; closeISOBrowser(); renderWiz(); }
@@ -589,9 +589,7 @@ function _setCdromInput(path) {
   const current = document.getElementById('cdrom-current');
   if (input) input.value = clean;
   if (current) {
-    current.innerHTML = clean
-      ? '<span class="color-green">' + escapeHtml(clean) + '</span>'
-      : '<span class="color-muted">' + _L('비어 있음', 'Empty') + '</span>';
+    PCV.uxlib.setMsg(current, null, { cls: clean ? 'color-green' : 'color-muted' }, clean || _L('비어 있음', 'Empty'));
   }
 }
 
@@ -659,11 +657,11 @@ async function doVmRename() {
     return;
   }
   try {
-    if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> ' + _L('변경 중...', 'Renaming...');
+    if (statusEl) PCV.uxlib.setMsg(statusEl, 'loading', null, _L('변경 중...', 'Renaming...'));
     const r = await fetchPut(EP.VM_RENAME(v.name), { new_name: next });
     if (r && r.error) {
       const msg = r.error.message || t('error');
-      if (statusEl) statusEl.innerHTML = '&#10060; ' + escapeHtml(msg);
+      if (statusEl) PCV.uxlib.setMsg(statusEl, null, null, '❌ ' + msg);
       toast(msg, false);
       return;
     }
@@ -676,7 +674,7 @@ async function doVmRename() {
     await loadAll();
     if (d && d.new_name && typeof render === 'function') render();
   } catch (e) {
-    if (statusEl) statusEl.innerHTML = '&#10060; ' + escapeHtml(e.message || 'Failed');
+    if (statusEl) PCV.uxlib.setMsg(statusEl, null, null, '❌ ' + (e.message || 'Failed'));
     toast(e.message, false);
   }
 }
@@ -732,7 +730,7 @@ function showSnap() { currentTab = 'snapshots'; document.querySelectorAll('#ct b
 
 /* ═══ NIC MANAGER ═══ */
 async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return; showModal(`<h2>NIC: ${escapeHtml(v.name)}</h2><div id="nic-mgr">${t('loading')}</div><div class="mt-10"><div class="fr"><label for="nm-br">Bridge</label><input id="nm-br" value="pcvbr0"><button class="btn btn-g" onclick="nmAdd()">+ Add</button></div></div><div class="text-right mt-12"><button class="btn btn-r" onclick="closeModal()">${t('btn.close')}</button></div>`);
-  try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); let h = '<table><thead><tr><th>MAC</th><th>Bridge</th><th>Model</th><th>IP</th><th>DNS</th><th></th></tr></thead><tbody>'; l.forEach(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); h += `<tr><td>${escapeHtml(c.mac || '-')}</td><td>${escapeHtml(c.bridge || c.source || '-')}</td><td>${escapeHtml(c.model || 'virtio')}</td><td>${escapeHtml(c.ip || '-')}</td><td>${escapeHtml(dns)}</td><td><button class="btn btn-r text-9" onclick="nmDel('${escapeAttr(c.mac)}')">${t('btn.delete')}</button></td></tr>`; }); document.getElementById('nic-mgr').innerHTML = l.length ? h + '</tbody></table>' : '<p class="color-muted">No NICs</p>'; } catch (e) { document.getElementById('nic-mgr').innerHTML = t('error'); } }
+  try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); let h = '<table><thead><tr><th>MAC</th><th>Bridge</th><th>Model</th><th>IP</th><th>DNS</th><th></th></tr></thead><tbody>'; l.forEach(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); h += `<tr><td>${escapeHtml(c.mac || '-')}</td><td>${escapeHtml(c.bridge || c.source || '-')}</td><td>${escapeHtml(c.model || 'virtio')}</td><td>${escapeHtml(c.ip || '-')}</td><td>${escapeHtml(dns)}</td><td><button class="btn btn-r text-9" onclick="nmDel('${escapeAttr(c.mac)}')">${t('btn.delete')}</button></td></tr>`; }); document.getElementById('nic-mgr').innerHTML = l.length ? h + '</tbody></table>' : '<p class="color-muted">No NICs</p>'; } catch (e) { PCV.uxlib.setMsg('nic-mgr', null, null, t('error')); } }
 async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
@@ -990,10 +988,10 @@ async function vmExportOva(idx) {
   showModal('<h2>&#128230; Export OVA</h2><p class="mb-8"><b class="color-accent">' + escapeHtml(v.name) + '</b></p><div class="prog-bar"><div class="prog-fill" id="ova-p" class="w-pct-10"></div></div><div class="prog-status" id="ova-s"><span class="spinner"></span> ' + _L('내보내기 시작 중...', 'Starting export...') + '</div>');
   try {
     var pf = document.getElementById('ova-p'), ps = document.getElementById('ova-s');
-    pf.style.width = '30%'; ps.innerHTML = '<span class="spinner"></span> ' + _L('OVA 변환 요청 중...', 'Requesting OVA conversion...');
+    pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, _L('OVA 변환 요청 중...', 'Requesting OVA conversion...'));
     var r = await fetchPost(EP.VM_EXPORT(v.name), {});
-    if (r.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(r.error.message || 'Export failed'); return; }
-    pf.style.width = '70%'; ps.innerHTML = '<span class="spinner"></span> ' + _L('변환 진행 중...', 'Converting...');
+    if (r.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || 'Export failed')); return; }
+    pf.style.width = '70%'; PCV.uxlib.setMsg(ps, 'loading', null, _L('변환 진행 중...', 'Converting...'));
     var d = unwrapData(r) || r;
     var path = d.path || d.ova_path || '';
     /* 상태 폴링 (export-status 있으면) */
@@ -1003,13 +1001,16 @@ async function vmExportOva(idx) {
       try { var st = await fetchGet(EP.VM_DETAIL(v.name) + '/export-status'); var sd = unwrapData(st) || st; if (sd.status === 'done' || sd.status === 'completed') break; } catch(e) { break; }
     }
     pf.style.width = '100%'; pf.style.background = 'var(--green)';
-    ps.innerHTML = '&#9989; ' + _L('내보내기 완료', 'Export completed') + (path ? '<br><span class="text-xs color-muted">' + escapeHtml(path) + '</span>' : '');
+    PCV.uxlib.setMsg(ps, null, null,
+      '✅ ' + _L('내보내기 완료', 'Export completed'),
+      path ? PCV.uxlib.el('br') : null,
+      path ? PCV.uxlib.el('span', { class: 'text-xs color-muted' }, path) : null);
     toast('&#128230; ' + v.name + ' OVA ' + _L('내보내기 완료', 'export completed'));
     addEvt('OVA export: ' + v.name + (path ? ' → ' + path : ''));
   } catch (e) {
     var pf2 = document.getElementById('ova-p'), ps2 = document.getElementById('ova-s');
     if (pf2) { pf2.style.background = 'var(--red)'; pf2.style.width = '100%'; }
-    if (ps2) ps2.innerHTML = '&#10060; ' + escapeHtml(e.message);
+    if (ps2) PCV.uxlib.setMsg(ps2, null, null, '❌ ' + e.message);
     toast(e.message, false);
   }
 }

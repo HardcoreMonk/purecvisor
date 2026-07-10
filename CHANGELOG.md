@@ -3,6 +3,26 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.1.3 — 2026-07-07
+
+innerHTML→DOM-safe 전환 에픽 1~5차 배치 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만).
+
+### UI / Security hardening (zone ADR-013)
+- innerHTML 실사용 사이트 래칫 **422→165 (−61%)** — api.js·uxlib.js·monitor.js 완전 클린.
+  - 1차: 꼬리 7모듈 19사이트. 2차: storage.js 14사이트 + showCtxMenu plain-text 계약. 3차: 공유 헬퍼 노드화(showSkeleton/emptyStatePro, 소비처 35건).
+  - 4차: 상태 메시지 표준 헬퍼 `PCV.uxlib.msg/setMsg` 신설 + 11모듈 메시지 원라이너 164사이트 일소 (escapeHtml 이중 이스케이프 제거, 엔티티→글리프).
+  - 5차: H 동형 노드 빌더 `HN`(card/row/badge/grid/section/statCard) 신설 + monitor.js 전면 노드화(25→0 — `h +=` 누적 렌더 17싱크, 내부 헬퍼 8종, SVG는 createElementNS). 골든 스냅샷 diff 36탭 구조 동일 검증.
+
+### UI / Fixes
+- WS 재연결 배너 Retry가 시도 카운터를 리셋하지 못해 배너가 즉시 재생성되던 버그 수정 (module-scope 카운터 직접 리셋).
+- `H.statCard` 정의 누락 수복 — 커넥션 풀/DB 스키마 패널이 API 성공 시에도 항상 '로드 실패'를 표시하던 문제(try/catch가 TypeError 은폐) 해소.
+
+### Tooling / Docs
+- verify 스킬에 골든 스냅샷 diff 레시피(전환 전후 36탭 렌더 직렬화 비교)·evaluate 재시도 래퍼 추가.
+- L4 CLAUDE.md에 DOM-safe 표준 상위 경로(msg/setMsg·HN)와 모듈 로드 순서 함정 명문화.
+
+---
+
 ## v1.1.2 — 2026-07-07
 
 프론트엔드 전수조사 백로그 #1~#5 완결 패치 릴리스 (데몬 코드 무변경 — UI·빌드 자산만).

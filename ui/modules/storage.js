@@ -22,7 +22,7 @@ function storagePctText(totalBytes, usedBytes) {
 }
 
 async function renderStorage(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const p = await fetchGet(EP.STORAGE_POOLS());
     const pl = unwrapList(p);
@@ -191,23 +191,39 @@ function zvolDel(name) {
 }
 
 async function doZvolDel(name) { const c = document.getElementById('del-zvol-confirm')?.value; if (c !== name) { toast(t('vm.name_mismatch'), false); return; }
-  const mc = document.getElementById('mc'); mc.innerHTML = '<h2 class="color-red">&#9888; ' + _L('Zvol 삭제 중', 'Destroying Zvol') + '</h2><p><b class="color-accent">' + escapeHtml(name) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dz-p" class="w-pct-15"></div></div><div class="prog-status" id="dz-s"><span class="spinner"></span>' + _L('삭제 중...', 'Destroying...') + '</div>';
+  /* ADR-013 DOM-safe: 진행 모달을 el/frag 로 조립. 아이콘 HTML 엔티티(&#9888; 등)는
+   * 동일 코드포인트 리터럴 글리프로, escapeHtml(name) 은 TextNode 로 대체(이스케이프 불요).
+   * (원본 prog-fill div 는 class 속성이 중복(class="prog-fill"..class="w-pct-15")이라
+   *  HTML 파서상 첫 class="prog-fill" 만 적용되고 w-pct-15 는 무시됨 — 렌더 동등 보존.) */
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  const mc = document.getElementById('mc');
+  clearEl(mc);
+  mc.appendChild(frag(
+    el('h2', { class: 'color-red' }, '⚠ ' + _L('Zvol 삭제 중', 'Destroying Zvol')),
+    el('p', null, el('b', { class: 'color-accent' }, name)),
+    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'dz-p' })),
+    el('div', { class: 'prog-status', id: 'dz-s' }, el('span', { class: 'spinner' }), _L('삭제 중...', 'Destroying...'))
+  ));
   const pf = document.getElementById('dz-p'), ps = document.getElementById('dz-s');
   try { pf.style.width = '50%';
     const d = await fetchDelete(EP.STORAGE_ZVOLS(), { name: name });
-    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(d.error.message); toast(t('btn.delete') + ' failed', false); return; }
-    pf.style.width = '100%'; ps.innerHTML = '&#9989; ' + t('stg.zvol_destroyed'); toast(t('stg.zvol_destroyed')); addEvt(t('stg.zvol_destroyed') + ': ' + name); setTimeout(() => { closeModal(); renderStorage(document.getElementById('cb')); }, 1500);
-  } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); } }
+    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.textContent = '❌ ' + d.error.message; toast(t('btn.delete') + ' failed', false); return; }
+    pf.style.width = '100%'; ps.textContent = '✅ ' + t('stg.zvol_destroyed'); toast(t('stg.zvol_destroyed')); addEvt(t('stg.zvol_destroyed') + ': ' + name); setTimeout(() => { closeModal(); renderStorage(document.getElementById('cb')); }, 1500);
+  } catch (e) { pf.style.width = '100%'; ps.textContent = '❌ ' + e.message; toast(e.message, false); } }
 
 /* ═══ STORAGE CAPACITY FORECAST ═══ */
 async function loadStorageForecast() {
   var el = document.getElementById('storage-forecast'); if (!el) return;
-  el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
+  /* ADR-013 DOM-safe: 로딩/빈/에러 상태는 el/frag 로 조립(el 지역변수는 DOM 노드라
+   * 빌더는 PCV.uxlib.* 로 직접 호출). 표 본문(h)은 renderProgressBar/H.badge 문자열
+   * 헬퍼를 소비하므로 이번 배치 skip. */
+  PCV.uxlib.clearEl(el);
+  el.appendChild(PCV.uxlib.frag(PCV.uxlib.el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...')));
   try {
     var r = await fetchPost(EP.RPC(), { method: 'storage.pool.forecast', params: {} });
     var d = unwrapData(r);
     var pools = Array.isArray(d) ? d : (d.pools || [d]);
-    if (pools.length === 0) { el.innerHTML = '<span class="color-muted">' + (t('storage.no_forecast') || 'No forecast data available') + '</span>'; return; }
+    if (pools.length === 0) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, t('storage.no_forecast') || 'No forecast data available')); return; }
     var h = '<table class="text-12"><thead><tr>'
       + '<th>' + (t('storage.pool') || 'Pool') + '</th>'
       + '<th>' + (t('storage.used_pct') || 'Used %') + '</th>'
@@ -234,7 +250,8 @@ async function loadStorageForecast() {
     h += '</tbody></table>';
     el.innerHTML = h;
   } catch (e) {
-    el.innerHTML = '<span class="color-muted">' + (t('storage.forecast_unavailable') || 'Forecast unavailable') + ': ' + esc(e.message) + '</span>';
+    PCV.uxlib.clearEl(el);
+    el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, (t('storage.forecast_unavailable') || 'Forecast unavailable') + ': ' + e.message));
   }
 }
 
@@ -247,7 +264,7 @@ function _forecastSeverity(daysToFull) {
 
 /* ═══ iSCSI TARGETS ═══ */
 async function renderIscsi(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const r = await fetchGet(EP.ISCSI_TARGETS());
     const l = unwrapList(r);
@@ -268,24 +285,45 @@ window.renderIscsi = renderIscsi;
 
 /* ═══ BACKUP MANAGEMENT ═══ */
 async function renderBackup(b) {
-  var h = '<div class="flex items-center gap-10 mb-16"><span class="neon-blink color-cyan">&gt;&gt;</span><h2 style="font-family:var(--font-display);font-size:16px">' + _L('백업 관리', 'Backup Management') + '</h2></div>';
-
-  /* Policy List */
-  h += '<div class="hc mb-14"><h4>' + _L('백업 정책', 'Backup Policies') + '</h4>';
-  h += '<div class="flex gap-8 mb-8"><button class="btn btn-g" onclick="backupAddPolicy()">' + _L('정책 추가', 'Add Policy') + '</button></div>';
-  h += '<div id="backup-policies" class="skeleton-box" style="min-height:100px"></div></div>';
-
-  /* History */
-  h += '<div class="hc mb-14"><h4>' + _L('스냅샷 히스토리', 'Snapshot History') + '</h4>';
-  h += '<div class="flex gap-8 mb-8"><input aria-label="VM name (empty=all)" id="backup-hist-vm" class="input" placeholder="VM name (empty=all)" class="w-200"><button class="btn" onclick="backupLoadHistory()">' + _L('조회', 'Search') + '</button></div>';
-  h += '<div id="backup-history" class="skeleton-box" style="min-height:100px"></div></div>';
-
-  /* Restore */
-  h += '<div class="hc mb-14"><h4>' + _L('복원', 'Restore') + '</h4>';
-  h += '<p class="stat-label">' + _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.') + '</p>';
-  h += '<div class="flex gap-8 mt-8"><input aria-label="VM name" id="backup-restore-vm" class="input" placeholder="VM name" class="w-160"><input aria-label="Snapshot name" id="backup-restore-snap" class="input" placeholder="Snapshot name" class="w-200"><button class="btn btn-r" onclick="backupRestore()">' + _L('롤백', 'Rollback') + '</button></div></div>';
-
-  b.innerHTML = h;
+  /* ADR-013 DOM-safe: 정적 폼 템플릿을 el/frag 로 조립. 인라인 onclick 문자열은
+   * 동일 의미 클로저(window.fn)로, 엔티티 &gt;&gt; 는 리터럴 '>>' TextNode 로.
+   * (원본 input 은 class 속성 중복(class="input"..class="w-200")이라 HTML 파서상
+   *  첫 class="input" 만 적용, w-200/w-160 은 무시됨 — 렌더 동등 보존.) */
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  clearEl(b);
+  b.appendChild(frag(
+    el('div', { class: 'flex items-center gap-10 mb-16' },
+      el('span', { class: 'neon-blink color-cyan' }, '>>'),
+      el('h2', { style: 'font-family:var(--font-display);font-size:16px' }, _L('백업 관리', 'Backup Management'))
+    ),
+    /* Policy List */
+    el('div', { class: 'hc mb-14' },
+      el('h4', null, _L('백업 정책', 'Backup Policies')),
+      el('div', { class: 'flex gap-8 mb-8' },
+        el('button', { class: 'btn btn-g', onClick: function(){ window.backupAddPolicy(); } }, _L('정책 추가', 'Add Policy'))
+      ),
+      el('div', { id: 'backup-policies', class: 'skeleton-box', style: 'min-height:100px' })
+    ),
+    /* History */
+    el('div', { class: 'hc mb-14' },
+      el('h4', null, _L('스냅샷 히스토리', 'Snapshot History')),
+      el('div', { class: 'flex gap-8 mb-8' },
+        el('input', { 'aria-label': 'VM name (empty=all)', id: 'backup-hist-vm', class: 'input', placeholder: 'VM name (empty=all)' }),
+        el('button', { class: 'btn', onClick: function(){ window.backupLoadHistory(); } }, _L('조회', 'Search'))
+      ),
+      el('div', { id: 'backup-history', class: 'skeleton-box', style: 'min-height:100px' })
+    ),
+    /* Restore */
+    el('div', { class: 'hc mb-14' },
+      el('h4', null, _L('복원', 'Restore')),
+      el('p', { class: 'stat-label' }, _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.')),
+      el('div', { class: 'flex gap-8 mt-8' },
+        el('input', { 'aria-label': 'VM name', id: 'backup-restore-vm', class: 'input', placeholder: 'VM name' }),
+        el('input', { 'aria-label': 'Snapshot name', id: 'backup-restore-snap', class: 'input', placeholder: 'Snapshot name' }),
+        el('button', { class: 'btn btn-r', onClick: function(){ window.backupRestore(); } }, _L('롤백', 'Rollback'))
+      )
+    )
+  ));
 
   /* Load policies */
   try {
@@ -295,19 +333,37 @@ async function renderBackup(b) {
     var pe = document.getElementById('backup-policies');
     if (pe) {
       if (policies.length === 0) {
-        pe.innerHTML = '<div class="stat-label">' + _L('정책 없음', 'No policies') + '</div>';
+        clearEl(pe);
+        pe.appendChild(el('div', { class: 'stat-label' }, _L('정책 없음', 'No policies')));
       } else {
-        var tbl = '<table class="tbl"><tr><th>VM</th><th>' + _L('주기(h)', 'Interval(h)') + '</th><th>' + _L('보존', 'Retention') + '</th><th>' + _L('활성', 'Enabled') + '</th><th></th></tr>';
+        /* 원본 '<table class="tbl"><tr>...' 는 파서가 tbody 를 자동 삽입 →
+         * CSS 'tbody tr' 규칙(hover/border-left) 적용. DOM 빌드는 자동 삽입이
+         * 없으므로 명시적 tbody 로 감싸 렌더/hover 동등 보존. */
+        var tbody = el('tbody', null,
+          el('tr', null,
+            el('th', null, 'VM'),
+            el('th', null, _L('주기(h)', 'Interval(h)')),
+            el('th', null, _L('보존', 'Retention')),
+            el('th', null, _L('활성', 'Enabled')),
+            el('th')
+          )
+        );
         policies.forEach(function(p) {
-          tbl += '<tr><td>' + esc(p.vm_name || '*') + '</td><td>' + (p.interval_hours || '-') + '</td><td>' + (p.retention_count || '-') + '</td><td>' + (p.enabled ? '<span class="color-green">ON</span>' : '<span class="color-red">OFF</span>') + '</td><td><button class="btn btn-sm btn-r" onclick="backupDeletePolicy(\'' + esc(p.vm_name) + '\')">' + _L('삭제', 'Del') + '</button></td></tr>';
+          tbody.appendChild(el('tr', null,
+            el('td', null, p.vm_name || '*'),
+            el('td', null, p.interval_hours || '-'),
+            el('td', null, p.retention_count || '-'),
+            el('td', null, p.enabled ? el('span', { class: 'color-green' }, 'ON') : el('span', { class: 'color-red' }, 'OFF')),
+            el('td', null, el('button', { class: 'btn btn-sm btn-r', onClick: function(){ window.backupDeletePolicy(p.vm_name); } }, _L('삭제', 'Del')))
+          ));
         });
-        tbl += '</table>';
-        pe.innerHTML = tbl;
+        clearEl(pe);
+        pe.appendChild(el('table', { class: 'tbl' }, tbody));
       }
     }
   } catch (e) {
     var pe2 = document.getElementById('backup-policies');
-    if (pe2) pe2.innerHTML = '<div class="color-red">' + esc(e.message) + '</div>';
+    if (pe2) { clearEl(pe2); pe2.appendChild(el('div', { class: 'color-red' }, e.message)); }
   }
 }
 
@@ -343,15 +399,28 @@ async function backupLoadHistory() {
     var snaps = Array.isArray(d) ? d : unwrapList(d);
     var el = document.getElementById('backup-history');
     if (!el) return;
-    if (snaps.length === 0) { el.innerHTML = '<div class="stat-label">' + _L('스냅샷 없음', 'No snapshots') + '</div>'; return; }
-    var tbl = '<table class="tbl"><tr><th>VM</th><th>Snapshot</th><th>Date</th></tr>';
+    /* ADR-013 DOM-safe: el/el2 는 DOM 노드 지역변수라 빌더는 PCV.uxlib.* 로 직접 호출. */
+    if (snaps.length === 0) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, _L('스냅샷 없음', 'No snapshots'))); return; }
+    /* 명시적 tbody 로 감싸 파서 자동삽입 tbody 와 동등('tbody tr' CSS 적용). */
+    var tbody = PCV.uxlib.el('tbody', null,
+      PCV.uxlib.el('tr', null,
+        PCV.uxlib.el('th', null, 'VM'),
+        PCV.uxlib.el('th', null, 'Snapshot'),
+        PCV.uxlib.el('th', null, 'Date')
+      )
+    );
     snaps.forEach(function(s) {
-      tbl += '<tr><td>' + esc(s.vm_name || s.vm || '-') + '</td><td>' + esc(s.snapshot || s.name || '-') + '</td><td>' + esc(s.created_at || s.timestamp || '-') + '</td></tr>';
+      tbody.appendChild(PCV.uxlib.el('tr', null,
+        PCV.uxlib.el('td', null, s.vm_name || s.vm || '-'),
+        PCV.uxlib.el('td', null, s.snapshot || s.name || '-'),
+        PCV.uxlib.el('td', null, s.created_at || s.timestamp || '-')
+      ));
     });
-    el.innerHTML = tbl + '</table>';
+    PCV.uxlib.clearEl(el);
+    el.appendChild(PCV.uxlib.el('table', { class: 'tbl' }, tbody));
   } catch (e) {
     var el2 = document.getElementById('backup-history');
-    if (el2) el2.innerHTML = '<div class="color-red">' + esc(e.message) + '</div>';
+    if (el2) { PCV.uxlib.clearEl(el2); el2.appendChild(PCV.uxlib.el('div', { class: 'color-red' }, e.message)); }
   }
 }
 
@@ -446,8 +515,8 @@ async function zvolBulkDelete() {
 function zvolCtxMenu(ev, name) {
   if (typeof showCtxMenu === 'function') {
     showCtxMenu(ev, [
-      { label: '&#128465; ' + t('btn.delete'), fn: function(){ zvolDel(name); } },
-      { label: '&#9881; ' + _L('선택', 'Select'), fn: function(){ zvolToggleSel(name, !window._zvolSel.has(name)); renderStorage(document.getElementById('cb')); } }
+      { label: '🗑 ' + t('btn.delete'), fn: function(){ zvolDel(name); } },
+      { label: '⚙ ' + _L('선택', 'Select'), fn: function(){ zvolToggleSel(name, !window._zvolSel.has(name)); renderStorage(document.getElementById('cb')); } }
     ]);
   } else {
     /* fallback: 단순 confirm */

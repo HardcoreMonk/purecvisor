@@ -207,7 +207,7 @@ async function renderSnapshots(b, v) {
       }
       return { name: s.name || s, full_path: s.name || s, time: s.creation_time || '' };
     });
-    if (!snaps.length) { document.getElementById('stree').innerHTML = '<p class="color-muted">' + t('snap.none') + '</p>'; return; }
+    if (!snaps.length) { PCV.uxlib.setMsg('stree', 'muted', { tag: 'p' }, t('snap.none')); return; }
     let h = '<table><thead><tr><th>Snapshot</th><th>Created</th><th class="w-140">Actions</th></tr></thead><tbody>';
     snaps.forEach(s => {
       h += '<tr><td><b>' + esc(s.name) + '</b></td>';
@@ -221,7 +221,7 @@ async function renderSnapshots(b, v) {
     });
     h += '</tbody></table>';
     document.getElementById('stree').innerHTML = h;
-  } catch (e) { document.getElementById('stree').innerHTML = '<p class="color-red">' + esc(e.message) + '</p>'; }
+  } catch (e) { PCV.uxlib.setMsg('stree', 'err', { tag: 'p' }, e.message); }
 }
 
 async function takeSnap() {
@@ -267,9 +267,9 @@ function snapNameValidate() {
   const n = el.value.trim();
   const valid = /^[a-zA-Z0-9_-]{1,128}$/.test(n);
   if (err) {
-    if (!n) err.innerHTML = '<span class="color-red">Name is required</span>';
-    else if (!valid) err.innerHTML = '<span class="color-red">Invalid characters (use a-z, 0-9, dash, underscore)</span>';
-    else err.innerHTML = '<span class="color-green">&#9989; Valid</span>';
+    if (!n) PCV.uxlib.setMsg(err, 'err', null, 'Name is required');
+    else if (!valid) PCV.uxlib.setMsg(err, 'err', null, 'Invalid characters (use a-z, 0-9, dash, underscore)');
+    else PCV.uxlib.setMsg(err, 'ok', null, '✅ Valid');
   }
   if (btn) btn.disabled = !valid || !n;
   const v = vmList[selectedVmIndex];
@@ -282,15 +282,15 @@ async function snapCreateExec() {
   const n = (document.getElementById('snap-name-input')?.value || '').trim();
   if (!n || !/^[a-zA-Z0-9_-]{1,128}$/.test(n)) { toast('Invalid snapshot name', false); return; }
   const btn = document.getElementById('snap-create-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Creating...'; }
+  if (btn) { btn.disabled = true; PCV.uxlib.setMsg(btn, 'loading', null, 'Creating...'); }
   try {
     const r = await fetchPost(EP.VM_SNAPSHOT_CREATE(v.name), { snap_name: n });
-    if (r && r.error) { toast('Create failed: ' + (r.error.message || ''), false); if (btn) { btn.disabled = false; btn.innerHTML = '&#128247; Retry'; } return; }
+    if (r && r.error) { toast('Create failed: ' + (r.error.message || ''), false); if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '📷 Retry'); } return; }
     toast(t('snap.created') + ': ' + n);
     addEvt('VM Snapshot created — ' + v.name + '@' + n);
     closeModal();
     renderSnapshots(document.getElementById('cb'), v);
-  } catch (e) { toast('Error: ' + e.message, false); if (btn) { btn.disabled = false; btn.innerHTML = '&#128247; Retry'; } }
+  } catch (e) { toast('Error: ' + e.message, false); if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '📷 Retry'); } }
 }
 
 async function snapRb(vm, s) {
@@ -335,15 +335,15 @@ function rbValidate(vm) {
 
 async function rbExec(vm, s) {
   const btn = document.getElementById('rb-exec-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Rolling back...'; }
+  if (btn) { btn.disabled = true; PCV.uxlib.setMsg(btn, 'loading', null, 'Rolling back...'); }
   try {
     const r = await fetchPost(EP.VM_SNAPSHOT_ROLLBACK(vm), { snap_name: s });
-    if (r && r.error) { toast('Rollback failed: ' + (r.error.message || ''), false); if (btn) { btn.disabled = false; btn.innerHTML = '&#9194; Retry'; } return; }
+    if (r && r.error) { toast('Rollback failed: ' + (r.error.message || ''), false); if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '⏪ Retry'); } return; }
     toast('Rollback accepted: ' + vm + '@' + s);
     addEvt('VM Snapshot rollback — ' + vm + '@' + s);
     closeModal();
     renderSnapshots(document.getElementById('cb'), vmList[selectedVmIndex]);
-  } catch (e) { toast('Error: ' + e.message, false); if (btn) { btn.disabled = false; btn.innerHTML = '&#9194; Retry'; } }
+  } catch (e) { toast('Error: ' + e.message, false); if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '⏪ Retry'); } }
 }
 
 async function snapDl(vm, s) {
@@ -442,7 +442,7 @@ async function sdaExec(vm) {
   const prefix = (document.getElementById('sda-prefix')?.value || '').trim();
   const keep = parseInt(document.getElementById('sda-keep')?.value) || 0;
   const btn = document.getElementById('sda-exec-btn');
-  if (btn) { btn.disabled = true; btn.innerHTML = '<span class="spinner"></span> Deleting...'; }
+  if (btn) { btn.disabled = true; PCV.uxlib.setMsg(btn, 'loading', null, 'Deleting...'); }
   try {
     const body = { keep_recent: keep };
     if (prefix) body.prefix = prefix;
@@ -454,7 +454,7 @@ async function sdaExec(vm) {
     closeModal();
     renderSnapshots(document.getElementById('cb'), vmList[selectedVmIndex]);
   } catch (e) { toast('Error: ' + e.message, false); }
-  if (btn) { btn.disabled = false; btn.innerHTML = '&#128465; Done'; }
+  if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '🗑 Done'); }
 }
 
 /* ═══ PERFORMANCE ═══ */
@@ -492,7 +492,7 @@ async function renderPerformance(b, v) {
 
 /* ═══ VM TIMELINE ═══ */
 function renderTimeline(b, v) {
-  if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
+  if (!v) { PCV.uxlib.setMsg(b, 'muted', { tag: 'p' }, t('vm.select')); return; }
   var events = (eventLog || []).filter(function(e) {
     var msg = (e.msg || e.raw || '').toLowerCase();
     return msg.includes(v.name.toLowerCase());

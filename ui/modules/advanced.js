@@ -14,7 +14,7 @@ window.PCV = window.PCV || {};
 
 /* ═══ TEMPLATES ═══ */
 async function renderTemplates(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const r = await fetchGet(EP.TEMPLATES());
     const list = unwrapList(r);
@@ -27,7 +27,7 @@ async function renderTemplates(b) {
     h += '</tbody></table>';
     h += '<div id="tpl-history"></div>';
     b.innerHTML = h;
-  } catch (e) { b.innerHTML = '<p class="color-red">' + escapeHtml(e.message) + '</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, e.message); }
 }
 
 function showTemplateCreate() {
@@ -74,7 +74,7 @@ async function loadTemplateHistory() {
 
 /* ═══ DOCKER/OCI CONTAINERS ═══ */
 async function renderDocker(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const r = await fetchGet(EP.DOCKER_LIST());
     const list = unwrapList(r);
@@ -127,7 +127,7 @@ async function dockerStop(name) {
 
 /* ═══ TERRAFORM IaC ═══ */
 async function renderTerraform(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   let h = H.section('&#127981; Terraform IaC Integration');
   h += '<div class="sg grid-2 mb-14">';
   h += H.card('&#128203; Terraform Plan', '<p class="stat-label mb-8">Preview infrastructure changes before applying.</p><div class="fr"><label for="tf-config">Config (HCL/JSON)</label><textarea id="tf-config" placeholder="resource \\"purecvisor_vm\\" \\"web\\" {\\n  name = \\"web-01\\"\\n  vcpu = 2\\n}" style="width:100%;min-height:100px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:8px;font-family:monospace;font-size:11px"></textarea></div><div class="flex gap-6 mt-8"><button class="btn" onclick="tfPlan()">&#128203; Plan</button><button class="btn btn-g" onclick="tfApply()">&#9989; Apply</button></div><div id="tf-plan-result" class="mt-8"></div>');
@@ -140,22 +140,22 @@ async function renderTerraform(b) {
 async function tfPlan() {
   const el = document.getElementById('tf-plan-result'); if (!el) return;
   const config = document.getElementById('tf-config')?.value;
-  el.innerHTML = '<span class="spinner"></span> Planning...';
+  PCV.uxlib.setMsg(el, 'loading', null, 'Planning...');
   try { const r = await fetchPost(EP.TERRAFORM_PLAN(), { config: config || '' });
     const d = unwrapData(r);
     el.innerHTML = '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--green);white-space:pre-wrap">' + escapeHtml(d.plan || d.output || JSON.stringify(d, null, 2)) + '</pre>';
-  } catch (e) { el.innerHTML = '<span class="color-red">Plan error: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Plan error: ', e.message); }
 }
 
 async function tfApply() {
   if (!await customConfirm('Terraform Apply', 'Apply infrastructure changes?')) return;
-  const el = document.getElementById('tf-plan-result'); if (el) el.innerHTML = '<span class="spinner"></span> Applying...';
+  const el = document.getElementById('tf-plan-result'); if (el) PCV.uxlib.setMsg(el, 'loading', null, 'Applying...');
   const config = document.getElementById('tf-config')?.value;
   try { const r = await fetchPost(EP.TERRAFORM_APPLY(), { config: config || '' });
     const d = unwrapData(r);
     if (el) el.innerHTML = '<pre style="background:var(--bg);padding:8px;border-radius:4px;font-size:11px;max-height:200px;overflow-y:auto;color:var(--accent);white-space:pre-wrap">' + escapeHtml(d.output || JSON.stringify(d, null, 2)) + '</pre>';
     toast('Terraform apply complete'); addEvt('Terraform apply');
-  } catch (e) { if (el) el.innerHTML = '<span class="color-red">Apply error: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Apply error: ', e.message); }
 }
 
 async function loadTfState() {
@@ -167,8 +167,8 @@ async function loadTfState() {
       let h = '<table class="text-11"><thead><tr><th>Type</th><th>Name</th><th>Status</th></tr></thead><tbody>';
       resources.forEach(res => { h += '<tr><td>' + escapeHtml(res.type || '-') + '</td><td>' + escapeHtml(res.name || '-') + '</td><td>' + H.badge(res.status || 'managed', 'g') + '</td></tr>'; });
       h += '</tbody></table>'; el.innerHTML = h;
-    } else { el.innerHTML = '<p class="color-muted text-12">No Terraform state. Use Plan + Apply to manage infrastructure as code.</p>'; }
-  } catch (e) { el.innerHTML = '<p class="color-muted text-12">Terraform state not available. Configure terraform.* RPC handlers to enable IaC.</p>'; }
+    } else { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'No Terraform state. Use Plan + Apply to manage infrastructure as code.'); }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'Terraform state not available. Configure terraform.* RPC handlers to enable IaC.'); }
 }
 
 /* ═══ CONFIG MANAGEMENT ═══ */
@@ -198,7 +198,7 @@ async function configHistory() {
 }
 
 async function renderConfigMgmt(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   var cfg = {};
   try { var r = await fetchGet(EP.CONFIG_DAEMON()); cfg = unwrapData(r) || r || {}; } catch(e) {}
   var stg = cfg.storage || {};
@@ -254,9 +254,10 @@ async function saveStorageCfg(type) {
     /* ZFS Pool 필드 검증: /로 시작하면 경고 */
     var zvolVal = (document.getElementById('cfg-zvol')?.value || '').trim();
     if (zvolVal.startsWith('/')) {
-      if (resultEl) resultEl.innerHTML = '<span class="color-red">&#9888; ' + _L(
-        'ZFS Pool은 파일 경로가 아닌 ZFS 데이터셋 이름이어야 합니다 (예: pcvpool/vms).<br>파일시스템 경로에 저장하려면 Image Dir 필드를 사용하세요.',
-        'ZFS Pool must be a ZFS dataset name (e.g. pcvpool/vms), not a path.<br>Use Image Dir for filesystem paths.') + '</span>';
+      if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-red' },
+        '⚠ ', _L('ZFS Pool은 파일 경로가 아닌 ZFS 데이터셋 이름이어야 합니다 (예: pcvpool/vms).', 'ZFS Pool must be a ZFS dataset name (e.g. pcvpool/vms), not a path.'),
+        PCV.uxlib.el('br'),
+        _L('파일시스템 경로에 저장하려면 Image Dir 필드를 사용하세요.', 'Use Image Dir for filesystem paths.'));
       return;
     }
     pairs = [
@@ -268,9 +269,8 @@ async function saveStorageCfg(type) {
     resultEl = document.getElementById('cfg-ctr-result');
     var ctrPoolVal = (document.getElementById('cfg-ctrpool')?.value || '').trim();
     if (ctrPoolVal.startsWith('/')) {
-      if (resultEl) resultEl.innerHTML = '<span class="color-red">&#9888; ' + _L(
-        'Container ZFS Pool은 ZFS 데이터셋 이름이어야 합니다 (예: pcvpool/containers).',
-        'Container ZFS Pool must be a ZFS dataset name (e.g. pcvpool/containers).') + '</span>';
+      if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-red' },
+        '⚠ ', _L('Container ZFS Pool은 ZFS 데이터셋 이름이어야 합니다 (예: pcvpool/containers).', 'Container ZFS Pool must be a ZFS dataset name (e.g. pcvpool/containers).'));
       return;
     }
     pairs = [
@@ -278,15 +278,15 @@ async function saveStorageCfg(type) {
       { section: 'container', key: 'lxc_path', value: document.getElementById('cfg-lxcpath')?.value }
     ];
   }
-  if (resultEl) resultEl.innerHTML = '<span class="spinner"></span> ' + _L('저장 중...', 'Saving...');
+  if (resultEl) PCV.uxlib.setMsg(resultEl, 'loading', null, _L('저장 중...', 'Saving...'));
   try {
     for (var i = 0; i < pairs.length; i++) {
       if (pairs[i].value) await fetchPut(EP.CONFIG_DAEMON(), pairs[i]);
     }
-    if (resultEl) resultEl.innerHTML = '<span class="color-green">&#9989; ' + _L('저장 완료 (재시작 시 적용)', 'Saved (restart to apply)') + '</span>';
+    if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-green' }, '✅ ', _L('저장 완료 (재시작 시 적용)', 'Saved (restart to apply)'));
     toast(_L('스토리지 설정 저장됨', 'Storage config saved'));
   } catch(e) {
-    if (resultEl) resultEl.innerHTML = '<span class="color-red">&#10060; ' + escapeHtml(e.message) + '</span>';
+    if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-red' }, '❌ ', e.message);
     toast(e.message, false);
   }
 }
@@ -296,13 +296,13 @@ async function loadConfigHistoryInline() {
   try {
     const r = await fetchGet(EP.CONFIG_HISTORY());
     const list = unwrapList(r);
-    if (list.length === 0) { el.innerHTML = '<p class="color-muted text-12">No configuration changes recorded.</p>'; return; }
+    if (list.length === 0) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'No configuration changes recorded.'); return; }
     let h = '<table class="text-11"><thead><tr><th>Time</th><th>Key</th><th>Value</th></tr></thead><tbody>';
     list.slice(0, 20).forEach(e => { h += '<tr><td class="text-xs">' + escapeHtml(e.timestamp || e.time || '-') + '</td><td>' + escapeHtml(e.key || '-') + '</td><td class="color-accent">' + escapeHtml(e.new_value || e.value || '-') + '</td></tr>'; });
     h += '</tbody></table>';
     if (list.length > 20) h += '<p class="stat-label">Showing 20 of ' + list.length + ' entries</p>';
     el.innerHTML = h;
-  } catch (e) { el.innerHTML = '<p class="color-muted text-12">Config history not available.</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'Config history not available.'); }
 }
 
 /* ═══ OVA IMPORT ═══ */
@@ -375,7 +375,7 @@ async function showBackupVerify() {
 
 /* ═══ PERSISTENT JOBS ═══ */
 async function renderPersistentJobs(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     var r = await fetchGet(EP.JOBS_PERSIST());
     var list = unwrapList(r);
@@ -393,12 +393,12 @@ async function renderPersistentJobs(b) {
       h += '</tbody></table>';
     }
     b.innerHTML = h;
-  } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
+  } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
 /* ═══ DB MIGRATION STATUS ═══ */
 async function renderDbMigration(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     var r = await fetchGet(EP.DB_MIGRATION());
     var d = unwrapData(r);
@@ -409,12 +409,12 @@ async function renderDbMigration(b) {
     h += H.statCard('RBAC DB', d.rbac_db || '-', '🗄️');
     h += '</div>';
     b.innerHTML = h;
-  } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
+  } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
 /* ═══ DEEP HEALTH (확장) ═══ */
 async function renderDeepHealth(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     var r = await fetchGet(EP.HEALTH_DEEP());
     var d = unwrapData(r);
@@ -425,7 +425,7 @@ async function renderDeepHealth(b) {
     h += H.statCard(_L('전체', 'Overall'), d.status || '?', d.status === 'ok' ? '✅' : '⚠️');
     h += '</div>';
     b.innerHTML = h;
-  } catch(e) { b.innerHTML = '<p class="color-muted">' + _L('로드 실패', 'Failed') + '</p>'; }
+  } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
 window.doConfigReload = doConfigReload;

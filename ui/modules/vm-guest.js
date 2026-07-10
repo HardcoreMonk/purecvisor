@@ -73,7 +73,7 @@ async function showMemStats() {
     // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
     // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
     el = document.getElementById('mem-stats-body');
-    if (el) el.innerHTML = '<p class="color-red">Failed: ' + esc(e.message) + '</p>';
+    if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
@@ -114,7 +114,7 @@ async function showCpuStats() {
     // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
     // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
     el = document.getElementById('cpu-stats-body');
-    if (el) el.innerHTML = '<p class="color-red">Failed: ' + esc(e.message) + '</p>';
+    if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
@@ -223,7 +223,7 @@ async function showVmDiskUsage() {
 
   var body = document.getElementById('vm-disk-usage-body');
   if (!running) {
-    if (body) body.innerHTML = '<p class="color-muted">' + _L('게스트 파일시스템 사용량은 VM 실행 중에만 조회할 수 있습니다.', 'Guest filesystem usage is available only while the VM is running.') + '</p>';
+    if (body) PCV.uxlib.setMsg(body, 'muted', { tag: 'p' }, _L('게스트 파일시스템 사용량은 VM 실행 중에만 조회할 수 있습니다.', 'Guest filesystem usage is available only while the VM is running.'));
     return;
   }
 
@@ -327,13 +327,13 @@ function gaRenderStatus(d) {
 async function gaRefreshStatus() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var statusEl = document.getElementById('ga-status-body');
-  if (statusEl) statusEl.innerHTML = '<span class="spinner"></span> Checking...';
+  if (statusEl) PCV.uxlib.setMsg(statusEl, 'loading', null, 'Checking...');
   try {
     var r = await fetchGet(EP.VM_GUEST_AGENT(v.name));
     var d = unwrapData(r);
     gaRenderStatus(d || {});
   } catch (e) {
-    if (statusEl) statusEl.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>';
+    if (statusEl) PCV.uxlib.setMsg(statusEl, 'err', null, e.message);
   }
 }
 
@@ -360,12 +360,12 @@ function gaCopyInstall(key) {
 async function gaPing() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var el = document.getElementById('ga-ping-result');
-  if (el) el.innerHTML = '<span class="spinner"></span> Pinging...';
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, 'Pinging...');
   try {
     var r = await fetchPost(EP.VM_GUEST_PING(v.name), {});
-    if (r.error) { if (el) el.innerHTML = '<span class="color-red">&#10060; ' + _L('에이전트 응답 없음', 'Agent not responding') + ': ' + esc(r.error.message || '') + '</span>'; return; }
-    if (el) el.innerHTML = '<span class="color-green">&#9989; ' + _L('게스트 에이전트 정상 응답', 'Guest agent is responding') + '</span>';
-  } catch (e) { if (el) el.innerHTML = '<span class="color-red">&#10060; ' + esc(e.message) + '</span>'; }
+    if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, '❌ ' + _L('에이전트 응답 없음', 'Agent not responding') + ': ' + (r.error.message || '')); return; }
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + _L('게스트 에이전트 정상 응답', 'Guest agent is responding'));
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, '❌ ' + e.message); }
 }
 
 async function gaShutdown() {
@@ -387,12 +387,12 @@ async function gaExec() {
   if (!cmd) { toast('Command required', false); return; }
   var args = (document.getElementById('ga-args')?.value || '').trim();
   var el = document.getElementById('ga-exec-result');
-  if (el) { el.style.display = 'block'; el.innerHTML = '<span class="spinner"></span> Executing...'; }
+  if (el) { el.style.display = 'block'; PCV.uxlib.setMsg(el, 'loading', null, 'Executing...'); }
   try {
     var params = { name: v.name, command: cmd };
     if (args) params.args = args.split(/\s+/);
     var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params);
-    if (r.error) { if (el) el.innerHTML = '<span class="color-red">Error: ' + esc(r.error.message || '') + '</span>'; return; }
+    if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Error: ' + (r.error.message || '')); return; }
     var d = unwrapData(r);
     var out = '';
     if (d.stdout) out += '<div class="mb-6"><span class="color-green">stdout:</span></div><div>' + esc(d.stdout) + '</div>';
@@ -401,7 +401,7 @@ async function gaExec() {
     if (exitCode !== undefined) out += '<div style="margin-top:6px;color:var(--fg2)">Exit code: ' + exitCode + '</div>';
     if (!out) out = '<span class="color-muted">Command executed (no output)</span>';
     if (el) el.innerHTML = out;
-  } catch (e) { if (el) el.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, e.message); }
 }
 
 /* ═══ D3: DRAG & DROP VM MIGRATION ═══ */
@@ -424,10 +424,10 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
     var pf = document.getElementById('mig-prog'), ps = document.getElementById('mig-st');
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-      if (ps) ps.innerHTML = '&#10060; ' + esc(r.error.message || 'Failed');
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || 'Failed'));
     } else {
       if (pf) pf.style.width = '100%';
-      if (ps) ps.innerHTML = '&#9989; ' + _L('마이그레이션 시작됨', 'Migration started');
+      if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + _L('마이그레이션 시작됨', 'Migration started'));
       addEvt('VM Migrate: ' + vmName + ' → ' + targetName);
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     }
@@ -435,7 +435,7 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
     // var 아님(no-redeclare) — try 블록의 `var ps`가 함수 스코프에 이미
     // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
     ps = document.getElementById('mig-st');
-    if (ps) ps.innerHTML = '&#10060; ' + esc(e.message);
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message);
   }
 }
 /* ═══ DISK I/O THROTTLE EDITOR ═══ */
@@ -461,10 +461,10 @@ function showBlkioEditor() {
 async function blkioGet() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var el = document.getElementById('blkio-status');
-  if (el) el.innerHTML = '<span class="spinner"></span> ' + (t('loading') || 'Loading...');
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, t('loading') || 'Loading...');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.blkio.get', params: { name: v.name } });
-    if (r.error) { if (el) el.innerHTML = '<span class="color-red">' + esc(r.error.message || 'Failed') + '</span>'; return; }
+    if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed'); return; }
     var d = unwrapData(r);
     var rdB = document.getElementById('blkio-rd-bytes');
     var wrB = document.getElementById('blkio-wr-bytes');
@@ -474,9 +474,9 @@ async function blkioGet() {
     if (wrB) wrB.value = Math.round((d.write_bytes_sec || 0) / 1048576);
     if (rdI) rdI.value = d.read_iops_sec || 0;
     if (wrI) wrI.value = d.write_iops_sec || 0;
-    if (el) el.innerHTML = '<span class="color-green">&#9989; ' + (t('vm.blkio_loaded') || 'Current limits loaded') + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + (t('vm.blkio_loaded') || 'Current limits loaded'));
   } catch (e) {
-    if (el) el.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'err', null, e.message);
   }
 }
 
@@ -487,7 +487,7 @@ async function blkioSet() {
   var rdIops = parseInt((document.getElementById('blkio-rd-iops') || {}).value) || 0;
   var wrIops = parseInt((document.getElementById('blkio-wr-iops') || {}).value) || 0;
   var el = document.getElementById('blkio-status');
-  if (el) el.innerHTML = '<span class="spinner"></span> ' + (t('vm.blkio_applying') || 'Applying...');
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, t('vm.blkio_applying') || 'Applying...');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), {
       method: 'vm.blkio.set',
@@ -500,16 +500,16 @@ async function blkioSet() {
       }
     });
     if (r.error) {
-      if (el) el.innerHTML = '<span class="color-red">' + esc(r.error.message || 'Failed') + '</span>';
+      if (el) PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed');
       toast((t('vm.blkio_failed') || 'I/O limit failed') + ': ' + (r.error.message || ''), false);
       return;
     }
-    if (el) el.innerHTML = '<span class="color-green">&#9989; ' + (t('vm.blkio_applied') || 'I/O limits applied') + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + (t('vm.blkio_applied') || 'I/O limits applied'));
     toast((t('vm.blkio_applied') || 'I/O limits applied') + ': ' + v.name);
     addEvt('BlkIO set: ' + v.name + ' R:' + rdMB + 'MB/s W:' + wrMB + 'MB/s');
     setTimeout(closeModal, 1500);
   } catch (e) {
-    if (el) el.innerHTML = '<span class="color-red">' + esc(e.message) + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'err', null, e.message);
     toast(e.message, false);
   }
 }

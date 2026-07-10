@@ -132,13 +132,15 @@ function _renderCore(skipContent) {
   });
   /* #16 빈 상태 — VM이 0개일 때 CTA 표시 */
   if (l.length === 0 && typeof emptyStatePro === 'function') {
-    document.getElementById('vl').innerHTML = emptyStatePro({
+    var _vl = document.getElementById('vl');
+    PCV.uxlib.clearEl(_vl);
+    _vl.appendChild(emptyStatePro({
       icon: '&#128187;',
       title: _L('VM이 없습니다', 'No virtual machines'),
       desc: _L('첫 VM을 만들어 시작하세요. 몇 초 안에 부팅 가능합니다.', 'Create your first VM. Boots in seconds.'),
       ctaLabel: _L('+ VM 만들기', '+ Create VM'),
       ctaAction: 'showCreate()'
-    });
+    }));
     return;
   }
   let h = '';
@@ -281,7 +283,33 @@ function showCtx(e, i) {
   selectedVmIndex = i;
   const m = document.getElementById('ctx');
   const ri = i;
-  m.innerHTML = `<div class="ci" onclick="vmPower('start')">&#9654; ${t('power.start')}</div><div class="ci" onclick="vmPower('stop')">&#9632; ${t('power.stop')}</div><div class="sep"></div><div class="ci" onclick="showSnap()">&#128247; ${t('vm.snapshot')}</div><div class="ci" onclick="showSettings()">&#9881; ${t('vm.settings')}</div><div class="ci" onclick="showRenameVm()">&#9998; ${_L('이름 변경', 'Rename')}</div><div class="ci" onclick="showVnc()">&#128424; VNC</div><div class="sep"></div><div class="ci" onclick="showMemStats()">&#128204; Memory Stats</div><div class="ci" onclick="showCpuStats()">&#9881; CPU Stats</div><div class="ci" onclick="showDiskLiveResize()">&#128190; Disk Resize</div><div class="ci" onclick="showGuestAgent()">&#128172; Guest Agent</div><div class="sep"></div><div class="ci" onclick="showNicMgr()">&#127760; NIC</div><div class="ci" onclick="vmClone(${ri})">&#128203; Clone</div><div class="ci" onclick="vmExportOva(${ri})">&#128230; Export OVA</div><div class="sep"></div><div class="ci" onclick="vmDel()">&#10060; ${t('btn.delete')}</div>`;
+  /* ADR-013 DOM-safe: 컨텍스트 메뉴를 el/frag 로 조립. 인라인 onclick 문자열을
+   * 동일 의미의 클로저로 이전 — 대상 함수는 모듈 경계 밖 전역이라 window.fn 참조.
+   * 아이콘 HTML 엔티티(&#9654; 등)는 동일 코드포인트의 리터럴 글리프로 대체. */
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var sep = function() { return el('div', { class: 'sep' }); };
+  var ci = function(label, onClick) { return el('div', { class: 'ci', onClick: onClick }, label); };
+  clearEl(m);
+  m.appendChild(frag(
+    ci('▶ ' + t('power.start'), function() { window.vmPower('start'); }),
+    ci('■ ' + t('power.stop'), function() { window.vmPower('stop'); }),
+    sep(),
+    ci('📷 ' + t('vm.snapshot'), function() { window.showSnap(); }),
+    ci('⚙ ' + t('vm.settings'), function() { window.showSettings(); }),
+    ci('✎ ' + _L('이름 변경', 'Rename'), function() { window.showRenameVm(); }),
+    ci('🖨 VNC', function() { window.showVnc(); }),
+    sep(),
+    ci('📌 Memory Stats', function() { window.showMemStats(); }),
+    ci('⚙ CPU Stats', function() { window.showCpuStats(); }),
+    ci('💾 Disk Resize', function() { window.showDiskLiveResize(); }),
+    ci('💬 Guest Agent', function() { window.showGuestAgent(); }),
+    sep(),
+    ci('🌐 NIC', function() { window.showNicMgr(); }),
+    ci('📋 Clone', function() { window.vmClone(ri); }),
+    ci('📦 Export OVA', function() { window.vmExportOva(ri); }),
+    sep(),
+    ci('❌ ' + t('btn.delete'), function() { window.vmDel(); })
+  ));
   m.style.display = 'block';
   m.style.left = e.pageX + 'px';
   m.style.top = e.pageY + 'px';
@@ -353,7 +381,7 @@ function _vmPrimaryNicValue(nics, field) {
 
 /* ═══ VM SUMMARY ═══ */
 async function renderSummary(b, v) {
-  if (!v) { b.innerHTML = '<p class="color-muted">' + t('vm.select') + '</p>'; return; }
+  if (!v) { PCV.uxlib.clearEl(b); b.appendChild(PCV.uxlib.el('p', { class: 'color-muted' }, t('vm.select'))); return; }
   const on = v.state === 'running';
 
   /* 실시간 메트릭 + NIC 상세 조회 */

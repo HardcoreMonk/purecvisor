@@ -482,24 +482,24 @@ window.sgAddRule = async function() {
   const pri = document.getElementById('sg-pri')?.value;
   const match = document.getElementById('sg-match')?.value;
   const act = document.getElementById('sg-act')?.value;
-  if (!sw || !match) { if (el) el.innerHTML = '<span style="color:var(--red)">Switch와 Match는 필수입니다</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> 추가 중...';
+  if (!sw || !match) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Switch와 Match는 필수입니다'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, '추가 중...');
   try {
     await fetchPost(API_BASE + '/ovn/acl', { switch_name: sw, direction: dir, priority: parseInt(pri), match: match, action: act });
-    if (el) el.innerHTML = '<span style="color:var(--green)">ACL 규칙 추가 완료</span>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, 'ACL 규칙 추가 완료');
     toast('ACL 규칙 추가: ' + escapeHtml(sw));
-  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
 };
 
 window.sgListRules = async function() {
   const el = document.getElementById('sg-rules');
   const sw = document.getElementById('sg-list-switch')?.value;
-  if (!sw) { if (el) el.innerHTML = '<span style="color:var(--red)">Switch 이름을 입력하세요</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> 조회 중...';
+  if (!sw) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Switch 이름을 입력하세요'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, '조회 중...');
   try {
     const r = await fetchGet(API_BASE + '/ovn/acl?switch=' + encodeURIComponent(sw));
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
-    if (list.length === 0) { if (el) el.innerHTML = '<p style="color:var(--fg2);font-size:12px">ACL 규칙 없음</p>'; return; }
+    if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'ACL 규칙 없음'); return; }
     let h = '<table style="font-size:11px"><thead><tr><th>Direction</th><th>Priority</th><th>Match</th><th>Action</th></tr></thead><tbody>';
     list.forEach(a => {
       const entry = typeof a === 'string' ? a : '';
@@ -508,7 +508,7 @@ window.sgListRules = async function() {
     });
     h += '</tbody></table>';
     if (el) el.innerHTML = h;
-  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
 };
 
 /* ═══ GPU MONITORING ═══ */
@@ -516,41 +516,41 @@ window.sgListRules = async function() {
 window.testGpuList = async function() {
   const el = document.getElementById('gpu-list-result');
   if (!el) return;
-  el.innerHTML = '<span class="spinner"></span> GPU 목록 조회 중...';
+  PCV.uxlib.setMsg(el, 'loading', null, 'GPU 목록 조회 중...');
   try {
     const r = await fetchGet(API_BASE + '/gpu/list');
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
-    if (list.length === 0) { el.innerHTML = '<p style="color:var(--fg2);font-size:12px">GPU 디바이스 없음</p>'; return; }
+    if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'GPU 디바이스 없음'); return; }
     let h = '<table style="font-size:11px"><thead><tr><th>PCI</th><th>Name</th><th>Driver</th><th>Type</th></tr></thead><tbody>';
     list.forEach(g => { h += '<tr><td>' + escapeHtml(g.pci || g.address || '') + '</td><td>' + escapeHtml(g.name || g.device || '') + '</td><td>' + escapeHtml(g.driver || '') + '</td><td>' + escapeHtml(g.type || '') + '</td></tr>'; });
     h += '</tbody></table>';
     el.innerHTML = h;
-  } catch (e) { el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu list</code></span>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'GPU REST 엔드포인트 미구현. CLI 사용: ', PCV.uxlib.el('code', null, 'pcvctl gpu list')); }
 };
 
 window.gpuPassthrough = async function() {
   const el = document.getElementById('gpu-action-result');
   const pci = document.getElementById('gpu-pci')?.value;
   const vm = document.getElementById('gpu-vm')?.value;
-  if (!pci || !vm) { if (el) el.innerHTML = '<span style="color:var(--red)">PCI 주소와 VM 이름을 입력하세요</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> VFIO 바인딩 중...';
+  if (!pci || !vm) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'PCI 주소와 VM 이름을 입력하세요'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, 'VFIO 바인딩 중...');
   try {
     await fetchPost(API_BASE + '/gpu/passthrough', { pci_address: pci, vm_name: vm });
-    if (el) el.innerHTML = '<span style="color:var(--green)">VFIO 패스스루 완료: ' + escapeHtml(pci) + ' &rarr; ' + escapeHtml(vm) + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, 'VFIO 패스스루 완료: ' + pci + ' → ' + vm);
     toast('GPU Passthrough: ' + escapeHtml(pci));
-  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu passthrough ' + escapeHtml(pci) + ' ' + escapeHtml(vm) + '</code></span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'GPU REST 엔드포인트 미구현. CLI 사용: ', PCV.uxlib.el('code', null, 'pcvctl gpu passthrough ' + pci + ' ' + vm)); }
 };
 
 window.gpuMdevCreate = async function() {
   const el = document.getElementById('gpu-action-result');
   const pci = document.getElementById('gpu-pci')?.value;
-  if (!pci) { if (el) el.innerHTML = '<span style="color:var(--red)">PCI 주소를 입력하세요</span>'; return; }
-  if (el) el.innerHTML = '<span class="spinner"></span> vGPU 생성 중...';
+  if (!pci) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'PCI 주소를 입력하세요'); return; }
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, 'vGPU 생성 중...');
   try {
     await fetchPost(API_BASE + '/gpu/mdev', { pci_address: pci });
-    if (el) el.innerHTML = '<span style="color:var(--green)">vGPU 생성 완료: ' + escapeHtml(pci) + '</span>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, 'vGPU 생성 완료: ' + pci);
     toast('vGPU created: ' + escapeHtml(pci));
-  } catch (e) { if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">GPU REST 엔드포인트 미구현. CLI 사용: <code>pcvctl gpu mdev create ' + escapeHtml(pci) + '</code></span>'; }
+  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'GPU REST 엔드포인트 미구현. CLI 사용: ', PCV.uxlib.el('code', null, 'pcvctl gpu mdev create ' + pci)); }
 };
 
 /* ═══ AUDIT LOG SEARCH ═══ */
@@ -558,7 +558,7 @@ window.gpuMdevCreate = async function() {
 window.doAuditSearch = async function() {
   const el = document.getElementById('audit-results');
   if (!el) return;
-  el.innerHTML = '<span class="spinner"></span> 검색 중...';
+  PCV.uxlib.setMsg(el, 'loading', null, '검색 중...');
   try {
     const u = document.getElementById('audit-user')?.value;
     const m = document.getElementById('audit-method')?.value;
@@ -572,21 +572,21 @@ window.doAuditSearch = async function() {
     const url = API_BASE + '/audit/search?' + qs;
     const r = await fetchGet(url);
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
-    if (list.length === 0) { el.innerHTML = '<p style="color:var(--fg2)">검색 결과 없음</p>'; return; }
+    if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p' }, '검색 결과 없음'); return; }
     let h = '<table style="font-size:11px"><thead><tr><th>시각</th><th>사용자</th><th>메서드</th><th>대상</th><th>결과</th><th>IP</th></tr></thead><tbody>';
     list.forEach(e => {
       h += '<tr><td>' + escapeHtml(e.ts || e.timestamp || '') + '</td><td>' + escapeHtml(e.username || e.user || '') + '</td><td>' + escapeHtml(e.method || e.action || '') + '</td><td>' + escapeHtml(e.target || '') + '</td><td>' + escapeHtml(e.result || e.status || '') + '</td><td>' + escapeHtml(e.src_ip || e.ip || '') + '</td></tr>';
     });
     h += '</tbody></table>';
     el.innerHTML = h;
-  } catch (e) { el.innerHTML = '<span style="color:var(--red)">오류: ' + escapeHtml(e.message) + '</span>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
 };
 
 /* ═══ WEBHOOK DLQ ═══ */
 window.loadWebhookDlq = async function() {
   var el = document.getElementById('dlq-list');
   if (!el) return;
-  el.innerHTML = '<span class="spinner"></span> DLQ 조회 중...';
+  PCV.uxlib.setMsg(el, 'loading', null, 'DLQ 조회 중...');
   try {
     /* REST 우선 시도, 실패 시 RPC 폴백 */
     var r;
@@ -594,7 +594,7 @@ window.loadWebhookDlq = async function() {
       r = await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.list', params:{}, id:'dlq1'});
     }
     var items = Array.isArray(r) ? r : (r.data || r.result || []);
-    if (items.length === 0) { el.innerHTML = '<div class="stat-label" style="color:var(--green)">' + _L('DLQ 비어있음', 'DLQ empty') + '</div>'; return; }
+    if (items.length === 0) { PCV.uxlib.setMsg(el, 'ok', { tag: 'div', cls: 'stat-label' }, _L('DLQ 비어있음', 'DLQ empty')); return; }
     var h = '<table class="tbl" style="font-size:11px"><thead><tr><th>URL</th><th>Payload</th><th>' + _L('시각','Time') + '</th><th></th></tr></thead><tbody>';
     items.forEach(function(d, i) {
       h += '<tr><td>' + esc((d.url || d.webhook_url || '').substring(0, 40)) + '</td>';
@@ -607,20 +607,20 @@ window.loadWebhookDlq = async function() {
     /* DLQ 항목 저장 (개별 재시도용) */
     window._dlqItems = items;
   } catch (e) {
-    el.innerHTML = '<div class="stat-label" style="color:var(--yellow)">' + _L('DLQ 조회 불가', 'DLQ unavailable') + '</div>';
+    PCV.uxlib.setMsg(el, 'warn', { tag: 'div', cls: 'stat-label' }, _L('DLQ 조회 불가', 'DLQ unavailable'));
   }
 };
 
 window.retryWebhookDlq = async function() {
   const el = document.getElementById('dlq-list');
-  if (el) el.innerHTML = '<span class="spinner"></span> 재시도 중...';
+  if (el) PCV.uxlib.setMsg(el, 'loading', null, '재시도 중...');
   try {
     await fetchPost(API_BASE + '/alerts/dlq/retry', {});
     toast('DLQ 전체 재시도 요청 완료');
-    if (el) el.innerHTML = '<p style="color:var(--green);font-size:12px">재시도 요청 전송 완료</p>';
+    if (el) PCV.uxlib.setMsg(el, 'ok', { tag: 'p', size: '12px' }, '재시도 요청 전송 완료');
   } catch (e) {
     toast('DLQ 재시도 실패: ' + e.message, false);
-    if (el) el.innerHTML = '<span style="color:var(--yellow);font-size:12px">DLQ 재시도 엔드포인트 미구현</span>';
+    if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'DLQ 재시도 엔드포인트 미구현');
   }
 };
 
@@ -671,7 +671,7 @@ async function apiKeyList() {
     var r = await fetchGet(API_BASE + '/auth/apikeys');
     var keys = Array.isArray(r) ? r : (r.data || r.result || []);
     if (!Array.isArray(keys) || keys.length === 0) {
-      el.innerHTML = '<p class="color-muted" style="font-size:12px">No API keys. Create one above.</p>';
+      PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'No API keys. Create one above.');
       return;
     }
     var h = '<table style="font-size:11px"><thead><tr><th>Description</th><th>Key (masked)</th><th>Created</th><th>Expires</th><th>Status</th><th></th></tr></thead><tbody>';
@@ -693,7 +693,7 @@ async function apiKeyList() {
     });
     h += '</tbody></table>';
     el.innerHTML = h;
-  } catch (e) { el.innerHTML = '<p class="color-muted" style="font-size:12px">API Keys not available: ' + escapeHtml(e.message) + '</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'API Keys not available: ' + e.message); }
 }
 window.apiKeyList = apiKeyList;
 
@@ -711,7 +711,7 @@ window.apiKeyRevoke = apiKeyRevoke;
 
 /* ═══ DASHBOARD HOME ═══ */
 async function renderDashboard(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   /* 호스트 메트릭 즉시 수집 */
   await collectHostMetrics();
   try {
@@ -1275,7 +1275,7 @@ function toggleSplitView() {
     renderContent();
     const leftContent = cb.innerHTML;
     document.getElementById('split-left').innerHTML = leftContent;
-    document.getElementById('split-right').innerHTML = '<p style="color:var(--fg2);padding:20px">Select content for right pane from the sidebar</p>';
+    PCV.uxlib.setMsg('split-right', 'muted', { tag: 'p', style: 'padding:20px' }, 'Select content for right pane from the sidebar');
     initSplitDivider();
   } else {
     document.getElementById('split-container')?.remove();

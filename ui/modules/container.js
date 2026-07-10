@@ -62,25 +62,24 @@ async function renderContainerList() {
       h += '</div></div>';
     });
     el.innerHTML = h;
-  } catch (e) { el.innerHTML = '<div class="text-xs color-muted" style="padding:8px">Failed to load containers.</div>'; }
+  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'div', cls: 'text-xs color-muted', style: 'padding:8px' }, 'Failed to load containers.'); }
 }
 
 /* ═══ MAIN CONTAINER PANEL ═══ */
 async function renderContainers(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   try {
     const c = await fetchGet(EP.CTR_LIST());
     const l = unwrapList(c);
-    if (l.length === 0) {
-      b.innerHTML = (typeof emptyStatePro === 'function')
-        ? emptyStatePro({
-            icon: '&#9783;',
-            title: _L('컨테이너가 없습니다', 'No containers'),
-            desc: _L('첫 LXC 컨테이너를 만들어보세요. ZFS 백엔드 + cloud-init 자동.', 'Create your first LXC container with ZFS backend.'),
-            ctaLabel: _L('+ 컨테이너 만들기', '+ Create Container'),
-            ctaAction: 'showCtrCreate()'
-          })
-        : '<div class="empty-state"><div class="empty-state-icon">&#9783;</div><div class="empty-state-text">' + t('msg.no_containers') + '</div><button class="btn btn-g" onclick="showCtrCreate()" class="mt-12">+ ' + t('ctr.new') + '</button></div>';
+    if (l.length === 0 && typeof emptyStatePro === 'function') {
+      PCV.uxlib.clearEl(b);
+      b.appendChild(emptyStatePro({
+        icon: '&#9783;',
+        title: _L('컨테이너가 없습니다', 'No containers'),
+        desc: _L('첫 LXC 컨테이너를 만들어보세요. ZFS 백엔드 + cloud-init 자동.', 'Create your first LXC container with ZFS backend.'),
+        ctaLabel: _L('+ 컨테이너 만들기', '+ Create Container'),
+        ctaAction: 'showCtrCreate()'
+      }));
       return;
     }
     let h = '<div style="display:flex;gap:0;height:calc(100vh - 280px);min-height:400px">';
@@ -121,7 +120,7 @@ async function renderContainers(b) {
     h += '</div></div>';
     b.innerHTML = h;
     if (cv) { const tb = document.getElementById('ctr-tab-content'); if (tb) await ctrRenderTab(tb, cv); }
-  } catch (e) { b.innerHTML = '<p class="color-red">' + escapeHtml(e.message) + '</p>'; }
+  } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, e.message); }
 }
 
 /* ═══ CONTAINER TAB RENDERING ═══ */
@@ -178,7 +177,7 @@ async function ctrRenderTab(tb, cv) {
       const nics = unwrapList(r);
       const el = document.getElementById('ctr-nic-list');
       if (el) {
-        if (nics.length === 0) { el.innerHTML = '<p class="color-muted">No NICs configured</p>'; }
+        if (nics.length === 0) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted' }, 'No NICs configured'); }
         else {
           let h = '<table class="table-sticky"><thead><tr><th>Name</th><th>Type</th><th>Bridge</th><th>MAC</th><th>IPv4</th><th>Actions</th></tr></thead><tbody>';
           nics.forEach(nc => {
@@ -197,9 +196,9 @@ async function ctrRenderTab(tb, cv) {
     }
     /* Load routing info */
     if (on) {
-      try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<pre class="stat-label" style="margin:0;white-space:pre-wrap;overflow-x:auto">' + escapeHtml(unwrapData(r).output || '') + '</pre>'; } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<span class="color-muted">Unable to fetch</span>'; }
+      try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<pre class="stat-label" style="margin:0;white-space:pre-wrap;overflow-x:auto">' + escapeHtml(unwrapData(r).output || '') + '</pre>'; } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Unable to fetch'); }
     } else {
-      const ni = document.getElementById('ctr-net-info'); if (ni) ni.innerHTML = '<span class="color-muted">Container is stopped</span>';
+      const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Container is stopped');
     }
   } else if (ctrTab === 'dns') {
     let dns = ''; if (on) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'cat /etc/resolv.conf 2>/dev/null' }); dns = unwrapData(r).output || ''; } catch (e) { if(_DEBUG) console.warn('dns:', e.message); } }
@@ -222,7 +221,7 @@ async function ctrRenderTab(tb, cv) {
       if (sl.length === 0) sh += '<tr><td colspan="2" class="color-muted">' + t('snap.none') + '</td></tr>';
       sl.forEach(s => { const sn = typeof s === 'string' ? s : (s.name || s); sh += '<tr><td>' + escapeHtml(sn) + '</td><td><button class="btn text-9" onclick="ctrSnapRb(\'' + escapeHtml(n) + '\',\'' + escapeHtml(sn) + '\')">Rollback</button> <button class="btn btn-r text-9" onclick="ctrSnapDel(\'' + escapeHtml(n) + '\',\'' + escapeHtml(sn) + '\')">' + t('btn.delete') + '</button></td></tr>'; });
       sh += '</tbody></table>'; document.getElementById('ctr-snap-list').innerHTML = sh;
-    } catch (e) { document.getElementById('ctr-snap-list').innerHTML = '<p class="color-muted">' + t('snap.none') + '</p>'; }
+    } catch (e) { PCV.uxlib.setMsg('ctr-snap-list', null, { tag: 'p', cls: 'color-muted' }, t('snap.none')); }
   } else if (ctrTab === 'notes') {
     tb.innerHTML = '<h3 class="section-title-md">Notes</h3>' + H.card('Container Notes', '<textarea aria-label="Add notes..." id="ctr-notes" style="width:100%;min-height:150px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--fg);padding:10px;font-family:monospace;font-size:12px;resize:vertical" placeholder="Add notes...">' + escapeHtml(localStorage.getItem('ctr-note-' + n) || '') + '</textarea><button class="btn mt-8" onclick="localStorage.setItem(\'ctr-note-' + escapeHtml(n) + '\',document.getElementById(\'ctr-notes\').value);toast(\'' + t('btn.save') + '\')">' + t('btn.save') + '</button>');
   } else if (ctrTab === 'tasks') {
@@ -235,21 +234,21 @@ async function ctrA(n, a) {
   showModal('<h2>' + (a === 'start' ? '&#9654; ' + t('ctr.starting') : '&#9632; ' + t('ctr.stopping')) + '</h2><p class="mb-8"><b class="color-accent">' + n + '</b></p><div class="prog-bar"><div class="prog-fill" id="ctr-prog" class="w-pct-10"></div></div><div class="prog-status" id="ctr-st"><span class="spinner"></span>Sending ' + a + ' command...</div>');
   const pf = document.getElementById('ctr-prog'), ps = document.getElementById('ctr-st');
   try {
-    pf.style.width = '30%'; ps.innerHTML = '<span class="spinner"></span>Waiting for container ' + a + '...';
+    pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting for container ' + a + '...');
     const d = await fetchPost(a === 'start' ? EP.CTR_START(n) : EP.CTR_STOP(n), {});
     pf.style.width = '60%';
-    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(a) + ' failed: ' + escapeHtml(d.error.message || 'Unknown error'); toast(a + ' failed', false); return; }
-    ps.innerHTML = '<span class="spinner"></span>' + escapeHtml(a) + ' completed, refreshing...';
+    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + a + ' failed: ' + (d.error.message || 'Unknown error')); toast(a + ' failed', false); return; }
+    PCV.uxlib.setMsg(ps, 'loading', null, a, ' completed, refreshing...');
     if (a === 'start') {
       for (let i = 0; i < 8; i++) { pf.style.width = (65 + i * 4) + '%'; await new Promise(r => setTimeout(r, 1500));
         try { const c = await fetchGet(EP.CTR_LIST()); const l = unwrapList(c); const ct = l.find(x => x.name === n);
           if (ct && ct.state === 'RUNNING') { const ip = ct.ip_addr || ct.ip || '';
-            if (ip && ip !== 'N/A') { pf.style.width = '100%'; ps.innerHTML = '&#9989; Running — IP: <b class="color-green">' + escapeHtml(ip) + '</b>'; toast(n + ' started (' + ip + ')'); addEvt('LXC Started — ' + n + ', IP: ' + ip); setTimeout(closeModal, 2500); renderContainers(document.getElementById('cb')); return; }
-            ps.innerHTML = '<span class="spinner"></span>Running, waiting for DHCP IP... (' + (i + 1) + '/8)'; } } catch (e) { if(_DEBUG) console.warn('c:', e.message); } }
-      pf.style.width = '100%'; ps.innerHTML = '&#9989; Running (IP pending)'; toast(n + ' started'); addEvt('LXC Started — ' + n + ' (IP pending)');
-    } else { pf.style.width = '100%'; ps.innerHTML = '&#9989; Container stopped'; toast(n + ' stopped'); addEvt('LXC Stopped — ' + n); }
+            if (ip && ip !== 'N/A') { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Running — IP: ', PCV.uxlib.el('b', { class: 'color-green' }, ip)); toast(n + ' started (' + ip + ')'); addEvt('LXC Started — ' + n + ', IP: ' + ip); setTimeout(closeModal, 2500); renderContainers(document.getElementById('cb')); return; }
+            PCV.uxlib.setMsg(ps, 'loading', null, 'Running, waiting for DHCP IP... (', (i + 1), '/8)'); } } catch (e) { if(_DEBUG) console.warn('c:', e.message); } }
+      pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Running (IP pending)'); toast(n + ' started'); addEvt('LXC Started — ' + n + ' (IP pending)');
+    } else { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Container stopped'); toast(n + ' stopped'); addEvt('LXC Stopped — ' + n); }
     setTimeout(() => { closeModal(); renderContainers(document.getElementById('cb')); }, 2e3);
-  } catch (e) { if (pf) pf.style.width = '100%'; if (ps) ps.innerHTML = '&#9989; ' + a + ' requested'; toast(n + ' ' + a); addEvt('LXC ' + a + ' — ' + n); setTimeout(() => { closeModal(); renderContainers(document.getElementById('cb')); }, 2500); }
+  } catch (e) { if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + a + ' requested'); toast(n + ' ' + a); addEvt('LXC ' + a + ' — ' + n); setTimeout(() => { closeModal(); renderContainers(document.getElementById('cb')); }, 2500); }
 }
 
 async function ctrRunCmd(n) {
@@ -268,16 +267,16 @@ async function ctrReboot(n) {
   try {
     if (pf) pf.style.width = '30%';
     await fetchPost(EP.CTR_STOP(n), {});
-    if (pf) pf.style.width = '50%'; if (ps) ps.innerHTML = '<span class="spinner"></span> Waiting...';
+    if (pf) pf.style.width = '50%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting...');
     await new Promise(function(r) { setTimeout(r, 2000); });
-    if (pf) pf.style.width = '70%'; if (ps) ps.innerHTML = '<span class="spinner"></span> Starting...';
+    if (pf) pf.style.width = '70%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Starting...');
     await fetchPost(EP.CTR_START(n), {});
-    if (pf) pf.style.width = '100%'; if (ps) ps.innerHTML = '&#9989; Reboot complete';
+    if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ Reboot complete');
     toast(n + ' rebooted'); addEvt('LXC Reboot — ' + n);
     setTimeout(function() { closeModal(); renderContainers(document.getElementById('cb')); }, 2000);
   } catch (e) {
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) ps.innerHTML = '&#10060; Reboot error: ' + esc(e.message);
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ Reboot error: ' + e.message);
     toast(t('msg.reboot_error'), false);
   }
 }
@@ -288,12 +287,12 @@ async function ctrSnapCreate(n) { var s = await showInputModal(t('snap.name_prom
   try {
     if (pf) pf.style.width = '60%';
     await fetchPost(EP.CTR_SNAPSHOTS(n), { snap_name: s });
-    if (pf) pf.style.width = '100%'; if (ps) ps.innerHTML = '&#9989; ' + t('snap.created') + ': ' + esc(s);
+    if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.created') + ': ' + s);
     toast(t('snap.created') + ': ' + s); addEvt('LXC Snapshot created — ' + n + '@' + s);
     setTimeout(function() { closeModal(); ctrTab = 'snapshots'; renderContainers(document.getElementById('cb')); }, 1500);
   } catch (e) {
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) ps.innerHTML = '&#10060; ' + esc(e.message); toast(e.message, false);
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false);
   }
 }
 async function ctrSnapRb(n, s) { if (!await customConfirm('Rollback', n + ' → ' + s + '?')) return;
@@ -302,12 +301,12 @@ async function ctrSnapRb(n, s) { if (!await customConfirm('Rollback', n + ' → 
   try {
     if (pf) pf.style.width = '60%';
     await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s });
-    if (pf) pf.style.width = '100%'; if (ps) ps.innerHTML = '&#9989; ' + t('snap.reverted');
+    if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.reverted'));
     toast(t('snap.reverted')); addEvt('LXC Snapshot rollback — ' + n + '@' + s);
     setTimeout(function() { closeModal(); renderContainers(document.getElementById('cb')); }, 1500);
   } catch (e) {
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) ps.innerHTML = '&#10060; ' + esc(e.message); toast(e.message, false);
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false);
   }
 }
 async function ctrSnapDel(n, s) { if (!await customConfirm(t('btn.delete'), s + '?')) return;
@@ -316,12 +315,12 @@ async function ctrSnapDel(n, s) { if (!await customConfirm(t('btn.delete'), s + 
   try {
     if (pf) pf.style.width = '60%';
     await fetchDelete(EP.CTR_SNAP_DELETE(n, s));
-    if (pf) pf.style.width = '100%'; if (ps) ps.innerHTML = '&#9989; ' + t('snap.deleted');
+    if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.deleted'));
     toast(t('snap.deleted')); addEvt('LXC Snapshot deleted — ' + n + '@' + s);
     setTimeout(function() { closeModal(); ctrTab = 'snapshots'; renderContainers(document.getElementById('cb')); }, 1500);
   } catch (e) {
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) ps.innerHTML = '&#10060; ' + esc(e.message); toast(e.message, false);
+    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false);
   }
 }
 
@@ -337,12 +336,12 @@ async function doCtrDel(n) {
   const c = document.getElementById('del-ctr-confirm')?.value; if (c !== n) { toast(t('vm.name_mismatch'), false); return; }
   const mc = document.getElementById('mc'); mc.innerHTML = '<h2 class="color-red">&#9888; ' + t('ctr.destroying') + '</h2><p><b class="color-accent">' + escapeHtml(n) + '</b></p><div class="prog-bar"><div class="prog-fill" id="dc-p" class="w-pct-10"></div></div><div class="prog-status" id="dc-s"><span class="spinner"></span>Stopping...</div>';
   const pf = document.getElementById('dc-p'), ps = document.getElementById('dc-s');
-  try { pf.style.width = '30%'; ps.innerHTML = '<span class="spinner"></span>Destroying...';
+  try { pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Destroying...');
     const d = await fetchDelete(EP.CTR_DETAIL(n)).catch(() => ({}));
     pf.style.width = '80%';
-    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(d.error.message); toast(t('btn.delete') + ' failed', false); return; }
-    pf.style.width = '100%'; ps.innerHTML = '&#9989; ' + t('ctr.destroyed'); toast(t('ctr.destroyed')); addEvt('LXC Destroyed — ' + n); selCtr = null; setTimeout(() => { closeModal(); renderContainers(document.getElementById('cb')); }, 1500);
-  } catch (e) { pf.style.width = '100%'; ps.innerHTML = '&#10060; ' + escapeHtml(e.message); toast(e.message, false); }
+    if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + d.error.message); toast(t('btn.delete') + ' failed', false); return; }
+    pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('ctr.destroyed')); toast(t('ctr.destroyed')); addEvt('LXC Destroyed — ' + n); selCtr = null; setTimeout(() => { closeModal(); renderContainers(document.getElementById('cb')); }, 1500);
+  } catch (e) { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false); }
 }
 
 /* ═══ CONTAINER CREATE WIZARD ═══ */

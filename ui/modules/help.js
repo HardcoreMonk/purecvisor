@@ -466,10 +466,21 @@ function toggleKbdHelp() {
   var ov = document.createElement('div');
   ov.id = 'kbd-help-overlay'; ov.className = 'kbd-overlay';
   ov.onclick = function(e) { if (e.target === ov) closeKbdHelp(); };
-  var h = '<div class="kbd-box"><div class="kbd-title">' + _L('키보드 단축키', 'Keyboard Shortcuts') + '</div><div class="kbd-grid">';
-  shortcuts.forEach(function(s) { h += '<div class="kbd-row"><span class="kbd-key">' + s[0] + '</span><span class="kbd-desc">' + s[1] + '</span></div>'; });
-  h += '</div><div class="kbd-close">' + _L('? 또는 Esc 키로 닫기', 'Press ? or Esc to close') + '</div></div>';
-  ov.innerHTML = h; document.body.appendChild(ov);
+  /* ADR-013 DOM-safe: kbd 오버레이를 el()로 조립 (문자열 innerHTML 제거). */
+  var el = PCV.uxlib.el;
+  ov.appendChild(el('div', { class: 'kbd-box' },
+    el('div', { class: 'kbd-title' }, _L('키보드 단축키', 'Keyboard Shortcuts')),
+    el('div', { class: 'kbd-grid' },
+      shortcuts.map(function(s) {
+        return el('div', { class: 'kbd-row' },
+          el('span', { class: 'kbd-key' }, s[0]),
+          el('span', { class: 'kbd-desc' }, s[1])
+        );
+      })
+    ),
+    el('div', { class: 'kbd-close' }, _L('? 또는 Esc 키로 닫기', 'Press ? or Esc to close'))
+  ));
+  document.body.appendChild(ov);
 }
 window.toggleKbdHelp = toggleKbdHelp;
 

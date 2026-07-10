@@ -323,7 +323,7 @@ window.PCV = window.PCV || {};
      * Load config, event queue, and pending actions together. Splitting these
      * requests would let the cards and tables disagree during rapid approvals.
      */
-    b.innerHTML = showSkeleton();
+    showSkeleton(b);
     try {
       var loaded = await Promise.all([
         rpc('security.config.get', {}),
@@ -341,10 +341,15 @@ window.PCV = window.PCV || {};
         selectEvent(currentEventId);
       }
     } catch (e) {
-      b.innerHTML = '<div class="hc"><h4 class="color-red">'
-        + _L('보안 이벤트 로드 실패', 'Failed to load security events')
-        + '</h4><p class="color-muted">' + esc(e.message || '') + '</p>'
-        + '<button class="btn" type="button" data-sec-refresh="1">Retry</button></div>';
+      /* ADR-013 DOM-safe: 에러 카드를 el()로 조립. data-sec-refresh 훅은 유지되어
+       * 이어지는 bindSecurityHandlers(b)가 Retry 버튼을 정상 바인딩한다. */
+      var el = PCV.uxlib.el;
+      PCV.uxlib.clearEl(b);
+      b.appendChild(el('div', { class: 'hc' },
+        el('h4', { class: 'color-red' }, _L('보안 이벤트 로드 실패', 'Failed to load security events')),
+        el('p', { class: 'color-muted' }, e.message || ''),
+        el('button', { class: 'btn', type: 'button', 'data-sec-refresh': '1' }, 'Retry')
+      ));
       bindSecurityHandlers(b);
     }
   }
@@ -386,7 +391,7 @@ window.PCV = window.PCV || {};
     currentEventId = eventId;
     var detail = document.getElementById('security-detail');
     if (!detail) return;
-    detail.innerHTML = showSkeleton();
+    showSkeleton(detail);
     try {
       var ev = await rpc('security.event.get', { event_id: eventId });
       detail.innerHTML = renderEventDetail(ev || {});
@@ -395,7 +400,8 @@ window.PCV = window.PCV || {};
         row.classList.toggle('selected', row.getAttribute('data-sec-event-id') === eventId);
       });
     } catch (e) {
-      detail.innerHTML = '<p class="color-red">' + esc(e.message || '') + '</p>';
+      PCV.uxlib.clearEl(detail);
+      detail.appendChild(PCV.uxlib.el('p', { class: 'color-red' }, e.message || ''));
     }
   }
 

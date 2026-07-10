@@ -20,7 +20,7 @@ function _cloudCleanupTimer() {
 window._cloudCleanupTimer = _cloudCleanupTimer;
 
 async function renderCloudMigration(b) {
-  b.innerHTML = showSkeleton();
+  showSkeleton(b);
   let h = H.section('&#9729; Cloud Migration — AWS EC2 &#8596; PureCVisor');
   h += '<div class="sg grid-2 mb-14">';
 
@@ -66,8 +66,12 @@ async function renderCloudMigration(b) {
     const vl = vmList.length ? vmList : [];
     const sel = document.getElementById('cm-exp-name');
     if (sel && vl.length) {
-      sel.innerHTML = vl.map(v => '<option value="' + escapeHtml(v.name) + '">' + escapeHtml(v.name) + ' (' + v.state + ')</option>').join('');
-    } else if (sel) { sel.innerHTML = '<option value="">No VMs</option>'; }
+      /* ADR-013 DOM-safe: option 요소를 el()로 조립 (텍스트는 TextNode라 escapeHtml 불요). */
+      PCV.uxlib.clearEl(sel);
+      vl.forEach(function(v) {
+        sel.appendChild(PCV.uxlib.el('option', { value: v.name }, v.name + ' (' + v.state + ')'));
+      });
+    } else if (sel) { PCV.uxlib.clearEl(sel); sel.appendChild(PCV.uxlib.el('option', { value: '' }, 'No VMs')); }
   } catch (e) { /* ignore */ }
 
   /* 작업 상태 로드 + 폴링 시작 */
@@ -86,7 +90,8 @@ async function cmLoadJobs() {
     const r = await fetchGet(EP.CLOUD_JOBS());
     const jobs = unwrapList(r);
     if (!Array.isArray(jobs) || jobs.length === 0) {
-      el.innerHTML = '<p class="color-muted" style="font-size:12px">No migration jobs. Start an Import or Export above.</p>';
+      PCV.uxlib.clearEl(el);
+      el.appendChild(PCV.uxlib.el('p', { class: 'color-muted', style: 'font-size:12px' }, 'No migration jobs. Start an Import or Export above.'));
       return;
     }
 
