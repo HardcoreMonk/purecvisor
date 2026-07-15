@@ -1272,7 +1272,7 @@ _pid_file_process_alive(const gchar *pid_path)
  *
  * libvirt의 default 네트워크는 PureCVisor가 만든 dnsmasq PID 파일을 쓰지 않고
  * /var/lib/libvirt/dnsmasq/<network>.conf|pid 형태로 별도 관리합니다.
- * 이 경로를 보지 않으면 실제 virbr0 DHCP가 켜져 있어도 Web/TUI 인벤토리에서
+ * 이 경로를 보지 않으면 실제 virbr0 DHCP가 켜져 있어도 Web 인벤토리에서
  * OFF로 표시됩니다.
  */
 static gboolean

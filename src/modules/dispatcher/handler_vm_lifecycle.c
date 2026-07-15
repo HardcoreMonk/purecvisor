@@ -1158,7 +1158,7 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
     /*
      * 2단계: pure_virt_get_domain() 다형성 검색
      *   - UUID 또는 이름 어느 쪽으로든 VM을 찾을 수 있습니다.
-     *   - REST API는 이름으로, TUI는 UUID로 요청할 수 있어 양쪽 모두 지원합니다.
+     *   - REST/RPC 클라이언트가 이름 또는 UUID로 요청할 수 있어 양쪽 모두 지원합니다.
      */
     virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
 
@@ -2261,7 +2261,7 @@ void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id,
  * [P0-Fix#2,#3] vm.create : 신규 가상 머신(KVM) 생성
  *   Fix#2 : <n> XML 오타 → <name> 수정
  *   Fix#3 : vcpu / memory_mb / disk_size_gb / iso_path / network_bridge
- *           TUI 파라미터 실제 XML 반영 (기존 하드코딩 제거)
+ *           클라이언트 파라미터 실제 XML 반영 (기존 하드코딩 제거)
  *
  * [다른 핸들러와의 차이점]
  *   이 함수는 dispatcher.c에서 직접 호출되며, 다른 핸들러와 달리
@@ -2298,13 +2298,13 @@ gchar *handle_vm_create(JsonObject *params, GError **error) {
         return NULL;
     }
 
-    /* vcpu: TUI 입력값, 기본 2, 최소 1 */
+    /* vcpu: 클라이언트 입력값, 기본 2, 최소 1 */
     gint vcpu = 2;
     if (json_object_has_member(params, "vcpu"))
         vcpu = (gint)json_object_get_int_member(params, "vcpu");
     if (vcpu < 1) vcpu = 1;
 
-    /* memory_mb: TUI 입력값(GiB→MB 변환 후 전달), 기본 2048 MB */
+    /* memory_mb: 클라이언트 입력값(GiB→MB 변환 후 전달), 기본 2048 MB */
     gint64 memory_mb = 2048;
     if (json_object_has_member(params, "memory_mb"))
         memory_mb = json_object_get_int_member(params, "memory_mb");

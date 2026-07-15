@@ -14,7 +14,7 @@
  * ====================================================================
  *  API 계층(src/api/)의 진입점. 데몬 메인 함수에서 uds_server_new()로
  *  서버를 생성하고, uds_server_start()로 소켓 리슨을 시작한다.
- *  클라이언트(pcvctl/pcvtui) 연결이 들어오면 JSON-RPC 요청을 수신하여
+ *  클라이언트(pcvctl) 연결이 들어오면 JSON-RPC 요청을 수신하여
  *  dispatcher.c로 라우팅한다.
  *
  *    main() -> uds_server_new("/var/run/purecvisor/daemon.sock")

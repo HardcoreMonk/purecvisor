@@ -66,7 +66,7 @@ DAEMON_BIN="purecvisorsd"
 SERVICE="purecvisorsd"
 MAKE_TARGET="single"
 info "Edition: Single Edge (${DAEMON_BIN})"
-BINS=("$DAEMON_BIN" pcvctl pcvtui)
+BINS=("$DAEMON_BIN" pcvctl)
 
 # --- Build ---
 if [[ $SKIP_BUILD -eq 0 ]]; then
@@ -87,7 +87,7 @@ if [[ $SKIP_BUILD -eq 0 ]]; then
         fi
     done
     info "Build complete. Binaries:"
-    ls -lh "bin/$DAEMON_BIN" bin/pcvctl bin/pcvtui
+    ls -lh "bin/$DAEMON_BIN" bin/pcvctl
 fi
 
 # --- Pre-deploy: ZFS version check ---
@@ -126,7 +126,7 @@ deploy_node() {
     info "[$name] Deploying to $ip..."
 
     # Upload binaries + UI
-    if ! scp -o ConnectTimeout=5 "bin/$DAEMON_BIN" bin/pcvctl bin/pcvtui \
+    if ! scp -o ConnectTimeout=5 "bin/$DAEMON_BIN" bin/pcvctl \
          "${SSH_USER}@${ip}:/tmp/" 2>/dev/null; then
         error "[$name] SCP failed to $ip"
         return 1
@@ -168,8 +168,11 @@ deploy_node() {
         # 에디션별 공식 바이너리명만 설치한다.
         # legacy 공용 데몬 심링크는 더 이상 기본 호환 경로로 유지하지 않는다.
         sudo cp "/tmp/$DAEMON_BIN" "/usr/local/bin/$DAEMON_BIN"
-        sudo cp /tmp/pcvctl /tmp/pcvtui /usr/local/bin/
-        sudo chmod 755 "/usr/local/bin/$DAEMON_BIN" /usr/local/bin/pcvctl /usr/local/bin/pcvtui
+        sudo cp /tmp/pcvctl /usr/local/bin/
+        sudo chmod 755 "/usr/local/bin/$DAEMON_BIN" /usr/local/bin/pcvctl
+        # TUI 제거(중복 운영표면 정리) — 이전 배포의 stale pcvtui 바이너리 정리.
+        # 남겨두면 미유지 orphan 바이너리가 UDS로 계속 동작해 계약 drift 소지.
+        sudo rm -f /usr/local/bin/pcvtui
         # Deploy Web UI (root files + modules/)
         sudo mkdir -p /usr/local/share/purecvisor/ui/modules
         for ui_file in index.html style.css app.js app.bundle.js i18n.js sw.js manifest.json guide.html guide-content.md icon-192.png icon-512.png; do
@@ -201,7 +204,7 @@ deploy_node() {
             rm -f /tmp/purecvisor.logrotate
         fi
         sudo systemctl start "$SERVICE"
-        rm -f "/tmp/$DAEMON_BIN" /tmp/pcvctl /tmp/pcvtui
+        rm -f "/tmp/$DAEMON_BIN" /tmp/pcvctl
         echo "OK"
 REMOTE_EOF
     then
@@ -239,8 +242,10 @@ if [[ $NO_LOCAL -eq 0 ]]; then
         sudo systemctl stop "$SERVICE" 2>/dev/null || true
         sleep 1
         sudo cp "bin/$DAEMON_BIN" "$INSTALL_DIR/$DAEMON_BIN"
-        sudo cp bin/pcvctl bin/pcvtui "$INSTALL_DIR/"
-        sudo chmod 755 "$INSTALL_DIR/$DAEMON_BIN" "$INSTALL_DIR/pcvctl" "$INSTALL_DIR/pcvtui"
+        sudo cp bin/pcvctl "$INSTALL_DIR/"
+        sudo chmod 755 "$INSTALL_DIR/$DAEMON_BIN" "$INSTALL_DIR/pcvctl"
+        # 이전 배포의 stale pcvtui 정리(TUI 제거)
+        sudo rm -f "$INSTALL_DIR/pcvtui"
         sudo mkdir -p "$UI_DIR/modules"
         for ui_file in index.html style.css app.js app.bundle.js i18n.js sw.js manifest.json guide.html guide-content.md icon-192.png icon-512.png; do
             [ -f "${PROJECT_DIR}/ui/${ui_file}" ] && sudo cp "${PROJECT_DIR}/ui/${ui_file}" "$UI_DIR/"

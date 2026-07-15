@@ -3,6 +3,40 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.2 — 2026-07-14
+
+리뷰-기반 시정 릴리스(PATCH). 데몬 RPC/REST/config 계약은 전부 불변이며, 감사 확증 테마 "보고성공 무동작"에 대한 **ADR-0025 반사실 검증 규율** 도입 + 무동작 스텁 2건 실배선 + 감사 정확성 수정 + TUI(중복 운영 표면) 제거로 구성된다. 검증: 전 커밋 `make single` 0-warning + `make test` **619/0** + `make check-all` **5게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress) + 격리 데몬 효과-테스트(snapshot.verify 8/8 반사실 · vm.batch 6/6 팬아웃·per-VM 감사).
+
+> ⚠️ **인터페이스 제거 + 무동작 스텁 실동작화 포함** — 배포 전 `### Upgrade notes` 확인. 특히: `pcvtui` 바이너리 제거, `backup.snapshot.verify`·`vm.batch`(v1.2.1에 이미 등록된 라우트)가 이제 실제로 동작(옛 no-op 응답 아님), `vm.batch` action whitelist({start,stop}).
+
+### 운영 표면 축소 (TUI 완전 제거)
+- **`pcvtui` 제거** — 터미널 UI(`src/tui`, ~8,528 LOC) + `pcvtui` 바이너리 + Makefile 타깃·deb/deploy/release 참조·게이트의 TUI 소비 추출을 전량 제거(중복 운영 표면 정리). 데몬 RPC·REST·Web UI·`pcvctl` 은 불변. monitor RPC 응답 id `tui-req`→`monitor-fleet` 개명. (부수: main 부터 있던 `ui/sw.js` git 충돌마커/깨진 서비스워커 수정.)
+
+### 무동작 스텁 실배선 (ADR-0025 배선=완료 — v1.2.1 등록 라우트의 no-op → 실효과)
+- **`backup.snapshot.verify`** — 옛 스텁은 zfs 명령 문자열만 조립하고 하드코딩 `exists:true` 반환. 이제 async-result GTask 워커가 `zfs list -t snapshot`(셸 미경유 argv)로 실 존재 판정, 존재 시 `zfs get -H -o value written`(property-read)로 integrity 뒷받침(verified/degraded/missing). CLI `pcvctl snapshot verify` 배선.
+- **`vm.batch`** — 옛 스텁은 action 을 수행하지 않고 "accepted" 만 반환. 이제 whitelist action({start,stop})에 한해 존재하는 각 VM 에 `purecvisor_vm_manager_<action>_async` 팬아웃 + 존재 검증(미존재→rejected[]) + 집계 응답 `{action,accepted[],rejected[]}`. whitelist 밖 action(pause 등)은 `-32602`. CLI `pcvctl vm batch <start|stop> <vm...>` 배선.
+
+### 감사 정확성 수정 (ADR-0025 "보고성공 무동작" 직접 대응)
+- **I-1 `backup.snapshot.verify` 감사 계약** — async-result 인데 `g_async_methods` 미등록이라 디스패처가 dispatch 시점 무조건 `audit "ok"`(param 누락 에러도 "ok")를 남기던 결함. async 등록 + 완료콜백/조기검증 경로에서 실결과 audit(형제 async 핸들러 관례).
+- **M-1 `vm.batch` per-VM 감사** — 팬아웃이 NULL 콜백(fire-and-forget)이라 개별 VM start/stop 실패가 audit·클라 어디에도 노출 안 되던 갭. per-VM 완료 콜백이 `finish()`로 결과 propagate(vm-started/stopped 시그널 emit 계약 복원) 후 per-VM audit.
+
+### CI 계약 게이트 (ADR-0025 — 정적/래칫, 런타임 비영향)
+- **소비-완전성 + 고아 게이트**(`check-rpc-consumers`) — RPC 소비를 전 경로(CLI 리터럴·`security_request` 래퍼·FE generic /rpc·REST 브릿지 `_build_rpc`·gRPC·tests/)에서 추출, "소비 ⊆ 등록" + 고아(등록−소비 ⊆ `contracts/rpc_orphan_baseline.json`) 불변식. 반사실 self-test 5종(위반 주입→FAIL) + dead-candidate 정직 self-check(test-covered 를 dead 로 표기→MISLABEL FAIL). 배선된 2 메서드 baseline 제거로 dead-candidate 0.
+- **ADR-0025** 반사실 검증 규율 문서화 — 모든 통제·게이트는 위반 시 RED 되는 반사실 동반 + 게이트 self-test 의무 + "효과·배선=완료" 정의. 신규 게이트 필수 상속.
+
+### 테스트 실효성 (ADR-0025 자기적용)
+- **I-2** — `snapshot.verify`/`vm.batch` 유닛 테스트가 프로덕션 아닌 복제 로직을 검증하던 것을, 테스트 가능한 로직을 링크 가능한 TU(`src/api/snapshot_verify_probe.{c,h}`·`vm_batch_policy.{c,h}`)로 추출해 데몬+test_runner 양쪽 링크 → 유닛 테스트가 실 프로덕션 함수 호출(nm 로 단일 정의 공유 실증).
+
+### Upgrade notes
+- **`pcvtui` 제거**: 이 릴리스는 `pcvtui` 바이너리를 설치하지 않는다. `.deb` 업그레이드 시 dpkg 가 옛 `pcvtui` 를 자동 제거하며, 수동 배포(`deploy.sh`)도 stale `pcvtui` 를 정리한다. pcvtui 로 하던 작업은 Web UI(`:8080/ui/`)·`pcvctl`·REST API 로 대체.
+- **`backup.snapshot.verify`·`vm.batch` 실동작화**: 두 메서드가 이제 실제 효과를 낸다. 옛 no-op 응답(`exists:true` 고정 / 무조건 accepted)에 의존한 흐름은 없음(원래 무동작 스텁). `vm.batch` 는 `{start,stop}` 만 허용(그 외 `-32602 "unsupported batch action"`), 존재하지 않는 VM 은 `rejected[]`.
+- **런타임 API/config 무변경**: RPC envelope·인증·config 스키마 불변. 게이트는 CI 전용(런타임 비영향).
+
+### 알려진 잔여 (후속 트랙)
+- vm.batch 존재검증이 GMainLoop 동기(단일 노드 허용, 원격/경합 시 워커 이관이 정석 — 후속 리팩터). `g_dispatch_vm_manager` 싱글턴은 단일 디스패처 불변식(다중 인스턴스 시 `-32000` degrade, 크래시 아님).
+- 효과-테스트(bwrap/userns 의존)는 해당 환경 부재 시 SKIP — CI 커버리지 확보는 후속.
+- 별도 트랙: NET-1(dpdk.bind), 게이트 #4(안전통제 효과 테스트), refresh-remint 차단, MED/LOW findings.
+
 ## v1.2.1 — 2026-07-11
 
 v1.2.0 post-release 전수 감사(`docs/operations/2026-07-11-arch-audit-v120.md`)가 확증한 HIGH 6건 중 시정 3건 + 재발 방지 게이트 3건. 전부 하위호환(런타임 API/config 변경 없음; 게이트는 CI 전용). 검증: 전 커밋 `make single` 0-warning + `make test` **614/0** + `make check-all` **5게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress) + 격리 데몬 E2E(시정 3 + DISP-1, 다수 네거티브 컨트롤).

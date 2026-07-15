@@ -21,7 +21,7 @@
  *   2. (Background Thread) 수집 데이터를 새 GHashTable(UUID -> VmMetrics)로 적재
  *   3. (Background Thread) g_main_context_invoke()로 메인 스레드에 새 캐시를 넘김
  *   4. (Main Thread)       기존 캐시 destroy + 포인터 스왑 (단일 스레드라 Mutex 불필요)
- *   5. (Main Thread)       vm-metrics-updated GIO 시그널 emit (TUI 갱신 트리거)
+ *   5. (Main Thread)       vm-metrics-updated GIO 시그널 emit (구독자 갱신 트리거)
  *
  * [핵심 패턴 — Lock-Free 캐시 교체]
  *   - 백그라운드 스레드는 새 GHashTable을 "만들기만" 하고 전역 포인터를 건드리지 않음

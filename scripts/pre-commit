@@ -60,7 +60,7 @@ echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=
 echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
 HAS_CONTRACT_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/cli/purecvisorctl\.c|src/tui/purecvisortui\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/api/rest_server\.c|src/api/grpc_server\.c|src/cli/purecvisorctl\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
 HAS_SYMBOL_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
 HAS_INGRESS_CHANGES=false
@@ -165,7 +165,7 @@ if $HAS_CONTRACT_CHANGES; then
     SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
     RPC_OUT=$(python3 "$SCRIPT_DIR/check_rpc_consumers.py" 2>&1)
     if [ $? -ne 0 ]; then
-        fail "미등록 RPC 메서드 소비 (CLI/TUI/FE 계약 파손 → -32601)"
+        fail "미등록 RPC 메서드 소비 (CLI/FE 계약 파손 → -32601)"
         echo "$RPC_OUT" | tail -20
     else
         pass "$(echo "$RPC_OUT" | tail -1)"

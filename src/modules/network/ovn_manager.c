@@ -954,13 +954,13 @@ pcv_ovn_vm_port_cleanup(const gchar *vm_name, GError **error)
     return ok;
 }
 
-/* ── detail — TUI 인스펙터용 ──────────────────────────────────── */
+/* ── detail — REST API용 ──────────────────────────────────── */
 
 /**
  * pcv_ovn_switch_detail:
  * @name: 논리 스위치 이름
  *
- * TUI 인스펙터 및 REST API용 스위치 상세 정보 조회.
+ * REST API용 스위치 상세 정보 조회.
  *
  * 반환 JsonObject 구조:
  *   {
@@ -1023,7 +1023,7 @@ pcv_ovn_switch_detail(const gchar *name)
  * pcv_ovn_router_detail:
  * @name: 논리 라우터 이름
  *
- * TUI 인스펙터 및 REST API용 라우터 상세 정보 조회.
+ * REST API용 라우터 상세 정보 조회.
  *
  * 반환 JsonObject 구조:
  *   {

@@ -43,7 +43,7 @@
  *   프로비저닝    : setup_encap, auto_provision (클러스터 빌드 전용)
  *   멀티테넌트    : tenant_create/delete
  *   VM 포트       : vm_port_setup/cleanup
- *   상세 조회     : switch_detail, router_detail (TUI 인스펙터용)
+ *   상세 조회     : switch_detail, router_detail (REST API용)
  *   상태          : status
  *
  * [에디션 경계]
@@ -168,7 +168,7 @@ gboolean pcv_ovn_vm_port_setup(const gchar *sw, const gchar *vm_name,
                                 gchar **iface_id_out, GError **error);
 gboolean pcv_ovn_vm_port_cleanup(const gchar *vm_name, GError **error);
 
-/* ---- Detail -- TUI 인스펙터용 상세 조회 ---- */
+/* ---- Detail -- REST API용 상세 조회 ---- */
 JsonObject *pcv_ovn_switch_detail(const gchar *name);   /* 포트 목록 + ACL 목록 */
 JsonObject *pcv_ovn_router_detail(const gchar *name);   /* 포트(MAC/networks) + NAT 목록 */
 

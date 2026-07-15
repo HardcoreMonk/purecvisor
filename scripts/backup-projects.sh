@@ -67,7 +67,6 @@ RSYNC_OPTS=(
     --exclude='*.d'
     --exclude='bin/purecvisorsd'
     --exclude='bin/pcvctl'
-    --exclude='bin/pcvtui'
     --exclude='test_runner'
 )
 

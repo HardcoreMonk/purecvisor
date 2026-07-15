@@ -88,7 +88,7 @@ create_milestone() {
             -f title="$MILESTONE_NAME" \
             -f state="open" \
             -f due_on="2026-03-31T23:59:59Z" \
-            -f description="2026년 3월 스프린트 — 실전 배포 버그 14건 수정 + 기능 6건 구현"
+            -f description="2026년 3월 스프린트 — 실전 배포 버그 11건 수정 + 기능 6건 구현"
         info "마일스톤 '$MILESTONE_NAME' 생성 완료"
     fi
 }
@@ -130,7 +130,7 @@ create_issue() {
 # 버그 이슈 #1 ~ #14
 # ---------------------------------------------------------------------------
 create_bug_issues() {
-    info "=== 버그 이슈 생성 (14건) ==="
+    info "=== 버그 이슈 생성 (11건) ==="
 
     # --- #1 ---
     create_issue \
@@ -248,28 +248,6 @@ BODY
 )" \
         "bug" "P3-minor" "resolved"
 
-    # --- #6 ---
-    create_issue \
-        "[Bug] TUI OVN 탭 깜빡임 현상" \
-        "$(cat <<'BODY'
-## 증상 (Symptoms)
-TUI의 F7 OVN 탭 진입 시 화면이 지속적으로 깜빡임.
-데이터가 갱신될 때마다 전체 화면이 다시 그려짐.
-
-## 원인 (Root Cause)
-OVN 데이터 갱신 루프에서 매 틱마다 `clear()` + 전체 재드로잉 수행.
-ncurses 더블 버퍼링이 적용되지 않음.
-
-## 수정 (Fix)
-변경된 영역만 부분 갱신하도록 최적화.
-`wnoutrefresh()` + `doupdate()` 패턴으로 더블 버퍼링 적용.
-
-## 관련 파일 (Files)
-- `src/tui/tui_ovn.c`
-BODY
-)" \
-        "bug" "P2-major" "resolved"
-
     # --- #7 ---
     create_issue \
         "[Bug] REST exec 필드 매핑 오류" \
@@ -311,29 +289,6 @@ zvol 삭제 시 `-r` 플래그를 추가하여 하위 스냅샷도 함께 삭제
 
 ## 관련 파일 (Files)
 - `src/modules/storage/zfs_driver.c`
-BODY
-)" \
-        "bug" "P2-major" "resolved"
-
-    # --- #9 ---
-    create_issue \
-        "[Bug] TUI VM 생성 위저드 글씨 깨짐" \
-        "$(cat <<'BODY'
-## 증상 (Symptoms)
-TUI에서 VM 생성 위저드 진입 시 입력 필드의 텍스트가 깨지거나 겹침.
-UTF-8 한글 입력 시 커서 위치 불일치.
-
-## 원인 (Root Cause)
-ncursesw의 wide-character 함수 대신 narrow 함수 사용.
-UTF-8 멀티바이트 문자의 화면 폭 계산이 잘못됨.
-
-## 수정 (Fix)
-ncursesw wide-character API(`mvwaddwstr`, `wcswidth`) 사용으로 전환.
-입력 필드의 커서 위치 계산을 바이트 단위에서 컬럼 폭 단위로 변경.
-
-## 관련 파일 (Files)
-- `src/tui/tui_vm.c`
-- `src/tui/tui_main.c`
 BODY
 )" \
         "bug" "P2-major" "resolved"
@@ -433,28 +388,6 @@ BODY
 )" \
         "bug" "P3-minor" "resolved"
 
-    # --- #14 ---
-    create_issue \
-        "[Bug] TUI VM 위저드 입력 데이터 유실" \
-        "$(cat <<'BODY'
-## 증상 (Symptoms)
-TUI VM 생성 위저드에서 여러 필드를 입력 후 다음 단계로 이동하면
-이전 단계의 입력값이 초기화됨. 최종 생성 시 빈 값으로 전달.
-
-## 원인 (Root Cause)
-위저드 단계 전환 시 입력 버퍼가 지역 변수로 선언되어
-스코프를 벗어나면 데이터 소실. 단계별 컨텍스트 구조체에
-입력값을 저장하지 않음.
-
-## 수정 (Fix)
-위저드 전체 수명 동안 유지되는 컨텍스트 구조체에
-각 단계의 입력값을 저장하도록 리팩토링.
-
-## 관련 파일 (Files)
-- `src/tui/tui_vm.c`
-BODY
-)" \
-        "bug" "P2-major" "resolved"
 }
 
 # ---------------------------------------------------------------------------
@@ -469,7 +402,6 @@ create_feature_issues() {
         "$(cat <<'BODY'
 ## 증상 (Symptoms)
 Web UI에 컨테이너 관리 탭이 없어 CLI로만 컨테이너 조작 가능.
-TUI에서는 기본 목록만 표시되고 상세 조작 UI 부재.
 
 ## 원인 (Root Cause)
 컨테이너 UI가 미구현 상태. Web UI에 컨테이너 탭이 없음.
@@ -484,7 +416,6 @@ Proxmox 9.1 스타일의 컨테이너 관리 UI 구현:
 
 ## 관련 파일 (Files)
 - `ui/index.html` (Web UI 컨테이너 탭)
-- `src/tui/tui_container.c` (TUI 컨테이너 뷰)
 BODY
 )" \
         "feature" "resolved"
@@ -581,7 +512,7 @@ libvirt의 `virDomainSuspend`/`virDomainResume` API 호출이 미구현.
 VM pause/resume RPC 메서드 추가:
 - `vm.pause` — virDomainSuspend 호출
 - `vm.resume` — virDomainResume 호출
-- CLI/TUI/REST/Web UI 전체 경로 구현
+- CLI/REST/Web UI 전체 경로 구현
 - 상태 표시에 "paused" 상태 추가
 
 ## 관련 파일 (Files)
@@ -589,7 +520,6 @@ VM pause/resume RPC 메서드 추가:
 - `src/modules/dispatcher/handler_vm_lifecycle.c`
 - `src/api/rest_server.c`
 - `src/cli/pcvctl.c`
-- `src/tui/tui_vm.c`
 - `ui/index.html`
 BODY
 )" \
@@ -651,7 +581,7 @@ main() {
     echo ""
 
     info "=============================================="
-    info "  완료! 총 20개 이슈 처리됨"
+    info "  완료! 총 17개 이슈 처리됨"
     info "  확인: https://github.com/$REPO/issues"
     info "=============================================="
 }

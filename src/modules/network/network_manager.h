@@ -63,7 +63,7 @@ G_BEGIN_DECLS
  * JSON-RPC 디스패처 진입점 -- dispatcher.c else-if 체인에서 호출
  *
  * [주니어 참고 -- 호출 흐름]
- *   1. 클라이언트가 pcvctl/REST/TUI로 "network.create" 요청 전송
+ *   1. 클라이언트가 pcvctl/REST로 "network.create" 요청 전송
  *   2. dispatcher.c 가 메서드명 매칭 -> handle_network_create_request() 호출
  *   3. 핸들러가 파라미터 검증 -> GTask 비동기 실행 (또는 동기 응답)
  *   4. 최종 JSON-RPC 응답이 소켓으로 전송됨

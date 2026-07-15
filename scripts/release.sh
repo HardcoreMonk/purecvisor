@@ -40,7 +40,7 @@ if ! $TAG_ONLY; then
     make release
     SINGLE_SIZE=$(stat -c%s bin/purecvisorsd)
     echo "  purecvisorsd: ${SINGLE_SIZE} bytes"
-    for artifact in purecvisorsd pcvctl pcvtui; do
+    for artifact in purecvisorsd pcvctl; do
         if [ ! -s "bin/${artifact}" ]; then
             echo -e "${RED}Required artifact missing or empty: bin/${artifact}${NC}"
             exit 1
@@ -60,7 +60,7 @@ MANIFEST_CREATED=false
 rm -rf "$RELEASE_DIR"
 mkdir -p "$RELEASE_DIR"
 if ! $TAG_ONLY; then
-    for artifact in purecvisorsd pcvctl pcvtui; do
+    for artifact in purecvisorsd pcvctl; do
         cp "$STAGING_DIR/${artifact}" "$RELEASE_DIR/"
     done
     tar czf "$RELEASE_DIR/purecvisor-single-ui-v${VERSION}.tar.gz" -C ui .

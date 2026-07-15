@@ -70,7 +70,6 @@ tests/integration/test_single_backend_build_boundaries.sh
 ```bash
 strings bin/purecvisorsd | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
 strings bin/pcvctl       | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
-strings bin/pcvtui       | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
 ```
 
 위 명령은 매칭이 없어 `rg` exit code `1`을 반환해야 정상이다. 단, 문서 검증에서는 이 파일과 [ADR_INDEX.md](ADR_INDEX.md)의 경계 설명 문구는 예외로 취급한다.

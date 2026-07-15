@@ -1,19 +1,14 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-# Security Guard surface smoke for local binaries.
-# The CLI help list is the user-facing contract; TUI string checks ensure the
-# menu can still discover the security.event.list RPC after refactors.
+# Security Guard CLI surface smoke for the local binary.
+# The CLI help list is the user-facing contract for the security.* commands.
 
 ROOT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 cd "$ROOT_DIR"
 
 if [[ ! -x bin/pcvctl ]]; then
     echo "missing bin/pcvctl; run make cli first" >&2
-    exit 1
-fi
-if [[ ! -x bin/pcvtui ]]; then
-    echo "missing bin/pcvtui; run make tui first" >&2
     exit 1
 fi
 
@@ -36,14 +31,4 @@ do
     fi
 done
 
-tui_strings="$(strings bin/pcvtui)"
-if ! grep -Fq "Security Guard" <<<"$tui_strings"; then
-    echo "missing TUI Security Guard surface" >&2
-    exit 1
-fi
-if ! grep -Fq "security.event.list" <<<"$tui_strings"; then
-    echo "missing TUI security.event.list RPC surface" >&2
-    exit 1
-fi
-
-echo "security CLI/TUI surface OK"
+echo "security CLI surface OK"

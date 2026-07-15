@@ -13,7 +13,7 @@ window.PCV = window.PCV || {};
 
   /*
    * Security UI is intentionally RPC-backed instead of using ad hoc REST paths:
-   * the CLI, TUI, and browser all exercise the same RBAC, audit, and job result
+   * the CLI and browser both exercise the same RBAC, audit, and job result
    * contracts behind security.*.
    */
   function _L(ko, en) {

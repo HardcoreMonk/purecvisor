@@ -56,6 +56,8 @@
 
 #include "dispatcher.h"
 #include "uds_server.h"
+#include "snapshot_verify_probe.h"  /* I-2: backup.snapshot.verify 존재 프로브 (추출 TU) */
+#include "vm_batch_policy.h"        /* I-2: vm.batch action whitelist 멤버십 (추출 순수 TU) */
 #include "bootstrap/pcv_bootstrap.h"
 #include "../modules/virt/vm_manager.h"
 #include "../modules/virt/cancellable_map.h"  /* A1: vm.create GCancellable 등록 */
@@ -2036,9 +2038,24 @@ purecvisor_dispatcher_get_vm_manager(PureCVisorDispatcher *self)
 
 /* ── GObject 라이프사이클 ─────────────────────────────────────── */
 
+/* vm.batch 팬아웃(ADR-0025 배선=완료)용 프로세스-라이브 vm_manager 참조.
+ * 해시테이블 라우팅 핸들러는 (params,rpc_id,server,connection) 4-param 이라
+ * self->vm_manager 에 접근할 수 없다(vm.create 만 dispatch if 특례로 self 전달).
+ * 계획 Task 3 "may need vm_manager singleton accessor" 에 따라, init/set_connection
+ * 에서 라이브 매니저를 여기 기록하고 _handle_vm_batch 가 읽는다.
+ *
+ * [단일 디스패처 불변식 — M-3] 프로세스당 디스패처 1개를 전제한다. 다중 인스턴스
+ * (테스트)에서 한 인스턴스 finalize 가 이 포인터를 NULL 로 만들면, 살아있는 다른
+ * 인스턴스의 vm.batch 는 -32000 "vm manager unavailable" 로 degrade 한다(크래시
+ * 아님 — 아래 finalize 가드 `g==self->vm_manager` 가 dangling read 를 막고, 모든
+ * 접근이 메인 스레드라 경합 없음). 원격/다중-디스패처 정식 지원 시 uds_server
+ * accessor 로 이관하는 것이 정석(후속 리팩터). */
+static PureCVisorVmManager *g_dispatch_vm_manager = NULL;
+
 /** GObject finalize — vm_manager 참조 해제 후 부모 클래스 체이닝 */
 static void purecvisor_dispatcher_finalize(GObject *object) {
     PureCVisorDispatcher *self = PURECVISOR_DISPATCHER(object);
+    if (g_dispatch_vm_manager == self->vm_manager) g_dispatch_vm_manager = NULL;
     if (self->vm_manager) g_object_unref(self->vm_manager);
     G_OBJECT_CLASS(purecvisor_dispatcher_parent_class)->finalize(object);
 }
@@ -2052,6 +2069,7 @@ static void purecvisor_dispatcher_class_init(PureCVisorDispatcherClass *klass) {
 /** GObject 인스턴스 초기화 — vm_manager를 NULL 연결로 생성 (libvirt 미연결 상태) */
 static void purecvisor_dispatcher_init(PureCVisorDispatcher *self) {
     self->vm_manager = purecvisor_vm_manager_new(NULL);
+    g_dispatch_vm_manager = self->vm_manager;  /* vm.batch 팬아웃용 라이브 참조 */
 }
 
 /** 디스패처 인스턴스 생성 팩토리 함수 */
@@ -2073,6 +2091,7 @@ PureCVisorDispatcher *purecvisor_dispatcher_new(void) {
 void purecvisor_dispatcher_set_connection(PureCVisorDispatcher *self, GVirConnection *conn) {
     if (self->vm_manager) g_object_unref(self->vm_manager);
     self->vm_manager = purecvisor_vm_manager_new(conn);
+    g_dispatch_vm_manager = self->vm_manager;  /* vm.batch 팬아웃용 라이브 참조 갱신 */
 }
 
 /* ══════════════════════════════════════════════════════════════════
@@ -2166,7 +2185,7 @@ static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
 /* ── monitor.fleet ───────────────────────────────────────────────────
  * 전체 VM 상태 + 호스트 리소스를 한 번에 조회합니다 (대시보드 개요용).
  *
- * [호출 시점] Web UI 대시보드 첫 화면 로딩 시, TUI F5 키
+ * [호출 시점] Web UI 대시보드 첫 화면 로딩 시
  * [반환값] VM 목록 + CPU/메모리/디스크 사용률 통합 JSON
  * [주의] handle_monitor_fleet()는 별도 .c 파일(monitor_handler.c)에 구현.
  *   extern 선언으로 참조하며, 반환값(gchar*)은 이미 직렬화된 JSON-RPC 응답 전체.
@@ -3919,7 +3938,69 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* B-1. vm.batch — 배치 작업 (start/stop/delete 배열) */
+/* ── vm.batch whitelist ───────────────────────────────────────────────
+ * whitelist = vm_manager 에 public `_async` fn 이 실존하는 action 만.
+ * start/stop 확인(vm_manager.h:154/173, 시그니처 4-param
+ *   void (PureCVisorVmManager*, const gchar*, GAsyncReadyCallback, gpointer)).
+ * pause/resume/reboot 는 vm_manager 에 `_async` public fn 이 없어 제외
+ *   (handler_vm_lifecycle 는 raw libvirt 직접 경로 — 소켓/GTask 계약이 달라
+ *    fire-and-forget 팬아웃으로 재사용 불가). delete_vm_async 는 실존하지만
+ *   파괴적이라 결정된 whitelist 후보집합(start/stop/pause/resume/reboot) 밖.
+ *
+ * 동기 규약(I-2): "허용" 판정의 **단일 진리원**은 vm_batch_policy.c 의 리스트
+ *   (pcv_vm_batch_action_is_whitelisted)다. 아래 배열은 "허용→vm_manager async
+ *   fn" 매핑이며, policy 리스트와 동기 유지해야 한다(양쪽 모두 {start,stop}).
+ * ─────────────────────────────────────────────────────────────────────── */
+typedef void (*PcvVmBatchAsyncFn)(PureCVisorVmManager *self, const gchar *name,
+                                  GAsyncReadyCallback callback, gpointer user_data);
+typedef gboolean (*PcvVmBatchFinishFn)(PureCVisorVmManager *manager,
+                                       GAsyncResult *res, GError **error);
+static const struct {
+    const gchar        *action;   /* vm.batch RPC action */
+    const gchar        *method;   /* per-VM 감사 메서드명 (M-1) */
+    PcvVmBatchAsyncFn   fn;
+    PcvVmBatchFinishFn  finish;   /* per-VM 완료 결과 propagate (M-1) */
+} PCV_VM_BATCH_WHITELIST[] = {
+    { "start", "vm.start", purecvisor_vm_manager_start_vm_async, purecvisor_vm_manager_start_vm_finish },
+    { "stop",  "vm.stop",  purecvisor_vm_manager_stop_vm_async,  purecvisor_vm_manager_stop_vm_finish  },
+};
+
+/* 팬아웃 per-VM 완료 컨텍스트(M-1): 배치 집계 응답은 이미 전송됐으므로 개별
+ * VM 의 성공/실패는 이 콜백에서만 감사에 남는다(단일 vm.start/stop 과 동형).
+ * 옛 NULL 콜백은 개별 실패를 audit·클라 양쪽에 노출하지 않았다. */
+typedef struct {
+    const gchar        *method;   /* 정적 문자열(whitelist) — 해제 불요 */
+    gchar              *vm;       /* strdup — 콜백에서 해제 */
+    PcvVmBatchFinishFn  finish;
+} VmBatchItemCtx;
+
+static void _vm_batch_action_callback(GObject *source_object,
+                                      GAsyncResult *res, gpointer data)
+{
+    VmBatchItemCtx *c = data;
+    GError *err = NULL;
+    /* finish() 가 결과를 propagate 하고(성공 시 vm-started/stopped 시그널 emit)
+     * 태스크 내부 상태를 정리한다. source_object == 태스크를 만든 vm_manager. */
+    gboolean ok = c->finish(PURECVISOR_VM_MANAGER(source_object), res, &err);
+    pcv_audit_log(NULL, c->method, c->vm, ok ? "ok" : "fail",
+                  ok ? 0 : -32000, 0, "local");
+    if (err) g_error_free(err);
+    g_free(c->vm);
+    g_free(c);
+}
+
+/* B-1. vm.batch — whitelist action별 vm_manager async 팬아웃 (ADR-0025 배선=완료)
+ *
+ * 기존 스텁은 action 을 각 VM 에 수행하지 않고 "accepted" 만 반환했다
+ * ("보고성공 무동작", ADR-0025 가 겨냥하는 클래스). 이제 whitelist action 에
+ * 한해, 존재하는 각 VM 에 대해 purecvisor_vm_manager_<action>_async 를 직접
+ * 호출(팬아웃)한다.
+ *   - 핸들러 재호출(vm.start RPC 재invoke) 아님 → 소켓 충돌 회피.
+ *   - 배치는 개별 완료를 기다리지 않고 즉시 집계 accept/reject 응답을 보낸다
+ *     (워커는 각자 conn pool 에서 실행). 개별 VM 완료는 _vm_batch_action_callback
+ *     이 per-VM 로 감사 기록한다(M-1: 옛 NULL 콜백은 개별 실패를 audit·클라
+ *     양쪽에 노출하지 않았다). 실-VM 상태전이는 .50 E2E 로 실증.
+ */
 static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
@@ -3930,18 +4011,85 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "action and vms[] required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* 결과 배열 (즉시 응답, 각 VM은 개별 RPC로 fire-and-forget) */
-    JsonArray *results = json_array_new();
+
+    /* whitelist 게이트: 허용 판정은 policy 리스트(단일 진리원)로 라우팅한다
+     * (vm_batch_policy.c). 허용 밖이면 unsupported batch action. */
+    if (!pcv_vm_batch_action_is_whitelisted(action)) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "unsupported batch action");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+
+    /* 허용 action → vm_manager async fn 매핑 조회. policy 리스트와 fn 배열이
+     * drift 하면(허용인데 fn 부재) 방어적으로 거부한다(정상 경로에선 도달 불가). */
+    PcvVmBatchAsyncFn  action_fn     = NULL;
+    PcvVmBatchFinishFn action_finish = NULL;
+    const gchar       *audit_method  = NULL;
+    for (gsize i = 0; i < G_N_ELEMENTS(PCV_VM_BATCH_WHITELIST); i++) {
+        if (g_strcmp0(action, PCV_VM_BATCH_WHITELIST[i].action) == 0) {
+            action_fn     = PCV_VM_BATCH_WHITELIST[i].fn;
+            action_finish = PCV_VM_BATCH_WHITELIST[i].finish;
+            audit_method  = PCV_VM_BATCH_WHITELIST[i].method;
+            break;
+        }
+    }
+    if (!action_fn) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "batch action fn unavailable");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+
+    /* vm_manager 싱글턴(프로세스 라이브 매니저) — init/set_connection 이 기록 */
+    PureCVisorVmManager *mgr = g_dispatch_vm_manager;
+    if (!mgr) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "vm manager unavailable");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+
+    /* 존재 검증용 libvirt 연결(팬아웃 워커는 각자 conn pool 에서 재획득) */
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "libvirt unavailable");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+
+    JsonArray *accepted = json_array_new();
+    JsonArray *rejected = json_array_new();
     guint len = json_array_get_length(vms);
     for (guint i = 0; i < len && i < 100; i++) {
         const gchar *vm = json_array_get_string_element(vms, i);
-        JsonObject *item = json_object_new();
-        json_object_set_string_member(item, "vm", vm ? vm : "");
-        json_object_set_string_member(item, "status", "accepted");
-        json_array_add_object_element(results, item);
+        if (!vm || !*vm) {
+            JsonObject *rej = json_object_new();
+            json_object_set_string_member(rej, "vm", vm ? vm : "");
+            json_object_set_string_member(rej, "reason", "empty vm name");
+            json_array_add_object_element(rejected, rej);
+            continue;
+        }
+        /* 존재 검증: start_vm_thread_impl 과 동일하게 이름으로 조회 */
+        virDomainPtr dom = virDomainLookupByName(conn, vm);
+        if (!dom) {
+            JsonObject *rej = json_object_new();
+            json_object_set_string_member(rej, "vm", vm);
+            json_object_set_string_member(rej, "reason", "VM not found");
+            json_array_add_object_element(rejected, rej);
+            continue;
+        }
+        virDomainFree(dom);
+        /* 팬아웃: 매니저 async 직접 호출. per-VM 완료 콜백이 개별 결과를 감사(M-1). */
+        VmBatchItemCtx *ictx = g_new0(VmBatchItemCtx, 1);
+        ictx->method = audit_method;      /* 정적 문자열(whitelist) */
+        ictx->vm     = g_strdup(vm);
+        ictx->finish = action_finish;
+        action_fn(mgr, vm, _vm_batch_action_callback, ictx);
+        json_array_add_string_element(accepted, vm);
     }
-    JsonNode *n = json_node_new(JSON_NODE_ARRAY);
-    json_node_take_array(n, results);
+    virt_conn_pool_release(conn);
+
+    /* 1개 집계 응답 {action, accepted[], rejected[]} */
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "action", action);
+    json_object_set_array_member(res, "accepted", accepted);  /* transfer full */
+    json_object_set_array_member(res, "rejected", rejected);  /* transfer full */
+    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
@@ -4034,26 +4182,108 @@ static void _handle_health_deep(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-3. backup.snapshot.verify — 스냅샷 무결성 검증 */
+/* backup.snapshot.verify 존재-검증 프로브(pcv_snapshot_verify_probe)는 데몬과
+ * test_runner 가 둘 다 링크하는 src/api/snapshot_verify_probe.c 로 추출됐다
+ * (I-2 시정: 유닛 테스트가 손복제 대신 실 프로덕션 함수를 호출).
+ * integrity property-read(zfs get written)는 아래 워커에 그대로 둔다. */
+
+/* GTask 컨텍스트. vm.start 는 "accepted" 선전송 후 fire-and-forget 이지만,
+ * verify 는 연결을 ctx 에 ref 보관해 워커 완료 콜백에서 **실제** exists 를 단
+ * 한 번 회신한다(소켓은 그때까지 열린 채 유지된다 — on_read_done 성공 경로는
+ * dispatch 반환 후 소켓을 닫지 않는다). */
+typedef struct {
+    UdsServer         *server;      /* g_object_ref 됨 */
+    GSocketConnection *connection;  /* g_object_ref 됨 — 워커 완료까지 유지 */
+    gchar             *rpc_id;
+    gchar             *snap;        /* dispatch 반환 후 params 는 해제되므로 복사 필수 */
+} SnapshotVerifyCtx;
+
+static void _snapshot_verify_ctx_free(gpointer data)
+{
+    if (!data) return;
+    SnapshotVerifyCtx *ctx = data;
+    g_free(ctx->rpc_id);
+    g_free(ctx->snap);
+    if (ctx->server)     g_object_unref(ctx->server);
+    if (ctx->connection) g_object_unref(ctx->connection);
+    g_free(ctx);
+}
+
+/* 워커 스레드: 블로킹 zfs list 실행 → 실 exists → 결과 JsonObject 반환. */
+static void _snapshot_verify_worker(GTask *task, gpointer src,
+                                    gpointer data, GCancellable *cancellable)
+{
+    (void)src; (void)cancellable;
+    SnapshotVerifyCtx *ctx = data;
+    gboolean exists = pcv_snapshot_verify_probe(ctx->snap);
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "snapshot", ctx->snap);
+    json_object_set_boolean_member(res, "exists", exists);
+    /* integrity: 미존재면 "missing". 존재하면 실 property-read 로 뒷받침한다 —
+     * zfs get -H -o value written <snap> 가 exit 0 이면 "verified"(단순 존재가
+     * 아니라 property 읽기까지 성공), 존재하나 property-read 실패면 "degraded".
+     * (셸 미경유 argv — pcv_snapshot_verify_probe 관례 동일. 블로킹은 워커 스레드.) */
+    const gchar *integrity;
+    if (!exists) {
+        integrity = "missing";
+    } else {
+        const gchar *prop_argv[] = {
+            "zfs", "get", "-H", "-o", "value", "written", ctx->snap, NULL
+        };
+        /* exit 0 == property 읽기 성공. stdout/stderr 불필요(→ NULL). */
+        gboolean prop_ok = pcv_spawn_sync(prop_argv, NULL, NULL, NULL);
+        integrity = prop_ok ? "verified" : "degraded";
+    }
+    json_object_set_string_member(res, "integrity", integrity);
+    g_task_return_pointer(task, res, (GDestroyNotify)json_object_unref);
+}
+
+/* 완료 콜백(메인 루프): 워커의 실결과를 클라이언트로 단 한 번 전송. */
+static void _snapshot_verify_done(GObject *src, GAsyncResult *result,
+                                  gpointer data)
+{
+    (void)src;
+    SnapshotVerifyCtx *ctx = data;
+    JsonObject *res = g_task_propagate_pointer(G_TASK(result), NULL);
+    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(n, res ? res : json_object_new());  /* res 소유권 take */
+    gchar *r = pure_rpc_build_success_response(ctx->rpc_id, n);  /* n 소유권 take */
+    pure_uds_server_send_response(ctx->server, ctx->connection, r);
+    g_free(r);
+    /* 감사(I-1): async-result 라 디스패처는 이 메서드를 audit 하지 않는다
+     * (g_async_methods 등록). 워커의 실결과를 여기서 단 한 번 기록한다 — 형제
+     * async 핸들러(vm.create/vm.clone/rollback) 관례(username=NULL, dur=0, local).
+     * res==NULL 은 워커 태스크 실패(정상 경로 아님)→fail; exists true/false·
+     * integrity 는 정상 결과이므로 ok. */
+    pcv_audit_log(NULL, "backup.snapshot.verify", ctx->snap,
+                  res ? "ok" : "fail", res ? 0 : -32000, 0, "local");
+    /* ctx 는 GTask task-data GDestroyNotify(_snapshot_verify_ctx_free)로 해제 */
+}
+
+/* C-3. backup.snapshot.verify — 스냅샷 존재/무결성 검증 (async-result) */
 static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
     const gchar *snap = params ? json_object_get_string_member_with_default(params, "snapshot", NULL) : NULL;
-    if (!snap) {
+    if (!snap || !*snap) {
         gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "snapshot name required");
-        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        /* 감사(I-1): async 등록 이후 디스패처는 이 메서드를 audit 하지 않는다.
+         * 워커가 뜨기 전 조기 검증 실패 경로는 여기서 직접 fail 을 남긴다. */
+        pcv_audit_log(NULL, "backup.snapshot.verify", "", "fail", -32602, 0, "local");
+        return;
     }
-    /* zfs list -t snapshot → 존재 여부 확인 */
-    gchar *check = g_strdup_printf("zfs list -t snapshot -H -o name %s", snap);
-    (void)check; /* 실제 구현에서는 pcv_spawn_sync 사용 */
-    JsonObject *res = json_object_new();
-    json_object_set_string_member(res, "snapshot", snap);
-    json_object_set_string_member(res, "integrity", "verified");
-    json_object_set_boolean_member(res, "exists", TRUE);
-    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(n, res);
-    gchar *r = pure_rpc_build_success_response(rpc_id, n);
-    pure_uds_server_send_response(server, connection, r); g_free(r); g_free(check);
+    /* 블로킹 zfs list 는 GTask 워커에서. 연결/서버를 ctx 에 ref 보관하고,
+     * 워커 완료 콜백에서 실결과를 회신한다(응답은 콜백에서 단 한 번). */
+    SnapshotVerifyCtx *ctx = g_new0(SnapshotVerifyCtx, 1);
+    ctx->server     = g_object_ref(server);
+    ctx->connection = g_object_ref(connection);
+    ctx->rpc_id     = g_strdup(rpc_id);
+    ctx->snap       = g_strdup(snap);
+    GTask *task = g_task_new(NULL, NULL, _snapshot_verify_done, ctx);
+    g_task_set_task_data(task, ctx, _snapshot_verify_ctx_free);
+    g_task_run_in_thread(task, _snapshot_verify_worker);
+    g_object_unref(task);
 }
 
 /* C-4. jobs.persist.list — 영속 Job 목록 (SQLite cloud_jobs.db 조회) */
@@ -4602,7 +4832,7 @@ static void _handle_vm_event_webhook_list(JsonObject *params, const gchar *rpc_i
 
 /* ════════════════════════════════════════════════════════════════════
  *  AF-C2/AF-C4 — 미구현 CLI RPC 핸들러 배선 (numa/autostart/forecast 등)
- *  CLI/TUI 가 호출하나 서버 미등록이던 7개를 배선하여 -32601 을 해소한다.
+ *  CLI 가 호출하나 서버 미등록이던 7개를 배선하여 -32601 을 해소한다.
  *  실제 backing capability 가 있으면 래핑, 없으면 not_available 플래그로
  *  명시(감사 테마 #1 "보고성공-무동작" 재생산 금지).
  * ════════════════════════════════════════════════════════════════════ */
@@ -6585,6 +6815,9 @@ static void dispatcher_init_routes(void)
         "cloud.export",             /* 동상 */
         "cloud.import.finalize",    /* 동상 (direction=import) */
         "security.action.approve",  /* handler_security.c::security_action_approve_worker */
+        /* Stage 4 — async-result 회신(완료 콜백이 실결과 audit). I-1: 미등록 시
+         * 디스패처가 dispatch 시점 무조건 "ok"(에러 응답도 "ok")를 남겼다. */
+        "backup.snapshot.verify",   /* dispatcher.c::_snapshot_verify_done + 조기검증 경로 */
         NULL
     };
     for (int _i = 0; _async_method_names[_i]; _i++) {

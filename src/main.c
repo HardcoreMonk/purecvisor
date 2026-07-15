@@ -899,7 +899,7 @@ int main(int argc, char *argv[]) {
      * [UDS(Unix Domain Socket)란?]
      *   같은 호스트 내 프로세스 간 통신(IPC)을 위한 소켓입니다.
      *   TCP/IP와 달리 네트워크 스택을 거치지 않아 오버헤드가 적습니다.
-     *   pcvctl(CLI), pcvtui(TUI)가 이 소켓으로 데몬과 통신합니다.
+     *   pcvctl(CLI)가 이 소켓으로 데몬과 통신합니다.
      *
      * [프로토콜]
      *   JSON-RPC 2.0: {"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}

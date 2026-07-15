@@ -14,13 +14,19 @@ ROUTE_RE = re.compile(r'g_hash_table_insert\s*\(\s*g_rpc_routes\s*,\s*"([a-z][a-
 SPECIAL_RE = re.compile(r'g_strcmp0\s*\(\s*method\s*,\s*"([a-z][a-z0-9_.]+)"')
 # 소비 method 리터럴
 CLI_RE = re.compile(r'purectl_send_request\s*\(\s*"([a-z][a-z0-9_.]+)"')
-TUI_RE = re.compile(r'(?:tui_send_request|send_async_rpc)\s*\(\s*"([a-z][a-z0-9_.]+)"')
+# 소비 (CLI security_request 래퍼 — purectl_send_request(method) 우회, 콜사이트는 리터럴)
+SECREQ_RE = re.compile(r'security_request\s*\(\s*"([a-z][a-z0-9_.]+)"')
 FE_RE_A = re.compile(
     r"""jsonrpc['"]?\s*:\s*['"]2\.0['"].{0,400}?method\s*:\s*['"]([a-z][a-z0-9_.]+)['"]""",
     re.DOTALL)
 FE_RE_B = re.compile(
     r"""method\s*:\s*['"]([a-z][a-z0-9_.]+)['"].{0,400}?jsonrpc['"]?\s*:\s*['"]2\.0['"]""",
     re.DOTALL)
+# 소비 (REST 브릿지): _build_rpc("x.y", ...) / _build_rpc_name("x.y", ...)
+REST_RE = re.compile(r'_build_rpc(?:_name)?\s*\(\s*"([a-z][a-z0-9_.]+)"')
+# 소비 (Web UI passthrough 헬퍼): rpc('x.y') / _rpc('x.y') / EP.RPC("x.y").
+# 선행 `_` 허용(selfhealing.js의 _rpc). 앞이 영숫자면 제외(sendrpc 등 오검출 방지).
+FE_HELP_RE = re.compile(r"""(?<![A-Za-z0-9])_?(?:rpc|RPC)\s*\(\s*['"]([a-z][a-z0-9_.]+)['"]""")
 
 
 def strip_comments(s: str) -> str:
@@ -187,4 +193,46 @@ def extract_consumer_sent(src: str, method_re, diag: list = None) -> dict:
             continue  # 할당 미발견 → 키 미귀속(과결합 재발 방지, 보수적)
         keys = {k for (p, vv, k) in setmembers if vv == var and start < p < pos}
         out[meth].update(keys)
+    return out
+
+
+def extract_rest_methods(src: str) -> set:
+    """rest_server.c의 REST→RPC 브릿지 소비 메서드. _build_rpc 인자는 항상 실제 메서드명이라
+    dotless(예: get_vnc_info)도 포함한다 — dot 필터 시 dotless 등록 메서드가 거짓 고아가 된다."""
+    return set(REST_RE.findall(strip_comments(src)))
+
+
+def extract_fe_helper(src: str) -> set:
+    """ui js의 rpc()/EP.RPC() 헬퍼 소비 (제네릭 /rpc passthrough)."""
+    return {m for m in FE_HELP_RE.findall(strip_comments(src)) if "." in m}
+
+
+def extract_grpc_methods(src: str, registered: set) -> set:
+    """grpc_server.c의 dotted 리터럴 중 등록 route에 속하는 것만 (제네릭 UDS 재사용이라 명시 매핑만 정적 가시).
+
+    [한계 — M-5] grpc_server.c 의 임의 dotted 문자열이 등록 메서드명과 우연히
+    일치하면 '소비'로 계산돼 실제 고아를 숨길 수 있다(거짓 소비). 현재
+    grpc_server.c 에는 메서드 dotted 리터럴이 없어(제네릭 UDS 재사용) 이 함수는
+    빈 집합을 반환하며 위험은 이론적이다. grpc 가 명시 메서드 리터럴을 갖게 되면
+    매칭을 소비 컨텍스트(디스패치 호출 인근)로 좁혀야 한다.
+    """
+    lits = re.findall(r'"([a-z][a-z0-9_]+(?:\.[a-z0-9_]+)+)"', strip_comments(src))
+    return {m for m in lits if m in registered}
+
+
+def extract_test_consumed(tests_dir: Path, registered: set) -> set:
+    """tests/ 파일이 참조하는 등록 메서드 (production 소비 아님 — test 커버리지 라벨용)."""
+    out = set()
+    if not tests_dir.exists():
+        return out
+    for p in tests_dir.rglob("*"):
+        if not p.is_file():
+            continue
+        try:
+            t = p.read_text(errors="replace")
+        except Exception:
+            continue
+        for m in re.findall(r"""['"]([a-z][a-z0-9_]+(?:\.[a-z0-9_]+)+)['"]""", t):
+            if m in registered:
+                out.add(m)
     return out

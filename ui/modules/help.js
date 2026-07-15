@@ -38,35 +38,35 @@ function renderHelp(b) {
   function buildHelpData() {
     var data = [
     { cat: _L('VM 관리', 'VM Management'), items: [
-      { cmd: 'vm.list / vm.create / vm.delete', cli: 'pcvctl vm list/create/delete', tui: 'F1', web: _L('VM 라이브러리', 'VM Library'), desc: _L('VM 라이프사이클 — 생성, 시작, 중지, 삭제, 복제, 내보내기 (operator는 소유 VM 한정)', 'VM lifecycle — create, start, stop, delete, clone, export (operators are limited to owned VMs)') },
-      { cmd: 'vm.start / vm.stop / vm.pause / vm.resume', cli: 'pcvctl vm start/stop', tui: 'F1: s/x/p', web: _L('전원 버튼 + 컨텍스트 메뉴', 'Power buttons + Context menu'), desc: _L('전원 제어 (실시간 프로그레스 모달)', 'Power control with real-time progress modal') },
-      { cmd: 'vm.snapshot.create/list/rollback/delete/delete_all', cli: 'pcvctl vm snapshot ...', tui: 'F1: S', web: _L('스냅샷 탭', 'Snapshots tab'), desc: _L('ZFS 스냅샷 CRUD + 일괄 삭제 + 니어라이브', 'ZFS snapshot CRUD + bulk delete + near-live') },
-      { cmd: 'vm.set_vcpu / vm.set_memory / vm.resize_disk', cli: 'pcvctl vm set-vcpu/set-mem', tui: '-', web: _L('설정 모달', 'Settings modal'), desc: _L('핫 리소스 조정', 'Hot resource adjustment') },
-      { cmd: 'device.nic.list/attach/detach', cli: 'pcvctl nic list/add/remove', tui: 'F1: N/+/-', web: _L('NIC 관리자', 'NIC Manager'), desc: _L('NIC 핫플러그', 'NIC hotplug') },
-      { cmd: 'vm.mount_iso / vm.eject', cli: 'pcvctl iso mount/eject', tui: '-', web: _L('설정 > CD', 'Settings > CD'), desc: _L('ISO 마운트/꺼내기', 'ISO mount/eject') },
-      { cmd: 'vm.create (nic_type/pci_addr)', cli: 'pcvctl vm create --nic-type sriov', tui: '-', web: _L('VM 생성 모달', 'VM Create modal'), desc: _L('NIC 타입 선택 (bridge/dpdk/sriov) + PCI 주소', 'NIC type selection (bridge/dpdk/sriov) + PCI address') },
+      { cmd: 'vm.list / vm.create / vm.delete', cli: 'pcvctl vm list/create/delete', web: _L('VM 라이브러리', 'VM Library'), desc: _L('VM 라이프사이클 — 생성, 시작, 중지, 삭제, 복제, 내보내기 (operator는 소유 VM 한정)', 'VM lifecycle — create, start, stop, delete, clone, export (operators are limited to owned VMs)') },
+      { cmd: 'vm.start / vm.stop / vm.pause / vm.resume', cli: 'pcvctl vm start/stop', web: _L('전원 버튼 + 컨텍스트 메뉴', 'Power buttons + Context menu'), desc: _L('전원 제어 (실시간 프로그레스 모달)', 'Power control with real-time progress modal') },
+      { cmd: 'vm.snapshot.create/list/rollback/delete/delete_all', cli: 'pcvctl vm snapshot ...', web: _L('스냅샷 탭', 'Snapshots tab'), desc: _L('ZFS 스냅샷 CRUD + 일괄 삭제 + 니어라이브', 'ZFS snapshot CRUD + bulk delete + near-live') },
+      { cmd: 'vm.set_vcpu / vm.set_memory / vm.resize_disk', cli: 'pcvctl vm set-vcpu/set-mem', web: _L('설정 모달', 'Settings modal'), desc: _L('핫 리소스 조정', 'Hot resource adjustment') },
+      { cmd: 'device.nic.list/attach/detach', cli: 'pcvctl nic list/add/remove', web: _L('NIC 관리자', 'NIC Manager'), desc: _L('NIC 핫플러그', 'NIC hotplug') },
+      { cmd: 'vm.mount_iso / vm.eject', cli: 'pcvctl iso mount/eject', web: _L('설정 > CD', 'Settings > CD'), desc: _L('ISO 마운트/꺼내기', 'ISO mount/eject') },
+      { cmd: 'vm.create (nic_type/pci_addr)', cli: 'pcvctl vm create --nic-type sriov', web: _L('VM 생성 모달', 'VM Create modal'), desc: _L('NIC 타입 선택 (bridge/dpdk/sriov) + PCI 주소', 'NIC type selection (bridge/dpdk/sriov) + PCI address') },
     ]},
     { cat: _L('컨테이너 (LXC)', 'Containers (LXC)'), items: [
-      { cmd: 'container.list/create/start/stop/destroy', cli: 'pcvctl container ...', tui: 'F4', web: _L('컨테이너 라이브러리', 'Container Library'), desc: _L('LXC 라이프사이클 (프로그레스 모달)', 'LXC lifecycle with progress modal') },
-      { cmd: 'container.exec', cli: 'pcvctl container exec', tui: 'F4: E', web: _L('콘솔 탭', 'Console tab'), desc: _L('컨테이너 명령 실행', 'Execute command in container') },
-      { cmd: 'container.snapshot.create/rollback/delete', cli: 'pcvctl container snap ...', tui: 'F4: 3', web: _L('스냅샷 탭', 'Snapshots tab'), desc: _L('컨테이너 ZFS 스냅샷', 'Container ZFS snapshots') },
-      { cmd: 'container.nic.list/attach/detach', cli: 'pcvctl container nic ...', tui: 'F4: N', web: _L('네트워크 탭', 'Network tab'), desc: _L('컨테이너 NIC 관리', 'Container NIC management') },
-      { cmd: 'container.set_limits / set_bandwidth', cli: 'pcvctl container limits', tui: 'F4: L', web: _L('리소스 탭', 'Resources tab'), desc: _L('CPU/메모리 제한, 대역폭 QoS', 'CPU/memory limits, bandwidth QoS') },
-      { cmd: 'container.clone', cli: 'pcvctl container clone', tui: '-', web: _L('컨테이너 탭', 'Container tab'), desc: _L('LXC 컨테이너 클론 (lxc-copy, ZFS 기반)', 'LXC container clone (lxc-copy, ZFS-backed)') },
-      { cmd: 'container.checkpoint/restore', cli: 'pcvctl container checkpoint/restore', tui: '-', web: '-', desc: _L('CRIU 체크포인트/복원', 'CRIU checkpoint/restore') },
+      { cmd: 'container.list/create/start/stop/destroy', cli: 'pcvctl container ...', web: _L('컨테이너 라이브러리', 'Container Library'), desc: _L('LXC 라이프사이클 (프로그레스 모달)', 'LXC lifecycle with progress modal') },
+      { cmd: 'container.exec', cli: 'pcvctl container exec', web: _L('콘솔 탭', 'Console tab'), desc: _L('컨테이너 명령 실행', 'Execute command in container') },
+      { cmd: 'container.snapshot.create/rollback/delete', cli: 'pcvctl container snap ...', web: _L('스냅샷 탭', 'Snapshots tab'), desc: _L('컨테이너 ZFS 스냅샷', 'Container ZFS snapshots') },
+      { cmd: 'container.nic.list/attach/detach', cli: 'pcvctl container nic ...', web: _L('네트워크 탭', 'Network tab'), desc: _L('컨테이너 NIC 관리', 'Container NIC management') },
+      { cmd: 'container.set_limits / set_bandwidth', cli: 'pcvctl container limits', web: _L('리소스 탭', 'Resources tab'), desc: _L('CPU/메모리 제한, 대역폭 QoS', 'CPU/memory limits, bandwidth QoS') },
+      { cmd: 'container.clone', cli: 'pcvctl container clone', web: _L('컨테이너 탭', 'Container tab'), desc: _L('LXC 컨테이너 클론 (lxc-copy, ZFS 기반)', 'LXC container clone (lxc-copy, ZFS-backed)') },
+      { cmd: 'container.checkpoint/restore', cli: 'pcvctl container checkpoint/restore', web: '-', desc: _L('CRIU 체크포인트/복원', 'CRIU checkpoint/restore') },
     ]},
     { cat: _L('네트워크', 'Network'), items: [
-      { cmd: 'network.create/delete/list/info', cli: 'pcvctl network ...', tui: 'F2', web: _L('네트워크 페이지', 'Networks page'), desc: _L('NAT/격리/라우팅/브릿지 네트워크 CRUD', 'NAT/Isolated/Routed/Bridge network CRUD') },
-      { cmd: 'ovn.status/switch.*/router.*/acl.*/nat.*', cli: 'pcvctl ovn ...', tui: 'F7', web: 'OVN SDN', desc: _L('OVN 논리 스위치/라우터, ACL, NAT', 'OVN logical switches, routers, ACL, NAT') },
-      { cmd: 'overlay.list', cli: 'pcvctl overlay list', tui: 'F6: o', web: _L('오버레이 네트워크', 'Overlay Networks'), desc: _L('VXLAN 오버레이 메시', 'VXLAN overlay mesh') },
-      { cmd: 'security_group.*', cli: 'pcvctl sg ...', tui: 'F7: G', web: _L('보안 그룹', 'Security Groups'), desc: _L('NFV 보안 그룹 규칙', 'NFV security group rules') },
+      { cmd: 'network.create/delete/list/info', cli: 'pcvctl network ...', web: _L('네트워크 페이지', 'Networks page'), desc: _L('NAT/격리/라우팅/브릿지 네트워크 CRUD', 'NAT/Isolated/Routed/Bridge network CRUD') },
+      { cmd: 'ovn.status/switch.*/router.*/acl.*/nat.*', cli: 'pcvctl ovn ...', web: 'OVN SDN', desc: _L('OVN 논리 스위치/라우터, ACL, NAT', 'OVN logical switches, routers, ACL, NAT') },
+      { cmd: 'overlay.list', cli: 'pcvctl overlay list', web: _L('오버레이 네트워크', 'Overlay Networks'), desc: _L('VXLAN 오버레이 메시', 'VXLAN overlay mesh') },
+      { cmd: 'security_group.*', cli: 'pcvctl sg ...', web: _L('보안 그룹', 'Security Groups'), desc: _L('NFV 보안 그룹 규칙', 'NFV security group rules') },
     ]},
     { cat: _L('스토리지', 'Storage'), items: [
-      { cmd: 'storage.pool.list/create/destroy/scrub', cli: 'pcvctl storage pool ...', tui: 'F3', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS 풀 관리', 'ZFS pool management') },
-      { cmd: 'storage.zvol.list/create/delete', cli: 'pcvctl storage zvol ...', tui: 'F3: z/Z', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS zvol 관리', 'ZFS zvol management') },
-      { cmd: 'iscsi.target.list', cli: 'pcvctl iscsi list', tui: 'F3: I', web: _L('iSCSI 타겟', 'iSCSI Targets'), desc: _L('iSCSI 타겟 관리', 'iSCSI target management') },
-      { cmd: 'storage.pool.health', cli: 'pcvctl storage pool health', tui: 'F3: h', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS 풀 상태/scrub/용량 모니터링', 'ZFS pool health/scrub/capacity monitoring') },
-      { cmd: 'zfs.promote', cli: 'pcvctl storage promote', tui: '-', web: '-', desc: _L('ZFS 클론 독립화 (promote)', 'ZFS clone promote to independent dataset') },
+      { cmd: 'storage.pool.list/create/destroy/scrub', cli: 'pcvctl storage pool ...', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS 풀 관리', 'ZFS pool management') },
+      { cmd: 'storage.zvol.list/create/delete', cli: 'pcvctl storage zvol ...', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS zvol 관리', 'ZFS zvol management') },
+      { cmd: 'iscsi.target.list', cli: 'pcvctl iscsi list', web: _L('iSCSI 타겟', 'iSCSI Targets'), desc: _L('iSCSI 타겟 관리', 'iSCSI target management') },
+      { cmd: 'storage.pool.health', cli: 'pcvctl storage pool health', web: _L('스토리지 페이지', 'Storage page'), desc: _L('ZFS 풀 상태/scrub/용량 모니터링', 'ZFS pool health/scrub/capacity monitoring') },
+      { cmd: 'zfs.promote', cli: 'pcvctl storage promote', web: '-', desc: _L('ZFS 클론 독립화 (promote)', 'ZFS clone promote to independent dataset') },
     ]},
     ];
     return data;
@@ -74,30 +74,30 @@ function renderHelp(b) {
   window.buildHelpData = buildHelpData;
   var helpDataDetail = [
     { cat: _L('모니터링', 'Monitoring'), items: [
-      { cmd: 'telemetry.host / monitor.fleet', cli: 'pcvctl monitor ...', tui: 'F5', web: _L('모니터링 6탭', 'Monitoring 6 tabs'), desc: _L('CPU/메모리/디스크/네트워크 실시간 메트릭', 'CPU/Mem/Disk/Net real-time metrics') },
-      { cmd: 'alert.config.get/set / alert.history', cli: 'pcvctl alert ...', tui: 'F5: a', web: _L('알림 페이지', 'Alerts page'), desc: _L('알림 엔진 설정 + 이력', 'Alert engine config + history') },
-      { cmd: 'audit.search', cli: 'pcvctl audit ...', tui: 'F5: d', web: _L('감사 로그', 'Audit Log'), desc: _L('감사 로그 검색', 'Audit log search') },
-      { cmd: 'alert.acknowledge / alert.sla', cli: 'pcvctl alert ack/sla', tui: '-', web: _L('알림 페이지', 'Alerts page'), desc: _L('알림 확인(ACK) + VM SLA 추적', 'Alert acknowledge + VM SLA tracking') },
-      { cmd: 'ai.healing.pending/approve/reject', cli: 'pcvctl agent approve/reject', tui: '-', web: _L('모니터링 Overview', 'Monitoring Overview'), desc: _L('자가치유 대기 액션 승인/거절', 'Self-healing pending action approve/reject') },
+      { cmd: 'telemetry.host / monitor.fleet', cli: 'pcvctl monitor ...', web: _L('모니터링 6탭', 'Monitoring 6 tabs'), desc: _L('CPU/메모리/디스크/네트워크 실시간 메트릭', 'CPU/Mem/Disk/Net real-time metrics') },
+      { cmd: 'alert.config.get/set / alert.history', cli: 'pcvctl alert ...', web: _L('알림 페이지', 'Alerts page'), desc: _L('알림 엔진 설정 + 이력', 'Alert engine config + history') },
+      { cmd: 'audit.search', cli: 'pcvctl audit ...', web: _L('감사 로그', 'Audit Log'), desc: _L('감사 로그 검색', 'Audit log search') },
+      { cmd: 'alert.acknowledge / alert.sla', cli: 'pcvctl alert ack/sla', web: _L('알림 페이지', 'Alerts page'), desc: _L('알림 확인(ACK) + VM SLA 추적', 'Alert acknowledge + VM SLA tracking') },
+      { cmd: 'ai.healing.pending/approve/reject', cli: 'pcvctl agent approve/reject', web: _L('모니터링 Overview', 'Monitoring Overview'), desc: _L('자가치유 대기 액션 승인/거절', 'Self-healing pending action approve/reject') },
     ]},
     { cat: _L('클라우드 마이그레이션', 'Cloud Migration'), items: [
-      { cmd: 'vm.import.ec2 / vm.export.ec2', cli: 'pcvctl cloud import/export', tui: 'F6: w', web: _L('클라우드 마이그레이션', 'Cloud Migration'), desc: _L('AWS EC2 ↔ PureCVisor VM 이전', 'AWS EC2 ↔ PureCVisor VM migration') },
-      { cmd: 'vm.import.ec2 (mode=near-live)', cli: 'pcvctl cloud import --mode near-live', tui: '-', web: _L('Import 모드 선택', 'Import Mode selector'), desc: _L('니어라이브 2단계 (Phase 1 + Finalize)', 'Near-Live 2-Phase (Phase 1 + Finalize)') },
-      { cmd: 'cloud.jobs.list / cloud.job.cancel', cli: 'pcvctl cloud jobs/cancel', tui: 'F6: w', web: _L('클라우드 마이그레이션', 'Cloud Migration'), desc: _L('마이그레이션 작업 관리', 'Migration job management') },
+      { cmd: 'vm.import.ec2 / vm.export.ec2', cli: 'pcvctl cloud import/export', web: _L('클라우드 마이그레이션', 'Cloud Migration'), desc: _L('AWS EC2 ↔ PureCVisor VM 이전', 'AWS EC2 ↔ PureCVisor VM migration') },
+      { cmd: 'vm.import.ec2 (mode=near-live)', cli: 'pcvctl cloud import --mode near-live', web: _L('Import 모드 선택', 'Import Mode selector'), desc: _L('니어라이브 2단계 (Phase 1 + Finalize)', 'Near-Live 2-Phase (Phase 1 + Finalize)') },
+      { cmd: 'cloud.jobs.list / cloud.job.cancel', cli: 'pcvctl cloud jobs/cancel', web: _L('클라우드 마이그레이션', 'Cloud Migration'), desc: _L('마이그레이션 작업 관리', 'Migration job management') },
     ]},
     { cat: _L('고급 기능', 'Advanced'), items: [
-      { cmd: 'dpdk.status/bind/unbind/list', cli: 'pcvctl dpdk ...', tui: '-', web: 'DPDK', desc: _L('OVS-DPDK NIC 바인딩', 'OVS-DPDK NIC binding') },
-      { cmd: 'sriov.status/enable/disable/attach/detach', cli: 'pcvctl sriov ...', tui: '-', web: 'SR-IOV', desc: _L('SR-IOV VF 관리', 'SR-IOV VF management') },
-      { cmd: 'gpu.list / gpu.metrics', cli: 'pcvctl gpu ...', tui: 'F6: g', web: 'GPU', desc: _L('GPU 인벤토리 + 메트릭', 'GPU inventory + metrics') },
-      { cmd: 'template.list/create/get/delete', cli: 'pcvctl template ...', tui: 'F6: t', web: _L('템플릿', 'Templates'), desc: _L('VM 템플릿 관리', 'VM template management') },
-      { cmd: 'backup.policy.list/set/delete', cli: 'pcvctl backup ...', tui: 'F3: b', web: _L('백업', 'Backup'), desc: _L('백업 정책 + 이력', 'Backup policy + history') },
-      { cmd: 'agent.config.get/set / agent.history', cli: 'pcvctl agent ...', tui: '-', web: _L('AI 에이전트', 'AI Agent'), desc: _L('AI 에이전트 멀티 프로바이더 합의', 'AI Agent multi-provider consensus') },
+      { cmd: 'dpdk.status/bind/unbind/list', cli: 'pcvctl dpdk ...', web: 'DPDK', desc: _L('OVS-DPDK NIC 바인딩', 'OVS-DPDK NIC binding') },
+      { cmd: 'sriov.status/enable/disable/attach/detach', cli: 'pcvctl sriov ...', web: 'SR-IOV', desc: _L('SR-IOV VF 관리', 'SR-IOV VF management') },
+      { cmd: 'gpu.list / gpu.metrics', cli: 'pcvctl gpu ...', web: 'GPU', desc: _L('GPU 인벤토리 + 메트릭', 'GPU inventory + metrics') },
+      { cmd: 'template.list/create/get/delete', cli: 'pcvctl template ...', web: _L('템플릿', 'Templates'), desc: _L('VM 템플릿 관리', 'VM template management') },
+      { cmd: 'backup.policy.list/set/delete', cli: 'pcvctl backup ...', web: _L('백업', 'Backup'), desc: _L('백업 정책 + 이력', 'Backup policy + history') },
+      { cmd: 'agent.config.get/set / agent.history', cli: 'pcvctl agent ...', web: _L('AI 에이전트', 'AI Agent'), desc: _L('AI 에이전트 멀티 프로바이더 합의', 'AI Agent multi-provider consensus') },
     ]},
     { cat: _L('백업 & 복원', 'Backup & Restore'), items: [
-      { cmd: 'backup.list/set/remove', cli: 'pcvctl backup list/set', tui: 'F3: b', web: _L('백업 페이지', 'Backup page'), desc: _L('백업 정책 CRUD (주기/보존/활성화)', 'Backup policy CRUD (interval/retention/enable)') },
-      { cmd: 'backup.history', cli: 'pcvctl backup history', tui: '-', web: _L('백업 페이지', 'Backup page'), desc: _L('스냅샷 히스토리 조회', 'Snapshot history query') },
-      { cmd: 'backup.restore', cli: 'pcvctl backup restore', tui: '-', web: _L('백업 페이지', 'Backup page'), desc: _L('ZFS 스냅샷 롤백 복원', 'ZFS snapshot rollback restore') },
-      { cmd: 'backup.replicate', cli: 'pcvctl backup replicate', tui: '-', web: '-', desc: _L('ZFS 원격 복제 (SSH, 원격 보존 정책)', 'ZFS remote replication (SSH, remote retention)') },
+      { cmd: 'backup.list/set/remove', cli: 'pcvctl backup list/set', web: _L('백업 페이지', 'Backup page'), desc: _L('백업 정책 CRUD (주기/보존/활성화)', 'Backup policy CRUD (interval/retention/enable)') },
+      { cmd: 'backup.history', cli: 'pcvctl backup history', web: _L('백업 페이지', 'Backup page'), desc: _L('스냅샷 히스토리 조회', 'Snapshot history query') },
+      { cmd: 'backup.restore', cli: 'pcvctl backup restore', web: _L('백업 페이지', 'Backup page'), desc: _L('ZFS 스냅샷 롤백 복원', 'ZFS snapshot rollback restore') },
+      { cmd: 'backup.replicate', cli: 'pcvctl backup replicate', web: '-', desc: _L('ZFS 원격 복제 (SSH, 원격 보존 정책)', 'ZFS remote replication (SSH, remote retention)') },
     ]},
   ];
   helpData = helpData.concat(helpDataDetail);
@@ -107,7 +107,6 @@ function renderHelp(b) {
         return el('tr', { 'data-search': (i.cmd + ' ' + i.cli + ' ' + i.desc).toLowerCase() },
           el('td', { style: 'color:var(--accent);font-family:var(--font-mono);font-size:11px' }, i.cmd),
           el('td', { style: 'font-size:11px' }, i.cli),
-          el('td', null, i.tui),
           el('td', null, i.web),
           el('td', { class: 'color-muted' }, i.desc));
       }));
@@ -115,7 +114,7 @@ function renderHelp(b) {
         el('h4', { class: 'color-accent' }, cat.cat),
         el('table', { style: 'font-size:12px' },
           el('thead', null, el('tr', null,
-            el('th', null, 'RPC'), el('th', null, 'CLI'), el('th', null, 'TUI'), el('th', null, 'Web UI'), el('th', null, _L('설명', 'Description')))),
+            el('th', null, 'RPC'), el('th', null, 'CLI'), el('th', null, 'Web UI'), el('th', null, _L('설명', 'Description')))),
           tbody));
     }));
   var stats = el('div', { class: 'sg grid-3' },
@@ -246,7 +245,7 @@ function renderServiceGuide(b) {
     { title: _L('아키텍처', 'Architecture'), icon: '🏗', sections: [
       { sub: _L('시스템 개요', 'System Overview'), content:
         el('pre', { style: 'background:var(--bg);padding:12px;border-radius:6px;font-size:11px;color:var(--accent);overflow-x:auto' },
-          _L('클라이언트', 'Client') + ' (pcvctl / pcvtui / Web UI / REST API)\n'
+          _L('클라이언트', 'Client') + ' (pcvctl / Web UI / REST API)\n'
           + '         |\n'
           + '   UDS ' + _L('서버', 'Server') + ' (JSON-RPC 2.0) | REST ' + _L('서버', 'Server') + ' (HTTP+JWT)\n'
           + '         |\n'

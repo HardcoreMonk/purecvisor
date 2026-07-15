@@ -991,6 +991,51 @@ void cmd_snapshot_delete(int argc, char *argv[]) {
     g_free(r);
 }
 
+/** cmd_snapshot_verify - ZFS 스냅샷 존재/무결성 검증. backup.snapshot.verify RPC. */
+void cmd_snapshot_verify(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl snapshot verify <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "snapshot", argv[2]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("backup.snapshot.verify", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) { g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET)); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL) && json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err_obj = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] COMMAND REJECTED [%lld]: %s%s\n",
+                ce(CYBER_RED),
+                (long long)json_object_get_int_member(err_obj, "code"),
+                json_object_get_string_member(err_obj, "message"),
+                ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject  *res       = json_object_get_object_member(root, "result");
+            gboolean     exists    = json_object_get_boolean_member(res, "exists");
+            const gchar *integrity = json_object_has_member(res, "integrity")
+                    ? json_object_get_string_member(res, "integrity") : "unknown";
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                printf("%s\t%s\t%s\n", argv[2], exists ? "true" : "false", integrity);
+            } else {
+                printf("%s%s[%s] SNAPSHOT %s: exists=%s integrity=%s%s\n",
+                    cc(exists ? CYBER_GREEN : CYBER_RED), cc(CYBER_BOLD),
+                    exists ? "+" : "!", argv[2],
+                    exists ? "true" : "false", integrity,
+                    cc(CYBER_RESET));
+            }
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
 /* ════════════════════════════════════════════════════════════════════
  *  모니터링 명령
  * ════════════════════════════════════════════════════════════════════ */
@@ -2013,7 +2058,7 @@ void cmd_ovn_router(int argc, char *argv[]) {
  *   "list" → ovn.nat.list RPC (argv[3]=라우터 이름)
  *            결과는 문자열 배열 (ovn-nbctl lr-nat-list 출력 라인)
  *
- * NAT 규칙 추가/삭제는 현재 CLI 미구현 (TUI에서 지원).
+ * NAT 규칙 추가/삭제는 현재 CLI 미구현 (list 조회만 제공).
  */
 void cmd_ovn_nat(int argc, char *argv[]) {
     if (argc < 3) {
@@ -4498,11 +4543,68 @@ void cmd_job_list(int argc __attribute__((unused)), char *argv[] __attribute__((
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_batch_execute - 배치 실행 (플레이스홀더). batch.execute RPC. */
-void cmd_batch_execute(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
-    printf("%sUsage: pcvctl batch execute\n"
-           "  Sends batch.execute RPC (placeholder — pipe JSON array to stdin)%s\n",
-        cc(CYBER_YELLOW), cc(CYBER_RESET));
+/** cmd_batch_execute - 다중 VM에 whitelist action 팬아웃 실행. vm.batch RPC.
+ *  action whitelist(서버 실측)는 start/stop — 그 외는 -32602 "unsupported batch action"
+ *  으로 거부되며, 그 에러를 그대로 사용자에게 노출한다. */
+void cmd_batch_execute(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm batch <start|stop> <vm1> <vm2> ...\n"
+               "  action: start | stop (server-whitelisted)%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p   = json_object_new();
+    JsonArray  *vms = json_array_new();
+    json_object_set_string_member(p, "action", argv[2]);
+    for (int i = 3; i < argc; i++)
+        json_array_add_string_element(vms, argv[i]);
+    json_object_set_array_member(p, "vms", vms);
+
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.batch", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) { g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET)); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL) && json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err_obj = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] COMMAND REJECTED [%lld]: %s%s\n",
+                ce(CYBER_RED),
+                (long long)json_object_get_int_member(err_obj, "code"),
+                json_object_get_string_member(err_obj, "message"),
+                ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject *res      = json_object_get_object_member(root, "result");
+            JsonArray  *accepted = json_object_has_member(res, "accepted")
+                    ? json_object_get_array_member(res, "accepted") : NULL;
+            JsonArray  *rejected = json_object_has_member(res, "rejected")
+                    ? json_object_get_array_member(res, "rejected") : NULL;
+            guint na = accepted ? json_array_get_length(accepted) : 0;
+            guint nr = rejected ? json_array_get_length(rejected) : 0;
+
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                printf("%s\t%u\t%u\n", argv[2], na, nr);
+            } else {
+                printf("%s%s[+] BATCH %s: accepted=%u rejected=%u%s\n",
+                    cc(CYBER_GREEN), cc(CYBER_BOLD), argv[2], na, nr, cc(CYBER_RESET));
+                for (guint i = 0; i < na; i++)
+                    printf("  %s[+] %s%s\n", cc(CYBER_GREEN),
+                        json_array_get_string_element(accepted, i), cc(CYBER_RESET));
+                for (guint i = 0; i < nr; i++) {
+                    JsonObject *rj = json_array_get_object_element(rejected, i);
+                    printf("  %s[!] %s: %s%s\n", cc(CYBER_RED),
+                        json_object_get_string_member(rj, "vm"),
+                        json_object_get_string_member(rj, "reason"),
+                        cc(CYBER_RESET));
+                }
+            }
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
 }
 
 /** cmd_prometheus_sd - Prometheus 서비스 디스커버리. prometheus.sd RPC. */
@@ -6705,6 +6807,7 @@ static CommandRoute routes[] = {
     {"snapshot","list",            cmd_snapshot_list,            "List ZFS snapshots for a VM"},
     {"snapshot","rollback",        cmd_snapshot_rollback,        "Rollback to a ZFS snapshot"},
     {"snapshot","delete",          cmd_snapshot_delete,          "Delete a ZFS snapshot"},
+    {"snapshot","verify",          cmd_snapshot_verify,          "Verify ZFS snapshot exists"},
     {"snapshot","schedule-status", cmd_snapshot_schedule_status, "Snapshot schedule status"},
     /* ── 모니터링 ── */
     {"monitor","metrics",   cmd_monitor_metrics,   "VM CPU/MEM usage"},
@@ -6790,7 +6893,7 @@ static CommandRoute routes[] = {
     {"billing","report",     cmd_billing_report,     "VM billing report"},
     /* ── Phase 2: Advanced ── */
     {"job","list",           cmd_job_list,           "List async jobs"},
-    {"batch","execute",      cmd_batch_execute,      "Batch execute (placeholder)"},
+    {"vm","batch",           cmd_batch_execute,      "Batch start/stop multiple VMs"},
     {"prometheus","sd",      cmd_prometheus_sd,      "Prometheus service discovery"},
     {"webhook","list",       cmd_webhook_list,       "Event webhook list"},
     {"alert","actions",      cmd_alert_actions,      "Alert action list"},

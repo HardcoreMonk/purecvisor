@@ -110,7 +110,7 @@ G_BEGIN_DECLS
  * [cpu_time_ns 활용법 — CPU 사용률(%) 계산]
  *   누적값이므로 CPU 사용률(%)을 구하려면 두 시점의 차이를 이용해야 한다:
  *     cpu% = (cpu_time_ns_현재 - cpu_time_ns_이전) / (경과시간_ns) * 100
- *   TUI(pcvtui)에서 이 공식으로 VM별 CPU 사용률 막대 그래프를 그린다.
+ *   Web UI에서 이 공식으로 VM별 CPU 사용률 막대 그래프를 그린다.
  *
  * [rx_bytes / tx_bytes 활용법 — 네트워크 전송률]
  *   마찬가지로 누적값이므로, 두 시점의 차이를 수집 간격으로 나누면

@@ -18,7 +18,7 @@
  *
  * [참고]
  *   monitor.fleet의 출력은 REST /metrics 엔드포인트(Prometheus text format)와
- *   TUI HOST 탭 양쪽에서 소비됩니다. 필드 변경 시 양쪽 호환성을 확인하세요.
+ *   Web UI 대시보드 양쪽에서 소비됩니다. 필드 변경 시 양쪽 호환성을 확인하세요.
  */
 
 #ifndef PURECVISOR_HANDLER_MONITOR_H

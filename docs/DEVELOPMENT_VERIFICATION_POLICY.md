@@ -162,20 +162,20 @@ git diff --check
 
 ### 4.8 `security.*` HIDS/HIPS 변경
 
-`security.*` RPC, `src/modules/security/`, Security Events UI, CLI/TUI 보안 표면,
+`security.*` RPC, `src/modules/security/`, Security Events UI, CLI 보안 표면,
 baseline, HIPS action, security DB schema를 바꾸면 Level 1에 다음을 포함한다.
 
 ```bash
 make test
 make check-rbac
-bash tests/integration/test_security_cli_tui_surface.sh
+bash tests/integration/test_security_cli_surface.sh
 git diff --check
 ```
 
 - security event JSON roundtrip 테스트
 - baseline refresh audit 기록 테스트
 - approve/dismiss RBAC 테스트
-- `pcvctl security ...` 명령군과 `pcvtui` Security Guard 단축키 표면 테스트
+- `pcvctl security ...` 명령군 표면 테스트
 
 fire-and-forget worker를 새로 추가하면 ADR-0018에 따라 `scripts/check_audit_placement.py`와
 `scripts/check_ova_async_result.py`도 실행한다.
@@ -302,13 +302,13 @@ make check-dead-exports
 
 ### 4.13 RPC param-key 계약 게이트
 
-dispatcher 핸들러, CLI/TUI 소비 콜사이트, 또는 `contracts/rpc_params*.json`/게이트 스크립트를 바꾸면 Level 1에 다음 검증을 포함한다.
+dispatcher 핸들러, CLI 소비 콜사이트, 또는 `contracts/rpc_params*.json`/게이트 스크립트를 바꾸면 Level 1에 다음 검증을 포함한다.
 
 ```bash
 make check-rpc-param-contract
 ```
 
-- `check-rpc-param-contract`: RPC param-key 계약(진리원 `contracts/rpc_params.json`, 래칫 `contracts/rpc_param_baseline.json`). CLI/TUI/FE 전송키 ⊇ 핸들러 required 검사. 설계: `docs/superpowers/specs/2026-07-11-rpc-param-contract-gate-design.md`.
+- `check-rpc-param-contract`: RPC param-key 계약(진리원 `contracts/rpc_params.json`, 래칫 `contracts/rpc_param_baseline.json`). CLI/FE 전송키 ⊇ 핸들러 required 검사. 설계: `docs/superpowers/specs/2026-07-11-rpc-param-contract-gate-design.md`.
 
 ### 4.14 JSON 파싱 초크포인트 게이트
 
@@ -319,6 +319,17 @@ make check-json-ingress
 ```
 
 - `check-json-ingress`: 데몬 경계 5파일의 외부 JSON 파싱이 pcv_rpc_parse_guarded 초크포인트 경유(또는 PCV_PARSE_TRUSTED waiver)인지 검사. 깊이 가드 누락(원격 크래시) 재발 차단. 설계: `docs/superpowers/specs/2026-07-11-json-ingress-chokepoint-gate-design.md`.
+
+### 4.15 RPC 소비-완전성 + 고아 게이트
+
+dispatcher 핸들러 등록, CLI/`rest_server.c`/`grpc_server.c`/Web UI(`ui/*.js`) 소비 콜사이트, 또는 `contracts/rpc_orphan_baseline.json`/게이트 스크립트를 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-rpc-consumers
+```
+
+- `check-rpc-consumers`는 CLI/FE-인라인/FE-passthrough/REST/gRPC 전 경로 소비를 대조하며(소비⊆등록), 등록됐으나 전 경로 미소비인 메서드를 고아로 래칫한다(`contracts/rpc_orphan_baseline.json`). 설계: `docs/superpowers/specs/2026-07-12-rpc-consumer-completeness-orphan-gate-design.md`.
+- **리뷰 체크리스트**: 신규 RPC 핸들러는 실인터페이스 소비자(CLI/FE-인라인/FE-passthrough/REST/gRPC 중 하나)를 동반하거나, 고아 baseline에 사유 주석(`reason`)으로 등재해야 한다 (ADR-0025 배선=완료).
 
 ---
 
@@ -464,7 +475,6 @@ tests/integration/test_single_backend_build_boundaries.sh
 ```bash
 strings bin/purecvisorsd | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
 strings bin/pcvctl       | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
-strings bin/pcvtui       | rg 'purecvisormd|make multi|vm\.migrate|cluster\.|federation\.site'
 ```
 
 위 명령은 매칭이 없어 `rg` exit code `1`을 반환해야 정상이다. 문서 검증에서는 [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md)와 [ADR_INDEX.md](ADR_INDEX.md)의 경계 설명 문구를 예외로 취급한다.

@@ -4,11 +4,11 @@
  *
  * 아키텍처 위치:
  *   main.c가 uds_server_new() + uds_server_start()로 생성/시작합니다.
- *   클라이언트(pcvctl CLI, pcvtui TUI, REST 브릿지)로부터 JSON-RPC 요청을 수신하고,
+ *   클라이언트(pcvctl CLI, REST 브릿지)로부터 JSON-RPC 요청을 수신하고,
  *   dispatcher.c의 purecvisor_dispatcher_dispatch()에 전달합니다.
  *   모든 RPC 요청의 최초 진입점이며, REST API도 결국 이 UDS 소켓을 경유합니다.
  *
- *   [pcvctl/pcvtui] ─┐
+ *   [pcvctl]        ─┐
  *                     ├─ UDS 소켓 ─→ [이 파일] ─→ [디스패처] ─→ [핸들러]
  *   [REST 서버]     ─┘
  *
@@ -758,7 +758,7 @@ void uds_server_set_dispatcher(UdsServer *self, PureCVisorDispatcher *dispatcher
  *
  * 현재 상태: 비활성화 (legacy socket unit disabled)
  * 이유: systemd와 현재 에디션 데몬이 소켓을 동시 소유하면
- *       클라이언트(nc, TUI)의 연결이 거부되는 문제 발생
+ *       클라이언트(nc)의 연결이 거부되는 문제 발생
  * ═══════════════════════════════════════════════════════════════════ */
 /* ─────────────────────────────────────────────
  * _sd_listen_fds — systemd Socket Activation 감지

@@ -9,7 +9,7 @@ import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from rpc_extract import (read, strip_comments, is_source_js,
-    CLI_RE, TUI_RE, extract_method_to_fn, extract_fn_body,
+    CLI_RE, extract_method_to_fn, extract_fn_body,
     extract_handler_required, extract_consumer_sent)
 
 ROOT = Path(__file__).resolve().parent.parent
@@ -18,7 +18,6 @@ DISPATCHER = ROOT / "src" / "api" / "dispatcher.c"
 HANDLER_GLOBS = ["src/modules/dispatcher/handler_*.c", "src/modules/network/network_manager.c",
                  "src/api/dispatcher.c"]
 CLI_C = ROOT / "src" / "cli" / "purecvisorctl.c"
-TUI_C = ROOT / "src" / "tui" / "purecvisortui.c"
 
 
 def _norm_required(required):
@@ -84,7 +83,6 @@ def main() -> int:
         return None
 
     cli_sent = extract_consumer_sent(read(CLI_C), CLI_RE)
-    tui_sent = extract_consumer_sent(read(TUI_C), TUI_RE)
 
     fails, warns = [], []
     for method, spec in registry.items():
@@ -98,7 +96,6 @@ def main() -> int:
             hreq = handler_required(method)
         sent = {}
         if method in cli_sent: sent["cli"] = cli_sent[method]
-        if method in tui_sent: sent["tui"] = tui_sent[method]
         r = diff_method(method, spec, hreq, sent)
         if r["drift"]:
             fails.append(f"DRIFT {method}: registry.required={sorted(map(str,r['drift'][0]))} "

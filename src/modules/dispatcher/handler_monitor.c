@@ -12,7 +12,7 @@
  *   monitor.metrics -> handle_monitor_metrics : 단일 VM의 상세 CPU/메모리/디스크/네트워크 메트릭
  *   monitor.fleet   -> handle_monitor_fleet   : 전체 호스트 + 모든 VM 종합 대시보드
  *     - Prometheus /metrics 엔드포인트(REST)가 이 데이터를 text format으로 노출합니다.
- *     - TUI의 HOST 탭도 이 RPC를 호출합니다.
+ *     - Web UI 대시보드도 이 RPC를 호출합니다.
  *
  * [fire-and-forget 패턴 미사용]
  *   모든 메서드가 동기 응답입니다.
@@ -21,7 +21,7 @@
  * [주의사항]
  *   - 호스트 물리 메트릭은 /proc/meminfo, /proc/stat, sysinfo()에서 직접 수집합니다.
  *   - 디스크 크기 조회 시 블록 디바이스 lseek(SEEK_END) 또는 stat()을 사용합니다.
- *   - monitor.fleet 응답은 Prometheus exporter와 TUI 양쪽에서 사용되므로
+ *   - monitor.fleet 응답은 Prometheus exporter와 Web UI 양쪽에서 사용되므로
  *     필드 추가/삭제 시 양쪽 호환성을 확인해야 합니다.
  *
  * [에러 코드]
@@ -200,12 +200,12 @@ void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *
  *   호출되기 때문입니다:
  *     1. RPC 디스패처 (dispatcher.c) → JSON-RPC 2.0 응답으로 래핑
  *     2. REST /api/v1/metrics (Prometheus exporter) → text format 변환
- *     3. TUI HOST 탭 → 직접 파싱
+ *     3. Web UI 대시보드 → 직접 파싱
  *   따라서 JSON-RPC 래핑 없이 raw JSON을 반환하여 호출자가 용도에 맞게 사용합니다.
  *
  * [반환 JSON 구조]
  *   {
- *     "jsonrpc": "2.0", "id": "tui-req",
+ *     "jsonrpc": "2.0", "id": "monitor-fleet",
  *     "result": {
  *       "fleet": [ { VM 메트릭 배열 } ],
  *       "host":  { 호스트 물리 메트릭 }
@@ -587,7 +587,7 @@ gchar *handle_monitor_fleet(JsonObject *params, GError **error) {
      *
      * [설계 의도]
      *   서버는 /proc/stat의 누적값(jiffies)을 그대로 전송하고,
-     *   UI(Web/TUI)가 이전 값과의 delta를 계산하여 백분율로 변환한다.
+     *   Web UI가 이전 값과의 delta를 계산하여 백분율로 변환한다.
      *   → 서버 측 상태(이전 샘플)를 유지할 필요 없이, 클라이언트가 폴링 간격을
      *     자유롭게 설정할 수 있다.
      *
@@ -908,7 +908,7 @@ gchar *handle_monitor_fleet(JsonObject *params, GError **error) {
     // =================================================================
     JsonObject *rpc_resp = json_object_new();
     json_object_set_string_member(rpc_resp, "jsonrpc", "2.0");
-    json_object_set_string_member(rpc_resp, "id", "tui-req");
+    json_object_set_string_member(rpc_resp, "id", "monitor-fleet");
     
     JsonObject *result_obj = json_object_new();
     json_object_set_array_member(result_obj, "fleet", fleet_array);

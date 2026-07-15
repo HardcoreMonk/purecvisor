@@ -11,7 +11,7 @@
 
 /*
  * Security Guard persistence lives in one local SQLite database so Web UI,
- * CLI/TUI, UDS handlers, audit, and HIPS approval state all read the same
+ * CLI, UDS handlers, audit, and HIPS approval state all read the same
  * event stream. Reads intentionally return empty JSON containers on store
  * failures while G.degraded records that the operator should investigate.
  */
@@ -458,7 +458,7 @@ row_to_event_json(sqlite3_stmt *stmt)
 {
     /*
      * JSON field names are the public Security Events contract. Keep this row
-     * mapper boring and one-to-one with the SELECT list so REST, UDS, CLI/TUI,
+     * mapper boring and one-to-one with the SELECT list so REST, UDS, CLI,
      * and Web UI all observe the same shape.
      */
     JsonObject *obj = json_object_new();

@@ -90,7 +90,7 @@ const char *ce(const char *code) {
  *          json_node_take_object()로 root_obj 소유권을 root_node에 이전
  *   3단계: 페이로드를 소켓에 write_all 전송
  *          g_socket_shutdown(FALSE, TRUE)로 쓰기 EOF 전송
- *          (데몬이 EOF를 받아야 응답을 보냄 — TUI와 다른 프로토콜)
+ *          (데몬이 EOF를 받아야 응답을 보냄 — 단발 요청/응답 프로토콜)
  *   4단계: 8KB 청크로 동적 버퍼 수신 (GByteArray)
  *
  * [주의]

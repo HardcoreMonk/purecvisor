@@ -15,12 +15,14 @@ def test_registry_shape():
 def test_baseline_methods_in_registry():
     for e in BASE["known_consumer_mismatches"]:
         assert e["method"] in REG, f"baseline 메서드 {e['method']}가 레지스트리 부재"
-        assert e["consumer"] in {"cli", "tui", "fe"}, e
+        assert e["consumer"] in {"cli", "fe"}, e
 
 def test_baseline_covers_all_24():
     # 감사 부록 A: -32602 파손 16 + 무시 클래스는 WARN이라 baseline 제외.
+    # TUI 제거(src/tui/ 삭제 + 게이트 TUI_RE 제거)로 tui consumer 7건이
+    # baseline에서 소멸 → 잔여 cli 15건이 새 하한선.
     hard = {(e["method"], e["consumer"]) for e in BASE["known_consumer_mismatches"]}
-    assert len(hard) >= 16, f"부록 A -32602 16건 미달: {len(hard)}"
+    assert len(hard) >= 15, f"TUI 제거 후 cli 15건 미달: {len(hard)}"
 
 
 if __name__ == "__main__":

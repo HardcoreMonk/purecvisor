@@ -13,7 +13,6 @@ HIT_LOG="$(surface_tmpfile test-single-boundary)"
 STRINGS_LOG="$(surface_tmpfile test-single-strings)"
 NM_LOG="$(surface_tmpfile test-single-nm)"
 CLI_STRINGS_LOG="$(surface_tmpfile test-single-cli-strings)"
-TUI_STRINGS_LOG="$(surface_tmpfile test-single-tui-strings)"
 CLI_NM_LOG="$(surface_tmpfile test-single-cli-nm)"
 trap cleanup_surface_tmpfiles EXIT
 
@@ -24,7 +23,6 @@ assert_surface_binary "$BIN"
 dump_surface_strings "$BIN" "$STRINGS_LOG"
 dump_surface_nm "$BIN" "$NM_LOG"
 dump_surface_strings "./bin/pcvctl" "$CLI_STRINGS_LOG"
-dump_surface_strings "./bin/pcvtui" "$TUI_STRINGS_LOG"
 dump_surface_nm "./bin/pcvctl" "$CLI_NM_LOG"
 
 if grep -E 'pcv_cluster_manager_init|pcv_vm_migrate' "$NM_LOG" >"$HIT_LOG"; then
@@ -39,8 +37,8 @@ if grep -E 'cluster\.maintenance\.enter|cluster\.peer\.set|cluster\.config\.push
   exit 1
 fi
 
-if grep -E 'purecvisormd|make multi|cluster\.|federation\.site|vm\.migrate' "$CLI_STRINGS_LOG" "$TUI_STRINGS_LOG" >"$HIT_LOG"; then
-  printf 'FAIL: single CLI/TUI still embeds multi-only strings\n' >&2
+if grep -E 'purecvisormd|make multi|cluster\.|federation\.site|vm\.migrate' "$CLI_STRINGS_LOG" >"$HIT_LOG"; then
+  printf 'FAIL: single CLI still embeds multi-only strings\n' >&2
   cat "$HIT_LOG" >&2
   exit 1
 fi
@@ -63,5 +61,5 @@ fi
 
 printf 'PASS: single binary excludes multi-only symbols\n'
 printf 'PASS: single binary omits multi-only route names\n'
-printf 'PASS: single CLI/TUI omit multi-only strings and symbols\n'
+printf 'PASS: single CLI omit multi-only strings and symbols\n'
 printf 'PASS: single binary retains allowed single-edge networking surface\n'

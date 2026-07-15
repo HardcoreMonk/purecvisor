@@ -2,7 +2,7 @@
 # =============================================================================
 # PureCVisor Single Edge — .deb 패키지 빌드 (make deb 에서 호출)
 # =============================================================================
-# 전제: 릴리스 바이너리(bin/{purecvisorsd,pcvctl,pcvtui})와 UI 번들(ui/app.bundle.js)이
+# 전제: 릴리스 바이너리(bin/{purecvisorsd,pcvctl})와 UI 번들(ui/app.bundle.js)이
 #       이미 빌드되어 있어야 한다. Makefile 의 deb 타깃이 release + ui-bundle 선행.
 #
 # 산출: dist/purecvisor-single_<version>_amd64.deb
@@ -34,7 +34,7 @@ trap 'rm -rf "$STAGE"' EXIT
 echo "[deb] 패키지 $PKG_NAME v$PKG_VER ($ARCH) 조립..."
 
 # ── 선행 산출물 확인 ────────────────────────────────────────────
-for b in bin/purecvisorsd bin/pcvctl bin/pcvtui; do
+for b in bin/purecvisorsd bin/pcvctl; do
     [ -x "$b" ] || { echo "[deb] ERROR: $b 없음 — 먼저 'make release' 실행"; exit 1; }
 done
 [ -f ui/app.bundle.js ] || { echo "[deb] ERROR: ui/app.bundle.js 없음 — 먼저 'make ui-bundle'"; exit 1; }
@@ -46,10 +46,9 @@ mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/etc/systemd/system" \
          "$STAGE/etc/purecvisor"
 
-install -m755 bin/purecvisorsd bin/pcvctl bin/pcvtui "$STAGE/usr/local/bin/"
+install -m755 bin/purecvisorsd bin/pcvctl "$STAGE/usr/local/bin/"
 strip "$STAGE/usr/local/bin/purecvisorsd" \
-      "$STAGE/usr/local/bin/pcvctl" \
-      "$STAGE/usr/local/bin/pcvtui" 2>/dev/null || true
+      "$STAGE/usr/local/bin/pcvctl" 2>/dev/null || true
 
 # UI 자산 (번들/모듈/vendor/에셋)
 cp -a ui/*.js ui/*.html ui/*.css ui/*.md ui/*.json ui/*.png "$STAGE/usr/local/share/purecvisor/ui/" 2>/dev/null || true
@@ -68,7 +67,7 @@ install -m644 packaging/deb/daemon.conf.sample   "$STAGE/etc/purecvisor/daemon.c
 # ── 런타임 라이브러리 Depends 산출 (직접 링크 → dpkg 패키지) ──────
 resolve_deps() {
     local so real pkg
-    ldd bin/purecvisorsd bin/pcvctl bin/pcvtui 2>/dev/null \
+    ldd bin/purecvisorsd bin/pcvctl 2>/dev/null \
         | awk '/=>/{print $3}' | sort -u | while read -r so; do
         [ -e "$so" ] || continue
         real="$(readlink -f "$so")"
@@ -97,7 +96,7 @@ Recommends: openvswitch-switch, ovn-host, zfsutils-linux, cloud-image-utils
 Conflicts: purecvisor-multi
 Homepage: https://purecvisor.example.com
 Description: PureCVisor Single Edge — C23 KVM 하이퍼바이저 오케스트레이터
- 단일 서버 KVM/libvirt 오케스트레이션 데몬(purecvisorsd) + CLI(pcvctl/pcvtui).
+ 단일 서버 KVM/libvirt 오케스트레이션 데몬(purecvisorsd) + CLI(pcvctl).
  관리형 NAT 네트워크(pcvnat0), 호스트 방화벽 자동 공존, 보안 그룹(nftables
  스코프 체인), REST(:8080)/UDS(io_uring) API, Web UI 를 제공한다.
  이 패키지는 Single Edge 공개판이며 클러스터/멀티엣지 기능은 포함하지 않는다.

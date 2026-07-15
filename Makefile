@@ -72,7 +72,7 @@ endif
 # [2-5] Sprint H: CLI 전용 readline 감지
 #
 #   readline 은 CLI(purecvisorctl)의 REPL/히스토리/Tab완성에만 사용.
-#   데몬(purecvisorsd)·TUI(purecvisortui) 빌드에는 영향 없음.
+#   데몬(purecvisorsd) 빌드에는 영향 없음.
 #
 #   CLI_CFLAGS  : src/cli/purecvisorctl.c 컴파일 시 추가
 #   CLI_LDFLAGS : bin/pcvctl 링킹 시 추가
@@ -169,6 +169,8 @@ SINGLE_BOOTSTRAP_SRCS = \
 DAEMON_COMMON_SRCS = \
     src/api/uds_server.c \
     src/api/dispatcher.c \
+    src/api/snapshot_verify_probe.c \
+    src/api/vm_batch_policy.c \
     src/api/drain.c \
     src/api/rest_auth.c \
     src/api/rest_server.c \
@@ -294,6 +296,8 @@ TEST_COMMON_SRCS = \
     src/modules/ai/restart_breaker.c \
     tests/test_apikey.c \
     tests/test_rbac_user_exists.c \
+    tests/test_handler_snapshot_verify.c \
+    tests/test_handler_vm_batch.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
     src/modules/security/security_policy.c \
@@ -304,6 +308,8 @@ TEST_COMMON_SRCS = \
     src/api/rest_middleware.c \
     src/api/rest_auth.c \
     src/api/drain.c \
+    src/api/snapshot_verify_probe.c \
+    src/api/vm_batch_policy.c \
     src/api/hot_reload.c \
     src/modules/dispatcher/rpc_utils.c \
     src/modules/network/dpdk_manager.c \
@@ -328,14 +334,12 @@ TEST_SRCS = \
     $(SINGLE_TEST_SRCS)
 
 CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c
-TUI_SRCS = src/tui/purecvisortui.c src/tui/tui_widgets.c src/tui/tui_rpc.c
 
 # --- [4. 오브젝트 및 의존성 파일 변환] ---
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 TEST_OBJS   = $(TEST_SRCS:.c=.o)
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
-TUI_OBJS    = $(TUI_SRCS:.c=.o)
-DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d) $(TUI_SRCS:.c=.d)
+DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
 
 # 헤더 의존 자동 추적: -MMD 로 생성된 .d 를 실제로 include 해야 헤더(예:
 # version.h) 변경이 재컴파일을 트리거한다. 누락 시 헤더만 바꾼 증분 빌드가
@@ -345,15 +349,15 @@ DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d) $(TUI_SR
 
 ALL_DAEMON_SRCS = $(DAEMON_SRCS)
 ALL_TEST_SRCS = $(TEST_SRCS)
-ALL_EDITION_OBJS = $(ALL_DAEMON_SRCS:.c=.o) $(ALL_TEST_SRCS:.c=.o) $(CLI_SRCS:.c=.o) $(TUI_SRCS:.c=.o)
-ALL_EDITION_DEPS = $(ALL_DAEMON_SRCS:.c=.d) $(ALL_TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d) $(TUI_SRCS:.c=.d)
+ALL_EDITION_OBJS = $(ALL_DAEMON_SRCS:.c=.o) $(ALL_TEST_SRCS:.c=.o) $(CLI_SRCS:.c=.o)
+ALL_EDITION_DEPS = $(ALL_DAEMON_SRCS:.c=.d) $(ALL_TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
 CLEAN_REPORTS = test_results.txt test_results_tap.txt valgrind_report.txt sanitize_report.txt cppcheck_report.txt
 CLEAN_FUZZ_ARTIFACTS = fuzz_pcv_validate fuzz_pcv_jwt fuzz_rpc_envelope fuzz_validate.txt fuzz_jwt.txt fuzz_rpc.txt
 CLEAN_COVERAGE_ARTIFACTS = compile_commands.json *.gcda *.gcno *.gcov
 CLEAN_PROTO_ARTIFACTS = proto/purecvisor.pb-c.o proto/purecvisor.pb-c.d
 CLEAN_UI_ARTIFACTS = $(UI_DIR)/bundle.js $(UI_DIR)/index.prod.html
 
-$(DAEMON_OBJS) $(TEST_OBJS) $(CLI_OBJS) $(TUI_OBJS): $(EDITION_STATE_FILE)
+$(DAEMON_OBJS) $(TEST_OBJS) $(CLI_OBJS): $(EDITION_STATE_FILE)
 
 FORCE:
 
@@ -361,7 +365,7 @@ $(EDITION_STATE_FILE): FORCE
 	@prev_edition="$$(cat $@ 2>/dev/null || true)"; \
 	if [ "$$prev_edition" != "$(EDITION)" ]; then \
 		rm -f $(ALL_EDITION_OBJS) $(ALL_EDITION_DEPS) \
-		      bin/purecvisorsd $(TEST_BIN) $(CLI_BIN) $(TUI_BIN); \
+		      bin/purecvisorsd $(TEST_BIN) $(CLI_BIN); \
 		printf '%s\n' "$(EDITION)" > $@; \
 	fi
 
@@ -369,16 +373,14 @@ $(EDITION_STATE_FILE): FORCE
 DAEMON_BIN = bin/purecvisorsd
 TEST_BIN   = test_runner
 CLI_BIN    = bin/pcvctl
-TUI_BIN    = bin/pcvtui
 
 # ==========================================================
 # 기본 타겟
 # ==========================================================
-all: $(DAEMON_BIN) $(CLI_BIN) $(TUI_BIN)
+all: $(DAEMON_BIN) $(CLI_BIN)
 
 daemon: $(DAEMON_BIN)
 cli:    $(CLI_BIN)
-tui:    $(TUI_BIN)
 
 # [데몬 링킹]
 $(DAEMON_BIN): $(DAEMON_OBJS)
@@ -402,12 +404,6 @@ $(CLI_BIN): $(CLI_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking CLI Client: $@"
 	$(CC) -o $@ $(CLI_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
-
-# [TUI 링킹]
-$(TUI_BIN): $(TUI_OBJS)
-	@mkdir -p bin
-	@echo "🔗 Linking TUI Client: $@"
-	$(CC) -o $@ $(TUI_OBJS) $(LDFLAGS) -lncursesw -lpthread
 
 # [테스트 러너 링킹]
 test_runner: $(TEST_OBJS)
@@ -494,7 +490,7 @@ install-completion-user:
 clean:
 	@echo "🧹 Cleaning up build artifacts..."
 	rm -f $(DAEMON_BIN) bin/purecvisorsd \
-	      $(TEST_BIN) $(CLI_BIN) $(TUI_BIN) \
+	      $(TEST_BIN) $(CLI_BIN) \
 	      $(ALL_EDITION_OBJS) \
 	      $(ALL_EDITION_DEPS) \
 	      $(CLEAN_REPORTS) $(CLEAN_FUZZ_ARTIFACTS) \
@@ -740,7 +736,7 @@ check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-con
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
 	@echo "[" > compile_commands.json
-	@first=1; for f in $(DAEMON_SRCS) $(CLI_SRCS) $(TUI_SRCS); do \
+	@first=1; for f in $(DAEMON_SRCS) $(CLI_SRCS); do \
 		[ $$first -eq 0 ] && echo "," >> compile_commands.json; first=0; \
 		echo "  {\"directory\": \"$(CURDIR)\", \"command\": \"$(CC) $(CFLAGS) -c $$f\", \"file\": \"$$f\"}" >> compile_commands.json; \
 	done
@@ -791,7 +787,7 @@ coverage-check: coverage-html
 	     echo "✅ coverage $${PCT}% ≥ $(COV_MIN)%"
 
 .PHONY: all clean release deb single multi test_runner test test-tap \
-        memcheck memcheck-daemon daemon cli tui sanitize fuzz fuzz-run \
+        memcheck memcheck-daemon daemon cli sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
         cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-all compile-commands coverage coverage-html coverage-check

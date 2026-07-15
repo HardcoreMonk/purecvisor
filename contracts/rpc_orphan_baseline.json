@@ -1,0 +1,101 @@
+{
+  "_comment": "ADR-0025 고아 래칫. 등록됐으나 전 경로(CLI/FE/REST/passthrough/gRPC) 정적 소비 0. reason=dynamic-cli|rest-only|internal|future|test-only|dead-candidate. 단조 감소만.",
+  "orphans": {
+    "device.disk.attach": {
+      "reason": "dynamic-cli",
+      "note": "CLI 도달: purecvisorctl.c:1474 method=\"device.disk.attach\" → purectl_send_request(method,...):1481. cmd_device_disk가 attach/detach를 런타임 선택하는 변수-우회 리터럴이라 CLI_RE 직접추출 밖. (tests/test_handler_params.c:357은 주석 언급일 뿐 실호출 아님 — TEST-COVERED 아님)"
+    },
+    "device.disk.detach": {
+      "reason": "dynamic-cli",
+      "note": "CLI 도달: purecvisorctl.c:1475 method=\"device.disk.detach\" → purectl_send_request(method,...):1481. 동일 cmd_device_disk 핸들러, 변수-우회 리터럴."
+    },
+    "alert.config.routing": {
+      "reason": "future",
+      "note": "형제 alert.config.get/set/reload 라이브(CLI purecvisorctl.c:3879-3923, REST rest_server.c:3561-3563); routing만 미배선 → 패밀리 확장. 경계선: arch-audit-interim.md:51은 vm.batch와 함께 'FE 미참조 정의'로 분류했으나, 오케스트레이터 판단으로 형제-라이브 근거상 future 확정."
+    },
+    "container.health.check": {
+      "reason": "future",
+      "note": "형제 container.health.set/get/delete 라이브(REST rest_server.c:3469-3479, CLI purecvisorctl.c:6196-6233); .check만 미배선 → 패밀리 확장."
+    },
+    "jobs.status": {
+      "reason": "future",
+      "note": "dispatcher.c:6874 'ADR-0012 alias' → _handle_jobs_get 별칭. 클라는 jobs.list/get 사용(REST rest_server.c:3631-3648, CLI purecvisorctl.c:4493). 문서화된 예약 별칭(ADR-0012). (test: tests/integration/test_config_admin_safe.sh:189)"
+    },
+    "network.ovs.create": {
+      "reason": "future",
+      "note": "핸들러 실구현 network_manager.c:1983 handle_network_ovs_create_request; network.ovs.* 배선 형제 0. arch-audit-interim.md:51 'overlay/OVN/OVS 계열 2.0 forward-decl 추정'."
+    },
+    "network.ovs.delete": {
+      "reason": "future",
+      "note": "핸들러 실구현 network_manager.c:2045 handle_network_ovs_delete_request; 미배선. audit-interim.md:51 OVS 2.0 forward-decl."
+    },
+    "network.ovs.vxlan.add": {
+      "reason": "future",
+      "note": "핸들러 실구현 network_manager.c:2101 (VXLAN 포트 추가); 미배선. audit-interim.md:51 OVS 2.0 forward-decl."
+    },
+    "network.ovs.vxlan.del": {
+      "reason": "future",
+      "note": "핸들러 실구현 network_manager.c:2189 handle_network_ovs_vxlan_del_request; 미배선. audit-interim.md:51 OVS 2.0 forward-decl."
+    },
+    "overlay.create": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_overlay_create; 클라 미배선(overlay.list만 REST rest_server.c:3900). audit-interim.md:51 'overlay/OVN/OVS 계열 2.0 forward-decl 추정'."
+    },
+    "overlay.delete": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_overlay_delete; 미배선(overlay.list만 REST). audit-interim.md:51 2.0 forward-decl. (test: tests/integration/test_overlay_query_safe.sh:137,141)"
+    },
+    "overlay.info": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_overlay_info (단일 오버레이 상세); 미배선. audit-interim.md:51 2.0 forward-decl. (test: tests/integration/test_overlay_query_safe.sh:120,123)"
+    },
+    "overlay.add_peer": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_overlay_add_peer (VXLAN 피어 추가); 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "overlay.remove_peer": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_overlay_remove_peer; 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.port.add": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_ovn_port_add (lsp-add); CLI/REST는 ovn status/switch/router/nat/acl/dhcp만 배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.port.remove": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c:550 handle_ovn_port_remove (lsp-del); 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.router.add_port": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_ovn_router_add_port (라우터-스위치 연결); 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.router.detail": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c:763 handle_ovn_router_detail (포트/NAT 상세); 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.switch.detail": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c:754 handle_ovn_switch_detail (포트/ACL/DHCP 상세); 미배선. audit-interim.md:51 2.0 forward-decl."
+    },
+    "ovn.tenant.create": {
+      "reason": "future",
+      "note": "핸들러 실구현 handler_overlay.c handle_ovn_tenant_create (LS+ACL+DHCP 복합 프로비저닝); 미배선. audit-interim.md:51 2.0 forward-decl. (test: tests/integration/test_ovn_sdn.sh:140)"
+    },
+    "security_group.attach": {
+      "reason": "future",
+      "note": "전용 플랜 docs/superpowers/plans/2026-07-04-security-group-scoped-nft.md; 형제 security_group.list/create/delete/rule.add 라이브(CLI purecvisorctl.c:4947-5011); attach/detach만 미배선 → 패밀리 확장 예약."
+    },
+    "security_group.detach": {
+      "reason": "future",
+      "note": "전용 플랜 docs/superpowers/plans/2026-07-04-security-group-scoped-nft.md; 형제 패밀리 라이브(CLI purecvisorctl.c:4947-5011); detach 미배선 → 패밀리 확장 예약."
+    },
+    "vm.list.filtered": {
+      "reason": "future",
+      "note": "형제 vm.list 전방위 라이브; dispatcher.c:591 특수분기 필터 변형; 클라 미배선 → future."
+    },
+    "quota.get": {
+      "reason": "test-only",
+      "note": "production 클라 0이나 통합테스트 test_cluster_local_safe.sh:183,189이 소비 — dead 아님."
+    }
+  }
+}
