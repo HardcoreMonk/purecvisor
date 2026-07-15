@@ -162,6 +162,17 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id,
     const gchar *drv = json_object_has_member(p, "driver")
         ? json_object_get_string_member(p, "driver") : NULL;
 
+    /* NET-1: 관리/기본경로 NIC은 bind 거부(호스트 네트워크/SSH 붕괴 방지). */
+    gchar *guard_reason = NULL;
+    if (pcv_dpdk_nic_is_protected(pci, &guard_reason)) {
+        gchar *r = pure_rpc_build_error_response(id, -32602,
+            guard_reason ? guard_reason : "refusing to bind NIC in use by host");
+        pure_uds_server_send_response(s, c, r);
+        g_free(r); g_free(guard_reason);
+        return;
+    }
+    g_free(guard_reason);
+
     /*
      * pcv_dpdk_bind: dpdk-devbind.py --bind <driver> <pci_addr> 실행.
      * 내부적으로 pcv_spawn_sync()를 사용하여 argv 배열로 프로세스를 실행합니다

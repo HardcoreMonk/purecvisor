@@ -1,0 +1,8 @@
+# 안전통제 효과 미검증 baseline (2026-07-11 부트스트랩, 2026-07-14 현 상태 재도출).
+# 각 항목은 효과 테스트 작성 시 제거(래칫 = 단조 감소만 허용).
+# 시정 트랙(SEC-1/CMP-1)의 E2E가 session-revoke·vm-op-lock을 이미 tested로 승격했고,
+# restart-breaker는 test_restart_breaker.c의 open→deny 단언으로 tested.
+# alert-silence는 test_alert_silence.c의 대소문자 무시 억제 단언으로 tested 승격(AIO-3).
+# 아래 항목은 효과(무동작→실동작)를 단언하는 테스트가 아직 없어 gap으로 남는다.
+# (graceful-drain은 2026-07-14 DISP-4로 tested 승격 — test_graceful_drain_effect.sh)
+self-healing-restart

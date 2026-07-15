@@ -344,6 +344,7 @@ _drain_thread_func(gpointer user_data)
  *   콜백이 반환되기 전에 루프가 종료되어 불안정. drain 스레드에서 inflight==0
  *   대기 후 quit()을 호출하면 메인 루프가 정상적으로 마지막 이터레이션을 완료.
  */
+/* PCV_SAFETY_CONTROL: graceful-drain — SIGTERM 시 inflight 완료까지 대기 후 종료 (DISP-4) */
 void
 pcv_drain_begin(GMainLoop *loop, guint timeout_sec)
 {

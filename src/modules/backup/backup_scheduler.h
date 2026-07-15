@@ -217,7 +217,7 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
  * 업로드 완료 후 메타데이터 JSON도 함께 저장합니다.
  *
  * 흐름:
- *   1. zfs snapshot pcvpool/vms/<vm>@s3-<timestamp>
+ *   1. zfs snapshot pcvpool/vms/<vm>@pcv-s3-<timestamp>
  *   2. zfs send <snap> | gzip > /tmp/pcv-s3-<vm>-<ts>.zfs.gz
  *   3. S3 multipart upload (100MB 청크)
  *   4. 메타데이터 JSON 업로드 ({snapshot, size, timestamp, sha256})

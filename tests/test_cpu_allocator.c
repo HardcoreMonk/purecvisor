@@ -193,6 +193,37 @@ static void test_numa_node_output_mixed(CpuFixture *f, gconstpointer d) {
     free_out(out);
 }
 
+/* [CMP-2] VM 재start 시 already-owns 체크로 코어 누수가 없는지 확인.
+ * 자유 격리코어 4개(numa0) 중 vm1에 2개 할당 후, 실행중 VM 재start를 흉내내
+ * 같은 vm_id로 재호출 — 새 코어를 마킹하지 않고 기존 2개를 그대로 반환해야 한다. */
+static void test_restart_no_leak(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    cpu_allocator_add_core(f->alloc, 0, 0, 0, TRUE);
+    cpu_allocator_add_core(f->alloc, 1, 1, 0, TRUE);
+    cpu_allocator_add_core(f->alloc, 2, 2, 0, TRUE);
+    cpu_allocator_add_core(f->alloc, 3, 3, 0, TRUE);
+
+    GArray *out1 = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive(f->alloc, "vm1", 0, 2, &out1, NULL));
+    g_assert_cmpuint(out1->len, ==, 2);
+
+    /* 재start — 같은 vm_id로 재호출 (worker의 idempotent no-op 경로 흉내) */
+    GArray *out2 = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive(f->alloc, "vm1", 0, 2, &out2, NULL));
+    g_assert_cmpuint(out2->len, ==, 2);
+    g_assert_cmpuint(g_array_index(out2, guint, 0), ==, g_array_index(out1, guint, 0));
+    g_assert_cmpuint(g_array_index(out2, guint, 1), ==, g_array_index(out1, guint, 1));
+
+    JsonObject *info = cpu_allocator_get_numa_info(f->alloc);
+    JsonArray *numa_arr = json_object_get_array_member(info, "numa_nodes");
+    g_assert_cmpuint(json_array_get_length(numa_arr), ==, 1);
+    JsonObject *node0 = json_array_get_object_element(numa_arr, 0);
+    g_assert_cmpint(json_object_get_int_member(node0, "allocated"), ==, 2);
+    json_object_unref(info);
+
+    free_out(out1); free_out(out2);
+}
+
 void test_cpu_allocator_register(void) {
 #define CPU_TEST(name, fn) \
     g_test_add("/cpu_allocator/" name, CpuFixture, NULL, cpu_setup, fn, cpu_teardown)
@@ -210,5 +241,6 @@ void test_cpu_allocator_register(void) {
     CPU_TEST("mark_used",                   test_mark_used);
     CPU_TEST("get_numa_info",               test_get_numa_info);
     CPU_TEST("free_nonexistent_vm",         test_free_nonexistent_vm);
+    CPU_TEST("restart_no_leak",             test_restart_no_leak);
 #undef CPU_TEST
 }

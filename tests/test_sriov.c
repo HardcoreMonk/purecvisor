@@ -13,7 +13,9 @@
  */
 
 #include <glib.h>
+#include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
+#include <unistd.h>
 
 /* sriov_manager.h 함수 직접 참조 */
 extern JsonObject *pcv_sriov_status(void);
@@ -59,6 +61,26 @@ static void test_sriov_disable_idempotent(void) {
     gboolean ok = pcv_sriov_disable("nonexist99", NULL);
     /* sysfs 경로가 없으면 명령 자체는 성공 (;true 패턴) */
     g_assert_true(ok);
+}
+
+/* NET-3: sysfs write 거부(EBUSY 동형 = /dev/full ENOSPC)가 거짓성공(TRUE) 대신
+ * FALSE+GError로 전파되는지. 하드웨어 불요. 반사실: swallow+return TRUE 되돌림→RED. */
+static void test_sriov_disable_write_failure_propagates(void) {
+    if (!g_file_test("/dev/full", G_FILE_TEST_EXISTS)) { g_test_skip("no /dev/full"); return; }
+    gchar *root = g_dir_make_tmp("pcv-sriov-XXXXXX", NULL); g_assert_nonnull(root);
+    gchar *devdir = g_build_filename(root, "testpf0", "device", NULL);
+    g_assert_cmpint(g_mkdir_with_parents(devdir, 0700), ==, 0);
+    gchar *numvfs = g_build_filename(devdir, "sriov_numvfs", NULL);
+    g_assert_cmpint(symlink("/dev/full", numvfs), ==, 0);
+    g_setenv("PCV_SRIOV_SYSFS_ROOT", root, TRUE);
+    GError *err = NULL;
+    gboolean ok = pcv_sriov_disable("testpf0", &err);
+    g_unsetenv("PCV_SRIOV_SYSFS_ROOT");
+    g_assert_false(ok);            /* NET-3: 거짓 성공 금지 */
+    g_assert_nonnull(err); g_clear_error(&err);
+    g_unlink(numvfs); g_rmdir(devdir);
+    gchar *pfdir = g_build_filename(root, "testpf0", NULL); g_rmdir(pfdir); g_rmdir(root);
+    g_free(numvfs); g_free(devdir); g_free(pfdir); g_free(root);
 }
 
 /* ── VF PCI 주소 조회 — 존재하지 않는 PF ── */
@@ -108,6 +130,7 @@ void test_sriov_register(void) {
     g_test_add_func("/sriov/list/empty",             test_sriov_list_empty);
     g_test_add_func("/sriov/list/nonexist_pf",       test_sriov_list_nonexist_pf);
     g_test_add_func("/sriov/disable/idempotent",     test_sriov_disable_idempotent);
+    g_test_add_func("/sriov/disable/write_failure_propagates", test_sriov_disable_write_failure_propagates);
     g_test_add_func("/sriov/vf_pci/null",            test_sriov_vf_pci_null);
     g_test_add_func("/sriov/disable/reject_injection", test_sriov_disable_reject_injection);
     g_test_add_func("/sriov/set/reject_bad_mac",       test_sriov_set_reject_bad_mac);

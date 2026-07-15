@@ -510,15 +510,86 @@ void handle_backup_restore(JsonObject       *params,
 }
 
 /* ═══════════════════════════════════════════════════════════
- * backup.incremental — 증분 백업 (동기)
+ * backup.incremental — 증분 백업 (accepted+async, STO-5)
+ *
+ * pcv_backup_incremental 은 blocking `zfs send` 를 수행하므로 대형 VM 의
+ * 증분이 단일스레드 디스패치 스레드에서 동기 실행되면 데몬 전체를 블록한다.
+ * → export_s3/restore 관례대로 GTask 워커로 오프로드하고, accepted 응답을
+ *   먼저 회신한 뒤 워커 완료 콜백에서 실결과를 audit/WS 로 기록한다.
  * ═══════════════════════════════════════════════════════════ */
+
+/**
+ * IncrementalTaskData:
+ * GTask 워커 스레드에 전달할 컨텍스트. params(JsonObject)는 응답 전송 후
+ * 해제되므로 name 을 g_strdup() 으로 복사해 보관한다.
+ */
+typedef struct {
+    gchar *vm_name;   /* g_strdup()으로 복사된 VM 이름 */
+} IncrementalTaskData;
+
+/** GTask data 소멸자: vm_name 문자열 해제 */
+static void _incremental_task_data_free(gpointer p)
+{
+    IncrementalTaskData *d = (IncrementalTaskData *)p;
+    if (!d) return;
+    g_free(d->vm_name);
+    g_free(d);
+}
+
+/**
+ * _incremental_worker:
+ * GTask 스레드 풀에서 blocking pcv_backup_incremental() 실행.
+ *
+ * I-1(ADR-0018): backup.incremental 이 g_async_methods 에 등록되면 디스패처는
+ *   dispatch 시점 audit 을 건너뛴다. 따라서 실결과 audit 은 이 워커의
+ *   pcv_audit_log(NULL,"backup.incremental",...) 가 유일한 기록이다 — 생략 시
+ *   무성 유실 회귀. check_audit_placement.py 가 정적으로 강제한다.
+ *
+ * result({snapshot,base_snapshot,file,size_bytes,mode})는 accepted 응답을 이미
+ *   보냈으므로 더 이상 회신하지 않는다 → 성공 시 여기서 json_object_unref.
+ */
+static void _incremental_worker(GTask        *task,
+                                 gpointer      source __attribute__((unused)),
+                                 gpointer      task_data,
+                                 GCancellable *cancel __attribute__((unused)))
+{
+    IncrementalTaskData *d = (IncrementalTaskData *)task_data;
+    GError *err = NULL;
+
+    JsonObject *result = pcv_backup_incremental(d->vm_name, &err);
+    gboolean ok = (result != NULL);
+    gchar *job_id = g_strdup_printf("backup.incremental:%s", d->vm_name);
+    if (!ok) {
+        const gchar *err_msg = err ? err->message : "unknown";
+        PCV_LOG_WARN(BACKUP_HANDLER_LOG,
+                     "Async incremental failed: %s — %s", d->vm_name, err_msg);
+        pcv_audit_log(NULL, "backup.incremental", d->vm_name, "fail", -32000, 0, "local");
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.incremental", "failed", err_msg);
+        if (err) {
+            g_task_return_error(task, err);
+        } else {
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "Incremental backup failed");
+        }
+    } else {
+        PCV_LOG_INFO(BACKUP_HANDLER_LOG,
+                     "Async incremental complete: %s", d->vm_name);
+        pcv_audit_log(NULL, "backup.incremental", d->vm_name, "ok", 0, 0, "local");
+        pcv_ws_broadcast_job_complete_mt(job_id, "backup.incremental", "completed", NULL);
+        json_object_unref(result);
+        g_task_return_boolean(task, TRUE);
+    }
+    g_free(job_id);
+}
 
 /**
  * handle_backup_incremental:
  * @params: JSON-RPC params — {"name": "web-prod"}
  *
- * 최신 스냅샷 대비 증분 스냅샷을 생성하고 증분 스트림을 파일로 저장합니다.
- * 반환: {snapshot, base_snapshot, file, size_bytes, mode}
+ * 즉시 {"status":"accepted","vm_name"} 응답 전송 후 GTask 비동기로 증분 백업 실행.
+ *
+ * ⚠ 응답 전송 후 소켓이 닫히므로 워커에서 send_response 금지 (크래시/UB).
+ *   → 워커 결과는 PCV_LOG + audit DB + WS 완료 이벤트로 기록.
  */
 void handle_backup_incremental(JsonObject       *params,
                                 const gchar      *rpc_id,
@@ -537,23 +608,26 @@ void handle_backup_incremental(JsonObject       *params,
         return;
     }
 
-    GError *err = NULL;
-    JsonObject *result = pcv_backup_incremental(name, &err);
-    if (!result) {
-        gchar *resp = pure_rpc_build_error_response(
-            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
-            err ? err->message : "Incremental backup failed");
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp);
-        if (err) g_error_free(err);
-        return;
-    }
+    /* fire-and-forget: accepted 응답 먼저 (소켓 닫힘) → GTask 오프로드 */
+    JsonObject *accepted = json_object_new();
+    json_object_set_string_member(accepted, "status", "accepted");
+    json_object_set_string_member(accepted, "vm_name", name);
 
-    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(node, result);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    JsonNode *accepted_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(accepted_node, accepted);
+
+    gchar *resp = pure_rpc_build_success_response(rpc_id, accepted_node);
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
+
+    /* name 은 params 소유 문자열 — 응답 전송 후 해제되므로 복사 필수 */
+    IncrementalTaskData *d = g_new0(IncrementalTaskData, 1);
+    d->vm_name = g_strdup(name);
+
+    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    g_task_set_task_data(task, d, (GDestroyNotify)_incremental_task_data_free);
+    g_task_run_in_thread(task, _incremental_worker);
+    g_object_unref(task);
 }
 
 /* ═══════════════════════════════════════════════════════════

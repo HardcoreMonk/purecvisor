@@ -95,6 +95,12 @@ static void _ensure_apikey_table(void);
 static void _migrate_api_keys_schema(void);
 /* apikey.create 계약 확장: schema#2 에 description/expires_at 컬럼 멱등 추가 */
 static void _migrate_apikey_columns(void);
+/* SEC-3: 기존 키의 저장 role 을 현 실효값으로 1회 고정 (freeze-effective) */
+static void _migrate_freeze_apikey_effective_roles(void);
+
+/* SEC-3 freeze-effective 마이그레이션 1회 실행 마커 (rbac.db PRAGMA user_version).
+ * 이 DB 에 아직 다른 user_version 마이그레이션이 없어 1 부터 시작한다. */
+#define PCV_RBAC_USER_VERSION_APIKEY_FREEZE 1
 
 static void
 _fill_random_bytes(guchar *buf, gsize len)
@@ -875,6 +881,67 @@ _migrate_api_keys_schema(void)
                  (long long)row_count);
 }
 
+/* _migrate_freeze_apikey_effective_roles:
+ *
+ * [SEC-3 freeze-effective] 기존 API 키의 '저장 role'(api_keys.role)을 '현재 실효
+ * (라이브 사용자) role'으로 1회 고정한다. 과거 auth 경로는 키의 저장 role을 무시하고
+ * client_name의 라이브 role을 실효 role로 파생했다(privesc). 이제 저장 role을
+ * 집행하도록 바뀌므로, 업그레이드 시점에 기존 키의 저장 role을 '지금까지의 실효값'으로
+ * 못박아 권한 변동 0을 보장한다:
+ *   - client_name이 실존 사용자  → 그 사용자의 role (admin명 키는 admin 유지 = grandfather)
+ *   - client_name이 사용자 아님   → 0(VIEWER) = 실제 실효값(get_role 미존재 시 VIEWER)
+ *
+ * [반드시 1회만 — 매 부팅 재실행 금지]
+ * 이 UPDATE를 매 부팅 무조건 재실행하면, 관리자가 이후 apikey.create/(향후 update)로
+ * 명시적으로 설정한 키 role을 다시 client_name의 라이브 사용자 role로 되돌려 admin이
+ * 설정한 값을 매 재시작마다 클로버한다(=BUG). 이를 막기 위해 rbac.db의
+ * PRAGMA user_version을 1회성 마커로 사용한다: user_version이 목표 버전 미만일 때만
+ * 실행하고, 성공 시 user_version을 올려 재실행을 봉쇄한다. → DB당 정확히 1회.
+ *
+ * 호출 순서: users(_ensure_table) + api_keys schema#2(_migrate_api_keys_schema/
+ *   _migrate_apikey_columns)가 모두 존재한 뒤 호출해야 COALESCE 서브쿼리가 유효하다.
+ * 리스너 개시 전 init 경로에서 호출되므로 동시 접근이 없다. */
+static void
+_migrate_freeze_apikey_effective_roles(void)
+{
+    if (!g_rbac_db) return;
+
+    /* 1회성 게이트 — user_version 이 목표 미만일 때만 실행 */
+    gint64 uv = 0;
+    sqlite3_stmt *q = nullptr;
+    if (sqlite3_prepare_v2(g_rbac_db, "PRAGMA user_version;", -1, &q, NULL) == SQLITE_OK) {
+        if (sqlite3_step(q) == SQLITE_ROW)
+            uv = sqlite3_column_int64(q, 0);
+        sqlite3_finalize(q);
+    }
+    if (uv >= PCV_RBAC_USER_VERSION_APIKEY_FREEZE)
+        return;   /* 이미 1회 실행됨 → 관리자 설정 role 클로버 방지 (재실행 금지) */
+
+    char *errmsg = nullptr;
+    int rc = sqlite3_exec(g_rbac_db,
+        "UPDATE api_keys SET role = "
+        "COALESCE((SELECT role FROM users WHERE users.username = api_keys.client_name), 0);",
+        NULL, NULL, &errmsg);
+    if (rc != SQLITE_OK) {
+        PCV_LOG_ERROR(RBAC_LOG_DOM,
+                      "SEC-3 apikey freeze-effective migration failed: %s",
+                      errmsg ? errmsg : "unknown");
+        sqlite3_free(errmsg);
+        /* user_version 미증가 → 다음 부팅 재시도. 아직 미실행이므로 클로버 위험 없음. */
+        return;
+    }
+
+    /* 성공 → user_version 증가로 재실행 봉쇄. PRAGMA 는 바인딩 불가(리터럴만) →
+     * 매크로 값을 G_STRINGIFY 로 컴파일타임 문자열화. */
+    sqlite3_exec(g_rbac_db,
+        "PRAGMA user_version = " G_STRINGIFY(PCV_RBAC_USER_VERSION_APIKEY_FREEZE) ";",
+        NULL, NULL, NULL);
+    PCV_LOG_INFO(RBAC_LOG_DOM,
+                 "SEC-3 apikey freeze-effective migration applied "
+                 "(existing keys' stored role pinned to current effective role; user_version=%d)",
+                 PCV_RBAC_USER_VERSION_APIKEY_FREEZE);
+}
+
 void
 pcv_rbac_init(const gchar *db_path)
 {
@@ -902,6 +969,10 @@ pcv_rbac_init(const gchar *db_path)
     /* apikey.create 계약 확장: 기존 schema#2 배포에 description/expires_at 컬럼 보강.
      * 신규 설치는 _ensure_apikey_table() 이 이미 포함하므로 ALTER 는 no-op(무시). */
     _migrate_apikey_columns();
+
+    /* SEC-3: 기존 키의 저장 role 을 현 실효값으로 1회 고정 (권한 변동 0).
+     * users + api_keys schema#2 존재 후 호출 (위 두 마이그레이션 뒤). PRAGMA user_version 으로 1회성. */
+    _migrate_freeze_apikey_effective_roles();
 
     _ensure_admin_user();
 
@@ -2172,10 +2243,16 @@ _sha256_hex(const gchar *data, gsize len)
  * g_compute_checksum_for_string(SHA256)과 _sha256_hex(OpenSSL EVP)가 동일 값이므로
  * apikey_create로 발급된 키가 그대로 검증된다. revoked=0 확인에 더해, 계약 확장으로
  * 도입된 expires_at(epoch 초; 0=무기한)을 현재 시각과 대조해 만료 키를 거부(집행)한다.
- * 유효하면 client_name을 신원으로 반환한다. */
+ * 유효하면 client_name을 신원으로 반환하고, @out_role에 키의 '저장 role'을 기록한다.
+ *
+ * PCV_SAFETY_CONTROL: apikey-role-enforce — 키의 실효 role은 저장 role 컬럼에서만
+ *   파생(client_name 라이브 role 무시). 저장 role을 out-param으로 반환해 호출자가
+ *   pcv_rbac_get_role(client_name) 대신 이 값으로 권한을 판정하게 강제한다 (SEC-3 privesc 차단). */
 gchar *
-pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
+pcv_rbac_verify_api_key(const gchar *api_key, PcvRole *out_role, GError **error)
 {
+    if (out_role) *out_role = PCV_ROLE_VIEWER;   /* 안전 기본값(실패/미매칭 시 최소 권한) */
+
     if (!api_key || strlen(api_key) != 68 ||
         strncmp(api_key, "pcv_", 4) != 0)
     {
@@ -2191,7 +2268,7 @@ pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
 
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT client_name FROM api_keys "
+        "SELECT client_name, role FROM api_keys "
         "WHERE key_hash = ? AND revoked = 0 "
         "AND (expires_at = 0 OR expires_at > ?);",
         -1, &stmt, NULL);
@@ -2210,6 +2287,7 @@ pcv_rbac_verify_api_key(const gchar *api_key, GError **error)
     rc = sqlite3_step(stmt);
     if (rc == SQLITE_ROW) {
         client_name = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));
+        if (out_role) *out_role = (PcvRole)sqlite3_column_int(stmt, 1);
     }
     sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);
@@ -2377,8 +2455,6 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
                        const gchar *description, gint64 expires_at,
                        gchar **out_key, GError **error)
 {
-    _ensure_apikey_table();
-
     /* 32바이트 랜덤 키 생성 → hex 인코딩 (64자) */
     guint8 raw[32];
     _fill_random_bytes(raw, sizeof(raw));
@@ -2389,7 +2465,11 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
     /* SHA256 해시 저장 (평문 키는 DB에 저장하지 않음) */
     gchar *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, key_str->str, -1);
 
+    /* SEC-6: _ensure_apikey_table()을 g_rbac_mutex 획득 이후로 이동 —
+     * "모든 SQLite 접근은 g_rbac_mutex로 직렬화" 불변식 정합. _ensure는
+     * 내부 락이 없으므로 여기서 호출해도 데드락 없음. */
     g_mutex_lock(&g_rbac_mutex);
+    _ensure_apikey_table();
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
         "INSERT INTO api_keys (key_hash, client_name, role, description, expires_at) "
@@ -2425,13 +2505,14 @@ gint
 pcv_rbac_apikey_validate(const gchar *api_key)
 {
     if (!api_key || !g_str_has_prefix(api_key, "pcv_")) return -1;
-    _ensure_apikey_table();
 
     gchar *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, api_key, -1);
     gint role = -1;
     gint64 now_epoch = g_get_real_time() / G_USEC_PER_SEC;
 
+    /* SEC-6: _ensure_apikey_table() 호출을 g_rbac_mutex 획득 이후로 이동 */
     g_mutex_lock(&g_rbac_mutex);
+    _ensure_apikey_table();
     sqlite3_stmt *stmt = nullptr;
     /* revoked=0 + 만료(expires_at) 집행 — verify_api_key 와 동일 계약 */
     if (sqlite3_prepare_v2(g_rbac_db,
@@ -2466,10 +2547,11 @@ pcv_rbac_apikey_validate(const gchar *api_key)
 JsonArray *
 pcv_rbac_apikey_list(void)
 {
-    _ensure_apikey_table();
     JsonArray *arr = json_array_new();
 
+    /* SEC-6: _ensure_apikey_table() 호출을 g_rbac_mutex 획득 이후로 이동 */
     g_mutex_lock(&g_rbac_mutex);
+    _ensure_apikey_table();
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(g_rbac_db,
         "SELECT client_name, role, description, created_at, last_used_at, "
@@ -2501,8 +2583,9 @@ pcv_rbac_apikey_list(void)
 gboolean
 pcv_rbac_apikey_revoke(const gchar *client_name, GError **error)
 {
-    _ensure_apikey_table();
+    /* SEC-6: _ensure_apikey_table() 호출을 g_rbac_mutex 획득 이후로 이동 */
     g_mutex_lock(&g_rbac_mutex);
+    _ensure_apikey_table();
     /* security: prepared stmt prevents SQL injection via client_name */
     sqlite3_stmt *upd = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,

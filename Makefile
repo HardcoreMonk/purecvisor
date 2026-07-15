@@ -133,6 +133,8 @@ COMMON_CORE_SRCS = \
     src/modules/virt/vm_clone_plan.c \
     src/modules/virt/vm_manager.c \
     src/modules/virt/circuit_breaker.c \
+    src/modules/daemons/alert_silence.c \
+    src/modules/daemons/alert_dlq.c \
     src/modules/virt/cancellable_map.c \
     src/modules/virt/virt_conn_pool.c \
     src/modules/storage/zfs_driver.c \
@@ -243,6 +245,8 @@ TEST_COMMON_SRCS = \
     tests/test_validate.c \
     tests/test_circuit_breaker.c \
     tests/test_restart_breaker.c \
+    tests/test_alert_silence.c \
+    tests/test_alert_dlq.c \
     tests/test_cancellable_map.c \
     tests/test_cpu_allocator.c \
     tests/test_config.c \
@@ -319,6 +323,7 @@ TEST_COMMON_SRCS = \
     src/modules/network/vm_iface.c \
     src/modules/network/vm_vnet_cache.c \
     src/modules/network/network_firewall_host.c \
+    src/modules/network/network_firewall.c \
     src/modules/auth/pcv_rbac.c \
     $(URING_SRCS) \
     $(COMMON_CORE_SRCS)
@@ -729,9 +734,14 @@ check-json-ingress:
 	@echo "🛡  Running JSON 파싱 초크포인트 게이트..."
 	@python3 scripts/check_json_ingress.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress)"
+check-safety-controls:
+	@echo "🛟 Running 안전통제 효과 테스트 레지스트리 게이트..."
+	@python3 scripts/check_safety_controls.py
+	@python3 scripts/tests/test_safety_controls_acceptance.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -790,4 +800,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-all compile-commands coverage coverage-html coverage-check

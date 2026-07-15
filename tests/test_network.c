@@ -13,9 +13,12 @@
  */
 
 #include <glib.h>
+#include <glib/gstdio.h>   /* [NET-2] g_chmod/g_remove/g_rmdir (mock nft) */
 #include <string.h>
 #include "purecvisor/pcv_validate.h"
 #include "modules/network/network_firewall_host.h"
+#include "modules/network/network_firewall.h"   /* [NET-2] setup_isolated 직접 호출 */
+#include "utils/pcv_spawn.h"                     /* [NET-2] launcher shutdown 폴백 seam */
 
 /* ── bridge_name ─────────────────────────────────────── */
 
@@ -231,6 +234,106 @@ static void test_host_fw_plan_firewalld_empty(void) {
     g_ptr_array_unref(cmds);
 }
 
+/* ── [NET-2] isolated 방화벽 DROP 룰 실패 전파 ────────────────────
+ *
+ * network_firewall_setup_isolated 가 forward DROP 룰(iif/oif drop = 격리의
+ * 유일 기제, forward 체인 기본정책 accept)을 nft 로 적용할 때, 이전에는
+ * pcv_spawn_fire(fire-and-forget)+무조건 TRUE 라 nft 실패 시 격리 안 된 망을
+ * created 로 오보했다. 이제 pcv_spawn_sync 종료코드 검사로 실패를 전파한다.
+ *
+ * seam: pcv_spawn_launcher_shutdown() 후 pcv_spawn_sync/fire 는 g_subprocess_newv
+ * 폴백으로 동작하며 상속 환경(g_setenv PATH)을 존중한다(pcv_spawn.c). mock nft/
+ * sysctl 을 tmp dir 에 만들어 PATH 앞에 놓으면 실제 nft 없이도 종료코드를
+ * 주입할 수 있다. sysctl 도 함께 목킹해 호스트 ip_forward 를 건드리지 않는다. */
+
+static void _net2_write_mock(const gchar *dir, const gchar *name, const gchar *body) {
+    gchar *path = g_build_filename(dir, name, NULL);
+    g_assert_true(g_file_set_contents(path, body, -1, NULL));
+    g_assert_cmpint(g_chmod(path, 0755), ==, 0);
+    g_free(path);
+}
+
+/* mock nft 의 종료코드(nft_exit)를 주입해 setup_isolated 를 구동한다. */
+static gboolean _net2_run_isolated(int nft_exit, GError **err) {
+    /* launcher 폴백 강제 → g_setenv PATH 존중 (idempotent) */
+    pcv_spawn_launcher_shutdown();
+
+    gchar *dir = g_dir_make_tmp("pcvnet2-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    gchar *nft_body = g_strdup_printf("#!/bin/sh\nexit %d\n", nft_exit);
+    _net2_write_mock(dir, "nft", nft_body);
+    _net2_write_mock(dir, "sysctl", "#!/bin/sh\nexit 0\n");  /* 호스트 무변 */
+    g_free(nft_body);
+
+    gchar *saved = g_strdup(g_getenv("PATH"));
+    gchar *newp  = g_strdup_printf("%s:%s", dir, saved ? saved : "");
+    g_setenv("PATH", newp, TRUE);
+
+    gboolean ok = network_firewall_setup_isolated("pcvbrtest0", "10.9.9.1/24", err);
+
+    if (saved) g_setenv("PATH", saved, TRUE); else g_unsetenv("PATH");
+
+    gchar *p_nft = g_build_filename(dir, "nft", NULL);
+    gchar *p_sc  = g_build_filename(dir, "sysctl", NULL);
+    g_remove(p_nft); g_remove(p_sc); g_rmdir(dir);
+    g_free(p_nft); g_free(p_sc);
+    g_free(saved); g_free(newp); g_free(dir);
+    return ok;
+}
+
+/* mock nft=exit1 → setup_isolated 는 FALSE + GError 전파(거짓 성공 아님). */
+static void test_firewall_isolated_nft_failure_propagates(void) {
+    GError *err = NULL;
+    gboolean ok = _net2_run_isolated(1, &err);
+    g_assert_false(ok);
+    g_assert_nonnull(err);
+    g_clear_error(&err);
+}
+
+/* 판별 대조군: mock nft=exit0 → TRUE + no error ("항상 FALSE" 아님 확인 +
+ * _ensure_table 멱등 성공 경로 커버). */
+static void test_firewall_isolated_nft_success_returns_true(void) {
+    GError *err = NULL;
+    gboolean ok = _net2_run_isolated(0, &err);
+    g_assert_true(ok);
+    g_assert_no_error(err);
+}
+
+/* [리뷰 대응] DROP 룰 특이적 실패 증명 — mock nft 가 인자에 "drop"(격리의 유일
+ * 기제인 iif/oif drop 룰만) 있을 때만 실패하고 add table/chain·accept 룰은 모두
+ * 성공한다. 기존 isolated_nft_failure_propagates 는 nft 를 전부 실패시켜
+ * _ensure_table 의 첫 add table 에서 조기 실패 — DROP 룰 자체의 실패 전파는
+ * 증명하지 못했다(setup_isolated 의 두 drop 룰 앞 if(ok) 게이트를 제거해도
+ * 그 테스트는 RED 가 되지 않음). 이 테스트는 그 갭을 메운다. */
+static void test_firewall_isolated_drop_rule_failure_propagates(void) {
+    pcv_spawn_launcher_shutdown();
+
+    gchar *dir = g_dir_make_tmp("pcvnet2d-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    _net2_write_mock(dir, "nft",
+        "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = \"drop\" ] && exit 1; done\nexit 0\n");
+    _net2_write_mock(dir, "sysctl", "#!/bin/sh\nexit 0\n");  /* 호스트 무변 */
+
+    gchar *saved = g_strdup(g_getenv("PATH"));
+    gchar *newp  = g_strdup_printf("%s:%s", dir, saved ? saved : "");
+    g_setenv("PATH", newp, TRUE);
+
+    GError *err = NULL;
+    gboolean ok = network_firewall_setup_isolated("pcvbrtest0", "10.9.9.1/24", &err);
+
+    if (saved) g_setenv("PATH", saved, TRUE); else g_unsetenv("PATH");
+
+    gchar *p_nft = g_build_filename(dir, "nft", NULL);
+    gchar *p_sc  = g_build_filename(dir, "sysctl", NULL);
+    g_remove(p_nft); g_remove(p_sc); g_rmdir(dir);
+    g_free(p_nft); g_free(p_sc);
+    g_free(saved); g_free(newp); g_free(dir);
+
+    g_assert_false(ok);
+    g_assert_nonnull(err);
+    g_clear_error(&err);
+}
+
 /* ── 등록 ──────────────────────────────────────────── */
 
 void test_network_register(void) {
@@ -252,4 +355,11 @@ void test_network_register(void) {
     g_test_add_func("/network/host_fw_plan_iptables_remove",test_host_fw_plan_iptables_remove);
     g_test_add_func("/network/host_fw_plan_open_empty",     test_host_fw_plan_open_empty);
     g_test_add_func("/network/host_fw_plan_firewalld_empty",test_host_fw_plan_firewalld_empty);
+    /* [NET-2] isolated 방화벽 DROP 룰 실패 전파 (mock nft PATH seam) */
+    g_test_add_func("/network/net2/isolated_nft_failure_propagates",
+                    test_firewall_isolated_nft_failure_propagates);
+    g_test_add_func("/network/net2/isolated_nft_success_returns_true",
+                    test_firewall_isolated_nft_success_returns_true);
+    g_test_add_func("/network/net2/drop_rule_failure_propagates",
+                    test_firewall_isolated_drop_rule_failure_propagates);
 }

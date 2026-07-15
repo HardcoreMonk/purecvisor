@@ -8,11 +8,18 @@
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ Common RPC helper ═══ */
+/* ═══ Common RPC helper ═══
+ * BE 거부(4xx 등)에도 fetchPost/unwrapData는 throw하지 않고 {error:{...}}를
+ * 그대로 통과시킨다 (api.js 계약). 여기서 .error를 감지해 throw로 전환하면
+ * 호출부의 기존 catch(e){ alert('...실패: '+e.message) }가 그대로 발동해
+ * 거짓성공 alert 없이 실패를 표기한다 — 4개 액션(approve/reject/
+ * resetBaseline/triggerAgent) 공통 수정. */
 async function _rpc(method, params) {
   var body = { jsonrpc: '2.0', method: method, params: params || {}, id: 'sh-' + Date.now() };
   var r = await fetchPost(EP.RPC(), body);
-  return unwrapData(r);
+  var d = unwrapData(r);
+  if (d && d.error) throw new Error(d.error.message || d.error.code || 'RPC error');
+  return d;
 }
 
 /* ═══ Time formatter ═══ */

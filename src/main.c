@@ -1325,6 +1325,12 @@ int main(int argc, char *argv[]) {
      */
     pcv_backup_scheduler_init();
     pcv_security_group_resync_timer_init();   /* [I2-R1] vnet stale HIT 완화 주기 resync */
+    /* NET-4/5: QoS/overlay 재수화 주기 reconcile — 부팅 시 vnet/OVS 미가용이었어도
+     * 이후 늦게 생성된 vnet/OVS 에 persisted QoS/overlay 를 최종 적용(부팅1회성 무동작
+     * 제거). SG resync 선례와 동일하게 worker-offload + in-flight guard + shutdown
+     * g_source_remove. */
+    pcv_qos_reconcile_timer_init();
+    pcv_overlay_reconcile_timer_init();
     STAGE_END("auth-templates");
 
     STAGE_BEGIN("scheduler-proxy");
@@ -1565,6 +1571,8 @@ int main(int argc, char *argv[]) {
     pcv_bootstrap_shutdown_cluster_stack(); /* 에디션별 클러스터 스택 */
     pcv_backup_scheduler_shutdown();  /* 백업 스케줄러 타이머 해제 */
     pcv_security_group_resync_timer_shutdown();  /* [I2-R1] resync 타이머 해제 */
+    pcv_qos_reconcile_timer_shutdown();      /* NET-4: QoS reconcile 타이머 해제 (torn-down 서브시스템 타격 방지) */
+    pcv_overlay_reconcile_timer_shutdown();  /* NET-5: overlay reconcile 타이머 해제 */
     pcv_vm_template_shutdown();       /* VM 템플릿 */
     pcv_rbac_shutdown();              /* RBAC DB 종료 */
     /* [감사 AF-3] AI-Ops self-healing 타이머/상태 정지 — teardown 중 헬링 타이머가

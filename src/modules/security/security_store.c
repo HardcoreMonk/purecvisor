@@ -72,10 +72,23 @@ set_sqlite_error(GError **error, gint code, const gchar *context)
                 "%s: %s", context, G.db ? sqlite3_errmsg(G.db) : "database is closed");
 }
 
+/*
+ * now_sec는 만료 판정·타임스탬프의 단일 시계원. 테스트가 만료 경계를 결정적으로
+ * 넘길 수 있도록 override 시드를 둔다(0 = 실클록). 헤더 미선언 —
+ * pcv_security_store_set_retention_cap_for_test 관례대로 테스트가 forward-decl한다.
+ */
+static gint64 g_now_override_for_test = 0;
+
 static gint64
 now_sec(void)
 {
-    return (gint64)time(NULL);
+    return g_now_override_for_test ? g_now_override_for_test : (gint64)time(NULL);
+}
+
+void
+pcv_security_store_set_now_for_test(gint64 t)
+{
+    g_now_override_for_test = t;
 }
 
 static const gchar *
@@ -930,6 +943,50 @@ pcv_security_store_get_action(const gchar *event_id)
     sqlite3_finalize(stmt);
     g_mutex_unlock(&G.mu);
     return obj;
+}
+
+gboolean
+pcv_security_store_action_is_expired(const gchar *event_id)
+{
+    /*
+     * [SEC-4] 승인 워커가 부작용(nft DROP/키폐기)을 execute 하기 전에 만료를 판정하는
+     * 술어. get_action은 만료 무필터라 stale 클라이언트/직접 RPC로 만료 pending을
+     * 트리거할 수 있다 — run_approval이 이 술어로 execute 앞에서 차단한다. 만료 규약은
+     * list_pending / update_action_status와 동일(ttl_sec<=0 = 무만료).
+     */
+    if (!event_id || !*event_id) {
+        return FALSE;
+    }
+
+    ensure_mutex();
+    g_mutex_lock(&G.mu);
+    if (!G.db) {
+        g_mutex_unlock(&G.mu);
+        return FALSE;
+    }
+
+    const gchar *sql =
+        "SELECT status,ttl_sec,expires_at FROM security_actions WHERE event_id=?";
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        G.degraded = TRUE;
+        g_mutex_unlock(&G.mu);
+        return FALSE;
+    }
+
+    sqlite3_bind_text(stmt, 1, event_id, -1, SQLITE_TRANSIENT);
+    gboolean expired = FALSE;
+    if (sqlite3_step(stmt) == SQLITE_ROW) {
+        const gchar *status = col_text(stmt, 0);
+        gint ttl_sec = sqlite3_column_int(stmt, 1);
+        gint64 expires_at = sqlite3_column_int64(stmt, 2);
+        expired = (g_strcmp0(status, "pending") == 0) &&
+                  ttl_sec > 0 && expires_at <= now_sec();
+    }
+    sqlite3_finalize(stmt);
+    g_mutex_unlock(&G.mu);
+    return expired;
 }
 
 gboolean

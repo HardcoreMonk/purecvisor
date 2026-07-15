@@ -1225,6 +1225,11 @@ pcv_agent_configure(PcvAiProvider provider, const gchar *model,
                      const gchar *api_key, const gchar *endpoint)
 {
     if (provider >= PCV_AI_PROVIDER_COUNT) return;
+
+    /* AIO-11: 헤더 주석(G.mu가 이력 링버퍼 + 프로바이더 설정을 보호)과 정합화.
+     * 이전에는 이 쓰기 구간이 무락이라 pcv_agent_get_config()의 동시 읽기
+     * (G.mu 보유 구간)와 race — torn read/write 가능했다. */
+    g_mutex_lock(&G.mu);
     PcvAiProviderConfig *cfg = &G.providers[provider];
     if (model && *model) {
         g_strlcpy(cfg->model, model, sizeof(cfg->model));
@@ -1236,6 +1241,7 @@ pcv_agent_configure(PcvAiProvider provider, const gchar *model,
 
     PCV_LOG_INFO(AGENT_LOG_DOM, "Provider %s configured: model=%s enabled=%d",
         pcv_ai_provider_name(provider), cfg->model, cfg->enabled);
+    g_mutex_unlock(&G.mu);
 }
 
 /**

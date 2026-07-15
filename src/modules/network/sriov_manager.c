@@ -108,6 +108,14 @@ _run_shell(const gchar *cmd, gchar **out, GError **error)
  *   기존 파일을 열어 직접 write() 해야 한다(셸의 '>' 리다이렉션과 동일).
  * [보안] path는 화이트리스트 검증된 인터페이스 이름으로만 구성된다.
  */
+/* 테스트 격리: PCV_SRIOV_SYSFS_ROOT 로 sysfs 베이스 override (vm_state.c 선례). */
+static const gchar *
+_sriov_sysfs_net(void)
+{
+    const gchar *env = g_getenv("PCV_SRIOV_SYSFS_ROOT");
+    return (env && *env) ? env : SRIOV_SYSFS_NET;
+}
+
 static gboolean
 _write_sysfs(const gchar *path, const gchar *val, GError **error)
 {
@@ -353,15 +361,19 @@ pcv_sriov_enable(const gchar *pf, gint num_vfs, GError **error)
 }
 
 /**
- * pcv_sriov_disable — PF의 모든 VF 제거 (멱등)
+ * pcv_sriov_disable — PF의 모든 VF 제거
  * @pf: 물리 NIC 이름
  * @error: 에러 반환 포인터
  *
- * sriov_numvfs=0 으로 설정하여 모든 VF를 제거.
- * VF가 없는 상태에서도 에러 없이 성공 처리 (멱등).
+ * sriov_numvfs=0 으로 설정하여 모든 VF를 제거. 결과는 두 갈래(NET-3):
+ *   - PF/sysfs 자체가 없어 열기부터 실패하는 경우(제거할 VF가 없는 상태) → 멱등
+ *     성공 처리, TRUE 반환(에러 없음).
+ *   - sysfs 쓰기 자체가 거부되는 경우(예: VF 사용 중 EBUSY) → 거짓 성공을 반환하지
+ *     않고 FALSE + GError 전파. 호출자는 VF가 실제로는 제거되지 않았음을 알 수 있다.
  *
- * @return 성공 시 TRUE
+ * @return 성공(또는 멱등 무동작) 시 TRUE, sysfs 쓰기 거부 시 FALSE(+@error)
  */
+/* PCV_SAFETY_CONTROL: sriov-disable — sriov_numvfs=0으로 PF의 모든 VF 실제 제거 (NET-3) */
 gboolean
 pcv_sriov_disable(const gchar *pf, GError **error)
 {
@@ -379,19 +391,26 @@ pcv_sriov_disable(const gchar *pf, GError **error)
     }
 
     /* 멱등: VF 없어도 성공. 셸(echo>) 대신 sysfs 직접 쓰기. */
-    gchar *path = g_strdup_printf("%s/%s/device/sriov_numvfs", SRIOV_SYSFS_NET, pf);
+    gchar *path = g_strdup_printf("%s/%s/device/sriov_numvfs", _sriov_sysfs_net(), pf);
 
     g_mutex_lock(&G.mu);
     GError *werr = NULL;
-    if (!_write_sysfs(path, "0", &werr)) {
-        /* best-effort: VF가 없거나 sysfs 미존재 — 이전 "; true" 멱등 시맨틱 보존 */
-        PCV_LOG_DEBUG(SRIOV_LOG_DOM, "sriov_numvfs write skipped (%s): %s",
-                      path, werr ? werr->message : "(null)");
-        g_clear_error(&werr);
-    }
+    gboolean ok = _write_sysfs(path, "0", &werr);
     g_mutex_unlock(&G.mu);
-
     g_free(path);
+
+    if (!ok) {
+        if (g_error_matches(werr, g_quark_from_static_string("sriov"), 10)) {
+            /* open 실패(PF/sysfs 부재) — 제거할 VF 없음 → 멱등 성공 */
+            PCV_LOG_DEBUG(SRIOV_LOG_DOM, "sriov_numvfs absent, idempotent no-op: %s", werr->message);
+            g_clear_error(&werr);
+        } else {
+            /* write 거부(EBUSY 등) — VF 잔존인데 성공 오보 금지(NET-3) */
+            PCV_LOG_WARN(SRIOV_LOG_DOM, "sriov disable failed on PF '%s': %s", pf, werr ? werr->message : "(write)");
+            g_propagate_error(error, werr);
+            return FALSE;
+        }
+    }
 
     PCV_LOG_INFO(SRIOV_LOG_DOM, "Disabled VFs on PF '%s'", pf);
     return TRUE;

@@ -39,6 +39,13 @@ static struct {
     gint64         last_cleanup;   /* monotonic time of last retention cleanup */
 } G = {0};
 
+/* AIO-10: G.dropped_count(gint64) 갱신 경로 원자화.
+ * rate-limit 경로는 bucket_mtx 안에서, overflow 경로는 무락으로 각각
+ * dropped_count를 증가시켜 서로 race(torn/언더카운트) 했다. dropped_mtx는
+ * 락순서상 항상 (a) 단독 획득 또는 (b) bucket_mtx 내부에서만 중첩 획득한다
+ * (bucket_mtx ⊃ dropped_mtx 단방향) — 역방향 중첩은 없으므로 데드락 없음. */
+static GMutex dropped_mtx;
+
 /**
  * _audit_record_free:
  * @rec: 해제할 감사 레코드 (NULL 안전)
@@ -342,8 +349,11 @@ pcv_audit_log(const gchar *username, const gchar *method,
             bucket_tokens = 0;
         }
         if (bucket_tokens >= AUDIT_RATE_LIMIT) {
+            /* AIO-10: bucket_mtx 안에서 dropped_mtx 중첩 획득 (락순서 일관) */
+            g_mutex_lock(&dropped_mtx);
             G.dropped_count++;
             gint64 dc = G.dropped_count;
+            g_mutex_unlock(&dropped_mtx);
             g_mutex_unlock(&bucket_mtx);
             /* Emit warning at exponential thresholds so admins notice drops */
             if (dc == 1 || dc == 10 || dc == 100 || dc == 1000 ||
@@ -360,8 +370,11 @@ pcv_audit_log(const gchar *username, const gchar *method,
 
     /* 큐 크기 제한 — 초과 시 드롭 + 경고 */
     if (qlen >= AUDIT_QUEUE_MAX) {
+        /* AIO-10: overflow 경로는 bucket_mtx를 잡지 않으므로 dropped_mtx 단독 획득 */
+        g_mutex_lock(&dropped_mtx);
         G.dropped_count++;
         gint64 dc = G.dropped_count;
+        g_mutex_unlock(&dropped_mtx);
         /* Threshold alert at exponential milestones for early detection */
         if (dc == 1 || dc == 10 || dc == 100 || dc == 1000 ||
             dc == 10000 || dc == 100000) {
@@ -428,7 +441,11 @@ pcv_audit_get_queue_depth(void)
 gint64
 pcv_audit_get_dropped_count(void)
 {
-    return G.dropped_count;
+    /* AIO-10: getter도 dropped_mtx로 감싸 원자적 read 보장 */
+    g_mutex_lock(&dropped_mtx);
+    gint64 dc = G.dropped_count;
+    g_mutex_unlock(&dropped_mtx);
+    return dc;
 }
 
 /**

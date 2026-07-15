@@ -211,9 +211,9 @@ handle_auth_user_create(JsonObject       *params,
     /*
      * [5단계] 문자열 → PcvRole 열거형 변환.
      * PcvRole 은 pcv_rbac.h에 정의된 enum:
-     *   PCV_ROLE_ADMIN    = 0 — 전체 권한 (사용자 관리, 클러스터 설정 포함)
+     *   PCV_ROLE_ADMIN    = 2 — 전체 권한 (사용자 관리, 클러스터 설정 포함)
      *   PCV_ROLE_OPERATOR = 1 — VM/컨테이너 조작 가능 (start, stop, create 등)
-     *   PCV_ROLE_VIEWER   = 2 — 읽기 전용 (vm.list, container.list 등 조회만 가능)
+     *   PCV_ROLE_VIEWER   = 0 — 읽기 전용 (vm.list, container.list 등 조회만 가능)
      */
     PcvRole role = pcv_rbac_str_to_role(role_str);
 

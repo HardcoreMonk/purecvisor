@@ -331,6 +331,17 @@ make check-rpc-consumers
 - `check-rpc-consumers`는 CLI/FE-인라인/FE-passthrough/REST/gRPC 전 경로 소비를 대조하며(소비⊆등록), 등록됐으나 전 경로 미소비인 메서드를 고아로 래칫한다(`contracts/rpc_orphan_baseline.json`). 설계: `docs/superpowers/specs/2026-07-12-rpc-consumer-completeness-orphan-gate-design.md`.
 - **리뷰 체크리스트**: 신규 RPC 핸들러는 실인터페이스 소비자(CLI/FE-인라인/FE-passthrough/REST/gRPC 중 하나)를 동반하거나, 고아 baseline에 사유 주석(`reason`)으로 등재해야 한다 (ADR-0025 배선=완료).
 
+### 4.16 안전통제 효과 테스트 레지스트리 게이트
+
+C 소스(`/* PCV_SAFETY_CONTROL: <id> */` 마커) 또는 `contracts/safety_controls(.json|_baseline.txt)`/게이트 스크립트를 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-safety-controls
+```
+
+- `check-safety-controls`: 안전 통제(PCV_SAFETY_CONTROL 마킹)가 레지스트리(`contracts/safety_controls.json`)에 등록되고 효과 테스트를 갖는지 검사. "보고성공 무동작" 재발 차단(래칫 `safety_controls_baseline.txt`). 설계: `docs/superpowers/specs/2026-07-11-safety-control-effect-test-gate-design.md`.
+- **리뷰 체크리스트**: 새 안전 통제 추가 시 ① `/* PCV_SAFETY_CONTROL: <id> */` 마킹 ② 레지스트리 등록 ③ 효과(무동작→실동작) 단언 테스트 작성.
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증

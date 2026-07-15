@@ -62,6 +62,8 @@
 /* ── 헤더 ─────────────────────────────────────────────────────── */
 #include "uds_server.h"               /* UdsServer 공개 API 선언 */
 #include "dispatcher.h"               /* purecvisor_dispatcher_dispatch() — RPC 라우팅 */
+#include "drain.h"                    /* pcv_drain_inc()/dec() — graceful-drain inflight 카운터 (DISP-4) */
+#include "../modules/dispatcher/rpc_utils.h"  /* pure_rpc_build_error_response() — 종료 중 거부 응답 */
 #include <gio/gio.h>                  /* GSocketService, GInputStream 등 GIO 네트워킹 */
 #include <gio/gunixsocketaddress.h>   /* g_unix_socket_address_new() — UDS 주소 */
 #include <sys/stat.h>                 /* chmod() — 소켓 파일 권한 설정 */
@@ -74,6 +76,50 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #endif
+
+/* 종료(drain) 중 신규 요청 거부에 쓰는 JSON-RPC 서버 에러 코드.
+ * dispatcher.c 의 동명 정의(-32000, JSON-RPC 서버 에러 예약역)와 동일 값. */
+#ifndef PCV_ERR_SERVER
+#define PCV_ERR_SERVER (-32000)
+#endif
+
+/* ── graceful-drain 화이트리스트 (Task 5, DISP-4 후속) ────────────────────
+ * DISP-4 의 수락-시 pcv_drain_inc() 게이트는 shutdown_flag 가 서면 모든 신규 연결을
+ * 거부한다. 그러나 node.drain(=pcv_drain_begin(NULL,30), 프로세스 미종료)을 되돌리는
+ * node.resume(=pcv_drain_cancel) 자기 연결까지 거부되면 RPC 로 복구 불가한 제어평면
+ * brick 이 된다 — node.drain 문서("node.resume 으로 재개 가능")와 모순.
+ *
+ * _is_drain_exempt_method 는 거부 직전 요청 버퍼에서 method 를 최소 추출해 node.resume
+ * 이면 예외(거부 skip → 정상 dispatch → pcv_drain_cancel 로 flag 리셋 → 이후 연결
+ * 재수락)를 허용한다. method 추출은 디스패처 진입점(purecvisor_dispatcher_dispatch)과
+ * 동일한 유일 sanctioned 파싱 경로 pcv_rpc_parse_guarded 를 재사용한다(full dispatch
+ * 파싱 복제 금지). 파싱 실패·비객체·method 부재/비문자열은 모두 비예외(FALSE)로 폴백
+ * → 기존대로 -32000 거부(무결성 우선, 크래시 없음). 할당한 JsonParser 는 항상 해제한다.
+ *
+ * [bounded-safe] node.resume 무조건 허용은 SIGTERM 드레인에도 안전하다: pcv_drain_cancel
+ * 은 flag 만 리셋하며, SIGTERM 드레인 스레드는 실 GMainLoop 를 보유해 inflight==0 에서
+ * g_main_loop_quit() 하므로 프로세스는 여전히 종료된다(drain-mode 구분 불요).
+ *
+ * @param buf  read 로 소비한 요청 JSON (NUL 종단 불요 — len 으로 경계 지정)
+ * @param len  buf 의 유효 바이트 수 (>0)
+ */
+static gboolean _is_drain_exempt_method(const char *buf, gssize len)
+{
+    if (!buf || len <= 0)
+        return FALSE;
+    JsonParser *parser = NULL;                       /* FALSE 시 pcv_rpc_parse_guarded 가 NULL 로 세팅 → unref 불요 */
+    if (!pcv_rpc_parse_guarded(buf, len, &parser, NULL))
+        return FALSE;                                /* 파싱 실패/과대/과심 → 비예외(거부 유지) */
+    JsonNode *root = json_parser_get_root(parser);
+    JsonObject *obj = (root && JSON_NODE_HOLDS_OBJECT(root))
+                      ? json_node_get_object(root) : NULL;
+    const gchar *method = obj
+        ? json_object_get_string_member_with_default(obj, "method", NULL)
+        : NULL;                                       /* 부재/비문자열 → NULL (critical 없음) */
+    gboolean exempt = (g_strcmp0(method, "node.resume") == 0);
+    g_object_unref(parser);
+    return exempt;
+}
 
 /* ═══════════════════════════════════════════════════════════════════
  * GObject 구조체 정의
@@ -233,6 +279,9 @@ typedef struct {
     gsize      buf_size;      /* 버퍼 크기 */
     gchar     *response;      /* dispatcher가 생성한 응답 (향후 WRITE 단계에서 사용) */
     gsize      resp_len;      /* 응답 길이 */
+    gboolean   inflight_held; /* graceful-drain: 수락 시 pcv_drain_inc() 성공 여부.
+                               * TRUE=inflight 증가함(정상 dispatch, read_cb 에서 dec 필요),
+                               * FALSE=종료 중(요청 read 후 -32000 거부, dec 안 함). (DISP-4) */
 } UringConnCtx;
 
 /*
@@ -245,6 +294,11 @@ typedef struct {
 static void _uring_accept_cb(PcvUringCtx *uring, gint result, gpointer data);
 static void _uring_read_cb(PcvUringCtx *uring, gint result, gpointer data);
 static void _uring_write_cb(PcvUringCtx *uring, gint result, gpointer data);
+static gboolean _uring_reaccept_retry(gpointer data);  /* DISP-3: accept 재무장 지연 재시도 */
+
+/* [DISP-3] accept 재무장 실패(SQ 포화)를 즉시 재제출하면 포화된 SQ 에서 타이트루프가
+ * 되므로, 이 지연 후 재시도한다(deferred re-arm). 재시도 콜백은 shutdown 가드된다. */
+#define URING_ACCEPT_RETRY_MS 50
 
 /* ─────────────────────────────────────────────
  * _uring_post_accept — io_uring ACCEPT 요청을 커널에 제출
@@ -268,9 +322,39 @@ static void _uring_write_cb(PcvUringCtx *uring, gint result, gpointer data);
 static void
 _uring_post_accept(UdsServer *self)
 {
-    pcv_uring_submit_accept(self->uring, self->listen_fd,
-                             NULL, NULL,
-                             _uring_accept_cb, self);
+    if (!pcv_uring_submit_accept(self->uring, self->listen_fd,
+                                  NULL, NULL,
+                                  _uring_accept_cb, self)) {
+        /* [DISP-3] accept SQE 미제출(SQ 포화 등) → _uring_accept_cb 미발화 → accept
+         * 루프 정지(liveness 결함, 누수 아님). 즉시 재제출은 포화 SQ 에서 타이트루프이므로
+         * 지연 재시도를 스케줄한다. 이 3개 호출부(_uring_listen_start 첫 accept,
+         * accept 에러 재무장, 성공 후 재무장) 전부 이 경로로 복구된다. */
+        g_warning("[uring-uds] accept re-arm failed; scheduling retry in %dms",
+                  URING_ACCEPT_RETRY_MS);
+        g_timeout_add(URING_ACCEPT_RETRY_MS, _uring_reaccept_retry, self);
+    }
+}
+
+/* ─────────────────────────────────────────────
+ * _uring_reaccept_retry — accept 재무장 지연 재시도 (DISP-3, deferred re-arm)
+ *
+ * _uring_post_accept 가 SQ 포화로 실패하면 g_timeout_add 로 이 콜백을 예약한다.
+ * one-shot: 성공하면 종료, 다시 실패하면 _uring_post_accept 가 새 타이머를 건다.
+ * 단일스레드 GMainLoop 라 동시에 계류하는 재시도 타이머는 최대 1개(정지된 SQ 는 accept
+ * CB 를 발화시키지 않으므로 재진입 없음) → 타임아웃 스톰 없음.
+ *
+ * [shutdown 가드 — 필수] pcv_drain_begin 후 uring ctx->running=FALSE 라 submit_accept
+ * 는 영구 FALSE 를 반환한다. 가드 없이 무조건 리스케줄하면 테어다운 중 타임아웃 스톰이
+ * 된다. shutdown 이거나 io_uring 경로가 이미 내려갔으면 재시도를 중단한다.
+ * ─────────────────────────────────────────────*/
+static gboolean
+_uring_reaccept_retry(gpointer data)
+{
+    UdsServer *self = data;
+    if (pcv_drain_is_shutdown() || !self->uring || !self->uring_mode)
+        return G_SOURCE_REMOVE;   /* 재시도 중단 (타임아웃 스톰 방지) */
+    _uring_post_accept(self);     /* 실패 시 내부에서 새 타이머 재등록 */
+    return G_SOURCE_REMOVE;       /* one-shot */
 }
 
 /* ─────────────────────────────────────────────
@@ -311,17 +395,47 @@ _uring_accept_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpoint
     int client_fd = result;
     self->connection_count++;
 
+    /* ── graceful-drain 게이트 (DISP-4, io_uring 경로) ──────────────────
+     * [불변식] 연결 수락 시 pcv_drain_inc() ↔ _uring_read_cb 공통 cleanup 의
+     *   pcv_drain_dec() 가 1:1로 짝을 이룬다(GLib 경로 on_incoming_connection ↔
+     *   on_read_done 과 동일 규율, Option A: 수락 시 inc — 단일스레드 GMainLoop 에서
+     *   inflight>0 이 drain-wait 유효 신호가 되는 지점).
+     * [왜 read 후 거부인가] 종료 중이라도 여기서 즉시 write+close 로 거부하면, 요청을
+     *   먼저 보내는 클라이언트(pcvctl/REST/`echo|nc` 전부)가 write 시 EPIPE 로 죽어
+     *   거부 응답을 못 읽고 드롭된다(실측 확인). inc 결과를 ctx 에 실어 두고, 정상
+     *   dispatch 와 동일하게 요청을 read 로 소비한 뒤 _uring_read_cb 에서 -32000 을
+     *   전송해야 거부가 실제로 전달된다.
+     * [주의] inc 이후 recv 제출 전에 조기 return 을 추가하면 dec 가 실행되지 않아
+     *   inflight 가 누수되고 SIGTERM 이 drain timeout 까지 hang 한다. */
+    gboolean inflight_held = pcv_drain_inc();
+
     /* 연결 컨텍스트 생성 */
     UringConnCtx *ctx = g_new0(UringConnCtx, 1);
-    ctx->server   = self;
-    ctx->fd       = client_fd;
-    ctx->buf_size = 65536;
-    ctx->buffer   = g_malloc(ctx->buf_size);
+    ctx->server        = self;
+    ctx->fd            = client_fd;
+    ctx->inflight_held = inflight_held;  /* FALSE면 read 후 -32000 거부, dec 안 함 */
+    ctx->buf_size      = 65536;
+    ctx->buffer        = g_malloc(ctx->buf_size);
 
-    /* READ SQE 등록 */
-    pcv_uring_submit_recv(self->uring, client_fd,
-                           ctx->buffer, ctx->buf_size - 1,
-                           _uring_read_cb, ctx);
+    /* READ SQE 등록 (종료 중이어도 요청을 읽어 소비 → 거부 전달의 전제) */
+    if (!pcv_uring_submit_recv(self->uring, client_fd,
+                               ctx->buffer, ctx->buf_size - 1,
+                               _uring_read_cb, ctx)) {
+        /* [DISP-3] submit FALSE → _uring_read_cb 미발화(래퍼 계약: FALSE 면 pending 부재
+         * → CQE 드롭). 콜백이 유일한 다른 소비자이므로 이중해제 없음 — 호출자가 fd·버퍼·
+         * ctx·drain inflight 를 100% 소유·정리한다. fd 는 아직 GSocket 미래핑이라 아무도
+         * 닫지 않으므로 여기서 close 한다. dec 는 inflight_held 일 때만(:375 pcv_drain_inc
+         * 와 1:1, cleanup 라벨 :518 미러) — 무조건 dec 는 언더플로, 생략은 inflight 누수 →
+         * SIGTERM 이 drain timeout 까지 hang. */
+        close(client_fd);
+        if (inflight_held)
+            pcv_drain_dec();
+        g_free(ctx->buffer);
+        g_free(ctx);
+        /* 조기 return 금지: 일시적 recv 제출 실패가 accept 루프까지 죽이면 안 된다.
+         * 아래 _uring_post_accept 로 반드시 재무장까지 진행한다(connection_count 는 통계용
+         * 이라 감소 불요). */
+    }
 
     /* 다음 ACCEPT 즉시 재등록 (파이프라인) */
     _uring_post_accept(self);
@@ -361,18 +475,16 @@ _uring_read_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpointer
         /* [에러 처리] EOF(0) 또는 읽기 에러(음수).
          * GSocket으로 래핑하기 전이므로 close(fd)를 직접 호출합니다. */
         close(ctx->fd);
-        g_free(ctx->buffer);
-        g_free(ctx);
-        return;
+        goto cleanup;  /* graceful-drain: 단일 dec 수렴점(DISP-4) */
     }
 
     ctx->buffer[result] = '\0';
 
-    if (!ctx->server->dispatcher) {
+    /* dispatcher 부재는 정상 처리 경로에서만 조기 종료. 거부 경로(inflight_held FALSE)는
+     * dispatcher 없이도 -32000 을 보내야 하므로 아래 래핑으로 진행한다. */
+    if (ctx->inflight_held && !ctx->server->dispatcher) {
         close(ctx->fd);
-        g_free(ctx->buffer);
-        g_free(ctx);
-        return;
+        goto cleanup;  /* graceful-drain: 단일 dec 수렴점(DISP-4) */
     }
 
     /*
@@ -400,9 +512,7 @@ _uring_read_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpointer
             g_error_free(sock_err);
         }
         close(ctx->fd);
-        g_free(ctx->buffer);
-        g_free(ctx);
-        return;
+        goto cleanup;  /* graceful-drain: 단일 dec 수렴점(DISP-4) */
     }
 
     /* [왜?] GSocket → GSocketConnection 래핑. 팩토리 패턴으로 소켓 타입에 맞는
@@ -414,22 +524,49 @@ _uring_read_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpointer
 
     if (!conn) {
         close(ctx->fd);
-        g_free(ctx->buffer);
-        g_free(ctx);
-        return;
+        goto cleanup;  /* graceful-drain: 단일 dec 수렴점(DISP-4) */
     }
 
-    /* dispatcher 호출 (기존 send_response가 write + close 처리) */
-    purecvisor_dispatcher_dispatch(ctx->server->dispatcher,
-                                   ctx->server,
-                                   conn,
-                                   ctx->buffer);
+    /* graceful-drain 화이트리스트 (Task 5): 종료 중(inflight_held FALSE)이라도 method 가
+     * node.resume 이면 거부 대신 정상 dispatch 로 흘려보내 제어평면을 복구한다. dispatcher
+     * 부재 시엔 dispatch 불가하므로 거부로 폴백한다(위 no-dispatcher 조기종료는 inflight_held
+     * TRUE 에만 걸리므로 여기서 명시 확인). 이 연결은 inflight_held FALSE 라 inflight 미카운트
+     * — 아래 cleanup 의 dec skip 이 그대로 유지되어 drain-wait 불변식을 깨지 않는다. */
+    gboolean drain_exempt = !ctx->inflight_held && ctx->server->dispatcher &&
+                            _is_drain_exempt_method(ctx->buffer, result);
 
-    /* [왜?] dispatcher → 핸들러 → send_response()가 g_io_stream_close()를 호출하므로
+    if (!ctx->inflight_held && !drain_exempt) {
+        /* ── graceful-drain 거부 (DISP-4) ──────────────────────────────
+         * 수락 시 pcv_drain_inc() 가 FALSE(종료 중)였다. 요청을 read 로 소비한 뒤
+         * (클라이언트 write EPIPE 방지) -32000 을 정상 응답 경로(write+close)로 전송.
+         * inflight 미증가라 아래 cleanup 의 dec 는 건너뛴다(inflight_held FALSE). */
+        gchar *rej = pure_rpc_build_error_response(NULL, PCV_ERR_SERVER,
+                                                   "server is shutting down");
+        pure_uds_server_send_response(ctx->server, conn, rej);
+        g_free(rej);
+    } else {
+        /* dispatcher 호출 (기존 send_response가 write + close 처리).
+         * inflight_held TRUE(정상 경로) 또는 drain 예외 node.resume — 어느 쪽이든
+         * dispatcher 는 non-NULL(정상 경로는 위 no-dispatcher 조기종료 가드가, 예외는
+         * drain_exempt 의 ctx->server->dispatcher 항이 보장). */
+        purecvisor_dispatcher_dispatch(ctx->server->dispatcher,
+                                       ctx->server,
+                                       conn,
+                                       ctx->buffer);
+    }
+
+    /* [왜?] dispatcher/거부 → send_response()가 g_io_stream_close()를 호출하므로
      * 소켓은 이미 닫힌 상태입니다. g_object_unref(conn)은 GObject 메모리만 해제합니다.
      * fd는 GSocketConnection이 close될 때 이미 커널에 반환되었습니다. */
     g_object_unref(conn);
 
+cleanup:
+    /* graceful-drain(DISP-4): _uring_accept_cb 의 pcv_drain_inc() 와 1:1 짝. 이 콜백의
+     * 모든 반환경로(EOF/에러·no-dispatcher·래핑실패·conn 실패·dispatch·거부)가 이 단일
+     * 지점으로 수렴한다. dec 는 inc 가 성공(inflight_held)했을 때만 — 거부 연결은
+     * inflight 를 올리지 않았으므로 dec 하면 언더플로. */
+    if (ctx->inflight_held)
+        pcv_drain_dec();
     g_free(ctx->buffer);
     g_free(ctx);
 }
@@ -571,6 +708,9 @@ typedef struct {
     GSocketConnection *connection;  /* 클라이언트 연결 (응답 전송용) */
     gchar             *buffer;      /* 읽기 버퍼 (64KB) */
     gsize              buf_size;    /* 버퍼 크기 */
+    gboolean           inflight_held; /* graceful-drain: 수락 시 pcv_drain_inc() 성공 여부.
+                                       * TRUE=정상 dispatch(on_read_done 에서 dec),
+                                       * FALSE=종료 중(요청 read 후 -32000 거부, dec 안 함). (DISP-4) */
 } ReadCtx;
 
 /* ─────────────────────────────────────────────
@@ -601,7 +741,25 @@ static void on_read_done(GObject *source, GAsyncResult *res, gpointer user_data)
     /* 비동기 읽기 결과 수신 */
     gssize bytes_read = g_input_stream_read_finish(G_INPUT_STREAM(source), res, &error);
 
-    if (bytes_read > 0) {
+    /* graceful-drain 화이트리스트 (Task 5): 종료 중이라도 method 가 node.resume 이면 거부
+     * 대신 정상 dispatch(아래 else-if 분기)로 흘려보내 제어평면을 복구한다. 요청 버퍼는
+     * 아직 NUL 종단 전이므로 bytes_read 로 경계를 지정한다. dispatcher 부재/read 실패(≤0)
+     * 시엔 예외 불가하므로 거부로 폴백. 예외 연결은 inflight_held FALSE 라 미카운트 유지. */
+    gboolean drain_exempt = !ctx->inflight_held && bytes_read > 0 &&
+                            ctx->server->dispatcher &&
+                            _is_drain_exempt_method(ctx->buffer, bytes_read);
+
+    if (!ctx->inflight_held && !drain_exempt) {
+        /* ── graceful-drain 거부 (DISP-4) ──────────────────────────────
+         * 수락 시 pcv_drain_inc() 가 FALSE(종료 중)였다. 요청을 read 로 소비한 뒤
+         * (클라이언트 write EPIPE 방지) -32000 을 정상 응답 경로(write+close)로 전송.
+         * 수락 시점엔 요청 id 미수신이므로 id:null 이 JSON-RPC 2.0 규격상 정확하다.
+         * inflight 미증가라 아래 cleanup 의 dec 는 건너뛴다. */
+        gchar *rej = pure_rpc_build_error_response(NULL, PCV_ERR_SERVER,
+                                                   "server is shutting down");
+        pure_uds_server_send_response(ctx->server, ctx->connection, rej);
+        g_free(rej);
+    } else if (bytes_read > 0) {
         /* 읽기 성공: NULL 종료 문자 추가 후 디스패처에 전달 */
         ctx->buffer[bytes_read] = '\0';
 
@@ -626,13 +784,21 @@ static void on_read_done(GObject *source, GAsyncResult *res, gpointer user_data)
         /* 읽기 실패 또는 EOF */
         if (bytes_read < 0 && error) {
             g_warning("UDS read error: %s", error->message);
-            g_error_free(error);
         }
         /* bytes_read == 0: 클라이언트가 데이터 없이 연결을 닫음 */
         g_io_stream_close(G_IO_STREAM(ctx->connection), NULL, NULL);
     }
 
-    /* 메모리 정리 — ReadCtx가 소유한 모든 자원 해제 */
+    if (error)
+        g_error_free(error);
+
+    /* 메모리 정리 — ReadCtx가 소유한 모든 자원 해제.
+     * [graceful-drain, DISP-4] on_read_done 의 모든 분기(거부 · dispatch · no-dispatcher ·
+     * read 오류/EOF)가 조기 return 없이 이 단일 지점으로 수렴한다. dec 는 수락 시 inc 가
+     * 성공(inflight_held)했을 때만 — 거부 연결은 inflight 를 올리지 않았으므로 dec 하면
+     * 언더플로. inc 성공 연결에 대해 여기 한 번의 dec 가 정확히 1:1 상쇄한다. */
+    if (ctx->inflight_held)
+        pcv_drain_dec();              /* 수락 시 inc 와 1:1 (on_incoming_connection 참조) */
     g_object_unref(ctx->connection);  /* 연결 참조 해제 */
     g_free(ctx->buffer);              /* 버퍼 메모리 해제 */
     g_free(ctx);                      /* 컨텍스트 구조체 해제 */
@@ -672,12 +838,27 @@ static gboolean on_incoming_connection(GSocketService *service,
     (void)service;        /* 미사용 파라미터 — 컴파일러 경고 억제 */
     (void)source_object;
 
+    /* ── graceful-drain 게이트 (DISP-4, GLib 경로) ──────────────────────
+     * [불변식] 연결 수락 시 pcv_drain_inc() ↔ on_read_done 공통 cleanup 의
+     *   pcv_drain_dec() 가 1:1로 짝을 이룬다. 단일스레드 GMainLoop 에서 inflight>0 은
+     *   "수락되었으나 아직 응답 완료 전"을 뜻하며, SIGTERM 시 drain 스레드가 이 카운터가
+     *   0이 될 때까지 대기한다(Option A: 수락 시 inc — 스펙 Option B '디스패치 직전 inc'는
+     *   동기 dispatch 중 SIGTERM starve 로 drain-wait 무효라 채택하지 않음).
+     * [왜 read 후 거부인가] 종료 중이라도 수락 즉시 write+close 로 거부하면, 요청을 먼저
+     *   보내는 클라이언트가 write 시 EPIPE 로 죽어 거부 응답을 못 읽고 드롭된다(실측 확인).
+     *   inc 결과를 ctx 에 실어 두고 정상 경로처럼 요청을 read 로 소비한 뒤 on_read_done 에서
+     *   -32000 을 전송해야 거부가 실제 전달된다.
+     * [경고] inc 이후 read_async 시작 전에 조기 return 을 추가하면 dec 가 실행되지 않아
+     *   inflight 가 누수되고 SIGTERM 이 drain timeout 까지 hang 한다. */
+    gboolean inflight_held = pcv_drain_inc();
+
     /* ReadCtx 할당 — 비동기 콜백에서 사용할 컨텍스트 */
     ReadCtx *ctx = g_new0(ReadCtx, 1);
-    ctx->server     = self;
-    ctx->connection = g_object_ref(connection);  /* 참조 카운트 증가 — 콜백에서 사용 */
-    ctx->buf_size   = 65536;                     /* 64KB — 대형 VM XML이 포함된 RPC 수용 */
-    ctx->buffer     = g_malloc(ctx->buf_size);
+    ctx->server        = self;
+    ctx->connection    = g_object_ref(connection);  /* 참조 카운트 증가 — 콜백에서 사용 */
+    ctx->inflight_held = inflight_held;              /* FALSE면 read 후 -32000 거부, dec 안 함 */
+    ctx->buf_size      = 65536;                      /* 64KB — 대형 VM XML이 포함된 RPC 수용 */
+    ctx->buffer        = g_malloc(ctx->buf_size);
 
     /* 비동기 읽기 시작 — main loop 블로킹 없이 데이터 수신 */
     GInputStream *input = g_io_stream_get_input_stream(G_IO_STREAM(connection));

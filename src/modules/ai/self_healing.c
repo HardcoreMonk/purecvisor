@@ -26,22 +26,28 @@
  *   1. Dry Run 모드: 기본값 TRUE — 모든 액션을 로그만 남기고 실행하지 않음.
  *      daemon.conf [ai] mode=active로 명시 설정해야 실제 실행.
  *   2. Approval Gate: require_approval=TRUE인 정책은 Web UI에서 관리자가
- *      승인해야만 실행됨. (migrate 등 위험 액션에 적용)
+ *      승인해야만 실행됨. (migrate 등 위험 액션에 적용 의도)
+ *      AIO-8: 현재 등록된 10개 정책 전부 require_approval=FALSE라
+ *      _queue_approval/pcv_healing_approve/dismiss 경로는 의도적으로 dormant.
+ *      migrate 액션을 자동승격 도입 시 해당 정책의 require_approval=TRUE 전환과
+ *      함께 이 게이트를 재활성해야 함.
  *   3. Cooldown: 동일 정책이 cooldown_sec 이내에 재실행되지 않음.
  *      실패 시 지수 백오프(×2, 최대 1시간)로 쿨다운이 늘어남.
  *   4. Circuit Breaker: 연속 3회 실패(CIRCUIT_BREAKER_MAX) 시 정책 자동 비활성화.
  *   5. Rate Limit: 5분(RATE_LIMIT_WINDOW) 내 최대 3개(RATE_LIMIT_MAX) 자동 액션.
  *      alert_only는 레이트 리밋에서 제외.
  *
- * [내장 정책 목록 (pcv_healing_init에서 등록)]
- *   cpu-overload:    CPU Z≥3.0 또는 예측>85% → migrate (승인 필요, 쿨다운 600초)
- *   mem-pressure:    MEM Z≥2.5 또는 예측>90% → migrate (승인 필요)
- *   thermal-alert:   온도 Z≥2.0 또는 >80도  → alert_only (쿨다운 1800초)
- *   vm-unresponsive: (메트릭 없음, 수동 트리거) → restart (쿨다운 300초)
- *   swap-storm:      swap 출력 Z≥2.5 → alert_only
- *   disk-saturated:  disk I/O Z≥3.0 → alert_only
- *   net-errors:      네트워크 에러 Z≥2.0 → alert_only
- *   conntrack-full:  conntrack 엔트리 Z≥2.5 → alert_only
+ * [내장 정책 목록 (pcv_healing_init에서 등록, 10개)]
+ *   cpu-overload:        CPU Z≥3.0 또는 예측>85% → alert_only (승인 불요, 쿨다운 600초, AF-O1(a))
+ *   mem-pressure:        MEM Z≥2.5 또는 예측>90% → alert_only (승인 불요, 쿨다운 600초, AF-O1(a))
+ *   thermal-alert:       온도 Z≥2.0 또는 >80도  → alert_only (쿨다운 1800초)
+ *   vm-unresponsive:     (메트릭 없음, 수동 트리거) → restart (승인 불요, 쿨다운 300초)
+ *   swap-storm:          swap 출력 Z≥2.5 → alert_only (쿨다운 300초)
+ *   disk-saturated:      disk I/O Z≥3.0 → alert_only (쿨다운 600초)
+ *   net-errors:          네트워크 에러 Z≥2.0 → alert_only (쿨다운 300초)
+ *   conntrack-full:      conntrack 엔트리 Z≥2.5 → alert_only (쿨다운 600초)
+ *   vm-reboot-loop:      재시작 루프(10분 내 5회+) → alert_only (쿨다운 1200초)
+ *   vm-migration-failed: 마이그레이션 반복실패(30분 내 3회+) → alert_only (쿨다운 1800초)
  *
  * [스레드 안전]
  *   G.mu (GMutex): 정책 배열 + 승인 대기열 보호
@@ -271,6 +277,7 @@ typedef struct {
 
 static AnomalyTrack g_recent_anomalies[MULTI_ANOMALY_MAX_TRACK] = {0};
 static gint64       g_last_multi_agent_us = 0;
+static GMutex       g_anomaly_mu;   /* AIO-1: 위 두 static의 RMW 보호 (eBPF/이벤트/메인 3스레드 경쟁) */
 
 /**
  * _track_distinct_anomaly:
@@ -283,6 +290,11 @@ _track_distinct_anomaly(const gchar *metric)
     if (!metric || !*metric) return FALSE;
     gint64 now = g_get_monotonic_time();
     gint64 window_us = (gint64)MULTI_ANOMALY_WINDOW_SEC * G_USEC_PER_SEC;
+    gboolean trigger = FALSE;
+
+    /* AIO-1: g_recent_anomalies[]/g_last_multi_agent_us는 eBPF/이벤트/메인
+     * 3스레드에서 호출되므로 전체 RMW를 전용 뮤텍스로 가드한다. */
+    g_mutex_lock(&g_anomaly_mu);
 
     /* 기존 항목 갱신 또는 빈 슬롯에 삽입 */
     gint distinct = 0;
@@ -318,15 +330,20 @@ _track_distinct_anomaly(const gchar *metric)
     if (distinct >= MULTI_ANOMALY_THRESHOLD &&
         (now - g_last_multi_agent_us) > 300 * G_USEC_PER_SEC) {
         g_last_multi_agent_us = now;
-        return TRUE;
+        trigger = TRUE;
     }
-    return FALSE;
+
+    g_mutex_unlock(&g_anomaly_mu);
+    return trigger;
 }
 
 /* 외부에서 호출 가능: agent.compare_manual RPC 등 */
 gboolean pcv_healing_should_trigger_agent_now(void)
 {
-    return (g_get_monotonic_time() - g_last_multi_agent_us) < 60 * G_USEC_PER_SEC;
+    g_mutex_lock(&g_anomaly_mu);
+    gboolean recent = (g_get_monotonic_time() - g_last_multi_agent_us) < 60 * G_USEC_PER_SEC;
+    g_mutex_unlock(&g_anomaly_mu);
+    return recent;
 }
 
 /* ── 정책 등록 ───────────────────────────────────────────────── */
@@ -477,6 +494,7 @@ _restart_ctx_free(gpointer data)
  *     (running-guard skip·조회 실패·create 실패는 executed 로 세지 않는다 — 정직 보고)
  *   - 결과(success/skipped/failed)를 이력 링버퍼 + 감사 로그에 기록
  */
+/* PCV_SAFETY_CONTROL: self-healing-restart — 워커 스레드에서 실제 virDomainCreate로 VM 재시작 실배선 (AF-1) */
 static void
 _vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *c)
 {
@@ -526,6 +544,7 @@ _vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *
      * 이 되먹임이 반복 create 실패 시 계층4(OPEN)를 개방해 무한 재시도를 끊는다. */
     if (rb_feedback > 0)      rb_record(ctx->vm, TRUE);
     else if (rb_feedback < 0) rb_record(ctx->vm, FALSE);
+    else                      rb_release_probe(ctx->vm);   /* AIO-2: 0-피드백 → 프로브 토큰 회수 */
 
     gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
 
@@ -860,6 +879,7 @@ pcv_healing_init(void)
 {
     g_mutex_init(&G.mu);
     g_mutex_init(&g_healing_hist_mu);
+    g_mutex_init(&g_anomaly_mu);
     G.initialized = TRUE;
 
     /* Issue-M1 fix: daemon.conf [ai] mode=active 설정 반영.
@@ -962,6 +982,7 @@ pcv_healing_shutdown(void)
     rb_shutdown();   /* AF-1 후속: 재시작 브레이커 자원 해제 */
     g_mutex_clear(&G.mu);
     g_mutex_clear(&g_healing_hist_mu);
+    g_mutex_clear(&g_anomaly_mu);
 }
 
 /**

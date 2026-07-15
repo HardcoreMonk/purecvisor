@@ -764,6 +764,20 @@ static void _export_data_free(gpointer p) {
     g_free(d);
 }
 
+/**
+ * [STO-3] export 전 "VM이 켜져 있는가" 판정 — fail-secure.
+ *
+ * @param got    virsh domstate 호출이 성공했는가 (pcv_spawn_sync 반환값)
+ * @param dstate domstate stdout 캡처본 (실패 시 NULL)
+ * @return TRUE면 export 거부(= running 취급). got/dstate 중 하나라도 없으면
+ *         상태를 알 수 없다는 뜻이므로 무조건 TRUE(거부) — fail-open으로
+ *         손상 이미지가 업로드되는 창을 열어두지 않는다.
+ */
+static gboolean
+_export_should_reject(gboolean got, const gchar *dstate) {
+    return (!got || !dstate) ? TRUE : (strstr(dstate, "shut off") == NULL);
+}
+
 static void
 _export_worker(GTask *task, gpointer src __attribute__((unused)),
                gpointer task_data, GCancellable *cancel)
@@ -794,11 +808,12 @@ _export_worker(GTask *task, gpointer src __attribute__((unused)),
         const gchar *dsargv[] = {"virsh", "domstate", p->name, NULL};
         gchar *dstate = NULL;
         gboolean got = pcv_spawn_sync(dsargv, &dstate, NULL, NULL);
-        gboolean running = got && dstate && (strstr(dstate, "shut off") == NULL);
+        gboolean running = _export_should_reject(got, dstate);
         g_free(dstate);
         if (running) {
             _update_status(p->name, job, "export", PCV_CLOUD_STATUS_FAILED, 5,
-                "VM must be shut off before export (running VM would produce a corrupt image)");
+                "VM must be shut off before export (running VM would produce a corrupt image, "
+                "or its state could not be determined)");
             g_task_return_boolean(task, FALSE);
             return;
         }

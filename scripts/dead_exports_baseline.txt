@@ -37,8 +37,6 @@ pcv_config_encrypt_value
 pcv_dispatcher_register_pre_hook
 pcv_dpdk_shutdown
 pcv_dpdk_vhost_socket_path
-pcv_drain_dec
-pcv_drain_inc
 pcv_drain_is_shutdown
 pcv_ebpf_proc_stat_is_cpu_core_line
 pcv_ebpf_telemetry_get_all_vms

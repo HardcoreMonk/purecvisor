@@ -13,10 +13,15 @@
  *                                      뮤텍스/조건변수 초기화, inflight=0, shutdown=0
  *
  *   [운영 중 — 매 요청마다]
- *     2. pcv_drain_inc()             — uds_server.c: 요청 디스패치 직전 호출
+ *     2. pcv_drain_inc()             — uds_server.c: 연결 수락 시 호출 (Option A)
+ *                                      단일스레드 GMainLoop + 동기 dispatch 구조에서는
+ *                                      '디스패치 직전 inc'(Option B)가 drain-wait 무효
+ *                                      (동기 dispatch 중 SIGTERM starve)이므로,
+ *                                      수락 시점이 drain-wait 유효 지점이다.
  *                                      FALSE 반환 시 → 요청 거부 (-32000 에러 응답)
- *     3. pcv_drain_dec()             — uds_server.c: 응답 전송 직후 (단일 경로)
- *                                      inflight가 0이 되면 drain 스레드를 깨움
+ *     3. pcv_drain_dec()             — uds_server.c: on_read_done 공통 cleanup 1회 호출
+ *                                      (수락 시 inc 와 1:1). inflight가 0이 되면 drain
+ *                                      스레드를 깨움
  *
  *   [종료 시 — SIGTERM/SIGINT 수신]
  *     4. pcv_drain_begin(loop, 30)   — on_signal_received()에서 호출
@@ -31,8 +36,12 @@
  *                                      drain 스레드 join + 뮤텍스/조건변수 해제
  *
  * 신규 요청 차단 메커니즘:
- *   pcv_drain_is_shutdown() == TRUE이면 uds_server.c가
- *   JSON-RPC -32000 "Server shutting down" 에러를 즉시 반환합니다.
+ *   실제 게이트는 연결 수락 시 pcv_drain_inc() 의 FALSE 반환이다(shutdown_flag=1일 때).
+ *   uds_server.c 는 요청을 read 로 소비한 뒤 JSON-RPC -32000 "server is shutting down"
+ *   으로 거부한다(read-then-reply). 단, node.resume 은 제어평면 복구를 위해 화이트리스트
+ *   되어 거부되지 않고 정상 dispatch 된다(uds_server.c _is_drain_exempt_method → node.drain
+ *   을 RPC 로 되돌릴 수 있는 예외). pcv_drain_is_shutdown() 은 상태 조회용이며 차단 게이트
+ *   자체가 아니다.
  *
  * sd_notify 지원:
  *   pcv_drain_notify_stopping(): "STOPPING=1" 전송 (systemd Type=notify 서비스)

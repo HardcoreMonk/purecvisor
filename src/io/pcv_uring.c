@@ -312,14 +312,25 @@ pcv_uring_new(guint queue_depth, GError **error)
     ctx->glib_source_id = 0;
     ctx->next_id = 1;
 
-    /* 1. io_uring ring 초기화 */
-    int ret = io_uring_queue_init(queue_depth, &ctx->ring, 0);
+    /* 1. io_uring ring 초기화
+     *
+     * [DISP-3 불변식 — 반드시 non-SQPOLL] setup flags 는 0 이어야 한다.
+     * pcv_uring_socket.c 의 submit 래퍼들은 _submit_ring 실패 시 잔존 SQE 를
+     * io_uring_prep_nop 로 덮어써 무해화하는데(해제 buf 로의 recv-write UAF / 유령
+     * accept-fd 누수 차단), 이 덮어쓰기는 "커널은 io_uring_enter 시점에만 SQE 를 읽고
+     * 모든 제출이 submit_mu 로 직렬화된다"(=non-SQPOLL)는 전제에서만 race-free 하다.
+     * IORING_SETUP_SQPOLL 을 추가하면 커널 폴러 스레드가 슬롯을 비동기로 읽어 그 무해화가
+     * 깨지고 모든 io_uring I/O 의 실패경로가 UAF 로 회귀한다 → 절대 금지. 아래 assert 가
+     * 런타임에 이 불변식을 강제한다(누군가 flags 를 바꾸면 즉시 실패). */
+    const unsigned int setup_flags = 0;   /* non-SQPOLL — 위 불변식 참조 */
+    int ret = io_uring_queue_init(queue_depth, &ctx->ring, setup_flags);
     if (ret < 0) {
         g_set_error(error, g_quark_from_static_string("uring"), 1,
                     "io_uring_queue_init(%u) failed: %s", queue_depth, strerror(-ret));
         g_free(ctx);
         return NULL;
     }
+    g_assert((ctx->ring.flags & IORING_SETUP_SQPOLL) == 0);  /* DISP-3 non-SQPOLL 불변식 */
 
     /* 2. eventfd 생성 + ring에 등록 */
     ctx->event_fd = eventfd(0, EFD_NONBLOCK | EFD_CLOEXEC);

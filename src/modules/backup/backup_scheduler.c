@@ -584,13 +584,13 @@ static void _destroy_snapshot(const gchar *vm_name, const gchar *snap_name)
 /**
  * _list_snapshots_by_prefix:
  * @vm_name: 대상 VM 이름
- * @prefix:  필터할 스냅샷 접두사 (예: "s3-", "incr-")
+ * @prefix:  필터할 스냅샷 접두사 (예: "pcv-s3-", "pcv-incr-")
  *
  * `_list_auto_snapshots` 의 prefix-파라미터화 버전 — 동일 argv/필터 로직을 그대로
  * 미러링하되 접두사만 인자로 받는다. creation 오름차순 정렬이므로
  * [0]=가장 오래된, [len-1]=가장 최신.
  *
- * AF-S4: s3-/incr- 스냅샷 리텐션 prune 에서 사용. (pcv-auto- 경로는 회귀 방지를 위해
+ * AF-S4: pcv-s3-/pcv-incr- 스냅샷 리텐션 prune 에서 사용. (pcv-auto- 경로는 회귀 방지를 위해
  * 기존 `_list_auto_snapshots` 를 그대로 두고 건드리지 않는다.)
  *
  * Returns: (element-type gchar*) (transfer full): 스냅샷 이름 배열
@@ -643,7 +643,7 @@ static GPtrArray *_list_snapshots_by_prefix(const gchar *vm_name,
 /**
  * _prune_snapshots_by_prefix:
  * @vm_name:         대상 VM 이름
- * @prefix:          prune 대상 스냅샷 접두사 (예: "s3-", "incr-")
+ * @prefix:          prune 대상 스냅샷 접두사 (예: "pcv-s3-", "pcv-incr-")
  * @retention_count: 보존할 최신 스냅샷 개수. 0 이하면 prune 비활성(무제한 = 명시적 opt-out)
  *
  * AF-S4: 기존 pcv-auto- 리텐션(_apply_policy_for_vm) 의 prune 루프를 프리픽스별로
@@ -657,6 +657,7 @@ static GPtrArray *_list_snapshots_by_prefix(const gchar *vm_name,
  * 실패(zfs destroy 오류)해도 호출측 백업은 성공 처리 — _destroy_snapshot 이 내부에서
  * WARN 로그만 남기고 진행한다.
  */
+/* PCV_SAFETY_CONTROL: backup-retention — retention_count 초과 스냅샷을 오래된 것부터 실제 zfs destroy (AF-S4/STO-2) */
 static void _prune_snapshots_by_prefix(const gchar *vm_name,
                                        const gchar *prefix,
                                        gint retention_count)
@@ -1320,7 +1321,7 @@ gboolean pcv_backup_restore(const gchar *vm_name,
  * ══════════════════════════════════════════════════════════════ */
 
 #define BACKUP_DIR_DEFAULT "/var/lib/purecvisor/backups"
-#define INCR_SNAP_PREFIX   "incr-"
+#define INCR_SNAP_PREFIX   "pcv-incr-"   /* STO-2/AF-S4: pcv- 시스템 예약 네임스페이스 */
 
 /**
  * _ensure_backup_dir:
@@ -1391,7 +1392,7 @@ static GPtrArray *_list_all_snapshots(const gchar *vm_name)
  *
  * 증분 백업을 수행합니다:
  *   1. 최신 스냅샷 조회
- *   2. 새 증분 스냅샷 생성 (incr-YYYYMMDD-HHMMSS)
+ *   2. 새 증분 스냅샷 생성 (pcv-incr-YYYYMMDD-HHMMSS)
  *   3. zfs send -i <prev> <new> > 파일  (이전 스냅샷 있을 때)
  *      또는 zfs send <new> > 파일       (이전 스냅샷 없을 때 — 풀 백업)
  *   4. 파일 크기 기록
@@ -1542,7 +1543,7 @@ JsonObject *pcv_backup_incremental(const gchar *vm_name, GError **error)
     g_free(base_snap_name);
     g_ptr_array_unref(snaps);
 
-    /* AF-S4: incr- 스냅샷 리텐션 — zfs send 완료 후 prune (best-effort).
+    /* AF-S4: pcv-incr- 스냅샷 리텐션 — zfs send 완료 후 prune (best-effort).
      * send 전에 prune 하면 증분 base(prev_snap)를 지워 send -i 가 깨질 수 있으므로
      * 반드시 send 이후에 실행한다. 최신 N개(방금 만든 것 포함) 보존, 초과분만 오래된
      * 순으로 삭제. prune 실패는 WARN 만 남기고 백업 자체는 이미 성공 처리됨. */
@@ -1959,7 +1960,7 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
  *   s3://<bucket>/<prefix><vm>/<timestamp>/metadata.json   — 메타데이터
  * ══════════════════════════════════════════════════════════════ */
 
-#define S3_SNAP_PREFIX "s3-"
+#define S3_SNAP_PREFIX "pcv-s3-"   /* STO-2/AF-S4: pcv- 시스템 예약 네임스페이스 */
 #define S3_TEMP_DIR    "/tmp"
 
 /**
@@ -1981,9 +1982,11 @@ _s3_build_env(const gchar *region)
 
     /* Inherit current environ and add AWS creds */
     GPtrArray *env = g_ptr_array_new();
-    for (gchar **e = g_get_environ(); e && *e; e++) {
+    gchar **environ_snapshot = g_get_environ();
+    for (gchar **e = environ_snapshot; e && *e; e++) {
         g_ptr_array_add(env, g_strdup(*e));
     }
+    g_strfreev(environ_snapshot);
     if (ak) { g_ptr_array_add(env, g_strdup_printf("AWS_ACCESS_KEY_ID=%s", ak)); g_free(ak); }
     if (sk) { g_ptr_array_add(env, g_strdup_printf("AWS_SECRET_ACCESS_KEY=%s", sk)); g_free(sk); }
     g_ptr_array_add(env, g_strdup_printf("AWS_DEFAULT_REGION=%s", reg));
@@ -2226,10 +2229,10 @@ pcv_backup_export_s3(const gchar *vm_name,
 
     PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: snapshot created %s", snap_full);
 
-    /* AF-S4: s3- 스냅샷 리텐션 — 새 스냅샷 생성 성공 직후 prune (best-effort).
-     * S3 export 는 full `zfs send`(증분 -i 아님)이라 오래된 s3- 스냅샷은 base 가
+    /* AF-S4: pcv-s3- 스냅샷 리텐션 — 새 스냅샷 생성 성공 직후 prune (best-effort).
+     * S3 export 는 full `zfs send`(증분 -i 아님)이라 오래된 pcv-s3- 스냅샷은 base 가
      * 아니므로 send 이전에 정리해도 안전하다. 또한 이후 send/upload 실패 경로에서는
-     * s3- 스냅샷이 destroy 되지 않고 남으므로, 생성 직후 prune 해야 실패 반복 시에도
+     * pcv-s3- 스냅샷이 destroy 되지 않고 남으므로, 생성 직후 prune 해야 실패 반복 시에도
      * 무한 누적을 막는다. 최신 N개(방금 만든 것 포함) 보존, 초과분만 오래된 순 삭제. */
     _prune_snapshots_by_prefix(vm_name, S3_SNAP_PREFIX,
                                pcv_config_get_int("backup", "s3_retention_count", 7));

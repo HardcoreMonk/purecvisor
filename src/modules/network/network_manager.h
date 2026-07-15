@@ -196,6 +196,14 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id, UdsServe
 /* BE-5: QoS 규칙 영속화 — 데몬 시작 시 tc 규칙 복원 */
 void pcv_qos_restore(void);
 
+/* NET-4: QoS 재수화 — 부팅 후 늦게 생성된 vnet 에 persisted QoS 주기 재적용.
+ * pcv_qos_reconcile 은 존재게이트+ingress 멱등된 restore 본문을 재실행하며,
+ * 타이머 init/shutdown 은 security_group resync 선례를 복제(worker offload + shutdown
+ * g_source_remove). */
+void pcv_qos_reconcile(void);
+void pcv_qos_reconcile_timer_init(void);
+void pcv_qos_reconcile_timer_shutdown(void);
+
 /* BE-A19: Bridge VLAN Filtering */
 gboolean pcv_bridge_vlan_add(const gchar *bridge, const gchar *iface, gint vlan_id);
 gboolean pcv_bridge_vlan_remove(const gchar *bridge, const gchar *iface, gint vlan_id);

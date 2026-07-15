@@ -94,14 +94,16 @@ _rpc_call(const gchar *method, const gchar *params_json)
     g_free(rpc_msg);
     if (sent <= 0) { close(fd); return NULL; }
 
-    /* 응답 수신 */
-    gchar buf[GRPC_MAX_MSG];
-    ssize_t n = read(fd, buf, sizeof(buf) - 1);
+    /* 응답 수신 — DISP-12b: 4MB 스택 배열은 스택오버 위험 → heap 할당으로 전환 */
+    gchar *buf = g_malloc(GRPC_MAX_MSG);
+    ssize_t n = read(fd, buf, GRPC_MAX_MSG - 1);
     close(fd);
 
-    if (n <= 0) return NULL;
+    if (n <= 0) { g_free(buf); return NULL; }
     buf[n] = '\0';
-    return g_strdup(buf);
+    gchar *result = g_strdup(buf);
+    g_free(buf);
+    return result;
 }
 
 /* ── protobuf 헬퍼 ──────────────────────────────────── */

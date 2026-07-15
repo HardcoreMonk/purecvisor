@@ -337,6 +337,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "auth.apikey.list",          2 },   /* admin API 키 목록 노출 */
     { "auth.user.list",            2 },
     { "auth.session.revoke",       2 },
+    { "auth.user.sessions.revoke", 2 },   /* ADMIN — 대상 사용자 refresh 세션 전부 취소(re-mint 봉쇄) */
     { "backup.policy.set",         2 },
     { "backup.policy.delete",      2 },
     { "security.event.list",       PCV_ROLE_VIEWER },
@@ -1104,6 +1105,8 @@ typedef struct {
     gchar    *target_dataset;     /* ZFS dataset: pool/target */
     gchar    *zfs_pool;           /* source_dataset의 부모 pool/dataset */
     gchar    *source_zvol_name;   /* source_dataset의 마지막 요소 */
+    gboolean  holds_source_lock;  /* [CMP-7] source VM_OP 락 보유 여부 */
+    gboolean  holds_target_lock;  /* [CMP-7] target(clone_name) VM_OP 락 보유 여부 */
 } VmCloneCtx;
 
 static void
@@ -1111,6 +1114,11 @@ _vm_clone_ctx_free(gpointer data)
 {
     VmCloneCtx *ctx = (VmCloneCtx *)data;
     if (!ctx) return;
+    /* [CMP-7] 단일 해제 지점: 모든 핸들러 조기return + GTask GDestroyNotify가 여기를
+     * 경유한다. flag가 TRUE인 락만 해제 → 부분획득(source만/target만) 안전.
+     * unlock은 ctx->source/target 문자열을 읽으므로 반드시 g_free 앞에서 수행. */
+    if (ctx->holds_source_lock) unlock_vm_operation(ctx->source);
+    if (ctx->holds_target_lock) unlock_vm_operation(ctx->target);
     g_free(ctx->source);
     g_free(ctx->target);
     g_free(ctx->source_disk_path);
@@ -1781,6 +1789,23 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
      * create_vm_async 진입부에서 정확히 1회 resolve한다 (이중 resolve 금지).
      * 이전 ARCH-3/ARCH-5의 "[vm] default_bridge→virbr0" 폴백을 대체 —
      * 미지정 시 관리형 기본 네트워크 pcvnat0(network.default_bridge)로 부착. */
+    /* PCV_SAFETY_CONTROL: vm-create-iso-validation — 라이브 vm.create 파라미터를 통합
+     * 검증기로 실검증(dead 검증본 대신 라이브 배선). iso_path=.iso/.img·절대·no-".." 아니면
+     * 거부(예: /etc/shadow → CD-ROM 임의파일 마운트 차단). CMP-3 */
+    {
+        gint         v_disk   = (disk_size_gb > 0) ? disk_size_gb : PCV_MIN_DISK_GB;   /* diskless 회귀방지 */
+        const gchar *v_bridge = (bridge && *bridge) ? bridge : NULL;                    /* 기본브리지 회귀방지 */
+        GError      *v_err    = NULL;
+        if (!pcv_validate_vm_create_params(name, vcpu, memory_mb, v_disk,
+                                           iso_path, v_bridge, &v_err)) {
+            gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+                (v_err && v_err->message) ? v_err->message : "Invalid vm.create parameters");
+            pure_uds_server_send_response(server, connection, err);
+            g_free(err);
+            if (v_err) g_error_free(v_err);
+            return;
+        }
+    }
     if (json_object_has_member(params, "storage_type")) {
         storage_type = json_object_get_string_member(params, "storage_type");
         /* 허용 값 검증: zvol, qcow2, raw */
@@ -3861,6 +3886,24 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
+    /* PCV_SAFETY_CONTROL: apikey-role-enforce — create 바운딩 (SEC-3 선제 차단).
+     * 키의 저장 role은 이제 실효 role로 집행되므로, 발급 단계에서 (1) role을 유효
+     * 범위 {0,1,2}로 검증하고 (2) 요청 role이 발급자(caller) 자신의 role을 초과하지
+     * 못하게 강제한다. 현재 auth.apikey.create는 ADMIN 전용이라 admin에겐 no-op이지만,
+     * create 권한이 향후 확대되어도 저-role 발급자가 상위 role 키를 만들 수 없다. */
+    if (role < PCV_ROLE_VIEWER || role > PCV_ROLE_ADMIN) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32602,
+            "role out of range (0=viewer, 1=operator, 2=admin)");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    {
+        gint caller_role = _dispatcher_caller_role(params, connection);
+        if (role > caller_role) {
+            gchar *r = pure_rpc_build_error_response(rpc_id, -32602,
+                "requested key role exceeds caller role");
+            pure_uds_server_send_response(server, connection, r); g_free(r); return;
+        }
+    }
     gchar *key_out = nullptr;
     GError *err = nullptr;
     if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, description, expires_at, &key_out, &err)) {
@@ -3915,6 +3958,7 @@ static void _handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
 }
 
 /* A-4. auth.session.revoke — JWT 세션 무효화 */
+/* PCV_SAFETY_CONTROL: session-revoke — revoke된 jti를 라이브 blacklist에 등록해 토큰 실제 거부 (SEC-1) */
 static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -3933,6 +3977,41 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
     const gchar *caller_sub = _dispatcher_caller_subject(params, connection);
     pcv_audit_log(caller_sub && *caller_sub ? caller_sub : "-",
                   "auth.session.revoke", jti_masked, "ok", 0, 0, "local");
+    JsonNode *n = json_node_new(JSON_NODE_NULL);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+/* auth.user.sessions.revoke — 대상 사용자의 refresh 세션 전부 무효화 (MED batch E, refresh-remint) */
+/* PCV_SAFETY_CONTROL: user-sessions-revoke — 대상 사용자 refresh 세션을 DB에서 revoked=1로
+ *   마킹(pcv_rbac_revoke_session)해 refresh 재발급(re-mint)을 실제 거부. SEC-1
+ *   session-revoke(jti-blacklist=access 토큰)와 별개 store. ADMIN 강제는
+ *   g_method_policies[]의 min-role=2 엔트리가 유일 지점(핸들러 내 별도 검사 불요). */
+static void _handle_user_sessions_revoke(JsonObject *params, const gchar *rpc_id,
+                                         UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *username = params
+        ? json_object_get_string_member_with_default(params, "username", NULL) : NULL;
+    if (!username || !*username) {
+        gchar *r = pure_rpc_build_error_response(rpc_id,
+            PURE_RPC_ERR_INVALID_PARAMS, "username required");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        return;
+    }
+    const gchar *caller = _dispatcher_caller_subject(params, connection);
+    GError *err = nullptr;
+    gboolean ok = pcv_rbac_revoke_session(username, &err);
+    if (!ok) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, -32000,
+            err ? err->message : "Failed to revoke sessions");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        pcv_audit_log((caller && *caller) ? caller : "-",
+                      "auth.user.sessions.revoke", username, "fail", -32000, 0, "local");
+        if (err) g_error_free(err);
+        return;
+    }
+    pcv_audit_log((caller && *caller) ? caller : "-",
+                  "auth.user.sessions.revoke", username, "ok", 0, 0, "local");
     JsonNode *n = json_node_new(JSON_NODE_NULL);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
@@ -5407,6 +5486,35 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     clone_ctx->target = g_strdup(clone_name);
     clone_ctx->guest_reset = guest_reset;
 
+    /* [CMP-7] source·target VM_OP 락 획득 (TOCTOU 차단).
+     * 이전에는 vm.clone이 무락이라 source read·target 존재검사와 실제 clone(worker)
+     * 사이에 동시 vm.delete(source)/vm.create·vm.clone(target)이 인터리브할 수 있었다.
+     * source→target 고정순서로 libvirt 접근 전에 획득한다(lock_vm_operation은
+     * non-blocking → 데드락 불가). 실패 시 -32004로 동기 거부하고, 획득한 락은
+     * flag 기반으로 _vm_clone_ctx_free 단일 해제 지점에서 되돌린다(부분획득 안전).
+     * source op_type=SNAPSHOT(clone은 source를 스냅샷) / target=CREATING. */
+    {
+        gchar *lock_err = NULL;
+        if (!lock_vm_operation(source, VM_OP_SNAPSHOT, &lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+                lock_err ? lock_err : "Source VM busy (another operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(lock_err);
+            _vm_clone_ctx_free(clone_ctx);  /* holds_*_lock 모두 FALSE → unlock 안 함 */
+            return;
+        }
+        clone_ctx->holds_source_lock = TRUE;
+        if (!lock_vm_operation(clone_name, VM_OP_CREATING, &lock_err)) {
+            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+                lock_err ? lock_err : "Target VM name busy (another operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(lock_err);
+            _vm_clone_ctx_free(clone_ctx);  /* source 락만 해제 (holds_target_lock=FALSE) */
+            return;
+        }
+        clone_ctx->holds_target_lock = TRUE;
+    }
+
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
         _vm_clone_ctx_free(clone_ctx);
@@ -5676,12 +5784,25 @@ static void _handle_daemon_version(JsonObject *params, const gchar *rpc_id,
  *   SIGTERM과 달리 프로세스는 계속 살아있으며,
  *   node.resume으로 수신 재개가 가능합니다.
  *   롤링 업그레이드, 메모리 누수 조사 등에 활용합니다.
+ *
+ * [운영 주석 — DISP-4/Task 5 현 배선 시맨틱]
+ *   pcv_drain_begin(NULL, timeout_sec) 은 loop=NULL 이라 프로세스를 종료하지 않고 shutdown_flag 만
+ *   세운다. DISP-4 의 수락-시 pcv_drain_inc() 게이트로 이후 신규 연결은 -32000 으로 거부되나,
+ *   node.resume 은 제어평면 예외로 화이트리스트되어(uds_server.c _is_drain_exempt_method)
+ *   drain 중에도 통과한다 → pcv_drain_cancel 로 복구 가능(위 "node.resume 으로 재개" 계약 보장).
+ *   SIGTERM 경로는 이와 달리 pcv_drain_begin(loop, ...) 로 실 GMainLoop 를 보유해 inflight==0
+ *   에서 g_main_loop_quit() 하므로 프로세스가 실제로 종료된다(node.drain 의 무종료와 대비).
+ *
+ * [MED CLI-20 시정] timeout_sec 는 optional(기본 30) 로 params 에서 읽는다 — CLI(pcvctl node
+ *   drain --timeout N)는 이미 이 키로 전송해 왔으나 핸들러가 (void)params 로 무시하고 30을
+ *   하드코딩해 --timeout 이 항상 무동작(거짓성공)이었다. required 아님 → 게이트 ① drift 없음.
  * ──────────────────────────────────────────────────────────────────── */
 static void _handle_node_drain(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *connection)
 {
-    (void)params;
-    pcv_drain_begin(NULL, 30);
+    guint timeout_sec = json_object_has_member(params, "timeout_sec")
+        ? (guint)json_object_get_int_member(params, "timeout_sec") : 30;
+    pcv_drain_begin(NULL, timeout_sec);
     JsonNode *ok_node = json_node_new(JSON_NODE_VALUE);
     json_node_set_boolean(ok_node, TRUE);
     gchar *resp = pure_rpc_build_success_response(rpc_id, ok_node);
@@ -6804,6 +6925,7 @@ static void dispatcher_init_routes(void)
         "backup.restore",           /* handler_backup.c::_restore_worker */
         "backup.replicate",         /* handler_backup.c::_replicate_worker */
         "backup.export_s3",         /* dispatcher.c::_s3_export_worker */
+        "backup.incremental",       /* handler_backup.c::_incremental_worker (STO-5) */
         "container.create",         /* handler_container.c::_on_create_done */
         "container.clone",          /* dispatcher.c::_on_container_clone_done */
         "container.destroy",        /* handler_container.c::_on_destroy_done */
@@ -7119,6 +7241,7 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "auth.apikey.list",     (gpointer)_handle_apikey_list);
     g_hash_table_insert(g_rpc_routes, "auth.apikey.revoke",   (gpointer)_handle_apikey_revoke);
     g_hash_table_insert(g_rpc_routes, "auth.session.revoke",  (gpointer)_handle_session_revoke);
+    g_hash_table_insert(g_rpc_routes, "auth.user.sessions.revoke", (gpointer)_handle_user_sessions_revoke);
 
     /* ── B. REST/스케일링 ─────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.batch",             (gpointer)_handle_vm_batch);

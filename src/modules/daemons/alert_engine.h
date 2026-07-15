@@ -120,6 +120,8 @@
 #include <glib.h>
 #include <json-glib/json-glib.h>
 
+#include "alert_silence.h"  /* 음소거 스토어 추출 (AIO-3) — pcv_alert_*silence* 선언 */
+
 G_BEGIN_DECLS
 
 /**
@@ -230,9 +232,8 @@ JsonObject *pcv_alert_engine_dlq_retry(void);
 gboolean    pcv_alert_acknowledge(gint64 alert_id);
 
 /* ── [백엔드 4차] 알림 음소거 ──────────────────────────────── */
-void       pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reason);
-gboolean   pcv_alert_is_silenced(const gchar *metric);
-JsonArray *pcv_alert_get_silences(void);
+/* pcv_alert_add_silence/is_silenced/get_silences/silence_reset 선언은
+ * alert_silence.h 로 이동 (AIO-3, 위 #include 로 노출). */
 
 /* ── R-2: SLA/가동률 추적 ─────────────────────────────────── */
 

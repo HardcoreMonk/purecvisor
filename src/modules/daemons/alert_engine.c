@@ -88,6 +88,8 @@
  *    - count == MAX → hist_idx(가장 오래된 것)부터 MAX개 순서대로
  */
 #include "alert_engine.h"
+#include "alert_silence.h"
+#include "alert_dlq.h"
 #include "ebpf_telemetry.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_log.h"
@@ -400,42 +402,17 @@ pcv_alert_record_security_event(const gchar *event_id,
  * 호출 컨텍스트: alert-engine 스레드에서 _fire_alert() 내부 호출.
  */
 /* ── Webhook DLQ (Dead Letter Queue) ─────────────────────────── */
+/* AIO-4: DLQ 스토어(g_webhook_dlq/g_dlq_mu, WEBHOOK_DLQ_MAX,
+ * store/list/retry)는 src/modules/daemons/alert_dlq.{c,h} 로 추출됐다 —
+ * 값매칭 제거의 실-코드 회귀 테스트를 위한 링크가능 TU 분리(alert_silence 선례).
+ * HTTP 전송(_webhook_post)은 이 파일에 잔존하고 init 에서 seam 으로 등록된다. */
 
-constexpr int WEBHOOK_DLQ_MAX     = 1000;
 constexpr int WEBHOOK_MAX_RETRIES = 3;
 
 /* ── C23 컴파일 타임 검증 ─────────────────────────────────── */
 static_assert(ALERT_HISTORY_MAX >= 100, "History buffer too small");
 static_assert(MAX_COMPOSITE_RULES <= 16, "Composite rules exceed limit");
-static_assert(WEBHOOK_DLQ_MAX >= 100, "DLQ buffer too small");
 static_assert(WEBHOOK_MAX_RETRIES >= 1, "Must retry at least once");
-
-static GPtrArray *g_webhook_dlq = nullptr;
-static GMutex     g_dlq_mu;
-
-/**
- * _webhook_dlq_store — 재시도 실패 후 DLQ에 저장
- *
- * @param url      대상 URL
- * @param payload  JSON 페이로드
- *
- * 최대 WEBHOOK_DLQ_MAX(1000)개까지 저장. 초과 시 드롭.
- */
-static void
-_webhook_dlq_store(const gchar *url, const gchar *payload)
-{
-    g_mutex_lock(&g_dlq_mu);
-    if (!g_webhook_dlq)
-        g_webhook_dlq = g_ptr_array_new_with_free_func(g_free);
-    if (g_webhook_dlq->len < WEBHOOK_DLQ_MAX) {
-        gchar *entry = g_strdup_printf("%s|%s", url, payload);
-        g_ptr_array_add(g_webhook_dlq, entry);
-        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook DLQ stored (%u entries)", g_webhook_dlq->len);
-    } else {
-        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook DLQ full (%d), dropping entry", WEBHOOK_DLQ_MAX);
-    }
-    g_mutex_unlock(&g_dlq_mu);
-}
 
 /**
  * _webhook_post — 단일 Webhook POST 시도
@@ -522,8 +499,8 @@ _webhook_post_with_retry(const gchar *url, const gchar *payload, gint max_retrie
         PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook retry %d/%d failed for %.100s",
                      attempt + 1, max_retries, target_url);
     }
-    /* 모든 재시도 실패 — DLQ에 저장 */
-    _webhook_dlq_store(target_url, payload);
+    /* 모든 재시도 실패 — DLQ에 저장 (alert_dlq TU) */
+    pcv_alert_dlq_store(target_url, payload);
     return FALSE;
 }
 
@@ -638,6 +615,7 @@ _fire_alert(const gchar *metric, AlertLevel level, gdouble value)
      * 메트릭이면 알림을 발화하지 않는다. 이전에는 pcv_alert_is_silenced 가 정의만
      * 되고 이 발화 경로에서 호출되지 않아 음소거가 완전 무동작이었다(레코드·웹훅
      * 모두 발생 = 감사 테마 "통제가 보고만 성공, 실제 무동작"). */
+    /* PCV_SAFETY_CONTROL: alert-silence — 음소거 등록된 메트릭의 알림 발화를 억제 (AIO-3) */
     if (pcv_alert_is_silenced(metric)) {
         PCV_LOG_INFO(ALERT_LOG_DOM, "Alert suppressed (silenced): metric=%s", metric);
         return;
@@ -1154,6 +1132,10 @@ pcv_alert_engine_init(void)
 {
     g_mutex_init(&G.mu);
 
+    /* AIO-4: DLQ 재시도의 HTTP 전송 seam 등록 — enabled 여부와 무관하게 항상
+     * 실 _webhook_post 를 배선한다(비활성 시 DLQ 는 비어 있어 no-op). */
+    pcv_alert_dlq_set_post_fn(_webhook_post);
+
     /* daemon.conf [alert] 섹션에서 활성화 여부 읽기 */
     const gchar *enabled_str = pcv_config_get_string("alert", "enabled", "false");
     G.enabled = (g_strcmp0(enabled_str, "true") == 0 || g_strcmp0(enabled_str, "1") == 0);
@@ -1524,158 +1506,36 @@ pcv_alert_engine_set_config(JsonObject *cfg)
     return TRUE;
 }
 
-/* ── Webhook DLQ 공개 API ────────────────────────────────────── */
+/* ── Webhook DLQ 공개 API (thin wrappers) ─────────────────────
+ * 코어 구현은 alert_dlq.{c,h} 로 추출됐다(AIO-4). dispatcher.c 가 부르는 공개
+ * 심볼 pcv_alert_engine_dlq_list/_retry 를 보존하기 위해 얇은 위임만 남긴다. */
 
 /**
- * pcv_alert_engine_dlq_list — DLQ에 저장된 실패 Webhook 목록 반환
- *
- * 각 항목은 {"url":"...","payload":"..."} 형태의 JsonObject입니다.
- *
+ * pcv_alert_engine_dlq_list — DLQ 목록 반환 (→ pcv_alert_dlq_list)
  * Returns: (transfer full): JsonArray* — 호출자가 json_array_unref() 필요
  */
 JsonArray *
 pcv_alert_engine_dlq_list(void)
 {
-    JsonArray *arr = json_array_new();
-    g_mutex_lock(&g_dlq_mu);
-    if (g_webhook_dlq) {
-        for (guint i = 0; i < g_webhook_dlq->len; i++) {
-            const gchar *entry = g_ptr_array_index(g_webhook_dlq, i);
-            /* entry format: "url|payload" */
-            const gchar *sep = strchr(entry, '|');
-            JsonObject *obj = json_object_new();
-            if (sep) {
-                gchar *url = g_strndup(entry, (gsize)(sep - entry));
-                json_object_set_string_member(obj, "url", url);
-                json_object_set_string_member(obj, "payload", sep + 1);
-                g_free(url);
-            } else {
-                json_object_set_string_member(obj, "url", "");
-                json_object_set_string_member(obj, "payload", entry);
-            }
-            json_object_set_int_member(obj, "index", (gint64)i);
-            json_array_add_object_element(arr, obj);
-        }
-    }
-    g_mutex_unlock(&g_dlq_mu);
-    return arr;
+    return pcv_alert_dlq_list();
 }
 
 /**
- * pcv_alert_engine_dlq_retry — DLQ 항목을 재전송 시도
+ * pcv_alert_engine_dlq_retry — DLQ 항목 재전송 시도 (→ pcv_alert_dlq_retry)
  *
- * 성공한 항목은 DLQ에서 제거됩니다.
- *
- * Returns: JsonObject* {retried, succeeded, failed} — 호출자가 json_object_unref() 필요
+ * AIO-4: 코어 구현은 락을 스냅샷·제거 순간만 보유하고 HTTP 동안엔 보유하지
+ * 않으며, 성공 항목을 값매칭으로 제거한다.
+ * Returns: (transfer full): JsonObject* {retried, succeeded, failed}
  */
 JsonObject *
 pcv_alert_engine_dlq_retry(void)
 {
-    JsonObject *result = json_object_new();
-    gint retried = 0, succeeded = 0, failed = 0;
-
-    g_mutex_lock(&g_dlq_mu);
-    if (g_webhook_dlq && g_webhook_dlq->len > 0) {
-        /* 역순으로 처리하여 인덱스 이동 문제 회피 */
-        for (gint i = (gint)g_webhook_dlq->len - 1; i >= 0; i--) {
-            const gchar *entry = g_ptr_array_index(g_webhook_dlq, (guint)i);
-            const gchar *sep = strchr(entry, '|');
-            retried++;
-            if (sep) {
-                gchar *url = g_strndup(entry, (gsize)(sep - entry));
-                if (_webhook_post(url, sep + 1)) {
-                    succeeded++;
-                    g_ptr_array_remove_index(g_webhook_dlq, (guint)i);
-                } else {
-                    failed++;
-                }
-                g_free(url);
-            } else {
-                failed++;
-            }
-        }
-    }
-    g_mutex_unlock(&g_dlq_mu);
-
-    json_object_set_int_member(result, "retried", retried);
-    json_object_set_int_member(result, "succeeded", succeeded);
-    json_object_set_int_member(result, "failed", failed);
-    PCV_LOG_INFO(ALERT_LOG_DOM, "DLQ retry: %d retried, %d succeeded, %d failed",
-                 retried, succeeded, failed);
-    return result;
+    return pcv_alert_dlq_retry();
 }
 
 /* ══════════════════════════════════════════════════════════════
- * [백엔드 4차] 알림 음소거 (Silence) — 계획된 유지보수 시 노이즈 억제
+ * [백엔드 4차] 알림 음소거 (Silence) — src/modules/daemons/alert_silence.{c,h} 로 추출 (AIO-3).
+ *   AlertSilence 스토어 + pcv_alert_add_silence/is_silenced/get_silences 정의는
+ *   실-코드 효과 테스트(tests/test_alert_silence.c)를 위해 별도 TU 로 이동했다.
+ *   발화측 호출부(_fire_alert)와 PCV_SAFETY_CONTROL 마커는 이 파일에 잔존.
  * ══════════════════════════════════════════════════════════════ */
-
-typedef struct {
-    gchar  *metric;       /* 대상 메트릭 이름 (cpu/mem/disk) */
-    gint64  until;        /* 음소거 종료 시각 (monotonic µs) */
-    gchar  *reason;       /* 음소거 사유 */
-} AlertSilence;
-
-static GPtrArray *g_silences = nullptr;
-static GMutex     g_silence_mu;
-
-void
-pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reason)
-{
-    if (!g_silences) {
-        g_mutex_init(&g_silence_mu);
-        g_silences = g_ptr_array_new_with_free_func(g_free);
-    }
-    AlertSilence *s = g_new0(AlertSilence, 1);
-    s->metric = g_strdup(metric);
-    s->until  = g_get_monotonic_time() + (gint64)duration_min * 60 * G_USEC_PER_SEC;
-    s->reason = g_strdup(reason ? reason : "");
-
-    g_mutex_lock(&g_silence_mu);
-    g_ptr_array_add(g_silences, s);
-    g_mutex_unlock(&g_silence_mu);
-
-    PCV_LOG_INFO(ALERT_LOG_DOM, "Alert silenced: metric=%s duration=%dmin reason=%s",
-                 metric, duration_min, reason ? reason : "");
-}
-
-gboolean
-pcv_alert_is_silenced(const gchar *metric)
-{
-    if (!g_silences || !metric) return FALSE;
-    gint64 now = g_get_monotonic_time();
-    gboolean silenced = FALSE;
-
-    g_mutex_lock(&g_silence_mu);
-    for (guint i = 0; i < g_silences->len; i++) {
-        AlertSilence *s = g_ptr_array_index(g_silences, i);
-        if (g_strcmp0(s->metric, metric) == 0 && now < s->until) {
-            silenced = TRUE;
-            break;
-        }
-    }
-    g_mutex_unlock(&g_silence_mu);
-    return silenced;
-}
-
-JsonArray *
-pcv_alert_get_silences(void)
-{
-    JsonArray *arr = json_array_new();
-    if (!g_silences) return arr;
-    gint64 now = g_get_monotonic_time();
-
-    g_mutex_lock(&g_silence_mu);
-    for (guint i = 0; i < g_silences->len; i++) {
-        AlertSilence *s = g_ptr_array_index(g_silences, i);
-        if (now < s->until) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "metric", s->metric);
-            json_object_set_int_member(obj, "remaining_sec",
-                (gint64)((s->until - now) / G_USEC_PER_SEC));
-            json_object_set_string_member(obj, "reason", s->reason);
-            json_array_add_object_element(arr, obj);
-        }
-    }
-    g_mutex_unlock(&g_silence_mu);
-    return arr;
-}

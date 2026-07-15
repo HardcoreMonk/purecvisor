@@ -65,6 +65,8 @@ HAS_SYMBOL_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
 HAS_INGRESS_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
+HAS_SAFETY_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -219,6 +221,22 @@ if $HAS_INGRESS_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] 데몬 경계 파일 변경 없음 — JSON 파싱 초크포인트 검증 생략"
+fi
+
+# ── 4g. 안전통제 효과 테스트 레지스트리 (check-safety-controls) ─────────
+if $HAS_SAFETY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 안전통제 효과 테스트${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SC_OUT=$(python3 "$SCRIPT_DIR/check_safety_controls.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "안전통제 계약 위반 (미등록 마커/신규 미검증 통제)"
+        echo "$SC_OUT" | tail -15
+    else
+        pass "$(echo "$SC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] C 소스/안전통제 레지스트리 변경 없음 — 안전통제 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

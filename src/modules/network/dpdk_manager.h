@@ -98,6 +98,14 @@ gboolean    pcv_dpdk_bind(const gchar *pci_addr, const gchar *driver, GError **e
 gboolean    pcv_dpdk_unbind(const gchar *pci_addr, GError **error);
 JsonArray  *pcv_dpdk_list(void);            /* DPDK 바인딩된 디바이스 목록 */
 
+/* NET-1: pci_addr가 호스트 사용 중 NIC(UP+IPv4 또는 기본경로)이면 TRUE(+reason,
+ * 호출자 g_free). NULL/빈=TRUE(fail-secure). 형식검증(pcv_validate_pci_addr) 실패=
+ * TRUE(fail-secure, sysfs 탐침 없이 거부). net 디렉토리 없음=FALSE(통과).
+ * getifaddrs 실패=TRUE(fail-secure). */
+gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason);
+/* 테스트 주입용: netdev가 <proc_base>/proc/net/route 기본경로 dev인지. 프로덕션 proc_base="". */
+gboolean pcv_dpdk_route_is_default_dev(const gchar *netdev, const gchar *proc_base);
+
 /* ---- DPDK-accelerated OVS bridge ----
  *
  * [datapath_type=netdev]

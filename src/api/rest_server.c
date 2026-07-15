@@ -830,17 +830,26 @@ _send_rpc_result(SoupServerMessage *msg, const gchar *rpc_resp)
  *   4. 성공 시 subject(사용자명) 반환, 실패 시 401 응답 후 NULL 반환
  *
  * 호출 패턴:
- *   gchar *subject = _authenticate(msg);
+ *   gint key_role = -1;
+ *   gchar *subject = _authenticate(msg, &key_role);
  *   if (!subject) return;  // 401 이미 전송됨
  *   // ... 인증된 요청 처리 ...
  *   g_free(subject);
  *
+ * [SEC-3] @out_key_role (nullable): API Key 인증으로 성공한 경우 키의 '저장 role'
+ *   (0/1/2)을 기록한다. JWT 등 그 외 인증 경로에서는 -1(센티널: 'API 키 아님 →
+ *   subject의 라이브 role 사용')로 남는다. 호출자는 key_role>=0 이면 그 값을,
+ *   아니면 pcv_rbac_get_role(subject)을 실효 role로 사용해야 한다. NULL 허용(역할 불요 시).
+ *
  * @param msg HTTP 요청 메시지
+ * @param out_key_role (out) (nullable): API 키 저장 role, 비-apikey 경로는 -1
  * @return 사용자명 문자열 (호출자가 g_free), 실패 시 NULL (401 응답 전송 완료)
  */
 static gchar *
-_authenticate(SoupServerMessage *msg)
+_authenticate(SoupServerMessage *msg, gint *out_key_role)
 {
+    if (out_key_role) *out_key_role = -1;   /* 기본: 비-apikey(JWT 등) → 라이브 role 사용 */
+
     SoupMessageHeaders *req =
         soup_server_message_get_request_headers(msg);
 
@@ -857,8 +866,15 @@ _authenticate(SoupServerMessage *msg)
     const gchar *api_key = soup_message_headers_get_one(req, "X-API-Key");
     if (api_key && *api_key) {
         GError *aerr = nullptr;
-        gchar *user = pcv_rbac_verify_api_key(api_key, &aerr);
-        if (user) return user;
+        /* PCV_SAFETY_CONTROL: apikey-role-enforce — 키의 실효 role은 저장 role 컬럼에서만
+         *   파생(client_name 라이브 role 무시). verify가 저장 role을 out-param으로 돌려주고,
+         *   호출자(_authenticate)가 out_key_role로 상위 디스패치에 전달한다 (SEC-3 privesc 차단). */
+        PcvRole stored_role = PCV_ROLE_VIEWER;
+        gchar *user = pcv_rbac_verify_api_key(api_key, &stored_role, &aerr);
+        if (user) {
+            if (out_key_role) *out_key_role = (gint)stored_role;
+            return user;
+        }
         /* API key 제공했으나 무효 → 401 */
         GSocketAddress *ra = soup_server_message_get_remote_address(msg);
         gchar *rip = (ra && G_IS_INET_SOCKET_ADDRESS(ra))
@@ -2171,7 +2187,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
          * 내부망에서 외부 스크레이퍼 접근을 차단해야 하는 환경에서 required로 전환. */
         const gchar *m_auth = pcv_config_get_string("metrics", "auth", "none");
         if (g_strcmp0(m_auth, "required") == 0) {
-            gchar *subj = _authenticate(msg);
+            gchar *subj = _authenticate(msg, NULL);  /* role 불요 — 인증 성공 여부만 */
             if (!subj) return;  /* 401 이미 전송 */
             g_free(subj);
         }
@@ -2387,7 +2403,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
         if (bootstrap_configured &&
             g_strcmp0(username, cfg_user) == 0 &&
-            g_strcmp0(password, cfg_pass) == 0)
+            pcv_secret_str_eq(password, cfg_pass))
         {
             /* daemon.conf 관리자 인증 — v2로 refresh token도 발급 */
             token = pcv_rbac_authenticate_v2(username, password, &refresh, &err);
@@ -2811,7 +2827,10 @@ _on_request(SoupServer        *server   __attribute__((unused)),
      * [중요] 이 줄 위의 엔드포인트 (/health, /metrics, /auth/token, /internal/...)는
      * 인증 없이 접근 가능합니다. 이 줄 아래는 반드시 인증이 필요합니다.
      */
-    gchar *subject = _authenticate(msg);
+    /* [SEC-3] key_role: API Key 인증이면 키의 저장 role(0/1/2), 그 외(JWT)는 -1.
+     * 아래 whoami/디스패치 role 파생에서 apikey caller의 실효 role로 사용한다. */
+    gint key_role = -1;
+    gchar *subject = _authenticate(msg, &key_role);
     if (!subject) return;  /* 401 이미 전송됨 — _authenticate()가 에러 응답 처리 완료 */
 
     /* [ADR-0014] CSRF 검증 제거 — JWT Bearer 토큰이 CSRF 방어를 대체 */
@@ -3903,7 +3922,11 @@ _on_request(SoupServer        *server   __attribute__((unused)),
     /* ── /api/v1/auth/users — RBAC 사용자 관리 ────────── */
     else if (g_strcmp0(resource, "auth") == 0) {
         if (g_strcmp0(name, "whoami") == 0 && g_strcmp0(method, "GET") == 0) {
-            PcvRole role = pcv_rbac_get_role(subject);
+            /* [SEC-3] apikey caller는 키의 저장 role(key_role)을 실효 role로 보고 —
+             *   client_name 라이브 role이 아니라 저장 role이 권위(디스패치 집행과 정합). */
+            PcvRole role = (key_role >= 0)
+                ? (PcvRole)key_role
+                : pcv_rbac_get_role(subject);
             const gchar *role_str = pcv_rbac_role_to_str(role);
             const gchar *tenant = pcv_rbac_get_tenant(subject);
             gchar *resp = g_strdup_printf(
@@ -3926,6 +3949,12 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                    && g_strcmp0(method, "POST") == 0) {
             /* POST /auth/sessions/revoke → auth.session.revoke (AF-C1: jti 필수 in body) */
             rpc = _build_rpc("auth.session.revoke", body);
+        } else if (g_strcmp0(name, "user-sessions") == 0
+                   && g_strcmp0(action, "revoke") == 0
+                   && g_strcmp0(method, "POST") == 0) {
+            /* POST /auth/user-sessions/revoke → auth.user.sessions.revoke (refresh-remint)
+             *   body: {"username": "..."} — 대상 사용자 refresh 세션 전부 취소해 re-mint 봉쇄. */
+            rpc = _build_rpc("auth.user.sessions.revoke", body);
         } else if (g_strcmp0(name, "apikeys") == 0) {
             /* AF-C1 + 계약 확장: apikey REST 배선 (F8 스키마 통합 후 활성).
              * create 는 FE↔BE 계약 정합(name+description+expires_at) 후 배선.
@@ -4013,7 +4042,15 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
     PCV_LOG_INFO(REST_LOG_DOM, "→ RPC %.100s", rpc);
     {
-        PcvRole caller_role = pcv_rbac_get_role(subject);
+        /* PCV_SAFETY_CONTROL: apikey-role-enforce — API 키 실효 role은 저장 role 컬럼에서만
+         *   파생(client_name 라이브 role 무시), privesc 차단 (SEC-3).
+         * apikey caller(key_role>=0)면 키의 저장 role을, 그 외(JWT)면 subject의 라이브 role을
+         * 디스패치 role로 주입한다. 이 caller_role이 _pcv_caller_role로 실려 디스패처의
+         * 서버측 RBAC 게이트(pcv_dispatcher_check_rbac)에서 집행된다 — client_name이 admin명이고
+         * 저장 role이 VIEWER인 키는 VIEWER로 판정되어 admin 메서드가 403으로 거부된다. */
+        PcvRole caller_role = (key_role >= 0)
+            ? (PcvRole)key_role
+            : pcv_rbac_get_role(subject);
         gchar *rpc_with_context = _rpc_attach_auth_context(rpc, subject, caller_role);
         g_free(rpc);
         rpc = rpc_with_context;
@@ -4051,30 +4088,36 @@ _on_request(SoupServer        *server   __attribute__((unused)),
          * SECURITY (2026-04-10): fail-secure — method 파싱 실패 시 400 거부 (bypass 차단) */
         const gchar *mp = strstr(rpc, "\"method\":\"");
         if (!mp) {
+            static const char resp_missing_method[] =
+                "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Missing method field\"}}";
             g_message("[RBAC] reject: missing method field in RPC envelope");
             g_free(rpc); rpc = NULL;
             soup_server_message_set_status(msg, 400, "Bad Request");
             soup_server_message_set_response(msg, "application/json",
                 SOUP_MEMORY_STATIC,
-                "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Missing method field\"}}",
-                64);
+                resp_missing_method,
+                sizeof(resp_missing_method) - 1);
             goto cleanup;
         }
         mp += 10;
         const gchar *me = strchr(mp, '"');
         if (!me || me == mp) {
+            static const char resp_malformed_method[] =
+                "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Malformed method field\"}}";
             g_message("[RBAC] reject: malformed method field in RPC envelope");
             g_free(rpc); rpc = NULL;
             soup_server_message_set_status(msg, 400, "Bad Request");
             soup_server_message_set_response(msg, "application/json",
                 SOUP_MEMORY_STATIC,
-                "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Malformed method field\"}}",
-                66);
+                resp_malformed_method,
+                sizeof(resp_malformed_method) - 1);
             goto cleanup;
         }
         {
             gchar *rpc_method = g_strndup(mp, (gsize)(me - mp));
             if (!pcv_rbac_check_permission(subject, rpc_method)) {
+                static const char resp_forbidden[] =
+                    "{\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Insufficient permissions\"}}";
                 g_message("[RBAC] denied: user=%s method=%s", subject, rpc_method);
                 g_free(rpc_method);
                 g_free(rpc);
@@ -4082,8 +4125,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 soup_server_message_set_status(msg, 403, "Forbidden");
                 soup_server_message_set_response(msg, "application/json",
                     SOUP_MEMORY_STATIC,
-                    "{\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Insufficient permissions\"}}",
-                    69);
+                    resp_forbidden,
+                    sizeof(resp_forbidden) - 1);
                 goto cleanup;
             }
             g_free(rpc_method);

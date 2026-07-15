@@ -379,14 +379,16 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
  *
  * 실행 중인 VM에 블록 디바이스(ZFS zvol 등)를 핫 추가합니다.
  *
- * @param params: { "vm_id": "<이름/UUID>", "source": "/dev/zvol/...", "target": "vdb" }
+ * @param params: { "vm_id": "<이름/UUID>", "source": "/dev/zvol/...", "target": "vdb",
+ *                  "bus"?: "virtio|scsi|sata|ide" (optional, 기본 virtio) }
  * @param rpc_id: JSON-RPC 요청 ID
  *
  * [동기 응답] libvirt virDomainAttachDeviceFlags()가 즉시 완료되므로
  *             fire-and-forget 없이 동기적으로 응답합니다.
  *
- * [디스크 XML] virtio 버스, cache=none(직접 I/O), io=native(AIO 사용)
- *             → ZFS zvol에 최적화된 설정입니다.
+ * [디스크 XML] cache=none(직접 I/O), io=native(AIO 사용) → ZFS zvol에 최적화.
+ *             버스는 optional `bus`(허용목록 virtio/scsi/sata/ide, 기본 virtio,
+ *             CLI-24 시정)로 선택하며 virtio가 최고 성능이라 기본값입니다.
  * ================================================================= */
 void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
@@ -395,6 +397,19 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
 
     if (!vm_id || !source_dev || !target_dev) {
         gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing vm_id, source, or target");
+        pure_uds_server_send_response(server, connection, err); g_free(err); return;
+    }
+
+    /* [MED CLI-24 시정] bus 는 optional(기본 virtio) 로 params 에서 읽는다 — 이전에는
+     * 핸들러가 아예 읽지 않고 XML에 'virtio'를 하드코딩해 CLI --bus 가 항상 무동작
+     * (거짓성공)이었다. bus 가 disk XML(g_strdup_printf) 에 그대로 보간되는 신규
+     * 사용자-제어 입력이므로 허용목록으로 제약한다(인젝션 표면 차단). */
+    const gchar *bus = json_object_has_member(params, "bus")
+        ? json_object_get_string_member(params, "bus") : "virtio";
+    if (g_strcmp0(bus, "virtio") != 0 && g_strcmp0(bus, "scsi") != 0 &&
+        g_strcmp0(bus, "sata")   != 0 && g_strcmp0(bus, "ide")  != 0) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+            "Invalid bus: must be virtio, scsi, sata, or ide");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -413,21 +428,34 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
-    /* ZVOL을 위한 블록 디바이스 XML 조립 (virtio 버스, 직접 I/O)
+    /* ZVOL을 위한 블록 디바이스 XML 조립 (기본 virtio 버스, 직접 I/O)
      * [주니어 참고] libvirt 디바이스 핫플러그 XML 옵션:
      *   cache='none'  : 호스트 OS 페이지 캐시를 우회하여 직접 I/O (ZFS ARC와 중복 캐싱 방지)
      *   io='native'   : 리눅스 native AIO(비동기 I/O) 사용 (높은 동시성 처리)
-     *   bus='virtio'  : 준가상화 디스크 드라이버 (SCSI/IDE 대비 최고 성능) */
+     *   bus         : 위에서 허용목록 검증된 값(virtio/scsi/sata/ide) — virtio가 SCSI/IDE 대비
+     *                 최고 성능이라 기본값이나, CLI --bus 로 재정의 가능해야 한다(CLI-24 시정). */
     gchar *xml_payload = g_strdup_printf(
         "<disk type='block' device='disk'>\n"
         "  <driver name='qemu' type='raw' cache='none' io='native'/>\n"
         "  <source dev='%s'/>\n"
-        "  <target dev='%s' bus='virtio'/>\n"
-        "</disk>", source_dev, target_dev);
+        "  <target dev='%s' bus='%s'/>\n"
+        "</disk>", source_dev, target_dev, bus);
 
     // VIR_DOMAIN_AFFECT_LIVE: 켜져 있는 상태에 즉시 반영
     // VIR_DOMAIN_AFFECT_CONFIG: 재부팅 후에도 유지되도록 설정 파일에 저장
     unsigned int flags = VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG;
+
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. 실패=busy(-32004).
+     * 획득~unlock 사이 조기 return 없음(누수 방지). */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(xml_payload); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
 
     if (virDomainAttachDeviceFlags(dom, xml_payload, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
@@ -440,6 +468,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(xml_payload);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
@@ -525,6 +554,17 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
      * 재부팅 후에도 디스크가 사라지므로, 임시 탈착 시에는 LIVE만 사용합니다.
      */
     unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(exact_xml); g_free(target_tag); g_free(live_xml);
+        virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
     if (virDomainDetachDeviceFlags(dom, exact_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
         gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Detach failed");
@@ -536,6 +576,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     /* 메모리 해제: XML 문자열, 태그, libvirt 핸들 */
     g_free(exact_xml);
     g_free(target_tag);
@@ -605,6 +646,18 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
 
     int flags = VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG;
 
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(mount_xml); g_free(iso_escaped);
+        virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     if (virDomainUpdateDeviceFlags(dom, mount_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
         gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
@@ -622,6 +675,7 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
         g_free(resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(mount_xml);
     g_free(iso_escaped);
     virDomainFree(dom); virt_conn_pool_release(conn);
@@ -674,6 +728,17 @@ void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     /* AFFECT_LIVE + AFFECT_CONFIG: 즉시 사출 + 다음 부팅에도 빈 상태 유지 */
     int flags = VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG;
     
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     if (virDomainUpdateDeviceFlags(dom, eject_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
         gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Failed to eject ISO");
@@ -690,6 +755,7 @@ void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
         g_free(resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     virDomainFree(dom); virt_conn_pool_release(conn);
 }
 /* =================================================================
@@ -1063,6 +1129,17 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
         "  <model type='%s'/>\n"
         "</interface>", bridge, model);
 
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     int rc = virDomainAttachDeviceFlags(dom, xml,
                  VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG);
     g_free(xml);
@@ -1078,6 +1155,7 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
         gchar *resp = pure_rpc_build_success_response(rpc_id, res);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     virDomainFree(dom); virt_conn_pool_release(conn);
 }
 
@@ -1122,6 +1200,17 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
         "  <mac address='%s'/>\n"
         "</interface>", mac);
 
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     int rc = virDomainDetachDeviceFlags(dom, xml,
                  VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG);
     g_free(xml);
@@ -1137,6 +1226,7 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
         gchar *resp = pure_rpc_build_success_response(rpc_id, res);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     virDomainFree(dom); virt_conn_pool_release(conn);
 }
 
@@ -1268,6 +1358,17 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
      *   이러면 CPU 캐시(L1/L2)가 자주 무효화되어 성능이 저하됩니다.
      *   피닝으로 vCPU를 특정 물리 코어에 고정하면 캐시 히트율이 크게 향상됩니다.
      *   특히 NUMA 환경에서는 메모리 로컬리티까지 최적화할 수 있습니다. */
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(cpumap); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     int rc = virDomainPinVcpu(dom, (unsigned int)vcpu_id, cpumap, maplen);
 
     if (rc < 0) {
@@ -1289,6 +1390,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(cpumap);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
@@ -1430,6 +1532,17 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
         nparams++;
     }
 
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(iface); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     int rc = virDomainSetInterfaceParameters(dom, iface, typed_params, nparams,
                  VIR_DOMAIN_AFFECT_LIVE);
 
@@ -1452,6 +1565,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 
+    unlock_vm_operation(name);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(iface);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
@@ -1735,6 +1849,9 @@ typedef struct {
 static void free_disk_live_resize_ctx(gpointer data) {
     if (!data) return;
     DiskLiveResizeCtx *ctx = (DiskLiveResizeCtx *)data;
+    /* CMP-10: acquire 는 핸들러에서, 해제는 GDestroyNotify 인 여기서.
+     * ctx 는 acquire 성공 후에만 생성되므로 (ctx 존재 ⟺ 락 보유) flag 불요. */
+    unlock_vm_operation(ctx->vm_name);
     g_free(ctx->vm_name);
     g_free(ctx->target);
     g_free(ctx);
@@ -1838,6 +1955,19 @@ void handle_vm_disk_live_resize_request(JsonObject *params, const gchar *rpc_id,
             "Missing or invalid params: name, target required, new_size_gb must be > 0");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
+        return;
+    }
+
+    /* CMP-10: VM_OP_TUNING 획득 — "accepted" 응답 전에 획득(busy VM 은 accepted 가
+     * 아니라 -32004 에러를 받아야 함). 성공 시에만 ctx 생성 → 해제는
+     * free_disk_live_resize_ctx(GDestroyNotify)가 항상 수행. 획득~ctx 배선 사이
+     * 조기 return 없음(누수 방지). */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
         return;
     }
 
@@ -1976,6 +2106,17 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
         nparams++;
     }
 
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     int rc = virDomainSetBlockIoTune(dom, device, typed_params, nparams,
                  VIR_DOMAIN_AFFECT_LIVE | VIR_DOMAIN_AFFECT_CONFIG);
 
@@ -2000,6 +2141,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 
+    unlock_vm_operation(name);   /* CMP-10: 성공·실패 공통 단일 해제 */
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 }
@@ -2204,6 +2346,19 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
         "</hostdev>", vendor_id, product_id);
 
     unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
+
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. 실패=busy(-32004).
+     * 획득~unlock 사이 조기 return 없음(누수 방지). */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     if (virDomainAttachDeviceFlags(dom, xml, flags) < 0) {
         virErrorPtr e = virGetLastError();
         gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
@@ -2222,6 +2377,7 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
         g_free(usb_resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(xml);
     virDomainFree(dom);
     virt_conn_pool_release(conn);
@@ -2276,6 +2432,19 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
         "</hostdev>", vendor_id, product_id);
 
     unsigned int flags = VIR_DOMAIN_AFFECT_LIVE;
+
+    /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. 실패=busy(-32004).
+     * 획득~unlock 사이 조기 return 없음(누수 방지). */
+    gchar *lock_err = NULL;
+    if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
+        return;
+    }
+
     if (virDomainDetachDeviceFlags(dom, xml, flags) < 0) {
         virErrorPtr e = virGetLastError();
         gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
@@ -2294,6 +2463,7 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
         g_free(usb_resp);
     }
 
+    unlock_vm_operation(vm_id);   /* CMP-10: 성공·실패 공통 단일 해제 */
     g_free(xml);
     virDomainFree(dom);
     virt_conn_pool_release(conn);

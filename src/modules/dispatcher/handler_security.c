@@ -261,10 +261,9 @@ security_action_approve_worker(GTask *task,
     gint64 start_us = g_get_monotonic_time();
     GError *error = NULL;
 
-    gboolean ok = pcv_hips_action_execute(d->action, d->target, &error);
-    if (ok) {
-        ok = pcv_hips_action_approve(d->event_id, d->admin_user, &error);
-    }
+    gboolean ok = pcv_hips_action_run_approval(d->event_id, d->action, d->target,
+                                               d->admin_user,
+                                               pcv_hips_action_execute, &error);
     if (ok) {
         GError *status_error = NULL;
         (void)pcv_security_store_update_event_status(d->event_id,

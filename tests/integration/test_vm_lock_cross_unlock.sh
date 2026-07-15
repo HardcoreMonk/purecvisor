@@ -2,6 +2,9 @@
 # tests/integration/test_vm_lock_cross_unlock.sh
 #
 # CMP-1: VM 락 교차 unlock 차단 결정적 E2E (실/격리 데몬)
+#   + CMP-7: vm.clone source·target VM_OP 락 직렬화 (S7/S8, 동일 vm-op-lock 통제)
+#   + CMP-10: hotplug device.disk.attach VM_OP 락 직렬화 (S9, 동일 vm-op-lock 통제)
+#   + CMP-10: vm.usb.attach VM_OP 락 직렬화 (S10, Task 3 에서 누락되었던 USB 핸들러)
 # ---------------------------------------------------------------------------
 # 검증 대상: handler_vm_lifecycle.c 의 vm_action_callback 이 ctx->holds_lock
 # 이 TRUE 일 때만 unlock_vm_operation(ctx->vm_id) 를 호출한다(HEAD 06631e7).
@@ -98,6 +101,17 @@ SOCK="$STATE/var-lib/daemon.sock"
 SUF="$$-$RANDOM"
 VM_LOCKED="cmp1-locked-$SUF"    # DELETING 락 수동 보유
 VM_REGRESS="cmp1-regress-$SUF"  # 무회귀: stop 정상 해제
+# CMP-7: vm.clone source·target 직렬화 (TOCTOU 차단)
+CLONE_SRC_A="cmp7-src-a-$SUF"    # (a) source DELETING-locked → clone 동기 거부
+CLONE_TGT_A="cmp7-tgt-a-$SUF"    # (a) 신규 target 이름 (무락)
+CLONE_SRC_B="cmp7-src-b-$SUF"    # (b) source 무락 → 부분획득 후 해제 검증(누수 없음)
+CLONE_TGT_B="cmp7-tgt-b-$SUF"    # (b) target CREATING-locked → clone 거부
+# CMP-10: hotplug 직렬화 (동시 vm.delete 중 device.disk.attach 동기 거부)
+#   vm_id 는 test:///default 내장 도메인 'test' 사용 — hotplug 핸들러는 VM_OP 락을
+#   mutating libvirt 호출 직전(도메인 조회 성공 뒤)에 획득하므로, 존재하는 도메인이어야
+#   조회를 통과해 락 게이트까지 도달한다(부재 이름이면 조회에서 'Entity not found' 로
+#   먼저 반환되어 락 경로 미도달). 락은 SQLite vm_locks 에 있어 도메인 상태와 무관.
+HOTPLUG_VM="test"  # test:///default 내장 러닝 도메인 (조회 성공 → 락 게이트 도달)
 
 # DELETING 락에 기록할 PID. 격리 데몬은 bwrap userns 안에서 uid 0 로 맵핑되지만
 # 호스트 real uid 는 1000 이다. pid_is_alive() 는 kill(pid,0)==0 로 판정하는데,
@@ -302,6 +316,108 @@ fi
 # DELETING 락은 여전히 잔존해야(무락 op 들이 못 지웠음) — 최종 스냅샷
 final_locked="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$VM_LOCKED';")"
 info "최종: DELETING 락(count=$final_locked) / 무회귀 VM 락(count=$cnt_regress)"
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 7 (CMP-7 a): source DELETING-locked → vm.clone 동기 거부(-32004)
+#   _handle_vm_clone 이 libvirt 접근(virt_conn_pool_acquire) 전에 source 락을
+#   먼저 획득하므로, source 가 이미 락(동시 vm.delete)이면 동기 busy 거부한다.
+#   template_prepared=true 로 libguestfs 요구를 우회(격리 env 에 없음).
+# ═══════════════════════════════════════════════════════════════
+NOW_A="$(date +%s)"
+sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$CLONE_SRC_A', 3, $LOCK_PID, $NOW_A);"
+clone_a_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.clone\",\"params\":{\"source\":\"$CLONE_SRC_A\",\"clone_name\":\"$CLONE_TGT_A\",\"template_prepared\":true},\"id\":\"clone-a\"}")"
+info "S7: vm.clone(source DELETING-locked) 응답 = ${clone_a_resp:-<empty>}"
+a_err=0; a_busy=0; a_accepted=0
+case "$clone_a_resp" in *'"error"'*)  a_err=1 ;; esac
+case "$clone_a_resp" in *-32004*)     a_busy=1 ;; esac
+case "$clone_a_resp" in *accepted*)   a_accepted=1 ;; esac
+if [ "$a_err" = "1" ] && [ "$a_busy" = "1" ] && [ "$a_accepted" = "0" ]; then
+    pass "S7(CMP-7 a): source DELETING-locked → vm.clone 동기 busy 거부(-32004), accepted 아님"
+else
+    fail "S7(CMP-7 a): 예상 busy(-32004,accepted아님) 미확인 (err=$a_err busy=$a_busy accepted=$a_accepted) resp='$clone_a_resp'"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 8 (CMP-7 b): target CREATING-locked(source 무락) → vm.clone 거부
+#   + 부분획득한 source 락이 _vm_clone_ctx_free 로 해제됨(누수 없음) 검증.
+#   source→target 순서라 source 는 획득 성공, target 획득 실패 → 조기 return 시
+#   ctx-free 가 holds_source_lock=TRUE 만 해제 → source count 0, target 미교차삭제.
+# ═══════════════════════════════════════════════════════════════
+NOW_B="$(date +%s)"
+sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$CLONE_TGT_B', 4, $LOCK_PID, $NOW_B);"
+pre_src_b="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$CLONE_SRC_B';")"
+clone_b_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.clone\",\"params\":{\"source\":\"$CLONE_SRC_B\",\"clone_name\":\"$CLONE_TGT_B\",\"template_prepared\":true},\"id\":\"clone-b\"}")"
+info "S8: vm.clone(target CREATING-locked, source 무락 pre=$pre_src_b) 응답 = ${clone_b_resp:-<empty>}"
+sleep 0.3   # 동기 부분획득 해제의 WAL 반영 대기
+src_b_after="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$CLONE_SRC_B';")"
+tgt_b_after="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$CLONE_TGT_B';")"
+b_err=0; b_busy=0
+case "$clone_b_resp" in *'"error"'*) b_err=1 ;; esac
+case "$clone_b_resp" in *-32004*)    b_busy=1 ;; esac
+if [ "$b_err" = "1" ] && [ "$b_busy" = "1" ] && [ "$pre_src_b" = "0" ] \
+   && [ "$src_b_after" = "0" ] && [ "$tgt_b_after" = "1" ]; then
+    pass "S8(CMP-7 b): target 충돌 거부(-32004) + 부분획득 source 락 해제(count=0, 누수없음) + target 락 미교차삭제(count=1)"
+else
+    fail "S8(CMP-7 b): 예상 busy&src0&tgt1, 실제 err=$b_err busy=$b_busy pre_src=$pre_src_b src_after=$src_b_after tgt_after=$tgt_b_after resp='$clone_b_resp'"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 9 (CMP-10): DELETING-locked 도메인에 device.disk.attach → 동기 거부(-32004)
+#   hotplug mutating 핸들러가 이제 mutating libvirt 호출 직전(도메인 조회 성공 뒤)에
+#   VM_OP_TUNING 을 획득하므로, 대상이 이미 DELETING 락(동시 vm.delete)이면 mutate
+#   전에 동기 busy 거부한다. vm_id='test' 는 조회를 통과(존재 도메인)하여 락 게이트에
+#   도달 → -32004 'already locked'.
+#   [반사실] 핸들러에서 acquire 를 제거하면 조회 통과 후 곧장 virDomainAttachDeviceFlags
+#   가 실행되어 -32004 가 아닌 다른 응답(성공 또는 드라이버 에러) → 이 단언이 RED.
+#   락 획득 실패 경로는 unlock 을 호출하지 않으므로 DELETING 락 미교차삭제(count=1).
+# ═══════════════════════════════════════════════════════════════
+NOW_H="$(date +%s)"
+sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$HOTPLUG_VM', 3, $LOCK_PID, $NOW_H);"
+hp_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"device.disk.attach\",\"params\":{\"vm_id\":\"$HOTPLUG_VM\",\"source\":\"/dev/zero\",\"target\":\"vdb\"},\"id\":\"hotplug-blocked\"}")"
+info "S9: device.disk.attach(DELETING-locked) 응답 = ${hp_resp:-<empty>}"
+sleep 0.3   # 동기 응답이지만 WAL 반영 여유
+hp_after="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$HOTPLUG_VM';")"
+h_err=0; h_busy=0; h_locked=0
+case "$hp_resp" in *'"error"'*)        h_err=1 ;; esac
+case "$hp_resp" in *-32004*)           h_busy=1 ;; esac
+case "$hp_resp" in *"already locked"*) h_locked=1 ;; esac
+if [ "$h_err" = "1" ] && [ "$h_busy" = "1" ] && [ "$h_locked" = "1" ] && [ "$hp_after" = "1" ]; then
+    pass "S9(CMP-10): device.disk.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$hp_after)"
+else
+    fail "S9(CMP-10): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$h_err busy=$h_busy locked=$h_locked after=$hp_after) resp='$hp_resp'"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 10 (CMP-10): DELETING-locked 도메인에 vm.usb.attach → 동기 거부(-32004)
+#   Task 3(6fa527a)가 hotplug 핸들러 9개(동기)+1개(비동기)에 VM_OP_TUNING 을 배선하며
+#   handle_vm_usb_attach/handle_vm_usb_detach 를 누락했다 — 본 커밋(Task 3b)이 보강.
+#   S9 가 심어둔 DELETING 락(vm_id='test')은 락 획득 실패 경로라 unlock 이 호출되지
+#   않아 그대로 잔존(hp_after=1) — 재사용한다(vm_locks.vm_id 는 PRIMARY KEY 라 재-INSERT
+#   시 제약 위반). 혹시 잔존하지 않을 경우를 대비해 없으면 새로 심는다.
+#   vm_id='test' 는 조회를 통과(존재 도메인)하여 락 게이트에 도달 → -32004 'already locked'.
+#   [반사실] handle_vm_usb_attach 에서 acquire 를 제거하면 조회 통과 후 곧장
+#   virDomainAttachDeviceFlags 가 실행되어 -32004 가 아닌 다른 응답(성공 또는 드라이버
+#   에러) → 이 단언이 RED. 락 획득 실패 경로는 unlock 을 호출하지 않으므로 DELETING
+#   락 미교차삭제(count=1).
+# ═══════════════════════════════════════════════════════════════
+pre_usb="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$HOTPLUG_VM';")"
+if [ "$pre_usb" = "0" ]; then
+    NOW_U="$(date +%s)"
+    sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$HOTPLUG_VM', 3, $LOCK_PID, $NOW_U);"
+fi
+usb_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.usb.attach\",\"params\":{\"vm_id\":\"$HOTPLUG_VM\",\"vendor_id\":\"0x1234\",\"product_id\":\"0x5678\"},\"id\":\"usb-blocked\"}")"
+info "S10: vm.usb.attach(DELETING-locked) 응답 = ${usb_resp:-<empty>}"
+sleep 0.3   # 동기 응답이지만 WAL 반영 여유
+usb_after="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$HOTPLUG_VM';")"
+u_err=0; u_busy=0; u_locked=0
+case "$usb_resp" in *'"error"'*)        u_err=1 ;; esac
+case "$usb_resp" in *-32004*)           u_busy=1 ;; esac
+case "$usb_resp" in *"already locked"*) u_locked=1 ;; esac
+if [ "$u_err" = "1" ] && [ "$u_busy" = "1" ] && [ "$u_locked" = "1" ] && [ "$usb_after" = "1" ]; then
+    pass "S10(CMP-10): vm.usb.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$usb_after)"
+else
+    fail "S10(CMP-10): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$u_err busy=$u_busy locked=$u_locked after=$usb_after) resp='$usb_resp'"
+fi
 
 # ═══════════════════════════════════════════════════════════════
 # 정리

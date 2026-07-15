@@ -20,7 +20,7 @@
   "container.set_bandwidth":{ "required": ["name"], "optional": ["nic_name", "inbound_kbps", "outbound_kbps"] },
   "container.set_limits":   { "required": ["name"], "optional": ["cpu_percent", "cpu_weight", "memory_mb"] },
   "storage.pool.health":    { "required": [], "optional": ["pool"] },
-  "node.drain":             { "required": [], "optional": [] },
+  "node.drain":             { "required": [], "optional": ["timeout_sec"] },
   "container.health.set":   { "required": ["name", "type", "target"], "optional": ["interval_sec"] },
   "device.disk.attach":     { "required": ["vm_id", "source", "target"], "optional": ["bus"] }
 }

@@ -48,9 +48,8 @@ gboolean network_bridge_create(const gchar *bridge_name __attribute__((unused)),
                                const gchar *cidr __attribute__((unused)),
                                gint mtu __attribute__((unused)),
                                GError **error __attribute__((unused))) { return TRUE; }
-gboolean network_firewall_setup_nat(const gchar *bridge_name __attribute__((unused)),
-                                    const gchar *cidr __attribute__((unused)),
-                                    GError **error __attribute__((unused))) { return TRUE; }
+/* [NET-2 임시] network_firewall.c 를 test 링크에 넣으면 실 함수가 제공되므로
+ * 이 stub 은 중복정의가 된다 — 실험용으로 비활성화. */
 gboolean network_dhcp_start(const gchar *bridge_name __attribute__((unused)),
                             const gchar *cidr __attribute__((unused)),
                             GError **error __attribute__((unused))) { return TRUE; }

@@ -267,6 +267,33 @@ pcv_hips_action_approve(const gchar *event_id, const gchar *admin_user, GError *
                                                    admin_user, "", error);
 }
 
+/*
+ * PCV_SAFETY_CONTROL: hips-approval-expiry — 만료된 pending 승인의 부작용(nft DROP/
+ * 키폐기)을 execute 앞 TTL 검사로 차단한다(SEC-4). get_action이 만료 무필터라
+ * update_action_status의 뒤늦은 거부만으로는 부작용이 이미 실행된 뒤였다. execute_fn은
+ * 주입 seam(테스트 스파이) — 비만료 경로는 execute→approve 순서와 "실패 nft는 pending
+ * 유지" 불변을 보존한다.
+ */
+gboolean
+pcv_hips_action_run_approval(const gchar *event_id,
+                             const gchar *action,
+                             const gchar *target,
+                             const gchar *admin_user,
+                             PcvHipsExecuteFn execute_fn,
+                             GError **error)
+{
+    if (pcv_security_store_action_is_expired(event_id)) {
+        g_set_error(error, hips_action_error_quark(), 3,
+                    "pending action expired for event_id=%s",
+                    event_id ? event_id : "");
+        return FALSE;                       /* execute_fn 미호출 */
+    }
+    if (!execute_fn(action, target, error)) {
+        return FALSE;                       /* 실패 nft는 pending 유지(불변) */
+    }
+    return pcv_hips_action_approve(event_id, admin_user, error);
+}
+
 gboolean
 pcv_hips_action_dismiss(const gchar *event_id,
                         const gchar *admin_user,

@@ -448,6 +448,100 @@ static void test_set_memory_params_missing_both(void) {
 }
 
 /* ══════════════════════════════════════════════════════════════
+ * 6. MED CLI-20/CLI-24 배선 시정 — node.drain timeout_sec 읽기 +
+ *    device.disk.attach bus 허용목록 (dispatcher.c/handler_vm_hotplug.c
+ *    실제 로직을 재현 — 두 핸들러 모두 libvirt/lxc 실백엔드 없이 격리
+ *    데몬 E2E 로 값-적용을 온전히 검증하기 어려워, 이 파일의 관례대로
+ *    파싱/검증 로직을 순수 함수로 재현해 유닛 레벨에서 고정한다.
+ * ══════════════════════════════════════════════════════════════ */
+
+/**
+ * _handle_node_drain (dispatcher.c) 의 timeout_sec 읽기 로직 재현.
+ * 시정 전: (void)params; pcv_drain_begin(NULL, 30) — 하드코딩, CLI가 보낸
+ * timeout_sec 는 완전히 무시됐다(거짓성공). 시정 후: has_member?get:30.
+ */
+static guint
+node_drain_read_timeout_sec(JsonObject *params)
+{
+    return json_object_has_member(params, "timeout_sec")
+        ? (guint)json_object_get_int_member(params, "timeout_sec") : 30;
+}
+
+static void test_node_drain_timeout_default_30(void) {
+    /* timeout_sec 미전송 — 기본값 30 (하위호환) */
+    JsonObject *params = json_object_new();
+    g_assert_cmpuint(node_drain_read_timeout_sec(params), ==, 30);
+    json_object_unref(params);
+}
+
+static void test_node_drain_timeout_custom_value_applied(void) {
+    /* CLI `pcvctl node drain --timeout 90` 재현. 이 유닛 테스트는 재현 로직
+     * (node_drain_read_timeout_sec)만 고정하며 실 핸들러(_handle_node_drain)를
+     * 호출하진 않는다 — 프로덕션 배선의 반사실(제거 시 RED)은 E2E
+     * test_cli_param_apply.sh 시나리오 C가 실 데몬으로 검증한다(ADR-0025). */
+    JsonObject *params = json_object_new();
+    json_object_set_int_member(params, "timeout_sec", 90);
+    g_assert_cmpuint(node_drain_read_timeout_sec(params), ==, 90);
+    json_object_unref(params);
+}
+
+/**
+ * handle_device_disk_attach (handler_vm_hotplug.c) 의 bus 허용목록 검증
+ * 재현. 시정 전: bus 를 아예 읽지 않고 XML에 'virtio' 하드코딩(거짓성공).
+ * 시정 후: has_member?get:"virtio" + 허용목록 {virtio,scsi,sata,ide} 밖이면
+ * 거부 — disk XML(g_strdup_printf) 에 보간되는 신규 사용자 입력이라
+ * 인젝션 표면 차단이 필수(감사 지적사항).
+ */
+static gboolean
+disk_attach_bus_is_valid(const gchar *bus)
+{
+    return g_strcmp0(bus, "virtio") == 0 || g_strcmp0(bus, "scsi") == 0 ||
+           g_strcmp0(bus, "sata")   == 0 || g_strcmp0(bus, "ide")  == 0;
+}
+
+static void test_disk_attach_bus_default_virtio(void) {
+    JsonObject *params = json_object_new();
+    const gchar *bus = json_object_has_member(params, "bus")
+        ? json_object_get_string_member(params, "bus") : "virtio";
+    g_assert_cmpstr(bus, ==, "virtio");
+    g_assert_true(disk_attach_bus_is_valid(bus));
+    json_object_unref(params);
+}
+
+static void test_disk_attach_bus_allowlist_accepts_all_four(void) {
+    const gchar *allowed[] = { "virtio", "scsi", "sata", "ide" };
+    for (guint i = 0; i < G_N_ELEMENTS(allowed); i++)
+        g_assert_true(disk_attach_bus_is_valid(allowed[i]));
+}
+
+static void test_disk_attach_bus_allowlist_rejects_injection(void) {
+    /* 감사 지적: bus 는 g_strdup_printf 로 disk XML에 그대로 보간되는
+     * 신규 사용자-제어 입력 — 허용목록 밖은 반드시 거부(-32602)돼야 한다. */
+    g_assert_false(disk_attach_bus_is_valid("xen"));
+    g_assert_false(disk_attach_bus_is_valid("virtio'/><disk type='file"));
+    g_assert_false(disk_attach_bus_is_valid(""));
+    g_assert_false(disk_attach_bus_is_valid(NULL));
+}
+
+static void test_disk_attach_bus_xml_interpolation_uses_requested_bus(void) {
+    /* CLI `pcvctl device disk attach ... --bus scsi` 재현. 이 유닛 테스트는 재현
+     * XML 조립만 고정하며 실 핸들러(handle_device_disk_attach)를 호출하진 않는다 —
+     * 프로덕션 배선의 반사실(제거 시 RED)은 E2E test_cli_param_apply.sh 시나리오
+     * D가 실 데몬으로 검증한다(ADR-0025). */
+    const gchar *bus = "scsi";
+    g_assert_true(disk_attach_bus_is_valid(bus));
+    gchar *xml_payload = g_strdup_printf(
+        "<disk type='block' device='disk'>\n"
+        "  <driver name='qemu' type='raw' cache='none' io='native'/>\n"
+        "  <source dev='%s'/>\n"
+        "  <target dev='%s' bus='%s'/>\n"
+        "</disk>", "/dev/zvol/pcvpool/data", "vdb", bus);
+    g_assert_nonnull(strstr(xml_payload, "bus='scsi'"));
+    g_assert_null(strstr(xml_payload, "bus='virtio'"));
+    g_free(xml_payload);
+}
+
+/* ══════════════════════════════════════════════════════════════
  * 등록
  * ══════════════════════════════════════════════════════════════ */
 
@@ -511,4 +605,18 @@ void test_handler_params_register(void) {
                     test_set_memory_params_valid);
     g_test_add_func("/handler_params/scenario/set_memory_missing",
                     test_set_memory_params_missing_both);
+
+    /* MED CLI-20/CLI-24 배선 시정 */
+    g_test_add_func("/handler_params/node_drain/timeout_default_30",
+                    test_node_drain_timeout_default_30);
+    g_test_add_func("/handler_params/node_drain/timeout_custom_applied",
+                    test_node_drain_timeout_custom_value_applied);
+    g_test_add_func("/handler_params/disk_attach/bus_default_virtio",
+                    test_disk_attach_bus_default_virtio);
+    g_test_add_func("/handler_params/disk_attach/bus_allowlist_accepts_all",
+                    test_disk_attach_bus_allowlist_accepts_all_four);
+    g_test_add_func("/handler_params/disk_attach/bus_allowlist_rejects_injection",
+                    test_disk_attach_bus_allowlist_rejects_injection);
+    g_test_add_func("/handler_params/disk_attach/bus_xml_interpolation",
+                    test_disk_attach_bus_xml_interpolation_uses_requested_bus);
 }

@@ -722,12 +722,17 @@ window.retryWebhookDlq = async function() {
   const el = document.getElementById('dlq-list');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, '재시도 중...');
   try {
-    await fetchPost(API_BASE + '/alerts/dlq/retry', {});
+    var r = await fetchPost(API_BASE + '/webhook/dlq/retry', {});
+    if (r && r.error) {
+      toast('DLQ 재시도 실패: ' + r.error.message, false);
+      if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'DLQ 재시도 실패: ' + r.error.message);
+      return;
+    }
     toast('DLQ 전체 재시도 요청 완료');
     if (el) PCV.uxlib.setMsg(el, 'ok', { tag: 'p', size: '12px' }, '재시도 요청 전송 완료');
   } catch (e) {
     toast('DLQ 재시도 실패: ' + e.message, false);
-    if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'DLQ 재시도 엔드포인트 미구현');
+    if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'DLQ 재시도 요청 실패 (네트워크 오류)');
   }
 };
 
@@ -736,7 +741,8 @@ window.retryDlqItem = async function(index) {
   if (index < 0 || index >= items.length) return;
   var item = items[index];
   try {
-    await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.retry', params:{index: index, url: item.url || item.webhook_url || ''}, id:'dlqr1'});
+    var r = await fetchPost(API_BASE + '/rpc', {jsonrpc:'2.0', method:'alert.dlq.retry', params:{index: index, url: item.url || item.webhook_url || ''}, id:'dlqr1'});
+    if (r && r.error) { toast(_L('재시도 실패', 'Retry failed') + ': ' + r.error.message, false); return; }
     toast(_L('재시도 요청 전송됨', 'Retry requested'));
     window.loadWebhookDlq();
   } catch (e) {
@@ -754,10 +760,17 @@ async function apiKeyCreate() {
   var desc = (document.getElementById('apikey-desc')?.value || '').trim();
   var expiryDays = parseInt(document.getElementById('apikey-expiry')?.value, 10);
   if (!name) { toast('Name required', false); return; }
-  /* BE 계약(dispatcher auth.apikey.create): name(필수)+description(옵션)+
-   * expires_at(옵션, epoch 초; 0/미전송 = 무기한). 폼은 만료를 '일'로 받으므로
-   * 여기서 epoch 초로 환산해 canonical 키로 전송한다. */
+  /* BE 계약(dispatcher auth.apikey.create): name(필수)+role(옵션 int, default 1,
+   * {0,1,2} 且 role≤caller)+description(옵션)+expires_at(옵션, epoch 초; 0/미전송
+   * = 무기한). 폼은 만료를 '일'로 받으므로 여기서 epoch 초로 환산해 canonical
+   * 키로 전송한다. role 은 showApiKeyCreate 셀렉터(#apikey-role)에서 읽어 전송 —
+   * SEC-3: 저장 role 이 실효 grant 이므로 명시 전송 필수(미전송 시 항상 operator). */
   var payload = { name: name, description: desc };
+  var roleEl = document.getElementById('apikey-role');
+  if (roleEl) {
+    var role = parseInt(roleEl.value, 10);
+    if (Number.isFinite(role)) payload.role = role;
+  }
   if (Number.isFinite(expiryDays) && expiryDays > 0) {
     payload.expires_at = Math.floor(Date.now() / 1000) + expiryDays * 86400;
   }
@@ -775,64 +788,22 @@ async function apiKeyCreate() {
         mk('br'),
         mk('code', { style: 'color:var(--accent);font-size:13px;word-break:break-all;user-select:all' }, d.api_key),
         mk('br'),
-        mk('button', { class: 'btn', style: 'margin-top:6px;font-size:10px', onclick: "navigator.clipboard.writeText('" + escapeHtml(d.api_key).replace(/'/g, "\\'") + "');toast('Copied!')" }, '📋 Copy')
+        mk('button', { class: 'btn', style: 'margin-top:6px;font-size:10px', onclick: function() { navigator.clipboard.writeText(d.api_key); toast('Copied!'); } }, '📋 Copy')
       ));
     }
     toast('API key created: ' + name);
     addEvt('API Key created: ' + name);
     var nameEl = document.getElementById('apikey-name'); if (nameEl) nameEl.value = '';
     var descEl = document.getElementById('apikey-desc'); if (descEl) descEl.value = '';
-    apiKeyList();
+    /* R-embed: 생성 후 하위 키 테이블(#apikey-keys-area)을 계약정합
+     * renderApiKeys 로 리프레시. (레거시 apiKeyList/apiKeyRevoke 는 스키마 불일치
+     * (key_prefix/id/key_id/expired 부재 필드) + DELETE /auth/apikeys/{id} 미배선
+     * 라우트 사용으로 삭제됨 — 계약정합 renderApiKeys/revokeApiKey 로 대체.) */
+    var keysArea = document.getElementById('apikey-keys-area');
+    if (keysArea && typeof window.renderApiKeys === 'function') window.renderApiKeys(keysArea);
   } catch (e) { toast('Error: ' + e.message, false); }
 }
 window.apiKeyCreate = apiKeyCreate;
-
-async function apiKeyList() {
-  var el = document.getElementById('apikey-list'); if (!el) return;
-  try {
-    var r = await fetchGet(API_BASE + '/auth/apikeys');
-    var keys = Array.isArray(r) ? r : (r.data || r.result || []);
-    if (!Array.isArray(keys) || keys.length === 0) {
-      PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'No API keys. Create one above.');
-      return;
-    }
-    var mk = PCV.uxlib.el;
-    var rows = keys.map(function(k) {
-      var keyMasked = k.key_prefix ? k.key_prefix + '...' : (k.api_key ? k.api_key.substring(0, 8) + '...' : '***...');
-      var expired = k.expired || (k.expires_at && new Date(k.expires_at) < new Date());
-      var statusBadge = expired ? HN.badge('Expired', 'r') : (k.revoked ? HN.badge('Revoked', 'r') : HN.badge('Active', 'g'));
-      var actionCell = (!k.revoked && !expired)
-        ? mk('button', { class: 'btn btn-r', style: 'font-size:9px;padding:2px 8px', onclick: "apiKeyRevoke('" + escapeHtml(k.id || k.key_id || '') + "','" + escapeHtml(k.description || '') + "')" }, 'Revoke')
-        : null;
-      return mk('tr', null,
-        mk('td', null, mk('b', null, k.description || '-')),
-        mk('td', null, mk('code', { class: 'color-muted' }, keyMasked)),
-        mk('td', { class: 'text-xs' }, k.created_at || k.created || '-'),
-        mk('td', { class: 'text-xs' }, k.expires_at || k.expires || '-'),
-        mk('td', null, statusBadge),
-        mk('td', null, actionCell));
-    });
-    var table = mk('table', { style: 'font-size:11px' },
-      mk('thead', null, mk('tr', null,
-        mk('th', null, 'Description'), mk('th', null, 'Key (masked)'), mk('th', null, 'Created'),
-        mk('th', null, 'Expires'), mk('th', null, 'Status'), mk('th'))),
-      mk('tbody', null, rows));
-    PCV.uxlib.clearEl(el); el.appendChild(table);
-  } catch (e) { PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted', size: '12px' }, 'API Keys not available: ' + e.message); }
-}
-window.apiKeyList = apiKeyList;
-
-async function apiKeyRevoke(keyId, desc) {
-  if (!await customConfirm('Revoke API Key', 'Revoke key "' + desc + '"? This cannot be undone.')) return;
-  try {
-    var r = await fetchDelete(API_BASE + '/auth/apikeys/' + encodeURIComponent(keyId));
-    if (r.error) { toast('Revoke failed: ' + (r.error.message || ''), false); return; }
-    toast('API key revoked: ' + desc);
-    addEvt('API Key revoked: ' + desc);
-    apiKeyList();
-  } catch (e) { toast('Error: ' + e.message, false); }
-}
-window.apiKeyRevoke = apiKeyRevoke;
 
 /* ═══ DASHBOARD HOME ═══ */
 async function renderDashboard(b) {

@@ -67,6 +67,8 @@
 #include "../../include/purecvisor/pcv_validate.h"
 #include <string.h>
 #include <stdio.h>
+#include <ifaddrs.h>
+#include <net/if.h>
 
 #define DPDK_LOG_DOM    "dpdk_manager"
 #define DPDK_SOCK_DIR   "/var/run/purecvisor"
@@ -599,4 +601,93 @@ pcv_dpdk_vhost_socket_path(const gchar *vm_name)
     if (!vm_name)
         return NULL;
     return g_strdup_printf("%s/vhost-%s.sock", DPDK_SOCK_DIR, vm_name);
+}
+
+/* ── NET-1: 관리 NIC 보호 가드 ─────────────────────────────────── */
+
+/* netdev가 <proc_base>/proc/net/route 의 기본경로(Destination 00000000) dev인지. */
+gboolean pcv_dpdk_route_is_default_dev(const gchar *netdev, const gchar *proc_base)
+{
+    if (!netdev) return FALSE;
+    gchar *path = g_strdup_printf("%s/proc/net/route", proc_base ? proc_base : "");
+    gchar *content = NULL;
+    gboolean is_def = FALSE;
+    if (g_file_get_contents(path, &content, NULL, NULL)) {
+        gchar **lines = g_strsplit(content, "\n", -1);
+        for (gint i = 1; lines[i]; i++) {   /* lines[0]=헤더 */
+            gchar **f = g_strsplit_set(lines[i], "\t ", -1);
+            gchar *iface = NULL, *dest = NULL; gint n = 0;
+            for (gchar **c = f; *c; c++) {
+                if (**c == '\0') continue;  /* 연속 구분자 스킵 */
+                if (n == 0) iface = *c; else if (n == 1) dest = *c;
+                n++;
+            }
+            if (iface && dest && g_strcmp0(dest, "00000000") == 0 &&
+                g_strcmp0(iface, netdev) == 0)
+                is_def = TRUE;
+            g_strfreev(f);
+        }
+        g_strfreev(lines);
+        g_free(content);
+    }
+    g_free(path);
+    return is_def;
+}
+
+/* pci_addr → 커널 netdev 이름 목록(sysfs). 빈 목록 = 커널 미관리. */
+static GList *_dpdk_pci_netdevs(const gchar *pci_addr)
+{
+    gchar *dir = g_strdup_printf("/sys/bus/pci/devices/%s/net", pci_addr);
+    GList *out = NULL;
+    GDir *d = g_dir_open(dir, 0, NULL);
+    if (d) {
+        const gchar *n;
+        while ((n = g_dir_read_name(d))) out = g_list_prepend(out, g_strdup(n));
+        g_dir_close(d);
+    }
+    g_free(dir);
+    return out;
+}
+
+/* netdev가 UP + IPv4 주소 보유인지. getifaddrs 실패=TRUE(fail-secure). */
+static gboolean _dpdk_up_with_ipv4(const gchar *netdev)
+{
+    struct ifaddrs *ifa = NULL;
+    if (getifaddrs(&ifa) != 0) return TRUE;   /* fail-secure */
+    gboolean prot = FALSE;
+    for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
+        if (p->ifa_name && g_strcmp0(p->ifa_name, netdev) == 0 &&
+            p->ifa_addr && p->ifa_addr->sa_family == AF_INET &&
+            (p->ifa_flags & IFF_UP)) { prot = TRUE; break; }
+    }
+    freeifaddrs(ifa);
+    return prot;
+}
+
+gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason)
+{
+    if (reason) *reason = NULL;
+    if (!pci_addr || !*pci_addr) return TRUE;         /* fail-secure */
+    /* NET-1: 형식검증 실패(경로순회 '..' 포함) BDF는 sysfs 탐침 없이 거부(fail-secure). */
+    if (!pcv_validate_pci_addr(pci_addr)) {
+        if (reason) *reason = g_strdup("refusing to bind: invalid PCI address");
+        return TRUE;
+    }
+    GList *devs = _dpdk_pci_netdevs(pci_addr);
+    if (!devs) return FALSE;                            /* 커널 미관리 = 통과 */
+    gboolean prot = FALSE;
+    for (GList *l = devs; l && !prot; l = l->next) {
+        const gchar *nd = l->data;
+        if (_dpdk_up_with_ipv4(nd)) {
+            if (reason) *reason = g_strdup_printf(
+                "refusing to bind: NIC %s is up with an IPv4 address", nd);
+            prot = TRUE;
+        } else if (pcv_dpdk_route_is_default_dev(nd, "")) {
+            if (reason) *reason = g_strdup_printf(
+                "refusing to bind: NIC %s carries the default route", nd);
+            prot = TRUE;
+        }
+    }
+    g_list_free_full(devs, g_free);
+    return prot;
 }

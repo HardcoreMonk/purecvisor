@@ -1,0 +1,86 @@
+{
+  "session-revoke": {
+    "description": "auth.session.revoke가 해당 토큰을 실제 거부 (jti를 라이브 blacklist에 등록)",
+    "effect_assertion": "revoke 후 같은 토큰으로 인증 요청 시 401 (거부)",
+    "effect_test": "tests/integration/test_session_revoke.sh",
+    "status": "tested"
+  },
+  "user-sessions-revoke": {
+    "description": "auth.user.sessions.revoke가 대상 사용자의 refresh 세션을 실제 취소 (jti-blacklist인 session-revoke와 별개)",
+    "effect_assertion": "revoke 후 대상 refresh_token으로 /auth/refresh 시 401 (re-mint 거부)",
+    "effect_test": "tests/integration/test_user_sessions_revoke.sh",
+    "status": "tested"
+  },
+  "vm-op-lock": {
+    "description": "VM별 오퍼레이션 락으로 동시 작업 직렬화 + 교차 unlock 차단",
+    "effect_assertion": "holds_lock=FALSE인 op(limit)가 남의 DELETING 락을 지우지 않음 + 락 보유 중 vm.stop 거부",
+    "effect_test": "tests/integration/test_vm_lock_cross_unlock.sh",
+    "status": "tested"
+  },
+  "restart-breaker": {
+    "description": "VM 단위 재시작 서킷 브레이커 — 임계 초과 실패 시 재시작 dispatch 차단",
+    "effect_assertion": "임계값 연속 실패 기록 후 rb_allow가 FALSE 반환(재시작 차단), CLOSED에서는 TRUE",
+    "effect_test": "tests/test_restart_breaker.c::test_closed_to_open",
+    "status": "tested"
+  },
+  "graceful-drain": {
+    "description": "SIGTERM 시 진행 중(inflight) 요청 완료까지 대기 후 종료 + drain 중 신규요청 -32000 거부",
+    "effect_assertion": "drain 진입 후 신규요청은 -32000으로 거부되고, inflight>0 상태의 SIGTERM은 즉시 종료하지 않고 'Waiting for N in-flight' 후 inflight==0 도달 시에만 graceful 종료(held 요청 드롭 없음, timeout 아님)",
+    "effect_test": "tests/integration/test_graceful_drain_effect.sh",
+    "status": "tested"
+  },
+  "alert-silence": {
+    "description": "alert.silence로 등록된 메트릭의 알림 발화를 억제",
+    "effect_assertion": "사용자 소문자 'cpu' 음소거 등록 후 엔진 발화 'CPU'가 is_silenced로 실제 억제 (대소문자 무시 매칭)",
+    "effect_test": "tests/test_alert_silence.c::test_silence_case_insensitive_suppresses",
+    "status": "tested"
+  },
+  "sriov-disable": {
+    "description": "sriov.disable가 PF의 모든 VF를 실제 제거 (sriov_numvfs=0)",
+    "effect_assertion": "sysfs numvfs 쓰기 거부 시 거짓 성공 대신 오류 전파",
+    "effect_test": "tests/test_sriov.c::test_sriov_disable_write_failure_propagates",
+    "status": "tested"
+  },
+  "self-healing-restart": {
+    "description": "자가치유 정책이 unresponsive VM을 실제 재시작 (virDomainCreate 실배선)",
+    "effect_assertion": "정지 VM에 restart 액션 실행 시 실제로 도메인이 기동됨 (running-guard로 정상 VM은 skip)",
+    "effect_test": null,
+    "status": "untested-baseline"
+  },
+  "backup-retention": {
+    "description": "스냅샷 수가 retention_count 초과 시 가장 오래된 것부터 실제 삭제",
+    "effect_assertion": "retention_count 초과 상태에서 prune이 오래된 스냅샷을 zfs destroy하고 최신 N개는 보존",
+    "effect_test": "tests/integration/test_backup_retention_effect.sh",
+    "status": "tested"
+  },
+  "hips-approval-expiry": {
+    "description": "HIPS 승인 워커가 만료된 pending 액션의 부작용(nft DROP/키폐기)을 execute 앞 TTL 검사로 차단 (SEC-4)",
+    "effect_assertion": "만료 경계 초과(now>expires_at) 후 run_approval이 execute_fn 미호출·FALSE 반환·pending 잔존; 비만료는 execute→approve 정상 실행",
+    "effect_test": "tests/test_security_actions.c::test_hips_expired_pending_blocks_side_effect",
+    "status": "tested"
+  },
+  "apikey-role-enforce": {
+    "description": "API Key caller의 실효 role을 키의 저장 role(api_keys.role)에서만 파생 (client_name 라이브 role 무시) — client_name=admin명 + 저장 role=VIEWER 키의 admin 승격 privesc 차단 (SEC-3)",
+    "effect_assertion": "client_name=admin(라이브 role=admin) + 저장 role=VIEWER 키로 admin-gated GET /auth/users 호출 시 403 (수정 전 200); whoami는 저장 role(viewer) 보고",
+    "effect_test": "tests/integration/test_apikey_role_enforce.sh",
+    "status": "tested"
+  },
+  "vm-create-iso-validation": {
+    "description": "라이브 vm.create가 pcv_validate_vm_create_params로 iso_path를 실검증 (dead 검증본 대신 라이브 배선) — 절대경로·no-'..'·.iso/.img 확장자 위반 시 op-lock/create 이전에 거부",
+    "effect_assertion": "iso_path=/etc/shadow(확장자 위반) 및 /pcvpool/iso/../../etc/shadow(traversal) vm.create 시 .error != null AND NOT .result.accepted==true — 임의 호스트 파일 CD-ROM 마운트 차단 (CMP-3)",
+    "effect_test": "tests/integration/test_vm_create_iso_validation.sh",
+    "status": "tested"
+  },
+  "isolated-network-drop": {
+    "description": "network_firewall_setup_isolated가 forward DROP 룰(iifname/oifname drop = 격리의 유일 기제, forward 체인 기본정책 accept)을 실제 적용했을 때만 network.create 성공 — nft 실패 시 격리 안 된 망을 created로 오보하지 않고 FALSE 전파 (NET-2)",
+    "effect_assertion": "mock nft가 non-zero(exit 1) 종료 시 setup_isolated가 FALSE + GError 전파(거짓 성공 아님); exit 0이면 TRUE(항상 FALSE 아님 + _ensure_table 멱등 성공 경로 커버)",
+    "effect_test": "tests/test_network.c::test_firewall_isolated_nft_failure_propagates",
+    "status": "tested"
+  },
+  "qos-rehydrate": {
+    "description": "부팅 시점에 아직 없던 vnet 에도 persisted QoS(qos_rules.json)를 주기 reconcile 타이머로 최종 재적용 — 부팅1회성 restore 의 무동작(존재게이트로 tc 미발사·거짓 카운터 교정)을 security_group resync 선례(worker offload + in-flight guard + shutdown g_source_remove)로 제거 (NET-4)",
+    "effect_assertion": "부팅 시 /sys/class/net/vnet0 부재 → 존재게이트가 tc skip(로그에 'class replace dev vnet0' 없음); vnet0 가 늦게 출현(touch) 후 reconcile tick 이 'tc class replace dev vnet0 ... rate 100Mbit' 를 실발사(부팅1회성이면 재적용 부재=RED)",
+    "effect_test": "tests/integration/test_qos_rehydrate_effect.sh",
+    "status": "tested"
+  }
+}

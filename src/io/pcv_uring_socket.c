@@ -115,8 +115,18 @@ pcv_uring_submit_accept(PcvUringCtx *ctx, int listen_fd,
     io_uring_sqe_set_data64(sqe, id);
 
     gboolean ok = _submit_ring(ctx);
-    if (!ok)
+    if (!ok) {
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+        /* [DISP-3] _submit_ring FALSE 면 prep 된 SQE 가 커널-가시 SQ 링에 잔존해(submit 이
+         * ktail 를 먼저 진행 후 enter 실패) 다음 submit 때 재flush → 호출자가 해제/롤백한
+         * 자원으로 I/O = 좁은 UAF·유령 accept fd 누수. NOP+data64=0 으로 무해화한다: 재flush
+         * 되어도 커널은 buf/addr 를 안 건드리고 CQE 는 예약 ID(0) 라 안전 드롭.
+         * [정합성] 이 링은 non-SQPOLL(io_uring_queue_init flags=0)이라 커널은 io_uring_enter
+         * 시점에만 SQE 를 읽고 모든 제출은 submit_mu 로 직렬화된다 → 슬롯 덮어쓰기에 커널
+         * 동시읽기 없음. get_sqe 재호출 없어 sqe_head/tail 회계도 불변. */
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
+    }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;
 }
@@ -164,8 +174,12 @@ pcv_uring_submit_connect(PcvUringCtx *ctx, int fd,
     io_uring_sqe_set_data64(sqe, id);
 
     gboolean ok = _submit_ring(ctx);
-    if (!ok)
+    if (!ok) {
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+        /* [DISP-3] 잔존 SQE 무해화 — accept 래퍼 주석 참조(non-SQPOLL+submit_mu 직렬화). */
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
+    }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;
 }
@@ -212,8 +226,12 @@ pcv_uring_submit_send(PcvUringCtx *ctx, int fd, const void *buf, gsize len,
     io_uring_sqe_set_data64(sqe, id);
 
     gboolean ok = _submit_ring(ctx);
-    if (!ok)
+    if (!ok) {
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+        /* [DISP-3] 잔존 SQE 무해화 — accept 래퍼 주석 참조(non-SQPOLL+submit_mu 직렬화). */
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
+    }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;
 }
@@ -259,8 +277,13 @@ pcv_uring_submit_recv(PcvUringCtx *ctx, int fd, void *buf, gsize len,
     io_uring_sqe_set_data64(sqe, id);
 
     gboolean ok = _submit_ring(ctx);
-    if (!ok)
+    if (!ok) {
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
+        /* [DISP-3] recv 는 load-bearing 케이스: 잔존 recv SQE 가 재flush 되면 호출자가
+         * 해제한 buf 로 커널이 write = UAF. NOP 무해화 — accept 래퍼 주석 참조. */
+        io_uring_prep_nop(sqe);
+        io_uring_sqe_set_data64(sqe, 0);
+    }
     g_mutex_unlock(&ctx->submit_mu);
     return ok;
 }

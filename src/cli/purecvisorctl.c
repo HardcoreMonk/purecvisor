@@ -4118,7 +4118,7 @@ void cmd_ovn_acl(int argc, char *argv[]) {
         if (argc < 4) { printf("%sUsage: pcvctl ovn acl list <switch>%s\n",
             cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
         JsonObject *params = json_object_new();
-        json_object_set_string_member(params, "switch_name", argv[3]);
+        json_object_set_string_member(params, "switch", argv[3]);
         GError *error = NULL;
         gchar  *resp  = purectl_send_request("ovn.acl.list", params, &error);
         if (error) {
@@ -4498,7 +4498,7 @@ void cmd_vm_schedule(int argc, char *argv[]) {
 void cmd_storage_health(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
     if (argc >= 3)
-        json_object_set_string_member(params, "name", argv[2]);
+        json_object_set_string_member(params, "pool", argv[2]);
     GError *error = NULL;
     gchar *resp = purectl_send_request("storage.pool.health", params, &error);
     if (error) {
@@ -6293,7 +6293,7 @@ static void cmd_container_health_set(int argc, char *argv[]) {
         else if (g_strcmp0(argv[i], "--target") == 0 && i + 1 < argc)
             json_object_set_string_member(p, "target", argv[++i]);
         else if (g_strcmp0(argv[i], "--interval") == 0 && i + 1 < argc)
-            json_object_set_int_member(p, "interval", atoi(argv[++i]));
+            json_object_set_int_member(p, "interval_sec", atoi(argv[++i]));
     }
     GError *e = NULL; gchar *r = purectl_send_request("container.health.set", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6382,7 +6382,7 @@ static void cmd_container_nic_attach(int argc, char *argv[]) {
         if (g_strcmp0(argv[i], "--bridge") == 0 && i + 1 < argc)
             json_object_set_string_member(p, "bridge", argv[++i]);
         else if (g_strcmp0(argv[i], "--mac") == 0 && i + 1 < argc)
-            json_object_set_string_member(p, "mac", argv[++i]);
+            json_object_set_string_member(p, "hwaddr", argv[++i]);
     }
     GError *e = NULL; gchar *r = purectl_send_request("container.nic.attach", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6412,7 +6412,7 @@ static void cmd_container_set_limits(int argc, char *argv[]) {
         if (g_strcmp0(argv[i], "--memory_mb") == 0 && i + 1 < argc)
             json_object_set_int_member(p, "memory_mb", atol(argv[++i]));
         else if (g_strcmp0(argv[i], "--cpu_quota") == 0 && i + 1 < argc)
-            json_object_set_int_member(p, "cpu_quota", atol(argv[++i]));
+            json_object_set_int_member(p, "cpu_percent", atol(argv[++i]));
     }
     GError *e = NULL; gchar *r = purectl_send_request("container.set_limits", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6426,9 +6426,9 @@ static void cmd_container_set_bandwidth(int argc, char *argv[]) {
     json_object_set_string_member(p, "name", argv[2]);
     for (int i = 3; i < argc; i++) {
         if (g_strcmp0(argv[i], "--inbound") == 0 && i + 1 < argc)
-            json_object_set_int_member(p, "inbound", atol(argv[++i]));
+            json_object_set_int_member(p, "inbound_kbps", atol(argv[++i]));
         else if (g_strcmp0(argv[i], "--outbound") == 0 && i + 1 < argc)
-            json_object_set_int_member(p, "outbound", atol(argv[++i]));
+            json_object_set_int_member(p, "outbound_kbps", atol(argv[++i]));
     }
     GError *e = NULL; gchar *r = purectl_send_request("container.set_bandwidth", p, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }

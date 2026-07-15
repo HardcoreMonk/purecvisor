@@ -95,6 +95,19 @@
 #include "../../utils/pcv_validate.h"
 #include "../../utils/pcv_config.h"                  /* [VP-6] firewall_integration 가드 */
 
+/* ── nft 1건 실행 + 종료코드 검사 (NET-2) ──────────────────────────
+ * pcv_spawn_fire 는 fire-and-forget 이라 nft 실패를 보고할 수 없다(무대기 unref).
+ * 격리/NAT 규칙이 실제 커널에 적용됐는지가 보안상 중요한 경로에서는 이 헬퍼로
+ * 종료코드를 검사해 실패(+GError, stderr 접힘)를 호출자에게 전파한다. argv 기반
+ * 이라 셸 해석 없음(인젝션 안전). stderr 버퍼는 삼켜서 해제하고 GError 로만
+ * 전달한다(호출자가 원문 stderr 를 따로 다루지 않으므로). */
+static gboolean _nft_run(const gchar * const *argv, GError **error) {
+    gchar *errout = NULL;
+    gboolean ok = pcv_spawn_sync(argv, NULL, &errout, error);
+    g_free(errout);
+    return ok;
+}
+
 /* ── nftables 공용 테이블/체인 초기화 (멱등) ───────────────────
  *
  * [동작]
@@ -113,18 +126,24 @@
  *   따라서 여러 브릿지가 동시에 생성되어도 안전하다.
  *
  * [주의]
- *   pcv_spawn_fire()는 fire-and-forget으로 결과를 확인하지 않는다.
- *   테이블/체인 생성 실패는 이후 규칙 추가 시 감지된다.
+ *   [NET-2] 이전에는 pcv_spawn_fire(fire-and-forget)로 결과를 확인하지 않아
+ *   테이블/체인 생성 실패가 조용히 넘어갔다. 이제 _nft_run(종료코드 검사)로
+ *   실패를 전파한다. nft add table/chain 은 이미 존재하면 exit 0(멱등, nft
+ *   v1.0.x 실측)이므로 non-zero 는 진짜 실패(권한/문법)이며 전파가 옳다.
  * ──────────────────────────────────────────────────────────────── */
-static void _ensure_table(void) {
+static gboolean _ensure_table(GError **error) {
     /* 1단계: 테이블 생성 (inet = IPv4+IPv6 통합) */
-    { const gchar *a[] = {"nft","add","table","inet","purecvisor",NULL};          pcv_spawn_fire(a); }
+    { const gchar *a[] = {"nft","add","table","inet","purecvisor",NULL};
+      if (!_nft_run(a, error)) return FALSE; }
     /* 2단계: postrouting 체인 — MASQUERADE(NAT) 규칙용 */
     { const gchar *a[] = {"nft","add","chain","inet","purecvisor","postrouting",
-                           "{ type nat hook postrouting priority srcnat; }",NULL}; pcv_spawn_fire(a); }
+                           "{ type nat hook postrouting priority srcnat; }",NULL};
+      if (!_nft_run(a, error)) return FALSE; }
     /* 3단계: forward 체인 — 브릿지 간 포워딩 허용/차단 규칙용 */
     { const gchar *a[] = {"nft","add","chain","inet","purecvisor","forward",
-                           "{ type filter hook forward priority filter; }",NULL};  pcv_spawn_fire(a); }
+                           "{ type filter hook forward priority filter; }",NULL};
+      if (!_nft_run(a, error)) return FALSE; }
+    return TRUE;
 }
 
 /* ── CIDR -> 서브넷 변환 ("10.0.0.1/24" -> "10.0.0.0/24") ────────
@@ -216,11 +235,15 @@ gboolean network_firewall_setup_nat(const gchar *bridge_name, const gchar *cidr,
     /* 커널 IP 포워딩 활성화 (0=비활성, 1=활성)
      * 이 설정은 시스템 전역이므로 한 번만 해도 되지만, 멱등이므로 매번 호출해도 무방 */
     { const gchar *a[] = {"sysctl","-w","net.ipv4.ip_forward=1",NULL}; pcv_spawn_fire(a); }
-    _ensure_table();
+    if (!_ensure_table(error)) return FALSE;
 
     /* CIDR에서 서브넷 주소 추출 (예: "10.10.10.1/24" -> "10.10.10.0/24") */
     gchar *subnet = _cidr_to_subnet(cidr, error);
     if (!subnet) return FALSE;
+
+    /* [NET-2] nft 규칙 적용 실패를 전파 — 하나라도 실패하면 이후 규칙/호스트
+     * 방화벽 개입을 건너뛰고 FALSE 를 반환한다(GError 는 최초 1회만 세팅). */
+    gboolean ok = TRUE;
 
     /* [규칙 1] masquerade: 브릿지 이외 출구로 나가는 서브넷 패킷에 SNAT 적용
      * oifname != "br" : 브릿지 내부(VM<->VM) 트래픽은 NAT 불필요 */
@@ -228,27 +251,29 @@ gboolean network_firewall_setup_nat(const gchar *bridge_name, const gchar *cidr,
     { const gchar *a[] = {"nft","add","rule","inet","purecvisor","postrouting",
                            "oifname", oif_ne, "ip","saddr", subnet,
                            "masquerade", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
     g_free(oif_ne);
 
     /* [규칙 2] [B-2 수정] forward iif=br -> 외부로 나가는 패킷 허용
      * VM에서 발생한 패킷이 호스트를 거쳐 외부로 나갈 수 있게 한다 */
     gchar *iif = g_strdup_printf("\"%s\"", bridge_name);
-    { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
+    if (ok) { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "iifname", iif, "accept", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     /* [규칙 3] [B-2 수정] forward oif=br + established,related -> 응답 패킷 복귀 허용
      * 외부에서 VM으로 들어오는 패킷 중, 기존 연결의 응답만 허용한다.
      * 이렇게 하면 VM이 먼저 시작한 연결의 응답은 허용하되,
      * 외부에서 VM으로의 새로운 연결 시작은 차단된다 (보안). */
     gchar *oif = g_strdup_printf("\"%s\"", bridge_name);
-    { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
+    if (ok) { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "oifname", oif,
                            "ct","state","established,related","accept", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     g_free(iif); g_free(oif); g_free(subnet);
+
+    if (!ok) return FALSE;   /* [NET-2] NAT 규칙 미적용 → 거짓 성공 방지 */
 
     /* ── [VP-6] 호스트 방화벽 자동 공존 ──────────────────────────────
      * Developer note:
@@ -295,6 +320,10 @@ gboolean network_firewall_setup_nat(const gchar *bridge_name, const gchar *cidr,
  *   ip_forward=0이면 forward 체인 자체가 비활성화되어
  *   drop 규칙이 적용되지 않을 수 있다 (Fix #3).
  * ================================================================= */
+/* PCV_SAFETY_CONTROL: isolated-network-drop — isolated forward DROP 룰(iif/oif drop)이
+ * 실제 적용됐을 때만 network.create 성공; nft 실패 시 거짓 성공 대신 FALSE 전파 (NET-2).
+ * forward 체인 기본정책은 accept 이므로 이 DROP 룰이 격리의 유일 기제다 — 미적용을
+ * created 로 오보하면 격리 안 된 망이 생긴다. */
 gboolean network_firewall_setup_isolated(const gchar *bridge_name,
                                          const gchar *cidr __attribute__((unused)),
                                          GError **error) {
@@ -307,34 +336,40 @@ gboolean network_firewall_setup_isolated(const gchar *bridge_name,
     }
     /* [Fix #3] forward chain 동작을 보장하기 위해 ip_forward 활성화.
      * Linux Bridge intra-bridge 통신은 L2이나, forward chain 규칙 자체가
-     * ip_forward=1 상태에서만 커널에 의해 평가됨. */
+     * ip_forward=1 상태에서만 커널에 의해 평가됨.
+     * [NET-2] sysctl 은 best-effort 유지: 시스템 전역·멱등이고, 실패해도
+     * forward 체인이 비활성이면 오히려 fail-safe(격리 방향). */
     { const gchar *a[] = {"sysctl","-w","net.ipv4.ip_forward=1",NULL};
       pcv_spawn_fire(a); }
-    _ensure_table();
+    if (!_ensure_table(error)) return FALSE;
 
     gchar *iif = g_strdup_printf("\"%s\"", bridge_name);
     gchar *oif = g_strdup_printf("\"%s\"", bridge_name);
+
+    /* [NET-2] DROP 룰(iif/oif drop)은 격리의 유일 기제 → nft 실패를 전파한다.
+     * 하나라도 실패하면 이후 규칙을 건너뛰고 ok=FALSE 로 반환(GError 1회 세팅). */
+    gboolean ok = TRUE;
 
     /* [규칙 1] intra-bridge (iif=br, oif=br) -> accept
      * 같은 브릿지 내 VM끼리의 통신을 허용 */
     { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "iifname", iif, "oifname", oif, "accept", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     /* [규칙 2] iif=br -> 외부 drop
      * 이 브릿지에서 출발하여 외부로 나가려는 패킷을 차단 */
-    { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
+    if (ok) { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "iifname", iif, "drop", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     /* [규칙 3] 외부 -> oif=br drop
      * 외부에서 이 브릿지로 들어오려는 패킷을 차단 */
-    { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
+    if (ok) { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "oifname", oif, "drop", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     g_free(iif); g_free(oif);
-    return TRUE;
+    return ok;
 }
 
 /* =================================================================
@@ -362,23 +397,26 @@ gboolean network_firewall_setup_routed(const gchar *bridge_name,
     }
     /* IP 포워딩만 활성화 — MASQUERADE 없음 */
     { const gchar *a[] = {"sysctl","-w","net.ipv4.ip_forward=1",NULL}; pcv_spawn_fire(a); }
-    _ensure_table();
+    if (!_ensure_table(error)) return FALSE;
+
+    /* [NET-2] nft 규칙 적용 실패를 전파(setup_nat/isolated 와 대칭). */
+    gboolean ok = TRUE;
 
     /* forward: 브릿지에서 나가는 패킷 허용 */
     gchar *iif = g_strdup_printf("\"%s\"", bridge_name);
     { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "iifname", iif, "accept", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     /* forward: 응답 패킷만 브릿지로 허용 (conntrack 기반) */
     gchar *oif = g_strdup_printf("\"%s\"", bridge_name);
-    { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
+    if (ok) { const gchar *a[] = {"nft","add","rule","inet","purecvisor","forward",
                            "oifname", oif,
                            "ct","state","established,related","accept", NULL};
-      pcv_spawn_fire(a); }
+      ok = _nft_run(a, error); }
 
     g_free(iif); g_free(oif);
-    return TRUE;
+    return ok;
 }
 
 /* =================================================================

@@ -13,6 +13,7 @@
  */
 
 #include <glib.h>
+#include <glib/gstdio.h>   /* [NET-1] g_unlink/g_rmdir (기본경로 픽스처 정리) */
 #include <json-glib/json-glib.h>
 
 /* dpdk_manager.h 함수 직접 참조 */
@@ -27,6 +28,10 @@ extern gboolean pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port
 
 /* pcv_validate.h 함수 참조 */
 extern gboolean pcv_validate_pci_addr(const gchar *addr);
+
+/* NET-1 관리 NIC 보호 가드 */
+extern gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason);
+extern gboolean pcv_dpdk_route_is_default_dev(const gchar *netdev, const gchar *proc_base);
 
 /* ── graceful degradation: DPDK 미설치 시 빈 결과 ── */
 
@@ -102,6 +107,58 @@ static void test_dpdk_bridge_create_reject_injection(void) {
     g_assert_false(g_file_test("/tmp/pcv_dpdk_pwn", G_FILE_TEST_EXISTS));
 }
 
+/* ── NET-1: 관리 NIC 보호 가드 ── */
+
+/* default-route 파서: 픽스처 /proc/net/route 로 기본경로 dev 판정. */
+static void test_dpdk_nic_route_default(void) {
+    gchar *base = g_dir_make_tmp("pcvdpdk_XXXXXX", NULL);
+    g_assert_nonnull(base);
+    gchar *pd = g_build_filename(base, "proc", "net", NULL);
+    g_assert_cmpint(g_mkdir_with_parents(pd, 0700), ==, 0);
+    gchar *route = g_build_filename(pd, "route", NULL);
+    /* [0]=헤더, eth0=기본경로(Destination 00000000), eth1=서브넷 라우트 */
+    g_assert_true(g_file_set_contents(route,
+        "Iface\tDestination\tGateway\tFlags\n"
+        "eth0\t00000000\t0102A8C0\t0003\n"
+        "eth1\t0000A8C0\t00000000\t0001\n", -1, NULL));
+    g_assert_true (pcv_dpdk_route_is_default_dev("eth0", base));
+    g_assert_false(pcv_dpdk_route_is_default_dev("eth1", base));
+    g_assert_false(pcv_dpdk_route_is_default_dev("ethX", base));
+    g_assert_false(pcv_dpdk_route_is_default_dev(NULL,   base));
+    g_unlink(route); g_rmdir(pd);
+    gchar *pdir = g_build_filename(base, "proc", NULL);
+    g_rmdir(pdir); g_rmdir(base);
+    g_free(route); g_free(pd); g_free(pdir); g_free(base);
+}
+
+/* fail-secure: pci_addr NULL/빈 → 보호(TRUE). */
+static void test_dpdk_nic_null_failsecure(void) {
+    gchar *reason = NULL;
+    g_assert_true(pcv_dpdk_nic_is_protected(NULL, &reason));
+    g_free(reason); reason = NULL;
+    g_assert_true(pcv_dpdk_nic_is_protected("", &reason));
+    g_free(reason);
+}
+
+/* 커널 미관리 BDF(net 디렉토리 없음) → 통과(FALSE). */
+static void test_dpdk_nic_absent_netdir_passes(void) {
+    gchar *reason = NULL;
+    /* 존재하지 않는 BDF → /sys/bus/pci/devices/<bdf>/net 없음 → FALSE */
+    g_assert_false(pcv_dpdk_nic_is_protected("ffff:ff:1f.7", &reason));
+    g_assert_null(reason);
+    g_free(reason);
+}
+
+/* fail-secure: 형식검증 실패(경로순회/오형식) BDF → sysfs 탐침 없이 보호(TRUE). */
+static void test_dpdk_nic_malformed_failsecure(void) {
+    gchar *reason = NULL;
+    g_assert_true(pcv_dpdk_nic_is_protected("../../../etc", &reason));
+    g_assert_nonnull(reason);   /* invalid PCI address 사유 */
+    g_free(reason); reason = NULL;
+    g_assert_true(pcv_dpdk_nic_is_protected("not-a-bdf", &reason));
+    g_free(reason);
+}
+
 /* ── 등록 ── */
 
 void test_dpdk_register(void) {
@@ -114,4 +171,8 @@ void test_dpdk_register(void) {
     g_test_add_func("/dpdk/pci_addr/invalid",          test_pci_addr_invalid);
     g_test_add_func("/dpdk/bridge_create/reject_injection",
                     test_dpdk_bridge_create_reject_injection);
+    g_test_add_func("/dpdk/nic_protected/route_default",  test_dpdk_nic_route_default);
+    g_test_add_func("/dpdk/nic_protected/null_failsecure", test_dpdk_nic_null_failsecure);
+    g_test_add_func("/dpdk/nic_protected/absent_netdir",  test_dpdk_nic_absent_netdir_passes);
+    g_test_add_func("/dpdk/nic_protected/malformed",      test_dpdk_nic_malformed_failsecure);
 }

@@ -316,6 +316,30 @@ gboolean cpu_allocator_allocate_exclusive(CpuAllocator *alloc,
 
     g_mutex_lock(&alloc->mutex);
 
+    /* [CMP-2] 이미 vm_id가 소유한 코어가 있으면 재할당 없이 기존 할당 반환(idempotent).
+     * 실행중 VM 재start가 allocate를 재호출하는데 이 체크가 없으면 매번 새 자유코어를
+     * 마킹해 누수(worker idempotent no-op이 미반납). */
+    {
+        GArray *existing = g_array_new(FALSE, FALSE, sizeof(guint));
+        gint first_numa = -1; gboolean all_same = TRUE;
+        for (guint i = 0; i < alloc->cores->len; i++) {
+            CoreSlot *slot = &g_array_index(alloc->cores, CoreSlot, i);
+            if (slot->owner_vm_id && g_strcmp0(slot->owner_vm_id, vm_id) == 0) {
+                guint lid = slot->logical_id; g_array_append_val(existing, lid);
+                if (first_numa < 0) first_numa = (gint)slot->numa_node;
+                else if ((gint)slot->numa_node != first_numa) all_same = FALSE;
+            }
+        }
+        if (existing->len > 0) {
+            if (out_numa_node) *out_numa_node = all_same ? first_numa : -1;
+            *out_cpus = existing;
+            g_mutex_unlock(&alloc->mutex);
+            g_message("[cpu_allocator] VM '%s' already owns %u core(s) — idempotent no-op", vm_id, existing->len);
+            return TRUE;
+        }
+        g_array_free(existing, TRUE);
+    }
+
     /*
      * 1차 시도: 요청 NUMA 노드에서 격리 코어 탐색
      *

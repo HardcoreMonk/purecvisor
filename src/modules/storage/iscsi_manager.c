@@ -281,20 +281,20 @@ pcv_iscsi_target_create(const gchar *vm_name, const gchar *zvol_path, GError **e
         const gchar *chap_user = pcv_config_get_string("iscsi", "chap_user", NULL);
         gchar *chap_pass = pcv_config_get_secret("iscsi", "chap_password", NULL);
         if (chap_user && chap_pass && *chap_user && *chap_pass) {
-            gchar *cmd_acc = g_strdup_printf(
-                "tgtadm --lld iscsi --op new --mode account --user %s --password %s",
-                chap_user, chap_pass);
-            _run(cmd_acc, NULL, NULL);  /* soft-fail: 계정 이미 존재 가능 */
-            g_free(cmd_acc);
+            /* M-2류: _run(g_shell_parse_argv 재토큰화) 대신 argv 직접 전달 —
+             * chap_pass 에 공백/따옴표가 있어도 재분할되지 않고 단일 인자로 전달(STO-4). */
+            const gchar *acc_argv[] = {"tgtadm", "--lld", "iscsi", "--op", "new", "--mode", "account",
+                                       "--user", chap_user, "--password", chap_pass, NULL};
+            _run_argv(acc_argv, NULL, NULL);  /* soft-fail: 계정 이미 존재 가능 */
 
-            gchar *cmd_bind = g_strdup_printf(
-                "tgtadm --lld iscsi --op bind --mode account --tid %d --user %s",
-                tid, chap_user);
-            if (_run(cmd_bind, NULL, NULL))
+            gchar *tid_str = g_strdup_printf("%d", tid);
+            const gchar *bind_argv[] = {"tgtadm", "--lld", "iscsi", "--op", "bind", "--mode", "account",
+                                        "--tid", tid_str, "--user", chap_user, NULL};
+            if (_run_argv(bind_argv, NULL, NULL))
                 PCV_LOG_INFO(ISCSI_LOG_DOM, "CHAP account bound: user=%s tid=%d", chap_user, tid);
             else
                 PCV_LOG_WARN(ISCSI_LOG_DOM, "CHAP bind failed for tid=%d (non-fatal)", tid);
-            g_free(cmd_bind);
+            g_free(tid_str);
         }
         g_free(chap_pass);
     }
@@ -433,19 +433,19 @@ pcv_iscsi_target_set_chap(const gchar *vm_name, const gchar *chap_user,
     gint tid = t->tid;
     g_mutex_unlock(&G.mu);
 
-    /* 1. Create account (soft-fail if already exists) */
-    gchar *cmd_acc = g_strdup_printf(
-        "tgtadm --lld iscsi --op new --mode account --user %s --password %s",
-        chap_user, chap_password);
-    _run(cmd_acc, NULL, NULL);
-    g_free(cmd_acc);
+    /* 1. Create account (soft-fail if already exists)
+     * M-2류: _run(g_shell_parse_argv 재토큰화) 대신 argv 직접 전달 — chap_password 에
+     * 공백/따옴표가 있어도 재분할되지 않고 단일 인자로 전달(STO-4). */
+    const gchar *acc_argv[] = {"tgtadm", "--lld", "iscsi", "--op", "new", "--mode", "account",
+                               "--user", chap_user, "--password", chap_password, NULL};
+    _run_argv(acc_argv, NULL, NULL);
 
     /* 2. Bind account to target */
-    gchar *cmd_bind = g_strdup_printf(
-        "tgtadm --lld iscsi --op bind --mode account --tid %d --user %s",
-        tid, chap_user);
-    gboolean ok = _run(cmd_bind, NULL, error);
-    g_free(cmd_bind);
+    gchar *tid_str = g_strdup_printf("%d", tid);
+    const gchar *bind_argv[] = {"tgtadm", "--lld", "iscsi", "--op", "bind", "--mode", "account",
+                                "--tid", tid_str, "--user", chap_user, NULL};
+    gboolean ok = _run_argv(bind_argv, NULL, error);
+    g_free(tid_str);
 
     if (ok)
         PCV_LOG_INFO(ISCSI_LOG_DOM, "CHAP set for %s: user=%s tid=%d",

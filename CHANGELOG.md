@@ -3,6 +3,50 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.3 — 2026-07-15
+
+리뷰-기반 감사 시정 릴리스(PATCH). v1.2.0 post-release 전수 감사의 **MED/LOW findings 전량 + NET-1(HIGH)** 시정을 subagent-driven-development(태스크별 구현+리뷰+반사실, 최종 Opus whole-branch)로 착지. 대부분 데몬 계약 불변이나 **신규 ADMIN RPC 1개**·**API Key role 집행 변경(SEC-3, 1회 마이그레이션)**·**CLI param-key 정합**·**graceful-drain/dpdk 가드 실동작**을 포함 — 배포 전 `### Upgrade notes` 확인. 검증: 전 커밋 `make single` 0-warning + `make test` **640/0** + `make check-all` **6게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress·safety-controls) + 격리 데몬 효과-테스트 다수(ADR-0025 반사실 RED-on-removal). 안전통제 **14 tested**, untested = self-healing-restart 1.
+
+### 보안 (auth · privesc · 타이밍)
+- **SEC-3** API Key privesc 차단 — 실효 role을 저장 role로 집행(client_name 라이브 파생 제거). freeze-effective 마이그레이션(`PRAGMA user_version` 1회, 권한 변동 0). `apikey-role-enforce` tested.
+- **SEC-4** HIPS 승인 워커가 만료 후 execute하던 부작용 차단(execute 앞 `is_expired`). `hips-approval-expiry` tested.
+- **SEC-8** 부트스트랩 비번 비교 상수시간화(SHA256 + `CRYPTO_memcmp`).
+- **SEC-6** apikey table ensure를 `g_rbac_mutex` 안으로(SQLite 직렬화 불변식 정합).
+- **refresh-remint** 신규 ADMIN RPC `auth.user.sessions.revoke {username}` — 비번 회전 후 세션 re-mint 봉쇄. `user-sessions-revoke` tested.
+
+### 네트워크
+- **NET-1 (HIGH)** `dpdk.bind` 관리 NIC 보호 가드 — 관리/기본경로 NIC(UP+IPv4 또는 기본경로 dev)의 vfio-pci 바인딩 거부(`-32602`), 호스트 네트워크/SSH 붕괴 방지. 전용 DPDK NIC(커널 미관리)만 허용. fail-secure.
+- **NET-2** isolated 방화벽 DROP 룰 실패 전파. **NET-4/5** QoS/overlay 재수화 부팅1회성→주기 reconcile. **NET-3** `sriov.disable` sysfs write 실패 전파.
+
+### 스토리지
+- **STO-2** 스냅샷 prune 데이터유실 — `pcv-` 시스템 네임스페이스 예약(`backup-retention` tested). **STO-5** `backup.incremental` 워커 오프로드 · **STO-1** env strv 누수.
+- **STO-3** export 가드 `domstate` 조회 실패를 fail-secure(거부)로. **STO-4** iSCSI CHAP account/bind `_run`→`_run_argv`(비번 재토큰화 제거).
+
+### 락/동시성 (VM_OP · AI-Ops · audit)
+- **CMP-3** 라이브 `vm.create` 파라미터 검증 배선(iso_path, `vm-create-iso-validation` tested) · **CMP-7** `vm.clone` TOCTOU 락 · **CMP-10** 12 mutating hotplug VM_OP 락 · **CMP-2** 재start 코어 누수 idempotent.
+- **AIO-2** 재시작 브레이커 0-피드백 프로브 토큰 회수(복구봉쇄 해소) · **AIO-1** anomaly 전용 뮤텍스 · **AIO-4** DLQ 재시도 락 보유 중 동기 HTTP 제거 · **AIO-3** `alert.silence` casefold(`alert-silence` tested).
+- **AIO-7** silence 지연초기화 `g_once` · **AIO-11** agent config `G.mu` · **AIO-10** audit `dropped_count` 원자화(전용 뮤텍스).
+
+### 디스패처 / 제어평면
+- **DISP-4** graceful-drain 실배선(수락 inc / cleanup dec 1:1, drain 중 read 후 거부) + **node.resume 화이트리스트**(제어평면 brick 풋건 시정). `graceful-drain` tested.
+- **DISP-3** io_uring `submit` 반환 검사 — recv 누수 정리 + accept 재무장(shutdown 가드) + 잔존 SQE nop 무해화.
+- **DISP-12b** gRPC 4MB 스택 버퍼 heap화 · **CMP-9** 함수포인터 UB 캐스트 제거.
+
+### CLI / FE 계약
+- **CLI-17~24** `pcvctl` JSON-RPC param-key 불일치 거짓성공 시정(6 rename + node.drain/disk.attach 2 배선). 게이트 #1 WARN 30→22.
+- **FE-4/5/6** selfhealing/DLQ 거짓성공 제거·라우트 정정 · **FE-1/2/3** apikey 관리 UI 계약정합(R-embed·죽은코드 제거·role/만료/revoke).
+
+### 게이트 / 검증 규율
+- **안전통제 효과-테스트 레지스트리 게이트** — 마커 ⊆ `contracts/safety_controls.json`, tested → 실 effect_test, dup-key 감지, tested ∉ baseline 강제, 반사실 self-test. `check-all` + pre-commit 통합.
+- rest_server 응답 길이 drift 시정(403 over-read `.rodata` 누출 + 400 절단). self_healing 10정책 docstring · role enum 주석 정정.
+
+### Upgrade notes
+- **API Key role 집행(SEC-3)**: 기존 키의 실효 role이 저장 role로 동결. freeze-effective 마이그레이션 자동 1회(`PRAGMA user_version`, 권한 변동 0 — 현 실효값 동결). 재시작 시 자동 적용.
+- **신규 ADMIN RPC**: `auth.user.sessions.revoke {username}`.
+- **CLI param-key(CLI-17~24)**: `acl.list` switch_name→switch · `storage.pool.health` name→pool · `health.set` interval→interval_sec · `nic.attach` mac→hwaddr · set_limits cpu_quota→cpu_percent · set_bandwidth inbound/outbound→inbound_kbps/outbound_kbps. (구 키는 param-key 불일치로 애초에 `-32602` 무동작이었어 실사용 영향 없음.)
+- **graceful-drain 실동작(DISP-4)**: `node.drain`이 이제 실제 inflight 대기 후 종료, `node.resume`로 해제.
+- **dpdk.bind 가드(NET-1)**: 관리/기본경로 NIC bind 시도는 `-32602` 거부.
+
 ## v1.2.2 — 2026-07-14
 
 리뷰-기반 시정 릴리스(PATCH). 데몬 RPC/REST/config 계약은 전부 불변이며, 감사 확증 테마 "보고성공 무동작"에 대한 **ADR-0025 반사실 검증 규율** 도입 + 무동작 스텁 2건 실배선 + 감사 정확성 수정 + TUI(중복 운영 표면) 제거로 구성된다. 검증: 전 커밋 `make single` 0-warning + `make test` **619/0** + `make check-all` **5게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress) + 격리 데몬 효과-테스트(snapshot.verify 8/8 반사실 · vm.batch 6/6 팬아웃·per-VM 감사).

@@ -416,6 +416,7 @@ void init_pending_state_machine(void) {
  * @param err_msg 실패 사유 (출력 파라미터, NULL 가능)
  * @return TRUE=락 획득 성공, FALSE=실패
  */
+/* PCV_SAFETY_CONTROL: vm-op-lock — VM별 오퍼레이션 락으로 동시 작업 직렬화·교차 unlock 차단 (CMP-1/AF-P1) */
 gboolean lock_vm_operation(const gchar *vm_id, gint op_type, gchar **err_msg) {
     if (!g_db) {
         /* 위험: DB 미초기화 시 락 없이 TRUE 반환 — 동시 오퍼레이션 충돌 가능.

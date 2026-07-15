@@ -145,6 +145,7 @@ rb_get_cooldown_sec(void)
 
 /* ── 게이트/피드백 ─────────────────────────────────────── */
 
+/* PCV_SAFETY_CONTROL: restart-breaker — 임계 초과 실패 시 재시작 차단(FALSE 반환) (AIO-2) */
 gboolean
 rb_allow(const gchar *uuid)
 {
@@ -234,6 +235,29 @@ rb_record(const gchar *uuid, gboolean success)
         }
     }
 
+    g_mutex_unlock(&g_rb.mutex);
+}
+
+/* AIO-2: 프로브 토큰 회수 — 워커가 결과 없이 중단된 경우(conn 획득/도메인 조회 실패
+ * 등 rb_feedback=0). 실패 카운트 없이 HALF_OPEN→OPEN 으로 되돌려 토큰을 회수하고
+ * cooldown 을 재무장한다. probe_in_flight 를 리셋해 다음 프로브를 가능케 한다.
+ * HALF_OPEN·프로브 진행 중이 아니면 no-op(토큰 미소비 상태에서 호출돼도 안전). */
+void
+rb_release_probe(const gchar *uuid)
+{
+    if (!uuid || !*uuid) return;
+    if (!g_rb.initialized) return;
+
+    g_mutex_lock(&g_rb.mutex);
+    RbEntry *e = g_hash_table_lookup(g_rb.table, uuid);
+    if (e && e->state == CB_STATE_HALF_OPEN && e->probe_in_flight) {
+        e->state          = CB_STATE_OPEN;
+        e->open_until_us   = g_get_monotonic_time()
+                             + (gint64)g_rb.cooldown_sec * G_USEC_PER_SEC;
+        e->probe_in_flight = FALSE;
+        PCV_LOG_INFO(RB_LOG_DOM,
+            "VM '%s' 프로브 무결과 중단 — OPEN 유지, cooldown 재무장(토큰 회수)", uuid);
+    }
     g_mutex_unlock(&g_rb.mutex);
 }
 

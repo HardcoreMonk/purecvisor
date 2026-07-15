@@ -184,6 +184,28 @@ static void test_running_guard_skip_closes(RbFixture *f, gconstpointer d) {
     g_assert_cmpint(rb_failure_count("vm1"), ==, 0);
 }
 
+/* AIO-2: 0-피드백(conn/도메인 조회 실패) 경로에서 프로브 토큰이 회수되어
+ * HALF_OPEN 프로브가 영구 FALSE로 고착되지 않음을 반사실로 검증한다.
+ * rb_release_probe 가 no-op이면(메커니즘 제거) 마지막 rb_allow 가 FALSE → RED. */
+static void test_probe_release_no_feedback(RbFixture *f, gconstpointer d) {
+    (void)f; (void)d;
+    rb_configure(1, 0);                 /* threshold 1, cooldown 0 → 즉시 재프로브 */
+    rb_record("vm1", FALSE);            /* CLOSED → OPEN (threshold 1 도달) */
+    g_assert_cmpint(rb_state("vm1"), ==, CB_STATE_OPEN);
+
+    /* cooldown 0 → rb_allow 가 OPEN→HALF_OPEN 전이 + 프로브 토큰 소비 */
+    g_assert_true(rb_allow("vm1"));
+    g_assert_cmpint(rb_state("vm1"), ==, CB_STATE_HALF_OPEN);
+    g_assert_false(rb_allow("vm1"));    /* 프로브 진행 중 → 중복 차단 */
+
+    /* 워커가 0-피드백(conn/도메인 조회 실패) → 프로브 토큰 회수 */
+    rb_release_probe("vm1");
+
+    /* AIO-2 핵심: 토큰이 회수되어 다음 rb_allow 가 다시 프로브 허용(영구 FALSE 아님) */
+    g_assert_true(rb_allow("vm1"));
+    g_assert_cmpint(rb_state("vm1"), ==, CB_STATE_HALF_OPEN);
+}
+
 /* ── 등록 함수 ───────────────────────────────────────── */
 void test_restart_breaker_register(void) {
 #define RB_TEST(name, fn) \
@@ -202,5 +224,6 @@ void test_restart_breaker_register(void) {
     RB_TEST("config_clamp",              test_config_clamp);
     RB_TEST("null_uuid_safe",            test_null_uuid_safe);
     RB_TEST("running_guard_skip_closes", test_running_guard_skip_closes);
+    RB_TEST("probe_release_no_feedback", test_probe_release_no_feedback);
 #undef RB_TEST
 }

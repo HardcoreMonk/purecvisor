@@ -54,6 +54,8 @@
 #include "ovs_overlay.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_log.h"
+#include "utils/pcv_config.h"       /* NET-5: reconcile interval config */
+#include "utils/pcv_worker_pool.h"  /* NET-5: reconcile 워커 오프로드 (gio GTask 포함) */
 #include <string.h>
 #include <stdio.h>
 #include <errno.h>
@@ -80,6 +82,10 @@ static struct {
     GMutex      mu;
     gboolean    initialized;
 } G = {0};
+
+/* NET-5: overlay 재수화 주기 reconcile 타이머 상태 (security_group resync 선례 복제) */
+static guint g_overlay_reconcile_timer_id = 0;    /* g_timeout source id */
+static gint  g_overlay_reconcile_inflight = 0;    /* 중첩 방지 (g_atomic) */
 
 /* ── helpers ──────────────────────────────────────────────────── */
 
@@ -364,6 +370,63 @@ pcv_overlay_restore(void)
     if (restored > 0)
         PCV_LOG_INFO(OVERLAY_LOG_DOM, "Restored %d overlay network(s) from %s",
                      restored, OVERLAY_META_DIR);
+}
+
+/**
+ * pcv_overlay_reconcile — 부팅 후 OVS 가 늦게 가용해진 경우에도 오버레이를 최종 재적용.
+ *
+ * pcv_overlay_restore 는 ovs-vsctl --may-exist 로 멱등이라, 부팅 시 OVS 미기동으로
+ * 실패했더라도 주기 reconcile tick 에서 안전하게 재실행된다. (NET-5)
+ */
+void
+pcv_overlay_reconcile(void)
+{
+    pcv_overlay_restore();
+}
+
+/* NET-5: reconcile 워커 — 블로킹 ovs-vsctl 실행 후 in-flight 플래그 리셋 */
+static void
+_overlay_reconcile_worker(GTask *task, gpointer src, gpointer td, GCancellable *c)
+{
+    (void)src; (void)td; (void)c;
+    pcv_overlay_reconcile();
+    g_atomic_int_set(&g_overlay_reconcile_inflight, 0);
+    g_task_return_boolean(task, TRUE);
+}
+
+/* NET-5: 타이머 tick — 메인 루프, 논블로킹. 이전 reconcile 진행 중이면 skip.
+ * ovs-vsctl 은 블로킹이므로 worker pool 로 오프로드(GMainLoop 에서 실행 금지). */
+static gboolean
+_overlay_reconcile_tick(gpointer data)
+{
+    (void)data;
+    if (!g_atomic_int_compare_and_exchange(&g_overlay_reconcile_inflight, 0, 1))
+        return G_SOURCE_CONTINUE;   /* 이전 reconcile 아직 진행 중 → 이번 tick skip */
+    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    pcv_worker_pool_push(t, _overlay_reconcile_worker);
+    g_object_unref(t);   /* worker pool 이 자체 ref 를 잡음 */
+    return G_SOURCE_CONTINUE;
+}
+
+void
+pcv_overlay_reconcile_timer_init(void)
+{
+    gint interval = pcv_config_get_int("overlay", "reconcile_interval_sec", 300);
+    if (interval <= 0) {
+        PCV_LOG_INFO(OVERLAY_LOG_DOM, "overlay reconcile 타이머 비활성 (reconcile_interval_sec=%d)", interval);
+        return;
+    }
+    g_overlay_reconcile_timer_id = g_timeout_add_seconds((guint)interval, _overlay_reconcile_tick, NULL);
+    PCV_LOG_INFO(OVERLAY_LOG_DOM, "overlay reconcile 타이머 등록 (%d초 주기)", interval);
+}
+
+void
+pcv_overlay_reconcile_timer_shutdown(void)
+{
+    if (g_overlay_reconcile_timer_id) {
+        g_source_remove(g_overlay_reconcile_timer_id);
+        g_overlay_reconcile_timer_id = 0;
+    }
 }
 
 /* ── overlay CRUD ─────────────────────────────────────────────── */

@@ -85,6 +85,16 @@ void pcv_overlay_shutdown(void);
  */
 void pcv_overlay_restore(void);
 
+/**
+ * pcv_overlay_reconcile / 타이머 -- 부팅 시 OVS 미가용이었어도 주기 reconcile 로 최종 재적용.
+ *
+ * pcv_overlay_restore 가 --may-exist 로 멱등이라 재실행이 안전하다. 타이머는
+ * security_group resync 선례를 복제(worker offload + shutdown g_source_remove). (NET-5)
+ */
+void pcv_overlay_reconcile(void);
+void pcv_overlay_reconcile_timer_init(void);
+void pcv_overlay_reconcile_timer_shutdown(void);
+
 /* ---- Overlay network CRUD ---- */
 
 /**

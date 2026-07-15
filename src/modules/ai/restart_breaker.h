@@ -94,6 +94,15 @@ gint rb_get_cooldown_sec(void);
  */
 void rb_record(const gchar *uuid, gboolean success);
 
+/**
+ * rb_release_probe:
+ *   HALF_OPEN 프로브가 판정 없이 중단됐을 때(워커의 conn/도메인 조회 실패 =
+ *   rb_feedback 0) 프로브 토큰을 실패 카운트 없이 회수한다. state 를 OPEN 으로
+ *   되돌리고 cooldown 을 재무장하므로 다음 cooldown 경과 시 재프로브가 가능하다.
+ *   프로브 진행 중이 아니면 no-op. 워커 스레드(G.mu 미보유)에서 호출한다.
+ */
+void rb_release_probe(const gchar *uuid);
+
 /* ── 진단/테스트 조회 ────────────────────────────────── */
 
 /** 현재 상태 조회 (미등록 uuid → CB_STATE_CLOSED). */

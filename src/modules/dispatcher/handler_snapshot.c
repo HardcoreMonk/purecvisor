@@ -56,6 +56,8 @@
 
 #define SNAP_LOG_DOM "snapshot"
 
+#define PCV_SYSTEM_SNAP_NS "pcv-"   /* 시스템 스냅샷 예약 네임스페이스 (STO-2/AF-S4) */
+
 /* RpcAsyncContext / rpc_async_context_free — removed with dead callbacks (B5-W1 migration). */
 
 /* ── ZFS 데이터셋 존재 여부 확인 (libvirt fallback 판단용) ── */
@@ -648,6 +650,23 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
     VALIDATE_SNAPSHOT_PARAMS(params, rpc_id, server, connection);
     const gchar *vm_id     = _get_param(params, "name", "vm_id");
     const gchar *snap_name = _get_param(params, "snapshot_name", "snap_name");
+
+    /* STO-2 (AF-S4): "pcv-" 네임스페이스는 시스템 스냅샷 예약. pcv-auto-/pcv-s3-/
+     * pcv-incr- 는 리텐션 prune(zfs destroy) 대상이므로 사용자가 이 접두로 만들면
+     * 우연히 파괴될 수 있다. 시스템 생성자는 zfs snapshot 을 직접 호출(이 RPC 미경유)
+     * 하므로 이 검사는 데몬 스냅샷을 절대 막지 않는다. vm.snapshot.create 는 async
+     * 메서드라 디스패처가 자동 audit 하지 않으므로(g_async_methods) 조기 거부도
+     * 직접 fail audit 한다(backup.snapshot.verify 조기검증 패턴과 동일). */
+    if (g_str_has_prefix(snap_name, PCV_SYSTEM_SNAP_NS)) {
+        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail",
+                      PURE_RPC_ERR_INVALID_PARAMS, 0, "local");
+        gchar *e = pure_rpc_build_error_response(rpc_id,
+            PURE_RPC_ERR_INVALID_PARAMS,
+            "Snapshot name prefix '" PCV_SYSTEM_SNAP_NS "' is reserved for system snapshots");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        return;
+    }
 
     /* libvirt fallback: ZFS 데이터셋이 없으면 libvirt 스냅샷 API 사용 (qcow2 등) */
     if (!_zfs_dataset_exists(vm_id)) {

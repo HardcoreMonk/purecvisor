@@ -15,18 +15,23 @@
  *   rest_server.c       -> pcv_healing_get_pending_json() (대기 목록 조회)
  *   rest_server.c       -> pcv_healing_approve/dismiss() (Web UI 승인/거부)
  *
- * [내장 정책 (8개)]
- *   cpu-overload:     CPU Z>3.0 또는 예측>85% → migrate (승인 필요)
- *   mem-pressure:     MEM Z>2.5 또는 예측>90% → migrate (승인 필요)
- *   thermal-alert:    온도 Z>2.0 또는 >80도  → alert_only
- *   vm-unresponsive:  (트리거 없음)          → restart (자동)
- *   swap-storm:       Swap Z>2.5             → alert_only
- *   disk-saturated:   Disk I/O Z>3.0         → alert_only
- *   net-errors:       Net Error Z>2.0        → alert_only
- *   conntrack-full:   conntrack Z>2.5        → alert_only
+ * [내장 정책 (10개)]
+ *   cpu-overload:        CPU Z>3.0 또는 예측>85% → alert_only (승인 불요, AF-O1(a))
+ *   mem-pressure:        MEM Z>2.5 또는 예측>90% → alert_only (승인 불요, AF-O1(a))
+ *   thermal-alert:       온도 Z>2.0 또는 >80도  → alert_only
+ *   vm-unresponsive:     (트리거 없음)          → restart (자동)
+ *   swap-storm:          Swap Z>2.5             → alert_only
+ *   disk-saturated:      Disk I/O Z>3.0         → alert_only
+ *   net-errors:          Net Error Z>2.0        → alert_only
+ *   conntrack-full:      conntrack Z>2.5        → alert_only
+ *   vm-reboot-loop:      (재시작 루프 감지)      → alert_only
+ *   vm-migration-failed: (마이그레이션 반복실패) → alert_only
  *
  * [안전장치]
  *   Approval Gate:   위험 액션(migrate/restart)은 Web UI 승인 대기
+ *                    — AIO-8: 현재 등록된 10개 정책 전부 require_approval=FALSE라
+ *                    이 게이트(_queue_approval/pcv_healing_approve/dismiss)는
+ *                    의도적으로 dormant. migrate 자동승격 도입 시 재활성 필요.
  *   Cooldown:        동일 정책 재실행 방지 (정책별 초 단위)
  *   Circuit Breaker: 연속 3회 실패 시 정책 비활성화
  *   Rate Limit:      5분 내 최대 3개 자동 액션

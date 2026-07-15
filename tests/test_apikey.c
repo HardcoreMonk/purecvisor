@@ -51,6 +51,20 @@
     "WHERE key_hash = ? AND revoked = 0 " \
     "AND (expires_at = 0 OR expires_at > ?)"
 
+/* SEC-3: 저장 role 을 함께 조회하는 신(수정 후) 파생 — production verify_api_key 와 동일
+ * (SELECT client_name, role ...). 이 저장 role 이 키의 실효 role 이다. */
+#define APIKEY_VERIFY_ROLE_SQL \
+    "SELECT client_name, role FROM api_keys " \
+    "WHERE key_hash = ? AND revoked = 0 " \
+    "AND (expires_at = 0 OR expires_at > ?)"
+
+/* 반사실용 users 테이블 (production _ensure_table() 의 부분집합: 파생에 쓰는 두 컬럼) */
+#define USERS_MIN_SCHEMA \
+    "CREATE TABLE users (" \
+    "  username TEXT PRIMARY KEY NOT NULL," \
+    "  role     INTEGER NOT NULL DEFAULT 0" \
+    ")"
+
 /* _migrate_apikey_columns() 이 실행하는 멱등 ALTER 두 건 */
 #define APIKEY_ALTER_DESC "ALTER TABLE api_keys ADD COLUMN description TEXT NOT NULL DEFAULT ''"
 #define APIKEY_ALTER_EXP  "ALTER TABLE api_keys ADD COLUMN expires_at  INTEGER NOT NULL DEFAULT 0"
@@ -216,6 +230,64 @@ test_apikey_migrate_columns_idempotent(void)
     sqlite3_close(db);
 }
 
+/* ── SEC-3: API 키 실효 role 파생 계약 (저장 role 집행 vs 라이브 role 반사실) ── */
+
+/* 키의 client_name 이 admin 사용자명이지만 저장 role 이 VIEWER(0)일 때,
+ *   신(수정 후) 파생 = 저장 role → VIEWER → admin gate(min=2)에 (0>=2)==FALSE DENIED,
+ *   구(수정 전, 반사실) 파생 = client_name 라이브 사용자 role → ADMIN → (2>=2)==TRUE ALLOWED.
+ * 두 파생 role 이 서로 달라야 SEC-3 privesc(저-role admin명 키의 admin 승격)가 인코딩된다.
+ * 진리원: pcv_rbac_verify_api_key(신 SELECT) / pcv_rbac_check_permission(role>=min_role). */
+static void
+test_apikey_stored_role_enforced(void)
+{
+    sqlite3 *db = _open_with(APIKEY_CANONICAL_SCHEMA);
+    gint64 now = g_get_real_time() / G_USEC_PER_SEC;
+
+    /* users: admin 'root' role=2(ADMIN) */
+    g_assert_cmpint(sqlite3_exec(db, USERS_MIN_SCHEMA, NULL, NULL, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(db,
+        "INSERT INTO users (username, role) VALUES ('root', 2)",
+        NULL, NULL, NULL), ==, SQLITE_OK);
+
+    /* api_keys: client_name='root'(admin 사용자명), 저장 role=0(VIEWER) — SEC-3 공격 형상 */
+    g_assert_cmpint(sqlite3_exec(db,
+        "INSERT INTO api_keys (key_hash, client_name, role, description, expires_at, revoked) "
+        "VALUES ('hash_root', 'root', 0, '', 0, 0)", NULL, NULL, NULL), ==, SQLITE_OK);
+
+    /* 신 파생: 키의 저장 role 조회 (client_name + role) */
+    sqlite3_stmt *st = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db, APIKEY_VERIFY_ROLE_SQL, -1, &st, NULL),
+                    ==, SQLITE_OK);
+    sqlite3_bind_text(st, 1, "hash_root", -1, SQLITE_STATIC);
+    sqlite3_bind_int64(st, 2, now);
+    g_assert_cmpint(sqlite3_step(st), ==, SQLITE_ROW);
+    const char *who = (const char *)sqlite3_column_text(st, 0);
+    gint stored_role = sqlite3_column_int(st, 1);
+    g_assert_cmpstr(who, ==, "root");
+    sqlite3_finalize(st);
+
+    /* 구 파생(반사실): client_name 의 라이브 사용자 role 조회 */
+    sqlite3_stmt *lu = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT role FROM users WHERE username = ?", -1, &lu, NULL), ==, SQLITE_OK);
+    sqlite3_bind_text(lu, 1, "root", -1, SQLITE_STATIC);
+    g_assert_cmpint(sqlite3_step(lu), ==, SQLITE_ROW);
+    gint live_role = sqlite3_column_int(lu, 0);
+    sqlite3_finalize(lu);
+
+    /* 계약: 저장 role(신)=VIEWER(0), 라이브 role(구)=ADMIN(2), 상이 */
+    g_assert_cmpint(stored_role, ==, 0);   /* PCV_ROLE_VIEWER */
+    g_assert_cmpint(live_role,   ==, 2);   /* PCV_ROLE_ADMIN */
+    g_assert_cmpint(stored_role, !=, live_role);
+
+    /* admin gate(min_role=ADMIN=2) 판정: role >= min_role */
+    const gint admin_min = 2;
+    g_assert_false(stored_role >= admin_min);  /* 신: (0>=2)==FALSE → DENIED (privesc 차단) */
+    g_assert_true (live_role  >= admin_min);   /* 구: (2>=2)==TRUE  → ALLOWED (SEC-3 결함) */
+
+    sqlite3_close(db);
+}
+
 void
 test_apikey_register(void)
 {
@@ -225,4 +297,5 @@ test_apikey_register(void)
     g_test_add_func("/apikey/expiry/boundary_now_rejected", test_apikey_expiry_boundary_now_rejected);
     g_test_add_func("/apikey/revoked_rejected",           test_apikey_revoked_rejected);
     g_test_add_func("/apikey/migrate/columns_idempotent", test_apikey_migrate_columns_idempotent);
+    g_test_add_func("/apikey/sec3/stored_role_enforced",  test_apikey_stored_role_enforced);
 }

@@ -41,6 +41,8 @@ gboolean pcv_security_store_upsert_pending_action(const PcvSecurityEvent *ev,
                                                   GError **error);
 JsonArray *pcv_security_store_list_pending_actions(void);
 JsonObject *pcv_security_store_get_action(const gchar *event_id);
+/* [SEC-4] pending && ttl_sec>0 && expires_at<=now → TRUE (만료 규약은 list_pending과 동일). */
+gboolean pcv_security_store_action_is_expired(const gchar *event_id);
 gboolean pcv_security_store_update_action_status(const gchar *event_id,
                                                  const gchar *status,
                                                  const gchar *admin_user,

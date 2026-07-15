@@ -190,11 +190,62 @@ if $RUN_TIER1; then
                 "bash '$INTEG_DIR/test_session_revoke.sh'" \
                 "T1"
 
+            # refresh-remint(SEC-1 후속) — 침해 사용자 refresh 세션 전부 취소로 access
+            # 재발급(re-mint) 봉쇄 E2E. 자체 격리 데몬(bwrap)을 기동하므로 공유 데몬 불필요.
+            # 로컬 실행에서만 의미(원격 --host 대상 아님). 전제조건 부재 시 스크립트가 SKIP.
+            run_test "refresh-remint 사용자 세션 취소 re-mint 거부 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_user_sessions_revoke.sh'" \
+                "T1"
+
             # 게이트#2 JSON ingress / DISP-1 — WS 깊은프레임 크래시0 + 경계 파싱 거부
             # E2E. 자체 격리 데몬(bwrap)을 기동하므로 공유 데몬 불필요. 로컬 실행에서만
             # 의미(원격 --host 대상 아님). 전제조건(python3 websockets 포함) 부재 시 SKIP.
             run_test "게이트#2 JSON ingress / DISP-1 크래시0 (격리 데몬)" \
                 "bash '$INTEG_DIR/test_json_ingress_disp1.sh'" \
+                "T1"
+
+            # STO-2/AF-S4 스냅샷 prune 데이터유실 방지 E2E — 자체 격리 데몬(bwrap) +
+            # mock zfs. 리텐션 prune 이 pcv-incr- 시스템 스냅샷만 destroy 하고 사용자
+            # 스냅샷은 생존, 사용자 create 의 pcv- 접두 예약 거부를 실증. 전제조건
+            # (bwrap/nc/setsid/userns/sqlite3) 부재 시 스크립트가 SKIP.
+            run_test "STO-2 스냅샷 prune 데이터유실 방지 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_backup_retention_effect.sh'" \
+                "T1"
+
+            # DISP-4 graceful-drain 실배선 E2E — 자체 격리 데몬(bwrap)을 기동하므로 공유
+            # 데몬 불필요. drain 진입 후 신규요청 -32000 거부 + SIGTERM 시 inflight 완료
+            # 대기(held 요청 드롭 없음)를 실증. 전제조건(bwrap/nc/setsid/mkfifo/userns)
+            # 부재 시 스크립트가 SKIP. 로컬 실행에서만 의미(원격 --host 대상 아님).
+            run_test "DISP-4 graceful drain 실배선 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_graceful_drain_effect.sh'" \
+                "T1"
+
+            # SEC-3 API Key 저장 role 집행 E2E — client_name=admin 이지만 저장 role=VIEWER 인
+            # 키로 admin-gated GET /auth/users 호출 시 403(라이브 admin role 파생 privesc 차단).
+            # 자체 격리 데몬(bwrap)을 기동하므로 공유 데몬 불필요. 로컬 실행에서만 의미
+            # (원격 --host 대상 아님). 전제조건(bwrap/nc/setsid/userns/sqlite3) 부재 시 SKIP.
+            run_test "SEC-3 API Key 저장 role 집행 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_apikey_role_enforce.sh'" \
+                "T1"
+
+            # CMP-3 라이브 vm.create ISO 검증 배선 E2E — 라이브 handle_vm_create 가
+            # pcv_validate_vm_create_params 로 iso_path 를 실검증(dead 검증본 대신 라이브
+            # 배선). iso_path=/etc/shadow(확장자 위반)·traversal 시 op-lock/create 이전
+            # 거부(.error != null, accepted 아님)를 실증. 자체 격리 데몬(bwrap)+mock zfs.
+            # 로컬 실행에서만 의미(원격 --host 대상 아님). 전제조건(bwrap/python3/setsid/
+            # jq/userns) 부재 시 스크립트가 SKIP.
+            run_test "CMP-3 vm.create ISO 검증 배선 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_vm_create_iso_validation.sh'" \
+                "T1"
+
+            # NET-4 QoS 재수화(qos-rehydrate) E2E — 자체 격리 데몬(bwrap) + mock tc +
+            # /sys/class/net stub bind. 부팅 시 vnet0 부재로 존재게이트가 tc 를 skip 하고,
+            # vnet0 가 늦게 출현(touch)하면 주기 reconcile 타이머가 persisted QoS 를 최종
+            # 재적용(tc class replace dev vnet0 ... rate)함을 실증(부팅1회성이면 부재=RED).
+            # 로컬 실행에서만 의미(원격 --host 대상 아님). 전제조건(bwrap/nc/setsid/userns)
+            # 부재 시 스크립트가 SKIP.
+            run_test "NET-4 QoS 재수화 늦은 vnet 재적용 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_qos_rehydrate_effect.sh'" \
                 "T1"
             ;;
     esac

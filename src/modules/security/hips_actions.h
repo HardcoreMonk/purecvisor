@@ -23,6 +23,21 @@ gboolean pcv_hips_action_dismiss(const gchar *event_id,
 gboolean pcv_hips_action_execute(const gchar *action,
                                  const gchar *target,
                                  GError **error);
+/*
+ * Approval orchestrator: check TTL expiry BEFORE running the side effect, so an
+ * expired pending action never executes nft/RBAC (SEC-4). execute_fn is the
+ * injectable side-effect seam (production passes pcv_hips_action_execute; tests
+ * pass a spy).
+ */
+typedef gboolean (*PcvHipsExecuteFn)(const gchar *action,
+                                     const gchar *target,
+                                     GError **error);
+gboolean pcv_hips_action_run_approval(const gchar *event_id,
+                                      const gchar *action,
+                                      const gchar *target,
+                                      const gchar *admin_user,
+                                      PcvHipsExecuteFn execute_fn,
+                                      GError **error);
 gboolean pcv_hips_action_ensure_nft_input_chain(GError **error);
 gboolean pcv_hips_action_build_block_ip_argv(const gchar *ip,
                                              const gchar **argv,

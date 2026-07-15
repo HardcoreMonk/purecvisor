@@ -77,8 +77,14 @@
 #include "modules/network/network_dhcp.h"
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_log.h"
+#include "../../utils/pcv_config.h"       /* NET-4: reconcile interval config */
+#include "../../utils/pcv_worker_pool.h"  /* NET-4: reconcile 워커 오프로드 */
 #include "vm_iface.h"
 #include <json-glib/json-glib.h>
+
+/* NET-4: QoS 재수화 주기 reconcile 타이머 상태 (security_group resync 선례 복제) */
+static guint g_qos_reconcile_timer_id = 0;    /* g_timeout source id */
+static gint  g_qos_reconcile_inflight = 0;    /* 중첩 방지 (g_atomic) */
 
 /* ═══════════════════════════════════════════════════════════════════════
  * QoS 규칙 영속화 (BE-5) — JSON 파일에 tc 규칙을 저장/복원
@@ -280,6 +286,19 @@ pcv_qos_restore(void)
 
         if (!iface || rate <= 0) continue;
 
+        /* NET-4 존재게이트: 대상 vnet 이 아직 없으면 tc 를 쏘지 않고 skip.
+         * (부팅 시 vnet 미생성 → tc 실패를 삼키고 restored++ 하던 거짓 카운터 교정.
+         *  또한 주기 reconcile 의 test seam: /sys/class/net/<iface> 존재 여부로 제어.)
+         * 늦게 생성된 vnet 은 다음 reconcile tick 에서 적용된다. */
+        gchar *sys_path = g_strdup_printf("/sys/class/net/%s", iface);
+        gboolean iface_present = g_file_test(sys_path, G_FILE_TEST_EXISTS);
+        g_free(sys_path);
+        if (!iface_present) {
+            PCV_LOG_INFO("QOS", "QoS restore skip %s (%s): iface 미존재 — 다음 reconcile 재시도",
+                         iface, dir ? dir : "egress");
+            continue;
+        }
+
         PCV_LOG_INFO("QOS", "Restoring QoS for %s (%s): %d Mbps, %d KB burst",
                      iface, dir ? dir : "egress", rate, burst);
 
@@ -298,6 +317,13 @@ pcv_qos_restore(void)
             g_free(rate_str); g_free(burst_str);
         } else {
             /* Ingress policing 복원 */
+            /* NET-4 멱등: 런타임 set 핸들러(2347)와 동일하게 del-then-add.
+             * 기존 ingress qdisc 를 먼저 제거(best-effort)해야 주기 reconcile
+             * 재실행 시 police 필터가 누적되지 않는다. */
+            const gchar *ing_del_argv[] = {"tc", "qdisc", "del", "dev", iface,
+                "ingress", NULL};
+            pcv_spawn_sync(ing_del_argv, NULL, NULL, NULL);
+
             const gchar *ing_argv[] = {"tc", "qdisc", "add", "dev", iface,
                 "ingress", NULL};
             pcv_spawn_sync(ing_argv, NULL, NULL, NULL);
@@ -321,6 +347,61 @@ pcv_qos_restore(void)
     if (restored > 0)
         PCV_LOG_INFO("QOS", "Restored %d QoS rule(s) from %s",
                      restored, QOS_PERSIST_PATH);
+}
+
+/* PCV_SAFETY_CONTROL: qos-rehydrate — 부팅 후 늦게 생성된 vnet에도 persisted QoS를
+ * 주기 reconcile로 최종 적용(부팅1회성 무동작 제거); 존재게이트로 무동작 카운터 교정 (NET-4) */
+void
+pcv_qos_reconcile(void)
+{
+    /* 존재게이트 + ingress del-then-add 멱등으로 restore 본문 재실행이 안전해졌다
+     * (egress 는 tc replace 로 원래 멱등). 부팅1회성 restore 를 그대로 재호출한다. */
+    pcv_qos_restore();
+}
+
+/* NET-4: reconcile 워커 — 블로킹 tc 실행 후 in-flight 플래그 리셋 (SG _sg_resync_worker 복제) */
+static void
+_qos_reconcile_worker(GTask *task, gpointer src, gpointer td, GCancellable *c)
+{
+    (void)src; (void)td; (void)c;
+    pcv_qos_reconcile();
+    g_atomic_int_set(&g_qos_reconcile_inflight, 0);
+    g_task_return_boolean(task, TRUE);
+}
+
+/* NET-4: 타이머 tick — 메인 루프, 논블로킹. 이전 reconcile 진행 중이면 skip.
+ * tc 는 블로킹이므로 worker pool 로 오프로드(GMainLoop 에서 실행 금지). */
+static gboolean
+_qos_reconcile_tick(gpointer data)
+{
+    (void)data;
+    if (!g_atomic_int_compare_and_exchange(&g_qos_reconcile_inflight, 0, 1))
+        return G_SOURCE_CONTINUE;   /* 이전 reconcile 아직 진행 중 → 이번 tick skip */
+    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    pcv_worker_pool_push(t, _qos_reconcile_worker);
+    g_object_unref(t);   /* worker pool 이 자체 ref 를 잡음 */
+    return G_SOURCE_CONTINUE;
+}
+
+void
+pcv_qos_reconcile_timer_init(void)
+{
+    gint interval = pcv_config_get_int("qos", "reconcile_interval_sec", 300);
+    if (interval <= 0) {
+        PCV_LOG_INFO("QOS", "QoS reconcile 타이머 비활성 (reconcile_interval_sec=%d)", interval);
+        return;
+    }
+    g_qos_reconcile_timer_id = g_timeout_add_seconds((guint)interval, _qos_reconcile_tick, NULL);
+    PCV_LOG_INFO("QOS", "QoS reconcile 타이머 등록 (%d초 주기)", interval);
+}
+
+void
+pcv_qos_reconcile_timer_shutdown(void)
+{
+    if (g_qos_reconcile_timer_id) {
+        g_source_remove(g_qos_reconcile_timer_id);
+        g_qos_reconcile_timer_id = 0;
+    }
 }
 
 typedef struct {

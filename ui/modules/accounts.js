@@ -199,20 +199,11 @@ async function renderApiManagement(b) {
         mk('code', null, '[grpc] enabled=true'))
     ], 'mb-14');
 
-  /* API Key Management */
-  var apiKeysBlock = mk('div', { class: 'hc mb-14' },
-    mk('h4', null, '🔑 API Keys'),
-    mk('p', { class: 'stat-label', style: 'margin-bottom:10px' }, 'Create and manage API keys for programmatic access. Keys use the same RBAC as user tokens.'),
-    mk('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:12px' },
-      mk('input', { 'aria-label': 'Key name (e.g. ci-pipeline)', id: 'apikey-name', placeholder: 'Key name (e.g. ci-pipeline)', style: 'flex:1;min-width:140px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
-      mk('input', { 'aria-label': 'Key description (e.g. CI deploy)', id: 'apikey-desc', placeholder: 'Description (optional)', style: 'flex:1;min-width:160px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px' }),
-      mk('input', { id: 'apikey-expiry', 'aria-label': 'Expiry (days)', type: 'number', value: '90', min: '1', max: '365', style: 'width:80px;padding:6px 10px;background:var(--bg3);border:1px solid var(--border);color:var(--fg);border-radius:6px;font-size:12px', title: 'Expiry (days)' }),
-      mk('span', { class: 'color-muted', style: 'font-size:11px;align-self:center' }, 'days'),
-      mk('button', { class: 'btn btn-g', onclick: 'apiKeyCreate()' }, '+ Create Key')),
-    mk('div', { id: 'apikey-new-result', style: 'display:none;margin-bottom:12px;padding:10px;border:1px solid var(--green);border-radius:6px;background:rgba(0,255,0,.04);font-size:11px' }),
-    mk('div', { id: 'apikey-list' },
-      mk('span', { class: 'spinner' }),
-      ' Loading keys...'));
+  /* API Key Management (R-embed) — 레거시 임베드 블록(부재 필드 참조 +
+   * apikey-list-area 가드 오타로 영구 스피너)을 제거하고, 계약정합
+   * renderApiKeys 로직을 실제 컨테이너(#apikey-keys-area)에 렌더한다.
+   * 생성은 renderApiKeys 의 '+ 새 키 생성' → showApiKeyCreate 모달 경로. */
+  var apiKeysBlock = mk('div', { class: 'hc mb-14', id: 'apikey-keys-area' });
 
   var navRow = mk('div', { class: 'flex gap-8 flex-wrap' },
     mk('button', { class: 'btn', onclick: "navigateTo('apihelp')" }, '📖 Swagger API'),
@@ -231,10 +222,9 @@ async function renderApiManagement(b) {
       mk('code', { class: 'text-xs color-cyan' }, 'pcvctl grpc status'),
       ' to verify from CLI'));
   }, 100);
-  setTimeout(() => {
-    /* 모달/페이지 닫힌 후 호출 방지 */
-    if (document.getElementById('apikey-list-area')) apiKeyList();
-  }, 120);
+  /* 계약정합 키 테이블 렌더 (R-embed). renderApiKeys 가 자체적으로
+   * fetch → 컨테이너 clear/append 하므로 apiKeysBlock 에 직접 그린다. */
+  renderApiKeys(apiKeysBlock);
 }
 
 async function apiMgmtGetToken() { const u = document.getElementById('apimgmt-user').value, p = document.getElementById('apimgmt-pass').value; const el = document.getElementById('apimgmt-token-result');
@@ -294,15 +284,15 @@ function renderAgentProviders(b, d) {
           p.enabled ? mk('span', { class: 'color-green' }, 'ENABLED') : mk('span', { class: 'color-muted' }, 'DISABLED'))),
       mk('div', { class: 'fr' },
         mk('label', { for: 'agm' + i }, 'Model'),
-        mk('input', { id: 'agm' + i, value: escapeAttr(p.model || ''), class: 'text-11' })),
+        mk('input', { id: 'agm' + i, value: p.model || '', class: 'text-11' })),
       mk('div', { class: 'fr' },
         mk('label', { for: 'agk' + i }, 'API Key'),
         mk('div', { class: 'flex gap-4 flex-1' },
-          mk('input', { id: 'agk' + i, type: 'password', value: escapeAttr(p.api_key || ''), class: 'text-11 flex-1' }),
+          mk('input', { id: 'agk' + i, type: 'password', value: p.api_key || '', class: 'text-11 flex-1' }),
           mk('button', { class: 'btn', onclick: 'toggleKeyVis(' + i + ')', style: 'font-size:10px;padding:4px 8px', id: 'agt' + i }, 'Show'))),
       mk('div', { class: 'fr' },
         mk('label', { for: 'age' + i }, 'Endpoint'),
-        mk('input', { id: 'age' + i, value: escapeAttr(p.endpoint || ''), class: 'text-11' })),
+        mk('input', { id: 'age' + i, value: p.endpoint || '', class: 'text-11' })),
       mk('div', { class: 'flex gap-6 mt-8' },
         mk('button', { class: 'btn', onclick: "testProvider(" + i + ",'" + escapeAttr(p.name) + "')", style: 'font-size:10px;padding:4px 10px' }, '⚡ Test'),
         i === 0 ? mk('button', { class: 'btn', onclick: 'testAllProviders()', style: 'font-size:10px;padding:4px 10px' }, '⚡ Test All') : null,
@@ -612,15 +602,24 @@ async function renderApiKeys(b) {
         mk('div', { class: 'color-muted' }, _L('등록된 API 키가 없습니다', 'No API keys registered')));
     } else {
       var rows = list.map(function(k) {
-        var st = k.revoked ? mk('span', { class: 'badge badge-r' }, _L('폐기', 'Revoked'))
-                           : mk('span', { class: 'badge badge-g' }, _L('활성', 'Active'));
+        var st = HN.badge(k.revoked ? _L('폐기', 'Revoked') : _L('활성', 'Active'), k.revoked ? 'r' : 'g');
+        /* expires_at 은 epoch 초, 0/부재 = 무기한. new Date() 는 ms 기준이므로 *1000. */
+        var expCell;
+        if (!k.expires_at) {
+          expCell = mk('td', { class: 'color-muted' }, _L('무기한', 'Never'));
+        } else if (k.expires_at * 1000 < Date.now()) {
+          expCell = mk('td', null, HN.badge(_L('만료', 'Expired'), 'r'));
+        } else {
+          expCell = mk('td', { class: 'color-muted' }, new Date(k.expires_at * 1000).toLocaleDateString());
+        }
         return mk('tr', null,
           mk('td', null, mk('b', null, k.client_name)),
           mk('td', null, ['viewer','operator','admin'][k.role] || '?'),
           mk('td', { class: 'color-muted' }, k.created_at || ''),
           mk('td', { class: 'color-muted' }, k.last_used_at || _L('미사용', 'Never')),
+          expCell,
           mk('td', null, st),
-          mk('td', null, k.revoked ? null : mk('button', { class: 'btn btn-r btn-xxs', onclick: "revokeApiKey('" + esc(k.client_name) + "')", 'aria-label': _L('키 폐기', 'Revoke key') }, _L('폐기', 'Revoke'))));
+          mk('td', null, k.revoked ? null : mk('button', { class: 'btn btn-r btn-xxs', onclick: function() { revokeApiKey(k.client_name); }, 'aria-label': _L('키 폐기', 'Revoke key') }, _L('폐기', 'Revoke'))));
       });
       body = mk('table', { class: 'data-table text-11' },
         mk('thead', null, mk('tr', null,
@@ -628,6 +627,7 @@ async function renderApiKeys(b) {
           mk('th', null, _L('역할', 'Role')),
           mk('th', null, _L('생성일', 'Created')),
           mk('th', null, _L('최종 사용', 'Last Used')),
+          mk('th', null, _L('만료', 'Expiry')),
           mk('th', null, _L('상태', 'Status')),
           mk('th'))),
         mk('tbody', null, rows));
@@ -636,13 +636,29 @@ async function renderApiKeys(b) {
     b.appendChild(frag(HN.section(_L('API 키 관리', 'API Key Management')), createBtn, body));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
-/* 폼(이름 + 설명 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
+/* 폼(이름 + 설명 + 역할 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
  * apiKeyCreate() 를 재사용한다 — apiKeyCreate 가 #apikey-name / #apikey-desc /
- * #apikey-expiry 를 읽어 POST 후 결과 키를 #apikey-new-result 에 인라인 렌더한다
- * (중복 구현 금지). 생성된 키가 모달 안에 노출되도록 #apikey-new-result 컨테이너를 포함.
- * BE 계약: name(필수, client_name)+description(옵션)+expires_at(옵션, epoch). */
-function showApiKeyCreate() {
+ * #apikey-role / #apikey-expiry 를 읽어 POST 후 결과 키를 #apikey-new-result 에
+ * 인라인 렌더한다 (중복 구현 금지). 생성된 키가 모달 안에 노출되도록
+ * #apikey-new-result 컨테이너를 포함.
+ * BE 계약: name(필수, client_name)+role(옵션, default 1, {0,1,2} 且 role≤caller)+
+ * description(옵션)+expires_at(옵션, epoch 초). SEC-3: 저장 role 이 실효 grant 이므로
+ * caller 역할을 초과하는 옵션은 노출하지 않는다(whoami 로 caller 역할 취득, 기본 operator). */
+async function showApiKeyCreate() {
   var mk = PCV.uxlib.el;
+  var ROLE_KEYS = ['viewer', 'operator', 'admin'];
+  var ROLE_LABELS = [
+    _L('뷰어 (읽기)', 'viewer (read)'),
+    _L('오퍼레이터 (읽기/쓰기)', 'operator (read/write)'),
+    _L('관리자 (전체)', 'admin (full)')
+  ];
+  var callerLvl = ROLE_KEYS.indexOf(await getCurrentAccountRole());
+  if (callerLvl < 0) callerLvl = 0;              /* 미상 → 최소 권한만 허용 */
+  var defaultLvl = Math.min(1, callerLvl);       /* 기본 operator, caller 초과 금지 */
+  var roleSelect = mk('select', { id: 'apikey-role', 'aria-label': _L('키 역할', 'Key role') });
+  for (var lvl = 0; lvl <= callerLvl; lvl++) {
+    roleSelect.appendChild(mk('option', { value: String(lvl), selected: lvl === defaultLvl ? 'selected' : false }, ROLE_LABELS[lvl]));
+  }
   showModal([
     mk('h2', null, _L('API 키 생성', 'Create API Key')),
     mk('div', { class: 'fr' },
@@ -651,6 +667,9 @@ function showApiKeyCreate() {
     mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-desc' }, _L('설명', 'Description')),
       mk('input', { id: 'apikey-desc', placeholder: _L('예: CI 배포 자동화', 'e.g. CI deploy automation') })),
+    mk('div', { class: 'fr' },
+      mk('label', { for: 'apikey-role' }, _L('역할', 'Role')),
+      roleSelect),
     mk('div', { class: 'fr' },
       mk('label', { for: 'apikey-expiry' }, _L('만료 (일)', 'Expiry (days)')),
       mk('input', { id: 'apikey-expiry', type: 'number', value: '90', min: '1', max: '365' })),
@@ -666,7 +685,11 @@ async function revokeApiKey(name) {
   try {
     await fetchPost(EP.AUTH_APIKEY_REVOKE(name), {});
     toast(_L('키 폐기 완료', 'Key revoked'), 's');
-    renderApiKeys(document.getElementById('cb'));
+    /* R-embed: 키 테이블은 API Management 페이지의 #apikey-keys-area 서브
+     * 컨테이너에 렌더된다. cb(전체 페이지)로 다시 그리면 JWT/tester/gRPC 카드가
+     * 사라지므로 반드시 서브 컨테이너로 리프레시한다. */
+    var area = document.getElementById('apikey-keys-area');
+    if (area) renderApiKeys(area);
   } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
 }
 

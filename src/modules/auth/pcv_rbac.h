@@ -290,15 +290,23 @@ const gchar *pcv_rbac_get_tenant(const gchar *username);
 
 /**
  * pcv_rbac_verify_api_key:
- * @api_key: 전체 API 키 문자열 ("pcv_..." 68자)
- * @error:   GError 반환
+ * @api_key:  전체 API 키 문자열 ("pcv_..." 68자)
+ * @out_role: (out) (nullable): 유효 시 키의 '저장 role'(api_keys.role 컬럼)을 기록.
+ *            NULL 허용. 실패 시/미기록 시 PCV_ROLE_VIEWER(안전 기본값)로 세팅됨.
+ * @error:    GError 반환
  *
  * 키를 SHA256 해시하여 api_keys(canonical schema#2) 조회. 유효하면
- * client_name을 반환합니다. (F8: schema#2 단일화 — apikey_* 계열과 동일 테이블)
+ * client_name을 반환하고, @out_role에 키의 저장 role을 기록합니다.
+ * (F8: schema#2 단일화 — apikey_* 계열과 동일 테이블)
+ *
+ * [SEC-3] 키의 실효 role은 반드시 이 저장 role(@out_role)에서 파생해야 한다.
+ * client_name의 라이브 사용자 role(pcv_rbac_get_role)로 파생하면 client_name이
+ * admin 사용자명인 저-role 키가 admin으로 승격되는 privesc가 발생한다.
  *
  * Returns: (transfer full): client_name (g_free 필요), 실패 시 NULL
  */
 gchar *pcv_rbac_verify_api_key(const gchar *api_key,
+                               PcvRole     *out_role,
                                GError     **error);
 
 /* ── 브루트포스 방어 ─────────────────────────────────────── */
