@@ -94,6 +94,9 @@ typedef struct {
     /* 페이지네이션 파라미터 (vm.list용) */
     gint page_offset;       /**< 시작 인덱스 (0-based, 기본값 0) */
     gint page_limit;        /**< 최대 항목 수 (0 = 전체, 하위 호환) */
+    /* CMP-1: 이 op가 lock_vm_operation을 획득했는지. 콜백 unlock을 이 플래그로 게이트해
+     * 락 미획득 op(pause/resume/limit)가 남의 락을 지우지 못하게 한다. g_new0 기본 FALSE. */
+    gboolean holds_lock;
 } VmLifecycleCtx;
 
 /**
@@ -1328,8 +1331,10 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
  * [중요] 이 콜백에서 응답을 전송합니다 (fire-and-forget 패턴이 아님).
  * vm.stop, vm.pause, vm.resume, vm.limit은 모두 이 콜백을 통해 응답합니다.
  *
- * [락 해제] unlock_vm_operation()을 반드시 호출하여 오퍼레이션 잠금을 해제합니다.
- * 이를 누락하면 해당 VM에 대한 후속 RPC가 영구 차단됩니다.
+ * [락 해제] CMP-1: 이 op가 lock_vm_operation을 실제로 획득한 경우(ctx->holds_lock)
+ * 에만 unlock_vm_operation()을 호출한다. 락을 획득한 op(현재 stop)는 반드시 해제해야
+ * 후속 RPC 영구 차단을 막고, 락 미획득 op(pause/resume/limit)는 호출하면 안 된다
+ * (남의 락을 지워 동시 vm.delete 직렬화를 무력화 — 조건부화 없이 무조건 unlock 금지).
  */
 static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -1341,7 +1346,10 @@ static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer 
     if (action_tid > 0) g_source_remove(action_tid);
 
     gboolean success = g_task_propagate_boolean(task, &error);
-    unlock_vm_operation(ctx->vm_id); /* 오퍼레이션 잠금 해제 (성공/실패 모두) */
+    /* CMP-1: 이 op가 실제로 락을 획득했을 때만 해제한다. 락 미획득 op(pause/resume/
+     * limit)가 무조건 unlock하던 것이 동시 vm.delete의 락을 삭제해 AF-P1 직렬화를
+     * 무력화했다(destroy/create 경합). */
+    if (ctx->holds_lock) unlock_vm_operation(ctx->vm_id);
 
     /* 감사 로그: VM 액션 결과 기록 */
     /* ADR-0018-audit: vm.stop, vm.pause, vm.resume, vm.limit
@@ -1407,6 +1415,7 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
     /* 워커 스레드에게 "이것은 stop 명령이야"라고 알려주는 액션 문자열 설정 */
     ctx->action = g_strdup("stop");
+    ctx->holds_lock = TRUE;   /* CMP-1: stop은 위 lock_vm_operation에서 락을 획득함 */
 
     GCancellable *cancel = g_cancellable_new();
     GTask *task = g_task_new(NULL, cancel, vm_action_callback, ctx);

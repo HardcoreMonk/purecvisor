@@ -37,6 +37,7 @@
 #include "utils/pcv_log.h"
 #include "utils/pcv_jwt.h"
 #include "utils/pcv_config.h"
+#include "../modules/dispatcher/rpc_utils.h"   /* pcv_rpc_parse_guarded — 사전인증 파싱 가드 */
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include <time.h>
@@ -149,30 +150,37 @@ _on_ws_message(SoupWebsocketConnection *conn,
      * query string 인증 미완료 시(pcv-ws-authed=0) 여기서 인증 처리. */
     gint authed = GPOINTER_TO_INT(g_object_get_data(G_OBJECT(conn), "pcv-ws-authed"));
     if (!authed && sz > 0 && text) {
-        JsonParser *p = json_parser_new();
-        if (json_parser_load_from_data(p, text, (gssize)sz, NULL)) {
+        JsonParser *p = NULL;
+        GError *perr = NULL;
+        if (pcv_rpc_parse_guarded(text, (gssize)sz, &p, &perr)) {
             JsonObject *obj = json_node_get_object(json_parser_get_root(p));
-            const gchar *msg_type = json_object_get_string_member_with_default(obj, "type", "");
-            if (g_strcmp0(msg_type, "auth") == 0) {
-                const gchar *token = json_object_get_string_member_with_default(obj, "token", "");
-                GError *jwt_err = NULL;
-                gchar *subject = pcv_jwt_verify(token, &jwt_err);
-                if (subject) {
-                    g_object_set_data(G_OBJECT(conn), "pcv-ws-authed", GINT_TO_POINTER(1));
-                    PCV_LOG_INFO(WS_LOG_DOM, "WebSocket protocol-auth OK: user=%s", subject);
-                    soup_websocket_connection_send_text(conn, "{\"type\":\"auth_ok\"}");
-                    g_free(subject);
-                } else {
-                    PCV_LOG_WARN(WS_LOG_DOM, "WebSocket protocol-auth failed: %s",
-                                 jwt_err ? jwt_err->message : "invalid");
-                    soup_websocket_connection_send_text(conn, "{\"type\":\"auth_fail\"}");
-                    soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_POLICY_VIOLATION,
-                                                    "authentication failed");
-                    if (jwt_err) g_error_free(jwt_err);
+            if (obj) {
+                const gchar *msg_type = json_object_get_string_member_with_default(obj, "type", "");
+                if (g_strcmp0(msg_type, "auth") == 0) {
+                    const gchar *token = json_object_get_string_member_with_default(obj, "token", "");
+                    GError *jwt_err = NULL;
+                    gchar *subject = pcv_jwt_verify(token, &jwt_err);
+                    if (subject) {
+                        g_object_set_data(G_OBJECT(conn), "pcv-ws-authed", GINT_TO_POINTER(1));
+                        PCV_LOG_INFO(WS_LOG_DOM, "WebSocket protocol-auth OK: user=%s", subject);
+                        soup_websocket_connection_send_text(conn, "{\"type\":\"auth_ok\"}");
+                        g_free(subject);
+                    } else {
+                        PCV_LOG_WARN(WS_LOG_DOM, "WebSocket protocol-auth failed: %s",
+                                     jwt_err ? jwt_err->message : "invalid");
+                        soup_websocket_connection_send_text(conn, "{\"type\":\"auth_fail\"}");
+                        soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_POLICY_VIOLATION,
+                                                        "authentication failed");
+                        if (jwt_err) g_error_free(jwt_err);
+                    }
                 }
             }
+            g_object_unref(p);
+        } else {
+            /* 깊이/크기/문법 거부 — 사전인증이라 조용히 무시(응답 없음). DISP-1: 깊은
+             * 중첩 텍스트 프레임이 여기서 파싱 전 거부되어 스택오버플로우 크래시 불가. */
+            if (perr) g_error_free(perr);
         }
-        g_object_unref(p);
         if (!authed) { /* auth 메시지 처리 완료 — 다른 로직 스킵 */
             return;
         }

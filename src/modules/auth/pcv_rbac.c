@@ -1013,6 +1013,47 @@ pcv_rbac_user_create(const gchar *username,
 }
 
 /**
+ * pcv_rbac_user_exists:
+ * @username: 조회할 사용자 이름
+ *
+ * RBAC DB에 해당 사용자가 존재하는지 조회합니다.
+ * DB 미초기화(g_rbac_db NULL)나 prepare 실패 등 판정 불능 상황은
+ * PCV_USER_UNKNOWN으로 구분해, 호출자가 "존재하지 않음"과 "확인 불가"를
+ * 혼동하지 않게 합니다.
+ *
+ * Returns: PCV_USER_PRESENT/ABSENT, 판정 불능 시 PCV_USER_UNKNOWN
+ */
+PcvUserExistence
+pcv_rbac_user_exists(const gchar *username)
+{
+    if (!username || !*username) return PCV_USER_ABSENT;
+
+    g_mutex_lock(&g_rbac_mutex);
+    if (!g_rbac_db) {
+        g_mutex_unlock(&g_rbac_mutex);
+        return PCV_USER_UNKNOWN;
+    }
+
+    sqlite3_stmt *stmt = nullptr;
+    int rc = sqlite3_prepare_v2(g_rbac_db,
+                                "SELECT 1 FROM users WHERE username = ? LIMIT 1;",
+                                -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        g_mutex_unlock(&g_rbac_mutex);
+        return PCV_USER_UNKNOWN;
+    }
+
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    sqlite3_finalize(stmt);
+    g_mutex_unlock(&g_rbac_mutex);
+
+    if (rc == SQLITE_ROW)  return PCV_USER_PRESENT;
+    if (rc == SQLITE_DONE) return PCV_USER_ABSENT;
+    return PCV_USER_UNKNOWN;   /* SQLITE_ERROR/BUSY 등 = 판정 불능 */
+}
+
+/**
  * pcv_rbac_user_delete:
  * @username: 삭제할 사용자 이름
  * @error:    GError 반환
@@ -2480,34 +2521,6 @@ pcv_rbac_apikey_revoke(const gchar *client_name, GError **error)
         return FALSE;
     }
     return TRUE;
-}
-
-/* ══════════════════════════════════════════════════════════════
- * [11] 세션 블랙리스트 — JWT 로그아웃 무효화
- * ══════════════════════════════════════════════════════════════ */
-
-static GHashTable *g_session_blacklist = nullptr;  /* jti → revoked_at (gint64) */
-static GMutex      g_blacklist_mu;
-
-void pcv_rbac_session_revoke(const gchar *jti) {
-    if (!jti) return;
-    if (!g_session_blacklist) {
-        g_mutex_init(&g_blacklist_mu);
-        g_session_blacklist = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
-    }
-    g_mutex_lock(&g_blacklist_mu);
-    gint64 *now = g_new(gint64, 1);
-    *now = g_get_real_time() / G_USEC_PER_SEC;
-    g_hash_table_replace(g_session_blacklist, g_strdup(jti), now);
-    g_mutex_unlock(&g_blacklist_mu);
-}
-
-gboolean pcv_rbac_session_is_revoked(const gchar *jti) {
-    if (!jti || !g_session_blacklist) return FALSE;
-    g_mutex_lock(&g_blacklist_mu);
-    gboolean revoked = g_hash_table_contains(g_session_blacklist, jti);
-    g_mutex_unlock(&g_blacklist_mu);
-    return revoked;
 }
 
 /* ══════════════════════════════════════════════════════════════

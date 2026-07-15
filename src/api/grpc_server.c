@@ -115,6 +115,7 @@ _extract_result(const gchar *json_resp)
     if (!json_resp) return g_strdup("{}");
 
     JsonParser *p = json_parser_new();
+    /* PCV_PARSE_TRUSTED: 데몬 JSON-RPC 응답 파싱(UDS 경유 내부 신뢰 출력, 외부 입력 아님) */
     if (!json_parser_load_from_data(p, json_resp, -1, NULL)) {
         g_object_unref(p);
         return g_strdup("{}");

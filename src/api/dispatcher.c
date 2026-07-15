@@ -87,6 +87,7 @@
 #include "../modules/virt/virt_conn_pool.h"
 #include "../utils/pcv_spawn.h"
 #include "../utils/pcv_config.h"
+#include "../utils/pcv_jwt.h"  /* SEC-1: pcv_jwt_blacklist_add — 라이브 세션 무효화 */
 #include "../modules/auth/pcv_rbac.h"
 #include "utils/pcv_config.h"
 #include "drain.h"
@@ -2371,6 +2372,7 @@ static void _handle_agent_history(JsonObject *params, const gchar *rpc_id,
     extern gchar *pcv_agent_get_last_comparison_json(void);
     gchar *json_str = pcv_agent_get_last_comparison_json();
     JsonParser *p2 = json_parser_new();
+    /* PCV_PARSE_TRUSTED: 내부 생성 JSON 재파싱(외부 입력 아님) */
     json_parser_load_from_data(p2, json_str, -1, NULL);
     JsonNode *node = json_node_copy(json_parser_get_root(p2));
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -2474,6 +2476,7 @@ static void _handle_healing_pending(JsonObject *params, const gchar *rpc_id,
     extern gchar *pcv_healing_get_pending_json(void);
     gchar *json_str = pcv_healing_get_pending_json();
     JsonParser *p2 = json_parser_new();
+    /* PCV_PARSE_TRUSTED: 내부 생성 JSON 재파싱(외부 입력 아님) */
     json_parser_load_from_data(p2, json_str, -1, NULL);
     JsonNode *node = json_node_copy(json_parser_get_root(p2));
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -2542,6 +2545,7 @@ static void _handle_healing_history(JsonObject *params, const gchar *rpc_id,
     extern gchar *pcv_healing_get_history_json(void);
     gchar *json_str = pcv_healing_get_history_json();
     JsonParser *p2 = json_parser_new();
+    /* PCV_PARSE_TRUSTED: 내부 생성 JSON 재파싱(외부 입력 아님) */
     json_parser_load_from_data(p2, json_str, -1, NULL);
     JsonNode *parsed = json_parser_get_root(p2);
 
@@ -3900,7 +3904,16 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "jti required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    pcv_rbac_session_revoke(jti);
+    /* SEC-1: pcv_jwt_verify가 읽는 라이브 blacklist(g_jti_blacklist)에 등록한다.
+     * 이전엔 죽은 g_session_blacklist(호출처 0)에만 써서 토큰이 만료까지 통과했다.
+     * jti만 있고 토큰 exp를 모르므로 access 토큰 수명(900s)만큼 보수적 TTL. */
+    gint64 exp = g_get_real_time() / G_USEC_PER_SEC + 900;
+    pcv_jwt_blacklist_add(jti, exp);
+    gchar jti_masked[9];
+    g_snprintf(jti_masked, sizeof(jti_masked), "%.8s", jti);
+    const gchar *caller_sub = _dispatcher_caller_subject(params, connection);
+    pcv_audit_log(caller_sub && *caller_sub ? caller_sub : "-",
+                  "auth.session.revoke", jti_masked, "ok", 0, 0, "local");
     JsonNode *n = json_node_new(JSON_NODE_NULL);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
@@ -4704,6 +4717,7 @@ static void _handle_capacity_forecast(JsonObject *params, const gchar *rpc_id,
     JsonNode *farr = NULL;
     if (fjson && *fjson) {
         JsonParser *p = json_parser_new();
+        /* PCV_PARSE_TRUSTED: 내부 생성 JSON 재파싱(외부 입력 아님) */
         if (json_parser_load_from_data(p, fjson, -1, NULL)) {
             JsonNode *root = json_parser_get_root(p);
             if (root && JSON_NODE_HOLDS_ARRAY(root))
@@ -6124,29 +6138,24 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                                    UdsServer *server,
                                    GSocketConnection *connection,
                                    const gchar *request_json) {
-    JsonParser *parser = json_parser_new();
+    /* [감사 SEC-F2 / 초크포인트 게이트 #2] 외부 요청 파싱은 유일 sanctioned 경로인
+     * pcv_rpc_parse_guarded(크기 상한 + 깊이 상한 + 파싱)를 경유한다. json-glib의
+     * json_parser_load_from_data는 중첩(배열/객체)을 상호재귀로 처리하므로 깊은
+     * `[[[…]]]`·과대 입력에서 스택오버플로우/OOM으로 데몬을 크래시시킨다 — 래퍼가
+     * 파싱 전 사전 거부한다. FALSE 시 *parser=NULL(unref 불요). */
+    JsonParser *parser = nullptr;
     GError *err = nullptr;
-
-    /* [감사 SEC-F2] json-glib의 json_parser_load_from_data는 중첩(배열/객체)을
-     * 상호재귀로 처리하므로 깊은 `[[[…]]]` 입력에서 스택오버플로우로 데몬을
-     * 크래시시킨다(이전 주석의 "GScanner 반복 토크나이저라 안전"은 사실과 다름 —
-     * 토크나이저는 토큰만, 중첩은 재귀). 파싱 전 깊이 상한으로 사전 거부한다. */
-    if (!pcv_rpc_json_depth_ok(request_json, PCV_RPC_JSON_MAX_DEPTH)) {
-        gchar *derr = pure_rpc_build_error_response(NULL, PCV_ERR_INVALID_REQ,
-            "Invalid Request: JSON nesting too deep");
+    if (!pcv_rpc_parse_guarded(request_json, -1, &parser, &err)) {
+        /* 가드 거부(과대/과심/NULL: G_IO_ERROR_INVALID_DATA)는 -32600 Invalid Request,
+         * 그 외 문법 파싱 실패는 -32700 Parse Error로 매핑 — 기존 응답 코드 의미 보존.
+         * [감사 A2-3] 무응답 대신 원인 코드를 전송해 클라이언트가 무맥락 EOF를 안 받도록. */
+        gboolean bad_req = err && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
+        gchar *derr = pure_rpc_build_error_response(NULL,
+            bad_req ? PCV_ERR_INVALID_REQ : PCV_ERR_PARSE,
+            bad_req ? "Invalid Request" : "Parse error");
         pure_uds_server_send_response(server, connection, derr);
         g_free(derr);
-        g_object_unref(parser);
-        return;
-    }
-    if (!json_parser_load_from_data(parser, request_json, -1, &err)) {
-        /* [감사 A2-3] 파싱 실패 시 무응답 대신 -32700 Parse Error를 전송해
-         * 클라이언트가 무맥락 EOF 대신 원인을 받도록 한다. */
-        gchar *perr = pure_rpc_build_error_response(NULL, PCV_ERR_PARSE, "Parse error");
-        pure_uds_server_send_response(server, connection, perr);
-        g_free(perr);
         if (err) g_error_free(err);
-        g_object_unref(parser);
         return;
     }
 

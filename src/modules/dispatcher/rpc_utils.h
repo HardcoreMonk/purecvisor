@@ -149,6 +149,17 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
  */
 gboolean pcv_rpc_json_depth_ok(const gchar *json, gint max_depth);
 
+/* JSON 페이로드 바이트 상한 (외부 입력 DoS 방어) */
+#define PCV_RPC_JSON_MAX_BYTES (1u * 1024u * 1024u)
+
+/**
+ * pcv_rpc_parse_guarded — 외부 입력 JSON 파싱의 유일 sanctioned 경로.
+ * 깊이(≤PCV_RPC_JSON_MAX_DEPTH) + 크기(≤PCV_RPC_JSON_MAX_BYTES) 선검사 후 파싱.
+ * @return TRUE=성공(*parser 소유권 이전), FALSE=거부/실패(*parser=NULL, *err 설정).
+ */
+gboolean pcv_rpc_parse_guarded(const gchar *data, gssize len,
+                               JsonParser **parser, GError **err);
+
 G_END_DECLS
 
 #endif /* PURECVISOR_RPC_UTILS_H */

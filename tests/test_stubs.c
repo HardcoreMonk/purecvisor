@@ -154,12 +154,6 @@ void pcv_ws_broadcast_job_complete_mt(const gchar *job_id __attribute__((unused)
                                       const gchar *status __attribute__((unused)),
                                       const gchar *error_msg __attribute__((unused))) { }
 
-gboolean pcv_rbac_apikey_revoke(const gchar *client_name __attribute__((unused)),
-                                GError **error __attribute__((unused)))
-{
-    return TRUE;
-}
-
 /* ── ZFS pool 분산 락 stubs (BUG-18 Phase 2) ──
  * zfs_driver.c가 PCV_CLUSTER_ENABLED일 때 etcd inflight lock을 호출.
  * 테스트 환경에서는 etcd 없으므로 stub. */

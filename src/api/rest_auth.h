@@ -13,14 +13,15 @@
  * 보안이 무너지므로 rest_auth.c에서 매우 좁은 조건만 허용합니다.
  *
  * [주니어 참고]
- * rest_server.c는 로그인 실패 사유를 이 함수에 넘기고, 이 함수가 TRUE를
- * 반환할 때만 fallback JWT 발급을 진행합니다. 새 인증 실패 사유를 추가할
- * 때는 "초기 설치 복구"와 "일반 로그인 우회"를 반드시 구분해야 합니다.
+ * fallback은 사용자가 RBAC DB에 부재(진짜 첫 설치)일 때만 허용한다. _ensure_admin_user가
+ * 부팅 시 관리자를 시딩하므로, 비번 회전 후에는 사용자가 존재해 fallback이 발화하지 않는다
+ * (옛 daemon.conf 비번 거부). user_in_db 는 호출부(rest_server)가 pcv_rbac_user_exists 로
+ * 판정해 전달한다(UNKNOWN=존재 취급, fail-secure).
  */
 gboolean pcv_rest_auth_should_fallback_bootstrap(const gchar *username,
                                                  const gchar *password,
                                                  const gchar *cfg_user,
                                                  const gchar *cfg_pass,
-                                                 const GError *rbac_error);
+                                                 gboolean user_in_db);
 
 #endif /* PCV_REST_AUTH_H */

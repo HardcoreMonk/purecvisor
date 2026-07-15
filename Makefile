@@ -276,6 +276,7 @@ TEST_COMMON_SRCS = \
     tests/test_rest_middleware.c \
     tests/test_rest_auth.c \
     tests/test_rpc_utils.c \
+    tests/test_rpc_parse_guarded.c \
     tests/test_drain.c \
     tests/test_ai_agent.c \
     tests/test_prometheus.c \
@@ -292,6 +293,7 @@ TEST_COMMON_SRCS = \
     tests/test_vm_vnet_cache.c \
     src/modules/ai/restart_breaker.c \
     tests/test_apikey.c \
+    tests/test_rbac_user_exists.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
     src/modules/security/security_policy.c \
@@ -311,6 +313,7 @@ TEST_COMMON_SRCS = \
     src/modules/network/vm_iface.c \
     src/modules/network/vm_vnet_cache.c \
     src/modules/network/network_firewall_host.c \
+    src/modules/auth/pcv_rbac.c \
     $(URING_SRCS) \
     $(COMMON_CORE_SRCS)
 
@@ -718,9 +721,21 @@ check-rpc-consumers:
 	@echo "🔗 Running AF-C4 RPC consumer contract gate (소비 ⊆ 등록)..."
 	@python3 scripts/check_rpc_consumers.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록
-check-all: check-rbac check-rpc-consumers
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers)"
+check-dead-exports:
+	@echo "🧹 Running dead export 게이트 (헤더 선언 사용처0)..."
+	@python3 scripts/check_dead_exports.py
+
+check-rpc-param-contract:
+	@echo "🔑 Running RPC param-key contract gate (Stage 2)..."
+	@python3 scripts/check_rpc_param_contract.py
+
+check-json-ingress:
+	@echo "🛡  Running JSON 파싱 초크포인트 게이트..."
+	@python3 scripts/check_json_ingress.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -779,4 +794,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli tui sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-all compile-commands coverage coverage-html coverage-check

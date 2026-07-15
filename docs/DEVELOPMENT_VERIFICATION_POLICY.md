@@ -288,6 +288,38 @@ rg -n -P "(?<![0-9.])(?:1\.0\.0|1\.0\.8(?:\.\d+)?|1\.0\.9(?:\.\d+)?|1\.2\.0|1\.3
 
 제품 버전으로 오인하지 말아야 하는 값은 별도 계약으로 유지한다. `/api/v1`, gRPC `purecvisor.v1`, OpenAPI `3.0.3`, Prometheus text format `0.0.4`, XML declaration, libvirt/ZFS/zlib/커널/패키지 버전, 외부 API header, IP/CIDR 예시는 제품 버전 통일 대상이 아니다.
 
+### 4.12 dead export 정적 게이트
+
+헤더 선언 함수 정의, `.c` 사용처, 또는 게이트 스크립트/baseline을 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-dead-exports
+```
+
+- `check-dead-exports`: 헤더 선언된 비-static pcv_* 함수 중 .c 사용처 0(정의만)인 dead export 노출·신규차단(래칫 `scripts/dead_exports_baseline.txt`). "배선 안 된 안전 함수"(SEC-1형) 재발 차단. 설계: `docs/superpowers/specs/2026-07-11-dead-export-gate-design.md`.
+
+사용처 카운트는 `src/**/*.c`만 집계하고 `tests/`는 포함하지 않는다. 따라서 정의되고 유닛 테스트로만 호출될 뿐 프로덕션 경로에 배선되지 않은 `pcv_*` 함수는 (의도한 대로) dead export로 잡힌다 — 이 게이트가 겨냥하는 SEC-1급 사례이며, 실제로 의도된 export라면 `PCV_DEAD_EXPORT_OK` waiver로 해소한다.
+
+### 4.13 RPC param-key 계약 게이트
+
+dispatcher 핸들러, CLI/TUI 소비 콜사이트, 또는 `contracts/rpc_params*.json`/게이트 스크립트를 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-rpc-param-contract
+```
+
+- `check-rpc-param-contract`: RPC param-key 계약(진리원 `contracts/rpc_params.json`, 래칫 `contracts/rpc_param_baseline.json`). CLI/TUI/FE 전송키 ⊇ 핸들러 required 검사. 설계: `docs/superpowers/specs/2026-07-11-rpc-param-contract-gate-design.md`.
+
+### 4.14 JSON 파싱 초크포인트 게이트
+
+데몬 경계 파일(ws/uds/grpc/dispatcher/rest_server 및 rpc_utils) 또는 게이트 스크립트/baseline을 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-json-ingress
+```
+
+- `check-json-ingress`: 데몬 경계 5파일의 외부 JSON 파싱이 pcv_rpc_parse_guarded 초크포인트 경유(또는 PCV_PARSE_TRUSTED waiver)인지 검사. 깊이 가드 누락(원격 크래시) 재발 차단. 설계: `docs/superpowers/specs/2026-07-11-json-ingress-chokepoint-gate-design.md`.
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증

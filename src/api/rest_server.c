@@ -624,6 +624,7 @@ _rpc_attach_auth_context(const gchar *rpc_json,
 
     JsonParser *parser = json_parser_new();
     GError *error = NULL;
+    /* PCV_PARSE_TRUSTED: 서버 생성 envelope 재파싱(_build_rpc/json_to_string 출력; passthrough도 _parse_body에서 깊이/크기 가드된 노드 재직렬화 — 외부 원문 아님) */
     if (!json_parser_load_from_data(parser, rpc_json, -1, &error)) {
         if (error) g_error_free(error);
         g_object_unref(parser);
@@ -735,6 +736,7 @@ _send_rpc_result(SoupServerMessage *msg, const gchar *rpc_resp)
     JsonParser *p   = json_parser_new();
     GError     *err = nullptr;
 
+    /* PCV_PARSE_TRUSTED: 데몬 JSON-RPC 응답 파싱(내부 신뢰 출력, 외부 입력 아님) */
     if (!json_parser_load_from_data(p, rpc_resp, -1, &err)) {
         _error(msg, 500, "PARSE_ERROR",
                err ? err->message : "Invalid JSON from daemon");
@@ -935,17 +937,15 @@ _parse_body(SoupServerMessage *msg)
     gsize        len  = (gsize)body->length;
     if (len > REST_MAX_BODY) return NULL;
 
-    /* [감사 SEC-F2] 깊은 중첩 JSON은 재귀 파서 스택오버플로우로 데몬을 크래시시킨다.
+    /* [감사 SEC-F2 / 초크포인트 게이트 #2] 외부 HTTP body 파싱은 유일 sanctioned
+     * 경로 pcv_rpc_parse_guarded(크기 상한 + 깊이 상한 선검사 후 파싱)를 경유한다.
      * 이 경로는 /auth/token 등 사전인증 엔드포인트도 통과하므로(미인증 원격 크래시),
-     * 파싱 전에 깊이 상한으로 사전 거부한다. (libsoup body->data는 NUL 종단.) */
-    if (!pcv_rpc_json_depth_ok(data, PCV_RPC_JSON_MAX_DEPTH))
-        return NULL;
-
-    JsonParser *p = json_parser_new();
+     * 깊은 중첩·과대 입력을 파싱 전에 사전 거부한다. FALSE 시 *parser=NULL(unref 불요),
+     * 기존과 동일하게 NULL을 반환한다. (libsoup body->data는 NUL 종단.) */
+    JsonParser *p = nullptr;
     GError     *e = nullptr;
-    if (!json_parser_load_from_data(p, data, (gssize)len, &e)) {
+    if (!pcv_rpc_parse_guarded(data, (gssize)len, &p, &e)) {
         if (e) g_error_free(e);
-        g_object_unref(p);
         return NULL;
     }
 
@@ -1323,6 +1323,7 @@ _send_ovn_demo_health(SoupServerMessage *msg)
     }
 
     JsonParser *parser = json_parser_new();
+    /* PCV_PARSE_TRUSTED: 호스트 로컬 상태파일(PCV_OVN_DEMO_HEALTH_PATH) 파싱 — 네트워크 경계 외부 입력 아님(설계 §11 스코프 밖) */
     if (!json_parser_load_from_data(parser, content, (gssize)len, &err)) {
         gchar *safe = err ? g_strescape(err->message, NULL)
                           : g_strdup("invalid json");
@@ -2003,6 +2004,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         g_free(rpc);
         if (resp) {
             JsonParser *jp = json_parser_new();
+            /* PCV_PARSE_TRUSTED: 데몬 JSON-RPC 응답 파싱(내부 신뢰 출력, 외부 입력 아님) */
             if (json_parser_load_from_data(jp, resp, -1, NULL)) {
                 JsonObject *root = json_node_get_object(json_parser_get_root(jp));
                 if (json_object_has_member(root, "result")) {
@@ -2182,6 +2184,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         GString *prom = g_string_new("");
         if (resp) {
             JsonParser *jp = json_parser_new();
+            /* PCV_PARSE_TRUSTED: 데몬 JSON-RPC 응답 파싱(내부 신뢰 출력, 외부 입력 아님) */
             if (json_parser_load_from_data(jp, resp, -1, NULL)) {
                 JsonObject *root = json_node_get_object(json_parser_get_root(jp));
                 if (json_object_has_member(root, "result")) {
@@ -2388,15 +2391,17 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         {
             /* daemon.conf 관리자 인증 — v2로 refresh token도 발급 */
             token = pcv_rbac_authenticate_v2(username, password, &refresh, &err);
-            if (!token &&
-                pcv_rest_auth_should_fallback_bootstrap(username,
-                                                        password,
-                                                        cfg_user,
-                                                        cfg_pass,
-                                                        err)) {
-                /* 최초 부트스트랩 계정만 RBAC 미등록 상태를 JWT 직접 발급으로 복구 */
-                g_clear_error(&err);
-                token = pcv_jwt_sign(username, 900, &err);
+            if (!token) {
+                PcvUserExistence ex = pcv_rbac_user_exists(username);
+                gboolean user_in_db = (ex != PCV_USER_ABSENT);   /* UNKNOWN=존재취급 fail-secure */
+                if (pcv_rest_auth_should_fallback_bootstrap(username, password,
+                                                            cfg_user, cfg_pass, user_in_db)) {
+                    /* 최초 부트스트랩 계정만 RBAC 미등록 상태를 JWT 직접 발급으로 복구 */
+                    g_clear_error(&err);
+                    token = pcv_jwt_sign(username, 900, &err);
+                    pcv_audit_log(username, "auth.bootstrap.fallback",
+                                  "bootstrap recovery", "ok", 0, 0, client_ip);
+                }
             }
         } else {
             /* RBAC DB 사용자 인증 (v2: access + refresh token) */
@@ -2586,6 +2591,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     if (raw && plen > 0) {
                         gchar *json_str = g_strndup((const gchar *)raw, plen);
                         JsonParser *parser = json_parser_new();
+                        /* PCV_PARSE_TRUSTED: pcv_jwt_verify() 서명검증 통과 후에만 도달 — 페이로드는 데몬 서명발급분(공격자 위조 불가), 서명이 곧 가드 */
                         if (json_parser_load_from_data(parser, json_str, -1, NULL)) {
                             JsonObject *o = json_node_get_object(json_parser_get_root(parser));
                             const gchar *jti = json_object_get_string_member_with_default(o, "jti", NULL);

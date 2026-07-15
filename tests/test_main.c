@@ -86,6 +86,7 @@ void test_vm_manager_register(void);      /* libvirt test:/// 드라이버 */
 void test_rest_middleware_register(void); /* ETag/Rate Limit */
 void test_rest_auth_register(void);       /* REST bootstrap auth fallback */
 void test_rpc_utils_register(void);       /* JSON-RPC 2.0 응답 빌더 */
+void test_rpc_parse_guarded_register(void); /* JSON 파싱 초크포인트 래퍼 (깊이+크기 가드) */
 void test_drain_register(void);           /* graceful drain inflight */
 void test_ai_agent_register(void);        /* AI agent 입력 위생 + 파싱 */
 void test_prometheus_register(void);      /* Prometheus 체크포인트/검증 */
@@ -101,6 +102,7 @@ void test_hids_file_integrity_register(void); /* Native Host HIDS file integrity
 void test_vm_iface_register(void);          /* VM 인터페이스 해석 (virsh domiflist 파서) */
 void test_vm_vnet_cache_register(void);     /* I-2: vnet 캐시 */
 void test_apikey_register(void);            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
+void test_rbac_user_exists_register(void);  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
 
 /*
  * 테스트 환경 전용 로그 핸들러
@@ -267,6 +269,7 @@ int main(int argc, char *argv[]) {
     test_rest_middleware_register();  /* ETag/Rate Limit */
     test_rest_auth_register();        /* REST bootstrap auth fallback */
     test_rpc_utils_register();        /* JSON-RPC 2.0 응답 빌더 */
+    test_rpc_parse_guarded_register(); /* JSON 파싱 초크포인트 래퍼 (깊이+크기 가드) */
     test_drain_register();            /* graceful drain inflight */
     test_ai_agent_register();         /* AI agent 입력 위생 + 파싱 */
     test_prometheus_register();       /* Prometheus 체크포인트/검증 */
@@ -282,6 +285,7 @@ int main(int argc, char *argv[]) {
     test_vm_iface_register();          /* VM 인터페이스 해석 (virsh domiflist 파서) */
     test_vm_vnet_cache_register();     /* I-2: vnet 캐시 */
     test_apikey_register();            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
+    test_rbac_user_exists_register();  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
     test_dpdk_register();             /* OVS-DPDK Phase 4 — 환경 의존, 마지막 실행 */
 
     return g_test_run();

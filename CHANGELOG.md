@@ -3,6 +3,34 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.1 — 2026-07-11
+
+v1.2.0 post-release 전수 감사(`docs/operations/2026-07-11-arch-audit-v120.md`)가 확증한 HIGH 6건 중 시정 3건 + 재발 방지 게이트 3건. 전부 하위호환(런타임 API/config 변경 없음; 게이트는 CI 전용). 검증: 전 커밋 `make single` 0-warning + `make test` **614/0** + `make check-all` **5게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress) + 격리 데몬 E2E(시정 3 + DISP-1, 다수 네거티브 컨트롤).
+
+> ⚠️ **인증/락/파싱 행위 변경 포함** — 배포 전 `### Upgrade notes` 확인. 특히: 비번 회전 후 옛 daemon.conf 자격증명 거부, 강제 로그아웃 실동작, 외부 JSON 파싱 깊이(≤128)·크기(≤1MB) 거부.
+
+### Security fixes (감사 확증 HIGH — 인증/락 실배선)
+- **SEC-2 부트스트랩 fallback 백도어 차단** — daemon.conf 관리자 비번이 비번 회전 후에도 병렬 자격증명이 되던 백도어를 차단. fallback 판정을 에러 메시지가 아니라 사용자 RBAC DB 존재 여부(`pcv_rbac_user_exists`, 3-상태 fail-secure)로 교체 — `_ensure_admin_user`가 부팅 시 admin을 시딩하므로 회전 후 옛 비번이 fallback을 발화시키지 못한다. 진짜 첫 설치(admin 부재)에서만 복구 fallback 허용 + 감사 이벤트. E2E: 회전 후 옛 비번 401, 첫설치 복구 보존.
+- **SEC-1 세션 취소 실동작** — `auth.session.revoke`가 아무도 읽지 않는 죽은 rbac blacklist에 쓰던 것을, `pcv_jwt_verify`가 실제 소비하는 라이브 jwt blacklist(`pcv_jwt_blacklist_add`)에 배선. 강제 로그아웃이 실제로 토큰을 무효화한다. 죽은 `pcv_rbac_session_revoke`/`_is_revoked` 삭제. E2E: revoke 후 토큰 401.
+- **CMP-1 VM 락 교차 unlock 차단** — 공유 콜백 `vm_action_callback`이 락을 획득하지 않은 op(pause/resume/limit)에서도 무조건 `unlock_vm_operation`을 호출해 동시 `vm.delete`의 락을 지우던 결함(AF-P1 직렬화 무력화)을, `holds_lock` 플래그로 조건부화(락을 획득하는 stop만 해제). 결정적 E2E: DELETING 락 보유 중 vm.limit → 락 잔존.
+- **DISP-1 원격 미인증 크래시 구조적 해소** — 외부 입력 JSON 파싱을 단일 초크포인트 래퍼 `pcv_rpc_parse_guarded`(깊이 ≤128 + 크기 ≤1MB 선검사 후 파싱)로 좁히고, WS 사전인증 파싱을 이전. 깊게 중첩된 미인증 텍스트 프레임이 파싱 전 거부되어 스택 오버플로우 크래시 불가. E2E 네거티브 컨트롤: 수정 되돌리면 10만 중첩 프레임에 SIGSEGV, 수정본은 데몬 생존.
+
+### CI 계약 게이트 (재발 방지 — 정적/래칫, 런타임 비영향)
+- **check-dead-exports** — 헤더 선언 비-static `pcv_*` 함수 중 `.c` 사용처 0(정의만)인 dead export 노출·신규 차단(baseline 153). SEC-1형 "배선 안 된 안전 함수" 재발 차단.
+- **check-rpc-param-contract** — RPC param-key 계약(진리원 `contracts/rpc_params.json`, 래칫 `contracts/rpc_param_baseline.json`). CLI/TUI/FE 전송키 ⊇ 핸들러 required 검사로 "메서드는 맞지만 param 불일치→-32602 무동작" 클래스(감사 CLI-1~16) 차단.
+- **check-json-ingress** — 데몬 경계 5파일의 외부 JSON 파싱이 `pcv_rpc_parse_guarded` 경유(또는 `PCV_PARSE_TRUSTED` waiver)인지 검사(baseline 0). DISP-1형 깊이가드 누락 재발 차단.
+- 세 게이트 모두 `make check-all` + `scripts/pre-commit`에 통합.
+
+### Upgrade notes
+- **비번 회전 후 옛 자격증명 무효화**: SEC-2 이후 daemon.conf `[daemon] admin_password`는 admin이 RBAC DB에 부재일 때(진짜 첫 설치)만 fallback 복구에 쓰인다. 회전(change_password)한 배포에서는 옛 daemon.conf 비번으로 로그인이 거부(401)된다 — 정상. bootstrap admin 자체 회전은 지원 API 부재(REST `/auth/password` 403), daemon.conf 편집으로 관리(후속 검토 대상).
+- **강제 로그아웃 실동작**: SEC-1 이후 `auth.session.revoke`가 토큰을 즉시 무효화한다(TTL 900s). 기존에 무동작에 의존한 흐름은 없음(원래 버그).
+- **외부 JSON 파싱 거부**: 깊이 >128 또는 크기 >1MB인 외부 프레임/바디는 파싱 전 거부된다(WS는 조용히 무시, REST/dispatcher는 에러 응답). 정상 페이로드는 무영향.
+
+### 알려진 잔여 (후속 트랙)
+- SEC-2 fallback 성공 감사가 `pcv_jwt_sign` 성공 확인 전 `result=ok`를 기록(fail-closed라 토큰 미발급 시 이중 감사행만; 계획 스니펫이 이 위치 명시 — 후속 판단).
+- param-contract 게이트: vm.eject·device.disk.attach는 문서화된 false-negative(WARN), FE param 추출 미구현(현재 FE 소비 메서드 0). dead-export 게이트: src-scope 한정(tests 미포함, 의도).
+- 별도 트랙: NET-1(dpdk.bind), 게이트 #4(안전통제 효과 테스트), refresh-remint 차단, MED/LOW findings.
+
 ## v1.2.0 — 2026-07-11
 
 8도메인 전수 아키텍처 감사(`arch-audit-final`)의 Tier0~2 시정 + 후속 판단 트랜치 통합. **데몬 라인 첫 대규모 릴리스** — "정의만 되고 실제로는 동작하지 않던" 다수의 안전 통제를 실배선했다. 전부 하위호환(신규 config는 기본값 존재, apikey `client_name` 레거시 fallback 유지). 검증: 전 커밋 `make single` 0-warning + `make test` **607/0** + `make check-all` PASS + 실-VM/ZFS/재부팅 E2E(AF-1/AF-S4/AF-N2·N3/apikey 계약).

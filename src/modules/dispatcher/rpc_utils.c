@@ -48,6 +48,7 @@
  */
 
 #include "rpc_utils.h"
+#include <string.h>
 
 /* 감사 SEC-F2 — 파싱 전 JSON 중첩 깊이 사전 스캔(스택오버플로우 크래시 차단). */
 gboolean pcv_rpc_json_depth_ok(const gchar *json, gint max_depth)
@@ -227,4 +228,51 @@ gchar* pure_rpc_build_success_response(const gchar *rpc_id, JsonNode *result_nod
     json_node_free(root_node);  /* root_obj + result_node도 재귀적으로 해제됨 */
 
     return response_str;  /* 호출자가 g_free()로 해제 */
+}
+
+/**
+ * pcv_rpc_parse_guarded:
+ * 외부 입력 JSON 파싱의 유일 sanctioned 경로 (게이트 #2).
+ *
+ * 깊이(PCV_RPC_JSON_MAX_DEPTH) + 크기(PCV_RPC_JSON_MAX_BYTES) 선검사 후
+ * json_parser_load_from_data()로 파싱한다. 성공 시 *parser 소유권은
+ * 호출자에게 이전되며, 실패 시 *parser=NULL(unref 불요)이고 *err가 설정된다.
+ *
+ * @param data   JSON 원문 버퍼. NULL 불가.
+ * @param len    파싱할 바이트 수. 음수면 strlen(data)로 NUL 종단까지 사용.
+ * @param parser 성공 시 소유권이 이전되는 JsonParser*를 저장. NULL 허용.
+ * @param err    실패 사유를 담을 GError**. NULL 허용.
+ * @return TRUE=성공, FALSE=거부(과대/과심)/파싱 실패.
+ */
+gboolean pcv_rpc_parse_guarded(const gchar *data, gssize len,
+                               JsonParser **parser, GError **err)
+{
+    if (parser) *parser = NULL;
+    if (!data) {
+        g_set_error(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "null JSON input");
+        return FALSE;
+    }
+    gsize n = (len < 0) ? strlen(data) : (gsize)len;
+    if (n > PCV_RPC_JSON_MAX_BYTES) {
+        g_set_error(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "JSON payload too large");
+        return FALSE;
+    }
+    /* 깊이 가드는 NUL 종단 문자열을 순회하므로, len 지정(비종단) 입력은
+     * 종단 사본을 만들어 정확히 n 바이트만 검사·파싱한다. */
+    gchar *buf = g_strndup(data, n);
+    if (!pcv_rpc_json_depth_ok(buf, PCV_RPC_JSON_MAX_DEPTH)) {
+        g_free(buf);
+        g_set_error(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA, "JSON nesting too deep");
+        return FALSE;
+    }
+    JsonParser *p = json_parser_new();
+    if (!json_parser_load_from_data(p, buf, (gssize)n, err)) {
+        g_object_unref(p);
+        g_free(buf);
+        return FALSE;
+    }
+    g_free(buf);
+    if (parser) *parser = p;
+    else        g_object_unref(p);
+    return TRUE;
 }

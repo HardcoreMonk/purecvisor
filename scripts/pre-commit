@@ -60,7 +60,11 @@ echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=
 echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
 HAS_CONTRACT_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/cli/purecvisorctl\.c|src/tui/purecvisortui\.c|ui/.*\.js|scripts/check_rpc_consumers\.py)$' && HAS_CONTRACT_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/cli/purecvisorctl\.c|src/tui/purecvisortui\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
+HAS_SYMBOL_CHANGES=false
+echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
+HAS_INGRESS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -168,6 +172,53 @@ if $HAS_CONTRACT_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] 계약 소비/등록 변경 없음 — AF-C4 검증 생략"
+fi
+
+# ── 4d. dead export 게이트 (check-dead-exports) ─────────────────────────
+if $HAS_SYMBOL_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] dead export${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    DE_OUT=$(python3 "$SCRIPT_DIR/check_dead_exports.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "신규 dead export (헤더 선언 함수 사용처0 — 배선/삭제/waiver 필요)"
+        echo "$DE_OUT" | tail -15
+    else
+        pass "$(echo "$DE_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 및 게이트 스크립트 변경 없음 — dead export 검증 생략"
+fi
+
+# ── 4e. RPC param-key 계약 (Stage 2, check-rpc-param-contract) ──────────
+if $HAS_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] RPC param-key 계약 (Stage 2)${NC}"
+    PC_OUT=$(python3 "$SCRIPT_DIR/check_rpc_param_contract.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "param-key 계약 위반 (신규 -32602 파손)"
+        echo "$PC_OUT" | tail -20
+    else
+        pass "$(echo "$PC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 계약 소비/등록 변경 없음 — param-key 계약 검증 생략"
+fi
+
+# ── 4f. JSON 파싱 초크포인트 (check-json-ingress) ───────────────────────
+if $HAS_INGRESS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] JSON 파싱 초크포인트${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    JI_OUT=$(python3 "$SCRIPT_DIR/check_json_ingress.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "무가드 경계 JSON 파싱 (래퍼/waiver 누락)"
+        echo "$JI_OUT" | tail -10
+    else
+        pass "$(echo "$JI_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 데몬 경계 파일 변경 없음 — JSON 파싱 초크포인트 검증 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

@@ -4,88 +4,62 @@
 #include "../src/api/rest_auth.h"
 
 /*
- * Bootstrap fallback is intentionally narrow: default credentials may recover
- * first login, but locked accounts and RBAC DB failures must not bypass auth.
+ * Bootstrap fallback is intentionally narrow: it must recover only a true
+ * first-install state (user absent from RBAC DB). Once _ensure_admin_user
+ * seeds the admin account and an operator rotates the password, the stale
+ * daemon.conf credentials must be denied (SEC-2 regression).
  */
 static void
-test_bootstrap_fallback_no_error(void)
+test_fallback_user_absent_recovers(void)
 {
+    /* 진짜 첫설치 복구 */
     g_assert_true(pcv_rest_auth_should_fallback_bootstrap("admin",
                                                           "purecvisor",
                                                           "admin",
                                                           "purecvisor",
-                                                          NULL));
+                                                          FALSE));
 }
 
 static void
-test_bootstrap_fallback_invalid_credentials(void)
+test_fallback_user_present_denied_sec2(void)
 {
-    GError *err = g_error_new(G_IO_ERROR,
-                              G_IO_ERROR_PERMISSION_DENIED,
-                              "Invalid credentials");
-
-    g_assert_true(pcv_rest_auth_should_fallback_bootstrap("admin",
-                                                          "purecvisor",
-                                                          "admin",
-                                                          "purecvisor",
-                                                          err));
-
-    g_clear_error(&err);
-}
-
-static void
-test_bootstrap_fallback_locked_denied(void)
-{
-    GError *err = g_error_new(G_IO_ERROR,
-                              G_IO_ERROR_PERMISSION_DENIED,
-                              "Account locked -- retry after 30 seconds");
-
+    /* 회전 후 옛 비번 거부 — SEC-2 핵심 */
     g_assert_false(pcv_rest_auth_should_fallback_bootstrap("admin",
                                                            "purecvisor",
                                                            "admin",
                                                            "purecvisor",
-                                                           err));
-
-    g_clear_error(&err);
+                                                           TRUE));
 }
 
 static void
-test_bootstrap_fallback_db_failure_denied(void)
-{
-    GError *err = g_error_new(G_IO_ERROR,
-                              G_IO_ERROR_FAILED,
-                              "failed to prepare RBAC statement");
-
-    g_assert_false(pcv_rest_auth_should_fallback_bootstrap("admin",
-                                                           "purecvisor",
-                                                           "admin",
-                                                           "purecvisor",
-                                                           err));
-
-    g_clear_error(&err);
-}
-
-static void
-test_bootstrap_fallback_nonmatching_creds_denied(void)
+test_fallback_nonmatching_creds_denied(void)
 {
     g_assert_false(pcv_rest_auth_should_fallback_bootstrap("admin",
                                                            "wrong",
                                                            "admin",
                                                            "purecvisor",
-                                                           NULL));
+                                                           FALSE));
+}
+
+static void
+test_fallback_null_denied(void)
+{
+    g_assert_false(pcv_rest_auth_should_fallback_bootstrap(NULL,
+                                                           "purecvisor",
+                                                           "admin",
+                                                           "purecvisor",
+                                                           FALSE));
 }
 
 void
 test_rest_auth_register(void)
 {
-    g_test_add_func("/rest_auth/bootstrap_fallback/no_error",
-                    test_bootstrap_fallback_no_error);
-    g_test_add_func("/rest_auth/bootstrap_fallback/invalid_credentials",
-                    test_bootstrap_fallback_invalid_credentials);
-    g_test_add_func("/rest_auth/bootstrap_fallback/locked_denied",
-                    test_bootstrap_fallback_locked_denied);
-    g_test_add_func("/rest_auth/bootstrap_fallback/db_failure_denied",
-                    test_bootstrap_fallback_db_failure_denied);
+    g_test_add_func("/rest_auth/bootstrap_fallback/user_absent_recovers",
+                    test_fallback_user_absent_recovers);
+    g_test_add_func("/rest_auth/bootstrap_fallback/user_present_denied_sec2",
+                    test_fallback_user_present_denied_sec2);
     g_test_add_func("/rest_auth/bootstrap_fallback/nonmatching_creds_denied",
-                    test_bootstrap_fallback_nonmatching_creds_denied);
+                    test_fallback_nonmatching_creds_denied);
+    g_test_add_func("/rest_auth/bootstrap_fallback/null_denied",
+                    test_fallback_null_denied);
 }

@@ -104,6 +104,29 @@ gboolean pcv_rbac_user_create(const gchar *username,
                               GError     **error);
 
 /**
+ * PcvUserExistence:
+ * 사용자 RBAC DB 존재 3-상태. UNKNOWN(DB 오류)은 fallback 결정에서 존재로
+ * 취급한다(fail-secure) — DB를 조회할 수 없다고 해서 부트스트랩 백도어를
+ * 열어 주면 안 되기 때문.
+ */
+typedef enum {
+    PCV_USER_ABSENT  = 0,
+    PCV_USER_PRESENT = 1,
+    PCV_USER_UNKNOWN = 2
+} PcvUserExistence;
+
+/**
+ * pcv_rbac_user_exists:
+ * @username: 조회할 사용자 이름
+ *
+ * RBAC DB에 해당 사용자가 존재하는지 조회합니다. username이 NULL/빈
+ * 문자열이면 ABSENT를 반환합니다.
+ *
+ * Returns: PCV_USER_PRESENT/ABSENT, DB 미초기화·조회 실패 시 PCV_USER_UNKNOWN
+ */
+PcvUserExistence pcv_rbac_user_exists(const gchar *username);
+
+/**
  * pcv_rbac_user_delete:
  * @username: 삭제할 사용자
  * @error:    GError 반환
@@ -329,10 +352,6 @@ gboolean   pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
 gint       pcv_rbac_apikey_validate(const gchar *api_key);
 JsonArray *pcv_rbac_apikey_list(void);
 gboolean   pcv_rbac_apikey_revoke(const gchar *client_name, GError **error);
-
-/* ── 세션 블랙리스트 ───────────────────────────────────────── */
-void       pcv_rbac_session_revoke(const gchar *jti);
-gboolean   pcv_rbac_session_is_revoked(const gchar *jti);
 
 /* ── 권한 캐싱 ─────────────────────────────────────────────── */
 void pcv_rbac_perm_cache_init(void);

@@ -168,6 +168,37 @@ if $RUN_TIER1; then
     echo ""
     echo -e "${BOLD}${CYAN}▶ TIER 1: SAFE 통합 테스트 (읽기 전용, 부작용 없음)${NC}"
 
+    # SEC-2 백도어 차단 E2E — 자체 격리 데몬(bwrap)을 기동하므로 공유 데몬 불필요.
+    # 로컬 실행에서만 의미 있음(원격 --host 대상 아님). 전제조건 부재 시 스크립트가 SKIP.
+    case "$HOST" in
+        localhost|127.0.0.1|"")
+            run_test "SEC-2 부트스트랩 fallback 백도어 차단 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_sec2_bootstrap_fallback.sh'" \
+                "T1"
+
+            # CMP-1 VM 락 교차 unlock 차단 E2E — 자체 격리 데몬(bwrap)을 기동하므로
+            # 공유 데몬 불필요. 로컬 실행에서만 의미(원격 --host 대상 아님).
+            # 전제조건 부재 시 스크립트가 SKIP.
+            run_test "CMP-1 VM 락 교차 unlock 차단 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_vm_lock_cross_unlock.sh'" \
+                "T1"
+
+            # SEC-1 세션 revoke 강제 로그아웃 실동작 E2E — 자체 격리 데몬(bwrap)을
+            # 기동하므로 공유 데몬 불필요. 로컬 실행에서만 의미(원격 --host 대상 아님).
+            # 전제조건 부재 시 스크립트가 SKIP.
+            run_test "SEC-1 세션 revoke 강제 로그아웃 실동작 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_session_revoke.sh'" \
+                "T1"
+
+            # 게이트#2 JSON ingress / DISP-1 — WS 깊은프레임 크래시0 + 경계 파싱 거부
+            # E2E. 자체 격리 데몬(bwrap)을 기동하므로 공유 데몬 불필요. 로컬 실행에서만
+            # 의미(원격 --host 대상 아님). 전제조건(python3 websockets 포함) 부재 시 SKIP.
+            run_test "게이트#2 JSON ingress / DISP-1 크래시0 (격리 데몬)" \
+                "bash '$INTEG_DIR/test_json_ingress_disp1.sh'" \
+                "T1"
+            ;;
+    esac
+
     # 데몬 접근 가능 여부 확인
     if check_daemon; then
         echo -e "  ${GREEN}✓${NC} 데몬 접근 가능 (http://$HOST/api/v1/health)"
