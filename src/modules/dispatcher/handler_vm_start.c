@@ -305,7 +305,7 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
     gint64 worker_dur_ms = (g_get_monotonic_time() - ctx->worker_start_us) / 1000;
     pcv_audit_log(NULL, "vm.start", ctx->vm_id,
                   success ? "ok" : "fail",
-                  success ? 0 : -32000, worker_dur_ms, "local");
+                  success ? 0 : PURE_RPC_ERR_ZFS_OPERATION, worker_dur_ms, "local");
 
     /* ADR-0012 + ADR-0018: WebSocket 푸시 — UI가 실패를 즉시 인지 가능 */
     {
@@ -348,7 +348,7 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
 void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     /* 파라미터 검증: vm_id는 필수 */
     if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -367,7 +367,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
      */
     gchar *err_msg = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_STARTING, &err_msg)) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, err_msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         g_free(err_msg);

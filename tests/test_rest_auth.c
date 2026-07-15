@@ -2,6 +2,7 @@
 #include <glib.h>
 
 #include "../src/api/rest_auth.h"
+#include "../src/utils/pcv_crypto.h"
 
 /*
  * Bootstrap fallback is intentionally narrow: it must recover only a true

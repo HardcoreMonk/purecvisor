@@ -60,6 +60,7 @@
 #include "self_healing.h"
 #include "ai_agent.h"
 #include "restart_breaker.h"      /* AF-1 후속: VM 단위 재시작 서킷 브레이커 */
+#include "self_healing_restart.h" /* 결정 로직 추출 seam (PCV_SAFETY_CONTROL: self-healing-restart) */
 #include <string.h>
 #include <stdio.h>
 #include <libvirt/libvirt.h>      /* AF-1: restart 실배선 — virDomain* API */
@@ -493,8 +494,22 @@ _restart_ctx_free(gpointer data)
  *   - executed 카운트/WS "executed"/actions_total 은 **실제 재시작 성공 시에만** 갱신
  *     (running-guard skip·조회 실패·create 실패는 executed 로 세지 않는다 — 정직 보고)
  *   - 결과(success/skipped/failed)를 이력 링버퍼 + 감사 로그에 기록
+ *
+ * running-guard + virDomainCreate 결정 로직 자체는 self_healing_restart.c 로
+ * 추출됐다(PCV_SAFETY_CONTROL 마커도 그쪽으로 이동 — 효과테스트가 닿는 코드에
+ * 마커가 있어야 게이트가 검증 가능). 여기서는 libvirt 어댑터(_sh_domain_create)로
+ * 감싸 위임한다.
  */
-/* PCV_SAFETY_CONTROL: self-healing-restart — 워커 스레드에서 실제 virDomainCreate로 VM 재시작 실배선 (AF-1) */
+/**
+ * _sh_domain_create — pcv_healing_restart_decide() 의 create_fn 어댑터.
+ * virDomainCreate() 시그니처(virDomainPtr 인자)를 gpointer 콜백으로 감싼다.
+ */
+static int
+_sh_domain_create(gpointer dom)
+{
+    return virDomainCreate((virDomainPtr)dom);
+}
+
 static void
 _vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *c)
 {
@@ -517,24 +532,24 @@ _vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *
         if (!dom) {
             PCV_LOG_WARN(HEALING_LOG_DOM,
                 "[restart] VM '%s' 조회 실패 (UUID/이름 불일치) — 재시작 중단", ctx->vm);
-        } else if (virDomainIsActive(dom) > 0) {
-            /* running-guard: 이미 실행(또는 paused=active) 중 → 재시작하지 않는다.
-             * VM 이 건강하다는 신호이므로 브레이커를 성공으로 취급해 리셋한다. */
-            PCV_LOG_INFO(HEALING_LOG_DOM,
-                "[restart] VM '%s' 이미 실행 중 — running-guard skip", ctx->vm);
-            result = "skipped";
-            rb_feedback = +1;
-        } else if (virDomainCreate(dom) == 0) {
-            result = "success";
-            rb_feedback = +1;
-            PCV_LOG_WARN(HEALING_LOG_DOM,
-                "[restart] VM '%s' 재시작 성공 (policy=%s)", ctx->vm, ctx->policy_name);
         } else {
-            virErrorPtr err = virGetLastError();
-            rb_feedback = -1;   /* 진짜 재시작 실패(virDomainCreate) → 브레이커 카운트 */
-            PCV_LOG_WARN(HEALING_LOG_DOM,
-                "[restart] VM '%s' 재시작 실패: %s", ctx->vm,
-                (err && err->message) ? err->message : "(unknown)");
+            /* 결정 로직(running-guard + create) 위임 — self_healing_restart.c 참조. */
+            result = pcv_healing_restart_decide(virDomainIsActive(dom),
+                                                _sh_domain_create, dom, &rb_feedback);
+            if (g_strcmp0(result, "skipped") == 0) {
+                /* running-guard: 이미 실행(또는 paused=active) 중 → 재시작하지 않는다.
+                 * VM 이 건강하다는 신호이므로 브레이커를 성공으로 취급해 리셋한다. */
+                PCV_LOG_INFO(HEALING_LOG_DOM,
+                    "[restart] VM '%s' 이미 실행 중 — running-guard skip", ctx->vm);
+            } else if (g_strcmp0(result, "success") == 0) {
+                PCV_LOG_WARN(HEALING_LOG_DOM,
+                    "[restart] VM '%s' 재시작 성공 (policy=%s)", ctx->vm, ctx->policy_name);
+            } else {
+                virErrorPtr err = virGetLastError();
+                PCV_LOG_WARN(HEALING_LOG_DOM,
+                    "[restart] VM '%s' 재시작 실패: %s", ctx->vm,
+                    (err && err->message) ? err->message : "(unknown)");
+            }
         }
         if (dom) virDomainFree(dom);
         virt_conn_pool_release(conn);

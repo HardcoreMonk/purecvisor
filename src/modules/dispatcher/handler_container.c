@@ -273,7 +273,7 @@ _on_create_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointe
         g_warning("container.create failed for '%s': %s",
                   ctx->base->name, err_msg);
         pcv_audit_log(NULL, "container.create", ctx->base->name, "fail",
-                      -32000, 0, "local");
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete(job_id, "container.create",
                                       "failed", err_msg);
         if (error) g_error_free(error);
@@ -423,7 +423,7 @@ _on_destroy_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpoint
         g_warning("container.destroy failed for '%s': %s",
                   ctx->name, err_msg);
         pcv_audit_log(NULL, "container.destroy", ctx->name, "fail",
-                      -32000, 0, "local");
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete(job_id, "container.destroy",
                                       "failed", err_msg);
         if (error) g_error_free(error);
@@ -1914,13 +1914,13 @@ void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "target") : NULL;
 
     if (!cname || !type || !target) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Required: name, type (tcp/http/exec), target");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     if (g_strcmp0(type, "tcp") != 0 && g_strcmp0(type, "http") != 0 &&
         g_strcmp0(type, "exec") != 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "type must be tcp, http, or exec");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
@@ -1930,7 +1930,7 @@ void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
     if (idx < 0) {
         if (g_n_health_probes >= MAX_HEALTH_PROBES) {
             g_mutex_unlock(&g_health_mu);
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                            "Max health probes reached (32)");
             pure_uds_server_send_response(server, conn, e); g_free(e); return;
         }
@@ -1980,7 +1980,7 @@ void handle_container_health_get(JsonObject *params, const gchar *rpc_id,
         gint idx = _health_find(cname);
         if (idx < 0) {
             g_mutex_unlock(&g_health_mu);
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                            "No health probe for this container");
             pure_uds_server_send_response(server, conn, e); g_free(e); return;
         }
@@ -2031,7 +2031,7 @@ void handle_container_health_delete(JsonObject *params, const gchar *rpc_id,
     const gchar *cname = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!cname) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Required: name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Required: name");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 

@@ -67,6 +67,8 @@ HAS_INGRESS_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
 HAS_SAFETY_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
+HAS_ERROR_CODE_CHANGES=false
+echo "$STAGED" | grep -qE '\.(c|h)$|^(scripts/check_error_codes\.py|scripts/error_codes_baseline\.txt)$' && HAS_ERROR_CODE_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -237,6 +239,22 @@ if $HAS_SAFETY_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] C 소스/안전통제 레지스트리 변경 없음 — 안전통제 게이트 생략"
+fi
+
+# ── 4h. raw 에러코드 리터럴 방지 게이트 (check-error-codes, DISP-6) ─────
+if $HAS_ERROR_CODE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] raw 에러코드 리터럴 방지${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    EC_OUT=$(python3 "$SCRIPT_DIR/check_error_codes.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "raw 에러코드 리터럴 또는 PCV_ERR_ 재도입 발견"
+        echo "$EC_OUT" | tail -15
+    else
+        pass "$(echo "$EC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 및 게이트 스크립트/baseline 변경 없음 — 에러코드 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

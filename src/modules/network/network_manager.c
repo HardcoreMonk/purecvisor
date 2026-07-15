@@ -1021,7 +1021,7 @@ static void network_action_callback(GObject *source_obj, GAsyncResult *res, gpoi
     GError *error = NULL;
 
     if (!g_task_propagate_boolean(task, &error)) {
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, -32000, error->message);
+        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
         pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
         g_free(err_resp);
         g_error_free(error);
@@ -1082,7 +1082,7 @@ static void network_action_callback(GObject *source_obj, GAsyncResult *res, gpoi
  */
 void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "bridge_name")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: bridge_name");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing parameter: bridge_name");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -1099,7 +1099,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
 
     GError *validate_err = NULL;
     if (!pcv_validate_network_create_params(br_name, mode_raw, cidr_raw, phys_raw, &validate_err)) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             validate_err ? validate_err->message : "Invalid parameters");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -1117,7 +1117,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
     ctx->mtu = json_object_has_member(params, "mtu")
                ? (gint)json_object_get_int_member(params, "mtu") : 0;
     if (ctx->mtu != 0 && (ctx->mtu < 68 || ctx->mtu > 9216)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid mtu — must be between 68 and 9216 (or 0 for default 1500)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1138,7 +1138,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
      * (network_dhcp_start_v6 및 아래 v6 gw-build 에도 방어적 이중 검증 존재.) */
     if (ctx->ipv6_prefix && ctx->ipv6_prefix[0]
         && !pcv_validate_ipv6_prefix(ctx->ipv6_prefix)) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid ipv6_prefix — must be <ipv6-literal>/<0..128>, no spaces/newlines");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -1155,7 +1155,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
     g_mutex_lock(&g_net_inflight_mu);
     if (g_hash_table_contains(g_net_inflight, br_name)) {
         g_mutex_unlock(&g_net_inflight_mu);
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Network creation already in progress for this bridge");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -1189,7 +1189,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
  */
 void handle_network_delete_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "bridge_name")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: bridge_name");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing parameter: bridge_name");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -1200,7 +1200,7 @@ void handle_network_delete_request(JsonObject *params, const gchar *rpc_id, UdsS
     /* [V11] bridge_name 을 sysfs 경로(/sys/class/net/<br>/brif) 구성 및 argv
      * spawn 이전에 화이트리스트 검증 (defense-in-depth). */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -1224,7 +1224,7 @@ void handle_network_delete_request(JsonObject *params, const gchar *rpc_id, UdsS
                 }
                 g_dir_close(d);
                 if (has_vnet) {
-                    gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
+                    gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "Bridge has active VM interfaces — stop VMs or pass force=true");
                     pure_uds_server_send_response(server, connection, err_resp);
                     g_free(err_resp);
@@ -1537,7 +1537,7 @@ void handle_network_list_request(JsonObject *params __attribute__((unused)),
 
     if (!pcv_spawn_sync(argv, &stdout_buf, NULL, &err)) {
         const gchar *msg = err ? err->message : "ip link failed";
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         if (err) g_error_free(err);
@@ -1689,7 +1689,7 @@ void handle_network_info_request(JsonObject *params,
                                   GSocketConnection *connection)
 {
     if (!params || !json_object_has_member(params, "bridge_name")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                           "Missing parameter: bridge_name");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -1705,7 +1705,7 @@ void handle_network_info_request(JsonObject *params,
     g_free(sys_path);
 
     if (!exists) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                           "Bridge not found");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -1770,7 +1770,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
     if (!params
         || !json_object_has_member(params, "name")
         || !json_object_has_member(params, "mode")) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing parameters: name, mode");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1786,7 +1786,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
      * routed 분기(아래)가 검증 전에 dnsmasq-<br>.pid 경로를 구성해 pkill -F 로
      * path traversal 을 유발할 수 있으므로, 핸들러 최상단에서 화이트리스트 검증. */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1797,7 +1797,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
     if (g_strcmp0(mode, "nat")      != 0 &&
         g_strcmp0(mode, "isolated") != 0 &&
         g_strcmp0(mode, "routed")   != 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid mode: must be nat | isolated | routed");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1808,7 +1808,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
     if (!cidr || strlen(cidr) == 0) {
         /* cidr 없으면 /sys/class/net/<br>/인터페이스에서 시도 */
         /* 단순화: 오류 반환 */
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing parameter: cidr (required for mode change)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1819,7 +1819,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
      * 흘러가므로, network.create 와 동일하게 사설 대역 화이트리스트로 검증해
      * nft 규칙 인젝션을 차단한다. */
     if (!pcv_validate_private_cidr(cidr)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid cidr — must be a private CIDR (RFC1918/RFC6598/fc00::/7)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1846,7 +1846,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
 
     if (!ok) {
         const gchar *msg = error ? error->message : "firewall setup failed";
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
         if (error) g_error_free(error);
@@ -1905,7 +1905,7 @@ void handle_network_bind_phys_request(JsonObject *params, const gchar *rpc_id,
                          ? json_object_get_string_member(params, "iface")  : NULL;
 
     if (!br || !strlen(br) || !iface || !strlen(iface)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Missing params: 'bridge' and 'iface' are required");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1914,7 +1914,7 @@ void handle_network_bind_phys_request(JsonObject *params, const gchar *rpc_id,
 
     /* [V11] bridge/iface 를 argv spawn(ip link ...) 이전에 화이트리스트 검증. */
     if (!pcv_validate_bridge_name(br) || !pcv_validate_iface_name(iface)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid bridge or iface name");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1924,7 +1924,7 @@ void handle_network_bind_phys_request(JsonObject *params, const gchar *rpc_id,
     GError *error = NULL;
     if (!network_bridge_bind_physical(br, iface, &error)) {
         const gchar *msg = error ? error->message : "bind failed";
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
         if (error) g_error_free(error);
@@ -1959,7 +1959,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
     const gchar *br = json_object_has_member(params, "bridge")
                       ? json_object_get_string_member(params, "bridge") : NULL;
     if (!br || !strlen(br)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Missing param: 'bridge' is required");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -1969,7 +1969,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
     /* [V10] bridge_name 을 meta/pid 경로 구성 및 pkill -F 이전에 검증해
      * path traversal(dnsmasq-<br>.pid) 을 차단한다. */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid bridge name");
         pure_uds_server_send_response(server, connection, e);
         g_free(e);
@@ -2002,7 +2002,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
 
         if (!cidr || !strlen(cidr)) {
             g_free(cidr);
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                            "Cannot read CIDR from bridge meta — set mode first");
             pure_uds_server_send_response(server, connection, e);
             g_free(e);
@@ -2012,7 +2012,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
         GError *dhcp_err = NULL;
         if (!network_dhcp_start(br, cidr, &dhcp_err)) {
             const gchar *msg = dhcp_err ? dhcp_err->message : "dnsmasq start failed";
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32000, msg);
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
             pure_uds_server_send_response(server, connection, e);
             g_free(e);
             if (dhcp_err) g_error_free(dhcp_err);
@@ -2076,7 +2076,7 @@ void handle_network_ovs_create_request(JsonObject *params, const gchar *rpc_id,
     const gchar *br = json_object_has_member(params, "bridge")
         ? json_object_get_string_member(params, "bridge") : NULL;
     if (!br || br[0] == '\0') {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing parameter: bridge");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2084,7 +2084,7 @@ void handle_network_ovs_create_request(JsonObject *params, const gchar *rpc_id,
 
     /* [V11] bridge_name 을 ovs-vsctl argv 이전에 화이트리스트 검증. */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2097,7 +2097,7 @@ void handle_network_ovs_create_request(JsonObject *params, const gchar *rpc_id,
     if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
         gchar *msg = g_strdup_printf("OVS bridge create failed: %s",
             error ? error->message : (std_err ? std_err : "unknown"));
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(msg);
         if (error) g_error_free(error);
@@ -2138,7 +2138,7 @@ void handle_network_ovs_delete_request(JsonObject *params, const gchar *rpc_id,
     const gchar *br = json_object_has_member(params, "bridge")
         ? json_object_get_string_member(params, "bridge") : NULL;
     if (!br || br[0] == '\0') {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing parameter: bridge");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2146,7 +2146,7 @@ void handle_network_ovs_delete_request(JsonObject *params, const gchar *rpc_id,
 
     /* [V11] bridge_name 을 ovs-vsctl argv 이전에 화이트리스트 검증. */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2159,7 +2159,7 @@ void handle_network_ovs_delete_request(JsonObject *params, const gchar *rpc_id,
     if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
         gchar *msg = g_strdup_printf("OVS bridge delete failed: %s",
             error ? error->message : (std_err ? std_err : "unknown"));
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(msg);
         if (error) g_error_free(error);
@@ -2205,7 +2205,7 @@ void handle_network_ovs_vxlan_add_request(JsonObject *params, const gchar *rpc_i
         ? json_object_get_int_member(params, "vni") : 100;
 
     if (!br || !port || !remote) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Required: bridge, port_name, remote_ip");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2214,7 +2214,7 @@ void handle_network_ovs_vxlan_add_request(JsonObject *params, const gchar *rpc_i
     /* [V11] bridge_name / remote_ip 를 ovs-vsctl argv 이전에 화이트리스트 검증.
      * (sink 는 argv 배열이라 shell 인젝션은 이미 차단되나, defense-in-depth.) */
     if (!pcv_validate_bridge_name(br) || !pcv_validate_ip_literal(remote)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name or remote_ip");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2240,7 +2240,7 @@ void handle_network_ovs_vxlan_add_request(JsonObject *params, const gchar *rpc_i
     if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
         gchar *msg = g_strdup_printf("OVS VXLAN add failed: %s",
             error ? error->message : (std_err ? std_err : "unknown"));
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(msg);
         if (error) g_error_free(error);
@@ -2284,7 +2284,7 @@ void handle_network_ovs_vxlan_del_request(JsonObject *params, const gchar *rpc_i
         ? json_object_get_string_member(params, "port_name") : NULL;
 
     if (!br || !port) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Required: bridge, port_name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2292,7 +2292,7 @@ void handle_network_ovs_vxlan_del_request(JsonObject *params, const gchar *rpc_i
 
     /* [V11] bridge_name 을 ovs-vsctl argv 이전에 화이트리스트 검증. */
     if (!pcv_validate_bridge_name(br)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bridge name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2305,7 +2305,7 @@ void handle_network_ovs_vxlan_del_request(JsonObject *params, const gchar *rpc_i
     if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
         gchar *msg = g_strdup_printf("OVS VXLAN del failed: %s",
             error ? error->message : (std_err ? std_err : "unknown"));
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(msg);
         if (error) g_error_free(error);
@@ -2377,7 +2377,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
         if (vm_name && *vm_name) {
             /* [V11] vm_name 을 virsh domiflist argv 이전에 화이트리스트 검증. */
             if (!pcv_validate_vm_name(vm_name)) {
-                gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+                gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                     "Invalid vm_name");
                 pure_uds_server_send_response(server, connection, err);
                 g_free(err); g_free(auto_iface); return;
@@ -2392,20 +2392,20 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
     }
 
     if (!iface || !iface[0]) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: interface (or vm_name)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); g_free(auto_iface); return;
     }
     /* [V11] 최종 iface(직접 지정 or vm_name 해석 결과)를 tc argv 이전에 검증. */
     if (!pcv_validate_iface_name(iface)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid interface name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); g_free(auto_iface); return;
     }
     if (rate_mbps <= 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "rate_mbps must be > 0");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); g_free(auto_iface); return;
@@ -2414,7 +2414,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
 
     /* direction 검증: egress 또는 ingress만 허용 */
     if (g_strcmp0(direction, "egress") != 0 && g_strcmp0(direction, "ingress") != 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "direction must be 'egress' or 'ingress'");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); g_free(auto_iface); return;
@@ -2442,7 +2442,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
             if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
                 gchar *msg = g_strdup_printf("tc ingress qdisc failed: %s",
                     error ? error->message : (std_err ? std_err : "unknown"));
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);
@@ -2469,7 +2469,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
             if (!ok) {
                 gchar *msg = g_strdup_printf("tc ingress filter failed: %s",
                     error ? error->message : (std_err ? std_err : "unknown"));
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);
@@ -2494,7 +2494,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
             if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
                 gchar *msg = g_strdup_printf("tc qdisc failed: %s",
                     error ? error->message : (std_err ? std_err : "unknown"));
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);
@@ -2520,7 +2520,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
             if (!ok) {
                 gchar *msg = g_strdup_printf("tc class failed: %s",
                     error ? error->message : (std_err ? std_err : "unknown"));
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);
@@ -2562,7 +2562,7 @@ void handle_network_qos_get(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "interface") : NULL;
 
     if (!iface || !iface[0]) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: interface");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2576,7 +2576,7 @@ void handle_network_qos_get(JsonObject *params, const gchar *rpc_id,
     if (!pcv_spawn_sync(argv, &stdout_buf, &std_err, &error)) {
         gchar *msg = g_strdup_printf("tc query failed: %s",
             error ? error->message : (std_err ? std_err : "unknown"));
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(msg);
         if (error) g_error_free(error);
@@ -2627,7 +2627,7 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "direction") : "egress";
 
     if (!iface || !iface[0]) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: interface");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2650,7 +2650,7 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id,
                 g_free(std_err);
             } else {
                 gchar *msg = g_strdup_printf("tc qdisc del failed: %s", emsg);
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);
@@ -2673,7 +2673,7 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id,
             if (!strstr(emsg, "No such file") && !strstr(emsg, "Cannot delete")
                 && !strstr(emsg, "Invalid argument")) {
                 gchar *msg = g_strdup_printf("tc ingress del failed: %s", emsg);
-                gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, msg);
+                gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
                 pure_uds_server_send_response(server, connection, err_resp);
                 g_free(err_resp); g_free(msg);
                 if (error) g_error_free(error);

@@ -149,7 +149,7 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id,
                        UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "pci_addr")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: pci_addr");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: pci_addr");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *pci = json_object_get_string_member(p, "pci_addr");
@@ -165,7 +165,7 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id,
     /* NET-1: 관리/기본경로 NIC은 bind 거부(호스트 네트워크/SSH 붕괴 방지). */
     gchar *guard_reason = NULL;
     if (pcv_dpdk_nic_is_protected(pci, &guard_reason)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS,
             guard_reason ? guard_reason : "refusing to bind NIC in use by host");
         pure_uds_server_send_response(s, c, r);
         g_free(r); g_free(guard_reason);
@@ -180,7 +180,7 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id,
      */
     GError *err = NULL;
     if (!pcv_dpdk_bind(pci, drv, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "dpdk bind failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -212,14 +212,14 @@ void handle_dpdk_unbind(JsonObject *p, const gchar *id,
                          UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "pci_addr")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: pci_addr");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: pci_addr");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *pci = json_object_get_string_member(p, "pci_addr");
 
     GError *err = NULL;
     if (!pcv_dpdk_unbind(pci, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "dpdk unbind failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -277,14 +277,14 @@ void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
                                 UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "name")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: name");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: name");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *name = json_object_get_string_member(p, "name");
 
     /* 입력 검증 (defense-in-depth) — 매니저 계층에서도 재검증됨 */
     if (!pcv_validate_bridge_name(name)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: name");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: name");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -296,7 +296,7 @@ void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
         ? json_object_get_string_member(p, "dpdk_port") : NULL;
 
     if (port && *port && !pcv_validate_pci_addr(port)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: dpdk_port");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: dpdk_port");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -310,7 +310,7 @@ void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
      */
     GError *err = NULL;
     if (!pcv_dpdk_bridge_create(name, port, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "dpdk bridge create failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -342,14 +342,14 @@ void handle_dpdk_bridge_delete(JsonObject *p, const gchar *id,
                                 UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "name")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: name");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: name");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *name = json_object_get_string_member(p, "name");
 
     GError *err = NULL;
     if (!pcv_dpdk_bridge_delete(name, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "dpdk bridge delete failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -421,7 +421,7 @@ void handle_sriov_enable(JsonObject *p, const gchar *id,
                           UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "pf")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *pf = json_object_get_string_member(p, "pf");
@@ -445,7 +445,7 @@ void handle_sriov_enable(JsonObject *p, const gchar *id,
      */
     GError *err = NULL;
     if (!pcv_sriov_enable(pf, num, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "sriov enable failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -480,20 +480,20 @@ void handle_sriov_disable(JsonObject *p, const gchar *id,
                            UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "pf")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     const gchar *pf = json_object_get_string_member(p, "pf");
 
     /* 입력 검증 (defense-in-depth) */
     if (!pcv_validate_iface_name(pf)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
     GError *err = NULL;
     if (!pcv_sriov_disable(pf, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "sriov disable failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -554,7 +554,7 @@ void handle_sriov_set(JsonObject *p, const gchar *id,
                        UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "pf") || !json_object_has_member(p, "vf_index")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: pf, vf_index");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: pf, vf_index");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -563,7 +563,7 @@ void handle_sriov_set(JsonObject *p, const gchar *id,
 
     /* 입력 검증 (defense-in-depth) */
     if (!pcv_validate_iface_name(pf)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -590,13 +590,13 @@ void handle_sriov_set(JsonObject *p, const gchar *id,
         ? (gint)json_object_get_int_member(p, "spoofchk") : -1;
 
     if (mac && !pcv_validate_mac(mac)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: mac");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: mac");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
     GError *err = NULL;
     if (!pcv_sriov_set(pf, vf_idx, mac, vlan, spoof, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "sriov set failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -635,7 +635,7 @@ void handle_sriov_attach(JsonObject *p, const gchar *id,
                           UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "vm_name") || !json_object_has_member(p, "pf")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: vm_name, pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_name, pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -644,11 +644,11 @@ void handle_sriov_attach(JsonObject *p, const gchar *id,
 
     /* 입력 검증 (defense-in-depth) */
     if (!pcv_validate_vm_name(vm)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: vm_name");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: vm_name");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     if (!pcv_validate_iface_name(pf)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: pf");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: pf");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -675,7 +675,7 @@ void handle_sriov_attach(JsonObject *p, const gchar *id,
      */
     GError *err = NULL;
     if (!pcv_sriov_attach_vm(vm, pf, vf_idx, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "sriov attach failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;
@@ -712,7 +712,7 @@ void handle_sriov_detach(JsonObject *p, const gchar *id,
                           UdsServer *s, GSocketConnection *c)
 {
     if (!json_object_has_member(p, "vm_name") || !json_object_has_member(p, "pci_addr")) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Missing: vm_name, pci_addr");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_name, pci_addr");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -721,11 +721,11 @@ void handle_sriov_detach(JsonObject *p, const gchar *id,
 
     /* 입력 검증 (defense-in-depth) */
     if (!pcv_validate_vm_name(vm)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: vm_name");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: vm_name");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
     if (!pcv_validate_pci_addr(pci)) {
-        gchar *r = pure_rpc_build_error_response(id, -32602, "Invalid: pci_addr");
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: pci_addr");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
     }
 
@@ -740,7 +740,7 @@ void handle_sriov_detach(JsonObject *p, const gchar *id,
      */
     GError *err = NULL;
     if (!pcv_sriov_detach_vm(vm, pci, &err)) {
-        gchar *r = pure_rpc_build_error_response(id, -32000,
+        gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "sriov detach failed");
         pure_uds_server_send_response(s, c, r);
         g_free(r); if (err) g_error_free(err); return;

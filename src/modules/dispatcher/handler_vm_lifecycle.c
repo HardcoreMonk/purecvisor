@@ -629,24 +629,24 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     const gchar *new_name = _vm_rename_get_new_name(params);
 
     if (!old_name || !new_name) {
-        _send_rpc_error(server, connection, rpc_id, -32602,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                         "Invalid params: 'name' and 'new_name' are required");
         return;
     }
     if (!pcv_validate_vm_name(old_name) || !pcv_validate_vm_name(new_name)) {
-        _send_rpc_error(server, connection, rpc_id, -32602,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                         "Invalid VM name: only [A-Za-z0-9_-], max 64 chars");
         return;
     }
     if (g_strcmp0(old_name, new_name) == 0) {
-        _send_rpc_error(server, connection, rpc_id, -32602,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                         "new_name must be different from current name");
         return;
     }
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        _send_rpc_error(server, connection, rpc_id, -32000,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "Failed to connect to Libvirt.");
         return;
     }
@@ -654,7 +654,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     virDomainPtr dom = pure_virt_get_domain(conn, old_name);
     if (!dom) {
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32001, "VM not found.");
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found.");
         return;
     }
 
@@ -663,7 +663,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
         virDomainFree(existing);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32602,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                         "Target VM name already exists.");
         return;
     }
@@ -673,14 +673,14 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     if (active < 0) {
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32000,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "Could not verify VM power state.");
         return;
     }
     if (active == 1) {
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32000,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "vm.rename requires the VM to be shut off.");
         return;
     }
@@ -689,7 +689,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     if (snap_count > 0) {
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32000,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "vm.rename is blocked while libvirt snapshot metadata exists.");
         return;
     }
@@ -702,7 +702,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     if (!xml) {
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32000,
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                         "Failed to read domain XML.");
         return;
     }
@@ -715,7 +715,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
         free(xml);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, -32000, err_msg);
+        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
         g_free(err_msg);
         return;
     }
@@ -790,7 +790,7 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
     return;
 
 fail:
-    pcv_audit_log(NULL, "vm.rename", old_name, "fail", -32000, 0, "local");
+    pcv_audit_log(NULL, "vm.rename", old_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     if (nvram_moved)
         _vm_rename_nvram_rollback(&plan);
     if (storage_moved)
@@ -806,7 +806,7 @@ fail:
 
     if (dom)
         virDomainFree(dom);
-    _send_rpc_error(server, connection, rpc_id, -32000,
+    _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                     err_msg ? err_msg : "vm.rename failed");
     g_free(err_msg);
     _vm_rename_plan_clear(&plan);
@@ -1396,7 +1396,7 @@ static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer 
  */
 void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' missing");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' missing");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -1445,7 +1445,7 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
  */
 void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' missing");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' missing");
         pure_uds_server_send_response(server, connection, err_resp); g_free(err_resp); return;
     }
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
@@ -1466,7 +1466,7 @@ void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer 
  */
 void handle_vm_resume_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' missing");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' missing");
         pure_uds_server_send_response(server, connection, err_resp); g_free(err_resp); return;
     }
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
@@ -1495,7 +1495,7 @@ void handle_vm_resume_request(JsonObject *params, const gchar *rpc_id, UdsServer
 void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     /* Fix 1 + 6: NULL param check + range validation */
     if (!params || !json_object_has_member(params, "vm_id")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' missing");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' missing");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -1505,7 +1505,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     if (json_object_has_member(params, "cpu")) {
         gint64 cpu_val = json_object_get_int_member(params, "cpu");
         if (cpu_val != -1 && (cpu_val <= 0 || cpu_val >= 10000000)) {
-            gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "Invalid params: 'cpu' must be -1 (unlimited) or 1..9999999 (microseconds)");
             pure_uds_server_send_response(server, connection, err_resp);
             g_free(err_resp);
@@ -1515,7 +1515,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     if (json_object_has_member(params, "mem")) {
         gint64 mem_val = json_object_get_int_member(params, "mem");
         if (mem_val != -1 && (mem_val <= 0 || mem_val > 1048576)) {
-            gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "Invalid params: 'mem' must be -1 (unlimited) or 1..1048576 MB");
             pure_uds_server_send_response(server, connection, err_resp);
             g_free(err_resp);
@@ -1525,7 +1525,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
 
     const gchar *vm_id_str = json_object_get_string_member_with_default(params, "vm_id", NULL);
     if (!vm_id_str || !*vm_id_str) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' must be non-empty string");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' must be non-empty string");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -2203,7 +2203,7 @@ void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
     if (!vm_id || !pcv_validate_vm_name(vm_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing or invalid param: vm_id (alphanumeric, -, _ only)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2319,7 +2319,7 @@ handle_vm_guest_agent_status_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2328,7 +2328,7 @@ handle_vm_guest_agent_status_request(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                          "Failed to connect to Libvirt.");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2338,7 +2338,7 @@ handle_vm_guest_agent_status_request(JsonObject *params, const gchar *rpc_id,
     virDomainPtr dom = pure_virt_get_domain(conn, vm_name);
     if (!dom) {
         virt_conn_pool_release(conn);
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
                          "VM not found.");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2420,7 +2420,7 @@ handle_vm_guest_agent_ensure_channel_request(JsonObject *params, const gchar *rp
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2429,7 +2429,7 @@ handle_vm_guest_agent_ensure_channel_request(JsonObject *params, const gchar *rp
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                          "Failed to connect to Libvirt.");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2439,7 +2439,7 @@ handle_vm_guest_agent_ensure_channel_request(JsonObject *params, const gchar *rp
     virDomainPtr dom = pure_virt_get_domain(conn, vm_name);
     if (!dom) {
         virt_conn_pool_release(conn);
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
                          "VM not found.");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2489,7 +2489,7 @@ handle_vm_guest_agent_ensure_channel_request(JsonObject *params, const gchar *rp
             "Failed to add guest agent channel.%s%s%s%s",
             config_error ? " config: " : "", config_error ? config_error : "",
             live_error ? " live: " : "", live_error ? live_error : "");
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, msg);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         g_free(msg);
@@ -2725,7 +2725,7 @@ handle_vm_guest_fsinfo_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2835,7 +2835,7 @@ handle_vm_guest_ping_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -3099,7 +3099,7 @@ handle_vm_guest_exec_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -3111,7 +3111,7 @@ handle_vm_guest_exec_request(JsonObject *params, const gchar *rpc_id,
         command = json_object_get_string_member(params, "command");
 
     if (!command || strlen(command) == 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'command' must be non-empty");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -3119,7 +3119,7 @@ handle_vm_guest_exec_request(JsonObject *params, const gchar *rpc_id,
     }
 
     if (strlen(command) > 1024) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'command' exceeds 1024 characters");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -3241,7 +3241,7 @@ handle_vm_guest_shutdown_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *vm_name = _guest_get_vm_name(params);
     if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                          "Invalid params: 'name' missing");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);

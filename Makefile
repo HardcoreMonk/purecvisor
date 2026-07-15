@@ -145,6 +145,7 @@ COMMON_CORE_SRCS = \
     src/utils/pcv_spawn.c \
     src/utils/pcv_config.c \
     src/utils/pcv_privdrop.c \
+    src/utils/pcv_crypto.c \
     src/utils/pcv_jwt.c \
     src/utils/pcv_txn.c \
     src/utils/pcv_worker_pool.c \
@@ -228,6 +229,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/ai/anomaly_detector.c \
     src/modules/ai/workload_predict.c \
     src/modules/ai/self_healing.c \
+    src/modules/ai/self_healing_restart.c \
     src/modules/ai/restart_breaker.c \
     src/modules/ai/ai_agent.c \
     src/modules/cloud/cloud_migration.c \
@@ -245,6 +247,7 @@ TEST_COMMON_SRCS = \
     tests/test_validate.c \
     tests/test_circuit_breaker.c \
     tests/test_restart_breaker.c \
+    tests/test_self_healing_restart.c \
     tests/test_alert_silence.c \
     tests/test_alert_dlq.c \
     tests/test_cancellable_map.c \
@@ -298,6 +301,7 @@ TEST_COMMON_SRCS = \
     tests/test_vm_iface.c \
     tests/test_vm_vnet_cache.c \
     src/modules/ai/restart_breaker.c \
+    src/modules/ai/self_healing_restart.c \
     tests/test_apikey.c \
     tests/test_rbac_user_exists.c \
     tests/test_handler_snapshot_verify.c \
@@ -739,9 +743,13 @@ check-safety-controls:
 	@python3 scripts/check_safety_controls.py
 	@python3 scripts/tests/test_safety_controls_acceptance.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls)"
+check-error-codes:
+	@echo "🔢 Running raw 에러코드 리터럴 방지 게이트 (DISP-6)..."
+	@python3 scripts/check_error_codes.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -800,4 +808,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-all compile-commands coverage coverage-html coverage-check

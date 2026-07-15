@@ -108,7 +108,7 @@ extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identi
 void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
     if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: vm_id");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing parameter: vm_id");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -116,7 +116,7 @@ void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *
     PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM Entity not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM Entity not found");
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
@@ -124,7 +124,7 @@ void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *
     virDomainInfo info;
     if (virDomainGetInfo(dom, &info) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Failed to get metrics");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, libvirt_err ? libvirt_err->message : "Failed to get metrics");
         pure_uds_server_send_response(server, connection, err); g_free(err);
         virDomainFree(dom); virt_conn_pool_release(conn); return;
     }

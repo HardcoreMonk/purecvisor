@@ -3,6 +3,18 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.4 — 2026-07-15
+
+감사 시정 트랙 **종결** 릴리스(PATCH). v1.2.0 감사 큐 최후 항목(DISP-6) + 마지막 미검증 안전통제 승격 + SEC-8 잔여 클래스-스윕. **데몬 wire 계약 무변경** — 에러코드 통일은 값-보존, 자가치유 승격은 테스트/seam 추출, gRPC 상수시간화는 행위 동일. 검증: 전 커밋 `make single` 0-warning + `make test` **0 not ok** + `make check-all` **7게이트 PASS** + 안전통제 **14/14 tested**.
+
+### 코드 위생 / 하드닝
+- **DISP-6 에러코드 통일(A2-6)**: 두 병렬 enum(`PURE_RPC_ERR_*` vs `dispatcher.c PCV_ERR_*`)을 canonical 일원화(+신규 BUSY/-32004·NOT_FOUND/-32005·FORBIDDEN/-32006) · raw 리터럴 ~500 → named 상수(**값·메시지 정확 보존 = wire 무변경**) · REST→HTTP 매핑 상수화 · 신규 raw 리터럴 방지 게이트(`check_error_codes.py`, check-all **7번째**+pre-commit). 오버로드 값(-32000/1/2 dual-meaning)은 known-limit(값 병합=계약변경은 이연).
+- **SEC-8 클래스-스윕**: gRPC auth token 비교를 상수시간화(`g_strcmp0`→`pcv_secret_str_eq`). 헬퍼를 중립 `utils/pcv_crypto.{c,h}`로 이전(레이어링 정리).
+- **self-healing-restart tested 승격**: VM 재시작 결정 로직(running-guard+`virDomainCreate`)을 libvirt-무의존 seam으로 추출 + 스파이 효과테스트(반사실 RED). **착지 후 14 안전통제 전부 tested(untested 0).**
+
+### Upgrade notes
+- **런타임 계약 무변경** — 에러코드 wire 값·메시지 동일, gRPC 인증 동작 동일, 자가치유 행위 동일. 무중단 업그레이드.
+
 ## v1.2.3 — 2026-07-15
 
 리뷰-기반 감사 시정 릴리스(PATCH). v1.2.0 post-release 전수 감사의 **MED/LOW findings 전량 + NET-1(HIGH)** 시정을 subagent-driven-development(태스크별 구현+리뷰+반사실, 최종 Opus whole-branch)로 착지. 대부분 데몬 계약 불변이나 **신규 ADMIN RPC 1개**·**API Key role 집행 변경(SEC-3, 1회 마이그레이션)**·**CLI param-key 정합**·**graceful-drain/dpdk 가드 실동작**을 포함 — 배포 전 `### Upgrade notes` 확인. 검증: 전 커밋 `make single` 0-warning + `make test` **640/0** + `make check-all` **6게이트 PASS**(RBAC·RPC consumers·dead-exports·param-contract·json-ingress·safety-controls) + 격리 데몬 효과-테스트 다수(ADR-0025 반사실 RED-on-removal). 안전통제 **14 tested**, untested = self-healing-restart 1.

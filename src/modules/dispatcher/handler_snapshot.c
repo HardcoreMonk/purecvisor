@@ -76,12 +76,12 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
 {
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor connection failed");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
         pure_uds_server_send_response(server, connection, e); g_free(e); return;
     }
     virDomainPtr dom = virDomainLookupByName(conn, vm_id);
     if (!dom) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
     }
@@ -100,8 +100,8 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         virErrorPtr verr = virGetLastError();
-        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail", -32000, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             verr ? verr->message : "libvirt snapshot creation failed");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     }
@@ -115,12 +115,12 @@ static void _libvirt_snapshot_list(const gchar *vm_id, const gchar *rpc_id,
 {
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor connection failed");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
         pure_uds_server_send_response(server, connection, e); g_free(e); return;
     }
     virDomainPtr dom = virDomainLookupByName(conn, vm_id);
     if (!dom) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
     }
@@ -179,18 +179,18 @@ static void _libvirt_snapshot_delete(const gchar *vm_id, const gchar *snap_name,
 {
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor connection failed");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
         pure_uds_server_send_response(server, connection, e); g_free(e); return;
     }
     virDomainPtr dom = virDomainLookupByName(conn, vm_id);
     if (!dom) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
     }
     virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, snap_name, 0);
     if (!snap) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Snapshot not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
@@ -204,8 +204,8 @@ static void _libvirt_snapshot_delete(const gchar *vm_id, const gchar *snap_name,
         gchar *resp = pure_rpc_build_success_response(rpc_id, node);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
-        pcv_audit_log(NULL, "vm.snapshot.delete", vm_id, "fail", -32000, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Failed to delete snapshot");
+        pcv_audit_log(NULL, "vm.snapshot.delete", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Failed to delete snapshot");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     }
     virDomainFree(dom);
@@ -219,13 +219,13 @@ static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_nam
 {
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor connection failed");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
         pure_uds_server_send_response(server, connection, e); g_free(e); return;
     }
 
     virDomainPtr dom = virDomainLookupByName(conn, vm_id);
     if (!dom) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
     }
@@ -251,7 +251,7 @@ static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_nam
 
     virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, snap_name, 0);
     if (!snap) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000, "Snapshot not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
@@ -276,8 +276,8 @@ static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_nam
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         virErrorPtr verr = virGetLastError();
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", -32000, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             verr ? verr->message : "Failed to rollback snapshot");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     }
@@ -697,7 +697,7 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
     {
         gchar *snap_lock_err = NULL;
         if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(snap_lock_err);
@@ -776,7 +776,7 @@ void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
     {
         gchar *snap_lock_err = NULL;
         if (!lock_vm_operation(vm_name, VM_OP_SNAPSHOT, &snap_lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(snap_lock_err);
@@ -815,7 +815,7 @@ void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id,
     {
         gchar *snap_lock_err = NULL;
         if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(snap_lock_err);
@@ -935,7 +935,7 @@ _delete_all_callback(GObject *src __attribute__((unused)),
     unlock_vm_operation(d->vm_id);
 
     if (!ok || d->err_msg) {
-        gchar *resp = pure_rpc_build_error_response(d->rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(d->rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             d->err_msg ? d->err_msg : (err ? err->message : "delete_all failed"));
         pure_uds_server_send_response(d->server, d->connection, resp);
         g_free(resp);
@@ -991,7 +991,7 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
             virDomainPtr dom = virDomainLookupByName(qconn, vm_id);
             if (!dom) {
                 virt_conn_pool_release(qconn);
-                gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+                gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                     "VM not found — cannot bulk delete snapshots for non-existent VM");
                 pure_uds_server_send_response(server, connection, err);
                 g_free(err);
@@ -1006,7 +1006,7 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
     {
         gchar *snap_lock_err = NULL;
         if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(snap_lock_err);

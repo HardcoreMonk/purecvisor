@@ -342,6 +342,17 @@ make check-safety-controls
 - `check-safety-controls`: 안전 통제(PCV_SAFETY_CONTROL 마킹)가 레지스트리(`contracts/safety_controls.json`)에 등록되고 효과 테스트를 갖는지 검사. "보고성공 무동작" 재발 차단(래칫 `safety_controls_baseline.txt`). 설계: `docs/superpowers/specs/2026-07-11-safety-control-effect-test-gate-design.md`.
 - **리뷰 체크리스트**: 새 안전 통제 추가 시 ① `/* PCV_SAFETY_CONTROL: <id> */` 마킹 ② 레지스트리 등록 ③ 효과(무동작→실동작) 단언 테스트 작성.
 
+### 4.17 raw 에러코드 리터럴 방지 게이트
+
+`src/**/*.c` 또는 게이트 스크립트/baseline(`scripts/check_error_codes.py`, `scripts/error_codes_baseline.txt`)을 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-error-codes
+```
+
+- `check-error-codes`: RPC wire 에러코드 raw `-32xxx` 숫자 리터럴(주석/문자열 리터럴/enum 정의부 `rpc_utils.h` 제외)이 실코드에 신규 등장하는지 검사(래칫 `scripts/error_codes_baseline.txt`, 이상적으로 빈 파일) + 구 병렬 enum `PCV_ERR_*`(`PCV_VM_ERR_*` VM 오퍼레이션 도메인은 별개) 재도입을 baseline 없이 항상 차단. DISP-6 에러코드 통일(`PURE_RPC_ERR_*` canonical) 회귀 재발 차단. 설계: `docs/superpowers/specs/2026-07-15-disp6-error-code-unification-design.md` §회귀 게이트.
+- **리뷰 체크리스트**: 신규 에러 응답/감사 로그 사이트는 raw `-32xxx` 리터럴이 아니라 `rpc_utils.h`의 canonical `PURE_RPC_ERR_*` 상수를 사용해야 한다(값 보존 필요 시에도 이름은 상수로).
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증

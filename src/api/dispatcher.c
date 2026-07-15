@@ -134,20 +134,6 @@ void handle_network_list_request    (JsonObject *params, const gchar *rpc_id, Ud
 void handle_network_info_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-/* ── 에러 코드 카탈로그 (통일된 JSON-RPC 에러) ───────────────────── */
-#define PCV_ERR_PARSE          -32700  /* Parse error */
-#define PCV_ERR_INVALID_REQ    -32600  /* Invalid Request */
-#define PCV_ERR_METHOD_NOT_FOUND -32601 /* Method not found */
-#define PCV_ERR_INVALID_PARAMS -32602  /* Invalid params */
-#define PCV_ERR_INTERNAL       -32603  /* Internal error */
-#define PCV_ERR_SERVER         -32000  /* Server error */
-#define PCV_ERR_NOT_IMPL       -32001  /* Not implemented */
-#define PCV_ERR_UNAVAILABLE    -32002  /* Service unavailable */
-#define PCV_ERR_TIMEOUT        -32003  /* Operation timeout */
-#define PCV_ERR_CONFLICT       -32004  /* Resource conflict */
-#define PCV_ERR_NOT_FOUND      -32005  /* Resource not found */
-#define PCV_ERR_FORBIDDEN      -32006  /* Permission denied */
-
 #define PCV_VM_METADATA_URI "urn:purecvisor:metadata"
 
 /* ── RPC 라우트 테이블 ─────────────────────────────────────────────
@@ -1051,7 +1037,7 @@ _on_vm_create_finished(GObject *source_object,
         pcv_ws_broadcast_job_complete(ctx->job_id, "vm.create",
                                        "failed", err_msg);
         /* ADR-0018: 실패 결과 기록 */
-        pcv_audit_log(NULL, "vm.create", ctx->vm_name, "fail", -32000, 0, "local");
+        pcv_audit_log(NULL, "vm.create", ctx->vm_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         PCV_LOG_WARN("dispatcher",
                      "vm.create job %s FAILED for '%s': %s",
                      ctx->job_id, ctx->vm_name, err_msg);
@@ -1193,7 +1179,7 @@ _audit_vm_clone_failure(VmCloneCtx *ctx, const gchar *error_msg)
 {
     gchar *target = _vm_clone_job_target(ctx);
     gchar *job_id = _vm_clone_job_id(ctx);
-    pcv_audit_log(NULL, "vm.clone", target, "fail", -32000, 0, "local");
+    pcv_audit_log(NULL, "vm.clone", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     pcv_ws_broadcast_job_complete_mt(job_id, "vm.clone",
                                      "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);
@@ -1663,7 +1649,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
                               const gchar *rpc_id, UdsServer *server,
                               GSocketConnection *connection) {
     if (!json_object_has_member(params, "name")) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing parameter: name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1711,7 +1697,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         }
 
         if (exists) {
-            gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 "VM already exists — delete the VM first");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -1721,7 +1707,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
 
     /* [A-2 수정] VM 이름 검증 — XSS/SQLi 등 위험 문자 차단 */
     if (!pcv_validate_vm_name(name)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1753,28 +1739,28 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
        · disk_size_gb: 1 ~ 65536 (64TB) — vm_manager.c:411의 2TB 소프트캡은 별도
        · vlan_id:     0 ~ 4094 (IEEE 802.1Q) */
     if (vcpu < 1 || vcpu > 256) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid vcpu — must be between 1 and 256");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         return;
     }
     if (memory_mb < 256 || memory_mb > 1048576) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid memory_mb — must be between 256 and 1048576 (1TB)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         return;
     }
     if (disk_size_gb < 0 || disk_size_gb > 65536) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid disk_size_gb — must be between 0 and 65536 (64TB)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         return;
     }
     if (vlan_id < 0 || vlan_id > 4094) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid vlan_id — must be between 0 and 4094");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1798,7 +1784,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         GError      *v_err    = NULL;
         if (!pcv_validate_vm_create_params(name, vcpu, memory_mb, v_disk,
                                            iso_path, v_bridge, &v_err)) {
-            gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 (v_err && v_err->message) ? v_err->message : "Invalid vm.create parameters");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -1813,7 +1799,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
             g_strcmp0(storage_type, "zvol") != 0 &&
             g_strcmp0(storage_type, "qcow2") != 0 &&
             g_strcmp0(storage_type, "raw") != 0) {
-            gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "Invalid storage_type — must be 'zvol', 'qcow2', or 'raw'");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -1842,14 +1828,14 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         }
     }
     if (storage_pool && *storage_pool && !_valid_vm_storage_pool(storage_pool)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid storage_pool — use a relative ZFS dataset path such as 'tank/vms'");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         return;
     }
     if (image_dir && *image_dir && !_valid_vm_image_dir(image_dir)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid image_dir — use a safe absolute directory outside system roots");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1862,7 +1848,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
             g_strcmp0(nic_type, "bridge") != 0 &&
             g_strcmp0(nic_type, "dpdk") != 0 &&
             g_strcmp0(nic_type, "sriov") != 0) {
-            gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "Invalid nic_type — must be 'bridge', 'dpdk', or 'sriov'");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -1934,7 +1920,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         }
 
         if (exists) {
-            gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 "VM already exists in selected storage location — delete the VM first");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -1949,7 +1935,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
      * _on_vm_create_finished에서 해제한다(콜백은 항상 호출됨 → 모든 경로 커버). */
     gchar *create_lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_CREATING, &create_lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        create_lock_err ? create_lock_err : "VM is busy (another operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(create_lock_err);
@@ -2193,7 +2179,7 @@ static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "target") : NULL;
 
     if (!vm_name || new_size_gb <= 0) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing or invalid params: name, new_size_gb (>0) required");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -2222,7 +2208,7 @@ static void _handle_monitor_fleet(JsonObject *params, const gchar *rpc_id,
     gchar *response_str = handle_monitor_fleet(params, &err);
 
     if (err) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000, err->message);
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err->message);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         g_clear_error(&err);
@@ -2283,7 +2269,7 @@ static void _handle_alert_config_set(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid alert config");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid alert config");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     }
@@ -2397,7 +2383,7 @@ static void _handle_agent_config_set(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid agent config");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid agent config");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     }
@@ -2543,7 +2529,7 @@ static void _handle_healing_set_mode(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *mode = params ? json_object_get_string_member(params, "mode") : NULL;
     if (!mode || !*mode) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required param: mode (\"active\" | \"dry_run\")");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2555,7 +2541,7 @@ static void _handle_healing_set_mode(JsonObject *params, const gchar *rpc_id,
     else if (g_ascii_strcasecmp(mode, "dry_run") == 0 ||
              g_ascii_strcasecmp(mode, "dryrun") == 0) target_dry_run = TRUE;
     else {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid mode (use \"active\" or \"dry_run\")");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2640,7 +2626,7 @@ static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
         gint64 _m = json_object_has_member(params, "memory_mb")
             ? json_object_get_int_member(params, "memory_mb") : 0;
         if (_v < 0 || _v > 1024 || _m < 0 || _m > (1024 * 1024)) {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "vcpu must be 0..1024, memory_mb must be 0..1048576");
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
             return;
@@ -2661,7 +2647,7 @@ static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
     ip.volume_id = (gchar *)(json_object_has_member(params, "volume_id")
         ? json_object_get_string_member(params, "volume_id") : NULL);
     if (!ip.name || (!finalize && !ip.ami_id)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required: name, ami_id");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
@@ -2682,7 +2668,7 @@ static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
             pure_uds_server_send_response(server, connection, resp);
             g_free(resp); g_free(job_id);
         } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 e ? e->message : "Import failed to start");
             pure_uds_server_send_response(server, connection, er); g_free(er);
             if (e) g_error_free(e);
@@ -2713,7 +2699,7 @@ static void _handle_vm_export_ec2(JsonObject *params, const gchar *rpc_id,
     ep.ami_description = (gchar *)(json_object_has_member(params, "ami_description")
         ? json_object_get_string_member(params, "ami_description") : NULL);
     if (!ep.name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
@@ -2729,7 +2715,7 @@ static void _handle_vm_export_ec2(JsonObject *params, const gchar *rpc_id,
             pure_uds_server_send_response(server, connection, resp);
             g_free(resp); g_free(job_id);
         } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 e ? e->message : "Export failed to start");
             pure_uds_server_send_response(server, connection, er); g_free(er);
             if (e) g_error_free(e);
@@ -2753,7 +2739,7 @@ static void _handle_cloud_migration_status(JsonObject *params, const gchar *rpc_
     const gchar *vm_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!vm_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
@@ -2831,7 +2817,7 @@ static void _handle_cloud_job_cancel(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!vm_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
@@ -2846,7 +2832,7 @@ static void _handle_cloud_job_cancel(JsonObject *params, const gchar *rpc_id,
             pure_uds_server_send_response(server, connection, resp);
             g_free(resp);
         } else {
-            gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 e ? e->message : "Cancel failed");
             pure_uds_server_send_response(server, connection, err_resp);
             g_free(err_resp);
@@ -2947,7 +2933,7 @@ _ova_export_record_result(OvaExportCtx *ctx, gboolean ok,
     pcv_job_set_result(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
                        result_json);
     pcv_audit_log(NULL, "vm.export.ova", ctx->vm_name ?: "",
-                  ok ? "ok" : "fail", ok ? 0 : -32000, 0, "local");
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.export.ova",
                                      ok ? "completed" : "failed",
                                      ok ? NULL : (error_msg ?: "OVA export failed"));
@@ -3242,7 +3228,7 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     const gchar *name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!name || !name[0]) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3254,7 +3240,7 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     /* 출력 디렉토리 검증: realpath로 경로 순회 방지 */
     gchar *real_out = realpath(output_dir, NULL);
     if (!real_out) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid output_dir — directory does not exist");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3676,7 +3662,7 @@ import_cleanup:
     if (!audit_ok && !audit_error)
         audit_error = "OVA import failed";
     pcv_audit_log(NULL, "vm.import.ova", ctx->vm_name,
-                  audit_ok ? "ok" : "fail", audit_ok ? 0 : -32000,
+                  audit_ok ? "ok" : "fail", audit_ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION,
                   0, "local");
     pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.import.ova",
                                      audit_ok ? "completed" : "failed",
@@ -3705,7 +3691,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "name") : NULL;
 
     if (!ova_path || !ova_path[0] || !name || !name[0]) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: ova_path, name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3713,7 +3699,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
 
     /* VM 이름 검증 */
     if (!pcv_validate_vm_name(name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be alphanumeric/hyphen/underscore, 1-63 chars");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3722,7 +3708,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     /* OVA 경로 검증: realpath로 경로 순회 방지 */
     gchar *real_ova = realpath(ova_path, NULL);
     if (!real_ova) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "OVA file not found or invalid path");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3731,14 +3717,14 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         !g_str_has_prefix(real_ova, "/pcvpool/") &&
         !g_str_has_prefix(real_ova, "/var/lib/")) {
         free(real_ova);
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "OVA path not in allowed directories (/tmp, /pcvpool, /var/lib)");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     if (!g_file_test(real_ova, G_FILE_TEST_IS_REGULAR)) {
         free(real_ova);
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "OVA path is not a regular file");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -3755,7 +3741,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
             free(real_ova);
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
                 "Failed to acquire libvirt connection");
             pure_uds_server_send_response(server, connection, e); g_free(e);
             return;
@@ -3766,7 +3752,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
             virDomainFree(existing);
             virt_conn_pool_release(conn);
             free(real_ova);
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target VM already exists");
             pure_uds_server_send_response(server, connection, e); g_free(e);
             return;
@@ -3794,7 +3780,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
 
         if (disk_exists) {
             free(real_ova);
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target VM disk already exists");
             pure_uds_server_send_response(server, connection, e); g_free(e);
             return;
@@ -3883,7 +3869,7 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member_with_default(params, "description", NULL) : NULL;
     gint64 expires_at = _apikey_parse_expires_at(params);
     if (!client_name || !*client_name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* PCV_SAFETY_CONTROL: apikey-role-enforce — create 바운딩 (SEC-3 선제 차단).
@@ -3892,14 +3878,14 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
      * 못하게 강제한다. 현재 auth.apikey.create는 ADMIN 전용이라 admin에겐 no-op이지만,
      * create 권한이 향후 확대되어도 저-role 발급자가 상위 role 키를 만들 수 없다. */
     if (role < PCV_ROLE_VIEWER || role > PCV_ROLE_ADMIN) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "role out of range (0=viewer, 1=operator, 2=admin)");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     {
         gint caller_role = _dispatcher_caller_role(params, connection);
         if (role > caller_role) {
-            gchar *r = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "requested key role exceeds caller role");
             pure_uds_server_send_response(server, connection, r); g_free(r); return;
         }
@@ -3907,7 +3893,7 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
     gchar *key_out = nullptr;
     GError *err = nullptr;
     if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, description, expires_at, &key_out, &err)) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, err ? err->message : "Create failed");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err ? err->message : "Create failed");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         if (err) g_error_free(err);
         return;
@@ -3942,12 +3928,12 @@ static void _handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *cn = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
     if (!cn || !*cn) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "client_name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "client_name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     GError *err = nullptr;
     if (!pcv_rbac_apikey_revoke(cn, &err)) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, err ? err->message : "Revoke failed");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err ? err->message : "Revoke failed");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         if (err) g_error_free(err);
         return;
@@ -3964,7 +3950,7 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *jti = params ? json_object_get_string_member_with_default(params, "jti", NULL) : NULL;
     if (!jti) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "jti required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "jti required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* SEC-1: pcv_jwt_verify가 읽는 라이브 blacklist(g_jti_blacklist)에 등록한다.
@@ -4002,11 +3988,11 @@ static void _handle_user_sessions_revoke(JsonObject *params, const gchar *rpc_id
     GError *err = nullptr;
     gboolean ok = pcv_rbac_revoke_session(username, &err);
     if (!ok) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "Failed to revoke sessions");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         pcv_audit_log((caller && *caller) ? caller : "-",
-                      "auth.user.sessions.revoke", username, "fail", -32000, 0, "local");
+                      "auth.user.sessions.revoke", username, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         if (err) g_error_free(err);
         return;
     }
@@ -4062,7 +4048,7 @@ static void _vm_batch_action_callback(GObject *source_object,
      * 태스크 내부 상태를 정리한다. source_object == 태스크를 만든 vm_manager. */
     gboolean ok = c->finish(PURECVISOR_VM_MANAGER(source_object), res, &err);
     pcv_audit_log(NULL, c->method, c->vm, ok ? "ok" : "fail",
-                  ok ? 0 : -32000, 0, "local");
+                  ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     if (err) g_error_free(err);
     g_free(c->vm);
     g_free(c);
@@ -4087,14 +4073,14 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
     JsonArray *vms = (params && json_object_has_member(params, "vms"))
         ? json_object_get_array_member(params, "vms") : NULL;
     if (!action || !vms) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "action and vms[] required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "action and vms[] required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
     /* whitelist 게이트: 허용 판정은 policy 리스트(단일 진리원)로 라우팅한다
      * (vm_batch_policy.c). 허용 밖이면 unsupported batch action. */
     if (!pcv_vm_batch_action_is_whitelisted(action)) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "unsupported batch action");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "unsupported batch action");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
@@ -4112,21 +4098,21 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
         }
     }
     if (!action_fn) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "batch action fn unavailable");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "batch action fn unavailable");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
     /* vm_manager 싱글턴(프로세스 라이브 매니저) — init/set_connection 이 기록 */
     PureCVisorVmManager *mgr = g_dispatch_vm_manager;
     if (!mgr) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "vm manager unavailable");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "vm manager unavailable");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
     /* 존재 검증용 libvirt 연결(팬아웃 워커는 각자 conn pool 에서 재획득) */
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32000, "libvirt unavailable");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "libvirt unavailable");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
@@ -4335,7 +4321,7 @@ static void _snapshot_verify_done(GObject *src, GAsyncResult *result,
      * res==NULL 은 워커 태스크 실패(정상 경로 아님)→fail; exists true/false·
      * integrity 는 정상 결과이므로 ok. */
     pcv_audit_log(NULL, "backup.snapshot.verify", ctx->snap,
-                  res ? "ok" : "fail", res ? 0 : -32000, 0, "local");
+                  res ? "ok" : "fail", res ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     /* ctx 는 GTask task-data GDestroyNotify(_snapshot_verify_ctx_free)로 해제 */
 }
 
@@ -4345,11 +4331,11 @@ static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *snap = params ? json_object_get_string_member_with_default(params, "snapshot", NULL) : NULL;
     if (!snap || !*snap) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "snapshot name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "snapshot name required");
         pure_uds_server_send_response(server, connection, r); g_free(r);
         /* 감사(I-1): async 등록 이후 디스패처는 이 메서드를 audit 하지 않는다.
          * 워커가 뜨기 전 조기 검증 실패 경로는 여기서 직접 fail 을 남긴다. */
-        pcv_audit_log(NULL, "backup.snapshot.verify", "", "fail", -32602, 0, "local");
+        pcv_audit_log(NULL, "backup.snapshot.verify", "", "fail", PURE_RPC_ERR_INVALID_PARAMS, 0, "local");
         return;
     }
     /* 블로킹 zfs list 는 GTask 워커에서. 연결/서버를 ctx 에 ref 보관하고,
@@ -4422,7 +4408,7 @@ static void _handle_alert_silence(JsonObject *params, const gchar *rpc_id,
         ? (gint)json_object_get_int_member(params, "duration_min") : 60;
     const gchar *reason = params ? json_object_get_string_member_with_default(params, "reason", "") : "";
     if (!metric) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "metric required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "metric required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* alert_engine에 silence 등록 */
@@ -4513,7 +4499,7 @@ static void _handle_container_snapshot_create(JsonObject *params, const gchar *r
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     const gchar *snap_name = params ? json_object_get_string_member_with_default(params, "snapshot", NULL) : NULL;
     if (!name || !snap_name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name and snapshot required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name and snapshot required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* lxc-snapshot -n <name> → 스냅샷 생성 */
@@ -4536,7 +4522,7 @@ static void _handle_container_snapshot_list(JsonObject *params, const gchar *rpc
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     const gchar *argv[] = {"lxc-snapshot", "-n", name, "-L", NULL};
@@ -4565,7 +4551,7 @@ static void _handle_container_snapshot_delete(JsonObject *params, const gchar *r
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     const gchar *snap = params ? json_object_get_string_member_with_default(params, "snapshot", NULL) : NULL;
     if (!name || !snap) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name and snapshot required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name and snapshot required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     const gchar *argv[] = {"lxc-snapshot", "-n", name, "-d", snap, NULL};
@@ -4573,7 +4559,7 @@ static void _handle_container_snapshot_delete(JsonObject *params, const gchar *r
     gboolean ok = pcv_spawn_sync(argv, &out, NULL, NULL);
     JsonNode *n = json_node_new(JSON_NODE_NULL);
     gchar *r = ok ? pure_rpc_build_success_response(rpc_id, n)
-                  : pure_rpc_build_error_response(rpc_id, -32000, "Snapshot delete failed");
+                  : pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot delete failed");
     pure_uds_server_send_response(server, connection, r); g_free(r); g_free(out);
     if (!ok) json_node_free(n);
 }
@@ -4605,7 +4591,7 @@ _on_container_clone_done(GObject *src __attribute__((unused)),
     gchar *job_id = g_strdup_printf("container.clone:%s", target);
 
     pcv_audit_log(NULL, "container.clone", target,
-                  ok ? "ok" : "fail", ok ? 0 : -32000, 0, "local");
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     pcv_ws_broadcast_job_complete(job_id, "container.clone",
                                   ok ? "completed" : "failed",
                                   ok ? NULL : (error ? error->message : "container clone failed"));
@@ -4622,11 +4608,11 @@ static void _handle_container_clone(JsonObject *params, const gchar *rpc_id,
     const gchar *src = params ? json_object_get_string_member_with_default(params, "source", NULL) : NULL;
     const gchar *dst = params ? json_object_get_string_member_with_default(params, "dest", NULL) : NULL;
     if (!src || !dst) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "source and dest required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "source and dest required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     if (!pcv_validate_vm_name(src) || !pcv_validate_vm_name(dst) || g_strcmp0(src, dst) == 0) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "invalid source or dest container name");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
@@ -4652,7 +4638,7 @@ static void _handle_container_memory_stats(JsonObject *params, const gchar *rpc_
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* cgroup v2 memory.stat 읽기 */
@@ -4684,7 +4670,7 @@ static void _handle_container_health_check(JsonObject *params, const gchar *rpc_
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, -32602, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     /* lxc-info로 상태 확인 */
@@ -4724,13 +4710,13 @@ static void _handle_jobs_get(JsonObject *params, const gchar *rpc_id,
     const gchar *job_id = (params && json_object_has_member(params, "job_id"))
         ? json_object_get_string_member(params, "job_id") : NULL;
     if (!job_id) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing param: job_id");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing param: job_id");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     JsonObject *obj = pcv_job_get(job_id);
     if (!obj) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32001, "Job not found");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "Job not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
@@ -4748,13 +4734,13 @@ static void _handle_jobs_cancel(JsonObject *params, const gchar *rpc_id,
     const gchar *job_id = (params && json_object_has_member(params, "job_id"))
         ? json_object_get_string_member(params, "job_id") : NULL;
     if (!job_id) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing param: job_id");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing param: job_id");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     gboolean ok = pcv_job_cancel(job_id);
     if (!ok) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Cannot cancel: job not found or already finished");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -4941,7 +4927,7 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name || !*name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     gboolean has_enable  = params && json_object_has_member(params, "enable");
@@ -4949,7 +4935,7 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE, "libvirt connection unavailable");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT, "libvirt connection unavailable");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     virDomainPtr dom = virDomainLookupByName(conn, name);
@@ -4959,7 +4945,7 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
     }
     if (!dom) {
         virt_conn_pool_release(conn);
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_NOT_FOUND, "VM not found");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
@@ -4967,7 +4953,7 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
         if (virDomainSetAutostart(dom, want_enable ? 1 : 0) < 0) {
             virDomainFree(dom);
             virt_conn_pool_release(conn);
-            gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_SERVER, "failed to set autostart");
+            gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "failed to set autostart");
             pure_uds_server_send_response(server, connection, r); g_free(r); return;
         }
     }
@@ -4976,7 +4962,7 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
     if (virDomainGetAutostart(dom, &autostart) < 0) {
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_SERVER, "failed to read autostart");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "failed to read autostart");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     virDomainFree(dom);
@@ -5001,7 +4987,7 @@ static void _handle_vm_sla_report(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name || !*name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     JsonObject *sla = pcv_alert_get_sla(name);
@@ -5077,7 +5063,7 @@ static void _handle_vm_schedule_set(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!name || !*name) {
-        gchar *r = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS, "name required");
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
     JsonObject *res = json_object_new();
@@ -5185,24 +5171,24 @@ static void _handle_container_set_limits(JsonObject *params, const gchar *rpc_id
         ? (gint)json_object_get_int_member(params, "pids_max") : 0;
 
     if (!ctr_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Missing required parameter: name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     if (cpu_pct <= 0 && mem_mb <= 0 && cpu_wt <= 0 && mem_low <= 0 &&
         mem_high <= 0 && io_rbps <= 0 && pids <= 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "At least one limit parameter must be > 0");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     if (cpu_wt < 0 || cpu_wt > 10000) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "cpu_weight must be 1-10000");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "cpu_weight must be 1-10000");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     if (mem_low < 0 || mem_high < 0 || io_rbps < 0 || pids < 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Limit values must be >= 0");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Limit values must be >= 0");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
@@ -5236,7 +5222,7 @@ static void _handle_container_set_limits(JsonObject *params, const gchar *rpc_id
         gchar *resp = pure_rpc_build_success_response(rpc_id, node);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             cg_err ? cg_err->message : "Failed to set resource limits");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         if (cg_err) g_error_free(cg_err);
@@ -5251,7 +5237,7 @@ static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "name") : NULL;
     /* [감사 SEC-F1] name이 무검증으로 lxc_driver의 `/bin/sh -c`에 보간되던 경로. */
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -5290,10 +5276,10 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
      * 셸 인젝션→root RCE였다. 형제 핸들러(handler_container.c:327/337)와 동일하게
      * 진입점에서 검증한다([a-zA-Z0-9_-]만 허용 → 셸 메타문자 차단). */
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else if (bridge && !pcv_validate_bridge_name(bridge)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid parameter: bridge");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: bridge");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -5307,7 +5293,7 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
             gchar *resp = pure_rpc_build_success_response(rpc_id, node);
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, -32000, e ? e->message : "NIC attach failed");
+            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "NIC attach failed");
             pure_uds_server_send_response(server, connection, er); g_free(er);
             if (e) g_error_free(e);
         }
@@ -5327,7 +5313,7 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
      * `-`까지 거부해 옵션·셸 인젝션을 함께 차단한다. */
     if (!ctr_name || !pcv_validate_vm_name(ctr_name) ||
         !nic_name || !pcv_validate_iface_name(nic_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameters: name, nic_name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameters: name, nic_name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -5340,7 +5326,7 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
             gchar *resp = pure_rpc_build_success_response(rpc_id, node);
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, -32000, e ? e->message : "NIC detach failed");
+            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "NIC detach failed");
             pure_uds_server_send_response(server, connection, er); g_free(er);
             if (e) g_error_free(e);
         }
@@ -5362,10 +5348,10 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
     /* [감사 SEC-F1] name/nic_name이 무검증으로 lxc_driver의 awk 싱글쿼트 문자열 +
      * `/bin/sh -c`에 보간돼 셸 인젝션→root RCE였다(컨테이너 존재 전제도 없음). */
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid or missing parameter: name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else if (nic && !pcv_validate_iface_name(nic)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602, "Invalid parameter: nic_name");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: nic_name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     } else {
         GError *e = nullptr;
@@ -5380,7 +5366,7 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
             gchar *resp = pure_rpc_build_success_response(rpc_id, node);
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, -32000, e ? e->message : "Bandwidth set failed");
+            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "Bandwidth set failed");
             pure_uds_server_send_response(server, connection, er); g_free(er);
             if (e) g_error_free(e);
         }
@@ -5424,7 +5410,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "mode") : NULL;
 
     if (!source || !clone_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: source and clone_name (or target)");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5432,20 +5418,20 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
 
     /* 입력 검증 */
     if (!pcv_validate_vm_name(source) || !pcv_validate_vm_name(clone_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be [a-zA-Z0-9_-], 1-63 chars");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
     if (g_strcmp0(source, clone_name) == 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "source and clone_name must be different");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
 
     if (mode && g_strcmp0(mode, "cow") != 0 && g_strcmp0(mode, "full") != 0) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_INVALID_PARAMS,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid clone mode: use cow or full");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5453,7 +5439,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
 
     gint caller_role = _dispatcher_caller_role(params, connection);
     if (caller_role < PCV_ROLE_OPERATOR) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_FORBIDDEN,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_FORBIDDEN,
             "vm.clone requires operator role or higher");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5465,14 +5451,14 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     guest_reset = _vm_clone_bool_member(params, "guest_identity_reset", guest_reset);
 
     if (!template_prepared && !guest_reset) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
             "vm.clone requires either template_prepared=true or guest_reset=true");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
     }
 
     if (guest_reset && !pcv_vm_clone_guest_reset_available()) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
             "vm.clone guest reset requires libguestfs-tools (virt-sysprep, virt-customize, virt-filesystems, guestfish) or template_prepared=true for a prepared template");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5496,7 +5482,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     {
         gchar *lock_err = NULL;
         if (!lock_vm_operation(source, VM_OP_SNAPSHOT, &lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 lock_err ? lock_err : "Source VM busy (another operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
@@ -5505,7 +5491,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         }
         clone_ctx->holds_source_lock = TRUE;
         if (!lock_vm_operation(clone_name, VM_OP_CREATING, &lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 lock_err ? lock_err : "Target VM name busy (another operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
@@ -5518,7 +5504,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
         _vm_clone_ctx_free(clone_ctx);
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
             "Failed to acquire libvirt connection");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5529,7 +5515,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         virDomainFree(target_dom);
         virt_conn_pool_release(conn);
         _vm_clone_ctx_free(clone_ctx);
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
             "Target VM already exists");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5540,7 +5526,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     if (!dom) {
         virt_conn_pool_release(conn);
         _vm_clone_ctx_free(clone_ctx);
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_NOT_FOUND,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_NOT_FOUND,
             "Source VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5551,7 +5537,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         virDomainFree(dom);
         virt_conn_pool_release(conn);
         _vm_clone_ctx_free(clone_ctx);
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
             "vm.clone could not verify source VM power state");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5560,7 +5546,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         virDomainFree(dom);
         virt_conn_pool_release(conn);
         _vm_clone_ctx_free(clone_ctx);
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
             "vm.clone requires the source VM to be shut off");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         return;
@@ -5574,7 +5560,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         !pcv_vm_clone_build_disk_plan(clone_name, &disk_info, &disk_plan,
                                       &preflight_error) ||
         !pcv_vm_clone_disk_plan_beta_allowed(&disk_plan, &preflight_error)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
             preflight_error ? preflight_error : "vm.clone beta guard failed");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         free(xml);
@@ -5594,7 +5580,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     clone_ctx->full_copy = full_copy;
 
     if (disk_plan.kind != PCV_VM_CLONE_DISK_ZVOL && !full_copy) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
             "vm.clone cow mode is only supported for ZFS zvol disks; use mode=full for qcow2/raw");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         pcv_vm_clone_disk_plan_clear(&disk_plan);
@@ -5605,7 +5591,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     if ((disk_plan.kind == PCV_VM_CLONE_DISK_QCOW2 ||
          disk_plan.kind == PCV_VM_CLONE_DISK_RAW) &&
         !pcv_vm_clone_file_copy_available()) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_UNAVAILABLE,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
             "vm.clone qcow2/raw file disk clone requires qemu-img");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         pcv_vm_clone_disk_plan_clear(&disk_plan);
@@ -5626,7 +5612,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         const gchar *zfs_list_argv[] = {"zfs", "list", "-H",
                                          clone_ctx->target_dataset, NULL};
         if (pcv_spawn_sync(zfs_list_argv, NULL, NULL, NULL)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target zvol dataset already exists");
             pure_uds_server_send_response(server, connection, e); g_free(e);
             _vm_clone_ctx_free(clone_ctx);
@@ -5637,7 +5623,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     if (clone_ctx->disk_kind == PCV_VM_CLONE_DISK_QCOW2 ||
         clone_ctx->disk_kind == PCV_VM_CLONE_DISK_RAW) {
         if (g_file_test(clone_ctx->target_disk_path, G_FILE_TEST_EXISTS)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, PCV_ERR_CONFLICT,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target disk file already exists");
             pure_uds_server_send_response(server, connection, e); g_free(e);
             _vm_clone_ctx_free(clone_ctx);
@@ -5959,7 +5945,7 @@ static void _handle_storage_pool_health(JsonObject *params, const gchar *rpc_id,
         gchar *resp = pure_rpc_build_success_response(rpc_id, n);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to query pool health");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
@@ -6011,7 +5997,7 @@ static void _s3_export_worker(GTask *task, gpointer source __attribute__((unused
         g_warning("[S3 Backup] Export failed for '%s': %s",
                   ctx->vm_name, err_msg);
         pcv_audit_log(NULL, "backup.export_s3", ctx->vm_name, "fail",
-                      -32000, 0, "local");
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete_mt(job_id, "backup.export_s3",
                                          "failed", err_msg);
         if (err) g_error_free(err);
@@ -6032,7 +6018,7 @@ static void _handle_backup_export_s3(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!vm_name || !*vm_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required param: name");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
@@ -6120,7 +6106,7 @@ static void _handle_security_group_create(JsonObject *params, const gchar *rpc_i
     const gchar *sg_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!sg_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required param: name");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required param: name");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         extern gboolean pcv_security_group_create(const gchar *name, const gchar *description);
@@ -6133,7 +6119,7 @@ static void _handle_security_group_create(JsonObject *params, const gchar *rpc_i
             gchar *resp = pure_rpc_build_success_response(rpc_id, node);
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         } else {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, "Security group creation failed (already exists?)");
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Security group creation failed (already exists?)");
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         }
     }
@@ -6159,7 +6145,7 @@ static void _handle_security_group_delete(JsonObject *params, const gchar *rpc_i
     const gchar *sg_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!sg_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required param: name");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required param: name");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         extern gboolean pcv_security_group_delete(const gchar *name);
@@ -6178,7 +6164,7 @@ static void _handle_security_group_rule_add(JsonObject *params, const gchar *rpc
     const gchar *sg_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!sg_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required param: name");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required param: name");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         extern gboolean pcv_security_group_rule_add(const gchar *name, JsonObject *rule);
@@ -6189,7 +6175,7 @@ static void _handle_security_group_rule_add(JsonObject *params, const gchar *rpc
             gchar *resp = pure_rpc_build_success_response(rpc_id, node);
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         } else {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, "Rule add failed (group not found?)");
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Rule add failed (group not found?)");
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
         }
     }
@@ -6202,7 +6188,7 @@ static void _handle_security_group_rule_remove(JsonObject *params, const gchar *
     const gchar *sg_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!sg_name || !json_object_has_member(params, "rule_id")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required params: name, rule_id");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required params: name, rule_id");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6215,7 +6201,7 @@ static void _handle_security_group_rule_remove(JsonObject *params, const gchar *
         gchar *resp = pure_rpc_build_success_response(rpc_id, node);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, "Rule remove failed (group/rule not found)");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Rule remove failed (group/rule not found)");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     }
 }
@@ -6225,7 +6211,7 @@ static void _handle_ai_healing_approve(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
     if (!params || !json_object_has_member(params, "action_id")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required param: action_id");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required param: action_id");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6242,7 +6228,7 @@ static void _handle_ai_healing_reject(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
     if (!params || !json_object_has_member(params, "action_id")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required param: action_id");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required param: action_id");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6267,7 +6253,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
 {
     if (!params || !json_object_has_member(params, "name") ||
         !json_object_has_member(params, "vip") || !json_object_has_member(params, "port")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required params: name, vip, port");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required params: name, vip, port");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6285,7 +6271,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
     }
     guint bn_len = backends ? json_array_get_length(backends) : 0;
     if (bn_len == 0) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "backends must be a non-empty array");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "backends must be a non-empty array");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6324,7 +6310,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
     }
     if (bad) {
         g_string_free(joined, TRUE);
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid backend (expect ip + port)");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid backend (expect ip + port)");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
@@ -6339,7 +6325,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
         gchar *resp = pure_rpc_build_success_response(rpc_id, node);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             err ? err->message : "LB create failed");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         if (err) g_error_free(err);
@@ -6357,7 +6343,7 @@ static void _handle_security_group_attach(JsonObject *params, const gchar *rpc_i
     const gchar *name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!vm || !name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required params: vm, name");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -6380,7 +6366,7 @@ static void _handle_security_group_detach(JsonObject *params, const gchar *rpc_i
     const gchar *name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     if (!vm || !name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required params: vm, name");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -6404,7 +6390,7 @@ static void _handle_vm_security_group_set(JsonObject *params, const gchar *rpc_i
     const gchar *sg_name = json_object_has_member(params, "security_group")
         ? json_object_get_string_member(params, "security_group") : NULL;
     if (!vm_name || !sg_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing required params: vm, security_group");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required params: vm, security_group");
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {
         extern gboolean pcv_security_group_apply_to_vm(const gchar *vm, const gchar *sg);
@@ -6502,7 +6488,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
          * [감사 A2-3] 무응답 대신 원인 코드를 전송해 클라이언트가 무맥락 EOF를 안 받도록. */
         gboolean bad_req = err && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
         gchar *derr = pure_rpc_build_error_response(NULL,
-            bad_req ? PCV_ERR_INVALID_REQ : PCV_ERR_PARSE,
+            bad_req ? PURE_RPC_ERR_INVALID_REQUEST : PURE_RPC_ERR_PARSE_ERROR,
             bad_req ? "Invalid Request" : "Parse error");
         pure_uds_server_send_response(server, connection, derr);
         g_free(derr);
@@ -6519,7 +6505,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                       ? json_node_get_object(root) : nullptr;
     const gchar *method = obj ? json_object_get_string_member(obj, "method") : nullptr;
     if (!obj || !method) {
-        gchar *ierr = pure_rpc_build_error_response(NULL, PCV_ERR_INVALID_REQ,
+        gchar *ierr = pure_rpc_build_error_response(NULL, PURE_RPC_ERR_INVALID_REQUEST,
             "Invalid Request: root must be an object with a string 'method'");
         pure_uds_server_send_response(server, connection, ierr);
         g_free(ierr);
@@ -6608,7 +6594,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
      * 등록된 미들웨어 훅을 순차 실행. 하나라도 FALSE를 반환하면 요청 거부.
      * 감사 확장, 커스텀 인증, 요청 변환 등 플러그인 확장 지점. */
     if (!_run_pre_hooks(method, params, rpc_id_str)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id_str, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_ZFS_OPERATION,
             "Request rejected by pre-dispatch hook");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -6644,7 +6630,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         }
 
         if (!allowed) {
-            gchar *err = pure_rpc_build_error_response(rpc_id_str, PCV_ERR_FORBIDDEN,
+            gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_FORBIDDEN,
                 deny_message ? deny_message : "Permission denied");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -6652,7 +6638,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
             pcv_audit_log(caller_sub ? caller_sub : "-",
                           method,
                           audit_target ? audit_target : "",
-                          "denied", PCV_ERR_FORBIDDEN, 0, "rbac");
+                          "denied", PURE_RPC_ERR_FORBIDDEN, 0, "rbac");
             g_free(deny_message);
             goto rpc_done;
         }
@@ -6673,7 +6659,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                         + virConnectNumOfDomains(qconn);
                 virt_conn_pool_release(qconn);
                 if (num >= 200) {
-                    gchar *err = pure_rpc_build_error_response(rpc_id_str, -32000,
+                    gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_ZFS_OPERATION,
                         "VM quota exceeded: maximum 200 VMs per node");
                     pure_uds_server_send_response(server, connection, err);
                     g_free(err);
@@ -6698,7 +6684,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
             dispatcher_request_context_free(ctx);
         } else {
             /* Method not found - -32601 error response */
-            gchar *err = pure_rpc_build_error_response(rpc_id_str, -32601,
+            gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND,
                 "Method not found");
             pure_uds_server_send_response(server, connection, err);
             g_free(err);
@@ -6801,7 +6787,7 @@ static void _handle_daemon_config_set(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "value") : NULL;
 
     if (!section || !key || !value) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Required: section, key, value");
         pure_uds_server_send_response(server, connection, err); g_free(err);
         return;
@@ -6811,7 +6797,7 @@ static void _handle_daemon_config_set(JsonObject *params, const gchar *rpc_id,
         g_strcmp0(section, "container") != 0 &&
         g_strcmp0(section, "alert") != 0 &&
         g_strcmp0(section, "backup") != 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Section not editable (allowed: storage, container, alert, backup)");
         pure_uds_server_send_response(server, connection, err); g_free(err);
         return;
@@ -6831,7 +6817,7 @@ static void _handle_daemon_config_set(JsonObject *params, const gchar *rpc_id,
     g_key_file_free(kf);
 
     if (error) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, error->message);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
         pure_uds_server_send_response(server, connection, err);
         g_free(err); g_error_free(error);
         return;

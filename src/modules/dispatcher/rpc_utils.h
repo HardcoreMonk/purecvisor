@@ -76,14 +76,23 @@ typedef enum {
 
     /* === 애플리케이션 전용 에러 (-32000 ~ -32099) === */
 
-    /** ZFS 명령 실행 실패 (zfs create/destroy/list 등의 외부 프로세스 에러) */
+    /** ZFS 명령 실행 실패 (zfs create/destroy/list 등의 외부 프로세스 에러)
+     *  (오버로드: 일부 사이트는 각각 일반 서버에러/미구현/서비스불가 — 구 PCV_ERR_SERVER, 동일 wire값) */
     PURE_RPC_ERR_ZFS_OPERATION   = -32000,
-    /** 지정된 VM이 libvirt에 존재하지 않음 (virDomainLookupByName 실패) */
+    /** 지정된 VM이 libvirt에 존재하지 않음 (virDomainLookupByName 실패)
+     *  (오버로드: 일부 사이트는 각각 일반 서버에러/미구현/서비스불가 — 구 PCV_ERR_NOT_IMPL, 동일 wire값) */
     PURE_RPC_ERR_VM_NOT_FOUND    = -32001,
-    /** 리소스 상태 충돌 (동시 작업 시도, 오퍼레이션 잠금 보유 등) */
+    /** 리소스 상태 충돌 (동시 작업 시도, 오퍼레이션 잠금 보유 등)
+     *  (오버로드: 일부 사이트는 각각 일반 서버에러/미구현/서비스불가 — 구 PCV_ERR_UNAVAILABLE, 동일 wire값) */
     PURE_RPC_ERR_CONFLICT        = -32002,
     /** 오퍼레이션 타임아웃 (libvirt/ZFS/etcd 응답 지연) */
-    PURE_RPC_ERR_TIMEOUT         = -32003
+    PURE_RPC_ERR_TIMEOUT         = -32003,
+    /** 오퍼레이션 진행중 — 대상이 다른 작업으로 잠김(VM busy). (구 PCV_ERR_CONFLICT) */
+    PURE_RPC_ERR_BUSY            = -32004,
+    /** 일반 리소스 미존재 (VM 외 리소스). (구 PCV_ERR_NOT_FOUND) */
+    PURE_RPC_ERR_NOT_FOUND       = -32005,
+    /** 권한 거부 (RBAC). (구 PCV_ERR_FORBIDDEN) */
+    PURE_RPC_ERR_FORBIDDEN       = -32006
 } PureRpcErrorCode;
 
 /**

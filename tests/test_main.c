@@ -51,6 +51,7 @@
 void test_validate_register(void);
 void test_circuit_breaker_register(void);
 void test_restart_breaker_register(void);   /* AF-1 후속: VM 재시작 브레이커 */
+void test_self_healing_restart_register(void);   /* self-healing-restart 결정 seam 효과테스트 */
 void test_cancellable_map_register(void);
 void test_cpu_allocator_register(void);
 void test_config_register(void);
@@ -239,6 +240,7 @@ int main(int argc, char *argv[]) {
     test_validate_register();
     test_circuit_breaker_register();
     test_restart_breaker_register();  /* AF-1 후속: VM 재시작 브레이커 */
+    test_self_healing_restart_register();  /* self-healing-restart 결정 seam 효과테스트 */
     test_cancellable_map_register();
     test_cpu_allocator_register();
     test_config_register();

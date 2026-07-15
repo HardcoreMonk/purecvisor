@@ -33,6 +33,7 @@
 
 #include "grpc_server.h"
 #include "utils/pcv_config.h"
+#include "utils/pcv_crypto.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_tls.h"
@@ -162,7 +163,7 @@ _handle_client(int client_fd)
         if (tk_len == 0 || tk_len > 256) return;
         gchar tkbuf[257] = {0};
         if (read(client_fd, tkbuf, tk_len) != (ssize_t)tk_len) return;
-        if (g_strcmp0(tkbuf, G_grpc_auth_token) != 0) {
+        if (!pcv_secret_str_eq(tkbuf, G_grpc_auth_token)) {
             const char *deny = "{\"error\":\"unauthorized\"}";
             guint32 dl = GUINT32_TO_BE((guint32)strlen(deny));
             (void)!write(client_fd, &dl, 4);

@@ -44,8 +44,8 @@
   "self-healing-restart": {
     "description": "자가치유 정책이 unresponsive VM을 실제 재시작 (virDomainCreate 실배선)",
     "effect_assertion": "정지 VM에 restart 액션 실행 시 실제로 도메인이 기동됨 (running-guard로 정상 VM은 skip)",
-    "effect_test": null,
-    "status": "untested-baseline"
+    "effect_test": "tests/test_self_healing_restart.c::test_running_guard_skip",
+    "status": "tested"
   },
   "backup-retention": {
     "description": "스냅샷 수가 retention_count 초과 시 가장 오래된 것부터 실제 삭제",

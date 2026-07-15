@@ -175,14 +175,14 @@ void handle_storage_zvol_create_request(JsonObject *params, const gchar *rpc_id,
     }
 
     if (!zvol_path || !zvol_path[0] || !size) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing 'zvol_path'/'name' or 'size'/'size_gb'");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing 'zvol_path'/'name' or 'size'/'size_gb'");
         pure_uds_server_send_response(server, connection, resp); g_free(resp); g_free(size_buf); return;
     }
 
     /* name 검증: 영문/숫자/_.- 만 허용 (command injection 방어) */
     for (const gchar *p = zvol_path; *p; p++) {
         if (!g_ascii_isalnum(*p) && *p != '_' && *p != '-' && *p != '.' && *p != '/') {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32602,
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                 "Invalid zvol name — allowed: [a-zA-Z0-9_.-/]");
             pure_uds_server_send_response(server, connection, resp);
             g_free(resp); g_free(size_buf); return;
@@ -205,7 +205,7 @@ void handle_storage_zvol_create_request(JsonObject *params, const gchar *rpc_id,
     if (!pcv_spawn_sync(zfs_argv, NULL, &std_err, &error)) {
         gchar *err_msg = error ? error->message
                        : (std_err ? g_strstrip(std_err) : "Unknown ZFS execution error");
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, err_msg);
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     } else {
@@ -242,7 +242,7 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
         zvol_path = json_object_get_string_member(params, "name");
 
     if (!zvol_path || !zvol_path[0]) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing 'zvol_path' or 'name'");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing 'zvol_path' or 'name'");
         pure_uds_server_send_response(server, connection, resp); g_free(resp); return;
     }
 
@@ -265,7 +265,7 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
                 bad = TRUE;
         }
         if (bad) {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid zvol_path");
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid zvol_path");
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
             g_free(full_path);
             return;
@@ -276,7 +276,7 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
         gboolean is_vol = ok && type_out && g_strcmp0(g_strstrip(type_out), "volume") == 0;
         g_free(type_out);
         if (!is_vol) {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
                 "Refused: target is not a zvol (volume) — parent datasets cannot be recursively destroyed");
             pure_uds_server_send_response(server, connection, resp); g_free(resp);
             g_free(full_path);
@@ -292,7 +292,7 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
     if (!pcv_spawn_sync(zfs_argv, NULL, &std_err, &error)) {
         gchar *err_msg = error ? error->message
                        : (std_err ? g_strstrip(std_err) : "Unknown ZFS execution error");
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000, err_msg);
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
     } else {
@@ -327,7 +327,7 @@ void handle_storage_pool_create_request(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "vdev_type") : NULL;
 
     if (!name || !json_object_has_member(params, "disks")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing 'name' or 'disks'");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing 'name' or 'disks'");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;
@@ -336,7 +336,7 @@ void handle_storage_pool_create_request(JsonObject *params, const gchar *rpc_id,
     JsonArray *disks_arr = json_object_get_array_member(params, "disks");
     guint n_disks = json_array_get_length(disks_arr);
     if (n_disks == 0) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "'disks' array is empty");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "'disks' array is empty");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;
@@ -357,7 +357,7 @@ void handle_storage_pool_create_request(JsonObject *params, const gchar *rpc_id,
     g_free(disk_list);
 
     if (!ok) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             error ? error->message : "zpool create failed");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -389,7 +389,7 @@ void handle_storage_pool_destroy_request(JsonObject *params, const gchar *rpc_id
 {
     const gchar *name = json_object_get_string_member(params, "name");
     if (!name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing 'name'");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing 'name'");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;
@@ -399,7 +399,7 @@ void handle_storage_pool_destroy_request(JsonObject *params, const gchar *rpc_id
     gboolean ok = purecvisor_zfs_destroy_pool(name, &error);
 
     if (!ok) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             error ? error->message : "zpool destroy failed");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
@@ -431,7 +431,7 @@ void handle_storage_pool_scrub_request(JsonObject *params, const gchar *rpc_id,
 {
     const gchar *name = json_object_get_string_member(params, "name");
     if (!name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32602, "Missing 'name'");
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing 'name'");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;
@@ -441,7 +441,7 @@ void handle_storage_pool_scrub_request(JsonObject *params, const gchar *rpc_id,
     gboolean ok = purecvisor_zfs_scrub_pool(name, &error);
 
     if (!ok) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             error ? error->message : "zpool scrub failed");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);

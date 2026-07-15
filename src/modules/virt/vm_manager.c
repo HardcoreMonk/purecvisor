@@ -92,6 +92,7 @@
 #endif
 #include "../../utils/pcv_spawn.h"  /* GIO P3: pcv_spawn_sync */
 #include "../../utils/pcv_log.h"    /* PCV_LOG_INFO / PCV_LOG_WARN */
+#include "modules/dispatcher/rpc_utils.h"  /* PURE_RPC_ERR_* (DISP-6) */
 
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
@@ -2214,7 +2215,7 @@ audit_resize_disk_failure(ResizeDiskData *d, const gchar *error_msg)
 {
     gchar *target = g_strdup_printf("%s:%s", d->name, d->target ? d->target : "vda");
     gchar *job_id = g_strdup_printf("vm.resize_disk:%s", target);
-    pcv_audit_log(NULL, "vm.resize_disk", target, "fail", -32000, 0, "local");
+    pcv_audit_log(NULL, "vm.resize_disk", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     pcv_ws_broadcast_job_complete_mt(job_id, "vm.resize_disk",
                                      "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);

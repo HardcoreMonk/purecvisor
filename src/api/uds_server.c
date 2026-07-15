@@ -77,12 +77,6 @@
 #include <sys/un.h>
 #endif
 
-/* 종료(drain) 중 신규 요청 거부에 쓰는 JSON-RPC 서버 에러 코드.
- * dispatcher.c 의 동명 정의(-32000, JSON-RPC 서버 에러 예약역)와 동일 값. */
-#ifndef PCV_ERR_SERVER
-#define PCV_ERR_SERVER (-32000)
-#endif
-
 /* ── graceful-drain 화이트리스트 (Task 5, DISP-4 후속) ────────────────────
  * DISP-4 의 수락-시 pcv_drain_inc() 게이트는 shutdown_flag 가 서면 모든 신규 연결을
  * 거부한다. 그러나 node.drain(=pcv_drain_begin(NULL,30), 프로세스 미종료)을 되돌리는
@@ -540,7 +534,7 @@ _uring_read_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpointer
          * 수락 시 pcv_drain_inc() 가 FALSE(종료 중)였다. 요청을 read 로 소비한 뒤
          * (클라이언트 write EPIPE 방지) -32000 을 정상 응답 경로(write+close)로 전송.
          * inflight 미증가라 아래 cleanup 의 dec 는 건너뛴다(inflight_held FALSE). */
-        gchar *rej = pure_rpc_build_error_response(NULL, PCV_ERR_SERVER,
+        gchar *rej = pure_rpc_build_error_response(NULL, PURE_RPC_ERR_ZFS_OPERATION,
                                                    "server is shutting down");
         pure_uds_server_send_response(ctx->server, conn, rej);
         g_free(rej);
@@ -755,7 +749,7 @@ static void on_read_done(GObject *source, GAsyncResult *res, gpointer user_data)
          * (클라이언트 write EPIPE 방지) -32000 을 정상 응답 경로(write+close)로 전송.
          * 수락 시점엔 요청 id 미수신이므로 id:null 이 JSON-RPC 2.0 규격상 정확하다.
          * inflight 미증가라 아래 cleanup 의 dec 는 건너뛴다. */
-        gchar *rej = pure_rpc_build_error_response(NULL, PCV_ERR_SERVER,
+        gchar *rej = pure_rpc_build_error_response(NULL, PURE_RPC_ERR_ZFS_OPERATION,
                                                    "server is shutting down");
         pure_uds_server_send_response(ctx->server, ctx->connection, rej);
         g_free(rej);

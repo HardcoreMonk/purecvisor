@@ -368,7 +368,7 @@ static void _restore_worker(GTask        *task,
         PCV_LOG_WARN(BACKUP_HANDLER_LOG,
                      "Async restore failed: %s@%s — %s",
                      d->vm_name, d->snapshot_name, err_msg);
-        pcv_audit_log(NULL, "backup.restore", target, "fail", -32000, 0, "local");
+        pcv_audit_log(NULL, "backup.restore", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete_mt(job_id, "backup.restore", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
@@ -563,7 +563,7 @@ static void _incremental_worker(GTask        *task,
         const gchar *err_msg = err ? err->message : "unknown";
         PCV_LOG_WARN(BACKUP_HANDLER_LOG,
                      "Async incremental failed: %s — %s", d->vm_name, err_msg);
-        pcv_audit_log(NULL, "backup.incremental", d->vm_name, "fail", -32000, 0, "local");
+        pcv_audit_log(NULL, "backup.incremental", d->vm_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete_mt(job_id, "backup.incremental", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
@@ -725,7 +725,7 @@ static void _replicate_worker(GTask        *task,
         PCV_LOG_WARN(BACKUP_HANDLER_LOG,
                      "Async replication failed: %s → %s — %s",
                      d->vm_name, d->target_node, err_msg);
-        pcv_audit_log(NULL, "backup.replicate", target, "fail", -32000, 0, "local");
+        pcv_audit_log(NULL, "backup.replicate", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         pcv_ws_broadcast_job_complete_mt(job_id, "backup.replicate", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);

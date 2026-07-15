@@ -16,9 +16,14 @@ Task 2 재도출로 session-revoke는 test_session_revoke.sh가 효과를 단언
 
 재도출 이력(Task 4, 2026-07-14): PR #25가 backup-retention을 tested로 승격했고, 이
 배치가 alert-silence/sriov-disable/graceful-drain을 추가로 tested 승격했다. 그 결과
-untested-baseline은 self-healing-restart 1건만 남는다. 이 파일의 기대 리스트도
-그 실제 상태로 재도출한다(드리프트 시 이 acceptance 자체가 즉시 FAIL하도록
-Makefile check-safety-controls에 배선됨).
+untested-baseline은 self-healing-restart 1건만 남았다.
+
+재도출 이력(2026-07-15): self-healing-restart 결정 로직(running-guard +
+virDomainCreate 3분기)을 self_healing_restart.c로 추출해
+test_self_healing_restart.c::test_running_guard_skip 반사실 단언으로 tested
+승격 — 마지막 untested-baseline 항목이 해소되어 감사 무동작 통제 리스트가
+빈다. 이 파일의 기대 리스트도 그 실제 상태로 재도출한다(드리프트 시 이
+acceptance 자체가 즉시 FAIL하도록 Makefile check-safety-controls에 배선됨).
 """
 import re
 import sys
@@ -39,11 +44,15 @@ def test_gate_passes():
 
 
 def test_noop_controls_surfaced():
-    """감사에서 확인된 실제 무동작 통제(현재 레지스트리의 untested-baseline 1건 전부)가 surface(gap 은폐 없음)."""
+    """감사에서 확인된 실제 무동작 통제가 있다면 surface(gap 은폐 없음).
+
+    2026-07-15: self-healing-restart 승격으로 untested-baseline 항목이 0건이
+    됐다 — 알려진 gap 리스트가 비어 있는 것 자체가 현재 실제 상태다."""
     reg = json.loads(REGISTRY.read_text())
-    for cid in ["self-healing-restart"]:
-        assert cid in reg and reg[cid]["status"] == "untested-baseline", \
-            f"감사 무동작 통제 {cid} 미surface"
+    known_gaps = []
+    untested = {cid for cid, spec in reg.items() if spec.get("status") == "untested-baseline"}
+    assert untested == set(known_gaps), \
+        f"알려진 무동작 통제 리스트와 실제 untested-baseline 상태가 어긋남: {sorted(untested)}"
 
 
 def test_tested_controls_locked_in():
@@ -52,7 +61,7 @@ def test_tested_controls_locked_in():
     for cid in ["session-revoke", "vm-op-lock", "restart-breaker",
                 "backup-retention", "alert-silence", "sriov-disable", "graceful-drain",
                 "hips-approval-expiry", "apikey-role-enforce", "vm-create-iso-validation",
-                "isolated-network-drop", "qos-rehydrate"]:
+                "isolated-network-drop", "qos-rehydrate", "self-healing-restart"]:
         assert cid in reg and reg[cid]["status"] == "tested", \
             f"시정 확인 통제 {cid}가 tested에서 이탈"
 

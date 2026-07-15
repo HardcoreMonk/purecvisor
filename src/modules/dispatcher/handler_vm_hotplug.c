@@ -245,7 +245,7 @@ static void hotplug_callback(GObject *source_obj, GAsyncResult *res, gpointer us
 
     if (!success) {
         /* 핫플러그 실패 — 에러 메시지를 클라이언트에 전달 */
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, -32000, error->message);
+        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
         pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
         g_free(err_resp);
         g_error_free(error);
@@ -279,7 +279,7 @@ void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsSe
      * 이 패턴은 JSON-RPC 2.0 표준 에러 코드를 따릅니다.
      * 비동기 워커로 진입하기 전에 반드시 검증을 완료해야 합니다. */
     if (!params || !json_object_has_member(params, "vm_id") || !json_object_has_member(params, "memory_mb")) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602, "Invalid params: 'vm_id' or 'memory_mb' missing");
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid params: 'vm_id' or 'memory_mb' missing");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         return;
@@ -298,7 +298,7 @@ void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsSe
         const gchar *_lock_vm = json_object_get_string_member(params, "vm_id");
         gchar *lock_err = NULL;
         if (!lock_vm_operation(_lock_vm, VM_OP_TUNING, &lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            lock_err ? lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
@@ -338,7 +338,7 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
     }
 
     if (!params || !json_object_has_member(params, "vm_id") || !has_vcpu_count) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid params: 'vm_id' and one of 'vcpu_count', 'vcpu', or 'count' required");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -354,7 +354,7 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
         const gchar *_lock_vm = json_object_get_string_member(params, "vm_id");
         gchar *lock_err = NULL;
         if (!lock_vm_operation(_lock_vm, VM_OP_TUNING, &lock_err)) {
-            gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            lock_err ? lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
@@ -396,7 +396,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
     const gchar *target_dev = json_object_get_string_member(params, "target");
 
     if (!vm_id || !source_dev || !target_dev) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing vm_id, source, or target");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing vm_id, source, or target");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -408,7 +408,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
         ? json_object_get_string_member(params, "bus") : "virtio";
     if (g_strcmp0(bus, "virtio") != 0 && g_strcmp0(bus, "scsi") != 0 &&
         g_strcmp0(bus, "sata")   != 0 && g_strcmp0(bus, "ide")  != 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid bus: must be virtio, scsi, sata, or ide");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
@@ -424,7 +424,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Entity not found");
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
@@ -449,7 +449,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
      * 획득~unlock 사이 조기 return 없음(누수 방지). */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -459,7 +459,7 @@ void handle_device_disk_attach(JsonObject *params, const gchar *rpc_id, UdsServe
 
     if (virDomainAttachDeviceFlags(dom, xml_payload, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Attach failed");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, libvirt_err ? libvirt_err->message : "Attach failed");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
         JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
@@ -494,7 +494,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
     const gchar *target_dev = json_object_get_string_member(params, "target");
 
     if (!vm_id || !target_dev) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing vm_id or target");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing vm_id or target");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -503,7 +503,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Entity not found");
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
@@ -521,7 +521,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
     gchar *target_pos = strstr(live_xml, target_tag);
     
     if (!target_pos) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Device not found in live XML");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Device not found in live XML");
         pure_uds_server_send_response(server, connection, err); g_free(err);
         g_free(live_xml); g_free(target_tag); virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
@@ -557,7 +557,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -567,7 +567,7 @@ void handle_device_disk_detach(JsonObject *params, const gchar *rpc_id, UdsServe
     }
     if (virDomainDetachDeviceFlags(dom, exact_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Detach failed");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, libvirt_err ? libvirt_err->message : "Detach failed");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
         JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
@@ -608,18 +608,18 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
         ? json_object_get_string_member(params, "iso_path") : NULL;
 
     if (!vm_id || *vm_id == '\0' || !iso_path || *iso_path == '\0') {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing: vm_id or iso_path");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_id or iso_path");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
     if (!pcv_validate_iso_path(iso_path)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid iso_path: must be absolute, non-empty, and must not contain '..'");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
     if (!g_file_test(iso_path, G_FILE_TEST_IS_REGULAR)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid iso_path: file does not exist or is not a regular file");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
@@ -629,7 +629,7 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, err); g_free(err);
         virt_conn_pool_release(conn);
         return;
@@ -649,7 +649,7 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -660,7 +660,7 @@ void handle_vm_mount_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
 
     if (virDomainUpdateDeviceFlags(dom, mount_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             libvirt_err ? libvirt_err->message : "Failed to mount ISO");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
@@ -705,7 +705,7 @@ void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Entity not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Entity not found");
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
@@ -731,7 +731,7 @@ void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -741,7 +741,7 @@ void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *ser
 
     if (virDomainUpdateDeviceFlags(dom, eject_xml, flags) < 0) {
         virErrorPtr libvirt_err = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, libvirt_err ? libvirt_err->message : "Failed to eject ISO");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, libvirt_err ? libvirt_err->message : "Failed to eject ISO");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
         /* 성공 응답: {"ejected": true} */
@@ -997,7 +997,7 @@ void handle_device_nic_list(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_id = json_object_has_member(params, "vm_id")
         ? json_object_get_string_member(params, "vm_id") : NULL;
     if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing: vm_id");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_id");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -1005,7 +1005,7 @@ void handle_device_nic_list(JsonObject *params, const gchar *rpc_id,
     PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }
@@ -1110,7 +1110,7 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "model")  : "virtio";
 
     if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing: vm_id");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_id");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -1118,7 +1118,7 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
     PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }
@@ -1132,7 +1132,7 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -1146,7 +1146,7 @@ void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id,
 
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "NIC attach failed");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
@@ -1182,7 +1182,7 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "mac")   : NULL;
 
     if (!vm_id || !mac) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing: vm_id or mac");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_id or mac");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
@@ -1190,7 +1190,7 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
     PCV_REQUIRE_VIRT_CONN(conn, rpc_id, server, connection);
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }
@@ -1203,7 +1203,7 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -1217,7 +1217,7 @@ void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id,
 
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "NIC detach failed");
         pure_uds_server_send_response(server, connection, err); g_free(err);
     } else {
@@ -1259,7 +1259,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "cpuset") : NULL;
 
     if (!vm_id || !cpuset || !json_object_has_member(params, "vcpu")) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing: name/vm_id, vcpu, or cpuset");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1270,7 +1270,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "libvirt connection unavailable");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "libvirt connection unavailable");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         return;
@@ -1279,7 +1279,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
     /* 호스트 CPU 수 조회 — cpumap 크기 결정에 필요 */
     virNodeInfo node_info;
     if (virNodeGetInfo(conn, &node_info) < 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Failed to get host CPU info");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Failed to get host CPU info");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         virt_conn_pool_release(conn);
@@ -1332,7 +1332,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
     g_strfreev(parts);
 
     if (!parse_ok) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid cpuset range (exceeds host CPU count or malformed)");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1343,7 +1343,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
         g_free(cpumap);
@@ -1361,7 +1361,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -1373,7 +1373,7 @@ void handle_vm_pin_vcpu(JsonObject *params, const gchar *rpc_id,
 
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "vCPU pinning failed");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1421,7 +1421,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "name") : NULL;
 
     if (!name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1434,7 +1434,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
         ? (gint)json_object_get_int_member(params, "outbound_kbps") : 0;
 
     if (inbound_kbps <= 0 && outbound_kbps <= 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "At least one of inbound_kbps or outbound_kbps must be > 0");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1443,7 +1443,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to connect to libvirt");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1452,7 +1452,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, name);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
             "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1494,7 +1494,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
     }
 
     if (!iface) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "No network interface found on VM");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1535,7 +1535,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -1548,7 +1548,7 @@ void handle_vm_set_bandwidth(JsonObject *params, const gchar *rpc_id,
 
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to set bandwidth limits");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1593,7 +1593,7 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "name") : NULL;
 
     if (!name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1602,7 +1602,7 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to connect to libvirt");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1611,7 +1611,7 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, name);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
             "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1634,7 +1634,7 @@ void handle_vm_memory_stats_request(JsonObject *params, const gchar *rpc_id,
 
     if (nr_stats < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to get memory stats");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1708,7 +1708,7 @@ void handle_vm_cpu_stats_request(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "name") : NULL;
 
     if (!name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameter: name");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1717,7 +1717,7 @@ void handle_vm_cpu_stats_request(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to connect to libvirt");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1726,7 +1726,7 @@ void handle_vm_cpu_stats_request(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, name);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
             "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1738,7 +1738,7 @@ void handle_vm_cpu_stats_request(JsonObject *params, const gchar *rpc_id,
     virDomainInfo info;
     if (virDomainGetInfo(dom, &info) < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to get domain info");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1874,7 +1874,7 @@ audit_disk_live_resize_failure(DiskLiveResizeCtx *ctx, const gchar *error_msg)
 {
     gchar *target = g_strdup_printf("%s:%s", ctx->vm_name, ctx->target);
     gchar *job_id = g_strdup_printf("vm.disk.live_resize:%s", target);
-    pcv_audit_log(NULL, "vm.disk.live_resize", target, "fail", -32000, 0, "local");
+    pcv_audit_log(NULL, "vm.disk.live_resize", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     pcv_ws_broadcast_job_complete_mt(job_id, "vm.disk.live_resize",
                                      "failed", error_msg ? error_msg : "unknown");
     g_free(job_id);
@@ -1951,7 +1951,7 @@ void handle_vm_disk_live_resize_request(JsonObject *params, const gchar *rpc_id,
         ? (gint)json_object_get_int_member(params, "new_size_gb") : 0;
 
     if (!name || !target || new_size_gb <= 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing or invalid params: name, target required, new_size_gb must be > 0");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -1964,7 +1964,7 @@ void handle_vm_disk_live_resize_request(JsonObject *params, const gchar *rpc_id,
      * 조기 return 없음(누수 방지). */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -2029,7 +2029,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "device") : NULL;
 
     if (!name || !device) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: name, device");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2047,7 +2047,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
 
     if (read_bytes_sec <= 0 && write_bytes_sec <= 0 &&
         read_iops_sec <= 0 && write_iops_sec <= 0) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "At least one I/O limit (read/write bytes_sec or iops_sec) must be > 0");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2056,7 +2056,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to connect to libvirt");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2065,7 +2065,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, name);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
             "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2109,7 +2109,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
     /* CMP-10: VM_OP_TUNING 획득 — 동시 delete/hotplug 직렬화. */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -2122,7 +2122,7 @@ void handle_vm_blkio_set(JsonObject *params, const gchar *rpc_id,
 
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to set block I/O tune");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2168,7 +2168,7 @@ void handle_vm_blkio_get(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "device") : NULL;
 
     if (!name || !device) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: name, device");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2177,7 +2177,7 @@ void handle_vm_blkio_get(JsonObject *params, const gchar *rpc_id,
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             "Failed to connect to libvirt");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2186,7 +2186,7 @@ void handle_vm_blkio_get(JsonObject *params, const gchar *rpc_id,
 
     virDomainPtr dom = pure_virt_get_domain(conn, name);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
             "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2198,7 +2198,7 @@ void handle_vm_blkio_get(JsonObject *params, const gchar *rpc_id,
     int nparams = 0;
     if (virDomainGetBlockIoTune(dom, device, NULL, &nparams, 0) < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to query block I/O tune params count");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2227,7 +2227,7 @@ void handle_vm_blkio_get(JsonObject *params, const gchar *rpc_id,
     int rc = virDomainGetBlockIoTune(dom, device, blk_params, &nparams, 0);
     if (rc < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "Failed to get block I/O tune");
         pure_uds_server_send_response(server, connection, err);
         g_free(err);
@@ -2314,14 +2314,14 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "product_id") : NULL;
 
     if (!vm_id || !vendor_id || !product_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: vm_id, vendor_id, product_id");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
     }
 
     if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "vendor_id and product_id must be hex format: 0xNNNN");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2332,7 +2332,7 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }
@@ -2351,7 +2351,7 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
      * 획득~unlock 사이 조기 return 없음(누수 방지). */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -2361,7 +2361,7 @@ void handle_vm_usb_attach(JsonObject *params, const gchar *rpc_id,
 
     if (virDomainAttachDeviceFlags(dom, xml, flags) < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "USB attach failed");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -2400,14 +2400,14 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "product_id") : NULL;
 
     if (!vm_id || !vendor_id || !product_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Missing required parameters: vm_id, vendor_id, product_id");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
     }
 
     if (!pcv_validate_usb_id(vendor_id) || !pcv_validate_usb_id(product_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602,
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "vendor_id and product_id must be hex format: 0xNNNN");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
@@ -2418,7 +2418,7 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }
@@ -2437,7 +2437,7 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
      * 획득~unlock 사이 조기 return 없음(누수 방지). */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(vm_id, VM_OP_TUNING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, -32004,
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                        lock_err ? lock_err : "VM busy (operation in progress)");
         pure_uds_server_send_response(server, connection, e);
         g_free(e); g_free(lock_err);
@@ -2447,7 +2447,7 @@ void handle_vm_usb_detach(JsonObject *params, const gchar *rpc_id,
 
     if (virDomainDetachDeviceFlags(dom, xml, flags) < 0) {
         virErrorPtr e = virGetLastError();
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, -32000,
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             e ? e->message : "USB detach failed");
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
@@ -2487,7 +2487,7 @@ void handle_vm_usb_list(JsonObject *params, const gchar *rpc_id,
         ? json_object_get_string_member(params, "vm_id") : NULL;
 
     if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing: vm_id");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: vm_id");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); return;
     }
@@ -2497,7 +2497,7 @@ void handle_vm_usb_list(JsonObject *params, const gchar *rpc_id,
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
 
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32001, "VM not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found");
         pure_uds_server_send_response(server, connection, err);
         g_free(err); virt_conn_pool_release(conn); return;
     }

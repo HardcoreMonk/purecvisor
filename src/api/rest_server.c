@@ -60,12 +60,14 @@
 #include "rest_server.h"
 #include "rest_middleware.h"
 #include "rest_auth.h"
+#include "utils/pcv_crypto.h"
 #include "../utils/pcv_jwt.h"
 #include "../utils/pcv_log.h"
 #include "../modules/daemons/prometheus_exporter.h"
 #include "ws_server.h"
 #include "../utils/pcv_config.h"
 #include "../utils/pcv_tls.h"
+#include "../modules/dispatcher/rpc_utils.h"  /* PURE_RPC_ERR_* — RPC 에러코드 상수 (DISP-6) */
 #if PCV_CLUSTER_ENABLED
 #include "../modules/cluster/cluster_manager.h"
 #endif
@@ -303,9 +305,9 @@ _rpc_over_uds_timeout(const gchar *rpc_json, gint timeout_sec)
                 g_byte_array_free(dyn_buf, TRUE);
                 close(fd);
                 return g_strdup_printf("{\"jsonrpc\":\"2.0\",\"error\":{"
-                    "\"code\":-32003,"
+                    "\"code\":%d,"
                     "\"message\":\"RPC timeout — daemon did not respond within %ds\"}}",
-                    timeout_sec);
+                    PURE_RPC_ERR_TIMEOUT, timeout_sec);
             }
             break;
         }
@@ -317,9 +319,9 @@ _rpc_over_uds_timeout(const gchar *rpc_json, gint timeout_sec)
 
     if (total <= 0) {
         g_byte_array_free(dyn_buf, TRUE);
-        return g_strdup("{\"jsonrpc\":\"2.0\",\"error\":{"
-            "\"code\":-32000,"
-            "\"message\":\"No response from daemon\"}}");
+        return g_strdup_printf("{\"jsonrpc\":\"2.0\",\"error\":{"
+            "\"code\":%d,"
+            "\"message\":\"No response from daemon\"}}", PURE_RPC_ERR_ZFS_OPERATION);
     }
 
     /* NULL 종료 + 개행 제거 */
@@ -795,18 +797,18 @@ _send_rpc_result(SoupServerMessage *msg, const gchar *rpc_resp)
     } else if (json_object_has_member(obj, "error")) {
         /* 에러 경로: JSON-RPC error 코드를 HTTP 상태 코드로 매핑 */
         JsonObject *e    = json_object_get_object_member(obj, "error");
-        gint64      code = json_object_get_int_member_with_default(e, "code", -32000);
+        gint64      code = json_object_get_int_member_with_default(e, "code", PURE_RPC_ERR_ZFS_OPERATION);
         JsonNode   *enode = json_object_get_member(obj, "error");
         gchar *r = json_to_string(enode, FALSE);
         body_str = g_strdup_printf("{\"error\":%s}", r);
         g_free(r);
         /* JSON-RPC 에러 코드 → HTTP 상태 코드 매핑 */
-        if      (code == -32602) status = 400;   /* Invalid params */
-        else if (code == -32601) status = 404;   /* Method not found */
-        else if (code == -32001) status = 404;   /* VM not found (custom) */
-        else if (code == -32003) status = 504;   /* RPC timeout (A-3) */
-        else if (code == -32006) status = 403;   /* Permission denied */
-        else                     status = 500;
+        if      (code == PURE_RPC_ERR_INVALID_PARAMS)   status = 400;   /* Invalid params */
+        else if (code == PURE_RPC_ERR_METHOD_NOT_FOUND) status = 404;   /* Method not found */
+        else if (code == PURE_RPC_ERR_VM_NOT_FOUND)     status = 404;   /* VM not found (custom) */
+        else if (code == PURE_RPC_ERR_TIMEOUT)          status = 504;   /* RPC timeout (A-3) */
+        else if (code == PURE_RPC_ERR_FORBIDDEN)        status = 403;   /* Permission denied */
+        else                                            status = 500;
     } else {
         body_str = g_strdup(rpc_resp);
         status   = 200;

@@ -67,21 +67,21 @@ void handle_vnc_request(JsonObject *params, const gchar *rpc_id, UdsServer *serv
     /* 파라미터 검증: vm_id는 필수 */
     const gchar *vm_id = json_object_get_string_member(params, "vm_id");
     if (!vm_id) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32602, "Missing parameter: vm_id");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing parameter: vm_id");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
     /* 커넥션 풀에서 libvirt 연결 획득 (서킷 브레이커 포함) */
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "Hypervisor Connection Failed");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor Connection Failed");
         pure_uds_server_send_response(server, connection, err); g_free(err); return;
     }
 
     /* 1단계: 다형성 검색 — UUID 또는 이름 어느 쪽으로든 VM을 찾습니다 */
     virDomainPtr dom = pure_virt_get_domain(conn, vm_id);
     if (!dom) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, -32000, "VM Entity not found");
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM Entity not found");
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
 
