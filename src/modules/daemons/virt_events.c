@@ -14,22 +14,24 @@
  *               -> virEventRunDefaultImpl()       [블로킹 이벤트 펌핑]
  *               -> domain_lifecycle_cb()          [이벤트 발생 시 콜백]
  *                    -> g_main_context_invoke()   [메인 스레드로 작업 위임]
- *                         -> handle_vm_death_in_main_thread()  [자원 회수]
+ *                         -> handle_vm_core_release_in_main_thread()  [코어 회수: 이름 키]
+ *                         -> handle_vm_death_in_main_thread()         [self-healing: UUID]
  *
- * [주요 흐름 — VM 비정상 종료 감지 및 자원 회수]
+ * [주요 흐름 — VM 종료 감지 및 자원 회수]
  *   1. 전용 스레드에서 virEventRunDefaultImpl()로 Libvirt 이벤트를 블로킹 대기
- *   2. VM이 STOPPED 또는 CRASHED 이벤트를 발생시키면 domain_lifecycle_cb() 호출
- *   3. 콜백에서 VM UUID를 g_strdup()로 복사 후 g_main_context_invoke()로 메인 스레드 전달
- *   4. 메인 스레드의 handle_vm_death_in_main_thread()에서:
- *      a) cpu_allocator_free_vm_cores()로 NUMA 격리 코어 해제
- *      b) (향후) OVS 포트 정리, ZFS 언마운트 등 추가 클린업 가능
- *      c) g_strdup()된 UUID 문자열 g_free()
+ *   2. VM이 STOPPED/CRASHED 이벤트를 발생시키면 domain_lifecycle_cb() 호출
+ *   3. [CMP-2] 코어 회수: 모든 종단 정지(STOPPED/CRASHED, graceful 포함)에서 VM 이름
+ *      복사본을 메인 스레드로 위임 → handle_vm_core_release_in_main_thread()가
+ *      cpu_allocator_free_vm_cores(name)로 회수. owner 키(=이름)와 일치해야 누수 없음.
+ *   4. [self-healing] crash 계열(CRASHED / STOPPED+FAILED/CRASHED)만 UUID를 위임 →
+ *      handle_vm_death_in_main_thread()가 vm-unresponsive 재시작 파이프라인 트리거.
  *
  * [핵심 패턴 — 이벤트 스레드 -> 메인 스레드 격리]
  *   - Libvirt 이벤트 콜백은 이벤트 스레드에서 실행됨
  *   - CPU Allocator 등 인메모리 자원 관리자는 메인 스레드 전용
  *   - g_main_context_invoke()로 스레드 간 안전한 작업 위임 (Mutex 불필요)
- *   - UUID 문자열은 g_strdup()로 복사하여 소유권을 메인 스레드에 이전
+ *   - 식별자 문자열(코어 회수용 이름 / self-healing용 UUID)은 g_strdup()로 복사해
+ *     소유권을 메인 스레드 콜백에 이전(각 콜백이 g_free)
  *
  * [주의사항]
  *   - domain_lifecycle_cb()에서 절대로 global_allocator를 직접 접근하지 말 것
@@ -146,20 +148,39 @@ void init_virt_events_daemon(void);
  * ========================================================= */
 
 /**
- * @brief 유령 VM이 남긴 찌꺼기 자원을 안전하게 회수하는 메인 루프 콜백
+ * @brief 정지/종료된 VM의 CPU 코어를 owner 키(=VM 이름)로 회수하는 메인 루프 콜백
  * ⚠️ 이 함수는 반드시 g_main_context_invoke를 통해 메인 스레드에서만 실행되어야 합니다.
+ *
+ * [CMP-2] cpu_allocator는 owner_vm_id를 VM 이름으로 기록한다(allocate: vm.start의 vm_id,
+ * reconcile: virDomainGetName). 따라서 release도 반드시 이름 키여야 한다. 이전에는
+ * crash 경로가 UUID로 free해 키 불일치로 코어가 누수됐고(owner=이름 ≠ uuid → no-op),
+ * graceful stop(STOPPED/SHUTDOWN)은 free 경로 자체가 없어 정지된 VM이 코어를 계속
+ * 점유했다(재시작 후 reconcile은 ACTIVE VM만 재마킹 → 상태 불일치). 이 콜백을 모든
+ * power-off 이벤트에 배선해 두 창을 함께 닫는다. self-healing 재시작과는 분리(여기서는
+ * 재시작을 트리거하지 않음 — 정상 정지 VM을 되살리면 안 됨).
+ */
+static gboolean handle_vm_core_release_in_main_thread(gpointer user_data) {
+    gchar *vm_name = (gchar *)user_data;
+    if (global_allocator != NULL && vm_name != NULL) {
+        cpu_allocator_free_vm_cores(global_allocator, vm_name);
+    }
+    g_free(vm_name);   /* 이벤트 스레드에서 g_strdup한 이름 소유권 해제 (Zero-Leak) */
+    return G_SOURCE_REMOVE;
+}
+
+/**
+ * @brief 크래시 계열 VM의 self-healing(재시작) 파이프라인을 트리거하는 메인 루프 콜백
+ * ⚠️ 이 함수는 반드시 g_main_context_invoke를 통해 메인 스레드에서만 실행되어야 합니다.
+ *
+ * [CMP-2] 코어 회수는 handle_vm_core_release_in_main_thread(이름 키)로 분리했다.
+ * 여기서는 restart 대상 식별자(UUID)만 self_healing에 전달한다.
  */
 static gboolean handle_vm_death_in_main_thread(gpointer user_data) {
     gchar *vm_id = (gchar *)user_data;
 
-    g_warning("🚨 [Self-Healing] Detected STOPPED or CRASHED event for VM %s. Reclaiming resources...", vm_id);
+    g_warning("🚨 [Self-Healing] Detected CRASHED-like event for VM %s. Triggering healing...", vm_id);
 
-    // 1. CPU Allocator에 묶여있던 물리 코어 선점 상태 강제 해제
-    if (global_allocator != NULL) {
-        cpu_allocator_free_vm_cores(global_allocator, vm_id);
-    }
-
-    // 2. BUG-20 fix: AI Ops 파이프라인 연결 — vm-unresponsive 정책 트리거.
+    // 1. BUG-20 fix: AI Ops 파이프라인 연결 — vm-unresponsive 정책 트리거.
     //    self_healing.c의 "vm-unresponsive" 정책이 trigger_metric="vm-unresponsive"로
     //    등록되어 있고 restart 액션을 갖는다. Z=99.0은 확정적 이상을 의미하는
     //    senti nel 값(정책 trigger_zscore=0이므로 항상 매칭).
@@ -167,10 +188,10 @@ static gboolean handle_vm_death_in_main_thread(gpointer user_data) {
     //    running-guard 통과 시 실제 재시작을 워커로 오프로드한다.
     pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, vm_id);
 
-    // 3. 향후 네트워크 브릿지 포트 정리(OVS port 딜리트)나 ZFS 데이터셋 언마운트 등의
+    // 2. 향후 네트워크 브릿지 포트 정리(OVS port 딜리트)나 ZFS 데이터셋 언마운트 등의
     // 추가적인 클린업 로직을 이곳에 배치할 수 있습니다.
 
-    // 4. 백그라운드 스레드에서 동적 할당해 넘겨준 UUID 문자열 메모리 해제 (Zero-Leak)
+    // 3. 백그라운드 스레드에서 동적 할당해 넘겨준 UUID 문자열 메모리 해제 (Zero-Leak)
     g_free(vm_id);
 
     return G_SOURCE_REMOVE; // 콜백 1회성 실행 후 제거
@@ -243,6 +264,18 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
               vm_name ? vm_name : "(unknown)", uuid);
         /* 1.0: vm-reboot-loop 추적 (per-VM 윈도우 카운터) */
         _track_vm_stop(uuid, vm_name);
+    }
+
+    /* [CMP-2] 전원이 꺼진 VM의 CPU 코어를 owner 키(VM 이름)로 회수한다. crash 경로의
+     * UUID free(키 불일치 누수)와 graceful stop 무회수를 함께 닫는다. 종단 이벤트인
+     * STOPPED/CRASHED 에만 회수한다 — SHUTDOWN(종료 진행 중)은 뒤이어 STOPPED 가 오므로
+     * 중복 발사(두 번째 free 의 'no cores found' 경고 소음)를 피한다. 이벤트 스레드에서
+     * allocator 직접 접근 금지 → 이름 복사본을 메인 스레드로 위임(g_main_context_invoke).
+     * 재시작 트리거와 무관하게 항상 회수한다(정상 정지 VM은 재시작 안 함, 코어만 반납). */
+    if ((event == VIR_DOMAIN_EVENT_STOPPED ||
+         event == VIR_DOMAIN_EVENT_CRASHED) && vm_name) {
+        g_main_context_invoke(NULL, handle_vm_core_release_in_main_thread,
+                              g_strdup(vm_name));
     }
 
     /* [감사 A6-6] 이전에는 STOPPED 전체에 대해 self-healing "vm-unresponsive"

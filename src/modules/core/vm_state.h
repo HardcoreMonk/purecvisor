@@ -161,6 +161,29 @@ void init_pending_state_machine(void);
 void unlock_vm_operation(const gchar *vm_id);
 
 /**
+ * @brief 현재 프로세스가 보유한 VM 락의 TTL(locked_at)을 현재 시각으로 연장합니다.
+ *
+ * [용도 — CMP-7]
+ *   대형 full-copy clone(zfs send|recv, qemu-img convert)처럼 op별 TTL(예: SNAPSHOT
+ *   300초)을 초과할 수 있는 장기 작업이 진행 중일 때, 워커가 주기적으로 이 함수를
+ *   호출해 locked_at을 갱신함으로써 "살아있는 데몬이 정상 작업 중인데 락이 stale로
+ *   판정되어 경쟁 op가 탈취"하는 창을 없앱니다.
+ *
+ * [갱신 조건 — 소유권 검증]
+ *   해당 vm_id 락이 존재하고 pid가 현재 프로세스(getpid)와 일치할 때만 locked_at을
+ *   갱신합니다. 다른 프로세스/부재 락은 건드리지 않고 FALSE를 반환합니다 (교차 갱신
+ *   차단 — 남의 락을 되살리지 않음).
+ *
+ * [멱등·스레드 안전]
+ *   g_db_mutex로 보호되어 워커 스레드에서 안전하게 반복 호출 가능합니다.
+ *   op_type은 바꾸지 않습니다 (locked_at만 now로 UPDATE).
+ *
+ * @param vm_id 대상 VM 식별자 (NULL/미초기화 DB면 FALSE)
+ * @return TRUE = 갱신됨(내 락), FALSE = 내 락이 아니거나 부재/DB 미초기화
+ */
+gboolean pcv_vm_lock_renew(const gchar *vm_id);
+
+/**
  * @brief 데몬 종료 시 DB 연결을 닫고 뮤텍스를 해제합니다.
  *
  * [호출 시점]

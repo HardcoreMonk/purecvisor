@@ -87,6 +87,11 @@ static struct {
 static guint g_overlay_reconcile_timer_id = 0;    /* g_timeout source id */
 static gint  g_overlay_reconcile_inflight = 0;    /* 중첩 방지 (g_atomic) */
 
+/* NET-5 레이스 게이트: reconcile 경로(pcv_overlay_restore) 전용 create 구현.
+ * pcv_overlay_create 는 reconcile=FALSE 로 이 함수에 위임한다 (아래 정의). */
+static gboolean _overlay_create_impl(const gchar *name, gint vni, const gchar *cidr,
+                                     gboolean reconcile, GError **error);
+
 /* ── helpers ──────────────────────────────────────────────────── */
 
 /**
@@ -336,10 +341,14 @@ pcv_overlay_restore(void)
         const gchar *cidr = json_object_has_member(root, "cidr")
             ? json_object_get_string_member(root, "cidr") : NULL;
 
-        /* 멱등 재적용: ovs-vsctl --may-exist add-br + IP 재할당 */
+        /* 멱등 재적용: ovs-vsctl --may-exist add-br + IP 재할당.
+         * NET-5: reconcile 경로이므로 _overlay_create_impl(reconcile=TRUE) 를 통해
+         * 재생성 직전 meta 파일 존재를 G.mu 하에서 재확인한다 — 이 워커가 위 디스크
+         * 파싱(락 밖)을 마친 뒤 create 전에 동시 teardown(pcv_overlay_delete)이 이
+         * overlay 를 삭제(meta 파일 remove 포함)했다면 zombie 재생성을 skip. */
         GError *cerr = NULL;
-        if (!pcv_overlay_create(name, vni,
-                                (cidr && *cidr) ? cidr : NULL, &cerr)) {
+        if (!_overlay_create_impl(name, vni,
+                                (cidr && *cidr) ? cidr : NULL, TRUE, &cerr)) {
             PCV_LOG_WARN(OVERLAY_LOG_DOM, "overlay '%s' restore failed: %s",
                          name, cerr ? cerr->message : "unknown");
             if (cerr) g_error_free(cerr);
@@ -452,6 +461,35 @@ pcv_overlay_reconcile_timer_shutdown(void)
 gboolean
 pcv_overlay_create(const gchar *name, gint vni, const gchar *cidr, GError **error)
 {
+    /* 공개 create RPC(handler_overlay)/부트스트랩 경로 — reconcile 아님.
+     * genuine create 는 meta 파일이 아직 없으므로 레이스 게이트를 통과시키지 않는다. */
+    return _overlay_create_impl(name, vni, cidr, FALSE, error);
+}
+
+/**
+ * _overlay_create_impl — pcv_overlay_create 의 내부 구현 (+ NET-5 reconcile 게이트)
+ * @reconcile: TRUE 이면 reconcile 워커 경로 — _find 부재 시 재생성 직전 meta 파일
+ *   존재를 G.mu 하에서 재확인하고, 부재(동시 teardown 이 remove)면 재생성을 skip 한다.
+ *
+ * [NET-5 레이스]
+ *   reconcile 워커(_overlay_reconcile_worker, 워커풀 스레드)는 pcv_overlay_restore 에서
+ *   G.mu 밖으로 디스크 meta 를 파싱해 in-memory 스냅샷을 만든 뒤 이 함수를 호출한다.
+ *   그 사이 메인루프에서 pcv_overlay_delete 가 같은 overlay 를 삭제(브릿지 del-br +
+ *   meta 파일 remove + 배열 제거, 모두 G.mu 하)하면, 여기서 _find 가 NULL 을 반환해
+ *   삭제된 overlay 의 브릿지·meta 가 zombie 로 부활한다.
+ *
+ * [직렬화 근거 (단일 락 G.mu)]
+ *   delete 는 G.mu 하에서 meta 파일을 remove() 한다. 이 함수도 create 본문 전체를
+ *   G.mu 로 감싼 채 _find 직후 g_file_test 로 meta 존재를 확인한다. 두 경로가 동일
+ *   G.mu 로 직렬화되므로:
+ *     - create 가 락 선점: 브릿지+등록+_save_meta 완료 후 unlock → delete 가 정상 삭제.
+ *     - delete 가 락 선점: meta remove 완료 후 unlock → create 는 meta 부재 관측 → skip.
+ *   어느 순서든 최종 상태는 "삭제됨". 부활 창이 닫힌다.
+ */
+static gboolean
+_overlay_create_impl(const gchar *name, gint vni, const gchar *cidr,
+                     gboolean reconcile, GError **error)
+{
     if (!G.initialized) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Overlay not initialized");
         return FALSE;
@@ -461,6 +499,19 @@ pcv_overlay_create(const gchar *name, gint vni, const gchar *cidr, GError **erro
     if (_find(name)) {
         g_mutex_unlock(&G.mu);
         return TRUE;  /* idempotent */
+    }
+    /* NET-5: reconcile 경로 한정 부활 게이트 — 동시 teardown 이 meta 를 제거했으면
+     * (torn down) 재생성 금지. 에러 아님(삭제가 의도된 최종 상태). */
+    if (reconcile) {
+        gchar *meta_path = g_strdup_printf(OVERLAY_META_DIR "/overlay-%s.meta", name);
+        gboolean meta_exists = g_file_test(meta_path, G_FILE_TEST_EXISTS);
+        g_free(meta_path);
+        if (!meta_exists) {
+            g_mutex_unlock(&G.mu);
+            PCV_LOG_INFO(OVERLAY_LOG_DOM,
+                "reconcile: overlay '%s' meta 부재 (동시 teardown) → 재생성 skip", name);
+            return TRUE;
+        }
     }
     if (G.count >= OVERLAY_MAX) {
         g_mutex_unlock(&G.mu);

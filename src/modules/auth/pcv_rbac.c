@@ -906,14 +906,37 @@ _migrate_freeze_apikey_effective_roles(void)
 {
     if (!g_rbac_db) return;
 
-    /* 1회성 게이트 — user_version 이 목표 미만일 때만 실행 */
+    /* 1회성 게이트 — user_version 이 목표 미만일 때만 실행.
+     * [SEC-3 follow-up] prepare/step rc 미확인이면 DB 오류(락/손상 등)를 uv=0으로
+     * 오인해 "아직 미적용"으로 잘못 판단 → 이미 적용된 뒤 admin이 명시적으로 설정한
+     * api_keys.role을 매 부팅 재계산값으로 클로버하는 권한 변동 위험(SEC-3가 막으려던
+     * 바로 그 결함)이 재발한다. rc를 확인해 조회 실패 시 이번 부팅은 마이그레이션을
+     * skip(=미적용으로 안전 처리)하고 다음 기동에 재시도한다. */
     gint64 uv = 0;
+    gboolean uv_known = FALSE;
     sqlite3_stmt *q = nullptr;
-    if (sqlite3_prepare_v2(g_rbac_db, "PRAGMA user_version;", -1, &q, NULL) == SQLITE_OK) {
-        if (sqlite3_step(q) == SQLITE_ROW)
+    int uv_prep_rc = sqlite3_prepare_v2(g_rbac_db, "PRAGMA user_version;", -1, &q, NULL);
+    if (uv_prep_rc == SQLITE_OK) {
+        int uv_step_rc = sqlite3_step(q);
+        if (uv_step_rc == SQLITE_ROW) {
             uv = sqlite3_column_int64(q, 0);
+            uv_known = TRUE;
+        } else {
+            PCV_LOG_ERROR(RBAC_LOG_DOM,
+                          "SEC-3 PRAGMA user_version step failed (rc=%d) — "
+                          "apikey freeze-effective migration skipped this boot, "
+                          "will retry next boot", uv_step_rc);
+        }
         sqlite3_finalize(q);
+    } else {
+        PCV_LOG_ERROR(RBAC_LOG_DOM,
+                      "SEC-3 PRAGMA user_version prepare failed (rc=%d): %s — "
+                      "apikey freeze-effective migration skipped this boot, "
+                      "will retry next boot",
+                      uv_prep_rc, sqlite3_errmsg(g_rbac_db));
     }
+    if (!uv_known)
+        return;   /* fail-secure: 판정 불가 → 강행하지 않고 skip (재실행 안전 유지) */
     if (uv >= PCV_RBAC_USER_VERSION_APIKEY_FREEZE)
         return;   /* 이미 1회 실행됨 → 관리자 설정 role 클로버 방지 (재실행 금지) */
 
@@ -932,10 +955,24 @@ _migrate_freeze_apikey_effective_roles(void)
     }
 
     /* 성공 → user_version 증가로 재실행 봉쇄. PRAGMA 는 바인딩 불가(리터럴만) →
-     * 매크로 값을 G_STRINGIFY 로 컴파일타임 문자열화. */
-    sqlite3_exec(g_rbac_db,
+     * 매크로 값을 G_STRINGIFY 로 컴파일타임 문자열화.
+     * [SEC-3 follow-up] 이 쓰기의 rc를 확인하지 않으면, UPDATE는 이미 적용됐는데
+     * user_version 마킹만 실패한 경우를 "성공"으로 잘못 로그하게 된다 — 마커가
+     * 안 남았으니 다음 부팅에 uv<target으로 재실행되는 것 자체는 안전하지만(재실행 시
+     * UPDATE가 다시 성공하면 그때 비로소 마킹됨), 실패를 성공으로 오인 로그하는 것은
+     * 운영 판단을 오도한다. rc 확인 + 실패 시 명시 로그(성공 로그는 남기지 않음)로
+     * "다음 기동 재시도"가 우연이 아니라 의도된 안전 처리임을 드러낸다. */
+    int uv_write_rc = sqlite3_exec(g_rbac_db,
         "PRAGMA user_version = " G_STRINGIFY(PCV_RBAC_USER_VERSION_APIKEY_FREEZE) ";",
         NULL, NULL, NULL);
+    if (uv_write_rc != SQLITE_OK) {
+        PCV_LOG_ERROR(RBAC_LOG_DOM,
+                      "SEC-3 PRAGMA user_version write failed (rc=%d): %s — "
+                      "migration UPDATE already applied but marker not persisted, "
+                      "will retry next boot",
+                      uv_write_rc, sqlite3_errmsg(g_rbac_db));
+        return;
+    }
     PCV_LOG_INFO(RBAC_LOG_DOM,
                  "SEC-3 apikey freeze-effective migration applied "
                  "(existing keys' stored role pinned to current effective role; user_version=%d)",

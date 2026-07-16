@@ -21,7 +21,9 @@
 # 케이스:
 #   C1  iso_path=/etc/shadow                       (확장자 위반 — 임의파일 마운트)
 #   C2  iso_path=/pcvpool/iso/../../etc/shadow      (경로순회 traversal)
-#   둘 다 거부(.error != null, accepted 아님)여야 PASS.
+#   C3  base_image=/etc/shadow                      (확장자 위반 — 임의파일 디스크 흡입, CMP-3 확장)
+#   C4  base_image=/pcvpool/img/../../etc/shadow.qcow2 (경로순회 traversal)
+#   모두 거부(.error != null, accepted 아님)여야 PASS.
 #
 # 격리 방식(test_vm_lock_cross_unlock.sh 관습 재사용):
 #   - bubblewrap(bwrap) 사용자 네임스페이스 uid-0 맵핑, /var/lib/purecvisor 와
@@ -212,6 +214,26 @@ assert_rejected() {  # $1 = label   $2 = iso_path
     fi
 }
 
+# base_image 거부 단언 (CMP-3 확장): base_image는 qemu-img convert 입력으로 host FS에서
+# 직접 읽혀 VM 디스크로 기록되므로 iso_path와 동일 신뢰경계. 미검증 시 임의파일 흡입·순회.
+assert_rejected_base_image() {  # $1 = label   $2 = base_image
+    local label="$1" bimg="$2" resp
+    resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.create\",\"params\":{\"name\":\"$VM\",\"vcpu\":1,\"memory_mb\":512,\"disk_size_gb\":5,\"base_image\":\"$bimg\"},\"id\":\"$label\"}")"
+    info "$label: base_image='$bimg' 응답 = ${resp:-<empty>}"
+    if [ -z "${resp:-}" ]; then
+        fail "$label: 빈 응답 (데몬 무응답)"
+        return
+    fi
+    local has_error accepted
+    has_error="$(printf '%s' "$resp" | jq -r 'if (.error != null) then "yes" else "no" end' 2>/dev/null)"
+    accepted="$(printf '%s' "$resp" | jq -r 'if (.result.accepted == true) then "yes" else "no" end' 2>/dev/null)"
+    if [ "$has_error" = "yes" ] && [ "$accepted" != "yes" ]; then
+        pass "$label: base_image='$bimg' 거부됨 (.error != null, accepted 아님) — base_image 실검증"
+    else
+        fail "$label: base_image='$bimg' 거부 안 됨 (has_error=$has_error accepted=$accepted) — 검증 미배선/회귀"
+    fi
+}
+
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
 echo -e "${CYAN}  CMP-3 라이브 vm.create ISO 검증 배선 결정적 E2E     ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
@@ -239,6 +261,14 @@ assert_rejected "C1-etc-shadow" "/etc/shadow"
 # 단계 3: iso_path=/pcvpool/iso/../../etc/shadow → 거부 (경로순회)
 # ═══════════════════════════════════════════════════════════════
 assert_rejected "C2-traversal" "/pcvpool/iso/../../etc/shadow"
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 4 (CMP-3 확장): base_image 검증 — 임의 호스트 파일 흡입/경로순회 차단
+#   C3  base_image=/etc/shadow                        (확장자 위반 — 임의파일→디스크 흡입)
+#   C4  base_image=/pcvpool/img/../../etc/shadow.qcow2 (경로순회)
+# ═══════════════════════════════════════════════════════════════
+assert_rejected_base_image "C3-baseimg-shadow"   "/etc/shadow"
+assert_rejected_base_image "C4-baseimg-traversal" "/pcvpool/img/../../etc/shadow.qcow2"
 
 # ═══════════════════════════════════════════════════════════════
 # 정리

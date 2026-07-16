@@ -24,14 +24,27 @@ static GMutex     g_silence_mu;
  * g_mutex_init 이중 호출 + g_ptr_array 이중 할당(누수/torn)이 가능했다. */
 static gsize      g_silence_once = 0;
 
-void
-pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reason)
+/* AIO-7 리더 배리어: add뿐 아니라 is_silenced/get_silences/reset 등 모든 리더도
+ * 반드시 이 진입점을 거쳐야 한다. 이전에는 리더가 `if (!g_silences)` 무락 검사만
+ * 하고 바로 g_silences/g_silence_mu를 참조했는데, 이는 g_once_init_enter/leave가
+ * 제공하는 acquire/release 배리어 밖의 접근이라 — writer 스레드의 g_mutex_init/
+ * g_ptr_array_new 완료를 리더가 관측하지 못한 채(컴파일러/CPU 재정렬) 그 값을
+ * 읽어 들일 수 있는 데이터 레이스였다. 모든 경로가 g_once_init_enter/leave를
+ * 통과하게 하여 배리어 안에서만 접근하도록 통일한다. */
+static void
+_ensure_silence_init(void)
 {
     if (g_once_init_enter(&g_silence_once)) {
         g_mutex_init(&g_silence_mu);
         g_silences = g_ptr_array_new_with_free_func(g_free);
         g_once_init_leave(&g_silence_once, 1);
     }
+}
+
+void
+pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reason)
+{
+    _ensure_silence_init();
     AlertSilence *s = g_new0(AlertSilence, 1);
     s->metric = g_strdup(metric);
     s->until  = g_get_monotonic_time() + (gint64)duration_min * 60 * G_USEC_PER_SEC;
@@ -48,7 +61,8 @@ pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reaso
 gboolean
 pcv_alert_is_silenced(const gchar *metric)
 {
-    if (!g_silences || !metric) return FALSE;
+    _ensure_silence_init();
+    if (!metric) return FALSE;
     gint64 now = g_get_monotonic_time();
     gboolean silenced = FALSE;
 
@@ -69,8 +83,8 @@ pcv_alert_is_silenced(const gchar *metric)
 JsonArray *
 pcv_alert_get_silences(void)
 {
+    _ensure_silence_init();
     JsonArray *arr = json_array_new();
-    if (!g_silences) return arr;
     gint64 now = g_get_monotonic_time();
 
     g_mutex_lock(&g_silence_mu);
@@ -95,7 +109,7 @@ pcv_alert_get_silences(void)
 void
 pcv_alert_silence_reset(void)
 {
-    if (!g_silences) return;
+    _ensure_silence_init();
     g_mutex_lock(&g_silence_mu);
     g_ptr_array_set_size(g_silences, 0);
     g_mutex_unlock(&g_silence_mu);

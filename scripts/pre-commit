@@ -257,6 +257,22 @@ else
     skip "[$((GATE+1))] .c/.h 및 게이트 스크립트/baseline 변경 없음 — 에러코드 게이트 생략"
 fi
 
+# ── 4i. audit 배치 계약 게이트 (check-audit-placement, ADR-0018) ───
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] audit 배치 계약 (async registry/audit/WS completion)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    AP_OUT=$(python3 "$SCRIPT_DIR/check_audit_placement.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "audit 배치 계약 위반 (ADR-0018 — async 등록/audit/WS completion)"
+        echo "$AP_OUT" | tail -15
+    else
+        pass "$(echo "$AP_OUT" | grep -E '^\[|PASS' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 변경 없음 — audit 배치 게이트 생략"
+fi
+
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────
 if $HAS_UI_CHANGES; then
     GATE=$((GATE+1))

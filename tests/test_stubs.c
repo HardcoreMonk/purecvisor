@@ -153,6 +153,22 @@ void pcv_ws_broadcast_job_complete_mt(const gchar *job_id __attribute__((unused)
                                       const gchar *status __attribute__((unused)),
                                       const gchar *error_msg __attribute__((unused))) { }
 
+/* AIO-1 anomaly 해머 테스트(tests/test_self_healing_anomaly.c)가 self_healing.c 를
+ * 링크하며 끌어오는 트리거/알림 경로 심볼. 해머는 sub-threshold(<3 distinct, 정책
+ * 미매칭)라 이 경로들은 실제 호출되지 않으므로 no-op 스텁으로 충분하다. */
+typedef struct _JsonObject JsonObject;   /* json-glib 미포함 — opaque forward-decl */
+void pcv_agent_compare_async(const gchar *metrics_json __attribute__((unused)),
+                             const gchar *anomaly_context __attribute__((unused))) { }
+JsonObject *pcv_ebpf_telemetry_get_host(void) { return NULL; }
+void pcv_ws_broadcast(const gchar *type __attribute__((unused)),
+                      const gchar *payload_json __attribute__((unused))) { }
+gint pcv_ws_client_count(void) { return 0; }
+/* self_healing.c::_vm_restart_worker(restart 액션 경로, 해머 미도달)가 참조. */
+typedef struct _virDomain  *virDomainPtr;   /* libvirt opaque — 심볼만 필요 */
+typedef struct _virConnect *virConnectPtr;
+virDomainPtr pure_virt_get_domain(virConnectPtr conn __attribute__((unused)),
+                                  const gchar *identifier __attribute__((unused))) { return NULL; }
+
 /* ── ZFS pool 분산 락 stubs (BUG-18 Phase 2) ──
  * zfs_driver.c가 PCV_CLUSTER_ENABLED일 때 etcd inflight lock을 호출.
  * 테스트 환경에서는 etcd 없으므로 stub. */

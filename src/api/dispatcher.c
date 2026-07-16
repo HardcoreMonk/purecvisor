@@ -1093,13 +1093,49 @@ typedef struct {
     gchar    *source_zvol_name;   /* source_dataset의 마지막 요소 */
     gboolean  holds_source_lock;  /* [CMP-7] source VM_OP 락 보유 여부 */
     gboolean  holds_target_lock;  /* [CMP-7] target(clone_name) VM_OP 락 보유 여부 */
+    GThread  *lock_renew_thread;  /* [CMP-7] 보유 락 TTL 주기 갱신 스레드 (NULL=미기동) */
+    gint      lock_renew_stop;    /* [CMP-7] 갱신 스레드 정지 플래그 (g_atomic) */
 } VmCloneCtx;
+
+/* [CMP-7] clone 락 TTL 갱신 주기. SNAPSHOT/CREATING op TTL(300/600초)보다 충분히 짧게
+ * 잡아 대형 full-copy 진행 중에도 stale 판정을 방지한다. 대기는 250ms tick으로 쪼개
+ * 정지 신호에 신속히 반응(_vm_clone_ctx_free의 join 이 메인 컨텍스트를 최대 ~250ms만
+ * 붙든다). 60s = 240 tick. */
+#define VM_CLONE_LOCK_RENEW_TICK_MS   250
+#define VM_CLONE_LOCK_RENEW_TICKS     240   /* 240 * 250ms = 60s */
+
+/* [CMP-7] 락 갱신 하트비트 워커. 보유 중인 source/target 락의 locked_at을 주기적으로
+ * now로 되감아, 대형 clone(예: 다TB full-copy)이 op TTL을 초과해도 살아있는 데몬의 락이
+ * stale로 오판되어 경쟁 vm.delete/vm.create에 탈취되는 창을 없앤다. pcv_vm_lock_renew는
+ * pid 소유권을 검증하므로 남의 락은 건드리지 않는다. */
+static gpointer
+_vm_clone_lock_renew_worker(gpointer data)
+{
+    VmCloneCtx *ctx = (VmCloneCtx *)data;
+    while (!g_atomic_int_get(&ctx->lock_renew_stop)) {
+        for (gint i = 0; i < VM_CLONE_LOCK_RENEW_TICKS; i++) {
+            if (g_atomic_int_get(&ctx->lock_renew_stop)) return NULL;
+            g_usleep(VM_CLONE_LOCK_RENEW_TICK_MS * 1000);
+        }
+        if (g_atomic_int_get(&ctx->lock_renew_stop)) break;
+        if (ctx->holds_source_lock) (void)pcv_vm_lock_renew(ctx->source);
+        if (ctx->holds_target_lock) (void)pcv_vm_lock_renew(ctx->target);
+    }
+    return NULL;
+}
 
 static void
 _vm_clone_ctx_free(gpointer data)
 {
     VmCloneCtx *ctx = (VmCloneCtx *)data;
     if (!ctx) return;
+    /* [CMP-7] 락 갱신 하트비트를 먼저 정지·join → 이후 unlock과 경합 불가.
+     * (갱신 스레드가 unlock 이후 locked_at을 되살리는 순서역전 차단.) */
+    if (ctx->lock_renew_thread) {
+        g_atomic_int_set(&ctx->lock_renew_stop, 1);
+        g_thread_join(ctx->lock_renew_thread);
+        ctx->lock_renew_thread = NULL;
+    }
     /* [CMP-7] 단일 해제 지점: 모든 핸들러 조기return + GTask GDestroyNotify가 여기를
      * 경유한다. flag가 TRUE인 락만 해제 → 부분획득(source만/target만) 안전.
      * unlock은 ctx->source/target 문자열을 읽으므로 반드시 g_free 앞에서 수행. */
@@ -1377,6 +1413,13 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                  ctx->guest_reset ? "yes" : "no",
                  is_zvol ? ctx->source_dataset : ctx->source_disk_path,
                  is_zvol ? ctx->target_dataset : ctx->target_disk_path);
+
+    /* [CMP-7] 장기 복사(zfs send|recv / qemu-img convert) 진행 중 source·target 락의
+     * TTL을 주기 갱신하는 하트비트 기동. 정지·join은 _vm_clone_ctx_free 단일 지점에서
+     * (GDestroyNotify가 워커 종료 후 메인 컨텍스트에서 실행). 기동 실패해도 clone은 진행
+     * (기존 TTL 만료 위험만 남음 → best-effort). */
+    ctx->lock_renew_thread = g_thread_new("clone-lock-renew",
+                                          _vm_clone_lock_renew_worker, ctx);
 
     gchar *snap_tag = NULL;
     gboolean source_snapshot_exists = FALSE;
@@ -1864,6 +1907,17 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     if (json_object_has_member(params, "base_image")) {
         base_image = json_object_get_string_member(params, "base_image");
     }
+    /* PCV_SAFETY_CONTROL: vm-create-iso-validation — base_image도 iso_path와 동일 신뢰경계.
+     * base_image는 vm_manager에서 qemu-img convert 입력으로 host FS에서 직접 읽혀 VM 디스크로
+     * 기록되므로, 미검증 시 /etc/shadow 등 임의 파일 흡입·경로순회가 가능하다. 절대·no-".."·
+     * 디스크이미지 확장자 위반 시 op-lock/create(부작용) 이전에 거부한다 (CMP-3 확장). */
+    if (base_image && *base_image && !pcv_validate_base_image_path(base_image)) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "Invalid base_image: must be an absolute .qcow2/.qcow/.img/.raw path without '..'");
+        pure_uds_server_send_response(server, connection, err);
+        g_free(err);
+        return;
+    }
     const gchar *owner = _json_string_member(params, "_pcv_caller_sub");
 
     /* UEFI/TPM/CPU/HugePages 고급 VM 설정 파싱 */
@@ -2184,12 +2238,24 @@ static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
     } else {
+        /* CMP-10류: VM_OP_TUNING 획득 — "accepted" 응답 전에 획득(busy VM 은 accepted 가
+         * 아니라 -32004 를 받아야 함). 다른 12 hotplug 와 동일 패턴으로 동시 delete/hotplug
+         * 와의 레이스(디스크 리사이즈 vs undefine/블록 attach)를 직렬화한다. 성공 시에만
+         * 워커에 락 소유권을 넘기고(holds_lock=TRUE), 해제는 resize_disk_data_free 단일 지점. */
+        gchar *lock_err = NULL;
+        if (!lock_vm_operation(vm_name, VM_OP_TUNING, &lock_err)) {
+            gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
+                lock_err ? lock_err : "VM busy (operation in progress)");
+            pure_uds_server_send_response(server, connection, err_resp);
+            g_free(err_resp); g_free(lock_err);
+            return;
+        }
         JsonNode *accepted = json_node_new(JSON_NODE_VALUE);
         json_node_set_string(accepted, "resize accepted");
         gchar *resp = pure_rpc_build_success_response(rpc_id, accepted);
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
-        purecvisor_vm_resize_disk(vm_name, new_size_gb, target);
+        purecvisor_vm_resize_disk(vm_name, new_size_gb, target, TRUE /* holds_lock */);
     }
 }
 

@@ -14,6 +14,7 @@
 /test_results_tap.txt
 /valgrind_report.txt
 /sanitize_report.txt
+/tsan_report.txt
 /cppcheck_report.txt
 /compile_commands.json
 *.gcda

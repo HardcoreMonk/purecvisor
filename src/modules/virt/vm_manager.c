@@ -93,6 +93,7 @@
 #include "../../utils/pcv_spawn.h"  /* GIO P3: pcv_spawn_sync */
 #include "../../utils/pcv_log.h"    /* PCV_LOG_INFO / PCV_LOG_WARN */
 #include "modules/dispatcher/rpc_utils.h"  /* PURE_RPC_ERR_* (DISP-6) */
+#include "modules/core/vm_state.h"          /* unlock_vm_operation (resize_disk 락 하드닝) */
 
 #include <glib/gstdio.h>
 #include <json-glib/json-glib.h>
@@ -2187,12 +2188,17 @@ gboolean purecvisor_vm_manager_set_vcpu_finish(PureCVisorVmManager *self, GAsync
 
 /** 디스크 리사이즈 GTask 데이터 */
 typedef struct {
-    gchar *name;          /* VM 이름 */
-    gint   new_size_gb;   /* 새 디스크 크기 (GB) */
-    gchar *target;        /* 블록 디바이스 타겟 (예: "vda") */
+    gchar   *name;          /* VM 이름 */
+    gint     new_size_gb;   /* 새 디스크 크기 (GB) */
+    gchar   *target;        /* 블록 디바이스 타겟 (예: "vda") */
+    gboolean holds_lock;    /* [CMP-10류] 호출자가 VM_OP_TUNING 락 획득했는지 */
 } ResizeDiskData;
 
 static void resize_disk_data_free(ResizeDiskData *d) {
+    /* [락 하드닝] 단일 해제 지점: fire-and-forget이라 콜백이 없어 GDestroyNotify가
+     * 성공·실패 모든 경로의 유일 종착지. holds_lock=TRUE(핸들러가 획득)일 때만 해제
+     * → 이중해제/무해제 없이 acquire:unlock 1:1. unlock은 d->name을 읽으므로 free 앞. */
+    if (d->holds_lock) unlock_vm_operation(d->name);
     g_free(d->name);
     g_free(d->target);
     g_free(d);
@@ -2412,11 +2418,13 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
  * VM 디스크 리사이즈를 fire-and-forget으로 실행합니다.
  * 디스패처에서 응답 전송 후 호출됩니다.
  */
-void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar *target) {
+void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar *target,
+                                gboolean holds_lock) {
     ResizeDiskData *d = g_new0(ResizeDiskData, 1);
     d->name = g_strdup(name);
     d->new_size_gb = new_size_gb;
     d->target = target ? g_strdup(target) : g_strdup("vda");
+    d->holds_lock = holds_lock;   /* 핸들러가 VM_OP_TUNING을 획득했으면 여기서 소유권 인수 */
 
     GTask *task = g_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)resize_disk_data_free);

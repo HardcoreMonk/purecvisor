@@ -224,6 +224,41 @@ static void test_restart_no_leak(CpuFixture *f, gconstpointer d) {
     free_out(out1); free_out(out2);
 }
 
+/* [CMP-2] free 키 = owner 키(=VM 이름) 반사실 검증.
+ * allocate/reconcile는 owner를 VM 이름으로 기록한다. crash 경로가 UUID로 free하면
+ * 키 불일치로 코어가 회수되지 않고 누수한다 — 그 누수를 명시적으로 노출한다:
+ *   1) "web-prod"(이름)로 2코어 할당
+ *   2) UUID(가짜 다른 키)로 free → 아무것도 회수 안 됨(allocated 여전히 2)
+ *   3) 올바른 이름으로 free → 회수됨(allocated 0)
+ * 수정(virt_events.c: 이름 키로 회수)이 없으면 stop 이벤트가 UUID로만 free해 (2)에서
+ * 누수가 영구화된다. */
+static void test_free_wrong_key_leaks(CpuFixture *f, gconstpointer d) {
+    (void)d;
+    cpu_allocator_add_core(f->alloc, 0, 0, 0, TRUE);
+    cpu_allocator_add_core(f->alloc, 1, 1, 0, TRUE);
+
+    GArray *out = NULL;
+    g_assert_true(cpu_allocator_allocate_exclusive(f->alloc, "web-prod", 0, 2, &out, NULL));
+    g_assert_cmpuint(out->len, ==, 2);
+    free_out(out);
+
+    /* (2) 잘못된 키(UUID 흉내)로 free — owner=이름이라 매칭 실패 → 회수 0 (누수) */
+    cpu_allocator_free_vm_cores(f->alloc, "d3adb33f-0000-0000-0000-000000000000");
+    JsonObject *info1 = cpu_allocator_get_numa_info(f->alloc);
+    JsonObject *n1 = json_array_get_object_element(
+        json_object_get_array_member(info1, "numa_nodes"), 0);
+    g_assert_cmpint(json_object_get_int_member(n1, "allocated"), ==, 2);  /* 여전히 점유 */
+    json_object_unref(info1);
+
+    /* (3) 올바른 키(이름)로 free — 회수됨 */
+    cpu_allocator_free_vm_cores(f->alloc, "web-prod");
+    JsonObject *info2 = cpu_allocator_get_numa_info(f->alloc);
+    JsonObject *n2 = json_array_get_object_element(
+        json_object_get_array_member(info2, "numa_nodes"), 0);
+    g_assert_cmpint(json_object_get_int_member(n2, "allocated"), ==, 0);  /* 회수 완료 */
+    json_object_unref(info2);
+}
+
 void test_cpu_allocator_register(void) {
 #define CPU_TEST(name, fn) \
     g_test_add("/cpu_allocator/" name, CpuFixture, NULL, cpu_setup, fn, cpu_teardown)
@@ -242,5 +277,6 @@ void test_cpu_allocator_register(void) {
     CPU_TEST("get_numa_info",               test_get_numa_info);
     CPU_TEST("free_nonexistent_vm",         test_free_nonexistent_vm);
     CPU_TEST("restart_no_leak",             test_restart_no_leak);
+    CPU_TEST("free_wrong_key_leaks",        test_free_wrong_key_leaks);
 #undef CPU_TEST
 }

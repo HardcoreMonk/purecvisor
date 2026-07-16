@@ -76,8 +76,14 @@ AUDIT_CALL_RE = re.compile(
     r'pcv_audit_log(?:_rpc)?\s*\(\s*[^)]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
+# WS completion 호출 패턴 — 메인컨텍스트 직결(pcv_ws_broadcast_job_complete)과
+# 워커 스레드 마샬링 변형(_mt, A2-2 libsoup 스레드 어피니티, 커밋 09d66ae) 둘 다 인식.
+# `_mt` 변형을 누락하면 backup.restore/replicate/export_s3·vm.clone/export.ova/
+# import.ova·vm.resize_disk·vm.disk.live_resize 처럼 워커에서 `_mt`로만 완료를
+# 브로드캐스트하는 fire-and-forget 메서드가 "WS completion 누락" 위음성으로 잡혀
+# 게이트가 거짓 실패한다.
 WS_COMPLETE_RE = re.compile(
-    r'pcv_ws_broadcast_job_complete\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
+    r'pcv_ws_broadcast_job_complete(?:_mt)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
 

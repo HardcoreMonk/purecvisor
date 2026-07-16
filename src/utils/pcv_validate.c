@@ -330,6 +330,52 @@ gboolean pcv_validate_iso_path(const gchar *path) {
 }
 
 /**
+ * pcv_validate_base_image_path - vm.create base_image(cloud image) 경로 검증
+ * @path: 검증할 base image 파일 경로
+ *
+ * @return: TRUE이면 유효
+ *
+ * [배경 — CMP-3 확장]
+ *   vm.create의 base_image는 vm_manager.c에서 qemu-img convert의 입력으로 host FS에서
+ *   직접 읽혀 새 VM 디스크(zvol)에 기록된다. iso_path와 동일한 신뢰경계 문제 —
+ *   미검증 시 "/etc/shadow" 같은 임의 호스트 파일을 VM 디스크로 흡입하거나 경로순회로
+ *   시스템 파일에 접근할 수 있다. iso_path와 같은 패턴으로 실검증한다.
+ *
+ * [검증 규칙 — iso_path와 동형]
+ *   1. 절대 경로만 허용 ('/'로 시작)
+ *   2. ".." 경로 순회 차단
+ *   3. 최대 길이 PCV_MAX_ISO_PATH (512자)
+ *   4. 확장자 allowlist: .qcow2/.qcow/.img/.raw (cloud image 통용 포맷; iso와 달리
+ *      base_image는 디스크 이미지이므로 확장자 집합만 다르다)
+ *
+ * [주의]
+ *   iso_path와 동일하게 파일 존재/심볼릭링크는 검증하지 않는다(호출측 g_file_test로 별도).
+ */
+gboolean pcv_validate_base_image_path(const gchar *path) {
+    if (!path || *path == '\0') return FALSE;
+    if (strlen(path) > PCV_MAX_ISO_PATH) return FALSE;
+
+    /* 절대 경로만 허용 — 상대 경로는 cwd 의존으로 위험 */
+    if (path[0] != '/') return FALSE;
+
+    /* ".." 경로 순회 차단 (iso_path와 동일 규칙) */
+    if (strstr(path, "/../") != NULL) return FALSE;
+    if (g_str_has_suffix(path, "/.."))  return FALSE;
+    if (g_strcmp0(path, "..") == 0)     return FALSE;
+
+    /* 확장자 allowlist: cloud/디스크 이미지 통용 포맷 (대소문자 무시) */
+    gchar *lower = g_ascii_strdown(path, -1);
+    gboolean ext_ok = g_str_has_suffix(lower, ".qcow2") ||
+                      g_str_has_suffix(lower, ".qcow")  ||
+                      g_str_has_suffix(lower, ".img")   ||
+                      g_str_has_suffix(lower, ".raw");
+    g_free(lower);
+    if (!ext_ok) return FALSE;
+
+    return TRUE;
+}
+
+/**
  * pcv_validate_memory_mb - 메모리 크기(MB) 범위 검증
  * @mb: 검증할 메모리 크기 (MB 단위)
  *

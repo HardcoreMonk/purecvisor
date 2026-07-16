@@ -96,7 +96,7 @@ ADR-0018을 절대 위반하지 않는다.
 - 성공 응답: `pure_rpc_build_success_response`
 - 오류 응답: `pure_rpc_build_error_response`
 - UDS 전송: `pure_uds_server_send_response`
-- 표준 에러코드 체계를 유지한다.
+- 에러코드는 canonical enum `PureRpcErrorCode`(`src/modules/dispatcher/rpc_utils.h`의 `PURE_RPC_ERR_*`)만 사용한다. raw `-32xxx` 숫자 리터럴·병렬 `PCV_ERR_*` 정의 금지(DISP-6 통일 — 값 보존). 회귀는 `check-error-codes` 게이트(래칫 `scripts/error_codes_baseline.txt`)가 차단. 새 코드가 필요하면 enum에 추가하고, 오버로드 값(-32000/1/2 dual-meaning)은 주석 유지.
 
 ### 5.4 프론트엔드 규칙
 

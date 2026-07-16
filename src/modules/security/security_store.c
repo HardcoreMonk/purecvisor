@@ -953,6 +953,13 @@ pcv_security_store_action_is_expired(const gchar *event_id)
      * 술어. get_action은 만료 무필터라 stale 클라이언트/직접 RPC로 만료 pending을
      * 트리거할 수 있다 — run_approval이 이 술어로 execute 앞에서 차단한다. 만료 규약은
      * list_pending / update_action_status와 동일(ttl_sec<=0 = 무만료).
+     *
+     * [SEC-4 follow-up] 판정용 DB 조회 자체가 실패하면(open 안 됨/prepare 실패/step
+     * 오류) 이전에는 FALSE(=미만료)를 반환해 execute를 허용하는 fail-open이었다 —
+     * 판정 불가와 "확인된 미만료"를 구분하지 않은 결함. STO-3(export domstate 조회
+     * 실패 시 running 취급)와 동일 철학으로 fail-secure 전환: 조회 실패 시 TRUE(=만료
+     * 취급)를 반환해 run_approval이 execute_fn을 호출하지 않게 한다. 행 부재(정상 조회,
+     * SQLITE_DONE)는 DB 오류가 아니므로 기존 규약(만료 아님)을 그대로 유지한다.
      */
     if (!event_id || !*event_id) {
         return FALSE;
@@ -961,8 +968,9 @@ pcv_security_store_action_is_expired(const gchar *event_id)
     ensure_mutex();
     g_mutex_lock(&G.mu);
     if (!G.db) {
+        G.degraded = TRUE;
         g_mutex_unlock(&G.mu);
-        return FALSE;
+        return TRUE;                        /* fail-secure: store 미오픈 → 만료 취급 */
     }
 
     const gchar *sql =
@@ -972,17 +980,22 @@ pcv_security_store_action_is_expired(const gchar *event_id)
     if (rc != SQLITE_OK) {
         G.degraded = TRUE;
         g_mutex_unlock(&G.mu);
-        return FALSE;
+        return TRUE;                        /* fail-secure: prepare 실패 → 만료 취급 */
     }
 
     sqlite3_bind_text(stmt, 1, event_id, -1, SQLITE_TRANSIENT);
     gboolean expired = FALSE;
-    if (sqlite3_step(stmt) == SQLITE_ROW) {
+    rc = sqlite3_step(stmt);
+    if (rc == SQLITE_ROW) {
         const gchar *status = col_text(stmt, 0);
         gint ttl_sec = sqlite3_column_int(stmt, 1);
         gint64 expires_at = sqlite3_column_int64(stmt, 2);
         expired = (g_strcmp0(status, "pending") == 0) &&
                   ttl_sec > 0 && expires_at <= now_sec();
+    } else if (rc != SQLITE_DONE) {
+        /* fail-secure: step 오류(SQLITE_DONE=행 없음은 정상) → 만료 취급 */
+        G.degraded = TRUE;
+        expired = TRUE;
     }
     sqlite3_finalize(stmt);
     g_mutex_unlock(&G.mu);

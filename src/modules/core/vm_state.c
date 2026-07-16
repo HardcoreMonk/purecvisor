@@ -619,6 +619,47 @@ void unlock_vm_operation(const gchar *vm_id) {
 }
 
 /**
+ * @brief 현재 프로세스가 보유한 락의 locked_at을 now로 갱신 (CMP-7 clone TTL 연장)
+ *
+ * [왜 lock_vm_operation으로는 갱신이 안 되는가?]
+ *   lock_vm_operation은 같은 vm_id에 살아있는 미만료 락이 있으면 FALSE(이미 잠김)를
+ *   반환한다 — 재획득이 아니라 갱신 전용 경로가 필요하다. 여기서는 pid가 내 것일 때만
+ *   UPDATE ... SET locked_at=now 로 TTL 타이머만 되감는다 (op_type 불변).
+ *
+ * [소유권 게이트 — WHERE vm_id=? AND pid=?]
+ *   pid가 getpid()와 일치하는 행만 갱신한다. 남의 락(다른 pid)이나 부재 락은
+ *   changes()=0 → FALSE. 교차 갱신(남의 락 되살리기)을 SQL 수준에서 차단한다.
+ */
+gboolean pcv_vm_lock_renew(const gchar *vm_id) {
+    if (!g_db || !vm_id) return FALSE;
+
+    g_mutex_lock(&g_db_mutex);
+
+    gboolean renewed = FALSE;
+    gint64 now = (gint64)g_get_real_time() / G_USEC_PER_SEC;
+    gint   pid = (gint)getpid();
+
+    sqlite3_stmt *stmt = NULL;
+    const gchar *sql =
+        "UPDATE vm_locks SET locked_at = ? WHERE vm_id = ? AND pid = ?;";
+    int rc = sqlite3_prepare_v2(g_db, sql, -1, &stmt, NULL);
+    if (rc == SQLITE_OK) {
+        sqlite3_bind_int64(stmt, 1, now);
+        sqlite3_bind_text (stmt, 2, vm_id, -1, SQLITE_STATIC);
+        sqlite3_bind_int  (stmt, 3, pid);
+        rc = sqlite3_step(stmt);
+        log_sqlite_error("lock renew UPDATE", rc);
+        sqlite3_finalize(stmt);
+        /* sqlite3_changes: 실제 갱신된 행 수 — 내 락이 없었으면 0 */
+        if (rc == SQLITE_DONE && sqlite3_changes(g_db) > 0)
+            renewed = TRUE;
+    }
+
+    g_mutex_unlock(&g_db_mutex);
+    return renewed;
+}
+
+/**
  * @brief 현재 보유 중인 VM 락 수를 반환 (Prometheus 메트릭용)
  *
  * [용도]

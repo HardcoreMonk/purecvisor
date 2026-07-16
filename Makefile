@@ -248,6 +248,7 @@ TEST_COMMON_SRCS = \
     tests/test_circuit_breaker.c \
     tests/test_restart_breaker.c \
     tests/test_self_healing_restart.c \
+    tests/test_self_healing_anomaly.c \
     tests/test_alert_silence.c \
     tests/test_alert_dlq.c \
     tests/test_cancellable_map.c \
@@ -302,6 +303,7 @@ TEST_COMMON_SRCS = \
     tests/test_vm_vnet_cache.c \
     src/modules/ai/restart_breaker.c \
     src/modules/ai/self_healing_restart.c \
+    src/modules/ai/self_healing.c \
     tests/test_apikey.c \
     tests/test_rbac_user_exists.c \
     tests/test_handler_snapshot_verify.c \
@@ -360,7 +362,7 @@ ALL_DAEMON_SRCS = $(DAEMON_SRCS)
 ALL_TEST_SRCS = $(TEST_SRCS)
 ALL_EDITION_OBJS = $(ALL_DAEMON_SRCS:.c=.o) $(ALL_TEST_SRCS:.c=.o) $(CLI_SRCS:.c=.o)
 ALL_EDITION_DEPS = $(ALL_DAEMON_SRCS:.c=.d) $(ALL_TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
-CLEAN_REPORTS = test_results.txt test_results_tap.txt valgrind_report.txt sanitize_report.txt cppcheck_report.txt
+CLEAN_REPORTS = test_results.txt test_results_tap.txt valgrind_report.txt sanitize_report.txt tsan_report.txt cppcheck_report.txt
 CLEAN_FUZZ_ARTIFACTS = fuzz_pcv_validate fuzz_pcv_jwt fuzz_rpc_envelope fuzz_validate.txt fuzz_jwt.txt fuzz_rpc.txt
 CLEAN_COVERAGE_ARTIFACTS = compile_commands.json *.gcda *.gcno *.gcov
 CLEAN_PROTO_ARTIFACTS = proto/purecvisor.pb-c.o proto/purecvisor.pb-c.d
@@ -654,6 +656,49 @@ sanitize:
 	 exit $$status
 	@echo "📄 Report: sanitize_report.txt"
 
+# ──────────────────────────────────────────────────────────
+# [TSan 진단] — ThreadSanitizer (진단 전용, 게이트 아님)
+#
+#   make tsan  → test_runner 를 TSan 으로 빌드 후 AIO-1 anomaly 해머 테스트만 실행.
+#
+#   ⚠️  중요 한계 — GLib GMutex 불투명:
+#     GLib(2.80) 의 GMutex 는 libglib 내부 futex 경로로 동기화하며, 프리빌트
+#     libglib 은 TSan 계장이 없다. 그래서 TSan 은 GMutex 가 세우는 happens-before
+#     를 보지 못하고, 올바르게 g_mutex_lock 으로 보호된 코드에도 false data race 를
+#     보고한다(실증: g_mutex_lock 으로 보호한 카운터도 TSan 이 race 로 오탐).
+#     따라서 이 타겟은 pass/fail 게이트가 아니라 사람이 해석하는 진단 리포트다
+#     (GMutex 관련 race 는 위양성으로 걸러야 함). pthread/C11-atomic 기반 코드에는
+#     TSan 이 정상 동작하므로 향후 그런 경로 검증용으로도 유용하다.
+#     check-all/pre-commit/make test 에는 의도적으로 연결하지 않는다.
+#
+#   커널 6.8+ 에서 TSan 섀도 매핑이 ASLR 과 충돌("unexpected memory mapping")하므로
+#   setarch -R 로 ASLR 을 끈 채 실행한다.
+# ──────────────────────────────────────────────────────────
+TSAN_FLAGS = -fsanitize=thread -fno-omit-frame-pointer -O1 -g -U_FORTIFY_SOURCE
+TSAN_OPTIONS_ENV ?= halt_on_error=0:second_deadlock_stack=1:history_size=4
+TSAN_TEST_FILTER ?= /selfhealing/anomaly_track_race
+
+tsan:
+	@echo "🧪 Building test_runner with ThreadSanitizer..."
+	$(MAKE) clean
+	@$(MAKE) CFLAGS_EXTRA="$(TSAN_FLAGS)" LDFLAGS_EXTRA="$(TSAN_FLAGS)" test_runner; \
+	 status=$$?; \
+	 if [ $$status -ne 0 ]; then \
+	     echo "❌ TSan 빌드 실패 (status=$$status)"; \
+	     $(MAKE) clean >/dev/null; \
+	     exit $$status; \
+	 fi
+	@echo "🧪 Running TSan diagnostic (filter=$(TSAN_TEST_FILTER), ASLR off)..."
+	@echo "⚠️  GMutex 관련 race 는 위양성 — 리포트를 사람이 해석할 것."
+	@setarch "$$(uname -m)" -R env TSAN_OPTIONS="$(TSAN_OPTIONS_ENV)" \
+	     ./$(TEST_BIN) -p $(TSAN_TEST_FILTER) -v > tsan_report.txt 2>&1; \
+	 status=$$?; \
+	 cat tsan_report.txt; \
+	 report_tmp="$$(mktemp)"; cp tsan_report.txt "$$report_tmp"; \
+	 $(MAKE) clean >/dev/null; \
+	 mv "$$report_tmp" tsan_report.txt; \
+	 echo "📄 Report: tsan_report.txt (진단 전용 — GMutex 위양성 주의, exit=$$status)"
+
 release:
 	$(MAKE) BUILD=release all
 
@@ -747,9 +792,14 @@ check-error-codes:
 	@echo "🔢 Running raw 에러코드 리터럴 방지 게이트 (DISP-6)..."
 	@python3 scripts/check_error_codes.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes)"
+check-audit-placement:
+	@echo "📋 Running audit 배치 계약 게이트 (ADR-0018 — async registry/audit/WS completion)..."
+	@python3 scripts/check_audit_placement.py
+	@python3 scripts/tests/test_audit_placement.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -805,7 +855,7 @@ coverage-check: coverage-html
 	     echo "✅ coverage $${PCT}% ≥ $(COV_MIN)%"
 
 .PHONY: all clean release deb single multi test_runner test test-tap \
-        memcheck memcheck-daemon daemon cli sanitize fuzz fuzz-run \
+        memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-all compile-commands coverage coverage-html coverage-check

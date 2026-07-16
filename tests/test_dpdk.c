@@ -109,6 +109,18 @@ static void test_dpdk_bridge_create_reject_injection(void) {
 
 /* ── NET-1: 관리 NIC 보호 가드 ── */
 
+/* NET-1 M1(reason 오귀속 시정) 노트: _dpdk_up_with_ipv4()의 getifaddrs 실패
+ * 분기(reason="interface enumeration failed ... (fail-secure)")는 이 파일에서
+ * 포터블 유닛테스트로 재현하지 않는다 — pcv_dpdk_nic_is_protected()가 그
+ * 분기에 도달하려면 (1) 실 PCI-backed netdev가 /sys/bus/pci/devices/<bdf>/net에
+ * 존재해야 하고(호스트 하드웨어 의존, sysfs 경로는 proc_base처럼 테스트 주입
+ * 불가) (2) getifaddrs() 자체가 syscall 오류로 실패해야 한다 — 둘 다 이
+ * 테스트 스위트가 이미 실 호스트 의존 검증을 committed 포터블 테스트에서
+ * 제외해 온 기존 관례(tests/integration/test_dpdk_bind_guard.sh 헤더 주석
+ * 참조: "test_dpdk.c 임시 realhost 테스트 ... 커밋 안 함")와 일치한다.
+ * reason 분기 자체는 코드리뷰로 검증됨(정상 UP+IPv4 매치 경로·판정값 무변경,
+ * getifaddrs 실패 시에만 문구 분기). */
+
 /* default-route 파서: 픽스처 /proc/net/route 로 기본경로 dev 판정. */
 static void test_dpdk_nic_route_default(void) {
     gchar *base = g_dir_make_tmp("pcvdpdk_XXXXXX", NULL);

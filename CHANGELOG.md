@@ -3,6 +3,25 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.5 — 2026-07-16
+
+배치별 code-review follow-up 하드닝 릴리스(PATCH). 감사 시정 각 배치 최종 리뷰의 비차단 code-review 항목을 실코드 그라운딩 후 시정 + audit 배치 게이트 CI 편입. **런타임 계약 무변경**(하드닝 — fail-secure는 오류 경로만, 신규 락은 경합 시에만 `-32004`(busy)). 검증: 전 커밋 `make single` 0-warning + `make test` **0 not ok** + `make check-all` **8게이트 PASS**.
+
+### 동시성 / 락 하드닝
+- **CMP-7** clone source 락 **실 갱신**(`pcv_vm_lock_renew` pid-소유권 게이트 + 60s 하트비트) — 대형 full-copy clone이 락 TTL(300/600s) 초과 시 stale 탈취되던 창 폐쇄.
+- **CMP-2** 코어 회수(**실버그**): crash 경로 키불일치(이름 vs UUID)·graceful STOPPED 무해제 두 창을 종단정지 콜백으로 폐쇄.
+- **`vm.resize_disk`** VM_OP_TUNING 락(동시 delete/hotplug 직렬화). **NET-5** overlay reconcile↔teardown zombie 부활 레이스를 단일 락순서 meta 재확인으로 폐쇄. **AIO-7** silence 리더 g_once 배리어 통일.
+
+### 보안 fail-secure
+- **SEC-4** HIPS 승인 만료 판정(`is_expired`) DB 오류 3갈래를 fail-open → **fail-secure**(만료 취급). **SEC-3** freeze-effective 마이그레이션 PRAGMA 읽기/쓰기 rc 확인(판정 불가 시 skip — admin 설정 role 매부팅 클로버 방지).
+
+### 검증 규율 / 게이트
+- **CMP-3** 라이브 `vm.create` base_image 검증 배선. **NET-1** getifaddrs 실패 reason 오귀속 시정.
+- **check-audit-placement**(ADR-0018 async registry/audit/WS completion 계약)를 `check-all` **8번째 게이트** + pre-commit로 편입 — 스크립트만 있고 CI 미연결이던 갭 시정(`_mt` WS completion regex 회귀 포함). apikey role-cap(발급 상한) 술어 회귀 테스트.
+
+### Upgrade notes
+- **무중단**(계약 무변경) — 에러코드·RPC·config 동일. 경합 시 일부 mutating 작업이 `-32004`(busy) 반환 가능(신규 VM_OP 락 — 클라이언트 재시도로 해소).
+
 ## v1.2.4 — 2026-07-15
 
 감사 시정 트랙 **종결** 릴리스(PATCH). v1.2.0 감사 큐 최후 항목(DISP-6) + 마지막 미검증 안전통제 승격 + SEC-8 잔여 클래스-스윕. **데몬 wire 계약 무변경** — 에러코드 통일은 값-보존, 자가치유 승격은 테스트/seam 추출, gRPC 상수시간화는 행위 동일. 검증: 전 커밋 `make single` 0-warning + `make test` **0 not ok** + `make check-all` **7게이트 PASS** + 안전통제 **14/14 tested**.

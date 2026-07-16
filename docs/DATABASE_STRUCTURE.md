@@ -278,12 +278,14 @@ RBAC DB는 로그인 사용자, refresh session, API key, 사용자별 리소스
 |---|---|---|---|
 | `key_hash` | `TEXT` | `PRIMARY KEY` | API key hash |
 | `client_name` | `TEXT` | `NOT NULL` | 자동화 클라이언트 이름 |
-| `role` | `INTEGER` | `NOT NULL DEFAULT 1` | key 권한 |
+| `role` | `INTEGER` | `NOT NULL DEFAULT 1` | key 권한 — **실효 role의 저장·집행 값**(SEC-3, v1.2.3+): client_name 파생 아님. `verify_api_key`가 이 값을 dispatcher/whoami role로 반환, 신규 키 생성 시 `role ≤ caller_role` 바운딩 |
 | `created_at` | `TEXT` | `NOT NULL DEFAULT datetime('now')` | 생성 시각 |
 | `last_used_at` | `TEXT` | nullable | 마지막 사용 시각 |
 | `revoked` | `INTEGER` | `NOT NULL DEFAULT 0` | 폐기 여부 |
 
 주의: 같은 테이블명에 대해 두 구조가 코드에 공존하므로, API key 스키마를 변경할 때는 기존 운영 DB의 실제 컬럼, 호출 경로, 테스트를 먼저 확인해야 한다. 공개 문서나 운영 절차에서는 API key 평문을 저장한다고 표현하면 안 된다. 저장되는 값은 key hash다.
+
+**스키마 버전 (SEC-3 freeze-effective 마이그레이션, v1.2.3+)**: `rbac.db`는 `PRAGMA user_version = 1`로 마킹된다. 이 마이그레이션은 최초 기동 1회 실행되어 기존 API 키의 실효 role을 저장 `role` 컬럼에 동결한다(권한 변동 0 — 당시 실효값 고정). `user_version=0`(구 DB)이면 마이그레이션 실행, `=1`이면 skip. `_ensure_apikey_table` 등 모든 apikey CRUD는 `g_rbac_mutex` 안에서 실행된다(SEC-6, SQLite 직렬화 불변식).
 
 ---
 

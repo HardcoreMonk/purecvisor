@@ -649,11 +649,18 @@ static GList *_dpdk_pci_netdevs(const gchar *pci_addr)
     return out;
 }
 
-/* netdev가 UP + IPv4 주소 보유인지. getifaddrs 실패=TRUE(fail-secure). */
-static gboolean _dpdk_up_with_ipv4(const gchar *netdev)
+/* netdev가 UP + IPv4 주소 보유인지. getifaddrs 실패=TRUE(fail-secure)이되,
+ * out_ifaddr_err로 실패 사유를 구분한다 (NET-1 M1: reason 오귀속 시정).
+ * 판정값(TRUE/FALSE)과 정상 UP+IPv4 매치 경로는 무변경 — 호출자가 reason
+ * 문구만 getifaddrs 실패/실제 매치로 분기하도록 out-param만 추가한다. */
+static gboolean _dpdk_up_with_ipv4(const gchar *netdev, gboolean *out_ifaddr_err)
 {
+    if (out_ifaddr_err) *out_ifaddr_err = FALSE;
     struct ifaddrs *ifa = NULL;
-    if (getifaddrs(&ifa) != 0) return TRUE;   /* fail-secure */
+    if (getifaddrs(&ifa) != 0) {
+        if (out_ifaddr_err) *out_ifaddr_err = TRUE;
+        return TRUE;   /* fail-secure */
+    }
     gboolean prot = FALSE;
     for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
         if (p->ifa_name && g_strcmp0(p->ifa_name, netdev) == 0 &&
@@ -678,9 +685,16 @@ gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason)
     gboolean prot = FALSE;
     for (GList *l = devs; l && !prot; l = l->next) {
         const gchar *nd = l->data;
-        if (_dpdk_up_with_ipv4(nd)) {
-            if (reason) *reason = g_strdup_printf(
-                "refusing to bind: NIC %s is up with an IPv4 address", nd);
+        gboolean ifaddr_err = FALSE;
+        if (_dpdk_up_with_ipv4(nd, &ifaddr_err)) {
+            /* NET-1 M1: getifaddrs 실패(syscall 오류)와 실제 UP+IPv4 매치를
+             * reason 문구에서 구분 — 이전에는 둘 다 "up with an IPv4 address"로
+             * 오귀속되어, 열거 실패임에도 마치 실제 IPv4가 있는 것처럼 보고됐다. */
+            if (reason) *reason = ifaddr_err
+                ? g_strdup_printf(
+                    "refusing to bind: interface enumeration failed for %s (fail-secure)", nd)
+                : g_strdup_printf(
+                    "refusing to bind: NIC %s is up with an IPv4 address", nd);
             prot = TRUE;
         } else if (pcv_dpdk_route_is_default_dev(nd, "")) {
             if (reason) *reason = g_strdup_printf(

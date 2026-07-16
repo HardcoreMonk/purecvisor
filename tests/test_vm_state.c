@@ -214,6 +214,40 @@ static void test_all_op_types(void) {
     teardown();
 }
 
+/* [CMP-7] 락 갱신(renew) 계약 검증.
+ * 내 락은 갱신 가능하고, 갱신은 락을 해제하지 않으며(여전히 충돌), 부재/해제된 락은
+ * 갱신 불가(FALSE). clone 하트비트가 이 프리미티브로 장기 clone 중 TTL을 되감는다. */
+static void test_lock_renew_owned(void) {
+    setup();
+    gchar *err = NULL;
+    g_assert_true(lock_vm_operation("vm-renew", VM_OP_SNAPSHOT, &err));
+    /* 내가 보유한 락 → 갱신 성공 */
+    g_assert_true(pcv_vm_lock_renew("vm-renew"));
+    /* 갱신은 해제가 아니다 — 락은 여전히 유효(다른 op가 충돌해야 함) */
+    g_assert_false(lock_vm_operation("vm-renew", VM_OP_DELETING, &err));
+    g_free(err);
+    unlock_vm_operation("vm-renew");
+    teardown();
+}
+
+static void test_lock_renew_absent(void) {
+    setup();
+    /* 존재하지 않는 락 갱신 → FALSE (되살리지 않음) */
+    g_assert_false(pcv_vm_lock_renew("vm-absent"));
+    g_assert_false(pcv_vm_lock_renew(NULL));
+    teardown();
+}
+
+static void test_lock_renew_after_unlock(void) {
+    setup();
+    gchar *err = NULL;
+    g_assert_true(lock_vm_operation("vm-ru", VM_OP_SNAPSHOT, &err));
+    unlock_vm_operation("vm-ru");
+    /* 해제 후에는 갱신 대상 없음 → FALSE */
+    g_assert_false(pcv_vm_lock_renew("vm-ru"));
+    teardown();
+}
+
 void test_vm_state_register(void) {
     g_test_add_func("/vm_state/init_shutdown", test_init_shutdown);
     g_test_add_func("/vm_state/lock_unlock_basic", test_lock_unlock_basic);
@@ -226,4 +260,7 @@ void test_vm_state_register(void) {
     g_test_add_func("/vm_state/lock_conflict_error_msg", test_lock_conflict_error_msg);
     g_test_add_func("/vm_state/concurrent_lock_same_vm", test_concurrent_lock_same_vm);
     g_test_add_func("/vm_state/concurrent_lock_different_vms", test_concurrent_lock_different_vms);
+    g_test_add_func("/vm_state/lock_renew_owned", test_lock_renew_owned);
+    g_test_add_func("/vm_state/lock_renew_absent", test_lock_renew_absent);
+    g_test_add_func("/vm_state/lock_renew_after_unlock", test_lock_renew_after_unlock);
 }

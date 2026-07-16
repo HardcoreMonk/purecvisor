@@ -5,6 +5,7 @@
 #   + CMP-7: vm.clone source·target VM_OP 락 직렬화 (S7/S8, 동일 vm-op-lock 통제)
 #   + CMP-10: hotplug device.disk.attach VM_OP 락 직렬화 (S9, 동일 vm-op-lock 통제)
 #   + CMP-10: vm.usb.attach VM_OP 락 직렬화 (S10, Task 3 에서 누락되었던 USB 핸들러)
+#   + 락 하드닝: vm.resize_disk VM_OP_TUNING 직렬화 (S11, 무락이던 disk resize 핸들러)
 # ---------------------------------------------------------------------------
 # 검증 대상: handler_vm_lifecycle.c 의 vm_action_callback 이 ctx->holds_lock
 # 이 TRUE 일 때만 unlock_vm_operation(ctx->vm_id) 를 호출한다(HEAD 06631e7).
@@ -417,6 +418,36 @@ if [ "$u_err" = "1" ] && [ "$u_busy" = "1" ] && [ "$u_locked" = "1" ] && [ "$usb
     pass "S10(CMP-10): vm.usb.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$usb_after)"
 else
     fail "S10(CMP-10): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$u_err busy=$u_busy locked=$u_locked after=$usb_after) resp='$usb_resp'"
+fi
+
+# ═══════════════════════════════════════════════════════════════
+# 단계 11 (락 하드닝): DELETING-locked VM 에 vm.resize_disk → 동기 거부(-32004)
+#   _handle_vm_resize_disk 가 "resize accepted" 응답 전에 VM_OP_TUNING 을 획득하므로,
+#   대상이 이미 DELETING 락(동시 vm.delete)이면 accepted 가 아니라 busy 를 받아야 한다.
+#   resize 는 파라미터 검증 직후 곧바로 락을 잡으므로(도메인 존재검사 이전) 격리 env 에서
+#   도메인 부재여도 락 게이트에 도달한다. S9/S10 이 심은 DELETING 락(HOTPLUG_VM)을 재사용.
+#   [반사실] 핸들러에서 acquire 를 제거하면 즉시 "resize accepted" 성공 응답 → 이 단언 RED.
+#   락 획득 실패 경로는 unlock 을 호출하지 않으므로 DELETING 락 미교차삭제(count=1).
+# ═══════════════════════════════════════════════════════════════
+pre_rz="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$HOTPLUG_VM';")"
+if [ "$pre_rz" = "0" ]; then
+    NOW_R="$(date +%s)"
+    sq "INSERT INTO vm_locks (vm_id, op_type, pid, locked_at) VALUES ('$HOTPLUG_VM', 3, $LOCK_PID, $NOW_R);"
+fi
+rz_resp="$(uds_call "{\"jsonrpc\":\"2.0\",\"method\":\"vm.resize_disk\",\"params\":{\"name\":\"$HOTPLUG_VM\",\"new_size_gb\":10},\"id\":\"resize-blocked\"}")"
+info "S11: vm.resize_disk(DELETING-locked) 응답 = ${rz_resp:-<empty>}"
+sleep 0.3   # 동기 응답이지만 WAL 반영 여유
+rz_after="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$HOTPLUG_VM';")"
+r_err=0; r_busy=0; r_locked=0; r_accepted=0
+case "$rz_resp" in *'"error"'*)        r_err=1 ;; esac
+case "$rz_resp" in *-32004*)           r_busy=1 ;; esac
+case "$rz_resp" in *"already locked"*) r_locked=1 ;; esac
+case "$rz_resp" in *accepted*)         r_accepted=1 ;; esac
+if [ "$r_err" = "1" ] && [ "$r_busy" = "1" ] && [ "$r_locked" = "1" ] \
+   && [ "$r_accepted" = "0" ] && [ "$rz_after" = "1" ]; then
+    pass "S11(락 하드닝): vm.resize_disk 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked'), accepted 아님 + 락 미교차삭제(count=$rz_after)"
+else
+    fail "S11(락 하드닝): 예상 busy(-32004,'already locked',accepted아님,락잔존) 미확인 (err=$r_err busy=$r_busy locked=$r_locked accepted=$r_accepted after=$rz_after) resp='$rz_resp'"
 fi
 
 # ═══════════════════════════════════════════════════════════════

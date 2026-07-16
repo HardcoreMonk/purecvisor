@@ -327,12 +327,16 @@ gboolean purecvisor_vm_manager_set_vcpu_finish(PureCVisorVmManager *self,
  * @name:        대상 VM 이름
  * @new_size_gb: 새 디스크 크기 (GB)
  * @target:      (nullable) 블록 디바이스 타겟 (기본 "vda")
+ * @holds_lock:  호출자(핸들러)가 이 VM의 VM_OP_TUNING 락을 이미 획득했는지.
+ *               TRUE면 워커 완료(GDestroyNotify) 시점에 unlock_vm_operation(name)으로
+ *               해제한다 — acquire는 핸들러, release는 워커 종료지점(단일 해제).
  *
  * fire-and-forget으로 디스크 리사이즈를 실행합니다.
  * ZFS zvol이면 zfs set volsize, qcow2이면 qemu-img resize 후
  * VM 실행 중이면 virDomainBlockResize로 게스트에 통지합니다.
  */
-void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar *target);
+void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar *target,
+                                gboolean holds_lock);
 
 /* =========================================================================
  * VM Clone — ZFS CoW 또는 Full Copy 기반 VM 복제

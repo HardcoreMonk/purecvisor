@@ -138,6 +138,24 @@ static void test_iso_path_invalid(void) {
     g_assert_false(pcv_validate_iso_path(""));
 }
 
+/* ── base_image (CMP-3 확장) ─────────────────────────── */
+
+static void test_base_image_valid(void) {
+    g_assert_true(pcv_validate_base_image_path("/var/lib/images/jammy.qcow2"));
+    g_assert_true(pcv_validate_base_image_path("/pcvpool/images/base.img"));
+    g_assert_true(pcv_validate_base_image_path("/tmp/cloud.raw"));
+    g_assert_true(pcv_validate_base_image_path("/tmp/cloud.QCOW2")); /* 대소문자 무시 */
+}
+
+static void test_base_image_invalid(void) {
+    g_assert_false(pcv_validate_base_image_path(NULL));
+    g_assert_false(pcv_validate_base_image_path(""));
+    g_assert_false(pcv_validate_base_image_path("/etc/shadow"));          /* 확장자 위반 = 임의파일 흡입 */
+    g_assert_false(pcv_validate_base_image_path("relative/base.qcow2"));  /* 상대경로 */
+    g_assert_false(pcv_validate_base_image_path("/pcvpool/../../etc/shadow.img")); /* 경로 순회 */
+    g_assert_false(pcv_validate_base_image_path("/var/lib/images/base.iso")); /* iso는 디스크이미지 아님 */
+}
+
 /* ── 숫자 범위 ───────────────────────────────────────── */
 
 static void test_memory_mb(void) {
@@ -347,6 +365,8 @@ void test_validate_register(void) {
     /* iso */
     g_test_add_func("/validate/iso_path/valid",   test_iso_path_valid);
     g_test_add_func("/validate/iso_path/invalid", test_iso_path_invalid);
+    g_test_add_func("/validate/base_image/valid",   test_base_image_valid);
+    g_test_add_func("/validate/base_image/invalid", test_base_image_invalid);
     /* 숫자 범위 */
     g_test_add_func("/validate/memory_mb", test_memory_mb);
     g_test_add_func("/validate/vcpu",      test_vcpu);

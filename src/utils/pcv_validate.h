@@ -169,6 +169,17 @@ void pcv_network_rundir_init(void);
 gboolean pcv_validate_iso_path(const gchar *path);
 
 /**
+ * pcv_validate_base_image_path:
+ * vm.create base_image(cloud image) 경로 검증 (CMP-3 확장).
+ *  - 절대 경로 (/ 로 시작)
+ *  - ".." 경로 순회 차단
+ *  - 확장자 allowlist: .qcow2/.qcow/.img/.raw
+ * base_image는 qemu-img convert 입력으로 host FS에서 직접 읽히므로 iso_path와 동일한
+ * 신뢰경계 검증이 필요하다 (임의 호스트 파일 흡입·경로순회 차단).
+ */
+gboolean pcv_validate_base_image_path(const gchar *path);
+
+/**
  * 정수 범위 검증 — VM 생성 파라미터의 수치 값 검증
  *
  * pcv_validate_memory_mb(): 128 ~ 1,048,576 MB

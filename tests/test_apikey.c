@@ -288,6 +288,59 @@ test_apikey_stored_role_enforced(void)
     sqlite3_close(db);
 }
 
+/* ── 발급 role 바운딩 (비-admin caller 는 자신 이하 role 만) ─────────────
+ *
+ * PCV_SAFETY_CONTROL: apikey-role-enforce 의 create-time 바운딩 facet.
+ * 진리원: src/api/dispatcher.c::_handle_apikey_create (라인 3946-3958)
+ *   (1) role ∉ {VIEWER=0, ADMIN=2} → 거부 (range, 먼저 검사)
+ *   (2) role > caller_role       → 거부 (비-admin 발급자는 자신 이하 role 만)
+ * 등록된 effect_test(tests/integration/test_apikey_role_enforce.sh)는 저장 role
+ * 집행(SEC-3 privesc)만 커버하고, 이 발급-상한 술어는 커버하지 않으므로 여기서
+ * 계약을 고정한다. dispatcher.c 술어가 바뀌면 이 재현도 함께 갱신해야 한다. */
+typedef enum { CREATE_OK, CREATE_RANGE, CREATE_EXCEEDS } ApikeyCreateVerdict;
+
+/* production 술어 재현 — range 를 cap 보다 먼저 검사(순서 load-bearing) */
+static ApikeyCreateVerdict
+_apikey_create_bound(gint role, gint caller_role)
+{
+    const gint VIEWER = 0, ADMIN = 2;   /* PcvRole */
+    if (role < VIEWER || role > ADMIN) return CREATE_RANGE;
+    if (role > caller_role)            return CREATE_EXCEEDS;
+    return CREATE_OK;
+}
+
+/* admin(2) 발급자는 유효 범위 전체(0..2) 발급 가능 */
+static void
+test_apikey_rolecap_admin_grants_all(void)
+{
+    g_assert_cmpint(_apikey_create_bound(0, 2), ==, CREATE_OK);
+    g_assert_cmpint(_apikey_create_bound(1, 2), ==, CREATE_OK);
+    g_assert_cmpint(_apikey_create_bound(2, 2), ==, CREATE_OK);
+}
+
+/* 핵심 반사실: 비-admin 발급자는 자신 이하 role 만 (상위 role 키 발급 거부) */
+static void
+test_apikey_rolecap_nonadmin_bounded(void)
+{
+    /* operator(1): admin(2) 키 발급 거부, viewer/operator 는 허용 */
+    g_assert_cmpint(_apikey_create_bound(2, 1), ==, CREATE_EXCEEDS);
+    g_assert_cmpint(_apikey_create_bound(1, 1), ==, CREATE_OK);
+    g_assert_cmpint(_apikey_create_bound(0, 1), ==, CREATE_OK);
+    /* viewer(0): operator/admin 키 발급 거부, 자기 자신만 허용 */
+    g_assert_cmpint(_apikey_create_bound(2, 0), ==, CREATE_EXCEEDS);
+    g_assert_cmpint(_apikey_create_bound(1, 0), ==, CREATE_EXCEEDS);
+    g_assert_cmpint(_apikey_create_bound(0, 0), ==, CREATE_OK);
+}
+
+/* 범위 밖 role 은 cap 검사보다 먼저 거부 (admin 발급자여도) */
+static void
+test_apikey_rolecap_range_first(void)
+{
+    g_assert_cmpint(_apikey_create_bound(3, 2),  ==, CREATE_RANGE);
+    g_assert_cmpint(_apikey_create_bound(-1, 2), ==, CREATE_RANGE);
+    g_assert_cmpint(_apikey_create_bound(99, 2), ==, CREATE_RANGE);
+}
+
 void
 test_apikey_register(void)
 {
@@ -298,4 +351,7 @@ test_apikey_register(void)
     g_test_add_func("/apikey/revoked_rejected",           test_apikey_revoked_rejected);
     g_test_add_func("/apikey/migrate/columns_idempotent", test_apikey_migrate_columns_idempotent);
     g_test_add_func("/apikey/sec3/stored_role_enforced",  test_apikey_stored_role_enforced);
+    g_test_add_func("/apikey/rolecap/admin_grants_all",   test_apikey_rolecap_admin_grants_all);
+    g_test_add_func("/apikey/rolecap/nonadmin_bounded",   test_apikey_rolecap_nonadmin_bounded);
+    g_test_add_func("/apikey/rolecap/range_first",        test_apikey_rolecap_range_first);
 }
