@@ -915,6 +915,14 @@ async function doSet(t2) {
         if (typeof invalidateCache === 'function') invalidateCache('vm.list');
         return;
       }
+      // 실행 중 vCPU 증가가 VM 최대치 초과 → 명확한 안내(최대 vCPU는 정지 후에만 상향 가능)
+      if (t2 === 'vcpu' && /max allowable|greater than max/i.test(msg)) {
+        var mm = msg.match(/(\d+)\s*>\s*(\d+)/);
+        var reqN = mm ? mm[1] : String(nextValue), maxN = mm ? mm[2] : '?';
+        toast(_L('요청 ' + reqN + ' vCPU가 이 VM의 최대치(' + maxN + ')를 초과합니다. 최대 vCPU는 VM 정지 후 재구성해야 합니다.',
+                 'Requested ' + reqN + ' vCPU exceeds this VM\'s maximum (' + maxN + '). Raising the maximum requires stopping and reconfiguring the VM.'), false);
+        return;
+      }
       toast(msg, false);
       return;
     }

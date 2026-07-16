@@ -3,6 +3,16 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.7 — 2026-07-16
+
+실행 중 vCPU 증가가 VM 최대치(maxVcpus)를 초과할 때의 프론트 안내 개선(PATCH). v1.2.6 Fix B(축소→config-only)에 이어 vCPU 조정 UX 완결. **UI 전용 변경** — 데몬 로직 무변경(1.2.6과 동일, 버전 문자열만). 검증: `make single` 0-warning + `make check-all` **8게이트 PASS** + 실브라우저(목 API + Playwright).
+
+### 프론트엔드
+- **max-초과 증가 안내**: 실행 중 `vm.set_vcpu` 증가가 `-32000 "requested vcpus is greater than max allowable vcpus"`로 실패(부팅 시 고정된 maxVcpus 초과)할 때, libvirt 원문 대신 명확 안내("요청 N vCPU가 이 VM의 최대치(M)를 초과합니다. 최대 vCPU는 VM 정지 후 재구성해야 합니다.") — 메시지에서 `N > M` 값 추출. 축소(hotpluggable→config-only 제안)·max-이내 증가(라이브 성공)와 함께 **vCPU 조정 UX 3분기 완결**. Fix B 축소 경로 회귀 없음(실브라우저 확인).
+
+### Upgrade notes
+- **무중단** — UI 전용, 데몬 wire 계약·로직 동일.
+
 ## v1.2.6 — 2026-07-16
 
 프론트엔드 결함 시정 + 실행 중 vCPU 축소 UX(Fix B) + toast 레벨 인지 개선(PATCH). 사용자 실사용 신고(웹에서 vCPU 4→2가 "통과" 표시되나 미변경)에서 출발한 **"성공 보고, 실제 실패" 클래스**를 프론트 전수 스윕. **데몬 wire 계약은 하위호환 추가만**(신규 옵션 param `apply`, 미지정 시 현행 동작). 검증: `make single` 0-warning + `make test` **663/0** + `make check-all` **8게이트 PASS** + 실브라우저(목 API + Playwright) 검증.
