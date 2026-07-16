@@ -4448,6 +4448,9 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
     pcv_ws_server_init(self->soup);
 
     /* ── HTTPS 설정: TLS 활성 시 GTlsCertificate 바인딩 ────────── */
+    /* mtls_fail_secure: [tls] client_auth=require 인데 CA 검증 DB 를 세울 수 없으면
+     * TRUE 로 세워 아래 HTTPS 리스닝을 열지 않는다(fail-secure — 무검증 mTLS 금지). */
+    gboolean mtls_fail_secure = FALSE;
     if (pcv_tls_is_enabled()) {
         const gchar *cert_path = pcv_tls_get_cert_path();
         const gchar *key_path  = pcv_tls_get_key_path();
@@ -4459,6 +4462,56 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
                 soup_server_set_tls_certificate(self->soup, tls_cert);
                 g_object_unref(tls_cert);
                 PCV_LOG_INFO(REST_LOG_DOM, "TLS certificate loaded: %s", cert_path);
+
+                /* ── mTLS 클라이언트 인증서 검증 (A02/V12) — client_auth 정책 배선 ──
+                 * config [tls] client_auth: none(기본) | request | require.
+                 *   none    : server-cert 만(위) — 클라이언트 인증서 미요구(현행 유지).
+                 *   request : 클라이언트 인증서를 요청하되 없어도 허용
+                 *             (G_TLS_AUTHENTICATION_REQUESTED).
+                 *   require : 클라이언트 인증서 필수(G_TLS_AUTHENTICATION_REQUIRED).
+                 * request|require 는 CA 검증 DB(ca_path)가 있어야만 배선한다.
+                 * require 인데 CA DB 를 세울 수 없으면 fail-secure(무검증 mTLS 금지):
+                 * mtls_fail_secure=TRUE 로 아래 HTTPS 리스닝을 열지 않는다. */
+                const gchar *client_auth =
+                    pcv_config_get_string("tls", "client_auth", "none");
+                gboolean want_request = (g_strcmp0(client_auth, "request") == 0);
+                gboolean want_require = (g_strcmp0(client_auth, "require") == 0);
+                if (want_request || want_require) {
+                    const gchar *ca_path = pcv_tls_get_ca_path();
+                    if (!ca_path || !*ca_path) {
+                        PCV_LOG_ERROR(REST_LOG_DOM,
+                            "SECURITY: [tls] client_auth=%s 이지만 ca_path 미설정 — %s",
+                            client_auth,
+                            want_require
+                              ? "mTLS 강제 불가로 HTTPS 미개시(fail-secure)"
+                              : "클라이언트 인증서 검증 없이 진행(request)");
+                        if (want_require)
+                            mtls_fail_secure = TRUE;
+                    } else {
+                        GError *db_err = nullptr;
+                        GTlsDatabase *db = g_tls_file_database_new(ca_path, &db_err);
+                        if (db) {
+                            soup_server_set_tls_database(self->soup, db);
+                            soup_server_set_tls_auth_mode(self->soup,
+                                want_require ? G_TLS_AUTHENTICATION_REQUIRED
+                                             : G_TLS_AUTHENTICATION_REQUESTED);
+                            g_object_unref(db);
+                            PCV_LOG_INFO(REST_LOG_DOM,
+                                "mTLS 클라이언트 인증서 검증 활성 "
+                                "(client_auth=%s, ca=%s)", client_auth, ca_path);
+                        } else {
+                            PCV_LOG_ERROR(REST_LOG_DOM,
+                                "SECURITY: CA 검증 DB 생성 실패 (%s): %s — %s",
+                                ca_path, db_err ? db_err->message : "unknown",
+                                want_require
+                                  ? "mTLS 강제 불가로 HTTPS 미개시(fail-secure)"
+                                  : "클라이언트 인증서 검증 없이 진행(request)");
+                            if (db_err) g_error_free(db_err);
+                            if (want_require)
+                                mtls_fail_secure = TRUE;
+                        }
+                    }
+                }
             } else {
                 PCV_LOG_WARN(REST_LOG_DOM, "TLS cert load failed: %s — HTTPS disabled",
                              tls_err ? tls_err->message : "unknown");
@@ -4537,7 +4590,10 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
     }
 
     /* ── HTTPS 리스닝 (TLS 인증서 로드 성공 시) ──────────────── */
-    if (pcv_tls_is_enabled() && soup_server_get_tls_certificate(self->soup)) {
+    /* mtls_fail_secure 면 client_auth=require 가 CA DB 없이 충족 불가이므로
+     * HTTPS 를 열지 않는다(무검증 mTLS 금지). 평문 HTTP 는 위에서 이미 바인딩됨. */
+    if (pcv_tls_is_enabled() && soup_server_get_tls_certificate(self->soup)
+        && !mtls_fail_secure) {
         GError *tls_lerr = nullptr;
         gboolean tls_ok = soup_server_listen_all(self->soup, self->https_port,
                                                    SOUP_SERVER_LISTEN_IPV4_ONLY |

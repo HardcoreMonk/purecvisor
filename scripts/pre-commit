@@ -89,6 +89,10 @@ HAS_TRANSPORT_BIND_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
 HAS_CONTAINER_OWNER_SCOPE_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/dispatcher/handler_container\.c|src/modules/lxc/lxc_owner\.(c|h)|scripts/check_container_owner_scope\.py|scripts/tests/test_container_owner_scope\.py)$' && HAS_CONTAINER_OWNER_SCOPE_CHANGES=true
+HAS_MTLS_WIRING_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|src/utils/pcv_tls\.(c|h)|scripts/check_mtls_wiring\.py|scripts/tests/test_mtls_wiring\.py)$' && HAS_MTLS_WIRING_CHANGES=true
+HAS_TLS_MIN_VERSION_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/utils/pcv_tls\.(c|h)|scripts/check_tls_min_version\.py|scripts/tests/test_tls_min_version\.py)$' && HAS_TLS_MIN_VERSION_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -451,6 +455,38 @@ if $HAS_CONTAINER_OWNER_SCOPE_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] dispatcher/handler_container/lxc_owner/owner-scope 게이트 변경 없음 — 컨테이너 owner-scope 게이트 생략"
+fi
+
+# ── 4t. mTLS 클라이언트 인증서 검증 배선 게이트 (check-mtls-wiring, C1 / A02·V12) ──
+if $HAS_MTLS_WIRING_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] mTLS 클라이언트 인증서 검증 배선${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    MW_OUT=$(python3 "$SCRIPT_DIR/check_mtls_wiring.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_mtls_wiring.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "client_auth 분기/CA 검증 DB(set_tls_database)/인증 모드(set_tls_auth_mode) 미배선 (server-cert 전용 회귀)"
+        echo "$MW_OUT" | tail -15
+    else
+        pass "$(echo "$MW_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/pcv_tls.*/mTLS 게이트 변경 없음 — mTLS 배선 게이트 생략"
+fi
+
+# ── 4u. TLS 최소 버전 고정 게이트 (check-tls-min-version, C2 / A02·V11·V12) ──
+if $HAS_TLS_MIN_VERSION_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] TLS 최소 버전 고정${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    TV_OUT=$(python3 "$SCRIPT_DIR/check_tls_min_version.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_tls_min_version.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "G_TLS_GNUTLS_PRIORITY 고정/min_version 존중 미배선 (SSL3/TLS1.0/1.1 다운그레이드 협상 가능)"
+        echo "$TV_OUT" | tail -15
+    else
+        pass "$(echo "$TV_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_tls.*/TLS min-version 게이트 변경 없음 — TLS 최소 버전 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

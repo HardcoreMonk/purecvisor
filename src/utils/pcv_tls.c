@@ -250,6 +250,20 @@ const gchar *pcv_tls_get_key_path(void)
 }
 
 /**
+ * pcv_tls_get_ca_path - CA 인증서 경로 반환 (mTLS 클라이언트 검증용)
+ *
+ * @return: CA 인증서 파일 경로 문자열 또는 NULL (TLS 비활성 시)
+ *
+ * rest_server.c 에서 mTLS 클라이언트 인증서 검증 DB(GTlsDatabase)를
+ * g_tls_file_database_new() 로 만들 때 anchor CA 로 사용합니다.
+ * 반환 포인터는 G.ctx 내부 문자열이므로 free 하면 안 됩니다.
+ */
+const gchar *pcv_tls_get_ca_path(void)
+{
+    return (G.ctx) ? G.ctx->ca_path : NULL;
+}
+
+/**
  * pcv_tls_status - TLS 상태를 JSON 객체로 반환
  *
  * @return: JsonObject* (호출자가 json_object_unref()로 해제)
@@ -407,6 +421,36 @@ pcv_tls_check_expiry_warning(void)
  */
 void pcv_tls_init_from_config(void)
 {
+    /* ── TLS 최소 버전 고정 (A02/V11·V12) ──────────────────────────────
+     * glib-networking(GnuTLS) 우선순위 문자열을 프로세스 전역으로 고정하여
+     * SSL3/TLS1.0/TLS1.1 을 차단한다. 이 설정은 데몬 HTTPS 서버뿐 아니라
+     * 아웃바운드 TLS(webhook/AI)에도 적용되므로 TLS off 배포에서도 안전하다
+     * (TLS 1.2+ 는 범용 하한선).
+     *
+     * config [tls] min_version: "1.2"(기본) | "1.3".
+     *   1.2 → "NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3"
+     *   1.3 → "NORMAL:-VERS-ALL:+VERS-TLS1.3"
+     *
+     * glib-networking 은 첫 TLS 연결을 만들 때 이 환경변수를 우선순위로 읽으므로,
+     * 데몬 기동 초기(TLS 첫 사용 전)인 여기서 g_setenv 로 고정해야 반영된다.
+     * overwrite=TRUE — 환경에 기존 G_TLS_GNUTLS_PRIORITY 가 있어도 운영자
+     * daemon.conf 의 min_version 값을 진실로 삼아 강제 덮어쓴다. */
+    const gchar *min_version = pcv_config_get_string("tls", "min_version", "1.2");
+    const gchar *tls_priority;
+    if (g_strcmp0(min_version, "1.3") == 0) {
+        tls_priority = "NORMAL:-VERS-ALL:+VERS-TLS1.3";
+    } else {
+        if (g_strcmp0(min_version, "1.2") != 0)
+            PCV_LOG_WARN(TLS_LOG_DOM,
+                         "알 수 없는 [tls] min_version=%s — TLS 1.2 기준선으로 폴백",
+                         min_version);
+        tls_priority = "NORMAL:-VERS-ALL:+VERS-TLS1.2:+VERS-TLS1.3";
+    }
+    g_setenv("G_TLS_GNUTLS_PRIORITY", tls_priority, TRUE);
+    PCV_LOG_INFO(TLS_LOG_DOM,
+                 "TLS 최소 버전 고정: min_version=%s (GnuTLS priority=%s)",
+                 min_version, tls_priority);
+
     /* [tls] enabled 설정 확인 — "true" 문자열만 활성화 */
     const gchar *enabled = pcv_config_get_string("tls", "enabled", "false");
     if (g_strcmp0(enabled, "true") != 0) {

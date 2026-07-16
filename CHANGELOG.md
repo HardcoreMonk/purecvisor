@@ -3,6 +3,20 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.2 — 2026-07-17
+
+잔여 하드닝 **C1+C2** (PATCH) — TLS 하드닝(mTLS 클라이언트 인증서 검증 + TLS 최소버전 고정). 둘 다 **opt-in·기본값 하위호환**(기본 배포 TLS off·nginx 종단이라 무영향). 검증: `make single` 0-warn + `make test` **673/0** + `make check-all` **20게이트** + 반사실 RED + 기동 라이브 확인.
+
+### 보안 시정
+- **mTLS 클라이언트 인증서 검증 (C1, A02 / ASVS V12)**: `[tls] client_auth`(`none`/`request`/`require`, 기본 `none`) — `request`/`require` + `ca_path` 설정 시 CA 검증 DB(`g_tls_file_database`) + auth-mode(REQUESTED/REQUIRED) 배선. 기존엔 `ca_path` 저장만·미검증(평가 A02). `require`+CA 세팅 실패 시 **fail-secure**(무검증 mTLS로 HTTPS 미개시).
+- **TLS 최소버전 고정 (C2, A02 / V11)**: `[tls] min_version`(`1.2`/`1.3`, 기본 `1.2`) → GnuTLS priority(`G_TLS_GNUTLS_PRIORITY`) 고정(config 우선 overwrite) → **SSL3/TLS1.0/1.1 차단**(데몬 TLS + 아웃바운드 webhook/AI).
+
+### 재발방지 게이트 (ADR-0025 반사실)
+- `check-mtls-wiring` · `check-tls-min-version` (check-all 18→**20**) 반사실 RED.
+
+### Upgrade notes
+- **무영향(기본)**: `client_auth` 기본 none · `min_version` 1.2(범용). 아웃바운드 TLS도 1.2+로 협상(SSL3/TLS1.0/1.1 사용처 없어 무영향).
+
 ## v1.3.1 — 2026-07-17
 
 잔여 하드닝 우선순위 **B1** (PATCH) — 컨테이너 IDOR 시정(operator owner-scope). OWASP/ISMS-P 평가 A01 잔여(owner-scope가 `vm.*`만 커버 → operator 교차테넌트 컨테이너 조작). 검증: `make single` 0-warn + `make test` **673/0** + `make check-all` **18게이트** + 반사실 RED.

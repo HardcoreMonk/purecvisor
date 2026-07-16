@@ -81,6 +81,9 @@ const gchar *pcv_tls_get_cert_path(void);
 /** 서버 개인키 파일 경로 (TLS 비활성 시 NULL) */
 const gchar *pcv_tls_get_key_path(void);
 
+/** CA 인증서 파일 경로 (mTLS 클라이언트 인증서 검증용, TLS 비활성 시 NULL) */
+const gchar *pcv_tls_get_ca_path(void);
+
 /* ── PKI 디렉터리 관리 ───────────────────────────────── */
 
 /**
