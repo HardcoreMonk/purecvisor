@@ -149,10 +149,16 @@ var HN = {
 };
 
 /* ═══ TOAST ═══ */
-function toast(m, ok = true) {
-  var icon = ok ? '&#9989; ' : '&#10060; ';
+function toast(m, lvl = true) {
+  /* 레벨 인지: 불리언(하위호환) 또는 문자열('e'/'error', 'w'/'warn'/'warning', 그 외 성공) 모두 인지.
+   * lvl===false / 'e' / 'error' → 에러(빨강), 'w'/'warn'/'warning' → 경고(노랑), 그 외(true/undefined/'s'/'success') → 성공(초록). */
+  var isErr = lvl === false || lvl === 'e' || lvl === 'error';
+  var isWarn = !isErr && (lvl === 'w' || lvl === 'warn' || lvl === 'warning');
+  var cls = isErr ? 't-er' : (isWarn ? 't-warn' : 't-ok');
+  var icon = isErr ? '&#10060; ' : (isWarn ? '&#9888; ' : '&#9989; ');
+  var barColor = isErr ? 'var(--red)' : (isWarn ? 'var(--yellow)' : 'var(--green)');
   const d = document.createElement('div');
-  d.className = 'toast ' + (ok ? 't-ok' : 't-er');
+  d.className = 'toast ' + cls;
   /* [보안] innerHTML 대신 textContent — 숫자 엔티티(&#NNN; 아이콘)만 디코드하고
    * 태그/속성은 텍스트로 남겨 XSS 차단(호출부가 리소스명/에러를 raw 전달해도 안전). */
   d.textContent = String(icon + m).replace(/&#(\d+);/g, function (_, n) { return String.fromCodePoint(+n); });
@@ -161,7 +167,7 @@ function toast(m, ok = true) {
   d.onclick = function() { d.style.transform = 'translateX(100%)'; setTimeout(function() { d.remove(); }, 300); };
   const prog = document.createElement('div');
   prog.className = 'toast-progress';
-  prog.style.cssText = 'height:3px;background:' + (ok ? 'var(--green)' : 'var(--red)') + ';border-radius:0 0 6px 6px;width:100%;transition:width 2.8s linear';
+  prog.style.cssText = 'height:3px;background:' + barColor + ';border-radius:0 0 6px 6px;width:100%;transition:width 2.8s linear';
   d.appendChild(prog);
   const container = document.getElementById('toasts');
   container.appendChild(d);
@@ -170,7 +176,7 @@ function toast(m, ok = true) {
   setTimeout(() => d.remove(), 3e3);
   /* B2: Feed toast into notification center */
   if (typeof addNotification === 'function') {
-    addNotification(ok ? 'info' : 'error', m, '');
+    addNotification(isErr ? 'error' : (isWarn ? 'warning' : 'info'), m, '');
   }
 }
 

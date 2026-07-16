@@ -7,7 +7,7 @@
  *       ↓ protobuf 직렬화, HTTP/2
  *   grpc_server.c (이 파일, 포트 50051)
  *       ↓ protobuf → JSON 변환
- *   UDS 소켓 → dispatcher.c (기존 156 RPC 재사용)
+ *   UDS 소켓 → dispatcher.c (기존 253 RPC 재사용)
  *       ↓ JSON-RPC 응답
  *   grpc_server.c → protobuf 직렬화 → 클라이언트
  *
@@ -17,7 +17,7 @@
  *   요청을 수신하여 기존 UDS JSON-RPC로 프록시합니다.
  *
  *   이 접근의 장점:
- *   - dispatcher.c의 156 RPC를 그대로 재사용
+ *   - dispatcher.c의 253 RPC를 그대로 재사용
  *   - 새 RPC 추가 시 proto만 갱신 (서버 코드 변경 최소)
  *   - REST와 gRPC가 동일한 비즈니스 로직 공유
  *
@@ -154,7 +154,7 @@ _extract_result(const gchar *json_resp)
 static void
 _handle_client(int client_fd)
 {
-    /* 0. 인증 — daemon.conf [grpc] auth_token 설정 시 16바이트 prefix 검증 */
+    /* 0. 인증 — daemon.conf [grpc] auth_token 설정 시 length-prefix(4B BE) + 토큰(≤256B) 검증 */
     extern gchar *G_grpc_auth_token; /* set in pcv_grpc_server_start */
     if (G_grpc_auth_token && *G_grpc_auth_token) {
         guint32 tk_len = 0;

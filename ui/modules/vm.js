@@ -243,11 +243,15 @@ function toggleChk(i) {
 
 async function bulkStop() {
   if (!await customConfirm(t('btn.stop_selected'), 'Stop ' + checkedVms.size + ' VMs?')) return;
+  var total = checkedVms.size;
+  var failed = [];
   for (const i of checkedVms) {
-    await fetchPost(EP.VM_STOP(vmList[i].name), {});
+    const r = await fetchPost(EP.VM_STOP(vmList[i].name), {});
+    if (r && r.error) { failed.push(vmList[i].name + ': ' + (r.error.message || '')); continue; }
     addEvt('VM Bulk stop — ' + vmList[i].name);
   }
   checkedVms.clear();
+  if (failed.length) toast(failed.length + ' / ' + total + ' stop failed', false);
   setTimeout(loadAll, 1500);
 }
 

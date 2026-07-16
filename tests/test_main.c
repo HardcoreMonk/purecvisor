@@ -109,6 +109,7 @@ void test_apikey_register(void);            /* apikey.create 만료 집행 + 컬
 void test_rbac_user_exists_register(void);  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
 void test_handler_snapshot_verify_register(void);  /* ADR-0025: snapshot.verify 존재-검증 프로브 */
 void test_handler_vm_batch_register(void);         /* ADR-0025: vm.batch whitelist/reject 결정 */
+void test_hotplug_flags_register(void);            /* ADR-0025/Fix B: set_vcpu/memory apply="config" affect-flag 결정 */
 
 /*
  * 테스트 환경 전용 로그 핸들러
@@ -298,6 +299,7 @@ int main(int argc, char *argv[]) {
     test_rbac_user_exists_register();  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
     test_handler_snapshot_verify_register(); /* ADR-0025: snapshot.verify 존재-검증 프로브 */
     test_handler_vm_batch_register();        /* ADR-0025: vm.batch whitelist/reject 결정 */
+    test_hotplug_flags_register();           /* ADR-0025/Fix B: set_vcpu/memory apply="config" affect-flag 결정 */
     test_dpdk_register();             /* OVS-DPDK Phase 4 — 환경 의존, 마지막 실행 */
 
     return g_test_run();

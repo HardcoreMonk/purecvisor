@@ -45,14 +45,13 @@
  *  - GIO GSocketClient: UDS 연결에 GLib GIO 소켓 API 사용.
  *
  * ====================================================================
- *  지원 명령 범주 (118개 RPC 중 CLI 노출분)
+ *  지원 명령 범주 (데몬 253 RPC 중 CLI 노출 172개 — routes[] 표 기준, 대표 범주만 열거)
  * ====================================================================
  *  - VM: create/start/stop/delete/list/metrics/vnc/snapshot 등
  *  - Network: create/delete/list/mode_set/bind_phys/dhcp_toggle
  *  - Storage: pool.list/zvol.list/zvol.create/zvol.delete
  *  - Container: create/destroy/start/stop/list/metrics/exec/snapshot
- *  - Cluster: vms/status/migrate/create
- *  - OVN: switch/port/acl/router/dhcp/nat/tenant (16개)
+ *  - OVN: switch/router/acl/nat/dhcp/status (6개; Cluster/migrate 명령은 single edition 미제공)
  *  - RBAC: auth create/list/delete/role
  *  - Template: list/get/create/delete
  *  - Backup: set/list/delete/history/restore
@@ -116,7 +115,7 @@
  *  } CommandRoute;
  *
  *  routes[] 배열을 순차 순회하여 object+action이 일치하는 첫 항목의
- *  handler를 호출한다. O(n) 선형 탐색이지만 168개 항목이라 충분히 빠르다.
+ *  handler를 호출한다. O(n) 선형 탐색이지만 172개 항목이라 충분히 빠르다.
  *
  * ====================================================================
  *  버전 이력

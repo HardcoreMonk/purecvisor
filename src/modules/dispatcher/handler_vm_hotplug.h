@@ -8,8 +8,8 @@
  *   실행 중인 VM에 대해 재부팅 없이 하드웨어를 동적으로 추가/제거한다.
  *
  * [RPC 메서드 매핑] (12개)
- *   vm.set_vcpu            -> handle_vm_set_vcpu_request        (fire-and-forget — vCPU 수 변경)
- *   vm.set_memory          -> handle_vm_set_memory_request      (fire-and-forget — 메모리 크기 변경)
+ *   vm.set_vcpu            -> handle_vm_set_vcpu_request        (콜백 기반 비동기 — vCPU 수 변경)
+ *   vm.set_memory          -> handle_vm_set_memory_request      (콜백 기반 비동기 — 메모리 크기 변경)
  *   vm.memory.stats        -> handle_vm_memory_stats_request    (동기 — 벌룬 메모리 통계)
  *   vm.cpu.stats           -> handle_vm_cpu_stats_request       (동기 — per-vCPU 통계)
  *   vm.disk.live_resize    -> handle_vm_disk_live_resize_request(fire-and-forget — 라이브 디스크 리사이즈)
@@ -50,13 +50,13 @@
 G_BEGIN_DECLS
 
 /**
- * @brief VM 메모리 크기를 동적으로 변경한다 (fire-and-forget).
+ * @brief VM 메모리 크기를 동적으로 변경한다 (콜백 기반 비동기).
  * @param params  {"name":"<vm>", "memory_mb":<int>} — VM 이름, 새 메모리(MB)
  */
 void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 /**
- * @brief VM vCPU 수를 동적으로 변경한다 (fire-and-forget).
+ * @brief VM vCPU 수를 동적으로 변경한다 (콜백 기반 비동기).
  * @param params  {"name":"<vm>", "vcpu":<int>} — VM 이름, 새 vCPU 수
  */
 void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);

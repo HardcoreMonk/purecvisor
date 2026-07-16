@@ -1720,11 +1720,12 @@ function showSilenceCreate() {
         var dur = parseInt(durInput.value) || 60;
         var reason = reasonInput.value.trim();
         try {
-          await fetchPost(EP.ALERT_SILENCE(), { metric: metric, duration_min: dur, reason: reason });
+          const r = await fetchPost(EP.ALERT_SILENCE(), { metric: metric, duration_min: dur, reason: reason });
+          if (r && r.error) { toast(r.error.message || _L('실패', 'Failed'), false); return; }
           toast(_L('음소거 적용', 'Silence applied'), 's');
           closeModal();
           renderAlertSilences(document.getElementById('cb'));
-        } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
+        } catch(e) { toast(_L('실패', 'Failed'), false); }
       } }, _L('적용', 'Apply')),
       ' ',
       mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))
@@ -1758,9 +1759,10 @@ async function saveAlertRouting() {
   if (critUrl) cfg.webhook_crit_url = critUrl;
   if (secret) cfg.webhook_secret = secret;
   try {
-    await fetchPost(EP.ALERTS_CONFIG(), cfg);
+    const r = await fetchPost(EP.ALERTS_CONFIG(), cfg);
+    if (r && r.error) { toast(r.error.message || _L('실패', 'Failed'), false); return; }
     toast(_L('라우팅 설정 저장 완료', 'Alert routing saved'), 's');
-  } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
+  } catch(e) { toast(_L('실패', 'Failed'), false); }
 }
 
 /* ═══ CONNECTION POOL INFO ═══ */

@@ -43,7 +43,7 @@ async function bulkAction(action) {
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
     if (ps) PCV.uxlib.setMsg(ps, 'loading', null, (i + 1) + '/' + names.length + ' — ' + names[i]);
-    try { await fetchPost(EP.VM_ACTION(names[i], action), {}); } catch (e) { failed.push(names[i] + ': ' + e.message); }
+    try { const r = await fetchPost(EP.VM_ACTION(names[i], action), {}); if (r && r.error) { failed.push(names[i] + ': ' + (r.error.message || '')); } } catch (e) { failed.push(names[i] + ': ' + e.message); }
   }
   var okCount = names.length - failed.length;
   if (ps) {
@@ -78,13 +78,16 @@ async function bulkSnapshot() {
   ]);
   var pf = document.getElementById('bulk-prog');
   var ps = document.getElementById('bulk-status');
+  var failed = [];
   for (var i = 0; i < names.length; i++) {
     if (pf) pf.style.width = ((i + 1) / names.length * 100) + '%';
     if (ps) PCV.uxlib.setMsg(ps, 'loading', null, (i + 1) + '/' + names.length + ' — ' + names[i]);
-    try { await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); } catch (e) { /* continue */ }
+    try { var r = await fetchPost(EP.VM_SNAPSHOT_CREATE(names[i]), { snap_name: snapName }); if (r && r.error) failed.push(names[i] + ': ' + (r.error.message || '')); } catch (e) { failed.push(names[i] + ': ' + (e.message || '')); }
   }
-  if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + _L('완료', 'Done') + ': ' + names.length + ' snapshots');
-  addEvt('Bulk snapshot: ' + snapName + ' → ' + names.join(', '));
+  var okCount = names.length - failed.length;
+  if (ps) PCV.uxlib.setMsg(ps, null, null, (failed.length ? '⚠ ' : '✅ ') + _L('완료', 'Done') + ': ' + okCount + '/' + names.length + ' snapshots');
+  if (failed.length) toast(failed.length + ' / ' + names.length + ' snapshot failed', false);
+  addEvt('Bulk snapshot: ' + snapName + ' → ' + okCount + '/' + names.length + ' OK');
   setTimeout(function() { closeModal(); loadAll(); }, 2000);
 }
 
@@ -809,8 +812,8 @@ function hwNic() {
   return nodes;
 }
 async function loadNics(n) { if (!n) return; try { const r = await fetchGet(EP.VM_NICS(n)); const l = unwrapList(r); var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl; const listEl = document.getElementById('nic-list'); if (!listEl) return; clearEl(listEl); if (!l.length) { listEl.appendChild(el('p', { class: 'color-muted' }, 'No NICs')); return; } var rows = l.map(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); return el('tr', null, el('td', null, c.mac || '-'), el('td', null, c.bridge || c.source || '-'), el('td', null, c.model || 'virtio'), el('td', null, c.ip || '-'), el('td', null, dns), el('td', null, el('button', { class: 'btn btn-r text-9', onclick: "nicDel('" + escapeAttr(n) + "','" + escapeAttr(c.mac) + "')" }, t('btn.delete')))); }); listEl.appendChild(el('table', null, el('thead', null, el('tr', null, el('th', null, 'MAC'), el('th', null, 'Bridge'), el('th', null, 'Model'), el('th', null, 'IP'), el('th', null, 'DNS'), el('th', null))), el('tbody', null, rows))); } catch (e) { if(_DEBUG) console.warn('loadNics:', e.message); } }
-async function nicAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nic-br')?.value || 'pcvbr0' }); toast(t('nic.added')); loadNics(v.name); } catch (e) { toast(e.message, false); } }
-async function nicDel(n, mac) { if (!await customConfirm(t('btn.delete'), 'NIC ' + mac + '?')) return; try { await fetchDelete(EP.VM_NIC_DETACH(n, mac)); toast(t('nic.removed')); loadNics(n); } catch (e) { toast(e.message, false); } }
+async function nicAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nic-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); loadNics(v.name); } catch (e) { toast(e.message, false); } }
+async function nicDel(n, mac) { if (!await customConfirm(t('btn.delete'), 'NIC ' + mac + '?')) return; try { const r = await fetchDelete(EP.VM_NIC_DETACH(n, mac)); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.removed')); loadNics(n); } catch (e) { toast(e.message, false); } }
 
 function hwAP() {
   var el = PCV.uxlib.el;
@@ -827,7 +830,7 @@ function hwAP() {
   return nodes;
 }
 async function loadBP() { try { const r = await fetchGet(EP.BACKUP_POLICIES()); const l = unwrapList(r); var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl; const listEl = document.getElementById('bp-list'); if (!listEl) return; clearEl(listEl); if (!l.length) { listEl.appendChild(el('p', { class: 'color-muted' }, 'No policies')); return; } var rows = []; if (Array.isArray(l)) l.forEach(p => { rows.push(el('tr', null, el('td', null, p.vm_name || p.name || '-'), el('td', null, String(p.interval_hours || p.interval || '-') + 'h'), el('td', null, String(p.retention || '-')))); }); listEl.appendChild(el('table', null, el('thead', null, el('tr', null, el('th', null, 'VM'), el('th', null, 'Interval'), el('th', null, 'Retention'))), el('tbody', null, rows))); } catch (e) { if(_DEBUG) console.warn('loadBP:', e.message); } }
-async function bpSet() { try { await fetchPost(EP.BACKUP_POLICIES(), { vm_name: document.getElementById('bp-vm')?.value || '*', interval: +(document.getElementById('bp-int')?.value || 24), retention: +(document.getElementById('bp-ret')?.value || 7) }); toast(t('backup.policy_set')); loadBP(); } catch (e) { toast(e.message, false); } }
+async function bpSet() { try { const r = await fetchPost(EP.BACKUP_POLICIES(), { vm_name: document.getElementById('bp-vm')?.value || '*', interval: +(document.getElementById('bp-int')?.value || 24), retention: +(document.getElementById('bp-ret')?.value || 7) }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('backup.policy_set')); loadBP(); } catch (e) { toast(e.message, false); } }
 
 function showRenameVm() {
   const v = vmList[selectedVmIndex]; if (!v) return;
@@ -897,7 +900,24 @@ async function doSet(t2) {
     : +document.getElementById('sm').value;
   const b = t2 === 'vcpu' ? { vcpu_count: nextValue } : { memory_mb: nextValue };
   try {
-    await fetchPut(EP.VM_ACTION(v.name, t2), b);
+    const r = await fetchPut(EP.VM_ACTION(v.name, t2), b);
+    if (r && r.error) {
+      var msg = r.error.message || (t2 + ' failed');
+      // Fix B: 실행 중 vCPU 축소 불가(-32000 hotpluggable) → config-only 재시도 제안
+      if (t2 === 'vcpu' && /hotpluggable|cannot change vcpu|unplug/i.test(msg)) {
+        var okc = await customConfirm(_L('실행 중 vCPU 변경 불가', 'Cannot change vCPU while running'),
+          _L('실행 중에는 vCPU를 줄일 수 없습니다.\n다음 재시작 시 ' + nextValue + ' vCPU로 적용할까요?',
+             'vCPU cannot be reduced on a running VM.\nApply ' + nextValue + ' vCPU on next restart?'));
+        if (!okc) return;
+        var r2 = await fetchPut(EP.VM_ACTION(v.name, t2), { vcpu_count: nextValue, apply: 'config' });
+        if (r2 && r2.error) { toast(r2.error.message || msg, false); return; }
+        toast(_L('다음 재시작 시 ' + nextValue + ' vCPU로 적용됩니다', 'Will apply ' + nextValue + ' vCPU on next restart'), 'w');
+        if (typeof invalidateCache === 'function') invalidateCache('vm.list');
+        return;
+      }
+      toast(msg, false);
+      return;
+    }
     if (t2 === 'vcpu') v.vcpu = nextValue;
     if (t2 === 'memory') v.memory_mb = nextValue;
     toast(t2 + ' updated');
@@ -950,8 +970,8 @@ async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return;
     el('div', { class: 'text-right mt-12' }, el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
   ]);
   try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); var clearEl = PCV.uxlib.clearEl; const mgr = document.getElementById('nic-mgr'); clearEl(mgr); if (!l.length) { mgr.appendChild(el('p', { class: 'color-muted' }, 'No NICs')); return; } var rows = l.map(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); return el('tr', null, el('td', null, c.mac || '-'), el('td', null, c.bridge || c.source || '-'), el('td', null, c.model || 'virtio'), el('td', null, c.ip || '-'), el('td', null, dns), el('td', null, el('button', { class: 'btn btn-r text-9', onclick: "nmDel('" + escapeAttr(c.mac) + "')" }, t('btn.delete')))); }); mgr.appendChild(el('table', null, el('thead', null, el('tr', null, el('th', null, 'MAC'), el('th', null, 'Bridge'), el('th', null, 'Model'), el('th', null, 'IP'), el('th', null, 'DNS'), el('th', null))), el('tbody', null, rows))); } catch (e) { PCV.uxlib.setMsg('nic-mgr', null, null, t('error')); } }
-async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
-async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
+async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
+async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { const r = await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
 /* ═══ VNC MODAL ═══ */
 async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; var el = PCV.uxlib.el; showModal([

@@ -676,6 +676,8 @@ _rpc_attach_auth_context(const gchar *rpc_json,
  *   -32602 (Invalid params) → 400 Bad Request
  *   -32601 (Method not found) → 404 Not Found
  *   -32001 (VM not found, 커스텀) → 404 Not Found
+ *   -32003 (RPC timeout) → 504 Gateway Timeout
+ *   -32006 (Permission denied) → 403 Forbidden
  *   기타 → 500 Internal Server Error
  *
  * @param msg      HTTP 응답 대상

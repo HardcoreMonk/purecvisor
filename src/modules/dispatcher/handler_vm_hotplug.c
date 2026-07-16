@@ -49,6 +49,7 @@
 #include "api/uds_server.h"
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/dispatcher/handler_vm_hotplug.h"
+#include "modules/dispatcher/hotplug_affect_policy.h"
 #include "modules/audit/pcv_audit.h"
 #include "modules/virt/virt_conn_pool.h"
 #include "modules/core/vm_state.h"   /* AF-P1: lock_vm_operation / VM_OP_TUNING */
@@ -83,6 +84,7 @@ typedef struct {
     gchar *rpc_id;          /**< JSON-RPC 요청 ID (응답 매칭용) */
     UdsServer *server;      /**< UDS 서버 인스턴스 (ref 카운트 증가됨) */
     GSocketConnection *connection; /**< 클라이언트 소켓 연결 (ref 카운트 증가됨) */
+    gboolean config_only;   /**< apply="config" 이면 TRUE — 실행 중이어도 CONFIG-only(다음 부팅 반영). g_new0 기본 FALSE=현행 LIVE|CONFIG (Fix B 하위호환) */
 } VmHotplugCtx;
 
 /**
@@ -100,7 +102,9 @@ static void free_hotplug_ctx(gpointer data) {
     g_free(ctx);
 }
 
-static gboolean hotplug_get_affect_flags(virDomainPtr dom, unsigned int *flags, GError **error) {
+/* affect-flag 결정은 순수 TU hotplug_affect_policy.c 로 분리됨(ADR-0025 —
+ * pcv_hotplug_compute_affect_flags). 여기서는 실행 상태만 읽어 위임한다. */
+static gboolean hotplug_get_affect_flags(virDomainPtr dom, unsigned int *flags, gboolean config_only, GError **error) {
     int active = virDomainIsActive(dom);
     if (active < 0) {
         virErrorPtr err = virGetLastError();
@@ -110,10 +114,7 @@ static gboolean hotplug_get_affect_flags(virDomainPtr dom, unsigned int *flags, 
         return FALSE;
     }
 
-    *flags = VIR_DOMAIN_AFFECT_CONFIG;
-    if (active == 1) {
-        *flags |= VIR_DOMAIN_AFFECT_LIVE;
-    }
+    *flags = pcv_hotplug_compute_affect_flags(active == 1, config_only);
 
     return TRUE;
 }
@@ -154,7 +155,7 @@ static void vm_set_memory_worker(GTask *task, gpointer source_obj, gpointer task
 
     unsigned int flags = 0;
     GError *state_error = NULL;
-    if (!hotplug_get_affect_flags(dom, &flags, &state_error)) {
+    if (!hotplug_get_affect_flags(dom, &flags, ctx->config_only, &state_error)) {
         g_task_return_error(task, state_error);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
@@ -204,7 +205,7 @@ static void vm_set_vcpu_worker(GTask *task, gpointer source_obj, gpointer task_d
 
     unsigned int flags = 0;
     GError *state_error = NULL;
-    if (!hotplug_get_affect_flags(dom, &flags, &state_error)) {
+    if (!hotplug_get_affect_flags(dom, &flags, ctx->config_only, &state_error)) {
         g_task_return_error(task, state_error);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
@@ -311,6 +312,11 @@ void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsSe
     ctx->rpc_id = g_strdup(rpc_id);
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
+    /* Fix B: apply="config" 면 실행 중이어도 CONFIG-only (다음 부팅 반영). 미지정/"live"
+     * 등 다른 값은 g_new0 기본 FALSE → 현행 LIVE|CONFIG 유지(완전 하위호환). */
+    const gchar *_apply = json_object_has_member(params, "apply")
+        ? json_object_get_string_member(params, "apply") : NULL;
+    ctx->config_only = (_apply && g_strcmp0(_apply, "config") == 0);
 
     GTask *task = g_task_new(NULL, NULL, hotplug_callback, ctx);
     g_task_set_task_data(task, ctx, free_hotplug_ctx);
@@ -367,6 +373,12 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
     ctx->rpc_id = g_strdup(rpc_id);
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
+    /* Fix B: apply="config" 면 실행 중이어도 CONFIG-only (다음 부팅 반영). live decrease
+     * (부팅 수 아래로 vCPU 축소, -32000) 회피용 재전송 경로. 미지정/"live" 등은 g_new0
+     * 기본 FALSE → 현행 LIVE|CONFIG 유지(완전 하위호환). */
+    const gchar *_apply = json_object_has_member(params, "apply")
+        ? json_object_get_string_member(params, "apply") : NULL;
+    ctx->config_only = (_apply && g_strcmp0(_apply, "config") == 0);
 
     GTask *task = g_task_new(NULL, NULL, hotplug_callback, ctx);
     g_task_set_task_data(task, ctx, free_hotplug_ctx);

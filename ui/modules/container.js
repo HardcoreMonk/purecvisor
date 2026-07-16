@@ -400,11 +400,11 @@ async function ctrRunCmd(n) {
   const inp = document.getElementById('ctr-cmd'); const out = document.getElementById('ctr-output');
   if (!inp || !out) return; const cmd = inp.value.trim(); if (!cmd) return;
   ctrHist.push(cmd); out.textContent += '$ ' + cmd + '\n'; out.scrollTop = out.scrollHeight; inp.value = '';
-  try { const r = await fetchPost(EP.CTR_EXEC(n), { command: cmd }); const d = unwrapData(r); out.textContent += (d.output || d.stdout || '(no output)') + '\n'; out.scrollTop = out.scrollHeight; } catch (e) { out.textContent += 'Error: ' + e.message + '\n'; out.scrollTop = out.scrollHeight; }
+  try { const r = await fetchPost(EP.CTR_EXEC(n), { command: cmd }); if (r && r.error) { out.textContent += 'Error: ' + (r.error.message || 'command failed') + '\n'; out.scrollTop = out.scrollHeight; return; } const d = unwrapData(r); out.textContent += (d.output || d.stdout || '(no output)') + '\n'; out.scrollTop = out.scrollHeight; } catch (e) { out.textContent += 'Error: ' + e.message + '\n'; out.scrollTop = out.scrollHeight; }
 }
 
 async function ctrDnsAdd(n) { const ns = document.getElementById('dns-ns')?.value; if (!ns) return;
-  try { await fetchPost(EP.CTR_EXEC(n), { command: 'echo "nameserver ' + ns + '" >> /etc/resolv.conf' }); toast('Nameserver added'); ctrTab = 'dns'; renderContainers(document.getElementById('cb')); } catch (e) { toast(e.message, false); } }
+  try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'echo "nameserver ' + ns + '" >> /etc/resolv.conf' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast('Nameserver added'); ctrTab = 'dns'; renderContainers(document.getElementById('cb')); } catch (e) { toast(e.message, false); } }
 
 async function ctrReboot(n) {
   var el = PCV.uxlib.el;
@@ -417,11 +417,13 @@ async function ctrReboot(n) {
   var pf = document.getElementById('cr-p'), ps = document.getElementById('cr-s');
   try {
     if (pf) pf.style.width = '30%';
-    await fetchPost(EP.CTR_STOP(n), {});
+    var rStop = await fetchPost(EP.CTR_STOP(n), {});
+    if (rStop && rStop.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (rStop.error.message || 'Reboot failed')); toast(t('msg.reboot_error'), false); return; }
     if (pf) pf.style.width = '50%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting...');
     await new Promise(function(r) { setTimeout(r, 2000); });
     if (pf) pf.style.width = '70%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Starting...');
-    await fetchPost(EP.CTR_START(n), {});
+    var rStart = await fetchPost(EP.CTR_START(n), {});
+    if (rStart && rStart.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (rStart.error.message || 'Reboot failed')); toast(t('msg.reboot_error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ Reboot complete');
     toast(n + ' rebooted'); addEvt('LXC Reboot — ' + n);
     setTimeout(function() { closeModal(); renderContainers(document.getElementById('cb')); }, 2000);
@@ -443,7 +445,8 @@ async function ctrSnapCreate(n) { var s = await showInputModal(t('snap.name_prom
   var pf = document.getElementById('cs-p'), ps = document.getElementById('cs-s');
   try {
     if (pf) pf.style.width = '60%';
-    await fetchPost(EP.CTR_SNAPSHOTS(n), { snap_name: s });
+    var r = await fetchPost(EP.CTR_SNAPSHOTS(n), { snap_name: s });
+    if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.created') + ': ' + s);
     toast(t('snap.created') + ': ' + s); addEvt('LXC Snapshot created — ' + n + '@' + s);
     setTimeout(function() { closeModal(); ctrTab = 'snapshots'; renderContainers(document.getElementById('cb')); }, 1500);
@@ -463,7 +466,8 @@ async function ctrSnapRb(n, s) { if (!await customConfirm('Rollback', n + ' → 
   var pf = document.getElementById('crb-p'), ps = document.getElementById('crb-s');
   try {
     if (pf) pf.style.width = '60%';
-    await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s });
+    var r = await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s });
+    if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.reverted'));
     toast(t('snap.reverted')); addEvt('LXC Snapshot rollback — ' + n + '@' + s);
     setTimeout(function() { closeModal(); renderContainers(document.getElementById('cb')); }, 1500);
@@ -483,7 +487,8 @@ async function ctrSnapDel(n, s) { if (!await customConfirm(t('btn.delete'), s + 
   var pf = document.getElementById('csd-p'), ps = document.getElementById('csd-s');
   try {
     if (pf) pf.style.width = '60%';
-    await fetchDelete(EP.CTR_SNAP_DELETE(n, s));
+    var r = await fetchDelete(EP.CTR_SNAP_DELETE(n, s));
+    if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.deleted'));
     toast(t('snap.deleted')); addEvt('LXC Snapshot deleted — ' + n + '@' + s);
     setTimeout(function() { closeModal(); ctrTab = 'snapshots'; renderContainers(document.getElementById('cb')); }, 1500);
@@ -817,7 +822,8 @@ async function showCtrClone(name) {
       var dst = document.getElementById('ctr-clone-name').value.trim();
       if (!dst) { toast(_L('이름 필수', 'Name required'), false); return; }
       try {
-        await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
+        const r = await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
+        if (r && r.error) { toast(r.error.message || _L('실패', 'Failed'), false); return; }
         toast(_L('클론 요청 완료', 'Clone requested'));
         addEvt('LXC Clone requested — ' + name + ' → ' + dst);
         closeModal();
@@ -871,7 +877,7 @@ async function checkCtrHealth(name) {
     var d = unwrapData(r);
     var icon = d.running ? '🟢' : '🔴';
     toast(icon + ' ' + esc(name) + ': ' + (d.state || 'unknown'), d.running ? 's' : 'w');
-  } catch(e) { toast(_L('헬스 체크 실패', 'Health check failed'), 'e'); }
+  } catch(e) { toast(_L('헬스 체크 실패', 'Health check failed'), false); }
 }
 
 /* ═══ BACKWARD COMPAT SHIMS ═══ */

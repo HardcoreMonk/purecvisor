@@ -97,7 +97,7 @@ async function templateUse(name) {
 
 async function templateDel(name) {
   if (!await customConfirm(t('btn.delete'), 'Template: ' + name + '?')) return;
-  try { await fetchDelete(EP.TEMPLATE(name)); toast('Template deleted'); renderTemplates(document.getElementById('cb')); } catch (e) { toast(e.message, false); }
+  try { const r = await fetchDelete(EP.TEMPLATE(name)); if (r && r.error) { toast(r.error.message || 'Delete failed', false); return; } toast('Template deleted'); renderTemplates(document.getElementById('cb')); } catch (e) { toast(e.message, false); }
 }
 
 async function loadTemplateHistory() {
@@ -260,7 +260,14 @@ async function saveStorageCfg(type) {
   if (resultEl) PCV.uxlib.setMsg(resultEl, 'loading', null, _L('저장 중...', 'Saving...'));
   try {
     for (var i = 0; i < pairs.length; i++) {
-      if (pairs[i].value) await fetchPut(EP.CONFIG_DAEMON(), pairs[i]);
+      if (pairs[i].value) {
+        var r = await fetchPut(EP.CONFIG_DAEMON(), pairs[i]);
+        if (r && r.error) {
+          if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-red' }, '❌ ', r.error.message || _L('저장 실패', 'Save failed'));
+          toast(r.error.message || _L('저장 실패', 'Save failed'), false);
+          return;
+        }
+      }
     }
     if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-green' }, '✅ ', _L('저장 완료 (재시작 시 적용)', 'Saved (restart to apply)'));
     toast(_L('스토리지 설정 저장됨', 'Storage config saved'));
@@ -337,9 +344,10 @@ async function doConfigReload() {
   if (!await customConfirm(_L('데몬 설정을 리로드하시겠습니까?\n(webhook, rate limit, alert 임계값 등이 갱신됩니다)',
       'Reload daemon configuration?\n(webhook, rate limit, alert thresholds will be refreshed)'))) return;
   try {
-    await fetchPost(EP.CONFIG_RELOAD(), {});
+    const r = await fetchPost(EP.CONFIG_RELOAD(), {});
+    if (r && r.error) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (r.error.message || ''), false); return; }
     toast(_L('설정 리로드 완료', 'Configuration reloaded'), 's');
-  } catch(e) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (e.message || ''), 'e'); }
+  } catch(e) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (e.message || ''), false); }
 }
 
 /* ═══ BACKUP SNAPSHOT VERIFY ═══ */
@@ -357,10 +365,11 @@ function showBackupVerify() {
         if (!snap) { toast(_L('스냅샷 이름 필수', 'Snapshot name required'), 'w'); return; }
         try {
           var r = await fetchPost(EP.BACKUP_VERIFY(), { snapshot: snap });
+          if (r && r.error) { toast(_L('검증 실패', 'Verification failed') + ': ' + (r.error.message || ''), false); return; }
           var d = unwrapData(r) || {};
           toast('✅ ' + esc(d.snapshot || snap) + ': ' + (d.integrity || 'ok'), 's');
           closeModal();
-        } catch(e) { toast(_L('검증 실패', 'Verification failed'), 'e'); }
+        } catch(e) { toast(_L('검증 실패', 'Verification failed'), false); }
       } }, _L('검증', 'Verify')),
       ' ',
       mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')))

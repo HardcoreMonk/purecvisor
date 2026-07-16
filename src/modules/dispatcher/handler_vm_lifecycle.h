@@ -10,9 +10,9 @@
  *
  * [RPC 메서드 매핑]
  *   vm.list    -> handle_vm_list_request     (동기 — 전체 VM 목록 JSON 배열 반환)
- *   vm.stop    -> handle_vm_stop_request     (fire-and-forget — virDomainDestroy 비동기)
- *   vm.pause   -> handle_vm_pause_request    (fire-and-forget — virDomainSuspend 비동기)
- *   vm.resume  -> handle_vm_resume_request   (fire-and-forget — virDomainResume 비동기)
+ *   vm.stop    -> handle_vm_stop_request     (콜백 기반 비동기 — virDomainDestroy 후 콜백에서 결과 응답)
+ *   vm.pause   -> handle_vm_pause_request    (콜백 기반 비동기 — virDomainSuspend 후 콜백에서 결과 응답)
+ *   vm.resume  -> handle_vm_resume_request   (콜백 기반 비동기 — virDomainResume 후 콜백에서 결과 응답)
  *   vm.delete  -> handle_vm_delete_request   (fire-and-forget — VM 삭제 + zvol 정리)
  *   vm.metrics -> handle_vm_metrics_request  (동기 — 단일 VM CPU/MEM/DISK 메트릭)
  *
@@ -20,11 +20,12 @@
  *   void handler(JsonObject *params, const gchar *rpc_id,
  *                UdsServer *server, GSocketConnection *connection)
  *
- * [fire-and-forget 패턴 주의]
- *   vm.stop, vm.pause, vm.resume, vm.delete는 fire-and-forget 패턴:
- *   1. 즉시 "accepted" 응답을 전송하고 소켓을 닫는다
- *   2. GTask 백그라운드 스레드에서 실제 작업을 수행한다
- *   3. 콜백에서 send_response를 호출하면 소켓이 이미 닫혀 있어 크래시(UB) 발생!
+ * [응답 패턴 주의]
+ *   vm.delete만 fire-and-forget: 즉시 "accepted" 응답 후 소켓을 닫고 GTask에서
+ *   실제 삭제 수행 → 완료 콜백(_vm_delete_callback)에서 send_response 호출 금지
+ *   (소켓이 이미 닫혀 있어 크래시(UB) 발생!).
+ *   vm.stop/pause/resume은 콜백 기반 비동기: 응답을 미리 보내지 않고 GTask 실행,
+ *   완료 콜백(vm_action_callback)에서 실제 결과 응답을 전송한다(소켓 유지).
  *
  * [추가 참고]
  *   - 이 파일의 구현체(handler_vm_lifecycle.c)에는 pure_virt_get_domain() 함수가
@@ -56,19 +57,19 @@ G_BEGIN_DECLS
 void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 /**
- * @brief VM을 강제 종료한다 — fire-and-forget 비동기 (virDomainDestroy).
+ * @brief VM을 강제 종료한다 — 콜백 기반 비동기 (virDomainDestroy).
  * @param params  {"name": "<vm_name>"} — 종료할 VM 이름 (필수)
  */
 void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 /**
- * @brief VM을 일시 정지한다 — fire-and-forget 비동기 (virDomainSuspend).
+ * @brief VM을 일시 정지한다 — 콜백 기반 비동기 (virDomainSuspend).
  * @param params  {"name": "<vm_name>"} — 일시 정지할 VM 이름 (필수)
  */
 void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 /**
- * @brief 일시 정지된 VM을 재개한다 — fire-and-forget 비동기 (virDomainResume).
+ * @brief 일시 정지된 VM을 재개한다 — 콜백 기반 비동기 (virDomainResume).
  * @param params  {"name": "<vm_name>"} — 재개할 VM 이름 (필수)
  */
 void handle_vm_resume_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);

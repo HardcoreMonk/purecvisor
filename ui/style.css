@@ -707,6 +707,12 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
   box-shadow: 0 0 20px rgba(255,34,102,.2);
   text-shadow: 0 0 8px var(--red);
 }
+.t-warn {
+  background: rgba(255,204,0,.1); color: var(--yellow);
+  border: 1px solid var(--yellow);
+  box-shadow: 0 0 20px rgba(255,204,0,.2);
+  text-shadow: 0 0 8px var(--yellow);
+}
 
 /* ── Progress Bar (modal) ──────────────────────────────────── */
 .prog-bar {

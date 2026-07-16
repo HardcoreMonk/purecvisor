@@ -187,6 +187,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/handler_vnc.c \
     src/modules/dispatcher/handler_vm_lifecycle.c \
     src/modules/dispatcher/handler_vm_hotplug.c \
+    src/modules/dispatcher/hotplug_affect_policy.c \
     $(COMMON_SINGLE_ALLOWED_NET_SRCS) \
     src/modules/dispatcher/handler_storage.c \
     src/modules/dispatcher/handler_monitor.c \
@@ -308,6 +309,7 @@ TEST_COMMON_SRCS = \
     tests/test_rbac_user_exists.c \
     tests/test_handler_snapshot_verify.c \
     tests/test_handler_vm_batch.c \
+    tests/test_hotplug_flags.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
     src/modules/security/security_policy.c \
@@ -322,6 +324,7 @@ TEST_COMMON_SRCS = \
     src/api/vm_batch_policy.c \
     src/api/hot_reload.c \
     src/modules/dispatcher/rpc_utils.c \
+    src/modules/dispatcher/hotplug_affect_policy.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
     src/modules/network/security_group.c \

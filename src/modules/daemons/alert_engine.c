@@ -138,9 +138,9 @@
  *     CompositeRule 구조가 확장 가능하게 설계되어 있습니다.
  *
  *  6. DLQ (Dead Letter Queue) 동작
- *     Webhook 전송이 모든 재시도(3회)에서 실패하면 _webhook_dlq_store()로
+ *     Webhook 전송이 모든 재시도(3회)에서 실패하면 pcv_alert_dlq_store()로
  *     g_webhook_dlq GPtrArray에 저장됩니다. 최대 1000건까지 보관하며,
- *     초과 시 드롭됩니다. 향후 DLQ 재전송 기능 추가 예정.
+ *     초과 시 드롭됩니다. DLQ 재전송은 alert.dlq.retry RPC로 제공됩니다.
  * ============================================================================
  */
 

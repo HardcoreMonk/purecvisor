@@ -25,13 +25,13 @@
  * ============================================================================
  * [동기 vs 비동기 패턴 구분]
  * ============================================================================
- *   이 파일의 5개 핸들러 중 backup.restore만 fire-and-forget 비동기 패턴입니다.
- *   나머지 4개(policy.set/list/delete, history)는 동기 응답입니다.
+ *   backup.restore/incremental/replicate는 fire-and-forget 비동기 패턴이고,
+ *   policy.set/list/delete, history, verify 등은 동기 응답입니다.
  *
  *   동기 핸들러: 검증 → DB/ZFS 조작 → 결과 응답 전송
- *   fire-and-forget (backup.restore만):
- *     검증 → "accepted" 응답 전송(소켓 닫힘) → GTask 워커에서 ZFS rollback 실행
- *     → 결과는 로그(journalctl)에만 기록
+ *   fire-and-forget (restore/incremental/replicate):
+ *     검증 → "accepted" 응답 전송(소켓 닫힘) → GTask 워커에서 장시간 작업 실행
+ *     → 결과는 worker-result audit + WS 완료 이벤트로 기록(ADR-0018)
  *
  * ============================================================================
  * [CLI 사용 예시]
@@ -122,7 +122,8 @@ void handle_backup_restore(JsonObject       *params,
  * @param params: {name}
  *
  * 최신 스냅샷 대비 증분 스냅샷을 생성하고 증분 스트림을 파일로 저장.
- * 동기 응답: {snapshot, base_snapshot, file, size_bytes, mode}
+ * fire-and-forget(STO-5): 즉시 {status:accepted, vm_name} 응답 후 GTask에서 실행,
+ * 결과는 audit/WS 완료 이벤트로 기록.
  */
 void handle_backup_incremental(JsonObject       *params,
                                 const gchar      *rpc_id,

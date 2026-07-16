@@ -19,7 +19,7 @@
  *     - params: { "vm_name", "snapshot_name" }
  *
  * [fire-and-forget 패턴 사용 여부]
- *   backup.restore와 backup.replicate는 fire-and-forget 비동기 패턴을 사용합니다:
+ *   backup.restore/incremental/replicate는 fire-and-forget 비동기 패턴을 사용합니다:
  *     1. 즉시 {"status":"accepted"} 응답 전송 -> 소켓 닫힘
  *     2. GTask 워커 스레드에서 장시간 작업 실행 (수 초~수 분 소요)
  *     3. 결과는 ADR-0018에 따라 worker-result audit과 WS 완료 이벤트로 기록

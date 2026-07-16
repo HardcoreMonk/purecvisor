@@ -284,7 +284,7 @@ async function doZvol() {
   if (!name) { toast(_L('Zvol 이름을 입력하세요', 'Zvol name is required'), false); if (_btn) { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } return; }
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_.-]{0,63}$/.test(name)) { toast(_L('이름: 영문/숫자/_.- 만 허용', 'Name: [a-zA-Z0-9_.-] only'), false); if (_btn) { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } return; }
   if (size < 1 || size > 2048) { toast(_L('크기: 1~2048 GB', 'Size: 1-2048 GB'), false); if (_btn) { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } return; }
-  try { await fetchPost(EP.STORAGE_ZVOLS(), { name: name, size_gb: size }); toast(t('stg.zvol_created')); addEvt(t('stg.zvol_created')); closeModal(); renderStorage(document.getElementById('cb')); } catch (e) { toast(e.message, false); }
+  try { const r = await fetchPost(EP.STORAGE_ZVOLS(), { name: name, size_gb: size }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('stg.zvol_created')); addEvt(t('stg.zvol_created')); closeModal(); renderStorage(document.getElementById('cb')); } catch (e) { toast(e.message, false); }
   finally { if (_btn && _btn.tagName === 'BUTTON') { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } }
 }
 

@@ -581,10 +581,11 @@ async function revokeSession() {
   if (!jti || !jti.value.trim()) { toast(_L('JTI를 입력하세요', 'Enter JTI'), 'w'); return; }
   if (!await customConfirm(_L('이 세션을 강제 해제하시겠습니까?', 'Force logout this session?'))) return;
   try {
-    await fetchPost(EP.AUTH_SESSION_REVOKE(), { jti: jti.value.trim() });
+    const r = await fetchPost(EP.AUTH_SESSION_REVOKE(), { jti: jti.value.trim() });
+    if (r && r.error) { toast(_L('실패', 'Failed') + ': ' + (r.error.message || ''), false); return; }
     toast(_L('세션이 해제되었습니다', 'Session revoked'), 's');
     jti.value = '';
-  } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), 'e'); }
+  } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), false); }
 }
 
 /* ═══ API KEY FULL CRUD (백엔드 4차) ═══ */
@@ -683,14 +684,15 @@ async function showApiKeyCreate() {
 async function revokeApiKey(name) {
   if (!await customConfirm(_L('이 API 키를 폐기하시겠습니까?', 'Revoke this API key?') + '\n' + name)) return;
   try {
-    await fetchPost(EP.AUTH_APIKEY_REVOKE(name), {});
+    const r = await fetchPost(EP.AUTH_APIKEY_REVOKE(name), {});
+    if (r && r.error) { toast(_L('실패', 'Failed') + ': ' + (r.error.message || ''), false); return; }
     toast(_L('키 폐기 완료', 'Key revoked'), 's');
     /* R-embed: 키 테이블은 API Management 페이지의 #apikey-keys-area 서브
      * 컨테이너에 렌더된다. cb(전체 페이지)로 다시 그리면 JWT/tester/gRPC 카드가
      * 사라지므로 반드시 서브 컨테이너로 리프레시한다. */
     var area = document.getElementById('apikey-keys-area');
     if (area) renderApiKeys(area);
-  } catch(e) { toast(_L('실패', 'Failed'), 'e'); }
+  } catch(e) { toast(_L('실패', 'Failed'), false); }
 }
 
 /* ═══ WINDOW REGISTRATIONS ═══ */

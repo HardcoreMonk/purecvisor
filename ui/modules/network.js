@@ -436,7 +436,7 @@ async function nfvLbCreate() {
     renderContent();
   } catch (e) { toast(e.message, false); }
 }
-async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
+async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } const r = await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); if (r && r.error) { toast(r.error.message || 'Failed', false); return; } toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
 /* ═══ SECURITY GROUPS ═══ */
 async function renderSecGroups(b) {
@@ -477,7 +477,8 @@ window.sgAddRule = async function() {
   if (!sw || !match) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Switch와 Match는 필수입니다'); return; }
   if (el) PCV.uxlib.setMsg(el, 'loading', null, '추가 중...');
   try {
-    await fetchPost(EP.OVN_ACL(), { switch_name: sw, direction: dir, priority: parseInt(pri), match: match, action: act });
+    const r = await fetchPost(EP.OVN_ACL(), { switch_name: sw, direction: dir, priority: parseInt(pri), match: match, action: act });
+    if (r && r.error) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', r.error.message || 'Failed'); toast(r.error.message || 'Failed', false); return; }
     if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-green' }, 'ACL 규칙 추가 완료');
     toast('ACL 규칙 추가: ' + escapeHtml(sw));
   } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', e.message); }

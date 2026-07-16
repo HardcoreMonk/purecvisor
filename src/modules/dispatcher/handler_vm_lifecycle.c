@@ -15,8 +15,9 @@
  *   vm.limit   -> (인라인)                    : VM CPU/메모리 cgroup 제한 설정
  *   vm.vnc     -> (인라인)                    : VNC 포트 정보 조회
  *
- * [fire-and-forget 패턴 사용 여부]
- *   - vm.stop, vm.delete: fire-and-forget 사용 (응답 먼저 전송 -> GTask 비동기 실행)
+ * [응답 패턴]
+ *   - vm.delete: fire-and-forget (accepted 응답 먼저 전송 -> 소켓 닫고 GTask 비동기 실행)
+ *   - vm.stop: 콜백 기반 비동기 (완료 콜백 vm_action_callback에서 결과 응답 전송)
  *   - vm.list, vm.metrics: 동기 응답 (조회 결과 즉시 반환)
  *
  * [주의사항]

@@ -382,8 +382,9 @@ handle_auth_user_delete(JsonObject       *params,
      * pcv_rbac_user_delete: DB에서 사용자 레코드 삭제.
      *   - DELETE FROM users WHERE username = ?
      *   - 미존재 시 GError("User not found") 반환
-     *   - 현재 로그인 중인 사용자를 삭제해도 기존 JWT 토큰은 만료 시까지 유효
-     *     (토큰 블랙리스트 기능은 미구현)
+     *   - 현재 로그인 중인 사용자를 삭제해도 이 핸들러는 토큰을 자동 폐기하지 않아
+     *     기존 JWT 토큰은 만료 시까지 유효. 즉시 무효화하려면 auth.session.revoke
+     *     (jti 블랙리스트, SEC-1) 또는 auth.user.sessions.revoke를 별도 호출.
      */
     GError *err = NULL;
     gboolean ok = pcv_rbac_user_delete(username, &err);

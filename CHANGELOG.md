@@ -3,6 +3,22 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.6 — 2026-07-16
+
+프론트엔드 결함 시정 + 실행 중 vCPU 축소 UX(Fix B) + toast 레벨 인지 개선(PATCH). 사용자 실사용 신고(웹에서 vCPU 4→2가 "통과" 표시되나 미변경)에서 출발한 **"성공 보고, 실제 실패" 클래스**를 프론트 전수 스윕. **데몬 wire 계약은 하위호환 추가만**(신규 옵션 param `apply`, 미지정 시 현행 동작). 검증: `make single` 0-warning + `make test` **663/0** + `make check-all` **8게이트 PASS** + 실브라우저(목 API + Playwright) 검증.
+
+### 프론트엔드 (거짓 성공 제거)
+- **doSet r.error 미검사 클래스 스윕**: `api.js` 계약(`fetchXxx`는 본문 에러에 throw 안 함 → 호출부 `if(r.error)` 필수)을 위반해 데몬 거부를 삼키고 성공 토스트를 띄우던 변이 호출 **28개 사이트** 시정(PR #40). `toast(x,'e')` 초록-렌더 7건 → 빨강 정정. bulk 3종(action/snapshot/stop) 거짓 "완료" 제거.
+- **toast() 레벨 인지**: 2번째 인자를 불리언(하위호환) 또는 레벨 문자열(`'e'`/`'w'`/`'s'`)로 인지 — 경고=노랑(`.t-warn`). 기존 `toast(m,'w')`가 초록으로 렌더되던 풋건 해소.
+
+### Fix B — 실행 중 vCPU 축소 경로 (하위호환 계약 추가)
+- 실행 중 VM의 vCPU를 부팅 수 아래로 줄이는 live decrease는 QEMU/KVM 제약(-32000 "failed to find appropriate hotpluggable vcpus")으로 불가하다. 데몬은 이를 정직하게 반환(버그 아님).
+- `vm.set_vcpu`/`vm.set_memory`에 옵션 `apply` 추가: `"config"` → 실행 중이어도 **CONFIG-only(다음 부팅 반영)**. 미지정/`"live"` → 현행(실행 중 LIVE|CONFIG, 정지 CONFIG). 완전 하위호환. 플래그 결정을 순수 함수 `pcv_hotplug_compute_affect_flags`로 추출(ADR-0025 별도 TU `hotplug_affect_policy.c`) + 반사실 유닛테스트(config_only 분기 제거 시 RED).
+- 프론트: 라이브 축소 실패 감지 시 확인 다이얼로그 → `apply:"config"` 재전송 → "다음 재시작 시 N vCPU로 적용" 경고 토스트. 라이브값은 미갱신(다음 부팅 반영).
+
+### Upgrade notes
+- **무중단** — 신규 `apply` param은 옵션(미지정 시 완전 현행). 에러코드·RPC·config 동일. UI 정직화(실행 중 vCPU 축소는 이제 명확한 에러 또는 config-only 경로로 안내).
+
 ## v1.2.5 — 2026-07-16
 
 배치별 code-review follow-up 하드닝 릴리스(PATCH). 감사 시정 각 배치 최종 리뷰의 비차단 code-review 항목을 실코드 그라운딩 후 시정 + audit 배치 게이트 CI 편입. **런타임 계약 무변경**(하드닝 — fail-secure는 오류 경로만, 신규 락은 경합 시에만 `-32004`(busy)). 검증: 전 커밋 `make single` 0-warning + `make test` **0 not ok** + `make check-all` **8게이트 PASS**.

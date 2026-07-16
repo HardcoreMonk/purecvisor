@@ -87,7 +87,7 @@ G_BEGIN_DECLS
  *   VM_OP_CREATING(4):  dispatcher.c(인라인) → virt-install + ZFS zvol 생성
  *   VM_OP_TUNING(5):    handler_vm_hotplug.c → virDomainSetVcpus/SetMemory
  *   VM_OP_SNAPSHOT(6):  handler_snapshot.c → ZFS 스냅샷 create/rollback
- *   VM_OP_MIGRATING(7): handler_cluster.c → virDomainMigrate (라이브 마이그레이션)
+ *   VM_OP_MIGRATING(7): (single edition 미사용 — 클러스터/마이그레이션 핸들러 없음, enum 값만 예약)
  *
  * [왜 정수값이 0부터 시작하는가?]
  *   DB의 op_type 컬럼에 정수로 저장되며, lock_vm_operation()의
