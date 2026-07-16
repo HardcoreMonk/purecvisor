@@ -800,9 +800,24 @@ check-audit-placement:
 	@python3 scripts/check_audit_placement.py
 	@python3 scripts/tests/test_audit_placement.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement)"
+check-cors-anchor:
+	@echo "🌐 Running CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13)..."
+	@python3 scripts/check_cors_anchor.py
+	@python3 scripts/tests/test_cors_anchor.py
+
+check-secret-logging:
+	@echo "🔒 Running 감사 로그 자격증명 마스킹 게이트 (Wave A / A09·V14·V16)..."
+	@python3 scripts/check_secret_logging.py
+	@python3 scripts/tests/test_secret_logging.py
+
+check-ssrf-guard:
+	@echo "🚫 Running 아웃바운드 리다이렉트 금지 게이트 (Wave A / A10·V4)..."
+	@python3 scripts/check_ssrf_guard.py
+	@python3 scripts/tests/test_ssrf_guard.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -861,4 +876,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-all compile-commands coverage coverage-html coverage-check

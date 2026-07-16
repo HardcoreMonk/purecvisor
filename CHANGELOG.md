@@ -3,6 +3,21 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.8 — 2026-07-16
+
+보안 시정 트랙 **Wave A**(PATCH) — OWASP/ISMS-P 평가([`docs/operations/2026-07-16-security-assessment-owasp-ismsp.md`])의 저위험·하위호환 HIGH급 갭 3건 + 재발방지 게이트 3종. 배포 프로파일 **P2(다중사용자/공유호스트)** 기준. 검증: `make single` 0-warning + `make test` **663/0** + `make check-all` **11게이트**(신규 3 포함) + 반사실 RED 실증.
+
+### 보안 시정
+- **CORS 앵커 검증 (A05 / ASVS V3·V13)**: 오리진 검증의 비앵커 substring 매칭(`http://192.168.evil.com`·`https://<host>.attacker.com` 우회) 제거 → **정확 일치**(루프백 + same-host)만 허용. 검증된 origin만 echo + `Vary:Origin`, `"*"`+credentials 조합 금지. (`_cors_origin_allowed` 헬퍼)
+- **자격증명 로깅 마스킹 (A09 / V14·V16)**: 감사 본문 로그 마스킹이 `/auth/*` **경로만** 커버하던 것을 **본문 민감키**(password/secret/token/api_key 등 10종) 기반으로 확장 → `/api/v1/rpc` 경유 `auth.user.create` 등 **평문 비밀번호 로깅 차단**. (`_body_has_secret` 헬퍼)
+- **아웃바운드 리다이렉트 금지 (A10 / V4)**: webhook(`alert_engine.c`)·AI(`ai_agent.c`) 아웃바운드에 `SOUP_MESSAGE_NO_REDIRECT` — 302 리다이렉트로 SSRF allowlist/denylist 우회 차단.
+
+### 재발방지 게이트 (ADR-0025 반사실 — 제거 시 RED)
+- `check-cors-anchor` · `check-secret-logging` · `check-ssrf-guard`를 `check-all`(8→**11게이트**) + pre-commit에 편입. 각 self-test + 반사실 RED 실증.
+
+### Upgrade notes
+- **무중단** — 데몬 wire 계약 무변경. CORS는 정당한 same-host/loopback 브라우저 클라이언트에 영향 없음(공격 오리진만 차단). 감사 로그 마스킹 확대는 로그 출력만 변경. *(내부망 cross-origin이 필요하면 향후 config allowlist — Wave B/C.)*
+
 ## v1.2.7 — 2026-07-16
 
 실행 중 vCPU 증가가 VM 최대치(maxVcpus)를 초과할 때의 프론트 안내 개선(PATCH). v1.2.6 Fix B(축소→config-only)에 이어 vCPU 조정 UX 완결. **UI 전용 변경** — 데몬 로직 무변경(1.2.6과 동일, 버전 문자열만). 검증: `make single` 0-warning + `make check-all` **8게이트 PASS** + 실브라우저(목 API + Playwright).

@@ -450,6 +450,8 @@ _webhook_post(const gchar *url, const gchar *payload)
     g_object_set(sess, "timeout", 10, NULL);
     SoupMessage *msg = soup_message_new("POST", target_url);
     if (!msg) { g_object_unref(sess); return FALSE; }
+    /* SSRF(A10/V4): 리다이렉트 추종 금지 — 링크로컬/루프백 denylist 우회 차단 */
+    soup_message_set_flags(msg, SOUP_MESSAGE_NO_REDIRECT);
 
     GBytes *body = g_bytes_new(payload, strlen(payload));
     soup_message_set_request_body_from_bytes(msg, "application/json", body);

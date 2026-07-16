@@ -69,6 +69,12 @@ HAS_SAFETY_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
 HAS_ERROR_CODE_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^(scripts/check_error_codes\.py|scripts/error_codes_baseline\.txt)$' && HAS_ERROR_CODE_CHANGES=true
+HAS_CORS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_cors_anchor\.py|scripts/tests/test_cors_anchor\.py)$' && HAS_CORS_CHANGES=true
+HAS_SECRET_LOG_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_secret_logging\.py|scripts/tests/test_secret_logging\.py)$' && HAS_SECRET_LOG_CHANGES=true
+HAS_SSRF_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_guard\.py|scripts/tests/test_ssrf_guard\.py)$' && HAS_SSRF_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -271,6 +277,54 @@ if $HAS_C_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] .c/.h 변경 없음 — audit 배치 게이트 생략"
+fi
+
+# ── 4j. CORS 오리진 앵커 게이트 (check-cors-anchor, Wave A A05·V3·V13) ──
+if $HAS_CORS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] CORS 오리진 앵커 검증${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    CORS_OUT=$(python3 "$SCRIPT_DIR/check_cors_anchor.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "CORS origin substring 우회 재등장 또는 _cors_origin_allowed 미사용"
+        echo "$CORS_OUT" | tail -15
+    else
+        pass "$(echo "$CORS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/CORS 게이트 변경 없음 — CORS 앵커 게이트 생략"
+fi
+
+# ── 4k. 감사 로그 자격증명 마스킹 게이트 (check-secret-logging, A09·V14·V16) ──
+if $HAS_SECRET_LOG_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 감사 로그 자격증명 마스킹${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SL_OUT=$(python3 "$SCRIPT_DIR/check_secret_logging.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "is_auth 산정에서 _body_has_secret 미사용 (평문 자격증명 저널 기록)"
+        echo "$SL_OUT" | tail -15
+    else
+        pass "$(echo "$SL_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/마스킹 게이트 변경 없음 — 자격증명 마스킹 게이트 생략"
+fi
+
+# ── 4l. 아웃바운드 리다이렉트 금지 게이트 (check-ssrf-guard, A10·V4) ──
+if $HAS_SSRF_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 아웃바운드 리다이렉트 금지${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SSRF_OUT=$(python3 "$SCRIPT_DIR/check_ssrf_guard.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "아웃바운드 soup_message_new에 SOUP_MESSAGE_NO_REDIRECT 누락 (SSRF)"
+        echo "$SSRF_OUT" | tail -15
+    else
+        pass "$(echo "$SSRF_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/SSRF 게이트 변경 없음 — 아웃바운드 리다이렉트 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

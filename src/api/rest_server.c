@@ -1410,6 +1410,69 @@ _send_ovn_demo_health(SoupServerMessage *msg)
     g_free(content);
 }
 
+/* ── CORS 오리진 앵커 검증 (A05/V3·V13) ──────────────────────────
+ * Origin 헤더를 substring이 아니라 호스트 단위 정확 일치로 검증한다.
+ *   - origin 호스트: "://" 다음부터 다음 '/' 또는 ':' 또는 끝까지.
+ *   - host_hdr 호스트: ':'(포트) 앞까지.
+ * 허용 조건(둘 중 하나): origin 호스트가 루프백({localhost,127.0.0.1,::1})
+ * 이거나, Host 헤더의 호스트와 정확히 같음(same-host). 그 외는 불허 → 호출자가
+ * CORS 헤더를 아예 발행하지 않는다. substring 휴리스틱(://192.168. 등)은
+ * http://192.168.evil.com / https://<host>.attacker.com 우회를 허용하므로 제거함.
+ * cross-origin 내부망 허용은 향후 config allowlist로 처리(Wave A 범위 밖). */
+static gboolean
+_cors_origin_allowed(const gchar *origin, const gchar *host_hdr)
+{
+    if (!origin || origin[0] == '\0')
+        return FALSE;  /* origin 없음(same-origin/curl)은 호출자가 별도 처리 */
+    const gchar *sep = strstr(origin, "://");
+    if (!sep)
+        return FALSE;
+    const gchar *oh = sep + 3;                 /* origin 호스트 시작 */
+    gsize oh_len = 0;
+    while (oh[oh_len] && oh[oh_len] != '/' && oh[oh_len] != ':')
+        oh_len++;
+    if (oh_len == 0)
+        return FALSE;
+
+    gchar *origin_host = g_strndup(oh, oh_len);
+    gboolean allow = (g_strcmp0(origin_host, "localhost") == 0 ||
+                      g_strcmp0(origin_host, "127.0.0.1") == 0 ||
+                      g_strcmp0(origin_host, "::1") == 0);
+    if (!allow && host_hdr && host_hdr[0]) {
+        gsize hh_len = 0;
+        while (host_hdr[hh_len] && host_hdr[hh_len] != ':')
+            hh_len++;
+        gchar *host_host = g_strndup(host_hdr, hh_len);
+        allow = (hh_len > 0 && g_strcmp0(origin_host, host_host) == 0);
+        g_free(host_host);
+    }
+    g_free(origin_host);
+    return allow;
+}
+
+/* ── 감사 로그 자격증명 마스킹 판정 (A09/V14·V16) ─────────────────
+ * 경로 기반 매칭(/auth/ 계열)만으로는 /api/v1/rpc 경유 auth.user.create 처럼
+ * 평문 password가 담긴 본문을 놓친다. 본문(앞부분 상한)에 민감 키가 대소문자
+ * 무시로 존재하면 TRUE를 반환해 호출자가 본문을 마스킹하도록 한다. */
+static gboolean
+_body_has_secret(const gchar *body, gsize len)
+{
+    if (!body || len == 0)
+        return FALSE;
+    static const gchar *const secret_keys[] = {
+        "password", "passwd", "secret", "api_key", "apikey", "token",
+        "chap_password", "jwt_secret", "private_key", "credential", nullptr
+    };
+    gsize scan_len = MIN(len, (gsize)4096);   /* 감사 본문 로그와 동일하게 앞부분만 스캔 */
+    gchar *lower = g_ascii_strdown(body, (gssize)scan_len);
+    gboolean found = FALSE;
+    for (gsize i = 0; secret_keys[i]; i++) {
+        if (strstr(lower, secret_keys[i])) { found = TRUE; break; }
+    }
+    g_free(lower);
+    return found;
+}
+
 static void
 _on_request(SoupServer        *server   __attribute__((unused)),
             SoupServerMessage *msg,
@@ -1578,7 +1641,9 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                             (g_strstr_len(path, -1, "/auth/refresh") != nullptr) ||
                             (g_strstr_len(path, -1, "/auth/logout") != nullptr) ||
                             (g_strstr_len(path, -1, "/auth/register") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/password") != nullptr);
+                            (g_strstr_len(path, -1, "/auth/password") != nullptr) ||
+                            /* 경로 무관 — 본문에 민감 키가 있으면(예: /rpc auth.user.create) 마스킹 */
+                            _body_has_secret(body_str, body_len);
         if (body_str && body_len > 0 && !is_auth) {
             gchar *truncated = g_strndup(body_str, MIN(body_len, 200));
             PCV_LOG_INFO(REST_LOG_DOM, "AUDIT: %s %s from %s body=%.200s",
@@ -1640,44 +1705,33 @@ _on_request(SoupServer        *server   __attribute__((unused)),
      *   사전 확인(preflight)을 합니다. 204 No Content로 즉시 응답하여
      *   실제 요청을 허용합니다.
      */
-    /* ── CORS 출처 화이트리스트 ──────────────────────────────────
-     * 요청의 Origin 헤더를 검사하여 허용된 출처만 응답합니다.
-     * 허용 기준:
-     *   1) Origin이 없는 경우 (같은 출처, curl 등) → 허용
-     *   2) 로컬 주소 (localhost, 127.0.0.1, 192.168.x.x, 10.x.x.x) → 허용
-     *   3) 요청 Host와 동일한 Origin → 허용
-     * 그 외는 CORS 헤더를 설정하지 않아 브라우저가 차단합니다.
+    /* ── CORS 출처 앵커 검증 (A05/V3·V13) ────────────────────────
+     * 요청의 Origin 헤더를 호스트 단위 정확 일치로 검증합니다(substring 금지).
+     * 허용 기준(_cors_origin_allowed):
+     *   - origin 호스트 ∈ {localhost, 127.0.0.1, ::1} (루프백), 또는
+     *   - origin 호스트 == Host 헤더 호스트 (same-host)
+     * Origin이 없으면(same-origin/curl) CORS 헤더를 발행하지 않습니다.
+     * 검증 통과 시에만 검증된 정확한 origin을 echo하고 credentials를 허용합니다.
+     * "*" + credentials 조합은 절대 발행하지 않습니다.
      * ──────────────────────────────────────────────────────────── */
     {
         SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
         SoupMessageHeaders *reqh = soup_server_message_get_request_headers(msg);
         const gchar *origin = soup_message_headers_get_one(reqh, "Origin");
-        gboolean allow = FALSE;
+        const gchar *host_hdr = soup_message_headers_get_one(reqh, "Host");
 
-        if (!origin || origin[0] == '\0') {
-            allow = TRUE;  /* 같은 출처 요청 또는 curl */
-        } else if (strstr(origin, "://localhost") ||
-                   strstr(origin, "://127.0.0.1") ||
-                   strstr(origin, "://192.168.") ||
-                   strstr(origin, "://10.")) {
-            allow = TRUE;  /* 내부 네트워크 */
-        } else {
-            /* Host 헤더와 Origin 비교 */
-            const gchar *host = soup_message_headers_get_one(reqh, "Host");
-            if (host && strstr(origin, host)) allow = TRUE;
-        }
-
-        /* [Security Note] All response headers are hardcoded or from validated sources.
-         * Never insert user-controlled data into response headers without CRLF sanitization.
-         * libsoup3's soup_message_headers_replace() rejects headers containing \r\n. */
-        if (allow) {
-            soup_message_headers_replace(rh, "Access-Control-Allow-Origin",
-                                          origin ? origin : "*");
+        /* [Security Note] echo 값은 _cors_origin_allowed로 검증된 origin뿐이다.
+         * libsoup3의 soup_message_headers_replace()는 \r\n 포함 헤더를 거부하고,
+         * origin은 libsoup가 파싱한 요청 헤더 값이라 CRLF 주입이 불가하다. */
+        if (origin && origin[0] != '\0' && _cors_origin_allowed(origin, host_hdr)) {
+            soup_message_headers_replace(rh, "Access-Control-Allow-Origin", origin);
             soup_message_headers_replace(rh, "Access-Control-Allow-Methods",
                                           "GET, POST, PUT, DELETE, OPTIONS");
             soup_message_headers_replace(rh, "Access-Control-Allow-Headers",
                                           "Authorization, Content-Type, X-API-Key");
             soup_message_headers_replace(rh, "Access-Control-Allow-Credentials", "true");
+            /* 검증된 origin을 echo하므로 캐시가 origin별로 응답을 분리하도록 함 */
+            soup_message_headers_replace(rh, "Vary", "Origin");
         }
     }
     if (g_strcmp0(method, "OPTIONS") == 0) {

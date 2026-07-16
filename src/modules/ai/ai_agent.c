@@ -799,6 +799,8 @@ _query_thread(GTask *task, gpointer source, gpointer task_data, GCancellable *ca
         g_task_return_pointer(task, result, g_free);
         return;
     }
+    /* SSRF(A10/V4): 리다이렉트 추종 금지 — endpoint allowlist 우회 차단 */
+    soup_message_set_flags(msg, SOUP_MESSAGE_NO_REDIRECT);
 
     /* B9-M2: g_autoptr ensures req_bytes is freed on all paths (including
      * early-exit TLS rejection branch and normal completion at line ~857) */
