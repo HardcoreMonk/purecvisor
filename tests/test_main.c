@@ -63,6 +63,7 @@ void test_network_register(void);          /* D/B: 네트워크 검증 */
 void test_security_group_register(void);   /* V5: 보안 그룹 nft 인젝션 회귀 */
 void test_sg_nft_builder_register(void);   /* SG nft 스크립트 빌더 (스코프 재설계) */
 void test_container_register(void);        /* D/B: 컨테이너 검증 */
+void test_container_owner_scope_register(void);  /* B1: 컨테이너 operator owner-scope 소유자 저장소 */
 void test_privdrop_register(void);         /* D/B: 권한 격하 */
 void test_ovn_register(void);              /* OVN SDN */
 void test_dpdk_register(void);             /* OVS-DPDK Phase 4 */
@@ -255,6 +256,7 @@ int main(int argc, char *argv[]) {
     test_security_group_register();   /* V5: 보안 그룹 nft 인젝션 회귀 */
     test_sg_nft_builder_register();   /* SG nft 스크립트 빌더 */
     test_container_register();        /* D/B: 컨테이너 검증 */
+    test_container_owner_scope_register();  /* B1: 컨테이너 operator owner-scope 소유자 저장소 */
     test_privdrop_register();         /* D/B: 권한 격하 */
     test_ovn_register();              /* OVN SDN */
     test_sriov_register();            /* SR-IOV Phase 4 */

@@ -178,6 +178,13 @@ void     pcv_lxc_clone_async    (const gchar        *source,
 gboolean pcv_lxc_clone_finish   (GAsyncResult *result, GError **error);
 gboolean pcv_lxc_clone          (const gchar *source, const gchar *target);
 
+/* B1(IDOR 시정): operator owner-scope 소유자 저장소.
+ * 테스트 바이너리도 링크하는 self-contained 추출 TU(src/modules/lxc/lxc_owner.c).
+ * pcv_lxc_stamp_owner / pcv_lxc_read_owner 선언은 lxc_owner.h에 있다. lxc_driver.h를
+ * include하는 기존 소비자(handler_container.c, dispatcher.c)가 그대로 볼 수 있도록
+ * 여기서 재노출한다. */
+#include "lxc_owner.h"
+
 /* ──────────────────────────────────────────────────────────────────────────
  * 런타임 API (비동기 래핑 — GTask 워커로 liblxc 호출)
  * ──────────────────────────────────────────────────────────────────────────*/

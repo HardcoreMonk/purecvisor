@@ -3,6 +3,17 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.1 — 2026-07-17
+
+잔여 하드닝 우선순위 **B1** (PATCH) — 컨테이너 IDOR 시정(operator owner-scope). OWASP/ISMS-P 평가 A01 잔여(owner-scope가 `vm.*`만 커버 → operator 교차테넌트 컨테이너 조작). 검증: `make single` 0-warn + `make test` **673/0** + `make check-all` **18게이트** + 반사실 RED.
+
+### 보안 시정
+- **컨테이너 operator owner-scope (A01 / ASVS V8)**: VM의 operator owner-scope(자기 소유만 조작·소유자 부재 시 deny·admin 복구)를 **컨테이너에 미러**. `container.start`/`stop`/`clone`에 소유자 검사 — `container.create` 시 caller sub를 `<lxc_path>/<name>/purecvisor.owner`에 스탬프, operator는 소유 일치 시만 조작(admin 우회). clone은 **source owner** 검사. `container.clone`을 RBAC 정책에 **명시적 operator 등록**(미등록 시 경로별 default 상이[UDS=VIEWER/REST=ADMIN] 해소, `vm.clone` 동형).
+- 게이트 `check-container-owner-scope`(check-all 17→**18**) 반사실 RED. owner 저장은 별도 순수 TU `lxc_owner.c`(데몬+test 공통 링크).
+
+### Upgrade notes
+- **행동 변화**: operator 계정은 이제 **자기 소유(생성) 컨테이너만** start/stop/clone 가능. **기존 컨테이너(`.owner` 부재)는 operator 접근 상실 → admin 전용**(VM 소유자-부재와 동일 fail-secure). admin 재생성 또는 owner 재스탬프로 복구. admin은 무영향.
+
 ## v1.3.0 — 2026-07-16
 
 보안 시정 트랙 **Wave C** (MINOR — **배포 계약 변경**). OWASP/ISMS-P 평가의 최고위험 갭 2건(로컬 UDS 접근통제·전송 강제) + 게이트 2종(check-all 15→**17**). 배포 **P2**. **Upgrade notes 필독.** 검증: `make single` 0-warn + `make test` **668/0** + `make check-all` **17게이트** + 반사실 RED + pcvctl/nginx 라이브 실증.

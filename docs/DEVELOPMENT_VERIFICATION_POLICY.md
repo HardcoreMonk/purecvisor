@@ -353,6 +353,18 @@ make check-error-codes
 - `check-error-codes`: RPC wire 에러코드 raw `-32xxx` 숫자 리터럴(주석/문자열 리터럴/enum 정의부 `rpc_utils.h` 제외)이 실코드에 신규 등장하는지 검사(래칫 `scripts/error_codes_baseline.txt`, 이상적으로 빈 파일) + 구 병렬 enum `PCV_ERR_*`(`PCV_VM_ERR_*` VM 오퍼레이션 도메인은 별개) 재도입을 baseline 없이 항상 차단. DISP-6 에러코드 통일(`PURE_RPC_ERR_*` canonical) 회귀 재발 차단. 설계: `docs/superpowers/specs/2026-07-15-disp6-error-code-unification-design.md` §회귀 게이트.
 - **리뷰 체크리스트**: 신규 에러 응답/감사 로그 사이트는 raw `-32xxx` 리터럴이 아니라 `rpc_utils.h`의 canonical `PURE_RPC_ERR_*` 상수를 사용해야 한다(값 보존 필요 시에도 이름은 상수로).
 
+### 4.18 컨테이너 operator owner-scope 게이트 (B1 / A01 IDOR)
+
+`src/api/dispatcher.c`, `src/modules/dispatcher/handler_container.c`, `src/modules/lxc/lxc_owner.(c|h)`, 또는 게이트 스크립트/자기검증(`scripts/check_container_owner_scope.py`, `scripts/tests/test_container_owner_scope.py`)을 바꾸면 Level 1에 다음 검증을 포함한다.
+
+```bash
+make check-container-owner-scope
+```
+
+- `check-container-owner-scope`: VM operator owner-scope(자기 소유 VM만 조작)를 컨테이너로 미러한 접근통제를 검사. ① 강제(dispatcher): `_container_method_requires_owner_scope` 세트에 `container.start`/`container.stop`/`container.clone`이 모두 포함되고, 게이트 함수(`_lookup_container_owner`/`_container_owner_matches_caller`/`_container_owner_scoped_method_allowed`)가 정의·디스패치 배선되어 있는지. ② 스탬프(handler): `container.create` 성공 경로가 `pcv_lxc_stamp_owner`로 소유자를 기록하는지. ③ 저장소(lxc_owner): `pcv_lxc_stamp_owner`/`pcv_lxc_read_owner` 정의 + `purecvisor.owner` 파일 규칙 실재. 소유자는 libvirt domain이 없는 컨테이너 특성상 `<container_path>/<name>/purecvisor.owner`에 저장한다(VM은 domain XML `pcv:owner`). 자기검증 `scripts/tests/test_container_owner_scope.py`가 세트 제거·배선 제거·스탬프 제거·저장소 제거 각각에 대해 반사실 RED를 확인.
+- **하위호환 주의**: `.owner` 파일이 없는 기존 컨테이너(및 UDS 직결 admin 생성분)는 operator 접근이 거부되고 admin만 조작·재스탬프할 수 있다(VM 소유자 metadata 부재와 동일 fail-secure). upgrade 시 operator는 기존 컨테이너 접근을 잃으므로 admin 재스탬프/재생성이 필요하다.
+- **리뷰 체크리스트**: operator가 단일 컨테이너를 조작하는 신규 메서드를 추가하면 owner-scope 세트(`_container_method_requires_owner_scope`)에 포함하거나, 제외 사유(admin-only 등)를 남긴다. `container.clone`은 RBAC 정책 테이블에 min-role 매핑이 없어 현재 VIEWER 기본으로 처리되므로, owner-scope는 operator 교차테넌트만 차단한다(별도 RBAC min-role 매핑 필요 — 후속).
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증

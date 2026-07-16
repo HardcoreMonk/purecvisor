@@ -87,6 +87,8 @@ HAS_UDS_AUTHZ_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/uds_server\.c|src/utils/pcv_config\.c|scripts/check_uds_authz\.py|scripts/tests/test_uds_authz\.py)$' && HAS_UDS_AUTHZ_CHANGES=true
 HAS_TRANSPORT_BIND_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
+HAS_CONTAINER_OWNER_SCOPE_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/dispatcher/handler_container\.c|src/modules/lxc/lxc_owner\.(c|h)|scripts/check_container_owner_scope\.py|scripts/tests/test_container_owner_scope\.py)$' && HAS_CONTAINER_OWNER_SCOPE_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -433,6 +435,22 @@ if $HAS_TRANSPORT_BIND_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] rest_server.c/transport bind 게이트 변경 없음 — 평문 바인딩 게이트 생략"
+fi
+
+# ── 4s. 컨테이너 operator owner-scope 게이트 (check-container-owner-scope, B1 / A01) ──
+if $HAS_CONTAINER_OWNER_SCOPE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 컨테이너 operator owner-scope${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    COS_OUT=$(python3 "$SCRIPT_DIR/check_container_owner_scope.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_container_owner_scope.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "container.start/stop/clone owner-scope 세트/게이트 배선/create 스탬프/저장소 회귀 (operator 교차테넌트 IDOR 재노출)"
+        echo "$COS_OUT" | tail -15
+    else
+        pass "$(echo "$COS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] dispatcher/handler_container/lxc_owner/owner-scope 게이트 변경 없음 — 컨테이너 owner-scope 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

@@ -205,6 +205,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "container.create",          1 },
     { "container.start",           1 },
     { "container.stop",            1 },
+    { "container.clone",           1 },  /* B1: operator 명시(vm.clone 동형) + owner-scope. 미등록 시 경로별 default 상이 */
     { "container.exec",            2 },
     /* 추가 ADMIN — destructive 잔여 */
     { "auth.apikey.create",        2 },
@@ -791,6 +792,127 @@ _vm_owner_scoped_method_allowed(const gchar *method,
 
     const gchar *vm_name = _vm_owner_scope_target_from_params(method, params);
     return _vm_owner_matches_caller(vm_name, caller_sub, deny_message);
+}
+
+/* ── Operator 컨테이너 owner-scope (B1 — IDOR 시정) ──────────────────────────
+ *
+ * [비전공자 설명]
+ * VM과 똑같이 컨테이너에도 "소유자 이름표"를 붙입니다. operator 계정은 자신이
+ * 만든 컨테이너만 켜고, 끄고, 복제할 수 있습니다. 같은 operator 역할이어도 다른
+ * 사람 컨테이너는 조작할 수 없습니다.
+ *
+ * [VM과의 차이]
+ * - VM 소유자는 libvirt domain XML metadata(pcv:owner)에 저장되지만, 컨테이너는
+ *   libvirt domain이 없으므로 <PCV_LXC_PATH>/<name>/purecvisor.owner 파일에
+ *   저장합니다(lxc_driver.c: pcv_lxc_stamp_owner/read_owner).
+ * - 대상 메서드는 operator가 단일 컨테이너를 조작하는 start/stop/clone입니다.
+ *   destroy/exec/snapshot 등은 RBAC상 admin 전용이라 owner-scope 대상이 아닙니다.
+ * - 소유자 파일이 없으면(구 컨테이너·UDS 직결 admin 생성분) operator는 거부되고
+ *   admin만 조작·재스탬프할 수 있습니다(VM 소유자 metadata 부재와 동일 fail-secure).
+ */
+
+static const gchar *
+_container_name_from_params(JsonObject *params)
+{
+    const gchar *name = _json_string_member(params, "name");
+    if (name && *name) return name;
+
+    name = _json_string_member(params, "container");
+    if (name && *name) return name;
+
+    name = _json_string_member(params, "container_id");
+    if (name && *name) return name;
+
+    return NULL;
+}
+
+static const gchar *
+_container_owner_scope_target_from_params(const gchar *method, JsonObject *params)
+{
+    /* container.clone은 새 이름(dest)보다 "원본(source)" 권한이 더 중요합니다.
+     * 남의 컨테이너를 복제해 사본을 만드는 것도 조작이므로 source owner를 검사합니다
+     * (vm.clone이 source를 검사하는 것과 동형). */
+    if (g_strcmp0(method, "container.clone") == 0) {
+        const gchar *source = _json_string_member(params, "source");
+        if (source && *source)
+            return source;
+    }
+
+    return _container_name_from_params(params);
+}
+
+static gboolean
+_container_method_requires_owner_scope(const gchar *method)
+{
+    if (!method)
+        return FALSE;
+
+    /* operator가 단일 컨테이너를 조작하는 메서드만 owner-scope로 강제합니다.
+     * container.start/stop/clone 이외(destroy·exec·snapshot·set_limits·env·health·
+     * nic·volume 등)는 RBAC상 admin 전용이므로 이 게이트 밖입니다. */
+    return g_strcmp0(method, "container.start") == 0 ||
+           g_strcmp0(method, "container.stop") == 0 ||
+           g_strcmp0(method, "container.clone") == 0;
+}
+
+static gchar *
+_lookup_container_owner(const gchar *name)
+{
+    /* purecvisor.owner 파일에서 소유자 subject를 읽습니다(없으면 NULL). */
+    return pcv_lxc_read_owner(name);
+}
+
+static gboolean
+_container_owner_matches_caller(const gchar *name,
+                                const gchar *caller_sub,
+                                gchar **deny_message)
+{
+    if (!name || !*name) {
+        if (deny_message)
+            *deny_message = g_strdup("Missing required parameter: name");
+        return FALSE;
+    }
+
+    /* "요청한 사람(caller_sub)"과 "컨테이너 이름표(owner)"가 같은지 비교합니다.
+     * 둘 중 하나라도 없거나 다르면 거부합니다(fail-secure). */
+    gchar *owner = _lookup_container_owner(name);
+    gboolean allowed = (owner && g_strcmp0(owner, caller_sub) == 0);
+    g_free(owner);
+
+    if (!allowed && deny_message) {
+        *deny_message = g_strdup(
+            "Permission denied: operators can access only containers they created");
+    }
+    return allowed;
+}
+
+static gboolean
+_container_owner_scoped_method_allowed(const gchar *method,
+                                       JsonObject *params,
+                                       GSocketConnection *connection,
+                                       gint caller_role,
+                                       gchar **deny_message)
+{
+    /* ADMIN은 운영 복구와 소유권 정리를 위해 전역 권한을 유지합니다.
+     * OPERATOR는 아래 owner 비교를 추가로 통과해야 실제 action이 실행됩니다. */
+    if (caller_role >= PCV_ROLE_ADMIN)
+        return TRUE;
+
+    if (caller_role < PCV_ROLE_OPERATOR) {
+        if (deny_message)
+            *deny_message = g_strdup("Permission denied: insufficient role for this method");
+        return FALSE;
+    }
+
+    const gchar *caller_sub = _dispatcher_caller_subject(params, connection);
+    if (!caller_sub || !*caller_sub) {
+        if (deny_message)
+            *deny_message = g_strdup("Permission denied: missing authenticated subject");
+        return FALSE;
+    }
+
+    const gchar *name = _container_owner_scope_target_from_params(method, params);
+    return _container_owner_matches_caller(name, caller_sub, deny_message);
 }
 
 /* ── 미들웨어 훅 체인 (BE-A5) ────────────────────────────────────
@@ -6682,7 +6804,10 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     {
         gint caller_role = _dispatcher_caller_role(params, connection);
         const gchar *caller_sub = _dispatcher_caller_subject(params, connection);
-        const gchar *audit_target = _vm_owner_scope_target_from_params(method, params);
+        const gchar *audit_target =
+            _container_method_requires_owner_scope(method)
+                ? _container_owner_scope_target_from_params(method, params)
+                : _vm_owner_scope_target_from_params(method, params);
         gchar *deny_message = NULL;
         gboolean allowed = pcv_dispatcher_check_rbac(method, caller_role);
 
@@ -6693,6 +6818,12 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                    _vm_method_requires_owner_scope(method)) {
             allowed = _vm_owner_scoped_method_allowed(method, params, connection,
                                                       caller_role, &deny_message);
+        } else if (caller_role == PCV_ROLE_OPERATOR &&
+                   _container_method_requires_owner_scope(method)) {
+            /* B1: 컨테이너 owner-scope — VM과 동일 디스패치 지점에서 검사(admin 우회,
+             * operator는 소유자 일치 시에만 통과, 소유자 부재 시 deny). */
+            allowed = _container_owner_scoped_method_allowed(method, params, connection,
+                                                             caller_role, &deny_message);
         }
 
         if (!allowed) {

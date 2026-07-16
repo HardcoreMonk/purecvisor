@@ -233,6 +233,7 @@ typedef struct {
     guint         vcpu_count;
     gchar        *bridge;
     gint          rootless;    /* -1=global default, 0=force off, 1=force on (C-6) */
+    gchar        *owner_sub;   /* B1: create 요청 caller subject — 성공 시 purecvisor.owner 스탬프 */
 } CreateCtx;
 
 static void
@@ -241,6 +242,7 @@ _create_ctx_free(CreateCtx *c)
     _ctx_free(c->base);
     g_free(c->image);
     g_free(c->bridge);
+    g_free(c->owner_sub);
     g_free(c);
 }
 
@@ -279,6 +281,10 @@ _on_create_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointe
         if (error) g_error_free(error);
     } else {
         g_info("container.create succeeded for '%s'", ctx->base->name);
+        /* B1: 소유자 스탬프 — VM이 create 시 pcv:owner metadata를 기록하는 것과 동형.
+         * owner_sub 부재(UDS 직결 admin 등)면 pcv_lxc_stamp_owner가 무동작 → 소유자
+         * 없는 컨테이너는 operator deny·admin 전용으로 fail-secure. */
+        pcv_lxc_stamp_owner(ctx->base->name, ctx->owner_sub);
         pcv_audit_log(NULL, "container.create", ctx->base->name, "ok",
                       0, 0, "local");
         pcv_ws_broadcast_job_complete(job_id, "container.create",
@@ -377,6 +383,13 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 
+    /* B1: 소유자 스탬프용 caller subject 캐치.
+     * REST가 인증 주체를 params["_pcv_caller_sub"]로 주입한다(rest_server.c). VM
+     * create가 같은 필드를 owner metadata로 쓰는 것과 동일 출처. 콜백에서 owner
+     * 파일을 쓰려면 async 완료 시점까지 값을 보존해야 하므로 ctx에 복제해 둔다. */
+    const gchar *owner_sub =
+        json_object_get_string_member_with_default(params, "_pcv_caller_sub", NULL);
+
     /* 확장 컨텍스트 구성: 기본 ctx + create 전용 필드 */
     CreateCtx *ctx  = g_new0(CreateCtx, 1);
     ctx->base       = _ctx_new(name, rpc_id, server, conn);
@@ -385,6 +398,7 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
     ctx->vcpu_count = vcpu_count;
     ctx->bridge     = g_strdup(bridge ? bridge : PCV_LXC_DEFAULT_BRIDGE);
     ctx->rootless   = rootless;
+    ctx->owner_sub  = g_strdup(owner_sub);
 
     /* lxc_driver.c의 비동기 래퍼 호출 — 콜백에서 잠금 해제 */
     pcv_lxc_create_async_full(name, ctx->image, memory_mb, vcpu_count,
