@@ -1,0 +1,226 @@
+# =============================================================================
+# AppArmor MAC 프로필 — purecvisorsd (PureCVisor Single Edge KVM 하이퍼바이저 데몬)
+# 대상 실행파일: /usr/local/bin/purecvisorsd   (root 실행, long-lived, 네트워크 노출)
+# 파일 설치 위치: /etc/apparmor.d/usr.local.bin.purecvisorsd
+# =============================================================================
+# [목적 — G1-③ / 보안평가 A05·ISMS-P 2.10]
+#   현행 하드닝은 capabilities 강등(net_admin·net_bind_service·sys_admin·setuid·
+#   dac_override 만 유지)만 실효 통제이고, seccomp·NO_NEW_PRIVS 는 LXC 호환을 위해
+#   의도적으로 비활성이다(자식 프로세스로의 seccomp 상속이 lxc-start 의 clone/mount 와
+#   AppArmor 전환을 깨기 때문). 그 결과 데몬 자신의 파일/네트워크/커널 접근 표면에
+#   MAC 심층방어가 없다. AppArmor 는 seccomp 의 상속-파손 문제 없이 이 공백을 메운다:
+#   자식 프로세스는 seccomp 필터처럼 강제 상속되지 않고, Px/Cx/Ux 전환 규칙으로
+#   자기 프로필(또는 unconfined)로 넘어간다 — 즉 데몬 프로필이 VM/컨테이너 런타임에
+#   새어들어가 그것들을 깨뜨리지 않는다. 이것이 seccomp 대비 핵심 이점이다.
+#
+# [배포 정책 — 반드시 COMPLAIN(감사-only)]
+#   이 프로필은 `flags=(complain)` 로 고정 배포된다. 로드되어도 데몬 동작을 바꾸지
+#   않는다: 규칙 위반을 "차단"하지 않고 커널 audit(→ /var/log/audit/audit.log 또는
+#   journal, `type=AVC ... apparmor="ALLOWED"`)에 "기록만" 한다. deb postinst 는
+#   complain 로드까지만 하고 절대 enforce 로 전환하지 않는다.
+#
+# [규칙 완비도]
+#   본문 규칙은 enforce-ready 로 작성되었다(complain 플래그만 제거하면 바로 강제 가능).
+#   그러나 실환경마다 경로가 다르므로 enforce 전환 전 반드시 complain 로그 수집 →
+#   aa-logprof 로 보정하는 절차가 필요하다(아래 [enforce 전환 절차] 참조).
+#
+# [enforce 전환 절차 — 운영자 opt-in]
+#   1) 대표 워크로드(VM 기동/정지, 컨테이너 lifecycle, ZFS 스냅샷, NAT/보안그룹,
+#      클라우드 마이그레이션, 백업)를 며칠간 돌려 complain DENIED/ALLOWED 로그 수집:
+#        journalctl -k | grep 'apparmor=' | grep purecvisorsd
+#        (또는 auditd 사용 시)  ausearch -m AVC -c purecvisorsd
+#   2) 로그 기반 규칙 보정:   aa-logprof
+#   3) 이상 없으면 enforce 전환(opt-in):
+#        aa-enforce /etc/apparmor.d/usr.local.bin.purecvisorsd
+#      (aa-enforce 가 이 파일의 complain 플래그를 벗기고 enforce 로 재로드)
+#   4) 롤백(즉시 무해화):
+#        aa-complain /etc/apparmor.d/usr.local.bin.purecvisorsd     # 다시 감사-only
+#        aa-disable   /etc/apparmor.d/usr.local.bin.purecvisorsd     # 프로필 완전 비활성
+#        apparmor_parser -R /etc/apparmor.d/usr.local.bin.purecvisorsd  # 커널에서 언로드
+#
+# [자식 전환 정책 — 데몬 프로필이 VM/컨테이너에 상속되지 않게 하는 핵심]
+#   VM/컨테이너 런타임(qemu·lxc-*·virsh·virt-install·nsenter)과 특권 호스트 도구
+#   (ip·nft·zfs·mount·dnsmasq·ovs/ovn·aws 등)는 모두 Ux(unconfined)로 전환한다.
+#   근거: (a) libvirt-관리 qemu 는 libvirtd 가 자체 per-domain 프로필(libvirt-<uuid>)로
+#   가둔다 — 데몬은 qemu 를 직접 exec 하지 않고 virsh/virt-install 을 통해 libvirtd 에
+#   위임한다. (b) lxc-start 는 컨테이너를 자체 per-container 프로필(lxc-container-*)로
+#   전환하므로 unconfined 로 두어야 그 중첩 전환이 동작한다(profile-not-found 로
+#   Px 가 실패해 컨테이너가 안 뜨는 사고 방지). 이 Ux 들은 seccomp 처럼 강제 상속되지
+#   않으므로 자식이 데몬 규칙에 갇히지 않는다. enforce 확립 후 운영자가 배포판의
+#   lxc/libvirt 프로필이 갖춰졌음을 확인하면 개별적으로 Px 로 조일 수 있다(주석 참조).
+# =============================================================================
+
+#include <tunables/global>
+
+/usr/local/bin/purecvisorsd flags=(complain) {
+
+  # ---- 표준 abstractions ------------------------------------------------------
+  #include <abstractions/base>        # ld.so/libc, /dev/null·zero·urandom·random, locale
+  #include <abstractions/nameservice> # nsswitch/passwd/group/hosts, DNS resolver(uid 조회·호스트명 해소)
+  #include <abstractions/openssl>     # TLS/mTLS 라이브러리 설정
+  #include <abstractions/ssl_certs>   # CA 번들(REST TLS·aws https 검증)
+
+  # ---- capabilities (privdrop 유지집합 + 기동/모니터링에 필요한 것) -----------
+  # privdrop.c 의 keep[] 유지집합:
+  capability net_admin,          # 브리지 생성(ip link)·nftables·tc·OVS 설정
+  capability net_bind_service,   # :80/:443/:8080 등 <1024 포트 바인딩
+  capability sys_admin,          # KVM ioctl(KVM_CREATE_VM)·네임스페이스 진입·mount
+  capability setuid,             # 워커 프로세스 UID 전환
+  capability dac_override,       # ZFS 경로(/pcvpool/**)·UDS 소켓 접근
+  # privdrop 이전(root)에 사용 + 런타임 모니터링:
+  capability setpcap,            # PR_CAPBSET_DROP(bounding 집합 축소) — sudo 환경선 EPERM 허용
+  capability setgid,             # 워커 GID 전환(privdrop 동반)
+  capability sys_ptrace,         # /proc/<pid>/io 등 타 프로세스 통계 읽기(process_monitor)
+  capability kill,               # 관리형 자식(다른 uid: libvirt-qemu 등)에 시그널
+
+  # ---- 네트워크 ---------------------------------------------------------------
+  network unix stream,           # daemon.sock(listen)·libvirt·OVS/OVN db 소켓·systemd notify
+  network unix dgram,
+  network inet  stream,          # REST(:8080/:80/:443)·클라우드(aws https)
+  network inet6 stream,
+  network inet  dgram,           # DNS·dnsmasq 관리
+  network inet6 dgram,
+  network netlink raw,           # rtnetlink(링크/라우트 질의)·nfnetlink
+  network netlink dgram,
+
+  # ---- 시그널 / ptrace --------------------------------------------------------
+  signal (send, receive),        # systemd(수신)·Ux 자식(송신). enforce 조율 시 peer 로 좁힐 수 있음
+  ptrace (read),                 # /proc/<pid>/io read (CAP_SYS_PTRACE 경로)
+
+  # ---- mount (sys_admin 사용분: 컨테이너 overlay/bind, netns 셋업) ------------
+  # AppArmor 는 mount 를 capability 와 별개로 매개한다. enforce 시 직접 mount 경로가
+  # 있으면 필요하므로 넉넉히 허용하고 complain 로그로 실사용을 좁힌다.
+  mount,
+  umount,
+  remount,
+
+  # ---- 데몬 자기 실행파일 + 플러그인(.so, dlopen) -----------------------------
+  /usr/local/bin/purecvisorsd     mr,     # 자기 바이너리 map/read (프로필 attach 대상)
+  /etc/purecvisor/plugins.d/*.so  mr,     # 플러그인은 exec 가 아니라 dlopen(mmap-exec)
+
+  # ---- 설정 (읽기 전용) -------------------------------------------------------
+  /etc/purecvisor/                r,
+  /etc/purecvisor/**              r,      # daemon.conf, pki/{ca.crt,node.crt,node.key},
+                                          # templates/**, plugins.d/**, seccomp/**,
+                                          # backup_policies.json, cluster_id_ed25519
+  /etc/lxc/default.conf           r,
+  /etc/machine-id                 r,
+  /etc/subuid                     r,
+  /etc/subgid                     r,
+  /etc/ufw/**                     r,      # 호스트 방화벽 공존 감지(firewall_integration=auto)
+
+  # ---- 상태/데이터 (읽기·쓰기, sqlite 잠금 위해 k) ----------------------------
+  /var/lib/purecvisor/            rw,
+  /var/lib/purecvisor/**          rwk,    # rbac.db·pcv_audit.db·pcv_jobs.db·pcv_security.db·
+                                          # vm_state.db·cloud_jobs.db·security_groups.db,
+                                          # backups/**·lxc/**·overlay/**·containers/**·*.json
+  /var/log/purecvisor/            rw,
+  /var/log/purecvisor/**          rw,     # audit.log 등
+
+  # ---- 런타임(/run == /var/run 심링크; 양경로 커버) ---------------------------
+  /{,var/}run/purecvisor/         rw,
+  /{,var/}run/purecvisor/**       rwk,    # daemon.sock(create/bind)·network/**·sg-ruleset.nft
+  /{,var/}run/libvirt/**          rw,     # libvirt-sock connect(qemu:///system)
+  /{,var/}run/openvswitch/**      rw,     # ovs-vsctl db.sock (daemon 측 접근 시)
+  /{,var/}run/ovn/**              r,      # ovn-controller.pid 등
+  /run/systemd/notify             w,      # sd_notify READY/STOPPING/WATCHDOG
+
+  # ---- 스토리지 풀 / 이미지 ---------------------------------------------------
+  /pcvpool/                       rw,
+  /pcvpool/**                     rwk,    # vms/**·iso/**·export/**·import/**
+  /var/lib/libvirt/images/        rw,
+  /var/lib/libvirt/images/**      rwk,    # qcow2/raw 디스크
+  /var/lib/libvirt/dnsmasq/**     r,
+
+  # ---- 블록 디바이스 (ZFS zvol, KVM) ------------------------------------------
+  /dev/kvm                        rw,     # KVM ioctl
+  /dev/zvol/**                    rwk,    # ZFS zvol 디스크(io_uring 대상)
+  /dev/zd*                        rwk,    # zvol의 /dev/zdN 별칭
+  /dev/disk/by-path/**            r,
+  # /dev/net/tun                  rw,     # (옵션) tap 직접 생성 경로가 확인되면 해제
+
+  # ---- 임시 작업 영역 (OVA/이미지 import) -------------------------------------
+  /tmp/pcv-*/                     rw,
+  /tmp/pcv-*/**                   rwk,
+  owner /tmp/pcv-*                rw,
+
+  # ---- Web UI 자산 (읽기 전용) ------------------------------------------------
+  /usr/local/share/purecvisor/ui/       r,
+  /usr/local/share/purecvisor/ui/**     r,
+
+  # ---- /proc, /sys (모니터링 read; cgroup은 Delegate=yes 로 rw) ---------------
+  @{PROC}/                         r,
+  @{PROC}/**                       r,      # cpuinfo·meminfo·stat·loadavg·mounts·net/**·
+                                           # sys/**·uptime·vmstat·diskstats·<pid>/io 등
+  /sys/                            r,
+  /sys/**                          r,      # class/net·class/hwmon·class/thermal·kernel/mm/hugepages
+  /sys/fs/cgroup/**                rw,     # 데몬/자식 cgroup 관리(systemd Delegate=yes)
+
+  # ===========================================================================
+  # 자식 프로세스 전환 규칙 — 모두 Ux(unconfined): 데몬 프로필을 자식에 상속시키지
+  # 않는다(seccomp 상속-파손 회피의 AppArmor 대응물). VM/컨테이너 런타임은 자체
+  # 중첩 MAC(libvirt per-domain / lxc per-container)이 소유한다.
+  # ===========================================================================
+
+  # ---- 셸 래퍼 (다수 모듈이 "/bin/sh -c <cmd>" 로 특권 파이프라인 실행) --------
+  /{usr/,}bin/{ba,da,}sh          Ux,
+
+  # ---- VM / 컨테이너 런타임 (자체 중첩 프로필 소유 → Ux) ----------------------
+  # NOTE: 데몬은 qemu 를 직접 exec 하지 않는다(libvirtd 에 위임). 아래는 방어적 등록.
+  /{usr/,}bin/qemu-system-*       Ux,     # (조임 시) libvirt-<uuid> 프로필로 Px 가능
+  /{usr/,}bin/kvm                 Ux,
+  /{usr/,}bin/virsh               Ux,
+  /{usr/,}bin/virt-install        Ux,
+  /{usr/,}bin/lxc-*               Ux,     # (조임 시) 배포판 lxc-start 프로필로 Px 가능
+  /{usr/,}bin/nsenter             Ux,
+
+  # ---- 네트워크 도구 ----------------------------------------------------------
+  /{usr/,}{,s}bin/ip              Ux,
+  /{usr/,}{,s}bin/bridge          Ux,
+  /{usr/,}{,s}bin/tc              Ux,
+  /{usr/,}{,s}bin/nft             Ux,
+  /{usr/,}{,s}bin/iptables        Ux,
+  /{usr/,}{,s}bin/dnsmasq         Ux,
+  /{usr/,}bin/ovs-vsctl           Ux,
+  /{usr/,}bin/ovn-nbctl           Ux,
+  /{usr/,}{,s}bin/arp             Ux,
+  /{usr/,}{,s}bin/ss              Ux,
+  /{usr/,}{,s}bin/sysctl          Ux,
+  /{usr/,}{,s}bin/modprobe        Ux,
+  /{usr/,}bin/firewall-cmd        Ux,
+
+  # ---- 스토리지 도구 ----------------------------------------------------------
+  /{usr/,}{,s}bin/zfs             Ux,
+  /{usr/,}{,s}bin/zpool           Ux,
+  /{usr/,}bin/qemu-img            Ux,
+  /{usr/,}bin/qemu-nbd            Ux,
+  /{usr/,}{,s}bin/mount           Ux,
+  /{usr/,}{,s}bin/umount          Ux,
+  /{usr/,}{,s}bin/wipefs          Ux,
+  /{usr/,}{,s}bin/partx           Ux,
+  /{usr/,}{,s}bin/partprobe       Ux,
+  /{usr/,}{,s}bin/kpartx          Ux,
+  /{usr/,}{,s}bin/udevadm         Ux,
+  /{usr/,}{,s}bin/fuser           Ux,
+  /{usr/,}{,s}bin/iscsiadm        Ux,
+  /{usr/,}{,s}bin/tgtadm          Ux,
+  /{usr/,}bin/tar                 Ux,
+  /{usr/,}bin/dd                  Ux,
+  /{usr/,}bin/cp                  Ux,
+  /{usr/,}bin/rm                  Ux,
+  /{usr/,}bin/mkdir               Ux,
+  /{usr/,}bin/sha256sum           Ux,
+  /{usr/,}bin/which               Ux,
+
+  # ---- 프로세스/가속/시스템 도구 ----------------------------------------------
+  /{usr/,}bin/pkill               Ux,
+  /{usr/,}{,s}bin/nvidia-smi      Ux,
+  /{usr/,}bin/lspci               Ux,
+  /{usr/,}bin/systemctl           Ux,
+
+  # ---- 클라우드 CLI (aws — python, /usr/local/bin 설치도 흔함) ----------------
+  /{usr/,usr/local/}bin/aws       Ux,
+
+  # ---- (옵션) 로컬 사이트 추가 규칙 -------------------------------------------
+  # #include <local/usr.local.bin.purecvisorsd>
+}

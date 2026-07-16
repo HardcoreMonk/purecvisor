@@ -44,7 +44,8 @@ mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/usr/local/bin" \
          "$STAGE/usr/local/share/purecvisor/ui" \
          "$STAGE/etc/systemd/system" \
-         "$STAGE/etc/purecvisor"
+         "$STAGE/etc/purecvisor" \
+         "$STAGE/etc/apparmor.d"
 
 install -m755 bin/purecvisorsd bin/pcvctl "$STAGE/usr/local/bin/"
 strip "$STAGE/usr/local/bin/purecvisorsd" \
@@ -63,6 +64,12 @@ done
 # systemd 유닛 + 설정 샘플 (패키징 소스에서)
 install -m644 packaging/deb/purecvisorsd.service "$STAGE/etc/systemd/system/purecvisorsd.service"
 install -m644 packaging/deb/daemon.conf.sample   "$STAGE/etc/purecvisor/daemon.conf.sample"
+
+# AppArmor MAC 프로필 (G1-③) — 파일만 배포. postinst 는 COMPLAIN(감사-only)로만
+# 로드하고 절대 enforce 하지 않는다(데몬 동작 무변경). 프로필 파일 자체에
+# flags=(complain) 이 박혀 있다. enforce 전환은 운영자 opt-in(aa-enforce).
+install -m644 packaging/apparmor/usr.local.bin.purecvisorsd \
+    "$STAGE/etc/apparmor.d/usr.local.bin.purecvisorsd"
 
 # ── 런타임 라이브러리 Depends 산출 (직접 링크 → dpkg 패키지) ──────
 resolve_deps() {
@@ -104,6 +111,7 @@ CTRL
 
 cat > "$STAGE/DEBIAN/conffiles" <<'CF'
 /etc/systemd/system/purecvisorsd.service
+/etc/apparmor.d/usr.local.bin.purecvisorsd
 CF
 
 cat > "$STAGE/DEBIAN/postinst" <<'POST'
@@ -121,6 +129,23 @@ case "$1" in
     chown root:root /etc/purecvisor/daemon.conf 2>/dev/null || true
     systemctl daemon-reload || true
     systemctl enable purecvisorsd.service || true
+
+    # --- AppArmor MAC 프로필 (G1-③): COMPLAIN(감사-only)로만 로드 ------------
+    # 데몬 동작 무변경(차단 없이 위반만 커널 audit 에 기록). 프로필 파일에
+    # flags=(complain) 이 박혀 있어 로드해도 enforce 가 아니다. enforce 전환은
+    # 운영자 opt-in(aa-enforce). 로드 실패가 설치를 깨지 않도록 전 구간 방어.
+    if command -v apparmor_parser >/dev/null 2>&1 \
+       && [ -d /sys/kernel/security/apparmor ] \
+       && [ -f /etc/apparmor.d/usr.local.bin.purecvisorsd ]; then
+        if apparmor_parser -r -W /etc/apparmor.d/usr.local.bin.purecvisorsd >/dev/null 2>&1; then
+            echo "purecvisor-single: AppArmor 프로필 COMPLAIN(감사-only) 로드됨 — 차단 없음. enforce 전환: aa-enforce /etc/apparmor.d/usr.local.bin.purecvisorsd"
+        else
+            echo "purecvisor-single: AppArmor 프로필 로드 생략(비치명적). 수동: apparmor_parser -r /etc/apparmor.d/usr.local.bin.purecvisorsd"
+        fi
+    else
+        echo "purecvisor-single: AppArmor 미가동/미설치 — 프로필 파일만 배치(/etc/apparmor.d/usr.local.bin.purecvisorsd). 활성화는 문서 참조."
+    fi
+
     echo "purecvisor-single 설치 완료. 시작: systemctl start purecvisorsd"
     echo "  nginx 리버스 프록시(:80/:443 -> :8080)는 별도 구성 필요(패키지 미포함)."
     ;;
@@ -148,6 +173,15 @@ case "$1" in
     systemctl daemon-reload || true
     ;;
 esac
+# purge 시에만 AppArmor 프로필을 커널에서 언로드(conffile 자체는 dpkg 가 제거).
+# remove(설정 보존)에서는 언로드하지 않아 재설치 시 상태 유지.
+if [ "$1" = "purge" ]; then
+    if command -v apparmor_parser >/dev/null 2>&1 \
+       && [ -d /sys/kernel/security/apparmor ] \
+       && [ -f /etc/apparmor.d/usr.local.bin.purecvisorsd ]; then
+        apparmor_parser -R /etc/apparmor.d/usr.local.bin.purecvisorsd >/dev/null 2>&1 || true
+    fi
+fi
 exit 0
 PRM
 

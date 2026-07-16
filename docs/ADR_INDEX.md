@@ -49,6 +49,8 @@
 | ADR-0022 | accepted | 활성. `vm.create`의 `storage_type` + `storage_pool`/`image_dir` 저장 위치 계약 유지 |
 | ADR-0023 | accepted | 활성. `vm.clone`은 source VM owner-scope를 통과한 operator/admin에게 열려 있으며, source VM `shut off` 상태와 준비된 템플릿 확인 또는 `libguestfs-tools`의 `virt-sysprep` + `virt-filesystems` + `guestfish` + `virt-customize` 기반 guest reset을 요구한다. zvol 경로와 qcow2/raw file 경로는 `daemon.conf` 기본값 추정이 아니라 실제 libvirt XML disk source를 기준으로 계산한다. zvol CoW/full clone, qcow2/raw full copy, one-pass MAC 치환, 실패 cleanup을 유지한다. 2026-04-28 CoW clone, 2026-04-29 zvol full clone, Ubuntu 24.04 non-LVM qcow2/raw full clone + guest reset, Ubuntu 24.04 LVM qcow2/raw/ZFS zvol full clone + guest reset 실환경 검증 완료. Rocky/RHEL LVM, SELinux enforcing boot smoke는 문서상 후속 검증 항목 |
 | ADR-0024 | accepted | 활성. Native Host HIDS/HIPS는 Single Edge 호스트 노드 보호로 제한하며, v1은 탐지·감사·알림 중심으로 동작한다. 실행 가능한 HIPS action은 admin 승인 후 `block_ip`와 `revoke_api_key`만 허용하고, baseline은 admin의 명시 refresh 전까지 `unknown`으로 유지한다. |
+| ADR-0025 | accepted | 활성. 검증은 반사실을 동반한다 — 통제·게이트·완료는 그 메커니즘을 제거하면 반드시 RED로 드러나야 하며, 효과 테스트는 실 production 코드를 실행한다(replica 금지). |
+| ADR-0026 | accepted | 활성. 호스트 데몬 MAC 하드닝 — seccomp/NNP는 LXC 상속·AppArmor 전환 충돌·업계 관행(libvirt/Proxmox)으로 비활성 유지(명시 수용), 실효 통제는 capabilities + AppArmor MAC 프로필(complain 배포→검증 후 enforce opt-in). |
 
 ---
 

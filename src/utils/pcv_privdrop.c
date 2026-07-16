@@ -643,10 +643,11 @@ pcv_privdrop_apply_all(void)
                  "seccomp skipped: BPF filters inherit to child processes "
                  "(lxc-start/systemd), container isolation via lxc.seccomp.profile");
 
-    /* 최종 결과 요약 로그 */
+    /* 최종 결과 요약 로그 — nnp/seccomp 은 의도적 비활성이므로 정직하게 표기한다.
+     * (과거 nnp=OK 로 표기해 활성으로 오인될 소지 있었음 — G1 ①.) ADR-0026 참조. */
+    (void)nnp_ok; (void)sec_ok;
     PCV_LOG_INFO(PD_LOG_DOM,
-                 "Privilege drop complete: cap=%s nnp=%s seccomp=%s",
-                 cap_ok ? "OK" : "skipped",
-                 nnp_ok ? "OK" : "FAILED",
-                 sec_ok ? "OK" : "skipped");
+                 "Privilege drop complete: cap=%s nnp=disabled(LXC-AppArmor) "
+                 "seccomp=disabled(LXC-inherit) — host MAC=capabilities+AppArmor(ADR-0026)",
+                 cap_ok ? "OK" : "skipped");
 }

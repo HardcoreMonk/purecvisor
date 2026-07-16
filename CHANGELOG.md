@@ -3,6 +3,18 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.3 — 2026-07-17
+
+잔여 하드닝 **G1 ①②③** (PATCH) — 호스트 데몬 MAC 하드닝. 데몬 로직 무변경(로그 문구만). 검증: `make single` 0-warn + `make check-all` **20게이트** + `apparmor_parser -Q` exit 0.
+
+### 하드닝
+- **① 정직-로그** (`pcv_privdrop.c`): 권한격하 요약 로그가 `nnp=OK`로 표기해 NNP 활성 오인 소지였던 것을 `nnp=disabled(LXC-AppArmor) seccomp=disabled(LXC-inherit)`로 정정.
+- **② ADR-0026**: seccomp/NNP 비활성 수용 + capabilities + AppArmor 채택 결정 명문화(LXC 상속-파손·NNP↔AppArmor 충돌·업계 관행[libvirt/Proxmox] — insecure-by-design → challenge+문서화, ADR-0025 규율).
+- **③ AppArmor MAC 프로필** (`packaging/apparmor/usr.local.bin.purecvisorsd`): 접근 표면 전수 스윕(spawn 바이너리·경로·소켓·capability), 자식(qemu/lxc-start) `Ux` 전환으로 seccomp 상속-파손 회피. **complain 모드 배포**(비차단·기본 무영향, postinst complain 로드-only + `|| true` 가드), 실서버 검증 후 opt-in enforce. 검증 문서 `docs/operations/2026-07-17-apparmor-profile.md`.
+
+### Upgrade notes
+- **무영향(기본)**: AppArmor 프로필 complain 모드(비차단). 데몬 계약·동작 무변경(로그 문구만). enforce 전환은 실서버 complain 위반 로그 검증(무-DENIED 확인) 후 운영자 opt-in.
+
 ## v1.3.2 — 2026-07-17
 
 잔여 하드닝 **C1+C2** (PATCH) — TLS 하드닝(mTLS 클라이언트 인증서 검증 + TLS 최소버전 고정). 둘 다 **opt-in·기본값 하위호환**(기본 배포 TLS off·nginx 종단이라 무영향). 검증: `make single` 0-warn + `make test` **673/0** + `make check-all` **20게이트** + 반사실 RED + 기동 라이브 확인.
