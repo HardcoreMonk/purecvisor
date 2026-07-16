@@ -69,6 +69,10 @@
 #include <sys/stat.h>                 /* chmod() — 소켓 파일 권한 설정 */
 #include <glib.h>                     /* g_message(), g_warning(), g_new0() 등 */
 #include <unistd.h>                   /* unlink(), getpid(), close() */
+#include <sys/socket.h>               /* getsockopt(), SO_PEERCRED, struct ucred — UDS 피어 신원 게이트 */
+#include <errno.h>                    /* errno — getsockopt 실패 진단 */
+#include <string.h>                   /* strerror() */
+#include "../utils/pcv_log.h"         /* PCV_LOG_ERROR — SECURITY 마커 로그 */
 
 #include "io/pcv_uring.h"            /* Phase U-2: io_uring 비동기 I/O */
 #if PCV_USE_URING
@@ -76,6 +80,42 @@
 #include <sys/socket.h>
 #include <sys/un.h>
 #endif
+
+/* ═══════════════════════════════════════════════════════════════════
+ * SO_PEERCRED root-only 접근 게이트 (Wave C Item 1 / A01·V8)
+ *
+ * 데몬·pcvctl·gRPC 는 전부 root 로 동작하므로, UDS 제어평면 소켓
+ * (/var/run/purecvisor/daemon.sock)에 정당하게 붙는 피어는 root 뿐이다.
+ * 소켓 0660(umask 0117) + 디렉토리 0700 으로 DAC 를 좁힌 위에, accept 된 각
+ * 클라이언트 fd 의 피어 UID 를 커널이 보증하는 SO_PEERCRED 로 확인해 비-root 를
+ * 차단한다(UID 위조 불가). GSocketService·io_uring 두 accept 경로 모두에 적용한다.
+ *
+ * [설계 결정] 이 게이트는 '접근'만 통제하고 caller role 은 설정하지 않는다. 기존 role
+ *   로직(connection 데이터 없으면 params/기본 ADMIN)을 그대로 둬 gRPC 의 params
+ *   operator 주입(Wave B)을 보존한다 — root 만 연결 가능해지면 params role 위조는
+ *   무의미하다(root 는 이미 신뢰 경계 안).
+ * [fail-closed] getsockopt 실패 시에도 거부한다.
+ * ═══════════════════════════════════════════════════════════════════ */
+#define UDS_LOG_DOM "uds_server"
+
+/* accept 된 client fd 의 피어가 root(uid==0)면 TRUE, 아니면 FALSE(거부).
+ * 조회 실패도 FALSE(fail-closed). role 은 건드리지 않는다(접근 게이트 전용). */
+static gboolean _uds_peer_is_root(int fd)
+{
+    struct ucred cred;
+    socklen_t len = sizeof(cred);
+    if (getsockopt(fd, SOL_SOCKET, SO_PEERCRED, &cred, &len) != 0) {
+        PCV_LOG_ERROR(UDS_LOG_DOM,
+                      "SECURITY: UDS 피어 자격 조회 실패 (SO_PEERCRED: %s) — 연결 거부",
+                      strerror(errno));
+        return FALSE;   /* fail-closed */
+    }
+    if (cred.uid != 0) {
+        PCV_LOG_ERROR(UDS_LOG_DOM, "SECURITY: UDS 비-root 피어 거부 uid=%d", (int)cred.uid);
+        return FALSE;
+    }
+    return TRUE;
+}
 
 /* ── graceful-drain 화이트리스트 (Task 5, DISP-4 후속) ────────────────────
  * DISP-4 의 수락-시 pcv_drain_inc() 게이트는 shutdown_flag 가 서면 모든 신규 연결을
@@ -387,6 +427,17 @@ _uring_accept_cb(PcvUringCtx *uring __attribute__((unused)), gint result, gpoint
     }
 
     int client_fd = result;
+
+    /* ── SO_PEERCRED root-only 접근 게이트 (Wave C Item 1 / A01·V8) ──────
+     * 비-root/조회실패 피어는 여기서 거부한다. 이 시점 client_fd 는 아직 어떤 GSocket
+     * 에도 래핑되지 않았으므로 직접 close 로 소유권을 정리한다(drain inc 이전이라
+     * inflight 미접촉). 거부가 accept 루프를 죽이면 안 되므로 반드시 재무장 후 return. */
+    if (!_uds_peer_is_root(client_fd)) {
+        close(client_fd);
+        _uring_post_accept(self);
+        return;
+    }
+
     self->connection_count++;
 
     /* ── graceful-drain 게이트 (DISP-4, io_uring 경로) ──────────────────
@@ -571,7 +622,7 @@ cleanup:
  * [동작 흐름]
  *   1. 기존 소켓 파일 삭제 (이전 크래시 잔여물 정리)
  *   2. socket(AF_UNIX, SOCK_STREAM | SOCK_NONBLOCK | SOCK_CLOEXEC, 0)
- *   3. umask(0111) → bind() → umask 복원 (소켓 권한 0666 원자 설정)
+ *   3. umask(0117) → bind() → umask 복원 (소켓 권한 0660 원자 설정)
  *   4. listen(fd, 128) — backlog=128: 동시 대기 가능한 연결 수
  *   5. pcv_uring_new(PCV_URING_DEFAULT_QUEUE_DEPTH) — io_uring 커널 링 생성
  *   6. _uring_post_accept() — 첫 ACCEPT SQE 등록 (이후 연쇄 재등록)
@@ -616,8 +667,9 @@ _uring_listen_start(UdsServer *self, GError **error)
     addr.sun_family = AF_UNIX;
     g_strlcpy(addr.sun_path, self->socket_path, sizeof(addr.sun_path));
 
-    /* umask(0111)로 소켓 권한을 원자적으로 0666(rw-rw-rw-)으로 설정 (TOCTOU 방지) */
-    mode_t old_umask = umask(0111);
+    /* umask(0117)로 소켓 권한을 원자적으로 0660(rw-rw----)으로 설정 (TOCTOU 방지).
+     * root-only 접근은 SO_PEERCRED 게이트가 강제하고, 0660 은 심층 방어(DAC). */
+    mode_t old_umask = umask(0117);
 
     if (bind(self->listen_fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
         umask(old_umask);
@@ -831,6 +883,15 @@ static gboolean on_incoming_connection(GSocketService *service,
 
     (void)service;        /* 미사용 파라미터 — 컴파일러 경고 억제 */
     (void)source_object;
+
+    /* ── SO_PEERCRED root-only 접근 게이트 (Wave C Item 1 / A01·V8) ──────
+     * 비-root/조회실패 피어는 여기서 연결을 닫아 거부한다(drain inc 이전이라 inflight
+     * 미접촉, ref 미증가). TRUE 를 반환해 서비스는 계속 새 연결을 수락한다. */
+    int peer_fd = g_socket_get_fd(g_socket_connection_get_socket(connection));
+    if (!_uds_peer_is_root(peer_fd)) {
+        g_io_stream_close(G_IO_STREAM(connection), NULL, NULL);
+        return TRUE;
+    }
 
     /* ── graceful-drain 게이트 (DISP-4, GLib 경로) ──────────────────────
      * [불변식] 연결 수락 시 pcv_drain_inc() ↔ on_read_done 공통 cleanup 의
@@ -1059,8 +1120,9 @@ gboolean uds_server_start(UdsServer *self, GError **error) {
         /* Unix 소켓 주소 생성 + bind + listen */
         GSocketAddress *address = g_unix_socket_address_new(self->socket_path);
 
-        /* umask(0111)로 소켓 권한을 원자적으로 0666(rw-rw-rw-)으로 설정 (TOCTOU 방지) */
-        mode_t old_umask = umask(0111);
+        /* umask(0117)로 소켓 권한을 원자적으로 0660(rw-rw----)으로 설정 (TOCTOU 방지).
+         * root-only 접근은 SO_PEERCRED 게이트가 강제하고, 0660 은 심층 방어(DAC). */
+        mode_t old_umask = umask(0117);
 
         if (!g_socket_listener_add_address(G_SOCKET_LISTENER(self->service),
                                            address,

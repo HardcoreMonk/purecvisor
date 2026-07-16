@@ -470,12 +470,13 @@ pcv_config_init(void)
     /*
      * 소켓 디렉터리 자동 생성 (/var/run/purecvisor/)
      * UDS 소켓 파일은 디렉터리가 존재해야 bind()가 성공합니다.
-     * 0755 권한: root 소유, 다른 사용자 읽기/실행 가능 (접근 제어는 소켓 권한으로)
+     * 0700 권한(Wave C Item 1 / A01·V8): root 전용 — 비-root 는 디렉터리 진입 불가라
+     * 소켓 경로에 도달조차 못 한다(SO_PEERCRED 게이트·소켓 0660 위의 심층 방어).
      */
     /* ── fail-fast: 필수 디렉터리 생성 검증 ────────────────────── */
     {
         gchar *sock_dir = g_path_get_dirname(g_cfg.socket_path);
-        if (g_mkdir_with_parents(sock_dir, 0755) != 0) {
+        if (g_mkdir_with_parents(sock_dir, 0700) != 0) {
             g_critical("[%s] FATAL: Cannot create socket directory '%s' — daemon cannot start",
                        CFG_LOG_DOM, sock_dir);
             g_free(sock_dir);

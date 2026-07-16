@@ -4477,10 +4477,27 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
      * [중요] 이 시점에서 rest_ctx가 push되어 있으므로, libsoup은 소켓 이벤트 소스를
      * rest_ctx에 등록합니다. 이후 REST 전용 스레드에서 rest_ctx의 GMainLoop를 실행하면
      * 해당 스레드에서 HTTP 요청을 처리합니다. */
+    /* ── 평문 바인딩 스코프 (Wave C Item 6 / A02·V12) ──────────────────
+     * config [server] bind_plaintext 를 존중한다. 기본 "loopback": 평문 HTTP 는
+     * 127.0.0.1 에만 바인딩 → nginx 루프백·로컬 probe 만 접근, 외부 평문은 차단.
+     * "all": 기존 동작(0.0.0.0). TLS(HTTPS) 리스닝은 이 스코프와 무관하게 항상
+     * soup_server_listen_all 로 외부 노출을 유지한다(아래 별도 블록). */
+    const gchar *bind_mode = pcv_config_get_string("server", "bind_plaintext", "loopback");
     GError *lerr = nullptr;
-    gboolean ok = soup_server_listen_all(self->soup, self->port,
-                                          SOUP_SERVER_LISTEN_IPV4_ONLY,
-                                          &lerr);
+    gboolean ok;
+    if (g_strcmp0(bind_mode, "all") == 0) {
+        ok = soup_server_listen_all(self->soup, self->port,
+                                    SOUP_SERVER_LISTEN_IPV4_ONLY,
+                                    &lerr);
+    } else {
+        GInetAddress   *lo   = g_inet_address_new_loopback(AF_INET);
+        GSocketAddress *addr = g_inet_socket_address_new(lo, self->port);
+        /* 특정 주소 바인딩 시 IPV4_ONLY/IPV6_ONLY 플래그 금지(libsoup assertion) —
+         * 주소(loopback AF_INET)가 이미 family를 결정하므로 옵션은 0. */
+        ok = soup_server_listen(self->soup, addr, 0, &lerr);
+        g_object_unref(addr);
+        g_object_unref(lo);
+    }
     /* listen backlog 강제 확대 + SO_REUSEADDR
      *
      * [listen backlog란?]
@@ -4553,14 +4570,16 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
     /* REST 전용 스레드 시작 */
     self->thread = g_thread_new("purecvisor-rest", _rest_thread_func, self);
 
+    /* 평문 바인딩 실주소를 로그에 반영(loopback 기본 → 127.0.0.1). HTTPS 는 항상 0.0.0.0. */
+    const gchar *plain_host = (g_strcmp0(bind_mode, "all") == 0) ? "0.0.0.0" : "127.0.0.1";
     if (self->tls_active) {
         PCV_LOG_INFO(REST_LOG_DOM,
-                     "REST API listening on http://0.0.0.0:%u + https://0.0.0.0:%u%s",
-                     self->port, self->https_port, REST_API_PREFIX);
+                     "REST API listening on http://%s:%u + https://0.0.0.0:%u%s",
+                     plain_host, self->port, self->https_port, REST_API_PREFIX);
     } else {
         PCV_LOG_INFO(REST_LOG_DOM,
-                     "REST API listening on http://0.0.0.0:%u%s (thread: %p)",
-                     self->port, REST_API_PREFIX, (void *)self->thread);
+                     "REST API listening on http://%s:%u%s (thread: %p)",
+                     plain_host, self->port, REST_API_PREFIX, (void *)self->thread);
     }
     return TRUE;
 }

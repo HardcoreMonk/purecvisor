@@ -83,6 +83,10 @@ HAS_AUDIT_HASHCHAIN_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/audit/pcv_audit\.(c|h)|scripts/check_audit_hashchain\.py|scripts/tests/test_audit_hashchain\.py)$' && HAS_AUDIT_HASHCHAIN_CHANGES=true
 HAS_RNG_SAFE_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/auth/pcv_rbac\.c|src/utils/pcv_jwt\.c|scripts/check_rng_safe\.py|scripts/tests/test_rng_safe\.py)$' && HAS_RNG_SAFE_CHANGES=true
+HAS_UDS_AUTHZ_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/uds_server\.c|src/utils/pcv_config\.c|scripts/check_uds_authz\.py|scripts/tests/test_uds_authz\.py)$' && HAS_UDS_AUTHZ_CHANGES=true
+HAS_TRANSPORT_BIND_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -397,6 +401,38 @@ if $HAS_RNG_SAFE_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] pcv_rbac.c/pcv_jwt.c/RNG 게이트 변경 없음 — RNG 하드닝 게이트 생략"
+fi
+
+# ── 4q. UDS root-only 접근 게이트 (check-uds-authz, Wave C / A01·V8) ──
+if $HAS_UDS_AUTHZ_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] UDS root-only 접근${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    UA_OUT=$(python3 "$SCRIPT_DIR/check_uds_authz.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_uds_authz.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "UDS 소켓 0660(umask 0117) 회귀 또는 SO_PEERCRED root-only 게이트 누락(비-root 우회)"
+        echo "$UA_OUT" | tail -15
+    else
+        pass "$(echo "$UA_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] uds_server.c/pcv_config.c/UDS authz 게이트 변경 없음 — UDS 접근 게이트 생략"
+fi
+
+# ── 4r. 평문 전송 루프백 바인딩 게이트 (check-transport-bind, Wave C / A02·V12) ──
+if $HAS_TRANSPORT_BIND_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 평문 전송 루프백 바인딩${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    TB_OUT=$(python3 "$SCRIPT_DIR/check_transport_bind.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_transport_bind.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "평문 HTTP 가 bind_plaintext(기본 loopback) 미존중 — 무조건 0.0.0.0 노출"
+        echo "$TB_OUT" | tail -15
+    else
+        pass "$(echo "$TB_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/transport bind 게이트 변경 없음 — 평문 바인딩 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

@@ -837,9 +837,19 @@ check-rng-safe:
 	@python3 scripts/check_rng_safe.py
 	@python3 scripts/tests/test_rng_safe.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe)"
+check-uds-authz:
+	@echo "🔌 Running UDS root-only 접근 게이트 (Wave C / A01·V8)..."
+	@python3 scripts/check_uds_authz.py
+	@python3 scripts/tests/test_uds_authz.py
+
+check-transport-bind:
+	@echo "🌐 Running 평문 전송 루프백 바인딩 게이트 (Wave C / A02·V12)..."
+	@python3 scripts/check_transport_bind.py
+	@python3 scripts/tests/test_transport_bind.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard + UDS authz + transport bind
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -898,4 +908,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-all compile-commands coverage coverage-html coverage-check

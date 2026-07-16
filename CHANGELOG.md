@@ -3,6 +3,21 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.0 — 2026-07-16
+
+보안 시정 트랙 **Wave C** (MINOR — **배포 계약 변경**). OWASP/ISMS-P 평가의 최고위험 갭 2건(로컬 UDS 접근통제·전송 강제) + 게이트 2종(check-all 15→**17**). 배포 **P2**. **Upgrade notes 필독.** 검증: `make single` 0-warn + `make test` **668/0** + `make check-all` **17게이트** + 반사실 RED + pcvctl/nginx 라이브 실증.
+
+### 보안 시정
+- **UDS 로컬 접근통제 (A01 / ASVS V8)**: UDS 소켓을 self-defending으로 — 소켓 `0666→0660`, 디렉토리 `0700`, 각 연결에 **SO_PEERCRED 피어 UID 검증**(비-root 거부, fail-closed). io_uring + GSocketService **양 accept 경로** 적용. **접근 게이트 전용**(role 미설정 → Wave B gRPC bounded role 보존). 기존엔 외부 systemd `UMask`에만 의존 → 이제 데몬 자체 방어.
+- **전송 강제 (A02 / V12)**: 평문 HTTP 바인딩이 config `[server] bind_plaintext`(**기본 `loopback`**)를 존중 → 기본 `127.0.0.1`만 바인딩(nginx 루프백·로컬 probe 도달, **외부 평문 차단**). TLS는 `0.0.0.0` 유지(외부 HTTPS). 외부 평문 필요 시 `bind_plaintext=all`.
+
+### 재발방지 게이트 (ADR-0025 반사실)
+- `check-uds-authz` · `check-transport-bind`를 `check-all`(15→**17**) + pre-commit 편입, 반사실 RED.
+
+### Upgrade notes ⚠️ 배포 계약 변경
+- **비-root UDS 클라이언트 거부**: `pcvctl`/gRPC는 root(sudo)라 **무영향**. 비-root 로컬 프로세스의 UDS 접근은 차단(P2 의도).
+- **평문 `:8080` 기본 loopback**: 외부에서 직접 `http://<host>:8080` 접근 차단. **TLS/nginx(`:443`) 경유로 전환** 필요. 외부 평문 유지가 필요하면 `daemon.conf [server] bind_plaintext=all`. **크로스호스트 `:8080` health probe는 `https:443`로 이관 필요.**
+
 ## v1.2.9 — 2026-07-16
 
 보안 시정 트랙 **Wave B**(PATCH) — OWASP/ISMS-P 평가의 중위험 갭 4건 + 재발방지 게이트 4종(check-all 11→**15**). 배포 **P2** 기준. 데몬 wire 계약 무변경 · 전 마이그레이션 투명(하위호환). 검증: `make single` 0-warn + `make test` **668/0** + `make check-all` **15게이트** + 반사실 RED.
