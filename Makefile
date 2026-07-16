@@ -140,6 +140,7 @@ COMMON_CORE_SRCS = \
     src/modules/storage/zfs_driver.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
+    src/utils/pcv_ssrf.c \
     src/utils/pcv_error.c \
     src/utils/pcv_log.c \
     src/utils/pcv_spawn.c \
@@ -306,6 +307,7 @@ TEST_COMMON_SRCS = \
     src/modules/ai/self_healing_restart.c \
     src/modules/ai/self_healing.c \
     tests/test_apikey.c \
+    tests/test_audit_chain.c \
     tests/test_rbac_user_exists.c \
     tests/test_handler_snapshot_verify.c \
     tests/test_handler_vm_batch.c \
@@ -815,9 +817,29 @@ check-ssrf-guard:
 	@python3 scripts/check_ssrf_guard.py
 	@python3 scripts/tests/test_ssrf_guard.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard)"
+check-grpc-authz:
+	@echo "🔐 Running gRPC 인증/RBAC 게이트 (Wave B / A01·V8)..."
+	@python3 scripts/check_grpc_authz.py
+	@python3 scripts/tests/test_grpc_authz.py
+
+check-ssrf-target-guard:
+	@echo "🎯 Running 아웃바운드 대상 SSRF allowlist 게이트 (Wave B / A10·V4)..."
+	@python3 scripts/check_ssrf_target_guard.py
+	@python3 scripts/tests/test_ssrf_target_guard.py
+
+check-audit-hashchain:
+	@echo "⛓  Running 감사 로그 해시체인 게이트 (Wave B / A09·2.9)..."
+	@python3 scripts/check_audit_hashchain.py
+	@python3 scripts/tests/test_audit_hashchain.py
+
+check-rng-safe:
+	@echo "🎲 Running 보안 RNG/PBKDF2 하드닝 게이트 (Wave B / A02·V11)..."
+	@python3 scripts/check_rng_safe.py
+	@python3 scripts/tests/test_rng_safe.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -876,4 +898,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-all compile-commands coverage coverage-html coverage-check

@@ -14,6 +14,7 @@
 #include "utils/pcv_log.h"
 #include <sqlite3.h>
 #include <json-glib/json-glib.h>
+#include <openssl/evp.h>
 #include <string.h>
 #include <time.h>
 
@@ -23,6 +24,13 @@ constexpr int AUDIT_RETENTION_DAYS = 30;
 constexpr int AUDIT_CLEANUP_INTERVAL = 3600;   /* 1시간마다 retention 정리 */
 constexpr int AUDIT_DB_MAX_PAGES   = 262144;   /* ~1GB SQLite 상한 (4KB page × 262144) */
 constexpr int AUDIT_RATE_LIMIT     = 1000;     /* 초당 최대 감사 레코드 수 (토큰 버킷) */
+
+/* 감사 해시체인 제네시스(A09/2.9) — 첫 레코드의 prev_hash. 64자 0.
+ * 해시체인은 감사 레코드의 수정·삭제·재배열을 탐지한다. 단, 평문 SHA256 체인이므로
+ * 로컬 root 는 전체 재계산으로 위조가 가능하다 — HMAC 키/외부 앵커(WORM, 원격 전달)는
+ * 후속 하드닝 항목이다. */
+#define AUDIT_CHAIN_GENESIS \
+    "0000000000000000000000000000000000000000000000000000000000000000"
 
 /* ── C23 컴파일 타임 검증 ─────────────────────────────────── */
 static_assert(AUDIT_RETENTION_DAYS >= 1, "Must retain at least 1 day");
@@ -37,6 +45,9 @@ static struct {
     gint64         dropped_count;  /* 큐 오버플로로 드롭된 레코드 수 */
     gchar         *node_name;
     gint64         last_cleanup;   /* monotonic time of last retention cleanup */
+    gchar         *chain_head;     /* 해시체인 헤드 = 마지막으로 INSERT된 rec_hash.
+                                    * 단일 writer(_audit_worker) 스레드에서만 갱신되고
+                                    * init에서 1회 로드되므로 별도 락이 불요하다. */
 } G = {0};
 
 /* AIO-10: G.dropped_count(gint64) 갱신 경로 원자화.
@@ -63,6 +74,93 @@ _audit_record_free(PcvAuditRecord *rec)
     g_free(rec->result);
     g_free(rec->src_ip);
     g_free(rec);
+}
+
+/* ══════════════════════════════════════════════════════════════
+ * 감사 해시체인 (A09/2.9) — SHA-256 링크로 위변조 탐지
+ * ══════════════════════════════════════════════════════════════ */
+
+/**
+ * _sha256_hex:
+ * @input: 해시할 NUL 종단 문자열
+ *
+ * 입력의 SHA-256 다이제스트를 64자 소문자 hex 문자열로 반환합니다.
+ * OpenSSL EVP 경로를 사용합니다 (raw SHA256() 의 3.x deprecation 회피,
+ * pcv_rbac.c/_hash_password_legacy 와 동일 관례).
+ *
+ * Returns: (transfer full): 64자 hex 문자열 (g_free 필요)
+ */
+static gchar *
+_sha256_hex(const gchar *input)
+{
+    guchar digest[EVP_MAX_MD_SIZE];
+    guint  digest_len = 0;
+
+    EVP_MD_CTX *ctx = EVP_MD_CTX_new();
+    if (ctx) {
+        EVP_DigestInit_ex(ctx, EVP_sha256(), nullptr);
+        EVP_DigestUpdate(ctx, input, strlen(input));
+        EVP_DigestFinal_ex(ctx, digest, &digest_len);
+        EVP_MD_CTX_free(ctx);
+    }
+
+    GString *hex = g_string_sized_new(digest_len * 2 + 1);
+    for (guint i = 0; i < digest_len; i++)
+        g_string_append_printf(hex, "%02x", digest[i]);
+    return g_string_free(hex, FALSE);
+}
+
+/**
+ * _audit_rec_hash:
+ * @prev_hash:   직전 레코드의 rec_hash (첫 레코드는 AUDIT_CHAIN_GENESIS)
+ * @ts:          기록시각 문자열
+ * @username, @method, @target, @result, @error_code: 레코드 필드
+ *
+ * 체인 레코드 해시를 계산합니다:
+ *   rec_hash = SHA256_hex(prev_hash "|" ts "|" username "|" method "|"
+ *                         target "|" result "|" error_code)
+ * NULL 필드는 "" 로 정규화합니다 (기록/검증 양쪽에서 동일 규칙 → 재계산 일치 보장).
+ *
+ * Returns: (transfer full): 64자 hex rec_hash (g_free 필요)
+ */
+static gchar *
+_audit_rec_hash(const gchar *prev_hash, const gchar *ts,
+                const gchar *username, const gchar *method,
+                const gchar *target, const gchar *result,
+                gint error_code)
+{
+    gchar *preimage = g_strdup_printf("%s|%s|%s|%s|%s|%s|%d",
+                                      prev_hash ? prev_hash : "",
+                                      ts ? ts : "",
+                                      username ? username : "",
+                                      method ? method : "",
+                                      target ? target : "",
+                                      result ? result : "",
+                                      error_code);
+    gchar *h = _sha256_hex(preimage);
+    g_free(preimage);
+    return h;
+}
+
+/**
+ * _audit_has_column:
+ * audit_log 테이블에 @col 컬럼이 존재하는지 PRAGMA table_info로 확인합니다
+ * (event_ts 마이그레이션과 동일 관례).
+ */
+static gboolean
+_audit_has_column(sqlite3 *db, const gchar *col)
+{
+    gboolean found = FALSE;
+    sqlite3_stmt *st = nullptr;
+    if (sqlite3_prepare_v2(db, "PRAGMA table_info(audit_log)",
+                           -1, &st, nullptr) == SQLITE_OK) {
+        while (sqlite3_step(st) == SQLITE_ROW) {
+            const gchar *cn = (const gchar *)sqlite3_column_text(st, 1);
+            if (cn && g_strcmp0(cn, col) == 0) { found = TRUE; break; }
+        }
+        sqlite3_finalize(st);
+    }
+    return found;
 }
 
 /**
@@ -115,9 +213,12 @@ static gpointer
 _audit_worker(gpointer data __attribute__((unused)))
 {
     sqlite3_stmt *stmt = NULL;
+    /* A09/2.9: prev_hash/rec_hash 컬럼을 포함. ts 는 과거 datetime('now')(SQLite
+     * 생성)에서 C 생성 바인딩으로 옮긴다 — 해시 프리이미지에 포함되는 ts 값을
+     * 결정적으로 확정해 검증 시 재계산이 저장 rec_hash 와 일치하도록 보장한다. */
     const gchar *sql =
-        "INSERT INTO audit_log(ts,node,username,method,target,result,error_code,duration_ms,src_ip,event_ts) "
-        "VALUES(datetime('now'),?,?,?,?,?,?,?,?,?)";
+        "INSERT INTO audit_log(ts,node,username,method,target,result,error_code,duration_ms,src_ip,event_ts,prev_hash,rec_hash) "
+        "VALUES(?,?,?,?,?,?,?,?,?,?,?,?)";
 
     if (G.db)
         sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
@@ -128,18 +229,15 @@ _audit_worker(gpointer data __attribute__((unused)))
 
         /* SQLite INSERT */
         if (stmt) {
-            sqlite3_reset(stmt);
-            sqlite3_bind_text(stmt, 1, G.node_name, -1, SQLITE_STATIC);
-            sqlite3_bind_text(stmt, 2, rec->username, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 3, rec->method, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 4, rec->target, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_text(stmt, 5, rec->result, -1, SQLITE_TRANSIENT);
-            sqlite3_bind_int(stmt, 6, rec->error_code);
-            sqlite3_bind_int64(stmt, 7, rec->duration_ms);
-            sqlite3_bind_text(stmt, 8, rec->src_ip, -1, SQLITE_TRANSIENT);
+            /* ts: 기록시각(UTC, 초정밀). C 생성 → 해시 프리이미지의 ts 를 확정. */
+            GDateTime *wdt = g_date_time_new_now_utc();
+            gchar *ts = wdt ? g_date_time_format(wdt, "%Y-%m-%d %H:%M:%S")
+                            : g_strdup("");
+            if (wdt) g_date_time_unref(wdt);
+
             /* event_ts: 발생시각(rec->event_us)을 UTC ISO8601(µs 포함)로 포맷.
-             * ts(datetime('now'))가 초 단위 기록시각인 반면, event_ts는 발생
-             * 절대시각을 µs 정밀도로 보존해 큐 지연 분석을 가능하게 한다. */
+             * ts(기록시각, 초 단위)와 달리 발생 절대시각을 µs 정밀도로 보존해
+             * 큐 지연 분석을 가능하게 한다. */
             GDateTime *edt =
                 g_date_time_new_from_unix_utc(rec->event_us / G_USEC_PER_SEC);
             gchar *event_ts = NULL;
@@ -150,12 +248,41 @@ _audit_worker(gpointer data __attribute__((unused)))
                 g_free(base);
                 g_date_time_unref(edt);
             }
-            sqlite3_bind_text(stmt, 9, event_ts ? event_ts : "", -1,
+
+            /* A09/2.9: rec_hash = SHA256(prev_hash|ts|user|method|target|result|code).
+             * prev_hash = 직전 rec_hash(체인 헤드). 단일 writer 스레드라 락 불요. */
+            const gchar *prev_hash =
+                G.chain_head ? G.chain_head : AUDIT_CHAIN_GENESIS;
+            gchar *rec_hash = _audit_rec_hash(prev_hash, ts,
+                                              rec->username, rec->method,
+                                              rec->target, rec->result,
+                                              rec->error_code);
+
+            sqlite3_reset(stmt);
+            sqlite3_bind_text(stmt, 1, ts, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 2, G.node_name, -1, SQLITE_STATIC);
+            sqlite3_bind_text(stmt, 3, rec->username, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 4, rec->method, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 5, rec->target, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 6, rec->result, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_int(stmt, 7, rec->error_code);
+            sqlite3_bind_int64(stmt, 8, rec->duration_ms);
+            sqlite3_bind_text(stmt, 9, rec->src_ip, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 10, event_ts ? event_ts : "", -1,
                               SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 11, prev_hash, -1, SQLITE_TRANSIENT);
+            sqlite3_bind_text(stmt, 12, rec_hash, -1, SQLITE_TRANSIENT);
             int rc = sqlite3_step(stmt);
             if (rc != SQLITE_DONE) {
                 g_warning("[audit] SQLite INSERT failed: %s", sqlite3_errmsg(G.db));
+            } else {
+                /* 체인 헤드 전진 — INSERT 성공 시에만. 실패 시 미전진해 다음
+                 * 레코드가 동일 prev_hash 를 유지(구멍 없는 체인). */
+                g_free(G.chain_head);
+                G.chain_head = g_strdup(rec_hash);
             }
+            g_free(rec_hash);
+            g_free(ts);
             g_free(event_ts);
         }
 
@@ -235,7 +362,9 @@ pcv_audit_init(const gchar *db_path)
             "  result TEXT NOT NULL,"
             "  error_code INTEGER,"
             "  duration_ms INTEGER,"
-            "  src_ip TEXT"
+            "  src_ip TEXT,"
+            "  prev_hash TEXT,"       /* A09/2.9: 직전 rec_hash */
+            "  rec_hash TEXT"         /* A09/2.9: 이 레코드의 체인 해시 */
             ")", NULL, NULL, NULL);
         /* 기존 DB 마이그레이션(멱등): event_ts 컬럼이 없으면 추가한다.
          * CREATE TABLE IF NOT EXISTS는 이미 존재하는 테이블에 새 컬럼을
@@ -261,6 +390,15 @@ pcv_audit_init(const gchar *db_path)
                     NULL, NULL, NULL);
             }
         }
+        /* A09/2.9: 감사 해시체인 컬럼 멱등 마이그레이션 (event_ts 와 동일 ALTER 패턴).
+         * 기존 배포의 audit_log 에는 prev_hash/rec_hash 가 없으므로 부재 시 추가한다.
+         * 마이그레이션 전 레코드는 rec_hash=NULL 로 남고 검증에서 체인 밖으로 skip 된다. */
+        if (!_audit_has_column(G.db, "prev_hash"))
+            sqlite3_exec(G.db, "ALTER TABLE audit_log ADD COLUMN prev_hash TEXT",
+                         NULL, NULL, NULL);
+        if (!_audit_has_column(G.db, "rec_hash"))
+            sqlite3_exec(G.db, "ALTER TABLE audit_log ADD COLUMN rec_hash TEXT",
+                         NULL, NULL, NULL);
         sqlite3_exec(G.db, "CREATE INDEX IF NOT EXISTS idx_audit_ts ON audit_log(ts)",
                      NULL, NULL, NULL);
         sqlite3_exec(G.db, "CREATE INDEX IF NOT EXISTS idx_audit_method ON audit_log(method)",
@@ -269,6 +407,38 @@ pcv_audit_init(const gchar *db_path)
         gchar *pragma = g_strdup_printf("PRAGMA max_page_count=%d", AUDIT_DB_MAX_PAGES);
         sqlite3_exec(G.db, pragma, NULL, NULL, NULL);
         g_free(pragma);
+
+        /* A09/2.9: 체인 헤드 로드 — 마지막(max rowid) 비-NULL rec_hash.
+         * 없으면(신규 DB 또는 마이그레이션 전 레코드만 존재) 제네시스. */
+        {
+            sqlite3_stmt *hs = nullptr;
+            if (sqlite3_prepare_v2(G.db,
+                    "SELECT rec_hash FROM audit_log WHERE rec_hash IS NOT NULL "
+                    "ORDER BY id DESC LIMIT 1", -1, &hs, nullptr) == SQLITE_OK) {
+                if (sqlite3_step(hs) == SQLITE_ROW) {
+                    const gchar *h = (const gchar *)sqlite3_column_text(hs, 0);
+                    if (h && *h) G.chain_head = g_strdup(h);
+                }
+                sqlite3_finalize(hs);
+            }
+        }
+        if (!G.chain_head) G.chain_head = g_strdup(AUDIT_CHAIN_GENESIS);
+
+        /* A09/2.9: 기동 시 영속 체인 무결성 자기검증 — 데몬 정지 중 DB 파일이
+         * 위변조(수정·삭제)되었는지 재계산으로 탐지한다. 워커 스레드 시작 전이라
+         * G.db 단독 접근이다. */
+        {
+            gsize break_rowid = 0;
+            if (!pcv_audit_verify_chain(&break_rowid)) {
+                PCV_LOG_WARN(AUDIT_LOG_DOM,
+                    "Audit hash-chain integrity check FAILED at rowid %zu — "
+                    "audit records may have been tampered while offline",
+                    break_rowid);
+            } else {
+                PCV_LOG_INFO(AUDIT_LOG_DOM,
+                    "Audit hash-chain integrity verified");
+            }
+        }
     }
 
     /* 비동기 큐 + 워커 스레드 */
@@ -307,8 +477,81 @@ pcv_audit_shutdown(void)
         G.db = NULL;
     }
     g_free(G.node_name);
+    g_free(G.chain_head);
+    G.chain_head = NULL;
     PCV_LOG_INFO(AUDIT_LOG_DOM, "Audit trail shutdown (total=%ld records)",
                  (long)G.total_count);
+}
+
+/**
+ * pcv_audit_verify_chain:
+ * @first_break_rowid: (out)(nullable) 첫 불일치 레코드의 rowid.
+ *   무결(반환 TRUE) 시 0 으로 설정. NULL 이면 rowid 를 보고하지 않음.
+ *
+ * audit_log 를 rowid 오름차순으로 순회하며 해시체인을 검증합니다:
+ *   ① 링크 연속성 — 각 레코드의 prev_hash 가 직전 체인 레코드의 rec_hash 와
+ *      일치해야 한다 (레코드 삭제·재배열 탐지).
+ *   ② 레코드 무결성 — 저장 필드로 rec_hash 를 재계산해 저장값과 일치해야 한다
+ *      (필드 변조 탐지).
+ * 마이그레이션 전 레코드(rec_hash IS NULL)는 체인 밖으로 간주해 건너뜁니다.
+ *
+ * 파일 전용 모드(G.db==NULL)나 스키마 미비는 검증 대상이 없으므로 TRUE 를 반환합니다.
+ *
+ * Returns: 체인이 무결하면 TRUE, 위변조 탐지 시 FALSE (+ first_break_rowid 설정).
+ */
+gboolean
+pcv_audit_verify_chain(gsize *first_break_rowid)
+{
+    if (first_break_rowid) *first_break_rowid = 0;
+    if (!G.db) return TRUE;
+
+    sqlite3_stmt *st = nullptr;
+    if (sqlite3_prepare_v2(G.db,
+            "SELECT id, ts, username, method, target, result, error_code, "
+            "prev_hash, rec_hash FROM audit_log ORDER BY id ASC",
+            -1, &st, nullptr) != SQLITE_OK)
+        return TRUE;   /* 스키마 미비 — 검증 불가, 보수적으로 무결 취급 */
+
+    gboolean ok = TRUE;
+    gchar *expected_prev = g_strdup(AUDIT_CHAIN_GENESIS);
+    while (sqlite3_step(st) == SQLITE_ROW) {
+        const gchar *rec_hash = (const gchar *)sqlite3_column_text(st, 8);
+        if (!rec_hash || !*rec_hash)
+            continue;   /* 마이그레이션 전 레코드 — 체인 밖, skip */
+
+        gsize        rowid = (gsize)sqlite3_column_int64(st, 0);
+        const gchar *ts    = (const gchar *)sqlite3_column_text(st, 1);
+        const gchar *user  = (const gchar *)sqlite3_column_text(st, 2);
+        const gchar *meth  = (const gchar *)sqlite3_column_text(st, 3);
+        const gchar *targ  = (const gchar *)sqlite3_column_text(st, 4);
+        const gchar *res   = (const gchar *)sqlite3_column_text(st, 5);
+        gint         ecode = sqlite3_column_int(st, 6);
+        const gchar *prev  = (const gchar *)sqlite3_column_text(st, 7);
+        const gchar *prev_norm = prev ? prev : "";
+
+        /* ① 링크 연속성 */
+        if (g_strcmp0(prev_norm, expected_prev) != 0) {
+            if (first_break_rowid) *first_break_rowid = rowid;
+            ok = FALSE;
+            break;
+        }
+        /* ② 레코드 무결성 (저장 필드로 재계산) */
+        gchar *recomputed = _audit_rec_hash(prev_norm, ts, user, meth,
+                                            targ, res, ecode);
+        gboolean match = (g_strcmp0(recomputed, rec_hash) == 0);
+        g_free(recomputed);
+        if (!match) {
+            if (first_break_rowid) *first_break_rowid = rowid;
+            ok = FALSE;
+            break;
+        }
+
+        g_free(expected_prev);
+        expected_prev = g_strdup(rec_hash);
+    }
+    g_free(expected_prev);
+    sqlite3_finalize(st);
+    return ok;
 }
 
 /**

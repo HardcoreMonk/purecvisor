@@ -177,6 +177,19 @@ JsonArray *pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
  */
 JsonArray *pcv_audit_recent_failures(const gchar *target_filter, gint limit);
 
+/**
+ * pcv_audit_verify_chain:
+ * @first_break_rowid: (out)(nullable) 첫 불일치 레코드 rowid (무결 시 0)
+ *
+ * 감사 로그 해시체인(A09/2.9)의 무결성을 검증합니다. rowid 오름차순으로 각
+ * 레코드의 prev_hash 링크 연속성과 rec_hash 재계산 일치를 확인하여, 감사
+ * 레코드의 수정·삭제·재배열을 탐지합니다. 데몬 기동 시 자기검증에 사용되며,
+ * 향후 관리 RPC/CLI 로도 노출할 수 있습니다.
+ *
+ * Returns: 체인 무결 시 TRUE, 위변조 탐지 시 FALSE (+ first_break_rowid 설정).
+ */
+gboolean pcv_audit_verify_chain(gsize *first_break_rowid);
+
 G_END_DECLS
 
 #endif /* PURECVISOR_AUDIT_H */

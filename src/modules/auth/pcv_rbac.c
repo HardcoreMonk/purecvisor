@@ -71,6 +71,7 @@
 #include <sqlite3.h>
 #include <openssl/evp.h>
 #include <openssl/crypto.h>
+#include <openssl/rand.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include <stdio.h>
@@ -102,23 +103,41 @@ static void _migrate_freeze_apikey_effective_roles(void);
  * 이 DB 에 아직 다른 user_version 마이그레이션이 없어 1 부터 시작한다. */
 #define PCV_RBAC_USER_VERSION_APIKEY_FREEZE 1
 
+/**
+ * _fill_random_bytes:
+ * @buf: 채울 버퍼
+ * @len: 바이트 수
+ *
+ * 암호학적 랜덤 바이트로 @buf 를 채웁니다 (salt / refresh token / API key 생성용).
+ *
+ * [A02/V11 하드닝 — fail-closed]
+ *   1순위: /dev/urandom
+ *   2순위: OpenSSL RAND_bytes (CSPRNG) — /dev/urandom 미가용 환경 대비
+ *   둘 다 실패하면 즉시 abort 합니다. 과거의 g_random_int_range 폴백을
+ *   제거했습니다 — 비암호 PRNG 로 salt/token/API key 를 채우면 예측 가능해져
+ *   인증 우회로 이어지기 때문입니다.
+ */
 static void
 _fill_random_bytes(guchar *buf, gsize len)
 {
-    gboolean filled = FALSE;
-
     g_return_if_fail(buf != NULL);
 
+    /* 1순위: /dev/urandom */
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
-        filled = fread(buf, 1, len, f) == len;
+        gboolean ok = fread(buf, 1, len, f) == len;
         fclose(f);
+        if (ok) return;
     }
 
-    if (!filled) {
-        for (gsize i = 0; i < len; i++)
-            buf[i] = (guchar)g_random_int_range(0, 256);
-    }
+    /* 2순위: OpenSSL RAND_bytes (CSPRNG) */
+    if (RAND_bytes(buf, (int)len) == 1)
+        return;
+
+    /* fail-closed: 약한 PRNG 폴백 금지 — abort. */
+    g_error("pcv_rbac: secure RNG unavailable "
+            "(/dev/urandom and OpenSSL RAND_bytes both failed) — refusing to "
+            "generate predictable salt/token/API key");
 }
 
 /* ══════════════════════════════════════════════════════════════
@@ -347,38 +366,116 @@ _hash_password_legacy(const gchar *salt, const gchar *password)
     return g_string_free(hex, FALSE);
 }
 
+/* PBKDF2-SHA256 반복수 (A02/V11 하드닝).
+ *   PBKDF2_ITER_TARGET : 신규/재해시 시 사용하는 목표 반복수 (OWASP 2023 권장).
+ *   PBKDF2_ITER_LEGACY : iter 미기록 레거시 포맷("pbkdf2:<hex>")의 암묵 반복수.
+ * downgrade 공격 방지를 위해 config 값도 목표 미만이면 목표로 끌어올린다. */
+#define PBKDF2_ITER_TARGET  600000
+#define PBKDF2_ITER_LEGACY  100000
+
+/**
+ * _pbkdf2_target_iterations:
+ *
+ * 신규/재해시에 사용할 PBKDF2 반복수를 반환합니다.
+ * daemon.conf [auth] pbkdf2_iterations 를 존중하되, 하한 PBKDF2_ITER_TARGET(600k)
+ * 으로 고정해 downgrade 를 차단합니다.
+ */
+static gint
+_pbkdf2_target_iterations(void)
+{
+    gint iter = pcv_config_get_int("auth", "pbkdf2_iterations", PBKDF2_ITER_TARGET);
+    if (iter < PBKDF2_ITER_TARGET) iter = PBKDF2_ITER_TARGET;
+    return iter;
+}
+
+/**
+ * _pbkdf2_hex:
+ * @salt:     hex 문자열
+ * @password: 평문 비밀번호
+ * @iter:     PBKDF2 반복수
+ *
+ * PBKDF2-HMAC-SHA256 을 @iter 회 적용해 32바이트 파생키를 계산하고 64자 hex 로
+ * 반환합니다 (접두사 없음).
+ *
+ * Returns: (transfer full): 64자 hex 문자열 (g_free 필요)
+ */
+static gchar *
+_pbkdf2_hex(const gchar *salt, const gchar *password, gint iter)
+{
+    guchar dk[32]; /* SHA256 = 32 bytes */
+    PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
+                       (const guchar *)salt, (int)strlen(salt),
+                       iter, EVP_sha256(), 32, dk);
+
+    GString *hex = g_string_sized_new(64 + 1);
+    for (int i = 0; i < 32; i++)
+        g_string_append_printf(hex, "%02x", dk[i]);
+    return g_string_free(hex, FALSE);
+}
+
+/**
+ * _pbkdf2_parse:
+ * @stored:   저장된 password_hash ("pbkdf2:..." 형식)
+ * @iter_out: (out) 파싱된 반복수
+ * @hex_out:  (out) 64자 hex 시작 포인터 (@stored 내부를 가리킴, 별도 해제 불요)
+ *
+ * PBKDF2 저장 해시에서 (반복수, 파생키 hex)를 파싱합니다.
+ *   신 포맷:  "pbkdf2:<iter>:<64hex>"  → iter = <iter>
+ *   레거시:   "pbkdf2:<64hex>"          → iter = PBKDF2_ITER_LEGACY(100000)
+ *
+ * iter 를 해시에 임베딩하므로, 목표 반복수를 상향해도 기존 해시를 그 해시가
+ * 만들어진 반복수로 그대로 검증할 수 있습니다 (하위호환). 검증 성공 후 목표
+ * 미만이면 authenticate 가 신 포맷/목표 반복수로 재해시합니다.
+ *
+ * Returns: 파싱 성공 시 TRUE.
+ */
+static gboolean
+_pbkdf2_parse(const gchar *stored, gint *iter_out, const gchar **hex_out)
+{
+    if (!stored || !g_str_has_prefix(stored, "pbkdf2:")) return FALSE;
+    const gchar *rest  = stored + 7;                 /* "pbkdf2:" 이후 */
+    const gchar *colon = strchr(rest, ':');
+    if (colon) {
+        /* 신 포맷: "<iter>:<hex>" */
+        gchar *iter_str = g_strndup(rest, (gsize)(colon - rest));
+        gint64 v = g_ascii_strtoll(iter_str, NULL, 10);
+        g_free(iter_str);
+        if (v <= 0) return FALSE;
+        *iter_out = (gint)v;
+        *hex_out  = colon + 1;
+    } else {
+        /* 레거시 포맷: "<hex>" (iter 미기록) */
+        *iter_out = PBKDF2_ITER_LEGACY;
+        *hex_out  = rest;
+    }
+    return TRUE;
+}
+
 /**
  * _hash_password_pbkdf2:
  * @salt:     hex 문자열 (32 chars)
  * @password: 사용자 입력 평문 비밀번호
  *
- * PBKDF2-SHA256 (100,000 iterations) 해싱. 브루트포스/레인보우 테이블 공격에
- * 강한 키 스트레칭을 적용합니다.
+ * PBKDF2-SHA256 해싱 (목표 반복수, 기본 600,000 — OWASP 2023 권장). 결과에
+ * 반복수를 임베딩한 신 포맷을 사용합니다:
+ *   "pbkdf2:<iter>:<64hex>"   (예: "pbkdf2:600000:a3b1...")
  *
- * 결과: "pbkdf2:" 접두사 + 64자 hex 문자열 (총 71자)
+ * [반복수 임베딩 이유]
+ *   과거 포맷("pbkdf2:<hex>")은 반복수를 저장하지 않아, 목표 반복수를 상향하면
+ *   기존 해시 검증이 전부 실패(=전 사용자 로그인 불가)했다. 반복수를 해시에
+ *   기록하면 기존 해시는 그 반복수로 검증되고(하위호환), 로그인 성공 시 목표
+ *   반복수로 재해시되어 점진 마이그레이션된다.
  *
- * Returns: (transfer full): "pbkdf2:" 접두사 포함 해시 문자열 (g_free 필요)
+ * Returns: (transfer full): 신 포맷 해시 문자열 (g_free 필요)
  */
 static gchar *
 _hash_password_pbkdf2(const gchar *salt, const gchar *password)
 {
-    guchar dk[32]; /* SHA256 = 32 bytes */
-    /* B6-M1 (Phase 6): PBKDF2 iteration을 daemon.conf에서 설정 가능하게.
-     * 기본 100,000은 OWASP 2023 권장(600k) 대비 낮음. 하드웨어 성능이 향상된
-     * 환경에서는 200k~600k로 상향할 수 있도록 config 훅 추가. 하한 100k로
-     * 고정해 downgrade 공격 방지. */
-    gint iter = pcv_config_get_int("auth", "pbkdf2_iterations", 100000);
-    if (iter < 100000) iter = 100000;
-    PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
-                       (const guchar *)salt, (int)strlen(salt),
-                       iter, EVP_sha256(), 32, dk);
-
-    GString *hex = g_string_sized_new(7 + 64 + 1);
-    g_string_append(hex, "pbkdf2:");
-    for (int i = 0; i < 32; i++)
-        g_string_append_printf(hex, "%02x", dk[i]);
-
-    return g_string_free(hex, FALSE);
+    gint   iter = _pbkdf2_target_iterations();
+    gchar *hex  = _pbkdf2_hex(salt, password, iter);
+    gchar *out  = g_strdup_printf("pbkdf2:%d:%s", iter, hex);
+    g_free(hex);
+    return out;
 }
 
 /**
@@ -1471,21 +1568,44 @@ pcv_rbac_authenticate(const gchar *username,
     const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
     const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
 
-    gchar *computed_hash = _hash_password(stored_salt, password);
-
     /* PBKDF2 / 레거시 SHA256 자동 감지 비교
      * stored_hash가 "pbkdf2:" 접두사를 가지면 PBKDF2 검증,
      * 그렇지 않으면 레거시 SHA256 검증 (하위 호환).
      * constant-time 비교: 고정 64바이트 CRYPTO_memcmp 사용. */
     gboolean match = FALSE;
     if (g_str_has_prefix(stored_hash, "pbkdf2:")) {
-        /* PBKDF2 해시 검증 */
-        gchar *pbkdf2_hash = _hash_password_pbkdf2(stored_salt, password);
-        const gchar *stored_hex = stored_hash + 7;  /* "pbkdf2:" 접두사 이후 */
-        const gchar *computed_hex = pbkdf2_hash + 7;
-        match = (strlen(stored_hex) >= 64) &&
-                (CRYPTO_memcmp(stored_hex, computed_hex, 64) == 0);
-        g_free(pbkdf2_hash);
+        /* PBKDF2 해시 검증 — 저장 해시에 임베딩된 반복수로 재계산해 비교.
+         * (임베딩 덕분에 목표 반복수 상향 후에도 기존 100k 해시가 그대로 검증됨) */
+        gint         stored_iter = 0;
+        const gchar *stored_hex  = NULL;
+        if (_pbkdf2_parse(stored_hash, &stored_iter, &stored_hex) &&
+            strlen(stored_hex) >= 64) {
+            gchar *cand_hex = _pbkdf2_hex(stored_salt, password, stored_iter);
+            match = (CRYPTO_memcmp(stored_hex, cand_hex, 64) == 0);
+            g_free(cand_hex);
+        }
+
+        /* 반복수 상향 마이그레이션 — 로그인 성공 순간 목표 반복수(신 포맷)로 재해시.
+         * iter 임베딩으로 기존 해시는 무중단 검증되고, 성공 시 600k 로 업그레이드된다. */
+        if (match && stored_iter < _pbkdf2_target_iterations()) {
+            gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
+            if (new_hash) {
+                sqlite3_stmt *upd = nullptr;
+                if (sqlite3_prepare_v2(g_rbac_db,
+                        "UPDATE users SET password_hash=? WHERE username=?",
+                        -1, &upd, NULL) == SQLITE_OK) {
+                    sqlite3_bind_text(upd, 1, new_hash, -1, SQLITE_STATIC);
+                    sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
+                    if (sqlite3_step(upd) == SQLITE_DONE) {
+                        PCV_LOG_INFO(RBAC_LOG_DOM,
+                            "Rehashed password to PBKDF2 %d iterations for user '%s'",
+                            _pbkdf2_target_iterations(), username);
+                    }
+                    sqlite3_finalize(upd);
+                }
+                g_free(new_hash);
+            }
+        }
     } else {
         /* 레거시 SHA256 해시 검증 (기존 사용자 하위 호환) */
         gchar *legacy_hash = _hash_password_legacy(stored_salt, password);
@@ -1520,7 +1640,6 @@ pcv_rbac_authenticate(const gchar *username,
             }
         }
     }
-    g_free(computed_hash);
 
     sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);

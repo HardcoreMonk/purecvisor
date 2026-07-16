@@ -3,6 +3,22 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.2.9 — 2026-07-16
+
+보안 시정 트랙 **Wave B**(PATCH) — OWASP/ISMS-P 평가의 중위험 갭 4건 + 재발방지 게이트 4종(check-all 11→**15**). 배포 **P2** 기준. 데몬 wire 계약 무변경 · 전 마이그레이션 투명(하위호환). 검증: `make single` 0-warn + `make test` **668/0** + `make check-all` **15게이트** + 반사실 RED.
+
+### 보안 시정
+- **gRPC RBAC (A01 / ASVS V8)**: gRPC를 암묵 ADMIN에서 **인증 + bounded role**로 강등 — 무토큰 기동 거부(`[grpc] enabled`인데 `auth_token` 미설정 시 gRPC 미기동), UDS 전달 시 `_pcv_caller_role`(`[grpc] role`, 기본 `operator`)+`_pcv_caller_sub="grpc"` 주입(클라이언트 위조 키 제거). *(잔여: 악의적 UDS 클라이언트 role 위조는 Wave C/Item 1.)*
+- **SSRF allowlist (A10 / V4)**: 아웃바운드(webhook/AI/S3 endpoint)에 **resolve된 실주소 기준** 링크로컬(169.254 클라우드 메타데이터·fe80) 차단 — substring denylist 우회·인코딩(십진/16진/DNS) 우회 무력화. 루프백·RFC1918·공인은 허용(로컬 OLLAMA·내부망 정합). `pcv_url_target_allowed` 헬퍼. *(잔여: DNS-rebind TOCTOU.)*
+- **감사 로그 위변조 방지 (A09 / 2.9)**: `audit_log`에 SHA-256 **해시체인**(`prev_hash`/`rec_hash`) — 필드 변조·행 삭제·재배열 검출. 기동 시 체인 자기검증(`pcv_audit_verify_chain`). *(평문 SHA256의 로컬 root 재계산 한계는 후속 HMAC/외부앵커.)*
+- **RNG/PBKDF2 하드닝 (A02 / V11)**: `/dev/urandom` 실패 시 비암호 PRNG(`g_random`) 폴백 제거 → `RAND_bytes`, 실패 시 **fail-closed**(abort). PBKDF2 반복수 100k→**600k**(iter를 해시에 임베딩 `pbkdf2:<iter>:<hex>` → 레거시 100k 해시 무중단 검증 + 로그인 시 600k 점진 재해시, **락아웃 0**).
+
+### 재발방지 게이트 (ADR-0025 반사실 — 제거 시 RED)
+- `check-grpc-authz` · `check-ssrf-target-guard` · `check-audit-hashchain` · `check-rng-safe`를 `check-all`(11→**15**) + pre-commit 편입.
+
+### Upgrade notes
+- **무중단**(전 마이그레이션 투명): `audit_log` 컬럼 자동 ALTER · PBKDF2 해시 로그인 시 자동 재해시(기존 검증 무영향) · gRPC off-by-default. **행동 변화 1건**: `[grpc] enabled=true`인데 `auth_token` 미설정이면 gRPC 미기동(P2 무인증 제어평면 금지) — 무토큰 gRPC는 `auth_token` 설정 필요.
+
 ## v1.2.8 — 2026-07-16
 
 보안 시정 트랙 **Wave A**(PATCH) — OWASP/ISMS-P 평가([`docs/operations/2026-07-16-security-assessment-owasp-ismsp.md`])의 저위험·하위호환 HIGH급 갭 3건 + 재발방지 게이트 3종. 배포 프로파일 **P2(다중사용자/공유호스트)** 기준. 검증: `make single` 0-warning + `make test` **663/0** + `make check-all` **11게이트**(신규 3 포함) + 반사실 RED 실증.

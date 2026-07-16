@@ -66,6 +66,7 @@
 #include <json-glib/json-glib.h>
 #include <openssl/hmac.h>
 #include <openssl/evp.h>
+#include <openssl/rand.h>
 #include <string.h>
 #include <time.h>
 
@@ -106,23 +107,42 @@ static GMutex  g_jwt_mutex;
 /** JWT_DEFAULT_EXPIRY - expires_in=0일 때 적용되는 기본 만료 시간 (1시간) */
 #define JWT_DEFAULT_EXPIRY 3600   /* 1시간 */
 
+/**
+ * _fill_random_bytes:
+ * @buf: 채울 버퍼
+ * @len: 바이트 수
+ *
+ * 암호학적 랜덤 바이트로 @buf 를 채웁니다 (JWT secret / jti 생성용).
+ *
+ * [A02/V11 하드닝 — fail-closed]
+ *   1순위: /dev/urandom
+ *   2순위: OpenSSL RAND_bytes (CSPRNG) — /dev/urandom 미가용 환경 대비
+ *   둘 다 실패하면 즉시 abort 합니다. 과거의 g_random_int_range 폴백을
+ *   제거했습니다 — 비암호 PRNG 로 secret/jti 를 채우면 예측 가능해져
+ *   토큰 위조가 가능하기 때문입니다. 안전한 엔트로피를 확보할 수 없다면
+ *   약한 키로 계속 동작하는 것보다 중단하는 편이 안전합니다.
+ */
 static void
 _fill_random_bytes(guchar *buf, gsize len)
 {
-    gboolean filled = FALSE;
-
     g_return_if_fail(buf != NULL);
 
+    /* 1순위: /dev/urandom */
     FILE *f = fopen("/dev/urandom", "rb");
     if (f) {
-        filled = fread(buf, 1, len, f) == len;
+        gboolean ok = fread(buf, 1, len, f) == len;
         fclose(f);
+        if (ok) return;
     }
 
-    if (!filled) {
-        for (gsize i = 0; i < len; i++)
-            buf[i] = (guchar)g_random_int_range(0, 256);
-    }
+    /* 2순위: OpenSSL RAND_bytes (CSPRNG) */
+    if (RAND_bytes(buf, (int)len) == 1)
+        return;
+
+    /* fail-closed: 약한 PRNG 폴백 금지 — abort. */
+    g_error("pcv_jwt: secure RNG unavailable "
+            "(/dev/urandom and OpenSSL RAND_bytes both failed) — refusing to "
+            "generate predictable JWT secret/jti");
 }
 
 /* ── base64url 인코딩 (RFC 4648 Section 5, padding 제거) ──── */

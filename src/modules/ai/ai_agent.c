@@ -62,6 +62,7 @@
 #include "modules/audit/pcv_audit.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_config.h"
+#include "utils/pcv_ssrf.h"
 
 /*
  * ============================================================================
@@ -785,6 +786,22 @@ _query_thread(GTask *task, gpointer source, gpointer task_data, GCancellable *ca
         url = g_strdup_printf("%s/api/chat", cfg->endpoint);
     } else {
         url = g_strdup(cfg->endpoint);
+    }
+
+    /* SSRF guard (A10/V4, Wave B Item 5-a) — send 전에 endpoint host를 실주소로
+     * resolve하여 루프백/링크로컬(클라우드 메타데이터) 차단. 차단 시 작업 거부.
+     * (OLLAMA localhost는 config로 명시 설정하는 로컬 provider이나, 통제평면
+     *  정책상 예외 없이 검증한다 — 루프백 endpoint는 차단된다.) */
+    GError *ssrf_err = NULL;
+    if (!pcv_url_target_allowed(url, &ssrf_err)) {
+        g_snprintf(result->error, sizeof(result->error),
+                   "AI endpoint blocked (SSRF guard): %s",
+                   ssrf_err ? ssrf_err->message : "blocked");
+        g_clear_error(&ssrf_err);
+        g_free(url);
+        g_free(body);
+        g_task_return_pointer(task, result, g_free);
+        return;
     }
 
     /* HTTP POST via libsoup3 */

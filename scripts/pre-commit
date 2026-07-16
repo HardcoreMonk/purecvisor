@@ -75,6 +75,14 @@ HAS_SECRET_LOG_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_secret_logging\.py|scripts/tests/test_secret_logging\.py)$' && HAS_SECRET_LOG_CHANGES=true
 HAS_SSRF_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_guard\.py|scripts/tests/test_ssrf_guard\.py)$' && HAS_SSRF_CHANGES=true
+HAS_GRPC_AUTHZ_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/grpc_server\.c|scripts/check_grpc_authz\.py|scripts/tests/test_grpc_authz\.py)$' && HAS_GRPC_AUTHZ_CHANGES=true
+HAS_SSRF_TARGET_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_target_guard\.py|scripts/tests/test_ssrf_target_guard\.py)$' && HAS_SSRF_TARGET_CHANGES=true
+HAS_AUDIT_HASHCHAIN_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/audit/pcv_audit\.(c|h)|scripts/check_audit_hashchain\.py|scripts/tests/test_audit_hashchain\.py)$' && HAS_AUDIT_HASHCHAIN_CHANGES=true
+HAS_RNG_SAFE_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/auth/pcv_rbac\.c|src/utils/pcv_jwt\.c|scripts/check_rng_safe\.py|scripts/tests/test_rng_safe\.py)$' && HAS_RNG_SAFE_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -325,6 +333,70 @@ if $HAS_SSRF_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] .c/SSRF 게이트 변경 없음 — 아웃바운드 리다이렉트 게이트 생략"
+fi
+
+# ── 4m. gRPC 인증/RBAC 게이트 (check-grpc-authz, Wave B / A01·V8) ──
+if $HAS_GRPC_AUTHZ_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] gRPC 인증/RBAC${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    GA_OUT=$(python3 "$SCRIPT_DIR/check_grpc_authz.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "gRPC bounded role 주입 누락 또는 무토큰 기동 거부 미충족"
+        echo "$GA_OUT" | tail -15
+    else
+        pass "$(echo "$GA_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] grpc_server.c/gRPC authz 게이트 변경 없음 — gRPC authz 게이트 생략"
+fi
+
+# ── 4n. 아웃바운드 대상 SSRF allowlist 게이트 (check-ssrf-target-guard, Wave B / A10·V4) ──
+if $HAS_SSRF_TARGET_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 아웃바운드 대상 SSRF allowlist${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    ST_OUT=$(python3 "$SCRIPT_DIR/check_ssrf_target_guard.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "아웃바운드 사이트에 pcv_url_target_allowed 호출 누락 (SSRF)"
+        echo "$ST_OUT" | tail -15
+    else
+        pass "$(echo "$ST_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/SSRF target 게이트 변경 없음 — 대상 SSRF 게이트 생략"
+fi
+
+# ── 4o. 감사 로그 해시체인 게이트 (check-audit-hashchain, Wave B / A09·2.9) ──
+if $HAS_AUDIT_HASHCHAIN_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 감사 로그 해시체인${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    AH_OUT=$(python3 "$SCRIPT_DIR/check_audit_hashchain.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_audit_hashchain.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "감사 INSERT 경로가 prev_hash/rec_hash 미계산·미저장 또는 검증함수 부재 (A09/2.9)"
+        echo "$AH_OUT" | tail -15
+    else
+        pass "$(echo "$AH_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_audit.*/해시체인 게이트 변경 없음 — 감사 해시체인 게이트 생략"
+fi
+
+# ── 4p. 보안 RNG/PBKDF2 하드닝 게이트 (check-rng-safe, Wave B / A02·V11) ──
+if $HAS_RNG_SAFE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 보안 RNG/PBKDF2 하드닝${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    RS_OUT=$(python3 "$SCRIPT_DIR/check_rng_safe.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_rng_safe.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "보안 바이트 생성에 g_random 잔존 또는 PBKDF2 반복수 < 600000 (A02/V11)"
+        echo "$RS_OUT" | tail -15
+    else
+        pass "$(echo "$RS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_rbac.c/pcv_jwt.c/RNG 게이트 변경 없음 — RNG 하드닝 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

@@ -94,6 +94,7 @@
 #include "utils/pcv_config.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_spawn.h"
+#include "utils/pcv_ssrf.h"
 #if PCV_CLUSTER_ENABLED
 #include "../cluster/cluster_manager.h"
 #endif
@@ -435,13 +436,15 @@ _webhook_post(const gchar *url, const gchar *payload)
         return FALSE;
     }
 
-    /* SSRF 방지 — 링크로컬(클라우드 메타데이터) 및 루프백 차단 */
-    if (strstr(target_url, "169.254.") ||
-        strstr(target_url, "127.0.0.1") ||
-        strstr(target_url, "localhost") ||
-        strstr(target_url, "[::1]")) {
+    /* SSRF 방지 (A10/V4, Wave B Item 5-a) — 대상 host를 실주소로 resolve하여
+     * 루프백/링크로컬(클라우드 메타데이터 포함) 차단. substring denylist는 인코딩
+     * 우회(십진/16진/DNS 별칭)에 취약해 resolve 기반 검증으로 교체했다. */
+    GError *ssrf_err = NULL;
+    if (!pcv_url_target_allowed(target_url, &ssrf_err)) {
         PCV_LOG_WARN(ALERT_LOG_DOM,
-                     "Webhook URL rejected (link-local/loopback): %.100s", target_url);
+                     "Webhook URL rejected (SSRF guard): %.100s — %s",
+                     target_url, ssrf_err ? ssrf_err->message : "blocked");
+        g_clear_error(&ssrf_err);
         return FALSE;
     }
 

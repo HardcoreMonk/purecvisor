@@ -65,6 +65,7 @@
 #include "../../utils/pcv_config.h"
 #include "../../utils/pcv_log.h"
 #include "../../utils/pcv_validate.h"
+#include "../../utils/pcv_ssrf.h"
 #include "../../modules/virt/virt_conn_pool.h"
 
 #include <glib.h>
@@ -2188,6 +2189,22 @@ pcv_backup_export_s3(const gchar *vm_name,
                     "S3 bucket not configured (daemon.conf [backup] s3_bucket)");
         _vm_backup_unlock(vm_name);
         return FALSE;
+    }
+
+    /* SSRF guard (A10/V4, Wave B Item 5-a) — S3 --endpoint-url이 설정된 경우
+     * argv(_s3_upload_file) 구성 전에 endpoint host를 실주소로 resolve하여
+     * 루프백/링크로컬(클라우드 메타데이터) 차단. endpoint 미설정 시 aws-cli 기본
+     * 공용 엔드포인트(s3.amazonaws.com)를 쓰므로 검증 생략. */
+    if (endpoint && *endpoint) {
+        GError *ssrf_err = NULL;
+        if (!pcv_url_target_allowed(endpoint, &ssrf_err)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                        "S3 endpoint blocked (SSRF guard): %s",
+                        ssrf_err ? ssrf_err->message : "blocked");
+            g_clear_error(&ssrf_err);
+            _vm_backup_unlock(vm_name);
+            return FALSE;
+        }
     }
 
     /* ── 2. 타임스탬프 생성 ────────────────────── */

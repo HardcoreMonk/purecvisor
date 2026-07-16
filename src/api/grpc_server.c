@@ -37,6 +37,8 @@
 #include "utils/pcv_log.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_tls.h"
+#include "modules/auth/pcv_rbac.h"          /* PCV_ROLE_* (bounded caller role 주입) */
+#include "modules/dispatcher/rpc_utils.h"   /* pcv_rpc_parse_guarded (외부 입력 가드 파싱) */
 #include <glib.h>
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -138,6 +140,53 @@ _extract_result(const gchar *json_resp)
     return g_strdup("{}");
 }
 
+/**
+ * _grpc_inject_caller_identity — UDS params에 bounded caller role/sub 주입
+ *
+ * Wave B Item 2 (A01/V8): gRPC 요청을 UDS JSON-RPC로 프록시할 때, dispatcher가
+ * caller role을 ADMIN으로 기본 가정(_dispatcher_caller_role의 UDS 기본값)하지
+ * 않도록 params에 _pcv_caller_role(정수) + _pcv_caller_sub="grpc"를 주입한다.
+ * 위조 방지를 위해 클라이언트가 payload에 넣은 동일 키는 먼저 제거한 뒤 서버가
+ * 재설정한다(rest_server._rpc_attach_auth_context와 동일 패턴).
+ *
+ * @param params_json  클라이언트 payload에서 온 params JSON(객체 기대). NULL/비객체면
+ *                     주입 필드만 담은 새 객체를 만든다(fail-closed: 항상 bounded role).
+ * @param role         PCV_ROLE_* 정수(config [grpc] role 매핑값).
+ * @return 새로 할당된 params JSON 문자열(호출자 g_free).
+ */
+static gchar *
+_grpc_inject_caller_identity(const gchar *params_json, gint role)
+{
+    JsonParser *parser = NULL;
+    JsonObject *params = NULL;
+    /* 클라이언트 payload는 외부 입력이므로 sanctioned 가드 파서(pcv_rpc_parse_guarded:
+     * 크기·깊이 상한 DoS 방어)로 파싱한다. 실패/비객체는 fresh 객체로 fail-closed. */
+    if (params_json && *params_json &&
+        pcv_rpc_parse_guarded(params_json, -1, &parser, NULL)) {
+        JsonNode *root = json_parser_get_root(parser);
+        if (root && JSON_NODE_HOLDS_OBJECT(root))
+            params = json_node_get_object(root);
+    }
+
+    gchar *out = NULL;
+    if (params) {
+        /* 위조 방지: 클라이언트가 보낸 값 제거 후 서버가 재설정한다. */
+        json_object_remove_member(params, "_pcv_caller_role");
+        json_object_remove_member(params, "_pcv_caller_sub");
+        json_object_set_int_member(params, "_pcv_caller_role", role);
+        json_object_set_string_member(params, "_pcv_caller_sub", "grpc");
+        out = json_to_string(json_parser_get_root(parser), FALSE);
+    }
+    if (parser) g_object_unref(parser);
+
+    if (!out) {
+        /* params 파싱 실패/비객체 → 주입 필드만 담은 새 객체(bounded role 보장). */
+        out = g_strdup_printf(
+            "{\"_pcv_caller_role\":%d,\"_pcv_caller_sub\":\"grpc\"}", role);
+    }
+    return out;
+}
+
 /* ── gRPC-like TCP 프로토콜 서버 ────────────────────── */
 /**
  * 프로토콜 프레임:
@@ -226,10 +275,13 @@ _handle_client(int client_fd)
         }
     }
 
-    /* 6. JSON-RPC 호출 */
-    gchar *params = (payload_len > 0 && payload[0] == '{') ? payload : g_strdup("{}");
+    /* 6. JSON-RPC 호출 — bounded caller role/sub 주입(위조 방지: 클라이언트가 payload에
+     *    넣은 _pcv_caller_role는 덮어쓴다). dispatcher가 ADMIN 기본 대신 이 role 사용. */
+    extern gint G_grpc_caller_role;  /* set in pcv_grpc_server_start */
+    const gchar *raw_params = (payload_len > 0 && payload[0] == '{') ? payload : "{}";
+    gchar *params = _grpc_inject_caller_identity(raw_params, G_grpc_caller_role);
     gchar *resp = _rpc_call(rpc_method, params);
-    if (params != payload) g_free(params);
+    g_free(params);
 
     /* 7. 응답 전송 */
     gchar *result = _extract_result(resp);
@@ -320,9 +372,22 @@ _grpc_thread(gpointer data __attribute__((unused)))
  * daemon.conf [grpc] enabled=true 시 별도 스레드에서 시작.
  * main.c의 초기화 순서에서 REST 서버 이후에 호출합니다.
  */
-/* 보안 설정 — daemon.conf [grpc] auth_token, bind_addr */
+/* 보안 설정 — daemon.conf [grpc] auth_token, bind_addr, role */
 gchar *G_grpc_auth_token = NULL;
 gchar *G_grpc_bind_addr  = NULL;
+gint   G_grpc_caller_role = PCV_ROLE_OPERATOR;  /* [grpc] role 매핑값 (기본 operator) */
+
+/**
+ * _grpc_role_from_string — [grpc] role 문자열 → PCV_ROLE_* 정수.
+ * 알 수 없는 값은 최소 운영 권한 operator로 fail-safe.
+ */
+static gint
+_grpc_role_from_string(const gchar *s)
+{
+    if (g_strcmp0(s, "viewer") == 0) return PCV_ROLE_VIEWER;
+    if (g_strcmp0(s, "admin")  == 0) return PCV_ROLE_ADMIN;
+    return PCV_ROLE_OPERATOR;
+}
 
 void
 pcv_grpc_server_start(void)
@@ -336,15 +401,25 @@ pcv_grpc_server_start(void)
 
     G_grpc_auth_token = g_strdup(pcv_config_get_string("grpc", "auth_token", ""));
     G_grpc_bind_addr  = g_strdup(pcv_config_get_string("grpc", "bind_addr", "127.0.0.1"));
+
+    /* Wave B Item 2 (A01/V8): 무토큰 gRPC 기동 거부 — enabled=true인데 auth_token이
+     * 미설정/빈 문자열이면 서버를 시작하지 않는다(무인증 제어평면 금지, P2). 데몬
+     * 나머지는 정상 동작한다. (SECURITY 전용 로그 레벨은 없어 CRITICAL+"SECURITY:" 마커) */
     if (!G_grpc_auth_token || !*G_grpc_auth_token) {
-        if (g_strcmp0(G_grpc_bind_addr, "127.0.0.1") != 0) {
-            PCV_LOG_WARN(GRPC_LOG_DOM,
-                "gRPC bind_addr=%s WITHOUT auth_token — server NOT started (refusing insecure config)",
-                G_grpc_bind_addr);
-            return;
-        }
-        PCV_LOG_INFO(GRPC_LOG_DOM, "gRPC: no auth_token; restricted to 127.0.0.1");
+        PCV_LOG_ERROR(GRPC_LOG_DOM,
+            "SECURITY: gRPC enabled but [grpc] auth_token unset/empty — "
+            "server NOT started (unauthenticated control plane refused; "
+            "set [grpc] auth_token in daemon.conf)");
+        g_free(G_grpc_auth_token); G_grpc_auth_token = NULL;
+        g_free(G_grpc_bind_addr);  G_grpc_bind_addr  = NULL;
+        return;
     }
+
+    /* Wave B Item 2 (A01/V8): gRPC caller에 부여할 bounded role.
+     * [grpc] role = viewer|operator|admin (기본 operator). dispatcher가 params로
+     * 주입받은 이 role을 ADMIN 기본 대신 사용한다. */
+    G_grpc_caller_role = _grpc_role_from_string(
+        pcv_config_get_string("grpc", "role", "operator"));
 
     /* P2-2: non-loopback + no TLS → refuse to start (ADR-0015) */
     gboolean is_loopback = (g_strcmp0(G_grpc_bind_addr, "127.0.0.1") == 0 ||
