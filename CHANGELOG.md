@@ -3,6 +3,17 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.4 — 2026-07-17
+
+잔여 하드닝 **G1-③ 후속** (PATCH) — AppArmor 프로필 **enforce-준비 보정**. 데몬/패키징 로직 무변경(프로필 규칙만, 여전히 **complain 모드**). enforce 검증 중 발견한 갭을 닫아 프로필을 enforce-ready로 만든 것. 검증: `apparmor_parser -Q` 문법 OK + 실서버(.100) complain 리로드 후 **신규 would-deny 0**(기존 16,921→0) + 소스 spawn 전량 커버리지 확인.
+
+### 하드닝 (enforce 검증 findings)
+- **런타임 관측 갭(실서버 .100 7h complain)**: `ebpf-telem` 스레드의 `/etc/libvirt/libvirt.conf` 읽기(~5s 주기, 16,921건)가 프로필 미허용 → enforce 시 DENIED 되었을 것. `/etc/libvirt/** r,` 추가. 기동 시 `/usr/bin/kmod` exec(modprobe 심링크 해소) 미허용 → `/{usr/,}bin/kmod Ux,` 추가.
+- **정적 spawn 감사 갭(소스 전수)**: idle 관측이 못 본 write-heavy 경로의 exec 전환 9종 누락 발견 — libguestfs 4종(`virt-sysprep`·`virt-customize`·`virt-filesystems`·`guestfish`, VM clone/guest-reset ADR-0023), `curl`(이미지 다운로드), `gzip`/`zstd`(압축), `ssh`(마이그레이션). enforce 시 clone/backup/migrate 파손했을 것. `virt-install`을 `virt-* Ux` glob으로 확장 + 나머지 Ux 추가. **소스 spawn 55종 전량 커버(누락 0) 확인.**
+
+### Upgrade notes
+- **무영향(기본)**: 프로필은 여전히 complain(비차단). 데몬 계약·동작 무변경. 본 릴리스는 enforce 전환의 *전제*(프로필 완비)만 확보 — 실제 enforce 전환은 write-heavy 워크로드 complain 관측(무-DENIED)까지 완료 후 운영자 opt-in. 절차: `docs/operations/2026-07-17-apparmor-profile.md`.
+
 ## v1.3.3 — 2026-07-17
 
 잔여 하드닝 **G1 ①②③** (PATCH) — 호스트 데몬 MAC 하드닝. 데몬 로직 무변경(로그 문구만). 검증: `make single` 0-warn + `make check-all` **20게이트** + `apparmor_parser -Q` exit 0.

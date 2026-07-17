@@ -108,6 +108,9 @@
   /etc/subuid                     r,
   /etc/subgid                     r,
   /etc/ufw/**                     r,      # 호스트 방화벽 공존 감지(firewall_integration=auto)
+  /etc/libvirt/                   r,
+  /etc/libvirt/**                 r,      # libvirt 클라이언트 config(libvirt.conf 등) — qemu:///system 연결 시
+                                          #   (complain 관측: ebpf-telem 이 ~5s 주기로 libvirt.conf read)
 
   # ---- 상태/데이터 (읽기·쓰기, sqlite 잠금 위해 k) ----------------------------
   /var/lib/purecvisor/            rw,
@@ -170,7 +173,10 @@
   /{usr/,}bin/qemu-system-*       Ux,     # (조임 시) libvirt-<uuid> 프로필로 Px 가능
   /{usr/,}bin/kvm                 Ux,
   /{usr/,}bin/virsh               Ux,
-  /{usr/,}bin/virt-install        Ux,
+  /{usr/,}bin/virt-*              Ux,     # virt-install·virt-sysprep·virt-customize·virt-filesystems
+                                          #   (libguestfs; VM clone/guest-reset ADR-0023 — 자체 appliance qemu 관리)
+  /{usr/,}bin/guestfish           Ux,     # libguestfs guest 파일시스템 조작(clone reset)
+  /{usr/,}bin/guestmount          Ux,
   /{usr/,}bin/lxc-*               Ux,     # (조임 시) 배포판 lxc-start 프로필로 Px 가능
   /{usr/,}bin/nsenter             Ux,
 
@@ -187,6 +193,8 @@
   /{usr/,}{,s}bin/ss              Ux,
   /{usr/,}{,s}bin/sysctl          Ux,
   /{usr/,}{,s}bin/modprobe        Ux,
+  /{usr/,}bin/kmod                Ux,     # modprobe/insmod 가 심링크로 해소되는 실 바이너리
+                                          #   (complain 관측: 기동 시 eBPF 모듈 로드가 /usr/bin/kmod 로 exec)
   /{usr/,}bin/firewall-cmd        Ux,
 
   # ---- 스토리지 도구 ----------------------------------------------------------
@@ -211,6 +219,14 @@
   /{usr/,}bin/mkdir               Ux,
   /{usr/,}bin/sha256sum           Ux,
   /{usr/,}bin/which               Ux,
+
+  # ---- 압축 / 전송 (이미지·백업·마이그레이션) --------------------------------
+  /{usr/,}bin/gzip                Ux,     # 이미지/백업 압축(소스 spawn)
+  /{usr/,}bin/pigz                Ux,
+  /{usr/,}bin/zstd                Ux,     # 이미지/백업 압축(소스 spawn)
+  /{usr/,}bin/xz                  Ux,
+  /{usr/,}bin/curl                Ux,     # 이미지/템플릿 다운로드(소스 spawn)
+  /{usr/,}{,s}bin/ssh             Ux,     # 노드 간 마이그레이션(소스 spawn)
 
   # ---- 프로세스/가속/시스템 도구 ----------------------------------------------
   /{usr/,}bin/pkill               Ux,
