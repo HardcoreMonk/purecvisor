@@ -21,7 +21,7 @@ PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루
 단일 노드 운영에서도 가상화 표면은 쉽게 흩어집니다. VM은 libvirt, 컨테이너는 LXC, 스토리지는 ZFS, 네트워크는 bridge/OVS/OVN, 권한과 audit는 별도 도구로 나뉘기 쉽습니다. PureCVisor는 이 표면을 하나의 운영 제어면으로 묶는 데 초점을 둡니다.
 
 - VM lifecycle, LXC, ZFS, OVS/OVN, backup, auth를 한 제어면에서 다룹니다.
-- REST, UDS JSON-RPC, CLI, TUI, Web UI가 같은 dispatcher와 RBAC 정책을 통과합니다.
+- REST, UDS JSON-RPC, gRPC, CLI, Web UI가 같은 dispatcher와 RBAC 정책을 통과합니다.
 - 장시간 작업은 accepted 응답과 실제 완료 결과를 분리해 거짓 성공을 줄입니다.
 - Job ID, WebSocket 완료 알림, polling, audit log로 작업 결과를 추적합니다.
 - 공개판은 Single Edge 범위만 책임지고, 클러스터 자동화나 라이브 마이그레이션은 제외합니다.
@@ -90,7 +90,7 @@ make release
 | 영역 | 제공 기능 |
 |------|-----------|
 | 데몬 | 단일 프로세스 `purecvisorsd`, `GMainLoop`, `GTask` 비동기 작업 |
-| 인터페이스 | UDS JSON-RPC, REST API, WebSocket, CLI, TUI, Web UI |
+| 인터페이스 | UDS JSON-RPC, REST API, gRPC(토큰 인증·RBAC), WebSocket, CLI, Web UI |
 | VM | 생성, 시작, 중지, 삭제, 스냅샷, 리소스 조정, 안전 조건부 VM clone |
 | 컨테이너 | LXC 생성, 실행, 명령 실행, 리소스 제한 |
 | 스토리지 | ZFS pool, zvol, snapshot, scrub, quota, 백업(증분·S3 export)과 스냅샷 리텐션 |
@@ -98,7 +98,7 @@ make release
 | 보안 | JWT, RBAC(PBKDF2 해시), operator VM/컨테이너 owner-scope, bootstrap admin fallback, API key 만료 집행, **audit 해시체인 무결성**, **AppArmor MAC 프로필(호스트 데몬 심층방어)**, **SSRF/CORS 하드닝**, **mTLS·전송 강제(opt-in)**, audit log |
 | 관측성 | health check, Prometheus metrics, WebSocket event stream, 알림 에스컬레이션·음소거·DLQ |
 | AI Ops | 이상탐지 메트릭 트리거, 합의 최소 정족수, VM 자동 재시작 self-healing(기본 `dry_run`)과 재시작 서킷브레이커 |
-| 운영 | systemd 배포, release build, Single Edge 공개판 검증 스크립트 |
+| 운영 | systemd 배포, release build, Single Edge 공개판 검증 스크립트, **AppArmor MAC 프로필 토글**(complain↔enforce) |
 
 Single Edge 공개판에 포함하지 않는 기능은 다음과 같습니다.
 
@@ -115,7 +115,7 @@ Single Edge 공개판에 포함하지 않는 기능은 다음과 같습니다.
 ## 어떻게 동작하나요?
 
 ```text
-CLI / TUI / Web UI / REST Client
+CLI / Web UI / REST Client
         |
         v
 UDS JSON-RPC Server + REST Server + WebSocket
@@ -212,7 +212,7 @@ make check-all
 make release
 ```
 
-`make check-all`은 RBAC 정책 정합과 RPC 소비⊆등록 계약(FE/CLI/TUI가 호출하는 모든 RPC의 등록 여부)을 함께 검사합니다.
+`make check-all`은 RBAC 정책 정합과 RPC 소비⊆등록 계약(FE/CLI가 호출하는 모든 RPC의 등록 여부)을 함께 검사합니다.
 
 Web UI 번들, 디자인 표면, XSS 경계를 바꾼 경우:
 
