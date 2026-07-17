@@ -142,15 +142,21 @@ case "$1" in
     APROF=/etc/apparmor.d/usr.local.bin.purecvisorsd
     FCDIR=/etc/apparmor.d/force-complain
     FCLINK="$FCDIR/usr.local.bin.purecvisorsd"
-    # 심링크 관리:
-    #  - 첫 설치($2 없음): complain 심링크 생성.
-    #  - 업그레이드($2 있음): 심링크가 없으면(구 in-file 스킴에서 온 노드 포함) 안전
-    #    기본값 COMPLAIN 으로 생성. 운영자가 enforce 를 원하면 업그레이드 후 aa-enforce
-    #    재실행(심링크 제거). 심링크가 이미 있으면 그대로 둔다(운영자 모드 보존).
-    if [ ! -L "$FCLINK" ] && [ ! -e "$FCLINK" ]; then
+    # 심링크 관리(모드 보존이 핵심 — enforce 노드가 업그레이드로 complain 되돌아가지 않게):
+    #  - 첫 설치($2 없음): complain 심링크 생성(안전 기본).
+    #  - 구 스킴(<1.3.6, in-file flag·무심링크)에서 업그레이드: complain 심링크 생성(마이그레이션).
+    #  - 신 스킴(>=1.3.6)에서 업그레이드: 심링크 상태 무변경 → 운영자 모드 보존
+    #    (enforce=무심링크 유지, complain=심링크 유지). 무심링크를 마이그레이션으로 오인 금지.
+    if [ -z "$2" ]; then
         mkdir -p "$FCDIR"
         ln -sf ../usr.local.bin.purecvisorsd "$FCLINK"
+    elif dpkg --compare-versions "$2" lt 1.3.6 2>/dev/null; then
+        if [ ! -L "$FCLINK" ] && [ ! -e "$FCLINK" ]; then
+            mkdir -p "$FCDIR"
+            ln -sf ../usr.local.bin.purecvisorsd "$FCLINK"
+        fi
     fi
+    # (>=1.3.6 업그레이드는 심링크 무변경 — 운영자 enforce/complain 선택 보존)
     if command -v apparmor_parser >/dev/null 2>&1 \
        && [ -d /sys/kernel/security/apparmor ] \
        && [ -f "$APROF" ]; then

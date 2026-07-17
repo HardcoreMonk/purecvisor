@@ -1360,12 +1360,17 @@ _vm_clone_destroy_dataset_recursive(const gchar *dataset)
 
     const gchar *destroy_argv[] = {"zfs", "destroy", "-R", dataset, NULL};
     GError *cleanup_err = NULL;
-    gboolean ok = pcv_spawn_sync(destroy_argv, NULL, NULL, &cleanup_err);
+    gchar *cleanup_stderr = NULL;
+    gboolean ok = pcv_spawn_sync(destroy_argv, NULL, &cleanup_stderr, &cleanup_err);
     if (!ok) {
-        PCV_LOG_WARN("vm_clone", "Target clone dataset cleanup failed for '%s': %s",
+        if (cleanup_stderr)
+            g_strstrip(cleanup_stderr);
+        PCV_LOG_WARN("vm_clone", "Target clone dataset cleanup failed for '%s': %s (zfs stderr: %s)",
                      dataset,
-                     cleanup_err ? cleanup_err->message : "unknown");
+                     cleanup_err ? cleanup_err->message : "unknown",
+                     (cleanup_stderr && *cleanup_stderr) ? cleanup_stderr : "(none)");
     }
+    g_free(cleanup_stderr);
     g_clear_error(&cleanup_err);
     return ok;
 }
@@ -1379,12 +1384,17 @@ _vm_clone_destroy_source_snapshot(VmCloneCtx *ctx, const gchar *snap_tag)
 
     const gchar *destroy_argv[] = {"zfs", "destroy", snap_full, NULL};
     GError *cleanup_err = NULL;
-    gboolean ok = pcv_spawn_sync(destroy_argv, NULL, NULL, &cleanup_err);
+    gchar *cleanup_stderr = NULL;
+    gboolean ok = pcv_spawn_sync(destroy_argv, NULL, &cleanup_stderr, &cleanup_err);
     if (!ok) {
-        PCV_LOG_WARN("vm_clone", "Source clone snapshot cleanup failed for '%s': %s",
+        if (cleanup_stderr)
+            g_strstrip(cleanup_stderr);
+        PCV_LOG_WARN("vm_clone", "Source clone snapshot cleanup failed for '%s': %s (zfs stderr: %s)",
                      snap_full,
-                     cleanup_err ? cleanup_err->message : "unknown");
+                     cleanup_err ? cleanup_err->message : "unknown",
+                     (cleanup_stderr && *cleanup_stderr) ? cleanup_stderr : "(none)");
     }
+    g_free(cleanup_stderr);
     g_clear_error(&cleanup_err);
     g_free(snap_full);
     return ok;
@@ -1589,6 +1599,41 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                 g_free(snap_tag);
                 g_task_return_boolean(task, FALSE);
                 return;
+            }
+        }
+
+        /* [zvol device-node race fix] zfs clone(CoW)·zfs recv(full)는 즉시 리턴하지만
+         * target zvol의 device-node(/dev/zvol/<pool>/<target>)는 udev가 비동기로
+         * 생성한다. 이후 guest reset(virt-sysprep)·VM define/기동이 이 노드를 열기 전에
+         * 반드시 노드가 존재해야 한다 (없으면 libguestfs "No such file or directory").
+         * 파일 디스크(qcow2/raw)는 동기 생성이라 무관하므로 zvol 경로에만 둔다.
+         * guest_reset 여부와 무관하게 실행하여 이후 모든 소비 단계를 커버한다.
+         * precedent: vm_manager.c zvol create, handler_vm_lifecycle.c zvol destroy. */
+        {
+            const gchar *udevadm_argv[] = {"udevadm", "settle", "--timeout=5", NULL};
+            (void)pcv_spawn_sync(udevadm_argv, NULL, NULL, NULL);
+
+            /* settle 후에도 노드가 즉시 안 뜰 수 있어 device-node 존재를 bounded 폴링.
+             * 상한 10초, 100ms 간격. 데드라인 초과 시 guest reset 진입 전에 실패 반환. */
+            const int node_wait_max_ms  = 10000;
+            const int node_wait_step_ms = 100;
+            int node_waited_ms = 0;
+            while (!g_file_test(ctx->target_disk_path, G_FILE_TEST_EXISTS)) {
+                if (node_waited_ms >= node_wait_max_ms) {
+                    gchar *err_msg = g_strdup_printf(
+                        "zvol device node '%s' did not appear within %ds after clone",
+                        ctx->target_disk_path, node_wait_max_ms / 1000);
+                    PCV_LOG_WARN("vm_clone", "%s", err_msg);
+                    _audit_vm_clone_failure(ctx, err_msg);
+                    _vm_clone_cleanup_failed_artifacts(ctx,
+                                                       source_snapshot_exists ? snap_tag : NULL);
+                    g_free(err_msg);
+                    g_free(snap_tag);
+                    g_task_return_boolean(task, FALSE);
+                    return;
+                }
+                g_usleep((gulong)node_wait_step_ms * 1000);
+                node_waited_ms += node_wait_step_ms;
             }
         }
 

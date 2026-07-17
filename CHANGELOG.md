@@ -3,6 +3,17 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.7 — 2026-07-17
+
+버그 수정 2건 (PATCH) — ① **zvol clone + guest-reset 실패 수정**(device-node 레이스) ② **AppArmor postinst 모드 보존 수정**(업그레이드 시 enforce 유지). 검증: `make single` 0-warn · `make test` **673/0** · `make check-all` 20게이트 · 실서버 zvol clone 실증.
+
+### 수정
+- **① zvol clone device-node 레이스** (`src/api/dispatcher.c`): `--mode cow`(및 zvol full) clone 시 `zfs clone`/`zfs recv` 는 즉시 리턴하나 target zvol device-node(`/dev/zvol/<pool>/<target>`)는 udev 가 **비동기** 생성 → guest-reset(virt-sysprep)이 노드 생성 전에 열어 `libguestfs error: ... No such file or directory` 로 실패했다. clone 성공 직후·guest-reset 진입 전에 **`udevadm settle --timeout=5` + device-node 존재 bounded 폴링(상한 10s)** 삽입(CoW·full·guest_reset 무관 전 zvol 경로 커버). 파일 디스크(qcow2/raw)는 동기 생성이라 무관하므로 미적용. precedent: `vm_manager.c` zvol create·`handler_vm_lifecycle.c` zvol destroy 의 settle 관용 재사용. 부수: clone cleanup 의 `zfs destroy` stderr 캡처(구 NULL → "dataset is busy" 등 실 원인 로깅).
+- **② AppArmor postinst 모드 보존** (`packaging/deb/build-deb.sh`): v1.3.6 의 심링크 관리가 업그레이드 시 force-complain 심링크 부재(= 운영자 enforce)를 "마이그레이션 필요"로 오인해 심링크를 재생성 → **enforce 노드가 업그레이드마다 complain 으로 되돌아가는**(보안 하향) 결함. `dpkg --compare-versions` 로 구분: 첫 설치·구 스킴(<1.3.6) 업그레이드만 complain 심링크 생성, **신 스킴(≥1.3.6) 업그레이드는 심링크 무변경(운영자 모드 보존)**.
+
+### Upgrade notes
+- **무영향(기본)**: enforce/complain 현재 모드가 업그레이드로 유지된다(② 수정). zvol clone 사용자는 guest-reset clone 이 정상 완료(① 수정).
+
 ## v1.3.6 — 2026-07-17
 
 AppArmor enforce **메커니즘 클린화** (PATCH) — 프로필 하드코딩 `flags=(complain)` 제거, COMPLAIN 을 `force-complain/` 심링크로 강제. **기본 배포 동작 무변경**(여전히 complain·비차단). enforce 전환/롤백을 conffile 편집 없이 표준 `aa-enforce`/`aa-complain` 으로 처리하게 하는 패키징 개선.
