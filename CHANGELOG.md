@@ -3,6 +3,22 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.5 — 2026-07-17
+
+잔여 하드닝 **G1-③ enforce 검증 2차** (PATCH) — write-heavy 워크로드 실습으로 발견한 프로필 갭 2종 보정 + **enforce 실증**. 프로필 규칙만(여전히 기본 **complain**). 검증: 실서버 실습 노드에서 VM clone(guest-reset·libguestfs)·컨테이너 lifecycle·OVA export·VM start/stop를 데몬 경유로 실행하며 complain 관측 → 갭 보정 → **enforce 모드 실증(전체 op 0 DENIED)**.
+
+### 하드닝 (write-surface 실습 findings)
+- **`/tmp/ova-*/`**: `vm export-ova` 작업 디렉토리(OVF 디스크립터·매니페스트·디스크 tar의 mkdir/mknod/open/rename) 미허용 → `/tmp/ova-*/ rw`·`/tmp/ova-*/** rwk`·`owner` 추가. (기존 `/tmp/pcv-*`만 커버했음.)
+- **`/run/lxc/lock/**`**: 컨테이너 lifecycle의 LXC 락 디렉토리 mkdir 체인 미허용 → `/{,var/}run/lxc/ rw`·`/{,var/}run/lxc/** rwk` 추가.
+- idle 관측·정적 감사가 못 본 **작업 실행 시에만 드러나는 파일접근 갭**. exec 전환은 실습에서 전부 0 would-deny(v1.3.4 보정 유효 확인).
+
+### enforce 실증
+- 실습 노드 complain 재검증(보정 후 갭 유발 op 재실행): **신규 would-deny 0**.
+- **enforce 모드 로드 후 전체 write-surface 재실행**(vm start/stop·container·export-ova·full clone+guest-reset): 전부 성공 + **`apparmor="DENIED"` 0건**. 프로필이 exercised 표면에 대해 enforce-safe 실증.
+
+### Upgrade notes
+- **무영향(기본)**: 프로필 기본 complain(비차단). enforce는 운영자 opt-in(`aa-enforce`)이며 **이제 실습으로 검증됨**. 롤아웃: 파일럿 노드 enforce → soak(미실습 경로 backup-incremental/cloud-migrate/DPDK 등 관측) → 확대. 롤백 `aa-complain`(즉시). 절차 `docs/operations/2026-07-17-apparmor-profile.md` §9.
+
 ## v1.3.4 — 2026-07-17
 
 잔여 하드닝 **G1-③ 후속** (PATCH) — AppArmor 프로필 **enforce-준비 보정**. 데몬/패키징 로직 무변경(프로필 규칙만, 여전히 **complain 모드**). enforce 검증 중 발견한 갭을 닫아 프로필을 enforce-ready로 만든 것. 검증: `apparmor_parser -Q` 문법 OK + 실서버 complain 리로드 후 **신규 would-deny 0**(기존 16,921→0) + 소스 spawn 전량 커버리지 확인.

@@ -126,6 +126,9 @@
   /{,var/}run/libvirt/**          rw,     # libvirt-sock connect(qemu:///system)
   /{,var/}run/openvswitch/**      rw,     # ovs-vsctl db.sock (daemon 측 접근 시)
   /{,var/}run/ovn/**              r,      # ovn-controller.pid 등
+  /{,var/}run/lxc/                rw,
+  /{,var/}run/lxc/**              rwk,    # lxc 락 디렉토리(/run/lxc/lock/**) — container lifecycle
+                                          #   (실서버 실습 관측: container create/start 시 lock mkdir 체인)
   /run/systemd/notify             w,      # sd_notify READY/STOPPING/WATCHDOG
 
   # ---- 스토리지 풀 / 이미지 ---------------------------------------------------
@@ -142,10 +145,14 @@
   /dev/disk/by-path/**            r,
   # /dev/net/tun                  rw,     # (옵션) tap 직접 생성 경로가 확인되면 해제
 
-  # ---- 임시 작업 영역 (OVA/이미지 import) -------------------------------------
+  # ---- 임시 작업 영역 (OVA/이미지 import·export) -----------------------------
   /tmp/pcv-*/                     rw,
   /tmp/pcv-*/**                   rwk,
   owner /tmp/pcv-*                rw,
+  /tmp/ova-*/                     rw,
+  /tmp/ova-*/**                   rwk,    # vm export-ova 작업 디렉토리(.ovf/.mf/디스크 tar)
+                                          #   (실서버 실습 관측: mkdir/mknod/open/rename)
+  owner /tmp/ova-*                rw,
 
   # ---- Web UI 자산 (읽기 전용) ------------------------------------------------
   /usr/local/share/purecvisor/ui/       r,
