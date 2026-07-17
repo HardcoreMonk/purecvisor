@@ -6,7 +6,7 @@
 [![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](AGENTS.md)
 [![License: Non-Commercial Source](https://img.shields.io/badge/License-Non--Commercial%20Source-6b46c1.svg)](LICENSE)
-[![Version: 1.2.5](https://img.shields.io/badge/Version-1.2.5-2f855a.svg)](include/purecvisor/version.h)
+[![Version: 1.3.7](https://img.shields.io/badge/Version-1.3.7-2f855a.svg)](include/purecvisor/version.h)
 
 PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 Single Edge 공개 소스 트리입니다. `purecvisorsd` 하나가 VM, 컨테이너, 스토리지, 네트워크, 권한, audit, metrics, Web UI를 같은 제어 흐름으로 묶습니다.
 
@@ -70,7 +70,7 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
 {
   "service": "purecvisorsd",
   "status": "ok",
-  "version": "1.2.5",
+  "version": "1.3.7",
   "capabilities": {
     "cluster": false
   }
@@ -95,7 +95,7 @@ make release
 | 컨테이너 | LXC 생성, 실행, 명령 실행, 리소스 제한 |
 | 스토리지 | ZFS pool, zvol, snapshot, scrub, quota, 백업(증분·S3 export)과 스냅샷 리텐션 |
 | 네트워크 | bridge, NAT, isolated, routed, OVS/OVN local SDN, QoS·오버레이 재부팅 재수화 |
-| 보안 | JWT, RBAC, operator VM owner-scope, bootstrap admin fallback, API key 만료 집행, audit log |
+| 보안 | JWT, RBAC(PBKDF2 해시), operator VM/컨테이너 owner-scope, bootstrap admin fallback, API key 만료 집행, **audit 해시체인 무결성**, **AppArmor MAC 프로필(호스트 데몬 심층방어)**, **SSRF/CORS 하드닝**, **mTLS·전송 강제(opt-in)**, audit log |
 | 관측성 | health check, Prometheus metrics, WebSocket event stream, 알림 에스컬레이션·음소거·DLQ |
 | AI Ops | 이상탐지 메트릭 트리거, 합의 최소 정족수, VM 자동 재시작 self-healing(기본 `dry_run`)과 재시작 서킷브레이커 |
 | 운영 | systemd 배포, release build, Single Edge 공개판 검증 스크립트 |
