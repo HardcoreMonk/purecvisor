@@ -42,6 +42,7 @@ done
 # ── 트리 조립 ───────────────────────────────────────────────────
 mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/usr/local/bin" \
+         "$STAGE/usr/local/sbin" \
          "$STAGE/usr/local/share/purecvisor/ui" \
          "$STAGE/etc/systemd/system" \
          "$STAGE/etc/purecvisor" \
@@ -50,6 +51,9 @@ mkdir -p "$STAGE/DEBIAN" \
 install -m755 bin/purecvisorsd bin/pcvctl "$STAGE/usr/local/bin/"
 strip "$STAGE/usr/local/bin/purecvisorsd" \
       "$STAGE/usr/local/bin/pcvctl" 2>/dev/null || true
+
+# AppArmor 모드 토글 헬퍼(우리 프로필만 대상 → 타 프로필 충돌에 견고, apparmor-utils 불요)
+install -m755 packaging/apparmor/pcv-apparmor "$STAGE/usr/local/sbin/pcv-apparmor"
 
 # UI 자산 (번들/모듈/vendor/에셋)
 cp -a ui/*.js ui/*.html ui/*.css ui/*.md ui/*.json ui/*.png "$STAGE/usr/local/share/purecvisor/ui/" 2>/dev/null || true
@@ -99,7 +103,7 @@ Architecture: $ARCH
 Maintainer: PureCVisor <ops@purecvisor.local>
 Installed-Size: $INSTALLED_KB
 Depends: $ALLDEPS
-Recommends: openvswitch-switch, ovn-host, zfsutils-linux, cloud-image-utils
+Recommends: openvswitch-switch, ovn-host, zfsutils-linux, cloud-image-utils, apparmor-utils
 Conflicts: purecvisor-multi
 Homepage: https://purecvisor.example.com
 Description: PureCVisor Single Edge — C23 KVM 하이퍼바이저 오케스트레이터
@@ -130,20 +134,43 @@ case "$1" in
     systemctl daemon-reload || true
     systemctl enable purecvisorsd.service || true
 
-    # --- AppArmor MAC 프로필 (G1-③): COMPLAIN(감사-only)로만 로드 ------------
-    # 데몬 동작 무변경(차단 없이 위반만 커널 audit 에 기록). 프로필 파일에
-    # flags=(complain) 이 박혀 있어 로드해도 enforce 가 아니다. enforce 전환은
-    # 운영자 opt-in(aa-enforce). 로드 실패가 설치를 깨지 않도록 전 구간 방어.
+    # --- AppArmor MAC 프로필 (G1-③): 기본 COMPLAIN, force-complain 심링크 강제 --
+    # 프로필 파일엔 flags 없음(enforce-default). COMPLAIN 은 force-complain 심링크로
+    # 강제한다(v1.3.6~). 데몬 동작 무변경(차단 없이 위반만 커널 audit 에 기록).
+    # enforce 전환은 운영자 opt-in(aa-enforce = 심링크 제거). 로드 실패가 설치를 깨지
+    # 않도록 전 구간 방어.
+    APROF=/etc/apparmor.d/usr.local.bin.purecvisorsd
+    FCDIR=/etc/apparmor.d/force-complain
+    FCLINK="$FCDIR/usr.local.bin.purecvisorsd"
+    # 심링크 관리:
+    #  - 첫 설치($2 없음): complain 심링크 생성.
+    #  - 업그레이드($2 있음): 심링크가 없으면(구 in-file 스킴에서 온 노드 포함) 안전
+    #    기본값 COMPLAIN 으로 생성. 운영자가 enforce 를 원하면 업그레이드 후 aa-enforce
+    #    재실행(심링크 제거). 심링크가 이미 있으면 그대로 둔다(운영자 모드 보존).
+    if [ ! -L "$FCLINK" ] && [ ! -e "$FCLINK" ]; then
+        mkdir -p "$FCDIR"
+        ln -sf ../usr.local.bin.purecvisorsd "$FCLINK"
+    fi
     if command -v apparmor_parser >/dev/null 2>&1 \
        && [ -d /sys/kernel/security/apparmor ] \
-       && [ -f /etc/apparmor.d/usr.local.bin.purecvisorsd ]; then
-        if apparmor_parser -r -W /etc/apparmor.d/usr.local.bin.purecvisorsd >/dev/null 2>&1; then
-            echo "purecvisor-single: AppArmor 프로필 COMPLAIN(감사-only) 로드됨 — 차단 없음. enforce 전환: aa-enforce /etc/apparmor.d/usr.local.bin.purecvisorsd"
+       && [ -f "$APROF" ]; then
+        if [ -L "$FCLINK" ]; then
+            # COMPLAIN 강제(-C): 심링크 존재 = 감사-only
+            if apparmor_parser -r -W -C "$APROF" >/dev/null 2>&1; then
+                echo "purecvisor-single: AppArmor 프로필 COMPLAIN(감사-only) 로드됨 — 차단 없음. enforce 전환: pcv-apparmor enforce"
+            else
+                echo "purecvisor-single: AppArmor 프로필 로드 생략(비치명적)."
+            fi
         else
-            echo "purecvisor-single: AppArmor 프로필 로드 생략(비치명적). 수동: apparmor_parser -r /etc/apparmor.d/usr.local.bin.purecvisorsd"
+            # ENFORCE: 운영자가 pcv-apparmor enforce 로 심링크 제거함 → enforce 유지 로드
+            if apparmor_parser -r -W "$APROF" >/dev/null 2>&1; then
+                echo "purecvisor-single: AppArmor 프로필 ENFORCE 로드됨(운영자 opt-in 유지). 롤백: pcv-apparmor complain"
+            else
+                echo "purecvisor-single: AppArmor 프로필 로드 생략(비치명적)."
+            fi
         fi
     else
-        echo "purecvisor-single: AppArmor 미가동/미설치 — 프로필 파일만 배치(/etc/apparmor.d/usr.local.bin.purecvisorsd). 활성화는 문서 참조."
+        echo "purecvisor-single: AppArmor 미가동/미설치 — 프로필 파일만 배치($APROF). 활성화는 문서 참조."
     fi
 
     echo "purecvisor-single 설치 완료. 시작: systemctl start purecvisorsd"
@@ -173,9 +200,10 @@ case "$1" in
     systemctl daemon-reload || true
     ;;
 esac
-# purge 시에만 AppArmor 프로필을 커널에서 언로드(conffile 자체는 dpkg 가 제거).
-# remove(설정 보존)에서는 언로드하지 않아 재설치 시 상태 유지.
+# purge 시에만 AppArmor 프로필을 커널에서 언로드 + force-complain 심링크 제거
+# (conffile 자체는 dpkg 가 제거). remove(설정 보존)에서는 언로드하지 않아 재설치 시 유지.
 if [ "$1" = "purge" ]; then
+    rm -f /etc/apparmor.d/force-complain/usr.local.bin.purecvisorsd 2>/dev/null || true
     if command -v apparmor_parser >/dev/null 2>&1 \
        && [ -d /sys/kernel/security/apparmor ] \
        && [ -f /etc/apparmor.d/usr.local.bin.purecvisorsd ]; then

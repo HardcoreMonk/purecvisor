@@ -3,6 +3,22 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.6 — 2026-07-17
+
+AppArmor enforce **메커니즘 클린화** (PATCH) — 프로필 하드코딩 `flags=(complain)` 제거, COMPLAIN 을 `force-complain/` 심링크로 강제. **기본 배포 동작 무변경**(여전히 complain·비차단). enforce 전환/롤백을 conffile 편집 없이 표준 `aa-enforce`/`aa-complain` 으로 처리하게 하는 패키징 개선.
+
+### 개선 (enforce 검증 중 발견한 productization 갭)
+- **프로필**: `/usr/local/bin/purecvisorsd flags=(complain) {` → `flags` 제거(enforce-default). COMPLAIN 은 postinst 가 `/etc/apparmor.d/force-complain/usr.local.bin.purecvisorsd` 심링크로 강제.
+- **postinst**: 첫 설치 시 complain 심링크 생성 + `apparmor_parser -C`(complain 로드). 업그레이드 시 심링크 부재면 안전 기본값 complain 으로 생성(구 in-file 스킴 노드 마이그레이션), 심링크 있으면 보존. enforce(심링크 없음)면 enforce 로드 유지.
+- **enforce/complain 클린 토글**: 심링크 관리(conffile 무편집) → **업그레이드 시 conffile 충돌 없음**(구 스킴은 flag-edit 이라 업그레이드마다 conffile 프롬프트).
+- **`pcv-apparmor` 헬퍼 신규**(`/usr/local/sbin/`): `enforce`/`complain`/`status`. **우리 프로필 하나만** `apparmor_parser` 로 토글 → 표준 `aa-enforce` 의 전역-재파싱 취약점(배포판의 깨진 lxc 프로필 충돌 시 실패) 회피. apparmor-utils 불요. (실습 노드에서 `aa-enforce` 가 `usr.bin.lxc-start` 중복정의 ERROR 로 실패 → 헬퍼로 견고화.)
+- **`apparmor-utils`를 deb Recommends 추가**(aa-logprof 로그 보정용).
+- **postrm purge**: force-complain 심링크도 제거.
+
+### Upgrade notes
+- **기본 무영향**: complain 유지(비차단). 구 in-file `flags=(complain)` 노드 → 업그레이드 시 심링크 생성으로 complain 보존.
+- **구 스킴에서 flag-edit 으로 enforce 하던 노드**(수정된 conffile): 업그레이드 시 conffile 프롬프트 → 새 conffile 수용(`--force-confnew` 또는 Y) 후 `pcv-apparmor enforce` 재실행(클린 스킴으로 전환).
+
 ## v1.3.5 — 2026-07-17
 
 잔여 하드닝 **G1-③ enforce 검증 2차** (PATCH) — write-heavy 워크로드 실습으로 발견한 프로필 갭 2종 보정 + **enforce 실증**. 프로필 규칙만(여전히 기본 **complain**). 검증: 실서버 실습 노드에서 VM clone(guest-reset·libguestfs)·컨테이너 lifecycle·OVA export·VM start/stop를 데몬 경유로 실행하며 complain 관측 → 갭 보정 → **enforce 모드 실증(전체 op 0 DENIED)**.

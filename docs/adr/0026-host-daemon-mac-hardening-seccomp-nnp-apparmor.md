@@ -36,3 +36,8 @@
 - **잔여 위험을 MODERATE로 명시 수용** — capabilities 제한 + AppArmor MAC(complain→enforce 경로) + 업계 관행 정합. 정보보안 결정을 명문화(ADR-0025 "insecure-by-design → challenge + 문서화" 규율 적용).
 - 산출물: AppArmor 프로필 `packaging/apparmor/usr.local.bin.purecvisorsd`(complain 배포·postinst complain 로드-only), 검증·enforce 절차 문서 `docs/operations/2026-07-17-apparmor-profile.md`, 정직-로그 수정(`pcv_privdrop.c`).
 - **재평가**: 실서버(complain) 위반 로그로 프로필 규칙 완전성 검증 → 무-DENIED 확인 후 enforce 전환. seccomp LOG-모드/아키텍처 분리는 향후 재검토.
+
+## 후속 (검증·메커니즘 진화)
+
+- **enforce 검증 완료** (v1.3.4~1.3.5): 정적 spawn 감사(55종 exec 전량 커버) + 실서버 write-heavy 워크로드 실습(VM clone+guest-reset[libguestfs]·컨테이너 lifecycle·OVA export·vm start/stop)으로 프로필 갭 12종 발견·보정. **enforce 모드 전체 op 재실행 0 DENIED 실증**(문서 §9). exercised 표면 enforce-safe.
+- **모드 토글 메커니즘 클린화** (v1.3.6): 프로필 하드코딩 `flags=(complain)` 제거(enforce-default) → COMPLAIN 은 `/etc/apparmor.d/force-complain/` 심링크로 강제(postinst). enforce/complain 전환은 conffile 편집 없이 심링크 관리 → **패키지 업그레이드 시 conffile 충돌 없음**. 표준 `aa-enforce` 는 전역 재파싱이라 배포판의 깨진 프로필(예: `usr.bin.lxc-start` 중복정의)에 취약해, **우리 프로필만 대상하는 `pcv-apparmor` 헬퍼**(`/usr/local/sbin/`, apparmor-utils 불요)를 도입. 롤아웃: 파일럿 노드 enforce → soak(미실습 경로 관측) → 프로덕션 확대.

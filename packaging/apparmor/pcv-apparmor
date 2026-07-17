@@ -1,0 +1,53 @@
+#!/bin/sh
+# pcv-apparmor — purecvisorsd AppArmor 프로필 모드 토글(enforce/complain/status)
+#
+# 표준 aa-enforce/aa-complain 은 /etc/apparmor.d/ 전역을 재파싱하므로, 무관한
+# 깨진 프로필(예: 배포판 lxc 프로필 충돌)이 있으면 우리 프로필까지 토글 실패한다.
+# 이 헬퍼는 **purecvisorsd 프로필 하나만** 대상으로 apparmor_parser 를 호출하고
+# force-complain 심링크(부팅 시 complain 강제)를 관리하므로 그 문제에 견고하다.
+# apparmor-utils 불요(apparmor_parser 는 apparmor 패키지 기본 포함).
+set -e
+APROF=/etc/apparmor.d/usr.local.bin.purecvisorsd
+FCDIR=/etc/apparmor.d/force-complain
+FCLINK="$FCDIR/usr.local.bin.purecvisorsd"
+PROF=/usr/local/bin/purecvisorsd
+
+die() { echo "pcv-apparmor: $1" >&2; exit 1; }
+[ "$(id -u)" = 0 ] || die "root 필요"
+[ -f "$APROF" ] || die "프로필 없음: $APROF (패키지 미설치?)"
+command -v apparmor_parser >/dev/null 2>&1 || die "apparmor_parser 없음(AppArmor 미설치)"
+[ -d /sys/kernel/security/apparmor ] || die "AppArmor 커널 미가동"
+
+cur_mode() {
+  if command -v aa-status >/dev/null 2>&1; then
+    aa-status 2>/dev/null | awk -v p="$PROF" '/enforce mode/{s="enforce"} /complain mode/{s="complain"} $1==p{print s; exit}'
+  else
+    [ -L "$FCLINK" ] && echo "complain(추정)" || echo "enforce(추정)"
+  fi
+}
+
+case "${1:-status}" in
+  enforce)
+    rm -f "$FCLINK"
+    apparmor_parser -r "$APROF"
+    echo "pcv-apparmor: ENFORCE 로 전환됨 (force-complain 심링크 제거·재부팅 지속). 롤백: pcv-apparmor complain"
+    echo "  현재 모드: $(cur_mode)"
+    ;;
+  complain)
+    mkdir -p "$FCDIR"
+    ln -sf ../usr.local.bin.purecvisorsd "$FCLINK"
+    apparmor_parser -r -C "$APROF"
+    echo "pcv-apparmor: COMPLAIN(감사-only) 로 전환됨 (차단 없음·부팅 시 유지)."
+    echo "  현재 모드: $(cur_mode)"
+    ;;
+  status)
+    echo "프로필 : $APROF"
+    echo "모드   : $(cur_mode)"
+    echo "심링크 : $([ -L "$FCLINK" ] && echo "존재(complain 강제) → $(readlink "$FCLINK")" || echo "없음(enforce)")"
+    echo "위반로그: journalctl -k | grep purecvisorsd | grep 'apparmor='"
+    ;;
+  *)
+    echo "사용법: pcv-apparmor {enforce|complain|status}" >&2
+    exit 2
+    ;;
+esac
