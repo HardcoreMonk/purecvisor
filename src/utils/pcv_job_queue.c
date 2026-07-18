@@ -35,6 +35,9 @@ static struct {
 
 static gsize g_mutex_once = 0;
 
+/* 뮤텍스 지연 초기화를 g_once 로 감싼다: 여러 스레드가 첫 job API 를 동시에 밟아도
+ * g_mutex_init 이 정확히 한 번만 실행된다. 모든 public 진입점이 락을 잡기 전에
+ * ensure_mutex() 를 먼저 호출하므로, 명시적 init 순서에 의존하지 않는다. */
 static void
 ensure_mutex(void)
 {
@@ -79,6 +82,10 @@ pcv_job_queue_init(void)
         : pcv_config_get_string("jobs", "db_path",
                                 "/var/lib/purecvisor/pcv_jobs.db");
 
+    /* DB 를 못 열면 큐를 "비활성"으로 두고(G.db=NULL) 여전히 initialized=TRUE 로
+     * 표시한다. 이후 모든 변경 API 는 G.db==NULL 을 보고 조용히 no-op 이 되어,
+     * job 상태 추적이 실패해도 실제 VM/스토리지 작업 자체는 계속 진행되게 한다
+     * (job 큐는 관측 계층이지 작업의 전제조건이 아니다). */
     if (sqlite3_open(db_path, &G.db) != SQLITE_OK) {
         PCV_LOG_WARN(JOB_LOG_DOM, "SQLite open failed: %s — job queue disabled",
                      db_path);
@@ -91,6 +98,8 @@ pcv_job_queue_init(void)
         return;
     }
 
+    /* WAL: 읽기(list/get)와 쓰기(update)가 서로를 블록하지 않게 한다 — UI 폴링이
+     * 진행 중인 작업의 진행률 UPDATE 를 막지 않도록. */
     sqlite3_exec(G.db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
     sqlite3_exec(G.db,
         "CREATE TABLE IF NOT EXISTS jobs ("
@@ -141,6 +150,9 @@ pcv_job_queue_cleanup_old(gint max_age_hours)
     g_mutex_lock(&G.mu);
     if (!G.db) { g_mutex_unlock(&G.mu); return; }
 
+    /* status >= 2 는 종료 상태(completed/failed/cancelled)만 지운다는 뜻이다.
+     * pending(0)/running(1)은 아직 워커가 갱신 중일 수 있어 age 와 무관하게 보존 —
+     * 진행 중 작업 레코드를 지우면 UI 가 "사라진 작업"으로 오인한다. */
     gint64 cutoff = (gint64)time(NULL) - (gint64)max_age_hours * 3600;
     const gchar *sql = "DELETE FROM jobs WHERE status >= 2 AND updated_at < ?";
     sqlite3_stmt *stmt;
@@ -167,6 +179,9 @@ pcv_job_create(const gchar *type, const gchar *target,
 
     ensure_mutex();
 
+    /* 큐가 비활성이어도 job_id 는 먼저 만들어 반환한다: 호출자(핸들러)는 이 ID 를
+     * accepted 응답에 실어 클라이언트에 이미 돌려주므로, DB 부재로 인해 ID 계약이
+     * 깨지면 안 된다. 이 경우 이후 상태 조회만 비게 된다(작업 자체는 진행). */
     g_mutex_lock(&G.mu);
     if (!G.db) {
         g_mutex_unlock(&G.mu);
@@ -348,6 +363,10 @@ pcv_job_cancel(const gchar *job_id)
     if (!G.db) { g_mutex_unlock(&G.mu); return FALSE; }
 
     /* PENDING(0) 또는 RUNNING(1) 상태만 취소 가능 */
+    /* status < 2 가드가 취소를 non-terminal(pending/running)로 한정한다: 이미
+     * 끝난 작업을 cancelled 로 되돌리지 않는다. WHERE 가 0행을 바꾸면(이미 종료
+     * 또는 없는 job) sqlite3_changes==0 → FALSE 를 돌려주어 호출자가 "취소 못 함"을
+     * 구분할 수 있다. 실제 워커 중단은 이 레코드 마킹과 별개다(협조적 취소). */
     const gchar *sql =
         "UPDATE jobs SET status=4, detail='Cancelled by user', updated_at=?"
         " WHERE job_id=? AND status < 2";

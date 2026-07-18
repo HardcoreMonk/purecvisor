@@ -3,6 +3,17 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.9 — 2026-07-18
+
+주석 커버리지 잔여 포켓 전량 보강 (PATCH) — **데몬 바이너리 기능 무변경**(소스 주석 + 게이트 baseline만). 남은 저밀도 10파일 보강으로 baseline 10→**0**(예외 없음, 전 `.c/.h` compliant, 228/228). 검증: `make single` 0-warn · `make test` 673/0 · `make check-all` 21게이트 · 게이트 반사실(빈 baseline에서도 헤더없는 파일 주입 FAIL).
+
+### 보강 (코드 무변경, 주석만)
+- `include/purecvisor/version.h`·bootstrap 3(Single Edge stub/런타임 포함)·`handler_security`(.c/.h, HIDS/HIPS RPC)·`vm_iface.c`·`vm_vnet_cache.c`·`vm_clone_plan.c`(clone 계획, 918줄)·`pcv_job_queue.c` — `@file` 헤더 + 판단근거/실패영향/불변식·동시성·소유권 주석. stub은 "왜 stub / 호출 시 계약" 명시. `vm_clone_plan.c`는 경로 계산만 하고 zvol device-node settle은 실행 경로 소관임을 경계 사실로 명시(지어내지 않음).
+- **주석 커버리지 100%**: 게이트 baseline 0건 → 이후 모든 신규/수정 `.c/.h`는 예외 없이 파일 헤더+최소 밀도 필수.
+
+### Upgrade notes
+- **무영향**: 데몬 계약·동작·바이너리 기능 동일. 소스 주석 + CI 게이트 baseline만. 배포 불요.
+
 ## v1.3.8 — 2026-07-18
 
 주석 커버리지 게이트 신설 + HIDS/HIPS 모듈 주석 보강 (PATCH) — **데몬 바이너리 기능 무변경**(CI 게이트 신설 + 소스 주석만, 런타임 로직·계약 동일). CI 계약 게이트 **20→21**. 검증: `make single` 0-warn · `make test` 673/0 · `make check-all` 21게이트 · 게이트 자기검증(반사실) PASS.

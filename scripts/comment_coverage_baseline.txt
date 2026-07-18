@@ -3,13 +3,4 @@
 # 파일 헤더 부재 또는 주석 비율 < 10% 인 기존 .c/.h 명단(단조감소 래칫).
 # 이 명단 + PCV_COMMENT_COVERAGE_OK waiver 밖의 신규/방치 non-compliant 만 FAIL.
 # 보강해 compliant 가 되면 이 명단에서 제거한다(설계: comment-coverage-gate-design).
-include/purecvisor/version.h
-src/bootstrap/pcv_bootstrap_single.c
-src/bootstrap/pcv_single_cluster_manager_stub.c
-src/bootstrap/pcv_single_edge_runtime.h
-src/modules/dispatcher/handler_security.c
-src/modules/dispatcher/handler_security.h
-src/modules/network/vm_iface.c
-src/modules/network/vm_vnet_cache.c
-src/modules/virt/vm_clone_plan.c
-src/utils/pcv_job_queue.c
+

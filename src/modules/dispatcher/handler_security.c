@@ -1,3 +1,28 @@
+/**
+ * @file handler_security.c
+ * @brief security.* JSON-RPC 핸들러 — Security Guard(HIDS/HIPS)의 단일 UDS 표면.
+ *
+ * [책임]
+ *   HIDS 이벤트 조회(list/get), HIPS 대응 액션의 pending/approve/dismiss, 파일
+ *   무결성 baseline status/refresh, security config get/set 을 코어 모듈 호출로
+ *   잇는다. dispatcher 가 인증·RBAC 를 통과시킨 뒤 params 에 caller 신원을 주입해
+ *   이 파일로 들여보낸다.
+ *
+ * [RPC 계약 — ADR-0018 / ADR-0024]
+ *   - 조회 계열은 read-only: 현재 로컬 상태를 그대로 반환한다.
+ *   - approve 만 실제 부작용(nftables DROP·API 키 폐기)을 일으킨다. fire-and-forget:
+ *     accepted + job_id 를 먼저 응답하고, GTask 워커가 execute→감사→WS 완료 순으로
+ *     최종 결과를 소유한다(ADR-0018). 실행이 approved 마킹보다 먼저다 — 방화벽/RBAC
+ *     조작이 실패했는데 UI·감사가 "해결됨"으로 오인하지 않도록.
+ *   - 실행 가능한 액션은 block_ip·revoke_api_key 뿐(ADR-0024). 그 외는
+ *     is_executable 게이트에서 "manual runbook 필요"로 거부한다.
+ *
+ * Operator note:
+ *   이 파일은 "탐지된 위협을 실제로 차단할지"를 사람이 승인하는 지점이다. 여기서
+ *   거부해야 할 요청을 통과시키면 오탐 하나가 정상 IP 차단·API 키 폐기로 이어져
+ *   서비스 장애가 될 수 있다. 사고 시 security.action.approve 의 감사 로그와
+ *   job 완료 WS 브로드캐스트(job_id)를 함께 확인한다.
+ */
 #include "handler_security.h"
 #include "rpc_utils.h"
 
@@ -393,6 +418,12 @@ handle_security_action_approve(JsonObject *params,
 
     const gchar *status = json_string_default(action, "status", "");
     const gchar *action_name = json_string_default(action, "action", "");
+    /* 이중 게이트 — 부작용 실행(GTask) 전에 여기서 반드시 막아야 한다:
+     *   (1) 이미 처리된(resolved/suppressed) 액션의 재승인을 CONFLICT 로 차단해
+     *       같은 차단/폐기가 중복 실행되지 않게 한다.
+     *   (2) is_executable 가 아닌 액션(lock_user·restart_service 등)은 자동 실행
+     *       대상이 아니라 manual runbook 후보다(ADR-0024). 통과시키면 노출만
+     *       하려던 조치가 실제 부작용으로 새어나간다. */
     if (g_strcmp0(status, "pending") != 0) {
         send_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
                    "security action is not pending");

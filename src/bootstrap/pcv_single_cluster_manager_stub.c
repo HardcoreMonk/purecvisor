@@ -1,3 +1,26 @@
+/**
+ * @file pcv_single_cluster_manager_stub.c
+ * @brief Single Edge 클러스터 매니저 stub — Multi Edge 전용 심볼의 standalone 구현.
+ *
+ * [왜 stub 인가]
+ *   quorum·복제·노드 drain/evacuate·클러스터 config 전파는 Multi Edge 전용이며
+ *   공개 Single Edge 빌드에 포함되지 않는다. 그러나 dispatcher/health/UI 는 edition
+ *   과 무관하게 동일한 cluster.* 심볼을 링크·호출한다. 이 파일은 그 심볼들을 전부
+ *   정의해 링크 실패나 미정의 동작 없이 단일 노드에서 일관되게 응답한다.
+ *
+ * [계약 — 호출되면 무엇을 반환/거부하는가]
+ *   - role/status/repl 조회: DISABLED · "standalone" · enabled=FALSE 로 고정.
+ *   - quorum: 노드가 하나뿐이라 정족수 개념이 없어 항상 FALSE.
+ *   - zvol fence: 경합할 다른 노드가 없어 항상 통과(TRUE).
+ *   - drain/resume/evacuate/upgrade/config-push: "unsupported"/"standalone" JSON
+ *     으로 거부하며 부작용을 남기지 않는다.
+ *   - maintenance flag: 단일 노드에서도 의미가 있어 유일하게 프로세스 메모리에 보관.
+ *
+ * [주니어 참고]
+ *   빈 함수·FALSE·"unsupported" 는 미완성이 아니라 제품 경계다. __attribute__((weak))
+ *   심볼은 Multi Edge 빌드/테스트가 실제 구현으로 override 할 수 있게 남긴 링크
+ *   seam 이며, 여기에 임시 클러스터 초기화를 넣으면 Single Edge 공개 범위가 깨진다.
+ */
 #include "bootstrap/pcv_single_edge_runtime.h"
 
 #include <gio/gio.h>
@@ -79,6 +102,9 @@ pcv_cluster_trigger_failover_test(void)
 {
 }
 
+/* zvol fence 는 "다른 노드가 같은 zvol 을 동시에 잡지 않았는가"를 확인하는 안전
+ * 게이트다. Single Edge 에는 경합할 노드가 없어 항상 통과시킨다. weak 로 두어
+ * Multi Edge 가 실제 etcd 기반 fence 로 교체할 수 있게 한다. */
 __attribute__((weak)) gboolean
 pcv_cluster_check_zvol_fence(void)
 {

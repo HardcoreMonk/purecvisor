@@ -1,3 +1,24 @@
+/**
+ * @file pcv_bootstrap_single.c
+ * @brief Single Edge 런타임 부트스트랩 — 데몬 기동 시 로컬 네트워크만 준비한다.
+ *
+ * [아키텍처 위치]
+ *   main 이 데몬을 띄우는 초기화 단계에서 호출된다. Multi Edge 라면 여기서
+ *   클러스터 매니저·스케줄러·federation 을 시작하지만, Single Edge 는 그 셋을
+ *   의도적으로 건너뛰고(no-op + "skipped" 로그) 단일 서버 안에서 필요한 것만
+ *   초기화한다: 관리형 기본 NAT 네트워크(pcvnat0: 브릿지→NAT→DHCP+DNS),
+ *   가용 시 로컬 OVN controller, 설정된 경우 OVS overlay.
+ *
+ * [실패 시 사용자 영향]
+ *   네트워크 준비는 soft-fail(WARN 후 계속) — 데몬은 뜨지만 브릿지 미지정 신규
+ *   VM 이 IP(DHCP)·인터넷(NAT)·이름해석(DNS)을 못 받을 수 있다. 상세 복구 근거는
+ *   아래 pcv_bootstrap_init_runtime_network 의 Operator/블록 주석을 본다.
+ *
+ * [주니어 참고]
+ *   cluster/scheduler/federation 의 "skipped" 는 실패가 아니라 제품 범위다. 이
+ *   no-op 함수에 임시 클러스터 초기화를 넣으면 Single Edge 공개 경계가 깨지고
+ *   health/RBAC/UI 가 클러스터 기능을 쓸 수 있다고 오해한다.
+ */
 #include "pcv_bootstrap.h"
 
 #include "modules/network/ovn_manager.h"
