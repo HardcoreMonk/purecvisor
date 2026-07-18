@@ -1,3 +1,24 @@
+/**
+ * @file security_event.h
+ * @brief Native Host HIDS/HIPS 보안 이벤트 값 모델 — enum·직렬화·coalesce 키 계약
+ *
+ * Security Guard(SG)가 탐지한 사건 하나를 표현하는 값 타입 PcvSecurityEvent 와,
+ * 그 열거형을 프로세스 경계 밖에서 안정적으로 주고받기 위한 문자열 계약을 정의한다.
+ *
+ * [아키텍처 위치]
+ *   HIDS 수집기(hids_file_integrity 등) → 이 모델로 정규화 → security_policy 가
+ *   severity/action 판정 → security_store 가 SQLite 에 저장 → handler_security RPC
+ *   → Web UI. 이 헤더는 파이프라인 전 구간이 공유하는 공통 어휘다.
+ *
+ * [불변식]
+ *   - 직렬화는 enum 수치값이 아니라 문자열 이름만 사용한다(security_event.c 의 맵).
+ *     RPC/DB/UI 는 수치에 의존하면 안 되며, enum 을 재정렬해도 저장 포맷은 안정적이다.
+ *   - 모든 문자열 필드는 고정 크기 버퍼다 — RPC 핸들러가 부분 free 없이 struct 를
+ *     통째로 소유·복사할 수 있게 하려는 의도적 선택(가변 할당 회피).
+ *   - evidence_json 은 pcv_security_event_set_evidence 단일 가드로만 채운다: 버퍼
+ *     초과 시 중간 절단된 invalid JSON 대신 유효한 fallback JSON 을 저장한다.
+ *   관련: ADR-0024(탐지 우선, 운영자 승인 기반 대응).
+ */
 #ifndef PURECVISOR_SECURITY_EVENT_H
 #define PURECVISOR_SECURITY_EVENT_H
 

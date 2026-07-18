@@ -1,3 +1,23 @@
+/**
+ * @file security_event.c
+ * @brief 보안 이벤트 enum ↔ 문자열 변환·직렬화·coalesce 키 구현
+ *
+ * security_event.h 가 선언한 값 모델의 구현. 핵심은 enum 과 소문자 문자열 사이의
+ * 정본(canonical) 변환 테이블이다 — 이 문자열이 SQLite 행·JSON-RPC 응답·Web UI
+ * 필터에서 그대로 쓰이므로, 이름을 바꾸면 저장된 과거 이벤트와 UI 필터가 어긋난다.
+ *
+ * [아키텍처 위치]
+ *   pcv_security_submit_event(security_store.c)·handler_security 가 to_json/from_json
+ *   을 통해 이 파일을 경유한다. from_json 은 신뢰 경계다: 외부에서 들어온 문자열을
+ *   enum 으로 되돌린다.
+ *
+ * [판단 근거]
+ *   - to_string 계열은 미지의 수치값을 만나면 맵의 0번 원소로 폴백한다(never NULL).
+ *     JSON 직렬화가 NULL 멤버로 깨지지 않게 하려는 fail-safe.
+ *   - from_json 은 반대로 엄격하다: 알 수 없는 source/type/severity/target_kind/
+ *     status 문자열이면 FALSE 로 거부한다(조용한 오분류 대신 명시적 실패).
+ *   관련: ADR-0024.
+ */
 #include "modules/security/security_event.h"
 
 /*
@@ -49,6 +69,11 @@ static const PcvSecurityStringMap k_statuses[] = {
     { PCV_SECURITY_STATUS_RESOLVED, "resolved" },
 };
 
+/*
+ * enum 값 → 문자열. 미등록 값은 맵의 0번 원소로 폴백한다(never NULL) — 직렬화 경로가
+ * NULL 멤버로 깨지는 것을 막는 fail-safe. 폴백은 조용한 오분류이므로, 새 enum 값을
+ * 추가할 때는 반드시 대응 맵 엔트리도 함께 추가해야 한다.
+ */
 static const gchar *
 lookup_name(const PcvSecurityStringMap *items, gsize n_items, gint value)
 {
@@ -60,6 +85,10 @@ lookup_name(const PcvSecurityStringMap *items, gsize n_items, gint value)
     return items[0].name;
 }
 
+/*
+ * 문자열 → enum 값. lookup_name 과 달리 엄격하다: 미등록 이름이면 FALSE 를 돌려주고
+ * *out 을 건드리지 않는다. from_json 이 신뢰 경계에서 미지 입력을 거부하는 근거.
+ */
 static gboolean
 lookup_value(const PcvSecurityStringMap *items, gsize n_items, const gchar *name, gint *out)
 {

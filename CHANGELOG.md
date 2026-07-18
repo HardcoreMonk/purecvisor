@@ -3,6 +3,20 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.3.8 — 2026-07-18
+
+주석 커버리지 게이트 신설 + HIDS/HIPS 모듈 주석 보강 (PATCH) — **데몬 바이너리 기능 무변경**(CI 게이트 신설 + 소스 주석만, 런타임 로직·계약 동일). CI 계약 게이트 **20→21**. 검증: `make single` 0-warn · `make test` 673/0 · `make check-all` 21게이트 · 게이트 자기검증(반사실) PASS.
+
+### 품질 게이트 (Part A)
+- **`check-comment-coverage` 신설**(`scripts/check_comment_coverage.py` + `comment_coverage_baseline.txt`): `src/`·`include/`의 각 `.c`/`.h`는 **파일 헤더 주석 + 최소 주석 비율(≥10%)** 을 가져야 한다. 신규/방치 non-compliant는 baseline·`PCV_COMMENT_COVERAGE_OK` waiver 밖이면 FAIL(단조감소 래칫, dead-export 게이트 패턴). **반사실**(ADR-0025): 헤더 없는 파일 주입 시 FAIL·제거 시 PASS 실증 + `--self-test`. `make check-all`·`scripts/pre-commit` 편입. 설계: `docs/superpowers/specs/2026-07-18-comment-coverage-gate-design.md`.
+- 기존 게이트는 표준 문서의 **존재·링크만** 검사했으나, 이 게이트는 **실제 소스 커버리지**를 강제.
+
+### 저밀도 포켓 보강 (Part B)
+- **`src/modules/security/` 8파일 주석 보강**(코드 무변경, 주석만): HIDS/HIPS 모듈(ADR-0024)에 `@file` 헤더 + 판단근거/실패영향/불변식 주석(baseline UNKNOWN fail-secure·admin 승인 게이트·SEC-4 TTL 선검사·block_ip/revoke_api_key만 실행가능·자동차단 금지·Operator note). baseline 18→10건(security 0 잔존), compliant 210→218/228.
+
+### Upgrade notes
+- **무영향**: 데몬 계약·동작·바이너리 기능 동일. dev 인프라(CI 게이트) + 소스 주석 변경. 배포 불요(다음 기능 릴리스에 동반).
+
 ## v1.3.7 — 2026-07-17
 
 버그 수정 2건 (PATCH) — ① **zvol clone + guest-reset 실패 수정**(device-node 레이스) ② **AppArmor postinst 모드 보존 수정**(업그레이드 시 enforce 유지). 검증: `make single` 0-warn · `make test` **673/0** · `make check-all` 20게이트 · 실서버 zvol clone 실증.

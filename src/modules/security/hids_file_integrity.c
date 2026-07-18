@@ -1,3 +1,32 @@
+/**
+ * @file hids_file_integrity.c
+ * @brief HIDS 파일 무결성 구현 — TOCTOU-내성 해싱·admin refresh·drift 스캔
+ *
+ * hids_file_integrity.h 계약의 구현. baseline 은 security DB 계열의 SQLite 파일
+ * (file_baseline 테이블)에 저장된다.
+ *
+ * [아키텍처 위치]
+ *   Native HIDS v1 수집단. refresh(admin) 로 신뢰 스냅샷을 심고, scan(무부작용) 으로
+ *   현재 파일과 비교해 drift 를 JSON 으로 반환한다. 상위 계층이 이를 PcvSecurityEvent
+ *   로 승격하거나 UI/진단에 노출한다.
+ *
+ * [판단 근거 — 위변조 내성]
+ *   compute_file_state 는 경로를 단 한 번만 해소한다: O_NOFOLLOW 로 열어 심볼릭 링크
+ *   스왑을 open 단계에서 실패시키고, 같은 fd 에서 fstat(메타데이터)와 스트리밍 해시
+ *   (내용)를 모두 얻는다. stat→별도 읽기의 이중 해소는 TOCTOU 경쟁·링크 스왑에 뚫리는
+ *   패턴이라 폐기했다.
+ *
+ * [불변식 — ADR-0024]
+ *   scan 은 baseline 을 절대 쓰지 않는다. refresh 만 baseline 을 교체하며 트랜잭션
+ *   (BEGIN IMMEDIATE + DELETE + 재삽입 + COMMIT) 으로 원자적이다 — 중간 실패 시
+ *   ROLLBACK 으로 이전 신뢰 스냅샷을 보존한다. DB 를 열 수 없으면 status 는 UNKNOWN
+ *   으로 남아 없는 baseline 을 trusted 로 신뢰하지 않는다.
+ *
+ * Operator note:
+ *   이 파일은 "중요 파일이 몰래 바뀌었는지"를 감시한다. baseline 은 admin 이 직접
+ *   refresh 해야만 신뢰 상태가 되며, 그 전까지는 모든 파일이 UNKNOWN 으로 취급되어
+ *   변경 여부를 단정하지 않는다(오탐으로 정상 변경을 위협으로 신고하지 않기 위함).
+ */
 #include "modules/security/hids_file_integrity.h"
 #include "modules/audit/pcv_audit.h"
 

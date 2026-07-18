@@ -63,6 +63,8 @@ HAS_CONTRACT_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/api/rest_server\.c|src/api/grpc_server\.c|src/cli/purecvisorctl\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
 HAS_SYMBOL_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
+HAS_COMMENT_COVERAGE_CHANGES=false
+echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_comment_coverage\.py|comment_coverage_baseline\.txt)$' && HAS_COMMENT_COVERAGE_CHANGES=true
 HAS_INGRESS_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
 HAS_SAFETY_CHANGES=false
@@ -216,6 +218,22 @@ if $HAS_SYMBOL_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] .c/.h 및 게이트 스크립트 변경 없음 — dead export 검증 생략"
+fi
+
+# ── 4d-2. 주석 커버리지 게이트 (check-comment-coverage) ──────────────────
+if $HAS_COMMENT_COVERAGE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 주석 커버리지${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    CC_OUT=$(python3 "$SCRIPT_DIR/check_comment_coverage.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "주석 커버리지 위반 (파일 헤더 부재/저밀도 — 헤더 추가 또는 waiver)"
+        echo "$CC_OUT" | tail -15
+    else
+        pass "$(echo "$CC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 및 게이트 스크립트 변경 없음 — 주석 커버리지 검증 생략"
 fi
 
 # ── 4e. RPC param-key 계약 (Stage 2, check-rpc-param-contract) ──────────

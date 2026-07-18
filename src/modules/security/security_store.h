@@ -1,3 +1,21 @@
+/**
+ * @file security_store.h
+ * @brief 보안 이벤트·설정·HIPS pending 액션의 로컬 SQLite 저장소 계약
+ *
+ * Web UI·CLI·UDS 핸들러·감사·HIPS 승인 상태가 모두 같은 이벤트 스트림을 읽도록,
+ * 단일 로컬 SQLite DB 한 곳에 SG 영속 상태를 모은다.
+ *
+ * [소유권 계약]
+ *   반환되는 JsonObject/JsonArray 는 호출자 소유(해제 책임 호출자). 입력
+ *   PcvSecurityEvent* 는 호출자 소유로 남는다(store 는 빌려 읽기만 한다).
+ *
+ * [불변식]
+ *   - 읽기(list/get/health)는 store 실패 시 빈 컨테이너/NULL 을 돌려주고 내부
+ *     degraded 플래그로 '조사 필요'를 기록한다(데몬을 죽이지 않는 fail-soft).
+ *   - HIPS pending 액션은 TTL 이 있으며, 만료 판정은 fail-secure(조회 실패 시 만료
+ *     취급) — 만료된 pending 은 승인·실행되지 않는다(SEC-4, ADR-0024).
+ *   관련: ADR-0024.
+ */
 #ifndef PURECVISOR_SECURITY_STORE_H
 #define PURECVISOR_SECURITY_STORE_H
 

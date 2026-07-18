@@ -782,6 +782,10 @@ check-dead-exports:
 	@echo "🧹 Running dead export 게이트 (헤더 선언 사용처0)..."
 	@python3 scripts/check_dead_exports.py
 
+check-comment-coverage:
+	@echo "📝 Running 주석 커버리지 게이트 (파일 헤더 + 최소 밀도, 단조감소 래칫)..."
+	@python3 scripts/check_comment_coverage.py
+
 check-rpc-param-contract:
 	@echo "🔑 Running RPC param-key contract gate (Stage 2)..."
 	@python3 scripts/check_rpc_param_contract.py
@@ -865,8 +869,8 @@ check-tls-min-version:
 	@python3 scripts/tests/test_tls_min_version.py
 
 # check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version)"
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-comment-coverage
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version + comment coverage)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -925,4 +929,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-comment-coverage check-all compile-commands coverage coverage-html coverage-check

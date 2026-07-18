@@ -1,3 +1,30 @@
+/**
+ * @file security_store.c
+ * @brief 보안 이벤트/설정/HIPS 액션 SQLite 저장소 — 뮤텍스 직렬화·coalescing·TTL 게이트
+ *
+ * security_store.h 계약의 구현. 프로세스 전역 상태 G{db,mu,degraded,path} 를 하나의
+ * 뮤텍스로 직렬화해, 여러 RPC 스레드가 같은 SQLite 핸들을 안전하게 공유한다.
+ *
+ * [아키텍처 위치]
+ *   pcv_security_submit_event(정규화 → 저장 → 감사/알림)가 대표 진입점. handler_security
+ *   RPC, SG restore, HIPS 승인 워커가 이 저장소를 읽고 쓴다.
+ *
+ * [핵심 판단 근거]
+ *   - coalescing: status(open/action_pending)에 대한 부분 UNIQUE 인덱스로 같은 위험의
+ *     반복 관측을 새 행 대신 occurrence_count 증가로 합친다. 첫 event_id 를 운영자/감사
+ *     앵커로 보존한다.
+ *   - retention: 종결(resolved/suppressed) 행만 상한(PCV_MAX_RETAINED_EVENTS) 초과분을
+ *     오래된 순으로 prune 한다. open/action_pending 은 절대 prune 하지 않아 라이브 큐를
+ *     보존하고, 공격자가 유도한 무한 행 증가(디스크 고갈 DoS)를 막는다.
+ *   - fail 처리: 읽기 실패는 빈 결과 + G.degraded, 쓰기 실패는 FALSE + GError.
+ *   - HIPS TTL: action_is_expired 는 fail-secure(조회 불가 시 만료 취급)로 만료 pending
+ *     의 부작용 실행을 차단한다(SEC-4, ADR-0024).
+ *
+ * Operator note:
+ *   이 DB 가 운영자 화면의 보안 이벤트·승인 대기 큐의 진실 원천이다. 저장소가 손상되면
+ *   조회는 빈 결과를 돌려주되 degraded 플래그로 신호하므로, 화면이 갑자기 비면 health 의
+ *   degraded 를 먼저 확인해야 한다(데몬 자체는 죽지 않는다).
+ */
 #include "modules/security/security_store.h"
 
 #include "utils/pcv_config.h"          /* pcv_config_get_string (ensure_open 경로) */
@@ -185,6 +212,12 @@ init_schema(GError **error)
     return TRUE;
 }
 
+/*
+ * DB 를 (재)오픈하고 스키마를 보장한다. 이미 열려 있으면 기존 핸들을 닫고 교체한다.
+ * 성공 시 G.db/G.path 를 갱신하고 degraded 를 리셋한다. open 또는 스키마 초기화 실패
+ * 시에는 핸들을 닫고 G.db=NULL 로 되돌려, 이후 모든 연산이 "not open" 으로 안전하게
+ * 실패하도록 한다(부분 초기화 상태를 남기지 않는다).
+ */
 gboolean
 pcv_security_store_open(const gchar *path)
 {
