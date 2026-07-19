@@ -1,27 +1,4 @@
-/**
- * @file test_zfs.c
- * @brief zfs_driver 유닛 테스트 (에러 경로 위주)
- *
- * ============================================================================
- *  이 파일이 테스트하는 것
- * ============================================================================
- *  zfs_driver.c (src/modules/storage/)의 에러 처리 경로를 검증한다.
- *  11개 테스트 케이스.
- *
- *  실제 ZFS 풀을 만들지 않고, 존재하지 않는 풀("nonexistent-pcv-test-pool-XYZ")에
- *  대한 호출이 크래시 없이 깔끔하게 실패하는지 확인한다.
- *  경로: API 호출 → pcv_spawn_sync(zfs 명령) → 실패 → GError 반환
- *
- *  검증 항목:
- *  - zvol CRUD: create/destroy에 잘못된 풀 이름 → FALSE + GError
- *  - NULL 안전: NULL 인자 전달 → 크래시 없이 FALSE
- *  - 풀 관리: destroy/scrub/health_detail 에러 경로
- *  - 클론/프로모트: 존재하지 않는 데이터셋 → FALSE
- *  - 비동기 스냅샷: create_async/list_async에 잘못된 풀 → 콜백에서 실패 반환
- *    GMainLoop으로 비동기 완료를 동기적으로 대기
- *  - 스냅샷 쿼터: 존재하지 않는 데이터셋 → 크래시 없이 반환
- * ============================================================================
- */
+
 #include <glib.h>
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -36,8 +13,6 @@ static void ensure_spawn(void) {
     if (!initialized) { pcv_spawn_launcher_init(); initialized = TRUE; }
 }
 
-/* ── 동기 zvol API ──────────────────────────────────────── */
-
 static void test_create_volume_bad_pool(void) {
     ensure_spawn();
     GError *err = NULL;
@@ -51,7 +26,7 @@ static void test_destroy_volume_bad_pool(void) {
     ensure_spawn();
     GError *err = NULL;
     gboolean ok = purecvisor_zfs_destroy_volume(BAD_POOL, BAD_VM, &err);
-    /* 존재하지 않는 데이터셋 — 오류 또는 멱등 성공 */
+
     if (!ok) g_clear_error(&err);
 }
 
@@ -62,8 +37,6 @@ static void test_create_volume_null_safe(void) {
     g_assert_false(ok);
     if (err) g_error_free(err);
 }
-
-/* ── 풀 관리 ──────────────────────────────────────────── */
 
 static void test_destroy_pool_nonexistent(void) {
     ensure_spawn();
@@ -84,11 +57,9 @@ static void test_scrub_pool_nonexistent(void) {
 static void test_pool_health_detail_nonexistent(void) {
     ensure_spawn();
     JsonObject *health = purecvisor_zfs_pool_health_detail(BAD_POOL);
-    /* 결과 객체는 항상 반환 (state/health 필드 등) */
+
     if (health) json_object_unref(health);
 }
-
-/* ── 클론/카피 ──────────────────────────────────────── */
 
 static void test_clone_volume_nonexistent(void) {
     ensure_spawn();
@@ -103,8 +74,6 @@ static void test_promote_nonexistent(void) {
     gboolean ok = purecvisor_zfs_promote(BAD_POOL "/clone");
     g_assert_false(ok);
 }
-
-/* ── 비동기 스냅샷 (콜백 동기화) ──────────────────────── */
 
 static GMainLoop *g_loop = NULL;
 static GError *g_async_err = NULL;
@@ -154,53 +123,43 @@ static void test_snapshot_list_async_bad(void) {
     g_loop = NULL;
 }
 
-/* ── 스냅샷 quota 검증 ──────────────────────────────── */
-
 static void test_check_snapshot_quota_no_dataset(void) {
     ensure_spawn();
-    /* 존재하지 않는 데이터셋 → 0건 → quota OK */
+
     gboolean ok = purecvisor_zfs_check_snapshot_quota(BAD_POOL "/" BAD_VM, 100);
-    /* 결과는 구현에 따라 TRUE 또는 FALSE — crash 없이 반환되면 성공 */
+
     (void)ok;
 }
 
-/* ── SUSPENDED 탐지 매핑 (L2) ─────────────────────────────
- * pcv_zfs_pool_state_metric_val 이 SUSPENDED 를 4(비0)로 매핑하는지 검증.
- * 원 버그: SUSPENDED 가 else→0("정상")로 매핑돼 34시간 미인지됐다. */
 static void test_state_metric_val_mapping(void) {
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("ONLINE"),    ==, 0.0);
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("DEGRADED"),  ==, 1.0);
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("FAULTED"),   ==, 2.0);
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("UNAVAIL"),   ==, 3.0);
-    /* 핵심 회귀 방지: SUSPENDED 는 반드시 비0(critical, 값≥2) */
+
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("SUSPENDED"), ==, 4.0);
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("SUSPENDED"), >=, 2.0);
-    /* UNKNOWN/NULL → 0 (정상 취급, 크래시 없음) */
+
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("UNKNOWN"),   ==, 0.0);
     g_assert_cmpfloat(pcv_zfs_pool_state_metric_val(NULL),        ==, 0.0);
 }
 
-/* ── 서킷브레이커: 시간창당 상한 (L3) ─────────────────────
- * pcv_zfs_recover_guard_allow 가 창 내 max회만 허용하고 상한 초과를 차단하며,
- * 창이 만료되면 리셋하는지 검증(무한 clear-loop 방지 로직). */
 static void test_recover_guard_window_limit(void) {
     ZfsRecoverGuard g = {0};
-    const gint64 W = 3600LL * G_USEC_PER_SEC;  /* 1시간 창 */
+    const gint64 W = 3600LL * G_USEC_PER_SEC;
     const gint   MAX = 3;
-    gint64 t0 = 1000000;  /* 임의 기준 시각(us) */
+    gint64 t0 = 1000000;
 
-    /* 창 내 첫 3회 허용 */
     g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 0,          W, MAX));
     g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 60000000,   W, MAX));
     g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 120000000,  W, MAX));
-    /* 4회째는 상한 초과 → 차단 */
+
     g_assert_false(pcv_zfs_recover_guard_allow(&g, t0 + 180000000, W, MAX));
     g_assert_false(pcv_zfs_recover_guard_allow(&g, t0 + 200000000, W, MAX));
 
-    /* 창 만료(>= W 경과) → 리셋되어 다시 허용 */
     g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + W + 1,      W, MAX));
     g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + W + 2,      W, MAX));
-    /* NULL 가드는 안전하게 FALSE */
+
     g_assert_false(pcv_zfs_recover_guard_allow(NULL, t0, W, MAX));
 }
 

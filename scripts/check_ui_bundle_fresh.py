@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-# The runtime serves ui/app.bundle.js and sw.js, not ui/modules/*.js directly.
-# This non-mutating check verifies the committed artifacts match the sources:
-#   - app.bundle.js 배너의 `src-sha1` == 현재 UI_MODULES(concat) sha1 앞 8자
-#   - sw.js CACHE_NAME == sha1(app.bundle.js) 앞 8자
-# It catches the common failure where a module edit is committed without
-# re-running the bundler.
+
 """
 Verify that generated UI artifacts match ui/modules/*.js + ui/app.js.
 
@@ -28,12 +22,10 @@ MAKEFILE = ROOT / "Makefile"
 BUNDLE = UI / "app.bundle.js"
 SW = UI / "sw.js"
 
-
 def fail(message: str) -> int:
     print(f"FAIL: {message}", file=sys.stderr)
     print("hint: run make ui-bundle", file=sys.stderr)
     return 1
-
 
 def load_ui_modules() -> list[Path]:
     text = MAKEFILE.read_text(encoding="utf-8")
@@ -43,11 +35,9 @@ def load_ui_modules() -> list[Path]:
     body = match.group("body").replace("\\\n", " ")
     return [ROOT / token.replace("$(UI_DIR)", "ui") for token in body.split()]
 
-
 def main() -> int:
     mods = load_ui_modules()
 
-    # 동기화 가드(BUG-22류): ui/modules/*.js 전부가 UI_MODULES 에 있어야 한다.
     listed = {p.resolve() for p in mods}
     for f in sorted((UI / "modules").glob("*.js")):
         if f.resolve() not in listed:
@@ -79,7 +69,6 @@ def main() -> int:
 
     print(f"OK: app.bundle.js src-sha1 {src8}, sw.js CACHE_NAME v{bundle8} 일치 ({len(mods)} sources)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

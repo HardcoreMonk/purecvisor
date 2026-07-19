@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_comment_coverage.py — 소스 파일 최소 자기설명(파일 헤더 + 최소 주석 밀도) 게이트.
 
 설계: docs/superpowers/specs/2026-07-18-comment-coverage-gate-design.md
@@ -20,9 +20,8 @@ BASELINE_FILE = ROOT / "scripts" / "comment_coverage_baseline.txt"
 WAIVER = "PCV_COMMENT_COVERAGE_OK"
 SCAN_DIRS = ["src", "include"]
 EXTS = {".c", ".h"}
-FLOOR = 0.10          # 최소 주석 비율(주석/(주석+코드))
-HEADER_WINDOW = 10    # 파일 헤더로 인정하는 상단 물리줄 수
-
+FLOOR = 0.10
+HEADER_WINDOW = 10
 
 def classify(text):
     """(has_header, ratio) 반환.
@@ -41,7 +40,7 @@ def classify(text):
     lines = text.split("\n")
     for idx, raw in enumerate(lines):
         s = raw.strip()
-        # ---- 주석/코드 판정 (밀도용, 전체 파일) ----
+
         is_comment_line = False
         was_in_block = in_block
         if in_block:
@@ -54,27 +53,26 @@ def classify(text):
             is_comment_line = True
             if "*/" not in s[1:]:
                 in_block = True
-        elif s.startswith("*") and s:      # 블록 주석 continuation 스타일
+        elif s.startswith("*") and s:
             is_comment_line = True
         if s:
             if is_comment_line:
                 comment += 1
-            elif s.startswith("#"):        # 전처리기 — 코드로 세지 않음
+            elif s.startswith("#"):
                 pass
             else:
                 code += 1
-        # ---- 헤더 탐색 (상단 window, 첫 의미줄이 주석인가) ----
+
         if not header_decided and idx < HEADER_WINDOW:
             if not s or s.startswith("#"):
-                pass                       # 공백·전처리기: 계속 탐색
+                pass
             elif is_comment_line or was_in_block:
                 header = True
                 header_decided = True
-            else:                          # 실코드가 먼저 등장 → 헤더 아님
+            else:
                 header_decided = True
     ratio = comment / (comment + code) if (comment + code) else 1.0
     return header, ratio
-
 
 def scan():
     """{relpath: (has_header, ratio, compliant, waived)} 반환."""
@@ -91,7 +89,6 @@ def scan():
             result[rel] = (header, ratio, compliant, waived)
     return result
 
-
 def load_baseline():
     if not BASELINE_FILE.exists():
         return set()
@@ -101,7 +98,6 @@ def load_baseline():
         if line and not line.startswith("#"):
             out.add(line)
     return out
-
 
 def write_baseline(noncompliant):
     header = (
@@ -115,17 +111,15 @@ def write_baseline(noncompliant):
     body = "\n".join(sorted(noncompliant))
     BASELINE_FILE.write_text(header + body + "\n", encoding="utf-8")
 
-
 def run_check():
     files = scan()
     baseline = load_baseline()
     noncompliant = {r for r, (_, _, c, w) in files.items() if not c and not w}
 
-    # 신규/방치 위반: baseline 밖의 non-compliant
     new_violations = sorted(noncompliant - baseline)
-    # 이미 compliant 인 baseline 항목(제거 권장)
+
     now_ok = sorted(b for b in baseline if b in files and files[b][2])
-    # stale baseline(파일 삭제됨)
+
     stale = sorted(b for b in baseline if b not in files)
 
     total = len(files)
@@ -157,25 +151,23 @@ def run_check():
     print("[PASS] 신규 주석 커버리지 위반 없음")
     return 0
 
-
 def self_test():
     """반사실: 합성 non-compliant(헤더없음·저밀도)를 게이트가 위반으로 잡는지 자기검증."""
     ok = True
-    # 1) 헤더 없고 주석 0인 코드 → non-compliant
+
     h, r = classify("int a=1;\nint b=2;\nint c=3;\n")
     if h or r >= FLOOR:
         print("[SELF-TEST FAIL] 헤더없음·무주석 파일이 compliant로 판정됨"); ok = False
-    # 2) 헤더 있고 밀도 충분 → compliant
+
     h2, r2 = classify("/* @file 목적 설명\n * 판단 근거 */\nint a=1;\n")
     if not (h2 and r2 >= FLOOR):
         print("[SELF-TEST FAIL] 정상 헤더 파일이 non-compliant로 판정됨"); ok = False
-    # 3) 헤더 없으나 밀도만 높음 → non-compliant(헤더 필수)
+
     h3, _ = classify("int a=1;\n// 뒤늦은 주석\n// 또 주석\n")
     if h3:
         print("[SELF-TEST FAIL] 상단 헤더 없는 파일이 헤더보유로 판정됨(window 확인)"); ok = False
     print("[SELF-TEST PASS] 게이트가 non-compliant를 정확히 식별" if ok else "[SELF-TEST FAILED]")
     return 0 if ok else 1
-
 
 def main():
     if "--generate" in sys.argv:
@@ -187,7 +179,6 @@ def main():
     if "--self-test" in sys.argv:
         return self_test()
     return run_check()
-
 
 if __name__ == "__main__":
     sys.exit(main())

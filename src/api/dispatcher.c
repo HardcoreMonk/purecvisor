@@ -1,66 +1,11 @@
-/**
- * @file dispatcher.c
- * @brief JSON-RPC 2.0 메서드 라우터 — GHashTable 기반 O(1) RPC 라우팅
- *
- * 아키텍처 위치:
- *   UDS 서버(uds_server.c)와 핸들러 계층(src/modules/dispatcher/) 사이의 중간 계층.
- *   "요청이 들어오면 어디로 보낼 것인가"만 결정합니다. 비즈니스 로직은 없습니다.
- *
- *   [클라이언트] → [UDS 서버] → [디스패처 (이 파일)] → [핸들러] → [코어 모듈]
- *
- * 주요 흐름:
- *   purecvisor_dispatcher_dispatch(self, server, connection, request_json)
- *     1. JSON 파싱: json_parser_load_from_data()로 요청 문자열을 JsonNode로 변환
- *     2. 필수 필드 추출: "jsonrpc" (반드시 "2.0"), "method" (문자열), "id", "params"
- *     3. 라우팅: GHashTable(g_rpc_routes)에서 O(1) 룩업으로 핸들러 함수 포인터 조회
- *     4. 핸들러 호출: params, rpc_id, server, connection을 전달
- *     5. 핸들러가 pure_uds_server_send_response()로 응답 전송 (소켓 즉시 닫힘)
- *     6. 매칭 실패 시: 플러그인 fallback → -32601 "Method not found" 에러 응답
- *
- * 라우팅 구조:
- *   - g_rpc_routes: "method.name" → PcvRpcHandler 함수 포인터 해시 테이블
- *   - dispatcher_init_routes(): 모든 RPC 메서드를 해시 테이블에 등록 (1회 호출)
- *   - dispatcher_shutdown_routes(): 해시 테이블 해제 (데몬 종료 시)
- *   - vm.create는 self(vm_manager 접근)가 필요하여 별도 처리 (fire-and-forget)
- *
- * 핸들러 시그니처 규칙 (모든 핸들러가 이 형태를 따름):
- *   void handle_xxx_request(JsonObject *params, const gchar *rpc_id,
- *                           UdsServer *server, GSocketConnection *connection)
- *
- * 메모리 관리 규칙:
- *   - params: 디스패처가 소유. 핸들러에서 g_free() 절대 금지.
- *   - rpc_id: 디스패처가 g_strdup()으로 생성. 핸들러는 읽기만 함.
- *   - server, connection: 참조만 사용. 응답 전송 후 디스패처가 정리.
- *   - 비동기(fire-and-forget) 핸들러: 응답을 먼저 보낸 후 GTask로 백그라운드 작업.
- *     콜백에서 send_response 호출 금지 (소켓 이미 닫힘 → 크래시/UB).
- *
- * 신규 RPC 추가 체크리스트 (6단계):
- *   1. handler_xxx.h에 함수 선언 추가
- *   2. handler_xxx.c에 핸들러 구현 (위 시그니처 준수)
- *   3. 이 파일 상단에 #include "handler_xxx.h" 추가
- *   4. dispatcher_init_routes()에 g_hash_table_insert() 추가
- *   5. Makefile의 DAEMON_SRCS에 소스 파일 등록
- *   6. make clean && make all — 경고 0 확인 후 nc -U 소켓으로 수동 테스트
- *
- * 내부 헬퍼 함수:
- *   - _handle_*_inline(): 인라인 로직을 PcvRpcHandler 시그니처로 래핑한 정적 함수들
- *
- * GObject 상속: PureCVisorDispatcher → GObject
- *   vm_manager 멤버를 보유하며, 텔레메트리 모듈이 이를 참조합니다.
- *
- * 주석 읽는 법:
- *   이 파일의 주석은 "코드가 무엇을 하는가"보다 "왜 여기서 막는가"를
- *   우선합니다. 디스패처는 모든 RPC가 지나가는 출입문이므로, 권한·감사·
- *   fire-and-forget 같은 공통 규칙은 핸들러보다 이 파일에서 먼저 확인합니다.
- */
 
 #include "dispatcher.h"
 #include "uds_server.h"
-#include "snapshot_verify_probe.h"  /* I-2: backup.snapshot.verify 존재 프로브 (추출 TU) */
-#include "vm_batch_policy.h"        /* I-2: vm.batch action whitelist 멤버십 (추출 순수 TU) */
+#include "snapshot_verify_probe.h"
+#include "vm_batch_policy.h"
 #include "bootstrap/pcv_bootstrap.h"
 #include "../modules/virt/vm_manager.h"
-#include "../modules/virt/cancellable_map.h"  /* A1: vm.create GCancellable 등록 */
+#include "../modules/virt/cancellable_map.h"
 #include "../modules/virt/vm_clone_plan.h"
 #include "../modules/daemons/prometheus_exporter.h"
 #include "../modules/audit/pcv_audit.h"
@@ -90,7 +35,7 @@
 #include "../modules/virt/virt_conn_pool.h"
 #include "../utils/pcv_spawn.h"
 #include "../utils/pcv_config.h"
-#include "../utils/pcv_jwt.h"  /* SEC-1: pcv_jwt_blacklist_add — 라이브 세션 무효화 */
+#include "../utils/pcv_jwt.h"
 #include "../modules/auth/pcv_rbac.h"
 #include "utils/pcv_config.h"
 #include "drain.h"
@@ -107,68 +52,50 @@
 #include "modules/cloud/cloud_migration.h"
 #include "modules/storage/zfs_driver.h"
 #include "modules/backup/backup_scheduler.h"
-#include "modules/core/cpu_allocator.h"   /* AF-C2: vm.numa.info (global_allocator) */
-#include "modules/ai/workload_predict.h"  /* AF-C2: capacity.forecast */
+#include "modules/core/cpu_allocator.h"
+#include "modules/ai/workload_predict.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_worker_pool.h"
 #include "../utils/pcv_log.h"
 #include "../utils/pcv_validate.h"
 #include "utils/pcv_job_queue.h"
-#include "modules/core/vm_state.h"   /* [감사 AF-P1] lock_vm_operation / VM_OP_* */
+#include "modules/core/vm_state.h"
 #include "ws_server.h"
 #include <sqlite3.h>
 #include <errno.h>
 
-/* ── 외부 핸들러 함수 선언 ──────────────────────────────────────────
- * 이 함수들은 다른 .c 파일에 정의되어 있으나 헤더 파일이 없거나,
- * 헤더에 선언이 누락된 경우 여기서 직접 선언합니다.
- * ────────────────────────────────────────────────────────────────── */
 extern gchar *handle_monitor_fleet(JsonObject *params, GError **error);
 
-
-/* 컴파일러 경고 방지를 위한 명시적 함수 선언 (해당 핸들러의 헤더에 미포함) */
 void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_monitor_metrics(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
-// Sprint F/G 네트워크 핸들러
+
 void handle_network_list_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_network_info_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 #define PCV_VM_METADATA_URI "urn:purecvisor:metadata"
 
-/* ── RPC 라우트 테이블 ─────────────────────────────────────────────
- * GHashTable 기반 O(1) 메서드 라우팅.
- * PcvRpcHandler: pcv_plugin_api.h에서 정의 (gpointer server 시그니처).
- * g_rpc_routes: "method.name" → PcvRpcHandler 매핑 테이블.
- * ────────────────────────────────────────────────────────────────── */
-/* PcvRpcHandler typedef는 pcv_plugin_api.h에서 가져옴 (gpointer server) */
 typedef void (*PcvDispatchHandler)(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection);
 
-static GHashTable *g_rpc_routes = nullptr;  /* "method.name" → PcvDispatchHandler */
-/* ADR-0018: fire-and-forget 메서드 집합 — 워커 콜백이 자체 audit 기록 */
+static GHashTable *g_rpc_routes = nullptr;
+
 static GHashTable *g_async_methods = nullptr;
 
-/* 외부 노출용: 핸들러가 자신이 async인지 조회할 때 사용 */
 gboolean pcv_dispatcher_is_async_method(const gchar *method);
 gboolean pcv_dispatcher_is_async_method(const gchar *method) {
     return method && g_async_methods && g_hash_table_contains(g_async_methods, method);
 }
 
-/* ADR-0019 Option C: 메서드 → 최소 role 매핑 (RBAC pre-route 미들웨어).
- * 매핑되지 않은 메서드는 PCV_ROLE_VIEWER (조회성)로 간주.
- * caller_role은 connection_metadata로 전달되며, REST는 RBAC DB에서 현재 role을
- * 다시 읽고, UDS는 기본 ADMIN으로 가정 (UDS = root socket = admin). */
 typedef struct {
     const char *method;
-    int         min_role;  /* PcvRole — 0=VIEWER, 1=OPERATOR, 2=ADMIN */
+    int         min_role;
 } PcvMethodPolicy;
 
-/* policy 테이블 — 신규 RPC 추가 시 여기에도 등록 (scripts/check_rbac_policies.py 검증) */
 static const PcvMethodPolicy g_method_policies[] = {
-    /* ADMIN — destructive / 관리 */
-    { "vm.delete",                 1 },  /* operator VM action은 owner metadata 일치 시만 허용 */
+
+    { "vm.delete",                 1 },
     { "vm.snapshot.delete",        2 },
     { "vm.snapshot.delete_all",    2 },
     { "vm.snapshot.rollback",      2 },
@@ -185,7 +112,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "cloud.export",              2 },
     { "cloud.import.finalize",     2 },
     { "vm.export.ova",             2 },
-    /* OPERATOR — 운영 액션 */
+
     { "vm.create",                 1 },
     { "vm.start",                  1 },
     { "vm.stop",                   1 },
@@ -194,7 +121,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "vm.limit",                  1 },
     { "vm.rename",                 1 },
     { "vm.snapshot.create",        1 },
-    { "vm.guest.exec",             2 },  /* 보안 민감 — admin only */
+    { "vm.guest.exec",             2 },
     { "vm.guest.shutdown",         1 },
     { "vm.guest.agent.ensure_channel", 1 },
     { "vm.mount_iso",              1 },
@@ -206,9 +133,9 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "container.create",          1 },
     { "container.start",           1 },
     { "container.stop",            1 },
-    { "container.clone",           1 },  /* B1: operator 명시(vm.clone 동형) + owner-scope. 미등록 시 경로별 default 상이 */
+    { "container.clone",           1 },
     { "container.exec",            2 },
-    /* 추가 ADMIN — destructive 잔여 */
+
     { "auth.apikey.create",        2 },
     { "auth.apikey.revoke",        2 },
     { "auth.user.delete",          2 },
@@ -217,9 +144,9 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "alert.config.set",          2 },
     { "alert.config.reload",       2 },
     { "agent.config.set",          2 },
-    { "healing.set_mode",          2 },  /* F-8: Issue-M2 RBAC — admin 전용 (dry_run↔active 전환) */
-    { "anomaly.reset_baseline",    2 },  /* F-19 RBAC — admin 전용 (Z-Score 통계 리셋) */
-    { "agent.compare_manual",      2 },  /* 1.0 RBAC — admin 전용 (AI Agent 직접 트리거) */
+    { "healing.set_mode",          2 },
+    { "anomaly.reset_baseline",    2 },
+    { "agent.compare_manual",      2 },
     { "backup.set",                2 },
     { "backup.delete",             2 },
     { "backup.restore",            2 },
@@ -242,7 +169,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "container.env.delete",      2 },
     { "device.disk.attach",        2 },
     { "device.disk.detach",        2 },
-    { "device.nic.attach",         1 },  /* operator는 자기 VM에 한해 NIC hotplug 허용 */
+    { "device.nic.attach",         1 },
     { "device.nic.detach",         1 },
     { "device.gpu.attach",         2 },
     { "device.gpu.detach",         2 },
@@ -279,16 +206,13 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "sriov.set",                 2 },
     { "storage.pool.create",       2 },
     { "storage.pool.scrub",        2 },
-    /* M-1: storage.tier.set 는 대응 RPC 라우트가 없는 고아 정책이었다(storage_tier
-     * CRUD/qos/migrate 는 호출부 0 = 도달불가). 고아 정책 제거. 모듈 자체는
-     * pcv_storage_tier_init() 이 라이브(기본 ssd 티어 등록 + 통합테스트가 init 로그
-     * 의존)이라 보존 — 나머지 dead 함수 전면 삭제는 통합테스트 갱신 동반이라 별도. */
+
     { "storage.zvol.create",       2 },
     { "storage.zvol.delete",       2 },
     { "template.create",           2 },
     { "template.delete",           2 },
     { "tls.reload",                2 },
-    /* OPERATOR 추가 */
+
     { "vm.blkio.set",              1 },
     { "vm.import.ec2",             1 },
     { "vm.import.ova",             1 },
@@ -303,7 +227,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "vm.usb.attach",             1 },
     { "vm.usb.detach",             1 },
     { "vm.disk.live_resize",       1 },
-    /* 잔여 destructive */
+
     { "dpdk.bridge.create",        2 },
     { "dpdk.bridge.delete",        2 },
     { "network.qos.set",           2 },
@@ -312,7 +236,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "ovn.tenant.create",         2 },
     { "sriov.attach",              2 },
     { "sriov.detach",              2 },
-    /* 조회성 (.status, .list) — VIEWER 명시 (스크립트 false positive 회피) */
+
     { "vm.delete.status",          0 },
     { "vm.export.status",          0 },
     { "vm.import.status",          0 },
@@ -321,11 +245,11 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "vm.guest.agent.status",     0 },
     { "vm.guest.fsinfo",           0 },
     { "vm.batch",                  1 },
-    /* 잔여 매핑 */
-    { "auth.apikey.list",          2 },   /* admin API 키 목록 노출 */
+
+    { "auth.apikey.list",          2 },
     { "auth.user.list",            2 },
     { "auth.session.revoke",       2 },
-    { "auth.user.sessions.revoke", 2 },   /* ADMIN — 대상 사용자 refresh 세션 전부 취소(re-mint 봉쇄) */
+    { "auth.user.sessions.revoke", 2 },
     { "backup.policy.set",         2 },
     { "backup.policy.delete",      2 },
     { "security.event.list",       PCV_ROLE_VIEWER },
@@ -338,14 +262,9 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "security.config.get",       PCV_ROLE_VIEWER },
     { "security.config.set",       PCV_ROLE_ADMIN },
     { "cloud.job.cancel",          2 },
-    { "cloud.jobs.list",           1 },   /* viewer가 진행 상황 확인 가능 */
+    { "cloud.jobs.list",           1 },
     { "daemon.config.set",         2 },
-    /* [감사 SEC-F3] 호스트/네트워크에 파괴적이나 정책 미매핑이던 메서드들 —
-     * dispatcher fail-open(미매핑→VIEWER)으로 떨어져 RBAC prefix 층에만 의존해
-     * OPERATOR 도달했다(create/delete 형제는 전부 ADMIN). FE에 실버튼도 존재해
-     * OPERATOR가 UI만으로 호스트 네트워크 파괴·SDN ACL 변경·알림 은폐가 가능했다.
-     * 형제와 동일하게 ADMIN(2)로 명시한다. (check-rbac verb 목록 보강은 후속 —
-     * 여기서는 실제 노출된 메서드를 직접 매핑해 갭을 닫는다.) */
+
     { "dpdk.bind",                 2 },
     { "dpdk.unbind",               2 },
     { "sriov.enable",              2 },
@@ -366,39 +285,30 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "alert.dlq.list",            2 },
     { "alert.dlq.retry",           2 },
 
-    /* AF-C2: 미구현 CLI RPC 배선 — 조회성은 VIEWER, 쓰기는 OPERATOR */
-    { "vm.numa.info",              0 },   /* 호스트 NUMA/코어 조회 */
-    { "vm.sla.report",             0 },   /* 가동률 리포트 조회 */
-    { "vm.schedule.list",          0 },   /* 스케줄 목록 조회 */
-    { "capacity.forecast",         0 },   /* 용량 전망 조회 */
-    { "vm.billing.report",         0 },   /* 빌링 리포트 조회 */
-    { "vm.autostart",              1 },   /* 자동시작 설정(쓰기) — operator */
-    { "vm.schedule.set",           1 },   /* 스케줄 설정(쓰기) — operator */
-    /* VIEWER (기본) — 조회/list/metrics는 명시 불필요 */
+    { "vm.numa.info",              0 },
+    { "vm.sla.report",             0 },
+    { "vm.schedule.list",          0 },
+    { "capacity.forecast",         0 },
+    { "vm.billing.report",         0 },
+    { "vm.autostart",              1 },
+    { "vm.schedule.set",           1 },
+
     { NULL, 0 }
 };
 
-/* H-OPT-2: g_method_policy_map is populated once in dispatcher_init_routes()
- * (called at daemon startup, single-threaded context) rather than via lazy
- * init inside _method_min_role().  The old lazy path had a TOCTOU race:
- * two threads could both observe NULL and both build the table, leaking one.
- * With eager init the map is always ready before any request is dispatched. */
 static GHashTable *g_method_policy_map = NULL;
 
 static int
 _method_min_role(const gchar *method)
 {
-    if (!method) return 2;  /* 안전한 기본값: admin */
-    /* H-OPT-2: map is guaranteed non-NULL after dispatcher_init_routes() */
-    if (!g_method_policy_map) return 2;  /* called before init — fail-safe */
+    if (!method) return 2;
+
+    if (!g_method_policy_map) return 2;
     gpointer val = g_hash_table_lookup(g_method_policy_map, method);
-    if (!val) return 0;  /* 매핑 없음 → VIEWER (조회성 default) */
+    if (!val) return 0;
     return GPOINTER_TO_INT(val);
 }
 
-/* 외부 노출: caller_role은 connection metadata 또는 REST 내부 params에서 결정된다.
- * dispatcher는 라우팅 전 _check_rbac()로 검증.
- * UDS direct = ADMIN 가정 (소켓 권한으로 격리). */
 gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role);
 gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role) {
     int min = _method_min_role(method);
@@ -509,7 +419,7 @@ _dispatcher_caller_role(JsonObject *params, GSocketConnection *connection)
         if (rdata) return GPOINTER_TO_INT(rdata);
     }
 
-    gint role = PCV_ROLE_ADMIN;  /* UDS direct = admin */
+    gint role = PCV_ROLE_ADMIN;
     if (_json_int_member(params, "_pcv_caller_role", &role)) {
         if (role < PCV_ROLE_VIEWER || role > PCV_ROLE_ADMIN)
             return PCV_ROLE_VIEWER;
@@ -539,10 +449,7 @@ _vm_name_from_params(JsonObject *params)
 static const gchar *
 _vm_owner_scope_target_from_params(const gchar *method, JsonObject *params)
 {
-    /* [비전공자 설명]
-     * 대부분의 VM 작업은 요청 params의 "name"이 대상 VM입니다.
-     * 예외적으로 vm.clone은 새 VM 이름보다 "원본 VM" 권한이 더 중요합니다.
-     * 남의 VM을 복제해 사본을 만드는 것도 조작이므로 source owner를 검사합니다. */
+
     if (g_strcmp0(method, "vm.clone") == 0) {
         const gchar *source = _json_string_member(params, "source");
         if (source && *source)
@@ -573,11 +480,6 @@ _vm_method_requires_owner_scope(const gchar *method)
         g_strcmp0(method, "vm.import.ec2") == 0)
         return FALSE;
 
-    /* [주니어 참고]
-     * owner-scope는 "특정 VM 하나를 조작하는 요청"에만 적용합니다.
-     * 목록/상태 조회는 대상 VM이 하나로 정해지지 않거나, 작업 큐 상태처럼
-     * libvirt domain metadata와 1:1로 연결되지 않습니다. 이런 요청까지
-     * owner-scope로 막으면 대시보드와 진행률 조회가 깨집니다. */
     if (g_strcmp0(method, "vm.list") == 0 ||
         g_strcmp0(method, "vm.list.filtered") == 0 ||
         g_strcmp0(method, "vm.event.webhook.list") == 0 ||
@@ -589,21 +491,6 @@ _vm_method_requires_owner_scope(const gchar *method)
 
     return TRUE;
 }
-
-/* ── Operator VM owner-scope ─────────────────────────────────────────────
- *
- * [비전공자 설명]
- * VM마다 "소유자 이름표(pcv:owner)"를 붙여 둡니다. operator 계정은
- * 자신 이름표가 붙은 VM만 켜고, 끄고, 삭제하고, 콘솔에 접속할 수 있습니다.
- * 같은 operator 역할이어도 다른 사람 이름표가 붙은 VM은 조작할 수 없습니다.
- *
- * [주니어 개발자 체크포인트]
- * - 소유자 정보는 libvirt domain XML metadata에 저장됩니다.
- * - REST가 주입한 _pcv_caller_sub/_pcv_caller_role을 최종 신뢰합니다.
- * - 클라이언트가 params에 같은 필드를 직접 넣어도 rest_server.c가 실제
- *   인증 주체로 덮어쓰므로 spoof 방어가 됩니다.
- * - owner metadata가 없으면 operator는 거부합니다. admin만 복구/정리합니다.
- */
 
 static gchar *
 _xml_find_owner_node(xmlNodePtr node)
@@ -671,9 +558,6 @@ _lookup_vm_owner(const gchar *vm_name)
         return NULL;
     }
 
-    /* libvirt는 metadata 전용 API와 전체 XML 조회 API를 모두 제공합니다.
-     * 먼저 metadata 전용 API를 사용하고, 오래된/특수한 도메인 정의에서
-     * 실패하면 전체 XML을 읽어 owner 노드를 찾습니다. */
     char *metadata = virDomainGetMetadata(dom, VIR_DOMAIN_METADATA_ELEMENT,
                                           PCV_VM_METADATA_URI,
                                           VIR_DOMAIN_AFFECT_CONFIG);
@@ -712,10 +596,6 @@ _vm_owner_matches_caller(const gchar *vm_name,
         return FALSE;
     }
 
-    /* [비전공자 설명]
-     * "요청한 사람(caller_sub)"과 "VM 이름표(owner)"가 같은지 비교합니다.
-     * 둘 중 하나라도 없거나 다르면 거부합니다. 모호하면 허용하지 않는 것이
-     * 보안 기본값입니다. */
     gchar *owner = _lookup_vm_owner(vm_name);
     gboolean allowed = (owner && g_strcmp0(owner, caller_sub) == 0);
     g_free(owner);
@@ -741,9 +621,6 @@ _vm_batch_owner_scoped_allowed(JsonObject *params,
         return FALSE;
     }
 
-    /* 일괄 작업은 하나라도 남의 VM이 섞이면 전체를 거부합니다.
-     * 일부만 실행하면 사용자가 "반은 성공/반은 실패" 상태를 해석해야 하고,
-     * 공격자가 대량 요청 안에 남의 VM을 끼워 넣는 실수도 놓치기 쉽습니다. */
     guint len = json_array_get_length(vms);
     for (guint i = 0; i < len; i++) {
         JsonNode *node = json_array_get_element(vms, i);
@@ -769,9 +646,7 @@ _vm_owner_scoped_method_allowed(const gchar *method,
                                 gint caller_role,
                                 gchar **deny_message)
 {
-    /* ADMIN은 운영 복구와 소유권 정리를 위해 전역 권한을 유지합니다.
-     * OPERATOR는 역할 자체로는 "조작 가능"하지만, 아래 owner 비교를
-     * 추가로 통과해야 실제 VM action이 실행됩니다. */
+
     if (caller_role >= PCV_ROLE_ADMIN)
         return TRUE;
 
@@ -795,23 +670,6 @@ _vm_owner_scoped_method_allowed(const gchar *method,
     return _vm_owner_matches_caller(vm_name, caller_sub, deny_message);
 }
 
-/* ── Operator 컨테이너 owner-scope (B1 — IDOR 시정) ──────────────────────────
- *
- * [비전공자 설명]
- * VM과 똑같이 컨테이너에도 "소유자 이름표"를 붙입니다. operator 계정은 자신이
- * 만든 컨테이너만 켜고, 끄고, 복제할 수 있습니다. 같은 operator 역할이어도 다른
- * 사람 컨테이너는 조작할 수 없습니다.
- *
- * [VM과의 차이]
- * - VM 소유자는 libvirt domain XML metadata(pcv:owner)에 저장되지만, 컨테이너는
- *   libvirt domain이 없으므로 <PCV_LXC_PATH>/<name>/purecvisor.owner 파일에
- *   저장합니다(lxc_driver.c: pcv_lxc_stamp_owner/read_owner).
- * - 대상 메서드는 operator가 단일 컨테이너를 조작하는 start/stop/clone입니다.
- *   destroy/exec/snapshot 등은 RBAC상 admin 전용이라 owner-scope 대상이 아닙니다.
- * - 소유자 파일이 없으면(구 컨테이너·UDS 직결 admin 생성분) operator는 거부되고
- *   admin만 조작·재스탬프할 수 있습니다(VM 소유자 metadata 부재와 동일 fail-secure).
- */
-
 static const gchar *
 _container_name_from_params(JsonObject *params)
 {
@@ -830,9 +688,7 @@ _container_name_from_params(JsonObject *params)
 static const gchar *
 _container_owner_scope_target_from_params(const gchar *method, JsonObject *params)
 {
-    /* container.clone은 새 이름(dest)보다 "원본(source)" 권한이 더 중요합니다.
-     * 남의 컨테이너를 복제해 사본을 만드는 것도 조작이므로 source owner를 검사합니다
-     * (vm.clone이 source를 검사하는 것과 동형). */
+
     if (g_strcmp0(method, "container.clone") == 0) {
         const gchar *source = _json_string_member(params, "source");
         if (source && *source)
@@ -848,9 +704,6 @@ _container_method_requires_owner_scope(const gchar *method)
     if (!method)
         return FALSE;
 
-    /* operator가 단일 컨테이너를 조작하는 메서드만 owner-scope로 강제합니다.
-     * container.start/stop/clone 이외(destroy·exec·snapshot·set_limits·env·health·
-     * nic·volume 등)는 RBAC상 admin 전용이므로 이 게이트 밖입니다. */
     return g_strcmp0(method, "container.start") == 0 ||
            g_strcmp0(method, "container.stop") == 0 ||
            g_strcmp0(method, "container.clone") == 0;
@@ -859,7 +712,7 @@ _container_method_requires_owner_scope(const gchar *method)
 static gchar *
 _lookup_container_owner(const gchar *name)
 {
-    /* purecvisor.owner 파일에서 소유자 subject를 읽습니다(없으면 NULL). */
+
     return pcv_lxc_read_owner(name);
 }
 
@@ -874,8 +727,6 @@ _container_owner_matches_caller(const gchar *name,
         return FALSE;
     }
 
-    /* "요청한 사람(caller_sub)"과 "컨테이너 이름표(owner)"가 같은지 비교합니다.
-     * 둘 중 하나라도 없거나 다르면 거부합니다(fail-secure). */
     gchar *owner = _lookup_container_owner(name);
     gboolean allowed = (owner && g_strcmp0(owner, caller_sub) == 0);
     g_free(owner);
@@ -894,8 +745,7 @@ _container_owner_scoped_method_allowed(const gchar *method,
                                        gint caller_role,
                                        gchar **deny_message)
 {
-    /* ADMIN은 운영 복구와 소유권 정리를 위해 전역 권한을 유지합니다.
-     * OPERATOR는 아래 owner 비교를 추가로 통과해야 실제 action이 실행됩니다. */
+
     if (caller_role >= PCV_ROLE_ADMIN)
         return TRUE;
 
@@ -916,10 +766,6 @@ _container_owner_scoped_method_allowed(const gchar *method,
     return _container_owner_matches_caller(name, caller_sub, deny_message);
 }
 
-/* ── 미들웨어 훅 체인 (BE-A5) ────────────────────────────────────
- * pre-dispatch 훅: 핸들러 호출 전 실행. FALSE 반환 시 요청 거부.
- * 용도: 감사 확장, 커스텀 인증, 요청 변환, 디버깅 등.
- * 플러그인이나 모듈에서 pcv_dispatcher_register_pre_hook()으로 등록. */
 typedef gboolean (*PcvDispatchHook)(const gchar *method, JsonObject *params,
                                      const gchar *rpc_id, gpointer user_data);
 
@@ -928,7 +774,7 @@ typedef struct {
     gpointer        user_data;
 } _HookEntry;
 
-static GPtrArray *g_pre_hooks = nullptr;   /* _HookEntry 배열 */
+static GPtrArray *g_pre_hooks = nullptr;
 
 void
 pcv_dispatcher_register_pre_hook(PcvDispatchHook hook, gpointer user_data)
@@ -941,7 +787,6 @@ pcv_dispatcher_register_pre_hook(PcvDispatchHook hook, gpointer user_data)
     g_ptr_array_add(g_pre_hooks, entry);
 }
 
-/* pre-dispatch 훅 실행 — 하나라도 FALSE 반환 시 요청 거부 */
 static gboolean
 _run_pre_hooks(const gchar *method, JsonObject *params, const gchar *rpc_id)
 {
@@ -949,33 +794,20 @@ _run_pre_hooks(const gchar *method, JsonObject *params, const gchar *rpc_id)
     for (guint i = 0; i < g_pre_hooks->len; i++) {
         _HookEntry *entry = g_ptr_array_index(g_pre_hooks, i);
         if (!entry->hook(method, params, rpc_id, entry->user_data))
-            return FALSE;  /* 훅이 요청을 거부 */
+            return FALSE;
     }
     return TRUE;
 }
 
-/* Forward declarations for route table functions */
 static void dispatcher_init_routes(void);
 
-/* ── GObject 구조체 정의 ──────────────────────────────────────────
- * PureCVisorDispatcher는 GObject를 상속받는 디스패처 인스턴스입니다.
- * vm_manager를 보유하여 vm.create 핸들러에서 사용합니다.
- * 텔레메트리 모듈(telemetry.c)도 이 vm_manager를 참조합니다.
- * ────────────────────────────────────────────────────────────────── */
 struct _PureCVisorDispatcher {
     GObject parent_instance;
-    PureCVisorVmManager *vm_manager;   /* libvirt VM 관리 모듈 */
+    PureCVisorVmManager *vm_manager;
 };
 
 G_DEFINE_TYPE(PureCVisorDispatcher, purecvisor_dispatcher, G_TYPE_OBJECT)
 
-/**
- * RPC 요청 컨텍스트 — 디스패처 내부 참조 관리용
- *
- * 모든 RPC 핸들러는 fire-and-forget 패턴으로 자체 응답을 전송합니다.
- * 이 컨텍스트는 디스패처/서버/연결의 GObject 참조 카운트를 관리하며,
- * 핸들러 호출 직후 dispatcher_request_context_free()로 해제됩니다.
- */
 typedef struct {
     PureCVisorDispatcher *dispatcher;
     gint request_id;
@@ -983,13 +815,6 @@ typedef struct {
     GSocketConnection *connection;
 } DispatcherRequestContext;
 
-/**
- * DispatcherRequestContext 해제 — 참조 카운트 감소 + 메모리 해제
- *
- * dispatcher, server, connection의 g_object_unref()를 호출하여
- * GObject 참조 카운트를 감소시킵니다. 다른 곳에서도 참조하고 있으면
- * 객체가 즉시 소멸되지 않습니다 (GObject 참조 카운팅 규칙).
- */
 static void dispatcher_request_context_free(DispatcherRequestContext *ctx) {
     if (ctx->dispatcher) g_object_unref(ctx->dispatcher);
     if (ctx->server) g_object_unref(ctx->server);
@@ -997,38 +822,18 @@ static void dispatcher_request_context_free(DispatcherRequestContext *ctx) {
     g_free(ctx);
 }
 
-/* 레거시 헬퍼 함수 (_send_json_response, _send_error, _send_success_bool) 제거됨.
- * vm.create가 fire-and-forget 패턴으로 전환되어 더 이상 필요 없음.
- * 모든 핸들러는 pure_rpc_build_success_response()/pure_rpc_build_error_response()를 사용. */
-
-
-/* ── 페이지네이션 헬퍼 ────────────────────────────────────────────
- * JsonArray를 offset/limit로 슬라이싱하여 페이지네이션 결과 JsonNode를 생성합니다.
- * limit <= 0이면 전체 배열을 그대로 반환합니다 (하위 호환).
- *
- * 반환 형식 (limit > 0):
- *   { "items": [...], "total": N, "offset": M, "limit": L, "has_more": true|false }
- * 반환 형식 (limit <= 0):
- *   [ ... ] (기존과 동일한 전체 배열)
- *
- * @param full_array  전체 결과 배열 (소유권 이전됨 — 이 함수가 해제)
- * @param offset      시작 인덱스 (0-based)
- * @param limit       최대 항목 수 (0 = 전체, 하위 호환)
- * @return JsonNode*  응답 노드 (호출자가 pure_rpc_build_success_response에 전달)
- * ────────────────────────────────────────────────────────────────── */
 static JsonNode *
 _paginate_array(JsonArray *full_array, gint offset, gint limit)
 {
     gint total = (gint)json_array_get_length(full_array);
 
     if (limit <= 0) {
-        /* 하위 호환: 전체 배열 그대로 반환 */
+
         JsonNode *node = json_node_new(JSON_NODE_ARRAY);
         json_node_take_array(node, full_array);
         return node;
     }
 
-    /* offset 범위 보정 */
     if (offset < 0) offset = 0;
     if (offset > total) offset = total;
 
@@ -1052,11 +857,6 @@ _paginate_array(JsonArray *full_array, gint offset, gint limit)
     return node;
 }
 
-/**
- * _get_pagination_params:
- * JsonObject params에서 offset/limit 값을 추출합니다.
- * 없으면 기본값 (offset=0, limit=0=전체)을 사용합니다.
- */
 static void
 _get_pagination_params(JsonObject *params, gint *out_offset, gint *out_limit)
 {
@@ -1066,43 +866,9 @@ _get_pagination_params(JsonObject *params, gint *out_offset, gint *out_limit)
         ? (gint)json_object_get_int_member(params, "limit") : 0;
 }
 
-/* ── ADR-0012: 비동기 결과 채널 — vm.create 완료 콜백 ────────────────
- *
- * fire-and-forget 패턴을 유지하면서 작업 결과를 Job Queue + WebSocket으로
- * 전달합니다. 소켓은 이미 닫혀 있으므로 send_response 절대 금지.
- *
- * 흐름: accepted 응답 전송 → GTask 워커 실행 → 완료 시 이 콜백 호출
- *       → pcv_job_set_result() + pcv_ws_broadcast_job_complete()
- * ────────────────────────────────────────────────────────────────── */
-
-/** vm.create 비동기 완료 콜백에 전달할 컨텍스트
- *
- * [소유권 체인 — 주니어 개발자 필독]
- *
- *   handle_vm_create()
- *     │  job_id = pcv_job_create()  ← SQLite INSERT, g_strdup된 문자열 반환
- *     │  job_ctx = g_new0(VmCreateJobCtx)
- *     │  job_ctx->job_id = job_id   ← 소유권 이전 (g_strdup 아님!)
- *     │  job_ctx->vm_name = g_strdup(name)
- *     │
- *     └─ purecvisor_vm_manager_create_vm_async(... , _on_vm_create_finished, job_ctx)
- *           │  GTask가 job_ctx를 user_data로 보관
- *           │  워커 스레드에서 VM 생성 수행
- *           │
- *           └─ _on_vm_create_finished() ← 메인 스레드 콜백 (GAsyncReadyCallback)
- *                 │  job_ctx->job_id로 Job 상태 갱신
- *                 │  _vm_create_job_ctx_free(job_ctx) ← 여기서 해제
- *                 └─ job_id, vm_name 모두 g_free()
- *
- * [위험 시나리오]
- *   - 콜백이 호출되지 않으면? → job_ctx 메모리 누수 + Job이 RUNNING 상태로 영구 잔류
- *     현재 purecvisor_vm_manager_create_vm_async()는 항상 콜백을 호출하므로 안전.
- *     단, GTask에 GCancellable을 전달하지 않으므로 취소 경로는 없음.
- *   - 콜백에서 send_response 호출 시? → 소켓 이미 닫힘 → UB/크래시
- */
 typedef struct {
-    gchar *job_id;      /**< pcv_job_create()이 반환한 Job ID — 이 구조체가 소유 */
-    gchar *vm_name;     /**< VM 이름 (로그/이벤트용) — g_strdup으로 복사된 사본 */
+    gchar *job_id;
+    gchar *vm_name;
 } VmCreateJobCtx;
 
 static void _vm_create_job_ctx_free(gpointer data)
@@ -1114,22 +880,6 @@ static void _vm_create_job_ctx_free(gpointer data)
     g_free(ctx);
 }
 
-/**
- * _on_vm_create_finished:
- * GAsyncReadyCallback — vm.create GTask 완료 시 메인 스레드에서 호출.
- *
- * [스레딩 모델]
- *   이 콜백은 GTask의 기본 동작에 의해 GMainContext(메인 스레드)에서 실행됩니다.
- *   워커 스레드가 아닙니다! pcv_job_set_result()와 pcv_ws_broadcast_*()가
- *   메인 스레드 전용 자원에 접근해도 안전한 이유입니다.
- *
- * [파라미터 소유권]
- *   source_object: vm_manager (GTask 생성 시 전달, 참조만 사용)
- *   user_data (= VmCreateJobCtx*): 이 콜백이 소유권을 가짐 → 반드시 _free() 호출
- *
- * [주의] 소켓은 이미 닫혀 있으므로 send_response 호출하면 크래시!
- *   결과 전달 경로: Job Queue(SQLite) + WebSocket broadcast만 사용.
- */
 static void
 _on_vm_create_finished(GObject *source_object,
                        GAsyncResult *res,
@@ -1138,8 +888,6 @@ _on_vm_create_finished(GObject *source_object,
     VmCreateJobCtx *ctx = (VmCreateJobCtx *)user_data;
     GError *error = NULL;
 
-    /* [감사 AF-P1] 오퍼레이션 잠금 해제 — 최우선. 이 콜백은 create worker 완료 시
-     * 항상 호출되므로 여기서 해제하면 성공/실패/취소 모든 경로를 커버한다. */
     unlock_vm_operation(ctx->vm_name);
 
     gboolean ok = purecvisor_vm_manager_create_vm_finish(
@@ -1149,7 +897,7 @@ _on_vm_create_finished(GObject *source_object,
         pcv_job_set_result(ctx->job_id, PCV_JOB_COMPLETED, NULL);
         pcv_ws_broadcast_job_complete(ctx->job_id, "vm.create",
                                        "completed", NULL);
-        /* ADR-0018: 워커 결과를 audit DB에 정확히 기록 */
+
         pcv_audit_log(NULL, "vm.create", ctx->vm_name, "ok", 0, 0, "local");
         PCV_LOG_INFO("dispatcher",
                      "vm.create job %s completed for '%s'",
@@ -1159,7 +907,7 @@ _on_vm_create_finished(GObject *source_object,
         pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, err_msg);
         pcv_ws_broadcast_job_complete(ctx->job_id, "vm.create",
                                        "failed", err_msg);
-        /* ADR-0018: 실패 결과 기록 */
+
         pcv_audit_log(NULL, "vm.create", ctx->vm_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         PCV_LOG_WARN("dispatcher",
                      "vm.create job %s FAILED for '%s': %s",
@@ -1167,70 +915,37 @@ _on_vm_create_finished(GObject *source_object,
         if (error) g_error_free(error);
     }
 
-    /* [A1 fix] cancellable_map 에서 제거 — drain cleanup + 메모리 누수 방지 */
     cmap_remove(ctx->vm_name);
     _vm_create_job_ctx_free(ctx);
 }
 
-/* ── 핸들러 외부 선언 (헤더 미포함 핸들러들) ────────────────────── */
 void handle_vm_vnc_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_device_nic_list(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_device_nic_attach(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_device_nic_detach(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_vm_eject_iso(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-/* ── VM Clone GTask 워커 스레드 ─────────────────────────────────
- * vm.clone RPC의 비동기 워커입니다 (fire-and-forget).
- *
- * [클론 순서]
- *   1. libvirt XML에서 확인한 실제 disk source 기준으로 target disk 생성
- *   2. zvol CoW 모드: zfs clone (즉시 완료, 데이터 복사 없음)
- *      zvol Full 모드: zfs send | zfs recv (전체 데이터 복사)
- *      qcow2/raw Full 모드: qemu-img convert (별도 target file)
- *   3. libvirt API로 소스 VM XML 추출 (virDomainGetXMLDesc)
- *   4. 필요 시 target disk에 libguestfs 기반 guest reset 수행
- *   5. XML 패치: 이름, UUID 제거, MAC 랜덤 생성, 디스크 경로 치환
- *   6. virDomainDefineXML로 클론 VM 등록
- *   7. etcd XML 동기화 (클러스터 활성 시)
- *
- * [안전장치]
- *   template_prepared=true는 운영자가 guest identity를 이미 정리한 템플릿임을
- *   확인하는 빠른 경로다. 일반 VM clone은 target disk 생성 후 virt-sysprep,
- *   virt-filesystems, guestfish, virt-customize로 machine-id/LVM PV/VG UUID/
- *   filesystem UUID/hostname/DHCP/SSH/cloud-init 상태와 boot artifact를
- *   분리·재생성해야 한다.
- *
- * [주의] 새 VM은 define만 하고 start하지 않습니다 (운영자가 수동 시작).
- * ──────────────────────────────────────────────────────────────── */
 typedef struct {
-    gchar    *source;             /* 소스 VM 이름 */
-    gchar    *target;             /* 클론 VM 이름 */
-    gboolean  full_copy;          /* TRUE=full send/recv, FALSE=CoW 클론 */
-    gboolean  guest_reset;        /* TRUE=target disk에 guest reset 실행 */
-    PcvVmCloneDiskKind disk_kind;  /* zvol/qcow2/raw */
-    gchar    *source_disk_path;   /* libvirt XML의 실제 원본 디스크 경로 */
-    gchar    *target_disk_path;   /* 클론 XML에 넣을 새 디스크 경로 */
-    gchar    *source_dataset;     /* ZFS dataset: pool/source-zvol */
-    gchar    *target_dataset;     /* ZFS dataset: pool/target */
-    gchar    *zfs_pool;           /* source_dataset의 부모 pool/dataset */
-    gchar    *source_zvol_name;   /* source_dataset의 마지막 요소 */
-    gboolean  holds_source_lock;  /* [CMP-7] source VM_OP 락 보유 여부 */
-    gboolean  holds_target_lock;  /* [CMP-7] target(clone_name) VM_OP 락 보유 여부 */
-    GThread  *lock_renew_thread;  /* [CMP-7] 보유 락 TTL 주기 갱신 스레드 (NULL=미기동) */
-    gint      lock_renew_stop;    /* [CMP-7] 갱신 스레드 정지 플래그 (g_atomic) */
+    gchar    *source;
+    gchar    *target;
+    gboolean  full_copy;
+    gboolean  guest_reset;
+    PcvVmCloneDiskKind disk_kind;
+    gchar    *source_disk_path;
+    gchar    *target_disk_path;
+    gchar    *source_dataset;
+    gchar    *target_dataset;
+    gchar    *zfs_pool;
+    gchar    *source_zvol_name;
+    gboolean  holds_source_lock;
+    gboolean  holds_target_lock;
+    GThread  *lock_renew_thread;
+    gint      lock_renew_stop;
 } VmCloneCtx;
 
-/* [CMP-7] clone 락 TTL 갱신 주기. SNAPSHOT/CREATING op TTL(300/600초)보다 충분히 짧게
- * 잡아 대형 full-copy 진행 중에도 stale 판정을 방지한다. 대기는 250ms tick으로 쪼개
- * 정지 신호에 신속히 반응(_vm_clone_ctx_free의 join 이 메인 컨텍스트를 최대 ~250ms만
- * 붙든다). 60s = 240 tick. */
 #define VM_CLONE_LOCK_RENEW_TICK_MS   250
-#define VM_CLONE_LOCK_RENEW_TICKS     240   /* 240 * 250ms = 60s */
+#define VM_CLONE_LOCK_RENEW_TICKS     240
 
-/* [CMP-7] 락 갱신 하트비트 워커. 보유 중인 source/target 락의 locked_at을 주기적으로
- * now로 되감아, 대형 clone(예: 다TB full-copy)이 op TTL을 초과해도 살아있는 데몬의 락이
- * stale로 오판되어 경쟁 vm.delete/vm.create에 탈취되는 창을 없앤다. pcv_vm_lock_renew는
- * pid 소유권을 검증하므로 남의 락은 건드리지 않는다. */
 static gpointer
 _vm_clone_lock_renew_worker(gpointer data)
 {
@@ -1252,16 +967,13 @@ _vm_clone_ctx_free(gpointer data)
 {
     VmCloneCtx *ctx = (VmCloneCtx *)data;
     if (!ctx) return;
-    /* [CMP-7] 락 갱신 하트비트를 먼저 정지·join → 이후 unlock과 경합 불가.
-     * (갱신 스레드가 unlock 이후 locked_at을 되살리는 순서역전 차단.) */
+
     if (ctx->lock_renew_thread) {
         g_atomic_int_set(&ctx->lock_renew_stop, 1);
         g_thread_join(ctx->lock_renew_thread);
         ctx->lock_renew_thread = NULL;
     }
-    /* [CMP-7] 단일 해제 지점: 모든 핸들러 조기return + GTask GDestroyNotify가 여기를
-     * 경유한다. flag가 TRUE인 락만 해제 → 부분획득(source만/target만) 안전.
-     * unlock은 ctx->source/target 문자열을 읽으므로 반드시 g_free 앞에서 수행. */
+
     if (ctx->holds_source_lock) unlock_vm_operation(ctx->source);
     if (ctx->holds_target_lock) unlock_vm_operation(ctx->target);
     g_free(ctx->source);
@@ -1446,10 +1158,6 @@ _vm_clone_disk_plan_from_ctx(VmCloneCtx *ctx)
     return plan;
 }
 
-/**
- * _generate_random_mac:
- * 52:54:00 접두사 (QEMU OUI) + 랜덤 3바이트로 MAC 주소를 생성합니다.
- */
 static void
 _generate_random_mac(gchar *out_mac, gsize out_len)
 {
@@ -1480,15 +1188,6 @@ _xml_replace_mac_eval(const GMatchInfo *match_info, GString *result, gpointer us
     return FALSE;
 }
 
-/**
- * _xml_replace_all_macs:
- * XML 내 모든 MAC 주소를 새 랜덤 MAC으로 치환합니다.
- *
- * [버그 방지]
- * 새로 만든 MAC 태그도 같은 정규식에 다시 매칭되므로, "찾고 바꾸고 다시
- * 처음부터 검색" 방식은 무한 루프가 된다. g_regex_replace_eval()은 원본
- * XML을 한 번만 스캔하므로 각 기존 MAC을 정확히 한 번만 바꾼다.
- */
 static gchar *
 _xml_replace_all_macs(gchar *xml)
 {
@@ -1547,10 +1246,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
                  is_zvol ? ctx->source_dataset : ctx->source_disk_path,
                  is_zvol ? ctx->target_dataset : ctx->target_disk_path);
 
-    /* [CMP-7] 장기 복사(zfs send|recv / qemu-img convert) 진행 중 source·target 락의
-     * TTL을 주기 갱신하는 하트비트 기동. 정지·join은 _vm_clone_ctx_free 단일 지점에서
-     * (GDestroyNotify가 워커 종료 후 메인 컨텍스트에서 실행). 기동 실패해도 clone은 진행
-     * (기존 TTL 만료 위험만 남음 → best-effort). */
     ctx->lock_renew_thread = g_thread_new("clone-lock-renew",
                                           _vm_clone_lock_renew_worker, ctx);
 
@@ -1558,7 +1253,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
     gboolean source_snapshot_exists = FALSE;
 
     if (is_zvol) {
-        /* 1. ZFS 스냅샷 생성 */
+
         snap_tag = g_strdup_printf("clone-%s", ctx->target);
         {
             gchar *snap_full = _vm_clone_source_snapshot(ctx, snap_tag);
@@ -1578,7 +1273,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             source_snapshot_exists = TRUE;
         }
 
-        /* 2. ZFS 디스크 복제 — CoW 또는 Full */
         {
             gboolean ok;
             if (ctx->full_copy) {
@@ -1603,19 +1297,10 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             }
         }
 
-        /* [zvol device-node race fix] zfs clone(CoW)·zfs recv(full)는 즉시 리턴하지만
-         * target zvol의 device-node(/dev/zvol/<pool>/<target>)는 udev가 비동기로
-         * 생성한다. 이후 guest reset(virt-sysprep)·VM define/기동이 이 노드를 열기 전에
-         * 반드시 노드가 존재해야 한다 (없으면 libguestfs "No such file or directory").
-         * 파일 디스크(qcow2/raw)는 동기 생성이라 무관하므로 zvol 경로에만 둔다.
-         * guest_reset 여부와 무관하게 실행하여 이후 모든 소비 단계를 커버한다.
-         * precedent: vm_manager.c zvol create, handler_vm_lifecycle.c zvol destroy. */
         {
             const gchar *udevadm_argv[] = {"udevadm", "settle", "--timeout=5", NULL};
             (void)pcv_spawn_sync(udevadm_argv, NULL, NULL, NULL);
 
-            /* settle 후에도 노드가 즉시 안 뜰 수 있어 device-node 존재를 bounded 폴링.
-             * 상한 10초, 100ms 간격. 데드라인 초과 시 guest reset 진입 전에 실패 반환. */
             const int node_wait_max_ms  = 10000;
             const int node_wait_step_ms = 100;
             int node_waited_ms = 0;
@@ -1639,8 +1324,7 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         }
 
         if (ctx->full_copy) {
-            /* Full clone은 recv 결과가 독립 dataset이므로 임시 source snapshot을
-             * 남길 이유가 없다. CoW clone은 origin 의존성이 있어 snapshot을 유지한다. */
+
             if (_vm_clone_destroy_source_snapshot(ctx, snap_tag))
                 source_snapshot_exists = FALSE;
         }
@@ -1674,7 +1358,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         }
     }
 
-    /* 3. libvirt API로 소스 VM XML 추출 */
     gchar *xml = nullptr;
     {
         virConnectPtr conn = virt_conn_pool_acquire();
@@ -1715,17 +1398,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         }
     }
 
-    /* 4a. XML 이름 치환
-     *
-     * [위험! malloc vs g_malloc 혼합 — 이 패턴을 정확히 이해해야 함]
-     *   virDomainGetXMLDesc()는 libvirt 내부에서 malloc()으로 할당한 문자열을 반환.
-     *   GLib 함수(g_strsplit, g_strjoinv 등)는 g_malloc()으로 할당.
-     *   따라서:
-     *     - xml이 libvirt에서 온 원본이면 → free(xml) 사용
-     *     - xml이 GLib 치환 결과이면 → g_free(xml) 사용
-     *   아래 코드에서 첫 치환 시 free(xml)로 libvirt 원본을 해제하고,
-     *   이후부터 xml은 GLib 문자열이므로 g_free()로 해제해야 한다.
-     *   실수하면 heap corruption → 디버깅 불가능한 크래시 발생! */
     {
         gchar *old_tag = g_strdup_printf("<name>%s</name>", ctx->source);
         gchar *new_tag = g_strdup_printf("<name>%s</name>", ctx->target);
@@ -1733,20 +1405,18 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
             gchar **parts = g_strsplit(xml, old_tag, 2);
             gchar *replaced = g_strjoinv(new_tag, parts);
             g_strfreev(parts);
-            free(xml);  /* libvirt malloc 문자열 해제 — g_free 아님! */
-            xml = replaced;  /* 이 시점부터 xml은 GLib 문자열 → g_free 사용 */
+            free(xml);
+            xml = replaced;
         } else {
-            /* 이름이 XML에 없어도, libvirt malloc → GLib g_malloc 전환이 필요.
-             * 이후 코드가 일관되게 g_free()를 사용할 수 있도록 복사. */
+
             gchar *dup = g_strdup(xml);
-            free(xml);  /* libvirt malloc 해제 */
-            xml = dup;  /* 이제 GLib 소유 */
+            free(xml);
+            xml = dup;
         }
         g_free(old_tag);
         g_free(new_tag);
     }
 
-    /* 4b. UUID 행 삭제 — libvirt가 새 UUID를 자동 생성 */
     {
         GRegex *uuid_re = g_regex_new("\\s*<uuid>[^<]*</uuid>\\s*\n?",
                                         0, 0, NULL);
@@ -1757,14 +1427,8 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         }
     }
 
-    /* 4c. MAC 주소 랜덤 생성 — 네트워크 충돌 방지 */
     xml = _xml_replace_all_macs(xml);
 
-    /* 4d. 디스크 경로 치환.
-     *
-     * ADR-0022 이후 VM 디스크는 기본 zvol_pool이 아니라 사용자가 고른
-     * storage_pool에 있을 수 있다. 따라서 문자열을 추측하지 않고, preflight에서
-     * libvirt XML로 확인한 실제 <source dev='...'> 경로만 새 경로로 바꾼다. */
     if (ctx->source_disk_path && ctx->target_disk_path &&
         g_strstr_len(xml, -1, ctx->source_disk_path)) {
         gchar **parts = g_strsplit(xml, ctx->source_disk_path, -1);
@@ -1784,7 +1448,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         return;
     }
 
-    /* 5. virDomainDefineXML로 클론 VM 등록 */
     {
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
@@ -1820,15 +1483,12 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
         }
     }
 
-    /* 6. etcd XML 동기화 */
-
     if (ctx->full_copy && source_snapshot_exists) {
-        /* 앞선 best-effort 정리가 실패한 경우 성공 audit 전 한 번 더 시도한다. */
+
         if (_vm_clone_destroy_source_snapshot(ctx, snap_tag))
             source_snapshot_exists = FALSE;
     }
 
-    /* 7. ADR-0018: 워커 결과 audit + WS 완료 푸시 */
     _audit_vm_clone_success(ctx);
 
     g_free(xml);
@@ -1836,26 +1496,6 @@ _vm_clone_thread(GTask *task, gpointer source_obj,
     g_task_return_boolean(task, TRUE);
 }
 
-/**
- * vm.create 인라인 핸들러 — VM 생성 요청 처리 (fire-and-forget)
- *
- * dispatcher.c 내부에 구현된 핸들러입니다.
- * fire-and-forget 패턴: 즉시 accepted 응답을 전송한 후
- * GTask로 백그라운드에서 VM 생성을 수행합니다.
- *
- * 파라미터:
- *   필수: name (VM 이름)
- *   선택: vcpu (기본 1), memory_mb (기본 1024), disk_size_gb (기본 50),
- *         vlan_id (기본 0), iso_path, network_bridge, storage_type,
- *         storage_pool(ZFS 부모 데이터셋), image_dir(qcow2/raw 저장 디렉터리),
- *         nic_type, pci_addr, boot_mode/firmware, tpm, cpu_mode, hugepages
- *
- * @param self       디스패처 인스턴스 (vm_manager 접근용)
- * @param params     JSON-RPC params 객체
- * @param rpc_id     JSON-RPC 요청 ID 문자열
- * @param server     UDS 서버 인스턴스
- * @param connection 클라이언트 소켓 연결
- */
 static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
                               const gchar *rpc_id, UdsServer *server,
                               GSocketConnection *connection) {
@@ -1869,9 +1509,6 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
 
     const gchar *name = json_object_get_string_member(params, "name");
 
-    /* accepted 응답 전에 즉시 충돌 가능한 이름을 차단한다.
-     * 기존 구현은 워커 스레드에서만 zvol/qcow2/libvirt 충돌을 감지해
-     * duplicate 요청이 accepted=true로 보이는 문제가 있었다. */
     {
         gboolean exists = FALSE;
         virConnectPtr conn = virt_conn_pool_acquire();
@@ -1887,9 +1524,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         if (!exists) {
             gchar *dataset = g_strdup_printf("%s/%s", pcv_config_get_zvol_pool(), name);
             const gchar *zfs_argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
-            /* [감사 NEW-2] 메인스레드에서 무제한 zfs list는 ZFS 풀 hang 시 전 데몬
-             * 메인루프를 무기한 정지시킨다(모든 RPC/io_uring/타이머/watchdog). 상한을
-             * 두어 hang이 데몬 프리즈로 번지지 않게 한다(정상 pool은 ms 단위 응답). */
+
             exists = pcv_spawn_sync_timeout(zfs_argv, NULL, NULL, 10, NULL);
             g_free(dataset);
         }
@@ -1916,7 +1551,6 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         }
     }
 
-    /* [A-2 수정] VM 이름 검증 — XSS/SQLi 등 위험 문자 차단 */
     if (!pcv_validate_vm_name(name)) {
         gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be 1-64 chars [a-zA-Z0-9_-]");
@@ -1928,27 +1562,22 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     gint vcpu = 1;
     gint memory_mb = 1024;
     gint disk_size_gb = 50;
-    gint vlan_id = 0;  /* Sprint G: 선택 파라미터, 기본값 0 (VLAN 없음) */
+    gint vlan_id = 0;
     const gchar *iso_path = nullptr;
     const gchar *bridge = nullptr;
-    const gchar *storage_type = nullptr;  /* "zvol"(기본), "qcow2", "raw" */
-    const gchar *storage_pool = nullptr;  /* zvol 생성 부모 데이터셋: pcvpool/vms */
-    const gchar *image_dir = nullptr;     /* qcow2/raw 파일 디스크 저장 디렉터리 */
-    const gchar *nic_type = nullptr;     /* "bridge"(기본) / "dpdk" / "sriov" */
-    const gchar *pci_addr = nullptr;     /* SR-IOV VF PCI 주소 (sriov 전용) */
+    const gchar *storage_type = nullptr;
+    const gchar *storage_pool = nullptr;
+    const gchar *image_dir = nullptr;
+    const gchar *nic_type = nullptr;
+    const gchar *pci_addr = nullptr;
 
     if (json_object_has_member(params, "vcpu")) vcpu = json_object_get_int_member(params, "vcpu");
     if (json_object_has_member(params, "memory_mb")) memory_mb = json_object_get_int_member(params, "memory_mb");
-    /* UI는 disk_gb 로 보내지만 기존 호환 유지 — 둘 중 하나만 있어도 OK */
+
     if (json_object_has_member(params, "disk_size_gb")) disk_size_gb = json_object_get_int_member(params, "disk_size_gb");
     else if (json_object_has_member(params, "disk_gb")) disk_size_gb = json_object_get_int_member(params, "disk_gb");
     if (json_object_has_member(params, "vlan_id")) vlan_id = json_object_get_int_member(params, "vlan_id");
 
-    /* [W5 fix] 수치 파라미터 상·하한 검증 — 악의/실수 입력으로 리소스 고갈 방지
-       · vcpu:        1 ~ 256 (현실적 상한)
-       · memory_mb:   256 ~ 1,048,576 (1TB)
-       · disk_size_gb: 1 ~ 65536 (64TB) — vm_manager.c:411의 2TB 소프트캡은 별도
-       · vlan_id:     0 ~ 4094 (IEEE 802.1Q) */
     if (vcpu < 1 || vcpu > 256) {
         gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid vcpu — must be between 1 and 256");
@@ -1981,17 +1610,13 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     if (json_object_has_member(params, "network_bridge")) {
         bridge = json_object_get_string_member(params, "network_bridge");
     }
-    /* VP-1: 브릿지 기본값/"none" opt-out 결정은 vm_manager의 resolve 헬퍼로 일원화.
-     * 여기서는 요청값(NULL/""/"none"/명시명)을 그대로 전달하고,
-     * create_vm_async 진입부에서 정확히 1회 resolve한다 (이중 resolve 금지).
-     * 이전 ARCH-3/ARCH-5의 "[vm] default_bridge→virbr0" 폴백을 대체 —
-     * 미지정 시 관리형 기본 네트워크 pcvnat0(network.default_bridge)로 부착. */
+
     /* PCV_SAFETY_CONTROL: vm-create-iso-validation — 라이브 vm.create 파라미터를 통합
      * 검증기로 실검증(dead 검증본 대신 라이브 배선). iso_path=.iso/.img·절대·no-".." 아니면
      * 거부(예: /etc/shadow → CD-ROM 임의파일 마운트 차단). CMP-3 */
     {
-        gint         v_disk   = (disk_size_gb > 0) ? disk_size_gb : PCV_MIN_DISK_GB;   /* diskless 회귀방지 */
-        const gchar *v_bridge = (bridge && *bridge) ? bridge : NULL;                    /* 기본브리지 회귀방지 */
+        gint         v_disk   = (disk_size_gb > 0) ? disk_size_gb : PCV_MIN_DISK_GB;
+        const gchar *v_bridge = (bridge && *bridge) ? bridge : NULL;
         GError      *v_err    = NULL;
         if (!pcv_validate_vm_create_params(name, vcpu, memory_mb, v_disk,
                                            iso_path, v_bridge, &v_err)) {
@@ -2005,7 +1630,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     }
     if (json_object_has_member(params, "storage_type")) {
         storage_type = json_object_get_string_member(params, "storage_type");
-        /* 허용 값 검증: zvol, qcow2, raw */
+
         if (storage_type &&
             g_strcmp0(storage_type, "zvol") != 0 &&
             g_strcmp0(storage_type, "qcow2") != 0 &&
@@ -2052,7 +1677,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         g_free(err);
         return;
     }
-    /* NIC 타입: bridge(기본), dpdk, sriov — Phase 4 가속 네트워크 */
+
     if (json_object_has_member(params, "nic_type")) {
         nic_type = json_object_get_string_member(params, "nic_type");
         if (nic_type &&
@@ -2066,11 +1691,11 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
             return;
         }
     }
-    /* SR-IOV VF PCI 주소 (sriov 모드 전용) */
+
     if (json_object_has_member(params, "pci_addr")) {
         pci_addr = json_object_get_string_member(params, "pci_addr");
     }
-    /* BUG-16: base_image — cloud image 경로. zvol 생성 후 자동 기록 */
+
     const gchar *base_image = nullptr;
     if (json_object_has_member(params, "base_image")) {
         base_image = json_object_get_string_member(params, "base_image");
@@ -2088,28 +1713,23 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     }
     const gchar *owner = _json_string_member(params, "_pcv_caller_sub");
 
-    /* UEFI/TPM/CPU/HugePages 고급 VM 설정 파싱 */
-    gint boot_mode = 0;   /* 0=BIOS, 1=UEFI, 2=UEFI+SecureBoot */
+    gint boot_mode = 0;
     gboolean tpm = FALSE;
-    gint cpu_mode = 0;    /* 0=Single Edge 기본(host-passthrough), 1=host-passthrough, 2=host-model */
+    gint cpu_mode = 0;
     gboolean hugepages = FALSE;
 
     if (json_object_has_member(params, "boot_mode")) boot_mode = json_object_get_int_member(params, "boot_mode");
-    /* "firmware" 문자열 파라미터 지원: "bios"(0) / "uefi"(1) / "uefi-secureboot"(2)
-     * boot_mode 수치 파라미터보다 firmware 문자열이 우선 적용됨 */
+
     if (json_object_has_member(params, "firmware")) {
         const gchar *fw = json_object_get_string_member(params, "firmware");
         if (g_strcmp0(fw, "uefi") == 0) boot_mode = 1;
         else if (g_strcmp0(fw, "uefi-secureboot") == 0) boot_mode = 2;
-        else boot_mode = 0;  /* "bios" or unknown → default */
+        else boot_mode = 0;
     }
     if (json_object_has_member(params, "tpm")) tpm = json_object_get_boolean_member(params, "tpm");
     if (json_object_has_member(params, "cpu_mode")) cpu_mode = json_object_get_int_member(params, "cpu_mode");
     if (json_object_has_member(params, "hugepages")) hugepages = json_object_get_boolean_member(params, "hugepages");
 
-    /* 저장 위치를 명시한 요청은 기본 위치 사전 검증만으로 충돌을 잡을 수 없다.
-     * 예: storage_pool=tank/vms 에 이미 tank/vms/web01 이 있는데 기본 풀만 보면
-     * accepted=true가 먼저 반환된다. 여기서 선택 위치 기준으로 한 번 더 차단한다. */
     {
         gboolean exists = FALSE;
         const gchar *effective_pool = (storage_pool && *storage_pool)
@@ -2120,9 +1740,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         if (!storage_type || g_strcmp0(storage_type, "zvol") == 0) {
             gchar *dataset = g_strdup_printf("%s/%s", effective_pool, name);
             const gchar *zfs_argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
-            /* [감사 NEW-2] 메인스레드에서 무제한 zfs list는 ZFS 풀 hang 시 전 데몬
-             * 메인루프를 무기한 정지시킨다(모든 RPC/io_uring/타이머/watchdog). 상한을
-             * 두어 hang이 데몬 프리즈로 번지지 않게 한다(정상 pool은 ms 단위 응답). */
+
             exists = pcv_spawn_sync_timeout(zfs_argv, NULL, NULL, 10, NULL);
             g_free(dataset);
         }
@@ -2150,11 +1768,6 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         }
     }
 
-    /* [감사 AF-P1] vm.create를 오퍼레이션 잠금으로 보호한다. 이전에는 VM create가
-     * 무락이라 동시 vm.delete(ZFS destroy -r)/vm.start와 무보호 병행했고, 위 존재검사와
-     * 실제 생성 사이 TOCTOU도 열려 있었다(두 create가 동시에 존재검사를 통과). 잠금은
-     * 존재검사 이후·accepted 응답 이전에 획득해 실패 시 busy로 거부하고, 완료 콜백
-     * _on_vm_create_finished에서 해제한다(콜백은 항상 호출됨 → 모든 경로 커버). */
     gchar *create_lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_CREATING, &create_lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
@@ -2164,14 +1777,6 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
         return;
     }
 
-    /* ── ADR-0012: Job ID 발행 + accepted 응답 ────────────────────────
-     * fire-and-forget 패턴을 유지하면서 Job ID를 반환합니다.
-     * 클라이언트는 jobs.status RPC 또는 WS job.complete 이벤트로 결과 확인.
-     *
-     * [주니어 개발자 주의 — 여기서부터 소유권이 갈라진다]
-     *   job_id는 pcv_job_create()가 g_strdup으로 반환한 문자열.
-     *   아래에서 이 포인터를 job_ctx->job_id에 직접 대입(소유권 이전).
-     *   이후 job_id를 g_free()하면 안 됨 — job_ctx가 콜백에서 해제한다. */
     gchar *job_id = pcv_job_create("vm.create", name, NULL);
     pcv_job_update_status(job_id, PCV_JOB_RUNNING, 0, "VM creation started");
 
@@ -2181,10 +1786,6 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     json_object_set_string_member(accepted, "job_id", job_id);
     json_object_set_string_member(accepted, "status", "accepted");
 
-    /* VP-1: 관리형 DHCP 부재 브릿지 경고 — 차단하지 않음(정적 IP 사용례 정당).
-     * resolve된 브릿지가 non-NULL이고 /run(tmpfs)의 dnsmasq-<br>.conf가 부재하며
-     * libvirt/lxc 자체 DHCP(virbr0/lxcbr0)가 아니면 안내를 응답에 첨부한다.
-     * resolve는 raw 요청값(bridge)에 1회만 적용 — vm_manager 내부 resolve와 중첩 아님. */
     gchar *warn_br = purecvisor_vm_resolve_network_bridge(bridge);
     if (warn_br
         && g_strcmp0(warn_br, "virbr0") != 0
@@ -2206,22 +1807,13 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
 
-    /* 완료 콜백 컨텍스트 — GTask 완료 시 Job 갱신 + WS 브로드캐스트
-     *
-     * job_id: 소유권 이전 (g_strdup 아님!) → 이 시점부터 job_id 변수를 사용하면 안 됨
-     * vm_name: g_strdup으로 방어적 복사 — params의 "name"은 JSON 파서가 소유하므로
-     *          파서 해제 후 dangling pointer가 되기 때문 */
     VmCreateJobCtx *job_ctx = g_new0(VmCreateJobCtx, 1);
-    job_ctx->job_id  = job_id;   /* 소유권 이전 — 콜백의 _vm_create_job_ctx_free()가 해제 */
-    job_ctx->vm_name = g_strdup(name);  /* 방어적 복사 — params 수명과 분리 */
+    job_ctx->job_id  = job_id;
+    job_ctx->vm_name = g_strdup(name);
 
-    /* [A1 fix] GCancellable 생성 + cancellable_map 등록
-     *   drain 시 cmap_cancel_all()이 호출되면 create worker가 취소 체크 후
-     *   zvol 롤백 경로로 조기 종료한다. 동일 VM에 대한 delete 요청도 동일 경로. */
     GCancellable *cancel = g_cancellable_new();
     cmap_register(name, cancel);
 
-    /* 백그라운드 VM 생성 — ADR-0012 콜백으로 결과 전파 */
     purecvisor_vm_manager_create_vm_async(self->vm_manager,
                                           name,
                                           vcpu,
@@ -2239,29 +1831,14 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
                                           image_dir,
                                           nic_type,
                                           pci_addr,
-                                          base_image,  /* BUG-16 */
+                                          base_image,
                                           owner,
                                           cancel,
                                           _on_vm_create_finished,
                                           job_ctx);
-    g_object_unref(cancel);  /* GTask + cmap이 ref 유지 */
+    g_object_unref(cancel);
 }
 
-
-
-
-/* --- Public Accessors --- */
-
-/**
- * purecvisor_dispatcher_get_vm_manager:
- * @self: 디스패처 인스턴스
- *
- * vm_manager 인스턴스를 반환합니다.
- * main.c 등 외부에서 vm_manager에 직접 접근할 때 사용합니다.
- * 반환된 포인터의 소유권은 dispatcher에 있으므로 g_object_unref() 하지 마세요.
- *
- * Returns: (transfer none): PureCVisorVmManager 포인터
- */
 PureCVisorVmManager *
 purecvisor_dispatcher_get_vm_manager(PureCVisorDispatcher *self)
 {
@@ -2269,23 +1846,8 @@ purecvisor_dispatcher_get_vm_manager(PureCVisorDispatcher *self)
     return self->vm_manager;
 }
 
-/* ── GObject 라이프사이클 ─────────────────────────────────────── */
-
-/* vm.batch 팬아웃(ADR-0025 배선=완료)용 프로세스-라이브 vm_manager 참조.
- * 해시테이블 라우팅 핸들러는 (params,rpc_id,server,connection) 4-param 이라
- * self->vm_manager 에 접근할 수 없다(vm.create 만 dispatch if 특례로 self 전달).
- * 계획 Task 3 "may need vm_manager singleton accessor" 에 따라, init/set_connection
- * 에서 라이브 매니저를 여기 기록하고 _handle_vm_batch 가 읽는다.
- *
- * [단일 디스패처 불변식 — M-3] 프로세스당 디스패처 1개를 전제한다. 다중 인스턴스
- * (테스트)에서 한 인스턴스 finalize 가 이 포인터를 NULL 로 만들면, 살아있는 다른
- * 인스턴스의 vm.batch 는 -32000 "vm manager unavailable" 로 degrade 한다(크래시
- * 아님 — 아래 finalize 가드 `g==self->vm_manager` 가 dangling read 를 막고, 모든
- * 접근이 메인 스레드라 경합 없음). 원격/다중-디스패처 정식 지원 시 uds_server
- * accessor 로 이관하는 것이 정석(후속 리팩터). */
 static PureCVisorVmManager *g_dispatch_vm_manager = NULL;
 
-/** GObject finalize — vm_manager 참조 해제 후 부모 클래스 체이닝 */
 static void purecvisor_dispatcher_finalize(GObject *object) {
     PureCVisorDispatcher *self = PURECVISOR_DISPATCHER(object);
     if (g_dispatch_vm_manager == self->vm_manager) g_dispatch_vm_manager = NULL;
@@ -2293,83 +1855,28 @@ static void purecvisor_dispatcher_finalize(GObject *object) {
     G_OBJECT_CLASS(purecvisor_dispatcher_parent_class)->finalize(object);
 }
 
-/** GObject 클래스 초기화 — finalize 등록 (타입당 1회) */
 static void purecvisor_dispatcher_class_init(PureCVisorDispatcherClass *klass) {
     GObjectClass *object_class = G_OBJECT_CLASS(klass);
     object_class->finalize = purecvisor_dispatcher_finalize;
 }
 
-/** GObject 인스턴스 초기화 — vm_manager를 NULL 연결로 생성 (libvirt 미연결 상태) */
 static void purecvisor_dispatcher_init(PureCVisorDispatcher *self) {
     self->vm_manager = purecvisor_vm_manager_new(NULL);
-    g_dispatch_vm_manager = self->vm_manager;  /* vm.batch 팬아웃용 라이브 참조 */
+    g_dispatch_vm_manager = self->vm_manager;
 }
 
-/** 디스패처 인스턴스 생성 팩토리 함수 */
 PureCVisorDispatcher *purecvisor_dispatcher_new(void) {
     PureCVisorDispatcher *d = g_object_new(PURECVISOR_TYPE_DISPATCHER, NULL);
-    dispatcher_init_routes();  /* 라우트 테이블 초기화 (최초 1회) */
+    dispatcher_init_routes();
     return d;
 }
 
-/**
- * libvirt 연결 설정 — vm_manager를 새 연결로 재생성합니다.
- *
- * main.c에서 libvirt 연결(GVirConnection)을 확립한 후 호출합니다.
- * 기존 vm_manager를 해제하고 새 연결을 가진 vm_manager로 교체합니다.
- *
- * @param self 디스패처 인스턴스
- * @param conn libvirt-glib 연결 (qemu:///system)
- */
 void purecvisor_dispatcher_set_connection(PureCVisorDispatcher *self, GVirConnection *conn) {
     if (self->vm_manager) g_object_unref(self->vm_manager);
     self->vm_manager = purecvisor_vm_manager_new(conn);
-    g_dispatch_vm_manager = self->vm_manager;  /* vm.batch 팬아웃용 라이브 참조 갱신 */
+    g_dispatch_vm_manager = self->vm_manager;
 }
 
-/* ══════════════════════════════════════════════════════════════════
- * 인라인 로직 래퍼 함수들 — PcvRpcHandler 시그니처로 통일
- *
- * [주니어 개발자 가이드]
- *
- * 아래 _handle_* 함수들은 모두 동일한 시그니처를 따릅니다:
- *   void _handle_xxx(JsonObject *params, const gchar *rpc_id,
- *                    UdsServer *server, GSocketConnection *connection)
- *
- * 이 시그니처는 dispatcher_init_routes()의 GHashTable에 함수 포인터로
- * 등록되기 위한 것입니다. 디스패처가 메서드명으로 함수��� 찾아 호출합니다.
- *
- * [공통 패턴 — 거의 모든 핸들러가 이 구조를 따름]
- *   1. params에서 필요한 파라미터 추출 (json_object_get_*_member)
- *   2. 입력 검증 → 실패 시 pure_rpc_build_error_response() + 즉시 반환
- *   3. 비즈니스 로직 호출 (코어 모듈 함수)
- *   4. 결과를 JsonNode/JsonObject로 구성
- *   5. pure_rpc_build_success_response()로 응답 빌드
- *   6. pure_uds_server_send_response()로 응답 전송 (소켓 즉시 닫힘)
- *   7. 응답 문자열 g_free()
- *
- * [메모리 소유권 규칙]
- *   - params: 디스패처 소유. 핸들러에서 해제 금지.
- *   - rpc_id: 디스패처가 생성. 핸��러는 읽기 전용.
- *   - pure_rpc_build_*_response() 반환값: 핸들러가 g_free() 해야 함.
- *   - JsonNode: pure_rpc_build_success_response()가 소유권을 가져감.
- *     전달 후 직접 해제하면 double-free 발생.
- *
- * [fire-and-forget이 필요한 경우]
- *   긴 작업(ZFS, 마이그레이션 등)은 즉시 "accepted" 응답을 보낸 후
- *   GTask로 백그라운드 실행합니다. 콜백에서 send_response 절대 금지!
- *
- * else-if 체인에서 인라인으로 작성되어 있던 로직을 정적 함수로 추출.
- * 이를 통해 GHashTable 라우트 테이블에 등록할 수 있습니다.
- * ══════════════════════════════════════════════════════════════════ */
-
-/* ── vm.delete.status ───────────────────────────────────────────────
- * 비동기 VM 삭제의 진행 상태를 조회합니다.
- *
- * [호출 시점] vm.delete가 fire-and-forget으로 "accepted" 반환 후,
- *   클라이언트가 삭제 완료 여부를 폴링할 때 사용합니다.
- * [반환값] "pending" / "deleting" / "done" / "failed" 문자��
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_vm_delete_status(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2383,13 +1890,6 @@ static void _handle_vm_delete_status(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── vm.resize_disk ──────────────────────────────────────────────────
- * VM 디스크 크기를 변경합니다 (fire-and-forget 패턴).
- *
- * [파라미터] name: VM 이름, new_size_gb: 새 디스크 크기(GB), target: 디스크 대상(선택)
- * [동작] 즉시 "resize accepted" 응답 후 purecvisor_vm_resize_disk()를 백그라운드 실행.
- * [주의] 디스크 축소는 데이터 손실 위험이 있으므로, 실제 ZFS/qemu-img가 거부할 수 있음.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -2406,10 +1906,7 @@ static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
     } else {
-        /* CMP-10류: VM_OP_TUNING 획득 — "accepted" 응답 전에 획득(busy VM 은 accepted 가
-         * 아니라 -32004 를 받아야 함). 다른 12 hotplug 와 동일 패턴으로 동시 delete/hotplug
-         * 와의 레이스(디스크 리사이즈 vs undefine/블록 attach)를 직렬화한다. 성공 시에만
-         * 워커에 락 소유권을 넘기고(holds_lock=TRUE), 해제는 resize_disk_data_free 단일 지점. */
+
         gchar *lock_err = NULL;
         if (!lock_vm_operation(vm_name, VM_OP_TUNING, &lock_err)) {
             gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
@@ -2423,18 +1920,10 @@ static void _handle_vm_resize_disk(JsonObject *params, const gchar *rpc_id,
         gchar *resp = pure_rpc_build_success_response(rpc_id, accepted);
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
-        purecvisor_vm_resize_disk(vm_name, new_size_gb, target, TRUE /* holds_lock */);
+        purecvisor_vm_resize_disk(vm_name, new_size_gb, target, TRUE );
     }
 }
 
-/* ── monitor.fleet ───────────────────────────────────────────────────
- * 전체 VM 상태 + 호스트 리소스를 한 번에 조회합니다 (대시보드 개요용).
- *
- * [호출 시점] Web UI 대시보드 첫 화면 로딩 시
- * [반환값] VM 목록 + CPU/메모리/디스크 사용률 통합 JSON
- * [주의] handle_monitor_fleet()는 별도 .c 파일(monitor_handler.c)에 구현.
- *   extern 선언으로 참조하며, 반환값(gchar*)은 이미 직렬화된 JSON-RPC 응답 전체.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_monitor_fleet(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -2452,12 +1941,6 @@ static void _handle_monitor_fleet(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── alert.history ───────────────────────────────────────────────────
- * 알림 히스토리를 조회합니다 (100개 링버퍼).
- *
- * [파라미터] offset, limit: 페이지네이션 (선택, 0이면 전체)
- * [반환값] 발생한 알림 배열 (CPU/MEM/DISK 임계값 초과 이벤트)
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_alert_history(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -2470,10 +1953,6 @@ static void _handle_alert_history(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── alert.config.get ────────────────────────────────────────────────
- * 현재 알림 엔진 설정을 조회합니다.
- * [반환값] cpu_warn/crit, mem_warn/crit, disk_warn/crit, webhook_url 등
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_alert_config_get(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2486,11 +1965,6 @@ static void _handle_alert_config_get(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── alert.config.set ────────────────────────────────────────────────
- * 알림 엔진 설정을 런타임에 변경합니다 (daemon.conf 영속화는 별도).
- * [파라미터] cpu_warn, cpu_crit, mem_warn 등 (변경하려는 필드만 포함)
- * [반환값] 변경 후 전체 설정 (alert.config.get과 동일)
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_alert_config_set(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2509,13 +1983,6 @@ static void _handle_alert_config_set(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── alert.config.reload ─────────────────────────────────────────────
- * daemon.conf [alert] 섹션에서 알림 설정을 다시 읽어 엔진에 적용합니다.
- *
- * [호출 시점] SIGHUP 핫 리로드 후 또는 관리자가 수동으로 설정 반영할 때
- * [차이점] alert.config.set은 파라미터로 직접 설정, 이것은 파일에서 재로딩
- * [반환값] 재로딩 후 전체 설정
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_alert_config_reload(JsonObject *params, const gchar *rpc_id,
                                          UdsServer *server, GSocketConnection *connection)
 {
@@ -2550,14 +2017,6 @@ static void _handle_alert_config_reload(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── monitor.processes ───────────────────────────────────────────────
- * 호스트의 프로세스 목록을 CPU 사용률 기준으로 정렬하여 반환합니다.
- *
- * [파라미터] top: 상위 N개만 반환 (선택, 0이면 전체)
- *            type: 프로세스 타입 필터 — "host"/"vm"/"container"/"system" (선택)
- * [데이터 소스] /proc/[pid]/stat+io (20초 주기 스캔, process_monitor.c)
- * [반환값] JsonArray — pid, name, cpu_percent, rss_bytes 등
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_monitor_processes(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
@@ -2565,12 +2024,10 @@ static void _handle_monitor_processes(JsonObject *params, const gchar *rpc_id,
     if (json_object_has_member(params, "top"))
         top_n = (gint)json_object_get_int_member(params, "top");
 
-    /* type 필터: "host"/"vm"/"container"/"system" (선택) */
     const gchar *type_str = nullptr;
     if (json_object_has_member(params, "type"))
         type_str = json_object_get_string_member(params, "type");
 
-    /* [A-1 수정] NULL 체크 — 프로세스 모니터 미초기화 시 빈 배열 반환 */
     JsonArray *arr = pcv_process_monitor_get_filtered(top_n, type_str);
     if (!arr) arr = json_array_new();
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
@@ -2580,11 +2037,6 @@ static void _handle_monitor_processes(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── agent.config.get ────────────────────────────────────────────────
- * AI Agent 설정을 조회합니다 (프로바이더별 API 키, 활성화 상태 등).
- * [호출 시점] Web UI AI Agent 설정 페이지 로딩 시
- * [주의] extern으로 pcv_agent_get_config()를 참조 — ai/ai_agent.c에 구현
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_agent_config_get(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2598,11 +2050,6 @@ static void _handle_agent_config_get(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── agent.config.set ────────────────────────────────────────────────
- * AI Agent 설정을 변경합니다 (프로바이더 API 키, Rate Limit, 활성화 등).
- * [파라미터] params 전체를 pcv_agent_set_config()에 전달
- * [반환값] 성공 시 변경 후 전체 설정, 실패 시 -32602 에러
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_agent_config_set(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2623,12 +2070,6 @@ static void _handle_agent_config_set(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── agent.history ───────────────────────────────────────────────────
- * AI Agent의 마지막 합의(comparison) 결과를 조회합니다.
- * [반환값] 4-Provider 합의 이력 JSON (Z-Score, EMA, OLS 분석 결과 포함)
- * [메모리 주의] pcv_agent_get_last_comparison_json()이 g_strdup() 반환
- *   → json_parser로 파싱 후 JsonNode 복사 → 원본 문자열 g_free() 필요
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_agent_history(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -2646,23 +2087,6 @@ static void _handle_agent_history(JsonObject *params, const gchar *rpc_id,
     g_object_unref(p2);
 }
 
-/* ── agent.compare_manual ────────────────────────────────────────────
- * 1.0 functional enhancement: 운영자 직접 AI Agent 분석 트리거.
- *
- * 자연 발생 트리거(triggered_count>=2 또는 시간 윈도우 누적)를 기다리지 않고
- * 즉시 4 provider 합의 분석 요청. incident 대응 시 유용.
- *
- * [파라미터 (모두 선택)]
- *   context: 운영자 메시지 (예: "DB latency spike at 14:30")
- *
- * [동작]
- *   1. 현재 host 메트릭 스냅샷 + context로 pcv_agent_compare_async 호출
- *   2. fire-and-forget — 응답은 agent.history로 조회
- *
- * [제약]
- *   - rate limit (5분), monthly budget, LRU cache는 모두 적용
- *   - 활성 provider 0개면 즉시 무시
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_agent_compare_manual(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -2696,19 +2120,6 @@ static void _handle_agent_compare_manual(JsonObject *params, const gchar *rpc_id
     g_free(resp);
 }
 
-/* ── anomaly.reset_baseline ──────────────────────────────────────────
- * F-19 fix: 시스템 구성 변경 후 무용지물이 된 baseline을 강제 리셋.
- * Z-Score 통계가 새 환경에 맞게 다시 학습되도록 한다 (10 sample 워밍업).
- *
- * [언제 호출하나]
- *   - 큰 부하 패턴 변경 직후 (예: HAProxy 추가, VM 대량 생성)
- *   - stress test로 baseline이 비정상적으로 올라간 경우
- *   - 운영자 수동 트리거
- *
- * [부작용]
- *   - 리셋 직후 50초간 anomaly 감지 일시 중단
- *   - 기존 alerts_total 카운터는 보존
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_anomaly_reset_baseline(JsonObject *params, const gchar *rpc_id,
                                             UdsServer *server, GSocketConnection *connection)
 {
@@ -2726,13 +2137,6 @@ static void _handle_anomaly_reset_baseline(JsonObject *params, const gchar *rpc_
     g_free(resp);
 }
 
-/* ── healing.pending ─────────────────────────────────────────────────
- * BUG-21 fix: Web UI 관리자 승인 대기 중인 self-healing 액션 목록 조회.
- * `pcv_healing_get_pending_json()` 은 self_healing.h에 정의되어 있었으나
- * dispatcher에 라우트가 등록되지 않아 Web UI에서 조회 불가했던 문제 해결.
- *
- * [반환값] 대기 액션 배열 (id, policy_name, action, reason, created_us)
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_healing_pending(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -2750,14 +2154,6 @@ static void _handle_healing_pending(JsonObject *params, const gchar *rpc_id,
     g_object_unref(p2);
 }
 
-/* ── healing.set_mode ────────────────────────────────────────────────
- * Issue-M2 fix: Self-healing 엔진의 dry_run/active 모드를 런타임 전환.
- * 기존엔 daemon.conf 변경 후 데몬 재시작만 가능했음.
- *
- * [파라미터] mode: "active" | "dry_run" | "dryrun"
- * [반환값]   {"mode":"active"|"dry_run", "dry_run":bool}
- * [권한]    관리자 전용 (RBAC 미들웨어가 필터)
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_healing_set_mode(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -2795,14 +2191,6 @@ static void _handle_healing_set_mode(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── healing.history ─────────────────────────────────────────────────
- * 자가 치유(Self-Healing) 이력을 조회합니다.
- *
- * [반환값] 자가 치유 이벤트 배열 (VM 자동 재시작, 리소스 조정 등)
- * [파라미터] offset, limit: 페이지네이션 (선택)
- * [주의] pcv_healing_get_history_json()이 전체 JSON 문자열을 반환하므로
- *   JsonParser로 다시 파싱하는 오버헤드가 있음 (향후 JsonArray 직접 반환으로 개선 가능)
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_healing_history(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -2832,16 +2220,6 @@ static void _handle_healing_history(JsonObject *params, const gchar *rpc_id,
     g_object_unref(p2);
 }
 
-/* ── vm.import.ec2 ──────────────────────────────────────────────────
- * AWS EC2 AMI를 PureCVisor VM으로 가져옵니다 (fire-and-forget).
- *
- * [파이프라인] AWS CLI로 AMI 다운로드 → qemu-img 변환 → virt-install VM 등록
- * [파라미터 필수] name, ami_id (finalize=false일 때)
- * [파라미터 선택] aws_region, s3_bucket, vcpu, memory_mb, network_bridge, disk_format
- * [Near-Live 모드] mode="near-live" → 2-Phase 사전동기화 (다운타임 2~5분)
- *   finalize=true → Phase 2 최종 전환 (pcv_cloud_finalize_import)
- * [반환값] {status:"accepted", job_id:"..."} → vm.import.status로 진행 추적
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -2910,14 +2288,6 @@ static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── vm.export.ec2 ──────────────────────────────────────────────────
- * PureCVisor VM을 AWS EC2 AMI로 내보냅니다 (fire-and-forget).
- *
- * [파이프라인] VM 디스크 → qemu-img convert → S3 업로드 → AMI 등록
- * [파라미터 필수] name
- * [파라미터 선택] aws_region, s3_bucket, ami_name, ami_description
- * [반환값] {status:"accepted", job_id:"..."} → vm.export.status로 추적
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_vm_export_ec2(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -2957,16 +2327,6 @@ static void _handle_vm_export_ec2(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── vm.import.status / vm.export.status ─────────────────────────────
- * Cloud Migration 작업의 진행 상태를 조회합니다.
- *
- * [파라미터 필수] name: VM 이름
- * [반환값] name, job_id, direction("import"/"export"), status, progress_percent,
- *          detail, started_at, elapsed_sec, base_image_path(Near-Live 시)
- *          status: "downloading"/"converting"/"registering"/"completed"/"failed"/"not_found"
- * [주의] vm.import.status와 vm.export.status 모두 이 함수로 라우팅됩니다.
- *   pcv_cloud_get_status()가 내부적으로 방향을 구분합니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_cloud_migration_status(JsonObject *params, const gchar *rpc_id,
                                             UdsServer *server, GSocketConnection *connection)
 {
@@ -3005,10 +2365,6 @@ static void _handle_cloud_migration_status(JsonObject *params, const gchar *rpc_
     }
 }
 
-/* ── cloud.jobs.list ─────────────────────────────────────────────────
- * 진행 중인 모든 Cloud Migration 작업 목록을 반환합니다.
- * [반환값] JsonArray — 각 항목에 name, job_id, direction, status, progress 등 포함
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_cloud_jobs_list(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -3038,13 +2394,6 @@ static void _handle_cloud_jobs_list(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── cloud.job.cancel ────────────────────────────────────────────────
- * Cloud Migration 작업을 취소합니다 (GCancellable로 비동기 취소).
- *
- * [파라미터 필수] name: 취소할 VM 이름
- * [반환값] 성공 시 {cancelled:true, name:"..."}, 실패 시 -32000 에러
- * [주의] 이미 완료된 작업은 취소할 수 없습니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_cloud_job_cancel(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -3075,25 +2424,6 @@ static void _handle_cloud_job_cancel(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ══════════════════════════════════════════════════════════════════════
- * vm.export.ova — VM을 OVA 형식으로 내보내기 (fire-and-forget)
- *
- * OVA = OVF(XML manifest) + VMDK(disk) + MF(checksums) 의 tar 아카이브.
- * VMware/VirtualBox 등 외부 하이퍼바이저와 호환.
- *
- * [파이프라인 — GTask 워커]
- *   1. VM XML에서 디스크 소스 경로 추출
- *   2. qemu-img convert → VMDK 변환
- *   3. OVF XML 매니페스트 생성
- *   4. SHA256 체크섬 .mf 파일 생성
- *   5. tar -cf 로 OVA 아카이브 생성
- *   6. 임시 파일 정리
- *
- * [파라미터]
- *   name       : VM 이름 (필수)
- *   output_dir : 출력 디렉토리 (선택, 기본 /tmp)
- * ══════════════════════════════════════════════════════════════════════ */
-
 typedef struct {
     gchar *vm_name;
     gchar *output_dir;
@@ -3109,11 +2439,6 @@ static void _free_ova_ctx(gpointer data) {
     g_free(ctx);
 }
 
-/**
- * _ova_sha256_file — 파일의 SHA256 해시를 계산
- * @path: 대상 파일 경로
- * @return 16진수 해시 문자열 (호출자 g_free), 실패 시 NULL
- */
 static gchar *_ova_sha256_file(const gchar *path) {
     const gchar *argv[] = {"sha256sum", path, NULL};
     gchar *stdout_buf = nullptr;
@@ -3123,7 +2448,7 @@ static gchar *_ova_sha256_file(const gchar *path) {
         g_free(stdout_buf);
         return NULL;
     }
-    /* sha256sum 출력: "<hash>  <path>\n" */
+
     if (stdout_buf) {
         gchar *sp = strchr(stdout_buf, ' ');
         if (sp) *sp = '\0';
@@ -3194,11 +2519,9 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
     gchar *mf_path = NULL;
     gchar *ova_path = NULL;
 
-    /* ADR-0018: accepted 이후 실제 worker 결과를 job/audit/WS에 단일 기록한다. */
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 5,
                           "Reading VM metadata");
 
-    /* 1. libvirt에서 VM XML 가져오기 */
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
         g_warning("[OVA] Failed to connect to libvirt for %s", ctx->vm_name);
@@ -3232,9 +2555,8 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         goto ova_cleanup;
     }
 
-    /* 2. XML에서 디스크 소스 경로 추출 */
     {
-        /* 간단 파싱: <source file='...' 또는 <source dev='...' */
+
         gchar *src = strstr(xml, "<source file='");
         if (!src) src = strstr(xml, "<source dev='");
         if (src) {
@@ -3246,7 +2568,7 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
                     disk_path = g_strndup(start, (gsize)(end - start));
             }
         }
-        /* 포맷 감지 */
+
         if (disk_path) {
             if (g_str_has_suffix(disk_path, ".qcow2"))
                 disk_format = g_strdup("qcow2");
@@ -3264,7 +2586,6 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         goto ova_cleanup;
     }
 
-    /* 3. 임시 디렉터리 + qemu-img convert → VMDK */
     tmpdir = g_strdup_printf("%s/ova-%s-%ld",
                              ctx->output_dir, ctx->vm_name, (long)time(NULL));
     if (g_mkdir_with_parents(tmpdir, 0755) != 0) {
@@ -3298,7 +2619,6 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         g_free(std_err);
     }
 
-    /* 4. VMDK 파일 크기 */
     gint64 vmdk_size = 0;
     {
         GFile *f = g_file_new_for_path(vmdk_path);
@@ -3311,7 +2631,6 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         g_object_unref(f);
     }
 
-    /* 5. OVF XML 매니페스트 생성 */
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 65,
                           "Generating OVF manifest");
     {
@@ -3376,7 +2695,6 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         }
         g_free(ovf_content);
 
-        /* 6. SHA256 .mf 파일 생성 */
         mf_name = g_strdup_printf("%s.mf", ctx->vm_name);
         mf_path = g_strdup_printf("%s/%s", tmpdir, mf_name);
         gchar *ovf_hash  = _ova_sha256_file(ovf_path);
@@ -3403,7 +2721,6 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         }
         g_free(mf_content); g_free(ovf_hash); g_free(vmdk_hash);
 
-        /* 7. tar -cf 로 OVA 생성 */
         ova_path = g_strdup_printf("%s/%s.ova", ctx->output_dir, ctx->vm_name);
         pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 85,
                               "Creating OVA archive");
@@ -3471,7 +2788,6 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     const gchar *output_dir = json_object_has_member(params, "output_dir")
         ? json_object_get_string_member(params, "output_dir") : "/tmp";
 
-    /* 출력 디렉토리 검증: realpath로 경로 순회 방지 */
     gchar *real_out = realpath(output_dir, NULL);
     if (!real_out) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -3480,10 +2796,8 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-    /* 작업 큐에 등록 */
     gchar *job_id = pcv_job_create("ova_export", name, NULL);
 
-    /* fire-and-forget: 즉시 "accepted" 응답 */
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "status", "accepted");
     json_object_set_string_member(obj, "vm", name);
@@ -3496,7 +2810,6 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
 
-    /* GTask 비동기 실행 */
     OvaExportCtx *ctx = g_new0(OvaExportCtx, 1);
     ctx->vm_name = g_strdup(name);
     ctx->output_dir = g_strdup(real_out);
@@ -3509,19 +2822,6 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     g_task_run_in_thread(task, _ova_export_worker);
     g_object_unref(task);
 }
-
-/* ── OVA Import ────────────────────────────────────────────────────────────
- * vm.import.ova — OVA 파일에서 VM 임포트 (fire-and-forget)
- *
- * params: {"ova_path":"/tmp/web.ova", "name":"web-imported", "pool":"pcvpool/vms"}
- *
- * Worker 단계:
- *   1. tar -xf → 임시 디렉터리
- *   2. .ovf 파싱 → vCPU/메모리/디스크 파일명
- *   3. qemu-img convert (vmdk → raw/qcow2)
- *   4. virt-install --import
- *   5. 임시 디렉터리 정리
- * ────────────────────────────────────────────────────────────────────────── */
 
 typedef struct {
     gchar *ova_path;
@@ -3542,13 +2842,6 @@ static void _free_ova_import_ctx(gpointer data) {
     g_free(ctx);
 }
 
-/**
- * _ovf_extract_value — OVF XML에서 태그 사이의 값을 추출 (간이 파서)
- * @xml:     전체 OVF 문자열
- * @tag:     검색할 태그명 (예: "VirtualQuantity")
- * @after:   이 문자열 이후에서 검색 (NULL이면 처음부터)
- * @return   값 문자열 (호출자 g_free), 미발견 시 NULL
- */
 static gchar *
 _ovf_extract_value(const gchar *xml, const gchar *tag, const gchar *after)
 {
@@ -3568,13 +2861,6 @@ _ovf_extract_value(const gchar *xml, const gchar *tag, const gchar *after)
     return result;
 }
 
-/**
- * _ovf_extract_attr — OVF XML 태그에서 속성 값을 추출
- * @xml:  전체 OVF 문자열
- * @tag:  태그명 (예: "File")
- * @attr: 속성명 (예: "ovf:href")
- * @return 속성 값 (호출자 g_free), 미발견 시 NULL
- */
 static gchar *
 _ovf_extract_attr(const gchar *xml, const gchar *tag, const gchar *attr)
 {
@@ -3628,7 +2914,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
 
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 5, "Extracting OVA archive");
 
-    /* 1. 임시 디렉터리 생성 */
     gchar tmpl[] = "/tmp/pcv-ova-import-XXXXXX";
     tmpdir = g_strdup(mkdtemp(tmpl));
     if (!tmpdir) {
@@ -3638,7 +2923,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         goto import_cleanup;
     }
 
-    /* 2. tar 추출 */
     {
         const gchar *argv[] = {"tar", "-xf", ctx->ova_path, "-C", tmpdir, NULL};
         gchar *std_err = nullptr;
@@ -3656,7 +2940,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     }
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 20, "Parsing OVF metadata");
 
-    /* 3. .ovf 파일 찾기 */
     gchar *ovf_path = nullptr;
     {
         GDir *dir = g_dir_open(tmpdir, 0, NULL);
@@ -3678,7 +2961,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         goto import_cleanup;
     }
 
-    /* 4. OVF 파싱 */
     gchar *ovf_content = nullptr;
     gsize ovf_len = 0;
     if (!g_file_get_contents(ovf_path, &ovf_content, &ovf_len, NULL) || !ovf_content) {
@@ -3689,8 +2971,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         goto import_cleanup;
     }
 
-    /* CPU: <rasd:ResourceType>3</rasd:ResourceType> 이후 VirtualQuantity */
-    gint vcpus = 2;  /* 기본값 */
+    gint vcpus = 2;
     {
         const gchar *cpu_marker = strstr(ovf_content, "<rasd:ResourceType>3</rasd:ResourceType>");
         if (cpu_marker) {
@@ -3700,8 +2981,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (vcpus < 1) vcpus = 2;
     }
 
-    /* Memory: <rasd:ResourceType>4</rasd:ResourceType> 이후 VirtualQuantity */
-    gint memory_mb = 2048;  /* 기본값 */
+    gint memory_mb = 2048;
     {
         const gchar *mem_marker = strstr(ovf_content, "<rasd:ResourceType>4</rasd:ResourceType>");
         if (mem_marker) {
@@ -3711,7 +2991,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (memory_mb < 256) memory_mb = 2048;
     }
 
-    /* 디스크 파일명: <File ovf:href="xxx.vmdk"> */
     gchar *vmdk_name = _ovf_extract_attr(ovf_content, "File", "ovf:href");
     g_free(ovf_content);
     g_free(ovf_path);
@@ -3723,7 +3002,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         goto import_cleanup;
     }
 
-    /* 5. VMDK 파일 확인 */
     vmdk_path = g_strdup_printf("%s/%s", tmpdir, vmdk_name);
     g_free(vmdk_name);
     if (!g_file_test(vmdk_path, G_FILE_TEST_EXISTS)) {
@@ -3736,7 +3014,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 30,
         "Converting disk image (vmdk → target format)");
 
-    /* 6. 디스크 변환 — ZFS zvol 또는 qcow2 폴백 */
     gboolean use_zvol = FALSE;
     {
         const gchar *pool_argv[] = {"zfs", "list", "-H", "-o", "name",
@@ -3745,18 +3022,16 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     }
 
     if (use_zvol) {
-        /* ZFS zvol: qemu-img convert -f vmdk -O raw /dev/zvol/<pool>/<name> */
-        /* 먼저 zvol 생성 (크기는 원본에서 추정) */
+
         gchar *zvol_path = g_strdup_printf("/dev/zvol/%s/%s", ctx->pool, ctx->vm_name);
         gchar *zvol_name = g_strdup_printf("%s/%s", ctx->pool, ctx->vm_name);
 
-        /* 원본 크기 확인: qemu-img info */
         gchar *stdout_buf = nullptr;
         const gchar *info_argv[] = {"qemu-img", "info", "--output=json", vmdk_path, NULL};
         GError *error = nullptr;
-        gint64 disk_bytes = 10LL * 1024 * 1024 * 1024; /* 기본 10GB */
+        gint64 disk_bytes = 10LL * 1024 * 1024 * 1024;
         if (pcv_spawn_sync(info_argv, &stdout_buf, NULL, &error)) {
-            /* "virtual-size": 값 추출 */
+
             if (stdout_buf) {
                 const gchar *vs = strstr(stdout_buf, "\"virtual-size\":");
                 if (vs) {
@@ -3794,7 +3069,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         created_zvol_dataset = g_strdup(zvol_name);
         g_free(zvol_name);
 
-        /* qemu-img convert */
         const gchar *conv_argv[] = {
             "qemu-img", "convert", "-f", "vmdk", "-O", "raw",
             vmdk_path, zvol_path, NULL
@@ -3818,7 +3092,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         g_free(std_err);
         disk_path = zvol_path;
     } else {
-        /* qcow2 폴백 */
+
         disk_path = g_strdup_printf("%s/%s.qcow2", ctx->image_dir, ctx->vm_name);
         const gchar *conv_argv[] = {
             "qemu-img", "convert", "-f", "vmdk", "-O", "qcow2",
@@ -3841,7 +3115,6 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
 
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 80, "Defining VM via virt-install");
 
-    /* 7. virt-install --import */
     {
         gchar *vcpu_str = g_strdup_printf("%d", vcpus);
         gchar *mem_str = g_strdup_printf("%d", memory_mb);
@@ -3905,7 +3178,7 @@ import_cleanup:
     g_free(vmdk_path);
     g_free(created_zvol_dataset);
     g_free(audit_error_owned);
-    /* 임시 디렉터리 정리 */
+
     if (tmpdir) {
         gchar *rm_tmpdir = g_strdup(tmpdir);
         const gchar *rm_argv[] = {"rm", "-rf", rm_tmpdir, NULL};
@@ -3931,7 +3204,6 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-    /* VM 이름 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be alphanumeric/hyphen/underscore, 1-63 chars");
@@ -3939,7 +3211,6 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-    /* OVA 경로 검증: realpath로 경로 순회 방지 */
     gchar *real_ova = realpath(ova_path, NULL);
     if (!real_ova) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -3970,7 +3241,6 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         pool = pcv_config_get_zvol_pool();
     const gchar *image_dir = pcv_config_get_image_dir();
 
-    /* accepted 응답 전에 target VM/domain/disk 충돌과 libvirt 접근성을 확인한다. */
     {
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
@@ -4021,10 +3291,8 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         }
     }
 
-    /* 작업 큐 등록 */
     gchar *job_id = pcv_job_create("ova_import", name, NULL);
 
-    /* fire-and-forget: 즉시 "accepted" 응답 */
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "status", "accepted");
     json_object_set_string_member(obj, "vm", name);
@@ -4036,7 +3304,6 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
 
-    /* GTask 비동기 실행 */
     OvaImportCtx *ctx = g_new0(OvaImportCtx, 1);
     ctx->ova_path = g_strdup(real_ova);
     ctx->vm_name = g_strdup(name);
@@ -4052,20 +3319,6 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     g_object_unref(itask);
 }
 
-/* 플레이스홀더 핸들러 삭제됨 (2026-04-04)
- * terraform/OCI/docker/GPU passthrough/stretched cluster — 미구현 스텁 15개 제거
- * 미등록 메서드는 디스패처가 -32601 "Method not found"로 자동 응답 */
-
-/* ═══════════════════════════════════════════════════════════════════
- * [백엔드 4차] 28건 핸들러 구현
- * ═══════════════════════════════════════════════════════════════════ */
-
-/* apikey.create 계약 확장: expires_at 파라미터 관용 파싱.
- * 코드베이스 관용(sessions/api_keys 모두 epoch INTEGER)을 따라 epoch 초로 정규화한다.
- *   - int/double  → 그대로 epoch 초
- *   - "숫자문자열" → epoch 초로 파싱
- *   - ISO8601 문자열 → g_date_time_new_from_iso8601 → epoch 초
- *   - 부재/null/미해석 → 0 (무기한) */
 static gint64 _apikey_parse_expires_at(JsonObject *params)
 {
     if (!params || !json_object_has_member(params, "expires_at")) return 0;
@@ -4080,20 +3333,17 @@ static gint64 _apikey_parse_expires_at(JsonObject *params)
         if (!s || !*s) return 0;
         gchar *end = NULL;
         gint64 v = g_ascii_strtoll(s, &end, 10);
-        if (end && *end == '\0') return v;  /* 순수 epoch 문자열 */
+        if (end && *end == '\0') return v;
         GDateTime *dt = g_date_time_new_from_iso8601(s, NULL);
         if (dt) { gint64 u = g_date_time_to_unix(dt); g_date_time_unref(dt); return u; }
     }
     return 0;
 }
 
-/* A-1. auth.apikey.create — API Key 생성
- * 계약: { name(필수, client_name 별칭), role(옵션, 기본 OPERATOR),
- *        description(옵션, 저장), expires_at(옵션, epoch 초; 만료 거부 집행) } */
 static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
-    /* name(정본) 우선, client_name(레거시 별칭) fallback */
+
     const gchar *client_name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
     if (!client_name || !*client_name)
         client_name = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
@@ -4144,7 +3394,6 @@ static void _handle_apikey_create(JsonObject *params, const gchar *rpc_id,
     g_free(r); g_free(key_out);
 }
 
-/* A-2. auth.apikey.list */
 static void _handle_apikey_list(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -4156,7 +3405,6 @@ static void _handle_apikey_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* A-3. auth.apikey.revoke */
 static void _handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -4177,7 +3425,6 @@ static void _handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* A-4. auth.session.revoke — JWT 세션 무효화 */
 /* PCV_SAFETY_CONTROL: session-revoke — revoke된 jti를 라이브 blacklist에 등록해 토큰 실제 거부 (SEC-1) */
 static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
@@ -4187,9 +3434,7 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "jti required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* SEC-1: pcv_jwt_verify가 읽는 라이브 blacklist(g_jti_blacklist)에 등록한다.
-     * 이전엔 죽은 g_session_blacklist(호출처 0)에만 써서 토큰이 만료까지 통과했다.
-     * jti만 있고 토큰 exp를 모르므로 access 토큰 수명(900s)만큼 보수적 TTL. */
+
     gint64 exp = g_get_real_time() / G_USEC_PER_SEC + 900;
     pcv_jwt_blacklist_add(jti, exp);
     gchar jti_masked[9];
@@ -4202,7 +3447,6 @@ static void _handle_session_revoke(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* auth.user.sessions.revoke — 대상 사용자의 refresh 세션 전부 무효화 (MED batch E, refresh-remint) */
 /* PCV_SAFETY_CONTROL: user-sessions-revoke — 대상 사용자 refresh 세션을 DB에서 revoked=1로
  *   마킹(pcv_rbac_revoke_session)해 refresh 재발급(re-mint)을 실제 거부. SEC-1
  *   session-revoke(jti-blacklist=access 토큰)와 별개 store. ADMIN 강제는
@@ -4237,39 +3481,23 @@ static void _handle_user_sessions_revoke(JsonObject *params, const gchar *rpc_id
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* ── vm.batch whitelist ───────────────────────────────────────────────
- * whitelist = vm_manager 에 public `_async` fn 이 실존하는 action 만.
- * start/stop 확인(vm_manager.h:154/173, 시그니처 4-param
- *   void (PureCVisorVmManager*, const gchar*, GAsyncReadyCallback, gpointer)).
- * pause/resume/reboot 는 vm_manager 에 `_async` public fn 이 없어 제외
- *   (handler_vm_lifecycle 는 raw libvirt 직접 경로 — 소켓/GTask 계약이 달라
- *    fire-and-forget 팬아웃으로 재사용 불가). delete_vm_async 는 실존하지만
- *   파괴적이라 결정된 whitelist 후보집합(start/stop/pause/resume/reboot) 밖.
- *
- * 동기 규약(I-2): "허용" 판정의 **단일 진리원**은 vm_batch_policy.c 의 리스트
- *   (pcv_vm_batch_action_is_whitelisted)다. 아래 배열은 "허용→vm_manager async
- *   fn" 매핑이며, policy 리스트와 동기 유지해야 한다(양쪽 모두 {start,stop}).
- * ─────────────────────────────────────────────────────────────────────── */
 typedef void (*PcvVmBatchAsyncFn)(PureCVisorVmManager *self, const gchar *name,
                                   GAsyncReadyCallback callback, gpointer user_data);
 typedef gboolean (*PcvVmBatchFinishFn)(PureCVisorVmManager *manager,
                                        GAsyncResult *res, GError **error);
 static const struct {
-    const gchar        *action;   /* vm.batch RPC action */
-    const gchar        *method;   /* per-VM 감사 메서드명 (M-1) */
+    const gchar        *action;
+    const gchar        *method;
     PcvVmBatchAsyncFn   fn;
-    PcvVmBatchFinishFn  finish;   /* per-VM 완료 결과 propagate (M-1) */
+    PcvVmBatchFinishFn  finish;
 } PCV_VM_BATCH_WHITELIST[] = {
     { "start", "vm.start", purecvisor_vm_manager_start_vm_async, purecvisor_vm_manager_start_vm_finish },
     { "stop",  "vm.stop",  purecvisor_vm_manager_stop_vm_async,  purecvisor_vm_manager_stop_vm_finish  },
 };
 
-/* 팬아웃 per-VM 완료 컨텍스트(M-1): 배치 집계 응답은 이미 전송됐으므로 개별
- * VM 의 성공/실패는 이 콜백에서만 감사에 남는다(단일 vm.start/stop 과 동형).
- * 옛 NULL 콜백은 개별 실패를 audit·클라 양쪽에 노출하지 않았다. */
 typedef struct {
-    const gchar        *method;   /* 정적 문자열(whitelist) — 해제 불요 */
-    gchar              *vm;       /* strdup — 콜백에서 해제 */
+    const gchar        *method;
+    gchar              *vm;
     PcvVmBatchFinishFn  finish;
 } VmBatchItemCtx;
 
@@ -4278,8 +3506,7 @@ static void _vm_batch_action_callback(GObject *source_object,
 {
     VmBatchItemCtx *c = data;
     GError *err = NULL;
-    /* finish() 가 결과를 propagate 하고(성공 시 vm-started/stopped 시그널 emit)
-     * 태스크 내부 상태를 정리한다. source_object == 태스크를 만든 vm_manager. */
+
     gboolean ok = c->finish(PURECVISOR_VM_MANAGER(source_object), res, &err);
     pcv_audit_log(NULL, c->method, c->vm, ok ? "ok" : "fail",
                   ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
@@ -4288,18 +3515,6 @@ static void _vm_batch_action_callback(GObject *source_object,
     g_free(c);
 }
 
-/* B-1. vm.batch — whitelist action별 vm_manager async 팬아웃 (ADR-0025 배선=완료)
- *
- * 기존 스텁은 action 을 각 VM 에 수행하지 않고 "accepted" 만 반환했다
- * ("보고성공 무동작", ADR-0025 가 겨냥하는 클래스). 이제 whitelist action 에
- * 한해, 존재하는 각 VM 에 대해 purecvisor_vm_manager_<action>_async 를 직접
- * 호출(팬아웃)한다.
- *   - 핸들러 재호출(vm.start RPC 재invoke) 아님 → 소켓 충돌 회피.
- *   - 배치는 개별 완료를 기다리지 않고 즉시 집계 accept/reject 응답을 보낸다
- *     (워커는 각자 conn pool 에서 실행). 개별 VM 완료는 _vm_batch_action_callback
- *     이 per-VM 로 감사 기록한다(M-1: 옛 NULL 콜백은 개별 실패를 audit·클라
- *     양쪽에 노출하지 않았다). 실-VM 상태전이는 .50 E2E 로 실증.
- */
 static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
@@ -4311,15 +3526,11 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
-    /* whitelist 게이트: 허용 판정은 policy 리스트(단일 진리원)로 라우팅한다
-     * (vm_batch_policy.c). 허용 밖이면 unsupported batch action. */
     if (!pcv_vm_batch_action_is_whitelisted(action)) {
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "unsupported batch action");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
-    /* 허용 action → vm_manager async fn 매핑 조회. policy 리스트와 fn 배열이
-     * drift 하면(허용인데 fn 부재) 방어적으로 거부한다(정상 경로에선 도달 불가). */
     PcvVmBatchAsyncFn  action_fn     = NULL;
     PcvVmBatchFinishFn action_finish = NULL;
     const gchar       *audit_method  = NULL;
@@ -4336,14 +3547,12 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
-    /* vm_manager 싱글턴(프로세스 라이브 매니저) — init/set_connection 이 기록 */
     PureCVisorVmManager *mgr = g_dispatch_vm_manager;
     if (!mgr) {
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "vm manager unavailable");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
 
-    /* 존재 검증용 libvirt 연결(팬아웃 워커는 각자 conn pool 에서 재획득) */
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "libvirt unavailable");
@@ -4362,7 +3571,7 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
             json_array_add_object_element(rejected, rej);
             continue;
         }
-        /* 존재 검증: start_vm_thread_impl 과 동일하게 이름으로 조회 */
+
         virDomainPtr dom = virDomainLookupByName(conn, vm);
         if (!dom) {
             JsonObject *rej = json_object_new();
@@ -4372,9 +3581,9 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
             continue;
         }
         virDomainFree(dom);
-        /* 팬아웃: 매니저 async 직접 호출. per-VM 완료 콜백이 개별 결과를 감사(M-1). */
+
         VmBatchItemCtx *ictx = g_new0(VmBatchItemCtx, 1);
-        ictx->method = audit_method;      /* 정적 문자열(whitelist) */
+        ictx->method = audit_method;
         ictx->vm     = g_strdup(vm);
         ictx->finish = action_finish;
         action_fn(mgr, vm, _vm_batch_action_callback, ictx);
@@ -4382,29 +3591,25 @@ static void _handle_vm_batch(JsonObject *params, const gchar *rpc_id,
     }
     virt_conn_pool_release(conn);
 
-    /* 1개 집계 응답 {action, accepted[], rejected[]} */
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "action", action);
-    json_object_set_array_member(res, "accepted", accepted);  /* transfer full */
-    json_object_set_array_member(res, "rejected", rejected);  /* transfer full */
+    json_object_set_array_member(res, "accepted", accepted);
+    json_object_set_array_member(res, "rejected", rejected);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* B-2. vm.list.filtered — 필터/정렬/검색 */
 static void _handle_vm_list_filtered(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
-    /* 필터 파라미터 추출: filter_status, sort_by, search */
+
     const gchar *filter_status = params ? json_object_get_string_member_with_default(params, "filter_status", NULL) : NULL;
     const gchar *sort_by = params ? json_object_get_string_member_with_default(params, "sort", NULL) : NULL;
     const gchar *search = params ? json_object_get_string_member_with_default(params, "search", NULL) : NULL;
     (void)filter_status; (void)sort_by; (void)search;
 
-    /* vm.list와 동일하게 조회 후 서버사이드 필터링 — 기본 구현은 vm.list 위임 */
-    /* 전체 vm.list를 호출하고 결과에서 필터링 */
     JsonObject *result = json_object_new();
     json_object_set_string_member(result, "note", "Server-side filtering active");
     if (filter_status) json_object_set_string_member(result, "filter_status", filter_status);
@@ -4416,7 +3621,6 @@ static void _handle_vm_list_filtered(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* B-3. pool.conninfo — 커넥션 풀 상태 정보 */
 static void _handle_pool_conninfo(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -4434,7 +3638,6 @@ static void _handle_pool_conninfo(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-1. config.reload — SIGHUP 설정 리로드 */
 static void _handle_config_reload(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -4446,14 +3649,12 @@ static void _handle_config_reload(JsonObject *params, const gchar *rpc_id,
     g_message("[CONFIG] Configuration reloaded via RPC");
 }
 
-/* C-2. health.deep — 심화 헬스 체크 (ZFS + nftables) */
 static void _handle_health_deep(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
     JsonObject *res = json_object_new();
 
-    /* ZFS pool 상태 */
     const gchar *zpool_argv[] = {"zpool", "status", "-x", NULL};
     gchar *zpool_out = nullptr;
     gboolean zpool_ok = pcv_spawn_sync(zpool_argv, &zpool_out, NULL, NULL);
@@ -4461,7 +3662,6 @@ static void _handle_health_deep(JsonObject *params, const gchar *rpc_id,
         (zpool_ok && zpool_out && strstr(zpool_out, "all pools are healthy")) ? "ok" : "degraded");
     g_free(zpool_out);
 
-    /* nftables 규칙 수 */
     const gchar *nft_argv[] = {"nft", "list", "ruleset", NULL};
     gchar *nft_out = nullptr;
     pcv_spawn_sync(nft_argv, &nft_out, NULL, NULL);
@@ -4481,20 +3681,11 @@ static void _handle_health_deep(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* backup.snapshot.verify 존재-검증 프로브(pcv_snapshot_verify_probe)는 데몬과
- * test_runner 가 둘 다 링크하는 src/api/snapshot_verify_probe.c 로 추출됐다
- * (I-2 시정: 유닛 테스트가 손복제 대신 실 프로덕션 함수를 호출).
- * integrity property-read(zfs get written)는 아래 워커에 그대로 둔다. */
-
-/* GTask 컨텍스트. vm.start 는 "accepted" 선전송 후 fire-and-forget 이지만,
- * verify 는 연결을 ctx 에 ref 보관해 워커 완료 콜백에서 **실제** exists 를 단
- * 한 번 회신한다(소켓은 그때까지 열린 채 유지된다 — on_read_done 성공 경로는
- * dispatch 반환 후 소켓을 닫지 않는다). */
 typedef struct {
-    UdsServer         *server;      /* g_object_ref 됨 */
-    GSocketConnection *connection;  /* g_object_ref 됨 — 워커 완료까지 유지 */
+    UdsServer         *server;
+    GSocketConnection *connection;
     gchar             *rpc_id;
-    gchar             *snap;        /* dispatch 반환 후 params 는 해제되므로 복사 필수 */
+    gchar             *snap;
 } SnapshotVerifyCtx;
 
 static void _snapshot_verify_ctx_free(gpointer data)
@@ -4508,7 +3699,6 @@ static void _snapshot_verify_ctx_free(gpointer data)
     g_free(ctx);
 }
 
-/* 워커 스레드: 블로킹 zfs list 실행 → 실 exists → 결과 JsonObject 반환. */
 static void _snapshot_verify_worker(GTask *task, gpointer src,
                                     gpointer data, GCancellable *cancellable)
 {
@@ -4518,10 +3708,7 @@ static void _snapshot_verify_worker(GTask *task, gpointer src,
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "snapshot", ctx->snap);
     json_object_set_boolean_member(res, "exists", exists);
-    /* integrity: 미존재면 "missing". 존재하면 실 property-read 로 뒷받침한다 —
-     * zfs get -H -o value written <snap> 가 exit 0 이면 "verified"(단순 존재가
-     * 아니라 property 읽기까지 성공), 존재하나 property-read 실패면 "degraded".
-     * (셸 미경유 argv — pcv_snapshot_verify_probe 관례 동일. 블로킹은 워커 스레드.) */
+
     const gchar *integrity;
     if (!exists) {
         integrity = "missing";
@@ -4529,7 +3716,7 @@ static void _snapshot_verify_worker(GTask *task, gpointer src,
         const gchar *prop_argv[] = {
             "zfs", "get", "-H", "-o", "value", "written", ctx->snap, NULL
         };
-        /* exit 0 == property 읽기 성공. stdout/stderr 불필요(→ NULL). */
+
         gboolean prop_ok = pcv_spawn_sync(prop_argv, NULL, NULL, NULL);
         integrity = prop_ok ? "verified" : "degraded";
     }
@@ -4537,7 +3724,6 @@ static void _snapshot_verify_worker(GTask *task, gpointer src,
     g_task_return_pointer(task, res, (GDestroyNotify)json_object_unref);
 }
 
-/* 완료 콜백(메인 루프): 워커의 실결과를 클라이언트로 단 한 번 전송. */
 static void _snapshot_verify_done(GObject *src, GAsyncResult *result,
                                   gpointer data)
 {
@@ -4545,21 +3731,16 @@ static void _snapshot_verify_done(GObject *src, GAsyncResult *result,
     SnapshotVerifyCtx *ctx = data;
     JsonObject *res = g_task_propagate_pointer(G_TASK(result), NULL);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(n, res ? res : json_object_new());  /* res 소유권 take */
-    gchar *r = pure_rpc_build_success_response(ctx->rpc_id, n);  /* n 소유권 take */
+    json_node_take_object(n, res ? res : json_object_new());
+    gchar *r = pure_rpc_build_success_response(ctx->rpc_id, n);
     pure_uds_server_send_response(ctx->server, ctx->connection, r);
     g_free(r);
-    /* 감사(I-1): async-result 라 디스패처는 이 메서드를 audit 하지 않는다
-     * (g_async_methods 등록). 워커의 실결과를 여기서 단 한 번 기록한다 — 형제
-     * async 핸들러(vm.create/vm.clone/rollback) 관례(username=NULL, dur=0, local).
-     * res==NULL 은 워커 태스크 실패(정상 경로 아님)→fail; exists true/false·
-     * integrity 는 정상 결과이므로 ok. */
+
     pcv_audit_log(NULL, "backup.snapshot.verify", ctx->snap,
                   res ? "ok" : "fail", res ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    /* ctx 는 GTask task-data GDestroyNotify(_snapshot_verify_ctx_free)로 해제 */
+
 }
 
-/* C-3. backup.snapshot.verify — 스냅샷 존재/무결성 검증 (async-result) */
 static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -4567,13 +3748,11 @@ static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
     if (!snap || !*snap) {
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "snapshot name required");
         pure_uds_server_send_response(server, connection, r); g_free(r);
-        /* 감사(I-1): async 등록 이후 디스패처는 이 메서드를 audit 하지 않는다.
-         * 워커가 뜨기 전 조기 검증 실패 경로는 여기서 직접 fail 을 남긴다. */
+
         pcv_audit_log(NULL, "backup.snapshot.verify", "", "fail", PURE_RPC_ERR_INVALID_PARAMS, 0, "local");
         return;
     }
-    /* 블로킹 zfs list 는 GTask 워커에서. 연결/서버를 ctx 에 ref 보관하고,
-     * 워커 완료 콜백에서 실결과를 회신한다(응답은 콜백에서 단 한 번). */
+
     SnapshotVerifyCtx *ctx = g_new0(SnapshotVerifyCtx, 1);
     ctx->server     = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
@@ -4585,14 +3764,12 @@ static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
     g_object_unref(task);
 }
 
-/* C-4. jobs.persist.list — 영속 Job 목록 (SQLite cloud_jobs.db 조회) */
 static void _handle_jobs_persist_list(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
     JsonArray *arr = json_array_new();
 
-    /* SQLite에서 완료/실패된 작업 조회 */
     sqlite3 *db = nullptr;
     if (sqlite3_open_v2("/var/lib/purecvisor/cloud_jobs.db", &db,
                         SQLITE_OPEN_READONLY, NULL) == SQLITE_OK) {
@@ -4633,7 +3810,6 @@ static void _handle_jobs_persist_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-5. alert.silence — 알림 음소거 */
 static void _handle_alert_silence(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -4645,7 +3821,7 @@ static void _handle_alert_silence(JsonObject *params, const gchar *rpc_id,
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "metric required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* alert_engine에 silence 등록 */
+
     pcv_alert_add_silence(metric, duration_min, reason);
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "metric", metric);
@@ -4657,7 +3833,6 @@ static void _handle_alert_silence(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-6. alert.silence.list — 활성 음소거 목록 */
 static void _handle_alert_silence_list(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
@@ -4669,9 +3844,6 @@ static void _handle_alert_silence_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-6b. alert.dlq.list — 웹훅 전송 실패(DLQ) 목록.
- * AF-C4 발굴: 백엔드 pcv_alert_engine_dlq_list() 는 존재하나 RPC 미등록이라 FE
- * loadWebhookDlq() 버튼이 -32601 이었다("능력 구축 후 미배선" 테마). 배선. */
 static void _handle_alert_dlq_list(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -4683,7 +3855,6 @@ static void _handle_alert_dlq_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-6c. alert.dlq.retry — DLQ 항목 재전송 시도 (백엔드 pcv_alert_engine_dlq_retry). */
 static void _handle_alert_dlq_retry(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -4695,11 +3866,10 @@ static void _handle_alert_dlq_retry(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-7. alert.config.routing — 심각도별 Webhook 라우팅 설정 */
 static void _handle_alert_routing(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
-    /* webhook_crit_url 설정 반환/변경 */
+
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "feature", "alert_routing");
     json_object_set_string_member(res, "status", "configured");
@@ -4710,7 +3880,6 @@ static void _handle_alert_routing(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* C-8. db.migration.status — DB 스키마 버전 */
 static void _handle_db_migration_status(JsonObject *params, const gchar *rpc_id,
                                          UdsServer *server, GSocketConnection *connection)
 {
@@ -4726,7 +3895,6 @@ static void _handle_db_migration_status(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* D-1. container.snapshot.create */
 static void _handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                                UdsServer *server, GSocketConnection *connection)
 {
@@ -4736,7 +3904,7 @@ static void _handle_container_snapshot_create(JsonObject *params, const gchar *r
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name and snapshot required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* lxc-snapshot -n <name> → 스냅샷 생성 */
+
     const gchar *argv[] = {"lxc-snapshot", "-n", name, NULL};
     gchar *out = nullptr;
     gboolean ok = pcv_spawn_sync(argv, &out, NULL, NULL);
@@ -4750,7 +3918,6 @@ static void _handle_container_snapshot_create(JsonObject *params, const gchar *r
     pure_uds_server_send_response(server, connection, r); g_free(r); g_free(out);
 }
 
-/* D-2. container.snapshot.list */
 static void _handle_container_snapshot_list(JsonObject *params, const gchar *rpc_id,
                                              UdsServer *server, GSocketConnection *connection)
 {
@@ -4778,7 +3945,6 @@ static void _handle_container_snapshot_list(JsonObject *params, const gchar *rpc
     pure_uds_server_send_response(server, connection, r); g_free(r); g_free(out);
 }
 
-/* D-3. container.snapshot.delete */
 static void _handle_container_snapshot_delete(JsonObject *params, const gchar *rpc_id,
                                                UdsServer *server, GSocketConnection *connection)
 {
@@ -4798,7 +3964,6 @@ static void _handle_container_snapshot_delete(JsonObject *params, const gchar *r
     if (!ok) json_node_free(n);
 }
 
-/* D-4. container.clone */
 typedef struct {
     gchar *source;
     gchar *dest;
@@ -4850,7 +4015,7 @@ static void _handle_container_clone(JsonObject *params, const gchar *rpc_id,
             "invalid source or dest container name");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* fire-and-forget: 응답 먼저 전송 후 lxc-copy 비동기 */
+
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "source", src);
     json_object_set_string_member(res, "dest", dst);
@@ -4859,14 +4024,13 @@ static void _handle_container_clone(JsonObject *params, const gchar *rpc_id,
     json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
     pure_uds_server_send_response(server, connection, r); g_free(r);
-    /* ADR-0018: 실제 clone 결과는 완료 콜백에서 audit/WS로 기록한다. */
+
     ContainerCloneAuditCtx *ctx = g_new0(ContainerCloneAuditCtx, 1);
     ctx->source = g_strdup(src);
     ctx->dest = g_strdup(dst);
     pcv_lxc_clone_async(src, dst, NULL, _on_container_clone_done, ctx);
 }
 
-/* D-5. container.memory.stats — cgroup memory.stat 파싱 */
 static void _handle_container_memory_stats(JsonObject *params, const gchar *rpc_id,
                                             UdsServer *server, GSocketConnection *connection)
 {
@@ -4875,7 +4039,7 @@ static void _handle_container_memory_stats(JsonObject *params, const gchar *rpc_
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* cgroup v2 memory.stat 읽기 */
+
     gchar *path = g_strdup_printf("/sys/fs/cgroup/lxc.payload.%s/memory.stat", name);
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "container", name);
@@ -4898,7 +4062,6 @@ static void _handle_container_memory_stats(JsonObject *params, const gchar *rpc_
     pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
-/* D-6. container.health.check — HTTP/TCP 헬스 프로브 */
 static void _handle_container_health_check(JsonObject *params, const gchar *rpc_id,
                                             UdsServer *server, GSocketConnection *connection)
 {
@@ -4907,7 +4070,7 @@ static void _handle_container_health_check(JsonObject *params, const gchar *rpc_
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-    /* lxc-info로 상태 확인 */
+
     const gchar *argv[] = {"lxc-info", "-n", name, "-sH", NULL};
     gchar *out = nullptr;
     pcv_spawn_sync(argv, &out, NULL, NULL);
@@ -4922,7 +4085,6 @@ static void _handle_container_health_check(JsonObject *params, const gchar *rpc_
     pure_uds_server_send_response(server, connection, r); g_free(r); g_free(out);
 }
 
-/* ── jobs.list ────────────────────────────────────────────────────── */
 static void _handle_jobs_list(JsonObject *params, const gchar *rpc_id,
                                UdsServer *server, GSocketConnection *connection)
 {
@@ -4937,7 +4099,6 @@ static void _handle_jobs_list(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── jobs.get ─────────────────────────────────────────────────────── */
 static void _handle_jobs_get(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
@@ -4961,7 +4122,6 @@ static void _handle_jobs_get(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── jobs.cancel ──────────────────────────────────────────────────── */
 static void _handle_jobs_cancel(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -4986,19 +4146,12 @@ static void _handle_jobs_cancel(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ── prometheus.sd ────────────────────────────────────────────────────
- * Prometheus file_sd_config 호환 서비스 디스커버리 엔드포인트.
- * Prometheus가 이 엔드포인트를 폴링하여 스크레이프 대상을 자동 발견합니다.
- *
- * 반환 형식: [{targets: ["host:port"], labels: {job, __metrics_path__}}]
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_prometheus_sd(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
     gint port = pcv_config_get_rest_port();
 
-    /* 호스트명 조회 */
     gchar hostname[256];
     if (gethostname(hostname, sizeof(hostname)) != 0)
         g_strlcpy(hostname, "localhost", sizeof(hostname));
@@ -5026,17 +4179,12 @@ static void _handle_prometheus_sd(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── alert.action.list ───────────────────────────────────────────────
- * 현재 알림 엔진 설정(임계값, Webhook, 복합 규칙 등)을 반환합니다.
- * alert.config.get과 유사하지만, 액션(Webhook/알림 채널) 관점으로 제공합니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_alert_action_list(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
     JsonObject *cfg = pcv_alert_engine_get_config();
 
-    /* 액션 관점으로 재구성: webhook + telegram 채널 정보 추출 */
     JsonObject *result = json_object_new();
     JsonArray *actions = json_array_new();
 
@@ -5064,7 +4212,6 @@ static void _handle_alert_action_list(JsonObject *params, const gchar *rpc_id,
 
     json_object_set_array_member(result, "actions", actions);
 
-    /* 임계값 요약 포함 */
     json_object_set_int_member(result, "cpu_warn",
         json_object_get_int_member(cfg, "cpu_warn"));
     json_object_set_int_member(result, "cpu_crit",
@@ -5080,7 +4227,6 @@ static void _handle_alert_action_list(JsonObject *params, const gchar *rpc_id,
     json_object_set_int_member(result, "eval_period",
         json_object_get_int_member(cfg, "eval_period"));
 
-    /* composite_rules도 포함 */
     if (json_object_has_member(cfg, "composite_rules")) {
         json_object_set_array_member(result, "composite_rules",
             json_array_ref(json_object_get_array_member(cfg, "composite_rules")));
@@ -5094,10 +4240,6 @@ static void _handle_alert_action_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.event.webhook.list ───────────────────────────────────────────
- * daemon.conf에 설정된 Webhook URL 목록을 반환합니다.
- * VM 이벤트 알림용 Webhook 설정을 조회할 때 사용합니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_vm_event_webhook_list(JsonObject *params, const gchar *rpc_id,
                                            UdsServer *server, GSocketConnection *connection)
 {
@@ -5129,17 +4271,6 @@ static void _handle_vm_event_webhook_list(JsonObject *params, const gchar *rpc_i
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  AF-C2/AF-C4 — 미구현 CLI RPC 핸들러 배선 (numa/autostart/forecast 등)
- *  CLI 가 호출하나 서버 미등록이던 7개를 배선하여 -32601 을 해소한다.
- *  실제 backing capability 가 있으면 래핑, 없으면 not_available 플래그로
- *  명시(감사 테마 #1 "보고성공-무동작" 재생산 금지).
- * ════════════════════════════════════════════════════════════════════ */
-
-/* ── vm.numa.info — NUMA 토폴로지 조회 (실배선) ────────────────────
- * global_allocator(main.c 의 cpu_allocator_new)의 NUMA/코어 상태를 반환.
- * cpu_allocator_get_numa_info()가 소유권을 넘긴 JsonObject 를 그대로 감싼다.
- * global_allocator 가 NULL 이면 빈 결과(total_cores=0). */
 static void _handle_vm_numa_info(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -5151,11 +4282,6 @@ static void _handle_vm_numa_info(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.autostart — VM 자동시작 설정/조회 (실배선) ─────────────────
- * params: { name, [enable(bool)] }
- *   enable 제공  → virDomainSetAutostart 로 설정 후 최종 상태 반환.
- *   enable 미제공 → virDomainGetAutostart 로 현재 상태만 조회.
- * virt_conn_pool 로 libvirt 연결을 획득/반납한다. */
 static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -5212,10 +4338,6 @@ static void _handle_vm_autostart(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.sla.report — VM 가동률(SLA) 리포트 (실배선) ────────────────
- * params: { name }
- * alert_engine 의 uptime/downtime 추적기(pcv_alert_get_sla)를 그대로 반환.
- * 추적 이력이 없는 VM은 모듈 기본값(uptime_percent=100, seconds=0)을 준다. */
 static void _handle_vm_sla_report(JsonObject *params, const gchar *rpc_id,
                                   UdsServer *server, GSocketConnection *connection)
 {
@@ -5232,10 +4354,6 @@ static void _handle_vm_sla_report(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── capacity.forecast — 워크로드 예측 기반 용량 전망 (실배선) ──────
- * workload_predict 모듈의 예측 상태(pcv_predict_get_forecast_json)를
- * JSON 배열로 파싱하여 forecasts 에 담아 반환. 파싱 실패/빈 예측이면
- * 빈 배열 + note(예측 표본 부족)를 반환한다. */
 static void _handle_capacity_forecast(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -5257,7 +4375,7 @@ static void _handle_capacity_forecast(JsonObject *params, const gchar *rpc_id,
     g_free(fjson);
 
     if (farr) {
-        json_object_set_member(res, "forecasts", farr);   /* ownership → res */
+        json_object_set_member(res, "forecasts", farr);
         json_object_set_string_member(res, "source", "workload_predict");
     } else {
         json_object_set_array_member(res, "forecasts", json_array_new());
@@ -5270,9 +4388,6 @@ static void _handle_capacity_forecast(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.schedule.list — VM 시작/정지 스케줄 목록 (최소구현) ─────────
- * VM cron 스케줄 백엔드가 아직 없다. -32601 은 없애되 없는 데이터를
- * 지어내지 않도록 not_available 플래그로 명시한다(감사 테마 #1 회피). */
 static void _handle_vm_schedule_list(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *connection)
 {
@@ -5288,10 +4403,6 @@ static void _handle_vm_schedule_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.schedule.set — VM 시작/정지 스케줄 설정 (최소구현) ──────────
- * params: { name, [start_cron], [stop_cron] }
- * 스케줄 백엔드 부재. 아무 것도 적용하지 않았음을 applied=false 로
- * 명시한다(보고성공-무동작 재생산 금지). */
 static void _handle_vm_schedule_set(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -5312,8 +4423,6 @@ static void _handle_vm_schedule_set(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── vm.billing.report — VM 빌링 리포트 (최소구현) ─────────────────
- * 리소스 미터링/과금 백엔드가 없다. not_available 플래그로 명시한다. */
 static void _handle_vm_billing_report(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -5329,19 +4438,6 @@ static void _handle_vm_billing_report(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── quota.get ────────────────────────────────────────────────────────
- * 로컬 리소스 쿼터 조회 — 현재 하드코딩된 글로벌 쿼터
- *
- * [쿼터 값 의미]
- *   max_vms_per_node: 노드당 최대 VM 수 (vm.create 시 검증)
- *   max_snapshots_per_vm: VM당 최대 스냅샷 수
- *   max_disk_gb: 노드당 최대 디스크 총량 (미시행, 향후 구현)
- *   maintenance_mode: 유지보수 모드 여부 (true이면 새 VM 생성 거부)
- *   current_vms: 현재 정의+실행 중인 VM 수 (libvirt 실시간 조회)
- *
- * [향후 개선]
- *   현재는 글로벌 쿼터. 향후 RBAC DB 확장으로 per-user 쿼터 지원 예정.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_quota_get(JsonObject *params, const gchar *rpc_id,
                                UdsServer *server, GSocketConnection *connection)
 {
@@ -5367,23 +4463,6 @@ static void _handle_quota_get(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── container.set_limits ─────────────────────────────────────────────
- * 컨테이너 CPU/메모리 리소스 제한 설정 (cgroup 제어)
- *
- * [cgroup이란?]
- *   Linux Control Groups — 프로세스 그룹의 CPU/메모리/I/O를 제한하는 커널 기능.
- *   LXC 컨테이너는 cgroup으로 리소스를 격리합니다.
- *
- * [실행 중 vs 정지 상태]
- *   - RUNNING: cgroup 파일에 직접 쓰기로 즉시 적용 (live update) + LXC config 동기화
- *   - STOPPED: LXC config만 업데이트 → 다음 컨테이너 시작 시 적용
- *   - 응답의 "applied" 필드: "live" (즉시 적용) / "config" (다음 시작 시)
- *
- * [파라미터]
- *   name: 컨테이너 이름 (필수)
- *   cpu_percent: CPU 사용률 제한 (1-100, 0=제한 없음)
- *   memory_mb: 메모리 상한 (MB 단위, 0=제한 없음)
- * ────────────────────────────────────────────────────────────────── */
 static void _handle_container_set_limits(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -5463,13 +4542,12 @@ static void _handle_container_set_limits(JsonObject *params, const gchar *rpc_id
     }
 }
 
-/* ── container.nic.list ───────────────────────────────────────────── */
 static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
-    /* [감사 SEC-F1] name이 무검증으로 lxc_driver의 `/bin/sh -c`에 보간되던 경로. */
+
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
@@ -5496,7 +4574,6 @@ static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── container.nic.attach ─────────────────────────────────────────── */
 static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -5506,9 +4583,7 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
         ? json_object_get_string_member(params, "bridge") : NULL;
     const gchar *mac = json_object_has_member(params, "hwaddr")
         ? json_object_get_string_member(params, "hwaddr") : NULL;
-    /* [감사 SEC-F1] name/bridge를 검증 없이 lxc_driver의 `/bin/sh -c`에 보간해
-     * 셸 인젝션→root RCE였다. 형제 핸들러(handler_container.c:327/337)와 동일하게
-     * 진입점에서 검증한다([a-zA-Z0-9_-]만 허용 → 셸 메타문자 차단). */
+
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
@@ -5534,7 +4609,6 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
     }
 }
 
-/* ── container.nic.detach ─────────────────────────────────────────── */
 static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -5542,9 +4616,7 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
         ? json_object_get_string_member(params, "name") : NULL;
     const gchar *nic_name = json_object_has_member(params, "nic_name")
         ? json_object_get_string_member(params, "nic_name") : NULL;
-    /* [감사 SEC-F1] name/nic_name이 무검증으로 lxc_driver의 `/bin/sh -c`에 보간됐다
-     * (nic_name의 `atoi("1; …")` eth-접두 게이트 우회 포함). iface 검증기는 선행
-     * `-`까지 거부해 옵션·셸 인젝션을 함께 차단한다. */
+
     if (!ctr_name || !pcv_validate_vm_name(ctr_name) ||
         !nic_name || !pcv_validate_iface_name(nic_name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameters: name, nic_name");
@@ -5567,7 +4639,6 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
     }
 }
 
-/* ── container.set_bandwidth ──────────────────────────────────────── */
 static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc_id,
                                              UdsServer *server, GSocketConnection *connection)
 {
@@ -5579,8 +4650,7 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
         ? (guint)json_object_get_int_member(params, "inbound_kbps") : 0;
     guint out_kbps = json_object_has_member(params, "outbound_kbps")
         ? (guint)json_object_get_int_member(params, "outbound_kbps") : 0;
-    /* [감사 SEC-F1] name/nic_name이 무검증으로 lxc_driver의 awk 싱글쿼트 문자열 +
-     * `/bin/sh -c`에 보간돼 셸 인젝션→root RCE였다(컨테이너 존재 전제도 없음). */
+
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
         pure_uds_server_send_response(server, connection, e); g_free(e);
@@ -5607,24 +4677,6 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
     }
 }
 
-/* ── vm.clone ─────────────────────────────────────────────────────────
- * 인라인 핸들러 — fire-and-forget 비동기 패턴의 대표 예시
- *
- * [fire-and-forget 패턴 흐름] (모든 비동기 핸들러가 이 패턴을 따름)
- *   1. params에서 필수 파라미터 추출 + 검증 (실패 시 즉시 에러 응답)
- *   2. "accepted" 응답을 먼저 전송 → 소켓 즉시 닫힘
- *   3. GTask로 워커 스레드에서 실제 작업 실행 (_vm_clone_thread)
- *   4. 작업 결과는 감사 로그/DB에만 기록 (소켓이 이미 닫혔으므로 응답 불가)
- *
- * [주의: 콜백에서 send_response 호출 금지]
- *   fire-and-forget에서는 2단계에서 소켓이 닫히므로,
- *   3단계 이후에 send_response를 호출하면 use-after-free 크래시가 발생합니다.
- *   작업 진행 상태를 알고 싶으면 별도 RPC(vm.delete.status 등)로 폴링합니다.
- *
- * [파라미터 호환]
- *   CLI는 source/clone_name, REST UI는 name/new_name을 사용한 이력이 있어
- *   source/name/vm_id와 clone_name/target/new_name을 모두 받는다.
- * ─────────────────────────────────────────────────────────────────── */
 static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
@@ -5650,7 +4702,6 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-    /* 입력 검증 */
     if (!pcv_validate_vm_name(source) || !pcv_validate_vm_name(clone_name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "Invalid VM name — must be [a-zA-Z0-9_-], 1-63 chars");
@@ -5706,13 +4757,6 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     clone_ctx->target = g_strdup(clone_name);
     clone_ctx->guest_reset = guest_reset;
 
-    /* [CMP-7] source·target VM_OP 락 획득 (TOCTOU 차단).
-     * 이전에는 vm.clone이 무락이라 source read·target 존재검사와 실제 clone(worker)
-     * 사이에 동시 vm.delete(source)/vm.create·vm.clone(target)이 인터리브할 수 있었다.
-     * source→target 고정순서로 libvirt 접근 전에 획득한다(lock_vm_operation은
-     * non-blocking → 데드락 불가). 실패 시 -32004로 동기 거부하고, 획득한 락은
-     * flag 기반으로 _vm_clone_ctx_free 단일 해제 지점에서 되돌린다(부분획득 안전).
-     * source op_type=SNAPSHOT(clone은 source를 스냅샷) / target=CREATING. */
     {
         gchar *lock_err = NULL;
         if (!lock_vm_operation(source, VM_OP_SNAPSHOT, &lock_err)) {
@@ -5720,7 +4764,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
                 lock_err ? lock_err : "Source VM busy (another operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
-            _vm_clone_ctx_free(clone_ctx);  /* holds_*_lock 모두 FALSE → unlock 안 함 */
+            _vm_clone_ctx_free(clone_ctx);
             return;
         }
         clone_ctx->holds_source_lock = TRUE;
@@ -5729,7 +4773,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
                 lock_err ? lock_err : "Target VM name busy (another operation in progress)");
             pure_uds_server_send_response(server, connection, e);
             g_free(e); g_free(lock_err);
-            _vm_clone_ctx_free(clone_ctx);  /* source 락만 해제 (holds_target_lock=FALSE) */
+            _vm_clone_ctx_free(clone_ctx);
             return;
         }
         clone_ctx->holds_target_lock = TRUE;
@@ -5865,7 +4909,6 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         }
     }
 
-    /* fire-and-forget: 응답 먼저 전송 */
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "status", "accepted");
     json_object_set_string_member(obj, "source", source);
@@ -5884,33 +4927,12 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 
-    /* GTask 비동기 실행 — 워커 풀 사용
-     *
-     * [소유권 흐름]
-     *   source/clone_name은 params의 내부 문자열 → params는 곧 해제됨
-     *   → g_strdup으로 방어적 복사하여 clone_ctx에 저장
-     *   → g_task_set_task_data의 GDestroyNotify가 _vm_clone_ctx_free 지정
-     *   → GTask 완료/에러 시 clone_ctx가 자동 해제됨 (누수 없음) */
     GTask *clone_task = g_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(clone_task, clone_ctx, (GDestroyNotify)_vm_clone_ctx_free);
     pcv_worker_pool_push(clone_task, _vm_clone_thread);
-    g_object_unref(clone_task);  /* GTask는 워커 풀이 참조를 유지 → 여기서 unref 안전 */
+    g_object_unref(clone_task);
 }
 
-/* ── gpu.metrics ──────────────────────────────────────────────────────
- * NVIDIA GPU 메트릭 조회 — nvidia-smi CLI 실행 후 CSV 출력 파싱
- *
- * [동작 원리]
- *   nvidia-smi --query-gpu=... --format=csv 로 GPU 상태를 CSV로 출력하고,
- *   각 행을 파싱하여 JSON 배열로 반환합니다.
- *   nvidia-smi가 설치되지 않으면 빈 배열을 반환합니다 (graceful degradation).
- *
- * [수집 필드]
- *   index, name, utilization(%), temperature(C), memory used/total(MB), power(W)
- *
- * [AMD GPU는?]
- *   현재 NVIDIA만 지원. AMD는 rocm-smi로 별도 구현 필요.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_gpu_metrics(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -5947,13 +4969,6 @@ static void _handle_gpu_metrics(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── gpu.list ─────────────────────────────────────────────────────────
- * PCI 버스에서 GPU 디바이스 열거 — lspci -nn 출력 파싱
- *
- * VGA, 3D, Display 키워드를 포함하는 PCI 디바이스만 필터링합니다.
- * NVIDIA/AMD/Intel 내장 GPU 모두 나열됩니다.
- * gpu.passthrough에서 vfio-pci 바인딩 대상을 선택할 때 참조합니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_gpu_list(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
@@ -5980,7 +4995,6 @@ static void _handle_gpu_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── daemon.version ───────────────────────────────────────────────── */
 static void _handle_daemon_version(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -5996,7 +5010,6 @@ static void _handle_daemon_version(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── daemon.update_check ───────────────────────────────────────────── */
 static void _handle_daemon_update_check(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
@@ -6016,27 +5029,6 @@ static void _handle_daemon_update_check(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── node.drain ───────────────────────────────────────────────────────
- * 노드 드레인 — 새 RPC 수신을 거부하고 inflight 완료를 대기
- *
- * [시스템 관리 용도]
- *   pcvctl node drain 으로 원격에서 실행할 수 있습니다.
- *   SIGTERM과 달리 프로세스는 계속 살아있으며,
- *   node.resume으로 수신 재개가 가능합니다.
- *   롤링 업그레이드, 메모리 누수 조사 등에 활용합니다.
- *
- * [운영 주석 — DISP-4/Task 5 현 배선 시맨틱]
- *   pcv_drain_begin(NULL, timeout_sec) 은 loop=NULL 이라 프로세스를 종료하지 않고 shutdown_flag 만
- *   세운다. DISP-4 의 수락-시 pcv_drain_inc() 게이트로 이후 신규 연결은 -32000 으로 거부되나,
- *   node.resume 은 제어평면 예외로 화이트리스트되어(uds_server.c _is_drain_exempt_method)
- *   drain 중에도 통과한다 → pcv_drain_cancel 로 복구 가능(위 "node.resume 으로 재개" 계약 보장).
- *   SIGTERM 경로는 이와 달리 pcv_drain_begin(loop, ...) 로 실 GMainLoop 를 보유해 inflight==0
- *   에서 g_main_loop_quit() 하므로 프로세스가 실제로 종료된다(node.drain 의 무종료와 대비).
- *
- * [MED CLI-20 시정] timeout_sec 는 optional(기본 30) 로 params 에서 읽는다 — CLI(pcvctl node
- *   drain --timeout N)는 이미 이 키로 전송해 왔으나 핸들러가 (void)params 로 무시하고 30을
- *   하드코딩해 --timeout 이 항상 무동작(거짓성공)이었다. required 아님 → 게이트 ① drift 없음.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_node_drain(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *connection)
 {
@@ -6049,7 +5041,6 @@ static void _handle_node_drain(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── node.resume ──────────────────────────────────────────────────── */
 static void _handle_node_resume(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
@@ -6061,25 +5052,6 @@ static void _handle_node_resume(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-
-/* ══════════════════════════════════════════════════════════════════════
- * 설정/감사/운영 관리 핸들러 블록
- *
- * [config.history]
- *   /var/lib/purecvisor/daemon.conf.* 파일 목록으로 설정 변경 이력 추적.
- *   config.backup이 만든 타임스탬프 백업 파일들이 나열됩니다.
- *
- * [config.backup]
- *   현재 daemon.conf를 타임스탬프 붙인 이름으로 복사 (변경 전 백업용).
- *
- * [template.history]
- *   /etc/purecvisor/templates/ 디렉터리의 JSON 템플릿 파일 목록 + 메타데이터.
- *
- * [audit.search]
- *   감사 로그 DB(SQLite)에서 시간 범위/사용자/메서드로 검색.
- *   보안 감사, 장애 분석에 활용합니다.
- * ══════════════════════════════════════════════════════════════════════ */
-/* ── config.history ───────────────────────────────────────────────── */
 static void _handle_config_history(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *connection)
 {
@@ -6108,7 +5080,6 @@ static void _handle_config_history(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── config.backup ────────────────────────────────────────────────── */
 static void _handle_config_backup(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -6124,7 +5095,6 @@ static void _handle_config_backup(JsonObject *params, const gchar *rpc_id,
     g_free(resp); g_free(dst); g_free(ts);
 }
 
-/* ── template.history ─────────────────────────────────────────────── */
 static void _handle_template_history(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -6156,7 +5126,6 @@ static void _handle_template_history(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── audit.search ─────────────────────────────────────────────────── */
 static void _handle_audit_search(JsonObject *params, const gchar *rpc_id,
                                   UdsServer *server, GSocketConnection *connection)
 {
@@ -6178,13 +5147,6 @@ static void _handle_audit_search(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-
-/* ── storage.pool.health — ZFS 풀 헬스 모니터링 ────────────────────────
- * ZFS 풀의 상태 정보를 반환합니다:
- *   state(ONLINE/DEGRADED/FAULTED), fragmentation, capacity%,
- *   disk errors(read/write/checksum), scrub 상태 등.
- * Web UI 인프라 탭의 Storage 패널에서 사용합니다.
- * ────────────────────────────────────────────────────────────────── */
 static void _handle_storage_pool_health(JsonObject *params, const gchar *rpc_id,
                                          UdsServer *server, GSocketConnection *connection)
 {
@@ -6205,11 +5167,6 @@ static void _handle_storage_pool_health(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── storage.pool.forecast ────────────────────────────────────────────
- * ZFS 풀 용량 고갈 예측 — 현재 사용 추세를 기반으로 디스크 풀이
- * 가득 차는 예상 일자를 계산합니다.
- * 선형 회귀(OLS)로 초당 사용량 증가율을 추정합니다.
- * ────────────────────────────────────────────────────────────────── */
 static void _handle_storage_pool_forecast(JsonObject *params, const gchar *rpc_id,
                                            UdsServer *server, GSocketConnection *connection)
 {
@@ -6222,9 +5179,6 @@ static void _handle_storage_pool_forecast(JsonObject *params, const gchar *rpc_i
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-
-
-/* ── backup.export_s3 — S3 외부 백업 (fire-and-forget) ─────────────── */
 typedef struct {
     gchar *vm_name;
     gchar *s3_endpoint;
@@ -6277,7 +5231,7 @@ static void _handle_backup_export_s3(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
         return;
     }
-    /* fire-and-forget: 응답 먼저 전송 */
+
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
     json_object_set_string_member(accepted, "vm_name", vm_name);
@@ -6303,15 +5257,6 @@ static void _handle_backup_export_s3(JsonObject *params, const gchar *rpc_id,
     g_object_unref(task);
 }
 
-/* ── webhook.dlq.list ─────────────────────────────────────────────────
- * Webhook Dead Letter Queue(DLQ) 조회
- *
- * [DLQ란?]
- *   알림 Webhook POST 전송이 실패한 항목들의 대기열입니다.
- *   네트워크 장애, 타임아웃, 5xx 응답 등으로 Slack/Telegram 전송이
- *   실패하면 DLQ에 저장되어 webhook.dlq.retry로 재시도할 수 있습니다.
- *   이를 통해 알림 유실을 방지합니다.
- * ──────────────────────────────────────────────────────────────────── */
 static void _handle_webhook_dlq_list(JsonObject *params, const gchar *rpc_id,
                                       UdsServer *server, GSocketConnection *connection)
 {
@@ -6323,7 +5268,6 @@ static void _handle_webhook_dlq_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── webhook.dlq.retry ────────────────────────────────────────────── */
 static void _handle_webhook_dlq_retry(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
@@ -6335,25 +5279,6 @@ static void _handle_webhook_dlq_retry(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════
- * 보안 그룹 CRUD — NFV 보안 그룹 관리
- *
- * [보안 그룹이란?]
- *   AWS Security Group과 유사한 개념으로, nftables 기반 방화벽 규칙의
- *   논리적 그룹입니다. VM에 보안 그룹을 할당하면 해당 규칙이 적용됩니다.
- *
- * [핸들러 구조]
- *   security_group.create: 보안 그룹 생성 (이름 + 설명)
- *   security_group.list:   전체 보안 그룹 목록
- *   security_group.delete: 보안 그룹 삭제
- *   security_group.rule.add: 규칙 추가 (방향/프로토콜/포트/CIDR)
- *   vm.security_group.set: VM에 보안 그룹 할당
- *
- * [extern 선언 패턴]
- *   security_group.c의 헤더가 아직 통합되지 않아 함수를 인라인 extern으로
- *   선언합니다. 향후 security_group.h 헤더로 통합 예정입니다.
- * ══════════════════════════════════════════════════════════════════════ */
-/* ── security_group.create ────────────────────────────────────────── */
 static void _handle_security_group_create(JsonObject *params, const gchar *rpc_id,
                                            UdsServer *server, GSocketConnection *connection)
 {
@@ -6379,7 +5304,6 @@ static void _handle_security_group_create(JsonObject *params, const gchar *rpc_i
     }
 }
 
-/* ── security_group.list ──────────────────────────────────────────── */
 static void _handle_security_group_list(JsonObject *params, const gchar *rpc_id,
                                          UdsServer *server, GSocketConnection *connection)
 {
@@ -6392,7 +5316,6 @@ static void _handle_security_group_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── security_group.delete ────────────────────────────────────────── */
 static void _handle_security_group_delete(JsonObject *params, const gchar *rpc_id,
                                            UdsServer *server, GSocketConnection *connection)
 {
@@ -6411,7 +5334,6 @@ static void _handle_security_group_delete(JsonObject *params, const gchar *rpc_i
     }
 }
 
-/* ── security_group.rule.add ──────────────────────────────────────── */
 static void _handle_security_group_rule_add(JsonObject *params, const gchar *rpc_id,
                                              UdsServer *server, GSocketConnection *connection)
 {
@@ -6435,7 +5357,6 @@ static void _handle_security_group_rule_add(JsonObject *params, const gchar *rpc
     }
 }
 
-/* ── security_group.rule.remove ───────────────────────────────────── */
 static void _handle_security_group_rule_remove(JsonObject *params, const gchar *rpc_id,
                                                 UdsServer *server, GSocketConnection *connection)
 {
@@ -6460,7 +5381,6 @@ static void _handle_security_group_rule_remove(JsonObject *params, const gchar *
     }
 }
 
-/* ── ai.healing.approve / ai.healing.reject ───────────────────────── */
 static void _handle_ai_healing_approve(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
@@ -6495,12 +5415,6 @@ static void _handle_ai_healing_reject(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── nfv.lb.create / nfv.lb.delete / nfv.lb.list ──────────────────── */
-/* V13 fix: 실제 정의(nfv_manager.c)는 backends 를 `const gchar *` 로 받는다.
- * 이전의 로컬 extern 은 `JsonArray *` 로 잘못 선언되어 lb-add 문자열 포맷 시
- * 구조체 포인터를 %s 로 역참조(crash/heap 노출)했다. 헤더를 include 해
- * 컴파일러가 실제 시그니처를 검증하도록 하고, backends 배열은 여기서
- * "ip:port,ip:port" 문자열로 조인 + 요소별 검증한다. */
 #include "modules/network/nfv_manager.h"
 static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
@@ -6515,8 +5429,6 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
     const gchar *vip  = json_object_get_string_member(params, "vip");
     gint port         = (gint)json_object_get_int_member(params, "port");
 
-    /* backends 는 배열이어야 한다. 각 원소는 "ip:port" 문자열이거나
-     * {"ip":..., "port":...} 객체를 허용한다. */
     JsonArray *backends = NULL;
     if (json_object_has_member(params, "backends")) {
         JsonNode *bn = json_object_get_member(params, "backends");
@@ -6545,7 +5457,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
                 ? json_object_get_int_member(bo, "port") : 0;
         } else if (el && JSON_NODE_HOLDS_VALUE(el)) {
             const gchar *s = json_node_get_string(el);
-            const gchar *colon = s ? strrchr(s, ':') : NULL;  /* 마지막 ':' 기준 분리 */
+            const gchar *colon = s ? strrchr(s, ':') : NULL;
             if (colon) {
                 bip = g_strndup(s, (gsize)(colon - s));
                 bport = g_ascii_strtoll(colon + 1, NULL, 10);
@@ -6555,7 +5467,7 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
             bad = TRUE;
         } else {
             if (joined->len) g_string_append_c(joined, ',');
-            if (strchr(bip, ':'))   /* IPv6 리터럴 → OVN 은 대괄호 표기 요구 */
+            if (strchr(bip, ':'))
                 g_string_append_printf(joined, "[%s]:%d", bip, (gint)bport);
             else
                 g_string_append_printf(joined, "%s:%d", bip, (gint)bport);
@@ -6586,9 +5498,6 @@ static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ── security_group.attach / security_group.detach ────────────────
- * tier 테이블(279행 부근)에는 이미 등재되어 있으나 라우트가 없던 메서드.
- * vm.security_group.set 과 동일 로직 (attach) + 대칭 (detach). */
 static void _handle_security_group_attach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -6635,7 +5544,6 @@ static void _handle_security_group_detach(JsonObject *params, const gchar *rpc_i
     g_free(resp);
 }
 
-/* ── vm.security_group.set ────────────────────────────────────────── */
 static void _handle_vm_security_group_set(JsonObject *params, const gchar *rpc_id,
                                            UdsServer *server, GSocketConnection *connection)
 {
@@ -6656,90 +5564,28 @@ static void _handle_vm_security_group_set(JsonObject *params, const gchar *rpc_i
     }
 }
 
-/* ══════════════════════════════════════════════════════════════════
- * 라우트 테이블 초기화 / 해제
- * ══════════════════════════════════════════════════════════════════ */
-/**
- * dispatcher_shutdown_routes:
- * 라우트 테이블 해제. 데몬 종료 시 호출.
- */
 void dispatcher_shutdown_routes(void)
 {
     if (g_rpc_routes) {
         g_hash_table_destroy(g_rpc_routes);
         g_rpc_routes = nullptr;
     }
-    /* BE-A5: 미들웨어 훅 체인 해제 */
+
     if (g_pre_hooks) {
         g_ptr_array_free(g_pre_hooks, TRUE);
         g_pre_hooks = nullptr;
     }
 }
 
-/**
- * 메인 디스패치 함수 — JSON-RPC 요청을 파싱하고 GHashTable 룩업으로 핸들러 라우팅
- *
- * uds_server.c의 on_read_done()에서 클라이언트 요청을 수신한 후 호출됩니다.
- * REST 서버도 UDS 소켓을 경유하므로 결국 이 함수를 거칩니다.
- *
- * 처리 흐름:
- *   1. JSON 파싱 + 필수 필드 추출 (method, id, params)
- *   2. "name" → "vm_id" 자동 aliasing (호환성)
- *   3. Prometheus 메트릭 시작 카운터 기록
- *   4. GHashTable O(1) 룩업으로 핸들러 함수 조회
- *   5. 핸들러 호출 → 핸들러가 pure_uds_server_send_response()로 응답
- *   6. 미매칭 시 플러그인 fallback → -32601 "Method not found"
- *   7. Prometheus 완료 메트릭 + 감사 로그 기록
- *
- * 메모리 관리 패턴:
- *   - 모든 핸들러(vm.create 포함): 핸들러 호출 직후 dispatcher_request_context_free(ctx)
- *     핸들러 내부에서 이미 응답을 전송했으므로 ctx는 더 이상 필요 없음
- *
- * @param self         디스패처 인스턴스
- * @param server       UDS 서버 (응답 전송 시 핸들러에 전달)
- * @param connection   클라이언트 소켓 연결 (응답 전송 대상)
- * @param request_json 수신된 JSON-RPC 2.0 요청 문자열
- */
-/**
- * purecvisor_dispatcher_dispatch — 모든 RPC 요청의 중앙 진입점
- *
- * [주니어 개발자 가이드 — 이 함수가 하는 일 전체 요약]
- *   1. JSON 파싱 → 2. 필수 필드 추출 → 3. name/vm_id 정규화
- *   → 4. 요청 추적 ID 생성 → 5. Prometheus 기록 시작
- *   → 6. Pre-dispatch 훅 → 7. 라우팅(vm.create 특수 / 해시 테이블 / 플러그인)
- *   → 8. 소요 시간 기록 → 9. 메모리 정리
- *
- * [스레딩 모델]
- *   GMainLoop 스레드에서 실행됨. 여기서 오래 블로킹하면 전체 데몬이 멈춤!
- *   무거운 작업은 반드시 핸들러 내부에서 GTask로 분리해야 한다.
- *
- * [메모리 소유권]
- *   - request_json: 호출자(uds_server.c)가 소유. 이 함수에서 해제하면 안 됨.
- *   - parser: 이 함수가 생성 + 해제. parser가 살아있는 동안 params가 유효.
- *   - params: parser 내부 메모리. parser unref 후 접근하면 UAF(use-after-free)!
- *     → rpc_done 레이블 이후에 params를 사용하면 크래시.
- *   - rpc_id_str: g_strdup/g_strdup_printf로 생성. rpc_done에서 g_free.
- *
- * @param self       디스패처 인스턴스 (vm_manager 접근용)
- * @param server     UDS 서버 (응답 전송 시 필요)
- * @param connection 클라이언트 소켓 (응답 전송 후 즉시 닫힘)
- * @param request_json JSON-RPC 2.0 요청 문자열 (호출자 소유, 해제 금지)
- */
 void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                                    UdsServer *server,
                                    GSocketConnection *connection,
                                    const gchar *request_json) {
-    /* [감사 SEC-F2 / 초크포인트 게이트 #2] 외부 요청 파싱은 유일 sanctioned 경로인
-     * pcv_rpc_parse_guarded(크기 상한 + 깊이 상한 + 파싱)를 경유한다. json-glib의
-     * json_parser_load_from_data는 중첩(배열/객체)을 상호재귀로 처리하므로 깊은
-     * `[[[…]]]`·과대 입력에서 스택오버플로우/OOM으로 데몬을 크래시시킨다 — 래퍼가
-     * 파싱 전 사전 거부한다. FALSE 시 *parser=NULL(unref 불요). */
+
     JsonParser *parser = nullptr;
     GError *err = nullptr;
     if (!pcv_rpc_parse_guarded(request_json, -1, &parser, &err)) {
-        /* 가드 거부(과대/과심/NULL: G_IO_ERROR_INVALID_DATA)는 -32600 Invalid Request,
-         * 그 외 문법 파싱 실패는 -32700 Parse Error로 매핑 — 기존 응답 코드 의미 보존.
-         * [감사 A2-3] 무응답 대신 원인 코드를 전송해 클라이언트가 무맥락 EOF를 안 받도록. */
+
         gboolean bad_req = err && g_error_matches(err, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
         gchar *derr = pure_rpc_build_error_response(NULL,
             bad_req ? PURE_RPC_ERR_INVALID_REQUEST : PURE_RPC_ERR_PARSE_ERROR,
@@ -6751,10 +5597,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
     }
 
     JsonNode *root = json_parser_get_root(parser);
-    /* [감사 A2-1 fix] 루트가 객체가 아니거나(`[1,2]`/`"x"`/`123`) method 문자열이
-     * 없으면(`{"jsonrpc":"2.0","id":1}`) -32600으로 거부한다. 이전에는 무검증으로
-     * method=NULL이 g_hash_table_lookup(g_rpc_routes, NULL) → g_str_hash(NULL)
-     * NULL 역참조를 유발해 한 요청으로 데몬이 SIGSEGV 크래시했다(미인증 원격 DoS). */
+
     JsonObject *obj = (root && JSON_NODE_HOLDS_OBJECT(root))
                       ? json_node_get_object(root) : nullptr;
     const gchar *method = obj ? json_object_get_string_member(obj, "method") : nullptr;
@@ -6766,23 +5609,15 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         g_object_unref(parser);
         return;
     }
-    
-    /* ── ID 추출 로직 (정수형/문자열 모두 지원) ───────────────────
-     *
-     * JSON-RPC 2.0 스펙에서 id는 문자열 또는 정수 모두 허용됩니다.
-     * - REST 서버(_rpc_over_uds): 정수 id=1을 사용
-     * - pcvctl CLI: 문자열 id="1"을 사용
-     * 양쪽 모두 호환하기 위해 문자열(rpc_id_str)로 통일하여 핸들러에 전달합니다.
-     * ctx->request_id(정수)는 현재 사용되지 않으나 구조체 호환성을 위해 유지합니다.
-     * ────────────────────────────────────────────────────────────── */
+
     gint id = -1;
     gchar *rpc_id_str = nullptr;
-    
+
     if (json_object_has_member(obj, "id")) {
         JsonNode *id_node = json_object_get_member(obj, "id");
         if (json_node_get_value_type(id_node) == G_TYPE_STRING) {
             rpc_id_str = g_strdup(json_node_get_string(id_node));
-            id = 0; // 문자열 ID일 경우 Phase 5 구조체를 위해 더미 값 할당
+            id = 0;
         } else {
             id = json_node_get_int(id_node);
             rpc_id_str = g_strdup_printf("%d", id);
@@ -6794,10 +5629,6 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         params = json_object_get_object_member(obj, "params");
     }
 
-    /* ── "name" ↔ "vm_id" 양방향 자동 aliasing ─────────────────
-     * REST 레이어는 "name", UDS 클라이언트는 "vm_id"를 사용하는 경우가 혼재.
-     * 핸들러가 어느 키를 기대하든 정상 동작하도록 양방향으로 정규화한다.
-     * 이미 해당 키가 존재하면 덮어쓰지 않음. */
     if (params) {
         if (!json_object_has_member(params, "vm_id") &&
              json_object_has_member(params, "name")) {
@@ -6810,11 +5641,6 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         }
     }
 
-    /* ── Request Tracing: 요청 ID 생성 + TLS 설정 ────────────────
-     * UDS 요청에도 고유 Request ID를 부여하여 로그 추적을 가능하게 합니다.
-     * REST 요청은 rest_server.c에서 이미 설정하므로 현재 TLS 값을 확인하고,
-     * 비어있으면 새로 생성합니다.
-     * ──────────────────────────────────────────────────────────── */
     gchar *dispatch_req_id = nullptr;
     {
         const gchar *existing = pcv_log_req_id_get();
@@ -6827,26 +5653,15 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                  pcv_log_req_id_get(), method ? method : "(null)",
                  rpc_id_str ? rpc_id_str : "-");
 
-    /* [왜 GObject 참조를 증가시키는가?]
-     * 이 함수 실행 중 dispatcher/server/connection이 외부에서 unref되어
-     * 소멸하는 것을 방지. 핸들러 호출 후 dispatcher_request_context_free()에서
-     * unref하여 참조를 반환한다. */
     DispatcherRequestContext *ctx = g_new0(DispatcherRequestContext, 1);
     ctx->dispatcher = g_object_ref(self);
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
     ctx->request_id = id;
 
-    /* ── Phase 1: Prometheus 메트릭 + 감사 로그 시작 기록 ──────────
-     * RPC 시작 시각을 기록하고, 완료 후 소요 시간을 계산합니다.
-     * pcv_prom_rpc_start()는 rpc_requests_total 카운터를 증가시킵니다.
-     * ────────────────────────────────────────────────────────────── */
     gint64 _rpc_start_us = g_get_monotonic_time();
     pcv_prom_rpc_start(method);
 
-    /* ── BE-A5: Pre-dispatch 훅 체인 실행 ─────────────────────────
-     * 등록된 미들웨어 훅을 순차 실행. 하나라도 FALSE를 반환하면 요청 거부.
-     * 감사 확장, 커스텀 인증, 요청 변환 등 플러그인 확장 지점. */
     if (!_run_pre_hooks(method, params, rpc_id_str)) {
         gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_ZFS_OPERATION,
             "Request rejected by pre-dispatch hook");
@@ -6856,17 +5671,6 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         goto rpc_done;
     }
 
-    /* ══════════════════════════════════════════════════════════════
-     * RPC 메서드 라우팅 — GHashTable O(1) 룩업
-     *
-     * 1. vm.create: fire-and-forget (self 필요) → 별도 처리
-     * 2. g_rpc_routes 해시 테이블에서 핸들러 함수 포인터 O(1) 조회
-     * 3. 미매칭: 플러그인 fallback → -32601 Method not found
-     * ══════════════════════════════════════════════════════════════ */
-
-    /* ADR-0019 Option C: RBAC pre-route 검사.
-     * UDS 직접 연결은 root 소켓 권한으로 격리되므로 ADMIN으로 간주한다.
-     * REST는 raw UDS bridge를 사용하므로 인증 주체/role을 내부 params에 주입한다. */
     {
         gint caller_role = _dispatcher_caller_role(params, connection);
         const gchar *caller_sub = _dispatcher_caller_subject(params, connection);
@@ -6886,8 +5690,7 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                                                       caller_role, &deny_message);
         } else if (caller_role == PCV_ROLE_OPERATOR &&
                    _container_method_requires_owner_scope(method)) {
-            /* B1: 컨테이너 owner-scope — VM과 동일 디스패치 지점에서 검사(admin 우회,
-             * operator는 소유자 일치 시에만 통과, 소유자 부재 시 deny). */
+
             allowed = _container_owner_scoped_method_allowed(method, params, connection,
                                                              caller_role, &deny_message);
         }
@@ -6908,13 +5711,8 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         g_free(deny_message);
     }
 
-    /* [왜 vm.create만 별도 처리하는가?]
-     * vm.create는 self->vm_manager에 접근해야 하므로 PcvDispatchHandler 시그니처
-     * (4 파라미터)에 맞지 않는다. self를 추가로 전달해야 하기 때문에
-     * 해시 테이블 라우팅 대신 if문으로 먼저 분기한다. */
     if (g_strcmp0(method, "vm.create") == 0) {
-        /* Maintenance mode check — reject new VM creates during maintenance */
-        /* VM quota check — max 200 VMs per node */
+
         {
             virConnectPtr qconn = virt_conn_pool_acquire();
             if (qconn) {
@@ -6934,19 +5732,17 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
         handle_vm_create(self, params, rpc_id_str, server, connection);
         dispatcher_request_context_free(ctx);
     } else {
-        /* ── GHashTable O(1) 라우팅 ────────────────────────────────
-         * 모든 RPC 메서드를 해시 테이블에서 O(1) 룩업.
-         * 미매칭 시 플러그인 fallback → -32601 Method not found. */
+
         PcvDispatchHandler handler = (PcvDispatchHandler)g_hash_table_lookup(g_rpc_routes, method);
         if (handler) {
             handler(params, rpc_id_str, server, connection);
             dispatcher_request_context_free(ctx);
         } else if (pcv_plugin_has_handler(method)) {
-            /* Phase 3 H: plugin handler fallback */
+
             pcv_plugin_dispatch(method, params, rpc_id_str, server, connection);
             dispatcher_request_context_free(ctx);
         } else {
-            /* Method not found - -32601 error response */
+
             gchar *err = pure_rpc_build_error_response(rpc_id_str, PURE_RPC_ERR_METHOD_NOT_FOUND,
                 "Method not found");
             pure_uds_server_send_response(server, connection, err);
@@ -6954,47 +5750,30 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
             dispatcher_request_context_free(ctx);
         }
     }
-    
-    
 
 rpc_done:
-    /* ── Phase 1: RPC 완료 기록 ─────────────────────────────────
-     * 소요 시간(ms)을 계산하여 Prometheus 히스토그램과 감사 로그에 기록합니다.
-     * 핸들러가 fire-and-forget 비동기 작업을 시작한 경우,
-     * 여기서 기록되는 시간은 "응답 전송까지의 시간"이지
-     * "작업 완료까지의 시간"이 아닙니다.
-     * ────────────────────────────────────────────────────────────── */
+
     {
         gint64 _rpc_end_us = g_get_monotonic_time();
         gdouble dur_ms = (gdouble)(_rpc_end_us - _rpc_start_us) / 1000.0;
         pcv_prom_rpc_end(method, TRUE, dur_ms);
-        /* ADR-0018: fire-and-forget 메서드는 dispatcher가 audit 기록하지 않는다.
-         * dispatcher가 보는 "성공"은 단지 "GTask 큐잉 성공"일 뿐, 실제 결과는
-         * 워커 콜백이 알기 때문이다. 워커가 직접 pcv_audit_log_rpc/log를 호출한다. */
+
         if (!pcv_dispatcher_is_async_method(method)) {
             pcv_audit_log_rpc(method, "ok", 0, (gint64)dur_ms);
         }
-        /* Slow RPC warning — log requests exceeding 1 second */
+
         if (dur_ms > 1000.0) {
             g_warning("[dispatcher] SLOW RPC: method=%s id=%s took %.0fms",
                       method, rpc_id_str ? rpc_id_str : "(null)", dur_ms);
         }
     }
 
-    /* 메모리 정리: 문자열 ID, 요청 ID, JSON 파서 해제
-     *
-     * [위험! parser unref 시점]
-     *   g_object_unref(parser)를 호출하면 파서가 소유한 JsonObject/JsonNode가
-     *   모두 해제된다. 즉, params 포인터가 dangling이 된다.
-     *   fire-and-forget 핸들러가 GTask 워커에서 params를 참조하면 UAF 크래시!
-     *   → 핸들러는 필요한 값을 반드시 g_strdup/json_node_copy로 복사해야 한다. */
     g_free(rpc_id_str);
     g_free(dispatch_req_id);
     pcv_log_req_id_set(NULL);
     g_object_unref(parser);
 }
 
-/* ── snapshot.schedule.status — 스냅샷 자동 스케줄 상태 조회 ─────── */
 static void _handle_snapshot_schedule_status(JsonObject *params, const gchar *rpc_id,
                                               UdsServer *server, GSocketConnection *connection)
 {
@@ -7006,8 +5785,6 @@ static void _handle_snapshot_schedule_status(JsonObject *params, const gchar *rp
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-
-/* ── daemon.config.get — 로컬 daemon.conf 설정 조회 ─────────────── */
 static void _handle_daemon_config_get(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
@@ -7038,7 +5815,6 @@ static void _handle_daemon_config_get(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ── daemon.config.set — 로컬 daemon.conf 설정 변경 + 파일 저장 ──── */
 static void _handle_daemon_config_set(JsonObject *params, const gchar *rpc_id,
                                        UdsServer *server, GSocketConnection *connection)
 {
@@ -7099,22 +5875,10 @@ static void _handle_daemon_config_set(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════
- * dispatcher_init_routes — 라우트 테이블 초기화
- *
- * 모든 RPC 메서드를 GHashTable에 등록합니다.
- * purecvisor_dispatcher_new()에서 최초 1회 호출됩니다.
- * vm.create는 self(vm_manager) 접근이 필요하므로 여기 등록하지 않고
- * dispatch 함수에서 별도 처리합니다.
- * ══════════════════════════════════════════════════════════════════ */
 static void dispatcher_init_routes(void)
 {
-    if (g_rpc_routes) return;  /* 이미 초기화됨 — 멱등 보호 */
+    if (g_rpc_routes) return;
 
-    /* H-OPT-2: build RBAC policy map eagerly at startup (single-threaded),
-     * eliminating the TOCTOU race in the old lazy-init path inside
-     * _method_min_role().  Keys are string literals (static lifetime) so no
-     * key_destroy is needed; values are GINT_TO_POINTER min_role integers. */
     g_method_policy_map = g_hash_table_new(g_str_hash, g_str_equal);
     for (int i = 0; g_method_policies[i].method; i++) {
         g_hash_table_insert(g_method_policy_map,
@@ -7122,73 +5886,48 @@ static void dispatcher_init_routes(void)
                             GINT_TO_POINTER(g_method_policies[i].min_role));
     }
 
-    /*
-     * GHashTable 생성: 문자열 키 → 함수 포인터 값
-     *
-     * [g_str_hash + g_str_equal]
-     *   g_str_hash: 문자열의 해시값을 계산 (djb2 변형 알고리즘)
-     *   g_str_equal: 문자열 동등성 비교 (strcmp == 0)
-     *   이 조합으로 "method.name" 문자열을 키로 O(1) 룩업이 가능합니다.
-     *
-     * [키/값 소유권]
-     *   키: 문자열 리터럴(정적 메모리) → GHashTable이 해제할 필요 없음
-     *   값: 함수 포인터(코드 세그먼트) → 해제 불필요
-     *   따라서 key_destroy/value_destroy 함수를 전달하지 않습니다.
-     *
-     * [등록 규칙]
-     *   - 카테고리별 섹션 주석으로 구분 (VM/스냅샷/네트워크/스토리지/...)
-     *   - vm.create는 self(vm_manager) 필요하므로 여기 등록하지 않음
-     *   - 신규 메서드 추가 시 적절한 카테고리에 삽입
-     */
     g_rpc_routes = g_hash_table_new(g_str_hash, g_str_equal);
 
-    /* ── ADR-0018: fire-and-forget RPC 레지스트리 ─────────────────
-     * 여기 등록된 메서드는 dispatcher가 자동으로 audit_log "ok"를 기록하지 않는다.
-     * 각 핸들러의 worker callback이 진짜 결과(ok/fail + worker duration)를
-     * 직접 기록해야 한다. 이를 어기면 감사 DB가 거짓 성공을 기록한다.
-     * (handler가 g_task_run_in_thread를 사용하면 fire-and-forget로 간주) */
     if (!g_async_methods) {
         g_async_methods = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
     }
-    /* Stage 1 + Stage 2 — 워커 콜백에 audit 기록이 실제로 있는 모든 메서드 등록.
-     * 등록된 메서드는 dispatcher 자동 audit를 건너뛰고 워커 콜백이 진짜 결과를 기록한다. */
+
     static const char *_async_method_names[] = {
-        /* Stage 1 — 핵심 라이프사이클 */
-        "vm.start",                 /* handler_vm_start.c::vm_start_callback */
-        "vm.create",                /* dispatcher.c::_on_vm_create_finished */
-        "vm.delete",                /* handler_vm_lifecycle.c::_vm_delete_callback (W1) */
-        "vm.stop", "vm.pause", "vm.resume", "vm.limit",  /* handler_vm_lifecycle.c::vm_action_callback */
-        /* Stage 2 — 조회/게스트/스냅샷/익스포트/클라우드 */
-        "vm.list",                  /* handler_vm_lifecycle.c::vm_list_callback */
-        "vm.metrics",               /* handler_vm_lifecycle.c::vm_metrics_callback */
-        "vm.guest.ping",            /* handler_vm_lifecycle.c::_guest_ping_callback */
-        "vm.guest.exec",            /* handler_vm_lifecycle.c::_guest_exec_callback */
-        "vm.guest.shutdown",        /* handler_vm_lifecycle.c::_guest_shutdown_callback */
-        "vm.snapshot.create",       /* handler_snapshot.c::run_zfs_subprocess (sync, target=vm:snap) */
-        "vm.snapshot.list",         /* handler_snapshot.c::run_zfs_subprocess (sync, target=vm_id) */
-        "vm.snapshot.delete",       /* handler_snapshot.c::run_zfs_subprocess (sync, target=vm:snap) */
-        "vm.snapshot.delete_all",   /* handler_snapshot.c::handle_vm_snapshot_delete_all (sync, target=vm_id) */
-        "vm.snapshot.rollback",     /* handler_snapshot.c::_on_rollback_done (async) */
-        "vm.export.ova",            /* dispatcher.c::_ova_export_worker (각 분기) */
-        /* Stage 3 — 추가 accepted fire-and-forget 표면 (2026-04-25) */
-        "backup.restore",           /* handler_backup.c::_restore_worker */
-        "backup.replicate",         /* handler_backup.c::_replicate_worker */
-        "backup.export_s3",         /* dispatcher.c::_s3_export_worker */
-        "backup.incremental",       /* handler_backup.c::_incremental_worker (STO-5) */
-        "container.create",         /* handler_container.c::_on_create_done */
-        "container.clone",          /* dispatcher.c::_on_container_clone_done */
-        "container.destroy",        /* handler_container.c::_on_destroy_done */
-        "vm.disk.live_resize",      /* handler_vm_hotplug.c::vm_disk_live_resize_worker */
-        "vm.resize_disk",           /* vm_manager.c::resize_disk_thread */
-        "vm.clone",                 /* dispatcher.c::_vm_clone_thread */
-        "vm.import.ova",            /* dispatcher.c::_ova_import_worker */
-        "cloud.import",             /* cloud_migration.c::_update_status (동적 cloud.<dir>) */
-        "cloud.export",             /* 동상 */
-        "cloud.import.finalize",    /* 동상 (direction=import) */
-        "security.action.approve",  /* handler_security.c::security_action_approve_worker */
-        /* Stage 4 — async-result 회신(완료 콜백이 실결과 audit). I-1: 미등록 시
-         * 디스패처가 dispatch 시점 무조건 "ok"(에러 응답도 "ok")를 남겼다. */
-        "backup.snapshot.verify",   /* dispatcher.c::_snapshot_verify_done + 조기검증 경로 */
+
+        "vm.start",
+        "vm.create",
+        "vm.delete",
+        "vm.stop", "vm.pause", "vm.resume", "vm.limit",
+
+        "vm.list",
+        "vm.metrics",
+        "vm.guest.ping",
+        "vm.guest.exec",
+        "vm.guest.shutdown",
+        "vm.snapshot.create",
+        "vm.snapshot.list",
+        "vm.snapshot.delete",
+        "vm.snapshot.delete_all",
+        "vm.snapshot.rollback",
+        "vm.export.ova",
+
+        "backup.restore",
+        "backup.replicate",
+        "backup.export_s3",
+        "backup.incremental",
+        "container.create",
+        "container.clone",
+        "container.destroy",
+        "vm.disk.live_resize",
+        "vm.resize_disk",
+        "vm.clone",
+        "vm.import.ova",
+        "cloud.import",
+        "cloud.export",
+        "cloud.import.finalize",
+        "security.action.approve",
+
+        "backup.snapshot.verify",
         NULL
     };
     for (int _i = 0; _async_method_names[_i]; _i++) {
@@ -7196,7 +5935,6 @@ static void dispatcher_init_routes(void)
     }
     pcv_bootstrap_register_async_methods(g_async_methods);
 
-    /* ── VM 코어 (라이프사이클 + 조회 + 디스크) ───────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.start",           (gpointer)handle_vm_start_request);
     g_hash_table_insert(g_rpc_routes, "vm.stop",            (gpointer)handle_vm_stop_request);
     g_hash_table_insert(g_rpc_routes, "vm.pause",           (gpointer)handle_vm_pause_request);
@@ -7221,14 +5959,12 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.clone",           (gpointer)_handle_vm_clone);
     g_hash_table_insert(g_rpc_routes, "vm.set_bandwidth",   (gpointer)handle_vm_set_bandwidth);
 
-    /* ── VM 스냅샷 ─────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.create",     (gpointer)handle_vm_snapshot_create);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.list",       (gpointer)handle_vm_snapshot_list);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.rollback",   (gpointer)handle_vm_snapshot_rollback);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.delete",     (gpointer)handle_vm_snapshot_delete);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.delete_all", (gpointer)handle_vm_snapshot_delete_all);
 
-    /* ── VM 핫플러그 ───────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.set_memory",       (gpointer)handle_vm_set_memory_request);
     g_hash_table_insert(g_rpc_routes, "vm.set_vcpu",         (gpointer)handle_vm_set_vcpu_request);
     g_hash_table_insert(g_rpc_routes, "vm.pin_vcpu",         (gpointer)handle_vm_pin_vcpu);
@@ -7236,7 +5972,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.cpu.stats",        (gpointer)handle_vm_cpu_stats_request);
     g_hash_table_insert(g_rpc_routes, "vm.disk.live_resize", (gpointer)handle_vm_disk_live_resize_request);
 
-    /* ── 디바이스 핫플러그 ─────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "device.disk.attach",  (gpointer)handle_device_disk_attach);
     g_hash_table_insert(g_rpc_routes, "device.disk.detach",  (gpointer)handle_device_disk_detach);
     g_hash_table_insert(g_rpc_routes, "device.nic.list",     (gpointer)handle_device_nic_list);
@@ -7246,7 +5981,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.usb.detach",       (gpointer)handle_vm_usb_detach);
     g_hash_table_insert(g_rpc_routes, "vm.usb.list",         (gpointer)handle_vm_usb_list);
 
-    /* ── 네트워크 ──────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "network.create",         (gpointer)handle_network_create_request);
     g_hash_table_insert(g_rpc_routes, "network.delete",         (gpointer)handle_network_delete_request);
     g_hash_table_insert(g_rpc_routes, "network.list",           (gpointer)handle_network_list_request);
@@ -7259,7 +5993,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "network.ovs.vxlan.add",  (gpointer)handle_network_ovs_vxlan_add_request);
     g_hash_table_insert(g_rpc_routes, "network.ovs.vxlan.del",  (gpointer)handle_network_ovs_vxlan_del_request);
 
-    /* ── 스토리지 ──────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "storage.pool.list",     (gpointer)handle_storage_pool_list_request);
     g_hash_table_insert(g_rpc_routes, "storage.zvol.list",     (gpointer)handle_storage_zvol_list_request);
     g_hash_table_insert(g_rpc_routes, "storage.zvol.create",   (gpointer)handle_storage_zvol_create_request);
@@ -7270,7 +6003,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "storage.pool.health",   (gpointer)_handle_storage_pool_health);
     g_hash_table_insert(g_rpc_routes, "storage.pool.forecast", (gpointer)_handle_storage_pool_forecast);
 
-    /* ── 컨테이너 ──────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "container.create",           (gpointer)handle_container_create);
     g_hash_table_insert(g_rpc_routes, "container.destroy",          (gpointer)handle_container_destroy);
     g_hash_table_insert(g_rpc_routes, "container.start",            (gpointer)handle_container_start);
@@ -7298,7 +6030,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "container.health.get",      (gpointer)handle_container_health_get);
     g_hash_table_insert(g_rpc_routes, "container.health.delete",   (gpointer)handle_container_health_delete);
 
-    /* ── 모니터 / 알림 / 프로세스 ──────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "monitor.metrics",     (gpointer)handle_monitor_metrics);
     g_hash_table_insert(g_rpc_routes, "monitor.fleet",       (gpointer)_handle_monitor_fleet);
     g_hash_table_insert(g_rpc_routes, "monitor.processes",   (gpointer)_handle_monitor_processes);
@@ -7307,17 +6038,15 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "alert.config.set",    (gpointer)_handle_alert_config_set);
     g_hash_table_insert(g_rpc_routes, "alert.config.reload", (gpointer)_handle_alert_config_reload);
 
-    /* ── AI Agent ──────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "agent.config.get",    (gpointer)_handle_agent_config_get);
     g_hash_table_insert(g_rpc_routes, "agent.config.set",    (gpointer)_handle_agent_config_set);
     g_hash_table_insert(g_rpc_routes, "agent.history",       (gpointer)_handle_agent_history);
     g_hash_table_insert(g_rpc_routes, "healing.history",     (gpointer)_handle_healing_history);
-    g_hash_table_insert(g_rpc_routes, "healing.pending",     (gpointer)_handle_healing_pending);  /* BUG-21 */
-    g_hash_table_insert(g_rpc_routes, "healing.set_mode",    (gpointer)_handle_healing_set_mode); /* Issue-M2 */
-    g_hash_table_insert(g_rpc_routes, "anomaly.reset_baseline", (gpointer)_handle_anomaly_reset_baseline); /* F-19 */
-    g_hash_table_insert(g_rpc_routes, "agent.compare_manual",   (gpointer)_handle_agent_compare_manual);  /* 1.0 */
+    g_hash_table_insert(g_rpc_routes, "healing.pending",     (gpointer)_handle_healing_pending);
+    g_hash_table_insert(g_rpc_routes, "healing.set_mode",    (gpointer)_handle_healing_set_mode);
+    g_hash_table_insert(g_rpc_routes, "anomaly.reset_baseline", (gpointer)_handle_anomaly_reset_baseline);
+    g_hash_table_insert(g_rpc_routes, "agent.compare_manual",   (gpointer)_handle_agent_compare_manual);
 
-    /* ── OVS 오버레이 ──────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "overlay.create",      (gpointer)handle_overlay_create);
     g_hash_table_insert(g_rpc_routes, "overlay.delete",      (gpointer)handle_overlay_delete);
     g_hash_table_insert(g_rpc_routes, "overlay.list",        (gpointer)handle_overlay_list);
@@ -7325,7 +6054,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "overlay.add_peer",    (gpointer)handle_overlay_add_peer);
     g_hash_table_insert(g_rpc_routes, "overlay.remove_peer", (gpointer)handle_overlay_remove_peer);
 
-    /* ── iSCSI ─────────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "iscsi.target.create", (gpointer)handle_iscsi_target_create);
     g_hash_table_insert(g_rpc_routes, "iscsi.target.delete", (gpointer)handle_iscsi_target_delete);
     g_hash_table_insert(g_rpc_routes, "iscsi.target.list",   (gpointer)handle_iscsi_target_list);
@@ -7333,7 +6061,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "iscsi.disconnect",    (gpointer)handle_iscsi_disconnect);
     g_hash_table_insert(g_rpc_routes, "iso.list",            (gpointer)handle_iso_list);
 
-    /* ── OVN SDN ───────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "ovn.switch.create",   (gpointer)handle_ovn_switch_create);
     g_hash_table_insert(g_rpc_routes, "ovn.switch.delete",   (gpointer)handle_ovn_switch_delete);
     g_hash_table_insert(g_rpc_routes, "ovn.switch.list",     (gpointer)handle_ovn_switch_list);
@@ -7353,7 +6080,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "ovn.tenant.create",   (gpointer)handle_ovn_tenant_create);
     g_hash_table_insert(g_rpc_routes, "ovn.status",          (gpointer)handle_ovn_status);
 
-    /* ── OVS-DPDK ──────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "dpdk.status",         (gpointer)handle_dpdk_status);
     g_hash_table_insert(g_rpc_routes, "dpdk.bind",           (gpointer)handle_dpdk_bind);
     g_hash_table_insert(g_rpc_routes, "dpdk.unbind",         (gpointer)handle_dpdk_unbind);
@@ -7362,7 +6088,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "dpdk.bridge.delete",  (gpointer)handle_dpdk_bridge_delete);
     g_hash_table_insert(g_rpc_routes, "dpdk.hugepage.info",  (gpointer)handle_dpdk_hugepage_info);
 
-    /* ── SR-IOV ────────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "sriov.status",        (gpointer)handle_sriov_status);
     g_hash_table_insert(g_rpc_routes, "sriov.enable",        (gpointer)handle_sriov_enable);
     g_hash_table_insert(g_rpc_routes, "sriov.disable",       (gpointer)handle_sriov_disable);
@@ -7371,20 +6096,17 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "sriov.attach",        (gpointer)handle_sriov_attach);
     g_hash_table_insert(g_rpc_routes, "sriov.detach",        (gpointer)handle_sriov_detach);
 
-    /* ── RBAC Auth ─────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "auth.user.create",    (gpointer)handle_auth_user_create);
     g_hash_table_insert(g_rpc_routes, "auth.user.list",      (gpointer)handle_auth_user_list);
     g_hash_table_insert(g_rpc_routes, "auth.user.delete",    (gpointer)handle_auth_user_delete);
     g_hash_table_insert(g_rpc_routes, "auth.role.set",       (gpointer)handle_auth_role_set);
 
-    /* ── VM 템플릿 ─────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "template.list",       (gpointer)handle_template_list);
     g_hash_table_insert(g_rpc_routes, "template.get",        (gpointer)handle_template_get);
     g_hash_table_insert(g_rpc_routes, "template.create",     (gpointer)handle_template_create);
     g_hash_table_insert(g_rpc_routes, "template.delete",     (gpointer)handle_template_delete);
     g_hash_table_insert(g_rpc_routes, "template.history",    (gpointer)_handle_template_history);
 
-    /* ── 백업 ──────────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "backup.policy.set",   (gpointer)handle_backup_policy_set);
     g_hash_table_insert(g_rpc_routes, "backup.policy.list",  (gpointer)handle_backup_policy_list);
     g_hash_table_insert(g_rpc_routes, "backup.policy.delete",(gpointer)handle_backup_policy_delete);
@@ -7395,7 +6117,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "backup.replicate",    (gpointer)handle_backup_replicate);
     g_hash_table_insert(g_rpc_routes, "backup.export_s3",   (gpointer)_handle_backup_export_s3);
 
-    /* ── Native Host HIDS/HIPS security guard ───────────────────── */
     g_hash_table_insert(g_rpc_routes, "security.event.list",       (gpointer)handle_security_event_list);
     g_hash_table_insert(g_rpc_routes, "security.event.get",        (gpointer)handle_security_event_get);
     g_hash_table_insert(g_rpc_routes, "security.action.pending",   (gpointer)handle_security_action_pending);
@@ -7406,17 +6127,14 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "security.config.get",       (gpointer)handle_security_config_get);
     g_hash_table_insert(g_rpc_routes, "security.config.set",       (gpointer)handle_security_config_set);
 
-    /* ── 스냅샷 스케줄 ─────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "snapshot.schedule.status", (gpointer)_handle_snapshot_schedule_status);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.schedule.set",    (gpointer)handle_snapshot_schedule_set);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.schedule.list",   (gpointer)handle_snapshot_schedule_list);
     g_hash_table_insert(g_rpc_routes, "vm.snapshot.schedule.delete", (gpointer)handle_snapshot_schedule_delete);
 
-    /* ── VM I/O 스로틀링 ───────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.blkio.set",     (gpointer)handle_vm_blkio_set);
     g_hash_table_insert(g_rpc_routes, "vm.blkio.get",     (gpointer)handle_vm_blkio_get);
 
-    /* ── Cloud Migration ───────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.import.ec2",       (gpointer)_handle_vm_import_ec2);
     g_hash_table_insert(g_rpc_routes, "vm.export.ec2",       (gpointer)_handle_vm_export_ec2);
     g_hash_table_insert(g_rpc_routes, "vm.import.status",    (gpointer)_handle_cloud_migration_status);
@@ -7424,7 +6142,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "cloud.jobs.list",     (gpointer)_handle_cloud_jobs_list);
     g_hash_table_insert(g_rpc_routes, "cloud.job.cancel",    (gpointer)_handle_cloud_job_cancel);
 
-    /* ── Daemon / Node 관리 ────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "daemon.version",      (gpointer)_handle_daemon_version);
     g_hash_table_insert(g_rpc_routes, "daemon.update_check", (gpointer)_handle_daemon_update_check);
     g_hash_table_insert(g_rpc_routes, "node.drain",          (gpointer)_handle_node_drain);
@@ -7433,16 +6150,12 @@ static void dispatcher_init_routes(void)
 
     pcv_bootstrap_register_rpc_routes(g_rpc_routes);
 
-    /* ── GPU ───────────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "gpu.metrics",         (gpointer)_handle_gpu_metrics);
     g_hash_table_insert(g_rpc_routes, "gpu.list",            (gpointer)_handle_gpu_list);
-    /* gpu.passthrough / gpu.mdev.create — 삭제됨 (하드웨어 의존, -32601 자동 응답) */
 
-    /* ── Webhook DLQ ───────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "webhook.dlq.list",    (gpointer)_handle_webhook_dlq_list);
     g_hash_table_insert(g_rpc_routes, "webhook.dlq.retry",   (gpointer)_handle_webhook_dlq_retry);
 
-    /* ── 보안 그룹 ─────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "security_group.create",   (gpointer)_handle_security_group_create);
     g_hash_table_insert(g_rpc_routes, "security_group.list",     (gpointer)_handle_security_group_list);
     g_hash_table_insert(g_rpc_routes, "security_group.delete",   (gpointer)_handle_security_group_delete);
@@ -7455,50 +6168,37 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "security_group.attach",   (gpointer)_handle_security_group_attach);
     g_hash_table_insert(g_rpc_routes, "security_group.detach",   (gpointer)_handle_security_group_detach);
 
-    /* ── Config / Audit ────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "config.history",      (gpointer)_handle_config_history);
     g_hash_table_insert(g_rpc_routes, "config.backup",       (gpointer)_handle_config_backup);
     g_hash_table_insert(g_rpc_routes, "daemon.config.get",   (gpointer)_handle_daemon_config_get);
     g_hash_table_insert(g_rpc_routes, "daemon.config.set",   (gpointer)_handle_daemon_config_set);
     g_hash_table_insert(g_rpc_routes, "audit.search",        (gpointer)_handle_audit_search);
 
-    /* ── QoS (Traffic Control) ─────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "network.qos.set",      (gpointer)handle_network_qos_set);
     g_hash_table_insert(g_rpc_routes, "network.qos.get",      (gpointer)handle_network_qos_get);
     g_hash_table_insert(g_rpc_routes, "network.qos.remove",   (gpointer)handle_network_qos_remove);
 
-    /* ── OVA Export ────────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.import.ova",        (gpointer)_handle_vm_import_ova);
     g_hash_table_insert(g_rpc_routes, "vm.export.ova",        (gpointer)_handle_vm_export_ova);
-    /* 미구현 placeholder 삭제됨 (2026-04-04):
-     * terraform.plan/apply/state, container.oci.pull/run/list,
-     * cluster.site.add/remove/failover, docker.list/pull/run/stop
-     * → 미등록 메서드는 디스패처가 -32601 자동 응답 */
+
     g_hash_table_insert(g_rpc_routes, "jobs.list",            (gpointer)_handle_jobs_list);
     g_hash_table_insert(g_rpc_routes, "jobs.get",             (gpointer)_handle_jobs_get);
-    g_hash_table_insert(g_rpc_routes, "jobs.status",          (gpointer)_handle_jobs_get);  /* ADR-0012 alias */
+    g_hash_table_insert(g_rpc_routes, "jobs.status",          (gpointer)_handle_jobs_get);
     g_hash_table_insert(g_rpc_routes, "jobs.cancel",          (gpointer)_handle_jobs_cancel);
     g_hash_table_insert(g_rpc_routes, "prometheus.sd",        (gpointer)_handle_prometheus_sd);
     g_hash_table_insert(g_rpc_routes, "vm.event.webhook.list",(gpointer)_handle_vm_event_webhook_list);
     g_hash_table_insert(g_rpc_routes, "alert.action.list",    (gpointer)_handle_alert_action_list);
 
-    /* ═══════════════════════════════════════════════════════════
-     * [백엔드 4차] 28건 신규 RPC 등록
-     * ═══════════════════════════════════════════════════════════ */
-
-    /* ── A. 보안 강화 ─────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "auth.apikey.create",   (gpointer)_handle_apikey_create);
     g_hash_table_insert(g_rpc_routes, "auth.apikey.list",     (gpointer)_handle_apikey_list);
     g_hash_table_insert(g_rpc_routes, "auth.apikey.revoke",   (gpointer)_handle_apikey_revoke);
     g_hash_table_insert(g_rpc_routes, "auth.session.revoke",  (gpointer)_handle_session_revoke);
     g_hash_table_insert(g_rpc_routes, "auth.user.sessions.revoke", (gpointer)_handle_user_sessions_revoke);
 
-    /* ── B. REST/스케일링 ─────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "vm.batch",             (gpointer)_handle_vm_batch);
     g_hash_table_insert(g_rpc_routes, "vm.list.filtered",     (gpointer)_handle_vm_list_filtered);
     g_hash_table_insert(g_rpc_routes, "pool.conninfo",        (gpointer)_handle_pool_conninfo);
 
-    /* ── C. 운영 기능 ─────────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "config.reload",        (gpointer)_handle_config_reload);
     g_hash_table_insert(g_rpc_routes, "health.deep",          (gpointer)_handle_health_deep);
     g_hash_table_insert(g_rpc_routes, "backup.snapshot.verify",(gpointer)_handle_snapshot_verify);
@@ -7510,7 +6210,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "alert.config.routing", (gpointer)_handle_alert_routing);
     g_hash_table_insert(g_rpc_routes, "db.migration.status",  (gpointer)_handle_db_migration_status);
 
-    /* ── D. 컨테이너 확장 ─────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "container.snapshot.create", (gpointer)_handle_container_snapshot_create);
     g_hash_table_insert(g_rpc_routes, "container.snapshot.list",   (gpointer)_handle_container_snapshot_list);
     g_hash_table_insert(g_rpc_routes, "container.snapshot.delete", (gpointer)_handle_container_snapshot_delete);
@@ -7518,7 +6217,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "container.memory.stats",    (gpointer)_handle_container_memory_stats);
     g_hash_table_insert(g_rpc_routes, "container.health.check",    (gpointer)_handle_container_health_check);
 
-    /* ── AF-C2/AF-C4: 미구현 CLI RPC 핸들러 배선 (-32601 해소) ──── */
     g_hash_table_insert(g_rpc_routes, "vm.numa.info",        (gpointer)_handle_vm_numa_info);
     g_hash_table_insert(g_rpc_routes, "vm.autostart",        (gpointer)_handle_vm_autostart);
     g_hash_table_insert(g_rpc_routes, "vm.sla.report",       (gpointer)_handle_vm_sla_report);

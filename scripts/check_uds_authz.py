@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_uds_authz.py — UDS root-only 접근 게이트 (Wave C Item 1 / A01·V8).
 
 근거: docs/operations/2026-07-16-security-remediation-roadmap.md Item 1.
@@ -30,9 +30,8 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGET_REL = "src/api/uds_server.c"
 TARGET = ROOT / TARGET_REL
 
-# 활성 accept 경로 두 함수 — 각 본문에 peercred 게이트 마커가 있어야 한다.
 ACCEPT_FNS = ["on_incoming_connection", "_uring_accept_cb"]
-# 게이트 호출 마커(헬퍼 호출 또는 인라인 getsockopt 사용).
+
 PEERCRED_MARKERS = ["_uds_peer_is_root", "SO_PEERCRED"]
 
 UMASK_SAFE_RE = re.compile(r'umask\s*\(\s*0117\s*\)')
@@ -41,7 +40,6 @@ NONROOT_REJECT_RE = re.compile(r'\.uid\s*!=\s*0')
 GETSOCKOPT_RE = re.compile(r'\bgetsockopt\s*\(')
 PEERCRED_TOKEN = "SO_PEERCRED"
 RESIDUAL_0666_RE = re.compile(r'0666')
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴 내용을 공백/개행으로 치환(줄 번호·오프셋 1:1 유지).
@@ -97,7 +95,6 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def _match_delims(s: str, open_pos: int, opench: str, closech: str) -> int:
     """s[open_pos]==opench 라 가정, 매칭되는 closech 인덱스 반환(없으면 -1)."""
     depth = 0
@@ -111,30 +108,27 @@ def _match_delims(s: str, open_pos: int, opench: str, closech: str) -> int:
                 return i
     return -1
 
-
 def _match_brace(s: str, open_pos: int) -> int:
     return _match_delims(s, open_pos, '{', '}')
-
 
 def _extract_fn_body(code: str, fn: str):
     """strip_code 적용본에서 fn '정의' 본문({...})을 반환(없으면 None).
     전방 선언(name(...);)·호출부는 건너뛰고 name(...){ 형태만 정의로 인정한다."""
     for m in re.finditer(r'\b' + re.escape(fn) + r'\s*\(', code):
-        paren_open = m.end() - 1              # '(' 위치
+        paren_open = m.end() - 1
         paren_close = _match_delims(code, paren_open, '(', ')')
         if paren_close < 0:
             continue
         j = paren_close + 1
         while j < len(code) and code[j] in ' \t\r\n':
             j += 1
-        if j < len(code) and code[j] == '{':  # 정의(본문 개시) — 선언(';')이 아님
+        if j < len(code) and code[j] == '{':
             close = _match_brace(code, j)
             if close < 0:
                 return None
             return code[j:close + 1]
-        # 그 외(';' 선언, ',' 콜백 참조 등)는 다음 후보로
-    return None
 
+    return None
 
 def check_socket_perms(text: str, code: str):
     """(ok, reasons). 소켓 0660(umask 0117) + 0666 잔존 없음."""
@@ -148,7 +142,6 @@ def check_socket_perms(text: str, code: str):
     if RESIDUAL_0666_RE.search(text):
         reasons.append("0666 리터럴 잔존(코드/주석) — 소켓 권한 드리프트")
     return (not reasons), reasons
-
 
 def check_peercred(code: str):
     """(ok, reasons). SO_PEERCRED 게이트 + 양 accept 경로 배선."""
@@ -168,13 +161,11 @@ def check_peercred(code: str):
             reasons.append(f"{fn} 본문에 peercred 게이트 마커 없음 — 이 accept 경로가 비-root 우회")
     return (not reasons), reasons
 
-
 def scan_text(text: str):
     code = strip_code(text)
     perms_ok, perms_reasons = check_socket_perms(text, code)
     peer_ok, peer_reasons = check_peercred(code)
     return perms_ok, perms_reasons, peer_ok, peer_reasons
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -200,7 +191,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] UDS 소켓 0660 + SO_PEERCRED root-only 게이트(양 accept 경로) 충족 ({rel})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

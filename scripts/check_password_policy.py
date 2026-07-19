@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_password_policy.py — user-create 비밀번호 복잡도 정책 게이트 (Q-2 / A07).
 
 근거: 보안 Quick 시정 Q-2. auth.user.create 는 password 필수만 검증하고 강도
@@ -17,14 +17,13 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_cors_anchor import strip_comments  # noqa: E402
+from check_cors_anchor import strip_comments
 
 TARGET_REL = "src/modules/dispatcher/handler_auth.c"
 TARGET = ROOT / TARGET_REL
 
 FUNC_RE = re.compile(r'\bhandle_auth_user_create\s*\(')
 REQUIRED_CALL = "pcv_validate_password_complexity("
-
 
 def _extract_func_body(code: str):
     """handle_auth_user_create 정의의 '{'..'}' 본문을 반환. 없으면 None.
@@ -46,7 +45,6 @@ def _extract_func_body(code: str):
                 return code[brace:i + 1]
     return None
 
-
 def scan_text(text: str):
     """(has_call, func_found) 반환."""
     code = strip_comments(text)
@@ -54,7 +52,6 @@ def scan_text(text: str):
     if body is None:
         return False, False
     return (REQUIRED_CALL in body), True
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -77,7 +74,6 @@ def main(argv=None) -> int:
         return 1
     print("[PASS] handle_auth_user_create 가 pcv_validate_password_complexity 호출")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

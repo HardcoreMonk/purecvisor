@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 backup.replicate shell-free contract check.
 
@@ -29,7 +29,6 @@ FORBIDDEN_PATTERNS = (
     (re.compile(r"\bg_shell_quote\s*\("), "shell quoting in replication path"),
 )
 
-
 def extract_c_function_body(text: str, name: str) -> str | None:
     match = re.search(rf"\b{name}\s*\([^;]*?\)\s*\{{", text, re.DOTALL)
     if not match:
@@ -45,7 +44,6 @@ def extract_c_function_body(text: str, name: str) -> str | None:
             if depth == 0:
                 return text[start + 1:pos]
     return None
-
 
 def main() -> int:
     text = BACKUP_C.read_text(errors="replace")
@@ -72,7 +70,6 @@ def main() -> int:
 
     print("[PASS] backup.replicate uses argv/splice without local shell")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

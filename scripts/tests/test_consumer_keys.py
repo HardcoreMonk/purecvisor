@@ -1,10 +1,9 @@
-#!/usr/bin/env python3
+
 """소비 콜사이트별 전송키 추출기(함수스코프 귀속) 단위 테스트."""
 import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from rpc_extract import extract_consumer_sent, CLI_RE
-
 
 def test_sent_keys_same_scope():
     src = '''
@@ -16,7 +15,6 @@ def test_sent_keys_same_scope():
     }'''
     sent = extract_consumer_sent(src, CLI_RE)
     assert sent["network.mode_set"] == {"bridge_name", "mode"}
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

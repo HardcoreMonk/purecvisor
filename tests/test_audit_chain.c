@@ -1,22 +1,4 @@
-/* tests/test_audit_chain.c
- *
- * 감사 로그 해시체인(A09/2.9) 위변조 탐지 효과 테스트.
- *
- * [왜 self-contained SQLite 인가]
- *   test_runner 는 tests/test_stubs.c 가 pcv_audit_log() 를 스텁 정의하므로
- *   src/modules/audit/pcv_audit.c 를 링크할 수 없다 (pcv_audit_log 중복 심볼).
- *   또한 production 기록 경로는 async 워커 스레드를 거친다. 따라서 실 함수
- *   pcv_audit_verify_chain() 을 직접 구동하는 대신, production 이 사용하는 것과
- *   '동일한' 체인 해시 공식과 검증 규칙을 이 테스트에서 재현하여, 체인이 실제로
- *   수정·삭제를 탐지함을 고정한다 (test_apikey.c 와 동일 선례).
- *
- *   진리원: src/modules/audit/pcv_audit.c
- *     - _sha256_hex()              (EVP SHA-256 → 64 hex)
- *     - _audit_rec_hash()          (prev|ts|user|method|target|result|code)
- *     - pcv_audit_verify_chain()   (① prev_hash 링크 연속성 ② rec_hash 재계산)
- *     - AUDIT_CHAIN_GENESIS        (64자 0)
- *   위 공식/규칙이 바뀌면 이 재현도 함께 갱신해야 한다.
- */
+
 #include <glib.h>
 #include <sqlite3.h>
 #include <openssl/evp.h>
@@ -25,7 +7,6 @@
 #define CHAIN_GENESIS \
     "0000000000000000000000000000000000000000000000000000000000000000"
 
-/* production _sha256_hex() 재현 (EVP) */
 static gchar *
 _sha256_hex(const gchar *input)
 {
@@ -44,7 +25,6 @@ _sha256_hex(const gchar *input)
     return g_string_free(hex, FALSE);
 }
 
-/* production _audit_rec_hash() 재현 (동일 프리이미지 포맷) */
 static gchar *
 _rec_hash(const gchar *prev, const gchar *ts, const gchar *user,
           const gchar *method, const gchar *target, const gchar *result,
@@ -60,7 +40,6 @@ _rec_hash(const gchar *prev, const gchar *ts, const gchar *user,
     return h;
 }
 
-/* production pcv_audit_verify_chain() 재현 — 반환 TRUE=무결, 아니면 FALSE + break rowid */
 static gboolean
 _verify_chain(sqlite3 *db, gsize *first_break_rowid)
 {
@@ -76,7 +55,7 @@ _verify_chain(sqlite3 *db, gsize *first_break_rowid)
     gchar *expected_prev = g_strdup(CHAIN_GENESIS);
     while (sqlite3_step(st) == SQLITE_ROW) {
         const gchar *rec_hash = (const gchar *)sqlite3_column_text(st, 8);
-        if (!rec_hash || !*rec_hash) continue;   /* 체인 밖 (마이그레이션 전) */
+        if (!rec_hash || !*rec_hash) continue;
 
         gsize        rowid = (gsize)sqlite3_column_int64(st, 0);
         const gchar *ts    = (const gchar *)sqlite3_column_text(st, 1);
@@ -88,12 +67,12 @@ _verify_chain(sqlite3 *db, gsize *first_break_rowid)
         const gchar *prev  = (const gchar *)sqlite3_column_text(st, 7);
         const gchar *prev_norm = prev ? prev : "";
 
-        if (g_strcmp0(prev_norm, expected_prev) != 0) {   /* ① 링크 연속성 */
+        if (g_strcmp0(prev_norm, expected_prev) != 0) {
             if (first_break_rowid) *first_break_rowid = rowid;
             ok = FALSE; break;
         }
         gchar *recomputed = _rec_hash(prev_norm, ts, user, meth, targ, res, ecode);
-        gboolean match = (g_strcmp0(recomputed, rec_hash) == 0);   /* ② 무결성 */
+        gboolean match = (g_strcmp0(recomputed, rec_hash) == 0);
         g_free(recomputed);
         if (!match) {
             if (first_break_rowid) *first_break_rowid = rowid;
@@ -106,8 +85,6 @@ _verify_chain(sqlite3 *db, gsize *first_break_rowid)
     sqlite3_finalize(st);
     return ok;
 }
-
-/* ── 헬퍼: production 워커의 INSERT 경로 재현 (체인 헤드 전진 포함) ── */
 
 static sqlite3 *
 _open_audit_db(void)
@@ -123,7 +100,6 @@ _open_audit_db(void)
     return db;
 }
 
-/* chain_head 를 갱신하며 한 행 INSERT (production _audit_worker 성공 경로 재현) */
 static void
 _append(sqlite3 *db, gchar **chain_head, const gchar *ts, const gchar *user,
         const gchar *method, const gchar *target, const gchar *result,
@@ -148,7 +124,7 @@ _append(sqlite3 *db, gchar **chain_head, const gchar *ts, const gchar *user,
     sqlite3_finalize(st);
 
     g_free(*chain_head);
-    *chain_head = rec;   /* 헤드 전진 */
+    *chain_head = rec;
 }
 
 static sqlite3 *
@@ -163,9 +139,6 @@ _build_three_row_chain(void)
     return db;
 }
 
-/* ── 테스트 ─────────────────────────────────────────────────── */
-
-/* 정상 체인은 무결 검증(PASS) */
 static void
 test_audit_chain_intact_passes(void)
 {
@@ -176,41 +149,35 @@ test_audit_chain_intact_passes(void)
     sqlite3_close(db);
 }
 
-/* 핵심: 한 행의 필드 변조 → rec_hash 재계산 불일치로 그 rowid 에서 break */
 static void
 test_audit_chain_field_tamper_detected(void)
 {
     sqlite3 *db = _build_three_row_chain();
 
-    /* row 2 의 result 를 'ok' → 'denied' 로 몰래 변조 (rec_hash 는 갱신 안 함) */
     g_assert_cmpint(sqlite3_exec(db,
         "UPDATE audit_log SET result='denied' WHERE id=2", NULL, NULL, NULL),
         ==, SQLITE_OK);
 
     gsize brk = 0;
-    g_assert_false(_verify_chain(db, &brk));   /* 위변조 탐지 */
-    g_assert_cmpuint(brk, ==, 2);              /* 정확히 변조된 행에서 break */
+    g_assert_false(_verify_chain(db, &brk));
+    g_assert_cmpuint(brk, ==, 2);
     sqlite3_close(db);
 }
 
-/* 핵심: 중간 행 삭제 → 다음 행 prev_hash 링크 단절로 break */
 static void
 test_audit_chain_row_delete_detected(void)
 {
     sqlite3 *db = _build_three_row_chain();
 
-    /* row 2 를 통째로 삭제 — row 3 의 prev_hash 는 여전히 row2.rec_hash 를 가리켜
-     * expected_prev(=row1.rec_hash)와 불일치 → 링크 연속성 위반 */
     g_assert_cmpint(sqlite3_exec(db,
         "DELETE FROM audit_log WHERE id=2", NULL, NULL, NULL), ==, SQLITE_OK);
 
     gsize brk = 0;
     g_assert_false(_verify_chain(db, &brk));
-    g_assert_cmpuint(brk, ==, 3);   /* 링크 단절은 뒤따르는 row 3 에서 드러난다 */
+    g_assert_cmpuint(brk, ==, 3);
     sqlite3_close(db);
 }
 
-/* rec_hash 자체를 직접 변조해도 재계산 불일치로 탐지 */
 static void
 test_audit_chain_rechash_tamper_detected(void)
 {
@@ -225,23 +192,22 @@ test_audit_chain_rechash_tamper_detected(void)
     sqlite3_close(db);
 }
 
-/* 마이그레이션 전(rec_hash NULL) 레코드는 체인 밖 — 무결 취급, 이후 체인은 검증 */
 static void
 test_audit_chain_null_prechain_skipped(void)
 {
     sqlite3 *db = _open_audit_db();
-    /* 레거시 행: rec_hash NULL */
+
     g_assert_cmpint(sqlite3_exec(db,
         "INSERT INTO audit_log(ts,username,method,target,result,error_code,prev_hash,rec_hash)"
         " VALUES('2026-07-15 00:00:00','old','x','y','ok',0,NULL,NULL)",
         NULL, NULL, NULL), ==, SQLITE_OK);
-    /* 이후 체인 행 (id=2 부터, prev=genesis) */
+
     gchar *head = NULL;
     _append(db, &head, "2026-07-16 00:00:01", "admin", "auth.login", "admin", "ok", 0);
     g_free(head);
 
     gsize brk = 123;
-    g_assert_true(_verify_chain(db, &brk));   /* NULL 행 skip, 체인 무결 */
+    g_assert_true(_verify_chain(db, &brk));
     g_assert_cmpuint(brk, ==, 0);
     sqlite3_close(db);
 }

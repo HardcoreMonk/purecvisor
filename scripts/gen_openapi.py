@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 gen_openapi.py — REST_ENDPOINTS.md를 파싱해 openapi.yaml 생성
 
@@ -20,13 +20,6 @@ ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "docs" / "REST_ENDPOINTS.md"
 OUT = ROOT / "openapi.yaml"
 
-# The generator intentionally supports only the table shape used by
-# REST_ENDPOINTS.md. That keeps CI drift checks deterministic and avoids a
-# partial Markdown parser that would accept undocumented endpoint formats.
-# If the docs format changes, update ROW_RE and the corresponding check mode
-# together so generated OpenAPI remains a faithful derived artifact.
-
-# 파일 헤더 (정적)
 HEADER = """openapi: 3.0.3
 info:
   title: PureCVisor REST API
@@ -121,10 +114,8 @@ tags:
   - { name: health, description: 헬스/probe }
 """
 
-# 마크다운 라인 파서: | `METHOD` | `/path` | ... |
 ROW_RE = re.compile(r"^\s*\|\s*`([A-Z/]+)`\s*\|\s*`([^`]+)`\s*\|\s*(.*?)\s*\|")
 
-# 경로 → 태그 매핑
 def tag_for(path):
     p = path.lstrip("/")
     seg = p.split("/", 1)[0]
@@ -138,7 +129,6 @@ def tag_for(path):
     }
     return mapping.get(seg, "default")
 
-# 경로 변수 → OpenAPI 매개변수
 def params_for(path):
     refs = []
     if "{name}" in path: refs.append("NameParam")
@@ -184,10 +174,10 @@ def emit_paths(rows):
         for method in sorted(ops.keys()):
             desc = ops[method]
             tag = tag_for(path)
-            # 인증 불필요 경로
+
             no_auth = path in ("/health", "/metrics", "/auth/token", "/auth/refresh", "/auth/logout") \
                       or path.startswith("/internal/")
-            # YAML 안전한 description (특수문자 escape — quote 사용)
+
             safe_desc = desc.replace('"', '\\"').replace("\n", " ")[:200]
             out.append(f"    {method}:")
             out.append(f"      tags: [{tag}]")

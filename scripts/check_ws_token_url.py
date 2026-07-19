@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_ws_token_url.py — WS URL-query 토큰 인증 경로 제거 게이트 (Q-5 / A07).
 
 근거: 보안 Quick 시정 Q-5. WebSocket 인증이 URL ?token=<JWT> 즉시인증을 지원해,
@@ -19,7 +19,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
-from check_cors_anchor import strip_comments  # noqa: E402
+from check_cors_anchor import strip_comments
 
 TARGET_REL = "src/api/ws_server.c"
 TARGET = ROOT / TARGET_REL
@@ -27,7 +27,6 @@ TARGET = ROOT / TARGET_REL
 VERIFY_CALL = "pcv_jwt_verify("
 URL_QUERY = "g_uri_get_query"
 TOKEN_LIT = '"token"'
-
 
 def _top_level_blocks(code: str):
     """최상위 '{...}' 블록(함수 본문 등)들을 본문 문자열 리스트로 반환.
@@ -63,7 +62,6 @@ def _top_level_blocks(code: str):
         i += 1
     return blocks
 
-
 def scan_text(text: str):
     """(violations, has_message_auth) 반환.
     violations: URL-query 토큰을 읽으면서 pcv_jwt_verify 를 호출하는 블록 수.
@@ -79,7 +77,6 @@ def scan_text(text: str):
         elif calls_verify and not reads_url_token:
             has_message_auth = True
     return violations, has_message_auth
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -102,7 +99,6 @@ def main(argv=None) -> int:
         return 1
     print("[PASS] URL-query 토큰 인증 없음 + 메시지 경로 pcv_jwt_verify 인증 유지")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

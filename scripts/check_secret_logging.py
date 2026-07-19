@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_secret_logging.py — 감사 로그 자격증명 마스킹 게이트 (Wave A / A09·V14·V16).
 
 근거: docs/operations/2026-07-16-security-assessment-owasp-ismsp.md §8 시정 2.
@@ -24,11 +24,10 @@ TARGET_REL = "src/api/rest_server.c"
 TARGET = ROOT / TARGET_REL
 
 HELPER = "_body_has_secret"
-# is_auth 대입식(여러 줄 가능) — '=' 부터 문장 종료 ';' 까지 non-greedy.
+
 IS_AUTH_ASSIGN_RE = re.compile(r'\bis_auth\s*=(?P<rhs>.*?);', re.S)
 HELPER_DEF_RE = re.compile(r'\bstatic\s+gboolean\s+_body_has_secret\s*\(')
 HELPER_CALL_RE = re.compile(r'\b_body_has_secret\s*\(')
-
 
 def strip_comments(text: str) -> str:
     """C 주석만 공백/개행으로 치환(문자열 리터럴은 보존, 줄 번호 1:1 유지)."""
@@ -82,7 +81,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def scan_text(text: str):
     """(defined, used_in_is_auth) 반환.
     defined: _body_has_secret 정의 존재.
@@ -96,10 +94,8 @@ def scan_text(text: str):
             break
     return defined, used
 
-
 def main(argv=None) -> int:
-    # argv[0]이 주어지면 그 파일을 검사(self-test가 원본 훼손 없이 temp 사본으로
-    # 반사실 검증하기 위한 경로 오버라이드). 없으면 정본 TARGET을 검사한다.
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     target = Path(argv[0]) if argv else TARGET
     rel = argv[0] if argv else TARGET_REL
@@ -123,7 +119,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] {HELPER} 정의 + is_auth 산정에 결합 — 본문 기반 자격증명 마스킹 유지")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

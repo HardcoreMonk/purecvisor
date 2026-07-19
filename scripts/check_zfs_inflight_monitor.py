@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """ZFS inflight lock monitor panel static contract guard."""
 
 from __future__ import annotations
@@ -6,9 +6,7 @@ from __future__ import annotations
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
 
 def read(path: str) -> str:
     try:
@@ -17,12 +15,10 @@ def read(path: str) -> str:
         print(f"ERROR: failed to read {path}: {exc}", file=sys.stderr)
         sys.exit(2)
 
-
 def require(description: str, condition: bool) -> None:
     if not condition:
         print(f"FAIL: {description}", file=sys.stderr)
         sys.exit(1)
-
 
 def main() -> int:
     monitor_js = read("ui/modules/monitor.js")
@@ -47,7 +43,6 @@ def main() -> int:
 
     print("[PASS] ZFS inflight lock monitor static contract is present")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

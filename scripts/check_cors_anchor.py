@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_cors_anchor.py — CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13).
 
 근거: docs/operations/2026-07-16-security-assessment-owasp-ismsp.md §8 시정 1.
@@ -26,14 +26,12 @@ TARGET = ROOT / TARGET_REL
 
 REQUIRED_HELPER = "_cors_origin_allowed"
 
-# 문자열 리터럴은 보존한 채 주석만 공백화한다(금지 패턴이 문자열 인자 안에 있으므로).
 FORBIDDEN = [
     (re.compile(r'strstr\s*\(\s*origin\s*,\s*"://[^"]'),
      'origin substring 내부망 화이트리스트 (://localhost/127/192.168/10 등)'),
     (re.compile(r'strstr\s*\(\s*origin\s*,\s*host\b'),
      'origin ⊇ host 반사 substring 비교'),
 ]
-
 
 def strip_comments(text: str) -> str:
     """C 주석(//, /* */)만 공백/개행으로 치환하고 문자열·문자 리터럴은 그대로 보존한다.
@@ -45,7 +43,7 @@ def strip_comments(text: str) -> str:
     out = []
     i, n = 0, len(text)
     in_block = in_line = False
-    in_str = None  # '"' 또는 "'" (문자열/문자 리터럴 내부)
+    in_str = None
     while i < n:
         ch = text[i]
         if in_line:
@@ -67,7 +65,7 @@ def strip_comments(text: str) -> str:
             continue
         if in_str:
             out.append(ch)
-            if ch == '\\' and i + 1 < n:          # 이스케이프: 다음 문자 그대로 보존
+            if ch == '\\' and i + 1 < n:
                 out.append(text[i + 1])
                 i += 2
                 continue
@@ -94,7 +92,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def scan_text(text: str):
     """(위반 리스트, 헬퍼사용여부) 반환. 위반 = (line, 설명, 원본줄)."""
     code = strip_comments(text)
@@ -106,10 +103,8 @@ def scan_text(text: str):
     has_helper = REQUIRED_HELPER in code
     return fails, has_helper
 
-
 def main(argv=None) -> int:
-    # argv[0]이 주어지면 그 파일을 검사(self-test가 원본 훼손 없이 temp 사본으로
-    # 반사실 검증하기 위한 경로 오버라이드). 없으면 정본 TARGET을 검사한다.
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     target = Path(argv[0]) if argv else TARGET
     rel = argv[0] if argv else TARGET_REL
@@ -130,7 +125,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] CORS origin substring 매칭 없음 + {REQUIRED_HELPER} 앵커 검증 사용")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

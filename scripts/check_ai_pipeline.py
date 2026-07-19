@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 check_ai_pipeline.py — ADR-0020 회귀 방지 정적 검증 (F-17)
 
@@ -19,10 +19,7 @@ from pathlib import Path
 REPO = Path(__file__).resolve().parent.parent
 
 CHECKS = [
-# The AI pipeline has historically failed by becoming disconnected rather than
-# by throwing a local error. These checks therefore look for producer -> healing
-# call sites and the non-empty vm-unresponsive trigger metric that makes the
-# policy reachable.
+
     {
         "name": "anomaly_detector → self_healing",
         "file": "src/modules/ai/anomaly_detector.c",
@@ -47,8 +44,7 @@ CHECKS = [
     {
         "name": "vm-unresponsive 정책 trigger_metric 비공백",
         "file": "src/modules/ai/self_healing.c",
-        # _add_policy("vm-unresponsive", "vm-unresponsive", ...)
-        # 빈 문자열은 규칙 4 위반
+
         "pattern": r'_add_policy\s*\(\s*"vm-unresponsive"\s*,\s*"vm-unresponsive"',
         "min_count": 1,
         "rule": "ADR-0020 규칙 4",
@@ -59,7 +55,6 @@ RED = "\033[31m"
 GREEN = "\033[32m"
 YELLOW = "\033[33m"
 RESET = "\033[0m"
-
 
 def check_one(c: dict) -> bool:
     """Returns True if check passes."""
@@ -81,7 +76,6 @@ def check_one(c: dict) -> bool:
     print(f"       {YELLOW}→ docs/adr/0020-ai-ops-pipeline-wiring.md 참조{RESET}")
     return False
 
-
 def main() -> int:
     print("============================================================")
     print("ADR-0020 AI Ops 파이프라인 정적 검증 (BUG-20 회귀 방지)")
@@ -102,7 +96,6 @@ def main() -> int:
         return 1
     print(f"{GREEN}PASS{RESET}: {passed}/{total} checks passed")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_secret_logging.py self-test (Wave A / A09·V14·V16).
 
 ① 현행 트리에서 게이트 PASS(exit 0).
@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from check_secret_logging import scan_text, TARGET  # noqa: E402
+from check_secret_logging import scan_text, TARGET
 
 GATE = Path(__file__).resolve().parent.parent / "check_secret_logging.py"
 
@@ -26,24 +26,20 @@ gboolean is_auth = (g_strstr_len(path, -1, "/auth/token") != nullptr) ||
                    _body_has_secret(body_str, body_len);
 '''
 
-# 시정 전(예전): 경로만 매칭 — 본문 기반 마스킹 없음.
 OLD_SNIPPET = DEF + '''
 gboolean is_auth = (g_strstr_len(path, -1, "/auth/token") != nullptr) ||
                    (g_strstr_len(path, -1, "/auth/refresh") != nullptr);
 '''
-
 
 def test_new_snippet_used():
     """현행: is_auth 산정에 _body_has_secret 결합 + 정의 존재."""
     defined, used = scan_text(NEW_SNIPPET)
     assert defined and used
 
-
 def test_old_snippet_not_used():
     """② 반사실(로직): 경로-only is_auth → used=False(RED 조건)."""
     defined, used = scan_text(OLD_SNIPPET)
     assert defined and not used, "경로-only is_auth가 여전히 used로 잡힘"
-
 
 def test_missing_definition():
     """③ 헬퍼 정의가 없으면 defined=False."""
@@ -51,12 +47,10 @@ def test_missing_definition():
     defined, used = scan_text(snippet)
     assert not defined and used
 
-
 def test_gate_passes_on_current_tree():
     """① 현행 트리에서 게이트 PASS(exit 0)."""
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_reverted_source_fails():
     """② 반사실(temp 사본): is_auth의 _body_has_secret 항을 FALSE로 되돌린 사본에서
@@ -78,7 +72,6 @@ def test_reverted_source_fails():
         assert r.returncode == 1, f"되돌린 사본에서 게이트가 RED가 아님:\n{r.stdout}\n{r.stderr}"
     finally:
         os.unlink(tmp)
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

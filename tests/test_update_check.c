@@ -38,7 +38,7 @@ static void test_compare_malformed_unknown(void) {
     gboolean up = FALSE;
     g_assert_false(pcv_update_check_compare("1.4.1", "garbage", &up));
     g_assert_false(pcv_update_check_compare("", "v1.4.2", &up));
-    g_assert_false(pcv_update_check_compare("1.4", "v1.4.2", &up)); /* 2-튜플 불가 */
+    g_assert_false(pcv_update_check_compare("1.4", "v1.4.2", &up));
 }
 static void test_parse_ok(void) {
     const char *json = "{\"tag_name\":\"v1.4.2\",\"html_url\":\"https://github.com/HardcoreMonk/purecvisor/releases/tag/v1.4.2\"}";
@@ -53,7 +53,7 @@ static void test_parse_bad_url_dropped(void) {
     char *tag = nullptr, *url = nullptr;
     g_assert_true(pcv_update_check_parse_release(json, -1, &tag, &url));
     g_assert_cmpstr(tag, ==, "1.4.2");
-    g_assert_null(url); /* github.com 아니면 drop */
+    g_assert_null(url);
     g_free(tag);
 }
 static void test_parse_bad_tag_unknown(void) {

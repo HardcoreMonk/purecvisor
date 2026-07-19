@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_transport_bind.py — 전송 평문 루프백 바인딩 게이트 (Wave C Item 6 / A02·V12).
 
 근거: docs/operations/2026-07-16-security-remediation-roadmap.md Item 6.
@@ -30,9 +30,8 @@ TARGET = ROOT / TARGET_REL
 
 CONFIG_KEY = "bind_plaintext"
 LOOPBACK_ADDR = "g_inet_address_new_loopback"
-# 단수형 soup_server_listen( — soup_server_listen_all( 는 뒤에 '_all' 이 붙어 매칭 안 됨.
-LISTEN_SINGULAR_RE = re.compile(r'\bsoup_server_listen\s*\(')
 
+LISTEN_SINGULAR_RE = re.compile(r'\bsoup_server_listen\s*\(')
 
 def strip_comments(text: str) -> str:
     """주석만 공백/개행으로 치환하고 문자열·문자 리터럴은 보존(줄 번호 1:1).
@@ -87,7 +86,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def scan_text(text: str):
     """(reasons) — 빈 리스트면 PASS."""
     code = strip_comments(text)
@@ -100,7 +98,6 @@ def scan_text(text: str):
         reasons.append("soup_server_listen( (단수형) 미사용 — 특정 주소 바인딩 없이 "
                        "soup_server_listen_all(0.0.0.0)만 존재")
     return reasons
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -119,7 +116,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] 평문 HTTP 가 bind_plaintext(기본 loopback=127.0.0.1) 존중 ({rel})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

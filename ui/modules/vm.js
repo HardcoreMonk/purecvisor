@@ -1,81 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/vm.js
-   VM List, Summary, Console, Snapshots, Performance, Power,
-   Create Wizard, Settings, NIC Manager, Clone, Export
-   ADR-0013: IIFE 모듈 스코프 전환 — window.PCV.vm 네임스페이스
-   ═══════════════════════════════════════════════════════════════ */
-
-/*
- * ===== vm.js 모듈 개요 (주니어 개발자 필독) =====
- *
- * [역할]
- *   VM 관련 모든 UI 로직. 사이드바 VM 목록 렌더링, 상세 정보(summary),
- *   VNC 콘솔, 스냅샷 관리, 성능 차트, 전원 제어, 생성 위자드, NIC 관리 등.
- *   이 파일이 가장 크다 (~1500 LOC). 기능별로 섹션 구분자(═══)를 따라가면 된다.
- *
- * [PCV 네임스페이스 (ADR-0013)]
- *   IIFE 안에서 정의 후 PCV.vm = { ... }로 공개 API를 노출.
- *   window.render, window.vmPower 등 하위 호환 심은 전환기 코드.
- *   HTML onclick에서 직접 호출하는 함수는 window에 등록이 필수이다.
- *
- * [주요 함수]
- *   - render(skipContent): 사이드바 VM 목록 렌더링. skipContent=true면
- *     _lastVmListHash와 비교하여 변경 없으면 건너뛴다 (깜박임 방지).
- *   - renderSummary(b, v): VM 상세 정보 카드 (CPU/MEM/Disk/Net + 액션 버튼).
- *   - renderConsole(b, v): VNC 콘솔 연결 UI.
- *   - renderSnapshots(b, v): 스냅샷 목록 + 생성/롤백/삭제.
- *   - renderPerformance(b, v): 60초 히스토리 차트 (CPU/MEM).
- *   - vmPower(action): 전원 제어 (start/stop/suspend/resume) + 상태 폴링.
- *   - showCreate(): 3단계 VM 생성 위자드.
- *
- * [VM 목록 렌더링 성능]
- *   _lastVmListHash는 "name+state+cpu" 를 | 로 연결한 문자열이다.
- *   해시가 같으면 DOM 업데이트를 건너뛴다. 이렇게 하는 이유:
- *   10초 폴링마다 innerHTML을 교체하면 스크롤 위치가 초기화되고,
- *   사용자가 클릭 중인 요소가 사라져 UX가 나빠진다.
- *   WS 이벤트로 VM 상태가 바뀌면 해시가 달라져서 자동 갱신된다.
- *
- * [스파크라인 캔버스 관리]
- *   각 VM 사이드바 항목에 <canvas id="spark-{name}"> 이 있다.
- *   render()가 innerHTML을 교체할 때 기존 캔버스가 파괴되고 새로 생성된다.
- *   setTimeout(50ms) 후에 getContext('2d')로 그리는 이유:
- *   innerHTML 할당 직후에는 브라우저가 아직 레이아웃을 계산하지 않아
- *   캔버스 크기가 0일 수 있다.
- *   _vmCpuHist[name]에 30개의 CPU% 이력을 유지하여 미니 차트를 그린다.
- *
- * [VNC 콘솔 연결 흐름]
- *   1. fetchGet(EP.VNC(name))으로 VNC 포트 번호를 조회.
- *   2. noVNC 라이브러리를 로컬 vendor ESM에서 동적 로딩.
- *   3. WebSocket URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
- *      (백엔드 ws_server.c가 WS↔VNC TCP를 프록시).
- *   4. RFB 객체가 connect/disconnect/securityfailure 이벤트를 발생.
- *   5. 팝업 창에서도 동일 흐름 (openNoVNCPopup).
- *
- * [스냅샷 트리 렌더링]
- *   백엔드는 "pool/vm@snapname\tdate" 문자열 배열을 반환한다.
- *   파싱하여 {name, full_path, time} 객체로 변환 후 테이블로 표시.
- *   롤백은 파괴적 작업이므로 VM 이름 타이핑 확인(destroyConfirm 패턴)을 적용.
- *   일괄 삭제는 prefix 필터 + keep_recent 옵션으로 미리보기 후 실행.
- *
- * [흔한 실수]
- *   - vmList와 selectedVmIndex는 app.js의 var 전역이다.
- *     이 모듈 안에서는 window.vmList로 참조되지만, var 선언이 같은 스코프가
- *     아니므로 IIFE 안에서 vmList를 직접 쓰면 클로저 밖의 전역을 참조한다.
- *   - render() 안에서 vmList를 변경하지 마라. loadAll()만 vmList를 갱신해야 한다.
- *   - onclick 문자열 안에서 VM 이름을 넣을 때 escapeAttr()를 사용하라.
- *     VM 이름에 - 이외의 특수문자는 없지만, 방어적 코딩 습관을 위해.
- *   - showCreate() 호출 시 wizData를 항상 초기화한다. 이전 값이 남으면 혼란.
- */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ SORT / FILTER / RENDER ═══ */
-/* _lastVmListHash: "name+state+cpu|name+state+cpu|..." 형태의 문자열.
- *   render(skipContent=true) 시 이전 해시와 비교하여 변경이 없으면
- *   DOM 업데이트를 건너뛴다. 폴링으로 인한 불필요한 리렌더링 방지.
- * vmViewMode: 'list' 또는 'card'. localStorage에 영속 저장된다.
- *   카드 뷰에서는 드래그&드롭 마이그레이션 영역도 표시된다. */
 var _lastVmListHash = '';
 var vmViewMode = localStorage.getItem('pcv-vm-view') || 'list';
 
@@ -102,7 +28,7 @@ function getFiltered() {
     else { va = a.name; vb = b.name; }
     return va < vb ? -sortDirection : va > vb ? sortDirection : 0;
   });
-  /* G-4: favorites sort to top */
+
   const favs = getFavorites();
   l.sort((a, b) => {
     const af = favs.includes(a.name) ? 0 : 1;
@@ -124,13 +50,13 @@ function _renderCore(skipContent) {
   _lastVmListHash = newHash;
   const l = getFiltered();
   const favs = getFavorites();
-  /* D2: Update sparkline history */
+
   vmList.forEach(function(v) {
     if (!_vmCpuHist[v.name]) _vmCpuHist[v.name] = [];
     _vmCpuHist[v.name].push(v.live_cpu_pct || 0);
     if (_vmCpuHist[v.name].length > 30) _vmCpuHist[v.name].shift();
   });
-  /* #16 빈 상태 — VM이 0개일 때 CTA 표시 */
+
   if (l.length === 0 && typeof emptyStatePro === 'function') {
     var _vl = document.getElementById('vl');
     PCV.uxlib.clearEl(_vl);
@@ -169,7 +95,7 @@ function _renderCore(skipContent) {
           el('span', null, HN.badge(v.state || '?', on ? 'g' : 'r')))));
     });
     parts.push(cardGrid);
-    /* D3: Migration drop zone for cluster nodes */
+
     parts.push(el('h3', { style: 'margin:16px 0 8px' }, _L('마이그레이션 대상 노드', 'Migration Target Nodes')));
     var nodeGrid = el('div', { class: 'sg grid-3' });
     var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
@@ -200,7 +126,7 @@ function _renderCore(skipContent) {
   var vl = document.getElementById('vl');
   PCV.uxlib.clearEl(vl);
   vl.appendChild(PCV.uxlib.frag(parts));
-  /* D2: Draw sparklines */
+
   setTimeout(function() {
     vmList.forEach(function(v) {
       var canvas = document.getElementById('spark-' + v.name);
@@ -224,11 +150,11 @@ function _renderCore(skipContent) {
   document.getElementById('vc').textContent = vmList.length;
   document.getElementById('sb2').textContent = vmList[selectedVmIndex] ? vmList[selectedVmIndex].name : t('no_vm');
   document.getElementById('bbtn').style.display = checkedVms.size > 0 ? 'inline' : 'none';
-  /* G-4: auto-refresh indicator */
+
   const elapsed = Math.round((Date.now() - lastLoadTime) / 1000);
   const sb3 = document.getElementById('sb3');
   if (sb3) sb3.textContent = 'Updated ' + elapsed + 's ago';
-  /* VM 탭에서는 항상 콘텐츠 탭바(요약/콘솔/스냅샷/성능) 표시 */
+
   const ctBar = document.getElementById('ct');
   if (ctBar && ['summary','console','snapshots','performance','timeline'].includes(currentTab)) {
     ctBar.style.display = 'flex';
@@ -255,13 +181,6 @@ async function bulkStop() {
   setTimeout(loadAll, 1500);
 }
 
-/* ═══ F1: KEYBOARD NAVIGATION ═══
- * #4-C1: 진입부에 위젯 가드 2종 추가 — ①e.defaultPrevented(다른 핸들러가
- * 이미 이 키를 소비했음)면 return, ②e.target이 메뉴바/role=button|link|
- * menuitem 위(인터랙티브 위젯 위의 Enter는 위젯 몫)면 return. #3 실측에서
- * 확인된 충돌(메뉴 Enter가 VM Summary로 화면을 가로채는 회귀 — roving
- * tabindex로 .mi가 포커스 가능해지는 순간 재현됨, `clickedAfterEnter: false`)
- * 을 여기서 근본 해소한다. j/k/화살표 등 VM 목록 탐색 동작 자체는 불변. */
 document.addEventListener('keydown', function(e) {
   if (e.defaultPrevented) return;
   if (e.target.closest && e.target.closest('.menubar, [role="button"], [role="link"], [role="menuitem"]')) return;
@@ -279,22 +198,14 @@ document.addEventListener('keydown', function(e) {
   }
 });
 
-/* ═══ D2: VM SPARKLINE MINI CHART ═══
- *  _vmCpuHist[vmName] = [cpu%, cpu%, ...] (최대 30개)
- *  render()에서 vmList.forEach로 최신 CPU%를 push하고, 30개 초과 시 shift.
- *  setTimeout(50ms) 후 각 <canvas id="spark-{name}">에 꺾은선을 그린다.
- *  캔버스가 innerHTML 교체 시 파괴되므로 매번 새로 그려야 한다. */
 var _vmCpuHist = {};
 
-/* ═══ CONTEXT MENU ═══ */
 function showCtx(e, i) {
   e.preventDefault();
   selectedVmIndex = i;
   const m = document.getElementById('ctx');
   const ri = i;
-  /* ADR-013 DOM-safe: 컨텍스트 메뉴를 el/frag 로 조립. 인라인 onclick 문자열을
-   * 동일 의미의 클로저로 이전 — 대상 함수는 모듈 경계 밖 전역이라 window.fn 참조.
-   * 아이콘 HTML 엔티티(&#9654; 등)는 동일 코드포인트의 리터럴 글리프로 대체. */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var sep = function() { return el('div', { class: 'sep' }); };
   var ci = function(label, onClick) { return el('div', { class: 'ci', onClick: onClick }, label); };
@@ -387,7 +298,6 @@ function _vmPrimaryNicValue(nics, field) {
   return '';
 }
 
-/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
 function _vmProgressBar(p, c) {
   var el = PCV.uxlib.el;
   var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
@@ -397,12 +307,10 @@ function _vmProgressBar(p, c) {
     el('div', { class: 'pb-t' }, p.toFixed(1) + '%'));
 }
 
-/* ═══ VM SUMMARY ═══ */
 async function renderSummary(b, v) {
   if (!v) { PCV.uxlib.clearEl(b); b.appendChild(PCV.uxlib.el('p', { class: 'color-muted' }, t('vm.select'))); return; }
   const on = v.state === 'running';
 
-  /* 실시간 메트릭 + NIC 상세 조회 */
   var metrics = {};
   var nics = [];
   var networks = [];
@@ -433,7 +341,6 @@ async function renderSummary(b, v) {
     ? PCV.uxlib.el('button', { class: 'btn btn-xs', onclick: 'showVmDiskUsage()' }, '📊 ' + _L('디스크 사용량', 'Disk Usage'))
     : PCV.uxlib.el('span', { class: 'color-muted text-xs' }, _L('실행 중인 VM에서 확인 가능', 'Available while running'));
 
-  /* live 데이터를 vmList에도 반영 (사이드바 프로그레스바용) */
   v.live_cpu_pct = cpuPct;
   v.mem_percent = memPct;
   v.vcpu = vcpu;
@@ -512,11 +419,6 @@ async function renderSummary(b, v) {
   b.appendChild(sg);
 }
 
-/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
- *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
- *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
- *  window.render() 등 직접 참조를 위한 전환기 코드.
- *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
 PCV.vm = Object.assign(PCV.vm || {}, {
   render: render,
   setSort: setSort,
@@ -525,7 +427,6 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   renderSummary: renderSummary,
 });
 
-/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.render = render;
 window.setSort = setSort;
 window.getFiltered = getFiltered;

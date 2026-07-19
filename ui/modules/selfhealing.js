@@ -1,19 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/selfhealing.js
-   AI Ops Self-Healing Panel: pending / history / mode / approve / reject
-   ADR-0013: IIFE module scope — PCV.selfhealing namespace
-   ADR-0020: AI 파이프라인 호출 체인
-   1.0 functional: vm-reboot-loop + agent.compare_manual + 시간 윈도우 누적 트리거
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ Common RPC helper ═══
- * BE 거부(4xx 등)에도 fetchPost/unwrapData는 throw하지 않고 {error:{...}}를
- * 그대로 통과시킨다 (api.js 계약). 여기서 .error를 감지해 throw로 전환하면
- * 호출부의 기존 catch(e){ alert('...실패: '+e.message) }가 그대로 발동해
- * 거짓성공 alert 없이 실패를 표기한다 — 4개 액션(approve/reject/
- * resetBaseline/triggerAgent) 공통 수정. */
 async function _rpc(method, params) {
   var body = { jsonrpc: '2.0', method: method, params: params || {}, id: 'sh-' + Date.now() };
   var r = await fetchPost(EP.RPC(), body);
@@ -22,7 +10,6 @@ async function _rpc(method, params) {
   return d;
 }
 
-/* ═══ Time formatter ═══ */
 function _fmtTime(ts) {
   if (!ts) return '-';
   var d = new Date(ts * 1000);
@@ -39,7 +26,6 @@ function _fmtRelative(ts) {
   return Math.floor(diff / 86400) + 'd ago';
 }
 
-/* ═══ DOM builder (XSS-safe: textContent 사용) ═══ */
 function _el(tag, attrs, children) {
   var e = document.createElement(tag);
   if (attrs) {
@@ -61,7 +47,6 @@ function _el(tag, attrs, children) {
   return e;
 }
 
-/* ═══ State ═══ */
 var _state = {
   mode: null,
   pending: [],
@@ -71,7 +56,6 @@ var _state = {
   lastRefresh: 0
 };
 
-/* ═══ Data refresh ═══ */
 async function refresh() {
   _state.loading = true;
   try {
@@ -90,7 +74,6 @@ async function refresh() {
   render();
 }
 
-/* ═══ Mode toggle ═══ */
 async function setMode(mode) {
   if (mode !== 'active' && mode !== 'dry_run') return;
   var msg = mode === 'active'
@@ -107,7 +90,6 @@ async function setMode(mode) {
   } catch (e) { alert('모드 전환 실패: ' + (e.message || e)); }
 }
 
-/* ═══ Approve/Reject/Reset/Trigger ═══ */
 async function approve(actionId) {
   if (!confirm('action_id=' + actionId + ' 승인 → 실제 실행됩니다.\n\n계속?')) return;
   try {
@@ -142,15 +124,12 @@ async function triggerAgent() {
   } catch (e) { alert('AI Agent 호출 실패: ' + (e.message || e)); }
 }
 
-/* ═══ Render — DOM 조립 (textContent로 XSS-safe) ═══ */
 function render() {
   var root = document.getElementById('selfhealing-panel');
   if (!root) return;
 
-  /* clear */
   while (root.firstChild) root.removeChild(root.firstChild);
 
-  /* Header */
   var modeBadge = _el('span', {
     class: 'sh-badge ' + (_state.mode === 'active' ? 'sh-active' : 'sh-dry'),
     text: _state.mode === 'active' ? 'ACTIVE' : 'DRY RUN'
@@ -171,7 +150,6 @@ function render() {
     ctrls
   ]));
 
-  /* Pending section */
   var pendingSec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '⏳ 승인 대기 (' + _state.pending.length + ')' })
   ]);
@@ -208,7 +186,6 @@ function render() {
   }
   root.appendChild(pendingSec);
 
-  /* History section */
   var historySec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '📜 실행 이력 (' + _state.history.length + ')' })
   ]);
@@ -243,7 +220,6 @@ function render() {
   }
   root.appendChild(historySec);
 
-  /* Agent latest comparison */
   var agentSec = _el('section', { class: 'sh-section' }, [
     _el('h3', { text: '🧠 AI Agent 최근 합의' })
   ]);
@@ -283,14 +259,11 @@ function render() {
   root.appendChild(agentSec);
 }
 
-/* ═══ 1.0: 별도 페이지 진입점 (nav.js 라우팅) ═══
- * Monitor Overview에 통합된 mount point와 별개로 페이지 단독 렌더.
- * b: page body container (#cb 등) */
 function renderSelfHealing(b) {
   if (!b) return;
-  /* clear */
+
   while (b.firstChild) b.removeChild(b.firstChild);
-  /* 페이지 헤더 + selfhealing-panel 컨테이너 */
+
   var header = _el('div', { class: 'sh-page-header' }, [
     _el('h1', { text: '🛡 AI Self-Healing 관리' }),
     _el('p', { class: 'color-muted',
@@ -298,12 +271,11 @@ function renderSelfHealing(b) {
   ]);
   b.appendChild(header);
   b.appendChild(_el('div', { id: 'selfhealing-panel', class: 'hc' }));
-  /* 즉시 데이터 로드 */
+
   setTimeout(refresh, 50);
 }
 window.renderSelfHealing = renderSelfHealing;
 
-/* ═══ Public API (PCV.selfhealing) ═══ */
 PCV.selfhealing = {
   refresh:        refresh,
   setMode:        setMode,

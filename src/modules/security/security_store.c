@@ -1,34 +1,8 @@
-/**
- * @file security_store.c
- * @brief 보안 이벤트/설정/HIPS 액션 SQLite 저장소 — 뮤텍스 직렬화·coalescing·TTL 게이트
- *
- * security_store.h 계약의 구현. 프로세스 전역 상태 G{db,mu,degraded,path} 를 하나의
- * 뮤텍스로 직렬화해, 여러 RPC 스레드가 같은 SQLite 핸들을 안전하게 공유한다.
- *
- * [아키텍처 위치]
- *   pcv_security_submit_event(정규화 → 저장 → 감사/알림)가 대표 진입점. handler_security
- *   RPC, SG restore, HIPS 승인 워커가 이 저장소를 읽고 쓴다.
- *
- * [핵심 판단 근거]
- *   - coalescing: status(open/action_pending)에 대한 부분 UNIQUE 인덱스로 같은 위험의
- *     반복 관측을 새 행 대신 occurrence_count 증가로 합친다. 첫 event_id 를 운영자/감사
- *     앵커로 보존한다.
- *   - retention: 종결(resolved/suppressed) 행만 상한(PCV_MAX_RETAINED_EVENTS) 초과분을
- *     오래된 순으로 prune 한다. open/action_pending 은 절대 prune 하지 않아 라이브 큐를
- *     보존하고, 공격자가 유도한 무한 행 증가(디스크 고갈 DoS)를 막는다.
- *   - fail 처리: 읽기 실패는 빈 결과 + G.degraded, 쓰기 실패는 FALSE + GError.
- *   - HIPS TTL: action_is_expired 는 fail-secure(조회 불가 시 만료 취급)로 만료 pending
- *     의 부작용 실행을 차단한다(SEC-4, ADR-0024).
- *
- * Operator note:
- *   이 DB 가 운영자 화면의 보안 이벤트·승인 대기 큐의 진실 원천이다. 저장소가 손상되면
- *   조회는 빈 결과를 돌려주되 degraded 플래그로 신호하므로, 화면이 갑자기 비면 health 의
- *   degraded 를 먼저 확인해야 한다(데몬 자체는 죽지 않는다).
- */
+
 #include "modules/security/security_store.h"
 
-#include "utils/pcv_config.h"          /* pcv_config_get_string (ensure_open 경로) */
-#include <glib/gstdio.h>               /* g_mkdir_with_parents */
+#include "utils/pcv_config.h"
+#include <glib/gstdio.h>
 #include "modules/audit/pcv_audit.h"
 #include "modules/daemons/alert_engine.h"
 #include "modules/security/security_policy.h"
@@ -36,12 +10,6 @@
 #include <sqlite3.h>
 #include <time.h>
 
-/*
- * Security Guard persistence lives in one local SQLite database so Web UI,
- * CLI, UDS handlers, audit, and HIPS approval state all read the same
- * event stream. Reads intentionally return empty JSON containers on store
- * failures while G.degraded records that the operator should investigate.
- */
 static struct {
     sqlite3 *db;
     GMutex mu;
@@ -52,21 +20,10 @@ static struct {
 
 static gsize g_mutex_once = 0;
 
-/*
- * Retention cap for terminal (resolved/suppressed) security_events rows.
- * Attacker-influenced distinct coalesce keys and post-resolution re-occurrences
- * append rows without bound; capping the terminal history prevents a
- * disk-exhaustion DoS. open/action_pending rows are never pruned so the live
- * operator queue is preserved.
- */
 #define PCV_MAX_RETAINED_EVENTS 20000
 
 static gint g_retention_cap = PCV_MAX_RETAINED_EVENTS;
 
-/*
- * Test-only hook (no header declaration; tests forward-declare it, matching the
- * pcv_test_* pattern). cap <= 0 restores the compiled default.
- */
 void
 pcv_security_store_set_retention_cap_for_test(gint cap)
 {
@@ -99,11 +56,6 @@ set_sqlite_error(GError **error, gint code, const gchar *context)
                 "%s: %s", context, G.db ? sqlite3_errmsg(G.db) : "database is closed");
 }
 
-/*
- * now_sec는 만료 판정·타임스탬프의 단일 시계원. 테스트가 만료 경계를 결정적으로
- * 넘길 수 있도록 override 시드를 둔다(0 = 실클록). 헤더 미선언 —
- * pcv_security_store_set_retention_cap_for_test 관례대로 테스트가 forward-decl한다.
- */
 static gint64 g_now_override_for_test = 0;
 
 static gint64
@@ -145,11 +97,7 @@ exec_sql(const gchar *sql, GError **error)
 static gboolean
 init_schema(GError **error)
 {
-    /*
-     * The partial unique index is the coalescing contract: repeated open risks
-     * update occurrence_count instead of creating unbounded rows. Resolved or
-     * suppressed history stays immutable for audit review.
-     */
+
     static const gchar *schema[] = {
         "PRAGMA journal_mode=WAL",
         "CREATE TABLE IF NOT EXISTS security_events ("
@@ -212,12 +160,6 @@ init_schema(GError **error)
     return TRUE;
 }
 
-/*
- * DB 를 (재)오픈하고 스키마를 보장한다. 이미 열려 있으면 기존 핸들을 닫고 교체한다.
- * 성공 시 G.db/G.path 를 갱신하고 degraded 를 리셋한다. open 또는 스키마 초기화 실패
- * 시에는 핸들을 닫고 G.db=NULL 로 되돌려, 이후 모든 연산이 "not open" 으로 안전하게
- * 실패하도록 한다(부분 초기화 상태를 남기지 않는다).
- */
 gboolean
 pcv_security_store_open(const gchar *path)
 {
@@ -262,8 +204,7 @@ pcv_security_store_open(const gchar *path)
 gboolean
 pcv_security_store_ensure_open(void)
 {
-    /* 전용 init 뮤텍스로 check→open 을 원자화해 동시 RPC 하에서도 단일 open 보장.
-     * pcv_security_store_open 은 G.mu 를 자체 획득하므로 여기선 G.mu 를 보유하지 않는다. */
+
     static GMutex ensure_mu;
     static gsize  ensure_mu_init = 0;
     if (g_once_init_enter(&ensure_mu_init)) {
@@ -313,10 +254,7 @@ pcv_security_store_close(void)
 static gboolean
 update_existing_event(const PcvSecurityEvent *ev, const gchar *key, GError **error)
 {
-    /*
-     * Coalescing preserves the first event_id as the operator/audit anchor while
-     * refreshing the evidence and last_seen fields with the newest observation.
-     */
+
     const gchar *sql =
         "UPDATE security_events "
         "SET occurrence_count=occurrence_count+1, last_seen=?, timestamp=?, "
@@ -352,17 +290,7 @@ update_existing_event(const PcvSecurityEvent *ev, const gchar *key, GError **err
 static void
 enforce_event_retention(void)
 {
-    /*
-     * Prune the OLDEST terminal (resolved/suppressed) rows beyond the retention
-     * cap, keeping the newest g_retention_cap of them. open/action_pending rows
-     * are excluded from both the delete and the keep-set, so live queue state is
-     * never dropped. Ordering uses timestamp then rowid: the table has a TEXT
-     * PRIMARY KEY (event_id) and no explicit id column, so SQLite's implicit
-     * rowid is the monotonic insertion-order tiebreak for "oldest".
-     *
-     * Called under G.mu (held by the insert). Best-effort: a retention failure
-     * is logged but must not fail the triggering insert.
-     */
+
     const gchar *sql =
         "DELETE FROM security_events "
         "WHERE status IN ('resolved','suppressed') AND rowid NOT IN ("
@@ -471,11 +399,7 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
     if (ev->event_id[0] == '\0') {
         pcv_security_event_make_id(ev, "sec");
     }
-    /*
-     * Policy normalization happens at submit time so every consumer sees the
-     * same severity and action, regardless of whether the event came from HIDS,
-     * runtime probes, logs, or future adapters.
-     */
+
     ev->severity = pcv_security_policy_normalize_severity(ev);
 
     const gchar *action = pcv_security_policy_recommend_action(ev);
@@ -487,10 +411,7 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
     }
 
     if (pcv_security_policy_should_audit(ev)) {
-        /*
-         * WARN/CRIT security events use event_id as the audit target. That gives
-         * the UI, audit log, and pending action table one correlation key.
-         */
+
         const gchar *severity = pcv_security_severity_to_string(ev->severity);
         pcv_audit_log(NULL, "security.event", ev->event_id,
                       "ok", 0, 0, "local");
@@ -502,11 +423,7 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
 static JsonObject *
 row_to_event_json(sqlite3_stmt *stmt)
 {
-    /*
-     * JSON field names are the public Security Events contract. Keep this row
-     * mapper boring and one-to-one with the SELECT list so REST, UDS, CLI,
-     * and Web UI all observe the same shape.
-     */
+
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "event_id", col_text(stmt, 0));
     json_object_set_int_member(obj, "timestamp", sqlite3_column_int64(stmt, 1));
@@ -533,10 +450,7 @@ pcv_security_store_list_events(gint offset, gint limit,
                                const gchar *source,
                                const gchar *status)
 {
-    /*
-     * Bound list size at the store layer. UI filters can request subsets, but a
-     * broken caller cannot force the daemon to materialize the whole event DB.
-     */
+
     JsonArray *arr = json_array_new();
     if (offset < 0) {
         offset = 0;
@@ -644,11 +558,7 @@ pcv_security_store_update_event_status(const gchar *event_id,
                                        PcvSecurityStatus status,
                                        GError **error)
 {
-    /*
-     * Event status is updated independently from action status. A user can
-     * suppress or resolve an event without pretending an executable HIPS action
-     * was approved.
-     */
+
     if (!event_id || !*event_id) {
         g_set_error(error, security_store_error_quark(), SQLITE_MISUSE,
                     "event_id is required");
@@ -689,10 +599,7 @@ pcv_security_store_update_event_status(const gchar *event_id,
 gint
 pcv_security_store_count_by_coalesce_key(const gchar *coalesce_key)
 {
-    /*
-     * Tests use this to prove coalescing remains bounded. Production callers
-     * should prefer list/get APIs instead of depending on the partial index.
-     */
+
     if (!coalesce_key) {
         return 0;
     }
@@ -724,10 +631,7 @@ pcv_security_store_count_by_coalesce_key(const gchar *coalesce_key)
 gboolean
 pcv_security_store_get_bool_config(const gchar *key, gboolean def)
 {
-    /*
-     * Config reads fail closed to the caller-provided default. Security Guard
-     * startup should not crash the daemon if the local SQLite file is missing.
-     */
+
     if (!key || !*key) {
         return def;
     }
@@ -831,11 +735,7 @@ pcv_security_store_upsert_pending_action(const PcvSecurityEvent *ev,
     }
 
     const gchar *sql =
-        /*
-         * Re-opening a still-pending event resets the decision fields. This is
-         * deliberate: a new observation should require a fresh operator decision
-         * instead of silently inheriting an older approval/dismissal.
-         */
+
         "INSERT INTO security_actions("
         "event_id,action,target_kind,target,status,ttl_sec,expires_at,requested_at"
         ") VALUES(?,?,?,?,?,?,?,?) "
@@ -877,11 +777,7 @@ pcv_security_store_upsert_pending_action(const PcvSecurityEvent *ev,
 static JsonObject *
 row_to_action_json(sqlite3_stmt *stmt)
 {
-    /*
-     * Pending action JSON is consumed by both approve/dismiss handlers and the
-     * UI review table. Preserve job_id/error even when empty so async completion
-     * state can be rendered without schema probing.
-     */
+
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "event_id", col_text(stmt, 0));
     json_object_set_string_member(obj, "action", col_text(stmt, 1));
@@ -912,9 +808,6 @@ pcv_security_store_list_pending_actions(void)
         return arr;
     }
 
-    /* [감사 NEW-A2] 이전에는 expires_at를 기록만 하고 어디서도 읽지 않아, TTL이 지난
-     * pending HIPS 액션이 무기한 승인 가능 상태로 잔존했다(예: TTL 1h인 block_ip를
-     * 3일 뒤 승인). 만료된 pending을 결과에서 제외한다(ttl_sec<=0은 무만료로 취급). */
     const gchar *sql =
         "SELECT event_id,action,target_kind,target,status,ttl_sec,expires_at,requested_at,"
         "decided_at,decided_by,reason,job_id,error "
@@ -981,19 +874,7 @@ pcv_security_store_get_action(const gchar *event_id)
 gboolean
 pcv_security_store_action_is_expired(const gchar *event_id)
 {
-    /*
-     * [SEC-4] 승인 워커가 부작용(nft DROP/키폐기)을 execute 하기 전에 만료를 판정하는
-     * 술어. get_action은 만료 무필터라 stale 클라이언트/직접 RPC로 만료 pending을
-     * 트리거할 수 있다 — run_approval이 이 술어로 execute 앞에서 차단한다. 만료 규약은
-     * list_pending / update_action_status와 동일(ttl_sec<=0 = 무만료).
-     *
-     * [SEC-4 follow-up] 판정용 DB 조회 자체가 실패하면(open 안 됨/prepare 실패/step
-     * 오류) 이전에는 FALSE(=미만료)를 반환해 execute를 허용하는 fail-open이었다 —
-     * 판정 불가와 "확인된 미만료"를 구분하지 않은 결함. STO-3(export domstate 조회
-     * 실패 시 running 취급)와 동일 철학으로 fail-secure 전환: 조회 실패 시 TRUE(=만료
-     * 취급)를 반환해 run_approval이 execute_fn을 호출하지 않게 한다. 행 부재(정상 조회,
-     * SQLITE_DONE)는 DB 오류가 아니므로 기존 규약(만료 아님)을 그대로 유지한다.
-     */
+
     if (!event_id || !*event_id) {
         return FALSE;
     }
@@ -1003,7 +884,7 @@ pcv_security_store_action_is_expired(const gchar *event_id)
     if (!G.db) {
         G.degraded = TRUE;
         g_mutex_unlock(&G.mu);
-        return TRUE;                        /* fail-secure: store 미오픈 → 만료 취급 */
+        return TRUE;
     }
 
     const gchar *sql =
@@ -1013,7 +894,7 @@ pcv_security_store_action_is_expired(const gchar *event_id)
     if (rc != SQLITE_OK) {
         G.degraded = TRUE;
         g_mutex_unlock(&G.mu);
-        return TRUE;                        /* fail-secure: prepare 실패 → 만료 취급 */
+        return TRUE;
     }
 
     sqlite3_bind_text(stmt, 1, event_id, -1, SQLITE_TRANSIENT);
@@ -1026,7 +907,7 @@ pcv_security_store_action_is_expired(const gchar *event_id)
         expired = (g_strcmp0(status, "pending") == 0) &&
                   ttl_sec > 0 && expires_at <= now_sec();
     } else if (rc != SQLITE_DONE) {
-        /* fail-secure: step 오류(SQLITE_DONE=행 없음은 정상) → 만료 취급 */
+
         G.degraded = TRUE;
         expired = TRUE;
     }
@@ -1058,12 +939,7 @@ pcv_security_store_update_action_status(const gchar *event_id,
     }
 
     const gchar *sql =
-        /*
-         * Only pending actions can transition. Once approved or dismissed, the
-         * row becomes decision history and cannot be replayed by a stale button.
-         * [감사 NEW-A2] 만료된 pending은 'approved' 전이를 거부한다(TTL 지난 액션을
-         * 뒤늦게 승인·실행 차단). dismiss는 만료여도 허용(정리 목적).
-         */
+
         "UPDATE security_actions "
         "SET status=?1, decided_at=?2, decided_by=?3, reason=?4 "
         "WHERE event_id=?5 AND status='pending' "

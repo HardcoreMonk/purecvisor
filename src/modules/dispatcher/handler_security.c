@@ -1,28 +1,4 @@
-/**
- * @file handler_security.c
- * @brief security.* JSON-RPC 핸들러 — Security Guard(HIDS/HIPS)의 단일 UDS 표면.
- *
- * [책임]
- *   HIDS 이벤트 조회(list/get), HIPS 대응 액션의 pending/approve/dismiss, 파일
- *   무결성 baseline status/refresh, security config get/set 을 코어 모듈 호출로
- *   잇는다. dispatcher 가 인증·RBAC 를 통과시킨 뒤 params 에 caller 신원을 주입해
- *   이 파일로 들여보낸다.
- *
- * [RPC 계약 — ADR-0018 / ADR-0024]
- *   - 조회 계열은 read-only: 현재 로컬 상태를 그대로 반환한다.
- *   - approve 만 실제 부작용(nftables DROP·API 키 폐기)을 일으킨다. fire-and-forget:
- *     accepted + job_id 를 먼저 응답하고, GTask 워커가 execute→감사→WS 완료 순으로
- *     최종 결과를 소유한다(ADR-0018). 실행이 approved 마킹보다 먼저다 — 방화벽/RBAC
- *     조작이 실패했는데 UI·감사가 "해결됨"으로 오인하지 않도록.
- *   - 실행 가능한 액션은 block_ip·revoke_api_key 뿐(ADR-0024). 그 외는
- *     is_executable 게이트에서 "manual runbook 필요"로 거부한다.
- *
- * Operator note:
- *   이 파일은 "탐지된 위협을 실제로 차단할지"를 사람이 승인하는 지점이다. 여기서
- *   거부해야 할 요청을 통과시키면 오탐 하나가 정상 IP 차단·API 키 폐기로 이어져
- *   서비스 장애가 될 수 있다. 사고 시 security.action.approve 의 감사 로그와
- *   job 완료 WS 브로드캐스트(job_id)를 함께 확인한다.
- */
+
 #include "handler_security.h"
 #include "rpc_utils.h"
 
@@ -35,14 +11,6 @@
 #include "../../utils/pcv_config.h"
 
 #include <glib/gstdio.h>
-
-/* PCV_SECURITY_DB_DEFAULT 는 security_store.h 로 이동 (store 모듈 소유, SG restore 와 공유). */
-
-/*
- * security.* handlers are the single UDS surface for Security Guard. Read calls
- * return current local state; side-effecting action approval follows ADR-0018:
- * send accepted first, execute in a worker, then audit and broadcast completion.
- */
 
 typedef struct {
     gchar *event_id;
@@ -61,9 +29,7 @@ security_db_path(void)
 static gboolean
 ensure_security_store_open(void)
 {
-    /* store 모듈의 ensure-open 에 위임 — 경로/기본값/동시 open 직렬화를 store 가
-     * 단일 소유(중복 플래그 제거). 부팅 경로(SG restore)와 lazy RPC 오픈이 같은
-     * 진입점을 공유해 이중 open 이 사라진다. */
+
     return pcv_security_store_ensure_open();
 }
 
@@ -104,10 +70,7 @@ json_int_default(JsonObject *params, const gchar *key, gint def)
 static const gchar *
 admin_user_from_params(JsonObject *params)
 {
-    /*
-     * REST middleware injects _pcv_username/_pcv_caller_sub. Direct UDS tests may
-     * omit both, so "system" is the explicit audit subject fallback.
-     */
+
     const gchar *user = json_string_default(params, "_pcv_username", NULL);
     if (user && *user) {
         return user;
@@ -184,10 +147,7 @@ baseline_status_to_string(PcvHidsBaselineStatus status)
 static gint
 compute_open_risk(void)
 {
-    /*
-     * This is intentionally a simple operator-facing score, not ML. CRIT events
-     * dominate the number so a single control-plane risk is visible immediately.
-     */
+
     JsonArray *events = pcv_security_store_list_events(0, 500, NULL, NULL, "open");
     gint risk = 0;
     guint len = json_array_get_length(events);
@@ -211,7 +171,7 @@ compute_open_risk(void)
 static gchar **
 extract_path_array(JsonObject *params, gsize *out_len, GError **error)
 {
-    /* Baseline refresh is admin supplied, so reject malformed path arrays early. */
+
     *out_len = 0;
     if (!params || !json_object_has_member(params, "paths")) {
         g_set_error(error, G_OPTION_ERROR, G_OPTION_ERROR_BAD_VALUE,
@@ -278,10 +238,7 @@ security_action_approve_worker(GTask *task,
                                gpointer task_data,
                                GCancellable *cancel __attribute__((unused)))
 {
-    /*
-     * Execute first, mark approved second. That ordering prevents the UI/audit
-     * layer from treating a failed firewall or RBAC operation as resolved.
-     */
+
     SecurityApproveTaskData *d = task_data;
     gint64 start_us = g_get_monotonic_time();
     GError *error = NULL;
@@ -392,10 +349,7 @@ handle_security_action_approve(JsonObject *params,
                                UdsServer *server,
                                GSocketConnection *connection)
 {
-    /*
-     * Approval is fire-and-forget. The accepted response gives the caller a
-     * trackable job_id while the worker owns the final audit/WS result.
-     */
+
     const gchar *event_id = json_string_default(params, "event_id", "");
     const gchar *admin_user = admin_user_from_params(params);
     if (!event_id[0]) {
@@ -418,12 +372,7 @@ handle_security_action_approve(JsonObject *params,
 
     const gchar *status = json_string_default(action, "status", "");
     const gchar *action_name = json_string_default(action, "action", "");
-    /* 이중 게이트 — 부작용 실행(GTask) 전에 여기서 반드시 막아야 한다:
-     *   (1) 이미 처리된(resolved/suppressed) 액션의 재승인을 CONFLICT 로 차단해
-     *       같은 차단/폐기가 중복 실행되지 않게 한다.
-     *   (2) is_executable 가 아닌 액션(lock_user·restart_service 등)은 자동 실행
-     *       대상이 아니라 manual runbook 후보다(ADR-0024). 통과시키면 노출만
-     *       하려던 조치가 실제 부작용으로 새어나간다. */
+
     if (g_strcmp0(status, "pending") != 0) {
         send_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
                    "security action is not pending");
@@ -464,10 +413,7 @@ handle_security_action_dismiss(JsonObject *params,
                                UdsServer *server,
                                GSocketConnection *connection)
 {
-    /*
-     * Dismissal is synchronous because it only changes local decision state.
-     * Operator can suppress noise; admin is required only for executable action.
-     */
+
     const gchar *event_id = json_string_default(params, "event_id", "");
     const gchar *reason = json_string_default(params, "reason", "");
     const gchar *admin_user = admin_user_from_params(params);
@@ -517,10 +463,7 @@ handle_security_baseline_refresh(JsonObject *params,
                                  UdsServer *server,
                                  GSocketConnection *connection)
 {
-    /*
-     * Baseline trust is explicit. No scan result can auto-promote unknown files
-     * into trusted state; an admin must refresh the path set.
-     */
+
     const gchar *admin_user = admin_user_from_params(params);
     GError *error = NULL;
     gsize n_paths = 0;

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_ssrf_guard.py — 아웃바운드 리다이렉트 금지 게이트 (Wave A / A10·V4).
 
 근거: docs/operations/2026-07-16-security-assessment-owasp-ismsp.md §8 시정 3.
@@ -22,11 +22,10 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 SRC = ROOT / "src"
 
-WINDOW = 12  # soup_message_new( 이후 이 행 수 이내에 NO_REDIRECT가 있어야 함
+WINDOW = 12
 
 NEW_RE = re.compile(r'\bsoup_message_new\s*\(')
 NO_REDIRECT_TOKEN = "SOUP_MESSAGE_NO_REDIRECT"
-
 
 def strip_code(text: str) -> str:
     """C 주석·문자열·문자 리터럴 내용을 공백/개행으로 치환(줄 번호 1:1 유지).
@@ -84,7 +83,6 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def find_unguarded_in_text(rel_path: str, text: str) -> list:
     """soup_message_new( 호출 중 WINDOW행 내에 NO_REDIRECT가 없는 사이트를 반환.
 
@@ -99,7 +97,6 @@ def find_unguarded_in_text(rel_path: str, text: str) -> list:
                 unguarded.append((rel_path, idx + 1))
     return unguarded
 
-
 def scan_tree() -> tuple:
     """(총 아웃바운드 사이트 수, 무가드 리스트) 반환."""
     total = 0
@@ -112,10 +109,8 @@ def scan_tree() -> tuple:
         unguarded.extend(find_unguarded_in_text(rel, text))
     return total, unguarded
 
-
 def main(argv=None) -> int:
-    # argv[0]이 주어지면 그 단일 파일만 검사(self-test가 원본 훼손 없이 temp 사본으로
-    # 반사실 검증하기 위한 경로 오버라이드). 없으면 src 트리 전체를 스캔한다.
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     if argv:
         p = Path(argv[0])
@@ -136,7 +131,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] 모든 아웃바운드 soup_message_new에 {NO_REDIRECT_TOKEN} 적용됨")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

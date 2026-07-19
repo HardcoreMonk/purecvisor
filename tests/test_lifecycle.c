@@ -1,45 +1,17 @@
-/**
- * @file test_lifecycle.c
- * @brief VM 라이프사이클 E2E 테스트 -- Create → Start → List → Stop → Delete
- *
- * ============================================================================
- *  이 파일이 테스트하는 것
- * ============================================================================
- *  VM의 전체 생명주기를 순서대로 검증하는 E2E(End-to-End) 테스트이다.
- *  GMainLoop 비동기 콜백 체인으로 5단계를 순차 실행:
- *
- *    1. Create → ZFS zvol 생성 + libvirt XML 정의
- *    2. Start  → virDomainCreate (VM 기동)
- *    3. List   → VM 목록에서 이름/상태/VNC 포트 확인
- *    4. Stop   → virDomainDestroy (강제 정지)
- *    5. Delete → VM 정의 제거 + zvol 파괴
- *
- *  주의: 이 테스트는 실제 libvirt + ZFS 풀이 필요하다 (test:///default 불가).
- *  CI에서는 건너뛰고, 실제 3노드 환경에서만 실행한다.
- *  실패 시 [FAIL] 출력 후 즉시 GMainLoop quit으로 중단.
- *
- *  콜백 체인 패턴: 각 단계의 완료 콜백이 다음 단계의 async 함수를 호출.
- *  on_create_finished → on_start_finished → on_list_finished
- *  → on_stop_finished → on_delete_finished → loop quit
- * ============================================================================
- */
+
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <stdio.h>
 
 #include "src/modules/virt/vm_manager.h"
 
-/* 테스트 대상 VM 설정 */
 #define TEST_VM_NAME "purec-test-vm"
 #define TEST_VM_VCPU 1
-#define TEST_VM_MEM  1024 /* MB */
+#define TEST_VM_MEM  1024
 
 static GMainLoop *loop;
 static PureCVisorVmManager *manager;
 
-/* --------------------------------------------------------------------------
- * Step 5: Delete Callback (Final)
- * -------------------------------------------------------------------------- */
 static void
 on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GError *error = NULL;
@@ -53,9 +25,6 @@ on_delete_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     g_main_loop_quit(loop);
 }
 
-/* --------------------------------------------------------------------------
- * Step 4: Stop Callback -> Trigger Delete
- * -------------------------------------------------------------------------- */
 static void
 on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GError *error = NULL;
@@ -67,19 +36,15 @@ on_stop_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     }
     g_print("[PASS] 4. VM Stopped successfully.\n");
 
-    // 다음 단계: Delete
     g_print("[INFO] Requesting Delete...\n");
     purecvisor_vm_manager_delete_vm_async(manager, TEST_VM_NAME, NULL, on_delete_finished, NULL);
 }
 
-/* --------------------------------------------------------------------------
- * Step 3: List Callback -> Trigger Stop
- * -------------------------------------------------------------------------- */
 static void
 on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GError *error = NULL;
     JsonNode *root = purecvisor_vm_manager_list_vms_finish(PURECVISOR_VM_MANAGER(source), res, &error);
-    
+
     if (!root) {
         g_printerr("[FAIL] List Failed: %s\n", error->message);
         g_error_free(error);
@@ -87,7 +52,6 @@ on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
         return;
     }
 
-    // JSON 파싱하여 VNC 포트 확인
     JsonArray *array = json_node_get_array(root);
     guint len = json_array_get_length(array);
     gboolean found = FALSE;
@@ -120,14 +84,10 @@ on_list_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
         return;
     }
 
-    // 다음 단계: Stop (Force)
     g_print("[INFO] Requesting Stop (Force)...\n");
     purecvisor_vm_manager_stop_vm_async(manager, TEST_VM_NAME, TRUE, NULL, on_stop_finished, NULL);
 }
 
-/* --------------------------------------------------------------------------
- * Step 2: Start Callback -> Trigger List
- * -------------------------------------------------------------------------- */
 static void
 on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GError *error = NULL;
@@ -139,20 +99,14 @@ on_start_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     }
     g_print("[PASS] 2. VM Started successfully.\n");
 
-    // 잠시 대기하지 않고 바로 조회 (Libvirt 상태 반영 확인용)
-    // 실제 환경에서는 약간의 딜레이가 필요할 수도 있으나, 이벤트 루프 기반이므로 바로 요청해봅니다.
     g_print("[INFO] Requesting List...\n");
     purecvisor_vm_manager_list_vms_async(manager, NULL, on_list_finished, NULL);
 }
 
-/* --------------------------------------------------------------------------
- * Step 1: Create Callback -> Trigger Start
- * -------------------------------------------------------------------------- */
 static void
 on_create_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     GError *error = NULL;
-    /* Create 결과 처리 (파라미터는 구현에 따라 다를 수 있음, 여기선 boolean 가정) */
-    // 주의: create_vm_finish 함수 시그니처 확인 필요
+
     if (!purecvisor_vm_manager_create_vm_finish(PURECVISOR_VM_MANAGER(source), res, &error)) {
         g_printerr("[FAIL] Create Failed: %s\n", error->message);
         g_error_free(error);
@@ -161,21 +115,15 @@ on_create_finished(GObject *source, GAsyncResult *res, gpointer user_data) {
     }
     g_print("[PASS] 1. VM Created successfully (ZFS + XML).\n");
 
-    // 다음 단계: Start
     g_print("[INFO] Requesting Start...\n");
     purecvisor_vm_manager_start_vm_async(manager, TEST_VM_NAME, NULL, on_start_finished, NULL);
 }
 
-/* --------------------------------------------------------------------------
- * Main Entry
- * -------------------------------------------------------------------------- */
 int main(int argc, char *argv[]) {
     g_print("=== PureCVisor Core Logic Verification ===\n");
 
-    // 1. Libvirt Type Init (필요 시)
     gvir_init_object(NULL, NULL);
 
-    // 2. Manager Init
     manager = purecvisor_vm_manager_new();
     if (!manager) {
         g_printerr("[FATAL] Failed to create VmManager.\n");
@@ -184,19 +132,17 @@ int main(int argc, char *argv[]) {
 
     loop = g_main_loop_new(NULL, FALSE);
 
-    // 3. Start Sequence: Create
     g_print("[INFO] Requesting Create (Name: %s)...\n", TEST_VM_NAME);
 
-    // Create 함수 시그니처에 맞춰 호출 (개별 인자 전달)
     purecvisor_vm_manager_create_vm_async(manager, TEST_VM_NAME,
         TEST_VM_VCPU, TEST_VM_MEM, 10,
         "/var/lib/libvirt/images/alpine.iso",
-        NULL, 0,    /* network_bridge, vlan_id */
-        0, FALSE,   /* boot_mode, tpm */
-        0, FALSE,   /* cpu_mode(Single Edge default), hugepages */
-        NULL,       /* storage_type */
-        NULL, NULL, /* nic_type, pci_addr */
-        NULL, NULL, NULL, /* base_image, owner, cancellable */
+        NULL, 0,
+        0, FALSE,
+        0, FALSE,
+        NULL,
+        NULL, NULL,
+        NULL, NULL, NULL,
         on_create_finished, NULL);
 
     g_main_loop_run(loop);

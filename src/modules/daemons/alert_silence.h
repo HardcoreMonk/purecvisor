@@ -27,42 +27,14 @@
 
 G_BEGIN_DECLS
 
-/* ── [백엔드 4차] 알림 음소거 ──────────────────────────────── */
-
-/**
- * pcv_alert_add_silence:
- * @metric: 대상 메트릭 이름 (NULL 허용 — g_strdup(NULL)==NULL 로 저장)
- * @duration_min: 음소거 지속 시간(분)
- * @reason: 음소거 사유 (NULL 허용 — 빈 문자열로 저장)
- *
- * 메트릭을 duration_min 분 동안 음소거 목록에 등록한다.
- */
 void       pcv_alert_add_silence(const gchar *metric, gint duration_min, const gchar *reason);
 
-/**
- * pcv_alert_is_silenced:
- * @metric: 확인할 메트릭 이름
- *
- * 해당 메트릭이 현재(미만료) 음소거 중인지 반환한다. 매칭은 대소문자 무시
- * (match-time casefold). Returns: 음소거 중이면 TRUE.
- */
 gboolean   pcv_alert_is_silenced(const gchar *metric);
 
-/**
- * pcv_alert_get_silences:
- *
- * 활성(미만료) 음소거 목록을 JSON 배열로 반환한다. metric 은 저장 원문 그대로
- * 노출된다. Returns: 호출자 소유 JsonArray.
- */
 JsonArray *pcv_alert_get_silences(void);
 
-/**
- * pcv_alert_silence_reset:
- *
- * 등록된 모든 음소거를 제거한다 — 테스트 격리용.
- */
 void       pcv_alert_silence_reset(void);
 
 G_END_DECLS
 
-#endif /* PURECVISOR_ALERT_SILENCE_H */
+#endif

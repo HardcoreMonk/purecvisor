@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_audit_hashchain.py self-test (Wave B 3-b / A09·2.9).
 
 ① 현행 트리에서 게이트 PASS(exit 0).
@@ -14,11 +14,10 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import check_audit_hashchain as gate  # noqa: E402
+import check_audit_hashchain as gate
 
 GATE = Path(__file__).resolve().parent.parent / "check_audit_hashchain.py"
 TARGET = gate.TARGET
-
 
 def _run_gate_on(text: str) -> int:
     with tempfile.NamedTemporaryFile("w", suffix=".c", delete=False) as f:
@@ -31,12 +30,10 @@ def _run_gate_on(text: str) -> int:
     finally:
         os.unlink(tmp)
 
-
 def test_gate_passes_on_current_tree():
     """① 현행 트리에서 게이트 PASS(exit 0)."""
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_analyze_current_source_all_signals():
     """② 현행 pcv_audit.c: INSERT 컬럼·바인딩·계산·검증함수 모두 존재."""
@@ -47,7 +44,6 @@ def test_analyze_current_source_all_signals():
     assert sig["computes_rechash"]
     assert sig["has_verify_fn"]
 
-
 def test_insert_without_chain_columns_fails():
     """③ 반사실: INSERT 컬럼 목록에서 prev_hash/rec_hash 제거 → RED."""
     orig = TARGET.read_text()
@@ -55,12 +51,11 @@ def test_insert_without_chain_columns_fails():
     assert needle in orig, "INSERT 체인 컬럼을 찾지 못함 — 소스 포맷 변경?"
     mutated = orig.replace(needle, ")")
     assert mutated != orig
-    # analyze 로직 단위 확인
+
     sig = gate.analyze(mutated)
     assert not (sig["insert_has_prev"] and sig["insert_has_rec"])
-    # 실제 게이트 exit 1
-    assert _run_gate_on(mutated) == 1
 
+    assert _run_gate_on(mutated) == 1
 
 def test_missing_verify_fn_fails():
     """④ 반사실: pcv_audit_verify_chain 정의/호출 제거 → RED."""
@@ -70,7 +65,6 @@ def test_missing_verify_fn_fails():
     sig = gate.analyze(mutated)
     assert not sig["has_verify_fn"]
     assert _run_gate_on(mutated) == 1
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_rng_safe.py — 보안 RNG/PBKDF2 하드닝 정적 게이트 (Wave B 6 / A02·V11).
 
 [목적]
@@ -36,13 +36,12 @@ PBKDF2_MIN_ITERATIONS = 600000
 
 GRANDOM_RE = re.compile(r'\bg_random[a-z_]*\s*\(')
 RANDBYTES_RE = re.compile(r'\bRAND_bytes\s*\(')
-# PBKDF2_ITER_TARGET 매크로 정의값
+
 PBKDF2_DEFINE_RE = re.compile(
     r'#\s*define\s+PBKDF2_ITER_TARGET\s+(\d+)')
-# 폴백: PKCS5_PBKDF2_HMAC 직접 호출에 박힌 정수 반복수 리터럴 (매크로 미사용 시)
+
 PBKDF2_LITERAL_RE = re.compile(
     r'pcv_config_get_int\s*\(\s*"auth"\s*,\s*"pbkdf2_iterations"\s*,\s*(\d+)\s*\)')
-
 
 def scan_rng_text(text: str) -> dict:
     """단일 파일 텍스트에서 RNG 안전 신호를 추출한다."""
@@ -50,7 +49,6 @@ def scan_rng_text(text: str) -> dict:
         "uses_grandom": bool(GRANDOM_RE.search(text)),
         "uses_randbytes": bool(RANDBYTES_RE.search(text)),
     }
-
 
 def extract_pbkdf2_target(text: str) -> int | None:
     """PBKDF2 목표 반복수를 추출한다 (매크로 우선, 없으면 config 기본값 리터럴)."""
@@ -61,7 +59,6 @@ def extract_pbkdf2_target(text: str) -> int | None:
     if m:
         return int(m.group(1))
     return None
-
 
 def main(argv: list[str]) -> int:
     files = [Path(a) for a in argv[1:]] if len(argv) > 1 else RNG_FILES
@@ -105,7 +102,6 @@ def main(argv: list[str]) -> int:
     print(f"\033[32m[PASS]\033[0m 보안 RNG fail-closed (g_random 무·RAND_bytes 유) + "
           f"PBKDF2 {pbkdf2_target} 회 (>= {PBKDF2_MIN_ITERATIONS})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

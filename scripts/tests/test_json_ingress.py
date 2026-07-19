@@ -34,11 +34,10 @@ def test_real_call_after_block_comment_counted():
     assert count_violations(src) == 1
 
 def test_waiver_prev_line_survives_block_strip():
-    # block-comment strip이 라인 인접성(직전 줄 waiver)을 보존하는지 회귀 검증
+
     src = ('/* PCV_PARSE_TRUSTED: 내부응답 */\n'
            'json_parser_load_from_data(p, resp, -1, NULL);')
     assert count_violations(src) == 0
-
 
 if __name__ == "__main__":
     tests = [

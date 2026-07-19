@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_security_headers.py self-test (Q-1 / A05).
 
 ① 현행 트리에서 게이트 PASS(exit 0).
@@ -12,11 +12,10 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from check_security_headers import scan_text, TARGET  # noqa: E402
+from check_security_headers import scan_text, TARGET
 
 GATE = Path(__file__).resolve().parent.parent / "check_security_headers.py"
 
-# 시정 후(현행) /ui 블록 스니펫 — CSP + X-Frame-Options 존재.
 GOOD_BLOCK = '''
     if (g_str_has_prefix(path, "/ui")) {
         soup_message_headers_replace(rh, "Cache-Control", "no-cache");
@@ -26,7 +25,6 @@ GOOD_BLOCK = '''
     }
 '''
 
-# 시정 전(예전) /ui 블록 — 보안 헤더 없음(반드시 누락으로 잡혀야 함).
 BAD_BLOCK = '''
     if (g_str_has_prefix(path, "/ui")) {
         soup_message_headers_replace(rh, "Cache-Control", "no-cache");
@@ -34,13 +32,11 @@ BAD_BLOCK = '''
     }
 '''
 
-
 def test_good_block_clean():
     """③ CSP+X-Frame 이 있는 /ui 블록: 누락 0."""
     missing, found = scan_text(GOOD_BLOCK)
     assert found, "/ui 블록을 못 찾음"
     assert missing == [], f"오탐: {missing}"
-
 
 def test_bad_block_flagged():
     """③ 보안 헤더 없는 /ui 블록: CSP + X-Frame 누락 검출."""
@@ -49,12 +45,10 @@ def test_bad_block_flagged():
     assert "Content-Security-Policy" in missing
     assert "X-Frame-Options" in missing
 
-
 def test_gate_passes_on_current_tree():
     """① 현행 트리에서 게이트 PASS(exit 0)."""
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_reverted_source_fails():
     """② 반사실(temp 사본): 실제 rest_server.c 의 /ui 블록에서 CSP replace 호출을
@@ -71,7 +65,6 @@ def test_reverted_source_fails():
         assert r.returncode == 1, f"CSP 제거 사본에서 게이트가 RED 가 아님:\n{r.stdout}\n{r.stderr}"
     finally:
         os.unlink(tmp)
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

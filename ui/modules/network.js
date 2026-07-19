@@ -1,8 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/network.js
-   Network, OVN, NFV, Security Groups
-   ADR-0013: IIFE module scope — PCV.network namespace
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -154,10 +150,7 @@ async function netDel(name) {
 }
 
 async function doNetDel(name) { const cv = document.getElementById('del-net-confirm')?.value; if (cv !== name) { toast(t('vm.name_mismatch'), false); return; }
-  /* ADR-013 DOM-safe: 진행 모달을 el/frag 로 조립. 아이콘 HTML 엔티티(&#9888; 등)는
-   * 동일 코드포인트 리터럴 글리프로, escapeHtml(name) 은 TextNode 로 대체(이스케이프 불요).
-   * (원본 prog-fill div 는 class 속성이 중복(class="prog-fill"..class="w-pct-20")이라
-   *  HTML 파서상 첫 class="prog-fill" 만 적용되고 w-pct-20 은 무시됨 — 렌더 동등 보존.) */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const mc = document.getElementById('mc');
   clearEl(mc);
@@ -324,9 +317,7 @@ function showNetEdit(name, mode, cidr, dhcp, phys) {
       el('select', { id: 'ne-dhcp' },
         el('option', { value: 'on', selected: dhcp ? '' : null }, 'ON'),
         el('option', { value: 'off', selected: !dhcp ? '' : null }, 'OFF'))),
-    /* ADR-013 DOM-safe: 원본 div 는 class 속성이 중복(class="fr" .. 조건부 class="hidden")
-     * 이라 HTML 파서상 첫 class="fr" 만 적용되고 조건부 hidden 은 무시됨 — 렌더 동등
-     * 보존(초기 표시는 mode 무관 항상 노출; netEditModeChanged 가 이후 토글). */
+
     el('div', { class: 'fr', id: 'ne-phys-row' },
       el('label', { for: 'ne-phys' }, 'Physical NIC'),
       el('input', { id: 'ne-phys', value: escapeHtml(phys), placeholder: 'e.g. wlo1, enp42s0' })),
@@ -343,7 +334,6 @@ function netEditModeChanged() { const m = document.getElementById('ne-mode').val
 
 async function doNetEdit(name) { const mode = document.getElementById('ne-mode').value; try { const mr = await fetchPost(EP.NET_MODE(name), { mode: mode }); if (mr.error) { toast('Failed: ' + (mr.error.message || ''), false); return; } toast(name + ' updated'); addEvt('Network edit: ' + name); closeModal(); renderNetworks(document.getElementById('cb')); } catch (e) { toast('Edit failed: ' + e.message, false); } }
 
-/* ═══ OVN ═══ */
 async function renderOvn(b) {
   showSkeleton(b);
   try {
@@ -438,7 +428,6 @@ async function nfvLbCreate() {
 }
 async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } const r = await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); if (r && r.error) { toast(r.error.message || 'Failed', false); return; } toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
-/* ═══ SECURITY GROUPS ═══ */
 async function renderSecGroups(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -493,7 +482,7 @@ window.sgListRules = async function() {
     const r = await fetchGet(EP.OVN_ACL() + '?switch=' + encodeURIComponent(sw));
     const list = unwrapList(r);
     if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'ACL 규칙 없음'); return; }
-    /* 이름 충돌: 이 함수의 로컬 el 은 DOM 엘리먼트라 PCV.uxlib.el 별칭 금지 — 완전수식 호출 */
+
     var rows = list.map(function(a) {
       const entry = typeof a === 'string' ? a : '';
       if (entry) return PCV.uxlib.el('tr', null, PCV.uxlib.el('td', { colspan: '4' }, entry));
@@ -510,7 +499,6 @@ window.sgListRules = async function() {
   } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', e.message); }
 };
 
-/* ═══ OVERLAY NETWORKS ═══ */
 async function renderOverlayNetworks(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -540,7 +528,6 @@ async function renderOverlayNetworks(b) {
 }
 window.renderOverlayNetworks = renderOverlayNetworks;
 
-/* ═══ NETWORK TOPOLOGY ═══ */
 async function renderTopology(b) {
   showSkeleton(b);
   try {
@@ -561,24 +548,20 @@ async function renderTopology(b) {
         el('span', null, '🌐 ' + _L('브릿지', 'Bridge')),
         el('span', null, '💻 VM'))));
 
-    /* Draw topology */
     setTimeout(function() {
       var canvas = document.getElementById('topo-canvas');
       if (!canvas) return;
       var ctx = canvas.getContext('2d');
       var W = canvas.width;
 
-      /* Compute styles */
       var style = getComputedStyle(document.documentElement);
       var accentColor = style.getPropertyValue('--accent').trim() || '#00f0ff';
       var greenColor = style.getPropertyValue('--green').trim() || '#00ff88';
       var fgColor = style.getPropertyValue('--fg').trim() || '#e0f0ff';
       var dimColor = style.getPropertyValue('--fg2').trim() || '#5a6a8a';
 
-      /* Layout: nodes across top, bridges in middle, VMs at bottom */
       var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
 
-      /* Draw nodes */
       var nodePositions = [];
       nodes.forEach(function(nd, i) {
         var x = (W / (nodes.length + 1)) * (i + 1);
@@ -593,7 +576,6 @@ async function renderTopology(b) {
         ctx.fillText(nd.ip, x, y + 34);
       });
 
-      /* Draw bridges */
       var bridgePositions = [];
       nets.slice(0, 6).forEach(function(net, i) {
         var x = (W / (Math.min(nets.length, 6) + 1)) * (i + 1);
@@ -604,7 +586,7 @@ async function renderTopology(b) {
         ctx.fillStyle = '#000';
         ctx.font = '9px monospace'; ctx.textAlign = 'center';
         ctx.fillText(net.name, x, y + 4);
-        /* Connect to closest node */
+
         var closest = nodePositions[0] || {x:x, y:50};
         ctx.strokeStyle = dimColor; ctx.lineWidth = 1;
         ctx.setLineDash([4, 4]);
@@ -612,7 +594,6 @@ async function renderTopology(b) {
         ctx.setLineDash([]);
       });
 
-      /* Draw VMs */
       vms.slice(0, 12).forEach(function(vm, i) {
         var cols = Math.min(vms.length, 6);
         var row = Math.floor(i / cols);
@@ -626,7 +607,7 @@ async function renderTopology(b) {
         ctx.font = '8px monospace'; ctx.textAlign = 'center';
         var label = vm.name.length > 8 ? vm.name.substring(0, 8) + '..' : vm.name;
         ctx.fillText(label, x, y + 3);
-        /* Connect to a bridge */
+
         if (bridgePositions.length > 0) {
           var br = bridgePositions[i % bridgePositions.length];
           ctx.strokeStyle = on ? accentColor : 'rgba(90,106,138,0.3)';
@@ -639,7 +620,6 @@ async function renderTopology(b) {
 }
 window.renderTopology = renderTopology;
 
-/* ═══ FIREWALL RULE EDITOR ═══ */
 async function fwAddRule() {
   var dir = document.getElementById('fw-direction').value;
   var proto = document.getElementById('fw-protocol').value;
@@ -663,7 +643,7 @@ async function fwLoadRules() {
   var groups = unwrapList(r);
   var el = document.getElementById('fw-rules-list');
   if (!el) return;
-  /* 이름 충돌: 이 함수의 로컬 el 은 DOM 엘리먼트라 PCV.uxlib.el 별칭 금지 — 완전수식 호출 */
+
   PCV.uxlib.clearEl(el);
   if (groups.length === 0) { el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, 'No security groups')); return; }
   var blocks = groups.map(function(sg) {
@@ -703,7 +683,6 @@ window.fwAddRule = fwAddRule;
 window.fwLoadRules = fwLoadRules;
 window.fwDelRule = fwDelRule;
 
-/* ═══ REGISTER ALL ON window ═══ */
 window.renderNetworks = renderNetworks;
 window.showNetCreate = showNetCreate;
 window.netModeChanged = netModeChanged;
@@ -720,9 +699,7 @@ window.loadLBList = loadLBList;
 window.nfvLbCreate = nfvLbCreate;
 window.nfvFwAdd = nfvFwAdd;
 window.renderSecGroups = renderSecGroups;
-/* sgAddRule and sgListRules already assigned to window above */
 
-/* ═══ PCV.network namespace export ═══ */
 PCV.network = {
   renderNetworks: renderNetworks,
   toggleFwPanel: toggleFwPanel,

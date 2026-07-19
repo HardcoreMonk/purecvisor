@@ -1,24 +1,9 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/accounts.js
-   Account management, API management, AI Agent configuration
-   ADR-0013: IIFE module scope — PCV.accounts namespace
-   ═══════════════════════════════════════════════════════════════ */
-/*
- * This module mixes three admin-facing surfaces: local accounts, API-key
- * management, and AI agent configuration. Access checks stay in the renderer
- * because the same routes can be reached through global search or restored tabs
- * after login state changes.
- *
- * Backend RBAC is still authoritative. The UI gate only avoids exposing account
- * editing controls to non-admin sessions and provides a stable fallback when
- * whoami is unavailable during early boot.
- */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var agentTab = 'providers';
 
-/* ═══ ACCOUNTS ═══ */
 async function getCurrentAccountRole() {
   if (window.currentUser && window.currentUser.role) {
     return String(window.currentUser.role).toLowerCase();
@@ -70,7 +55,7 @@ async function renderAccounts(b) {
           var rc = u.role === 'admin' ? 'var(--red)' : u.role === 'operator' ? 'var(--yellow)' : 'var(--fg2)';
           var actions;
           if (u.username !== 'admin') {
-            /* 셀은 DataTable 노드 계약(9차) — 노드 배열로 조립, onclick은 문자열 유지 */
+
             actions = [
               mk('select', { id: 'role-' + u.username, 'aria-label': u.username + ' role', style: 'background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px;padding:2px 6px;font-size:10px' },
                 mk('option', u.role === 'viewer' ? { selected: '' } : null, 'viewer'),
@@ -133,7 +118,6 @@ async function acctDel(u) { if (!await customConfirm(t('btn.delete'), 'User ' + 
   try { const res = await fetchDelete(EP.AUTH_USER(u));
     if (res.error) { toast(res.error.message || 'Failed', false); } else { toast(t('auth.user_deleted') + ': ' + u); addEvt('IAM User deleted — ' + u); renderAccounts(document.getElementById('cb')); } } catch (e) { toast(e.message, false); } }
 
-/* ═══ API MANAGEMENT ═══ */
 async function renderApiManagement(b) {
   if (!await isAdminAccountView()) {
     renderAdminOnlyNotice(b);
@@ -149,7 +133,7 @@ async function renderApiManagement(b) {
     HN.card('👥 RBAC', mk('div', { class: 'stat-md', style: 'color:var(--magenta)' }, '3 Levels')),
     HN.card('⚡ Rate Limit', mk('div', { class: 'stat-md color-yellow', id: 'api-rl-count' }, '...')));
   var spacer = mk('div', { class: 'mb-16' });
-  /* /health에서 동적 데이터 로드 */
+
   fetchGet(EP.HEALTH()).then(function(r) {
     var d = unwrapData(r);
     var ep = document.getElementById('api-ep-count');
@@ -199,10 +183,6 @@ async function renderApiManagement(b) {
         mk('code', null, '[grpc] enabled=true'))
     ], 'mb-14');
 
-  /* API Key Management (R-embed) — 레거시 임베드 블록(부재 필드 참조 +
-   * apikey-list-area 가드 오타로 영구 스피너)을 제거하고, 계약정합
-   * renderApiKeys 로직을 실제 컨테이너(#apikey-keys-area)에 렌더한다.
-   * 생성은 renderApiKeys 의 '+ 새 키 생성' → showApiKeyCreate 모달 경로. */
   var apiKeysBlock = mk('div', { class: 'hc mb-14', id: 'apikey-keys-area' });
 
   var navRow = mk('div', { class: 'flex gap-8 flex-wrap' },
@@ -213,7 +193,7 @@ async function renderApiManagement(b) {
   b.appendChild(frag(header, statGrid, spacer, jwtCard, testerCard, grpcCard, apiKeysBlock, navRow));
   setTimeout(() => {
     const el = document.getElementById('grpc-status');
-    if (!el) return;  /* DOM 교체된 경우 정상 종료 */
+    if (!el) return;
     clearEl(el);
     el.appendChild(frag(
       HN.badge('Config-based', 'y'),
@@ -222,8 +202,7 @@ async function renderApiManagement(b) {
       mk('code', { class: 'text-xs color-cyan' }, 'pcvctl grpc status'),
       ' to verify from CLI'));
   }, 100);
-  /* 계약정합 키 테이블 렌더 (R-embed). renderApiKeys 가 자체적으로
-   * fetch → 컨테이너 clear/append 하므로 apiKeysBlock 에 직접 그린다. */
+
   renderApiKeys(apiKeysBlock);
 }
 
@@ -253,7 +232,6 @@ async function apiMgmtSend() { const m = document.getElementById('apimgmt-method
       mk('pre', { style: 'white-space:pre-wrap' }, pretty)));
   } catch (e) { PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, 'Error: ' + e.message); } }
 
-/* ═══ AI AGENT ═══ */
 async function showAgentConfig() {
   try { const r = await fetchGet(EP.AGENT_CONFIG()); const d = unwrapData(r); window._agentCfg = d;
     var el = PCV.uxlib.el;
@@ -427,7 +405,6 @@ async function saveAgentSettings() {
   } catch (e) { toast('Save failed: ' + e.message, false); }
 }
 
-/* ═══ API PERFORMANCE ═══ */
 async function renderApiPerf(b) {
   var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
@@ -481,9 +458,7 @@ async function runApiBenchmark() {
   var endpoints = ['/vms', '/containers', '/networks', '/storage/pools', '/health', '/alerts'];
   var iterations = 5;
   var el = PCV.uxlib.el;
-  /* 원본 prog-fill div 는 class 속성이 중복(class="prog-fill"..class="w-pct-0")이라
-   * HTML 파서상 첫 class="prog-fill" 만 적용되고 w-pct-0 는 무시됨 — 렌더 동등 보존.
-   * (진행률은 done 루프에서 bench-prog.style.width 로 직접 설정.) */
+
   showModal([
     el('h2', null, '⚡ ' + _L('벤치마크 실행 중', 'Running Benchmark')),
     el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'bench-prog' })),
@@ -527,7 +502,6 @@ async function runApiBenchmark() {
 }
 window.runApiBenchmark = runApiBenchmark;
 
-/* ═══ API ACTIVITY LOG ═══ */
 function renderActivityLog(b) {
   var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var log = (eventLog || []).filter(function(e) { return e && e.msg; });
@@ -559,7 +533,6 @@ function renderActivityLog(b) {
 }
 window.renderActivityLog = renderActivityLog;
 
-/* ═══ SESSION MANAGEMENT (백엔드 4차) ═══ */
 async function renderSessions(b) {
   var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
@@ -588,7 +561,6 @@ async function revokeSession() {
   } catch(e) { toast(_L('실패', 'Failed') + ': ' + (e.message || ''), false); }
 }
 
-/* ═══ API KEY FULL CRUD (백엔드 4차) ═══ */
 async function renderApiKeys(b) {
   showSkeleton(b);
   try {
@@ -604,7 +576,7 @@ async function renderApiKeys(b) {
     } else {
       var rows = list.map(function(k) {
         var st = HN.badge(k.revoked ? _L('폐기', 'Revoked') : _L('활성', 'Active'), k.revoked ? 'r' : 'g');
-        /* expires_at 은 epoch 초, 0/부재 = 무기한. new Date() 는 ms 기준이므로 *1000. */
+
         var expCell;
         if (!k.expires_at) {
           expCell = mk('td', { class: 'color-muted' }, _L('무기한', 'Never'));
@@ -637,14 +609,7 @@ async function renderApiKeys(b) {
     b.appendChild(frag(HN.section(_L('API 키 관리', 'API Key Management')), createBtn, body));
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
-/* 폼(이름 + 설명 + 역할 + 만료일)을 노드로 구성하고, 확인 버튼은 app.js 의 표준
- * apiKeyCreate() 를 재사용한다 — apiKeyCreate 가 #apikey-name / #apikey-desc /
- * #apikey-role / #apikey-expiry 를 읽어 POST 후 결과 키를 #apikey-new-result 에
- * 인라인 렌더한다 (중복 구현 금지). 생성된 키가 모달 안에 노출되도록
- * #apikey-new-result 컨테이너를 포함.
- * BE 계약: name(필수, client_name)+role(옵션, default 1, {0,1,2} 且 role≤caller)+
- * description(옵션)+expires_at(옵션, epoch 초). SEC-3: 저장 role 이 실효 grant 이므로
- * caller 역할을 초과하는 옵션은 노출하지 않는다(whoami 로 caller 역할 취득, 기본 operator). */
+
 async function showApiKeyCreate() {
   var mk = PCV.uxlib.el;
   var ROLE_KEYS = ['viewer', 'operator', 'admin'];
@@ -654,8 +619,8 @@ async function showApiKeyCreate() {
     _L('관리자 (전체)', 'admin (full)')
   ];
   var callerLvl = ROLE_KEYS.indexOf(await getCurrentAccountRole());
-  if (callerLvl < 0) callerLvl = 0;              /* 미상 → 최소 권한만 허용 */
-  var defaultLvl = Math.min(1, callerLvl);       /* 기본 operator, caller 초과 금지 */
+  if (callerLvl < 0) callerLvl = 0;
+  var defaultLvl = Math.min(1, callerLvl);
   var roleSelect = mk('select', { id: 'apikey-role', 'aria-label': _L('키 역할', 'Key role') });
   for (var lvl = 0; lvl <= callerLvl; lvl++) {
     roleSelect.appendChild(mk('option', { value: String(lvl), selected: lvl === defaultLvl ? 'selected' : false }, ROLE_LABELS[lvl]));
@@ -687,15 +652,12 @@ async function revokeApiKey(name) {
     const r = await fetchPost(EP.AUTH_APIKEY_REVOKE(name), {});
     if (r && r.error) { toast(_L('실패', 'Failed') + ': ' + (r.error.message || ''), false); return; }
     toast(_L('키 폐기 완료', 'Key revoked'), 's');
-    /* R-embed: 키 테이블은 API Management 페이지의 #apikey-keys-area 서브
-     * 컨테이너에 렌더된다. cb(전체 페이지)로 다시 그리면 JWT/tester/gRPC 카드가
-     * 사라지므로 반드시 서브 컨테이너로 리프레시한다. */
+
     var area = document.getElementById('apikey-keys-area');
     if (area) renderApiKeys(area);
   } catch(e) { toast(_L('실패', 'Failed'), false); }
 }
 
-/* ═══ WINDOW REGISTRATIONS ═══ */
 window.agentTab = agentTab;
 window.renderAccounts = renderAccounts;
 window.renderSessions = renderSessions;
@@ -722,7 +684,6 @@ window.testAllProviders = testAllProviders;
 window.saveAgentConfig = saveAgentConfig;
 window.saveAgentSettings = saveAgentSettings;
 
-/* ═══ PCV.accounts namespace export ═══ */
 PCV.accounts = {
   renderAccounts: renderAccounts,
   acctCreate: acctCreate,

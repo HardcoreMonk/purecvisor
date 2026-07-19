@@ -1,19 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/vm-console.js
-   CONSOLE/VNC, Snapshots, Performance, Timeline, Compare
-   ADR-0013: IIFE module scope — vm.js에서 분할 (pure-move)
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ CONSOLE / VNC ═══
- *  [VNC 연결 흐름]
- *    1. EP.VNC(name)으로 VNC 포트 조회 (백엔드: virDomainGetXMLDesc에서 추출)
- *    2. VM running + 포트 있으면 → 로컬 noVNC ESM import로 RFB 객체 생성
- *    3. WS URL: ws(s)://host/api/v1/ws/vnc?port=XXXX
- *       (ws_server.c가 WS 프레임 ↔ VNC TCP 패킷 변환)
- *    4. 팝업(openNoVNCPopup) vs 임베디드(openNoVNC) 두 가지 모드 지원
- *    5. <script type="module"> 동적 삽입으로 ESM import 수행 */
 async function renderConsole(b, v) {
   if (!v) return;
   var el = PCV.uxlib.el;
@@ -220,14 +208,6 @@ function copyVncAddr(port) {
   navigator.clipboard.writeText(addr).then(() => toast(t('vnc.addr_copied') + ': ' + addr)).catch(() => toast(addr, true));
 }
 
-/* ═══ SNAPSHOTS ═══
- *  [백엔드 응답 형식]
- *    "pcvpool/vms/web-prod@snap-20260410\t2026-04-10 15:30:00" 형태의 문자열 배열.
- *    @ 뒤가 스냅샷 이름, \t 뒤가 생성 시간.
- *  [롤백 안전 장치]
- *    파괴적 작업이므로 VM 이름을 직접 타이핑해야 실행 가능 (rbValidate).
- *  [일괄 삭제]
- *    snapDeleteAll → prefix 필터 + keep_recent → 미리보기(sdaPreview) → 실행(sdaExec). */
 async function renderSnapshots(b, v) {
   if (!v) return;
   var el = PCV.uxlib.el;
@@ -244,7 +224,7 @@ async function renderSnapshots(b, v) {
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(v.name));
     const raw = unwrapList(r);
-    /* 백엔드: "pool/vm@snapname\tdate" 문자열 배열 파싱 */
+
     const snaps = raw.map(s => {
       if (typeof s === 'string') {
         const [full, time] = s.split('\t');
@@ -360,12 +340,12 @@ async function snapRb(vm, s) {
   var mk = PCV.uxlib.el;
   showModal([
     mk('h2', { class: 'mb-14' }, '⏪ Rollback Snapshot'),
-    /* 경고 배너 */
+
     mk('div', { style: 'margin-bottom:14px;padding:12px;border:1px solid var(--red);border-radius:6px;background:rgba(255,60,60,.06)' },
       mk('div', { style: 'font-weight:700;color:var(--red);margin-bottom:6px' }, '⚠ Destructive Operation'),
       mk('div', { class: 'text-xs color-muted' }, 'This will revert the VM disk to the snapshot point-in-time. ', mk('b', null, 'All data written after this snapshot will be permanently lost.')),
       on ? mk('div', { class: 'text-xs', style: 'color:var(--yellow);margin-top:6px' }, '⚡ VM is currently ', mk('b', null, 'running'), ' — it will be ', mk('b', null, 'force-stopped'), ' before rollback, then automatically restarted.') : null),
-    /* 상세 정보 */
+
     mk('div', { class: 'mb-14 p-10 border-muted rounded-md' },
       mk('div', { style: 'display:grid;grid-template-columns:100px 1fr;gap:4px 12px;font-size:12px' },
         mk('span', { class: 'color-muted' }, 'VM'),
@@ -374,7 +354,7 @@ async function snapRb(vm, s) {
         mk('span', null, mk('code', null, s)),
         mk('span', { class: 'color-muted' }, 'ZFS Path'),
         mk('span', { class: 'text-xs' }, mk('code', null, vm + '@' + s)))),
-    /* 확인 입력 */
+
     mk('div', { class: 'mb-14' },
       mk('label', { for: 'rb-confirm-input', class: 'text-12 font-600' }, 'Type VM name to confirm: ', mk('code', null, vm)),
       mk('input', { id: 'rb-confirm-input', placeholder: esc(vm), class: 'w-full mt-4', oninput: "rbValidate('" + escapeAttr(vm) + "')" })),
@@ -416,7 +396,7 @@ async function snapDl(vm, s) {
 }
 
 async function snapDeleteAll(vm) {
-  /* 1. 스냅샷 목록 조회 */
+
   let snaps;
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(vm));
@@ -433,7 +413,6 @@ async function snapDeleteAll(vm) {
 
   if (snaps.length === 0) { toast('No snapshots to delete'); return; }
 
-  /* 2. 모달 UI */
   var el = PCV.uxlib.el;
   showModal([
     el('h2', { class: 'mb-12' }, '🗑 Bulk Delete Snapshots'),
@@ -453,7 +432,6 @@ async function snapDeleteAll(vm) {
       el('button', { class: 'btn btn-r', id: 'sda-exec-btn', onclick: "sdaExec('" + vm.replace(/'/g, "\\'") + "')" }, '🗑 Delete ', el('span', { id: 'sda-count' }, '0'), ' Snapshots'))
   ]);
 
-  /* 스냅샷 데이터를 전역에 임시 저장 */
   window._sdaSnaps = snaps;
   window._sdaVm = vm;
   sdaPreview();
@@ -467,7 +445,6 @@ function sdaPreview() {
   const countEl = document.getElementById('sda-count');
   if (!el) return;
 
-  /* 필터 적용 */
   let filtered = prefix ? snaps.filter(s => s.name.startsWith(prefix)) : [...snaps];
   const total = filtered.length;
   const toDelete = keep > 0 && keep < total ? total - keep : (keep >= total ? 0 : total);
@@ -517,10 +494,8 @@ async function sdaExec(vm) {
   if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '🗑 Done'); }
 }
 
-/* ═══ PERFORMANCE ═══ */
 var perfLayout = 'auto';
 
-/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
 function _vmcProgressBar(p, c) {
   var el = PCV.uxlib.el;
   var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
@@ -532,7 +507,7 @@ function _vmcProgressBar(p, c) {
 
 async function renderPerformance(b, v) {
   if (!v) return;
-  /* 실시간 메트릭 조회 */
+
   var metrics = {};
   if (v.state === 'running') {
     try { var mr = await fetchGet(EP.VM_DETAIL(v.name)); metrics = unwrapData(mr) || mr || {}; } catch(e) {}
@@ -582,7 +557,6 @@ async function renderPerformance(b, v) {
   }, 30);
 }
 
-/* ═══ VM TIMELINE ═══ */
 function renderTimeline(b, v) {
   if (!v) { PCV.uxlib.setMsg(b, 'muted', { tag: 'p' }, t('vm.select')); return; }
   var events = (eventLog || []).filter(function(e) {
@@ -615,11 +589,11 @@ function renderTimeline(b, v) {
   PCV.uxlib.clearEl(b);
   b.appendChild(PCV.uxlib.frag(parts));
 }
-/* ═══ VM COMPARE ═══ */
+
 async function showVmCompare() {
   if (checkedVms.size < 2) { toast(_L('비교할 VM을 2개 이상 선택하세요', 'Select 2+ VMs to compare'), false); return; }
   var selected = vmList.filter(function(v, idx) { return checkedVms.has(idx); }).slice(0, 4);
-  /* 실시간 메트릭을 병합 */
+
   await Promise.all(selected.map(async function(v) {
     if (v.state === 'running') {
       try {
@@ -670,11 +644,7 @@ async function showVmCompare() {
       el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
 }
-/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
- *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
- *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
- *  window.render() 등 직접 참조를 위한 전환기 코드.
- *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
+
 PCV.vm = Object.assign(PCV.vm || {}, {
   showVmCompare: showVmCompare,
   renderConsole: renderConsole,
@@ -684,7 +654,6 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   connectWS: connectWS
 });
 
-/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.renderConsole = renderConsole;
 window.openNoVNC = openNoVNC;
 window.vncFullscreen = vncFullscreen;

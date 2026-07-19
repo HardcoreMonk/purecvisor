@@ -1,9 +1,4 @@
-/* src/modules/daemons/alert_dlq.c
- *
- * [AIO-4] Webhook DLQ 스토어 — alert_engine.c 에서 추출.
- * 배경/락 규율/값매칭 의미는 alert_dlq.h 헤더 주석 참조. HTTP 전송(_webhook_post)과
- * 발화측 배선은 alert_engine.c 에 잔존하며 pcv_alert_dlq_set_post_fn 으로 주입된다.
- */
+
 #include "alert_dlq.h"
 #include "utils/pcv_log.h"
 
@@ -16,9 +11,9 @@ constexpr int WEBHOOK_DLQ_MAX = 1000;
 static_assert(WEBHOOK_DLQ_MAX >= 100, "DLQ buffer too small");
 
 static GPtrArray  *g_webhook_dlq = nullptr;
-static GMutex      g_dlq_mu;        /* 항목 스토어 보호 — zero-init 정적 GMutex */
-static GMutex      g_dlq_retry_mu; /* AIO-4: 동시 retry 직렬화(outer). g_dlq_mu 는 inner. */
-static PcvDlqPostFn g_post_fn = nullptr; /* HTTP 전송 seam — alert_engine.c init 서 등록 */
+static GMutex      g_dlq_mu;
+static GMutex      g_dlq_retry_mu;
+static PcvDlqPostFn g_post_fn = nullptr;
 
 void
 pcv_alert_dlq_set_post_fn(PcvDlqPostFn fn)
@@ -50,7 +45,7 @@ pcv_alert_dlq_list(void)
     if (g_webhook_dlq) {
         for (guint i = 0; i < g_webhook_dlq->len; i++) {
             const gchar *entry = g_ptr_array_index(g_webhook_dlq, i);
-            /* entry format: "url|payload" */
+
             const gchar *sep = strchr(entry, '|');
             JsonObject *obj = json_object_new();
             if (sep) {
@@ -91,8 +86,7 @@ pcv_alert_dlq_remove_matching(GPtrArray *values)
     if (g_webhook_dlq) {
         for (guint v = 0; v < values->len; v++) {
             const gchar *want = g_ptr_array_index(values, v);
-            /* 값매칭 — 스냅샷 이후 인덱스가 변동했을 수 있으므로 값으로 첫 매칭을
-             * 찾아 제거한다(성공 1건당 1건, break). */
+
             for (guint i = 0; i < g_webhook_dlq->len; i++) {
                 if (g_strcmp0(g_ptr_array_index(g_webhook_dlq, i), want) == 0) {
                     g_ptr_array_remove_index(g_webhook_dlq, i);
@@ -110,15 +104,11 @@ pcv_alert_dlq_retry(void)
     JsonObject *result = json_object_new();
     gint retried = 0, succeeded = 0, failed = 0;
 
-    /* AIO-4: 동시 retry 를 직렬화(outer) — 원본이 g_dlq_mu 로 얻던 "동시 재시도
-     * 이중전송 방지"를 유지하되, list/store 는 g_dlq_mu 만 잡으므로 블록되지 않는다. */
     g_mutex_lock(&g_dlq_retry_mu);
 
-    /* (1) 락 하 snapshot deep copy → 즉시 unlock (HTTP 는 락 밖) */
     GPtrArray *snapshot   = pcv_alert_dlq_snapshot();
     GPtrArray *ok_entries = g_ptr_array_new_with_free_func(g_free);
 
-    /* (2) 락 밖 HTTP 재시도 — 성공 원문 수집. g_dlq_mu 는 이 루프 동안 보유하지 않음. */
     for (guint i = 0; i < snapshot->len; i++) {
         const gchar *entry = g_ptr_array_index(snapshot, i);
         const gchar *sep = strchr(entry, '|');
@@ -129,7 +119,7 @@ pcv_alert_dlq_retry(void)
             g_free(url);
             if (ok) {
                 succeeded++;
-                g_ptr_array_add(ok_entries, g_strdup(entry)); /* 원문 보존 → 값매칭 제거 */
+                g_ptr_array_add(ok_entries, g_strdup(entry));
             } else {
                 failed++;
             }
@@ -138,7 +128,6 @@ pcv_alert_dlq_retry(void)
         }
     }
 
-    /* (3) 재락 → 성공 항목을 값매칭으로 제거 */
     pcv_alert_dlq_remove_matching(ok_entries);
 
     g_ptr_array_unref(snapshot);

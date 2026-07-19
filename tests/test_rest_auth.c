@@ -4,16 +4,10 @@
 #include "../src/api/rest_auth.h"
 #include "../src/utils/pcv_crypto.h"
 
-/*
- * Bootstrap fallback is intentionally narrow: it must recover only a true
- * first-install state (user absent from RBAC DB). Once _ensure_admin_user
- * seeds the admin account and an operator rotates the password, the stale
- * daemon.conf credentials must be denied (SEC-2 regression).
- */
 static void
 test_fallback_user_absent_recovers(void)
 {
-    /* 진짜 첫설치 복구 */
+
     g_assert_true(pcv_rest_auth_should_fallback_bootstrap("admin",
                                                           "purecvisor",
                                                           "admin",
@@ -24,7 +18,7 @@ test_fallback_user_absent_recovers(void)
 static void
 test_fallback_user_present_denied_sec2(void)
 {
-    /* 회전 후 옛 비번 거부 — SEC-2 핵심 */
+
     g_assert_false(pcv_rest_auth_should_fallback_bootstrap("admin",
                                                            "purecvisor",
                                                            "admin",
@@ -52,10 +46,6 @@ test_fallback_null_denied(void)
                                                            FALSE));
 }
 
-/*
- * SEC-8: pcv_secret_str_eq 정확성 테스트. 타이밍 자체는 단위테스트로
- * 검증 불가하므로 NULL/길이차/동일/상이 케이스로 정확성만 확인한다.
- */
 static void
 test_secret_str_eq_identical_true(void)
 {

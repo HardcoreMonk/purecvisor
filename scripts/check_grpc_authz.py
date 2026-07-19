@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_grpc_authz.py — gRPC 인증/RBAC 게이트 (Wave B Item 2 / A01·V8).
 
 근거: docs/operations/2026-07-16-security-remediation-roadmap.md Item 2.
@@ -27,10 +27,9 @@ TARGET = ROOT / TARGET_REL
 
 INJECT_TOKENS = ["_pcv_caller_role", "_pcv_caller_sub"]
 START_FN = "pcv_grpc_server_start"
-# empty-token 가드: if (!G_grpc_auth_token ...) — auth_token 부재/빈값 분기
+
 EMPTY_TOKEN_IF_RE = re.compile(r'if\s*\(\s*!\s*G_grpc_auth_token')
 RETURN_TAIL_RE = re.compile(r'return\s*;\s*$')
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴 내용을 공백/개행으로 치환(줄 번호·오프셋 1:1 유지).
@@ -86,7 +85,6 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def strip_comments(text: str) -> str:
     """주석만 공백/개행으로 치환하고 문자열·문자 리터럴은 보존(줄 번호 1:1).
     _pcv_caller_role 등 문자열 리터럴 토큰 존재 확인용."""
@@ -140,7 +138,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def _match_brace(s: str, open_pos: int) -> int:
     """s[open_pos]=='{' 라 가정, 매칭되는 '}' 인덱스 반환(없으면 -1)."""
     depth = 0
@@ -153,7 +150,6 @@ def _match_brace(s: str, open_pos: int) -> int:
             if depth == 0:
                 return i
     return -1
-
 
 def check_no_token_refusal(code: str) -> tuple:
     """(ok, reason). code = strip_code 적용본.
@@ -184,7 +180,6 @@ def check_no_token_refusal(code: str) -> tuple:
                        "무토큰 기동이 fall-through로 허용됨(무인증 제어평면)")
     return True, "무토큰 기동 거부(empty-token 가드가 return으로 종료)"
 
-
 def scan_text(text: str) -> tuple:
     """(missing_tokens, refusal_ok, refusal_reason) 반환."""
     with_strings = strip_comments(text)
@@ -193,10 +188,8 @@ def scan_text(text: str) -> tuple:
     refusal_ok, reason = check_no_token_refusal(code)
     return missing, refusal_ok, reason
 
-
 def main(argv=None) -> int:
-    # argv[0] 주어지면 그 파일 검사(self-test가 temp 반사실 사본을 검사하기 위한
-    # 경로 오버라이드). 없으면 정본 TARGET.
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
     target = Path(argv[0]) if argv else TARGET
     rel = argv[0] if argv else TARGET_REL
@@ -221,7 +214,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] gRPC bounded role 주입 + 무토큰 기동 거부 충족 ({rel})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

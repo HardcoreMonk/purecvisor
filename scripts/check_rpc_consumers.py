@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 AF-C4 — "소비 메서드 ⊆ 등록 route" 불변식 + 고아(등록−소비) 정적 게이트.
 
@@ -46,7 +46,6 @@ GRPC_C = REPO_ROOT / "src" / "api" / "grpc_server.c"
 TESTS_DIR = REPO_ROOT / "tests"
 ORPHAN_BASELINE = REPO_ROOT / "contracts" / "rpc_orphan_baseline.json"
 
-
 def main() -> int:
     if not DISPATCHER_C.exists():
         print(f"ERROR: {DISPATCHER_C} 미존재", file=sys.stderr)
@@ -65,9 +64,8 @@ def main() -> int:
             consumers.setdefault(m, set()).add(label)
 
     add(CLI_RE.findall(strip_comments(read(CLI_C))), "cli")
-    add(SECREQ_RE.findall(strip_comments(read(CLI_C))), "cli")   # security_request 래퍼 소비
-    # 생성 산출물(*.bundle.js, bundle.js, sw.js)은 제외 — 소스(app.js + modules)만
-    # 스캔해 stale 번들 중복/노이즈를 배제한다.
+    add(SECREQ_RE.findall(strip_comments(read(CLI_C))), "cli")
+
     js_files = [p for p in (list(UI_DIR.glob("*.js"))
                             + list((UI_DIR / "modules").glob("*.js")))
                 if is_source_js(p)]
@@ -76,11 +74,10 @@ def main() -> int:
         methods = set(FE_RE_A.findall(txt)) | set(FE_RE_B.findall(txt))
         add((m for m in methods if "." in m), f"fe:{js.name}")
 
-    # REST 브릿지 소비 (rest_server.c의 _build_rpc / _build_rpc_name)
     add(extract_rest_methods(read(REST_C)), "rest")
-    # gRPC 명시 매핑 소비 (등록 route에 속하는 dotted 리터럴만)
+
     add(extract_grpc_methods(read(GRPC_C), registered), "grpc")
-    # Web UI passthrough 헬퍼 소비 (rpc('x.y')/EP.RPC('x.y'))
+
     for js in js_files:
         add(extract_fe_helper(strip_comments(read(js))), f"fe-rpc:{js.name}")
 
@@ -99,12 +96,11 @@ def main() -> int:
         print("  * 한계: 리터럴만 검출(동적 메서드명 스킵), FE REST 경로 소비는 "
               "Stage 2(미구현).", file=sys.stderr)
 
-    # ── 고아 불변식 (ADR-0025): 등록 − 전소비 ⊆ baseline ──
     baseline_full = json.loads(ORPHAN_BASELINE.read_text())["orphans"]
     baseline = set(baseline_full)
     orphans = registered - set(consumers)
     new_orphans = sorted(orphans - baseline)
-    stale_baseline = sorted(baseline - orphans)   # 이제 소비됨 → 래칫 하향 후보
+    stale_baseline = sorted(baseline - orphans)
     test_consumed = extract_test_consumed(TESTS_DIR, registered)
     test_covered = sorted(set(orphans) & test_consumed)
     print(f"[check-rpc-consumers] 고아 {len(orphans)} / baseline {len(baseline)} "
@@ -121,7 +117,6 @@ def main() -> int:
         for m in new_orphans:
             print(f"  - ORPHAN {m}", file=sys.stderr)
 
-    # ── ADR-0025 정직 self-check: dead-candidate는 test-covered 불가 ──
     mislabeled = sorted(m for m in baseline
                         if baseline_full.get(m, {}).get("reason") == "dead-candidate"
                         and m in test_consumed)
@@ -137,7 +132,6 @@ def main() -> int:
 
     print("[PASS] 모든 소비 메서드가 등록 route 에 존재 (소비 ⊆ 등록) · 신규 고아 없음")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

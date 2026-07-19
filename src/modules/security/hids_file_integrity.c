@@ -1,32 +1,4 @@
-/**
- * @file hids_file_integrity.c
- * @brief HIDS 파일 무결성 구현 — TOCTOU-내성 해싱·admin refresh·drift 스캔
- *
- * hids_file_integrity.h 계약의 구현. baseline 은 security DB 계열의 SQLite 파일
- * (file_baseline 테이블)에 저장된다.
- *
- * [아키텍처 위치]
- *   Native HIDS v1 수집단. refresh(admin) 로 신뢰 스냅샷을 심고, scan(무부작용) 으로
- *   현재 파일과 비교해 drift 를 JSON 으로 반환한다. 상위 계층이 이를 PcvSecurityEvent
- *   로 승격하거나 UI/진단에 노출한다.
- *
- * [판단 근거 — 위변조 내성]
- *   compute_file_state 는 경로를 단 한 번만 해소한다: O_NOFOLLOW 로 열어 심볼릭 링크
- *   스왑을 open 단계에서 실패시키고, 같은 fd 에서 fstat(메타데이터)와 스트리밍 해시
- *   (내용)를 모두 얻는다. stat→별도 읽기의 이중 해소는 TOCTOU 경쟁·링크 스왑에 뚫리는
- *   패턴이라 폐기했다.
- *
- * [불변식 — ADR-0024]
- *   scan 은 baseline 을 절대 쓰지 않는다. refresh 만 baseline 을 교체하며 트랜잭션
- *   (BEGIN IMMEDIATE + DELETE + 재삽입 + COMMIT) 으로 원자적이다 — 중간 실패 시
- *   ROLLBACK 으로 이전 신뢰 스냅샷을 보존한다. DB 를 열 수 없으면 status 는 UNKNOWN
- *   으로 남아 없는 baseline 을 trusted 로 신뢰하지 않는다.
- *
- * Operator note:
- *   이 파일은 "중요 파일이 몰래 바뀌었는지"를 감시한다. baseline 은 admin 이 직접
- *   refresh 해야만 신뢰 상태가 되며, 그 전까지는 모든 파일이 UNKNOWN 으로 취급되어
- *   변경 여부를 단정하지 않는다(오탐으로 정상 변경을 위협으로 신고하지 않기 위함).
- */
+
 #include "modules/security/hids_file_integrity.h"
 #include "modules/audit/pcv_audit.h"
 
@@ -38,11 +10,6 @@
 #include <time.h>
 #include <unistd.h>
 
-/*
- * Native HIDS v1 stores a tiny file baseline in the same security DB family.
- * Refresh is explicit admin action; scan only reports drift and never mutates
- * trusted state.
- */
 static GQuark
 hids_file_integrity_error_quark(void)
 {
@@ -141,18 +108,7 @@ compute_file_state(const gchar *path,
                    gint64 *out_mtime,
                    GError **error)
 {
-    /*
-     * Tamper-evidence requires a SINGLE path resolution. We open the path once
-     * with O_NOFOLLOW (so a symlink swapped in at the final path component fails
-     * the open outright) and derive BOTH metadata (fstat) and the content hash
-     * (streamed read) from that same fd. The old code did g_stat() then a
-     * separate g_file_get_contents(): two independent resolutions that both
-     * followed symlinks, which a TOCTOU race or symlink swap defeats.
-     *
-     * Hashing streams the fd incrementally via GChecksum. g_checksum_get_string
-     * returns the same lowercase SHA-256 hex as g_compute_checksum_for_data, so
-     * existing baselines remain byte-for-byte comparable.
-     */
+
     if (!path || !*path) {
         g_set_error(error, hids_file_integrity_error_quark(), SQLITE_MISUSE,
                     "file path is required");
@@ -248,10 +204,7 @@ insert_baseline_row(sqlite3 *db,
 PcvHidsBaselineStatus
 pcv_hids_baseline_status(const gchar *db_path)
 {
-    /*
-     * "trusted" means an admin has refreshed at least one baseline row. Missing
-     * or unreadable DBs stay unknown rather than silently trusting the host.
-     */
+
     sqlite3 *db = NULL;
     GError *error = NULL;
     if (!open_db(db_path, &db, &error)) {
@@ -364,10 +317,7 @@ build_scan_event(const gchar *path,
 static void
 scan_one_path(sqlite3 *db, GPtrArray *changes, const gchar *path)
 {
-    /*
-     * Every scan finding is returned as JSON so callers can decide whether to
-     * convert it into a SecurityEvent, show it in UI, or keep it as diagnostics.
-     */
+
     g_autoptr(GError) error = NULL;
     g_autofree gchar *sha256 = NULL;
     gint64 size = 0;

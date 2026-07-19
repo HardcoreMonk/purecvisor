@@ -1,14 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/storage.js
-   Storage (ZFS Pools + Zvols)
-   ADR-0013: IIFE module scope — PCV.storage namespace
-   ═══════════════════════════════════════════════════════════════ */
-/*
- * Storage rendering treats pool state as operational data, not decoration.
- * Destructive actions use typed confirmation helpers, capacity widgets tolerate
- * absent metrics, and zvol selection is kept in window._zvolSel so rerenders do
- * not expose bulk deletion before the user has selected rows again.
- */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
@@ -21,8 +11,6 @@ function storagePctText(totalBytes, usedBytes) {
   return storagePct(totalBytes, usedBytes).toFixed(1) + '%';
 }
 
-/* ADR-013 DOM-safe: renderProgressBar(ui.js 문자열 헬퍼, 수정 금지)의 노드 등가물 —
- * class/구조 동형 (app.js _progressBar 선례). */
 function _progressBar(p, c) {
   var mk = PCV.uxlib.el;
   var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
@@ -34,8 +22,7 @@ function _progressBar(p, c) {
 
 async function renderStorage(b) {
   showSkeleton(b);
-  /* ADR-013 DOM-safe: `h +=` 문자열 누적 대신 최상위 형제 노드 배열 parts 에
-   * el/HN 노드를 push, 마지막에 clearEl+frag 로 일괄 삽입 (network.js 선례). */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const p = await fetchGet(EP.STORAGE_POOLS());
@@ -94,7 +81,7 @@ async function renderStorage(b) {
         ],
         'mb-8'));
     });
-    /* Storage usage donut */
+
     if (pl.length > 0) {
       parts.push(el('div', { class: 'sg grid-2' }, pl.map(function(v, pi) {
         var sz = parseSize(v.size), us = parseSize(v.alloc || v.used), pct = storagePct(sz, us);
@@ -108,7 +95,6 @@ async function renderStorage(b) {
       })));
     }
 
-    /* Storage forecast panel */
     parts.push(el('div', { class: 'hc mb-14' },
       el('h4', null, '📈 ' + _L('용량 예측', 'Capacity planning')),
       el('p', { class: 'color-muted text-11 mb-8' }, _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.')),
@@ -165,7 +151,6 @@ async function renderStorage(b) {
       if (sc) sc.textContent = window._zvolSel.size;
     }
 
-    /* Draw donut charts */
     setTimeout(function() {
       pl.forEach(function(v, pi) {
         var canvas = document.getElementById('pool-donut-' + pi);
@@ -236,7 +221,7 @@ async function poolScrub(name) {
 }
 
 async function poolDestroy(name) {
-  /* #5 destroyConfirm — 풀 이름 타이핑 요구 (영구 데이터 손실 방지) */
+
   destroyConfirm({
     title: 'ZFS Pool 영구 삭제',
     name: name,
@@ -309,10 +294,7 @@ function zvolDel(name) {
 }
 
 async function doZvolDel(name) { const c = document.getElementById('del-zvol-confirm')?.value; if (c !== name) { toast(t('vm.name_mismatch'), false); return; }
-  /* ADR-013 DOM-safe: 진행 모달을 el/frag 로 조립. 아이콘 HTML 엔티티(&#9888; 등)는
-   * 동일 코드포인트 리터럴 글리프로, escapeHtml(name) 은 TextNode 로 대체(이스케이프 불요).
-   * (원본 prog-fill div 는 class 속성이 중복(class="prog-fill"..class="w-pct-15")이라
-   *  HTML 파서상 첫 class="prog-fill" 만 적용되고 w-pct-15 는 무시됨 — 렌더 동등 보존.) */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const mc = document.getElementById('mc');
   clearEl(mc);
@@ -329,11 +311,9 @@ async function doZvolDel(name) { const c = document.getElementById('del-zvol-con
     pf.style.width = '100%'; ps.textContent = '✅ ' + t('stg.zvol_destroyed'); toast(t('stg.zvol_destroyed')); addEvt(t('stg.zvol_destroyed') + ': ' + name); setTimeout(() => { closeModal(); renderStorage(document.getElementById('cb')); }, 1500);
   } catch (e) { pf.style.width = '100%'; ps.textContent = '❌ ' + e.message; toast(e.message, false); } }
 
-/* ═══ STORAGE CAPACITY FORECAST ═══ */
 async function loadStorageForecast() {
   var el = document.getElementById('storage-forecast'); if (!el) return;
-  /* ADR-013 DOM-safe: el 지역변수는 DOM 노드라 빌더는 PCV.uxlib.* 로 직접 호출.
-   * 표 본문은 _progressBar(renderProgressBar 노드 등가물)/HN.badge 로 조립. */
+
   PCV.uxlib.clearEl(el);
   el.appendChild(PCV.uxlib.frag(PCV.uxlib.el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...')));
   try {
@@ -378,7 +358,6 @@ function _forecastSeverity(daysToFull) {
   return { color: 'var(--green)', label: 'Healthy', badge: 'g' };
 }
 
-/* ═══ iSCSI TARGETS ═══ */
 async function renderIscsi(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -411,12 +390,8 @@ async function renderIscsi(b) {
 }
 window.renderIscsi = renderIscsi;
 
-/* ═══ BACKUP MANAGEMENT ═══ */
 async function renderBackup(b) {
-  /* ADR-013 DOM-safe: 정적 폼 템플릿을 el/frag 로 조립. 인라인 onclick 문자열은
-   * 동일 의미 클로저(window.fn)로, 엔티티 &gt;&gt; 는 리터럴 '>>' TextNode 로.
-   * (원본 input 은 class 속성 중복(class="input"..class="w-200")이라 HTML 파서상
-   *  첫 class="input" 만 적용, w-200/w-160 은 무시됨 — 렌더 동등 보존.) */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   clearEl(b);
   b.appendChild(frag(
@@ -424,7 +399,7 @@ async function renderBackup(b) {
       el('span', { class: 'neon-blink color-cyan' }, '>>'),
       el('h2', { style: 'font-family:var(--font-display);font-size:16px' }, _L('백업 관리', 'Backup Management'))
     ),
-    /* Policy List */
+
     el('div', { class: 'hc mb-14' },
       el('h4', null, _L('백업 정책', 'Backup Policies')),
       el('div', { class: 'flex gap-8 mb-8' },
@@ -432,7 +407,7 @@ async function renderBackup(b) {
       ),
       el('div', { id: 'backup-policies', class: 'skeleton-box', style: 'min-height:100px' })
     ),
-    /* History */
+
     el('div', { class: 'hc mb-14' },
       el('h4', null, _L('스냅샷 히스토리', 'Snapshot History')),
       el('div', { class: 'flex gap-8 mb-8' },
@@ -441,7 +416,7 @@ async function renderBackup(b) {
       ),
       el('div', { id: 'backup-history', class: 'skeleton-box', style: 'min-height:100px' })
     ),
-    /* Restore */
+
     el('div', { class: 'hc mb-14' },
       el('h4', null, _L('복원', 'Restore')),
       el('p', { class: 'stat-label' }, _L('VM의 스냅샷을 선택하여 롤백합니다.', 'Select a VM snapshot to rollback.')),
@@ -453,7 +428,6 @@ async function renderBackup(b) {
     )
   ));
 
-  /* Load policies */
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc: '2.0', method: 'backup.policy.list', params: {}, id: 'bp1' });
     var d = unwrapData(r);
@@ -464,9 +438,7 @@ async function renderBackup(b) {
         clearEl(pe);
         pe.appendChild(el('div', { class: 'stat-label' }, _L('정책 없음', 'No policies')));
       } else {
-        /* 원본 '<table class="tbl"><tr>...' 는 파서가 tbody 를 자동 삽입 →
-         * CSS 'tbody tr' 규칙(hover/border-left) 적용. DOM 빌드는 자동 삽입이
-         * 없으므로 명시적 tbody 로 감싸 렌더/hover 동등 보존. */
+
         var tbody = el('tbody', null,
           el('tr', null,
             el('th', null, 'VM'),
@@ -537,9 +509,9 @@ async function backupLoadHistory() {
     var snaps = Array.isArray(d) ? d : unwrapList(d);
     var el = document.getElementById('backup-history');
     if (!el) return;
-    /* ADR-013 DOM-safe: el/el2 는 DOM 노드 지역변수라 빌더는 PCV.uxlib.* 로 직접 호출. */
+
     if (snaps.length === 0) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, _L('스냅샷 없음', 'No snapshots'))); return; }
-    /* 명시적 tbody 로 감싸 파서 자동삽입 tbody 와 동등('tbody tr' CSS 적용). */
+
     var tbody = PCV.uxlib.el('tbody', null,
       PCV.uxlib.el('tr', null,
         PCV.uxlib.el('th', null, 'VM'),
@@ -590,7 +562,6 @@ window.backupLoadHistory = backupLoadHistory;
 window.backupRestore = backupRestore;
 window.backupDeletePolicy = backupDeletePolicy;
 
-/* ═══ REGISTER ALL ON window ═══ */
 window.renderStorage = renderStorage;
 window.showPoolCreate = showPoolCreate;
 window.doPoolCreate = doPoolCreate;
@@ -602,7 +573,6 @@ window.zvolDel = zvolDel;
 window.doZvolDel = doZvolDel;
 window.loadStorageForecast = loadStorageForecast;
 
-/* ─── Multi-select bulk + 컨텍스트 메뉴 (#7/#8) ─── */
 function zvolToggleSel(name, on) {
   if (!window._zvolSel) window._zvolSel = new Set();
   if (on) window._zvolSel.add(name); else window._zvolSel.delete(name);
@@ -657,7 +627,7 @@ function zvolCtxMenu(ev, name) {
       { label: '⚙ ' + _L('선택', 'Select'), fn: function(){ zvolToggleSel(name, !window._zvolSel.has(name)); renderStorage(document.getElementById('cb')); } }
     ]);
   } else {
-    /* fallback: 단순 confirm */
+
     if (window.confirm(_L('삭제하시겠습니까? ', 'Delete? ') + name)) zvolDel(name);
   }
 }
@@ -666,7 +636,6 @@ window.zvolToggleAll = zvolToggleAll;
 window.zvolBulkDelete = zvolBulkDelete;
 window.zvolCtxMenu = zvolCtxMenu;
 
-/* ═══ PCV.storage namespace export ═══ */
 PCV.storage = {
   renderStorage: renderStorage,
   showPoolCreate: showPoolCreate,

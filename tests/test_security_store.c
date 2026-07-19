@@ -2,10 +2,6 @@
 #include <glib/gstdio.h>
 #include "modules/security/security_store.h"
 
-/*
- * These tests pin the Security Guard store contracts that matter to operators:
- * event coalescing, config persistence, and WARN/CRIT audit/alert fanout.
- */
 void pcv_test_audit_reset(void);
 gint pcv_test_audit_call_count(void);
 const gchar *pcv_test_audit_last_method(void);
@@ -13,7 +9,7 @@ const gchar *pcv_test_audit_last_target(void);
 void pcv_test_alert_reset(void);
 gint pcv_test_alert_call_count(void);
 const gchar *pcv_test_alert_last_event_id(void);
-/* Test-only hook defined in security_store.c: shrink the terminal retention cap. */
+
 void pcv_security_store_set_retention_cap_for_test(gint cap);
 
 static gchar *
@@ -36,7 +32,7 @@ unlink_store_path(const gchar *path)
 static void
 test_security_store_insert_list_get(void)
 {
-    /* Two open events with the same coalesce key must remain one queue item. */
+
     gchar *path = make_store_path();
     g_assert_true(pcv_security_store_open(path));
 
@@ -82,7 +78,7 @@ test_security_store_insert_list_get(void)
 static void
 test_security_store_submit_warn_audits_and_alerts(void)
 {
-    /* Runtime policy upgrades this INFO input to WARN and emits audit + alert. */
+
     gchar *path = make_store_path();
     g_assert_true(pcv_security_store_open(path));
 
@@ -131,7 +127,7 @@ count_events_by_status(const gchar *status)
 static void
 insert_fixture_event(const gchar *event_id, gint64 ts, PcvSecurityStatus status)
 {
-    /* target doubles as a unique coalesce-key discriminator per fixture row. */
+
     PcvSecurityEvent ev = {0};
     g_strlcpy(ev.event_id, event_id, sizeof ev.event_id);
     ev.timestamp = ts;
@@ -149,23 +145,17 @@ insert_fixture_event(const gchar *event_id, gint64 ts, PcvSecurityStatus status)
 static void
 test_security_store_retention_bounds_terminal_events(void)
 {
-    /*
-     * With a small cap, inserting more terminal (resolved/suppressed) events than
-     * the cap prunes the OLDEST terminal rows while keeping the newest cap-many.
-     * open events are always retained regardless of the cap.
-     */
+
     gchar *path = make_store_path();
     g_assert_true(pcv_security_store_open(path));
     pcv_security_store_set_retention_cap_for_test(3);
 
-    /* Five terminal rows, increasing timestamps -> only the newest 3 survive. */
     insert_fixture_event("res-1", 1710000001, PCV_SECURITY_STATUS_RESOLVED);
     insert_fixture_event("res-2", 1710000002, PCV_SECURITY_STATUS_RESOLVED);
     insert_fixture_event("sup-3", 1710000003, PCV_SECURITY_STATUS_SUPPRESSED);
     insert_fixture_event("res-4", 1710000004, PCV_SECURITY_STATUS_RESOLVED);
     insert_fixture_event("sup-5", 1710000005, PCV_SECURITY_STATUS_SUPPRESSED);
 
-    /* Two open rows must survive independent of the terminal cap. */
     insert_fixture_event("open-1", 1710000006, PCV_SECURITY_STATUS_OPEN);
     insert_fixture_event("open-2", 1710000007, PCV_SECURITY_STATUS_OPEN);
 
@@ -173,7 +163,6 @@ test_security_store_retention_bounds_terminal_events(void)
                         count_events_by_status("suppressed"), ==, 3);
     g_assert_cmpint(count_events_by_status("open"), ==, 2);
 
-    /* Oldest terminal rows pruned; newest terminal + all open rows retained. */
     JsonObject *oldest = pcv_security_store_get_event("res-1");
     g_assert_null(oldest);
     JsonObject *newest = pcv_security_store_get_event("sup-5");
@@ -183,7 +172,7 @@ test_security_store_retention_bounds_terminal_events(void)
     g_assert_nonnull(open_row);
     json_object_unref(open_row);
 
-    pcv_security_store_set_retention_cap_for_test(0); /* restore default cap */
+    pcv_security_store_set_retention_cap_for_test(0);
     pcv_security_store_close();
     unlink_store_path(path);
     g_free(path);

@@ -1,19 +1,13 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/cloud.js
-   Cloud Migration (AWS EC2 <-> PureCVisor)
-   ADR-0013: IIFE module scope — PCV.cloud namespace
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
 var _cloudPollTimer = null;
 
-/* 페이지 이탈 시 타이머 정리 (FE-4: 폴 타이머 누수 방지) */
 window.addEventListener('beforeunload', function() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 });
 
-/* 네비게이션 변경 시 타이머 정리 */
 function _cloudCleanupTimer() {
   if (_cloudPollTimer) { clearInterval(_cloudPollTimer); _cloudPollTimer = null; }
 }
@@ -21,9 +15,7 @@ window._cloudCleanupTimer = _cloudCleanupTimer;
 
 async function renderCloudMigration(b) {
   showSkeleton(b);
-  /* ADR-013 DOM-safe: 정적 폼 템플릿을 el/frag 로 조립. 인라인 onclick 문자열은
-   * 원본 그대로(함수 전역 호출) 유지, HTML 엔티티(&#9729; 등)는 동일 코드포인트
-   * 리터럴 글리프로 치환. */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var importPanel = el('div', { class: 'hc' },
     el('h4', { style: 'color:var(--accent)' }, '📥 Import (EC2 → PureCVisor)'),
@@ -82,23 +74,21 @@ async function renderCloudMigration(b) {
     pipelineCard
   ));
 
-  /* VM 목록 로드 → Export 드롭다운 */
   try {
     const vl = vmList.length ? vmList : [];
     const sel = document.getElementById('cm-exp-name');
     if (sel && vl.length) {
-      /* ADR-013 DOM-safe: option 요소를 el()로 조립 (텍스트는 TextNode라 escapeHtml 불요). */
+
       PCV.uxlib.clearEl(sel);
       vl.forEach(function(v) {
         sel.appendChild(PCV.uxlib.el('option', { value: v.name }, v.name + ' (' + v.state + ')'));
       });
     } else if (sel) { PCV.uxlib.clearEl(sel); sel.appendChild(PCV.uxlib.el('option', { value: '' }, 'No VMs')); }
-  } catch (e) { /* ignore */ }
+  } catch (e) {  }
 
-  /* 작업 상태 로드 + 폴링 시작 */
   cmLoadJobs();
   if (_cloudPollTimer) clearInterval(_cloudPollTimer);
-  /* 프론트 #4-A: 비가시 탭 폴링 중단 — document.hidden이면 콜백 진입부에서 스킵 */
+
   _cloudPollTimer = setInterval(() => { if (document.hidden) return; cmLoadJobs(); }, 5000);
 }
 window.renderCloudMigration = renderCloudMigration;
@@ -116,8 +106,6 @@ async function cmLoadJobs() {
       return;
     }
 
-    /* ADR-013 DOM-safe: el 지역변수는 DOM 노드라 빌더는 PCV.uxlib.* 를 mk 로 별칭.
-     * cancel/finalize onclick 문자열의 esc(j.name)은 원본 그대로(escapeAttr 아님) 보존. */
     var mk = PCV.uxlib.el;
     var thead = mk('thead', null, mk('tr', null,
       mk('th', null, 'VM'), mk('th', null, 'Dir'), mk('th', null, 'Status'),
@@ -144,7 +132,7 @@ async function cmLoadJobs() {
     }));
     PCV.uxlib.clearEl(el);
     el.appendChild(mk('table', null, thead, tbody));
-  } catch (e) { /* ignore polling errors */ }
+  } catch (e) {  }
 }
 window.cmLoadJobs = cmLoadJobs;
 
@@ -216,7 +204,6 @@ async function cmFinalize(name) {
 }
 window.cmFinalize = cmFinalize;
 
-/* ═══ PCV.cloud namespace export ═══ */
 PCV.cloud = {
   renderCloudMigration: renderCloudMigration,
   cmLoadJobs: cmLoadJobs,

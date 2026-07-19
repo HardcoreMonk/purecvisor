@@ -1,12 +1,3 @@
-/**
- * @file vm_clone_plan.c
- * @brief VM clone preflight에서 쓰는 libvirt XML disk resolver.
- *
- * 비전공자 기준으로 보면, clone은 "복사할 하드디스크가 정확히 무엇인지"를
- * 먼저 알아야 한다. 이 파일은 VM 정의 XML에서 설치 ISO가 아닌 data disk만
- * 세고, 그 disk가 ZFS zvol인지 qcow2 파일인지 raw 파일인지 분류한다.
- * 이후 storage별로 "새 VM이 사용할 target disk 경로"까지 계산한다.
- */
 
 #include "vm_clone_plan.h"
 
@@ -78,11 +69,6 @@ xml_node_prop_dup(xmlNodePtr node, const gchar *name)
     return dup;
 }
 
-/* libvirt domain XML 을 깊이우선으로 훑어 data disk 만 센다.
- * device="disk" 만 카운트하므로 설치 ISO/cdrom(device="cdrom")은 제외된다 —
- * clone 은 OS 데이터 디스크만 복제 대상이다. source_path 는 "처음 만난" data
- * disk 것만 채우고(이후 disk 는 개수만 증가), 개수 검증은 호출자
- * pcv_vm_clone_extract_disk_info 가 disk_count!=1 로 처리한다. */
 static void
 scan_clone_disk_nodes(xmlNodePtr node, PcvVmCloneDiskInfo *info)
 {
@@ -95,8 +81,7 @@ scan_clone_disk_nodes(xmlNodePtr node, PcvVmCloneDiskInfo *info)
             if (is_data_disk) {
                 info->disk_count++;
                 if (!info->source_path) {
-                    /* dev(블록 장치, zvol) 우선, 없으면 file(qcow2/raw). 하나를
-                     * 잡으면 즉시 break — 첫 <source> 가 이 disk 의 백킹이다. */
+
                     for (xmlNodePtr child = cur->children; child; child = child->next) {
                         if (xml_node_name_is(child, "driver")) {
                             g_free(info->driver_type);
@@ -125,12 +110,6 @@ scan_clone_disk_nodes(xmlNodePtr node, PcvVmCloneDiskInfo *info)
     }
 }
 
-/* 백킹 종류 판정: source 속성 + 경로/드라이버 타입으로 zvol/qcow2/raw 를 가른다.
- *   - dev + /dev/zvol/ 접두 → ZVOL(ZFS 블록 복제 경로).
- *   - file + (driver type qcow2 | .qcow2 접미) → QCOW2.
- *   - file + (driver type raw | .raw/.img 접미) → RAW.
- * 어디에도 안 맞으면 UNSUPPORTED — beta guard 가 여기서 clone 을 거부한다.
- * driver type 을 확장자보다 우선 신뢰하되, type 미기재 XML 을 위해 확장자로 폴백. */
 static PcvVmCloneDiskKind
 classify_clone_disk(const PcvVmCloneDiskInfo *info)
 {
@@ -154,9 +133,6 @@ classify_clone_disk(const PcvVmCloneDiskInfo *info)
     return PCV_VM_CLONE_DISK_UNSUPPORTED;
 }
 
-/* target_name 은 zvol dataset leaf / 파일명으로 그대로 합쳐진다. '/'·'\\' 를 막아
- * 경로 이탈(../, 절대경로 주입)과 다른 dataset/디렉터리로의 write 를 차단한다 —
- * 이 이름이 실제 디스크 생성 경로를 결정하므로 주입되면 임의 위치를 덮어쓸 수 있다. */
 static gboolean
 clone_target_name_is_safe(const gchar *target_name)
 {
@@ -189,10 +165,6 @@ pcv_vm_clone_extract_disk_info(const gchar *xml,
     scan_clone_disk_nodes(xmlDocGetRootElement(doc), info);
     xmlFreeDoc(doc);
 
-    /* beta guard: 정확히 1개의 data disk 만 지원한다. 다중 디스크 VM 은 어느
-     * 디스크를 복제/재초기화할지 모호하고 부분 복제로 부팅 불능 VM 을 만들 수
-     * 있어 지금은 명시적으로 거부한다(0개=복제 대상 없음, 2개+=모호). 실패 시
-     * info 는 호출자가 pcv_vm_clone_disk_info_clear 로 해제한다. */
     info->kind = classify_clone_disk(info);
     if (info->disk_count != 1) {
         if (error_msg) {
@@ -225,15 +197,6 @@ zvol_dataset_split(const gchar *dataset, gchar **pool_out, gchar **leaf_out)
     return TRUE;
 }
 
-/* zvol clone 계획: source `/dev/zvol/<pool>/<name>` 에서 pool 을 뽑아
- * target dataset `<pool>/<target_name>` 와 그 예상 device 노드 경로를 계산한다.
- * "unchecked" = target_name 안전성은 상위 pcv_vm_clone_build_disk_plan 이 이미 검증.
- *
- * Developer note:
- *   여기서 만드는 target_disk_path 는 아직 존재하지 않는 "예상" 경로 문자열일 뿐이다.
- *   실제 zvol 생성과 /dev/zvol 노드 등장은 이 모듈이 아니라 실행 워커의 책임이며,
- *   udev 가 노드를 비동기로 만들기 때문에 zvol 생성 직후 이 경로가 곧바로 존재한다고
- *   가정하면 안 된다(open 전 노드 settle 대기는 실행 경로에서 처리). */
 static gboolean
 build_zvol_plan_unchecked(const gchar *target_name,
                           const PcvVmCloneDiskInfo *disk,
@@ -286,10 +249,7 @@ build_file_plan_unchecked(const gchar *target_name,
                           PcvVmCloneDiskPlan *plan,
                           gchar **error_msg)
 {
-    /* file clone 계획: target 을 source 와 같은 디렉터리에 <target_name><ext> 로
-     * 놓는다. 절대경로만 허용해(상대경로면 데몬 cwd 기준으로 엉뚱한 곳에 쓰일 수
-     * 있다) 예측 가능한 위치에만 생성하고, target==source 는 거부해 원본 덮어쓰기를
-     * 막는다. 확장자는 file_disk_target_extension 이 kind/원본 확장자에서 결정. */
+
     if (!g_path_is_absolute(disk->source_path)) {
         if (error_msg)
             *error_msg = g_strdup("vm.clone file disk plan: source path must be absolute");
@@ -334,8 +294,6 @@ pcv_vm_clone_build_disk_plan(const gchar *target_name,
         return FALSE;
     }
 
-    /* 재사용 안전: 넘겨받은 plan 을 먼저 clear 해 이전 계획의 문자열이 새 값에
-     * 덮여 누수되지 않게 한 뒤, kind 별 빌더로 분기한다. */
     pcv_vm_clone_disk_plan_clear(plan);
     plan->kind = disk->kind;
 
@@ -393,18 +351,6 @@ program_available(const gchar *name)
     return TRUE;
 }
 
-/**
- * pcv_vm_clone_copy_file_disk:
- * @plan: qcow2/raw clone disk plan
- * @error: 실패 원인을 담는 GError
- *
- * qemu-img convert로 파일 기반 VM 디스크를 새 target file로 full copy한다.
- * 원본 파일을 공유하지 않는 것이 핵심 계약이다. 같은 경로, 상대 경로, 이미
- * 존재하는 target은 모두 거부한다.
- *
- * 파일 기반 clone 실행 경로에서 worker가 호출한다. guest identity reset은
- * 이 함수의 책임이 아니라, 복제된 target disk에 대해 별도 단계로 수행한다.
- */
 gboolean
 pcv_vm_clone_copy_file_disk(const PcvVmCloneDiskPlan *plan,
                             GError **error)
@@ -458,9 +404,6 @@ pcv_vm_clone_copy_file_disk(const PcvVmCloneDiskPlan *plan,
         NULL
     };
 
-    /* 외부 명령은 argv 배열 경로(pcv_spawn_sync)로만 실행한다(shell 미경유).
-     * 실패 시 부분 기록된 target 을 지워, 재시도 때 "이미 존재" 오류나 손상된
-     * 반쪽 디스크가 남지 않게 한다(source 는 절대 건드리지 않는다). */
     gboolean ok = pcv_spawn_sync(argv, NULL, NULL, error);
     if (!ok)
         g_remove(plan->target_disk_path);
@@ -476,8 +419,7 @@ pcv_vm_clone_file_copy_available(void)
 gboolean
 pcv_vm_clone_guest_reset_available(void)
 {
-    /* 일반 VM clone은 네 도구가 모두 있어야 identity, FS UUID, fstab,
-     * boot artifact를 한 worker 흐름에서 끝낼 수 있다. */
+
     return program_available("virt-sysprep") &&
            program_available("virt-customize") &&
            program_available("virt-filesystems") &&
@@ -545,8 +487,7 @@ static GPtrArray *
 collect_ext_filesystem_uuids(const PcvVmCloneDiskPlan *plan,
                              gchar **error_msg)
 {
-    /* virt-sysprep fs-uuids가 ext UUID를 실제로 바꾸지 못하는 환경이 있어,
-     * guestfish 보정 전후 비교용으로 ext filesystem과 UUID를 직접 수집한다. */
+
     const gchar *format = disk_guestfs_format(plan->kind);
     gchar *format_arg = g_strdup_printf("--format=%s", format);
     const gchar *argv[] = {
@@ -617,8 +558,7 @@ update_guest_fstab_uuid_refs(const PcvVmCloneDiskPlan *plan,
                              GPtrArray *after,
                              gchar **error_msg)
 {
-    /* UUID를 강제로 바꾼 뒤 guest의 /etc/fstab이 옛 UUID를 가리키면
-     * boot가 깨질 수 있으므로, 바뀐 ext UUID만 치환한다. */
+
     const gchar *format = disk_guestfs_format(plan->kind);
     GString *cmd = g_string_new("if [ -f /etc/fstab ]; then sed -i");
     guint replacements = 0;
@@ -691,8 +631,7 @@ static gboolean
 randomize_ext_filesystem_uuids(const PcvVmCloneDiskPlan *plan,
                                gchar **error_msg)
 {
-    /* guestfish는 여러 ext filesystem을 한 libguestfs 세션에서 처리한다.
-     * e2fsck-f 후 set-uuid-random을 실행해야 ext4 UUID 변경이 안정적이다. */
+
     const gchar *format = disk_guestfs_format(plan->kind);
     GPtrArray *before = collect_ext_filesystem_uuids(plan, error_msg);
     if (!before)
@@ -759,11 +698,6 @@ randomize_ext_filesystem_uuids(const PcvVmCloneDiskPlan *plan,
     return ok;
 }
 
-/* virt-sysprep argv 조립: 복제된 디스크에서 원본 VM 의 "정체성"을 지운다.
- * operations 목록(fs-uuids·lvm-uuids·net-hostname·net-hwaddr 등)은 두 VM 이 같은
- * UUID/MAC/hostname 으로 부팅해 네트워크·스토리지 충돌을 일으키는 것을 막는다.
- * --no-network 로 게스트 안에서 외부 통신을 막고, cloud-init seed 를 지워 복제본이
- * 원본의 cloud-init 인스턴스 신원을 재사용하지 않게 한다. argv 는 호출자 소유(GStrv). */
 GStrv
 pcv_vm_clone_build_guest_reset_argv(const PcvVmCloneDiskPlan *plan,
                                     const gchar *hostname,
@@ -806,10 +740,6 @@ pcv_vm_clone_build_guest_reset_argv(const PcvVmCloneDiskPlan *plan,
     return (GStrv)g_ptr_array_free(argv, FALSE);
 }
 
-/* virt-customize argv 조립: UUID/hostname 을 바꾼 뒤 게스트가 정상 부팅하도록
- * boot artifact 를 재생성한다. initramfs(update-initramfs/dracut)는 바뀐 FS UUID 를
- * 다시 임베드하고, grub 설정을 재작성하며, SELinux 시스템이면 /.autorelabel 로
- * 다음 부팅 relabel 을 예약한다. 배포판마다 도구가 달라 존재 검사 후 조건 실행한다. */
 GStrv
 pcv_vm_clone_build_guest_boot_rebuild_argv(const PcvVmCloneDiskPlan *plan,
                                            gchar **error_msg)
@@ -859,17 +789,6 @@ pcv_vm_clone_build_guest_boot_rebuild_argv(const PcvVmCloneDiskPlan *plan,
     return (GStrv)g_ptr_array_free(argv, FALSE);
 }
 
-/**
- * pcv_vm_clone_reset_guest_identity:
- * 복제된 target 디스크의 게스트 신원을 3단계로 재설정한다(순서 고정):
- *   1) virt-sysprep     — 정체성 리셋(hostname/hwaddr/cloud-init 등).
- *   2) fs UUID 무작위화  — ext UUID 를 실제로 바꾸고 /etc/fstab 참조를 함께 갱신.
- *   3) boot artifact 재생성 — 바뀐 UUID 로 initramfs/grub 재작성.
- *
- * 각 단계 실패는 즉시 FALSE 로 중단한다(다음 단계로 진행하지 않는다) — 예컨대 UUID 만
- * 바꾸고 fstab/부트를 갱신하지 못한 채 넘어가면 복제본이 부팅 불능이 된다. 실행 워커가
- * 원본이 아닌 복제 target 에 대해서만 호출해야 한다(원본 게스트를 건드리면 안 됨).
- */
 gboolean
 pcv_vm_clone_reset_guest_identity(const PcvVmCloneDiskPlan *plan,
                                   const gchar *hostname,

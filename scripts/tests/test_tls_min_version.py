@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_tls_min_version.py self-test (C2 / A02·V11·V12).
 
 ① 현행 트리에서 게이트 PASS(exit 0) + 불변식 인식(scan_text == []).
@@ -15,7 +15,7 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from check_tls_min_version import scan_text, TARGET  # noqa: E402
+from check_tls_min_version import scan_text, TARGET
 
 GATE = Path(__file__).resolve().parent.parent / "check_tls_min_version.py"
 
@@ -31,7 +31,6 @@ void pcv_tls_init_from_config(void) {
 }
 '''
 
-# 반사실: 우선순위 미고정(G_TLS_GNUTLS_PRIORITY·min_version·g_setenv 없음)
 FAIL_NO_PIN = '''
 void pcv_tls_init_from_config(void) {
     const gchar *enabled = pcv_config_get_string("tls", "enabled", "false");
@@ -39,7 +38,6 @@ void pcv_tls_init_from_config(void) {
         return;
 }
 '''
-
 
 def _run_gate_on(text: str) -> int:
     with tempfile.NamedTemporaryFile("w", suffix=".c", delete=False) as f:
@@ -52,28 +50,23 @@ def _run_gate_on(text: str) -> int:
     finally:
         os.unlink(tmp)
 
-
 def test_current_tree_pass():
     """① 게이트 PASS(exit 0)."""
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_current_invariant_recognized():
     """① 정본: 세 불변식 모두 충족(scan_text 사유 없음)."""
     reasons = scan_text(TARGET.read_text())
     assert reasons == [], f"불변식 미인식: {reasons}"
 
-
 def test_gate_pass_on_synthetic():
     """② 합성 PASS full-file → 게이트 exit 0."""
     assert _run_gate_on(PASS_FILE) == 0
 
-
 def test_red_no_pin():
     """③ 우선순위 미고정 → RED."""
     assert _run_gate_on(FAIL_NO_PIN) == 1
-
 
 def test_real_file_priority_env_removed_fails():
     """④ 정본 G_TLS_GNUTLS_PRIORITY 제거 사본 → RED."""
@@ -82,13 +75,11 @@ def test_real_file_priority_env_removed_fails():
     assert _run_gate_on(orig.replace("G_TLS_GNUTLS_PRIORITY",
                                      "G_TLS_PRIORITY_REMOVED")) == 1
 
-
 def test_real_file_config_key_removed_fails():
     """④ 정본 "min_version" config 키 제거 사본 → RED."""
     orig = TARGET.read_text()
     assert "min_version" in orig, "정본에서 min_version 미발견 — 소스 변경?"
     assert _run_gate_on(orig.replace("min_version", "min_removed")) == 1
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())

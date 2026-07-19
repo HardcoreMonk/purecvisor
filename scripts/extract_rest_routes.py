@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 extract_rest_routes.py — rest_server.c에서 REST 라우팅을 추출
 
@@ -13,7 +13,6 @@ from pathlib import Path
 
 SRC = Path(__file__).resolve().parent.parent / "src/api/rest_server.c"
 
-# 패턴
 RE_RESOURCE = re.compile(r'g_strcmp0\(resource,\s*"([^"]+)"\)\s*==\s*0')
 RE_NAME_LITERAL = re.compile(r'g_strcmp0\(name,\s*"([^"]+)"\)\s*==\s*0')
 RE_ACTION   = re.compile(r'g_strcmp0\(action,\s*"([^"]+)"\)\s*==\s*0')
@@ -28,7 +27,6 @@ def extract():
     text = SRC.read_text()
     lines = text.splitlines()
 
-    # 라우팅 테이블 시작 추적: 첫 번째 g_strcmp0(resource, ...) 등장부터 cleanup: 까지
     start = end = None
     for i, ln in enumerate(lines):
         if start is None and 'REST → RPC 라우팅 테이블' in ln:
@@ -43,14 +41,12 @@ def extract():
     routes = []
     cur_resource = None
     cur_action = None
-    cur_name_state = None  # None / "empty" / "nonempty"
-    cur_name_literal = None  # 리터럴 매칭된 name 세그먼트
-    cur_action_state = None  # None / "empty"
+    cur_name_state = None
+    cur_name_literal = None
+    cur_action_state = None
     cur_method = None
     cur_sub = None
 
-    # 단순 누적: 각 _build_rpc 호출 직전의 가장 가까운 method/resource/action 컨텍스트를 사용
-    # 한 RPC가 분기된 경우 위로 가장 가까운 컨텍스트를 채택
     for i in range(start, end):
         ln = lines[i]
 
@@ -66,7 +62,6 @@ def extract():
             cur_name_literal = m.group(1)
             cur_name_state = "literal"
             cur_action = None; cur_action_state = None; cur_method = None; cur_sub = None
-            # 같은 줄에 method/rpc가 있을 수 있음 → continue 안 함
 
         if RE_NAME_EMPTY.search(ln):
             cur_name_state = "empty"; cur_name_literal = None
@@ -98,12 +93,11 @@ def extract():
         m = RE_METHOD.search(ln)
         if m:
             cur_method = m.group(1)
-            # 같은 줄에 _build_rpc가 있을 수 있음 → continue 안 함
 
         m = RE_RPC.search(ln)
         if m and cur_resource:
             rpc = m.group(1)
-            # URL 패턴 조립
+
             parts = [cur_resource]
             if cur_name_state == "literal" and cur_name_literal:
                 parts.append(cur_name_literal)
@@ -114,7 +108,7 @@ def extract():
                     if cur_sub:
                         parts.append(cur_sub)
             url = "/" + "/".join(parts)
-            # method 미지정 시 휴리스틱: action 있으면 POST, 없으면 GET
+
             method = cur_method or ("POST" if cur_action else "GET")
             routes.append((method, url, rpc, i + 1))
 
@@ -122,7 +116,7 @@ def extract():
 
 def main():
     routes = extract()
-    # 중복 제거 + 정렬
+
     seen = set()
     uniq = []
     for r in routes:

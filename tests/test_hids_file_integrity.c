@@ -9,10 +9,6 @@ gint pcv_test_audit_call_count(void);
 const gchar *pcv_test_audit_last_method(void);
 const gchar *pcv_test_audit_last_target(void);
 
-/*
- * File integrity tests keep baseline refresh explicit: scan reports drift after
- * a trusted refresh, but scan itself never changes trust state.
- */
 static void
 cleanup_security_db(const gchar *path)
 {
@@ -80,12 +76,7 @@ test_hids_file_integrity_baseline_refresh_scan(void)
 static void
 test_hids_file_integrity_rejects_symlink_swap(void)
 {
-    /*
-     * Tamper-evidence: once a real file is baselined, swapping it for a symlink
-     * (even one whose target has identical content) must NOT silently validate.
-     * compute_file_state now opens with O_NOFOLLOW, so the open fails and the
-     * public scan reports the path as unreadable instead of clean/changed.
-     */
+
     GError *error = NULL;
     gchar *tmp_dir = g_dir_make_tmp("pcv-hids-symlink-XXXXXX", &error);
     g_assert_no_error(error);
@@ -96,7 +87,6 @@ test_hids_file_integrity_rejects_symlink_swap(void)
     gchar *db_path = g_build_filename(tmp_dir, "pcv_security.db", NULL);
     const gchar *paths[] = { file_path };
 
-    /* Baseline a real regular file whose content matches the decoy exactly. */
     g_assert_true(g_file_set_contents(file_path, "trusted", -1, &error));
     g_assert_no_error(error);
     g_assert_true(g_file_set_contents(decoy_path, "trusted", -1, &error));
@@ -109,13 +99,11 @@ test_hids_file_integrity_rejects_symlink_swap(void)
                                             "admin", &error));
     g_assert_no_error(error);
 
-    /* Baseline is clean before tampering. */
     GPtrArray *clean = pcv_hids_file_integrity_scan(db_path, paths, G_N_ELEMENTS(paths));
     g_assert_nonnull(clean);
     g_assert_cmpuint(clean->len, ==, 0);
     g_ptr_array_unref(clean);
 
-    /* Swap the guarded path for a symlink pointing at the same-content decoy. */
     g_assert_cmpint(g_unlink(file_path), ==, 0);
     g_assert_cmpint(symlink(decoy_path, file_path), ==, 0);
 

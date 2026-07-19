@@ -1,38 +1,4 @@
-/**
- * @file security_group.c
- * @brief 네트워크 보안 그룹 — SQLite 영속화 + nftables 적용 (bridge 스코프 디스패치)
- *
- * [파일 역할]
- *   VM에 적용할 방화벽 규칙을 그룹 단위로 관리합니다.
- *   SQLite WAL 기반 영속화 + nftables bridge pcv_sg 스코프 체인 적용.
- *
- * [nftables 체인 구조 — 2026-07-04 재설계]
- *   table bridge pcv_sg 하나만 사용한다 (호스트 input/output 훅 금지).
- *     ingress-dispatch (hook postrouting, policy accept)
- *     egress-dispatch  (hook prerouting,  policy accept)
- *       → 바인딩된 vnet 에만 "jump baseline → jump sg-<g> → drop"
- *     baseline-in/out : ARP/DHCP/ND/conntrack 공통 허용
- *     sg-<g>-in/out   : 그룹 accept 규칙 (terminal drop 없음 — 다중 그룹 합성)
- *   기본 정책: ingress deny / egress allow (egress 규칙 보유 시 whitelist 전환).
- *   상세: docs/superpowers/specs/2026-07-04-security-group-scoped-nft-design.md
- *
- * [주니어 참고 — SQLite 영속화가 왜 필요한가]
- *   nftables 규칙은 커널 메모리에만 존재하므로 재부팅 시 사라집니다.
- *   보안 그룹의 이름, 설명, 규칙, VM 바인딩을 SQLite DB에 저장하여
- *   데몬 재시작 시 pcv_security_group_restore()로 복원합니다.
- *   DB 경로: /var/lib/purecvisor/security_groups.db (WAL 모드)
- *
- * [RPC 메서드]
- *   security_group.create  — 보안 그룹 생성
- *   security_group.delete  — 보안 그룹 삭제
- *   security_group.list    — 보안 그룹 목록 조회
- *   security_group.rule.add    — 규칙 추가
- *   security_group.rule.remove — 규칙 삭제
- *   vm.security_group.set      — VM에 보안 그룹 적용
- *
- * [스레드 안전]
- *   GMutex로 보안 그룹 저장소 보호
- */
+
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -40,8 +6,8 @@
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_log.h"
 #include "../../utils/pcv_validate.h"
-#include "../../utils/pcv_config.h"       /* [I2-R1] resync interval config */
-#include "../../utils/pcv_worker_pool.h"  /* [I2-R1] resync 워커 오프로드 */
+#include "../../utils/pcv_config.h"
+#include "../../utils/pcv_worker_pool.h"
 #include "security_group.h"
 #include "security_group_nft.h"
 #include "vm_iface.h"
@@ -49,17 +15,6 @@
 #include "../security/security_event.h"
 #include "../security/security_store.h"
 
-/* ── 타입 정의 ──────────────────────────────────────────────── */
-
-/**
- * SgRule:
- * @direction:  "ingress" 또는 "egress"
- * @protocol:   "tcp", "udp", "icmp" 등
- * @port_start: 포트 시작 (0이면 전체)
- * @port_end:   포트 끝 (0이면 port_start와 동일)
- * @source:     소스 CIDR 또는 보안 그룹 참조
- * @db_id:      SQLite row id (삭제용)
- */
 typedef struct {
     gchar  *direction;
     gchar  *protocol;
@@ -69,13 +24,6 @@ typedef struct {
     gint64  db_id;
 } SgRule;
 
-/**
- * SecurityGroup:
- * @name:        보안 그룹 이름 (고유 식별자)
- * @description: 설명
- * @rules:       GPtrArray of SgRule*
- * @vm_bindings: 이 그룹이 적용된 VM 목록 (GPtrArray of gchar*)
- */
 typedef struct {
     gchar     *name;
     gchar     *description;
@@ -83,25 +31,18 @@ typedef struct {
     GPtrArray *vm_bindings;
 } SecurityGroup;
 
-/* ── 전역 상태 ──────────────────────────────────────────────── */
-
-static GHashTable *g_sg_map = nullptr;   /* name -> SecurityGroup* */
+static GHashTable *g_sg_map = nullptr;
 static GMutex      g_sg_mu;
 static sqlite3    *g_sg_db  = nullptr;
 
 #define SG_DB_PATH "/var/lib/purecvisor/security_groups.db"
 #define SG_NFT_SCRIPT_PATH "/run/purecvisor/sg-ruleset.nft"
-/* [R5] nft/modprobe 정상 sub-second — hung 락/모듈 bound (spawn-hardening) */
-#define SG_SPAWN_TIMEOUT_SEC 30
-static GMutex g_sg_nft_mu;   /* _nft_run_script 의 nft -f 실행만 직렬화 (spec §5 동시성) */
-static GMutex g_sg_dispatch_mu;   /* _rebuild_dispatch 의 스냅샷→nft 실행을 원자 직렬화
-                                     (동시 rebuild 의 lost-update / 일시적 fail-open 방어).
-                                     락 순서: g_sg_dispatch_mu → g_sg_mu → g_vnet_cache_mu / g_sg_nft_mu
-                                     (후자 둘은 최내측, 서로 안 겹침). */
-static guint g_sg_resync_timer_id = 0;    /* [I2-R1] g_timeout source id */
-static gint  g_sg_resync_inflight = 0;    /* [I2-R1] 중첩 방지 (g_atomic) */
 
-/* ── 내부 헬퍼 ──────────────────────────────────────────────── */
+#define SG_SPAWN_TIMEOUT_SEC 30
+static GMutex g_sg_nft_mu;
+static GMutex g_sg_dispatch_mu;
+static guint g_sg_resync_timer_id = 0;
+static gint  g_sg_resync_inflight = 0;
 
 static void
 _sg_rule_free(gpointer data)
@@ -133,8 +74,6 @@ _ensure_init(void)
         g_sg_map = g_hash_table_new_full(g_str_hash, g_str_equal, NULL, _sg_free);
     }
 }
-
-/* ── SQLite 영속화 ─────────────────────────────────────────── */
 
 static void _sg_db_init(void) {
     if (g_sg_db) return;
@@ -168,8 +107,6 @@ static void _sg_db_init(void) {
     sqlite3_exec(g_sg_db, "PRAGMA foreign_keys=ON;", NULL, NULL, NULL);
 }
 
-/* [R10] void DB 뮤테이터 공통 종료 — step 실패를 삼키지 말고 WARN 후 finalize.
- * save_rule 은 rowid 를 읽어야 해 별도 처리(R8) — 여기 미포함. */
 static void
 _sg_db_exec_finalize(sqlite3_stmt *stmt, const char *what)
 {
@@ -248,10 +185,6 @@ static void _sg_db_delete_binding(const gchar *group, const gchar *vm) {
     _sg_db_exec_finalize(stmt, "sg_vm_bindings DELETE");
 }
 
-/* ── nftables 실행 계층 (신설계: table bridge pcv_sg) ────────────
- * 스크립트 생성은 security_group_nft.c (순수), 실행은 여기서만.
- * 모든 적용은 nft -f 단일 트랜잭션 — 부분 상태 없음. */
-
 static gboolean
 _nft_run_script(const gchar *script, GError **error)
 {
@@ -274,8 +207,7 @@ _nft_run_script(const gchar *script, GError **error)
 static gboolean
 _nft_ensure(GError **error)
 {
-    /* ct state (baseline) 가 bridge family 에서 동작하려면 필요. 실패해도
-     * 계속 — 이후 nft -f 가 거부하면 그 시점에 시끄럽게 실패한다 (spec §5). */
+
     const gchar *mp[] = {"modprobe", "nf_conntrack_bridge", NULL};
     if (!pcv_spawn_sync_timeout(mp, NULL, NULL, SG_SPAWN_TIMEOUT_SEC, NULL))
         PCV_LOG_WARN("SG", "modprobe nf_conntrack_bridge 실패 — ct 규칙 적용이 거부될 수 있음");
@@ -285,8 +217,6 @@ _nft_ensure(GError **error)
     return ok;
 }
 
-/* 구설계 잔재 정리: inet purecvisor 의 sg-* base chain (구 input/output 훅 + drop).
- * 2026-07-04 장애의 원인 객체 — 데몬 시작 시 best-effort 제거. */
 static void
 _nft_teardown_legacy(void)
 {
@@ -294,7 +224,7 @@ _nft_teardown_legacy(void)
     gchar *out = nullptr;
     if (!pcv_spawn_sync_timeout(ls, &out, NULL, SG_SPAWN_TIMEOUT_SEC, NULL) || !out) {
         g_free(out);
-        return;   /* 테이블 없음 = 정리 불필요 */
+        return;
     }
     gchar **lines = g_strsplit(out, "\n", -1);
     for (gchar **l = lines; *l; l++) {
@@ -315,7 +245,6 @@ _nft_teardown_legacy(void)
     g_free(out);
 }
 
-/* SgRule → 빌더 뷰 복사 (g_sg_mu 보유 상태에서 호출, 잠금 밖에서 사용/해제) */
 static GPtrArray *
 _snapshot_rule_view(SecurityGroup *sg)
 {
@@ -346,21 +275,10 @@ _rule_view_free(GPtrArray *view)
     g_ptr_array_unref(view);
 }
 
-/* 전체 바인딩 상태 → 디스패치 재생성 (spec §4-3).
- * 1) g_sg_mu 아래 스냅샷 (spawn 금지 구간)
- * 2) 잠금 밖 vnet 해석 (virsh 블로킹)
- * 3) 단일 nft -f 트랜잭션
- * fail-closed: 디스패치 재적재는 "두 dispatch 체인 flush + 전체 재적재"를 하나의
- *   스크립트로 만들어 단일 _nft_run_script(=단일 nft -f) 로 실행한다. nft -f 는
- *   트랜잭션이므로 실패 시 디스패치 체인은 이전 상태 그대로 — 부분 적용 없음. */
 static gboolean
 _rebuild_dispatch_ex(const gchar *prefix, GError **error)
 {
-    /* 스냅샷→nft 실행 전체를 원자 직렬화
-     * (락 순서: g_sg_dispatch_mu → g_sg_mu → g_vnet_cache_mu / g_sg_nft_mu,
-     *  후자 둘은 최내측, 서로 안 겹침). */
-    /* [M-6] prefix(그룹 체인 스크립트)가 주어지면 dispatch 스크립트 앞에 붙여
-     * 같은 nft -f 트랜잭션으로 원자 실행한다 (그룹 체인 → dispatch jump 순서). */
+
     g_mutex_lock(&g_sg_dispatch_mu);
     g_mutex_lock(&g_sg_mu);
     _ensure_init();
@@ -403,17 +321,17 @@ _rebuild_dispatch_ex(const gchar *prefix, GError **error)
                 break;
             }
         }
-        /* I-2: virsh sweep 제거 — 캐시 우선. 콜드 미스만 lazy 해석 + 적재 (fail-open 방지). */
+
         GPtrArray *ifaces = pcv_vm_vnet_cache_get(vm);
         if (!ifaces) {
-            ifaces = pcv_vm_iface_list(vm);          /* 콜드: 1회 해석 */
-            if (ifaces->len > 0)                     /* 실행 중일 때만 적재 (꺼진 VM 은 캐시 안 함) */
+            ifaces = pcv_vm_iface_list(vm);
+            if (ifaces->len > 0)
                 pcv_vm_vnet_cache_put(vm, ifaces);
         }
         for (guint j = 0; j < ifaces->len; j++) {
             SgNftBinding *b = g_new0(SgNftBinding, 1);
             b->vnet            = g_strdup(g_ptr_array_index(ifaces, j));
-            b->groups          = groups;   /* vm_map 소유 — 스크립트 생성까지만 참조 */
+            b->groups          = groups;
             b->egress_enforced = egress;
             g_ptr_array_add(bindings, b);
         }
@@ -421,7 +339,7 @@ _rebuild_dispatch_ex(const gchar *prefix, GError **error)
     }
 
     gchar *dscript = pcv_sg_nft_build_dispatch_script(bindings);
-    gchar *full = prefix ? g_strconcat(prefix, "\n", dscript, NULL)   /* 그룹 체인 → dispatch */
+    gchar *full = prefix ? g_strconcat(prefix, "\n", dscript, NULL)
                          : g_strdup(dscript);
     gboolean ok = _nft_run_script(full, error);
     g_free(full);
@@ -439,27 +357,17 @@ _rebuild_dispatch_ex(const gchar *prefix, GError **error)
     return ok;
 }
 
-/* 기존 dispatch-only 경로 — 시그니처·동작 보존 (M-6 이전과 동일). */
 static gboolean
 _rebuild_dispatch(GError **error)
 {
     return _rebuild_dispatch_ex(NULL, error);
 }
 
-/* ── 공개 API ───────────────────────────────────────────────── */
-
-/**
- * pcv_security_group_create — 보안 그룹 생성
- *
- * @param name         보안 그룹 이름
- * @param description  설명 (NULL이면 빈 문자열)
- * @return TRUE 성공, FALSE 이미 존재 또는 nft 반영 실패
- */
 [[nodiscard]] gboolean
 pcv_security_group_create(const gchar *name, const gchar *description)
 {
     if (!name || !*name) return FALSE;
-    /* 그룹 이름은 nft 체인 구성요소(sg-<name>-in/-out) — V5 화이트리스트 유지 */
+
     if (!pcv_validate_bridge_name(name)) {
         PCV_LOG_WARN("SG", "Rejected security group create: invalid name '%s'", name);
         return FALSE;
@@ -480,8 +388,6 @@ pcv_security_group_create(const gchar *name, const gchar *description)
     g_hash_table_insert(g_sg_map, sg->name, sg);
     g_mutex_unlock(&g_sg_mu);
 
-    /* spec §5: nft 성공 후에만 영속화. 그룹 생성 = 빈 regular chain 골격만 —
-     * 디스패치에 jump/drop 이 없으므로 어떤 트래픽에도 영향 없음 (spec §3 계약 1) */
     GError *error = nullptr;
     gchar *gscript = pcv_sg_nft_build_group_script(name, NULL);
     gboolean ok = _nft_ensure(&error) && _nft_run_script(gscript, &error);
@@ -491,7 +397,7 @@ pcv_security_group_create(const gchar *name, const gchar *description)
                       name, error ? error->message : "unknown");
         g_clear_error(&error);
         g_mutex_lock(&g_sg_mu);
-        g_hash_table_remove(g_sg_map, name);   /* _sg_free 가 정리 */
+        g_hash_table_remove(g_sg_map, name);
         g_mutex_unlock(&g_sg_mu);
         return FALSE;
     }
@@ -500,12 +406,6 @@ pcv_security_group_create(const gchar *name, const gchar *description)
     return TRUE;
 }
 
-/**
- * pcv_security_group_delete — 보안 그룹 삭제
- *
- * 바인딩 소멸을 디스패치에 먼저 반영한 뒤 그룹 체인을 destroy 한다.
- * nft 반영 실패 시 인메모리 상태를 롤백하고 FALSE 를 반환한다 (spec §5).
- */
 gboolean
 pcv_security_group_delete(const gchar *name)
 {
@@ -518,16 +418,13 @@ pcv_security_group_delete(const gchar *name)
         g_mutex_unlock(&g_sg_mu);
         return FALSE;
     }
-    g_hash_table_steal(g_sg_map, name);   /* 롤백 대비 소유권만 분리 */
+    g_hash_table_steal(g_sg_map, name);
     g_mutex_unlock(&g_sg_mu);
 
-    /* [R3] steal 후 sg 유효할 때 VM 이름 스냅샷 (아래 _sg_free 가 vm_bindings 해제 전).
-     * 성공 시 그 그룹에만 묶였던 VM 의 dormant 캐시를 회수한다. */
     GPtrArray *unbind_vms = g_ptr_array_new_with_free_func(g_free);
     for (guint i = 0; i < sg->vm_bindings->len; i++)
         g_ptr_array_add(unbind_vms, g_strdup(g_ptr_array_index(sg->vm_bindings, i)));
 
-    /* 바인딩 소멸 반영(디스패치) → 그룹 체인 destroy → 성공 시에만 DB 삭제 */
     GError *error = nullptr;
     gboolean ok = _rebuild_dispatch(&error);
     if (ok) {
@@ -542,12 +439,12 @@ pcv_security_group_delete(const gchar *name)
         g_mutex_lock(&g_sg_mu);
         g_hash_table_insert(g_sg_map, sg->name, sg);
         g_mutex_unlock(&g_sg_mu);
-        g_ptr_array_unref(unbind_vms);   /* [R3] 롤백 — 그룹 재삽입, evict 안 함 */
+        g_ptr_array_unref(unbind_vms);
         return FALSE;
     }
     _sg_db_delete_group(name);
     _sg_free(sg);
-    /* [R3] 삭제된 그룹에만 묶였던 VM 들의 dormant 캐시 엔트리 회수 */
+
     for (guint i = 0; i < unbind_vms->len; i++) {
         const gchar *rvm = g_ptr_array_index(unbind_vms, i);
         if (!pcv_security_group_vm_is_bound(rvm))
@@ -558,11 +455,6 @@ pcv_security_group_delete(const gchar *name)
     return TRUE;
 }
 
-/**
- * pcv_security_group_list — 모든 보안 그룹 목록 반환
- *
- * Returns: (transfer full): JsonArray* — 호출자가 json_array_unref() 필요
- */
 JsonArray *
 pcv_security_group_list(void)
 {
@@ -606,24 +498,11 @@ pcv_security_group_list(void)
     return arr;
 }
 
-/**
- * pcv_security_group_rule_add — 보안 그룹에 규칙 추가
- *
- * @param name  보안 그룹 이름
- * @param rule  규칙 파라미터 (direction, protocol, port, source)
- * @return TRUE 성공, FALSE 그룹 미존재
- */
 gboolean
 pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
 {
     if (!name || !rule) return FALSE;
 
-    /* ── 입력 검증 (nft argv-reparse 인젝션 차단, V5) ─────────────────
-     * source/protocol/direction 은 그대로 nft argv 요소가 되며, nft 는
-     * argv 를 이어붙여 다시 렉싱하므로 "1.2.3.4/32 accept; flush ruleset #"
-     * 같은 값이 들어오면 flush ruleset 이 실행되어 호스트 방화벽이 통째로
-     * 지워진다. 락을 잡거나 힙을 할당하기 전에 JSON 값을 로컬로 추출·검증하고
-     * 거부 경로에서 정리할 상태가 없도록 조기 반환한다. */
     const gchar *direction = json_object_has_member(rule, "direction")
         ? json_object_get_string_member(rule, "direction") : "ingress";
     const gchar *protocol = json_object_has_member(rule, "protocol")
@@ -637,26 +516,25 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
     gint port_end = json_object_has_member(rule, "port_end")
         ? (gint)json_object_get_int_member(rule, "port_end") : 0;
 
-    /* direction: 정확히 "ingress" 또는 "egress" (nft in/out 체인 선택) */
     if (g_strcmp0(direction, "ingress") != 0 &&
         g_strcmp0(direction, "egress")  != 0) {
         PCV_LOG_WARN("SG", "Rejected rule for '%s': invalid direction '%s'",
                      name, direction ? direction : "(null)");
         return FALSE;
     }
-    /* protocol: tcp|udp|icmp 화이트리스트 (argv-reparse 방지) */
+
     if (!pcv_validate_l4_proto(protocol)) {
         PCV_LOG_WARN("SG", "Rejected rule for '%s': invalid protocol '%s'",
                      name, protocol ? protocol : "(null)");
         return FALSE;
     }
-    /* source: CIDR 형식만 (any-sentinel "0.0.0.0/0" 도 통과) */
+
     if (!pcv_validate_cidr(source)) {
         PCV_LOG_WARN("SG", "Rejected rule for '%s': invalid source CIDR '%s'",
                      name, source ? source : "(null)");
         return FALSE;
     }
-    /* port: 지정된 경우 1..65535, 범위 지정 시 end >= start */
+
     if (port_start > 0 && !pcv_validate_port(port_start)) {
         PCV_LOG_WARN("SG", "Rejected rule for '%s': invalid port_start %d",
                      name, port_start);
@@ -673,10 +551,7 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
         return FALSE;
     }
 
-    /* [R4] SG DB 가 열려 있어야 규칙을 영속화할 수 있다. DB 미가용(degraded)이면
-     * db_id 를 얻지 못해 M-3 가드(rule_id<=0 거부)로 rule_remove 불가한 orphan
-     * 규칙이 생긴다. 메모리·nft 를 건드리기 전에 조기 거부한다(fail-closed, no orphan). */
-    _sg_db_init();   /* 멱등 — 이미 열렸으면 no-op */
+    _sg_db_init();
     if (!g_sg_db) {
         PCV_LOG_WARN("SG", "Rejected rule_add for '%s': SG DB unavailable (degraded)", name);
         return FALSE;
@@ -701,10 +576,6 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
     GPtrArray *view = _snapshot_rule_view(sg);
     g_mutex_unlock(&g_sg_mu);
 
-    /* 그룹 체인 재적재 + 디스패치 재생성 (egress whitelist 전환 반영).
-     * spec §5: 실패 시 in-memory 롤백, DB 미기록. */
-    /* [M-6] 그룹 체인 + dispatch 를 단일 nft -f 트랜잭션으로 — 부분실패(그룹 체인만
-     * 적용되고 dispatch 실패) 발산 제거. 실패 시 커널도 함께 롤백된다. */
     GError *error = nullptr;
     gchar *gscript = pcv_sg_nft_build_group_script(name, view);
     gboolean ok = _rebuild_dispatch_ex(gscript, &error);
@@ -717,31 +588,26 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
         g_clear_error(&error);
         g_mutex_lock(&g_sg_mu);
         SecurityGroup *sg2 = g_hash_table_lookup(g_sg_map, name);
-        if (sg2) g_ptr_array_remove(sg2->rules, r);   /* _sg_rule_free 가 해제 */
+        if (sg2) g_ptr_array_remove(sg2->rules, r);
         g_mutex_unlock(&g_sg_mu);
         return FALSE;
     }
-    /* nft 성공 → DB 영속화. r->db_id 쓰기는 r 이 여전히 살아있을 때만 (동시
-     * pcv_security_group_delete 가 nft 창 동안 r 을 해제할 수 있으므로 UAF 방어).
-     * DB 저장 값은 r 이 아니라 로컬(name/direction/protocol/source/port_*)에서 취한다. */
+
     gint64 db_id = _sg_db_save_rule(name, direction, protocol,
                                     port_start, port_end, source);
 
     if (db_id < 1) {
-        /* [R8] DB 저장 실패(디스크 full/I/O 오류/FK 등) — nft 는 이미 적용됨.
-         * db_id 불량인 채 두면 M-3 가드로 rule_remove 불가한 orphan 이 된다.
-         * 메모리에서 r 을 제거하고 nft 를 그 규칙 없이 재빌드(보상 트랜잭션)해
-         * 규칙을 원천 되돌린다(fail-closed, no orphan). */
+
         PCV_LOG_ERROR("SG", "rule_add '%s' DB 저장 실패 — nft 롤백", name);
         g_mutex_lock(&g_sg_mu);
         SecurityGroup *sgc = g_hash_table_lookup(g_sg_map, name);
         GPtrArray *rb_view = NULL;
         if (sgc && g_ptr_array_find(sgc->rules, r, NULL)) {
-            g_ptr_array_remove(sgc->rules, r);      /* _sg_rule_free 가 해제 */
-            rb_view = _snapshot_rule_view(sgc);     /* r 제거 후 스냅샷(deep copy) */
+            g_ptr_array_remove(sgc->rules, r);
+            rb_view = _snapshot_rule_view(sgc);
         }
         g_mutex_unlock(&g_sg_mu);
-        if (rb_view) {                               /* r 이 살아있었을 때만 revert */
+        if (rb_view) {
             GError *rberr = nullptr;
             gchar *rbscript = pcv_sg_nft_build_group_script(name, rb_view);
             if (!_rebuild_dispatch_ex(rbscript, &rberr)) {
@@ -761,7 +627,7 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
     if (sg3 && g_ptr_array_find(sg3->rules, r, NULL)) {
         r->db_id = db_id;
     } else {
-        /* 그룹/규칙이 nft 창 동안 삭제됨 — 방금 넣은 DB 행 정리 (고아 방지) */
+
         _sg_db_delete_rule(db_id);
     }
     g_mutex_unlock(&g_sg_mu);
@@ -770,18 +636,11 @@ pcv_security_group_rule_add(const gchar *name, JsonObject *rule)
     return TRUE;
 }
 
-/**
- * pcv_security_group_apply_to_vm — VM에 보안 그룹 바인딩
- *
- * @param vm  VM 이름
- * @param sg  보안 그룹 이름
- * @return TRUE 성공, FALSE 그룹 미존재
- */
 gboolean
 pcv_security_group_apply_to_vm(const gchar *vm, const gchar *sg_name)
 {
     if (!vm || !sg_name) return FALSE;
-    /* vm 은 virsh domiflist argv 로 흘러간다 — V11 화이트리스트 게이트 */
+
     if (!pcv_validate_vm_name(vm)) {
         PCV_LOG_WARN("SG", "Rejected bind: invalid vm '%s'", vm);
         return FALSE;
@@ -797,16 +656,12 @@ pcv_security_group_apply_to_vm(const gchar *vm, const gchar *sg_name)
     for (guint i = 0; i < sg->vm_bindings->len; i++) {
         if (g_strcmp0(g_ptr_array_index(sg->vm_bindings, i), vm) == 0) {
             g_mutex_unlock(&g_sg_mu);
-            return TRUE;   /* 멱등 */
+            return TRUE;
         }
     }
     g_ptr_array_add(sg->vm_bindings, g_strdup(vm));
     g_mutex_unlock(&g_sg_mu);
 
-    /* I-2/C1: 바인딩 시점에 캐시를 무효화해 항상 fresh 해석을 강제한다. 언바인딩
-     * 상태에서 재시작된 VM(sync_vm 의 evict 는 bound 게이트 뒤라 미도달)의 stale
-     * vnet 이 재바인딩 시 그대로 쓰여 무필터가 되는 fail-open 을 막는다. 이어지는
-     * _rebuild_dispatch 의 lazy-miss 가 live vnet 을 재해석·적재한다 (bind 당 O(1)). */
     pcv_vm_vnet_cache_evict(vm);
 
     GError *error = nullptr;
@@ -825,9 +680,7 @@ pcv_security_group_apply_to_vm(const gchar *vm, const gchar *sg_name)
             }
         }
         g_mutex_unlock(&g_sg_mu);
-        /* [R3] 롤백으로 vm 이 fully-unbound 됐는데 _rebuild_dispatch 의 lazy-miss 가
-         * 캐시를 재적재했을 수 있으므로 dormant 엔트리를 회수한다 (detach/delete 와 대칭).
-         * is_bound 는 g_sg_mu 를 잡으므로 반드시 위 unlock 뒤에 둔다. */
+
         if (!pcv_security_group_vm_is_bound(vm))
             pcv_vm_vnet_cache_evict(vm);
         return FALSE;
@@ -837,19 +690,11 @@ pcv_security_group_apply_to_vm(const gchar *vm, const gchar *sg_name)
     return TRUE;
 }
 
-/**
- * pcv_security_group_rule_remove — 보안 그룹에서 규칙 삭제 (db_id 기반)
- *
- * @param name    보안 그룹 이름
- * @param rule_id SQLite row id
- * @return TRUE 성공, FALSE 그룹 미존재 또는 규칙 미존재
- */
 gboolean
 pcv_security_group_rule_remove(const gchar *name, gint64 rule_id)
 {
     if (!name) return FALSE;
-    if (rule_id <= 0) {   /* [M-3] sqlite rowid 는 ≥1 — 0/음수는 유효 규칙 아님.
-                             * in-flight 규칙(db_id==0)을 잘못 steal 하는 것 방지. */
+    if (rule_id <= 0) {
         PCV_LOG_WARN("SG", "Rejected rule_remove for '%s': invalid rule_id %ld",
                      name, (long)rule_id);
         return FALSE;
@@ -866,7 +711,7 @@ pcv_security_group_rule_remove(const gchar *name, gint64 rule_id)
     for (guint i = 0; i < sg->rules->len; i++) {
         SgRule *r = g_ptr_array_index(sg->rules, i);
         if (r->db_id == rule_id) {
-            stolen = g_ptr_array_steal_index(sg->rules, i);   /* 롤백 대비 소유권 분리 */
+            stolen = g_ptr_array_steal_index(sg->rules, i);
             break;
         }
     }
@@ -877,7 +722,6 @@ pcv_security_group_rule_remove(const gchar *name, gint64 rule_id)
     GPtrArray *view = _snapshot_rule_view(sg);
     g_mutex_unlock(&g_sg_mu);
 
-    /* [M-6] 그룹 체인 + dispatch 를 단일 nft -f 트랜잭션으로 (rule_add 와 대칭). */
     GError *error = nullptr;
     gchar *gscript = pcv_sg_nft_build_group_script(name, view);
     gboolean ok = _rebuild_dispatch_ex(gscript, &error);
@@ -891,7 +735,7 @@ pcv_security_group_rule_remove(const gchar *name, gint64 rule_id)
         g_mutex_lock(&g_sg_mu);
         SecurityGroup *sg2 = g_hash_table_lookup(g_sg_map, name);
         if (sg2) g_ptr_array_add(sg2->rules, stolen);
-        else     _sg_rule_free(stolen);   /* 그룹이 사라졌으면 해제만 */
+        else     _sg_rule_free(stolen);
         g_mutex_unlock(&g_sg_mu);
         return FALSE;
     }
@@ -901,23 +745,16 @@ pcv_security_group_rule_remove(const gchar *name, gint64 rule_id)
     return TRUE;
 }
 
-/* [M-10→B-2] evidence 가드는 security_event 공용 함수로 이동 (역직렬화 site 와
- * 대칭성 완결). 이 래퍼는 기존 호출부 호환용 얇은 위임. */
 static void
 _sg_set_evidence(gchar *dst, gsize dstsz, const gchar *ejstr)
 {
     pcv_security_event_set_evidence(dst, dstsz, ejstr);
 }
 
-/* [M-7] restore 시 nft 테이블 준비 실패 = 부팅 시 바인딩된 모든 VM 이 미필터
- * (fleet-wide fail-open) 인데 ERROR 로그만으로는 운영자가 놓치기 쉽다. sync_vm
- * 실패와 동일하게 CRITICAL security_event 로 surface 한다. restore 는 첫 보안 RPC
- * 이전(store lazy-open 전)이라 pcv_security_store_ensure_open() 으로 store 를 먼저
- * 연다. target 은 특정 VM 이 아니라 host(fleet). */
 static void
 _emit_sg_restore_failure_event(gint group_count, const GError *err)
 {
-    (void)pcv_security_store_ensure_open();   /* 부팅 경로: store 가 아직 안 열렸을 수 있음 */
+    (void)pcv_security_store_ensure_open();
 
     PcvSecurityEvent ev = {0};
     ev.timestamp   = g_get_real_time() / G_USEC_PER_SEC;
@@ -950,12 +787,6 @@ _emit_sg_restore_failure_event(gint group_count, const GError *err)
     }
 }
 
-/**
- * pcv_security_group_restore — 데몬 시작 시 SQLite에서 보안 그룹 복원
- *
- * DB에서 모든 보안 그룹, 규칙, VM 바인딩을 로드하고
- * nftables 체인을 재생성합니다.
- */
 void
 pcv_security_group_restore(void)
 {
@@ -965,7 +796,6 @@ pcv_security_group_restore(void)
     g_mutex_lock(&g_sg_mu);
     _ensure_init();
 
-    /* 보안 그룹 로드 */
     sqlite3_stmt *stmt = nullptr;
     if (sqlite3_prepare_v2(g_sg_db, "SELECT name, description FROM security_groups",
                        -1, &stmt, NULL) == SQLITE_OK && stmt) {
@@ -982,7 +812,6 @@ pcv_security_group_restore(void)
         sqlite3_finalize(stmt);
     }
 
-    /* 규칙 로드 */
     stmt = nullptr;
     if (sqlite3_prepare_v2(g_sg_db,
         "SELECT id, group_name, direction, protocol, port_start, port_end, source FROM sg_rules",
@@ -1004,7 +833,6 @@ pcv_security_group_restore(void)
         sqlite3_finalize(stmt);
     }
 
-    /* VM 바인딩 로드 */
     stmt = nullptr;
     if (sqlite3_prepare_v2(g_sg_db, "SELECT group_name, vm_name FROM sg_vm_bindings",
                        -1, &stmt, NULL) == SQLITE_OK && stmt) {
@@ -1020,7 +848,6 @@ pcv_security_group_restore(void)
     gint count = g_hash_table_size(g_sg_map);
     g_mutex_unlock(&g_sg_mu);
 
-    /* ── nft 반영 (spec §4-3 (4)): legacy 정리 → ensure → 그룹 체인 → 디스패치 ── */
     _nft_teardown_legacy();
 
     GError *error = nullptr;
@@ -1028,16 +855,14 @@ pcv_security_group_restore(void)
         gint gc = g_hash_table_size(g_sg_map);
         PCV_LOG_ERROR("SG", "restore: pcv_sg 테이블 준비 실패 — nft 반영 건너뜀: %s",
                       error ? error->message : "unknown");
-        /* [M-5] 조기 반환 경로도 로드 결과를 남긴다 — 위 ERROR 만 보면 몇 개
-         * 그룹이 메모리/DB 에 적재됐는지 알 수 없으므로 운영자에게 count 를 surface. */
+
         PCV_LOG_INFO("SG", "Loaded %d security groups from DB (nft 미반영 — 위 ERROR 참조)", gc);
-        /* [M-7] fleet-wide fail-open 을 security_event 로도 surface (error 정리 전에 emit) */
+
         _emit_sg_restore_failure_event(gc, error);
         g_clear_error(&error);
-        return;   /* 부팅 블로킹 금지 (spec §5) — 메모리/DB 상태는 이미 적재됨 */
+        return;
     }
 
-    /* 그룹 단위로 계속 진행 — 한 그룹 실패가 다른 그룹을 막지 않는다 */
     g_mutex_lock(&g_sg_mu);
     GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
     GPtrArray *views = g_ptr_array_new();
@@ -1075,49 +900,38 @@ pcv_security_group_restore(void)
         PCV_LOG_INFO("SG", "Restored %d security groups from database", count);
 }
 
-/**
- * pcv_security_group_resync_all — 바인딩된 모든 VM 의 vnet 을 fresh 재해석
- *
- * [I2-R1] _rebuild_dispatch 는 캐시 HIT 을 liveness 재확인 없이 신뢰하므로,
- * 라이프사이클 이벤트가 유실되면 stale vnet 캐시로 fail-open 할 수 있다.
- * 이 함수는 바인딩된 VM 전부를 virsh 로 다시 조회해 캐시를 교정한다.
- * virsh 가 빈 결과(off/transient)를 내면 그 VM 의 기존 캐시는 그대로 둔다
- * (keep-old-on-empty) — transient 실패로 dispatch 에서 vnet 이 사라지는
- * fail-open 을 만들지 않기 위함.
- */
 void
 pcv_security_group_resync_all(void)
 {
-    /* 바인딩된 VM 이름 스냅샷 (dedup) — g_sg_mu 하, 스폰 금지 구간 */
+
     g_mutex_lock(&g_sg_mu);
     _ensure_init();
-    GHashTable *set = g_hash_table_new(g_str_hash, g_str_equal);  /* 값 없는 set, borrowed key */
+    GHashTable *set = g_hash_table_new(g_str_hash, g_str_equal);
     GHashTableIter it;
     gpointer k, v;
     g_hash_table_iter_init(&it, g_sg_map);
     while (g_hash_table_iter_next(&it, &k, &v)) {
         SecurityGroup *sg = v;
         for (guint i = 0; i < sg->vm_bindings->len; i++)
-            g_hash_table_add(set, g_ptr_array_index(sg->vm_bindings, i));  /* 락 안에서만 유효 */
+            g_hash_table_add(set, g_ptr_array_index(sg->vm_bindings, i));
     }
     GPtrArray *vms = g_ptr_array_new_with_free_func(g_free);
     g_hash_table_iter_init(&it, set);
     while (g_hash_table_iter_next(&it, &k, &v))
-        g_ptr_array_add(vms, g_strdup((const gchar *)k));   /* 락 밖 사용 위해 복사 */
+        g_ptr_array_add(vms, g_strdup((const gchar *)k));
     g_hash_table_destroy(set);
     g_mutex_unlock(&g_sg_mu);
 
-    if (vms->len == 0) {   /* 바인딩 없음 → no-op */
+    if (vms->len == 0) {
         g_ptr_array_unref(vms);
         return;
     }
 
-    /* 락 밖: 각 VM fresh 재해석, non-empty 만 캐시 덮어씀 (keep-old-on-empty) */
     for (guint i = 0; i < vms->len; i++) {
         const gchar *vm = g_ptr_array_index(vms, i);
-        GPtrArray *ifaces = pcv_vm_iface_list(vm);   /* virsh, 항상 non-NULL(계약) */
+        GPtrArray *ifaces = pcv_vm_iface_list(vm);
         if (ifaces->len > 0)
-            pcv_vm_vnet_cache_put(vm, ifaces);       /* 빈 결과면 캐시 그대로 (keep-old) */
+            pcv_vm_vnet_cache_put(vm, ifaces);
         g_ptr_array_unref(ifaces);
     }
     g_ptr_array_unref(vms);
@@ -1130,7 +944,6 @@ pcv_security_group_resync_all(void)
     }
 }
 
-/* [I2-R1] 워커 스레드 — 블로킹 resync 실행 후 in-flight 플래그 리셋 */
 static void
 _sg_resync_worker(GTask *task, gpointer src, gpointer td, GCancellable *c)
 {
@@ -1140,16 +953,15 @@ _sg_resync_worker(GTask *task, gpointer src, gpointer td, GCancellable *c)
     g_task_return_boolean(task, TRUE);
 }
 
-/* [I2-R1] 타이머 tick — 메인 루프, 논블로킹. 이전 resync 진행 중이면 skip. */
 static gboolean
 _sg_resync_tick(gpointer data)
 {
     (void)data;
     if (!g_atomic_int_compare_and_exchange(&g_sg_resync_inflight, 0, 1))
-        return G_SOURCE_CONTINUE;   /* 이전 resync 아직 진행 중 → 이번 tick skip */
+        return G_SOURCE_CONTINUE;
     GTask *t = g_task_new(NULL, NULL, NULL, NULL);
     pcv_worker_pool_push(t, _sg_resync_worker);
-    g_object_unref(t);   /* worker pool 이 자체 ref 를 잡음 (M-7 확인) */
+    g_object_unref(t);
     return G_SOURCE_CONTINUE;
 }
 
@@ -1178,9 +990,7 @@ gboolean
 pcv_security_group_detach_vm(const gchar *vm, const gchar *sg_name)
 {
     if (!vm || !sg_name) return FALSE;
-    /* [M-9] apply_to_vm 과 대칭 — vm 은 롤백 재바인딩 경로에서 virsh argv 로
-     * 흘러갈 수 있으므로 화이트리스트로 심층 방어 (정상 경로는 apply 검증 덕에
-     * 무효 이름이 없으나 계약을 대칭으로 유지). */
+
     if (!pcv_validate_vm_name(vm)) {
         PCV_LOG_WARN("SG", "Rejected detach: invalid vm '%s'", vm);
         return FALSE;
@@ -1210,8 +1020,7 @@ pcv_security_group_detach_vm(const gchar *vm, const gchar *sg_name)
         g_mutex_lock(&g_sg_mu);
         SecurityGroup *sg2 = g_hash_table_lookup(g_sg_map, sg_name);
         if (sg2) {
-            /* [M-2] apply_to_vm 과 대칭으로 멱등 재삽입 — nft 창 동안 동시 apply 가
-             * 같은 vm 을 이미 재바인딩했다면 중복 바인딩(중복 jump)을 만들지 않는다. */
+
             gboolean dup = FALSE;
             for (guint i = 0; i < sg2->vm_bindings->len; i++) {
                 if (g_strcmp0(g_ptr_array_index(sg2->vm_bindings, i), vm) == 0) {
@@ -1225,15 +1034,13 @@ pcv_security_group_detach_vm(const gchar *vm, const gchar *sg_name)
         return FALSE;
     }
     _sg_db_delete_binding(sg_name, vm);
-    /* [R3] 이 detach 로 vm 이 어떤 그룹에도 안 묶이면 dormant 캐시 엔트리 회수.
-     * 동시 apply 가 재바인딩했으면 is_bound=TRUE → evict 안 함(정확). */
+
     if (!pcv_security_group_vm_is_bound(vm))
         pcv_vm_vnet_cache_evict(vm);
     PCV_LOG_INFO("SG", "Detached security group '%s' from VM '%s'", sg_name, vm);
     return TRUE;
 }
 
-/* sync 실패 = 해당 VM 이 SG 미적용 상태로 러닝 중 — 운영자에게 반드시 surface */
 static void
 _emit_sg_sync_failure_event(const gchar *vm, const GError *err)
 {
@@ -1267,7 +1074,6 @@ _emit_sg_sync_failure_event(const gchar *vm, const GError *err)
     }
 }
 
-/* g_sg_mu 를 이미 보유한 상태에서 vm 바인딩 여부 스캔 (내부 공용) */
 static gboolean
 _vm_is_bound_locked(const gchar *vm)
 {
@@ -1299,22 +1105,18 @@ pcv_security_group_sync_vm(const gchar *vm_name)
 {
     if (!vm_name) return;
 
-    /* 바인딩 없으면 디스패치 미등장 → no-op */
     g_mutex_lock(&g_sg_mu);
     _ensure_init();
     gboolean bound = _vm_is_bound_locked(vm_name);
     g_mutex_unlock(&g_sg_mu);
     if (!bound) return;
 
-    /* I-2: 라이프사이클 변화(start/stop/restart)로 vnet 이 바뀌었을 수 있으므로
-     * 캐시를 무효화한다. 이어지는 _rebuild_dispatch 의 lazy-miss 가 fresh 재해석·적재.
-     * (evict 만: 여기서 virsh 를 부르지 않아 블로킹 최소화 — 해석은 rebuild 로 위임) */
     pcv_vm_vnet_cache_evict(vm_name);
 
     GError *error = nullptr;
     if (_rebuild_dispatch(&error)) return;
     g_clear_error(&error);
-    if (_rebuild_dispatch(&error)) return;   /* 1회 재시도 (spec §5) */
+    if (_rebuild_dispatch(&error)) return;
 
     PCV_LOG_ERROR("SG", "sync_vm '%s' 실패 (재시도 포함) — SG 미적용 상태: %s",
                   vm_name, error ? error->message : "unknown");

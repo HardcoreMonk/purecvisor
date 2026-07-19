@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_audit_hashchain.py — 감사 로그 해시체인 정적 계약 게이트 (Wave B 3-b / A09·2.9).
 
 [목적]
@@ -28,22 +28,19 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 TARGET = ROOT / "src" / "modules" / "audit" / "pcv_audit.c"
 
-# audit_log 로 향하는 INSERT 문 (문자열 리터럴, 여러 줄 이어붙기 허용)
 INSERT_RE = re.compile(
     r'INSERT\s+INTO\s+audit_log\s*\((?P<cols>[^)]*)\)',
     re.IGNORECASE | re.DOTALL,
 )
-# 문자열 리터럴 경계(") + 개행/공백을 제거해 이어붙인 SQL 컬럼 목록을 평탄화
+
 _STR_JOIN = re.compile(r'"\s*"', re.DOTALL)
 BIND_RE = re.compile(r'sqlite3_bind_text\s*\([^;]*\b(prev_hash|rec_hash)\b')
 RECHASH_CALL_RE = re.compile(r'\b_audit_rec_hash\s*\(')
 VERIFY_FN_RE = re.compile(r'\bpcv_audit_verify_chain\s*\(')
 
-
 def _flatten_c_string(s: str) -> str:
     """인접한 C 문자열 리터럴( "a" "b" )을 이어붙인다 (컬럼 목록 평탄화용)."""
     return _STR_JOIN.sub("", s)
-
 
 def analyze(text: str) -> dict:
     """대상 소스 텍스트에서 해시체인 계약 신호를 추출한다."""
@@ -68,7 +65,6 @@ def analyze(text: str) -> dict:
         "has_verify_fn": bool(VERIFY_FN_RE.search(text)),
     }
 
-
 def failures(sig: dict) -> list[str]:
     fails: list[str] = []
     if not sig["insert_found"]:
@@ -83,7 +79,6 @@ def failures(sig: dict) -> list[str]:
     if not sig["has_verify_fn"]:
         fails.append("pcv_audit_verify_chain() 정의 부재 — 검증 함수 제거됨")
     return fails
-
 
 def main(argv: list[str]) -> int:
     target = Path(argv[1]) if len(argv) > 1 else TARGET
@@ -110,7 +105,6 @@ def main(argv: list[str]) -> int:
     print("\033[32m[PASS]\033[0m 감사 INSERT 경로가 prev_hash/rec_hash 를 계산·저장하고 "
           "검증 함수가 존재 (A09/2.9)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main(sys.argv))

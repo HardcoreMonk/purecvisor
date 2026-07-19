@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """게이트 자기검증 인수 테스트 (Task 6).
 
 ① 게이트가 baseline 상태에서 PASS(exit 0)로 착지한다.
@@ -13,20 +13,17 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent.parent
 GATE = ROOT / "scripts" / "check_rpc_param_contract.py"
 
-
 def test_gate_passes_at_baseline():
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"게이트 미착지:\n{r.stdout}\n{r.stderr}"
 
-
 def test_baseline_reproduces_audit_16():
     base = json.loads((ROOT / "contracts" / "rpc_param_baseline.json").read_text())
     methods = {e["method"] for e in base["known_consumer_mismatches"]}
-    # 감사 CLI-1~16 대표 메서드가 baseline 에 존재(재현 확인)
+
     for m in ["network.mode_set", "device.nic.list", "ovn.acl.add",
               "container.snapshot.create"]:
         assert m in methods, f"감사 확증 {m}이 게이트 재현에서 누락"
-
 
 def test_new_break_is_blocked():
     """baseline 밖 신규 위반을 게이트가 FAIL 시키는지 — registry 에 가짜 required 주입."""
@@ -34,14 +31,13 @@ def test_new_break_is_blocked():
     orig = reg.read_text()
     try:
         d = json.loads(orig)
-        # storage.pool.health 에 절대 안 보내는 required 주입 → MISSING 신규
+
         d["storage.pool.health"] = {"required": ["__never_sent__"], "optional": []}
         reg.write_text(json.dumps(d, indent=2))
         r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
         assert r.returncode == 1, f"신규 위반을 게이트가 못 막음:\n{r.stdout}\n{r.stderr}"
     finally:
         reg.write_text(orig)
-
 
 def test_dead_method_reference_blocked():
     """B1: 레지스트리가 dispatcher 미등록 핸들러를 참조하면 keys_via 스킵과 구분해 FAIL(DEAD-METHOD)."""
@@ -56,7 +52,6 @@ def test_dead_method_reference_blocked():
         assert "DEAD-METHOD" in r.stderr, f"DEAD-METHOD FAIL 메시지 누락:\n{r.stdout}\n{r.stderr}"
     finally:
         reg.write_text(orig)
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

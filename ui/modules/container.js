@@ -1,19 +1,11 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/container.js
-   Container List, Rendering, Actions, Create Wizard, NIC Ops
-   ADR-0013: IIFE module scope — PCV.container namespace
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ CONTAINER STATE VARIABLES ═══ */
-/* These must be on window.* because inline onclick handlers (e.g. selCtr='name')
-   set window-scoped globals. Functions here must read/write window.* to stay in sync. */
 window.selCtr = window.selCtr || null;
 window.ctrTab = window.ctrTab || 'summary';
 window.ctrHist = window.ctrHist || [];
 
-/* ═══ CONTAINER SORT ═══ */
 window.ctrSortKey = window.ctrSortKey || 'name';
 window.ctrSortDir = window.ctrSortDir || 1;
 function setCtrSort(k) {
@@ -21,7 +13,6 @@ function setCtrSort(k) {
   renderContainerList();
 }
 
-/* ═══ SIDEBAR CONTAINER LIST ═══ */
 async function renderContainerList() {
   const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const listEl = document.getElementById('ctr-list');
@@ -72,7 +63,6 @@ async function renderContainerList() {
   } catch (e) { PCV.uxlib.setMsg(listEl, null, { tag: 'div', cls: 'text-xs color-muted', style: 'padding:8px' }, 'Failed to load containers.'); }
 }
 
-/* ═══ MAIN CONTAINER PANEL ═══ */
 async function renderContainers(b) {
   const el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
@@ -146,9 +136,6 @@ async function renderContainers(b) {
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, e.message); }
 }
 
-/* ═══ CONTAINER TAB RENDERING ═══ */
-/* renderProgressBar(p,c) 의 노드 등가물 (app.js _progressBar 선례). 문자열 반환
- * 헬퍼를 카드 body 노드 조립에 끼워넣기 위한 로컬 헬퍼. */
 function _ctrProgressBar(p, c) {
   const el = PCV.uxlib.el;
   const cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
@@ -258,7 +245,7 @@ async function ctrRenderTab(tb, cv) {
         ]),
         HN.card('Routing & Addresses', el('div', { id: 'ctr-net-info' }, el('span', { class: 'spinner' }))))
     ));
-    /* Load NIC list */
+
     try {
       const r = await fetchGet(EP.CTR_NICS(n));
       const nics = unwrapList(r);
@@ -291,7 +278,7 @@ async function ctrRenderTab(tb, cv) {
         HN.row('Bridge', 'pcvbr0'),
         HN.row('Type', 'veth')])); }
     }
-    /* Load routing info */
+
     if (on) {
       try { const r = await fetchPost(EP.CTR_EXEC(n), { command: 'ip -4 addr show 2>/dev/null; echo "---"; ip route 2>/dev/null | head -5' }); const ni = document.getElementById('ctr-net-info'); if (ni) { clearEl(ni); ni.appendChild(el('pre', { class: 'stat-label', style: 'margin:0;white-space:pre-wrap;overflow-x:auto' }, unwrapData(r).output || '')); } } catch (e) { const ni = document.getElementById('ctr-net-info'); if (ni) PCV.uxlib.setMsg(ni, null, { cls: 'color-muted' }, 'Unable to fetch'); }
     } else {
@@ -365,12 +352,9 @@ async function ctrRenderTab(tb, cv) {
   }
 }
 
-/* ═══ CONTAINER ACTIONS ═══ */
 async function ctrA(n, a) {
   const el = PCV.uxlib.el;
-  /* prog-fill: 원본 class 속성 중복(class="prog-fill" ... class="w-pct-10") — HTML
-   * 파서가 첫 class만 적용하고 w-pct-* 는 무시. 노드도 class:'prog-fill' 만
-   * 유지(렌더 동등, 7차 doCtrDel 주석 선례). 이하 진행모달 전부 동일. */
+
   showModal([
     el('h2', null, (a === 'start' ? '▶ ' + t('ctr.starting') : '■ ' + t('ctr.stopping'))),
     el('p', { class: 'mb-8' }, el('b', { class: 'color-accent' }, n)),
@@ -522,8 +506,7 @@ function ctrDel(n) {
 
 async function doCtrDel(n) {
   const c = document.getElementById('del-ctr-confirm')?.value; if (c !== n) { toast(t('vm.name_mismatch'), false); return; }
-  /* prog-fill div 는 원본이 class 속성 중복(class="prog-fill" .. class="w-pct-10") — HTML
-   * 파서상 첫 class="prog-fill" 만 적용되고 w-pct-10 은 무시됨 (렌더 동등 보존). */
+
   const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const mc = document.getElementById('mc');
   clearEl(mc);
@@ -542,16 +525,15 @@ async function doCtrDel(n) {
   } catch (e) { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false); }
 }
 
-/* ═══ CONTAINER CREATE WIZARD ═══ */
 function showCtrCreate() {
   if (typeof markFormDirty === 'function') markFormDirty('ctr-create');
   var el = PCV.uxlib.el;
   var selStyle = 'flex:1;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px';
   showModal([
     el('h2', null, t('ctr.new')),
-    /* 단일 컬럼 레이아웃 — 모달 잘림 방지 */
+
     el('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:16px' },
-      /* 왼쪽: 기본 설정 */
+
       el('div', null,
         el('h4', { class: 'mb-8' }, '☷ Basic'),
         el('div', { class: 'fr' },
@@ -569,7 +551,7 @@ function showCtrCreate() {
         el('div', { class: 'fr' },
           el('label', { for: 'cc-rel', class: 'min-w-80' }, 'Release'),
           el('input', { id: 'cc-rel', value: 'jammy', placeholder: 'jammy / bookworm / 3.19', class: 'flex-1' }))),
-      /* 오른쪽: 네트워크 + 리소스 */
+
       el('div', null,
         el('h4', { class: 'mb-8' }, '🌐 Network'),
         el('div', { class: 'fr' },
@@ -604,7 +586,7 @@ function showCtrCreate() {
       ' ',
       el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
   ]);
-  /* 넓은 모달 클래스 적용 */
+
   var mc = document.getElementById('mc');
   if (mc) mc.classList.add('modal-wide');
   setTimeout(ctrLoadBridges, 80);
@@ -652,7 +634,6 @@ async function doCtrCreate() {
   const dns = document.getElementById('cc-dns')?.value;
   if (!n) { toast(t('msg.name_required'), false); return; }
 
-  /* 모달 즉시 닫고 백그라운드 처리 시작 */
   if (typeof clearFormDirty === 'function') clearFormDirty('ctr-create');
   closeModal();
   toast('&#9783; ' + escapeHtml(n) + ' ' + _L('생성 시작...', 'Creating...'), 's');
@@ -664,14 +645,12 @@ async function doCtrCreate() {
   try {
     const r = await fetchPost(EP.CTR_LIST(), body);
 
-    /* 에러 응답 처리 */
     if (r && r.error) {
       var errMsg = r.error.message || r.error.data || JSON.stringify(r.error);
       toast('&#10060; ' + _L('컨테이너 생성 실패', 'Container creation failed') + ': ' + errMsg, false);
       return;
     }
 
-    /* 백그라운드 폴링 — 컨테이너 목록에 나타날 때까지 (최대 90초) */
     addEvt('LXC Creating — ' + n + ' (' + dist + ':' + rel + ', ' + br + ', ' + vcpu + 'vCPU, ' + mem + 'MB)');
     var created = false;
     for (var pi = 0; pi < 18; pi++) {
@@ -697,7 +676,6 @@ async function doCtrCreate() {
   }
 }
 
-/* ═══ CONTAINER SET LIMITS ═══ */
 async function ctrSetLimits(name, type) {
   const body = { name };
   if (type === 'cpu') {
@@ -714,7 +692,6 @@ async function ctrSetLimits(name, type) {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ LXC NIC MANAGEMENT ═══ */
 function ctrNicAdd(name) {
   var el = PCV.uxlib.el;
   showModal([
@@ -768,9 +745,6 @@ async function ctrSetBandwidth(name) {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ REGISTER ALL ON WINDOW ═══ */
-/* State variables (selCtr, ctrTab, ctrHist, ctrSortKey, ctrSortDir)
-   are already initialized on window.* at the top of this file. */
 window.setCtrSort = setCtrSort;
 window.renderContainerList = renderContainerList;
 window.renderContainers = renderContainers;
@@ -796,7 +770,6 @@ window.doCtrNicAdd = doCtrNicAdd;
 window.ctrNicDel = ctrNicDel;
 window.ctrSetBandwidth = ctrSetBandwidth;
 
-/* ═══ CONTAINER CLONE (백엔드 4차) ═══ */
 async function showCtrClone(name) {
   var el = PCV.uxlib.el;
   showModal([
@@ -835,7 +808,6 @@ async function showCtrClone(name) {
   }, 50);
 }
 
-/* ═══ CONTAINER MEMORY STATS (cgroup v2) ═══ */
 async function showCtrMemoryStats(name) {
   try {
     var r = await fetchGet(EP.CTR_MEMORY_STATS(name));
@@ -870,7 +842,6 @@ async function showCtrMemoryStats(name) {
   } catch (e) { toast(_L('로드 실패', 'Failed'), false); }
 }
 
-/* ═══ CONTAINER HEALTH CHECK ═══ */
 async function checkCtrHealth(name) {
   try {
     var r = await fetchGet(EP.CTR_HEALTH(name));
@@ -880,12 +851,10 @@ async function checkCtrHealth(name) {
   } catch(e) { toast(_L('헬스 체크 실패', 'Health check failed'), false); }
 }
 
-/* ═══ BACKWARD COMPAT SHIMS ═══ */
 window.showCtrClone = showCtrClone;
 window.showCtrMemoryStats = showCtrMemoryStats;
 window.checkCtrHealth = checkCtrHealth;
 
-/* ═══ PCV.container namespace export ═══ */
 PCV.container = {
   setCtrSort: setCtrSort,
   renderContainerList: renderContainerList,

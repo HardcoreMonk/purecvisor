@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_ssrf_target_guard.py — 아웃바운드 대상 SSRF allowlist 게이트 (Wave B Item 5-a / A10·V4).
 
 근거: docs/operations/2026-07-16-security-remediation-roadmap.md Item 5.
@@ -28,7 +28,6 @@ TARGET_RELS = [
     "src/modules/ai/ai_agent.c",
     "src/modules/backup/backup_scheduler.c",
 ]
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴 내용을 공백/개행으로 치환(줄 번호 1:1 유지).
@@ -84,12 +83,10 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def file_calls_helper(path: Path) -> bool:
     """path 소스가 pcv_url_target_allowed()를 코드에서 호출하는지."""
     text = path.read_text(errors="replace")
     return bool(CALL_RE.search(strip_code(text)))
-
 
 def helper_defined() -> bool:
     """src/utils/ 하위 .c 중 pcv_url_target_allowed 정의(호출자 아님)를 포함하는지."""
@@ -97,7 +94,6 @@ def helper_defined() -> bool:
         if HELPER in strip_code(p.read_text(errors="replace")):
             return True
     return False
-
 
 def find_missing_calls(targets) -> list:
     """호출이 없는 대상 파일의 rel 경로 리스트."""
@@ -111,10 +107,8 @@ def find_missing_calls(targets) -> list:
             missing.append(rel)
     return missing
 
-
 def main(argv=None) -> int:
-    # argv 주어지면 그 파일들을 대상으로 호출 유무만 검사(self-test 반사실 단일 파일
-    # 모드 — temp 사본 검사). 없으면 정본 3 사이트 + 헬퍼 정의 검사.
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
 
     if argv:
@@ -149,7 +143,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] 아웃바운드 3 사이트 모두 {HELPER} 호출 + 헬퍼 정의 존재")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,48 +1,3 @@
-/**
- * @file handler_container.c
- * @brief LXC 컨테이너 RPC 핸들러 — 생명주기/조회/exec/스냅샷 (11개 메서드)
- *
- * [아키텍처 위치]
- *   클라이언트 -> UDS/REST -> dispatcher.c ("container.*") -> handle_container_*()
- *                                                               -> lxc_driver.c (liblxc API)
- *                                                               -> pcv_spawn_sync (lxc-info 폴백)
- *
- * [처리하는 RPC 메서드] (11개)
- *   container.create            -> handle_container_create            : LXC 컨테이너 생성
- *   container.destroy           -> handle_container_destroy           : 컨테이너 삭제
- *   container.start             -> handle_container_start             : 컨테이너 시작
- *   container.stop              -> handle_container_stop              : 컨테이너 중지
- *   container.list              -> handle_container_list              : 전체 컨테이너 목록
- *   container.metrics           -> handle_container_metrics           : CPU/메모리/네트워크 메트릭
- *   container.exec              -> handle_container_exec              : 컨테이너 내부 명령 실행
- *   container.snapshot.create   -> handle_container_snapshot_create   : ZFS 스냅샷 생성
- *   container.snapshot.rollback -> handle_container_snapshot_rollback : ZFS 스냅샷 복원
- *   container.snapshot.delete   -> handle_container_snapshot_delete   : ZFS 스냅샷 삭제
- *   container.snapshot.list     -> handle_container_snapshot_list     : 스냅샷 목록 조회
- *
- * [핸들러 처리 패턴]
- *   1. params에서 필수 필드(name 등) 추출 및 pcv_validate 검증
- *   2. 필요한 경우 RpcCtx 구조체 할당 (name, rpc_id, server, connection ref 카운트 증가)
- *   3. pcv_lxc_*_async() 호출 (lxc_driver.c의 비동기 래퍼)
- *   4. create/destroy는 accepted 응답 후 콜백에서 audit/WS 완료 이벤트 기록
- *      나머지 콜백 기반 응답 경로는 완료 콜백에서 JSON 응답 전송
- *
- * [fire-and-forget 패턴]
- *   container.create와 container.destroy는 UDS 클라이언트 타임아웃을 피하기 위해
- *   accepted 응답을 먼저 보낸다. 실제 결과는 ADR-0018에 따라 콜백에서 audit DB와
- *   WS 완료 이벤트에 기록한다.
- *
- * [주의사항]
- *   - seccomp 환경에서 liblxc get_ips가 실패할 수 있으므로, lxc-info -iH CLI 폴백이
- *     lxc_driver.c에 구현되어 있습니다.
- *   - container.exec는 pcv_spawn_sync(/bin/sh -c)로 lxc-attach를 호출합니다.
- *     seccomp가 GSubprocess를 차단할 수 있어 폴백 경로를 사용합니다.
- *   - 컨테이너 스토리지 경로: pcvpool/containers/<name>
- *
- * [에러 코드]
- *   -32602 : 필수 파라미터(name, image, cmd 등) 누락 또는 검증 실패
- *   -32000 : LXC/ZFS 작업 실패
- */
 
 #include "handler_container.h"
 #include "modules/lxc/lxc_driver.h"
@@ -62,41 +17,16 @@
 #include <stdlib.h>
 #include "utils/pcv_spawn.h"
 
-/* ══════════════════════════════════════════════════════════════════════════
- * 공통 내부 컨텍스트
- *
- * 모든 컨테이너 RPC 핸들러가 공유하는 비동기 작업 컨텍스트입니다.
- * pcv_lxc_*_async() 함수에 전달되어 콜백에서 응답 전송에 사용됩니다.
- *
- * [콜백 패턴] (fire-and-forget이 아님!)
- *   이 파일의 모든 핸들러는 pcv_lxc_*_async()의 콜백에서 응답을 전송합니다.
- *   따라서 소켓은 콜백 시점까지 유지되어야 하며,
- *   server/conn은 g_object_ref()로 참조 카운트를 증가시켜 보관합니다.
- *
- * [ContainerCtx 생명주기]
- *   1. _ctx_new()로 할당 (진입점 함수에서)
- *   2. pcv_lxc_*_async()에 user_data로 전달
- *   3. 콜백(_on_*_done)에서 응답 전송 후 _ctx_free()로 해제
- *
- * [주의] GTask의 GDestroyNotify로 등록되지 않습니다 — 콜백에서 수동 해제합니다.
- * ══════════════════════════════════════════════════════════════════════════*/
-
 typedef struct {
-    gchar            *name;       /**< 컨테이너 이름 (검증 완료된 값) */
-    gchar            *rpc_id;     /**< JSON-RPC 요청 ID (응답 매칭용) */
-    UdsServer        *server;     /**< UDS 서버 인스턴스 (ref 카운트 증가됨) */
-    GSocketConnection *conn;      /**< 클라이언트 소켓 연결 (ref 카운트 증가됨) */
-    /* 핸들러별 추가 파라미터 (범용 필드) */
-    gchar            *str_param;  /**< image, snap_name, exec_cmd 등 핸들러별 문자열 파라미터 */
-    gboolean          bool_param; /**< force 플래그 등 핸들러별 불리언 파라미터 */
+    gchar            *name;
+    gchar            *rpc_id;
+    UdsServer        *server;
+    GSocketConnection *conn;
+
+    gchar            *str_param;
+    gboolean          bool_param;
 } ContainerCtx;
 
-/**
- * _ctx_new:
- * ContainerCtx를 할당하고 기본 필드를 초기화합니다.
- * server/conn은 g_object_ref()로 참조 카운트를 증가시킵니다.
- * str_param, bool_param은 호출자가 필요 시 별도로 설정합니다.
- */
 static ContainerCtx *
 _ctx_new(const gchar *name, const gchar *rpc_id,
          UdsServer *server, GSocketConnection *conn)
@@ -109,12 +39,6 @@ _ctx_new(const gchar *name, const gchar *rpc_id,
     return ctx;
 }
 
-/**
- * _ctx_free:
- * ContainerCtx의 모든 필드를 안전하게 해제합니다.
- * 콜백 함수(_on_*_done)의 마지막에서 반드시 호출해야 합니다.
- * str_param이 NULL이어도 g_free(NULL)은 안전합니다.
- */
 static void
 _ctx_free(ContainerCtx *ctx)
 {
@@ -127,16 +51,6 @@ _ctx_free(ContainerCtx *ctx)
     g_free(ctx);
 }
 
-/**
- * _ensure_container_config_ready:
- * 컨테이너 dataset을 다시 마운트하고, 실제 config 파일이 보이는지 확인합니다.
- *
- * [배경]
- *   컨테이너 dataset이 내려간 상태에서는 /var/lib/purecvisor/lxc/<name> 상위 디렉터리만
- *   보이므로, 이 상태에서 config를 읽거나 쓰면 lower-layer 빈 디렉터리를 잘못 건드릴 수
- *   있습니다. env/volume 설정이 성공처럼 보여도 실제 dataset config에는 반영되지 않는
- *   false-success를 막기 위해, 모든 config read/write 전에 이 helper를 거칩니다.
- */
 static gboolean
 _ensure_container_config_ready(const gchar *name,
                                gchar      **out_config_path,
@@ -154,7 +68,7 @@ _ensure_container_config_ready(const gchar *name,
     GError *mount_err = NULL;
 
     if (!pcv_spawn_sync(mount_argv, NULL, NULL, &mount_err) && mount_err) {
-        /* 이미 보이는 config가 없고, mount 실패도 generic이면 false-fail을 막기 위해 한 번 더 확인 */
+
         if (!g_strrstr(mount_err->message, "already mounted") &&
             !g_file_test(config_path, G_FILE_TEST_EXISTS)) {
             g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
@@ -182,13 +96,6 @@ _ensure_container_config_ready(const gchar *name,
     return TRUE;
 }
 
-/* ── 응답 헬퍼 ────────────────────────────────────────────────────────── */
-
-/**
- * _send_ok:
- * 성공 응답 {"success": true}을 클라이언트에 전송합니다.
- * 대부분의 컨테이너 RPC(create/destroy/start/stop/snapshot)의 성공 경로에서 사용됩니다.
- */
 static void
 _send_ok(ContainerCtx *ctx)
 {
@@ -201,12 +108,6 @@ _send_ok(ContainerCtx *ctx)
     g_free(resp);
 }
 
-/**
- * _send_error:
- * 에러 응답을 클라이언트에 전송합니다.
- * @code: JSON-RPC 에러 코드 (-32602: 파라미터 오류, -32000: 내부 오류)
- * @msg: 에러 메시지 문자열 (NULL이면 기본 메시지 사용)
- */
 static void
 _send_error(ContainerCtx *ctx, PureRpcErrorCode code, const gchar *msg)
 {
@@ -215,25 +116,14 @@ _send_error(ContainerCtx *ctx, PureRpcErrorCode code, const gchar *msg)
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.create
- *
- * 파라미터:
- *   name*         : 컨테이너 이름
- *   image         : "ubuntu:22.04" (기본값)
- *   memory_mb     : 메모리 제한 (기본 512)
- *   vcpu_count    : vCPU 수 (기본 1)
- *   network_bridge: 브릿지 이름 (기본 virbr0)
- * ══════════════════════════════════════════════════════════════════════════*/
-
 typedef struct {
     ContainerCtx *base;
     gchar        *image;
     guint         memory_mb;
     guint         vcpu_count;
     gchar        *bridge;
-    gint          rootless;    /* -1=global default, 0=force off, 1=force on (C-6) */
-    gchar        *owner_sub;   /* B1: create 요청 caller subject — 성공 시 purecvisor.owner 스탬프 */
+    gint          rootless;
+    gchar        *owner_sub;
 } CreateCtx;
 
 static void
@@ -246,32 +136,17 @@ _create_ctx_free(CreateCtx *c)
     g_free(c);
 }
 
-/**
- * _on_create_done:
- * pcv_lxc_create_async() 완료 시 호출되는 콜백입니다.
- *
- * [콜백 패턴 핵심]
- *   1. 오퍼레이션 잠금 해제 (unlock_vm_operation) — 반드시 최우선으로 실행
- *   2. 성공/실패에 따라 _send_ok() 또는 _send_error() 호출
- *   3. CreateCtx 메모리 해제 (_create_ctx_free)
- *
- * [주의] 잠금 해제를 누락하면 해당 컨테이너에 대한 모든 후속 RPC가 영구 차단됩니다.
- */
 static void
 _on_create_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
     CreateCtx *ctx = (CreateCtx *)user_data;
     GError    *error = NULL;
 
-    /* [fire-and-forget 콜백 규칙]
-     * handle_container_create()에서 "accepted" 응답이 이미 전송되었으므로
-     * 이 콜백에서 pure_uds_server_send_response() 호출 시 크래시/UB 발생.
-     * 성공/실패 모두 로그로만 기록한다 */
-    unlock_vm_operation(ctx->base->name);   /* 오퍼레이션 잠금 해제 — 반드시 최우선 */
+    unlock_vm_operation(ctx->base->name);
     gchar *job_id = g_strdup_printf("container.create:%s", ctx->base->name);
     if (!pcv_lxc_create_finish(res, &error)) {
         const gchar *err_msg = error ? error->message : "unknown error";
-        /* fire-and-forget: 응답은 이미 전송됨 — 에러만 로깅 */
+
         g_warning("container.create failed for '%s': %s",
                   ctx->base->name, err_msg);
         pcv_audit_log(NULL, "container.create", ctx->base->name, "fail",
@@ -281,9 +156,7 @@ _on_create_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointe
         if (error) g_error_free(error);
     } else {
         g_info("container.create succeeded for '%s'", ctx->base->name);
-        /* B1: 소유자 스탬프 — VM이 create 시 pcv:owner metadata를 기록하는 것과 동형.
-         * owner_sub 부재(UDS 직결 admin 등)면 pcv_lxc_stamp_owner가 무동작 → 소유자
-         * 없는 컨테이너는 operator deny·admin 전용으로 fail-secure. */
+
         pcv_lxc_stamp_owner(ctx->base->name, ctx->owner_sub);
         pcv_audit_log(NULL, "container.create", ctx->base->name, "ok",
                       0, 0, "local");
@@ -318,18 +191,6 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
                           ? json_object_get_string_member(params, "network_bridge")
                           : NULL;
 
-    /*
-     * [보안] 입력 검증 (A-3 패턴)
-     *
-     * 모든 사용자 입력은 pcv_validate_* 함수로 검증합니다.
-     * 이는 명령어 인젝션(command injection)을 방지하기 위한 필수 단계입니다.
-     *
-     * pcv_validate_vm_name: 1-64자, [a-zA-Z0-9_-] 만 허용
-     * pcv_validate_container_image: "distro:release" 형식만 허용
-     * pcv_validate_bridge_name: 1-16자, [a-zA-Z0-9_-] 만 허용
-     *
-     * 검증 실패 시 -32602 에러를 즉시 반환하고 함수를 종료합니다.
-     */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -346,15 +207,6 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /*
-     * [상태 검사] 오퍼레이션 잠금 획득 (B-1 패턴)
-     *
-     * lock_vm_operation()은 vm_state.c의 SQLite WAL 기반 잠금입니다.
-     * 동일 컨테이너에 대한 동시 create/start/stop/destroy를 방지합니다.
-     * 잠금 실패 시 "Container is busy" 에러를 반환합니다.
-     *
-     * [중요] 잠금은 콜백(_on_create_done)에서 반드시 해제해야 합니다.
-     */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_CREATING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -363,14 +215,11 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         g_free(e); g_free(lock_err); return;
     }
 
-    /* rootless 옵션 (C-6): per-container 오버라이드 또는 전역 기본값 사용 */
-    gint rootless = -1;  /* -1 = daemon.conf 전역 설정 사용 */
+    gint rootless = -1;
     if (json_object_has_member(params, "rootless")) {
         rootless = json_object_get_boolean_member(params, "rootless") ? 1 : 0;
     }
 
-    /* fire-and-forget: 즉시 "accepted" 응답 전송 후 비동기 생성 실행
-     * UDS 클라이언트는 2초 타임아웃이므로, 먼저 응답을 전송합니다. */
     {
         JsonObject *accepted = json_object_new();
         json_object_set_string_member(accepted, "status", "accepted");
@@ -383,14 +232,9 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 
-    /* B1: 소유자 스탬프용 caller subject 캐치.
-     * REST가 인증 주체를 params["_pcv_caller_sub"]로 주입한다(rest_server.c). VM
-     * create가 같은 필드를 owner metadata로 쓰는 것과 동일 출처. 콜백에서 owner
-     * 파일을 쓰려면 async 완료 시점까지 값을 보존해야 하므로 ctx에 복제해 둔다. */
     const gchar *owner_sub =
         json_object_get_string_member_with_default(params, "_pcv_caller_sub", NULL);
 
-    /* 확장 컨텍스트 구성: 기본 ctx + create 전용 필드 */
     CreateCtx *ctx  = g_new0(CreateCtx, 1);
     ctx->base       = _ctx_new(name, rpc_id, server, conn);
     ctx->image      = g_strdup(image);
@@ -400,37 +244,18 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
     ctx->rootless   = rootless;
     ctx->owner_sub  = g_strdup(owner_sub);
 
-    /* lxc_driver.c의 비동기 래퍼 호출 — 콜백에서 잠금 해제 */
     pcv_lxc_create_async_full(name, ctx->image, memory_mb, vcpu_count,
                                ctx->bridge, rootless,
                                NULL, _on_create_done, ctx);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.destroy
- *
- * 컨테이너를 완전히 삭제합니다 (LXC 정의 + rootfs 제거).
- * 실행 중인 컨테이너도 강제 종료 후 삭제합니다.
- *
- * 파라미터: name* (컨테이너 이름)
- * 응답: {"success": true}
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _on_destroy_done:
- * pcv_lxc_destroy_async() 완료 콜백.
- * 오퍼레이션 잠금 해제 -> 로그 기록 -> 컨텍스트 해제 순서를 반드시 지킵니다.
- *
- * [fire-and-forget 콜백] "accepted" 응답은 handle_container_destroy()에서 이미 전송됨.
- * 이 콜백에서 send_response 호출 금지 — 소켓이 이미 닫혀 있어 크래시/UB 발생.
- */
 static void
 _on_destroy_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
     ContainerCtx *ctx = (ContainerCtx *)user_data;
     GError       *error = NULL;
 
-    unlock_vm_operation(ctx->name);   /* B-1: 락 해제 — 누락 시 해당 컨테이너 영구 잠김 */
+    unlock_vm_operation(ctx->name);
     gchar *job_id = g_strdup_printf("container.destroy:%s", ctx->name);
     if (!pcv_lxc_destroy_finish(res, &error)) {
         const gchar *err_msg = error ? error->message : "unknown";
@@ -464,14 +289,12 @@ handle_container_destroy(JsonObject *params, const gchar *rpc_id,
     }
     const gchar *name = json_object_get_string_member(params, "name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* B-1: 오퍼레이션 락 */
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_DELETING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -480,7 +303,6 @@ handle_container_destroy(JsonObject *params, const gchar *rpc_id,
         g_free(e); g_free(lock_err); return;
     }
 
-    /* fire-and-forget: 즉시 응답 후 비동기 삭제 */
     {
         JsonObject *accepted = json_object_new();
         json_object_set_string_member(accepted, "status", "accepted");
@@ -497,22 +319,6 @@ handle_container_destroy(JsonObject *params, const gchar *rpc_id,
     pcv_lxc_destroy_async(name, NULL, _on_destroy_done, ctx);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.start
- *
- * 중지된 컨테이너를 시작합니다. 이미 실행 중이면 lxc_driver에서 에러를 반환합니다.
- *
- * 파라미터: name* (컨테이너 이름)
- * 응답: {"success": true}
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _on_start_done:
- * pcv_lxc_start_async() 완료 콜백.
- * 오퍼레이션 잠금 해제 -> 로그 기록 -> 컨텍스트 해제.
- *
- * [fire-and-forget 콜백] send_response 호출 금지 — 소켓 이미 닫힘.
- */
 static void
 _on_start_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
@@ -556,9 +362,6 @@ handle_container_start(JsonObject *params, const gchar *rpc_id,
         g_free(e); g_free(lock_err); return;
     }
 
-    /* fire-and-forget: 즉시 응답 전송 후 비동기 실행.
-     * 이 send_response() 호출 이후 소켓이 닫히므로,
-     * _on_start_done 콜백에서 send_response를 절대 호출하면 안 됨 (크래시/UB 발생) */
     {
         JsonObject *ok = json_object_new();
         json_object_set_boolean_member(ok, "success", TRUE);
@@ -573,23 +376,6 @@ handle_container_start(JsonObject *params, const gchar *rpc_id,
     pcv_lxc_start_async(name, NULL, _on_start_done, ctx);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.stop
- *
- * 실행 중인 컨테이너를 중지합니다.
- * force=true이면 SIGKILL로 강제 종료, false이면 graceful shutdown을 시도합니다.
- *
- * 파라미터: name* (컨테이너 이름), force (bool, 기본 false)
- * 응답: {"success": true}
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _on_stop_done:
- * pcv_lxc_stop_async() 완료 콜백.
- * 오퍼레이션 잠금 해제 -> 로그 기록 -> 컨텍스트 해제.
- *
- * [fire-and-forget 콜백] send_response 호출 금지 — 소켓 이미 닫힘.
- */
 static void
 _on_stop_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
@@ -636,8 +422,6 @@ handle_container_stop(JsonObject *params, const gchar *rpc_id,
         g_free(e); g_free(lock_err); return;
     }
 
-    /* fire-and-forget: 즉시 응답 전송 후 비동기 중지.
-     * _on_stop_done 콜백에서 send_response 호출 금지 (소켓 이미 닫힘) */
     {
         JsonObject *ok = json_object_new();
         json_object_set_boolean_member(ok, "success", TRUE);
@@ -652,20 +436,6 @@ handle_container_stop(JsonObject *params, const gchar *rpc_id,
     ctx->bool_param    = force;
     pcv_lxc_stop_async(name, force, NULL, _on_stop_done, ctx);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.list  (동기 조회 → 직접 응답)
- *
- * 모든 LXC 컨테이너의 목록을 조회합니다.
- * pcv_lxc_list()가 동기적으로 /var/lib/lxc/를 스캔하므로
- * GTask 비동기 없이 즉시 응답합니다.
- *
- * 파라미터: 없음
- * 응답: { "result": [ { "name":"...", "state":"RUNNING", "ip_addr":"10.0.3.5", "image":"ubuntu:22.04" }, ... ] }
- *
- * [IP 주소 조회] seccomp 환경에서 liblxc get_ips가 실패할 수 있어,
- *               lxc_driver.c 내부에서 lxc-info -iH CLI 폴백을 사용합니다.
- * ══════════════════════════════════════════════════════════════════════════*/
 
 void
 handle_container_list(JsonObject *params, const gchar *rpc_id,
@@ -696,15 +466,13 @@ handle_container_list(JsonObject *params, const gchar *rpc_id,
     }
     g_ptr_array_unref(list);
 
-    /* 페이지네이션 지원 (offset/limit, 없으면 전체 반환 — 하위 호환) */
     gint pg_offset = (params && json_object_has_member(params, "offset"))
         ? (gint)json_object_get_int_member(params, "offset") : 0;
     gint pg_limit = (params && json_object_has_member(params, "limit"))
         ? (gint)json_object_get_int_member(params, "limit") : 0;
 
     if (pg_limit > 0) {
-        /* OOM 방어: 클라이언트가 limit=999999999를 보내면 수십만 건의 JSON을 한 번에 조립하게 되어
-         * 데몬 메모리가 폭증할 수 있음. 10000은 vm.list와 동일한 안전 상한선 */
+
         if (pg_limit > 10000) pg_limit = 10000;
         gint total = (gint)json_array_get_length(arr);
         if (pg_offset < 0) pg_offset = 0;
@@ -733,22 +501,6 @@ handle_container_list(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.metrics  (동기 조회)
- *
- * 단일 컨테이너의 상세 메트릭을 조회합니다.
- * pcv_lxc_get_metrics()가 cgroup v2에서 CPU/메모리/네트워크 통계를 읽어옵니다.
- *
- * 파라미터: name* (컨테이너 이름)
- * 응답: { "result": { "name":"...", "state":"RUNNING",
- *                     "mem_used_mb":256.5, "mem_limit_mb":512.0,
- *                     "cpu_percent":12.3,
- *                     "net_rx_mb":5.2, "net_tx_mb":1.8,
- *                     "ip_addr":"10.0.3.5", "init_pid":12345 } }
- *
- * [단위 변환] lxc_driver는 바이트 단위로 반환하며, 이 핸들러에서 MB로 변환합니다.
- * ══════════════════════════════════════════════════════════════════════════*/
-
 void
 handle_container_metrics(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *conn)
@@ -761,7 +513,6 @@ handle_container_metrics(JsonObject *params, const gchar *rpc_id,
     }
     const gchar *name = json_object_get_string_member(params, "name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -802,25 +553,12 @@ handle_container_metrics(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.exec
- *
- * 파라미터: name*, cmd* (문자열, 예: "/bin/bash -c 'ls -la'")
- * 응답: { "result": { "output": "..." } }
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _on_exec_done:
- * pcv_lxc_exec_async() 완료 콜백.
- * 명령 실행 결과(stdout)를 {"output": "..."} 형식으로 응답합니다.
- */
 static void
 _on_exec_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
     ContainerCtx *ctx = (ContainerCtx *)user_data;
     GError       *error = NULL;
 
-    /* 실행 결과 수신 — NULL이면 exec 실패 */
     gchar *output = pcv_lxc_exec_finish(res, &error);
     if (!output) {
         _send_error(ctx, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -841,21 +579,6 @@ _on_exec_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer 
     _ctx_free(ctx);
 }
 
-/**
- * handle_container_exec:
- * container.exec RPC 진입점 — 컨테이너 내부에서 명령을 실행합니다.
- *
- * [보안 주의사항]
- *   - pcv_validate_exec_cmd()로 cmd 문자열을 검증합니다 (1-1024자, NULL 바이트 금지)
- *   - cmd는 /bin/sh -c를 통해 컨테이너 내부에서 실행됩니다
- *   - lxc-attach는 seccomp 환경에서 GSubprocess가 차단될 수 있어
- *     pcv_spawn_sync(/bin/sh -c) 폴백을 사용합니다 (lxc_driver.c에서 처리)
- *
- * [명령 인젝션 방지]
- *   pcv_validate_exec_cmd()가 NULL 바이트와 과도한 길이를 차단합니다.
- *   단, 셸 메타문자(;, |, & 등)는 컨테이너 내부에서 실행되므로
- *   호스트 보안에는 영향 없습니다 (컨테이너 격리 의존).
- */
 void
 handle_container_exec(JsonObject *params, const gchar *rpc_id,
                        UdsServer *server, GSocketConnection *conn)
@@ -871,7 +594,6 @@ handle_container_exec(JsonObject *params, const gchar *rpc_id,
     const gchar *name = json_object_get_string_member(params, "name");
     const gchar *cmd  = json_object_get_string_member(params, "cmd");
 
-    /* [보안] 입력 검증 — 이름과 명령어 모두 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -883,25 +605,11 @@ handle_container_exec(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* cmd 문자열을 컨테이너 내부 shell에 전달: ["/bin/sh", "-c", cmd] */
     const gchar *argv[] = { "/bin/sh", "-c", cmd, NULL };
 
     ContainerCtx *ctx = _ctx_new(name, rpc_id, server, conn);
     pcv_lxc_exec_async(name, argv, NULL, _on_exec_done, ctx);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.snapshot.create
- *
- * 컨테이너의 ZFS 스냅샷을 생성합니다.
- * 스토리지 경로: pcvpool/containers/<name>@<snap_name>
- *
- * 파라미터: name* (컨테이너 이름), snap_name* (스냅샷 이름)
- * 응답: {"success": true}
- *
- * [입력 검증] pcv_validate_snap_name()으로 스냅샷 이름의 안전성을 검증합니다.
- *            ZFS 명령어 인젝션을 방지하기 위해 [a-zA-Z0-9_-] 만 허용합니다.
- * ══════════════════════════════════════════════════════════════════════════*/
 
 static void
 _on_snap_create_done(GObject *src __attribute__((unused)), GAsyncResult *res,
@@ -933,7 +641,6 @@ handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
     const gchar  *name      = json_object_get_string_member(params, "name");
     const gchar  *snap_name = json_object_get_string_member(params, "snap_name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -949,18 +656,6 @@ handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
     ctx->str_param     = g_strdup(snap_name);
     pcv_lxc_snapshot_create_async(name, snap_name, NULL, _on_snap_create_done, ctx);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.snapshot.rollback
- *
- * ZFS 스냅샷을 복원하여 컨테이너를 이전 상태로 되돌립니다.
- * 컨테이너가 실행 중이면 lxc_driver 내부에서 중지 후 복원합니다.
- *
- * 파라미터: name* (컨테이너 이름), snap_name* (복원할 스냅샷 이름)
- * 응답: {"success": true}
- *
- * [주의] 롤백 후 스냅샷 이후에 생성된 데이터는 영구 삭제됩니다.
- * ══════════════════════════════════════════════════════════════════════════*/
 
 static void
 _on_snap_rollback_done(GObject *src __attribute__((unused)), GAsyncResult *res,
@@ -992,7 +687,6 @@ handle_container_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
     const gchar  *name      = json_object_get_string_member(params, "name");
     const gchar  *snap_name = json_object_get_string_member(params, "snap_name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -1008,16 +702,6 @@ handle_container_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
     ctx->str_param     = g_strdup(snap_name);
     pcv_lxc_snapshot_rollback_async(name, snap_name, NULL, _on_snap_rollback_done, ctx);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.snapshot.delete
- *
- * ZFS 스냅샷을 삭제합니다.
- * 해당 스냅샷에 의존하는 클론이 있으면 ZFS에서 에러가 발생합니다.
- *
- * 파라미터: name* (컨테이너 이름), snap_name* (삭제할 스냅샷 이름)
- * 응답: {"success": true}
- * ══════════════════════════════════════════════════════════════════════════*/
 
 static void
 _on_snap_delete_done(GObject *src __attribute__((unused)), GAsyncResult *res,
@@ -1049,7 +733,6 @@ handle_container_snapshot_delete(JsonObject *params, const gchar *rpc_id,
     const gchar  *name      = json_object_get_string_member(params, "name");
     const gchar  *snap_name = json_object_get_string_member(params, "snap_name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -1066,20 +749,6 @@ handle_container_snapshot_delete(JsonObject *params, const gchar *rpc_id,
     pcv_lxc_snapshot_delete_async(name, snap_name, NULL, _on_snap_delete_done, ctx);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.snapshot.list
- *
- * 컨테이너의 모든 ZFS 스냅샷 목록을 조회합니다.
- *
- * 파라미터: name* (컨테이너 이름)
- * 응답: { "result": ["snap1", "snap2", ...] }
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _on_snap_list_done:
- * pcv_lxc_snapshot_list_async() 완료 콜백.
- * GPtrArray(스냅샷 이름 목록)를 JSON 배열로 변환하여 응답합니다.
- */
 static void
 _on_snap_list_done(GObject *src __attribute__((unused)), GAsyncResult *res,
                    gpointer user_data)
@@ -1120,7 +789,6 @@ handle_container_snapshot_list(JsonObject *params, const gchar *rpc_id,
     }
     const gchar *name = json_object_get_string_member(params, "name");
 
-    /* A-3: 입력 검증 */
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -1131,28 +799,6 @@ handle_container_snapshot_list(JsonObject *params, const gchar *rpc_id,
     pcv_lxc_snapshot_list_async(name, NULL, _on_snap_list_done, ctx);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.logs  (동기 조회 — 파일 tail)
- *
- * 컨테이너의 최근 로그 라인을 조회합니다.
- *
- * 파라미터: name* (컨테이너 이름), lines (정수, 기본 50, 최대 10000)
- * 응답: { "result": { "name":"myapp", "lines":["line1",...], "total":150 } }
- *
- * [로그 파일 탐색 순서]
- *   1. /var/lib/purecvisor/lxc/<name>/<name>.log
- *   2. /var/log/lxc/<name>.log
- *   3. 둘 다 없으면 -32000 에러 반환
- * ══════════════════════════════════════════════════════════════════════════*/
-
-/**
- * _tail_file — 파일 끝에서 N줄 읽기
- *
- * @param path    파일 경로
- * @param n_lines 읽을 줄 수
- * @param total   전체 줄 수 반환 (nullable)
- * @return GPtrArray<gchar*> — 마지막 n_lines줄, NULL이면 파일 열기 실패
- */
 static GPtrArray *
 _tail_file(const gchar *path, gint n_lines, gint *total)
 {
@@ -1166,7 +812,7 @@ _tail_file(const gchar *path, gint n_lines, gint *total)
 
     gint count = 0;
     while (all_lines[count]) count++;
-    /* 마지막 빈 줄 제거 (trailing newline) */
+
     if (count > 0 && all_lines[count - 1][0] == '\0')
         count--;
 
@@ -1203,7 +849,6 @@ handle_container_logs(JsonObject *params, const gchar *rpc_id,
     if (n_lines < 1) n_lines = 1;
     if (n_lines > 10000) n_lines = 10000;
 
-    /* 로그 파일 탐색 */
     gchar *path1 = g_strdup_printf("%s/%s/%s.log", PCV_LXC_PATH, name, name);
     gchar *path2 = g_strdup_printf("/var/log/lxc/%s.log", name);
 
@@ -1239,18 +884,6 @@ handle_container_logs(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.volume.attach  (동기 — bind mount + LXC config 영속)
- *
- * 파라미터: name*, host_path*, container_path*, readonly (bool, 기본 false)
- * 응답: {"success": true}
- *
- * [구현]
- *   1. host_path realpath 검증 (경로 순회 방지)
- *   2. 실행 중이면 host namespace에서 container rootfs 경로로 bind mount
- *   3. LXC config에 lxc.mount.entry 영속화
- * ══════════════════════════════════════════════════════════════════════════*/
-
 void
 handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *conn)
@@ -1276,7 +909,6 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* 경로 순회 방지: realpath로 host_path 정규화 */
     char resolved[PATH_MAX];
     if (!realpath(host_path, resolved)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -1284,14 +916,12 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* container_path 검증: 절대 경로, '..' 금지 */
     if (container_path[0] != '/' || strstr(container_path, "..")) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "container_path must be absolute with no '..'");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* 실행 중이면 host namespace에서 container rootfs 경로로 런타임 mount */
     gchar *state = pcv_lxc_get_state(name);
     if (state && g_strcmp0(state, "RUNNING") == 0) {
         GError *run_err = NULL;
@@ -1338,7 +968,6 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
     }
     g_free(state);
 
-    /* LXC config에 영속화: lxc.mount.entry 추가 */
     gchar *config_path = NULL;
     GError *cfg_err = NULL;
     if (!_ensure_container_config_ready(name, &config_path, &cfg_err)) {
@@ -1350,7 +979,7 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
         if (cfg_err) g_error_free(cfg_err);
         return;
     }
-    /* container_path에서 선행 '/' 제거 (LXC mount.entry 규약) */
+
     const gchar *dest = container_path[0] == '/' ? container_path + 1 : container_path;
     gchar *entry = g_strdup_printf("lxc.mount.entry = %s %s none bind%s 0 0\n",
                                      resolved, dest, readonly ? ",ro" : "");
@@ -1378,13 +1007,6 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.volume.detach  (동기 — umount + LXC config 삭제)
- *
- * 파라미터: name*, container_path*
- * 응답: {"success": true}
- * ══════════════════════════════════════════════════════════════════════════*/
-
 void
 handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *conn)
@@ -1411,7 +1033,6 @@ handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
-    /* 실행 중이면 host namespace에서 container rootfs 경로를 직접 umount */
     gchar *state = pcv_lxc_get_state(name);
     if (state && g_strcmp0(state, "RUNNING") == 0) {
         gchar *target_path = g_strdup_printf("%s/%s/rootfs%s", PCV_LXC_PATH, name, container_path);
@@ -1421,7 +1042,6 @@ handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
     }
     g_free(state);
 
-    /* LXC config에서 해당 mount.entry 줄 제거 */
     gchar *config_path = NULL;
     GError *cfg_err = NULL;
     if (!_ensure_container_config_ready(name, &config_path, &cfg_err)) {
@@ -1439,7 +1059,7 @@ handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
         gchar **lines = g_strsplit(contents, "\n", -1);
         GString *out = g_string_new(NULL);
         for (gint i = 0; lines[i]; i++) {
-            /* lxc.mount.entry 줄에서 대상 경로 매칭하여 제거 */
+
             if (strstr(lines[i], "lxc.mount.entry") && strstr(lines[i], dest))
                 continue;
             g_string_append(out, lines[i]);
@@ -1460,13 +1080,6 @@ handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, conn, resp);
     g_free(resp);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.volume.list  (동기 — LXC config 파싱)
- *
- * 파라미터: name*
- * 응답: { "result": [{"host_path":"/data","container_path":"/mnt/data","readonly":false}, ...] }
- * ══════════════════════════════════════════════════════════════════════════*/
 
 void
 handle_container_volume_list(JsonObject *params, const gchar *rpc_id,
@@ -1503,7 +1116,7 @@ handle_container_volume_list(JsonObject *params, const gchar *rpc_id,
     if (g_file_get_contents(config_path, &contents, NULL, NULL)) {
         gchar **lines = g_strsplit(contents, "\n", -1);
         for (gint i = 0; lines[i]; i++) {
-            /* lxc.mount.entry = /host/path dest/path none bind[,ro] 0 0 */
+
             if (!g_str_has_prefix(lines[i], "lxc.mount.entry"))
                 continue;
             gchar *eq = strchr(lines[i], '=');
@@ -1512,7 +1125,7 @@ handle_container_volume_list(JsonObject *params, const gchar *rpc_id,
             gchar **parts = g_strsplit(val, " ", 6);
             g_free(val);
             if (parts[0] && parts[1] && parts[2] && parts[3]) {
-                /* parts[3]가 "bind" 또는 "bind,ro" */
+
                 gboolean ro = strstr(parts[3], "ro") != NULL;
                 gchar *cpath = g_strdup_printf("/%s", parts[1]);
                 JsonObject *obj = json_object_new();
@@ -1536,15 +1149,6 @@ handle_container_volume_list(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.env.set  (동기 — LXC config에 lxc.environment 추가)
- *
- * 파라미터: name*, key*, value*
- * 응답: {"success": true, "note": "restart required"}
- *
- * [주의] 환경변수 변경은 컨테이너 재시작 후 적용됩니다 (LXC 제한).
- * ══════════════════════════════════════════════════════════════════════════*/
-
 void
 handle_container_env_set(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *conn)
@@ -1567,7 +1171,7 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
                        "Invalid container name");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-    /* 환경변수 키 검증: 알파뉴메릭 + '_', 공백/특수문자 금지 */
+
     for (const gchar *p = key; *p; p++) {
         if (!g_ascii_isalnum(*p) && *p != '_') {
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -1576,7 +1180,6 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
         }
     }
 
-    /* 기존 동일 키가 있으면 먼저 제거, 새 값 추가 */
     gchar *config_path = NULL;
     GError *cfg_err = NULL;
     if (!_ensure_container_config_ready(name, &config_path, &cfg_err)) {
@@ -1598,7 +1201,7 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
             gchar *trimmed = g_strstrip(g_strdup(lines[i]));
             if (g_str_has_prefix(trimmed, search_prefix)) {
                 g_free(trimmed);
-                continue;  /* 기존 키 제거 */
+                continue;
             }
             g_free(trimmed);
             g_string_append(out, lines[i]);
@@ -1609,7 +1212,6 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
         contents = g_string_free(out, FALSE);
     }
 
-    /* 새 환경변수 추가 */
     gchar *entry = g_strdup_printf("lxc.environment = %s=%s\n", key, value);
     if (contents) {
         gchar *full = g_strconcat(contents, entry, NULL);
@@ -1656,13 +1258,6 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
     g_free(resp);
 }
 
-/* ══════════════════════════════════════════════════════════════════════════
- * container.env.list  (동기 — LXC config에서 lxc.environment 파싱)
- *
- * 파라미터: name*
- * 응답: { "result": {"DATABASE_URL":"postgres://...", "NODE_ENV":"production"} }
- * ══════════════════════════════════════════════════════════════════════════*/
-
 void
 handle_container_env_list(JsonObject *params, const gchar *rpc_id,
                            UdsServer *server, GSocketConnection *conn)
@@ -1704,7 +1299,7 @@ handle_container_env_list(JsonObject *params, const gchar *rpc_id,
             }
             gchar *eq = strchr(trimmed, '=');
             if (!eq) { g_free(trimmed); continue; }
-            /* lxc.environment = KEY=VALUE — 첫 번째 '='는 설정 구분, 두 번째가 실제 K=V */
+
             gchar *kv = g_strstrip(g_strdup(eq + 1));
             gchar *sep = strchr(kv, '=');
             if (sep) {
@@ -1725,13 +1320,6 @@ handle_container_env_list(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, conn, resp);
     g_free(resp);
 }
-
-/* ══════════════════════════════════════════════════════════════════════════
- * container.env.delete  (동기 — LXC config에서 lxc.environment 제거)
- *
- * 파라미터: name*, key*
- * 응답: {"success": true, "note": "restart required"}
- * ══════════════════════════════════════════════════════════════════════════*/
 
 void
 handle_container_env_delete(JsonObject *params, const gchar *rpc_id,
@@ -1800,36 +1388,21 @@ handle_container_env_delete(JsonObject *params, const gchar *rpc_id,
     g_free(resp_env);
 }
 
-
-/* ══════════════════════════════════════════════════════════════════════════
- * Container Health Check Probes — TCP/HTTP/Exec 주기적 헬스 프로브
- *
- * [설계]
- *   - 최대 MAX_HEALTH_PROBES(32)개 프로브를 전역 배열에 보관
- *   - GTimeout(1초)으로 due 프로브를 평가 (pcv_spawn_sync 기반)
- *   - failure_threshold 초과 시 healthy=FALSE + auto_restart 시 lxc-stop/start
- *
- * [RPC 메서드]
- *   container.health.set    — 프로브 등록/갱신
- *   container.health.get    — 프로브 상태 조회
- *   container.health.delete — 프로브 삭제
- * ══════════════════════════════════════════════════════════════════════════*/
-
 #define MAX_HEALTH_PROBES 32
 
 typedef struct {
-    gchar    name[64];             /* 컨테이너 이름 */
-    gchar    probe_type[8];        /* "tcp", "http", "exec" */
-    gchar    target[256];          /* "80" / "http://localhost/health" / "/bin/check.sh" */
-    gint     timeout_sec;          /* 프로브 타임아웃 (초) */
-    gint     interval_sec;         /* 검사 간격 (초) */
-    gint     failure_threshold;    /* 연속 실패 임계값 */
-    gboolean auto_restart;         /* 임계값 초과 시 자동 재시작 여부 */
-    /* 런타임 상태 */
-    gint     consecutive_failures; /* 현재 연속 실패 횟수 */
-    gboolean healthy;              /* 현재 건강 상태 */
-    gint     restart_count;        /* 자동 재시작 횟수 */
-    gint64   last_check_time;      /* 마지막 검사 시각 (monotonic usec) */
+    gchar    name[64];
+    gchar    probe_type[8];
+    gchar    target[256];
+    gint     timeout_sec;
+    gint     interval_sec;
+    gint     failure_threshold;
+    gboolean auto_restart;
+
+    gint     consecutive_failures;
+    gboolean healthy;
+    gint     restart_count;
+    gint64   last_check_time;
 } ContainerHealthProbe;
 
 static ContainerHealthProbe g_health_probes[MAX_HEALTH_PROBES];
@@ -1837,7 +1410,6 @@ static gint g_n_health_probes = 0;
 static GMutex g_health_mu;
 static guint g_health_timer_id = 0;
 
-/* 이름으로 프로브 인덱스 검색. 없으면 -1 반환 */
 static gint _health_find(const gchar *ctr_name) {
     for (gint i = 0; i < g_n_health_probes; i++) {
         if (g_strcmp0(g_health_probes[i].name, ctr_name) == 0)
@@ -1846,7 +1418,6 @@ static gint _health_find(const gchar *ctr_name) {
     return -1;
 }
 
-/* 1초마다 호출되는 타이머 콜백 — due 프로브 평가 */
 static gboolean _health_check_tick(gpointer user_data) {
     (void)user_data;
     gint64 now = g_get_monotonic_time();
@@ -1858,7 +1429,6 @@ static gboolean _health_check_tick(gpointer user_data) {
             continue;
         p->last_check_time = now;
 
-        /* 컨테이너 PID 조회 (RUNNING 상태만 프로브 가능) */
         const gchar *pid_argv[] = {"lxc-info", "-P", PCV_LXC_PATH,
                                     "-n", p->name, "-p", "-H", NULL};
         gchar *pid_out = NULL;
@@ -1916,7 +1486,6 @@ hc_check_threshold:
     return G_SOURCE_CONTINUE;
 }
 
-/* container.health.set — 프로브 등록/갱신 */
 void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
                                   UdsServer *server, GSocketConnection *conn)
 {
@@ -1958,7 +1527,7 @@ void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
         ? (gint)json_object_get_int_member(params, "timeout_sec") : 5;
     p->interval_sec = json_object_has_member(params, "interval_sec")
         ? (gint)json_object_get_int_member(params, "interval_sec") : 30;
-    if (p->interval_sec < 5) p->interval_sec = 5;  /* 최소 5초 */
+    if (p->interval_sec < 5) p->interval_sec = 5;
     p->failure_threshold = json_object_has_member(params, "failure_threshold")
         ? (gint)json_object_get_int_member(params, "failure_threshold") : 3;
     p->auto_restart = json_object_has_member(params, "auto_restart")
@@ -1981,7 +1550,6 @@ void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
     g_free(rsp);
 }
 
-/* container.health.get — 프로브 상태 조회 */
 void handle_container_health_get(JsonObject *params, const gchar *rpc_id,
                                   UdsServer *server, GSocketConnection *conn)
 {
@@ -2038,7 +1606,6 @@ void handle_container_health_get(JsonObject *params, const gchar *rpc_id,
     }
 }
 
-/* container.health.delete — 프로브 삭제 */
 void handle_container_health_delete(JsonObject *params, const gchar *rpc_id,
                                      UdsServer *server, GSocketConnection *conn)
 {

@@ -5,11 +5,6 @@
 #include "modules/security/hips_actions.h"
 #include "modules/security/security_store.h"
 
-/*
- * HIPS tests guard the v1 safety boundary: only block_ip and revoke_api_key are
- * executable, pending approvals survive restart, and unsafe targets never build
- * argv for pcv_spawn_sync().
- */
 static void
 cleanup_security_db(const gchar *path)
 {
@@ -36,7 +31,7 @@ test_hips_action_executable_allowlist(void)
 static void
 test_hips_action_pending_persistence(void)
 {
-    /* Pending action state must survive daemon restart before an admin decides. */
+
     gchar *path = g_strdup_printf("%s/pcv-hips-test-%u.db",
                                   g_get_tmp_dir(), g_random_int());
     cleanup_security_db(path);
@@ -112,9 +107,6 @@ test_security_action_block_ip_rejects_invalid_targets(void)
                                                        argv, G_N_ELEMENTS(argv)));
 }
 
-/* SEC-4: 만료된 pending 승인이 부작용(nft/키폐기)을 실행하기 전에 차단되는지 검증한다.
- * spy_execute가 실제 nft/RBAC를 대체하므로 root 불필요 — execute_fn 주입 seam으로
- * 만료(=0회 호출)와 비만료(=1회 호출)를 결정적으로 구분한다. */
 static gint g_spy_execute_calls;
 
 static gboolean
@@ -127,7 +119,6 @@ spy_execute(const gchar *action, const gchar *target, GError **error)
     return TRUE;
 }
 
-/* test-only 클록 시드 (헤더 미선언; set_retention_cap_for_test 관례로 forward-decl). */
 void pcv_security_store_set_now_for_test(gint64 t);
 
 static void
@@ -144,9 +135,8 @@ test_hips_expired_pending_blocks_side_effect(void)
     ev.target_kind = PCV_SECURITY_TARGET_IP;
     g_strlcpy(ev.target, "192.0.2.99", sizeof ev.target);
 
-    /* 대조군: 비만료(now < expires_at) → execute_fn 호출 + approve 경로 온전. */
     pcv_security_store_set_now_for_test(1000);
-    g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL)); /* expires_at=4600 */
+    g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL));
     pcv_security_store_set_now_for_test(2000);
     g_spy_execute_calls = 0;
     GError *err = NULL;
@@ -155,9 +145,8 @@ test_hips_expired_pending_blocks_side_effect(void)
     g_assert_no_error(err);
     g_assert_cmpint(g_spy_execute_calls, ==, 1);
 
-    /* SEC-4: 재-arm 후 만료 경계 초과(now > expires_at) → 부작용 미실행 + pending 잔존. */
     pcv_security_store_set_now_for_test(1000);
-    g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL)); /* expires_at=4600 */
+    g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL));
     pcv_security_store_set_now_for_test(5000);
     g_spy_execute_calls = 0;
     g_assert_false(pcv_hips_action_run_approval("sec-exp-1", "block_ip", "192.0.2.99",
@@ -170,18 +159,12 @@ test_hips_expired_pending_blocks_side_effect(void)
     g_assert_cmpstr(json_object_get_string_member(action, "status"), ==, "pending");
     json_object_unref(action);
 
-    pcv_security_store_set_now_for_test(0); /* 실클록 복원 */
+    pcv_security_store_set_now_for_test(0);
     pcv_security_store_close();
     cleanup_security_db(path);
     g_free(path);
 }
 
-/* SEC-4 follow-up: 만료 판정 DB 조회 실패가 fail-open(=미만료 오탐→execute 허용)이
- * 아니라 fail-secure(=만료 취급→execute 거부)로 바뀌었는지 반사실 검증한다.
- * tests/test_rbac_user_exists.c의 DROP TABLE 반사실 패턴을 그대로 따른다: 첫 연결
- * (pcv_security_store_open)은 열어둔 채, 같은 DB 파일을 가리키는 두 번째 raw sqlite3
- * 연결로 security_actions 테이블을 지우면 pcv_security_store_action_is_expired() 내부
- * sqlite3_prepare_v2()가 "no such table"로 실패할 수밖에 없다. */
 static void
 test_hips_action_is_expired_fail_secure_on_db_error(void)
 {
@@ -197,7 +180,6 @@ test_hips_action_is_expired_fail_secure_on_db_error(void)
     g_strlcpy(ev.target, "192.0.2.55", sizeof ev.target);
     g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL));
 
-    /* 대조군: 정상 DB에서는 비만료 pending → run_approval이 execute_fn을 호출. */
     g_spy_execute_calls = 0;
     GError *err = NULL;
     g_assert_true(pcv_hips_action_run_approval("sec-dberr-1", "block_ip", "192.0.2.55",
@@ -205,7 +187,6 @@ test_hips_action_is_expired_fail_secure_on_db_error(void)
     g_assert_no_error(err);
     g_assert_cmpint(g_spy_execute_calls, ==, 1);
 
-    /* 재-arm 후, 두 번째 연결로 조회 대상 테이블을 지워 prepare 실패를 강제한다. */
     g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 3600, NULL));
 
     sqlite3 *raw_db = NULL;
@@ -222,7 +203,6 @@ test_hips_action_is_expired_fail_secure_on_db_error(void)
     g_assert_cmpint(g_spy_execute_calls, ==, 0);
     g_clear_error(&err);
 
-    /* store 자체가 닫힌 경우도 동일하게 fail-secure(만료 취급)여야 한다. */
     pcv_security_store_close();
     g_assert_true(pcv_security_store_action_is_expired("sec-dberr-1"));
 

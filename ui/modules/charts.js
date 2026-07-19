@@ -1,24 +1,17 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/charts.js (F-1)
-   Chart.js wrappers for time-series monitoring visualization.
-   Reuses existing monHist rolling buffers populated by fetchAllMetrics().
-   ═══════════════════════════════════════════════════════════════ */
 
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* Active chart instances keyed by canvas ID — reused on poll updates */
 var pcvCharts = {};
 window.pcvCharts = pcvCharts;
 
-/* Cyberpunk-friendly color palette for multi-line series */
 var PCV_CHART_COLORS = [
   '#00f0ff', '#00ff88', '#ff00aa', '#ffee00',
   '#ff6600', '#a78bfa', '#22d3ee', '#f472b6'
 ];
 
 function pcvChartTheme() {
-  /* Read CSS variables so charts respect the active theme */
+
   var s = getComputedStyle(document.documentElement);
   return {
     fg: (s.getPropertyValue('--fg') || '#e0f0ff').trim(),
@@ -28,9 +21,6 @@ function pcvChartTheme() {
   };
 }
 
-/**
- * pcvDestroyChart(id): Dispose chart instance if exists. Safe to call on no-op.
- */
 function pcvDestroyChart(id) {
   if (pcvCharts[id]) {
     try { pcvCharts[id].destroy(); } catch (e) {}
@@ -39,14 +29,6 @@ function pcvDestroyChart(id) {
 }
 window.pcvDestroyChart = pcvDestroyChart;
 
-/**
- * pcvTimeSeries(canvasId, series, opts):
- *   series: [{label, data:[Number], color?}]
- *   opts: {title?, unit?, max?, height?, fill?}
- *
- * Creates or updates a multi-line time-series chart.
- * X-axis is index-based (rolling buffer), labels are relative seconds ago.
- */
 function pcvTimeSeries(canvasId, series, opts) {
   if (typeof Chart === 'undefined') return;
   var el = document.getElementById(canvasId);
@@ -56,13 +38,13 @@ function pcvTimeSeries(canvasId, series, opts) {
   var maxLen = Math.max.apply(null, series.map(function(s){return s.data.length;}).concat([1]));
   var labels = [];
   for (var i = 0; i < maxLen; i++) {
-    var ago = (maxLen - 1 - i) * 5; /* fetchAllMetrics는 5초 간격 */
+    var ago = (maxLen - 1 - i) * 5;
     labels.push(ago === 0 ? 'now' : '-' + ago + 's');
   }
 
   var datasets = series.map(function(s, idx) {
     var c = s.color || PCV_CHART_COLORS[idx % PCV_CHART_COLORS.length];
-    /* 데이터 1~2개 시 점이 보이지 않는 문제: 짧은 시계열은 점을 키워 가시화 */
+
     var pr = s.data.length <= 2 ? 3 : 0;
     return {
       label: s.label,
@@ -77,17 +59,16 @@ function pcvTimeSeries(canvasId, series, opts) {
     };
   });
 
-  /* If chart exists AND its canvas is still in DOM, update in place */
   if (pcvCharts[canvasId]) {
     var ch = pcvCharts[canvasId];
     if (ch.canvas && document.body.contains(ch.canvas) && ch.canvas === el) {
       ch.data.labels = labels;
-      /* 데이터셋 개수가 변할 수 있으므로 전체 교체 */
+
       ch.data.datasets = datasets;
       ch.update('none');
       return ch;
     }
-    /* Canvas가 DOM에서 제거됐거나 교체됨 → 기존 차트 폐기 후 재생성 */
+
     try { ch.destroy(); } catch (e) {}
     delete pcvCharts[canvasId];
   }
@@ -150,10 +131,6 @@ function pcvTimeSeries(canvasId, series, opts) {
 }
 window.pcvTimeSeries = pcvTimeSeries;
 
-/**
- * pcvDoughnut(canvasId, value, max, opts):
- *   value 0..max — single-arc gauge
- */
 function pcvDoughnut(canvasId, value, max, opts) {
   if (typeof Chart === 'undefined') return;
   var el = document.getElementById(canvasId);
@@ -195,10 +172,6 @@ function pcvDoughnut(canvasId, value, max, opts) {
 }
 window.pcvDoughnut = pcvDoughnut;
 
-/**
- * pcvDestroyAllInContainer(parentEl):
- *   When re-rendering a section, dispose any charts whose canvas is no longer in DOM.
- */
 function pcvDestroyAllInContainer(parentEl) {
   Object.keys(pcvCharts).forEach(function(id) {
     var el = document.getElementById(id);
@@ -209,7 +182,6 @@ function pcvDestroyAllInContainer(parentEl) {
 }
 window.pcvDestroyAllInContainer = pcvDestroyAllInContainer;
 
-/* ── PCV.charts namespace export ──────────────────── */
 PCV.charts = {
   instances: pcvCharts,
   colors: PCV_CHART_COLORS,

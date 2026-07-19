@@ -9,8 +9,7 @@ def test_marker_extract():
 
 def test_marker_kebab_only():
     assert collect_markers(['/* PCV_SAFETY_CONTROL: session-revoke */']) == {"session-revoke"}
-    assert collect_markers(['/* PCV_SAFETY_CONTROL: BadId */']) == set()  # 대문자 불가
-
+    assert collect_markers(['/* PCV_SAFETY_CONTROL: BadId */']) == set()
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_") and callable(v)]

@@ -1,4 +1,4 @@
-/* tests/test_vm_iface.c — virsh domiflist 출력 파서 (순수, root 불필요) */
+
 #include <glib.h>
 #include "../src/modules/network/vm_iface.h"
 
@@ -24,7 +24,6 @@ static void test_parse_domiflist_empty_and_null(void) {
     g_assert_cmpuint(arr->len, ==, 0);
     g_ptr_array_unref(arr);
 
-    /* 꺼진 VM: 헤더만 있는 출력 */
     arr = pcv_vm_iface_parse_domiflist(" Interface   Type   Source   Model   MAC\n---\n\n");
     g_assert_cmpuint(arr->len, ==, 0);
     g_ptr_array_unref(arr);

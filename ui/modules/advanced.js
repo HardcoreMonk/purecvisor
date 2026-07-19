@@ -1,19 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/advanced.js
-   Templates, Config Management, OVA Import
-   ADR-0013: IIFE module scope — PCV.advanced namespace
-   ═══════════════════════════════════════════════════════════════ */
-/*
- * Advanced screens are optional capability frontends. A missing backend should
- * render an explanatory empty state, while configured backends must still use
- * EP registry helpers and sanitizer paths before inserting returned data.
- */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ADR-013 DOM-safe: i18n 설명 문자열에 포함된 <br> 마크업을 [텍스트, <br> 노드, ...]
- * 배열로 분해. innerHTML 경로에서 <br> 가 요소로 파싱되던 것을 노드 조립에서 동형
- * 재현한다. (PCV.uxlib 는 늦게 로드되므로 el() 은 호출 시점에 해소.) */
 function _splitBr(s) {
   var out = [];
   String(s).split('<br>').forEach(function (seg, i) {
@@ -23,7 +11,6 @@ function _splitBr(s) {
   return out;
 }
 
-/* ═══ TEMPLATES ═══ */
 async function renderTemplates(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -124,7 +111,6 @@ async function loadTemplateHistory() {
   } catch (e) { toast('Template history error: ' + e.message, false); }
 }
 
-/* ═══ CONFIG MANAGEMENT ═══ */
 async function configBackup() {
   toast('Backing up configuration...');
   try {
@@ -171,7 +157,6 @@ async function renderConfigMgmt(b) {
   b.appendChild(frag(
     HN.section('\u{2699} Configuration Management'),
 
-    /* 스토리지 풀 설정 */
     el('h3', { style: 'margin:16px 0 10px' }, '\u{1F4BE} ' + _L('스토리지 풀 설정', 'Storage Pool Settings')),
     el('div', { class: 'sg grid-2 mb-14' },
       HN.card('\u{1F4BE} VM Storage', [
@@ -210,7 +195,6 @@ async function renderConfigMgmt(b) {
         el('div', { id: 'cfg-ctr-result', style: 'margin-top:6px;font-size:11px' })
       ])),
 
-    /* 기존 백업/히스토리 */
     el('h3', { style: 'margin:16px 0 10px' }, '\u{1F4CB} ' + _L('설정 관리', 'Config Management')),
     el('div', { class: 'sg grid-2 mb-14' },
       HN.card('\u{1F4BE} Config Backup', [
@@ -230,7 +214,7 @@ async function saveStorageCfg(type) {
   var resultEl;
   if (type === 'vm') {
     resultEl = document.getElementById('cfg-vm-result');
-    /* ZFS Pool 필드 검증: /로 시작하면 경고 */
+
     var zvolVal = (document.getElementById('cfg-zvol')?.value || '').trim();
     if (zvolVal.startsWith('/')) {
       if (resultEl) PCV.uxlib.setMsg(resultEl, null, { cls: 'color-red' },
@@ -296,7 +280,6 @@ async function loadConfigHistoryInline() {
   } catch (e) { PCV.uxlib.setMsg(box, null, { tag: 'p', cls: 'color-muted text-12' }, 'Config history not available.'); }
 }
 
-/* ═══ OVA IMPORT ═══ */
 function showImportOva() {
   var el = PCV.uxlib.el;
   showModal([
@@ -324,7 +307,6 @@ async function doImportOva() {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ WINDOW REGISTRATIONS ═══ */
 window.renderTemplates = renderTemplates;
 window.showTemplateCreate = showTemplateCreate;
 window.doTemplateCreate = doTemplateCreate;
@@ -339,7 +321,6 @@ window.saveStorageCfg = saveStorageCfg;
 window.showImportOva = showImportOva;
 window.doImportOva = doImportOva;
 
-/* ═══ CONFIG RELOAD (백엔드 4차) ═══ */
 async function doConfigReload() {
   if (!await customConfirm(_L('데몬 설정을 리로드하시겠습니까?\n(webhook, rate limit, alert 임계값 등이 갱신됩니다)',
       'Reload daemon configuration?\n(webhook, rate limit, alert thresholds will be refreshed)'))) return;
@@ -350,7 +331,6 @@ async function doConfigReload() {
   } catch(e) { toast(_L('리로드 실패', 'Reload failed') + ': ' + (e.message || ''), false); }
 }
 
-/* ═══ BACKUP SNAPSHOT VERIFY ═══ */
 function showBackupVerify() {
   var mk = PCV.uxlib.el;
   var snapInput = mk('input', { id: 'verify-snap', placeholder: 'pcvpool/vms/web-prod@daily-20260401' });
@@ -376,7 +356,6 @@ function showBackupVerify() {
   ]);
 }
 
-/* ═══ PERSISTENT JOBS ═══ */
 async function renderPersistentJobs(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -405,7 +384,6 @@ async function renderPersistentJobs(b) {
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
-/* ═══ DB MIGRATION STATUS ═══ */
 async function renderDbMigration(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -422,7 +400,6 @@ async function renderDbMigration(b) {
   } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
 }
 
-/* ═══ DEEP HEALTH (확장) ═══ */
 async function renderDeepHealth(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -445,7 +422,6 @@ window.renderPersistentJobs = renderPersistentJobs;
 window.renderDbMigration = renderDbMigration;
 window.renderDeepHealth = renderDeepHealth;
 
-/* ═══ PCV.advanced namespace export ═══ */
 PCV.advanced = {
   renderTemplates: renderTemplates,
   showTemplateCreate: showTemplateCreate,

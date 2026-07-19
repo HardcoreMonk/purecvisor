@@ -1,12 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/vm-lifecycle.js
-   Bulk, Power/Delete, Create Wizard, Settings, NIC, Clone, Export OVA
-   ADR-0013: IIFE module scope — vm.js에서 분할 (pure-move)
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ BULK ACTIONS ═══ */
 function showBulkActions() {
   if (checkedVms.size === 0) { toast(_L('VM을 선택하세요', 'Select VMs first'), false); return; }
   var count = checkedVms.size;
@@ -91,12 +86,9 @@ async function bulkSnapshot() {
   setTimeout(function() { closeModal(); loadAll(); }, 2000);
 }
 
-/* ADR-0018: VM 액션 실패 시 사용자에게 사유를 보여주는 헬퍼.
- * /health/recent-errors 에서 audit DB의 최근 worker 실패 fail 레코드를 가져와 표시.
- * 자동 닫기 없음 — 사용자가 [닫기] 버튼을 눌러야 닫힌다. */
 async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (progEl) { progEl.style.width = '100%'; progEl.style.background = 'var(--red)'; }
-  /* notification center 영구 기록 (모달 닫혀도 사용자가 추후 확인 가능) */
+
   if (typeof addNotification === 'function') {
     addNotification('error',
       (actionLabel || 'VM action') + ' failed: ' + vmName,
@@ -105,7 +97,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   if (typeof addEvt === 'function') {
     addEvt('FAIL ' + (actionLabel || 'action') + ' ' + vmName + ' — state change timeout');
   }
-  /* 정적 i18n 라벨 + vmName(text node) — DOM-safe(ADR-013): 문자열은 TextNode로만 삽입 */
+
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   if (statusEl) {
     clearEl(statusEl);
@@ -117,7 +109,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
       el('div', { class: 'mt-12' },
         el('button', { class: 'btn', onclick: 'closeModal();loadAll()' }, t('btn.close')))));
   }
-  /* 비동기 사유 조회 */
+
   try {
     var resp = await fetchGet('/api/v1/health/recent-errors?vm=' + encodeURIComponent(vmName) + '&limit=3');
     var errs = (resp && (resp.data || resp.errors)) || [];
@@ -143,11 +135,6 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   }
 }
 
-/* ═══ POWER / VM DELETE ═══
- *  vmPower(action)는 진행 모달을 즉시 표시한 뒤 fetch → 상태 폴링 패턴을 사용.
- *  백엔드가 fire-and-forget이므로 API 응답은 "accepted"일 뿐 완료가 아니다.
- *  따라서 2초 간격으로 최대 5회 VM 상태를 폴링하여 실제 전이를 확인한다.
- *  vmDel도 비슷하게 삭제 후 VM이 목록에서 사라질 때까지 폴링한다. */
 async function vmPower(a) {
   const v = vmList[selectedVmIndex]; if (!v) return;
   var actionLabels = {
@@ -157,7 +144,7 @@ async function vmPower(a) {
     resume: { icon: '▶▶', label: _L('재개', 'Resume'), past: _L('재개됨', 'Resumed'), color: 'var(--green)' }
   };
   var al = actionLabels[a] || { icon: '⚙', label: a, past: a, color: 'var(--accent)' };
-  /* 진행 모달 표시 */
+
   var el = PCV.uxlib.el;
   showModal(el('div', { class: 'text-center p-20' },
     el('div', { style: 'font-size:48px;margin-bottom:12px' }, al.icon),
@@ -168,7 +155,7 @@ async function vmPower(a) {
   try {
     var pf = document.getElementById('pwr-p'), ps = document.getElementById('pwr-s');
     var r = await fetchPost(EP.VM_ACTION(v.name, a), {});
-    /* API 에러 응답 체크 */
+
     if (r && r.error) {
       if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
       if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || 'Failed'));
@@ -177,7 +164,7 @@ async function vmPower(a) {
     }
     if (pf) pf.style.width = '60%';
     if (ps) PCV.uxlib.setMsg(ps, 'loading', null, _L('상태 확인 중...', 'Verifying state...'));
-    /* W7 fix: 실제 VM 상태 폴링 최대 15회(30초), 2초 간격 — 느린 환경 허용 */
+
     var expectedState = (a === 'start' || a === 'resume') ? 'running' : (a === 'suspend') ? 'paused' : 'shutoff';
     var verified = false;
     var maxPolls = 15;
@@ -197,8 +184,7 @@ async function vmPower(a) {
       addEvt(v.name + ' ' + al.past);
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     } else {
-      /* ADR-0018 fix: 자동 닫기 금지. 사용자가 명시적으로 [닫기]를 눌러야 함.
-       * 백엔드 워커 실패 사유는 /health/recent-errors 에서 비동기 fetch */
+
       await showVmFailureDetail(ps, pf, v.name, al.label);
       loadAll();
     }
@@ -206,7 +192,7 @@ async function vmPower(a) {
     var pf2 = document.getElementById('pwr-p'), ps2 = document.getElementById('pwr-s');
     if (pf2) { pf2.style.width = '100%'; pf2.style.background = 'var(--red)'; }
     var errMsg = e.name === 'AbortError' ? _L('타임아웃 (10초)', 'timeout (10s)') : (e.message || '');
-    /* ADR-0018: 자동 닫기 제거 — 사용자가 [닫기] 버튼을 명시적으로 눌러야 함 */
+
     if (ps2) {
       var clearEl = PCV.uxlib.clearEl;
       clearEl(ps2);
@@ -217,11 +203,10 @@ async function vmPower(a) {
   }
 }
 
-/* C4 fix: 공통 destroyConfirm 패턴으로 통일 (스냅샷 롤백과 동일 UX 수준) */
 async function vmDel() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   if (typeof destroyConfirm !== 'function') {
-    /* fallback — uxlib 미로드 환경 */
+
     if (!confirm(_L('VM 삭제: ', 'Delete VM: ') + v.name + '?')) return;
     return doVmDel(v.name);
   }
@@ -235,8 +220,6 @@ async function vmDel() {
   });
 }
 
-/* C5 fix: DELETE 응답이 에러여도 실제 상태 폴링을 끝까지 수행 (서버는 계속 진행 중일 수 있음).
-   W7-equivalent: 폴링을 10회(20초)로 확장. */
 async function doVmDel(n) {
   var el = PCV.uxlib.el;
   showModal([
@@ -252,7 +235,7 @@ async function doVmDel(n) {
     const d = await fetchDelete(EP.VM_DETAIL(n)).catch(function(e) { return { error: { message: e && e.message || 'Network error' } }; });
     if (d && d.error) {
       deleteError = d.error.message || 'Failed';
-      /* 에러여도 폴링 수행 — 서버가 백그라운드로 처리 완료했을 수 있음 */
+
       if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), '⚠ ' + deleteError + _L(' — 서버 상태 확인 중...', ' — polling server state...'));
     } else {
       if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), 'Waiting for zvol cleanup...');
@@ -266,7 +249,7 @@ async function doVmDel(n) {
         const vl = await fetchGet(EP.VM_LIST());
         const vms = unwrapList(vl);
         if (!vms.find(x => x.name === n)) {
-          /* VM이 목록에서 사라짐 → 실제 삭제 성공 */
+
           if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
           if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('vm.deleted'));
           toast(t('vm.deleted'));
@@ -276,7 +259,7 @@ async function doVmDel(n) {
         }
       } catch (e) { if(typeof _DEBUG !== 'undefined' && _DEBUG) console.warn('vl:', e.message); }
     }
-    /* 폴링 타임아웃 — 아직 목록에 남아있음 */
+
     if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--yellow)'; }
     if (deleteError) {
       if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + deleteError);
@@ -294,14 +277,6 @@ async function doVmDel(n) {
   }
 }
 
-/* ═══ VM CREATE WIZARD ═══
- *  3단계 위자드: 1) 이름 2) CPU/메모리 3) 디스크/ISO/네트워크
- *  wizData에 각 단계의 입력값을 누적. wizSave()로 현재 단계 저장.
- *  step 1→2 이동 시 VM 이름 정규식 검증 (/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/).
- *  doCreate()에서 fire-and-forget 패턴: 모달 닫고 → 1초 폴링으로 생성 확인.
- *  최대 20초(20회) 폴링 후 미확인이면 사용자에게 안내. */
-/* M4 fix: storage_type 기본값을 'auto'로 → 백엔드 자동 감지 사용.
-   사용자가 명시적으로 선택하지 않으면 body에서 storage_type 제거 (backend fallback 활용). */
 function wizDefaults() {
   return {
     name: '',
@@ -340,7 +315,7 @@ function wizSave() {
 }
 function wizGo(s) {
   wizSave();
-  /* Step 1 → 2 이동 시 VM 이름 검증 */
+
   if (wizStep === 1 && s > 1) {
     const name = wizData.name.trim();
     if (!name) { toast(_L('VM 이름을 입력하세요', 'VM name is required'), false); return; }
@@ -494,8 +469,6 @@ async function wizLoadStorageTargets(force) {
   wizStorageChanged(false);
 }
 
-/* M3 fix: 네트워크 목록 조회 실패 시 명시적 토스트 + 수동 입력 힌트
-   (이전엔 virbr0 하드코딩으로 숨김 → 브릿지 없는 환경에서 생성 실패) */
 async function wizLoadNets() {
   const sel = document.getElementById('wb'); if (!sel) return;
   var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
@@ -589,11 +562,11 @@ async function doCreate() {
   if (!/^[a-zA-Z0-9][a-zA-Z0-9_-]{0,63}$/.test(name)) {
     toast(_L('VM 이름: 1-64자, 영문/숫자/_- 만 허용', 'VM name: 1-64 chars, [a-zA-Z0-9_-]'), false); return;
   }
-  /* M3 (cont.): 네트워크 브릿지 필수 — wizLoadNets에서 선택된 값이 있어야 함 */
+
   if (!d.bridge) {
     toast(_L('네트워크 브릿지를 선택하세요', 'Select a network bridge'), false); return;
   }
-  /* Client-side 수치 가드 (서버는 W5에서 엄격 검증) */
+
   if (!(d.vcpu >= 1 && d.vcpu <= 256)) {
     toast(_L('vCPU 는 1~256 사이', 'vCPU must be between 1 and 256'), false); return;
   }
@@ -604,13 +577,12 @@ async function doCreate() {
     toast(_L('디스크는 1~65536 GB 사이', 'Disk must be 1~65536 GB'), false); return;
   }
 
-  /* 모달 즉시 닫고 백그라운드 처리 */
   if (typeof clearFormDirty === 'function') clearFormDirty('vm-create');
   closeModal(true);
   toast('&#128187; ' + escapeHtml(name) + ' ' + _L('생성 시작...', 'Creating...'), 's');
 
   try {
-    /* M4: storage_type='auto'일 때 body에서 제외 → 백엔드가 ZFS 풀 감지 후 qcow2 폴백 */
+
     const body = { name: name, vcpu: d.vcpu, memory_mb: d.mem, disk_size_gb: d.disk, network_bridge: d.bridge };
     if (d.storage_type && d.storage_type !== 'auto') body.storage_type = d.storage_type;
     if (d.storage_pool) body.storage_pool = d.storage_pool;
@@ -626,8 +598,7 @@ async function doCreate() {
     toast('&#9989; ' + t('vm.created') + ': ' + escapeHtml(name), 's');
     const storageLabel = (d.storage_type && d.storage_type !== 'auto') ? d.storage_type : 'auto';
     addEvt(t('vm.created') + ': ' + name + ' (' + d.vcpu + 'vCPU, ' + d.mem + 'MB, ' + d.disk + 'GB, ' + storageLabel + ')');
-    /* W8 fix: fire-and-forget 백엔드 — 워커가 libvirt define 마칠 때까지 폴링 (최대 20초)
-       절대 타임아웃 25초 + 연속 에러 5회로 이중 안전장치 → interval 누수 방지 */
+
     if (typeof invalidateCache === 'function') invalidateCache('vm.list');
     var attempts = 0;
     var errStreak = 0;
@@ -669,7 +640,6 @@ async function doCreate() {
   }
 }
 
-/* ═══ SETTINGS ═══ */
 function showSettings() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   var el = PCV.uxlib.el;
@@ -903,7 +873,7 @@ async function doSet(t2) {
     const r = await fetchPut(EP.VM_ACTION(v.name, t2), b);
     if (r && r.error) {
       var msg = r.error.message || (t2 + ' failed');
-      // Fix B: 실행 중 vCPU 축소 불가(-32000 hotpluggable) → config-only 재시도 제안
+
       if (t2 === 'vcpu' && /hotpluggable|cannot change vcpu|unplug/i.test(msg)) {
         var okc = await customConfirm(_L('실행 중 vCPU 변경 불가', 'Cannot change vCPU while running'),
           _L('실행 중에는 vCPU를 줄일 수 없습니다.\n다음 재시작 시 ' + nextValue + ' vCPU로 적용할까요?',
@@ -915,7 +885,7 @@ async function doSet(t2) {
         if (typeof invalidateCache === 'function') invalidateCache('vm.list');
         return;
       }
-      // 실행 중 vCPU 증가가 VM 최대치 초과 → 명확한 안내(최대 vCPU는 정지 후에만 상향 가능)
+
       if (t2 === 'vcpu' && /max allowable|greater than max/i.test(msg)) {
         var mm = msg.match(/(\d+)\s*>\s*(\d+)/);
         var reqN = mm ? mm[1] : String(nextValue), maxN = mm ? mm[2] : '?';
@@ -963,10 +933,8 @@ async function doEjt() {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ SNAPSHOT SHORTCUT ═══ */
 function showSnap() { currentTab = 'snapshots'; document.querySelectorAll('#ct button').forEach(b => { b.classList.remove('active'); if (b.dataset.t === 'snapshots') b.classList.add('active'); }); renderContent(); }
 
-/* ═══ NIC MANAGER ═══ */
 async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return; var el = PCV.uxlib.el; showModal([
     el('h2', null, 'NIC: ' + v.name),
     el('div', { id: 'nic-mgr' }, t('loading')),
@@ -981,7 +949,6 @@ async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return;
 async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { const r = await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
-/* ═══ VNC MODAL ═══ */
 async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; var el = PCV.uxlib.el; showModal([
     el('h2', null, 'VNC: ' + v.name),
     el('div', { id: 'vnc-info' }, t('loading')),
@@ -989,7 +956,6 @@ async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; va
   ]);
   try { const r = await fetchGet(EP.VNC(v.name)); const d = unwrapData(r); const stBadge = v.state === 'running' ? HN.badge('Available', 'g') : HN.badge('VM stopped', 'r'); const info = document.getElementById('vnc-info'); PCV.uxlib.clearEl(info); info.appendChild(HN.card('', [HN.row('Address', d.vnc_address || d.address || 'localhost'), HN.row('Port', String(d.vnc_port || d.port || '-')), HN.row('Status', stBadge)])); } catch (e) { const info = document.getElementById('vnc-info'); PCV.uxlib.clearEl(info); info.appendChild(HN.card('', PCV.uxlib.el('p', { class: 'color-muted' }, 'VNC info unavailable'))); } }
 
-/* ═══ VM CLONE ═══ */
 function _vmCloneStorageKind(v) {
   const st = String(v?.storage_type || '').toLowerCase();
   const fmt = String(v?.disk_format || '').toLowerCase();
@@ -1219,7 +1185,6 @@ async function doVmClone() {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ VM DISK RESIZE ═══ */
 function hwDisk() {
   var el = PCV.uxlib.el;
   return [
@@ -1243,7 +1208,6 @@ async function doDiskResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-/* ═══ VM DELETE STATUS ═══ */
 async function vmDeleteStatus(name) {
   try {
     const r = await fetchGet(EP.VM_DELETE_STATUS(name));
@@ -1252,7 +1216,6 @@ async function vmDeleteStatus(name) {
   } catch (e) { return 'unknown'; }
 }
 
-/* ═══ VM EXPORT OVA ═══ */
 async function vmExportOva(idx) {
   const v = vmList[idx ?? selectedVmIndex]; if (!v) return;
   if (!await customConfirm('Export OVA', _L('VM을 OVA 파일로 내보내시겠습니까?', 'Export ' + v.name + ' as OVA file?') + '\n' + v.name)) return;
@@ -1271,7 +1234,7 @@ async function vmExportOva(idx) {
     pf.style.width = '70%'; PCV.uxlib.setMsg(ps, 'loading', null, _L('변환 진행 중...', 'Converting...'));
     var d = unwrapData(r) || r;
     var path = d.path || d.ova_path || '';
-    /* 상태 폴링 (export-status 있으면) */
+
     for (var pi = 0; pi < 5; pi++) {
       await new Promise(function(res) { setTimeout(res, 2000); });
       pf.style.width = (75 + pi * 5) + '%';
@@ -1292,11 +1255,6 @@ async function vmExportOva(idx) {
   }
 }
 
-/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
- *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
- *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
- *  window.render() 등 직접 참조를 위한 전환기 코드.
- *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
 PCV.vm = Object.assign(PCV.vm || {}, {
   vmPower: vmPower,
   vmDel: vmDel,
@@ -1321,7 +1279,6 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   bulkSnapshot: bulkSnapshot,
 });
 
-/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.vmPower = vmPower;
 window.pw = vmPower;
 window.vmDel = vmDel;

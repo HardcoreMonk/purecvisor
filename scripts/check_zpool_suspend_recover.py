@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_zpool_suspend_recover.py — ZFS 풀 SUSPENDED 탐지+가드된 자동복구 게이트.
 
 근거: 단일 USB SSD 풀(pcvpool)이 USB 단절로 SUSPENDED 됐으나 데몬이 SUSPENDED 를
@@ -37,7 +37,6 @@ EBPF_REL = "src/modules/daemons/ebpf_telemetry.c"
 
 MAP_FUNC = "pcv_zfs_pool_state_metric_val"
 RECOVER_FUNC = "pcv_zfs_pool_recover_suspended"
-
 
 def strip_comments(text: str) -> str:
     """C 주석(//, /* */)만 공백/개행으로 치환하고 문자열·문자 리터럴은 보존한다.
@@ -97,7 +96,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def extract_func_body(code: str, func_name: str):
     """comment-stripped code 에서 func_name 정의 본문({..})을 문자열-인지 brace 매칭으로
     추출한다. 반환: 본문 문자열(중괄호 포함) 또는 None(정의 없음).
@@ -105,7 +103,7 @@ def extract_func_body(code: str, func_name: str):
     호출부가 아닌 '정의'를 잡기 위해, func_name( 뒤 첫 ')' 다음에 '{' 가 오는 형태만
     본문으로 인정한다(프로토타입/호출은 뒤에 ';' 또는 ',' 라 배제)."""
     for m in re.finditer(re.escape(func_name) + r'\s*\(', code):
-        # 시그니처 여는 괄호 매칭
+
         i = m.end() - 1
         depth = 0
         n = len(code)
@@ -130,13 +128,13 @@ def extract_func_body(code: str, func_name: str):
                     i += 1
                     break
             i += 1
-        # 시그니처 뒤 첫 비공백이 '{' 여야 정의
+
         j = i
         while j < n and code[j] in ' \t\r\n':
             j += 1
         if j >= n or code[j] != '{':
-            continue  # 프로토타입/호출 — 다음 후보
-        # brace 매칭
+            continue
+
         depth = 0
         k = j
         in_str = None
@@ -159,9 +157,8 @@ def extract_func_body(code: str, func_name: str):
                 if depth == 0:
                     return code[j:k + 1]
             k += 1
-        return code[j:]  # unbalanced (should not happen)
+        return code[j:]
     return None
-
 
 def check_mapping(zfs_text: str):
     """(ok, msg). SUSPENDED → 비0 매핑."""
@@ -177,7 +174,6 @@ def check_mapping(zfs_text: str):
         return False, f'{MAP_FUNC} 가 "SUSPENDED"→{m.group(1)}(0=정상)으로 매핑 (원 버그 회귀)'
     return True, f'"SUSPENDED"→{m.group(1)} (critical, 비0)'
 
-
 def check_ebpf_wiring(ebpf_text: str):
     """(ok, msg). 텔레메트리 루프가 매핑 함수 + 복구 함수를 호출."""
     code = strip_comments(ebpf_text)
@@ -188,7 +184,6 @@ def check_ebpf_wiring(ebpf_text: str):
     if '"SUSPENDED"' not in code:
         return False, 'ebpf_telemetry 루프에 "SUSPENDED" 분기 없음 (복구 트리거 게이트 제거?)'
     return True, f"{MAP_FUNC}() + {RECOVER_FUNC}() 배선됨"
-
 
 def check_recover_guards(zfs_text: str):
     """(ok, msg). 복구 본문의 디바이스-읽기 가드 + 서킷브레이커 + clear 순서."""
@@ -216,12 +211,10 @@ def check_recover_guards(zfs_text: str):
     if clear_idx < 0:
         return False, 'zpool "clear" argv 없음 (복구 액션 부재)'
 
-    # clear 는 두 가드 호출 뒤에 위치해야 한다(가드가 clear 를 선행 게이트).
     if clear_idx < dev_idx or clear_idx < cb_idx:
         return False, 'zpool "clear" 가 디바이스-읽기/서킷브레이커 가드보다 앞에 위치 '\
                       '(가드 우회)'
     return True, "device-read 가드 + 서킷브레이커 뒤에서만 zpool clear"
-
 
 def run(zfs_path: Path, ebpf_path: Path) -> int:
     zfs_text = Path(zfs_path).read_text(errors="replace")
@@ -243,14 +236,12 @@ def run(zfs_path: Path, ebpf_path: Path) -> int:
         print(f"[PASS] {name}: {msg}")
     return 0
 
-
 def main(argv=None) -> int:
     p = argparse.ArgumentParser(add_help=True)
     p.add_argument("--zfs", default=str(ROOT / ZFS_REL))
     p.add_argument("--ebpf", default=str(ROOT / EBPF_REL))
     args = p.parse_args(argv)
     return run(Path(args.zfs), Path(args.ebpf))
-
 
 if __name__ == "__main__":
     sys.exit(main())

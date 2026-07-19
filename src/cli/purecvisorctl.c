@@ -1,128 +1,3 @@
-/**
- * @file purecvisorctl.c
- * @brief PureCVisor 데몬 제어 CLI (pcvctl) -- readline REPL + 배치 CLI
- *
- * ====================================================================
- *  파일 역할
- * ====================================================================
- *  pcvctl은 현재 에디션 데몬과 UDS(Unix Domain Socket) JSON-RPC 2.0으로
- *  통신하는 명령줄 클라이언트이다. 사용자가 입력한 명령을 JSON-RPC 요청으로
- *  변환하여 /var/run/purecvisor/daemon.sock 에 전송하고, 응답을 파싱하여
- *  사람이 읽기 좋은 테이블(또는 JSON/CSV/plain) 형태로 출력한다.
- *
- * ====================================================================
- *  아키텍처 위치
- * ====================================================================
- *  클라이언트 계층에 속한다. 데몬 내부 코드와 직접 링크되지 않으며,
- *  오직 소켓 I/O만으로 데몬과 소통한다.
- *
- *    사용자 입력
- *        |
- *    purecvisorctl (이 파일)
- *        | UDS JSON-RPC 2.0
- *    purecvisorsd (Single Edge 데몬)
- *        | dispatcher.c
- *    핸들러 -> libvirt / ZFS / LXC / OVS ...
- *
- * ====================================================================
- *  주요 흐름
- * ====================================================================
- *  1. main() 에서 GOptionContext로 --format, --batch, --socket 등 옵션 파싱
- *  2. 인수 있으면 단발 실행(one-shot), 없으면 readline REPL 진입
- *  3. 명령 문자열을 Command Table(CmdEntry 배열)에서 접두사 매칭
- *  4. 매칭된 핸들러가 JSON-RPC params 객체를 조립
- *  5. send_rpc_request()로 UDS 소켓에 전송, 응답 JSON 수신
- *  6. OutputFormat(TABLE/JSON/PLAIN/CSV)에 따라 결과 포맷팅 출력
- *
- * ====================================================================
- *  핵심 패턴
- * ====================================================================
- *  - Command Table Routing: CmdEntry 구조체 배열로 명령어-핸들러 매핑.
- *    새 명령 추가 시 배열에 항목 하나 추가하면 자동 라우팅된다.
- *  - fire-and-forget 불필요: CLI는 동기 요청-응답이므로 send 후 recv 대기.
- *  - ANSI 256-Color: CYBER_* 매크로로 네온 팔레트 정의.
- *    --no-color 또는 비-tty 환경에서는 컬러 비활성화.
- *  - GIO GSocketClient: UDS 연결에 GLib GIO 소켓 API 사용.
- *
- * ====================================================================
- *  지원 명령 범주 (데몬 253 RPC 중 CLI 노출 172개 — routes[] 표 기준, 대표 범주만 열거)
- * ====================================================================
- *  - VM: create/start/stop/delete/list/metrics/vnc/snapshot 등
- *  - Network: create/delete/list/mode_set/bind_phys/dhcp_toggle
- *  - Storage: pool.list/zvol.list/zvol.create/zvol.delete
- *  - Container: create/destroy/start/stop/list/metrics/exec/snapshot
- *  - OVN: switch/router/acl/nat/dhcp/status (6개; Cluster/migrate 명령은 single edition 미제공)
- *  - RBAC: auth create/list/delete/role
- *  - Template: list/get/create/delete
- *  - Backup: set/list/delete/history/restore
- *  - DPDK/SR-IOV: status/bind/unbind/list/bridge/hugepage/enable 등
- *
- * ====================================================================
- *  주의사항
- * ====================================================================
- *  - 소켓 경로 기본값: /var/run/purecvisor/daemon.sock
- *    --socket 옵션으로 오버라이드 가능.
- *  - readline이 없는 환경(HAVE_READLINE 미정의)에서는 fgets 폴백.
- *  - 파이프 입력(--batch 또는 stdin이 비-tty)일 때 프롬프트/컬러 비활성화.
- *  - 이 파일은 ~6,800+ LOC 단일 파일 구조이다.
- *
- * ====================================================================
- *  새 커맨드 추가 방법 (주니어 개발자 필독)
- * ====================================================================
- *  예: "pcvctl foo bar --baz 123" 명령을 추가한다고 가정.
- *
- *  1단계: 핸들러 함수 작성 (이 파일 내, cmd_xxx 섹션에)
- *    void cmd_foo_bar(int argc, char *argv[]) {
- *        if (argc < 3) { printf("Usage: ...\n"); return; }
- *        JsonObject *params = json_object_new();
- *        json_object_set_string_member(params, "baz", argv[3]);
- *        GError *error = NULL;
- *        gchar *resp = purectl_send_request("foo.bar", params, &error);
- *        if (error) { g_printerr("[!] %s\n", error->message); g_error_free(error); return; }
- *        print_action_response(resp, "FOO_BAR");
- *        g_free(resp);
- *    }
- *
- *  2단계: routes[] 배열에 항목 추가
- *    {"foo", "bar", cmd_foo_bar, "설명 텍스트"},
- *
- *  3단계: 빌드 확인
- *    make clean && make cli  (경고 0 확인)
- *
- *  그러면 자동으로:
- *    - route_exec()가 "foo bar" 입력을 cmd_foo_bar로 라우팅
- *    - readline 자동완성에 "foo bar" 등록
- *    - print_help()에 도움말 표시
- *    - --format=json/plain/csv 출력 자동 지원 (print_action_response 사용 시)
- *
- *  핵심 함수 (cli_rpc.c에서 제공):
- *    purectl_send_request(method, params, &error) → JSON 응답 문자열
- *    cc(CYBER_*) / ce(CYBER_*) → 조건부 컬러 코드
- *
- *  핵심 함수 (cli_output.c에서 제공):
- *    print_action_response(resp, "LABEL") → 성공/에러 포맷팅 출력
- *    print_raw_response(resp) → JSON 원본 출력
- *    ptbl_new / ptbl_row / ptbl_print_xxx / ptbl_free -- 테이블 출력
- *
- * ====================================================================
- *  커맨드 디스패치 패턴 (CommandRoute 구조체)
- * ====================================================================
- *  typedef struct {
- *      const char *object;      // "vm", "network", "storage" 등
- *      const char *action;      // "list", "create", "delete" 등
- *      CmdHandler  handler;     // void (*)(int argc, char *argv[])
- *      const char *help_text;   // 도움말 문자열
- *  } CommandRoute;
- *
- *  routes[] 배열을 순차 순회하여 object+action이 일치하는 첫 항목의
- *  handler를 호출한다. O(n) 선형 탐색이지만 172개 항목이라 충분히 빠르다.
- *
- * ====================================================================
- *  버전 이력
- * ====================================================================
- *  v1.0: --format 전환, REPL, Batch, 자동완성(completion/)
- *  Sprint I~N: OVN/RBAC/Template/Backup/DPDK/SR-IOV 명령 추가
- */
 
 #include <stdio.h>
 #include <stdlib.h>
@@ -143,28 +18,15 @@
 #  include <readline/history.h>
 #endif
 
-/* ── 분리된 모듈 include ──────────────────────────────────────────── */
-#include "cli_rpc.h"       /* RPC 통신 + 전역 컨텍스트 (g_ctx, cc, ce, purectl_send_request) */
-#include "cli_output.h"    /* 출력 포맷팅 (배너, 메트릭 바, PcvTable) */
+#include "cli_rpc.h"
+#include "cli_output.h"
 
-// CYBER_* 컬러 상수 → cli_rpc.h로 이동
-
-// OutputFormat, PcvCtx, g_ctx, cc(), ce() → cli_rpc.h/cli_rpc.c로 이동
-
-/*
- * print_metrics_bar, purectl_send_request, print_raw_response,
- * print_action_response, PcvTable → cli_rpc.c / cli_output.c로 이동
- */
-// [REMOVED BLOCK START — will be cleaned up below]
-// The following comment replaces ~330 lines of extracted functions.
-// They now reside in cli_rpc.c and cli_output.c.
 static inline void _cli_extracted_stub(void) {
-    (void)0; // This function exists only to keep the old code syntactically valid
-              // while we incrementally remove the remaining duplicate definitions below.
+    (void)0;
+
 }
-// We cannot remove the entire block in one Edit call due to uniqueness constraints,
-// so we mark the old function bodies below as unreachable.
-#if 0 /* --- EXTRACTED CODE BEGIN (print_metrics_bar) --- */
+
+#if 0
 static void _cli_removed_print_metrics_bar(const char *label, int percent, const char *color) {
     if (percent < 0)   percent = 0;
     if (percent > 100) percent = 100;
@@ -181,54 +43,22 @@ static void _cli_removed_print_metrics_bar(const char *label, int percent, const
     printf(" %3d%%%s\n", percent, cc(CYBER_RESET));
 }
 
-/* ── UDS JSON-RPC 전송 ──────────────────────────────────────────── */
-
-/**
- * purectl_send_request - UDS를 통해 JSON-RPC 2.0 요청 전송 후 응답 반환
- *
- * 교착 방지: write_all() 완료 즉시 g_socket_shutdown(SHUT_WR) 호출.
- * 64KB 초과 대응: GByteArray 동적 확장 수신 (Sprint H 개선)
- */
-/**
- * purectl_send_request - UDS를 통해 JSON-RPC 2.0 요청 전송 후 응답 반환
- *
- * @method:     RPC 메서드명 (예: "vm.list", "vm.create")
- * @params_obj: JSON-RPC params 객체 (NULL이면 빈 객체 {}로 대체)
- *              이 함수에 전달된 params_obj의 소유권은 json_object_set_object_member()를
- *              통해 root_obj로 이전되므로, 호출자가 별도로 해제할 필요 없다.
- * @error:      GError 출력 매개변수 (연결/송수신 실패 시 설정)
- *
- * @return: 서버 응답 JSON 문자열 (호출자가 g_free()로 해제), 실패 시 NULL
- *
- * 동작 흐름:
- *   1. GSocketClient로 UDS 연결 (g_ctx.socket_path)
- *   2. JSON-RPC 2.0 페이로드 직렬화 (json-glib JsonGenerator)
- *   3. write_all()로 전송 → 즉시 SHUT_WR (교착 방지)
- *   4. GByteArray 동적 버퍼로 응답 수신 (64KB 초과 대응)
- *   5. NULL 종료 문자열로 변환하여 반환
- *
- * 교착 방지 메커니즘:
- *   서버(현재 에디션 데몬)는 클라이언트가 EOF를 보낼 때까지 read()를 반복한다.
- *   g_socket_shutdown(SHUT_WR)로 쓰기 종료 신호를 보내야 서버가 응답을 전송한다.
- *   이 호출이 없으면 클라이언트와 서버 모두 서로의 데이터를 기다리며 교착된다.
- */
 gchar *purectl_send_request(const gchar *method,
                              JsonObject  *params_obj,
                              GError     **error) {
-    /* 1단계: UDS 소켓 연결 */
+
     GSocketClient    *client = g_socket_client_new();
     GSocketAddress   *addr   = g_unix_socket_address_new(g_ctx.socket_path);
     GSocketConnection *conn  = g_socket_client_connect(
             client, G_SOCKET_CONNECTABLE(addr), NULL, error);
 
-    g_object_unref(client);  /* 연결 후 클라이언트 객체는 불필요 */
+    g_object_unref(client);
     g_object_unref(addr);
-    if (!conn) return NULL;  /* 연결 실패 시 error에 원인이 설정됨 */
+    if (!conn) return NULL;
 
     GSocket *sock = g_socket_connection_get_socket(conn);
-    g_socket_set_timeout(sock, 10);  /* 10초 타임아웃 — 데몬 무응답 방지 */
+    g_socket_set_timeout(sock, 10);
 
-    /* 2단계: JSON-RPC 2.0 페이로드 조립 */
     JsonObject *root_obj = json_object_new();
     json_object_set_string_member(root_obj, "jsonrpc", "2.0");
     json_object_set_string_member(root_obj, "method",  method);
@@ -236,17 +66,14 @@ gchar *purectl_send_request(const gchar *method,
             params_obj ? params_obj : json_object_new());
     json_object_set_int_member(root_obj, "id", 1);
 
-    /* JsonGenerator로 JSON 문자열 직렬화 */
     JsonNode      *root_node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(root_node, root_obj);  /* root_obj 소유권 이전 */
+    json_node_take_object(root_node, root_obj);
     gchar *payload = json_to_string(root_node, FALSE);
-    json_node_free(root_node);  /* root_obj도 함께 해제됨 */
+    json_node_free(root_node);
 
-    /* --verbose 모드: 송신 페이로드를 stderr에 덤프 */
     if (g_ctx.verbose)
         g_printerr("%s[→ %s]%s\n", ce(CYBER_DIM), payload, ce(CYBER_RESET));
 
-    /* 3단계: 페이로드 전송 */
     GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(conn));
     gsize bytes_written;
     if (!g_output_stream_write_all(out, payload, strlen(payload),
@@ -257,13 +84,11 @@ gchar *purectl_send_request(const gchar *method,
     }
     g_free(payload);
 
-    /* SHUT_WR: 쓰기 방향 종료 → 서버에 EOF 전달 → 교착 방지 핵심 */
     if (!g_socket_shutdown(sock, FALSE, TRUE, error)) {
         g_object_unref(conn);
         return NULL;
     }
 
-    /* 4단계: 동적 버퍼 수신 — GByteArray로 가변 길이 응답 처리 */
     GInputStream *in  = g_io_stream_get_input_stream(G_IO_STREAM(conn));
     GByteArray   *buf = g_byte_array_new();
     gchar         tmp[8192];
@@ -273,21 +98,18 @@ gchar *purectl_send_request(const gchar *method,
 
     g_object_unref(conn);
 
-    /* 빈 응답 처리 (데몬 비정상 종료 등) */
     if (buf->len == 0) {
         g_byte_array_free(buf, TRUE);
         return NULL;
     }
-    /* NULL 종료 문자 추가 → C 문자열 변환 */
+
     g_byte_array_append(buf, (guint8 *)"\0", 1);
     gchar *result = g_strdup((gchar *)buf->data);
     g_byte_array_free(buf, TRUE);
 
-    /* --verbose 모드: 수신 응답을 stderr에 덤프 */
     if (g_ctx.verbose)
         g_printerr("%s[← %s]%s\n", ce(CYBER_DIM), result, ce(CYBER_RESET));
 
-    /* Single Edge 공개 리포에는 포함되지 않는 RPC 감지 */
     if (result && strstr(result, "-32601")) {
         g_printerr("\n%s[!] This command is not included in Single Edge.%s\n"
                    "%s    Current daemon does not support '%s' RPC method.%s\n"
@@ -302,35 +124,23 @@ gchar *purectl_send_request(const gchar *method,
     return result;
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  출력 포맷 시스템 (Sprint H 신규)
- * ════════════════════════════════════════════════════════════════════
- *
- *  FMT_JSON  → print_raw_response() 로 원본 JSON 출력
- *  FMT_TABLE → 기존 CYBER 컬러 테이블 (변경 없음)
- *  FMT_PLAIN → pcv_table_plain()
- *  FMT_CSV   → pcv_table_csv()
- */
-
-/* JSON 응답 원본 출력 (FMT_JSON 전용) */
 static void print_raw_response(const gchar *json_string) {
     if (json_string) printf("%s\n", json_string);
 }
 
-/* 공통 응답 출력 — 성공/실패 메시지 */
 void print_action_response(const gchar *json_string, const gchar *action_name) {
     if (!json_string) {
         g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET));
         return;
     }
-    /* FMT_JSON: 파싱 없이 raw 출력 */
+
     if (g_ctx.fmt == FMT_JSON) {
         print_raw_response(json_string);
         return;
     }
-    /* FMT_PLAIN / FMT_CSV: 간결한 상태 출력 */
+
     if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
-        /* 성공 여부만 탭 구분으로 출력 */
+
         GError     *err    = NULL;
         JsonParser *parser = json_parser_new();
         bool        ok     = false;
@@ -344,7 +154,6 @@ void print_action_response(const gchar *json_string, const gchar *action_name) {
         return;
     }
 
-    /* FMT_TABLE: 기존 CYBER 출력 */
     GError     *error  = NULL;
     JsonParser *parser = json_parser_new();
     if (!json_parser_load_from_data(parser, json_string, -1, &error)) {
@@ -388,40 +197,12 @@ void print_action_response(const gchar *json_string, const gchar *action_name) {
     g_object_unref(parser);
 }
 
-/* ── 간단 테이블 렌더러 (PLAIN / CSV 공용) ──────────────────────── */
-/*
- * PcvTable: 경량 인메모리 테이블 구조체.
- * ptbl_new()로 생성, ptbl_row()로 행 추가,
- * ptbl_print_plain()/ptbl_print_csv()로 출력, ptbl_free()로 해제.
- *
- * FMT_PLAIN: 탭 구분, 헤더 없음 (awk/cut 파이프 호환)
- * FMT_CSV:   CSV RFC 4180 (콤마 구분, 특수문자 이스케이프)
- */
-
-/**
- * PcvTable - 경량 인메모리 테이블 (FMT_PLAIN / FMT_CSV 출력용)
- *
- * FMT_TABLE은 각 cmd_* 함수에서 직접 printf로 출력하지만,
- * FMT_PLAIN/FMT_CSV는 이 구조체를 통해 구조화된 출력을 생성한다.
- *
- * 사용 패턴:
- *   PcvTable *t = ptbl_new(hdrs, ncols);  // 테이블 생성
- *   ptbl_row(t, "val1", "val2", NULL);    // 행 추가 (가변인자, NULL 종료 아님)
- *   ptbl_print_plain(t);                  // 또는 ptbl_print_csv(t)
- *   ptbl_free(t);                         // 해제
- *
- * 메모리 관리:
- *   - headers 포인터는 호출자의 const 배열을 참조만 한다 (복사하지 않음).
- *   - rows 내부의 gchar** 행은 g_strdup()으로 복사되며,
- *     GPtrArray의 free_func(g_strfreev)가 자동 해제한다.
- */
 typedef struct {
-    const char **headers;   /* 열 제목 배열 (호출자 소유, 복사 안 함) */
-    size_t       ncols;     /* 열 개수 */
-    GPtrArray   *rows;      /* GPtrArray of gchar** (NULL-terminated 행 배열) */
+    const char **headers;
+    size_t       ncols;
+    GPtrArray   *rows;
 } PcvTable;
 
-/** ptbl_new - 테이블 생성. hdrs=열 제목 배열, n=열 개수 */
 static PcvTable *ptbl_new(const char **hdrs, size_t n) {
     PcvTable *t = g_new0(PcvTable, 1);
     t->headers = hdrs;
@@ -430,16 +211,6 @@ static PcvTable *ptbl_new(const char **hdrs, size_t n) {
     return t;
 }
 
-/**
- * ptbl_row - 테이블에 행 추가 (가변인자)
- *
- * ncols개의 const char* 인수를 받아 행을 추가한다.
- * 각 값은 g_strdup()으로 복사되므로 원본 수명과 무관하다.
- * NULL 값은 빈 문자열("")로 대체된다.
- *
- * 주의: va_arg로 ncols개만 읽으므로, 인수 개수를 정확히 맞춰야 한다.
- *       컴파일러가 가변인자 개수를 검증하지 않으므로 주의할 것.
- */
 static void ptbl_row(PcvTable *t, ...) {
     va_list ap; va_start(ap, t);
     gchar **row = g_new0(gchar *, t->ncols + 1);
@@ -463,7 +234,7 @@ static void ptbl_print_plain(PcvTable *t) {
 }
 
 static void ptbl_print_csv(PcvTable *t) {
-    /* 헤더 */
+
     for (size_t c = 0; c < t->ncols; c++) {
         if (c) putchar(',');
         fputs(t->headers[c], stdout);
@@ -494,27 +265,10 @@ static void ptbl_free(PcvTable *t) {
     g_ptr_array_free(t->rows, TRUE);
     g_free(t);
 }
-#endif /* --- EXTRACTED CODE END (ptbl_free) --- */
+#endif
 
-/* ════════════════════════════════════════════════════════════════════
- *  VM 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_vm_create - VM 생성 명령 핸들러
- *
- * Usage: pcvctl vm create <name> [--vcpu N] [--memory_mb N]
- *        [--disk_size_gb N] [--iso_path P] [--network_bridge B|none]
- *        (B 미지정 → 관리형 기본 NAT 네트워크, "none" → NIC 미부착 — VP-1)
- *
- * JSON-RPC "vm.create" 호출. 옵션 플래그를 파싱하여 params에 추가.
- * 파라미터 검증은 서버 측 dispatcher에서 pcv_validate_vm_create_params()로 수행.
- */
 void cmd_vm_create(int argc, char *argv[]) {
-    /* [#1] --help/-h 는 도움말이지 VM 이름이 아니다. 또한 '-'로 시작하는
-     * positional 은 플래그 오타이므로 거부한다 (pcv_validate_vm_name 은
-     * charset 상 '--help' 를 유효 이름으로 통과시킨다 — web-prod 같은 정상
-     * 이름 때문에 '-' 를 허용하므로, 플래그/이름 구분은 CLI 책임). */
+
     gboolean want_help = (argc < 3)
         || g_strcmp0(argv[2], "--help") == 0
         || g_strcmp0(argv[2], "-h") == 0;
@@ -567,14 +321,6 @@ void cmd_vm_create(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_vm_list - VM 목록 조회 핸들러
- *
- * JSON-RPC "vm.list" → UUID/NAME/STATE 테이블 출력.
- * FMT_TABLE: CYBER 네온 컬러 테이블
- * FMT_JSON:  raw JSON 그대로 출력
- * FMT_PLAIN/CSV: PcvTable 기반 구조화 출력
- */
 void cmd_vm_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("vm.list", NULL, &error);
@@ -596,7 +342,6 @@ void cmd_vm_list(int argc __attribute__((unused)), char *argv[] __attribute__((u
     JsonArray  *result_arr = json_object_has_member(root_obj, "result")
             ? json_object_get_array_member(root_obj, "result") : NULL;
 
-    /* PLAIN / CSV 경로 */
     if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
         const char *hdrs[] = {"UUID","NAME","STATE"};
         PcvTable   *t      = ptbl_new(hdrs, 3);
@@ -617,7 +362,6 @@ void cmd_vm_list(int argc __attribute__((unused)), char *argv[] __attribute__((u
         g_object_unref(parser); g_free(resp); return;
     }
 
-    /* FMT_TABLE: 기존 CYBER 출력 */
     print_cyber_banner();
     printf("%s%s %-38s │ %-18s │ %-10s%s\n",
         cc(CYBER_CYAN), cc(CYBER_BOLD),
@@ -658,13 +402,6 @@ void cmd_vm_list(int argc __attribute__((unused)), char *argv[] __attribute__((u
     g_free(resp);
 }
 
-/**
- * cmd_vm_action - VM 단일 액션 공통 핸들러 (start/stop/pause/resume)
- * @method: RPC 메서드명 (예: "vm.start", "vm.stop")
- * @label:  출력 레이블 (예: "START", "STOP")
- *
- * argv[2]를 vm_id로 사용. 동일 패턴의 4개 명령을 공통화.
- */
 static void cmd_vm_action(int argc, char *argv[],
                           const gchar *method, const gchar *label) {
     if (argc < 3) {
@@ -690,13 +427,6 @@ void cmd_vm_stop   (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.stop",
 void cmd_vm_pause  (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.pause", "PAUSE" ); }
 void cmd_vm_resume (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.resume","RESUME"); }
 
-/**
- * cmd_vm_delete - VM 삭제 명령 핸들러 (파괴적 작업, 확인 프롬프트 포함)
- *
- * tty 환경에서는 사용자에게 VM 이름 재입력을 요구하여 오삭제를 방지.
- * --batch 모드 또는 비-tty 환경에서는 확인 없이 즉시 실행.
- * VM XML, ZFS zvol, 모든 스냅샷이 영구 삭제된다.
- */
 void cmd_vm_delete(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm delete <vm_id>%s\n",
@@ -705,7 +435,6 @@ void cmd_vm_delete(int argc, char *argv[]) {
     }
     const char *target = argv[2];
 
-    /* batch / non-tty: 확인 프롬프트 생략 */
     if (!g_ctx.batch && isatty(STDIN_FILENO)) {
         print_cyber_banner();
         printf("%s [!] WARNING: DESTRUCTIVE OPERATION INITIATED [!]%s\n",
@@ -733,12 +462,6 @@ void cmd_vm_delete(int argc, char *argv[]) {
     cmd_vm_action(argc, argv, "vm.delete", "VM_DELETE");
 }
 
-/**
- * cmd_vm_rename - 정지된 VM 이름 변경
- *
- * Usage: pcvctl vm rename <old_name> <new_name>
- * RPC: vm.rename {name, new_name}
- */
 void cmd_vm_rename(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm rename <old_name> <new_name>%s\n",
@@ -898,10 +621,6 @@ void cmd_vm_eject(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  스냅샷 명령
- * ════════════════════════════════════════════════════════════════════ */
-
 void cmd_snapshot_create(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl snapshot create <vm_id> <snap_name>%s\n",
@@ -990,7 +709,6 @@ void cmd_snapshot_delete(int argc, char *argv[]) {
     g_free(r);
 }
 
-/** cmd_snapshot_verify - ZFS 스냅샷 존재/무결성 검증. backup.snapshot.verify RPC. */
 void cmd_snapshot_verify(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl snapshot verify <snap_name>%s\n",
@@ -1034,10 +752,6 @@ void cmd_snapshot_verify(int argc, char *argv[]) {
     g_object_unref(parser);
     g_free(r);
 }
-
-/* ════════════════════════════════════════════════════════════════════
- *  모니터링 명령
- * ════════════════════════════════════════════════════════════════════ */
 
 void cmd_monitor_metrics(int argc, char *argv[]) {
     if (argc < 3) {
@@ -1148,7 +862,7 @@ void cmd_monitor_fleet(int argc __attribute__((unused)), char *argv[] __attribut
                 cc(CYBER_CYAN), cc(CYBER_RESET));
         }
     } else {
-        /* 구조 미확정: raw 출력 */
+
         gchar *raw = json_to_string(json_object_get_member(root,"result"), FALSE);
         printf("%s\n", raw);
         g_free(raw);
@@ -1156,10 +870,6 @@ void cmd_monitor_fleet(int argc __attribute__((unused)), char *argv[] __attribut
     g_object_unref(parser);
     g_free(resp);
 }
-
-/* ════════════════════════════════════════════════════════════════════
- *  네트워크 명령
- * ════════════════════════════════════════════════════════════════════ */
 
 void cmd_net_create(int argc, char *argv[]) {
     if (argc < 3) {
@@ -1233,7 +943,7 @@ void cmd_net_list(int argc __attribute__((unused)), char *argv[] __attribute__((
             for (guint i = 0; i < json_array_get_length(arr); i++) {
                 JsonObject *n = json_array_get_object_element(arr, i);
                 ptbl_row(t,
-                    /* VP-5: 데몬 직렬화 키는 name/ip_cidr (bridge_name/cidr 아님) */
+
                     json_object_has_member(n,"name")
                         ? json_object_get_string_member(n,"name")        : "-",
                     json_object_has_member(n,"mode")
@@ -1261,7 +971,7 @@ void cmd_net_list(int argc __attribute__((unused)), char *argv[] __attribute__((
     } else {
         for (guint i = 0; i < json_array_get_length(arr); i++) {
             JsonObject  *n     = json_array_get_object_element(arr, i);
-            /* VP-5: 데몬 직렬화 키는 name/ip_cidr (bridge_name/cidr 아님) */
+
             const gchar *br    = json_object_has_member(n,"name")
                     ? json_object_get_string_member(n,"name")        : "-";
             const gchar *mode  = json_object_has_member(n,"mode")
@@ -1304,10 +1014,6 @@ void cmd_net_mode(int argc, char *argv[]) {
     print_action_response(res, "NET_MODE_SET");
     g_free(res);
 }
-
-/* ════════════════════════════════════════════════════════════════════
- *  스토리지 명령
- * ════════════════════════════════════════════════════════════════════ */
 
 void cmd_storage_pool(int argc, char *argv[]) {
     if (argc < 4 || g_strcmp0(argv[2],"list") != 0) {
@@ -1490,10 +1196,6 @@ void cmd_storage_zvol(int argc, char *argv[]) {
     }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  디바이스 명령
- * ════════════════════════════════════════════════════════════════════ */
-
 void cmd_device_disk(int argc, char *argv[]) {
     if (argc < 5) {
         printf("%sUsage:\n"
@@ -1531,10 +1233,6 @@ void cmd_device_disk(int argc, char *argv[]) {
     print_action_response(res, label);
     g_free(res);
 }
-
-/* ════════════════════════════════════════════════════════════════════
- *  컨테이너 명령 (12개)
- * ════════════════════════════════════════════════════════════════════ */
 
 void cmd_container_create(int argc, char *argv[]) {
     if (argc < 3) {
@@ -1800,38 +1498,6 @@ void cmd_container_snapshot(int argc, char *argv[]) {
     }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  클러스터 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-
-/* ════════════════════════════════════════════════════════════════════
- *  OVN 명령
- *
- *  OVN (Open Virtual Network) SDN 관련 CLI 명령 그룹.
- *  ovn-nbctl 기반 논리 스위치/라우터/ACL/NAT 관리.
- *
- *  모든 cmd_ovn_* 함수는 동일한 RPC 패턴을 따른다:
- *    1. purectl_send_request()로 JSON-RPC 전송
- *    2. 에러 처리 (GError → 출력 후 반환)
- *    3. FMT_JSON이면 raw 출력, 아니면 PcvTable 파싱 → 테이블 출력
- *
- *  CLI 사용 예:
- *    pcvctl ovn status
- *    pcvctl ovn switch list
- *    pcvctl ovn switch create my-ls --subnet 10.200.0.0/24
- *    pcvctl ovn router list
- *    pcvctl ovn nat list my-lr
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_ovn_status:
- * @argc: 인수 개수 (사용하지 않음)
- * @argv: 인수 배열 (사용하지 않음)
- *
- * OVN 컨트롤러 전체 상태 조회.
- * ovn.status RPC → JSON 원시 출력 (available, version, switch_count, router_count).
- */
 void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("ovn.status", NULL, &error);
@@ -1842,20 +1508,6 @@ void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_ovn_switch:
- * @argc: 전체 인수 개수
- * @argv: 인수 배열 (예: ["ovn", "switch", "list"])
- *
- * OVN 논리 스위치 관리 명령.
- * argv[2]로 sub-action 분기:
- *   "list"   → ovn.switch.list RPC → NAME/SUBNET/PORTS 테이블 출력
- *   "create" → ovn.switch.create RPC (argv[3]=이름, --subnet 옵션)
- *   "delete" → ovn.switch.delete RPC (argv[3]=이름, 멱등)
- *
- * 출력 포맷: g_ctx.fmt에 따라 table/plain/csv/json 자동 분기.
- * PcvTable(ptbl_*) 사용 시 FMT_CSV와 FMT_PLAIN 모두 지원.
- */
 void cmd_ovn_switch(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage:\n"
@@ -1948,17 +1600,6 @@ void cmd_ovn_switch(int argc, char *argv[]) {
     }
 }
 
-/**
- * cmd_ovn_router:
- * @argc: 전체 인수 개수
- * @argv: 인수 배열 (예: ["ovn", "router", "list"])
- *
- * OVN 논리 라우터 관리 명령.
- * argv[2]로 sub-action 분기:
- *   "list"   → ovn.router.list RPC → NAME/PORTS/ROUTES 테이블 출력
- *   "create" → ovn.router.create RPC (argv[3]=이름)
- *   "delete" → ovn.router.delete RPC (argv[3]=이름, 멱등)
- */
 void cmd_ovn_router(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage:\n"
@@ -2047,18 +1688,6 @@ void cmd_ovn_router(int argc, char *argv[]) {
     }
 }
 
-/**
- * cmd_ovn_nat:
- * @argc: 전체 인수 개수
- * @argv: 인수 배열 (예: ["ovn", "nat", "list", "my-lr"])
- *
- * OVN NAT 규칙 조회 명령.
- * argv[2]로 sub-action 분기:
- *   "list" → ovn.nat.list RPC (argv[3]=라우터 이름)
- *            결과는 문자열 배열 (ovn-nbctl lr-nat-list 출력 라인)
- *
- * NAT 규칙 추가/삭제는 현재 CLI 미구현 (list 조회만 제공).
- */
 void cmd_ovn_nat(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl ovn nat list <router>%s\n",
@@ -2089,7 +1718,6 @@ void cmd_ovn_nat(int argc, char *argv[]) {
         JsonArray  *arr  = json_object_has_member(root, "result")
                 ? json_object_get_array_member(root, "result") : NULL;
 
-        /* NAT list는 문자열 배열 반환 (ovn-nbctl lr-nat-list 출력) */
         if (arr) {
             printf("%s%-60s%s\n", cc(CYBER_CYAN), "NAT RULES", cc(CYBER_RESET));
             printf("────────────────────────────────────────────────────────────────────\n");
@@ -2107,20 +1735,6 @@ void cmd_ovn_nat(int argc, char *argv[]) {
     }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  OVS-DPDK / SR-IOV (Phase 4) 명령
- *
- *  고성능 데이터플레인 가속 CLI 그룹.
- *  OVS-DPDK: 유저스페이스 패킷 처리, hugepage 관리, DPDK 브릿지
- *  SR-IOV: PCI 패스스루 VF 관리, VM 직접 연결
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_dpdk_status:
- *
- * OVS-DPDK 전체 상태 조회.
- * dpdk.status RPC → JSON 원시 출력.
- */
 void cmd_dpdk_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("dpdk.status", NULL, &error);
@@ -2131,12 +1745,6 @@ void cmd_dpdk_status(int argc __attribute__((unused)), char *argv[] __attribute_
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_dpdk_bind:
- *
- * NIC를 DPDK 호환 드라이버에 바인딩.
- * argv[2]=pci_addr (필수), argv[3]=driver (선택, 기본 vfio-pci).
- */
 void cmd_dpdk_bind(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl dpdk bind <pci_addr> [driver]%s\n",
@@ -2156,12 +1764,6 @@ void cmd_dpdk_bind(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_dpdk_unbind:
- *
- * NIC DPDK 바인딩 해제 (커널 드라이버 복원).
- * argv[2]=pci_addr (필수).
- */
 void cmd_dpdk_unbind(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl dpdk unbind <pci_addr>%s\n",
@@ -2179,12 +1781,6 @@ void cmd_dpdk_unbind(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_dpdk_list:
- *
- * DPDK 바인딩 가능/완료 디바이스 목록.
- * dpdk.list RPC → JSON 원시 출력.
- */
 void cmd_dpdk_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("dpdk.list", NULL, &error);
@@ -2195,12 +1791,6 @@ void cmd_dpdk_list(int argc __attribute__((unused)), char *argv[] __attribute__(
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_dpdk_bridge:
- *
- * DPDK 브릿지 생성/삭제.
- * argv[2]=create|delete, argv[3]=name (필수), argv[4]=dpdk_port (선택).
- */
 void cmd_dpdk_bridge(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage:\n"
@@ -2241,12 +1831,6 @@ void cmd_dpdk_bridge(int argc, char *argv[]) {
     }
 }
 
-/**
- * cmd_dpdk_hugepage:
- *
- * Hugepage 현황 조회.
- * dpdk.hugepage.info RPC → JSON 원시 출력.
- */
 void cmd_dpdk_hugepage(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("dpdk.hugepage.info", NULL, &error);
@@ -2257,12 +1841,6 @@ void cmd_dpdk_hugepage(int argc __attribute__((unused)), char *argv[] __attribut
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_status:
- *
- * SR-IOV PF/VF 전체 상태 조회.
- * sriov.status RPC → JSON 원시 출력.
- */
 void cmd_sriov_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("sriov.status", NULL, &error);
@@ -2273,12 +1851,6 @@ void cmd_sriov_status(int argc __attribute__((unused)), char *argv[] __attribute
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_enable:
- *
- * SR-IOV VF 활성화.
- * argv[2]=pf (필수), argv[3]=num_vfs (선택, 기본 1).
- */
 void cmd_sriov_enable(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl sriov enable <pf> [num_vfs]%s\n",
@@ -2298,12 +1870,6 @@ void cmd_sriov_enable(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_disable:
- *
- * SR-IOV VF 비활성화.
- * argv[2]=pf (필수).
- */
 void cmd_sriov_disable(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl sriov disable <pf>%s\n",
@@ -2321,12 +1887,6 @@ void cmd_sriov_disable(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_list:
- *
- * VF 목록 조회.
- * argv[2]=pf (선택, 생략 시 전체 PF).
- */
 void cmd_sriov_list(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
     if (argc >= 3)
@@ -2340,12 +1900,6 @@ void cmd_sriov_list(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_set:
- *
- * VF 속성 설정.
- * argv[2]=pf, argv[3]=vf_index (필수), --mac/--vlan/--spoofchk 옵션.
- */
 void cmd_sriov_set(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl sriov set <pf> <vf_index> [--mac XX] [--vlan N] [--spoofchk on|off]%s\n",
@@ -2372,12 +1926,6 @@ void cmd_sriov_set(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_attach:
- *
- * VM에 SR-IOV VF 연결.
- * argv[2]=vm_name, argv[3]=pf (필수), argv[4]=vf_index (선택).
- */
 void cmd_sriov_attach(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl sriov attach <vm_name> <pf> [vf_index]%s\n",
@@ -2398,12 +1946,6 @@ void cmd_sriov_attach(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_sriov_detach:
- *
- * VM에서 SR-IOV VF 분리.
- * argv[2]=vm_name, argv[3]=pci_addr (필수).
- */
 void cmd_sriov_detach(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl sriov detach <vm_name> <pci_addr>%s\n",
@@ -2422,27 +1964,6 @@ void cmd_sriov_detach(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  RBAC (auth) 명령
- *
- *  역할 기반 접근 제어 사용자 관리 CLI 그룹.
- *  JWT 인증 시스템의 사용자 CRUD + 역할 변경을 담당한다.
- *
- *  역할 종류: admin, operator, viewer (REST API 접근 권한 수준 결정)
- *
- *  CLI 사용 예:
- *    pcvctl auth list
- *    pcvctl auth create testuser pass123 operator
- *    pcvctl auth role testuser admin
- *    pcvctl auth delete testuser
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_auth_list:
- *
- * 등록된 사용자 목록 조회.
- * auth.user.list RPC → USERNAME/ROLE/CREATED 테이블 출력.
- */
 void cmd_auth_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("auth.user.list", NULL, &error);
@@ -2490,14 +2011,6 @@ void cmd_auth_list(int argc __attribute__((unused)), char *argv[] __attribute__(
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_auth_create:
- * @argc: 인수 개수 (최소 5: auth create <username> <password> <role>)
- * @argv: 인수 배열
- *
- * 새 사용자 생성. auth.user.create RPC 호출.
- * 비밀번호는 서버 측에서 해시 저장된다.
- */
 void cmd_auth_create(int argc, char *argv[]) {
     if (argc < 5) {
         printf("%sUsage: pcvctl auth create <username> <password> <role>%s\n",
@@ -2517,13 +2030,6 @@ void cmd_auth_create(int argc, char *argv[]) {
     print_action_response(resp, "AUTH_USER_CREATE"); g_free(resp);
 }
 
-/**
- * cmd_auth_delete:
- * @argc: 인수 개수 (최소 3: auth delete <username>)
- * @argv: 인수 배열
- *
- * 사용자 삭제. auth.user.delete RPC 호출.
- */
 void cmd_auth_delete(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl auth delete <username>%s\n",
@@ -2541,14 +2047,6 @@ void cmd_auth_delete(int argc, char *argv[]) {
     print_action_response(resp, "AUTH_USER_DELETE"); g_free(resp);
 }
 
-/**
- * cmd_auth_role:
- * @argc: 인수 개수 (최소 4: auth role <username> <role>)
- * @argv: 인수 배열
- *
- * 사용자 역할 변경. auth.role.set RPC 호출.
- * 유효한 역할: admin, operator, viewer.
- */
 void cmd_auth_role(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl auth role <username> <role>%s\n",
@@ -2567,26 +2065,6 @@ void cmd_auth_role(int argc, char *argv[]) {
     print_action_response(resp, "AUTH_ROLE_SET"); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Template 명령
- *
- *  VM 템플릿 관리 CLI 그룹.
- *  미리 정의된 VM 스펙(vCPU/RAM/디스크/OS)을 저장하여
- *  cluster.vm.create 등에서 재사용할 수 있게 한다.
- *
- *  CLI 사용 예:
- *    pcvctl template list
- *    pcvctl template get ubuntu-base
- *    pcvctl template create ubuntu-base --vcpu 4 --memory_mb 4096 --disk_gb 40 --os_variant ubuntu24.04
- *    pcvctl template delete ubuntu-base
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_template_list:
- *
- * 등록된 VM 템플릿 목록 조회.
- * template.list RPC → NAME/VCPU/MEMORY_MB/DISK_GB/OS_VARIANT 테이블 출력.
- */
 void cmd_template_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("template.list", NULL, &error);
@@ -2643,14 +2121,6 @@ void cmd_template_list(int argc __attribute__((unused)), char *argv[] __attribut
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_template_get:
- * @argc: 인수 개수 (최소 3: template get <name>)
- * @argv: 인수 배열
- *
- * 특정 템플릿 상세 정보 조회.
- * template.get RPC → JSON 원시 출력 (포맷 무관하게 항상 JSON).
- */
 void cmd_template_get(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl template get <name>%s\n",
@@ -2668,18 +2138,6 @@ void cmd_template_get(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_template_create:
- * @argc: 인수 개수 (최소 3: template create <name> [옵션])
- * @argv: 인수 배열
- *
- * VM 템플릿 생성. template.create RPC 호출.
- * 옵션 플래그:
- *   --vcpu N        : vCPU 수
- *   --memory_mb N   : 메모리 (MB)
- *   --disk_gb N     : 디스크 크기 (GB)
- *   --os_variant X  : OS 변종 (예: ubuntu24.04)
- */
 void cmd_template_create(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl template create <name> --vcpu N --memory_mb N --disk_gb N --os_variant X%s\n",
@@ -2707,13 +2165,6 @@ void cmd_template_create(int argc, char *argv[]) {
     print_action_response(resp, "TEMPLATE_CREATE"); g_free(resp);
 }
 
-/**
- * cmd_template_delete:
- * @argc: 인수 개수 (최소 3: template delete <name>)
- * @argv: 인수 배열
- *
- * VM 템플릿 삭제. template.delete RPC 호출.
- */
 void cmd_template_delete(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl template delete <name>%s\n",
@@ -2731,26 +2182,6 @@ void cmd_template_delete(int argc, char *argv[]) {
     print_action_response(resp, "TEMPLATE_DELETE"); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Backup 명령
- *
- *  ZFS 스냅샷 기반 자동 백업 정책 관리 CLI 그룹.
- *  VM별 백업 주기(interval_hours)와 보존 횟수(retention_count)를 설정하면
- *  데몬이 주기적으로 ZFS 스냅샷을 생성/정리한다.
- *
- *  CLI 사용 예:
- *    pcvctl backup list
- *    pcvctl backup set web-prod --interval 1 --retention 24
- *    pcvctl backup history web-prod
- *    pcvctl backup delete web-prod
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_backup_list:
- *
- * 설정된 백업 정책 목록 조회.
- * backup.policy.list RPC → VM_NAME/INTERVAL_HOURS/RETENTION/ENABLED 테이블 출력.
- */
 void cmd_backup_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("backup.policy.list", NULL, &error);
@@ -2804,16 +2235,6 @@ void cmd_backup_list(int argc __attribute__((unused)), char *argv[] __attribute_
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_backup_set:
- * @argc: 인수 개수 (최소 3: backup set <vm_name> [옵션])
- * @argv: 인수 배열
- *
- * VM 백업 정책 설정/갱신. backup.policy.set RPC 호출.
- * 옵션:
- *   --interval N  : 백업 주기 (시간 단위)
- *   --retention N : 보존할 스냅샷 수
- */
 void cmd_backup_set(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl backup set <vm_name> --interval N --retention N%s\n",
@@ -2837,14 +2258,6 @@ void cmd_backup_set(int argc, char *argv[]) {
     print_action_response(resp, "BACKUP_POLICY_SET"); g_free(resp);
 }
 
-/**
- * cmd_backup_delete:
- * @argc: 인수 개수 (최소 3: backup delete <vm_name>)
- * @argv: 인수 배열
- *
- * VM 백업 정책 삭제. backup.policy.delete RPC 호출.
- * 기존 스냅샷은 유지되며, 자동 백업만 중단된다.
- */
 void cmd_backup_delete(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl backup delete <vm_name>%s\n",
@@ -2862,14 +2275,6 @@ void cmd_backup_delete(int argc, char *argv[]) {
     print_action_response(resp, "BACKUP_POLICY_DELETE"); g_free(resp);
 }
 
-/**
- * cmd_backup_history:
- * @argc: 인수 개수 (최소 3: backup history <vm_name>)
- * @argv: 인수 배열
- *
- * VM 백업 이력 조회. backup.history RPC 호출.
- * 현재 daemon은 문자열 배열 ["snap1","snap2",...]을 반환한다.
- */
 void cmd_backup_history(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl backup history <vm_name>%s\n",
@@ -2918,15 +2323,6 @@ void cmd_backup_history(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  NIC 관리 명령 (device.nic.list / device.nic.attach / device.nic.detach)
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_nic_list - VM에 연결된 NIC 목록 조회
- * Usage: pcvctl nic list <vm_name>
- * RPC: device.nic.list {name: vm_name}
- */
 void cmd_nic_list(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl nic list <vm_name>%s\n",
@@ -2986,11 +2382,6 @@ void cmd_nic_list(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_nic_add - VM에 NIC 추가 (핫플러그)
- * Usage: pcvctl nic add <vm_name> <bridge>
- * RPC: device.nic.attach {name: vm_name, bridge: bridge}
- */
 void cmd_nic_add(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl nic add <vm_name> <bridge>%s\n",
@@ -3011,11 +2402,6 @@ void cmd_nic_add(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_nic_remove - VM에서 NIC 제거 (핫플러그)
- * Usage: pcvctl nic remove <vm_name> <mac>
- * RPC: device.nic.detach {name: vm_name, mac: mac}
- */
 void cmd_nic_remove(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl nic remove <vm_name> <mac>%s\n",
@@ -3036,15 +2422,6 @@ void cmd_nic_remove(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  ISO 관리 명령 (vm.mount_iso / vm.eject / iso.list)
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_iso_mount - VM에 ISO 마운트
- * Usage: pcvctl iso mount <vm_name> <iso_path>
- * RPC: vm.mount_iso {name: vm_name, iso_path: path}
- */
 void cmd_iso_mount(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl iso mount <vm_name> <iso_path>%s\n",
@@ -3065,11 +2442,6 @@ void cmd_iso_mount(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_iso_eject - VM에서 ISO 추출
- * Usage: pcvctl iso eject <vm_name>
- * RPC: vm.eject {name: vm_name}
- */
 void cmd_iso_eject(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl iso eject <vm_name>%s\n",
@@ -3089,11 +2461,6 @@ void cmd_iso_eject(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_iso_list - 사용 가능한 ISO 파일 목록 조회
- * Usage: pcvctl iso list
- * RPC: iso.list {}
- */
 void cmd_iso_list(int argc, char *argv[]) {
     (void)argc; (void)argv;
     GError *error = NULL;
@@ -3136,7 +2503,6 @@ void cmd_iso_list(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/** cmd_vm_usb_attach - USB host device passthrough attach. vm.usb.attach RPC. */
 void cmd_vm_usb_attach(int argc, char *argv[]) {
     if (argc < 5) {
         printf("%sUsage: pcvctl vm usb-attach <name> <vendor_id> <product_id>%s\n",
@@ -3158,7 +2524,6 @@ void cmd_vm_usb_attach(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/** cmd_vm_usb_detach - USB host device passthrough detach. vm.usb.detach RPC. */
 void cmd_vm_usb_detach(int argc, char *argv[]) {
     if (argc < 5) {
         printf("%sUsage: pcvctl vm usb-detach <name> <vendor_id> <product_id>%s\n",
@@ -3180,7 +2545,6 @@ void cmd_vm_usb_detach(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/** cmd_vm_usb_list - USB host devices attached to VM. vm.usb.list RPC. */
 void cmd_vm_usb_list(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm usb-list <name>%s\n",
@@ -3240,15 +2604,6 @@ void cmd_vm_usb_list(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  노드 관리 명령 (node.drain / node.resume / daemon.version)
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_node_drain - 노드 드레인 모드 진입 (신규 RPC 수신 중단)
- * Usage: pcvctl node drain [--timeout N]
- * RPC: node.drain {timeout_sec: N}  (기본값 30)
- */
 void cmd_node_drain(int argc, char *argv[]) {
     int timeout_sec = 30;
     for (int i = 2; i < argc; i++) {
@@ -3268,11 +2623,6 @@ void cmd_node_drain(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_node_resume - 드레인 모드 해제 (RPC 수신 재개)
- * Usage: pcvctl node resume
- * RPC: node.resume {}
- */
 void cmd_node_resume(int argc, char *argv[]) {
     (void)argc; (void)argv;
     GError *error = NULL;
@@ -3286,11 +2636,6 @@ void cmd_node_resume(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_node_version - 데몬 버전 조회
- * Usage: pcvctl node version
- * RPC: daemon.version {}
- */
 void cmd_node_version(int argc, char *argv[]) {
     (void)argc; (void)argv;
     GError *error = NULL;
@@ -3325,15 +2670,6 @@ void cmd_node_version(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  VM 삭제 상태 조회 (vm.delete.status)
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_vm_delete_status - VM 삭제 진행 상태 조회
- * Usage: pcvctl vm delete-status <name>
- * RPC: vm.delete.status {name: name}
- */
 void cmd_vm_delete_status(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm delete-status <name>%s\n",
@@ -3357,8 +2693,7 @@ void cmd_vm_delete_status(int argc, char *argv[]) {
     }
     JsonObject *root = json_node_get_object(json_parser_get_root(parser));
     if (json_object_has_member(root, "result")) {
-        /* VP-4: 데몬 계약은 result = 상태 문자열 값 노드. 객체 취급하면
-         * Json-CRITICAL. 값/객체 양쪽 수용, 빈 값은 안내 문구로. */
+
         JsonNode    *rn     = json_object_get_member(root, "result");
         const gchar *status = NULL;
         const gchar *name   = argv[2];
@@ -3386,15 +2721,6 @@ void cmd_vm_delete_status(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  VM 고급 조회/Guest Agent 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_vm_memory_stats - VM 메모리 통계 조회
- * Usage: pcvctl vm memory-stats <name>
- * RPC: vm.memory.stats {name: name}
- */
 void cmd_vm_memory_stats(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm memory-stats <name>%s\n",
@@ -3462,11 +2788,6 @@ void cmd_vm_memory_stats(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_vm_cpu_stats - VM CPU 통계 조회
- * Usage: pcvctl vm cpu-stats <name>
- * RPC: vm.cpu.stats {name: name}
- */
 void cmd_vm_cpu_stats(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm cpu-stats <name>%s\n",
@@ -3562,11 +2883,6 @@ void cmd_vm_cpu_stats(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_vm_disk_resize - VM 디스크 라이브 리사이즈
- * Usage: pcvctl vm disk-resize <name> <target> <new_size_gb>
- * RPC: vm.disk.live_resize {name, target, new_size_gb}
- */
 void cmd_vm_disk_resize(int argc, char *argv[]) {
     if (argc < 5) {
         printf("%sUsage: pcvctl vm disk-resize <name> <target> <new_size_gb>%s\n",
@@ -3588,11 +2904,6 @@ void cmd_vm_disk_resize(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_vm_guest_agent_status - Guest Agent channel/agent 상태 진단
- * Usage: pcvctl vm guest-agent-status <name>
- * RPC: vm.guest.agent.status {name: name}
- */
 void cmd_vm_guest_agent_status(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm guest-agent-status <name>%s\n",
@@ -3669,11 +2980,6 @@ void cmd_vm_guest_agent_status(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_vm_guest_agent_ensure_channel - Guest Agent libvirt channel 보정
- * Usage: pcvctl vm guest-agent-ensure-channel <name>
- * RPC: vm.guest.agent.ensure_channel {name: name}
- */
 void cmd_vm_guest_agent_ensure_channel(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm guest-agent-ensure-channel <name>%s\n",
@@ -3693,11 +2999,6 @@ void cmd_vm_guest_agent_ensure_channel(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/**
- * cmd_vm_guest_ping - Guest Agent 연결 확인
- * Usage: pcvctl vm guest-ping <name>
- * RPC: vm.guest.ping {name: name}
- */
 void cmd_vm_guest_ping(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm guest-ping <name>%s\n",
@@ -3737,18 +3038,13 @@ void cmd_vm_guest_ping(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_vm_guest_exec - Guest Agent 명령 실행
- * Usage: pcvctl vm guest-exec <name> <command>
- * RPC: vm.guest.exec {name, command}
- */
 void cmd_vm_guest_exec(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm guest-exec <name> <command>%s\n",
             cc(CYBER_YELLOW), cc(CYBER_RESET));
         return;
     }
-    /* argv[3..] 을 하나의 명령 문자열로 결합 */
+
     GString *cmd_str = g_string_new(argv[3]);
     for (int i = 4; i < argc; i++) {
         g_string_append_c(cmd_str, ' ');
@@ -3783,9 +3079,7 @@ void cmd_vm_guest_exec(int argc, char *argv[]) {
         JsonObject  *res     = json_object_get_object_member(root, "result");
         const gchar *out     = json_object_get_string_member_with_default(res, "stdout", "");
         const gchar *err_out = json_object_get_string_member_with_default(res, "stderr", "");
-        /* VP-3: 데몬 직렬화 키는 "exitcode" — 구키 "exit_code" 조회는 항상 기본값 -1이었음.
-         * 표시 라벨은 스크립트 파싱 호환을 위해 exit_code 유지.
-         * exited 부재(구버전 데몬)는 true 간주. */
+
         gint64       exitc   = json_object_get_int_member_with_default(res, "exitcode", -1);
         gboolean     exited  = json_object_get_boolean_member_with_default(res, "exited", TRUE);
         if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
@@ -3811,11 +3105,6 @@ void cmd_vm_guest_exec(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * cmd_vm_guest_shutdown - Guest Agent 기반 안전 종료
- * Usage: pcvctl vm guest-shutdown <name>
- * RPC: vm.guest.shutdown {name: name}
- */
 void cmd_vm_guest_shutdown(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm guest-shutdown <name>%s\n",
@@ -3858,11 +3147,6 @@ void cmd_vm_guest_shutdown(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  P2: 알림 관리 (Alert Management)
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_alert_list - 알림 히스토리 조회. alert.history RPC 호출. */
 void cmd_alert_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("alert.history", NULL, &error);
@@ -3917,7 +3201,6 @@ void cmd_alert_list(int argc __attribute__((unused)), char *argv[] __attribute__
     g_object_unref(parser); g_free(resp);
 }
 
-/** cmd_alert_config - 알림 설정 조회. alert.config.get RPC 호출. */
 void cmd_alert_config(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("alert.config.get", NULL, &error);
@@ -3928,12 +3211,6 @@ void cmd_alert_config(int argc __attribute__((unused)), char *argv[] __attribute
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_alert_set - 알림 임계값/Webhook 설정.
- * Usage: pcvctl alert set --cpu_warn N --cpu_crit N --mem_warn N
- *        --mem_crit N --webhook URL
- * RPC: alert.config.set {cpu_warn, cpu_crit, mem_warn, mem_crit, webhook_url}
- */
 void cmd_alert_set(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
     for (int i = 2; i < argc; i++) {
@@ -3957,11 +3234,6 @@ void cmd_alert_set(int argc, char *argv[]) {
     print_action_response(resp, "ALERT_CONFIG_SET"); g_free(resp);
 }
 
-/**
- * cmd_alert_reload - 알림 설정 리로드
- * Usage: pcvctl alert reload
- * RPC: alert.config.reload {}
- */
 void cmd_alert_reload(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("alert.config.reload", NULL, &error);
@@ -4022,16 +3294,6 @@ void cmd_alert_reload(int argc __attribute__((unused)), char *argv[] __attribute
     g_object_unref(parser); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  P2: 클러스터 페일오버/복제 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-
-/* ════════════════════════════════════════════════════════════════════
- *  P3: AI Agent 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_agent_config - AI Agent 설정 조회. agent.config.get RPC 호출. */
 void cmd_agent_config(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("agent.config.get", NULL, &error);
@@ -4042,11 +3304,6 @@ void cmd_agent_config(int argc __attribute__((unused)), char *argv[] __attribute
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/**
- * cmd_agent_set - AI Agent 프로바이더 설정.
- * Usage: pcvctl agent set --provider NAME --api_key KEY --enabled true/false
- * RPC: agent.config.set {providers: {NAME: {api_key, enabled}}}
- */
 void cmd_agent_set(int argc, char *argv[]) {
     const char *provider = NULL;
     const char *api_key  = NULL;
@@ -4081,7 +3338,6 @@ void cmd_agent_set(int argc, char *argv[]) {
     print_action_response(resp, "AGENT_CONFIG_SET"); g_free(resp);
 }
 
-/** cmd_agent_history - AI 합의 이력 조회. agent.history RPC 호출. */
 void cmd_agent_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("agent.history", NULL, &error);
@@ -4092,17 +3348,6 @@ void cmd_agent_history(int argc __attribute__((unused)), char *argv[] __attribut
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  P3: OVN ACL/DHCP 확장 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_ovn_acl - OVN ACL 관리.
- * Usage:
- *   pcvctl ovn acl list <switch>
- *   pcvctl ovn acl add <switch> <direction> <priority> <match> <action>
- * RPC: ovn.acl.list / ovn.acl.add
- */
 void cmd_ovn_acl(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage:\n"
@@ -4192,11 +3437,6 @@ void cmd_ovn_acl(int argc, char *argv[]) {
     }
 }
 
-/**
- * cmd_ovn_dhcp - OVN DHCP 활성화.
- * Usage: pcvctl ovn dhcp enable <switch> <cidr>
- * RPC: ovn.dhcp.enable {switch_name, cidr}
- */
 void cmd_ovn_dhcp(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl ovn dhcp enable <switch> <cidr>%s\n",
@@ -4227,15 +3467,6 @@ void cmd_ovn_dhcp(int argc, char *argv[]) {
     }
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  P3: 네트워크 편집 명령
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * cmd_net_edit - 브릿지 모드 변경.
- * Usage: pcvctl network edit <bridge> --mode MODE
- * RPC: network.mode_set {bridge_name, mode}
- */
 void cmd_net_edit(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl network edit <bridge> --mode MODE%s\n",
@@ -4265,11 +3496,6 @@ void cmd_net_edit(int argc, char *argv[]) {
     print_action_response(resp, "NET_MODE_SET"); g_free(resp);
 }
 
-/**
- * cmd_net_dhcp - 브릿지 DHCP 토글.
- * Usage: pcvctl network dhcp <bridge> --enable/--disable
- * RPC: network.dhcp_toggle {bridge_name, action: "start"/"stop"}
- */
 void cmd_net_dhcp(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl network dhcp <bridge> --enable|--disable%s\n",
@@ -4301,11 +3527,6 @@ void cmd_net_dhcp(int argc, char *argv[]) {
     print_action_response(resp, "NET_DHCP_TOGGLE"); g_free(resp);
 }
 
-/**
- * cmd_net_bind - 브릿지에 물리 NIC 바인딩.
- * Usage: pcvctl network bind <bridge> <nic>
- * RPC: network.bind_phys {bridge_name, physical_if}
- */
 void cmd_net_bind(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl network bind <bridge> <nic>%s\n",
@@ -4324,13 +3545,6 @@ void cmd_net_bind(int argc, char *argv[]) {
     print_action_response(resp, "NET_BIND_PHYS"); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Phase 2 + Phase 3 CLI 핸들러 (29개 RPC)
- * ════════════════════════════════════════════════════════════════════ */
-
-/* ── Phase 2: VM Operations ── */
-
-/** cmd_vm_autostart - VM 자동시작 설정. vm.autostart RPC. */
 void cmd_vm_autostart(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm autostart <name> --enable/--disable%s\n",
@@ -4354,7 +3568,6 @@ void cmd_vm_autostart(int argc, char *argv[]) {
     print_action_response(resp, "VM_AUTOSTART"); g_free(resp);
 }
 
-/** cmd_vm_disk_throttle - 디스크 I/O 스로틀링. vm.blkio.set RPC. */
 void cmd_vm_disk_throttle(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm disk-throttle <name> [--device vda] --read-iops N --write-iops N%s\n",
@@ -4381,7 +3594,6 @@ void cmd_vm_disk_throttle(int argc, char *argv[]) {
     print_action_response(resp, "DISK_THROTTLE"); g_free(resp);
 }
 
-/** cmd_vm_bandwidth - VM 네트워크 대역폭 제한. vm.set_bandwidth RPC. */
 void cmd_vm_bandwidth(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm bandwidth <name> --inbound-kbps N --outbound-kbps N%s\n",
@@ -4418,7 +3630,6 @@ void cmd_vm_bandwidth(int argc, char *argv[]) {
     print_action_response(resp, "VM_BANDWIDTH"); g_free(resp);
 }
 
-/** cmd_vm_numa_info - NUMA 토폴로지 조회. vm.numa.info RPC. */
 void cmd_vm_numa_info(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("vm.numa.info", NULL, &error);
@@ -4429,7 +3640,6 @@ void cmd_vm_numa_info(int argc __attribute__((unused)), char *argv[] __attribute
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_vm_sla - VM SLA 리포트. vm.sla.report RPC. */
 void cmd_vm_sla(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm sla <name>%s\n",
@@ -4447,7 +3657,6 @@ void cmd_vm_sla(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_vm_schedule - VM 스케줄 설정/조회. vm.schedule.set / vm.schedule.list RPC. */
 void cmd_vm_schedule(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage:\n"
@@ -4491,9 +3700,6 @@ void cmd_vm_schedule(int argc, char *argv[]) {
     }
 }
 
-/* ── Phase 2: Monitoring ── */
-
-/** cmd_storage_health - 스토리지 풀 헬스. storage.pool.health RPC. */
 void cmd_storage_health(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
     if (argc >= 3)
@@ -4507,7 +3713,6 @@ void cmd_storage_health(int argc, char *argv[]) {
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_capacity_forecast - 용량 예측. capacity.forecast RPC. */
 void cmd_capacity_forecast(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("capacity.forecast", NULL, &error);
@@ -4518,7 +3723,6 @@ void cmd_capacity_forecast(int argc __attribute__((unused)), char *argv[] __attr
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_billing_report - VM 빌링 리포트. vm.billing.report RPC. */
 void cmd_billing_report(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("vm.billing.report", NULL, &error);
@@ -4529,12 +3733,9 @@ void cmd_billing_report(int argc __attribute__((unused)), char *argv[] __attribu
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ── Phase 2: Advanced ── */
-
-/** cmd_job_list - 비동기 작업 목록. job.list RPC. */
 void cmd_job_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
-    gchar  *resp  = purectl_send_request("jobs.list", NULL, &error);  /* [감사 AF-C2] 오타 수정: 백엔드 등록명은 복수형 jobs.list */
+    gchar  *resp  = purectl_send_request("jobs.list", NULL, &error);
     if (error) {
         g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
         g_error_free(error); return;
@@ -4542,9 +3743,6 @@ void cmd_job_list(int argc __attribute__((unused)), char *argv[] __attribute__((
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_batch_execute - 다중 VM에 whitelist action 팬아웃 실행. vm.batch RPC.
- *  action whitelist(서버 실측)는 start/stop — 그 외는 -32602 "unsupported batch action"
- *  으로 거부되며, 그 에러를 그대로 사용자에게 노출한다. */
 void cmd_batch_execute(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm batch <start|stop> <vm1> <vm2> ...\n"
@@ -4606,7 +3804,6 @@ void cmd_batch_execute(int argc, char *argv[]) {
     g_free(r);
 }
 
-/** cmd_prometheus_sd - Prometheus 서비스 디스커버리. prometheus.sd RPC. */
 void cmd_prometheus_sd(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("prometheus.sd", NULL, &error);
@@ -4617,7 +3814,6 @@ void cmd_prometheus_sd(int argc __attribute__((unused)), char *argv[] __attribut
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_webhook_list - 이벤트 Webhook 목록. vm.event.webhook.list RPC. */
 void cmd_webhook_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("vm.event.webhook.list", NULL, &error);
@@ -4628,7 +3824,6 @@ void cmd_webhook_list(int argc __attribute__((unused)), char *argv[] __attribute
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_alert_actions - 알림 액션 목록. alert.action.list RPC. */
 void cmd_alert_actions(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("alert.action.list", NULL, &error);
@@ -4639,12 +3834,6 @@ void cmd_alert_actions(int argc __attribute__((unused)), char *argv[] __attribut
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ── Phase 3: Audit ── */
-
-/**
- * cmd_audit_search - 감사 로그 검색. audit.search RPC.
- * Usage: pcvctl audit search [--user U] [--from TS] [--to TS] [--method M] [--limit N]
- */
 void cmd_audit_search(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
     for (int i = 2; i < argc; i++) {
@@ -4667,8 +3856,6 @@ void cmd_audit_search(int argc, char *argv[]) {
     }
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
-
-/* ── Native Host HIDS/HIPS Security Guard ── */
 
 static void security_usage(void) {
     printf("%sUsage:\n"
@@ -5022,15 +4209,6 @@ void cmd_security(int argc, char *argv[]) {
     }
 }
 
-/* ── Phase 3: Cluster Affinity ── */
-
-
-/* ── Phase 3: Security Groups ── */
-
-/** cmd_secgroup - 보안 그룹 관리. security_group.* RPC.
- * 라우트 테이블에서 object="security-group", action="list/create/delete/rule"로
- * 개별 매칭되므로 argv[1]이 sub-command이다.
- */
 void cmd_secgroup(int argc, char *argv[]) {
     if (argc < 2) {
         printf("%sUsage:\n"
@@ -5094,8 +4272,7 @@ void cmd_secgroup(int argc, char *argv[]) {
         json_object_set_string_member(params, "name", argv[3]);
         for (int i = 4; i < argc; i++) {
             if (g_strcmp0(argv[i], "--direction") == 0 && i+1 < argc) {
-                /* VP-7: 데몬 계약은 ingress/egress — 사용자 친화 별칭을 정규화.
-                 * 미인식 값은 그대로 전달해 데몬이 거부·로그하게 둔다. */
+
                 const gchar *dir = argv[++i];
                 if (g_strcmp0(dir, "in") == 0 || g_strcmp0(dir, "inbound") == 0)
                     dir = "ingress";
@@ -5120,7 +4297,6 @@ void cmd_secgroup(int argc, char *argv[]) {
     }
 }
 
-/** cmd_vm_secgroup - VM에 보안 그룹 할당. vm.security_group.set RPC. */
 void cmd_vm_secgroup(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm security-group <vm> <sg>%s\n",
@@ -5139,9 +4315,6 @@ void cmd_vm_secgroup(int argc, char *argv[]) {
     print_action_response(resp, "VM_SECGROUP_SET"); g_free(resp);
 }
 
-/* ── Phase 3: Webhook DLQ ── */
-
-/** cmd_webhook_dlq - Webhook DLQ 관리. webhook.dlq.list / webhook.dlq.retry RPC. */
 void cmd_webhook_dlq(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage:\n"
@@ -5172,9 +4345,6 @@ void cmd_webhook_dlq(int argc, char *argv[]) {
     }
 }
 
-/* ── Phase 3: GPU Metrics ── */
-
-/** cmd_gpu_metrics - GPU 메트릭 조회. gpu.metrics RPC. */
 void cmd_gpu_metrics(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("gpu.metrics", NULL, &error);
@@ -5185,9 +4355,6 @@ void cmd_gpu_metrics(int argc __attribute__((unused)), char *argv[] __attribute_
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ── Phase 3: Config History/Backup ── */
-
-/** cmd_config_history - 설정 변경 이력 조회. config.history RPC. */
 void cmd_config_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("config.history", NULL, &error);
@@ -5198,7 +4365,6 @@ void cmd_config_history(int argc __attribute__((unused)), char *argv[] __attribu
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/** cmd_config_backup - 설정 백업. config.backup RPC. */
 void cmd_config_backup(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("config.backup", NULL, &error);
@@ -5209,21 +4375,6 @@ void cmd_config_backup(int argc __attribute__((unused)), char *argv[] __attribut
     print_action_response(resp, "CONFIG_BACKUP"); g_free(resp);
 }
 
-/* ── Config Validate (client-side, no daemon needed) ── */
-
-/**
- * cmd_config_validate - daemon.conf 설정 파일의 유효성을 검증합니다.
- * 데몬 연결 없이 클라이언트에서 직접 설정 파일을 읽어 검증합니다.
- *
- * [검증 항목]
- *   1. rest_port: 1-65535 범위
- *   2. socket_path: 상위 디렉터리 존재 여부
- *   3. TLS 인증서: 파일 존재 여부
- *   4. etcd_endpoints: 노드 수 (3개 권장)
- *   5. drain_timeout: >= 5초
- *   6. pool_max_conn: 1-64 범위
- *   7. image_dir: 디렉터리 존재 여부
- */
 void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     const gchar *conf_path = "/etc/purecvisor/daemon.conf";
     GKeyFile *kf = g_key_file_new();
@@ -5240,7 +4391,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
 
     gint pass = 0, warn = 0, fail = 0;
 
-    /* 1. rest_port (daemon 섹션) */
     {
         gint port = g_key_file_get_integer(kf, "daemon", "rest_port", NULL);
         if (port >= 1 && port <= 65535) {
@@ -5256,7 +4406,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 2. socket_path */
     {
         gchar *sock = g_key_file_get_string(kf, "daemon", "socket_path", NULL);
         if (sock && *sock) {
@@ -5278,7 +4427,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 3. TLS cert_file */
     {
         gboolean tls_on = g_key_file_get_boolean(kf, "tls", "enabled", NULL);
         if (tls_on) {
@@ -5315,7 +4463,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 4. etcd_endpoints */
     {
         gchar *eps = g_key_file_get_string(kf, "cluster", "etcd_endpoints", NULL);
         if (eps && *eps) {
@@ -5335,7 +4482,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 5. drain_timeout */
     {
         gint dt = g_key_file_get_integer(kf, "daemon", "drain_timeout", NULL);
         if (dt > 0 && dt < 5) {
@@ -5349,7 +4495,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 6. pool_max_conn */
     {
         gint pm = g_key_file_get_integer(kf, "daemon", "pool_max_conn", NULL);
         if (pm > 0) {
@@ -5365,7 +4510,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
         }
     }
 
-    /* 7. image_dir */
     {
         gchar *img = g_key_file_get_string(kf, "storage", "image_dir", NULL);
         if (img && *img) {
@@ -5391,9 +4535,6 @@ void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attrib
            ce(CYBER_RED), fail, ce(CYBER_RESET));
 }
 
-/* ── Phase 3: Template History ── */
-
-/** cmd_template_history - 템플릿 변경 이력 조회. template.history RPC. */
 void cmd_template_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("template.history", NULL, &error);
@@ -5404,14 +4545,6 @@ void cmd_template_history(int argc __attribute__((unused)), char *argv[] __attri
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
-/* ── gRPC 관리 ── */
-
-/**
- * cmd_grpc_status - gRPC 서버 상태 확인.
- *
- * TCP 50051 포트 연결을 시도하여 gRPC 서버 활성 여부를 확인한다.
- * 연결 성공 시 ACTIVE, 실패 시 DISABLED 출력.
- */
 static void cmd_grpc_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -5438,13 +4571,6 @@ static void cmd_grpc_status(int argc __attribute__((unused)), char *argv[] __att
     close(fd);
 }
 
-/**
- * cmd_grpc_test - gRPC 연결 테스트.
- *
- * gRPC 포트(50051)에 연결하여 daemon.version 요청을 전송한다.
- * 바이너리 프레이밍: [4B method_len][method][4B payload_len][payload]
- * 응답: [4B resp_len][json]
- */
 static void cmd_grpc_test(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     int fd = socket(AF_INET, SOCK_STREAM, 0);
     if (fd < 0) {
@@ -5469,7 +4595,6 @@ static void cmd_grpc_test(int argc __attribute__((unused)), char *argv[] __attri
         return;
     }
 
-    /* Send: [4B method_len][method][4B payload_len][payload] */
     const char *method = "/purecvisor.v1.SystemService/Version";
     const char *payload = "{}";
     uint32_t method_len = (uint32_t)strlen(method);
@@ -5490,7 +4615,6 @@ static void cmd_grpc_test(int argc __attribute__((unused)), char *argv[] __attri
         return;
     }
 
-    /* Read: [4B resp_len][json response] */
     uint32_t resp_len_net = 0;
     ssize_t rd = read(fd, &resp_len_net, 4);
     if (rd == 4) {
@@ -5518,35 +4642,6 @@ static void cmd_grpc_test(int argc __attribute__((unused)), char *argv[] __attri
     close(fd);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  라우팅 테이블
- *
- *  CLI 명령 디스패치의 핵심 자료구조.
- *  사용자 입력 "pcvctl <object> <action> [args]"에서
- *  object+action 조합으로 핸들러 함수를 찾아 호출한다.
- *
- *  구조:
- *    { object, action, handler_func, help_text }
- *
- *  동작 흐름:
- *    1. main() → route_exec() 호출
- *    2. route_exec()가 routes[] 순회하며 object+action 매칭
- *    3. 매칭된 handler(argc, argv) 호출
- *    4. 미매칭 시 에러 출력 + print_help(object)
- *
- *  readline 자동완성: build_completions()가 routes[]에서
- *  "object action" 문자열을 동적 생성하여 Tab 완성 지원.
- * ════════════════════════════════════════════════════════════════════ */
-
-/* ════════════════════════════════════════════════════════════════════
- * Cloud Migration CLI Commands
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * pcvctl cloud import --ami ami-xxx --name web-prod [--region ap-northeast-2]
- *   [--bucket pcv-migration] [--vcpu 4] [--memory 8192] [--bridge pcvbr0]
- *   [--mode near-live]
- */
 static void cmd_cloud_import(int argc, char *argv[]) {
     const char *name = NULL, *ami = NULL, *region = "ap-northeast-2";
     const char *bucket = "", *bridge = "pcvbr0", *mode = NULL;
@@ -5604,10 +4699,6 @@ static void cmd_cloud_import(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * pcvctl cloud export --name web-prod [--region ap-northeast-2] [--bucket pcv-migration]
- *   [--ami-name web-exported] [--description "..."]
- */
 static void cmd_cloud_export(int argc, char *argv[]) {
     const char *name = NULL, *region = "ap-northeast-2", *bucket = "";
     const char *ami_name = "", *desc = "";
@@ -5655,14 +4746,11 @@ static void cmd_cloud_export(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * pcvctl cloud status --name <vm-name>
- */
 static void cmd_cloud_status(int argc, char *argv[]) {
     const char *name = NULL;
     for (int i = 2; i < argc; i++) {
         if (g_str_has_prefix(argv[i], "--name") && i+1 < argc) name = argv[++i];
-        else if (!g_str_has_prefix(argv[i], "--")) name = argv[i]; /* positional */
+        else if (!g_str_has_prefix(argv[i], "--")) name = argv[i];
     }
     if (!name) {
         printf("%sUsage: pcvctl cloud status --name <vm-name>%s\n",
@@ -5706,7 +4794,6 @@ static void cmd_cloud_status(int argc, char *argv[]) {
         printf("  Detail:   %s\n", detail);
         printf("  Elapsed:  %" G_GINT64_FORMAT "s\n", elapsed);
 
-        /* 진행률 바 */
         printf("  [");
         int bar_len = 40;
         int filled = (int)(progress * bar_len / 100);
@@ -5717,10 +4804,6 @@ static void cmd_cloud_status(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/**
- * pcvctl cloud finalize --name <vm-name>
- * Finalize near-live import (Phase 2: stop EC2, delta sync, start VM)
- */
 static void cmd_cloud_finalize(int argc, char *argv[])
 {
     const char *name = NULL;
@@ -5765,7 +4848,6 @@ static void cmd_cloud_finalize(int argc, char *argv[])
     g_object_unref(parser); g_free(resp);
 }
 
-/* ── cloud jobs — 전체 마이그레이션 작업 목록 ───────────────── */
 static void cmd_cloud_jobs(int argc, char *argv[])
 {
     (void)argc; (void)argv;
@@ -5823,7 +4905,6 @@ static void cmd_cloud_jobs(int argc, char *argv[])
     g_object_unref(parser); g_free(resp);
 }
 
-/* ── cloud cancel — 마이그레이션 작업 취소 ───────────────────── */
 static void cmd_cloud_cancel(int argc, char *argv[])
 {
     const char *name = NULL;
@@ -5836,7 +4917,7 @@ static void cmd_cloud_cancel(int argc, char *argv[])
     JsonObject *p = json_object_new();
     json_object_set_string_member(p, "name", name);
     gchar *resp = purectl_send_request("cloud.job.cancel", p, NULL);
-    /* p 소유권은 purectl_send_request → json_object_set_object_member로 이전됨 */
+
     if (!resp) return;
     if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
 
@@ -5855,19 +4936,9 @@ static void cmd_cloud_cancel(int argc, char *argv[])
     g_object_unref(parser); g_free(resp);
 }
 
-/* ── Phase 3: Cluster Node Evacuate ── */
-
-
-/* ── Phase 3: Storage Pool Forecast ── */
-
-/**
- * cmd_storage_pool_forecast - 스토리지 풀 용량 예측.
- * Usage: pcvctl storage pool forecast [pool_name]
- * RPC: storage.pool.forecast {"pool":"pcvpool"}
- */
 void cmd_storage_pool_forecast(int argc, char *argv[]) {
     JsonObject *params = json_object_new();
-    /* argv: storage pool forecast [pool_name] → argv[3] */
+
     if (argc >= 4)
         json_object_set_string_member(params, "pool", argv[3]);
     else
@@ -5933,13 +5004,6 @@ void cmd_storage_pool_forecast(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/* ── Phase 3: VM Block I/O Set ── */
-
-/**
- * cmd_vm_blkio_set - VM 블록 I/O 제한 설정.
- * Usage: pcvctl vm blkio-set <name> [--read_bps N] [--write_bps N] [--read_iops N] [--write_iops N]
- * RPC: vm.blkio.set {"name":"...", "device":"vda", "read_bytes_sec":N, ...}
- */
 void cmd_vm_blkio_set(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm blkio-set <name> [--read_bps N] [--write_bps N] "
@@ -5973,13 +5037,6 @@ void cmd_vm_blkio_set(int argc, char *argv[]) {
     g_free(resp);
 }
 
-/* ── Phase 3: VM Block I/O Get ── */
-
-/**
- * cmd_vm_blkio_get - VM 블록 I/O 제한 조회.
- * Usage: pcvctl vm blkio-get <name>
- * RPC: vm.blkio.get {"name":"...", "device":"vda"}
- */
 void cmd_vm_blkio_get(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage: pcvctl vm blkio-get <name>%s\n",
@@ -6046,16 +5103,6 @@ void cmd_vm_blkio_get(int argc, char *argv[]) {
     g_object_unref(parser); g_free(resp);
 }
 
-/* ── Phase 3: Cluster Config Push ── */
-
-
-/* ── Phase 3: Snapshot Schedule Status ── */
-
-/**
- * cmd_snapshot_schedule_status - 스냅샷 스케줄 상태 조회.
- * Usage: pcvctl snapshot schedule-status
- * RPC: snapshot.schedule.status {}
- */
 void cmd_snapshot_schedule_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *error = NULL;
     gchar *resp = purectl_send_request("snapshot.schedule.status", NULL, &error);
@@ -6128,11 +5175,6 @@ void cmd_snapshot_schedule_status(int argc __attribute__((unused)), char *argv[]
     g_object_unref(parser); g_free(resp);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Container Advanced (15 commands)
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_container_logs - 컨테이너 로그 조회. container.logs RPC. */
 static void cmd_container_logs(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container logs <name> [--lines N]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6166,7 +5208,6 @@ static void cmd_container_logs(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_container_volume_attach - 컨테이너 볼륨 연결. container.volume.attach RPC. */
 static void cmd_container_volume_attach(int argc, char *argv[]) {
     if (argc < 5) { printf("%sUsage: pcvctl container volume-attach <name> <host_path> <container_path>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6178,7 +5219,6 @@ static void cmd_container_volume_attach(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_VOLUME_ATTACH"); g_free(r);
 }
 
-/** cmd_container_volume_detach - 컨테이너 볼륨 분리. container.volume.detach RPC. */
 static void cmd_container_volume_detach(int argc, char *argv[]) {
     if (argc < 4) { printf("%sUsage: pcvctl container volume-detach <name> <container_path>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6189,7 +5229,6 @@ static void cmd_container_volume_detach(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_VOLUME_DETACH"); g_free(r);
 }
 
-/** cmd_container_volume_list - 컨테이너 볼륨 목록. container.volume.list RPC. */
 static void cmd_container_volume_list(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container volume-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6223,7 +5262,6 @@ static void cmd_container_volume_list(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_container_env_set - 컨테이너 환경변수 설정. container.env.set RPC. */
 static void cmd_container_env_set(int argc, char *argv[]) {
     if (argc < 5) { printf("%sUsage: pcvctl container env-set <name> <key> <value>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6235,7 +5273,6 @@ static void cmd_container_env_set(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_ENV_SET"); g_free(r);
 }
 
-/** cmd_container_env_list - 컨테이너 환경변수 목록. container.env.list RPC. */
 static void cmd_container_env_list(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container env-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6270,7 +5307,6 @@ static void cmd_container_env_list(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_container_env_delete - 컨테이너 환경변수 삭제. container.env.delete RPC. */
 static void cmd_container_env_delete(int argc, char *argv[]) {
     if (argc < 4) { printf("%sUsage: pcvctl container env-delete <name> <key>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6281,7 +5317,6 @@ static void cmd_container_env_delete(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_ENV_DELETE"); g_free(r);
 }
 
-/** cmd_container_health_set - 컨테이너 헬스체크 설정. container.health.set RPC. */
 static void cmd_container_health_set(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container health-set <name> --type http --target <url>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6299,7 +5334,6 @@ static void cmd_container_health_set(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_HEALTH_SET"); g_free(r);
 }
 
-/** cmd_container_health_get - 컨테이너 헬스체크 조회. container.health.get RPC. */
 static void cmd_container_health_get(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container health-get <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6326,7 +5360,6 @@ static void cmd_container_health_get(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_container_health_delete - 컨테이너 헬스체크 삭제. container.health.delete RPC. */
 static void cmd_container_health_delete(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container health-delete <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6336,7 +5369,6 @@ static void cmd_container_health_delete(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_HEALTH_DELETE"); g_free(r);
 }
 
-/** cmd_container_nic_list - 컨테이너 NIC 목록. container.nic.list RPC. */
 static void cmd_container_nic_list(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container nic-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6372,7 +5404,6 @@ static void cmd_container_nic_list(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_container_nic_attach - 컨테이너 NIC 추가. container.nic.attach RPC. */
 static void cmd_container_nic_attach(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container nic-attach <name> --bridge pcvbr0%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6388,7 +5419,6 @@ static void cmd_container_nic_attach(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_NIC_ATTACH"); g_free(r);
 }
 
-/** cmd_container_nic_detach - 컨테이너 NIC 분리. container.nic.detach RPC. */
 static void cmd_container_nic_detach(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container nic-detach <name> --mac XX:XX:XX:XX:XX:XX%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6402,7 +5432,6 @@ static void cmd_container_nic_detach(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_NIC_DETACH"); g_free(r);
 }
 
-/** cmd_container_set_limits - 컨테이너 리소스 제한. container.set_limits RPC. */
 static void cmd_container_set_limits(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container set-limits <name> --memory_mb N --cpu_quota N%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6418,7 +5447,6 @@ static void cmd_container_set_limits(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_SET_LIMITS"); g_free(r);
 }
 
-/** cmd_container_set_bandwidth - 컨테이너 대역폭 설정. container.set_bandwidth RPC. */
 static void cmd_container_set_bandwidth(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl container set-bandwidth <name> --inbound N --outbound N%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6434,11 +5462,6 @@ static void cmd_container_set_bandwidth(int argc, char *argv[]) {
     print_action_response(r, "CONTAINER_SET_BANDWIDTH"); g_free(r);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Backup Advanced (5 commands)
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_backup_restore - 백업 복원. backup.restore RPC. */
 static void cmd_backup_restore(int argc, char *argv[]) {
     if (argc < 4) { printf("%sUsage: pcvctl backup restore <name> <snapshot>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6449,7 +5472,6 @@ static void cmd_backup_restore(int argc, char *argv[]) {
     print_action_response(r, "BACKUP_RESTORE"); g_free(r);
 }
 
-/** cmd_backup_incremental - 증분 백업. backup.incremental RPC. */
 static void cmd_backup_incremental(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup incremental <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6459,7 +5481,6 @@ static void cmd_backup_incremental(int argc, char *argv[]) {
     print_action_response(r, "BACKUP_INCREMENTAL"); g_free(r);
 }
 
-/** cmd_backup_verify - 백업 무결성 검증. backup.verify RPC. */
 static void cmd_backup_verify(int argc, char *argv[]) {
     if (argc < 4) { printf("%sUsage: pcvctl backup verify <name> <snapshot>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6470,7 +5491,6 @@ static void cmd_backup_verify(int argc, char *argv[]) {
     print_action_response(r, "BACKUP_VERIFY"); g_free(r);
 }
 
-/** cmd_backup_replicate - 백업 원격 복제. backup.replicate RPC. */
 static void cmd_backup_replicate(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup replicate <name> --target <ip> --user <user>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6486,7 +5506,6 @@ static void cmd_backup_replicate(int argc, char *argv[]) {
     print_action_response(r, "BACKUP_REPLICATE"); g_free(r);
 }
 
-/** cmd_backup_export_s3 - 백업 S3 내보내기. backup.export_s3 RPC. */
 static void cmd_backup_export_s3(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl backup export-s3 <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6496,11 +5515,6 @@ static void cmd_backup_export_s3(int argc, char *argv[]) {
     print_action_response(r, "BACKUP_EXPORT_S3"); g_free(r);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  VM Additional (4 commands)
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_vm_clone - VM 복제. vm.clone RPC. */
 static void cmd_vm_clone(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm clone <source> <clone_name> [--mode cow|full] [--template-prepared|--guest-reset]%s\n",
@@ -6525,7 +5539,6 @@ static void cmd_vm_clone(int argc, char *argv[]) {
     print_action_response(r, "VM_CLONE"); g_free(r);
 }
 
-/** cmd_vm_pin_vcpu - vCPU 피닝. vm.pin_vcpu RPC. */
 static void cmd_vm_pin_vcpu(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl vm pin-vcpu <name> --vcpu N --cpuset 0-3%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6541,7 +5554,6 @@ static void cmd_vm_pin_vcpu(int argc, char *argv[]) {
     print_action_response(r, "VM_PIN_VCPU"); g_free(r);
 }
 
-/** cmd_vm_snapshot_delete_all - 스냅샷 일괄 삭제. vm.snapshot.delete_all RPC. */
 static void cmd_vm_snapshot_delete_all(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl vm snapshot-delete-all <name> [--prefix auto-] [--keep N]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6557,7 +5569,6 @@ static void cmd_vm_snapshot_delete_all(int argc, char *argv[]) {
     print_action_response(r, "VM_SNAPSHOT_DELETE_ALL"); g_free(r);
 }
 
-/** cmd_vm_export_ova - VM OVA 내보내기. vm.export.ova RPC. */
 static void cmd_vm_export_ova(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl vm export-ova <name> [--output-dir /tmp]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6572,7 +5583,6 @@ static void cmd_vm_export_ova(int argc, char *argv[]) {
     print_action_response(r, "VM_EXPORT_OVA"); g_free(r);
 }
 
-/** cmd_vm_import_ova - OVA 파일 가져오기. vm.import.ova RPC. */
 static void cmd_vm_import_ova(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage: pcvctl vm import-ova <ova_path> <name> [--pool pcvpool/vms]%s\n",
@@ -6591,11 +5601,6 @@ static void cmd_vm_import_ova(int argc, char *argv[]) {
     print_action_response(r, "VM_IMPORT_OVA"); g_free(r);
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Monitor / QoS / Misc (6 commands)
- * ════════════════════════════════════════════════════════════════════ */
-
-/** cmd_monitor_processes - 프로세스 모니터링. monitor.processes RPC. */
 static void cmd_monitor_processes(int argc, char *argv[]) {
     JsonObject *p = json_object_new();
     gint64 top = 10;
@@ -6638,7 +5643,6 @@ static void cmd_monitor_processes(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_network_qos_set - 네트워크 QoS 설정. network.qos.set RPC. */
 static void cmd_network_qos_set(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl network qos-set <iface> --rate N%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6654,7 +5658,6 @@ static void cmd_network_qos_set(int argc, char *argv[]) {
     print_action_response(r, "NETWORK_QOS_SET"); g_free(r);
 }
 
-/** cmd_network_qos_get - 네트워크 QoS 조회. network.qos.get RPC. */
 static void cmd_network_qos_get(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl network qos-get <iface>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6679,7 +5682,6 @@ static void cmd_network_qos_get(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_network_qos_remove - 네트워크 QoS 제거. network.qos.remove RPC. */
 static void cmd_network_qos_remove(int argc, char *argv[]) {
     if (argc < 3) { printf("%sUsage: pcvctl network qos-remove <iface>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -6689,7 +5691,6 @@ static void cmd_network_qos_remove(int argc, char *argv[]) {
     print_action_response(r, "NETWORK_QOS_REMOVE"); g_free(r);
 }
 
-/** cmd_healing_history - 자가치유 이력. healing.history RPC. */
 static void cmd_healing_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
     GError *e = NULL; gchar *r = purectl_send_request("healing.history", NULL, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6722,7 +5723,6 @@ static void cmd_healing_history(int argc __attribute__((unused)), char *argv[] _
     g_object_unref(parser); g_free(r);
 }
 
-/** cmd_gpu_list - GPU 목록. gpu.list RPC. */
 static void cmd_gpu_list(int argc, char *argv[]) {
     GError *e = NULL; gchar *r = purectl_send_request("gpu.list", NULL, &e);
     if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
@@ -6763,7 +5763,7 @@ typedef struct {
 } CommandRoute;
 
 static CommandRoute routes[] = {
-    /* ── VM 라이프사이클 ── */
+
     {"vm","create",      cmd_vm_create,      "Create a new VM"},
     {"vm","delete",      cmd_vm_delete,      "Delete a VM (interactive confirm)"},
     {"vm","list",        cmd_vm_list,        "List all VMs"},
@@ -6789,29 +5789,29 @@ static CommandRoute routes[] = {
     {"vm","blkio-set",      cmd_vm_blkio_set,       "Set block I/O limits (--read_bps/--write_bps/--read_iops/--write_iops)"},
     {"vm","blkio-get",      cmd_vm_blkio_get,       "Get block I/O limits"},
     {"vm","bandwidth",      cmd_vm_bandwidth,       "Set VM network bandwidth (--inbound-kbps/--outbound-kbps)"},
-    /* ── NIC 관리 ── */
+
     {"nic","list",       cmd_nic_list,       "List NICs attached to a VM"},
     {"nic","add",        cmd_nic_add,        "Hot-attach NIC to a VM"},
     {"nic","remove",     cmd_nic_remove,     "Hot-detach NIC from a VM"},
-    /* ── ISO 관리 ── */
+
     {"iso","mount",      cmd_iso_mount,      "Mount ISO to VM cdrom"},
     {"iso","eject",      cmd_iso_eject,      "Eject ISO from VM cdrom"},
     {"iso","list",       cmd_iso_list,       "List available ISO files"},
-    /* ── 노드 관리 ── */
+
     {"node","drain",     cmd_node_drain,     "Drain node (stop accepting new RPCs)"},
     {"node","resume",    cmd_node_resume,    "Resume node after drain"},
     {"node","version",   cmd_node_version,   "Show daemon version"},
-    /* ── 스냅샷 ── */
+
     {"snapshot","create",          cmd_snapshot_create,          "Create ZFS snapshot"},
     {"snapshot","list",            cmd_snapshot_list,            "List ZFS snapshots for a VM"},
     {"snapshot","rollback",        cmd_snapshot_rollback,        "Rollback to a ZFS snapshot"},
     {"snapshot","delete",          cmd_snapshot_delete,          "Delete a ZFS snapshot"},
     {"snapshot","verify",          cmd_snapshot_verify,          "Verify ZFS snapshot exists"},
     {"snapshot","schedule-status", cmd_snapshot_schedule_status, "Snapshot schedule status"},
-    /* ── 모니터링 ── */
+
     {"monitor","metrics",   cmd_monitor_metrics,   "VM CPU/MEM usage"},
     {"monitor","fleet",     cmd_monitor_fleet,     "Global fleet stats"},
-    /* ── 네트워크 ── */
+
     {"network","create",    cmd_net_create,  "Create bridge (nat/isolated/routed)"},
     {"network","delete",    cmd_net_delete,  "Delete bridge"},
     {"network","list",      cmd_net_list,    "List bridges"},
@@ -6819,13 +5819,13 @@ static CommandRoute routes[] = {
     {"network","edit",      cmd_net_edit,    "Edit bridge mode (--mode)"},
     {"network","dhcp",      cmd_net_dhcp,    "Toggle DHCP (--enable/--disable)"},
     {"network","bind",      cmd_net_bind,    "Bind physical NIC to bridge"},
-    /* ── 스토리지 ── */
+
     {"storage","pool",      cmd_storage_pool,         "ZFS pool list"},
     {"storage","pool-forecast", cmd_storage_pool_forecast, "Storage pool capacity forecast"},
     {"storage","zvol",      cmd_storage_zvol,         "ZVOL create/delete/list"},
-    /* ── 디바이스 핫플러그 ── */
+
     {"device","disk",       cmd_device_disk, "Live attach/detach block device"},
-    /* ── 컨테이너 (LXC) ── */
+
     {"container","create",   cmd_container_create,   "Create LXC container"},
     {"container","destroy",  cmd_container_destroy,  "Destroy LXC container"},
     {"container","start",    cmd_container_start,    "Start container"},
@@ -6834,14 +5834,14 @@ static CommandRoute routes[] = {
     {"container","metrics",  cmd_container_metrics,  "Container resource usage"},
     {"container","exec",     cmd_container_exec,     "Exec command in container"},
     {"container","snapshot", cmd_container_snapshot, "Container ZFS snapshots"},
-    /* ── OVN SDN ── */
+
     {"ovn","status",        cmd_ovn_status,        "OVN controller status"},
     {"ovn","switch",        cmd_ovn_switch,        "OVN logical switch (list/create/delete)"},
     {"ovn","router",        cmd_ovn_router,        "OVN logical router (list/create/delete)"},
     {"ovn","nat",           cmd_ovn_nat,            "OVN NAT rules (list)"},
     {"ovn","acl",           cmd_ovn_acl,            "OVN ACL rules (list/add)"},
     {"ovn","dhcp",          cmd_ovn_dhcp,           "OVN DHCP (enable)"},
-    /* ── OVS-DPDK / SR-IOV (Phase 4) ── */
+
     {"dpdk",  "status",  cmd_dpdk_status,   "OVS-DPDK 상태"},
     {"dpdk",  "bind",    cmd_dpdk_bind,     "NIC DPDK 바인딩"},
     {"dpdk",  "unbind",  cmd_dpdk_unbind,   "NIC DPDK 해제"},
@@ -6855,50 +5855,50 @@ static CommandRoute routes[] = {
     {"sriov", "set",     cmd_sriov_set,     "VF 속성 설정"},
     {"sriov", "attach",  cmd_sriov_attach,  "VM에 VF 연결"},
     {"sriov", "detach",  cmd_sriov_detach,  "VM에서 VF 분리"},
-    /* ── RBAC 인증 ── */
+
     {"auth","list",         cmd_auth_list,         "List users (RBAC)"},
     {"auth","create",       cmd_auth_create,       "Create user (RBAC)"},
     {"auth","delete",       cmd_auth_delete,       "Delete user (RBAC)"},
     {"auth","role",         cmd_auth_role,         "Set user role (RBAC)"},
-    /* ── VM 템플릿 ── */
+
     {"template","list",     cmd_template_list,     "List VM templates"},
     {"template","get",      cmd_template_get,      "Get template detail (JSON)"},
     {"template","create",   cmd_template_create,   "Create VM template"},
     {"template","delete",   cmd_template_delete,   "Delete VM template"},
-    /* ── 백업 정책 ── */
+
     {"backup","list",       cmd_backup_list,       "List backup policies"},
     {"backup","set",        cmd_backup_set,        "Set backup policy for VM"},
     {"backup","delete",     cmd_backup_delete,     "Delete backup policy"},
     {"backup","history",    cmd_backup_history,    "Backup history for VM"},
-    /* ── 알림 관리 (P2) ── */
+
     {"alert","list",        cmd_alert_list,         "Alert history"},
     {"alert","config",      cmd_alert_config,       "Alert config (thresholds/webhook)"},
     {"alert","set",         cmd_alert_set,          "Set alert thresholds/webhook"},
     {"alert","reload",      cmd_alert_reload,       "Reload alert config from daemon.conf"},
-    /* ── AI Agent (P3) ── */
+
     {"agent","config",      cmd_agent_config,       "AI Agent config"},
     {"agent","set",         cmd_agent_set,          "Set AI provider (--provider/--api_key/--enabled)"},
     {"agent","history",     cmd_agent_history,      "AI consensus history"},
-    /* ── Phase 2: VM Operations ── */
+
     {"vm","autostart",       cmd_vm_autostart,       "Set VM autostart (--enable/--disable)"},
     {"vm","disk-throttle",   cmd_vm_disk_throttle,   "Set disk I/O throttle (--read-iops/--write-iops)"},
     {"vm","numa",            cmd_vm_numa_info,       "NUMA topology info"},
     {"vm","sla",             cmd_vm_sla,             "VM SLA report"},
     {"vm","schedule",        cmd_vm_schedule,        "VM schedule (set/list)"},
     {"vm","security-group",  cmd_vm_secgroup,        "Assign security group to VM"},
-    /* ── Phase 2: Monitoring ── */
+
     {"storage","health",     cmd_storage_health,     "Storage pool health check"},
     {"capacity","forecast",  cmd_capacity_forecast,  "Capacity forecast"},
     {"billing","report",     cmd_billing_report,     "VM billing report"},
-    /* ── Phase 2: Advanced ── */
+
     {"job","list",           cmd_job_list,           "List async jobs"},
     {"vm","batch",           cmd_batch_execute,      "Batch start/stop multiple VMs"},
     {"prometheus","sd",      cmd_prometheus_sd,      "Prometheus service discovery"},
     {"webhook","list",       cmd_webhook_list,       "Event webhook list"},
     {"alert","actions",      cmd_alert_actions,      "Alert action list"},
-    /* ── Phase 3: Audit ── */
+
     {"audit","search",       cmd_audit_search,       "Search audit logs (--user/--from/--to/--method/--limit)"},
-    /* ── Native Host HIDS/HIPS Security Guard ── */
+
     {"security","status",           cmd_security,     "Security Guard status"},
     {"security","events",           cmd_security,     "List HIDS/HIPS security events"},
     {"security","event",            cmd_security,     "Show one HIDS/HIPS security event"},
@@ -6909,32 +5909,32 @@ static CommandRoute routes[] = {
     {"security","baseline-refresh", cmd_security,     "Refresh HIDS file baseline"},
     {"security","enable",           cmd_security,     "Enable Security Guard"},
     {"security","disable",          cmd_security,     "Disable Security Guard"},
-    /* ── Phase 3: Security Groups ── */
+
     {"security-group","list",   cmd_secgroup,        "List security groups"},
     {"security-group","create", cmd_secgroup,        "Create security group"},
     {"security-group","delete", cmd_secgroup,        "Delete security group"},
     {"security-group","rule",   cmd_secgroup,        "Add security group rule"},
-    /* ── Phase 3: Webhook DLQ ── */
+
     {"webhook","dlq",        cmd_webhook_dlq,        "Webhook DLQ (list/retry)"},
-    /* ── Phase 3: GPU ── */
+
     {"gpu","metrics",        cmd_gpu_metrics,        "GPU metrics"},
-    /* ── Phase 3: Config ── */
+
     {"config","history",     cmd_config_history,     "Config change history"},
     {"config","backup",      cmd_config_backup,      "Backup current config"},
     {"config","validate",    cmd_config_validate,    "Validate daemon.conf (no daemon needed)"},
-    /* ── Phase 3: Template ── */
+
     {"template","history",   cmd_template_history,   "Template change history"},
-    /* ── gRPC ── */
+
     {"grpc",    "status",    cmd_grpc_status,        "gRPC 서버 상태 확인"},
     {"grpc",    "test",      cmd_grpc_test,          "gRPC 연결 테스트"},
-    /* ── Cloud Migration ── */
+
     {"cloud",   "import",    cmd_cloud_import,       "Import EC2 AMI → PureCVisor VM"},
     {"cloud",   "export",    cmd_cloud_export,       "Export PureCVisor VM → EC2 AMI"},
     {"cloud",   "status",    cmd_cloud_status,       "Check cloud migration job status"},
     {"cloud",   "jobs",      cmd_cloud_jobs,         "List all cloud migration jobs"},
     {"cloud",   "cancel",    cmd_cloud_cancel,       "Cancel a running migration job"},
     {"cloud",   "finalize",  cmd_cloud_finalize,     "Finalize near-live import (Phase 2)"},
-    /* ── Container Advanced ── */
+
     {"container","logs",           cmd_container_logs,           "Container logs (--lines N)"},
     {"container","volume-attach",  cmd_container_volume_attach,  "Attach host volume to container"},
     {"container","volume-detach",  cmd_container_volume_detach,  "Detach volume from container"},
@@ -6950,13 +5950,13 @@ static CommandRoute routes[] = {
     {"container","nic-detach",     cmd_container_nic_detach,     "Detach NIC from container (--mac)"},
     {"container","set-limits",     cmd_container_set_limits,     "Set container resource limits (--memory_mb/--cpu_quota)"},
     {"container","set-bandwidth",  cmd_container_set_bandwidth,  "Set container bandwidth (--inbound/--outbound)"},
-    /* ── Backup Advanced ── */
+
     {"backup","restore",       cmd_backup_restore,       "Restore VM from backup snapshot"},
     {"backup","incremental",   cmd_backup_incremental,   "Run incremental backup"},
     {"backup","verify",        cmd_backup_verify,        "Verify backup integrity"},
     {"backup","replicate",     cmd_backup_replicate,     "Replicate backup to remote (--target/--user)"},
     {"backup","export-s3",     cmd_backup_export_s3,     "Export backup to S3"},
-    /* ── VM Additional ── */
+
     {"vm","clone",               cmd_vm_clone,               "Clone VM (--mode cow|full, --guest-reset or --template-prepared)"},
     {"vm","pin-vcpu",            cmd_vm_pin_vcpu,            "Pin vCPU to cpuset (--vcpu/--cpuset)"},
     {"vm","snapshot-delete-all", cmd_vm_snapshot_delete_all, "Bulk delete snapshots (--prefix/--keep)"},
@@ -6965,7 +5965,7 @@ static CommandRoute routes[] = {
     {"vm","usb-list",            cmd_vm_usb_list,            "List USB hostdevs attached to VM"},
     {"vm","usb-attach",          cmd_vm_usb_attach,          "Attach USB host device (<vendor_id> <product_id>)"},
     {"vm","usb-detach",          cmd_vm_usb_detach,          "Detach USB host device (<vendor_id> <product_id>)"},
-    /* ── Monitor / QoS / Misc ── */
+
     {"monitor","processes",  cmd_monitor_processes,  "Top processes (--type/--top)"},
     {"network","qos-set",    cmd_network_qos_set,    "Set network QoS (--rate)"},
     {"network","qos-get",    cmd_network_qos_get,    "Get network QoS"},
@@ -6974,10 +5974,6 @@ static CommandRoute routes[] = {
     {"gpu","list",           cmd_gpu_list,            "List GPUs (lspci)"},
     {NULL,NULL,NULL,NULL}
 };
-
-/* ════════════════════════════════════════════════════════════════════
- *  도움말
- * ════════════════════════════════════════════════════════════════════ */
 
 void print_help(const char *filter) {
     print_cyber_banner();
@@ -7010,30 +6006,9 @@ void print_help(const char *filter) {
     printf("\n──────────────────────────────────────────────────────────────────────────\n");
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  내부 라우팅 실행 (REPL / Batch 공용)
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * route_exec - 명령 라우팅 실행 (REPL / Batch / One-shot 공용)
- *
- * routes[] 배열을 순회하며 argv[0](object) + argv[1](action) 조합이
- * 일치하는 핸들러를 찾아 호출한다.
- *
- * 내장 명령 (routes[] 이전에 처리):
- *   help [filter]  - 도움말 출력 (선택적 필터링)
- *   version        - pcvctl 버전 출력
- *   format <fmt>   - REPL 내 출력 포맷 변경 (json/plain/csv/table)
- *   clear          - 터미널 화면 클리어
- *
- * @argc: 인수 개수 (argv[0] = object, argv[1] = action)
- * @argv: 인수 배열 (main의 argv가 아닌, 플래그 제거 후 커맨드 부분)
- * @return: 0=성공, 1=미매칭 또는 에러
- */
 static int route_exec(int argc, char **argv) {
     if (argc < 1) { print_help(NULL); return 0; }
 
-    /* 내장 명령 */
     if (g_strcmp0(argv[0],"help") == 0) {
         print_help(argc > 1 ? argv[1] : NULL);
         return 0;
@@ -7042,7 +6017,7 @@ static int route_exec(int argc, char **argv) {
         printf("pcvctl %s\n", PCVCTL_VERSION);
         return 0;
     }
-    /* format 변경 (REPL 전용) */
+
     if (g_strcmp0(argv[0],"format") == 0 && argc > 1) {
         if      (g_strcmp0(argv[1],"json")  == 0) g_ctx.fmt = FMT_JSON;
         else if (g_strcmp0(argv[1],"plain") == 0) g_ctx.fmt = FMT_PLAIN;
@@ -7076,22 +6051,18 @@ static int route_exec(int argc, char **argv) {
     return 1;
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Interactive REPL (Sprint H 신규)
- * ════════════════════════════════════════════════════════════════════ */
-
 #ifdef HAVE_READLINE
-/* readline 자동완성 — routes[] 기반 동적 생성 */
+
 static char **g_completions = NULL;
 static int    g_comp_count  = 0;
 
 static void build_completions(void) {
-    /* "object action" 형식 문자열 + 내장 명령 */
+
     GPtrArray *arr = g_ptr_array_new();
     for (int i = 0; routes[i].object != NULL; i++) {
         g_ptr_array_add(arr,
             g_strdup_printf("%s %s", routes[i].object, routes[i].action));
-        /* object 단독도 추가 (첫 토큰 완성) */
+
         bool dup = false;
         for (guint j = 0; j < arr->len - 1; j++) {
             if (g_str_equal((char *)g_ptr_array_index(arr,j), routes[i].object)) {
@@ -7126,25 +6097,8 @@ static char **_rl_completion(const char *text, int start __attribute__((unused))
     rl_attempted_completion_over = 1;
     return rl_completion_matches(text, _rl_generator);
 }
-#endif /* HAVE_READLINE */
+#endif
 
-/**
- * repl_run - readline 기반 대화형 REPL (Read-Eval-Print Loop)
- *
- * 사용자가 "pcvctl -i" 또는 인수 없이 실행하면 이 함수가 호출된다.
- *
- * 동작 흐름:
- *   1. readline 자동완성 초기화 (routes[] 기반 "object action" 완성)
- *   2. ~/.pcvctl_history에서 명령 히스토리 로드
- *   3. "(pcv) >" 프롬프트 표시 → 사용자 입력 대기
- *   4. 입력을 wordexp()로 토큰 분리 → route_exec()에 전달
- *   5. "exit"/"quit" 입력 시 루프 종료 + 히스토리 저장
- *
- * readline 미설치 환경(HAVE_READLINE 미정의)에서는 fgets() 폴백으로 동작한다.
- * 이 경우 자동완성과 히스토리 기능이 없다.
- *
- * @return: 항상 0 (정상 종료)
- */
 static int repl_run(void) {
     g_ctx.interactive = true;
     if (g_ctx.fmt == FMT_TABLE) {
@@ -7174,7 +6128,7 @@ static int repl_run(void) {
 
         wordexp_t we;
         if (wordexp(line, &we, WRDE_NOCMD | WRDE_UNDEF) == 0 && we.we_wordc > 0) {
-            /* argv[0]에 "fake binary" 넣어 route_exec 호환 */
+
             char **av = g_new0(char *, we.we_wordc + 2);
             av[0] = g_strdup("pcvctl");
             for (size_t i = 0; i < we.we_wordc; i++)
@@ -7191,7 +6145,7 @@ static int repl_run(void) {
     if (g_completions) { g_strfreev(g_completions); g_completions = NULL; }
     printf("\n%s[ NEURAL LINK SEVERED ]%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
 #else
-    /* readline 없음: fgets fallback */
+
     char buf[4096];
     while (1) {
         fprintf(stderr, "(pcv) ❯ ");
@@ -7215,23 +6169,9 @@ static int repl_run(void) {
     return 0;
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  Batch 모드 (Sprint H 신규)
- * ════════════════════════════════════════════════════════════════════
- *
- *  입력 형식 (stdin or 파일 리다이렉션):
- *    # 주석 (무시)
- *    vm list
- *    vm start myvm
- *    monitor fleet
- *
- *  파이프라인 예:
- *    printf 'vm list\nmonitor fleet\n' | pcvctl --format=plain --batch
- *    pcvctl --format=plain --batch < ops.pcv | grep running
- */
 static int batch_run(void) {
     g_ctx.batch = true;
-    /* Batch 기본 포맷: 사용자가 명시하지 않은 경우 plain */
+
     if (g_ctx.fmt == FMT_TABLE) g_ctx.fmt = FMT_PLAIN;
 
     char buf[4096];
@@ -7268,35 +6208,9 @@ static int batch_run(void) {
     return total_rc;
 }
 
-/* ════════════════════════════════════════════════════════════════════
- *  진입점
- * ════════════════════════════════════════════════════════════════════ */
-
-/**
- * main - pcvctl CLI 진입점
- *
- * 실행 모드 3가지:
- *   1. 단발 실행 (One-shot): pcvctl vm list
- *      → argv에서 object+action 추출 → route_exec() 1회 호출 → 종료
- *   2. 대화형 REPL: pcvctl -i  또는  pcvctl (인수 없이 tty에서)
- *      → repl_run() 진입 → "exit" 입력까지 반복
- *   3. 배치 모드: pcvctl --batch  또는  echo "vm list" | pcvctl
- *      → batch_run() 진입 → stdin EOF까지 줄 단위 실행
- *
- * 글로벌 플래그 (모든 모드 공통):
- *   --format=table|json|plain|csv  출력 포맷 선택
- *   --socket=<path>                UDS 소켓 경로 오버라이드
- *   --no-color                     ANSI 컬러 비활성화
- *   --verbose / -v                 RPC 페이로드 stderr 출력
- *   --interactive / -i             REPL 모드 강제 진입
- *   --batch                        배치 모드 강제 진입
- *
- * 플래그 파싱 후 cmd_start 인덱스가 실제 커맨드 시작 위치를 가리킨다.
- * argv[cmd_start]가 object, argv[cmd_start+1]이 action이 된다.
- */
 int main(int argc, char *argv[]) {
-    /* ── 글로벌 플래그 파싱 ─────────────────────────────────────── */
-    int cmd_start = 1;  /* 플래그가 아닌 첫 인수의 인덱스 */
+
+    int cmd_start = 1;
 
     for (int i = 1; i < argc; i++) {
         const char *a = argv[i];
@@ -7339,29 +6253,23 @@ int main(int argc, char *argv[]) {
             g_ctx.socket_path = a + strlen("--socket=");
             cmd_start = i + 1; continue;
         }
-        /* 플래그가 아닌 첫 인수 → 커맨드 시작 */
+
         cmd_start = i;
         break;
     }
 
-    /* stdin 리다이렉션 감지 → 자동 batch */
     if (!isatty(STDIN_FILENO) && !g_ctx.interactive && cmd_start >= argc)
         g_ctx.batch = true;
 
-    /* ── 모드 분기 ──────────────────────────────────────────────── */
     if (g_ctx.interactive) return repl_run();
     if (g_ctx.batch)       return batch_run();
 
-    /* 인수 없이 tty → 인터랙티브 */
     if (cmd_start >= argc) {
         if (isatty(STDIN_FILENO)) return repl_run();
         print_help(NULL);
         return EXIT_FAILURE;
     }
 
-    /* ── 일반 단일 명령 ─────────────────────────────────────────── */
-    /* argv 배열을 routes 기준으로 맞춤: argv[cmd_start] = object */
-    /* route_exec 는 argv[0]=object 기준으로 동작 */
     return route_exec(argc - cmd_start, argv + cmd_start)
                ? EXIT_FAILURE : EXIT_SUCCESS;
 }

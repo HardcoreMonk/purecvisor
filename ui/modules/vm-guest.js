@@ -1,12 +1,7 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/vm-guest.js
-   CPU Pinning, QoS, Mem/CPU Stats, Disk Resize, Guest Usage/Agent, Migration, I/O Throttle
-   ADR-0013: IIFE module scope — vm.js에서 분할 (pure-move)
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ CPU PINNING ═══ */
 function hwCpuPin() {
   var el = PCV.uxlib.el;
   return [
@@ -29,7 +24,6 @@ async function doCpuPin() {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ BANDWIDTH QoS ═══ */
 function hwBandwidth() {
   var el = PCV.uxlib.el;
   return [
@@ -55,7 +49,6 @@ async function doBandwidth() {
   } catch (e) { toast(e.message, false); }
 }
 
-/* ═══ VM MEMORY STATS ═══ */
 async function showMemStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var mkEl = PCV.uxlib.el;
@@ -87,14 +80,12 @@ async function showMemStats() {
     PCV.uxlib.clearEl(el);
     el.appendChild(mk('div', { style: 'border:1px solid var(--border);border-radius:6px;padding:12px' }, grid));
   } catch (e) {
-    // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
-    // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
+
     el = document.getElementById('mem-stats-body');
     if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
-/* ═══ VM CPU STATS ═══ */
 async function showCpuStats() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var mkEl = PCV.uxlib.el;
@@ -136,14 +127,12 @@ async function showCpuStats() {
     PCV.uxlib.clearEl(el);
     el.appendChild(PCV.uxlib.frag(parts));
   } catch (e) {
-    // var 아님(no-redeclare) — try 블록의 `var el`이 함수 스코프에 이미
-    // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
+
     el = document.getElementById('cpu-stats-body');
     if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
-/* ═══ VM DISK LIVE RESIZE (MODAL) ═══ */
 function showDiskLiveResize() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var el = PCV.uxlib.el;
@@ -173,7 +162,6 @@ async function doDiskLiveResize() {
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
-/* ═══ VM GUEST DISK USAGE ═══ */
 function _vmDiskUsagePct(fs) {
   if (!fs) return null;
   if (fs.usage_percent !== undefined) return Number(fs.usage_percent);
@@ -182,7 +170,6 @@ function _vmDiskUsagePct(fs) {
   return total > 0 ? (used * 100 / total) : null;
 }
 
-/* renderProgressBar(ui.js 문자열 헬퍼, 수정 금지) 의 노드 등가물 — class/구조 동형. */
 function _vmgProgressBar(p, c) {
   var el = PCV.uxlib.el;
   var cl = p > 85 ? 'var(--red)' : p > 60 ? 'var(--yellow)' : 'var(--green)';
@@ -297,7 +284,6 @@ async function showVmDiskUsage() {
   }
 }
 
-/* ═══ GUEST AGENT ═══ */
 var _gaInstallCommands = {};
 
 function showGuestAgent() {
@@ -461,7 +447,6 @@ async function gaExec() {
   } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, e.message); }
 }
 
-/* ═══ D3: DRAG & DROP VM MIGRATION ═══ */
 async function vmMigrateDrop(vmName, targetIp, targetName) {
   if (!PCV.isMultiEdgeUI()) {
     toast(_L('클러스터 빌드 전용 기능입니다', 'This action is available only on the cluster build'), false);
@@ -495,13 +480,12 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
       setTimeout(function() { closeModal(); loadAll(); }, 2000);
     }
   } catch (e) {
-    // var 아님(no-redeclare) — try 블록의 `var ps`가 함수 스코프에 이미
-    // hoisting 되어 있으므로 재선언 없이 재대입 (동작 동일).
+
     ps = document.getElementById('mig-st');
     if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message);
   }
 }
-/* ═══ DISK I/O THROTTLE EDITOR ═══ */
+
 function showBlkioEditor() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var el = PCV.uxlib.el;
@@ -587,11 +571,6 @@ async function blkioSet() {
   }
 }
 
-/* ═══ EXPORT TO PCV NAMESPACE (ADR-0013) ═══
- *  PCV.vm에 등록되는 함수가 이 모듈의 공식 인터페이스.
- *  아래 BACKWARD COMPAT SHIMS는 HTML onclick과 다른 모듈의
- *  window.render() 등 직접 참조를 위한 전환기 코드.
- *  신규 코드에서는 PCV.vm.render() 사용을 권장. */
 PCV.vm = Object.assign(PCV.vm || {}, {
   showMemStats: showMemStats,
   showCpuStats: showCpuStats,
@@ -604,7 +583,6 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   vmMigrateDrop: vmMigrateDrop,
 });
 
-/* ═══ BACKWARD COMPAT SHIMS (ADR-0013: remove after full transition) ═══ */
 window.hwCpuPin = hwCpuPin;
 window.doCpuPin = doCpuPin;
 window.hwBandwidth = hwBandwidth;

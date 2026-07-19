@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_rng_safe.py self-test (Wave B 6 / A02·V11).
 
 ① 현행 트리에서 게이트 PASS(exit 0).
@@ -14,12 +14,11 @@ import subprocess
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import check_rng_safe as gate  # noqa: E402
+import check_rng_safe as gate
 
 GATE = Path(__file__).resolve().parent.parent / "check_rng_safe.py"
 RBAC = gate.RNG_FILES[0]
 JWT = gate.RNG_FILES[1]
-
 
 def _run_gate_on(rbac_text: str, jwt_text: str) -> int:
     """rbac/jwt 사본을 만들어 게이트를 override 경로로 실행."""
@@ -37,12 +36,10 @@ def _run_gate_on(rbac_text: str, jwt_text: str) -> int:
         for p in paths:
             os.unlink(p)
 
-
 def test_gate_passes_on_current_tree():
     """① 현행 트리에서 게이트 PASS(exit 0)."""
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_scan_current_sources():
     """② 현행: 두 파일 모두 g_random 무·RAND_bytes 유, PBKDF2 target >= 600000."""
@@ -52,7 +49,6 @@ def test_scan_current_sources():
         assert sig["uses_randbytes"], f"{f.name} 에 RAND_bytes 부재"
     t = gate.extract_pbkdf2_target(RBAC.read_text())
     assert t is not None and t >= gate.PBKDF2_MIN_ITERATIONS
-
 
 def test_grandom_reintroduced_fails():
     """③ 반사실: rbac.c 의 _fill_random_bytes 에 g_random 폴백 재도입 → RED."""
@@ -67,7 +63,6 @@ def test_grandom_reintroduced_fails():
     assert sig["uses_grandom"]
     assert _run_gate_on(mutated, JWT.read_text()) == 1
 
-
 def test_pbkdf2_downgrade_fails():
     """④ 반사실: PBKDF2_ITER_TARGET 를 100000 으로 낮춤 → RED."""
     rbac = RBAC.read_text()
@@ -76,7 +71,6 @@ def test_pbkdf2_downgrade_fails():
     mutated = rbac.replace(needle, "#define PBKDF2_ITER_TARGET  100000")
     assert gate.extract_pbkdf2_target(mutated) == 100000
     assert _run_gate_on(mutated, JWT.read_text()) == 1
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items())

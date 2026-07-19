@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 domsafe_ratchet.py — ADR-013 DOM-safe 가시성 래칫
 
@@ -27,14 +27,12 @@ PATTERN = re.compile(
     r'\.(innerHTML|outerHTML)\b|\.insertAdjacentHTML\s*\(|\bdocument\.write\s*\('
 )
 
-
 def scan_file(path):
     hits = []
     for i, line in enumerate(path.read_text(encoding="utf-8").splitlines(), start=1):
         if PATTERN.search(line):
             hits.append((i, line.strip()))
     return hits
-
 
 def main():
     files = sorted(UI.glob("modules/*.js")) + [UI / "app.js"]
@@ -54,7 +52,6 @@ def main():
     print("(ADR-013 DOM-safe 가시성 래칫 — 게이트 아님, exit 0 고정. "
           "신규 diff가 이 숫자를 늘리는지는 코드리뷰에서 직접 확인)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

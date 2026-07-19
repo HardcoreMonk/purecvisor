@@ -1,22 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/help.js
-   Help, REST Guide, Service Guide, Swagger API, Keyboard Help
-   한국어/영어 동시 지원 (I18N.getLang() 기반)
-   ═══════════════════════════════════════════════════════════════ */
-/*
- * Help is a documentation surface inside the app shell, but it must still obey
- * runtime contracts: all labels pass through _L(), endpoint counts come from
- * PCV.config when available, and generated tables stay searchable without
- * rebinding listeners after every render.
- *
- * The module intentionally keeps buildHelpData() local to renderHelp() until it
- * exports the function for integration checks. That lets the Single Edge filter
- * verify visible help content without coupling to the rest of the navigation
- * lifecycle.
- */
 
-/* ADR-0013 IIFE 전환 후 _L 공유를 위해 IIFE 바깥에 선언
-   (13개 모듈이 free identifier로 _L 호출 — 전역 스코프 필수) */
 var _L = window._L = function(ko, en) {
   return (typeof I18N !== 'undefined' && I18N.getLang() === 'en') ? en : ko;
 };
@@ -24,7 +6,6 @@ var _L = window._L = function(ko, en) {
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ HELP & REFERENCE ═══ */
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var banner = el('div', { style: 'margin-bottom:20px;padding:16px 20px;background:linear-gradient(135deg,rgba(0,240,255,0.08),rgba(0,255,136,0.05));border:1px solid var(--accent);border-radius:8px;display:flex;align-items:center;gap:16px;flex-wrap:wrap' },
@@ -138,7 +119,6 @@ window.renderHelp = renderHelp;
 function filterHelp() { var q = document.getElementById('help-search').value.toLowerCase(); document.querySelectorAll('#help-content tr[data-search]').forEach(function(r) { r.style.display = !q || r.dataset.search.includes(q) ? '' : 'none'; }); }
 window.filterHelp = filterHelp;
 
-/* ═══ REST API GUIDE ═══ */
 function renderRestGuide(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var authCard = HN.card('🔒 ' + _L('인증', 'Authentication'),
@@ -210,7 +190,6 @@ function renderRestGuide(b) {
 }
 window.renderRestGuide = renderRestGuide;
 
-/* ═══ SERVICE GUIDE ═══ */
 function renderServiceGuide(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var searchBar = el('div', { class: 'mb-16' },
@@ -378,7 +357,6 @@ window.renderServiceGuide = renderServiceGuide;
 function filterGuide() { var q = document.getElementById('guide-search').value.toLowerCase(); document.querySelectorAll('#guide-content .hc[data-guide]').forEach(function(c) { c.style.display = !q || c.dataset.guide.includes(q) ? '' : 'none'; }); }
 window.filterGuide = filterGuide;
 
-/* ═══ SWAGGER API ═══ */
 function renderSwaggerApi(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var mc = function(m) { return m === 'GET' ? '#61affe' : m === 'POST' ? '#49cc90' : m === 'DELETE' ? '#f93e3e' : m === 'PUT' ? '#fca130' : '#00f0ff'; };
@@ -515,7 +493,7 @@ async function swTry(m, p, body) {
   var url = API_BASE + p.replace(/\{[^}]+\}/g, 'test');
   try { var opts = { headers: { Authorization: 'Bearer ' + authToken } };
     if (m === 'POST' || m === 'PUT' || m === 'DELETE') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
-    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) { /* not JSON */ }
+    var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {  }
     var el = PCV.uxlib.el;
     showModal([
       el('h2', null, _L('응답', 'Response') + ': ' + m + ' ' + p),
@@ -528,7 +506,6 @@ async function swTry(m, p, body) {
 }
 window.swTry = swTry;
 
-/* ═══ KEYBOARD HELP OVERLAY ═══ */
 var kbdHelpOpen = false;
 window.kbdHelpOpen = kbdHelpOpen;
 
@@ -549,7 +526,7 @@ function toggleKbdHelp() {
   var ov = document.createElement('div');
   ov.id = 'kbd-help-overlay'; ov.className = 'kbd-overlay';
   ov.onclick = function(e) { if (e.target === ov) closeKbdHelp(); };
-  /* ADR-013 DOM-safe: kbd 오버레이를 el()로 조립 (문자열 innerHTML 제거). */
+
   var el = PCV.uxlib.el;
   ov.appendChild(el('div', { class: 'kbd-box' },
     el('div', { class: 'kbd-title' }, _L('키보드 단축키', 'Keyboard Shortcuts')),
@@ -570,7 +547,6 @@ window.toggleKbdHelp = toggleKbdHelp;
 function closeKbdHelp() { kbdHelpOpen = false; window.kbdHelpOpen = kbdHelpOpen; var el = document.getElementById('kbd-help-overlay'); if (el) el.remove(); }
 window.closeKbdHelp = closeKbdHelp;
 
-/* ── PCV.help namespace export ────────────────────── */
 PCV.help = {
   renderHelp: renderHelp,
   filterHelp: filterHelp,

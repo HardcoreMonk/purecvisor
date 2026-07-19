@@ -1,10 +1,3 @@
-/**
- * @file fuzz_rpc_envelope.c
- * @brief libFuzzer harness for JSON-RPC 봉투 파싱 — json-glib 경로 + id/method 추출
- *
- * dispatcher.c의 entry 부분(json_parser_load_from_data → method/id 추출)을
- * 디스패처 본체와 분리해 단독 빌드. 핸들러 호출은 생략 — 파서 강건성만 검증.
- */
 
 #include <stdint.h>
 #include <stddef.h>
@@ -32,13 +25,11 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
     if (root && JSON_NODE_HOLDS_OBJECT(root)) {
         JsonObject *obj = json_node_get_object(root);
 
-        /* method 추출 (NULL 안전) */
         if (json_object_has_member(obj, "method")) {
             const gchar *method = json_object_get_string_member(obj, "method");
             (void)method;
         }
 
-        /* id 추출 — 정수/문자열 양쪽 (dispatcher.c와 동일 로직) */
         if (json_object_has_member(obj, "id")) {
             JsonNode *id_node = json_object_get_member(obj, "id");
             if (id_node && json_node_get_value_type(id_node) == G_TYPE_STRING) {
@@ -50,7 +41,6 @@ int LLVMFuzzerTestOneInput(const uint8_t *data, size_t size) {
             }
         }
 
-        /* params 추출 */
         if (json_object_has_member(obj, "params")) {
             JsonNode *p = json_object_get_member(obj, "params");
             if (p && JSON_NODE_HOLDS_OBJECT(p)) {

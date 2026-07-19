@@ -1,10 +1,4 @@
-#!/usr/bin/env python3
-# This guard is intentionally stricter than a markdown linter.
-# It protects the repository contract that UI visual rules live in DESIGN.md,
-# while GUIDE.md and the in-app guide only link to that visual source.
-# The checker fails on missing sections, token names, preview wiring, and deploy
-# coverage so future UI work cannot silently split the design system again.
-# Keep the assertions literal: vague prose matches would hide drift.
+
 """DESIGN.md visual contract static guard."""
 
 from __future__ import annotations
@@ -12,7 +6,6 @@ from __future__ import annotations
 import re
 import sys
 from pathlib import Path
-
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -71,7 +64,6 @@ REQUIRED_COMPONENT_TERMS = (
     "error",
 )
 
-
 def read(path: str) -> str:
     try:
         return (REPO_ROOT / path).read_text(encoding="utf-8")
@@ -79,17 +71,14 @@ def read(path: str) -> str:
         print(f"ERROR: failed to read {path}: {exc}", file=sys.stderr)
         sys.exit(2)
 
-
 def require(description: str, condition: bool) -> None:
     if not condition:
         print(f"FAIL: {description}", file=sys.stderr)
         sys.exit(1)
 
-
 def require_all(path: str, text: str, needles: tuple[str, ...]) -> None:
     for needle in needles:
         require(f"{path} must contain {needle}", needle in text)
-
 
 def require_section(text: str, section: str) -> None:
     pattern = rf"^##\s+\d+\.\s+{re.escape(section)}\s*$"
@@ -97,7 +86,6 @@ def require_section(text: str, section: str) -> None:
         f"DESIGN.md must define section: {section}",
         re.search(pattern, text, re.MULTILINE) is not None,
     )
-
 
 def main() -> int:
     design = read("DESIGN.md")
@@ -190,7 +178,6 @@ def main() -> int:
 
     print("[PASS] DESIGN.md visual contract is present")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

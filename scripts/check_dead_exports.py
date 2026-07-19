@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_dead_exports.py — 헤더 선언 비-static pcv_* 함수 중 .c 사용처 0 노출/차단.
 설계: docs/superpowers/specs/2026-07-11-dead-export-gate-design.md
 """
@@ -9,7 +9,6 @@ ROOT = Path(__file__).resolve().parent.parent
 BASELINE_FILE = ROOT / "scripts" / "dead_exports_baseline.txt"
 WAIVER = "PCV_DEAD_EXPORT_OK"
 DECL_RE = re.compile(r'\b(pcv_[a-z0-9_]+)\s*\(')
-
 
 def _splice_continuations(text: str) -> str:
     """C 표준 phase-2 line-splicing: 줄 끝 `\\`+개행을 제거하고 다음 줄과 합친다.
@@ -30,10 +29,9 @@ def _splice_continuations(text: str) -> str:
         else:
             out.append(buf + line)
             buf = ''
-    if buf:                     # 파일이 이어진 채로 끝나는 비정상 케이스 방어
+    if buf:
         out.append(buf)
     return '\n'.join(out)
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴을 제거한다.
@@ -55,24 +53,24 @@ def strip_code(text: str) -> str:
         i, n = 0, len(line)
         while i < n:
             ch = line[i]
-            if in_block:                                        # 블록 주석 내부
+            if in_block:
                 if ch == '*' and i + 1 < n and line[i + 1] == '/':
                     in_block = False
                     i += 2
                 else:
                     i += 1
                 continue
-            if ch == '/' and i + 1 < n and line[i + 1] == '*':  # 블록 주석 시작
+            if ch == '/' and i + 1 < n and line[i + 1] == '*':
                 in_block = True
                 i += 2
                 continue
-            if ch == '/' and i + 1 < n and line[i + 1] == '/':  # 라인 주석 → 줄 끝까지
+            if ch == '/' and i + 1 < n and line[i + 1] == '/':
                 break
-            if ch == '"' or ch == "'":                          # 문자열/문자 리터럴 (줄 한정)
+            if ch == '"' or ch == "'":
                 quote = ch
                 i += 1
                 while i < n:
-                    if line[i] == '\\':                         # 이스케이프: 다음 문자 스킵
+                    if line[i] == '\\':
                         i += 2
                         continue
                     if line[i] == quote:
@@ -86,20 +84,16 @@ def strip_code(text: str) -> str:
         out.append(''.join(res))
     return '\n'.join(out)
 
-
 def collect_declared(header_texts) -> set:
     names = set()
     for t in header_texts:
-        # static inline 정의(헤더 내 {로 끝남)는 제외: ';' 종단 프로토타입만 관심이나,
-        # == 1 판정이 헤더 inline(.c 출현 0)을 자연 배제하므로 이름 수집은 단순 전량.
+
         names.update(DECL_RE.findall(strip_code(t)))
     return names
-
 
 def count_uses(name: str, c_texts_stripped) -> int:
     pat = re.compile(r'\b' + re.escape(name) + r'\b')
     return sum(len(pat.findall(t)) for t in c_texts_stripped)
-
 
 def _waived(name: str, c_texts_raw) -> bool:
     pat = re.compile(r'\b' + re.escape(name) + r'\b')
@@ -109,23 +103,20 @@ def _waived(name: str, c_texts_raw) -> bool:
                 return True
     return False
 
-
 def find_dead(header_texts, c_texts_raw) -> set:
     declared = collect_declared(header_texts)
     stripped = [strip_code(t) for t in c_texts_raw]
     dead = set()
     for name in declared:
         if count_uses(name, stripped) == 1 and not _waived(name, c_texts_raw):
-            dead.add(name)   # .c 출현 정확히 1회 = 정의만 = 사용처 0
+            dead.add(name)
     return dead
-
 
 def _load_baseline() -> set:
     if not BASELINE_FILE.exists():
         return set()
     return {ln.strip() for ln in BASELINE_FILE.read_text().splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")}
-
 
 def main() -> int:
     headers = [p.read_text(errors="replace") for p in
@@ -146,7 +137,6 @@ def main() -> int:
         return 1
     print("[PASS] 신규 dead export 없음")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,12 +1,3 @@
-/**
- * @file test_vm_clone_plan.c
- * @brief VM clone preflight disk plan 유닛 테스트.
- *
- * clone은 "원본 VM의 실제 data disk가 무엇인가"를 잘못 판단하면
- * 다른 볼륨을 덮거나, 미지원 포맷을 반쯤 복사한 VM을 만들 수 있다.
- * 그래서 dispatcher에 숨겨진 문자열 파싱이 아니라 작은 모듈 API로
- * zvol/qcow2/raw/다중 디스크 경로를 고정 검증한다.
- */
 
 #include <glib.h>
 #include <gio/gio.h>
@@ -34,11 +25,6 @@ static const gchar *ZVOL_WITH_CDROM_XML =
     "  </devices>"
     "</domain>";
 
-/*
- * Zvol discovery tests pin the common production shape: one writable block
- * disk plus optional ISO media. Clone preflight must ignore CD-ROM devices and
- * derive the target dataset from the source pool, not from daemon defaults.
- */
 static void
 test_zvol_with_cdrom_extracts_single_data_disk(void)
 {
@@ -86,11 +72,6 @@ test_zvol_plan_uses_source_pool_path(void)
     pcv_vm_clone_disk_info_clear(&info);
 }
 
-/*
- * File-backed disk tests are intentionally split from zvol tests. The full
- * clone worker supports qcow2/raw file copies, while the legacy zvol-only plan
- * must keep rejecting them so callers cannot take the wrong storage path.
- */
 static void
 test_qcow2_is_detected_but_zvol_plan_is_blocked(void)
 {
@@ -300,12 +281,6 @@ test_file_plan_rejects_unsafe_target_name(void)
     pcv_vm_clone_disk_info_clear(&info);
 }
 
-/*
- * Guest reset command builders are tested as argv contracts. The dispatcher
- * later runs these arrays through pcv_spawn_sync(), so shell quoting is not part
- * of the contract; exact tool names, formats, disks, and run-command fragments
- * are.
- */
 static gboolean
 strv_contains(GStrv values, const gchar *needle)
 {
@@ -393,11 +368,6 @@ test_guest_boot_rebuild_argv_runs_after_sysprep_contract(void)
     pcv_vm_clone_disk_plan_clear(&plan);
 }
 
-/*
- * Zvol-backed clones still run libguestfs tools against the block device as raw
- * media. These tests prevent qcow2 defaults from leaking into the zvol reset
- * path when file and zvol clone workers share helper code.
- */
 static void
 test_guest_reset_argv_uses_raw_format_for_zvol(void)
 {
@@ -441,11 +411,6 @@ test_guest_boot_rebuild_argv_uses_raw_format_for_zvol(void)
     pcv_vm_clone_disk_plan_clear(&plan);
 }
 
-/*
- * Rejection tests define the beta safety boundary: one data disk only, no
- * cdrom-only domains, and a zvol dataset with pool/name structure. These are
- * preflight failures, not worker-time surprises.
- */
 static void
 test_multiple_data_disks_are_rejected(void)
 {
@@ -541,12 +506,6 @@ test_disk_kind_strings_are_stable(void)
                     "unsupported");
 }
 
-/*
- * File copy tests execute the local primitive when qemu-img exists. They prove
- * qcow2 uses qemu-img convert, raw clones create a separate target, existing
- * targets are never overwritten, and zvol plans cannot enter the file copy
- * helper.
- */
 static gboolean
 qemu_img_available(void)
 {
@@ -723,12 +682,7 @@ test_file_copy_rejects_zvol_plan(void)
 void
 test_vm_clone_plan_register(void)
 {
-    /*
-     * Registration order mirrors the safety narrative above: discover disk,
-     * build plan, build guest reset argv, reject unsupported layouts, then test
-     * local file-copy primitives. Keeping that order makes TAP failures easier
-     * to map back to the clone pipeline stage.
-     */
+
     g_test_add_func("/vm_clone_plan/zvol_with_cdrom_extracts_single_data_disk",
                     test_zvol_with_cdrom_extracts_single_data_disk);
     g_test_add_func("/vm_clone_plan/zvol_plan_uses_source_pool_path",

@@ -1,8 +1,4 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/security.js
-   Native Host HIDS/HIPS event review UI
-   ADR-0013: IIFE module scope — PCV.security namespace
-   ═══════════════════════════════════════════════════════════════ */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
   'use strict';
@@ -11,11 +7,6 @@ window.PCV = window.PCV || {};
   var currentEventId = '';
   var lastEvents = [];
 
-  /*
-   * Security UI is intentionally RPC-backed instead of using ad hoc REST paths:
-   * the CLI and browser both exercise the same RBAC, audit, and job result
-   * contracts behind security.*.
-   */
   function _L(ko, en) {
     return (window.PCV_LANG === 'en') ? (en || ko) : ko;
   }
@@ -90,10 +81,7 @@ window.PCV = window.PCV || {};
   }
 
   function renderStatusBar(status, pendingCount) {
-    /*
-     * First screen answers four operational questions: is Guard enabled, is the
-     * baseline trusted, is there open risk, and is any action waiting for approval.
-     */
+
     var el = PCV.uxlib.el;
     var guard = status && status.enabled ? 'enabled' : 'disabled';
     var baseline = (status && status.baseline_status) || 'unknown';
@@ -221,10 +209,7 @@ window.PCV = window.PCV || {};
     var rows = actions.map(function(action) {
       var name = action.action || '';
       var executable = name === 'block_ip' || name === 'revoke_api_key';
-      /*
-       * The browser mirrors the backend allowlist but never relies on it for
-       * safety. Backend RPC rejects non-executable actions again before running.
-       */
+
       var controls = [];
       controls.push(executable
         ? (canRole('admin')
@@ -263,8 +248,7 @@ window.PCV = window.PCV || {};
   }
 
   function renderShell(cfg, events, actions) {
-    /* ADR-013 DOM-safe: 노드 반환 — 호출부가 clearEl+appendChild 로 삽입 (내부
-     * 문자열 헬퍼 전체를 el/HN 노드 조립으로 전환한 캐스케이드, monitor.js 선례). */
+
     var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
     var statusBar = renderStatusBar(cfg || {}, actions.length);
     return frag(
@@ -281,10 +265,7 @@ window.PCV = window.PCV || {};
   }
 
   function applyFilters(root) {
-    /*
-     * Filtering is DOM-local so refresh always starts from the authoritative
-     * backend list and never mutates lastEvents.
-     */
+
     root = root || document;
     var sev = (document.getElementById('sec-filter-sev') || {}).value || '';
     var source = (document.getElementById('sec-filter-source') || {}).value || '';
@@ -348,10 +329,7 @@ window.PCV = window.PCV || {};
   }
 
   async function renderSecurityEvents(b) {
-    /*
-     * Load config, event queue, and pending actions together. Splitting these
-     * requests would let the cards and tables disagree during rapid approvals.
-     */
+
     showSkeleton(b);
     try {
       var loaded = await Promise.all([
@@ -371,8 +349,7 @@ window.PCV = window.PCV || {};
         selectEvent(currentEventId);
       }
     } catch (e) {
-      /* ADR-013 DOM-safe: 에러 카드를 el()로 조립. data-sec-refresh 훅은 유지되어
-       * 이어지는 bindSecurityHandlers(b)가 Retry 버튼을 정상 바인딩한다. */
+
       var el = PCV.uxlib.el;
       PCV.uxlib.clearEl(b);
       b.appendChild(el('div', { class: 'hc' },
@@ -385,7 +362,7 @@ window.PCV = window.PCV || {};
   }
 
   function renderEventDetail(ev) {
-    /* ADR-013 DOM-safe: 노드 반환 — 호출부가 clearEl+appendChild 로 삽입. */
+
     var el = PCV.uxlib.el;
     var action = ev.recommended_action || '';
     var executable = action === 'block_ip' || action === 'revoke_api_key';
@@ -466,10 +443,7 @@ window.PCV = window.PCV || {};
       notify(_L('admin 권한이 필요합니다.', 'admin role required'), false);
       return;
     }
-    /*
-     * Approval starts an async job; the immediate success toast means accepted,
-     * not completed. Final failure still arrives through the shared WS path.
-     */
+
     if (!await askConfirm(_L('이 대응을 승인하시겠습니까?', 'Approve this response?') + '\n' + eventId)) return;
     try {
       await rpc('security.action.approve', { event_id: eventId });

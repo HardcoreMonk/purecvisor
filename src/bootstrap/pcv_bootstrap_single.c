@@ -1,48 +1,14 @@
-/**
- * @file pcv_bootstrap_single.c
- * @brief Single Edge 런타임 부트스트랩 — 데몬 기동 시 로컬 네트워크만 준비한다.
- *
- * [아키텍처 위치]
- *   main 이 데몬을 띄우는 초기화 단계에서 호출된다. Multi Edge 라면 여기서
- *   클러스터 매니저·스케줄러·federation 을 시작하지만, Single Edge 는 그 셋을
- *   의도적으로 건너뛰고(no-op + "skipped" 로그) 단일 서버 안에서 필요한 것만
- *   초기화한다: 관리형 기본 NAT 네트워크(pcvnat0: 브릿지→NAT→DHCP+DNS),
- *   가용 시 로컬 OVN controller, 설정된 경우 OVS overlay.
- *
- * [실패 시 사용자 영향]
- *   네트워크 준비는 soft-fail(WARN 후 계속) — 데몬은 뜨지만 브릿지 미지정 신규
- *   VM 이 IP(DHCP)·인터넷(NAT)·이름해석(DNS)을 못 받을 수 있다. 상세 복구 근거는
- *   아래 pcv_bootstrap_init_runtime_network 의 Operator/블록 주석을 본다.
- *
- * [주니어 참고]
- *   cluster/scheduler/federation 의 "skipped" 는 실패가 아니라 제품 범위다. 이
- *   no-op 함수에 임시 클러스터 초기화를 넣으면 Single Edge 공개 경계가 깨지고
- *   health/RBAC/UI 가 클러스터 기능을 쓸 수 있다고 오해한다.
- */
+
 #include "pcv_bootstrap.h"
 
 #include "modules/network/ovn_manager.h"
 #include "modules/network/ovs_overlay.h"
-#include "modules/network/network_manager.h"   /* VP-1: network_bridge_create */
-#include "modules/network/network_firewall.h"  /* VP-1: network_firewall_setup_nat */
-#include "modules/network/network_dhcp.h"      /* VP-1: network_dhcp_start */
+#include "modules/network/network_manager.h"
+#include "modules/network/network_firewall.h"
+#include "modules/network/network_dhcp.h"
 #include "utils/pcv_config.h"
-#include "utils/pcv_validate.h"                 /* VP-1: PCV_NETWORK_RUNDIR */
+#include "utils/pcv_validate.h"
 
-/*
- * Single Edge 런타임 부트스트랩.
- *
- * [비전공자 설명]
- * 이 서버는 한 대의 물리 서버에서 VM을 운영하는 구성이므로, 클러스터 매니저,
- * 외부 스케줄러, 사이트 federation을 시작하지 않습니다. 대신 로컬 libvirt,
- * 로컬 OVN controller, 설정된 OVS overlay처럼 단일 서버 안에서 필요한
- * 네트워크만 준비합니다.
- *
- * [주니어 참고]
- * "skipped" 로그는 실패가 아니라 제품 범위입니다. 이 파일에서 no-op으로
- * 남긴 함수에 임시 클러스터 초기화를 넣으면 Single Edge 공개 범위가 깨지고,
- * health/RBAC/UI가 클러스터 기능을 사용할 수 있다고 오해합니다.
- */
 const gchar *
 pcv_bootstrap_get_daemon_binary_path(void)
 {
@@ -70,26 +36,7 @@ pcv_bootstrap_init_federation(void)
 void
 pcv_bootstrap_init_runtime_network(void)
 {
-    /* Operator note:
-     * 이 블록은 "VM에 기본으로 물려줄 사내 공유기(pcvnat0)를 데몬이 켜질 때마다
-     * 점검·복구하는 절차"다. 브릿지/NAT/DHCP 중 하나라도 실패하면 데몬은 그대로
-     * 뜨지만, 브릿지를 지정하지 않고 만든 새 VM은 IP를 못 받거나(DHCP 실패)
-     * 인터넷이 안 되는(NAT 실패) 상태가 된다. 그 경우 기동 로그의 "[init] default"
-     * WARN을 확인하고 데몬 재시작(자동 재시도) 또는 pcvctl network 명령으로
-     * 수동 복구한다. 기존에 돌던 VM의 네트워크는 건드리지 않는다. */
-    /* VP-1: 관리형 기본 NAT 네트워크(pcvnat0) 멱등 보장 — soft-fail.
-     *
-     * network_manager의 create 워커 관례(bridge→nat→dhcp)를 따르되, 데몬 재시작마다
-     * 중복 리소스가 쌓이지 않도록 각 단계를 독립 마커로 가드한다:
-     *   - 브릿지: /sys/class/net/<br> 존재 검사 (ip link add는 중복 시 실패)
-     *   - NAT   : /run(tmpfs)의 nat-<br>.ok 마커 — setup_nat는 fire-and-forget
-     *             append라 무조건 호출 시 재시작마다 규칙이 누적된다. 마커는
-     *             성공 시에만 기록하므로 첫 시도 실패 후 데몬 재시작하면 재시도된다
-     *             (브릿지 존재로 가드하면 NAT 실패가 다음 호스트 재부팅까지 고착 —
-     *             리뷰 지적 반영).
-     *   - DHCP  : dnsmasq-<br>.conf 존재 = 이번 부팅에서 이미 기동됨.
-     * /run 마커들은 호스트 재부팅 시 nft 규칙·브릿지와 함께 소멸 — 수명 일치.
-     * 실패는 모두 WARN 후 계속 — 부팅 블로킹 금지(M-7). */
+
     if (pcv_config_get_int("network", "default_ensure", 1)) {
         const gchar *def_br   = pcv_config_get_string("network", "default_bridge", "pcvnat0");
         const gchar *def_cidr = pcv_config_get_string("network", "default_subnet", "10.78.0.1/24");
@@ -103,7 +50,7 @@ pcv_bootstrap_init_runtime_network(void)
             if (network_bridge_create(def_br, def_cidr, 1500, &net_err)) {
                 g_message("[init] default NAT bridge '%s' created (%s)", def_br, def_cidr);
                 br_exists = TRUE;
-                /* meta 기록 — network list의 mode 표시용 (VP-5 잔여) */
+
                 pcv_network_meta_save(def_br, "nat", def_cidr);
             } else {
                 g_warning("[init] default bridge create failed: %s",
@@ -127,18 +74,6 @@ pcv_bootstrap_init_runtime_network(void)
             }
             g_free(nat_mark);
 
-            /* DHCP 게이트는 conf 파일이 아니라 **프로세스 생존**으로 판단한다.
-             * 데몬이 스폰한 dnsmasq는 같은 systemd cgroup이라 데몬 재시작 때
-             * 함께 죽을 수 있는데(KillMode 미조정 배포), conf(tmpfs 수명) 기준
-             * 게이트는 그 죽음을 못 보고 재기동을 건너뛴다 (2026-07-06 VP-6
-             * E2E 실측).
-             *
-             * 생존 검사는 kill(pid,0)이 아니라 /proc/<pid>/comm 을 읽는다:
-             * privdrop(Stage 2)이 CAP_KILL 을 떨군 뒤라 nobody 소유 dnsmasq 에
-             * signal-0 도 EPERM → 살아 있어도 "죽음" 오판으로 매 재시작마다
-             * dnsmasq 를 불필요하게 재기동했다 (2026-07-06 bpftrace 실측).
-             * comm 비교는 pid 재사용 오탐도 막는다. 죽어 있으면
-             * network_dhcp_start_ex 가 self-healing(pkill+재작성)으로 재기동. */
             gchar *dhcp_pidf = g_strdup_printf(PCV_NETWORK_RUNDIR "/dnsmasq-%s.pid", def_br);
             gboolean dhcp_up = FALSE;
             gchar *dhcp_pid_txt = NULL;
@@ -158,10 +93,7 @@ pcv_bootstrap_init_runtime_network(void)
             }
             g_free(dhcp_pidf);
             if (!dhcp_up) {
-                /* dns_enabled=TRUE: 게스트는 이 dnsmasq를 DNS 포워더로 받는다.
-                 * port=0(기본, DHCP 전용)이면 게스트가 이름 해석을 못해 apt 등이
-                 * 전부 실패한다 (2026-07-05 E2E 실측 — VP-6). bind-interfaces +
-                 * interface=<br> 라 systemd-resolved(127.0.0.53)와 포트 충돌 없음. */
+
                 if (network_dhcp_start_ex(def_br, def_cidr, TRUE, NULL, &net_err)) {
                     g_message("[init] default network DHCP+DNS started on '%s'", def_br);
                 } else {

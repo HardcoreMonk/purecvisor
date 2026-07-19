@@ -1,9 +1,4 @@
-#!/usr/bin/env python3
-# This is a source-shape regression test, not a full parser.
-# It checks only the worker contracts that cannot be exercised without a live
-# ZFS/libvirt host: accepted job identity, cleanup ordering, and guest reset.
-# String checks are deliberate because the worker is C code and the expected
-# branch names are part of ADR-0023's safety surface.
+
 """
 ADR-0023 vm.clone cleanup static guard.
 
@@ -22,11 +17,9 @@ import re
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 VM_CLONE_PLAN_C = REPO_ROOT / "src" / "modules" / "virt" / "vm_clone_plan.c"
-
 
 def _read(path: Path) -> str:
     try:
@@ -34,7 +27,6 @@ def _read(path: Path) -> str:
     except OSError as exc:
         print(f"ERROR: failed to read {path}: {exc}", file=sys.stderr)
         sys.exit(2)
-
 
 def _function_body(text: str, name: str) -> str:
     pattern = re.compile(rf"static\s+\w+\s+{re.escape(name)}\s*\([^)]*\)\s*\{{")
@@ -56,7 +48,6 @@ def _function_body(text: str, name: str) -> str:
 
     print(f"ERROR: could not parse {name}()", file=sys.stderr)
     sys.exit(2)
-
 
 def main() -> int:
     text = _read(DISPATCHER_C)
@@ -116,7 +107,6 @@ def main() -> int:
 
     print("[PASS] vm.clone cleanup guard structure is present")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

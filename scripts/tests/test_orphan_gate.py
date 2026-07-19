@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """고아 불변식 단위테스트 (Task 4).
 
 등록 − 전소비 ⊆ baseline(rpc_orphan_baseline.json) 을 확인한다. 정식
@@ -14,16 +14,13 @@ ROOT = Path(__file__).resolve().parent.parent.parent
 GATE = ROOT / "scripts" / "check_rpc_consumers.py"
 DISP = ROOT / "src" / "api" / "dispatcher.c"
 
-
 def _run():
     return subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
-
 
 def test_gate_passes_at_orphan_baseline():
     r = _run()
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
     assert "고아 24 / baseline 24" in r.stdout, f"{r.stdout}"
-
 
 def test_new_orphan_blocked():
     """dispatcher에 소비자 0인 route 주입 → 고아 FAIL."""
@@ -38,7 +35,6 @@ def test_new_orphan_blocked():
         assert "test.__orphan_probe__" in r.stderr
     finally:
         DISP.write_text(orig)
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

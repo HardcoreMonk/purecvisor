@@ -1,17 +1,5 @@
 #pragma once
 
-/**
- * @file vm_clone_plan.h
- * @brief VM clone 전 디스크 타입과 target 경로를 계산하는 작은 plan 모듈.
- *
- * dispatcher.c는 요청/권한/응답을 담당하고, 이 모듈은 libvirt XML 안의
- * data disk가 zvol/qcow2/raw 중 무엇인지 판별하고, storage별 target
- * 경로를 계산한다. qcow2/raw는 qemu-img full copy로만 실행하며,
- * 일반 VM clone은 virt-sysprep identity reset, virt-filesystems filesystem
- * 수집, guestfish filesystem UUID 보정, virt-customize fstab/boot artifact
- * 재생성 경로를 거친다.
- */
-
 #include <glib.h>
 
 typedef enum {

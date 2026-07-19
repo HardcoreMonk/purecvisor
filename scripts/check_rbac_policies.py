@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 ADR-0019 정적 분석 — RBAC 정책 매핑 누락 및 정책 계약 회귀 검출
 
@@ -34,12 +34,10 @@ from pathlib import Path
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 
-# g_hash_table_insert(g_rpc_routes, "method.name", ...) 패턴
 ROUTE_RE = re.compile(
     r'g_hash_table_insert\s*\(\s*g_rpc_routes\s*,\s*"([a-z][a-z0-9_.]+)"',
 )
 
-# g_method_policies = { ... { "method.name", N } ... }
 POLICY_BLOCK = re.compile(
     r'g_method_policies\[\]\s*=\s*\{(.*?)\n\};',
     re.DOTALL,
@@ -57,13 +55,6 @@ ROLE_VALUES = {
     "ADMIN": 2,
 }
 
-# Keep this list broad enough to fail closed for mutating RPCs, but not so broad
-# that read-only discovery routes need redundant policy rows. g_method_policies
-# remains the source of explicit roles; this tuple decides which omissions are
-# severe enough to stop the build.
-# When adding a new destructive verb, add the verb here before relying on
-# make check-rbac as a release gate.
-# destructive 패턴 — 정책 매핑 필수
 DESTRUCTIVE_KEYWORDS = (
     ".delete", ".destroy", ".create", ".update", ".set", ".push",
     ".trigger", ".reset", ".rollback", ".restore", ".replicate", ".enter", ".exit",
@@ -73,15 +64,9 @@ DESTRUCTIVE_KEYWORDS = (
     "vm.snapshot", "vm.guest.exec", "vm.guest.shutdown",
 )
 
-# 읽기전용 discovery 라우트인데 destructive 키워드에 우연히 부분매칭되는 예외.
-# 상태를 변경하지 않으므로 정책 행이 필요 없다(daemon.version 과 동일 런타임 취급 —
-# 정책-free + 무인증 노출). 위 DESTRUCTIVE_KEYWORDS 주석의 "read-only discovery routes
-# need redundant policy rows 아님" 의도의 명시적 구현.
-# 신규 추가 시: 실제로 mutating이 아님을 확인하고 왜 키워드에 걸리는지 근거를 남길 것.
 READONLY_EXEMPT = frozenset({
-    "daemon.update_check",  # 업데이트 "확인"(GitHub 최신 릴리스 조회) — 읽기전용, ".update" 부분매칭 오탐
+    "daemon.update_check",
 })
-
 
 @dataclass(frozen=True)
 class PolicyContract:
@@ -90,12 +75,6 @@ class PolicyContract:
     owner_scope: bool
     reason: str
 
-
-# 제품 정책으로 고정할 계약. UI에서는 VM 단일 대상 action이지만 내부 RPC
-# 메서드명이 vm.*가 아닌 항목을 여기에 넣어 회귀를 즉시 차단한다.
-# These entries are stronger than the generic keyword gate: they assert both the
-# role floor and the owner-scope boundary. Without this explicit list, a route
-# can remain "mapped" while accidentally becoming admin-only or global-scope.
 POLICY_CONTRACTS = (
     PolicyContract(
         method="backup.replicate",
@@ -135,13 +114,11 @@ POLICY_CONTRACTS = (
     ),
 )
 
-
 def parse_role(token: str) -> int | None:
     token = token.strip()
     if token.isdigit():
         return int(token)
     return ROLE_VALUES.get(token)
-
 
 def extract_c_function_body(text: str, name: str) -> str | None:
     name_pos = text.find(name)
@@ -163,7 +140,6 @@ def extract_c_function_body(text: str, name: str) -> str | None:
                 return text[brace_pos + 1:pos]
     return None
 
-
 def explicit_owner_scope_state(body: str, method: str) -> bool | None:
     needle = f'"{method}"'
     pos = body.find(needle)
@@ -178,7 +154,6 @@ def explicit_owner_scope_state(body: str, method: str) -> bool | None:
         return False
     return None
 
-
 def owner_scope_includes_method(body: str | None, method: str) -> bool:
     if not body:
         return False
@@ -192,7 +167,6 @@ def owner_scope_includes_method(body: str | None, method: str) -> bool:
 
     has_vm_prefix_gate = 'g_str_has_prefix(method, "vm.")' in body
     return has_vm_prefix_gate
-
 
 def main() -> int:
     if not DISPATCHER_C.exists():
@@ -283,7 +257,6 @@ def main() -> int:
     print("\033[32m[PASS]\033[0m destructive 메서드 모두 정책 매핑됨 (ADR-0019 준수)")
     print("\033[32m[PASS]\033[0m operator VM owner-scope 정책 계약 준수")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_mtls_wiring.py — mTLS 클라이언트 인증서 검증 배선 게이트 (C1 / A02·V12).
 
 근거: 보안 평가 A02 — mTLS 가 문서화됐으나 서버 코드에 미배선(server-cert 만).
@@ -29,7 +29,6 @@ TARGET = ROOT / TARGET_REL
 CONFIG_KEY = "client_auth"
 TLS_DATABASE = "soup_server_set_tls_database"
 TLS_AUTH_MODE = "soup_server_set_tls_auth_mode"
-
 
 def strip_comments(text: str) -> str:
     """주석만 공백/개행으로 치환하고 문자열·문자 리터럴은 보존(줄 번호 1:1).
@@ -84,7 +83,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def scan_text(text: str):
     """(reasons) — 빈 리스트면 PASS."""
     code = strip_comments(text)
@@ -99,7 +97,6 @@ def scan_text(text: str):
         reasons.append(f"{TLS_AUTH_MODE}( 미호출 — 클라이언트 인증 모드"
                        " (REQUESTED/REQUIRED) 미설정 (클라이언트 인증서 미요구)")
     return reasons
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -118,7 +115,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] mTLS client_auth 정책 + CA DB + 인증 모드 배선 존재 ({rel})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

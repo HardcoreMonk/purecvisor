@@ -1,7 +1,4 @@
-#!/usr/bin/env python3
-# ZFS lock metrics span two ownership areas: the storage driver emits outcomes
-# and the Prometheus exporter owns metric names/buckets.
-# This guard pins that cross-file contract after ADR-0021-related changes.
+
 """ZFS inflight lock metric static contract guard."""
 
 from __future__ import annotations
@@ -10,9 +7,7 @@ import re
 import sys
 from pathlib import Path
 
-
 REPO_ROOT = Path(__file__).resolve().parent.parent
-
 
 def read(path: str) -> str:
     try:
@@ -21,12 +16,10 @@ def read(path: str) -> str:
         print(f"ERROR: failed to read {path}: {exc}", file=sys.stderr)
         sys.exit(2)
 
-
 def require(description: str, condition: bool) -> None:
     if not condition:
         print(f"FAIL: {description}", file=sys.stderr)
         sys.exit(1)
-
 
 def main() -> int:
     exporter_h = read("src/modules/daemons/prometheus_exporter.h")
@@ -67,7 +60,6 @@ def main() -> int:
 
     print("[PASS] ZFS inflight lock metric static contract is present")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

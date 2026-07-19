@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """
 ADR-0018 정적 분석 — fire-and-forget audit 위치 검증
 
@@ -41,8 +41,8 @@ DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 SEARCH_DIRS = [
     REPO_ROOT / "src" / "api",
     REPO_ROOT / "src" / "modules" / "dispatcher",
-    REPO_ROOT / "src" / "modules" / "cloud",       # cloud_migration.c — 동적 cloud.<dir>
-    REPO_ROOT / "src" / "modules" / "virt",        # vm_manager 등 비동기 워커
+    REPO_ROOT / "src" / "modules" / "cloud",
+    REPO_ROOT / "src" / "modules" / "virt",
 ]
 
 REQUIRED_FIRE_AND_FORGET_METHODS = [
@@ -59,40 +59,26 @@ REQUIRED_FIRE_AND_FORGET_METHODS = [
     "vm.import.ova",
 ]
 
-# This required set is the release gate for high-risk async work. The generic
-# g_async_methods scan catches newly registered async methods, while this list
-# protects known worker families that must have all three signals: registry,
-# actual-result audit, and WebSocket completion.
-
-# g_async_methods 등록 블록 패턴
 ASYNC_REG_BLOCK = re.compile(
     r'_async_method_names\[\]\s*=\s*\{(.*?)\};',
     re.DOTALL,
 )
 METHOD_LITERAL = re.compile(r'"([a-z][a-z0-9_.]+)"')
 
-# audit 호출 패턴 — pcv_audit_log(... "method.name" ...) 또는 pcv_audit_log_rpc("method.name", ...)
 AUDIT_CALL_RE = re.compile(
     r'pcv_audit_log(?:_rpc)?\s*\(\s*[^)]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
-# WS completion 호출 패턴 — 메인컨텍스트 직결(pcv_ws_broadcast_job_complete)과
-# 워커 스레드 마샬링 변형(_mt, A2-2 libsoup 스레드 어피니티, 커밋 09d66ae) 둘 다 인식.
-# `_mt` 변형을 누락하면 backup.restore/replicate/export_s3·vm.clone/export.ova/
-# import.ova·vm.resize_disk·vm.disk.live_resize 처럼 워커에서 `_mt`로만 완료를
-# 브로드캐스트하는 fire-and-forget 메서드가 "WS completion 누락" 위음성으로 잡혀
-# 게이트가 거짓 실패한다.
+
 WS_COMPLETE_RE = re.compile(
     r'pcv_ws_broadcast_job_complete(?:_mt)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
 
-# 동적 메서드명 (g_strdup_printf 등) 처리용 명시 annotation
 # 형식: /* ADR-0018-audit: vm.stop, vm.pause, ... */
 ANNOTATION_RE = re.compile(
     r'ADR-0018-audit:\s*([a-z0-9_.,\s]+)',
 )
-
 
 def extract_async_methods(dispatcher_text: str) -> list[str]:
     m = ASYNC_REG_BLOCK.search(dispatcher_text)
@@ -102,7 +88,6 @@ def extract_async_methods(dispatcher_text: str) -> list[str]:
         sys.exit(2)
     block = m.group(1)
     return METHOD_LITERAL.findall(block)
-
 
 def collect_methods(pattern: re.Pattern[str]) -> set[str]:
     found: set[str] = set()
@@ -115,7 +100,6 @@ def collect_methods(pattern: re.Pattern[str]) -> set[str]:
                 found.add(m.group(1))
     return found
 
-
 def collect_audit_methods() -> set[str]:
     found = collect_methods(AUDIT_CALL_RE)
     for d in SEARCH_DIRS:
@@ -123,12 +107,11 @@ def collect_audit_methods() -> set[str]:
             continue
         for c in d.glob("*.c"):
             txt = c.read_text(errors="replace")
-            # 동적 메서드명을 명시 annotation으로 보완
+
             for ann in ANNOTATION_RE.finditer(txt):
                 names = [s.strip() for s in ann.group(1).split(",") if s.strip()]
                 found.update(names)
     return found
-
 
 def main() -> int:
     if not DISPATCHER_C.exists():
@@ -189,7 +172,6 @@ def main() -> int:
 
     print("\033[32m[PASS]\033[0m async registry/audit/WS completion 계약 통과 (ADR-0018 준수)")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """안전통제 게이트 자기검증 인수 테스트 (Task 3).
 
 설계: docs/superpowers/specs/2026-07-11-safety-control-effect-test-gate-design.md
@@ -36,12 +36,10 @@ GATE = ROOT / "scripts" / "check_safety_controls.py"
 REGISTRY = ROOT / "contracts" / "safety_controls.json"
 BASELINE = ROOT / "contracts" / "safety_controls_baseline.txt"
 
-
 def test_gate_passes():
     r = subprocess.run([sys.executable, str(ROOT / "scripts" / "check_safety_controls.py")],
                         capture_output=True, text=True)
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_noop_controls_surfaced():
     """감사에서 확인된 실제 무동작 통제가 있다면 surface(gap 은폐 없음).
@@ -54,7 +52,6 @@ def test_noop_controls_surfaced():
     assert untested == set(known_gaps), \
         f"알려진 무동작 통제 리스트와 실제 untested-baseline 상태가 어긋남: {sorted(untested)}"
 
-
 def test_tested_controls_locked_in():
     """시정 트랙에서 effect_test로 확인된 통제는 tested — 재도출이 조용히 되돌려지지 않음."""
     reg = json.loads(REGISTRY.read_text())
@@ -64,7 +61,6 @@ def test_tested_controls_locked_in():
                 "isolated-network-drop", "qos-rehydrate", "self-healing-restart"]:
         assert cid in reg and reg[cid]["status"] == "tested", \
             f"시정 확인 통제 {cid}가 tested에서 이탈"
-
 
 def test_duplicate_key_fails():
     """레지스트리 최상위 키 중복 주입(ADR-0025 반사실) — json.loads의 last-wins 사각지대에서
@@ -80,7 +76,6 @@ def test_duplicate_key_fails():
     finally:
         REGISTRY.write_text(orig)
 
-
 def test_tested_in_baseline_fails():
     """tested 통제가 baseline에 잔존(ADR-0025 반사실) — 승격 후 baseline 미정리로
     tested→untested가 조용히 강등 마스킹되는 것을 막는 체크가 실제로 발동해야 한다."""
@@ -91,7 +86,6 @@ def test_tested_in_baseline_fails():
         assert r.returncode == 1 and "baseline에 잔존" in r.stderr, f"{r.stdout}\n{r.stderr}"
     finally:
         BASELINE.write_text(orig)
-
 
 if __name__ == "__main__":
     tests = [v for k, v in sorted(globals().items()) if k.startswith("test_")]

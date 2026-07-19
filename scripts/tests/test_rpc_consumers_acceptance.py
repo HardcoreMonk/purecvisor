@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """소비/고아 게이트 반사실 self-test (ADR-0025 의무 2, Task 5).
 
 check_rpc_consumers.py 의 존재 이유는 "불변식이 깨지면 RED가 된다"는 것 자체다.
@@ -27,16 +27,13 @@ DISP = ROOT / "src" / "api" / "dispatcher.c"
 REST = ROOT / "src" / "api" / "rest_server.c"
 BASE = ROOT / "contracts" / "rpc_orphan_baseline.json"
 
-
 def _run():
     return subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
-
 
 def test_passes_at_baseline():
     """정상 상태 — 게이트는 exit 0."""
     r = _run()
     assert r.returncode == 0, f"{r.stdout}\n{r.stderr}"
-
 
 def test_new_orphan_is_blocked():
     """등록만 되고 어떤 경로로도 소비되지 않는 route 주입 → 신규 고아 FAIL."""
@@ -50,7 +47,6 @@ def test_new_orphan_is_blocked():
     finally:
         DISP.write_text(orig)
 
-
 def test_consumed_but_unregistered_is_blocked():
     """REST 브릿지가 미등록 메서드를 소비 → 소비⊆등록 위반 FAIL."""
     orig = REST.read_text()
@@ -61,20 +57,18 @@ def test_consumed_but_unregistered_is_blocked():
     finally:
         REST.write_text(orig)
 
-
 def test_dead_candidate_mislabel_is_blocked():
     """test-covered 메서드를 dead-candidate로 표기하면 게이트 FAIL (정직 self-check, quota.get 사건 재발방지)."""
     orig = BASE.read_text()
     try:
         d = json.loads(orig)
-        # quota.get(test-covered)을 dead-candidate로 되돌리면 → MISLABEL FAIL
+
         d["orphans"]["quota.get"]["reason"] = "dead-candidate"
         BASE.write_text(json.dumps(d, indent=2, ensure_ascii=False))
         r = _run()
         assert r.returncode == 1 and "MISLABEL" in r.stderr, f"{r.stdout}\n{r.stderr}"
     finally:
         BASE.write_text(orig)
-
 
 def test_baseline_deflation_is_blocked():
     """고아를 baseline에 추가로 은폐하려는 시도는 정당하나, 실제 고아가 아닌 항목 추가는 무해.
@@ -89,7 +83,6 @@ def test_baseline_deflation_is_blocked():
         assert r.returncode == 1 and victim in r.stderr, f"{r.stdout}\n{r.stderr}"
     finally:
         BASE.write_text(orig)
-
 
 if __name__ == "__main__":
     for k, v in sorted(globals().items()):

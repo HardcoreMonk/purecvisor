@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_tls_min_version.py — TLS 최소 버전 고정 게이트 (C2 / A02·V11·V12).
 
 근거: 보안 평가 A02 — TLS 버전/스위트 미고정(SSL3/TLS1.0/1.1 협상 가능).
@@ -28,7 +28,6 @@ TARGET = ROOT / TARGET_REL
 PRIORITY_ENV = "G_TLS_GNUTLS_PRIORITY"
 CONFIG_KEY = "min_version"
 SETENV = "g_setenv"
-
 
 def strip_comments(text: str) -> str:
     """주석만 공백/개행으로 치환하고 문자열·문자 리터럴은 보존(줄 번호 1:1).
@@ -83,7 +82,6 @@ def strip_comments(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def scan_text(text: str):
     """(reasons) — 빈 리스트면 PASS."""
     code = strip_comments(text)
@@ -96,7 +94,6 @@ def scan_text(text: str):
     if SETENV not in code:
         reasons.append(f"{SETENV}( 미호출 — 우선순위를 프로세스 전역에 고정하지 않음")
     return reasons
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -115,7 +112,6 @@ def main(argv=None) -> int:
         return 1
     print(f"[PASS] G_TLS_GNUTLS_PRIORITY 고정 + min_version config 존중 ({rel})")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

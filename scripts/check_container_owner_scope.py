@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_container_owner_scope.py — 컨테이너 operator owner-scope 게이트 (B1 / A01).
 
 근거: 보안 평가 A01 — 컨테이너 owner-scope가 vm.*만 커버해 operator 교차테넌트 IDOR.
@@ -42,7 +42,6 @@ GATE_FNS = (
     "_container_owner_matches_caller",
     "_container_owner_scoped_method_allowed",
 )
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴 내용을 공백/개행으로 치환(오프셋 1:1 유지).
@@ -98,7 +97,6 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def _match_delims(s: str, open_pos: int, opench: str, closech: str) -> int:
     depth = 0
     for i in range(open_pos, len(s)):
@@ -110,7 +108,6 @@ def _match_delims(s: str, open_pos: int, opench: str, closech: str) -> int:
             if depth == 0:
                 return i
     return -1
-
 
 def extract_fn_body(text: str, code: str, fn: str):
     """fn '정의' 본문({...})의 RAW 슬라이스 반환(없으면 None).
@@ -132,7 +129,6 @@ def extract_fn_body(text: str, code: str, fn: str):
             return text[j:close + 1]
     return None
 
-
 def check_dispatcher(rel: str, text: str):
     code = strip_code(text)
     reasons = []
@@ -149,7 +145,6 @@ def check_dispatcher(rel: str, text: str):
             if f'"{meth}"' not in set_body:
                 reasons.append(f"owner-scope 세트에 {meth} 누락 — operator 교차테넌트 재노출")
 
-    # 배선: 정의 이외의 참조(호출부)가 있어야 한다 → 식별자 2회 이상.
     for fn in ("_container_owner_scoped_method_allowed",
                "_container_method_requires_owner_scope"):
         cnt = len(re.findall(r'\b' + re.escape(fn) + r'\b', code))
@@ -158,7 +153,6 @@ def check_dispatcher(rel: str, text: str):
 
     return (not reasons), reasons
 
-
 def check_stamp(rel: str, text: str):
     code = strip_code(text)
     reasons = []
@@ -166,18 +160,16 @@ def check_stamp(rel: str, text: str):
         reasons.append("container.create 경로에 pcv_lxc_stamp_owner 호출 없음 — 소유자 미기록(operator 전면 차단)")
     return (not reasons), reasons
 
-
 def check_substrate(rel: str, text: str):
     code = strip_code(text)
     reasons = []
     for fn in ("pcv_lxc_stamp_owner", "pcv_lxc_read_owner"):
-        # 정의(본문 개시) 실재 — name(...){
+
         if extract_fn_body(text, code, fn) is None:
             reasons.append(f"저장소 함수 {fn} 정의 없음")
     if "purecvisor.owner" not in text:
         reasons.append("purecvisor.owner 파일 경로 리터럴 없음 — 저장소 규칙 drift")
     return (not reasons), reasons
-
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
@@ -204,7 +196,6 @@ def main(argv=None) -> int:
         return 1
     print("[PASS] container.start/stop/clone owner-scope 세트 + 게이트 배선 + create 스탬프 + 저장소 충족")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

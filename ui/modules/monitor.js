@@ -1,22 +1,10 @@
-/* ═══════════════════════════════════════════════════════════════
-   PureCVisor — modules/monitor.js
-   Monitoring, Alerts, Audit, GPU, Host renderers
-   ADR-0013: IIFE module scope — PCV.monitor namespace
-   ═══════════════════════════════════════════════════════════════ */
-/*
- * Monitoring is the highest-churn UI module: it parses Prometheus text,
- * maintains Chart.js instances across innerHTML replacement, and renders both
- * Single Edge local metrics and legacy multi-node shaped data. Helper comments
- * below mark the ownership boundaries that keep those concerns separate.
- */
+
 window.PCV = window.PCV || {};
 (function(PCV) {
 
-/* ═══ CHART.JS REGISTRY ═══ */
 var chartRegistry = {};
 window.chartRegistry = chartRegistry;
 
-/* Destroy all Chart.js instances — call before innerHTML replacement */
 function destroyAllCharts() {
   for (const id of Object.keys(chartRegistry)) {
     try { chartRegistry[id].destroy(); } catch (e) { if(_DEBUG) console.warn('destroyAllCharts:', e.message); }
@@ -28,7 +16,7 @@ window.destroyAllCharts = destroyAllCharts;
 function createLineChart(canvasId, data, label, color) {
   const canvas = document.getElementById(canvasId);
   if (!canvas) return;
-  /* If registry has a stale entry (canvas replaced by innerHTML), destroy it */
+
   if (chartRegistry[canvasId]) {
     if (chartRegistry[canvasId].canvas === canvas) {
       const chart = chartRegistry[canvasId];
@@ -37,7 +25,7 @@ function createLineChart(canvasId, data, label, color) {
       chart.update('none');
       return;
     }
-    /* Stale — canvas was replaced */
+
     try { chartRegistry[canvasId].destroy(); } catch (e) { if(_DEBUG) console.warn('createLineChart:', e.message); }
     delete chartRegistry[canvasId];
   }
@@ -96,14 +84,12 @@ function drawGraphFallback(id, data, color) {
 }
 window.drawGraphFallback = drawGraphFallback;
 
-/* ═══ CHART COLOR ═══ */
 function getChartColor(name) {
   try { return getComputedStyle(document.documentElement).getPropertyValue('--chart-' + name).trim() || name; }
   catch(e) { return name; }
 }
 window.getChartColor = getChartColor;
 
-/* ═══ MONITORING CONSTANTS (R-9: cluster.js에�� 동적 로드된 노드 사용) ═══ */
 var _PROD_NODES = window._PROD_NODES || [{ name: 'Local', ip: window.location.hostname || '127.0.0.1' }];
 var _VIP = window._VIP || null;
 var _curHost = window._curHost || window.location.hostname;
@@ -112,7 +98,7 @@ window._isProd = _isProd;
 window._curHost = _curHost;
 var MON_NODES = _PROD_NODES;
 window.MON_NODES = MON_NODES;
-/* cluster.js의 _loadClusterNodes() 완료 후 MON_NODES 갱신 */
+
 async function _refreshMonNodes() {
   if (window._loadClusterNodes) await window._loadClusterNodes();
   _PROD_NODES = window._PROD_NODES || _PROD_NODES;
@@ -176,7 +162,6 @@ async function _fetchMetricsText(url) {
   return r.text();
 }
 
-/* G-2: Promise.all parallel fetch */
 async function fetchAllMetrics() {
   const all = await Promise.all(MON_NODES.map(async (nd) => {
     try {
@@ -252,7 +237,6 @@ async function fetchAllMetrics() {
 }
 window.fetchAllMetrics = fetchAllMetrics;
 
-/* ═══ FORMATTERS ═══ */
 function fmtBytes(b) { if (b >= 1e12) return (b / 1e12).toFixed(1) + ' TB'; if (b >= 1e9) return (b / 1e9).toFixed(1) + ' GB'; if (b >= 1e6) return (b / 1e6).toFixed(1) + ' MB'; if (b >= 1e3) return (b / 1e3).toFixed(1) + ' KB'; return b + ' B'; }
 window.fmtBytes = fmtBytes;
 
@@ -262,7 +246,6 @@ window.fmtRate = fmtRate;
 function fmtUptime(s) { const d = Math.floor(s / 86400), h = Math.floor(s % 86400 / 3600), mi = Math.floor(s % 3600 / 60); return d + 'd ' + h + 'h ' + mi + 'm'; }
 window.fmtUptime = fmtUptime;
 
-/* ═══ CANVAS DRAWING ═══ */
 function drawLine(id, data, color, unit, max) {
   const cv = document.getElementById(id); if (!cv) return;
   const x = cv.getContext('2d'); cv.width = cv.offsetWidth; cv.height = cv.offsetHeight;
@@ -278,9 +261,6 @@ function drawLine(id, data, color, unit, max) {
 }
 window.drawLine = drawLine;
 
-/* ADR-013 DOM-safe: gauge SVG 는 SVG 네임스페이스 노드로 조립해야 실제 렌더되고
- * viewBox 등 카멜케이스 속성이 소문자화(HTML setAttribute 규칙)되지 않는다.
- * el() 은 createElement(HTML NS) 라 SVG 에 부적합 → 로컬 createElementNS 헬퍼. */
 var _SVGNS = 'http://www.w3.org/2000/svg';
 function _svgEl(tag, attrs, children) {
   var node = document.createElementNS(_SVGNS, tag);
@@ -296,8 +276,6 @@ function _svgEl(tag, attrs, children) {
   return node;
 }
 
-/* ci-icon <svg><use href> 아이콘 노드 — SVG 네임스페이스라야 렌더+직렬화 동형.
- * href 는 사이트별로 상대/절대가 달라 전체 문자열을 그대로 받는다. */
 function _svgIcon(href, cls) {
   return _svgEl('svg', { class: cls || 'ci-icon', 'aria-hidden': 'true' }, [
     _svgEl('use', { href: href })
@@ -318,9 +296,8 @@ function gauge(pct, label, color) {
 }
 window.gauge = gauge;
 
-/* ═══ MONITORING RENDER — G-2 Split into sub-functions ═══ */
 async function renderMonitoring(b, tab) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   showSkeleton(b);
@@ -337,7 +314,6 @@ async function renderMonitoring(b, tab) {
   else if (tab === 'vms') renderMonVms(b, allVms, running);
   else if (tab === 'storage') renderMonStorage(b, all, allVms, totalRam);
 
-  /* FE-4: 모니터링 페이지 열린 동안 자동 갱신 (10초) */
   if (typeof startAdaptivePolling === 'function') {
     startAdaptivePolling('mon-refresh', function() {
       if (window.currentTab && window.currentTab.startsWith('mon-')) {
@@ -353,7 +329,7 @@ async function renderMonitoring(b, tab) {
           else if (window.currentTab === 'mon-hosts') renderMonHosts(cb, fresh);
           else if (window.currentTab === 'mon-vms') renderMonVms(cb, freshVms, r);
           else if (window.currentTab === 'mon-storage') renderMonStorage(cb, fresh, freshVms, tr);
-        }).catch(function() { /* 갱신 실패 시 무시 */ });
+        }).catch(function() {  });
       } else {
         if (typeof stopAdaptivePolling === 'function') stopAdaptivePolling('mon-refresh');
       }
@@ -602,7 +578,6 @@ async function renderOpsTriage(b) {
 }
 window.renderOpsTriage = renderOpsTriage;
 
-/* ═══ DEEP HEALTH DASHBOARD ═══ */
 async function loadDeepHealth() {
   var el = document.getElementById('deep-health'); if (!el) return;
   PCV.uxlib.setMsg(el, 'loading', null, t('loading') || 'Loading...');
@@ -623,7 +598,7 @@ async function loadDeepHealth() {
 
     var subsysKeys = Object.keys(subsystems);
     if (subsysKeys.length === 0) {
-      /* If no subsystems object, try top-level known fields */
+
       var knownSubs = ['libvirt', 'etcd', 'zfs', 'vm_state_db', 'audit_db', 'tls', 'cluster'];
       knownSubs.forEach(function(k) { if (d[k] !== undefined) subsystems[k] = d[k]; });
       subsysKeys = Object.keys(subsystems);
@@ -680,11 +655,11 @@ function _healthBadgeColor(sc) {
 }
 
 function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, totalRam) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
-  /* Deep Health section at top */
+
   var deepHealthSection = el('div', { class: 'hc mb-14' },
     el('h4', null, '🩹 ' + (t('monitor.system_health') || 'System Health')),
     el('p', { class: 'color-muted text-11 mb-8' }, t('monitor.health_desc') || 'Deep health probe of all subsystems. Updated on each page load.'),
@@ -692,7 +667,6 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
       el('span', { class: 'spinner' }),
       ' ' + (t('loading') || 'Loading...')));
 
-  /* F-1: Cluster Timeline Chart (CPU/MEM/DISK 시계열) */
   var clusterTimeline = el('div', { class: 'hc mb-12' },
     el('h4', null, '📊 ' + (t('monitor.cluster_timeline') || '리소스 흐름 (최근 5분)')),
     el('div', { class: 'grid-3 gap-12', style: 'display:grid;grid-template-columns:1fr 1fr 1fr' },
@@ -737,7 +711,6 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
         HN.row('Sockets', (n.sockstat.sockets_used || 0) + ' (TCP:' + (n.sockstat.TCP_inuse || 0) + ' UDP:' + (n.sockstat.UDP_inuse || 0) + ')'));
     }));
 
-  /* AI Ops panels */
   var totalAnom = all.reduce((s, n) => s + (n.anomaly_active || 0), 0);
   var anomDetails = [];
   all.forEach(function(n) {
@@ -816,12 +789,10 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
 
   var aiOps = el('div', { class: 'sg grid-3 mb-12' }, anomalyPanel, predictPanel, healingPanel);
 
-  /* Self-Healing Pending Actions */
   var selfHealingSection = el('div', { class: 'hc mb-14' },
     el('h4', { class: 'color-yellow' }, '⚠ ' + _L('자가치유 대기 액션', 'Self-Healing Pending Actions')),
     el('div', { id: 'healing-pending-list', class: 'skeleton-box', style: 'min-height:60px' }));
 
-  /* keepalived */
   var kaRows = all.map(function(n) {
     var kaA = n.keepalived_active === 1, kaM = n.keepalived_master === 1, kaV = n.keepalived_vip_owner === 1;
     return el('tr', null,
@@ -835,7 +806,6 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     el('tbody', null, kaRows));
   var keepalived = el('div', { class: 'sg grid-1 mb-12' }, HN.card('☍ keepalived VRRP Status', keepalivedTable));
 
-  /* Top 5 */
   var runVms = allVms.filter(v => v.running === 1);
   function top5Tbl(title, items, valFn, unit) {
     var rows = items.map(function(v, i) {
@@ -870,18 +840,16 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
       el('thead', null, el('tr', null, el('th', null, 'Name'), el('th', null, 'State'), el('th', null, 'Node'), el('th', null, 'vCPU'), el('th', null, 'Max MB'), el('th', null, 'Used MB'))),
       el('tbody', null, vmRows)));
 
-  /* 1.0: AI Ops Self-Healing 패널 mount point (selfhealing.js가 채움) */
   var selfhealingPanel = el('div', { id: 'selfhealing-panel', class: 'hc mb-14', style: 'margin-top:24px' });
 
   clearEl(b);
   b.appendChild(frag(deepHealthSection, clusterTimeline, overviewSection, statGrid, nodeCards, aiOps, selfHealingSection, keepalived, top5Grid, allVmsCard, selfhealingPanel));
   setTimeout(loadDeepHealth, 50);
   setTimeout(loadHealingPending, 100);
-  /* 1.0 functional: AI Ops Self-Healing 패널 자동 mount.
-   * 패널 컨테이너는 monitor 페이지 끝에 추가되어 있고 render는 selfhealing.js가 담당. */
+
   setTimeout(function() { if (window.PCV && PCV.selfhealing) PCV.selfhealing.refresh(); }, 150);
   setTimeout(() => { all.forEach(n => { const hi = monHist[n.ip] || { cpu: [], mem: [] }; drawLine('mc-' + n.ip + '-cpu', hi.cpu, getChartColor('cpu'), '%'); drawLine('mc-' + n.ip + '-mem', hi.mem, getChartColor('mem'), '%'); }); }, 50);
-  /* F-1: Render Chart.js timeline charts (CPU / MEM / NET per node) */
+
   setTimeout(function() {
     if (typeof pcvTimeSeries !== 'function') return;
     var cpuSeries = all.map(function(n) {
@@ -908,7 +876,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
 window.renderMonOverview = renderMonOverview;
 
 function renderMonCluster(b, all) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -950,7 +918,7 @@ function renderMonCluster(b, all) {
 window.renderMonCluster = renderMonCluster;
 
 function renderMonHosts(b, all) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -1059,7 +1027,7 @@ function renderMonHosts(b, all) {
 window.renderMonHosts = renderMonHosts;
 
 function renderMonVms(b, allVms, running) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -1139,7 +1107,7 @@ function _zfsLockPanel(all) {
 }
 
 function renderMonStorage(b, all, allVms, totalRam) {
-  /* P1-3: Destroy stale Chart.js instances before innerHTML replacement */
+
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
   destroyAllCharts();
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -1215,7 +1183,6 @@ function renderMonStorage(b, all, allVms, totalRam) {
 }
 window.renderMonStorage = renderMonStorage;
 
-/* ═══ ALERTS ═══ */
 async function renderAlerts(b) {
   showSkeleton(b);
   const hdr = { 'Authorization': 'Bearer ' + authToken, 'Content-Type': 'application/json' };
@@ -1285,7 +1252,7 @@ async function renderAlerts(b) {
     el('div', { id: 'dlq-list', class: 'mt-8' }));
 
   var parts = [HN.section('🔔 Alert Configuration'), statusBanner, thresholdsGrid, grid2, saveDiv, historyCard, dlqDiv, HN.section(_L('알림 설정', 'Alert Configuration'))];
-  /* Alert config editor */
+
   try {
     var cfg2 = await fetchGet(EP.ALERTS_CONFIG());
     var c = unwrapData(cfg2);
@@ -1334,7 +1301,6 @@ async function saveAlertConfig() {
 }
 window.saveAlertConfig = saveAlertConfig;
 
-/* ═══ AUDIT LOG SEARCH ═══ */
 async function renderAudit(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var toolbar = el('div', { style: 'display:flex;gap:8px;flex-wrap:wrap;margin-bottom:8px' },
@@ -1350,7 +1316,6 @@ async function renderAudit(b) {
 }
 window.renderAudit = renderAudit;
 
-/* ═══ GPU MONITORING ═══ */
 async function renderGpu(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var devicesCard = el('div', { class: 'hc' },
@@ -1380,7 +1345,7 @@ async function renderGpu(b) {
     el('div', { class: 'stat-label mt-8' }, _L('GPU 메트릭은 nvidia-smi 또는 lspci 기반으로 수집됩니다.', 'GPU metrics collected via nvidia-smi or lspci.')));
   clearEl(b);
   b.appendChild(frag(HN.section('🎮 GPU 모니터링'), grid2, cliCard, chartDiv));
-  /* GPU 활용 차트 그리기 */
+
   try {
     var gr = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'gpu.list', params:{}, id:'gl1'});
     var gpus = unwrapList(gr);
@@ -1403,7 +1368,6 @@ async function renderGpu(b) {
 }
 window.renderGpu = renderGpu;
 
-/* ═══ DPDK STATUS ═══ */
 async function renderDpdk(b) {
   showSkeleton(b);
   try {
@@ -1481,7 +1445,6 @@ window.renderDpdk = renderDpdk;
 window.dpdkBind = dpdkBind;
 window.dpdkUnbind = dpdkUnbind;
 
-/* ═══ SR-IOV STATUS ═══ */
 async function renderSriov(b) {
   showSkeleton(b);
   try {
@@ -1578,7 +1541,6 @@ window.sriovDisable = sriovDisable;
 window.sriovAttach = sriovAttach;
 window.sriovDetach = sriovDetach;
 
-/* ═══ HOST ═══ */
 async function renderHost(b) {
   showSkeleton(b);
   try {
@@ -1626,10 +1588,9 @@ async function renderHost(b) {
 }
 window.renderHost = renderHost;
 
-/* ═══ RESOURCE HEATMAP ═══ */
 function renderHeatmap(b) {
   showSkeleton(b);
-  /* Single Edge는 클러스터 VM 엔드포인트를 제공하지 않으므로 로컬 VM 목록만 조회한다. */
+
   fetchGet(EP.VM_LIST()).then(function(r) {
     var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
     var vms = unwrapList(r);
@@ -1673,7 +1634,6 @@ function renderHeatmap(b) {
 window.renderHeatmap = renderHeatmap;
 window.loadDeepHealth = loadDeepHealth;
 
-/* ═══ ALERT SILENCE (백엔드 4차) ═══ */
 async function renderAlertSilences(b) {
   showSkeleton(b);
   try {
@@ -1732,7 +1692,6 @@ function showSilenceCreate() {
   ]);
 }
 
-/* ═══ ALERT ROUTING CONFIG ═══ */
 async function renderAlertRouting(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
@@ -1765,7 +1724,6 @@ async function saveAlertRouting() {
   } catch(e) { toast(_L('실패', 'Failed'), false); }
 }
 
-/* ═══ CONNECTION POOL INFO ═══ */
 async function renderPoolInfo(b) {
   showSkeleton(b);
   try {
@@ -1793,9 +1751,8 @@ window.renderAlertRouting = renderAlertRouting;
 window.saveAlertRouting = saveAlertRouting;
 window.renderPoolInfo = renderPoolInfo;
 
-/* ═══ SELF-HEALING PENDING ACTIONS (FE-A6) ═══ */
 async function loadHealingPending() {
-  /* ai.healing.pending RPC 미구현 — healing.history에서 status='pending' 필터링 */
+
   try {
     var r;
     try {
@@ -1855,7 +1812,6 @@ window.loadHealingPending = loadHealingPending;
 window.healingApprove = healingApprove;
 window.healingReject = healingReject;
 
-/* ═══ PCV.monitor namespace export ═══ */
 PCV.monitor = {
   destroyAllCharts: destroyAllCharts,
   createLineChart: createLineChart,

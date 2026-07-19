@@ -1,24 +1,4 @@
-/**
- * @file test_rpc_parse_guarded.c
- * @brief pcv_rpc_parse_guarded — 외부 입력 JSON 파싱 초크포인트 래퍼 유닛 테스트
- *
- * ============================================================================
- *  이 파일이 테스트하는 것
- * ============================================================================
- *  rpc_utils.h (src/modules/dispatcher/)의 pcv_rpc_parse_guarded()를 검증한다.
- *  4개 테스트 케이스.
- *
- *  이 래퍼는 외부(WS/UDS 등) 입력 JSON을 파싱하는 유일 sanctioned 경로다.
- *  깊이(PCV_RPC_JSON_MAX_DEPTH) + 크기(PCV_RPC_JSON_MAX_BYTES) 사전 가드 후
- *  json_parser_load_from_data()로 파싱한다.
- *
- *  검증 항목:
- *  - 정상 JSON 수락 (*parser 소유권 이전, *err == NULL)
- *  - 깊이 초과(>128 중첩) 거부 (*parser == NULL)
- *  - 크기 초과(>1MB) 거부 (*parser == NULL)
- *  - len 지정(비NUL종단) 버퍼는 정확히 len 바이트만 파싱 — 뒤쪽 쓰레기 무시
- * ============================================================================
- */
+
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -71,7 +51,7 @@ static void test_rejects_oversized(void) {
 }
 
 static void test_bounded_len_not_nul_terminated(void) {
-    /* len 지정 + 뒤에 쓰레기 — len까지만 파싱해야 함 */
+
     char buf[64];
     memcpy(buf, "{\"a\":1}GARBAGE", 14);
 

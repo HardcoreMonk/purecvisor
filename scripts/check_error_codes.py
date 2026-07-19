@@ -1,4 +1,4 @@
-#!/usr/bin/env python3
+
 """check_error_codes.py — raw 에러코드 리터럴(-32xxx) 재도입 방지 게이트 (DISP-6 회귀).
 설계: docs/superpowers/specs/2026-07-15-disp6-error-code-unification-design.md §회귀 게이트
 
@@ -17,11 +17,10 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 BASELINE_FILE = ROOT / "scripts" / "error_codes_baseline.txt"
-ENUM_DEF_FILE = "src/modules/dispatcher/rpc_utils.h"  # 값 정의부 — PCV_ERR_ 검사 제외
+ENUM_DEF_FILE = "src/modules/dispatcher/rpc_utils.h"
 
 RAW_RE = re.compile(r'-32[0-9]{3}\b')
 PCV_ERR_RE = re.compile(r'\bPCV_ERR_[A-Z][A-Z0-9_]*\b')
-
 
 def strip_code(text: str) -> str:
     """주석·문자열·문자 리터럴 내용을 공백으로 치환한다(길이·개행 보존 → line 번호 정확).
@@ -39,7 +38,7 @@ def strip_code(text: str) -> str:
     in_line = False
     while i < n:
         ch = text[i]
-        if in_line:                                   # 라인 주석 내부: 개행까지 공백화
+        if in_line:
             if ch == '\n':
                 in_line = False
                 out.append('\n')
@@ -47,7 +46,7 @@ def strip_code(text: str) -> str:
                 out.append(' ')
             i += 1
             continue
-        if in_block:                                  # 블록 주석 내부: 개행은 보존
+        if in_block:
             if ch == '*' and i + 1 < n and text[i + 1] == '/':
                 out.append('  ')
                 i += 2
@@ -56,23 +55,23 @@ def strip_code(text: str) -> str:
                 out.append('\n' if ch == '\n' else ' ')
                 i += 1
             continue
-        if ch == '/' and i + 1 < n and text[i + 1] == '*':   # 블록 주석 시작
+        if ch == '/' and i + 1 < n and text[i + 1] == '*':
             in_block = True
             out.append('  ')
             i += 2
             continue
-        if ch == '/' and i + 1 < n and text[i + 1] == '/':   # 라인 주석 시작
+        if ch == '/' and i + 1 < n and text[i + 1] == '/':
             in_line = True
             out.append('  ')
             i += 2
             continue
-        if ch == '"' or ch == "'":                     # 문자열/문자 리터럴
+        if ch == '"' or ch == "'":
             quote = ch
             out.append(' ')
             i += 1
             while i < n:
                 c2 = text[i]
-                if c2 == '\\' and i + 1 < n:            # 이스케이프: 다음 문자(개행 포함) 스킵
+                if c2 == '\\' and i + 1 < n:
                     out.append(' \n' if text[i + 1] == '\n' else '  ')
                     i += 2
                     continue
@@ -87,7 +86,6 @@ def strip_code(text: str) -> str:
         i += 1
     return ''.join(out)
 
-
 def find_raw_literals_in_text(rel_path: str, text: str) -> list:
     """단일 파일 텍스트에서 raw -32xxx 리터럴 사이트를 "file:line" 식별자 리스트로 반환."""
     stripped = strip_code(text)
@@ -97,7 +95,6 @@ def find_raw_literals_in_text(rel_path: str, text: str) -> list:
             ids.append(f"{rel_path}:{i}")
     return ids
 
-
 def find_pcv_err_in_text(rel_path: str, text: str) -> list:
     """단일 파일 텍스트에서 PCV_ERR_* 식별자 사용을 "file:이름" 리스트로 반환.
     enum 정의부(ENUM_DEF_FILE)는 값 정의라 호출자 판단 없이 여기서 직접 제외한다."""
@@ -106,13 +103,11 @@ def find_pcv_err_in_text(rel_path: str, text: str) -> list:
     stripped = strip_code(text)
     return [f"{rel_path}:{m.group()}" for m in PCV_ERR_RE.finditer(stripped)]
 
-
 def _load_baseline() -> set:
     if not BASELINE_FILE.exists():
         return set()
     return {ln.strip() for ln in BASELINE_FILE.read_text().splitlines()
             if ln.strip() and not ln.lstrip().startswith("#")}
-
 
 def main() -> int:
     c_files = sorted((ROOT / "src").rglob("*.c"))
@@ -148,7 +143,6 @@ def main() -> int:
         return 1
     print("[PASS] raw -32xxx 리터럴 신규 없음(baseline 밖) + PCV_ERR_ 재도입 0")
     return 0
-
 
 if __name__ == "__main__":
     sys.exit(main())

@@ -7,11 +7,6 @@
 
 #include <string.h>
 
-/*
- * HIPS v1 is intentionally narrow: it proposes many responses, but only two
- * actions may execute automatically after admin approval. Everything else stays
- * manual_runbook until a new ADR expands the blast radius.
- */
 static GQuark
 hips_action_error_quark(void)
 {
@@ -21,7 +16,7 @@ hips_action_error_quark(void)
 gboolean
 pcv_hips_action_is_executable(const gchar *action)
 {
-    /* Keep this allowlist small and explicit. UI badges and RPC validation use it. */
+
     return g_strcmp0(action, "block_ip") == 0
         || g_strcmp0(action, "revoke_api_key") == 0;
 }
@@ -29,10 +24,7 @@ pcv_hips_action_is_executable(const gchar *action)
 static gboolean
 validate_ipv4_literal(const gchar *ip)
 {
-    /*
-     * block_ip accepts only a literal IPv4 address. CIDR, hostnames, shell
-     * metacharacters, and ranges are rejected before argv construction.
-     */
+
     if (!ip || !*ip || strlen(ip) > 15) {
         return FALSE;
     }
@@ -75,10 +67,7 @@ validate_ipv4_literal(const gchar *ip)
 gboolean
 pcv_hips_action_validate_api_key_target(const gchar *client_name)
 {
-    /*
-     * The revoke path targets RBAC client names, not filesystem paths. Rejecting
-     * separators and traversal keeps the value inside the RBAC namespace.
-     */
+
     if (!client_name || !*client_name || strlen(client_name) > 128) {
         return FALSE;
     }
@@ -134,10 +123,7 @@ run_nft_allow_exists(const gchar * const *argv,
                      const gchar *context,
                      GError **error)
 {
-    /*
-     * Chain/table setup is idempotent. nft reports existing objects as errors,
-     * but for approval replay safety that condition is a success.
-     */
+
     g_autofree gchar *std_err = NULL;
     GError *local_error = NULL;
     if (pcv_spawn_sync(argv, NULL, &std_err, &local_error)) {
@@ -214,10 +200,7 @@ pcv_hips_action_build_pending(const PcvSecurityEvent *ev)
     const gchar *action = ev->recommended_action[0]
         ? ev->recommended_action
         : pcv_security_policy_recommend_action(ev);
-    /*
-     * Building a pending object also persists it. The UI must not show an
-     * approval button for an action that would disappear on daemon restart.
-     */
+
     GError *error = NULL;
     if (!pcv_security_store_upsert_pending_action(ev, action, 3600, &error)) {
         g_clear_error(&error);
@@ -244,10 +227,7 @@ pcv_hips_action_list_pending(void)
 gboolean
 pcv_hips_action_approve(const gchar *event_id, const gchar *admin_user, GError **error)
 {
-    /*
-     * Approval marks intent only. The dispatcher worker executes the side effect
-     * first, then calls this function so failed nft/RBAC operations stay pending.
-     */
+
     g_autoptr(JsonObject) action = pcv_security_store_get_action(event_id);
     if (!action) {
         g_set_error(error, hips_action_error_quark(), 1,
@@ -286,10 +266,10 @@ pcv_hips_action_run_approval(const gchar *event_id,
         g_set_error(error, hips_action_error_quark(), 3,
                     "pending action expired for event_id=%s",
                     event_id ? event_id : "");
-        return FALSE;                       /* execute_fn 미호출 */
+        return FALSE;
     }
     if (!execute_fn(action, target, error)) {
-        return FALSE;                       /* 실패 nft는 pending 유지(불변) */
+        return FALSE;
     }
     return pcv_hips_action_approve(event_id, admin_user, error);
 }
