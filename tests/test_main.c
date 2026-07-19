@@ -108,6 +108,7 @@ void test_vm_iface_register(void);          /* VM 인터페이스 해석 (virsh 
 void test_vm_vnet_cache_register(void);     /* I-2: vnet 캐시 */
 void test_apikey_register(void);            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
 void test_rbac_user_exists_register(void);  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
+void test_pbkdf2_verify_register(void);     /* Q-4: PBKDF2 레거시/신형 검증 하위호환 회귀 */
 void test_handler_snapshot_verify_register(void);  /* ADR-0025: snapshot.verify 존재-검증 프로브 */
 void test_handler_vm_batch_register(void);         /* ADR-0025: vm.batch whitelist/reject 결정 */
 void test_hotplug_flags_register(void);            /* ADR-0025/Fix B: set_vcpu/memory apply="config" affect-flag 결정 */
@@ -300,6 +301,7 @@ int main(int argc, char *argv[]) {
     test_vm_vnet_cache_register();     /* I-2: vnet 캐시 */
     test_apikey_register();            /* apikey.create 만료 집행 + 컬럼 마이그레이션 */
     test_rbac_user_exists_register();  /* SEC-2: RBAC 사용자 존재 3-상태 조회 */
+    test_pbkdf2_verify_register();     /* Q-4: PBKDF2 레거시/신형 검증 하위호환 회귀 */
     test_handler_snapshot_verify_register(); /* ADR-0025: snapshot.verify 존재-검증 프로브 */
     test_handler_vm_batch_register();        /* ADR-0025: vm.batch whitelist/reject 결정 */
     test_hotplug_flags_register();           /* ADR-0025/Fix B: set_vcpu/memory apply="config" affect-flag 결정 */

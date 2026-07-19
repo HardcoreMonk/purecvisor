@@ -52,7 +52,11 @@
 #define WS_LOG_DOM "ws_server"
 
 /* Forward declaration */
-static gboolean _ws_auth_callback(SoupServerMessage *msg, gpointer user_data);
+/* Q-5 (A07): (구) URL ?token= 인증 콜백(_ws_auth_callback)은 제거됐다. URL 에 담긴
+ * JWT 는 리버스 프록시/액세스 로그/Referer 로 유출되므로, WS 인증은 접속 후
+ * 메시지 경로({"type":"auth","token":...})로만 수행한다. 아래 함수는 URL 에 남은
+ * deprecated ?token= 을 탐지해 경고만 남기고 인증에는 절대 쓰지 않는다. */
+static void _ws_warn_deprecated_url_token(SoupServerMessage *msg);
 #define WS_PATH    "/api/v1/ws/events"   // 실시간 이벤트 스트림 경로
 #define VNC_PATH           "/api/v1/ws/vnc"      // VNC 프록시 경로
 /* Fix 8: compile-time defaults — overridden by daemon.conf [ws] at init */
@@ -216,16 +220,16 @@ _on_ws_connected(SoupServer *server __attribute__((unused)),
                  SoupWebsocketConnection *conn,
                  gpointer data __attribute__((unused)))
 {
-    /* WebSocket 인증 — ADR-0010: query string + 프로토콜 레벨 이중 지원
-     * 1) URL ?token= 있으면 즉시 인증 (하위 호환)
-     * 2) 없으면 미인증 상태로 연결 허용 → 5초 내 {"type":"auth"} 메시지 필요 */
-    gboolean ws_authed = _ws_auth_callback(msg, NULL);
-    g_object_set_data(G_OBJECT(conn), "pcv-ws-authed", GINT_TO_POINTER(ws_authed ? 1 : 0));
-    if (!ws_authed) {
-        /* 5초 내 프로토콜 인증 미완료 시 연결 종료 — 타임아웃 체크는 idle cleanup에서 */
-        g_object_set_data(G_OBJECT(conn), "pcv-ws-auth-deadline",
-                          GINT_TO_POINTER((gint)time(NULL) + 5));
-    }
+    /* WebSocket 인증 — ADR-0010 (Q-5 / A07 갱신): 메시지 경로 전용.
+     * URL ?token= 즉시인증 경로는 제거했다(토큰이 프록시/로그로 유출되므로).
+     * 접속은 항상 미인증으로 시작하고, 5초 내 {"type":"auth"} 메시지로만 인증한다.
+     * URL 에 deprecated ?token= 이 오면 무시하고 경고만 남긴다(아래). */
+    _ws_warn_deprecated_url_token(msg);
+    /* 항상 미인증 상태로 시작 → 5초 내 {"type":"auth"} 메시지로만 인증. */
+    g_object_set_data(G_OBJECT(conn), "pcv-ws-authed", GINT_TO_POINTER(0));
+    /* 5초 내 프로토콜 인증 미완료 시 연결 종료 — 타임아웃 체크는 idle cleanup에서 */
+    g_object_set_data(G_OBJECT(conn), "pcv-ws-auth-deadline",
+                      GINT_TO_POINTER((gint)time(NULL) + 5));
 
     /* 클라이언트 IP 추출 (핸드셰이크 HTTP 요청에서) */
     GSocketAddress *ra = soup_server_message_get_remote_address(msg);
@@ -560,54 +564,36 @@ _on_vnc_connected(SoupServer              *server __attribute__((unused)),
  *
  * @param soup REST 서버의 SoupServer 인스턴스 (공유)
  */
-/* ── WebSocket JWT 인증 콜백 ──────────────────────────────────
- * soup_server_add_websocket_handler의 callback 전에 호출됩니다.
- * URL 쿼리 파라미터 ?token=<JWT> 로 인증합니다.
- * 토큰이 없거나 검증 실패 시 연결을 거부합니다.
+/* ── Q-5 (A07): deprecated URL ?token= 탐지 (인증 아님) ─────────
+ * (구) _ws_auth_callback 은 URL 쿼리 파라미터 ?token=<JWT> 로 즉시 인증했으나,
+ * URL 은 리버스 프록시 로그·액세스 로그·Referer 헤더로 전파되어 장기 유효한
+ * JWT 가 유출된다(평가 A07). 이 함수는 그 인증 경로를 대체하며, 절대 인증하지
+ * 않는다 — URL 에 남아있는 deprecated ?token= 만 탐지해 운영자에게 경고를 남긴다.
+ * 실제 WebSocket 인증은 _on_ws_message 의 메시지 경로({"type":"auth","token":...})
+ * 에서만 pcv_jwt_verify 로 수행한다.
  *
- * 예: ws://host/api/v1/ws/events?token=eyJhbGci...
+ * 주의: 여기서 pcv_jwt_verify 를 호출하거나 인증 성공을 반환하면 URL 토큰 인증이
+ * 부활한다. check-ws-token-url 게이트가 그 회귀를 RED 로 잡는다.
  * ──────────────────────────────────────────────────────────── */
-static gboolean
-_ws_auth_callback(SoupServerMessage *msg,
-                  gpointer           user_data __attribute__((unused)))
+static void
+_ws_warn_deprecated_url_token(SoupServerMessage *msg)
 {
     GUri *uri = soup_server_message_get_uri(msg);
-    const gchar *query = g_uri_get_query(uri);
+    const gchar *query = uri ? g_uri_get_query(uri) : NULL;
+    if (!query) return;
 
-    /* 쿼리 파라미터에서 token 추출 */
-    gchar *token = NULL;
-    if (query) {
-        GHashTable *params = g_uri_parse_params(query, -1, "&", G_URI_PARAMS_NONE, NULL);
-        if (params) {
-            const gchar *t = g_hash_table_lookup(params, "token");
-            if (t) token = g_strdup(t);
-            g_hash_table_unref(params);
-        }
+    GHashTable *params = g_uri_parse_params(query, -1, "&", G_URI_PARAMS_NONE, NULL);
+    if (!params) return;
+
+    const gchar *t = g_hash_table_lookup(params, "token");
+    if (t && t[0] != '\0') {
+        /* 인증에 쓰지 않고 무시 — 경고만. 값은 절대 로그에 남기지 않는다(유출 방지). */
+        PCV_LOG_WARN(WS_LOG_DOM,
+            "WebSocket URL ?token= is deprecated and ignored — authenticate via the "
+            "post-connect {\"type\":\"auth\"} message instead (a token in the URL leaks "
+            "through proxy/access logs and Referer headers)");
     }
-
-    if (!token || token[0] == '\0') {
-        /* ADR-0010: token 없으면 FALSE 반환 — 프로토콜 레벨 인증으로 폴백.
-         * 401 상태를 설정하지 않음 (WS 업그레이드는 허용). */
-        g_free(token);
-        return FALSE;
-    }
-
-    /* JWT 검증 */
-    GError *jwt_err = NULL;
-    gchar *subject = pcv_jwt_verify(token, &jwt_err);
-    if (!subject) {
-        PCV_LOG_WARN(WS_LOG_DOM, "WebSocket rejected: %s",
-                     jwt_err ? jwt_err->message : "invalid JWT");
-        soup_server_message_set_status(msg, 401, "Unauthorized");
-        if (jwt_err) g_error_free(jwt_err);
-        g_free(token);
-        return FALSE;
-    }
-
-    PCV_LOG_INFO(WS_LOG_DOM, "WebSocket authenticated: user=%s", subject);
-    g_free(subject);
-    g_free(token);
-    return TRUE;
+    g_hash_table_unref(params);
 }
 
 /**
@@ -830,9 +816,10 @@ pcv_ws_server_init(SoupServer *soup)
                                        NULL, NULL,
                                        _on_vnc_connected, NULL, NULL);
 
-    /* WebSocket 인증은 _on_ws_connected / _on_vnc_connected 내부에서
-     * URL 쿼리 파라미터 ?token=<JWT>를 검증합니다.
-     * _ws_auth_callback()은 연결 수립 전에 호출되어 인증을 수행합니다. */
+    /* Q-5 (A07): WebSocket 이벤트 스트림 인증은 _on_ws_connected 이후 메시지 경로
+     * ({"type":"auth","token":...}, _on_ws_message)에서만 수행한다. URL ?token=
+     * 즉시인증 경로는 제거했다(토큰이 프록시/로그로 유출되므로 — _ws_warn_deprecated_url_token
+     * 이 잔존 URL 토큰을 경고만 하고 무시). */
 
     /* Idle connection cleanup timer — every 60s, close connections idle > 5min */
     g_timeout_add_seconds(ws_idle_check_interval, _ws_idle_cleanup, NULL);

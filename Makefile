@@ -311,6 +311,7 @@ TEST_COMMON_SRCS = \
     tests/test_apikey.c \
     tests/test_audit_chain.c \
     tests/test_rbac_user_exists.c \
+    tests/test_pbkdf2_verify.c \
     tests/test_handler_snapshot_verify.c \
     tests/test_handler_vm_batch.c \
     tests/test_hotplug_flags.c \
@@ -868,9 +869,24 @@ check-tls-min-version:
 	@python3 scripts/check_tls_min_version.py
 	@python3 scripts/tests/test_tls_min_version.py
 
-# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-comment-coverage
-	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version + comment coverage)"
+check-security-headers:
+	@echo "🛡  Running /ui 정적 응답 보안 헤더 게이트 (Q-1 / A05)..."
+	@python3 scripts/check_security_headers.py
+	@python3 scripts/tests/test_security_headers.py
+
+check-password-policy:
+	@echo "🔑 Running user-create 비밀번호 복잡도 정책 게이트 (Q-2 / A07)..."
+	@python3 scripts/check_password_policy.py
+	@python3 scripts/tests/test_password_policy.py
+
+check-ws-token-url:
+	@echo "🔗 Running WS URL-query 토큰 인증 제거 게이트 (Q-5 / A07)..."
+	@python3 scripts/check_ws_token_url.py
+	@python3 scripts/tests/test_ws_token_url.py
+
+# check-all: 계약 게이트 일괄 (CI/릴리스용) — RBAC 정책 + RPC 소비⊆등록 + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard(redirect) + gRPC authz + SSRF target guard + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version + security headers(Q-1) + password policy(Q-2) + WS token URL(Q-5)
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-security-headers check-password-policy check-ws-token-url check-comment-coverage
+	@echo "✅ 계약 게이트 전체 통과 (RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + container owner-scope + mTLS wiring + TLS min-version + security headers + password policy + WS token URL + comment coverage)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -929,4 +945,4 @@ coverage-check: coverage-html
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
-        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-comment-coverage check-all compile-commands coverage coverage-html coverage-check
+        cppcheck cppcheck-strict check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-container-owner-scope check-mtls-wiring check-tls-min-version check-security-headers check-password-policy check-ws-token-url check-comment-coverage check-all compile-commands coverage coverage-html coverage-check

@@ -307,4 +307,14 @@ gboolean pcv_validate_ipv6_prefix(const gchar *prefix);
  */
 gboolean pcv_validate_l4_proto(const gchar *proto);
 
+/**
+ * pcv_validate_password_complexity:
+ * 신규 사용자 생성 비밀번호 강도 정책(Q-2 / A07): 최소 길이 12 + 4개 문자군
+ * (소문자/대문자/숫자/특수) 중 3종 이상. 실패 시 @reason(선택)에 정적 사유
+ * 문자열을 설정한다(호출자 해제 불요). auth.user.create 생성 경로 전용 —
+ * 기존 사용자·로그인 경로에는 적용하지 않는다.
+ */
+gboolean pcv_validate_password_complexity(const gchar *password,
+                                          const gchar **reason);
+
 #endif /* PURECVISOR_VALIDATE_H */

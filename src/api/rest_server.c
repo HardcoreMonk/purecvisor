@@ -347,6 +347,17 @@ _rpc_over_uds(const gchar *rpc_json)
     return _rpc_over_uds_timeout(rpc_json, REST_RPC_TIMEOUT_SEC);
 }
 
+/* ── Q-1 (A05): Content-Security-Policy 단일 소스 ────────────────────────────
+ * REST JSON 응답(_send_json)과 Web UI 정적 응답(/ui 서빙) 이 동일한 CSP 를
+ * 쓰도록 값을 한 곳에 고정한다. 과거 /ui 정적 응답은 _send_json 을 거치지 않아
+ * CSP·X-Frame-Options 등 보안 헤더가 누락됐다(평가 A05). 두 경로가 서로 다른
+ * CSP 문자열을 갖는 drift 를 막기 위해 매크로로 재사용한다. */
+#define PCV_CSP_POLICY \
+    "default-src 'self'; script-src 'self' 'unsafe-inline'; " \
+    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " \
+    "font-src 'self'; " \
+    "connect-src 'self' ws: wss:"
+
 /* ═══════════════════════════════════════════════════════════════
  * HTTP 응답 헬퍼
  * ═══════════════════════════════════════════════════════════════ */
@@ -413,11 +424,7 @@ _send_json(SoupServerMessage *msg, guint status, const gchar *body)
         soup_message_headers_replace(hdrs, "Strict-Transport-Security",
                                       "max-age=31536000; includeSubDomains");
     }
-    soup_message_headers_replace(hdrs, "Content-Security-Policy",
-                                  "default-src 'self'; script-src 'self' 'unsafe-inline'; "
-                                  "style-src 'self' 'unsafe-inline'; img-src 'self' data:; "
-                                  "font-src 'self'; "
-                                  "connect-src 'self' ws: wss:");
+    soup_message_headers_replace(hdrs, "Content-Security-Policy", PCV_CSP_POLICY);
     soup_message_headers_replace(hdrs, "X-Frame-Options", "SAMEORIGIN");
     soup_message_headers_replace(hdrs, "X-XSS-Protection", "1; mode=block");
     soup_message_headers_replace(hdrs, "Referrer-Policy",
@@ -1817,6 +1824,16 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             soup_server_message_set_status(msg, 200, NULL);
             SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
             soup_message_headers_replace(rh, "Cache-Control", "no-cache, must-revalidate");
+            /* Q-1 (A05): /ui 정적 응답에도 REST JSON 응답(_send_json)과 동일한 보안
+             * 헤더 세트를 부착한다. 과거 이 경로는 _send_json 을 거치지 않아 CSP·
+             * X-Frame-Options·Referrer-Policy·X-Content-Type-Options 가 전부 누락돼
+             * UI 문서가 clickjacking / MIME 스니핑 / 인라인 자원 정책 밖에 있었다.
+             * CSP 값은 _send_json 과 동일한 PCV_CSP_POLICY 로 재사용(값 drift 방지). */
+            soup_message_headers_replace(rh, "Content-Security-Policy", PCV_CSP_POLICY);
+            soup_message_headers_replace(rh, "X-Frame-Options", "SAMEORIGIN");
+            soup_message_headers_replace(rh, "Referrer-Policy",
+                                          "strict-origin-when-cross-origin");
+            soup_message_headers_replace(rh, "X-Content-Type-Options", "nosniff");
             soup_server_message_set_response(msg, ct, SOUP_MEMORY_TAKE, content, len);
         } else {
             _error(msg, 404, "NOT_FOUND", "UI file not found");

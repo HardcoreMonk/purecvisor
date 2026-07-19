@@ -87,6 +87,40 @@ resolve_deps() {
     done | sort -u
 }
 LIBDEPS="$(resolve_deps | paste -sd, || true)"
+
+# ── 보안 핵심 라이브러리 버전 하한(floor) 보강 (평가 A06) ─────────
+# ldd 자동 산출 Depends 는 패키지명만 담고 버전 제약이 없어, 알려진 취약 구버전
+# (예: openssl<3.0, glib<2.80)이 의존성으로 허용될 수 있다. 아래 보안 lib 에는
+# "(>= <설치 major.minor>)" floor 를 부여해 보수적으로 하한을 건다.
+# 패키지명은 빌드 호스트에 따라 t64 변종(libssl3t64 / libglib2.0-0t64 등)일 수
+# 있으므로, ldd 로 실제 해석된 패키지의 설치 버전에서 major.minor 를 뽑아 그
+# 패키지에만 floor 를 건다(존재하지 않는 패키지에 임의 제약을 만들지 않음).
+SECURITY_FLOOR_LIBS="libssl3 libssl3t64 libsoup-3.0-0 libsqlite3-0 libglib2.0-0 libglib2.0-0t64"
+
+apply_security_floors() {
+    # $1: 콤마구분 Depends 문자열 → floor 보강된 콤마구분 문자열을 stdout 으로.
+    local deps="$1" out="" pkg ver mm floor
+    local IFS=','
+    for pkg in $deps; do
+        pkg="$(echo "$pkg" | xargs)"   # 앞뒤 공백 제거
+        [ -z "$pkg" ] && continue
+        floor=""
+        case " $SECURITY_FLOOR_LIBS " in
+            *" $pkg "*)
+                ver="$(dpkg-query -W -f='${Version}' "$pkg" 2>/dev/null || true)"
+                # 업스트림 major.minor 추출: epoch(앞 'N:') 제거 → 데비안 리비전('-…') 제거
+                #   → 첫 두 필드. 예: "3.0.13-0ubuntu3.11" → "3.0", "2.80.0-6…" → "2.80"
+                mm="$(printf '%s' "$ver" | sed -e 's/^[0-9]*://' -e 's/-.*//' \
+                        | awk -F. 'NF>=2{print $1"."$2}')"
+                [ -n "$mm" ] && floor=" (>= $mm)"
+                ;;
+        esac
+        out="${out:+$out, }${pkg}${floor}"
+    done
+    printf '%s' "$out"
+}
+LIBDEPS="$(apply_security_floors "$LIBDEPS")"
+
 # 서비스 런타임 도구 (라이브러리 외)
 SVCDEPS="libvirt-daemon-system, qemu-system-x86, dnsmasq-base, nftables, iproute2"
 ALLDEPS="${LIBDEPS:+$LIBDEPS, }$SVCDEPS"

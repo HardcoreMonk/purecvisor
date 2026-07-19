@@ -51,6 +51,7 @@
 | ADR-0024 | accepted | 활성. Native Host HIDS/HIPS는 Single Edge 호스트 노드 보호로 제한하며, v1은 탐지·감사·알림 중심으로 동작한다. 실행 가능한 HIPS action은 admin 승인 후 `block_ip`와 `revoke_api_key`만 허용하고, baseline은 admin의 명시 refresh 전까지 `unknown`으로 유지한다. |
 | ADR-0025 | accepted | 활성. 검증은 반사실을 동반한다 — 통제·게이트·완료는 그 메커니즘을 제거하면 반드시 RED로 드러나야 하며, 효과 테스트는 실 production 코드를 실행한다(replica 금지). |
 | ADR-0026 | accepted | 활성. 호스트 데몬 MAC 하드닝 — seccomp/NNP는 LXC 상속·AppArmor 전환 충돌·업계 관행(libvirt/Proxmox)으로 비활성 유지(명시 수용), 실효 통제는 capabilities + AppArmor MAC 프로필(complain 배포→검증 후 enforce opt-in). |
+| ADR-0027 | accepted | 활성. OWASP/ISMS-P 잔여 하위 항목 중 7항 명시 수용(MFA·gRPC 세분role·hot-reload 무결성·/metrics 무인증·버전배너·REST 로그·감사 과부하 드롭) — 배포 프로파일 P2 기준. 전체 잔여 처분은 `operations/2026-07-19-residual-security-disposition.md` tracker. 인터넷 노출 멀티테넌트 확대 시 재검토. |
 
 ---
 

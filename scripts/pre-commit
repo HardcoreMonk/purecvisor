@@ -95,6 +95,12 @@ HAS_MTLS_WIRING_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|src/utils/pcv_tls\.(c|h)|scripts/check_mtls_wiring\.py|scripts/tests/test_mtls_wiring\.py)$' && HAS_MTLS_WIRING_CHANGES=true
 HAS_TLS_MIN_VERSION_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/utils/pcv_tls\.(c|h)|scripts/check_tls_min_version\.py|scripts/tests/test_tls_min_version\.py)$' && HAS_TLS_MIN_VERSION_CHANGES=true
+HAS_SECURITY_HEADERS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_security_headers\.py|scripts/tests/test_security_headers\.py)$' && HAS_SECURITY_HEADERS_CHANGES=true
+HAS_PASSWORD_POLICY_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/dispatcher/handler_auth\.c|src/utils/pcv_validate\.(c|h)|scripts/check_password_policy\.py|scripts/tests/test_password_policy\.py)$' && HAS_PASSWORD_POLICY_CHANGES=true
+HAS_WS_TOKEN_URL_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/ws_server\.c|scripts/check_ws_token_url\.py|scripts/tests/test_ws_token_url\.py)$' && HAS_WS_TOKEN_URL_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -505,6 +511,54 @@ if $HAS_TLS_MIN_VERSION_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] pcv_tls.*/TLS min-version 게이트 변경 없음 — TLS 최소 버전 게이트 생략"
+fi
+
+# ── 4v. /ui 정적 응답 보안 헤더 게이트 (check-security-headers, Q-1 / A05) ──
+if $HAS_SECURITY_HEADERS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] /ui 정적 응답 보안 헤더${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SH_OUT=$(python3 "$SCRIPT_DIR/check_security_headers.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_security_headers.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "/ui 정적 응답에 CSP/X-Frame-Options 누락 (clickjacking/MIME 스니핑 노출)"
+        echo "$SH_OUT" | tail -15
+    else
+        pass "$(echo "$SH_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/보안헤더 게이트 변경 없음 — /ui 보안 헤더 게이트 생략"
+fi
+
+# ── 4w. user-create 비밀번호 복잡도 정책 게이트 (check-password-policy, Q-2 / A07) ──
+if $HAS_PASSWORD_POLICY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] user-create 비밀번호 복잡도 정책${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    PP_OUT=$(python3 "$SCRIPT_DIR/check_password_policy.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_password_policy.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "handle_auth_user_create 가 pcv_validate_password_complexity 미호출 (강도 정책 미집행)"
+        echo "$PP_OUT" | tail -15
+    else
+        pass "$(echo "$PP_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] handler_auth.c/pcv_validate.*/비밀번호 정책 게이트 변경 없음 — 비밀번호 복잡도 게이트 생략"
+fi
+
+# ── 4x. WS URL-query 토큰 인증 제거 게이트 (check-ws-token-url, Q-5 / A07) ──
+if $HAS_WS_TOKEN_URL_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] WS URL-query 토큰 인증 제거${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    WT_OUT=$(python3 "$SCRIPT_DIR/check_ws_token_url.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_ws_token_url.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "ws_server.c 가 URL-query ?token= 로 인증 (프록시/로그 토큰 유출 재도입)"
+        echo "$WT_OUT" | tail -15
+    else
+        pass "$(echo "$WT_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] ws_server.c/WS 토큰 URL 게이트 변경 없음 — WS 토큰 URL 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

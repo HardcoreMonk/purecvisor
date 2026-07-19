@@ -99,6 +99,7 @@
 #include "rpc_utils.h"
 #include "../auth/pcv_rbac.h"
 #include "../audit/pcv_audit.h"
+#include "utils/pcv_validate.h"   /* Q-2: pcv_validate_password_complexity (생성 경로 전용) */
 
 #include <glib.h>
 #include <json-glib/json-glib.h>
@@ -181,6 +182,23 @@ handle_auth_user_create(JsonObject       *params,
         gchar *resp = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
             "username, password, and role must be non-empty strings");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
+
+    /*
+     * [3-b단계] 비밀번호 강도 정책 검증 (Q-2 / A07) — 생성 시에만 적용.
+     *
+     * 최소 길이 12 + 문자군(소문자/대문자/숫자/특수) 3종 이상을 요구합니다.
+     * 정책 미달이면 계정을 만들지 않고 -32602(INVALID_PARAMS)로 거부합니다.
+     * 로그인/기존 사용자/비밀번호 변경 경로는 이 검사를 거치지 않아 무영향입니다.
+     */
+    const gchar *pw_reason = NULL;
+    if (!pcv_validate_password_complexity(password, &pw_reason)) {
+        gchar *resp = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            pw_reason ? pw_reason : "Password does not meet complexity policy");
         pure_uds_server_send_response(server, connection, resp);
         g_free(resp);
         return;

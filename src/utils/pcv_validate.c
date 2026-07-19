@@ -1187,3 +1187,63 @@ gboolean pcv_validate_l4_proto(const gchar *proto) {
            g_strcmp0(proto, "udp") == 0 ||
            g_strcmp0(proto, "icmp") == 0;
 }
+
+/**
+ * pcv_validate_password_complexity - 사용자 생성 비밀번호 강도 정책 (Q-2 / A07)
+ * @password: 검증할 평문 비밀번호
+ * @reason:   (out, 선택) 실패 사유 문자열 포인터. 정적 문자열을 가리키게 되며
+ *            호출자가 해제하지 않는다. 성공 시 건드리지 않는다.
+ *
+ * @return: 정책 충족 시 TRUE
+ *
+ * [정책 — 신규 사용자 생성 시에만 적용]
+ *   1. 최소 길이 12자
+ *   2. 4개 문자군(소문자 / 대문자 / 숫자 / 특수문자) 중 3종 이상 포함
+ *
+ * 특수문자는 "소문자·대문자·숫자·공백이 아닌 출력 가능 ASCII" 로 넓게 본다
+ * (구두점 전반 + 기타 기호). 공백은 문자군으로 세지 않지만 길이에는 포함된다.
+ *
+ * [적용 범위]
+ *   auth.user.create 핸들러(handle_auth_user_create)의 생성 경로에서만 호출한다.
+ *   기존 사용자·로그인·비밀번호 변경 경로에는 영향을 주지 않는다(무락아웃).
+ *
+ * [비개발자용 영향 설명]
+ *   운영자가 새 계정을 만들 때 지나치게 단순한 비밀번호(예: "password1")를
+ *   저장하지 못하게 막아, 크리덴셜 스터핑/무차별 대입에 대한 1차 방어선을 높인다.
+ */
+gboolean pcv_validate_password_complexity(const gchar *password,
+                                          const gchar **reason) {
+    if (!password) {
+        if (reason) *reason = "Password is required";
+        return FALSE;
+    }
+
+    /* 길이 검사 — 바이트 길이 기준(정책 목적상 ASCII 상정, 멀티바이트도 하한만 강화). */
+    if (strlen(password) < 12) {
+        if (reason)
+            *reason = "Password must be at least 12 characters long";
+        return FALSE;
+    }
+
+    /* 4개 문자군 존재 여부 집계 */
+    gboolean has_lower = FALSE, has_upper = FALSE,
+             has_digit = FALSE, has_special = FALSE;
+    for (const guchar *p = (const guchar *)password; *p; p++) {
+        guchar c = *p;
+        if (c >= 'a' && c <= 'z')       has_lower = TRUE;
+        else if (c >= 'A' && c <= 'Z')  has_upper = TRUE;
+        else if (c >= '0' && c <= '9')  has_digit = TRUE;
+        else if (c > ' ' && c < 127)    has_special = TRUE;  /* 출력 가능 ASCII 기호 */
+    }
+
+    gint classes = (has_lower ? 1 : 0) + (has_upper ? 1 : 0)
+                 + (has_digit ? 1 : 0) + (has_special ? 1 : 0);
+    if (classes < 3) {
+        if (reason)
+            *reason = "Password must include at least 3 of 4 character "
+                      "classes: lowercase, uppercase, digit, special";
+        return FALSE;
+    }
+
+    return TRUE;
+}

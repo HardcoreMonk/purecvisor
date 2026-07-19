@@ -3,6 +3,22 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.4.0 — 2026-07-19
+
+보안 Quick 시정 배치 5건 + 반사실 게이트 3종 (MINOR) — OWASP/ISMS-P 잔여 tracker의 🟨 Quick 그룹 전량. CI 계약 게이트 **21→24**. 검증: `make single` 0-warn · `make test` **678/0** · `make check-all` 24게이트 + 신규 3종 반사실 RED 실증. Q-1 CSP는 정적 airtight 분석(UI가 CSP 차단 카테고리 미사용, noVNC 포함)으로 무파손 확증(실브라우저 자동테스트는 환경 격리로 대체).
+
+### 시정 (잔여 tracker Q-1~Q-5)
+- **Q-1 보안헤더 `/ui` 부착** (A05): CSP·X-Frame-Options·Referrer-Policy·X-Content-Type-Options를 `/ui` 정적 응답에도(기존 API만) — 단일 `PCV_CSP_POLICY` 매크로 재사용. 게이트 `check-security-headers`.
+- **Q-2 비번 복잡도 정책** (A07): `handle_auth_user_create`에 `pcv_validate_password_complexity`(길이≥12 + 4문자군 중 ≥3) — **생성 경로 전용**(기존 사용자·로그인 무영향). 게이트 `check-password-policy`.
+- **Q-3 deb `Depends` 버전 하한** (A06): libssl3/libsoup-3.0-0/libsqlite3-0/libglib2.0-0에 설치 major.minor floor 보강.
+- **Q-4 레거시 PBKDF2 verify 회귀 테스트** (A02): 신형/레거시 형식 × 정/오답 + 레거시 암묵 iter=100000 고정 (5테스트).
+- **Q-5 WS 인증 토큰 URL-query 제거** (A07): `?token=` 즉시인증 경로 제거(탐지 시 deprecation 경고만, `pcv_jwt_verify` 미호출), 메시지 경로(`{"type":"auth"}`) 유지. 게이트 `check-ws-token-url`. **번들 UI는 이미 메시지 경로라 무영향.**
+
+### Upgrade notes
+- **Q-5 breaking(레거시 클라이언트만)**: WebSocket을 URL `?token=<JWT>`로 인증하던 외부/레거시 클라이언트는 이제 미인증 → 접속 후 `{"type":"auth","token":...}` 메시지 인증으로 전환 필요. 번들 UI·현 배포 무영향.
+- **Q-1 무영향**: /ui CSP는 `'unsafe-inline'`·`data:`·`ws:` 허용으로 자기완결 UI(noVNC 포함) 무파손. 운영자 실브라우저 스모크 권장.
+- 잔여 처분 tracker: `docs/operations/2026-07-19-residual-security-disposition.md`(수용 7·결정 3·Medium 7·재평가 2 잔존).
+
 ## v1.3.9 — 2026-07-18
 
 주석 커버리지 잔여 포켓 전량 보강 (PATCH) — **데몬 바이너리 기능 무변경**(소스 주석 + 게이트 baseline만). 남은 저밀도 10파일 보강으로 baseline 10→**0**(예외 없음, 전 `.c/.h` compliant, 228/228). 검증: `make single` 0-warn · `make test` 673/0 · `make check-all` 21게이트 · 게이트 반사실(빈 baseline에서도 헤더없는 파일 주입 FAIL).
