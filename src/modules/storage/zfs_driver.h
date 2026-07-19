@@ -165,6 +165,88 @@ gboolean pcv_zfs_pool_health(const gchar *pool_name, ZfsPoolHealth *out);
 JsonObject *pcv_zfs_pool_health_to_json(const ZfsPoolHealth *h);
 
 /* ========================================================================= */
+/* Pool SUSPENDED 탐지 + 가드된 자동복구 (L2/L3)                             */
+/*                                                                           */
+/* 배경: 단일 USB SSD 풀이 USB 단절로 SUSPENDED 되었으나 데몬이 SUSPENDED 를 */
+/* "정상(0)"으로 매핑해 34시간 미인지·수동복구했다. 아래 3함수가             */
+/*   (1) 상태→메트릭 매핑에 SUSPENDED(4) 를 추가하고                         */
+/*   (2) 무한 clear-loop 없이 안전하게 자동복구를 시도한다.                   */
+/* ========================================================================= */
+
+/**
+ * pcv_zfs_pool_state_metric_val:
+ * @state: zpool state 문자열 (ONLINE/DEGRADED/FAULTED/UNAVAIL/SUSPENDED/…)
+ *
+ * zpool 풀 state 문자열을 Prometheus 게이지 값으로 매핑한다(순수 함수).
+ *   ONLINE/UNKNOWN → 0, DEGRADED → 1, FAULTED → 2, UNAVAIL → 3, SUSPENDED → 4.
+ * critical 판정은 값 >= 2 (FAULTED/UNAVAIL/SUSPENDED).
+ *
+ * [회귀 방지] SUSPENDED 가 0(정상)으로 매핑되던 버그의 단일 진실 소스.
+ * scripts/check_zpool_suspend_recover.py 게이트가 SUSPENDED→비0 을 강제한다.
+ */
+gdouble pcv_zfs_pool_state_metric_val(const gchar *state);
+
+/**
+ * ZfsRecoverGuard:
+ * 자동복구(zpool clear) 시도의 시간창 상한을 추적하는 서킷브레이커 상태.
+ * "시간창당 최대 N회" 고정창 레이트리미터로, 무한 clear-loop(디바이스 flapping)를
+ * 차단한다. 호출자가 소유(정적/스택). pcv_zfs_recover_guard_allow 로만 조작.
+ */
+typedef struct {
+    gint64 window_start_us;   /* 현재 창 시작 시각 (g_get_monotonic_time, 0=미개시) */
+    gint   attempts;          /* 현재 창에서 소비된 시도 횟수 */
+} ZfsRecoverGuard;
+
+/**
+ * pcv_zfs_recover_guard_allow:
+ * @g:            서킷브레이커 상태 (호출자 소유)
+ * @now_us:       현재 시각 (g_get_monotonic_time 기준, 마이크로초) — 테스트 주입용
+ * @window_us:    시간창 길이 (마이크로초). 예: 3600초 = 3600*G_USEC_PER_SEC
+ * @max_attempts: 시간창당 허용 시도 상한 (예: 3)
+ *
+ * 고정창 레이트리미터(순수 함수). now_us 가 창 밖이면 창을 리셋한다. 창 내
+ * attempts < max_attempts 이면 attempts 를 1 증가시키고 TRUE(허용), 상한 도달
+ * 시 FALSE(차단)를 반환한다. TRUE 를 받은 호출자만 실제 clear 를 시도해야 한다.
+ *
+ * Returns: TRUE=이번 시도 허용, FALSE=시간창 상한 초과(차단)
+ */
+gboolean pcv_zfs_recover_guard_allow(ZfsRecoverGuard *g, gint64 now_us,
+                                     gint64 window_us, gint max_attempts);
+
+/**
+ * PcvZfsRecoverResult:
+ * pcv_zfs_pool_recover_suspended 의 결과. 호출자(텔레메트리 루프)가 이 값으로
+ * 운영자 알림을 발화할지 결정한다.
+ */
+typedef enum {
+    PCV_ZFS_RECOVER_DISABLED = 0,   /* [storage] auto_pool_recover=false — clear 안 함 */
+    PCV_ZFS_RECOVER_NOT_SUSPENDED,  /* pool_name NULL 등 — 대상 아님 */
+    PCV_ZFS_RECOVER_DEV_UNREADABLE, /* vdev 미존재/읽기불가 — clear 시도 안 함(안전) */
+    PCV_ZFS_RECOVER_CB_TRIPPED,     /* 시간창 상한 초과 — clear 중단(flapping 방지) */
+    PCV_ZFS_RECOVER_CLEARED,        /* zpool clear 성공 */
+    PCV_ZFS_RECOVER_CLEAR_FAILED,   /* zpool clear 실행했으나 실패 */
+} PcvZfsRecoverResult;
+
+/**
+ * pcv_zfs_pool_recover_suspended:
+ * @pool_name: SUSPENDED 로 판정된 풀 이름
+ * @guard:     시간창 서킷브레이커 상태 (호출자 소유, 정적 권장). NULL 이면 상한 미적용.
+ *
+ * SUSPENDED 풀의 가드된 자동복구를 시도한다. 순서:
+ *   1. [storage] auto_pool_recover=false 이면 DISABLED 반환(clear 안 함).
+ *   2. vdev 디바이스 경로 확인([storage] pool_device 우선, 없으면 zpool status 파싱)
+ *      후 `dd bs=4k count=1` 읽기 테스트(8초 타임아웃). 미존재/읽기실패/타임아웃이면
+ *      DEV_UNREADABLE 반환(진짜 죽은 디바이스에 clear 를 시도하지 않는다).
+ *   3. 서킷브레이커(시간창당 상한, 기본 1시간 3회) 초과면 CB_TRIPPED 반환.
+ *   4. 위를 통과하면 `zpool clear <pool>`(40초 타임아웃) 실행.
+ * 매 결과를 pcv_audit_log 로 기록한다.
+ *
+ * [스레드] 블로킹 spawn 포함 — 텔레메트리/GTask 워커 스레드에서만 호출(GMainLoop 금지).
+ */
+PcvZfsRecoverResult pcv_zfs_pool_recover_suspended(const gchar *pool_name,
+                                                   ZfsRecoverGuard *guard);
+
+/* ========================================================================= */
 /* Storage Capacity Forecasting (Linear Regression)                        */
 /* ========================================================================= */
 

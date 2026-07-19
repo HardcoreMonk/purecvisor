@@ -66,6 +66,8 @@
 #include "utils/pcv_worker_pool.h"
 #include "modules/audit/pcv_audit.h"
 #include "modules/storage/zfs_driver.h"
+#include "modules/daemons/alert_engine.h"  /* SUSPENDED 등 critical 풀 상태 운영자 통보 */
+#include "utils/pcv_config.h"              /* [storage] pool / auto_pool_recover */
 
 /*
  * ============================================================================
@@ -1530,18 +1532,33 @@ _ebpf_thread(gpointer data)
         pcv_prom_gauge_set_labels("purecvisor_audit_dropped_total", "",
                                   (gdouble)pcv_audit_get_dropped_count());
 
-        /* ── ZFS Pool Health Metrics (60초 주기) ──────────── */
+        /* ── ZFS Pool Health Metrics + SUSPENDED 탐지/알림/자동복구 (60초 주기) ──
+         *
+         * 이 블록은 "ebpf-telem" GThread(= GMainLoop 아님)에서 실행되므로 블로킹
+         * spawn(zpool status / dd / zpool clear)이 안전하다. GMainLoop 스레드였다면
+         * 모든 RPC/REST 가 정지 풀 조회에 막혀버린다.
+         *
+         * L2: state→메트릭 매핑(SUSPENDED=4) + critical(값≥2) 시 운영자 알림 발화.
+         * L3: SUSPENDED 이면 디바이스-읽기 가드 + 서킷브레이커로 가드된 zpool clear.
+         * 원 버그: SUSPENDED 가 else→0("정상")로 매핑돼 34시간 미인지.
+         */
         {
             static gint64 last_pool_check = 0;
+            /* dedup: 마지막으로 알림 발화한 critical state 값(60초 스팸 방지, 전환 시 1회) */
+            static gdouble last_crit_state = 0.0;
+            /* dedup: 마지막으로 알림 발화한 복구-실패 결과(수동개입 알림 반복 억제) */
+            static int last_recover_alerted = -1;
+            /* L3 자동복구 시간창 서킷브레이커(무한 clear-loop 방지) */
+            static ZfsRecoverGuard recover_guard = {0};
             gint64 now_pool_us = g_get_monotonic_time();
             if (now_pool_us - last_pool_check >= 60 * G_USEC_PER_SEC) {
                 last_pool_check = now_pool_us;
+                gchar pool[64];
+                g_strlcpy(pool, pcv_config_get_string("storage", "pool", "pcvpool"),
+                          sizeof pool);
                 ZfsPoolHealth zh;
-                if (pcv_zfs_pool_health("pcvpool", &zh)) {
-                    gdouble state_val = 0.0;
-                    if (g_strcmp0(zh.state, "DEGRADED") == 0) state_val = 1.0;
-                    else if (g_strcmp0(zh.state, "FAULTED") == 0) state_val = 2.0;
-                    else if (g_strcmp0(zh.state, "UNAVAIL") == 0) state_val = 3.0;
+                if (pcv_zfs_pool_health(pool, &zh)) {
+                    gdouble state_val = pcv_zfs_pool_state_metric_val(zh.state);
 
                     pcv_prom_gauge_set_labels("purecvisor_zpool_state", "", state_val);
                     pcv_prom_gauge_set_labels("purecvisor_zpool_errors_read", "",
@@ -1556,6 +1573,46 @@ _ebpf_thread(gpointer data)
                     }
                     pcv_prom_gauge_set_labels("purecvisor_zpool_capacity_percent", "",
                                               zh.capacity_pct);
+
+                    /* ── L2: critical(SUSPENDED/FAULTED/UNAVAIL, 값≥2) 운영자 알림 ──
+                     * 메트릭만이 아니라 alert_engine 경로로 실제 통보. dedup: 상태
+                     * 전환 시 1회만(같은 값 반복 억제). state 가 정상으로 복귀하면
+                     * last_crit_state=0 → 재발생 시 다시 발화. */
+                    gboolean is_crit = (state_val >= 2.0);
+                    if (is_crit && state_val != last_crit_state) {
+                        gchar amsg[256];
+                        g_snprintf(amsg, sizeof amsg,
+                            "ZFS pool '%s' state=%s (I/O 정지). 디스크/USB 연결·전원 확인 "
+                            "요망 — 자동복구 시도 여부는 감사로그(zpool.*) 확인.",
+                            pool, zh.state);
+                        pcv_alert_fire_event("zpool", TRUE, state_val, amsg);
+                    }
+                    last_crit_state = is_crit ? state_val : 0.0;
+
+                    /* ── L3: SUSPENDED 가드된 자동복구 ──
+                     * 디바이스-읽기 가드 + 서킷브레이커 + config 게이트 + audit 는
+                     * pcv_zfs_pool_recover_suspended 내부에서 보장. 여기서는 결과에
+                     * 따라 수동개입 알림만 (dedup 으로 60초 반복 억제). */
+                    if (g_strcmp0(zh.state, "SUSPENDED") == 0) {
+                        PcvZfsRecoverResult rr =
+                            pcv_zfs_pool_recover_suspended(pool, &recover_guard);
+                        if ((rr == PCV_ZFS_RECOVER_DEV_UNREADABLE ||
+                             rr == PCV_ZFS_RECOVER_CB_TRIPPED) &&
+                            (int)rr != last_recover_alerted) {
+                            const gchar *why =
+                                (rr == PCV_ZFS_RECOVER_CB_TRIPPED)
+                                ? "디바이스 flapping(자동복구 상한 초과)"
+                                : "vdev 디바이스 미복구/읽기불가";
+                            gchar rmsg[256];
+                            g_snprintf(rmsg, sizeof rmsg,
+                                "ZFS pool '%s' SUSPENDED — %s: 자동 clear 중단, "
+                                "수동개입 필요.", pool, why);
+                            pcv_alert_fire_event("zpool", TRUE, state_val, rmsg);
+                        }
+                        last_recover_alerted = (int)rr;
+                    } else {
+                        last_recover_alerted = -1;  /* SUSPENDED 해소 → 재알림 허용 */
+                    }
                 }
             }
         }

@@ -164,6 +164,46 @@ static void test_check_snapshot_quota_no_dataset(void) {
     (void)ok;
 }
 
+/* ── SUSPENDED 탐지 매핑 (L2) ─────────────────────────────
+ * pcv_zfs_pool_state_metric_val 이 SUSPENDED 를 4(비0)로 매핑하는지 검증.
+ * 원 버그: SUSPENDED 가 else→0("정상")로 매핑돼 34시간 미인지됐다. */
+static void test_state_metric_val_mapping(void) {
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("ONLINE"),    ==, 0.0);
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("DEGRADED"),  ==, 1.0);
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("FAULTED"),   ==, 2.0);
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("UNAVAIL"),   ==, 3.0);
+    /* 핵심 회귀 방지: SUSPENDED 는 반드시 비0(critical, 값≥2) */
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("SUSPENDED"), ==, 4.0);
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("SUSPENDED"), >=, 2.0);
+    /* UNKNOWN/NULL → 0 (정상 취급, 크래시 없음) */
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val("UNKNOWN"),   ==, 0.0);
+    g_assert_cmpfloat(pcv_zfs_pool_state_metric_val(NULL),        ==, 0.0);
+}
+
+/* ── 서킷브레이커: 시간창당 상한 (L3) ─────────────────────
+ * pcv_zfs_recover_guard_allow 가 창 내 max회만 허용하고 상한 초과를 차단하며,
+ * 창이 만료되면 리셋하는지 검증(무한 clear-loop 방지 로직). */
+static void test_recover_guard_window_limit(void) {
+    ZfsRecoverGuard g = {0};
+    const gint64 W = 3600LL * G_USEC_PER_SEC;  /* 1시간 창 */
+    const gint   MAX = 3;
+    gint64 t0 = 1000000;  /* 임의 기준 시각(us) */
+
+    /* 창 내 첫 3회 허용 */
+    g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 0,          W, MAX));
+    g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 60000000,   W, MAX));
+    g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + 120000000,  W, MAX));
+    /* 4회째는 상한 초과 → 차단 */
+    g_assert_false(pcv_zfs_recover_guard_allow(&g, t0 + 180000000, W, MAX));
+    g_assert_false(pcv_zfs_recover_guard_allow(&g, t0 + 200000000, W, MAX));
+
+    /* 창 만료(>= W 경과) → 리셋되어 다시 허용 */
+    g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + W + 1,      W, MAX));
+    g_assert_true(pcv_zfs_recover_guard_allow(&g, t0 + W + 2,      W, MAX));
+    /* NULL 가드는 안전하게 FALSE */
+    g_assert_false(pcv_zfs_recover_guard_allow(NULL, t0, W, MAX));
+}
+
 void test_zfs_register(void) {
     g_test_add_func("/zfs/create_volume_bad_pool",      test_create_volume_bad_pool);
     g_test_add_func("/zfs/destroy_volume_bad_pool",     test_destroy_volume_bad_pool);
@@ -176,4 +216,6 @@ void test_zfs_register(void) {
     g_test_add_func("/zfs/snapshot_create_async_bad",   test_snapshot_create_async_bad);
     g_test_add_func("/zfs/snapshot_list_async_bad",     test_snapshot_list_async_bad);
     g_test_add_func("/zfs/check_snapshot_quota_no_dataset", test_check_snapshot_quota_no_dataset);
+    g_test_add_func("/zfs/state_metric_val_mapping",    test_state_metric_val_mapping);
+    g_test_add_func("/zfs/recover_guard_window_limit",  test_recover_guard_window_limit);
 }

@@ -202,6 +202,28 @@ void        pcv_alert_record_security_event(const gchar *event_id,
                                             const gchar *summary);
 
 /**
+ * @brief 임계값 평가 경로 밖에서 운영자 알림을 직접 발화한다.
+ *
+ * CPU/메모리/디스크 지속조건(_eval_metric) 밖의 이벤트(예: ZFS 풀 SUSPENDED)를
+ * 기존 알림/webhook 경로로 통보한다. 동작:
+ *   - @source 가 음소거(pcv_alert_add_silence) 대상이면 발화하지 않음.
+ *   - 히스토리 링버퍼에 기록(RPC alert.history 노출).
+ *   - webhook_url 설정 시 slack/telegram/generic 포맷으로 비동기 전송
+ *     (is_crit && webhook_crit_url 설정 시 CRIT 전용 URL 사용).
+ *
+ * dedup(스팸 억제)은 호출자 책임 — 이 함수는 호출 시마다 1회 발화한다.
+ *
+ * @param source   알림 소스/메트릭 라벨(예: "zpool"). 음소거 키로도 사용.
+ * @param is_crit  TRUE=CRIT, FALSE=WARN
+ * @param value    수치 게이지 값(없으면 0)
+ * @param message  사람이 읽을 전문(히스토리 + webhook 메시지에 그대로 사용)
+ *
+ * 호출 컨텍스트: 임의 스레드(내부 G.mu 락). init 이전 호출은 안전하게 무시.
+ */
+void        pcv_alert_fire_event(const gchar *source, gboolean is_crit,
+                                 gdouble value, const gchar *message);
+
+/**
  * @brief Webhook DLQ(Dead Letter Queue) 목록을 반환한다.
  *
  * 재시도 실패한 Webhook 페이로드가 저장된 DLQ 내용을 조회한다.

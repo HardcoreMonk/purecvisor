@@ -3,6 +3,23 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.4.1 — 2026-07-19
+
+ZFS 풀 SUSPENDED 탐지+알림+가드된 자동복구 (PATCH) — `.100` pcvpool(단일 USB SSD) USB-단절 SUSPENDED가 **34시간 미인지·수동복구**된 사후분석의 재발방지책(L2+L3). CI 계약 게이트 **24→25**. 검증: `make single` 0-warn · `make test` **680/0**(신규 유닛 2) · `make check-all` 25게이트 + 신규 반사실 RED · vdev 자동탐지 실서버 실증.
+
+### L2 — SUSPENDED 탐지 + 알림
+- **버그 수정**: `ebpf_telemetry.c`의 `purecvisor_zpool_state` 매핑이 DEGRADED/FAULTED/UNAVAIL만 처리하고 **SUSPENDED는 else→0("정상")** → 장애가 메트릭에 안 잡혀 34h 미인지. `pcv_zfs_pool_state_metric_val`(순수 매핑, **SUSPENDED=4**)로 교체.
+- `pcv_zfs_pool_health`의 `zpool status` 조회를 `pcv_spawn_sync_timeout(10s)`로(정지 풀 hang 방지, 타임아웃 시 SUSPENDED 보수 처리).
+- **알림**: critical(값≥2: SUSPENDED/FAULTED/UNAVAIL) 시 `pcv_alert_fire_event`(신규 alert_engine API)로 운영자 통보(히스토리+webhook, dedup=상태 전환 시 1회).
+
+### L3 — 가드된 자동복구
+- SUSPENDED 시 **디바이스 읽기 가능 확인 → 서킷브레이커 → `zpool clear`**(모두 통과해야만). 가드 순서: `[storage] auto_pool_recover`(기본 true, false면 탐지·알림만) → vdev 읽기 가드(`dd` 8s, 미해석/읽기실패면 **DEV_UNREADABLE·clear 안 함** — 죽은 디바이스 무한 clear 금지) → 서킷브레이커(1h 3회, 초과 시 **CB_TRIPPED**·flapping 수동개입 알림) → `zpool clear`(40s) + 매 분기 audit. `_ebpf_thread`(GMainLoop 아님)에서 실행.
+- config: `[storage] pool`(기본 pcvpool)·`auto_pool_recover`·`pool_device`(vdev 오버라이드). 반사실 게이트 `check-zpool-suspend-recover` + 유닛 2(매핑·서킷브레이커).
+
+### Upgrade notes
+- **신규 자동 동작**: SUSPENDED 풀을 데몬이 **자동 복구 시도**(기본 on). 강한 가드(디바이스 읽기 확인·서킷브레이커·audit)로 죽은/flapping 디바이스엔 clear 안 함. 원치 않으면 `daemon.conf [storage] auto_pool_recover = false`(탐지·알림은 유지).
+- 하드웨어 권고(별도): 이번 근본원인은 USB 도킹 단절 — 직결/mirror/백업 권고(인시던트 기록 참조).
+
 ## v1.4.0 — 2026-07-19
 
 보안 Quick 시정 배치 5건 + 반사실 게이트 3종 (MINOR) — OWASP/ISMS-P 잔여 tracker의 🟨 Quick 그룹 전량. CI 계약 게이트 **21→24**. 검증: `make single` 0-warn · `make test` **678/0** · `make check-all` 24게이트 + 신규 3종 반사실 RED 실증. Q-1 CSP는 정적 airtight 분석(UI가 CSP 차단 카테고리 미사용, noVNC 포함)으로 무파손 확증(실브라우저 자동테스트는 환경 격리로 대체).

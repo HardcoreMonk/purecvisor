@@ -101,6 +101,8 @@ HAS_PASSWORD_POLICY_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/dispatcher/handler_auth\.c|src/utils/pcv_validate\.(c|h)|scripts/check_password_policy\.py|scripts/tests/test_password_policy\.py)$' && HAS_PASSWORD_POLICY_CHANGES=true
 HAS_WS_TOKEN_URL_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/ws_server\.c|scripts/check_ws_token_url\.py|scripts/tests/test_ws_token_url\.py)$' && HAS_WS_TOKEN_URL_CHANGES=true
+HAS_ZPOOL_RECOVER_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/storage/zfs_driver\.(c|h)|src/modules/daemons/ebpf_telemetry\.c|scripts/check_zpool_suspend_recover\.py|scripts/tests/test_zpool_suspend_recover\.py)$' && HAS_ZPOOL_RECOVER_CHANGES=true
 
 # ── 1. 클러스터 빌드 검증 ────────────────────────────────────
 if $HAS_C_CHANGES; then
@@ -559,6 +561,22 @@ if $HAS_WS_TOKEN_URL_CHANGES; then
     fi
 else
     skip "[$((GATE+1))] ws_server.c/WS 토큰 URL 게이트 변경 없음 — WS 토큰 URL 게이트 생략"
+fi
+
+# ── 4y. ZFS 풀 SUSPENDED 탐지+가드된 자동복구 게이트 (check-zpool-suspend-recover) ──
+if $HAS_ZPOOL_RECOVER_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] ZFS 풀 SUSPENDED 탐지+가드된 자동복구${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    ZR_OUT=$(python3 "$SCRIPT_DIR/check_zpool_suspend_recover.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_zpool_suspend_recover.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "SUSPENDED 미매핑(→0) 또는 자동복구 디바이스-읽기 가드/서킷브레이커 제거 (무한 clear-loop 위험)"
+        echo "$ZR_OUT" | tail -15
+    else
+        pass "$(echo "$ZR_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] zfs_driver/ebpf_telemetry/zpool 게이트 변경 없음 — SUSPENDED 자동복구 게이트 생략"
 fi
 
 # ── 5. 프론트엔드 검증 (강화: 10건 초과 차단) ────────────────

@@ -85,6 +85,8 @@
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_zfs_lock.h"   /* BUG-18 F-1: pool 수준 직렬화 락 */
 #include "../../utils/pcv_config.h"
+#include "../../utils/pcv_log.h"        /* SUSPENDED 자동복구 저널 로그 */
+#include "../audit/pcv_audit.h"         /* 자동복구 시도 감사 기록 */
 #include "../daemons/prometheus_exporter.h"
 #if PCV_CLUSTER_ENABLED
 #include "../cluster/cluster_manager.h"
@@ -827,15 +829,25 @@ pcv_zfs_pool_health(const gchar *pool_name, ZfsPoolHealth *out)
     g_strlcpy(out->state, "UNKNOWN", sizeof(out->state));
 
     /* ── 1. zpool status -p <pool> ─────────────────────── */
+    /* 10초 타임아웃: SUSPENDED 풀은 조회 자체가 hang 할 수 있어 health 스레드가
+     * stale 되지 않도록 상한을 건다(0=무제한 → 10초). 타임아웃 초과(정지 풀 조회조차
+     * 안 돌아옴)는 보수적으로 SUSPENDED 로 취급해 알림·자동복구 경로를 태운다. */
     const gchar *argv[] = {"zpool", "status", "-p", pool_name, NULL};
     gchar *stdout_buf = NULL;
     gchar *stderr_buf = NULL;
     GError *err = NULL;
 
-    if (!pcv_spawn_sync(argv, &stdout_buf, &stderr_buf, &err)) {
+    if (!pcv_spawn_sync_timeout(argv, &stdout_buf, &stderr_buf, 10, &err)) {
+        gboolean timed_out = g_error_matches(err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
         g_free(stdout_buf);
         g_free(stderr_buf);
         if (err) g_error_free(err);
+        if (timed_out) {
+            /* 조회조차 반환 못 함 = I/O 정지로 간주(보수적). state 보존 → 상위에서
+             * critical 판정 + 자동복구 트리거. 나머지 필드는 0/기본값 유지. */
+            g_strlcpy(out->state, "SUSPENDED", sizeof(out->state));
+            return TRUE;
+        }
         return FALSE;
     }
 
@@ -919,7 +931,8 @@ pcv_zfs_pool_health(const gchar *pool_name, ZfsPoolHealth *out)
     gchar *cap_out = NULL;
     err = NULL;
 
-    if (pcv_spawn_sync(cap_argv, &cap_out, NULL, &err) && cap_out) {
+    /* 용량 조회도 정지 풀에서 hang 가능 → 10초 상한. 실패 시 capacity_pct=0 유지. */
+    if (pcv_spawn_sync_timeout(cap_argv, &cap_out, NULL, 10, &err) && cap_out) {
         gchar *trimmed = g_strstrip(cap_out);
         out->capacity_pct = g_ascii_strtod(trimmed, NULL);
     }
@@ -927,6 +940,189 @@ pcv_zfs_pool_health(const gchar *pool_name, ZfsPoolHealth *out)
     if (err) g_error_free(err);
 
     return TRUE;
+}
+
+/* =========================================================================
+ * 8-b. Pool SUSPENDED 탐지 매핑 + 가드된 자동복구 (L2/L3)
+ * ========================================================================= */
+
+#define ZFS_RECOVER_LOG_DOM "zfs_recover"
+
+/**
+ * pcv_zfs_pool_state_metric_val — zpool state 문자열 → Prometheus 게이지 값.
+ * 순수 함수(부작용 없음) — 유닛 테스트 + 반사실 게이트의 단일 진실 소스.
+ * SUSPENDED 를 4.0 으로 매핑하는 것이 이 함수의 존재 이유(원 버그: else→0).
+ */
+gdouble
+pcv_zfs_pool_state_metric_val(const gchar *state)
+{
+    if (!state) return 0.0;
+    if (g_strcmp0(state, "DEGRADED")  == 0) return 1.0;
+    if (g_strcmp0(state, "FAULTED")   == 0) return 2.0;
+    if (g_strcmp0(state, "UNAVAIL")   == 0) return 3.0;
+    if (g_strcmp0(state, "SUSPENDED") == 0) return 4.0;
+    return 0.0;  /* ONLINE / UNKNOWN → 정상(0) */
+}
+
+/**
+ * pcv_zfs_recover_guard_allow — 고정창 레이트리미터(순수 함수).
+ * 자동복구 clear 시도의 "시간창당 상한"을 강제해 무한 clear-loop 를 차단한다.
+ * now_us 주입으로 시간에 의존하지 않는 유닛 테스트가 가능하다.
+ */
+gboolean
+pcv_zfs_recover_guard_allow(ZfsRecoverGuard *g, gint64 now_us,
+                            gint64 window_us, gint max_attempts)
+{
+    if (!g) return FALSE;
+    /* 창 미개시이거나 창을 벗어났으면 새 창으로 리셋 */
+    if (g->window_start_us == 0 || (now_us - g->window_start_us) >= window_us) {
+        g->window_start_us = now_us;
+        g->attempts = 0;
+    }
+    if (g->attempts >= max_attempts) {
+        return FALSE;  /* 상한 초과 → 차단(flapping 방지) */
+    }
+    g->attempts++;
+    return TRUE;
+}
+
+/**
+ * _zfs_pool_vdev_path — 자동복구 대상 풀의 vdev 리프 디바이스 경로를 해석한다.
+ *
+ * 우선순위:
+ *   1) [storage] pool_device 설정값(운영자가 명시 고정한 by-id 경로) — 있으면 그대로.
+ *   2) `zpool status -P <pool>` 출력에서 "/dev/" 로 시작하는 첫 리프 디바이스 토큰.
+ *
+ * SUSPENDED 풀에서도 zpool status 는 커널 캐시로 보통 빠르게 반환하지만, 방어적으로
+ * 10초 타임아웃을 건다. 경로를 못 찾으면 FALSE(→ 상위에서 DEV_UNREADABLE 로 처리).
+ *
+ * Returns: TRUE=out 에 경로 기록, FALSE=미해석.
+ */
+static gboolean
+_zfs_pool_vdev_path(const gchar *pool_name, gchar *out, gsize outlen)
+{
+    if (!pool_name || !out || outlen == 0) return FALSE;
+    out[0] = '\0';
+
+    /* 1) 설정 오버라이드 우선 */
+    const gchar *cfg_dev = pcv_config_get_string("storage", "pool_device", "");
+    if (cfg_dev && *cfg_dev) {
+        g_strlcpy(out, cfg_dev, outlen);
+        return TRUE;
+    }
+
+    /* 2) zpool status -P 파싱 (전체 경로 유지 — by-id 등 설정된 형태 보존) */
+    const gchar *argv[] = {"zpool", "status", "-P", pool_name, NULL};
+    gchar *sout = NULL;
+    GError *err = NULL;
+    gboolean spawn_ok = pcv_spawn_sync_timeout(argv, &sout, NULL, 10, &err);
+    if (err) g_error_free(err);
+    if (!spawn_ok || !sout) {
+        g_free(sout);
+        return FALSE;
+    }
+
+    gboolean found = FALSE;
+    gchar **lines = g_strsplit(sout, "\n", -1);
+    for (gint i = 0; lines[i] && !found; i++) {
+        gchar **tok = g_strsplit_set(g_strstrip(lines[i]), " \t", -1);
+        for (gint t = 0; tok[t] && !found; t++) {
+            if (g_str_has_prefix(tok[t], "/dev/")) {
+                g_strlcpy(out, tok[t], outlen);
+                found = TRUE;
+            }
+        }
+        g_strfreev(tok);
+    }
+    g_strfreev(lines);
+    g_free(sout);
+    return found;
+}
+
+/**
+ * _zfs_vdev_readable — vdev 디바이스가 실제로 읽기 가능한지 바운드 확인한다.
+ *
+ * `dd if=<dev> bs=4096 count=1 of=/dev/null` 를 8초 타임아웃으로 실행한다.
+ * dd 가 0 으로 종료하면 첫 4KiB 읽기 성공(디바이스 살아있음). 실패/타임아웃이면
+ * FALSE — 진짜 죽은/정지한 디바이스에 zpool clear 를 시도하지 않기 위한 핵심 가드.
+ * 읽기 전용이므로 풀 데이터에 부작용이 없다.
+ */
+static gboolean
+_zfs_vdev_readable(const gchar *dev_path)
+{
+    if (!dev_path || !*dev_path) return FALSE;
+
+    gchar if_arg[600];
+    g_snprintf(if_arg, sizeof if_arg, "if=%s", dev_path);
+    const gchar *argv[] = {"dd", if_arg, "bs=4096", "count=1", "of=/dev/null", NULL};
+    GError *err = NULL;
+    gboolean ok = pcv_spawn_sync_timeout(argv, NULL, NULL, 8, &err);
+    if (err) g_error_free(err);
+    return ok;
+}
+
+/**
+ * pcv_zfs_pool_recover_suspended — SUSPENDED 풀의 가드된 자동복구.
+ * 계약·순서는 헤더 doc 참조. 안전 불변식(코드로 보장):
+ *   (a) 디바이스 읽기 가능 확인(_zfs_vdev_readable) 후에만 clear
+ *   (b) 서킷브레이커(pcv_zfs_recover_guard_allow)로 시간창당 상한
+ *   (c) [storage] auto_pool_recover=false 로 완전 비활성 가능
+ *   (d) 매 시도 pcv_audit_log 기록
+ */
+PcvZfsRecoverResult
+pcv_zfs_pool_recover_suspended(const gchar *pool_name, ZfsRecoverGuard *guard)
+{
+    if (!pool_name) return PCV_ZFS_RECOVER_NOT_SUSPENDED;
+
+    /* (c) config 게이트 — 기본 true. false 면 탐지·알림만, clear 안 함. */
+    const gchar *ar = pcv_config_get_string("storage", "auto_pool_recover", "true");
+    gboolean enabled = !(g_ascii_strcasecmp(ar, "false") == 0 || g_strcmp0(ar, "0") == 0);
+    if (!enabled) {
+        PCV_LOG_WARN(ZFS_RECOVER_LOG_DOM,
+                     "pool '%s' SUSPENDED — auto_pool_recover=false, clear 생략(수동복구 필요)",
+                     pool_name);
+        pcv_audit_log("system", "zpool.auto_recover", pool_name, "disabled", 0, 0, "local");
+        return PCV_ZFS_RECOVER_DISABLED;
+    }
+
+    /* (a) 디바이스 존재 + 읽기 가능 확인 — 읽기 실패면 clear 시도 금지 */
+    gchar dev[600] = {0};
+    gboolean have_dev = _zfs_pool_vdev_path(pool_name, dev, sizeof dev);
+    if (!have_dev || !_zfs_vdev_readable(dev)) {
+        PCV_LOG_WARN(ZFS_RECOVER_LOG_DOM,
+                     "pool '%s' SUSPENDED — vdev %s 읽기불가 → clear 생략(수동개입 필요)",
+                     pool_name, have_dev ? dev : "(미해석)");
+        pcv_audit_log("system", "zpool.auto_recover", pool_name,
+                      have_dev ? "device-unreadable" : "device-missing", 0, 0, "local");
+        return PCV_ZFS_RECOVER_DEV_UNREADABLE;
+    }
+
+    /* (b) 서킷브레이커 — 시간창당 상한(기본 1시간 3회) 초과 시 clear 중단 */
+    gint64 now_us = g_get_monotonic_time();
+    const gint64 window_us = (gint64)3600 * G_USEC_PER_SEC;  /* 1시간 */
+    const gint   max_attempts = 3;
+    if (guard && !pcv_zfs_recover_guard_allow(guard, now_us, window_us, max_attempts)) {
+        PCV_LOG_WARN(ZFS_RECOVER_LOG_DOM,
+                     "pool '%s' SUSPENDED — 자동복구 상한(%d/1h) 초과 → clear 중단(flapping)",
+                     pool_name, max_attempts);
+        pcv_audit_log("system", "zpool.auto_recover", pool_name, "circuit-open", 0, 0, "local");
+        return PCV_ZFS_RECOVER_CB_TRIPPED;
+    }
+
+    /* 디바이스 읽기 OK + 상한 내 → zpool clear (40초 타임아웃) */
+    const gchar *argv[] = {"zpool", "clear", pool_name, NULL};
+    GError *err = NULL;
+    gboolean ok = pcv_spawn_sync_timeout(argv, NULL, NULL, 40, &err);
+    if (ok) {
+        PCV_LOG_INFO(ZFS_RECOVER_LOG_DOM, "pool '%s' SUSPENDED — zpool clear 성공", pool_name);
+        pcv_audit_log("system", "zpool.clear", pool_name, "ok", 0, 0, "local");
+    } else {
+        PCV_LOG_WARN(ZFS_RECOVER_LOG_DOM, "pool '%s' SUSPENDED — zpool clear 실패: %s",
+                     pool_name, (err && err->message) ? err->message : "unknown");
+        pcv_audit_log("system", "zpool.clear", pool_name, "failed", 0, 0, "local");
+    }
+    if (err) g_error_free(err);
+    return ok ? PCV_ZFS_RECOVER_CLEARED : PCV_ZFS_RECOVER_CLEAR_FAILED;
 }
 
 /**

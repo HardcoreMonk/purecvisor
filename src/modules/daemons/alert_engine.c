@@ -695,6 +695,81 @@ _fire_alert(const gchar *metric, AlertLevel level, gdouble value)
 }
 
 /**
+ * pcv_alert_fire_event — 임계값 평가 밖에서 직접 알림 발화(공개 API).
+ *
+ * _fire_alert 는 "%.1f%% on host" 표준 메시지를 자체 조립하므로, 임의 전문을
+ * 그대로 실어야 하는 이벤트(예: ZFS SUSPENDED 조치 안내)에는 부적합하다. 여기서는
+ * 커스텀 message 를 히스토리·webhook 에 그대로 싣되, 발화 정책(음소거·비동기
+ * webhook·CRIT 전용 URL)은 _fire_alert 와 동일하게 재사용한다.
+ */
+void
+pcv_alert_fire_event(const gchar *source, gboolean is_crit,
+                     gdouble value, const gchar *message)
+{
+    if (!G.initialized) return;
+    if (!source)  source  = "event";
+    if (!message) message = "";
+
+    /* 음소거 존중 — _fire_alert 와 동일 정책 */
+    if (pcv_alert_is_silenced(source)) {
+        PCV_LOG_INFO(ALERT_LOG_DOM, "Alert suppressed (silenced): source=%s", source);
+        return;
+    }
+
+    AlertLevel level = is_crit ? ALERT_CRIT : ALERT_WARN;
+    const gchar *sev = is_crit ? "CRIT" : "WARN";
+
+    gchar hostname[64] = "unknown";
+    gethostname(hostname, sizeof(hostname));
+
+    gchar ts[32];
+    time_t now = time(NULL);
+    struct tm tm;
+    localtime_r(&now, &tm);
+    strftime(ts, sizeof(ts), "%Y-%m-%d %H:%M:%S", &tm);
+
+    PCV_LOG_WARN(ALERT_LOG_DOM, "[%s] %s: %s", sev, source, message);
+    _record_alert(source, level, value, message);
+
+    /* JSON 문자열 이스케이프 (message/hostname) */
+    GString *emsg = g_string_new("");
+    for (const char *p = message; *p; p++) {
+        if (*p == '"')       g_string_append(emsg, "\\\"");
+        else if (*p == '\\') g_string_append(emsg, "\\\\");
+        else if (*p == '\n') g_string_append(emsg, "\\n");
+        else                 g_string_append_c(emsg, *p);
+    }
+    GString *ehost = g_string_new("");
+    for (const char *p = hostname; *p; p++) {
+        if (*p == '"')       g_string_append(ehost, "\\\"");
+        else if (*p == '\\') g_string_append(ehost, "\\\\");
+        else                 g_string_append_c(ehost, *p);
+    }
+
+    gchar payload[1024];
+    if (g_strcmp0(G.webhook_format, "slack") == 0) {
+        g_snprintf(payload, sizeof(payload),
+            "{\"text\":\"PureCVisor Alert: [%s] %s\"}", sev, emsg->str);
+    } else if (g_strcmp0(G.webhook_format, "telegram") == 0) {
+        g_snprintf(payload, sizeof(payload),
+            "{\"chat_id\":\"%s\",\"text\":\"PureCVisor Alert: [%s] %s\"}",
+            G.telegram_chat_id, sev, emsg->str);
+    } else {
+        g_snprintf(payload, sizeof(payload),
+            "{\"severity\":\"%s\",\"source\":\"%s\",\"value\":%.1f,"
+            "\"message\":\"%s\",\"host\":\"%s\",\"timestamp\":\"%s\"}",
+            sev, source, value, emsg->str, ehost->str, ts);
+    }
+    g_string_free(emsg, TRUE);
+    g_string_free(ehost, TRUE);
+
+    if (G.webhook_url[0]) {
+        const gchar *url = (is_crit && G.webhook_crit_url[0]) ? G.webhook_crit_url : NULL;
+        _webhook_post_async(url, payload);
+    }
+}
+
+/**
  * @brief 단일 메트릭의 임계값 평가를 수행한다.
  *
  * WhaTap 스타일 "지속 조건" 알고리즘의 핵심 함수.
