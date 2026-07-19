@@ -250,6 +250,16 @@
   # ---- 클라우드 CLI (aws — python, /usr/local/bin 설치도 흔함) ----------------
   /{usr/,usr/local/}bin/aws       Ux,
 
+  # ---- update_check 아웃바운드 (GitHub 릴리스 조회, SoupSession — v1.5.0) ------
+  # SoupSession 이 GSettings 프록시 resolver 초기화 시 컴파일된 스키마를 읽는다.
+  # 이 read 가 막히면 resolver 초기화 실패 → 아웃바운드 요청 자체가 실패한다(필수).
+  /usr/share/glib-2.0/schemas/                    r,
+  /usr/share/glib-2.0/schemas/gschemas.compiled   r,
+  # dconf 백엔드의 사용자 캐시 write 시도는 데몬에 불필요하고(캐시 못 써도 graceful
+  # fallback), /root/.cache 쓰기 표면만 늘린다 → 명시 차단 + audit 무기록(노이즈 제거).
+  deny /root/.cache/dconf/                        rw,
+  deny /root/.cache/dconf/**                      rwk,
+
   # ---- (옵션) 로컬 사이트 추가 규칙 -------------------------------------------
   # #include <local/usr.local.bin.purecvisorsd>
 }

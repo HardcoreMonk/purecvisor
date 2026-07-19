@@ -6,7 +6,7 @@
 [![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](AGENTS.md)
 [![License: Non-Commercial Source](https://img.shields.io/badge/License-Non--Commercial%20Source-6b46c1.svg)](LICENSE)
-[![Version: 1.4.1](https://img.shields.io/badge/Version-1.4.1-2f855a.svg)](include/purecvisor/version.h)
+[![Version: 1.5.0](https://img.shields.io/badge/Version-1.5.0-2f855a.svg)](include/purecvisor/version.h)
 
 PureCVisor는 한 대의 Linux 서버를 작은 가상화 플랫폼처럼 다루기 위한 Single Edge 공개 소스 트리입니다. `purecvisorsd` 하나가 VM, 컨테이너, 스토리지, 네트워크, 권한, audit, metrics, Web UI를 같은 제어 흐름으로 묶습니다.
 
@@ -70,7 +70,7 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
 {
   "service": "purecvisorsd",
   "status": "ok",
-  "version": "1.4.1",
+  "version": "1.5.0",
   "capabilities": {
     "cluster": false
   }

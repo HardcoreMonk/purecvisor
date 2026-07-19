@@ -582,7 +582,27 @@ allow_overcommit = false
 
 # 격리 코어 목록 (예: 4-7,12-15)
 # isolated_cores = 4-7
+
+# ─────────────────────────────────────────────
+# [update] 버전 알림 설정
+# ─────────────────────────────────────────────
+[update]
+# 버전 알림 기능 on/off. true면 데몬이 GitHub 공개 repo 최신 릴리스를 조회해
+# 대시보드 툴바에 상태 배지(최신 / 업데이트 가능 여부, 예: `✓ v1.4.1` / `↑ v1.5.0`)로
+# 표시한다 — 읽기 전용 정보 표시만이며 자동 다운로드/설치는 하지 않는다.
+# air-gapped/외부망 차단 환경은 false로 꺼서 아웃바운드 호출 자체를 막을 것.
+check_enabled = true
+
+# 조회 대상 GitHub Releases API URL (기본값: purecvisor 공개 repo의 latest release)
+check_url = https://api.github.com/repos/HardcoreMonk/purecvisor/releases/latest
+
+# 조회 주기(시간 단위). 이 시간 이내에는 재조회하지 않는다(캐시 재사용).
+# 1 미만 값은 기본값 24로 보정된다.
+check_interval_hours = 24
 ```
+
+> `[update]` 설정 변경은 SIGHUP 핫리로드 대상이 아닙니다 — 데몬 재시작
+> (`systemctl restart purecvisorsd`) 후에만 반영됩니다.
 
 #### 설정 검증
 

@@ -1177,8 +1177,60 @@ document.addEventListener('keydown', function(e) {
   el.click();
 });
 
+/* ═══ 버전 알림 배지 (읽기 전용, /api/v1/update-check) ═══ */
+function _renderVersionBadge(d) {
+  var badge = document.getElementById('version-badge');
+  if (!badge) return;
+  var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
+  clearEl(badge);
+  badge.classList.remove('is-update');
+  badge.removeAttribute('hidden');
+  badge.onclick = null; badge.title = ''; badge.style.cursor = '';
+  if (!d || !d.current) { badge.setAttribute('hidden', ''); return; }
+  var ok = d.state === 'ok';
+  if (ok && d.update_available) {
+    badge.classList.add('is-update');
+    badge.appendChild(el('span', null, '↑ v' + d.latest));
+    badge.title = _L('업데이트 가능', 'Update available') + ': v' + d.latest;
+    if (d.url && d.url.indexOf('https://github.com/') === 0) {
+      badge.style.cursor = 'pointer';
+      badge.onclick = function () { window.open(d.url, '_blank', 'noopener'); };
+    }
+  } else if (ok) {
+    badge.appendChild(el('span', null, '✓ v' + d.current));
+    badge.title = _L('최신 버전', 'Up to date');
+  } else {
+    badge.appendChild(el('span', null, 'v' + d.current)); /* unknown/disabled */
+  }
+}
+function updateVersionBadge() {
+  fetchGet(EP.UPDATE_CHECK()).then(function (r) {
+    _renderVersionBadge(r && r.payload ? r.payload : r);
+  }).catch(function () {
+    var b = document.getElementById('version-badge'); if (b) b.setAttribute('hidden', '');
+  });
+}
+window.updateVersionBadge = updateVersionBadge;
+
+function checkForUpdates() {
+  fetchGet(EP.UPDATE_CHECK()).then(function (r) {
+    var d = r && r.payload ? r.payload : r;
+    if (!d || d.state === 'disabled') { toast(_L('버전 확인이 비활성화됨', 'Version check disabled')); return; }
+    if (d.state !== 'ok') { toast(_L('최신 버전 정보를 가져올 수 없습니다', 'Could not fetch latest version')); return; }
+    if (d.update_available) {
+      toast(_L('업데이트 가능', 'Update available') + ': v' + d.latest + ' (현재 v' + d.current + ')');
+    } else {
+      toast(_L('최신 버전입니다', 'You are up to date') + ' (v' + d.current + ')');
+    }
+    _renderVersionBadge(d);
+  }).catch(function () { toast(_L('버전 확인 실패', 'Version check failed'), false); });
+}
+window.checkForUpdates = checkForUpdates;
+
 /* ── PCV.nav namespace export ─────────────────────── */
 PCV.nav = {
+  updateVersionBadge: updateVersionBadge,
+  checkForUpdates: checkForUpdates,
   togglePin: togglePin,
   renderPinnedBar: renderPinnedBar,
   navigateTo: navigateTo,

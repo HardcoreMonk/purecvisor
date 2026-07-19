@@ -3,6 +3,21 @@
 버전 문자열 단일 소스: `include/purecvisor/version.h` (`PCV_PRODUCT_VERSION`).
 릴리스 태그: `vMAJOR.MINOR.PATCH`.
 
+## v1.5.0 — 2026-07-19
+
+버전 알림 (MINOR) — 데몬이 GitHub 공개 repo 최신 릴리스를 조회(1/일, graceful)해 대시보드 툴바에 상태 배지(`✓ 최신`/`↑ 업데이트 가능`)를 표시. 읽기 전용(자동 다운로드/설치 없음, hot_reload 미연결). 무인증 `GET /api/v1/update-check`(캐시 TTL+single-flight로 증폭 방지). `[update] check_enabled=false`로 비활성(air-gapped). 아웃바운드는 `pcv_ssrf` 가드+NO_REDIRECT+타임아웃+256KB 상한, `tag_name`/`html_url` untrusted 검증.
+
+### 기능
+- **순수 로직** (`update_check.c`): `pcv_update_check_compare`(semver major.minor.patch 비교, 선행 `v` 허용, pre-release/빌드메타는 코어만 비교) + `pcv_update_check_parse_release`(GitHub Releases API JSON에서 `tag_name`/`html_url` 추출·검증 — `html_url`은 `https://github.com/` prefix인 경우만 신뢰).
+- **조회 + 캐시**: 부팅 시 `[update]` config 1회 로드(`pcv_update_check_init`). 조회 "시도"마다(성공/실패 무관) monotonic 앵커를 갱신해 `check_interval_hours`(기본 24h) 이내 재조회를 차단(single-flight, 스레드 생성 실패 시 in-flight 롤백으로 안전 처리). 성공 시 `state=ok`+캐시 갱신, 실패 시 직전 캐시 유지+`state=unknown`, `check_enabled=false`면 `state=disabled`.
+- **RPC + REST**: `daemon.update_check` RPC → 무인증 `GET /api/v1/update-check`(`/version`과 동일 posture). 응답 필드: `enabled`/`current`/`latest`/`url`/`update_available`/`checked_at`/`state`.
+- **UI 배지**: 툴바 `#version-badge`(페이지 최초 로드 1회 조회, 타이머 없음) — 최신이면 `✓ v<current>`, 업데이트 가능이면 `↑ v<latest>`(release 페이지로 클릭 이동), unknown/disabled면 버전만 표시. Help 메뉴 "Check for Updates..."는 동일 endpoint를 즉시 재조회 + toast로 결과 표시.
+
+### Upgrade notes
+- **신규 아웃바운드 호출(기본 on)**: 데몬이 하루 최대 1회 GitHub API(`api.github.com`)로 아웃바운드 HTTPS 요청을 보낸다. air-gapped/egress 제한 환경은 `daemon.conf [update] check_enabled = false`로 비활성화(탐지 시도·배지 모두 무동작).
+- 자동 다운로드/설치는 없음(순수 정보 표시). 기존 API 계약·배포 절차 무변경(신규 config 섹션 + 신규 무인증 GET endpoint 추가뿐). `[update]` config는 SIGHUP 핫리로드에 연결돼 있지 않음 — 변경 시 데몬 재시작 필요.
+- **AppArmor 프로파일 보강(ADR-0026)**: 신규 아웃바운드가 SoupSession 프록시 resolver를 초기화하며 컴파일된 GSettings 스키마를 읽으므로, enforce 프로파일에 `/usr/share/glib-2.0/schemas/gschemas.compiled r` 를 추가(누락 시 enforce 하에서 조회가 조용히 실패→배지 `unknown`). dconf 사용자 캐시 write 시도는 불요·graceful이라 `deny …/.cache/dconf/** rwk`로 차단+무기록. 양 노드 enforce 하 조회 `state=ok`·DENIED 0 실증.
+
 ## v1.4.1 — 2026-07-19
 
 ZFS 풀 SUSPENDED 탐지+알림+가드된 자동복구 (PATCH) — `.100` pcvpool(단일 USB SSD) USB-단절 SUSPENDED가 **34시간 미인지·수동복구**된 사후분석의 재발방지책(L2+L3). CI 계약 게이트 **24→25**. 검증: `make single` 0-warn · `make test` **680/0**(신규 유닛 2) · `make check-all` 25게이트 + 신규 반사실 RED · vdev 자동탐지 실서버 실증.

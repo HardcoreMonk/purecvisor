@@ -76,6 +76,7 @@ void test_vm_clone_plan_register(void);   /* VM clone disk plan */
 void test_alert_basic_register(void);     /* 알림 엔진 기본 검증 */
 void test_alert_silence_register(void);   /* AIO-3: alert.silence 대소문자 무시 효과테스트 */
 void test_alert_dlq_register(void);        /* AIO-4: DLQ 값매칭 제거(스냅샷 후 배열 변동) */
+void test_update_check_register(void);     /* 버전 알림: semver 비교 + 릴리스 JSON 파싱 */
 void test_backup_basic_register(void);    /* 백업 정책 기본 검증 */
 void test_lxc_basic_register(void);       /* LXC 드라이버 기본 검증 */
 void test_ws_basic_register(void);        /* WebSocket 기본 검증 */
@@ -269,6 +270,7 @@ int main(int argc, char *argv[]) {
     test_alert_basic_register();      /* 알림 엔진 기본 검증 */
     test_alert_silence_register();    /* AIO-3: alert.silence casefold 효과테스트 */
     test_alert_dlq_register();        /* AIO-4: DLQ 값매칭 제거(스냅샷 후 배열 변동) */
+    test_update_check_register();     /* 버전 알림: semver 비교 + 릴리스 JSON 파싱 */
     test_backup_basic_register();     /* 백업 정책 기본 검증 */
     test_lxc_basic_register();        /* LXC 드라이버 기본 검증 */
     test_ws_basic_register();         /* WebSocket 기본 검증 */

@@ -25,3 +25,10 @@ firewall_integration = auto
 [security_group]
 # vnet 캐시 주기 재동기화 간격(초). 0/음수면 비활성
 resync_interval_sec = 300
+
+[update]
+# 버전 알림 — GitHub 최신 릴리스를 조회해 대시보드 배지 표시(정보 표시만, 자동 설치 없음).
+# air-gapped/egress 제한 환경은 false 로 끄면 아웃바운드 호출을 하지 않는다.
+check_enabled = true
+check_url = https://api.github.com/repos/HardcoreMonk/purecvisor/releases/latest
+check_interval_hours = 24

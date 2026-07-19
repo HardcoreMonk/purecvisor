@@ -2118,6 +2118,38 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         return;
     }
 
+    /* ── GET /api/v1/update-check (인증 불필요 — /version과 동일 posture) ── */
+    if (g_strcmp0(path, REST_API_PREFIX "/update-check") == 0
+        && g_strcmp0(method, "GET") == 0)
+    {
+        gchar *rpc = _build_rpc("daemon.update_check", NULL);
+        gchar *resp = _rpc_over_uds(rpc);
+        g_free(rpc);
+        if (resp) {
+            JsonParser *jp = json_parser_new();
+            /* PCV_PARSE_TRUSTED: 데몬 JSON-RPC 응답 파싱(내부 신뢰 출력, 외부 입력 아님) */
+            if (json_parser_load_from_data(jp, resp, -1, NULL)) {
+                JsonObject *root = json_node_get_object(json_parser_get_root(jp));
+                if (json_object_has_member(root, "result")) {
+                    JsonNode *rn = json_object_dup_member(root, "result");
+                    gchar *body = json_to_string(rn, FALSE);
+                    json_node_unref(rn);
+                    _send_json(msg, 200, body);
+                    g_free(body);
+                } else {
+                    _send_json(msg, 200, resp);
+                }
+            } else {
+                _send_json(msg, 200, resp);
+            }
+            g_object_unref(jp);
+            g_free(resp);
+        } else {
+            _error(msg, 500, "INTERNAL_ERROR", "Update-check RPC failed");
+        }
+        return;
+    }
+
     /*
      * ── GET /api/v1/internal/vms (클러스터 프록시 전용, 인증 불필요) ──
      *

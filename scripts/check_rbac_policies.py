@@ -73,6 +73,15 @@ DESTRUCTIVE_KEYWORDS = (
     "vm.snapshot", "vm.guest.exec", "vm.guest.shutdown",
 )
 
+# 읽기전용 discovery 라우트인데 destructive 키워드에 우연히 부분매칭되는 예외.
+# 상태를 변경하지 않으므로 정책 행이 필요 없다(daemon.version 과 동일 런타임 취급 —
+# 정책-free + 무인증 노출). 위 DESTRUCTIVE_KEYWORDS 주석의 "read-only discovery routes
+# need redundant policy rows 아님" 의도의 명시적 구현.
+# 신규 추가 시: 실제로 mutating이 아님을 확인하고 왜 키워드에 걸리는지 근거를 남길 것.
+READONLY_EXEMPT = frozenset({
+    "daemon.update_check",  # 업데이트 "확인"(GitHub 최신 릴리스 조회) — 읽기전용, ".update" 부분매칭 오탐
+})
+
 
 @dataclass(frozen=True)
 class PolicyContract:
@@ -213,6 +222,8 @@ def main() -> int:
     missing_other: list[str] = []
     for method in routes:
         if method in policies:
+            continue
+        if method in READONLY_EXEMPT:
             continue
         if any(k in method for k in DESTRUCTIVE_KEYWORDS):
             missing_destructive.append(method)

@@ -86,6 +86,7 @@
 #include "modules/dispatcher/handler_security.h"
 #include "modules/daemons/alert_engine.h"
 #include "modules/daemons/process_monitor.h"
+#include "modules/daemons/update_check.h"
 #include "../modules/virt/virt_conn_pool.h"
 #include "../utils/pcv_spawn.h"
 #include "../utils/pcv_config.h"
@@ -5995,6 +5996,26 @@ static void _handle_daemon_version(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
+/* ── daemon.update_check ───────────────────────────────────────────── */
+static void _handle_daemon_update_check(JsonObject *params, const gchar *rpc_id,
+                                        UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    PcvUpdateStatus st = pcv_update_check_get();
+    JsonObject *obj = json_object_new();
+    json_object_set_boolean_member(obj, "enabled", st.enabled);
+    json_object_set_string_member(obj, "current", st.current);
+    json_object_set_string_member(obj, "latest", st.latest);
+    json_object_set_boolean_member(obj, "update_available", st.update_available);
+    json_object_set_string_member(obj, "url", st.url);
+    json_object_set_int_member(obj, "checked_at", st.checked_at);
+    json_object_set_string_member(obj, "state", st.state);
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, obj);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
 /* ── node.drain ───────────────────────────────────────────────────────
  * 노드 드레인 — 새 RPC 수신을 거부하고 inflight 완료를 대기
  *
@@ -7405,6 +7426,7 @@ static void dispatcher_init_routes(void)
 
     /* ── Daemon / Node 관리 ────────────────────────────────────── */
     g_hash_table_insert(g_rpc_routes, "daemon.version",      (gpointer)_handle_daemon_version);
+    g_hash_table_insert(g_rpc_routes, "daemon.update_check", (gpointer)_handle_daemon_update_check);
     g_hash_table_insert(g_rpc_routes, "node.drain",          (gpointer)_handle_node_drain);
     g_hash_table_insert(g_rpc_routes, "node.resume",         (gpointer)_handle_node_resume);
     g_hash_table_insert(g_rpc_routes, "quota.get",           (gpointer)_handle_quota_get);

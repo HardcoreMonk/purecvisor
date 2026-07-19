@@ -386,7 +386,7 @@
     <div class="mi" onclick="window.open('/ui/guide.html','_blank')" role="menuitem" data-i18n="menu.help.complete_guide">Complete Guide</div>
     <div class="sep" role="separator"></div>
     <div class="mi" onclick="showAbout()" role="menuitem" data-i18n="menu.help.about">About</div>
-    <div class="mi" onclick="toast('Version check: '+new Date().toLocaleDateString())" role="menuitem" data-i18n="menu.help.check_updates">Check for Updates...</div>
+    <div class="mi" onclick="checkForUpdates()" role="menuitem" data-i18n="menu.help.check_updates">Check for Updates...</div>
   </div>
 </div>
 </div>
@@ -402,6 +402,7 @@
   <h1><span>PureCVisor</span></h1>
   <p class="toolbar-summary">단일 노드 워크로드와 호스트 상태를 한 화면에서 관리합니다.</p>
 </div>
+<span id="version-badge" class="version-badge" role="status" aria-live="polite" hidden></span>
 <div class="pwr" role="group" aria-label="Power controls">
   <button title="시작" onclick="vmPower('start')" data-role="OPERATOR,ADMIN" aria-label="VM 시작"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-play"></use></svg></button>
   <button title="일시 정지" onclick="vmPower('suspend')" data-role="OPERATOR,ADMIN" aria-label="VM 일시 정지"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-pause"></use></svg></button>
@@ -631,6 +632,8 @@
     var langSel = document.getElementById('lang-select');
     if (langSel && typeof I18N !== 'undefined') langSel.value = I18N.getLang();
     if (typeof applyI18n === 'function') applyI18n();
+    /* 버전 알림 배지: 무인증 endpoint, 1회 초기 로드 (타이머 아님) */
+    if (typeof updateVersionBadge === 'function') updateVersionBadge();
     _pcvSplashRemove();
   }
   /* DOMContentLoaded가 이미 지난 문서에서도 splash를 제거한다. */

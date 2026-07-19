@@ -59,10 +59,10 @@ def test_flag_out_of_window():
     assert len(hits) == 1
 
 
-def test_current_tree_two_sites_guarded():
-    """① 현행 트리: 아웃바운드 2곳, 무가드 0곳."""
+def test_current_tree_three_sites_guarded():
+    """① 현행 트리: 아웃바운드 3곳(webhook POST 2 + update-check GitHub GET 1), 무가드 0곳."""
     total, unguarded = scan_tree()
-    assert total == 2, f"아웃바운드 사이트 수 예상 2, 실제 {total}"
+    assert total == 3, f"아웃바운드 사이트 수 예상 3, 실제 {total}"
     assert unguarded == [], f"무가드 사이트 존재: {unguarded}"
 
 

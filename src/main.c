@@ -124,6 +124,7 @@
 #include "modules/daemons/ebpf_telemetry.h" /* 5초 간격 심층 메트릭 (호스트 CPU/MEM + VM 디스크/네트워크 I/O) */
 #include "modules/daemons/alert_engine.h"   /* WhaTap-style threshold alert + Webhook */
 #include "modules/daemons/process_monitor.h" /* WhaTap-style process monitoring */
+#include "modules/daemons/update_check.h"   /* 버전 알림 — GitHub 최신 릴리스 조회+캐시 */
 
 /* ── 유틸리티 ─────────────────────────────────────────────────── */
 #include "utils/pcv_spawn.h"      /* GSubprocessLauncher 기반 외부 프로세스 실행 */
@@ -782,6 +783,7 @@ int main(int argc, char *argv[]) {
      */
     pcv_spawn_launcher_init();
     pcv_worker_pool_init();       /* 제한된 워커 스레드 풀 (daemon.conf worker_threads) */
+    pcv_update_check_init();      /* 버전 알림 — GitHub 최신 릴리스 조회 준비 */
 
     /*
      * /var/run/purecvisor/ 디렉토리 생성

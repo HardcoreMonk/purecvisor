@@ -166,6 +166,12 @@ button:focus-visible, .btn:focus-visible, .mi:focus-visible, .vi:focus-visible {
 .pwr button:first-child { border-radius: 4px 0 0 4px; }
 .pwr button:last-child { border-radius: 0 4px 4px 0; }
 
+/* 버전 알림 배지 (툴바) */
+.version-badge { display:inline-flex; align-items:center; gap:4px; font-size:11px;
+  padding:2px 8px; border-radius:10px; margin-left:auto; margin-right:8px;
+  border:1px solid var(--border); color:var(--fg2); cursor:default; }
+.version-badge.is-update { color:var(--amber, #d9822b); border-color:var(--amber, #d9822b); }
+
 /* ── Main Layout ───────────────────────────────────────────── */
 .main {
   display: flex; flex: 1; overflow: hidden;

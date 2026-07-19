@@ -22,6 +22,7 @@ var EP = (function() {
   var COMMON_ENDPOINTS = {
     /* ═══ VM ═══ */
     VM_LIST:              function()     { return B() + '/vms'; },
+    UPDATE_CHECK:         function()     { return B() + '/update-check'; },
     VM_CREATE:            function()     { return B() + '/vms'; },
     VM_DETAIL:            function(n)    { return B() + '/vms/' + enc(n); },
     VM_STOP:              function(n)    { return B() + '/vms/' + enc(n) + '/stop'; },

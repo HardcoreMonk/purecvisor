@@ -135,6 +135,7 @@ COMMON_CORE_SRCS = \
     src/modules/virt/circuit_breaker.c \
     src/modules/daemons/alert_silence.c \
     src/modules/daemons/alert_dlq.c \
+    src/modules/daemons/update_check.c \
     src/modules/virt/cancellable_map.c \
     src/modules/virt/virt_conn_pool.c \
     src/modules/storage/zfs_driver.c \
@@ -254,6 +255,7 @@ TEST_COMMON_SRCS = \
     tests/test_self_healing_anomaly.c \
     tests/test_alert_silence.c \
     tests/test_alert_dlq.c \
+    tests/test_update_check.c \
     tests/test_cancellable_map.c \
     tests/test_cpu_allocator.c \
     tests/test_config.c \
