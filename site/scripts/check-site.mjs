@@ -5,7 +5,7 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
 const distRoot = path.join(siteRoot, "dist");
-const requiredFiles = ["index.html", "guide.html", "favicon.svg"];
+const requiredFiles = ["index.html", "docs.html", "favicon.svg"];
 const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
   ["Private", "repository"].join(" "),
@@ -30,6 +30,9 @@ for (const relative of requiredFiles) {
 
 const outputFiles = await walk(distRoot);
 if (outputFiles.some((file) => file.endsWith(".map"))) throw new Error("source map found");
+if (outputFiles.some((file) => path.relative(distRoot, file) === "guide.html")) {
+  throw new Error("retired guide.html artifact found");
+}
 
 for (const file of outputFiles) {
   if (!/\.(?:css|html|js|json|svg|txt|xml)$/i.test(file)) continue;
@@ -43,7 +46,7 @@ for (const file of outputFiles) {
 }
 
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
-const guide = await readFile(path.join(distRoot, "guide.html"), "utf8");
+const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
 if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
   throw new Error("landing content missing");
 }
@@ -57,8 +60,9 @@ if ((index.match(/class="pcv-capability(?:\s|\")/g) || []).length !== 6) {
 if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
   throw new Error("landing category count mismatch");
 }
-if (!guide.includes("PureCVisor Single Edge 운영 가이드")) throw new Error("guide title missing");
-if (!guide.includes("22. 품질 게이트 가이드")) throw new Error("guide content incomplete");
+if (index.includes("/guide.html")) throw new Error("retired guide.html link found");
+if (!docs.includes("PureCVisor Single Edge 운영 가이드")) throw new Error("docs title missing");
+if (!docs.includes("22. 품질 게이트 가이드")) throw new Error("docs content incomplete");
 
 const chapterSlugs = [
   "1-시작하기",
@@ -86,8 +90,8 @@ const chapterSlugs = [
 ];
 
 for (const slug of chapterSlugs) {
-  if (!index.includes(`/guide.html#${slug}`)) throw new Error(`landing chapter link missing: ${slug}`);
-  if (!guide.includes(`id="${slug}"`)) throw new Error(`guide chapter anchor missing: ${slug}`);
+  if (!index.includes(`/docs.html#${slug}`)) throw new Error(`landing chapter link missing: ${slug}`);
+  if (!docs.includes(`id="${slug}"`)) throw new Error(`docs chapter anchor missing: ${slug}`);
 }
 
 process.stdout.write(`pages artifact verified: ${outputFiles.length} files\n`);

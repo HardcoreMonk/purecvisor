@@ -85,7 +85,7 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0043 | Implemented | 물리 bridge를 호스트 L3가 없는 전용 Ethernet 업링크로 제한하는 fail-closed guard, rollback 가능한 create·bind·비휘발 desired-state commit, 부팅 reconcile과 우회 차단을 구현·배포했다. shared가 이 계약을 완화하지 않는다. 격리 dedicated NIC와 host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0044 | Implemented | physical bridge를 `uplink_mode=dedicated\|shared`로 분리한다. shared mode는 관리 NIC의 host L3·master·MAC·MTU를 보존하고 게스트 MAC만 upstream 네트워크에 전달한다. 실제 KVM VM·host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0045 | Implemented | Local VPC 생성 시 `linux\|ovn` backend를 고정하고 OVN resource를 external ID 기반 single writer로 수렴한다. 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계 fault injection과 공개 지원은 남아 있다. |
-| ADR-0046 | Approved | 공개 문서는 public `HardcoreMonk/purecvisor` 저장소의 Astro·Starlight 정적 build를 GitHub Pages로 배포하고 `https://purecvisor.site`와 `/guide.html`을 안정 URL로 유지한다. 제품 `ui/`의 Vanilla JavaScript 계약과 분리한다. |
+| ADR-0046 | Approved | 공개 문서는 public `HardcoreMonk/purecvisor` 저장소의 Astro·Starlight 정적 build를 GitHub Pages로 배포하고 `https://purecvisor.site`와 `/docs.html`을 안정 URL로 유지한다. `guide.html`은 사용하지 않으며 제품 `ui/`의 Vanilla JavaScript 계약과 분리한다. |
 
 ---
 
