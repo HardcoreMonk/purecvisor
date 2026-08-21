@@ -6,7 +6,8 @@ const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
 const repoRoot = path.resolve(siteRoot, "..");
 const guideSource = path.join(repoRoot, "docs", "GUIDE.md");
-const guideTarget = path.join(siteRoot, "src", "content", "docs", "guide.md");
+const docsTarget = path.join(siteRoot, "src", "content", "docs", "docs.md");
+const retiredTarget = path.join(siteRoot, "src", "content", "docs", "guide.md");
 const fontSource = path.join(repoRoot, "ui", "vendor", "pretendard", "woff2");
 const fontTarget = path.join(siteRoot, "public", "assets", "pretendard");
 const repoBlobBase = "https://github.com/HardcoreMonk/purecvisor/blob/main";
@@ -46,8 +47,9 @@ tableOfContents:
 
 `;
 
-await mkdir(path.dirname(guideTarget), { recursive: true });
-await writeFile(guideTarget, guideFrontmatter + guideBody);
+await rm(retiredTarget, { force: true });
+await mkdir(path.dirname(docsTarget), { recursive: true });
+await writeFile(docsTarget, guideFrontmatter + guideBody);
 await rm(fontTarget, { recursive: true, force: true });
 await mkdir(fontTarget, { recursive: true });
 

@@ -13,8 +13,8 @@ lastUpdated: 2026-08-22
         <h1 id="pcv-hero-title">하나의 노드,<br />하나의 제어면</h1>
         <p class="pcv-hero-lead">VM, 컨테이너, ZFS 스토리지와 소프트웨어 정의 네트워크를 하나의 Linux/KVM 노드에서 운영합니다.</p>
         <div class="pcv-actions">
-          <a class="pcv-button pcv-button-primary" href="/guide.html#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/guide.html">전체 운영 가이드</a>
+          <a class="pcv-button pcv-button-primary" href="/docs.html#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a>
+          <a class="pcv-button pcv-button-ghost" href="/docs.html">전체 운영 가이드</a>
         </div>
         <p class="pcv-hero-note">독립 노드 배포 · C23 단일 프로세스 · Web UI, REST API, CLI</p>
       </div>
@@ -65,37 +65,37 @@ lastUpdated: 2026-08-22
           <span class="pcv-feature-index">01 · COMPUTE</span>
           <h3>VM과 컨테이너 수명주기</h3>
           <p>KVM VM과 LXC 컨테이너를 생성하고 시작·중지하며, 템플릿과 안전장치를 갖춘 VM 복제 흐름을 운영합니다.</p>
-          <a href="/guide.html#3-vm-관리">워크로드 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#3-vm-관리">워크로드 가이드 <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">02 · STORAGE</span>
           <h3>데이터 위치와 복구</h3>
           <p>ZFS pool·zvol, qcow2/raw와 iSCSI를 관리하고 백업·복원 절차로 이어갑니다.</p>
-          <a href="/guide.html#5-스토리지">스토리지 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#5-스토리지">스토리지 가이드 <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">03 · NETWORK</span>
           <h3>로컬 SDN</h3>
           <p>Linux bridge, OVS와 OVN Local VPC를 독립 노드 네트워크 경계 안에서 구성합니다.</p>
-          <a href="/guide.html#6-네트워크">네트워크 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#6-네트워크">네트워크 가이드 <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">04 · OBSERVE</span>
           <h3>관측과 작업 결과</h3>
           <p>호스트 메트릭, 알림, job completion과 audit 기록으로 accepted 이후의 실제 결과까지 확인합니다.</p>
-          <a href="/guide.html#8-모니터링--알림">모니터링 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#8-모니터링--알림">모니터링 가이드 <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">05 · INTERFACES</span>
           <h3>세 가지 운영 인터페이스</h3>
           <p>Web UI, REST API와 pcvctl CLI가 같은 Single Edge 기능과 권한 계약을 공유합니다.</p>
-          <a href="/guide.html#13-web-ui">인터페이스 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#13-web-ui">인터페이스 가이드 <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability pcv-capability-dark">
           <span class="pcv-feature-index">06 · OPERATE SAFELY</span>
           <h3>인증, 권한과 품질 게이트</h3>
           <p>JWT, RBAC, VM owner-scope와 단계별 검증으로 운영 변경의 허용 조건과 결과를 함께 관리합니다.</p>
-          <a href="/guide.html#10-보안">보안 가이드 <span aria-hidden="true">→</span></a>
+          <a href="/docs.html#10-보안">보안 가이드 <span aria-hidden="true">→</span></a>
         </article>
       </div>
     </div>
@@ -117,7 +117,7 @@ lastUpdated: 2026-08-22
 <i>$</i> sudo systemctl start purecvisorsd
 <i>$</i> curl -s http://localhost:80/api/v1/health</code></pre>
         </div>
-        <a class="pcv-text-link" href="/guide.html#14-5분-퀵스타트">설치 전제와 첫 VM 절차 보기 <span aria-hidden="true">→</span></a>
+        <a class="pcv-text-link" href="/docs.html#14-5분-퀵스타트">설치 전제와 첫 VM 절차 보기 <span aria-hidden="true">→</span></a>
       </div>
     </div>
   </section>
@@ -146,10 +146,10 @@ lastUpdated: 2026-08-22
       </div>
 
       <div class="pcv-doc-shortcuts" aria-label="빠른 문서 진입">
-        <a href="/guide.html#1-시작하기"><span>01</span><strong>빠른 시작</strong><small>서비스 기동과 첫 VM</small><b aria-hidden="true">→</b></a>
-        <a href="/guide.html#3-vm-관리"><span>02</span><strong>워크로드</strong><small>VM과 컨테이너 운영</small><b aria-hidden="true">→</b></a>
-        <a href="/guide.html#5-스토리지"><span>03</span><strong>인프라</strong><small>스토리지와 네트워크</small><b aria-hidden="true">→</b></a>
-        <a href="/guide.html#19-개발자--엔지니어-가이드"><span>04</span><strong>개발·출시</strong><small>규칙과 품질 게이트</small><b aria-hidden="true">→</b></a>
+        <a href="/docs.html#1-시작하기"><span>01</span><strong>빠른 시작</strong><small>서비스 기동과 첫 VM</small><b aria-hidden="true">→</b></a>
+        <a href="/docs.html#3-vm-관리"><span>02</span><strong>워크로드</strong><small>VM과 컨테이너 운영</small><b aria-hidden="true">→</b></a>
+        <a href="/docs.html#5-스토리지"><span>03</span><strong>인프라</strong><small>스토리지와 네트워크</small><b aria-hidden="true">→</b></a>
+        <a href="/docs.html#19-개발자--엔지니어-가이드"><span>04</span><strong>개발·출시</strong><small>규칙과 품질 게이트</small><b aria-hidden="true">→</b></a>
       </div>
 
       <div class="pcv-doc-directory">
@@ -157,70 +157,70 @@ lastUpdated: 2026-08-22
           <span class="pcv-category-index">CATEGORY 01 · GET STARTED</span>
           <h3 id="category-start-title">시작·설치</h3>
           <ul>
-            <li><a href="/guide.html#1-시작하기"><span>01</span>시작하기 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#2-설치-및-환경-구성"><span>02</span>설치 및 환경 구성 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#1-시작하기"><span>01</span>시작하기 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#2-설치-및-환경-구성"><span>02</span>설치 및 환경 구성 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-workloads-title">
           <span class="pcv-category-index">CATEGORY 02 · WORKLOADS</span>
           <h3 id="category-workloads-title">VM·컨테이너</h3>
           <ul>
-            <li><a href="/guide.html#3-vm-관리"><span>03</span>VM 관리 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#4-컨테이너-관리"><span>04</span>컨테이너 관리 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#3-vm-관리"><span>03</span>VM 관리 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#4-컨테이너-관리"><span>04</span>컨테이너 관리 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-infrastructure-title">
           <span class="pcv-category-index">CATEGORY 03 · INFRASTRUCTURE</span>
           <h3 id="category-infrastructure-title">스토리지·네트워크</h3>
           <ul>
-            <li><a href="/guide.html#5-스토리지"><span>05</span>스토리지 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#6-네트워크"><span>06</span>네트워크 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#7-멀티-제어면-참고-기록"><span>07</span>멀티 제어면 참고 기록 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#5-스토리지"><span>05</span>스토리지 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#6-네트워크"><span>06</span>네트워크 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#7-멀티-제어면-참고-기록"><span>07</span>멀티 제어면 참고 기록 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-observe-title">
           <span class="pcv-category-index">CATEGORY 04 · OBSERVE &amp; RECOVER</span>
           <h3 id="category-observe-title">모니터링·복구</h3>
           <ul>
-            <li><a href="/guide.html#8-모니터링--알림"><span>08</span>모니터링 &amp; 알림 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#9-백업--복원"><span>09</span>백업 &amp; 복원 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#8-모니터링--알림"><span>08</span>모니터링 &amp; 알림 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#9-백업--복원"><span>09</span>백업 &amp; 복원 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-security-title">
           <span class="pcv-category-index">CATEGORY 05 · SECURITY &amp; AUTOMATION</span>
           <h3 id="category-security-title">보안·마이그레이션</h3>
           <ul>
-            <li><a href="/guide.html#10-보안"><span>10</span>보안 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#11-클라우드-마이그레이션"><span>11</span>클라우드 마이그레이션 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#12-ai--자가치유"><span>12</span>AI &amp; 자가치유 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#10-보안"><span>10</span>보안 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#11-클라우드-마이그레이션"><span>11</span>클라우드 마이그레이션 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#12-ai--자가치유"><span>12</span>AI &amp; 자가치유 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-interfaces-title">
           <span class="pcv-category-index">CATEGORY 06 · INTERFACES</span>
           <h3 id="category-interfaces-title">Web UI·API·CLI</h3>
           <ul>
-            <li><a href="/guide.html#13-web-ui"><span>13</span>Web UI <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#14-rest-api"><span>14</span>REST API <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#15-cli-레퍼런스"><span>15</span>CLI 레퍼런스 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#13-web-ui"><span>13</span>Web UI <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#14-rest-api"><span>14</span>REST API <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#15-cli-레퍼런스"><span>15</span>CLI 레퍼런스 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-support-title">
           <span class="pcv-category-index">CATEGORY 07 · CONFIGURE &amp; TROUBLESHOOT</span>
           <h3 id="category-support-title">설정·문제 해결</h3>
           <ul>
-            <li><a href="/guide.html#16-설정-레퍼런스"><span>16</span>설정 레퍼런스 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#17-트러블슈팅"><span>17</span>트러블슈팅 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#18-부록"><span>18</span>부록 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#16-설정-레퍼런스"><span>16</span>설정 레퍼런스 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#17-트러블슈팅"><span>17</span>트러블슈팅 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#18-부록"><span>18</span>부록 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-release-title">
           <span class="pcv-category-index">CATEGORY 08 · BUILD &amp; RELEASE</span>
           <h3 id="category-release-title">개발·출시</h3>
           <ul>
-            <li><a href="/guide.html#19-개발자--엔지니어-가이드"><span>19</span>개발자 &amp; 엔지니어 가이드 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#20-영업--마케팅-가이드"><span>20</span>영업 &amp; 마케팅 가이드 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#21-아키텍처-리팩토링-가이드"><span>21</span>아키텍처 리팩토링 가이드 <b aria-hidden="true">→</b></a></li>
-            <li><a href="/guide.html#22-품질-게이트-가이드"><span>22</span>품질 게이트 가이드 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#19-개발자--엔지니어-가이드"><span>19</span>개발자 &amp; 엔지니어 가이드 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#20-영업--마케팅-가이드"><span>20</span>영업 &amp; 마케팅 가이드 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#21-아키텍처-리팩토링-가이드"><span>21</span>아키텍처 리팩토링 가이드 <b aria-hidden="true">→</b></a></li>
+            <li><a href="/docs.html#22-품질-게이트-가이드"><span>22</span>품질 게이트 가이드 <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
       </div>
@@ -230,9 +230,9 @@ lastUpdated: 2026-08-22
           <p class="pcv-kicker">RECOMMENDED PATHS</p>
           <h2 id="pcv-role-title">역할에 맞는 순서로 읽으세요.</h2>
         </div>
-        <a href="/guide.html#14-5분-퀵스타트"><span>01 · FIRST RUN</span><strong>처음 설치하는 운영자</strong><small>5분 퀵스타트에서 서비스·인증·첫 VM을 확인합니다.</small></a>
-        <a href="/guide.html#8-모니터링--알림"><span>02 · OPERATE</span><strong>현재 노드를 운영하는 엔지니어</strong><small>상태와 알림에서 트러블슈팅·복구로 이어갑니다.</small></a>
-        <a href="/guide.html#19-개발자--엔지니어-가이드"><span>03 · BUILD</span><strong>제품을 수정하는 개발자</strong><small>소스 불변 규칙과 변경 수준별 품질 게이트를 확인합니다.</small></a>
+        <a href="/docs.html#14-5분-퀵스타트"><span>01 · FIRST RUN</span><strong>처음 설치하는 운영자</strong><small>5분 퀵스타트에서 서비스·인증·첫 VM을 확인합니다.</small></a>
+        <a href="/docs.html#8-모니터링--알림"><span>02 · OPERATE</span><strong>현재 노드를 운영하는 엔지니어</strong><small>상태와 알림에서 트러블슈팅·복구로 이어갑니다.</small></a>
+        <a href="/docs.html#19-개발자--엔지니어-가이드"><span>03 · BUILD</span><strong>제품을 수정하는 개발자</strong><small>소스 불변 규칙과 변경 수준별 품질 게이트를 확인합니다.</small></a>
       </div>
     </div>
   </section>
@@ -242,7 +242,7 @@ lastUpdated: 2026-08-22
       <p class="pcv-kicker">PURECVISOR SINGLE EDGE</p>
       <h2 id="pcv-final-title">한 노드부터 명확하게 운영하세요.</h2>
       <div class="pcv-actions">
-        <a class="pcv-button pcv-button-light" href="/guide.html">전체 운영 가이드 <span aria-hidden="true">→</span></a>
+        <a class="pcv-button pcv-button-light" href="/docs.html">전체 운영 가이드 <span aria-hidden="true">→</span></a>
         <a class="pcv-button pcv-button-ghost" href="https://github.com/HardcoreMonk/purecvisor">GitHub 저장소</a>
       </div>
     </div>

@@ -3,6 +3,7 @@
 - **상태:** Approved
 - **일자:** 2026-08-21
 - **승인:** 2026-08-21 사용자 명시 승인
+- **변경:** 2026-08-22 전체 운영 가이드 정본을 `/docs.html`로 전환하도록 사용자 명시 승인
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
 - **관련:** ADR-0013, ADR-0016, ADR-0037
 
@@ -22,7 +23,8 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
    않는다.
 5. `docs/GUIDE.md`를 전체 운영 가이드의 단일 진실로 유지하며 build 단계에서 Starlight content로
    생성한다.
-6. `/guide.html`을 전체 가이드의 안정적인 공개 URL로 유지한다.
+6. `/docs.html`을 전체 가이드의 안정적인 공개 URL로 유지하고 `guide.html`은 생성하거나 사용하지
+   않는다.
 7. GitHub Actions는 `site/dist/`만 Pages artifact로 업로드하고 action dependency는 commit SHA로
    고정한다.
 8. DNS cutover는 Pages artifact, domain verification와 HTTPS를 확인한 뒤 별도 운영 단계로
@@ -49,7 +51,8 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 ## Verification
 
 - clean install에서 `npm run check`가 정적 artifact를 재현해야 한다.
-- `dist/index.html`과 `dist/guide.html`이 생성되고 전체 guide의 마지막 장까지 포함해야 한다.
+- `dist/index.html`과 `dist/docs.html`이 생성되고 전체 guide의 마지막 장까지 포함해야 한다.
+- `dist/guide.html`과 `/guide.html` navigation·landing link가 없어야 한다.
 - source map과 내부 운영 주소, private repository 표식이 artifact에 없어야 한다.
-- GitHub Pages 기본 주소와 custom domain에서 root, guide, 검색과 HTTPS가 동작해야 한다.
+- GitHub Pages 기본 주소와 custom domain에서 root, docs, 검색과 HTTPS가 동작해야 한다.
 - DNS cutover 전후 rollback 경로와 기존 endpoint 분리를 기록해야 한다.

@@ -17,7 +17,8 @@ Pages에 정적 artifact로 배포한다. 제품 Web UI와 문서 사이트의 s
 - 공개 문서 site만 `site/`에서 Astro 7.2.4와 Starlight 0.41.7을 사용한다.
 - GitHub Actions는 `site/dist/`만 Pages artifact로 업로드한다.
 - source map, 비공개 운영 기록, 인증정보와 allowlist 밖 파일은 Pages에 포함하지 않는다.
-- `https://purecvisor.site/guide.html`은 전체 운영 가이드의 호환·정본 URL로 유지한다.
+- `https://purecvisor.site/docs.html`을 전체 운영 가이드의 정본 URL로 유지한다.
+- `guide.html`은 생성하거나 navigation과 landing link에서 사용하지 않는다.
 - `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`를 Starlight content로 생성한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 문서 포털과 같은 8개 작업
   카테고리·22개 장·역할별 추천 경로를 공개 사이트 구조로 제공한다.
@@ -25,7 +26,7 @@ Pages에 정적 artifact로 배포한다. 제품 Web UI와 문서 사이트의 s
 ## 콘텐츠 동기화 계약
 
 - `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 정본이다.
-- `site/src/content/docs/index.mdx`는 각 장의 설명을 복제하지 않고 정확한 guide anchor로
+- `site/src/content/docs/index.mdx`는 각 장의 설명을 복제하지 않고 정확한 docs anchor로
   연결한다.
 - 제품 `ui/docs.html`과 공개 landing은 같은 카테고리·장 taxonomy를 사용하지만 서로 다른
   runtime과 저장소에서 배포되므로 한쪽의 변경이 다른 쪽을 자동 배포하지 않는다.
@@ -94,6 +95,6 @@ npm ci
 npm run check
 ```
 
-검증은 `index.html`, `guide.html`, 정본 guide 내용, 금지된 내부 주소·private repository 표식,
-source map 부재와 정적 artifact 생성을 확인한다. 실제 Pages 배포 후에는 root, guide deep link,
+검증은 `index.html`, `docs.html`, 정본 guide 내용, `guide.html` artifact·link 부재, 금지된 내부
+주소·private repository 표식, source map 부재와 정적 artifact 생성을 확인한다. 실제 Pages 배포 후에는 root, docs deep link,
 검색, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.

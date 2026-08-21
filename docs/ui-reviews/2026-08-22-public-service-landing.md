@@ -78,9 +78,9 @@ Refero에서 developer tool, data infrastructure와 documentation landing을 검
 - 첫 `1440 × 1000` viewport에서 서비스 정의, 주 CTA와 Single Edge 제어면 구조가 보인다.
 - `390 × 844`에서 navigation, hero, CTA와 구조 패널이 단일 열로 재배치되고 수평 overflow가 없다.
 - landing에 서비스 소개, 시작 흐름, 여섯 기능과 공개 범위가 문서 탐색보다 먼저 나온다.
-- 제품 문서와 같은 8개 작업 카테고리·22개 장 링크가 모두 유효한 guide anchor를 가리킨다.
+- 제품 문서와 같은 8개 작업 카테고리·22개 장 링크가 모두 유효한 docs anchor를 가리킨다.
 - keyboard focus가 보이고 axe 자동 검사에서 위반이 없다.
-- root, guide deep link, 검색과 모바일 navigation이 실제 정적 build에서 동작한다.
+- root, docs deep link, 검색과 모바일 navigation이 실제 정적 build에서 동작한다.
 - Pages artifact에 source map, 내부 주소와 비공개 저장소 표식이 없다.
 
 ## 검증 결과
@@ -88,11 +88,11 @@ Refero에서 developer tool, data infrastructure와 documentation landing을 검
 2026-08-22 정적 build와 로컬 HTTP artifact를 기준으로 검증했다.
 
 - `npm run check`: 36개 Pages artifact, landing 필수 구간, 6개 기능, 8개 카테고리와
-  22개 guide anchor 검증 통과
+  22개 docs anchor 검증 통과
 - 데스크톱 `1440 × 1000`: 첫 viewport에서 hero CTA와 제어면 구조 노출, 수평 overflow 0
 - 모바일 `390 × 844`: 단일 열 재배치, hero CTA와 제어면 구조 노출, 수평 overflow 0
 - axe: 데스크톱·모바일 위반 0
 - 브라우저 console, page error와 failed request: 0
-- guide `#22-품질-게이트-가이드` deep link, ZFS 검색과 모바일 sidebar 동작 확인
+- docs `#22-품질-게이트-가이드` deep link, ZFS 검색과 모바일 sidebar 동작 확인
 - `scripts/check_design_md.py`, `tests/integration/test_design_md_surface.sh`,
   `make check-public-comments`와 `git diff --check` 통과

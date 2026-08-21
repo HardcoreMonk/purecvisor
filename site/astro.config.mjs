@@ -56,7 +56,7 @@ export default defineConfig({
             },
             {
               label: "전체 운영 가이드",
-              slug: "guide"
+              slug: "docs"
             }
           ]
         }
