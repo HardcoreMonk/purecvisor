@@ -5,7 +5,21 @@ import { fileURLToPath } from "node:url";
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
 const distRoot = path.join(siteRoot, "dist");
-const requiredFiles = ["index.html", "docs.html", "favicon.svg"];
+const requiredFiles = [
+  "index.html",
+  "docs.html",
+  "guide-content.md",
+  "favicon.svg",
+  "icon-192.png",
+  "vendor/coolicons/coolicons.svg",
+  "vendor/pretendard/pretendard.css",
+  "vendor/pretendard/woff2/Pretendard-Black.woff2",
+  "vendor/pretendard/woff2/Pretendard-ExtraBold.woff2",
+  "vendor/pretendard/woff2/Pretendard-Medium.woff2",
+  "vendor/pretendard/woff2/Pretendard-Regular.woff2",
+  "vendor/pretendard/woff2/Pretendard-SemiBold.woff2",
+  "vendor/pretendard/woff2/Pretendard-Bold.woff2"
+];
 const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
   ["Private", "repository"].join(" "),
@@ -35,7 +49,7 @@ if (outputFiles.some((file) => path.relative(distRoot, file) === "guide.html")) 
 }
 
 for (const file of outputFiles) {
-  if (!/\.(?:css|html|js|json|svg|txt|xml)$/i.test(file)) continue;
+  if (!/\.(?:css|html|js|json|md|svg|txt|xml)$/i.test(file)) continue;
   const source = await readFile(file, "utf8");
   if (/\.(?:css|js)$/i.test(file) && source.includes("sourceMappingURL")) {
     throw new Error(`source map reference found in ${path.relative(distRoot, file)}`);
@@ -47,6 +61,7 @@ for (const file of outputFiles) {
 
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
+const guide = await readFile(path.join(distRoot, "guide-content.md"), "utf8");
 if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
   throw new Error("landing content missing");
 }
@@ -61,8 +76,19 @@ if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
   throw new Error("landing category count mismatch");
 }
 if (index.includes("/guide.html")) throw new Error("retired guide.html link found");
-if (!docs.includes("PureCVisor Single Edge 운영 가이드")) throw new Error("docs title missing");
-if (!docs.includes("22. 품질 게이트 가이드")) throw new Error("docs content incomplete");
+if (!docs.includes('<base href="/">')) throw new Error("public docs base missing");
+if (docs.includes('<base href="/ui/">') || docs.includes('href="/ui/"')) {
+  throw new Error("product-only ui route found in public docs");
+}
+if (!docs.includes('class="reader-shell"') || !docs.includes('id="reader-content"')) {
+  throw new Error("product docs reader shell missing");
+}
+if (!docs.includes("fetch('guide-content.md'") || !docs.includes("서비스 홈")) {
+  throw new Error("public docs runtime contract missing");
+}
+if (!guide.includes("# PureCVisor Single Edge 운영 가이드")) throw new Error("guide title missing");
+if (!guide.includes("## 22. 품질 게이트 가이드")) throw new Error("guide content incomplete");
+if (/\]\((?:\.\.?\/)/.test(guide)) throw new Error("relative source link found in guide");
 
 const chapterSlugs = [
   "1-시작하기",
@@ -72,26 +98,26 @@ const chapterSlugs = [
   "5-스토리지",
   "6-네트워크",
   "7-멀티-제어면-참고-기록",
-  "8-모니터링--알림",
-  "9-백업--복원",
+  "8-모니터링-알림",
+  "9-백업-복원",
   "10-보안",
   "11-클라우드-마이그레이션",
-  "12-ai--자가치유",
+  "12-ai-자가치유",
   "13-web-ui",
   "14-rest-api",
   "15-cli-레퍼런스",
   "16-설정-레퍼런스",
   "17-트러블슈팅",
   "18-부록",
-  "19-개발자--엔지니어-가이드",
-  "20-영업--마케팅-가이드",
+  "19-개발자-엔지니어-가이드",
+  "20-영업-마케팅-가이드",
   "21-아키텍처-리팩토링-가이드",
   "22-품질-게이트-가이드"
 ];
 
 for (const slug of chapterSlugs) {
   if (!index.includes(`/docs.html#${slug}`)) throw new Error(`landing chapter link missing: ${slug}`);
-  if (!docs.includes(`id="${slug}"`)) throw new Error(`docs chapter anchor missing: ${slug}`);
+  if (!docs.includes(`href="docs.html#${slug}"`)) throw new Error(`docs chapter link missing: ${slug}`);
 }
 
 process.stdout.write(`pages artifact verified: ${outputFiles.length} files\n`);

@@ -61,8 +61,9 @@ Refero에서 developer tool, data infrastructure와 documentation landing을 검
 - 실제 제품 화면이 아닌 가짜 dashboard 수치와 고객·성능 주장은 만들지 않는다.
 - 큰 gradient, glow, 장식용 orb와 자동 재생 scroll animation은 사용하지 않는다.
 - Multi Edge, 클러스터 자동화, 라이브 마이그레이션과 페더레이션을 현재 기능처럼 소개하지 않는다.
-- 제품 `ui/docs.html`을 iframe이나 복사본으로 배포하지 않는다. 공개 가이드는
-  `docs/GUIDE.md`에서 정적으로 생성한다.
+- 제품 `ui/docs.html`을 iframe으로 배포하거나 private endpoint에서 불러오지 않는다. 전체 운영
+  가이드 경로는 `2026-08-22-public-product-docs-layout.md`에 따라 공개 저장소의 검증된
+  `ui/docs.html`과 `ui/guide-content.md`를 build artifact로 사용한다.
 
 ## 정보 구조
 
