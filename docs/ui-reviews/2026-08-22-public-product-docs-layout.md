@@ -1,6 +1,6 @@
 # 공개 docs 제품 문서 포털 레이아웃 리뷰
 
-> 상태: PASS · 로컬 구현 검증 완료, 운영 Pages 검증 대기
+> 상태: Verified
 > 대상: `https://purecvisor.site/docs.html`
 > 비교 기준: `https://192.168.3.53/ui/docs.html`
 > 구현 승인: 2026-08-22 사용자 명시 요청
@@ -117,3 +117,17 @@ navigation, 중앙 본문과 우측 현재 장 목차를 사용해야 한다.
   `make check-public-comments`와 `git diff --check` 통과
 - UI 워크플로의 spec lifecycle 검사 스크립트는 공개 저장소에 포함되어 있지 않아 실행하지
   않았으며 public source·site 계약 gate로 대체했다.
+
+## 운영 검증 결과
+
+2026-08-22 main `43ce9ae08152d8df78e83a4f830721f08ab963ab`과 GitHub Pages run
+`32504478741`을 기준으로 운영 검증을 완료했다.
+
+- Pages build와 deploy job 성공
+- `https://purecvisor.site/`, `/docs.html`, `/guide-content.md`, local font·icon 200
+- `/guide.html` 404
+- 운영 `docs.html`과 `guide-content.md`의 SHA-256이 로컬 검증 artifact와 각각 일치
+- 공개 landing의 `전체 운영 가이드` 클릭이 `/docs.html`로 이동
+- 데스크톱: 22개 장, 좌측 active 장, 우측 현재 장 목차, 마지막 장과 검색 확인
+- 모바일: 현재 절 bar, 장 drawer와 마지막 장 확인
+- 데스크톱·모바일 수평 overflow 0, axe 위반 0, browser console·page error·failed request 0
