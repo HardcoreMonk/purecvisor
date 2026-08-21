@@ -43,7 +43,38 @@ for (const file of outputFiles) {
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const guide = await readFile(path.join(distRoot, "guide.html"), "utf8");
 if (!index.includes("하나의 노드, 하나의 제어면")) throw new Error("landing content missing");
+if (!index.includes("8개 작업 카테고리 · 22개 장")) throw new Error("landing taxonomy missing");
 if (!guide.includes("PureCVisor Single Edge 운영 가이드")) throw new Error("guide title missing");
 if (!guide.includes("22. 품질 게이트 가이드")) throw new Error("guide content incomplete");
+
+const chapterSlugs = [
+  "1-시작하기",
+  "2-설치-및-환경-구성",
+  "3-vm-관리",
+  "4-컨테이너-관리",
+  "5-스토리지",
+  "6-네트워크",
+  "7-멀티-제어면-참고-기록",
+  "8-모니터링--알림",
+  "9-백업--복원",
+  "10-보안",
+  "11-클라우드-마이그레이션",
+  "12-ai--자가치유",
+  "13-web-ui",
+  "14-rest-api",
+  "15-cli-레퍼런스",
+  "16-설정-레퍼런스",
+  "17-트러블슈팅",
+  "18-부록",
+  "19-개발자--엔지니어-가이드",
+  "20-영업--마케팅-가이드",
+  "21-아키텍처-리팩토링-가이드",
+  "22-품질-게이트-가이드"
+];
+
+for (const slug of chapterSlugs) {
+  if (!index.includes(`/guide.html#${slug}`)) throw new Error(`landing chapter link missing: ${slug}`);
+  if (!guide.includes(`id="${slug}"`)) throw new Error(`guide chapter anchor missing: ${slug}`);
+}
 
 process.stdout.write(`pages artifact verified: ${outputFiles.length} files\n`);

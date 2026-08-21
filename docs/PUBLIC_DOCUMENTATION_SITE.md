@@ -1,6 +1,6 @@
 # 공개 문서 사이트 운영 기준
 
-> 상태: Approved, 로컬 구현·검증 완료, 최초 commit·push·Pages 활성화 대기
+> 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
@@ -19,6 +19,18 @@ Pages에 정적 artifact로 배포한다. 제품 Web UI와 문서 사이트의 s
 - source map, 비공개 운영 기록, 인증정보와 allowlist 밖 파일은 Pages에 포함하지 않는다.
 - `https://purecvisor.site/guide.html`은 전체 운영 가이드의 호환·정본 URL로 유지한다.
 - `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`를 Starlight content로 생성한다.
+- landing source는 `site/src/content/docs/index.mdx`이며 제품 문서 포털과 같은 8개 작업
+  카테고리·22개 장·역할별 추천 경로를 공개 사이트 구조로 제공한다.
+
+## 콘텐츠 동기화 계약
+
+- `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 정본이다.
+- `site/src/content/docs/index.mdx`는 각 장의 설명을 복제하지 않고 정확한 guide anchor로
+  연결한다.
+- 제품 `ui/docs.html`과 공개 landing은 같은 카테고리·장 taxonomy를 사용하지만 서로 다른
+  runtime과 저장소에서 배포되므로 한쪽의 변경이 다른 쪽을 자동 배포하지 않는다.
+- 카테고리나 장 구성이 바뀌면 제품 포털, 공개 landing과 `site/scripts/check-site.mjs`의
+  링크·anchor gate를 같은 릴리스 단위로 갱신한다.
 
 ## 시각 기준
 

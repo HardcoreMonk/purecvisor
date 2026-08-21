@@ -1,0 +1,125 @@
+---
+title: PureCVisor
+description: Linux/KVM Single Edge 하이퍼바이저 운영 문서
+template: splash
+lastUpdated: 2026-08-22
+hero:
+  title: 하나의 노드, 하나의 제어면
+  tagline: PureCVisor 2.0.0은 VM, 컨테이너, 스토리지, 네트워크와 운영 관측성을 단일 Linux/KVM 노드에서 관리합니다.
+  actions:
+    - text: 전체 가이드 읽기
+      link: /guide.html
+      icon: right-arrow
+      variant: primary
+    - text: GitHub 저장소
+      link: https://github.com/HardcoreMonk/purecvisor
+      icon: external
+      variant: minimal
+---
+
+import { Card, CardGrid, LinkCard } from "@astrojs/starlight/components";
+
+## Single Edge 운영을 위한 공개 문서
+
+PureCVisor 문서는 설치, VM과 컨테이너 운영, ZFS 스토리지, OVS·OVN 네트워크, REST API,
+CLI, 보안, 백업과 품질 게이트를 한 가이드에서 제공합니다.
+
+> 문서 기준: PureCVisor 2.0.0 Single Edge · 8개 작업 카테고리 · 22개 장
+
+## 빠른 문서 진입
+
+<CardGrid>
+  <LinkCard title="빠른 시작" href="/guide.html#1-시작하기" description="서비스 기동부터 첫 VM과 Web UI 접속까지 확인합니다." />
+  <LinkCard title="워크로드" href="/guide.html#3-vm-관리" description="VM과 컨테이너의 생성, 수명주기, 복제와 자원 제어를 다룹니다." />
+  <LinkCard title="인프라" href="/guide.html#5-스토리지" description="ZFS, 네트워크, 모니터링과 백업 운영 절차를 연결합니다." />
+  <LinkCard title="개발·출시" href="/guide.html#19-개발자--엔지니어-가이드" description="소스 불변 규칙과 릴리스 전 품질 게이트를 확인합니다." />
+</CardGrid>
+
+## 빠른 시작
+
+```shell
+make single
+make test
+make release
+```
+
+Ubuntu 22.04 LTS와 24.04 LTS에서 KVM·libvirt 기반 독립 노드 배포를 지원합니다. 실제 설치 전
+[전체 운영 가이드](/guide.html#2-설치-및-환경-구성)의 환경 전제와 공개판 경계를 확인하세요.
+
+## 필요한 작업에서 시작하세요
+
+22개 장을 8개 작업 카테고리로 묶었습니다. 각 항목은 전체 운영 가이드의 정확한 장으로
+연결됩니다.
+
+<CardGrid>
+  <Card title="시작·설치">
+    <ul>
+      <li><a href="/guide.html#1-시작하기">01. 시작하기</a></li>
+      <li><a href="/guide.html#2-설치-및-환경-구성">02. 설치 및 환경 구성</a></li>
+    </ul>
+  </Card>
+  <Card title="VM·컨테이너">
+    <ul>
+      <li><a href="/guide.html#3-vm-관리">03. VM 관리</a></li>
+      <li><a href="/guide.html#4-컨테이너-관리">04. 컨테이너 관리</a></li>
+    </ul>
+  </Card>
+  <Card title="스토리지·네트워크">
+    <ul>
+      <li><a href="/guide.html#5-스토리지">05. 스토리지</a></li>
+      <li><a href="/guide.html#6-네트워크">06. 네트워크</a></li>
+      <li><a href="/guide.html#7-멀티-제어면-참고-기록">07. 멀티 제어면 참고 기록</a></li>
+    </ul>
+  </Card>
+  <Card title="모니터링·복구">
+    <ul>
+      <li><a href="/guide.html#8-모니터링--알림">08. 모니터링 &amp; 알림</a></li>
+      <li><a href="/guide.html#9-백업--복원">09. 백업 &amp; 복원</a></li>
+    </ul>
+  </Card>
+  <Card title="보안·마이그레이션">
+    <ul>
+      <li><a href="/guide.html#10-보안">10. 보안</a></li>
+      <li><a href="/guide.html#11-클라우드-마이그레이션">11. 클라우드 마이그레이션</a></li>
+      <li><a href="/guide.html#12-ai--자가치유">12. AI &amp; 자가치유</a></li>
+    </ul>
+  </Card>
+  <Card title="Web UI·API·CLI">
+    <ul>
+      <li><a href="/guide.html#13-web-ui">13. Web UI</a></li>
+      <li><a href="/guide.html#14-rest-api">14. REST API</a></li>
+      <li><a href="/guide.html#15-cli-레퍼런스">15. CLI 레퍼런스</a></li>
+    </ul>
+  </Card>
+  <Card title="설정·문제 해결">
+    <ul>
+      <li><a href="/guide.html#16-설정-레퍼런스">16. 설정 레퍼런스</a></li>
+      <li><a href="/guide.html#17-트러블슈팅">17. 트러블슈팅</a></li>
+      <li><a href="/guide.html#18-부록">18. 부록</a></li>
+    </ul>
+  </Card>
+  <Card title="개발·출시">
+    <ul>
+      <li><a href="/guide.html#19-개발자--엔지니어-가이드">19. 개발자 &amp; 엔지니어 가이드</a></li>
+      <li><a href="/guide.html#20-영업--마케팅-가이드">20. 영업 &amp; 마케팅 가이드</a></li>
+      <li><a href="/guide.html#21-아키텍처-리팩토링-가이드">21. 아키텍처 리팩토링 가이드</a></li>
+      <li><a href="/guide.html#22-품질-게이트-가이드">22. 품질 게이트 가이드</a></li>
+    </ul>
+  </Card>
+</CardGrid>
+
+## 역할에 맞는 순서로 읽으세요
+
+<CardGrid>
+  <LinkCard title="처음 설치하는 운영자" href="/guide.html#14-5분-퀵스타트" description="5분 퀵스타트에서 서비스·인증·첫 VM을 확인한 뒤 설치·환경 구성으로 확장합니다." />
+  <LinkCard title="현재 노드를 운영하는 엔지니어" href="/guide.html#8-모니터링--알림" description="모니터링과 알림에서 상태를 확인하고 트러블슈팅·백업 복원으로 이어갑니다." />
+  <LinkCard title="제품을 수정하는 개발자" href="/guide.html#19-개발자--엔지니어-가이드" description="소스 불변 규칙과 ADR을 먼저 읽고 품질 게이트에서 변경 수준에 맞는 검증을 고릅니다." />
+</CardGrid>
+
+## 문서 운영 원칙
+
+- 제품과 문서는 `2.0.0` Single Edge 공개 범위만 설명합니다.
+- 공개 가이드의 단일 진실은 저장소의 `docs/GUIDE.md`입니다.
+- 제품 문서 포털과 공개 Pages는 같은 8개 작업 카테고리와 22개 장 구성을 사용합니다.
+- GitHub Pages에는 Astro가 생성한 검증된 정적 artifact만 배포합니다.
+- 다중 노드 클러스터, 라이브 마이그레이션과 페더레이션은 공개 범위가 아닙니다.
