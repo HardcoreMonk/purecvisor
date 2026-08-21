@@ -8,7 +8,9 @@ const distRoot = path.join(siteRoot, "dist");
 const requiredFiles = ["index.html", "guide.html", "favicon.svg"];
 const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
-  ["Private", "repository"].join(" ")
+  ["Private", "repository"].join(" "),
+  ["192", "168", "3", "51"].join("."),
+  ["192", "168", "3", "53"].join(".")
 ];
 
 async function walk(directory) {
@@ -42,8 +44,19 @@ for (const file of outputFiles) {
 
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const guide = await readFile(path.join(distRoot, "guide.html"), "utf8");
-if (!index.includes("하나의 노드, 하나의 제어면")) throw new Error("landing content missing");
+if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
+  throw new Error("landing content missing");
+}
 if (!index.includes("8개 작업 카테고리 · 22개 장")) throw new Error("landing taxonomy missing");
+if (!index.includes("한 노드의 가상화 운영을")) throw new Error("service introduction missing");
+if (!index.includes("Single Edge 시작 흐름")) throw new Error("quickstart scene missing");
+if (!index.includes("Single Edge에 집중한 공개판")) throw new Error("public scope missing");
+if ((index.match(/class="pcv-capability(?:\s|\")/g) || []).length !== 6) {
+  throw new Error("service capability count mismatch");
+}
+if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
+  throw new Error("landing category count mismatch");
+}
 if (!guide.includes("PureCVisor Single Edge 운영 가이드")) throw new Error("guide title missing");
 if (!guide.includes("22. 품질 게이트 가이드")) throw new Error("guide content incomplete");
 
