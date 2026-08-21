@@ -35,9 +35,13 @@ Pages에 정적 artifact로 배포한다. 제품 Web UI와 문서 사이트의 s
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- opencodex.me에서 확인한 문서 중심 landing, 검색과 3단 reader 구조만 참고한다.
+- 첫 페이지는 서비스 설명, 시작 흐름, 핵심 기능과 공개 범위를 문서 탐색보다 먼저 제공한다.
+- opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
+  reader 구조만 참고한다.
 - 외부 사이트의 logo, 고유 문구, 이미지와 브랜드 자산은 복제하지 않는다.
 - 본문 가독성, keyboard focus, mobile navigation과 code overflow를 운영 기준으로 검증한다.
+- 상세 채택·기각 근거와 수용 기준은
+  `docs/ui-reviews/2026-08-22-public-service-landing.md`를 따른다.
 
 ## 배포 흐름
 
