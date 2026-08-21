@@ -1,0 +1,9 @@
+{
+  "state": "maintenance",
+  "title": "서비스 점검 중",
+  "impact": "서비스 안정화 작업으로 웹 콘솔 및 API 접속이 일시적으로 제한됩니다.",
+  "data_status": "고객 VM과 스토리지 데이터 보호를 우선으로 확인 중입니다.",
+  "eta": "점검 중",
+  "updated_at": "2026-04-27 00:19:56 KST",
+  "support": "support@purecvisor.example.com"
+}

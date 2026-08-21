@@ -1,0 +1,10 @@
+# raw 에러코드 리터럴 baseline (2026-07-15, DISP-6 Task 5 착지)
+#
+# 각 항목은 "file:line" — src/**/*.c 실코드에서 발견된 raw -32xxx 리터럴 사이트
+# (주석/문자열 내부 제외, enum 정의부 rpc_utils.h 제외). 게이트는 이 명단 밖의
+# 신규 리터럴만 FAIL(단조 감소 래칫) — 목록에 있는 항목은 canonical PURE_RPC_ERR_*
+# 상수로 시정 시 이 파일에서도 제거해야 한다(정리 후 baseline이 줄어드는 방향만 허용).
+#
+# DISP-6 straggler(src/modules/virt/vm_manager.c:2217, pcv_audit_log fail 사이트,
+# 구 raw -32000)는 본 배치(Task 5)에서 PURE_RPC_ERR_ZFS_OPERATION으로 시정 완료.
+# 관측치 0건 — 이 파일은 의도적으로 빈 baseline(주석만)이다.

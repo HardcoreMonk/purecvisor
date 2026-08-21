@@ -1,0 +1,106 @@
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-weight: 400;
+  font-display: swap;
+  src: url("/assets/pretendard/Pretendard-Regular.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-weight: 500;
+  font-display: swap;
+  src: url("/assets/pretendard/Pretendard-Medium.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-weight: 600;
+  font-display: swap;
+  src: url("/assets/pretendard/Pretendard-SemiBold.woff2") format("woff2");
+}
+
+@font-face {
+  font-family: "Pretendard";
+  font-style: normal;
+  font-weight: 700;
+  font-display: swap;
+  src: url("/assets/pretendard/Pretendard-Bold.woff2") format("woff2");
+}
+
+:root {
+  --sl-font: "Pretendard", "Noto Sans KR", system-ui, sans-serif;
+  --sl-font-mono: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  --sl-color-accent-low: #e6f0f3;
+  --sl-color-accent: #12627a;
+  --sl-color-accent-high: #0a3c4c;
+  --sl-color-white: #ffffff;
+  --sl-color-gray-1: #171c24;
+  --sl-color-gray-2: #3f4958;
+  --sl-color-gray-3: #5c6675;
+  --sl-color-gray-4: #aab2be;
+  --sl-color-gray-5: #dce1e8;
+  --sl-color-gray-6: #edf1f5;
+  --sl-color-black: #f5f7fa;
+  --sl-content-width: 50rem;
+  --sl-sidebar-width: 19rem;
+}
+
+:root[data-theme="dark"] {
+  --sl-color-accent-low: #0a3c4c;
+  --sl-color-accent: #63b2c7;
+  --sl-color-accent-high: #d8f0f5;
+  --sl-color-white: #f5f7fa;
+  --sl-color-gray-1: #e6e9ed;
+  --sl-color-gray-2: #c6ccd5;
+  --sl-color-gray-3: #9ca6b4;
+  --sl-color-gray-4: #667182;
+  --sl-color-gray-5: #303844;
+  --sl-color-gray-6: #202731;
+  --sl-color-black: #14191f;
+}
+
+:root[data-theme="light"] {
+  --sl-color-accent-low: #e6f0f3;
+  --sl-color-accent: #12627a;
+  --sl-color-accent-high: #0a3c4c;
+  --sl-color-white: #171c24;
+  --sl-color-gray-1: #252c36;
+  --sl-color-gray-2: #3f4958;
+  --sl-color-gray-3: #5c6675;
+  --sl-color-gray-4: #8d97a5;
+  --sl-color-gray-5: #dce1e8;
+  --sl-color-gray-6: #f5f7fa;
+  --sl-color-gray-7: #fafbfc;
+  --sl-color-black: #ffffff;
+}
+
+body {
+  letter-spacing: 0;
+}
+
+.hero h1 {
+  max-width: 14ch;
+  letter-spacing: -0.035em;
+}
+
+.hero .tagline {
+  max-width: 48rem;
+}
+
+.sl-markdown-content :is(table, pre) {
+  border: 1px solid var(--sl-color-gray-5);
+}
+
+.sl-markdown-content table {
+  display: block;
+  overflow-x: auto;
+}
+
+.sl-markdown-content a:focus-visible,
+button:focus-visible {
+  outline: 3px solid var(--sl-color-accent);
+  outline-offset: 3px;
+}

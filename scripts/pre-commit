@@ -1,0 +1,1009 @@
+#!/bin/bash
+                          
+                                                                           
+                                                          
+                                                                   
+                                                                     
+                                                      
+ 
+                      
+                                                                          
+                                                                 
+                                               
+ 
+                        
+                                                                
+                                                       
+ 
+                              
+                                     
+ 
+      
+                      
+ 
+        
+                          
+                                                                   
+
+set -uo pipefail
+
+RED='\033[0;31m'
+GREEN='\033[0;32m'
+YELLOW='\033[0;33m'
+CYAN='\033[0;36m'
+NC='\033[0m'
+
+FAILED=0
+GATE=0
+TOTAL_GATES=0
+
+pass() { echo -e "${GREEN}PASS${NC} $1"; }
+fail() { echo -e "${RED}FAIL${NC} $1"; FAILED=1; }
+warn() { echo -e "${YELLOW}WARN${NC} $1"; }
+skip() { echo -e "${YELLOW}SKIP${NC} $1"; }
+
+                                                        
+                                          
+mapfile -d '' -t STAGED_PATHS < <(git diff --cached --name-only --diff-filter=ACMR -z)
+STAGED=$(printf '%s\n' "${STAGED_PATHS[@]}")
+                                                                  
+                                                               
+COMMENT_DIFF_RC=0
+mapfile -d '' -t COMMENT_STAGED_PATHS < <(
+    git diff --cached --name-only --diff-filter=ACMRD --no-renames -z || printf '__PCV_COMMENT_DIFF_FAILED__\0'
+)
+for COMMENT_INDEX in "${!COMMENT_STAGED_PATHS[@]}"; do
+    if [[ "${COMMENT_STAGED_PATHS[$COMMENT_INDEX]}" == "__PCV_COMMENT_DIFF_FAILED__" ]]; then
+        COMMENT_DIFF_RC=2
+        unset 'COMMENT_STAGED_PATHS[$COMMENT_INDEX]'
+    fi
+done
+
+HAS_C_CHANGES=false
+HAS_API_CHANGES=false
+HAS_UI_CHANGES=false
+HAS_RBAC_POLICY_CHANGES=false
+
+echo "$STAGED" | grep -qE '\.(c|h)$' && HAS_C_CHANGES=true
+echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=true
+echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
+HAS_CONTRACT_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/api/rest_server\.c|src/api/grpc_server\.c|src/cli/purecvisorctl\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
+HAS_SYMBOL_CHANGES=false
+echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
+HAS_INGRESS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
+HAS_SAFETY_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
+HAS_ERROR_CODE_CHANGES=false
+echo "$STAGED" | grep -qE '\.(c|h)$|^(scripts/check_error_codes\.py|scripts/error_codes_baseline\.txt)$' && HAS_ERROR_CODE_CHANGES=true
+HAS_CLI_EXIT_CHANGES=false
+echo "$STAGED" | grep -qE '^src/cli/(purecvisorctl|cli_rpc|cli_output)\.(c|h)$|^tests/integration/test_cli_(exit_status|help_readability)\.sh$' && HAS_CLI_EXIT_CHANGES=true
+HAS_NETWORK_MODE_CONTRACT_CHANGES=false
+echo "$STAGED" | grep -qE '^(ui/modules/network\.js|src/modules/network/network_manager\.c|src/bootstrap/pcv_bootstrap_single\.c|scripts/check_network_mode_contract\.py|scripts/tests/test_network_mode_contract\.py)$' && HAS_NETWORK_MODE_CONTRACT_CHANGES=true
+HAS_ISCSI_CHAP_ARGV_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/storage/(iscsi_manager|pcv_iscsi_node_db)\.(c|h)|tests/test_iscsi\.c|scripts/check_iscsi_chap_argv\.py|scripts/tests/test_iscsi_chap_argv\.py)$' && HAS_ISCSI_CHAP_ARGV_CHANGES=true
+HAS_CORS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_cors_anchor\.py|scripts/tests/test_cors_anchor\.py)$' && HAS_CORS_CHANGES=true
+HAS_SECRET_LOG_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_secret_logging\.py|scripts/tests/test_secret_logging\.py)$' && HAS_SECRET_LOG_CHANGES=true
+HAS_SSRF_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_guard\.py|scripts/tests/test_ssrf_guard\.py)$' && HAS_SSRF_CHANGES=true
+HAS_GRPC_AUTHZ_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/grpc_server\.c|scripts/check_grpc_authz\.py|scripts/tests/test_grpc_authz\.py)$' && HAS_GRPC_AUTHZ_CHANGES=true
+HAS_SSRF_TARGET_CHANGES=false
+echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_target_guard\.py|scripts/tests/test_ssrf_target_guard\.py)$' && HAS_SSRF_TARGET_CHANGES=true
+HAS_AUDIT_HASHCHAIN_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/audit/pcv_audit\.(c|h)|scripts/check_audit_hashchain\.py|scripts/tests/test_audit_hashchain\.py)$' && HAS_AUDIT_HASHCHAIN_CHANGES=true
+HAS_RNG_SAFE_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/auth/pcv_rbac\.c|src/utils/pcv_jwt\.c|scripts/check_rng_safe\.py|scripts/tests/test_rng_safe\.py)$' && HAS_RNG_SAFE_CHANGES=true
+HAS_UDS_AUTHZ_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/uds_server\.c|src/utils/pcv_config\.c|scripts/check_uds_authz\.py|scripts/tests/test_uds_authz\.py)$' && HAS_UDS_AUTHZ_CHANGES=true
+HAS_TRANSPORT_BIND_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
+HAS_CONTAINER_OWNER_SCOPE_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/dispatcher/handler_container\.c|src/modules/lxc/lxc_owner\.(c|h)|scripts/check_container_owner_scope\.py|scripts/tests/test_container_owner_scope\.py)$' && HAS_CONTAINER_OWNER_SCOPE_CHANGES=true
+HAS_MTLS_WIRING_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|src/utils/pcv_tls\.(c|h)|scripts/check_mtls_wiring\.py|scripts/tests/test_mtls_wiring\.py)$' && HAS_MTLS_WIRING_CHANGES=true
+HAS_TLS_MIN_VERSION_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/utils/pcv_tls\.(c|h)|scripts/check_tls_min_version\.py|scripts/tests/test_tls_min_version\.py)$' && HAS_TLS_MIN_VERSION_CHANGES=true
+HAS_SECURITY_HEADERS_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_security_headers\.py|scripts/tests/test_security_headers\.py)$' && HAS_SECURITY_HEADERS_CHANGES=true
+HAS_PASSWORD_POLICY_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/dispatcher/handler_auth\.c|src/utils/pcv_validate\.(c|h)|scripts/check_password_policy\.py|scripts/tests/test_password_policy\.py)$' && HAS_PASSWORD_POLICY_CHANGES=true
+HAS_WS_TOKEN_URL_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/ws_server\.c|scripts/check_ws_token_url\.py|scripts/tests/test_ws_token_url\.py)$' && HAS_WS_TOKEN_URL_CHANGES=true
+HAS_ZPOOL_RECOVER_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/modules/storage/zfs_driver\.(c|h)|src/modules/daemons/ebpf_telemetry\.c|scripts/check_zpool_suspend_recover\.py|scripts/tests/test_zpool_suspend_recover\.py)$' && HAS_ZPOOL_RECOVER_CHANGES=true
+HAS_DEB_APPARMOR_CHANGES=false
+echo "$STAGED" | grep -qE '^(packaging/deb/build-deb\.sh|packaging/apparmor/pcv-apparmor|scripts/check_deb_apparmor\.py|scripts/tests/test_deb_apparmor\.py)$' && HAS_DEB_APPARMOR_CHANGES=true
+HAS_SPAWN_CAPABILITY_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/.*\.[ch]|packaging/deb/(purecvisorsd\.service|purecvisor-lio\.conf)|scripts/check_spawn_capability_contract\.py|Makefile)$' && HAS_SPAWN_CAPABILITY_CHANGES=true
+HAS_PUBLIC_COMMENT_CHANGES=true
+
+                                                                   
+HAS_HELP_COUNT_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|ui/modules/help\.js|ui/app\.js|scripts/check_help_counts\.py)$' && HAS_HELP_COUNT_CHANGES=true
+
+                                                       
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 클러스터 빌드 검증 (경고 0)${NC}"
+    BUILD_OUT=$(make all 2>&1)
+    WARNINGS=$(echo "$BUILD_OUT" | grep -c "warning:" || true)
+    if [ "$WARNINGS" -gt 0 ]; then
+        fail "빌드 경고 ${WARNINGS}건 발견"
+        echo "$BUILD_OUT" | grep "warning:" | head -5
+    else
+        pass "빌드 경고 0건"
+    fi
+else
+    skip "[1] C 소스 변경 없음 — 빌드 검증 생략"
+fi
+
+                                                            
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] Single Edge 빌드 검증${NC}"
+    SINGLE_OUT=$(make clean >/dev/null 2>&1 && make single 2>&1)
+                                                   
+    SINGLE_WARNS=$(echo "$SINGLE_OUT" | grep -c "warning:" || true)
+    if [ "$SINGLE_WARNS" -gt 0 ]; then
+        fail "Single Edge 빌드 신규 경고 ${SINGLE_WARNS}건"
+    else
+        pass "Single Edge 빌드 경고 0건"
+    fi
+                          
+    make clean >/dev/null 2>&1 && make single >/dev/null 2>&1
+fi
+
+                                                            
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 유닛 테스트${NC}"
+
+    make test 2>&1 > /tmp/pcv_test_output.txt
+    REAL_FAILS=$(grep "^not ok" /tmp/pcv_test_output.txt | wc -l || true)
+    PASS_COUNT=$(grep -c "^ok" /tmp/pcv_test_output.txt || true)
+
+    if [ "$REAL_FAILS" -gt 0 ]; then
+        fail "${REAL_FAILS}건 테스트 실패"
+        grep "^not ok" /tmp/pcv_test_output.txt
+    elif [ "$PASS_COUNT" -lt 200 ]; then
+        fail "테스트 ${PASS_COUNT}건만 통과 (최소 200건 필요 — 테스트 등록 누락?)"
+    else
+        pass "${PASS_COUNT}건 ��스트 통과"
+    fi
+    rm -f /tmp/pcv_test_output.txt
+else
+    skip "[3] C 소스 변경 없음 — 테스트 생략"
+fi
+
+                                                           
+if $HAS_API_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] REST ↔ RPC 정합성 검증${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    if [ -x "$SCRIPT_DIR/verify_api_consistency.sh" ]; then
+        RESULT=$("$SCRIPT_DIR/verify_api_consistency.sh" --ci 2>&1)
+        API_EXIT=$?
+        if [ $API_EXIT -ne 0 ]; then
+            fail "REST→RPC 불일치 발견"
+            echo "$RESULT" | grep "FAIL"
+        else
+            FAIL_LINE=$(echo "$RESULT" | grep "FAIL:" | head -1)
+            pass "REST↔RPC ��합성 통과 ($FAIL_LINE)"
+        fi
+    else
+        skip "verify_api_consistency.sh 없음"
+    fi
+else
+    skip "[4] REST/Dispatcher 변경 없음 — 정합성 검증 생략"
+fi
+
+                                                          
+if $HAS_RBAC_POLICY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] ADR-0019 RBAC 정책 계약${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    RBAC_OUT=$(python3 "$SCRIPT_DIR/check_rbac_policies.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "RBAC 정책 매핑 또는 owner-scope 계약 회귀"
+        echo "$RBAC_OUT" | tail -20
+    else
+        pass "$(echo "$RBAC_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] RBAC 정책 변경 없음 — ADR-0019 계약 검증 생략"
+fi
+
+                                                                   
+if $HAS_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] AF-C4 RPC 소비⊆등록 계약${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    RPC_OUT=$(python3 "$SCRIPT_DIR/check_rpc_consumers.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "미등록 RPC 메서드 소비 (CLI/FE 계약 파손 → -32601)"
+        echo "$RPC_OUT" | tail -20
+    else
+        pass "$(echo "$RPC_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 계약 소비/등록 변경 없음 — AF-C4 검증 생략"
+fi
+
+                                                                       
+if $HAS_SYMBOL_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] dead export${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    DE_OUT=$(python3 "$SCRIPT_DIR/check_dead_exports.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "신규 dead export (헤더 선언 함수 사용처0 — 배선/삭제/waiver 필요)"
+        echo "$DE_OUT" | tail -15
+    else
+        pass "$(echo "$DE_OUT" | grep -E '^\[' | tail -1)"
+                                                      
+                                                        
+        DE_ACCEPT_OUT=$(python3 "$SCRIPT_DIR/tests/test_dead_exports_acceptance.py" 2>&1)
+        if [ $? -ne 0 ]; then
+            fail "dead export 실트리 오탐 인수 테스트 실패"
+            echo "$DE_ACCEPT_OUT" | tail -15
+        else
+            pass "$(echo "$DE_ACCEPT_OUT" | tail -1)"
+        fi
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 및 게이트 스크립트 변경 없음 — dead export 검증 생략"
+fi
+
+                                                                        
+if $HAS_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] RPC param-key 계약 (Stage 2)${NC}"
+    PC_OUT=$(python3 "$SCRIPT_DIR/check_rpc_param_contract.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "param-key 계약 위반 (신규 -32602 파손)"
+        echo "$PC_OUT" | tail -20
+    else
+        pass "$(echo "$PC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 계약 소비/등록 변경 없음 — param-key 계약 검증 생략"
+fi
+
+                                                                   
+if $HAS_INGRESS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] JSON 파싱 초크포인트${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    JI_OUT=$(python3 "$SCRIPT_DIR/check_json_ingress.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "무가드 경계 JSON 파싱 (래퍼/waiver 누락)"
+        echo "$JI_OUT" | tail -10
+    else
+        pass "$(echo "$JI_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 데몬 경계 파일 변경 없음 — JSON 파싱 초크포인트 검증 생략"
+fi
+
+                                                            
+if $HAS_SAFETY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 안전통제 효과 테스트${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SC_OUT=$(python3 "$SCRIPT_DIR/check_safety_controls.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "안전통제 계약 위반 (미등록 마커/신규 미검증 통제)"
+        echo "$SC_OUT" | tail -15
+    else
+        pass "$(echo "$SC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] C 소스/안전통제 레지스트리 변경 없음 — 안전통제 게이트 생략"
+fi
+
+                                                              
+if $HAS_ERROR_CODE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] raw 에러코드 리터럴 방지${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    EC_OUT=$(python3 "$SCRIPT_DIR/check_error_codes.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "raw 에러코드 리터럴 또는 PCV_ERR_ 재도입 발견"
+        echo "$EC_OUT" | tail -15
+    else
+        pass "$(echo "$EC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 및 게이트 스크립트/baseline 변경 없음 — 에러코드 게이트 생략"
+fi
+
+                                                           
+                                                              
+if $HAS_CLI_EXIT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] pcvctl 종료상태 0/1/2 계약${NC}"
+    CES_OUT=$(make check-cli-exit-status 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "pcvctl이 실행·전송·프로토콜·RPC 실패 또는 사용법 오류를 exit 0으로 숨김"
+        echo "$CES_OUT" | tail -25
+    else
+        pass "$(echo "$CES_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] CLI 종료상태 관련 변경 없음 — production 효과 테스트 생략"
+fi
+
+                                                                 
+if $HAS_NETWORK_MODE_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] network.mode_set FE↔BE enum 계약${NC}"
+    NMC_OUT=$(make check-network-mode-contract 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "Web UI mode 선택지와 백엔드 whitelist가 어긋남"
+        echo "$NMC_OUT" | tail -25
+    else
+        pass "$(echo "$NMC_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] network mode 계약 관련 변경 없음 — enum 게이트 생략"
+fi
+
+                                                                
+if $HAS_ISCSI_CHAP_ARGV_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] iSCSI initiator CHAP argv 제거 계약${NC}"
+    ICA_OUT=$(make check-iscsi-chap-argv 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "CHAP 자격이 iscsiadm argv로 재노출되거나 node DB fail-closed 배선이 누락됨"
+        echo "$ICA_OUT" | tail -25
+    else
+        pass "$(echo "$ICA_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] iSCSI CHAP 경로 관련 변경 없음 — argv 게이트 생략"
+fi
+
+                                                              
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] audit 배치 계약 (async registry/audit/WS completion)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    AP_OUT=$(python3 "$SCRIPT_DIR/check_audit_placement.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "audit 배치 계약 위반 (ADR-0018 — async 등록/audit/WS completion)"
+        echo "$AP_OUT" | tail -15
+    else
+        pass "$(echo "$AP_OUT" | grep -E '^\[|PASS' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/.h 변경 없음 — audit 배치 게이트 생략"
+fi
+
+                                                                  
+if $HAS_CORS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] CORS 오리진 앵커 검증${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    CORS_OUT=$(python3 "$SCRIPT_DIR/check_cors_anchor.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "CORS origin substring 우회 재등장 또는 _cors_origin_allowed 미사용"
+        echo "$CORS_OUT" | tail -15
+    else
+        pass "$(echo "$CORS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/CORS 게이트 변경 없음 — CORS 앵커 게이트 생략"
+fi
+
+                                                                  
+if $HAS_SECRET_LOG_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 감사 로그 자격증명 마스킹${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SL_OUT=$(python3 "$SCRIPT_DIR/check_secret_logging.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "is_auth 산정에서 _body_has_secret 미사용 (평문 자격증명 저널 기록)"
+        echo "$SL_OUT" | tail -15
+    else
+        pass "$(echo "$SL_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/마스킹 게이트 변경 없음 — 자격증명 마스킹 게이트 생략"
+fi
+
+                                                         
+if $HAS_SSRF_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 아웃바운드 리다이렉트 금지${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SSRF_OUT=$(python3 "$SCRIPT_DIR/check_ssrf_guard.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "아웃바운드 soup_message_new에 SOUP_MESSAGE_NO_REDIRECT 누락 (SSRF)"
+        echo "$SSRF_OUT" | tail -15
+    else
+        pass "$(echo "$SSRF_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/SSRF 게이트 변경 없음 — 아웃바운드 리다이렉트 게이트 생략"
+fi
+
+                                                                
+if $HAS_GRPC_AUTHZ_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] gRPC 인증/RBAC${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    GA_OUT=$(python3 "$SCRIPT_DIR/check_grpc_authz.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "gRPC bounded role 주입 누락 또는 무토큰 기동 거부 미충족"
+        echo "$GA_OUT" | tail -15
+    else
+        pass "$(echo "$GA_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] grpc_server.c/gRPC authz 게이트 변경 없음 — gRPC authz 게이트 생략"
+fi
+
+                                                                                  
+if $HAS_SSRF_TARGET_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 아웃바운드 대상 SSRF allowlist${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    ST_OUT=$(python3 "$SCRIPT_DIR/check_ssrf_target_guard.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "아웃바운드 사이트에 pcv_url_target_allowed 호출 누락 (SSRF)"
+        echo "$ST_OUT" | tail -15
+    else
+        pass "$(echo "$ST_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] .c/SSRF target 게이트 변경 없음 — 대상 SSRF 게이트 생략"
+fi
+
+                                                                    
+if $HAS_AUDIT_HASHCHAIN_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 감사 로그 해시체인${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    AH_OUT=$(python3 "$SCRIPT_DIR/check_audit_hashchain.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_audit_hashchain.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "감사 INSERT 경로가 prev_hash/rec_hash 미계산·미저장 또는 검증함수 부재 (A09/2.9)"
+        echo "$AH_OUT" | tail -15
+    else
+        pass "$(echo "$AH_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_audit.*/해시체인 게이트 변경 없음 — 감사 해시체인 게이트 생략"
+fi
+
+                                                                    
+if $HAS_RNG_SAFE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 보안 RNG/PBKDF2 하드닝${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    RS_OUT=$(python3 "$SCRIPT_DIR/check_rng_safe.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_rng_safe.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "보안 바이트 생성에 g_random 잔존 또는 PBKDF2 반복수 < 600000 (A02/V11)"
+        echo "$RS_OUT" | tail -15
+    else
+        pass "$(echo "$RS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_rbac.c/pcv_jwt.c/RNG 게이트 변경 없음 — RNG 하드닝 게이트 생략"
+fi
+
+                                                                   
+if $HAS_UDS_AUTHZ_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] UDS root-only 접근${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    UA_OUT=$(python3 "$SCRIPT_DIR/check_uds_authz.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_uds_authz.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "UDS 소켓 0660(umask 0117) 회귀 또는 SO_PEERCRED root-only 게이트 누락(비-root 우회)"
+        echo "$UA_OUT" | tail -15
+    else
+        pass "$(echo "$UA_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] uds_server.c/pcv_config.c/UDS authz 게이트 변경 없음 — UDS 접근 게이트 생략"
+fi
+
+                                                                      
+if $HAS_TRANSPORT_BIND_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 평문 전송 루프백 바인딩${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    TB_OUT=$(python3 "$SCRIPT_DIR/check_transport_bind.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_transport_bind.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "평문 HTTP 가 bind_plaintext(기본 loopback) 미존중 — 무조건 0.0.0.0 노출"
+        echo "$TB_OUT" | tail -15
+    else
+        pass "$(echo "$TB_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/transport bind 게이트 변경 없음 — 평문 바인딩 게이트 생략"
+fi
+
+                                                                                 
+if $HAS_CONTAINER_OWNER_SCOPE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 컨테이너 operator owner-scope${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    COS_OUT=$(python3 "$SCRIPT_DIR/check_container_owner_scope.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_container_owner_scope.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "container.start/stop/clone owner-scope 세트/게이트 배선/create 스탬프/저장소 회귀 (operator 교차테넌트 IDOR 재노출)"
+        echo "$COS_OUT" | tail -15
+    else
+        pass "$(echo "$COS_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] dispatcher/handler_container/lxc_owner/owner-scope 게이트 변경 없음 — 컨테이너 owner-scope 게이트 생략"
+fi
+
+                                                                      
+if $HAS_MTLS_WIRING_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] mTLS 클라이언트 인증서 검증 배선${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    MW_OUT=$(python3 "$SCRIPT_DIR/check_mtls_wiring.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_mtls_wiring.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "client_auth 분기/CA 검증 DB(set_tls_database)/인증 모드(set_tls_auth_mode) 미배선 (server-cert 전용 회귀)"
+        echo "$MW_OUT" | tail -15
+    else
+        pass "$(echo "$MW_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/pcv_tls.*/mTLS 게이트 변경 없음 — mTLS 배선 게이트 생략"
+fi
+
+                                                                      
+if $HAS_TLS_MIN_VERSION_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] TLS 최소 버전 고정${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    TV_OUT=$(python3 "$SCRIPT_DIR/check_tls_min_version.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_tls_min_version.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "G_TLS_GNUTLS_PRIORITY 고정/min_version 존중 미배선 (SSL3/TLS1.0/1.1 다운그레이드 협상 가능)"
+        echo "$TV_OUT" | tail -15
+    else
+        pass "$(echo "$TV_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] pcv_tls.*/TLS min-version 게이트 변경 없음 — TLS 최소 버전 게이트 생략"
+fi
+
+                                                                   
+if $HAS_SECURITY_HEADERS_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] /ui 정적 응답 보안 헤더${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SH_OUT=$(python3 "$SCRIPT_DIR/check_security_headers.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_security_headers.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "/ui 정적 응답에 CSP/X-Frame-Options 누락 (clickjacking/MIME 스니핑 노출)"
+        echo "$SH_OUT" | tail -15
+    else
+        pass "$(echo "$SH_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] rest_server.c/보안헤더 게이트 변경 없음 — /ui 보안 헤더 게이트 생략"
+fi
+
+                                                                          
+if $HAS_PASSWORD_POLICY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] user-create 비밀번호 복잡도 정책${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    PP_OUT=$(python3 "$SCRIPT_DIR/check_password_policy.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_password_policy.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "handle_auth_user_create 가 pcv_validate_password_complexity 미호출 (강도 정책 미집행)"
+        echo "$PP_OUT" | tail -15
+    else
+        pass "$(echo "$PP_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] handler_auth.c/pcv_validate.*/비밀번호 정책 게이트 변경 없음 — 비밀번호 복잡도 게이트 생략"
+fi
+
+                                                                     
+if $HAS_WS_TOKEN_URL_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] WS URL-query 토큰 인증 제거${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    WT_OUT=$(python3 "$SCRIPT_DIR/check_ws_token_url.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_ws_token_url.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "ws_server.c 가 URL-query ?token= 로 인증 (프록시/로그 토큰 유출 재도입)"
+        echo "$WT_OUT" | tail -15
+    else
+        pass "$(echo "$WT_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] ws_server.c/WS 토큰 URL 게이트 변경 없음 — WS 토큰 URL 게이트 생략"
+fi
+
+                                                                         
+if $HAS_ZPOOL_RECOVER_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] ZFS 풀 SUSPENDED 탐지+가드된 자동복구${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    ZR_OUT=$(python3 "$SCRIPT_DIR/check_zpool_suspend_recover.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_zpool_suspend_recover.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "SUSPENDED 미매핑(→0) 또는 자동복구 디바이스-읽기 가드/서킷브레이커 제거 (무한 clear-loop 위험)"
+        echo "$ZR_OUT" | tail -15
+    else
+        pass "$(echo "$ZR_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] zfs_driver/ebpf_telemetry/zpool 게이트 변경 없음 — SUSPENDED 자동복구 게이트 생략"
+fi
+
+                                                                     
+if $HAS_DEB_APPARMOR_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 2.0 deb AppArmor 미부착 (ADR-0028)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    DA_OUT=$(python3 "$SCRIPT_DIR/check_deb_apparmor.py" 2>&1 && python3 "$SCRIPT_DIR/tests/test_deb_apparmor.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "deb postinst 가 AppArmor 프로필을 부착 (hidepid=2 조합에서 데몬 libvirt 연결 파손)"
+        echo "$DA_OUT" | tail -15
+    else
+        pass "$(echo "$DA_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] packaging/deb·apparmor 게이트 변경 없음 — deb AppArmor 미부착 게이트 생략"
+fi
+
+                                                                
+if $HAS_SPAWN_CAPABILITY_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] spawn child capability 경계 (ADR-0042)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SC_OUT=$(python3 "$SCRIPT_DIR/check_spawn_capability_contract.py" --self-test 2>&1 && \
+        python3 "$SCRIPT_DIR/check_spawn_capability_contract.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "중앙 spawn 우회·동적 권한 profile·bounding/modules-load 정본 불일치"
+        echo "$SC_OUT" | tail -15
+    else
+        pass "$(echo "$SC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] source/spawn/bounding/modules-load 변경 없음 — child capability 게이트 생략"
+fi
+
+                                                                     
+if $HAS_PUBLIC_COMMENT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 공개 소스 주석 제거${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    CC_OUT=$(python3 "$SCRIPT_DIR/strip_source_comments.py" --check 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "공개 소스에 설명 주석이 남아 있음"
+        echo "$CC_OUT" | tail -15
+    else
+        pass "$(echo "$CC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 공개 소스 변경 없음 — 주석 제거 검증 생략"
+fi
+
+                                                          
+                                                           
+                                             
+if $HAS_HELP_COUNT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] help 카운트 정본${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    HC_OUT=$(python3 "$SCRIPT_DIR/check_help_counts.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "help 카운트/카탈로그 불일치 (RPC_COUNT·REST_COUNT 갱신 또는 NS 카탈로그 등재 누락)"
+        echo "$HC_OUT" | tail -15
+    else
+        pass "$(echo "$HC_OUT" | grep -E '^\[' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] dispatcher.c/help.js/app.js 변경 없음 — help 카운트 검증 생략"
+fi
+
+                                                 
+if $HAS_UI_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 프���트엔드 패턴 검증${NC}"
+    UI_DIR="$(git rev-parse --show-toplevel)/ui/modules"
+    ISSUES=0
+
+    for f in "$UI_DIR"/*.js; do
+        bn=$(basename "$f")
+        case "$bn" in api.js|endpoints.js|theme.js|help.js|nav.js|ui.js|i18n.js|sw.js) continue ;; esac
+        COUNT=$(grep -c "API_BASE + '" "$f" 2>/dev/null || true)
+        if [ "$COUNT" -gt 0 ]; then
+            warn "$bn: ${COUNT}건 하드코딩된 API_BASE (EP 레지스트리 사용 권장)"
+            ISSUES=$((ISSUES + COUNT))
+        fi
+    done
+
+    LEGACY=$(grep -rl "\.data || " "$UI_DIR"/*.js 2>/dev/null | grep -v api.js | wc -l || true)
+    if [ "$LEGACY" -gt 0 ]; then
+        warn "${LEGACY}개 파일에서 레거시 .data || 패턴 발견 (unwrapData/unwrapList 사용 권장)"
+        ISSUES=$((ISSUES + LEGACY))
+    fi
+
+    if [ "$ISSUES" -gt 10 ]; then
+        fail "프론트엔드 하드코딩 ${ISSUES}건 > 10건 임계값 초과"
+    elif [ "$ISSUES" -gt 0 ]; then
+        warn "프론트엔드 하드코딩 ${ISSUES}건 (10건 이하 — 허용)"
+    else
+        pass "프론트엔드 패턴 검증 통과"
+    fi
+
+                                                 
+                                                                
+                                                              
+                                                        
+    if command -v node &>/dev/null && [ -f package.json ]; then
+        GATE=$((GATE+1))
+        echo -e "${CYAN}[$GATE] ESLint (zero errors)${NC}"
+        if npx --no-install eslint --version >/dev/null 2>&1; then
+            ES_OUT=$(npx --no-install eslint ui/app.js ui/i18n.js ui/sw.js ui/modules 2>&1)
+            ES_EXIT=$?
+            if [ $ES_EXIT -ne 0 ]; then
+                fail "ESLint 에러 — npx eslint 출력 확인"
+                echo "$ES_OUT" | tail -10
+            else
+                pass "$(echo "$ES_OUT" | grep -oE '[0-9]+ problems.*' | head -1 || echo 'ESLint 통과 (0 errors)')"
+            fi
+        else
+            skip "ESLint 미설치 — npm install 필요"
+        fi
+    fi
+
+                                                    
+    if echo "$STAGED" | grep -qE "(REST_ENDPOINTS\.md|openapi\.yaml|gen_openapi\.py)"; then
+        GATE=$((GATE+1))
+        echo -e "${CYAN}[$GATE] OpenAPI 동기화${NC}"
+        if python3 scripts/gen_openapi.py --check 2>/tmp/oapi.log; then
+            pass "OpenAPI 동기화 OK"
+        else
+            fail "openapi.yaml가 REST_ENDPOINTS.md와 불일치"
+            cat /tmp/oapi.log
+        fi
+    fi
+
+                                                                 
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] UI 번들 최신성${NC}"
+    if [ -x scripts/check_ui_bundle_fresh.py ]; then
+        BUNDLE_OUT=$(python3 scripts/check_ui_bundle_fresh.py 2>&1)
+        if [ $? -ne 0 ]; then
+            fail "ui/app.bundle.js 또는 ui/sw.js가 ui/modules/*.js와 불일치"
+            echo "$BUNDLE_OUT" | tail -10
+        else
+            pass "$(echo "$BUNDLE_OUT" | head -1)"
+        fi
+    fi
+
+                                      
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] XSS 패턴 검증${NC}"
+    if [ -x scripts/check_xss.py ]; then
+        XSS_OUT=$(python3 scripts/check_xss.py 2>&1)
+        if [ $? -ne 0 ]; then
+            fail "innerHTML에 sanitizer 미적용 식별자 발견"
+            echo "$XSS_OUT" | tail -15
+        else
+            pass "$(echo "$XSS_OUT" | head -1)"
+        fi
+    fi
+
+                        
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] i18n 키 정합성 (ko/en)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    if [ -x "$SCRIPT_DIR/check_i18n.sh" ]; then
+        I18N_OUT=$("$SCRIPT_DIR/check_i18n.sh" ui/i18n.js 2>&1)
+        if [ $? -ne 0 ]; then
+            fail "i18n 키 누락"
+            echo "$I18N_OUT" | tail -20
+        else
+            pass "$(echo "$I18N_OUT" | head -1)"
+        fi
+    fi
+else
+    skip "[$((GATE+1))] UI 변경 없음 — 프론트엔드/i18n 검증 생략"
+fi
+
+                                                      
+if $HAS_C_CHANGES && command -v cppcheck &>/dev/null; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] cppcheck 정적 분석${NC}"
+    CPP_OUT=$(cppcheck --enable=warning,performance \
+        --suppress=missingIncludeSystem --suppress=unknownMacro \
+        --inline-suppr --error-exitcode=1 \
+        -I include -I src -I include/purecvisor \
+        $(pkg-config --cflags-only-I glib-2.0 json-glib-1.0 libvirt 2>/dev/null) \
+        src/ 2>&1)
+    CPP_EXIT=$?
+    REAL_ERRS=$(echo "$CPP_OUT" | grep '(error)' | grep -v "protoc-c\|preprocessorErrorDirective" | wc -l || true)
+    if [ "$REAL_ERRS" -gt 0 ]; then
+        fail "cppcheck 에러 ${REAL_ERRS}건"
+        echo "$CPP_OUT" | grep '(error)' | grep -v "protoc-c\|preprocessorErrorDirective" | head -5
+    else
+        pass "cppcheck 에러 0건"
+    fi
+fi
+
+                                                       
+if $HAS_C_CHANGES && [ -f bin/purecvisorsd ]; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3MB 상한)${NC}"
+    SIZE=$(stat -c%s bin/purecvisorsd 2>/dev/null || echo 0)
+    SIZE_KB=$((SIZE / 1024))
+    if [ "$SIZE" -gt 3145728 ]; then
+        fail "바이너리 ${SIZE_KB}KB > 3MB 상한"
+    else
+        pass "바이너리 ${SIZE_KB}KB (3MB 이내)"
+    fi
+fi
+
+                                                     
+if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
+    if curl -s -o /dev/null -w "%{http_code}" "http://localhost/api/v1/health" 2>/dev/null | grep -q "200"; then
+        GATE=$((GATE+1))
+        echo -e "${CYAN}[$GATE] SAFE 통합 테스트 (데몬 감지됨)${NC}"
+        SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+        if [ -x "$SCRIPT_DIR/run_auto_tests.sh" ]; then
+            INTEG_OUT=$("$SCRIPT_DIR/run_auto_tests.sh" --tier 1 --ci 2>&1)
+            INTEG_EXIT=$?
+            INTEG_PASS=$(echo "$INTEG_OUT" | grep "PASS:" | tail -1 | sed 's/.*PASS: \([0-9]*\).*/\1/' || echo 0)
+            INTEG_FAIL=$(echo "$INTEG_OUT" | grep "FAIL:" | tail -1 | sed 's/.*FAIL: \([0-9]*\).*/\1/' || echo 0)
+            if [ "$INTEG_EXIT" -ne 0 ] && [ "${INTEG_FAIL:-0}" -gt 0 ]; then
+                fail "SAFE 통합 테스트 ${INTEG_FAIL}건 실패"
+            else
+                pass "SAFE 통합 테스�� 통과 (${INTEG_PASS}건)"
+            fi
+        fi
+
+                                            
+        GATE=$((GATE+1))
+        echo -e "${CYAN}[$GATE] 보안 스캔 (OWASP Top 10)${NC}"
+        SEC_SCRIPT="$(git rev-parse --show-toplevel)/tests/integration/test_security_scan.sh"
+        if [ -x "$SEC_SCRIPT" ]; then
+            SEC_OUT=$(timeout 120 bash "$SEC_SCRIPT" localhost 2>&1)
+            SEC_EXIT=$?
+            SEC_FAIL=$(echo "$SEC_OUT" | grep -oP 'FAIL: \K[0-9]+' | tail -1 || echo 0)
+            if [ "$SEC_EXIT" -eq 124 ]; then
+                warn "보안 스캔 타임아웃 (120s)"
+            elif [ "$SEC_EXIT" -ne 0 ]; then
+                fail "보안 스캔 ${SEC_FAIL}건 실패"
+                echo "$SEC_OUT" | grep "\[FAIL\]" | head -10
+            else
+                SEC_PASS=$(echo "$SEC_OUT" | grep -oP 'PASS: \K[0-9]+' | tail -1 || echo 0)
+                pass "보안 스캔 통과 (${SEC_PASS}건)"
+            fi
+        else
+            skip "test_security_scan.sh 없음"
+        fi
+    else
+        skip "[$((GATE+1))] 데몬 미실행 — SAFE 통합/보안 스캔 생략"
+    fi
+else
+    skip "[$((GATE+1))] REST/UI 변경 없음 — 통합/보안 검사 생략"
+fi
+
+                                                   
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 문서 정합성 검사${NC}"
+    DOC_ISSUES=0
+    PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+
+                                                   
+    ACTUAL_RPC=$(grep -c "g_hash_table_insert.*g_rpc_routes" "$PROJECT_ROOT/src/api/dispatcher.c" || true)
+    DOC_RPC=$(grep -oP "RPC.*?(\d+)개" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | head -1 | grep -oP "\d+" || echo 0)
+    if [ "$ACTUAL_RPC" -gt 0 ] && [ "$DOC_RPC" -gt 0 ] && [ "$ACTUAL_RPC" != "$DOC_RPC" ]; then
+        warn "RPC 수 불일치: dispatcher=$ACTUAL_RPC, CLAUDE.md=$DOC_RPC"
+        DOC_ISSUES=$((DOC_ISSUES + 1))
+    fi
+
+                                           
+    if [ -f "$PROJECT_ROOT/test_results.txt" ]; then
+        ACTUAL_TESTS=$(grep -c "^ok" "$PROJECT_ROOT/test_results.txt" 2>/dev/null || true)
+        DOC_TESTS=$(grep -oP "테스트.*?(\d+)" "$PROJECT_ROOT/CLAUDE.md" 2>/dev/null | head -1 | grep -oP "\d+" | head -1 || echo 0)
+        if [ "$ACTUAL_TESTS" -gt 0 ] && [ "$DOC_TESTS" -gt 0 ] && [ "$ACTUAL_TESTS" != "$DOC_TESTS" ]; then
+            warn "테스트 수 불일치: 실제=$ACTUAL_TESTS, CLAUDE.md=$DOC_TESTS"
+            DOC_ISSUES=$((DOC_ISSUES + 1))
+        fi
+    fi
+
+    if [ "$DOC_ISSUES" -eq 0 ]; then
+        pass "문서 정합성 통과"
+    fi
+fi
+
+                                                     
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 신규 부채 마커 검사${NC}"
+    DEBT_MARK_1='TO''DO'
+    DEBT_MARK_2='FIX''ME'
+    DEBT_MARK_PATTERN="${DEBT_MARK_1}|${DEBT_MARK_2}"
+                                         
+    NEW_DEBT_MARKS=$(git diff --cached --diff-filter=ACMR -U0 -- '*.c' '*.h' | grep "^+" | grep -v "^+++" | grep -iE "$DEBT_MARK_PATTERN" | wc -l || true)
+    if [ "$NEW_DEBT_MARKS" -gt 0 ]; then
+        warn "신규 부채 마커 ${NEW_DEBT_MARKS}건 (의도적이면 무시)"
+        git diff --cached --diff-filter=ACMR -U0 -- '*.c' '*.h' | grep "^+" | grep -v "^+++" | grep -iE "$DEBT_MARK_PATTERN" | head -5
+    else
+        pass "신규 부채 마커 0건"
+    fi
+fi
+
+                                                    
+                                              
+                                    
+
+                                                      
+if $HAS_C_CHANGES && command -v valgrind &>/dev/null && [ -f test_runner ]; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] Valgrind 빠른 검사${NC}"
+    VG_OUT=$(G_SLICE=always-malloc G_DEBUG=gc-friendly timeout 60 valgrind \
+        --leak-check=full --show-leak-kinds=definite \
+        --errors-for-leak-kinds=definite --error-exitcode=42 \
+        --suppressions=/usr/share/glib-2.0/valgrind/glib.supp \
+        ./test_runner 2>&1)
+    VG_EXIT=$?
+    if [ "$VG_EXIT" -eq 42 ]; then
+        DEFINITE=$(echo "$VG_OUT" | grep "definitely lost:" | grep -v " 0 bytes" | head -1)
+        fail "Valgrind definite leak: $DEFINITE"
+    elif [ "$VG_EXIT" -eq 124 ]; then
+        warn "Valgrind 타임아웃 (60초) — 건너뜀"
+    else
+        pass "Valgrind definite leak 0건"
+    fi
+fi
+
+                                                           
+if $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] ASan/UBSan test_runner${NC}"
+    SAN_OUT=$(timeout 300 make sanitize 2>&1)
+    SAN_EXIT=$?
+    if [ "$SAN_EXIT" -eq 124 ]; then
+        warn "ASan 5분 타임아웃 — 건너뜀"
+    elif echo "$SAN_OUT" | grep -qE "(ERROR: AddressSanitizer|runtime error:|SUMMARY: UndefinedBehaviorSanitizer)"; then
+        fail "ASan/UBSan 오류 발견"
+        echo "$SAN_OUT" | grep -E "(ERROR|runtime error|SUMMARY)" | head -10
+    else
+        pass "ASan/UBSan 통과"
+    fi
+                                
+    make clean >/dev/null 2>&1 && make single >/dev/null 2>&1
+fi
+
+                                                        
+if command -v gitleaks &>/dev/null; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] gitleaks 시크릿 스캔${NC}"
+    GL_OUT=$(gitleaks protect --staged --redact --no-banner 2>&1)
+    GL_EXIT=$?
+    if [ "$GL_EXIT" -ne 0 ]; then
+        fail "gitleaks: 시크릿 의심 발견"
+        echo "$GL_OUT" | tail -20
+    else
+        pass "gitleaks 통과"
+    fi
+else
+    skip "[$((GATE+1))] gitleaks 미설치 — 권장: https://github.com/gitleaks/gitleaks"
+fi
+
+                                                             
+echo ""
+if [ "$FAILED" -ne 0 ]; then
+    echo -e "${RED}═══ 커밋 차단: 품질 게이트 실패 ═══${NC}"
+    echo -e "수정 후 다시 커밋하거나, 긴급 시 ${YELLOW}git commit --no-verify${NC}"
+    exit 1
+fi
+
+echo -e "${GREEN}═══ 품질 게이트 통과 (${GATE}단계) ═══${NC}"
+exit 0

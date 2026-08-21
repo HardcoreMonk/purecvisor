@@ -1,0 +1,9358 @@
+   
+                        
+                                                                 
+  
+                           
+                                                   
+                                                    
+                                        
+  
+          
+                                                 
+                                                   
+                                                
+                                          
+                                                
+                                                 
+                                                  
+           
+  
+                                              
+                                                              
+                                                
+                                                                  
+                                              
+                                                          
+                                                  
+                                                
+                                                                                                
+                                                                 
+  
+                                                                       
+         
+                                                                       
+                                                             
+                                                
+                                                         
+                                              
+  
+                                                                       
+           
+                                                                       
+                                         
+                          
+  
+            
+           
+                          
+                            
+                                   
+                        
+                                          
+  
+                                                                       
+         
+                                                                       
+                                                                    
+                                                   
+                                                  
+                                      
+                                                 
+                                                       
+  
+                                                                       
+         
+                                                                       
+                                                         
+                                        
+                                                                                       
+                                             
+                                        
+                                                    
+  
+                                                                       
+                                                        
+                                                                       
+                                                              
+                                                                
+                                                                      
+                                                          
+                                                                     
+                                                                                         
+                                        
+                                      
+                                             
+                                                                   
+  
+                                                                       
+        
+                                                                       
+                                                
+                             
+                                                     
+                                                      
+                                   
+  
+                                                                       
+                            
+                                                                       
+                                               
+  
+                                        
+                                                
+                                                           
+                                                 
+                                                                
+                               
+                                                                        
+                                                                                             
+                                                 
+                       
+       
+  
+                           
+                                            
+  
+              
+                                       
+  
+             
+                                                    
+                                   
+                            
+                                                                     
+  
+                           
+                                                                
+                                           
+  
+                              
+                                                         
+                                           
+                                                                
+  
+                                                                       
+                                  
+                                                                       
+                    
+                                                                
+                                                                
+                                                                    
+                                           
+                   
+  
+                                                  
+                                                  
+  
+                                                                       
+         
+                                                                       
+                                                     
+                                                          
+   
+
+#include <stdio.h>
+#include <stdlib.h>
+#include <string.h>
+#include <stdbool.h>
+#include <errno.h>
+#include <unistd.h>
+#include <sys/socket.h>
+#include <netinet/in.h>
+#include <arpa/inet.h>
+#include <wordexp.h>
+#include <glib.h>
+#include <gio/gio.h>
+#include <gio/gunixsocketaddress.h>
+#include <json-glib/json-glib.h>
+
+#ifdef HAVE_READLINE
+#  include <readline/readline.h>
+#  include <readline/history.h>
+#endif
+
+                                                                    
+#include "cli_rpc.h"                                                                   
+#include "cli_output.h"                                      
+#include "modules/dispatcher/rpc_utils.h"                                  
+
+                                
+
+                                                                    
+
+  
+                                                               
+                                                                 
+  
+                                                        
+                                                          
+                                                
+                                                   
+                                                   
+                                                            
+   
+                                                   
+                                                                    
+                                                 
+static inline void _cli_extracted_stub(void) {
+    (void)0;                                                                      
+                                                                                         
+}
+                                                                                    
+                                                           
+#if 0                                                       
+static void _cli_removed_print_metrics_bar(const char *label, int percent, const char *color) {
+    if (percent < 0)   percent = 0;
+    if (percent > 100) percent = 100;
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        printf("%s\t%d\n", label, percent);
+        return;
+    }
+    printf("%s[ %-8s ] %s%s", cc(CYBER_CYAN), label, cc(CYBER_RESET), color);
+    for (int i = 0; i < 20; i++) {
+        if (i < percent / 5) printf("▰");
+        else printf("%s▱%s%s", cc(CYBER_DIM), cc(CYBER_RESET), color);
+    }
+    printf(" %3d%%%s\n", percent, cc(CYBER_RESET));
+}
+
+                                                                     
+
+   
+                                                            
+  
+                                                          
+                                                
+   
+   
+                                                            
+  
+                                                    
+                                                       
+                                                                           
+                                                       
+                                               
+  
+                                                         
+  
+         
+                                                 
+                                                       
+                                            
+                                            
+                            
+  
+              
+                                                    
+                                                            
+                                               
+   
+gchar *purectl_send_request(const gchar *method,
+                             JsonObject  *params_obj,
+                             GError     **error) {
+                        
+    GSocketClient    *client = g_socket_client_new();
+    GSocketAddress   *addr   = g_unix_socket_address_new(g_ctx.socket_path);
+    GSocketConnection *conn  = g_socket_client_connect(
+            client, G_SOCKET_CONNECTABLE(addr), NULL, error);
+
+    g_object_unref(client);                          
+    g_object_unref(addr);
+    if (!conn) return NULL;                              
+
+    GSocket *sock = g_socket_connection_get_socket(conn);
+    g_socket_set_timeout(sock, 10);                            
+
+                                   
+    JsonObject *root_obj = json_object_new();
+    json_object_set_string_member(root_obj, "jsonrpc", "2.0");
+    json_object_set_string_member(root_obj, "method",  method);
+    json_object_set_object_member(root_obj, "params",
+            params_obj ? params_obj : json_object_new());
+    json_object_set_int_member(root_obj, "id", 1);
+
+                                     
+    JsonNode      *root_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(root_node, root_obj);                       
+    gchar *payload = json_to_string(root_node, FALSE);
+    json_node_free(root_node);                        
+
+                                           
+    if (g_ctx.verbose)
+        g_printerr("%s[→ %s]%s\n", ce(CYBER_DIM), payload, ce(CYBER_RESET));
+
+                      
+    GOutputStream *out = g_io_stream_get_output_stream(G_IO_STREAM(conn));
+    gsize bytes_written;
+    if (!g_output_stream_write_all(out, payload, strlen(payload),
+                                   &bytes_written, NULL, error)) {
+        g_free(payload);
+        g_object_unref(conn);
+        return NULL;
+    }
+    g_free(payload);
+
+                                                   
+    if (!g_socket_shutdown(sock, FALSE, TRUE, error)) {
+        g_object_unref(conn);
+        return NULL;
+    }
+
+                                                 
+    GInputStream *in  = g_io_stream_get_input_stream(G_IO_STREAM(conn));
+    GByteArray   *buf = g_byte_array_new();
+    gchar         tmp[8192];
+    gssize        n;
+    while ((n = g_input_stream_read(in, tmp, sizeof(tmp), NULL, error)) > 0)
+        g_byte_array_append(buf, (guint8 *)tmp, (guint)n);
+
+    g_object_unref(conn);
+
+                               
+    if (buf->len == 0) {
+        g_byte_array_free(buf, TRUE);
+        return NULL;
+    }
+                                  
+    g_byte_array_append(buf, (guint8 *)"\0", 1);
+    gchar *result = g_strdup((gchar *)buf->data);
+    g_byte_array_free(buf, TRUE);
+
+                                         
+    if (g_ctx.verbose)
+        g_printerr("%s[← %s]%s\n", ce(CYBER_DIM), result, ce(CYBER_RESET));
+
+                                            
+    if (result && strstr(result, "-32601")) {
+        g_printerr("\n%s[!] This command is not included in Single Edge.%s\n"
+                   "%s    Current daemon does not support '%s' RPC method.%s\n"
+                   "%s    Use the appropriate edition repository for this feature.%s\n\n",
+            ce(CYBER_YELLOW), ce(CYBER_RESET),
+            ce(CYBER_DIM), method, ce(CYBER_RESET),
+            ce(CYBER_DIM), ce(CYBER_RESET));
+        g_free(result);
+        return NULL;
+    }
+
+    return result;
+}
+
+                                                                       
+                           
+                                                                       
+  
+                                                 
+                                       
+                                 
+                               
+   
+
+                                 
+static void print_raw_response(const gchar *json_string) {
+    if (json_string) printf("%s\n", json_string);
+}
+
+                          
+void print_action_response(const gchar *json_string, const gchar *action_name) {
+    if (!json_string) {
+        g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET));
+        return;
+    }
+                                
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(json_string);
+        return;
+    }
+                                        
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                              
+        GError     *err    = NULL;
+        JsonParser *parser = json_parser_new();
+        bool        ok     = false;
+        if (json_parser_load_from_data(parser, json_string, -1, &err)) {
+            JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+            ok = json_object_has_member(root, "result");
+        }
+        g_clear_error(&err);
+        g_object_unref(parser);
+        printf("%s\t%s\n", action_name, ok ? "OK" : "ERROR");
+        return;
+    }
+
+                                
+    GError     *error  = NULL;
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, json_string, -1, &error)) {
+        g_printerr("%s[!] SYS_FAULT: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error);
+        g_object_unref(parser);
+        return;
+    }
+    JsonObject *root_obj = json_node_get_object(json_parser_get_root(parser));
+
+    if (json_object_has_member(root_obj, "error")) {
+        JsonObject *err_obj = json_object_get_object_member(root_obj, "error");
+        g_printerr("%s[!] COMMAND REJECTED [%lld]: %s%s\n",
+            ce(CYBER_RED),
+            (long long)json_object_get_int_member(err_obj, "code"),
+            json_object_get_string_member(err_obj, "message"),
+            ce(CYBER_RESET));
+    } else if (json_object_has_member(root_obj, "result")) {
+        JsonNode *res_node = json_object_get_member(root_obj, "result");
+        if (res_node && JSON_NODE_HOLDS_OBJECT(res_node)) {
+            JsonObject  *res_obj = json_node_get_object(res_node);
+            const gchar *status  = json_object_has_member(res_obj, "status")
+                    ? json_object_get_string_member(res_obj, "status") : "SUCCESS";
+            printf("%s%s[+] %s COMMAND ACCEPTED: %s",
+                cc(CYBER_GREEN), cc(CYBER_BOLD), action_name, cc(CYBER_RESET));
+            printf("%sEntity state transitioned to %s",
+                cc(CYBER_CYAN), cc(CYBER_RESET));
+            printf("%s[ %s ]%s\n",
+                cc(CYBER_YELLOW), status, cc(CYBER_RESET));
+            if (json_object_has_member(res_obj, "dhcp_warning"))
+                printf("%s[!] DHCP_WARN: %s%s\n",
+                    cc(CYBER_YELLOW),
+                    json_object_get_string_member(res_obj, "dhcp_warning"),
+                    cc(CYBER_RESET));
+        } else {
+            printf("%s%s[+] %s SEQUENCE INITIATED SUCCESSFULLY.%s\n",
+                cc(CYBER_GREEN), cc(CYBER_BOLD), action_name, cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser);
+}
+
+                                                             
+  
+                             
+                                    
+                                                            
+  
+                                          
+                                              
+   
+
+   
+                                                   
+  
+                                            
+                                              
+  
+         
+                                                    
+                                                                     
+                                                                  
+                                                
+  
+          
+                                                    
+                                             
+                                                 
+   
+typedef struct {
+    const char **headers;                                 
+    size_t       ncols;               
+    GPtrArray   *rows;                                                       
+} PcvTable;
+
+                                              
+static PcvTable *ptbl_new(const char **hdrs, size_t n) {
+    PcvTable *t = g_new0(PcvTable, 1);
+    t->headers = hdrs;
+    t->ncols   = n;
+    t->rows    = g_ptr_array_new_with_free_func((GDestroyNotify)g_strfreev);
+    return t;
+}
+
+   
+                              
+  
+                                      
+                                       
+                           
+  
+                                               
+                                        
+   
+static void ptbl_row(PcvTable *t, ...) {
+    va_list ap; va_start(ap, t);
+    gchar **row = g_new0(gchar *, t->ncols + 1);
+    for (size_t i = 0; i < t->ncols; i++) {
+        const char *v = va_arg(ap, const char *);
+        row[i] = g_strdup(v ? v : "");
+    }
+    va_end(ap);
+    g_ptr_array_add(t->rows, row);
+}
+
+                                                                       
+static void ptbl_print_plain(PcvTable *t) {
+    for (guint r = 0; r < t->rows->len; r++) {
+        gchar **row = g_ptr_array_index(t->rows, r);
+        for (size_t c = 0; c < t->ncols; c++) {
+            if (c) putchar('\t');
+            fputs(row[c], stdout);
+        }
+        putchar('\n');
+    }
+}
+
+   
+                                              
+                                                         
+   
+static void ptbl_print_csv(PcvTable *t) {
+            
+    for (size_t c = 0; c < t->ncols; c++) {
+        if (c) putchar(',');
+        fputs(t->headers[c], stdout);
+    }
+    putchar('\n');
+    for (guint r = 0; r < t->rows->len; r++) {
+        gchar **row = g_ptr_array_index(t->rows, r);
+        for (size_t c = 0; c < t->ncols; c++) {
+            if (c) putchar(',');
+            bool needs_quote = (strchr(row[c], ',') || strchr(row[c], '"')
+                             || strchr(row[c], '\n'));
+            if (needs_quote) {
+                putchar('"');
+                for (char *p = row[c]; *p; p++) {
+                    if (*p == '"') putchar('"');
+                    putchar(*p);
+                }
+                putchar('"');
+            } else {
+                fputs(row[c], stdout);
+            }
+        }
+        putchar('\n');
+    }
+}
+
+                                                                            
+static void ptbl_free(PcvTable *t) {
+    g_ptr_array_free(t->rows, TRUE);
+    g_free(t);
+}
+#endif                                             
+
+                                                                       
+         
+                                                                          
+
+   
+                               
+  
+                                                 
+                                     
+  
+                                                        
+                                                             
+                                                      
+                                                
+  
+                                                            
+                                                                     
+                                               
+                                                            
+  
+                                                    
+                                                                  
+  
+                                                                 
+                                                            
+                                                                
+                                                  
+                                                 
+   
+void cmd_vm_create(int argc, char *argv[]) {
+                                                      
+                                                          
+                                                          
+                                                 
+    gboolean want_help = (argc < 3)
+        || g_strcmp0(argv[2], "--help") == 0
+        || g_strcmp0(argv[2], "-h") == 0;
+    if (want_help) {
+        printf("%sUsage: pcvctl vm create <name>"
+               " [--vcpu <n>] [--memory_mb <mb>] [--disk_size_gb <gb>]"
+               " [--iso_path <path>] [--network_bridge <br>|none]"
+               " [--storage_type zvol|qcow2|raw]"
+               " [--storage_pool <dataset>] [--image_dir <path>]"
+               " [--qos_min_mbps <n>] [--qos_max_mbps <n>]%s\n"
+               "%s  network_bridge 미지정 시 관리형 기본 NAT 네트워크(pcvnat0)에 부착,"
+               " 'none'은 NIC 미부착%s\n"
+               "%s  qos_min_mbps/qos_max_mbps 는 커널 netdev 셰이핑 대상 VM(기본 조합"
+               " 포함)에 필수 — 생략 시 서버가 -32602 로 거부%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET),
+            cc(CYBER_DIM), cc(CYBER_RESET),
+            cc(CYBER_DIM), cc(CYBER_RESET));
+        return;
+    }
+                                                               
+    if (argv[2][0] == '-') {
+        g_printerr("%s[!] '%s' 는 VM 이름이 아닙니다 (플래그 형태). "
+                   "이름을 먼저 지정하세요: pcvctl vm create <name> ...%s\n",
+                   ce(CYBER_RED), argv[2], ce(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+                                                     
+                                                 
+                                                        
+    for (int i = 3; i < argc; i++) {
+        if      (g_strcmp0(argv[i],"--vcpu")           == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"vcpu",           atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--memory_mb")      == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"memory_mb",      atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--disk_size_gb")   == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"disk_size_gb",   atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--iso_path")       == 0 && i+1 < argc)
+            json_object_set_string_member(params,"iso_path",        argv[++i]);
+        else if (g_strcmp0(argv[i],"--network_bridge") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"network_bridge",  argv[++i]);
+        else if (g_strcmp0(argv[i],"--storage_type")   == 0 && i+1 < argc)
+            json_object_set_string_member(params,"storage_type",    argv[++i]);
+        else if (g_strcmp0(argv[i],"--storage_pool")   == 0 && i+1 < argc)
+            json_object_set_string_member(params,"storage_pool",    argv[++i]);
+        else if (g_strcmp0(argv[i],"--image_dir")      == 0 && i+1 < argc)
+            json_object_set_string_member(params,"image_dir",       argv[++i]);
+        else if (g_strcmp0(argv[i],"--qos_min_mbps")   == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"qos_min_mbps",   atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--qos_max_mbps")   == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"qos_max_mbps",   atoi(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.create", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "VM_CREATE");
+    g_free(resp);
+}
+
+   
+                             
+  
+                                                
+                            
+                                              
+  
+                                               
+                             
+                             
+                                    
+   
+void cmd_vm_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) ||
+        !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root_obj   = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *result_arr = json_object_has_member(root_obj, "result")
+            ? json_object_get_array_member(root_obj, "result") : NULL;
+
+                        
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdrs[] = {"UUID","NAME","STATE"};
+        PcvTable   *t      = ptbl_new(hdrs, 3);
+        if (result_arr) {
+            for (guint i = 0; i < json_array_get_length(result_arr); i++) {
+                JsonObject  *vm    = json_array_get_object_element(result_arr, i);
+                const gchar *uuid  = json_object_has_member(vm,"uuid")
+                        ? json_object_get_string_member(vm,"uuid")  : "-";
+                const gchar *name  = json_object_has_member(vm,"name")
+                        ? json_object_get_string_member(vm,"name")  : "-";
+                const gchar *state = json_object_has_member(vm,"state")
+                        ? json_object_get_string_member(vm,"state") : "unknown";
+                ptbl_row(t, uuid, name, state, NULL);
+            }
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        g_object_unref(parser); g_free(resp); return;
+    }
+
+                                
+    print_cyber_banner();
+    printf("%s%s %-38s │ %-18s │ %-10s%s\n",
+        cc(CYBER_CYAN), cc(CYBER_BOLD),
+        "SYS_UUID", "ENTITY_ID", "LIFELINE",
+        cc(CYBER_RESET));
+    printf("%s%s%s\n", cc(CYBER_CYAN),
+        "────────────────────────────────────────"
+        "┼────────────────────┼────────────",
+        cc(CYBER_RESET));
+
+    if (!result_arr || json_array_get_length(result_arr) == 0) {
+        printf("%s [ NO ACTIVE ENTITIES FOUND IN MAINFRAME ]\n%s",
+            cc(CYBER_DIM), cc(CYBER_RESET));
+    } else {
+        for (guint i = 0; i < json_array_get_length(result_arr); i++) {
+            JsonObject  *vm    = json_array_get_object_element(result_arr, i);
+            const gchar *uuid  = json_object_has_member(vm,"uuid")
+                    ? json_object_get_string_member(vm,"uuid")  : "-";
+            const gchar *name  = json_object_has_member(vm,"name")
+                    ? json_object_get_string_member(vm,"name")  : "-";
+            const gchar *state = json_object_has_member(vm,"state")
+                    ? json_object_get_string_member(vm,"state") : "unknown";
+                                                           
+                                                          
+            const gchar *sc =
+                g_strcmp0(state,"running") == 0 ? cc(CYBER_GREEN) :
+                g_strcmp0(state,"shutoff") == 0 ? cc(CYBER_RED)   :
+                g_strcmp0(state,"paused")  == 0 ? cc(CYBER_YELLOW): cc(CYBER_DIM);
+            printf("%s %-38s%s │ %s%-18s%s │ %s%-10s%s\n",
+                cc(CYBER_DIM),  uuid,  cc(CYBER_RESET),
+                cc(CYBER_YELLOW), name, cc(CYBER_RESET),
+                sc, state, cc(CYBER_RESET));
+        }
+    }
+    printf("%s%s%s\n\n", cc(CYBER_CYAN),
+        "────────────────────────────────────────"
+        "┴────────────────────┴────────────",
+        cc(CYBER_RESET));
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                                            
+  
+                                                 
+                                            
+                                               
+                                       
+                                              
+  
+                                         
+   
+static void cmd_vm_action(int argc, char *argv[],
+                          const gchar *method, const gchar *label) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm %s <vm_id>%s\n",
+            cc(CYBER_YELLOW), argv[2], cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request(method, params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, label);
+    g_free(resp);
+}
+
+                                                             
+void cmd_vm_start  (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.start", "START" ); }
+void cmd_vm_stop   (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.stop",  "STOP"  ); }
+void cmd_vm_pause  (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.pause", "PAUSE" ); }
+void cmd_vm_resume (int argc, char *argv[]) { cmd_vm_action(argc,argv,"vm.resume","RESUME"); }
+
+   
+                                                    
+  
+                                                 
+                                               
+                                 
+                                          
+                                                      
+                                                     
+  
+                                           
+                                         
+                                     
+   
+void cmd_vm_delete(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm delete <vm_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const char *target = argv[2];
+
+                                                    
+                                                 
+    if (!g_ctx.batch && isatty(STDIN_FILENO)) {
+        print_cyber_banner();
+        printf("%s [!] WARNING: DESTRUCTIVE OPERATION INITIATED [!]%s\n",
+            cc(CYBER_RED), cc(CYBER_RESET));
+        printf("%s VM to delete: %s%s%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RED), target, cc(CYBER_RESET));
+        printf(" This will permanently destroy:\n");
+        printf("   1. VM XML configuration\n");
+        printf("   2. ZFS zvol and all data\n");
+        printf("   3. All ZFS snapshots\n");
+        printf("%s This action CANNOT be undone.\n\n%s", cc(CYBER_RED), cc(CYBER_RESET));
+        printf(" Confirm by typing the exact VM ID ('%s'): ", target);
+
+        char buf[256];
+        if (!fgets(buf, sizeof(buf), stdin)) {
+            pcv_cli_command_mark_runtime_failure();                             
+            return;
+        }
+        buf[strcspn(buf, "\n")] = '\0';                                     
+                                               
+        if (strcmp(buf, target) != 0) {
+            printf("%s\n [!] ABORTED: Name mismatch. Deletion cancelled.\n%s",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            pcv_cli_command_mark_runtime_failure();
+            return;
+        }
+        printf("%s\n [!] AUTHORIZATION ACCEPTED. COMMENCING ANNIHILATION...\n%s",
+            cc(CYBER_CYAN), cc(CYBER_RESET));
+    }
+    cmd_vm_action(argc, argv, "vm.delete", "VM_DELETE");
+}
+
+   
+                               
+  
+                                                 
+                                           
+  
+                                                
+                                  
+   
+void cmd_vm_rename(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm rename <old_name> <new_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "new_name", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.rename", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "VM_RENAME");
+    g_free(resp);
+}
+
+   
+                                                          
+                                                   
+                                           
+   
+void cmd_vm_limit(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl vm limit <vm_id>"
+               " [--cpu <percent>] [--mem <mb>]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if      (g_strcmp0(argv[i],"--cpu") == 0 && i+1 < argc)
+            json_object_set_int_member(params,"cpu",atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--mem") == 0 && i+1 < argc)
+            json_object_set_int_member(params,"mem",atoi(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.limit", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "RESOURCE_LIMIT");
+    g_free(resp);
+}
+
+   
+                                                                       
+                                      
+                                          
+   
+void cmd_vm_set_memory(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm set-memory <vm_id> <mb>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",    argv[2]);
+    json_object_set_int_member   (params,"memory_mb",atoi(argv[3]));
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.set_memory", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "SET_MEMORY");
+    g_free(resp);
+}
+
+   
+                                                                
+                                       
+                                          
+   
+void cmd_vm_set_vcpu(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm set-vcpu <vm_id> <count>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",     argv[2]);
+    json_object_set_int_member   (params,"vcpu_count",atoi(argv[3]));
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.set_vcpu", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "SET_VCPU");
+    g_free(resp);
+}
+
+   
+                                                      
+                                                
+                                 
+                                                             
+   
+void cmd_vm_vnc(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm vnc <vm_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.vnc", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,resp,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root,"result")) {
+        JsonObject  *res  = json_object_get_object_member(root,"result");
+        const gchar *port = json_object_has_member(res,"vnc_port")
+                ? json_object_get_string_member(res,"vnc_port") : "N/A";
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("vnc_port\t%s\n", port);
+        } else {
+            print_cyber_banner();
+            printf("%s [ OPTIC NERVE CONNECTED ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+            printf("%s VNC DISPLAY PORT : %s%s\n", cc(CYBER_GREEN), port, cc(CYBER_RESET));
+            printf("%s BIND ADDRESS     : 0.0.0.0\n\n%s", cc(CYBER_DIM), cc(CYBER_RESET));
+            printf("%s💡 HOW TO CONNECT:%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET));
+            printf("   Open VNC viewer → connect to [Host_IP]:%s\n", port);
+            printf("%s────────────────────────────────────────%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+        }
+    } else {
+        print_action_response(resp, "VNC_QUERY");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                                             
+                                      
+                                
+                                                                
+                                                      
+   
+void cmd_vm_eject(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm eject <vm_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.eject", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        printf("eject\t%s\tOK\n", argv[3]);
+        g_free(resp); return;
+    }
+    print_cyber_banner();
+    printf("%s [ OPTICAL DRIVE PURGED ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+    printf("%s TARGET VM : %s%s\n", cc(CYBER_GREEN), argv[3], cc(CYBER_RESET));
+    printf("%s ISO media ejected from virtual cdrom.\n\n%s", cc(CYBER_DIM), cc(CYBER_RESET));
+    printf("%s────────────────────────────────────────%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+    g_free(resp);
+}
+
+                                                                       
+          
+                                                                          
+
+   
+                                                                          
+                                                        
+                                            
+   
+void cmd_snapshot_create(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl snapshot create <vm_id> <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p,"vm_id",    argv[2]);
+    json_object_set_string_member(p,"snap_name",argv[3]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.snapshot.create", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "SNAPSHOT_CREATE");
+    g_free(r);
+}
+
+   
+                                                                          
+                                                   
+                                         
+                                
+   
+void cmd_snapshot_rollback(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl snapshot rollback <vm_id> <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+                                                  
+    if (g_ctx.fmt == FMT_TABLE)
+        printf("%s[!] WARNING: Running VMs will be auto-stopped before rollback.%s\n",
+            cc(CYBER_RED), cc(CYBER_RESET));
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p,"vm_id",    argv[2]);
+    json_object_set_string_member(p,"snap_name",argv[3]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.snapshot.rollback", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "SNAPSHOT_ROLLBACK");
+    g_free(r);
+}
+
+   
+                                                           
+                                                      
+                                  
+                                 
+   
+void cmd_snapshot_list(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl snapshot list <vm_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p,"vm_id",argv[2]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.snapshot.list", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser,r,-1,NULL) && json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root,"result")) {
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                printf("%s\n",
+                    json_node_get_string(json_object_get_member(root,"result")));
+            } else {
+                print_cyber_banner();
+                printf("%s [ ZFS TIMELINES: %s ]\n\n%s", cc(CYBER_CYAN), argv[3], cc(CYBER_RESET));
+                printf("%s%s%s\n", cc(CYBER_GREEN),
+                    json_node_get_string(json_object_get_member(root,"result")),
+                    cc(CYBER_RESET));
+                printf("%s────────────────────────────────────%s\n",
+                    cc(CYBER_CYAN), cc(CYBER_RESET));
+            }
+        } else {
+            print_action_response(r, "SNAPSHOT_LIST");
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
+   
+                                                               
+                                               
+                                
+   
+void cmd_snapshot_delete(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl snapshot delete <vm_id> <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p,"vm_id",    argv[2]);
+    json_object_set_string_member(p,"snap_name",argv[3]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.snapshot.delete", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "SNAPSHOT_DELETE");
+    g_free(r);
+}
+
+                                                                        
+                                                                    
+void cmd_snapshot_verify(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl snapshot verify <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "snapshot", argv[2]);
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("backup.snapshot.verify", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) { g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET)); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL) && json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err_obj = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] COMMAND REJECTED [%lld]: %s%s\n",
+                ce(CYBER_RED),
+                (long long)json_object_get_int_member(err_obj, "code"),
+                json_object_get_string_member(err_obj, "message"),
+                ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject  *res       = json_object_get_object_member(root, "result");
+            gboolean     exists    = json_object_get_boolean_member(res, "exists");
+            const gchar *integrity = json_object_has_member(res, "integrity")
+                    ? json_object_get_string_member(res, "integrity") : "unknown";
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                printf("%s\t%s\t%s\n", argv[2], exists ? "true" : "false", integrity);
+            } else {
+                printf("%s%s[%s] SNAPSHOT %s: exists=%s integrity=%s%s\n",
+                    cc(exists ? CYBER_GREEN : CYBER_RED), cc(CYBER_BOLD),
+                    exists ? "+" : "!", argv[2],
+                    exists ? "true" : "false", integrity,
+                    cc(CYBER_RESET));
+            }
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
+                                                                       
+           
+                                                                          
+
+   
+                                                                  
+                                                        
+                                 
+   
+void cmd_monitor_metrics(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl monitor metrics <vm_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.metrics", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,resp,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root,"result")) {
+        JsonObject *res     = json_object_get_object_member(root,"result");
+        int         cpu_pct = (int)json_object_get_int_member(res,"cpu");
+        int         mem_pct = (int)json_object_get_int_member(res,"mem");
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("vm\tcpu\tmem\n%s\t%d\t%d\n", argv[3], cpu_pct, mem_pct);
+        } else {
+            print_cyber_banner();
+            printf("%s%s>>> REALTIME TELEMETRY: %s <<<\n\n%s",
+                cc(CYBER_YELLOW), cc(CYBER_BOLD), argv[3], cc(CYBER_RESET));
+            print_metrics_bar("CPU",    cpu_pct, cc(CYBER_GREEN));
+            print_metrics_bar("MEMORY", mem_pct, cc(CYBER_RED));
+            printf("\n");
+        }
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                                                    
+                                                               
+                                                
+                                                     
+                                     
+   
+static void fleet_fmt_cpu_time(JsonObject *vm, char *out, size_t outlen) {
+    if (json_object_has_member(vm, "cpu_time_ns")) {
+        gint64 ns = json_object_get_int_member(vm, "cpu_time_ns");
+        if (ns > 0) {
+            snprintf(out, outlen, "%.1fs", ns / 1e9);
+            return;
+        }
+    }
+    snprintf(out, outlen, "-");
+}
+
+   
+                                                                      
+                                                        
+                                          
+                                          
+   
+static void fleet_fmt_mem_pct(JsonObject *vm, char *out, size_t outlen) {
+    if (json_object_has_member(vm, "mem_used_mb") && json_object_has_member(vm, "mem_max_mb")) {
+        double used = json_object_get_double_member(vm, "mem_used_mb");
+        double max  = json_object_get_double_member(vm, "mem_max_mb");
+        if (used >= 0 && max > 0) {
+            snprintf(out, outlen, "%.1f%%", used / max * 100.0);
+            return;
+        }
+    }
+    snprintf(out, outlen, "N/A");
+}
+
+   
+                                                                  
+                                                       
+                                                              
+  
+                                                                
+                                                                      
+                                                                    
+                                                                  
+                                             
+   
+void cmd_monitor_fleet(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("monitor.fleet", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,resp,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+
+    if (!json_object_has_member(root,"result")) {
+        print_action_response(resp, "MONITOR_FLEET");
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *res  = json_object_get_object_member(root,"result");
+    JsonNode   *node = json_object_get_member(res,"fleet");
+
+    if (node && JSON_NODE_HOLDS_ARRAY(node)) {
+        JsonArray *arr = json_node_get_array(node);
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"NAME","STATE","CPU_TIME","MEM%"};
+            PcvTable   *t      = ptbl_new(hdrs, 4);
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject  *vm = json_array_get_object_element(arr, i);
+                char cpu_s[16], mem_s[16];
+                fleet_fmt_cpu_time(vm, cpu_s, sizeof(cpu_s));
+                fleet_fmt_mem_pct(vm, mem_s, sizeof(mem_s));
+                ptbl_row(t,
+                    json_object_get_string_member(vm,"name"),
+                    json_object_get_string_member(vm,"state"),
+                    cpu_s, mem_s, NULL);
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else {
+            print_cyber_banner();
+            printf("%s%s [ GLOBAL FLEET STATUS ]\n\n%s",
+                cc(CYBER_CYAN), cc(CYBER_BOLD), cc(CYBER_RESET));
+            printf("%s%s %-20s │ %-10s │ %8s │ %6s%s\n",
+                cc(CYBER_CYAN), cc(CYBER_BOLD),
+                "ENTITY_ID","LIFELINE","CPU_TIME","MEM%", cc(CYBER_RESET));
+            printf("%s──────────────────────┼────────────┼──────────┼────────%s\n",
+                cc(CYBER_CYAN), cc(CYBER_RESET));
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject  *vm    = json_array_get_object_element(arr, i);
+                const gchar *name  = json_object_get_string_member(vm,"name");
+                const gchar *state = json_object_get_string_member(vm,"state");
+                char cpu_s[16], mem_s[16];
+                fleet_fmt_cpu_time(vm, cpu_s, sizeof(cpu_s));
+                fleet_fmt_mem_pct(vm, mem_s, sizeof(mem_s));
+                                                                        
+                                                                           
+                const gchar *sc    = g_ascii_strcasecmp(state,"running")==0
+                        ? cc(CYBER_GREEN) : cc(CYBER_RED);
+                printf(" %-20s │ %s%-10s%s │ %8s │ %6s\n",
+                    name, sc, state, cc(CYBER_RESET), cpu_s, mem_s);
+            }
+            printf("%s──────────────────────┴────────────┴──────────┴────────%s\n\n",
+                cc(CYBER_CYAN), cc(CYBER_RESET));
+        }
+    } else {
+                            
+        gchar *raw = json_to_string(json_object_get_member(root,"result"), FALSE);
+        printf("%s\n", raw);
+        g_free(raw);
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                       
+           
+                                                                          
+
+   
+                                                       
+                                           
+                                                
+                                         
+   
+void cmd_net_create(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl network create <bridge_name>"
+               " [--mode nat|isolated|routed|bridge] [--cidr IP/PREFIX]"
+               " [--mtu 68..9216] [--iface eth0]"
+               " [--uplink-mode dedicated|shared]"
+               " [--confirm-dedicated-uplink|--confirm-shared-uplink]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"bridge_name",argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if      (g_strcmp0(argv[i],"--mode")  == 0 && i+1 < argc)
+            json_object_set_string_member(params,"mode",       argv[++i]);
+        else if (g_strcmp0(argv[i],"--cidr")  == 0 && i+1 < argc)
+            json_object_set_string_member(params,"cidr",       argv[++i]);
+        else if (g_strcmp0(argv[i],"--iface") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"physical_if",argv[++i]);
+        else if (g_strcmp0(argv[i],"--uplink-mode") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"uplink_mode",argv[++i]);
+        else if (g_strcmp0(argv[i],"--confirm-dedicated-uplink") == 0)
+            json_object_set_string_member(params,"safety_ack","dedicated-uplink");
+        else if (g_strcmp0(argv[i],"--confirm-shared-uplink") == 0)
+            json_object_set_string_member(params,"safety_ack","shared-uplink");
+        else if (g_strcmp0(argv[i],"--mtu") == 0 && i+1 < argc) {
+            const gchar *raw = argv[++i];
+            gchar *end = NULL;
+            gint64 mtu = g_ascii_strtoll(raw, &end, 10);
+            if (end == raw || *end != '\0' || mtu < 68 || mtu > 9216) {
+                g_printerr("%s[!] --mtu must be an integer between 68 and 9216%s\n",
+                    ce(CYBER_RED), ce(CYBER_RESET));
+                json_object_unref(params);
+                return;
+            }
+            json_object_set_int_member(params, "mtu", mtu);
+        }
+    }
+    const gchar *mode = json_object_has_member(params, "mode")
+                        ? json_object_get_string_member(params, "mode") : "nat";
+    if (g_strcmp0(mode, "bridge") == 0) {
+        const gchar *uplink = json_object_has_member(params, "uplink_mode")
+            ? json_object_get_string_member(params, "uplink_mode") : "dedicated";
+        const gchar *required_ack = g_strcmp0(uplink, "shared") == 0
+            ? "shared-uplink" : "dedicated-uplink";
+        if (!json_object_has_member(params, "physical_if")
+            || !json_object_has_member(params, "safety_ack")
+            || g_strcmp0(json_object_get_string_member(params, "safety_ack"), required_ack) != 0
+            || json_object_has_member(params, "cidr")) {
+            g_printerr("%s[!] bridge mode requires --iface NIC, matching --uplink-mode "
+                       "and confirmation; omit --cidr%s\n", ce(CYBER_RED), ce(CYBER_RESET));
+            json_object_unref(params);
+            return;
+        }
+    }
+    GError *err = NULL;
+    gchar  *res = purectl_send_request("network.create", params, &err);
+    if (err) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), err->message, ce(CYBER_RESET));
+        g_error_free(err); return;
+    }
+    print_action_response(res, "NET_CREATE");
+    g_free(res);
+}
+
+   
+                                                       
+                              
+                                
+   
+void cmd_net_delete(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl network delete <bridge_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"bridge_name",argv[2]);
+    GError *err = NULL;
+    gchar  *res = purectl_send_request("network.delete", params, &err);
+    if (err) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), err->message, ce(CYBER_RESET));
+        g_error_free(err); return;
+    }
+    print_action_response(res, "NET_DELETE");
+    g_free(res);
+}
+
+   
+                                                      
+                                                
+                                 
+                                                          
+   
+void cmd_net_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *err = NULL;
+    gchar  *res = purectl_send_request("network.list", NULL, &err);
+    if (err) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), err->message, ce(CYBER_RESET));
+        g_error_free(err); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(res); g_free(res); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,res,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(res); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root,"result")
+            ? json_object_get_array_member(root,"result") : NULL;
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdrs[] = {"BRIDGE","MODE","CIDR","STATE"};
+        PcvTable   *t      = ptbl_new(hdrs, 4);
+        if (arr) {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *n = json_array_get_object_element(arr, i);
+                ptbl_row(t,
+                                                                            
+                    json_object_has_member(n,"name")
+                        ? json_object_get_string_member(n,"name")        : "-",
+                    json_object_has_member(n,"mode")
+                        ? json_object_get_string_member(n,"mode")        : "-",
+                    json_object_has_member(n,"ip_cidr")
+                        ? json_object_get_string_member(n,"ip_cidr")     : "-",
+                    json_object_has_member(n,"state")
+                        ? json_object_get_string_member(n,"state")       : "up",
+                    NULL);
+            }
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        g_object_unref(parser); g_free(res); return;
+    }
+
+    print_cyber_banner();
+    printf("%s%s %-20s │ %-12s │ %-18s │ %-10s%s\n",
+        cc(CYBER_CYAN), cc(CYBER_BOLD),
+        "BRIDGE","MODE","CIDR","STATE", cc(CYBER_RESET));
+    printf("%s──────────────────────┼──────────────┼────────────────────┼────────────%s\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    if (!arr || json_array_get_length(arr) == 0) {
+        printf("%s [ NO NETWORKS FOUND ]%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
+    } else {
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject  *n     = json_array_get_object_element(arr, i);
+                                                                    
+            const gchar *br    = json_object_has_member(n,"name")
+                    ? json_object_get_string_member(n,"name")        : "-";
+            const gchar *mode  = json_object_has_member(n,"mode")
+                    ? json_object_get_string_member(n,"mode")        : "-";
+            const gchar *cidr  = json_object_has_member(n,"ip_cidr")
+                    ? json_object_get_string_member(n,"ip_cidr")     : "-";
+            const gchar *state = json_object_has_member(n,"state")
+                    ? json_object_get_string_member(n,"state")       : "up";
+            printf(" %-20s │ %s%-12s%s │ %-18s │ %s%-10s%s\n",
+                br,
+                cc(CYBER_YELLOW), mode, cc(CYBER_RESET),
+                cidr,
+                cc(CYBER_GREEN), state, cc(CYBER_RESET));
+        }
+    }
+    printf("%s──────────────────────┴──────────────┴────────────────────┴────────────%s\n\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    g_object_unref(parser);
+    g_free(res);
+}
+
+   
+                                                              
+                                                
+                      
+                                                    
+                                   
+   
+static void net_mode_apply(const char *bridge, const char *mode, const char *cidr) {
+    JsonObject *params = json_object_new();
+                                                                         
+                                                                
+                                         
+    json_object_set_string_member(params, "name", bridge);
+    json_object_set_string_member(params, "mode", mode);
+    json_object_set_string_member(params, "cidr", cidr);
+    GError *err = NULL;
+    gchar  *res = purectl_send_request("network.mode_set", params, &err);
+    if (err) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), err->message, ce(CYBER_RESET));
+        g_error_free(err); return;
+    }
+    print_action_response(res, "NET_MODE_SET");
+    g_free(res);
+}
+
+   
+                                                          
+                                                           
+                                          
+   
+void cmd_net_mode(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl network mode <bridge_name>"
+               " <nat|isolated|routed> <CIDR>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    net_mode_apply(argv[2], argv[3], argv[4]);
+}
+
+                                                                       
+           
+                                                                          
+
+   
+                                                                     
+                                                         
+                               
+                                                   
+   
+void cmd_storage_pool(int argc, char *argv[]) {
+    if (argc < 4 || g_strcmp0(argv[2],"list") != 0) {
+        printf("%sUsage: pcvctl storage pool list%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("storage.pool.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,resp,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root,"result")
+            ? json_object_get_array_member(root,"result") : NULL;
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdrs[] = {"POOL","TOTAL","ALLOC","FREE","HEALTH"};
+        PcvTable   *t      = ptbl_new(hdrs, 5);
+        if (arr) {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *row = json_array_get_object_element(arr, i);
+                ptbl_row(t,
+                    json_object_get_string_member(row,"name"),
+                    json_object_get_string_member(row,"size"),
+                    json_object_get_string_member(row,"alloc"),
+                    json_object_get_string_member(row,"free"),
+                    json_object_get_string_member(row,"health"),
+                    NULL);
+            }
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        g_object_unref(parser); g_free(resp); return;
+    }
+
+    print_cyber_banner();
+    printf("%s%s %-15s │ %-10s │ %-10s │ %-10s │ %-10s%s\n",
+        cc(CYBER_CYAN), cc(CYBER_BOLD),
+        "POOL_NAME","TOTAL","ALLOC","FREE","HEALTH", cc(CYBER_RESET));
+    printf("%s─────────────────┼────────────┼────────────┼────────────┼────────────%s\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    if (!arr || json_array_get_length(arr) == 0) {
+        printf("%s [ NO ZFS POOLS DETECTED ]%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
+    } else {
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject  *row    = json_array_get_object_element(arr, i);
+            const gchar *health = json_object_get_string_member(row,"health");
+            const gchar *hc     = g_strcmp0(health,"ONLINE") == 0
+                    ? cc(CYBER_GREEN) : cc(CYBER_RED);
+            printf("%s %-15s%s │ %-10s │ %s%-10s%s │ %-10s │ %s%-10s%s\n",
+                cc(CYBER_DIM), json_object_get_string_member(row,"name"), cc(CYBER_RESET),
+                json_object_get_string_member(row,"size"),
+                cc(CYBER_YELLOW), json_object_get_string_member(row,"alloc"), cc(CYBER_RESET),
+                json_object_get_string_member(row,"free"),
+                hc, health, cc(CYBER_RESET));
+        }
+    }
+    printf("%s─────────────────┴────────────┴────────────┴────────────┴────────────%s\n\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                                   
+                                                   
+                                                                
+                                                
+   
+void cmd_storage_zvol(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl storage zvol list\n"
+               "  pcvctl storage zvol create <pool/path> --size <size>\n"
+               "  pcvctl storage zvol delete <pool/path>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];                                     
+
+    if (g_strcmp0(action,"list") == 0) {
+        GError *err = NULL;
+        gchar  *res = purectl_send_request("storage.zvol.list", NULL, &err);
+        if (err) {
+            g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+                ce(CYBER_RED), err->message, ce(CYBER_RESET));
+            g_error_free(err); return;
+        }
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(res); g_free(res); return; }
+
+        JsonParser *parser = json_parser_new();
+        if (!json_parser_load_from_data(parser,res,-1,NULL)||!json_parser_get_root(parser)) {
+            g_object_unref(parser); g_free(res); return;
+        }
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonArray  *arr  = json_object_has_member(root,"result")
+                ? json_object_get_array_member(root,"result") : NULL;
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"ZVOL_PATH","VOL_SIZE","USED"};
+            PcvTable   *t      = ptbl_new(hdrs, 3);
+            if (arr) {
+                for (guint i = 0; i < json_array_get_length(arr); i++) {
+                    JsonObject *row = json_array_get_object_element(arr, i);
+                    ptbl_row(t,
+                        json_object_get_string_member(row,"name"),
+                        json_object_get_string_member(row,"volsize"),
+                        json_object_get_string_member(row,"used"),
+                        NULL);
+                }
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+            g_object_unref(parser); g_free(res); return;
+        }
+
+        print_cyber_banner();
+        printf("%s%s %-40s │ %-10s │ %-10s%s\n",
+            cc(CYBER_CYAN), cc(CYBER_BOLD), "ZVOL_PATH","VOL_SIZE","USED", cc(CYBER_RESET));
+        printf("%s──────────────────────────────────────────┼────────────┼────────────%s\n",
+            cc(CYBER_CYAN), cc(CYBER_RESET));
+        if (!arr || json_array_get_length(arr) == 0) {
+            printf("%s [ NO ZVOL DEVICES ]%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
+        } else {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *row = json_array_get_object_element(arr, i);
+                printf("%s %-40s%s │ %s%-10s%s │ %s%-10s%s\n",
+                    cc(CYBER_DIM), json_object_get_string_member(row,"name"), cc(CYBER_RESET),
+                    cc(CYBER_GREEN), json_object_get_string_member(row,"volsize"), cc(CYBER_RESET),
+                    cc(CYBER_YELLOW), json_object_get_string_member(row,"used"), cc(CYBER_RESET));
+            }
+        }
+        printf("%s──────────────────────────────────────────┴────────────┴────────────%s\n\n",
+            cc(CYBER_CYAN), cc(CYBER_RESET));
+        g_object_unref(parser);
+        g_free(res);
+
+    } else if (g_strcmp0(action,"create") == 0) {
+        if (argc < 6 || g_strcmp0(argv[4],"--size") != 0) {
+            printf("%sUsage: pcvctl storage zvol create <pool/path> --size <size>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *p = json_object_new();
+        json_object_set_string_member(p,"zvol_path",argv[3]);                    
+                                                            
+                                                 
+                                                          
+        json_object_set_string_member(p,"size",     argv[6]);
+        GError *err = NULL;
+        gchar  *res = purectl_send_request("storage.zvol.create", p, &err);
+        if (err) {
+            g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+                ce(CYBER_RED), err->message, ce(CYBER_RESET));
+            g_error_free(err); return;
+        }
+        print_action_response(res, "ZVOL_CREATE");
+        g_free(res);
+
+    } else if (g_strcmp0(action,"delete") == 0) {
+        if (argc < 4) {
+            printf("%sUsage: pcvctl storage zvol delete <pool/path>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *p = json_object_new();
+        json_object_set_string_member(p,"zvol_path",argv[3]);
+        GError *err = NULL;
+        gchar  *res = purectl_send_request("storage.zvol.delete", p, &err);
+        if (err) {
+            g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+                ce(CYBER_RED), err->message, ce(CYBER_RESET));
+            g_error_free(err); return;
+        }
+        print_action_response(res, "ZVOL_DELETE");
+        g_free(res);
+    } else {
+        printf("%s[!] UNKNOWN ZVOL ACTION: %s%s\n",
+            cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+                                                                       
+           
+                                                                          
+
+   
+                                                                                   
+                                                    
+                                                              
+                                                         
+   
+void cmd_device_disk(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage:\n"
+               "  pcvctl device disk attach <vm_id>"
+               " --source <zvol_path> --target <vdb> [--bus virtio]\n"
+               "  pcvctl device disk detach <vm_id> --target <vdb>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+    JsonObject  *params = json_object_new();
+    json_object_set_string_member(params,"vm_id",argv[3]);
+    for (int i = 5; i < argc; i++) {
+        if      (g_strcmp0(argv[i],"--source") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"source",argv[++i]);
+        else if (g_strcmp0(argv[i],"--target") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"target",argv[++i]);
+        else if (g_strcmp0(argv[i],"--bus")    == 0 && i+1 < argc)
+            json_object_set_string_member(params,"bus",   argv[++i]);
+    }
+    const gchar *method = NULL, *label = NULL;
+    if      (g_strcmp0(action,"attach") == 0) { method="device.disk.attach"; label="DISK_ATTACH"; }
+    else if (g_strcmp0(action,"detach") == 0) { method="device.disk.detach"; label="DISK_DETACH"; }
+    else {
+        printf("%s[!] UNKNOWN DISK ACTION: %s%s\n",cc(CYBER_RED),action,cc(CYBER_RESET));
+        json_object_unref(params); return;
+    }
+    GError *err = NULL;
+    gchar  *res = purectl_send_request(method, params, &err);
+    if (err) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), err->message, ce(CYBER_RESET));
+        g_error_free(err); return;
+    }
+    print_action_response(res, label);
+    g_free(res);
+}
+
+                                                                       
+                 
+                                                                          
+
+   
+                                                            
+                                                       
+                                       
+   
+void cmd_container_create(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl container create <name>"
+               " [--image ubuntu:22.04] [--memory_mb 512]"
+               " [--vcpu_count 1] [--network_bridge virbr0]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params,"name",argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if      (g_strcmp0(argv[i],"--image")          == 0 && i+1 < argc)
+            json_object_set_string_member(params,"image",         argv[++i]);
+        else if (g_strcmp0(argv[i],"--memory_mb")      == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"memory_mb",     atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--vcpu_count")     == 0 && i+1 < argc)
+            json_object_set_int_member   (params,"vcpu_count",    atoi(argv[++i]));
+        else if (g_strcmp0(argv[i],"--network_bridge") == 0 && i+1 < argc)
+            json_object_set_string_member(params,"network_bridge",argv[++i]);
+    }
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("container.create", params, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_CREATE");
+    g_free(r);
+}
+
+                                                           
+                            
+void cmd_container_destroy(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container destroy <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.destroy",p,&e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r,"CONTAINER_DESTROY"); g_free(r);
+}
+
+                                                       
+                             
+void cmd_container_start(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container start <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.start",p,&e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r,"CONTAINER_START"); g_free(r);
+}
+
+                                                                  
+                                          
+void cmd_container_stop(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container stop <name> [--force]%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[2]);
+    for (int i = 3; i < argc; i++)
+        if (g_strcmp0(argv[i],"--force")==0) json_object_set_boolean_member(p,"force",TRUE);
+    GError *e = NULL; gchar *r = purectl_send_request("container.stop",p,&e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r,"CONTAINER_STOP"); g_free(r);
+}
+
+                                                        
+                                                             
+void cmd_container_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("container.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,resp,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root,"result")
+            ? json_object_get_array_member(root,"result") : NULL;
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdrs[] = {"NAME","STATE","IP","IMAGE"};
+        PcvTable   *t      = ptbl_new(hdrs, 4);
+        if (arr) {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *obj = json_array_get_object_element(arr, i);
+                ptbl_row(t,
+                    json_object_get_string_member(obj,"name"),
+                    json_object_get_string_member(obj,"state"),
+                    json_object_has_member(obj,"ip_addr")
+                        ? json_object_get_string_member(obj,"ip_addr") : "-",
+                    json_object_has_member(obj,"image")
+                        ? json_object_get_string_member(obj,"image")   : "-",
+                    NULL);
+            }
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        g_object_unref(parser); g_free(resp); return;
+    }
+
+    print_cyber_banner();
+    printf("%s%s %-30s │ %-12s │ %-18s │ %-20s%s\n",
+        cc(CYBER_CYAN), cc(CYBER_BOLD),
+        "CONTAINER_ID","LIFELINE","IP_ADDR","IMAGE", cc(CYBER_RESET));
+    printf("%s────────────────────────────────┼──────────────┼────────────────────┼────────────────────%s\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    if (arr) {
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject  *obj   = json_array_get_object_element(arr, i);
+            const gchar *name  = json_object_get_string_member(obj,"name");
+            const gchar *state = json_object_get_string_member(obj,"state");
+            const gchar *ip    = json_object_has_member(obj,"ip_addr")
+                    ? json_object_get_string_member(obj,"ip_addr") : "-";
+            const gchar *image = json_object_has_member(obj,"image")
+                    ? json_object_get_string_member(obj,"image")   : "-";
+            const gchar *color = g_strcmp0(state,"RUNNING")==0
+                    ? cc(CYBER_GREEN) : cc(CYBER_RED);
+            printf(" %-30s │ %s%-12s%s │ %-18s │ %-20s\n",
+                name, color, state, cc(CYBER_RESET), ip, image);
+        }
+    }
+    printf("%s────────────────────────────────────────────────────────────────────────────────%s\n",
+        cc(CYBER_CYAN), cc(CYBER_RESET));
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                  
+                                                     
+void cmd_container_metrics(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container metrics <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.metrics",p,&e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser,r,-1,NULL)||!json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(r); return;
+    }
+    JsonObject *root   = json_node_get_object(json_parser_get_root(parser));
+    JsonObject *result = json_object_has_member(root,"result")
+            ? json_object_get_object_member(root,"result") : NULL;
+
+    if (!result) { print_action_response(r,"CONTAINER_METRICS"); g_object_unref(parser); g_free(r); return; }
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        char cpu_s[32], memu_s[32], meml_s[32], rx_s[32], tx_s[32], pid_s[32];
+        snprintf(cpu_s,  sizeof(cpu_s),  "%.1f", json_object_get_double_member(result,"cpu_percent"));
+        snprintf(memu_s, sizeof(memu_s), "%.1f", json_object_get_double_member(result,"mem_used_mb"));
+        snprintf(meml_s, sizeof(meml_s), "%.1f", json_object_get_double_member(result,"mem_limit_mb"));
+        snprintf(rx_s,   sizeof(rx_s),   "%.2f", json_object_get_double_member(result,"net_rx_mb"));
+        snprintf(tx_s,   sizeof(tx_s),   "%.2f", json_object_get_double_member(result,"net_tx_mb"));
+        snprintf(pid_s,  sizeof(pid_s),  "%lld", (long long)json_object_get_int_member(result,"init_pid"));
+        const char *hdrs[] = {"NAME","STATE","CPU%","MEM_USED","MEM_LIMIT","NET_RX","NET_TX","PID"};
+        PcvTable   *t      = ptbl_new(hdrs, 8);
+        ptbl_row(t,
+            json_object_get_string_member(result,"name"),
+            json_object_get_string_member(result,"state"),
+            cpu_s, memu_s, meml_s, rx_s, tx_s, pid_s, NULL);
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else {
+        print_cyber_banner();
+        printf("%s Container Metrics: %s%s\n", cc(CYBER_CYAN),
+            json_object_get_string_member(result,"name"), cc(CYBER_RESET));
+        printf("  State     : %s\n",    json_object_get_string_member(result,"state"));
+        printf("  CPU %%     : %.1f%%\n", json_object_get_double_member(result,"cpu_percent"));
+        printf("  Mem Used  : %.1f MB / %.1f MB\n",
+            json_object_get_double_member(result,"mem_used_mb"),
+            json_object_get_double_member(result,"mem_limit_mb"));
+        printf("  Net RX    : %.2f MB\n", json_object_get_double_member(result,"net_rx_mb"));
+        printf("  Net TX    : %.2f MB\n", json_object_get_double_member(result,"net_tx_mb"));
+        printf("  IP        : %s\n",    json_object_get_string_member(result,"ip_addr"));
+        printf("  Init PID  : %lld\n",  (long long)json_object_get_int_member(result,"init_pid"));
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
+                                                            
+                                                       
+void cmd_container_exec(int argc, char *argv[]) {
+    if (argc < 4) { printf("%sUsage: pcvctl container exec <name> <cmd>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p,"name",argv[2]);
+    json_object_set_string_member(p,"cmd", argv[3]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.exec",p,&e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser,r,-1,NULL)&&json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root,"result")) {
+            JsonObject  *res    = json_object_get_object_member(root,"result");
+            const gchar *output = json_object_has_member(res,"output")
+                    ? json_object_get_string_member(res,"output") : "";
+            printf("%s", output);
+        } else {
+            print_action_response(r,"CONTAINER_EXEC");
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
+   
+                                                                            
+                                              
+                                                                      
+                                          
+   
+void cmd_container_snapshot(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl container snapshot create   <name> <snap_name>\n"
+               "  pcvctl container snapshot list     <name>\n"
+               "  pcvctl container snapshot rollback <name> <snap_name>\n"
+               "  pcvctl container snapshot delete   <name> <snap_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action,"create") == 0) {
+        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        JsonObject *p = json_object_new();
+        json_object_set_string_member(p,"name",     argv[3]);
+        json_object_set_string_member(p,"snap_name",argv[4]);
+        GError *e = NULL; gchar *r = purectl_send_request("container.snapshot.create",p,&e);
+        if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+        print_action_response(r,"CONTAINER_SNAP_CREATE"); g_free(r);
+
+    } else if (g_strcmp0(action,"list") == 0) {
+        if (argc < 5) { printf("%sNeed: <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[3]);
+        GError *e = NULL; gchar *r = purectl_send_request("container.snapshot.list",p,&e);
+        if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+        JsonParser *parser = json_parser_new();
+        if (json_parser_load_from_data(parser,r,-1,NULL)&&json_parser_get_root(parser)) {
+            JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+            JsonArray  *arr  = json_object_has_member(root,"result")
+                    ? json_object_get_array_member(root,"result") : NULL;
+            if (arr && g_ctx.fmt == FMT_TABLE) {
+                print_cyber_banner();
+                printf("%s Snapshots for: %s%s\n", cc(CYBER_CYAN), argv[3], cc(CYBER_RESET));
+                for (guint i = 0; i < json_array_get_length(arr); i++)
+                    printf("  [%u] %s\n", i+1, json_array_get_string_element(arr,i));
+            } else if (arr) {
+                for (guint i = 0; i < json_array_get_length(arr); i++)
+                    printf("%s\n", json_array_get_string_element(arr,i));
+            }
+        }
+        g_object_unref(parser); g_free(r);
+
+    } else if (g_strcmp0(action,"rollback") == 0) {
+        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        if (g_ctx.fmt == FMT_TABLE)
+            printf("%s[!] WARNING: Container will be stopped before rollback!%s\n",
+                cc(CYBER_RED), cc(CYBER_RESET));
+        JsonObject *p = json_object_new();
+        json_object_set_string_member(p,"name",     argv[3]);
+        json_object_set_string_member(p,"snap_name",argv[4]);
+        GError *e = NULL; gchar *r = purectl_send_request("container.snapshot.rollback",p,&e);
+        if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+        print_action_response(r,"CONTAINER_SNAP_ROLLBACK"); g_free(r);
+
+    } else if (g_strcmp0(action,"delete") == 0) {
+        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        JsonObject *p = json_object_new();
+        json_object_set_string_member(p,"name",     argv[3]);
+        json_object_set_string_member(p,"snap_name",argv[4]);
+        GError *e = NULL; gchar *r = purectl_send_request("container.snapshot.delete",p,&e);
+        if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+        print_action_response(r,"CONTAINER_SNAP_DELETE"); g_free(r);
+    } else {
+        printf("%s[!] UNKNOWN SNAPSHOT ACTION: %s%s\n",cc(CYBER_RED),action,cc(CYBER_RESET));
+    }
+}
+
+                                                                       
+           
+                                                                          
+
+
+                                                                       
+          
+  
+                                                
+                                       
+  
+                                     
+                                            
+                                 
+                                                    
+  
+             
+                       
+                            
+                                                           
+                            
+                               
+                                                                          
+
+   
+                  
+                         
+                         
+  
+                     
+                                                                                
+  
+                                                       
+   
+void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("ovn.status", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                  
+                  
+                                              
+  
+                    
+                          
+                                                              
+                                                               
+                                                      
+  
+                                                   
+                                                  
+  
+                                            
+   
+void cmd_ovn_switch(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl ovn switch list\n"
+               "  pcvctl ovn switch create <name> [--subnet X]\n"
+               "  pcvctl ovn switch delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "list") == 0) {
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("ovn.switch.list", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (!resp) return;
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+        JsonParser *parser = json_parser_new();
+        if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+            g_object_unref(parser); g_free(resp); return;
+        }
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonArray  *arr  = json_object_has_member(root, "result")
+                ? json_object_get_array_member(root, "result") : NULL;
+
+        if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+            const char *hdrs[] = {"NAME","SUBNET","PORTS"};
+            PcvTable   *t      = ptbl_new(hdrs, 3);
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(o, "name", "?"),
+                    json_object_get_string_member_with_default(o, "subnet", "-"),
+                    json_object_get_string_member_with_default(o, "ports", "0"),
+                    NULL);
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else if (arr) {
+            printf("%s%-30s │ %-20s │ %-10s%s\n", cc(CYBER_CYAN),
+                   "SWITCH_NAME", "SUBNET", "PORTS", cc(CYBER_RESET));
+            printf("────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                printf(" %-30s │ %-20s │ %-10s\n",
+                    json_object_get_string_member_with_default(o, "name", "?"),
+                    json_object_get_string_member_with_default(o, "subnet", "-"),
+                    json_object_get_string_member_with_default(o, "ports", "0"));
+            }
+            printf("────────────────────────────────────────────────────────────────────\n");
+        }
+        g_object_unref(parser); g_free(resp);
+
+    } else if (g_strcmp0(action, "create") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn switch create <name> [--subnet X]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        for (int i = 4; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--subnet") == 0 && i+1 < argc)
+                json_object_set_string_member(params, "subnet", argv[++i]);
+        }
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.switch.create", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_SWITCH_CREATE"); g_free(resp);
+
+    } else if (g_strcmp0(action, "delete") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn switch delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.switch.delete", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_SWITCH_DELETE"); g_free(resp);
+
+    } else {
+        printf("%s[!] UNKNOWN OVN SWITCH ACTION: %s%s\n", cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+   
+                  
+                  
+                                              
+  
+                    
+                          
+                                                              
+                                                  
+                                                      
+  
+                                            
+   
+void cmd_ovn_router(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl ovn router list\n"
+               "  pcvctl ovn router create <name>\n"
+               "  pcvctl ovn router delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "list") == 0) {
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("ovn.router.list", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (!resp) return;
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+        JsonParser *parser = json_parser_new();
+        if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+            g_object_unref(parser); g_free(resp); return;
+        }
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonArray  *arr  = json_object_has_member(root, "result")
+                ? json_object_get_array_member(root, "result") : NULL;
+
+        if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+            const char *hdrs[] = {"NAME","PORTS","ROUTES"};
+            PcvTable   *t      = ptbl_new(hdrs, 3);
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(o, "name", "?"),
+                    json_object_get_string_member_with_default(o, "ports", "0"),
+                    json_object_get_string_member_with_default(o, "routes", "0"),
+                    NULL);
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else if (arr) {
+            printf("%s%-30s │ %-10s │ %-10s%s\n", cc(CYBER_CYAN),
+                   "ROUTER_NAME", "PORTS", "ROUTES", cc(CYBER_RESET));
+            printf("────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                printf(" %-30s │ %-10s │ %-10s\n",
+                    json_object_get_string_member_with_default(o, "name", "?"),
+                    json_object_get_string_member_with_default(o, "ports", "0"),
+                    json_object_get_string_member_with_default(o, "routes", "0"));
+            }
+            printf("────────────────────────────────────────────────────────────────────\n");
+        }
+        g_object_unref(parser); g_free(resp);
+
+    } else if (g_strcmp0(action, "create") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn router create <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.router.create", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_ROUTER_CREATE"); g_free(resp);
+
+    } else if (g_strcmp0(action, "delete") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn router delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.router.delete", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_ROUTER_DELETE"); g_free(resp);
+
+    } else {
+        printf("%s[!] UNKNOWN OVN ROUTER ACTION: %s%s\n", cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+   
+               
+                  
+                                                    
+  
+                    
+                          
+                                               
+                                                      
+  
+                                          
+  
+                                                     
+   
+void cmd_ovn_nat(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl ovn nat list <router>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "list") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn nat list <router>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "router", argv[3]);
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("ovn.nat.list", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (!resp) return;
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+        JsonParser *parser = json_parser_new();
+        if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+            g_object_unref(parser); g_free(resp); return;
+        }
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonArray  *arr  = json_object_has_member(root, "result")
+                ? json_object_get_array_member(root, "result") : NULL;
+
+                                                            
+        if (arr) {
+            printf("%s%-60s%s\n", cc(CYBER_CYAN), "NAT RULES", cc(CYBER_RESET));
+            printf("────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                const gchar *line = json_array_get_string_element(arr, i);
+                if (line && *line)
+                    printf(" %s\n", line);
+            }
+            printf("────────────────────────────────────────────────────────────────────\n");
+        }
+        g_object_unref(parser); g_free(resp);
+
+    } else {
+        printf("%s[!] UNKNOWN OVN NAT ACTION: %s%s\n", cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+                                                                       
+                                  
+  
+                         
+                                                 
+                                    
+                                                                          
+
+   
+                   
+  
+                     
+                                
+                                        
+   
+void cmd_dpdk_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("dpdk.status", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                 
+  
+                          
+                                                           
+                                       
+   
+void cmd_dpdk_bind(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl dpdk bind <pci_addr> [driver]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "pci_addr", argv[2]);
+    if (argc >= 4)
+        json_object_set_string_member(params, "driver", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("dpdk.bind", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                   
+  
+                                
+                         
+                                               
+   
+void cmd_dpdk_unbind(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl dpdk unbind <pci_addr>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "pci_addr", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("dpdk.unbind", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                 
+  
+                          
+                              
+                                          
+   
+void cmd_dpdk_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("dpdk.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                   
+  
+                  
+                                                                    
+                                             
+   
+void cmd_dpdk_bridge(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage:\n"
+               "  pcvctl dpdk bridge create <name> [dpdk_port]\n"
+               "  pcvctl dpdk bridge delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "create") == 0) {
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        if (argc >= 5)
+            json_object_set_string_member(params, "dpdk_port", argv[4]);
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("dpdk.bridge.create", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (resp) { print_raw_response(resp); g_free(resp); }
+
+    } else if (g_strcmp0(action, "delete") == 0) {
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("dpdk.bridge.delete", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (resp) { print_raw_response(resp); g_free(resp); }
+
+    } else {
+        printf("%s[!] UNKNOWN DPDK BRIDGE ACTION: %s%s\n",
+            cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+   
+                     
+  
+                  
+                                       
+                                                         
+   
+void cmd_dpdk_hugepage(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("dpdk.hugepage.info", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                    
+  
+                         
+                                 
+                                                  
+   
+void cmd_sriov_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.status", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                    
+  
+                 
+                                               
+                                              
+   
+void cmd_sriov_enable(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl sriov enable <pf> [num_vfs]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "pf", argv[2]);
+    int num_vfs = (argc >= 4) ? atoi(argv[3]) : 1;
+    json_object_set_int_member(params, "num_vfs", num_vfs);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.enable", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                     
+  
+                  
+                   
+                                          
+   
+void cmd_sriov_disable(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl sriov disable <pf>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "pf", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.disable", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                  
+  
+            
+                               
+                                    
+   
+void cmd_sriov_list(int argc, char *argv[]) {
+    JsonObject *params = json_object_new();
+    if (argc >= 3)
+        json_object_set_string_member(params, "pf", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.list", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                 
+  
+            
+                                                                 
+                                                   
+   
+void cmd_sriov_set(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl sriov set <pf> <vf_index> [--mac XX] [--vlan N] [--spoofchk on|off]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "pf", argv[2]);
+    json_object_set_int_member(params, "vf_index", atoi(argv[3]));
+    for (int i = 4; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--mac") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "mac", argv[++i]);
+        else if (g_strcmp0(argv[i], "--vlan") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "vlan", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--spoofchk") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "spoofchk", argv[++i]);
+    }
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                    
+  
+                    
+                                                           
+                                                  
+   
+void cmd_sriov_attach(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl sriov attach <vm_name> <pf> [vf_index]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    json_object_set_string_member(params, "pf", argv[3]);
+    if (argc >= 5)
+        json_object_set_int_member(params, "vf_index", atoi(argv[4]));
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.attach", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                    
+  
+                     
+                                          
+                                   
+   
+void cmd_sriov_detach(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl sriov detach <vm_name> <pci_addr>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    json_object_set_string_member(params, "pci_addr", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("sriov.detach", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                                       
+                  
+  
+                              
+                                       
+  
+                                                         
+  
+             
+                      
+                                                  
+                                     
+                                 
+                                                                          
+
+   
+                 
+  
+                 
+                                                     
+                                                 
+   
+void cmd_auth_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("auth.user.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root, "result")
+            ? json_object_get_array_member(root, "result") : NULL;
+
+    if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+        const char *hdrs[] = {"USERNAME","ROLE","CREATED"};
+        PcvTable   *t      = ptbl_new(hdrs, 3);
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            ptbl_row(t,
+                json_object_get_string_member_with_default(o, "username", "?"),
+                json_object_get_string_member_with_default(o, "role", "?"),
+                json_object_get_string_member_with_default(o, "created", "-"),
+                NULL);
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else if (arr) {
+        printf("%s%-25s │ %-15s │ %-25s%s\n", cc(CYBER_CYAN),
+               "USERNAME", "ROLE", "CREATED", cc(CYBER_RESET));
+        printf("────────────────────────────────────────────────────────────────────\n");
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            printf(" %-25s │ %-15s │ %-25s\n",
+                json_object_get_string_member_with_default(o, "username", "?"),
+                json_object_get_string_member_with_default(o, "role", "?"),
+                json_object_get_string_member_with_default(o, "created", "-"));
+        }
+        printf("────────────────────────────────────────────────────────────────────\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                   
+                                                                
+               
+  
+                                     
+                        
+                                                 
+                                      
+   
+void cmd_auth_create(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl auth create <username> <password> <role>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "username", argv[2]);
+    json_object_set_string_member(params, "password", argv[3]);
+    json_object_set_string_member(params, "role",     argv[4]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("auth.user.create", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "AUTH_USER_CREATE"); g_free(resp);
+}
+
+   
+                   
+                                              
+               
+  
+                                   
+                       
+   
+void cmd_auth_delete(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl auth delete <username>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "username", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("auth.user.delete", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "AUTH_USER_DELETE"); g_free(resp);
+}
+
+   
+                 
+                                                   
+               
+  
+                                   
+                                   
+                                       
+   
+void cmd_auth_role(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl auth role <username> <role>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "username", argv[2]);
+    json_object_set_string_member(params, "role",     argv[3]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("auth.role.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "AUTH_ROLE_SET"); g_free(resp);
+}
+
+                                                                       
+               
+  
+                     
+                                       
+                                       
+  
+             
+                          
+                                     
+                                                                                                        
+                                        
+                                                                          
+
+   
+                     
+  
+                    
+                                                                     
+                                                    
+   
+void cmd_template_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("template.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root, "result")
+            ? json_object_get_array_member(root, "result") : NULL;
+
+    if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+        const char *hdrs[] = {"NAME","VCPU","MEMORY_MB","DISK_GB","OS_VARIANT"};
+        PcvTable   *t      = ptbl_new(hdrs, 5);
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            char vcpu_s[16], mem_s[16], disk_s[16];
+            snprintf(vcpu_s, sizeof(vcpu_s), "%lld",
+                (long long)json_object_get_int_member_with_default(o, "vcpu", 0));
+            snprintf(mem_s, sizeof(mem_s), "%lld",
+                (long long)json_object_get_int_member_with_default(o, "memory_mb", 0));
+            snprintf(disk_s, sizeof(disk_s), "%lld",
+                (long long)json_object_get_int_member_with_default(o, "disk_gb", 0));
+            ptbl_row(t,
+                json_object_get_string_member_with_default(o, "name", "?"),
+                vcpu_s, mem_s, disk_s,
+                json_object_get_string_member_with_default(o, "os_variant", "-"),
+                NULL);
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else if (arr) {
+        printf("%s%-20s │ %-6s │ %-10s │ %-8s │ %-15s%s\n", cc(CYBER_CYAN),
+               "TEMPLATE", "VCPU", "MEMORY_MB", "DISK_GB", "OS_VARIANT", cc(CYBER_RESET));
+        printf("────────────────────────────────────────────────────────────────────────────\n");
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            printf(" %-20s │ %-6lld │ %-10lld │ %-8lld │ %-15s\n",
+                json_object_get_string_member_with_default(o, "name", "?"),
+                (long long)json_object_get_int_member_with_default(o, "vcpu", 0),
+                (long long)json_object_get_int_member_with_default(o, "memory_mb", 0),
+                (long long)json_object_get_int_member_with_default(o, "disk_gb", 0),
+                json_object_get_string_member_with_default(o, "os_variant", "-"));
+        }
+        printf("────────────────────────────────────────────────────────────────────────────\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                    
+                                           
+               
+  
+                   
+                                                   
+                                                   
+   
+void cmd_template_get(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl template get <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("template.get", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                       
+                                                   
+               
+  
+                                     
+                                             
+          
+                             
+                               
+                                  
+                                             
+   
+void cmd_template_create(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl template create <name> --vcpu N --memory_mb N --disk_gb N --os_variant X%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--vcpu") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "vcpu", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--memory_mb") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "memory_mb", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--disk_gb") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "disk_gb", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--os_variant") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "os_variant", argv[++i]);
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("template.create", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "TEMPLATE_CREATE"); g_free(resp);
+}
+
+   
+                       
+                                              
+               
+  
+                                     
+                                   
+   
+void cmd_template_delete(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl template delete <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("template.delete", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "TEMPLATE_DELETE"); g_free(resp);
+}
+
+                                                                       
+             
+  
+                                  
+                                                           
+                               
+  
+             
+                        
+                                                            
+                                    
+                                   
+                                                                          
+
+   
+                   
+  
+                   
+                                                                            
+                                                      
+   
+void cmd_backup_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("backup.policy.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root, "result")
+            ? json_object_get_array_member(root, "result") : NULL;
+
+    if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+        const char *hdrs[] = {"VM_NAME","INTERVAL_HOURS","RETENTION","ENABLED"};
+        PcvTable   *t      = ptbl_new(hdrs, 4);
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            char intv_s[16], ret_s[16];
+            snprintf(intv_s, sizeof(intv_s), "%lld",
+                (long long)json_object_get_int_member_with_default(o, "interval_hours", 0));
+            snprintf(ret_s, sizeof(ret_s), "%lld",
+                (long long)json_object_get_int_member_with_default(o, "retention_count", 0));
+            ptbl_row(t,
+                json_object_get_string_member_with_default(o, "vm_name", "?"),
+                intv_s, ret_s,
+                json_object_get_boolean_member_with_default(o, "enabled", FALSE) ? "yes" : "no",
+                NULL);
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else if (arr) {
+        printf("%s%-20s │ %-16s │ %-10s │ %-8s%s\n", cc(CYBER_CYAN),
+               "VM_NAME", "INTERVAL(hours)", "RETENTION", "ENABLED", cc(CYBER_RESET));
+        printf("──────────────────────────────────────────────────────────────────────────────\n");
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            printf(" %-20s │ %-16lld │ %-10lld │ %-8s\n",
+                json_object_get_string_member_with_default(o, "vm_name", "?"),
+                (long long)json_object_get_int_member_with_default(o, "interval_hours", 0),
+                (long long)json_object_get_int_member_with_default(o, "retention_count", 0),
+                json_object_get_boolean_member_with_default(o, "enabled", FALSE) ? "yes" : "no");
+        }
+        printf("──────────────────────────────────────────────────────────────────────────────\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                  
+                                                 
+               
+  
+                                            
+                                     
+      
+                                  
+                              
+   
+void cmd_backup_set(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl backup set <vm_name> --interval N --retention N%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--interval") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "interval_hours", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--retention") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "retention_count", atoi(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("backup.policy.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "BACKUP_POLICY_SET"); g_free(resp);
+}
+
+   
+                     
+                                               
+               
+  
+                                            
+                             
+                                           
+   
+void cmd_backup_delete(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl backup delete <vm_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("backup.policy.delete", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "BACKUP_POLICY_DELETE"); g_free(resp);
+}
+
+   
+                      
+                                                
+               
+  
+                                      
+                                                 
+                                         
+   
+void cmd_backup_history(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl backup history <vm_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("backup.history", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root, "result")
+            ? json_object_get_array_member(root, "result") : NULL;
+
+    if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+        const char *hdrs[] = {"SNAPSHOT"};
+        PcvTable   *t      = ptbl_new(hdrs, 1);
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            const gchar *snap = json_array_get_string_element(arr, i);
+            ptbl_row(t,
+                snap ? snap : "?",
+                NULL);
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else if (arr) {
+        printf("%s%-40s%s\n", cc(CYBER_CYAN), "SNAPSHOT", cc(CYBER_RESET));
+        printf("──────────────────────────────────────────────\n");
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            const gchar *snap = json_array_get_string_element(arr, i);
+            printf(" %-40s\n", snap ? snap : "?");
+        }
+        printf("──────────────────────────────────────────────\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                                                       
+                                                                       
+                                                                          
+
+   
+                                   
+                                                     
+                                   
+                                       
+   
+void cmd_nic_list(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl nic list <vm_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("device.nic.list", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "result")) {
+        JsonNode *res_node = json_object_get_member(root, "result");
+        if (res_node && JSON_NODE_HOLDS_ARRAY(res_node)) {
+            JsonArray *arr = json_node_get_array(res_node);
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                for (guint i = 0; i < json_array_get_length(arr); i++) {
+                    JsonObject *n = json_array_get_object_element(arr, i);
+                    printf("%s\t%s\t%s\n",
+                        json_object_get_string_member_with_default(n, "mac", "-"),
+                        json_object_get_string_member_with_default(n, "bridge", "-"),
+                        json_object_get_string_member_with_default(n, "model", "-"));
+                }
+            } else {
+                print_cyber_banner();
+                printf("%s [ NIC LIST: %s ]\n\n%s", cc(CYBER_CYAN), argv[2], cc(CYBER_RESET));
+                printf("%s%-20s │ %-18s │ %-10s%s\n", cc(CYBER_CYAN),
+                    "MAC", "BRIDGE", "MODEL", cc(CYBER_RESET));
+                printf("────────────────────────────────────────────────────────\n");
+                for (guint i = 0; i < json_array_get_length(arr); i++) {
+                    JsonObject *n = json_array_get_object_element(arr, i);
+                    printf(" %-20s │ %-18s │ %-10s\n",
+                        json_object_get_string_member_with_default(n, "mac", "-"),
+                        json_object_get_string_member_with_default(n, "bridge", "-"),
+                        json_object_get_string_member_with_default(n, "model", "-"));
+                }
+                printf("────────────────────────────────────────────────────────\n");
+            }
+        } else {
+            print_action_response(resp, "NIC_LIST");
+        }
+    } else {
+        print_action_response(resp, "NIC_LIST");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                  
+                                             
+                                           
+                                                         
+   
+void cmd_nic_add(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl nic add <vm_name> <bridge>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "bridge", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("device.nic.attach", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "NIC_ATTACH");
+    g_free(resp);
+}
+
+   
+                                      
+                                       
+                                           
+                                                   
+   
+void cmd_nic_remove(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl nic remove <vm_name> <mac>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "mac", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("device.nic.detach", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "NIC_DETACH");
+    g_free(resp);
+}
+
+                                                                       
+                                                  
+                                                                          
+
+   
+                              
+                                                
+                                               
+                                                    
+   
+void cmd_iso_mount(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl iso mount <vm_name> <iso_path>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "iso_path", argv[3]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.mount_iso", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "ISO_MOUNT");
+    g_free(resp);
+}
+
+   
+                              
+                                                             
+                                    
+                                
+   
+void cmd_iso_eject(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl iso eject <vm_name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.eject", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "ISO_EJECT");
+    g_free(resp);
+}
+
+   
+                                     
+                                                         
+                         
+                   
+   
+void cmd_iso_list(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("iso.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "result")) {
+        JsonNode *res_node = json_object_get_member(root, "result");
+        if (res_node && JSON_NODE_HOLDS_ARRAY(res_node)) {
+            JsonArray *arr = json_node_get_array(res_node);
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                for (guint i = 0; i < json_array_get_length(arr); i++)
+                    printf("%s\n", json_array_get_string_element(arr, i));
+            } else {
+                print_cyber_banner();
+                printf("%s [ ISO FILES ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+                printf("%s%-60s%s\n", cc(CYBER_CYAN), "FILENAME", cc(CYBER_RESET));
+                printf("────────────────────────────────────────────────────────────\n");
+                for (guint i = 0; i < json_array_get_length(arr); i++)
+                    printf(" %s\n", json_array_get_string_element(arr, i));
+                printf("────────────────────────────────────────────────────────────\n");
+            }
+        } else {
+            print_action_response(resp, "ISO_LIST");
+        }
+    } else {
+        print_action_response(resp, "ISO_LIST");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                              
+                                                                       
+void cmd_vm_usb_attach(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl vm usb-attach <name> <vendor_id> <product_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        printf("Example: pcvctl vm usb-attach web-prod 0x1234 0x5678\n");
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[2]);
+    json_object_set_string_member(params, "vendor_id", argv[3]);
+    json_object_set_string_member(params, "product_id", argv[4]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.usb.attach", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "USB_ATTACH");
+    g_free(resp);
+}
+
+                                                                              
+                                         
+void cmd_vm_usb_detach(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl vm usb-detach <name> <vendor_id> <product_id>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        printf("Example: pcvctl vm usb-detach web-prod 0x1234 0x5678\n");
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[2]);
+    json_object_set_string_member(params, "vendor_id", argv[3]);
+    json_object_set_string_member(params, "product_id", argv[4]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.usb.detach", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "USB_DETACH");
+    g_free(resp);
+}
+
+                                                                       
+                                                 
+void cmd_vm_usb_list(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm usb-list <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_id", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.usb.list", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED),
+            json_object_get_string_member_with_default(err, "message", "USB list failed"),
+            ce(CYBER_RESET));
+    } else if (json_object_has_member(root, "result") &&
+               JSON_NODE_HOLDS_ARRAY(json_object_get_member(root, "result"))) {
+        JsonArray *arr = json_node_get_array(json_object_get_member(root, "result"));
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *usb = json_array_get_object_element(arr, i);
+                printf("%s,%s\n",
+                    json_object_get_string_member_with_default(usb, "vendor_id", "-"),
+                    json_object_get_string_member_with_default(usb, "product_id", "-"));
+            }
+        } else {
+            print_cyber_banner();
+            printf("%s [ VM USB DEVICES ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+            printf("%s%-14s %-14s%s\n", cc(CYBER_CYAN), "VENDOR_ID", "PRODUCT_ID", cc(CYBER_RESET));
+            printf("──────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *usb = json_array_get_object_element(arr, i);
+                printf(" %-14s %-14s\n",
+                    json_object_get_string_member_with_default(usb, "vendor_id", "-"),
+                    json_object_get_string_member_with_default(usb, "product_id", "-"));
+            }
+            if (json_array_get_length(arr) == 0)
+                printf(" (no USB hostdev attached)\n");
+            printf("──────────────────────────────\n");
+        }
+    } else {
+        print_action_response(resp, "USB_LIST");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                       
+                                                        
+                                                                          
+
+   
+                                               
+                                                           
+                                         
+                                             
+   
+void cmd_node_drain(int argc, char *argv[]) {
+    int timeout_sec = 30;
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--timeout") == 0 && i + 1 < argc)
+            timeout_sec = atoi(argv[++i]);
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_int_member(params, "timeout_sec", timeout_sec);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("node.drain", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "NODE_DRAIN");
+    g_free(resp);
+}
+
+   
+                                          
+                                               
+                            
+                      
+   
+void cmd_node_resume(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("node.resume", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "NODE_RESUME");
+    g_free(resp);
+}
+
+   
+                              
+                               
+                             
+                         
+   
+void cmd_node_version(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("daemon.version", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "result")) {
+        JsonObject  *res     = json_object_get_object_member(root, "result");
+        const gchar *version = json_object_get_string_member_with_default(res, "version", "unknown");
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("version\t%s\n", version);
+        } else {
+            print_cyber_banner();
+            printf("%s [ DAEMON VERSION ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+            printf("%s VERSION : %s%s\n", cc(CYBER_GREEN), version, cc(CYBER_RESET));
+            printf("%s────────────────────────────────────────%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+        }
+    } else {
+        print_action_response(resp, "DAEMON_VERSION");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                       
+                                  
+                                                                          
+
+   
+                                        
+                                             
+                                        
+                                     
+   
+void cmd_vm_delete_status(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm delete-status <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.delete.status", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "result")) {
+                                                     
+                                                     
+        JsonNode    *rn     = json_object_get_member(root, "result");
+        const gchar *status = NULL;
+        const gchar *name   = argv[2];
+        if (rn && JSON_NODE_HOLDS_VALUE(rn)) {
+            status = json_node_get_string(rn);
+        } else if (rn && JSON_NODE_HOLDS_OBJECT(rn)) {
+            JsonObject *res = json_node_get_object(rn);
+            status = json_object_get_string_member_with_default(res, "status", NULL);
+            name   = json_object_get_string_member_with_default(res, "name", argv[2]);
+        }
+        if (!status || !*status) status = "no delete record";
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("%s\t%s\n", name, status);
+        } else {
+            print_cyber_banner();
+            printf("%s [ VM DELETE STATUS ]\n\n%s", cc(CYBER_CYAN), cc(CYBER_RESET));
+            printf("%s VM     : %s%s\n", cc(CYBER_GREEN), name, cc(CYBER_RESET));
+            printf("%s STATUS : %s%s\n", cc(CYBER_YELLOW), status, cc(CYBER_RESET));
+            printf("%s────────────────────────────────────────%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+        }
+    } else {
+        print_action_response(resp, "VM_DELETE_STATUS");
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+                                                                       
+                           
+                                                                          
+
+   
+                                     
+                                                         
+                                       
+                                    
+   
+void cmd_vm_memory_stats(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm memory-stats <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.memory.stats", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+        g_object_unref(parser); g_free(resp); return;
+    }
+    if (json_object_has_member(root, "result")) {
+        JsonObject *res = json_object_get_object_member(root, "result");
+        const char *keys[] = {"actual_balloon_kb","rss_kb","unused_kb",
+                              "available_kb","usable_kb","swap_in","swap_out"};
+        const char *labels[] = {"Actual Balloon (KB)","RSS (KB)","Unused (KB)",
+                                "Available (KB)","Usable (KB)","Swap In","Swap Out"};
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"METRIC","VALUE"};
+            PcvTable *t = ptbl_new(hdrs, 2);
+            for (int i = 0; i < 7; i++) {
+                gchar vbuf[32];
+                g_snprintf(vbuf, sizeof(vbuf), "%lld",
+                    (long long)json_object_get_int_member_with_default(res, keys[i], 0));
+                ptbl_row(t, labels[i], vbuf);
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else {
+            print_cyber_banner();
+            printf("%s [ VM MEMORY STATS: %s ]%s\n\n",
+                cc(CYBER_CYAN), argv[2], cc(CYBER_RESET));
+            printf("%s%-22s │ %s%s\n", cc(CYBER_CYAN),
+                "METRIC", "VALUE", cc(CYBER_RESET));
+            printf("─────────────────────────┼──────────────────\n");
+            for (int i = 0; i < 7; i++) {
+                printf(" %s%-22s%s │ %s%lld%s\n",
+                    cc(CYBER_YELLOW), labels[i], cc(CYBER_RESET),
+                    cc(CYBER_GREEN),
+                    (long long)json_object_get_int_member_with_default(res, keys[i], 0),
+                    cc(CYBER_RESET));
+            }
+            printf("─────────────────────────┴──────────────────\n");
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                  
+                                                         
+                                                                       
+                                    
+                                 
+   
+void cmd_vm_cpu_stats(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm cpu-stats <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.cpu.stats", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+        g_object_unref(parser); g_free(resp); return;
+    }
+    if (json_object_has_member(root, "result")) {
+        JsonObject *res = json_object_get_object_member(root, "result");
+        gint64 vcpu_count = json_object_get_int_member_with_default(res, "vcpu_count", 0);
+        gint64 max_vcpu   = json_object_get_int_member_with_default(res, "max_vcpu", 0);
+        gint64 cpu_time   = json_object_get_int_member_with_default(res, "cpu_time_ns", 0);
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("vcpu_count\t%lld\n", (long long)vcpu_count);
+            printf("max_vcpu\t%lld\n",   (long long)max_vcpu);
+            printf("cpu_time_ns\t%lld\n", (long long)cpu_time);
+            JsonArray *vcpus = json_object_has_member(res, "vcpus")
+                ? json_object_get_array_member(res, "vcpus") : NULL;
+            if (vcpus) {
+                for (guint i = 0; i < json_array_get_length(vcpus); i++) {
+                    JsonObject *v = json_array_get_object_element(vcpus, i);
+                    gint64 state_code = json_object_get_int_member_with_default(v, "state", -1);
+                    const gchar *state = state_code == 0 ? "offline" :
+                                         state_code == 1 ? "running" :
+                                         state_code == 2 ? "blocked" :
+                                         "unknown";
+                    printf("vcpu\t%lld\t%s\t%lld\t%s\n",
+                        (long long)json_object_get_int_member_with_default(v, "number", 0),
+                        state,
+                        (long long)json_object_get_int_member_with_default(v, "cpu_time", 0),
+                        json_object_get_string_member_with_default(v, "cpu_affinity", "?"));
+                }
+            }
+        } else {
+            print_cyber_banner();
+            printf("%s [ VM CPU STATS: %s ]%s\n\n",
+                cc(CYBER_CYAN), argv[2], cc(CYBER_RESET));
+            printf(" %svCPU Count : %s%lld%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_GREEN), (long long)vcpu_count, cc(CYBER_RESET));
+            printf(" %sMax vCPU   : %s%lld%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_GREEN), (long long)max_vcpu, cc(CYBER_RESET));
+            printf(" %sCPU Time   : %s%lld ns%s\n\n",
+                cc(CYBER_YELLOW), cc(CYBER_GREEN), (long long)cpu_time, cc(CYBER_RESET));
+
+            JsonArray *vcpus = json_object_has_member(res, "vcpus")
+                ? json_object_get_array_member(res, "vcpus") : NULL;
+            if (vcpus && json_array_get_length(vcpus) > 0) {
+                printf("%s%-6s │ %-10s │ %-14s │ %-10s%s\n", cc(CYBER_CYAN),
+                    "vCPU", "STATE", "CPU_TIME", "AFFINITY", cc(CYBER_RESET));
+                printf("───────┼────────────┼────────────────┼───────────\n");
+                for (guint i = 0; i < json_array_get_length(vcpus); i++) {
+                    JsonObject *v = json_array_get_object_element(vcpus, i);
+                    gint64 state_code = json_object_get_int_member_with_default(v, "state", -1);
+                    const gchar *st = state_code == 0 ? "offline" :
+                                      state_code == 1 ? "running" :
+                                      state_code == 2 ? "blocked" :
+                                      "unknown";
+                    const gchar *sc = g_strcmp0(st, "running") == 0 ? cc(CYBER_GREEN) : cc(CYBER_DIM);
+                    printf(" %-5lld │ %s%-10s%s │ %-14lld │ %-10s\n",
+                        (long long)json_object_get_int_member_with_default(v, "number", 0),
+                        sc, st, cc(CYBER_RESET),
+                        (long long)json_object_get_int_member_with_default(v, "cpu_time", 0),
+                        json_object_get_string_member_with_default(v, "cpu_affinity", "-"));
+                }
+                printf("───────┴────────────┴────────────────┴───────────\n");
+            }
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                       
+                                                          
+                                                             
+                                                       
+   
+void cmd_vm_disk_resize(int argc, char *argv[]) {
+    if (argc < 5) {
+        printf("%sUsage: pcvctl vm disk-resize <name> <target> <new_size_gb>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name",   argv[2]);
+    json_object_set_string_member(params, "target", argv[3]);
+    json_object_set_int_member   (params, "new_size_gb", atoi(argv[4]));
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.disk.live_resize", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "DISK_RESIZE");
+    g_free(resp);
+}
+
+   
+                                                              
+                                                           
+                                                  
+                                             
+                                          
+   
+void cmd_vm_guest_agent_status(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm guest-agent-status <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.guest.agent.status", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+    } else if (json_object_has_member(root, "result")) {
+        JsonObject *res = json_object_get_object_member(root, "result");
+        const gchar *status = json_object_get_string_member_with_default(res, "status", "unknown");
+        const gchar *message = json_object_get_string_member_with_default(res, "message", "-");
+        gboolean running = json_object_get_boolean_member_with_default(res, "running", FALSE);
+        gboolean configured = json_object_get_boolean_member_with_default(res, "channel_configured", FALSE);
+        gboolean live = json_object_get_boolean_member_with_default(res, "channel_live", FALSE);
+        gboolean ping = json_object_get_boolean_member_with_default(res, "agent_ping", FALSE);
+        gboolean package_required = json_object_get_boolean_member_with_default(res, "package_required", FALSE);
+        gboolean reboot_required = json_object_get_boolean_member_with_default(res, "reboot_required", FALSE);
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("name\t%s\nstatus\t%s\nrunning\t%s\nchannel_configured\t%s\nchannel_live\t%s\nagent_ping\t%s\npackage_required\t%s\nreboot_required\t%s\nmessage\t%s\n",
+                argv[2], status, running ? "true" : "false",
+                configured ? "true" : "false", live ? "true" : "false",
+                ping ? "true" : "false", package_required ? "true" : "false",
+                reboot_required ? "true" : "false", message);
+        } else {
+            print_cyber_banner();
+            printf("%s [ GUEST AGENT STATUS: %s ]%s\n\n",
+                cc(CYBER_CYAN), argv[2], cc(CYBER_RESET));
+            printf(" %sStatus      : %s%s%s\n", cc(CYBER_YELLOW),
+                ping ? cc(CYBER_GREEN) : cc(CYBER_RED), status, cc(CYBER_RESET));
+            printf(" %sRunning     : %s%s%s\n", cc(CYBER_YELLOW),
+                running ? cc(CYBER_GREEN) : cc(CYBER_DIM),
+                running ? "true" : "false", cc(CYBER_RESET));
+            printf(" %sChannel cfg : %s%s%s\n", cc(CYBER_YELLOW),
+                configured ? cc(CYBER_GREEN) : cc(CYBER_RED),
+                configured ? "true" : "false", cc(CYBER_RESET));
+            printf(" %sChannel live: %s%s%s\n", cc(CYBER_YELLOW),
+                live ? cc(CYBER_GREEN) : cc(CYBER_RED),
+                live ? "true" : "false", cc(CYBER_RESET));
+            printf(" %sAgent ping  : %s%s%s\n", cc(CYBER_YELLOW),
+                ping ? cc(CYBER_GREEN) : cc(CYBER_RED),
+                ping ? "true" : "false", cc(CYBER_RESET));
+            if (package_required)
+                printf(" %sPackage     : qemu-guest-agent install/start required%s\n",
+                    cc(CYBER_RED), cc(CYBER_RESET));
+            if (reboot_required)
+                printf(" %sReboot      : required to activate configured channel%s\n",
+                    cc(CYBER_YELLOW), cc(CYBER_RESET));
+            printf("\n%s%s%s\n", cc(CYBER_DIM), message, cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser);
+    g_free(resp);
+}
+
+   
+                                                                     
+                                                                 
+                                                     
+                                                  
+   
+void cmd_vm_guest_agent_ensure_channel(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm guest-agent-ensure-channel <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.guest.agent.ensure_channel", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "GUEST_AGENT_ENSURE_CHANNEL");
+    g_free(resp);
+}
+
+   
+                                        
+                                               
+                                     
+                                  
+   
+void cmd_vm_guest_ping(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm guest-ping <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.guest.ping", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] Guest agent: NOT REACHABLE [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+    } else {
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("%s\tconnected\n", argv[2]);
+        } else {
+            printf("%s[+] Guest agent: %sconnected%s\n",
+                cc(CYBER_GREEN), cc(CYBER_BOLD), cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                        
+                                                   
+                                 
+                                            
+                                               
+                                     
+   
+void cmd_vm_guest_exec(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm guest-exec <name> <command>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+                                    
+    GString *cmd_str = g_string_new(argv[3]);
+    for (int i = 4; i < argc; i++) {
+        g_string_append_c(cmd_str, ' ');
+        g_string_append(cmd_str, argv[i]);
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name",    argv[2]);
+    json_object_set_string_member(params, "command", cmd_str->str);
+    g_string_free(cmd_str, TRUE);
+
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.guest.exec", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+    } else if (json_object_has_member(root, "result")) {
+        JsonObject  *res     = json_object_get_object_member(root, "result");
+        const gchar *out     = json_object_get_string_member_with_default(res, "stdout", "");
+        const gchar *err_out = json_object_get_string_member_with_default(res, "stderr", "");
+                                                                        
+                                              
+                                         
+        gint64       exitc   = json_object_get_int_member_with_default(res, "exitcode", -1);
+        gboolean     exited  = json_object_get_boolean_member_with_default(res, "exited", TRUE);
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            if (!exited)    printf("exited\tfalse\n");
+            printf("exit_code\t%lld\n", (long long)exitc);
+            if (out[0])     printf("stdout\t%s\n", out);
+            if (err_out[0]) printf("stderr\t%s\n", err_out);
+        } else {
+            if (out[0])
+                printf("%s%s%s", cc(CYBER_RESET), out,
+                    out[strlen(out)-1] != '\n' ? "\n" : "");
+            if (err_out[0])
+                printf("%s%s%s", cc(CYBER_RED), err_out,
+                    err_out[strlen(err_out)-1] != '\n' ? "\n" : "");
+            if (!exited)
+                printf("%s[still running — exit code unavailable within 10s budget]%s\n",
+                    cc(CYBER_YELLOW), cc(CYBER_RESET));
+            const gchar *ec_color = (exitc == 0) ? cc(CYBER_GREEN) : cc(CYBER_RED);
+            printf("%s[exit_code: %s%lld%s]%s\n",
+                cc(CYBER_DIM), ec_color, (long long)exitc, cc(CYBER_DIM), cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                               
+                                                      
+                                         
+                                      
+   
+void cmd_vm_guest_shutdown(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm guest-shutdown <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.guest.shutdown", params, &error);
+    if (error) {
+        g_printerr("%s[!] LINK_SEVERED: %s%s\n",
+            ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+    } else if (json_object_has_member(root, "result")) {
+        JsonObject  *res    = json_object_get_object_member(root, "result");
+        const gchar *method = json_object_get_string_member_with_default(res, "method", "acpi");
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("%s\tshutdown_initiated\t%s\n", argv[2], method);
+        } else {
+            printf("%s[+] Shutdown initiated%s (method: %s%s%s)\n",
+                cc(CYBER_GREEN), cc(CYBER_RESET),
+                cc(CYBER_YELLOW), method, cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                                                       
+                                
+                                                                          
+
+                                                      
+                                                          
+void cmd_alert_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("alert.history", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    JsonArray  *arr  = json_object_has_member(root, "result")
+            ? json_object_get_array_member(root, "result") : NULL;
+
+    if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+        const char *hdrs[] = {"TIMESTAMP","SEVERITY","METRIC","VALUE","THRESHOLD"};
+        PcvTable   *t      = ptbl_new(hdrs, 5);
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            gchar val_buf[32], thr_buf[32];
+            g_snprintf(val_buf, sizeof(val_buf), "%.1f",
+                json_object_get_double_member_with_default(o, "value", 0));
+            g_snprintf(thr_buf, sizeof(thr_buf), "%.1f",
+                json_object_get_double_member_with_default(o, "threshold", 0));
+            ptbl_row(t,
+                json_object_get_string_member_with_default(o, "timestamp", "?"),
+                json_object_get_string_member_with_default(o, "severity", "?"),
+                json_object_get_string_member_with_default(o, "metric", "?"),
+                val_buf, thr_buf);
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else if (arr) {
+        printf("%s%-22s │ %-10s │ %-12s │ %-8s │ %-8s%s\n", cc(CYBER_CYAN),
+               "TIMESTAMP", "SEVERITY", "METRIC", "VALUE", "THRESHOLD", cc(CYBER_RESET));
+        printf("────────────────────────────────────────────────────────────────────────────\n");
+        for (guint i = 0; i < json_array_get_length(arr); i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            printf(" %-22s │ %-10s │ %-12s │ %7.1f │ %7.1f\n",
+                json_object_get_string_member_with_default(o, "timestamp", "?"),
+                json_object_get_string_member_with_default(o, "severity", "?"),
+                json_object_get_string_member_with_default(o, "metric", "?"),
+                json_object_get_double_member_with_default(o, "value", 0),
+                json_object_get_double_member_with_default(o, "threshold", 0));
+        }
+        printf("────────────────────────────────────────────────────────────────────────────\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                                         
+                                                     
+void cmd_alert_config(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("alert.config.get", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                                     
+                                                       
+                                                                 
+                                    
+                                                                              
+   
+void cmd_alert_set(int argc, char *argv[]) {
+    JsonObject *params = json_object_new();
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--cpu_warn") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "cpu_warn", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--cpu_crit") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "cpu_crit", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--mem_warn") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "mem_warn", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--mem_crit") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "mem_crit", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--webhook") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "webhook_url", argv[++i]);
+    }
+
+      
+                                               
+                                                      
+                                                     
+                                      
+       
+    GError *error = NULL;
+    gchar *get_resp = purectl_send_request("alert.config.get", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] Cannot read alert config revision: %s; update not sent%s\n",
+                   ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error);
+        json_object_unref(params);
+        g_free(get_resp);
+        return;
+    }
+
+    JsonParser *parser = json_parser_new();
+    GError *parse_error = NULL;
+    gboolean parsed = get_resp
+        && json_parser_load_from_data(parser, get_resp, -1, &parse_error);
+    JsonNode *root_node = parsed ? json_parser_get_root(parser) : NULL;
+    JsonObject *root = root_node && JSON_NODE_HOLDS_OBJECT(root_node)
+        ? json_node_get_object(root_node) : NULL;
+    JsonObject *result = root && !json_object_has_member(root, "error")
+        && json_object_has_member(root, "result")
+        && JSON_NODE_HOLDS_OBJECT(json_object_get_member(root, "result"))
+        ? json_object_get_object_member(root, "result") : NULL;
+    JsonNode *revision_node = result
+        ? json_object_get_member(result, "config_revision") : NULL;
+    gboolean revision_valid = revision_node
+        && JSON_NODE_HOLDS_VALUE(revision_node)
+        && json_node_get_value_type(revision_node) == G_TYPE_INT64
+        && json_node_get_int(revision_node) >= 1;
+    if (!revision_valid) {
+        g_printerr("%s[!] Cannot read a valid alert config revision; update not sent%s\n",
+                   ce(CYBER_RED), ce(CYBER_RESET));
+        g_clear_error(&parse_error);
+        g_object_unref(parser);
+        g_free(get_resp);
+        json_object_unref(params);
+        return;
+    }
+    json_object_set_int_member(params, "expected_revision",
+                               json_node_get_int(revision_node));
+    g_clear_error(&parse_error);
+    g_object_unref(parser);
+    g_free(get_resp);
+
+    error = NULL;
+    gchar *resp = purectl_send_request("alert.config.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+
+    gboolean conflict = FALSE;
+    parser = json_parser_new();
+    if (resp && json_parser_load_from_data(parser, resp, -1, NULL)) {
+        root_node = json_parser_get_root(parser);
+        root = root_node && JSON_NODE_HOLDS_OBJECT(root_node)
+            ? json_node_get_object(root_node) : NULL;
+        JsonObject *rpc_error = root && json_object_has_member(root, "error")
+            && JSON_NODE_HOLDS_OBJECT(json_object_get_member(root, "error"))
+            ? json_object_get_object_member(root, "error") : NULL;
+        JsonNode *code_node = rpc_error
+            ? json_object_get_member(rpc_error, "code") : NULL;
+        conflict = code_node && JSON_NODE_HOLDS_VALUE(code_node)
+            && json_node_get_int(code_node) == PURE_RPC_ERR_CONFLICT;
+    }
+    g_object_unref(parser);
+
+    if (conflict && g_ctx.fmt != FMT_JSON) {
+        g_printerr("%s[!] Alert config changed concurrently; re-run the command%s\n",
+                   ce(CYBER_RED), ce(CYBER_RESET));
+    } else {
+        print_action_response(resp, "ALERT_CONFIG_SET");
+    }
+    g_free(resp);
+}
+
+   
+                               
+                                                         
+                             
+                              
+   
+void cmd_alert_reload(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("alert.config.reload", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL) || !json_parser_get_root(parser)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+    } else if (json_object_has_member(root, "result")) {
+        JsonObject *res = json_object_get_object_member(root, "result");
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            printf("alert_reload\tOK\n");
+            if (json_object_has_member(res, "cpu_warn"))
+                printf("cpu_warn\t%lld\n", (long long)json_object_get_int_member(res, "cpu_warn"));
+            if (json_object_has_member(res, "cpu_crit"))
+                printf("cpu_crit\t%lld\n", (long long)json_object_get_int_member(res, "cpu_crit"));
+            if (json_object_has_member(res, "mem_warn"))
+                printf("mem_warn\t%lld\n", (long long)json_object_get_int_member(res, "mem_warn"));
+            if (json_object_has_member(res, "mem_crit"))
+                printf("mem_crit\t%lld\n", (long long)json_object_get_int_member(res, "mem_crit"));
+            if (json_object_has_member(res, "enabled"))
+                printf("enabled\t%s\n",
+                    json_object_get_boolean_member(res, "enabled") ? "true" : "false");
+        } else {
+            printf("%s%s[+] Alert config reloaded%s\n",
+                cc(CYBER_GREEN), cc(CYBER_BOLD), cc(CYBER_RESET));
+            if (json_object_has_member(res, "cpu_warn"))
+                printf("  %sCPU warn : %s%lld%%%s\n", cc(CYBER_YELLOW), cc(CYBER_GREEN),
+                    (long long)json_object_get_int_member(res, "cpu_warn"), cc(CYBER_RESET));
+            if (json_object_has_member(res, "cpu_crit"))
+                printf("  %sCPU crit : %s%lld%%%s\n", cc(CYBER_YELLOW), cc(CYBER_RED),
+                    (long long)json_object_get_int_member(res, "cpu_crit"), cc(CYBER_RESET));
+            if (json_object_has_member(res, "mem_warn"))
+                printf("  %sMEM warn : %s%lld%%%s\n", cc(CYBER_YELLOW), cc(CYBER_GREEN),
+                    (long long)json_object_get_int_member(res, "mem_warn"), cc(CYBER_RESET));
+            if (json_object_has_member(res, "mem_crit"))
+                printf("  %sMEM crit : %s%lld%%%s\n", cc(CYBER_YELLOW), cc(CYBER_RED),
+                    (long long)json_object_get_int_member(res, "mem_crit"), cc(CYBER_RESET));
+            if (json_object_has_member(res, "enabled"))
+                printf("  %sEnabled  : %s%s%s\n", cc(CYBER_YELLOW),
+                    json_object_get_boolean_member(res, "enabled") ? cc(CYBER_GREEN) : cc(CYBER_RED),
+                    json_object_get_boolean_member(res, "enabled") ? "true" : "false",
+                    cc(CYBER_RESET));
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                                                       
+                       
+                                                                          
+
+
+                                                                       
+                   
+                                                                          
+
+                                                               
+                                                        
+void cmd_agent_config(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("agent.config.get", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+   
+                                     
+                                          
+                                                                    
+                                                                             
+                                                                
+   
+void cmd_agent_set(int argc, char *argv[]) {
+    const char *provider = NULL;
+    const char *api_key  = NULL;
+    const char *enabled  = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--provider") == 0 && i+1 < argc)
+            provider = argv[++i];
+        else if (g_strcmp0(argv[i], "--api_key") == 0 && i+1 < argc)
+            api_key = argv[++i];
+        else if (g_strcmp0(argv[i], "--enabled") == 0 && i+1 < argc)
+            enabled = argv[++i];
+    }
+    if (!provider) {
+        printf("%sUsage: pcvctl agent set --provider NAME --api_key KEY --enabled true/false%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *prov_cfg = json_object_new();
+    if (api_key) json_object_set_string_member(prov_cfg, "api_key", api_key);
+    if (enabled) json_object_set_boolean_member(prov_cfg, "enabled",
+        g_strcmp0(enabled, "true") == 0);
+    JsonObject *providers = json_object_new();
+    json_object_set_object_member(providers, provider, prov_cfg);
+    JsonObject *params = json_object_new();
+    json_object_set_object_member(params, "providers", providers);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("agent.config.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "AGENT_CONFIG_SET"); g_free(resp);
+}
+
+                                                          
+                                      
+void cmd_agent_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("agent.history", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                                       
+                          
+                                                                          
+
+   
+                            
+                                                  
+         
+                                 
+                                                                        
+                                  
+   
+void cmd_ovn_acl(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage:\n"
+               "  pcvctl ovn acl list <switch>\n"
+               "  pcvctl ovn acl add <switch> <direction> <priority> <match> <action>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "list") == 0) {
+        if (argc < 4) { printf("%sUsage: pcvctl ovn acl list <switch>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "switch", argv[3]);
+        GError *error = NULL;
+        gchar  *resp  = purectl_send_request("ovn.acl.list", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (!resp) return;
+        if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+        JsonParser *parser = json_parser_new();
+        if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+            g_object_unref(parser); g_free(resp); return;
+        }
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonArray  *arr  = json_object_has_member(root, "result")
+                ? json_object_get_array_member(root, "result") : NULL;
+
+        if (arr && (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV)) {
+            const char *hdrs[] = {"DIRECTION","PRIORITY","MATCH","ACTION"};
+            PcvTable   *t      = ptbl_new(hdrs, 4);
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                gchar prio_buf[16];
+                g_snprintf(prio_buf, sizeof(prio_buf), "%lld",
+                    (long long)json_object_get_int_member_with_default(o, "priority", 0));
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(o, "direction", "?"),
+                    prio_buf,
+                    json_object_get_string_member_with_default(o, "match", "?"),
+                    json_object_get_string_member_with_default(o, "action", "?"));
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else if (arr) {
+            printf("%s%-12s │ %-8s │ %-30s │ %-10s%s\n", cc(CYBER_CYAN),
+                   "DIRECTION", "PRIORITY", "MATCH", "ACTION", cc(CYBER_RESET));
+            printf("────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *o = json_array_get_object_element(arr, i);
+                printf(" %-12s │ %8lld │ %-30s │ %-10s\n",
+                    json_object_get_string_member_with_default(o, "direction", "?"),
+                    (long long)json_object_get_int_member_with_default(o, "priority", 0),
+                    json_object_get_string_member_with_default(o, "match", "?"),
+                    json_object_get_string_member_with_default(o, "action", "?"));
+            }
+            printf("────────────────────────────────────────────────────────────────────\n");
+        }
+        g_object_unref(parser); g_free(resp);
+
+    } else if (g_strcmp0(action, "add") == 0) {
+        if (argc < 8) {
+            printf("%sUsage: pcvctl ovn acl add <switch> <direction> <priority> <match> <action>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "switch", argv[3]);
+        json_object_set_string_member(params, "direction", argv[4]);
+        json_object_set_int_member(params, "priority", atoi(argv[5]));
+        json_object_set_string_member(params, "match", argv[6]);
+        json_object_set_string_member(params, "action", argv[7]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.acl.add", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_ACL_ADD"); g_free(resp);
+
+    } else {
+        printf("%s[!] UNKNOWN OVN ACL ACTION: %s%s\n", cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+   
+                               
+                                                         
+                                                                   
+                                                                          
+                         
+   
+void cmd_ovn_dhcp(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl ovn dhcp enable <subnet> <gateway> [--switch NAME]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *action = argv[2];
+
+    if (g_strcmp0(action, "enable") == 0) {
+        if (argc < 5) {
+            printf("%sUsage: pcvctl ovn dhcp enable <subnet> <gateway> [--switch NAME]%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "subnet", argv[3]);
+        json_object_set_string_member(params, "gateway", argv[4]);
+        for (int i = 5; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--switch") == 0 && i + 1 < argc)
+                json_object_set_string_member(params, "switch", argv[++i]);
+        }
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("ovn.dhcp.enable", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "OVN_DHCP_ENABLE"); g_free(resp);
+
+    } else {
+        printf("%s[!] UNKNOWN OVN DHCP ACTION: %s%s\n", cc(CYBER_RED), action, cc(CYBER_RESET));
+    }
+}
+
+                                                                       
+                  
+                                                                          
+
+   
+                                                      
+                                              
+                                                              
+                                           
+  
+                                                                                
+                                                               
+                                                    
+                                                         
+                                 
+   
+void cmd_net_edit(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl network edit <bridge> --mode MODE --cidr CIDR%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const char *bridge = argv[2];
+    const char *mode   = NULL;
+    const char *cidr   = NULL;
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--mode") == 0 && i+1 < argc)
+            mode = argv[++i];
+        else if (g_strcmp0(argv[i], "--cidr") == 0 && i+1 < argc)
+            cidr = argv[++i];
+    }
+    if (!mode || !cidr) {
+        printf("%sUsage: pcvctl network edit <bridge> --mode MODE --cidr CIDR%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    g_printerr("%s[DEPRECATED] 'network edit' is a compatibility alias; "
+               "use 'pcvctl network mode %s %s %s'.%s\n",
+        ce(CYBER_YELLOW), bridge, mode, cidr, ce(CYBER_RESET));
+    net_mode_apply(bridge, mode, cidr);
+}
+
+   
+                              
+                                                               
+                                                         
+                                                        
+  
+                                             
+                                                                            
+                                                               
+                                                       
+                                                     
+                                                           
+                                          
+   
+void cmd_net_dhcp(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl network dhcp <bridge> --enable|--disable%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const char *bridge  = argv[2];
+    gboolean dhcp_enable = FALSE;
+    gboolean have_flag   = FALSE;
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--enable") == 0) {
+            dhcp_enable = TRUE;  have_flag = TRUE;
+        } else if (g_strcmp0(argv[i], "--disable") == 0) {
+            dhcp_enable = FALSE; have_flag = TRUE;
+        }
+    }
+    if (!have_flag) {
+        printf("%sUsage: pcvctl network dhcp <bridge> --enable|--disable%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "bridge", bridge);
+    json_object_set_boolean_member(params, "enable", dhcp_enable);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("network.dhcp_toggle", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "NET_DHCP_TOGGLE"); g_free(resp);
+}
+
+   
+                                  
+                                             
+                                            
+                                         
+   
+void cmd_net_bind(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl network bind <bridge> <nic>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    g_printerr("%s[DEPRECATED] standalone physical NIC binding is disabled because it "
+               "cannot be rolled back atomically. Use:\n"
+               "  pcvctl network create %s --mode bridge --iface %s "
+               "--confirm-dedicated-uplink%s\n",
+               ce(CYBER_YELLOW), argv[2], argv[3], ce(CYBER_RESET));
+}
+
+                                                                       
+                                       
+                                                                          
+
+                                  
+
+                                                    
+                                                                     
+void cmd_vm_autostart(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm autostart <name> --enable/--disable%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    gboolean enable = TRUE;
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--disable") == 0) enable = FALSE;
+        else if (g_strcmp0(argv[i], "--enable") == 0) enable = TRUE;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_boolean_member(params, "enable", enable);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.autostart", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "VM_AUTOSTART"); g_free(resp);
+}
+
+                                                          
+                                                        
+void cmd_vm_disk_throttle(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm disk-throttle <name> [--device vda] --read-iops N --write-iops N%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "device", "vda");
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--device") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "device", argv[++i]);
+        else if (g_strcmp0(argv[i], "--read-iops") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "read_iops_sec", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--write-iops") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "write_iops_sec", atoi(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.blkio.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "DISK_THROTTLE"); g_free(resp);
+}
+
+                                                            
+                                                
+                                                          
+                                      
+void cmd_vm_bandwidth(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm bandwidth <name> --inbound-kbps N --outbound-kbps N%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    gboolean has_limit = FALSE;
+    for (int i = 3; i < argc; i++) {
+        if ((g_strcmp0(argv[i], "--inbound-kbps") == 0 ||
+             g_strcmp0(argv[i], "--inbound") == 0) && i+1 < argc) {
+            json_object_set_int_member(params, "inbound_kbps", atoi(argv[++i]));
+            has_limit = TRUE;
+        } else if ((g_strcmp0(argv[i], "--outbound-kbps") == 0 ||
+                    g_strcmp0(argv[i], "--outbound") == 0 ||
+                    g_strcmp0(argv[i], "--rate") == 0) && i+1 < argc) {
+            json_object_set_int_member(params, "outbound_kbps", atoi(argv[++i]));
+            has_limit = TRUE;
+        }
+    }
+    if (!has_limit) {
+        printf("%sUsage: pcvctl vm bandwidth <name> --inbound-kbps N --outbound-kbps N%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        json_object_unref(params);
+        return;
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.set_bandwidth", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "VM_BANDWIDTH"); g_free(resp);
+}
+
+                                                      
+                                                           
+void cmd_vm_numa_info(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.numa.info", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                               
+                                                 
+void cmd_vm_sla(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm sla <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.sla.report", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                                           
+                                                          
+void cmd_vm_schedule(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl vm schedule set <name> --start \"cron\" --stop \"cron\"\n"
+               "  pcvctl vm schedule list%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *sub = argv[2];
+    if (g_strcmp0(sub, "list") == 0) {
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("vm.schedule.list", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (resp) { print_raw_response(resp); g_free(resp); }
+    } else if (g_strcmp0(sub, "set") == 0) {
+        if (argc < 4) {
+            printf("%sUsage: pcvctl vm schedule set <name> --start \"cron\" --stop \"cron\"%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        for (int i = 4; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--start") == 0 && i+1 < argc)
+                json_object_set_string_member(params, "start_cron", argv[++i]);
+            else if (g_strcmp0(argv[i], "--stop") == 0 && i+1 < argc)
+                json_object_set_string_member(params, "stop_cron", argv[++i]);
+        }
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("vm.schedule.set", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "VM_SCHEDULE_SET"); g_free(resp);
+    } else {
+        printf("%sUnknown sub-command: %s%s\n", cc(CYBER_RED), sub, cc(CYBER_RESET));
+    }
+}
+
+                               
+
+                                                            
+                                            
+void cmd_storage_health(int argc, char *argv[]) {
+    JsonObject *params = json_object_new();
+    if (argc >= 3)
+        json_object_set_string_member(params, "pool", argv[2]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("storage.pool.health", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                         
+                                                          
+void cmd_capacity_forecast(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("capacity.forecast", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                          
+                                             
+void cmd_billing_report(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.billing.report", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                             
+
+                                           
+                                               
+                                                       
+void cmd_job_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("jobs.list", NULL, &error);                                                
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                                     
+                                                     
+                                                    
+                                                                                
+                                  
+                                         
+void cmd_batch_execute(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm batch <start|stop> <vm1> <vm2> ...\n"
+               "  action: start | stop (server-whitelisted)%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p   = json_object_new();
+    JsonArray  *vms = json_array_new();
+    json_object_set_string_member(p, "action", argv[2]);
+    for (int i = 3; i < argc; i++)
+        json_array_add_string_element(vms, argv[i]);
+    json_object_set_array_member(p, "vms", vms);
+
+    GError *e = NULL;
+    gchar  *r = purectl_send_request("vm.batch", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) { g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET)); return; }
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL) && json_parser_get_root(parser)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err_obj = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] COMMAND REJECTED [%lld]: %s%s\n",
+                ce(CYBER_RED),
+                (long long)json_object_get_int_member(err_obj, "code"),
+                json_object_get_string_member(err_obj, "message"),
+                ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject *res      = json_object_get_object_member(root, "result");
+            JsonArray  *accepted = json_object_has_member(res, "accepted")
+                    ? json_object_get_array_member(res, "accepted") : NULL;
+            JsonArray  *rejected = json_object_has_member(res, "rejected")
+                    ? json_object_get_array_member(res, "rejected") : NULL;
+            guint na = accepted ? json_array_get_length(accepted) : 0;             
+            guint nr = rejected ? json_array_get_length(rejected) : 0;             
+
+                                                                  
+            if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+                printf("%s\t%u\t%u\n", argv[2], na, nr);
+            } else {
+                printf("%s%s[+] BATCH %s: accepted=%u rejected=%u%s\n",
+                    cc(CYBER_GREEN), cc(CYBER_BOLD), argv[2], na, nr, cc(CYBER_RESET));
+                for (guint i = 0; i < na; i++)
+                    printf("  %s[+] %s%s\n", cc(CYBER_GREEN),
+                        json_array_get_string_element(accepted, i), cc(CYBER_RESET));
+                for (guint i = 0; i < nr; i++) {
+                    JsonObject *rj = json_array_get_object_element(rejected, i);
+                    printf("  %s[!] %s: %s%s\n", cc(CYBER_RED),
+                        json_object_get_string_member(rj, "vm"),
+                        json_object_get_string_member(rj, "reason"),
+                        cc(CYBER_RESET));
+                }
+            }
+        }
+    }
+    g_object_unref(parser);
+    g_free(r);
+}
+
+                                                                
+                                                           
+void cmd_prometheus_sd(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("prometheus.sd", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                                 
+                                                       
+void cmd_webhook_list(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.event.webhook.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                        
+                                                  
+void cmd_alert_actions(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("alert.action.list", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                          
+
+   
+                                                 
+                                                             
+                                                                                       
+   
+void cmd_audit_search(int argc, char *argv[]) {
+    JsonObject *params = json_object_new();
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--user") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "username", argv[++i]);
+        else if (g_strcmp0(argv[i], "--from") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "from_ts", argv[++i]);
+        else if (g_strcmp0(argv[i], "--to") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "to_ts", argv[++i]);
+        else if (g_strcmp0(argv[i], "--method") == 0 && i+1 < argc)
+            json_object_set_string_member(params, "method", argv[++i]);
+        else if (g_strcmp0(argv[i], "--limit") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "limit", atoi(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("audit.search", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                             
+  
+                                                    
+                                                
+                                             
+                                                  
+                                             
+                                                        
+                                                                    
+
+                                                                 
+static void security_usage(void) {
+    printf("%sUsage:\n"
+           "  pcvctl security status\n"
+           "  pcvctl security events [--limit N] [--severity info|warn|crit] [--status open|resolved|suppressed]\n"
+           "  pcvctl security event <event_id>\n"
+           "  pcvctl security pending\n"
+           "  pcvctl security approve <event_id>\n"
+           "  pcvctl security dismiss <event_id> [--reason TEXT]\n"
+           "  pcvctl security baseline-status\n"
+           "  pcvctl security baseline-refresh --path PATH [--path PATH...]\n"
+           "  pcvctl security enable\n"
+           "  pcvctl security disable%s\n",
+        cc(CYBER_YELLOW), cc(CYBER_RESET));
+}
+
+   
+                                                       
+                                                  
+                                         
+                                                                 
+                                       
+                                                      
+   
+static JsonObject *security_parse_root(const gchar *resp, JsonParser **out_parser) {
+    *out_parser = NULL;                                       
+    if (!resp) {
+        g_printerr("%s[!] NULL RESPONSE%s\n", ce(CYBER_RED), ce(CYBER_RESET));
+        return NULL;
+    }
+
+    JsonParser *parser = json_parser_new();
+    GError *error = NULL;
+    if (!json_parser_load_from_data(parser, resp, -1, &error) ||
+        !json_parser_get_root(parser) ||
+        !JSON_NODE_HOLDS_OBJECT(json_parser_get_root(parser))) {
+        g_printerr("%s[!] JSON parse failed: %s%s\n",
+            ce(CYBER_RED), error ? error->message : "invalid response", ce(CYBER_RESET));
+        g_clear_error(&error);
+        g_object_unref(parser);
+        return NULL;
+    }
+
+    *out_parser = parser;
+    return json_node_get_object(json_parser_get_root(parser));
+}
+
+   
+                                                                  
+                                                     
+                                                       
+   
+static gboolean security_print_error_if_any(JsonObject *root) {
+    if (!root || !json_object_has_member(root, "error")) {
+        return FALSE;                         
+    }
+    JsonObject *err = json_object_get_object_member(root, "error");
+    g_printerr("%s[!] SECURITY RPC ERROR [%lld]: %s%s\n",
+        ce(CYBER_RED),
+        (long long)json_object_get_int_member_with_default(err, "code", -1),
+        json_object_get_string_member_with_default(err, "message", "unknown error"),
+        ce(CYBER_RESET));
+    return TRUE;
+}
+
+                                                              
+                                             
+static gchar *security_int_string(JsonObject *obj, const gchar *key) {
+    return g_strdup_printf("%lld",
+        (long long)json_object_get_int_member_with_default(obj, key, 0));
+}
+
+   
+                                                                
+                                                              
+                          
+                                          
+   
+static gchar *security_node_to_string(JsonNode *node) {
+    if (!node) {
+        return g_strdup("");
+    }
+    if (JSON_NODE_HOLDS_VALUE(node)) {
+        GType t = json_node_get_value_type(node);
+        if (t == G_TYPE_STRING) {
+            return g_strdup(json_node_get_string(node));
+        }
+        if (t == G_TYPE_BOOLEAN) {
+            return g_strdup(json_node_get_boolean(node) ? "true" : "false");
+        }
+    }
+    return json_to_string(node, FALSE);
+}
+
+   
+                                                         
+                                                                
+                                                                      
+   
+static void security_print_kv_object(JsonObject *obj, const char *title) {
+    if (!obj) {
+        return;
+    }
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdr[] = {"KEY", "VALUE"};
+        PcvTable *t = ptbl_new(hdr, 2);
+        GList *keys = json_object_get_members(obj);
+        for (GList *it = keys; it; it = it->next) {
+            const gchar *key = it->data;
+            JsonNode *node = json_object_get_member(obj, key);
+            g_autofree gchar *value = security_node_to_string(node);
+            ptbl_row(t, key, value ? value : "");
+        }
+        g_list_free(keys);
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        return;
+    }
+
+    printf("%s%s%s\n", cc(CYBER_BOLD), title, cc(CYBER_RESET));
+    GList *keys = json_object_get_members(obj);
+    for (GList *it = keys; it; it = it->next) {
+        const gchar *key = it->data;
+        JsonNode *node = json_object_get_member(obj, key);
+        g_autofree gchar *value = security_node_to_string(node);
+        printf("  %s%-18s%s %s\n", cc(CYBER_YELLOW), key, cc(CYBER_RESET),
+               value ? value : "");
+    }
+    g_list_free(keys);
+}
+
+   
+                                                                  
+                                                              
+                                                     
+   
+static void security_print_config_response(const gchar *resp) {
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(resp);                              
+        return;
+    }
+
+    JsonParser *parser = NULL;
+    JsonObject *root = security_parse_root(resp, &parser);
+    if (!root || security_print_error_if_any(root)) {
+        if (parser) g_object_unref(parser);
+        return;
+    }
+    JsonObject *res = json_object_get_object_member(root, "result");
+    if (!res) {
+        if (parser) g_object_unref(parser);
+        return;
+    }
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *hdr[] = {"ENABLED", "BASELINE", "OPEN_RISK", "PENDING", "DEGRADED"};
+        PcvTable *t = ptbl_new(hdr, 5);
+        g_autofree gchar *risk = security_int_string(res, "open_risk");
+        g_autofree gchar *pending = security_int_string(res, "pending_actions");
+        ptbl_row(t,
+            json_object_get_boolean_member_with_default(res, "enabled", FALSE) ? "true" : "false",
+            json_object_get_string_member_with_default(res, "baseline_status", "unknown"),
+            risk,
+            pending,
+            json_object_get_boolean_member_with_default(res, "degraded", FALSE) ? "true" : "false");
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+    } else {
+        printf("%s%sSecurity Guard%s\n", cc(CYBER_BOLD), cc(CYBER_CYAN), cc(CYBER_RESET));
+        printf("  enabled         : %s%s%s\n",
+            json_object_get_boolean_member_with_default(res, "enabled", FALSE) ? cc(CYBER_GREEN) : cc(CYBER_RED),
+            json_object_get_boolean_member_with_default(res, "enabled", FALSE) ? "true" : "false",
+            cc(CYBER_RESET));
+        printf("  baseline_status : %s%s%s\n", cc(CYBER_YELLOW),
+            json_object_get_string_member_with_default(res, "baseline_status", "unknown"),
+            cc(CYBER_RESET));
+        printf("  open_risk       : %lld\n",
+            (long long)json_object_get_int_member_with_default(res, "open_risk", 0));
+        printf("  pending_actions : %lld\n",
+            (long long)json_object_get_int_member_with_default(res, "pending_actions", 0));
+        printf("  degraded        : %s\n",
+            json_object_get_boolean_member_with_default(res, "degraded", FALSE) ? "true" : "false");
+    }
+    g_object_unref(parser);
+}
+
+   
+                                                      
+                                               
+                                                         
+                                           
+   
+static void security_print_array_response(const gchar *resp, gboolean actions) {
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(resp);
+        return;
+    }
+
+    JsonParser *parser = NULL;
+    JsonObject *root = security_parse_root(resp, &parser);
+    if (!root || security_print_error_if_any(root)) {
+        if (parser) g_object_unref(parser);
+        return;
+    }
+    JsonNode *node = json_object_get_member(root, "result");
+    JsonArray *arr = node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+    guint len = arr ? json_array_get_length(arr) : 0;
+
+    if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+        const char *event_hdr[] = {"EVENT_ID", "SEVERITY", "STATUS", "SOURCE", "TARGET", "ACTION", "SUMMARY"};
+        const char *action_hdr[] = {"EVENT_ID", "ACTION", "TARGET_KIND", "TARGET", "STATUS"};
+        PcvTable *t = actions ? ptbl_new(action_hdr, 5) : ptbl_new(event_hdr, 7);
+        for (guint i = 0; i < len; i++) {
+            JsonObject *o = json_array_get_object_element(arr, i);
+            if (actions) {
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(o, "event_id", "-"),
+                    json_object_get_string_member_with_default(o, "action", "-"),
+                    json_object_get_string_member_with_default(o, "target_kind", "-"),
+                    json_object_get_string_member_with_default(o, "target", "-"),
+                    json_object_get_string_member_with_default(o, "status", "-"));
+            } else {
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(o, "event_id", "-"),
+                    json_object_get_string_member_with_default(o, "severity", "-"),
+                    json_object_get_string_member_with_default(o, "status", "-"),
+                    json_object_get_string_member_with_default(o, "source", "-"),
+                    json_object_get_string_member_with_default(o, "target", "-"),
+                    json_object_get_string_member_with_default(o, "recommended_action", "-"),
+                    json_object_get_string_member_with_default(o, "summary", "-"));
+            }
+        }
+        g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+        ptbl_free(t);
+        g_object_unref(parser);
+        return;
+    }
+
+    printf("%s%s%s\n", cc(CYBER_BOLD),
+        actions ? "Security Guard Pending Actions" : "Security Events",
+        cc(CYBER_RESET));
+    if (len == 0) {
+        printf("  (none)\n");
+    }
+    for (guint i = 0; i < len; i++) {
+        JsonObject *o = json_array_get_object_element(arr, i);
+        if (actions) {
+            printf("  %s%-28s%s %-12s %-10s %s\n",
+                cc(CYBER_YELLOW), json_object_get_string_member_with_default(o, "event_id", "-"),
+                cc(CYBER_RESET),
+                json_object_get_string_member_with_default(o, "action", "-"),
+                json_object_get_string_member_with_default(o, "status", "-"),
+                json_object_get_string_member_with_default(o, "target", "-"));
+        } else {
+            printf("  %s%-28s%s %-5s %-10s %-14s %s\n",
+                cc(CYBER_YELLOW), json_object_get_string_member_with_default(o, "event_id", "-"),
+                cc(CYBER_RESET),
+                json_object_get_string_member_with_default(o, "severity", "-"),
+                json_object_get_string_member_with_default(o, "status", "-"),
+                json_object_get_string_member_with_default(o, "recommended_action", "-"),
+                json_object_get_string_member_with_default(o, "summary", "-"));
+        }
+    }
+    g_object_unref(parser);
+}
+
+                                                                 
+                                                      
+static void security_print_object_response(const gchar *resp, const char *title) {
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(resp);
+        return;
+    }
+
+    JsonParser *parser = NULL;
+    JsonObject *root = security_parse_root(resp, &parser);
+    if (!root || security_print_error_if_any(root)) {
+        if (parser) g_object_unref(parser);
+        return;
+    }
+    JsonObject *res = json_object_get_object_member(root, "result");
+    security_print_kv_object(res, title);
+    g_object_unref(parser);
+}
+
+                                                     
+                                                  
+                                               
+static gchar *security_request(const gchar *method, JsonObject *params) {
+    GError *error = NULL;
+    gchar *resp = purectl_send_request(method, params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error);
+        return NULL;
+    }
+    return resp;
+}
+
+   
+                                           
+                                                 
+                                
+                                                               
+                                                                     
+   
+void cmd_security(int argc, char *argv[]) {
+    if (argc < 2) {
+        security_usage();
+        return;
+    }
+
+    const gchar *sub = argv[1];                                                                                                    
+    if (g_strcmp0(sub, "status") == 0) {
+        gchar *resp = security_request("security.config.get", NULL);
+        if (resp) { security_print_config_response(resp); g_free(resp); }
+    } else if (g_strcmp0(sub, "events") == 0) {
+        JsonObject *params = json_object_new();
+        json_object_set_int_member(params, "limit", 20);
+        for (int i = 2; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--limit") == 0 && i + 1 < argc)
+                json_object_set_int_member(params, "limit", atoi(argv[++i]));
+            else if (g_strcmp0(argv[i], "--offset") == 0 && i + 1 < argc)
+                json_object_set_int_member(params, "offset", atoi(argv[++i]));
+            else if (g_strcmp0(argv[i], "--severity") == 0 && i + 1 < argc)
+                json_object_set_string_member(params, "severity", argv[++i]);
+            else if (g_strcmp0(argv[i], "--source") == 0 && i + 1 < argc)
+                json_object_set_string_member(params, "source", argv[++i]);
+            else if (g_strcmp0(argv[i], "--status") == 0 && i + 1 < argc)
+                json_object_set_string_member(params, "status", argv[++i]);
+        }
+        gchar *resp = security_request("security.event.list", params);
+        if (resp) { security_print_array_response(resp, FALSE); g_free(resp); }
+    } else if (g_strcmp0(sub, "event") == 0) {
+        if (argc < 3) {
+            printf("%sUsage: pcvctl security event <event_id>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "event_id", argv[2]);
+        gchar *resp = security_request("security.event.get", params);
+        if (resp) { security_print_object_response(resp, "Security Event"); g_free(resp); }
+    } else if (g_strcmp0(sub, "pending") == 0) {
+        gchar *resp = security_request("security.action.pending", NULL);
+        if (resp) { security_print_array_response(resp, TRUE); g_free(resp); }
+    } else if (g_strcmp0(sub, "approve") == 0) {
+        if (argc < 3) {
+            printf("%sUsage: pcvctl security approve <event_id>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "event_id", argv[2]);
+        gchar *resp = security_request("security.action.approve", params);
+        if (resp) { print_action_response(resp, "SECURITY_APPROVE"); g_free(resp); }
+    } else if (g_strcmp0(sub, "dismiss") == 0) {
+        if (argc < 3) {
+            printf("%sUsage: pcvctl security dismiss <event_id> [--reason TEXT]%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "event_id", argv[2]);
+        for (int i = 3; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--reason") == 0 && i + 1 < argc)
+                json_object_set_string_member(params, "reason", argv[++i]);
+        }
+        gchar *resp = security_request("security.action.dismiss", params);
+        if (resp) { print_action_response(resp, "SECURITY_DISMISS"); g_free(resp); }
+    } else if (g_strcmp0(sub, "baseline-status") == 0) {
+        gchar *resp = security_request("security.baseline.status", NULL);
+        if (resp) { security_print_object_response(resp, "Security Baseline"); g_free(resp); }
+    } else if (g_strcmp0(sub, "baseline-refresh") == 0) {
+        JsonObject *params = json_object_new();
+        JsonArray *paths = json_array_new();
+        for (int i = 2; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--path") == 0 && i + 1 < argc)
+                json_array_add_string_element(paths, argv[++i]);
+        }
+                                                           
+                                                         
+        if (json_array_get_length(paths) == 0) {
+            json_array_unref(paths);
+            json_object_unref(params);
+            printf("%sUsage: pcvctl security baseline-refresh --path PATH [--path PATH...]%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        json_object_set_array_member(params, "paths", paths);
+        gchar *resp = security_request("security.baseline.refresh", params);
+        if (resp) { print_action_response(resp, "SECURITY_BASELINE_REFRESH"); g_free(resp); }
+    } else if (g_strcmp0(sub, "enable") == 0 || g_strcmp0(sub, "disable") == 0) {
+        JsonObject *params = json_object_new();
+        json_object_set_boolean_member(params, "enabled", g_strcmp0(sub, "enable") == 0);
+        gchar *resp = security_request("security.config.set", params);
+        if (resp) { print_action_response(resp, "SECURITY_CONFIG_SET"); g_free(resp); }
+    } else {
+        printf("%sUnknown security command: %s%s\n", cc(CYBER_RED), sub, cc(CYBER_RESET));
+        security_usage();
+    }
+}
+
+                                     
+
+
+                                    
+
+                                                  
+                                                        
+                                                                       
+                                   
+   
+void cmd_secgroup(int argc, char *argv[]) {
+    if (argc < 2) {
+        printf("%sUsage:\n"
+               "  pcvctl security-group list\n"
+               "  pcvctl security-group create <name>\n"
+               "  pcvctl security-group delete <name>\n"
+               "  pcvctl security-group detach <vm> <name>\n"
+               "  pcvctl security-group rule add <name> --direction ingress|egress --proto tcp --port 80%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *sub = argv[1];
+
+    if (g_strcmp0(sub, "list") == 0) {
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("security_group.list", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (resp) { print_raw_response(resp); g_free(resp); }
+
+    } else if (g_strcmp0(sub, "create") == 0) {
+        if (argc < 3) {
+            printf("%sUsage: pcvctl security-group create <name>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[2]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("security_group.create", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "SECGROUP_CREATE"); g_free(resp);
+
+    } else if (g_strcmp0(sub, "delete") == 0) {
+        if (argc < 3) {
+            printf("%sUsage: pcvctl security-group delete <name>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[2]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("security_group.delete", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "SECGROUP_DELETE"); g_free(resp);
+
+    } else if (g_strcmp0(sub, "detach") == 0) {
+                                                                        
+        if (argc < 4) {
+            printf("%sUsage: pcvctl security-group detach <vm> <name>%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "vm", argv[2]);
+        json_object_set_string_member(params, "name", argv[3]);
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("security_group.detach", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "SECGROUP_DETACH"); g_free(resp);
+
+    } else if (g_strcmp0(sub, "rule") == 0) {
+        if (argc < 4 || g_strcmp0(argv[2], "add") != 0) {
+            printf("%sUsage: pcvctl security-group rule add <name> --direction ingress|egress (별칭 in/out) --proto tcp --port 80%s\n",
+                cc(CYBER_YELLOW), cc(CYBER_RESET));
+            return;
+        }
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "name", argv[3]);
+        for (int i = 4; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--direction") == 0 && i+1 < argc) {
+                                                                
+                                                    
+                const gchar *dir = argv[++i];
+                if (g_strcmp0(dir, "in") == 0 || g_strcmp0(dir, "inbound") == 0)
+                    dir = "ingress";
+                else if (g_strcmp0(dir, "out") == 0 || g_strcmp0(dir, "outbound") == 0)
+                    dir = "egress";
+                json_object_set_string_member(params, "direction", dir);
+            }
+            else if (g_strcmp0(argv[i], "--proto") == 0 && i+1 < argc)
+                                                                               
+                                                                         
+                json_object_set_string_member(params, "protocol", argv[++i]);
+            else if (g_strcmp0(argv[i], "--port") == 0 && i+1 < argc)
+                json_object_set_int_member(params, "port", atoi(argv[++i]));
+        }
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("security_group.rule.add", params, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "SECGROUP_RULE_ADD"); g_free(resp);
+    } else {
+        printf("%sUnknown sub-command: %s%s\n", cc(CYBER_RED), sub, cc(CYBER_RESET));
+    }
+}
+
+                                                              
+                                           
+void cmd_vm_secgroup(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm security-group <vm> <sg>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+                                                                                 
+                                                                     
+                              
+    json_object_set_string_member(params, "vm", argv[2]);
+    json_object_set_string_member(params, "security_group", argv[3]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.security_group.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "VM_SECGROUP_SET"); g_free(resp);
+}
+
+                                
+
+                                                                               
+                                                         
+void cmd_webhook_dlq(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage:\n"
+               "  pcvctl webhook dlq list\n"
+               "  pcvctl webhook dlq retry%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    const gchar *sub = argv[2];
+    if (g_strcmp0(sub, "list") == 0) {
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("webhook.dlq.list", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        if (resp) { print_raw_response(resp); g_free(resp); }
+    } else if (g_strcmp0(sub, "retry") == 0) {
+        GError *error = NULL;
+        gchar *resp = purectl_send_request("webhook.dlq.retry", NULL, &error);
+        if (error) {
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            g_error_free(error); return;
+        }
+        print_action_response(resp, "WEBHOOK_DLQ_RETRY"); g_free(resp);
+    } else {
+        printf("%sUnknown sub-command: %s%s\n", cc(CYBER_RED), sub, cc(CYBER_RESET));
+    }
+}
+
+                                
+
+                                                  
+                                             
+void cmd_gpu_metrics(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("gpu.metrics", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                          
+
+                                                         
+                                              
+void cmd_config_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("config.history", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                                                 
+                                   
+void cmd_config_backup(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("config.backup", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    print_action_response(resp, "CONFIG_BACKUP"); g_free(resp);
+}
+
+                                                           
+
+   
+                                                       
+                                       
+  
+                                               
+                                                          
+                                                    
+                                     
+                                                 
+                                             
+  
+          
+                             
+                                  
+                         
+                                    
+                            
+                              
+                             
+   
+void cmd_config_validate(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    const gchar *conf_path = "/etc/purecvisor/daemon.conf";
+    GKeyFile *kf = g_key_file_new();
+    GError *err = NULL;
+
+    if (!g_key_file_load_from_file(kf, conf_path, G_KEY_FILE_NONE, &err)) {
+        printf("%s[FAIL]%s Cannot read %s: %s\n",
+               ce(CYBER_RED), ce(CYBER_RESET), conf_path,
+               err ? err->message : "unknown");
+        if (err) g_error_free(err);
+        g_key_file_free(kf);
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+
+    gint pass = 0, warn = 0, fail = 0;                                
+
+                                                 
+                                                    
+                                  
+    {
+        gint port = g_key_file_get_integer(kf, "daemon", "rest_port", NULL);
+        if (port >= 1 && port <= 65535) {
+            printf("%s[OK]  %s rest_port = %d\n", ce(CYBER_GREEN), ce(CYBER_RESET), port);
+            pass++;
+        } else if (port == 0) {
+            printf("%s[OK]  %s rest_port = default (80)\n", ce(CYBER_GREEN), ce(CYBER_RESET));
+            pass++;
+        } else {
+            printf("%s[FAIL]%s rest_port = %d (valid range: 1-65535)\n",
+                   ce(CYBER_RED), ce(CYBER_RESET), port);
+            fail++;
+        }
+    }
+
+                        
+    {
+        gchar *sock = g_key_file_get_string(kf, "daemon", "socket_path", NULL);
+        if (sock && *sock) {
+            gchar *dir = g_path_get_dirname(sock);
+            if (g_file_test(dir, G_FILE_TEST_IS_DIR)) {
+                printf("%s[OK]  %s socket_path dir exists: %s\n",
+                       ce(CYBER_GREEN), ce(CYBER_RESET), dir);
+                pass++;
+            } else {
+                printf("%s[FAIL]%s socket_path dir missing: %s\n",
+                       ce(CYBER_RED), ce(CYBER_RESET), dir);
+                fail++;
+            }
+            g_free(dir);
+            g_free(sock);
+        } else {
+            printf("%s[OK]  %s socket_path = default\n", ce(CYBER_GREEN), ce(CYBER_RESET));
+            pass++;
+        }
+    }
+
+                          
+    {
+        gboolean tls_on = g_key_file_get_boolean(kf, "tls", "enabled", NULL);
+        if (tls_on) {
+            gchar *cert = g_key_file_get_string(kf, "tls", "cert_file", NULL);
+            if (cert && *cert) {
+                if (g_file_test(cert, G_FILE_TEST_EXISTS)) {
+                    printf("%s[OK]  %s TLS cert exists: %s\n",
+                           ce(CYBER_GREEN), ce(CYBER_RESET), cert);
+                    pass++;
+                } else {
+                    printf("%s[FAIL]%s TLS cert not found: %s\n",
+                           ce(CYBER_RED), ce(CYBER_RESET), cert);
+                    fail++;
+                }
+                g_free(cert);
+            } else {
+                printf("%s[FAIL]%s TLS enabled but cert_file not set\n",
+                       ce(CYBER_RED), ce(CYBER_RESET));
+                fail++;
+            }
+            gchar *key = g_key_file_get_string(kf, "tls", "key_file", NULL);
+            if (key && *key) {
+                if (g_file_test(key, G_FILE_TEST_EXISTS)) {
+                    printf("%s[OK]  %s TLS key exists: %s\n",
+                           ce(CYBER_GREEN), ce(CYBER_RESET), key);
+                    pass++;
+                } else {
+                    printf("%s[FAIL]%s TLS key not found: %s\n",
+                           ce(CYBER_RED), ce(CYBER_RESET), key);
+                    fail++;
+                }
+                g_free(key);
+            }
+        }
+    }
+
+                           
+    {
+        gchar *eps = g_key_file_get_string(kf, "cluster", "etcd_endpoints", NULL);
+        if (eps && *eps) {
+            gchar **parts = g_strsplit(eps, ",", -1);
+            gint n = (gint)g_strv_length(parts);
+            if (n < 3) {
+                printf("%s[WARN]%s etcd_endpoints: only %d node(s) (recommend 3+)\n",
+                       ce(CYBER_YELLOW), ce(CYBER_RESET), n);
+                warn++;
+            } else {
+                printf("%s[OK]  %s etcd_endpoints: %d nodes\n",
+                       ce(CYBER_GREEN), ce(CYBER_RESET), n);
+                pass++;
+            }
+            g_strfreev(parts);
+            g_free(eps);
+        }
+    }
+
+                          
+    {
+        gint dt = g_key_file_get_integer(kf, "daemon", "drain_timeout", NULL);
+        if (dt > 0 && dt < 5) {
+            printf("%s[FAIL]%s drain_timeout = %d (minimum 5)\n",
+                   ce(CYBER_RED), ce(CYBER_RESET), dt);
+            fail++;
+        } else if (dt >= 5) {
+            printf("%s[OK]  %s drain_timeout = %d\n",
+                   ce(CYBER_GREEN), ce(CYBER_RESET), dt);
+            pass++;
+        }
+    }
+
+                          
+    {
+        gint pm = g_key_file_get_integer(kf, "daemon", "pool_max_conn", NULL);
+        if (pm > 0) {
+            if (pm >= 1 && pm <= 64) {
+                printf("%s[OK]  %s pool_max_conn = %d\n",
+                       ce(CYBER_GREEN), ce(CYBER_RESET), pm);
+                pass++;
+            } else {
+                printf("%s[FAIL]%s pool_max_conn = %d (valid range: 1-64)\n",
+                       ce(CYBER_RED), ce(CYBER_RESET), pm);
+                fail++;
+            }
+        }
+    }
+
+                      
+    {
+        gchar *img = g_key_file_get_string(kf, "storage", "image_dir", NULL);
+        if (img && *img) {
+            if (g_file_test(img, G_FILE_TEST_IS_DIR)) {
+                printf("%s[OK]  %s image_dir exists: %s\n",
+                       ce(CYBER_GREEN), ce(CYBER_RESET), img);
+                pass++;
+            } else {
+                printf("%s[WARN]%s image_dir missing: %s\n",
+                       ce(CYBER_YELLOW), ce(CYBER_RESET), img);
+                warn++;
+            }
+            g_free(img);
+        }
+    }
+
+    g_key_file_free(kf);                    
+
+                                          
+    printf("\n%s── Result ──%s  %s%d OK%s  %s%d WARN%s  %s%d FAIL%s\n",
+           ce(CYBER_CYAN), ce(CYBER_RESET),
+           ce(CYBER_GREEN), pass, ce(CYBER_RESET),
+           ce(CYBER_YELLOW), warn, ce(CYBER_RESET),
+           ce(CYBER_RED), fail, ce(CYBER_RESET));
+    if (fail > 0)
+        pcv_cli_command_mark_runtime_failure();
+    else
+        pcv_cli_command_mark_success();
+}
+
+                                     
+
+                                                              
+                                                
+void cmd_template_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("template.history", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (resp) { print_raw_response(resp); g_free(resp); }
+}
+
+                   
+
+   
+                                   
+  
+                                                        
+                                             
+                                                           
+                                     
+  
+                                             
+                                    
+   
+static void cmd_grpc_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        g_printerr("%s[!] socket() failed%s\n", ce(CYBER_RED), ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(50051);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    struct timeval tv = {.tv_sec = 2, .tv_usec = 0};                                   
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+
+                                                                   
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) == 0) {
+        printf("%s gRPC SERVER: ACTIVE (port 50051)%s\n", cc(CYBER_GREEN), cc(CYBER_RESET));
+        printf(" Protocol: protobuf-c binary framing\n");
+        printf(" Transport: TCP (HTTP/2 planned)\n");
+        pcv_cli_command_mark_success();
+    } else {
+        printf("%s gRPC SERVER: DISABLED%s\n", cc(CYBER_RED), cc(CYBER_RESET));
+        printf(" Enable: daemon.conf [grpc] enabled=true\n");
+        pcv_cli_command_mark_runtime_failure();
+    }
+    close(fd);
+}
+
+   
+                               
+  
+                                                      
+                                                    
+                                                   
+                                             
+                                            
+                                                    
+  
+                                                
+                                                              
+                          
+   
+static void cmd_grpc_test(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    int fd = socket(AF_INET, SOCK_STREAM, 0);
+    if (fd < 0) {
+        g_printerr("%s[!] socket() failed%s\n", ce(CYBER_RED), ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+    struct sockaddr_in addr;
+    memset(&addr, 0, sizeof(addr));
+    addr.sin_family = AF_INET;
+    addr.sin_port = htons(50051);
+    inet_pton(AF_INET, "127.0.0.1", &addr.sin_addr);
+
+    struct timeval tv = {.tv_sec = 3, .tv_usec = 0};
+    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
+    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
+
+    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) != 0) {
+        g_printerr("%s[!] gRPC server not reachable (port 50051)%s\n",
+                   ce(CYBER_RED), ce(CYBER_RESET));
+        g_printerr("    Enable: daemon.conf [grpc] enabled=true\n");
+        close(fd);
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+
+                                                             
+                                                  
+    const char *method = "/purecvisor.v1.SystemService/Version";
+    const char *payload = "{}";
+    uint32_t method_len = (uint32_t)strlen(method);
+    uint32_t payload_len = (uint32_t)strlen(payload);
+    uint32_t net_method_len = htonl(method_len);
+    uint32_t net_payload_len = htonl(payload_len);
+
+                                                    
+    ssize_t written = 0;
+    written += write(fd, &net_method_len, 4);
+    written += write(fd, method, method_len);
+    written += write(fd, &net_payload_len, 4);
+    written += write(fd, payload, payload_len);
+
+                                                                 
+    if (written < (ssize_t)(8 + method_len + payload_len)) {
+        g_printerr("%s[!] Failed to send gRPC request%s\n",
+                   ce(CYBER_RED), ce(CYBER_RESET));
+        close(fd);
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+
+                                                                     
+    uint32_t resp_len_net = 0;
+    ssize_t rd = read(fd, &resp_len_net, 4);
+    if (rd == 4) {
+        uint32_t resp_len = ntohl(resp_len_net);
+                                                    
+        if (resp_len > 0 && resp_len < 65536) {
+            char *buf = g_malloc0(resp_len + 1);                       
+            ssize_t total = 0;
+                                                                     
+            while (total < (ssize_t)resp_len) {
+                ssize_t n = read(fd, buf + total, resp_len - (uint32_t)total);
+                if (n <= 0) break;
+                total += n;
+            }
+            buf[total] = '\0';               
+            printf("%s gRPC Response:%s\n%s\n", cc(CYBER_GREEN), cc(CYBER_RESET), buf);
+            g_free(buf);
+            if (total == (ssize_t)resp_len)
+                pcv_cli_command_mark_success();
+            else
+                pcv_cli_command_mark_runtime_failure();
+        } else {
+            printf("%s gRPC: Connected but unexpected response length: %u%s\n",
+                   cc(CYBER_YELLOW), resp_len, cc(CYBER_RESET));
+            pcv_cli_command_mark_runtime_failure();
+        }
+    } else {
+        printf("%s gRPC: Connected but no response (server may not support this framing)%s\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        printf(" Connection to port 50051 succeeded — gRPC server is running.\n");
+        pcv_cli_command_mark_runtime_failure();
+    }
+    close(fd);
+}
+
+                                                                       
+           
+  
+                         
+                                              
+                                       
+  
+       
+                                                 
+  
+          
+                                 
+                                                     
+                                   
+                                         
+  
+                                                  
+                                           
+                                                                          
+
+                                                                       
+                               
+                                                                          
+
+   
+                                                                           
+                                                     
+                                            
+                                             
+                                                             
+  
+                                                                              
+                                                                          
+                       
+   
+static void cmd_cloud_import(int argc, char *argv[]) {
+    const char *name = NULL, *ami = NULL, *region = "ap-northeast-2";
+    const char *bucket = "", *bridge = "pcvbr0", *mode = NULL;
+    int vcpu = 2, mem = 2048;
+    for (int i = 2; i < argc; i++) {
+        if (g_str_has_prefix(argv[i], "--ami") && i+1 < argc) ami = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--name") && i+1 < argc) name = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--region") && i+1 < argc) region = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--bucket") && i+1 < argc) bucket = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--vcpu") && i+1 < argc) vcpu = atoi(argv[++i]);
+        else if (g_str_has_prefix(argv[i], "--memory") && i+1 < argc) mem = atoi(argv[++i]);
+        else if (g_str_has_prefix(argv[i], "--bridge") && i+1 < argc) bridge = argv[++i];
+        else if (g_strcmp0(argv[i], "--mode") == 0 && i + 1 < argc) mode = argv[++i];
+    }
+    if (!name || !ami) {
+        printf("%sUsage: pcvctl cloud import --ami <ami-id> --name <vm-name>%s\n"
+               "  --region <aws-region>    (default: ap-northeast-2)\n"
+               "  --bucket <s3-bucket>     (default: daemon.conf)\n"
+               "  --vcpu <count>           (default: 2)\n"
+               "  --memory <mb>            (default: 2048)\n"
+               "  --bridge <bridge>        (default: pcvbr0)\n"
+               "  --mode <standard|near-live>  (default: standard)\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", name);
+    json_object_set_string_member(params, "ami_id", ami);
+    json_object_set_string_member(params, "aws_region", region);
+    if (bucket[0]) json_object_set_string_member(params, "s3_bucket", bucket);
+    json_object_set_int_member(params, "vcpu", vcpu);
+    json_object_set_int_member(params, "memory_mb", mem);
+    json_object_set_string_member(params, "network_bridge", bridge);
+    if (mode) json_object_set_string_member(params, "mode", mode);
+
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.import.ec2", params, &error);
+    if (error) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET)); g_error_free(error); return; }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, resp, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonObject *r = json_object_has_member(root, "result")
+            ? json_object_get_object_member(root, "result") : root;
+        printf("%s[+] Import started%s\n", cc(CYBER_GREEN), cc(CYBER_RESET));
+        printf("  VM:     %s%s%s\n", cc(CYBER_CYAN), name, cc(CYBER_RESET));
+        printf("  AMI:    %s\n", ami);
+        printf("  Job ID: %s%s%s\n", cc(CYBER_YELLOW),
+            json_object_has_member(r, "job_id") ? json_object_get_string_member(r, "job_id") : "?",
+            cc(CYBER_RESET));
+        printf("  Track:  pcvctl cloud status --name %s\n", name);
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                                                          
+                                                       
+                                    
+  
+                                                                                         
+                                                    
+   
+static void cmd_cloud_export(int argc, char *argv[]) {
+    const char *name = NULL, *region = "ap-northeast-2", *bucket = "";
+    const char *ami_name = "", *desc = "";
+    for (int i = 2; i < argc; i++) {
+        if (g_str_has_prefix(argv[i], "--name") && i+1 < argc) name = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--region") && i+1 < argc) region = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--bucket") && i+1 < argc) bucket = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--ami-name") && i+1 < argc) ami_name = argv[++i];
+        else if (g_str_has_prefix(argv[i], "--description") && i+1 < argc) desc = argv[++i];
+    }
+    if (!name) {
+        printf("%sUsage: pcvctl cloud export --name <vm-name>%s\n"
+               "  --region <aws-region>    (default: ap-northeast-2)\n"
+               "  --bucket <s3-bucket>     (default: daemon.conf)\n"
+               "  --ami-name <ami-name>    (default: <vm>-exported)\n"
+               "  --description <text>\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", name);
+    json_object_set_string_member(params, "aws_region", region);
+    if (bucket[0]) json_object_set_string_member(params, "s3_bucket", bucket);
+    if (ami_name[0]) json_object_set_string_member(params, "ami_name", ami_name);
+    if (desc[0]) json_object_set_string_member(params, "ami_description", desc);
+
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.export.ec2", params, &error);
+    if (error) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET)); g_error_free(error); return; }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, resp, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonObject *r = json_object_has_member(root, "result")
+            ? json_object_get_object_member(root, "result") : root;
+        printf("%s[+] Export started%s\n", cc(CYBER_GREEN), cc(CYBER_RESET));
+        printf("  VM:     %s%s%s\n", cc(CYBER_CYAN), name, cc(CYBER_RESET));
+        printf("  Job ID: %s%s%s\n", cc(CYBER_YELLOW),
+            json_object_has_member(r, "job_id") ? json_object_get_string_member(r, "job_id") : "?",
+            cc(CYBER_RESET));
+        printf("  Track:  pcvctl cloud status --name %s\n", name);
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                                                            
+                                                     
+                                                      
+  
+                                       
+   
+static void cmd_cloud_status(int argc, char *argv[]) {
+    const char *name = NULL;
+                                                    
+    for (int i = 2; i < argc; i++) {
+        if (g_str_has_prefix(argv[i], "--name") && i+1 < argc) name = argv[++i];
+        else if (!g_str_has_prefix(argv[i], "--")) name = argv[i];                 
+    }
+    if (!name) {
+        printf("%sUsage: pcvctl cloud status --name <vm-name>%s\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", name);
+
+    GError *error = NULL;
+    gchar  *resp  = purectl_send_request("vm.import.status", params, &error);
+    if (error) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET)); g_error_free(error); return; }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, resp, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        JsonObject *r = json_object_has_member(root, "result")
+            ? json_object_get_object_member(root, "result") : root;
+        const char *status = json_object_has_member(r, "status")
+            ? json_object_get_string_member(r, "status") : "?";
+        const char *detail = json_object_has_member(r, "detail")
+            ? json_object_get_string_member(r, "detail") : "";
+        const char *direction = json_object_has_member(r, "direction")
+            ? json_object_get_string_member(r, "direction") : "";
+        const char *job_id = json_object_has_member(r, "job_id")
+            ? json_object_get_string_member(r, "job_id") : "";
+        gint64 progress = json_object_has_member(r, "progress_percent")
+            ? json_object_get_int_member(r, "progress_percent") : 0;
+        gint64 elapsed = json_object_has_member(r, "elapsed_sec")
+            ? json_object_get_int_member(r, "elapsed_sec") : 0;
+
+        const char *sc = (g_strcmp0(status, "done") == 0) ? CYBER_GREEN
+                       : (g_strcmp0(status, "failed") == 0) ? CYBER_RED
+                       : CYBER_YELLOW;
+
+        printf("%s[%s] %s — %s%s%s\n", cc(CYBER_BOLD), direction, name, cc(sc), status, cc(CYBER_RESET));
+        printf("  Job ID:   %s\n", job_id);
+        printf("  Progress: %s%" G_GINT64_FORMAT "%%%s\n", cc(CYBER_CYAN), progress, cc(CYBER_RESET));
+        printf("  Detail:   %s\n", detail);
+        printf("  Elapsed:  %" G_GINT64_FORMAT "s\n", elapsed);
+
+                                                  
+                                                                 
+        printf("  [");
+        int bar_len = 40;
+        int filled = (int)(progress * bar_len / 100);
+        for (int i = 0; i < bar_len; i++)
+            printf("%s", i < filled ? "█" : "░");
+        printf("] %" G_GINT64_FORMAT "%%\n", progress);
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                                                                     
+                                                     
+                              
+                                                   
+  
+                                         
+                                                                      
+   
+static void cmd_cloud_finalize(int argc, char *argv[])
+{
+    const char *name = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--name") == 0 && i + 1 < argc) { name = argv[++i]; }
+        else if (!g_str_has_prefix(argv[i], "--")) name = argv[i];
+    }
+    if (!name) {
+        printf("%sUsage: pcvctl cloud finalize --name <vm-name>%s\n"
+               "  Finalize near-live import (Phase 2): stop EC2, delta sync, start VM\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", name);
+    json_object_set_boolean_member(p, "finalize", TRUE);
+
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.import.ec2", p, &error);
+    if (error) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET)); g_error_free(error); return; }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, resp, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *e = json_object_get_object_member(root, "error");
+            fprintf(stderr, "%s[!] %s%s\n", cc(CYBER_RED),
+                json_object_get_string_member(e, "message"), cc(CYBER_RESET));
+        } else {
+            JsonObject *r = json_object_has_member(root, "result")
+                ? json_object_get_object_member(root, "result") : root;
+            const char *jid = json_object_has_member(r, "job_id")
+                ? json_object_get_string_member(r, "job_id") : "?";
+            printf("%s[+] Finalize started%s — job: %s, VM: %s\n",
+                   cc(CYBER_GREEN), cc(CYBER_RESET), jid, name);
+            printf("  Use 'pcvctl cloud status --name %s' to track progress\n", name);
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                                                       
+                                                     
+                                               
+   
+                                                       
+static void cmd_cloud_jobs(int argc, char *argv[])
+{
+    (void)argc; (void)argv;
+    gchar *resp = purectl_send_request("cloud.jobs.list", NULL, NULL);
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        fprintf(stderr, "Failed to parse response\n");
+        g_object_unref(parser); g_free(resp);
+        return;
+    }
+
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        fprintf(stderr, "Error: %s\n",
+                json_object_get_string_member(e, "message"));
+        g_object_unref(parser); g_free(resp);
+        return;
+    }
+
+    JsonArray *arr = json_object_has_member(root, "result")
+        ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+    if (!arr || json_array_get_length(arr) == 0) {
+        printf("No migration jobs found.\n");
+        g_object_unref(parser); g_free(resp);
+        return;
+    }
+
+    printf("%s%-14s %-16s %-8s %-12s %5s  %-8s  %s%s\n",
+           cc(CYBER_BOLD), "JOB_ID", "VM", "DIR", "STATUS", "%",
+           "ELAPSED", "DETAIL", cc(CYBER_RESET));
+    printf("──────────────────────────────────────────────────────────────────────────────\n");
+
+    for (guint i = 0; i < json_array_get_length(arr); i++) {
+        JsonObject *j = json_array_get_object_element(arr, i);
+        const char *job_id = json_object_get_string_member(j, "job_id");
+        const char *name   = json_object_get_string_member(j, "name");
+        const char *dir    = json_object_get_string_member(j, "direction");
+        const char *status = json_object_get_string_member(j, "status");
+        gint64 prog        = json_object_get_int_member(j, "progress_percent");
+        gint64 elapsed     = json_object_get_int_member(j, "elapsed_sec");
+        const char *detail = json_object_get_string_member(j, "detail");
+
+        const char *sc = (g_strcmp0(status, "done") == 0) ? CYBER_GREEN
+                       : (g_strcmp0(status, "failed") == 0) ? CYBER_RED
+                       : CYBER_YELLOW;
+
+        printf("%-14s %-16s %-8s %s%-12s%s %3" G_GINT64_FORMAT "%%  %5" G_GINT64_FORMAT "s  %s\n",
+               job_id, name, dir, cc(sc), status, cc(CYBER_RESET),
+               prog, elapsed, detail ?: "");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+   
+                                                                
+                                                          
+                               
+   
+                                                          
+static void cmd_cloud_cancel(int argc, char *argv[])
+{
+    const char *name = NULL;
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--name") == 0 && i + 1 < argc) { name = argv[++i]; }
+    }
+    if (!name && argc > 2) name = argv[2];                                 
+    if (!name) { fprintf(stderr, "Usage: pcvctl cloud cancel --name <vm>\n"); return; }
+
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", name);
+    gchar *resp = purectl_send_request("cloud.job.cancel", p, NULL);
+                                                                          
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, resp, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *e = json_object_get_object_member(root, "error");
+            fprintf(stderr, "Error: %s\n",
+                    json_object_get_string_member(e, "message"));
+        } else {
+            printf("%sCancel requested%s for VM: %s\n",
+                   cc(CYBER_GREEN), cc(CYBER_RESET), name);
+        }
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                          
+
+
+                                          
+
+   
+                                            
+                                                                
+                                            
+                                                  
+                                                
+   
+void cmd_storage_pool_forecast(int argc, char *argv[]) {
+    JsonObject *params = json_object_new();
+                                                           
+    if (argc >= 4)
+        json_object_set_string_member(params, "pool", argv[3]);
+    else
+        json_object_set_string_member(params, "pool", "pcvpool");
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("storage.pool.forecast", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonNode *res_node = json_object_has_member(root, "result")
+        ? json_object_get_member(root, "result") : NULL;
+
+    if (res_node && JSON_NODE_HOLDS_OBJECT(res_node)) {
+        JsonObject *r = json_node_get_object(res_node);
+        const char *pool = json_object_get_string_member_with_default(r, "pool", "pcvpool");
+        double used_pct  = json_object_get_double_member_with_default(r, "used_percent", 0);
+        double daily_gb  = json_object_get_double_member_with_default(r, "daily_growth_gb", 0);
+        gint64 days_left = json_object_get_int_member_with_default(r, "days_to_full", -1);
+        const char *pred_date = json_object_get_string_member_with_default(r, "predicted_date", "-");
+        const char *alert_lv  = json_object_get_string_member_with_default(r, "alert_level", "ok");
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"POOL","USED%","DAILY_GROWTH_GB","DAYS_TO_FULL","PREDICTED_DATE","ALERT"};
+            PcvTable *t = ptbl_new(hdrs, 6);
+            gchar used_b[16], daily_b[16], days_b[16];
+            g_snprintf(used_b, sizeof(used_b), "%.1f", used_pct);
+            g_snprintf(daily_b, sizeof(daily_b), "%.2f", daily_gb);
+            g_snprintf(days_b, sizeof(days_b), "%" G_GINT64_FORMAT, days_left);
+            ptbl_row(t, pool, used_b, daily_b, days_b, pred_date, alert_lv);
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else {
+            const char *ac = g_strcmp0(alert_lv, "critical") == 0 ? CYBER_RED
+                           : g_strcmp0(alert_lv, "warning") == 0  ? CYBER_YELLOW
+                           : CYBER_GREEN;
+            printf("%s%-12s %6s  %12s  %10s  %12s  %s%s\n",
+                cc(CYBER_BOLD), "POOL", "USED%", "DAILY_GROWTH", "DAYS_LEFT",
+                "PREDICTED", "ALERT", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────────────────\n");
+            printf("%-12s %5.1f%%  %10.2f GB  %10" G_GINT64_FORMAT "  %12s  %s%s%s\n",
+                pool, used_pct, daily_gb, days_left, pred_date,
+                cc(ac), alert_lv, cc(CYBER_RESET));
+        }
+    } else {
+        print_raw_response(resp);
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                     
+
+   
+                                      
+                                                            
+                                
+                                                                                                    
+                                                                            
+   
+void cmd_vm_blkio_set(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm blkio-set <name> [--read_bps N] [--write_bps N] "
+               "[--read_iops N] [--write_iops N]%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "device", "vda");
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--read_bps") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "read_bytes_sec", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--write_bps") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "write_bytes_sec", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--read_iops") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "read_iops_sec", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--write_iops") == 0 && i+1 < argc)
+            json_object_set_int_member(params, "write_iops_sec", atol(argv[++i]));
+    }
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.blkio.set", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    printf("%s[+] Block I/O limits set for %s%s\n",
+        cc(CYBER_GREEN), argv[2], cc(CYBER_RESET));
+    if (g_ctx.fmt == FMT_JSON) print_raw_response(resp);
+    g_free(resp);
+}
+
+                                     
+
+   
+                                      
+                                             
+                                    
+                                                   
+   
+void cmd_vm_blkio_get(int argc, char *argv[]) {
+    if (argc < 3) {
+        printf("%sUsage: pcvctl vm blkio-get <name>%s\n",
+            cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", argv[2]);
+    json_object_set_string_member(params, "device", "vda");
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("vm.blkio.get", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonNode *res_node = json_object_has_member(root, "result")
+        ? json_object_get_member(root, "result") : NULL;
+    if (res_node && JSON_NODE_HOLDS_OBJECT(res_node)) {
+        JsonObject *r = json_node_get_object(res_node);
+        const char *dev    = json_object_get_string_member_with_default(r, "device", "vda");
+        gint64 rd_bps      = json_object_get_int_member_with_default(r, "read_bytes_sec", 0);
+        gint64 wr_bps      = json_object_get_int_member_with_default(r, "write_bytes_sec", 0);
+        gint64 rd_iops     = json_object_get_int_member_with_default(r, "read_iops_sec", 0);
+        gint64 wr_iops     = json_object_get_int_member_with_default(r, "write_iops_sec", 0);
+
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"DEVICE","READ_BPS","WRITE_BPS","READ_IOPS","WRITE_IOPS"};
+            PcvTable *t = ptbl_new(hdrs, 5);
+            gchar rb[32], wb[32], ri[32], wi[32];
+            g_snprintf(rb, sizeof(rb), "%" G_GINT64_FORMAT, rd_bps);
+            g_snprintf(wb, sizeof(wb), "%" G_GINT64_FORMAT, wr_bps);
+            g_snprintf(ri, sizeof(ri), "%" G_GINT64_FORMAT, rd_iops);
+            g_snprintf(wi, sizeof(wi), "%" G_GINT64_FORMAT, wr_iops);
+            ptbl_row(t, dev, rb, wb, ri, wi);
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else {
+            printf("%s%-8s %12s %12s %12s %12s%s\n",
+                cc(CYBER_BOLD), "DEVICE", "READ_BPS", "WRITE_BPS",
+                "READ_IOPS", "WRITE_IOPS", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────\n");
+            printf("%-8s %12" G_GINT64_FORMAT " %12" G_GINT64_FORMAT
+                   " %12" G_GINT64_FORMAT " %12" G_GINT64_FORMAT "\n",
+                dev, rd_bps, wr_bps, rd_iops, wr_iops);
+        }
+    } else {
+        print_raw_response(resp);
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                        
+
+
+                                             
+
+   
+                                                
+                                                            
+                                                          
+                                         
+                                   
+   
+void cmd_snapshot_schedule_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *error = NULL;
+    gchar *resp = purectl_send_request("snapshot.schedule.status", NULL, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error); return;
+    }
+    if (!resp) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(resp); g_free(resp); return; }
+
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, resp, -1, NULL)) {
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *e = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] ERROR [%lld]: %s%s\n", ce(CYBER_RED),
+            (long long)json_object_get_int_member(e, "code"),
+            json_object_get_string_member(e, "message"), ce(CYBER_RESET));
+        g_object_unref(parser); g_free(resp); return;
+    }
+    JsonNode *res_node = json_object_has_member(root, "result")
+        ? json_object_get_member(root, "result") : NULL;
+    JsonArray *arr = NULL;
+    if (res_node && JSON_NODE_HOLDS_ARRAY(res_node))
+        arr = json_node_get_array(res_node);
+
+    if (arr && json_array_get_length(arr) > 0) {
+        if (g_ctx.fmt == FMT_PLAIN || g_ctx.fmt == FMT_CSV) {
+            const char *hdrs[] = {"VM","SNAPSHOTS","LAST_SNAPSHOT","NEXT_DUE","INTERVAL","RETENTION"};
+            PcvTable *t = ptbl_new(hdrs, 6);
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *s = json_array_get_object_element(arr, i);
+                gchar snap_b[16], intv_b[16], ret_b[16];
+                g_snprintf(snap_b, sizeof(snap_b), "%" G_GINT64_FORMAT,
+                    json_object_get_int_member_with_default(s, "snapshot_count", 0));
+                g_snprintf(intv_b, sizeof(intv_b), "%" G_GINT64_FORMAT "h",
+                    json_object_get_int_member_with_default(s, "interval_hours", 0));
+                g_snprintf(ret_b, sizeof(ret_b), "%" G_GINT64_FORMAT,
+                    json_object_get_int_member_with_default(s, "retention", 0));
+                ptbl_row(t,
+                    json_object_get_string_member_with_default(s, "vm", "-"),
+                    snap_b,
+                    json_object_get_string_member_with_default(s, "last_snapshot", "-"),
+                    json_object_get_string_member_with_default(s, "next_due", "-"),
+                    intv_b, ret_b);
+            }
+            g_ctx.fmt == FMT_CSV ? ptbl_print_csv(t) : ptbl_print_plain(t);
+            ptbl_free(t);
+        } else {
+            printf("%s%-16s %6s  %-20s  %-20s  %8s  %6s%s\n",
+                cc(CYBER_BOLD), "VM", "SNAPS", "LAST_SNAPSHOT",
+                "NEXT_DUE", "INTERVAL", "RETAIN", cc(CYBER_RESET));
+            printf("───────────────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *s = json_array_get_object_element(arr, i);
+                printf("%-16s %6" G_GINT64_FORMAT "  %-20s  %-20s  %6" G_GINT64_FORMAT "h  %6" G_GINT64_FORMAT "\n",
+                    json_object_get_string_member_with_default(s, "vm", "-"),
+                    json_object_get_int_member_with_default(s, "snapshot_count", 0),
+                    json_object_get_string_member_with_default(s, "last_snapshot", "-"),
+                    json_object_get_string_member_with_default(s, "next_due", "-"),
+                    json_object_get_int_member_with_default(s, "interval_hours", 0),
+                    json_object_get_int_member_with_default(s, "retention", 0));
+            }
+        }
+    } else {
+        printf("No snapshot schedules found.\n");
+    }
+    g_object_unref(parser); g_free(resp);
+}
+
+                                                                       
+                                    
+                                                                          
+
+                                                        
+                                                   
+static void cmd_container_logs(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container logs <name> [--lines N]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    gint64 lines = 100;
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--lines") == 0 && i + 1 < argc) lines = atol(argv[++i]);
+    }
+    json_object_set_int_member(p, "lines", lines);
+    GError *e = NULL; gchar *r = purectl_send_request("container.logs", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonNode *rn = json_object_get_member(root, "result");
+            if (rn && JSON_NODE_HOLDS_OBJECT(rn)) {
+                JsonObject *ro = json_node_get_object(rn);
+                const char *log = json_object_get_string_member_with_default(ro, "log", "");
+                printf("%s", log);
+            } else {
+                print_raw_response(r);
+            }
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                          
+                                                      
+static void cmd_container_volume_attach(int argc, char *argv[]) {
+    if (argc < 5) { printf("%sUsage: pcvctl container volume-attach <name> <host_path> <container_path>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    json_object_set_string_member(p, "host_path", argv[3]);
+    json_object_set_string_member(p, "container_path", argv[4]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.volume.attach", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_VOLUME_ATTACH"); g_free(r);
+}
+
+                                                                          
+                                    
+static void cmd_container_volume_detach(int argc, char *argv[]) {
+    if (argc < 4) { printf("%sUsage: pcvctl container volume-detach <name> <container_path>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    json_object_set_string_member(p, "container_path", argv[3]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.volume.detach", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_VOLUME_DETACH"); g_free(r);
+}
+
+                                                                      
+                                                      
+static void cmd_container_volume_list(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container volume-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.volume.list", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonArray *arr = json_object_has_member(root, "result")
+            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+        if (arr && json_array_get_length(arr) > 0) {
+            printf("%s%-30s %-30s%s\n", cc(CYBER_BOLD), "HOST_PATH", "CONTAINER_PATH", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *v = json_array_get_object_element(arr, i);
+                printf("%-30s %-30s\n",
+                    json_object_get_string_member_with_default(v, "host_path", "-"),
+                    json_object_get_string_member_with_default(v, "container_path", "-"));
+            }
+        } else {
+            printf("No volumes attached.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                
+                                        
+static void cmd_container_env_set(int argc, char *argv[]) {
+    if (argc < 5) { printf("%sUsage: pcvctl container env-set <name> <key> <value>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    json_object_set_string_member(p, "key", argv[3]);
+    json_object_set_string_member(p, "value", argv[4]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.env.set", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_ENV_SET"); g_free(r);
+}
+
+                                                                  
+                                                
+static void cmd_container_env_list(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container env-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.env.list", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonObject *envs = json_object_has_member(root, "result")
+            ? json_object_get_object_member(root, "result") : NULL;
+        if (envs && json_object_get_size(envs) > 0) {
+            printf("%s%-24s %-40s%s\n", cc(CYBER_BOLD), "KEY", "VALUE", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────────────\n");
+            GList *members = json_object_get_members(envs);
+            for (GList *it = members; it; it = it->next) {
+                const gchar *key = it->data;
+                const gchar *value = json_object_get_string_member_with_default(envs, key, "-");
+                printf("%-24s %-40s\n", key, value);
+            }
+            g_list_free(members);
+        } else {
+            printf("No environment variables set.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                      
+                                  
+static void cmd_container_env_delete(int argc, char *argv[]) {
+    if (argc < 4) { printf("%sUsage: pcvctl container env-delete <name> <key>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    json_object_set_string_member(p, "key", argv[3]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.env.delete", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_ENV_DELETE"); g_free(r);
+}
+
+                                                                      
+                                                           
+static void cmd_container_health_set(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container health-set <name> --type http --target <url>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--type") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "type", argv[++i]);
+        else if (g_strcmp0(argv[i], "--target") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "target", argv[++i]);
+        else if (g_strcmp0(argv[i], "--interval") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "interval_sec", atoi(argv[++i]));
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("container.health.set", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_HEALTH_SET"); g_free(r);
+}
+
+                                                                      
+                                               
+static void cmd_container_health_get(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container health-get <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.health.get", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject *res = json_object_get_object_member(root, "result");
+            printf("%sHealth Check for %s%s\n", cc(CYBER_BOLD), argv[2], cc(CYBER_RESET));
+            printf("  Type:     %s\n", json_object_get_string_member_with_default(res, "type", "-"));
+            printf("  Target:   %s\n", json_object_get_string_member_with_default(res, "target", "-"));
+            printf("  Status:   %s\n", json_object_get_string_member_with_default(res, "status", "-"));
+            printf("  Interval: %" G_GINT64_FORMAT "s\n", json_object_get_int_member_with_default(res, "interval", 0));
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                            
+                               
+static void cmd_container_health_delete(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container health-delete <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.health.delete", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_HEALTH_DELETE"); g_free(r);
+}
+
+                                                                            
+                                              
+static void cmd_container_health_check(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container health-check <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.health.check", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (r) { print_raw_response(r); g_free(r); }
+}
+
+                                                                 
+                                                       
+  
+                                                                             
+                                                                
+                                                      
+                                                                      
+                                                            
+                                                                     
+static void cmd_container_nic_list(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container nic-list <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("container.nic.list", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonArray *arr = json_object_has_member(root, "result")
+            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+        if (arr && json_array_get_length(arr) > 0) {
+            printf("%s%-12s %-18s %-16s %-18s%s\n", cc(CYBER_BOLD), "IFACE", "MAC", "BRIDGE", "IPV4", cc(CYBER_RESET));
+            printf("────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *n = json_array_get_object_element(arr, i);
+                printf("%-12s %-18s %-16s %-18s\n",
+                    json_object_get_string_member_with_default(n, "name",   "-"),
+                    json_object_get_string_member_with_default(n, "hwaddr", "-"),
+                    json_object_get_string_member_with_default(n, "bridge", "-"),
+                    json_object_get_string_member_with_default(n, "ipv4",   "-"));
+            }
+        } else {
+            printf("No NICs attached.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                     
+                                                           
+static void cmd_container_nic_attach(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container nic-attach <name> --bridge pcvbr0%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--bridge") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "bridge", argv[++i]);
+        else if (g_strcmp0(argv[i], "--mac") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "hwaddr", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("container.nic.attach", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_NIC_ATTACH"); g_free(r);
+}
+
+                                                                     
+                                              
+                                                                     
+  
+                                                            
+                                                                            
+                                                           
+                                                              
+                                         
+                                                           
+                                                                                 
+                                        
+                                                                      
+                                               
+static void cmd_container_nic_detach(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container nic-detach <name> --nic-name eth1%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--nic-name") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "nic_name", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("container.nic.detach", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_NIC_DETACH"); g_free(r);
+}
+
+                                                                     
+                                                       
+static void cmd_container_set_limits(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container set-limits <name> --memory_mb N --cpu_quota N%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--memory_mb") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "memory_mb", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--cpu_quota") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "cpu_percent", atol(argv[++i]));
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("container.set_limits", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_SET_LIMITS"); g_free(r);
+}
+
+                                                                           
+                                                     
+static void cmd_container_set_bandwidth(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl container set-bandwidth <name> --inbound N --outbound N%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--inbound") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "inbound_kbps", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--outbound") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "outbound_kbps", atol(argv[++i]));
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("container.set_bandwidth", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "CONTAINER_SET_BANDWIDTH"); g_free(r);
+}
+
+                                                                       
+                                
+                                                                          
+
+                                                   
+                                     
+static void cmd_backup_restore(int argc, char *argv[]) {
+    if (argc < 4) { printf("%sUsage: pcvctl backup restore <name> <snapshot>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "vm_name", argv[2]);
+    json_object_set_string_member(p, "snapshot_name", argv[3]);
+    GError *e = NULL; gchar *r = purectl_send_request("backup.restore", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "BACKUP_RESTORE"); g_free(r);
+}
+
+                                                           
+                                             
+static void cmd_backup_incremental(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl backup incremental <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("backup.incremental", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "BACKUP_INCREMENTAL"); g_free(r);
+}
+
+                                                     
+                                    
+static void cmd_backup_verify(int argc, char *argv[]) {
+    if (argc < 4) { printf("%sUsage: pcvctl backup verify <name> <snapshot>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    json_object_set_string_member(p, "snapshot", argv[3]);
+    GError *e = NULL; gchar *r = purectl_send_request("backup.verify", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "BACKUP_VERIFY"); g_free(r);
+}
+
+                                                          
+                                                                 
+static void cmd_backup_replicate(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl backup replicate <name> --target <ip> --user <user>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--target") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "target_node", argv[++i]);
+        else if (g_strcmp0(argv[i], "--user") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "ssh_user", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("backup.replicate", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "BACKUP_REPLICATE"); g_free(r);
+}
+
+                                                            
+                                  
+static void cmd_backup_export_s3(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl backup export-s3 <name>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("backup.export_s3", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "BACKUP_EXPORT_S3"); g_free(r);
+}
+
+                                                                       
+                              
+                                                                          
+
+                                       
+                                                                  
+                                                                      
+static void cmd_vm_clone(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm clone <source> <clone_name> [--mode cow|full] [--template-prepared|--guest-reset]%s\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "source", argv[2]);
+    json_object_set_string_member(p, "clone_name", argv[3]);
+    for (int i = 4; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--mode") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "mode", argv[++i]);
+        else if (g_strcmp0(argv[i], "--template-prepared") == 0)
+            json_object_set_boolean_member(p, "template_prepared", TRUE);
+        else if (g_strcmp0(argv[i], "--guest-reset") == 0)
+            json_object_set_boolean_member(p, "guest_reset", TRUE);
+        else if (g_strcmp0(argv[i], "--no-guest-reset") == 0)
+            json_object_set_boolean_member(p, "guest_reset", FALSE);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("vm.clone", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "VM_CLONE"); g_free(r);
+}
+
+                                               
+                                                               
+static void cmd_vm_pin_vcpu(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl vm pin-vcpu <name> --vcpu N --cpuset 0-3%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--vcpu") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "vcpu", atoi(argv[++i]));
+        else if (g_strcmp0(argv[i], "--cpuset") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "cpuset", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("vm.pin_vcpu", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "VM_PIN_VCPU"); g_free(r);
+}
+
+                                                                       
+                                                                     
+static void cmd_vm_snapshot_delete_all(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl vm snapshot-delete-all <name> [--prefix auto-] [--keep N]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--prefix") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "prefix", argv[++i]);
+        else if (g_strcmp0(argv[i], "--keep") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "keep_recent", atoi(argv[++i]));
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("vm.snapshot.delete_all", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "VM_SNAPSHOT_DELETE_ALL"); g_free(r);
+}
+
+                                                       
+                                                             
+static void cmd_vm_export_ova(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl vm export-ova <name> [--output-dir /tmp]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "name", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if ((g_strcmp0(argv[i], "--output-dir") == 0 ||
+             g_strcmp0(argv[i], "--output") == 0) && i + 1 < argc)
+            json_object_set_string_member(p, "output_dir", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("vm.export.ova", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "VM_EXPORT_OVA"); g_free(r);
+}
+
+                                                       
+                                                          
+static void cmd_vm_import_ova(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl vm import-ova <ova_path> <name> [--pool pcvpool/vms]%s\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "ova_path", argv[2]);
+    json_object_set_string_member(p, "name", argv[3]);
+    for (int i = 4; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--pool") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "pool", argv[++i]);
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("vm.import.ova", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "VM_IMPORT_OVA"); g_free(r);
+}
+
+                                                                       
+                                     
+                                                                          
+
+                                                             
+                                                          
+static void cmd_monitor_processes(int argc, char *argv[]) {
+    JsonObject *p = json_object_new();
+    gint64 top = 10;
+    for (int i = 2; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--type") == 0 && i + 1 < argc)
+            json_object_set_string_member(p, "type", argv[++i]);
+        else if (g_strcmp0(argv[i], "--top") == 0 && i + 1 < argc)
+            top = atol(argv[++i]);
+    }
+    json_object_set_int_member(p, "top", top);
+    GError *e = NULL; gchar *r = purectl_send_request("monitor.processes", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonArray *arr = json_object_has_member(root, "result")
+            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+        if (arr && json_array_get_length(arr) > 0) {
+            printf("%s%7s %-20s %6s %8s  %s%s\n", cc(CYBER_BOLD), "PID", "COMMAND", "CPU%", "MEM_MB", "STATE", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *proc = json_array_get_object_element(arr, i);
+                printf("%7" G_GINT64_FORMAT " %-20s %5.1f %8" G_GINT64_FORMAT "  %s\n",
+                    json_object_get_int_member_with_default(proc, "pid", 0),
+                    json_object_get_string_member_with_default(proc, "command", "-"),
+                    json_object_get_double_member_with_default(proc, "cpu_percent", 0),
+                    json_object_get_int_member_with_default(proc, "mem_mb", 0),
+                    json_object_get_string_member_with_default(proc, "state", "-"));
+            }
+        } else {
+            printf("No processes found.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                           
+                                               
+                                  
+  
+                                                             
+                                                                              
+                                                                 
+                                                                    
+                                                               
+                                                         
+                                                           
+                                                             
+static void cmd_network_qos_set(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl network qos-set <iface> --rate-mbps N [--burst-kb N]%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "interface", argv[2]);
+    for (int i = 3; i < argc; i++) {
+        if (g_strcmp0(argv[i], "--rate-mbps") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "rate_mbps", atol(argv[++i]));
+        else if (g_strcmp0(argv[i], "--burst-kb") == 0 && i + 1 < argc)
+            json_object_set_int_member(p, "burst_kb", atol(argv[++i]));
+    }
+    GError *e = NULL; gchar *r = purectl_send_request("network.qos.set", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "NETWORK_QOS_SET"); g_free(r);
+}
+
+                                                           
+                                                      
+                      
+  
+                                                                          
+                                                                               
+                                                 
+                                                          
+static void cmd_network_qos_get(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl network qos-get <iface>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+    json_object_set_string_member(p, "interface", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("network.qos.get", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (json_parser_load_from_data(parser, r, -1, NULL)) {
+        JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+        if (json_object_has_member(root, "error")) {
+            JsonObject *err = json_object_get_object_member(root, "error");
+            g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+        } else if (json_object_has_member(root, "result")) {
+            JsonObject *res = json_object_get_object_member(root, "result");
+            printf("%sQoS for %s%s\n", cc(CYBER_BOLD),
+                json_object_get_string_member_with_default(res, "interface", argv[2]),
+                cc(CYBER_RESET));
+            printf("  Egress:  %s\n",
+                json_object_get_boolean_member_with_default(res, "egress_active", FALSE)
+                    ? "active" : "inactive");
+            printf("  Ingress: %s\n",
+                json_object_get_boolean_member_with_default(res, "ingress_active", FALSE)
+                    ? "active" : "inactive");
+            const gchar *tc_out = json_object_get_string_member_with_default(res, "tc_output", "");
+            if (tc_out && *tc_out) {
+                printf("  tc class:\n%s", tc_out);
+                if (tc_out[strlen(tc_out) - 1] != '\n') printf("\n");
+            }
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                 
+                                         
+static void cmd_network_qos_remove(int argc, char *argv[]) {
+    if (argc < 3) { printf("%sUsage: pcvctl network qos-remove <iface>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
+    JsonObject *p = json_object_new();
+                                                                                
+    json_object_set_string_member(p, "interface", argv[2]);
+    GError *e = NULL; gchar *r = purectl_send_request("network.qos.remove", p, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    print_action_response(r, "NETWORK_QOS_REMOVE"); g_free(r);
+}
+
+                                                       
+                                                  
+static void cmd_healing_history(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
+    GError *e = NULL; gchar *r = purectl_send_request("healing.history", NULL, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonArray *arr = json_object_has_member(root, "result")
+            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+        if (arr && json_array_get_length(arr) > 0) {
+            printf("%s%-20s %-16s %-12s %-30s%s\n", cc(CYBER_BOLD), "TIMESTAMP", "TARGET", "ACTION", "DETAIL", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *h = json_array_get_object_element(arr, i);
+                printf("%-20s %-16s %-12s %-30s\n",
+                    json_object_get_string_member_with_default(h, "timestamp", "-"),
+                    json_object_get_string_member_with_default(h, "target", "-"),
+                    json_object_get_string_member_with_default(h, "action", "-"),
+                    json_object_get_string_member_with_default(h, "detail", "-"));
+            }
+        } else {
+            printf("No healing history found.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                        
+                                                              
+static void cmd_gpu_list(int argc, char *argv[]) {
+    GError *e = NULL; gchar *r = purectl_send_request("gpu.list", NULL, &e);
+    if (e) { g_printerr("%s[!] %s%s\n", ce(CYBER_RED), e->message, ce(CYBER_RESET)); g_error_free(e); return; }
+    if (!r) return;
+    if (g_ctx.fmt == FMT_JSON) { print_raw_response(r); g_free(r); return; }
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, r, -1, NULL)) { g_object_unref(parser); g_free(r); return; }
+    JsonObject *root = json_node_get_object(json_parser_get_root(parser));
+    if (json_object_has_member(root, "error")) {
+        JsonObject *err = json_object_get_object_member(root, "error");
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
+    } else {
+        JsonArray *arr = json_object_has_member(root, "result")
+            ? json_node_get_array(json_object_get_member(root, "result")) : NULL;
+        if (arr && json_array_get_length(arr) > 0) {
+            printf("%s%-12s %-40s %-10s%s\n", cc(CYBER_BOLD), "PCI_ADDR", "DEVICE", "DRIVER", cc(CYBER_RESET));
+            printf("──────────────────────────────────────────────────────────────────\n");
+            for (guint i = 0; i < json_array_get_length(arr); i++) {
+                JsonObject *g = json_array_get_object_element(arr, i);
+                printf("%-12s %-40s %-10s\n",
+                    json_object_get_string_member_with_default(g, "pci_addr", "-"),
+                    json_object_get_string_member_with_default(g, "device", "-"),
+                    json_object_get_string_member_with_default(g, "driver", "-"));
+            }
+        } else {
+            printf("No GPUs found.\n");
+        }
+    }
+    g_object_unref(parser); g_free(r);
+}
+
+                                                                       
+                            
+                                                                          
+
+typedef struct {
+    const gchar *tenant;
+    const gchar *egress;
+    const gchar *backend;
+    const gchar *subnet_name;
+    const gchar *cidr;
+    const gchar *ip;
+    const gchar *protocol;
+    const gchar *listen_address;
+    gint64 revision;
+    gint64 mtu;
+    gint64 listen_port;
+    gint64 target_port;
+    gboolean revision_set;
+    gboolean mtu_set;
+    gboolean listen_port_set;
+    gboolean target_port_set;
+    gboolean no_wait;
+    guint seen;
+    GPtrArray *allowed_sources;
+} VpcCliOptions;
+
+typedef enum {
+    VPC_OPT_TENANT         = 1u << 0,
+    VPC_OPT_EGRESS         = 1u << 1,
+    VPC_OPT_CIDR           = 1u << 2,
+    VPC_OPT_IP             = 1u << 3,
+    VPC_OPT_PROTOCOL       = 1u << 4,
+    VPC_OPT_LISTEN_ADDRESS = 1u << 5,
+    VPC_OPT_REVISION       = 1u << 6,
+    VPC_OPT_MTU            = 1u << 7,
+    VPC_OPT_LISTEN_PORT    = 1u << 8,
+    VPC_OPT_TARGET_PORT    = 1u << 9,
+    VPC_OPT_ALLOWED_SOURCE = 1u << 10,
+    VPC_OPT_NO_WAIT        = 1u << 11,
+    VPC_OPT_SUBNET_NAME    = 1u << 12,
+    VPC_OPT_BACKEND        = 1u << 13,
+} VpcCliOptionBit;
+
+                  
+                                                                             
+                                                                        
+                                                               
+                                                         
+  
+                 
+                                                           
+                                                          
+static void
+_vpc_options_init(VpcCliOptions *options)
+{
+    memset(options, 0, sizeof(*options));
+    options->allowed_sources = g_ptr_array_new_with_free_func(g_free);
+}
+
+static void
+_vpc_options_clear(VpcCliOptions *options)
+{
+    g_clear_pointer(&options->allowed_sources, g_ptr_array_unref);
+}
+
+static gboolean
+_vpc_parse_bounded_int(const gchar *text, gint64 minimum, gint64 maximum,
+                       gint64 *value_out)
+{
+    if (!text || !*text || !value_out)
+        return FALSE;
+    errno = 0;
+    gchar *tail = NULL;
+    gint64 value = g_ascii_strtoll(text, &tail, 10);
+    if (errno == ERANGE || tail == text || !tail || *tail != '\0' ||
+        value < minimum || value > maximum)
+        return FALSE;
+    *value_out = value;
+    return TRUE;
+}
+
+static gboolean
+_vpc_parse_options(int argc, char *argv[], int start, VpcCliOptions *options)
+{
+    for (int i = start; i < argc; i++) {
+        const gchar *option = argv[i];
+        if (g_strcmp0(option, "--no-wait") == 0) {
+            options->no_wait = TRUE;
+            options->seen |= VPC_OPT_NO_WAIT;
+            continue;
+        }
+        if (i + 1 >= argc) {
+            g_printerr("%s[!] %s 옵션 값이 필요합니다%s\n",
+                       ce(CYBER_RED), option, ce(CYBER_RESET));
+            return FALSE;
+        }
+        const gchar *value = argv[++i];
+        if (g_strcmp0(option, "--tenant") == 0) {
+            options->tenant = value;
+            options->seen |= VPC_OPT_TENANT;
+        } else if (g_strcmp0(option, "--egress") == 0) {
+            options->egress = value;
+            options->seen |= VPC_OPT_EGRESS;
+        } else if (g_strcmp0(option, "--backend") == 0) {
+            options->backend = value;
+            options->seen |= VPC_OPT_BACKEND;
+        } else if (g_strcmp0(option, "--subnet-name") == 0) {
+            options->subnet_name = value;
+            options->seen |= VPC_OPT_SUBNET_NAME;
+        } else if (g_strcmp0(option, "--cidr") == 0) {
+            options->cidr = value;
+            options->seen |= VPC_OPT_CIDR;
+        } else if (g_strcmp0(option, "--ip") == 0) {
+            options->ip = value;
+            options->seen |= VPC_OPT_IP;
+        } else if (g_strcmp0(option, "--protocol") == 0) {
+            options->protocol = value;
+            options->seen |= VPC_OPT_PROTOCOL;
+        } else if (g_strcmp0(option, "--listen-address") == 0) {
+            options->listen_address = value;
+            options->seen |= VPC_OPT_LISTEN_ADDRESS;
+        } else if (g_strcmp0(option, "--revision") == 0) {
+            if (!_vpc_parse_bounded_int(value, 1, G_MAXINT64, &options->revision))
+                return FALSE;
+            options->revision_set = TRUE;
+            options->seen |= VPC_OPT_REVISION;
+        } else if (g_strcmp0(option, "--mtu") == 0) {
+            if (!_vpc_parse_bounded_int(value, 68, 9216, &options->mtu))
+                return FALSE;
+            options->mtu_set = TRUE;
+            options->seen |= VPC_OPT_MTU;
+        } else if (g_strcmp0(option, "--listen-port") == 0) {
+            if (!_vpc_parse_bounded_int(value, 1, 65535, &options->listen_port))
+                return FALSE;
+            options->listen_port_set = TRUE;
+            options->seen |= VPC_OPT_LISTEN_PORT;
+        } else if (g_strcmp0(option, "--target-port") == 0) {
+            if (!_vpc_parse_bounded_int(value, 1, 65535, &options->target_port))
+                return FALSE;
+            options->target_port_set = TRUE;
+            options->seen |= VPC_OPT_TARGET_PORT;
+        } else if (g_strcmp0(option, "--allowed-source") == 0) {
+            g_ptr_array_add(options->allowed_sources, g_strdup(value));
+            options->seen |= VPC_OPT_ALLOWED_SOURCE;
+        } else {
+            g_printerr("%s[!] 알 수 없는 VPC 옵션: %s%s\n",
+                       ce(CYBER_RED), option, ce(CYBER_RESET));
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+static gboolean
+_vpc_options_allowed(const VpcCliOptions *options, guint allowed)
+{
+    if ((options->seen & ~allowed) == 0)
+        return TRUE;
+    g_printerr("%s[!] 이 VPC action에서 사용할 수 없는 옵션이 포함됐습니다%s\n",
+               ce(CYBER_RED), ce(CYBER_RESET));
+    return FALSE;
+}
+
+static gboolean
+_vpc_uuid(const gchar *value, const gchar *label)
+{
+    if (value && g_uuid_string_is_valid(value))
+        return TRUE;
+    g_printerr("%s[!] %s에는 UUID가 필요합니다%s\n",
+               ce(CYBER_RED), label, ce(CYBER_RESET));
+    return FALSE;
+}
+
+static gboolean
+_vpc_require_tenant(const VpcCliOptions *options)
+{
+    if (options->tenant && *options->tenant)
+        return TRUE;
+    g_printerr("%s[!] 이 VPC 변경에는 --tenant가 필요합니다%s\n",
+               ce(CYBER_RED), ce(CYBER_RESET));
+    return FALSE;
+}
+
+static void
+_vpc_usage(const gchar *action)
+{
+    g_printerr("%sUsage: pcvctl vpc %s%s\n",
+        ce(CYBER_YELLOW), action ? action : "<action>", ce(CYBER_RESET));
+}
+
+static const gchar *
+_vpc_string(JsonObject *object, const gchar *key, const gchar *fallback)
+{
+    if (!object || !json_object_has_member(object, key))
+        return fallback;
+    JsonNode *node = json_object_get_member(object, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_STRING)
+        return fallback;
+    const gchar *value = json_node_get_string(node);
+    return value ? value : fallback;
+}
+
+static gint64
+_vpc_integer(JsonObject *object, const gchar *key)
+{
+    return object && json_object_has_member(object, key)
+        ? json_object_get_int_member(object, key) : 0;
+}
+
+static guint
+_vpc_array_count(JsonObject *object, const gchar *key)
+{
+    if (!object || !json_object_has_member(object, key))
+        return 0;
+    JsonNode *node = json_object_get_member(object, key);
+    return node && JSON_NODE_HOLDS_ARRAY(node)
+        ? json_array_get_length(json_node_get_array(node)) : 0;
+}
+
+static void
+_vpc_print_table(PcvTable *table)
+{
+    if (g_ctx.fmt == FMT_CSV) {
+        ptbl_print_csv(table);
+        return;
+    }
+    if (g_ctx.fmt == FMT_PLAIN) {
+        ptbl_print_plain(table);
+        return;
+    }
+
+    gsize *widths = g_new0(gsize, table->ncols);
+    for (size_t column = 0; column < table->ncols; column++)
+        widths[column] = strlen(table->headers[column]);
+    for (guint row_index = 0; row_index < table->rows->len; row_index++) {
+        gchar **row = g_ptr_array_index(table->rows, row_index);
+        for (size_t column = 0; column < table->ncols; column++)
+            widths[column] = MAX(widths[column], strlen(row[column]));
+    }
+    for (size_t column = 0; column < table->ncols; column++)
+        printf("%s%-*s%s%s", cc(CYBER_BOLD), (int)widths[column],
+               table->headers[column], cc(CYBER_RESET),
+               column + 1 == table->ncols ? "\n" : "  ");
+    for (guint row_index = 0; row_index < table->rows->len; row_index++) {
+        gchar **row = g_ptr_array_index(table->rows, row_index);
+        for (size_t column = 0; column < table->ncols; column++)
+            printf("%-*s%s", (int)widths[column], row[column],
+                   column + 1 == table->ncols ? "\n" : "  ");
+    }
+    if (table->rows->len == 0)
+        printf("%s(no resources)%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
+    g_free(widths);
+}
+
+static gboolean
+_vpc_parse_result(const gchar *response, JsonParser **parser_out,
+                  JsonNode **result_out)
+{
+    JsonParser *parser = json_parser_new();
+    if (!json_parser_load_from_data(parser, response, -1, NULL)) {
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return FALSE;
+    }
+    JsonNode *root_node = json_parser_get_root(parser);
+    if (!root_node || !JSON_NODE_HOLDS_OBJECT(root_node)) {
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return FALSE;
+    }
+    JsonObject *root = json_node_get_object(root_node);
+    if (!json_object_has_member(root, "result")) {
+        print_action_response(response, "VPC");
+        g_object_unref(parser);
+        return FALSE;
+    }
+    *parser_out = parser;
+    *result_out = json_object_get_member(root, "result");
+    return TRUE;
+}
+
+static void
+_vpc_print_vpcs(JsonArray *array)
+{
+    const char *headers[] = {"ID", "NAME", "TENANT", "BACKEND", "EGRESS", "STATE", "REV", "ERROR"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    for (guint i = 0; i < json_array_get_length(array); i++) {
+        JsonObject *vpc = json_array_get_object_element(array, i);
+        g_autofree gchar *revision = g_strdup_printf("%lld", (long long)_vpc_integer(vpc, "revision"));
+        ptbl_row(table, _vpc_string(vpc, "id", "-"), _vpc_string(vpc, "name", "-"),
+                 _vpc_string(vpc, "tenant", "-"), _vpc_string(vpc, "backend", "linux"),
+                 _vpc_string(vpc, "egress_mode", "-"),
+                 _vpc_string(vpc, "state", "-"), revision,
+                 _vpc_string(vpc, "last_error", "-"));
+    }
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_vpc_detail(JsonObject *vpc)
+{
+    const char *headers[] = {"ID", "NAME", "TENANT", "BACKEND", "EGRESS", "STATE", "REV",
+                             "SUBNETS", "ATTACHMENTS", "PUBLISHES", "ERROR"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    g_autofree gchar *revision = g_strdup_printf("%lld", (long long)_vpc_integer(vpc, "revision"));
+    g_autofree gchar *subnets = g_strdup_printf("%u", _vpc_array_count(vpc, "subnets"));
+    g_autofree gchar *attachments = g_strdup_printf("%u", _vpc_array_count(vpc, "attachments"));
+    g_autofree gchar *publishes = g_strdup_printf("%u", _vpc_array_count(vpc, "service_publishes"));
+    ptbl_row(table, _vpc_string(vpc, "id", "-"), _vpc_string(vpc, "name", "-"),
+             _vpc_string(vpc, "tenant", "-"), _vpc_string(vpc, "backend", "linux"),
+             _vpc_string(vpc, "egress_mode", "-"),
+             _vpc_string(vpc, "state", "-"), revision, subnets, attachments, publishes,
+             _vpc_string(vpc, "last_error", "-"));
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_backends(JsonArray *array)
+{
+    const char *headers[] = {"ID", "LABEL", "READY", "CURRENT", "ALLOCATABLE", "REASON"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    for (guint i = 0; i < json_array_get_length(array); i++) {
+        JsonObject *backend = json_array_get_object_element(array, i);
+        g_autofree gchar *current = g_strdup_printf("%lld",
+            (long long)_vpc_integer(backend, "current_vpcs"));
+        g_autofree gchar *allocatable = json_object_has_member(backend, "allocatable_vpcs") &&
+            json_object_get_member(backend, "allocatable_vpcs") &&
+            !JSON_NODE_HOLDS_NULL(json_object_get_member(backend, "allocatable_vpcs"))
+            ? g_strdup_printf("%lld", (long long)_vpc_integer(backend, "allocatable_vpcs"))
+            : g_strdup("unlimited");
+        ptbl_row(table, _vpc_string(backend, "id", "-"),
+            _vpc_string(backend, "label", "-"),
+            json_object_get_boolean_member_with_default(backend, "ready", FALSE) ? "true" : "false",
+            current, allocatable, _vpc_string(backend, "reason", "-"));
+    }
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_status(JsonObject *status)
+{
+    const char *headers[] = {"VPCS", "SUBNETS", "ATTACHMENTS", "PUBLISHES", "HEALTHY", "RECONCILE"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    g_autofree gchar *vpcs = g_strdup_printf("%lld", (long long)_vpc_integer(status, "vpc_count"));
+    g_autofree gchar *subnets = g_strdup_printf("%lld", (long long)_vpc_integer(status, "subnet_count"));
+    g_autofree gchar *attachments = g_strdup_printf("%lld", (long long)_vpc_integer(status, "attachment_count"));
+    g_autofree gchar *publishes = g_strdup_printf("%lld", (long long)_vpc_integer(status, "service_publish_count"));
+    gboolean healthy = json_object_get_boolean_member_with_default(status, "healthy", FALSE);
+    gboolean reconcile = json_object_get_boolean_member_with_default(status, "reconcile_required", TRUE);
+    ptbl_row(table, vpcs, subnets, attachments, publishes,
+             healthy ? "true" : "false", reconcile ? "true" : "false");
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_subnets(JsonArray *array)
+{
+    const char *headers[] = {"ID", "VPC", "NAME", "CIDR", "GATEWAY", "MTU", "BRIDGE", "STATE", "ERROR"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    for (guint i = 0; i < json_array_get_length(array); i++) {
+        JsonObject *subnet = json_array_get_object_element(array, i);
+        g_autofree gchar *mtu = g_strdup_printf("%lld", (long long)_vpc_integer(subnet, "mtu"));
+        ptbl_row(table, _vpc_string(subnet, "id", "-"), _vpc_string(subnet, "vpc_id", "-"),
+                 _vpc_string(subnet, "name", "-"), _vpc_string(subnet, "cidr", "-"),
+                 _vpc_string(subnet, "gateway", "-"), mtu,
+                 _vpc_string(subnet, "bridge_name", "-"), _vpc_string(subnet, "state", "-"),
+                 _vpc_string(subnet, "last_error", "-"));
+    }
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_attachments(JsonArray *array)
+{
+    const char *headers[] = {"ID", "SUBNET", "VPC", "VM", "IP", "MAC", "BRIDGE", "STATE", "ERROR"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    for (guint i = 0; i < json_array_get_length(array); i++) {
+        JsonObject *attachment = json_array_get_object_element(array, i);
+        ptbl_row(table, _vpc_string(attachment, "id", "-"),
+                 _vpc_string(attachment, "subnet_id", "-"),
+                 _vpc_string(attachment, "vpc_id", "-"),
+                 _vpc_string(attachment, "vm_name", "-"),
+                 _vpc_string(attachment, "ip_address", "-"),
+                 _vpc_string(attachment, "mac_address", "-"),
+                 _vpc_string(attachment, "bridge_name", "-"),
+                 _vpc_string(attachment, "state", "-"),
+                 _vpc_string(attachment, "last_error", "-"));
+    }
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_services(JsonArray *array)
+{
+    const char *headers[] = {"ID", "VPC", "ATTACHMENT", "PROTO", "LISTEN", "TARGET", "SOURCES", "STATE", "ERROR"};
+    PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+    for (guint i = 0; i < json_array_get_length(array); i++) {
+        JsonObject *service = json_array_get_object_element(array, i);
+        g_autofree gchar *listen = g_strdup_printf("%s:%lld",
+            _vpc_string(service, "listen_address", "-"),
+            (long long)_vpc_integer(service, "listen_port"));
+        g_autofree gchar *target = g_strdup_printf("%s:%lld",
+            _vpc_string(service, "target_ip", "-"),
+            (long long)_vpc_integer(service, "target_port"));
+        ptbl_row(table, _vpc_string(service, "id", "-"), _vpc_string(service, "vpc_id", "-"),
+                 _vpc_string(service, "attachment_id", "-"),
+                 _vpc_string(service, "protocol", "-"), listen, target,
+                 _vpc_string(service, "allowed_sources_json", "[]"),
+                 _vpc_string(service, "state", "-"), _vpc_string(service, "last_error", "-"));
+    }
+    _vpc_print_table(table);
+    ptbl_free(table);
+}
+
+static void
+_vpc_print_query(const gchar *response, const gchar *action)
+{
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(response);
+        return;
+    }
+    JsonParser *parser = NULL;
+    JsonNode *result = NULL;
+    if (!_vpc_parse_result(response, &parser, &result))
+        return;
+
+    if (g_strcmp0(action, "list") == 0 && JSON_NODE_HOLDS_ARRAY(result))
+        _vpc_print_vpcs(json_node_get_array(result));
+    else if (g_strcmp0(action, "get") == 0 && JSON_NODE_HOLDS_OBJECT(result))
+        _vpc_print_vpc_detail(json_node_get_object(result));
+    else if (g_strcmp0(action, "status") == 0 && JSON_NODE_HOLDS_OBJECT(result))
+        _vpc_print_status(json_node_get_object(result));
+    else if (g_strcmp0(action, "backends") == 0 && JSON_NODE_HOLDS_ARRAY(result))
+        _vpc_print_backends(json_node_get_array(result));
+    else if (g_strcmp0(action, "subnet-list") == 0 && JSON_NODE_HOLDS_ARRAY(result))
+        _vpc_print_subnets(json_node_get_array(result));
+    else if (g_strcmp0(action, "attachment-list") == 0 && JSON_NODE_HOLDS_ARRAY(result))
+        _vpc_print_attachments(json_node_get_array(result));
+    else if (g_strcmp0(action, "service-list") == 0 && JSON_NODE_HOLDS_ARRAY(result))
+        _vpc_print_services(json_node_get_array(result));
+    else {
+        g_printerr("%s[!] VPC 조회 응답 shape가 예상과 다릅니다%s\n",
+                   ce(CYBER_RED), ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+    }
+    g_object_unref(parser);
+}
+
+static void
+_vpc_print_job(const gchar *response, const gchar *method, gboolean accepted_only)
+{
+    if (g_ctx.fmt == FMT_JSON) {
+        print_raw_response(response);
+        return;
+    }
+    JsonParser *parser = NULL;
+    JsonNode *result_node = NULL;
+    if (!_vpc_parse_result(response, &parser, &result_node) ||
+        !JSON_NODE_HOLDS_OBJECT(result_node)) {
+        if (parser)
+            g_object_unref(parser);
+        return;
+    }
+    JsonObject *result = json_node_get_object(result_node);
+    const gchar *job_id = _vpc_string(result, "job_id", "-");
+    const gchar *status = _vpc_string(result, "status", accepted_only ? "accepted" : "-");
+    const gchar *worker_result = _vpc_string(result, "result", "-");
+    const gchar *detail = _vpc_string(result, "detail", "-");
+    if (!accepted_only &&
+        (g_strcmp0(status, "failed") == 0 || g_strcmp0(status, "cancelled") == 0) &&
+        g_strcmp0(detail, "-") != 0) {
+        g_printerr("%s[!] %s %s: %s%s\n", ce(CYBER_RED), method, status,
+                   detail, ce(CYBER_RESET));
+    }
+    if (g_ctx.fmt == FMT_PLAIN) {
+        printf("%s\t%s\t%s\t%s\n", method, status, job_id, worker_result);
+    } else if (g_ctx.fmt == FMT_CSV) {
+        const char *headers[] = {"METHOD", "STATUS", "JOB_ID", "RESULT"};
+        PcvTable *table = ptbl_new(headers, G_N_ELEMENTS(headers));
+        ptbl_row(table, method, status, job_id, worker_result);
+        ptbl_print_csv(table);
+        ptbl_free(table);
+    } else {
+        printf("%s%s%s  status=%s  job=%s%s\n",
+               cc(CYBER_BOLD), method, cc(CYBER_RESET), status, job_id,
+               accepted_only ? " (accepted only; check terminal result)" : "");
+        if (!accepted_only && g_strcmp0(worker_result, "-") != 0)
+            printf("result=%s\n", worker_result);
+    }
+    g_object_unref(parser);
+}
+
+                  
+                                                          
+                                                           
+                                                                       
+  
+                 
+                                                               
+                                                               
+static gchar *
+_vpc_wait_job(const gchar *job_id)
+{
+    for (guint attempt = 0; attempt < 600; attempt++) {
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "job_id", job_id);
+        g_autoptr(GError) error = NULL;
+        gchar *response = purectl_send_request("jobs.get", params, &error);
+        if (!response) {
+            if (error)
+                g_printerr("%s[!] VPC Job 조회 실패: %s%s\n",
+                           ce(CYBER_RED), error->message, ce(CYBER_RESET));
+            return NULL;
+        }
+        JsonParser *parser = NULL;
+        JsonNode *result_node = NULL;
+        if (!_vpc_parse_result(response, &parser, &result_node) ||
+            !JSON_NODE_HOLDS_OBJECT(result_node)) {
+            if (parser)
+                g_object_unref(parser);
+            g_free(response);
+            pcv_cli_command_mark_runtime_failure();
+            return NULL;
+        }
+        JsonObject *result = json_node_get_object(result_node);
+        const gchar *status = _vpc_string(result, "status", NULL);
+        gboolean completed = g_strcmp0(status, "completed") == 0;
+        gboolean failed = g_strcmp0(status, "failed") == 0 ||
+                          g_strcmp0(status, "cancelled") == 0;
+        g_object_unref(parser);
+        if (completed)
+            return response;
+        if (failed) {
+            pcv_cli_command_mark_runtime_failure();
+            return response;
+        }
+        g_free(response);
+        g_usleep(100000);
+    }
+    g_printerr("%s[!] VPC Job %s terminal 대기 시간 초과%s\n",
+               ce(CYBER_RED), job_id, ce(CYBER_RESET));
+    pcv_cli_command_mark_runtime_failure();
+    return NULL;
+}
+
+static void
+_vpc_mutate_response(const gchar *method, const gchar *accepted_response,
+                     const GError *error, gboolean no_wait)
+{
+    if (!accepted_response) {
+        if (error)
+            g_printerr("%s[!] %s 호출 실패: %s%s\n", ce(CYBER_RED), method,
+                       error->message, ce(CYBER_RESET));
+        return;
+    }
+    JsonParser *parser = NULL;
+    JsonNode *result_node = NULL;
+    if (!_vpc_parse_result(accepted_response, &parser, &result_node) ||
+        !JSON_NODE_HOLDS_OBJECT(result_node)) {
+        if (parser)
+            g_object_unref(parser);
+        pcv_cli_command_mark_runtime_failure();
+        return;
+    }
+    JsonObject *result = json_node_get_object(result_node);
+    const gchar *status = _vpc_string(result, "status", NULL);
+    const gchar *job_id_borrowed = _vpc_string(result, "job_id", NULL);
+    if (g_strcmp0(status, "accepted") != 0 || !job_id_borrowed || !*job_id_borrowed) {
+        g_printerr("%s[!] %s가 accepted Job ID를 반환하지 않았습니다%s\n",
+                   ce(CYBER_RED), method, ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return;
+    }
+    g_autofree gchar *job_id = g_strdup(job_id_borrowed);
+    g_object_unref(parser);
+
+    if (no_wait) {
+        _vpc_print_job(accepted_response, method, TRUE);
+        return;
+    }
+    g_autofree gchar *terminal = _vpc_wait_job(job_id);
+    if (terminal)
+        _vpc_print_job(terminal, method, FALSE);
+}
+
+static void
+_vpc_read_response(const gchar *method, const gchar *action,
+                   const gchar *response, const GError *error)
+{
+    if (!response) {
+        if (error)
+            g_printerr("%s[!] %s 호출 실패: %s%s\n", ce(CYBER_RED), method,
+                       error->message, ce(CYBER_RESET));
+        return;
+    }
+    _vpc_print_query(response, action);
+}
+
+static void
+_vpc_add_tenant(JsonObject *params, const VpcCliOptions *options)
+{
+    if (options->tenant)
+        json_object_set_string_member(params, "tenant", options->tenant);
+}
+
+static void
+cmd_vpc(int argc, char *argv[])
+{
+    if (argc < 2) {
+        _vpc_usage("<list|get|status|create|...>");
+        return;
+    }
+    const gchar *action = argv[1];
+    VpcCliOptions options;
+    _vpc_options_init(&options);
+    JsonObject *params = NULL;
+    gboolean valid = TRUE;
+    int option_start = 2;
+    guint allowed_options = 0;
+
+    if (g_strcmp0(action, "list") == 0 || g_strcmp0(action, "status") == 0 ||
+        g_strcmp0(action, "backends") == 0) {
+        option_start = 2;
+        allowed_options = VPC_OPT_TENANT;
+    } else if (g_strcmp0(action, "get") == 0 ||
+               g_strcmp0(action, "subnet-list") == 0 ||
+               g_strcmp0(action, "attachment-list") == 0 ||
+               g_strcmp0(action, "service-list") == 0) {
+        valid = argc >= 3;
+        option_start = 3;
+        allowed_options = VPC_OPT_TENANT;
+    } else if (g_strcmp0(action, "create") == 0) {
+        valid = argc >= 3;
+        option_start = 3;
+        allowed_options = VPC_OPT_TENANT | VPC_OPT_EGRESS | VPC_OPT_SUBNET_NAME |
+                          VPC_OPT_CIDR | VPC_OPT_MTU | VPC_OPT_BACKEND | VPC_OPT_NO_WAIT;
+    } else if (g_strcmp0(action, "delete") == 0 ||
+               g_strcmp0(action, "subnet-delete") == 0 ||
+               g_strcmp0(action, "attachment-delete") == 0 ||
+               g_strcmp0(action, "service-unpublish") == 0) {
+        valid = argc >= 3;
+        option_start = 3;
+        allowed_options = VPC_OPT_TENANT | VPC_OPT_NO_WAIT;
+    } else if (g_strcmp0(action, "egress-set") == 0) {
+        valid = argc >= 3;
+        option_start = 3;
+        allowed_options = VPC_OPT_TENANT | VPC_OPT_EGRESS |
+                          VPC_OPT_REVISION | VPC_OPT_NO_WAIT;
+    } else if (g_strcmp0(action, "subnet-create") == 0 ||
+               g_strcmp0(action, "attachment-create") == 0) {
+        valid = argc >= 4;
+        option_start = 4;
+        allowed_options = g_strcmp0(action, "subnet-create") == 0
+            ? VPC_OPT_TENANT | VPC_OPT_CIDR | VPC_OPT_REVISION |
+              VPC_OPT_MTU | VPC_OPT_NO_WAIT
+            : VPC_OPT_TENANT | VPC_OPT_IP | VPC_OPT_NO_WAIT;
+    } else if (g_strcmp0(action, "service-publish") == 0) {
+        valid = argc >= 3;
+        option_start = 3;
+        allowed_options = VPC_OPT_TENANT | VPC_OPT_PROTOCOL |
+                          VPC_OPT_LISTEN_ADDRESS | VPC_OPT_LISTEN_PORT |
+                          VPC_OPT_TARGET_PORT | VPC_OPT_ALLOWED_SOURCE |
+                          VPC_OPT_NO_WAIT;
+    } else if (g_strcmp0(action, "reconcile") == 0) {
+        option_start = 2;
+        allowed_options = VPC_OPT_NO_WAIT;
+    } else {
+        valid = FALSE;
+    }
+    if (!valid || !_vpc_parse_options(argc, argv, option_start, &options) ||
+        !_vpc_options_allowed(&options, allowed_options)) {
+        _vpc_usage(action);
+        goto out;
+    }
+
+    params = json_object_new();
+    _vpc_add_tenant(params, &options);
+
+    if (g_strcmp0(action, "list") == 0) {
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.list", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.list", action, response, error);
+    } else if (g_strcmp0(action, "status") == 0) {
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.status", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.status", action, response, error);
+    } else if (g_strcmp0(action, "backends") == 0) {
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.backend.list", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.backend.list", action, response, error);
+    } else if (g_strcmp0(action, "get") == 0) {
+        if (!_vpc_uuid(argv[2], "vpc-id"))
+            goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.get", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.get", action, response, error);
+    } else if (g_strcmp0(action, "subnet-list") == 0) {
+        if (!_vpc_uuid(argv[2], "vpc-id"))
+            goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.subnet.list", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.subnet.list", action, response, error);
+    } else if (g_strcmp0(action, "attachment-list") == 0) {
+        if (!_vpc_uuid(argv[2], "vpc-id"))
+            goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.attachment.list", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.attachment.list", action, response, error);
+    } else if (g_strcmp0(action, "service-list") == 0) {
+        if (!_vpc_uuid(argv[2], "vpc-id"))
+            goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.service.list", params, &error);
+        params = NULL;
+        _vpc_read_response("vpc.service.list", action, response, error);
+    } else if (g_strcmp0(action, "create") == 0) {
+        gboolean has_initial_subnet = options.subnet_name || options.cidr || options.mtu_set;
+        if (!_vpc_require_tenant(&options) || !options.egress ||
+            (g_strcmp0(options.egress, "nat") != 0 && g_strcmp0(options.egress, "isolated") != 0) ||
+            (options.backend && g_strcmp0(options.backend, "linux") != 0 &&
+             g_strcmp0(options.backend, "ovn") != 0) ||
+            (has_initial_subnet && (!options.subnet_name || !options.cidr)))
+            goto out;
+        json_object_set_string_member(params, "name", argv[2]);
+        json_object_set_string_member(params, "egress_mode", options.egress);
+        json_object_set_string_member(params, "backend", options.backend ? options.backend : "linux");
+        if (has_initial_subnet) {
+            json_object_set_string_member(params, "subnet_name", options.subnet_name);
+            json_object_set_string_member(params, "subnet_cidr", options.cidr);
+            if (options.mtu_set)
+                json_object_set_int_member(params, "subnet_mtu", options.mtu);
+        }
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.create", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.create", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "delete") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "vpc-id")) goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.delete", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.delete", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "egress-set") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "vpc-id") ||
+            !options.revision_set || !options.egress ||
+            (g_strcmp0(options.egress, "nat") != 0 && g_strcmp0(options.egress, "isolated") != 0))
+            goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        json_object_set_string_member(params, "egress_mode", options.egress);
+        json_object_set_int_member(params, "expected_revision", options.revision);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.egress.set", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.egress.set", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "subnet-create") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "vpc-id") ||
+            !options.cidr || !options.revision_set) goto out;
+        json_object_set_string_member(params, "vpc_id", argv[2]);
+        json_object_set_string_member(params, "name", argv[3]);
+        json_object_set_string_member(params, "cidr", options.cidr);
+        json_object_set_int_member(params, "expected_revision", options.revision);
+        if (options.mtu_set) json_object_set_int_member(params, "mtu", options.mtu);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.subnet.create", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.subnet.create", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "subnet-delete") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "subnet-id")) goto out;
+        json_object_set_string_member(params, "subnet_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.subnet.delete", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.subnet.delete", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "attachment-create") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "subnet-id")) goto out;
+        json_object_set_string_member(params, "subnet_id", argv[2]);
+        json_object_set_string_member(params, "vm", argv[3]);
+        if (options.ip) json_object_set_string_member(params, "ip_address", options.ip);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.attachment.create", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.attachment.create", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "attachment-delete") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "attachment-id")) goto out;
+        json_object_set_string_member(params, "attachment_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.attachment.delete", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.attachment.delete", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "service-publish") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "attachment-id") ||
+            !options.protocol ||
+            (g_strcmp0(options.protocol, "tcp") != 0 && g_strcmp0(options.protocol, "udp") != 0) ||
+            !options.listen_address || !options.listen_port_set || !options.target_port_set ||
+            options.allowed_sources->len == 0) goto out;
+        json_object_set_string_member(params, "attachment_id", argv[2]);
+        json_object_set_string_member(params, "protocol", options.protocol);
+        json_object_set_string_member(params, "listen_address", options.listen_address);
+        json_object_set_int_member(params, "listen_port", options.listen_port);
+        json_object_set_int_member(params, "target_port", options.target_port);
+        JsonArray *sources = json_array_new();
+        for (guint i = 0; i < options.allowed_sources->len; i++)
+            json_array_add_string_element(sources, g_ptr_array_index(options.allowed_sources, i));
+        json_object_set_array_member(params, "allowed_sources", sources);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.service.publish", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.service.publish", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "service-unpublish") == 0) {
+        if (!_vpc_require_tenant(&options) || !_vpc_uuid(argv[2], "publish-id")) goto out;
+        json_object_set_string_member(params, "publish_id", argv[2]);
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.service.unpublish", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.service.unpublish", response, error, options.no_wait);
+    } else if (g_strcmp0(action, "reconcile") == 0) {
+        g_autoptr(GError) error = NULL;
+        g_autofree gchar *response = purectl_send_request(
+            "vpc.reconcile", params, &error);
+        params = NULL;
+        _vpc_mutate_response("vpc.reconcile", response, error, options.no_wait);
+    }
+
+out:
+    if (params)
+        json_object_unref(params);
+    _vpc_options_clear(&options);
+}
+
+                                                 
+                                                          
+typedef void (*CmdHandler)(int argc, char *argv[]);
+                                                                          
+typedef struct {
+    const char *object;                                     
+    const char *action;                                      
+    CmdHandler  handler;                 
+    const char *help_text;               
+} CommandRoute;
+
+  
+                                    
+  
+                                               
+                                                             
+                                            
+                                                         
+                                                                 
+                                                           
+                                     
+   
+static CommandRoute routes[] = {
+                         
+    {"vm","create",      cmd_vm_create,      "Create a new VM"},
+    {"vm","delete",      cmd_vm_delete,      "Delete a VM (interactive confirm)"},
+    {"vm","list",        cmd_vm_list,        "List all VMs"},
+    {"vm","rename",      cmd_vm_rename,      "Rename a shut off VM and standard disk path"},
+    {"vm","start",       cmd_vm_start,       "Start a VM"},
+    {"vm","stop",        cmd_vm_stop,        "Stop a VM"},
+    {"vm","pause",       cmd_vm_pause,       "Pause (suspend) a VM"},
+    {"vm","resume",      cmd_vm_resume,      "Resume a paused VM"},
+    {"vm","limit",       cmd_vm_limit,       "Set cgroup CPU/MEM limits"},
+    {"vm","set-memory",  cmd_vm_set_memory,  "Hot-set RAM (MB)"},
+    {"vm","set-vcpu",    cmd_vm_set_vcpu,    "Hot-set vCPU count"},
+    {"vm","vnc",         cmd_vm_vnc,         "Get VNC port for a running VM"},
+    {"vm","eject",       cmd_vm_eject,       "Eject ISO from virtual cdrom"},
+    {"vm","delete-status",cmd_vm_delete_status,"Check VM delete progress"},
+    {"vm","memory-stats",  cmd_vm_memory_stats,   "VM memory balloon/RSS/swap stats"},
+    {"vm","cpu-stats",     cmd_vm_cpu_stats,       "VM CPU time + per-vCPU stats"},
+    {"vm","disk-resize",   cmd_vm_disk_resize,     "Live resize VM disk"},
+    {"vm","guest-agent-status", cmd_vm_guest_agent_status, "Inspect qemu-guest-agent channel/package status"},
+    {"vm","guest-agent-ensure-channel", cmd_vm_guest_agent_ensure_channel, "Add qemu-guest-agent libvirt channel"},
+    {"vm","guest-ping",    cmd_vm_guest_ping,      "Ping guest agent"},
+    {"vm","guest-exec",    cmd_vm_guest_exec,      "Execute command via guest agent"},
+    {"vm","guest-shutdown", cmd_vm_guest_shutdown,  "Graceful shutdown via guest agent"},
+    {"vm","blkio-set",      cmd_vm_blkio_set,       "Set block I/O limits (--read_bps/--write_bps/--read_iops/--write_iops)"},
+    {"vm","blkio-get",      cmd_vm_blkio_get,       "Get block I/O limits"},
+    {"vm","bandwidth",      cmd_vm_bandwidth,       "Set VM network bandwidth (--inbound-kbps/--outbound-kbps)"},
+                      
+    {"nic","list",       cmd_nic_list,       "List NICs attached to a VM"},
+    {"nic","add",        cmd_nic_add,        "Hot-attach NIC to a VM"},
+    {"nic","remove",     cmd_nic_remove,     "Hot-detach NIC from a VM"},
+                      
+    {"iso","mount",      cmd_iso_mount,      "Mount ISO to VM cdrom"},
+    {"iso","eject",      cmd_iso_eject,      "Eject ISO from VM cdrom"},
+    {"iso","list",       cmd_iso_list,       "List available ISO files"},
+                     
+    {"node","drain",     cmd_node_drain,     "Drain node (stop accepting new RPCs)"},
+    {"node","resume",    cmd_node_resume,    "Resume node after drain"},
+    {"node","version",   cmd_node_version,   "Show daemon version"},
+                   
+    {"snapshot","create",          cmd_snapshot_create,          "Create ZFS snapshot"},
+    {"snapshot","list",            cmd_snapshot_list,            "List ZFS snapshots for a VM"},
+    {"snapshot","rollback",        cmd_snapshot_rollback,        "Rollback to a ZFS snapshot"},
+    {"snapshot","delete",          cmd_snapshot_delete,          "Delete a ZFS snapshot"},
+    {"snapshot","verify",          cmd_snapshot_verify,          "Verify ZFS snapshot exists"},
+    {"snapshot","schedule-status", cmd_snapshot_schedule_status, "Snapshot schedule status"},
+                    
+    {"monitor","metrics",   cmd_monitor_metrics,   "VM CPU/MEM usage"},
+    {"monitor","fleet",     cmd_monitor_fleet,     "Global fleet stats"},
+                    
+    {"network","create",    cmd_net_create,  "Create managed network or dedicated L2 bridge"},
+    {"network","delete",    cmd_net_delete,  "Delete bridge"},
+    {"network","list",      cmd_net_list,    "List bridges"},
+    {"network","mode",      cmd_net_mode,    "Change bridge mode (canonical)"},
+    {"network","edit",      cmd_net_edit,    "Deprecated alias for network mode"},
+    {"network","dhcp",      cmd_net_dhcp,    "Toggle DHCP (--enable/--disable)"},
+    {"network","bind",      cmd_net_bind,    "Deprecated: use network create --mode bridge"},
+                                     
+    {"vpc","list",              cmd_vpc, "List Local VPCs"},
+    {"vpc","get",               cmd_vpc, "Show one VPC aggregate"},
+    {"vpc","status",            cmd_vpc, "Show VPC health and reconcile state"},
+    {"vpc","backends",          cmd_vpc, "Show Local VPC backend readiness"},
+    {"vpc","create",            cmd_vpc, "Create a Local VPC"},
+    {"vpc","delete",            cmd_vpc, "Delete an empty Local VPC"},
+    {"vpc","egress-set",        cmd_vpc, "Change VPC egress mode"},
+    {"vpc","subnet-list",       cmd_vpc, "List VPC subnets"},
+    {"vpc","subnet-create",     cmd_vpc, "Create a VPC subnet"},
+    {"vpc","subnet-delete",     cmd_vpc, "Delete an empty VPC subnet"},
+    {"vpc","attachment-list",   cmd_vpc, "List VPC VM attachments"},
+    {"vpc","attachment-create", cmd_vpc, "Attach a shut off VM to a subnet"},
+    {"vpc","attachment-delete", cmd_vpc, "Detach a VM from a subnet"},
+    {"vpc","service-list",      cmd_vpc, "List VPC Service Publishes"},
+    {"vpc","service-publish",   cmd_vpc, "Publish an attachment service"},
+    {"vpc","service-unpublish", cmd_vpc, "Remove a Service Publish"},
+    {"vpc","reconcile",         cmd_vpc, "Reconcile desired and actual VPC state"},
+                    
+    {"storage","pool",      cmd_storage_pool,         "ZFS pool list"},
+    {"storage","pool-forecast", cmd_storage_pool_forecast, "Storage pool capacity forecast"},
+    {"storage","zvol",      cmd_storage_zvol,         "ZVOL create/delete/list"},
+                         
+    {"device","disk",       cmd_device_disk, "Live attach/detach block device"},
+                          
+    {"container","create",   cmd_container_create,   "Create LXC container"},
+    {"container","destroy",  cmd_container_destroy,  "Destroy LXC container"},
+    {"container","start",    cmd_container_start,    "Start container"},
+    {"container","stop",     cmd_container_stop,     "Stop container"},
+    {"container","list",     cmd_container_list,     "List containers"},
+    {"container","metrics",  cmd_container_metrics,  "Container resource usage"},
+    {"container","exec",     cmd_container_exec,     "Exec command in container"},
+    {"container","snapshot", cmd_container_snapshot, "Container ZFS snapshots"},
+                       
+    {"ovn","status",        cmd_ovn_status,        "OVN controller status"},
+    {"ovn","switch",        cmd_ovn_switch,        "OVN logical switch (list/create/delete)"},
+    {"ovn","router",        cmd_ovn_router,        "OVN logical router (list/create/delete)"},
+    {"ovn","nat",           cmd_ovn_nat,            "OVN NAT rules (list)"},
+    {"ovn","acl",           cmd_ovn_acl,            "OVN ACL rules (list/add)"},
+    {"ovn","dhcp",          cmd_ovn_dhcp,           "OVN DHCP (enable)"},
+                                           
+    {"dpdk",  "status",  cmd_dpdk_status,   "OVS-DPDK 상태"},
+    {"dpdk",  "bind",    cmd_dpdk_bind,     "NIC DPDK 바인딩"},
+    {"dpdk",  "unbind",  cmd_dpdk_unbind,   "NIC DPDK 해제"},
+    {"dpdk",  "list",    cmd_dpdk_list,     "DPDK 디바이스 목록"},
+    {"dpdk",  "bridge",  cmd_dpdk_bridge,   "DPDK 브릿지 create/delete"},
+    {"dpdk",  "hugepage",cmd_dpdk_hugepage, "Hugepage 현황"},
+    {"sriov", "status",  cmd_sriov_status,  "SR-IOV PF/VF 상태"},
+    {"sriov", "enable",  cmd_sriov_enable,  "SR-IOV VF 활성화"},
+    {"sriov", "disable", cmd_sriov_disable, "SR-IOV VF 비활성화"},
+    {"sriov", "list",    cmd_sriov_list,    "VF 목록"},
+    {"sriov", "set",     cmd_sriov_set,     "VF 속성 설정"},
+    {"sriov", "attach",  cmd_sriov_attach,  "VM에 VF 연결"},
+    {"sriov", "detach",  cmd_sriov_detach,  "VM에서 VF 분리"},
+                       
+    {"auth","list",         cmd_auth_list,         "List users (RBAC)"},
+    {"auth","create",       cmd_auth_create,       "Create user (RBAC)"},
+    {"auth","delete",       cmd_auth_delete,       "Delete user (RBAC)"},
+    {"auth","role",         cmd_auth_role,         "Set user role (RBAC)"},
+                      
+    {"template","list",     cmd_template_list,     "List VM templates"},
+    {"template","get",      cmd_template_get,      "Get template detail (JSON)"},
+    {"template","create",   cmd_template_create,   "Create VM template"},
+    {"template","delete",   cmd_template_delete,   "Delete VM template"},
+                     
+    {"backup","list",       cmd_backup_list,       "List backup policies"},
+    {"backup","set",        cmd_backup_set,        "Set backup policy for VM"},
+    {"backup","delete",     cmd_backup_delete,     "Delete backup policy"},
+    {"backup","history",    cmd_backup_history,    "Backup history for VM"},
+                          
+    {"alert","list",        cmd_alert_list,         "Alert history"},
+    {"alert","config",      cmd_alert_config,       "Alert config (thresholds/webhook)"},
+    {"alert","set",         cmd_alert_set,          "Set alert thresholds/webhook"},
+    {"alert","reload",      cmd_alert_reload,       "Reload alert config from daemon.conf"},
+                             
+    {"agent","config",      cmd_agent_config,       "AI Agent config"},
+    {"agent","set",         cmd_agent_set,          "Set AI provider (--provider/--api_key/--enabled)"},
+    {"agent","history",     cmd_agent_history,      "AI consensus history"},
+                                      
+    {"vm","autostart",       cmd_vm_autostart,       "Set VM autostart (--enable/--disable)"},
+    {"vm","disk-throttle",   cmd_vm_disk_throttle,   "Set disk I/O throttle (--read-iops/--write-iops)"},
+    {"vm","numa",            cmd_vm_numa_info,       "NUMA topology info"},
+    {"vm","sla",             cmd_vm_sla,             "VM SLA report"},
+    {"vm","schedule",        cmd_vm_schedule,        "VM schedule (set/list)"},
+    {"vm","security-group",  cmd_vm_secgroup,        "Assign security group to VM"},
+                                   
+    {"storage","health",     cmd_storage_health,     "Storage pool health check"},
+    {"capacity","forecast",  cmd_capacity_forecast,  "Capacity forecast"},
+    {"billing","report",     cmd_billing_report,     "VM billing report"},
+                                 
+    {"job","list",           cmd_job_list,           "List async jobs"},
+    {"vm","batch",           cmd_batch_execute,      "Batch start/stop multiple VMs"},
+    {"prometheus","sd",      cmd_prometheus_sd,      "Prometheus service discovery"},
+    {"webhook","list",       cmd_webhook_list,       "Event webhook list"},
+    {"alert","actions",      cmd_alert_actions,      "Alert action list"},
+                              
+    {"audit","search",       cmd_audit_search,       "Search audit logs (--user/--from/--to/--method/--limit)"},
+                                                    
+    {"security","status",           cmd_security,     "Security Guard status"},
+    {"security","events",           cmd_security,     "List HIDS/HIPS security events"},
+    {"security","event",            cmd_security,     "Show one HIDS/HIPS security event"},
+    {"security","pending",          cmd_security,     "List pending HIPS actions"},
+    {"security","approve",          cmd_security,     "Approve a pending HIPS action"},
+    {"security","dismiss",          cmd_security,     "Dismiss a pending HIPS action"},
+    {"security","baseline-status",  cmd_security,     "Show HIDS file baseline status"},
+    {"security","baseline-refresh", cmd_security,     "Refresh HIDS file baseline"},
+    {"security","enable",           cmd_security,     "Enable Security Guard"},
+    {"security","disable",          cmd_security,     "Disable Security Guard"},
+                                        
+    {"security-group","list",   cmd_secgroup,        "List security groups"},
+    {"security-group","create", cmd_secgroup,        "Create security group"},
+    {"security-group","delete", cmd_secgroup,        "Delete security group"},
+    {"security-group","detach", cmd_secgroup,        "Detach security group from VM"},
+    {"security-group","rule",   cmd_secgroup,        "Add security group rule"},
+                                    
+    {"webhook","dlq",        cmd_webhook_dlq,        "Webhook DLQ (list/retry)"},
+                            
+    {"gpu","metrics",        cmd_gpu_metrics,        "GPU metrics"},
+                               
+    {"config","history",     cmd_config_history,     "Config change history"},
+    {"config","backup",      cmd_config_backup,      "Backup current config"},
+    {"config","validate",    cmd_config_validate,    "Validate daemon.conf (no daemon needed)"},
+                                 
+    {"template","history",   cmd_template_history,   "Template change history"},
+                    
+    {"grpc",    "status",    cmd_grpc_status,        "gRPC 서버 상태 확인"},
+    {"grpc",    "test",      cmd_grpc_test,          "gRPC 연결 테스트"},
+                               
+    {"cloud",   "import",    cmd_cloud_import,       "Import EC2 AMI → PureCVisor VM"},
+    {"cloud",   "export",    cmd_cloud_export,       "Export PureCVisor VM → EC2 AMI"},
+    {"cloud",   "status",    cmd_cloud_status,       "Check cloud migration job status"},
+    {"cloud",   "jobs",      cmd_cloud_jobs,         "List all cloud migration jobs"},
+    {"cloud",   "cancel",    cmd_cloud_cancel,       "Cancel a running migration job"},
+    {"cloud",   "finalize",  cmd_cloud_finalize,     "Finalize near-live import (Phase 2)"},
+                                  
+    {"container","logs",           cmd_container_logs,           "Container logs (--lines N)"},
+    {"container","volume-attach",  cmd_container_volume_attach,  "Attach host volume to container"},
+    {"container","volume-detach",  cmd_container_volume_detach,  "Detach volume from container"},
+    {"container","volume-list",    cmd_container_volume_list,    "List container volumes"},
+    {"container","env-set",        cmd_container_env_set,        "Set container environment variable"},
+    {"container","env-list",       cmd_container_env_list,       "List container environment variables"},
+    {"container","env-delete",     cmd_container_env_delete,     "Delete container environment variable"},
+    {"container","health-set",     cmd_container_health_set,     "Set container health check (--type/--target)"},
+    {"container","health-get",     cmd_container_health_get,     "Get container health check config"},
+    {"container","health-check",   cmd_container_health_check,   "Run container health probe now"},
+    {"container","health-delete",  cmd_container_health_delete,  "Delete container health check"},
+    {"container","nic-list",       cmd_container_nic_list,       "List container NICs"},
+    {"container","nic-attach",     cmd_container_nic_attach,     "Attach NIC to container (--bridge)"},
+    {"container","nic-detach",     cmd_container_nic_detach,     "Detach NIC from container (--nic-name)"},
+    {"container","set-limits",     cmd_container_set_limits,     "Set container resource limits (--memory_mb/--cpu_quota)"},
+    {"container","set-bandwidth",  cmd_container_set_bandwidth,  "Set container bandwidth (--inbound/--outbound)"},
+                               
+    {"backup","restore",       cmd_backup_restore,       "Restore VM from backup snapshot"},
+    {"backup","incremental",   cmd_backup_incremental,   "Run incremental backup"},
+    {"backup","verify",        cmd_backup_verify,        "Verify backup integrity"},
+    {"backup","replicate",     cmd_backup_replicate,     "Replicate backup to remote (--target/--user)"},
+    {"backup","export-s3",     cmd_backup_export_s3,     "Export backup to S3"},
+                             
+    {"vm","clone",               cmd_vm_clone,               "Clone VM (--mode cow|full, --guest-reset or --template-prepared)"},
+    {"vm","pin-vcpu",            cmd_vm_pin_vcpu,            "Pin vCPU to cpuset (--vcpu/--cpuset)"},
+    {"vm","snapshot-delete-all", cmd_vm_snapshot_delete_all, "Bulk delete snapshots (--prefix/--keep)"},
+    {"vm","export-ova",          cmd_vm_export_ova,          "Export VM to OVA (--output-dir)"},
+    {"vm","import-ova",          cmd_vm_import_ova,          "Import VM from OVA (<ova_path> <name>)"},
+    {"vm","usb-list",            cmd_vm_usb_list,            "List USB hostdevs attached to VM"},
+    {"vm","usb-attach",          cmd_vm_usb_attach,          "Attach USB host device (<vendor_id> <product_id>)"},
+    {"vm","usb-detach",          cmd_vm_usb_detach,          "Detach USB host device (<vendor_id> <product_id>)"},
+                                    
+    {"monitor","processes",  cmd_monitor_processes,  "Top processes (--type/--top)"},
+    {"network","qos-set",    cmd_network_qos_set,    "Set network QoS (--rate-mbps)"},
+    {"network","qos-get",    cmd_network_qos_get,    "Get network QoS"},
+    {"network","qos-remove", cmd_network_qos_remove, "Remove network QoS"},
+    {"healing","history",    cmd_healing_history,     "Self-healing action history"},
+    {"gpu","list",           cmd_gpu_list,            "List GPUs (lspci)"},
+    {NULL,NULL,NULL,NULL}
+};
+
+                                                                       
+       
+                                                                          
+
+typedef struct {
+    const char *object;
+    const char *description;
+} CommandGroupInfo;
+
+                                                           
+                                                            
+static const CommandGroupInfo help_groups[] = {
+    {"vm",             "가상 머신 수명주기·자원·게스트 작업"},
+    {"nic",            "VM 네트워크 인터페이스"},
+    {"iso",            "VM 설치 미디어"},
+    {"node",           "Single Edge 노드"},
+    {"snapshot",       "VM·ZFS 스냅샷"},
+    {"monitor",        "메트릭·프로세스 관측"},
+    {"network",        "브리지·DHCP·QoS"},
+    {"vpc",            "Local VPC·서브넷·서비스 공개"},
+    {"storage",        "ZFS 풀·볼륨·상태"},
+    {"device",         "VM 장치 핫플러그"},
+    {"container",      "LXC 컨테이너"},
+    {"ovn",            "OVN 논리 네트워크"},
+    {"dpdk",           "OVS-DPDK 가속"},
+    {"sriov",          "SR-IOV 장치"},
+    {"auth",           "사용자·RBAC"},
+    {"template",       "VM 템플릿"},
+    {"backup",         "백업 정책·복구"},
+    {"alert",          "알림·임계값"},
+    {"agent",          "AI Agent"},
+    {"capacity",       "용량 예측"},
+    {"billing",        "사용량·비용 리포트"},
+    {"job",            "비동기 작업"},
+    {"prometheus",     "Prometheus 서비스 디스커버리"},
+    {"webhook",        "이벤트 전달·DLQ"},
+    {"audit",          "감사 로그"},
+    {"security",       "HIDS/HIPS Security Guard"},
+    {"security-group", "VM 보안 그룹"},
+    {"gpu",            "GPU 상태·메트릭"},
+    {"config",         "설정 이력·검증"},
+    {"grpc",           "gRPC 상태·연결"},
+    {"cloud",          "클라우드 마이그레이션"},
+    {"healing",        "자가 치유 이력"},
+    {NULL, NULL}
+};
+
+static const char *
+_help_group_description(const char *object)
+{
+    for (int i = 0; help_groups[i].object != NULL; i++) {
+        if (g_strcmp0(object, help_groups[i].object) == 0)
+            return help_groups[i].description;
+    }
+    return object;
+}
+
+static const char *
+_help_find_object(const char *candidate)
+{
+    if (!candidate)
+        return NULL;
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (g_ascii_strcasecmp(candidate, routes[i].object) == 0)
+            return routes[i].object;
+    }
+    return NULL;
+}
+
+static gboolean
+_help_is_first_object_route(int route_index)
+{
+    for (int i = 0; i < route_index; i++) {
+        if (g_strcmp0(routes[i].object, routes[route_index].object) == 0)
+            return FALSE;
+    }
+    return TRUE;
+}
+
+static guint
+_help_object_count(const char *object)
+{
+    guint count = 0;
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (g_strcmp0(routes[i].object, object) == 0)
+            count++;
+    }
+    return count;
+}
+
+static guint
+_help_group_count(void)
+{
+    guint count = 0;
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (_help_is_first_object_route(i))
+            count++;
+    }
+    return count;
+}
+
+static gboolean
+_help_route_matches(const CommandRoute *route, const char *query)
+{
+    g_autofree gchar *needle = g_ascii_strdown(query, -1);
+    g_autofree gchar *object = g_ascii_strdown(route->object, -1);
+    g_autofree gchar *action = g_ascii_strdown(route->action, -1);
+    g_autofree gchar *description = g_ascii_strdown(route->help_text, -1);
+    return strstr(object, needle) || strstr(action, needle) ||
+           strstr(description, needle);
+}
+
+static gsize
+_help_command_width(const char *object, const char *query)
+{
+    gsize width = strlen("COMMAND");
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (object && g_strcmp0(routes[i].object, object) != 0)
+            continue;
+        if (query && !_help_route_matches(&routes[i], query))
+            continue;
+        g_autofree gchar *command = g_strdup_printf(
+            "pcvctl %s %s", routes[i].object, routes[i].action);
+        width = MAX(width, strlen(command));
+    }
+    return width;
+}
+
+                                                             
+                                                          
+static void
+_help_print_command_row(const CommandRoute *route, gsize command_width)
+{
+    g_autofree gchar *command = g_strdup_printf(
+        "pcvctl %s %s", route->object, route->action);
+    g_auto(GStrv) words = g_strsplit(route->help_text, " ", -1);
+    GString *line = g_string_new(NULL);
+    gsize prefix_width = 2 + command_width + 3;
+    gsize description_width = prefix_width < 68 ? 96 - prefix_width : 28;
+    gboolean first = TRUE;
+
+    for (guint i = 0; words[i] != NULL; i++) {
+        gsize word_width = (gsize)g_utf8_strlen(words[i], -1);
+        gsize line_width = (gsize)g_utf8_strlen(line->str, -1);
+        if (line->len > 0 && line_width + 1 + word_width > description_width) {
+            printf("  %s%-*s%s │ %s%s%s\n",
+                   cc(CYBER_YELLOW), (int)command_width,
+                   first ? command : "", cc(CYBER_RESET),
+                   cc(CYBER_DIM), line->str, cc(CYBER_RESET));
+            first = FALSE;
+            g_string_truncate(line, 0);
+        }
+        if (line->len > 0)
+            g_string_append_c(line, ' ');
+        g_string_append(line, words[i]);
+    }
+    printf("  %s%-*s%s │ %s%s%s\n",
+           cc(CYBER_YELLOW), (int)command_width,
+           first ? command : "", cc(CYBER_RESET),
+           cc(CYBER_DIM), line->str, cc(CYBER_RESET));
+    g_string_free(line, TRUE);
+}
+
+static void
+_help_print_detail_header(const char *title, guint count, gsize command_width)
+{
+    printf("\n%s%s 명령%s (%u개)\n", cc(CYBER_BOLD), title,
+           cc(CYBER_RESET), count);
+    printf("  %-*s │ DESCRIPTION\n", (int)command_width, "COMMAND");
+    printf("  ──────────────────────────────────────────────────────────────────────────────────────────────\n");
+}
+
+static void
+_help_print_object(const char *object)
+{
+    guint count = _help_object_count(object);
+    gsize command_width = _help_command_width(object, NULL);
+    _help_print_detail_header(object, count, command_width);
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (g_strcmp0(routes[i].object, object) == 0)
+            _help_print_command_row(&routes[i], command_width);
+    }
+}
+
+static void
+_help_print_global_options(void)
+{
+    printf("\n%s전역 옵션%s\n", cc(CYBER_BOLD), cc(CYBER_RESET));
+    printf("  %-34s %s\n", "--format=table|json|plain|csv", "출력 포맷 (기본: table)");
+    printf("  %-34s UDS 소켓 (기본: %s)\n", "--socket=<path>", DAEMON_SOCK_PATH);
+    printf("  %-34s %s\n", "--no-color", "ANSI 컬러 비활성");
+    printf("  %-34s %s\n", "--verbose, -v", "RPC 페이로드 출력");
+    printf("  %-34s %s\n", "--interactive, -i", "대화형 셸 진입");
+    printf("  %-34s %s\n", "--batch", "stdin 파이프라인 모드");
+    printf("  %-34s %s\n", "--version", "버전 출력");
+}
+
+static void
+_help_print_group_summary(void)
+{
+    printf("\n%s명령 그룹 (%u개)%s\n", cc(CYBER_CYAN),
+           _help_group_count(), cc(CYBER_RESET));
+    printf("  GROUP              COUNT  PURPOSE\n");
+    printf("  ────────────────────────────────────────────────────────────────────────────────\n");
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (!_help_is_first_object_route(i))
+            continue;
+        printf("  %s%-18s%s %5u  %s\n",
+               cc(CYBER_YELLOW), routes[i].object, cc(CYBER_RESET),
+               _help_object_count(routes[i].object),
+               _help_group_description(routes[i].object));
+    }
+    printf("\n  상세: %spcvctl help <그룹>%s   전체: %spcvctl help all%s\n",
+           cc(CYBER_YELLOW), cc(CYBER_RESET),
+           cc(CYBER_YELLOW), cc(CYBER_RESET));
+}
+
+   
+                                                    
+                                                    
+                                                                    
+                                                                 
+                                             
+   
+void print_help(const char *filter) {
+    const char *object = _help_find_object(filter);
+
+    if (!filter) {
+        print_cyber_banner();
+        printf("%s사용%s\n", cc(CYBER_BOLD), cc(CYBER_RESET));
+        printf("  pcvctl [전역 옵션] <그룹> <동작> [인수...]\n");
+        printf("  pcvctl help <그룹|all|검색어>\n");
+        printf("\n%s빠른 시작%s\n", cc(CYBER_BOLD), cc(CYBER_RESET));
+        printf("  %-34s %s\n", "pcvctl help vpc", "VPC 명령만 보기");
+        printf("  %-34s %s\n", "pcvctl vpc status", "Local VPC 상태 확인");
+        printf("  %-34s %s\n", "pcvctl -i", "대화형 셸 시작");
+        _help_print_global_options();
+        _help_print_group_summary();
+        return;
+    }
+
+    printf("%s사용:%s pcvctl [전역 옵션] <그룹> <동작> [인수...]\n",
+           cc(CYBER_BOLD), cc(CYBER_RESET));
+    if (object) {
+        _help_print_object(object);
+        printf("\n  다른 그룹: %spcvctl help <그룹>%s   전체: %spcvctl help all%s\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET),
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    if (g_ascii_strcasecmp(filter, "all") == 0) {
+        printf("\n%s전체 명령%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+        for (int i = 0; routes[i].object != NULL; i++) {
+            if (_help_is_first_object_route(i))
+                _help_print_object(routes[i].object);
+        }
+        return;
+    }
+
+    guint matches = 0;
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (_help_route_matches(&routes[i], filter))
+            matches++;
+    }
+    printf("\n%s검색 결과: %s%s (%u개)\n", cc(CYBER_CYAN), filter,
+           cc(CYBER_RESET), matches);
+    if (matches == 0) {
+        printf("  일치하는 명령이 없습니다. 그룹 목록은 %spcvctl help%s로 확인하세요.\n",
+               cc(CYBER_YELLOW), cc(CYBER_RESET));
+        return;
+    }
+    gsize command_width = _help_command_width(NULL, filter);
+    printf("  %-*s │ DESCRIPTION\n", (int)command_width, "COMMAND");
+    printf("  ──────────────────────────────────────────────────────────────────────────────────────────────\n");
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (_help_route_matches(&routes[i], filter))
+            _help_print_command_row(&routes[i], command_width);
+    }
+}
+
+                                                                       
+                               
+                                                                          
+
+   
+                                                      
+  
+                                                              
+                                                               
+                                           
+  
+                                                          
+                     
+  
+                           
+                                      
+                                  
+                                                            
+                                
+  
+                                                    
+                                                 
+                                                   
+                  
+   
+static int route_exec(int argc, char **argv) {
+    if (argc < 1) { print_help(NULL); return 0; }                   
+
+                                                
+    if (g_strcmp0(argv[0],"help") == 0) {
+        print_help(argc > 1 ? argv[1] : NULL);
+        return 0;
+    }
+    if (g_strcmp0(argv[0],"version") == 0) {
+        printf("pcvctl %s\n", PCVCTL_VERSION);
+        return 0;
+    }
+                             
+    if (g_strcmp0(argv[0],"format") == 0 && argc > 1) {
+        if      (g_strcmp0(argv[1],"json")  == 0) g_ctx.fmt = FMT_JSON;
+        else if (g_strcmp0(argv[1],"plain") == 0) g_ctx.fmt = FMT_PLAIN;
+        else if (g_strcmp0(argv[1],"csv")   == 0) g_ctx.fmt = FMT_CSV;
+        else if (g_strcmp0(argv[1],"table") == 0) g_ctx.fmt = FMT_TABLE;
+        else {
+            g_printerr("%s[!] Invalid format: %s (table|json|plain|csv)%s\n",
+                ce(CYBER_RED), argv[1], ce(CYBER_RESET));
+            return PCV_CLI_EXIT_USAGE;
+        }
+        if (g_ctx.fmt == FMT_TABLE)
+            printf("%sformat → table%s\n", cc(CYBER_CYAN), cc(CYBER_RESET));
+        else
+            printf("format → %s\n", argv[1]);
+        return 0;
+    }
+    if (g_strcmp0(argv[0],"clear") == 0) { printf("\033[2J\033[H"); return 0; }                   
+
+                                                                      
+                                                           
+                                      
+    const char *help_object = _help_find_object(argv[0]);
+    if (help_object && (argc == 1 ||
+        (argc == 2 && (g_strcmp0(argv[1], "--help") == 0 ||
+                       g_strcmp0(argv[1], "-h") == 0 ||
+                       g_strcmp0(argv[1], "help") == 0)))) {
+        print_help(help_object);
+        return 0;
+    }
+
+                                                            
+    if (argc < 2) {
+        g_printerr("%s[!] UNKNOWN COMMAND: %s%s\n",
+            ce(CYBER_RED), argv[0], ce(CYBER_RESET));
+        print_help(argv[0]);
+        return PCV_CLI_EXIT_USAGE;
+    }
+
+                                                             
+    for (int i = 0; routes[i].object != NULL; i++) {
+        if (g_strcmp0(argv[0], routes[i].object) == 0 &&
+            g_strcmp0(argv[1], routes[i].action) == 0) {
+                                                                      
+            pcv_cli_command_begin();
+            routes[i].handler(argc, argv);
+            return pcv_cli_command_status();
+        }
+    }
+                                                   
+    g_printerr("%s[!] UNKNOWN COMMAND: %s %s%s\n",
+        ce(CYBER_RED), argv[0], argv[1], ce(CYBER_RESET));
+    print_help(argv[0]);
+    return PCV_CLI_EXIT_USAGE;
+}
+
+                                                                       
+                                  
+                                                                          
+
+#ifdef HAVE_READLINE
+                                     
+                                                       
+                                                                       
+static char **g_completions = NULL;                                             
+static int    g_comp_count  = 0;                          
+
+   
+                                                       
+                                                                    
+                                                 
+                                                       
+   
+static void build_completions(void) {
+                                        
+    GPtrArray *arr = g_ptr_array_new();
+    for (int i = 0; routes[i].object != NULL; i++) {
+        g_ptr_array_add(arr,
+            g_strdup_printf("%s %s", routes[i].object, routes[i].action));
+                                                          
+        bool dup = false;
+        for (guint j = 0; j < arr->len - 1; j++) {
+            if (g_str_equal((char *)g_ptr_array_index(arr,j), routes[i].object)) {
+                dup = true; break;
+            }
+        }
+        if (!dup) g_ptr_array_insert(arr, 0, g_strdup(routes[i].object));
+    }
+    const char *builtins[] = {"help","version","format","clear","exit","quit",NULL};
+    for (int i = 0; builtins[i]; i++)
+        g_ptr_array_add(arr, g_strdup(builtins[i]));
+    g_ptr_array_add(arr, NULL);
+
+    g_completions = (char **)g_ptr_array_free(arr, FALSE);
+    g_comp_count  = 0;
+    for (int i = 0; g_completions[i]; i++) g_comp_count++;
+}
+
+   
+                                                        
+                                                   
+                                               
+                                                          
+   
+static char *_rl_generator(const char *text, int state) {
+    static int idx;                                        
+    if (!state) idx = 0;                                       
+    size_t len = strlen(text);
+                                                  
+    while (idx < g_comp_count) {
+        const char *c = g_completions[idx++];
+        if (strncmp(c, text, len) == 0) return g_strdup(c);
+    }
+    return NULL;
+}
+
+                                                                      
+                                                              
+static char **_rl_completion(const char *text, int start __attribute__((unused)),
+                              int end __attribute__((unused))) {
+    rl_attempted_completion_over = 1;                         
+    return rl_completion_matches(text, _rl_generator);
+}
+#endif                    
+
+   
+                                                         
+  
+                                                   
+                                               
+                                   
+  
+                                             
+  
+         
+                                                          
+                                      
+                                     
+                                               
+                                          
+  
+                                                           
+                          
+  
+                        
+   
+static int repl_run(void) {
+    g_ctx.interactive = true;
+    if (g_ctx.fmt == FMT_TABLE) {
+        print_cyber_banner();
+#ifdef HAVE_READLINE
+        printf("%s  도움말: help │ 종료: exit │ 자동완성: Tab%s\n\n",
+               cc(CYBER_DIM), cc(CYBER_RESET));
+#else
+        printf("%s  도움말: help │ 종료: exit%s\n\n",
+               cc(CYBER_DIM), cc(CYBER_RESET));
+#endif
+    }
+
+#ifdef HAVE_READLINE
+    build_completions();
+    rl_attempted_completion_function = _rl_completion;
+    rl_bind_key('\t', rl_complete);
+
+    char *hist_path = g_strdup_printf("%s/.pcvctl_history", g_get_home_dir());
+    read_history(hist_path);
+
+    char *prompt = g_strdup_printf("%s(pcv)%s %s❯%s ",
+        cc(CYBER_CYAN), cc(CYBER_RESET), cc(CYBER_GREEN), cc(CYBER_RESET));
+    char *line;
+    while ((line = readline(prompt)) != NULL) {                                 
+        g_strstrip(line);                                        
+        if (!*line) { free(line); continue; }                   
+        if (g_strcmp0(line,"exit") == 0 || g_strcmp0(line,"quit") == 0) {
+            free(line); break;
+        }
+        add_history(line);                                      
+
+                                                                   
+                                                
+        wordexp_t we = {0};
+        if (wordexp(line, &we, WRDE_NOCMD | WRDE_UNDEF) == 0 && we.we_wordc > 0) {
+                                                               
+                                                                     
+            char **av = g_new0(char *, we.we_wordc + 2);
+            av[0] = g_strdup("pcvctl");
+            for (size_t i = 0; i < we.we_wordc; i++)
+                av[i + 1] = g_strdup(we.we_wordv[i]);
+            route_exec((int)we.we_wordc, av + 1);
+            g_strfreev(av);                       
+            wordfree(&we);                             
+        }
+        free(line);                                            
+    }
+    g_free(prompt);
+    write_history(hist_path);
+    g_free(hist_path);
+    if (g_completions) { g_strfreev(g_completions); g_completions = NULL; }
+    printf("\n%s[ NEURAL LINK SEVERED ]%s\n", cc(CYBER_DIM), cc(CYBER_RESET));
+#else
+                                     
+    char buf[4096];
+    while (1) {
+        fprintf(stderr, "(pcv) ❯ ");
+        fflush(stderr);
+        if (!fgets(buf, sizeof(buf), stdin)) break;
+        buf[strcspn(buf, "\r\n")] = '\0';
+        if (g_strcmp0(buf,"exit")==0 || g_strcmp0(buf,"quit")==0) break;
+
+        wordexp_t we;
+        if (wordexp(buf, &we, WRDE_NOCMD | WRDE_UNDEF) == 0 && we.we_wordc > 0) {
+            char **av = g_new0(char *, we.we_wordc + 2);
+            av[0] = g_strdup("pcvctl");
+            for (size_t i = 0; i < we.we_wordc; i++)
+                av[i+1] = g_strdup(we.we_wordv[i]);
+            route_exec((int)we.we_wordc, av + 1);
+            g_strfreev(av);
+            wordfree(&we);
+        }
+    }
+#endif
+    return 0;
+}
+
+                                                                       
+                          
+                                                                       
+  
+                              
+               
+             
+                   
+                   
+  
+            
+                                                                       
+                                                            
+   
+   
+                                              
+                                               
+                                         
+                                                          
+   
+static int batch_run(void) {
+    g_ctx.batch = true;
+                                                                
+    if (g_ctx.fmt == FMT_TABLE) g_ctx.fmt = FMT_PLAIN;
+
+    char buf[4096];
+    int  lineno   = 0;                    
+    int  total_rc = 0;                                    
+
+    while (fgets(buf, sizeof(buf), stdin)) {
+        lineno++;
+        buf[strcspn(buf, "\r\n")] = '\0';              
+        g_strstrip(buf);
+        if (!*buf || buf[0] == '#') continue;                    
+
+        if (g_ctx.verbose)
+            g_printerr("%s[batch:%d]%s %s\n",
+                ce(CYBER_DIM), lineno, ce(CYBER_RESET), buf);
+
+                                                          
+        wordexp_t we = {0};
+        int rc = 0;
+        int wordexp_rc = wordexp(buf, &we, WRDE_NOCMD | WRDE_UNDEF);
+        if (wordexp_rc == 0 && we.we_wordc > 0) {
+            char **av = g_new0(char *, we.we_wordc + 2);
+            av[0] = g_strdup("pcvctl");
+            for (size_t i = 0; i < we.we_wordc; i++)
+                av[i+1] = g_strdup(we.we_wordv[i]);
+            rc = route_exec((int)we.we_wordc, av + 1);
+            g_strfreev(av);
+            wordfree(&we);
+        } else {
+                                                         
+            if (wordexp_rc == 0 || wordexp_rc == WRDE_NOSPACE) wordfree(&we);
+            rc = PCV_CLI_EXIT_USAGE;
+        }
+                                                                
+        if (rc != 0) {
+            g_printerr("%s[ERR line %d]%s %s\n",
+                ce(CYBER_RED), lineno, ce(CYBER_RESET), buf);
+            total_rc = rc;
+        }
+    }
+    return total_rc;
+}
+
+                                                                       
+       
+                                                                          
+
+   
+                        
+  
+                                                           
+                                                 
+                                      
+  
+             
+                                        
+                                                           
+                                                     
+                                        
+                                                          
+                                              
+  
+                      
+                                            
+                                                   
+                                                
+                                                      
+                                                 
+                                               
+  
+                                              
+                                                          
+   
+int main(int argc, char *argv[]) {
+                                                            
+                                             
+                                                  
+    int cmd_start = 1;                         
+
+    for (int i = 1; i < argc; i++) {
+        const char *a = argv[i];
+
+        if (g_strcmp0(a,"--version") == 0) {
+            printf("pcvctl %s (%s)\n", PCVCTL_VERSION,
+                "Single Edge"
+            );
+#ifdef HAVE_READLINE
+            printf("readline: enabled\n");
+#else
+            printf("readline: disabled\n");
+#endif
+            return EXIT_SUCCESS;
+        }
+        if (g_strcmp0(a,"--help") == 0 || g_strcmp0(a,"-h") == 0) {
+            print_help(NULL); return EXIT_SUCCESS;
+        }
+        if (g_strcmp0(a,"--interactive") == 0 || g_strcmp0(a,"-i") == 0) {
+            g_ctx.interactive = true; cmd_start = i + 1; continue;
+        }
+        if (g_strcmp0(a,"--batch") == 0) {
+            g_ctx.batch = true; cmd_start = i + 1; continue;
+        }
+        if (g_strcmp0(a,"--no-color") == 0) {
+            g_ctx.no_color = true; cmd_start = i + 1; continue;
+        }
+        if (g_strcmp0(a,"--verbose") == 0 || g_strcmp0(a,"-v") == 0) {
+            g_ctx.verbose = true; cmd_start = i + 1; continue;
+        }
+        if (g_str_has_prefix(a,"--format=")) {
+            const char *f = a + strlen("--format=");
+            if      (g_strcmp0(f,"json")  == 0) g_ctx.fmt = FMT_JSON;
+            else if (g_strcmp0(f,"plain") == 0) g_ctx.fmt = FMT_PLAIN;
+            else if (g_strcmp0(f,"csv")   == 0) g_ctx.fmt = FMT_CSV;
+            else if (g_strcmp0(f,"table") == 0) g_ctx.fmt = FMT_TABLE;
+            else {
+                g_printerr("%s[!] Invalid --format value: %s (table|json|plain|csv)%s\n",
+                    ce(CYBER_RED), f, ce(CYBER_RESET));
+                return PCV_CLI_EXIT_USAGE;
+            }
+            cmd_start = i + 1; continue;
+        }
+        if (g_str_has_prefix(a,"--socket=")) {
+            const char *socket_path = a + strlen("--socket=");
+            if (!*socket_path) {
+                g_printerr("%s[!] --socket requires a non-empty path%s\n",
+                    ce(CYBER_RED), ce(CYBER_RESET));
+                return PCV_CLI_EXIT_USAGE;
+            }
+            g_ctx.socket_path = socket_path;
+            cmd_start = i + 1; continue;
+        }
+                                              
+        cmd_start = i;
+        break;
+    }
+
+                                                   
+    if (!isatty(STDIN_FILENO) && !g_ctx.interactive && cmd_start >= argc)
+        g_ctx.batch = true;
+
+                                                                   
+    if (g_ctx.interactive) return repl_run();                        
+    if (g_ctx.batch)       return batch_run();                         
+
+                                                    
+    if (cmd_start >= argc) {
+        if (isatty(STDIN_FILENO)) return repl_run();
+        print_help(NULL);
+        return EXIT_FAILURE;
+    }
+
+                                                                 
+                                                           
+                                             
+                                                                   
+    return route_exec(argc - cmd_start, argv + cmd_start);
+}

@@ -1,0 +1,92 @@
+# r.error 미검사 호출부 기준선 (2026-08-06, 설계 §8.2) — 단조감소 래칫.
+#
+# 형식: <파일>|<HTTP VERB>|<엔드포인트>#<파일 내 출현 순번>
+# 라인 번호를 키로 쓰지 않는다 — UI 파일은 편집이 잦아 무관한 편집마다 대량
+# 오탐이 난다. 현재 라인 번호는 게이트 출력에서 확인한다.
+#
+# 이 명단 밖의 신규 미검사 호출부만 FAIL. 시정하면 이 명단에서 제거한다
+# (추가는 부채 증가다). 생성: python3 scripts/check_rerror_guard.py --generate
+# 항목 바로 위 주석은 재생성해도 보존된다(빈 줄이 블록을 끊는다).
+
+# ═══ Tier B (조회) ═══ 실패가 '데이터 없음'이라는 거짓 빈 상태로 보인다. 당장
+# 위험하진 않으나 장애를 숨기고 디버깅을 어렵게 한다. 접점을 고칠 때 함께 걷어낸다.
+
+ui/app.js|GET|/alerts/dlq#1
+ui/app.js|GET|/auth/whoami#1
+ui/app.js|GET|/gpu/list#1
+ui/app.js|GET|/vms#1
+ui/app.js|GET|/vms#2
+ui/app.js|GET|EP.OVN_ACL#1
+ui/app.js|GET|url#1
+ui/app.js|POST|/rpc:alert.dlq.list#1
+ui/modules/accounts.js|GET|/auth/whoami#1
+ui/modules/accounts.js|GET|API_BASE + endpoints[i]#1
+ui/modules/accounts.js|GET|API_BASE + ep#1
+ui/modules/accounts.js|GET|EP.AGENT_CONFIG#1
+ui/modules/accounts.js|GET|EP.AGENT_HISTORY#1
+ui/modules/accounts.js|GET|EP.AUTH_APIKEY_LIST#1
+ui/modules/accounts.js|GET|EP.HEALTH#1
+ui/modules/advanced.js|GET|EP.CONFIG_HISTORY#1
+ui/modules/advanced.js|GET|EP.CONFIG_HISTORY#2
+ui/modules/advanced.js|GET|EP.DB_MIGRATION#1
+ui/modules/advanced.js|GET|EP.HEALTH_DEEP#1
+ui/modules/advanced.js|GET|EP.JOBS_PERSIST#1
+ui/modules/advanced.js|GET|EP.TEMPLATE#1
+ui/modules/advanced.js|GET|EP.TEMPLATES#1
+ui/modules/advanced.js|GET|EP.TEMPLATE_HISTORY#1
+ui/modules/cloud.js|GET|EP.CLOUD_JOBS#1
+ui/modules/container.js|GET|EP.CTR_HEALTH#1
+ui/modules/container.js|GET|EP.CTR_LIST#1
+ui/modules/container.js|GET|EP.CTR_LIST#2
+ui/modules/container.js|GET|EP.CTR_LIST#3
+ui/modules/container.js|GET|EP.CTR_MEMORY_STATS#1
+ui/modules/container.js|GET|EP.CTR_METRICS#1
+ui/modules/container.js|GET|EP.CTR_NICS#1
+ui/modules/container.js|GET|EP.CTR_SNAPSHOTS#1
+ui/modules/container.js|GET|EP.NET_LIST#1
+ui/modules/mobile.js|GET|EP.ALERTS#1
+ui/modules/mobile.js|GET|EP.ALERTS#2
+ui/modules/mobile.js|GET|EP.ALERTS#3
+ui/modules/mobile.js|GET|EP.CTR_LIST#1
+ui/modules/mobile.js|GET|EP.CTR_LIST#2
+ui/modules/mobile.js|GET|EP.VM_LIST#1
+ui/modules/mobile.js|GET|EP.VM_LIST#2
+ui/modules/monitor.js|GET|EP.ALERT_SILENCE_LIST#1
+ui/modules/monitor.js|GET|EP.DPDK_STATUS#1
+ui/modules/monitor.js|GET|EP.POOL_CONNINFO#1
+ui/modules/monitor.js|GET|EP.SRIOV_STATUS#1
+ui/modules/monitor.js|POST|EP.RPC:gpu.list#1
+ui/modules/monitor.js|POST|EP.RPC:healing.history#1
+ui/modules/network.js|GET|EP.NET_LIST#1
+ui/modules/network.js|GET|EP.OVERLAY_LIST#1
+ui/modules/network.js|GET|EP.OVN_ACL#1
+ui/modules/network.js|GET|EP.OVN_ROUTERS#1
+ui/modules/network.js|GET|EP.OVN_STATUS#1
+ui/modules/network.js|GET|EP.OVN_SWITCHES#1
+ui/modules/network.js|POST|EP.RPC:security_group.list#1
+ui/modules/storage.js|GET|EP.CONFIG_DAEMON#1
+ui/modules/storage.js|GET|EP.ISCSI_TARGETS#1
+ui/modules/storage.js|POST|EP.RPC:backup.history#1
+ui/modules/storage.js|POST|EP.RPC:backup.policy.list#1
+ui/modules/storage.js|POST|EP.RPC:storage.pool.forecast#1
+ui/modules/vm-console.js|GET|EP.VM_DETAIL#1
+ui/modules/vm-console.js|GET|EP.VM_DETAIL#2
+ui/modules/vm-console.js|GET|EP.VM_SNAPSHOT_LIST#1
+ui/modules/vm-console.js|GET|EP.VM_SNAPSHOT_LIST#2
+ui/modules/vm-console.js|GET|EP.VNC#1
+ui/modules/vm-guest.js|GET|EP.VM_GUEST_AGENT#1
+ui/modules/vm-guest.js|POST|EP.VM_RPC:vm.cpu.stats#1
+ui/modules/vm-guest.js|POST|EP.VM_RPC:vm.memory.stats#1
+ui/modules/vm-lifecycle.js|GET|/api/v1/health/recent-errors#1
+ui/modules/vm-lifecycle.js|GET|EP.BACKUP_POLICIES#1
+ui/modules/vm-lifecycle.js|GET|EP.ISO_LIST#1
+ui/modules/vm-lifecycle.js|GET|EP.ISO_LIST#2
+ui/modules/vm-lifecycle.js|GET|EP.NET_LIST#1
+ui/modules/vm-lifecycle.js|GET|EP.VM_DELETE_STATUS#1
+ui/modules/vm-lifecycle.js|GET|EP.VM_DETAIL#1
+ui/modules/vm-lifecycle.js|GET|EP.VM_LIST#1
+ui/modules/vm-lifecycle.js|GET|EP.VM_LIST#2
+ui/modules/vm-lifecycle.js|GET|EP.VM_LIST#3
+ui/modules/vm-lifecycle.js|GET|EP.VM_NICS#1
+ui/modules/vm-lifecycle.js|GET|EP.VM_NICS#2
+ui/modules/vm-lifecycle.js|GET|EP.VNC#1

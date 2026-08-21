@@ -1,0 +1,53 @@
+{
+  "name": "PureCVisor — KVM Hypervisor",
+  "short_name": "PureCVisor",
+  "description": "KVM Hypervisor Orchestrator with VM/Container management, monitoring, and cloud migration",
+  "id": "/ui/",
+  "start_url": "/ui/",
+  "scope": "/ui/",
+  "display": "standalone",
+  "display_override": ["window-controls-overlay", "standalone", "minimal-ui"],
+  "orientation": "any",
+  "background_color": "#05050a",
+  "theme_color": "#00f0ff",
+  "lang": "ko",
+  "dir": "ltr",
+  "categories": ["productivity", "utilities", "developer"],
+  "icons": [
+    { "src": "/ui/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "any" },
+    { "src": "/ui/icon-192.png", "sizes": "192x192", "type": "image/png", "purpose": "maskable" },
+    { "src": "/ui/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "any" },
+    { "src": "/ui/icon-512.png", "sizes": "512x512", "type": "image/png", "purpose": "maskable" }
+  ],
+  "shortcuts": [
+    {
+      "name": "VM Library",
+      "short_name": "VMs",
+      "description": "Browse and manage virtual machines",
+      "url": "/ui/#vms",
+      "icons": [{ "src": "/ui/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Monitor Overview",
+      "short_name": "Monitor",
+      "description": "Cluster monitoring dashboard",
+      "url": "/ui/#mon-overview",
+      "icons": [{ "src": "/ui/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Containers",
+      "short_name": "LXC",
+      "description": "LXC container management",
+      "url": "/ui/#containers",
+      "icons": [{ "src": "/ui/icon-192.png", "sizes": "192x192" }]
+    },
+    {
+      "name": "Alerts",
+      "short_name": "Alerts",
+      "description": "View active alerts and history",
+      "url": "/ui/#mon-alerts",
+      "icons": [{ "src": "/ui/icon-192.png", "sizes": "192x192" }]
+    }
+  ],
+  "prefer_related_applications": false
+}

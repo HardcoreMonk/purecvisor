@@ -1,0 +1,29 @@
+# check_fe_rpc_params 가 정적으로 커버하지 못한 호출 대상 명단(단조감소 래칫).
+# EP_TO_RPC 매핑을 추가하거나 호출부·핸들러를 정적 추출 가능한 형태로 바꾸면
+# 이 명단에서 제거한다. 총량은 줄어들기만 해야 한다(증가 시 게이트 FAIL).
+#
+# 형식: <호출대상>  # <커버 못 하는 이유>
+#   EP.NAME[VERB] — REST 본문 호출, NAME 은 ui/modules/endpoints.js 레지스트리 키
+#   a.b.c         — 직접 JSON-RPC 호출의 메서드명
+# 사유는 손으로 적는다. --generate 는 살아남은 항목의 사유를 그대로 옮겨 적는다.
+EP.AUTH_APIKEY_REVOKE[POST]      # REST 가 본문 폐기, client_name 은 경로 세그먼트 (rest_server.c:4643)
+EP.AUTH_TOTP_DISABLE[POST]       # 핸들러 auth.totp.disable 가 params 를 _totp_self_scope_resolve 로 통째 전달 (handler_auth.c)
+EP.AUTH_TOTP_ENROLL[POST]        # REST-native 핸들러 — 대응 dispatcher RPC 없음 (rest_server.c:3722)
+EP.AUTH_TOTP_RECOVERY[POST]      # 핸들러 auth.totp.recovery.regenerate 가 params 를 _totp_self_scope_resolve 로 통째 전달 (handler_auth.c)
+EP.AUTH_TOTP_VERIFY[POST]        # REST-native 핸들러 — 대응 dispatcher RPC 없음 (rest_server.c:3512)
+EP.CONFIG_RELOAD[POST]           # REST 가 params=NULL 로 호출 — 본문이 백엔드에 닿지 않는다 (rest_server.c:4664)
+EP.CTR_EXEC[POST]                # REST 가 본문 command 를 cmd 로 개명해 전달 (rest_server.c:4036)
+EP.CTR_START[POST]               # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:4027)
+EP.CTR_STOP[POST]                # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:4029)
+EP.VM_ACTION[POST]               # 경로 마지막 세그먼트가 런타임 변수(a) — RPC 를 정적 결정 불가
+EP.VM_ACTION[PUT]                # 위와 동일
+EP.VM_EXPORT[POST]               # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:3906)
+EP.VM_GUEST_AGENT_CHANNEL[POST]  # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:3963)
+EP.VM_GUEST_PING[POST]           # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:3955)
+EP.VM_GUEST_SHUTDOWN[POST]       # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:3967)
+EP.VM_RENAME[PUT]                # REST 가 본문 new_name 만 새 객체로 옮겨 담음 (rest_server.c:3846)
+EP.VM_SNAPSHOT_CREATE[POST]      # REST 가 본문 snapshot_name|snap_name 을 snapshot_name 으로 옮겨 담음 (rest_server.c:3690)
+EP.VM_SNAPSHOT_ROLLBACK[POST]    # REST 가 본문 snapshot_name|snap_name 을 snapshot_name 으로 옮겨 담음 (rest_server.c:3706)
+EP.VM_STOP[POST]                 # _build_rpc_name — 이름만 넘기고 본문 폐기 (rest_server.c:3666)
+EP.WEBHOOK_DLQ_RETRY[POST]       # REST 가 params=NULL 로 호출 — 본문이 백엔드에 닿지 않는다 (rest_server.c:4350)
+security_group.rule.add          # 핸들러가 params 를 pcv_security_group_rule_add(sg_name, params) 로 통째 전달 (dispatcher.c)

@@ -1,0 +1,97 @@
+#!/bin/sh
+                          
+                                                                   
+                                                               
+                                                            
+                                                 
+ 
+                      
+                                                        
+                                                           
+                                                                         
+ 
+                                                              
+                                                  
+                                                            
+                                                         
+                                                          
+ 
+                                                           
+                                                      
+                                                          
+                           
+set -e
+APROF=/etc/apparmor.d/usr.local.bin.purecvisorsd
+FCDIR=/etc/apparmor.d/force-complain
+FCLINK="$FCDIR/usr.local.bin.purecvisorsd"
+DISDIR=/etc/apparmor.d/disable
+DISLINK="$DISDIR/usr.local.bin.purecvisorsd"
+PROF=/usr/local/bin/purecvisorsd
+
+die() { echo "pcv-apparmor: $1" >&2; exit 1; }
+
+                                                           
+adr0028_warn() {
+  echo "pcv-apparmor: [경고] ADR-0028 — 2.0 데몬은 AppArmor 프로필로 confine 하지 않는 것이 기본이다." >&2
+  echo "  hidepid=2 호스트에서는 complain 으로 부착만 해도 libvirtd 의 클라이언트 identity 조회가" >&2
+  echo "  AppArmor ptrace 매개에서 DENIED 되어 데몬 libvirt 연결이 파손된다(.50 실증)." >&2
+  echo "  계속 진행하는 것은 운영자 명시 opt-in 이며, 되돌리려면 프로필을 언로드하고" >&2
+  echo "  disable 심링크를 복구해야 한다: apparmor_parser -R $APROF && ln -sf ../usr.local.bin.purecvisorsd $DISLINK" >&2
+  if [ -L "$DISLINK" ] || [ -e "$DISLINK" ]; then
+    echo "  ※ 부착 전 disable 심링크 제거가 필요하다($DISLINK) — 이 헬퍼가 제거한다." >&2
+  fi
+}
+[ "$(id -u)" = 0 ] || die "root 필요"
+[ -f "$APROF" ] || die "프로필 없음: $APROF (패키지 미설치?)"
+command -v apparmor_parser >/dev/null 2>&1 || die "apparmor_parser 없음(AppArmor 미설치)"
+[ -d /sys/kernel/security/apparmor ] || die "AppArmor 커널 미가동"
+
+cur_mode() {
+  _m=""
+  if command -v aa-status >/dev/null 2>&1; then
+    _m=$(aa-status 2>/dev/null | awk -v p="$PROF" '/enforce mode/{s="enforce"} /complain mode/{s="complain"} $1==p{print s; exit}')
+  fi
+                                                             
+                                                     
+  if [ -n "$_m" ]; then
+    echo "$_m"
+  elif [ -L "$DISLINK" ]; then
+    echo "미부착 (disable 심링크 존재 = 기본값)"
+  elif [ -L "$FCLINK" ]; then
+    echo "complain(추정)"
+  else
+    echo "미부착 또는 enforce(추정) — 프로필이 커널에 로드돼 있지 않음"
+  fi
+}
+
+case "${1:-status}" in
+  enforce)
+    adr0028_warn
+    rm -f "$DISLINK"
+    rm -f "$FCLINK"
+    apparmor_parser -r "$APROF"
+    echo "pcv-apparmor: ENFORCE 로 전환됨 (disable·force-complain 심링크 제거·재부팅 지속). 롤백: pcv-apparmor complain"
+    echo "  현재 모드: $(cur_mode)"
+    ;;
+  complain)
+    adr0028_warn
+    rm -f "$DISLINK"
+    mkdir -p "$FCDIR"
+    ln -sfn ../usr.local.bin.purecvisorsd "$FCLINK"
+    apparmor_parser -r -C "$APROF"
+    echo "pcv-apparmor: COMPLAIN(감사-only) 로 전환됨 (차단 없음·부팅 시 유지)."
+    echo "  현재 모드: $(cur_mode)"
+    ;;
+  status)
+    echo "프로필 : $APROF"
+    echo "모드   : $(cur_mode)"
+                                                               
+    echo "fc심링크: $([ -L "$FCLINK" ] && echo "존재(complain 강제) → $(readlink "$FCLINK")" || echo "없음")"
+    echo "부착차단: $([ -L "$DISLINK" ] && echo "disable 심링크 존재 → 부팅 자동 로드 차단(ADR-0028 기본값)" || echo "없음 → 부팅 시 자동 로드됨(운영자 opt-in 상태)")"
+    echo "위반로그: journalctl -k | grep purecvisorsd | grep 'apparmor='"
+    ;;
+  *)
+    echo "사용법: pcv-apparmor {enforce|complain|status}" >&2
+    exit 2
+    ;;
+esac

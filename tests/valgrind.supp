@@ -1,0 +1,37 @@
+                          
+                                                               
+                                                                    
+                                                         
+                                                  
+ 
+                      
+                                                    
+                                                      
+           
+
+{
+   libvirt-vir-class-new-global
+   Memcheck:Leak
+   match-leak-kinds: definite,indirect
+   fun:calloc
+   fun:g_malloc0
+   fun:virClassNew
+}
+
+                                                                    
+                                                   
+                                                    
+{
+   libbpf-map-create-attr-prog-ifindex-padding
+   Memcheck:Param
+   bpf(attr->prog_ifindex)
+   fun:syscall
+   obj:*/libbpf.so*
+}
+{
+   libbpf-map-create-attr-expected-attach-type-padding
+   Memcheck:Param
+   bpf(attr->expected_attach_type)
+   fun:syscall
+   obj:*/libbpf.so*
+}

@@ -1,0 +1,7 @@
+{
+  "known_consumer_mismatches": [
+    { "method": "device.nic.list",          "consumer": "cli", "missing_required": ["vm_id"] },
+    { "method": "device.nic.attach",        "consumer": "cli", "missing_required": ["vm_id"] },
+    { "method": "device.nic.detach",        "consumer": "cli", "missing_required": ["vm_id"] }
+  ]
+}

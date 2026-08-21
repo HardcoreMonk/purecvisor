@@ -1,0 +1,41 @@
+                          
+                                                                    
+                                                                    
+                                                         
+                                                      
+ 
+                      
+                                                    
+                                                                 
+                                                         
+ 
+                                                                  
+                                                                         
+                                                             
+                                                                 
+                                                             
+                                                  
+ 
+                                                             
+                                                                         
+                                                                
+                                                 
+                         
+                                                                           
+
+[Unit]
+Description=PureCVisor host tuning — cpufreq governor=performance + THP defrag (N1/N6)
+DefaultDependencies=no
+After=sysinit.target
+ConditionVirtualization=!container
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+                                                                 
+ExecStart=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$g" ] && printf performance > "$g" 2>/dev/null || true; done; d=/sys/kernel/mm/transparent_hugepage/defrag; [ -w "$d" ] && printf "defer+madvise" > "$d" 2>/dev/null || true; exit 0'
+                                                                     
+ExecStop=/bin/sh -c 'for g in /sys/devices/system/cpu/cpu*/cpufreq/scaling_governor; do [ -w "$g" ] && printf powersave > "$g" 2>/dev/null || true; done; d=/sys/kernel/mm/transparent_hugepage/defrag; [ -w "$d" ] && printf madvise > "$d" 2>/dev/null || true; exit 0'
+
+[Install]
+WantedBy=multi-user.target

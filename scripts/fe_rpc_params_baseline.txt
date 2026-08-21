@@ -1,0 +1,17 @@
+# check_fe_rpc_params 위반 착지 baseline (2026-08-06 P1) — 단조감소 래칫.
+#
+# 형식: <파일>|<RPC 메서드>|<서버가 읽지 않는 키를 쉼표로>
+# 이 명단 밖의 신규 위반만 FAIL. 시정하면 이 명단에서 제거한다(추가는 부채 증가다).
+#
+# 아래 4건은 P1(계약 정합) 범위 밖에서 게이트가 새로 발굴한 것이다. 전부 단순 개명이
+# 아니라 판단이 필요해 P1 에서 닫지 않았다 — 각 줄에 왜 지금 안 고치는지 적는다.
+# 판단이 필요 없는 것은 등재하지 않고 고친다: backup.restore(snapshot → snapshot_name)는
+# 이 기준에 걸려 등재를 취소하고 P1 안에서 닫았다.
+#
+# 단위 변환이 필요하다: inbound_avg/outbound_avg(KB/s 로 추정) → inbound_kbps.
+# burst 는 대응 키가 아예 없어 기능을 버릴지 백엔드에 추가할지 결정이 선행돼야 한다.
+ui/modules/vm-guest.js|vm.set_bandwidth|burst,inbound_avg,outbound_avg
+# 서버는 cpuset/vcpu 두 축으로 받는데 UI 는 vcpu_pin 한 덩어리로 보낸다. 파싱 규약 결정 필요.
+ui/modules/vm-guest.js|vm.pin_vcpu|vcpu_pin
+# 서버는 vdev_type 을 읽는데 UI 는 raid_level 을 보낸다. 값 도메인이 같은지 확인이 선행돼야 한다.
+ui/modules/storage.js|storage.pool.create|raid_level

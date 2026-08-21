@@ -1,0 +1,35 @@
+                          
+                                                                              
+                                                                           
+                                                          
+                                                      
+ 
+                      
+                                                 
+                                                     
+[Unit]
+Description=Suricata IDS (purecvisor D13 — health-watched by purecvisorsd)
+After=network.target network-online.target
+Wants=network-online.target
+Documentation=man:suricata(8)
+
+[Service]
+Type=simple
+User=suricata
+Group=suricata
+ExecStart=/usr/bin/suricata --af-packet -c /etc/suricata/suricata.yaml --pidfile /run/suricata/suricata.pid
+ExecReload=/bin/kill -USR2 $MAINPID
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+ReadWritePaths=/var/log/suricata /var/lib/suricata
+RuntimeDirectory=suricata
+                                                                                    
+                                                                 
+Restart=no
+
+[Install]
+WantedBy=multi-user.target

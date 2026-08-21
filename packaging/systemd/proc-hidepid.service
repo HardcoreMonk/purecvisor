@@ -1,0 +1,37 @@
+                          
+                                                                       
+                                                                   
+                                                                
+                                                                
+ 
+                      
+                                                          
+                                                     
+                                                          
+                                                                          
+                                                                                          
+ 
+                                                               
+                                                    
+                                                       
+ 
+                                              
+                                   
+[Unit]
+Description=Remount /proc with hidepid=2,gid=pcvmon (D8 CHAP argv 노출 차단)
+DefaultDependencies=no
+After=systemd-remount-fs.service
+Before=sysinit.target
+ConditionPathExists=/proc
+
+[Service]
+Type=oneshot
+RemainAfterExit=yes
+                                                                  
+ExecStart=/bin/sh -c 'g=$(getent group pcvmon | cut -d: -f3); test -n "$g" && exec mount -o remount,rw,nosuid,nodev,noexec,relatime,hidepid=2,gid=$g /proc'
+                                                                
+                                                          
+ExecStop=/bin/sh -c 'exec mount -o remount,rw,nosuid,nodev,noexec,relatime,hidepid=0 /proc'
+
+[Install]
+WantedBy=sysinit.target

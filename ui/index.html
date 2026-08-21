@@ -1,0 +1,370 @@
+<!DOCTYPE html>
+    
+                          
+                                                              
+                                                                
+                                                                 
+                                                         
+                                                                  
+
+                      
+                                                 
+                                                       
+   
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width,initial-scale=1.0">
+<meta name="description" content="PureCVisor Single Edge는 단일 노드 환경을 위한 가상화 콘솔입니다. VM, 컨테이너, ZFS 스토리지와 운영 API를 한 화면에서 다룹니다.">
+<meta property="og:title" content="PureCVisor Single Edge | 단일 노드 가상화 콘솔">
+<meta property="og:description" content="단일 노드 운영에 필요한 VM, 컨테이너, ZFS 스토리지와 운영 API를 한 콘솔에 모았습니다.">
+<meta property="og:type" content="website">
+<meta property="og:locale" content="ko_KR">
+<meta name="referrer" content="no-referrer">
+<meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss: https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
+<base href="/ui/">
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=2.0.0">
+<link rel="stylesheet" href="style.css?v=2.0.0">
+<script>
+                                                 
+                                                    
+                                             
+
+                                                      
+                                                     
+                                                     
+                                                   
+
+                                                       
+                   
+                                                         
+                                    
+                                                              
+
+                                                            
+                                                       
+                                                      
+                                                             
+                                                          
+  (function() {
+    var allowed = ['supanova', 'supanova-cyan', 'supanova-hicontrast', 'supanova-mockup'];
+    var vars = ['bg','bg2','bg3','fg','fg2','accent','green','red','yellow','cyan','peach','magenta','border'];
+    var colorRe = /^#(?:[0-9a-f]{3,4}|[0-9a-f]{6}|[0-9a-f]{8})$|^(?:rgb|hsl)a?\([0-9a-z.,%\s+/-]{1,48}\)$/i;
+    var root = document.documentElement;
+    var t = localStorage.getItem('pcv-theme') || '';
+    var applied = 0;
+    if (t === 'custom') {
+      try {
+        var raw = JSON.parse(localStorage.getItem('pcv-custom-theme') || 'null');
+        if (raw && typeof raw === 'object') {
+          for (var i = 0; i < vars.length; i++) {
+            var val = raw[vars[i]];
+            if (typeof val !== 'string') continue;
+            val = val.trim();
+            if (colorRe.test(val)) { root.style.setProperty('--' + vars[i], val); applied++; }
+          }
+        }
+      } catch (e) {                                                  }
+    }
+    if (applied) {
+      root.setAttribute('data-theme', 'custom');
+    } else {
+      if (allowed.indexOf(t) < 0) {
+        t = 'supanova';
+        localStorage.setItem('pcv-theme', t);
+      }
+      root.setAttribute('data-theme', t);
+    }
+  })();
+</script>
+<link rel="manifest" href="manifest.json">
+<link rel="icon" type="image/png" href="/ui/icon-192.png">
+<link rel="shortcut icon" href="/ui/icon-192.png">
+                                                            
+<meta name="theme-color" content="#ffffff">
+<meta name="mobile-web-app-capable" content="yes">
+<meta name="apple-mobile-web-app-status-bar-style" content="default">
+<title>PureCVisor Single Edge | 단일 노드 가상화 콘솔</title>
+</head>
+<body class="login-active">
+<svg class="pcv-icon-defs" aria-hidden="true" focusable="false" width="0" height="0">
+  <defs>
+    <symbol id="pcv-i-server" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M10 20H7m11-3h-2m-3-8H6.2c-1.12 0-1.68 0-2.108.218a2 2 0 0 0-.874.874C3 10.52 3 11.08 3 12.2v1.6c0 1.12 0 1.68.218 2.107c.192.377.497.683.874.875c.427.218.987.218 2.105.218H13m0-8v8m0-8V7.2c0-1.12 0-1.68.218-2.108a2 2 0 0 1 .874-.874C14.52 4 15.08 4 16.2 4h1.6c1.12 0 1.68 0 2.107.218c.377.192.683.497.875.874c.218.427.218.987.218 2.105v9.606c0 1.118 0 1.677-.218 2.104a2 2 0 0 1-.875.875c-.427.218-.986.218-2.104.218h-1.606c-1.118 0-1.678 0-2.105-.218a2 2 0 0 1-.874-.875c-.205-.401-.217-.919-.218-1.907m4.002-10v.002H17V7z"/></symbol>
+    <symbol id="pcv-i-pulse" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M3 15v1.8c0 1.12 0 1.68.218 2.108a2 2 0 0 0 .874.874c.427.218.987.218 2.105.218H21M3 15V5m0 10l3.853-3.21l.004-.003c.697-.581 1.046-.872 1.425-.99a2 2 0 0 1 1.362.061c.367.153.688.474 1.332 1.118l.006.006c.654.654.981.982 1.354 1.133a2 2 0 0 0 1.385.046c.383-.128.733-.434 1.433-1.046L21 7"/></symbol>
+    <symbol id="pcv-i-monitor" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M15 20H9m-5-6.2V8.2c0-1.12 0-1.68.218-2.108c.192-.377.497-.682.874-.874C5.52 5 6.08 5 7.2 5h9.6c1.12 0 1.68 0 2.107.218c.377.192.683.497.875.874c.218.427.218.987.218 2.105v5.606c0 1.118 0 1.677-.218 2.104a2 2 0 0 1-.875.875c-.427.218-.986.218-2.104.218H7.197c-1.118 0-1.678 0-2.105-.218a2 2 0 0 1-.874-.875C4 15.48 4 14.92 4 13.8"/></symbol>
+    <symbol id="pcv-i-database" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M18 12v5c0 1.657-2.686 3-6 3s-6-1.343-6-3v-5m12 0V7m0 5c0 1.657-2.686 3-6 3s-6-1.343-6-3m12-5c0-1.657-2.686-3-6-3S6 5.343 6 7m12 0c0 1.657-2.686 3-6 3S6 8.657 6 7m0 5V7"/></symbol>
+    <symbol id="pcv-i-user" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M19 21a7 7 0 1 0-14 0m7-10a4 4 0 1 1 0-8a4 4 0 0 1 0 8"/></symbol>
+    <symbol id="pcv-i-lock" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M9.23 9H7.2c-1.12 0-1.68 0-2.108.218a2 2 0 0 0-.874.874C4 10.52 4 11.08 4 12.2v5.6c0 1.12 0 1.68.218 2.108a2 2 0 0 0 .874.874c.427.218.987.218 2.105.218h9.606c1.118 0 1.677 0 2.104-.218c.377-.192.683-.498.875-.874c.218-.428.218-.986.218-2.104v-5.607c0-1.118 0-1.678-.218-2.105a2 2 0 0 0-.875-.874C18.48 9 17.92 9 16.8 9h-2.03M9.23 9h5.539M9.23 9A.23.23 0 0 1 9 8.77V6a3 3 0 1 1 6 0v2.77a.23.23 0 0 1-.231.23"/></symbol>
+    <symbol id="pcv-i-eye" viewBox="0 0 24 24"><g fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2"><path d="M3.587 13.779c1.78 1.769 4.883 4.22 8.413 4.22s6.634-2.451 8.413-4.22c.47-.467.705-.7.854-1.159c.107-.327.107-.913 0-1.24c-.15-.458-.385-.692-.854-1.159C18.633 8.452 15.531 6 12 6c-3.53 0-6.634 2.452-8.413 4.221c-.47.467-.705.7-.854 1.159c-.107.327-.107.913 0 1.24c.15.458.384.692.854 1.159"/><path d="M10 12a2 2 0 1 0 4 0a2 2 0 0 0-4 0"/></g></symbol>
+    <symbol id="pcv-i-eye-off" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="m4 4l16 16m-3.5-3.244C15.147 17.485 13.618 18 12 18c-3.53 0-6.634-2.452-8.413-4.221c-.47-.467-.705-.7-.854-1.159c-.107-.327-.107-.913 0-1.24c.15-.459.385-.693.855-1.16c.897-.892 2.13-1.956 3.584-2.793M19.5 14.634c.333-.293.638-.582.912-.854l.003-.003c.468-.466.703-.7.852-1.156c.107-.327.107-.914 0-1.241c-.15-.458-.384-.692-.854-1.159C18.633 8.452 15.531 6 12 6q-.507 0-1 .064m2.323 7.436a2 2 0 0 1-2.762-2.889"/></symbol>
+    <symbol id="pcv-i-arrow-right" viewBox="0 0 24 24"><path fill="none" stroke="currentColor" stroke-linecap="round" stroke-linejoin="round" stroke-width="2" d="M5 12h14m0 0l-6-6m6 6l-6 6"/></symbol>
+  </defs>
+</svg>
+<div id="splash" role="status" aria-live="polite" aria-label="Loading PureCVisor" style="position:fixed;inset:0;z-index:100000;background:#ffffff;display:flex;flex-direction:column;align-items:center;justify-content:center;transition:opacity 0.5s">
+  <div style="font-family:'Outfit','Pretendard',sans-serif;font-size:56px;font-weight:800;color:#12627a;letter-spacing:4px;margin-bottom:16px">PureCVisor</div>
+  <div style="width:200px;height:3px;background:#edf1f5;border-radius:2px;overflow:hidden">
+    <div id="splash-bar" style="width:0%;height:100%;background:#12627a;transition:width 0.3s"></div>
+  </div>
+  <div style="margin-top:12px;font-size:20px;color:#5c6675">모듈을 불러오는 중입니다...</div>
+</div>
+                             
+<a href="#cb" class="skip-link">본문으로 건너뛰기</a>
+
+                        
+<div class="toast-c" id="toasts" role="status" aria-live="polite"></div>
+
+                     
+<div class="ctx" id="ctx" role="menu" aria-label="Context menu"></div>
+
+                                            
+                                                          
+                                                                             
+<div id="login-page" class="login-overlay" role="dialog" aria-modal="true" aria-labelledby="login-card-title">
+  <header class="login-topbar" role="banner">
+    <div class="login-brand">
+      <span class="login-brand-mark" aria-hidden="true">P</span>
+      <span class="login-brand-id">
+        <span class="login-brand-name">PureCVisor</span>
+        <span class="login-brand-edi">SINGLE EDGE</span>
+      </span>
+    </div>
+    <div class="login-topbar-meta">
+      <span id="login-tls" class="login-tls" role="status"></span>
+    </div>
+  </header>
+
+  <main class="login-main" aria-label="로그인 화면">
+    <div class="login-split">
+                                                                              
+                                                                          
+                                                               
+      <section class="login-pitch">
+        <h1 class="login-hero ko-tight">단일 노드 운영을,<br><span class="login-hero-accent">한 콘솔에.</span></h1>
+        <p class="login-lede ko">웹 콘솔 · REST API 로 VM · LXC · ZFS · 스냅샷 · 작업 기록을 같은 표면에서 다룹니다.</p>
+
+        <div class="login-node" aria-live="polite" aria-label="노드 상태">
+          <div class="login-node-head">
+            <span class="login-node-kicker">
+              <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-pulse"></use></svg>
+              노드 상태
+            </span>
+            <span class="login-node-state">
+              <span id="lh-dot" class="login-dot login-dot-idle" aria-hidden="true"></span>
+              <span id="lh-state">노드 응답 대기</span>
+            </span>
+          </div>
+          <dl class="login-node-grid">
+            <div>
+              <dt>NODE</dt>
+              <dd id="lh-node">—</dd>
+            </div>
+            <div>
+              <dt>VERSION</dt>
+              <dd id="lh-version">—</dd>
+            </div>
+            <div>
+              <dt>UPTIME</dt>
+              <dd id="lh-uptime">—</dd>
+            </div>
+          </dl>
+          <div class="login-node-checks" aria-label="노드 점검 요약">
+            <span class="login-node-check">
+              <span id="lh-kvm-dot" class="login-dot login-dot-idle" aria-hidden="true"></span>
+              <b>KVM</b><span id="lh-kvm">—</span>
+            </span>
+            <span class="login-node-check">
+              <span id="lh-disk-dot" class="login-dot login-dot-idle" aria-hidden="true"></span>
+              <b>DISK</b><span id="lh-disk">—</span>
+            </span>
+          </div>
+        </div>
+
+        <ul class="login-caps ko" aria-label="핵심 역량">
+          <li><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-monitor"></use></svg>VM</li>
+          <li><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-server"></use></svg>LXC</li>
+          <li><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-database"></use></svg>ZFS</li>
+          <li><svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-arrow-right"></use></svg>REST</li>
+        </ul>
+      </section>
+
+                           
+      <section class="login-aside">
+        <div class="login-card">
+          <div class="login-card-head">
+            <div class="login-card-eyebrow">관리자 인증</div>
+            <h2 class="login-card-title ko-tight" id="login-card-title" data-i18n="login.title">보안 로그인</h2>
+            <p class="login-card-sub ko">로컬 운영 계정으로 접속하세요.</p>
+          </div>
+
+          <form class="login-form" onsubmit="event.preventDefault();doLoginPage();return false;" autocomplete="on">
+                                                                                 
+            <div id="login-cred-fields" class="login-stack">
+              <div class="login-field">
+                <label class="login-label" for="login-user">계정 이름</label>
+                <div class="login-input-wrap">
+                  <svg class="pcv-icon login-input-icon" aria-hidden="true"><use href="#pcv-i-user"></use></svg>
+                  <input id="login-user" class="login-input" placeholder="계정 이름" autocomplete="username" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="계정 이름">
+                </div>
+              </div>
+
+              <div class="login-field">
+                <label class="login-label" for="login-pass">비밀번호</label>
+                <div class="login-input-wrap">
+                  <svg class="pcv-icon login-input-icon" aria-hidden="true"><use href="#pcv-i-lock"></use></svg>
+                  <input id="login-pass" type="password" class="login-input" placeholder="••••••••" autocomplete="current-password" autocapitalize="none" autocorrect="off" spellcheck="false" aria-label="비밀번호" onkeydown="if(event.key==='Enter')doLoginPage()">
+                  <button type="button" class="login-pass-toggle" aria-label="비밀번호 표시 전환" onclick="(function(b){var i=document.getElementById('login-pass');var hidden=i.type==='password';i.type=hidden?'text':'password';b.querySelector('use').setAttribute('href',hidden?'#pcv-i-eye-off':'#pcv-i-eye');})(this)">
+                    <svg class="pcv-icon" aria-hidden="true"><use href="#pcv-i-eye"></use></svg>
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <div id="login-err" class="login-err" role="alert" aria-live="assertive"></div>
+
+                                                                              
+            <div id="login-totp-step" class="login-stack" hidden>
+              <div class="login-field">
+                <label class="login-label" for="login-totp-code" id="login-totp-label" data-i18n="login.totp.prompt">인증 앱의 6자리 코드 입력</label>
+                <div class="login-input-wrap">
+                  <svg class="pcv-icon login-input-icon" aria-hidden="true"><use href="#pcv-i-lock"></use></svg>
+                  <input id="login-totp-code" class="login-input" inputmode="numeric" maxlength="11" autocomplete="one-time-code" autocapitalize="none" autocorrect="off" spellcheck="false" placeholder="000000" aria-label="TOTP 코드" data-recovery="0" onkeydown="if(event.key==='Enter'){event.preventDefault();doLoginTotpSubmit();}">
+                </div>
+              </div>
+              <button type="button" class="login-submit" onclick="doLoginTotpSubmit()" aria-label="TOTP 코드 확인">
+                <span class="login-submit-label">확인</span>
+                <span class="login-submit-arrow" aria-hidden="true">
+                  <svg class="pcv-icon"><use href="#pcv-i-arrow-right"></use></svg>
+                </span>
+              </button>
+              <div class="login-alt">
+                <button type="button" class="login-link login-link-button" id="login-totp-recovery-link" onclick="doLoginTotpRecoveryToggle()" data-i18n="login.totp.recovery_link">복구코드 사용</button>
+              </div>
+            </div>
+
+                                                                
+            <div id="login-cred-actions" class="login-stack">
+              <button type="submit" class="login-submit" aria-label="로그인">
+                <span class="login-submit-label" data-i18n="login">로그인</span>
+                <span class="login-submit-arrow" aria-hidden="true">
+                  <svg class="pcv-icon"><use href="#pcv-i-arrow-right"></use></svg>
+                </span>
+              </button>
+
+              <div class="login-alt">
+                <button type="button" class="login-link login-link-button" onclick="showRegisterModal()">첫 계정 생성</button>
+                <span class="login-alt-sep" aria-hidden="true">·</span>
+                <a href="/ui/guide.html" class="login-link">운영 가이드</a>
+              </div>
+            </div>
+          </form>
+
+          <p class="login-security-note ko">로그인 실패와 세션 변경은 audit 기록에 남습니다.</p>
+        </div>
+      </section>
+    </div>
+  </main>
+
+  <footer class="login-footer ko" role="contentinfo">
+    <div>&copy; 2026 PureCVisor Single Edge</div>
+    <div class="login-footer-meta">단일 노드 운영 콘솔</div>
+  </footer>
+</div>
+
+                                                                                                                 
+
+                                                        
+<div class="app" id="app">
+<aside class="shell-sidebar" id="shell-sidebar">                              </aside>
+<div class="shell-main">
+  <div class="shell-topbar" id="shell-topbar-static">
+    <div class="shell-topbar-dyn" id="shell-topbar">                                     </div>
+    <div class="shell-topbar-fixed">
+      <span id="version-badge" class="version-badge" role="status" aria-live="polite" hidden></span>
+                                                                        
+                                                                              
+                                                           
+      <span id="ws-s" class="ws-status" role="status" aria-label="WebSocket status"></span>
+      <button class="shell-iconbtn" onclick="toggleNotifCenter()" aria-label="알림 센터" title="알림">
+        <svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-bell"></use></svg>
+        <span id="notif-toolbar-badge" class="shell-badge" style="display:none"></span>
+      </button>
+      <button class="shell-iconbtn" onclick="showPrefs()" aria-label="설정" title="설정">
+        <svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-settings"></use></svg>
+      </button>
+      <span id="la" class="shell-session">
+        <button class="btn" type="button" onclick="if(window.pcvSetLoginVisible){pcvSetLoginVisible(true)}else{document.getElementById('login-page').style.display='flex';document.body.classList.add('login-active')}var lu=document.getElementById('login-user');if(lu)lu.focus()">로그인</button>
+      </span>
+      <span id="us" class="hidden shell-user">
+        <span id="us-name" class="shell-user-name"></span>
+        <button class="btn" onclick="showChangePwModal()" title="비밀번호 변경" style="font-size:11px;padding:4px 10px">PW</button>
+        <button class="btn btn-r" onclick="doLogout()" style="font-size:11px;padding:4px 10px" data-i18n="logout">로그아웃</button>
+      </span>
+      <button id="mobile-menu-btn" class="mobile-menu-btn" onclick="toggleMobileSB()" aria-label="사이드바 열기"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-menu-alt-01"></use></svg></button>
+    </div>
+  </div>
+  <div class="shell-statusbar" id="shell-statusbar">                                </div>
+  <div class="content shell-content" role="main" aria-label="Content area">
+    <div class="cb" id="cb" tabindex="0"></div>
+  </div>
+</div>
+</div>
+<div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileSB()"></div>
+                                         
+<div id="ev-side" class="ev-side" style="display:none" aria-live="polite" aria-label="Event log panel">
+<div id="evp" class="ev-content">이벤트 대기 중...</div>
+<div class="ev-footer"><span id="ev-count">0 events</span><span id="ev-status">Idle</span></div>
+</div>
+
+                                                                                
+
+                                                           
+<script src="vendor/chart.umd.min.js?v=2.0.0"></script>
+<script src="vendor/qrcode/qrcode.js?v=2.0.0"></script>
+<script src="i18n.js?v=2.0.0"></script>
+                                                                                                 
+<script src="app.bundle.js?v=2.0.0"></script>
+                                                                                      
+<script>
+                                                      
+  var _pcvSplashDismissed = false;
+  function _pcvSplashRemove() {
+    if (_pcvSplashDismissed) return;
+    _pcvSplashDismissed = true;
+    var splashBar = document.getElementById('splash-bar');
+    if (splashBar) splashBar.style.width = '100%';
+    requestAnimationFrame(function() {
+      var splash = document.getElementById('splash');
+      if (splash) { splash.style.opacity = '0'; setTimeout(function() { splash.remove(); }, 180); }
+    });
+  }
+  window.__pcvDismissSplash = _pcvSplashRemove;
+  function _pcvInitUI() {
+                                                                    
+                                                               
+    var langSel = document.getElementById('lang-select');
+    if (langSel && typeof I18N !== 'undefined') langSel.value = I18N.getLang();
+    if (typeof applyI18n === 'function') applyI18n();
+                                                   
+    if (typeof updateVersionBadge === 'function') updateVersionBadge();
+    _pcvSplashRemove();
+  }
+                                                   
+  if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', _pcvInitUI, { once: true });
+  } else {
+    _pcvInitUI();
+  }
+  window.addEventListener('load', _pcvSplashRemove, { once: true });
+                                                   
+  setTimeout(function() {
+    var splash = document.getElementById('splash');
+    if (splash) {
+      _pcvSplashDismissed = true;
+      splash.remove();
+      var lp = document.getElementById('login-page');
+      if (lp) lp.style.display = 'flex';
+    }
+  }, 3000);
+</script>
+</body>
+</html>

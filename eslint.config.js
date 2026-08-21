@@ -1,0 +1,75 @@
+                           
+                                                                      
+                                                                          
+                                                                
+                                                       
+                             
+  
+                       
+                                                 
+                                                   
+                                                
+  
+                                                      
+                                                                
+  
+                                         
+                                                                 
+                                                         
+                                                   
+                                                     
+          
+const js = require('@eslint/js');
+const globals = require('globals');
+
+module.exports = [
+  {
+    ignores: ['ui/vendor/**', 'ui/bundle.js', 'ui/app.bundle.js', 'node_modules/**'],
+  },
+  js.configs.recommended,
+  {
+    files: ['ui/app.js', 'ui/i18n.js', 'ui/modules/*.js'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'script',
+      globals: {
+        ...globals.browser,
+      },
+    },
+    rules: {
+                                                             
+                                                  
+      'no-undef': 'off',
+                                              
+                                                  
+      'no-unused-vars': ['warn', {
+        args: 'none',
+        caughtErrors: 'none',
+                                                                          
+                                                                        
+      varsIgnorePattern: '^(sortField|sortDirection|cpuHistory|memHistory|checkedVms|EVT_ICONS|ctrSortKey|ctrSortDir|selCtr|ctrTab|ctrHist|showConnect|showAbout|playNotifSound|sendBrowserNotif|_origDoLoginPage|_progressBar|bottomPanelTab|_)$',
+      }],
+                                              
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+  {
+    files: ['ui/sw.js'],
+    languageOptions: {
+      ecmaVersion: 2020,
+      sourceType: 'script',
+      globals: {
+        ...globals.serviceworker,
+      },
+    },
+    rules: {
+      'no-undef': 'off',
+      'no-unused-vars': ['warn', {
+        args: 'none',
+        caughtErrors: 'none',
+      varsIgnorePattern: '^(sortField|sortDirection|cpuHistory|memHistory|checkedVms|EVT_ICONS|ctrSortKey|ctrSortDir|selCtr|ctrTab|ctrHist|showConnect|showAbout|playNotifSound|sendBrowserNotif|_origDoLoginPage|_progressBar|bottomPanelTab|_)$',
+      }],
+      'no-empty': ['error', { allowEmptyCatch: true }],
+    },
+  },
+];

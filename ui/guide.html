@@ -1,0 +1,62 @@
+<!DOCTYPE html>
+    
+                          
+                                                                         
+                                                      
+                                                              
+                     
+
+                      
+                                                    
+                                                    
+   
+<html lang="ko">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<meta name="robots" content="noindex">
+<title>PureCVisor 문서로 이동</title>
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=2.0.0">
+<script>
+(function() {
+  'use strict';
+  window.location.replace('/ui/docs.html' + window.location.hash);
+})();
+</script>
+<style>
+:root {
+  color-scheme: light;
+  font-family: 'Pretendard', system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+}
+body {
+  min-height: 100vh;
+  display: grid;
+  place-items: center;
+  margin: 0;
+  background: #ffffff;
+  color: #171c24;
+}
+main {
+  width: min(520px, calc(100% - 36px));
+  padding: 28px;
+  border: 1px solid #dce1e8;
+  border-radius: 8px;
+}
+h1 { margin: 0 0 10px; font-size: 24px; }
+p { margin: 0; color: #5c6675; line-height: 1.65; }
+a { color: #12627a; font-weight: 700; text-underline-offset: 3px; }
+</style>
+</head>
+<body>
+<main>
+  <h1>통합 문서로 이동합니다.</h1>
+  <p>자동으로 이동하지 않으면 <a id="docs-link" href="/ui/docs.html">PureCVisor 문서</a>를 여세요.</p>
+</main>
+<script>
+(function() {
+  'use strict';
+  document.getElementById('docs-link').href = '/ui/docs.html' + window.location.hash;
+})();
+</script>
+</body>
+</html>

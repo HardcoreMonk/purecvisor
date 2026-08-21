@@ -1,0 +1,16 @@
+{
+  "license": "Apache-2.0",
+  "scripts": {
+    "lint": "eslint ui/app.js ui/i18n.js ui/sw.js ui/modules",
+    "lint:domsafe": "python3 scripts/domsafe_ratchet.py"
+  },
+  "devDependencies": {
+    "@eslint/js": "^10.0.1",
+    "acorn": "^8.17.0",
+    "axe-core": "^4.11.4",
+    "esbuild": "^0.28.1",
+    "eslint": "^10.6.0",
+    "globals": "^17.7.0",
+    "puppeteer": "^25.8.0"
+  }
+}

@@ -1,0 +1,76 @@
+# check_rpc_param_contract IGNORED 착지 baseline (2026-08-06, 설계 §8.3) — 단조감소 래칫.
+#
+# IGNORED = "소비자가 보내는데 레지스트리(contracts/rpc_params.json)의 required/optional 어디에도
+# 없는 키". 레지스트리 required 는 핸들러 가드키와 drift 검사로 묶여 있으므로, 실질적으로
+# "보내는데 핸들러가 안 읽는 키"다 → 서버는 그 값을 무시하고 나머지로 처리하거나 -32602 로
+# 조용히 실패한다(거짓성공).
+#
+# 이 판정은 2026-08-06 이전까지 WARN + exit 0 이었다. `ovn.acl.add[cli]:switch_name` 이
+# 몇 달째 이 목록에 있었는데도 게이트는 PASS 했고, 그 결함은 결국 사람이 손으로 찾아 고쳤다.
+# 설계 §8.3 에 따라 FAIL 로 승격하고, 착지 시점 목록을 이 파일에 등재한다.
+#
+# 형식: <method>|<consumer>|<key>   # [분류] 사유
+#   분류 = 실제결함 | 정당 | 미조사
+#   - 실제결함: 지금 그 CLI 명령이 실패하거나 인자가 무시된다. 고치면 이 줄을 삭제한다.
+#   - 정당:     런타임에는 동작한다(다른 층이 흡수). 게이트 모델이 그 층을 모를 뿐이다.
+#   - 미조사:   근거를 확인하지 못했다. 정직하게 이 분류를 쓰고, 조사 후 갱신한다.
+# 이 명단 밖의 신규 IGNORED 만 FAIL. 해소되면 게이트가 [INFO] 로 제거를 권한다.
+# 추가는 부채 증가다 — 총량은 줄어들기만 해야 한다.
+#
+# 사유 없는(주석 없는) 줄은 게이트가 FAIL 시킨다. 부채를 무근거로 고정하지 않기 위한 장치다.
+#
+# ── 정당 4건 ────────────────────────────────────────────────────────────────
+# dispatcher.c:7841-7855 가 모든 RPC 에 대해 params 의 "name" ↔ "vm_id" 를 양방향 자동
+# aliasing 한다(둘 중 하나만 있으면 나머지를 채운다). 따라서 CLI 가 "name" 을 보내고 핸들러가
+# "vm_id" 를 읽어도 런타임은 정상이다. 게이트는 이 dispatcher 전처리 층을 모델링하지 않는다.
+# (같은 이유로 contracts/rpc_param_baseline.json 의 대응 missing_required 항목도 살아 있다.)
+# → 근본 해소안: 게이트가 alias 전처리를 모델링하거나 레지스트리 optional 에 "name" 을 넣는 것.
+#   둘 다 이번 작업(WARN→FAIL 승격) 범위 밖이라 등재로 남긴다.
+device.nic.list|cli|name          # [정당] purecvisorctl.c:3227 이 "name" 전송, handle_device_nic_list(handler_vm_hotplug.c:1142)는 "vm_id" 읽음. dispatcher.c:7841 aliasing 이 흡수 → 런타임 정상.
+device.nic.attach|cli|name        # [정당] purecvisorctl.c:3292 "name" ↔ handle_device_nic_attach(handler_vm_hotplug.c:1260) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
+device.nic.detach|cli|name        # [정당] purecvisorctl.c:3318 "name" ↔ handle_device_nic_detach(handler_vm_hotplug.c:1347) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
+vm.eject|cli|name                 # [정당] cmd_iso_eject(purecvisorctl.c:3374)가 "name", handle_vm_eject_iso(handler_vm_hotplug.c:800)는 "vm_id". dispatcher.c:7841 aliasing 이 흡수. (cmd_vm_eject:992 는 vm_id 직접 전송)
+#
+# ── 등재하지 않은 것(같은 회차에 닫혔다) ────────────────────────────────────
+# 착수 시점 실측에는 아래 3건도 IGNORED 로 나왔으나, 같은 브랜치의 CLI 시정에서 닫혔다.
+# 부채가 아니라 해소이므로 등재하지 않는다. 되살아나면 게이트가 신규 IGNORED 로 FAIL 시킨다
+# (그게 정상 동작이다 — 그때는 CLI 를 다시 고칠 일이지 이 파일에 줄을 늘릴 일이 아니다).
+#   ovn.acl.add[cli] 'switch_name'     → purecvisorctl.c:4573 이 "switch" 전송으로 시정(설계 §8.3 대표 사례)
+#   ovn.dhcp.enable[cli] 'switch_name' → 스위치 인자 제거
+#   ovn.dhcp.enable[cli] 'cidr'        → purecvisorctl.c:4612-4613 이 "subnet"+"gateway" 전송으로 시정
+#
+# ── 실제결함 13건 → 2026-08-07 P23-F4 로 전건 해소 (등재 0건) ────────────────
+# 원칙: 백엔드 RPC 계약을 바꾸지 않고 호출부(CLI)를 계약에 맞췄다. 핸들러·레지스트리·
+# REST 는 무변경이다. 해소했으므로 줄을 삭제한다(래칫 단조감소). 아래는 무엇이 왜
+# 닫혔는지의 기록이며, 되살아나면 게이트가 신규 IGNORED 로 FAIL 시킨다 — 그때는 CLI 를
+# 다시 고칠 일이지 여기에 줄을 늘릴 일이 아니다.
+#
+#   container.nic.detach  'mac'         → "nic_name" (플래그도 --mac → --nic-name).
+#       MAC 은 컨테이너 NIC 의 식별자로 성립하지 않는다: pcv_lxc_nic_attach(lxc_driver.c:2525)
+#       는 --mac 을 명시했을 때만 lxc.net.N.hwaddr 을 기록해, 미지정 NIC 들이 목록에서
+#       "auto" 로 중복된다. LXC 계층의 1차 키는 lxc.net.N.name 이고 REST 도 이미 nic_name 이다.
+#   network.mode_set      'bridge_name' → "name" (cmd_net_mode·cmd_net_edit 두 호출부 동시).
+#       cmd_net_edit 는 개명만으로는 여전히 -32602 였다 — 핸들러가 모든 모드에서 cidr 을
+#       필수로 강제(network_manager.c:2113)하는데 안 보내고 있었다. --cidr 인자를 신설해 함께 닫았다.
+#   network.dhcp_toggle   'bridge_name' → "bridge"
+#   network.dhcp_toggle   'action'      → "enable"(boolean).
+#       [기재 정정] 구 주석은 CLI 전송값을 "enable"|"disable" 로 적었으나 실제 전송값은
+#       "start"|"stop" 이었다(플래그만 --enable/--disable). 그리고 이 두 줄은 반드시 함께
+#       닫아야 했다: 핸들러의 "enable" 은 optional·기본값 TRUE(network_manager.c:2299)라
+#       bridge 키만 고치면 --disable 이 DHCP 를 켜 버린다(실패 → 오작동).
+#   network.bind_phys     'bridge_name' → "bridge"
+#   network.bind_phys     'physical_if' → "iface"
+#   network.qos.set       'iface'       → "interface"
+#   network.qos.set       'rate'        → "rate_mbps" (플래그 --rate → --rate-mbps)
+#   network.qos.set       'burst'       → "burst_kb"  (플래그 --burst → --burst-kb)
+#       단위 정본은 서버다: network_manager.c:2895-2900 이 tc 에 "%dMbit"/"%dk" 로 넣으므로
+#       rate_mbps 는 Mbit/s, burst_kb 는 KB 다. 구 주석이 언급한 CLI 의 "kbps" 출력 표기가
+#       틀린 쪽이었고, 그 출력도 함께 시정했다(응답에 rate/burst 키 자체가 없어 늘 0 이었다).
+#       플래그까지 개명한 것은 이름을 두면 kbps 전제 값이 조용히 1000배로 읽히기 때문이다.
+#   network.qos.get       'iface'       → "interface"
+#   network.qos.remove    'iface'       → "interface"
+#   vm.security_group.set 'vm_name'     → "vm"
+#   vm.security_group.set 'group_name'  → "security_group"
+#
+# 검증: 가짜 UDS 서버로 pcvctl 이 실제 전송하는 payload 를 포획해 핸들러 가드와 대조.
+# 11개 호출부 전건 통과(코드 정독이 아니라 실측 payload 기준).

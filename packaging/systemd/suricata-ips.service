@@ -1,0 +1,47 @@
+                          
+                                                                    
+                                                               
+                                                                   
+                                                              
+ 
+                      
+                                                       
+                                            
+[Unit]
+Description=Suricata IPS inline (purecvisor D13 Phase B — daemon-managed, NOT systemd-enabled)
+After=network.target network-online.target
+Wants=network-online.target
+Documentation=man:suricata(8)
+
+[Service]
+Type=simple
+User=suricata
+Group=suricata
+                                                                
+                                                                    
+                                                            
+ExecStart=/usr/bin/suricata -q 0 -c /etc/suricata/suricata-ips.yaml -l /var/log/suricata-ips --pidfile /run/suricata-ips/suricata-ips.pid
+ExecReload=/bin/kill -USR2 $MAINPID
+CapabilityBoundingSet=CAP_NET_ADMIN CAP_NET_RAW
+AmbientCapabilities=CAP_NET_ADMIN CAP_NET_RAW
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=true
+PrivateTmp=true
+                                                                                 
+ReadWritePaths=/var/log/suricata-ips /var/lib/suricata
+RuntimeDirectory=suricata-ips
+                                                                
+                                                               
+                                            
+Restart=no
+                                                                    
+                                                              
+                                                                 
+                                                                
+                                               
+TimeoutStopSec=20
+
+                                                                    
+                                                                    
+                                   

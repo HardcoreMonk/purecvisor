@@ -1,0 +1,54 @@
+                          
+                                                                 
+                                                    
+                                                          
+                                                                                                 
+                                                      
+                                              
+ 
+                      
+                                               
+                                                         
+                                     
+                                                            
+                                                              
+
+                                                                 
+                                                             
+                                                       
+                                                   
+                                                             
+[daemon]
+                                                             
+
+[server]
+socket_path = /var/run/purecvisor/daemon.sock
+                                                               
+rest_port = 8080
+drain_timeout = 30
+pool_max_conn = 16
+                                                          
+
+[storage]
+zvol_pool = pcvpool/vms
+image_dir = /var/lib/libvirt/images
+iso_dirs = /pcvpool/iso,/var/lib/libvirt/images
+
+                                    
+[network]
+default_bridge = pcvnat0
+default_subnet = 10.78.0.1/24
+default_ensure = 1
+                                                     
+firewall_integration = auto
+
+[security_group]
+                                  
+resync_interval_sec = 300
+
+[update]
+                                                          
+                                                       
+check_enabled = true
+check_url = https://api.github.com/repos/HardcoreMonk/purecvisor/releases/latest
+check_interval_hours = 24

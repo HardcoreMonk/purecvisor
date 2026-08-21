@@ -1,0 +1,309 @@
+                          
+                                                                     
+                                                           
+                                                      
+                                                             
+                                              
+ 
+                      
+                                                      
+                                                    
+                                                                               
+                                                                        
+                                                                       
+                                                      
+                                                                               
+                                    
+                                                                        
+                                                                  
+                                                               
+                                                      
+                                                             
+                                                      
+                                                        
+                                                
+ 
+                                                 
+                                                          
+                                                                   
+                                              
+                                                            
+                                                                    
+                                                                      
+                                                 
+                                                                               
+                                                        
+                                                           
+                                    
+                                                                          
+                                                      
+                                                         
+                                                               
+                                                         
+                                                
+ 
+          
+                                                            
+                                                              
+                                                             
+                                                        
+ 
+                              
+                                                        
+                                              
+                                                                                   
+                                                                   
+                                 
+                                                                           
+                                                            
+                                                                 
+                  
+                                                        
+                                                                                  
+ 
+                                             
+                                                                 
+                                                                      
+                                                                           
+                                                                     
+                                                                      
+                                                            
+                                                          
+                                                   
+                                                          
+                                                                               
+
+#include <tunables/global>
+
+/usr/local/bin/purecvisorsd {
+                                                                        
+                                                                      
+
+                                                                               
+  #include <abstractions/base>                                                           
+  #include <abstractions/nameservice>                                                            
+  #include <abstractions/openssl>                        
+  #include <abstractions/ssl_certs>                                 
+
+                                                                  
+                             
+  capability net_admin,                                              
+  capability net_bind_service,                                  
+  capability sys_admin,                                                    
+  capability setuid,                             
+  capability dac_override,                                      
+                                     
+  capability setpcap,                                                                     
+  capability setgid,                                     
+  capability sys_ptrace,                                                         
+  capability kill,                                                    
+
+                                                                             
+  network unix stream,                                                                     
+  network unix dgram,
+  network inet  stream,                                                
+  network inet6 stream,
+  network inet  dgram,                           
+  network inet6 dgram,
+  network netlink raw,                                           
+  network netlink dgram,
+
+                                                                              
+  signal (send, receive),                                                            
+  ptrace (read),                                                          
+
+                                                                        
+                                                                    
+                                             
+  mount,
+  umount,
+  remount,
+
+                                                                     
+  /usr/local/bin/purecvisorsd     mr,                                       
+  /etc/purecvisor/plugins.d/*.so  mr,                                         
+
+                                                                           
+  /etc/purecvisor/                r,
+  /etc/purecvisor/**              r,                                                    
+                                                                                   
+                                                                                    
+  /etc/lxc/default.conf           r,
+  /etc/machine-id                 r,
+  /etc/subuid                     r,
+  /etc/subgid                     r,
+  /etc/ufw/**                     r,                                                
+  /etc/libvirt/                   r,
+  /etc/libvirt/**                 r,                                                                  
+                                                                                                   
+
+                                                                    
+  /var/lib/purecvisor/            rw,
+  /var/lib/purecvisor/**          rwk,                                                       
+                                                                                         
+                                                                                             
+  /var/log/purecvisor/            rw,
+  /var/log/purecvisor/**          rw,                  
+
+                                                                      
+  /{,var/}run/purecvisor/         rw,
+  /{,var/}run/purecvisor/**       rwk,                                                        
+  /{,var/}run/libvirt/**          rw,                                           
+  /{,var/}run/openvswitch/**      rw,                                        
+  /{,var/}run/ovn/**              r,                            
+  /{,var/}run/lxc/                rw,
+  /{,var/}run/lxc/**              rwk,                                                        
+                                                                                                 
+  /run/systemd/notify             w,                                         
+
+                                                                         
+  /pcvpool/                       rw,
+  /pcvpool/**                     rwk,                                       
+  /var/lib/libvirt/images/        rw,
+  /var/lib/libvirt/images/**      rwk,                   
+  /var/lib/libvirt/dnsmasq/**     r,
+
+                                                                           
+  /dev/kvm                        rw,                
+  /dev/zvol/**                    rwk,                               
+  /dev/zd*                        rwk,                       
+  /dev/disk/by-path/**            r,
+                                                                      
+
+                                                                       
+  /tmp/pcv-*/                     rw,
+  /tmp/pcv-*/**                   rwk,
+  owner /tmp/pcv-*                rw,
+  /tmp/ova-*/                     rw,
+  /tmp/ova-*/**                   rwk,                                             
+                                                                                  
+  owner /tmp/ova-*                rw,
+
+                                                                           
+  /usr/local/share/purecvisor/ui/       r,
+  /usr/local/share/purecvisor/ui/**     r,
+
+                                                                           
+  @{PROC}/                         r,
+  @{PROC}/**                       r,                                                   
+                                                                                      
+  /sys/                            r,
+  /sys/**                          r,                                                               
+  /sys/fs/cgroup/**                rw,                                            
+
+                                                                         
+                                                                 
+                                                                    
+                                                        
+                                                                
+                   
+                                                     
+                                                    
+                                      
+            
+                                                                                  
+                                                                  
+                                               
+                                                                                
+                                                         
+                                   
+  /sys/kernel/config/              r,
+  /sys/kernel/config/target/       rw,
+  /sys/kernel/config/target/**     rw,
+
+                                                                               
+                                                        
+                                                        
+                                                         
+                                                                               
+
+                                                                
+  /{usr/,}bin/{ba,da,}sh          Ux,
+
+                                                                 
+                                                               
+  /{usr/,}bin/qemu-system-*       Ux,                                       
+  /{usr/,}bin/kvm                 Ux,
+  /{usr/,}bin/virsh               Ux,
+  /{usr/,}bin/virt-*              Ux,                                                                
+                                                                                                                
+  /{usr/,}bin/guestfish           Ux,                                             
+  /{usr/,}bin/guestmount          Ux,
+  /{usr/,}bin/lxc-*               Ux,                                      
+  /{usr/,}bin/nsenter             Ux,
+
+                                                                           
+  /{usr/,}{,s}bin/ip              Ux,
+  /{usr/,}{,s}bin/bridge          Ux,
+  /{usr/,}{,s}bin/tc              Ux,
+  /{usr/,}{,s}bin/nft             Ux,
+  /{usr/,}{,s}bin/iptables        Ux,
+  /{usr/,}{,s}bin/dnsmasq         Ux,
+  /{usr/,}bin/ovs-vsctl           Ux,
+  /{usr/,}bin/ovn-nbctl           Ux,
+  /{usr/,}{,s}bin/arp             Ux,
+  /{usr/,}{,s}bin/ss              Ux,
+  /{usr/,}{,s}bin/sysctl          Ux,
+  /{usr/,}{,s}bin/modprobe        Ux,
+  /{usr/,}bin/kmod                Ux,                                         
+                                                                                                  
+  /{usr/,}bin/firewall-cmd        Ux,
+
+                                                                           
+  /{usr/,}{,s}bin/zfs             Ux,
+  /{usr/,}{,s}bin/zpool           Ux,
+  /{usr/,}bin/qemu-img            Ux,
+  /{usr/,}bin/qemu-nbd            Ux,
+  /{usr/,}{,s}bin/mount           Ux,
+  /{usr/,}{,s}bin/umount          Ux,
+  /{usr/,}{,s}bin/wipefs          Ux,
+  /{usr/,}{,s}bin/partx           Ux,
+  /{usr/,}{,s}bin/partprobe       Ux,
+  /{usr/,}{,s}bin/kpartx          Ux,
+  /{usr/,}{,s}bin/udevadm         Ux,
+  /{usr/,}{,s}bin/fuser           Ux,
+  /{usr/,}{,s}bin/iscsiadm        Ux,                                          
+                                                                       
+                                                                     
+                                                       
+                                                             
+                                                       
+                                                   
+  /{usr/,}bin/tar                 Ux,
+  /{usr/,}bin/dd                  Ux,
+  /{usr/,}bin/cp                  Ux,
+  /{usr/,}bin/rm                  Ux,
+  /{usr/,}bin/mkdir               Ux,
+  /{usr/,}bin/sha256sum           Ux,
+  /{usr/,}bin/which               Ux,
+
+                                                                 
+  /{usr/,}bin/gzip                Ux,                          
+  /{usr/,}bin/pigz                Ux,
+  /{usr/,}bin/zstd                Ux,                          
+  /{usr/,}bin/xz                  Ux,
+  /{usr/,}bin/curl                Ux,                             
+  /{usr/,}{,s}bin/ssh             Ux,                            
+
+                                                                      
+  /{usr/,}bin/pkill               Ux,
+  /{usr/,}{,s}bin/nvidia-smi      Ux,
+  /{usr/,}bin/lspci               Ux,
+  /{usr/,}bin/systemctl           Ux,
+
+                                                                        
+  /{usr/,usr/local/}bin/aws       Ux,
+
+                                                                        
+                                                             
+                                                         
+  /usr/share/glib-2.0/schemas/                    r,
+  /usr/share/glib-2.0/schemas/gschemas.compiled   r,
+                                                          
+                                                                   
+  deny /root/.cache/dconf/                        rw,
+  deny /root/.cache/dconf/**                      rwk,
+
+                                                                      
+                                               
+}

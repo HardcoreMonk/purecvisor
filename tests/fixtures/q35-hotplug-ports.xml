@@ -1,0 +1,19 @@
+<domain type="kvm">
+  <name>pcv-q35-hotplug-contract</name>
+  <memory unit="MiB">512</memory>
+  <vcpu>1</vcpu>
+  <os>
+    <type arch="x86_64" machine="q35">hvm</type>
+  </os>
+  <devices>
+    <controller type="pci" index="0" model="pcie-root"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+    <controller type="pci" model="pcie-root-port"/>
+  </devices>
+</domain>

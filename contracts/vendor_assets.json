@@ -1,0 +1,114 @@
+{
+  "_note": "ui/vendor/ 벤더링 자산의 SHA-256 핀 + 출처 기록(A03 공급망). scripts/check_vendor_integrity.py 가 정본으로 사용한다. version/license 는 벤더링된 파일이 스스로 명시한 값만 기록하며, 파일에 근거가 없으면 null 이다(업스트림 추정 기재 금지).",
+  "_regen": "python3 scripts/check_vendor_integrity.py --print-actual > contracts/vendor_assets.json",
+  "assets": [
+    {
+      "path": "ui/vendor/chart.umd.min.js",
+      "sha256": "6234d35963f084f0143b50f8c35fb54cb284e797a5804d34b27a3c85429e1f81",
+      "bytes": 205711,
+      "component": "chart.js",
+      "version": "4.4.4",
+      "license": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/chart.js@4.4.4/dist/chart.umd.js"
+    },
+    {
+      "path": "ui/vendor/coolicons/README.md",
+      "sha256": "6f45705ef48d67297e77d6581185b3d2558ef259b2f3bf13b88188be60501f08",
+      "bytes": 448,
+      "component": "coolicons",
+      "version": "1.2.2",
+      "license": "CC BY 4.0",
+      "source": "https://coolicons.cool/"
+    },
+    {
+      "path": "ui/vendor/coolicons/coolicons.svg",
+      "sha256": "ea323d63018c1f5a422eb8f5d75a3aa24cbf08dea9512b002f8180f4b9d91404",
+      "bytes": 18080,
+      "component": "coolicons",
+      "version": "1.2.2",
+      "license": "CC BY 4.0",
+      "source": "https://coolicons.cool/"
+    },
+    {
+      "path": "ui/vendor/novnc/novnc.esm.js",
+      "sha256": "edb07f238ff3f2751a1641c0f0efb8ae6e3e21fedd4a9c9c567f21a5e561b700",
+      "bytes": 283831,
+      "component": "@novnc/novnc (lib/rfb.js 번들)",
+      "version": "1.5.0",
+      "license": null,
+      "source": "https://www.npmjs.com/package/@novnc/novnc"
+    },
+    {
+      "path": "ui/vendor/pretendard/pretendard.css",
+      "sha256": "f3ef793c33aa6cc3510ad7a0e3efdec8903cdf82df9a3c385aaf6b00a6b45527",
+      "bytes": 1358,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-Black.woff2",
+      "sha256": "c5fd0c3568fc1368a3edc0d0fbb36df029935954276e3573451b3bae09e27296",
+      "bytes": 800404,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-Bold.woff2",
+      "sha256": "4609c3356e536fafe38f4add0daeceb3d8595d3057bce13c428c33ddbd43d362",
+      "bytes": 791156,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-ExtraBold.woff2",
+      "sha256": "dd7c1e156f508eb962acc7a33a7a1896d1e0b71e11156fad96e731689ceb6dc3",
+      "bytes": 793540,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-Medium.woff2",
+      "sha256": "d03481330eeba0659ab5b87f25ceb504a35de377dd90a0d0aba2982eb2d05e2c",
+      "bytes": 778432,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-Regular.woff2",
+      "sha256": "fad853f7f47c6c8b103171e7193fa095708cdcd70850a71d93aa5379e8a61d63",
+      "bytes": 765892,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/pretendard/woff2/Pretendard-SemiBold.woff2",
+      "sha256": "c863f76a7de5c1ddc1ed8b2fa794964530774592c4f31407a84e2a2ae93f17f0",
+      "bytes": 785856,
+      "component": "Pretendard",
+      "version": null,
+      "license": "SIL OFL 1.1",
+      "source": "https://github.com/orioncactus/pretendard"
+    },
+    {
+      "path": "ui/vendor/qrcode/qrcode.js",
+      "sha256": "18ae399f81182bc9de916e9c77b195df20cc58d6f2d55a62b085a299f1bf1780",
+      "bytes": 56694,
+      "component": "qrcode-generator",
+      "version": "1.4.4",
+      "license": "MIT",
+      "source": "https://www.npmjs.com/package/qrcode-generator"
+    }
+  ]
+}
