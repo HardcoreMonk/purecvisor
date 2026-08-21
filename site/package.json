@@ -14,7 +14,7 @@
   "scripts": {
     "prepare:content": "node scripts/prepare-content.mjs",
     "dev": "npm run prepare:content && astro dev",
-    "build": "npm run prepare:content && astro build",
+    "build": "npm run prepare:content && astro build && node scripts/publish-product-docs.mjs",
     "check": "npm run build && node scripts/check-site.mjs"
   },
   "dependencies": {
