@@ -1,6 +1,6 @@
 # 공개 사이트 다국어·상단 하위 메뉴 UI 리뷰
 
-> 상태: PASS, 로컬 구현·브라우저 검증 완료, Pages 배포 전
+> 상태: Verified, 로컬·Pages build·운영 브라우저 검증 완료
 > 대상: `https://purecvisor.site/`, `/ko/`, `/en/`
 > 관련 결정: ADR-0046
 
@@ -100,4 +100,10 @@
 - 영어 mobile 캡처:
   `.scratch/ui-reviews/2026-08-23-public-site-i18n-navigation/after-en-mobile.png`
   — `4c48c1124f5ccb8529f8114ddecb60352d1c83cc4513a6af6cca7a42e43de62c`
-- Pages push·배포와 운영 URL 재검증은 수행하지 않았으므로 상태를 `Verified`로 올리지 않는다.
+- commit `ca3a399`을 `main`에 push했고 GitHub Pages run
+  [`32645170384`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32645170384)의 build·deploy가
+  모두 성공했다.
+- 운영 URL `/`, `/ko/`, `/en/`, `/docs.html`은 모두 HTTP 200이며 언어, 네 menu group, canonical
+  전체 운영 가이드 link를 확인했다.
+- 운영 Chromium에서 keyboard `Esc` focus 복원, 영어 전체 운영 가이드 실제 이동, 390px KO·EN
+  전환과 overflow 0, axe 위반·console·page·request 오류 0을 재확인했다.

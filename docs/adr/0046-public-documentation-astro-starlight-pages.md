@@ -1,11 +1,12 @@
 # ADR-0046: 공개 문서는 Astro·Starlight GitHub Pages로 운영한다
 
-- **상태:** Approved
+- **상태:** Verified
 - **일자:** 2026-08-21
 - **승인:** 2026-08-21 사용자 명시 승인
 - **변경:** 2026-08-22 전체 운영 가이드 정본을 `/docs.html`로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-22 `/docs.html`을 제품 `ui/docs.html` 레이아웃으로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-23 한국어 기본·`/ko/`·`/en/` route와 그룹형 상단 navigation 사용자 명시 승인
+- **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
 - **관련:** ADR-0013, ADR-0016, ADR-0037
 
