@@ -8,6 +8,7 @@
 - **변경:** 2026-08-23 한국어 기본·`/ko/`·`/en/` route와 그룹형 상단 navigation 사용자 명시 승인
 - **변경:** 2026-08-24 landing의 서비스 기능·시작 흐름·공개 범위 구역 제거와 문서 directory 직결 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
+- **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **승계:** 2026-08-24 공개 reader와 `/docs.html` 정본 계약은 ADR-0047이 대체
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
 - **관련:** ADR-0013, ADR-0016, ADR-0037, ADR-0047

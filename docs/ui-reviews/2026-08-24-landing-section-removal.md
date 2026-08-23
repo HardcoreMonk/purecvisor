@@ -107,4 +107,9 @@
 - mobile 캡처:
   `.scratch/ui-reviews/2026-08-24-landing-section-removal/after-ko-mobile.png`
   — `e0e05d8501494a9ab5e5586f5547cb5dacfb25aa88e0ecee67d761c54a49f833`
-- 잔여 위험: commit·push·Pages 배포 전이므로 운영 domain은 이전 구조를 유지한다.
+- 구현 commit `39f94c5`의 GitHub Pages run
+  [`32653904395`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32653904395)이 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`과 390px mobile에서 section 순서,
+  제거 section·stale anchor 0, 8개 category·22개 chapter, 새 Header guide link를 재확인했다.
+- 운영 domain의 axe 위반과 browser console·page·request 오류는 0이며 overflow도 0이다.
+- 잔여 위험: 없음. 이후 landing section 재도입과 stale anchor는 `npm run check`가 차단한다.
