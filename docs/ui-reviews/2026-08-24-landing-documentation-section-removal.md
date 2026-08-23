@@ -110,5 +110,16 @@
     — `aa461e170c584e05ab792f6aa23eabf28666965f4cb77fe82e92f28346330f70`
 - 시각 판정: desktop은 Hero copy와 5계층 지도가 한 화면의 유일한 핵심으로 남고, mobile은
   지도 뒤 footer가 바로 이어져 제거된 문서 목록의 빈 공간이나 중복 CTA가 없다.
-- 잔여 위험: 로컬 artifact 기준 구현·검증까지 완료했다. 운영 반영은 별도 commit·push·Pages
-  배포 후 custom domain에서 재검증해야 한다.
+- 구현 commit `1ae6bb4`의 GitHub Pages run
+  [`32663611014`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32663611014)이 build와 deploy
+  두 job을 모두 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440×1000·390×844에서 다시 확인한 결과 모든
+  경로가 HTTP 200, 직접 section `_top` 하나, 제거 DOM·KO/EN 문구 0건을 유지했다. Hero action
+  2개, 상단 navigation group 4개, Access 3개·Service 4개·Layer 5개도 그대로다.
+- 운영 domain의 page·map overflow, console·page·request error와 axe WCAG A/AA violation은
+  0이다. hover·pointer 이탈·keyboard focus·reduced-motion 계약도 로컬 결과와 일치했다.
+- 운영 desktop 캡처 SHA-256
+  `9c3f8f745881313488c9d47faa96956fbadeccb72ba85908f936587563e064aa`와 mobile 캡처
+  `aa461e170c584e05ab792f6aa23eabf28666965f4cb77fe82e92f28346330f70`은 로컬 검증값과
+  각각 일치했다.
+- 잔여 위험: 없음. 제거 section·문구·전용 CSS 재도입은 `npm run check`가 차단한다.
