@@ -139,5 +139,16 @@
     — `7c4a9a98cab93db3feff1f565545589327196c88b0ceb0e2d6f28474210e4649`
 - 로컬 시각 판정: desktop은 light·dark 모두 5개 layer와 node가 surface·border·text로 분리되고,
   mobile은 Capability service 1열에서 icon·이름·기술 label을 한 행으로 읽을 수 있다.
-- 잔여 위험: 로컬 artifact 구현·검증까지 완료했다. 운영 반영은 별도 commit·push·Pages 배포 후
-  custom domain의 실제 theme control에서 재검증해야 한다.
+- 구현 commit `faf8029`의 GitHub Pages run
+  [`32666352050`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32666352050)이 build와 deploy
+  두 job을 모두 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 light·dark 각각 1440×1200, 1024×900,
+  768×900, 390×844에서 다시 확인했다. 모든 경로가 HTTP 200이고 map 글꼴은 12~14px,
+  light·dark의 Hero·map·layer·node 계산 배경은 서로 다르며 page·map·node overflow와 clipping은
+  0이다.
+- 운영 domain의 axe WCAG A/AA violation과 console·page·request 오류는 0이다. theme UI control의
+  선택 직후·reload 후 `data-theme`, localStorage, picker 값이 일치하고 hover·pointer reset·keyboard
+  focus·reduced-motion 계약도 로컬 결과와 동일하다.
+- 운영 light·dark desktop·mobile 정지 캡처 SHA-256은 로컬 검증값과 각각 일치했다.
+- 잔여 위험: 없음. theme token·최소 글꼴·component 크기·mobile service 1열 재도입 회귀는
+  `npm run check`가 차단한다.
