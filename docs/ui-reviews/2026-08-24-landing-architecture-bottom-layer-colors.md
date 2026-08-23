@@ -119,5 +119,19 @@
     — `f105f521c13356889d1e98cd73f59cfd685e42e4540bab80755f649c6e996526`
 - 로컬 시각 검토: desktop에서 copy 뒤 전체 폭 map, 5색 계층의 억제된 경계, 1024px 2행 전환,
   390px compact grid와 footer까지 직접 확인했다.
+- 구현 commit `b50731e`의 GitHub Pages run
+  [`32664925416`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32664925416)이 build와 deploy
+  두 job을 모두 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440×1000, 1024×900, 768×900,
+  390×844에서 다시 확인했다. 모든 경로가 HTTP 200이고 copy가 map보다 먼저·위에 있으며 map 폭은
+  Hero 폭과 일치한다. 1440px·1024px 문장은 1줄, 390px 문장은 2줄이고 page·map·node overflow는
+  0이다.
+- 운영 domain에서도 index·border 계산 색은 각각 5개로 모두 고유하고 axe WCAG A/AA violation과
+  console·page·request 오류는 0이다. hover·pointer 이탈·keyboard focus·reduced-motion 계약도
+  로컬 결과와 일치했다.
+- 운영 desktop·1024px·mobile 정지 캡처 SHA-256은 각각
+  `f50365d669fc5c9d2e5ec08e8a7fb9871b406bada61527ee5e3d9696c4c7549f`,
+  `8f3b7fa3ddb8b284a6ce60f31aee6e3b3344c521cb2f9aa3979288bb41dc5b53`,
+  `ca9f052714ef042d21cf7218e705faef6cb7aa1cad7e8b1747f9f9970f480061`로 로컬 검증값과 일치했다.
 - 잔여 위험: 없음. 768px은 줄바꿈을 허용하지만 현재 문장 길이에서는 한 줄로 들어가며,
   더 긴 번역이 들어오면 정상적으로 자연 줄바꿈한다.
