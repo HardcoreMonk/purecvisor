@@ -4,9 +4,9 @@ import starlight from "@astrojs/starlight";
 export default defineConfig({
   site: "https://purecvisor.site",
   output: "static",
-  trailingSlash: "never",
+  trailingSlash: "always",
   build: {
-    format: "file"
+    format: "directory"
   },
   vite: {
     build: {
@@ -21,8 +21,16 @@ export default defineConfig({
       defaultLocale: "root",
       locales: {
         root: {
+          label: "한국어 (기본)",
+          lang: "ko"
+        },
+        ko: {
           label: "한국어",
           lang: "ko"
+        },
+        en: {
+          label: "English",
+          lang: "en"
         }
       },
       social: [

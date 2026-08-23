@@ -7,6 +7,8 @@ const siteRoot = path.resolve(scriptDir, "..");
 const distRoot = path.join(siteRoot, "dist");
 const requiredFiles = [
   "index.html",
+  "ko/index.html",
+  "en/index.html",
   "docs.html",
   "guide-content.md",
   "favicon.svg",
@@ -60,6 +62,8 @@ for (const file of outputFiles) {
 }
 
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
+const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
+const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
 const guide = await readFile(path.join(distRoot, "guide-content.md"), "utf8");
 if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
@@ -74,6 +78,35 @@ if ((index.match(/class="pcv-capability(?:\s|\")/g) || []).length !== 6) {
 }
 if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
   throw new Error("landing category count mismatch");
+}
+for (const [name, source, language, title, canonical] of [
+  ["root", index, "ko", "하나의 노드,", "https://purecvisor.site/"],
+  ["korean", korean, "ko", "하나의 노드,", "https://purecvisor.site/ko/"],
+  ["english", english, "en", "One node,", "https://purecvisor.site/en/"]
+]) {
+  if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
+  if (!source.includes(title)) throw new Error(`${name} landing title missing`);
+  if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
+    throw new Error(`${name} canonical route mismatch`);
+  }
+  if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {
+    throw new Error(`${name} navigation group count mismatch`);
+  }
+  if ((source.match(/class="pcv-nav-menu\b/g) || []).length !== 4) {
+    throw new Error(`${name} navigation submenu count mismatch`);
+  }
+  if (!source.includes('aria-haspopup="true"') || !source.includes('aria-expanded="false"')) {
+    throw new Error(`${name} navigation disclosure contract missing`);
+  }
+  if (!source.includes('href="/ko/"') || !source.includes('href="/en/"')) {
+    throw new Error(`${name} language routes missing`);
+  }
+}
+if (!korean.includes('href="/docs.html">전체 운영 가이드</a>')) {
+  throw new Error("korean full operations guide link missing");
+}
+if (!english.includes('href="/docs.html">Full operations guide</a>')) {
+  throw new Error("english full operations guide link missing");
 }
 if (index.includes("/guide.html")) throw new Error("retired guide.html link found");
 if (!docs.includes('<base href="/">')) throw new Error("public docs base missing");

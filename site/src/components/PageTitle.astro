@@ -1,7 +1,16 @@
 ---
 import DefaultPageTitle from "@astrojs/starlight/components/PageTitle.astro";
 
-const isLanding = Astro.url.pathname === "/" || Astro.url.pathname === "/index.html";
+const isLanding = [
+  "/",
+  "/index.html",
+  "/ko",
+  "/ko/",
+  "/ko/index.html",
+  "/en",
+  "/en/",
+  "/en/index.html"
+].includes(Astro.url.pathname);
 ---
 
 {isLanding ? null : <DefaultPageTitle />}

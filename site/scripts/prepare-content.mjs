@@ -8,6 +8,8 @@ const repoRoot = path.resolve(siteRoot, "..");
 const guideSource = path.join(repoRoot, "docs", "GUIDE.md");
 const docsTarget = path.join(siteRoot, "src", "content", "docs", "docs.md");
 const retiredTarget = path.join(siteRoot, "src", "content", "docs", "guide.md");
+const koreanLandingSource = path.join(siteRoot, "src", "content", "docs", "index.mdx");
+const koreanLandingTarget = path.join(siteRoot, "src", "content", "docs", "ko", "index.mdx");
 const fontSource = path.join(repoRoot, "ui", "vendor", "pretendard", "woff2");
 const fontTarget = path.join(siteRoot, "public", "assets", "pretendard");
 const repoBlobBase = "https://github.com/HardcoreMonk/purecvisor/blob/main";
@@ -49,6 +51,8 @@ tableOfContents:
 
 await rm(retiredTarget, { force: true });
 await mkdir(path.dirname(docsTarget), { recursive: true });
+await mkdir(path.dirname(koreanLandingTarget), { recursive: true });
+await copyFile(koreanLandingSource, koreanLandingTarget);
 await writeFile(docsTarget, guideFrontmatter + guideBody);
 await rm(fontTarget, { recursive: true, force: true });
 await mkdir(fontTarget, { recursive: true });

@@ -25,6 +25,11 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `site/scripts/publish-product-docs.mjs`가 최종 `docs.html`을 제품 문서 shell로 교체한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 문서 포털과 같은 8개 작업
   카테고리·22개 장·역할별 추천 경로를 공개 사이트 구조로 제공한다.
+- 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
+  한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
+- 상단 `서비스`, `시작하기`, `공개 범위`, `문서`는 각각 하위 링크를 가진 disclosure navigation이다.
+  `문서 > 전체 운영 가이드`와 영어 `Documentation > Full operations guide`는 모두 `/docs.html`로
+  이동한다.
 
 ## 콘텐츠 동기화 계약
 
@@ -43,13 +48,14 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
 - 첫 페이지는 서비스 설명, 시작 흐름, 핵심 기능과 공개 범위를 문서 탐색보다 먼저 제공한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
-  reader 구조만 참고한다.
+  reader 구조, 그룹 제목과 단순 링크 목록으로 구성한 상단 disclosure navigation만 참고한다.
 - `/docs.html`은 제품 포털과 같은 floating header, 좌측 장 navigation, 중앙 본문과 우측 현재
   장 목차를 사용한다.
 - 외부 사이트의 logo, 고유 문구, 이미지와 브랜드 자산은 복제하지 않는다.
 - 본문 가독성, keyboard focus, mobile navigation과 code overflow를 운영 기준으로 검증한다.
 - landing 근거는 `docs/ui-reviews/2026-08-22-public-service-landing.md`, 전체 가이드 reader
-  근거는 `docs/ui-reviews/2026-08-22-public-product-docs-layout.md`를 따른다.
+  근거는 `docs/ui-reviews/2026-08-22-public-product-docs-layout.md`, 언어·상단 navigation 근거는
+  `docs/ui-reviews/2026-08-23-public-site-i18n-navigation.md`를 따른다.
 
 ## 배포 흐름
 
@@ -103,7 +109,8 @@ npm ci
 npm run check
 ```
 
-검증은 `index.html`, 제품 `docs.html` shell, `guide-content.md`, local font·icon, `guide.html`
-artifact·link 부재, 금지된 내부 주소·private repository 표식, source map 부재와 정적 artifact
-생성을 확인한다. 실제 Pages 배포 후에는 root, docs deep link, 검색, 좌우 목차, mobile
-navigation, HTTPS와 custom domain canonical URL을 확인한다.
+검증은 `index.html`, `ko/index.html`, `en/index.html`, 제품 `docs.html` shell,
+`guide-content.md`, local font·icon, 네 disclosure menu와 언어 route, `guide.html` artifact·link
+부재, 금지된 내부 주소·private repository 표식, source map 부재와 정적 artifact 생성을 확인한다.
+실제 Pages 배포 후에는 `/`, `/ko/`, `/en/`, 전체 운영 가이드 이동, docs deep link, 검색, 좌우
+목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.

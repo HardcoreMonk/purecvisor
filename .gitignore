@@ -41,6 +41,7 @@
 /site/dist/
 /site/.scratch/
 /site/src/content/docs/docs.md
+/site/src/content/docs/ko/index.mdx
 /site/public/assets/pretendard/
 /.lazyweb/
 

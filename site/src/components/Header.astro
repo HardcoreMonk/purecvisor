@@ -1,6 +1,5 @@
 ---
 import config from "virtual:starlight/user-config";
-import LanguageSelect from "virtual:starlight/components/LanguageSelect";
 import Search from "virtual:starlight/components/Search";
 import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
@@ -8,17 +7,124 @@ import ThemeSelect from "virtual:starlight/components/ThemeSelect";
 
 const shouldRenderSearch =
   config.pagefind || config.components.Search !== "@astrojs/starlight/components/Search.astro";
+const pathname = Astro.url.pathname;
+const localePrefix = pathname === "/en" || pathname.startsWith("/en/")
+  ? "/en"
+  : pathname === "/ko" || pathname.startsWith("/ko/")
+    ? "/ko"
+    : "";
+const isEnglish = localePrefix === "/en";
+const homePath = localePrefix ? `${localePrefix}/` : "/";
+const languageLabel = isEnglish ? "Language" : "언어";
+const navigationLabel = isEnglish ? "Primary navigation" : "주요 탐색";
+
+const menus = isEnglish
+  ? [
+      {
+        label: "Services",
+        items: [
+          ["Service overview", `${homePath}#capabilities`],
+          ["VMs & containers", "/docs.html#3-vm-관리"],
+          ["Storage & networking", "/docs.html#5-스토리지"],
+          ["Observability & security", "/docs.html#8-모니터링-알림"]
+        ]
+      },
+      {
+        label: "Get started",
+        items: [
+          ["5-minute quickstart", "/docs.html#14-5분-퀵스타트"],
+          ["Installation & environment", "/docs.html#2-설치-및-환경-구성"],
+          ["Start the service", `${homePath}#quickstart`],
+          ["Create your first VM", "/docs.html#3-vm-관리"]
+        ]
+      },
+      {
+        label: "Public scope",
+        items: [
+          ["Scope overview", `${homePath}#scope`],
+          ["Single Edge boundaries", "/docs.html#1-시작하기"],
+          ["Architecture", "/docs.html#12-아키텍처-개요"],
+          ["Quality gates", "/docs.html#22-품질-게이트-가이드"]
+        ]
+      },
+      {
+        label: "Documentation",
+        items: [
+          ["Full operations guide", "/docs.html"],
+          ["REST API", "/docs.html#14-rest-api"],
+          ["CLI reference", "/docs.html#15-cli-레퍼런스"],
+          ["Troubleshooting", "/docs.html#17-트러블슈팅"]
+        ]
+      }
+    ]
+  : [
+      {
+        label: "서비스",
+        items: [
+          ["서비스 개요", `${homePath}#capabilities`],
+          ["VM · 컨테이너", "/docs.html#3-vm-관리"],
+          ["스토리지 · 네트워크", "/docs.html#5-스토리지"],
+          ["관측 · 보안", "/docs.html#8-모니터링-알림"]
+        ]
+      },
+      {
+        label: "시작하기",
+        items: [
+          ["5분 퀵스타트", "/docs.html#14-5분-퀵스타트"],
+          ["설치 및 환경 구성", "/docs.html#2-설치-및-환경-구성"],
+          ["서비스 시작 흐름", `${homePath}#quickstart`],
+          ["첫 VM 만들기", "/docs.html#3-vm-관리"]
+        ]
+      },
+      {
+        label: "공개 범위",
+        items: [
+          ["공개 범위 개요", `${homePath}#scope`],
+          ["Single Edge 경계", "/docs.html#1-시작하기"],
+          ["아키텍처", "/docs.html#12-아키텍처-개요"],
+          ["품질 게이트", "/docs.html#22-품질-게이트-가이드"]
+        ]
+      },
+      {
+        label: "문서",
+        items: [
+          ["전체 운영 가이드", "/docs.html"],
+          ["REST API", "/docs.html#14-rest-api"],
+          ["CLI 레퍼런스", "/docs.html#15-cli-레퍼런스"],
+          ["트러블슈팅", "/docs.html#17-트러블슈팅"]
+        ]
+      }
+    ];
 ---
 
 <div class="header">
   <div class="title-wrapper sl-flex">
     <SiteTitle />
+    <nav class="pcv-language-switch pcv-language-switch-mobile" aria-label={languageLabel}>
+      <a href="/ko/" lang="ko" hreflang="ko" aria-current={!isEnglish ? "true" : undefined}>KO</a>
+      <a href="/en/" lang="en" hreflang="en" aria-current={isEnglish ? "true" : undefined}>EN</a>
+    </nav>
   </div>
-  <nav class="pcv-primary-nav print:hidden" aria-label="주요 탐색">
-    <a href="/#capabilities">서비스</a>
-    <a href="/#quickstart">시작하기</a>
-    <a href="/#scope">공개 범위</a>
-    <a href="/#documentation">문서</a>
+  <nav class="pcv-primary-nav print:hidden" aria-label={navigationLabel}>
+    {menus.map((group, index) => (
+      <div class="pcv-nav-group">
+        <button
+          class="pcv-nav-trigger"
+          type="button"
+          aria-expanded="false"
+          aria-haspopup="true"
+          aria-controls={`pcv-nav-menu-${index}`}
+        >
+          {group.label}
+          <svg aria-hidden="true" viewBox="0 0 16 16">
+            <path d="m4 6 4 4 4-4" />
+          </svg>
+        </button>
+        <div class="pcv-nav-menu" id={`pcv-nav-menu-${index}`} hidden>
+          {group.items.map(([label, href]) => <a href={href}>{label}</a>)}
+        </div>
+      </div>
+    ))}
   </nav>
   <div class="search-group sl-flex print:hidden">
     {shouldRenderSearch && <Search />}
@@ -28,24 +134,97 @@ const shouldRenderSearch =
       <SocialIcons />
     </div>
     <ThemeSelect />
-    <LanguageSelect />
+    <nav class="pcv-language-switch" aria-label={languageLabel}>
+      <a href="/ko/" lang="ko" hreflang="ko" aria-current={!isEnglish ? "true" : undefined}>KO</a>
+      <a href="/en/" lang="en" hreflang="en" aria-current={isEnglish ? "true" : undefined}>EN</a>
+    </nav>
   </div>
 </div>
+
+<script>
+  const groups = Array.from(document.querySelectorAll(".pcv-nav-group"));
+
+  function setGroupOpen(group, open) {
+    const trigger = group.querySelector(".pcv-nav-trigger");
+    const menu = group.querySelector(".pcv-nav-menu");
+    if (!(trigger instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
+    trigger.setAttribute("aria-expanded", open ? "true" : "false");
+    menu.hidden = !open;
+  }
+
+  function closeGroups(except) {
+    for (const group of groups) {
+      if (group !== except) setGroupOpen(group, false);
+    }
+  }
+
+  for (const group of groups) {
+    const trigger = group.querySelector(".pcv-nav-trigger");
+    const menu = group.querySelector(".pcv-nav-menu");
+    if (!(trigger instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) continue;
+    let restoringFocus = false;
+
+    group.addEventListener("pointerenter", () => {
+      closeGroups(group);
+      setGroupOpen(group, true);
+    });
+    group.addEventListener("pointerleave", () => setGroupOpen(group, false));
+    group.addEventListener("focusin", () => {
+      if (restoringFocus) return;
+      closeGroups(group);
+      setGroupOpen(group, true);
+    });
+    group.addEventListener("focusout", (event) => {
+      if (!(event.relatedTarget instanceof Node) || !group.contains(event.relatedTarget)) {
+        setGroupOpen(group, false);
+      }
+    });
+    trigger.addEventListener("click", () => {
+      closeGroups(group);
+      setGroupOpen(group, true);
+    });
+    trigger.addEventListener("keydown", (event) => {
+      if (event.key === "ArrowDown") {
+        event.preventDefault();
+        setGroupOpen(group, true);
+        menu.querySelector("a")?.focus();
+      }
+      if (event.key === "Escape") {
+        event.preventDefault();
+        setGroupOpen(group, false);
+      }
+    });
+    menu.addEventListener("keydown", (event) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      setGroupOpen(group, false);
+      restoringFocus = true;
+      trigger.focus();
+      restoringFocus = false;
+    });
+  }
+
+  document.addEventListener("pointerdown", (event) => {
+    if (!(event.target instanceof Node) || groups.some((group) => group.contains(event.target))) return;
+    closeGroups();
+  });
+</script>
 
 <style>
   @layer starlight.core {
     .header {
       display: grid;
-      grid-template-columns: auto minmax(17rem, 1fr) minmax(12rem, 22rem) auto;
+      grid-template-columns: auto minmax(22rem, 1fr) minmax(11rem, 20rem) auto;
       gap: var(--sl-nav-gap);
       align-items: center;
       height: 100%;
+      overflow: visible;
     }
 
     .title-wrapper {
       min-width: 0;
       margin: -0.25rem;
-      overflow: clip;
+      overflow: visible;
       padding: 0.25rem;
     }
 
@@ -53,25 +232,92 @@ const shouldRenderSearch =
       display: flex;
       align-items: center;
       justify-content: center;
-      gap: clamp(0.75rem, 2vw, 1.6rem);
+      gap: clamp(0.15rem, 0.7vw, 0.6rem);
       min-width: 0;
     }
 
-    .pcv-primary-nav a {
+    .pcv-nav-group {
+      position: relative;
+    }
+
+    .pcv-nav-trigger {
+      min-height: 2.25rem;
+      display: inline-flex;
+      align-items: center;
+      gap: 0.3rem;
+      padding: 0 0.7rem;
+      border: 0;
+      border-radius: 999px;
+      background: transparent;
       color: var(--sl-color-gray-2);
+      font: inherit;
       font-size: 0.82rem;
       font-weight: 600;
+      white-space: nowrap;
+      cursor: pointer;
+    }
+
+    .pcv-nav-trigger svg {
+      width: 0.75rem;
+      height: 0.75rem;
+      fill: none;
+      stroke: currentColor;
+      stroke-linecap: round;
+      stroke-linejoin: round;
+      stroke-width: 1.5;
+      transition: transform 140ms ease;
+    }
+
+    .pcv-nav-trigger:hover,
+    .pcv-nav-trigger[aria-expanded="true"] {
+      background: var(--sl-color-gray-6);
+      color: var(--sl-color-white);
+    }
+
+    .pcv-nav-trigger[aria-expanded="true"] svg {
+      transform: rotate(180deg);
+    }
+
+    .pcv-nav-trigger:focus-visible,
+    .pcv-nav-menu a:focus-visible,
+    .pcv-language-switch a:focus-visible {
+      outline: 3px solid var(--sl-color-accent);
+      outline-offset: 3px;
+    }
+
+    .pcv-nav-menu {
+      position: absolute;
+      z-index: 20;
+      top: calc(100% + 0.45rem);
+      left: 0;
+      min-width: 13.5rem;
+      padding: 0.45rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 0.75rem;
+      background: var(--sl-color-black);
+      box-shadow: 0 16px 34px rgba(15, 23, 42, 0.16);
+    }
+
+    .pcv-nav-menu[hidden] {
+      display: none;
+    }
+
+    .pcv-nav-menu a {
+      min-height: 2.45rem;
+      display: flex;
+      align-items: center;
+      padding: 0.45rem 0.7rem;
+      border-radius: 0.5rem;
+      color: var(--sl-color-gray-2);
+      font-size: 0.84rem;
+      font-weight: 500;
       text-decoration: none;
       white-space: nowrap;
     }
 
-    .pcv-primary-nav a:hover {
+    .pcv-nav-menu a:hover {
+      background: var(--sl-color-gray-6);
       color: var(--sl-color-white);
-    }
-
-    .pcv-primary-nav a:focus-visible {
-      outline: 3px solid var(--sl-color-accent);
-      outline-offset: 4px;
     }
 
     .search-group {
@@ -81,7 +327,7 @@ const shouldRenderSearch =
     .right-group,
     .social-icons {
       display: flex;
-      gap: 1rem;
+      gap: 0.8rem;
       align-items: center;
     }
 
@@ -91,7 +337,39 @@ const shouldRenderSearch =
       content: "";
     }
 
-    @media (max-width: 68rem) {
+    .pcv-language-switch {
+      display: inline-flex;
+      align-items: center;
+      gap: 0.15rem;
+      padding: 0.15rem;
+      border: 1px solid var(--sl-color-gray-5);
+      border-radius: 999px;
+    }
+
+    .pcv-language-switch a {
+      min-width: 2rem;
+      min-height: 1.75rem;
+      display: inline-flex;
+      align-items: center;
+      justify-content: center;
+      border-radius: 999px;
+      color: var(--sl-color-gray-3);
+      font-size: 0.67rem;
+      font-weight: 700;
+      text-decoration: none;
+    }
+
+    .pcv-language-switch a[aria-current="true"] {
+      background: var(--sl-color-gray-6);
+      color: var(--sl-color-white);
+    }
+
+    .pcv-language-switch-mobile {
+      display: none;
+      margin-inline-start: 0.6rem;
+    }
+
+    @media (max-width: 72rem) {
       .header {
         grid-template-columns: auto minmax(12rem, 1fr) auto;
       }
@@ -104,6 +382,15 @@ const shouldRenderSearch =
     @media (max-width: 49.99rem) {
       .header {
         grid-template-columns: minmax(0, 1fr) auto;
+      }
+
+      .title-wrapper {
+        display: flex;
+        align-items: center;
+      }
+
+      .pcv-language-switch-mobile {
+        display: inline-flex;
       }
 
       .search-group {
