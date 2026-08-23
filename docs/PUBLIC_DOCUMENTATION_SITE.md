@@ -26,8 +26,8 @@ Starlight 정적 page로 분할한다.
 - `site/scripts/guide-routes.mjs`가 8개 그룹·22개 장·legacy hash의 route manifest를 소유한다.
 - `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`의 숫자형 H2 장을 22개 Astro content page로
   분할하고 `site/scripts/publish-product-docs.mjs`가 `/docs.html` 호환 redirect를 생성한다.
-- landing source는 `site/src/content/docs/index.mdx`이며 제품 문서 포털과 같은 8개 작업
-  카테고리·22개 장·역할별 추천 경로를 공개 사이트 구조로 제공한다.
+- landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action·현재 Single Edge
+  아키텍처를 Hero 하나로 제공한다. 8개 그룹·22개 장의 전체 탐색은 운영 가이드 reader가 소유한다.
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
 - 상단 `서비스`, `시작하기`, `공개 범위`, `문서`는 각각 하위 링크를 가진 disclosure navigation이다.
@@ -39,19 +39,19 @@ Starlight 정적 page로 분할한다.
 - `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 작성 정본이다.
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
-- `site/src/content/docs/index.mdx`는 각 장의 설명을 복제하지 않고 정확한 directory route로
-  연결한다.
+- `site/src/content/docs/index.mdx`는 Hero·상단 disclosure·아키텍처 node에서 대표 정본 route만
+  연결하고 전체 22개 장 목록을 복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
-- 카테고리나 장 구성이 바뀌면 제품 포털, 공개 landing과 `site/scripts/check-site.mjs`의
-  route·link gate를 같은 릴리스 단위로 갱신한다.
+- 카테고리나 장 구성이 바뀌면 제품 포털, route manifest와 `site/scripts/check-site.mjs`의
+  reader route·link gate를 같은 릴리스 단위로 갱신한다.
 
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·제어면 구조를 담은 hero 다음에 8개 작업
-  카테고리·22개 장의 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위의
-  상세 설명은 첫 페이지에서 반복하지 않고 상단 disclosure의 해당 운영 가이드 link로 제공한다.
+- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·5계층 아키텍처를 담은 Hero 하나만
+  본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·22개 장 전체 목록은 첫
+  페이지에서 반복하지 않고 Hero·상단 disclosure·아키텍처 node의 운영 가이드 link로 제공한다.
 - Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
   adapters, Linux host의 5개 세로 계층으로 구성한다. `purecvisorsd`의 C23 단일 프로세스와
   GMainLoop·GTask, VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제 host
@@ -61,8 +61,8 @@ Starlight 정적 page로 분할한다.
   link를 제공한다. pointer hover와 keyboard focus에서는 전체 계층 connector와 선택 서비스에
   대응하는 runtime·host node를 함께 표시하고, reduced motion 설정에서는 animation과 transform을
   제거한다.
-- 문서 directory와 역할별 추천 경로가 첫 페이지의 마지막 본문이다. Hero에 이미 운영 가이드
-  action이 있으므로 문서 뒤에 같은 action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
+- 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
+  문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
   reader 구조, 그룹 제목과 단순 링크 목록으로 구성한 상단 disclosure navigation만 참고한다.
 - 각 운영 가이드 page는 Starlight header, 좌측 8개 그룹·22개 장 navigation, 중앙 본문,
@@ -72,7 +72,8 @@ Starlight 정적 page로 분할한다.
 - landing 근거는 `docs/ui-reviews/2026-08-22-public-service-landing.md`, 전체 가이드 reader
   근거는 `docs/ui-reviews/2026-08-22-public-product-docs-layout.md`, 언어·상단 navigation 근거는
   `docs/ui-reviews/2026-08-23-public-site-i18n-navigation.md`, 아키텍처 지도 근거는
-  `docs/ui-reviews/2026-08-24-landing-single-edge-architecture-layers.md`를 따른다.
+  `docs/ui-reviews/2026-08-24-landing-single-edge-architecture-layers.md`, 문서 디렉터리 제거 근거는
+  `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`를 따른다.
 
 ## 배포 흐름
 
@@ -130,8 +131,9 @@ npm run check
 
 검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 directory page, 8개 sidebar group,
 현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
-landing 최종 CTA 부재, 내부 link 무결성, `guide.html`·`guide-content.md` artifact 부재, 금지된 내부
-주소·private repository 표식과 source map 부재, 5개 아키텍처 계층·정본 node·link·motion 계약을
+landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내부 link 무결성,
+`guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
+map 부재, 5개 아키텍처 계층·정본 node·link·motion 계약을
 확인한다. 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
 custom domain canonical URL을 확인한다.

@@ -12,6 +12,7 @@
 - **변경:** 2026-08-24 landing Hero의 Single Edge 기능 지도 누락 기능 보완 사용자 명시 승인
 - **변경:** 2026-08-24 Single Edge 기능 지도의 서비스 icon·rollover flow motion 사용자 명시 승인
 - **변경:** 2026-08-24 landing 아키텍처 지도를 현재 Single Edge 정본의 5개 계층으로 재구성 사용자 명시 승인
+- **변경:** 2026-08-24 landing의 `필요한 작업에서 시작하세요.` 문서 디렉터리 구역 제거 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -52,12 +53,13 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 10. `/`은 한국어 기본 landing이고 `/ko/`는 명시적 한국어, `/en/`은 영어 landing이다. 상단
     `서비스`, `시작하기`, `공개 범위`, `문서`는 하위 링크 disclosure이며 전체 운영 가이드
     action은 `/docs.html` 안정 URL을 사용한다.
-11. landing은 hero 다음에 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위
-    상세 구역은 반복하지 않고 상단 disclosure에서 대응 운영 가이드 정적 route로 연결한다.
+11. landing 본문은 Hero 하나만 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 전체 문서
+    directory는 반복하지 않고 Hero·상단 disclosure·아키텍처 node에서 대응 운영 가이드 정적
+    route로 연결한다.
 12. Hero는 제품 label을 H1으로 사용하고 별도 대형 슬로건을 두지 않는다. 범위 설명은 VM,
     컨테이너, ZFS 스토리지와 네트워크 가상화를 한 Linux/KVM 노드에서 운영한다는 문장을 사용한다.
-13. landing은 문서 directory와 역할별 추천 경로를 마지막 본문으로 사용하고, Hero의 운영 가이드
-    action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
+13. landing에는 문서 directory, 역할별 추천 경로와 Hero의 운영 가이드 action을 반복하는 별도
+    최종 CTA 구역을 두지 않는다. 8개 그룹·22개 장 전체 탐색은 Starlight reader가 소유한다.
 14. Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
     adapters, Linux host의 5개 계층을 보여 준다. `purecvisorsd`의 C23 단일 프로세스와
     GMainLoop·GTask에서 VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제

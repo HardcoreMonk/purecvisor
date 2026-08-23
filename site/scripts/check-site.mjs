@@ -80,13 +80,6 @@ const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 하나의 Linux/KVM 노드에서 운영합니다.";
 const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization on one Linux/KVM node.";
-if (!index.includes("8개 작업 카테고리 · 22개 장")) throw new Error("landing taxonomy missing");
-if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
-  throw new Error("landing category count mismatch");
-}
-if (!index.includes('class="pcv-scene pcv-docs" id="documentation"')) {
-  throw new Error("landing documentation scene missing");
-}
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   for (const marker of [
     "#capabilities",
@@ -114,12 +107,23 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "Operate clearly, starting with one node.",
     "pcv-map-resources",
     "pcv-capability-map-title",
-    "Single Edge capability map"
+    "Single Edge capability map",
+    "id=\"documentation\"",
+    "pcv-docs-title",
+    "pcv-doc-shortcuts",
+    "pcv-doc-directory",
+    "pcv-doc-category",
+    "pcv-role-paths",
+    "필요한 작업에서 시작하세요.",
+    "Start with the task you need.",
+    "8개 작업 카테고리 · 22개 장",
+    "8 task categories and 22 chapters",
+    "RECOMMENDED PATHS"
   ]) {
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
   const sectionIds = [...source.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
-  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "documentation"])) {
+  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
   if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-architecture-map-title">')) {
@@ -225,7 +229,18 @@ for (const selector of [
   ".pcv-map-core",
   ".pcv-map-capabilities",
   ".pcv-map-capability",
-  ".pcv-map-icon"
+  ".pcv-map-icon",
+  ".pcv-scene",
+  ".pcv-section-heading",
+  ".pcv-docs",
+  ".pcv-doc-shortcuts",
+  ".pcv-doc-directory",
+  ".pcv-doc-category",
+  ".pcv-role-paths",
+  ".pcv-role-heading",
+  ".pcv-kicker",
+  ".pcv-category-index",
+  ".pcv-feature-index"
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
@@ -300,6 +315,14 @@ if (!korean.includes(`href="${guideEntryPath}">전체 운영 가이드</a>`)) {
 if (!english.includes(`href="${guideEntryPath}">Full operations guide</a>`)) {
   throw new Error("english full operations guide link missing");
 }
+if (!korean.includes(`<a class="pcv-button pcv-button-primary" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
+  || !korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
+  throw new Error("korean hero guide actions missing");
+}
+if (!english.includes(`<a class="pcv-button pcv-button-primary" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
+  || !english.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
+  throw new Error("english hero guide actions missing");
+}
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   if (source.includes("/docs.html")) throw new Error(`${name} legacy docs link found`);
   if (source.includes("/guide.html")) throw new Error(`${name} retired guide link found`);
@@ -334,12 +357,6 @@ for (const chapter of guideChapters) {
     if (!page.includes(`href="${linkedChapter.path}"`)) {
       throw new Error(`guide sidebar link missing: ${linkedChapter.path}`);
     }
-  }
-  if (!index.includes(`href="${chapter.path}"`)) {
-    throw new Error(`korean landing chapter link missing: ${chapter.path}`);
-  }
-  if (!english.includes(`href="${chapter.path}"`)) {
-    throw new Error(`english landing chapter link missing: ${chapter.path}`);
   }
   if (!docs.includes(chapter.legacyAnchor) || !docs.includes(chapter.path)) {
     throw new Error(`legacy guide mapping missing: ${chapter.legacyAnchor}`);
