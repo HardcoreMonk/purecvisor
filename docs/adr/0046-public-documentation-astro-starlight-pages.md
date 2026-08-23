@@ -14,6 +14,7 @@
 - **변경:** 2026-08-24 landing 아키텍처 지도를 현재 Single Edge 정본의 5개 계층으로 재구성 사용자 명시 승인
 - **변경:** 2026-08-24 landing의 `필요한 작업에서 시작하세요.` 문서 디렉터리 구역 제거 사용자 명시 승인
 - **변경:** 2026-08-24 Hero 아키텍처 지도 하단 배치·01~05 구분색·desktop 범위 문장 한 줄 사용자 명시 승인
+- **변경:** 2026-08-24 landing 아키텍처 글꼴·component 판독성과 light/dark theme 적용 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -74,6 +75,9 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 16. Hero copy·action은 먼저 읽히고 Single Edge 아키텍처 지도는 같은 shell의 전체 폭 하단에
     배치한다. 01~05는 sky·cyan·mint·gold·lavender의 서로 다른 식별색을 border·index·inset
     bar에 제한해 사용하며 색상은 운영 status 의미를 갖지 않는다.
+17. landing Hero와 아키텍처 지도는 Starlight의 `data-theme`를 사용한다. light/white는 흰
+    Hero·node와 cool-gray map, dark는 near-black Hero·map과 짙은 node를 사용한다. map의
+    title·layer·node 글꼴은 최소 12px이고 390px Capability service는 1열로 표시한다.
 
 ## Consequences
 

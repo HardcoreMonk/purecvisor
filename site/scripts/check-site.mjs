@@ -260,22 +260,61 @@ for (const layoutContract of [
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
   ".pcv-arch-grid-services {\n  grid-template-columns: repeat(4, minmax(0, 1fr));",
-  ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(5, minmax(0, 1fr));"
+  ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
+  ".pcv-arch-grid-services {\n    grid-template-columns: minmax(0, 1fr);"
 ]) {
   if (!landingStyles.includes(layoutContract)) {
     throw new Error(`bottom architecture layout contract missing: ${layoutContract}`);
   }
 }
-for (const [layer, color, rgb] of [
-  ["access", "#78a9e6", "120 169 230"],
-  ["control", "#63c2d4", "99 194 212"],
-  ["services", "#78c7a2", "120 199 162"],
-  ["runtime", "#d4b06a", "212 176 106"],
-  ["host", "#b79ade", "183 154 222"]
+for (const themeContract of [
+  "--pcv-hero-bg: #ffffff;",
+  "--pcv-map-bg: #eef3f7;",
+  "--pcv-map-node: #ffffff;",
+  "--pcv-hero-bg: #050a14;",
+  "--pcv-map-bg: #09101d;",
+  "--pcv-map-node: #0f1c2d;"
 ]) {
-  const layerContract = `.pcv-arch-layer-${layer} {\n  --pcv-layer-accent: ${color};\n  --pcv-layer-rgb: ${rgb};`;
-  if (!landingStyles.includes(layerContract)) {
-    throw new Error(`architecture layer color contract missing: ${layer}`);
+  if (!landingStyles.includes(themeContract)) {
+    throw new Error(`landing theme contract missing: ${themeContract}`);
+  }
+}
+for (const [layer, lightColor, lightRgb, darkColor, darkRgb] of [
+  ["access", "#2d68a8", "45 104 168", "#8bbcf2", "139 188 242"],
+  ["control", "#0c7185", "12 113 133", "#75cede", "117 206 222"],
+  ["services", "#24764f", "36 118 79", "#8bd5af", "139 213 175"],
+  ["runtime", "#805c00", "128 92 0", "#e0bd72", "224 189 114"],
+  ["host", "#6d4f9c", "109 79 156", "#c5a5ed", "197 165 237"]
+]) {
+  for (const contract of [
+    `--pcv-layer-${layer}: ${lightColor};`,
+    `--pcv-layer-${layer}-rgb: ${lightRgb};`,
+    `--pcv-layer-${layer}: ${darkColor};`,
+    `--pcv-layer-${layer}-rgb: ${darkRgb};`,
+    `.pcv-arch-layer-${layer} {\n  --pcv-layer-accent: var(--pcv-layer-${layer});\n  --pcv-layer-rgb: var(--pcv-layer-${layer}-rgb);`
+  ]) {
+    if (!landingStyles.includes(contract)) {
+      throw new Error(`architecture layer theme contract missing: ${layer}`);
+    }
+  }
+}
+for (const [selector, declarations] of [
+  [".pcv-map-bar", ["font-size: 0.8125rem;", "min-height: 3.5rem;"]],
+  [".pcv-arch-layer-index", ["font-size: 0.75rem;"]],
+  [".pcv-arch-layer-head small", ["font-size: 0.75rem;"]],
+  [".pcv-arch-node", ["font-size: 0.75rem;", "min-height: 3.5rem;"]],
+  [".pcv-arch-node strong", ["font-size: 0.8125rem;"]],
+  [".pcv-arch-node small", ["font-size: 0.75rem;"]],
+  [".pcv-arch-service .pcv-arch-node-copy strong", ["font-size: 0.875rem;"]],
+  [".pcv-arch-service .pcv-arch-node-copy small", ["font-size: 0.75rem;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`architecture readability contract missing: ${selector} ${declaration}`);
+    }
   }
 }
 for (const motionContract of [
