@@ -49,7 +49,9 @@ Starlight 정적 page로 분할한다.
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- 첫 페이지는 서비스 설명, 시작 흐름, 핵심 기능과 공개 범위를 문서 탐색보다 먼저 제공한다.
+- 첫 페이지는 Single Edge 정의·기본 action·제어면 구조를 담은 hero 다음에 8개 작업
+  카테고리·22개 장의 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위의
+  상세 설명은 첫 페이지에서 반복하지 않고 상단 disclosure의 해당 운영 가이드 link로 제공한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
   reader 구조, 그룹 제목과 단순 링크 목록으로 구성한 상단 disclosure navigation만 참고한다.
 - 각 운영 가이드 page는 Starlight header, 좌측 8개 그룹·22개 장 navigation, 중앙 본문,

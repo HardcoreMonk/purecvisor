@@ -6,6 +6,7 @@
 - **변경:** 2026-08-22 전체 운영 가이드 정본을 `/docs.html`로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-22 `/docs.html`을 제품 `ui/docs.html` 레이아웃으로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-23 한국어 기본·`/ko/`·`/en/` route와 그룹형 상단 navigation 사용자 명시 승인
+- **변경:** 2026-08-24 landing의 서비스 기능·시작 흐름·공개 범위 구역 제거와 문서 directory 직결 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **승계:** 2026-08-24 공개 reader와 `/docs.html` 정본 계약은 ADR-0047이 대체
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
@@ -41,6 +42,8 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 10. `/`은 한국어 기본 landing이고 `/ko/`는 명시적 한국어, `/en/`은 영어 landing이다. 상단
     `서비스`, `시작하기`, `공개 범위`, `문서`는 하위 링크 disclosure이며 전체 운영 가이드
     action은 `/docs.html` 안정 URL을 사용한다.
+11. landing은 hero 다음에 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위
+    상세 구역은 반복하지 않고 상단 disclosure에서 대응 운영 가이드 정적 route로 연결한다.
 
 ## Consequences
 

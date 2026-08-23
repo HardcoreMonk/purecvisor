@@ -77,18 +77,47 @@ const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
 const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
+const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
   throw new Error("landing content missing");
 }
 if (!index.includes("8개 작업 카테고리 · 22개 장")) throw new Error("landing taxonomy missing");
-if (!index.includes("한 노드의 가상화 운영을")) throw new Error("service introduction missing");
-if (!index.includes("Single Edge 시작 흐름")) throw new Error("quickstart scene missing");
-if (!index.includes("Single Edge에 집중한 공개판")) throw new Error("public scope missing");
-if ((index.match(/class="pcv-capability(?:\s|\")/g) || []).length !== 6) {
-  throw new Error("service capability count mismatch");
-}
 if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
   throw new Error("landing category count mismatch");
+}
+if (!index.includes('class="pcv-scene pcv-docs" id="documentation"')) {
+  throw new Error("landing documentation scene missing");
+}
+for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
+  for (const marker of [
+    "#capabilities",
+    "#quickstart",
+    "#scope",
+    "pcv-hero-links",
+    "pcv-capability",
+    "pcv-quickstart",
+    "pcv-scope-list",
+    "한 노드의 가상화 운영을",
+    "Single Edge 시작 흐름",
+    "Single Edge에 집중한 공개판",
+    "One operational flow",
+    "Start a Single Edge node",
+    "A public edition focused on Single Edge"
+  ]) {
+    if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
+  }
+}
+for (const selector of [
+  ".pcv-hero-links",
+  ".pcv-section-heading-wide",
+  ".pcv-capability",
+  ".pcv-quickstart",
+  ".pcv-kinetic",
+  ".pcv-terminal",
+  ".pcv-text-link",
+  ".pcv-scope"
+]) {
+  if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
 for (const [name, source, language, title, canonical] of [
   ["root", index, "ko", "하나의 노드,", "https://purecvisor.site/"],
@@ -111,6 +140,15 @@ for (const [name, source, language, title, canonical] of [
   }
   if (!source.includes('href="/ko/"') || !source.includes('href="/en/"')) {
     throw new Error(`${name} language routes missing`);
+  }
+  for (const href of [
+    guidePath(1),
+    guidePath(1, "#14-5분-퀵스타트"),
+    guidePath(1, "#공개-범위-핵심")
+  ]) {
+    if (!source.includes(`href="${href}"`)) {
+      throw new Error(`${name} guide-backed header link missing: ${href}`);
+    }
   }
 }
 if (!korean.includes(`href="${guideEntryPath}">전체 운영 가이드</a>`)) {

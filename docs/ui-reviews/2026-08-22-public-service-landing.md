@@ -1,5 +1,9 @@
 # 공개 서비스 landing UI 리뷰
 
+> **2026-08-24 승계:** 이 리뷰의 hero·시각 token·문서 directory 결정은 유지한다. 서비스 기능,
+> 시작 흐름과 공개 범위를 문서 directory 앞에 두는 결정은
+> `docs/ui-reviews/2026-08-24-landing-section-removal.md`가 대체한다.
+
 > 상태: Verified
 > 대상: `https://purecvisor.site/`
 > 제품 콘텐츠 정본: 제품 Web UI의 `ui/docs.html`, `docs/GUIDE.md`

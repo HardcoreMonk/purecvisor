@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: 단일 Linux/KVM 노드를 위한 Single Edge 하이퍼바이저 제어면
 template: splash
-lastUpdated: 2026-08-22
+lastUpdated: 2026-08-24
 sidebar:
   hidden: true
 ---
@@ -46,97 +46,6 @@ sidebar:
       </div>
     </div>
 
-    <div class="pcv-shell pcv-hero-links" aria-label="주요 서비스 영역">
-      <a href="#capabilities"><span>01</span><strong>서비스 기능</strong><small>Single Edge 운영 표면</small></a>
-      <a href="#quickstart"><span>02</span><strong>시작하기</strong><small>기동과 상태 확인</small></a>
-      <a href="#scope"><span>03</span><strong>공개 범위</strong><small>지원 경계 확인</small></a>
-      <a href="#documentation"><span>04</span><strong>문서</strong><small>8개 카테고리 · 22개 장</small></a>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-intro" id="capabilities" aria-labelledby="pcv-intro-title">
-    <div class="pcv-shell">
-      <div class="pcv-section-heading pcv-section-heading-wide">
-        <p class="pcv-kicker">WHAT PURECVISOR DOES</p>
-        <h2 id="pcv-intro-title">한 노드의 가상화 운영을<br />하나의 흐름으로.</h2>
-        <p>PureCVisor Single Edge는 독립 노드의 워크로드와 기반 인프라를 같은 제어면에서 연결합니다. 요청은 권한 정책을 거쳐 실행되고, 장시간 작업은 결과 채널과 audit으로 완료 상태를 남깁니다.</p>
-      </div>
-
-      <div class="pcv-capability-grid">
-        <article class="pcv-capability pcv-capability-wide">
-          <span class="pcv-feature-index">01 · COMPUTE</span>
-          <h3>VM과 컨테이너 수명주기</h3>
-          <p>KVM VM과 LXC 컨테이너를 생성하고 시작·중지하며, 템플릿과 안전장치를 갖춘 VM 복제 흐름을 운영합니다.</p>
-          <a href="/ko/workloads/virtual-machines/">워크로드 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">02 · STORAGE</span>
-          <h3>데이터 위치와 복구</h3>
-          <p>ZFS pool·zvol, qcow2/raw와 iSCSI를 관리하고 백업·복원 절차로 이어갑니다.</p>
-          <a href="/ko/infrastructure/storage/">스토리지 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">03 · NETWORK</span>
-          <h3>로컬 SDN</h3>
-          <p>Linux bridge, OVS와 OVN Local VPC를 독립 노드 네트워크 경계 안에서 구성합니다.</p>
-          <a href="/ko/infrastructure/networking/">네트워크 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">04 · OBSERVE</span>
-          <h3>관측과 작업 결과</h3>
-          <p>호스트 메트릭, 알림, job completion과 audit 기록으로 accepted 이후의 실제 결과까지 확인합니다.</p>
-          <a href="/ko/operations/monitoring-alerts/">모니터링 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">05 · INTERFACES</span>
-          <h3>세 가지 운영 인터페이스</h3>
-          <p>Web UI, REST API와 pcvctl CLI가 같은 Single Edge 기능과 권한 계약을 공유합니다.</p>
-          <a href="/ko/interfaces/web-ui/">인터페이스 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability pcv-capability-dark">
-          <span class="pcv-feature-index">06 · OPERATE SAFELY</span>
-          <h3>인증, 권한과 품질 게이트</h3>
-          <p>JWT, RBAC, VM owner-scope와 단계별 검증으로 운영 변경의 허용 조건과 결과를 함께 관리합니다.</p>
-          <a href="/ko/security/security/">보안 가이드 <span aria-hidden="true">→</span></a>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-quickstart" id="quickstart" aria-labelledby="pcv-quickstart-title">
-    <div class="pcv-shell pcv-quickstart-grid">
-      <div class="pcv-kinetic">
-        <p>설치하고.</p>
-        <p>실행하고.</p>
-        <p class="pcv-accent-line">상태를 확인합니다.</p>
-      </div>
-      <div class="pcv-terminal-wrap">
-        <h2 id="pcv-quickstart-title">Single Edge 시작 흐름</h2>
-        <p>Ubuntu 22.04 LTS와 24.04 LTS의 KVM·libvirt 독립 노드를 기준으로 합니다.</p>
-        <div class="pcv-terminal" role="region" aria-label="PureCVisor 서비스 시작과 상태 확인 명령" tabindex="0">
-          <div class="pcv-terminal-bar"><span></span><span></span><span></span><b>shell</b></div>
-          <pre><code><i>$</i> make single
-<i>$</i> sudo systemctl start purecvisorsd
-<i>$</i> curl -s http://localhost:80/api/v1/health</code></pre>
-        </div>
-        <a class="pcv-text-link" href="/ko/getting-started/overview/#14-5분-퀵스타트">설치 전제와 첫 VM 절차 보기 <span aria-hidden="true">→</span></a>
-      </div>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-scope" id="scope" aria-labelledby="pcv-scope-title">
-    <div class="pcv-shell pcv-scope-grid">
-      <div class="pcv-section-heading">
-        <p class="pcv-kicker">PUBLIC SCOPE</p>
-        <h2 id="pcv-scope-title">Single Edge에 집중한 공개판</h2>
-        <p>한 호스트에서 설치하고 운영하고 복구하는 데 필요한 공통 코어와 인터페이스를 공개합니다.</p>
-      </div>
-      <div class="pcv-scope-list">
-        <div><span>포함</span><p><strong>독립 노드 운영</strong>VM·컨테이너, 스토리지, 네트워크, 모니터링, 보안과 백업·복원</p></div>
-        <div><span>포함</span><p><strong>로컬 제어면</strong>Web UI, REST API, CLI와 Single Edge OVS·OVN</p></div>
-        <div class="pcv-scope-excluded"><span>제외</span><p><strong>다중 노드 자동화</strong>클러스터 제어면, 라이브 마이그레이션과 페더레이션</p></div>
-      </div>
-    </div>
   </section>
 
   <section class="pcv-scene pcv-docs" id="documentation" aria-labelledby="pcv-docs-title">

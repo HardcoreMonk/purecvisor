@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: A Single Edge hypervisor control plane for one Linux/KVM node
 template: splash
-lastUpdated: 2026-08-23
+lastUpdated: 2026-08-24
 sidebar:
   hidden: true
 ---
@@ -46,97 +46,6 @@ sidebar:
       </div>
     </div>
 
-    <div class="pcv-shell pcv-hero-links" aria-label="Primary service areas">
-      <a href="#capabilities"><span>01</span><strong>Services</strong><small>Single Edge operations</small></a>
-      <a href="#quickstart"><span>02</span><strong>Get started</strong><small>Start and verify</small></a>
-      <a href="#scope"><span>03</span><strong>Public scope</strong><small>Review support boundaries</small></a>
-      <a href="#documentation"><span>04</span><strong>Documentation</strong><small>8 categories · 22 chapters</small></a>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-intro" id="capabilities" aria-labelledby="pcv-intro-title">
-    <div class="pcv-shell">
-      <div class="pcv-section-heading pcv-section-heading-wide">
-        <p class="pcv-kicker">WHAT PURECVISOR DOES</p>
-        <h2 id="pcv-intro-title">One operational flow<br />for one virtualization node.</h2>
-        <p>PureCVisor Single Edge connects workloads and infrastructure on a standalone node through one control plane. Requests pass authorization policies, and long-running work records its final state through result channels and audit.</p>
-      </div>
-
-      <div class="pcv-capability-grid">
-        <article class="pcv-capability pcv-capability-wide">
-          <span class="pcv-feature-index">01 · COMPUTE</span>
-          <h3>VM and container lifecycle</h3>
-          <p>Create, start, and stop KVM VMs and LXC containers, including guarded VM cloning and template workflows.</p>
-          <a href="/ko/workloads/virtual-machines/">Workload guide <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">02 · STORAGE</span>
-          <h3>Data placement and recovery</h3>
-          <p>Manage ZFS pools and zvols, qcow2/raw images, and iSCSI, then connect them to backup and restore procedures.</p>
-          <a href="/ko/infrastructure/storage/">Storage guide <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">03 · NETWORK</span>
-          <h3>Local SDN</h3>
-          <p>Configure Linux bridges, OVS, and OVN Local VPCs within the networking boundary of a standalone node.</p>
-          <a href="/ko/infrastructure/networking/">Networking guide <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">04 · OBSERVE</span>
-          <h3>Observability and job results</h3>
-          <p>Use host metrics, alerts, job completion, and audit records to verify the real outcome after an accepted response.</p>
-          <a href="/ko/operations/monitoring-alerts/">Monitoring guide <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability">
-          <span class="pcv-feature-index">05 · INTERFACES</span>
-          <h3>Three operating interfaces</h3>
-          <p>The Web UI, REST API, and pcvctl CLI share the same Single Edge capabilities and authorization contract.</p>
-          <a href="/ko/interfaces/web-ui/">Interface guide <span aria-hidden="true">→</span></a>
-        </article>
-        <article class="pcv-capability pcv-capability-dark">
-          <span class="pcv-feature-index">06 · OPERATE SAFELY</span>
-          <h3>Authentication, authorization, and quality gates</h3>
-          <p>JWT, RBAC, VM owner scope, and staged verification manage both the preconditions and outcomes of operational changes.</p>
-          <a href="/ko/security/security/">Security guide <span aria-hidden="true">→</span></a>
-        </article>
-      </div>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-quickstart" id="quickstart" aria-labelledby="pcv-quickstart-title">
-    <div class="pcv-shell pcv-quickstart-grid">
-      <div class="pcv-kinetic">
-        <p>Install it.</p>
-        <p>Start it.</p>
-        <p class="pcv-accent-line">Verify its state.</p>
-      </div>
-      <div class="pcv-terminal-wrap">
-        <h2 id="pcv-quickstart-title">Start a Single Edge node</h2>
-        <p>These steps target standalone KVM/libvirt nodes on Ubuntu 22.04 LTS and 24.04 LTS.</p>
-        <div class="pcv-terminal" role="region" aria-label="Commands to start and verify the PureCVisor service" tabindex="0">
-          <div class="pcv-terminal-bar"><span></span><span></span><span></span><b>shell</b></div>
-          <pre><code><i>$</i> make single
-<i>$</i> sudo systemctl start purecvisorsd
-<i>$</i> curl -s http://localhost:80/api/v1/health</code></pre>
-        </div>
-        <a class="pcv-text-link" href="/ko/getting-started/overview/#14-5분-퀵스타트">View prerequisites and the first-VM workflow <span aria-hidden="true">→</span></a>
-      </div>
-    </div>
-  </section>
-
-  <section class="pcv-scene pcv-scope" id="scope" aria-labelledby="pcv-scope-title">
-    <div class="pcv-shell pcv-scope-grid">
-      <div class="pcv-section-heading">
-        <p class="pcv-kicker">PUBLIC SCOPE</p>
-        <h2 id="pcv-scope-title">A public edition focused on Single Edge</h2>
-        <p>PureCVisor publishes the shared core and interfaces required to install, operate, and recover one host.</p>
-      </div>
-      <div class="pcv-scope-list">
-        <div><span>Included</span><p><strong>Standalone operations</strong>VMs, containers, storage, networking, monitoring, security, backup, and restore</p></div>
-        <div><span>Included</span><p><strong>Local control plane</strong>Web UI, REST API, CLI, and Single Edge OVS/OVN</p></div>
-        <div class="pcv-scope-excluded"><span>Excluded</span><p><strong>Multi-node automation</strong>Cluster control planes, live migration, and federation</p></div>
-      </div>
-    </div>
   </section>
 
   <section class="pcv-scene pcv-docs" id="documentation" aria-labelledby="pcv-docs-title">

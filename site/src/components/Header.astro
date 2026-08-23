@@ -15,7 +15,6 @@ const localePrefix = pathname === "/en" || pathname.startsWith("/en/")
     ? "/ko"
     : "";
 const isEnglish = localePrefix === "/en";
-const homePath = localePrefix ? `${localePrefix}/` : "/";
 const languageLabel = isEnglish ? "Language" : "언어";
 const navigationLabel = isEnglish ? "Primary navigation" : "주요 탐색";
 
@@ -24,7 +23,7 @@ const menus = isEnglish
       {
         label: "Services",
         items: [
-          ["Service overview", `${homePath}#capabilities`],
+          ["Service overview", guidePath(1)],
           ["VMs & containers", guidePath(3)],
           ["Storage & networking", guidePath(5)],
           ["Observability & security", guidePath(8)]
@@ -35,14 +34,14 @@ const menus = isEnglish
         items: [
           ["5-minute quickstart", guidePath(1, "#14-5분-퀵스타트")],
           ["Installation & environment", guidePath(2)],
-          ["Start the service", `${homePath}#quickstart`],
+          ["Start the service", guidePath(1, "#14-5분-퀵스타트")],
           ["Create your first VM", guidePath(3)]
         ]
       },
       {
         label: "Public scope",
         items: [
-          ["Scope overview", `${homePath}#scope`],
+          ["Scope overview", guidePath(1, "#공개-범위-핵심")],
           ["Single Edge boundaries", guidePath(1)],
           ["Architecture", guidePath(1, "#12-아키텍처-개요")],
           ["Quality gates", guidePath(22)]
@@ -62,7 +61,7 @@ const menus = isEnglish
       {
         label: "서비스",
         items: [
-          ["서비스 개요", `${homePath}#capabilities`],
+          ["서비스 개요", guidePath(1)],
           ["VM · 컨테이너", guidePath(3)],
           ["스토리지 · 네트워크", guidePath(5)],
           ["관측 · 보안", guidePath(8)]
@@ -73,14 +72,14 @@ const menus = isEnglish
         items: [
           ["5분 퀵스타트", guidePath(1, "#14-5분-퀵스타트")],
           ["설치 및 환경 구성", guidePath(2)],
-          ["서비스 시작 흐름", `${homePath}#quickstart`],
+          ["서비스 시작 흐름", guidePath(1, "#14-5분-퀵스타트")],
           ["첫 VM 만들기", guidePath(3)]
         ]
       },
       {
         label: "공개 범위",
         items: [
-          ["공개 범위 개요", `${homePath}#scope`],
+          ["공개 범위 개요", guidePath(1, "#공개-범위-핵심")],
           ["Single Edge 경계", guidePath(1)],
           ["아키텍처", guidePath(1, "#12-아키텍처-개요")],
           ["품질 게이트", guidePath(22)]
