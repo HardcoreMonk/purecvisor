@@ -10,6 +10,7 @@
 - **변경:** 2026-08-24 landing Hero의 대형 슬로건 제거와 네트워크 가상화 범위 문구 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
+- **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
 - **승계:** 2026-08-24 공개 reader와 `/docs.html` 정본 계약은 ADR-0047이 대체
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
 - **관련:** ADR-0013, ADR-0016, ADR-0037, ADR-0047

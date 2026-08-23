@@ -98,4 +98,9 @@
 - mobile 캡처:
   `.scratch/ui-reviews/2026-08-24-landing-hero-copy/after-ko-mobile.png`
   — `790f91f396201c8f6e76b80e0fd5a2c9ca40c720245767da2ba5df5feadaac70`
-- 잔여 위험: commit·push·Pages 배포 전이므로 운영 domain은 이전 Hero 문구를 유지한다.
+- 구현 commit `eb8cfac`의 GitHub Pages run
+  [`32655982919`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32655982919)이 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`과 390px mobile에서 제품 label 유일 H1,
+  새 한국어·영어 문장, `word-break: keep-all`, 기존 문구 0건을 재확인했다.
+- 운영 domain의 axe 위반과 browser console·page·request 오류는 0이며 overflow도 0이다.
+- 잔여 위험: 없음. 기존 제목·설명 재도입과 H1 계약 회귀는 `npm run check`가 차단한다.
