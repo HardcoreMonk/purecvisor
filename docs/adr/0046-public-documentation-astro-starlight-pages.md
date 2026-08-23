@@ -13,6 +13,7 @@
 - **변경:** 2026-08-24 Single Edge 기능 지도의 서비스 icon·rollover flow motion 사용자 명시 승인
 - **변경:** 2026-08-24 landing 아키텍처 지도를 현재 Single Edge 정본의 5개 계층으로 재구성 사용자 명시 승인
 - **변경:** 2026-08-24 landing의 `필요한 작업에서 시작하세요.` 문서 디렉터리 구역 제거 사용자 명시 승인
+- **변경:** 2026-08-24 Hero 아키텍처 지도 하단 배치·01~05 구분색·desktop 범위 문장 한 줄 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -59,6 +60,7 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
     route로 연결한다.
 12. Hero는 제품 label을 H1으로 사용하고 별도 대형 슬로건을 두지 않는다. 범위 설명은 VM,
     컨테이너, ZFS 스토리지와 네트워크 가상화를 한 Linux/KVM 노드에서 운영한다는 문장을 사용한다.
+    1024px 이상에서는 한 줄로 유지하고 768px 이하에서는 overflow 방지를 위해 자연 줄바꿈한다.
 13. landing에는 문서 directory, 역할별 추천 경로와 Hero의 운영 가이드 action을 반복하는 별도
     최종 CTA 구역을 두지 않는다. 8개 그룹·22개 장 전체 탐색은 Starlight reader가 소유한다.
 14. Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
@@ -68,6 +70,9 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 15. Access 3개와 Capability service 4개는 실제 정본 운영 가이드 link를 제공한다. pointer
     hover와 keyboard focus에서 전체 connector·control plane·선택 서비스의 runtime·host node가
     함께 반응하며 reduced motion에서는 animation·transform을 사실상 제거한다.
+16. Hero copy·action은 먼저 읽히고 Single Edge 아키텍처 지도는 같은 shell의 전체 폭 하단에
+    배치한다. 01~05는 sky·cyan·mint·gold·lavender의 서로 다른 식별색을 border·index·inset
+    bar에 제한해 사용하며 색상은 운영 status 의미를 갖지 않는다.
 
 ## Consequences
 

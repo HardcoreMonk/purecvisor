@@ -126,6 +126,11 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (JSON.stringify(sectionIds) !== JSON.stringify(["_top"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
+  const heroCopyPosition = source.indexOf('<div class="pcv-hero-copy">');
+  const architectureMapPosition = source.indexOf('<figure class="pcv-control-map"');
+  if (heroCopyPosition < 0 || architectureMapPosition < 0 || heroCopyPosition >= architectureMapPosition) {
+    throw new Error(`${name} hero copy and architecture order mismatch`);
+  }
   if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-architecture-map-title">')) {
     throw new Error(`${name} accessible architecture map missing`);
   }
@@ -246,6 +251,32 @@ for (const selector of [
 }
 if (landingStyles.includes(".pcv-hero-copy h1")) {
   throw new Error("retired hero-scale heading selector found");
+}
+if (landingStyles.includes("grid-template-columns: minmax(0, 1.02fr)")) {
+  throw new Error("retired two-column hero layout found");
+}
+for (const layoutContract of [
+  "grid-template-columns: minmax(0, 1fr);",
+  "white-space: nowrap;",
+  ".pcv-hero-lead {\n    white-space: normal;",
+  ".pcv-arch-grid-services {\n  grid-template-columns: repeat(4, minmax(0, 1fr));",
+  ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(5, minmax(0, 1fr));"
+]) {
+  if (!landingStyles.includes(layoutContract)) {
+    throw new Error(`bottom architecture layout contract missing: ${layoutContract}`);
+  }
+}
+for (const [layer, color, rgb] of [
+  ["access", "#78a9e6", "120 169 230"],
+  ["control", "#63c2d4", "99 194 212"],
+  ["services", "#78c7a2", "120 199 162"],
+  ["runtime", "#d4b06a", "212 176 106"],
+  ["host", "#b79ade", "183 154 222"]
+]) {
+  const layerContract = `.pcv-arch-layer-${layer} {\n  --pcv-layer-accent: ${color};\n  --pcv-layer-rgb: ${rgb};`;
+  if (!landingStyles.includes(layerContract)) {
+    throw new Error(`architecture layer color contract missing: ${layer}`);
+  }
 }
 for (const motionContract of [
   ".pcv-arch-link:focus-visible",
