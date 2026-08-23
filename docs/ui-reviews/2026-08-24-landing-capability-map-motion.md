@@ -137,3 +137,12 @@
 - 잔여 위험: `:has()`를 지원하지 않는 구형 browser에서는 card 자체 hover·focus는 유지되지만
   상위 connector flow가 생략될 수 있다. 현재 지원 browser의 계산된 style 검증과 정적 gate가
   interaction 회귀를 차단한다.
+- 구현 commit `d12bd13`의 GitHub Pages run
+  [`32659384748`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32659384748)이 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440px·390px에서 다시 확인한 결과 4개 icon·link,
+  load 정지 상태, hover signal 4종, pointer 이탈 복귀와 keyboard focus 동등 상태가 운영
+  산출물에 반영됐다.
+- 운영 domain의 reduced-motion은 transform `none`, animation `0.01ms`·1회이고 axe 위반,
+  browser console·page·request 오류, map·page overflow는 모두 0이다.
+- 운영 hover screenshot SHA-256은 로컬 hover 검증값
+  `1f6bfe05c12a9d4d41f87af50342157b49d42b91061423a2e5ea551531488722`와 일치한다.
