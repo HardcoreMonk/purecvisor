@@ -132,5 +132,18 @@
 - 시각 판정: desktop은 Hero copy와 5개 계층 지도가 좌우에서 균형을 이루고, mobile은 계층·node
   label이 겹치지 않으며 선택 경로의 teal connector·대응 runtime·host border가 정지 정보 위에
   보조 신호로 명확히 드러난다.
-- 잔여 위험: 로컬 정적 artifact 기준 검증까지 완료했다. 운영 custom domain 반영은 별도
-  commit·push·Pages 배포 뒤 확인해야 한다.
+- 구현 commit `4c23115`의 GitHub Pages run
+  [`32662873023`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32662873023)이 build와 deploy
+  두 job을 모두 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440×1000·390×844에서 다시 확인한 결과 모든
+  경로가 HTTP 200과 올바른 language·canonical, Layer 5·Access 3·Service 4·Runtime 5·Host 4,
+  page·map overflow 0과 axe WCAG A/AA violation 0을 유지했다.
+- 운영 domain에서도 load animation `none`, storage hover connector `pcv-arch-flow-y`, 대응
+  target 강조, pointer 이탈 뒤 `none`, keyboard solid focus와 동일 flow를 확인했다. reduced
+  motion은 transform `none`, animation `0.01ms`·1회다.
+- 운영 desktop 기본 캡처 SHA-256
+  `03be7edc49b5f0b491034fb3f9d7178c0553eaeebd9e840e65fe9c233d0e6867`과 mobile map
+  `9737fbecbf3a67ecb2a58d91ac32fce0c8517d9de025e17bd902de113b8e2a33`은 로컬 검증값과
+  일치했다.
+- 잔여 위험: 상위 path signal은 CSS `:has()`를 지원하지 않는 구형 browser에서 생략될 수 있다.
+  해당 환경에서도 실제 link·정지 계층 정보·card 자체 hover/focus는 유지된다.
