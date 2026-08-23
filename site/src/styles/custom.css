@@ -319,133 +319,134 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   background: #63b2c7;
 }
 
-.pcv-map-clients {
+.pcv-arch-stack {
   display: grid;
-  grid-template-columns: repeat(3, 1fr);
-  gap: 0.55rem;
-  padding: 1.15rem;
+  padding: 0.85rem;
 }
 
-.pcv-map-clients span {
-  display: flex;
-  min-height: 3rem;
-  align-items: center;
-  justify-content: center;
-  border: 1px solid var(--pcv-dark-line);
-  border-radius: 0.35rem;
-  background: var(--pcv-dark-surface);
-  color: #cad3df;
-  font-family: var(--sl-font-mono);
-  font-size: 0.75rem;
-}
-
-.pcv-map-route {
+.pcv-arch-layer {
   position: relative;
-  height: 2rem;
-}
-
-.pcv-map-route::before,
-.pcv-map-route span {
-  position: absolute;
-  background: #42516a;
-  content: "";
-  transition: background-color 180ms ease;
-}
-
-.pcv-map-route span {
-  top: 0;
-  left: 50%;
-  width: 1px;
-  height: 100%;
-}
-
-.pcv-map-route::before {
-  top: 0;
-  left: 17.5%;
-  width: 65%;
-  height: 1px;
-}
-
-.pcv-map-core {
-  display: flex;
-  min-height: 7.5rem;
-  flex-direction: column;
-  align-items: center;
-  justify-content: center;
-  margin-inline: 1.15rem;
-  border: 1px solid #326d7d;
-  border-radius: 0.4rem;
-  background: #0a2530;
-  text-align: center;
+  padding: 0.65rem;
+  border: 1px solid #293950;
+  border-radius: 0.42rem;
+  background: #0b1422;
   transition: border-color 220ms ease, box-shadow 220ms ease;
 }
 
-.pcv-map-label {
-  color: #63b2c7;
-  font-family: var(--sl-font-mono);
-  font-size: 0.62rem;
-  font-weight: 700;
-  letter-spacing: 0.1em;
+.pcv-arch-layer-control {
+  border-color: #326d7d;
+  background: #0a202b;
 }
 
-.pcv-map-core strong {
-  margin-top: 0.35rem;
-  font-size: 1.35rem;
-  letter-spacing: -0.02em;
+.pcv-arch-layer-services {
+  background: #0b1625;
 }
 
-.pcv-map-core-capabilities {
+.pcv-arch-layer-runtime {
+  background: #0a141f;
+}
+
+.pcv-arch-layer-host {
+  background: #09111a;
+}
+
+.pcv-arch-layer-head {
   display: flex;
-  flex-wrap: wrap;
-  justify-content: center;
-  gap: 0.35rem;
-  margin-top: 0.65rem;
+  align-items: center;
+  justify-content: space-between;
+  gap: 0.65rem;
+  margin-bottom: 0.55rem;
 }
 
-.pcv-map-core-capabilities span {
-  padding: 0.28rem 0.45rem;
-  border: 1px solid rgb(99 178 199 / 28%);
-  border-radius: 999px;
-  background: rgb(9 16 29 / 42%);
-  color: #a9c7cf;
+.pcv-arch-layer-index {
+  color: #73bfd1;
   font-family: var(--sl-font-mono);
-  font-size: 0.58rem;
-  line-height: 1.2;
+  font-size: 0.6rem;
+  font-weight: 700;
+  letter-spacing: 0.07em;
+  line-height: 1.3;
 }
 
-.pcv-map-route-down::before {
-  top: auto;
-  bottom: 0;
-  left: 9%;
-  width: 82%;
+.pcv-arch-layer-head small {
+  color: #8292a8;
+  font-family: var(--sl-font-mono);
+  font-size: 0.56rem;
+  line-height: 1.3;
+  text-align: right;
 }
 
-.pcv-map-capabilities {
+.pcv-arch-grid {
   display: grid;
-  grid-template-columns: repeat(2, minmax(0, 1fr));
-  gap: 0.55rem;
-  padding-top: 0;
-  padding-inline: 1.15rem;
-  padding-bottom: 1.15rem;
+  gap: 0.38rem;
 }
 
-.pcv-map-capability {
+.pcv-arch-grid-access {
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+}
+
+.pcv-arch-grid-control,
+.pcv-arch-grid-host {
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+}
+
+.pcv-arch-grid-services {
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+}
+
+.pcv-arch-grid-runtime {
+  grid-template-columns: repeat(6, minmax(0, 1fr));
+}
+
+.pcv-arch-grid-runtime .pcv-arch-node {
+  grid-column: span 2;
+}
+
+.pcv-arch-grid-runtime .pcv-arch-node:nth-last-child(-n + 2) {
+  grid-column: span 3;
+}
+
+.pcv-arch-node {
   position: relative;
-  display: block;
+  display: flex;
   overflow: hidden;
   min-width: 0;
-  min-height: 8.7rem;
-  padding: 0.85rem;
-  border: 1px solid var(--pcv-dark-line);
-  border-radius: 0.35rem;
-  background: var(--pcv-dark-surface);
-  color: inherit !important;
-  text-decoration: none !important;
+  min-height: 2.8rem;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  padding: 0.42rem 0.5rem;
+  border: 1px solid #273650;
+  border-radius: 0.32rem;
+  background: #0c1828;
+  color: #aeb9c9;
+  font-family: var(--sl-font-mono);
+  font-size: 0.61rem;
+  line-height: 1.3;
+  text-align: center;
   transition: border-color 220ms ease, background-color 220ms ease, box-shadow 220ms ease,
-    transform 220ms ease;
+    color 220ms ease, transform 220ms ease;
 }
 
-.pcv-map-capability::before {
+.pcv-arch-node strong {
+  color: #e6edf5;
+  font-size: 0.66rem;
+  font-weight: 650;
+  line-height: 1.3;
+}
+
+.pcv-arch-node small {
+  margin-top: 0.22rem;
+  color: #8291a6;
+  font-size: 0.54rem;
+  line-height: 1.3;
+}
+
+.pcv-arch-link {
+  color: inherit !important;
+  text-decoration: none !important;
+}
+
+.pcv-arch-link::before {
   position: absolute;
   inset: 0;
   background: linear-gradient(110deg, transparent 15%, rgb(99 178 199 / 10%) 50%, transparent 85%);
@@ -454,7 +455,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   transform: translateX(-120%);
 }
 
-.pcv-map-capability::after {
+.pcv-arch-link::after {
   position: absolute;
   top: 0;
   left: 0;
@@ -467,32 +468,65 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   transform: translateX(-120%);
 }
 
-.pcv-map-capability-heading {
+.pcv-arch-link > * {
   position: relative;
   z-index: 1;
-  display: grid;
-  grid-template-columns: 2.35rem minmax(0, 1fr) auto;
-  gap: 0.65rem;
-  align-items: center;
 }
 
-.pcv-map-icon {
+.pcv-arch-node-arrow {
+  position: absolute !important;
+  z-index: 2 !important;
+  top: 0.35rem;
+  right: 0.38rem;
+  color: #617089;
+  font-size: 0.62rem;
+  transition: color 220ms ease, transform 220ms ease;
+}
+
+.pcv-arch-plane {
+  padding: 0.55rem;
+  border: 1px solid rgb(99 178 199 / 32%);
+  border-radius: 0.36rem;
+  background: #0a2530;
+}
+
+.pcv-arch-plane > strong {
+  display: block;
+  margin: 0 0 0.55rem;
+  color: #f0f6f9;
+  font-size: 1.05rem;
+  letter-spacing: -0.02em;
+  line-height: 1.2;
+  text-align: center;
+}
+
+.pcv-arch-service {
+  min-height: 4.25rem;
+  flex-direction: row;
+  justify-content: flex-start;
+  gap: 0.55rem;
+  padding: 0.55rem 1.35rem 0.55rem 0.55rem;
+  text-align: left;
+}
+
+.pcv-arch-icon {
   display: inline-flex;
-  width: 2.35rem;
-  height: 2.35rem;
+  width: 2.15rem;
+  height: 2.15rem;
+  flex: 0 0 auto;
   align-items: center;
   justify-content: center;
   border: 1px solid #2b415a;
-  border-radius: 0.38rem;
+  border-radius: 0.34rem;
   background: #0b1728;
   color: #73bfd1;
   transition: border-color 220ms ease, background-color 220ms ease, box-shadow 220ms ease,
     color 220ms ease, transform 220ms ease;
 }
 
-.pcv-map-icon svg {
-  width: 1.35rem;
-  height: 1.35rem;
+.pcv-arch-icon svg {
+  width: 1.25rem;
+  height: 1.25rem;
   fill: none;
   stroke: currentColor;
   stroke-linecap: round;
@@ -500,134 +534,134 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   stroke-width: 1.45;
 }
 
-.pcv-map-icon svg * {
+.pcv-arch-icon svg * {
   vector-effect: non-scaling-stroke;
 }
 
-.pcv-map-capability-copy {
-  min-width: 0;
-}
-
-.pcv-map-capability-arrow {
-  color: #617089;
-  font-family: var(--sl-font-mono);
-  font-size: 0.78rem;
-  transition: color 220ms ease, transform 220ms ease;
-}
-
-.pcv-map-capability-index {
-  display: block;
-  color: #63b2c7;
-  font-family: var(--sl-font-mono);
-  font-size: 0.54rem;
-  font-weight: 700;
-  letter-spacing: 0.06em;
-  line-height: 1.4;
-}
-
-.pcv-map-capability strong {
-  display: block;
-  margin-top: 0.35rem;
-  color: #eef3f8;
-  font-size: 0.78rem;
-  line-height: 1.35;
-}
-
-.pcv-map-capability ul {
-  position: relative;
-  z-index: 1;
+.pcv-arch-node-copy {
   display: flex;
-  flex-wrap: wrap;
-  gap: 0.3rem;
-  margin: 0.75rem 0 0 !important;
-  padding: 0;
-  list-style: none;
+  min-width: 0;
+  flex-direction: column;
 }
 
-.pcv-map-capability li {
-  padding: 0.25rem 0.38rem;
-  border: 1px solid #273650;
-  border-radius: 0.25rem;
-  color: #93a2b7;
-  font-family: var(--sl-font-mono);
+.pcv-arch-service .pcv-arch-node-copy strong {
+  font-size: 0.73rem;
+}
+
+.pcv-arch-service .pcv-arch-node-copy small {
   font-size: 0.56rem;
-  line-height: 1.35;
-  transition: border-color 220ms ease, color 220ms ease;
 }
 
-.pcv-map-capability:is(:hover, :focus-visible) {
-  border-color: #4b8fa2;
-  background: #101c2e;
-  box-shadow: 0 0.8rem 1.8rem rgb(0 0 0 / 20%), inset 0 0 0 1px rgb(99 178 199 / 8%);
-  transform: translateY(-2px);
+.pcv-arch-route {
+  position: relative;
+  height: 0.9rem;
 }
 
-.pcv-map-capability:focus-visible {
+.pcv-arch-route::before {
+  position: absolute;
+  top: 0;
+  left: 50%;
+  width: 1px;
+  height: 100%;
+  background: #42516a;
+  content: "";
+}
+
+.pcv-arch-route span {
+  position: absolute;
+  z-index: 1;
+  top: -0.18rem;
+  left: 50%;
+  width: 0.24rem;
+  height: 0.42rem;
+  border-radius: 999px;
+  background: #d1f6ff;
+  box-shadow: 0 0 0.6rem rgb(99 178 199 / 48%);
+  opacity: 0;
+  transform: translate(-50%, -100%);
+}
+
+.pcv-arch-link:is(:hover, :focus-visible) {
+  border-color: #579caf;
+  background: #101f31;
+  box-shadow: 0 0.7rem 1.5rem rgb(0 0 0 / 18%), inset 0 0 0 1px rgb(99 178 199 / 8%);
+  transform: translateY(-1px);
+}
+
+.pcv-arch-link:focus-visible {
   outline: 2px solid #8ed8e9;
   outline-offset: 2px;
 }
 
-.pcv-map-capability:is(:hover, :focus-visible)::before {
-  animation: pcv-map-card-scan 850ms ease-out both;
+.pcv-arch-link:is(:hover, :focus-visible)::before {
+  animation: pcv-arch-node-scan 850ms ease-out both;
 }
 
-.pcv-map-capability:is(:hover, :focus-visible)::after {
+.pcv-arch-link:is(:hover, :focus-visible)::after {
   opacity: 1;
-  animation: pcv-map-card-signal 1.15s linear infinite;
+  animation: pcv-arch-node-signal 1.15s linear infinite;
 }
 
-.pcv-map-capability:is(:hover, :focus-visible) .pcv-map-icon {
+.pcv-arch-link:is(:hover, :focus-visible) .pcv-arch-icon {
   border-color: #579caf;
   background: #0b2934;
-  box-shadow: 0 0 1.1rem rgb(99 178 199 / 20%);
+  box-shadow: 0 0 1rem rgb(99 178 199 / 18%);
   color: #b9edf7;
-  transform: translateY(-1px) scale(1.06);
+  transform: translateY(-1px) scale(1.04);
 }
 
-.pcv-map-capability:is(:hover, :focus-visible) .pcv-icon-flow {
-  animation: pcv-map-icon-draw 720ms ease-out both;
+.pcv-arch-link:is(:hover, :focus-visible) .pcv-arch-icon-flow {
+  animation: pcv-arch-icon-draw 720ms ease-out both;
 }
 
-.pcv-map-capability:is(:hover, :focus-visible) .pcv-map-capability-arrow {
+.pcv-arch-link:is(:hover, :focus-visible) .pcv-arch-node-arrow {
   color: #b9edf7;
-  transform: translate(0.12rem, -0.12rem);
+  transform: translate(0.1rem, -0.1rem);
 }
 
-.pcv-map-capability:is(:hover, :focus-visible) li {
-  border-color: #36526c;
-  color: #b2c2d3;
-}
-
-.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-core {
+.pcv-control-map:has(.pcv-arch-link:is(:hover, :focus-visible)) .pcv-arch-layer-control {
   border-color: #579caf;
-  box-shadow: 0 0 1.6rem rgb(99 178 199 / 12%);
+  box-shadow: 0 0 1.4rem rgb(99 178 199 / 11%);
 }
 
-.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-route::before {
-  background: linear-gradient(90deg, #42516a 0%, #63b2c7 44%, #d1f6ff 50%, #63b2c7 56%, #42516a 100%);
-  background-size: 200% 100%;
-  animation: pcv-map-flow-x 1.2s linear infinite;
-}
-
-.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-route span {
+.pcv-control-map:has(.pcv-arch-link:is(:hover, :focus-visible)) .pcv-arch-route::before {
   background: linear-gradient(180deg, #42516a 0%, #63b2c7 44%, #d1f6ff 50%, #63b2c7 56%, #42516a 100%);
   background-size: 100% 200%;
-  animation: pcv-map-flow-y 1.2s linear infinite;
+  animation: pcv-arch-flow-line 1.2s linear infinite;
 }
 
-@keyframes pcv-map-flow-x {
-  to {
-    background-position: -200% 0;
-  }
+.pcv-control-map:has(.pcv-arch-link:is(:hover, :focus-visible)) .pcv-arch-route span {
+  opacity: 1;
+  animation: pcv-arch-flow-y 1.2s linear infinite;
 }
 
-@keyframes pcv-map-flow-y {
+.pcv-control-map:has(.pcv-arch-path-workloads:is(:hover, :focus-visible)) .pcv-arch-target-workloads,
+.pcv-control-map:has(.pcv-arch-path-storage:is(:hover, :focus-visible)) .pcv-arch-target-storage,
+.pcv-control-map:has(.pcv-arch-path-fabric:is(:hover, :focus-visible)) .pcv-arch-target-fabric,
+.pcv-control-map:has(.pcv-arch-path-vpc:is(:hover, :focus-visible)) .pcv-arch-target-vpc {
+  border-color: #579caf;
+  background: #0b2934;
+  box-shadow: inset 0 0 0 1px rgb(99 178 199 / 8%);
+  color: #d1f6ff;
+}
+
+@keyframes pcv-arch-flow-line {
   to {
     background-position: 0 200%;
   }
 }
 
-@keyframes pcv-map-card-scan {
+@keyframes pcv-arch-flow-y {
+  from {
+    transform: translate(-50%, -100%);
+  }
+
+  to {
+    transform: translate(-50%, 240%);
+  }
+}
+
+@keyframes pcv-arch-node-scan {
   from {
     transform: translateX(-120%);
   }
@@ -637,7 +671,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   }
 }
 
-@keyframes pcv-map-card-signal {
+@keyframes pcv-arch-node-signal {
   from {
     transform: translateX(-120%);
   }
@@ -647,7 +681,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   }
 }
 
-@keyframes pcv-map-icon-draw {
+@keyframes pcv-arch-icon-draw {
   from {
     stroke-dasharray: 32;
     stroke-dashoffset: 32;
@@ -938,26 +972,59 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     padding-block: 0.7rem;
   }
 
-  .pcv-map-clients,
-  .pcv-map-capabilities {
-    gap: 0.35rem;
-    padding-inline: 0.75rem;
+  .pcv-arch-stack {
+    padding: 0.65rem;
   }
 
-  .pcv-map-clients span {
+  .pcv-arch-layer {
+    padding: 0.55rem;
+  }
+
+  .pcv-arch-layer-head {
+    align-items: flex-start;
+  }
+
+  .pcv-arch-layer-head small {
+    max-width: 16ch;
+  }
+
+  .pcv-arch-grid-control,
+  .pcv-arch-grid-services,
+  .pcv-arch-grid-runtime,
+  .pcv-arch-grid-host {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
+  .pcv-arch-grid-runtime .pcv-arch-node,
+  .pcv-arch-grid-runtime .pcv-arch-node:nth-last-child(-n + 2) {
+    grid-column: auto;
+  }
+
+  .pcv-arch-grid-runtime .pcv-arch-node:last-child {
+    grid-column: 1 / -1;
+  }
+
+  .pcv-arch-node {
+    padding-inline: 0.35rem;
+  }
+
+  .pcv-arch-service {
+    min-height: 4.4rem;
+    gap: 0.4rem;
+    padding-right: 1.1rem;
+  }
+
+  .pcv-arch-icon {
+    width: 1.95rem;
+    height: 1.95rem;
+  }
+
+  .pcv-arch-service .pcv-arch-node-copy strong {
     font-size: 0.66rem;
   }
 
-  .pcv-map-core {
-    margin-inline: 0.75rem;
-  }
-
-  .pcv-map-capabilities {
-    grid-template-columns: 1fr;
-  }
-
-  .pcv-map-capability {
-    min-height: auto;
+  .pcv-arch-service .pcv-arch-node-copy small {
+    font-size: 0.52rem;
   }
 
   .pcv-doc-shortcuts,
@@ -984,9 +1051,9 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     transition-duration: 0.01ms !important;
   }
 
-  .pcv-map-capability:is(:hover, :focus-visible),
-  .pcv-map-capability:is(:hover, :focus-visible) .pcv-map-icon,
-  .pcv-map-capability:is(:hover, :focus-visible) .pcv-map-capability-arrow {
+  .pcv-arch-link:is(:hover, :focus-visible),
+  .pcv-arch-link:is(:hover, :focus-visible) .pcv-arch-icon,
+  .pcv-arch-link:is(:hover, :focus-visible) .pcv-arch-node-arrow {
     transform: none !important;
   }
 }

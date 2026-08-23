@@ -52,12 +52,15 @@ Starlight 정적 page로 분할한다.
 - 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·제어면 구조를 담은 hero 다음에 8개 작업
   카테고리·22개 장의 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위의
   상세 설명은 첫 페이지에서 반복하지 않고 상단 disclosure의 해당 운영 가이드 link로 제공한다.
-- Hero의 Single Edge 기능 지도는 Web UI·REST API·CLI에서 `purecvisorsd`로 이어지는 흐름과
-  워크로드, 스토리지, 네트워크 패브릭, 가상 네트워크 4개 공개 기능 영역을 표시한다. Linux
-  Bridge, Local VPC와 VXLAN Overlay를 포함하되 Multi Edge 전용 기능은 표시하지 않는다.
-- 기능 영역은 서로 다른 code-native 선형 icon과 정본 운영 가이드 link를 제공한다. pointer
-  hover와 keyboard focus에서는 접근층→제어면→선택 영역의 connector flow와 선택 상태를 같은
-  방식으로 표시하고, reduced motion 설정에서는 animation과 transform을 제거한다.
+- Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
+  adapters, Linux host의 5개 세로 계층으로 구성한다. `purecvisorsd`의 C23 단일 프로세스와
+  GMainLoop·GTask, VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제 host
+  adapter와 Linux 자원까지 연결하며 Multi Edge 전용 기능은 표시하지 않는다.
+- Access의 Web UI·REST API·`pcvctl` 3개와 Capability services의 워크로드·스토리지·네트워크
+  패브릭·가상 네트워크 4개는 서로 다른 code-native 선형 icon 또는 식별자와 정본 운영 가이드
+  link를 제공한다. pointer hover와 keyboard focus에서는 전체 계층 connector와 선택 서비스에
+  대응하는 runtime·host node를 함께 표시하고, reduced motion 설정에서는 animation과 transform을
+  제거한다.
 - 문서 directory와 역할별 추천 경로가 첫 페이지의 마지막 본문이다. Hero에 이미 운영 가이드
   action이 있으므로 문서 뒤에 같은 action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
@@ -68,7 +71,8 @@ Starlight 정적 page로 분할한다.
 - 본문 가독성, keyboard focus, mobile navigation과 code overflow를 운영 기준으로 검증한다.
 - landing 근거는 `docs/ui-reviews/2026-08-22-public-service-landing.md`, 전체 가이드 reader
   근거는 `docs/ui-reviews/2026-08-22-public-product-docs-layout.md`, 언어·상단 navigation 근거는
-  `docs/ui-reviews/2026-08-23-public-site-i18n-navigation.md`를 따른다.
+  `docs/ui-reviews/2026-08-23-public-site-i18n-navigation.md`, 아키텍처 지도 근거는
+  `docs/ui-reviews/2026-08-24-landing-single-edge-architecture-layers.md`를 따른다.
 
 ## 배포 흐름
 
@@ -127,6 +131,7 @@ npm run check
 검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 directory page, 8개 sidebar group,
 현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
 landing 최종 CTA 부재, 내부 link 무결성, `guide.html`·`guide-content.md` artifact 부재, 금지된 내부
-주소·private repository 표식과 source map 부재를 확인한다. 실제 Pages 배포 후에는 `/`, `/ko/`,
+주소·private repository 표식과 source map 부재, 5개 아키텍처 계층·정본 node·link·motion 계약을
+확인한다. 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
 custom domain canonical URL을 확인한다.

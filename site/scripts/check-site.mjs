@@ -112,7 +112,9 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "pcv-final-title",
     "한 노드부터 명확하게 운영하세요.",
     "Operate clearly, starting with one node.",
-    "pcv-map-resources"
+    "pcv-map-resources",
+    "pcv-capability-map-title",
+    "Single Edge capability map"
   ]) {
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
@@ -120,46 +122,90 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "documentation"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
-  if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-capability-map-title">')) {
-    throw new Error(`${name} accessible capability map missing`);
+  if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-architecture-map-title">')) {
+    throw new Error(`${name} accessible architecture map missing`);
   }
-  if (!source.includes('id="pcv-capability-map-title">Single Edge capability map</')) {
-    throw new Error(`${name} capability map title missing`);
+  if (!source.includes('id="pcv-architecture-map-title">Single Edge architecture map</')) {
+    throw new Error(`${name} architecture map title missing`);
   }
-  if ((source.match(/class="pcv-map-capability"/g) || []).length !== 4) {
-    throw new Error(`${name} capability group count mismatch`);
+  if ((source.match(/class="pcv-arch-layer pcv-arch-layer-/g) || []).length !== 5) {
+    throw new Error(`${name} architecture layer count mismatch`);
+  }
+  if ((source.match(/class="pcv-arch-node pcv-arch-link pcv-arch-access-link"/g) || []).length !== 3) {
+    throw new Error(`${name} architecture access link count mismatch`);
+  }
+  if ((source.match(/class="pcv-arch-node pcv-arch-link pcv-arch-service /g) || []).length !== 4) {
+    throw new Error(`${name} architecture service link count mismatch`);
+  }
+  const runtimeLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-runtime"[\s\S]*?<\/section>/)?.[0] || "";
+  const hostLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-host"[\s\S]*?<\/section>/)?.[0] || "";
+  if ((runtimeLayer.match(/class="pcv-arch-node /g) || []).length !== 5) {
+    throw new Error(`${name} architecture runtime node count mismatch`);
+  }
+  if ((hostLayer.match(/class="pcv-arch-node /g) || []).length !== 4) {
+    throw new Error(`${name} architecture host node count mismatch`);
   }
   for (const icon of ["workloads", "storage", "fabric", "vpc"]) {
-    if (!source.includes(`class="pcv-map-icon pcv-map-icon-${icon}" aria-hidden="true"`)) {
-      throw new Error(`${name} capability icon missing: ${icon}`);
+    if (!source.includes(`class="pcv-arch-icon pcv-arch-icon-${icon}" aria-hidden="true"`)) {
+      throw new Error(`${name} architecture service icon missing: ${icon}`);
     }
   }
-  for (const href of [
-    "/ko/workloads/virtual-machines/",
-    "/ko/infrastructure/storage/",
-    "/ko/infrastructure/networking/"
+  for (const [className, href] of [
+    ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/web-ui/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/rest-api/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/cli/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-workloads", "/ko/workloads/virtual-machines/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-storage", "/ko/infrastructure/storage/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-fabric", "/ko/infrastructure/networking/"],
+    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-vpc", "/ko/infrastructure/networking/"]
   ]) {
-    if (!source.includes(`<a class="pcv-map-capability" href="${href}">`)) {
-      throw new Error(`${name} capability guide link missing: ${href}`);
+    if (!source.includes(`<a class="${className}" href="${href}">`)) {
+      throw new Error(`${name} architecture guide link missing: ${href}`);
     }
   }
-  if ((source.match(/<a class="pcv-map-capability" href="\/ko\/infrastructure\/networking\/">/g) || []).length !== 2) {
-    throw new Error(`${name} network capability guide link count mismatch`);
+  if ((source.match(/href="\/ko\/infrastructure\/networking\/"/g) || []).length < 2) {
+    throw new Error(`${name} network architecture guide link count mismatch`);
   }
   for (const capability of [
-    "KVM VM",
-    "LXC",
-    "iSCSI",
-    "Linux Bridge",
-    "OVS · OVN",
-    "VLAN · QoS",
-    "Local VPC",
-    "VXLAN Overlay",
+    "01 · ACCESS",
+    "02 · CONTROL PLANE",
+    "03 · CAPABILITY SERVICES",
+    "04 · RUNTIME ADAPTERS",
+    "05 · LINUX HOST",
+    "purecvisorsd",
+    "C23 · GMainLoop",
+    "UDS · REST · WebSocket",
+    "RPC · GTask",
     "RBAC · Audit",
-    "Jobs · Alerts",
-    "Self-healing"
+    "Jobs · Alerts · Self-healing",
+    "KVM VM · LXC",
+    "ZFS · iSCSI",
+    "Bridge · OVS/OVN",
+    "Local VPC · VXLAN",
+    "libvirt · KVM/QEMU",
+    "liblxc",
+    "ZFS · zvol · iSCSI",
+    "Linux Bridge · OVS/OVN",
+    "nftables · dnsmasq",
+    "Linux kernel",
+    "CPU · RAM",
+    "Physical NIC",
+    "Local disk · ZFS pool"
   ]) {
-    if (!source.includes(capability)) throw new Error(`${name} capability missing: ${capability}`);
+    if (!source.includes(capability)) throw new Error(`${name} architecture capability missing: ${capability}`);
+  }
+  const architectureMap = source.match(/<figure class="pcv-control-map"[\s\S]*?<\/figure>/)?.[0] || "";
+  for (const forbiddenCapability of [
+    "purecvisord",
+    "C11 + GMainLoop",
+    "v0.9.5",
+    "etcd cluster",
+    "VM migrate",
+    "Multi Edge"
+  ]) {
+    if (architectureMap.includes(forbiddenCapability)) {
+      throw new Error(`${name} stale architecture capability found: ${forbiddenCapability}`);
+    }
   }
 }
 for (const selector of [
@@ -173,7 +219,13 @@ for (const selector of [
   ".pcv-scope",
   ".pcv-final-cta",
   ".pcv-map-resources",
-  ".pcv-map-core small"
+  ".pcv-map-core small",
+  ".pcv-map-clients",
+  ".pcv-map-route",
+  ".pcv-map-core",
+  ".pcv-map-capabilities",
+  ".pcv-map-capability",
+  ".pcv-map-icon"
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
@@ -181,17 +233,22 @@ if (landingStyles.includes(".pcv-hero-copy h1")) {
   throw new Error("retired hero-scale heading selector found");
 }
 for (const motionContract of [
-  ".pcv-map-capability:focus-visible",
-  ":has(.pcv-map-capability:is(:hover, :focus-visible))",
-  "@keyframes pcv-map-flow-x",
-  "@keyframes pcv-map-flow-y",
-  "@keyframes pcv-map-card-signal",
-  "@keyframes pcv-map-icon-draw",
+  ".pcv-arch-link:focus-visible",
+  ":has(.pcv-arch-link:is(:hover, :focus-visible))",
+  ":has(.pcv-arch-path-workloads:is(:hover, :focus-visible))",
+  ":has(.pcv-arch-path-storage:is(:hover, :focus-visible))",
+  ":has(.pcv-arch-path-fabric:is(:hover, :focus-visible))",
+  ":has(.pcv-arch-path-vpc:is(:hover, :focus-visible))",
+  "@keyframes pcv-arch-flow-line",
+  "@keyframes pcv-arch-flow-y",
+  "@keyframes pcv-arch-node-scan",
+  "@keyframes pcv-arch-node-signal",
+  "@keyframes pcv-arch-icon-draw",
   "@media (prefers-reduced-motion: reduce)",
   "animation-iteration-count: 1 !important"
 ]) {
   if (!landingStyles.includes(motionContract)) {
-    throw new Error(`capability map motion contract missing: ${motionContract}`);
+    throw new Error(`architecture map motion contract missing: ${motionContract}`);
   }
 }
 for (const [name, source, language, heroCopy, canonical] of [
@@ -208,9 +265,9 @@ for (const [name, source, language, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const capability of name === "english"
-    ? ["Snapshots · Clones", "ZFS Pool · Zvol", "Backup · Restore", "Firewall · Security Groups"]
-    : ["스냅샷 · 클론", "ZFS 풀 · Zvol", "백업 · 복원", "방화벽 · 보안 그룹"]) {
-    if (!source.includes(capability)) throw new Error(`${name} localized capability missing: ${capability}`);
+    ? ["Management interfaces", "single process", "Single Edge capabilities", "Host integration", "Physical resources of one node", "Workloads", "Network Fabric", "Virtual Network"]
+    : ["관리 인터페이스", "단일 프로세스", "Single Edge 제공 기능", "호스트 통합", "한 노드의 물리 자원", "VM · 컨테이너", "네트워크 패브릭", "가상 네트워크"]) {
+    if (!source.includes(capability)) throw new Error(`${name} localized architecture capability missing: ${capability}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);

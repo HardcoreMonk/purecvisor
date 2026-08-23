@@ -20,60 +20,109 @@ sidebar:
         <p class="pcv-hero-note">Standalone deployment · C23 single process · Web UI, REST API, CLI</p>
       </div>
 
-      <figure class="pcv-control-map" aria-labelledby="pcv-capability-map-title">
+      <figure class="pcv-control-map" aria-labelledby="pcv-architecture-map-title">
         <figcaption class="pcv-map-bar">
-          <span id="pcv-capability-map-title">Single Edge capability map</span>
+          <span id="pcv-architecture-map-title">Single Edge architecture map</span>
           <span class="pcv-status"><i aria-hidden="true"></i> Standalone node</span>
         </figcaption>
-        <div class="pcv-map-clients" aria-label="Access interfaces">
-          <span>Web UI</span>
-          <span>REST API</span>
-          <span>pcvctl</span>
-        </div>
-        <div class="pcv-map-route" aria-hidden="true"><span></span></div>
-        <div class="pcv-map-core">
-          <span class="pcv-map-label">CONTROL PLANE</span>
-          <strong>purecvisorsd</strong>
-          <div class="pcv-map-core-capabilities">
-            <span>RBAC · Audit</span>
-            <span>Jobs · Alerts</span>
-            <span>Self-healing</span>
-          </div>
-        </div>
-        <div class="pcv-map-route pcv-map-route-down" aria-hidden="true"><span></span></div>
-        <div class="pcv-map-capabilities" aria-label="Single Edge capabilities">
-          <a class="pcv-map-capability" href="/ko/workloads/virtual-machines/">
-            <span class="pcv-map-capability-heading">
-              <span class="pcv-map-icon pcv-map-icon-workloads" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M3.5 9h17"></path><path class="pcv-icon-flow" d="M7 14h4m2 0h4"></path></svg></span>
-              <span class="pcv-map-capability-copy"><span class="pcv-map-capability-index">01 · WORKLOADS</span><strong>Workloads</strong></span>
-              <span class="pcv-map-capability-arrow" aria-hidden="true">↗</span>
-            </span>
-            <ul><li>KVM VM</li><li>LXC</li><li>Snapshots · Clones</li></ul>
-          </a>
-          <a class="pcv-map-capability" href="/ko/infrastructure/storage/">
-            <span class="pcv-map-capability-heading">
-              <span class="pcv-map-icon pcv-map-icon-storage" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><ellipse cx="12" cy="6" rx="7.5" ry="2.5"></ellipse><path d="M4.5 6v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V6"></path><path class="pcv-icon-flow" d="M4.5 12v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-6"></path></svg></span>
-              <span class="pcv-map-capability-copy"><span class="pcv-map-capability-index">02 · STORAGE</span><strong>Storage</strong></span>
-              <span class="pcv-map-capability-arrow" aria-hidden="true">↗</span>
-            </span>
-            <ul><li>ZFS Pool · Zvol</li><li>iSCSI</li><li>Backup · Restore</li></ul>
-          </a>
-          <a class="pcv-map-capability" href="/ko/infrastructure/networking/">
-            <span class="pcv-map-capability-heading">
-              <span class="pcv-map-icon pcv-map-icon-fabric" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="18" r="2"></circle><path class="pcv-icon-flow" d="M12 7v4M12 11H5v5M12 11h7v5"></path></svg></span>
-              <span class="pcv-map-capability-copy"><span class="pcv-map-capability-index">03 · NETWORK FABRIC</span><strong>Network Fabric</strong></span>
-              <span class="pcv-map-capability-arrow" aria-hidden="true">↗</span>
-            </span>
-            <ul><li>Linux Bridge</li><li>OVS · OVN</li><li>VLAN · QoS</li></ul>
-          </a>
-          <a class="pcv-map-capability" href="/ko/infrastructure/networking/">
-            <span class="pcv-map-capability-heading">
-              <span class="pcv-map-icon pcv-map-icon-vpc" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path><circle cx="12" cy="9" r="1.5"></circle><circle cx="8" cy="15" r="1.5"></circle><circle cx="16" cy="15" r="1.5"></circle><path class="pcv-icon-flow" d="M11.2 10.3 8.8 13.7m4-3.4 2.4 3.4M9.5 15h5"></path></svg></span>
-              <span class="pcv-map-capability-copy"><span class="pcv-map-capability-index">04 · VIRTUAL NETWORK</span><strong>Virtual Network</strong></span>
-              <span class="pcv-map-capability-arrow" aria-hidden="true">↗</span>
-            </span>
-            <ul><li>Local VPC</li><li>VXLAN Overlay</li><li>Firewall · Security Groups</li></ul>
-          </a>
+        <div class="pcv-arch-stack">
+          <section class="pcv-arch-layer pcv-arch-layer-access" aria-labelledby="pcv-arch-access-title">
+            <div class="pcv-arch-layer-head">
+              <span class="pcv-arch-layer-index" id="pcv-arch-access-title">01 · ACCESS</span>
+              <small>Management interfaces</small>
+            </div>
+            <div class="pcv-arch-grid pcv-arch-grid-access">
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/web-ui/">
+                <strong>Web UI</strong><small>Browser</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/rest-api/">
+                <strong>REST API</strong><small>JWT · JSON-RPC</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/cli/">
+                <strong>pcvctl</strong><small>UDS CLI</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </section>
+
+          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
+
+          <section class="pcv-arch-layer pcv-arch-layer-control" aria-labelledby="pcv-arch-control-title">
+            <div class="pcv-arch-layer-head">
+              <span class="pcv-arch-layer-index" id="pcv-arch-control-title">02 · CONTROL PLANE</span>
+              <small>C23 · GMainLoop · single process</small>
+            </div>
+            <div class="pcv-arch-plane">
+              <strong>purecvisorsd</strong>
+              <div class="pcv-arch-grid pcv-arch-grid-control">
+                <span class="pcv-arch-node"><strong>Ingress</strong><small>UDS · REST · WebSocket</small></span>
+                <span class="pcv-arch-node"><strong>Dispatch</strong><small>RPC · GTask</small></span>
+                <span class="pcv-arch-node"><strong>Policy</strong><small>RBAC · Audit</small></span>
+                <span class="pcv-arch-node"><strong>Operations</strong><small>Jobs · Alerts · Self-healing</small></span>
+              </div>
+            </div>
+          </section>
+
+          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
+
+          <section class="pcv-arch-layer pcv-arch-layer-services" aria-labelledby="pcv-arch-services-title">
+            <div class="pcv-arch-layer-head">
+              <span class="pcv-arch-layer-index" id="pcv-arch-services-title">03 · CAPABILITY SERVICES</span>
+              <small>Single Edge capabilities</small>
+            </div>
+            <div class="pcv-arch-grid pcv-arch-grid-services">
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-workloads" href="/ko/workloads/virtual-machines/">
+                <span class="pcv-arch-icon pcv-arch-icon-workloads" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M3.5 9h17"></path><path class="pcv-arch-icon-flow" d="M7 14h4m2 0h4"></path></svg></span>
+                <span class="pcv-arch-node-copy"><strong>Workloads</strong><small>KVM VM · LXC</small></span>
+                <span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-storage" href="/ko/infrastructure/storage/">
+                <span class="pcv-arch-icon pcv-arch-icon-storage" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><ellipse cx="12" cy="6" rx="7.5" ry="2.5"></ellipse><path d="M4.5 6v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V6"></path><path class="pcv-arch-icon-flow" d="M4.5 12v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-6"></path></svg></span>
+                <span class="pcv-arch-node-copy"><strong>Storage</strong><small>ZFS · iSCSI</small></span>
+                <span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-fabric" href="/ko/infrastructure/networking/">
+                <span class="pcv-arch-icon pcv-arch-icon-fabric" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="18" r="2"></circle><path class="pcv-arch-icon-flow" d="M12 7v4M12 11H5v5M12 11h7v5"></path></svg></span>
+                <span class="pcv-arch-node-copy"><strong>Network Fabric</strong><small>Bridge · OVS/OVN</small></span>
+                <span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+              <a class="pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-vpc" href="/ko/infrastructure/networking/">
+                <span class="pcv-arch-icon pcv-arch-icon-vpc" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 3l8 4.5v9L12 21l-8-4.5v-9L12 3Z"></path><circle cx="12" cy="9" r="1.5"></circle><circle cx="8" cy="15" r="1.5"></circle><circle cx="16" cy="15" r="1.5"></circle><path class="pcv-arch-icon-flow" d="M11.2 10.3 8.8 13.7m4-3.4 2.4 3.4M9.5 15h5"></path></svg></span>
+                <span class="pcv-arch-node-copy"><strong>Virtual Network</strong><small>Local VPC · VXLAN</small></span>
+                <span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
+              </a>
+            </div>
+          </section>
+
+          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
+
+          <section class="pcv-arch-layer pcv-arch-layer-runtime" aria-labelledby="pcv-arch-runtime-title">
+            <div class="pcv-arch-layer-head">
+              <span class="pcv-arch-layer-index" id="pcv-arch-runtime-title">04 · RUNTIME ADAPTERS</span>
+              <small>Host integration</small>
+            </div>
+            <div class="pcv-arch-grid pcv-arch-grid-runtime">
+              <span class="pcv-arch-node pcv-arch-target-workloads">libvirt · KVM/QEMU</span>
+              <span class="pcv-arch-node pcv-arch-target-workloads">liblxc</span>
+              <span class="pcv-arch-node pcv-arch-target-storage">ZFS · zvol · iSCSI</span>
+              <span class="pcv-arch-node pcv-arch-target-fabric pcv-arch-target-vpc">Linux Bridge · OVS/OVN</span>
+              <span class="pcv-arch-node pcv-arch-target-vpc">nftables · dnsmasq</span>
+            </div>
+          </section>
+
+          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
+
+          <section class="pcv-arch-layer pcv-arch-layer-host" aria-labelledby="pcv-arch-host-title">
+            <div class="pcv-arch-layer-head">
+              <span class="pcv-arch-layer-index" id="pcv-arch-host-title">05 · LINUX HOST</span>
+              <small>Physical resources of one node</small>
+            </div>
+            <div class="pcv-arch-grid pcv-arch-grid-host">
+              <span class="pcv-arch-node pcv-arch-target-workloads pcv-arch-target-fabric pcv-arch-target-vpc">Linux kernel</span>
+              <span class="pcv-arch-node pcv-arch-target-workloads">CPU · RAM</span>
+              <span class="pcv-arch-node pcv-arch-target-fabric pcv-arch-target-vpc">Physical NIC</span>
+              <span class="pcv-arch-node pcv-arch-target-storage">Local disk · ZFS pool</span>
+            </div>
+          </section>
         </div>
       </figure>
     </div>

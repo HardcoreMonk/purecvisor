@@ -11,6 +11,7 @@
 - **변경:** 2026-08-24 landing 하단 반복 최종 CTA 구역 제거 사용자 명시 승인
 - **변경:** 2026-08-24 landing Hero의 Single Edge 기능 지도 누락 기능 보완 사용자 명시 승인
 - **변경:** 2026-08-24 Single Edge 기능 지도의 서비스 icon·rollover flow motion 사용자 명시 승인
+- **변경:** 2026-08-24 landing 아키텍처 지도를 현재 Single Edge 정본의 5개 계층으로 재구성 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -56,12 +57,13 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
     컨테이너, ZFS 스토리지와 네트워크 가상화를 한 Linux/KVM 노드에서 운영한다는 문장을 사용한다.
 13. landing은 문서 directory와 역할별 추천 경로를 마지막 본문으로 사용하고, Hero의 운영 가이드
     action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
-14. Hero의 Single Edge 기능 지도는 접근 인터페이스, `purecvisorsd` 공통 기능과 워크로드,
-    스토리지, 네트워크 패브릭, 가상 네트워크 4개 영역을 보여 준다. Linux Bridge, Local VPC,
-    VXLAN Overlay를 포함하고 Multi Edge 전용 기능은 소개하지 않는다.
-15. 기능 영역은 서로 다른 inline SVG icon과 정본 운영 가이드 link를 제공한다. pointer hover와
-    keyboard focus에서 connector signal·core·선택 card가 함께 반응하며 reduced motion에서는
-    animation·transform을 사실상 제거한다.
+14. Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
+    adapters, Linux host의 5개 계층을 보여 준다. `purecvisorsd`의 C23 단일 프로세스와
+    GMainLoop·GTask에서 VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제
+    runtime adapter와 Linux host 자원까지 연결하며 Multi Edge 전용 기능은 소개하지 않는다.
+15. Access 3개와 Capability service 4개는 실제 정본 운영 가이드 link를 제공한다. pointer
+    hover와 keyboard focus에서 전체 connector·control plane·선택 서비스의 runtime·host node가
+    함께 반응하며 reduced motion에서는 animation·transform을 사실상 제거한다.
 
 ## Consequences
 
