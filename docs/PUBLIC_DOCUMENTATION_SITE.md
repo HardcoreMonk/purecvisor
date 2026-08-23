@@ -56,20 +56,26 @@ Starlight 정적 page로 분할한다.
   adapters, Linux host의 5개 세로 계층으로 구성한다. `purecvisorsd`의 C23 단일 프로세스와
   GMainLoop·GTask, VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제 host
   adapter와 Linux 자원까지 연결하며 Multi Edge 전용 기능은 표시하지 않는다.
-- Hero copy와 action을 먼저 두고 아키텍처 지도를 같은 shell의 전체 폭 하단에 배치한다. 범위
-  문장은 1024px 이상에서 한 줄이며 768px 이하에서는 overflow를 막기 위해 자연 줄바꿈한다.
-  01~05는 sky·cyan·mint·gold·lavender의 서로 다른 저채도 border·index·inset bar를 사용하되,
-  status 의미나 hover/focus의 teal signal을 대체하지 않는다.
+- Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
+  문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
+  문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
+- 01~05 계층은 neutral surface와 hairline으로 후퇴시키고 `purecvisorsd`와 선택 capability 경로를
+  우선한다. Workloads·Storage·Network Fabric·Virtual Network는 diagram 전용 blue·chartreuse·
+  fuchsia·lavender edge token을 사용하되 status와 CTA 색을 대체하지 않는다.
 - Hero와 아키텍처 지도는 Starlight의 `data-theme` 계약을 따르며 light/white에서는 흰 Hero,
   cool-gray map과 흰 node, dark에서는 near-black Hero·map과 짙은 node를 사용한다. map title,
   layer index·meta, node primary·secondary는 viewport와 무관하게 최소 12px을 유지하고 service
-  primary는 14px을 사용한다. 390px에서는 Capability service를 1열로 전환해 확대된 이름과
-  기술 범위를 축약 없이 표시한다.
-- Access의 Web UI·REST API·`pcvctl` 3개와 Capability services의 워크로드·스토리지·네트워크
-  패브릭·가상 네트워크 4개는 서로 다른 code-native 선형 icon 또는 식별자와 정본 운영 가이드
-  link를 제공한다. pointer hover와 keyboard focus에서는 전체 계층 connector와 선택 서비스에
-  대응하는 runtime·host node를 함께 표시하고, reduced motion 설정에서는 animation과 transform을
-  제거한다.
+  primary는 14px을 사용한다. 390px에서는 Capability service를 2열 선택기로 유지하고 path
+  이름을 우선하며, 세부 기술 범위는 선택 결과의 runtime·host node와 desktop 보기에 유지한다.
+- Access의 Web UI·REST API·`pcvctl` 3개는 정본 운영 가이드 link를 제공한다. Capability services의
+  워크로드·스토리지·네트워크 패브릭·가상 네트워크 4개는 code-native 선형 icon, `aria-pressed`
+  선택 control과 별도 정본 guide link를 제공한다. 선택한 capability에 대응하는 runtime·host node만
+  기본 표시하며 arrow key·Home·End로 경로를 바꿀 수 있다.
+- architecture figure 내부는 mono typography를 일관되게 사용한다. 최상위 figure는 설명 media
+  역할의 32px radius, 선택 route는 16px radius와 단 하나의 `6px 6px 0` offset shadow를 사용한다.
+  이 radius·shadow·neon edge는 public landing architecture artifact 전용 예외이며 제품 runtime card,
+  CTA, 상태 surface와 다른 문서 component로 확산하지 않는다. reduced motion에서는 animation과
+  transform을 제거한다.
 - 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
@@ -83,7 +89,8 @@ Starlight 정적 page로 분할한다.
   `docs/ui-reviews/2026-08-23-public-site-i18n-navigation.md`, 아키텍처 지도 근거는
   `docs/ui-reviews/2026-08-24-landing-single-edge-architecture-layers.md`와
   `docs/ui-reviews/2026-08-24-landing-architecture-bottom-layer-colors.md`, 판독성·테마 근거는
-  `docs/ui-reviews/2026-08-24-landing-architecture-readability-themes.md`, 문서 디렉터리 제거 근거는
+  `docs/ui-reviews/2026-08-24-landing-architecture-readability-themes.md`, 선택 경로·Refero 합성 근거는
+  `docs/ui-reviews/2026-08-24-landing-architecture-route-explorer.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`를 따른다.
 
 ## 배포 흐름
@@ -144,9 +151,9 @@ npm run check
 현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
 landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
-map 부재, 5개 아키텍처 계층·정본 node·link·motion 계약을
-확인한다. Hero 한 열·desktop 문장 한 줄·mobile 줄바꿈·5개 layer 식별색, light/dark surface token,
-map 최소 12px 글꼴·component 크기와 mobile service 1열 계약도 함께 검사한다.
+map 부재, 5개 아키텍처 계층·7개 정본 link·4개 path control·motion 계약을 확인한다. Hero 한 열,
+desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token, map 최소 12px 글꼴, 32px figure,
+16px active route, offset shadow와 mobile 2열 path selector 계약도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
 custom domain canonical URL을 확인한다.

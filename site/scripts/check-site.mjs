@@ -78,8 +78,14 @@ const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
 const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
-const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 하나의 Linux/KVM 노드에서 운영합니다.";
-const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization on one Linux/KVM node.";
+const architectureInteraction = await readFile(
+  path.join(siteRoot, "src", "components", "ArchitectureMapScript.astro"),
+  "utf8"
+);
+const koreanHeroTitle = "하나의 Linux/KVM 노드, 하나의 제어면.";
+const englishHeroTitle = "One Linux/KVM node. One control plane.";
+const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 한곳에서 운영합니다.";
+const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization in one place.";
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   for (const marker of [
     "#capabilities",
@@ -95,11 +101,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "One operational flow",
     "Start a Single Edge node",
     "A public edition focused on Single Edge",
-    "하나의 노드,",
-    "하나의 제어면",
     "소프트웨어 정의 네트워크를 하나의 Linux/KVM 노드에서 운영합니다.",
-    "One node,",
-    "one control plane",
     "software-defined networking on one Linux/KVM node",
     "pcv-final-cta",
     "pcv-final-title",
@@ -131,10 +133,11 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (heroCopyPosition < 0 || architectureMapPosition < 0 || heroCopyPosition >= architectureMapPosition) {
     throw new Error(`${name} hero copy and architecture order mismatch`);
   }
-  if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-architecture-map-title">')) {
+  if (!source.includes('<figure class="pcv-control-map" data-active-path="workloads" aria-labelledby="pcv-architecture-map-title">')) {
     throw new Error(`${name} accessible architecture map missing`);
   }
-  if (!source.includes('id="pcv-architecture-map-title">Single Edge architecture map</')) {
+  const mapTitle = name === "english" ? "Single Edge architecture map" : "Single Edge 아키텍처";
+  if (!source.includes(`id="pcv-architecture-map-title">${mapTitle}</`)) {
     throw new Error(`${name} architecture map title missing`);
   }
   if ((source.match(/class="pcv-arch-layer pcv-arch-layer-/g) || []).length !== 5) {
@@ -143,8 +146,19 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if ((source.match(/class="pcv-arch-node pcv-arch-link pcv-arch-access-link"/g) || []).length !== 3) {
     throw new Error(`${name} architecture access link count mismatch`);
   }
-  if ((source.match(/class="pcv-arch-node pcv-arch-link pcv-arch-service /g) || []).length !== 4) {
-    throw new Error(`${name} architecture service link count mismatch`);
+  if ((source.match(/class="pcv-arch-path-trigger"/g) || []).length !== 4) {
+    throw new Error(`${name} architecture path control count mismatch`);
+  }
+  if ((source.match(/class="pcv-arch-path-doc pcv-arch-path-/g) || []).length !== 4) {
+    throw new Error(`${name} architecture capability guide link count mismatch`);
+  }
+  if ((source.match(/aria-pressed="true"/g) || []).length !== 1
+    || (source.match(/aria-pressed="false"/g) || []).length !== 3) {
+    throw new Error(`${name} architecture path selection state mismatch`);
+  }
+  if ((source.match(/data-pcv-path-output="true"/g) || []).length !== 2
+    || !source.includes('role="status" aria-live="polite"')) {
+    throw new Error(`${name} architecture path live output missing`);
   }
   const runtimeLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-runtime"[\s\S]*?<\/section>/)?.[0] || "";
   const hostLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-host"[\s\S]*?<\/section>/)?.[0] || "";
@@ -163,12 +177,12 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/web-ui/"],
     ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/rest-api/"],
     ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/cli/"],
-    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-workloads", "/ko/workloads/virtual-machines/"],
-    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-storage", "/ko/infrastructure/storage/"],
-    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-fabric", "/ko/infrastructure/networking/"],
-    ["pcv-arch-node pcv-arch-link pcv-arch-service pcv-arch-path-vpc", "/ko/infrastructure/networking/"]
+    ["pcv-arch-path-doc pcv-arch-path-workloads", "/ko/workloads/virtual-machines/"],
+    ["pcv-arch-path-doc pcv-arch-path-storage", "/ko/infrastructure/storage/"],
+    ["pcv-arch-path-doc pcv-arch-path-fabric", "/ko/infrastructure/networking/"],
+    ["pcv-arch-path-doc pcv-arch-path-vpc", "/ko/infrastructure/networking/"]
   ]) {
-    if (!source.includes(`<a class="${className}" href="${href}">`)) {
+    if (!source.includes(`<a class="${className}" href="${href}"`)) {
       throw new Error(`${name} architecture guide link missing: ${href}`);
     }
   }
@@ -260,8 +274,8 @@ for (const layoutContract of [
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
   ".pcv-arch-grid-services {\n  grid-template-columns: repeat(4, minmax(0, 1fr));",
-  ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
-  ".pcv-arch-grid-services {\n    grid-template-columns: minmax(0, 1fr);"
+  ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));",
+  ".pcv-arch-grid-services {\n    grid-template-columns: repeat(2, minmax(0, 1fr));"
 ]) {
   if (!landingStyles.includes(layoutContract)) {
     throw new Error(`bottom architecture layout contract missing: ${layoutContract}`);
@@ -279,23 +293,31 @@ for (const themeContract of [
     throw new Error(`landing theme contract missing: ${themeContract}`);
   }
 }
-for (const [layer, lightColor, lightRgb, darkColor, darkRgb] of [
-  ["access", "#2d68a8", "45 104 168", "#8bbcf2", "139 188 242"],
-  ["control", "#0c7185", "12 113 133", "#75cede", "117 206 222"],
-  ["services", "#24764f", "36 118 79", "#8bd5af", "139 213 175"],
-  ["runtime", "#805c00", "128 92 0", "#e0bd72", "224 189 114"],
-  ["host", "#6d4f9c", "109 79 156", "#c5a5ed", "197 165 237"]
+for (const [pathName, color] of [
+  ["workloads", "#94dbff"],
+  ["storage", "#d6ca6f"],
+  ["fabric", "#ffa3c2"],
+  ["vpc", "#ddccff"]
 ]) {
   for (const contract of [
-    `--pcv-layer-${layer}: ${lightColor};`,
-    `--pcv-layer-${layer}-rgb: ${lightRgb};`,
-    `--pcv-layer-${layer}: ${darkColor};`,
-    `--pcv-layer-${layer}-rgb: ${darkRgb};`,
-    `.pcv-arch-layer-${layer} {\n  --pcv-layer-accent: var(--pcv-layer-${layer});\n  --pcv-layer-rgb: var(--pcv-layer-${layer}-rgb);`
+    `--pcv-path-${pathName}: ${color};`,
+    `.pcv-control-map[data-active-path="${pathName}"]`,
+    `--pcv-path-active: var(--pcv-path-${pathName});`
   ]) {
     if (!landingStyles.includes(contract)) {
-      throw new Error(`architecture layer theme contract missing: ${layer}`);
+      throw new Error(`architecture path theme contract missing: ${pathName}`);
     }
+  }
+}
+for (const visualContract of [
+  "border-radius: 2rem;",
+  ".pcv-arch-active-route {",
+  "border-radius: 1rem;",
+  "box-shadow: 6px 6px 0 color-mix(in srgb, var(--pcv-path-active) 32%, transparent);",
+  "font-family: var(--sl-font-mono);"
+]) {
+  if (!landingStyles.includes(visualContract)) {
+    throw new Error(`architecture reference-lock contract missing: ${visualContract}`);
   }
 }
 for (const [selector, declarations] of [
@@ -305,8 +327,9 @@ for (const [selector, declarations] of [
   [".pcv-arch-node", ["font-size: 0.75rem;", "min-height: 3.5rem;"]],
   [".pcv-arch-node strong", ["font-size: 0.8125rem;"]],
   [".pcv-arch-node small", ["font-size: 0.75rem;"]],
-  [".pcv-arch-service .pcv-arch-node-copy strong", ["font-size: 0.875rem;"]],
-  [".pcv-arch-service .pcv-arch-node-copy small", ["font-size: 0.75rem;"]]
+  [".pcv-arch-path-trigger", ["min-height: 5rem;"]],
+  [".pcv-arch-path-trigger .pcv-arch-node-copy strong", ["font-size: 0.875rem;"]],
+  [".pcv-arch-path-trigger .pcv-arch-node-copy small", ["font-size: 0.75rem;"]]
 ]) {
   const start = landingStyles.indexOf(`${selector} {`);
   const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
@@ -319,11 +342,9 @@ for (const [selector, declarations] of [
 }
 for (const motionContract of [
   ".pcv-arch-link:focus-visible",
-  ":has(.pcv-arch-link:is(:hover, :focus-visible))",
-  ":has(.pcv-arch-path-workloads:is(:hover, :focus-visible))",
-  ":has(.pcv-arch-path-storage:is(:hover, :focus-visible))",
-  ":has(.pcv-arch-path-fabric:is(:hover, :focus-visible))",
-  ":has(.pcv-arch-path-vpc:is(:hover, :focus-visible))",
+  ".pcv-arch-path-trigger:focus-visible",
+  ".pcv-arch-path-trigger[aria-pressed=\"true\"]",
+  ":has(:is(.pcv-arch-link, .pcv-arch-path-trigger):is(:hover, :focus-visible))",
   "@keyframes pcv-arch-flow-line",
   "@keyframes pcv-arch-flow-y",
   "@keyframes pcv-arch-node-scan",
@@ -336,22 +357,39 @@ for (const motionContract of [
     throw new Error(`architecture map motion contract missing: ${motionContract}`);
   }
 }
-for (const [name, source, language, heroCopy, canonical] of [
-  ["root", index, "ko", koreanHeroCopy, "https://purecvisor.site/"],
-  ["korean", korean, "ko", koreanHeroCopy, "https://purecvisor.site/ko/"],
-  ["english", english, "en", englishHeroCopy, "https://purecvisor.site/en/"]
+for (const interactionContract of [
+  'map.dataset.activePath = path;',
+  'item.setAttribute("aria-pressed", active ? "true" : "false");',
+  'event.key === "ArrowRight"',
+  'event.key === "ArrowDown"',
+  'event.key === "ArrowLeft"',
+  'event.key === "ArrowUp"',
+  'event.key === "Home"',
+  'event.key === "End"'
+]) {
+  if (!architectureInteraction.includes(interactionContract)) {
+    throw new Error(`architecture interaction contract missing: ${interactionContract}`);
+  }
+}
+for (const [name, source, language, heroTitle, heroCopy, canonical] of [
+  ["root", index, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/"],
+  ["korean", korean, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/ko/"],
+  ["english", english, "en", englishHeroTitle, englishHeroCopy, "https://purecvisor.site/en/"]
 ]) {
   if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
   if ((source.match(/<h1\b/g) || []).length !== 1) throw new Error(`${name} H1 count mismatch`);
-  if (!/<h1\b[^>]*id="pcv-hero-title"[^>]*>PURECVISOR 2\.0\.0 · SINGLE EDGE<\/h1>/.test(source)) {
-    throw new Error(`${name} product H1 missing`);
+  if (!source.includes(`<p class="pcv-eyebrow">PURECVISOR 2.0.0 · SINGLE EDGE</p>`)) {
+    throw new Error(`${name} product eyebrow missing`);
+  }
+  if (!source.includes(`<h1 class="pcv-hero-title" id="pcv-hero-title">${heroTitle}</h1>`)) {
+    throw new Error(`${name} value H1 missing`);
   }
   if ((source.match(new RegExp(heroCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 1) {
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const capability of name === "english"
-    ? ["Management interfaces", "single process", "Single Edge capabilities", "Host integration", "Physical resources of one node", "Workloads", "Network Fabric", "Virtual Network"]
-    : ["관리 인터페이스", "단일 프로세스", "Single Edge 제공 기능", "호스트 통합", "한 노드의 물리 자원", "VM · 컨테이너", "네트워크 패브릭", "가상 네트워크"]) {
+    ? ["Management interfaces", "single process", "Select a path to the host", "Host integration", "Physical resources of one node", "Workloads", "Network Fabric", "Virtual Network"]
+    : ["관리 인터페이스", "단일 프로세스", "경로를 선택해 호스트까지 확인", "호스트 통합", "한 노드의 물리 자원", "VM · 컨테이너", "네트워크 패브릭", "가상 네트워크"]) {
     if (!source.includes(capability)) throw new Error(`${name} localized architecture capability missing: ${capability}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {

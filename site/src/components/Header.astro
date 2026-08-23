@@ -4,6 +4,7 @@ import Search from "virtual:starlight/components/Search";
 import SiteTitle from "virtual:starlight/components/SiteTitle";
 import SocialIcons from "virtual:starlight/components/SocialIcons";
 import ThemeSelect from "virtual:starlight/components/ThemeSelect";
+import ArchitectureMapScript from "./ArchitectureMapScript.astro";
 import { guideEntryPath, guidePath } from "../../scripts/guide-routes.mjs";
 
 const shouldRenderSearch =
@@ -140,6 +141,8 @@ const menus = isEnglish
     </nav>
   </div>
 </div>
+
+<ArchitectureMapScript />
 
 <script>
   const groups = Array.from(document.querySelectorAll(".pcv-nav-group"));
