@@ -3,6 +3,8 @@ title: PureCVisor Single Edge
 description: A Single Edge hypervisor control plane for one Linux/KVM node
 template: splash
 lastUpdated: 2026-08-23
+sidebar:
+  hidden: true
 ---
 
 <div class="pcv-landing">
@@ -13,8 +15,8 @@ lastUpdated: 2026-08-23
         <h1 id="pcv-hero-title">One node,<br />one control plane</h1>
         <p class="pcv-hero-lead">Operate VMs, containers, ZFS storage, and software-defined networking on one Linux/KVM node.</p>
         <div class="pcv-actions">
-          <a class="pcv-button pcv-button-primary" href="/docs.html#14-5분-퀵스타트">5-minute quickstart <span aria-hidden="true">→</span></a>
-          <a class="pcv-button pcv-button-ghost" href="/docs.html">Full operations guide</a>
+          <a class="pcv-button pcv-button-primary" href="/ko/getting-started/overview/#14-5분-퀵스타트">5-minute quickstart <span aria-hidden="true">→</span></a>
+          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/installation/">Full operations guide</a>
         </div>
         <p class="pcv-hero-note">Standalone deployment · C23 single process · Web UI, REST API, CLI</p>
       </div>
@@ -65,37 +67,37 @@ lastUpdated: 2026-08-23
           <span class="pcv-feature-index">01 · COMPUTE</span>
           <h3>VM and container lifecycle</h3>
           <p>Create, start, and stop KVM VMs and LXC containers, including guarded VM cloning and template workflows.</p>
-          <a href="/docs.html#3-vm-관리">Workload guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/workloads/virtual-machines/">Workload guide <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">02 · STORAGE</span>
           <h3>Data placement and recovery</h3>
           <p>Manage ZFS pools and zvols, qcow2/raw images, and iSCSI, then connect them to backup and restore procedures.</p>
-          <a href="/docs.html#5-스토리지">Storage guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/infrastructure/storage/">Storage guide <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">03 · NETWORK</span>
           <h3>Local SDN</h3>
           <p>Configure Linux bridges, OVS, and OVN Local VPCs within the networking boundary of a standalone node.</p>
-          <a href="/docs.html#6-네트워크">Networking guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/infrastructure/networking/">Networking guide <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">04 · OBSERVE</span>
           <h3>Observability and job results</h3>
           <p>Use host metrics, alerts, job completion, and audit records to verify the real outcome after an accepted response.</p>
-          <a href="/docs.html#8-모니터링-알림">Monitoring guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/operations/monitoring-alerts/">Monitoring guide <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability">
           <span class="pcv-feature-index">05 · INTERFACES</span>
           <h3>Three operating interfaces</h3>
           <p>The Web UI, REST API, and pcvctl CLI share the same Single Edge capabilities and authorization contract.</p>
-          <a href="/docs.html#13-web-ui">Interface guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/interfaces/web-ui/">Interface guide <span aria-hidden="true">→</span></a>
         </article>
         <article class="pcv-capability pcv-capability-dark">
           <span class="pcv-feature-index">06 · OPERATE SAFELY</span>
           <h3>Authentication, authorization, and quality gates</h3>
           <p>JWT, RBAC, VM owner scope, and staged verification manage both the preconditions and outcomes of operational changes.</p>
-          <a href="/docs.html#10-보안">Security guide <span aria-hidden="true">→</span></a>
+          <a href="/ko/security/security/">Security guide <span aria-hidden="true">→</span></a>
         </article>
       </div>
     </div>
@@ -117,7 +119,7 @@ lastUpdated: 2026-08-23
 <i>$</i> sudo systemctl start purecvisorsd
 <i>$</i> curl -s http://localhost:80/api/v1/health</code></pre>
         </div>
-        <a class="pcv-text-link" href="/docs.html#14-5분-퀵스타트">View prerequisites and the first-VM workflow <span aria-hidden="true">→</span></a>
+        <a class="pcv-text-link" href="/ko/getting-started/overview/#14-5분-퀵스타트">View prerequisites and the first-VM workflow <span aria-hidden="true">→</span></a>
       </div>
     </div>
   </section>
@@ -146,10 +148,10 @@ lastUpdated: 2026-08-23
       </div>
 
       <div class="pcv-doc-shortcuts" aria-label="Quick documentation links">
-        <a href="/docs.html#1-시작하기"><span>01</span><strong>Quick start</strong><small>Service startup and first VM</small><b aria-hidden="true">→</b></a>
-        <a href="/docs.html#3-vm-관리"><span>02</span><strong>Workloads</strong><small>VM and container operations</small><b aria-hidden="true">→</b></a>
-        <a href="/docs.html#5-스토리지"><span>03</span><strong>Infrastructure</strong><small>Storage and networking</small><b aria-hidden="true">→</b></a>
-        <a href="/docs.html#19-개발자-엔지니어-가이드"><span>04</span><strong>Build &amp; release</strong><small>Rules and quality gates</small><b aria-hidden="true">→</b></a>
+        <a href="/ko/getting-started/overview/"><span>01</span><strong>Quick start</strong><small>Service startup and first VM</small><b aria-hidden="true">→</b></a>
+        <a href="/ko/workloads/virtual-machines/"><span>02</span><strong>Workloads</strong><small>VM and container operations</small><b aria-hidden="true">→</b></a>
+        <a href="/ko/infrastructure/storage/"><span>03</span><strong>Infrastructure</strong><small>Storage and networking</small><b aria-hidden="true">→</b></a>
+        <a href="/ko/development/engineering/"><span>04</span><strong>Build &amp; release</strong><small>Rules and quality gates</small><b aria-hidden="true">→</b></a>
       </div>
 
       <div class="pcv-doc-directory">
@@ -157,70 +159,70 @@ lastUpdated: 2026-08-23
           <span class="pcv-category-index">CATEGORY 01 · GET STARTED</span>
           <h3 id="category-start-title">Start &amp; install</h3>
           <ul>
-            <li><a href="/docs.html#1-시작하기"><span>01</span>Getting started <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#2-설치-및-환경-구성"><span>02</span>Installation &amp; environment <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/getting-started/overview/"><span>01</span>Getting started <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/getting-started/installation/"><span>02</span>Installation &amp; environment <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-workloads-title">
           <span class="pcv-category-index">CATEGORY 02 · WORKLOADS</span>
           <h3 id="category-workloads-title">VMs &amp; containers</h3>
           <ul>
-            <li><a href="/docs.html#3-vm-관리"><span>03</span>VM management <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#4-컨테이너-관리"><span>04</span>Container management <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/workloads/virtual-machines/"><span>03</span>VM management <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/workloads/containers/"><span>04</span>Container management <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-infrastructure-title">
           <span class="pcv-category-index">CATEGORY 03 · INFRASTRUCTURE</span>
           <h3 id="category-infrastructure-title">Storage &amp; networking</h3>
           <ul>
-            <li><a href="/docs.html#5-스토리지"><span>05</span>Storage <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#6-네트워크"><span>06</span>Networking <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#7-멀티-제어면-참고-기록"><span>07</span>Multi-control-plane history <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/infrastructure/storage/"><span>05</span>Storage <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/infrastructure/networking/"><span>06</span>Networking <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/infrastructure/multi-control-plane-notes/"><span>07</span>Multi-control-plane history <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-observe-title">
           <span class="pcv-category-index">CATEGORY 04 · OBSERVE &amp; RECOVER</span>
           <h3 id="category-observe-title">Monitoring &amp; recovery</h3>
           <ul>
-            <li><a href="/docs.html#8-모니터링-알림"><span>08</span>Monitoring &amp; alerts <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#9-백업-복원"><span>09</span>Backup &amp; restore <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/operations/monitoring-alerts/"><span>08</span>Monitoring &amp; alerts <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/operations/backup-restore/"><span>09</span>Backup &amp; restore <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-security-title">
           <span class="pcv-category-index">CATEGORY 05 · SECURITY &amp; AUTOMATION</span>
           <h3 id="category-security-title">Security &amp; migration</h3>
           <ul>
-            <li><a href="/docs.html#10-보안"><span>10</span>Security <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#11-클라우드-마이그레이션"><span>11</span>Cloud migration <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#12-ai-자가치유"><span>12</span>AI &amp; self-healing <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/security/security/"><span>10</span>Security <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/security/cloud-migration/"><span>11</span>Cloud migration <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/security/ai-self-healing/"><span>12</span>AI &amp; self-healing <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-interfaces-title">
           <span class="pcv-category-index">CATEGORY 06 · INTERFACES</span>
           <h3 id="category-interfaces-title">Web UI · API · CLI</h3>
           <ul>
-            <li><a href="/docs.html#13-web-ui"><span>13</span>Web UI <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#14-rest-api"><span>14</span>REST API <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#15-cli-레퍼런스"><span>15</span>CLI reference <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/interfaces/web-ui/"><span>13</span>Web UI <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/interfaces/rest-api/"><span>14</span>REST API <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/interfaces/cli/"><span>15</span>CLI reference <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-support-title">
           <span class="pcv-category-index">CATEGORY 07 · CONFIGURE &amp; TROUBLESHOOT</span>
           <h3 id="category-support-title">Configure &amp; troubleshoot</h3>
           <ul>
-            <li><a href="/docs.html#16-설정-레퍼런스"><span>16</span>Configuration reference <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#17-트러블슈팅"><span>17</span>Troubleshooting <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#18-부록"><span>18</span>Appendix <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/reference/configuration/"><span>16</span>Configuration reference <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/reference/troubleshooting/"><span>17</span>Troubleshooting <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/reference/appendix/"><span>18</span>Appendix <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
         <section class="pcv-doc-category" aria-labelledby="category-release-title">
           <span class="pcv-category-index">CATEGORY 08 · BUILD &amp; RELEASE</span>
           <h3 id="category-release-title">Build &amp; release</h3>
           <ul>
-            <li><a href="/docs.html#19-개발자-엔지니어-가이드"><span>19</span>Developer &amp; engineering guide <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#20-영업-마케팅-가이드"><span>20</span>Sales &amp; marketing guide <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#21-아키텍처-리팩토링-가이드"><span>21</span>Architecture refactoring guide <b aria-hidden="true">→</b></a></li>
-            <li><a href="/docs.html#22-품질-게이트-가이드"><span>22</span>Quality gate guide <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/development/engineering/"><span>19</span>Developer &amp; engineering guide <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/development/sales-marketing/"><span>20</span>Sales &amp; marketing guide <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/development/architecture-refactoring/"><span>21</span>Architecture refactoring guide <b aria-hidden="true">→</b></a></li>
+            <li><a href="/ko/development/quality-gates/"><span>22</span>Quality gate guide <b aria-hidden="true">→</b></a></li>
           </ul>
         </section>
       </div>
@@ -230,9 +232,9 @@ lastUpdated: 2026-08-23
           <p class="pcv-kicker">RECOMMENDED PATHS</p>
           <h2 id="pcv-role-title">Read in the order that fits your role.</h2>
         </div>
-        <a href="/docs.html#14-5분-퀵스타트"><span>01 · FIRST RUN</span><strong>First-time operator</strong><small>Verify the service, authentication, and first VM in the 5-minute quickstart.</small></a>
-        <a href="/docs.html#8-모니터링-알림"><span>02 · OPERATE</span><strong>Node operator</strong><small>Move from current status and alerts to troubleshooting and recovery.</small></a>
-        <a href="/docs.html#19-개발자-엔지니어-가이드"><span>03 · BUILD</span><strong>Product developer</strong><small>Review source invariants and quality gates for each level of change.</small></a>
+        <a href="/ko/getting-started/overview/#14-5분-퀵스타트"><span>01 · FIRST RUN</span><strong>First-time operator</strong><small>Verify the service, authentication, and first VM in the 5-minute quickstart.</small></a>
+        <a href="/ko/operations/monitoring-alerts/"><span>02 · OPERATE</span><strong>Node operator</strong><small>Move from current status and alerts to troubleshooting and recovery.</small></a>
+        <a href="/ko/development/engineering/"><span>03 · BUILD</span><strong>Product developer</strong><small>Review source invariants and quality gates for each level of change.</small></a>
       </div>
     </div>
   </section>
@@ -242,7 +244,7 @@ lastUpdated: 2026-08-23
       <p class="pcv-kicker">PURECVISOR SINGLE EDGE</p>
       <h2 id="pcv-final-title">Operate clearly, starting with one node.</h2>
       <div class="pcv-actions">
-        <a class="pcv-button pcv-button-light" href="/docs.html">Full operations guide <span aria-hidden="true">→</span></a>
+        <a class="pcv-button pcv-button-light" href="/ko/getting-started/installation/">Full operations guide <span aria-hidden="true">→</span></a>
         <a class="pcv-button pcv-button-ghost" href="https://github.com/HardcoreMonk/purecvisor">GitHub repository</a>
       </div>
     </div>

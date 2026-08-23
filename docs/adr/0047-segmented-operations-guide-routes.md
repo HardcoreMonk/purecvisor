@@ -1,0 +1,66 @@
+# ADR-0047: 공개 운영 가이드는 언어·분류·문서별 정적 route를 사용한다
+
+- **상태:** Implemented
+- **일자:** 2026-08-24
+- **승인:** 2026-08-24 사용자 명시 승인
+- **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
+- **관련:** ADR-0037, ADR-0046
+
+## Context
+
+공개 운영 가이드는 `/docs.html` 한 shell에서 Markdown 전체를 불러오고 숫자형 hash로 22개 장을
+선택했다. 이 방식은 landing에서 특정 작업을 선택해도 URL에 문서 분류가 드러나지 않고, 본문이
+client fetch 뒤에 표시되며, 문서별 검색·canonical URL·이전·다음 이동을 정적으로 소유하기 어렵다.
+
+opencodex.me와 Refero의 개발자 문서 사례는 언어·분류·문서가 포함된 고유 URL에서 좌측 전체
+navigation, 중앙 본문, 우측 현재 page 목차와 이전·다음 이동을 함께 제공한다. PureCVisor는 이미
+Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지하지 않고 같은 정적 문서
+기반으로 22개 장을 제공할 수 있다.
+
+## Decision
+
+1. `docs/GUIDE.md`는 22개 장의 유일한 작성 정본으로 유지한다.
+2. `site/scripts/guide-routes.mjs`가 장 번호, 제목, 8개 그룹, directory slug와 legacy hash를
+   단일 manifest로 소유한다.
+3. build 준비 단계는 `## N. 제목` 장을 분할해
+   `site/src/content/docs/ko/<분류>/<문서>.md`를 결정적으로 생성한다.
+4. 각 독립 page의 원래 H3 이하 heading은 H2 이하로 한 단계 승격하고 code fence 안의 `#`는
+   변경하지 않는다.
+5. 전체 운영 가이드 기본 진입은 `/ko/getting-started/installation/`이다.
+6. landing, 영어 landing과 상단 disclosure의 가이드 action은 모두 22개 새 정본 route를
+   사용하며 `/docs.html#...`을 신규 navigation에 사용하지 않는다.
+7. 영어 운영 본문 정본이 승인되기 전에는 한국어 본문을 `/en/...` 번역본으로 가장하지 않고
+   영어 landing도 한국어 `/ko/...` 정본으로 연결한다.
+8. `/docs.html`은 기존 bookmark를 위해 기본 진입과 숫자형 장 hash를 새 route로 보내는 정적
+   호환 redirect로만 유지한다.
+9. 공개 reader는 Starlight의 좌측 8개 그룹·22개 장 navigation, 중앙 정적 본문, 우측 현재 page
+   목차, Pagefind 검색, code copy, mobile drawer와 이전·다음 navigation을 사용한다.
+10. 생성 artifact gate는 22개 route, canonical, active page, 전체 sidebar link, landing link,
+    legacy mapping과 내부 link 무결성을 검사한다.
+
+## Consequences
+
+- 각 장은 직접 공유·검색·색인 가능한 안정적인 URL과 HTML 본문을 가진다.
+- 장 순서나 slug 변경은 manifest, landing과 legacy mapping을 같은 변경 단위로 검증해야 한다.
+- `ui/docs.html`과 `ui/guide-content.md`는 제품 Web UI 문서 shell에만 남고 공개 Pages build의
+  reader dependency가 아니다.
+- `/docs.html`의 기존 hash는 호환되지만 신규 URL 정본은 directory route이므로 외부 문서는
+  점진적으로 새 링크로 갱신해야 한다.
+
+## Rejected alternatives
+
+- 22개 Markdown 수작업 복제: `docs/GUIDE.md`와 빠르게 어긋나는 이중 정본이 된다.
+- `/docs.html` client reader 유지: 본문 즉시 노출과 문서별 canonical URL 요구를 만족하지 못한다.
+- 한국어 본문을 `/en/...`에 복제: 번역 완료 상태를 잘못 표현한다.
+- 새 문서 framework 도입: 현재 Starlight가 필요한 sidebar, 목차, 검색과 pagination을 제공한다.
+
+## Verification
+
+- `npm run check`가 22개 route와 내부 link를 검증해야 한다.
+- `/ko/getting-started/installation/` HTML에 H1과 `2.1 시스템 요구사항` 본문이 정적으로 있어야 한다.
+- 설치 page sidebar는 8개 그룹·22개 링크와 현재 page를 표시하고 이전은 시작하기, 다음은 VM
+  관리로 연결해야 한다.
+- landing과 Header 산출물에 `/docs.html` 신규 link가 없어야 한다.
+- `/docs.html#3-vm-관리`는 `/ko/workloads/virtual-machines/`로 이동해야 한다.
+- 1440·1280·390px 실제 browser에서 overflow, 접근성, console·page·request 오류가 없어야 한다.
+- Pages 배포와 custom domain 확인 전에는 상태를 `Verified`로 올리지 않는다.

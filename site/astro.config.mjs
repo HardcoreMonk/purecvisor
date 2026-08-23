@@ -1,5 +1,6 @@
 import { defineConfig } from "astro/config";
 import starlight from "@astrojs/starlight";
+import { guideGroups } from "./scripts/guide-routes.mjs";
 
 export default defineConfig({
   site: "https://purecvisor.site",
@@ -54,21 +55,7 @@ export default defineConfig({
           }
         }
       ],
-      sidebar: [
-        {
-          label: "PureCVisor 2.0.0",
-          items: [
-            {
-              label: "문서 홈",
-              slug: ""
-            },
-            {
-              label: "전체 운영 가이드",
-              slug: "docs"
-            }
-          ]
-        }
-      ]
+      sidebar: guideGroups
     })
   ]
 });

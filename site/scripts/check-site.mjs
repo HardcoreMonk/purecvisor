@@ -1,6 +1,7 @@
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
+import { guideChapters, guideEntryPath, guideGroups, guidePath } from "./guide-routes.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
@@ -10,17 +11,8 @@ const requiredFiles = [
   "ko/index.html",
   "en/index.html",
   "docs.html",
-  "guide-content.md",
   "favicon.svg",
-  "icon-192.png",
-  "vendor/coolicons/coolicons.svg",
-  "vendor/pretendard/pretendard.css",
-  "vendor/pretendard/woff2/Pretendard-Black.woff2",
-  "vendor/pretendard/woff2/Pretendard-ExtraBold.woff2",
-  "vendor/pretendard/woff2/Pretendard-Medium.woff2",
-  "vendor/pretendard/woff2/Pretendard-Regular.woff2",
-  "vendor/pretendard/woff2/Pretendard-SemiBold.woff2",
-  "vendor/pretendard/woff2/Pretendard-Bold.woff2"
+  ...guideChapters.map((chapter) => `${chapter.contentSlug}/index.html`)
 ];
 const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
@@ -61,11 +53,30 @@ for (const file of outputFiles) {
   }
 }
 
+for (const file of outputFiles.filter((item) => item.endsWith(".html") && !item.endsWith("404.html"))) {
+  const source = await readFile(file, "utf8");
+  for (const match of source.matchAll(/<a\b[^>]*\bhref="(\/[^"]*)"/g)) {
+    const href = match[1];
+    const pathname = decodeURI(href.split("#")[0].split("?")[0] || "/");
+    if (pathname.startsWith("/_astro/") || pathname.startsWith("/pagefind/")) continue;
+    const target = pathname === "/"
+      ? path.join(distRoot, "index.html")
+      : pathname.endsWith("/")
+        ? path.join(distRoot, pathname, "index.html")
+        : path.join(distRoot, pathname);
+    try {
+      const info = await stat(target);
+      if (!info.isFile()) throw new Error("not a file");
+    } catch {
+      throw new Error(`broken internal link: ${path.relative(distRoot, file)} -> ${href}`);
+    }
+  }
+}
+
 const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
 const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
-const guide = await readFile(path.join(distRoot, "guide-content.md"), "utf8");
 if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
   throw new Error("landing content missing");
 }
@@ -102,55 +113,67 @@ for (const [name, source, language, title, canonical] of [
     throw new Error(`${name} language routes missing`);
   }
 }
-if (!korean.includes('href="/docs.html">전체 운영 가이드</a>')) {
+if (!korean.includes(`href="${guideEntryPath}">전체 운영 가이드</a>`)) {
   throw new Error("korean full operations guide link missing");
 }
-if (!english.includes('href="/docs.html">Full operations guide</a>')) {
+if (!english.includes(`href="${guideEntryPath}">Full operations guide</a>`)) {
   throw new Error("english full operations guide link missing");
 }
-if (index.includes("/guide.html")) throw new Error("retired guide.html link found");
-if (!docs.includes('<base href="/">')) throw new Error("public docs base missing");
-if (docs.includes('<base href="/ui/">') || docs.includes('href="/ui/"')) {
-  throw new Error("product-only ui route found in public docs");
+for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
+  if (source.includes("/docs.html")) throw new Error(`${name} legacy docs link found`);
+  if (source.includes("/guide.html")) throw new Error(`${name} retired guide link found`);
 }
-if (!docs.includes('class="reader-shell"') || !docs.includes('id="reader-content"')) {
-  throw new Error("product docs reader shell missing");
+if (!docs.includes(`content="0;url=${guideEntryPath}"`)) {
+  throw new Error("legacy docs redirect missing");
 }
-if (!docs.includes("fetch('guide-content.md'") || !docs.includes("서비스 홈")) {
-  throw new Error("public docs runtime contract missing");
+if (docs.includes("reader-shell") || docs.includes("guide-content.md")) {
+  throw new Error("legacy product docs reader found");
 }
-if (!guide.includes("# PureCVisor Single Edge 운영 가이드")) throw new Error("guide title missing");
-if (!guide.includes("## 22. 품질 게이트 가이드")) throw new Error("guide content incomplete");
-if (/\]\((?:\.\.?\/)/.test(guide)) throw new Error("relative source link found in guide");
+if (outputFiles.some((file) => path.relative(distRoot, file) === "guide-content.md")) {
+  throw new Error("retired guide content artifact found");
+}
 
-const chapterSlugs = [
-  "1-시작하기",
-  "2-설치-및-환경-구성",
-  "3-vm-관리",
-  "4-컨테이너-관리",
-  "5-스토리지",
-  "6-네트워크",
-  "7-멀티-제어면-참고-기록",
-  "8-모니터링-알림",
-  "9-백업-복원",
-  "10-보안",
-  "11-클라우드-마이그레이션",
-  "12-ai-자가치유",
-  "13-web-ui",
-  "14-rest-api",
-  "15-cli-레퍼런스",
-  "16-설정-레퍼런스",
-  "17-트러블슈팅",
-  "18-부록",
-  "19-개발자-엔지니어-가이드",
-  "20-영업-마케팅-가이드",
-  "21-아키텍처-리팩토링-가이드",
-  "22-품질-게이트-가이드"
-];
+for (const chapter of guideChapters) {
+  const page = await readFile(
+    path.join(distRoot, chapter.contentSlug, "index.html"),
+    "utf8"
+  );
+  if (!page.includes('<html lang="ko"')) throw new Error(`guide language mismatch: ${chapter.path}`);
+  if (!page.includes(chapter.title)) throw new Error(`guide title missing: ${chapter.path}`);
+  if (!page.includes(`<link rel="canonical" href="https://purecvisor.site${chapter.path}"`)) {
+    throw new Error(`guide canonical mismatch: ${chapter.path}`);
+  }
+  if (!page.includes('aria-current="page"')) {
+    throw new Error(`guide active navigation missing: ${chapter.path}`);
+  }
+  for (const group of guideGroups) {
+    if (!page.includes(group.label)) throw new Error(`guide group missing: ${group.label}`);
+  }
+  for (const linkedChapter of guideChapters) {
+    if (!page.includes(`href="${linkedChapter.path}"`)) {
+      throw new Error(`guide sidebar link missing: ${linkedChapter.path}`);
+    }
+  }
+  if (!index.includes(`href="${chapter.path}"`)) {
+    throw new Error(`korean landing chapter link missing: ${chapter.path}`);
+  }
+  if (!english.includes(`href="${chapter.path}"`)) {
+    throw new Error(`english landing chapter link missing: ${chapter.path}`);
+  }
+  if (!docs.includes(chapter.legacyAnchor) || !docs.includes(chapter.path)) {
+    throw new Error(`legacy guide mapping missing: ${chapter.legacyAnchor}`);
+  }
+}
 
-for (const slug of chapterSlugs) {
-  if (!index.includes(`/docs.html#${slug}`)) throw new Error(`landing chapter link missing: ${slug}`);
-  if (!docs.includes(`href="docs.html#${slug}"`)) throw new Error(`docs chapter link missing: ${slug}`);
+const installation = await readFile(
+  path.join(distRoot, "ko", "getting-started", "installation", "index.html"),
+  "utf8"
+);
+if (!installation.includes("2.1 시스템 요구사항") || installation.includes("fetch(")) {
+  throw new Error("installation body is not statically rendered");
+}
+if (!installation.includes(`href="${guidePath(1)}"`) || !installation.includes(`href="${guidePath(3)}"`)) {
+  throw new Error("installation pagination contract missing");
 }
 
 process.stdout.write(`pages artifact verified: ${outputFiles.length} files\n`);

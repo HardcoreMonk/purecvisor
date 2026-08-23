@@ -7,8 +7,9 @@
 - **변경:** 2026-08-22 `/docs.html`을 제품 `ui/docs.html` 레이아웃으로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-23 한국어 기본·`/ko/`·`/en/` route와 그룹형 상단 navigation 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
+- **승계:** 2026-08-24 공개 reader와 `/docs.html` 정본 계약은 ADR-0047이 대체
 - **Single Edge 적용 상태:** 제품 runtime과 분리된 공개 문서 build·hosting 계약
-- **관련:** ADR-0013, ADR-0016, ADR-0037
+- **관련:** ADR-0013, ADR-0016, ADR-0037, ADR-0047
 
 ## Context
 
@@ -18,6 +19,9 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 `HardcoreMonk/purecvisor` 저장소에서 운영한다.
 
 ## Decision
+
+> 5–7번과 10번의 공개 reader·navigation 부분은 2026-08-24 ADR-0047이 대체한다. 이 ADR의
+> Astro·Starlight Pages build, 저장소, artifact와 hosting 결정은 계속 적용한다.
 
 1. `https://purecvisor.site`는 public GitHub Pages 문서 사이트가 소유한다.
 2. Pages source repository는 public `HardcoreMonk/purecvisor`다.
