@@ -123,3 +123,9 @@
   — `31a04c1fc09ff8f33b7832d09e2ed1b1271848a15d95d6b61b6efdad4713bf29`
 - 잔여 위험: 새 공개 기능을 추가하거나 지원 경계를 바꿀 때 기능 지도의 대표 capability도
   함께 검토해야 한다. 현재 필수 기능 누락과 폐기 구조 재도입은 `npm run check`가 차단한다.
+- 구현 commit `d41560f`의 GitHub Pages run
+  [`32658233655`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32658233655)이 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440px·390px에서 확인한 결과 기능 지도 4개 영역,
+  Linux Bridge, Local VPC, VXLAN Overlay와 2열·1열 반응형 전환이 운영 산출물에 반영됐다.
+- 운영 domain의 map·page overflow, axe 위반과 browser console·page·request 오류는 모두 0이며
+  운영 screenshot SHA-256은 로컬 검증 screenshot과 일치한다.

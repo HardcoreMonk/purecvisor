@@ -103,3 +103,10 @@
   — `2c38a02243979dd52e2ef79b2d5214a0853c2979f476554e3a9ec079019bdf6e`
 - 잔여 위험: 없음. 최종 CTA section·문구·전용 CSS 재도입과 section 순서 회귀는
   `npm run check`가 차단한다.
+- 구현 commit `d41560f`의 GitHub Pages run
+  [`32658233655`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32658233655)이 성공했다.
+- `purecvisor.site`의 `/`, `/ko/`, `/en/`을 1440px·390px에서 다시 확인한 결과 최종 CTA와
+  삭제 문구는 0건이고 section 순서는 `_top → documentation`, 8개 category·22개 chapter·3개
+  역할별 경로가 유지됐다.
+- 운영 domain의 axe 위반, browser console·page·request 오류와 horizontal overflow는 모두
+  0이다.
