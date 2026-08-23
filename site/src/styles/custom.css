@@ -213,22 +213,13 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   color: #63b2c7;
 }
 
-.pcv-hero-copy h1 {
-  max-width: 9ch;
-  margin-top: 1.25rem;
-  color: #f5f7fa;
-  font-size: clamp(3.5rem, 6vw, 5.75rem);
-  font-weight: 700;
-  letter-spacing: -0.055em;
-  line-height: 0.98;
-}
-
 .pcv-hero-lead {
   max-width: 36rem;
   margin-top: 1.75rem !important;
   color: var(--pcv-dark-muted);
   font-size: clamp(1.03rem, 1.4vw, 1.2rem);
   line-height: 1.7;
+  word-break: keep-all;
 }
 
 .pcv-actions {
@@ -666,10 +657,6 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     gap: 2.5rem;
   }
 
-  .pcv-hero-copy h1 {
-    font-size: clamp(3.3rem, 6.5vw, 4.5rem);
-  }
-
   .pcv-role-paths {
     grid-template-columns: repeat(3, 1fr);
   }
@@ -695,10 +682,6 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   .pcv-hero-grid {
     gap: 3.5rem;
     padding-block: 4.5rem 3rem;
-  }
-
-  .pcv-hero-copy h1 {
-    font-size: clamp(3.4rem, 14vw, 5rem);
   }
 
   .pcv-control-map {

@@ -78,9 +78,8 @@ const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
 const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
-if (!index.includes("하나의 노드,") || !index.includes("하나의 제어면")) {
-  throw new Error("landing content missing");
-}
+const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 하나의 Linux/KVM 노드에서 운영합니다.";
+const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization on one Linux/KVM node.";
 if (!index.includes("8개 작업 카테고리 · 22개 장")) throw new Error("landing taxonomy missing");
 if ((index.match(/class="pcv-doc-category"/g) || []).length !== 8) {
   throw new Error("landing category count mismatch");
@@ -102,7 +101,13 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "Single Edge에 집중한 공개판",
     "One operational flow",
     "Start a Single Edge node",
-    "A public edition focused on Single Edge"
+    "A public edition focused on Single Edge",
+    "하나의 노드,",
+    "하나의 제어면",
+    "소프트웨어 정의 네트워크를 하나의 Linux/KVM 노드에서 운영합니다.",
+    "One node,",
+    "one control plane",
+    "software-defined networking on one Linux/KVM node"
   ]) {
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
@@ -119,13 +124,22 @@ for (const selector of [
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
-for (const [name, source, language, title, canonical] of [
-  ["root", index, "ko", "하나의 노드,", "https://purecvisor.site/"],
-  ["korean", korean, "ko", "하나의 노드,", "https://purecvisor.site/ko/"],
-  ["english", english, "en", "One node,", "https://purecvisor.site/en/"]
+if (landingStyles.includes(".pcv-hero-copy h1")) {
+  throw new Error("retired hero-scale heading selector found");
+}
+for (const [name, source, language, heroCopy, canonical] of [
+  ["root", index, "ko", koreanHeroCopy, "https://purecvisor.site/"],
+  ["korean", korean, "ko", koreanHeroCopy, "https://purecvisor.site/ko/"],
+  ["english", english, "en", englishHeroCopy, "https://purecvisor.site/en/"]
 ]) {
   if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
-  if (!source.includes(title)) throw new Error(`${name} landing title missing`);
+  if ((source.match(/<h1\b/g) || []).length !== 1) throw new Error(`${name} H1 count mismatch`);
+  if (!/<h1\b[^>]*id="pcv-hero-title"[^>]*>PURECVISOR 2\.0\.0 · SINGLE EDGE<\/h1>/.test(source)) {
+    throw new Error(`${name} product H1 missing`);
+  }
+  if ((source.match(new RegExp(heroCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 1) {
+    throw new Error(`${name} hero copy mismatch`);
+  }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }

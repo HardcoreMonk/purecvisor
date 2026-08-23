@@ -7,6 +7,7 @@
 - **변경:** 2026-08-22 `/docs.html`을 제품 `ui/docs.html` 레이아웃으로 전환하도록 사용자 명시 승인
 - **변경:** 2026-08-23 한국어 기본·`/ko/`·`/en/` route와 그룹형 상단 navigation 사용자 명시 승인
 - **변경:** 2026-08-24 landing의 서비스 기능·시작 흐름·공개 범위 구역 제거와 문서 directory 직결 사용자 명시 승인
+- **변경:** 2026-08-24 landing Hero의 대형 슬로건 제거와 네트워크 가상화 범위 문구 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **승계:** 2026-08-24 공개 reader와 `/docs.html` 정본 계약은 ADR-0047이 대체
@@ -45,6 +46,8 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
     action은 `/docs.html` 안정 URL을 사용한다.
 11. landing은 hero 다음에 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위
     상세 구역은 반복하지 않고 상단 disclosure에서 대응 운영 가이드 정적 route로 연결한다.
+12. Hero는 제품 label을 H1으로 사용하고 별도 대형 슬로건을 두지 않는다. 범위 설명은 VM,
+    컨테이너, ZFS 스토리지와 네트워크 가상화를 한 Linux/KVM 노드에서 운영한다는 문장을 사용한다.
 
 ## Consequences
 
