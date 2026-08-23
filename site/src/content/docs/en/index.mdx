@@ -20,12 +20,12 @@ sidebar:
         <p class="pcv-hero-note">Standalone deployment · C23 single process · Web UI, REST API, CLI</p>
       </div>
 
-      <div class="pcv-control-map" role="img" aria-label="Single Edge architecture where clients manage VMs, containers, ZFS, OVS, and OVN through the PureCVisor control plane">
-        <div class="pcv-map-bar">
-          <span>Single Edge control plane</span>
+      <figure class="pcv-control-map" aria-labelledby="pcv-capability-map-title">
+        <figcaption class="pcv-map-bar">
+          <span id="pcv-capability-map-title">Single Edge capability map</span>
           <span class="pcv-status"><i aria-hidden="true"></i> Standalone node</span>
-        </div>
-        <div class="pcv-map-clients" aria-hidden="true">
+        </figcaption>
+        <div class="pcv-map-clients" aria-label="Access interfaces">
           <span>Web UI</span>
           <span>REST API</span>
           <span>pcvctl</span>
@@ -34,15 +34,36 @@ sidebar:
         <div class="pcv-map-core">
           <span class="pcv-map-label">CONTROL PLANE</span>
           <strong>purecvisorsd</strong>
-          <small>GMainLoop · GTask · RBAC · Audit</small>
+          <div class="pcv-map-core-capabilities">
+            <span>RBAC · Audit</span>
+            <span>Jobs · Alerts</span>
+            <span>Self-healing</span>
+          </div>
         </div>
         <div class="pcv-map-route pcv-map-route-down" aria-hidden="true"><span></span></div>
-        <div class="pcv-map-resources" aria-hidden="true">
-          <span><b>Compute</b><small>KVM · LXC</small></span>
-          <span><b>Storage</b><small>ZFS · iSCSI</small></span>
-          <span><b>Network</b><small>OVS · OVN</small></span>
+        <div class="pcv-map-capabilities" aria-label="Single Edge capabilities">
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">01 · WORKLOADS</span>
+            <strong>Workloads</strong>
+            <ul><li>KVM VM</li><li>LXC</li><li>Snapshots · Clones</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">02 · STORAGE</span>
+            <strong>Storage</strong>
+            <ul><li>ZFS Pool · Zvol</li><li>iSCSI</li><li>Backup · Restore</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">03 · NETWORK FABRIC</span>
+            <strong>Network Fabric</strong>
+            <ul><li>Linux Bridge</li><li>OVS · OVN</li><li>VLAN · QoS</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">04 · VIRTUAL NETWORK</span>
+            <strong>Virtual Network</strong>
+            <ul><li>Local VPC</li><li>VXLAN Overlay</li><li>Firewall · Security Groups</li></ul>
+          </div>
         </div>
-      </div>
+      </figure>
     </div>
 
   </section>
@@ -147,14 +168,4 @@ sidebar:
     </div>
   </section>
 
-  <section class="pcv-final-cta" aria-labelledby="pcv-final-title">
-    <div class="pcv-shell">
-      <p class="pcv-kicker">PURECVISOR SINGLE EDGE</p>
-      <h2 id="pcv-final-title">Operate clearly, starting with one node.</h2>
-      <div class="pcv-actions">
-        <a class="pcv-button pcv-button-light" href="/ko/getting-started/installation/">Full operations guide <span aria-hidden="true">→</span></a>
-        <a class="pcv-button pcv-button-ghost" href="https://github.com/HardcoreMonk/purecvisor">GitHub repository</a>
-      </div>
-    </div>
-  </section>
 </div>

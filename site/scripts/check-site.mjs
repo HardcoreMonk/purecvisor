@@ -93,7 +93,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "#quickstart",
     "#scope",
     "pcv-hero-links",
-    "pcv-capability",
+    "class=\"pcv-capability",
     "pcv-quickstart",
     "pcv-scope-list",
     "한 노드의 가상화 운영을",
@@ -107,9 +107,42 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "소프트웨어 정의 네트워크를 하나의 Linux/KVM 노드에서 운영합니다.",
     "One node,",
     "one control plane",
-    "software-defined networking on one Linux/KVM node"
+    "software-defined networking on one Linux/KVM node",
+    "pcv-final-cta",
+    "pcv-final-title",
+    "한 노드부터 명확하게 운영하세요.",
+    "Operate clearly, starting with one node.",
+    "pcv-map-resources"
   ]) {
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
+  }
+  const sectionIds = [...source.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
+  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "documentation"])) {
+    throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
+  }
+  if (!source.includes('<figure class="pcv-control-map" aria-labelledby="pcv-capability-map-title">')) {
+    throw new Error(`${name} accessible capability map missing`);
+  }
+  if (!source.includes('id="pcv-capability-map-title">Single Edge capability map</')) {
+    throw new Error(`${name} capability map title missing`);
+  }
+  if ((source.match(/class="pcv-map-capability"/g) || []).length !== 4) {
+    throw new Error(`${name} capability group count mismatch`);
+  }
+  for (const capability of [
+    "KVM VM",
+    "LXC",
+    "iSCSI",
+    "Linux Bridge",
+    "OVS · OVN",
+    "VLAN · QoS",
+    "Local VPC",
+    "VXLAN Overlay",
+    "RBAC · Audit",
+    "Jobs · Alerts",
+    "Self-healing"
+  ]) {
+    if (!source.includes(capability)) throw new Error(`${name} capability missing: ${capability}`);
   }
 }
 for (const selector of [
@@ -120,7 +153,10 @@ for (const selector of [
   ".pcv-kinetic",
   ".pcv-terminal",
   ".pcv-text-link",
-  ".pcv-scope"
+  ".pcv-scope",
+  ".pcv-final-cta",
+  ".pcv-map-resources",
+  ".pcv-map-core small"
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
@@ -139,6 +175,11 @@ for (const [name, source, language, heroCopy, canonical] of [
   }
   if ((source.match(new RegExp(heroCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 1) {
     throw new Error(`${name} hero copy mismatch`);
+  }
+  for (const capability of name === "english"
+    ? ["Snapshots · Clones", "ZFS Pool · Zvol", "Backup · Restore", "Firewall · Security Groups"]
+    : ["스냅샷 · 클론", "ZFS 풀 · Zvol", "백업 · 복원", "방화벽 · 보안 그룹"]) {
+    if (!source.includes(capability)) throw new Error(`${name} localized capability missing: ${capability}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);

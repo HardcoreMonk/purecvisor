@@ -20,12 +20,12 @@ sidebar:
         <p class="pcv-hero-note">독립 노드 배포 · C23 단일 프로세스 · Web UI, REST API, CLI</p>
       </div>
 
-      <div class="pcv-control-map" role="img" aria-label="클라이언트가 PureCVisor 제어면을 거쳐 VM과 컨테이너, ZFS, OVS와 OVN을 관리하는 Single Edge 구조">
-        <div class="pcv-map-bar">
-          <span>Single Edge control plane</span>
+      <figure class="pcv-control-map" aria-labelledby="pcv-capability-map-title">
+        <figcaption class="pcv-map-bar">
+          <span id="pcv-capability-map-title">Single Edge capability map</span>
           <span class="pcv-status"><i aria-hidden="true"></i> 독립 노드</span>
-        </div>
-        <div class="pcv-map-clients" aria-hidden="true">
+        </figcaption>
+        <div class="pcv-map-clients" aria-label="접근 인터페이스">
           <span>Web UI</span>
           <span>REST API</span>
           <span>pcvctl</span>
@@ -34,15 +34,36 @@ sidebar:
         <div class="pcv-map-core">
           <span class="pcv-map-label">CONTROL PLANE</span>
           <strong>purecvisorsd</strong>
-          <small>GMainLoop · GTask · RBAC · Audit</small>
+          <div class="pcv-map-core-capabilities">
+            <span>RBAC · Audit</span>
+            <span>Jobs · Alerts</span>
+            <span>Self-healing</span>
+          </div>
         </div>
         <div class="pcv-map-route pcv-map-route-down" aria-hidden="true"><span></span></div>
-        <div class="pcv-map-resources" aria-hidden="true">
-          <span><b>Compute</b><small>KVM · LXC</small></span>
-          <span><b>Storage</b><small>ZFS · iSCSI</small></span>
-          <span><b>Network</b><small>OVS · OVN</small></span>
+        <div class="pcv-map-capabilities" aria-label="Single Edge 제공 기능">
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">01 · WORKLOADS</span>
+            <strong>VM · 컨테이너</strong>
+            <ul><li>KVM VM</li><li>LXC</li><li>스냅샷 · 클론</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">02 · STORAGE</span>
+            <strong>스토리지</strong>
+            <ul><li>ZFS 풀 · Zvol</li><li>iSCSI</li><li>백업 · 복원</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">03 · NETWORK FABRIC</span>
+            <strong>네트워크 패브릭</strong>
+            <ul><li>Linux Bridge</li><li>OVS · OVN</li><li>VLAN · QoS</li></ul>
+          </div>
+          <div class="pcv-map-capability">
+            <span class="pcv-map-capability-index">04 · VIRTUAL NETWORK</span>
+            <strong>가상 네트워크</strong>
+            <ul><li>Local VPC</li><li>VXLAN Overlay</li><li>방화벽 · 보안 그룹</li></ul>
+          </div>
         </div>
-      </div>
+      </figure>
     </div>
 
   </section>
@@ -147,14 +168,4 @@ sidebar:
     </div>
   </section>
 
-  <section class="pcv-final-cta" aria-labelledby="pcv-final-title">
-    <div class="pcv-shell">
-      <p class="pcv-kicker">PURECVISOR SINGLE EDGE</p>
-      <h2 id="pcv-final-title">한 노드부터 명확하게 운영하세요.</h2>
-      <div class="pcv-actions">
-        <a class="pcv-button pcv-button-light" href="/ko/getting-started/installation/">전체 운영 가이드 <span aria-hidden="true">→</span></a>
-        <a class="pcv-button pcv-button-ghost" href="https://github.com/HardcoreMonk/purecvisor">GitHub 저장소</a>
-      </div>
-    </div>
-  </section>
 </div>

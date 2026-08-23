@@ -52,6 +52,11 @@ Starlight 정적 page로 분할한다.
 - 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·제어면 구조를 담은 hero 다음에 8개 작업
   카테고리·22개 장의 문서 directory를 바로 제공한다. 서비스 기능, 시작 흐름과 공개 범위의
   상세 설명은 첫 페이지에서 반복하지 않고 상단 disclosure의 해당 운영 가이드 link로 제공한다.
+- Hero의 Single Edge 기능 지도는 Web UI·REST API·CLI에서 `purecvisorsd`로 이어지는 흐름과
+  워크로드, 스토리지, 네트워크 패브릭, 가상 네트워크 4개 공개 기능 영역을 표시한다. Linux
+  Bridge, Local VPC와 VXLAN Overlay를 포함하되 Multi Edge 전용 기능은 표시하지 않는다.
+- 문서 directory와 역할별 추천 경로가 첫 페이지의 마지막 본문이다. Hero에 이미 운영 가이드
+  action이 있으므로 문서 뒤에 같은 action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
   reader 구조, 그룹 제목과 단순 링크 목록으로 구성한 상단 disclosure navigation만 참고한다.
 - 각 운영 가이드 page는 Starlight header, 좌측 8개 그룹·22개 장 navigation, 중앙 본문,
@@ -118,7 +123,7 @@ npm run check
 
 검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 directory page, 8개 sidebar group,
 현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
-내부 link 무결성, `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository
-표식과 source map 부재를 확인한다. 실제 Pages 배포 후에는 `/`, `/ko/`, `/en/`, 설치 page 직접
-본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와 custom domain
-canonical URL을 확인한다.
+landing 최종 CTA 부재, 내부 link 무결성, `guide.html`·`guide-content.md` artifact 부재, 금지된 내부
+주소·private repository 표식과 source map 부재를 확인한다. 실제 Pages 배포 후에는 `/`, `/ko/`,
+`/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
+custom domain canonical URL을 확인한다.
