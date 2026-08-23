@@ -1,6 +1,6 @@
 # ADR-0047: 공개 운영 가이드는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Implemented
+- **상태:** Verified
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
@@ -64,3 +64,9 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 - `/docs.html#3-vm-관리`는 `/ko/workloads/virtual-machines/`로 이동해야 한다.
 - 1440·1280·390px 실제 browser에서 overflow, 접근성, console·page·request 오류가 없어야 한다.
 - Pages 배포와 custom domain 확인 전에는 상태를 `Verified`로 올리지 않는다.
+
+2026-08-24 구현 commit `2c7a9d8`의 GitHub Pages run
+[`32652592291`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32652592291)이 성공했다.
+`purecvisor.site`에서 22개 route의 HTTP 200, 제목·canonical·현재 sidebar item, 한국어·영어
+landing의 운영 가이드 진입, `/docs.html#3-vm-관리` 호환 이동, desktop·mobile overflow 0,
+axe와 browser 오류 0을 확인해 `Verified`로 전환했다.

@@ -1,6 +1,6 @@
 # 운영 가이드 독립 문서 URL·본문 UI 리뷰
 
-> 상태: PASS, 로컬 구현·자동·실브라우저 검증 완료, Pages 배포 전
+> 상태: PASS, 로컬·Pages·custom domain 자동·실브라우저 검증 완료
 > 대상: 공개 운영 가이드 22개 장과 landing·상단 navigation의 모든 가이드 링크
 > 관련 결정: ADR-0046, ADR-0047
 
@@ -122,5 +122,11 @@ screen·flow 검색과 상세 조회를 직접 사용했다. 외부 화면의 �
 - mobile 캡처:
   `.scratch/ui-reviews/2026-08-24-operations-guide-routes/after-installation-mobile.png`
   — `3ed3a79f7b23cb2eb06525e2371a65f5b73673bf89b53ce303c1c3b6a38806ea`
-- Pages push·배포와 custom domain 재검증은 수행하지 않았으므로 ADR-0047 상태는 `Implemented`로
-  유지한다.
+- 구현 commit `2c7a9d8`의 Pages run
+  [`32652592291`](https://github.com/HardcoreMonk/purecvisor/actions/runs/32652592291)이 성공했다.
+- `purecvisor.site`에서 root·한국어·영어 landing과 22개 guide route의 HTTP 200, 제목,
+  canonical, 현재 sidebar item을 확인했다.
+- 운영 domain의 landing에서 `전체 운영 가이드`가 설치 page로 연결되고
+  `/docs.html#3-vm-관리`가 VM 관리 page로 이동함을 Chromium으로 확인했다.
+- 운영 domain `1440 × 1000`·`390 × 844`에서 overflow 0, axe 위반 0,
+  console·page·request 오류 0을 확인해 ADR-0047을 `Verified`로 전환했다.
