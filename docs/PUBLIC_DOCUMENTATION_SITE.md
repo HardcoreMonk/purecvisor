@@ -55,6 +55,9 @@ Starlight 정적 page로 분할한다.
 - Hero의 Single Edge 기능 지도는 Web UI·REST API·CLI에서 `purecvisorsd`로 이어지는 흐름과
   워크로드, 스토리지, 네트워크 패브릭, 가상 네트워크 4개 공개 기능 영역을 표시한다. Linux
   Bridge, Local VPC와 VXLAN Overlay를 포함하되 Multi Edge 전용 기능은 표시하지 않는다.
+- 기능 영역은 서로 다른 code-native 선형 icon과 정본 운영 가이드 link를 제공한다. pointer
+  hover와 keyboard focus에서는 접근층→제어면→선택 영역의 connector flow와 선택 상태를 같은
+  방식으로 표시하고, reduced motion 설정에서는 animation과 transform을 제거한다.
 - 문서 directory와 역할별 추천 경로가 첫 페이지의 마지막 본문이다. Hero에 이미 운영 가이드
   action이 있으므로 문서 뒤에 같은 action을 반복하는 별도 최종 CTA 구역을 두지 않는다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단

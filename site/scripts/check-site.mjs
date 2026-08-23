@@ -129,6 +129,23 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if ((source.match(/class="pcv-map-capability"/g) || []).length !== 4) {
     throw new Error(`${name} capability group count mismatch`);
   }
+  for (const icon of ["workloads", "storage", "fabric", "vpc"]) {
+    if (!source.includes(`class="pcv-map-icon pcv-map-icon-${icon}" aria-hidden="true"`)) {
+      throw new Error(`${name} capability icon missing: ${icon}`);
+    }
+  }
+  for (const href of [
+    "/ko/workloads/virtual-machines/",
+    "/ko/infrastructure/storage/",
+    "/ko/infrastructure/networking/"
+  ]) {
+    if (!source.includes(`<a class="pcv-map-capability" href="${href}">`)) {
+      throw new Error(`${name} capability guide link missing: ${href}`);
+    }
+  }
+  if ((source.match(/<a class="pcv-map-capability" href="\/ko\/infrastructure\/networking\/">/g) || []).length !== 2) {
+    throw new Error(`${name} network capability guide link count mismatch`);
+  }
   for (const capability of [
     "KVM VM",
     "LXC",
@@ -162,6 +179,20 @@ for (const selector of [
 }
 if (landingStyles.includes(".pcv-hero-copy h1")) {
   throw new Error("retired hero-scale heading selector found");
+}
+for (const motionContract of [
+  ".pcv-map-capability:focus-visible",
+  ":has(.pcv-map-capability:is(:hover, :focus-visible))",
+  "@keyframes pcv-map-flow-x",
+  "@keyframes pcv-map-flow-y",
+  "@keyframes pcv-map-card-signal",
+  "@keyframes pcv-map-icon-draw",
+  "@media (prefers-reduced-motion: reduce)",
+  "animation-iteration-count: 1 !important"
+]) {
+  if (!landingStyles.includes(motionContract)) {
+    throw new Error(`capability map motion contract missing: ${motionContract}`);
+  }
 }
 for (const [name, source, language, heroCopy, canonical] of [
   ["root", index, "ko", koreanHeroCopy, "https://purecvisor.site/"],

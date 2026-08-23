@@ -349,6 +349,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   position: absolute;
   background: #42516a;
   content: "";
+  transition: background-color 180ms ease;
 }
 
 .pcv-map-route span {
@@ -376,6 +377,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   border-radius: 0.4rem;
   background: #0a2530;
   text-align: center;
+  transition: border-color 220ms ease, box-shadow 220ms ease;
 }
 
 .pcv-map-label {
@@ -428,12 +430,89 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 }
 
 .pcv-map-capability {
+  position: relative;
+  display: block;
+  overflow: hidden;
   min-width: 0;
-  min-height: 7.7rem;
+  min-height: 8.7rem;
   padding: 0.85rem;
   border: 1px solid var(--pcv-dark-line);
   border-radius: 0.35rem;
   background: var(--pcv-dark-surface);
+  color: inherit !important;
+  text-decoration: none !important;
+  transition: border-color 220ms ease, background-color 220ms ease, box-shadow 220ms ease,
+    transform 220ms ease;
+}
+
+.pcv-map-capability::before {
+  position: absolute;
+  inset: 0;
+  background: linear-gradient(110deg, transparent 15%, rgb(99 178 199 / 10%) 50%, transparent 85%);
+  content: "";
+  pointer-events: none;
+  transform: translateX(-120%);
+}
+
+.pcv-map-capability::after {
+  position: absolute;
+  top: 0;
+  left: 0;
+  width: 42%;
+  height: 1px;
+  background: linear-gradient(90deg, transparent, #8ed8e9, transparent);
+  content: "";
+  opacity: 0;
+  pointer-events: none;
+  transform: translateX(-120%);
+}
+
+.pcv-map-capability-heading {
+  position: relative;
+  z-index: 1;
+  display: grid;
+  grid-template-columns: 2.35rem minmax(0, 1fr) auto;
+  gap: 0.65rem;
+  align-items: center;
+}
+
+.pcv-map-icon {
+  display: inline-flex;
+  width: 2.35rem;
+  height: 2.35rem;
+  align-items: center;
+  justify-content: center;
+  border: 1px solid #2b415a;
+  border-radius: 0.38rem;
+  background: #0b1728;
+  color: #73bfd1;
+  transition: border-color 220ms ease, background-color 220ms ease, box-shadow 220ms ease,
+    color 220ms ease, transform 220ms ease;
+}
+
+.pcv-map-icon svg {
+  width: 1.35rem;
+  height: 1.35rem;
+  fill: none;
+  stroke: currentColor;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+  stroke-width: 1.45;
+}
+
+.pcv-map-icon svg * {
+  vector-effect: non-scaling-stroke;
+}
+
+.pcv-map-capability-copy {
+  min-width: 0;
+}
+
+.pcv-map-capability-arrow {
+  color: #617089;
+  font-family: var(--sl-font-mono);
+  font-size: 0.78rem;
+  transition: color 220ms ease, transform 220ms ease;
 }
 
 .pcv-map-capability-index {
@@ -455,6 +534,8 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 }
 
 .pcv-map-capability ul {
+  position: relative;
+  z-index: 1;
   display: flex;
   flex-wrap: wrap;
   gap: 0.3rem;
@@ -471,6 +552,111 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   font-family: var(--sl-font-mono);
   font-size: 0.56rem;
   line-height: 1.35;
+  transition: border-color 220ms ease, color 220ms ease;
+}
+
+.pcv-map-capability:is(:hover, :focus-visible) {
+  border-color: #4b8fa2;
+  background: #101c2e;
+  box-shadow: 0 0.8rem 1.8rem rgb(0 0 0 / 20%), inset 0 0 0 1px rgb(99 178 199 / 8%);
+  transform: translateY(-2px);
+}
+
+.pcv-map-capability:focus-visible {
+  outline: 2px solid #8ed8e9;
+  outline-offset: 2px;
+}
+
+.pcv-map-capability:is(:hover, :focus-visible)::before {
+  animation: pcv-map-card-scan 850ms ease-out both;
+}
+
+.pcv-map-capability:is(:hover, :focus-visible)::after {
+  opacity: 1;
+  animation: pcv-map-card-signal 1.15s linear infinite;
+}
+
+.pcv-map-capability:is(:hover, :focus-visible) .pcv-map-icon {
+  border-color: #579caf;
+  background: #0b2934;
+  box-shadow: 0 0 1.1rem rgb(99 178 199 / 20%);
+  color: #b9edf7;
+  transform: translateY(-1px) scale(1.06);
+}
+
+.pcv-map-capability:is(:hover, :focus-visible) .pcv-icon-flow {
+  animation: pcv-map-icon-draw 720ms ease-out both;
+}
+
+.pcv-map-capability:is(:hover, :focus-visible) .pcv-map-capability-arrow {
+  color: #b9edf7;
+  transform: translate(0.12rem, -0.12rem);
+}
+
+.pcv-map-capability:is(:hover, :focus-visible) li {
+  border-color: #36526c;
+  color: #b2c2d3;
+}
+
+.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-core {
+  border-color: #579caf;
+  box-shadow: 0 0 1.6rem rgb(99 178 199 / 12%);
+}
+
+.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-route::before {
+  background: linear-gradient(90deg, #42516a 0%, #63b2c7 44%, #d1f6ff 50%, #63b2c7 56%, #42516a 100%);
+  background-size: 200% 100%;
+  animation: pcv-map-flow-x 1.2s linear infinite;
+}
+
+.pcv-control-map:has(.pcv-map-capability:is(:hover, :focus-visible)) .pcv-map-route span {
+  background: linear-gradient(180deg, #42516a 0%, #63b2c7 44%, #d1f6ff 50%, #63b2c7 56%, #42516a 100%);
+  background-size: 100% 200%;
+  animation: pcv-map-flow-y 1.2s linear infinite;
+}
+
+@keyframes pcv-map-flow-x {
+  to {
+    background-position: -200% 0;
+  }
+}
+
+@keyframes pcv-map-flow-y {
+  to {
+    background-position: 0 200%;
+  }
+}
+
+@keyframes pcv-map-card-scan {
+  from {
+    transform: translateX(-120%);
+  }
+
+  to {
+    transform: translateX(120%);
+  }
+}
+
+@keyframes pcv-map-card-signal {
+  from {
+    transform: translateX(-120%);
+  }
+
+  to {
+    transform: translateX(340%);
+  }
+}
+
+@keyframes pcv-map-icon-draw {
+  from {
+    stroke-dasharray: 32;
+    stroke-dashoffset: 32;
+  }
+
+  to {
+    stroke-dasharray: 32;
+    stroke-dashoffset: 0;
+  }
 }
 
 .pcv-scene {
@@ -792,7 +978,15 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   .pcv-landing *,
   .pcv-landing *::before,
   .pcv-landing *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .pcv-map-capability:is(:hover, :focus-visible),
+  .pcv-map-capability:is(:hover, :focus-visible) .pcv-map-icon,
+  .pcv-map-capability:is(:hover, :focus-visible) .pcv-map-capability-arrow {
+    transform: none !important;
   }
 }

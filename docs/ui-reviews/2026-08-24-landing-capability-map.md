@@ -1,5 +1,9 @@
 # 공개 랜딩 Single Edge 기능 지도 개선 제품 UI 리뷰
 
+> **2026-08-24 후속:** 정적 capability card 구현 결과는
+> `docs/ui-reviews/2026-08-24-landing-capability-map-motion.md`의 사용자 지정 icon·flow motion
+> 결정으로 확장한다.
+
 > **일자:** 2026-08-24
 > **판정:** PASS
 > **대상:** `/`, `/ko/`, `/en/` 공개 랜딩 Hero의 Single Edge 다이어그램
