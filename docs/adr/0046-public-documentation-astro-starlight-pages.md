@@ -15,6 +15,7 @@
 - **변경:** 2026-08-24 landing의 `필요한 작업에서 시작하세요.` 문서 디렉터리 구역 제거 사용자 명시 승인
 - **변경:** 2026-08-24 Hero 아키텍처 지도 하단 배치·01~05 구분색·desktop 범위 문장 한 줄 사용자 명시 승인
 - **변경:** 2026-08-24 landing 아키텍처 글꼴·component 판독성과 light/dark theme 적용 사용자 명시 승인
+- **변경:** 2026-08-24 landing 서비스 아키텍처의 동기·비동기 완료 경로와 5개 도메인 보강 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -66,19 +67,21 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
     1024px 이상에서는 한 줄로 유지하고 768px 이하에서는 overflow 방지를 위해 자연 줄바꿈한다.
 13. landing에는 문서 directory, 역할별 추천 경로와 Hero의 운영 가이드 action을 반복하는 별도
     최종 CTA 구역을 두지 않는다. 8개 그룹·22개 장 전체 탐색은 Starlight reader가 소유한다.
-14. Hero의 Single Edge 아키텍처 지도는 Access, Control plane, Capability services, Runtime
-    adapters, Linux host의 5개 계층을 보여 준다. `purecvisorsd`의 C23 단일 프로세스와
-    GMainLoop·GTask에서 VM/LXC, ZFS/iSCSI, Linux Bridge·OVS/OVN, Local VPC·VXLAN을 실제
-    runtime adapter와 Linux host 자원까지 연결하며 Multi Edge 전용 기능은 소개하지 않는다.
-15. Access 3개와 Capability service 4개는 실제 정본 운영 가이드 link를 제공한다. pointer
-    hover와 keyboard focus에서 전체 connector·control plane·선택 서비스의 runtime·host node가
-    함께 반응하며 reduced motion에서는 animation·transform을 사실상 제거한다.
-16. Hero copy·action은 먼저 읽히고 Single Edge 아키텍처 지도는 같은 shell의 전체 폭 하단에
-    배치한다. 01~05는 sky·cyan·mint·gold·lavender의 서로 다른 식별색을 border·index·inset
-    bar에 제한해 사용하며 색상은 운영 status 의미를 갖지 않는다.
-17. landing Hero와 아키텍처 지도는 Starlight의 `data-theme`를 사용한다. light/white는 흰
-    Hero·node와 cool-gray map, dark는 near-black Hero·map과 짙은 node를 사용한다. map의
-    title·layer·node 글꼴은 최소 12px이고 390px Capability service는 1열로 표시한다.
+14. Hero의 Single Edge 서비스 아키텍처는 Access, Control plane, Capability services, State &
+    adapters, Linux/KVM host의 5개 계층을 보여 준다. `purecvisorsd`는 C23·GMainLoop 단일
+    프로세스이며 UDS·REST·gRPC·WebSocket transport, dispatcher·policy gate·domain handler를
+    거친다. 동기 canonical response의 audit·Prometheus 집계와 비동기 accepted Job ID 이후
+    GTask worker·Job DB·audit·WebSocket 완료를 분리하고 Multi Edge 전용 기능은 소개하지 않는다.
+15. Access 3개와 Workloads·Network·Storage·Security·Operations 5개 domain은 실제 정본 운영
+    가이드 link를 제공한다. domain control은 선택 label, 로컬 영속 상태, host integration과
+    Linux/KVM host node를 같은 경로로 바꾸며 pointer·keyboard와 reduced motion을 지원한다.
+16. Hero copy·action은 먼저 읽히고 서비스 아키텍처는 같은 shell의 전체 폭 하단에 배치한다.
+    01~05 계층은 neutral surface로 후퇴시키고 blue·mint·gold·pink·lavender는 선택 domain의
+    edge·icon·route에 제한하며 운영 status 의미를 갖지 않는다.
+17. landing Hero와 서비스 아키텍처는 Starlight의 `data-theme`를 사용한다. light/white는 흰
+    Hero·node와 cool-gray map, dark는 near-black Hero·map과 짙은 node를 사용한다. 제목과
+    한국어 node는 Pretendard 기반 sans, 기술 stage·index는 mono이며 최소 12px을 유지한다.
+    390px domain selector는 2열과 마지막 전체 폭 항목으로 표시한다.
 
 ## Consequences
 

@@ -136,7 +136,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (!source.includes('<figure class="pcv-control-map" data-active-path="workloads" aria-labelledby="pcv-architecture-map-title">')) {
     throw new Error(`${name} accessible architecture map missing`);
   }
-  const mapTitle = name === "english" ? "Single Edge architecture map" : "Single Edge 아키텍처";
+  const mapTitle = name === "english" ? "Single Edge service architecture" : "Single Edge 서비스 아키텍처";
   if (!source.includes(`id="pcv-architecture-map-title">${mapTitle}</`)) {
     throw new Error(`${name} architecture map title missing`);
   }
@@ -146,14 +146,14 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if ((source.match(/class="pcv-arch-node pcv-arch-link pcv-arch-access-link"/g) || []).length !== 3) {
     throw new Error(`${name} architecture access link count mismatch`);
   }
-  if ((source.match(/class="pcv-arch-path-trigger"/g) || []).length !== 4) {
+  if ((source.match(/class="pcv-arch-path-trigger"/g) || []).length !== 5) {
     throw new Error(`${name} architecture path control count mismatch`);
   }
-  if ((source.match(/class="pcv-arch-path-doc pcv-arch-path-/g) || []).length !== 4) {
+  if ((source.match(/class="pcv-arch-path-doc pcv-arch-path-/g) || []).length !== 5) {
     throw new Error(`${name} architecture capability guide link count mismatch`);
   }
   if ((source.match(/aria-pressed="true"/g) || []).length !== 1
-    || (source.match(/aria-pressed="false"/g) || []).length !== 3) {
+    || (source.match(/aria-pressed="false"/g) || []).length !== 4) {
     throw new Error(`${name} architecture path selection state mismatch`);
   }
   if ((source.match(/data-pcv-path-output="true"/g) || []).length !== 2
@@ -162,13 +162,13 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   }
   const runtimeLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-runtime"[\s\S]*?<\/section>/)?.[0] || "";
   const hostLayer = source.match(/<section class="pcv-arch-layer pcv-arch-layer-host"[\s\S]*?<\/section>/)?.[0] || "";
-  if ((runtimeLayer.match(/class="pcv-arch-node /g) || []).length !== 5) {
+  if ((runtimeLayer.match(/class="pcv-arch-node /g) || []).length !== 16) {
     throw new Error(`${name} architecture runtime node count mismatch`);
   }
-  if ((hostLayer.match(/class="pcv-arch-node /g) || []).length !== 4) {
+  if ((hostLayer.match(/class="pcv-arch-node /g) || []).length !== 9) {
     throw new Error(`${name} architecture host node count mismatch`);
   }
-  for (const icon of ["workloads", "storage", "fabric", "vpc"]) {
+  for (const icon of ["workloads", "network", "storage", "security", "operations"]) {
     if (!source.includes(`class="pcv-arch-icon pcv-arch-icon-${icon}" aria-hidden="true"`)) {
       throw new Error(`${name} architecture service icon missing: ${icon}`);
     }
@@ -178,42 +178,46 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/rest-api/"],
     ["pcv-arch-node pcv-arch-link pcv-arch-access-link", "/ko/interfaces/cli/"],
     ["pcv-arch-path-doc pcv-arch-path-workloads", "/ko/workloads/virtual-machines/"],
+    ["pcv-arch-path-doc pcv-arch-path-network", "/ko/infrastructure/networking/"],
     ["pcv-arch-path-doc pcv-arch-path-storage", "/ko/infrastructure/storage/"],
-    ["pcv-arch-path-doc pcv-arch-path-fabric", "/ko/infrastructure/networking/"],
-    ["pcv-arch-path-doc pcv-arch-path-vpc", "/ko/infrastructure/networking/"]
+    ["pcv-arch-path-doc pcv-arch-path-security", "/ko/security/security/"],
+    ["pcv-arch-path-doc pcv-arch-path-operations", "/ko/operations/monitoring-alerts/"]
   ]) {
     if (!source.includes(`<a class="${className}" href="${href}"`)) {
       throw new Error(`${name} architecture guide link missing: ${href}`);
     }
   }
-  if ((source.match(/href="\/ko\/infrastructure\/networking\/"/g) || []).length < 2) {
+  if ((source.match(/href="\/ko\/infrastructure\/networking\/"/g) || []).length < 1) {
     throw new Error(`${name} network architecture guide link count mismatch`);
   }
   for (const capability of [
     "01 · ACCESS",
     "02 · CONTROL PLANE",
     "03 · CAPABILITY SERVICES",
-    "04 · RUNTIME ADAPTERS",
-    "05 · LINUX HOST",
+    "04 · STATE &amp; ADAPTERS",
+    "05 · LINUX/KVM HOST",
     "purecvisorsd",
     "C23 · GMainLoop",
-    "UDS · REST · WebSocket",
-    "RPC · GTask",
-    "RBAC · Audit",
-    "Jobs · Alerts · Self-healing",
-    "KVM VM · LXC",
-    "ZFS · iSCSI",
-    "Bridge · OVS/OVN",
-    "Local VPC · VXLAN",
+    "Bootstrap · lifecycle · hot reload",
+    "DAEMON TLS",
+    "NGINX OPT-IN",
+    "JSON-RPC 2.0",
+    "libsoup3 · TLS",
+    "protobuf-c",
+    "DISPATCH GATE",
+    "O(1) method route",
+    "RBAC · owner scope",
+    "SYNC COMPLETION · ADR-0038",
+    "Canonical response envelope",
+    "ASYNC COMPLETION · ADR-0018",
+    "Accepted Job ID → GTask worker",
+    "accepted ≠ success",
     "libvirt · KVM/QEMU",
-    "liblxc",
-    "ZFS · zvol · iSCSI",
     "Linux Bridge · OVS/OVN",
-    "nftables · dnsmasq",
-    "Linux kernel",
-    "CPU · RAM",
-    "Physical NIC",
-    "Local disk · ZFS pool"
+    "ZFS · LIO · open-iscsi",
+    "nftables · Suricata",
+    "SQLite WAL",
+    "cgroups · PSI"
   ]) {
     if (!source.includes(capability)) throw new Error(`${name} architecture capability missing: ${capability}`);
   }
@@ -222,6 +226,10 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "purecvisord",
     "C11 + GMainLoop",
     "v0.9.5",
+    "data-path=\"fabric\"",
+    "data-path=\"vpc\"",
+    "role=\"toolbar\"",
+    "04 · RUNTIME ADAPTERS",
     "etcd cluster",
     "VM migrate",
     "Multi Edge"
@@ -273,7 +281,11 @@ for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
-  ".pcv-arch-grid-services {\n  grid-template-columns: repeat(4, minmax(0, 1fr));",
+  ".pcv-arch-grid-access {\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
+  ".pcv-arch-grid-transport {\n  grid-template-columns: repeat(4, minmax(0, 1fr));",
+  ".pcv-arch-grid-services {\n  grid-template-columns: repeat(5, minmax(0, 1fr));",
+  ".pcv-arch-completion-grid {\n  display: grid;\n  grid-template-columns: repeat(2, minmax(0, 1fr));",
+  ".pcv-arch-runtime-split {\n  display: grid;\n  grid-template-columns: minmax(0, 1.25fr) minmax(0, 0.75fr);",
   ".pcv-arch-grid-runtime {\n  grid-template-columns: repeat(auto-fit, minmax(10rem, 1fr));",
   ".pcv-arch-grid-services {\n    grid-template-columns: repeat(2, minmax(0, 1fr));"
 ]) {
@@ -295,9 +307,10 @@ for (const themeContract of [
 }
 for (const [pathName, color] of [
   ["workloads", "#94dbff"],
+  ["network", "#8ce3bd"],
   ["storage", "#d6ca6f"],
-  ["fabric", "#ffa3c2"],
-  ["vpc", "#ddccff"]
+  ["security", "#ffa3c2"],
+  ["operations", "#ddccff"]
 ]) {
   for (const contract of [
     `--pcv-path-${pathName}: ${color};`,
@@ -314,19 +327,22 @@ for (const visualContract of [
   ".pcv-arch-active-route {",
   "border-radius: 1rem;",
   "box-shadow: 6px 6px 0 color-mix(in srgb, var(--pcv-path-active) 32%, transparent);",
-  "font-family: var(--sl-font-mono);"
+  "font-family: var(--sl-font);",
+  "background-size: 1.5rem 1.5rem;"
 ]) {
   if (!landingStyles.includes(visualContract)) {
     throw new Error(`architecture reference-lock contract missing: ${visualContract}`);
   }
 }
 for (const [selector, declarations] of [
+  [".pcv-control-map", ["font-family: var(--sl-font);"]],
   [".pcv-map-bar", ["font-size: 0.8125rem;", "min-height: 3.5rem;"]],
   [".pcv-arch-layer-index", ["font-size: 0.75rem;"]],
   [".pcv-arch-layer-head small", ["font-size: 0.75rem;"]],
   [".pcv-arch-node", ["font-size: 0.75rem;", "min-height: 3.5rem;"]],
   [".pcv-arch-node strong", ["font-size: 0.8125rem;"]],
   [".pcv-arch-node small", ["font-size: 0.75rem;"]],
+  [".pcv-arch-stage-label", ["font-family: var(--sl-font-mono);", "font-size: 0.75rem;"]],
   [".pcv-arch-path-trigger", ["min-height: 5rem;"]],
   [".pcv-arch-path-trigger .pcv-arch-node-copy strong", ["font-size: 0.875rem;"]],
   [".pcv-arch-path-trigger .pcv-arch-node-copy small", ["font-size: 0.75rem;"]]
@@ -388,8 +404,8 @@ for (const [name, source, language, heroTitle, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const capability of name === "english"
-    ? ["Management interfaces", "single process", "Select a path to the host", "Host integration", "Physical resources of one node", "Workloads", "Network Fabric", "Virtual Network"]
-    : ["관리 인터페이스", "단일 프로세스", "경로를 선택해 호스트까지 확인", "호스트 통합", "한 노드의 물리 자원", "VM · 컨테이너", "네트워크 패브릭", "가상 네트워크"]) {
+    ? ["Management and observability", "single process", "Select a domain to inspect state and host boundaries", "Local persistence · Host integration", "Single-node platform boundary", "Workloads", "Network", "Storage", "Security", "Operations", "Actual result → Audit · Prometheus", "Worker result → Job DB · Audit · WebSocket"]
+    : ["관리·관측 인터페이스", "단일 프로세스", "도메인을 선택해 상태와 호스트 경계 확인", "로컬 영속 상태 · 호스트 통합", "단일 노드 플랫폼 경계", "워크로드", "네트워크", "스토리지", "보안", "운영", "실제 결과 → Audit · Prometheus", "Worker 결과 → Job DB · Audit · WebSocket"]) {
     if (!source.includes(capability)) throw new Error(`${name} localized architecture capability missing: ${capability}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
