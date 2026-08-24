@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: A Single Edge hypervisor control plane for one Linux/KVM node
 template: splash
-lastUpdated: 2026-08-24
+lastUpdated: 2026-08-25
 sidebar:
   hidden: true
 ---
@@ -21,198 +21,19 @@ sidebar:
         <p class="pcv-hero-note">Standalone deployment · C23 single process · Web UI, REST API, CLI</p>
       </div>
 
-      <figure class="pcv-control-map" data-active-path="workloads" aria-labelledby="pcv-architecture-map-title">
+      <figure class="pcv-control-map pcv-architecture-source" aria-labelledby="pcv-architecture-map-title">
         <figcaption class="pcv-map-bar">
           <span id="pcv-architecture-map-title">Single Edge service architecture</span>
           <span class="pcv-map-meta">
-            <span class="pcv-status"><i aria-hidden="true"></i> Standalone node</span>
-            <span class="pcv-arch-selection" role="status" aria-live="polite">Selected domain <strong data-pcv-path-output>Workloads</strong></span>
+            <span class="pcv-status"><i aria-hidden="true"></i> Source SVG</span>
+            <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">Open source <span aria-hidden="true">↗</span></a>
           </span>
         </figcaption>
-        <div class="pcv-arch-stack">
-          <section class="pcv-arch-layer pcv-arch-layer-access" aria-labelledby="pcv-arch-access-title">
-            <div class="pcv-arch-layer-head">
-              <span class="pcv-arch-layer-index" id="pcv-arch-access-title">01 · ACCESS</span>
-              <small>Management and observability</small>
-            </div>
-            <div class="pcv-arch-grid pcv-arch-grid-access">
-              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/web-ui/">
-                <strong>Web UI</strong><small>HTTPS · Event stream</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
-              </a>
-              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/rest-api/">
-                <strong>REST client</strong><small>HTTPS · JWT</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
-              </a>
-              <a class="pcv-arch-node pcv-arch-link pcv-arch-access-link" href="/ko/interfaces/cli/">
-                <strong>pcvctl</strong><small>Root-only UDS</small><span class="pcv-arch-node-arrow" aria-hidden="true">↗</span>
-              </a>
-              <span class="pcv-arch-node"><strong>gRPC client</strong><small>Binary RPC · Optional</small></span>
-              <span class="pcv-arch-node"><strong>Prometheus</strong><small>Metrics scrape</small></span>
-            </div>
-          </section>
-
-          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
-
-          <section class="pcv-arch-layer pcv-arch-layer-control" aria-labelledby="pcv-arch-control-title">
-            <div class="pcv-arch-layer-head">
-              <span class="pcv-arch-layer-index" id="pcv-arch-control-title">02 · CONTROL PLANE</span>
-              <small>C23 · GMainLoop · single process</small>
-            </div>
-            <div class="pcv-arch-plane">
-              <div class="pcv-arch-plane-head">
-                <strong>purecvisorsd</strong>
-                <span>Bootstrap · lifecycle · hot reload</span>
-              </div>
-              <div class="pcv-arch-boundary-row" aria-label="TLS boundary">
-                <span><strong>DAEMON TLS</strong> Default REST/WS termination</span>
-                <span><strong>NGINX OPT-IN</strong> Host loopback only</span>
-              </div>
-              <div class="pcv-arch-control-flow">
-                <div class="pcv-arch-control-stage">
-                  <span class="pcv-arch-stage-label">TRANSPORT</span>
-                  <div class="pcv-arch-grid pcv-arch-grid-transport">
-                    <span class="pcv-arch-node"><strong>UDS</strong><small>JSON-RPC 2.0</small></span>
-                    <span class="pcv-arch-node"><strong>REST</strong><small>libsoup3 · TLS</small></span>
-                    <span class="pcv-arch-node"><strong>gRPC</strong><small>protobuf-c · Optional</small></span>
-                    <span class="pcv-arch-node"><strong>WebSocket</strong><small>Event channel</small></span>
-                  </div>
-                </div>
-                <div class="pcv-arch-stage-route" aria-hidden="true"><span></span></div>
-                <div class="pcv-arch-control-stage">
-                  <span class="pcv-arch-stage-label">DISPATCH GATE</span>
-                  <div class="pcv-arch-grid pcv-arch-grid-gate">
-                    <span class="pcv-arch-node"><strong>Dispatcher</strong><small>O(1) method route</small></span>
-                    <span class="pcv-arch-node"><strong>Policy gate</strong><small>RBAC · owner scope</small></span>
-                    <span class="pcv-arch-node"><strong>Domain handlers</strong><small>Validated request</small></span>
-                  </div>
-                </div>
-                <div class="pcv-arch-stage-route" aria-hidden="true"><span></span></div>
-                <div class="pcv-arch-completion-grid">
-                  <div class="pcv-arch-completion-lane pcv-arch-completion-sync">
-                    <span class="pcv-arch-stage-label">SYNC COMPLETION · ADR-0038</span>
-                    <strong>Canonical response envelope</strong>
-                    <small>Actual result → Audit · Prometheus</small>
-                  </div>
-                  <div class="pcv-arch-completion-lane pcv-arch-completion-async">
-                    <span class="pcv-arch-stage-label">ASYNC COMPLETION · ADR-0018</span>
-                    <strong>Accepted Job ID → GTask worker</strong>
-                    <small>Worker result → Job DB · Audit · WebSocket</small>
-                    <em>accepted ≠ success</em>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </section>
-
-          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
-
-          <section class="pcv-arch-layer pcv-arch-layer-services" aria-labelledby="pcv-arch-services-title">
-            <div class="pcv-arch-layer-head">
-              <span class="pcv-arch-layer-index" id="pcv-arch-services-title">03 · CAPABILITY SERVICES</span>
-              <small>Select a domain to inspect state and host boundaries</small>
-            </div>
-            <div class="pcv-arch-grid pcv-arch-grid-services" role="group" aria-label="Select a service domain path">
-              <div class="pcv-arch-path-option pcv-arch-path-option-workloads">
-                <button class="pcv-arch-path-trigger" type="button" data-path="workloads" data-path-label="Workloads" aria-pressed="true" aria-controls="pcv-arch-active-route">
-                  <span class="pcv-arch-icon pcv-arch-icon-workloads" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><rect x="3.5" y="4.5" width="17" height="15" rx="2"></rect><path d="M3.5 9h17"></path><path class="pcv-arch-icon-flow" d="M7 14h4m2 0h4"></path></svg></span>
-                  <span class="pcv-arch-node-copy"><strong>Workloads</strong><small>VM · LXC · Template · GPU</small></span>
-                </button>
-                <a class="pcv-arch-path-doc pcv-arch-path-workloads" href="/ko/workloads/virtual-machines/" aria-label="Open the workloads operations guide"><span aria-hidden="true">↗</span></a>
-              </div>
-              <div class="pcv-arch-path-option pcv-arch-path-option-network">
-                <button class="pcv-arch-path-trigger" type="button" data-path="network" data-path-label="Network" aria-pressed="false" aria-controls="pcv-arch-active-route" tabindex="-1">
-                  <span class="pcv-arch-icon pcv-arch-icon-network" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><circle cx="12" cy="5" r="2"></circle><circle cx="5" cy="18" r="2"></circle><circle cx="19" cy="18" r="2"></circle><path class="pcv-arch-icon-flow" d="M12 7v4M12 11H5v5M12 11h7v5"></path></svg></span>
-                  <span class="pcv-arch-node-copy"><strong>Network</strong><small>Bridge · Local VPC · OVS/OVN</small></span>
-                </button>
-                <a class="pcv-arch-path-doc pcv-arch-path-network" href="/ko/infrastructure/networking/" aria-label="Open the network operations guide"><span aria-hidden="true">↗</span></a>
-              </div>
-              <div class="pcv-arch-path-option pcv-arch-path-option-storage">
-                <button class="pcv-arch-path-trigger" type="button" data-path="storage" data-path-label="Storage" aria-pressed="false" aria-controls="pcv-arch-active-route" tabindex="-1">
-                  <span class="pcv-arch-icon pcv-arch-icon-storage" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><ellipse cx="12" cy="6" rx="7.5" ry="2.5"></ellipse><path d="M4.5 6v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5V6"></path><path class="pcv-arch-icon-flow" d="M4.5 12v6c0 1.4 3.4 2.5 7.5 2.5s7.5-1.1 7.5-2.5v-6"></path></svg></span>
-                  <span class="pcv-arch-node-copy"><strong>Storage</strong><small>ZFS · Snapshot · Backup · iSCSI</small></span>
-                </button>
-                <a class="pcv-arch-path-doc pcv-arch-path-storage" href="/ko/infrastructure/storage/" aria-label="Open the storage operations guide"><span aria-hidden="true">↗</span></a>
-              </div>
-              <div class="pcv-arch-path-option pcv-arch-path-option-security">
-                <button class="pcv-arch-path-trigger" type="button" data-path="security" data-path-label="Security" aria-pressed="false" aria-controls="pcv-arch-active-route" tabindex="-1">
-                  <span class="pcv-arch-icon pcv-arch-icon-security" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M12 3 19 6v5c0 4.5-2.8 8.1-7 10-4.2-1.9-7-5.5-7-10V6l7-3Z"></path><path class="pcv-arch-icon-flow" d="m9 12 2 2 4-5"></path></svg></span>
-                  <span class="pcv-arch-node-copy"><strong>Security</strong><small>JWT · RBAC · Audit · HIDS/HIPS</small></span>
-                </button>
-                <a class="pcv-arch-path-doc pcv-arch-path-security" href="/ko/security/security/" aria-label="Open the security operations guide"><span aria-hidden="true">↗</span></a>
-              </div>
-              <div class="pcv-arch-path-option pcv-arch-path-option-operations">
-                <button class="pcv-arch-path-trigger" type="button" data-path="operations" data-path-label="Operations" aria-pressed="false" aria-controls="pcv-arch-active-route" tabindex="-1">
-                  <span class="pcv-arch-icon pcv-arch-icon-operations" aria-hidden="true"><svg viewBox="0 0 24 24" focusable="false"><path d="M4 18V9m5 9V5m5 13v-6m5 6V3"></path><path class="pcv-arch-icon-flow" d="M3 18h18"></path></svg></span>
-                  <span class="pcv-arch-node-copy"><strong>Operations</strong><small>Telemetry · Alerts · Web Push · AI</small></span>
-                </button>
-                <a class="pcv-arch-path-doc pcv-arch-path-operations" href="/ko/operations/monitoring-alerts/" aria-label="Open the operations and monitoring guide"><span aria-hidden="true">↗</span></a>
-              </div>
-            </div>
-          </section>
-
-          <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
-
-          <div class="pcv-arch-active-route" id="pcv-arch-active-route">
-            <div class="pcv-arch-route-title"><span>04 → 05 · SELECTED DOMAIN</span><strong data-pcv-path-output>Workloads</strong></div>
-            <section class="pcv-arch-layer pcv-arch-layer-runtime" aria-labelledby="pcv-arch-runtime-title">
-              <div class="pcv-arch-layer-head">
-                <span class="pcv-arch-layer-index" id="pcv-arch-runtime-title">04 · STATE & ADAPTERS</span>
-                <small>Local persistence · Host integration</small>
-              </div>
-              <div class="pcv-arch-runtime-split">
-                <div class="pcv-arch-subgroup">
-                  <span class="pcv-arch-stage-label">HOST INTEGRATION</span>
-                  <div class="pcv-arch-grid pcv-arch-grid-runtime">
-                    <span class="pcv-arch-node pcv-arch-target-workloads">libvirt · KVM/QEMU</span>
-                    <span class="pcv-arch-node pcv-arch-target-workloads">liblxc · GPU/SR-IOV</span>
-                    <span class="pcv-arch-node pcv-arch-target-network">Linux Bridge · OVS/OVN</span>
-                    <span class="pcv-arch-node pcv-arch-target-network">nftables · dnsmasq · WireGuard/tc</span>
-                    <span class="pcv-arch-node pcv-arch-target-storage">ZFS · LIO · open-iscsi</span>
-                    <span class="pcv-arch-node pcv-arch-target-security">nftables · Suricata</span>
-                    <span class="pcv-arch-node pcv-arch-target-security">systemd · journald</span>
-                    <span class="pcv-arch-node pcv-arch-target-operations">libvirt · systemd · journald</span>
-                    <span class="pcv-arch-node pcv-arch-target-operations">cgroups · PSI</span>
-                  </div>
-                </div>
-                <div class="pcv-arch-subgroup">
-                  <span class="pcv-arch-stage-label">LOCAL PERSISTENT STATE</span>
-                  <div class="pcv-arch-grid pcv-arch-grid-state">
-                    <span class="pcv-arch-node pcv-arch-target-workloads">SQLite WAL · VM state · Jobs</span>
-                    <span class="pcv-arch-node pcv-arch-target-network">Desired state · Network/QoS/BPF</span>
-                    <span class="pcv-arch-node pcv-arch-target-network">SQLite WAL · SG/VPC</span>
-                    <span class="pcv-arch-node pcv-arch-target-storage">Desired state · Backup</span>
-                    <span class="pcv-arch-node pcv-arch-target-storage">SQLite WAL · Cloud jobs</span>
-                    <span class="pcv-arch-node pcv-arch-target-security">SQLite WAL · Auth/Audit/Security</span>
-                    <span class="pcv-arch-node pcv-arch-target-operations">SQLite WAL · Jobs/Alerts/Web Push</span>
-                  </div>
-                </div>
-              </div>
-            </section>
-
-            <div class="pcv-arch-route" aria-hidden="true"><span></span></div>
-
-            <section class="pcv-arch-layer pcv-arch-layer-host" aria-labelledby="pcv-arch-host-title">
-              <div class="pcv-arch-layer-head">
-                <span class="pcv-arch-layer-index" id="pcv-arch-host-title">05 · LINUX/KVM HOST</span>
-                <small>Single-node platform boundary</small>
-              </div>
-              <div class="pcv-arch-grid pcv-arch-grid-host">
-                <span class="pcv-arch-node pcv-arch-target-workloads"><strong>Virtualization</strong><small>KVM · QEMU · LXC</small></span>
-                <span class="pcv-arch-node pcv-arch-target-workloads"><strong>Acceleration</strong><small>GPU · SR-IOV</small></span>
-                <span class="pcv-arch-node pcv-arch-target-network"><strong>Network</strong><small>Bridge · nftables · OVS/OVN · eBPF</small></span>
-                <span class="pcv-arch-node pcv-arch-target-network"><strong>Acceleration</strong><small>SR-IOV · DPDK</small></span>
-                <span class="pcv-arch-node pcv-arch-target-storage"><strong>Storage</strong><small>ZFS · LIO · open-iscsi</small></span>
-                <span class="pcv-arch-node pcv-arch-target-security"><strong>Host services</strong><small>Suricata · systemd · journald</small></span>
-                <span class="pcv-arch-node pcv-arch-target-security"><strong>Enforcement</strong><small>nftables · cgroups</small></span>
-                <span class="pcv-arch-node pcv-arch-target-operations"><strong>Host services</strong><small>systemd · journald</small></span>
-                <span class="pcv-arch-node pcv-arch-target-operations"><strong>Observability</strong><small>cgroups · PSI</small></span>
-              </div>
-            </section>
-          </div>
+        <div class="pcv-architecture-source-viewport" tabindex="0" role="region" aria-label="Scrollable PureCVisor Single Edge full service architecture SVG">
+          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1885.3125" height="2845.599853515625" loading="eager" decoding="async" alt="PureCVisor Single Edge architecture connecting clients and TLS boundaries to the single-process purecvisorsd control plane, synchronous and asynchronous completion paths, service domains, SQLite, and the Linux/KVM host" />
         </div>
+        <p class="pcv-architecture-source-note">Scroll the canvas to trace the full system or open the source in a new tab for native SVG zoom.</p>
       </figure>
     </div>
-
   </section>
-
-
 </div>

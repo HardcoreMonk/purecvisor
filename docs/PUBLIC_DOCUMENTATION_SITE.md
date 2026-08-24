@@ -39,8 +39,8 @@ Starlight 정적 page로 분할한다.
 - `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 작성 정본이다.
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
-- `site/src/content/docs/index.mdx`는 Hero·상단 disclosure·아키텍처 node에서 대표 정본 route만
-  연결하고 전체 22개 장 목록을 복제하지 않는다.
+- `site/src/content/docs/index.mdx`는 Hero action과 상단 disclosure에서 대표 정본 route만 연결하고
+  전체 22개 장 목록을 복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
 - 카테고리나 장 구성이 바뀌면 제품 포털, route manifest와 `site/scripts/check-site.mjs`의
@@ -49,37 +49,27 @@ Starlight 정적 page로 분할한다.
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·5계층 아키텍처를 담은 Hero 하나만
-  본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·22개 장 전체 목록은 첫
-  페이지에서 반복하지 않고 Hero·상단 disclosure·아키텍처 node의 운영 가이드 link로 제공한다.
-- Hero의 Single Edge 서비스 아키텍처는 Access, Control plane, Capability services, State &
-  adapters, Linux/KVM host의 5개 세로 계층으로 구성한다. `purecvisorsd`의 C23·GMainLoop 단일
-  프로세스에서 transport, dispatch·policy gate, 동기 canonical response와 비동기
-  accepted Job·GTask 완료 경로를 분리해 보여 준다. 선택한 서비스 도메인은 로컬 영속 상태,
-  host integration과 Linux/KVM 자원까지 이어지며 Multi Edge 전용 기능은 표시하지 않는다.
+- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·전체 서비스 아키텍처 SVG를 담은 Hero
+  하나만 본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·22개 장 전체 목록은
+  첫 페이지에서 반복하지 않고 Hero action과 상단 disclosure에서 운영 가이드로 연결한다.
+- Hero의 Single Edge 서비스 아키텍처는
+  `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 직접 사용한다. SVG는 클라이언트·설정 입력,
+  TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료, 5개 서비스
+  도메인, 영속 상태와 Linux/KVM host 연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지
+  않는다.
 - Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
   문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
   문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
-- 01~05 계층은 neutral surface와 hairline으로 후퇴시키고 `purecvisorsd`와 선택 domain 경로를
-  우선한다. Workloads·Network·Storage·Security·Operations는 diagram 전용 blue·mint·gold·
-  pink·lavender edge token을 사용하되 status와 CTA 색을 대체하지 않는다.
-- Hero와 아키텍처 지도는 Starlight의 `data-theme` 계약을 따르며 light/white에서는 흰 Hero,
-  cool-gray map과 흰 node, dark에서는 near-black Hero·map과 짙은 node를 사용한다. map title,
-  layer index·meta, node primary·secondary는 viewport와 무관하게 최소 12px을 유지하고 service
-  primary는 14px을 사용한다. 390px에서는 Capability service를 2열 선택기로 유지하고 path
-  이름을 우선하며, 세부 기술 범위는 선택 결과의 runtime·host node와 desktop 보기에 유지한다.
-- Access의 Web UI·REST client·`pcvctl` 3개는 정본 운영 가이드 link를 제공하고 gRPC client와
-  Prometheus 관측 진입점을 함께 표시한다. Capability services의 Workloads·Network·Storage·
-  Security·Operations 5개는 code-native 선형 icon, `aria-pressed` 선택 control과 별도 정본 guide
-  link를 제공한다. 8개 link와 선택 domain에 대응하는 state·adapter·host node를 유지하며 arrow
-  key·Home·End로 경로를 바꿀 수 있다.
-- architecture figure는 외부 PNG를 사용하지 않는 code-native HTML·CSS·SVG로 유지한다. 한국어
-  glyph를 포함하는 제목과 node에는 Pretendard 기반 sans를, 계층 index·stage·기술 label에는
-  mono를 사용한다. 최상위 figure는 설명 media 역할의 32px radius, 선택 route는 16px radius와
-  단 하나의 `6px 6px 0` offset shadow를 사용한다.
-  이 radius·shadow·neon edge는 public landing architecture artifact 전용 예외이며 제품 runtime card,
-  CTA, 상태 surface와 다른 문서 component로 확산하지 않는다. reduced motion에서는 animation과
-  transform을 제거한다.
+- SVG 파일은 110,764바이트, `1885.3125×2845.599853515625` viewBox와 SHA-256
+  `0890224b4854f36dfb9b7dc6ae4be78b855fa9623a97d7ba2fbffb1edf7d9ca1`을 변경 없이 유지한다.
+  `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
+- Hero와 figure shell은 Starlight의 `data-theme` 계약을 따르되 SVG 자체의 색·font·node·edge는
+  재정의하지 않는다. SVG는 항상 밝은 중립 canvas에서 렌더하고 90rem 폭을 유지한 채 desktop과
+  mobile의 제한 높이 viewport에서 양방향 scroll로 탐색한다. viewport는 keyboard focus를 받고
+  별도 `원본 열기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
+- figure는 설명 media 역할의 32px radius를 유지한다. `<img>`에는 intrinsic width·height와 현재
+  언어의 전체 구조 alt를 제공하며, viewport에는 언어별 accessible name을 제공한다. 기존
+  code-native domain selector, guide node link, 경로 animation과 전용 JavaScript는 사용하지 않는다.
 - 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
@@ -95,7 +85,8 @@ Starlight 정적 page로 분할한다.
   `docs/ui-reviews/2026-08-24-landing-architecture-bottom-layer-colors.md`, 판독성·테마 근거는
   `docs/ui-reviews/2026-08-24-landing-architecture-readability-themes.md`, 선택 경로·Refero 합성 근거는
   `docs/ui-reviews/2026-08-24-landing-architecture-route-explorer.md`, 서비스 아키텍처 보강 근거는
-  `docs/ui-reviews/2026-08-24-landing-service-architecture-completion-domains.md`, 문서 디렉터리 제거 근거는
+  `docs/ui-reviews/2026-08-24-landing-service-architecture-completion-domains.md`, SVG 원본 교체 근거는
+  `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`를 따른다.
 
 ## 배포 흐름

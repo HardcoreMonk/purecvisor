@@ -16,6 +16,7 @@
 - **변경:** 2026-08-24 Hero 아키텍처 지도 하단 배치·01~05 구분색·desktop 범위 문장 한 줄 사용자 명시 승인
 - **변경:** 2026-08-24 landing 아키텍처 글꼴·component 판독성과 light/dark theme 적용 사용자 명시 승인
 - **변경:** 2026-08-24 landing 서비스 아키텍처의 동기·비동기 완료 경로와 5개 도메인 보강 사용자 명시 승인
+- **변경:** 2026-08-25 landing 서비스 아키텍처를 제공된 전체 SVG 원본으로 교체하도록 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -67,21 +68,21 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
     1024px 이상에서는 한 줄로 유지하고 768px 이하에서는 overflow 방지를 위해 자연 줄바꿈한다.
 13. landing에는 문서 directory, 역할별 추천 경로와 Hero의 운영 가이드 action을 반복하는 별도
     최종 CTA 구역을 두지 않는다. 8개 그룹·22개 장 전체 탐색은 Starlight reader가 소유한다.
-14. Hero의 Single Edge 서비스 아키텍처는 Access, Control plane, Capability services, State &
-    adapters, Linux/KVM host의 5개 계층을 보여 준다. `purecvisorsd`는 C23·GMainLoop 단일
-    프로세스이며 UDS·REST·gRPC·WebSocket transport, dispatcher·policy gate·domain handler를
-    거친다. 동기 canonical response의 audit·Prometheus 집계와 비동기 accepted Job ID 이후
-    GTask worker·Job DB·audit·WebSocket 완료를 분리하고 Multi Edge 전용 기능은 소개하지 않는다.
-15. Access 3개와 Workloads·Network·Storage·Security·Operations 5개 domain은 실제 정본 운영
-    가이드 link를 제공한다. domain control은 선택 label, 로컬 영속 상태, host integration과
-    Linux/KVM host node를 같은 경로로 바꾸며 pointer·keyboard와 reduced motion을 지원한다.
+14. Hero의 Single Edge 서비스 아키텍처는 제공된
+    `purecvisor-single-full-architecture.svg`를 변경 없이 정적 자산으로 사용한다. SVG는 클라이언트,
+    설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료,
+    Workload·Network·Storage·Security·Operations, 영속 상태와 Linux/KVM host를 연결하고 Multi
+    Edge 전용 기능은 소개하지 않는다.
+15. 배포 자산의 SHA-256은
+    `0890224b4854f36dfb9b7dc6ae4be78b855fa9623a97d7ba2fbffb1edf7d9ca1`로 고정한다. SVG 내부의
+    색·font·node·edge를 site CSS로 재정의하지 않으며 `<script>`, event handler,
+    `<foreignObject>`와 외부 link가 없어야 한다.
 16. Hero copy·action은 먼저 읽히고 서비스 아키텍처는 같은 shell의 전체 폭 하단에 배치한다.
-    01~05 계층은 neutral surface로 후퇴시키고 blue·mint·gold·pink·lavender는 선택 domain의
-    edge·icon·route에 제한하며 운영 status 의미를 갖지 않는다.
-17. landing Hero와 서비스 아키텍처는 Starlight의 `data-theme`를 사용한다. light/white는 흰
-    Hero·node와 cool-gray map, dark는 near-black Hero·map과 짙은 node를 사용한다. 제목과
-    한국어 node는 Pretendard 기반 sans, 기술 stage·index는 mono이며 최소 12px을 유지한다.
-    390px domain selector는 2열과 마지막 전체 폭 항목으로 표시한다.
+    원본 SVG는 90rem 폭으로 표시하고 제한 높이의 양방향 scroll viewport와 새 탭 원본 link를
+    제공한다. 기존 domain selector, guide node link, 경로 animation과 전용 JavaScript는 제거한다.
+17. landing Hero와 figure shell은 Starlight의 `data-theme`를 사용하지만 SVG는 두 theme에서 같은
+    밝은 중립 canvas에 렌더한다. `<img>`의 intrinsic size·언어별 alt, keyboard focus 가능한
+    scroll region과 언어별 accessible name을 유지한다.
 
 ## Consequences
 

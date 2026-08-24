@@ -4,6 +4,8 @@
 > **판정:** PASS
 > **대상:** `/`, `/ko/`, `/en/` Hero의 Single Edge 서비스 아키텍처
 > **선행 리뷰:** `2026-08-24-landing-architecture-route-explorer.md`
+> **승계:** 2026-08-25 SVG 원본 교체 이후 현재 구현 기준은
+> `2026-08-25-landing-service-architecture-source-svg.md`가 소유한다.
 
 ## 1. 제품 맥락과 목표
 
