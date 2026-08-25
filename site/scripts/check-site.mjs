@@ -84,8 +84,13 @@ const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "0890224b4854f36dfb9b7dc6ae4be78b855fa9623a97d7ba2fbffb1edf7d9ca1") {
+if (architectureSvgHash !== "1246431b9312d9e95e25cde517860e72ac3ad26255095df49c85fff3b141810c") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
+}
+const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
+const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
+if (architectureStructureHash !== "7cdc85160644201dae101319cdd968b8903298c8cd5a1868a01113df6ff0e5c6") {
+  throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
   'width="1885.3125"',
@@ -98,6 +103,27 @@ for (const marker of [
 }
 for (const marker of [/<script\b/i, /<foreignObject\b/i, /\bon\w+\s*=/i, /\b(?:xlink:)?href\s*=/i]) {
   if (marker.test(architectureSvgText)) throw new Error(`unsafe architecture source SVG marker: ${marker}`);
+}
+for (const marker of [
+  ".pcv-semantic-layer-colors-start{}",
+  ".clientNode rect",
+  "fill:#e7f3ff!important;stroke:#3a78b8!important;color:#0d3454!important;",
+  "#my-svg-flowchart-configStore-6 rect",
+  "fill:#ffebd8!important;stroke:#c45a0a!important;color:#5b2c08!important;",
+  ".ingressNode rect",
+  "fill:#f3edff!important;stroke:#7650a8!important;color:#2d1b46!important;",
+  ".runtimeNode rect",
+  "fill:#e6f7ed!important;stroke:#27845d!important;color:#123b2a!important;",
+  ".domainNode rect",
+  "fill:#e5f7f6!important;stroke:#287f7a!important;color:#123b39!important;",
+  ".dataNode rect",
+  "fill:#fff4e8!important;stroke:#b87543!important;color:#4d2d17!important;",
+  ".hostNode rect",
+  "fill:#f0f2f5!important;stroke:#667085!important;color:#1d2939!important;",
+  "#my-svg #my-svg-persistence>rect{fill:#fff9f3!important;stroke:#d49a72!important;}",
+  ".pcv-semantic-layer-colors-end{}"
+]) {
+  if (!architectureSvgText.includes(marker)) throw new Error(`architecture semantic color contract missing: ${marker}`);
 }
 const koreanHeroTitle = "하나의 Linux/KVM 노드, 하나의 제어면.";
 const englishHeroTitle = "One Linux/KVM node. One control plane.";
@@ -164,8 +190,16 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (!source.includes(`<a class="pcv-architecture-source-open" href="${architectureAsset}" target="_blank" rel="noopener">`)) {
     throw new Error(`${name} architecture source link missing`);
   }
-  if (!source.includes(`class="pcv-architecture-source-viewport" tabindex="0" role="region" aria-label="`)) {
-    throw new Error(`${name} keyboard-scrollable architecture viewport missing`);
+  if (!source.includes(`<a class="pcv-architecture-source-canvas" href="${architectureAsset}" target="_blank" rel="noopener" aria-label="`)) {
+    throw new Error(`${name} fitted architecture canvas link missing`);
+  }
+  if (!source.includes(`<ul class="pcv-architecture-legend" aria-label="`)) {
+    throw new Error(`${name} architecture semantic color legend missing`);
+  }
+  for (const layer of ["clients", "config", "transport", "control", "domain", "persistent", "host"]) {
+    if (!source.includes(`class="pcv-layer-key is-${layer}"`)) {
+      throw new Error(`${name} architecture legend layer missing: ${layer}`);
+    }
   }
   if ((source.match(/class="pcv-architecture-source-image"/g) || []).length !== 1) {
     throw new Error(`${name} architecture source image count mismatch`);
@@ -179,6 +213,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "pcv-arch-path-trigger",
     "aria-pressed",
     "role=\"toolbar\"",
+    "pcv-architecture-source-viewport",
     "Multi Edge"
   ]) {
     if (architectureMap.includes(staleMarker)) {
@@ -219,7 +254,8 @@ for (const selector of [
   ".pcv-arch-layer",
   ".pcv-arch-node",
   ".pcv-arch-path-trigger",
-  ".pcv-arch-active-route"
+  ".pcv-arch-active-route",
+  ".pcv-architecture-source-viewport"
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
@@ -233,11 +269,11 @@ for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
-  ".pcv-architecture-source-viewport {\n  height: min(72vh, 58rem);",
-  "overflow: auto;",
-  "scrollbar-gutter: stable both-edges;",
-  ".pcv-architecture-source-image {\n  display: block;\n  width: 90rem;",
-  "max-width: none;"
+  ".pcv-architecture-legend {\n  display: grid;",
+  "grid-template-columns: repeat(7, minmax(0, 1fr));",
+  ".pcv-architecture-source-canvas {\n  display: block;",
+  ".pcv-architecture-source-image {\n  display: block;\n  width: 100%;",
+  "max-width: 100%;"
 ]) {
   if (!landingStyles.includes(layoutContract)) {
     throw new Error(`source architecture layout contract missing: ${layoutContract}`);
@@ -260,8 +296,9 @@ for (const [selector, declarations] of [
   [".pcv-control-map", ["border-radius: 2rem;", "font-family: var(--sl-font);"]],
   [".pcv-map-bar", ["font-size: 0.8125rem;", "min-height: 3.5rem;"]],
   [".pcv-architecture-source-open", ["min-height: 2.75rem;", "white-space: nowrap;"]],
-  [".pcv-architecture-source-viewport", ["height: min(72vh, 58rem);", "min-height: 38rem;", "overflow: auto;", "touch-action: pan-x pan-y;"]],
-  [".pcv-architecture-source-image", ["width: 90rem;", "max-width: none;", "height: auto;", "background: #f8fafc;"]],
+  [".pcv-architecture-legend", ["grid-template-columns: repeat(7, minmax(0, 1fr));", "list-style: none;"]],
+  [".pcv-architecture-source-canvas", ["display: block;", "overflow: hidden;", "cursor: zoom-in;"]],
+  [".pcv-architecture-source-image", ["width: 100%;", "max-width: 100%;", "height: auto;", "background: #f8fafc;"]],
   [".pcv-architecture-source-note", ["font-size: 0.75rem;", "line-height: 1.5;"]]
 ]) {
   const start = landingStyles.indexOf(`${selector} {`);
@@ -275,7 +312,7 @@ for (const [selector, declarations] of [
 }
 for (const interactionContract of [
   ".pcv-architecture-source-open:is(:hover, :focus-visible)",
-  ".pcv-architecture-source-viewport:focus-visible",
+  ".pcv-architecture-source-canvas:focus-visible",
   "@media (prefers-reduced-motion: reduce)",
   "animation-iteration-count: 1 !important"
 ]) {
@@ -300,8 +337,8 @@ for (const [name, source, language, heroTitle, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const sourceContract of name === "english"
-    ? ["Source SVG", "Open source", "single-process purecvisorsd control plane", "native SVG zoom"]
-    : ["SVG 원본", "원본 열기", "purecvisorsd 단일 프로세스", "원본을 새 탭에서 확대"]) {
+    ? ["Source SVG structure", "Open enlarged", "single-process purecvisorsd control plane", "fitted to the current width", "External entry points", "Configuration/secrets", "Protocol boundary", "Core control flow", "Business logic", "State storage", "Physical/kernel resources"]
+    : ["SVG 원본 구조", "확대해서 보기", "purecvisorsd 단일 프로세스", "현재 화면 폭에 맞춰 표시", "외부 진입점", "설정/비밀", "프로토콜 경계", "핵심 제어 흐름", "비즈니스 로직", "상태 저장", "물리/커널 자원"]) {
     if (!source.includes(sourceContract)) throw new Error(`${name} localized source architecture contract missing: ${sourceContract}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {

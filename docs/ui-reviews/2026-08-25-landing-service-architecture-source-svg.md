@@ -3,6 +3,8 @@
 > **일자:** 2026-08-25
 > **판정:** PASS
 > **대상:** `/`, `/ko/`, `/en/` Hero의 Single Edge 서비스 아키텍처
+> **승계:** 같은 날 색상 의미 체계와 폭 맞춤 전체 보기 적용 이후 현재 구현 기준은
+> `2026-08-25-landing-architecture-fit-semantic-colors.md`가 소유한다.
 > **대체:** `2026-08-24-landing-service-architecture-completion-domains.md`의 code-native figure
 
 ## 1. 요청과 입력 자료

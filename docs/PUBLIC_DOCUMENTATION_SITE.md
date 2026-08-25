@@ -60,15 +60,21 @@ Starlight 정적 page로 분할한다.
 - Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
   문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
   문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
-- SVG 파일은 110,764바이트, `1885.3125×2845.599853515625` viewBox와 SHA-256
-  `0890224b4854f36dfb9b7dc6ae4be78b855fa9623a97d7ba2fbffb1edf7d9ca1`을 변경 없이 유지한다.
+- SVG 파일은 `1885.3125×2845.599853515625` viewBox와 node·edge·label·좌표를 유지한다.
+  `<style>`을 제외한 구조·내용 SHA-256은
+  `7cdc85160644201dae101319cdd968b8903298c8cd5a1868a01113df6ff0e5c6`, 배포 파일 SHA-256은
+  `1246431b9312d9e95e25cde517860e72ac3ad26255095df49c85fff3b141810c`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
-- Hero와 figure shell은 Starlight의 `data-theme` 계약을 따르되 SVG 자체의 색·font·node·edge는
-  재정의하지 않는다. SVG는 항상 밝은 중립 canvas에서 렌더하고 90rem 폭을 유지한 채 desktop과
-  mobile의 제한 높이 viewport에서 양방향 scroll로 탐색한다. viewport는 keyboard focus를 받고
-  별도 `원본 열기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
+- SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
+  Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 페이지 범례는
+  색상과 layer·의미 label을 함께 제공해 색만으로 책임을 전달하지 않는다.
+- SVG palette는 `site/scripts/update-architecture-colors.mjs`로 재현한다. 스크립트는 기존
+  `<style>` 안의 semantic color block만 교체하며 node·edge·label과 좌표는 수정하지 않는다.
+- Hero와 figure shell은 Starlight의 `data-theme` 계약을 따른다. SVG는 밝은 중립 canvas에서 현재
+  콘텐츠 폭에 맞춰 전체를 표시하고 제한 높이·고정 90rem·내부 양방향 scroll을 사용하지 않는다.
+  다이어그램 전체와 별도 `확대해서 보기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
 - figure는 설명 media 역할의 32px radius를 유지한다. `<img>`에는 intrinsic width·height와 현재
-  언어의 전체 구조 alt를 제공하며, viewport에는 언어별 accessible name을 제공한다. 기존
+  언어의 전체 구조 alt를 제공하며, 전체 SVG link에는 언어별 accessible name을 제공한다. 기존
   code-native domain selector, guide node link, 경로 animation과 전용 JavaScript는 사용하지 않는다.
 - 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
@@ -86,7 +92,8 @@ Starlight 정적 page로 분할한다.
   `docs/ui-reviews/2026-08-24-landing-architecture-readability-themes.md`, 선택 경로·Refero 합성 근거는
   `docs/ui-reviews/2026-08-24-landing-architecture-route-explorer.md`, 서비스 아키텍처 보강 근거는
   `docs/ui-reviews/2026-08-24-landing-service-architecture-completion-domains.md`, SVG 원본 교체 근거는
-  `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 문서 디렉터리 제거 근거는
+  `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 색상 의미와 폭 맞춤 전환 근거는
+  `docs/ui-reviews/2026-08-25-landing-architecture-fit-semantic-colors.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`를 따른다.
 
 ## 배포 흐름
@@ -147,9 +154,9 @@ npm run check
 현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
 landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
-map 부재, 5개 아키텍처 계층·8개 정본 link·5개 domain control·동기/비동기 완료·motion 계약을 확인한다. Hero 한 열,
-desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token, map 최소 12px 글꼴, 32px figure,
-16px active route, offset shadow와 mobile 2열 path selector 계약도 함께 검사한다.
+map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token,
+32px figure, SVG 파일·구조 hash, 7개 layer 색상·의미 범례, 폭 맞춤 image와 내부 scroll container
+부재도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
 custom domain canonical URL을 확인한다.

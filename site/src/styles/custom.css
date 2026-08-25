@@ -129,6 +129,20 @@ button:focus-visible {
   --pcv-map-signal: #12627a;
   --pcv-map-signal-strong: #0a3c4c;
   --pcv-map-signal-soft: #e6f0f3;
+  --pcv-layer-clients: #e7f3ff;
+  --pcv-layer-clients-line: #3a78b8;
+  --pcv-layer-config: #ffebd8;
+  --pcv-layer-config-line: #c45a0a;
+  --pcv-layer-transport: #f3edff;
+  --pcv-layer-transport-line: #7650a8;
+  --pcv-layer-control: #e6f7ed;
+  --pcv-layer-control-line: #27845d;
+  --pcv-layer-domain: #e5f7f6;
+  --pcv-layer-domain-line: #287f7a;
+  --pcv-layer-persistent: #fff4e8;
+  --pcv-layer-persistent-line: #b87543;
+  --pcv-layer-host: #f0f2f5;
+  --pcv-layer-host-line: #667085;
   --pcv-button-primary-bg: #12627a;
   --pcv-button-primary-border: #12627a;
   --pcv-button-primary-ink: #ffffff;
@@ -395,25 +409,104 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   background: var(--pcv-map-signal-soft);
 }
 
-.pcv-architecture-source-viewport {
-  height: min(72vh, 58rem);
-  min-height: 38rem;
-  overflow: auto;
-  background: #f8fafc;
-  overscroll-behavior: contain;
-  scrollbar-gutter: stable both-edges;
-  touch-action: pan-x pan-y;
+.pcv-architecture-legend {
+  display: grid;
+  grid-template-columns: repeat(7, minmax(0, 1fr));
+  gap: 0.5rem;
+  margin: 0 !important;
+  padding: 0.75rem 1rem;
+  border-bottom: 1px solid var(--pcv-map-line);
+  background: var(--pcv-map-bar-bg);
+  list-style: none;
 }
 
-.pcv-architecture-source-viewport:focus-visible {
+.pcv-layer-key {
+  display: grid;
+  min-width: 0;
+  grid-template-columns: 0.75rem minmax(0, 1fr);
+  align-items: start;
+  gap: 0.45rem;
+  color: var(--pcv-map-node-text);
+}
+
+.pcv-layer-key strong,
+.pcv-layer-key small {
+  display: block;
+  overflow-wrap: anywhere;
+}
+
+.pcv-layer-key strong {
+  font-size: 0.6875rem;
+  line-height: 1.3;
+}
+
+.pcv-layer-key small {
+  margin-top: 0.1rem;
+  color: var(--pcv-map-node-muted);
+  font-size: 0.625rem;
+  line-height: 1.35;
+}
+
+.pcv-layer-swatch {
+  width: 0.75rem;
+  height: 0.75rem;
+  margin-top: 0.1rem;
+  border: 1px solid;
+  border-radius: 0.2rem;
+}
+
+.pcv-layer-key.is-clients .pcv-layer-swatch {
+  border-color: var(--pcv-layer-clients-line);
+  background: var(--pcv-layer-clients);
+}
+
+.pcv-layer-key.is-config .pcv-layer-swatch {
+  border-color: var(--pcv-layer-config-line);
+  background: var(--pcv-layer-config);
+}
+
+.pcv-layer-key.is-transport .pcv-layer-swatch {
+  border-color: var(--pcv-layer-transport-line);
+  background: var(--pcv-layer-transport);
+}
+
+.pcv-layer-key.is-control .pcv-layer-swatch {
+  border-color: var(--pcv-layer-control-line);
+  background: var(--pcv-layer-control);
+}
+
+.pcv-layer-key.is-domain .pcv-layer-swatch {
+  border-color: var(--pcv-layer-domain-line);
+  background: var(--pcv-layer-domain);
+}
+
+.pcv-layer-key.is-persistent .pcv-layer-swatch {
+  border-color: var(--pcv-layer-persistent-line);
+  background: var(--pcv-layer-persistent);
+}
+
+.pcv-layer-key.is-host .pcv-layer-swatch {
+  border-color: var(--pcv-layer-host-line);
+  background: var(--pcv-layer-host);
+}
+
+.pcv-architecture-source-canvas {
+  display: block;
+  overflow: hidden;
+  background: #f8fafc;
+  color: inherit !important;
+  cursor: zoom-in;
+}
+
+.pcv-architecture-source-canvas:focus-visible {
   outline: 3px solid var(--pcv-map-signal);
   outline-offset: -3px;
 }
 
 .pcv-architecture-source-image {
   display: block;
-  width: 90rem;
-  max-width: none;
+  width: 100%;
+  max-width: 100%;
   height: auto;
   margin: 0;
   background: #f8fafc;
@@ -432,6 +525,10 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 @media (max-width: 64rem) {
   .pcv-hero-grid {
     gap: 3rem;
+  }
+
+  .pcv-architecture-legend {
+    grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
@@ -454,9 +551,8 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     width: 100%;
   }
 
-  .pcv-architecture-source-viewport {
-    height: min(68vh, 48rem);
-    min-height: 34rem;
+  .pcv-architecture-legend {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 
@@ -487,11 +583,6 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   .pcv-map-meta {
     width: 100%;
     justify-content: space-between;
-  }
-
-  .pcv-architecture-source-viewport {
-    height: 65vh;
-    min-height: 30rem;
   }
 
   .pcv-architecture-source-note {

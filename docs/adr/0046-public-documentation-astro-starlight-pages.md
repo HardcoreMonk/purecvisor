@@ -17,6 +17,7 @@
 - **변경:** 2026-08-24 landing 아키텍처 글꼴·component 판독성과 light/dark theme 적용 사용자 명시 승인
 - **변경:** 2026-08-24 landing 서비스 아키텍처의 동기·비동기 완료 경로와 5개 도메인 보강 사용자 명시 승인
 - **변경:** 2026-08-25 landing 서비스 아키텍처를 제공된 전체 SVG 원본으로 교체하도록 사용자 명시 승인
+- **변경:** 2026-08-25 SVG 구조·내용 보존, 7개 layer 색상 의미와 내부 scroll 제거 사용자 명시 승인
 - **검증:** 2026-08-23 commit `ca3a399`, Pages run `32645170384`, custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `39f94c5`, Pages run `32653904395`, landing 세 구역 제거 custom domain 운영 브라우저 검증
 - **검증:** 2026-08-24 commit `eb8cfac`, Pages run `32655982919`, landing Hero 문구 custom domain 운영 브라우저 검증
@@ -69,20 +70,25 @@ PureCVisor 공개 문서는 제품 Web UI와 별도로 장기간 유지해야 �
 13. landing에는 문서 directory, 역할별 추천 경로와 Hero의 운영 가이드 action을 반복하는 별도
     최종 CTA 구역을 두지 않는다. 8개 그룹·22개 장 전체 탐색은 Starlight reader가 소유한다.
 14. Hero의 Single Edge 서비스 아키텍처는 제공된
-    `purecvisor-single-full-architecture.svg`를 변경 없이 정적 자산으로 사용한다. SVG는 클라이언트,
+    `purecvisor-single-full-architecture.svg`를 정적 자산으로 사용한다. SVG는 클라이언트,
     설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료,
     Workload·Network·Storage·Security·Operations, 영속 상태와 Linux/KVM host를 연결하고 Multi
     Edge 전용 기능은 소개하지 않는다.
-15. 배포 자산의 SHA-256은
-    `0890224b4854f36dfb9b7dc6ae4be78b855fa9623a97d7ba2fbffb1edf7d9ca1`로 고정한다. SVG 내부의
-    색·font·node·edge를 site CSS로 재정의하지 않으며 `<script>`, event handler,
+15. SVG의 node·edge·label·좌표와 font는 보존하고 `<style>`을 제외한 구조·내용 SHA-256을
+    `7cdc85160644201dae101319cdd968b8903298c8cd5a1868a01113df6ff0e5c6`로 고정한다. 배포 자산
+    SHA-256은 `1246431b9312d9e95e25cde517860e72ac3ad26255095df49c85fff3b141810c`로 고정한다.
+    SVG 내부 style은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control
+    초록색, Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계만 변경한다. site
+    CSS로 SVG 내부를 재정의하지 않으며 `<script>`, event handler,
     `<foreignObject>`와 외부 link가 없어야 한다.
 16. Hero copy·action은 먼저 읽히고 서비스 아키텍처는 같은 shell의 전체 폭 하단에 배치한다.
-    원본 SVG는 90rem 폭으로 표시하고 제한 높이의 양방향 scroll viewport와 새 탭 원본 link를
-    제공한다. 기존 domain selector, guide node link, 경로 animation과 전용 JavaScript는 제거한다.
+    SVG는 현재 콘텐츠 폭에 맞춰 전체를 표시하고 제한 높이·고정 폭·내부 scroll을 사용하지 않는다.
+    다이어그램과 별도 action은 같은 SVG를 새 탭에서 확대한다. 기존 domain selector, guide node
+    link, 경로 animation과 전용 JavaScript는 제거한다.
 17. landing Hero와 figure shell은 Starlight의 `data-theme`를 사용하지만 SVG는 두 theme에서 같은
     밝은 중립 canvas에 렌더한다. `<img>`의 intrinsic size·언어별 alt, keyboard focus 가능한
-    scroll region과 언어별 accessible name을 유지한다.
+    전체 SVG link와 언어별 accessible name을 유지한다. 7개 layer 범례는 색상·이름·의미를 함께
+    제공한다.
 
 ## Consequences
 

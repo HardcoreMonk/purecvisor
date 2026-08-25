@@ -25,14 +25,23 @@ sidebar:
         <figcaption class="pcv-map-bar">
           <span id="pcv-architecture-map-title">Single Edge 서비스 아키텍처</span>
           <span class="pcv-map-meta">
-            <span class="pcv-status"><i aria-hidden="true"></i> SVG 원본</span>
-            <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">원본 열기 <span aria-hidden="true">↗</span></a>
+            <span class="pcv-status"><i aria-hidden="true"></i> SVG 원본 구조</span>
+            <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
           </span>
         </figcaption>
-        <div class="pcv-architecture-source-viewport" tabindex="0" role="region" aria-label="PureCVisor Single Edge 전체 서비스 아키텍처 SVG 탐색 영역">
+        <ul class="pcv-architecture-legend" aria-label="레이어 색상 범례">
+          <li class="pcv-layer-key is-clients"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Clients</strong><small>외부 진입점</small></span></li>
+          <li class="pcv-layer-key is-config"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Config</strong><small>설정/비밀</small></span></li>
+          <li class="pcv-layer-key is-transport"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>API Transport</strong><small>프로토콜 경계</small></span></li>
+          <li class="pcv-layer-key is-control"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>GMainLoop Control</strong><small>핵심 제어 흐름</small></span></li>
+          <li class="pcv-layer-key is-domain"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Domain Modules</strong><small>비즈니스 로직</small></span></li>
+          <li class="pcv-layer-key is-persistent"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Persistent</strong><small>상태 저장</small></span></li>
+          <li class="pcv-layer-key is-host"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Host</strong><small>물리/커널 자원</small></span></li>
+        </ul>
+        <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트와 TLS 경계부터 purecvisorsd 제어면, 서비스 도메인, 영속 상태와 Linux/KVM 호스트까지 연결한 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
           <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1885.3125" height="2845.599853515625" loading="eager" decoding="async" alt="클라이언트와 TLS 경계에서 purecvisorsd 단일 프로세스, 동기·비동기 완료 경로, 서비스 도메인, SQLite와 Linux/KVM 호스트까지 연결한 PureCVisor Single Edge 전체 아키텍처" />
-        </div>
-        <p class="pcv-architecture-source-note">화면을 스크롤해 전체 경로를 살펴보거나 원본을 새 탭에서 확대할 수 있습니다.</p>
+        </a>
+        <p class="pcv-architecture-source-note">전체 구조를 현재 화면 폭에 맞춰 표시합니다. 세부 라벨은 다이어그램 또는 ‘확대해서 보기’를 선택해 확인할 수 있습니다.</p>
       </figure>
     </div>
   </section>
