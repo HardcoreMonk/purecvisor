@@ -1,7 +1,7 @@
 # 데이터베이스 아키텍처 공개 문서 경로 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LOCAL-PASS — 로컬 정적 build와 문서 계약 검증 완료, GitHub Pages·custom domain 검증 대기
+> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 구조·시각·접근성 검증 완료
 > **대상:** `/ko/development/database-architecture/`와 Starlight `개발·출시` navigation
 > **관련 결정:** ADR-0046, ADR-0047
 
@@ -81,4 +81,23 @@ Reference lock은 Starlight header, 좌측 그룹 navigation, 중앙 Markdown ar
     — `6eb08c5cf25f5fd1d9380dfad25a3411bc7a7e372cc4cef56b79846d06ddb21e`
   - `.scratch/ui-reviews/2026-08-30-database-architecture-route/mobile.png`
     — `4dc260f7e7bb47370fd9595746673b77c2155c4e2f6b3d456cf15fcc7416d4d4`
-- GitHub Pages·custom domain 검증은 배포 후 이 문서에 추가한다.
+
+## 7. GitHub Pages·custom domain 검증
+
+- 구현 commit `d07e4c253e86a09583da7fee054c12f59855b919`을 public `main`에 push했다.
+- GitHub Pages run
+  [`33277437435`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33277437435)의
+  `npm ci`, `npm run check`, artifact upload와 deploy가 모두 성공했다.
+- `https://purecvisor.site/ko/development/database-architecture/`는 HTTP 200과
+  `text/html; charset=utf-8`, 정확한 canonical, H1 1개, active item, 8개 그룹·23개 문서 link,
+  표 52개와 최신 Audit·Monitoring Evidence·Web Push 본문을 반환했다.
+- live Chromium `1440×1000`, `390×844`에서 page-level 가로 overflow 0,
+  Axe WCAG A/AA 위반 0, console·page·request 오류 0을 확인했다. mobile의 내부 scroll table은
+  29개이며 keyboard 방향키로 `scrollLeft 0→258` 이동했다.
+- live Pagefind의 `Monitoring Evidence DB` 검색은 새 route와 `데이터베이스 아키텍처` 제목을
+  반환했다.
+- live desktop·mobile 캡처 SHA-256은 위 로컬 캡처와 각각 동일했다. keyboard table focus
+  캡처는 `.scratch/ui-reviews/2026-08-30-database-architecture-route/live-mobile-table-focus.png`
+  — `eaf602c7cce314b407afac1e8edaee88005cf2ed97cd4f7496d314eba5d44cf6`다.
+
+따라서 이 리뷰를 **LIVE-PASS**로 확정한다.

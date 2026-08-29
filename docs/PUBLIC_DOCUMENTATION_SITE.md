@@ -183,3 +183,8 @@ map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
 검색, 좌우 목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.
+
+2026-08-30 구현 commit `d07e4c253e86a09583da7fee054c12f59855b919`의 Pages run
+[`33277437435`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33277437435)과 custom
+domain에서 27개 page·90개 artifact, 8개 그룹·23개 문서, 데이터베이스 아키텍처 본문·검색,
+desktop·mobile overflow와 Axe 계약을 검증했다.

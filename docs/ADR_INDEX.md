@@ -86,7 +86,7 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0044 | Implemented | physical bridge를 `uplink_mode=dedicated\|shared`로 분리한다. shared mode는 관리 NIC의 host L3·master·MAC·MTU를 보존하고 게스트 MAC만 upstream 네트워크에 전달한다. 실제 KVM VM·host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0045 | Implemented | Local VPC 생성 시 `linux\|ovn` backend를 고정하고 OVN resource를 external ID 기반 single writer로 수렴한다. 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계 fault injection과 공개 지원은 남아 있다. |
 | ADR-0046 | Verified | 공개 landing과 Pages hosting은 Astro·Starlight를 사용하고 `/`·`/ko/`는 한국어, `/en/`은 영어를 제공한다. 2026-08-23 Pages run `32645170384`와 custom domain에서 검증했다. 공개 reader·navigation 계약은 ADR-0047이 승계한다. |
-| ADR-0047 | Implemented | 공개 reader는 `docs/GUIDE.md`의 22개 장과 `docs/DATABASE_STRUCTURE.md`의 독립 데이터베이스 아키텍처 문서를 `/ko/<분류>/<문서>/` 정적 page로 생성한다. 기존 22개 가이드와 legacy redirect는 Verified이며, 2026-08-30 추가한 `/ko/development/database-architecture/`의 Pages·custom domain 검증을 대기한다. |
+| ADR-0047 | Verified | 공개 reader는 `docs/GUIDE.md`의 22개 장과 `docs/DATABASE_STRUCTURE.md`의 독립 데이터베이스 아키텍처 문서를 `/ko/<분류>/<문서>/` 정적 page로 생성한다. 기본 진입과 legacy redirect를 유지하며, 2026-08-30 Pages run `33277437435`와 custom domain에서 23개 문서·검색·접근성 계약을 검증했다. |
 
 ---
 

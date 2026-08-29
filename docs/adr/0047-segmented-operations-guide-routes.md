@@ -1,6 +1,6 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Implemented
+- **상태:** Verified
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
@@ -80,3 +80,9 @@ axe와 browser 오류 0을 확인해 `Verified`로 전환했다.
 2026-08-30 데이터베이스 아키텍처 독립 route와 23개 문서 sidebar 확장을 로컬 구현하고
 `npm run check`에서 27개 page·90개 artifact를 검증했다. 확장 범위의 Pages·custom domain
 검증 전까지 상태를 `Implemented`로 되돌린다.
+
+구현 commit `d07e4c253e86a09583da7fee054c12f59855b919`의 GitHub Pages run
+[`33277437435`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33277437435)이 성공했다.
+custom domain의 데이터베이스 아키텍처 route에서 HTTP 200, canonical, 23개 sidebar link,
+정적 본문, Pagefind 검색, desktop·mobile page overflow 0, Axe와 browser 오류 0을 확인해
+확장 범위도 `Verified`로 전환했다.
