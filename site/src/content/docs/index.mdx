@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: 단일 Linux/KVM 노드를 위한 Single Edge 하이퍼바이저 제어면
 template: splash
-lastUpdated: 2026-08-25
+lastUpdated: 2026-08-30
 sidebar:
   hidden: true
 ---
@@ -39,9 +39,9 @@ sidebar:
           <li class="pcv-layer-key is-host"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Host</strong><small>물리/커널 자원</small></span></li>
         </ul>
         <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트와 TLS 경계부터 purecvisorsd 제어면, 서비스 도메인, 영속 상태와 Linux/KVM 호스트까지 연결한 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
-          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1885.3125" height="2845.599853515625" loading="eager" decoding="async" alt="클라이언트와 TLS 경계에서 purecvisorsd 단일 프로세스, 동기·비동기 완료 경로, 서비스 도메인, SQLite와 Linux/KVM 호스트까지 연결한 PureCVisor Single Edge 전체 아키텍처" />
+          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1936.322265625" height="2511.60009765625" loading="eager" decoding="async" alt="클라이언트와 TLS 경계에서 purecvisorsd 단일 프로세스, 동기·비동기 완료 경로, Monitoring Source v2, DPDK 가속, audit-only BPF LSM과 Linux/KVM 호스트까지 연결한 PureCVisor Single Edge 전체 아키텍처" />
         </a>
-        <p class="pcv-architecture-source-note">전체 구조를 현재 화면 폭에 맞춰 표시합니다. 세부 라벨은 다이어그램 또는 ‘확대해서 보기’를 선택해 확인할 수 있습니다.</p>
+        <p class="pcv-architecture-source-note">전체 구조를 현재 화면 폭에 맞춰 표시합니다. 2026-08-30 정본은 Monitoring Source v2, 선택형 DPDK 수명주기와 audit-only BPF LSM 경계를 포함하며, 가속·LSM 가용성은 호스트 전제에 따라 달라집니다. 세부 라벨은 다이어그램 또는 ‘확대해서 보기’를 선택해 확인할 수 있습니다.</p>
       </figure>
     </div>
   </section>

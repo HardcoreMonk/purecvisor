@@ -84,20 +84,25 @@ const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "1246431b9312d9e95e25cde517860e72ac3ad26255095df49c85fff3b141810c") {
+if (architectureSvgHash !== "f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "7cdc85160644201dae101319cdd968b8903298c8cd5a1868a01113df6ff0e5c6") {
+if (architectureStructureHash !== "ad0ca4159c538fd7eb96ae8250a887ea5d1188faa3cef0bf194e2191675cf5db") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
-  'width="1885.3125"',
-  'height="2845.599853515625"',
-  'viewBox="4 4 1885.3125 2845.599853515625"',
+  'width="100%"',
+  'viewBox="4 4 1936.322265625 2511.60009765625"',
   'role="graphics-document document"',
-  'aria-roledescription="flowchart-elk"'
+  'aria-roledescription="flowchart-elk"',
+  'my-svg-flowchart-monitorDomain-22',
+  'my-svg-flowchart-monitorStore-25',
+  'my-svg-flowchart-securityDomain-21',
+  'my-svg-flowchart-accelPlatform-31',
+  'pcv_monitoring.db',
+  'DPDK'
 ]) {
   if (!architectureSvgText.includes(marker)) throw new Error(`architecture source SVG contract missing: ${marker}`);
 }
@@ -183,7 +188,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (!source.includes(`id="pcv-architecture-map-title">${mapTitle}</`)) {
     throw new Error(`${name} architecture map title missing`);
   }
-  const sourceImage = `<img class="pcv-architecture-source-image" src="${architectureAsset}" width="1885.3125" height="2845.599853515625" loading="eager" decoding="async" alt="`;
+  const sourceImage = `<img class="pcv-architecture-source-image" src="${architectureAsset}" width="1936.322265625" height="2511.60009765625" loading="eager" decoding="async" alt="`;
   if (!source.includes(sourceImage)) {
     throw new Error(`${name} source architecture SVG image missing`);
   }
@@ -337,8 +342,8 @@ for (const [name, source, language, heroTitle, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const sourceContract of name === "english"
-    ? ["Source SVG structure", "Open enlarged", "single-process purecvisorsd control plane", "fitted to the current width", "External entry points", "Configuration/secrets", "Protocol boundary", "Core control flow", "Business logic", "State storage", "Physical/kernel resources"]
-    : ["SVG 원본 구조", "확대해서 보기", "purecvisorsd 단일 프로세스", "현재 화면 폭에 맞춰 표시", "외부 진입점", "설정/비밀", "프로토콜 경계", "핵심 제어 흐름", "비즈니스 로직", "상태 저장", "물리/커널 자원"]) {
+    ? ["Source SVG structure", "Open enlarged", "single-process purecvisorsd control plane", "fitted to the current width", "Monitoring Source v2", "optional DPDK lifecycle", "audit-only BPF LSM boundary", "External entry points", "Configuration/secrets", "Protocol boundary", "Core control flow", "Business logic", "State storage", "Physical/kernel resources"]
+    : ["SVG 원본 구조", "확대해서 보기", "purecvisorsd 단일 프로세스", "현재 화면 폭에 맞춰 표시", "Monitoring Source v2", "선택형 DPDK 수명주기", "audit-only BPF LSM 경계", "외부 진입점", "설정/비밀", "프로토콜 경계", "핵심 제어 흐름", "비즈니스 로직", "상태 저장", "물리/커널 자원"]) {
     if (!source.includes(sourceContract)) throw new Error(`${name} localized source architecture contract missing: ${sourceContract}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {

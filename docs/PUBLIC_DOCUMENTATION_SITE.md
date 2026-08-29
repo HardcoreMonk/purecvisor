@@ -54,16 +54,16 @@ Starlight 정적 page로 분할한다.
   첫 페이지에서 반복하지 않고 Hero action과 상단 disclosure에서 운영 가이드로 연결한다.
 - Hero의 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 직접 사용한다. SVG는 클라이언트·설정 입력,
-  TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료, 5개 서비스
-  도메인, 영속 상태와 Linux/KVM host 연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지
-  않는다.
+  TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료, 6개 서비스
+  도메인, Monitoring Source v2·`pcv_monitoring.db`, 선택형 DPDK 수명주기, audit-only BPF LSM,
+  영속 상태와 Linux/KVM host 연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다.
 - Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
   문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
   문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
-- SVG 파일은 `1885.3125×2845.599853515625` viewBox와 node·edge·label·좌표를 유지한다.
+- SVG 파일은 `1936.322265625×2511.60009765625` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `7cdc85160644201dae101319cdd968b8903298c8cd5a1868a01113df6ff0e5c6`, 배포 파일 SHA-256은
-  `1246431b9312d9e95e25cde517860e72ac3ad26255095df49c85fff3b141810c`로 고정한다.
+  `ad0ca4159c538fd7eb96ae8250a887ea5d1188faa3cef0bf194e2191675cf5db`, 배포 파일 SHA-256은
+  `f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 페이지 범례는
@@ -94,7 +94,8 @@ Starlight 정적 page로 분할한다.
   `docs/ui-reviews/2026-08-24-landing-service-architecture-completion-domains.md`, SVG 원본 교체 근거는
   `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 색상 의미와 폭 맞춤 전환 근거는
   `docs/ui-reviews/2026-08-25-landing-architecture-fit-semantic-colors.md`, 문서 디렉터리 제거 근거는
-  `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`를 따른다.
+  `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`, 2026-08-30 콘텐츠 현행화는
+  `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다.
 
 ## 배포 흐름
 

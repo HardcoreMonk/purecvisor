@@ -2,7 +2,7 @@
 title: PureCVisor Single Edge
 description: A Single Edge hypervisor control plane for one Linux/KVM node
 template: splash
-lastUpdated: 2026-08-25
+lastUpdated: 2026-08-30
 sidebar:
   hidden: true
 ---
@@ -39,9 +39,9 @@ sidebar:
           <li class="pcv-layer-key is-host"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Host</strong><small>Physical/kernel resources</small></span></li>
         </ul>
         <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="Open the full architecture SVG connecting clients and TLS boundaries to the purecvisorsd control plane, service domains, persistent state, and Linux/KVM host enlarged in a new tab">
-          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1885.3125" height="2845.599853515625" loading="eager" decoding="async" alt="PureCVisor Single Edge architecture connecting clients and TLS boundaries to the single-process purecvisorsd control plane, synchronous and asynchronous completion paths, service domains, SQLite, and the Linux/KVM host" />
+          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1936.322265625" height="2511.60009765625" loading="eager" decoding="async" alt="PureCVisor Single Edge architecture connecting clients and TLS boundaries to the single-process purecvisorsd control plane, synchronous and asynchronous completion paths, Monitoring Source v2, DPDK acceleration, the audit-only BPF LSM boundary, and the Linux/KVM host" />
         </a>
-        <p class="pcv-architecture-source-note">The complete structure is fitted to the current width. Select the diagram or ‘Open enlarged’ to inspect detailed labels.</p>
+        <p class="pcv-architecture-source-note">The complete structure is fitted to the current width. The 2026-08-30 source includes Monitoring Source v2, the optional DPDK lifecycle, and the audit-only BPF LSM boundary; acceleration and LSM availability depend on host prerequisites. Select the diagram or ‘Open enlarged’ to inspect detailed labels.</p>
       </figure>
     </div>
   </section>
