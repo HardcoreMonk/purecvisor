@@ -91,24 +91,34 @@ const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906") {
+if (architectureSvgHash !== "f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "ad0ca4159c538fd7eb96ae8250a887ea5d1188faa3cef0bf194e2191675cf5db") {
+if (architectureStructureHash !== "0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 1936.322265625 2511.60009765625"',
+  'viewBox="4 4 1849.5234375 2798"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'my-svg-flowchart-monitorDomain-22',
-  'my-svg-flowchart-monitorStore-25',
+  'my-svg-flowchart-coreDb-24',
+  'my-svg-flowchart-operationsDb-25',
   'my-svg-flowchart-securityDomain-21',
   'my-svg-flowchart-accelPlatform-31',
+  'vm_state.db',
+  'pcv_audit.db',
+  'pcv_jobs.db',
+  'rbac.db',
+  'pcv_security.db',
+  'security_groups.db',
+  'vpc.db',
+  'cloud_jobs.db',
   'pcv_monitoring.db',
+  'pcv_webpush.db',
   'DPDK'
 ]) {
   if (!architectureSvgText.includes(marker)) throw new Error(`architecture source SVG contract missing: ${marker}`);
@@ -195,7 +205,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (!source.includes(`id="pcv-architecture-map-title">${mapTitle}</`)) {
     throw new Error(`${name} architecture map title missing`);
   }
-  const sourceImage = `<img class="pcv-architecture-source-image" src="${architectureAsset}" width="1936.322265625" height="2511.60009765625" loading="eager" decoding="async" alt="`;
+  const sourceImage = `<img class="pcv-architecture-source-image" src="${architectureAsset}" width="1849.5234375" height="2798" loading="eager" decoding="async" alt="`;
   if (!source.includes(sourceImage)) {
     throw new Error(`${name} source architecture SVG image missing`);
   }

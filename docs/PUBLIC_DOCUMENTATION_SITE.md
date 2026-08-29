@@ -71,15 +71,18 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - Hero의 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 직접 사용한다. SVG는 클라이언트·설정 입력,
   TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료, 6개 서비스
-  도메인, Monitoring Source v2·`pcv_monitoring.db`, 선택형 DPDK 수명주기, audit-only BPF LSM,
-  영속 상태와 Linux/KVM host 연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다.
+  도메인, 책임별 7개·3개 저장소로 구분한 로컬 SQLite DB 10개, Monitoring Source v2,
+  선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host 연결을 한 화면에
+  유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는 `vm_state.db`,
+  `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`,
+  `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`를 모두 명시한다.
 - Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
   문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
   문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
-- SVG 파일은 `1936.322265625×2511.60009765625` viewBox와 node·edge·label·좌표를 유지한다.
+- SVG 파일은 `1849.5234375×2798` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `ad0ca4159c538fd7eb96ae8250a887ea5d1188faa3cef0bf194e2191675cf5db`, 배포 파일 SHA-256은
-  `f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906`로 고정한다.
+  `0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be`, 배포 파일 SHA-256은
+  `f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 페이지 범례는
@@ -113,7 +116,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-25-landing-architecture-fit-semantic-colors.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`, 2026-08-30 콘텐츠 현행화는
   `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다. 데이터베이스
-  아키텍처 route 추가는 `docs/ui-reviews/2026-08-30-database-architecture-route.md`를 따른다.
+  아키텍처 route 추가는 `docs/ui-reviews/2026-08-30-database-architecture-route.md`, landing
+  SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`를 따른다.
 
 ## 배포 흐름
 
