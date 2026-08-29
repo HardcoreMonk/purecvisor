@@ -44,9 +44,9 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야
-하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다. 선택한 모드의
-`/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
+현재 공개 제품 버전은 `2.0.0`입니다.<br>
+단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
+선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
 ### 1.1 PureCVisor란?
 

@@ -89,7 +89,17 @@ const index = await readFile(path.join(distRoot, "index.html"), "utf8");
 const korean = await readFile(path.join(distRoot, "ko", "index.html"), "utf8");
 const english = await readFile(path.join(distRoot, "en", "index.html"), "utf8");
 const docs = await readFile(path.join(distRoot, "docs.html"), "utf8");
+const overview = await readFile(
+  path.join(distRoot, guideChapters[0].contentSlug, "index.html"),
+  "utf8"
+);
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
+const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.0</code>입니다.<br>
+단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
+선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;
+if (!overview.includes(releaseSummaryLineBreakContract)) {
+  throw new Error("release summary three-line contract missing");
+}
 const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.svg";
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");

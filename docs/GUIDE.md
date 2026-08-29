@@ -44,9 +44,9 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야
-하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다. 선택한 모드의
-`/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
+현재 공개 제품 버전은 `2.0.0`입니다.<br>
+단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
+선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
 > **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요. 이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
 
