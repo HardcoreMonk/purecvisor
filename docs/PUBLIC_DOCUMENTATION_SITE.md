@@ -9,25 +9,31 @@
 
 PureCVisor 2.0.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
-`docs/GUIDE.md`를 공개 가이드 작성 정본으로 유지하고, 숫자형 22개 장을 언어·분류·문서별
-Starlight 정적 page로 분할한다.
+`docs/GUIDE.md`의 숫자형 22개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
+`docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
+아키텍처 page로 생성한다.
 
 ## 운영 경계
 
 - 제품 runtime UI는 `ui/`의 Vanilla JavaScript 계약을 유지한다.
 - 공개 서비스 landing과 Pages build는 `site/`에서 Astro 7.2.4와 Starlight 0.41.7을 사용한다.
 - 공개 운영 가이드 정본은 `/ko/<분류>/<문서>/` directory route다.
+- 데이터베이스 아키텍처 정본 route는 `/ko/development/database-architecture/`다.
 - GitHub Actions는 `site/dist/`만 Pages artifact로 업로드한다.
 - source map, 비공개 운영 기록, 인증정보와 allowlist 밖 파일은 Pages에 포함하지 않는다.
 - `https://purecvisor.site/ko/getting-started/installation/`을 전체 운영 가이드 기본 진입 URL로
   유지한다.
 - `/docs.html`은 기존 bookmark와 숫자형 장 hash를 새 정본 route로 보내는 호환 redirect다.
 - `guide.html`은 생성하거나 navigation과 landing link에서 사용하지 않는다.
-- `site/scripts/guide-routes.mjs`가 8개 그룹·22개 장·legacy hash의 route manifest를 소유한다.
+- `site/scripts/guide-routes.mjs`가 8개 그룹, 운영 가이드 22개 장, 별도 아키텍처 문서와
+  legacy hash의 route manifest를 소유한다.
 - `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`의 숫자형 H2 장을 22개 Astro content page로
-  분할하고 `site/scripts/publish-product-docs.mjs`가 `/docs.html` 호환 redirect를 생성한다.
+  분할하고 `docs/DATABASE_STRUCTURE.md`를 독립 content page로 변환한다.
+  `site/scripts/publish-product-docs.mjs`는 `/docs.html` 호환 redirect를 생성한다.
+- Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`, `site/**`와
+  workflow 자체를 포함해 두 작성 정본 중 어느 하나만 바뀌어도 재배포한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action·현재 Single Edge
-  아키텍처를 Hero 하나로 제공한다. 8개 그룹·22개 장의 전체 탐색은 운영 가이드 reader가 소유한다.
+  아키텍처를 Hero 하나로 제공한다. 8개 그룹·23개 문서의 전체 탐색은 문서 reader가 소유한다.
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
 - 상단 `서비스`, `시작하기`, `공개 범위`, `문서`는 각각 하위 링크를 가진 disclosure navigation이다.
@@ -37,12 +43,19 @@ Starlight 정적 page로 분할한다.
 ## 콘텐츠 동기화 계약
 
 - `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 작성 정본이다.
+- `docs/DATABASE_STRUCTURE.md`가 SQLite 저장소의 책임, schema, 일관성·장애·백업 경계를
+  설명하는 공개 작성 정본이다. build 준비 단계는 원문의 H1만 Starlight page title로 치환하고
+  나머지 heading·표·code fence를 보존한다.
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
 - `site/src/content/docs/index.mdx`는 Hero action과 상단 disclosure에서 대표 정본 route만 연결하고
-  전체 22개 장 목록을 복제하지 않는다.
+  전체 23개 문서 목록을 복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
+- 데이터베이스 공개본에는 실제 운영 노드 식별자, 비공개 인계 링크와 비공개 commit 식별자를
+  포함하지 않는다.
+- build-time rehype 변환은 Markdown table에 `tabindex=0`을 부여해 작은 화면의 가로 스크롤
+  영역이 keyboard focus와 기본 focus outline을 갖게 한다.
 - 설치 page는 제품 노드의 기본 `purecvisorsd` 자체 HTTPS와 선택형 NGINX 외부 TLS 종료를
   구분하고, 설정·요청 흐름·health·금지 조합과 `purecvisor.site`의 GitHub Pages hosting 경계를
   함께 제공한다. NGINX를 모든 설치의 필수 의존성으로 안내하지 않는다.
@@ -53,7 +66,7 @@ Starlight 정적 page로 분할한다.
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
 - 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·전체 서비스 아키텍처 SVG를 담은 Hero
-  하나만 본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·22개 장 전체 목록은
+  하나만 본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·23개 문서 전체 목록은
   첫 페이지에서 반복하지 않고 Hero action과 상단 disclosure에서 운영 가이드로 연결한다.
 - Hero의 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 직접 사용한다. SVG는 클라이언트·설정 입력,
@@ -83,7 +96,8 @@ Starlight 정적 page로 분할한다.
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
   reader 구조, 그룹 제목과 단순 링크 목록으로 구성한 상단 disclosure navigation만 참고한다.
-- 각 운영 가이드 page는 Starlight header, 좌측 8개 그룹·22개 장 navigation, 중앙 본문,
+- 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
+  navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
 - 외부 사이트의 logo, 고유 문구, 이미지와 브랜드 자산은 복제하지 않는다.
 - 본문 가독성, keyboard focus, mobile navigation과 code overflow를 운영 기준으로 검증한다.
@@ -98,24 +112,28 @@ Starlight 정적 page로 분할한다.
   `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 색상 의미와 폭 맞춤 전환 근거는
   `docs/ui-reviews/2026-08-25-landing-architecture-fit-semantic-colors.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`, 2026-08-30 콘텐츠 현행화는
-  `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다.
+  `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다. 데이터베이스
+  아키텍처 route 추가는 `docs/ui-reviews/2026-08-30-database-architecture-route.md`를 따른다.
 
 ## 배포 흐름
 
 ```text
-docs/GUIDE.md + guide-routes.mjs + site landing
-                         |
-                         v
-       22개 한국어 content page 생성 + Astro/Starlight build
-                         |
-                         v
-           /docs.html legacy redirect 생성
-                         |
-                         v
-              site/dist Pages artifact
-                         |
-                         v
-             GitHub Pages + purecvisor.site
+docs/GUIDE.md + docs/DATABASE_STRUCTURE.md + route manifest
+                            |
+                            v
+       22개 가이드 + 1개 DB 아키텍처 page 생성
+                            |
+                            v
+              Astro/Starlight build + search
+                            |
+                            v
+               /docs.html legacy redirect 생성
+                            |
+                            v
+                 site/dist Pages artifact
+                            |
+                            v
+                GitHub Pages + purecvisor.site
 ```
 
 workflow action은 tag가 아니라 검증된 commit SHA로 고정한다. 현재 고정 기준은 다음과 같다.
@@ -154,13 +172,14 @@ npm ci
 npm run check
 ```
 
-검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 directory page, 8개 sidebar group,
-현재 page, 이전·다음 navigation, `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
+검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 가이드와 1개 데이터베이스
+아키텍처 directory page, 8개 sidebar group, 현재 page, 이전·다음 navigation,
+`/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
 landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token,
 32px figure, SVG 파일·구조 hash, 7개 layer 색상·의미 범례, 폭 맞춤 image와 내부 scroll container
-부재도 함께 검사한다.
+부재, 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
-`/en/`, 설치 page 직접 본문, 22개 route, legacy 이동, 검색, 좌우 목차, mobile navigation, HTTPS와
-custom domain canonical URL을 확인한다.
+`/en/`, 설치 page 직접 본문, 22개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
+검색, 좌우 목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.

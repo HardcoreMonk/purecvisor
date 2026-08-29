@@ -6,6 +6,7 @@ on:
       - main
     paths:
       - ".github/workflows/pages.yml"
+      - "docs/DATABASE_STRUCTURE.md"
       - "docs/GUIDE.md"
       - "site/**"
   workflow_dispatch:

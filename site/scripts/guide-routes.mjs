@@ -41,12 +41,28 @@ export const guideChapters = definitions.map(([
   path: `/ko/${directory}/${slug}/`
 }));
 
-export const guideGroups = [...new Set(guideChapters.map((chapter) => chapter.group))].map(
+export const supplementalDocuments = [
+  {
+    title: "데이터베이스 아키텍처",
+    sourceTitle: "PureCvisor Single Edge 데이터베이스 아키텍처 설명서",
+    description: "PureCvisor Single Edge SQLite 저장소의 책임, 스키마, 일관성, 장애와 복구 경계",
+    group: "개발·출시",
+    directory: "development",
+    slug: "database-architecture",
+    source: "DATABASE_STRUCTURE.md",
+    contentSlug: "ko/development/database-architecture",
+    path: "/ko/development/database-architecture/"
+  }
+];
+
+export const readerDocuments = [...guideChapters, ...supplementalDocuments];
+
+export const guideGroups = [...new Set(readerDocuments.map((document) => document.group))].map(
   (label) => ({
     label,
-    items: guideChapters
-      .filter((chapter) => chapter.group === label)
-      .map((chapter) => ({ label: chapter.title, link: `/${chapter.directory}/${chapter.slug}/` }))
+    items: readerDocuments
+      .filter((document) => document.group === label)
+      .map((document) => ({ label: document.title, link: `/${document.directory}/${document.slug}/` }))
   })
 );
 

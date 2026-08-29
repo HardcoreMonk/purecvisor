@@ -2,7 +2,14 @@ import { createHash } from "node:crypto";
 import { readdir, readFile, stat } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { guideChapters, guideEntryPath, guideGroups, guidePath } from "./guide-routes.mjs";
+import {
+  guideChapters,
+  guideEntryPath,
+  guideGroups,
+  guidePath,
+  readerDocuments,
+  supplementalDocuments
+} from "./guide-routes.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
@@ -14,7 +21,7 @@ const requiredFiles = [
   "docs.html",
   "favicon.svg",
   "assets/diagrams/purecvisor-single-full-architecture.svg",
-  ...guideChapters.map((chapter) => `${chapter.contentSlug}/index.html`)
+  ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
 const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
@@ -415,13 +422,72 @@ for (const chapter of guideChapters) {
   for (const group of guideGroups) {
     if (!page.includes(group.label)) throw new Error(`guide group missing: ${group.label}`);
   }
-  for (const linkedChapter of guideChapters) {
-    if (!page.includes(`href="${linkedChapter.path}"`)) {
-      throw new Error(`guide sidebar link missing: ${linkedChapter.path}`);
+  for (const linkedDocument of readerDocuments) {
+    if (!page.includes(`href="${linkedDocument.path}"`)) {
+      throw new Error(`guide sidebar link missing: ${linkedDocument.path}`);
     }
   }
   if (!docs.includes(chapter.legacyAnchor) || !docs.includes(chapter.path)) {
     throw new Error(`legacy guide mapping missing: ${chapter.legacyAnchor}`);
+  }
+}
+
+for (const document of supplementalDocuments) {
+  const page = await readFile(
+    path.join(distRoot, document.contentSlug, "index.html"),
+    "utf8"
+  );
+  if (!page.includes('<html lang="ko"')) {
+    throw new Error(`supplemental document language mismatch: ${document.path}`);
+  }
+  if (!page.includes(document.title)) {
+    throw new Error(`supplemental document title missing: ${document.path}`);
+  }
+  if (!page.includes(`<link rel="canonical" href="https://purecvisor.site${document.path}"`)) {
+    throw new Error(`supplemental document canonical mismatch: ${document.path}`);
+  }
+  if (!page.includes('aria-current="page"')) {
+    throw new Error(`supplemental document active navigation missing: ${document.path}`);
+  }
+  for (const group of guideGroups) {
+    if (!page.includes(group.label)) {
+      throw new Error(`supplemental document group missing: ${group.label}`);
+    }
+  }
+  for (const linkedDocument of readerDocuments) {
+    if (!page.includes(`href="${linkedDocument.path}"`)) {
+      throw new Error(`supplemental document sidebar link missing: ${linkedDocument.path}`);
+    }
+  }
+  for (const marker of [
+    "로컬 SQLite 파일 10개",
+    "DB 사이의 원자성",
+    "Audit DB",
+    "Monitoring Evidence DB",
+    "Web Push DB",
+    "pcv_monitoring.db",
+    "pcv_webpush.db",
+    "config.backup",
+    "스키마 변경 체크리스트"
+  ]) {
+    if (!page.includes(marker)) {
+      throw new Error(`supplemental document body contract missing: ${marker}`);
+    }
+  }
+  for (const privateMarker of [
+    "6306cafd",
+    "2026-08-27-104-bpf-lsm-boot-activation-handoff",
+    "2026-08-28-p1-live-certification-handoff",
+    "2026-08-29-51-bpf-lsm-boot-activation-handoff"
+  ]) {
+    if (page.includes(privateMarker)) {
+      throw new Error(`private operations evidence found: ${privateMarker}`);
+    }
+  }
+  const tableCount = (page.match(/<table\b/g) || []).length;
+  const focusableTableCount = (page.match(/<table\b[^>]*\btabindex="0"/g) || []).length;
+  if (tableCount === 0 || focusableTableCount !== tableCount) {
+    throw new Error(`supplemental document table focus contract mismatch: ${focusableTableCount}/${tableCount}`);
   }
 }
 

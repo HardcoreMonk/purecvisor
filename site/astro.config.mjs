@@ -1,6 +1,8 @@
 import { defineConfig } from "astro/config";
+import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 import { guideGroups } from "./scripts/guide-routes.mjs";
+import rehypeFocusableTables from "./scripts/rehype-focusable-tables.mjs";
 
 export default defineConfig({
   site: "https://purecvisor.site",
@@ -8,6 +10,9 @@ export default defineConfig({
   trailingSlash: "always",
   build: {
     format: "directory"
+  },
+  markdown: {
+    processor: unified({ rehypePlugins: [rehypeFocusableTables] })
   },
   vite: {
     build: {

@@ -1,7 +1,7 @@
 import { copyFile, mkdir, readFile, rm, writeFile } from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
-import { guideChapters } from "./guide-routes.mjs";
+import { guideChapters, supplementalDocuments } from "./guide-routes.mjs";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
@@ -86,6 +86,27 @@ tableOfContents:
 
 `;
   const target = path.join(koreanDocsRoot, chapter.directory, `${chapter.slug}.md`);
+  await mkdir(path.dirname(target), { recursive: true });
+  await writeFile(target, `${frontmatter}${body}\n`);
+}
+
+for (const document of supplementalDocuments) {
+  const rawDocument = await readFile(path.join(repoRoot, "docs", document.source), "utf8");
+  const heading = rawDocument.match(/^# (.+)$/m);
+  if (!heading || heading.index !== 0 || heading[1].trim() !== document.sourceTitle) {
+    throw new Error(`supplemental document title mismatch: ${document.source}`);
+  }
+  const body = rewriteRelativeLinks(rawDocument.slice(heading[0].length).trim());
+  const frontmatter = `---
+title: ${JSON.stringify(document.title)}
+description: ${JSON.stringify(document.description)}
+tableOfContents:
+  minHeadingLevel: 2
+  maxHeadingLevel: 3
+---
+
+`;
+  const target = path.join(koreanDocsRoot, document.directory, `${document.slug}.md`);
   await mkdir(path.dirname(target), { recursive: true });
   await writeFile(target, `${frontmatter}${body}\n`);
 }

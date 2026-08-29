@@ -7,7 +7,7 @@
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](docs/PUBLIC_SOURCE_POLICY.md)
 [![Version: 2.0.0](https://img.shields.io/badge/Version-2.0.0-6b46c1.svg)](include/purecvisor/version.h)
 
-[공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/guide.html)
+[공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
 
 PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 운영 표면을 묶습니다. CLI, REST API, UDS JSON-RPC, Vanilla JS Web UI가 같은 dispatcher와 RBAC 정책을 통과하며, 긴 작업은 Job ID, WebSocket 완료 알림, polling, audit log로 추적됩니다.
 

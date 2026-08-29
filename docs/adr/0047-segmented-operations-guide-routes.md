@@ -1,6 +1,6 @@
-# ADR-0047: 공개 운영 가이드는 언어·분류·문서별 정적 route를 사용한다
+# ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Verified
+- **상태:** Implemented
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
@@ -19,11 +19,13 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 
 ## Decision
 
-1. `docs/GUIDE.md`는 22개 장의 유일한 작성 정본으로 유지한다.
-2. `site/scripts/guide-routes.mjs`가 장 번호, 제목, 8개 그룹, directory slug와 legacy hash를
-   단일 manifest로 소유한다.
-3. build 준비 단계는 `## N. 제목` 장을 분할해
-   `site/src/content/docs/ko/<분류>/<문서>.md`를 결정적으로 생성한다.
+1. `docs/GUIDE.md`는 운영 가이드 22개 장의 유일한 작성 정본으로 유지한다.
+   독립 기술 문서는 각 명시된 `docs/*.md` source를 별도 작성 정본으로 사용할 수 있다.
+2. `site/scripts/guide-routes.mjs`가 장 번호, 제목, 8개 그룹, directory slug, 독립 기술 문서와
+   legacy hash를 단일 manifest로 소유한다.
+3. build 준비 단계는 `## N. 제목` 장을 분할하고 독립 source를 변환해
+   `site/src/content/docs/ko/<분류>/<문서>.md`를 결정적으로 생성한다. 첫 독립 source는
+   `docs/DATABASE_STRUCTURE.md`, route는 `/ko/development/database-architecture/`다.
 4. 각 독립 page의 원래 H3 이하 heading은 H2 이하로 한 단계 승격하고 code fence 안의 `#`는
    변경하지 않는다.
 5. 전체 운영 가이드 기본 진입은 `/ko/getting-started/installation/`이다.
@@ -33,14 +35,15 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
    영어 landing도 한국어 `/ko/...` 정본으로 연결한다.
 8. `/docs.html`은 기존 bookmark를 위해 기본 진입과 숫자형 장 hash를 새 route로 보내는 정적
    호환 redirect로만 유지한다.
-9. 공개 reader는 Starlight의 좌측 8개 그룹·22개 장 navigation, 중앙 정적 본문, 우측 현재 page
+9. 공개 reader는 Starlight의 좌측 8개 그룹·23개 문서 navigation, 중앙 정적 본문, 우측 현재 page
    목차, Pagefind 검색, code copy, mobile drawer와 이전·다음 navigation을 사용한다.
-10. 생성 artifact gate는 22개 route, canonical, active page, 전체 sidebar link, landing link,
-    legacy mapping과 내부 link 무결성을 검사한다.
+10. 생성 artifact gate는 22개 가이드와 독립 기술 문서 route, canonical, active page, 전체
+    sidebar link, landing link, legacy mapping, 공개 금지 표식과 내부 link 무결성을 검사한다.
 
 ## Consequences
 
 - 각 장은 직접 공유·검색·색인 가능한 안정적인 URL과 HTML 본문을 가진다.
+- 독립 기술 문서는 운영 가이드의 숫자형 장 계약을 바꾸지 않고 같은 reader와 검색에 참여한다.
 - 장 순서나 slug 변경은 manifest, landing과 legacy mapping을 같은 변경 단위로 검증해야 한다.
 - `ui/docs.html`과 `ui/guide-content.md`는 제품 Web UI 문서 shell에만 남고 공개 Pages build의
   reader dependency가 아니다.
@@ -49,14 +52,17 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 
 ## Rejected alternatives
 
-- 22개 Markdown 수작업 복제: `docs/GUIDE.md`와 빠르게 어긋나는 이중 정본이 된다.
+- 생성 Markdown 수작업 복제: `docs/GUIDE.md`와 독립 `docs/*.md` source에서 빠르게 어긋나는
+  이중 정본이 된다.
 - `/docs.html` client reader 유지: 본문 즉시 노출과 문서별 canonical URL 요구를 만족하지 못한다.
 - 한국어 본문을 `/en/...`에 복제: 번역 완료 상태를 잘못 표현한다.
 - 새 문서 framework 도입: 현재 Starlight가 필요한 sidebar, 목차, 검색과 pagination을 제공한다.
 
 ## Verification
 
-- `npm run check`가 22개 route와 내부 link를 검증해야 한다.
+- `npm run check`가 22개 가이드와 독립 기술 문서 route, 전체 sidebar와 내부 link를 검증해야 한다.
+- 데이터베이스 아키텍처 HTML에는 SQLite 10개와 Audit·Monitoring Evidence·Web Push,
+  일관성·장애·백업 경계가 정적으로 존재하고 private 운영 증거가 없어야 한다.
 - `/ko/getting-started/installation/` HTML에 H1과 `2.1 시스템 요구사항` 본문이 정적으로 있어야 한다.
 - 설치 page sidebar는 8개 그룹·22개 링크와 현재 page를 표시하고 이전은 시작하기, 다음은 VM
   관리로 연결해야 한다.
@@ -70,3 +76,7 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 `purecvisor.site`에서 22개 route의 HTTP 200, 제목·canonical·현재 sidebar item, 한국어·영어
 landing의 운영 가이드 진입, `/docs.html#3-vm-관리` 호환 이동, desktop·mobile overflow 0,
 axe와 browser 오류 0을 확인해 `Verified`로 전환했다.
+
+2026-08-30 데이터베이스 아키텍처 독립 route와 23개 문서 sidebar 확장을 로컬 구현하고
+`npm run check`에서 27개 page·90개 artifact를 검증했다. 확장 범위의 Pages·custom domain
+검증 전까지 상태를 `Implemented`로 되돌린다.
