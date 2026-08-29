@@ -1,6 +1,6 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Implemented
+- **상태:** Verified
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **변경 승인:** 2026-08-30 일반 본문 50rem·표/코드 68rem·아키텍처 자료 75rem의
@@ -96,3 +96,11 @@ axe와 browser 오류 0을 확인해 `Verified`로 전환했다.
 custom domain의 데이터베이스 아키텍처 route에서 HTTP 200, canonical, 23개 sidebar link,
 정적 본문, Pagefind 검색, desktop·mobile page overflow 0, Axe와 browser 오류 0을 확인해
 확장 범위도 `Verified`로 전환했다.
+
+2026-08-30 의미 기반 reader 폭 구현 commit
+`a82d1f4d9eca2aec6352322a0497872f18700124`의 GitHub Pages run
+[`33281197096`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33281197096)이 성공했다.
+custom domain의 1920px reader에서 일반 본문 800px, 표·code block 1,088px, 바깥
+아키텍처 canvas 1,200px를 확인했다. 1440px·390px에서는 가용 폭으로 축소되고 page-level
+overflow, Axe와 browser 오류가 0이며 기존 릴리스 문단의 위치·세 줄도 유지되어 `Verified`로
+전환했다.

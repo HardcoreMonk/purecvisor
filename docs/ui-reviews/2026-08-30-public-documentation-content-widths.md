@@ -1,7 +1,7 @@
 # 공개 문서 의미 기반 콘텐츠 폭 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LOCAL-PASS — GitHub Pages·custom domain 검증 전
+> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 시각·접근성 검증 완료
 > **대상:** Starlight 문서 reader의 일반 본문, 표, code block과 아키텍처 자료
 > **관련 결정:** ADR-0047
 
@@ -117,4 +117,27 @@ reader geometry를 기준으로 확장 수치를 결정했다.
   - `.scratch/ui-reviews/2026-08-30-public-documentation-content-widths/local-release.png`
     — `20cdaf6ae544538e6f615ae2345abc49379e1a51ed1c1bc9bb15fb0f0b178029`
 
-GitHub Pages 배포와 custom domain 확인 뒤 최종 판정을 갱신한다.
+## 9. GitHub Pages·custom domain 검증
+
+- 구현 commit `a82d1f4d9eca2aec6352322a0497872f18700124`을 public `main`에 push했다.
+- GitHub Pages run
+  [`33281197096`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33281197096)의
+  `npm ci`, `npm run check`, artifact upload와 deploy가 모두 성공했다.
+- `https://purecvisor.site/ko/development/database-architecture/`는 HTTP 200,
+  `text/html; charset=utf-8`, 한국어와 정확한 canonical을 반환했다.
+- live Chromium의 `1920×1080` light·dark, `1440×1000`, `390×844` 측정값은 로컬과
+  동일했다. 일반 본문·H1·pagination 800px, 표·code 1,088px, 바깥 canvas 1,200px가 적용되고
+  작은 viewport에서는 각각 784px와 358px로 축소되었다.
+- 모든 viewport에서 page-level overflow, Axe WCAG A/AA 위반과 console·page·request 오류는
+  0이었다. mobile 표 52개가 focus 가능하고 첫 표는 방향키로 `scrollLeft 0→80` 이동했다.
+- live `최신 릴리스 기준`은 `x=536`, `width=800`, line-height 28px와 시각적 세 줄을 유지했다.
+  landing 서비스 아키텍처도 1,200px figure와 원본 확대 link를 유지했다.
+- live 캡처:
+  - `.scratch/ui-reviews/2026-08-30-public-documentation-content-widths/live-desktop.png`
+    — `3594f1b9d4b30ffe25042d31b4cc0727f4574429c5f7a1a0d87b870973487ff6`
+  - `.scratch/ui-reviews/2026-08-30-public-documentation-content-widths/live-mobile.png`
+    — `3c2358471031b16a298cadec80903aee85aafda87e1cdd96a205d363e1fa6910`
+  - `.scratch/ui-reviews/2026-08-30-public-documentation-content-widths/live-release.png`
+    — `20cdaf6ae544538e6f615ae2345abc49379e1a51ed1c1bc9bb15fb0f0b178029`
+
+모든 수용 기준을 충족했으므로 이 리뷰를 **LIVE-PASS**로 확정한다.

@@ -202,3 +202,8 @@ focus도 함께 검사한다.
 [`33277437435`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33277437435)과 custom
 domain에서 27개 page·90개 artifact, 8개 그룹·23개 문서, 데이터베이스 아키텍처 본문·검색,
 desktop·mobile overflow와 Axe 계약을 검증했다.
+
+2026-08-30 reader 폭 구현 commit `a82d1f4d9eca2aec6352322a0497872f18700124`의 Pages run
+[`33281197096`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33281197096)과 custom
+domain에서 일반 본문 50rem, 표·code 68rem, 아키텍처 75rem 상한, 기존 릴리스 세 줄,
+desktop·mobile overflow와 Axe 계약을 검증했다.
