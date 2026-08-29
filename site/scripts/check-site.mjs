@@ -432,6 +432,17 @@ const installation = await readFile(
 if (!installation.includes("2.1 시스템 요구사항") || installation.includes("fetch(")) {
   throw new Error("installation body is not statically rendered");
 }
+for (const marker of [
+  "TLS 배포 모드 선택",
+  "purecvisorsd",
+  "선택형 NGINX 외부 TLS 종료",
+  "mode=internal",
+  "mode=external_termination",
+  "PCV_NGINX_BIND_IP",
+  "GitHub Pages"
+]) {
+  if (!installation.includes(marker)) throw new Error(`installation TLS mode contract missing: ${marker}`);
+}
 if (!installation.includes(`href="${guidePath(1)}"`) || !installation.includes(`href="${guidePath(3)}"`)) {
   throw new Error("installation pagination contract missing");
 }

@@ -43,6 +43,9 @@ Starlight 정적 page로 분할한다.
   전체 22개 장 목록을 복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
+- 설치 page는 제품 노드의 기본 `purecvisorsd` 자체 HTTPS와 선택형 NGINX 외부 TLS 종료를
+  구분하고, 설정·요청 흐름·health·금지 조합과 `purecvisor.site`의 GitHub Pages hosting 경계를
+  함께 제공한다. NGINX를 모든 설치의 필수 의존성으로 안내하지 않는다.
 - 카테고리나 장 구성이 바뀌면 제품 포털, route manifest와 `site/scripts/check-site.mjs`의
   reader route·link gate를 같은 릴리스 단위로 갱신한다.
 

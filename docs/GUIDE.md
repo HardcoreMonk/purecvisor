@@ -4,9 +4,10 @@
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
-> **배포 기준**: 외부 TLS 종료 nginx와 `127.0.0.1:8080` 데몬 조합을 권장합니다.
-> 공개 도메인·인증서·노드 주소는 배포 환경에 맞춰 설정하고, 설치 뒤 health·version·BPF
-> 상태 검사를 통과해야 합니다.
+> **배포 기준**: 기본 `purecvisorsd` 자체 HTTPS와 선택형 NGINX 외부 TLS 종료를 모두
+> 지원합니다. NGINX는 외부 종료를 선택한 노드에서만 필요합니다. 공개 도메인·인증서·노드
+> 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
+> 통과해야 합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -43,7 +44,11 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`와 nginx가 active이고 `/api/v1/health`, `/api/v1/version`, BPF 상태 검사가 통과해야 합니다. T2FA-F4(WebAuthn/step-up)와 Flow/IPFIX는 현재 제품 범위에서 제외된 항목이며 사용자 기능으로 안내하지 않습니다.
+현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야
+하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다. 선택한 모드의
+`/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
+T2FA-F4(WebAuthn/step-up)와 Flow/IPFIX는 현재 제품 범위에서 제외된 항목이며 사용자 기능으로
+안내하지 않습니다.
 
 > **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요. 이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
 
@@ -458,8 +463,119 @@ root, `daemon.conf`, PKI, JWT, 기존 BPF 목적지에는 접근하지 않는다
 - 이 배포는 커널 `lsm=bpf` 활성화나 커널 명령행 변경, 재부팅을 자동으로 수행하지
   않는다. BPF LSM이 필요하면 별도 승인된 운영 절차로 변경하고 재부팅해야 한다.
 
+JWT 로드에는 두 경로가 공존한다. 데몬 시작 시
+`PCV_SECRET_AUTH_JWT_SECRET`과 정확한 `[auth] jwt_secret`을 먼저 읽는다. 둘 다
+없으면 `PURECVISOR_JWT_SECRET`, `[daemon] jwt_secret`을 호환 fallback으로 찾고,
+마지막으로 다른 섹션을 검색한다. 따라서 deploy helper의 `[daemon] jwt_secret` 영속화가
+모든 runtime override의 단일 정본이라는 뜻은 아니다. `[auth]` 또는 환경변수 override를
+운영자가 사용한다면 32바이트 이상 값을 별도로 보장해야 한다.
+
 <!-- PCV-NGINX-OPERATIONS:BEGIN -->
-**nginx 외부 TLS 종료 opt-in 설치와 복구**
+#### TLS 배포 모드 선택: `purecvisorsd` 자체 HTTPS 또는 선택형 NGINX 외부 TLS 종료
+
+이 절은 제품 노드의 REST·Web UI·WebSocket 진입 경계를 설명한다. 공개 문서 도메인
+`purecvisor.site`는 GitHub Pages가 정적 파일과 HTTPS를 제공하므로 아래 제품 노드 NGINX
+구성과 무관하다. 제품 노드는 다음 두 모드 중 하나를 명시적으로 사용한다. NGINX는 필수
+의존성이 아니라 외부 TLS 종료를 선택한 노드에서만 필수인 구성 요소다.
+
+| 항목 | `purecvisorsd` 자체 HTTPS | 선택형 NGINX 외부 TLS 종료 |
+|---|---|---|
+| 외부 TLS 소유자 | `purecvisorsd` | NGINX |
+| NGINX 필요 여부 | 불필요 | 필수 |
+| 외부 진입 | `https://<node>:443` → 데몬 | `https://<node>:443` → NGINX → 데몬 |
+| 데몬 평문 리스너 | `127.0.0.1:<rest_port>` 복구·로컬 점검용 | `127.0.0.1:8080` 프록시 upstream 전용 |
+| 핵심 설정 | `https_enabled=true`, `https_port=443` | `https_enabled=false`, `bind_plaintext=loopback` |
+| 권장 용도 | 별도 proxy 운영이 필요 없는 단순한 단일 노드 | 공인 인증서, 중앙 보안 헤더·rate limit, WebSocket proxy, maintenance fallback이 필요한 환경 |
+| 정상 TLS health | `mode=internal`, `enabled=true`, `degraded=false`, `status=ok` | `mode=external_termination`, `enabled=false`, `degraded=false`, `status=disabled_by_config` |
+
+```text
+# 모드 A — purecvisorsd 자체 HTTPS
+클라이언트 ── HTTPS :443 ──> purecvisorsd
+                              └─ HTTP 127.0.0.1:<rest_port> (로컬 복구·점검)
+
+# 모드 B — 선택형 NGINX 외부 TLS 종료
+클라이언트 ── HTTPS :443 ──> NGINX ── HTTP 127.0.0.1:8080 ──> purecvisorsd
+```
+
+##### 모드 A — `purecvisorsd` 자체 HTTPS
+
+자체 HTTPS는 기본 전송 모드다. 데몬이 인증서를 로드하고 외부 HTTPS listener를 직접
+소유한다. `[server] bind_plaintext=loopback`을 유지하면 평문 REST는 로컬 복구와 점검에만
+사용되고 원격 자격증명·JWT·API key가 HTTP로 노출되지 않는다.
+
+```ini
+[tls]
+https_enabled = true
+https_port = 443
+cert = /etc/purecvisor/pki/node.crt
+key = /etc/purecvisor/pki/node.key
+
+[server]
+bind_plaintext = loopback
+```
+
+- cert와 key가 모두 없으면 데몬이 자체서명 쌍을 원자적으로 생성한다. 둘 중 하나만 있으면
+  사용자 자산을 덮어쓰지 않고 TLS 초기화를 실패 처리한다.
+- 운영자가 제공한 cert/key 쌍은 자동 생성보다 우선하며 배포 helper가 내용을 교체하지 않는다.
+- TLS 초기화나 HTTPS bind가 실패하면 외부 평문으로 확장하지 않는다. 데몬은 루프백 HTTP와
+  UDS만 남긴 `degraded` 상태로 기동해 복구 경로는 보존하고 외부 표면은 닫는다.
+- 이 모드에서는 NGINX service, NGINX vhost와 `PCV_NGINX_BIND_IP`가 필요하지 않다.
+
+```bash
+systemctl is-active purecvisorsd
+curl -ksS https://<node>/api/v1/health | jq '.checks.tls'
+# 기대: mode=internal, enabled=true, degraded=false, status=ok
+```
+
+##### 모드 B — 선택형 NGINX 외부 TLS 종료
+
+외부 종료 모드에서는 NGINX가 인증서와 `:443`을 소유하고 REST·Web UI·WebSocket 요청을
+데몬의 루프백 HTTP로 전달한다. 데몬 자체 HTTPS는 의도적으로 끄되 평문 upstream은 반드시
+loopback으로 제한한다.
+
+```ini
+[daemon]
+rest_port = 8080
+
+[tls]
+https_enabled = false
+
+[server]
+bind_plaintext = loopback
+```
+
+NGINX vhost는 최소한 TLS 인증서, HTTP→HTTPS 정책, `proxy_pass http://127.0.0.1:8080`,
+WebSocket Upgrade, 보안 헤더와 forwarded header 덮어쓰기를 포함해야 한다. vhost와 인증서를
+먼저 프로비저닝한 다음 opt-in 배포를 실행한다.
+
+```bash
+PCV_NODES=<ip> \
+PCV_NGINX_BIND_IP=<ip> \
+scripts/deploy.sh --no-local
+
+sudo nginx -t
+systemctl is-active nginx purecvisorsd
+curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
+# 기대: mode=external_termination, enabled=false, degraded=false,
+#       status=disabled_by_config
+```
+
+`enabled=false`는 외부 통신이 평문이라는 뜻이 아니라 데몬 대신 NGINX가 TLS를 정상 종료한다는
+뜻이다. `X-Forwarded-For`와 `X-Forwarded-Proto`는 loopback peer에서 온 요청만 신뢰한다.
+
+##### 선택·전환 시 금지 조합
+
+- `https_enabled=false`인데 정상 NGINX listener가 없으면 외부 HTTPS 진입점이 사라진다.
+- 외부 종료 모드에서 `bind_plaintext=all`을 쓰거나 값을 누락하면 데몬이 시작을 거부한다.
+- 같은 IP의 `:443`을 NGINX와 `purecvisorsd`가 동시에 소유하도록 구성하지 않는다.
+- `PCV_NGINX_BIND_IP`를 다음 배포에서 생략해도 기존 외부 종료 설정이 자체 HTTPS로 자동 복귀하지
+  않는다. 이 환경변수가 없으면 배포 스크립트는 기존 NGINX·daemon 전송 설정을 보존한다.
+- 두 모드 전환은 `:443` 소유자가 바뀌는 maintenance 작업이다. 기존 설정·인증서를 백업하고
+  새 listener와 health를 검증할 rollback 가능한 순서로 수행한다.
+- `PCV-NGINX-TRUST-BOUNDARY: host-loopback`을 만족하지 못해 신뢰하지 않는 로컬 프로세스가
+  loopback upstream에 접근할 수 있는 호스트에서는 NGINX 외부 종료 모드를 활성화하지 않는다.
+
+**선택형 NGINX 외부 TLS 종료 설치와 복구**
 
 `PCV_NGINX_BIND_IP`는 명시적으로 설정한 경우에만 활성화되는 opt-in이다. 값이
 없으면 nginx 설정, systemd drop-in, `daemon.conf`의 전송 모드를 바꾸지 않는다.
@@ -522,13 +638,6 @@ Vendor 계약은 자동 동기화하지 않는다.
 제한한다. 원격 클라이언트는 loopback peer가 아니고 nginx가 전달 헤더를
 덮어쓰므로 이 신뢰 경계를 직접 위조할 수 없다.
 <!-- PCV-NGINX-OPERATIONS:END -->
-
-JWT 로드에는 두 경로가 공존한다. 데몬 시작 시
-`PCV_SECRET_AUTH_JWT_SECRET`과 정확한 `[auth] jwt_secret`을 먼저 읽는다. 둘 다
-없으면 `PURECVISOR_JWT_SECRET`, `[daemon] jwt_secret`을 호환 fallback으로 찾고,
-마지막으로 다른 섹션을 검색한다. 따라서 deploy helper의 `[daemon] jwt_secret` 영속화가
-모든 runtime override의 단일 정본이라는 뜻은 아니다. `[auth]` 또는 환경변수 override를
-운영자가 사용한다면 32바이트 이상 값을 별도로 보장해야 한다.
 
 ### 2.5 systemd 서비스 설치
 

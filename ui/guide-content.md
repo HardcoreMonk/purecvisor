@@ -4,7 +4,10 @@
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
-> **배포 기준**: 외부 TLS 종료 nginx와 `127.0.0.1:8080` 데몬 조합을 권장합니다. 공개 도메인·인증서·노드 주소는 배포 환경에 맞춰 설정하고, 설치 뒤 health·version·BPF 상태 검사를 통과해야 합니다.
+> **배포 기준**: 기본 `purecvisorsd` 자체 HTTPS와 선택형 NGINX 외부 TLS 종료를 모두
+> 지원합니다. NGINX는 외부 종료를 선택한 노드에서만 필요합니다. 공개 도메인·인증서·노드
+> 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
+> 통과해야 합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -41,7 +44,11 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`와 nginx가 active이고 `/api/v1/health`, `/api/v1/version`, BPF 상태 검사가 통과해야 합니다. T2FA-F4(WebAuthn/step-up)와 Flow/IPFIX는 현재 제품 범위에서 제외된 항목이며 사용자 기능으로 안내하지 않습니다.
+현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야
+하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다. 선택한 모드의
+`/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
+T2FA-F4(WebAuthn/step-up)와 Flow/IPFIX는 현재 제품 범위에서 제외된 항목이며 사용자 기능으로
+안내하지 않습니다.
 
 
 ### 1.1 PureCVisor란?
@@ -407,6 +414,94 @@ sudo mkdir -p /var/lib/purecvisor
 sudo mkdir -p /var/run/purecvisor
 sudo mkdir -p /var/log/purecvisor
 ```
+
+#### TLS 배포 모드 선택: `purecvisorsd` 자체 HTTPS 또는 선택형 NGINX 외부 TLS 종료
+
+이 절은 제품 노드의 REST·Web UI·WebSocket 진입 경계를 설명한다. 공개 문서 도메인
+`purecvisor.site`는 GitHub Pages가 정적 파일과 HTTPS를 제공하므로 아래 제품 노드 NGINX
+구성과 무관하다. 제품 노드는 다음 두 모드 중 하나를 명시적으로 사용한다. NGINX는 필수
+의존성이 아니라 외부 TLS 종료를 선택한 노드에서만 필수인 구성 요소다.
+
+| 항목 | `purecvisorsd` 자체 HTTPS | 선택형 NGINX 외부 TLS 종료 |
+|---|---|---|
+| 외부 TLS 소유자 | `purecvisorsd` | NGINX |
+| NGINX 필요 여부 | 불필요 | 필수 |
+| 외부 진입 | `https://<node>:443` → 데몬 | `https://<node>:443` → NGINX → 데몬 |
+| 데몬 평문 리스너 | `127.0.0.1:<rest_port>` 복구·로컬 점검용 | `127.0.0.1:8080` 프록시 upstream 전용 |
+| 핵심 설정 | `https_enabled=true`, `https_port=443` | `https_enabled=false`, `bind_plaintext=loopback` |
+| 권장 용도 | 별도 proxy 운영이 필요 없는 단순한 단일 노드 | 공인 인증서, 중앙 보안 헤더·rate limit, WebSocket proxy, maintenance fallback이 필요한 환경 |
+| 정상 TLS health | `mode=internal`, `enabled=true`, `degraded=false`, `status=ok` | `mode=external_termination`, `enabled=false`, `degraded=false`, `status=disabled_by_config` |
+
+```text
+# 모드 A — purecvisorsd 자체 HTTPS
+클라이언트 ── HTTPS :443 ──> purecvisorsd
+                              └─ HTTP 127.0.0.1:<rest_port> (로컬 복구·점검)
+
+# 모드 B — 선택형 NGINX 외부 TLS 종료
+클라이언트 ── HTTPS :443 ──> NGINX ── HTTP 127.0.0.1:8080 ──> purecvisorsd
+```
+
+##### 모드 A — `purecvisorsd` 자체 HTTPS
+
+```ini
+[tls]
+https_enabled = true
+https_port = 443
+cert = /etc/purecvisor/pki/node.crt
+key = /etc/purecvisor/pki/node.key
+
+[server]
+bind_plaintext = loopback
+```
+
+- cert/key가 모두 없으면 자체서명 쌍을 생성하며 하나만 있으면 사용자 자산을 덮어쓰지 않고
+  TLS 초기화를 실패 처리한다.
+- TLS 초기화나 HTTPS bind 실패 시 외부 평문으로 확장하지 않고 루프백 HTTP와 UDS만 남긴
+  `degraded` 상태로 수렴한다.
+- 이 모드에는 NGINX service, NGINX vhost와 `PCV_NGINX_BIND_IP`가 필요하지 않다.
+
+```bash
+systemctl is-active purecvisorsd
+curl -ksS https://<node>/api/v1/health | jq '.checks.tls'
+# 기대: mode=internal, enabled=true, degraded=false, status=ok
+```
+
+##### 모드 B — 선택형 NGINX 외부 TLS 종료
+
+```ini
+[daemon]
+rest_port = 8080
+
+[tls]
+https_enabled = false
+
+[server]
+bind_plaintext = loopback
+```
+
+NGINX는 인증서와 `:443`을 소유하고 `proxy_pass http://127.0.0.1:8080`, WebSocket Upgrade,
+보안 헤더와 forwarded header 덮어쓰기를 제공해야 한다. vhost와 인증서를 먼저 준비한 뒤
+opt-in 배포를 실행한다.
+
+```bash
+PCV_NODES=<ip> \
+PCV_NGINX_BIND_IP=<ip> \
+scripts/deploy.sh --no-local
+
+sudo nginx -t
+systemctl is-active nginx purecvisorsd
+curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
+# 기대: mode=external_termination, enabled=false, degraded=false,
+#       status=disabled_by_config
+```
+
+- `https_enabled=false`인데 NGINX listener가 없으면 외부 HTTPS 진입점이 사라진다.
+- 외부 종료 모드의 `bind_plaintext=all` 또는 누락은 허용되지 않는다.
+- 같은 IP의 `:443`을 NGINX와 데몬이 동시에 소유하도록 구성하지 않는다.
+- `PCV_NGINX_BIND_IP` 생략은 자체 HTTPS 복귀 명령이 아니다. 기존 전송 설정을 그대로 보존한다.
+- 모드 전환은 기존 설정·인증서를 백업하고 새 listener·health를 검증하는 maintenance로 수행한다.
+- 신뢰하지 않는 로컬 프로세스가 loopback upstream에 접근할 수 있으면 NGINX 외부 종료를
+  활성화하지 않는다(`PCV-NGINX-TRUST-BOUNDARY: host-loopback`).
 
 ### 2.5 systemd 서비스 설치
 
