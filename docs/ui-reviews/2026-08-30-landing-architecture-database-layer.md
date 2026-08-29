@@ -1,7 +1,7 @@
 # 공개 랜딩 서비스 아키텍처 DB 계층 보강 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** PASS — 로컬 구현·구조·시각·접근성 검증 완료, 배포 미실행
+> **판정:** LIVE-PASS — 로컬 구현·구조·시각·접근성 및 GitHub Pages·custom domain 검증 완료
 > **대상:** `/`, `/ko/`, `/en/` Hero의 Single Edge 서비스 아키텍처 SVG
 
 ## 1. 목표와 확인된 문제
@@ -75,5 +75,9 @@
 | light mobile | `2cd5bf5b311ad318d930781cac900942761081844ed1852846276599a71b4e04` |
 | dark mobile | `4b8d2341e450d613eb0f2cf9d321628b681471ff5acd7135a6994b4c59295b07` |
 
-이 PASS는 로컬 산출물 판정이다. `purecvisor.site` live 반영은 public repository의
-commit·push와 Pages workflow 성공 뒤 별도로 확인한다.
+정본 commit `38088967`과 public 콘텐츠 commit `3baad6c`를 각각 `main`에 push했다.
+GitHub Pages run `33278756764`의 build·deploy가 모두 성공했고 `https://purecvisor.site/`,
+`/ko/`, `/en/`과 SVG는 HTTP 200을 반환했다. live SVG는 로컬 정본과 바이트 단위로 같으며
+SHA-256도 `f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b`로 일치했다.
+live HTML은 새 `1849.5234375×2798` intrinsic size와 한국어·영어 10개 DB 설명을 포함한다.
+따라서 이 리뷰는 로컬 PASS에서 **LIVE-PASS**로 승격한다.
