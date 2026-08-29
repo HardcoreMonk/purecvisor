@@ -48,8 +48,15 @@ Hero H1·lead·CTA, header disclosure, 7계층 palette·범례와 responsive CSS
 시각 캡처와 SHA-256, reference lock, 채택·기각 결정은
 [제품 UI 리뷰](../ui-reviews/2026-08-30-public-site-current-state-refresh.md)에 기록했다.
 
-## 5. 배포 경계
+## 5. Commit·배포 결과
 
-현재 판정은 로컬 `PASS`다. commit·push와 GitHub Pages workflow는 실행하지 않았다. live
-`https://purecvisor.site` 반영 완료 판정에는 public main 포함, Pages job 성공, `/`, `/ko/`,
-`/en/`과 SVG hash의 외부 재확인이 추가로 필요하다.
+- 콘텐츠 commit: `60f4552f3c4f105d5a2f3ce6bc84e5d93b54ecba`
+- 원격: public `origin/main` push 완료
+- GitHub Pages run: `33268106644`, build·deploy 모두 성공
+- live route: `https://purecvisor.site/`, `/ko/`, `/en/` 모두 HTTP 200이며
+  `Monitoring Source v2` 문구가 실제 응답에 존재
+- live SVG SHA-256:
+  `f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906`
+
+따라서 최종 판정은 **LIVE-PASS**다. 공개 `main`, Pages artifact와 custom domain 응답이 같은
+아키텍처 자산을 제공하며 로컬 검증과 live 제공본의 hash가 일치한다.

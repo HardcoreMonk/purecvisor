@@ -1,7 +1,7 @@
 # 공개 사이트 아키텍처 콘텐츠 현행화 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** PASS — 로컬 구현·구조·시각·접근성 검증 완료, 배포 미실행
+> **판정:** LIVE-PASS — 로컬 구현·구조·시각·접근성 및 GitHub Pages·custom domain 검증 완료
 > **대상:** `/`, `/ko/`, `/en/` Hero의 Single Edge 서비스 아키텍처와 설명
 
 ## 1. 목표와 현재 상태
@@ -70,5 +70,8 @@
 | light mobile | `a60a12fd43598b794d91f7aed776b63e2a62b09c506d1833c847fd61c6ce16a6` |
 | dark mobile | `fa40a1369b4bb03c6b6ef88f167545fbd04d2f63c02a324d59e8c344cd5c0ff6` |
 
-이 PASS는 로컬 산출물 판정이다. `purecvisor.site` live 반영은 public repository의
-commit·push와 Pages workflow 성공 뒤 별도로 확인한다.
+콘텐츠 commit `60f4552f`를 public `main`에 push한 뒤 GitHub Pages run `33268106644`의
+build·deploy가 모두 성공했다. `https://purecvisor.site/`, `/ko/`, `/en/`은 HTTP 200과
+`Monitoring Source v2` 문구를 반환했고, live SVG SHA-256은 로컬 정본과 같은
+`f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906`이었다. 따라서 이 리뷰는
+로컬 PASS에서 **LIVE-PASS**로 승격한다.
