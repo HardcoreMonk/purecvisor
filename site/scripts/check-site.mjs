@@ -94,6 +94,32 @@ const overview = await readFile(
   "utf8"
 );
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
+for (const contract of [
+  "--pcv-prose-width: 50rem;",
+  "--pcv-technical-width: 68rem;",
+  "--pcv-architecture-width: 75rem;",
+  "--sl-content-width: var(--pcv-architecture-width);"
+]) {
+  if (!landingStyles.includes(contract)) throw new Error(`reader width token missing: ${contract}`);
+}
+if (landingStyles.includes("--sl-content-width: 50rem;")) {
+  throw new Error("reader outer canvas is still fixed to prose width");
+}
+for (const [selector, declarations] of [
+  [".sl-markdown-content:not(:has(.pcv-landing)) > *", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline: auto;"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide)", ["max-width: var(--pcv-technical-width);"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide)", ["max-width: var(--pcv-architecture-width);"]],
+  ["main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer)", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline: auto;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`reader width contract missing: ${selector} ${declaration}`);
+    }
+  }
+}
 const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.0</code>입니다.<br>
 단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;

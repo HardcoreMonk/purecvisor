@@ -44,7 +44,10 @@
   --sl-color-gray-5: #dce1e8;
   --sl-color-gray-6: #edf1f5;
   --sl-color-black: #f5f7fa;
-  --sl-content-width: 50rem;
+  --pcv-prose-width: 50rem;
+  --pcv-technical-width: 68rem;
+  --pcv-architecture-width: 75rem;
+  --sl-content-width: var(--pcv-architecture-width);
   --sl-sidebar-width: 19rem;
 }
 
@@ -88,6 +91,26 @@ body {
 
 .hero .tagline {
   max-width: 48rem;
+}
+
+.sl-markdown-content:not(:has(.pcv-landing)) > * {
+  width: 100%;
+  max-width: var(--pcv-prose-width);
+  margin-inline: auto;
+}
+
+.sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide) {
+  max-width: var(--pcv-technical-width);
+}
+
+.sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide) {
+  max-width: var(--pcv-architecture-width);
+}
+
+main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer) {
+  width: 100%;
+  max-width: var(--pcv-prose-width);
+  margin-inline: auto;
 }
 
 .sl-markdown-content :is(table, pre) {

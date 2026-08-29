@@ -1,8 +1,10 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Verified
+- **상태:** Implemented
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
+- **변경 승인:** 2026-08-30 일반 본문 50rem·표/코드 68rem·아키텍처 자료 75rem의
+  의미 기반 reader 폭 체계를 사용자 명시 승인
 - **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
 - **관련:** ADR-0037, ADR-0046
 
@@ -39,6 +41,10 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
    목차, Pagefind 검색, code copy, mobile drawer와 이전·다음 navigation을 사용한다.
 10. 생성 artifact gate는 22개 가이드와 독립 기술 문서 route, canonical, active page, 전체
     sidebar link, landing link, legacy mapping, 공개 금지 표식과 내부 link 무결성을 검사한다.
+11. reader의 일반 본문은 최대 50rem으로 중앙 정렬하고 표·code block은 최대 68rem,
+    아키텍처 figure는 최대 75rem까지 선택적으로 확장한다. 이 값은 고정 최소 폭이 아니라
+    각 자료의 최대 폭이며, 좁은 화면에서는 가용 폭을 사용하고 page-level 가로 스크롤을
+    만들지 않는다.
 
 ## Consequences
 
@@ -49,6 +55,8 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
   reader dependency가 아니다.
 - `/docs.html`의 기존 hash는 호환되지만 신규 URL 정본은 directory route이므로 외부 문서는
   점진적으로 새 링크로 갱신해야 한다.
+- 일반 문장의 줄 길이와 기존 위치를 보존하면서 열이 많은 표, 긴 code block과 아키텍처 자료만
+  더 넓은 reader canvas를 사용할 수 있다.
 
 ## Rejected alternatives
 
@@ -69,6 +77,8 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 - landing과 Header 산출물에 `/docs.html` 신규 link가 없어야 한다.
 - `/docs.html#3-vm-관리`는 `/ko/workloads/virtual-machines/`로 이동해야 한다.
 - 1440·1280·390px 실제 browser에서 overflow, 접근성, console·page·request 오류가 없어야 한다.
+- 1920px에서 일반 본문은 50rem, 표·code block은 68rem, 아키텍처 자료는 75rem의 상한을
+  사용해야 하며, 1440px 이하에서는 가용 폭으로 축소되어야 한다.
 - Pages 배포와 custom domain 확인 전에는 상태를 `Verified`로 올리지 않는다.
 
 2026-08-24 구현 commit `2c7a9d8`의 GitHub Pages run

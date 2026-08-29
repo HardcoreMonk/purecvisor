@@ -102,6 +102,13 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
+- reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 50rem으로
+  중앙 정렬해 기존 줄 길이와 위치를 유지하고, 표와 code block은 최대 68rem,
+  아키텍처 figure는 최대 75rem까지 확장한다. 50·68·75rem은 고정 폭이나 최소 폭이 아니라
+  상한이므로 좁은 화면에서는 reader의 가용 폭을 사용한다.
+- 표와 code block의 초과 너비는 해당 요소 안에서만 scroll하고 page-level 가로 scroll을
+  만들지 않는다. 표는 keyboard focus를 유지하며, 아키텍처 자료는 전체 구조를 폭에 맞춰
+  표시하는 inline view와 원본 확대 link를 함께 제공한다.
 - 외부 사이트의 logo, 고유 문구, 이미지와 브랜드 자산은 복제하지 않는다.
 - 본문 가독성, keyboard focus, mobile navigation과 code overflow를 운영 기준으로 검증한다.
 - landing 근거는 `docs/ui-reviews/2026-08-22-public-service-landing.md`, 전체 가이드 reader
@@ -117,7 +124,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`, 2026-08-30 콘텐츠 현행화는
   `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다. 데이터베이스
   아키텍처 route 추가는 `docs/ui-reviews/2026-08-30-database-architecture-route.md`, landing
-  SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`를 따른다.
+  SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`,
+  reader의 의미 기반 폭 체계는
+  `docs/ui-reviews/2026-08-30-public-documentation-content-widths.md`를 따른다.
 
 ## 배포 흐름
 
@@ -183,7 +192,8 @@ landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내�
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token,
 32px figure, SVG 파일·구조 hash, 7개 layer 색상·의미 범례, 폭 맞춤 image와 내부 scroll container
-부재, 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
+부재, 일반 본문 50rem·표/code 68rem·아키텍처 75rem 상한, 데이터베이스 문서 table의 keyboard
+focus도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
 검색, 좌우 목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.
