@@ -47,9 +47,6 @@
 현재 공개 제품 버전은 `2.0.0`입니다. 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야
 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다. 선택한 모드의
 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
-T2FA-F4(WebAuthn/step-up)와 Flow/IPFIX는 현재 제품 범위에서 제외된 항목이며 사용자 기능으로
-안내하지 않습니다.
-
 
 ### 1.1 PureCVisor란?
 
@@ -136,7 +133,7 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
 > - systemd 서비스: `purecvisorsd.service`
 > - `/api/v1/health` 기준 런타임 모드: `cluster=false`, `node_name=standalone`
 
-이 가이드는 싱글 노드 운영과 출시 범위만 다룹니다. 클러스터 제어면, 라이브 마이그레이션, 페더레이션, 노드 드레인/리밸런싱 같은 멀티 노드 기능은 이 에디션의 지원 범위에 포함되지 않습니다.
+이 가이드는 싱글 노드 운영과 출시 범위만 다룹니다.
 
 #### 공개 범위 핵심
 
@@ -170,10 +167,8 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다. 2026-08-04의 임시
-`v2.1.0` 표기는 2026-08-05 제품 버전 재조정과 2026-08-13 태그 정리로 철회했으며,
-그 기간에 추가된 기능은 `2.0.0` mainline에 그대로 포함한다(CHANGELOG 참조). 소스 기준
-단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며,
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다. 소스 기준 단일 값은
+`include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며,
 `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI
 config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path,
 OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이

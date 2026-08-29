@@ -27,7 +27,10 @@ const forbiddenText = [
   ["HardcoreMonk", "purecvisor-single"].join("/"),
   ["Private", "repository"].join(" "),
   ["192", "168", "3", "51"].join("."),
-  ["192", "168", "3", "53"].join(".")
+  ["192", "168", "3", "53"].join("."),
+  "T2FA-F4(WebAuthn/step-up)",
+  "클러스터 제어면, 라이브 마이그레이션, 페더레이션, 노드 드레인/리밸런싱 같은",
+  "2026-08-04의 임시"
 ];
 
 async function walk(directory) {
