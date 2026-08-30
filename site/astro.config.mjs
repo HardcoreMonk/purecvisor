@@ -3,6 +3,7 @@ import { unified } from "@astrojs/markdown-remark";
 import starlight from "@astrojs/starlight";
 import { guideGroups } from "./scripts/guide-routes.mjs";
 import rehypeFocusableTables from "./scripts/rehype-focusable-tables.mjs";
+import rehypeSentenceBreaks from "./scripts/rehype-sentence-breaks.mjs";
 
 export default defineConfig({
   site: "https://purecvisor.site",
@@ -12,7 +13,7 @@ export default defineConfig({
     format: "directory"
   },
   markdown: {
-    processor: unified({ rehypePlugins: [rehypeFocusableTables] })
+    processor: unified({ rehypePlugins: [rehypeFocusableTables, rehypeSentenceBreaks] })
   },
   vite: {
     build: {
