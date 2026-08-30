@@ -1,0 +1,97 @@
+---
+import { readerDocuments } from "../../scripts/guide-routes.mjs";
+
+interface Props {
+  locale?: "ko" | "en";
+}
+
+const { locale = "ko" } = Astro.props;
+const isEnglish = locale === "en";
+
+const englishGroupLabels: Record<string, string> = {
+  "시작하기": "Getting started",
+  "워크로드": "Workloads",
+  "인프라": "Infrastructure",
+  "운영·복구": "Operations & recovery",
+  "보안·자동화": "Security & automation",
+  "인터페이스": "Interfaces",
+  "설정·문제 해결": "Configuration & troubleshooting",
+  "개발·출시": "Development & release"
+};
+
+const englishDocumentLabels: Record<string, string> = {
+  "overview": "Overview",
+  "installation": "Installation & environment",
+  "virtual-machines": "Virtual machines",
+  "containers": "Containers",
+  "storage": "Storage",
+  "networking": "Networking",
+  "multi-control-plane-notes": "Multi-control-plane notes",
+  "monitoring-alerts": "Monitoring & alerts",
+  "backup-restore": "Backup & restore",
+  "security": "Security",
+  "cloud-migration": "Cloud migration",
+  "ai-self-healing": "AI & self-healing",
+  "web-ui": "Web UI",
+  "rest-api": "REST API",
+  "cli": "CLI reference",
+  "configuration": "Configuration reference",
+  "troubleshooting": "Troubleshooting",
+  "appendix": "Appendix",
+  "engineering": "Developer & engineer guide",
+  "sales-marketing": "Sales & marketing guide",
+  "architecture-refactoring": "Architecture refactoring guide",
+  "quality-gates": "Quality gate guide",
+  "database-architecture": "Database architecture"
+};
+
+const groupNames = [...new Set(readerDocuments.map((document) => document.group))];
+const groups = groupNames.map((group, index) => ({
+  id: `pcv-documentation-group-${index + 1}`,
+  index: String(index + 1).padStart(2, "0"),
+  label: isEnglish ? englishGroupLabels[group] : group,
+  documents: readerDocuments
+    .filter((document) => document.group === group)
+    .map((document) => ({
+      href: document.path,
+      label: isEnglish ? englishDocumentLabels[document.slug] : document.title
+    }))
+}));
+
+const title = isEnglish ? "Explore the documentation" : "문서 살펴보기";
+const description = isEnglish
+  ? "Go directly to the canonical guide for installation, operations, interfaces, or development."
+  : "설치와 운영부터 인터페이스, 개발까지 필요한 정본 문서로 바로 이동하세요.";
+---
+
+<section class="pcv-documentation" id="documentation" aria-labelledby="pcv-documentation-title">
+  <div class="pcv-shell">
+    <div class="pcv-documentation-heading">
+      <div>
+        <p class="pcv-eyebrow">DOCUMENTATION · 23 DOCUMENTS</p>
+        <h2 id="pcv-documentation-title">{title}</h2>
+      </div>
+      <p>{description}</p>
+    </div>
+    <div class="pcv-directory-grid">
+      {groups.map((group) => (
+        <section class="pcv-directory-group" aria-labelledby={group.id}>
+          <h3 id={group.id}>
+            <span aria-hidden="true">{group.index}</span>
+            {group.label}
+          </h3>
+          <ul>
+            {group.documents.map((document) => (
+              <li>
+                <a class="pcv-directory-link" href={document.href}>
+                  <span>{document.label}</span>
+                  <span aria-hidden="true">→</span>
+                </a>
+              </li>
+            ))}
+          </ul>
+        </section>
+      ))}
+    </div>
+  </div>
+</section>

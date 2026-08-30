@@ -464,7 +464,6 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "pcv-map-resources",
     "pcv-capability-map-title",
     "Single Edge capability map",
-    "id=\"documentation\"",
     "pcv-docs-title",
     "pcv-doc-shortcuts",
     "pcv-doc-directory",
@@ -489,7 +488,7 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
   const sectionIds = [...source.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
-  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top"])) {
+  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "documentation"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
   const heroCopyPosition = source.indexOf('<div class="pcv-hero-copy">');
@@ -498,6 +497,24 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   }
   if ((source.match(/<figure\b/g) || []).length !== 0 || (source.match(/<img\b[^>]*\/assets\/diagrams\//g) || []).length !== 0) {
     throw new Error(`${name} landing architecture media must not be rendered`);
+  }
+  const documentationTitle = name === "english" ? "Explore the documentation" : "문서 살펴보기";
+  if (!source.includes(`<h2 id="pcv-documentation-title">${documentationTitle}</h2>`)) {
+    throw new Error(`${name} documentation map title missing`);
+  }
+  if (!source.includes('class="pcv-documentation" id="documentation" aria-labelledby="pcv-documentation-title"')) {
+    throw new Error(`${name} documentation map accessible name missing`);
+  }
+  if ((source.match(/class="pcv-directory-group"/g) || []).length !== guideGroups.length) {
+    throw new Error(`${name} documentation group count mismatch`);
+  }
+  if ((source.match(/class="pcv-directory-link"/g) || []).length !== readerDocuments.length) {
+    throw new Error(`${name} documentation link count mismatch`);
+  }
+  for (const document of readerDocuments) {
+    if (!source.includes(`class="pcv-directory-link" href="${document.path}"`)) {
+      throw new Error(`${name} documentation link missing: ${document.path}`);
+    }
   }
 }
 for (const selector of [
@@ -546,6 +563,30 @@ if (landingStyles.includes(".pcv-hero-copy h1")) {
 }
 if (landingStyles.includes("grid-template-columns: minmax(0, 1.02fr)")) {
   throw new Error("retired two-column hero layout found");
+}
+for (const [selector, declarations] of [
+  [".pcv-documentation", ["margin-top: 0 !important;", "background: var(--pcv-soft);", "border-bottom: 1px solid var(--pcv-line);"]],
+  [".pcv-documentation-heading", ["grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.7fr);", "align-items: end;"]],
+  [".pcv-directory-grid", ["grid-template-columns: repeat(4, minmax(0, 1fr));", "gap: 1px;", "border: 1px solid var(--pcv-line);", "border-radius: 0.5rem;", "background: var(--pcv-line);"]],
+  [".pcv-directory-group", ["min-width: 0;", "margin-top: 0 !important;", "background: var(--pcv-canvas);"]],
+  [".pcv-directory-link", ["min-height: 2.75rem;", "touch-action: manipulation;", "transition: color 160ms ease;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`documentation map style missing: ${selector} ${declaration}`);
+    }
+  }
+}
+for (const responsiveContract of [
+  ".pcv-directory-grid {\n    grid-template-columns: repeat(2, minmax(0, 1fr));",
+  ".pcv-directory-grid {\n    grid-template-columns: minmax(0, 1fr);"
+]) {
+  if (!landingStyles.includes(responsiveContract)) {
+    throw new Error(`documentation map responsive contract missing: ${responsiveContract}`);
+  }
 }
 for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",

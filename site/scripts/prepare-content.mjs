@@ -64,7 +64,15 @@ await rm(retiredTarget, { force: true });
 await rm(docsTarget, { force: true });
 await rm(koreanDocsRoot, { recursive: true, force: true });
 await mkdir(koreanDocsRoot, { recursive: true });
-await copyFile(koreanLandingSource, koreanLandingTarget);
+const koreanLanding = await readFile(koreanLandingSource, "utf8");
+const koreanLandingImport = "../../components/DocumentationMap.astro";
+if (!koreanLanding.includes(koreanLandingImport)) {
+  throw new Error("korean landing documentation map import missing");
+}
+await writeFile(
+  koreanLandingTarget,
+  koreanLanding.replace(koreanLandingImport, "../../../components/DocumentationMap.astro")
+);
 
 for (const [index, match] of chapterMatches.entries()) {
   const chapter = guideChapters[index];
