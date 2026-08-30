@@ -285,13 +285,9 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   line-height: 1.4;
 }
 
-.pcv-hero .pcv-eyebrow {
-  color: var(--pcv-map-signal);
-}
-
 .pcv-hero-title {
   max-width: 18ch;
-  margin-top: 1.5rem !important;
+  margin-top: 0 !important;
   color: var(--pcv-hero-ink);
   font-size: clamp(2.2rem, 4.7vw, 4.1rem);
   font-weight: 600;

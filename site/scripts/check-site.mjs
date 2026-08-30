@@ -436,8 +436,7 @@ for (const marker of [
     throw new Error(`overview architecture rollover interaction missing: ${marker}`);
   }
 }
-const koreanHeroTitle = "하나의 Linux/KVM 노드, 하나의 제어면.";
-const englishHeroTitle = "One Linux/KVM node. One control plane.";
+const heroTitle = "PURECVISOR 2.0.0";
 const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 한곳에서 운영합니다.";
 const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization in one place.";
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
@@ -674,15 +673,26 @@ for (const interactionContract of [
     throw new Error(`source architecture interaction contract missing: ${interactionContract}`);
   }
 }
-for (const [name, source, language, heroTitle, heroCopy, canonical] of [
-  ["root", index, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/"],
-  ["korean", korean, "ko", koreanHeroTitle, koreanHeroCopy, "https://purecvisor.site/ko/"],
-  ["english", english, "en", englishHeroTitle, englishHeroCopy, "https://purecvisor.site/en/"]
+for (const [name, source, language, heroCopy, canonical] of [
+  ["root", index, "ko", koreanHeroCopy, "https://purecvisor.site/"],
+  ["korean", korean, "ko", koreanHeroCopy, "https://purecvisor.site/ko/"],
+  ["english", english, "en", englishHeroCopy, "https://purecvisor.site/en/"]
 ]) {
   if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
   if ((source.match(/<h1\b/g) || []).length !== 1) throw new Error(`${name} H1 count mismatch`);
-  if (!source.includes(`<p class="pcv-eyebrow">PURECVISOR 2.0.0 · SINGLE EDGE</p>`)) {
-    throw new Error(`${name} product eyebrow missing`);
+  const heroStart = source.indexOf('<section class="pcv-hero"');
+  const heroEnd = source.indexOf("</section>", heroStart);
+  if (heroStart === -1 || heroEnd === -1) throw new Error(`${name} hero markup missing`);
+  const heroMarkup = source.slice(heroStart, heroEnd);
+  if (heroMarkup.includes('class="pcv-eyebrow"')) throw new Error(`${name} hero eyebrow remained`);
+  if (source.includes("PURECVISOR 2.0.0 · SINGLE EDGE")) {
+    throw new Error(`${name} legacy product eyebrow remained`);
+  }
+  for (const legacyTitle of [
+    "하나의 Linux/KVM 노드, 하나의 제어면.",
+    "One Linux/KVM node. One control plane."
+  ]) {
+    if (source.includes(legacyTitle)) throw new Error(`${name} legacy hero title remained`);
   }
   if (!source.includes(`<h1 class="pcv-hero-title" id="pcv-hero-title">${heroTitle}</h1>`)) {
     throw new Error(`${name} value H1 missing`);

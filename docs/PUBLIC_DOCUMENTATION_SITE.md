@@ -67,7 +67,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action과 배포 note를 담은 Hero 뒤에
+- 첫 페이지는 제품명·단일 노드 운영 범위·기본 action과 배포 note를 담은 Hero 뒤에
   `문서 살펴보기` 맵을 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 전체 서비스 아키텍처는
   반복하지 않고 Hero action·상단 disclosure·문서 맵에서 정본 운영 가이드로 연결한다.
 - landing에는 architecture figure·범례·diagram image·원본 확대 link와 `/assets/diagrams/` request를
@@ -80,9 +80,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
   `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`를 모두 명시한다.
-- Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
-  문장, action과 배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서
-  자연 줄바꿈한다.
+- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.0`을 실제 H1으로 두고 범위 문장, action과
+  배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
+  줄바꿈한다.
 - NGINX 모드 SVG 파일은 `1849.5234375×2798` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
   `0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be`, 배포 파일 SHA-256은
