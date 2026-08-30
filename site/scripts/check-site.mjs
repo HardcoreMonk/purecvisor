@@ -118,7 +118,7 @@ const directArchitectureSource = await readFile(
   "utf8"
 );
 for (const contract of [
-  "--pcv-prose-width: 50rem;",
+  "--pcv-prose-width: 46rem;",
   "--pcv-technical-width: 60rem;",
   "--pcv-architecture-width: 75rem;",
   "--pcv-reader-rail-inset-max: 7.5rem;",
@@ -132,6 +132,8 @@ if (landingStyles.includes("--sl-content-width: 50rem;")) {
 for (const [selector, declarations] of [
   [".sl-markdown-content:not(:has(.pcv-landing))", ["--pcv-reader-rail-inset: clamp("]],
   [".sl-markdown-content:not(:has(.pcv-landing)) > *", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline-start: var(--pcv-reader-rail-inset);", "margin-inline-end: auto;"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > .sl-heading-wrapper.level-h2 > h2", ["font-size: clamp(1.75rem, 2.4vw, 2rem);", "line-height: 1.22;", "word-break: keep-all;"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > .sl-heading-wrapper.level-h3 > h3", ["font-size: clamp(1.35rem, 2vw, 1.5rem);", "line-height: 1.3;", "word-break: keep-all;"]],
   [".sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide)", ["width: fit-content;", "min-width: min(100%, var(--pcv-prose-width));", "max-width: min(100%, var(--pcv-technical-width));"]],
   [".sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide)", ["width: 100%;", "max-width: var(--pcv-architecture-width);", "margin-inline: auto;"]],
   ["main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer)", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline-start: clamp(", "margin-inline-end: auto;"]]
@@ -461,8 +463,10 @@ for (const marker of [
   }
 }
 const heroTitle = "PURECVISOR 2.0.0";
-const koreanHeroCopy = "VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 한곳에서 운영합니다.";
-const englishHeroCopy = "Operate VMs, containers, ZFS storage, and network virtualization in one place.";
+const koreanHeroCopy = "한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.";
+const koreanHeroFollowup = "Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.";
+const englishHeroCopy = "Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.";
+const englishHeroFollowup = "The Web UI, REST API, and CLI share one local control plane.";
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   for (const marker of [
     "#capabilities",
@@ -534,6 +538,15 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if ((source.match(/class="pcv-directory-group"/g) || []).length !== guideGroups.length) {
     throw new Error(`${name} documentation group count mismatch`);
   }
+  if ((source.match(/class="pcv-directory-description"/g) || []).length !== guideGroups.length) {
+    throw new Error(`${name} documentation group description count mismatch`);
+  }
+  const groupDescription = name === "english"
+    ? "Review the recommended profile and install a Single Edge node."
+    : "권장 사양을 확인하고 Single Edge 노드를 설치합니다.";
+  if (!source.includes(groupDescription)) {
+    throw new Error(`${name} documentation group description missing`);
+  }
   if ((source.match(/class="pcv-directory-link"/g) || []).length !== landingDocuments.length) {
     throw new Error(`${name} documentation link count mismatch`);
   }
@@ -604,6 +617,7 @@ for (const [selector, declarations] of [
   [".pcv-documentation-heading", ["grid-template-columns: minmax(0, 1fr) minmax(18rem, 0.7fr);", "align-items: end;"]],
   [".pcv-directory-grid", ["grid-template-columns: repeat(4, minmax(0, 1fr));", "gap: 1px;", "border: 1px solid var(--pcv-line);", "border-radius: 0.5rem;", "background: var(--pcv-line);"]],
   [".pcv-directory-group", ["min-width: 0;", "margin-top: 0 !important;", "background: var(--pcv-canvas);"]],
+  [".pcv-directory-description", ["min-height: 4.5rem;", "font-size: 0.875rem;", "line-height: 1.6;", "word-break: keep-all;"]],
   [".pcv-directory-link", ["min-height: 2.75rem;", "touch-action: manipulation;", "transition: color 160ms ease;"]]
 ]) {
   const start = landingStyles.indexOf(`${selector} {`);
@@ -627,6 +641,7 @@ for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
+  ".pcv-hero-lead span {\n  display: block;",
   ".pcv-architecture-source-canvas {\n  display: block;",
   ".pcv-architecture-source-image {\n  display: block;\n  width: 100%;",
   "max-width: 100%;"
@@ -709,10 +724,10 @@ for (const interactionContract of [
     throw new Error(`source architecture interaction contract missing: ${interactionContract}`);
   }
 }
-for (const [name, source, language, heroCopy, canonical] of [
-  ["root", index, "ko", koreanHeroCopy, "https://purecvisor.site/"],
-  ["korean", korean, "ko", koreanHeroCopy, "https://purecvisor.site/ko/"],
-  ["english", english, "en", englishHeroCopy, "https://purecvisor.site/en/"]
+for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
+  ["root", index, "ko", koreanHeroCopy, koreanHeroFollowup, "https://purecvisor.site/"],
+  ["korean", korean, "ko", koreanHeroCopy, koreanHeroFollowup, "https://purecvisor.site/ko/"],
+  ["english", english, "en", englishHeroCopy, englishHeroFollowup, "https://purecvisor.site/en/"]
 ]) {
   if (!source.includes(`<html lang="${language}"`)) throw new Error(`${name} language mismatch`);
   if ((source.match(/<h1\b/g) || []).length !== 1) throw new Error(`${name} H1 count mismatch`);
@@ -736,9 +751,12 @@ for (const [name, source, language, heroCopy, canonical] of [
   if ((source.match(new RegExp(heroCopy.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 1) {
     throw new Error(`${name} hero copy mismatch`);
   }
+  if (!source.includes(heroFollowup)) {
+    throw new Error(`${name} hero followup mismatch`);
+  }
   for (const sourceContract of name === "english"
-    ? ["5-minute quickstart", "Full operations guide", "Standalone deployment · C23 single process · Web UI, REST API, CLI"]
-    : ["5분 퀵스타트", "전체 운영 가이드", "독립 노드 배포 · C23 단일 프로세스 · Web UI, REST API, CLI"]) {
+    ? ["5-minute quickstart", "Installation guide", "Ubuntu Server 26.04.1 LTS · Single Edge · HTTPS :443 by default"]
+    : ["5분 퀵스타트", "설치 가이드", "Ubuntu Server 26.04.1 LTS · Single Edge · 기본 HTTPS :443"]) {
     if (!source.includes(sourceContract)) throw new Error(`${name} localized landing content missing: ${sourceContract}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
@@ -766,11 +784,11 @@ for (const [name, source, language, heroCopy, canonical] of [
     }
   }
 }
-if (!korean.includes(`href="${guideEntryPath}">전체 운영 가이드</a>`)) {
-  throw new Error("korean full operations guide link missing");
+if (!korean.includes(`href="${guideEntryPath}">설치 가이드</a>`)) {
+  throw new Error("korean installation guide link missing");
 }
-if (!english.includes(`href="${guideEntryPath}">Full operations guide</a>`)) {
-  throw new Error("english full operations guide link missing");
+if (!english.includes(`href="${guideEntryPath}">Installation guide</a>`)) {
+  throw new Error("english installation guide link missing");
 }
 if (!korean.includes(`<a class="pcv-button pcv-button-primary" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
   || !korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {

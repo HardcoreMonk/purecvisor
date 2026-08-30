@@ -232,7 +232,11 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 PureCVisor 2.0.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
-새 노드는 [Ubuntu 26.04.1 Server 이미지](https://releases.ubuntu.com/26.04.1/)로 설치하고 [Ubuntu 26.04 LTS 릴리스 노트](https://documentation.ubuntu.com/release-notes/26.04/)와 26.04.1 변경 사항을 확인합니다.
+
+> **설치 기준**
+>
+> - 새 노드는 [Ubuntu 26.04.1 Server 이미지](https://releases.ubuntu.com/26.04.1/)로 설치합니다.
+> - 설치 전에 [Ubuntu 26.04 LTS 릴리스 노트](https://documentation.ubuntu.com/release-notes/26.04/)와 26.04.1 변경 사항을 확인합니다.
 
 #### 권장 배포 프로파일
 
@@ -263,10 +267,12 @@ VM 데이터 사용률은 80% 아래로 유지하고, snapshot과 같은 pool에
 | ZFS | 2.4 계열, 설치 커널과 같은 Ubuntu archive | 2.4.1 |
 | OVS/OVN | 기능 사용 시 OVS 3.7·OVN 26.03 계열 | OVS 3.7.1·OVN 26.03.0 |
 
-표의 patch version은 2026-08-30 기준 검증값이며 고정 핀이 아닙니다.
-`resolute-updates`와 `resolute-security`의 최신 호환 package를 함께 적용합니다.
-Ubuntu 26.04의 HWE virtualization stack은 후속 interim release에 맞춰 갱신되므로 커널만 따로 올리지 않고 libvirt, QEMU, ZFS와 함께 업데이트한 뒤 재검증합니다.
-Ubuntu 24.04 guest clone 검증 이력은 guest 호환 범위이며 이 설치 장의 host OS 기준을 24.04로 낮추지 않습니다.
+> **패키지 적용 원칙**
+>
+> - 표의 patch version은 2026-08-30 기준 검증값이며 고정 핀이 아닙니다.
+> - `resolute-updates`와 `resolute-security`의 최신 호환 package를 함께 적용합니다.
+> - Ubuntu 26.04의 HWE virtualization stack은 커널, libvirt, QEMU와 ZFS를 함께 업데이트한 뒤 재검증합니다.
+> - Ubuntu 24.04 guest clone 검증 이력은 guest 호환 범위이며 host OS 기준을 24.04로 낮추지 않습니다.
 
 #### 관리 IPv4 선정 기준
 
@@ -281,8 +287,11 @@ Ubuntu 24.04 guest clone 검증 이력은 guest 호환 범위이며 이 설치 �
 | 기본 VM NAT | `pcvnat0`, `10.78.0.1/24` | 관리망·기존 libvirt/LXC/VPC 대역과 중복 금지 |
 | 선택형 guest uplink | `<guest-uplink-interface>` | 주소·default route·master가 없음을 확인한 뒤에만 `bridge/dedicated` 후보로 사용 |
 
-문서의 길이 표시는 그대로 복사할 예시 IP가 아닙니다.
-설치자는 router·DHCP 할당표와 현재 lease를 확인해 동적 pool 외부이거나 reservation으로 보호된 미사용 IPv4를 선택해야 합니다.
+> **주소 선택 원칙**
+>
+> - 문서의 길이 표시는 그대로 복사할 예시 IP가 아닙니다.
+> - 설치자는 router·DHCP 할당표와 현재 lease를 확인해 동적 pool 외부이거나 reservation으로 보호된 미사용 IPv4를 선택해야 합니다.
+
 권장 방식은 현재 Netplan renderer와 DHCP를 유지하고 router에서 `<management-interface>`의 lease를 선택한 IPv4로 예약하는 것입니다.
 이 방식은 host에서 주소를 중복 선언하지 않으면서 서비스 주소를 고정합니다.
 router reservation을 사용할 수 없을 때만 정적 Netplan 절차를 사용합니다.
@@ -291,8 +300,11 @@ router reservation을 사용할 수 없을 때만 정적 Netplan 절차를 사�
 
 #### 26.04 host 기본 준비
 
-hostname과 시간대는 인증서를 처음 만들기 전에 확정합니다.
-이미 인증서를 운영 중인 노드에서 hostname이나 관리 IP를 바꾸면 인증서 SAN과 접속 URL도 함께 갱신해야 합니다.
+> **인증서 생성 전 확정**
+>
+> - hostname과 시간대를 확정합니다.
+> - 관리 IPv4 또는 운영 DNS 이름을 확정합니다.
+> - 이미 인증서를 운영 중인 노드의 hostname이나 관리 IP를 바꾸면 SAN과 접속 URL도 함께 갱신합니다.
 
 ```bash
 sudo hostnamectl set-hostname purecvisor-edge-01

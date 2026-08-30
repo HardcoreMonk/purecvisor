@@ -19,6 +19,28 @@ const englishGroupLabels: Record<string, string> = {
   "개발·출시": "Development & release"
 };
 
+const koreanGroupDescriptions: Record<string, string> = {
+  "시작하기": "권장 사양을 확인하고 Single Edge 노드를 설치합니다.",
+  "워크로드": "VM과 컨테이너를 생성하고 수명주기를 관리합니다.",
+  "인프라": "ZFS 스토리지와 네트워크 구성을 설계하고 점검합니다.",
+  "운영·복구": "노드 상태를 모니터링하고 백업·복원 절차를 실행합니다.",
+  "보안·자동화": "인증·권한·감사 정책과 자동 복구 범위를 확인합니다.",
+  "인터페이스": "Web UI, REST API와 CLI의 사용법과 계약을 찾습니다.",
+  "설정·문제 해결": "daemon.conf 설정값과 장애 진단 절차를 확인합니다.",
+  "개발·출시": "아키텍처, 검증 정책과 공개 릴리스 기준을 확인합니다."
+};
+
+const englishGroupDescriptions: Record<string, string> = {
+  "시작하기": "Review the recommended profile and install a Single Edge node.",
+  "워크로드": "Create VMs and containers and manage their lifecycle.",
+  "인프라": "Design and verify ZFS storage and network configuration.",
+  "운영·복구": "Monitor node health and run backup and restore procedures.",
+  "보안·자동화": "Review authentication, authorization, audit, and automated recovery boundaries.",
+  "인터페이스": "Find usage and contracts for the Web UI, REST API, and CLI.",
+  "설정·문제 해결": "Check daemon.conf settings and troubleshooting procedures.",
+  "개발·출시": "Review architecture, verification policy, and public release criteria."
+};
+
 const englishDocumentLabels: Record<string, string> = {
   "overview": "Overview",
   "installation": "Installation & environment",
@@ -49,6 +71,7 @@ const groups = groupNames.map((group, index) => ({
   id: `pcv-documentation-group-${index + 1}`,
   index: String(index + 1).padStart(2, "0"),
   label: isEnglish ? englishGroupLabels[group] : group,
+  description: isEnglish ? englishGroupDescriptions[group] : koreanGroupDescriptions[group],
   documents: landingDocuments
     .filter((document) => document.group === group)
     .map((document) => ({
@@ -59,8 +82,8 @@ const groups = groupNames.map((group, index) => ({
 
 const title = isEnglish ? "Explore the documentation" : "문서 살펴보기";
 const description = isEnglish
-  ? "Go directly to the canonical guide for installation, operations, interfaces, or development."
-  : "설치와 운영부터 인터페이스, 개발까지 필요한 정본 문서로 바로 이동하세요.";
+  ? "Start with Getting started for a new node. For an existing node, use Operations & recovery or Configuration & troubleshooting."
+  : "처음 설치한다면 ‘시작하기’에서, 운영 중인 노드를 점검하거나 복구한다면 ‘운영·복구’ 또는 ‘설정·문제 해결’에서 시작하세요.";
 ---
 
 <section class="pcv-documentation" id="documentation" aria-labelledby="pcv-documentation-title">
@@ -79,6 +102,7 @@ const description = isEnglish
             <span aria-hidden="true">{group.index}</span>
             {group.label}
           </h3>
+          <p class="pcv-directory-description">{group.description}</p>
           <ul>
             {group.documents.map((document) => (
               <li>
