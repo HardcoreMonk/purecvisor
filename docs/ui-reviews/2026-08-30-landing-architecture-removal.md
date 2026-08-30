@@ -1,7 +1,7 @@
 # 랜딩 아키텍처 SVG 노출 제거 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** PASS — 구현·로컬 검증 완료, Pages 배포 대기
+> **판정:** LIVE-PASS — GitHub Pages와 custom domain 검증 완료
 > **대상:** `/`, `/ko/`, `/en/` landing Hero
 > **관련 리뷰:** `2026-08-25-landing-service-architecture-source-svg.md`,
 > `2026-08-30-overview-architecture-rollover-flow.md`
@@ -150,5 +150,18 @@ light/dark의 18개 조합을 검사했다.
   comment 0
 - site·interaction·bundle JavaScript syntax와 `git diff --check`: PASS
 
-Pages 배포 뒤 custom domain에서 18개 브라우저 조합과 overview 보존 계약을 다시 확인하고 판정을
-`LIVE-PASS`로 승격한다.
+### 8.4 Pages 배포 검증
+
+- source commit: `4330260492463f1ac823ac2469b35dbd92158e23`
+- GitHub Actions: [`pages` run 33302637830](https://github.com/HardcoreMonk/purecvisor/actions/runs/33302637830)
+  — build 24초, deploy 9초, 두 job 모두 PASS
+- live 대상: `https://purecvisor.site/`, `/ko/`, `/en/`
+
+custom domain에서 로컬과 같은 18개 조합을 다시 실행했다. 모든 route·theme·viewport에서
+architecture DOM·diagram link·`/assets/diagrams/` request 0, CTA 2개·48px, overflow 0,
+Axe WCAG A/AA 위반 0, console·page·request 오류 0이었다. Hero 높이는 desktop
+`515.6875px`, 1280px `502.515625px`, mobile `514.984375px`로 로컬과 일치했다.
+
+시작하기 overview도 direct 31 node·40 edge·8 layer·rollover edge 4, NGINX 32 node·41 edge·9
+layer와 오류 0을 다시 확인했다. live 대표 캡처 8개의 SHA-256은 8.2의 local hash와 각각
+pixel-identical하므로 최종 판정은 `LIVE-PASS`다.
