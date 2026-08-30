@@ -102,6 +102,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
+- 시작하기의 `1.2 아키텍처 개요`는 landing과 같은 전체 SVG를 직접 재사용하고, 본문만으로도
+  기본 daemon HTTPS·선택형 NGINX 외부 종료, 부팅 입력, 4개 transport, 동기·비동기 완료,
+  6개 서비스 도메인, 로컬 SQLite DB 10개·desired state, Linux/KVM host와 Single Edge 제외
+  경계를 읽을 수 있어야 한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
 - reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 50rem,
   표와 code block은 기본 50rem에서 콘텐츠가 요구하는 만큼 최대 60rem까지 적응형으로
   확장한다. H1~H6, 본문, 표와 code는 공통 좌측 읽기 축을 유지하고 아키텍처 figure만 최대

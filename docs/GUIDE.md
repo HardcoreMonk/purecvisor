@@ -70,42 +70,88 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 ### 1.2 아키텍처 개요
 
-```
-클라이언트 (pcvctl / Web UI / REST API)
-        |
-        v
-+-------+-------+--------------------+
-| UDS 서버              | REST 서버           |
-| (JSON-RPC 2.0)        | (HTTP :80 / HTTPS :443) |
-| io_uring 비동기 I/O   | libsoup3, JWT, CORS  |
-+-------+-------+--------------------+
-        |
-        v
-  디스패처 (Single Edge RPC, O(1) GHashTable 라우팅)
-  method policy / RBAC pre-route / VM owner-scope
-        |
-        v
-  핸들러 계층 (src/modules/dispatcher/ + src/modules/network/)
-        |
-        v
-  코어 모듈
-  +-- vm_manager (libvirt)     +-- lxc_driver (LXC)
-  +-- network_manager (OVS/OVN) +-- zfs_driver (ZFS)
-  +-- auth_manager (SQLite)     +-- backup_scheduler
-        |
-        v
-  시스템 (libvirt, nftables, dnsmasq, ZFS, LXC, OVS, OVN)
-```
+`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에
+두고 `GMainLoop`가 전체 수명주기를 소유합니다. 짧은 작업은 이벤트 루프에서 응답을 끝내고,
+긴 작업만 제한된 `GTask` 워커 풀로 보냅니다. 아래 지도는 클라이언트와 부팅 입력부터 로컬
+영속 상태와 Linux/KVM 호스트까지 연결한 Single Edge 전체 구조입니다.
 
-**요청 처리 흐름 상세:**
+<figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source pcv-architecture-wide" aria-labelledby="pcv-overview-architecture-title">
+  <div class="pcv-map-bar">
+    <strong id="pcv-overview-architecture-title">PureCVisor Single Edge 전체 아키텍처</strong>
+    <div class="pcv-map-meta">
+      <span class="pcv-status"><i aria-hidden="true"></i>Single Edge</span>
+      <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+    </div>
+  </div>
+  <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트와 TLS 경계부터 purecvisorsd 제어면, 6개 서비스 도메인, 10개 로컬 SQLite 데이터베이스, 영속 상태와 Linux/KVM 호스트까지 연결한 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
+    <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1849.5234375" height="2798" loading="lazy" decoding="async" alt="클라이언트와 부팅 입력에서 purecvisorsd 단일 프로세스의 API transport, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 전체 아키텍처">
+  </a>
+  <figcaption class="pcv-architecture-source-note">그림의 NGINX 노드는 선택형 외부 TLS 종료 경로입니다. 기본 모드에서는 NGINX 없이 purecvisorsd가 HTTPS와 WebSocket TLS를 직접 종료합니다.</figcaption>
+</figure>
 
-1. 클라이언트가 UDS 소켓 또는 REST API로 요청 전송
-2. REST 서버는 JWT로 인증 주체를 검증하고, RBAC DB의 현재 role을 JSON-RPC params에 주입해 디스패처에 전달
-3. 디스패처가 GHashTable에서 O(1)로 핸들러 함수 조회 후 method policy, RBAC, VM owner-scope를 검사
-4. 핸들러가 코어 모듈을 호출하여 작업 수행
-5. 장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행
+#### 1.2.1 런타임·접근 경계
 
-### 1.2.1 검증 문서 맵
+- **사용자와 외부 소비자**: Web UI, `pcvctl`, REST API client, 선택형 gRPC client와 Prometheus scraper가 단일 노드에 접근합니다.
+- **기본 HTTPS 모드**: `purecvisorsd`가 외부 `:443`의 REST·WebSocket TLS를 직접 종료합니다. HTTP listener는 loopback 복구 경로로 제한합니다.
+- **선택형 NGINX 외부 종료 모드**: NGINX가 외부 `:443`을 소유하고 `127.0.0.1`의 daemon REST·WebSocket으로 전달합니다. 두 모드가 같은 주소의 `:443`을 동시에 소유하지 않습니다.
+- **부팅 입력**: `daemon.conf`, secret source와 Kernel LSM 목록이 bootstrap 정책, transport, BPF 준비 상태를 결정합니다.
+- **프로세스 내부 transport**: root 전용 UDS JSON-RPC, libsoup3 REST, 기본 비활성인 선택형 gRPC와 WebSocket event channel은 별도 서비스가 아니라 `purecvisorsd` 내부 진입점입니다. 선택형 외부 종료 모드의 NGINX만 별도 프로세스입니다.
+
+#### 1.2.2 요청·권한·완료 흐름
+
+1. `pcvctl`은 로컬 UDS로, Web UI와 REST client는 선택한 HTTPS 모드로 요청합니다. 선택형 gRPC는 token과 고정 caller role을 검증한 뒤 같은 RPC 정책으로 수렴합니다.
+2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.
+3. dispatcher는 `GHashTable`에서 O(1)로 도메인 핸들러를 찾아 검증된 요청만 전달합니다.
+4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.
+5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.
+6. worker callback이 실제 결과를 `pcv_jobs.db`, `pcv_audit.db`와 WebSocket 완료 이벤트에 기록합니다. 클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
+
+#### 1.2.3 서비스 도메인
+
+- **Workload**: VM, LXC 컨테이너, template과 GPU 연결
+- **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
+- **Storage**: ZFS, snapshot, backup·restore, iSCSI와 cloud job
+- **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
+- **Monitoring Source**: systemd service catalog, immutable cache와 availability writer
+- **Operations**: telemetry, alert, Web Push, AI healing과 plugin
+
+Monitoring Source request handler는 immutable cache만 읽습니다. background collector와 단일
+writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로, 요청
+handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
+
+#### 1.2.4 영속 상태와 호스트 통합
+
+PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 10개와 파일 기반 desired state를
+사용합니다.
+
+- **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
+- **Operations DB 3개**: `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`
+- **Desired state**: network, overlay, QoS, BPF와 backup 설정
+- **Virtualization**: libvirt, QEMU, KVM과 LXC
+- **Storage**: ZFS, LIO와 open-iscsi
+- **Network host**: Linux bridge, nftables, dnsmasq, WireGuard, tc, eBPF, OVS와 OVN
+- **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
+- **Acceleration**: GPU, SR-IOV와 선택형 DPDK
+
+SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, bridge, nftables,
+OVS·OVN과 bpffs의 actual state를 대신하지 않습니다. DB 사이의 분산 트랜잭션이나 노드 간
+복제도 제공하지 않으므로, 재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를
+함께 확인해야 합니다. DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을
+바꾸지 않는 audit-only 경계입니다.
+
+#### 1.2.5 Single Edge 경계와 상세 문서
+
+이 구조는 독립 Linux/KVM 노드 하나와 `purecvisorsd` 제어면 하나만 설명합니다. 클러스터
+자동화, 라이브 마이그레이션, 페더레이션과 Multi Edge 전용 제어면은 포함하지 않습니다.
+
+- SQLite 파일별 책임, schema, 일관성·백업·복구 경계: [데이터베이스 아키텍처](/ko/development/database-architecture/)
+- TLS 모드와 설치 절차: [설치 및 환경 구성](/ko/getting-started/installation/#tls-배포-모드-선택-purecvisorsd-자체-https-또는-선택형-nginx-외부-tls-종료)
+- REST 인증과 endpoint: [REST API](/ko/interfaces/rest-api/)
+- 현재 공개판 포함·제외 기준: [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md)
+
+<span id="121-검증-문서-맵" aria-hidden="true"></span>
+
+#### 1.2.6 검증 문서 맵
 
 문서 역할은 다음처럼 나눠서 봐야 합니다.
 
@@ -114,14 +160,20 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 | [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
+| [DATABASE_STRUCTURE.md](DATABASE_STRUCTURE.md) | SQLite DB 10개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
-### 1.2.2 설계 결정 빠른 보기
+<span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
+
+#### 1.2.7 설계 결정 빠른 보기
 
 운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다. 통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며, 설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
 
 | 설계 결정 | 먼저 봐야 하는 상황 | 현재 Single Edge 결론 |
 |-----------|--------------------|-----------------------|
+| [ADR-0001: fork 금지 단일 데몬](adr/0001-no-fork-single-daemon.md) | 프로세스, event loop, worker lifecycle 변경 | `purecvisorsd` 단일 프로세스와 GMainLoop 소유권을 유지하고 긴 작업만 bounded worker로 보낸다 |
+| [ADR-0012: 비동기 결과 채널](adr/0012-async-result-channel.md) | Job ID, polling, WebSocket 완료 경로 변경 | accepted 응답과 실제 완료 상태를 분리하고 Job ID 기반 결과 채널을 유지한다 |
+| [ADR-0029: REST/WS TLS 기본 활성](adr/0029-rest-ws-tls-always-on.md) | daemon 직접 HTTPS, 선택형 NGINX 외부 종료 변경 | 기본은 daemon 자체 TLS이며 외부 종료는 host-loopback 신뢰 경계의 명시적 opt-in으로만 허용한다 |
 | [ADR-0023: VM clone 오픈 베타 안전장치](adr/0023-vm-clone-beta-safety-guard.md) | VM clone, Guest reset, Prepared template, power on 거부 조건 | source VM은 `shut off` 상태여야 하며, prepared template 또는 libguestfs 기반 Guest reset 중 하나가 필요하다 |
 | [ADR-0022: VM 생성 저장 위치 계약](adr/0022-vm-create-storage-location-contract.md) | VM 생성 저장소, zvol/qcow2/raw 위치 정책 변경 | `storage_type`과 `storage_pool` 또는 `image_dir` 조합을 명시 계약으로 유지한다 |
 | [ADR-0019: RBAC UDS 우회 정책](adr/0019-rbac-uds-bypass-policy.md) | 권한, operator owner-scope, UDS/REST 보안 변경 | REST 인증과 dispatcher method policy를 모두 유지하고 `make check-rbac`로 검증한다 |

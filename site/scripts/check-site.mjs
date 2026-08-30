@@ -134,6 +134,45 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.`;
 if (!overview.includes(productSummaryLineBreakContract)) {
   throw new Error("product summary three-line contract missing");
 }
+for (const marker of [
+  'class="pcv-overview-architecture pcv-control-map pcv-architecture-source pcv-architecture-wide"',
+  'id="pcv-overview-architecture-title"',
+  'class="pcv-overview-architecture-image pcv-architecture-source-image"',
+  'href="/assets/diagrams/purecvisor-single-full-architecture.svg"',
+  "1.2.1 런타임·접근 경계",
+  "1.2.2 요청·권한·완료 흐름",
+  "1.2.3 서비스 도메인",
+  "1.2.4 영속 상태와 호스트 통합",
+  "1.2.5 Single Edge 경계와 상세 문서",
+  "accepted 응답은 실제 성공을 뜻하지 않습니다.",
+  "Monitoring Source request handler는 immutable cache만 읽습니다.",
+  "vm_state.db",
+  "pcv_audit.db",
+  "pcv_jobs.db",
+  "rbac.db",
+  "pcv_security.db",
+  "security_groups.db",
+  "vpc.db",
+  "cloud_jobs.db",
+  "pcv_monitoring.db",
+  "pcv_webpush.db",
+  "audit-only 경계입니다.",
+  'id="121-검증-문서-맵"',
+  'id="122-설계-결정-빠른-보기"'
+]) {
+  if (!overview.includes(marker)) throw new Error(`overview architecture contract missing: ${marker}`);
+}
+for (const marker of [
+  "auth_manager",
+  "src/modules/dispatcher/ + src/modules/network/",
+  "+-------+-------+--------------------+",
+  "장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행"
+]) {
+  if (overview.includes(marker)) throw new Error(`stale overview architecture found: ${marker}`);
+}
+if ((overview.match(/class="pcv-overview-architecture-image pcv-architecture-source-image"/g) || []).length !== 1) {
+  throw new Error("overview architecture image count mismatch");
+}
 const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.svg";
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
