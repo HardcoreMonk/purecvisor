@@ -148,13 +148,32 @@ const menus = isEnglish
   } from "../scripts/architecture-interactions.js";
 
   const groups = Array.from(document.querySelectorAll(".pcv-nav-group"));
+  const navCloseDelayMs = 160;
+  const navCloseTimers = new WeakMap();
+
+  function cancelGroupClose(group) {
+    const timer = navCloseTimers.get(group);
+    if (timer === undefined) return;
+    window.clearTimeout(timer);
+    navCloseTimers.delete(group);
+  }
 
   function setGroupOpen(group, open) {
+    cancelGroupClose(group);
     const trigger = group.querySelector(".pcv-nav-trigger");
     const menu = group.querySelector(".pcv-nav-menu");
     if (!(trigger instanceof HTMLButtonElement) || !(menu instanceof HTMLElement)) return;
     trigger.setAttribute("aria-expanded", open ? "true" : "false");
     menu.hidden = !open;
+  }
+
+  function scheduleGroupClose(group) {
+    cancelGroupClose(group);
+    const timer = window.setTimeout(() => {
+      navCloseTimers.delete(group);
+      setGroupOpen(group, false);
+    }, navCloseDelayMs);
+    navCloseTimers.set(group, timer);
   }
 
   function closeGroups(except) {
@@ -173,7 +192,7 @@ const menus = isEnglish
       closeGroups(group);
       setGroupOpen(group, true);
     });
-    group.addEventListener("pointerleave", () => setGroupOpen(group, false));
+    group.addEventListener("pointerleave", () => scheduleGroupClose(group));
     group.addEventListener("focusin", () => {
       if (restoringFocus) return;
       closeGroups(group);
@@ -291,6 +310,21 @@ const menus = isEnglish
 
     .pcv-nav-group {
       position: relative;
+    }
+
+    .pcv-nav-group::after {
+      position: absolute;
+      top: 100%;
+      left: 0;
+      width: max(100%, 13.5rem);
+      height: 0.45rem;
+      content: "";
+      pointer-events: none;
+    }
+
+    .pcv-nav-group:hover::after,
+    .pcv-nav-group:focus-within::after {
+      pointer-events: auto;
     }
 
     .pcv-nav-trigger {

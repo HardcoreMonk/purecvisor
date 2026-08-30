@@ -424,6 +424,23 @@ if (/nginx/i.test(directArchitectureSource)) {
 }
 
 for (const marker of [
+  "const navCloseDelayMs = 160;",
+  "const navCloseTimers = new WeakMap();",
+  "function scheduleGroupClose(group)",
+  'group.addEventListener("pointerleave", () => scheduleGroupClose(group))',
+  ".pcv-nav-group::after",
+  "width: max(100%, 13.5rem);",
+  "height: 0.45rem;",
+  ".pcv-nav-group:hover::after",
+  ".pcv-nav-group:focus-within::after",
+  "pointer-events: auto;"
+]) {
+  if (!headerComponent.includes(marker)) {
+    throw new Error(`header navigation pointer corridor contract missing: ${marker}`);
+  }
+}
+
+for (const marker of [
   '[data-pcv-architecture-tabs]',
   '[data-pcv-architecture-tab]',
   '[data-pcv-architecture-panel]',
