@@ -48,7 +48,8 @@
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
-> **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요. 이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
+> **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요.<br>
+이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
 
 ### 1.1 PureCVisor란?
 
@@ -70,13 +71,13 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 ### 1.2 아키텍처 개요
 
-`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에
-두고 `GMainLoop`가 전체 수명주기를 소유합니다. 짧은 작업은 이벤트 루프에서 응답을 끝내고,
-긴 작업만 제한된 `GTask` 워커 풀로 보냅니다. 아래 탭에서 실제 TLS 배포 모드를 선택하면
-클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체
-구조를 해당 진입 경계로 확인할 수 있습니다. 기본 선택은 NGINX가 없는 `purecvisorsd` 직접
-HTTPS 모드입니다. 마우스를 사용하는 환경에서는 SVG의 서비스 레이어 또는 컴포넌트에 포인터를
-올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.
+`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고<br>
+`GMainLoop`가 전체 수명주기를 소유합니다.<br>
+짧은 작업은 이벤트 루프에서 응답을 끝내고, 긴 작업만 제한된 `GTask` 워커 풀로 보냅니다.<br>
+아래 탭에서 실제 TLS 배포 모드를 선택하면 클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체 구조를 해당 진입 경계로 확인할 수 있습니다.<br>
+기본 선택은 NGINX가 없는 `purecvisorsd` 직접 HTTPS 모드입니다.<br>
+마우스를 사용하는 환경에서는<br>
+SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.
 
 <section class="pcv-overview-architecture-tabs pcv-architecture-wide" data-pcv-architecture-tabs aria-label="TLS 배포 모드별 PureCVisor Single Edge 아키텍처">
   <div class="pcv-architecture-tablist" role="tablist" aria-label="TLS 배포 모드">
@@ -120,19 +121,24 @@ HTTPS 모드입니다. 마우스를 사용하는 환경에서는 SVG의 서비�
 #### 1.2.1 런타임·접근 경계
 
 - **사용자와 외부 소비자**: Web UI, `pcvctl`, REST API client, 선택형 gRPC client와 Prometheus scraper가 단일 노드에 접근합니다.
-- **기본 HTTPS 모드**: `purecvisorsd`가 외부 `:443`의 REST·WebSocket TLS를 직접 종료합니다. HTTP listener는 loopback 복구 경로로 제한합니다.
-- **선택형 NGINX 외부 종료 모드**: NGINX가 외부 `:443`을 소유하고 `127.0.0.1`의 daemon REST·WebSocket으로 전달합니다. 두 모드가 같은 주소의 `:443`을 동시에 소유하지 않습니다.
+- **기본 HTTPS 모드**: `purecvisorsd`가 외부 `:443`의 REST·WebSocket TLS를 직접 종료합니다.<br>
+HTTP listener는 loopback 복구 경로로 제한합니다.
+- **선택형 NGINX 외부 종료 모드**: NGINX가 외부 `:443`을 소유하고 `127.0.0.1`의 daemon REST·WebSocket으로 전달합니다.<br>
+두 모드가 같은 주소의 `:443`을 동시에 소유하지 않습니다.
 - **부팅 입력**: `daemon.conf`, secret source와 Kernel LSM 목록이 bootstrap 정책, transport, BPF 준비 상태를 결정합니다.
-- **프로세스 내부 transport**: root 전용 UDS JSON-RPC, libsoup3 REST, 기본 비활성인 선택형 gRPC와 WebSocket event channel은 별도 서비스가 아니라 `purecvisorsd` 내부 진입점입니다. 선택형 외부 종료 모드의 NGINX만 별도 프로세스입니다.
+- **프로세스 내부 transport**: root 전용 UDS JSON-RPC, libsoup3 REST, 기본 비활성인 선택형 gRPC와 WebSocket event channel은 별도 서비스가 아니라 `purecvisorsd` 내부 진입점입니다.<br>
+선택형 외부 종료 모드의 NGINX만 별도 프로세스입니다.
 
 #### 1.2.2 요청·권한·완료 흐름
 
-1. `pcvctl`은 로컬 UDS로, Web UI와 REST client는 선택한 HTTPS 모드로 요청합니다. 선택형 gRPC는 token과 고정 caller role을 검증한 뒤 같은 RPC 정책으로 수렴합니다.
+1. `pcvctl`은 로컬 UDS로, Web UI와 REST client는 선택한 HTTPS 모드로 요청합니다.<br>
+선택형 gRPC는 token과 고정 caller role을 검증한 뒤 같은 RPC 정책으로 수렴합니다.
 2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.
 3. dispatcher는 `GHashTable`에서 O(1)로 도메인 핸들러를 찾아 검증된 요청만 전달합니다.
 4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.
 5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.
-6. worker callback이 실제 결과를 `pcv_jobs.db`, `pcv_audit.db`와 WebSocket 완료 이벤트에 기록합니다. 클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
+6. worker callback이 실제 결과를 `pcv_jobs.db`, `pcv_audit.db`와 WebSocket 완료 이벤트에 기록합니다.<br>
+클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
 
 #### 1.2.3 서비스 도메인
 
@@ -143,9 +149,9 @@ HTTPS 모드입니다. 마우스를 사용하는 환경에서는 SVG의 서비�
 - **Monitoring Source**: systemd service catalog, immutable cache와 availability writer
 - **Operations**: telemetry, alert, Web Push, AI healing과 plugin
 
-Monitoring Source request handler는 immutable cache만 읽습니다. background collector와 단일
-writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로, 요청
-handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
+Monitoring Source request handler는 immutable cache만 읽습니다.<br>
+background collector와 단일 writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로,<br>
+요청 handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
 
 #### 1.2.4 영속 상태와 호스트 통합
 
@@ -161,16 +167,15 @@ PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 10개와 �
 - **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
 - **Acceleration**: GPU, SR-IOV와 선택형 DPDK
 
-SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, bridge, nftables,
-OVS·OVN과 bpffs의 actual state를 대신하지 않습니다. DB 사이의 분산 트랜잭션이나 노드 간
-복제도 제공하지 않으므로, 재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를
-함께 확인해야 합니다. DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을
-바꾸지 않는 audit-only 경계입니다.
+SQLite는 의도, 작업 상태와 증거를 보존하지만<br>
+libvirt domain, ZFS dataset, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
+DB 사이의 분산 트랜잭션이나 노드 간 복제도 제공하지 않으므로,<br>
+재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를 함께 확인해야 합니다.<br>
+DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을 바꾸지 않는 audit-only 경계입니다.
 
 #### 1.2.5 Single Edge 경계와 상세 문서
 
-이 구조는 독립 Linux/KVM 노드 하나와 `purecvisorsd` 제어면 하나만 설명합니다. 클러스터
-자동화, 라이브 마이그레이션, 페더레이션과 Multi Edge 전용 제어면은 포함하지 않습니다.
+이 구조는 독립 Linux/KVM 노드 하나와 `purecvisorsd` 제어면 하나만 설명합니다.
 
 - SQLite 파일별 책임, schema, 일관성·백업·복구 경계: [데이터베이스 아키텍처](/ko/development/database-architecture/)
 - TLS 모드와 설치 절차: [설치 및 환경 구성](/ko/getting-started/installation/#tls-배포-모드-선택-purecvisorsd-자체-https-또는-선택형-nginx-외부-tls-종료)
@@ -195,7 +200,9 @@ OVS·OVN과 bpffs의 actual state를 대신하지 않습니다. DB 사이의 분
 
 #### 1.2.7 설계 결정 빠른 보기
 
-운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다. 통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며, 설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
+운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다.<br>
+통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며,<br>
+설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
 
 | 설계 결정 | 먼저 봐야 하는 상황 | 현재 Single Edge 결론 |
 |-----------|--------------------|-----------------------|
