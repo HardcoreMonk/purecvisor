@@ -1,7 +1,7 @@
 # 시작하기 아키텍처 연결 흐름 롤오버 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** PASS — 구현·로컬 검증 완료, Pages 배포 대기
+> **판정:** LIVE-PASS — GitHub Pages와 custom domain 검증 완료
 > **승인:** 2026-08-30 사용자 명시 승인
 > **대상:** `/ko/getting-started/overview/#12-아키텍처-개요`
 > **관련 리뷰:** `2026-08-30-overview-architecture-completeness.md`,
@@ -155,5 +155,25 @@ Astro production preview와 headless Chromium으로 1920×1080, 1280×900, 390×
 `f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7`, NGINX 포함 full SVG는
 `f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b`로 기존 checksum gate와 같다.
 
-Pages 배포 뒤 custom domain에서 같은 topology·motion·fallback·접근성 계약을 다시 확인하고 이 판정을
-`LIVE-PASS`로 승격한다.
+### 6.4 Pages 배포 검증
+
+- source commit: `1e38eaf051508db41236921e4009b767438997bc`
+- GitHub Actions: [`pages` run 33291113150](https://github.com/HardcoreMonk/purecvisor/actions/runs/33291113150)
+  — build 21초, deploy 10초, 두 job 모두 PASS
+- live 대상: `https://purecvisor.site/ko/getting-started/overview/#12-아키텍처-개요`
+
+custom domain에서 로컬과 같은 Chromium 시나리오를 다시 실행했다. direct topology 31/40/8,
+NGINX topology 32/41/9, 전체 duplicate ID 0을 확인했다. `workloadDomain`의 연결선 4개에서 120ms
+사이 dash offset이 `5.7172` 이동했고, `domains` layer의 member 6·edge 25·node 16과 `nginx`의
+edge 5·node 6이 일치했다. 1280·390px overflow 0, touch 정적 상태, reduced-motion animation
+`none`, JavaScript 비활성 `<img>` 2개 fallback, Axe WCAG A/AA 위반 0, console·page·request 오류
+0이었다.
+
+| live 캡처 | SHA-256 |
+|---|---|
+| `after-desktop-component.png` | `18c786e9d988735de1f79e3d86dfd251e83a0e4efafa1fac6820c90da7daa8e2` |
+| `after-desktop-layer.png` | `0e266b8d09f97fd7772d86130d32f4efbfdcdcf1444d92f17038ade4a01974f5` |
+| `after-desktop-nginx.png` | `104602d2550ac16a98923938a4b131f8ee8f98513def5e841279a6f8476a7ca1` |
+| `after-desktop-reduced-motion.png` | `6556e37b4555e0282a60ea47e86a920efe9d74bbb0809d23283acff30265ff52` |
+| `after-desktop-dark-component.png` | `898dd8a1d96e0617c447a2a70f124dcded32fa322243cabdf59d053141472704` |
+| `after-mobile-static.png` | `a1e0e0432d8576b96337e990c26031d937e5368365e1db4613c8179fb2a2b4d5` |
