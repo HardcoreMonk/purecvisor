@@ -10,6 +10,10 @@ import {
   readerDocuments,
   supplementalDocuments
 } from "./guide-routes.mjs";
+import {
+  architectureLayerNodeIds,
+  resolveArchitectureEdge
+} from "../src/scripts/architecture-interactions.js";
 
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
@@ -96,6 +100,10 @@ const overview = await readFile(
 );
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 const headerComponent = await readFile(path.join(siteRoot, "src", "components", "Header.astro"), "utf8");
+const architectureInteractions = await readFile(
+  path.join(siteRoot, "src", "scripts", "architecture-interactions.js"),
+  "utf8"
+);
 const directArchitectureSource = await readFile(
   path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-direct-https-architecture.mmd"),
   "utf8"
@@ -152,8 +160,12 @@ for (const marker of [
   'id="pcv-overview-architecture-direct-title"',
   'id="pcv-overview-architecture-nginx-title"',
   'class="pcv-overview-architecture-image pcv-architecture-source-image"',
+  'data-pcv-architecture-interactive="direct"',
+  'data-pcv-architecture-interactive="nginx"',
   'href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg"',
   'href="/assets/diagrams/purecvisor-single-full-architecture.svg"',
+  "서비스 레이어 또는 컴포넌트에 포인터를",
+  "직접 연결된 화살표의 흐름을 강조할 수 있습니다.",
   "기본 · NGINX 없음",
   "선택형 · host-loopback",
   "1.2.1 런타임·접근 경계",
@@ -190,12 +202,42 @@ for (const marker of [
 if ((overview.match(/class="pcv-overview-architecture-image pcv-architecture-source-image"/g) || []).length !== 2) {
   throw new Error("overview architecture image count mismatch");
 }
+if ((overview.match(/data-pcv-architecture-interactive=/g) || []).length !== 2) {
+  throw new Error("overview interactive architecture count mismatch");
+}
 if ((overview.match(/role="tab"/g) || []).length !== 2 || (overview.match(/role="tabpanel"/g) || []).length !== 2) {
   throw new Error("overview architecture tab count mismatch");
 }
+
+function validateInteractiveArchitectureTopology(name, source) {
+  const nodeIds = new Set(
+    [...source.matchAll(/<g class="node[^"]*" id="my-svg-flowchart-([^"]+)-[0-9]+"/g)]
+      .map((match) => match[1])
+  );
+  const edgeIds = [...source.matchAll(/<path\b[^>]*\bdata-edge="true"[^>]*\bdata-id="(L_[^"]+)"/g)]
+    .map((match) => match[1]);
+  const layerIds = [...source.matchAll(/<g class="cluster" id="my-svg-([^"]+)"/g)]
+    .map((match) => match[1]);
+  if (nodeIds.size === 0 || edgeIds.length === 0 || layerIds.length === 0) {
+    throw new Error(`${name} interactive topology is empty`);
+  }
+  for (const edgeId of edgeIds) {
+    if (!resolveArchitectureEdge(edgeId, nodeIds)) {
+      throw new Error(`${name} interactive edge cannot be resolved: ${edgeId}`);
+    }
+  }
+  for (const layerId of layerIds) {
+    const members = architectureLayerNodeIds[layerId];
+    if (!members || !members.some((nodeId) => nodeIds.has(nodeId))) {
+      throw new Error(`${name} interactive layer cannot be resolved: ${layerId}`);
+    }
+  }
+}
+
 const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.svg";
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
+validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
 if (architectureSvgHash !== "f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
@@ -257,6 +299,7 @@ for (const marker of [
 const directArchitectureAsset = "/assets/diagrams/purecvisor-single-direct-https-architecture.svg";
 const directArchitectureSvg = await readFile(path.join(distRoot, directArchitectureAsset));
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
+validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
 if (directArchitectureSvgHash !== "f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
@@ -366,10 +409,31 @@ for (const marker of [
   'event.key === "Home"',
   'event.key === "End"',
   "event.preventDefault()",
-  "nextTab.focus()"
+  "nextTab.focus()",
+  "enhanceArchitecturePanel",
+  "resetArchitecturePanel",
+  "initialPanel"
 ]) {
   if (!headerComponent.includes(marker)) {
     throw new Error(`overview architecture tab interaction missing: ${marker}`);
+  }
+}
+for (const marker of [
+  "new DOMParser()",
+  '"image/svg+xml"',
+  'svg.querySelector("script, foreignObject")',
+  "/^(?:href|xlink:href)$/i",
+  "namespaceSvg",
+  "resolveArchitectureEdge",
+  "architectureLayerNodeIds",
+  '"pcv-is-related-edge"',
+  '"pointerover"',
+  'event.pointerType === "touch"',
+  'canvas.dataset.pcvArchitectureState = "fallback"',
+  'svg.setAttribute("aria-hidden", "true")'
+]) {
+  if (!architectureInteractions.includes(marker)) {
+    throw new Error(`overview architecture rollover interaction missing: ${marker}`);
   }
 }
 const koreanHeroTitle = "하나의 Linux/KVM 노드, 하나의 제어면.";
@@ -583,8 +647,19 @@ for (const interactionContract of [
   ".pcv-architecture-source-canvas:focus-visible",
   '.pcv-architecture-tab:not([aria-selected="true"]):hover',
   ".pcv-architecture-tab:focus-visible",
+  "@keyframes pcv-architecture-flow",
+  "--pcv-architecture-flow: #12627a;",
+  ".pcv-architecture-inline [data-pcv-node-id]",
+  ".pcv-architecture-inline [data-pcv-layer-id]",
+  ".pcv-architecture-inline.pcv-is-inspecting .node:not(.pcv-is-related-node)",
+  ".pcv-architecture-inline.pcv-is-inspecting .flowchart-link:not(.pcv-is-related-edge)",
+  ".pcv-architecture-inline .flowchart-link.pcv-is-related-edge",
+  "stroke: var(--pcv-architecture-flow) !important;",
+  "animation: pcv-architecture-flow 560ms linear infinite;",
+  ".pcv-architecture-inline marker .arrowMarkerPath",
   "@media (prefers-reduced-motion: reduce)",
-  "animation-iteration-count: 1 !important"
+  "animation-iteration-count: 1 !important",
+  "animation: none !important;"
 ]) {
   if (!landingStyles.includes(interactionContract)) {
     throw new Error(`source architecture interaction contract missing: ${interactionContract}`);

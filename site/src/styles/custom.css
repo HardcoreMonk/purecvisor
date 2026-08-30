@@ -171,6 +171,7 @@ button:focus-visible {
   --pcv-map-signal: #12627a;
   --pcv-map-signal-strong: #0a3c4c;
   --pcv-map-signal-soft: #e6f0f3;
+  --pcv-architecture-flow: #12627a;
   --pcv-layer-clients: #e7f3ff;
   --pcv-layer-clients-line: #3a78b8;
   --pcv-layer-config: #ffebd8;
@@ -554,6 +555,71 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   background: #f8fafc;
 }
 
+@keyframes pcv-architecture-flow {
+  from {
+    stroke-dashoffset: 24;
+  }
+
+  to {
+    stroke-dashoffset: 0;
+  }
+}
+
+.pcv-architecture-inline [data-pcv-node-id],
+.pcv-architecture-inline [data-pcv-layer-id] {
+  cursor: pointer;
+  transition: opacity 120ms ease-out, filter 120ms ease-out;
+}
+
+.pcv-architecture-inline .flowchart-link,
+.pcv-architecture-inline .edgeLabel {
+  pointer-events: none;
+  transition: opacity 120ms ease-out;
+}
+
+.pcv-architecture-inline.pcv-is-inspecting .node:not(.pcv-is-related-node) {
+  opacity: 0.28;
+}
+
+.pcv-architecture-inline.pcv-is-inspecting .flowchart-link:not(.pcv-is-related-edge) {
+  opacity: 0.12;
+}
+
+.pcv-architecture-inline.pcv-is-inspecting .edgeLabel:not(.pcv-is-related-edge-label) {
+  opacity: 0.16;
+}
+
+.pcv-architecture-inline .pcv-is-related-node,
+.pcv-architecture-inline .pcv-is-related-edge-label {
+  opacity: 1;
+}
+
+.pcv-architecture-inline .node.pcv-is-active-target {
+  filter: drop-shadow(0 0 0.2rem rgb(18 98 122 / 35%));
+}
+
+.pcv-architecture-inline .cluster.pcv-is-active-target > rect {
+  stroke-width: 3px !important;
+}
+
+.pcv-architecture-inline .flowchart-link.pcv-is-related-edge {
+  opacity: 1;
+  stroke: var(--pcv-architecture-flow) !important;
+  stroke-width: 3px !important;
+  stroke-dasharray: 12 8 !important;
+  stroke-linecap: round;
+  animation: pcv-architecture-flow 560ms linear infinite;
+}
+
+.pcv-architecture-inline .flowchart-link.pcv-is-related-edge.edge-pattern-dotted {
+  stroke-dasharray: 4 7 !important;
+}
+
+.pcv-architecture-inline marker .arrowMarkerPath {
+  fill: context-stroke !important;
+  stroke: context-stroke !important;
+}
+
 .pcv-architecture-source-note {
   margin: 0 !important;
   padding: 0.75rem 1rem;
@@ -708,5 +774,17 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     animation-iteration-count: 1 !important;
     scroll-behavior: auto !important;
     transition-duration: 0.01ms !important;
+  }
+
+  .pcv-architecture-inline *,
+  .pcv-architecture-inline *::before,
+  .pcv-architecture-inline *::after {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+
+  .pcv-architecture-inline .flowchart-link.pcv-is-related-edge {
+    animation: none !important;
   }
 }

@@ -93,9 +93,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - Hero와 figure shell은 Starlight의 `data-theme` 계약을 따른다. SVG는 밝은 중립 canvas에서 현재
   콘텐츠 폭에 맞춰 전체를 표시하고 제한 높이·고정 90rem·내부 양방향 scroll을 사용하지 않는다.
   다이어그램 전체와 별도 `확대해서 보기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
-- figure는 설명 media 역할의 32px radius를 유지한다. `<img>`에는 intrinsic width·height와 현재
-  언어의 전체 구조 alt를 제공하며, 전체 SVG link에는 언어별 accessible name을 제공한다. 기존
-  code-native domain selector, guide node link, 경로 animation과 전용 JavaScript는 사용하지 않는다.
+- Hero figure는 설명 media 역할의 32px radius를 유지한다. `<img>`에는 intrinsic width·height와
+  현재 언어의 전체 구조 alt를 제공하며, 전체 SVG link에는 언어별 accessible name을 제공한다.
+  landing에는 code-native domain selector, guide node link, 경로 animation과 전용 JavaScript를
+  사용하지 않는다.
 - 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
@@ -118,6 +119,16 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
   좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,
   390px에서도 40px 이상 target과 page-level 무가로 overflow를 유지한다.
+- overview의 두 SVG는 정적 `<img>`와 확대 link를 fallback으로 먼저 제공한 뒤 same-origin asset을
+  안전하게 inline으로 전환한다. Mermaid node·cluster·edge ID에서 컴포넌트와 레이어의 직접 연결을
+  계산하고, 정밀 pointer rollover 동안 관련 node·label·화살표만 강조한다. 활성 edge의 dash는
+  기존 arrow marker 방향을 보조하며 상시 자동 재생하지 않는다. 두 SVG의 DOM ID와 내부 reference,
+  Mermaid keyframe 이름은 instance별 namespace로 분리한다.
+- inline 변환은 `<script>`, `<foreignObject>`, event handler, link와 외부 CSS resource를 거부한다.
+  fetch·parse·topology 확인이 실패하면 원래 `<img>`를 그대로 유지한다. touch pointer는 정적 map과
+  확대 link를 사용하고 `prefers-reduced-motion: reduce`에서는 이동 animation 없이 색·두께·opacity
+  강조만 유지한다. hover로만 새로운 필수 설명을 제공하거나 SVG 내부 node를 대량 keyboard tab
+  stop으로 만들지 않는다.
 - reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 50rem,
   표와 code block은 기본 50rem에서 콘텐츠가 요구하는 만큼 최대 60rem까지 적응형으로
   확장한다. H1~H6, 본문, 표와 code는 공통 좌측 읽기 축을 유지하고 아키텍처 figure만 최대
@@ -146,7 +157,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-30-public-documentation-content-widths.md`, 공통 읽기 축 재조정은
   `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 시작하기의 전체 아키텍처
   보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`, TLS 모드별 SVG와 탭은
-  `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`를 따른다.
+  `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`, node·레이어 연결 흐름 롤오버는
+  `docs/ui-reviews/2026-08-30-overview-architecture-rollover-flow.md`를 따른다.
 
 ## 배포 흐름
 
@@ -212,7 +224,8 @@ landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내�
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token,
 32px figure, SVG 파일·구조 hash, 7개 layer 색상·의미 범례, 폭 맞춤 image와 내부 scroll container
-부재, 일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
+부재, overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping·reduced-motion,
+일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 22개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,

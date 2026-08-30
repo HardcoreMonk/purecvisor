@@ -142,6 +142,11 @@ const menus = isEnglish
 </div>
 
 <script>
+  import {
+    enhanceArchitecturePanel,
+    resetArchitecturePanel
+  } from "../scripts/architecture-interactions.js";
+
   const groups = Array.from(document.querySelectorAll(".pcv-nav-group"));
 
   function setGroupOpen(group, open) {
@@ -229,9 +234,18 @@ const menus = isEnglish
         tab.setAttribute("aria-selected", selected ? "true" : "false");
         tab.setAttribute("tabindex", selected ? "0" : "-1");
       }
-      for (const panel of panels) panel.hidden = panel.id !== nextPanelId;
+      let nextPanel;
+      for (const panel of panels) {
+        resetArchitecturePanel(panel);
+        panel.hidden = panel.id !== nextPanelId;
+        if (!panel.hidden) nextPanel = panel;
+      }
+      if (nextPanel) void enhanceArchitecturePanel(nextPanel);
       if (moveFocus) nextTab.focus();
     }
+
+    const initialPanel = panels.find((panel) => !panel.hidden);
+    if (initialPanel) void enhanceArchitecturePanel(initialPanel);
 
     tabs.forEach((tab, index) => {
       tab.addEventListener("click", () => activateArchitectureTab(tab));
