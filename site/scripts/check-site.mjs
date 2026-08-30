@@ -909,7 +909,9 @@ for (const headingContract of [
   '<h3 id="공통-런타임-의존성-사용-기능별">공통 런타임 의존성 (사용 기능별)</h3>',
   '<h4 id="ovn-single-edge-구성">OVN Single Edge 구성</h4>',
   '<h4 id="iscsi-런타임">iSCSI 런타임</h4>',
-  '<h4 id="소스-배포의-lio-모듈-설정">소스 배포의 LIO 모듈 설정</h4>'
+  '<h4 id="소스-배포의-lio-모듈-설정">소스 배포의 LIO 모듈 설정</h4>',
+  '<h4 id="zfs를-사용하지-않는-구성">ZFS를 사용하지 않는 구성</h4>',
+  '<h4 id="zfs-기능을-사용하는-구성">ZFS 기능을 사용하는 구성</h4>'
 ]) {
   if (!installation.includes(headingContract)) {
     throw new Error(`installation hierarchy contract missing: ${headingContract}`);
@@ -930,6 +932,9 @@ for (const marker of [
   "두 명령을 모두 실행하지 말고",
   "--encap-ip",
   "--verify-only",
+  "ZFS는 선택형 런타임입니다",
+  "ZFS volume은 서비스 시작의 필수 조건이 아닙니다.",
+  "command -v qemu-img",
   "rpool/data/purecvisor/vms",
   "로컬 Single Edge 배포",
   "TLS 배포 모드 선택",

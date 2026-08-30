@@ -535,6 +535,13 @@ sudo apt update && sudo apt install -y \
 OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
 일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
+> **ZFS는 선택형 런타임입니다**
+>
+> PureCVisor 데몬과 Web UI, REST API, CLI는 `zvol_pool`이나 ZFS volume이 없어도 시작하고 동작합니다.
+> VM 생성 요청에서 `storage_type`을 생략하면 설정된 ZFS dataset을 먼저 확인하고, 사용할 수 없으면 `[storage] image_dir`에 qcow2 파일 디스크를 생성합니다.
+> ZFS를 사용하지 않는 노드는 `zfsutils-linux`를 생략할 수 있지만 `image_dir`이 존재하고 쓰기 가능해야 하며 `qemu-img`를 사용할 수 있어야 합니다.
+> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 현재 ZFS dataset을 사용하는 LXC 경로에는 ZFS가 필요합니다.
+
 ```bash
 # 일반 VM 복제의 Guest reset
 sudo apt install -y libguestfs-tools
@@ -542,7 +549,7 @@ sudo apt install -y libguestfs-tools
 # LXC 컨테이너
 sudo apt install -y lxc lxc-utils
 
-# ZFS 스토리지
+# 선택: ZFS zvol·snapshot·backup 또는 LXC를 사용하는 경우
 sudo apt install -y zfsutils-linux
 
 # OVS 오버레이 네트워크
@@ -724,8 +731,31 @@ sudo install -d -m 0750 /var/log/purecvisor
 
 #### 스토리지 경로 확정
 
-`zvol_pool`은 실제로 존재하는 ZFS dataset을 지정해야 합니다.
-sample의 `pcvpool/vms`가 없는 상태를 그대로 두면 VM 생성은 `/var/lib/libvirt/images`의 qcow2로 폴백할 수 있지만 ZFS snapshot·backup 기능은 같은 기준으로 동작하지 않습니다.
+##### ZFS를 사용하지 않는 구성
+
+ZFS volume은 서비스 시작의 필수 조건이 아닙니다.
+ZFS를 사용하지 않는 노드는 `image_dir`을 준비하고 VM 생성 시 `storage_type=qcow2` 또는 `raw`를 지정하거나 자동 감지를 사용합니다.
+
+```bash
+sudo install -d -m 0711 /var/lib/libvirt/images
+sudo test -d /var/lib/libvirt/images
+sudo test -w /var/lib/libvirt/images
+command -v qemu-img
+```
+
+```ini
+[storage]
+image_dir = /var/lib/libvirt/images
+iso_dirs = /data/iso,/var/lib/libvirt/images
+```
+
+자동 감지에서 `zvol_pool`을 찾지 못하면 `image_dir`에 qcow2 디스크를 생성합니다.
+`storage_type=zvol`을 명시하면 폴백하지 않고 지정한 ZFS 부모 dataset이 없다는 오류로 요청을 종료합니다.
+따라서 ZFS 미사용 노드에서는 VM file disk를 사용할 수 있지만 ZFS snapshot·rollback·send/receive backup과 현재 LXC 생성 경로는 사용할 수 없습니다.
+
+##### ZFS 기능을 사용하는 구성
+
+ZFS 기능을 사용하는 경우에만 `zvol_pool`에 실제로 존재하는 ZFS dataset을 지정합니다.
 설치 전에 ZFS zvol 또는 file image 중 주 저장 방식을 결정하고 설정과 실제 경로를 일치시킵니다.
 
 Ubuntu가 `rpool` 단일 NVMe에 설치된 검증 노드는 새 설치일 때만 다음 전용 dataset을 만들 수 있습니다.
