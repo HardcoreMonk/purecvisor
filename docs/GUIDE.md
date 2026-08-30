@@ -53,7 +53,8 @@
 ### 1.1 PureCVisor란?
 
 PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다.<br>
-단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
+단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며,<br>
+VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 **핵심 특징:**
 

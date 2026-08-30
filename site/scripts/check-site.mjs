@@ -129,9 +129,10 @@ if (!overview.includes(releaseSummaryLineBreakContract)) {
   throw new Error("release summary three-line contract missing");
 }
 const productSummaryLineBreakContract = `PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다.<br>
-단일 프로세스 데몬 <code dir="auto">purecvisorsd</code>가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.`;
+단일 프로세스 데몬 <code dir="auto">purecvisorsd</code>가 fork 없이 GMainLoop 이벤트 루프로 동작하며,<br>
+VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.`;
 if (!overview.includes(productSummaryLineBreakContract)) {
-  throw new Error("product summary sentence line-break contract missing");
+  throw new Error("product summary three-line contract missing");
 }
 const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.svg";
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
