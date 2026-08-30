@@ -378,7 +378,7 @@ VM 데이터 사용률은 80% 아래로 유지하고, snapshot과 같은 pool에
 이 방식은 host에서 주소를 중복 선언하지 않으면서 서비스 주소를 고정합니다.
 router reservation을 사용할 수 없을 때만 아래 정적 Netplan 절차를 사용합니다.
 
-### 2.2 패키지 설치
+### 2.2 솔루션 설치
 
 #### 26.04 host 기본 준비
 
@@ -528,20 +528,46 @@ sudo apt update && sudo apt install -y \
 > **운영 필수**: `libguestfs-tools`는 일반 VM 복제의 Guest reset 경로에 필요하다.<br>
 이 패키지가 없으면 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없어 `guest_reset=true` clone이 preflight에서 거부된다.
 
-##### 런타임 의존성 (Single Edge/오버레이)
+#### 공통 런타임 의존성 (사용 기능별)
+
+이 절의 런타임 구성은 `.deb` 패키지와 소스 빌드에 공통으로 적용합니다.
+`.deb` 설치에서는 libvirt, QEMU, dnsmasq-base, nftables와 iproute2를 package `Depends`로 자동 설치합니다.
+OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
+일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
 ```bash
+# 일반 VM 복제의 Guest reset
+sudo apt install -y libguestfs-tools
+
+# LXC 컨테이너
+sudo apt install -y lxc lxc-utils
+
+# ZFS 스토리지
+sudo apt install -y zfsutils-linux
+
 # OVS 오버레이 네트워크
 sudo apt install -y openvswitch-switch
 
-# OVN Single Edge — central(NB/SB/northd)과 host(controller)를 같은 노드에 구축
+# OVN Single Edge — 아래 두 경로 중 설치 방식에 맞는 한쪽만 실행
+# .deb 패키지로 설치한 경우
+sudo purecvisor-ovn-single
+sudo purecvisor-ovn-single --verify-only
+
+# 소스 checkout에서 설치한 경우
 sudo scripts/install-ovn-single.sh
 sudo scripts/install-ovn-single.sh --verify-only
 
 # iSCSI 스토리지 — 이니시에이터(클라이언트)만 패키지가 필요하다.
 # 타겟(서버) 측은 D4 전환으로 커널 LIO(configfs)를 직접 쓰므로 `tgt` 패키지가 **불요**하다.
 sudo apt install -y open-iscsi
+```
 
+##### 소스 배포의 LIO 모듈 설정
+
+`.deb` 패키지는 `/etc/modules-load.d/purecvisor-lio.conf`를 conffile로 설치합니다.
+소스 빌드 결과를 직접 배포하는 경우에만 다음 파일을 수동으로 배치합니다.
+
+```bash
 # iSCSI 타겟용 커널 모듈 로드 — deb 를 설치했다면 이미 깔려 있다(conffile).
 # 아래 블록은 deb 를 쓰지 않는 배포(소스 빌드 + scp)에서만 필요하다.
 # ⚠ 모듈명 행에 주석을 붙이지 말 것 — modules-load.d(5) 는 행 전체를 모듈명으로

@@ -904,6 +904,18 @@ const installation = await readFile(
 if (!installation.includes("2.1 솔루션 권장사항") || installation.includes("fetch(")) {
   throw new Error("installation body is not statically rendered");
 }
+for (const headingContract of [
+  '<h2 id="22-솔루션-설치">2.2 솔루션 설치</h2>',
+  '<h3 id="공통-런타임-의존성-사용-기능별">공통 런타임 의존성 (사용 기능별)</h3>',
+  '<h4 id="소스-배포의-lio-모듈-설정">소스 배포의 LIO 모듈 설정</h4>'
+]) {
+  if (!installation.includes(headingContract)) {
+    throw new Error(`installation hierarchy contract missing: ${headingContract}`);
+  }
+}
+if (installation.includes("2.2 패키지 설치")) {
+  throw new Error("legacy installation section title remained");
+}
 if (!installation.includes("한 번에 설치합니다.<br>")) {
   throw new Error("installation automatic sentence break missing");
 }
@@ -912,6 +924,7 @@ for (const marker of [
   "unused-management-ipv4",
   "configured-management-ipv4",
   "qemu-system-x86",
+  "purecvisor-ovn-single",
   "rpool/data/purecvisor/vms",
   "로컬 Single Edge 배포",
   "TLS 배포 모드 선택",
