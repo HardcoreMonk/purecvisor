@@ -33,7 +33,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`, `site/**`와
   workflow 자체를 포함해 두 작성 정본 중 어느 하나만 바뀌어도 재배포한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action을 간결한 Hero로
-  제공한 뒤 8개 그룹·23개 문서의 `문서 살펴보기` 맵을 이어서 제공한다. 상세 아키텍처와 문서
+  제공한 뒤 8개 그룹·22개 문서의 `문서 살펴보기` 맵을 이어서 제공한다. 상세 아키텍처와 문서
   본문 탐색은 문서 reader가 소유한다.
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
@@ -50,8 +50,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
 - `site/src/components/DocumentationMap.astro`는 `site/scripts/guide-routes.mjs`의
-  `readerDocuments`에서 8개 그룹·23개 정본 route를 생성한다. root·`/ko/`·`/en/` landing source는
-  이 컴포넌트를 호출하며 route 목록을 별도로 복제하지 않는다.
+  `landingDocuments`에서 8개 그룹·22개 정본 route를 생성한다. `landingDocuments`는 23개 reader
+  문서 중 `멀티 제어면 참고 기록`을 landing 목록에서 제외하며 원문 page와 reader navigation은
+  유지한다. root·`/ko/`·`/en/` landing source는 이 컴포넌트를 호출하며 route 목록을 별도로
+  복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
 - 데이터베이스 공개본에는 실제 운영 노드 식별자, 비공개 인계 링크와 비공개 commit 식별자를
@@ -97,7 +99,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - Hero는 Starlight의 `data-theme` 계약을 따르며 별도 media shell이나 빈 placeholder를 만들지 않는다.
   landing에는 code-native domain selector, guide node link, SVG 경로 animation과 전용
   JavaScript를 사용하지 않는다.
-- `문서 살펴보기`는 soft-gray band 안의 단일 surface에서 8개 그룹·23개 문서를 모두 노출한다.
+- `문서 살펴보기`는 soft-gray band 안의 단일 surface에서 8개 그룹·22개 문서를 노출한다.
   각 그룹은 번호·H3·단순 링크 목록으로 구성하고 개별 카드, 그림자, 장식 아이콘과 별도 최종 CTA는
   두지 않는다. 64rem 초과는 4열, 40~64rem은 2열, 40rem 이하는 1열로 재배치한다.
 - opencodex.me에서 확인한 서비스 소개 뒤 전체 문서 맵으로 이어지는 정보 계층과 그룹별 단순 링크
@@ -223,7 +225,8 @@ npm run check
 검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 가이드와 1개 데이터베이스
 아키텍처 directory page, 8개 sidebar group, 현재 page, 이전·다음 navigation,
 `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
-landing `문서 살펴보기`의 8개 그룹·23개 정본 link, 최종 CTA 부재, Hero action, 내부 link 무결성,
+landing `문서 살펴보기`의 8개 그룹·22개 정본 link, 제외 항목 부재, 최종 CTA 부재, Hero action,
+내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, 문서 맵 4→2→1열, 44px link target, desktop 범위 문장 한 줄,
 mobile 줄바꿈, light/dark surface token,

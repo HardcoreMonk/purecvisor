@@ -1,5 +1,5 @@
 ---
-import { readerDocuments } from "../../scripts/guide-routes.mjs";
+import { landingDocuments } from "../../scripts/guide-routes.mjs";
 
 interface Props {
   locale?: "ko" | "en";
@@ -26,7 +26,6 @@ const englishDocumentLabels: Record<string, string> = {
   "containers": "Containers",
   "storage": "Storage",
   "networking": "Networking",
-  "multi-control-plane-notes": "Multi-control-plane notes",
   "monitoring-alerts": "Monitoring & alerts",
   "backup-restore": "Backup & restore",
   "security": "Security",
@@ -45,12 +44,12 @@ const englishDocumentLabels: Record<string, string> = {
   "database-architecture": "Database architecture"
 };
 
-const groupNames = [...new Set(readerDocuments.map((document) => document.group))];
+const groupNames = [...new Set(landingDocuments.map((document) => document.group))];
 const groups = groupNames.map((group, index) => ({
   id: `pcv-documentation-group-${index + 1}`,
   index: String(index + 1).padStart(2, "0"),
   label: isEnglish ? englishGroupLabels[group] : group,
-  documents: readerDocuments
+  documents: landingDocuments
     .filter((document) => document.group === group)
     .map((document) => ({
       href: document.path,
@@ -68,7 +67,7 @@ const description = isEnglish
   <div class="pcv-shell">
     <div class="pcv-documentation-heading">
       <div>
-        <p class="pcv-eyebrow">DOCUMENTATION · 23 DOCUMENTS</p>
+        <p class="pcv-eyebrow">DOCUMENTATION · {landingDocuments.length} DOCUMENTS</p>
         <h2 id="pcv-documentation-title">{title}</h2>
       </div>
       <p>{description}</p>

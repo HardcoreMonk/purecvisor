@@ -57,6 +57,10 @@ export const supplementalDocuments = [
 
 export const readerDocuments = [...guideChapters, ...supplementalDocuments];
 
+export const landingDocuments = readerDocuments.filter(
+  (document) => document.slug !== "multi-control-plane-notes"
+);
+
 export const guideGroups = [...new Set(readerDocuments.map((document) => document.group))].map(
   (label) => ({
     label,

@@ -7,6 +7,7 @@ import {
   guideEntryPath,
   guideGroups,
   guidePath,
+  landingDocuments,
   readerDocuments,
   supplementalDocuments
 } from "./guide-routes.mjs";
@@ -504,15 +505,27 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   if (!source.includes('class="pcv-documentation" id="documentation" aria-labelledby="pcv-documentation-title"')) {
     throw new Error(`${name} documentation map accessible name missing`);
   }
+  if (!source.includes(`DOCUMENTATION · ${landingDocuments.length} DOCUMENTS`)) {
+    throw new Error(`${name} documentation map count label mismatch`);
+  }
   if ((source.match(/class="pcv-directory-group"/g) || []).length !== guideGroups.length) {
     throw new Error(`${name} documentation group count mismatch`);
   }
-  if ((source.match(/class="pcv-directory-link"/g) || []).length !== readerDocuments.length) {
+  if ((source.match(/class="pcv-directory-link"/g) || []).length !== landingDocuments.length) {
     throw new Error(`${name} documentation link count mismatch`);
   }
-  for (const document of readerDocuments) {
+  for (const document of landingDocuments) {
     if (!source.includes(`class="pcv-directory-link" href="${document.path}"`)) {
       throw new Error(`${name} documentation link missing: ${document.path}`);
+    }
+  }
+  for (const excludedMarker of [
+    "멀티 제어면 참고 기록",
+    "Multi-control-plane notes",
+    'class="pcv-directory-link" href="/ko/infrastructure/multi-control-plane-notes/"'
+  ]) {
+    if (source.includes(excludedMarker)) {
+      throw new Error(`${name} excluded documentation entry found: ${excludedMarker}`);
     }
   }
 }
