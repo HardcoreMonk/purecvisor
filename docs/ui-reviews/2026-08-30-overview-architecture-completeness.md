@@ -1,7 +1,7 @@
 # 시작하기 아키텍처 개요 완전성 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LOCAL-PASS — 구현·로컬 검증 완료, GitHub Pages 확인 대기
+> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 검증 완료
 > **승인:** 2026-08-30 사용자 명시 승인
 > **대상:** `/ko/getting-started/overview/#12-아키텍처-개요`
 > **관련 리뷰:** `2026-08-24-landing-service-architecture-completion-domains.md`,
@@ -133,5 +133,17 @@ console·page·request 오류와 Axe WCAG A/AA 위반은 0이었다.
 | 1920px light architecture copy | `bc45e2f9f6fee394045b99c441db7491d56fb3984ee079bd64bea78c8345ab07` |
 | 390px light architecture copy | `4b9736d6da9990eeeb7fd3f0cf4991d7d2344e9f6738509865d0009c33175f0d` |
 
-잔여 위험은 GitHub Pages와 custom domain의 artifact 반영 여부뿐이며 배포 뒤 같은 검증을
-반복한다.
+## 9. GitHub Pages·custom domain 검증
+
+구현 commit `181d137169dce5de939e1e1b733160c4e2407c31`의 GitHub Pages run
+[`33284982951`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33284982951)은 build와
+deploy를 모두 성공했다.
+
+`https://purecvisor.site`에서 로컬과 같은 Chromium 152 검증을 반복했다. light·dark 각각
+1920×1080, 1280×900, 390×844에서 크기와 H2/H3 구조가 로컬 결과와 일치했고 page-level
+overflow, console·page·request 오류와 Axe WCAG A/AA 위반은 모두 0이었다. SVG canvas focus,
+accessible name, 원본 link, 과거 anchor alias와 asset HTTP 200 `image/svg+xml`도 유지됐다.
+
+live 캡처의 SHA-256은 위 로컬 6개 hash와 각각 일치했다. 즉 GitHub Pages artifact의 figure와
+architecture copy가 로컬 검증본과 pixel-identical하다. 모든 P0·P1 수용 기준을 충족했으므로
+이 리뷰를 **LIVE-PASS**로 확정한다.

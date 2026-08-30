@@ -132,7 +132,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`,
   reader의 의미 기반 폭 체계는
   `docs/ui-reviews/2026-08-30-public-documentation-content-widths.md`, 공통 읽기 축 재조정은
-  `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`를 따른다.
+  `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 시작하기의 전체 아키텍처
+  보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`를 따른다.
 
 ## 배포 흐름
 
