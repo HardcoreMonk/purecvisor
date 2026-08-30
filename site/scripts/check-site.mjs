@@ -474,7 +474,17 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     "Start with the task you need.",
     "8개 작업 카테고리 · 22개 장",
     "8 task categories and 22 chapters",
-    "RECOMMENDED PATHS"
+    "RECOMMENDED PATHS",
+    "pcv-control-map pcv-architecture-source",
+    "pcv-architecture-map-title",
+    "pcv-architecture-legend",
+    "pcv-architecture-source-canvas",
+    "pcv-architecture-source-image",
+    "purecvisor-single-full-architecture.svg",
+    "Single Edge 서비스 아키텍처",
+    "Single Edge service architecture",
+    "SVG 원본 구조",
+    "Source SVG structure"
   ]) {
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
@@ -483,53 +493,11 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
   const heroCopyPosition = source.indexOf('<div class="pcv-hero-copy">');
-  const architectureMapPosition = source.indexOf('<figure class="pcv-control-map pcv-architecture-source"');
-  if (heroCopyPosition < 0 || architectureMapPosition < 0 || heroCopyPosition >= architectureMapPosition) {
-    throw new Error(`${name} hero copy and architecture order mismatch`);
+  if (heroCopyPosition < 0) {
+    throw new Error(`${name} hero copy missing`);
   }
-  if (!source.includes(`<figure class="pcv-control-map pcv-architecture-source" aria-labelledby="pcv-architecture-map-title">`)) {
-    throw new Error(`${name} source architecture figure missing`);
-  }
-  const mapTitle = name === "english" ? "Single Edge service architecture" : "Single Edge 서비스 아키텍처";
-  if (!source.includes(`id="pcv-architecture-map-title">${mapTitle}</`)) {
-    throw new Error(`${name} architecture map title missing`);
-  }
-  const sourceImage = `<img class="pcv-architecture-source-image" src="${architectureAsset}" width="1849.5234375" height="2798" loading="eager" decoding="async" alt="`;
-  if (!source.includes(sourceImage)) {
-    throw new Error(`${name} source architecture SVG image missing`);
-  }
-  if (!source.includes(`<a class="pcv-architecture-source-open" href="${architectureAsset}" target="_blank" rel="noopener">`)) {
-    throw new Error(`${name} architecture source link missing`);
-  }
-  if (!source.includes(`<a class="pcv-architecture-source-canvas" href="${architectureAsset}" target="_blank" rel="noopener" aria-label="`)) {
-    throw new Error(`${name} fitted architecture canvas link missing`);
-  }
-  if (!source.includes(`<ul class="pcv-architecture-legend" aria-label="`)) {
-    throw new Error(`${name} architecture semantic color legend missing`);
-  }
-  for (const layer of ["clients", "config", "transport", "control", "domain", "persistent", "host"]) {
-    if (!source.includes(`class="pcv-layer-key is-${layer}"`)) {
-      throw new Error(`${name} architecture legend layer missing: ${layer}`);
-    }
-  }
-  if ((source.match(/class="pcv-architecture-source-image"/g) || []).length !== 1) {
-    throw new Error(`${name} architecture source image count mismatch`);
-  }
-  const architectureMap = source.match(/<figure class="pcv-control-map pcv-architecture-source"[\s\S]*?<\/figure>/)?.[0] || "";
-  for (const staleMarker of [
-    "data-active-path",
-    "data-pcv-path-output",
-    "pcv-arch-layer",
-    "pcv-arch-node",
-    "pcv-arch-path-trigger",
-    "aria-pressed",
-    "role=\"toolbar\"",
-    "pcv-architecture-source-viewport",
-    "Multi Edge"
-  ]) {
-    if (architectureMap.includes(staleMarker)) {
-      throw new Error(`${name} stale reconstructed architecture marker found: ${staleMarker}`);
-    }
+  if ((source.match(/<figure\b/g) || []).length !== 0 || (source.match(/<img\b[^>]*\/assets\/diagrams\//g) || []).length !== 0) {
+    throw new Error(`${name} landing architecture media must not be rendered`);
   }
 }
 for (const selector of [
@@ -566,7 +534,10 @@ for (const selector of [
   ".pcv-arch-node",
   ".pcv-arch-path-trigger",
   ".pcv-arch-active-route",
-  ".pcv-architecture-source-viewport"
+  ".pcv-architecture-source-viewport",
+  ".pcv-architecture-legend",
+  ".pcv-layer-key",
+  ".pcv-layer-swatch"
 ]) {
   if (landingStyles.includes(selector)) throw new Error(`retired landing selector found: ${selector}`);
 }
@@ -580,8 +551,6 @@ for (const layoutContract of [
   "grid-template-columns: minmax(0, 1fr);",
   "white-space: nowrap;",
   ".pcv-hero-lead {\n    white-space: normal;",
-  ".pcv-architecture-legend {\n  display: grid;",
-  "grid-template-columns: repeat(7, minmax(0, 1fr));",
   ".pcv-architecture-source-canvas {\n  display: block;",
   ".pcv-architecture-source-image {\n  display: block;\n  width: 100%;",
   "max-width: 100%;"
@@ -607,7 +576,6 @@ for (const [selector, declarations] of [
   [".pcv-control-map", ["border-radius: 2rem;", "font-family: var(--sl-font);"]],
   [".pcv-map-bar", ["font-size: 0.8125rem;", "min-height: 3.5rem;"]],
   [".pcv-architecture-source-open", ["min-height: 2.75rem;", "white-space: nowrap;"]],
-  [".pcv-architecture-legend", ["grid-template-columns: repeat(7, minmax(0, 1fr));", "list-style: none;"]],
   [".pcv-architecture-source-canvas", ["display: block;", "overflow: hidden;", "cursor: zoom-in;"]],
   [".pcv-architecture-source-image", ["width: 100%;", "max-width: 100%;", "height: auto;", "background: #f8fafc;"]],
   [".pcv-architecture-source-note", ["font-size: 0.75rem;", "line-height: 1.5;"]]
@@ -682,9 +650,9 @@ for (const [name, source, language, heroTitle, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const sourceContract of name === "english"
-    ? ["Source SVG structure", "Open enlarged", "single-process purecvisorsd control plane", "fitted to the current width", "Monitoring Source v2", "optional DPDK lifecycle", "audit-only BPF LSM boundary", "External entry points", "Configuration/secrets", "Protocol boundary", "Core control flow", "Business logic", "State storage", "Physical/kernel resources"]
-    : ["SVG 원본 구조", "확대해서 보기", "purecvisorsd 단일 프로세스", "현재 화면 폭에 맞춰 표시", "Monitoring Source v2", "선택형 DPDK 수명주기", "audit-only BPF LSM 경계", "외부 진입점", "설정/비밀", "프로토콜 경계", "핵심 제어 흐름", "비즈니스 로직", "상태 저장", "물리/커널 자원"]) {
-    if (!source.includes(sourceContract)) throw new Error(`${name} localized source architecture contract missing: ${sourceContract}`);
+    ? ["5-minute quickstart", "Full operations guide", "Standalone deployment · C23 single process · Web UI, REST API, CLI"]
+    : ["5분 퀵스타트", "전체 운영 가이드", "독립 노드 배포 · C23 단일 프로세스 · Web UI, REST API, CLI"]) {
+    if (!source.includes(sourceContract)) throw new Error(`${name} localized landing content missing: ${sourceContract}`);
   }
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);

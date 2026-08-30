@@ -21,28 +21,6 @@ sidebar:
         <p class="pcv-hero-note">Standalone deployment · C23 single process · Web UI, REST API, CLI</p>
       </div>
 
-      <figure class="pcv-control-map pcv-architecture-source" aria-labelledby="pcv-architecture-map-title">
-        <figcaption class="pcv-map-bar">
-          <span id="pcv-architecture-map-title">Single Edge service architecture</span>
-          <span class="pcv-map-meta">
-            <span class="pcv-status"><i aria-hidden="true"></i> Source SVG structure</span>
-            <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">Open enlarged <span aria-hidden="true">↗</span></a>
-          </span>
-        </figcaption>
-        <ul class="pcv-architecture-legend" aria-label="Layer color legend">
-          <li class="pcv-layer-key is-clients"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Clients</strong><small>External entry points</small></span></li>
-          <li class="pcv-layer-key is-config"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Config</strong><small>Configuration/secrets</small></span></li>
-          <li class="pcv-layer-key is-transport"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>API Transport</strong><small>Protocol boundary</small></span></li>
-          <li class="pcv-layer-key is-control"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>GMainLoop Control</strong><small>Core control flow</small></span></li>
-          <li class="pcv-layer-key is-domain"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Domain Modules</strong><small>Business logic</small></span></li>
-          <li class="pcv-layer-key is-persistent"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Persistent</strong><small>State storage</small></span></li>
-          <li class="pcv-layer-key is-host"><span class="pcv-layer-swatch" aria-hidden="true"></span><span><strong>Host</strong><small>Physical/kernel resources</small></span></li>
-        </ul>
-        <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="Open the full architecture SVG connecting clients and TLS boundaries to the purecvisorsd control plane, service domains, ten local SQLite databases, persistent state, and Linux/KVM host enlarged in a new tab">
-          <img class="pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1849.5234375" height="2798" loading="eager" decoding="async" alt="PureCVisor Single Edge architecture connecting clients and TLS boundaries to the single-process purecvisorsd control plane, synchronous and asynchronous completion paths, ten local SQLite databases grouped as seven core and three operations stores, Monitoring Source v2, DPDK acceleration, the audit-only BPF LSM boundary, and the Linux/KVM host" />
-        </a>
-        <p class="pcv-architecture-source-note">The complete structure is fitted to the current width. The 2026-08-30 source includes ten local SQLite databases grouped by responsibility as seven core and three operations stores, Monitoring Source v2, the optional DPDK lifecycle, and the audit-only BPF LSM boundary; acceleration and LSM availability depend on host prerequisites. Select the diagram or ‘Open enlarged’ to inspect detailed labels.</p>
-      </figure>
     </div>
   </section>
 </div>

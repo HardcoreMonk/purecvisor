@@ -32,8 +32,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `site/scripts/publish-product-docs.mjs`는 `/docs.html` 호환 redirect를 생성한다.
 - Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`, `site/**`와
   workflow 자체를 포함해 두 작성 정본 중 어느 하나만 바뀌어도 재배포한다.
-- landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action·현재 Single Edge
-  아키텍처를 Hero 하나로 제공한다. 8개 그룹·23개 문서의 전체 탐색은 문서 reader가 소유한다.
+- landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action을 간결한 Hero
+  하나로 제공한다. 상세 아키텍처와 8개 그룹·23개 문서의 전체 탐색은 문서 reader가 소유한다.
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
 - 상단 `서비스`, `시작하기`, `공개 범위`, `문서`는 각각 하위 링크를 가진 disclosure navigation이다.
@@ -65,38 +65,36 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
-- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action·전체 서비스 아키텍처 SVG를 담은 Hero
-  하나만 본문으로 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 8개 그룹·23개 문서 전체 목록은
-  첫 페이지에서 반복하지 않고 Hero action과 상단 disclosure에서 운영 가이드로 연결한다.
-- Hero의 Single Edge 서비스 아키텍처는
-  `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 직접 사용한다. SVG는 클라이언트·설정 입력,
-  TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher, 동기·비동기 완료, 6개 서비스
-  도메인, 책임별 7개·3개 저장소로 구분한 로컬 SQLite DB 10개, Monitoring Source v2,
-  선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host 연결을 한 화면에
-  유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는 `vm_state.db`,
-  `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`,
-  `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`를 모두 명시한다.
+- 첫 페이지는 제품 label·단일 노드 운영 범위·기본 action과 배포 note를 담은 Hero 하나만 본문으로
+  제공한다. 서비스 기능, 시작 흐름, 공개 범위, 전체 서비스 아키텍처와 8개 그룹·23개 문서 전체
+  목록은 첫 페이지에서 반복하지 않고 Hero action과 상단 disclosure에서 운영 가이드로 연결한다.
+- landing에는 architecture figure·범례·diagram image·원본 확대 link와 `/assets/diagrams/` request를
+  두지 않는다. 전체 구조의 설명과 시각 자료는 시작하기의 `1.2 아키텍처 개요`가 소유한다.
+- NGINX 모드의 전체 Single Edge 서비스 아키텍처는
+  `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 사용한다. SVG는
+  클라이언트·설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher,
+  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·3개 저장소로 구분한 로컬 SQLite DB 10개,
+  Monitoring Source v2, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
+  연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
+  `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
+  `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`를 모두 명시한다.
 - Hero는 version label 다음에 “하나의 Linux/KVM 노드, 하나의 제어면”을 실제 H1으로 두고 범위
-  문장과 action을 이어서 제공한다. 아키텍처 지도는 같은 shell의 전체 폭 하단에 배치하며 범위
-  문장은 1024px 이상에서 한 줄, 768px 이하에서 자연 줄바꿈한다.
-- SVG 파일은 `1849.5234375×2798` viewBox와 node·edge·label·좌표를 유지한다.
+  문장, action과 배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서
+  자연 줄바꿈한다.
+- NGINX 모드 SVG 파일은 `1849.5234375×2798` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
   `0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be`, 배포 파일 SHA-256은
   `f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
-  Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 페이지 범례는
-  색상과 layer·의미 label을 함께 제공해 색만으로 책임을 전달하지 않는다.
+  Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 상세 overview의
+  본문·SVG layer label이 같은 책임을 텍스트로 제공하며 landing에는 별도 범례를 반복하지 않는다.
 - SVG palette는 `site/scripts/update-architecture-colors.mjs`로 재현한다. 스크립트는 NGINX와
   직접 HTTPS 두 SVG의 기존 `<style>` 안 semantic color block만 교체하며 node·edge·label과
   좌표는 수정하지 않는다.
-- Hero와 figure shell은 Starlight의 `data-theme` 계약을 따른다. SVG는 밝은 중립 canvas에서 현재
-  콘텐츠 폭에 맞춰 전체를 표시하고 제한 높이·고정 90rem·내부 양방향 scroll을 사용하지 않는다.
-  다이어그램 전체와 별도 `확대해서 보기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
-- Hero figure는 설명 media 역할의 32px radius를 유지한다. `<img>`에는 intrinsic width·height와
-  현재 언어의 전체 구조 alt를 제공하며, 전체 SVG link에는 언어별 accessible name을 제공한다.
-  landing에는 code-native domain selector, guide node link, 경로 animation과 전용 JavaScript를
-  사용하지 않는다.
+- Hero는 Starlight의 `data-theme` 계약을 따르며 별도 media shell이나 빈 placeholder를 만들지 않는다.
+  landing에는 code-native domain selector, guide node link, SVG 경로 animation과 전용
+  JavaScript를 사용하지 않는다.
 - 첫 페이지에는 문서 directory, 역할별 추천 경로와 별도 최종 CTA 구역을 두지 않는다. 전체
   문서 탐색은 Hero의 `전체 운영 가이드`와 Header의 `문서` disclosure에서 reader로 이동해 수행한다.
 - opencodex.me에서 확인한 서비스 소개에서 문서 탐색으로 이어지는 정보 계층, 검색과 3단
@@ -106,8 +104,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
 - 시작하기의 `1.2 아키텍처 개요`는 기본 `purecvisorsd` 직접 HTTPS와 선택형 NGINX 외부 TLS
   종료를 접근 가능한 두 탭으로 제공한다. 기본 탭은
-  `site/public/assets/diagrams/purecvisor-single-direct-https-architecture.svg`, NGINX 탭은 landing과
-  같은 `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
+  `site/public/assets/diagrams/purecvisor-single-direct-https-architecture.svg`, NGINX 탭은
+  `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
   HTTPS SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
   viewBox는 `2056.10986328125×2463.699951171875`, 구조·내용 SHA-256은
@@ -158,7 +156,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 시작하기의 전체 아키텍처
   보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`, TLS 모드별 SVG와 탭은
   `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`, node·레이어 연결 흐름 롤오버는
-  `docs/ui-reviews/2026-08-30-overview-architecture-rollover-flow.md`를 따른다.
+  `docs/ui-reviews/2026-08-30-overview-architecture-rollover-flow.md`, landing SVG 노출 제거는
+  `docs/ui-reviews/2026-08-30-landing-architecture-removal.md`를 따른다.
 
 ## 배포 흐름
 
@@ -223,8 +222,8 @@ npm run check
 landing 문서 directory·역할별 경로·최종 CTA 부재, Hero action, 내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, desktop 범위 문장 한 줄, mobile 줄바꿈, light/dark surface token,
-32px figure, SVG 파일·구조 hash, 7개 layer 색상·의미 범례, 폭 맞춤 image와 내부 scroll container
-부재, overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping·reduced-motion,
+landing architecture figure·범례·diagram image·diagram link·diagram request 부재, SVG 파일·구조 hash,
+overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping·reduced-motion,
 일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
