@@ -1,7 +1,7 @@
 # 시작하기 아키텍처 TLS 모드 탭 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LOCAL-PASS — 구현·로컬 검증 완료, GitHub Pages 검증 대기
+> **판정:** LIVE-PASS — 구현·로컬·GitHub Pages custom domain 검증 완료
 > **승인:** 2026-08-30 사용자 명시 요청
 > **대상:** `/ko/getting-started/overview/#12-아키텍처-개요`
 > **관련 리뷰:** `2026-08-30-overview-architecture-completeness.md`,
@@ -135,4 +135,10 @@
 - 1280px에서도 동일 항목을 통과했다. 직접 HTTPS SVG 배포 파일 SHA-256은
   `f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7`, style을 제외한
   구조·내용 SHA-256은 `caa00de89a242a2060ca56753e51b0348a643643195759c568ad2e243f8de6dd`다.
+- 배포: 구현 commit `50a1135d3762eb24483c5352647812f6fb36c9dc`, GitHub Pages run
+  `33286315260`의 build와 deploy가 모두 성공했다.
+- custom domain: `https://purecvisor.site/ko/getting-started/overview/#12-아키텍처-개요`에서
+  동일한 6개 viewport/theme 조합과 두 모드, click·좌우 방향키·Home·End를 재검사했다.
+  page-level overflow·console/page/request error·Axe 위반은 0이고 두 SVG 응답은
+  `200 image/svg+xml`이다. 라이브 캡처 SHA-256 12개가 로컬 캡처와 모두 일치했다.
 - 잔여 위험: SVG 두 파일의 공통 구조가 이후 변경에서 함께 갱신되어야 한다.
