@@ -564,6 +564,68 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   line-height: 1.5;
 }
 
+.pcv-overview-architecture-tabs {
+  width: 100%;
+}
+
+.pcv-architecture-tablist {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0.25rem;
+  margin: 0 0 0.75rem;
+  padding: 0.25rem;
+  border: 1px solid var(--pcv-map-line);
+  border-radius: 0.75rem;
+  background: var(--pcv-map-bar-bg);
+}
+
+.pcv-architecture-tab {
+  align-self: stretch;
+  min-width: 0;
+  min-height: 3rem;
+  height: 100%;
+  margin: 0;
+  padding: 0.65rem 0.9rem;
+  border: 1px solid transparent;
+  border-radius: 0.5rem;
+  background: transparent;
+  color: var(--pcv-map-node-muted);
+  font: inherit;
+  font-size: 0.8125rem;
+  font-weight: 700;
+  line-height: 1.35;
+  text-align: center;
+  overflow-wrap: anywhere;
+  cursor: pointer;
+  transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;
+}
+
+.pcv-architecture-tab:not([aria-selected="true"]):hover {
+  border-color: var(--pcv-map-line);
+  background: var(--pcv-map-signal-soft);
+  color: var(--pcv-map-node-text);
+}
+
+.pcv-architecture-tab[aria-selected="true"] {
+  border-color: var(--pcv-map-signal);
+  background: var(--pcv-map-node);
+  box-shadow: inset 0 -3px 0 var(--pcv-map-signal);
+  color: var(--pcv-map-node-strong);
+}
+
+.pcv-architecture-tab:focus-visible {
+  outline: 3px solid var(--pcv-map-signal);
+  outline-offset: 2px;
+}
+
+.pcv-architecture-panel[hidden] {
+  display: none;
+}
+
+.pcv-architecture-panel .pcv-control-map {
+  margin: 0;
+}
+
 @media (max-width: 64rem) {
   .pcv-hero-grid {
     gap: 3rem;
@@ -629,6 +691,12 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 
   .pcv-architecture-source-note {
     padding-inline: 0.75rem;
+  }
+
+  .pcv-architecture-tab {
+    min-height: 3.25rem;
+    padding-inline: 0.45rem;
+    font-size: 0.75rem;
   }
 }
 

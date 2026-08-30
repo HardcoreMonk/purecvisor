@@ -1,0 +1,123 @@
+%%{init: {"htmlLabels": false, "markdownAutoWrap": false, "flowchart": {"defaultRenderer": "elk", "htmlLabels": false, "nodeSpacing": 28, "rankSpacing": 48}}}%%
+flowchart TB
+    subgraph clients ["사용자와 외부 소비자"]
+        direction LR
+        webUi["Web UI"]
+        pcvctl["pcvctl CLI"]
+        apiClient["REST API client"]
+        grpcClient["gRPC client"]
+        promClient["Prometheus scraper"]
+    end
+
+    subgraph bootInputs ["부팅 입력"]
+        configStore["daemon.conf and secret sources"]
+        kernelLsm["Kernel LSM list with optional bpf"]
+    end
+
+    subgraph daemon ["purecvisorsd 단일 프로세스"]
+        direction TB
+
+        subgraph transports ["API transport and direct TLS termination"]
+            direction LR
+            udsApi["UDS JSON-RPC 2.0"]
+            restApi["HTTPS REST and static UI with libsoup3"]
+            grpcApi["gRPC with protobuf-c"]
+            wsApi["WebSocket TLS event channel"]
+        end
+
+        subgraph core ["GMainLoop control plane"]
+            direction LR
+            mainLoop["Bootstrap and lifecycle"]
+            dispatcher["Dispatcher: policy, RBAC, owner scope, O(1) routing"]
+            handlers["Domain RPC handlers"]
+            syncPath["Immediate JSON-RPC response"]
+            workerPool["GTask bounded worker pool"]
+            completion["Job result, audit, WebSocket completion"]
+        end
+
+        subgraph domains ["도메인 모듈"]
+            direction LR
+            workloadDomain["Workload: VM, LXC, template, GPU"]
+            networkDomain["Network: bridge, Local VPC, OVS and OVN, SG, QoS"]
+            storageDomain["Storage: ZFS, snapshot, backup, iSCSI, cloud jobs"]
+            securityDomain["Security: JWT, TOTP, RBAC, audit, HIDS, HIPS, BPF LSM audit"]
+            monitorDomain["Monitoring source: systemd service catalog, immutable cache, availability writer"]
+            opsDomain["Operations: telemetry, alerts, Web Push, AI healing, plugins"]
+        end
+    end
+
+    subgraph persistence ["로컬 영속 상태"]
+        direction LR
+        coreDb["Core / identity / security / network DBs (SQLite WAL, 7 files)<br/>vm_state.db, pcv_audit.db, pcv_jobs.db, rbac.db<br/>pcv_security.db, security_groups.db, vpc.db"]
+        operationsDb["Operations DBs (SQLite WAL, 3 files)<br/>cloud_jobs.db, pcv_monitoring.db, pcv_webpush.db"]
+        desiredStore["Desired state: networks, overlay, QoS, BPF, backups"]
+    end
+
+    subgraph host ["Linux and KVM host"]
+        direction LR
+        virtPlatform["Virtualization: libvirt, QEMU, KVM, LXC"]
+        storagePlatform["Storage: ZFS, LIO, open-iscsi"]
+        networkPlatform["Network: Linux bridge, nftables, dnsmasq, WireGuard, tc, eBPF, OVS, OVN"]
+        securityPlatform["Host security: kernel LSM, bpffs, Suricata, systemd, journald, cgroups, PSI"]
+        accelPlatform["Acceleration: GPU, SR-IOV, DPDK"]
+    end
+
+    webUi <-->|"HTTPS: static UI and REST"| restApi
+    webUi <-->|"WebSocket TLS"| wsApi
+    apiClient <-->|"HTTPS"| restApi
+    promClient -->|"HTTPS metrics scrape"| restApi
+    pcvctl <-->|"Local socket"| udsApi
+    grpcClient <-->|"Binary RPC"| grpcApi
+
+    udsApi -->|"JSON-RPC"| dispatcher
+    restApi -->|"REST to RPC"| dispatcher
+    grpcApi -->|"RPC"| dispatcher
+    mainLoop -->|"Owns lifecycle"| dispatcher
+    configStore -->|"Boot policy"| mainLoop
+    kernelLsm -->|"BPF readiness"| securityDomain
+
+    dispatcher -->|"Validated request"| handlers
+    handlers -->|"Short operation"| syncPath
+    handlers -->|"Long operation"| workerPool
+    workerPool -->|"Worker callback"| completion
+
+    handlers --> workloadDomain
+    handlers --> networkDomain
+    handlers --> storageDomain
+    handlers --> securityDomain
+    handlers -->|"Cached VIEWER read"| monitorDomain
+    handlers --> opsDomain
+
+    workloadDomain --> coreDb
+    networkDomain --> desiredStore
+    networkDomain --> coreDb
+    storageDomain --> desiredStore
+    storageDomain --> operationsDb
+    securityDomain --> coreDb
+    monitorDomain --> operationsDb
+    opsDomain --> operationsDb
+
+    workloadDomain -.-> virtPlatform
+    workloadDomain -.-> accelPlatform
+    networkDomain -.-> networkPlatform
+    networkDomain -.-> accelPlatform
+    storageDomain -.-> storagePlatform
+    securityDomain -.-> networkPlatform
+    securityDomain -.-> securityPlatform
+    monitorDomain -.->|"20 second systemd D-Bus collection"| securityPlatform
+    opsDomain -.-> virtPlatform
+    opsDomain -.-> securityPlatform
+
+    classDef clientNode fill:#e8f1ff,stroke:#3b6ea8,color:#102a43,stroke-width:1px;
+    classDef ingressNode fill:#f4edff,stroke:#7650a8,color:#2d1b46,stroke-width:1px;
+    classDef runtimeNode fill:#e6f7ef,stroke:#27845d,color:#123b2a,stroke-width:1px;
+    classDef domainNode fill:#eef8f4,stroke:#4a8f76,color:#173a2e,stroke-width:1px;
+    classDef dataNode fill:#fff4df,stroke:#aa7430,color:#4a2d0a,stroke-width:1px;
+    classDef hostNode fill:#f2f4f7,stroke:#667085,color:#1d2939,stroke-width:1px;
+
+    class webUi,pcvctl,apiClient,grpcClient,promClient clientNode;
+    class udsApi,restApi,grpcApi,wsApi ingressNode;
+    class mainLoop,dispatcher,handlers,syncPath,workerPool,completion runtimeNode;
+    class workloadDomain,networkDomain,storageDomain,securityDomain,monitorDomain,opsDomain domainNode;
+    class configStore,kernelLsm,coreDb,operationsDb,desiredStore dataNode;
+    class virtPlatform,storagePlatform,networkPlatform,securityPlatform,accelPlatform hostNode;

@@ -213,6 +213,40 @@ const menus = isEnglish
   document.querySelectorAll(".expressive-code pre").forEach((region, index) => {
     region.setAttribute("aria-label", `${codeLabel} ${index + 1}`);
   });
+
+  const architectureTabGroups = document.querySelectorAll("[data-pcv-architecture-tabs]");
+  for (const tabGroup of architectureTabGroups) {
+    const tabs = Array.from(tabGroup.querySelectorAll("[data-pcv-architecture-tab]"));
+    const panels = Array.from(tabGroup.querySelectorAll("[data-pcv-architecture-panel]"));
+
+    function activateArchitectureTab(nextTab, moveFocus = false) {
+      if (!(nextTab instanceof HTMLButtonElement)) return;
+      const nextPanelId = nextTab.getAttribute("aria-controls");
+      if (!nextPanelId || !panels.some((panel) => panel.id === nextPanelId)) return;
+
+      for (const tab of tabs) {
+        const selected = tab === nextTab;
+        tab.setAttribute("aria-selected", selected ? "true" : "false");
+        tab.setAttribute("tabindex", selected ? "0" : "-1");
+      }
+      for (const panel of panels) panel.hidden = panel.id !== nextPanelId;
+      if (moveFocus) nextTab.focus();
+    }
+
+    tabs.forEach((tab, index) => {
+      tab.addEventListener("click", () => activateArchitectureTab(tab));
+      tab.addEventListener("keydown", (event) => {
+        let nextIndex;
+        if (event.key === "ArrowRight") nextIndex = (index + 1) % tabs.length;
+        if (event.key === "ArrowLeft") nextIndex = (index - 1 + tabs.length) % tabs.length;
+        if (event.key === "Home") nextIndex = 0;
+        if (event.key === "End") nextIndex = tabs.length - 1;
+        if (nextIndex === undefined) return;
+        event.preventDefault();
+        activateArchitectureTab(tabs[nextIndex], true);
+      });
+    });
+  }
 </script>
 
 <style>

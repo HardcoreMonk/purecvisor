@@ -72,22 +72,49 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 `purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에
 두고 `GMainLoop`가 전체 수명주기를 소유합니다. 짧은 작업은 이벤트 루프에서 응답을 끝내고,
-긴 작업만 제한된 `GTask` 워커 풀로 보냅니다. 아래 지도는 클라이언트와 부팅 입력부터 로컬
-영속 상태와 Linux/KVM 호스트까지 연결한 Single Edge 전체 구조입니다.
+긴 작업만 제한된 `GTask` 워커 풀로 보냅니다. 아래 탭에서 실제 TLS 배포 모드를 선택하면
+클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체
+구조를 해당 진입 경계로 확인할 수 있습니다. 기본 선택은 NGINX가 없는 `purecvisorsd` 직접
+HTTPS 모드입니다.
 
-<figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source pcv-architecture-wide" aria-labelledby="pcv-overview-architecture-title">
-  <div class="pcv-map-bar">
-    <strong id="pcv-overview-architecture-title">PureCVisor Single Edge 전체 아키텍처</strong>
-    <div class="pcv-map-meta">
-      <span class="pcv-status"><i aria-hidden="true"></i>Single Edge</span>
-      <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
-    </div>
+<section class="pcv-overview-architecture-tabs pcv-architecture-wide" data-pcv-architecture-tabs aria-label="TLS 배포 모드별 PureCVisor Single Edge 아키텍처">
+  <div class="pcv-architecture-tablist" role="tablist" aria-label="TLS 배포 모드">
+    <button class="pcv-architecture-tab" id="pcv-architecture-tab-direct" type="button" role="tab" aria-selected="true" aria-controls="pcv-architecture-panel-direct" tabindex="0" data-pcv-architecture-tab>purecvisorsd 직접 HTTPS</button>
+    <button class="pcv-architecture-tab" id="pcv-architecture-tab-nginx" type="button" role="tab" aria-selected="false" aria-controls="pcv-architecture-panel-nginx" tabindex="-1" data-pcv-architecture-tab>NGINX 외부 TLS 종료</button>
   </div>
-  <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트와 TLS 경계부터 purecvisorsd 제어면, 6개 서비스 도메인, 10개 로컬 SQLite 데이터베이스, 영속 상태와 Linux/KVM 호스트까지 연결한 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
-    <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1849.5234375" height="2798" loading="lazy" decoding="async" alt="클라이언트와 부팅 입력에서 purecvisorsd 단일 프로세스의 API transport, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 전체 아키텍처">
-  </a>
-  <figcaption class="pcv-architecture-source-note">그림의 NGINX 노드는 선택형 외부 TLS 종료 경로입니다. 기본 모드에서는 NGINX 없이 purecvisorsd가 HTTPS와 WebSocket TLS를 직접 종료합니다.</figcaption>
-</figure>
+
+  <div class="pcv-architecture-panel" id="pcv-architecture-panel-direct" role="tabpanel" aria-labelledby="pcv-architecture-tab-direct" data-pcv-architecture-panel>
+    <figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source" aria-labelledby="pcv-overview-architecture-direct-title">
+      <div class="pcv-map-bar">
+        <strong id="pcv-overview-architecture-direct-title">Single Edge · purecvisorsd 직접 HTTPS</strong>
+        <div class="pcv-map-meta">
+          <span class="pcv-status"><i aria-hidden="true"></i>기본 · NGINX 없음</span>
+          <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="2056.10986328125" height="2463.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      </a>
+      <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다. 별도 NGINX 프로세스가 없습니다.</figcaption>
+    </figure>
+  </div>
+
+  <div class="pcv-architecture-panel" id="pcv-architecture-panel-nginx" role="tabpanel" aria-labelledby="pcv-architecture-tab-nginx" data-pcv-architecture-panel hidden>
+    <figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source" aria-labelledby="pcv-overview-architecture-nginx-title">
+      <div class="pcv-map-bar">
+        <strong id="pcv-overview-architecture-nginx-title">Single Edge · NGINX 외부 TLS 종료</strong>
+        <div class="pcv-map-meta">
+          <span class="pcv-status"><i aria-hidden="true"></i>선택형 · host-loopback</span>
+          <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1849.5234375" height="2798" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      </a>
+      <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다. ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
+    </figure>
+  </div>
+</section>
 
 #### 1.2.1 런타임·접근 경계
 

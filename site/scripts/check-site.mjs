@@ -21,6 +21,7 @@ const requiredFiles = [
   "docs.html",
   "favicon.svg",
   "assets/diagrams/purecvisor-single-full-architecture.svg",
+  "assets/diagrams/purecvisor-single-direct-https-architecture.svg",
   ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
 const forbiddenText = [
@@ -94,6 +95,11 @@ const overview = await readFile(
   "utf8"
 );
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
+const headerComponent = await readFile(path.join(siteRoot, "src", "components", "Header.astro"), "utf8");
+const directArchitectureSource = await readFile(
+  path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-direct-https-architecture.mmd"),
+  "utf8"
+);
 for (const contract of [
   "--pcv-prose-width: 50rem;",
   "--pcv-technical-width: 60rem;",
@@ -135,10 +141,21 @@ if (!overview.includes(productSummaryLineBreakContract)) {
   throw new Error("product summary three-line contract missing");
 }
 for (const marker of [
-  'class="pcv-overview-architecture pcv-control-map pcv-architecture-source pcv-architecture-wide"',
-  'id="pcv-overview-architecture-title"',
+  'class="pcv-overview-architecture-tabs pcv-architecture-wide"',
+  "data-pcv-architecture-tabs",
+  'class="pcv-architecture-tablist" role="tablist"',
+  'id="pcv-architecture-tab-direct" type="button" role="tab" aria-selected="true" aria-controls="pcv-architecture-panel-direct" tabindex="0"',
+  'id="pcv-architecture-tab-nginx" type="button" role="tab" aria-selected="false" aria-controls="pcv-architecture-panel-nginx" tabindex="-1"',
+  'id="pcv-architecture-panel-direct" role="tabpanel" aria-labelledby="pcv-architecture-tab-direct"',
+  'id="pcv-architecture-panel-nginx" role="tabpanel" aria-labelledby="pcv-architecture-tab-nginx"',
+  'data-pcv-architecture-panel="" hidden',
+  'id="pcv-overview-architecture-direct-title"',
+  'id="pcv-overview-architecture-nginx-title"',
   'class="pcv-overview-architecture-image pcv-architecture-source-image"',
+  'href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg"',
   'href="/assets/diagrams/purecvisor-single-full-architecture.svg"',
+  "기본 · NGINX 없음",
+  "선택형 · host-loopback",
   "1.2.1 런타임·접근 경계",
   "1.2.2 요청·권한·완료 흐름",
   "1.2.3 서비스 도메인",
@@ -170,8 +187,11 @@ for (const marker of [
 ]) {
   if (overview.includes(marker)) throw new Error(`stale overview architecture found: ${marker}`);
 }
-if ((overview.match(/class="pcv-overview-architecture-image pcv-architecture-source-image"/g) || []).length !== 1) {
+if ((overview.match(/class="pcv-overview-architecture-image pcv-architecture-source-image"/g) || []).length !== 2) {
   throw new Error("overview architecture image count mismatch");
+}
+if ((overview.match(/role="tab"/g) || []).length !== 2 || (overview.match(/role="tabpanel"/g) || []).length !== 2) {
+  throw new Error("overview architecture tab count mismatch");
 }
 const architectureAsset = "/assets/diagrams/purecvisor-single-full-architecture.svg";
 const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
@@ -232,6 +252,125 @@ for (const marker of [
   ".pcv-semantic-layer-colors-end{}"
 ]) {
   if (!architectureSvgText.includes(marker)) throw new Error(`architecture semantic color contract missing: ${marker}`);
+}
+
+const directArchitectureAsset = "/assets/diagrams/purecvisor-single-direct-https-architecture.svg";
+const directArchitectureSvg = await readFile(path.join(distRoot, directArchitectureAsset));
+const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
+const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
+if (directArchitectureSvgHash !== "f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7") {
+  throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
+}
+const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
+const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
+if (directArchitectureStructureHash !== "caa00de89a242a2060ca56753e51b0348a643643195759c568ad2e243f8de6dd") {
+  throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
+}
+for (const marker of [
+  'width="100%"',
+  'viewBox="4 4 2056.10986328125 2463.699951171875"',
+  'role="graphics-document document"',
+  'aria-roledescription="flowchart-elk"',
+  'id="my-svg-clients"',
+  'id="my-svg-bootInputs"',
+  'id="my-svg-daemon"',
+  'id="my-svg-transports"',
+  'id="my-svg-core"',
+  'id="my-svg-domains"',
+  'id="my-svg-persistence"',
+  'id="my-svg-host"',
+  'id="my-svg-L_webUi_restApi_0"',
+  'id="my-svg-L_webUi_wsApi_0"',
+  'id="my-svg-L_apiClient_restApi_0"',
+  'id="my-svg-L_promClient_restApi_0"',
+  'id="my-svg-flowchart-restApi-8"',
+  'id="my-svg-flowchart-wsApi-10"',
+  'id="my-svg-flowchart-completion-16"',
+  'id="my-svg-flowchart-workloadDomain-17"',
+  'id="my-svg-flowchart-networkDomain-18"',
+  'id="my-svg-flowchart-storageDomain-19"',
+  'id="my-svg-flowchart-securityDomain-20"',
+  'id="my-svg-flowchart-monitorDomain-21"',
+  'id="my-svg-flowchart-opsDomain-22"',
+  "vm_state.db",
+  "pcv_audit.db",
+  "pcv_jobs.db",
+  "rbac.db",
+  "pcv_security.db",
+  "security_groups.db",
+  "vpc.db",
+  "cloud_jobs.db",
+  "pcv_monitoring.db",
+  "pcv_webpush.db",
+  'id="my-svg-flowchart-desiredStore-25"',
+  'id="my-svg-flowchart-virtPlatform-26"',
+  'id="my-svg-flowchart-storagePlatform-27"',
+  'id="my-svg-flowchart-networkPlatform-28"',
+  'id="my-svg-flowchart-securityPlatform-29"',
+  "DPDK"
+]) {
+  if (!directArchitectureSvgText.includes(marker)) {
+    throw new Error(`direct HTTPS architecture SVG contract missing: ${marker}`);
+  }
+}
+for (const marker of [/<script\b/i, /<foreignObject\b/i, /\bon\w+\s*=/i, /\b(?:xlink:)?href\s*=/i]) {
+  if (marker.test(directArchitectureSvgText)) {
+    throw new Error(`unsafe direct HTTPS architecture SVG marker: ${marker}`);
+  }
+}
+if (/nginx/i.test(directArchitectureSvgText)) {
+  throw new Error("NGINX found in direct HTTPS architecture SVG");
+}
+for (const marker of [
+  ".pcv-semantic-layer-colors-start{}",
+  ".clientNode rect",
+  ".ingressNode rect",
+  ".runtimeNode rect",
+  ".domainNode rect",
+  ".dataNode rect",
+  ".hostNode rect",
+  "#my-svg-flowchart-configStore-5 rect",
+  "#my-svg #my-svg-persistence>rect{fill:#fff9f3!important;stroke:#d49a72!important;}",
+  ".pcv-semantic-layer-colors-end{}"
+]) {
+  if (!directArchitectureSvgText.includes(marker)) {
+    throw new Error(`direct HTTPS architecture semantic color contract missing: ${marker}`);
+  }
+}
+for (const marker of [
+  'subgraph daemon ["purecvisorsd 단일 프로세스"]',
+  'subgraph transports ["API transport and direct TLS termination"]',
+  'webUi <-->|"HTTPS: static UI and REST"| restApi',
+  'webUi <-->|"WebSocket TLS"| wsApi',
+  'apiClient <-->|"HTTPS"| restApi',
+  'promClient -->|"HTTPS metrics scrape"| restApi',
+  "class udsApi,restApi,grpcApi,wsApi ingressNode;"
+]) {
+  if (!directArchitectureSource.includes(marker)) {
+    throw new Error(`direct HTTPS Mermaid source contract missing: ${marker}`);
+  }
+}
+if (/nginx/i.test(directArchitectureSource)) {
+  throw new Error("NGINX found in direct HTTPS Mermaid source");
+}
+
+for (const marker of [
+  '[data-pcv-architecture-tabs]',
+  '[data-pcv-architecture-tab]',
+  '[data-pcv-architecture-panel]',
+  "activateArchitectureTab",
+  'setAttribute("aria-selected"',
+  "panel.hidden = panel.id !== nextPanelId",
+  'event.key === "ArrowRight"',
+  'event.key === "ArrowLeft"',
+  'event.key === "Home"',
+  'event.key === "End"',
+  "event.preventDefault()",
+  "nextTab.focus()"
+]) {
+  if (!headerComponent.includes(marker)) {
+    throw new Error(`overview architecture tab interaction missing: ${marker}`);
+  }
 }
 const koreanHeroTitle = "하나의 Linux/KVM 노드, 하나의 제어면.";
 const englishHeroTitle = "One Linux/KVM node. One control plane.";
@@ -418,9 +557,32 @@ for (const [selector, declarations] of [
     }
   }
 }
+for (const [selector, declarations] of [
+  [".pcv-overview-architecture-tabs", ["width: 100%;"]],
+  [".pcv-architecture-tablist", ["grid-template-columns: repeat(2, minmax(0, 1fr));", "border: 1px solid var(--pcv-map-line);", "background: var(--pcv-map-bar-bg);"]],
+  [".pcv-architecture-tab", ["align-self: stretch;", "min-height: 3rem;", "height: 100%;", "margin: 0;", "font-size: 0.8125rem;", "overflow-wrap: anywhere;", "transition: border-color 140ms ease, background-color 140ms ease, color 140ms ease;"]],
+  ['.pcv-architecture-tab[aria-selected="true"]', ["border-color: var(--pcv-map-signal);", "background: var(--pcv-map-node);", "box-shadow: inset 0 -3px 0 var(--pcv-map-signal);"]],
+  [".pcv-architecture-tab:focus-visible", ["outline: 3px solid var(--pcv-map-signal);", "outline-offset: 2px;"]],
+  [".pcv-architecture-panel[hidden]", ["display: none;"]],
+  [".pcv-architecture-panel .pcv-control-map", ["margin: 0;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`overview architecture tab style missing: ${selector} ${declaration}`);
+    }
+  }
+}
+if (!landingStyles.includes(".pcv-architecture-tab {\n    min-height: 3.25rem;")) {
+  throw new Error("overview architecture mobile tab target contract missing");
+}
 for (const interactionContract of [
   ".pcv-architecture-source-open:is(:hover, :focus-visible)",
   ".pcv-architecture-source-canvas:focus-visible",
+  '.pcv-architecture-tab:not([aria-selected="true"]):hover',
+  ".pcv-architecture-tab:focus-visible",
   "@media (prefers-reduced-motion: reduce)",
   "animation-iteration-count: 1 !important"
 ]) {

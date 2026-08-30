@@ -87,8 +87,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 페이지 범례는
   색상과 layer·의미 label을 함께 제공해 색만으로 책임을 전달하지 않는다.
-- SVG palette는 `site/scripts/update-architecture-colors.mjs`로 재현한다. 스크립트는 기존
-  `<style>` 안의 semantic color block만 교체하며 node·edge·label과 좌표는 수정하지 않는다.
+- SVG palette는 `site/scripts/update-architecture-colors.mjs`로 재현한다. 스크립트는 NGINX와
+  직접 HTTPS 두 SVG의 기존 `<style>` 안 semantic color block만 교체하며 node·edge·label과
+  좌표는 수정하지 않는다.
 - Hero와 figure shell은 Starlight의 `data-theme` 계약을 따른다. SVG는 밝은 중립 canvas에서 현재
   콘텐츠 폭에 맞춰 전체를 표시하고 제한 높이·고정 90rem·내부 양방향 scroll을 사용하지 않는다.
   다이어그램 전체와 별도 `확대해서 보기` link는 같은 SVG를 새 탭에서 native zoom으로 제공한다.
@@ -102,10 +103,21 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
-- 시작하기의 `1.2 아키텍처 개요`는 landing과 같은 전체 SVG를 직접 재사용하고, 본문만으로도
-  기본 daemon HTTPS·선택형 NGINX 외부 종료, 부팅 입력, 4개 transport, 동기·비동기 완료,
-  6개 서비스 도메인, 로컬 SQLite DB 10개·desired state, Linux/KVM host와 Single Edge 제외
-  경계를 읽을 수 있어야 한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
+- 시작하기의 `1.2 아키텍처 개요`는 기본 `purecvisorsd` 직접 HTTPS와 선택형 NGINX 외부 TLS
+  종료를 접근 가능한 두 탭으로 제공한다. 기본 탭은
+  `site/public/assets/diagrams/purecvisor-single-direct-https-architecture.svg`, NGINX 탭은 landing과
+  같은 `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
+  HTTPS SVG의 Mermaid 원본은
+  `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
+  viewBox는 `2056.10986328125×2463.699951171875`, 구조·내용 SHA-256은
+  `caa00de89a242a2060ca56753e51b0348a643643195759c568ad2e243f8de6dd`, 배포 파일 SHA-256은
+  `f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7`로 고정한다.
+  본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
+  로컬 SQLite DB 10개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
+  한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
+- TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
+  좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,
+  390px에서도 40px 이상 target과 page-level 무가로 overflow를 유지한다.
 - reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 50rem,
   표와 code block은 기본 50rem에서 콘텐츠가 요구하는 만큼 최대 60rem까지 적응형으로
   확장한다. H1~H6, 본문, 표와 code는 공통 좌측 읽기 축을 유지하고 아키텍처 figure만 최대
@@ -133,7 +145,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   reader의 의미 기반 폭 체계는
   `docs/ui-reviews/2026-08-30-public-documentation-content-widths.md`, 공통 읽기 축 재조정은
   `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 시작하기의 전체 아키텍처
-  보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`를 따른다.
+  보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`, TLS 모드별 SVG와 탭은
+  `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`를 따른다.
 
 ## 배포 흐름
 
