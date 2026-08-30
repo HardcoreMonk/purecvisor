@@ -96,8 +96,9 @@ const overview = await readFile(
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 for (const contract of [
   "--pcv-prose-width: 50rem;",
-  "--pcv-technical-width: 68rem;",
+  "--pcv-technical-width: 60rem;",
   "--pcv-architecture-width: 75rem;",
+  "--pcv-reader-rail-inset-max: 7.5rem;",
   "--sl-content-width: var(--pcv-architecture-width);"
 ]) {
   if (!landingStyles.includes(contract)) throw new Error(`reader width token missing: ${contract}`);
@@ -106,10 +107,11 @@ if (landingStyles.includes("--sl-content-width: 50rem;")) {
   throw new Error("reader outer canvas is still fixed to prose width");
 }
 for (const [selector, declarations] of [
-  [".sl-markdown-content:not(:has(.pcv-landing)) > *", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline: auto;"]],
-  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide)", ["max-width: var(--pcv-technical-width);"]],
-  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide)", ["max-width: var(--pcv-architecture-width);"]],
-  ["main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer)", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline: auto;"]]
+  [".sl-markdown-content:not(:has(.pcv-landing))", ["--pcv-reader-rail-inset: clamp("]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > *", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline-start: var(--pcv-reader-rail-inset);", "margin-inline-end: auto;"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide)", ["width: fit-content;", "min-width: min(100%, var(--pcv-prose-width));", "max-width: min(100%, var(--pcv-technical-width));"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide)", ["width: 100%;", "max-width: var(--pcv-architecture-width);", "margin-inline: auto;"]],
+  ["main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer)", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline-start: clamp(", "margin-inline-end: auto;"]]
 ]) {
   const start = landingStyles.indexOf(`${selector} {`);
   const end = start < 0 ? -1 : landingStyles.indexOf("}", start);

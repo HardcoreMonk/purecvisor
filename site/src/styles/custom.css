@@ -45,8 +45,9 @@
   --sl-color-gray-6: #edf1f5;
   --sl-color-black: #f5f7fa;
   --pcv-prose-width: 50rem;
-  --pcv-technical-width: 68rem;
+  --pcv-technical-width: 60rem;
   --pcv-architecture-width: 75rem;
+  --pcv-reader-rail-inset-max: 7.5rem;
   --sl-content-width: var(--pcv-architecture-width);
   --sl-sidebar-width: 19rem;
 }
@@ -93,24 +94,42 @@ body {
   max-width: 48rem;
 }
 
+.sl-markdown-content:not(:has(.pcv-landing)) {
+  --pcv-reader-rail-inset: clamp(
+    0rem,
+    calc((100% - var(--pcv-technical-width)) / 2),
+    var(--pcv-reader-rail-inset-max)
+  );
+}
+
 .sl-markdown-content:not(:has(.pcv-landing)) > * {
   width: 100%;
   max-width: var(--pcv-prose-width);
-  margin-inline: auto;
+  margin-inline-start: var(--pcv-reader-rail-inset);
+  margin-inline-end: auto;
 }
 
 .sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide) {
-  max-width: var(--pcv-technical-width);
+  width: fit-content;
+  min-width: min(100%, var(--pcv-prose-width));
+  max-width: min(100%, var(--pcv-technical-width));
 }
 
 .sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide) {
+  width: 100%;
   max-width: var(--pcv-architecture-width);
+  margin-inline: auto;
 }
 
 main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer) {
   width: 100%;
   max-width: var(--pcv-prose-width);
-  margin-inline: auto;
+  margin-inline-start: clamp(
+    0rem,
+    calc((100% - var(--pcv-technical-width)) / 2),
+    var(--pcv-reader-rail-inset-max)
+  );
+  margin-inline-end: auto;
 }
 
 .sl-markdown-content :is(table, pre) {

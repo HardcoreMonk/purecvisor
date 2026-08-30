@@ -1,9 +1,10 @@
 # 공개 문서 의미 기반 콘텐츠 폭 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 시각·접근성 검증 완료
+> **판정:** SUPERSEDED — 중앙 50/68rem 배치는 공통 읽기 축 재조정으로 대체
 > **대상:** Starlight 문서 reader의 일반 본문, 표, code block과 아키텍처 자료
 > **관련 결정:** ADR-0047
+> **후속 리뷰:** [`2026-08-30-public-documentation-reading-axis.md`](2026-08-30-public-documentation-reading-axis.md)
 
 ## 1. 설계 brief
 
@@ -141,3 +142,11 @@ reader geometry를 기준으로 확장 수치를 결정했다.
     — `20cdaf6ae544538e6f615ae2345abc49379e1a51ed1c1bc9bb15fb0f0b178029`
 
 모든 수용 기준을 충족했으므로 이 리뷰를 **LIVE-PASS**로 확정한다.
+
+## 10. 후속 시각 재검토
+
+위 판정은 폭 상한, overflow와 접근성 계약에는 유효했지만 heading·본문과 표·code 사이의
+좌측 읽기 축 연속성을 수용 기준에 포함하지 않았다. 1920px에서 기술 자료가 본문보다 좌우로
+각각 144px 돌출되고 데이터베이스 문서 한 page에서 좌측축 전환이 121회 반복되는 것을 사용자
+검토로 확인했다. 사용자 명시 승인에 따라 중앙 50/68rem 배치 결정은 후속 리뷰의 공통 좌측축,
+적응형 50~60rem 기술 자료와 75rem 아키텍처 독립 확장으로 대체한다.
