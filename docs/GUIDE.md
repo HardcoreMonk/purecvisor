@@ -54,8 +54,7 @@
 ### 1.1 PureCVisor란?
 
 PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다.<br>
-단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며,<br>
-VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
+단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 **핵심 특징:**
 
@@ -71,13 +70,11 @@ VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 ### 1.2 아키텍처 개요
 
-`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고<br>
-`GMainLoop`가 전체 수명주기를 소유합니다.<br>
+`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고 `GMainLoop`가 전체 수명주기를 소유합니다.<br>
 짧은 작업은 이벤트 루프에서 응답을 끝내고, 긴 작업만 제한된 `GTask` 워커 풀로 보냅니다.<br>
 아래 탭에서 실제 TLS 배포 모드를 선택하면 클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체 구조를 해당 진입 경계로 확인할 수 있습니다.<br>
 기본 선택은 NGINX가 없는 `purecvisorsd` 직접 HTTPS 모드입니다.<br>
-마우스를 사용하는 환경에서는<br>
-SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.
+마우스를 사용하는 환경에서는 SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.
 
 <section class="pcv-overview-architecture-tabs pcv-architecture-wide" data-pcv-architecture-tabs aria-label="TLS 배포 모드별 PureCVisor Single Edge 아키텍처">
   <div class="pcv-architecture-tablist" role="tablist" aria-label="TLS 배포 모드">
@@ -150,8 +147,7 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 - **Operations**: telemetry, alert, Web Push, AI healing과 plugin
 
 Monitoring Source request handler는 immutable cache만 읽습니다.<br>
-background collector와 단일 writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로,<br>
-요청 handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
+background collector와 단일 writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로, 요청 handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
 
 #### 1.2.4 영속 상태와 호스트 통합
 
@@ -167,10 +163,8 @@ PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 10개와 �
 - **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
 - **Acceleration**: GPU, SR-IOV와 선택형 DPDK
 
-SQLite는 의도, 작업 상태와 증거를 보존하지만<br>
-libvirt domain, ZFS dataset, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
-DB 사이의 분산 트랜잭션이나 노드 간 복제도 제공하지 않으므로,<br>
-재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를 함께 확인해야 합니다.<br>
+SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
+DB 사이의 분산 트랜잭션이나 노드 간 복제도 제공하지 않으므로, 재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를 함께 확인해야 합니다.<br>
 DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을 바꾸지 않는 audit-only 경계입니다.
 
 #### 1.2.5 Single Edge 경계와 상세 문서
@@ -201,20 +195,19 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 #### 1.2.7 설계 결정 빠른 보기
 
 운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다.<br>
-통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며,<br>
-설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
+통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며, 설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
 
 | 설계 결정 | 먼저 봐야 하는 상황 | 현재 Single Edge 결론 |
 |-----------|--------------------|-----------------------|
-| [ADR-0001: fork 금지 단일 데몬](adr/0001-no-fork-single-daemon.md) | 프로세스, event loop, worker lifecycle 변경 | `purecvisorsd` 단일 프로세스와 GMainLoop 소유권을 유지하고 긴 작업만 bounded worker로 보낸다 |
-| [ADR-0012: 비동기 결과 채널](adr/0012-async-result-channel.md) | Job ID, polling, WebSocket 완료 경로 변경 | accepted 응답과 실제 완료 상태를 분리하고 Job ID 기반 결과 채널을 유지한다 |
-| [ADR-0029: REST/WS TLS 기본 활성](adr/0029-rest-ws-tls-always-on.md) | daemon 직접 HTTPS, 선택형 NGINX 외부 종료 변경 | 기본은 daemon 자체 TLS이며 외부 종료는 host-loopback 신뢰 경계의 명시적 opt-in으로만 허용한다 |
-| [ADR-0023: VM clone 오픈 베타 안전장치](adr/0023-vm-clone-beta-safety-guard.md) | VM clone, Guest reset, Prepared template, power on 거부 조건 | source VM은 `shut off` 상태여야 하며, prepared template 또는 libguestfs 기반 Guest reset 중 하나가 필요하다 |
-| [ADR-0022: VM 생성 저장 위치 계약](adr/0022-vm-create-storage-location-contract.md) | VM 생성 저장소, zvol/qcow2/raw 위치 정책 변경 | `storage_type`과 `storage_pool` 또는 `image_dir` 조합을 명시 계약으로 유지한다 |
-| [ADR-0019: RBAC UDS 우회 정책](adr/0019-rbac-uds-bypass-policy.md) | 권한, operator owner-scope, UDS/REST 보안 변경 | REST 인증과 dispatcher method policy를 모두 유지하고 `make check-rbac`로 검증한다 |
-| [ADR-0018: fire-and-forget audit 기록 정책](adr/0018-fire-and-forget-audit-policy.md) | 장시간 RPC, worker callback, audit/WS completion 변경 | accepted 응답은 완료가 아니며 worker callback에서 실제 결과 audit를 남긴다 |
-| [ADR-0014: JWT Bearer 전용 인증](adr/0014-remove-csrf-jwt-bearer.md) | REST 인증, CSRF, 브라우저 호출 모델 설명 | 쿠키 세션 대신 `Authorization: Bearer <JWT>`를 사용하고 별도 CSRF 토큰을 운영하지 않는다 |
-| [ADR-0013: 프론트엔드 IIFE 모듈 스코프](adr/0013-frontend-iife-module-scope.md) | Web UI 모듈, endpoint registry, sanitizer 변경 | Vanilla JS를 유지하고 `PCV.*` 네임스페이스와 `EP` 레지스트리를 사용한다 |
+| [fork 금지 단일 데몬](adr/0001-no-fork-single-daemon.md) | 프로세스, event loop, worker lifecycle 변경 | `purecvisorsd` 단일 프로세스와 GMainLoop 소유권을 유지하고 긴 작업만 bounded worker로 보낸다 |
+| [비동기 결과 채널](adr/0012-async-result-channel.md) | Job ID, polling, WebSocket 완료 경로 변경 | accepted 응답과 실제 완료 상태를 분리하고 Job ID 기반 결과 채널을 유지한다 |
+| [REST/WS TLS 기본 활성](adr/0029-rest-ws-tls-always-on.md) | daemon 직접 HTTPS, 선택형 NGINX 외부 종료 변경 | 기본은 daemon 자체 TLS이며 외부 종료는 host-loopback 신뢰 경계의 명시적 opt-in으로만 허용한다 |
+| [VM clone 오픈 베타 안전장치](adr/0023-vm-clone-beta-safety-guard.md) | VM clone, Guest reset, Prepared template, power on 거부 조건 | source VM은 `shut off` 상태여야 하며, prepared template 또는 libguestfs 기반 Guest reset 중 하나가 필요하다 |
+| [VM 생성 저장 위치 계약](adr/0022-vm-create-storage-location-contract.md) | VM 생성 저장소, zvol/qcow2/raw 위치 정책 변경 | `storage_type`과 `storage_pool` 또는 `image_dir` 조합을 명시 계약으로 유지한다 |
+| [RBAC UDS 우회 정책](adr/0019-rbac-uds-bypass-policy.md) | 권한, operator owner-scope, UDS/REST 보안 변경 | REST 인증과 dispatcher method policy를 모두 유지하고 `make check-rbac`로 검증한다 |
+| [fire-and-forget audit 기록 정책](adr/0018-fire-and-forget-audit-policy.md) | 장시간 RPC, worker callback, audit/WS completion 변경 | accepted 응답은 완료가 아니며 worker callback에서 실제 결과 audit를 남긴다 |
+| [JWT Bearer 전용 인증](adr/0014-remove-csrf-jwt-bearer.md) | REST 인증, CSRF, 브라우저 호출 모델 설명 | 쿠키 세션 대신 `Authorization: Bearer <JWT>`를 사용하고 별도 CSRF 토큰을 운영하지 않는다 |
+| [프론트엔드 IIFE 모듈 스코프](adr/0013-frontend-iife-module-scope.md) | Web UI 모듈, endpoint registry, sanitizer 변경 | Vanilla JS를 유지하고 `PCV.*` 네임스페이스와 `EP` 레지스트리를 사용한다 |
 
 ### 1.3 Single Edge 공개 리포지토리
 
@@ -258,12 +251,10 @@ curl -s http://localhost:80/api/v1/health | python3 -m json.tool
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다. 소스 기준 단일 값은
-`include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며,
-`/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI
-config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path,
-OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이
-아니므로 별도 계약으로 유지한다.
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다.<br>
+소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
+Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
+`/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
 
 ```bash
 # 3. bootstrap admin으로 첫 인증 토큰 발급
@@ -334,17 +325,18 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 | 항목 | 최소 | 권장 |
 |------|------|------|
-| OS | Ubuntu 22.04 LTS | Ubuntu 24.04 LTS |
-| 커널 | 5.15+ | 6.x HWE (io_uring 최적) |
-| libvirt | 8.0+ | 10.0+ |
-| ZFS | 2.1+ | 2.2+ (HWE 커널 동기화 필수) |
-| GLib | 2.72+ | 2.78+ |
+| OS | Ubuntu 24.04 LTS | Ubuntu 26.04 LTS |
+| 커널 | 6.x HWE (io_uring 최적) | 7.x |
+| libvirt | 10.0+ | 10.0+ |
+| ZFS | 2.2+ (HWE 커널 동기화 필수) | 2.2+  |
+| GLib | 2.78+ | 2.78+ |
 
-> **ZFS 버전 동기화**: HWE 커널 업그레이드 시 ZFS 유저랜드 버전도 함께 확인해야 합니다. 현재 추출 리포에서는 설치 장, `Makefile`, 관련 ADR을 기준으로 판단합니다.
+> **ZFS 버전 동기화**: HWE 커널 업그레이드 시 ZFS 유저랜드 버전도 함께 확인해야 합니다.<br>
+현재 추출 리포에서는 설치 장, `Makefile`, 관련 ADR을 기준으로 판단합니다.
 
 ### 2.2 패키지 설치
 
-#### 방법 A — `.deb` 바이너리 패키지 (권장, Ubuntu 24.04)
+#### 방법 A — `.deb` 바이너리 패키지 (권장, Ubuntu 26.04)
 
 릴리스 `.deb`(`purecvisor-single_<version>_amd64.deb`)로 데몬·CLI·UI·systemd 유닛을 한 번에 설치한다. 런타임 의존(libvirt/qemu/dnsmasq/nftables 등)은 apt가 자동 해결한다.
 
@@ -362,7 +354,9 @@ pcvctl --version          # → pcvctl 2.0.0 (Single Edge)
 
 - 설치 위치: 바이너리 `/usr/local/bin/{purecvisorsd,pcvctl}`, UI `/usr/local/share/purecvisor/ui/`, 유닛 `/etc/systemd/system/purecvisorsd.service`, 설정 `/etc/purecvisor/`.
 - REST(:8080)를 외부에 노출하려면 nginx 리버스 프록시(:80/:443 → 127.0.0.1:8080)를 **별도 구성**한다(패키지 미포함).
-- 업그레이드: 새 `.deb`로 같은 명령 재실행. 기존 `daemon.conf`는 보존된다(conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
+- 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
+기존 `daemon.conf`는 보존된다.<br>
+(conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
 - 제거: `sudo apt remove purecvisor-single` (설정 보존) / `sudo apt purge purecvisor-single` (설정 포함 제거).
 
 #### 방법 B — 소스 빌드
@@ -384,14 +378,16 @@ sudo apt update && sudo apt install -y \
     protobuf-c-compiler libprotobuf-c-dev
 ```
 
-> **참고**: `libvirt-glib-1.0-dev`가 `libvirt-gobject-1.0.pc`도 함께 제공합니다. 별도의 `libvirt-gobject-1.0-dev` 패키지는 존재하지 않습니다.
+> **참고**: `libvirt-glib-1.0-dev`가 `libvirt-gobject-1.0.pc`도 함께 제공합니다.<br>
+별도의 `libvirt-gobject-1.0-dev` 패키지는 존재하지 않습니다.
 > `libbpf-dev` 부재 시 D07 eBPF 경로가 stub 으로 빌드되고(런타임 DEGRADED_NO_BTF 폴백),
 > `libxml2-dev` 는 `libvirt-gconfig-1.0.pc` 의 전이 의존이라 없으면 pkg-config 해석 전체가
-> 비어 `glib.h` 부터 못 찾는 것처럼 보일 수 있다.
+> 비어 `glib.h` 부터 못 찾는 것처럼 보일 수 있다.<br>
 > 테스트 스위트 실행에는 추가로 `wireguard-tools`·`sqlite3`·`openvswitch-switch`·
 > `python3-pytest`(게이트 자체테스트)가 필요하다.
 
-> **운영 필수**: `libguestfs-tools`는 일반 VM 복제의 Guest reset 경로에 필요하다. 이 패키지가 없으면 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없어 `guest_reset=true` clone이 preflight에서 거부된다.
+> **운영 필수**: `libguestfs-tools`는 일반 VM 복제의 Guest reset 경로에 필요하다.<br>
+이 패키지가 없으면 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없어 `guest_reset=true` clone이 preflight에서 거부된다.
 
 ##### 런타임 의존성 (Single Edge/오버레이)
 

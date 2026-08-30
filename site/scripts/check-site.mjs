@@ -99,6 +99,14 @@ const overview = await readFile(
   path.join(distRoot, guideChapters[0].contentSlug, "index.html"),
   "utf8"
 );
+const guideSource = await readFile(path.join(siteRoot, "..", "docs", "GUIDE.md"), "utf8");
+const invalidGuideBreakLines = guideSource
+  .split(/\r?\n/)
+  .map((line, index) => ({ index: index + 1, line }))
+  .filter(({ line }) => line.trimEnd().endsWith("<br>") && !line.trimEnd().slice(0, -4).trimEnd().endsWith("."));
+if (invalidGuideBreakLines.length) {
+  throw new Error(`GUIDE sentence break must follow a period: ${invalidGuideBreakLines.map(({ index }) => index).join(", ")}`);
+}
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 const headerComponent = await readFile(path.join(siteRoot, "src", "components", "Header.astro"), "utf8");
 const architectureInteractions = await readFile(
@@ -144,20 +152,17 @@ if (!overview.includes(releaseSummaryLineBreakContract)) {
   throw new Error("release summary three-line contract missing");
 }
 const productSummaryLineBreakContract = `PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다.<br>
-단일 프로세스 데몬 <code dir="auto">purecvisorsd</code>가 fork 없이 GMainLoop 이벤트 루프로 동작하며,<br>
-VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.`;
+단일 프로세스 데몬 <code dir="auto">purecvisorsd</code>가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.`;
 if (!overview.includes(productSummaryLineBreakContract)) {
-  throw new Error("product summary three-line contract missing");
+  throw new Error("product summary sentence-line contract missing");
 }
-const architectureSummaryLineBreakContract = `<code dir="auto">purecvisorsd</code>는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고<br>
-<code dir="auto">GMainLoop</code>가 전체 수명주기를 소유합니다.<br>
+const architectureSummaryLineBreakContract = `<code dir="auto">purecvisorsd</code>는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고 <code dir="auto">GMainLoop</code>가 전체 수명주기를 소유합니다.<br>
 짧은 작업은 이벤트 루프에서 응답을 끝내고, 긴 작업만 제한된 <code dir="auto">GTask</code> 워커 풀로 보냅니다.<br>
 아래 탭에서 실제 TLS 배포 모드를 선택하면 클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체 구조를 해당 진입 경계로 확인할 수 있습니다.<br>
 기본 선택은 NGINX가 없는 <code dir="auto">purecvisorsd</code> 직접 HTTPS 모드입니다.<br>
-마우스를 사용하는 환경에서는<br>
-SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.`;
+마우스를 사용하는 환경에서는 SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.`;
 if (!overview.includes(architectureSummaryLineBreakContract)) {
-  throw new Error("architecture summary seven-line contract missing");
+  throw new Error("architecture summary sentence-line contract missing");
 }
 for (const marker of [
   'class="pcv-overview-architecture-tabs pcv-architecture-wide"',
