@@ -547,16 +547,55 @@ sudo apt install -y zfsutils-linux
 
 # OVS 오버레이 네트워크
 sudo apt install -y openvswitch-switch
+```
 
-# OVN Single Edge — 아래 두 경로 중 설치 방식에 맞는 한쪽만 실행
-# .deb 패키지로 설치한 경우
-sudo purecvisor-ovn-single
+##### OVN Single Edge 구성
+
+OVN을 사용하지 않고 OVS bridge만 사용하는 노드는 이 절을 건너뜁니다.
+OVN Single Edge 구성은 NB DB, SB DB, `ovn-northd`와 `ovn-controller`를 같은 노드에 설치하고 로컬 OVS를 해당 Southbound DB에 연결합니다.
+이 명령은 Multi Edge나 클러스터 제어면을 구성하지 않습니다.
+
+`purecvisor-ovn-single`과 `scripts/install-ovn-single.sh`는 동일한 스크립트의 설치본과 저장소 원본입니다.
+두 명령을 모두 실행하지 말고 PureCVisor를 설치한 방식에 맞는 한 경로만 선택합니다.
+
+| PureCVisor 설치 방식 | 선택할 명령 | 실행 위치 |
+|---|---|---|
+| 릴리스 `.deb` 패키지 | `purecvisor-ovn-single` | 패키지가 `/usr/local/sbin/`에 설치하므로 어느 디렉터리에서나 실행 |
+| Git 저장소 소스 빌드 | `scripts/install-ovn-single.sh` | PureCVisor 저장소 최상위 디렉터리에서 실행 |
+
+일반 실행은 `openvswitch-switch`, `ovn-central`, `ovn-host`를 설치하고 관련 서비스를 활성화합니다.
+이어서 OVS의 system ID, 로컬 Southbound DB socket, Geneve encap IPv4를 설정하고 NB/SB 동기화와 local chassis 등록이 끝날 때까지 최대 30초 동안 확인합니다.
+성공 메시지가 출력되면 별도의 즉시 검증은 필요하지 않습니다.
+
+`--encap-ip`에는 Geneve endpoint로 사용할, 이미 이 host에 할당된 IPv4를 지정합니다.
+옵션을 생략하면 default route 조회 결과의 source IPv4를 자동 선택하므로 관리망과 overlay transport망이 분리된 환경에서는 명시적으로 지정합니다.
+
+`.deb`로 설치한 노드는 다음 명령을 사용합니다.
+
+```bash
+sudo purecvisor-ovn-single --encap-ip <ovn-encap-ipv4>
+```
+
+소스 빌드 노드는 저장소 최상위 디렉터리에서 다음 명령을 사용합니다.
+
+```bash
+sudo scripts/install-ovn-single.sh --encap-ip <ovn-encap-ipv4>
+```
+
+`--verify-only`는 패키지 설치나 OVS 설정을 다시 수행하지 않습니다.
+재부팅 후 또는 장애 점검 시 처음 선택한 경로에만 붙여 OVS·OVN 서비스, NB/SB 동기화, local chassis 등록 상태를 재검사합니다.
+
+```bash
+# .deb 설치 노드
 sudo purecvisor-ovn-single --verify-only
 
-# 소스 checkout에서 설치한 경우
-sudo scripts/install-ovn-single.sh
+# 소스 빌드 노드
 sudo scripts/install-ovn-single.sh --verify-only
+```
 
+##### iSCSI 런타임
+
+```bash
 # iSCSI 스토리지 — 이니시에이터(클라이언트)만 패키지가 필요하다.
 # 타겟(서버) 측은 D4 전환으로 커널 LIO(configfs)를 직접 쓰므로 `tgt` 패키지가 **불요**하다.
 sudo apt install -y open-iscsi

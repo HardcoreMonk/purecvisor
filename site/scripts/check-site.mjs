@@ -907,6 +907,8 @@ if (!installation.includes("2.1 솔루션 권장사항") || installation.include
 for (const headingContract of [
   '<h2 id="22-솔루션-설치">2.2 솔루션 설치</h2>',
   '<h3 id="공통-런타임-의존성-사용-기능별">공통 런타임 의존성 (사용 기능별)</h3>',
+  '<h4 id="ovn-single-edge-구성">OVN Single Edge 구성</h4>',
+  '<h4 id="iscsi-런타임">iSCSI 런타임</h4>',
   '<h4 id="소스-배포의-lio-모듈-설정">소스 배포의 LIO 모듈 설정</h4>'
 ]) {
   if (!installation.includes(headingContract)) {
@@ -925,6 +927,9 @@ for (const marker of [
   "configured-management-ipv4",
   "qemu-system-x86",
   "purecvisor-ovn-single",
+  "두 명령을 모두 실행하지 말고",
+  "--encap-ip",
+  "--verify-only",
   "rpool/data/purecvisor/vms",
   "로컬 Single Edge 배포",
   "TLS 배포 모드 선택",
