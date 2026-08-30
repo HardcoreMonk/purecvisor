@@ -209,3 +209,10 @@ desktop·mobile overflow와 Axe 계약을 검증했다.
 [`33281197096`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33281197096)과 custom
 domain에서 일반 본문 50rem, 표·code 68rem, 아키텍처 75rem 상한, 기존 릴리스 세 줄,
 desktop·mobile overflow와 Axe 계약을 검증했다.
+
+2026-08-30 공통 읽기 축 재조정 commit
+`0968ae90d163d92de5239ec79bc4aadbc962e427`의 Pages run
+[`33282754951`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33282754951)과 custom
+domain에서 H1~H6·본문·표·code의 좌측축 차이 0, 표·code 50~60rem 적응형 폭,
+아키텍처 75rem 독립 확장, 기존 릴리스 세 줄, 1440·1280·390px reflow와 Axe 계약을
+검증했다.

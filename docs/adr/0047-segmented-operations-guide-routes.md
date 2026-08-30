@@ -1,6 +1,6 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Implemented
+- **상태:** Verified
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **변경 승인:** 2026-08-30 일반 본문 50rem·표/코드 68rem·아키텍처 자료 75rem의
@@ -110,3 +110,11 @@ custom domain의 1920px reader에서 일반 본문 800px, 표·code block 1,088p
 아키텍처 canvas 1,200px를 확인했다. 1440px·390px에서는 가용 폭으로 축소되고 page-level
 overflow, Axe와 browser 오류가 0이며 기존 릴리스 문단의 위치·세 줄도 유지되어 `Verified`로
 전환했다.
+
+2026-08-30 공통 읽기 축 재조정 commit
+`0968ae90d163d92de5239ec79bc4aadbc962e427`의 GitHub Pages run
+[`33282754951`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33282754951)이 성공했다.
+custom domain의 1536~1920px reader에서 H1~H6·본문·52개 표·9개 code·pagination의 좌측축
+차이와 전환이 모두 0이었다. 1920px의 본문은 800px, 표·code는 800~960px, 아키텍처
+canvas는 1,200px였으며 1440·1280·390px에서도 page overflow, Axe와 browser 오류가 0이고
+표 focus·방향키 scroll과 기존 릴리스 세 줄이 유지되어 `Verified`로 전환했다.

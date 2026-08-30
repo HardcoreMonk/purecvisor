@@ -1,7 +1,7 @@
 # 공개 문서 공통 읽기 축 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LOCAL-PASS — GitHub Pages·custom domain 검증 전
+> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 시각·접근성 검증 완료
 > **승인:** 2026-08-30 사용자 명시 승인
 > **대상:** Starlight reader의 H1~H6, 본문, 표, code block과 아키텍처 figure
 > **관련 결정:** ADR-0047
@@ -116,4 +116,25 @@ live 기준의 동일 문단은 `x=536`, `width=800`이므로 줄 길이는 유�
 - Firefox 154 1920px 데이터베이스:
   `17061bb64704d595d8e71128cdad23618725556acba80f52a50e39b2c6fb97dc`
 
-GitHub Pages와 custom domain 확인 뒤 최종 판정을 갱신한다.
+## 9. GitHub Pages·custom domain 검증
+
+구현 commit `0968ae90d163d92de5239ec79bc4aadbc962e427`의 GitHub Pages run
+[`33282754951`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33282754951)은 build와
+deploy를 모두 성공했다.
+
+`https://purecvisor.site`에서 같은 Chromium 검증을 반복했다. 1536·1600·1728·1824·1920px의
+좌측축 차이와 전환은 모두 0이었고 1920px의 본문 800px, 표 800~960px, code 800·881px,
+아키텍처 1,200px가 로컬 결과와 일치했다. 1440·1280·390px reflow, 52개 표 focus, 모바일
+방향키 scroll `0 -> 80px`, 릴리스 문단 세 줄과 landing 아키텍처도 유지됐다. 모든 viewport에서
+page overflow, Axe 위반, console·page·request 오류는 0이었다.
+
+live 시각 증거 SHA-256은 다음과 같다.
+
+- Chromium 1920px 데이터베이스:
+  `15774953a4c978a3d266cf3b1e0ee6268e56192b3fb6392bc8b387f765f1ac28`
+- Chromium 390px 데이터베이스:
+  `929ec19175a47efaca0ade9cb0deebc429088a3edf1257ee3a850b885511f4b4`
+- Chromium 1920px 릴리스 문단:
+  `21b955e5295d407c15e86c413f45b2a3db05743ff0c1dd9aaef775763b7401fc`
+
+모든 수용 기준을 충족했으므로 이 리뷰를 **LIVE-PASS**로 확정한다.
