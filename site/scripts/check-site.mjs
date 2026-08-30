@@ -883,13 +883,19 @@ const installation = await readFile(
   path.join(distRoot, "ko", "getting-started", "installation", "index.html"),
   "utf8"
 );
-if (!installation.includes("2.1 시스템 요구사항") || installation.includes("fetch(")) {
+if (!installation.includes("2.1 솔루션 권장사항") || installation.includes("fetch(")) {
   throw new Error("installation body is not statically rendered");
 }
-if (!installation.includes("한 번에 설치한다.<br> 런타임 의존")) {
+if (!installation.includes("한 번에 설치합니다.<br>")) {
   throw new Error("installation automatic sentence break missing");
 }
 for (const marker of [
+  "Ubuntu 26.04.1 LTS",
+  "unused-management-ipv4",
+  "configured-management-ipv4",
+  "qemu-system-x86",
+  "rpool/data/purecvisor/vms",
+  "로컬 Single Edge 배포",
   "TLS 배포 모드 선택",
   "purecvisorsd",
   "선택형 NGINX 외부 TLS 종료",

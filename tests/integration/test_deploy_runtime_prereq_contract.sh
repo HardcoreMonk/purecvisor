@@ -1206,12 +1206,12 @@ require(
 require(
     re.search(
         r"rest_port\s*=\s*8080.*?"
-        r"(?:nginx|리버스 프록시).*?명시적 운영 선택",
+        r"(?:loopback|루프백).*?(?:복구|proxy upstream)",
         daemon_config,
         re.DOTALL,
     )
     is not None,
-    "GUIDE must identify example rest_port 8080 as an explicit nginx deployment choice",
+    "GUIDE must identify rest_port 8080 as the loopback recovery or proxy upstream listener",
 )
 require(
     re.search(
@@ -1224,17 +1224,17 @@ require(
     "GUIDE daemon reference must list rest_port default 80",
 )
 for endpoint in (
-    "REST: http://0.0.0.0:<configured-port>/api/v1/",
-    "Web:  http://0.0.0.0:<configured-port>/ui/",
-    "WS:   ws://0.0.0.0:<configured-port>/api/v1/ws/events",
+    "HTTPS listening on https://0.0.0.0:443 (HSTS enabled)",
+    "HTTP/2 support enabled (TLS via ALPN negotiation)",
+    "REST API listening on http://127.0.0.1:8080 + https://0.0.0.0:443/api/v1",
 ):
     require(
         endpoint in systemd_section,
-        f"GUIDE generic startup banner must use configured port: {endpoint}",
+        f"GUIDE startup listener example must match the direct HTTPS baseline: {endpoint}",
     )
 require(
-    re.search(r"0\.0\.0\.0:8080/(?:api/v1/|ui/)", systemd_section) is None,
-    "GUIDE generic startup banner must not imply a fixed 8080 port",
+    "REST API listening on http://0.0.0.0:8080" not in systemd_section,
+    "GUIDE startup listener example must not expose plaintext 8080 externally",
 )
 PY
 }
@@ -1358,10 +1358,10 @@ def anchored_contract(document_name, document):
 guide_contract = anchored_contract("GUIDE", guide)
 handoff_contract = anchored_contract("handoff", handoff)
 require(
-    "PCV_NGINX_BIND_IP=192.0.2.10" in handoff_contract
-    and "192.0.2.10" in handoff_contract
+    'NODE_IPV4="<configured-management-ipv4>"' in handoff_contract
+    and 'PCV_NGINX_BIND_IP="${NODE_IPV4}"' in handoff_contract
     and "ExecStartPre" in handoff_contract,
-    "public guide must include the documentation-address opt-in and vendor ExecStartPre check",
+    "public guide must include the generic local Single Edge opt-in and vendor ExecStartPre check",
 )
 for document_name, document in (
     ("GUIDE", guide_contract),
@@ -1940,8 +1940,8 @@ write_mutant(
 write_mutant(
     "guide-banner-fixed-8080.md",
     guide,
-    "0.0.0.0:<configured-port>",
-    "0.0.0.0:8080",
+    "REST API listening on http://127.0.0.1:8080 + https://0.0.0.0:443/api/v1",
+    "REST API listening on http://0.0.0.0:8080",
 )
 scope_leak = guide.replace(
     "컴파일 기본값은 `80`",
@@ -2022,7 +2022,7 @@ if run_guide_contract "$STATE/guide-rest-default-8080.md" >/dev/null 2>&1; then
   fail "GUIDE must reject rest_port 8080 as the compile-time default"
 fi
 if run_guide_contract "$STATE/guide-banner-fixed-8080.md" >/dev/null 2>&1; then
-  fail "GUIDE must reject a fixed 8080 generic startup banner"
+  fail "GUIDE must reject an externally exposed plaintext 8080 startup listener"
 fi
 if run_guide_contract "$STATE/guide-daemon-scope-leak.md" >/dev/null 2>&1; then
   fail "GUIDE daemon contract must reject semantics leaked into the next peer section"

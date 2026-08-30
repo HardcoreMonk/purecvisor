@@ -29,7 +29,7 @@ PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 �
 
 ## 빠른 시작
 
-Ubuntu 22.04 LTS 또는 24.04 LTS 계열을 기준으로 합니다. 전체 설치 전제와 운영 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
+Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
 <details>
 <summary>Ubuntu 의존성 설치 예시</summary>
@@ -37,24 +37,27 @@ Ubuntu 22.04 LTS 또는 24.04 LTS 계열을 기준으로 합니다. 전체 설�
 ```bash
 sudo apt update
 sudo apt install -y \
+  ca-certificates curl git jq cpu-checker \
   build-essential gcc-14 make pkg-config ccache \
   libglib2.0-dev libjson-glib-dev libsoup-3.0-dev \
-  libvirt-dev libvirt-clients libvirt-daemon-system qemu-kvm \
+  libvirt-dev libvirt-clients libvirt-daemon-system qemu-system-x86 ovmf \
   libguestfs-tools \
   libvirt-glib-1.0-dev liblxc-dev lxc lxc-utils \
   zfsutils-linux libsqlite3-dev libssl-dev \
   libcap-dev libseccomp-dev libreadline-dev liburing-dev \
+  libbpf-dev libxml2-dev \
   protobuf-c-compiler libprotobuf-c-dev
 ```
 
 </details>
 
-.deb 바이너리 패키지로 빠르게 설치할 수도 있습니다(Ubuntu 24.04, 데몬·CLI·UI·systemd 유닛 일괄).
+.deb 바이너리 패키지로 빠르게 설치할 수도 있습니다(Ubuntu 26.04.1, 데몬·CLI·UI·systemd 유닛 일괄).
 
 ```bash
 make deb                                          # dist/purecvisor-single_<ver>_amd64.deb 생성
 sudo apt install -y ./dist/purecvisor-single_*.deb
-sudo nano /etc/purecvisor/daemon.conf             # admin_password 등 편집(파일은 0600 자동 설정)
+sudoedit /etc/purecvisor/daemon.conf               # admin_password·storage·TLS 편집
+sudo chmod 600 /etc/purecvisor/daemon.conf
 sudo systemctl start purecvisorsd
 ```
 
@@ -66,11 +69,12 @@ make test
 make check-all
 ```
 
-로컬 단일 노드에 배포한 뒤 health를 확인합니다.
+현재 로컬 단일 노드에만 배포한 뒤, 설치 중 확정한 관리 IPv4로 기본 자체 HTTPS health를 확인합니다.
 
 ```bash
-scripts/deploy.sh --nodes local
-curl -s http://localhost:8080/api/v1/health | python3 -m json.tool   # 운영은 nginx TLS 뒤 https://<host>/api/v1/health
+NODE_IPV4="<configured-management-ipv4>"
+PCV_NODES="" scripts/deploy.sh --nodes local
+curl -ksS "https://${NODE_IPV4}/api/v1/health" | jq '{status,version,tls:.checks.tls}'
 ```
 
 정상적인 Single Edge health 응답은 다음 성격을 유지해야 합니다.
@@ -142,7 +146,7 @@ Handlers
 Core modules: VM, LXC, ZFS, Network, Auth, Audit, Metrics
         |
         v
-System: libvirt, qemu-kvm, LXC, ZFS, OVS/OVN, nftables, dnsmasq
+System: libvirt, qemu-system-x86/KVM, LXC, ZFS, OVS/OVN, nftables, dnsmasq
 ```
 
 요청은 dispatcher에서 메서드 정책, RBAC, VM owner-scope를 먼저 통과합니다. 짧은 작업은 즉시 성공/오류 응답을 반환하고, 긴 작업은 먼저 accepted 응답을 보낸 뒤 worker callback에서 실제 결과를 기록합니다.
@@ -166,12 +170,15 @@ client request
 
 | 인터페이스 | 기본 경로 |
 |------------|-----------|
-| Web UI | `http://localhost:80/ui/` |
-| 이벤트 센터 | `http://localhost:80/ui#/ops-triage` |
-| REST API | `http://localhost:80/api/v1/` |
-| Health | `http://localhost:80/api/v1/health` |
-| Metrics | `http://localhost:80/api/v1/metrics` |
+| Web UI | `https://<management-ipv4>/ui/` |
+| 이벤트 센터 | `https://<management-ipv4>/ui#/ops-triage` |
+| REST API | `https://<management-ipv4>/api/v1/` |
+| Health | `https://<management-ipv4>/api/v1/health` |
+| Metrics | `https://<management-ipv4>/api/v1/metrics` |
+| 로컬 복구 HTTP | `http://127.0.0.1:8080/` |
 | UDS socket | `/var/run/purecvisor/daemon.sock` |
+
+예시의 `-k`는 최초 자체서명 인증서 확인용입니다. 운영 CA 인증서를 배치한 뒤에는 `-k`를 제거하고 인증서 체인과 설정한 관리 IPv4 또는 DNS 이름의 SAN을 검증합니다.
 
 첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다. 셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
 
@@ -182,7 +189,8 @@ client request
 토큰을 발급합니다.
 
 ```bash
-TOKEN=$(curl -s -X POST http://localhost:80/api/v1/auth/token \
+NODE_IPV4="<configured-management-ipv4>"
+TOKEN=$(curl -ksS -X POST "https://${NODE_IPV4}/api/v1/auth/token" \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<configured-admin-password>"}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
@@ -200,8 +208,8 @@ pcvctl vm list
 REST API로 VM 목록을 조회합니다.
 
 ```bash
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms | python3 -m json.tool
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/vms" | python3 -m json.tool
 ```
 
 UDS JSON-RPC를 직접 호출할 수도 있습니다.

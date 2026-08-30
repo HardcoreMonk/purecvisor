@@ -310,50 +310,177 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 ## 2. 설치 및 환경 구성
 
-### 2.1 시스템 요구사항
+### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-#### 하드웨어
+PureCVisor 2.0.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
+새 노드는 [Ubuntu 26.04.1 Server 이미지](https://releases.ubuntu.com/26.04.1/)로 설치하고 [Ubuntu 26.04 LTS 릴리스 노트](https://documentation.ubuntu.com/release-notes/26.04/)와 26.04.1 변경 사항을 확인합니다.
 
-| 항목 | 최소 | 권장 | 비고 |
-|------|------|------|------|
-| CPU | 4코어 | 8코어+ | VT-x/AMD-V 필수 |
-| RAM | 8GB | 32GB+ | VM 할당량에 따라 |
-| 디스크 | 100GB SSD | ZFS SSD 풀 1TB+ | ZFS는 ECC RAM 권장 |
-| 네트워크 | 1GbE | 10GbE | 오버레이/마이그레이션용 |
+#### 권장 배포 프로파일
 
-#### 소프트웨어
+| 항목 | 기능 확인용 최소 구성 | 운영 권장 구성 | 검증 기준 노드 |
+|---|---|---|---|
+| CPU | 8코어, VT-x/AMD-V | 16코어 이상, IOMMU | Intel Xeon E5-2697 v4 2소켓, 36코어/72스레드, VT-x·IOMMU |
+| RAM | 32GiB | 64GiB 이상, ZFS 사용 시 ECC 권장 | 128GB급, OS 인식 121GiB |
+| 시스템 디스크 | 256GB SSD | OS 전용 SSD 또는 mirror | 2TB NVMe의 ZFS root pool |
+| VM 데이터 | 512GB SSD | 별도 1TB 이상 NVMe mirror와 외부 백업 | 단일 2TB NVMe 공유, 검증용이며 디스크 장애 이중화 없음 |
+| 관리 네트워크 | 1GbE | 고정 주소 1GbE 이상 | 1GbE 관리 NIC, 설치자가 확인한 미사용 IPv4 |
+| 게스트·스토리지 네트워크 | 관리 NIC와 공유 | 별도 10GbE 이상 | 10GbE 전용 NIC, 호스트 L3 주소 없음 |
 
-| 항목 | 최소 | 권장 |
-|------|------|------|
-| OS | Ubuntu 24.04 LTS | Ubuntu 26.04 LTS |
-| 커널 | 6.x HWE (io_uring 최적) | 7.x |
-| libvirt | 10.0+ | 10.0+ |
-| ZFS | 2.2+ (HWE 커널 동기화 필수) | 2.2+  |
-| GLib | 2.78+ | 2.78+ |
+최소 구성은 제품 기능 확인용이며 동시에 실행할 VM의 vCPU·메모리·디스크를 포함하지 않습니다.
+운영 노드는 호스트와 `purecvisorsd`용으로 최소 4 vCPU와 8GiB RAM을 남기고 나머지를 VM 할당 한도로 잡습니다.
+VM 데이터 사용률은 80% 아래로 유지하고, snapshot과 같은 pool에만 있는 복사본을 백업으로 간주하지 않습니다.
+검증 기준 노드의 단일 NVMe 구성은 재현·검증용이며 운영 장애 허용 구성이 아니므로, 운영 배포에서는 mirror와 별도 백업 대상을 사용합니다.
 
-> **ZFS 버전 동기화**: HWE 커널 업그레이드 시 ZFS 유저랜드 버전도 함께 확인해야 합니다.<br>
-현재 추출 리포에서는 설치 장, `Makefile`, 관련 ADR을 기준으로 판단합니다.
+#### Ubuntu 26.04 소프트웨어 기준
+
+| 구성 요소 | 26.04 기준 | 검증 기준 노드 확인값 |
+|---|---|---|
+| OS | Ubuntu Server 26.04.1 LTS `amd64` | Ubuntu 26.04.1 LTS |
+| 커널 | Ubuntu generic 커널, cgroup v2 | `7.0.0-30-generic`, `cgroup2fs` |
+| C compiler | GCC 14 이상, C23 `-std=gnu23` | GCC 14.3 |
+| GLib | 2.88 계열 | 2.88.0 |
+| libvirt | 12.0 계열 | 12.0.0 |
+| QEMU/KVM | QEMU 10.2 계열, `/dev/kvm` | 10.2.1, KVM 검증 통과 |
+| ZFS | 2.4 계열, 설치 커널과 같은 Ubuntu archive | 2.4.1 |
+| OVS/OVN | 기능 사용 시 OVS 3.7·OVN 26.03 계열 | OVS 3.7.1·OVN 26.03.0 |
+
+표의 patch version은 2026-08-30 기준 검증값이며 고정 핀이 아닙니다.
+`resolute-updates`와 `resolute-security`의 최신 호환 package를 함께 적용합니다.
+Ubuntu 26.04의 HWE virtualization stack은 후속 interim release에 맞춰 갱신되므로 커널만 따로 올리지 않고 libvirt, QEMU, ZFS와 함께 업데이트한 뒤 재검증합니다.
+Ubuntu 24.04 guest clone 검증 이력은 guest 호환 범위이며 이 설치 장의 host OS 기준을 24.04로 낮추지 않습니다.
+
+#### 관리 IPv4 선정 기준
+
+| 역할 | 값 | 운영 원칙 |
+|---|---|---|
+| 관리 NIC | `<management-interface>` | `ip -br link`에서 확인한 실제 이름, host L3와 default route를 유지하며 `bridge/dedicated`에 넣지 않음 |
+| 관리 주소 | `<unused-management-ipv4>/<prefix-length>` | 관리망 대역 내 미사용 IPv4를 선택하고 router DHCP reservation 또는 정적 Netplan으로 고정 |
+| gateway | `<default-gateway-ipv4>` | 기존 default route에서 확인하고 관리 주소와 같은 대역인지 검증 |
+| DNS | `<dns-ipv4>` | 현재 resolver 정책을 유지하고 설치 전후 DNS 응답 확인 |
+| 제품 HTTPS | `https://<management-ipv4>:443` | 기본 `purecvisorsd` 자체 HTTPS, NGINX 불필요 |
+| 로컬 복구 HTTP | `http://127.0.0.1:8080` | loopback에서만 접근, 외부 공개 금지 |
+| 기본 VM NAT | `pcvnat0`, `10.78.0.1/24` | 관리망·기존 libvirt/LXC/VPC 대역과 중복 금지 |
+| 선택형 guest uplink | `<guest-uplink-interface>` | 주소·default route·master가 없음을 확인한 뒤에만 `bridge/dedicated` 후보로 사용 |
+
+문서의 길이 표시는 그대로 복사할 예시 IP가 아닙니다.
+설치자는 router·DHCP 할당표와 현재 lease를 확인해 동적 pool 외부이거나 reservation으로 보호된 미사용 IPv4를 선택해야 합니다.
+권장 방식은 현재 Netplan renderer와 DHCP를 유지하고 router에서 `<management-interface>`의 lease를 선택한 IPv4로 예약하는 것입니다.
+이 방식은 host에서 주소를 중복 선언하지 않으면서 서비스 주소를 고정합니다.
+router reservation을 사용할 수 없을 때만 아래 정적 Netplan 절차를 사용합니다.
 
 ### 2.2 패키지 설치
 
-#### 방법 A — `.deb` 바이너리 패키지 (권장, Ubuntu 26.04)
+#### 26.04 host 기본 준비
 
-릴리스 `.deb`(`purecvisor-single_<version>_amd64.deb`)로 데몬·CLI·UI·systemd 유닛을 한 번에 설치한다. 런타임 의존(libvirt/qemu/dnsmasq/nftables 등)은 apt가 자동 해결한다.
+hostname과 시간대는 인증서를 처음 만들기 전에 확정합니다.
+이미 인증서를 운영 중인 노드에서 hostname이나 관리 IP를 바꾸면 인증서 SAN과 접속 URL도 함께 갱신해야 합니다.
 
 ```bash
-# 의존성 자동 해결 포함 설치 (dpkg -i 대신 apt 사용 권장)
+sudo hostnamectl set-hostname purecvisor-edge-01
+sudo timedatectl set-timezone Asia/Seoul
+
+sudo apt update
+sudo apt full-upgrade -y
+sudo apt install -y ca-certificates curl git jq cpu-checker libvirt-clients
+
+test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+kvm-ok
+sudo virt-host-validate qemu
+timedatectl status
+```
+
+커널, ZFS 또는 QEMU가 갱신됐다면 이 단계에서 한 번 재부팅하고 같은 검사를 다시 실행합니다.
+`virt-host-validate`의 `/dev/kvm`, `/dev/vhost-net`, `/dev/net/tun`, IOMMU 항목은 `PASS`여야 합니다.
+confidential guest 기능을 사용하지 않는 Single Edge 노드의 SEV/TDX 경고는 기능 미사용 상태로 기록할 수 있지만 KVM 또는 IOMMU 실패는 설치 전에 해결합니다.
+
+#### 관리 주소 고정
+
+권장 방식은 router에서 DHCP reservation을 설정한 뒤 host 설정을 그대로 유지하는 것입니다.
+MAC 주소는 router 관리 화면에서 직접 확인하고 공개 문서나 이력에 기록하지 않습니다.
+
+```bash
+MGMT_NIC="<management-interface>"
+NODE_IPV4="<unused-management-ipv4>"
+PREFIX_LENGTH="<prefix-length>"
+GATEWAY_IPV4="<default-gateway-ipv4>"
+DNS_IPV4="<dns-ipv4>"
+
+sudo netplan get
+ip -4 address show dev "${MGMT_NIC}"
+ip route show default
+resolvectl status "${MGMT_NIC}"
+
+# 재부팅 후에도 아래 세 값이 유지되는지 확인
+# address: ${NODE_IPV4}/${PREFIX_LENGTH}
+# default route: ${GATEWAY_IPV4} via ${MGMT_NIC}
+# DNS server: ${DNS_IPV4}
+```
+
+DHCP reservation을 사용할 수 없는 환경에서는 console 또는 BMC 접속을 확보한 뒤 `/etc/netplan/60-purecvisor-mgmt.yaml`을 다음과 같이 만듭니다.
+먼저 모든 `<...>` 값을 해당 노드의 실제 값으로 바꾸고, 기존 `sudo netplan get`에서 확인한 renderer 정책을 유지합니다.
+다른 Netplan 파일이 `<management-interface>`를 함께 정의하면 먼저 중복을 제거합니다.
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    <management-interface>:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - <unused-management-ipv4>/<prefix-length>
+      routes:
+        - to: default
+          via: <default-gateway-ipv4>
+      nameservers:
+        addresses:
+          - <dns-ipv4>
+```
+
+```bash
+sudo chown root:root /etc/netplan/60-purecvisor-mgmt.yaml
+sudo chmod 600 /etc/netplan/60-purecvisor-mgmt.yaml
+sudo netplan generate
+sudo netplan try --timeout 120
+
+MGMT_NIC="<management-interface>"
+GATEWAY_IPV4="<default-gateway-ipv4>"
+ip -4 address show dev "${MGMT_NIC}"
+ip route show default
+resolvectl status "${MGMT_NIC}"
+ping -c 3 "${GATEWAY_IPV4}"
+```
+
+SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습니다.
+`netplan try` 확인에 실패하거나 시간이 끝나면 이전 설정으로 돌아가므로 console에서 원인을 수정합니다.
+
+#### 방법 A — `.deb` 바이너리 패키지 (권장, Ubuntu 26.04)
+
+릴리스 `.deb`(`purecvisor-single_<version>_amd64.deb`)로 데몬·CLI·UI·systemd 유닛을 한 번에 설치합니다.
+런타임 의존성인 libvirt, QEMU, dnsmasq, nftables와 iproute2는 apt가 자동 해결하며 OVS, OVN, ZFS는 package `Recommends`로 설치됩니다.
+
+```bash
+# release 디렉터리에서 서명 또는 전달받은 SHA256SUMS를 먼저 검증
+sha256sum -c SHA256SUMS --ignore-missing
+
+# 의존성 자동 해결 포함 설치
 sudo apt install -y ./purecvisor-single_2.0.0_amd64.deb
 
-# 최초 설치 시 /etc/purecvisor/daemon.conf 가 sample 기반으로 생성된다.
-# admin_password 등 필수 항목 편집 후 시작:
-sudo nano /etc/purecvisor/daemon.conf
+# 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
+sudoedit /etc/purecvisor/daemon.conf
+sudo chown root:root /etc/purecvisor/daemon.conf
+sudo chmod 600 /etc/purecvisor/daemon.conf
+
+sudo systemctl enable --now libvirtd
 sudo systemctl start purecvisorsd
-systemctl status purecvisorsd
-pcvctl --version          # → pcvctl 2.0.0 (Single Edge)
+systemctl --no-pager --full status purecvisorsd
+pcvctl --version
 ```
 
 - 설치 위치: 바이너리 `/usr/local/bin/{purecvisorsd,pcvctl}`, UI `/usr/local/share/purecvisor/ui/`, 유닛 `/etc/systemd/system/purecvisorsd.service`, 설정 `/etc/purecvisor/`.
-- REST(:8080)를 외부에 노출하려면 nginx 리버스 프록시(:80/:443 → 127.0.0.1:8080)를 **별도 구성**한다(패키지 미포함).
+- 기본 모드는 선택한 관리 IPv4의 데몬 자체 HTTPS `:443`과 loopback HTTP `127.0.0.1:8080`입니다.
+- NGINX는 외부 TLS 종료가 필요한 경우에만 별도 설치하며 기본 의존성이 아닙니다.
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
@@ -367,7 +494,7 @@ pcvctl --version          # → pcvctl 2.0.0 (Single Edge)
 sudo apt update && sudo apt install -y \
     build-essential gcc-14 make pkg-config ccache \
     libglib2.0-dev \
-    libvirt-dev libvirt-clients libvirt-daemon-system qemu-kvm \
+    libvirt-dev libvirt-clients libvirt-daemon-system qemu-system-x86 ovmf \
     libguestfs-tools \
     libsoup-3.0-dev libjson-glib-dev \
     libvirt-glib-1.0-dev liblxc-dev \
@@ -459,7 +586,7 @@ Ubuntu에서는 `sudo apt install strace`로 설치한 뒤 다시 실행한다.
 ### 2.3 빌드
 
 ```bash
-git clone <public-repo-url> purecvisor-single
+git clone https://github.com/HardcoreMonk/purecvisor.git purecvisor-single
 cd purecvisor-single
 ```
 
@@ -486,8 +613,11 @@ ls -lh bin/
 #### 품질 검증
 
 ```bash
-# 유닛 테스트 (1259건, sudo 필요)
+# 전체 unit·integration test
 make test
+
+# 공개 경계와 계약 게이트 전체
+make check-all
 
 # 정적 분석
 make cppcheck
@@ -508,12 +638,49 @@ make test-tap
 ```bash
 # 런타임 디렉터리
 sudo install -d -m 0700 /etc/purecvisor/pki
-sudo mkdir -p /etc/purecvisor/plugins.d
-sudo mkdir -p /etc/purecvisor/seccomp
-sudo mkdir -p /var/lib/purecvisor
-sudo mkdir -p /var/run/purecvisor
-sudo mkdir -p /var/log/purecvisor
+sudo install -d -m 0755 /etc/purecvisor/plugins.d
+sudo install -d -m 0755 /etc/purecvisor/seccomp
+sudo install -d -m 0755 /var/lib/purecvisor
+sudo install -d -m 0700 /var/run/purecvisor
+sudo install -d -m 0750 /var/log/purecvisor
 ```
+
+#### 스토리지 경로 확정
+
+`zvol_pool`은 실제로 존재하는 ZFS dataset을 지정해야 합니다.
+sample의 `pcvpool/vms`가 없는 상태를 그대로 두면 VM 생성은 `/var/lib/libvirt/images`의 qcow2로 폴백할 수 있지만 ZFS snapshot·backup 기능은 같은 기준으로 동작하지 않습니다.
+설치 전에 ZFS zvol 또는 file image 중 주 저장 방식을 결정하고 설정과 실제 경로를 일치시킵니다.
+
+Ubuntu가 `rpool` 단일 NVMe에 설치된 검증 노드는 새 설치일 때만 다음 전용 dataset을 만들 수 있습니다.
+기존 VM이 있는 노드에서는 이 명령으로 경로를 바꾸지 말고 별도 migration과 rollback 계획을 사용합니다.
+
+```bash
+sudo zpool status
+sudo zfs list
+
+# 새 설치 전용 예시
+sudo zfs create -o mountpoint=none -o canmount=off rpool/data/purecvisor
+sudo zfs create -o mountpoint=none -o canmount=off -o compression=lz4 \
+  rpool/data/purecvisor/vms
+sudo install -d -m 0711 /var/lib/libvirt/images
+sudo install -d -m 0755 /data/iso
+```
+
+```ini
+[storage]
+zvol_pool = rpool/data/purecvisor/vms
+image_dir = /var/lib/libvirt/images
+iso_dirs = /data/iso,/var/lib/libvirt/images
+```
+
+```bash
+sudo zfs list rpool/data/purecvisor/vms
+sudo test -d /var/lib/libvirt/images
+sudo test -d /data/iso
+```
+
+운영 권장 구성은 OS `rpool`과 분리된 mirror data pool을 만들고 `zvol_pool=pcvpool/vms`를 사용하는 방식입니다.
+단일 디스크 `rpool` 예시는 검증 환경 재현용이며 디스크 장애에 대한 중복성을 제공하지 않습니다.
 
 #### 배포 런타임 전제와 보존 정책
 
@@ -603,8 +770,10 @@ bind_plaintext = loopback
 - 이 모드에서는 NGINX service, NGINX vhost와 `PCV_NGINX_BIND_IP`가 필요하지 않다.
 
 ```bash
+NODE_IPV4="<configured-management-ipv4>"
 systemctl is-active purecvisorsd
-curl -ksS https://<node>/api/v1/health | jq '.checks.tls'
+curl -ksS "https://${NODE_IPV4}/api/v1/health" | jq '{status, tls: .checks.tls}'
+sudo ss -lntp | grep -E '127\.0\.0\.1:8080|0\.0\.0\.0:443'
 # 기대: mode=internal, enabled=true, degraded=false, status=ok
 ```
 
@@ -666,8 +835,9 @@ curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
 로컬 노드 배포:
 
 ```bash
+NODE_IPV4="<configured-management-ipv4>"
 PCV_NODES="" \
-PCV_NGINX_BIND_IP=192.0.2.10 \
+PCV_NGINX_BIND_IP="${NODE_IPV4}" \
 scripts/deploy.sh --nodes local
 ```
 
@@ -737,16 +907,16 @@ sudo systemctl status purecvisorsd
 journalctl -u purecvisorsd -f
 ```
 
-기동 완료 시 journalctl에 다음과 같은 배너가 출력됩니다:
+설정한 관리 IPv4에서 기본 모드가 정상 기동하면 journal에 다음 listener가 기록됩니다.
 
 ```
-PureCVisor daemon started
-  UDS:  /var/run/purecvisor/daemon.sock
-  REST: http://0.0.0.0:<configured-port>/api/v1/
-  Web:  http://0.0.0.0:<configured-port>/ui/
-  WS:   ws://0.0.0.0:<configured-port>/api/v1/ws/events
-  RPC methods: 265 | REST endpoints: ~190
+HTTPS listening on https://0.0.0.0:443 (HSTS enabled)
+HTTP/2 support enabled (TLS via ALPN negotiation)
+REST API listening on http://127.0.0.1:8080 + https://0.0.0.0:443/api/v1
 ```
+
+외부 평문 `0.0.0.0:8080`이 보이면 정상 기준이 아닙니다.
+`ss -lntp`와 `[server] bind_plaintext=loopback`을 확인한 뒤 서비스를 다시 시작합니다.
 
 ### 2.6 daemon.conf 설정
 
@@ -754,12 +924,13 @@ PureCVisor daemon started
 
 설정 우선순위: **환경 변수 > daemon.conf > 컴파일 기본값**
 
-REST `rest_port`의 컴파일 기본값은 `80`이다. 아래 `8080` 예시는 nginx가
-호스트의 `80`/`443`을 소유하고 데몬으로 reverse proxy하는 배치를 위한 설정값이다.
+REST `rest_port`의 컴파일 기본값은 `80`입니다.
+아래 Single Edge 권장 예시는 `8080`을 loopback 복구 listener로 두고 `purecvisorsd`가 설정한 관리 IPv4의 `443` HTTPS를 직접 소유합니다.
+NGINX 외부 TLS 종료를 선택한 경우에만 같은 `127.0.0.1:8080`을 proxy upstream으로 사용합니다.
 
 ```ini
 # /etc/purecvisor/daemon.conf
-# 전체 설정 레퍼런스
+# Single Edge 권장 baseline
 
 # ─────────────────────────────────────────────
 # [daemon] 데몬 기본 설정
@@ -770,7 +941,12 @@ socket_path = /var/run/purecvisor/daemon.sock
 
 # REST API 포트 (1-65535, CAP_NET_BIND_SERVICE 필요)
 rest_port = 8080
-# 위 8080은 nginx 리버스 프록시 뒤에 두는 배치의 명시적 운영 선택
+# 자체 HTTPS에서는 loopback 복구 listener, 선택형 NGINX에서는 proxy upstream
+
+# 첫 로그인 전에 12자 이상의 임시 bootstrap 비밀번호를 설정
+# 전용 admin 생성 뒤에는 빈 값으로 바꾸고 재기동해 bootstrap 계정을 비활성화할 수 있음
+admin_user = admin
+admin_password = <운영자가 sudoedit로 설정>
 
 # 그레이스풀 드레인 타임아웃 (초, 최소 5)
 drain_timeout = 30
@@ -786,13 +962,13 @@ jwt_secret =
 # ─────────────────────────────────────────────
 [storage]
 # ZFS zvol 풀 경로
-zvol_pool = pcvpool/vms
+zvol_pool = rpool/data/purecvisor/vms
 
 # qcow2/raw 이미지 폴백 디렉터리
 image_dir = /var/lib/libvirt/images
 
 # ISO 스캔 디렉터리 (콤마 구분, .iso/.img 파일)
-iso_dirs = /pcvpool/iso,/var/lib/libvirt/images,/iso
+iso_dirs = /data/iso,/var/lib/libvirt/images
 
 # ─────────────────────────────────────────────
 # [tls] HTTPS 설정
@@ -804,7 +980,7 @@ https_enabled = true
 cert = /etc/purecvisor/pki/node.crt
 key = /etc/purecvisor/pki/node.key
 
-# mTLS CA (클러스터 간 통신)
+# 선택적 client mTLS 신뢰 CA
 ca = /etc/purecvisor/pki/ca.crt
 
 # https_enabled=false일 때 반드시 loopback을 명시
@@ -863,29 +1039,6 @@ webhook_format = slack
 telegram_chat_id =
 
 # ─────────────────────────────────────────────
-# [cluster] 클러스터 설정 (cluster build)
-# ─────────────────────────────────────────────
-[cluster]
-# etcd 엔드포인트 (콤마 구분)
-etcd_endpoints = http://192.0.2.19:2379
-
-# etcd 타임아웃 (2-120초)
-etcd_timeout = 15
-
-# 노드 식별자
-node_name = PureCVisor-Node1
-node_ip = 192.0.2.19
-
-# ZFS 복제 풀
-repl_pool = pcvpool/vms
-
-# 복제 RPO (초)
-repl_rpo = 300
-
-# IPMI 펜싱 호스트
-fence_ipmi_host = 192.168.1.100
-
-# ─────────────────────────────────────────────
 # [network] 관리형 기본 네트워크 (VP-1/VP-6, 2026-07)
 # ─────────────────────────────────────────────
 [network]
@@ -913,16 +1066,6 @@ firewall_integration = auto
 [security_group]
 # vnet 캐시 주기 재동기화 간격(초). 0 또는 음수면 타이머 비활성.
 resync_interval_sec = 300
-
-# ─────────────────────────────────────────────
-# [overlay] OVS VXLAN 오버레이 설정
-# ─────────────────────────────────────────────
-[overlay]
-name = pcvoverlay0
-vni = 100
-cidr = 10.100.0.1/24
-local_ip = 192.0.2.19
-peers = 192.0.2.20,192.0.2.21
 
 # ─────────────────────────────────────────────
 # [cpu] CPU 할당 설정
@@ -962,7 +1105,8 @@ check_interval_hours = 24
 - `rest_port`: 1-65535 범위
 - `drain_timeout`: 5초 이상
 - `pool_max_conn`: 1-64 범위
-- `etcd_timeout`: 2-120초 범위
+- `admin_password`: 미설정 시 bootstrap admin 비활성화, 12자 미만이면 보안 경고
+- `zvol_pool`: ZFS 기능 사용 시 실제 dataset 존재 확인
 - 경로 존재 여부 (`socket_path`, `[tls] cert`/`key` 등)
 
 범위를 벗어나면 `PCV_LOG_WARN`으로 경고 후 기본값을 사용합니다.
@@ -1011,19 +1155,20 @@ fi
 2026-08-09 이전에는 화면에 RPC 오류가 표시돼도 exit 0이 반환될 수 있었다. 현재 계약은
 옵트인 없이 기본 동작이므로, 기존 자동화는 `set -e`, `&&`, `if` 분기가 달라질 수 있다.
 
-### 2.8 멀티노드 배포
+### 2.8 로컬 Single Edge 배포
 
-`scripts/deploy.sh`를 사용하면 빌드부터 3노드 배포까지 자동화됩니다.
+배포 대상 노드 자체에서 실행할 때는 deploy target을 `local`로 명시합니다.
+빈 `PCV_NODES`는 저장된 원격 node 목록이 섞이는 것을 막고 `--nodes local`은 현재 host만 변경합니다.
 
 ```bash
-# 릴리스 빌드 + 3노드 전체 배포 (바이너리 + UI 파일)
-scripts/deploy.sh
+# 릴리스 빌드 + BPF + 현재 노드 배포
+PCV_NODES="" scripts/deploy.sh --nodes local
 
-# 디버그 빌드 배포
-scripts/deploy.sh --debug
+# 디버그 빌드도 현재 노드로 제한
+PCV_NODES="" scripts/deploy.sh --nodes local --debug
 
-# 특정 노드만 배포 (빌드 생략)
-scripts/deploy.sh --nodes 2,3 --skip-build
+# 이미 검증한 산출물 재배포
+PCV_NODES="" scripts/deploy.sh --nodes local --skip-build
 ```
 
 #### Web UI 정적 자산 배포 체크
@@ -1053,30 +1198,26 @@ rg -n "customConfirm\([^\\n]*<[^\\n]*>|<br><b>|idx \|\| selectedVmIndex" ui/modu
 
 두 `rg` 명령은 결과가 없어야 정상입니다. 운영 CSP를 넓혀 외부 아이콘 API나 CDN sourcemap을 허용하지 말고, 필요한 런타임 자산은 `ui/vendor/` 또는 inline SVG처럼 로컬 자산으로 고정합니다. `customConfirm()` 호출부는 HTML 조각을 넘기지 않고 plain text와 `\n`만 사용합니다.
 
-운영 서버에 반영할 때는 로컬 파일 검증과 공개 URL 검증을 분리한다. `127.0.0.1` 또는 개발 호스트의 `/usr/local/share/purecvisor/ui`가 통과해도, NAT와 도메인이 실제로 가리키는 공개 서버가 다른 호스트일 수 있다. UI 배포 완료 판정 전에는 공개 URL의 번들 해시와 외부 런타임 참조를 직접 확인한다.
+배포 완료 판정은 저장소 산출물, 설치 파일과 설정한 관리 IPv4에서 실제 제공하는 파일을 함께 비교합니다.
+초기 자체서명 인증서를 사용하는 동안만 `curl -k`를 사용하며 운영 CA 인증서를 설치한 뒤에는 `-k` 없이 검증합니다.
 
 ```bash
-curl -sk -o /tmp/pcv-live-app.bundle.js 'https://purecvisor.example.com/ui/app.bundle.js?v=<ui-version>'
-curl -sk -o /tmp/pcv-compat-app.bundle.js 'https://purecvisor-compat.example.com/ui/app.bundle.js?v=<ui-version>'
-curl -sk -o /tmp/pcv-live-docs.html 'https://purecvisor.example.com/ui/docs.html?v=<ui-version>'
-curl -sk -o /tmp/pcv-compat-docs.html 'https://purecvisor-compat.example.com/ui/docs.html?v=<ui-version>'
-curl -sk -o /tmp/pcv-live-guide-content.md 'https://purecvisor.example.com/ui/guide-content.md?v=<ui-version>'
-curl -sk -o /tmp/pcv-compat-guide-content.md 'https://purecvisor-compat.example.com/ui/guide-content.md?v=<ui-version>'
-curl -sk -o /tmp/pcv-live-sw.js 'https://purecvisor.example.com/ui/sw.js?v=<ui-version>'
-curl -sk -o /tmp/pcv-compat-sw.js 'https://purecvisor-compat.example.com/ui/sw.js?v=<ui-version>'
-curl -skL 'https://purecvisor.example.com/ui' | rg -n '<base href="/ui/">'
-curl -skL 'https://purecvisor.example.com/ui/app.bundle.js?v=<ui-version>' | rg -n 'renderOpsTriage|replace\(/\^#'
-sha256sum ui/app.bundle.js /tmp/pcv-live-app.bundle.js /tmp/pcv-compat-app.bundle.js
-sha256sum ui/docs.html /tmp/pcv-live-docs.html /tmp/pcv-compat-docs.html
-sha256sum ui/guide-content.md /tmp/pcv-live-guide-content.md /tmp/pcv-compat-guide-content.md
-sha256sum ui/sw.js /tmp/pcv-live-sw.js /tmp/pcv-compat-sw.js
-rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" /tmp/pcv-live-app.bundle.js
-rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" /tmp/pcv-compat-app.bundle.js
+NODE_IPV4="<configured-management-ipv4>"
+curl -ksS "https://${NODE_IPV4}/api/v1/health" \
+  | jq '{status,service,version,node_name,tls:.checks.tls}'
+curl -ksS -o /tmp/pcv-live-app.bundle.js \
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.0"
+
+sha256sum ui/app.bundle.js \
+  /usr/local/share/purecvisor/ui/app.bundle.js \
+  /tmp/pcv-live-app.bundle.js
+
+rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" \
+  /tmp/pcv-live-app.bundle.js
 ```
 
-외부 런타임 참조를 찾는 두 `rg` 명령은 결과가 없어야 한다. `/ui` no-slash 진입점은 `<base href="/ui/">`를 포함해야 하며, 번들은 `renderOpsTriage`와 `#page`/`#/page` 해시 라우팅 호환 코드를 포함해야 한다. 표준 도메인과 호환 도메인의 해시가 다르면 각 공개 서버의 `/usr/local/share/purecvisor/ui/app.bundle.js`와 `sw.js`를 같은 릴리스 산출물로 다시 배포한다.
-
-현재 `2.0.0` 릴리스의 공개 UI 자산은 `?v=2.0.0` query string을 사용한다. 제품 버전을 바꿀 때는 API/CLI 버전과 HTML query string, `app.bundle.js`, `sw.js`를 함께 갱신하고 공개 URL에서 `/api/v1/health`, `/api/v1/version`, UI bundle hash를 다시 확인한다.
+세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
+health의 `status=ok`, `version=2.0.0`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -5095,7 +5236,7 @@ make cppcheck
 
 | 패키지 | 용도 |
 |--------|------|
-| gcc (14.2+) | C23 컴파일러 |
+| gcc-14 | C23 컴파일러, 검증 기준 노드 확인값 14.3 |
 | make | 빌드 시스템 |
 | libglib2.0-dev | GLib/GIO/GObject |
 | libsoup-3.0-dev | HTTP 서버 (REST API) |
@@ -5109,6 +5250,8 @@ make cppcheck
 | libseccomp-dev | Seccomp 시스템 콜 필터 |
 | libreadline-dev | CLI REPL |
 | liburing-dev | io_uring fast path |
+| libbpf-dev | eBPF loader와 BTF 경로 |
+| libxml2-dev | libvirt-gconfig pkg-config 전이 의존 |
 | protobuf-c-compiler / libprotobuf-c-dev | protobuf-c 코드 생성과 링크 |
 
 #### 런타임 의존성
@@ -5116,15 +5259,14 @@ make cppcheck
 | 패키지 | 용도 |
 |--------|------|
 | libvirt-daemon-system | libvirtd |
-| qemu-kvm | KVM 하이퍼바이저 |
+| qemu-system-x86 / ovmf | QEMU/KVM 하이퍼바이저와 UEFI firmware |
 | libguestfs-tools | 일반 VM 복제 Guest reset 도구 묶음 |
 | zfsutils-linux | ZFS 파일시스템 |
 | lxc / lxc-utils | LXC 컨테이너 런타임 |
 | openvswitch-switch | OVS 가상 스위치 |
+| ovn-central / ovn-host | 선택형 Local OVN control plane과 host controller |
 | (패키지 없음 — 커널 LIO) | iSCSI 타겟. D4 전환으로 `tgt` 의존 제거. `/etc/modules-load.d/purecvisor-lio.conf` 로 모듈만 확보한다 — **deb 가 conffile 로 설치한다**(D4-F6 해소). deb 를 쓰지 않는 배포에서만 운영자가 직접 만든다 |
 | open-iscsi | iSCSI 이니시에이터 |
-| etcd | 분산 키-값 저장소 |
-| keepalived | VRRP VIP 관리 |
 | dnsmasq | DHCP/DNS |
 | nftables | 방화벽 |
 
@@ -5132,11 +5274,10 @@ make cppcheck
 
 | 포트 | 프로토콜 | 용도 |
 |------|---------|------|
-| 80 | TCP/HTTP | REST API + Web UI |
-| 443 | TCP/HTTPS | TLS REST API + Web UI |
-| 2379 | TCP | etcd 클라이언트 |
-| 2380 | TCP | etcd 피어 |
-| 4789 | UDP | VXLAN 오버레이 (VNI=100) |
+| 443 | TCP/HTTPS | `purecvisorsd` 기본 REST API + Web UI + WebSocket |
+| 8080 | TCP/HTTP | `127.0.0.1` 복구 listener 또는 선택형 NGINX upstream, 외부 공개 금지 |
+| 80 | TCP/HTTP | 선택형 NGINX HTTP→HTTPS redirect를 사용할 때만 외부 수신 |
+| 4789 | UDP | 선택형 VXLAN overlay를 구성한 경우 |
 | 9090 | TCP | Prometheus (외부 컨테이너) |
 | 3000 | TCP | Grafana (외부 컨테이너) |
 
