@@ -168,11 +168,11 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   확대 link를 사용하고 `prefers-reduced-motion: reduce`에서는 이동 animation 없이 색·두께·opacity
   강조만 유지한다. hover로만 새로운 필수 설명을 제공하거나 SVG 내부 node를 대량 keyboard tab
   stop으로 만들지 않는다.
-- reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 50rem,
-  표와 code block은 기본 50rem에서 콘텐츠가 요구하는 만큼 최대 60rem까지 적응형으로
-  확장한다. H1~H6, 본문, 표와 code는 공통 좌측 읽기 축을 유지하고 아키텍처 figure만 최대
-  75rem으로 독립 확장한다. 이 계약은 절대 고정 폭이 아니며 좁은 화면에서는 reader의 가용
-  폭을 사용한다.
+- reader의 폭은 자료 역할에 따라 구분한다. 일반 문장·heading·pagination은 최대 56rem,
+  표와 code block은 기본 56rem에서 콘텐츠가 요구하는 만큼 최대 72rem까지 적응형으로
+  확장한다. H1~H6, 본문, 표와 code는 공통 좌측 읽기 축을 유지하고 아키텍처 figure는 최대
+  88rem canvas를 사용한다. 좌·우 reader sidebar 기준 폭은 16rem이다. 이 계약은 절대 고정
+  폭이 아니며 좁은 화면에서는 reader의 가용 폭을 사용한다.
 - 표와 code block의 초과 너비는 해당 요소 안에서만 scroll하고 page-level 가로 scroll을
   만들지 않는다. 표는 keyboard focus를 유지하며, 아키텍처 자료는 전체 구조를 폭에 맞춰
   표시하는 inline view와 원본 확대 link를 함께 제공한다.
@@ -196,8 +196,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`,
   reader의 의미 기반 폭 체계는
   `docs/ui-reviews/2026-08-30-public-documentation-content-widths.md`, 공통 읽기 축 재조정은
-  `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 시작하기의 전체 아키텍처
-  보강은 `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`, TLS 모드별 SVG와 탭은
+  `docs/ui-reviews/2026-08-30-public-documentation-reading-axis.md`, 넓은 화면 공간 활용 확장은
+  `docs/ui-reviews/2026-09-01-public-documentation-wide-layout.md`, 시작하기의 전체 아키텍처 보강은
+  `docs/ui-reviews/2026-08-30-overview-architecture-completeness.md`, TLS 모드별 SVG와 탭은
   `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`, node·레이어 연결 흐름 롤오버는
   `docs/ui-reviews/2026-08-30-overview-architecture-rollover-flow.md`, landing SVG 노출 제거는
   `docs/ui-reviews/2026-08-30-landing-architecture-removal.md`, landing 문서 맵 재도입은
@@ -271,7 +272,8 @@ map 부재를 확인한다. Hero 한 열, 문서 맵 4→2→1열, 44px link tar
 mobile 줄바꿈, light/dark surface token,
 landing architecture figure·범례·diagram image·diagram link·diagram request 부재, SVG 파일·구조 hash,
 overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping·reduced-motion,
-일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
+일반 본문 56rem·표/code 56~72rem 적응형 폭·아키텍처 88rem 상한·16rem sidebar,
+공통 좌측 읽기 축,
 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
 네트워크 page에서는 host baseline endpoint, subnet 없는 정확한 switch create, generic OVN
 18개 RPC set, DHCP ownership cleanup, REST ACL/NAT filter와 `-32602`를 positive contract로

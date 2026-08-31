@@ -1,10 +1,11 @@
 # 공개 문서 공통 읽기 축 UI 리뷰
 
 > **일자:** 2026-08-30
-> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 시각·접근성 검증 완료
+> **판정:** SUPERSEDED — 2026-09-01 넓은 화면 공간 활용 확장으로 대체
 > **승인:** 2026-08-30 사용자 명시 승인
 > **대상:** Starlight reader의 H1~H6, 본문, 표, code block과 아키텍처 figure
 > **관련 결정:** ADR-0047
+> **후속 리뷰:** [`2026-09-01-public-documentation-wide-layout.md`](2026-09-01-public-documentation-wide-layout.md)
 
 ## 1. 설계 brief
 
@@ -138,3 +139,11 @@ live 시각 증거 SHA-256은 다음과 같다.
   `21b955e5295d407c15e86c413f45b2a3db05743ff0c1dd9aaef775763b7401fc`
 
 모든 수용 기준을 충족했으므로 이 리뷰를 **LIVE-PASS**로 확정한다.
+
+## 10. 후속 공간 활용 재검토
+
+위 판정은 공통 좌측 읽기 축과 당시 50~75rem 폭 계약에는 유효하다. 이후 일반 본문이
+46rem으로 조정되고 19rem sidebar가 유지되면서 1920px에서 본문 736px, 아키텍처 canvas
+1,200px만 사용해 좌·우 여백이 크게 남는 상태를 사용자 검토로 확인했다. 2026-09-01 사용자
+요청에 따라 공통 읽기 축은 유지하되 56rem 본문, 56~72rem 기술 자료, 88rem 아키텍처 canvas와
+16rem sidebar를 사용하는 후속 리뷰로 현재 폭 계약을 대체한다.

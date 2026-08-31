@@ -1,12 +1,14 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Verified
+- **상태:** Implemented
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **변경 승인:** 2026-08-30 일반 본문 50rem·표/코드 68rem·아키텍처 자료 75rem의
   의미 기반 reader 폭 체계를 사용자 명시 승인
 - **재조정 승인:** 2026-08-30 공통 좌측 읽기 축·표/코드 50~60rem 적응형 폭·아키텍처
   75rem 독립 확장을 사용자 명시 승인
+- **공간 활용 확장 승인:** 2026-09-01 일반 본문 56rem·표/코드 56~72rem·아키텍처
+  88rem·reader sidebar 16rem으로 넓은 화면을 최대한 활용하도록 사용자 명시 요청
 - **Single Edge 적용 상태:** 공개 운영 가이드 URL·reader·navigation 계약
 - **관련:** ADR-0037, ADR-0046
 
@@ -43,11 +45,11 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
    목차, Pagefind 검색, code copy, mobile drawer와 이전·다음 navigation을 사용한다.
 10. 생성 artifact gate는 22개 가이드와 독립 기술 문서 route, canonical, active page, 전체
     sidebar link, landing link, legacy mapping, 공개 금지 표식과 내부 link 무결성을 검사한다.
-11. reader의 일반 본문은 최대 50rem을 유지한다. 표·code block은 50rem을 기본 폭으로 두고
-    실제 콘텐츠가 필요할 때만 최대 60rem까지 오른쪽으로 확장한다. H1~H6, 본문, 표와 code는
-    하나의 좌측 읽기 축을 공유하며 아키텍처 figure만 최대 75rem으로 독립 확장한다. 이 계약은
-    절대 고정 폭이 아니며 좁은 화면에서는 가용 폭을 사용하고 page-level 가로 스크롤을
-    만들지 않는다.
+11. reader의 일반 본문은 최대 56rem을 사용한다. 표·code block은 56rem을 기본 폭으로 두고
+    실제 콘텐츠가 필요할 때만 최대 72rem까지 오른쪽으로 확장한다. H1~H6, 본문, 표와 code는
+    하나의 좌측 읽기 축을 공유하며 아키텍처 figure는 최대 88rem canvas를 사용한다. 좌·우
+    reader sidebar 기준 폭은 16rem이다. 이 계약은 절대 고정 폭이 아니며 좁은 화면에서는
+    가용 폭을 사용하고 page-level 가로 스크롤을 만들지 않는다.
 
 ## Consequences
 
@@ -58,8 +60,8 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
   reader dependency가 아니다.
 - `/docs.html`의 기존 hash는 호환되지만 신규 URL 정본은 directory route이므로 외부 문서는
   점진적으로 새 링크로 갱신해야 한다.
-- 일반 문장의 줄 길이를 보존하면서 열이 많은 표, 긴 code block과 아키텍처 자료만 더 넓은
-  reader canvas를 사용할 수 있다.
+- 일반 문장의 판독 가능한 상한을 유지하면서 열이 많은 표, 긴 code block과 아키텍처 자료가
+  넓은 화면의 가용 공간을 더 적극적으로 사용할 수 있다.
 - 표·code가 등장할 때마다 본문 좌측축이 바뀌지 않으며, 짧은 기술 자료는 불필요하게 최대 폭을
   채우지 않는다.
 
@@ -83,8 +85,8 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 - `/docs.html#3-vm-관리`는 `/ko/workloads/virtual-machines/`로 이동해야 한다.
 - 1440·1280·390px 실제 browser에서 overflow, 접근성, console·page·request 오류가 없어야 한다.
 - 1536~1920px에서 H1~H6·본문·표·code의 좌측축 차이는 0이어야 한다. 1920px에서 일반 본문은
-  50rem, 표·code block은 콘텐츠에 따라 50~60rem, 아키텍처 자료는 75rem의 상한을 사용하고,
-  1440px 이하에서는 가용 폭으로 축소되어야 한다.
+  56rem, 표·code block은 콘텐츠에 따라 56~72rem, 아키텍처 canvas는 가용 폭 85rem까지
+  확장되고, 1440px 이하에서는 가용 폭으로 축소되어야 한다.
 - Pages 배포와 custom domain 확인 전에는 상태를 `Verified`로 올리지 않는다.
 
 2026-08-24 구현 commit `2c7a9d8`의 GitHub Pages run
@@ -118,3 +120,9 @@ custom domain의 1536~1920px reader에서 H1~H6·본문·52개 표·9개 code·p
 차이와 전환이 모두 0이었다. 1920px의 본문은 800px, 표·code는 800~960px, 아키텍처
 canvas는 1,200px였으며 1440·1280·390px에서도 page overflow, Axe와 browser 오류가 0이고
 표 focus·방향키 scroll과 기존 릴리스 세 줄이 유지되어 `Verified`로 전환했다.
+
+2026-09-01 넓은 화면 공간 활용 확장을 로컬 구현했다. Chromium 152의 1920px reader에서
+좌·우 rail 256px, Markdown canvas 1,360px, 일반 본문 896px, 기술 자료 최대 1,152px와
+공통 좌측축 차이 0을 확인했다. 1440·1280·390px reflow, 데이터베이스·네트워크 page overflow,
+Axe와 browser 오류가 모두 0이며 mobile 표 방향키 scroll과 최신 릴리스 세 줄도 유지됐다.
+Pages·custom domain 배포 검증 전까지 상태는 `Implemented`로 유지한다.

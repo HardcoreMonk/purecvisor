@@ -44,12 +44,12 @@
   --sl-color-gray-5: #dce1e8;
   --sl-color-gray-6: #edf1f5;
   --sl-color-black: #f5f7fa;
-  --pcv-prose-width: 46rem;
-  --pcv-technical-width: 60rem;
-  --pcv-architecture-width: 75rem;
-  --pcv-reader-rail-inset-max: 7.5rem;
+  --pcv-prose-width: 56rem;
+  --pcv-technical-width: 72rem;
+  --pcv-architecture-width: 88rem;
+  --pcv-reader-rail-inset-max: 4rem;
   --sl-content-width: var(--pcv-architecture-width);
-  --sl-sidebar-width: 19rem;
+  --sl-sidebar-width: 16rem;
 }
 
 :root[data-theme="dark"] {
@@ -224,7 +224,7 @@ main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer) 
 }
 
 .pcv-network-page-lead {
-  max-width: 43rem;
+  max-width: var(--pcv-prose-width);
   margin-block: 1rem 0;
   color: var(--sl-color-gray-2);
   font-size: 1.125rem;
@@ -242,10 +242,6 @@ main:has(.pcv-network-page-kicker) > .content-panel:first-of-type h1 {
   line-height: 1.08;
   letter-spacing: -0.035em;
   text-wrap: balance;
-}
-
-main:has(.pcv-network-page-kicker) .sl-markdown-content {
-  --pcv-prose-width: 43rem;
 }
 
 main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2 {

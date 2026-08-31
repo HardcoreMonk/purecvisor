@@ -194,11 +194,12 @@ for (const staleMarker of ["Storage & networking", "스토리지 · 네트워크
   }
 }
 for (const contract of [
-  "--pcv-prose-width: 46rem;",
-  "--pcv-technical-width: 60rem;",
-  "--pcv-architecture-width: 75rem;",
-  "--pcv-reader-rail-inset-max: 7.5rem;",
-  "--sl-content-width: var(--pcv-architecture-width);"
+  "--pcv-prose-width: 56rem;",
+  "--pcv-technical-width: 72rem;",
+  "--pcv-architecture-width: 88rem;",
+  "--pcv-reader-rail-inset-max: 4rem;",
+  "--sl-content-width: var(--pcv-architecture-width);",
+  "--sl-sidebar-width: 16rem;"
 ]) {
   if (!landingStyles.includes(contract)) throw new Error(`reader width token missing: ${contract}`);
 }
@@ -253,7 +254,7 @@ for (const marker of [
 }
 for (const [selector, declarations] of [
   [".pcv-network-page-kicker", ["font-family: var(--sl-font-mono);", "font-size: 0.75rem;", "letter-spacing: 0.08em;"]],
-  [".pcv-network-page-lead", ["max-width: 43rem;", "font-size: 1.125rem;", "line-height: 1.72;", "word-break: keep-all;"]],
+  [".pcv-network-page-lead", ["max-width: var(--pcv-prose-width);", "font-size: 1.125rem;", "line-height: 1.72;", "word-break: keep-all;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2", ["border-top: 2px solid var(--sl-color-gray-1);", "padding-top: 1.4rem;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h3", ["border-inline-start: 3px solid var(--sl-color-accent);", "padding: 0.15rem 0 0.15rem 1rem;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td)", ["word-break: keep-all;"]],
@@ -267,6 +268,9 @@ for (const [selector, declarations] of [
       throw new Error(`network reader hierarchy missing: ${selector} ${declaration}`);
     }
   }
+}
+if (landingStyles.includes("main:has(.pcv-network-page-kicker) .sl-markdown-content {\n  --pcv-prose-width:")) {
+  throw new Error("network reader must use the common prose width");
 }
 for (const marker of [
   'new Set(["p", "li", "figcaption"])',
