@@ -540,6 +540,18 @@ def main() -> int:
             f"{path} must not publish the retired multi-control-plane notes",
             "멀티 제어면 참고 기록" not in text,
         )
+        require_all(
+            path,
+            text,
+            (
+                "### 네트워크 서비스 개요",
+                "### 네트워크 서비스 활용 예제",
+                "#### 예제 1 — NAT 네트워크에 VM 연결",
+                "#### 예제 2 — Local VPC의 웹 서비스를 허용된 네트워크에 게시",
+                "--backend linux --subnet-name web",
+                'pcvctl vpc service-publish "$ATTACHMENT_ID"',
+            ),
+        )
 
     require(
         "ui/docs.html must not publish the retired multi-control-plane notes",

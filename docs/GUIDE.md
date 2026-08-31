@@ -2606,6 +2606,123 @@ node_disk_io_time_seconds_total{device="sda"}
 
 ## 6. 네트워크
 
+### 네트워크 서비스 개요
+
+PureCVisor 네트워크 서비스는 한 Single Edge 호스트에서 VM의 연결 방식, 주소 할당, 외부 통신, tenant 격리와 트래픽 정책을 함께 관리하는 로컬 네트워크 제어면입니다.<br>
+`purecvisorsd`가 CLI, Web UI와 REST/RPC 요청을 받아 Linux bridge, `dnsmasq`, nftables, TC, OVS/OVN과 VM persistent XML에 필요한 상태를 적용합니다.<br>
+패킷은 데몬을 경유하지 않고 선택한 Linux/KVM 데이터 경로로 흐르며, 데몬은 구성의 생성·조회·복구와 권한·감사 경계를 담당합니다.
+
+| 구성 영역 | 네트워크 서비스가 제공하는 기능 | 주요 구현과 확인 지점 |
+|---|---|---|
+| 기본 VM 연결 | NAT, 격리, 라우팅, 물리 LAN 연결 | `pcvctl network`, Linux bridge, `dnsmasq`, nftables |
+| tenant 네트워크 | VPC, IPv4 subnet, 정지 VM attachment, 제한형 Service Publish | `pcvctl vpc`, Linux Local VPC, Web UI `인프라 > Local VPC` |
+| 트래픽 정책 | 방화벽, Security Group, QoS, IDS/IPS | nftables, TC, Suricata |
+| 오버레이·가속 경로 | VLAN, VXLAN, OVN, DPDK, SR-IOV | 기능별 상태 명령과 이 장의 전용 제약 |
+| 관측과 복구 | host 기준선, desired/actual 상태, 네트워크 메트릭 | `/api/v1/networks/host-baseline`, `network list`, `vpc status`, Prometheus |
+
+기본 네트워크와 Local VPC는 목적이 다릅니다.<br>
+기본 네트워크는 VM을 하나의 bridge 또는 물리 LAN에 직접 연결하는 단순한 호스트 네트워크이고, Local VPC는 tenant, subnet, attachment와 게시 서비스를 하나의 desired state로 관리하는 격리 경계입니다.<br>
+Local VPC를 사용하는 VM NIC는 VPC attachment 절차로 연결해야 하며, VPC가 관리하는 bridge를 일반 `network.*` 명령이나 `vm.create network_bridge`로 수정하면 안 됩니다.
+
+| 요구 사항 | 권장 방식 | 선택 이유 |
+|---|---|---|
+| 사설 주소를 사용하는 VM의 외부 접속 | `nat` | 내부 DHCP와 outbound NAT를 함께 구성합니다. |
+| 외부와 단절된 VM 간 통신 | `isolated` | host 내부 bridge에만 트래픽을 유지합니다. |
+| upstream 장비가 VM subnet을 정적으로 라우팅 | `routed` | 주소 변환 없이 host를 다음 홉으로 사용합니다. |
+| VM 전용 물리 NIC를 upstream LAN에 연결 | `bridge/dedicated` | host L3가 없는 전용 NIC를 bridge port로 편입합니다. |
+| host 관리 연결을 유지하면서 같은 물리 LAN 사용 | `bridge/shared` | host IP·route·DNS를 이동하지 않고 VM L2를 중계합니다. |
+| tenant별 subnet·정책·선택적 inbound 게시 | `Local VPC`의 `linux` backend | 현재 공개 지원 경계 안에서 수명주기와 격리를 함께 관리합니다. |
+
+구성 전에는 `ip -br link`, `ip -4 route`와 Web UI의 `호스트 네트워크 기준선`을 함께 확인합니다.<br>
+새 CIDR은 host connected CIDR과 다른 VPC subnet에 겹치지 않아야 합니다.<br>
+물리 NIC를 사용할 때는 관리 경로인지 먼저 판별하고, `dedicated`와 `shared` 중 하나를 명시적으로 선택해야 합니다.<br>
+특히 원격 접속에 사용하는 NIC를 `bridge/dedicated` 대상으로 선택하면 안 됩니다.
+
+일반 네트워크 변경은 결과를 다시 조회해 bridge, DHCP와 정책 상태를 확인합니다.<br>
+Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 CLI의 terminal 결과 또는 `jobs.get`의 `completed`를 확인한 뒤 `vpc status`로 actual state를 검증합니다.<br>
+현재 공개 지원 backend는 `linux`이며, `ovn`은 이 장에 명시된 추가 검증을 모두 통과하기 전까지 구현 후보로 취급합니다.
+
+### 네트워크 서비스 활용 예제
+
+#### 예제 1 — NAT 네트워크에 VM 연결
+
+이 예제는 별도의 upstream VLAN이나 물리 NIC 변경 없이 VM에 사설 주소와 외부 방향 통신을 제공하는 가장 단순한 구성입니다.<br>
+`10.44.0.0/24`가 host route와 기존 VM/VPC 대역에 사용되지 않는지 먼저 확인합니다.
+
+```bash
+# 1. host와 기존 관리형 네트워크의 충돌 여부를 확인한다.
+ip -br link
+ip -4 route show table main
+pcvctl network list
+
+# 2. gateway 10.44.0.1을 사용하는 NAT 네트워크를 만든다.
+pcvctl network create app-nat --mode nat --cidr 10.44.0.1/24
+
+# 3. 새 VM NIC를 app-nat에 연결한다.
+pcvctl vm create web-demo \
+  --vcpu 2 \
+  --memory_mb 2048 \
+  --disk_size_gb 20 \
+  --storage_type qcow2 \
+  --network_bridge app-nat \
+  --qos_min_mbps 0 \
+  --qos_max_mbps 1000
+
+# 4. VM을 시작하고 제어면과 host actual state를 확인한다.
+pcvctl vm start web-demo
+pcvctl network list
+pcvctl vm list
+ip -br address show app-nat
+sudo nft list ruleset
+```
+
+게스트 OS의 NIC가 DHCP를 사용하면 `10.44.0.0/24`에서 주소를 받고 host의 NAT 경계를 통해 외부로 나갑니다.<br>
+NAT 네트워크 생성만으로 외부에서 게스트로 들어오는 포트가 자동 공개되지는 않습니다.<br>
+외부 inbound가 필요하고 tenant 단위 수명주기까지 관리하려면 다음 Local VPC 예제처럼 Service Publish를 사용합니다.
+
+#### 예제 2 — Local VPC의 웹 서비스를 허용된 네트워크에 게시
+
+이 예제는 `acme` tenant의 웹 subnet을 만들고, 정지 상태의 `web-prod` VM을 연결한 뒤 host TCP `8443`을 게스트 TCP `443`으로 제한 게시합니다.<br>
+`web-prod`는 미리 생성되어 정지 상태여야 하고, 연결할 Security Group은 게스트 TCP `443`을 허용해야 합니다.<br>
+아래 `198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 클라이언트 CIDR로 반드시 바꿉니다.
+
+```bash
+# 1. 공개 지원 backend와 현재 capacity를 확인한다.
+pcvctl vpc backends
+
+# 2. Linux NAT VPC와 첫 subnet을 한 Job으로 생성한다.
+pcvctl vpc create app-vpc --tenant acme --egress nat \
+  --backend linux --subnet-name web --cidr 10.60.10.0/24 --mtu 1500
+
+# 3. terminal 완료 뒤 aggregate에서 VPC와 subnet UUID를 확인한다.
+pcvctl vpc list --tenant acme
+VPC_ID="replace-with-vpc-uuid"
+SUBNET_ID="replace-with-subnet-uuid"
+pcvctl vpc get "$VPC_ID" --tenant acme
+
+# 4. 정지 VM을 연결하고 완료 응답의 attachment UUID를 확인한다.
+pcvctl vpc attachment-create "$SUBNET_ID" web-prod --tenant acme
+ATTACHMENT_ID="replace-with-attachment-uuid"
+pcvctl vpc get "$VPC_ID" --tenant acme
+
+# 5. 문서용 주소를 실제 운영 값으로 교체한 뒤 서비스 하나만 게시한다.
+NODE_IPV4="198.51.100.10"
+ALLOWED_CLIENT_CIDR="192.0.2.0/24"
+pcvctl vpc service-publish "$ATTACHMENT_ID" --tenant acme \
+  --protocol tcp --listen-address "$NODE_IPV4" --listen-port 8443 \
+  --target-port 443 --allowed-source "$ALLOWED_CLIENT_CIDR"
+
+# 6. VM을 시작하고 게시 상태와 전체 수렴 상태를 확인한다.
+pcvctl vm start web-prod
+pcvctl vpc service-list "$VPC_ID" --tenant acme
+pcvctl vpc status
+```
+
+`listen_address`를 특정 node IPv4로 제한하면 다른 host 주소에는 같은 포트가 열리지 않습니다.<br>
+`0.0.0.0`은 모든 host IPv4에 게시한다는 의미이므로 명확한 운영 사유가 있을 때만 사용합니다.<br>
+Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인증서를 대신하지 않으므로 허용된 클라이언트에서 실제 응답까지 별도로 확인합니다.<br>
+명령이 실패하면 `vpc status`의 `reconcile_required`, resource의 `last_error`와 해당 Job의 terminal 오류를 먼저 확인합니다.
+
 ### 6.1 브릿지 네트워크
 
 #### 네트워크 생성
