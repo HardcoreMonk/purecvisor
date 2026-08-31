@@ -70,7 +70,7 @@ log "─── [2] 논리 스위치 ───"
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.list","params":{},"id":"o2"}')
 assert_contains "OVN: switch.list 응답" "$RESP" "result"
 
-RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.create","params":{"name":"test-ovn-sw","subnet":"10.200.0.0/24"},"id":"o3"}')
+RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.create","params":{"name":"test-ovn-sw"},"id":"o3"}')
 if [ -n "$OVN_AVAILABLE" ]; then
     assert_contains "OVN: switch.create" "$RESP" "result"
 else
@@ -157,6 +157,12 @@ log "─── [8] 파라미터 검증 ───"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.create","params":{},"id":"o13"}')
 assert_contains "OVN: 파라미터 누락 에러" "$RESP" "error"
+
+RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.delete","params":{},"id":"o13b"}')
+assert_contains "OVN: switch.delete 이름 누락 에러" "$RESP" "error"
+
+RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.switch.create","params":{"name":"test-ovn-noop","subnet":"10.200.9.0/24"},"id":"o13c"}')
+assert_contains "OVN: switch.create no-op subnet 거부" "$RESP" "error"
 
 RESP=$(send_rpc '{"jsonrpc":"2.0","method":"ovn.nat.add","params":{"router":"x"},"id":"o14"}')
 assert_contains "OVN: NAT 파라미터 누락 에러" "$RESP" "error"

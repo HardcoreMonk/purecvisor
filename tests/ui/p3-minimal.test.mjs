@@ -466,6 +466,10 @@ test('network OVN: availability pill + local switch/router surface, no public de
     assert.match(text, /edge-ls/);
     assert.match(text, /edge-lr/);
     assert.match(text, /Logical topology/);
+    assert.match(text, /ACL policy add/);
+    assert.doesNotMatch(text, /LB setup|Create LB|Load balancer status note/,
+      'incomplete NFV LB lifecycle must not be exposed from the OVN product screen');
+    assert.equal(await page.$$eval('button[onclick^="nfvLbCreate"]', els => els.length), 0);
     assert.doesNotMatch(text, /demo\.purecvisor\.site|ovn-visual|Public OVN demo health/);
   }, { routes: ovnRoutes(true) });
 

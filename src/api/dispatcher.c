@@ -159,6 +159,7 @@
 void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
                       
 void handle_network_list_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
+void handle_network_host_info_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_network_info_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
@@ -415,7 +416,6 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "suricata.ips.drop.list",     2 },
     { "suricata.ips.drop.add",      2 },
     { "suricata.ips.drop.remove",   2 },
-    { "nfv.lb.create",             2 },
     { "node.drain",                2 },
     { "ovn.tenant.create",         2 },
     { "sriov.attach",              2 },
@@ -429,6 +429,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "vm.guest.agent.status",     0 },
     { "vm.guest.fsinfo",           0 },
     { "vm.numa.info",              0 },                                                          
+    { "network.host.info",         0 },
     { "daemon.update_check",       0 },                                                                                       
                                                            
                                                               
@@ -7627,100 +7628,6 @@ static void _handle_ai_healing_reject(JsonObject *params, const gchar *rpc_id,
                                                                    
                                
                                                                    
-                                                          
-                                                    
-                                            
-                                           
-#include "modules/network/nfv_manager.h"
-static void _handle_nfv_lb_create(JsonObject *params, const gchar *rpc_id,
-                                   UdsServer *server, GSocketConnection *connection)
-{
-    if (!params || !json_object_has_member(params, "name") ||
-        !json_object_has_member(params, "vip") || !json_object_has_member(params, "port")) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing required params: name, vip, port");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        return;
-    }
-    const gchar *name = json_object_get_string_member(params, "name");
-    const gchar *vip  = json_object_get_string_member(params, "vip");
-    gint port         = (gint)json_object_get_int_member(params, "port");
-
-                                                  
-                                          
-    JsonArray *backends = NULL;
-    if (json_object_has_member(params, "backends")) {
-        JsonNode *bn = json_object_get_member(params, "backends");
-        if (bn && JSON_NODE_HOLDS_ARRAY(bn))
-            backends = json_node_get_array(bn);
-    }
-    guint bn_len = backends ? json_array_get_length(backends) : 0;
-    if (bn_len == 0) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "backends must be a non-empty array");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        return;
-    }
-
-    GString *joined = g_string_new(NULL);
-    gboolean bad = FALSE;
-    for (guint i = 0; i < bn_len && !bad; i++) {
-        JsonNode *el = json_array_get_element(backends, i);
-        gchar *bip = NULL;
-        gint64 bport = 0;
-        if (el && JSON_NODE_HOLDS_OBJECT(el)) {
-            JsonObject *bo = json_node_get_object(el);
-            const gchar *s = json_object_has_member(bo, "ip")
-                ? json_object_get_string_member(bo, "ip") : NULL;
-            bip = g_strdup(s);
-            bport = json_object_has_member(bo, "port")
-                ? json_object_get_int_member(bo, "port") : 0;
-        } else if (el && JSON_NODE_HOLDS_VALUE(el)) {
-            const gchar *s = json_node_get_string(el);
-            const gchar *colon = s ? strrchr(s, ':') : NULL;                     
-            if (colon) {
-                bip = g_strndup(s, (gsize)(colon - s));
-                bport = g_ascii_strtoll(colon + 1, NULL, 10);
-            }
-        }
-        if (!bip || !pcv_validate_ip_literal(bip) || !pcv_validate_port((gint)bport)) {
-            bad = TRUE;
-        } else {
-            if (joined->len) g_string_append_c(joined, ',');
-            if (strchr(bip, ':'))                                   
-                g_string_append_printf(joined, "[%s]:%d", bip, (gint)bport);
-            else
-                g_string_append_printf(joined, "%s:%d", bip, (gint)bport);
-        }
-        g_free(bip);
-    }
-    if (bad) {
-        g_string_free(joined, TRUE);
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid backend (expect ip + port)");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        return;
-    }
-
-    gchar *backends_str = g_string_free(joined, FALSE);
-    GError *err = NULL;
-    gboolean ok = pcv_nfv_lb_create(name, vip, port, backends_str, &err);
-    g_free(backends_str);
-    if (ok) {
-        JsonNode *node = json_node_new(JSON_NODE_VALUE);
-        json_node_set_boolean(node, TRUE);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-    } else {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            err ? err->message : "LB create failed");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        if (err) g_error_free(err);
-    }
-}
-
-                                                                    
-                                                            
-                                                                       
-                                                                     
-                                                                        
 static void _handle_security_group_detach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -10052,6 +9959,7 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "network.create",         (gpointer)handle_network_create_request);
     g_hash_table_insert(g_rpc_routes, "network.delete",         (gpointer)handle_network_delete_request);
     g_hash_table_insert(g_rpc_routes, "network.list",           (gpointer)handle_network_list_request);
+    g_hash_table_insert(g_rpc_routes, "network.host.info",      (gpointer)handle_network_host_info_request);
     g_hash_table_insert(g_rpc_routes, "network.info",           (gpointer)handle_network_info_request);
     g_hash_table_insert(g_rpc_routes, "network.mode_set",       (gpointer)handle_network_mode_set_request);
     g_hash_table_insert(g_rpc_routes, "network.bind_phys",      (gpointer)handle_network_bind_phys_request);
@@ -10276,7 +10184,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "security_group.rule.remove", (gpointer)_handle_security_group_rule_remove);
     g_hash_table_insert(g_rpc_routes, "ai.healing.approve",         (gpointer)_handle_ai_healing_approve);
     g_hash_table_insert(g_rpc_routes, "ai.healing.reject",          (gpointer)_handle_ai_healing_reject);
-    g_hash_table_insert(g_rpc_routes, "nfv.lb.create",              (gpointer)_handle_nfv_lb_create);
     g_hash_table_insert(g_rpc_routes, "vm.security_group.set",   (gpointer)_handle_vm_security_group_set);
     g_hash_table_insert(g_rpc_routes, "security_group.detach",   (gpointer)_handle_security_group_detach);
 

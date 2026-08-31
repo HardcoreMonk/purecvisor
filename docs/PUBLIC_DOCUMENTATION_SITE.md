@@ -2,6 +2,7 @@
 
 > 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
+> 현행화 기준: 2026-08-31
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
 
@@ -39,6 +40,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
 - 상단 `서비스`, `시작하기`, `공개 범위`, `문서`는 각각 하위 링크를 가진 disclosure navigation이다.
+  `서비스`의 Networking 항목은 `/ko/infrastructure/networking/`으로 직접
+  이동한다. Storage는 landing 문서 맵과 reader sidebar에서 계속 제공한다.
   `문서 > 전체 운영 가이드`와 영어 `Documentation > Full operations guide`는 모두 한국어 정본
   `/ko/getting-started/installation/`로 이동한다.
 
@@ -67,6 +70,11 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   함께 제공한다. NGINX를 모든 설치의 필수 의존성으로 안내하지 않는다.
 - 카테고리나 장 구성이 바뀌면 제품 포털, route manifest와 `site/scripts/check-site.mjs`의
   reader route·link gate를 같은 릴리스 단위로 갱신한다.
+- 네트워크 page는 생성 전에 `/api/v1/networks/host-baseline`을 확인하는 절차, dispatcher에
+  등록된 generic OVN 18개 RPC의 정확한 inventory, subnet 없는 switch create, switch-owned
+  DHCP cleanup, 인증 REST ACL/NAT query filter와 canonical `-32602`를 설명한다. 미완성
+  OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 사용자 기능으로 노출하지 않으며,
+  generic OVN과 Local VPC OVN backend의 지원 gate를 분리한다.
 
 ## 시각 기준
 
@@ -84,6 +92,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
   `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_webpush.db`를 모두 명시한다.
+  공개 DB 개수는 공개 소스에 실제 존재하는 이 9개를 정본으로 하며 다른 내부 배포판의
+  저장소 수와 혼용하지 않는다.
 - Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.0`을 실제 H1으로 두고 범위 문장, action과
   배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
   줄바꿈한다.
@@ -179,7 +189,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-25-landing-service-architecture-source-svg.md`, 색상 의미와 폭 맞춤 전환 근거는
   `docs/ui-reviews/2026-08-25-landing-architecture-fit-semantic-colors.md`, 문서 디렉터리 제거 근거는
   `docs/ui-reviews/2026-08-24-landing-documentation-section-removal.md`, 2026-08-30 콘텐츠 현행화는
-  `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따른다. 데이터베이스
+  `docs/ui-reviews/2026-08-30-public-site-current-state-refresh.md`를 따르며, 같은 리뷰의
+  2026-08-31 후속 기록이 generic OVN 콘텐츠와 Networking 직접 링크 정합화를 승계한다.
+  데이터베이스
   아키텍처 route 추가는 `docs/ui-reviews/2026-08-30-database-architecture-route.md`, landing
   SVG의 DB 계층 보강은 `docs/ui-reviews/2026-08-30-landing-architecture-database-layer.md`,
   reader의 의미 기반 폭 체계는
@@ -198,7 +210,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 docs/GUIDE.md + docs/DATABASE_STRUCTURE.md + route manifest
                             |
                             v
-       22개 가이드 + 1개 DB 아키텍처 page 생성
+       21개 가이드 + 1개 DB 아키텍처 page 생성
                             |
                             v
               Astro/Starlight build + search
@@ -261,6 +273,11 @@ landing architecture figure·범례·diagram image·diagram link·diagram reques
 overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping·reduced-motion,
 일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
+네트워크 page에서는 host baseline endpoint, subnet 없는 정확한 switch create, generic OVN
+18개 RPC set, DHCP ownership cleanup, REST ACL/NAT filter와 `-32602`를 positive contract로
+검사한다. `vm_port`, subnet을 포함한 switch create, OVN/NFV Load Balancer 사용자 호출이
+다시 나타나면 실패다. Header의 Networking은 6장으로 직접 연결돼야 하며,
+Storage는 landing 문서 맵과 reader sidebar에서 접근 가능해야 한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
 `/en/`, 설치 page 직접 본문, 21개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
 검색, 좌우 목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.
@@ -281,3 +298,7 @@ desktop·mobile overflow와 Axe 계약을 검증했다.
 domain에서 H1~H6·본문·표·code의 좌측축 차이 0, 표·code 50~60rem 적응형 폭,
 아키텍처 75rem 독립 확장, 기존 릴리스 세 줄, 1440·1280·390px reflow와 Axe 계약을
 검증했다.
+
+2026-08-31 generic OVN·host baseline 문서와 Networking 직접 링크 배포 receipt는
+[공개 운영 인계](operations/2026-08-31-ovn-documentation-source-pages-sync-handoff.md)에서
+별도로 관리한다.

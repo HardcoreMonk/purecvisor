@@ -875,6 +875,39 @@ pcv_vpc_status(const gchar *tenant, GError **error)
     json_object_set_int_member(o, "subnet_count", json_array_get_length(subnets));
     json_object_set_int_member(o, "attachment_count", json_array_get_length(attachments));
     json_object_set_int_member(o, "service_publish_count", json_array_get_length(publishes));
+
+
+
+
+
+
+
+
+    JsonArray *subnet_cidrs = json_array_new();
+    for (guint i = 0; i < json_array_get_length(subnets); i++) {
+        JsonObject *subnet = json_array_get_object_element(subnets, i);
+        const gchar *vpc_id = json_object_get_string_member(subnet, "vpc_id");
+        const gchar *vpc_name = NULL;
+        for (guint j = 0; j < json_array_get_length(vpcs); j++) {
+            JsonObject *vpc = json_array_get_object_element(vpcs, j);
+            if (g_strcmp0(json_object_get_string_member(vpc, "id"), vpc_id) == 0) {
+                vpc_name = json_object_get_string_member(vpc, "name");
+                break;
+            }
+        }
+        JsonObject *entry = json_object_new();
+        json_object_set_string_member(entry, "vpc_id", vpc_id);
+        if (vpc_name)
+            json_object_set_string_member(entry, "vpc_name", vpc_name);
+        json_object_set_string_member(entry, "backend",
+            json_object_get_string_member_with_default(subnet, "backend", "linux"));
+        json_object_set_string_member(entry, "cidr",
+            json_object_get_string_member(subnet, "cidr"));
+        json_object_set_string_member(entry, "state",
+            json_object_get_string_member(subnet, "state"));
+        json_array_add_object_element(subnet_cidrs, entry);
+    }
+    json_object_set_array_member(o, "subnet_cidrs", subnet_cidrs);
     json_object_set_object_member(o, "vpc_states", _resource_state_counts(vpcs));
     json_object_set_object_member(o, "subnet_states", _resource_state_counts(subnets));
     json_object_set_object_member(o, "attachment_states", _resource_state_counts(attachments));
@@ -1192,14 +1225,39 @@ pcv_vpc_subnet_delete(const gchar *id, const gchar *tenant, GError **error)
     PcvVpcStore *s = _store_ref(error); if (!s) return FALSE;
     g_mutex_lock(&g_mutation_mu);
     g_autoptr(JsonObject) subnet = pcv_vpc_store_get_subnet(s, id, tenant, error);
+    const gchar *vpc_id = subnet
+        ? json_object_get_string_member(subnet, "vpc_id") : NULL;
+    g_autoptr(JsonArray) attachments = subnet
+        ? pcv_vpc_store_list_attachments(s, vpc_id, tenant, error) : NULL;
+    gboolean ok = subnet != NULL && attachments != NULL;
+
+
+
+
+
+
+
+
+    for (guint i = 0; ok && i < json_array_get_length(attachments); i++) {
+        JsonObject *attachment = json_array_get_object_element(attachments, i);
+        if (g_strcmp0(json_object_get_string_member(attachment, "subnet_id"), id) == 0) {
+            g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_CONFLICT,
+                        "attachment가 있는 subnet은 삭제할 수 없습니다");
+            ok = FALSE;
+        }
+    }
     const gchar *backend = subnet
         ? json_object_get_string_member_with_default(subnet, "backend", "linux") : "linux";
-    g_autoptr(JsonObject) vpc = subnet ? pcv_vpc_store_get_vpc(
-        s, json_object_get_string_member(subnet, "vpc_id"), tenant, error) : NULL;
+    g_autoptr(JsonObject) vpc = ok ? pcv_vpc_store_get_vpc(
+        s, vpc_id, tenant, error) : NULL;
     g_autoptr(JsonObject) binding = vpc && g_strcmp0(backend, "ovn") == 0
         ? pcv_vpc_store_get_backend_binding(s,
             json_object_get_string_member(vpc, "id"), tenant, error) : NULL;
-    gboolean ok = subnet != NULL && _apply_quarantine(s, error);
+    gboolean mutation_started = FALSE;
+    if (ok) {
+        mutation_started = TRUE;
+        ok = _apply_quarantine(s, error);
+    }
     const gchar *bridge = subnet && g_strcmp0(backend, "linux") == 0
         ? json_object_get_string_member(subnet, "bridge_name") : NULL;
     if (ok) ok = pcv_vpc_store_set_resource_state(s, "subnets", id, "DELETING", NULL, error);
@@ -1210,7 +1268,7 @@ pcv_vpc_subnet_delete(const gchar *id, const gchar *tenant, GError **error)
     if (ok) ok = pcv_vpc_store_delete_subnet(s, id, tenant, error);
     if (ok) ok = _apply_full_policy(s, error);
     if (ok) ok = _clear_ovn_quarantine(s, error);
-    if (!ok && subnet) pcv_vpc_store_set_resource_state(s, "subnets", id, "ERROR",
+    if (!ok && subnet && mutation_started) pcv_vpc_store_set_resource_state(s, "subnets", id, "ERROR",
         error && *error ? (*error)->message : "subnet delete failed", NULL);
     g_mutex_unlock(&g_mutation_mu); return ok;
 }

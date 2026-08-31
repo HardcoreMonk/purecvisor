@@ -103,6 +103,10 @@ const overview = await readFile(
   path.join(distRoot, guideChapters[0].contentSlug, "index.html"),
   "utf8"
 );
+const networking = await readFile(
+  path.join(distRoot, guideChapters[5].contentSlug, "index.html"),
+  "utf8"
+);
 const guideSource = await readFile(path.join(siteRoot, "..", "docs", "GUIDE.md"), "utf8");
 const databaseStructureSource = await readFile(
   path.join(siteRoot, "..", "docs", "DATABASE_STRUCTURE.md"),
@@ -138,6 +142,19 @@ const fullArchitectureSource = await readFile(
   path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-full-architecture.mmd"),
   "utf8"
 );
+for (const marker of [
+  '["Networking", guidePath(6)]',
+  '["네트워크", guidePath(6)]'
+]) {
+  if (!headerComponent.includes(marker)) {
+    throw new Error(`header storage/networking direct link missing: ${marker}`);
+  }
+}
+for (const staleMarker of ["Storage & networking", "스토리지 · 네트워크"]) {
+  if (headerComponent.includes(staleMarker)) {
+    throw new Error(`combined header destination remained: ${staleMarker}`);
+  }
+}
 for (const contract of [
   "--pcv-prose-width: 46rem;",
   "--pcv-technical-width: 60rem;",
@@ -911,6 +928,9 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }
+  if (!source.includes('datetime="2026-08-31T00:00:00.000Z"')) {
+    throw new Error(`${name} landing lastUpdated mismatch`);
+  }
   if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {
     throw new Error(`${name} navigation group count mismatch`);
   }
@@ -947,6 +967,12 @@ if (!english.includes(`<a class="pcv-button pcv-button-primary" href="${guidePat
   || !english.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
   throw new Error("english hero guide actions missing");
 }
+if (!new RegExp(`<a\\b[^>]*href="${guidePath(6)}"[^>]*>네트워크</a>`).test(korean)) {
+  throw new Error("korean networking header direct link missing");
+}
+if (!new RegExp(`<a\\b[^>]*href="${guidePath(6)}"[^>]*>Networking</a>`).test(english)) {
+  throw new Error("english networking header direct link missing");
+}
 for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
   if (source.includes("/docs.html")) throw new Error(`${name} legacy docs link found`);
   if (source.includes("/guide.html")) throw new Error(`${name} retired guide link found`);
@@ -959,6 +985,79 @@ if (docs.includes("reader-shell") || docs.includes("guide-content.md")) {
 }
 if (outputFiles.some((file) => path.relative(distRoot, file) === "guide-content.md")) {
   throw new Error("retired guide content artifact found");
+}
+
+for (const marker of [
+  "/api/v1/networks/host-baseline",
+  "/api/v1/vpcs/status",
+  "subnet_cidrs",
+  "호스트 네트워크 기준선",
+  "partial",
+  "unavailable",
+  "pcvctl ovn switch create ls-web",
+  "/api/v1/ovn/acl?switch=ls-web",
+  "/api/v1/ovn/nat?router=lr-main",
+  "-32602",
+  "ownership marker",
+  "NET-OVN-01~07",
+  "Local VPC OVN backend"
+]) {
+  if (!networking.includes(marker)) {
+    throw new Error(`networking current contract missing: ${marker}`);
+  }
+}
+
+const genericOvnInventoryStart = networking.indexOf(
+  '<h3 id="등록된-generic-ovn-rpc--정확히-18개">'
+);
+const genericOvnInventoryEnd = networking.indexOf(
+  '<h3 id="등록되지-않은-역동작과-공개-제외-기능">',
+  genericOvnInventoryStart
+);
+if (genericOvnInventoryStart < 0 || genericOvnInventoryEnd <= genericOvnInventoryStart) {
+  throw new Error("generic OVN 18-RPC inventory section missing");
+}
+const genericOvnInventory = networking.slice(genericOvnInventoryStart, genericOvnInventoryEnd);
+const expectedGenericOvnMethods = [
+  "ovn.status",
+  "ovn.switch.create",
+  "ovn.switch.delete",
+  "ovn.switch.list",
+  "ovn.switch.detail",
+  "ovn.port.add",
+  "ovn.port.remove",
+  "ovn.acl.add",
+  "ovn.acl.list",
+  "ovn.router.create",
+  "ovn.router.delete",
+  "ovn.router.list",
+  "ovn.router.detail",
+  "ovn.router.add_port",
+  "ovn.dhcp.enable",
+  "ovn.nat.add",
+  "ovn.nat.list",
+  "ovn.tenant.create"
+].sort();
+const actualGenericOvnMethods = [...new Set(
+  genericOvnInventory.match(/\bovn\.[a-z][a-z0-9_.]*\b/g) || []
+)].sort();
+if (JSON.stringify(actualGenericOvnMethods) !== JSON.stringify(expectedGenericOvnMethods)) {
+  throw new Error(`generic OVN RPC inventory mismatch: ${actualGenericOvnMethods.join(", ")}`);
+}
+
+for (const marker of [
+  "pcvctl ovn switch create ls-web --subnet",
+  "vm_port",
+  "pcv_ovn_vm_port_setup",
+  "pcv_ovn_vm_port_cleanup",
+  "nfv.lb.create",
+  "pcvctl ovn lb",
+  "/data/recordings/",
+  "ovn-sdn-recording-handoff"
+]) {
+  if (networking.includes(marker)) {
+    throw new Error(`stale or private networking contract found: ${marker}`);
+  }
 }
 
 for (const chapter of guideChapters) {

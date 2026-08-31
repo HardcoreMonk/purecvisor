@@ -980,6 +980,157 @@ static void test_physical_reconcile_idempotent_and_drift_closed(void)
 
                                                         
 
+
+static void test_host_baseline_ip_parser(void)
+{
+    const gchar *addresses =
+        "["
+        "{\"ifname\":\"eno2\",\"operstate\":\"UP\",\"mtu\":1500,"
+          "\"link_type\":\"ether\",\"parentbus\":\"pci\","
+          "\"address\":\"02:00:00:00:00:02\",\"flags\":[\"UP\",\"LOWER_UP\"],"
+          "\"addr_info\":[{\"family\":\"inet\",\"local\":\"198.51.100.20\",\"prefixlen\":24}]},"
+        "{\"ifname\":\"eno1\",\"operstate\":\"UP\",\"mtu\":9000,"
+          "\"link_type\":\"ether\",\"parentbus\":\"pci\","
+          "\"address\":\"02:00:00:00:00:01\",\"flags\":[\"UP\",\"LOWER_UP\"],"
+          "\"addr_info\":[{\"family\":\"inet\",\"local\":\"192.0.2.53\",\"prefixlen\":24}]},"
+        "{\"ifname\":\"pcvnat0\",\"operstate\":\"DOWN\",\"mtu\":1500,"
+          "\"link_type\":\"ether\",\"linkinfo\":{\"info_kind\":\"bridge\"},"
+          "\"address\":\"02:00:00:00:78:01\",\"flags\":[\"UP\"],"
+          "\"addr_info\":[{\"family\":\"inet\",\"local\":\"10.78.0.1\",\"prefixlen\":24}]},"
+        "{\"ifname\":\"vnet0\",\"operstate\":\"UNKNOWN\",\"mtu\":1500,"
+          "\"master\":\"pcvnat0\",\"link_type\":\"ether\","
+          "\"address\":\"fe:54:00:00:00:10\",\"flags\":[\"UP\",\"LOWER_UP\"],"
+          "\"addr_info\":[]}"
+        "]";
+    const gchar *routes =
+        "["
+        "{\"dst\":\"default\",\"gateway\":\"198.51.100.1\",\"dev\":\"eno2\","
+          "\"prefsrc\":\"198.51.100.20\",\"metric\":200,\"protocol\":\"static\",\"flags\":[]},"
+        "{\"dst\":\"default\",\"gateway\":\"192.0.2.1\",\"dev\":\"eno1\","
+          "\"prefsrc\":\"192.0.2.53\",\"metric\":101,\"protocol\":\"dhcp\",\"flags\":[]},"
+        "{\"dst\":\"10.78.0.0/24\",\"dev\":\"pcvnat0\",\"prefsrc\":\"10.78.0.1\","
+          "\"protocol\":\"kernel\",\"scope\":\"link\",\"flags\":[\"linkdown\"]},"
+        "{\"dst\":\"192.0.2.0/24\",\"dev\":\"eno1\",\"prefsrc\":\"192.0.2.53\","
+          "\"metric\":101,\"protocol\":\"kernel\",\"scope\":\"link\",\"flags\":[]}"
+        "]";
+    GError *error = NULL;
+    JsonObject *baseline = pcv_network_host_baseline_parse_ip(addresses, routes, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(baseline);
+    JsonObject *management = json_object_get_object_member(baseline, "management");
+    g_assert_true(json_object_get_boolean_member(management, "available"));
+    g_assert_cmpstr(json_object_get_string_member(management, "interface"), ==, "eno1");
+    g_assert_cmpstr(json_object_get_string_member(management, "ipv4_cidr"), ==, "192.0.2.53/24");
+    g_assert_cmpstr(json_object_get_string_member(management, "gateway"), ==, "192.0.2.1");
+    g_assert_cmpint(json_object_get_int_member(management, "metric"), ==, 101);
+    JsonArray *interfaces = json_object_get_array_member(baseline, "interfaces");
+    g_assert_cmpuint(json_array_get_length(interfaces), ==, 4);
+    JsonObject *vnet = json_array_get_object_element(interfaces, 3);
+    g_assert_cmpstr(json_object_get_string_member(vnet, "master"), ==, "pcvnat0");
+    g_assert_true(json_object_get_boolean_member(vnet, "carrier"));
+    JsonArray *connected = json_object_get_array_member(baseline, "connected_cidrs");
+    g_assert_cmpuint(json_array_get_length(connected), ==, 2);
+    g_assert_cmpstr(json_array_get_string_element(connected, 0), ==, "10.78.0.0/24");
+    JsonArray *parsed_routes = json_object_get_array_member(baseline, "routes");
+    g_assert_true(json_object_get_boolean_member(
+        json_array_get_object_element(parsed_routes, 2), "link_down"));
+    json_object_unref(baseline);
+}
+
+static void test_host_baseline_ovs_parser(void)
+{
+    const gchar *bridges =
+        "{\"headings\":[\"name\",\"ports\"],\"data\":["
+        "[\"br-int\",[\"uuid\",\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"]],"
+        "[\"br-provider\",[\"set\",[[\"uuid\",\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"],"
+        "[\"uuid\",\"cccccccc-cccc-cccc-cccc-cccccccccccc\"]]]]]}";
+    const gchar *ports =
+        "{\"headings\":[\"_uuid\",\"name\"],\"data\":["
+        "[[\"uuid\",\"aaaaaaaa-aaaa-aaaa-aaaa-aaaaaaaaaaaa\"],\"br-int\"],"
+        "[[\"uuid\",\"bbbbbbbb-bbbb-bbbb-bbbb-bbbbbbbbbbbb\"],\"uplink0\"],"
+        "[[\"uuid\",\"cccccccc-cccc-cccc-cccc-cccccccccccc\"],\"br-provider\"]]}";
+    GError *error = NULL;
+    JsonObject *inventory = pcv_network_host_baseline_parse_ovs(bridges, ports, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(inventory);
+    g_assert_true(json_object_get_boolean_member(inventory, "available"));
+    g_assert_false(json_object_get_boolean_member(inventory, "partial"));
+    JsonArray *items = json_object_get_array_member(inventory, "bridges");
+    g_assert_cmpuint(json_array_get_length(items), ==, 2);
+    JsonObject *provider = json_array_get_object_element(items, 1);
+    JsonArray *provider_ports = json_object_get_array_member(provider, "ports");
+    g_assert_cmpuint(json_array_get_length(provider_ports), ==, 2);
+    g_assert_cmpstr(json_array_get_string_element(provider_ports, 0), ==, "br-provider");
+    g_assert_cmpstr(json_array_get_string_element(provider_ports, 1), ==, "uplink0");
+    g_assert_true(json_object_get_boolean_member(provider, "ports_complete"));
+    json_object_unref(inventory);
+}
+
+static void test_host_baseline_limits_are_visible(void)
+{
+
+
+    GString *addresses = g_string_new(
+        "[{\"ifname\":\"many0\",\"operstate\":\"UP\",\"mtu\":1500,"
+        "\"link_type\":\"ether\",\"flags\":[\"UP\"],\"addr_info\":[");
+    for (guint i = 1; i <= 33; i++) {
+        if (i > 1) g_string_append_c(addresses, ',');
+        g_string_append_printf(addresses,
+            "{\"family\":\"inet\",\"local\":\"10.0.0.%u\",\"prefixlen\":24}", i);
+    }
+    g_string_append(addresses, "]}]");
+    GError *error = NULL;
+    JsonObject *baseline = pcv_network_host_baseline_parse_ip(
+        addresses->str, "[]", &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(baseline);
+    g_assert_true(json_object_get_boolean_member(baseline, "addresses_truncated"));
+    JsonObject *interface = json_array_get_object_element(
+        json_object_get_array_member(baseline, "interfaces"), 0);
+    g_assert_cmpint(json_object_get_int_member(interface, "ipv4_source_count"), ==, 33);
+    g_assert_true(json_object_get_boolean_member(interface, "ipv4_truncated"));
+    g_assert_cmpuint(json_array_get_length(
+        json_object_get_array_member(interface, "ipv4")), ==, 32);
+    json_object_unref(baseline);
+    g_string_free(addresses, TRUE);
+
+
+    GString *bridges = g_string_new(
+        "{\"headings\":[\"name\",\"ports\"],\"data\":[[\"br-many\",[\"set\",");
+    g_string_append_c(bridges, '[');
+    GString *ports = g_string_new(
+        "{\"headings\":[\"_uuid\",\"name\"],\"data\":[");
+    for (guint i = 0; i < 513; i++) {
+        if (i > 0) {
+            g_string_append_c(bridges, ',');
+            g_string_append_c(ports, ',');
+        }
+        g_string_append_printf(bridges, "[\"uuid\",\"port-%03u\"]", i);
+        g_string_append_printf(ports,
+            "[[\"uuid\",\"port-%03u\"],\"p%03u\"]", i, i);
+    }
+    g_string_append(bridges, "]]]]}");
+    g_string_append(ports, "]}");
+    JsonObject *ovs = pcv_network_host_baseline_parse_ovs(
+        bridges->str, ports->str, &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(ovs);
+    g_assert_true(json_object_get_boolean_member(ovs, "partial"));
+    g_assert_true(json_object_get_boolean_member(ovs, "ports_truncated"));
+    g_assert_cmpint(json_object_get_int_member(ovs, "port_source_count"), ==, 513);
+    JsonObject *bridge = json_array_get_object_element(
+        json_object_get_array_member(ovs, "bridges"), 0);
+    g_assert_false(json_object_get_boolean_member(bridge, "ports_complete"));
+    g_assert_true(json_object_get_boolean_member(bridge, "ports_truncated"));
+    g_assert_cmpuint(json_array_get_length(
+        json_object_get_array_member(bridge, "ports")), ==, 512);
+    json_object_unref(ovs);
+    g_string_free(bridges, TRUE);
+    g_string_free(ports, TRUE);
+}
+
+
+
 void test_network_register(void) {
     g_test_add_func("/network/bridge_name/valid",    test_bridge_name_valid);
     g_test_add_func("/network/bridge_name/invalid",  test_bridge_name_invalid);
@@ -1034,4 +1185,10 @@ void test_network_register(void) {
                     test_physical_delete_restores_admin_and_removes_state);
     g_test_add_func("/network/physical/reconcile_idempotent_drift_closed",
                     test_physical_reconcile_idempotent_and_drift_closed);
+    g_test_add_func("/network/host_baseline/ip_parser",
+                    test_host_baseline_ip_parser);
+    g_test_add_func("/network/host_baseline/ovs_parser",
+                    test_host_baseline_ovs_parser);
+    g_test_add_func("/network/host_baseline/limits_visible",
+                    test_host_baseline_limits_are_visible);
 }

@@ -9,6 +9,11 @@
 > 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
 > 통과해야 합니다.
 >
+> **기능 기준(2026-08-31)**: 네트워크 작업은 읽기 전용 호스트 기준선을 먼저 확인합니다.
+> generic OVN 공개 표면은 등록된 18개 RPC, switch-owned DHCP 자동 정리와 인증 REST
+> ACL/NAT 필터 전달까지입니다. 완결되지 않은 OVN/NFV Load Balancer와 VM 자동 포트 내부
+> helper는 공개 기능이 아니며, Local VPC의 선택형 OVN backend는 별도 지원 gate를 따릅니다.
+>
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
 ---
@@ -2896,9 +2901,50 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 ### 6.6 OVN SDN
 
-> **에디션 경계**: OVN 코어(`status`, switch/router/ACL/NAT/DHCP/tenant/vm_port`)는 Single Edge 공개 범위에 포함됩니다. Single Edge는 서비스 기동 시 local OVN controller를 자동 준비해 로컬 SDN 데이터면을 구성하고, encap 설정과 auto-provision 자동화는 공개 범위 밖 멀티 제어면 참고 기능으로 남겨 둡니다.
+> **에디션 경계**: generic OVN 코어(`status`, switch/port/ACL/router/DHCP/NAT/tenant)는
+> Single Edge 공개 범위에 포함됩니다. 등록된 RPC inventory는 정확히 18개이며 완전한
+> CRUD를 뜻하지 않습니다. 완결되지 않은 OVN/NFV Load Balancer와 production caller가 없는
+> VM 자동 포트 내부 helper는 공개 기능이 아닙니다. encap 설정과 auto-provision 자동화는
+> 공개 범위 밖 멀티 제어면 참고 기능으로 남겨 둡니다.
 
 OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원합니다.
+
+#### 작업 전 호스트 네트워크 기준선
+
+Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저 확인합니다.
+관리 interface/IP, IPv4 main route와 connected CIDR, Linux bridge/port, OVS bridge/port,
+현재 tenant의 Local VPC CIDR과 OVN readiness를 한 화면에서 비교할 수 있습니다.
+
+```bash
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/networks/host-baseline" | python3 -m json.tool
+```
+
+이 endpoint는 host interface·route·OVS actual을 변경하지 않는 읽기 전용 조회입니다.
+응답 일부가 `partial` 또는 `unavailable`이면 빈 상태로 해석하지 말고 해당 수집 실패를
+해결한 뒤 OVN이나 Local VPC 리소스를 생성합니다.
+
+#### 등록된 generic OVN RPC — 정확히 18개
+
+| 영역 | 개수 | 등록 RPC |
+|---|---:|---|
+| 상태 | 1 | `ovn.status` |
+| 스위치 | 4 | `ovn.switch.create`, `ovn.switch.delete`, `ovn.switch.list`, `ovn.switch.detail` |
+| 포트 | 2 | `ovn.port.add`, `ovn.port.remove` |
+| ACL | 2 | `ovn.acl.add`, `ovn.acl.list` |
+| 라우터 | 5 | `ovn.router.create`, `ovn.router.delete`, `ovn.router.list`, `ovn.router.detail`, `ovn.router.add_port` |
+| DHCP | 1 | `ovn.dhcp.enable` |
+| NAT | 2 | `ovn.nat.add`, `ovn.nat.list` |
+| 테넌트 | 1 | `ovn.tenant.create` |
+| **총계** | **18** | dispatcher에 등록된 generic `ovn.*` 공개 inventory |
+
+#### 등록되지 않은 역동작과 공개 제외 기능
+
+현재 `ACL 삭제`, `NAT 삭제`, `DHCP 목록·삭제`, `tenant 삭제`, `router port 제거` RPC는
+등록돼 있지 않습니다. manager 내부에 일부 역동작 함수가 있더라도 사용자 RPC로 간주하지
+않습니다. cleanup은 등록된 port/switch/router 삭제와 부모 리소스의 안전한 cascade를
+기준으로 합니다. OVN/NFV Load Balancer를 생성·연결·조회·삭제하는 사용자 절차도
+제공하지 않습니다. Local VPC의 제한형 Service Publish는 이 제외 기능과 별개입니다.
 
 #### OVN 상태
 
@@ -2910,7 +2956,7 @@ pcvctl ovn status
 
 ```bash
 # 스위치 생성
-pcvctl ovn switch create ls-web --subnet 10.0.1.0/24
+pcvctl ovn switch create ls-web
 
 # 스위치 목록
 pcvctl ovn switch list
@@ -2918,6 +2964,9 @@ pcvctl ovn switch list
 # 스위치 삭제
 pcvctl ovn switch delete ls-web
 ```
+
+논리 스위치 생성은 L2 switch만 만들며 subnet 입력을 받지 않습니다. 주소 대역과 DHCP는
+아래 `ovn dhcp enable` 단계에서 별도로 구성합니다.
 
 #### 논리 라우터
 
@@ -2977,6 +3026,31 @@ pcvctl ovn dhcp enable 10.0.1.0/24 10.0.1.1 --switch ls-web
 일반 logical switch port와 이후 추가할 포트 모두에 같은 옵션을 연결한다.
 OVN 포트, DHCP, router link 생성은 하나의 `ovn-nbctl` transaction으로
 실패하며 부분 구성을 성공으로 보고하지 않는다.
+
+스위치를 삭제하면 같은 ownership marker를 가진 DHCP option record도 동일 transaction에서
+자동 정리합니다. 다른 스위치가 소유한 행과 foreign OVN 행은 보존하며, 소유권 조회가
+모호하거나 UUID가 비정상이거나 안전 상한을 넘으면 실제 변경 전에 실패합니다.
+
+#### 인증 REST 조회 필터
+
+ACL과 NAT 목록 REST는 대상 식별자를 query parameter로 받아 canonical RPC parameter로
+전달합니다.
+
+```bash
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/ovn/acl?switch=ls-web"
+
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/ovn/nat?router=lr-main"
+```
+
+`switch` 또는 `router`가 없거나 비어 있으면 필터 없는 전체 목록으로 넓히지 않고 canonical
+JSON-RPC `-32602`(`Invalid params`)로 거부합니다. 대상이 지정된 성공 응답에는 다른
+switch/router의 표식이 섞이면 안 됩니다.
+
+generic OVN 18개 RPC의 `NET-OVN-01~07` 검증과 Local VPC OVN backend의 공개 지원 판정은
+서로 다른 gate입니다. generic OVN 검증이 통과해도 Local VPC OVN의 부팅 KVM,
+Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신하지 않습니다.
 
 ### 6.7 보안 그룹
 
@@ -3196,6 +3270,12 @@ Security Group이 연결돼 있어야 합니다. 즉 VM에 직접 공인 IP를 �
 > 조회해 completed만 성공으로 확정합니다.
 > `--no-wait`를 지정하면 접수와 Job ID만 즉시 반환하므로 별도 결과 확인이 필요합니다.
 
+Local VPC 작업 전에는 Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저
+확인합니다. `GET /api/v1/networks/host-baseline`은 host interface·route·OVS actual을,
+`GET /api/v1/vpcs/status`의 `subnet_cidrs`는 현재 tenant 범위의 VPC 주소 대역을 반환합니다.
+어느 영역이 `partial` 또는 `unavailable`이면 빈 상태로 간주하지 말고 원인을 해결한 뒤
+생성합니다.
+
 Web UI의 `Local VPC 생성`은 VPC 이름·tenant·backend·egress와 첫 subnet 이름·IPv4 CIDR·MTU를
 한 모달에서 받아 하나의 Job으로 생성합니다. CIDR 입력 중 gateway와 VM 할당 범위를
 미리 표시하며, 첫 subnet 적용 실패 시 이번 요청에서 만든 VPC도 역순 rollback합니다.
@@ -3211,6 +3291,7 @@ OPERATOR는 일반 변경, ADMIN은 VPC 삭제와 전체 reconcile을 수행할 
 
 | HTTP | 경로 | 기능 |
 |---|---|---|
+| `GET` | `/api/v1/networks/host-baseline` | 읽기 전용 host interface·route·Linux bridge·OVS·VPC 기준선 |
 | `GET`, `POST` | `/api/v1/vpcs` | 목록, 생성 |
 | `GET` | `/api/v1/vpcs/backends` | backend readiness, 현재 수와 주소 기반 capacity |
 | `GET` | `/api/v1/vpcs/status` | controller/reconcile 상태 |
@@ -5323,6 +5404,10 @@ make cppcheck
 | -32000 | Server error (내부 오류) |
 | -32001 | Not implemented (placeholder) |
 
+`-32602`는 `PureRpcErrorCode`의 canonical invalid-params 값입니다. 예를 들어 인증 REST의
+OVN ACL `switch` 또는 NAT `router` 필터가 누락되면 이 값을 사용하며, handler나 adapter가
+raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
+
 ### 18.3 외부 의존성
 
 #### 빌드 시 의존성
@@ -5391,19 +5476,21 @@ make cppcheck
 
 ### 18.6 프로젝트 통계
 
-다음 수치는 2026-08-14 물리 bridge 후보를 포함한 로컬 작업트리 기준 스냅샷이다. 고정 계약이 아니라 현행 확인용이며, 릴리스 판단은 `git`, `Makefile`, 정적 게이트 출력이 우선한다.
+다음 수치는 2026-08-31 generic OVN·host baseline 동기화 작업트리 기준
+스냅샷이다. 고정 계약이 아니라 현행 확인용이며, 릴리스 판단은 `git`,
+`Makefile`, 정적 게이트 출력이 우선한다.
 
-| 항목 | 2026-08-14 기준 |
+| 항목 | 2026-08-31 기준 |
 |------|--------------------------|
 | C 표준 | `-std=gnu23` |
 | 에디션 | Single Edge 공개 범위 |
-| RPC 등록/정책 | `make check-rbac` 기준 RPC 304건, 정책 매핑 251건 |
-| C/H 소스 | 공개 stage 기준 C 파일 150개, 헤더 146개 |
-| Web UI | `ui/modules/*.js` 30개와 로컬 vendor 자산 |
-| 문서 | 공개 운영 가이드, 검증 정책, ADR |
-| 테스트 | C·통합·UI·정적 계약 테스트 |
+| RPC 등록/정책 | `make check-rbac` 기준 RPC 305건, 정책 매핑 252건, 조회성 VIEWER 기본 73건 |
+| C/H 소스 | 공개 stage 기준 C 150개, 헤더 137개, 176,987 LOC |
+| Web UI | `ui/modules/*.js` 30개, tracked UI 파일 63개와 로컬 vendor 자산 |
+| 문서 | 공개 운영 가이드, DB 아키텍처, 검증 정책, ADR, Pages 운영 기준 |
+| 테스트 | C 테스트 106개, 통합 파일 102개, UI test 52개와 정적 계약 테스트 |
 | 배포 구성 | Single Edge 단일 노드 검증 환경 |
-| 릴리스 검증 | `make test` · network UI · shared 커널 packet path · `make check-all` 38게이트 · release/BPF build |
+| 릴리스 검증 | `make test` C 1,375/1,375 + audit startup 5/5 · generic OVN 18 RPC/host baseline · network UI · `make check-all` 38/38 · release/BPF build |
 | 주요 정적 게이트 | `make check-all`(38종 — 정본은 Makefile `check-all:` 의존 목록) — `make check-rbac`, `scripts/check_audit_placement.py`, `scripts/check_help_counts.py`, `scripts/check_ui_bundle_fresh.py`, UI CSP/vendor 자산 검사 등 |
 
 ---

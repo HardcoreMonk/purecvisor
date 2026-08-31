@@ -133,7 +133,7 @@ window.PCV.config = {
                                                           
                                            
   RPC_COUNT: 304,
-  REST_COUNT: 229,
+  REST_COUNT: 230,
   METRICS_COUNT: 155
 };
 Object.defineProperty(window.PCV, 'auth', {

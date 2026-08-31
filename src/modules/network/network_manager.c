@@ -136,6 +136,16 @@
 #define NET_LOG_DOM "network"
 
                                                                       
+
+
+#define PCV_HOST_NET_MAX_JSON_BYTES (4U * 1024U * 1024U)
+#define PCV_HOST_NET_MAX_INTERFACES 256U
+#define PCV_HOST_NET_MAX_IPV4_PER_INTERFACE 32U
+#define PCV_HOST_NET_MAX_ROUTES 512U
+#define PCV_HOST_NET_MAX_OVS_BRIDGES 64U
+#define PCV_HOST_NET_MAX_OVS_PORTS 512U
+
+
 static guint g_qos_reconcile_timer_id = 0;                             
 static gint  g_qos_reconcile_inflight = 0;                          
 
@@ -3661,6 +3671,701 @@ static gchar *_get_bridge_ip(const gchar *bridge_name)
   
                
                                                                    
+static const gchar *
+_host_net_string_member(JsonObject *object, const gchar *member)
+{
+    if (!object || !member || !json_object_has_member(object, member))
+        return NULL;
+    JsonNode *node = json_object_get_member(object, member);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_STRING)
+        return NULL;
+    return json_node_get_string(node);
+}
+
+static gboolean
+_host_net_int_member(JsonObject *object, const gchar *member, gint64 *value_out)
+{
+    if (!object || !member || !value_out || !json_object_has_member(object, member))
+        return FALSE;
+    JsonNode *node = json_object_get_member(object, member);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node))
+        return FALSE;
+    GType type = json_node_get_value_type(node);
+    if (type != G_TYPE_INT64 && type != G_TYPE_INT && type != G_TYPE_LONG &&
+        type != G_TYPE_UINT64 && type != G_TYPE_UINT && type != G_TYPE_ULONG)
+        return FALSE;
+    *value_out = json_node_get_int(node);
+    return TRUE;
+}
+
+static JsonArray *
+_host_net_array_member(JsonObject *object, const gchar *member)
+{
+    if (!object || !member || !json_object_has_member(object, member))
+        return NULL;
+    JsonNode *node = json_object_get_member(object, member);
+    return node && JSON_NODE_HOLDS_ARRAY(node) ? json_node_get_array(node) : NULL;
+}
+
+static JsonObject *
+_host_net_object_member(JsonObject *object, const gchar *member)
+{
+    if (!object || !member || !json_object_has_member(object, member))
+        return NULL;
+    JsonNode *node = json_object_get_member(object, member);
+    return node && JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+}
+
+static gboolean
+_host_net_load_array(JsonParser *parser, const gchar *text, const gchar *label,
+                     GError **error)
+{
+    if (!text || strlen(text) > PCV_HOST_NET_MAX_JSON_BYTES) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "%s JSON is missing or exceeds the inventory limit", label);
+        return FALSE;
+    }
+    if (!json_parser_load_from_data(parser, text, -1, error))
+        return FALSE;
+    JsonNode *root = json_parser_get_root(parser);
+    if (!root || !JSON_NODE_HOLDS_ARRAY(root)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "%s JSON root must be an array", label);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+static gboolean
+_host_net_array_has_string(JsonArray *array, const gchar *needle)
+{
+    for (guint i = 0; array && i < json_array_get_length(array); i++) {
+        JsonNode *node = json_array_get_element(array, i);
+        if (node && JSON_NODE_HOLDS_VALUE(node) &&
+            json_node_get_value_type(node) == G_TYPE_STRING &&
+            g_strcmp0(json_node_get_string(node), needle) == 0)
+            return TRUE;
+    }
+    return FALSE;
+}
+
+static gchar *
+_host_net_management_cidr(JsonArray *interfaces, const gchar *interface_name,
+                          const gchar *source)
+{
+    if (!interface_name)
+        return NULL;
+    for (guint i = 0; interfaces && i < json_array_get_length(interfaces); i++) {
+        JsonObject *interface = json_array_get_object_element(interfaces, i);
+        if (g_strcmp0(_host_net_string_member(interface, "name"), interface_name) != 0)
+            continue;
+        JsonArray *addresses = _host_net_array_member(interface, "ipv4");
+        const gchar *first = NULL;
+        for (guint j = 0; addresses && j < json_array_get_length(addresses); j++) {
+            const gchar *cidr = json_array_get_string_element(addresses, j);
+            if (!first)
+                first = cidr;
+            if (source && cidr && g_str_has_prefix(cidr, source) &&
+                cidr[strlen(source)] == '/')
+                return g_strdup(cidr);
+        }
+        return first ? g_strdup(first) : NULL;
+    }
+    return NULL;
+}
+
+JsonObject *
+pcv_network_host_baseline_parse_ip(const gchar *address_json,
+                                   const gchar *route_json,
+                                   GError **error)
+{
+    JsonParser *address_parser = json_parser_new();
+    JsonParser *route_parser = json_parser_new();
+    if (!_host_net_load_array(address_parser, address_json, "address", error) ||
+        !_host_net_load_array(route_parser, route_json, "route", error)) {
+        g_object_unref(address_parser);
+        g_object_unref(route_parser);
+        return NULL;
+    }
+
+    JsonArray *raw_interfaces = json_node_get_array(json_parser_get_root(address_parser));
+    JsonArray *raw_routes = json_node_get_array(json_parser_get_root(route_parser));
+    JsonArray *interfaces = json_array_new();
+    JsonArray *routes = json_array_new();
+    JsonArray *connected = json_array_new();
+    GHashTable *connected_seen = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
+    guint interface_source_count = json_array_get_length(raw_interfaces);
+    guint route_source_count = json_array_get_length(raw_routes);
+    gboolean addresses_truncated = FALSE;
+
+    for (guint i = 0; i < interface_source_count &&
+         json_array_get_length(interfaces) < PCV_HOST_NET_MAX_INTERFACES; i++) {
+        JsonNode *raw_node = json_array_get_element(raw_interfaces, i);
+        if (!raw_node || !JSON_NODE_HOLDS_OBJECT(raw_node))
+            continue;
+        JsonObject *raw = json_node_get_object(raw_node);
+        const gchar *name = _host_net_string_member(raw, "ifname");
+        if (!name || !pcv_validate_iface_name(name))
+            continue;
+
+        JsonObject *interface = json_object_new();
+        const gchar *state = _host_net_string_member(raw, "operstate");
+        g_autofree gchar *state_lower = state ? g_ascii_strdown(state, -1) : g_strdup("unknown");
+        const gchar *mac = _host_net_string_member(raw, "address");
+        const gchar *master = _host_net_string_member(raw, "master");
+        const gchar *parent_bus = _host_net_string_member(raw, "parentbus");
+        const gchar *parent_device = _host_net_string_member(raw, "parentdev");
+        gboolean physical = (parent_bus && *parent_bus) || (parent_device && *parent_device);
+        JsonObject *link_info = _host_net_object_member(raw, "linkinfo");
+        const gchar *kind = _host_net_string_member(link_info, "info_kind");
+        const gchar *link_type = _host_net_string_member(raw, "link_type");
+        const gchar *type = kind && *kind ? kind
+            : physical ? "ethernet"
+            : g_strcmp0(link_type, "ether") == 0 ? "ethernet"
+            : link_type && *link_type ? link_type : "unknown";
+        JsonArray *flags = _host_net_array_member(raw, "flags");
+        gint64 mtu = 0;
+        (void)_host_net_int_member(raw, "mtu", &mtu);
+
+        json_object_set_string_member(interface, "name", name);
+        json_object_set_string_member(interface, "type", type);
+        json_object_set_boolean_member(interface, "physical", physical);
+        json_object_set_string_member(interface, "state", state_lower);
+        json_object_set_boolean_member(interface, "carrier",
+                                       _host_net_array_has_string(flags, "LOWER_UP"));
+        if (mac && *mac)
+            json_object_set_string_member(interface, "mac", mac);
+        else
+            json_object_set_null_member(interface, "mac");
+        json_object_set_int_member(interface, "mtu", MAX((gint64)0, mtu));
+        if (master && *master)
+            json_object_set_string_member(interface, "master", master);
+        else
+            json_object_set_null_member(interface, "master");
+
+        JsonArray *ipv4 = json_array_new();
+        JsonArray *addresses = _host_net_array_member(raw, "addr_info");
+        guint ipv4_source_count = 0;
+        for (guint j = 0; addresses && j < json_array_get_length(addresses); j++) {
+            JsonNode *address_node = json_array_get_element(addresses, j);
+            if (!address_node || !JSON_NODE_HOLDS_OBJECT(address_node))
+                continue;
+            JsonObject *address = json_node_get_object(address_node);
+            if (g_strcmp0(_host_net_string_member(address, "family"), "inet") != 0)
+                continue;
+            const gchar *local = _host_net_string_member(address, "local");
+            gint64 prefix = -1;
+            if (!local || !_host_net_int_member(address, "prefixlen", &prefix) ||
+                prefix < 0 || prefix > 32)
+                continue;
+            g_autoptr(GInetAddress) parsed = g_inet_address_new_from_string(local);
+            if (!parsed || g_inet_address_get_family(parsed) != G_SOCKET_FAMILY_IPV4)
+                continue;
+            ipv4_source_count++;
+            if (json_array_get_length(ipv4) < PCV_HOST_NET_MAX_IPV4_PER_INTERFACE) {
+                g_autofree gchar *cidr = g_strdup_printf(
+                    "%s/%" G_GINT64_FORMAT, local, prefix);
+                json_array_add_string_element(ipv4, cidr);
+            }
+        }
+        gboolean ipv4_truncated = ipv4_source_count > PCV_HOST_NET_MAX_IPV4_PER_INTERFACE;
+        addresses_truncated = addresses_truncated || ipv4_truncated;
+        json_object_set_array_member(interface, "ipv4", ipv4);
+        json_object_set_int_member(interface, "ipv4_source_count", ipv4_source_count);
+        json_object_set_boolean_member(interface, "ipv4_truncated", ipv4_truncated);
+        json_array_add_object_element(interfaces, interface);
+    }
+
+    gboolean management_found = FALSE;
+    gint64 management_metric = 0;
+    gchar *management_interface = NULL;
+    gchar *management_gateway = NULL;
+    gchar *management_source = NULL;
+    for (guint i = 0; i < route_source_count &&
+         json_array_get_length(routes) < PCV_HOST_NET_MAX_ROUTES; i++) {
+        JsonNode *raw_node = json_array_get_element(raw_routes, i);
+        if (!raw_node || !JSON_NODE_HOLDS_OBJECT(raw_node))
+            continue;
+        JsonObject *raw = json_node_get_object(raw_node);
+        const gchar *destination = _host_net_string_member(raw, "dst");
+        const gchar *gateway = _host_net_string_member(raw, "gateway");
+        const gchar *device = _host_net_string_member(raw, "dev");
+        const gchar *source = _host_net_string_member(raw, "prefsrc");
+        const gchar *protocol = _host_net_string_member(raw, "protocol");
+        const gchar *scope = _host_net_string_member(raw, "scope");
+        gint64 metric = 0;
+        (void)_host_net_int_member(raw, "metric", &metric);
+        if (!destination || !*destination)
+            destination = gateway && *gateway ? "default" : "unknown";
+
+        JsonObject *route = json_object_new();
+        json_object_set_string_member(route, "destination", destination);
+        if (gateway && *gateway) json_object_set_string_member(route, "gateway", gateway);
+        else json_object_set_null_member(route, "gateway");
+        if (device && *device) json_object_set_string_member(route, "device", device);
+        else json_object_set_null_member(route, "device");
+        if (source && *source) json_object_set_string_member(route, "source", source);
+        else json_object_set_null_member(route, "source");
+        json_object_set_int_member(route, "metric", MAX((gint64)0, metric));
+        if (protocol && *protocol) json_object_set_string_member(route, "protocol", protocol);
+        else json_object_set_null_member(route, "protocol");
+        if (scope && *scope) json_object_set_string_member(route, "scope", scope);
+        else json_object_set_null_member(route, "scope");
+        json_object_set_boolean_member(route, "link_down",
+            _host_net_array_has_string(_host_net_array_member(raw, "flags"), "linkdown"));
+        json_array_add_object_element(routes, route);
+
+        if (g_strcmp0(scope, "link") == 0 && strchr(destination, '/') &&
+            g_hash_table_add(connected_seen, g_strdup(destination)))
+            json_array_add_string_element(connected, destination);
+
+        if (g_strcmp0(destination, "default") == 0 && device && *device &&
+            (!management_found || metric < management_metric)) {
+            management_found = TRUE;
+            management_metric = MAX((gint64)0, metric);
+            g_free(management_interface);
+            g_free(management_gateway);
+            g_free(management_source);
+            management_interface = g_strdup(device);
+            management_gateway = gateway ? g_strdup(gateway) : NULL;
+            management_source = source ? g_strdup(source) : NULL;
+        }
+    }
+
+    JsonObject *management = json_object_new();
+    json_object_set_boolean_member(management, "available", management_found);
+    if (management_found) {
+        json_object_set_string_member(management, "interface", management_interface);
+        g_autofree gchar *cidr = _host_net_management_cidr(
+            interfaces, management_interface, management_source);
+        if (cidr) json_object_set_string_member(management, "ipv4_cidr", cidr);
+        else json_object_set_null_member(management, "ipv4_cidr");
+        if (management_gateway) json_object_set_string_member(management, "gateway", management_gateway);
+        else json_object_set_null_member(management, "gateway");
+        if (management_source) json_object_set_string_member(management, "source", management_source);
+        else json_object_set_null_member(management, "source");
+        json_object_set_int_member(management, "metric", management_metric);
+    }
+
+    JsonObject *result = json_object_new();
+    json_object_set_object_member(result, "management", management);
+    json_object_set_array_member(result, "interfaces", interfaces);
+    json_object_set_array_member(result, "routes", routes);
+    json_object_set_array_member(result, "connected_cidrs", connected);
+    json_object_set_int_member(result, "interface_source_count", interface_source_count);
+    json_object_set_int_member(result, "route_source_count", route_source_count);
+    json_object_set_boolean_member(result, "interfaces_truncated",
+                                   interface_source_count > PCV_HOST_NET_MAX_INTERFACES);
+    json_object_set_boolean_member(result, "addresses_truncated", addresses_truncated);
+    json_object_set_boolean_member(result, "routes_truncated",
+                                   route_source_count > PCV_HOST_NET_MAX_ROUTES);
+
+    g_free(management_interface);
+    g_free(management_gateway);
+    g_free(management_source);
+    g_hash_table_unref(connected_seen);
+    g_object_unref(address_parser);
+    g_object_unref(route_parser);
+    return result;
+}
+
+static gint
+_host_net_compare_strings(gconstpointer left, gconstpointer right)
+{
+    const gchar *const *a = left;
+    const gchar *const *b = right;
+    return g_strcmp0(*a, *b);
+}
+
+static gint
+_host_net_heading_index(JsonObject *table, const gchar *heading)
+{
+    JsonArray *headings = _host_net_array_member(table, "headings");
+    for (guint i = 0; headings && i < json_array_get_length(headings); i++) {
+        JsonNode *node = json_array_get_element(headings, i);
+        if (node && JSON_NODE_HOLDS_VALUE(node) &&
+            json_node_get_value_type(node) == G_TYPE_STRING &&
+            g_strcmp0(json_node_get_string(node), heading) == 0)
+            return (gint)i;
+    }
+    return -1;
+}
+
+static const gchar *
+_host_net_ovs_uuid(JsonNode *datum)
+{
+    if (!datum || !JSON_NODE_HOLDS_ARRAY(datum))
+        return NULL;
+    JsonArray *pair = json_node_get_array(datum);
+    if (json_array_get_length(pair) != 2)
+        return NULL;
+    JsonNode *tag_node = json_array_get_element(pair, 0);
+    JsonNode *value_node = json_array_get_element(pair, 1);
+    if (!tag_node || !value_node || !JSON_NODE_HOLDS_VALUE(tag_node) ||
+        !JSON_NODE_HOLDS_VALUE(value_node) ||
+        json_node_get_value_type(tag_node) != G_TYPE_STRING ||
+        json_node_get_value_type(value_node) != G_TYPE_STRING ||
+        g_strcmp0(json_node_get_string(tag_node), "uuid") != 0)
+        return NULL;
+    return json_node_get_string(value_node);
+}
+
+static void
+_host_net_collect_ovs_uuids(JsonNode *datum, GPtrArray *uuids,
+                            gboolean *truncated)
+{
+    const gchar *single = _host_net_ovs_uuid(datum);
+    if (single) {
+        if (uuids->len < PCV_HOST_NET_MAX_OVS_PORTS)
+            g_ptr_array_add(uuids, g_strdup(single));
+        else if (truncated)
+            *truncated = TRUE;
+        return;
+    }
+    if (!datum || !JSON_NODE_HOLDS_ARRAY(datum))
+        return;
+    JsonArray *outer = json_node_get_array(datum);
+    if (json_array_get_length(outer) != 2)
+        return;
+    JsonNode *tag_node = json_array_get_element(outer, 0);
+    JsonNode *items_node = json_array_get_element(outer, 1);
+    if (!tag_node || !JSON_NODE_HOLDS_VALUE(tag_node) ||
+        json_node_get_value_type(tag_node) != G_TYPE_STRING ||
+        g_strcmp0(json_node_get_string(tag_node), "set") != 0 ||
+        !items_node || !JSON_NODE_HOLDS_ARRAY(items_node))
+        return;
+    JsonArray *items = json_node_get_array(items_node);
+    for (guint i = 0; i < json_array_get_length(items); i++)
+        _host_net_collect_ovs_uuids(json_array_get_element(items, i), uuids,
+                                    truncated);
+}
+
+static gboolean
+_host_net_load_ovs_table(JsonParser *parser, const gchar *text, const gchar *label,
+                         GError **error)
+{
+    if (!text || strlen(text) > PCV_HOST_NET_MAX_JSON_BYTES) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "%s OVS JSON is missing or exceeds the inventory limit", label);
+        return FALSE;
+    }
+    if (!json_parser_load_from_data(parser, text, -1, error))
+        return FALSE;
+    JsonNode *root = json_parser_get_root(parser);
+    if (!root || !JSON_NODE_HOLDS_OBJECT(root)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "%s OVS JSON root must be an object", label);
+        return FALSE;
+    }
+    JsonObject *table = json_node_get_object(root);
+    if (!_host_net_array_member(table, "headings") || !_host_net_array_member(table, "data")) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "%s OVS JSON must contain headings and data", label);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+JsonObject *
+pcv_network_host_baseline_parse_ovs(const gchar *bridge_json,
+                                    const gchar *port_json,
+                                    GError **error)
+{
+    JsonParser *bridge_parser = json_parser_new();
+    JsonParser *port_parser = json_parser_new();
+    if (!_host_net_load_ovs_table(bridge_parser, bridge_json, "Bridge", error) ||
+        !_host_net_load_ovs_table(port_parser, port_json, "Port", error)) {
+        g_object_unref(bridge_parser);
+        g_object_unref(port_parser);
+        return NULL;
+    }
+    JsonObject *bridge_table = json_node_get_object(json_parser_get_root(bridge_parser));
+    JsonObject *port_table = json_node_get_object(json_parser_get_root(port_parser));
+    gint bridge_name_column = _host_net_heading_index(bridge_table, "name");
+    gint bridge_ports_column = _host_net_heading_index(bridge_table, "ports");
+    gint port_uuid_column = _host_net_heading_index(port_table, "_uuid");
+    gint port_name_column = _host_net_heading_index(port_table, "name");
+    if (bridge_name_column < 0 || bridge_ports_column < 0 ||
+        port_uuid_column < 0 || port_name_column < 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "OVS inventory headings are incomplete");
+        g_object_unref(bridge_parser);
+        g_object_unref(port_parser);
+        return NULL;
+    }
+
+    GHashTable *port_names = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, g_free);
+    JsonArray *port_rows = _host_net_array_member(port_table, "data");
+    guint port_source_count = json_array_get_length(port_rows);
+    gboolean ports_truncated = port_source_count > PCV_HOST_NET_MAX_OVS_PORTS;
+    for (guint i = 0; i < port_source_count && i < PCV_HOST_NET_MAX_OVS_PORTS; i++) {
+        JsonNode *row_node = json_array_get_element(port_rows, i);
+        if (!row_node || !JSON_NODE_HOLDS_ARRAY(row_node))
+            continue;
+        JsonArray *row = json_node_get_array(row_node);
+        guint needed = (guint)MAX(port_uuid_column, port_name_column);
+        if (json_array_get_length(row) <= needed)
+            continue;
+        const gchar *uuid = _host_net_ovs_uuid(json_array_get_element(row, port_uuid_column));
+        JsonNode *name_node = json_array_get_element(row, port_name_column);
+        if (!uuid || !name_node || !JSON_NODE_HOLDS_VALUE(name_node) ||
+            json_node_get_value_type(name_node) != G_TYPE_STRING)
+            continue;
+        const gchar *name = json_node_get_string(name_node);
+        if (name && *name)
+            g_hash_table_replace(port_names, g_strdup(uuid), g_strdup(name));
+    }
+
+    JsonArray *bridges = json_array_new();
+    JsonArray *bridge_rows = _host_net_array_member(bridge_table, "data");
+    guint source_count = json_array_get_length(bridge_rows);
+    gboolean partial = source_count > PCV_HOST_NET_MAX_OVS_BRIDGES ||
+                       ports_truncated;
+    for (guint i = 0; i < source_count &&
+         json_array_get_length(bridges) < PCV_HOST_NET_MAX_OVS_BRIDGES; i++) {
+        JsonNode *row_node = json_array_get_element(bridge_rows, i);
+        if (!row_node || !JSON_NODE_HOLDS_ARRAY(row_node))
+            continue;
+        JsonArray *row = json_node_get_array(row_node);
+        guint needed = (guint)MAX(bridge_name_column, bridge_ports_column);
+        if (json_array_get_length(row) <= needed)
+            continue;
+        JsonNode *name_node = json_array_get_element(row, bridge_name_column);
+        if (!name_node || !JSON_NODE_HOLDS_VALUE(name_node) ||
+            json_node_get_value_type(name_node) != G_TYPE_STRING)
+            continue;
+        const gchar *bridge_name = json_node_get_string(name_node);
+        if (!bridge_name || !*bridge_name)
+            continue;
+
+        GPtrArray *port_uuids = g_ptr_array_new_with_free_func(g_free);
+        gboolean bridge_ports_truncated = FALSE;
+        _host_net_collect_ovs_uuids(json_array_get_element(row, bridge_ports_column),
+                                    port_uuids, &bridge_ports_truncated);
+        GPtrArray *names = g_ptr_array_new_with_free_func(g_free);
+        gboolean ports_complete = !bridge_ports_truncated;
+        for (guint j = 0; j < port_uuids->len; j++) {
+            const gchar *port_name = g_hash_table_lookup(port_names,
+                g_ptr_array_index(port_uuids, j));
+            if (port_name)
+                g_ptr_array_add(names, g_strdup(port_name));
+            else
+                ports_complete = FALSE;
+        }
+        g_ptr_array_sort(names, _host_net_compare_strings);
+        JsonArray *ports = json_array_new();
+        for (guint j = 0; j < names->len; j++)
+            json_array_add_string_element(ports, g_ptr_array_index(names, j));
+        JsonObject *bridge = json_object_new();
+        json_object_set_string_member(bridge, "name", bridge_name);
+        json_object_set_array_member(bridge, "ports", ports);
+        json_object_set_boolean_member(bridge, "ports_complete", ports_complete);
+        json_object_set_boolean_member(bridge, "ports_truncated",
+                                       bridge_ports_truncated);
+        json_array_add_object_element(bridges, bridge);
+        partial = partial || !ports_complete;
+        ports_truncated = ports_truncated || bridge_ports_truncated;
+        g_ptr_array_unref(names);
+        g_ptr_array_unref(port_uuids);
+    }
+
+    JsonObject *result = json_object_new();
+    json_object_set_boolean_member(result, "available", TRUE);
+    json_object_set_boolean_member(result, "partial", partial);
+    json_object_set_int_member(result, "source_count", source_count);
+    json_object_set_int_member(result, "port_source_count", port_source_count);
+    json_object_set_boolean_member(result, "truncated",
+                                   source_count > PCV_HOST_NET_MAX_OVS_BRIDGES);
+    json_object_set_boolean_member(result, "ports_truncated", ports_truncated);
+    json_object_set_array_member(result, "bridges", bridges);
+    g_hash_table_unref(port_names);
+    g_object_unref(bridge_parser);
+    g_object_unref(port_parser);
+    return result;
+}
+
+static void
+_host_net_mark_physical_interfaces(JsonObject *baseline)
+{
+    JsonArray *interfaces = _host_net_array_member(baseline, "interfaces");
+    for (guint i = 0; interfaces && i < json_array_get_length(interfaces); i++) {
+        JsonObject *interface = json_array_get_object_element(interfaces, i);
+        const gchar *name = _host_net_string_member(interface, "name");
+        if (!name || !pcv_validate_iface_name(name))
+            continue;
+        g_autofree gchar *device = g_build_filename("/sys/class/net", name, "device", NULL);
+        if (g_file_test(device, G_FILE_TEST_EXISTS)) {
+            json_object_set_boolean_member(interface, "physical", TRUE);
+            if (g_strcmp0(_host_net_string_member(interface, "type"), "unknown") == 0)
+                json_object_set_string_member(interface, "type", "ethernet");
+        }
+    }
+}
+
+static void
+_host_net_warning(JsonArray *warnings, const gchar *message)
+{
+    if (warnings && message && *message)
+        json_array_add_string_element(warnings, message);
+}
+
+JsonObject *
+pcv_network_host_baseline_collect(GError **error)
+{
+    const gchar *address_argv[] = { "ip", "-j", "-details", "address", "show", NULL };
+    const gchar *route_argv[] = { "ip", "-j", "-4", "route", "show", "table", "main", NULL };
+    const gchar *ovs_bridge_argv[] = {
+        "ovs-vsctl", "--timeout=2", "--format=json", "--columns=name,ports",
+        "list", "Bridge", NULL
+    };
+    const gchar *ovs_port_argv[] = {
+        "ovs-vsctl", "--timeout=2", "--format=json", "--columns=_uuid,name",
+        "list", "Port", NULL
+    };
+    gchar *address_json = NULL;
+    gchar *route_json = NULL;
+    gchar *ovs_bridge_json = NULL;
+    gchar *ovs_port_json = NULL;
+    GError *command_error = NULL;
+    JsonArray *warnings = json_array_new();
+    gboolean partial = FALSE;
+
+    if (!pcv_spawn_sync(address_argv, &address_json, NULL, &command_error)) {
+        if (command_error)
+            g_propagate_prefixed_error(error, command_error,
+                                       "host interface inventory failed: ");
+        else
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "host interface inventory failed");
+        json_array_unref(warnings);
+        g_free(address_json);
+        return NULL;
+    }
+
+    command_error = NULL;
+    if (!pcv_spawn_sync(route_argv, &route_json, NULL, &command_error)) {
+        g_clear_error(&command_error);
+        g_clear_pointer(&route_json, g_free);
+        route_json = g_strdup("[]");
+        partial = TRUE;
+        _host_net_warning(warnings, "IPv4 main route inventory is unavailable");
+    }
+
+    JsonObject *result = pcv_network_host_baseline_parse_ip(address_json, route_json, error);
+    g_free(address_json);
+    g_free(route_json);
+    if (!result) {
+        json_array_unref(warnings);
+        return NULL;
+    }
+    _host_net_mark_physical_interfaces(result);
+    if (json_object_get_boolean_member_with_default(result, "interfaces_truncated", FALSE)) {
+        partial = TRUE;
+        _host_net_warning(warnings, "Interface inventory was truncated at the response limit");
+    }
+    if (json_object_get_boolean_member_with_default(result, "addresses_truncated", FALSE)) {
+        partial = TRUE;
+        _host_net_warning(warnings, "IPv4 address inventory was truncated at the response limit");
+    }
+    if (json_object_get_boolean_member_with_default(result, "routes_truncated", FALSE)) {
+        partial = TRUE;
+        _host_net_warning(warnings, "Route inventory was truncated at the response limit");
+    }
+
+    command_error = NULL;
+    gboolean ovs_bridge_ok = pcv_spawn_sync(
+        ovs_bridge_argv, &ovs_bridge_json, NULL, &command_error);
+    g_clear_error(&command_error);
+    JsonObject *ovs = NULL;
+    if (ovs_bridge_ok) {
+        command_error = NULL;
+        gboolean ovs_port_ok = pcv_spawn_sync(
+            ovs_port_argv, &ovs_port_json, NULL, &command_error);
+        g_clear_error(&command_error);
+        if (!ovs_port_ok) {
+            g_clear_pointer(&ovs_port_json, g_free);
+            ovs_port_json = g_strdup("{\"headings\":[\"_uuid\",\"name\"],\"data\":[]}");
+            partial = TRUE;
+            _host_net_warning(warnings, "Open vSwitch port inventory is unavailable");
+        }
+        GError *ovs_parse_error = NULL;
+        ovs = pcv_network_host_baseline_parse_ovs(
+            ovs_bridge_json, ovs_port_json, &ovs_parse_error);
+        if (!ovs) {
+            g_clear_error(&ovs_parse_error);
+            ovs = json_object_new();
+            json_object_set_boolean_member(ovs, "available", FALSE);
+            json_object_set_boolean_member(ovs, "partial", TRUE);
+            json_object_set_string_member(ovs, "reason",
+                                          "Open vSwitch inventory could not be parsed");
+            json_object_set_array_member(ovs, "bridges", json_array_new());
+            partial = TRUE;
+            _host_net_warning(warnings, "Open vSwitch inventory could not be parsed");
+        } else if (json_object_get_boolean_member_with_default(ovs, "partial", FALSE)) {
+            partial = TRUE;
+            _host_net_warning(warnings, "Open vSwitch inventory is partial");
+        }
+    } else {
+        ovs = json_object_new();
+        json_object_set_boolean_member(ovs, "available", FALSE);
+        json_object_set_boolean_member(ovs, "partial", FALSE);
+        json_object_set_string_member(ovs, "reason", "Open vSwitch database is unavailable");
+        json_object_set_array_member(ovs, "bridges", json_array_new());
+        partial = TRUE;
+        _host_net_warning(warnings, "Open vSwitch database is unavailable");
+    }
+    g_free(ovs_bridge_json);
+    g_free(ovs_port_json);
+
+    json_object_set_int_member(result, "schema_version", 1);
+    json_object_set_int_member(result, "collected_at_unix_ms", g_get_real_time() / 1000);
+    json_object_set_boolean_member(result, "partial", partial);
+    json_object_set_array_member(result, "warnings", warnings);
+    json_object_set_object_member(result, "ovs", ovs);
+    return result;
+}
+
+void
+handle_network_host_info_request(JsonObject *params __attribute__((unused)),
+                                 const gchar *rpc_id,
+                                 UdsServer *server,
+                                 GSocketConnection *connection)
+{
+    GError *error = NULL;
+    JsonObject *baseline = pcv_network_host_baseline_collect(&error);
+    if (!baseline) {
+        const gchar *message = error ? error->message : "Host network baseline failed";
+        gchar *response = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, message);
+        pure_uds_server_send_response(server, connection, response);
+        g_free(response);
+        g_clear_error(&error);
+        return;
+    }
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, baseline);
+    gchar *response = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, response);
+    g_free(response);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
   
           
                                                      

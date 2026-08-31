@@ -169,6 +169,9 @@ reject_literal "OVN software-defined network access control. Manage via CLI:" "u
 reject_literal "OVN Status" "ui/modules/network.js" "ovn screen must not ship the old OVN status heading"
 reject_literal "Error loading OVN data" "ui/modules/network.js" "ovn screen must not ship the old generic error copy"
 reject_literal "Use OVN status above to verify LB" "ui/modules/network.js" "ovn screen must not ship the old English load balancer helper"
+reject_literal "nfv.lb.create" "ui/modules/network.js" "ovn screen must not expose incomplete NFV LB mutation"
+reject_literal "nfv.lb.create" "ui/modules/help.js" "help/API explorer must not advertise incomplete NFV LB mutation"
+reject_literal "nfv.lb.create" "src/api/dispatcher.c" "Single dispatcher must not register incomplete NFV LB mutation"
 require_literal "네트워크 인벤토리" "ui/modules/network.js" "network screen must expose the new inventory heading"
 require_literal "방화벽 정책 편집" "ui/modules/network.js" "network screen must expose the new firewall policy editor heading"
 require_literal "OVN ACL 운영 메모" "ui/modules/network.js" "network screen must expose the new OVN ACL operations note"
@@ -189,9 +192,7 @@ if [[ -e docs/purecvisor_ovn_demo_architecture.svg ]]; then
   fail "retired OVN demo architecture asset must be removed"
 fi
 require_literal "논리 토폴로지" "ui/modules/network.js" "ovn screen must expose the new topology heading"
-require_literal "로드 밸런서 설정" "ui/modules/network.js" "ovn screen must expose the new load balancer heading"
 require_literal "ACL 정책 추가" "ui/modules/network.js" "ovn screen must expose the new ACL policy heading"
-require_literal "로드 밸런서 상태 메모" "ui/modules/network.js" "ovn screen must expose the new localized load balancer helper"
 
 i18n_debt_marker='TO''DO: i18n'
 reject_literal "$i18n_debt_marker" "ui/modules/vm.js" "vm console must not carry stale i18n debt comments"

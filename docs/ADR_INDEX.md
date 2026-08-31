@@ -1,7 +1,7 @@
 # ADR 적용 상태 인덱스
 
 > **대상:** `purecvisor-single`
-> **현행화 기준:** 2026-08-21
+> **현행화 기준:** 2026-08-31
 > **목적:** ADR 원문 중 현재 Single Edge 공개 리포에 직접 적용되는 결정과 역사 기록으로만 보존되는 결정을 구분한다.
 
 ---
@@ -18,6 +18,12 @@
 4. git 이력과 현재 코드
 
 개별 ADR 원문과 공개판 경계가 충돌하면 공개판 경계를 우선한다.
+
+2026-08-31의 host network baseline과 generic OVN 정합화는 기존 Single Edge 네트워크
+경계를 구체화한 구현·문서 수정이며 새 아키텍처 결정을 만들지 않는다. 현재 공개 inventory는
+정확히 18개 `ovn.*` RPC이고, switch-owned DHCP cleanup과 인증 REST ACL/NAT filter를
+포함한다. 미완성 Load Balancer와 production caller가 없는 VM 자동 포트 helper는 공개
+기능이 아니며, Local VPC OVN backend의 지원 승격 gate는 ADR-0045 상태를 그대로 따른다.
 
 ---
 
@@ -41,13 +47,13 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR | 상태 | Single Edge 적용 |
 |-----|------|------------------|
 | ADR-0001 | accepted | 활성. 단일 프로세스 + `GMainLoop`, fork 금지 원칙 유지 |
-| ADR-0002 | historical | OVN 격리 논의 기록. 현재 Single Edge는 OVN local SDN core를 포함하되 멀티 노드 자동화는 제외 |
+| ADR-0002 | historical | OVN 격리 논의 기록. 현재 Single Edge는 등록된 generic OVN 18개 RPC와 로컬 controller를 포함하되 멀티 노드 자동화, 미완성 Load Balancer와 VM 자동 포트 helper는 제외 |
 | ADR-0003 | historical | DPDK/SR-IOV 격리 논의 기록. 현재 공개판에서는 runtime hardware gate와 테스트 기준으로 판단 |
 | ADR-0004 | superseded | ADR-0006에 의해 대체된 기록 |
 | ADR-0005 | historical | 회색지대 RPC 사용량 판단 기록. 현재 공개판 범위는 `PUBLIC_RELEASE_BOUNDARY.md`가 우선 |
 | ADR-0006 | historical | GPU/iSCSI/Federation 흡수 논의 기록. Single Edge에서는 페더레이션을 공개 기능으로 보지 않음 |
 | ADR-0007 | accepted | 활성. security group은 Single Edge 보안 기능으로 유지 |
-| ADR-0008 | historical | 고급 네트워크/NFV/iSCSI initiator 판단 기록. 현재 기능 지원 여부는 코드와 UI endpoint registry 기준 |
+| ADR-0008 | historical | 고급 네트워크/NFV/iSCSI initiator 판단 기록. OVN/NFV Load Balancer를 포함한 현행 기능 지원 여부는 dispatcher 등록, UI endpoint registry와 `PUBLIC_RELEASE_BOUNDARY.md` 기준 |
 | ADR-0009 | historical | 회색지대 흡수 판단 기록. 현재 공개 범위 판단은 `PUBLIC_RELEASE_BOUNDARY.md` 기준 |
 | ADR-0010 | accepted | 활성. WebSocket 인증은 프로토콜 레벨 auth 메시지 사용 |
 | ADR-0011 | historical | 클러스터 I/O fencing 기록. Single Edge 운영 절차로 사용하지 않음 |
@@ -84,9 +90,9 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0042 | Implemented | 활성. PRIVDROP-1 로컬 후보는 daemon Effective keep-5와 감사된 spawn ceiling을 분리하고, 중앙 spawn의 raw-syscall child setup이 base/storage/signal/DHCP/runtime별 exact capability를 부여한다. LXC 기본 drop 5종은 daemon bounding에서도 제거하고 커널 모듈은 modules-load.d가 선행 준비한다. 안전 C 1344/1344(실 OVS 삭제 1건 skip)+audit 5/5, root 효과·39게이트·정적 반사실은 PASS, main·운영 검증 대기다. |
 | ADR-0043 | Implemented | 물리 bridge를 호스트 L3가 없는 전용 Ethernet 업링크로 제한하는 fail-closed guard, rollback 가능한 create·bind·비휘발 desired-state commit, 부팅 reconcile과 우회 차단을 구현·배포했다. shared가 이 계약을 완화하지 않는다. 격리 dedicated NIC와 host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0044 | Implemented | physical bridge를 `uplink_mode=dedicated\|shared`로 분리한다. shared mode는 관리 NIC의 host L3·master·MAC·MTU를 보존하고 게스트 MAC만 upstream 네트워크에 전달한다. 실제 KVM VM·host reboot 검증 전 `Verified` 승격은 보류한다. |
-| ADR-0045 | Implemented | Local VPC 생성 시 `linux\|ovn` backend를 고정하고 OVN resource를 external ID 기반 single writer로 수렴한다. 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계 fault injection과 공개 지원은 남아 있다. |
+| ADR-0045 | Implemented | Local VPC 생성 시 `linux\|ovn` backend를 고정하고 OVN resource를 external ID 기반 single writer로 수렴한다. generic OVN 18개 RPC의 `NET-OVN-01~07` 검증과 별개이며, 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계 fault injection과 공개 지원은 남아 있다. |
 | ADR-0046 | Verified | 공개 landing과 Pages hosting은 Astro·Starlight를 사용하고 `/`·`/ko/`는 한국어, `/en/`은 영어를 제공한다. 2026-08-23 Pages run `32645170384`와 custom domain에서 검증했다. 공개 reader·navigation 계약은 ADR-0047이 승계한다. |
-| ADR-0047 | Verified | 공개 reader는 `docs/GUIDE.md`의 22개 장과 `docs/DATABASE_STRUCTURE.md`의 독립 데이터베이스 아키텍처 문서를 `/ko/<분류>/<문서>/` 정적 page로 생성한다. 기본 진입과 legacy redirect를 유지하며, 2026-08-30 Pages run `33282754951`와 custom domain에서 23개 문서·공통 읽기 축·검색·접근성 계약을 검증했다. |
+| ADR-0047 | Verified | 공개 reader는 현재 `docs/GUIDE.md`의 공개 범위 21개 장과 `docs/DATABASE_STRUCTURE.md`의 독립 데이터베이스 아키텍처 문서를 `/ko/<분류>/<문서>/` 정적 page로 생성한다. 2026-08-30 Pages run `33282754951`에서는 당시 22개 장+DB 23개 문서를 검증했으며, 2026-08-31에는 범위 밖 `멀티 제어면 참고 기록`을 발행 목록에서 제거해 21개 장+DB 22개로 수렴했다. 기본 진입, legacy redirect, 공통 읽기 축·검색·접근성 계약은 유지한다. |
 
 ---
 

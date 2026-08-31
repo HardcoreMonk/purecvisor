@@ -132,6 +132,15 @@ static void test_net_create_invalid_bridge_name(void) {
     g_error_free(err);
 }
 
+static void test_net_create_reserved_bridge_name(void) {
+    GError *err = NULL;
+    g_assert_false(pcv_validate_network_create_params(
+        "host-baseline", "nat", "10.0.0.1/24", NULL, NULL, NULL, &err));
+    g_assert_nonnull(err);
+    g_assert_nonnull(g_strstr_len(err->message, -1, "reserved"));
+    g_clear_error(&err);
+}
+
 static void test_net_create_null_mode_defaults_nat(void) {
     GError *err = NULL;
                                          
@@ -291,6 +300,7 @@ void test_validate_ext_register(void) {
     g_test_add_func("/validate_ext/net_create/bridge_no_phys",     test_net_create_bridge_no_phys);
     g_test_add_func("/validate_ext/net_create/invalid_mode",       test_net_create_invalid_mode);
     g_test_add_func("/validate_ext/net_create/invalid_bridge_name",test_net_create_invalid_bridge_name);
+    g_test_add_func("/validate_ext/net_create/reserved_bridge_name",test_net_create_reserved_bridge_name);
     g_test_add_func("/validate_ext/net_create/null_mode_nat",      test_net_create_null_mode_defaults_nat);
     g_test_add_func("/validate_ext/net_create/isolated_valid",     test_net_create_isolated_valid);
     g_test_add_func("/validate_ext/net_create/routed_valid",       test_net_create_routed_valid);

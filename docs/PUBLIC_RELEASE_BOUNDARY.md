@@ -1,6 +1,7 @@
 # Single Edge 공개 릴리스 경계
 
 > **대상:** `purecvisor-single`
+> **현행화 기준:** 2026-08-31
 > **판정 목적:** 소스 공개 전에 Single Edge 공개 범위 밖 기능이 산출물, 소스, 문서에서 기능 절차로 노출되지 않는지 확인한다.
 
 ---
@@ -34,11 +35,16 @@ endpoint가 아니며 문서 build와 운영 기준은 [PUBLIC_DOCUMENTATION_SIT
   VLAN upper·trunk, EAPOL과 다중 shared bridge는 제외한다.
   Local VPC 공개 범위는 Linux bridge 기반 다중 IPv4 subnet, `nat`/`isolated`, 정지 VM
   attachment, attachment 기반 제한형 Service Publish까지다. 일반 로컬 `ovn.*` RPC/CLI와
-  `/api/v1/ovn/*`는 허용하지만 외부 공개 OVN 데모 서비스는 포함하지 않는다. 선택형 OVN
-  Local VPC 코드는 Single Edge 후보로 포함할 수 있으나, 부팅 KVM·Linux/OVN 공존·host와
-  controller reboot·전 단계 fault injection gate 전에는 공개 지원 절차나 기본 backend로
-  표시하지 않는다. 후보 구현의 packet·schema migration·최소 수명주기·cleanup 검증은
-  `Implemented` 근거이며, 위 잔여 gate를 대신하지 않는다.
+  `/api/v1/ovn/*`는 허용하지만 외부 공개 OVN 데모 서비스는 포함하지 않는다. generic OVN
+  공개 inventory는 정확히 18개 RPC이며 host network baseline 선행 조회, switch-owned DHCP
+  자동 정리, 인증 REST ACL/NAT 대상 filter와 canonical `-32602` 거부를 포함한다. 완전한
+  CRUD가 아니므로 ACL/NAT/DHCP/tenant의 미등록 역동작, router port 제거, production caller가
+  없는 VM 자동 포트 내부 helper와 OVN/NFV Load Balancer를 사용자 기능으로 안내하지 않는다.
+  선택형 OVN Local VPC 코드는 Single Edge 후보로 포함할 수 있으나, 부팅 KVM·Linux/OVN
+  공존·host와 controller reboot·전 단계 fault injection gate 전에는 공개 지원 절차나 기본
+  backend로 표시하지 않는다. 후보 구현의 packet·schema migration·최소 수명주기·cleanup
+  검증은 `Implemented` 근거이며, generic OVN `NET-OVN-01~07`의 `LIVE-PASS`가 이 잔여 gate를
+  대신하지 않는다.
 - UI: Single Edge 메뉴, Single Edge endpoint registry, `운영 > 이벤트 센터` 같은 단일 노드 운영 triage 화면
 - 운영 스크립트: 로컬 단일 노드 설치와 선택적 원격 단일 노드 배포
 - 실패 가드: `make multi`는 잘못된 에디션 빌드를 차단하기 위해 exit code `2`로 실패해야 한다.
@@ -58,6 +64,8 @@ endpoint가 아니며 문서 build와 운영 기준은 [PUBLIC_DOCUMENTATION_SIT
 - 공개 산출물의 Multi/Cluster RPC 표식: `vm.migrate`, `cluster.*`, `federation.site.*`
 - Local VPC의 다중 노드 router, VPC peering, transit gateway, floating IP pool, live VM
   attachment, Network Flow/IPFIX collector와 사용량 과금 파이프라인
+- 완결된 create/attach/list/delete와 packet 검증이 없는 OVN/NFV Load Balancer 사용자 절차,
+  production caller가 없는 VM 자동 포트 내부 helper를 공개 VM 수명주기로 안내하는 문구
 - physical bridge의 Wi-Fi MAC proxy, host L3 자동 bridge migration, bond/team·VLAN trunk,
   EAPOL 중계와 물리 NIC 하나의 다중 shared bridge
 - 종료된 공개 OVN 데모 표면: `/api/v1/demo/ovn-ovs/health`, `demo.purecvisor.example.com`,
@@ -86,7 +94,13 @@ python3 scripts/check_design_md.py
 tests/integration/test_single_ovn_ovs_layout.sh
 tests/integration/test_single_ui_surface.sh
 tests/integration/test_single_backend_build_boundaries.sh
+tests/integration/test_ovn_sdn.sh
+cd site && npm run check
 ```
+
+generic OVN 변경은 dispatcher의 등록 메서드가 정확히 18개인지, switch 생성 명령에 subnet을
+섞지 않는지, host baseline endpoint, DHCP ownership cleanup, ACL/NAT REST query 전달과 누락
+filter의 `-32602`, 미완성 Load Balancer·VM 자동 포트 helper의 비노출을 함께 확인한다.
 
 physical shared bridge controller, TC-BPF classifier, portal, desired state 또는 VM bridge NIC
 연결을 바꾼 릴리스는 추가로 다음을 통과해야 한다.
@@ -135,6 +149,8 @@ Single Edge `/api/v1/health`는 다음을 만족해야 한다.
 - 클러스터 HA, 페더레이션, 라이브 마이그레이션 절차는 Single Edge 공개 문서의 기능 장으로 작성하지 않는다.
 - `docs/GUIDE.md`와 `ui/guide-content.md`는 같은 기능 표면을 설명해야 한다.
 - `README.md`는 빠른 시작과 경계 요약만 담고 상세 운영 절차는 `docs/GUIDE.md`로 연결한다.
+- 공개 저장소의 데이터베이스 문서와 아키텍처 SVG는 공개 소스에 실제 포함된 로컬 SQLite
+  9개를 기준으로 하며, 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
 
 ---
 

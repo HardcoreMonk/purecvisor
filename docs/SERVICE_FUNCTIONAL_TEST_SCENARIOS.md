@@ -2,7 +2,7 @@
 
 > **대상:** PureCVisor Single Edge 서비스 기능 검증
 > **목적:** 성능, 장시간 실행, 단순 API 성공 응답으로는 보장되지 않는 기능 정합성을 시나리오 단위로 검증하기 위한 기준
-> **현행화 기준:** 2026-08-14
+> **현행화 기준:** 2026-08-31
 > **관련 문서:** [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md), [GUIDE.md](GUIDE.md), [ADR_INDEX.md](ADR_INDEX.md)
 
 ---
@@ -161,6 +161,9 @@ OVA import/export는 파일 생성이나 `accepted` 응답만으로 완료 처�
 - bridge, OVS/OVN, NIC hotplug는 host 링크 상태와 guest 내부 reachability를 함께 확인한다.
 - 단순 인터페이스 목록 응답이 아니라 DHCP, gateway, DNS, 외부 통신 중 시나리오가 요구한 신호를 검증한다.
 - 실패 경로는 잘못된 bridge, 중복 NIC, owner-scope 불일치, rollback 후 domain XML 상태를 포함한다.
+- 생성 전 `GET /api/v1/networks/host-baseline`과 Web UI `호스트 네트워크 기준선`에서 관리
+  interface/IP, main route, connected CIDR, Linux bridge, OVS와 현재 tenant의 VPC CIDR을
+  기록한다. `partial` 또는 `unavailable`을 빈 inventory로 오판하면 실패다.
 
 물리 bridge는 `dedicated`와 `shared`를 별도 시나리오로 검증한다.
 
@@ -244,6 +247,8 @@ libvirt persistent XML, 게스트 reachability를 같은 시나리오에서 대�
 
 필수 성공 시나리오:
 
+- Local VPC 생성 전에 호스트 네트워크 기준선과 `vpc.status.subnet_cidrs`를 확인하고,
+  생성·삭제 뒤 제품 소유 자원만 달라졌다가 원래 기준선으로 돌아오는지 대조한다.
 - Linux VPC에는 서로 겹치지 않는 subnet 둘을 만들고 각 bridge의 gateway·MTU·dnsmasq
   static lease와 재기동 후 복원을 확인한다. OVN VPC에는 LS/LR/DHCP/LSP/Port Group/ACL,
   nullable `bridge_name`, `backend_ref`와 local chassis binding을 대조한다.
@@ -293,6 +298,23 @@ namespace packet과 daemon restart까지 확인했지만
 
 네트워크 기능은 다음 상태 중 하나로 판정한다.
 
+generic OVN은 Local VPC OVN backend와 별개로 C0~C4 다섯 chapter를 자동 실행한다.
+
+| Chapter | 공개 검증 범위 | 완료 조건 |
+|---|---|---|
+| C0 | 호스트 네트워크 기준선과 OVN readiness | interface·route·Linux bridge·OVS/OVN actual을 기록하고 NB/SB/northd/controller/chassis가 모두 준비됨 |
+| C1 | logical switch, port와 분산 DHCP | L2 packet, DHCP option 연결, 잘못된 입력 거부와 부분 리소스 없음 |
+| C2 | logical router, multi-subnet L3와 NAT | router port 원자성, L3와 SNAT/DNAT packet 효과, 등록된 삭제 경로 cleanup |
+| C3 | ACL, tenant 격리와 REST filter | ACL drop/allow 반사실, tenant 경계, `switch`/`router` query가 대상 표식만 반환 |
+| C4 | switch-owned DHCP와 최종 정리 | switch 삭제가 소유 DHCP를 자동 정리하고 foreign row를 보존하며 임시 제품 자원이 남지 않음 |
+
+2026-08-31 공개 가능한 실행 요약은 C0~C4 전 chapter PASS, 정상 경로의 수동 emergency
+cleanup 0건, 종료 시 제품 소유 OVN 테스트 자원과 임시 계정 residue 0건이다. NAT packet용
+external gateway port 지정은 격리 시험 fixture이며 제품의 멀티 노드 gateway scheduling
+기능을 뜻하지 않는다. 이 결과는 generic OVN `NET-OVN-01~07` 근거이며, Local VPC OVN의
+부팅 KVM·Linux/OVN 공존·controller/host reboot·전 단계 fault injection gate를 대체하지
+않는다.
+
 | 판정 | 의미 |
 |---|---|
 | `LIVE-PASS` | 제품 RPC/CLI가 만든 실제 kernel/OVS/OVN/libvirt 데이터면에서 packet 효과와 cleanup까지 통과 |
@@ -305,7 +327,7 @@ namespace packet과 daemon restart까지 확인했지만
 축을 무작정 카테시안 곱으로 늘리지 않고, 실제 데이터면·정책·가속기 경계가
 달라지는 구성만 독립 시나리오로 둔다.
 
-| ID | 제공 구성 | 필수 성공 효과 | 필수 거부·정리 | 2026-08-14 현재 근거 |
+| ID | 제공 구성 | 필수 성공 효과 | 필수 거부·정리 | 근거(표 현행화 2026-08-31) |
 |---|---|---|---|---|
 | NET-LB-01 | Linux bridge `nat` + DHCP/DNS | `bridge → subnet → guest` DHCP, gateway, DNS, outbound/reply | CIDR 충돌 거부, dnsmasq·nft·bridge 역순 정리 | `LIVE-PASS` — `test_network_mode_live.sh`, `pcvnat0` 외부 ping/DNS |
 | NET-LB-02 | Linux bridge `isolated` | guest↔gateway/guest 통신, 외부 트래픽 차단 | masquerade 없음, 모드 전환 후 stale DHCP/nft 없음 | `LIVE-PASS` — 임시 `pcvisolive` packet 효과 |
@@ -320,11 +342,13 @@ namespace packet과 daemon restart까지 확인했지만
 | NET-OVS-01 | Single Edge OVS VXLAN local bridge | create/list/info/delete, VNI/CIDR 영속 상태, OVS bridge 동일 | 중복 VNI·잘못된 peer 거부, tunnel/bridge 역순 정리 | `TEST-PASS` — Single 바운더리·overlay core 회귀 |
 | NET-OVS-02 | Single Edge 수동 VXLAN peer | 두 노드 tunnel 상태와 양단 guest L2 packet | peer 손실 탐지, 피어 제거 후 로컬 bridge 보존 | `SKIP-CAPABILITY` — 독립 원격 peer 노드 없음; 자동 풀메시는 Single 공개 범위 밖 |
 | NET-TOV-01 | per-VM WireGuard tenant overlay | tenant create/list/get, VM IP 배정, peer 간 암호화 packet, detach/delete/restart rehydrate | Local VPC 동시 연결 거부, endpoint 준비 실패 시 VM start fail-closed | `TEST-PASS` — `/tenant_overlay` 계약 통과; 외부 peer 암호 packet은 미확인 |
-| NET-OVN-01 | Single node OVN 제어면 | NB/SB/northd/controller/chassis가 모두 ready일 때만 `available=true` | 바이너만 있고 DB/controller/chassis 미준비면 false | `LIVE-PASS` — OVN 26.03.0, local Unix socket, Chassis 등록 |
-| NET-OVN-02 | LS + LSP + 분산 DHCP | 두 LSP의 DHCP lease·같은 LS L2 packet, address/port-security/DHCP option 연결 | mac/ip 편측·잘못된 ID 거부, transaction 실패 부분 포트 없음 | `LIVE-PASS` — `test_ovn_live.sh`, `10.252.10.12` lease, 3/3 ping |
-| NET-OVN-03 | LR + multi-subnet L3 + NAT | 두 LS 사이 L3 packet, router port 원자성, SNAT/DNAT 제어 상태 | 부분 LRP/LSP 연결 없음, 삭제 후 LR/port/NAT 없음 | `LIVE-PASS` — `10.252.10.0/24 ↔ 10.252.20.0/24` 3/3, SNAT record |
-| NET-OVN-04 | OVN ACL | priority/direction/match/action에 따라 실제 packet drop/allow | 잘못된 direction/action/priority 거부 | `LIVE-PASS` — ICMP ACL drop packet 효과 |
-| NET-OVN-05 | OVN tenant bundle | LS + 양방향 ACL + DHCP가 모두 성공해야 create 성공 | ACL/DHCP 실패 시 LS rollback, 다른 tenant L2 경계 보존 | `LIVE-PASS` — 동일 `10.252.30.0/24`를 쓰는 tenant 두 개의 L2 packet 격리 |
+| NET-OVN-01 | Single node OVN 제어면 | NB/SB/northd/controller/chassis가 모두 ready일 때만 `available=true` | 바이너만 있고 DB/controller/chassis 미준비면 false | `LIVE-PASS` — C0에서 local socket, Chassis, 전체 readiness와 빈 초기 inventory 확인 |
+| NET-OVN-02 | LS + LSP + 분산 DHCP | 두 LSP의 DHCP lease·같은 LS L2 packet, address/port-security/DHCP option 연결 | mac/ip 편측·잘못된 ID 거부, transaction 실패 부분 포트 없음 | `LIVE-PASS` — C1에서 lease, L2 packet, NB option과 SB binding 확인 |
+| NET-OVN-03 | LR + multi-subnet L3 + NAT | 두 LS 사이 L3 packet, router port 원자성, SNAT/DNAT 제어 상태 | 부분 LRP/LSP 연결 없음, 삭제 후 LR/port/NAT 없음 | `LIVE-PASS` — C2에서 양방향 L3, SNAT와 DNAT_AND_SNAT packet 효과 확인. external gateway port는 fixture |
+| NET-OVN-04 | OVN ACL | priority/direction/match/action에 따라 실제 packet drop/allow | 잘못된 direction/action/priority 거부 | `LIVE-PASS` — C3에서 UI 적용, REST 대상 filter와 ICMP drop/allow 반사실 확인 |
+| NET-OVN-05 | OVN tenant bundle | LS + 양방향 ACL + DHCP가 모두 성공해야 create 성공 | ACL/DHCP 실패 시 LS rollback, 같은 CIDR을 쓰는 다른 tenant의 L2 경계 보존 | `LIVE-PASS` — C3에서 tenant bundle과 동일 주소 대역 사이의 L2 격리 확인 |
+| NET-OVN-06 | switch-owned DHCP cleanup | 제품 RPC로 switch 삭제 시 같은 ownership marker의 DHCP option도 한 transaction으로 정리 | 다른 switch/foreign 행 보존, 조회 모호성·비정상 UUID·상한 초과는 mutation 전 거부 | `LIVE-PASS` — C4에서 두 switch 음성 대조, 소유 DHCP 0, 정상 경로 emergency cleanup 0건 확인 |
+| NET-OVN-07 | 인증 REST ACL/NAT filter | `switch`·`router` query가 canonical RPC params에 도달해 대상 표식만 반환 | 필수 filter 누락은 `-32602`, 다른 switch/router 표식 혼입 금지 | `LIVE-PASS` — C3의 대상/비대상 분리와 C4의 임시 계정·OVN residue 0 확인 |
 | NET-VPC-00 | Local VPC + 첫 subnet 일괄 생성 | 한 `vpc.create` Job으로 VPC/subnet/bridge/DHCP/policy가 ACTIVE | 부분 subnet payload 사전 거부, actual 실패 시 신규 aggregate rollback | `LIVE-PASS` — 일괄 성공·부분 입력 사전 거부·cleanup; post-row fault injection은 별도 잔여 |
 | NET-VPC-01 | `bridge → LOCAL VPC → subnet → VM` | stopped VM persistent attach, boot DHCP, DB/XML/metadata 일치, 같은 subnet L2 | managed bridge raw NIC 우회·수동 reserved IP 거부 | `LIVE-PASS` — `test_vpc_live.sh` 14/14 |
 | NET-VPC-02 | Local VPC multi-subnet | 한 VPC의 두 subnet 간 L3, DHCP/gateway/MTU·reconcile | 겹치는 VPC/host CIDR, stale revision 거부 | `LIVE-PASS` — 실 KVM 두 대 간 L3 |

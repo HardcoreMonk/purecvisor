@@ -201,6 +201,19 @@ expect(2, invoke(["--socket=", "vm", "start", "demo"]), "empty-socket-option")
 expect(2, invoke(["--not-a-real-flag"]), "unknown-global-option")
 
                        
+
+expect(
+    2,
+    invoke(["ovn", "switch", "create", "ls-test", "--subnet", "10.200.0.0/24"]),
+    "ovn-switch-create-retired-subnet",
+)
+proc, requests = run_fake([SUCCESS], ["ovn", "switch", "create", "ls-test"])
+expect(0, proc, "ovn-switch-create-name-only")
+assert len(requests) == 1
+assert requests[0]["method"] == "ovn.switch.create"
+assert requests[0]["params"] == {"name": "ls-test"}
+
+
 expect(0, invoke(["help"]), "help")
 expect(0, invoke(["version"]), "version")
 

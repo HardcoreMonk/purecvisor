@@ -121,6 +121,7 @@
 #include <string.h>
 
 #define OVN_LOG_DOM "ovn_mgr"
+#define OVN_SWITCH_DHCP_MAX_RECORDS 256U
 
 static gboolean g_ovn_available = FALSE;
 
@@ -191,10 +192,30 @@ _run_argv(const gchar * const *argv, gchar **out, GError **error)
 
                                                          
                                                           
+
 static gboolean
-_find_switch_dhcp_uuid(const gchar *sw, gchar **uuid_out, GError **error)
+_valid_ovn_uuid(const gchar *uuid)
 {
-    *uuid_out = NULL;
+    if (!uuid || strlen(uuid) != 36)
+        return FALSE;
+    for (guint i = 0; i < 36; i++) {
+        if (i == 8 || i == 13 || i == 18 || i == 23) {
+            if (uuid[i] != '-') return FALSE;
+        } else if (!g_ascii_isxdigit((guchar)uuid[i])) {
+            return FALSE;
+        }
+    }
+    return TRUE;
+}
+
+
+
+
+static gboolean
+_find_switch_dhcp_uuids(const gchar *sw, GPtrArray **uuids_out, GError **error)
+{
+    GPtrArray *uuids = g_ptr_array_new_with_free_func(g_free);
+    *uuids_out = uuids;
     if (!sw)
         return TRUE;
 
@@ -208,33 +229,59 @@ _find_switch_dhcp_uuid(const gchar *sw, gchar **uuid_out, GError **error)
     g_free(match);
     if (!ok) {
         g_free(out);
+        g_ptr_array_free(uuids, TRUE);
+        *uuids_out = NULL;
         return FALSE;
-    }
-    if (!out || !*g_strstrip(out)) {
-        g_free(out);
-        return TRUE;
     }
 
-    gchar **lines = g_strsplit(out, "\n", -1);
-    guint count = 0;
-    for (guint i = 0; lines[i]; i++)
-        if (*g_strstrip(lines[i])) count++;
-    if (count != 1) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "switch '%s' has %u DHCP option records; exactly one is required",
-                    sw, count);
-        g_strfreev(lines);
-        g_free(out);
-        return FALSE;
-    }
+    gchar **lines = g_strsplit(out ? out : "", "\n", -1);
     for (guint i = 0; lines[i]; i++) {
-        if (*g_strstrip(lines[i])) {
-            *uuid_out = g_strdup(lines[i]);
+        gchar *uuid = g_strstrip(lines[i]);
+        if (!*uuid)
+            continue;
+        if (uuids->len >= OVN_SWITCH_DHCP_MAX_RECORDS) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "switch '%s' has more than %u DHCP option records",
+                        sw, OVN_SWITCH_DHCP_MAX_RECORDS);
+            ok = FALSE;
             break;
         }
+        if (!_valid_ovn_uuid(uuid)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                        "switch '%s' has an invalid DHCP option UUID", sw);
+            ok = FALSE;
+            break;
+        }
+        g_ptr_array_add(uuids, g_strdup(uuid));
     }
     g_strfreev(lines);
     g_free(out);
+    if (!ok) {
+        g_ptr_array_free(uuids, TRUE);
+        *uuids_out = NULL;
+    }
+    return ok;
+}
+
+
+
+static gboolean
+_find_switch_dhcp_uuid(const gchar *sw, gchar **uuid_out, GError **error)
+{
+    *uuid_out = NULL;
+    GPtrArray *uuids = NULL;
+    if (!_find_switch_dhcp_uuids(sw, &uuids, error))
+        return FALSE;
+    if (uuids->len > 1) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "switch '%s' has %u DHCP option records; exactly one is required",
+                    sw, uuids->len);
+        g_ptr_array_free(uuids, TRUE);
+        return FALSE;
+    }
+    if (uuids->len == 1)
+        *uuid_out = g_strdup(g_ptr_array_index(uuids, 0));
+    g_ptr_array_free(uuids, TRUE);
     return TRUE;
 }
 
@@ -308,7 +355,7 @@ gboolean pcv_ovn_is_available(void) { return g_ovn_available; }
                     
    
 gboolean
-pcv_ovn_switch_create(const gchar *name, const gchar *subnet, GError **error)
+pcv_ovn_switch_create(const gchar *name, GError **error)
 {
     if (!g_ovn_available) {                                     
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "OVN not available");
@@ -322,7 +369,7 @@ pcv_ovn_switch_create(const gchar *name, const gchar *subnet, GError **error)
     const gchar *argv[] = {"ovn-nbctl", "--may-exist", "ls-add", name, NULL};
     gboolean ok = _run_argv(argv, NULL, error);
     if (ok)
-        PCV_LOG_INFO(OVN_LOG_DOM, "Logical switch '%s' created (subnet=%s)", name, subnet ? subnet : "-");
+        PCV_LOG_INFO(OVN_LOG_DOM, "Logical switch '%s' created", name);
     return ok;
 }
 
@@ -340,6 +387,10 @@ pcv_ovn_switch_create(const gchar *name, const gchar *subnet, GError **error)
   
                     
    
+
+
+
+
 gboolean
 pcv_ovn_switch_delete(const gchar *name, GError **error)
 {
@@ -348,9 +399,31 @@ pcv_ovn_switch_delete(const gchar *name, GError **error)
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "invalid switch name");
         return FALSE;
     }
+    GPtrArray *dhcp_uuids = NULL;
+    if (!_find_switch_dhcp_uuids(name, &dhcp_uuids, error))
+        return FALSE;
                                                   
-    const gchar *argv[] = {"ovn-nbctl", "--if-exists", "ls-del", name, NULL};
-    return _run_argv(argv, NULL, error);
+
+    GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
+    g_ptr_array_add(args, g_strdup("ovn-nbctl"));
+    g_ptr_array_add(args, g_strdup("--if-exists"));
+    g_ptr_array_add(args, g_strdup("ls-del"));
+    g_ptr_array_add(args, g_strdup(name));
+    for (guint i = 0; i < dhcp_uuids->len; i++) {
+        g_ptr_array_add(args, g_strdup("--"));
+        g_ptr_array_add(args, g_strdup("--if-exists"));
+        g_ptr_array_add(args, g_strdup("destroy"));
+        g_ptr_array_add(args, g_strdup("DHCP_Options"));
+        g_ptr_array_add(args, g_strdup(g_ptr_array_index(dhcp_uuids, i)));
+    }
+    g_ptr_array_add(args, NULL);
+    gboolean ok = _run_argv((const gchar * const *)args->pdata, NULL, error);
+    if (ok && dhcp_uuids->len > 0)
+        PCV_LOG_INFO(OVN_LOG_DOM, "Logical switch '%s' and %u owned DHCP record(s) deleted",
+                     name, dhcp_uuids->len);
+    g_ptr_array_free(args, TRUE);
+    g_ptr_array_free(dhcp_uuids, TRUE);
+    return ok;
 }
 
    
@@ -985,23 +1058,44 @@ pcv_ovn_nat_delete(const gchar *router, const gchar *type,
   
                                                                       
    
+
+JsonArray *
+pcv_ovn_nat_list_parse(const gchar *output)
+{
+    JsonArray *arr = json_array_new();
+    if (!output)
+        return arr;
+
+    gchar **lines = g_strsplit(output, "\n", -1);
+    for (gchar **line = lines; *line; line++) {
+        gchar *entry = g_strstrip(*line);
+        if (!*entry)
+            continue;
+
+
+
+        if (g_str_has_prefix(entry, "TYPE") &&
+            strstr(entry, "EXTERNAL_IP") && strstr(entry, "LOGICAL_IP"))
+            continue;
+        json_array_add_string_element(arr, entry);
+    }
+    g_strfreev(lines);
+    return arr;
+}
+
 JsonArray *
 pcv_ovn_nat_list(const gchar *router)
 {
-    JsonArray *arr = json_array_new();
-    if (!g_ovn_available || !router) return arr;                       
-    if (!_valid_ovn_id(router)) return arr;                           
+    if (!g_ovn_available || !router) return json_array_new();
+    if (!_valid_ovn_id(router)) return json_array_new();
 
     const gchar *argv[] = {"ovn-nbctl", "lr-nat-list", router, NULL};
     gchar *out = NULL;
+    JsonArray *arr = NULL;
     if (_run_argv(argv, &out, NULL) && out) {
-        gchar **lines = g_strsplit(g_strstrip(out), "\n", -1);
-        for (gchar **l = lines; *l; l++) {
-            if (!**l) continue;                                  
-            json_array_add_string_element(arr, *l);                     
-        }
-        g_strfreev(lines);
-    }
+        arr = pcv_ovn_nat_list_parse(out);
+    } else
+        arr = json_array_new();
     g_free(out);
     return arr;
 }
@@ -1081,7 +1175,7 @@ pcv_ovn_tenant_create(const gchar *tenant, const gchar *subnet, GError **error)
 
                                                            
     gchar *sw_name = g_strdup_printf("tenant-%s-ls", tenant);
-    gboolean ok = pcv_ovn_switch_create(sw_name, subnet, error);
+    gboolean ok = pcv_ovn_switch_create(sw_name, error);
     if (!ok) {
         g_free(sw_name);
         return FALSE;

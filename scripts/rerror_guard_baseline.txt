@@ -57,7 +57,6 @@ ui/modules/monitor.js|GET|EP.POOL_CONNINFO#1
 ui/modules/monitor.js|GET|EP.SRIOV_STATUS#1
 ui/modules/monitor.js|POST|EP.RPC:gpu.list#1
 ui/modules/monitor.js|POST|EP.RPC:healing.history#1
-ui/modules/network.js|GET|EP.NET_LIST#1
 ui/modules/network.js|GET|EP.OVERLAY_LIST#1
 ui/modules/network.js|GET|EP.OVN_ACL#1
 ui/modules/network.js|GET|EP.OVN_ROUTERS#1

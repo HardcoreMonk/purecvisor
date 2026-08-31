@@ -75,3 +75,34 @@ build·deploy가 모두 성공했다. `https://purecvisor.site/`, `/ko/`, `/en/`
 `Monitoring Source v2` 문구를 반환했고, live SVG SHA-256은 로컬 정본과 같은
 `f8b155814b517425827570309782d43b4cf840140b20f6d9f1d3e404abc9f906`이었다. 따라서 이 리뷰는
 로컬 PASS에서 **LIVE-PASS**로 승격한다.
+
+## 6. 2026-08-31 generic OVN·탐색 링크 후속 정합화
+
+이번 후속은 새 시각 방향을 설계하는 작업이 아니라 현재 공개 소스의 네트워크 계약과
+잘못 연결된 header 목적지를 바로잡는 작업이다. 따라서 §2의 기존 reference lock과
+Starlight disclosure navigation의 형태·token·interaction을 그대로 사용하며 Refero 신규
+연구는 수행하지 않는다.
+
+### 근거와 결정
+
+| 항목 | 근거 | 결정 |
+|---|---|---|
+| host network baseline을 OVN·Local VPC 전에 노출 | 생성 전 관리 route·connected CIDR·Linux bridge·OVS actual 확인 필요 | 네트워크 장에 선행 절차와 읽기 전용 endpoint를 추가 |
+| generic OVN inventory를 18개로 고정 | dispatcher 등록 surface가 status 1, switch 4, port 2, ACL 2, router 5, DHCP 1, NAT 2, tenant 1 | 표와 site set-equality gate로 고정 |
+| Header의 Networking 직접 경로 | 기존 `Storage · Networking` link가 Storage 장만 가리켜 Networking을 직접 열 수 없음 | 그룹당 4개 link 구조를 유지하고 결합 항목을 Networking 6장으로 교체. Storage는 문서 맵·sidebar에서 유지 |
+| 미완성 Load Balancer와 VM 자동 포트 helper | 완전한 사용자 수명주기와 production caller가 없음 | 기능 CTA·명령·도움말로 노출하지 않음 |
+| generic OVN과 Local VPC OVN 상태 | 검증 범위와 잔여 실환경 gate가 다름 | 하나의 지원 claim으로 합치지 않음 |
+
+### 후속 수용 기준
+
+| 우선순위 | 기준 | 현재 판정 |
+|---|---|---|
+| P0 | `/ko/infrastructure/networking/`이 host baseline, 정확한 18 RPC, DHCP cleanup, REST filter와 `-32602`를 설명한다. | LOCAL-PASS |
+| P0 | 과거 switch create의 subnet 인자, `vm_port` 사용자 기능, OVN/NFV Load Balancer 호출 절차가 없다. | LOCAL-PASS |
+| P0 | Header의 Networking이 6장으로 직접 이동하고 Storage는 landing 문서 맵·sidebar에서 접근 가능하다. | LOCAL-PASS |
+| P1 | 기존 header disclosure·keyboard·responsive 동작과 landing 정보 계층이 유지된다. | LOCAL-PASS |
+| P1 | `npm run check`, Pages run과 custom domain live smoke를 통과한다. | LOCAL-PASS / LIVE-PENDING |
+
+검증·commit·Pages run receipt는
+[2026-08-31 공개 운영 인계](../operations/2026-08-31-ovn-documentation-source-pages-sync-handoff.md)에
+기록한다.

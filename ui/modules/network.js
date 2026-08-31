@@ -33,6 +33,10 @@ window.PCV = window.PCV || {};
                                                                 
 var _netData = null;
 var _netUnsub = null;
+var _netBaselineData = null;
+var _netBaselineError = null;
+var _netVpcStatusData = null;
+var _netVpcStatusError = null;
                                                                    
                                                   
 const NETWORK_MODE_SET_MODES = Object.freeze(['nat', 'isolated', 'routed']);
@@ -73,13 +77,234 @@ function _onNetFilterChange() {
     }
   }
 }
+async function _netOptionalGet(url, fallback) {
+  try {
+    var response = await fetchGet(url);
+    if (response && response.error)
+      throw new Error(response.error.message || response.error.code || fallback);
+    return { data: unwrapData(response), error: null };
+  } catch (error) {
+    return { data: null, error: error && error.message ? error.message : fallback };
+  }
+}
+
+function _hostNetTable(key, headers, rows, emptyText) {
+  var el = PCV.uxlib.el;
+  if (!rows.length)
+    return el('div', { class: 'stat-label', 'data-host-network-empty': key }, emptyText);
+  var labels = {
+    interfaces: _L('호스트 인터페이스 표', 'Host interfaces table'),
+    routes: _L('IPv4 경로 표', 'IPv4 routes table'),
+    switches: _L('가상 스위칭 표', 'Virtual switching table'),
+    backends: _L('Local VPC backend 표', 'Local VPC backends table'),
+    'vpc-cidrs': _L('Local VPC CIDR 표', 'Local VPC CIDRs table')
+  };
+  return el('div', {
+    style: 'width:100%;min-width:0;overflow-x:auto;max-width:100%',
+    'data-host-network-table': key,
+    role: 'region',
+    'aria-label': labels[key] || _L('네트워크 데이터 표', 'Network data table'),
+    tabindex: '0'
+  },
+    el('table', { class: 'host-network-table', style: 'display:table;min-width:680px' },
+      el('thead', null, el('tr', null, headers.map(function (header) {
+        return el('th', { scope: 'col' }, header);
+      }))),
+      el('tbody', null, rows)));
+}
+
+function _hostNetMono(value) {
+  return PCV.uxlib.el('span', { class: 'font-mono' }, value === null || value === undefined || value === '' ? '-' : String(value));
+}
+
+function _hostNetSummary(label, value, note) {
+  var el = PCV.uxlib.el;
+  return el('div', { style: 'min-width:0' },
+    el('div', { class: 'stat-label' }, label),
+    el('div', { class: 'stat-md font-mono', style: 'margin:3px 0;overflow-wrap:anywhere' }, value || '-'),
+    el('div', { class: 'stat-label', style: 'line-height:1.45;overflow-wrap:anywhere' }, note || ''));
+}
+                                                                     
+function _hostNetBackendNote(backends) {
+  if (!Array.isArray(backends) || !backends.length)
+    return _L('Backend 정보 없음', 'No backend data');
+  return backends.map(function (backend) {
+    var available = backend.allocatable_vpcs === null || backend.allocatable_vpcs === undefined
+      ? '∞' : String(backend.allocatable_vpcs);
+    return String(backend.id || '?').toUpperCase() + ' ' +
+      (backend.ready ? 'READY' : 'UNAVAILABLE') + ' · ' + available;
+  }).join(' / ');
+}
+                                                               
+function _renderHostNetworkBaseline(networks) {
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
+  var baseline = _netBaselineData;
+  var vpcStatus = _netVpcStatusData || {};
+  var management = baseline && baseline.management || {};
+  var interfaces = baseline && Array.isArray(baseline.interfaces) ? baseline.interfaces : [];
+  var routes = baseline && Array.isArray(baseline.routes) ? baseline.routes : [];
+  var connected = baseline && Array.isArray(baseline.connected_cidrs) ? baseline.connected_cidrs : [];
+  var ovs = baseline && baseline.ovs || null;
+  var ovsBridges = ovs && Array.isArray(ovs.bridges) ? ovs.bridges : [];
+  var backends = Array.isArray(vpcStatus.backends) ? vpcStatus.backends : [];
+  var subnetCidrs = Array.isArray(vpcStatus.subnet_cidrs) ? vpcStatus.subnet_cidrs : [];
+  var partial = !baseline || !!baseline.partial || !!_netVpcStatusError;
+  var status = !baseline ? HN.statusPill('crit', _L('조회 불가', 'Unavailable'))
+    : partial ? HN.statusPill('warn', _L('부분 수집', 'Partial'))
+    : HN.statusPill('ok', _L('현재 상태', 'Current'));
+  var collected = baseline && Number(baseline.collected_at_unix_ms);
+  var collectedText = Number.isFinite(collected) && collected > 0
+    ? new Date(collected).toLocaleString() : '-';
+
+  var notices = [];
+  if (_netBaselineError)
+    notices.push(_L('호스트 interface·route 기준선을 읽지 못했습니다: ', 'Unable to load the host interface and route baseline: ') + _netBaselineError);
+  if (_netVpcStatusError)
+    notices.push(_L('Local VPC CIDR·backend 상태를 읽지 못했습니다: ', 'Unable to load Local VPC CIDRs and backend status: ') + _netVpcStatusError);
+  if (baseline && Array.isArray(baseline.warnings))
+    notices = notices.concat(baseline.warnings);
+
+  var managementValue = management.available ? (management.interface || '-') : _L('기본 경로 없음', 'No default route');
+  var managementNote = management.available
+    ? (management.ipv4_cidr || management.source || '-') : _L('main table에서 기본 IPv4 경로를 찾지 못함', 'No default IPv4 route in the main table');
+  var gatewayValue = management.available ? (management.gateway || _L('직접 연결', 'On-link')) : '-';
+  var gatewayNote = management.available ? _L('metric ', 'metric ') + String(management.metric || 0) : '';
+  var ovsValue = !ovs ? _L('조회 불가', 'Unavailable')
+    : ovs.available ? String(ovsBridges.length) + ' OVS' : 'OVS ' + _L('조회 불가', 'Unavailable');
+
+  var interfaceRows = interfaces.map(function (item) {
+    var stateName = String(item.state || 'unknown').toUpperCase();
+    var stateTone = item.carrier ? 'ok' : stateName === 'DOWN' ? 'crit' : 'warn';
+    var typeName = String(item.type || 'unknown').toUpperCase() + (item.physical ? ' · HW' : '');
+    return el('tr', null,
+      el('td', null, el('b', { class: 'font-mono' }, item.name || '-')),
+      el('td', null, typeName),
+      el('td', null, HN.statusPill(stateTone, stateName + (item.carrier ? ' · CARRIER' : ''))),
+      el('td', null, _hostNetMono(item.master)),
+      el('td', null, _hostNetMono(Array.isArray(item.ipv4) && item.ipv4.length ? item.ipv4.join(', ') : '-')),
+      el('td', null, _hostNetMono(item.mac)),
+      el('td', null, _hostNetMono(item.mtu)));
+  });
+  var routeRows = routes.map(function (route) {
+    return el('tr', null,
+      el('td', null, _hostNetMono(route.destination)),
+      el('td', null, _hostNetMono(route.gateway)),
+      el('td', null, _hostNetMono(route.device)),
+      el('td', null, _hostNetMono(route.source)),
+      el('td', null, _hostNetMono(route.metric)),
+      el('td', null, String(route.protocol || '-') + (route.scope ? ' · ' + route.scope : '')),
+      el('td', null, route.link_down ? HN.statusPill('warn', 'LINK DOWN') : HN.statusPill('ok', 'USABLE')));
+  });
+  var switchRows = (networks || []).map(function (network) {
+    var owner = network.name === 'pcvnat0' ? _L('기본 가상 네트워크', 'Default virtual network')
+      : network.managed_by === 'vpc' ? 'LOCAL VPC' : String(network.managed_by || 'network').toUpperCase();
+    return el('tr', null,
+      el('td', null, 'LINUX BRIDGE'),
+      el('td', null, el('b', { class: 'font-mono' }, network.name || '-')),
+      el('td', null, HN.statusPill(network.state === 'up' ? 'ok' : 'crit', String(network.state || '?').toUpperCase())),
+      el('td', null, _hostNetMono(Array.isArray(network.slaves) && network.slaves.length ? network.slaves.join(', ') : '-')),
+      el('td', null, _hostNetMono(network.ip_cidr || network.subnet)),
+      el('td', null, owner));
+  }).concat(ovsBridges.map(function (bridge) {
+    return el('tr', null,
+      el('td', null, 'OPEN VSWITCH'),
+      el('td', null, el('b', { class: 'font-mono' }, bridge.name || '-')),
+      el('td', null, HN.statusPill(bridge.ports_complete === false ? 'warn' : 'ok', bridge.ports_complete === false ? 'PARTIAL' : 'AVAILABLE')),
+      el('td', null, _hostNetMono(Array.isArray(bridge.ports) && bridge.ports.length ? bridge.ports.join(', ') : '-')),
+      el('td', null, '-'),
+      el('td', null, bridge.name === 'br-int' ? 'OVN INTEGRATION' : 'OVS'));
+  }));
+  var backendRows = backends.map(function (backend) {
+    return el('tr', null,
+      el('td', null, el('b', { class: 'font-mono' }, String(backend.id || '?').toUpperCase())),
+      el('td', null, HN.statusPill(backend.ready ? 'ok' : 'warn', backend.ready ? 'READY' : 'UNAVAILABLE')),
+      el('td', null, _hostNetMono(backend.current_vpcs || 0)),
+      el('td', null, _hostNetMono(backend.allocatable_vpcs === null || backend.allocatable_vpcs === undefined ? 'UNBOUNDED' : backend.allocatable_vpcs)),
+      el('td', null, backend.reason || '-'));
+  });
+  var cidrRows = subnetCidrs.map(function (subnet) {
+    return el('tr', null,
+      el('td', null, subnet.vpc_name || String(subnet.vpc_id || '').slice(0, 8) || '-'),
+      el('td', null, _hostNetMono(String(subnet.backend || 'linux').toUpperCase())),
+      el('td', null, _hostNetMono(subnet.cidr)),
+      el('td', null, HN.statusPill(String(subnet.state || '').toUpperCase() === 'ACTIVE' ? 'ok' : 'warn', String(subnet.state || 'UNKNOWN').toUpperCase())));
+  });
+                                                               
+  var header = el('div', { class: 'ops-section-heading', style: 'margin-top:0' },
+    el('div', null,
+      el('h3', { id: 'host-network-baseline-title', role: 'heading', 'aria-level': '2' }, _L('호스트 네트워크 기준선', 'Host network baseline')),
+      el('p', null, _L('Local VPC를 만들기 전에 관리 경로, 주소 대역과 가상 스위칭 actual을 확인합니다.', 'Review the management path, address ranges, and virtual switching actual state before creating a Local VPC.'))),
+    el('div', { class: 'flex gap-8 items-center', 'aria-live': 'polite' },
+      status,
+      el('span', { class: 'stat-label' }, _L('수집 ', 'Collected ') + collectedText)));
+  var notice = notices.length ? el('div', {
+    class: 'net-mode-impact net-mode-impact-warn', role: baseline ? 'status' : 'alert',
+    style: 'margin-bottom:12px;white-space:normal'
+  },
+    el('div', null, notices.join(' · ')),
+    el('button', { class: 'btn btn-soft', style: 'margin-top:8px', onclick: 'retryHostNetworkBaseline()', 'data-host-network-retry': '' }, _L('다시 조회', 'Retry'))) : null;
+  var summary = el('div', { class: 'sg grid-4', 'data-host-network-summary': '' },
+    _hostNetSummary(_L('관리 경로', 'Management path'), managementValue, managementNote),
+    _hostNetSummary(_L('기본 게이트웨이', 'Default gateway'), gatewayValue, gatewayNote),
+    _hostNetSummary(_L('가상 스위칭', 'Virtual switching'), String((networks || []).length) + ' Linux · ' + ovsValue,
+      !ovs ? '' : ovs.available ? _L('OVS DB 조회 가능', 'OVS database available') : (ovs.reason || _L('OVS DB 조회 불가', 'OVS database unavailable'))),
+    _hostNetSummary('Local VPC', String(Number(vpcStatus.vpc_count) || 0), _hostNetBackendNote(backends)));
+
+  return el('section', { class: 'hc hc-mb', style: 'min-width:0;max-width:100%;overflow:hidden', 'aria-labelledby': 'host-network-baseline-title', 'data-host-network-baseline': '' },
+    header, notice, summary,
+    el('h4', { role: 'heading', 'aria-level': '3' }, _L('호스트 인터페이스', 'Host interfaces')),
+    _hostNetTable('interfaces', [_L('인터페이스', 'Interface'), _L('유형', 'Type'), _L('상태', 'State'), 'Master', 'IPv4', 'MAC', 'MTU'],
+      interfaceRows, baseline ? _L('인터페이스 없음', 'No interfaces') : _L('호스트 인터페이스 조회 불가', 'Host interfaces unavailable')),
+    el('h4', { role: 'heading', 'aria-level': '3', style: 'margin-top:14px' }, _L('IPv4 경로와 연결 CIDR', 'IPv4 routes and connected CIDRs')),
+    el('div', { class: 'stat-label', style: 'margin-bottom:6px' },
+      _L('연결 CIDR: ', 'Connected CIDRs: '), _hostNetMono(connected.length ? connected.join(', ') : (baseline ? _L('없음', 'None') : '-'))),
+    _hostNetTable('routes', [_L('대상', 'Destination'), _L('게이트웨이', 'Gateway'), _L('장치', 'Device'), _L('소스', 'Source'), 'Metric', _L('유형', 'Type'), _L('상태', 'State')],
+      routeRows, baseline ? _L('main table IPv4 경로 없음', 'No IPv4 routes in the main table') : _L('IPv4 경로 조회 불가', 'IPv4 routes unavailable')),
+    el('h4', { role: 'heading', 'aria-level': '3', style: 'margin-top:14px' }, _L('가상 스위칭과 Local VPC', 'Virtual switching and Local VPC')),
+    _hostNetTable('switches', [_L('데이터면', 'Dataplane'), _L('스위치', 'Switch'), _L('상태', 'State'), _L('포트', 'Ports'), _L('주소', 'Address'), _L('소유', 'Owner')],
+      switchRows, _L('Linux/OVS 가상 스위치 없음', 'No Linux or OVS virtual switches')),
+    el('div', { style: 'height:10px' }),
+    _hostNetTable('backends', ['Backend', _L('준비 상태', 'Readiness'), _L('현재 VPC', 'Current VPCs'), _L('추가 가능', 'Allocatable'), _L('근거', 'Reason')],
+      backendRows, _netVpcStatusError ? _L('VPC backend 상태 조회 불가', 'VPC backend status unavailable') : _L('VPC backend 정보 없음', 'No VPC backend data')),
+    el('div', { style: 'height:10px' }),
+    _hostNetTable('vpc-cidrs', ['Local VPC', 'Backend', 'CIDR', _L('상태', 'State')],
+      cidrRows, _netVpcStatusError ? _L('Local VPC CIDR 조회 불가', 'Local VPC CIDRs unavailable') : _L('현재 tenant에 Local VPC CIDR 없음', 'No Local VPC CIDRs for this tenant')));
+}
+
+async function retryHostNetworkBaseline() {
+  var button = document.querySelector('[data-host-network-retry]');
+  if (button) {
+    button.disabled = true;
+    button.setAttribute('aria-busy', 'true');
+  }
+  var results = await Promise.all([
+    _netOptionalGet(EP.NET_HOST_BASELINE(), _L('호스트 네트워크 기준선 조회 실패', 'Unable to load host network baseline')),
+    _netOptionalGet(EP.VPC_STATUS(), _L('Local VPC 상태 조회 실패', 'Unable to load Local VPC status'))
+  ]);
+  _netBaselineData = results[0].data;
+  _netBaselineError = results[0].error;
+  _netVpcStatusData = results[1].data;
+  _netVpcStatusError = results[1].error;
+  if (window.currentTab === 'networks' && _netData)
+    renderNetworks(PCV.ui.renderTarget(), _netData);
+}
+
 async function renderNetworks(b, cachedList) {
   if (!cachedList) showSkeleton(b);
   try {
-                                                                     
-    const response = cachedList ? null : await fetchGet(EP.NET_LIST());
-                                                               
-                                                               
+    var response = null;
+    if (!cachedList) {
+      var initial = await Promise.all([
+        fetchGet(EP.NET_LIST()),
+        _netOptionalGet(EP.NET_HOST_BASELINE(), _L('호스트 네트워크 기준선 조회 실패', 'Unable to load host network baseline')),
+        _netOptionalGet(EP.VPC_STATUS(), _L('Local VPC 상태 조회 실패', 'Unable to load Local VPC status'))
+      ]);
+      response = initial[0];
+      _netBaselineData = initial[1].data;
+      _netBaselineError = initial[1].error;
+      _netVpcStatusData = initial[2].data;
+      _netVpcStatusError = initial[2].error;
+    }
     if (response && response.error) throw new Error(response.error.message || _L('네트워크 목록 조회 실패', 'Unable to load networks'));
     const l = cachedList || unwrapList(response);
     _netData = l;
@@ -93,13 +318,21 @@ async function renderNetworks(b, cachedList) {
       desc: _L('브리지, DHCP, 외부 연결 상태를 먼저 확인한 뒤 정책 편집으로 이어갑니다.', 'Review bridges, DHCP, and external connectivity first, then move into policy editing.'),
       actions: [el('button', { class: 'btn btn-primary', onclick: 'showNetCreate()', 'data-role': 'ADMIN' }, '+ ' + t('net.new'))]
     });
+    var baselinePanel = _renderHostNetworkBaseline(l);
     if (l.length === 0) {
-      clearEl(b);
-      b.appendChild(frag(heading,
+      var emptyContent = frag(heading, baselinePanel,
         el('div', { class: 'empty-state', style: 'text-align:center;padding:40px 20px' },
           el('div', { style: 'font-size:48px;margin-bottom:12px;opacity:.5' }, '🌐'),
           el('div', { style: 'font-size:14px;color:var(--fg2);margin-bottom:16px' }, _L('구성된 네트워크가 없습니다', 'No configured networks')),
-          el('button', { class: 'btn btn-primary', onclick: 'showNetCreate()', 'data-role': 'ADMIN' }, '+ ' + _L('네트워크 생성', 'Create network')))));
+          el('button', { class: 'btn btn-primary', onclick: 'showNetCreate()', 'data-role': 'ADMIN' }, '+ ' + _L('네트워크 생성', 'Create network'))));
+      var emptyHost = cachedList ? document.getElementById('net-inv') : null;
+      if (emptyHost) {
+        clearEl(emptyHost);
+        emptyHost.appendChild(emptyContent);
+      } else {
+        clearEl(b);
+        b.appendChild(el('div', { id: 'net-inv' }, emptyContent));
+      }
       if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
       return;
     }
@@ -169,8 +402,11 @@ async function renderNetworks(b, cachedList) {
       });
       body = el('table', { class: 'table-sticky' }, thead, el('tbody', null, rows));
     }
-    var fwPanel = el('div', { class: 'sg grid-2', style: 'margin-top:16px' },
-      el('div', { class: 'hc' },
+    var fwPanel = el('div', {
+      class: 'sg ' + (compactMode ? 'grid-1' : 'grid-2'),
+      style: 'margin-top:16px;min-width:0;max-width:100%'
+    },
+      el('div', { class: 'hc', style: 'min-width:0' },
         el('h4', { role: 'heading', 'aria-level': '3' }, _L('방화벽 정책 편집', 'Firewall policy editor')),
         el('p', { class: 'color-muted text-11 mb-8' }, _L('브리지나 세그먼트를 확인한 뒤 인바운드/아웃바운드 규칙을 추가합니다.', 'Add ingress or egress rules after checking the bridge or segment you are editing.')),
         el('div', { class: 'flex gap-8 mb-8 ops-form-strip', style: 'flex-wrap:wrap', 'data-role': 'ADMIN' },
@@ -183,7 +419,7 @@ async function renderNetworks(b, cachedList) {
           el('input', { 'aria-label': _L('소스 CIDR', 'Source CIDR'), id: 'fw-source', class: 'input', placeholder: _L('소스 CIDR', 'Source CIDR'), value: '0.0.0.0/0' }),
           el('button', { class: 'btn btn-primary', onclick: 'fwAddRule()' }, _L('규칙 추가', 'Add rule'))),
         el('div', { id: 'fw-rules-list' })),
-      el('div', { class: 'hc' },
+      el('div', { class: 'hc', style: 'min-width:0' },
         el('h4', { role: 'heading', 'aria-level': '3' }, _L('OVN ACL 운영 메모', 'OVN ACL operations note')),
         el('p', { class: 'color-muted text-11 mb-8' }, _L('싱글 엣지에서는 상태를 먼저 확인하고, 필요한 경우 수동 ACL 명령으로 보강합니다.', 'In Single Edge, check state first and use manual ACL commands only when you need to refine policy.')),
         el('pre', { style: 'background:var(--bg3);padding:8px;border-radius:6px;font-size:11px;overflow-x:auto' },
@@ -191,7 +427,7 @@ async function renderNetworks(b, cachedList) {
                                                        
                                                               
                                  
-    var invContent = frag(heading, fbar, body);
+    var invContent = frag(heading, baselinePanel, fbar, body);
     var invHost = cachedList ? document.getElementById('net-inv') : null;
     if (invHost) {
       clearEl(invHost);
@@ -658,7 +894,7 @@ async function renderOvn(b) {
       HN.card(_L('논리 스위치', 'Logical switches'), [el('div', { class: 'stat-lg color-accent' }, sl.length), HN.row(_L('상태', 'State'), HN.statusPill(sd.available ? 'ok' : 'crit', sd.available ? _L('조회 가능', 'Available') : _L('미설치', 'Unavailable')))]),
       HN.card(_L('논리 라우터', 'Logical routers'), [el('div', { class: 'stat-lg color-green' }, rl.length), HN.row(_L('운영 방식', 'Mode'), _L('수동 구성', 'Manual configuration'))]));
     var heading3 = el('div', { class: 'ops-section-heading' },
-      el('div', null, el('h3', null, _L('논리 토폴로지', 'Logical topology')), el('p', null, _L('스위치와 라우터 목록을 먼저 확인한 뒤 수동 정책과 부가 구성을 적용합니다.', 'Review switches and routers first, then apply manual policy and optional configuration.'))));
+      el('div', null, el('h3', null, _L('논리 토폴로지', 'Logical topology')), el('p', null, _L('스위치와 라우터 목록을 먼저 확인한 뒤 필요한 ACL 정책을 적용합니다.', 'Review switches and routers first, then apply the required ACL policy.'))));
     var switchPanel = el('div', { class: 'hc' },
       el('h4', { role: 'heading', 'aria-level': '3' }, _L('논리 스위치', 'Logical switches') + ' (' + sl.length + ')'),
       sl.length === 0
@@ -674,15 +910,6 @@ async function renderOvn(b) {
             el('thead', null, el('tr', null, el('th', null, _L('이름', 'Name')))),
             el('tbody', null, rl.map(function(r) { const n = typeof r === 'string' ? r : (r.name || r.entry || JSON.stringify(r)); return el('tr', null, el('td', null, n)); }))));
     var topoGrid = el('div', { class: 'sg grid-2' }, switchPanel, routerPanel);
-    var lbPanel = el('div', { class: 'hc' },
-      el('h4', { role: 'heading', 'aria-level': '3' }, '⚖ ' + _L('로드 밸런서 설정', 'LB setup')),
-      el('p', { class: 'color-muted text-11 mb-8' }, _L('VIP와 백엔드 목록을 수동으로 입력해 단일 노드 로컬 구성을 점검합니다.', 'Enter the VIP and backend list manually to validate the local single-node setup.')),
-      el('div', { class: 'mb-8 ops-stack-form', 'data-role': 'ADMIN' },
-        el('div', { class: 'fr' }, el('label', { for: 'lb-n' }, _L('이름', 'Name')), el('input', { id: 'lb-n', placeholder: 'edge-lb' })),
-        el('div', { class: 'fr' }, el('label', { for: 'lb-vip' }, 'VIP:Port'), el('input', { id: 'lb-vip', placeholder: '10.0.0.100' }), el('input', { id: 'lb-port', 'aria-label': 'Port', type: 'number', value: '80', class: 'w-60' })),
-        el('div', { class: 'fr' }, el('label', { for: 'lb-bk' }, _L('백엔드', 'Backends')), el('input', { id: 'lb-bk', placeholder: '10.0.0.1:80,10.0.0.2:80' })),
-        el('button', { class: 'btn btn-primary', onclick: 'nfvLbCreate()', 'data-role': 'ADMIN' }, _L('LB 생성', 'Create LB'))),
-      el('div', { id: 'lb-list' }));
     var aclPanel = el('div', { class: 'hc' },
       el('h4', { role: 'heading', 'aria-level': '3' }, '🛡 ' + _L('ACL 정책 추가', 'ACL policy add')),
       el('p', { class: 'color-muted text-11 mb-8' }, _L('스위치 단위로 방향, 우선순위, 매치 조건을 입력해 ACL을 추가합니다.', 'Add ACLs per switch with direction, priority, and match conditions.')),
@@ -693,52 +920,13 @@ async function renderOvn(b) {
         el('div', { class: 'fr' }, el('label', { for: 'fw-match' }, 'Match'), el('input', { id: 'fw-match', placeholder: 'ip4.src==10.0.0.0/24' })),
         el('div', { class: 'fr' }, el('label', { for: 'fw-act' }, _L('동작', 'Action')), el('select', { id: 'fw-act' }, el('option', null, 'allow'), el('option', null, 'drop'), el('option', null, 'reject'))),
         el('button', { class: 'btn btn-primary', onclick: 'nfvFwAdd()', 'data-role': 'ADMIN' }, _L('ACL 규칙 추가', 'Add ACL rule'))));
-    var lbAclGrid = el('div', { class: 'sg grid-2' }, lbPanel, aclPanel);
+    var lbAclGrid = el('div', { class: 'sg grid-1' }, aclPanel);
     clearEl(b);
     b.appendChild(frag(heading1, grid1, heading3, topoGrid, lbAclGrid));
-    loadLBList();
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, _L('OVN 정보를 불러오지 못했습니다', 'Unable to load OVN data')); }
 }
 
-async function loadLBList() { try { const el = document.getElementById('lb-list'); if (el) PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-xs' }, _L('로드 밸런서 상태 메모', 'Load balancer status note'), ': ', _L('위 가용성 카드에서 OVN 상태를 먼저 확인한 뒤 LB를 추가하십시오.', 'Confirm OVN availability above before adding a load balancer.')); } catch (e) { if(_DEBUG) console.warn('loadLBList:', e.message); } }
-                           
-                                                                            
-                                                                    
-                                     
-                                                                             
-                                                          
-                                                                        
-                                                      
-                                                         
-                                                                
-                                                       
-  
-                       
-                                                            
-                                                       
-                                                 
-   
-async function nfvLbCreate() {
-  try {
-    var name = document.getElementById('nfv-lb-name')?.value?.trim() || document.getElementById('lb-n')?.value?.trim();
-    var vip = document.getElementById('nfv-lb-vip')?.value?.trim() || document.getElementById('lb-vip')?.value?.trim();
-    var members = document.getElementById('nfv-lb-members')?.value?.trim() || document.getElementById('lb-bk')?.value?.trim();
-    var port = Number(document.getElementById('nfv-lb-port')?.value || document.getElementById('lb-port')?.value);
-    var backends = members ? members.split(',').map(function(s){return s.trim();}).filter(Boolean) : [];
-    if (!name || !vip || !Number.isInteger(port) || port < 1 || port > 65535 || backends.length === 0) {
-      toast(_L('이름, VIP, 포트와 백엔드를 확인하세요', 'Name, VIP, port, and backends are required'), false);
-      return;
-    }
-    var r = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'nfv.lb.create', params:{
-      name: name, vip: vip, port: port, backends: backends
-    }, id:'nlb1'});
-    if (r.error) { toast(r.error.message || 'Failed', false); return; }
-    toast(_L('LB 생성됨', 'LB created'));
-    addEvt('LB created: ' + name);
-    renderContent();
-  } catch (e) { toast(e.message, false); }
-}
 async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } const r = await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); if (r && r.error) { toast(r.error.message || 'Failed', false); return; } toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
                              
@@ -1037,6 +1225,7 @@ window.fwDelRule = fwDelRule;
 
                                     
 window.renderNetworks = renderNetworks;
+window.retryHostNetworkBaseline = retryHostNetworkBaseline;
 window.showNetCreate = showNetCreate;
 window.netModeChanged = netModeChanged;
 window.netUplinkChanged = netUplinkChanged;
@@ -1050,8 +1239,6 @@ window.showNetEdit = showNetEdit;
 window.netEditModeChanged = netEditModeChanged;
 window.doNetEdit = doNetEdit;
 window.renderOvn = renderOvn;
-window.loadLBList = loadLBList;
-window.nfvLbCreate = nfvLbCreate;
 window.nfvFwAdd = nfvFwAdd;
 window.renderSecGroups = renderSecGroups;
                                                                 
@@ -1059,6 +1246,7 @@ window.renderSecGroups = renderSecGroups;
                                           
 PCV.network = {
   renderNetworks: renderNetworks,
+  retryHostNetworkBaseline: retryHostNetworkBaseline,
   toggleFwPanel: toggleFwPanel,
   toggleAclPanel: toggleAclPanel,
   showNetCreate: showNetCreate,
@@ -1074,8 +1262,6 @@ PCV.network = {
   netEditModeChanged: netEditModeChanged,
   doNetEdit: doNetEdit,
   renderOvn: renderOvn,
-  loadLBList: loadLBList,
-  nfvLbCreate: nfvLbCreate,
   nfvFwAdd: nfvFwAdd,
   renderSecGroups: renderSecGroups,
   renderOverlayNetworks: renderOverlayNetworks,

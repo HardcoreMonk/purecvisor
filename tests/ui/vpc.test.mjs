@@ -108,11 +108,15 @@ function routes(jobStatus = 'completed', createError = null, backends = [
     },
     '/api/v1/jobs/job-vpc-create': {
       status: 200,
-      body: { data: { id: 'job-vpc-create', status: jobStatus, detail: jobStatus === 'failed' ? 'fixture worker failure' : '{}' } }
+      body: { data: { id: 'job-vpc-create', status: jobStatus,
+        detail: jobStatus === 'failed' ? 'Local VPC mutation running' : '{}',
+        result: jobStatus === 'failed' ? '{"error":"fixture worker failure"}' : '{}' } }
     },
     '/api/v1/jobs/job-vpc-egress': {
       status: 200,
-      body: { data: { id: 'job-vpc-egress', status: jobStatus, detail: jobStatus === 'failed' ? 'fixture worker failure' : '{}' } }
+      body: { data: { id: 'job-vpc-egress', status: jobStatus,
+        detail: jobStatus === 'failed' ? 'Local VPC mutation running' : '{}',
+        result: jobStatus === 'failed' ? '{"error":"fixture worker failure"}' : '{}' } }
     },
     ...Object.fromEntries([
       'subnet', 'attachment', 'service', 'subnet-delete', 'attachment-delete',

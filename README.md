@@ -7,11 +7,17 @@
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](docs/PUBLIC_SOURCE_POLICY.md)
 [![Version: 2.0.0](https://img.shields.io/badge/Version-2.0.0-6b46c1.svg)](include/purecvisor/version.h)
 
-[공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
+[공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [네트워크·OVN](https://purecvisor.site/ko/infrastructure/networking/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
 
 PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 운영 표면을 묶습니다. CLI, REST API, UDS JSON-RPC, Vanilla JS Web UI가 같은 dispatcher와 RBAC 정책을 통과하며, 긴 작업은 Job ID, WebSocket 완료 알림, polling, audit log로 추적됩니다.
 
 이 저장소는 Linux/KVM 기반 `purecvisor-single` 공개 스냅샷입니다. 공개 범위는 Single Edge 기능과 그 실행에 필요한 공통 코어로 제한합니다. 전체 운영 매뉴얼은 [공개 문서 사이트](https://purecvisor.site)와 [docs/GUIDE.md](docs/GUIDE.md), 개발 규칙은 [AGENTS.md](AGENTS.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 봅니다.
+
+2026-08-31 공개 네트워크 계약은 작업 전 읽기 전용 host baseline 확인, 등록된 generic OVN
+18개 RPC, switch-owned DHCP 자동 정리와 인증 REST ACL/NAT filter까지입니다. 미완성
+OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 공개 기능이 아니며, Local VPC의
+선택형 OVN backend는 별도 실환경 gate가 남아 있습니다. 공개 데이터베이스 설명은 이
+저장소 소스에 실제 포함된 로컬 SQLite 9개를 기준으로 합니다.
 
 ---
 
@@ -107,7 +113,7 @@ make release
 | VM | 생성(**guest-agent 채널 기본 포함**), 시작, 중지, 삭제, 스냅샷, 리소스 조정, guest-exec/guest-ping, 안전 조건부 VM clone |
 | 컨테이너 | LXC 생성, 실행, 명령 실행, 리소스 제한 |
 | 스토리지 | ZFS pool, zvol, snapshot, scrub, quota, 백업(증분·S3 export)과 스냅샷 리텐션 |
-| 네트워크 | **관리형 기본 NAT `pcvnat0`(DHCP/DNS 자동)**, **호스트 방화벽 자동 공존**, physical bridge `dedicated`(전용 NIC)·`shared`(host L3 보존 TC-BPF portal), isolated, routed, OVS/OVN local SDN, QoS·오버레이 재부팅 재수화 |
+| 네트워크 | **관리형 기본 NAT `pcvnat0`(DHCP/DNS 자동)**, **호스트 방화벽 자동 공존**, physical bridge `dedicated`(전용 NIC)·`shared`(host L3 보존 TC-BPF portal), isolated, routed, OVS와 generic OVN 18개 RPC, host baseline, DHCP 소유 cleanup, REST ACL/NAT filter, QoS·오버레이 재부팅 재수화. Local VPC 공개 지원은 Linux backend, OVN backend는 별도 gate 상태 |
 | 보안 | JWT, RBAC(PBKDF2 해시·iter 임베딩), 보안 그룹(nftables 스코프 체인), operator VM/컨테이너 owner-scope, bootstrap admin fallback, API key 만료 집행, **audit 해시체인 무결성**, **AppArmor MAC 프로필 자산(1.0 이력, 2.0 데몬 self-confinement 미배포)**, **SSRF/CORS 하드닝**, **mTLS·전송 강제(opt-in)**, audit log |
 | 관측성 | health check, Prometheus metrics, WebSocket event stream, 알림 에스컬레이션·음소거·DLQ |
 | AI Ops | 이상탐지 메트릭 트리거, 합의 최소 정족수, VM 자동 재시작 self-healing(기본 `dry_run`)과 재시작 서킷브레이커 |
@@ -122,6 +128,8 @@ Single Edge 공개판에 포함하지 않는 기능은 다음과 같습니다.
 - 라이브 마이그레이션
 - 페더레이션
 - 노드 드레인, 리밸런싱, 분산 스케줄링
+- generic OVN의 미등록 ACL/NAT/DHCP/tenant 역동작과 router port 제거
+- 완결되지 않은 OVN/NFV Load Balancer, production caller가 없는 VM 자동 포트 helper
 
 현재 공개판 경계의 단일 진실은 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)입니다.
 
@@ -294,11 +302,13 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 | 문서 | 용도 |
 |------|------|
 | [docs/GUIDE.md](docs/GUIDE.md) | 제품, 설치, 운영 통합 가이드 |
+| [docs/DATABASE_STRUCTURE.md](docs/DATABASE_STRUCTURE.md) | 공개 SQLite 9개 저장소의 책임과 복구 경계 |
 | [DESIGN.md](DESIGN.md) | Web UI 시각 규격, token, typography, component state |
 | [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 단계별 검증 기준 |
 | [docs/SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](docs/SERVICE_FUNCTIONAL_TEST_SCENARIOS.md) | 서비스 기능 테스트 시나리오 기준 |
 | [docs/PUBLIC_SOURCE_POLICY.md](docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거·소스맵 제외 정책 |
 | [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md) | Single Edge 공개판 경계 |
+| [docs/PUBLIC_DOCUMENTATION_SITE.md](docs/PUBLIC_DOCUMENTATION_SITE.md) | Astro/Starlight GitHub Pages 운영·검증 기준 |
 | [docs/ADR_INDEX.md](docs/ADR_INDEX.md) | ADR별 현재 적용 상태 |
 | [docs/adr/](docs/adr/) | 설계 결정 기록 |
 

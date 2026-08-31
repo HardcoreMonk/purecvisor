@@ -82,8 +82,6 @@ pcv_nfv_chain_list
 pcv_nfv_fw_policy_create
 pcv_nfv_fw_policy_delete
 pcv_nfv_fw_policy_list
-pcv_nfv_lb_delete
-pcv_nfv_lb_list
 pcv_nfv_shutdown
 pcv_ovn_acl_delete
 pcv_ovn_dhcp_list

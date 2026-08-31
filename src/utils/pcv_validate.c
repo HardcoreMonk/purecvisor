@@ -1045,6 +1045,17 @@ gboolean pcv_validate_network_create_params(const gchar  *bridge_name,
     }
 
                                                            
+
+
+
+    if (g_strcmp0(bridge_name, "host-baseline") == 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+            "Invalid bridge_name '%s': reserved for the host network baseline resource",
+            bridge_name);
+        return FALSE;
+    }
+
+
     if (mode && g_strcmp0(mode,"nat") != 0 && g_strcmp0(mode,"isolated") != 0
              && g_strcmp0(mode,"routed") != 0 && g_strcmp0(mode,"bridge") != 0) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,

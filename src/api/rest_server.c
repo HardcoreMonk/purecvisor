@@ -4699,13 +4699,22 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                    
                                                                   
                                                              
+
     else if (g_strcmp0(resource, "networks") == 0) {
         if (*name == '\0') {
             if (g_strcmp0(method, "GET") == 0)
                 rpc = _build_rpc("network.list", NULL);
             else if (g_strcmp0(method, "POST") == 0)
                 rpc = _build_rpc("network.create", body);
-        } else {
+        } else if (g_strcmp0(name, "host-baseline") == 0 && *action == '\0' &&
+                   g_strcmp0(method, "GET") == 0) {
+
+
+            rpc = _build_rpc("network.host.info", NULL);
+        } else if (*name != '\0') {
+
+
+
                                                                    
             if (g_strcmp0(action, "mode") == 0 && g_strcmp0(method, "POST") == 0) {
                                    
@@ -4733,12 +4742,14 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     json_object_unref(p);
                 }
 
-            } else if (g_strcmp0(method, "GET") == 0) {
+            } else if (*action == '\0' &&
+                       g_strcmp0(method, "GET") == 0) {
                 JsonObject *p = json_object_new();
                 json_object_set_string_member(p, "bridge_name", name);
                 rpc = _build_rpc("network.info", p);
                 json_object_unref(p);
-            } else if (g_strcmp0(method, "DELETE") == 0) {
+            } else if (*action == '\0' &&
+                       g_strcmp0(method, "DELETE") == 0) {
                 JsonObject *p = json_object_new();
                 json_object_set_string_member(p, "bridge_name", name);
                 rpc = _build_rpc("network.delete", p);
@@ -4977,14 +4988,26 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             else if (g_strcmp0(method, "POST") == 0)
                 rpc = _build_rpc("ovn.router.create", body);
         } else if (g_strcmp0(name, "acl") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("ovn.acl.list", body);
-            else if (g_strcmp0(method, "POST") == 0)
+            if (g_strcmp0(method, "GET") == 0) {
+
+                JsonObject *p = json_object_new();
+                const gchar *sw = query ? g_hash_table_lookup(query, "switch") : NULL;
+                if (sw && *sw)
+                    json_object_set_string_member(p, "switch", sw);
+                rpc = _build_rpc("ovn.acl.list", p);
+                json_object_unref(p);
+            } else if (g_strcmp0(method, "POST") == 0)
                 rpc = _build_rpc("ovn.acl.add", body);
         } else if (g_strcmp0(name, "nat") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("ovn.nat.list", body);
-            else if (g_strcmp0(method, "POST") == 0)
+            if (g_strcmp0(method, "GET") == 0) {
+
+                JsonObject *p = json_object_new();
+                const gchar *router = query ? g_hash_table_lookup(query, "router") : NULL;
+                if (router && *router)
+                    json_object_set_string_member(p, "router", router);
+                rpc = _build_rpc("ovn.nat.list", p);
+                json_object_unref(p);
+            } else if (g_strcmp0(method, "POST") == 0)
                 rpc = _build_rpc("ovn.nat.add", body);
         }
     }

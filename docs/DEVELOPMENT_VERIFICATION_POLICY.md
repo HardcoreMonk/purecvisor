@@ -2,7 +2,7 @@
 
 > **대상:** PureCVisor Single Edge
 > **목적:** 기능 개발, 버그 수정, 릴리스 직전 검증을 같은 기준으로 운영하기 위한 공식 규칙
-> **현행화 기준:** 2026-08-14
+> **현행화 기준:** 2026-08-31
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
 ---
@@ -541,6 +541,52 @@ Level 3은 별도 승인된 격리 호스트에서 정상·실패 CHAP login/log
 않은 운영 호스트는 검증 대상으로 사용하지 않으며, 이 live 증거 전에는 관련 spec/ADR을
 `Verified`로 승격하지 않는다.
 
+### 4.23 호스트 네트워크 기준선과 generic OVN 계약 게이트
+
+호스트 네트워크 inventory, `src/api/rest_server.c`의 network/OVN adapter, dispatcher의
+`ovn.*` 등록, OVN manager/handler, CLI·Web UI 도움말 또는 공개 네트워크 가이드를 바꾸면
+Level 1에 다음 검증을 포함한다.
+
+```bash
+make test
+make check-rbac
+bash tests/integration/test_ovn_sdn.sh
+bash tests/integration/test_single_ui_surface.sh
+```
+
+정적·격리 검증은 다음 계약을 함께 확인한다.
+
+- `GET /api/v1/networks/host-baseline`과 Web UI `호스트 네트워크 기준선`이 관리
+  interface/IP, IPv4 main route·connected CIDR, Linux bridge/port, OVS bridge/port와 현재
+  tenant VPC CIDR을 읽기 전용으로 노출한다.
+- dispatcher에 등록된 generic OVN은 정확히 18개다. 상태 1, switch 4, port 2, ACL 2,
+  router 5, DHCP 1, NAT 2, tenant 1의 합계와 메서드 이름을 동시에 대조한다.
+- logical switch 생성은 L2 리소스만 만들며 subnet 입력을 받지 않는다. DHCP는
+  `ovn.dhcp.enable`로 분리하고 switch ownership marker를 기록한다.
+- switch 삭제는 같은 ownership marker의 DHCP option을 한 transaction에서 정리하고,
+  다른 switch와 foreign 행을 보존한다. 모호한 조회·비정상 UUID·안전 상한 초과는 실제
+  mutation 전에 거부한다.
+- 인증 REST `GET /api/v1/ovn/acl?switch=...`와
+  `GET /api/v1/ovn/nat?router=...`가 filter를 canonical RPC params에 전달한다. 누락·빈
+  filter는 전체 목록으로 넓히지 않고 canonical `-32602`로 거부한다.
+- 미등록 ACL/NAT/DHCP/tenant 역동작, router port 제거, 미완성 OVN/NFV Load Balancer와
+  production caller가 없는 VM 자동 포트 helper를 UI·CLI·도움말·가이드에서 사용자
+  기능으로 노출하지 않는다.
+
+Level 3의 capability-gated 검증은 승인된 격리 호스트에서만 다음처럼 실행한다.
+
+```bash
+sudo env PCV_OVN_LIVE=1 bash tests/integration/test_ovn_live.sh
+sudo env PCV_OVN_REST_FILTERS_LIVE=1 bash tests/integration/test_ovn_rest_filters_live.sh
+sudo env PCV_OVN_DHCP_CLEANUP_LIVE=1 bash tests/integration/test_ovn_switch_dhcp_cleanup_live.sh
+```
+
+실환경 결과는 C0 기준선, C1 switch/port/DHCP, C2 router/L3/NAT, C3 ACL/tenant/filter,
+C4 ownership cleanup 순서로 기록한다. 정상 경로의 emergency cleanup과 종료 residue가
+0이어야 한다. NAT용 external gateway port fixture는 멀티 노드 gateway scheduling의
+제품 근거로 사용하지 않는다. 이 generic OVN 결과는 Local VPC OVN backend의 부팅 KVM,
+Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신하지 않는다.
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증
@@ -615,6 +661,9 @@ Level 3은 별도 승인된 격리 호스트에서 정상·실패 CHAP login/log
     대조한다. 부팅 KVM DHCP·L2/L3, Linux/OVN 공존, daemon/controller/host restart와 단계별
     fault injection이 없으면 `Implemented` 이상으로 올릴 수 있어도 공개 지원이나
     `Verified`로 판정하지 않는다.
+12. generic OVN 또는 네트워크 inventory 변경 시 host baseline을 먼저 기록하고 C0~C4에서
+    `NET-OVN-01~07`, 등록 RPC 18개, DHCP ownership cleanup, REST ACL/NAT filter,
+    canonical `-32602`와 최종 residue 0을 대조한다.
 
 ### 6.4 완료 기준
 
@@ -661,6 +710,7 @@ Level 3은 별도 승인된 격리 호스트에서 정상·실패 CHAP login/log
 | Single Edge UI/API capability 수정 | 필수 | 필수 | 불필요 | 릴리스 시 포함 |
 | VM lifecycle / storage / network / backup / auth 변경 | 필수 | 필수 | 조건부 | 필수 |
 | Local VPC backend/schema/OVN ownership 변경 | C model/store/policy/adapter + CLI 17 action + UI/backend capability + RBAC·audit 필수 | schema migration·reconcile 필수 | OVN 제품 packet·ownership·cleanup 필수, `Verified`는 부팅 KVM·공존·controller/host reboot·fault injection까지 | 필수 |
+| host baseline / generic OVN RPC·DHCP·REST filter 변경 | 정확한 18 RPC inventory + `test_ovn_sdn.sh` + UI/RBAC 경계 필수 | host baseline·canonical 오류·소유 cleanup 필수 | C0~C4 `NET-OVN-01~07`, packet·filter·residue 0 필수 | 필수 |
 | physical `bridge/dedicated`·`bridge/shared` controller/BPF/VM NIC 변경 | `make bpf test_runner` + shared packet-path + 관련 반사실 C/UI 게이트 필수 | reconcile·inventory 필수 | host 불변 비교·upstream DHCP 필수, `Verified`는 실제 KVM VM·reboot까지 | 필수 |
 | 서비스 기능 시나리오 변경/누락 보강 | 필수 | 조건부 | 조건부 | 릴리스 시 포함 |
 | `vm.clone` / clone plan / libvirt XML patch 변경 | `/vm_clone_plan` + `make test` + audit placement + cleanup guard 필수 | 필수 | 실제 zvol 원본 기준 clone 1회 필수. 모든 성공 clone의 source VM shutoff 확인 필수. qcow2/raw/guest reset 변경 시 Ubuntu 24.04 non-LVM qcow2/raw와 Ubuntu 24.04 LVM qcow2/raw/ZFS zvol full clone 검증 필수. Rocky/RHEL/SELinux enforcing은 문서상 후속 항목으로 유지 | 필수 |
@@ -669,6 +719,7 @@ Level 3은 별도 승인된 격리 호스트에서 정상·실패 CHAP login/log
 | 배포 스크립트 / systemd / 서비스명 변경 | 필수 | 필수 | 필수 | 릴리스 시 포함 |
 | 공개 릴리스 경계 변경 | 필수 | 조건부 | 조건부 | 필수 |
 | 문서만 변경 | `git diff --check` 필수 | 불필요 | 불필요 | 릴리스 시 포함 |
+| 공개 Pages 문서·navigation·계약 변경 | `cd site && npm run check` 필수 | 불필요 | Pages 배포 시 live route 확인 | 릴리스 시 포함 |
 
 ---
 

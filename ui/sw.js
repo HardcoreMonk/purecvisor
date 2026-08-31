@@ -40,7 +40,7 @@
                                                         
    
 
-const CACHE_NAME="pcv-ui-ve1cc3853";
+const CACHE_NAME="pcv-ui-vf4b3dfc0";
 const OFFLINE_URL = '/ui/offline.html';
 
                               

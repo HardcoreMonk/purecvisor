@@ -93,8 +93,8 @@ done
 BASE_DEFAULT_ROUTE="$(ip route show default)"
 log "PASS 1 — service, DB, controller, br-int와 이름 충돌 preflight"
 
-"$PCVCTL" --format=json ovn switch create "$LSA" --subnet 10.252.10.0/24
-"$PCVCTL" --format=json ovn switch create "$LSB" --subnet 10.252.20.0/24
+"$PCVCTL" --format=json ovn switch create "$LSA"
+"$PCVCTL" --format=json ovn switch create "$LSB"
 "$PCVCTL" --format=json ovn router create "$LR"
 "$PCVCTL" --format=json ovn dhcp enable 10.252.10.0/24 10.252.10.1 --switch "$LSA"
 "$PCVCTL" --format=json ovn dhcp enable 10.252.20.0/24 10.252.20.1 --switch "$LSB"

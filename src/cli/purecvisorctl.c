@@ -2151,6 +2151,7 @@ void cmd_container_snapshot(int argc, char *argv[]) {
                      
                                                                                 
   
+
                                                        
    
 void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
@@ -2183,7 +2184,7 @@ void cmd_ovn_switch(int argc, char *argv[]) {
     if (argc < 3) {
         printf("%sUsage:\n"
                "  pcvctl ovn switch list\n"
-               "  pcvctl ovn switch create <name> [--subnet X]\n"
+               "  pcvctl ovn switch create <name>\n"
                "  pcvctl ovn switch delete <name>%s\n",
             cc(CYBER_YELLOW), cc(CYBER_RESET));
         return;
@@ -2237,14 +2238,11 @@ void cmd_ovn_switch(int argc, char *argv[]) {
         g_object_unref(parser); g_free(resp);
 
     } else if (g_strcmp0(action, "create") == 0) {
-        if (argc < 4) { printf("%sUsage: pcvctl ovn switch create <name> [--subnet X]%s\n",
+        if (argc != 4) { printf("%sUsage: pcvctl ovn switch create <name>\n"
+            "DHCP subnet: pcvctl ovn dhcp enable <subnet> <gateway> --switch <name>%s\n",
             cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
         JsonObject *params = json_object_new();
         json_object_set_string_member(params, "name", argv[3]);
-        for (int i = 4; i < argc; i++) {
-            if (g_strcmp0(argv[i], "--subnet") == 0 && i+1 < argc)
-                json_object_set_string_member(params, "subnet", argv[++i]);
-        }
         GError *error = NULL;
         gchar *resp = purectl_send_request("ovn.switch.create", params, &error);
         if (error) {

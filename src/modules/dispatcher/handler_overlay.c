@@ -87,6 +87,8 @@
                                                                                          
                                                                             
                                                                            
+
+
                                                                      
                                                                                
    
@@ -557,11 +559,19 @@ _reject_local_vpc_owned_ovn(const gchar *table,
     gboolean owned = pcv_ovn_resource_is_local_vpc_owned(table, name, &error);
     if (!owned && !error)
         return FALSE;
+    const gboolean invalid_params = error &&
+        g_error_matches(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
     const gchar *message = owned
         ? "Local VPC가 소유한 OVN resource는 generic ovn.* API로 변경할 수 없습니다"
         : error->message;
+
+
+
     gchar *response = pure_rpc_build_error_response(
-        rpc_id, owned ? PURE_RPC_ERR_CONFLICT : PURE_RPC_ERR_INTERNAL_ERROR, message);
+        rpc_id, owned ? PURE_RPC_ERR_CONFLICT
+                      : invalid_params ? PURE_RPC_ERR_INVALID_PARAMS
+                                       : PURE_RPC_ERR_INTERNAL_ERROR,
+        message);
     pure_uds_server_send_response(server, connection, response);
     g_free(response);
     return TRUE;
@@ -589,11 +599,11 @@ _reject_local_vpc_owned_ovn(const gchar *table,
    
 void handle_ovn_switch_create(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *name = json_object_has_member(p,"name") ? json_object_get_string_member(p,"name") : NULL;
-    const gchar *subnet = json_object_has_member(p,"subnet") ? json_object_get_string_member(p,"subnet") : NULL;
     if (!name) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: name"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
+    if (json_object_has_member(p,"subnet")) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"subnet is not a switch property; use ovn.dhcp.enable"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
     if (_reject_local_vpc_owned_ovn("Logical_Switch", name, id, s, c)) return;
-    GError *e=NULL; pcv_ovn_switch_create(name,subnet,&e);
-    if (e) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_ZFS_OPERATION,e->message); pure_uds_server_send_response(s,c,r); g_free(r); g_error_free(e); return; }
+    GError *e=NULL;
+    if (!pcv_ovn_switch_create(name,&e)) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_ZFS_OPERATION,e ? e->message : "Failed to create OVN logical switch"); pure_uds_server_send_response(s,c,r); g_free(r); if (e) g_error_free(e); return; }
     JsonObject *res=json_object_new(); json_object_set_string_member(res,"status","created");
     JsonNode *n=json_node_new(JSON_NODE_OBJECT); json_node_take_object(n,res);
     gchar *r=pure_rpc_build_success_response(id,n); pure_uds_server_send_response(s,c,r); g_free(r);
@@ -607,8 +617,10 @@ void handle_ovn_switch_create(JsonObject *p, const gchar *id, UdsServer *s, GSoc
    
 void handle_ovn_switch_delete(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *name = json_object_has_member(p,"name") ? json_object_get_string_member(p,"name") : NULL;
+    if (!name) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: name"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
     if (_reject_local_vpc_owned_ovn("Logical_Switch", name, id, s, c)) return;
-    if (name) pcv_ovn_switch_delete(name,NULL);                  
+    GError *e=NULL;
+    if (!pcv_ovn_switch_delete(name,&e)) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_ZFS_OPERATION,e ? e->message : "Failed to delete OVN logical switch"); pure_uds_server_send_response(s,c,r); g_free(r); if (e) g_error_free(e); return; }
     JsonObject *res=json_object_new(); json_object_set_string_member(res,"status","deleted");
     JsonNode *n=json_node_new(JSON_NODE_OBJECT); json_node_take_object(n,res);
     gchar *r=pure_rpc_build_success_response(id,n); pure_uds_server_send_response(s,c,r); g_free(r);
@@ -696,6 +708,7 @@ void handle_ovn_acl_add(JsonObject *p, const gchar *id, UdsServer *s, GSocketCon
                                                         
 void handle_ovn_acl_list(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *sw=json_object_has_member(p,"switch")?json_object_get_string_member(p,"switch"):NULL;
+    if (!sw) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: switch"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
     JsonArray *a=pcv_ovn_acl_list(sw); JsonNode *n=json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(n,a); gchar *r=pure_rpc_build_success_response(id,n);
     pure_uds_server_send_response(s,c,r); g_free(r);

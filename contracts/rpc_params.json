@@ -14,7 +14,7 @@
   "network.qos.get":        { "required": ["interface"], "optional": [] },
   "network.qos.remove":     { "required": ["interface"], "optional": ["direction"] },
   "ovn.acl.add":            { "required": ["switch", "match"], "optional": ["direction", "priority", "action"] },
-  "ovn.acl.list":           { "required": [], "optional": ["switch"] },
+  "ovn.acl.list":           { "required": ["switch"], "optional": [] },
   "ovn.dhcp.enable":        { "required": ["subnet", "gateway"], "optional": ["switch"] },
   "vm.security_group.set":  { "required": ["vm", "security_group"], "optional": [] },
   "container.set_bandwidth":{ "required": ["name"], "optional": ["nic_name", "inbound_kbps", "outbound_kbps"] },

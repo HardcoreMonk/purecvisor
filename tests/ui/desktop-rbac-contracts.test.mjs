@@ -158,7 +158,6 @@ const SURFACE_CASES = [
       '/api/v1/ovn/routers': { body: { data: [{ name: 'rt-rbac' }] } }
     },
     probes: [
-      { selector: 'button[onclick^="nfvLbCreate"]', method: 'nfv.lb.create', minRole: 2, count: 1 },
       { selector: 'button[onclick^="nfvFwAdd"]', method: 'ovn.acl.add', minRole: 2, count: 1 }
     ],
     readSelector: '#cb .pagehead'
@@ -223,7 +222,6 @@ test('representative UI mutations remain anchored to explicit backend policy', (
     'template.create': 2,
     'template.delete': 2,
     'vm.create': 1,
-    'nfv.lb.create': 2,
     'ovn.acl.add': 2,
     'vm.import.ec2': 1,
     'vm.export.ec2': 1,
@@ -257,43 +255,6 @@ test('representative UI mutations remain anchored to explicit backend policy', (
                        
                                                
                                  
-test('NFV load-balancer UI sends the canonical dispatcher payload', async () => {
-  await withPage(NETWORK_MODULES, async (page, { requests }) => {
-    await seedProductGlobals(page, 'ovn');
-    await page.evaluate(() => {
-      const addInput = (id, value) => {
-        const input = document.createElement('input');
-        input.id = id;
-        input.value = value;
-        document.body.appendChild(input);
-      };
-      addInput('lb-n', 'edge-lb');
-      addInput('lb-vip', '10.0.0.100');
-      addInput('lb-port', '8443');
-      addInput('lb-bk', '10.0.0.11:8080, 10.0.0.12:8080');
-    });
-
-    await page.evaluate(() => window.nfvLbCreate());
-    const calls = requests.filter(request => request.path === '/api/v1/rpc');
-    assert.equal(calls.length, 1);
-    assert.deepEqual(calls[0].json, {
-      jsonrpc: '2.0',
-      method: 'nfv.lb.create',
-      params: {
-        name: 'edge-lb',
-        vip: '10.0.0.100',
-        port: 8443,
-        backends: ['10.0.0.11:8080', '10.0.0.12:8080']
-      },
-      id: 'nlb1'
-    });
-  }, {
-    routes: {
-      '/api/v1/rpc': { body: { result: true } }
-    }
-  });
-});
-
 for (const surface of SURFACE_CASES) {
   test(`${surface.name} mutations follow backend VIEWER/OPERATOR/ADMIN visibility`, async () => {
     await withPage(surface.modules, async page => {

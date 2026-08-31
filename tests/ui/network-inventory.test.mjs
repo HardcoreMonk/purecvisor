@@ -20,19 +20,62 @@ const MODS = [
                                                   
                                                                          
 const NETWORKS = [
-  { name: 'pcvnat0', mode: 'nat', state: 'up', ip_cidr: '10.78.0.1/24', dhcp: true, subnet: '10.78.0.0/24' },
-  { name: 'br-lan', mode: 'bridge', state: 'up', phys: 'enp5s0', uplink_mode: 'dedicated', ip_cidr: '', dhcp: false, subnet: '' },
-  { name: 'iso-lab', mode: 'isolated', state: 'down', ip_cidr: '', dhcp: false, subnet: '' },
-  { name: 'rt-edge', mode: 'routed', state: 'up', ip_cidr: '10.9.0.1/24', dhcp: false, subnet: '10.9.0.0/24' }
+  { name: 'pcvnat0', mode: 'nat', state: 'up', ip_cidr: '10.78.0.1/24', dhcp: true, subnet: '10.78.0.0/24', slaves: ['vnet0'], managed_by: 'network' },
+  { name: 'br-lan', mode: 'bridge', state: 'up', phys: 'enp5s0', uplink_mode: 'dedicated', ip_cidr: '', dhcp: false, subnet: '', slaves: ['enp5s0'], managed_by: 'network' },
+  { name: 'iso-lab', mode: 'isolated', state: 'down', ip_cidr: '', dhcp: false, subnet: '', slaves: [], managed_by: 'network' },
+  { name: 'rt-edge', mode: 'routed', state: 'up', ip_cidr: '10.9.0.1/24', dhcp: false, subnet: '10.9.0.0/24', slaves: [], managed_by: 'vpc', read_only: true }
 ];
 
-const ROUTES = { '/api/v1/networks': { status: 200, body: { data: NETWORKS } } };
+const HOST_BASELINE = {
+  schema_version: 1,
+  collected_at_unix_ms: 1788084000000,
+  partial: false,
+  warnings: [],
+  management: {
+    available: true, interface: 'eno1', ipv4_cidr: '192.0.2.53/24',
+    gateway: '192.0.2.1', source: '192.0.2.53', metric: 101
+  },
+  interfaces: [
+    { name: 'eno1', type: 'ethernet', physical: true, state: 'up', carrier: true, mac: '02:00:00:00:00:01', mtu: 1500, master: null, ipv4: ['192.0.2.53/24'] },
+    { name: 'br-int', type: 'openvswitch', physical: false, state: 'down', carrier: false, mac: '02:00:00:00:00:02', mtu: 1500, master: null, ipv4: [] },
+    { name: 'pcvnat0', type: 'bridge', physical: false, state: 'down', carrier: false, mac: '02:00:00:00:78:01', mtu: 1500, master: null, ipv4: ['10.78.0.1/24'] },
+    { name: 'vnet0', type: 'tun', physical: false, state: 'unknown', carrier: true, mac: 'fe:54:00:00:00:10', mtu: 1500, master: 'pcvnat0', ipv4: [] }
+  ],
+  routes: [
+    { destination: 'default', gateway: '192.0.2.1', device: 'eno1', source: '192.0.2.53', metric: 101, protocol: 'dhcp', scope: null, link_down: false },
+    { destination: '10.78.0.0/24', gateway: null, device: 'pcvnat0', source: '10.78.0.1', metric: 0, protocol: 'kernel', scope: 'link', link_down: true },
+    { destination: '192.0.2.0/24', gateway: null, device: 'eno1', source: '192.0.2.53', metric: 101, protocol: 'kernel', scope: 'link', link_down: false }
+  ],
+  connected_cidrs: ['10.78.0.0/24', '192.0.2.0/24'],
+  ovs: { available: true, partial: false, bridges: [{ name: 'br-int', ports: ['br-int', 'ovn-edge0'], ports_complete: true }] }
+};
+
+const VPC_STATUS = {
+  healthy: true,
+  reconcile_required: false,
+  vpc_count: 2,
+  subnet_count: 2,
+  subnet_cidrs: [
+    { vpc_id: '11111111-1111-4111-8111-111111111111', vpc_name: 'linux-prod', backend: 'linux', cidr: '10.60.10.0/24', state: 'ACTIVE' },
+    { vpc_id: '22222222-2222-4222-8222-222222222222', vpc_name: 'ovn-lab', backend: 'ovn', cidr: '10.61.20.0/24', state: 'ACTIVE' }
+  ],
+  backends: [
+    { id: 'linux', ready: true, current_vpcs: 1, allocatable_vpcs: 127, reason: '' },
+    { id: 'ovn', ready: true, current_vpcs: 1, allocatable_vpcs: 127, reason: '' }
+  ]
+};
+
+const ROUTES = {
+  '/api/v1/networks': { status: 200, body: { data: NETWORKS } },
+  '/api/v1/networks/host-baseline': { status: 200, body: { data: HOST_BASELINE } },
+  '/api/v1/vpcs/status': { status: 200, body: { data: VPC_STATUS } }
+};
 
                                                                       
                                                                                          
                                                             
 async function boot(page, opts) {
-  await page.setViewport({ width: 1280, height: 800 });
+  await page.setViewport({ width: opts?.width || 1280, height: opts?.height || 800 });
   await page.evaluate(o => {
     window._DEBUG = true;
     window.authToken = 'test-token';
@@ -103,6 +146,99 @@ async function setInput(page, selector, value) {
     input.dispatchEvent(new Event('input', { bubbles: true }));
   }, value);
 }
+
+test('host baseline precedes bridge filters and exposes management, routes, switching, backends, and VPC CIDRs', async () => {
+  await withPage(MODS, async (page, { requests }) => {
+    await boot(page);
+    const snapshot = await page.evaluate(() => {
+      const baseline = document.querySelector('[data-host-network-baseline]');
+      const filter = document.querySelector('.filterbar');
+      const rowText = key => [...document.querySelectorAll(`[data-host-network-table="${key}"] tbody tr`)]
+        .map(row => row.textContent.replace(/\s+/g, ' ').trim());
+      return {
+        precedesFilter: !!(baseline.compareDocumentPosition(filter) & Node.DOCUMENT_POSITION_FOLLOWING),
+        summary: document.querySelector('[data-host-network-summary]').textContent,
+        interfaces: rowText('interfaces'),
+        routes: rowText('routes'),
+        switches: rowText('switches'),
+        backends: rowText('backends'),
+        cidrs: rowText('vpc-cidrs')
+      };
+    });
+    assert.equal(snapshot.precedesFilter, true);
+    assert.match(snapshot.summary, /eno1/);
+    assert.match(snapshot.summary, /192\.0\.2\.1/);
+    assert.ok(snapshot.interfaces.some(row => /eno1.*ETHERNET · HW.*192\.0\.2\.53\/24.*02:00:00:00:00:01.*1500/i.test(row)));
+    assert.ok(snapshot.interfaces.some(row => /vnet0.*pcvnat0/i.test(row)));
+    assert.ok(snapshot.routes.some(row => /default.*192\.0\.2\.1.*eno1.*101.*USABLE/i.test(row)));
+    assert.ok(snapshot.routes.some(row => /10\.78\.0\.0\/24.*LINK DOWN/i.test(row)));
+    assert.ok(snapshot.switches.some(row => /LINUX BRIDGE.*pcvnat0.*vnet0.*기본 가상 네트워크|LINUX BRIDGE.*pcvnat0.*vnet0.*Default virtual network/i.test(row)));
+    assert.ok(snapshot.switches.some(row => /OPEN VSWITCH.*br-int.*ovn-edge0.*OVN INTEGRATION/i.test(row)));
+    assert.ok(snapshot.backends.some(row => /OVN.*READY.*1.*127/i.test(row)));
+    assert.ok(snapshot.cidrs.some(row => /ovn-lab.*OVN.*10\.61\.20\.0\/24.*ACTIVE/i.test(row)));
+    assert.equal(requests.filter(request => request.path === '/api/v1/networks').length, 1);
+    assert.equal(requests.filter(request => request.path === '/api/v1/networks/host-baseline').length, 1);
+    assert.equal(requests.filter(request => request.path === '/api/v1/vpcs/status').length, 1);
+  }, { routes: ROUTES });
+});
+
+test('optional baseline failure stays explicit without erasing the bridge inventory', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    const state = await page.evaluate(() => ({
+      panel: document.querySelector('[data-host-network-baseline]').textContent,
+      alertRole: document.querySelector('[data-host-network-baseline] [role="alert"]')?.getAttribute('role'),
+      retry: !!document.querySelector('[data-host-network-retry]'),
+      bridgeRows: document.querySelectorAll('#net-inv table.table-sticky tbody tr').length,
+      hostEmpty: document.querySelector('[data-host-network-empty="interfaces"]')?.textContent
+    }));
+    assert.match(state.panel, /Unavailable|조회 불가/i);
+    assert.equal(state.alertRole, 'alert');
+    assert.equal(state.retry, true);
+    assert.equal(state.bridgeRows, 4);
+    assert.match(state.hostEmpty, /unavailable|조회 불가/i);
+  }, { routes: {
+    '/api/v1/networks': { status: 200, body: { data: NETWORKS } },
+    '/api/v1/networks/host-baseline': { status: 503, body: { error: { message: 'ip inventory unavailable' } } },
+    '/api/v1/vpcs/status': { status: 200, body: { data: VPC_STATUS } }
+  } });
+});
+
+test('baseline and firewall state survive a bridge filter rerender without refetch', async () => {
+  await withPage(MODS, async (page, { requests }) => {
+    await boot(page);
+    await page.evaluate(() => {
+      document.querySelector('[data-host-network-baseline]').setAttribute('data-sentinel', 'baseline');
+      document.getElementById('fw-port').value = '8443';
+    });
+    await page.click('#cb .chip[data-facet="netstate"][data-val="up"]');
+    assert.equal(await page.$eval('[data-host-network-baseline]', panel => panel.getAttribute('data-sentinel')), null);
+    assert.match(await page.$eval('[data-host-network-summary]', panel => panel.textContent), /eno1/);
+    assert.equal(await page.$eval('#fw-port', input => input.value), '8443');
+    assert.equal(requests.filter(request => request.path === '/api/v1/networks').length, 1);
+    assert.equal(requests.filter(request => request.path === '/api/v1/networks/host-baseline').length, 1);
+    assert.equal(requests.filter(request => request.path === '/api/v1/vpcs/status').length, 1);
+  }, { routes: ROUTES });
+});
+
+test('480px baseline keeps overflow inside its table wrappers', async () => {
+  await withPage(MODS, async page => {
+    await boot(page, { width: 480, height: 900 });
+    const layout = await page.evaluate(() => ({
+      documentOverflow: document.documentElement.scrollWidth - document.documentElement.clientWidth,
+      rootOverflow: document.getElementById('cb').scrollWidth - document.getElementById('cb').clientWidth,
+      wrapperCount: document.querySelectorAll('[data-host-network-table]').length,
+      wrappersBounded: [...document.querySelectorAll('[data-host-network-table]')].every(wrapper =>
+        wrapper.getBoundingClientRect().right <= document.getElementById('cb').getBoundingClientRect().right + 1),
+      summaryColumns: getComputedStyle(document.querySelector('[data-host-network-summary]')).gridTemplateColumns
+    }));
+    assert.ok(layout.documentOverflow <= 1, JSON.stringify(layout));
+    assert.ok(layout.rootOverflow <= 1, JSON.stringify(layout));
+    assert.ok(layout.wrapperCount >= 5);
+    assert.equal(layout.wrappersBounded, true);
+    assert.ok(layout.summaryColumns.split(' ').length <= 1);
+  }, { routes: ROUTES });
+});
 
 test('bridge create hides CIDR, does not suggest the management NIC, and requires acknowledgement', async () => {
   await withPage(MODS, async (page, { requests }) => {
@@ -615,7 +751,7 @@ test('chip toggle retains focus on the equivalent rerendered chip', async () => 
 test('cold deep-link: pre-read URL query filters initial render and survives first chip apply', async () => {
   await withPage(MODS, async page => {
     await boot(page, { search: '?netmode=nat' });
-    let rows = await page.$$eval('#net-inv tbody tr td b', bs => bs.map(b => b.textContent));
+    let rows = await page.$$eval('#net-inv table.table-sticky tbody tr td b', bs => bs.map(b => b.textContent));
     assert.deepEqual(rows, ['pcvnat0']);
     assert.equal(await page.$eval('#net-inv .chip[data-facet="netmode"][data-val="nat"]',
       el => el.getAttribute('aria-pressed')), 'true');
@@ -652,7 +788,7 @@ test('orphan non-canonical URL value renders a removable chip and clears on clic
     assert.ok(chip, 'orphan chip must render');
     assert.equal(await page.$eval('#net-inv .chip[data-facet="netmode"][data-val="bogus"]',
       el => el.getAttribute('aria-pressed')), 'true');
-    assert.equal(await page.$$eval('#net-inv tbody tr', trs => trs.length), 0);
+    assert.equal(await page.$$eval('#net-inv table.table-sticky tbody tr', trs => trs.length), 0);
                                       
     await page.evaluate(() =>
       document.querySelector('#net-inv .chip[data-facet="netmode"][data-val="bogus"]').click());
@@ -660,6 +796,6 @@ test('orphan non-canonical URL value renders a removable chip and clears on clic
                                                       
     assert.equal(await page.$('#net-inv .chip[data-facet="netmode"][data-val="bogus"]'), null);
     assert.doesNotMatch(await page.evaluate(() => location.search), /netmode/);
-    assert.equal(await page.$$eval('#net-inv tbody tr', trs => trs.length), 4);
+    assert.equal(await page.$$eval('#net-inv table.table-sticky tbody tr', trs => trs.length), 4);
   }, { routes: ROUTES });
 });

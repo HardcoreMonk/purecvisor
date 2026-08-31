@@ -106,6 +106,7 @@ var EP = (function() {
 
                          
     NET_LIST:             function()     { return B() + '/networks'; },
+    NET_HOST_BASELINE:    function()     { return B() + '/networks/host-baseline'; },
     NET_DETAIL:           function(n)    { return B() + '/networks/' + enc(n); },
     NET_MODE:             function(n)    { return B() + '/networks/' + enc(n) + '/mode'; },
     VPC_LIST:             function()     { return B() + '/vpcs'; },

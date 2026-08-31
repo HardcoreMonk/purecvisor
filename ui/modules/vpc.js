@@ -95,11 +95,20 @@ async function _waitJob(jobId) {
     var status = job && job.status;
     if (status === 'completed') return job;
     if (status === 'failed' || status === 'cancelled') {
-      var detail = job.detail || job.result || status;
-      try {
-        var parsed = typeof detail === 'string' ? JSON.parse(detail) : detail;
-        detail = parsed && (parsed.error || parsed.message) || detail;
-      } catch (_) {}
+      var detail = status, candidates = [job.result, job.detail, status];
+      for (var i = 0; i < candidates.length; i++) {
+        var value = candidates[i];
+        if (value === undefined || value === null || value === '') continue;
+        try {
+          var parsed = typeof value === 'string' ? JSON.parse(value) : value;
+          if (parsed && typeof parsed === 'object') {
+            var message = parsed.error || parsed.message;
+            if (message) { detail = String(message); break; }
+            continue;
+          }
+          if (String(parsed).trim()) { detail = String(parsed); break; }
+        } catch (_) { detail = String(value); break; }
+      }
       throw new Error(String(detail));
     }
     await new Promise(function (resolve) { setTimeout(resolve, 100); });

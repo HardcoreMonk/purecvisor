@@ -11,6 +11,7 @@ import sys
 from pathlib import Path
 
 SCRIPTS = Path(__file__).resolve().parent.parent
+ROOT = SCRIPTS.parent
 sys.path.insert(0, str(SCRIPTS))
 from rpc_extract import (REST_RE, FE_HELP_RE, extract_rest_methods,
                           extract_fe_helper, extract_grpc_methods, strip_comments)
@@ -90,6 +91,49 @@ def test_local_vpc_dedicated_rest_routes_are_preserved():
     assert expected <= routes
 
 
+def test_host_network_baseline_route_precedes_dynamic_bridge_routes():
+
+    routes = {(method, path, rpc) for method, path, rpc, _line in extract_rest_routes()}
+    assert ("GET", "/networks/host-baseline", "network.host.info") in routes
+    assert ("GET", "/networks/{name}", "network.info") in routes
+    assert ("POST", "/networks/{name}/mode", "network.mode_set") in routes
+    assert not any(path.startswith("/networks/host-baseline/") for _, path, _ in routes)
+
+
+def _assert_ovn_get_query_mapping(source: str, resource: str, key: str, method: str) -> None:
+
+    start = source.index(f'g_strcmp0(name, "{resource}") == 0')
+    end = source.find('} else if (g_strcmp0(name,', start + 1)
+    section = source[start:end if end >= 0 else len(source)]
+    lookup = section.index(f'g_hash_table_lookup(query, "{key}")')
+    set_member = section.index(f'json_object_set_string_member(p, "{key}"')
+    build = section.index(f'_build_rpc("{method}", p)')
+    assert lookup < set_member < build
+
+
+def test_ovn_rest_get_queries_reach_canonical_rpc_params():
+
+    source = (ROOT / "src/api/rest_server.c").read_text()
+    _assert_ovn_get_query_mapping(source, "acl", "switch", "ovn.acl.list")
+    _assert_ovn_get_query_mapping(source, "nat", "router", "ovn.nat.list")
+
+
+def test_ovn_rest_query_mapping_counterfactual_rejects_wrong_key():
+
+    source = '''
+      if (g_strcmp0(name, "acl") == 0) {
+        const gchar *wrong = g_hash_table_lookup(query, "wrong");
+        json_object_set_string_member(p, "wrong", wrong);
+        rpc = _build_rpc("ovn.acl.list", p);
+      } else if (g_strcmp0(name, "next") == 0) {}
+    '''
+    try:
+        _assert_ovn_get_query_mapping(source, "acl", "switch", "ovn.acl.list")
+    except (AssertionError, ValueError):
+        return
+    raise AssertionError("wrong OVN query key must fail the mapping contract")
+
+
 if __name__ == "__main__":
     test_rest_build_rpc_extraction()
     test_fe_helper_extraction()
@@ -97,4 +141,7 @@ if __name__ == "__main__":
     test_grpc_only_registered()
     test_suricata_literal_name_and_action_routes_are_preserved()
     test_local_vpc_dedicated_rest_routes_are_preserved()
+    test_host_network_baseline_route_precedes_dynamic_bridge_routes()
+    test_ovn_rest_get_queries_reach_canonical_rpc_params()
+    test_ovn_rest_query_mapping_counterfactual_rejects_wrong_key()
     print("OK")

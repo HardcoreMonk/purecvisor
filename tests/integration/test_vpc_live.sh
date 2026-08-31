@@ -617,6 +617,31 @@ grep -Fq "dhcp-host=$ATTACHMENT_A_MAC,$ATTACHMENT_A_IP,infinite" \
     || die "VM A static DHCP lease가 없다"
 pass "attachment DB, inactive libvirt NIC/metadata, dnsmasq static lease 일치"
 
+
+
+
+SUBNET_GUARD_BEFORE="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.get\",\"params\":{\"tenant\":\"$TENANT\",\"vpc_id\":\"$VPC_A_ID\"},\"id\":\"subnet-guard-before\"}")"
+SUBNET_GUARD_REVISION="$(field "$SUBNET_GUARD_BEFORE" result.revision)"
+SUBNET_GUARD="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.delete\",\"params\":{\"tenant\":\"$TENANT\",\"subnet_id\":\"$SUBNET_A1_ID\"},\"id\":\"subnet-child-guard\"}")"
+SUBNET_GUARD_JOB="$(wait_job "$(field "$SUBNET_GUARD" result.job_id)" 2>&1 || true)"
+[[ "$SUBNET_GUARD_JOB" == *'"status":"failed"'* &&
+   "$SUBNET_GUARD_JOB" == *'attachment가 있는 subnet은 삭제할 수 없습니다'* ]] \
+    || die "attachment 보유 subnet 삭제가 정확한 실패 Job으로 끝나지 않았다: $SUBNET_GUARD_JOB"
+SUBNET_GUARD_AFTER="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.get\",\"params\":{\"tenant\":\"$TENANT\",\"vpc_id\":\"$VPC_A_ID\"},\"id\":\"subnet-guard-after\"}")"
+SUBNET_GUARD_STATE="$(printf '%s' "$SUBNET_GUARD_AFTER" | python3 -c '
+import json, sys
+data = json.load(sys.stdin)["result"]
+print(next(item["state"] for item in data["subnets"] if item["id"] == sys.argv[1]))
+' "$SUBNET_A1_ID")"
+[[ "$SUBNET_GUARD_STATE" == "ACTIVE" ]] \
+    || die "거부된 subnet 삭제가 desired state를 바꿨다: $SUBNET_GUARD_STATE"
+assert_field "$SUBNET_GUARD_AFTER" result.revision "$SUBNET_GUARD_REVISION" \
+    "거부된 subnet 삭제 뒤 revision"
+ip link show "$BRIDGE_A1" >/dev/null || die "거부된 subnet 삭제 뒤 bridge가 사라졌다"
+pgrep -a -x dnsmasq | grep -Fq "dnsmasq-$BRIDGE_A1.conf" \
+    || die "거부된 subnet 삭제 뒤 dnsmasq가 사라졌다"
+pass "attachment 보유 subnet 삭제는 state/revision/bridge/DHCP 무변경으로 거부"
+
 virsh start "$VM_A" >/dev/null
 VM_A_RUNNING=1
 virsh start "$VM_B" >/dev/null

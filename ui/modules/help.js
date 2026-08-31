@@ -183,6 +183,7 @@ function renderHelp(b) {
       ['network.create', 2, 'network create', 'networks', '관리형 네트워크/전용 L2 브릿지 생성', 'Create managed network/dedicated L2 bridge'],
       ['network.delete', 2, 'network delete', 'networks', '브릿지 삭제', 'Delete bridge'],
       ['network.list', 0, 'network list', 'networks', '브릿지 목록', 'List bridges'],
+      ['network.host.info', 0, '-', 'networks', '호스트 interface·route·OVS 읽기 기준선', 'Read host interface, route, and OVS baseline'],
       ['network.info', 0, '-', 'networks', '브릿지 상세/정보', 'Bridge detail/info'],
       ['network.mode_set', 2, 'network mode', 'networks', '비물리 브릿지 모드 변경', 'Change non-physical bridge mode'],
       ['network.bind_phys', 2, 'network bind', 'networks', '사용 중단 — network create --mode bridge 사용', 'Disabled — use network create --mode bridge'],
@@ -466,7 +467,6 @@ function renderHelp(b) {
       ['quota.get', 0, '-', '-', '리소스 쿼터 사용량 조회', 'Get resource quota usage'],
       ['prometheus.sd', 0, 'prometheus sd', '-', 'Prometheus HTTP 서비스 디스커버리 타겟', 'Prometheus HTTP service-discovery targets'],
       ['pool.conninfo', 0, '-', '-', 'libvirt 커넥션 풀 상태 (idle/total/max)', 'libvirt connection-pool status (idle/total/max)'],
-      ['nfv.lb.create', 2, '-', '-', 'NFV 로드밸런서 생성 (VIP→백엔드)', 'Create NFV load-balancer (VIP to backends)'],
       ['iso.list', 0, 'iso list', 'console', '사용 가능 ISO 이미지 목록', 'List available ISO images'],
       ['health.deep', 0, '-', '-', '심층 헬스 (ZFS 풀 + nftables 규칙)', 'Deep health (ZFS pool + nftables rules)'],
       ['db.migration.status', 0, '-', '-', '내부 DB 스키마 버전/위치', 'Internal DB schema version/location'],
@@ -733,9 +733,9 @@ function renderSwaggerApi(b) {
       { m: 'POST', p: '/ovn/switches', d: _L('논리 스위치 생성', 'Create switch'), body: '{"name":"ls0"}' },
       { m: 'GET', p: '/ovn/routers', d: _L('논리 라우터 목록', 'Logical router list') },
       { m: 'POST', p: '/ovn/routers', d: _L('논리 라우터 생성', 'Create router'), body: '{"name":"lr0"}' },
-      { m: 'GET', p: '/ovn/acl', d: _L('ACL 목록', 'ACL list'), body: '{"switch":"ls0"}' },
+      { m: 'GET', p: '/ovn/acl?switch=ls0', d: _L('스위치별 ACL 목록', 'ACL list for a switch') },
       { m: 'POST', p: '/ovn/acl', d: _L('ACL 추가', 'Add ACL'), body: '{"switch":"ls0","match":"..","action":"drop"}' },
-      { m: 'GET', p: '/ovn/nat', d: _L('NAT 목록', 'NAT list'), body: '{"router":"lr0"}' },
+      { m: 'GET', p: '/ovn/nat?router=lr0', d: _L('라우터별 NAT 목록', 'NAT list for a router') },
       { m: 'POST', p: '/ovn/nat', d: _L('NAT 추가', 'Add NAT'), body: '{"router":"lr0","type":"snat"}' },
     ]},
                                           
@@ -908,9 +908,6 @@ function renderSwaggerApi(b) {
       { m: 'GET', p: '/suricata/ips/drop', d: _L('차단 대상 SID 목록', 'List drop-target SIDs') },
       { m: 'POST', p: '/suricata/ips/drop', d: _L('차단 대상 SID 추가', 'Add drop-target SIDs') },
       { m: 'DELETE', p: '/suricata/ips/drop', d: _L('차단 대상 SID 제거', 'Remove drop-target SIDs') },
-    ]},
-    { id: 'nfv', name: _L('NFV 로드밸런서', 'NFV Load Balancer'), rpcOnly: true, endpoints: [
-      rpc('nfv.lb.create', 'NFV 로드밸런서 생성 (VIP→백엔드)', 'Create NFV load-balancer (VIP to backends)'),
     ]},
   ];
 
