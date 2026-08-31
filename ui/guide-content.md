@@ -2559,7 +2559,10 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 ### 6.6 OVN SDN
 
-> **에디션 경계**: OVN 코어(`status`, switch/router/ACL/NAT/DHCP/tenant/vm_port`)는 Single Edge 공개 범위에 포함됩니다. Single Edge는 서비스 기동 시 local OVN controller를 자동 준비해 로컬 SDN 데이터면을 구성하고, encap 설정과 auto-provision 자동화는 공개 범위 밖 멀티 제어면 참고 기능으로 남겨 둡니다.
+> **에디션 경계**: Single Edge의 generic OVN 공개 표면은 등록된 18개 RPC(`status`,
+> switch, port, ACL, router, DHCP, NAT, tenant)입니다. production caller가 없는 VM 자동
+> 포트 helper와 불완전한 OVN/NFV Load Balancer는 사용자 기능이 아닙니다. Single Edge는
+> 서비스 기동 시 local OVN controller를 자동 준비해 로컬 SDN 데이터면을 구성합니다.
 
 OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원합니다.
 
@@ -2854,6 +2857,13 @@ OVS `br-int` 위의 LS/LR/DHCP/LSP/Port Group/ACL을 사용합니다. 두 backen
 경계에서 `nat`와 `isolated`를 제공하고 서로 다른 VPC와 VM→host 관리 서비스 트래픽을
 기본 차단합니다.
 
+Local VPC 작업 전에는 Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저
+확인합니다. `GET /api/v1/networks/host-baseline`은 읽기 전용 RPC
+`network.host.info`에 매핑되어 host interface·route·OVS actual을 반환합니다.
+`GET /api/v1/vpcs/status`의 `subnet_cidrs`는 현재 tenant 범위의 VPC 주소 대역을 반환합니다.
+어느 영역이 `partial` 또는 `unavailable`이면 빈 상태로 간주하지 말고 원인을 해결한 뒤
+생성합니다.
+
 Web UI의 `인프라 > Local VPC`에서 VPC 목록과 controller 상태를 확인하고, 선택한 VPC 아래의
 subnet, VM attachment, 게시 서비스를 한 context에서 관리할 수 있습니다. Local VPC 생성은
 VPC name·tenant·backend·egress와 첫 subnet name·CIDR·MTU를 한 번에 받아 하나의 Job으로
@@ -2865,6 +2875,7 @@ VPC name·tenant·backend·egress와 첫 subnet name·CIDR·MTU를 한 번에 �
 
 | HTTP | 경로 | 기능 |
 |---|---|---|
+| `GET` | `/api/v1/networks/host-baseline` | 읽기 전용 host interface·route·Linux bridge·OVS·VPC 기준선 |
 | `GET`, `POST` | `/api/v1/vpcs` | VPC 목록, 생성 |
 | `GET` | `/api/v1/vpcs/backends` | backend readiness, 현재 수, 주소 기반 capacity |
 | `GET`, `POST` | `/api/v1/vpcs/status`, `/api/v1/vpcs/reconcile` | 상태 조회, 전체 수렴 |

@@ -2,8 +2,12 @@
 
 > 상태: Verified
 > 대상: `https://purecvisor.site/docs.html`
-> 비교 기준: `https://192.168.3.53/ui/docs.html`
+> 비교 기준: 제품 노드의 `/ui/docs.html`(공개본에서는 운영 주소 비식별화)
 > 구현 승인: 2026-08-22 사용자 명시 요청
+>
+> **2026-08-31 successor:** 현재 Pages 정보 구조와 검증은
+> [공개 사이트 현재 상태 리뷰](2026-08-30-public-site-current-state-refresh.md)를 따른다.
+> 이 문서의 당시 제품 노드 별칭은 공개 비노출 정책에 맞춰 비식별화했다.
 
 ## 목표와 사용자 작업
 
@@ -25,7 +29,7 @@ navigation, 중앙 본문과 우측 현재 장 목차를 사용해야 한다.
 
 | 화면 | 파일 | SHA-256 |
 |---|---|---|
-| 제품 `.53` deep link | `product-desktop.png` | `5a8fd5bcca0d8f00024a267db1f8cc5b906b81cfcd5e865a989dbb97f1087825` |
+| 제품 노드 deep link | `product-desktop.png` | `5a8fd5bcca0d8f00024a267db1f8cc5b906b81cfcd5e865a989dbb97f1087825` |
 | 현재 공개 Starlight reader | `public-desktop.png` | `4637d853e5d21c9affbcd3d5234d3b338eb54fdbde00df2e8170c84bdfcc6f6b` |
 | 공개 저장소 제품 shell 로컬 렌더 | `public-repo-ui-docs-desktop.png` | `89da497cf712144d62b41c2dcb850391c8c73b8e42de3dc66965b207f5c491ce` |
 
@@ -39,7 +43,7 @@ navigation, 중앙 본문과 우측 현재 장 목차를 사용해야 한다.
 
 - `DESIGN.md`의 Documentation Portal 계약은 `ui/docs.html`을 3열 reader, 모바일 drawer,
   로컬 검색과 정확한 deep link의 정본으로 정의한다.
-- `.53`에서 내려받은 `ui/docs.html`은 현재 private 작업공간의 같은 파일과 SHA-256
+- 비식별 제품 노드에서 내려받은 `ui/docs.html`은 당시 검증 작업공간의 같은 파일과 SHA-256
   `67962cdef5eb0b1a014838d2ccad7e52e555305fc5d30977dd85261c1932c33e`로 일치한다.
 - 공개 저장소의 `ui/docs.html`도 같은 reader 구조와 token을 가지며 공개 정책 검증을 통과한
   source다. 공개 Pages는 이 source를 최종 artifact로 게시하지 않아 시각 차이가 발생했다.
@@ -69,7 +73,7 @@ navigation, 중앙 본문과 우측 현재 장 목차를 사용해야 한다.
 
 ## 기각 결정
 
-- `.53` 화면을 iframe으로 삽입하거나 public browser가 private 주소를 fetch하지 않는다.
+- 제품 노드 화면을 iframe으로 삽입하거나 public browser가 내부 주소를 fetch하지 않는다.
 - private 작업공간의 `ui/docs.html`과 운영 측정값이 포함된 `guide-content.md`를 그대로
   공개하지 않는다.
 - 제품 문서 shell과 유사한 별도 Starlight theme를 다시 구현하지 않는다. 같은 공개 source를
@@ -85,13 +89,13 @@ navigation, 중앙 본문과 우측 현재 장 목차를 사용해야 한다.
 
 ## 수용 기준
 
-- `/docs.html#1-시작하기`가 제품 `.53`과 같은 3열 reader 구조와 active 장을 표시한다.
+- `/docs.html#1-시작하기`가 당시 제품 노드와 같은 3열 reader 구조와 active 장을 표시한다.
 - 공개 landing의 22개 장 링크가 제품 reader의 실제 heading ID를 가리킨다.
 - 문서 검색, 좌우 목차, 이전·다음 장과 code copy가 동작한다.
 - `390 × 844`에서 좌측 navigation이 drawer로 전환되고 수평 overflow가 없다.
 - 문서 로드 실패 상태에서도 정적 category와 Markdown 원문 복구 경로가 남는다.
 - `/guide.html`은 404이고 artifact와 navigation link가 없다.
-- Pages artifact에 source map, private repository 표식과 내부 `.51`·`.53` 주소가 없다.
+- Pages artifact에 source map, private repository 표식과 내부 노드 주소가 없다.
 - axe 자동 검사, browser console·page error와 failed request가 0이다.
 
 ## 판정

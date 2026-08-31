@@ -3271,7 +3271,8 @@ Security Group이 연결돼 있어야 합니다. 즉 VM에 직접 공인 IP를 �
 > `--no-wait`를 지정하면 접수와 Job ID만 즉시 반환하므로 별도 결과 확인이 필요합니다.
 
 Local VPC 작업 전에는 Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저
-확인합니다. `GET /api/v1/networks/host-baseline`은 host interface·route·OVS actual을,
+확인합니다. `GET /api/v1/networks/host-baseline`은 읽기 전용 RPC
+`network.host.info`에 매핑되어 host interface·route·OVS actual을,
 `GET /api/v1/vpcs/status`의 `subnet_cidrs`는 현재 tenant 범위의 VPC 주소 대역을 반환합니다.
 어느 영역이 `partial` 또는 `unavailable`이면 빈 상태로 간주하지 말고 원인을 해결한 뒤
 생성합니다.

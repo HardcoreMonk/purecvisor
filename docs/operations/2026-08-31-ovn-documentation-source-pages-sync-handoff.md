@@ -14,7 +14,8 @@
 
 - 네트워크 변경 전에 Web UI `호스트 네트워크 기준선` 또는
   `GET /api/v1/networks/host-baseline`으로 관리 interface/IP, IPv4 route·connected CIDR,
-  Linux bridge/port, OVS bridge/port와 tenant VPC CIDR을 확인한다.
+  Linux bridge/port, OVS bridge/port와 tenant VPC CIDR을 확인한다. 이 REST 경로는 읽기
+  전용 RPC `network.host.info`에 매핑된다.
 - dispatcher에 등록된 generic OVN은 정확히 18개 RPC다.
 
 | 영역 | 개수 | RPC |

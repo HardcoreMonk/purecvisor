@@ -988,6 +988,7 @@ if (outputFiles.some((file) => path.relative(distRoot, file) === "guide-content.
 }
 
 for (const marker of [
+  "network.host.info",
   "/api/v1/networks/host-baseline",
   "/api/v1/vpcs/status",
   "subnet_cidrs",
