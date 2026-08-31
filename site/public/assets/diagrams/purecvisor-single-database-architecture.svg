@@ -1,0 +1,167 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040" role="img" aria-labelledby="pcv-db-title pcv-db-desc">
+  <title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>
+  <desc id="pcv-db-desc">클라이언트 요청이 purecvisorsd의 인증과 dispatcher로 들어와 짧은 작업은 즉시 응답하고, 긴 작업만 accepted 응답 뒤 GTask와 Linux KVM 실제 상태를 거쳐 완료 통지로 이어지는 구조다. 요청 종류에 따라 9개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신한다. 파일은 주 책임을 기준으로 정본과 정책, 작업 상태, 증거와 외부 통합의 세 묶음으로 나뉘며 서로 다른 데이터베이스 사이의 원자적 트랜잭션은 없다.</desc>
+  <defs>
+    <marker id="pcv-db-arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#12627a"/>
+    </marker>
+    <marker id="pcv-db-arrow-async" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M 0 0 L 10 5 L 0 10 z" fill="#667085"/>
+    </marker>
+    <style>
+      .canvas{fill:#f8fafc}.boundary{fill:#fff;stroke:#7f8b99;stroke-width:2}.database-boundary{fill:#fffaf5;stroke:#b87543;stroke-width:2}.client{fill:#e7f3ff;stroke:#3a78b8;stroke-width:2}.ingress{fill:#f3edff;stroke:#7650a8;stroke-width:2}.runtime{fill:#e6f7ed;stroke:#27845d;stroke-width:2}.actual{fill:#f0f2f5;stroke:#667085;stroke-width:2}.database{fill:#fff;stroke:#b87543;stroke-width:1.5}.integration{fill:#e5f7f6;stroke:#287f7a;stroke-width:2}.label-pill{fill:#e6f0f3}.label-pill-warm{fill:#fff0df}.title{font:700 30px system-ui,sans-serif;fill:#171c24}.subtitle{font:500 15px system-ui,sans-serif;fill:#5c6675}.eyebrow{font:700 13px system-ui,sans-serif;letter-spacing:1.4px;fill:#12627a}.boundary-title{font:700 16px system-ui,sans-serif;fill:#171c24}.node-title{font:700 17px system-ui,sans-serif;fill:#171c24}.node-copy{font:500 14px system-ui,sans-serif;fill:#5c6675}.node-mono{font:700 15px ui-monospace,SFMono-Regular,Consolas,monospace;fill:#171c24}.node-mono-small{font:700 13px ui-monospace,SFMono-Regular,Consolas,monospace;fill:#171c24}.node-count{font:700 13px ui-monospace,SFMono-Regular,Consolas,monospace;fill:#9a5b13}.lane-title{font:700 14px system-ui,sans-serif;fill:#4d2d17}.lane-copy{font:500 13px system-ui,sans-serif;fill:#7a5637}.flow-label{font:700 14px system-ui,sans-serif;fill:#12627a}.async-label{font:700 14px system-ui,sans-serif;fill:#667085}.flow{fill:none;stroke:#12627a;stroke-width:2.5;marker-end:url(#pcv-db-arrow-flow)}.async{fill:none;stroke:#667085;stroke-width:2.2;stroke-dasharray:8 7;marker-end:url(#pcv-db-arrow-async)}.candidate{fill:none;stroke:#667085;stroke-width:2;stroke-dasharray:3 6}.divider{stroke:#dce1e8;stroke-width:1}.callout{fill:#f7f9fb;stroke:#7f8b99;stroke-width:1}.callout-copy{font:600 13px system-ui,sans-serif;fill:#3f4958}
+    </style>
+  </defs>
+  <rect class="canvas" width="1440" height="1040"/>
+  <text class="eyebrow" x="40" y="42">PURECVISOR 2.0.0 · SINGLE EDGE</text>
+  <text class="title" x="40" y="80">요청, 로컬 정본, 실제 상태를 한 흐름으로 읽기</text>
+  <text class="subtitle" x="40" y="108">9 local SQLite files · 26 permanent tables · no external DBMS · no cross-DB transaction</text>
+
+  <line class="flow" x1="42" y1="137" x2="104" y2="137"/>
+  <text class="flow-label" x="116" y="141">호출 · 읽기/쓰기 · 적용</text>
+  <line class="async" x1="330" y1="137" x2="392" y2="137"/>
+  <text class="async-label" x="404" y="141">비동기 실행 · 완료 통지</text>
+  <rect x="670" y="126" width="24" height="18" rx="3" fill="#fff4e8" stroke="#b87543"/>
+  <text class="async-label" x="706" y="141">로컬 SQLite 경계</text>
+  <line class="candidate" x1="902" y1="137" x2="964" y2="137"/>
+  <text class="async-label" x="976" y="141">선택형 · 후보 actual</text>
+
+  <rect class="boundary" x="40" y="168" width="1360" height="218" rx="12"/>
+  <text class="eyebrow" x="66" y="198">PURECVISORSD · SINGLE PROCESS · GMAINLOOP</text>
+
+  <rect class="client" x="68" y="224" width="190" height="112" rx="8"/>
+  <text class="node-title" x="163" y="258" text-anchor="middle">클라이언트</text>
+  <text class="node-copy" x="163" y="286" text-anchor="middle">Web UI · pcvctl</text>
+  <text class="node-copy" x="163" y="307" text-anchor="middle">REST client</text>
+
+  <rect class="ingress" x="310" y="224" width="222" height="112" rx="8"/>
+  <text class="node-title" x="421" y="258" text-anchor="middle">API 진입 경계</text>
+  <text class="node-copy" x="421" y="286" text-anchor="middle">HTTPS · UDS</text>
+  <text class="node-copy" x="421" y="307" text-anchor="middle">인증 · method policy</text>
+
+  <rect class="runtime" x="584" y="224" width="244" height="112" rx="8"/>
+  <text class="node-title" x="706" y="258" text-anchor="middle">Dispatcher · handler</text>
+  <text class="node-copy" x="706" y="286" text-anchor="middle">짧은 작업은 event loop 응답</text>
+  <text class="node-copy" x="706" y="307" text-anchor="middle">긴 작업은 accepted 후 GTask</text>
+
+  <rect class="runtime" x="880" y="224" width="212" height="112" rx="8"/>
+  <text class="node-title" x="986" y="258" text-anchor="middle">제한된 GTask</text>
+  <text class="node-copy" x="986" y="286" text-anchor="middle">handler가 직접 시작</text>
+  <text class="node-copy" x="986" y="307" text-anchor="middle">host 작업 · 결과 기록</text>
+
+  <rect class="client" x="1144" y="224" width="228" height="112" rx="8"/>
+  <text class="node-title" x="1258" y="258" text-anchor="middle">응답 · 완료 채널</text>
+  <text class="node-copy" x="1258" y="286" text-anchor="middle">즉시 응답 · accepted</text>
+  <text class="node-copy" x="1258" y="307" text-anchor="middle">WebSocket · polling · log</text>
+
+  <path class="flow" d="M258 280 H310"/>
+  <path class="flow" d="M532 280 H584"/>
+  <path class="flow" d="M706 224 V208 H1258 V224"/>
+  <text class="flow-label" x="880" y="202">즉시 응답 · accepted 먼저</text>
+  <path class="async" d="M828 280 H880"/>
+  <path class="async" d="M1092 280 H1144"/>
+  <text class="async-label" x="838" y="266">긴 작업만</text>
+  <text class="async-label" x="1098" y="266">완료 통지</text>
+
+  <rect class="database-boundary" x="40" y="416" width="1360" height="374" rx="12"/>
+  <text class="eyebrow" x="66" y="446">LOCAL SQLITE · WAL · NODE-LOCAL ONLY</text>
+  <text class="boundary-title" x="66" y="474">파일마다 연결·mutex·transaction 경계가 분리된다</text>
+  <rect class="label-pill-warm" x="1130" y="438" width="242" height="34" rx="17"/>
+  <text class="lane-copy" x="1251" y="460" text-anchor="middle">replication 0 · consensus 0</text>
+
+  <rect class="boundary" x="68" y="496" width="550" height="264" rx="9"/>
+  <text class="lane-title" x="90" y="526">정본과 정책 · 4 files / 19 tables</text>
+  <text class="lane-copy" x="90" y="546">인증, 네트워크와 보안 의도를 보존</text>
+  <line class="divider" x1="90" y1="559" x2="596" y2="559"/>
+
+  <rect class="database" x="90" y="578" width="242" height="72" rx="7"/>
+  <text class="node-mono" x="108" y="606">rbac.db</text>
+  <text class="node-count" x="324" y="606" text-anchor="end">5 TABLES</text>
+  <text class="node-copy" x="108" y="630">사용자 · session · TOTP · API key</text>
+
+  <rect class="database" x="354" y="578" width="242" height="72" rx="7"/>
+  <text class="node-mono" x="372" y="606">vpc.db</text>
+  <text class="node-count" x="588" y="606" text-anchor="end">5 TABLES</text>
+  <text class="node-copy" x="372" y="630">VPC · subnet · attach · publish</text>
+
+  <rect class="database" x="90" y="668" width="242" height="72" rx="7"/>
+  <text class="node-mono-small" x="108" y="696">security_groups.db</text>
+  <text class="node-count" x="324" y="696" text-anchor="end">3 TABLES</text>
+  <text class="node-copy" x="108" y="720">그룹 · rule · VM binding</text>
+
+  <rect class="database" x="354" y="668" width="242" height="72" rx="7"/>
+  <text class="node-mono" x="372" y="696">pcv_security.db</text>
+  <text class="node-count" x="588" y="696" text-anchor="end">6 TABLES</text>
+  <text class="node-copy" x="372" y="720">정책 · event · HIDS · overlay</text>
+
+  <rect class="boundary" x="640" y="496" width="342" height="264" rx="9"/>
+  <text class="lane-title" x="662" y="526">작업 상태 · 3 files / 3 tables</text>
+  <text class="lane-copy" x="662" y="546">실행 queue가 아닌 충돌·진행 상태 registry</text>
+  <line class="divider" x1="662" y1="559" x2="960" y2="559"/>
+
+  <rect class="database" x="662" y="578" width="298" height="48" rx="7"/>
+  <text class="node-mono" x="680" y="598">vm_state.db</text>
+  <text class="node-copy" x="680" y="617">VM lock · 1 table</text>
+  <rect class="database" x="662" y="635" width="298" height="48" rx="7"/>
+  <text class="node-mono" x="680" y="655">pcv_jobs.db</text>
+  <text class="node-copy" x="680" y="674">job status registry · 1 table</text>
+  <rect class="database" x="662" y="692" width="298" height="48" rx="7"/>
+  <text class="node-mono" x="680" y="712">cloud_jobs.db</text>
+  <text class="node-copy" x="680" y="731">AWS import/export · 1 table</text>
+
+  <rect class="boundary" x="1004" y="496" width="368" height="264" rx="9"/>
+  <text class="lane-title" x="1026" y="526">증거와 외부 통합 · 2 files / 4 tables</text>
+  <text class="lane-copy" x="1026" y="546">감사 체인과 브라우저 Push 전달 상태</text>
+  <line class="divider" x1="1026" y1="559" x2="1350" y2="559"/>
+
+  <rect class="database" x="1026" y="578" width="324" height="72" rx="7"/>
+  <text class="node-mono" x="1044" y="606">pcv_audit.db</text>
+  <text class="node-count" x="1328" y="606" text-anchor="end">3 TABLES</text>
+  <text class="node-copy" x="1044" y="630">결과 · hashchain · checkpoint</text>
+
+  <rect class="database" x="1026" y="668" width="324" height="72" rx="7"/>
+  <text class="node-mono" x="1044" y="696">pcv_webpush.db</text>
+  <text class="node-count" x="1328" y="696" text-anchor="end">1 TABLE</text>
+  <text class="node-copy" x="1044" y="720">subscription · last_ok · fail_count</text>
+
+  <path class="flow" d="M421 336 V392 H211 V578"/>
+  <text class="flow-label" x="220" y="388">RBAC read</text>
+  <path class="flow" d="M706 336 V372 H475 V496"/>
+  <text class="flow-label" x="512" y="368">관련 정책 read/write</text>
+  <path class="flow" d="M742 336 V390 H811 V496"/>
+  <text class="flow-label" x="752" y="386">VM lock · 선택형 job register</text>
+  <path class="async" d="M986 336 V408 H811 V635"/>
+  <text class="async-label" x="838" y="405">progress · result</text>
+  <path class="async" d="M1030 336 V374 H1188 V578"/>
+  <text class="async-label" x="1080" y="370">audit queue · writer</text>
+
+  <rect class="runtime" x="68" y="880" width="292" height="112" rx="9"/>
+  <text class="node-title" x="214" y="914" text-anchor="middle">Apply · rehydrate · reconcile</text>
+  <text class="node-copy" x="214" y="942" text-anchor="middle">desired state를 actual과 대조</text>
+  <text class="node-copy" x="214" y="963" text-anchor="middle">치명적 불일치는 fail-closed</text>
+
+  <rect class="actual" x="418" y="860" width="608" height="152" rx="9"/>
+  <text class="eyebrow" x="444" y="890">LINUX / KVM HOST · ACTUAL STATE</text>
+  <text class="node-title" x="444" y="921">libvirt · domain XML · qcow2/raw · 선택형 ZFS</text>
+  <text class="node-copy" x="444" y="950">Linux bridge · dnsmasq · nftables · 파일시스템</text>
+  <text class="node-copy" x="444" y="973">bpffs · BPF manager</text>
+  <line class="candidate" x1="760" y1="970" x2="836" y2="970"/>
+  <text class="node-copy" x="850" y="974">후보 OVN backend</text>
+
+  <rect class="integration" x="1084" y="880" width="288" height="112" rx="9"/>
+  <text class="node-title" x="1228" y="914" text-anchor="middle">Web Push 외부 전달</text>
+  <text class="node-copy" x="1228" y="942" text-anchor="middle">subscription snapshot</text>
+  <text class="node-copy" x="1228" y="963" text-anchor="middle">GTask HTTPS · Push service</text>
+
+  <path class="flow" d="M343 760 V852 H214 V880"/>
+  <text class="flow-label" x="230" y="850">desired state</text>
+  <path class="flow" d="M360 936 H418"/>
+  <path class="flow" d="M986 336 V842 H722 V860"/>
+  <text class="flow-label" x="752" y="838">host 작업</text>
+  <path class="async" d="M722 860 V818 H1384 V280 H1372"/>
+  <text class="async-label" x="942" y="813">결과 · WebSocket · polling · log</text>
+  <path class="flow" d="M1188 740 V852 H1228 V880"/>
+
+  <rect class="callout" x="418" y="982" width="608" height="30" rx="5"/>
+  <text class="callout-copy" x="722" y="1002" text-anchor="middle">DB 복원 ≠ host actual state 복원 · 화살표 ≠ cross-DB transaction</text>
+</svg>

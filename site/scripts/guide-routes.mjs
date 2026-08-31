@@ -45,7 +45,7 @@ export const supplementalDocuments = [
   {
     title: "데이터베이스 아키텍처",
     sourceTitle: "PureCvisor Single Edge 데이터베이스 아키텍처 설명서",
-    description: "PureCvisor Single Edge SQLite 저장소의 책임, 스키마, 일관성, 장애와 복구 경계",
+    description: "PureCvisor Single Edge 로컬 SQLite 9개와 영구 테이블 26개의 흐름, 책임과 복구 경계",
     group: "개발·출시",
     directory: "development",
     slug: "database-architecture",

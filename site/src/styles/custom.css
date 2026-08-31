@@ -663,6 +663,61 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   background: #f8fafc;
 }
 
+.pcv-database-summary {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 1px;
+  overflow: hidden;
+  margin-block: 1.5rem 2.25rem;
+  border: 1px solid var(--pcv-line);
+  border-radius: 0.5rem;
+  background: var(--pcv-line);
+}
+
+.pcv-database-summary-item {
+  display: grid;
+  min-width: 0;
+  min-height: 6.25rem;
+  align-content: center;
+  gap: 0.25rem;
+  padding: 1rem 1.125rem;
+  background: var(--pcv-canvas);
+}
+
+.pcv-database-summary-item strong {
+  color: var(--pcv-accent);
+  font-family: var(--sl-font-mono);
+  font-size: clamp(1.5rem, 3vw, 1.875rem);
+  font-weight: 700;
+  line-height: 1;
+}
+
+.pcv-database-summary-item span {
+  color: var(--pcv-muted);
+  font-size: 0.8125rem;
+  font-weight: 650;
+  line-height: 1.4;
+  overflow-wrap: anywhere;
+}
+
+.pcv-database-architecture {
+  margin-block: 1.5rem 2rem;
+  border-radius: 0.75rem;
+}
+
+.pcv-database-architecture-canvas {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--pcv-map-line) #f8fafc;
+  scrollbar-gutter: stable;
+}
+
+.pcv-database-architecture-image {
+  width: max(100%, 84rem);
+  min-width: 84rem;
+  max-width: none;
+}
+
 @keyframes pcv-architecture-flow {
   from {
     stroke-dashoffset: 24;
@@ -839,6 +894,10 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     width: 100%;
   }
 
+  .pcv-database-summary {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+
 }
 
 @media (max-width: 40rem) {
@@ -892,6 +951,12 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     min-height: 3.25rem;
     padding-inline: 0.45rem;
     font-size: 0.75rem;
+  }
+}
+
+@media (max-width: 22rem) {
+  .pcv-database-summary {
+    grid-template-columns: minmax(0, 1fr);
   }
 }
 

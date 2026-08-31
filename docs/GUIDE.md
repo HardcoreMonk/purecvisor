@@ -91,8 +91,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="2056.10986328125" height="2463.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1817.8671875" height="2313.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.</figcaption>
     </figure>
@@ -107,8 +107,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1849.5234375" height="2798" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 10개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1699.064208984375" height="2488" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
     </figure>
@@ -133,8 +133,9 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.
 3. dispatcher는 `GHashTable`에서 O(1)로 도메인 핸들러를 찾아 검증된 요청만 전달합니다.
 4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.
-5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.
-6. worker callback이 실제 결과를 `pcv_jobs.db`, `pcv_audit.db`와 WebSocket 완료 이벤트에 기록합니다.<br>
+5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.<br>
+상태 registry를 사용하는 경로만 `pcv_jobs.db` 행을 생성하며, 일부 경로는 합성 Job ID를 사용합니다.
+6. worker callback은 실제 결과를 경로별 상태 저장소, `pcv_audit.db`, daemon log와 WebSocket 완료 이벤트에 남깁니다.<br>
 클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
 
 #### 1.2.3 서비스 도메인
@@ -143,22 +144,23 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 - **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
 - **Storage**: ZFS, snapshot, backup·restore, iSCSI와 cloud job
 - **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
-- **Monitoring Source**: systemd service catalog, immutable cache와 availability writer
+- **Monitoring**: host telemetry, process status와 Prometheus metrics
 - **Operations**: telemetry, alert, Web Push, AI healing과 plugin
 
-Monitoring Source request handler는 immutable cache만 읽습니다.<br>
-background collector와 단일 writer가 systemd 상태와 availability evidence를 `pcv_monitoring.db`에 갱신하므로, 요청 handler가 systemd D-Bus나 SQLite 쓰기로 지연되지 않습니다.
+Monitoring 경로는 `handler_monitor`, telemetry, process monitor와 eBPF telemetry가 제공하는
+host·process 관측값을 조회합니다.<br>
+공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.
 
 #### 1.2.4 영속 상태와 호스트 통합
 
-PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 10개와 파일 기반 desired state를
+PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 9개와 파일 기반 desired state를
 사용합니다.
 
 - **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
-- **Operations DB 3개**: `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`
+- **Operations DB 2개**: `cloud_jobs.db`, `pcv_webpush.db`
 - **Desired state**: network, overlay, QoS, BPF와 backup 설정
 - **Virtualization**: libvirt, QEMU, KVM과 LXC
-- **Storage**: ZFS, LIO와 open-iscsi
+- **Storage**: qcow2/raw, 선택형 ZFS, LIO와 open-iscsi
 - **Network host**: Linux bridge, nftables, dnsmasq, WireGuard, tc, eBPF, OVS와 OVN
 - **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
 - **Acceleration**: GPU, SR-IOV와 선택형 DPDK
@@ -187,7 +189,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 | [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [DATABASE_STRUCTURE.md](DATABASE_STRUCTURE.md) | SQLite DB 10개의 책임, schema와 복구 경계 |
+| [DATABASE_STRUCTURE.md](DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 26개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
 <span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>

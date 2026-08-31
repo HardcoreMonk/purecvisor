@@ -8,6 +8,7 @@ on:
       - ".github/workflows/pages.yml"
       - "docs/DATABASE_STRUCTURE.md"
       - "docs/GUIDE.md"
+      - "docs/architecture/**"
       - "site/**"
   workflow_dispatch:
 

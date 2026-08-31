@@ -27,6 +27,7 @@ const requiredFiles = [
   "favicon.svg",
   "assets/diagrams/purecvisor-single-full-architecture.svg",
   "assets/diagrams/purecvisor-single-direct-https-architecture.svg",
+  "assets/diagrams/purecvisor-single-database-architecture.svg",
   ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
 const forbiddenText = [
@@ -100,12 +101,25 @@ const overview = await readFile(
   "utf8"
 );
 const guideSource = await readFile(path.join(siteRoot, "..", "docs", "GUIDE.md"), "utf8");
+const databaseStructureSource = await readFile(
+  path.join(siteRoot, "..", "docs", "DATABASE_STRUCTURE.md"),
+  "utf8"
+);
 const invalidGuideBreakLines = guideSource
   .split(/\r?\n/)
   .map((line, index) => ({ index: index + 1, line }))
   .filter(({ line }) => line.trimEnd().endsWith("<br>") && !line.trimEnd().slice(0, -4).trimEnd().endsWith("."));
 if (invalidGuideBreakLines.length) {
   throw new Error(`GUIDE sentence break must follow a period: ${invalidGuideBreakLines.map(({ index }) => index).join(", ")}`);
+}
+if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 9) {
+  throw new Error("database document schema group count mismatch");
+}
+if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 26) {
+  throw new Error("database document table heading count mismatch");
+}
+if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)) {
+  throw new Error("database table or index heading leaked into the reader TOC");
 }
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 const headerComponent = await readFile(path.join(siteRoot, "src", "components", "Header.astro"), "utf8");
@@ -115,6 +129,10 @@ const architectureInteractions = await readFile(
 );
 const directArchitectureSource = await readFile(
   path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-direct-https-architecture.mmd"),
+  "utf8"
+);
+const fullArchitectureSource = await readFile(
+  path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-full-architecture.mmd"),
   "utf8"
 );
 for (const contract of [
@@ -145,6 +163,31 @@ for (const [selector, declarations] of [
     if (!block.includes(declaration)) {
       throw new Error(`reader width contract missing: ${selector} ${declaration}`);
     }
+  }
+}
+for (const [selector, declarations] of [
+  [".pcv-database-summary", ["grid-template-columns: repeat(4, minmax(0, 1fr));", "border: 1px solid var(--pcv-line);", "border-radius: 0.5rem;", "background: var(--pcv-line);"]],
+  [".pcv-database-summary-item", ["min-height: 6.25rem;", "background: var(--pcv-canvas);"]],
+  [".pcv-database-architecture", ["border-radius: 0.75rem;"]],
+  [".pcv-database-architecture-canvas", ["overflow-x: auto;", "overscroll-behavior-inline: contain;", "scrollbar-gutter: stable;"]],
+  [".pcv-database-architecture-image", ["width: max(100%, 84rem);", "min-width: 84rem;", "max-width: none;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`database architecture style missing: ${selector} ${declaration}`);
+    }
+  }
+}
+for (const marker of [
+  ".pcv-database-summary {\n    grid-template-columns: repeat(2, minmax(0, 1fr));",
+  ".pcv-database-architecture-image {\n  width: max(100%, 84rem);\n  min-width: 84rem;\n  max-width: none;",
+  "@media (max-width: 22rem) {\n  .pcv-database-summary {\n    grid-template-columns: minmax(0, 1fr);"
+]) {
+  if (!landingStyles.includes(marker)) {
+    throw new Error(`database architecture responsive style missing: ${marker}`);
   }
 }
 const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.0</code>입니다.<br>
@@ -200,7 +243,11 @@ for (const marker of [
   "1.2.4 영속 상태와 호스트 통합",
   "1.2.5 Single Edge 경계와 상세 문서",
   "accepted 응답은 실제 성공을 뜻하지 않습니다.",
-  "Monitoring Source request handler는 immutable cache만 읽습니다.",
+  "Monitoring 경로는 <code dir=\"auto\">handler_monitor</code>, telemetry, process monitor와 eBPF telemetry가 제공하는",
+  "공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.",
+  "상태 registry를 사용하는 경로만 <code dir=\"auto\">pcv_jobs.db</code> 행을 생성하며",
+  "로컬 SQLite WAL 데이터베이스 9개",
+  "Operations DB 2개",
   "vm_state.db",
   "pcv_audit.db",
   "pcv_jobs.db",
@@ -209,7 +256,6 @@ for (const marker of [
   "security_groups.db",
   "vpc.db",
   "cloud_jobs.db",
-  "pcv_monitoring.db",
   "pcv_webpush.db",
   "audit-only 경계입니다.",
   'id="121-검증-문서-맵"',
@@ -221,7 +267,11 @@ for (const marker of [
   "auth_manager",
   "src/modules/dispatcher/ + src/modules/network/",
   "+-------+-------+--------------------+",
-  "장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행"
+  "장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행",
+  "Monitoring Source request handler는 immutable cache만 읽습니다.",
+  "pcv_monitoring.db",
+  "로컬 SQLite 데이터베이스 10개",
+  "Operations DB 3개"
 ]) {
   if (overview.includes(marker)) throw new Error(`stale overview architecture found: ${marker}`);
 }
@@ -265,17 +315,17 @@ const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b") {
+if (architectureSvgHash !== "8929be785dce35aa307b1dd299f3dc939f192b95c1f3f339ff66b62bdd31b293") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be") {
+if (architectureStructureHash !== "b1a5596b79c43e219cd27216e0606288a47bcecc81fee995b11b518445e72bc6") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 1849.5234375 2798"',
+  'viewBox="4 4 1699.064208984375 2488"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'my-svg-flowchart-monitorDomain-22',
@@ -291,7 +341,6 @@ for (const marker of [
   'security_groups.db',
   'vpc.db',
   'cloud_jobs.db',
-  'pcv_monitoring.db',
   'pcv_webpush.db',
   'DPDK'
 ]) {
@@ -299,6 +348,9 @@ for (const marker of [
 }
 for (const marker of [/<script\b/i, /<foreignObject\b/i, /\bon\w+\s*=/i, /\b(?:xlink:)?href\s*=/i]) {
   if (marker.test(architectureSvgText)) throw new Error(`unsafe architecture source SVG marker: ${marker}`);
+}
+for (const marker of ["pcv_monitoring.db", "availability writer", "systemd D-Bus collection"]) {
+  if (architectureSvgText.includes(marker)) throw new Error(`stale architecture source SVG marker: ${marker}`);
 }
 for (const marker of [
   ".pcv-semantic-layer-colors-start{}",
@@ -327,17 +379,17 @@ const directArchitectureSvg = await readFile(path.join(distRoot, directArchitect
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
-if (directArchitectureSvgHash !== "f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7") {
+if (directArchitectureSvgHash !== "093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
 }
 const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
-if (directArchitectureStructureHash !== "caa00de89a242a2060ca56753e51b0348a643643195759c568ad2e243f8de6dd") {
+if (directArchitectureStructureHash !== "6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c") {
   throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 2056.10986328125 2463.699951171875"',
+  'viewBox="4 4 1817.8671875 2313.699951171875"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'id="my-svg-clients"',
@@ -369,7 +421,6 @@ for (const marker of [
   "security_groups.db",
   "vpc.db",
   "cloud_jobs.db",
-  "pcv_monitoring.db",
   "pcv_webpush.db",
   'id="my-svg-flowchart-desiredStore-25"',
   'id="my-svg-flowchart-virtPlatform-26"',
@@ -389,6 +440,11 @@ for (const marker of [/<script\b/i, /<foreignObject\b/i, /\bon\w+\s*=/i, /\b(?:x
 }
 if (/nginx/i.test(directArchitectureSvgText)) {
   throw new Error("NGINX found in direct HTTPS architecture SVG");
+}
+for (const marker of ["pcv_monitoring.db", "availability writer", "systemd D-Bus collection"]) {
+  if (directArchitectureSvgText.includes(marker)) {
+    throw new Error(`stale direct HTTPS architecture SVG marker: ${marker}`);
+  }
 }
 for (const marker of [
   ".pcv-semantic-layer-colors-start{}",
@@ -413,6 +469,10 @@ for (const marker of [
   'webUi <-->|"WebSocket TLS"| wsApi',
   'apiClient <-->|"HTTPS"| restApi',
   'promClient -->|"HTTPS metrics scrape"| restApi',
+  'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
+  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>cloud_jobs.db, pcv_webpush.db"]',
+  'handlers -->|"VIEWER read"| monitorDomain',
+  'monitorDomain -.->|"Host and process probes"| securityPlatform',
   "class udsApi,restApi,grpcApi,wsApi ingressNode;"
 ]) {
   if (!directArchitectureSource.includes(marker)) {
@@ -421,6 +481,84 @@ for (const marker of [
 }
 if (/nginx/i.test(directArchitectureSource)) {
   throw new Error("NGINX found in direct HTTPS Mermaid source");
+}
+for (const marker of ["pcv_monitoring.db", "availability writer", "systemd D-Bus", "monitorDomain --> operationsDb"]) {
+  if (directArchitectureSource.includes(marker)) {
+    throw new Error(`stale direct HTTPS Mermaid source marker: ${marker}`);
+  }
+}
+for (const marker of [
+  'subgraph edgeGateway ["외부 TLS 경계"]',
+  'nginx["nginx TLS termination"]',
+  'nginx <-->|"Static UI and REST"| restApi',
+  'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
+  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>cloud_jobs.db, pcv_webpush.db"]',
+  'handlers -->|"VIEWER read"| monitorDomain',
+  'monitorDomain -.->|"Host and process probes"| securityPlatform'
+]) {
+  if (!fullArchitectureSource.includes(marker)) {
+    throw new Error(`NGINX architecture Mermaid source contract missing: ${marker}`);
+  }
+}
+for (const marker of ["pcv_monitoring.db", "availability writer", "systemd D-Bus", "monitorDomain --> operationsDb"]) {
+  if (fullArchitectureSource.includes(marker)) {
+    throw new Error(`stale NGINX architecture Mermaid source marker: ${marker}`);
+  }
+}
+
+const databaseArchitectureAsset = "/assets/diagrams/purecvisor-single-database-architecture.svg";
+const databaseArchitectureSvg = await readFile(path.join(distRoot, databaseArchitectureAsset));
+const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
+const databaseArchitectureSvgHash = createHash("sha256")
+  .update(databaseArchitectureSvg)
+  .digest("hex");
+if (databaseArchitectureSvgHash !== "1d452424de7547c0a9e68043343759efe7ae44a0412dfe9942ba76fbc8bb41e7") {
+  throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
+}
+for (const marker of [
+  'width="1440" height="1040" viewBox="0 0 1440 1040"',
+  'role="img" aria-labelledby="pcv-db-title pcv-db-desc"',
+  '<title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>',
+  '<desc id="pcv-db-desc">',
+  "9 local SQLite files · 26 permanent tables",
+  "no cross-DB transaction",
+  "즉시 응답 · accepted 먼저",
+  "긴 작업만",
+  "관련 정책 read/write",
+  "VM lock · 선택형 job register",
+  "정본과 정책 · 4 files / 19 tables",
+  "작업 상태 · 3 files / 3 tables",
+  "증거와 외부 통합 · 2 files / 4 tables",
+  "rbac.db",
+  "vpc.db",
+  "security_groups.db",
+  "pcv_security.db",
+  "vm_state.db",
+  "pcv_jobs.db",
+  "cloud_jobs.db",
+  "pcv_audit.db",
+  "pcv_webpush.db",
+  "선택형 ZFS",
+  "후보 OVN backend",
+  "DB 복원 ≠ host actual state 복원"
+]) {
+  if (!databaseArchitectureSvgText.includes(marker)) {
+    throw new Error(`database architecture SVG contract missing: ${marker}`);
+  }
+}
+if ((databaseArchitectureSvgText.match(/<rect class="database"/g) || []).length !== 9) {
+  throw new Error("database architecture SVG store count mismatch");
+}
+for (const marker of [
+  /<script\b/i,
+  /<foreignObject\b/i,
+  /\bon\w+\s*=/i,
+  /\b(?:xlink:)?href\s*=/i,
+  /url\(\s*["']?(?:https?:|\/\/)/i
+]) {
+  if (marker.test(databaseArchitectureSvgText)) {
+    throw new Error(`unsafe database architecture SVG marker: ${marker}`);
+  }
 }
 
 for (const marker of [
@@ -842,6 +980,9 @@ for (const chapter of guideChapters) {
   if (!page.includes('aria-current="page"')) {
     throw new Error(`guide active navigation missing: ${chapter.path}`);
   }
+  if (/<h[2-6]\b[^>]*>\s*[0-9]+\.<br>/i.test(page)) {
+    throw new Error(`guide numeric heading sentence break found: ${chapter.path}`);
+  }
   for (const group of guideGroups) {
     if (!page.includes(group.label)) throw new Error(`guide group missing: ${group.label}`);
   }
@@ -872,6 +1013,9 @@ for (const document of supplementalDocuments) {
   if (!page.includes('aria-current="page"')) {
     throw new Error(`supplemental document active navigation missing: ${document.path}`);
   }
+  if (/<h[2-6]\b[^>]*>\s*[0-9]+\.<br>/i.test(page)) {
+    throw new Error(`supplemental numeric heading sentence break found: ${document.path}`);
+  }
   for (const group of guideGroups) {
     if (!page.includes(group.label)) {
       throw new Error(`supplemental document group missing: ${group.label}`);
@@ -883,12 +1027,20 @@ for (const document of supplementalDocuments) {
     }
   }
   for (const marker of [
-    "로컬 SQLite 파일 10개",
+    "로컬 SQLite 파일 9개",
+    "영구 테이블 26개",
+    "pcv-database-summary",
+    "pcv-database-architecture",
+    'href="/assets/diagrams/purecvisor-single-database-architecture.svg"',
+    'src="/assets/diagrams/purecvisor-single-database-architecture.svg"',
+    'width="1440" height="1040" loading="lazy" decoding="async"',
+    'aria-describedby="pcv-database-architecture-note"',
+    "비동기 실행·진행·완료 통지와 증거 기록",
+    "그림 영역을 좌우로 스크롤",
     "DB 사이의 원자성",
+    "변조 탐지형 감사 증거",
     "Audit DB",
-    "Monitoring Evidence DB",
     "Web Push DB",
-    "pcv_monitoring.db",
     "pcv_webpush.db",
     "config.backup",
     "스키마 변경 체크리스트"
@@ -896,6 +1048,20 @@ for (const document of supplementalDocuments) {
     if (!page.includes(marker)) {
       throw new Error(`supplemental document body contract missing: ${marker}`);
     }
+  }
+  for (const staleMarker of [
+    'data-language="mermaid"',
+    "flowchart TB",
+    "Monitoring Evidence DB",
+    "pcv_monitoring.db",
+    "../site/public/assets/"
+  ]) {
+    if (page.includes(staleMarker)) {
+      throw new Error(`stale supplemental document marker found: ${staleMarker}`);
+    }
+  }
+  if ((page.match(/purecvisor-single-database-architecture\.svg/g) || []).length !== 3) {
+    throw new Error("supplemental database architecture asset reference count mismatch");
   }
   for (const privateMarker of [
     "6306cafd",

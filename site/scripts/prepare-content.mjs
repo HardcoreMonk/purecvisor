@@ -39,6 +39,10 @@ function rewriteRelativeLinks(markdown) {
   });
 }
 
+function rewritePublicAssetPaths(markdown) {
+  return markdown.replaceAll("../site/public/assets/", "/assets/");
+}
+
 function promoteSectionHeadings(markdown) {
   let inFence = false;
   return markdown
@@ -104,7 +108,9 @@ for (const document of supplementalDocuments) {
   if (!heading || heading.index !== 0 || heading[1].trim() !== document.sourceTitle) {
     throw new Error(`supplemental document title mismatch: ${document.source}`);
   }
-  const body = rewriteRelativeLinks(rawDocument.slice(heading[0].length).trim());
+  const body = rewritePublicAssetPaths(
+    rewriteRelativeLinks(rawDocument.slice(heading[0].length).trim())
+  );
   const frontmatter = `---
 title: ${JSON.stringify(document.title)}
 description: ${JSON.stringify(document.description)}

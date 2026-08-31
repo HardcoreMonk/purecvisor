@@ -74,7 +74,7 @@ Astro·Starlight를 landing에 사용하므로 별도 reader runtime을 유지�
 ## Verification
 
 - `npm run check`가 22개 가이드와 독립 기술 문서 route, 전체 sidebar와 내부 link를 검증해야 한다.
-- 데이터베이스 아키텍처 HTML에는 SQLite 10개와 Audit·Monitoring Evidence·Web Push,
+- 데이터베이스 아키텍처 HTML에는 공개 DDL 기준 SQLite 9개·영구 테이블 26개와 Audit·Web Push,
   일관성·장애·백업 경계가 정적으로 존재하고 private 운영 증거가 없어야 한다.
 - `/ko/getting-started/installation/` HTML에 H1과 `2.1 시스템 요구사항` 본문이 정적으로 있어야 한다.
 - 설치 page sidebar는 8개 그룹·22개 링크와 현재 page를 표시하고 이전은 시작하기, 다음은 VM

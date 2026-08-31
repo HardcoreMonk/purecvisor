@@ -30,8 +30,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`의 숫자형 H2 장을 22개 Astro content page로
   분할하고 `docs/DATABASE_STRUCTURE.md`를 독립 content page로 변환한다.
   `site/scripts/publish-product-docs.mjs`는 `/docs.html` 호환 redirect를 생성한다.
-- Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`, `site/**`와
-  workflow 자체를 포함해 두 작성 정본 중 어느 하나만 바뀌어도 재배포한다.
+- Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`,
+  `docs/architecture/**`, `site/**`와 workflow 자체를 포함해 작성 정본이나 SVG 입력 중 어느
+  하나만 바뀌어도 재배포한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action을 간결한 Hero로
   제공한 뒤 8개 그룹·22개 문서의 `문서 살펴보기` 맵을 이어서 제공한다. 상세 아키텍처와 문서
   본문 탐색은 문서 reader가 소유한다.
@@ -46,7 +47,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 작성 정본이다.
 - `docs/DATABASE_STRUCTURE.md`가 SQLite 저장소의 책임, schema, 일관성·장애·백업 경계를
   설명하는 공개 작성 정본이다. build 준비 단계는 원문의 H1만 Starlight page title로 치환하고
-  나머지 heading·표·code fence를 보존한다.
+  나머지 heading·표·code fence와 raw HTML figure를 보존한다. GitHub source에서 사용하는
+  `../site/public/assets/` 상대 경로는 Pages의 `/assets/` 경로로 변환한다.
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
 - `site/src/components/DocumentationMap.astro`는 `site/scripts/guide-routes.mjs`의
@@ -77,18 +79,20 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - NGINX 모드의 전체 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 사용한다. SVG는
   클라이언트·설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher,
-  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·3개 저장소로 구분한 로컬 SQLite DB 10개,
-  Monitoring Source v2, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
+  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·2개 저장소로 구분한 로컬 SQLite DB 9개,
+  host telemetry·process status, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
-  `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_monitoring.db`, `pcv_webpush.db`를 모두 명시한다.
+  `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_webpush.db`를 모두 명시한다.
 - Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.0`을 실제 H1으로 두고 범위 문장, action과
   배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
   줄바꿈한다.
-- NGINX 모드 SVG 파일은 `1849.5234375×2798` viewBox와 node·edge·label·좌표를 유지한다.
+- NGINX 모드 SVG의 Mermaid 원본은
+  `docs/architecture/purecvisor-single-full-architecture.mmd`가 소유한다. SVG 파일은
+  `1699.064208984375×2488` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `0f3f3a26d1dc2b128a0b58da6f63bad61d71637e6a3d4aa2f01aff9f137778be`, 배포 파일 SHA-256은
-  `f64b3756dbe546ac65245fa5363d61cbd30e03b1652b53c612ca72e33d685c3b`로 고정한다.
+  `b1a5596b79c43e219cd27216e0606288a47bcecc81fee995b11b518445e72bc6`, 배포 파일 SHA-256은
+  `8929be785dce35aa307b1dd299f3dc939f192b95c1f3f339ff66b62bdd31b293`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 상세 overview의
@@ -96,6 +100,21 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - SVG palette는 `site/scripts/update-architecture-colors.mjs`로 재현한다. 스크립트는 NGINX와
   직접 HTTPS 두 SVG의 기존 `<style>` 안 semantic color block만 교체하며 node·edge·label과
   좌표는 수정하지 않는다.
+- 두 전체 아키텍처 SVG는 Mermaid CLI `11.16.0`, white background와 고정 SVG ID로 생성한 뒤
+  semantic palette를 적용한다. 다른 Mermaid 버전이나 font override를 사용하면 geometry와
+  hash가 달라진다.
+
+  ```bash
+  npx --yes -p @mermaid-js/mermaid-cli@11.16.0 mmdc \
+    -i docs/architecture/purecvisor-single-full-architecture.mmd \
+    -o site/public/assets/diagrams/purecvisor-single-full-architecture.svg \
+    -b white --svgId my-svg
+  npx --yes -p @mermaid-js/mermaid-cli@11.16.0 mmdc \
+    -i docs/architecture/purecvisor-single-direct-https-architecture.mmd \
+    -o site/public/assets/diagrams/purecvisor-single-direct-https-architecture.svg \
+    -b white --svgId my-svg
+  node site/scripts/update-architecture-colors.mjs
+  ```
 - Hero는 Starlight의 `data-theme` 계약을 따르며 별도 media shell이나 빈 placeholder를 만들지 않는다.
   landing에는 code-native domain selector, guide node link, SVG 경로 animation과 전용
   JavaScript를 사용하지 않는다.
@@ -107,17 +126,24 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
+- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
+  영구 테이블 26개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
+  `site/public/assets/diagrams/purecvisor-single-database-architecture.svg`에서 요청·정책 정본·작업
+  상태·감사 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
+  본문 대체 설명, 원본 확대 link를 제공하고 mobile에서는 page가 아니라 figure canvas 안에서만
+  가로 scroll한다. `pcv_jobs.db`는 worker 실행 queue가 아닌 선택적 상태 registry로,
+  ZFS는 선택형 actual storage로, OVN Local VPC는 후보 backend로 표시한다.
 - 시작하기의 `1.2 아키텍처 개요`는 기본 `purecvisorsd` 직접 HTTPS와 선택형 NGINX 외부 TLS
   종료를 접근 가능한 두 탭으로 제공한다. 기본 탭은
   `site/public/assets/diagrams/purecvisor-single-direct-https-architecture.svg`, NGINX 탭은
   `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
   HTTPS SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
-  viewBox는 `2056.10986328125×2463.699951171875`, 구조·내용 SHA-256은
-  `caa00de89a242a2060ca56753e51b0348a643643195759c568ad2e243f8de6dd`, 배포 파일 SHA-256은
-  `f728f3460a50d44ccf388f3daf56d48882323b005de58838cbfa3385e52431b7`로 고정한다.
+  viewBox는 `1817.8671875×2313.699951171875`, 구조·내용 SHA-256은
+  `6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c`, 배포 파일 SHA-256은
+  `093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
-  로컬 SQLite DB 10개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
+  로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
 - TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
   좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,
@@ -163,7 +189,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/ui-reviews/2026-08-30-overview-architecture-tls-mode-tabs.md`, node·레이어 연결 흐름 롤오버는
   `docs/ui-reviews/2026-08-30-overview-architecture-rollover-flow.md`, landing SVG 노출 제거는
   `docs/ui-reviews/2026-08-30-landing-architecture-removal.md`, landing 문서 맵 재도입은
-  `docs/ui-reviews/2026-08-30-landing-documentation-map.md`를 따른다.
+  `docs/ui-reviews/2026-08-30-landing-documentation-map.md`, 데이터베이스 SVG 흐름과 문서 계층은
+  `docs/ui-reviews/2026-08-31-database-architecture-visual-flow.md`를 따른다.
 
 ## 배포 흐름
 

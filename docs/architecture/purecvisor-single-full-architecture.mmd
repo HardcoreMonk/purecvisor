@@ -9,6 +9,10 @@ flowchart TB
         promClient["Prometheus scraper"]
     end
 
+    subgraph edgeGateway ["외부 TLS 경계"]
+        nginx["nginx TLS termination"]
+    end
+
     subgraph bootInputs ["부팅 입력"]
         configStore["daemon.conf and secret sources"]
         kernelLsm["Kernel LSM list with optional bpf"]
@@ -17,12 +21,12 @@ flowchart TB
     subgraph daemon ["purecvisorsd 단일 프로세스"]
         direction TB
 
-        subgraph transports ["API transport and direct TLS termination"]
+        subgraph transports ["API transport"]
             direction LR
             udsApi["UDS JSON-RPC 2.0"]
-            restApi["HTTPS REST and static UI with libsoup3"]
+            restApi["REST API with libsoup3"]
             grpcApi["gRPC with protobuf-c"]
-            wsApi["WebSocket TLS event channel"]
+            wsApi["WebSocket event channel"]
         end
 
         subgraph core ["GMainLoop control plane"]
@@ -62,12 +66,13 @@ flowchart TB
         accelPlatform["Acceleration: GPU, SR-IOV, DPDK"]
     end
 
-    webUi <-->|"HTTPS: static UI and REST"| restApi
-    webUi <-->|"WebSocket TLS"| wsApi
-    apiClient <-->|"HTTPS"| restApi
-    promClient -->|"HTTPS metrics scrape"| restApi
+    webUi <-->|"HTTPS and WebSocket"| nginx
+    apiClient <-->|"HTTPS"| nginx
+    promClient -->|"Scrape metrics"| nginx
     pcvctl <-->|"Local socket"| udsApi
     grpcClient <-->|"Binary RPC"| grpcApi
+    nginx <-->|"Static UI and REST"| restApi
+    nginx <-->|"WebSocket upgrade"| wsApi
 
     udsApi -->|"JSON-RPC"| dispatcher
     restApi -->|"REST to RPC"| dispatcher
@@ -115,7 +120,7 @@ flowchart TB
     classDef hostNode fill:#f2f4f7,stroke:#667085,color:#1d2939,stroke-width:1px;
 
     class webUi,pcvctl,apiClient,grpcClient,promClient clientNode;
-    class udsApi,restApi,grpcApi,wsApi ingressNode;
+    class nginx,udsApi,restApi,grpcApi,wsApi ingressNode;
     class mainLoop,dispatcher,handlers,syncPath,workerPool,completion runtimeNode;
     class workloadDomain,networkDomain,storageDomain,securityDomain,monitorDomain,opsDomain domainNode;
     class configStore,kernelLsm,coreDb,operationsDb,desiredStore dataNode;
