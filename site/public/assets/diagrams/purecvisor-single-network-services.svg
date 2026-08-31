@@ -69,7 +69,7 @@
   <path class="control pcv-network-edge" data-pcv-edge-id="network-desired-accel" data-pcv-from="networkDesired" data-pcv-to="networkAccel" d="M1213 366V396"/>
 
   <rect class="boundary" x="40" y="396" width="1360" height="316" rx="12"/>
-  <text class="eyebrow" x="66" y="427">NETWORK SERVICE FAMILIES · 각 항목은 아래 활용 예제와 대응</text>
+  <text class="eyebrow" x="66" y="427">NETWORK SERVICE FAMILIES · 네트워크와 보안 운영 예제로 연결</text>
 
   <g data-pcv-node-id="networkBasic">
   <rect class="family" x="68" y="452" width="315" height="228" rx="8"/>

@@ -34,6 +34,7 @@ const networkExampleAssets = [
   ["suricata.svg", "Suricata IDS IPS 활용 예제 구성도"],
   ["local-vpc.svg", "Local VPC 활용 예제 구성도"]
 ];
+const networkingExampleAssets = networkExampleAssets.filter(([file]) => file !== "suricata.svg");
 const requiredFiles = [
   "index.html",
   "ko/index.html",
@@ -122,6 +123,12 @@ const overview = await readFile(
 );
 const networking = await readFile(
   path.join(distRoot, guideChapters[5].contentSlug, "index.html"),
+  "utf8"
+);
+const securityChapter = guideChapters.find((chapter) => chapter.number === 10);
+if (!securityChapter) throw new Error("security guide chapter missing");
+const securityGuide = await readFile(
+  path.join(distRoot, securityChapter.contentSlug, "index.html"),
   "utf8"
 );
 const guideSource = await readFile(path.join(siteRoot, "..", "docs", "GUIDE.md"), "utf8");
@@ -1204,12 +1211,10 @@ for (const marker of [
   "활용 예제 — VLAN 100 VF를 웹 VM에 직접 할당",
   "활용 예제 — link에서 VM NIC까지 계층별 장애 격리",
   "활용 예제 — NIC drop과 conntrack 포화 징후 확인",
-  "활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단",
   "활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시",
   "pcvctl security-group create web-sg",
   "pcvctl dpdk bridge create dpdk-br0 0000:03:00.0",
   "pcvctl sriov set eno2 0",
-  "/api/v1/suricata/ips/status",
   "node_nf_conntrack_entries_limit"
 ]) {
   if (!networking.includes(marker)) {
@@ -1223,14 +1228,37 @@ if ((networking.match(/purecvisor-single-network-services\.svg/g) || []).length 
 if (!networking.includes('data-pcv-architecture-interactive="network"')) {
   throw new Error("network architecture rollover entry point missing");
 }
-if ((networking.match(/class="pcv-network-example-diagram/g) || []).length !== networkExampleAssets.length) {
+if ((networking.match(/class="pcv-network-example-diagram/g) || []).length !== networkingExampleAssets.length) {
   throw new Error("network example diagram count mismatch");
 }
-for (const [file] of networkExampleAssets) {
+for (const [file] of networkingExampleAssets) {
   const asset = `/assets/diagrams/network-examples/${file}`;
   if ((networking.match(new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 2) {
     throw new Error(`network example diagram reference mismatch: ${file}`);
   }
+}
+for (const marker of [
+  "10.12 Suricata DPI/IDS/IPS (2.0, D13)",
+  "활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단",
+  "/api/v1/suricata/ips/status",
+  "SID 선정 주의"
+]) {
+  if (!securityGuide.includes(marker)) {
+    throw new Error(`security Suricata contract missing: ${marker}`);
+  }
+}
+if (networking.includes("6.12 Suricata DPI/IDS/IPS")) {
+  throw new Error("Suricata section remained in networking chapter");
+}
+if (!networking.includes("6.12 Local VPC")) {
+  throw new Error("Local VPC section renumbering missing");
+}
+if ((securityGuide.match(/class="pcv-network-example-diagram/g) || []).length !== 1) {
+  throw new Error("security Suricata example diagram count mismatch");
+}
+const suricataAsset = "/assets/diagrams/network-examples/suricata.svg";
+if ((securityGuide.match(new RegExp(suricataAsset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 2) {
+  throw new Error("security Suricata example diagram reference mismatch");
 }
 if (!networking.includes("로컬 네트워크 제어면입니다.<br>")) {
   throw new Error("network period-based sentence break is not rendered");

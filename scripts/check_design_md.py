@@ -505,6 +505,9 @@ def main() -> int:
         network_start = text.index("## 6. 네트워크")
         network_end = text.index("## 8. 모니터링 & 알림", network_start)
         network_chapter = text[network_start:network_end]
+        security_start = text.index("## 10. 보안")
+        security_end = text.index("## 11. 클라우드 마이그레이션", security_start)
+        security_chapter = text[security_start:security_end]
         require(f"{path} must link DESIGN.md", "DESIGN.md" in text)
         require(
             f"{path} must link design preview",
@@ -558,6 +561,15 @@ def main() -> int:
         require(
             f"{path} network chapter must rely on the period-based renderer instead of manual breaks",
             "<br>" not in network_chapter,
+        )
+        require(
+            f"{path} must place Suricata under security 10.12 instead of networking",
+            "### 6.12 Suricata DPI/IDS/IPS" not in network_chapter
+            and "### 10.12 Suricata DPI/IDS/IPS (2.0, D13)" in security_chapter,
+        )
+        require(
+            f"{path} must renumber Local VPC to networking 6.12",
+            "### 6.12 Local VPC" in network_chapter,
         )
         require_all(
             path,

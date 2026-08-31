@@ -2755,8 +2755,8 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 | [SR-IOV](#69-sr-iov) | VF에 VLAN·spoof check를 설정하고 VM에 직접 할당 | `pcvctl sriov list`, VM hostdev XML |
 | [네트워크 디버깅](#610-네트워크-디버깅) | VM 통신 장애를 link→bridge→policy→overlay 순서로 격리 | 계층별 actual 명령의 일치 여부 |
 | [Prometheus 메트릭](#611-네트워크-prometheus-메트릭) | NIC error·drop과 conntrack 포화를 관측 | `/api/v1/metrics` 필터 결과 |
-| [Suricata IDS/IPS](#612-suricata-dpiidsips-20-d13) | 탐지 상태 확인 후 선택 SID만 인라인 차단 | IPS status, drop list, 보안 이벤트 |
-| [Local VPC](#613-local-vpc) | tenant subnet의 VM 서비스를 허용 CIDR에 제한 게시 | Job terminal, `vpc get`, `vpc service-list`, `vpc status` |
+| [Suricata IDS/IPS](https://purecvisor.site/ko/security/security/#1012-suricata-dpiidsips-20-d13) | 보안 10.12에서 탐지 상태 확인 후 선택 SID만 인라인 차단 | IPS status, drop list, 보안 이벤트 |
+| [Local VPC](#612-local-vpc) | tenant subnet의 VM 서비스를 허용 CIDR에 제한 게시 | Job terminal, `vpc get`, `vpc service-list`, `vpc status` |
 
 ### 6.1 브릿지 네트워크
 
@@ -2904,7 +2904,7 @@ pcvctl network list
 sudo nft list table inet purecvisor
 ```
 
-VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.13 Local VPC를 사용합니다.
+VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.12 Local VPC를 사용합니다.
 데몬이 소유한 `inet purecvisor` table을 운영자가 직접 수정하면 desired state와 actual state가 어긋나므로 영구 설정 절차로 사용하지 않습니다.
 
 > **명령 실행 안전성**: 모든 방화벽 조작은 `pcv_spawn_sync()` argv 배열로 실행됩니다. `system()`과 `popen()`은 사용하지 않습니다.
@@ -3506,96 +3506,7 @@ node_nf_conntrack_entries_limit
 `error` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.
 `node_nf_conntrack_entries`가 limit에 가까우면 NAT·Security Group workload의 연결 수와 timeout 정책을 점검합니다.
 
-### 6.12 Suricata DPI/IDS/IPS (2.0, D13)
-
-2.0은 Suricata 엔진을 연동해 L7 심층 패킷 검사(DPI) 기반 침입 탐지(IDS)와 인라인 침입 방지(IPS) 제어면을 추가했습니다. Suricata IDS 엔진은 `purecvisorsd`와 별도 systemd 유닛(`suricata.service`, `Restart=no`)으로 기동하며, 재기동 권위는 데몬의 보안 헬스 감시가 갖습니다.
-
-> **ADMIN 전용 제어면**: `suricata.*` 10종은 `/api/v1/suricata/*` 전용 REST와 Web UI
-> **관제 → 보안 이벤트**의 `Suricata Runtime`에서 사용합니다. CLI 서브커맨드는 없으며,
-> 정책·상태도 전 테넌트 관찰 표면이므로 조회와 변경 모두 ADMIN 권한이 필요합니다.
-
-#### IDS (탐지)
-
-Suricata가 `/var/log/suricata/eve.json`에 남기는 alert 라인(`event_type=="alert"`만 대상)을 실시간으로 tail 해 PureCVisor 표준 보안 이벤트(`security_event`)로 정규화합니다. 폭주 방지를 위해 coalesce(동종 이벤트 병합)와 rate-limit이 걸립니다. 정규화된 이벤트는 §10.7 Native Host HIDS/HIPS와 같은 `security.event.*` 큐로 흘러 Web UI `관제 > 보안 이벤트`에서 함께 확인됩니다.
-
-| 메서드 | 용도 |
-|--------|------|
-| `suricata.status` | Suricata 엔진/유닛 상태 |
-| `suricata.rules.update` | 룰 시그니처 갱신(원자 교체·롤백) |
-| `suricata.policy.get` / `suricata.policy.set` | 탐지 정책 조회/설정 |
-
-#### IPS (인라인, Phase B)
-
-인라인 방지 경로는 nftables `inet purecvisor ips` 체인(forward hook, priority -10)과 `suricata-ips` nfqueue 유닛으로 구성됩니다. forward 트래픽을 Suricata로 보내는 규칙 하나가 fail-open/fail-closed 축의 **유일한 표현**입니다 — `queue flags bypass to N`이면 fail-open(큐 리스너가 없을 때 커널이 그대로 ACCEPT), `queue num N`(bypass 없음)이면 fail-closed(리스너가 없으면 드롭)입니다. 어느 쪽을 걸지는 `daemon.conf`의 `[ips] fail_open`이 정하며, 기본값은 `true`(fail-open)입니다. base 체인의 accept는 비종결이라 기존 forward 필터·격리 규칙과 간섭하지 않습니다.
-
-Stage 2부터 엔진은 IDS 원본이 아니라 데몬이 만드는 **파생 룰셋**(`/var/lib/suricata/suricata-ips.rules`)을 읽습니다. 파생본은 원본을 복사하면서 `suricata.ips.drop.*`로 지정된 SID의 선두 `alert`만 `drop`으로 치환한 것이고, 교체 전에 `suricata -T`로 검증합니다(실패 시 기존 파생본 무변경 — fail-safe). **차단 대상 SID의 기본값은 빈 집합**이므로 초기 파생본은 원본과 동일하며, 실제 차단은 운영자가 `drop.add`로 SID를 넣은 뒤부터 시작됩니다.
-
-fail-closed에서 엔진이 죽으면 헬스 tick이 규칙을 먼저 걷어 경로를 열고, 유닛 재기동 → 큐 바인딩 확인(readiness) → 규칙 복원 순으로 자동 복구합니다. 재기동이 연속 3회 실패하면 **fail-open으로 강등**하고(bypass 규칙 재삽입) CRIT 알림을 발화합니다. 이때 `status`의 `fail_open`은 설정값 그대로 `false`인 채 `degraded`만 `true`가 되므로, 두 필드의 불일치가 "설정은 fail-closed인데 실효 fail-open"을 나타내는 신호입니다.
-
-Stage 2의 설계 전제는 **IDS와 룰셋 원본을 공유한다**는 점입니다. ET Open 원본
-(`/var/lib/suricata/rules/suricata.rules`)은 파생 과정에서 **읽기만 하고 절대 수정하지 않으며**, 새로 쓰는
-것은 IPS 전용 파생본뿐입니다. 그래서 IPS 쪽 조작 실수가 IDS 탐지 범위를 훼손할 수 없고, 원본 갱신
-(`suricata.rules.update`)과 파생본 재생성이 서로를 덮어쓰지 않습니다. 원본이 파생본보다 나중에 바뀐 상태
-(staleness)는 별도로 감지해 부팅 시 WARN으로 드러냅니다.
-
-fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 아무것도 설정하지 않으면 엔진이 죽어도
-트래픽은 통과합니다. `false`로 바꾸는 것은 "검사할 수 없으면 끊는다"는 운영 결정이며, 위의 readiness 게이팅
-(큐 바인딩을 확인한 뒤에만 규칙 복원)과 3연속 실패 시 fail-open 자동 강등이 그 결정에 딸린 안전망입니다.
-
-> **혼동 주의 — 축이 둘입니다**: 엔진 yaml(`suricata-ips.yaml`)의 `nfq.fail-open`은 위의 fail-open/fail-closed
-> 축이 **아닙니다**. 그 값은 큐가 포화됐을 때 커널이 미판정 패킷을 어떻게 할지를 정하며, 현재 `no`
-> (검사 우회 대신 안전 실패)입니다. 엔진 사망 축의 단일 표현은 어디까지나 nft 규칙의 `bypass` 토큰이고,
-> 두 값은 서로 간섭 없이 공존합니다(`nfq.fail-open: no` + `queue flags bypass to 0`).
-
-| 메서드 | 용도 |
-|--------|------|
-| `suricata.ips.enable` | nfqueue 인라인 경로 활성화(`suricata-ips` 유닛 기동 + 큐 규칙 add) |
-| `suricata.ips.disable` | 인라인 경로 비활성화(체인 flush + 유닛 stop) |
-| `suricata.ips.status` | IPS(인라인) 상태(`{engine, enabled, queue_num, fail_open, mode, degraded, last_toggle}`) |
-| `suricata.ips.drop.list` | 차단 대상 SID 목록(오름차순) |
-| `suricata.ips.drop.add` | 차단 대상 SID 추가 — 비동기 단일-비행, 즉시 `{"status":"started"}` 반환 후 파생 룰셋 재생성 |
-| `suricata.ips.drop.remove` | 차단 대상 SID 제거 — `add`와 동일한 비동기 계약 |
-
-`drop.add`/`drop.remove`는 파생 룰셋 재생성 + `suricata -T` 검증 + 원자 교체 + 엔진 reload를 수행하므로 응답이 즉시 오더라도 **반영까지는 시간이 걸립니다**(최악 약 65초). 완료 여부는 `status`의 `last_toggle` 또는 `drop.list` 재조회로 확인하세요. 세 메서드 모두 role 2(ADMIN) 이상입니다.
-
-#### 활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단
-
-먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.
-IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
-
-<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-suricata-caption">
-  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/suricata.svg" target="_blank" rel="noopener" aria-label="Suricata IDS IPS 활용 예제 구성도를 새 탭에서 확대해서 보기">
-    <img src="/assets/diagrams/network-examples/suricata.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM forward packet이 nftables NFQUEUE와 Suricata IDS IPS engine을 거쳐 allow 또는 drop 결과와 PureCVisor 보안 이벤트로 이어지는 구성도">
-  </a>
-  <figcaption id="pcv-network-example-suricata-caption">queue readiness, 파생 drop 룰셋과 status가 수렴한 뒤 인라인 적용을 완료로 판단합니다.</figcaption>
-</figure>
-
-```bash
-# 엔진 상태 조회
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/status
-
-# 현재 inline 모드와 fail-open 설정 확인
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/ips/status
-
-# IPS 인라인 경로 활성화 (queue_num/fail_open은 daemon.conf 값 사용)
-curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -X POST http://localhost:80/api/v1/suricata/ips/enable
-
-# 차단 대상 SID 추가 (비동기 — 즉시 {"status":"started"} 반환)
-curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -X POST http://localhost:80/api/v1/suricata/ips/drop \
-  -d '{"sids":[2034647,2034648]}'
-
-# 반영 확인 (파생 룰셋 재생성 완료까지 최악 ~65초)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/ips/drop
-```
-
-> **헬스 감시**: `suricata.service`·`suricata-ips` 유닛은 데몬의 보안 헬스 tick이 같은 주기로 probe 하며, FAILED 감지 시 bounded `systemctl restart`(30초 상한) + 감사 로그로 자동 복구합니다.
-
-### 6.13 Local VPC
+### 6.12 Local VPC
 
 Local VPC는 한 Single Edge 호스트에서 tenant별 VPC, 여러 IPv4 subnet과 정지 VM
 attachment를 하나의 desired state로 관리합니다. 생성할 때 `linux` 또는 `ovn` backend를
@@ -4639,15 +4550,105 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 > **AppArmor 데몬-confinement 미배포 결정([ADR-0028](adr/0028-2.0-host-hardening-hidepid-over-apparmor-confinement.md))**: 이 환경(hidepid=2)에서 데몬을 AppArmor 프로필로 confine 하면 libvirt 연결이 파손된다 — `hidepid=2`가 타 프로세스 `/proc/<pid>` 접근을 커널 `ptrace_may_access()`로 게이트하고, 그 경로가 AppArmor ptrace 매개를 발동해 confined libvirtd가 데몬의 `/proc/stat`을 identity로 읽지 못하기 때문이다. 2.0은 실증 소거가 확인된 **hidepid를 유지**하고, **AppArmor 데몬-self-confinement은 배포·enforce 하지 않는다**. AppArmor 프로필 파일 자체는 1.0 라인·참조용으로 패키지에 존치되며, VM(libvirt per-domain)·컨테이너(lxc per-container) 런타임 격리는 그대로 유지된다. 즉 2.0 호스트 통제는 capabilities 축소 + hidepid + 게스트/컨테이너 런타임 격리로 구성된다.
 
-### 10.12 인라인 IPS enforce (2.0.0, D13 Stage 2)
+### 10.12 Suricata DPI/IDS/IPS (2.0, D13)
 
-`2.0.0` 현행 정본은 Suricata 인라인 경로를 탐지 전용에서 **실제 차단(enforce)** 까지 밀어 올렸다. 제어면·RPC·설정
-전체는 §6.12 Suricata DPI/IDS/IPS에 있고, 여기서는 보안 태세로서
-알아야 할 세 가지만 정리한다.
+2.0은 Suricata 엔진을 연동해 L7 심층 패킷 검사(DPI) 기반 침입 탐지(IDS)와 인라인 침입 방지(IPS) 제어면을 추가했습니다.
+Suricata IDS 엔진은 `purecvisorsd`와 별도 systemd 유닛(`suricata.service`, `Restart=no`)으로 기동하며, 재기동 권위는 데몬의 보안 헬스 감시가 갖습니다.
 
-1. **탐지 자산은 불변이다.** 차단은 IDS와 공유하는 ET Open 원본을 고치는 방식이 아니라, 원본을 읽어 만든 IPS 전용 파생 룰셋에서 **화이트리스트로 지정한 SID의 `alert`만 `drop`으로 바꾸는** 방식이다. 차단 대상 SID의 기본값은 빈 집합이므로, 아무것도 지정하지 않으면 파생본은 원본과 동일하고 실제 차단은 일어나지 않는다.
-2. **fail-closed는 운영자의 opt-in이다.** 기본값은 fail-open이며, `[ips] fail_open=false`는 "검사할 수 없으면 트래픽을 끊는다"는 명시적 결정이다. 이 결정을 켠 뒤에는 readiness 게이팅(큐 바인딩 확인 후 규칙 복원)과 3연속 재기동 실패 시 fail-open 자동 강등 + CRIT 알림이 자기 자신에 대한 서비스 거부를 막는 안전망으로 동작한다.
-3. **SID 선정은 자기 트래픽을 본 사람이 한다.** 잘못 고른 SID 하나가 정상 트래픽을 끊는다. 차단 후보는 발화 이력·`noalert`·`flowbits` 의존·confidence 기준으로 걸러 고르고, 투입 후에는 IPS eve-log의 `drop` 레코드로 무엇이 실제로 끊겼는지 사후 확인한다.
+> **ADMIN 전용 제어면**: `suricata.*` 10종은 `/api/v1/suricata/*` 전용 REST와 Web UI **관제 → 보안 이벤트**의 `Suricata Runtime`에서 사용합니다.
+> CLI 서브커맨드는 없으며, 정책·상태도 전 테넌트 관찰 표면이므로 조회와 변경 모두 ADMIN 권한이 필요합니다.
+
+#### IDS (탐지)
+
+Suricata가 `/var/log/suricata/eve.json`에 남기는 alert 라인(`event_type=="alert"`만 대상)을 실시간으로 tail 해 PureCVisor 표준 보안 이벤트(`security_event`)로 정규화합니다.
+폭주 방지를 위해 coalesce(동종 이벤트 병합)와 rate-limit이 걸립니다.
+정규화된 이벤트는 §10.7 Native Host HIDS/HIPS와 같은 `security.event.*` 큐로 흘러 Web UI `관제 > 보안 이벤트`에서 함께 확인됩니다.
+
+| 메서드 | 용도 |
+|--------|------|
+| `suricata.status` | Suricata 엔진/유닛 상태 |
+| `suricata.rules.update` | 룰 시그니처 갱신(원자 교체·롤백) |
+| `suricata.policy.get` / `suricata.policy.set` | 탐지 정책 조회/설정 |
+
+#### IPS (인라인, Phase B)
+
+인라인 방지 경로는 nftables `inet purecvisor ips` 체인(forward hook, priority -10)과 `suricata-ips` nfqueue 유닛으로 구성됩니다.
+forward 트래픽을 Suricata로 보내는 규칙 하나가 fail-open/fail-closed 축의 **유일한 표현**입니다 — `queue flags bypass to N`이면 fail-open(큐 리스너가 없을 때 커널이 그대로 ACCEPT), `queue num N`(bypass 없음)이면 fail-closed(리스너가 없으면 드롭)입니다.
+어느 쪽을 걸지는 `daemon.conf`의 `[ips] fail_open`이 정하며, 기본값은 `true`(fail-open)입니다.
+base 체인의 accept는 비종결이라 기존 forward 필터·격리 규칙과 간섭하지 않습니다.
+
+Stage 2부터 엔진은 IDS 원본이 아니라 데몬이 만드는 **파생 룰셋**(`/var/lib/suricata/suricata-ips.rules`)을 읽습니다.
+파생본은 원본을 복사하면서 `suricata.ips.drop.*`로 지정된 SID의 선두 `alert`만 `drop`으로 치환한 것이고, 교체 전에 `suricata -T`로 검증합니다(실패 시 기존 파생본 무변경 — fail-safe).
+**차단 대상 SID의 기본값은 빈 집합**이므로 초기 파생본은 원본과 동일하며, 실제 차단은 운영자가 `drop.add`로 SID를 넣은 뒤부터 시작됩니다.
+
+fail-closed에서 엔진이 죽으면 헬스 tick이 규칙을 먼저 걷어 경로를 열고, 유닛 재기동 → 큐 바인딩 확인(readiness) → 규칙 복원 순으로 자동 복구합니다.
+재기동이 연속 3회 실패하면 **fail-open으로 강등**하고(bypass 규칙 재삽입) CRIT 알림을 발화합니다.
+이때 `status`의 `fail_open`은 설정값 그대로 `false`인 채 `degraded`만 `true`가 되므로, 두 필드의 불일치가 "설정은 fail-closed인데 실효 fail-open"을 나타내는 신호입니다.
+
+Stage 2의 설계 전제는 **IDS와 룰셋 원본을 공유한다**는 점입니다.
+ET Open 원본(`/var/lib/suricata/rules/suricata.rules`)은 파생 과정에서 **읽기만 하고 절대 수정하지 않으며**, 새로 쓰는 것은 IPS 전용 파생본뿐입니다.
+그래서 IPS 쪽 조작 실수가 IDS 탐지 범위를 훼손할 수 없고, 원본 갱신(`suricata.rules.update`)과 파생본 재생성이 서로를 덮어쓰지 않습니다.
+원본이 파생본보다 나중에 바뀐 상태(staleness)는 별도로 감지해 부팅 시 WARN으로 드러냅니다.
+
+fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 아무것도 설정하지 않으면 엔진이 죽어도 트래픽은 통과합니다.
+`false`로 바꾸는 것은 "검사할 수 없으면 끊는다"는 운영 결정이며, 위의 readiness 게이팅(큐 바인딩을 확인한 뒤에만 규칙 복원)과 3연속 실패 시 fail-open 자동 강등이 그 결정에 딸린 안전망입니다.
+
+> **혼동 주의 — 축이 둘입니다**: 엔진 yaml(`suricata-ips.yaml`)의 `nfq.fail-open`은 위의 fail-open/fail-closed 축이 **아닙니다**.
+> 그 값은 큐가 포화됐을 때 커널이 미판정 패킷을 어떻게 할지를 정하며, 현재 `no`(검사 우회 대신 안전 실패)입니다.
+> 엔진 사망 축의 단일 표현은 어디까지나 nft 규칙의 `bypass` 토큰이고, 두 값은 서로 간섭 없이 공존합니다(`nfq.fail-open: no` + `queue flags bypass to 0`).
+
+| 메서드 | 용도 |
+|--------|------|
+| `suricata.ips.enable` | nfqueue 인라인 경로 활성화(`suricata-ips` 유닛 기동 + 큐 규칙 add) |
+| `suricata.ips.disable` | 인라인 경로 비활성화(체인 flush + 유닛 stop) |
+| `suricata.ips.status` | IPS(인라인) 상태(`{engine, enabled, queue_num, fail_open, mode, degraded, last_toggle}`) |
+| `suricata.ips.drop.list` | 차단 대상 SID 목록(오름차순) |
+| `suricata.ips.drop.add` | 차단 대상 SID 추가 — 비동기 단일-비행, 즉시 `{"status":"started"}` 반환 후 파생 룰셋 재생성 |
+| `suricata.ips.drop.remove` | 차단 대상 SID 제거 — `add`와 동일한 비동기 계약 |
+
+`drop.add`/`drop.remove`는 파생 룰셋 재생성 + `suricata -T` 검증 + 원자 교체 + 엔진 reload를 수행하므로 응답이 즉시 오더라도 **반영까지는 시간이 걸립니다**(최악 약 65초).
+완료 여부는 `status`의 `last_toggle` 또는 `drop.list` 재조회로 확인하세요.
+세 메서드 모두 role 2(ADMIN) 이상입니다.
+
+> **SID 선정 주의**: 잘못 고른 SID 하나가 정상 트래픽을 끊습니다.
+> 차단 후보는 발화 이력·`noalert`·`flowbits` 의존·confidence 기준으로 걸러 고르고, 투입 후에는 IPS eve-log의 `drop` 레코드로 무엇이 실제로 끊겼는지 사후 확인합니다.
+
+#### 활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단
+
+먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.
+IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-suricata-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/suricata.svg" target="_blank" rel="noopener" aria-label="Suricata IDS IPS 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/suricata.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM forward packet이 nftables NFQUEUE와 Suricata IDS IPS engine을 거쳐 allow 또는 drop 결과와 PureCVisor 보안 이벤트로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-suricata-caption">queue readiness, 파생 drop 룰셋과 status가 수렴한 뒤 인라인 적용을 완료로 판단합니다.</figcaption>
+</figure>
+
+```bash
+# 엔진 상태 조회
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:80/api/v1/suricata/status
+
+# 현재 inline 모드와 fail-open 설정 확인
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:80/api/v1/suricata/ips/status
+
+# IPS 인라인 경로 활성화 (queue_num/fail_open은 daemon.conf 값 사용)
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST http://localhost:80/api/v1/suricata/ips/enable
+
+# 차단 대상 SID 추가 (비동기 — 즉시 {"status":"started"} 반환)
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  -X POST http://localhost:80/api/v1/suricata/ips/drop \
+  -d '{"sids":[2034647,2034648]}'
+
+# 반영 확인 (파생 룰셋 재생성 완료까지 최악 ~65초)
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:80/api/v1/suricata/ips/drop
+```
+
+> **헬스 감시**: `suricata.service`·`suricata-ips` 유닛은 데몬의 보안 헬스 tick이 같은 주기로 probe 하며, FAILED 감지 시 bounded `systemctl restart`(30초 상한) + 감사 로그로 자동 복구합니다.
 
 
 ---
