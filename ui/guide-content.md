@@ -2272,8 +2272,8 @@ node_disk_io_time_seconds_total{device="sda"}
 
 ### 네트워크 서비스 개요
 
-PureCVisor 네트워크 서비스는 한 Single Edge 호스트에서 VM의 연결 방식, 주소 할당, 외부 통신, tenant 격리와 트래픽 정책을 함께 관리하는 로컬 네트워크 제어면입니다.<br>
-`purecvisorsd`가 CLI, Web UI와 REST/RPC 요청을 받아 Linux bridge, `dnsmasq`, nftables, TC, OVS/OVN과 VM persistent XML에 필요한 상태를 적용합니다.<br>
+PureCVisor 네트워크 서비스는 한 Single Edge 호스트에서 VM의 연결 방식, 주소 할당, 외부 통신, tenant 격리와 트래픽 정책을 함께 관리하는 로컬 네트워크 제어면입니다.
+`purecvisorsd`가 CLI, Web UI와 REST/RPC 요청을 받아 Linux bridge, `dnsmasq`, nftables, TC, OVS/OVN과 VM persistent XML에 필요한 상태를 적용합니다.
 패킷은 데몬을 경유하지 않고 선택한 Linux/KVM 데이터 경로로 흐르며, 데몬은 구성의 생성·조회·복구와 권한·감사 경계를 담당합니다.
 
 | 구성 영역 | 네트워크 서비스가 제공하는 기능 | 주요 구현과 확인 지점 |
@@ -2284,8 +2284,8 @@ PureCVisor 네트워크 서비스는 한 Single Edge 호스트에서 VM의 연�
 | 오버레이·가속 경로 | VLAN, VXLAN, OVN, DPDK, SR-IOV | 기능별 상태 명령과 이 장의 전용 제약 |
 | 관측과 복구 | host 기준선, desired/actual 상태, 네트워크 메트릭 | `/api/v1/networks/host-baseline`, `network list`, `vpc status`, Prometheus |
 
-기본 네트워크와 Local VPC는 목적이 다릅니다.<br>
-기본 네트워크는 VM을 하나의 bridge 또는 물리 LAN에 직접 연결하는 단순한 호스트 네트워크이고, Local VPC는 tenant, subnet, attachment와 게시 서비스를 하나의 desired state로 관리하는 격리 경계입니다.<br>
+기본 네트워크와 Local VPC는 목적이 다릅니다.
+기본 네트워크는 VM을 하나의 bridge 또는 물리 LAN에 직접 연결하는 단순한 호스트 네트워크이고, Local VPC는 tenant, subnet, attachment와 게시 서비스를 하나의 desired state로 관리하는 격리 경계입니다.
 Local VPC를 사용하는 VM NIC는 VPC attachment 절차로 연결해야 하며, VPC가 관리하는 bridge를 일반 `network.*` 명령이나 `vm.create network_bridge`로 수정하면 안 됩니다.
 
 | 요구 사항 | 권장 방식 | 선택 이유 |
@@ -2297,13 +2297,13 @@ Local VPC를 사용하는 VM NIC는 VPC attachment 절차로 연결해야 하며
 | host 관리 연결을 유지하면서 같은 물리 LAN 사용 | `bridge/shared` | host IP·route·DNS를 이동하지 않고 VM L2를 중계합니다. |
 | tenant별 subnet·정책·선택적 inbound 게시 | `Local VPC`의 `linux` backend | 현재 공개 지원 경계 안에서 수명주기와 격리를 함께 관리합니다. |
 
-구성 전에는 `ip -br link`, `ip -4 route`와 Web UI의 `호스트 네트워크 기준선`을 함께 확인합니다.<br>
-새 CIDR은 host connected CIDR과 다른 VPC subnet에 겹치지 않아야 합니다.<br>
-물리 NIC를 사용할 때는 관리 경로인지 먼저 판별하고, `dedicated`와 `shared` 중 하나를 명시적으로 선택해야 합니다.<br>
+구성 전에는 `ip -br link`, `ip -4 route`와 Web UI의 `호스트 네트워크 기준선`을 함께 확인합니다.
+새 CIDR은 host connected CIDR과 다른 VPC subnet에 겹치지 않아야 합니다.
+물리 NIC를 사용할 때는 관리 경로인지 먼저 판별하고, `dedicated`와 `shared` 중 하나를 명시적으로 선택해야 합니다.
 특히 원격 접속에 사용하는 NIC를 `bridge/dedicated` 대상으로 선택하면 안 됩니다.
 
-일반 네트워크 변경은 결과를 다시 조회해 bridge, DHCP와 정책 상태를 확인합니다.<br>
-Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 CLI의 terminal 결과 또는 `jobs.get`의 `completed`를 확인한 뒤 `vpc status`로 actual state를 검증합니다.<br>
+일반 네트워크 변경은 결과를 다시 조회해 bridge, DHCP와 정책 상태를 확인합니다.
+Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 CLI의 terminal 결과 또는 `jobs.get`의 `completed`를 확인한 뒤 `vpc status`로 actual state를 검증합니다.
 현재 공개 지원 backend는 `linux`이며, `ovn`은 이 장에 명시된 추가 검증을 모두 통과하기 전까지 구현 후보로 취급합니다.
 
 [Single Edge 네트워크 서비스와 실제 패킷 경로 SVG 확대 보기](https://purecvisor.site/assets/diagrams/purecvisor-single-network-services.svg)
@@ -2312,7 +2312,7 @@ Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 
 
 #### 예제 1 — NAT 네트워크에 VM 연결
 
-이 예제는 별도의 upstream VLAN이나 물리 NIC 변경 없이 VM에 사설 주소와 외부 방향 통신을 제공하는 가장 단순한 구성입니다.<br>
+이 예제는 별도의 upstream VLAN이나 물리 NIC 변경 없이 VM에 사설 주소와 외부 방향 통신을 제공하는 가장 단순한 구성입니다.
 `10.44.0.0/24`가 host route와 기존 VM/VPC 대역에 사용되지 않는지 먼저 확인합니다.
 
 ```bash
@@ -2342,14 +2342,14 @@ ip -br address show app-nat
 sudo nft list ruleset
 ```
 
-게스트 OS의 NIC가 DHCP를 사용하면 `10.44.0.0/24`에서 주소를 받고 host의 NAT 경계를 통해 외부로 나갑니다.<br>
-NAT 네트워크 생성만으로 외부에서 게스트로 들어오는 포트가 자동 공개되지는 않습니다.<br>
+게스트 OS의 NIC가 DHCP를 사용하면 `10.44.0.0/24`에서 주소를 받고 host의 NAT 경계를 통해 외부로 나갑니다.
+NAT 네트워크 생성만으로 외부에서 게스트로 들어오는 포트가 자동 공개되지는 않습니다.
 외부 inbound가 필요하고 tenant 단위 수명주기까지 관리하려면 다음 Local VPC 예제처럼 Service Publish를 사용합니다.
 
 #### 예제 2 — Local VPC의 웹 서비스를 허용된 네트워크에 게시
 
-이 예제는 `acme` tenant의 웹 subnet을 만들고, 정지 상태의 `web-prod` VM을 연결한 뒤 host TCP `8443`을 게스트 TCP `443`으로 제한 게시합니다.<br>
-`web-prod`는 미리 생성되어 정지 상태여야 하고, 연결할 Security Group은 게스트 TCP `443`을 허용해야 합니다.<br>
+이 예제는 `acme` tenant의 웹 subnet을 만들고, 정지 상태의 `web-prod` VM을 연결한 뒤 host TCP `8443`을 게스트 TCP `443`으로 제한 게시합니다.
+`web-prod`는 미리 생성되어 정지 상태여야 하고, 연결할 Security Group은 게스트 TCP `443`을 허용해야 합니다.
 아래 `198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 클라이언트 CIDR로 반드시 바꿉니다.
 
 ```bash
@@ -2384,14 +2384,14 @@ pcvctl vpc service-list "$VPC_ID" --tenant acme
 pcvctl vpc status
 ```
 
-`listen_address`를 특정 node IPv4로 제한하면 다른 host 주소에는 같은 포트가 열리지 않습니다.<br>
-`0.0.0.0`은 모든 host IPv4에 게시한다는 의미이므로 명확한 운영 사유가 있을 때만 사용합니다.<br>
-Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인증서를 대신하지 않으므로 허용된 클라이언트에서 실제 응답까지 별도로 확인합니다.<br>
+`listen_address`를 특정 node IPv4로 제한하면 다른 host 주소에는 같은 포트가 열리지 않습니다.
+`0.0.0.0`은 모든 host IPv4에 게시한다는 의미이므로 명확한 운영 사유가 있을 때만 사용합니다.
+Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인증서를 대신하지 않으므로 허용된 클라이언트에서 실제 응답까지 별도로 확인합니다.
 명령이 실패하면 `vpc status`의 `reconcile_required`, resource의 `last_error`와 해당 Job의 terminal 오류를 먼저 확인합니다.
 
 #### 서비스별 예제 지도
 
-아래 표는 공개 네트워크 서비스 전체를 실제 작업 예제와 연결합니다.<br>
+아래 표는 공개 네트워크 서비스 전체를 실제 작업 예제와 연결합니다.
 한 예제에서 여러 기능을 함께 쓰더라도 각 서비스의 생성 또는 적용 명령과 actual state 확인 지점을 해당 절에 따로 제시합니다.
 
 | 서비스 | 활용 시나리오 | 적용 후 확인 |
@@ -2414,8 +2414,8 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 
 #### 활용 예제 — 연결 목적에 맞는 기본 네트워크 생성
 
-아래 다섯 모드는 같은 기능의 단계가 아니라 서로 다른 연결 목적입니다.<br>
-호스트의 connected CIDR과 겹치지 않는 대역을 고르고, 물리 LAN을 사용하는 두 모드는 NIC 역할과 복구 경로를 먼저 확인합니다.<br>
+아래 다섯 모드는 같은 기능의 단계가 아니라 서로 다른 연결 목적입니다.
+호스트의 connected CIDR과 겹치지 않는 대역을 고르고, 물리 LAN을 사용하는 두 모드는 NIC 역할과 복구 경로를 먼저 확인합니다.
 `dedicated`에는 원격 관리 NIC를 사용하지 않고, `shared`는 host L3 보존 조건과 upstream의 다중 source MAC 허용 여부를 확인합니다.
 
 ```bash
@@ -2518,12 +2518,12 @@ echo '{"jsonrpc":"2.0","method":"network.list","params":{},"id":"1"}' \
 
 ### 6.2 방화벽 (nftables)
 
-PureCVisor는 nftables를 기본 네트워크, Security Group, Local VPC와 Suricata IPS의 공통 host 정책 경계로 사용합니다.<br>
+PureCVisor는 nftables를 기본 네트워크, Security Group, Local VPC와 Suricata IPS의 공통 host 정책 경계로 사용합니다.
 사용자가 임의 chain에 규칙을 넣는 독립 `firewall.rule.*` 공개 RPC는 없으며, 서비스의 desired state를 변경하면 데몬이 소유한 규칙을 함께 생성·복구·정리합니다.
 
 #### 활용 예제 — NAT와 내부 격리 경계 비교
 
-아래 예제는 외부 통신이 필요한 workload와 외부에서 분리할 workload를 서로 다른 관리형 네트워크에 둡니다.<br>
+아래 예제는 외부 통신이 필요한 workload와 외부에서 분리할 workload를 서로 다른 관리형 네트워크에 둡니다.
 NAT 쪽에는 outbound masquerade가 생기고, isolated 쪽은 같은 bridge의 VM 간 통신만 남습니다.
 
 ```bash
@@ -2536,19 +2536,19 @@ pcvctl network list
 sudo nft list table inet purecvisor
 ```
 
-VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.13 Local VPC를 사용합니다.<br>
+VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.13 Local VPC를 사용합니다.
 데몬이 소유한 `inet purecvisor` table을 운영자가 직접 수정하면 desired state와 actual state가 어긋나므로 영구 설정 절차로 사용하지 않습니다.
 
 > **명령 실행 안전성**: 모든 방화벽 조작은 `pcv_spawn_sync()` argv 배열로 실행됩니다. `system()`과 `popen()`은 사용하지 않습니다.
 
 ### 6.3 VLAN 필터링
 
-VM NIC의 persistent libvirt XML에 802.1Q VLAN tag를 지정할 수 있습니다.<br>
+VM NIC의 persistent libvirt XML에 802.1Q VLAN tag를 지정할 수 있습니다.
 `vlan_id`는 고급 VM 속성이므로 현재 `pcvctl vm create` 옵션이 아니라 REST 또는 JSON-RPC body로 전달하며, 공개 `network.vlan.add` RPC는 없습니다.
 
 #### 활용 예제 — VM을 upstream VLAN 100에 연결
 
-이 예제의 `pcvbr0`는 VLAN 100을 전달할 수 있는 Linux bridge 또는 OVS bridge여야 합니다.<br>
+이 예제의 `pcvbr0`는 VLAN 100을 전달할 수 있는 Linux bridge 또는 OVS bridge여야 합니다.
 upstream switch port도 VLAN 100을 허용해야 하며, native VLAN과 guest tag 정책은 호스트 밖의 switch 설정과 일치해야 합니다.
 
 ```bash
@@ -2564,12 +2564,12 @@ sudo virsh dumpxml web-vlan
 sudo virsh domiflist web-vlan
 ```
 
-`dumpxml`의 VM interface 아래에 `<vlan><tag id="100"/></vlan>`이 있어야 합니다.<br>
+`dumpxml`의 VM interface 아래에 `<vlan><tag id="100"/></vlan>`이 있어야 합니다.
 게스트에서 주소를 받지 못하면 VM XML만 반복 수정하지 말고 bridge의 VLAN filtering과 upstream trunk 허용 목록을 함께 확인합니다.
 
 ### 6.4 QoS (트래픽 제어)
 
-TC 기반 네트워크 QoS를 지원합니다.<br>
+TC 기반 네트워크 QoS를 지원합니다.
 인터페이스 단위 `network.qos.*`는 기존 자동화 호환용 deprecated 표면이며, 새 구성은 VM·tenant SLA를 지속적으로 식별하고 reconcile하는 `qos.vm.*`와 `qos.tenant.*`를 우선합니다.
 
 #### 활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용
@@ -2643,7 +2643,7 @@ Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
 
 #### 활용 예제 — 외부 VXLAN endpoint와 수동 peer 구성
 
-이 예제는 PureCVisor 노드가 `192.0.2.19`를 tunnel source로 사용하고, 운영자가 관리하는 VXLAN 호환 endpoint `192.0.2.20`과 VNI 100을 연결하는 구성입니다.<br>
+이 예제는 PureCVisor 노드가 `192.0.2.19`를 tunnel source로 사용하고, 운영자가 관리하는 VXLAN 호환 endpoint `192.0.2.20`과 VNI 100을 연결하는 구성입니다.
 두 주소는 RFC 문서용 주소이므로 실제 tunnel endpoint로 바꾸고, underlay에서 UDP 4789와 MTU를 먼저 확인합니다.
 
 ```bash
@@ -2748,7 +2748,7 @@ OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원�
 
 #### 활용 예제 — 웹 논리 네트워크에 DHCP·ACL·SNAT 적용
 
-아래 절을 순서대로 실행하면 `ls-web` 논리 스위치와 `lr-main` 논리 라우터를 만들고, `10.0.1.0/24` DHCP와 웹 ACL, SNAT를 연결합니다.<br>
+아래 절을 순서대로 실행하면 `ls-web` 논리 스위치와 `lr-main` 논리 라우터를 만들고, `10.0.1.0/24` DHCP와 웹 ACL, SNAT를 연결합니다.
 `203.0.113.1`은 RFC 문서용 주소이므로 실제 external IP로 교체하고, 실행 전 `ovn status`가 준비 상태인지 확인합니다.
 
 #### OVN 상태
@@ -2838,12 +2838,12 @@ pcvctl ovn dhcp list ls-web
 
 ### 6.7 보안 그룹
 
-Security Group으로 VM의 ingress와 egress 허용 범위를 선언하고, nftables actual rule로 적용합니다.<br>
+Security Group으로 VM의 ingress와 egress 허용 범위를 선언하고, nftables actual rule로 적용합니다.
 CLI는 기본 생성·단일 포트 규칙·VM 연결을 제공하고, source CIDR이나 rule 제거처럼 세부 속성이 필요한 작업은 JSON-RPC를 사용합니다.
 
 #### 활용 예제 — 웹 포트와 관리 CIDR의 SSH만 허용
 
-아래 예제는 `web-prod` VM에 HTTP·HTTPS를 허용하고, SSH는 RFC 문서용 관리 대역 `192.0.2.0/24`에서만 허용합니다.<br>
+아래 예제는 `web-prod` VM에 HTTP·HTTPS를 허용하고, SSH는 RFC 문서용 관리 대역 `192.0.2.0/24`에서만 허용합니다.
 실행 전 해당 대역을 실제 관리 CIDR로 바꾸며, VM에 기존 그룹이 있다면 교체 영향을 먼저 확인합니다.
 
 ```bash
@@ -2871,19 +2871,19 @@ pcvctl security-group list
 sudo nft list table inet purecvisor
 ```
 
-이 예제는 DNS, NTP, package mirror 등 운영체제에 필요한 다른 egress를 자동으로 허용하지 않습니다.<br>
+이 예제는 DNS, NTP, package mirror 등 운영체제에 필요한 다른 egress를 자동으로 허용하지 않습니다.
 실제 workload 의존성을 확인한 뒤 최소 규칙을 추가하고, 잘못 연결했으면 `pcvctl security-group detach web-prod web-sg`로 분리합니다.
 
 > **영속화**: 보안 그룹은 SQLite에 저장되며, 데몬 재시작 시 nftables 규칙이 자동 복원됩니다. default-deny 정책이 기본 적용됩니다.
 
 ### 6.8 DPDK
 
-고성능 데이터 플레인을 위한 DPDK (Data Plane Development Kit) 통합을 지원합니다.<br>
+고성능 데이터 플레인을 위한 DPDK (Data Plane Development Kit) 통합을 지원합니다.
 이 경로는 NIC를 host kernel network stack에서 분리하므로 out-of-band 복구 수단과 전용 NIC가 준비된 경우에만 사용합니다.
 
 #### 활용 예제 — 전용 PCI NIC로 OVS-DPDK bridge 구성
 
-`0000:03:00.0`은 예시 PCI 주소입니다.<br>
+`0000:03:00.0`은 예시 PCI 주소입니다.
 `dpdk status`의 `available`과 hugepage 준비 상태를 먼저 확인하고, host 관리 경로 또는 기본 route가 연결된 NIC는 대상으로 선택하지 않습니다.
 
 ```bash
@@ -2911,12 +2911,12 @@ pcvctl dpdk unbind 0000:03:00.0
 
 ### 6.9 SR-IOV
 
-SR-IOV를 사용하여 물리 NIC의 가상 기능(VF)을 VM에 직접 할당합니다.<br>
+SR-IOV를 사용하여 물리 NIC의 가상 기능(VF)을 VM에 직접 할당합니다.
 VF 트래픽은 일반 Linux bridge와 host TC QoS를 우회하므로 switch 정책, IOMMU 격리와 guest driver를 함께 검증해야 합니다.
 
 #### 활용 예제 — VLAN 100 VF를 웹 VM에 직접 할당
 
-`eno2`는 예시 PF이며 host 관리 경로에 사용되지 않는 SR-IOV 지원 NIC여야 합니다.<br>
+`eno2`는 예시 PF이며 host 관리 경로에 사용되지 않는 SR-IOV 지원 NIC여야 합니다.
 아래 MAC은 문서용 locally administered 주소이므로 실제 배포에서는 중복되지 않는 값으로 바꿉니다.
 
 ```bash
@@ -2943,7 +2943,7 @@ pcvctl sriov list eno2
 pcvctl sriov detach web-prod 0000:03:10.0
 ```
 
-detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값을 사용합니다.<br>
+detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값을 사용합니다.
 사용을 모두 마친 뒤에만 `pcvctl sriov disable eno2`로 VF 수를 0으로 되돌립니다.
 
 > **직접 할당 안전 경계:** `sriov attach`는 PF와 VF의 IOMMU group을 서버에서 모두
@@ -2955,7 +2955,7 @@ detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값
 
 #### 활용 예제 — link에서 VM NIC까지 계층별 장애 격리
 
-한 번에 설정을 바꾸기보다 desired state, host link, bridge·OVS, 정책, VM NIC 순서로 실제 상태를 좁힙니다.<br>
+한 번에 설정을 바꾸기보다 desired state, host link, bridge·OVS, 정책, VM NIC 순서로 실제 상태를 좁힙니다.
 VLAN 또는 VXLAN을 쓰지 않는 구성이라면 해당 단계의 빈 결과는 정상입니다.
 
 ```bash
@@ -2980,14 +2980,14 @@ sudo virsh domiflist web-prod
 sudo virsh dumpxml web-prod
 ```
 
-기본 네트워크가 목록에 있지만 bridge가 없으면 생성 또는 재수화 오류를 확인합니다.<br>
+기본 네트워크가 목록에 있지만 bridge가 없으면 생성 또는 재수화 오류를 확인합니다.
 bridge와 VM NIC가 정상인데 통신이 실패하면 nftables·Security Group을 보고, VXLAN 구성에서만 실패하면 underlay endpoint, UDP 4789와 MTU를 확인합니다.
 
 ### 6.11 네트워크 Prometheus 메트릭
 
 #### 활용 예제 — NIC drop과 conntrack 포화 징후 확인
 
-먼저 `ip -br link`로 실제 interface 이름을 확인한 뒤 내장 `/api/v1/metrics`에서 같은 device label을 조회합니다.<br>
+먼저 `ip -br link`로 실제 interface 이름을 확인한 뒤 내장 `/api/v1/metrics`에서 같은 device label을 조회합니다.
 counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율을 기준으로 판단합니다.
 
 ```bash
@@ -3013,7 +3013,7 @@ node_nf_conntrack_entries
 node_nf_conntrack_entries_limit
 ```
 
-`error` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.<br>
+`error` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.
 `node_nf_conntrack_entries`가 limit에 가까우면 NAT·Security Group workload의 연결 수와 timeout 정책을 점검합니다.
 
 ### 6.12 Suricata DPI/IDS/IPS (2.0, D13)
@@ -3070,7 +3070,7 @@ fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 
 
 #### 활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단
 
-먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.<br>
+먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.
 IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
 
 ```bash
@@ -3138,7 +3138,7 @@ VPC name·tenant·backend·egress와 첫 subnet name·CIDR·MTU를 한 번에 �
 
 #### 활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시
 
-이 절의 예제는 공개 지원 backend인 `linux`를 사용합니다.<br>
+이 절의 예제는 공개 지원 backend인 `linux`를 사용합니다.
 `198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 client CIDR로 교체합니다.
 
 ```bash

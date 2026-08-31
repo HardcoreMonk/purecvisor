@@ -88,12 +88,13 @@ for (const [index, match] of chapterMatches.entries()) {
   const start = match.index + match[0].length;
   const end = chapterMatches[index + 1]?.index ?? rawGuide.length;
   const body = promoteSectionHeadings(rewriteRelativeLinks(rawGuide.slice(start, end).trim()));
+  const maxHeadingLevel = chapter.number === 6 ? 2 : 3;
   const frontmatter = `---
 title: ${JSON.stringify(chapter.title)}
 description: PureCVisor Single Edge ${chapter.title} 운영 문서
 tableOfContents:
   minHeadingLevel: 2
-  maxHeadingLevel: 3
+  maxHeadingLevel: ${maxHeadingLevel}
 ---
 
 `;

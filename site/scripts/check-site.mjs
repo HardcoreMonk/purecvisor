@@ -131,6 +131,8 @@ if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)
 }
 const landingStyles = await readFile(path.join(siteRoot, "src", "styles", "custom.css"), "utf8");
 const headerComponent = await readFile(path.join(siteRoot, "src", "components", "Header.astro"), "utf8");
+const pageTitleComponent = await readFile(path.join(siteRoot, "src", "components", "PageTitle.astro"), "utf8");
+const prepareContent = await readFile(path.join(siteRoot, "scripts", "prepare-content.mjs"), "utf8");
 const architectureInteractions = await readFile(
   path.join(siteRoot, "src", "scripts", "architecture-interactions.js"),
   "utf8"
@@ -149,6 +151,14 @@ for (const marker of [
 ]) {
   if (!headerComponent.includes(marker)) {
     throw new Error(`header storage/networking direct link missing: ${marker}`);
+  }
+}
+for (const marker of [
+  "const maxHeadingLevel = chapter.number === 6 ? 2 : 3;",
+  "maxHeadingLevel: ${maxHeadingLevel}"
+]) {
+  if (!prepareContent.includes(marker)) {
+    throw new Error(`network TOC hierarchy missing: ${marker}`);
   }
 }
 for (const staleMarker of ["Storage & networking", "스토리지 · 네트워크"]) {
@@ -183,6 +193,33 @@ for (const [selector, declarations] of [
   for (const declaration of declarations) {
     if (!block.includes(declaration)) {
       throw new Error(`reader width contract missing: ${selector} ${declaration}`);
+    }
+  }
+}
+for (const marker of [
+  'Astro.url.pathname === "/ko/infrastructure/networking/"',
+  'class="pcv-network-page-kicker"',
+  'class="pcv-network-page-lead"'
+]) {
+  if (!pageTitleComponent.includes(marker)) {
+    throw new Error(`network page title hierarchy missing: ${marker}`);
+  }
+}
+for (const [selector, declarations] of [
+  [".pcv-network-page-kicker", ["font-family: var(--sl-font-mono);", "font-size: 0.75rem;", "letter-spacing: 0.08em;"]],
+  [".pcv-network-page-lead", ["max-width: 43rem;", "font-size: 1.125rem;", "line-height: 1.72;", "word-break: keep-all;"]],
+  ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2", ["border-top: 2px solid var(--sl-color-gray-1);", "padding-top: 1.4rem;"]],
+  ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h3", ["border-inline-start: 3px solid var(--sl-color-accent);", "padding: 0.15rem 0 0.15rem 1rem;"]],
+  ["main:has(.pcv-network-page-kicker) .sl-markdown-content :is(p, li, figcaption) > br", ["display: none;", "margin: 0;"]],
+  ["main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td)", ["word-break: keep-all;"]],
+  ["main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td):first-child", ["min-width: 7.5rem;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`network reader hierarchy missing: ${selector} ${declaration}`);
     }
   }
 }

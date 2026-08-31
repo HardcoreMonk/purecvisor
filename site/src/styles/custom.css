@@ -201,6 +201,116 @@ main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer) 
   margin-inline-end: auto;
 }
 
+:is(.pcv-network-page-kicker, .pcv-network-page-lead) {
+  width: 100%;
+  max-width: var(--pcv-prose-width);
+  margin-inline-start: clamp(
+    0rem,
+    calc((100% - var(--pcv-technical-width)) / 2),
+    var(--pcv-reader-rail-inset-max)
+  );
+  margin-inline-end: auto;
+}
+
+.pcv-network-page-kicker {
+  margin-block: 0 0.75rem;
+  color: var(--sl-color-accent);
+  font-family: var(--sl-font-mono);
+  font-size: 0.75rem;
+  font-weight: 700;
+  letter-spacing: 0.08em;
+  line-height: 1.4;
+  text-transform: uppercase;
+}
+
+.pcv-network-page-lead {
+  max-width: 43rem;
+  margin-block: 1rem 0;
+  color: var(--sl-color-gray-2);
+  font-size: 1.125rem;
+  line-height: 1.72;
+  text-wrap: pretty;
+  word-break: keep-all;
+}
+
+main:has(.pcv-network-page-kicker) > .content-panel:first-of-type {
+  padding-block: clamp(2.25rem, 5vw, 4rem);
+}
+
+main:has(.pcv-network-page-kicker) > .content-panel:first-of-type h1 {
+  font-size: clamp(2.5rem, 5vw, 3.5rem);
+  line-height: 1.08;
+  letter-spacing: -0.035em;
+  text-wrap: balance;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content {
+  --pcv-prose-width: 43rem;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2 {
+  margin-top: clamp(4rem, 8vw, 5.5rem);
+  padding-top: 1.4rem;
+  border-top: 2px solid var(--sl-color-gray-1);
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2:first-child {
+  margin-top: 1rem;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2 > h2 {
+  font-size: clamp(1.75rem, 3vw, 2.125rem);
+  font-weight: 700;
+  line-height: 1.2;
+  letter-spacing: -0.028em;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h3 {
+  margin-top: 2.75rem;
+  padding: 0.15rem 0 0.15rem 1rem;
+  border-inline-start: 3px solid var(--sl-color-accent);
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h3 > h3 {
+  font-size: clamp(1.2rem, 2vw, 1.375rem);
+  font-weight: 600;
+  line-height: 1.35;
+  letter-spacing: -0.012em;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > :is(p, ul, ol, blockquote) {
+  line-height: 1.78;
+  text-wrap: pretty;
+  word-break: keep-all;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content :is(p, li, figcaption) > br {
+  display: none;
+  margin: 0;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content > :is(table, .expressive-code, pre) {
+  margin-block: 1.5rem 2rem;
+  border-radius: 0.5rem;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content table thead {
+  background: var(--sl-color-gray-6);
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td) {
+  word-break: keep-all;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td):first-child {
+  min-width: 7.5rem;
+}
+
+main:has(.pcv-network-page-kicker) .sl-markdown-content table tbody td:first-child {
+  color: var(--sl-color-gray-1);
+  font-weight: 600;
+}
+
 .sl-markdown-content :is(table, pre) {
   border: 1px solid var(--sl-color-gray-5);
 }

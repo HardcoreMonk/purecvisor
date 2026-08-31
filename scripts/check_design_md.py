@@ -502,6 +502,9 @@ def main() -> int:
     )
 
     for path, text in (("docs/GUIDE.md", guide), ("ui/guide-content.md", ui_guide)):
+        network_start = text.index("## 6. 네트워크")
+        network_end = text.index("## 8. 모니터링 & 알림", network_start)
+        network_chapter = text[network_start:network_end]
         require(f"{path} must link DESIGN.md", "DESIGN.md" in text)
         require(
             f"{path} must link design preview",
@@ -551,6 +554,10 @@ def main() -> int:
         require(
             f"{path} must not publish the retired multi-control-plane notes",
             "멀티 제어면 참고 기록" not in text,
+        )
+        require(
+            f"{path} network chapter must use natural paragraph wrapping",
+            "<br>" not in network_chapter,
         )
         require_all(
             path,
