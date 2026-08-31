@@ -1,6 +1,6 @@
 # ADR-0047: 공개 문서는 언어·분류·문서별 정적 route를 사용한다
 
-- **상태:** Implemented
+- **상태:** Verified
 - **일자:** 2026-08-24
 - **승인:** 2026-08-24 사용자 명시 승인
 - **변경 승인:** 2026-08-30 일반 본문 50rem·표/코드 68rem·아키텍처 자료 75rem의
@@ -126,3 +126,10 @@ canvas는 1,200px였으며 1440·1280·390px에서도 page overflow, Axe와 brow
 공통 좌측축 차이 0을 확인했다. 1440·1280·390px reflow, 데이터베이스·네트워크 page overflow,
 Axe와 browser 오류가 모두 0이며 mobile 표 방향키 scroll과 최신 릴리스 세 줄도 유지됐다.
 Pages·custom domain 배포 검증 전까지 상태는 `Implemented`로 유지한다.
+
+구현 commit `fe7ce8c9f35fd1b70493efe2a0a7c9e29f5dc1ff`의 GitHub Pages run
+[`33425021822`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33425021822)이 성공했다.
+custom domain의 데이터베이스·네트워크 page에서 1920px 좌·우 rail 256px, Markdown canvas
+1,360px, 일반 본문 896px, 기술 자료 최대 1,152px와 공통 좌측축 차이 0을 확인했다. 390px은
+358px 단일 열을 유지했고 두 viewport 모두 page overflow, Axe와 browser 오류가 0이어서
+상태를 `Verified`로 전환했다.

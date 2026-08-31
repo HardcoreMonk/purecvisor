@@ -304,3 +304,8 @@ domain에서 H1~H6·본문·표·code의 좌측축 차이 0, 표·code 50~60rem 
 2026-08-31 generic OVN·host baseline 문서와 Networking 직접 링크 배포 receipt는
 [공개 운영 인계](operations/2026-08-31-ovn-documentation-source-pages-sync-handoff.md)에서
 별도로 관리한다.
+
+2026-09-01 넓은 화면 reader 확장 commit `fe7ce8c9f35fd1b70493efe2a0a7c9e29f5dc1ff`의 Pages run
+[`33425021822`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33425021822)과 custom
+domain에서 16rem sidebar, 일반 본문 56rem, 표·code 56~72rem, 88rem architecture canvas,
+1920·390px reflow와 Axe·browser 오류 0 계약을 검증했다.

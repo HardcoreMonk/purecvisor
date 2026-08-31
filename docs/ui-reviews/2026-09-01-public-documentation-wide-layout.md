@@ -1,7 +1,7 @@
 # 공개 문서 넓은 화면 공간 활용 UI 리뷰
 
 > **일자:** 2026-09-01
-> **판정:** LOCAL-PASS — Pages·custom domain 배포 검증 전
+> **판정:** LIVE-PASS — 로컬·GitHub Pages·custom domain 시각·접근성 검증 완료
 > **요청:** GitHub Pages 본문의 좌·우 잔여 공간을 최대한 활용
 > **대상:** Starlight reader의 좌측 탐색, 본문, 기술 자료, 아키텍처 자료와 우측 목차
 > **관련 결정:** ADR-0047
@@ -115,5 +115,20 @@ Chromium 152에서 데이터베이스와 네트워크 page를 측정했다. 1920
 - Chromium 1920px 최신 릴리스:
   `d9cbce0e2986fdae724884df562d9785c1fe8a0b768045811c0bddb843d8d086`
 
-Pages와 custom domain에서 같은 geometry·접근성 결과를 확인하기 전까지 판정은
-`LOCAL-PASS`, ADR 상태는 `Implemented`로 유지한다.
+로컬 수용 기준을 모두 충족해 Pages 배포 검증을 진행했다.
+
+## 9. GitHub Pages·custom domain 검증
+
+구현 commit `fe7ce8c9f35fd1b70493efe2a0a7c9e29f5dc1ff`의 GitHub Pages run
+[`33425021822`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33425021822)은 build와
+deploy를 모두 성공했다.
+
+`https://purecvisor.site`에서 데이터베이스와 네트워크 page를 다시 측정했다. 1920px의 좌·우
+rail 256px, Markdown canvas 1,360px, 일반 본문 896px, 데이터베이스 표 1,152px와 네트워크 표
+1,133px가 로컬 결과와 일치했다. 390px은 358px 단일 열을 유지했다. 두 viewport와 두 page에서
+공통 좌측축 차이, page overflow, Axe 위반과 console·page·request 오류는 모두 0이었다.
+
+라이브 1920px 데이터베이스·네트워크 캡처 SHA-256도 각각
+`4f8deca19fcba30ef60356a57e83393d5fc98ff93b8c54e2d8f6dd845e384d5c`,
+`fe18fabfdfbfff6dd0c2c70fb89367bc284f21a9e833237e26cabfbe2363a013`로 로컬과 일치했다.
+모든 수용 기준을 충족했으므로 판정을 `LIVE-PASS`, ADR 상태를 `Verified`로 전환한다.
