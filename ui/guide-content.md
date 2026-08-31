@@ -21,7 +21,6 @@
 4. [컨테이너 관리](#4-컨테이너-관리)
 5. [스토리지](#5-스토리지)
 6. [네트워크](#6-네트워크)
-7. [멀티 제어면 참고 기록](#7-멀티-제어면-참고-기록)
 8. [모니터링 & 알림](#8-모니터링--알림)
 9. [백업 & 복원](#9-백업--복원)
 10. [보안](#10-보안)
@@ -2904,21 +2903,6 @@ fallback하지 않습니다. OVN의 기본 `100.64.0.0/16` transit pool은 VPC�
 Linux backend이고, OVN 후보는 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계
 fault injection을 완료하기 전 `Implemented` 상태입니다. 후보 구현은 packet,
 schema migration, 최소 OVN 생성/삭제와 cleanup을 검증했습니다.
-
-## 7. 멀티 제어면 참고 기록
-
-Single Edge 공개판은 클러스터 HA, 라이브 마이그레이션, 페더레이션, 노드 드레인/리밸런싱을 운영 기능으로 제공하지 않는다. 이 리포에서 사용자가 그대로 따라 할 수 있는 절차는 단일 노드 운영으로 제한한다.
-
-현재 판단 기준:
-
-- `purecvisor-single`의 지원 표면은 단일 노드 `purecvisorsd`와 Single Edge UI/API/CLI다.
-- 클러스터/페더레이션/라이브 마이그레이션 절차는 공개판 기능 장으로 작성하지 않는다.
-- 역사적 설계 판단은 [ADR_INDEX.md](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/ADR_INDEX.md)와 `docs/adr/`에서 확인한다.
-- 공개판 경계 검증은 [PUBLIC_RELEASE_BOUNDARY.md](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/PUBLIC_RELEASE_BOUNDARY.md)를 따른다.
-
-멀티 제어면이 필요한 배포는 이 공개 리포가 아니라 별도 Multi Edge 범위에서 설계, 검증, 출시 판정을 수행해야 한다.
-
----
 
 ## 8. 모니터링 & 알림
 

@@ -5,7 +5,6 @@ const definitions = [
   [4, "컨테이너 관리", "워크로드", "workloads", "containers", "4-컨테이너-관리"],
   [5, "스토리지", "인프라", "infrastructure", "storage", "5-스토리지"],
   [6, "네트워크", "인프라", "infrastructure", "networking", "6-네트워크"],
-  [7, "멀티 제어면 참고 기록", "인프라", "infrastructure", "multi-control-plane-notes", "7-멀티-제어면-참고-기록"],
   [8, "모니터링 & 알림", "운영·복구", "operations", "monitoring-alerts", "8-모니터링-알림"],
   [9, "백업 & 복원", "운영·복구", "operations", "backup-restore", "9-백업-복원"],
   [10, "보안", "보안·자동화", "security", "security", "10-보안"],
@@ -57,9 +56,7 @@ export const supplementalDocuments = [
 
 export const readerDocuments = [...guideChapters, ...supplementalDocuments];
 
-export const landingDocuments = readerDocuments.filter(
-  (document) => document.slug !== "multi-control-plane-notes"
-);
+export const landingDocuments = readerDocuments;
 
 export const guideGroups = [...new Set(readerDocuments.map((document) => document.group))].map(
   (label) => ({

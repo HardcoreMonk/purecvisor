@@ -9,7 +9,7 @@
 
 PureCVisor 2.0.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
-`docs/GUIDE.md`의 숫자형 22개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
+`docs/GUIDE.md`의 숫자형 21개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
 `docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
 아키텍처 page로 생성한다.
 
@@ -25,9 +25,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   유지한다.
 - `/docs.html`은 기존 bookmark와 숫자형 장 hash를 새 정본 route로 보내는 호환 redirect다.
 - `guide.html`은 생성하거나 navigation과 landing link에서 사용하지 않는다.
-- `site/scripts/guide-routes.mjs`가 8개 그룹, 운영 가이드 22개 장, 별도 아키텍처 문서와
+- `site/scripts/guide-routes.mjs`가 8개 그룹, 운영 가이드 21개 장, 별도 아키텍처 문서와
   legacy hash의 route manifest를 소유한다.
-- `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`의 숫자형 H2 장을 22개 Astro content page로
+- `site/scripts/prepare-content.mjs`가 `docs/GUIDE.md`의 숫자형 H2 장을 21개 Astro content page로
   분할하고 `docs/DATABASE_STRUCTURE.md`를 독립 content page로 변환한다.
   `site/scripts/publish-product-docs.mjs`는 `/docs.html` 호환 redirect를 생성한다.
 - Pages workflow의 push path에는 `docs/GUIDE.md`, `docs/DATABASE_STRUCTURE.md`,
@@ -44,7 +44,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 
 ## 콘텐츠 동기화 계약
 
-- `docs/GUIDE.md`가 전체 운영 절차와 22개 장의 공개 작성 정본이다.
+- `docs/GUIDE.md`가 전체 운영 절차와 21개 장의 공개 작성 정본이다.
 - `docs/DATABASE_STRUCTURE.md`가 SQLite 저장소의 책임, schema, 일관성·장애·백업 경계를
   설명하는 공개 작성 정본이다. build 준비 단계는 원문의 H1만 Starlight page title로 치환하고
   나머지 heading·표·code fence와 raw HTML figure를 보존한다. GitHub source에서 사용하는
@@ -52,10 +52,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - `ui/guide-content.md`와 `ui/docs.html`은 제품 Web UI 문서 shell의 정본으로 남으며 공개 Pages
   reader의 runtime dependency가 아니다.
 - `site/src/components/DocumentationMap.astro`는 `site/scripts/guide-routes.mjs`의
-  `landingDocuments`에서 8개 그룹·22개 정본 route를 생성한다. `landingDocuments`는 23개 reader
-  문서 중 `멀티 제어면 참고 기록`을 landing 목록에서 제외하며 원문 page와 reader navigation은
-  유지한다. root·`/ko/`·`/en/` landing source는 이 컴포넌트를 호출하며 route 목록을 별도로
-  복제하지 않는다.
+  `landingDocuments`에서 8개 그룹·22개 정본 route를 생성한다. 운영 가이드 21개 장과
+  데이터베이스 아키텍처 문서가 landing 목록과 reader navigation을 공유한다.
+  `멀티 제어면 참고 기록`은 원문·route·navigation에서 발행하지 않는다. root·`/ko/`·`/en/`
+  landing source는 이 컴포넌트를 호출하며 route 목록을 별도로 복제하지 않는다.
 - 분할기는 장 안의 상대 source link를 공개 GitHub 저장소 URL로 정규화하고 H3 이하 heading을
   독립 page의 H2 이하 계층으로 승격한다.
 - 데이터베이스 공개본에는 실제 운영 노드 식별자, 비공개 인계 링크와 비공개 commit 식별자를
@@ -123,7 +123,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   두지 않는다. 64rem 초과는 4열, 40~64rem은 2열, 40rem 이하는 1열로 재배치한다.
 - opencodex.me에서 확인한 서비스 소개 뒤 전체 문서 맵으로 이어지는 정보 계층과 그룹별 단순 링크
   목록을 참고한다. 외부 색상, logo, 고유 문구, 이미지와 브랜드형 surface는 복제하지 않는다.
-- 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·23개 문서
+- 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·22개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
 - 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
@@ -249,10 +249,10 @@ npm ci
 npm run check
 ```
 
-검증은 `index.html`, `ko/index.html`, `en/index.html`, 22개 가이드와 1개 데이터베이스
+검증은 `index.html`, `ko/index.html`, `en/index.html`, 21개 가이드와 1개 데이터베이스
 아키텍처 directory page, 8개 sidebar group, 현재 page, 이전·다음 navigation,
 `/docs.html` legacy mapping, 네 disclosure menu와 언어 route,
-landing `문서 살펴보기`의 8개 그룹·22개 정본 link, 제외 항목 부재, 최종 CTA 부재, Hero action,
+landing `문서 살펴보기`의 8개 그룹·22개 정본 link, 폐기된 항목·route 부재, 최종 CTA 부재, Hero action,
 내부 link 무결성,
 `guide.html`·`guide-content.md` artifact 부재, 금지된 내부 주소·private repository 표식과 source
 map 부재를 확인한다. Hero 한 열, 문서 맵 4→2→1열, 44px link target, desktop 범위 문장 한 줄,
@@ -262,7 +262,7 @@ overview의 progressive inline fallback·ID namespace·node/cluster/edge mapping
 일반 본문 50rem·표/code 50~60rem 적응형 폭·아키텍처 75rem 상한, 공통 좌측 읽기 축,
 데이터베이스 문서 table의 keyboard focus도 함께 검사한다.
 실제 Pages 배포 후에는 `/`, `/ko/`,
-`/en/`, 설치 page 직접 본문, 22개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
+`/en/`, 설치 page 직접 본문, 21개 가이드 route, 데이터베이스 아키텍처 route, legacy 이동,
 검색, 좌우 목차, mobile navigation, HTTPS와 custom domain canonical URL을 확인한다.
 
 2026-08-30 구현 commit `d07e4c253e86a09583da7fee054c12f59855b919`의 Pages run

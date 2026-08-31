@@ -536,6 +536,15 @@ def main() -> int:
             f"{path} must not advertise the retired in-app service guide",
             "| 도움말 | 서비스 가이드" not in text,
         )
+        require(
+            f"{path} must not publish the retired multi-control-plane notes",
+            "멀티 제어면 참고 기록" not in text,
+        )
+
+    require(
+        "ui/docs.html must not publish the retired multi-control-plane notes",
+        "멀티 제어면 참고 기록" not in docs_html,
+    )
 
     require_all(
         "ui/guide-content.md",

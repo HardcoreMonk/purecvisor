@@ -36,6 +36,9 @@ const forbiddenText = [
   ["192", "168", "3", "51"].join("."),
   ["192", "168", "3", "53"].join("."),
   "T2FA-F4(WebAuthn/step-up)",
+  "멀티 제어면 참고 기록",
+  "Multi-control-plane notes",
+  "/ko/infrastructure/multi-control-plane-notes/",
   "클러스터 제어면, 라이브 마이그레이션, 페더레이션, 노드 드레인/리밸런싱 같은",
   "2026-08-04의 임시"
 ];
@@ -708,15 +711,6 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
   for (const document of landingDocuments) {
     if (!source.includes(`class="pcv-directory-link" href="${document.path}"`)) {
       throw new Error(`${name} documentation link missing: ${document.path}`);
-    }
-  }
-  for (const excludedMarker of [
-    "멀티 제어면 참고 기록",
-    "Multi-control-plane notes",
-    'class="pcv-directory-link" href="/ko/infrastructure/multi-control-plane-notes/"'
-  ]) {
-    if (source.includes(excludedMarker)) {
-      throw new Error(`${name} excluded documentation entry found: ${excludedMarker}`);
     }
   }
 }
