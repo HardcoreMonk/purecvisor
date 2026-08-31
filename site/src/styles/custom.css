@@ -284,11 +284,6 @@ main:has(.pcv-network-page-kicker) .sl-markdown-content > :is(p, ul, ol, blockqu
   word-break: keep-all;
 }
 
-main:has(.pcv-network-page-kicker) .sl-markdown-content :is(p, li, figcaption) > br {
-  display: none;
-  margin: 0;
-}
-
 main:has(.pcv-network-page-kicker) .sl-markdown-content > :is(table, .expressive-code, pre) {
   margin-block: 1.5rem 2rem;
   border-radius: 0.5rem;
@@ -846,6 +841,40 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   max-width: none;
 }
 
+.pcv-network-example-diagram {
+  max-width: var(--pcv-technical-width) !important;
+  margin-block: 1.25rem 1.75rem;
+  overflow: hidden;
+  border: 1px solid var(--pcv-map-line);
+  border-radius: 0.5rem;
+  background: var(--pcv-canvas);
+}
+
+.pcv-network-example-canvas {
+  display: block;
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--pcv-map-line) #f8fafc;
+  scrollbar-gutter: stable;
+}
+
+.pcv-network-example-canvas img {
+  display: block;
+  width: max(100%, 54rem);
+  min-width: 54rem;
+  max-width: none;
+  height: auto;
+}
+
+.pcv-network-example-diagram figcaption {
+  margin: 0;
+  padding: 0.7rem 0.9rem;
+  border-top: 1px solid var(--pcv-map-line);
+  color: var(--pcv-map-node-muted);
+  font-size: 0.75rem;
+  line-height: 1.5;
+}
+
 @keyframes pcv-architecture-flow {
   from {
     stroke-dashoffset: 24;
@@ -863,16 +892,17 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 }
 
 .pcv-architecture-inline .flowchart-link,
+.pcv-architecture-inline .pcv-network-edge,
 .pcv-architecture-inline .edgeLabel {
   pointer-events: none;
   transition: opacity 120ms ease-out;
 }
 
-.pcv-architecture-inline.pcv-is-inspecting .node:not(.pcv-is-related-node) {
+.pcv-architecture-inline.pcv-is-inspecting [data-pcv-node-id]:not(.pcv-is-related-node) {
   opacity: 0.28;
 }
 
-.pcv-architecture-inline.pcv-is-inspecting .flowchart-link:not(.pcv-is-related-edge) {
+.pcv-architecture-inline.pcv-is-inspecting :is(.flowchart-link, .pcv-network-edge):not(.pcv-is-related-edge) {
   opacity: 0.12;
 }
 
@@ -885,7 +915,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   opacity: 1;
 }
 
-.pcv-architecture-inline .node.pcv-is-active-target {
+.pcv-architecture-inline [data-pcv-node-id].pcv-is-active-target {
   filter: drop-shadow(0 0 0.2rem rgb(18 98 122 / 35%));
 }
 
@@ -900,6 +930,19 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   stroke-dasharray: 12 8 !important;
   stroke-linecap: round;
   animation: pcv-architecture-flow 560ms linear infinite;
+}
+
+.pcv-architecture-inline .pcv-network-edge.pcv-is-related-edge {
+  opacity: 1;
+  stroke: var(--pcv-architecture-flow) !important;
+  stroke-width: 3px !important;
+  stroke-dasharray: 12 8 !important;
+  stroke-linecap: round;
+  animation: pcv-architecture-flow 560ms linear infinite;
+}
+
+.pcv-architecture-inline .pcv-network-edge.pcv-is-related-edge.accelerated {
+  stroke: #9a5b13 !important;
 }
 
 .pcv-architecture-inline .flowchart-link.pcv-is-related-edge.edge-pattern-dotted {
@@ -1106,7 +1149,7 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
     transition-duration: 0.01ms !important;
   }
 
-  .pcv-architecture-inline .flowchart-link.pcv-is-related-edge {
+  .pcv-architecture-inline :is(.flowchart-link, .pcv-network-edge).pcv-is-related-edge {
     animation: none !important;
   }
 }

@@ -122,11 +122,20 @@ function namespaceSvg(svg, instanceKey) {
 function annotateSvg(svg) {
   const nodes = [];
   const nodeIds = new Set();
+  const seenNodes = new Set();
+  for (const node of svg.querySelectorAll("[data-pcv-node-id]")) {
+    const nodeId = node.dataset.pcvNodeId;
+    if (!nodeId || seenNodes.has(node)) continue;
+    nodeIds.add(nodeId);
+    seenNodes.add(node);
+    nodes.push(node);
+  }
   for (const node of svg.querySelectorAll("g.node[id]")) {
     const match = node.id.match(/^my-svg-flowchart-(.+)-[0-9]+$/);
-    if (!match) continue;
+    if (!match || seenNodes.has(node)) continue;
     node.dataset.pcvNodeId = match[1];
     nodeIds.add(match[1]);
+    seenNodes.add(node);
     nodes.push(node);
   }
 
@@ -138,15 +147,24 @@ function annotateSvg(svg) {
   }
 
   const edges = [];
+  const seenEdges = new Set();
+  for (const edge of svg.querySelectorAll("[data-pcv-edge-id][data-pcv-from][data-pcv-to]")) {
+    const from = edge.dataset.pcvFrom;
+    const to = edge.dataset.pcvTo;
+    if (!from || !to || !nodeIds.has(from) || !nodeIds.has(to) || seenEdges.has(edge)) continue;
+    seenEdges.add(edge);
+    edges.push(edge);
+  }
   for (const edge of svg.querySelectorAll("path[data-edge='true'][data-id]")) {
     const rawId = edge.getAttribute("data-id");
     const endpoints = resolveArchitectureEdge(rawId, nodeIds);
-    if (!rawId || !endpoints) continue;
+    if (!rawId || !endpoints || seenEdges.has(edge)) continue;
     edge.dataset.pcvEdgeId = rawId;
     edge.dataset.pcvFrom = endpoints.from;
     edge.dataset.pcvTo = endpoints.to;
     const label = edgeLabels.get(rawId);
     if (label) label.dataset.pcvEdgeLabelId = rawId;
+    seenEdges.add(edge);
     edges.push(edge);
   }
 
@@ -243,7 +261,7 @@ function attachInteraction(svg, topology) {
 async function enhanceArchitectureCanvas(canvas) {
   if (!(canvas instanceof HTMLAnchorElement)) return;
   if (canvas.dataset.pcvArchitectureState) return;
-  const image = canvas.querySelector("img.pcv-overview-architecture-image");
+  const image = canvas.querySelector("img.pcv-architecture-source-image");
   if (!(image instanceof HTMLImageElement)) return;
   const source = image.getAttribute("src");
   const instanceKey = canvas.dataset.pcvArchitectureInteractive;
@@ -262,10 +280,11 @@ async function enhanceArchitectureCanvas(canvas) {
     const svg = parseSvg(await response.text());
     if (!svg) throw new Error("unsafe SVG response");
     const topology = annotateSvg(svg);
-    if (topology.nodes.length === 0 || topology.edges.length === 0 || topology.layers.length === 0) {
+    if (topology.nodes.length === 0 || topology.edges.length === 0) {
       throw new Error("incomplete SVG topology");
     }
     namespaceSvg(svg, instanceKey);
+    for (const className of image.classList) svg.classList.add(className);
     svg.classList.add("pcv-architecture-source-image", "pcv-architecture-inline");
     svg.setAttribute("aria-hidden", "true");
     svg.setAttribute("focusable", "false");

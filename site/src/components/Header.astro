@@ -280,6 +280,12 @@ const menus = isEnglish
       });
     });
   }
+
+  for (const canvas of document.querySelectorAll("[data-pcv-architecture-interactive]")) {
+    if (canvas.closest("[data-pcv-architecture-tabs]")) continue;
+    const root = canvas.parentElement;
+    if (root) void enhanceArchitecturePanel(root);
+  }
 </script>
 
 <style>

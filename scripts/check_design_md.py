@@ -556,7 +556,7 @@ def main() -> int:
             "멀티 제어면 참고 기록" not in text,
         )
         require(
-            f"{path} network chapter must use natural paragraph wrapping",
+            f"{path} network chapter must rely on the period-based renderer instead of manual breaks",
             "<br>" not in network_chapter,
         )
         require_all(

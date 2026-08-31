@@ -19,6 +19,21 @@ import {
 const scriptDir = path.dirname(fileURLToPath(import.meta.url));
 const siteRoot = path.resolve(scriptDir, "..");
 const distRoot = path.join(siteRoot, "dist");
+const networkExampleAssets = [
+  ["bridge-network.svg", "브릿지 네트워크 활용 예제 구성도"],
+  ["managed-firewall.svg", "관리형 방화벽 활용 예제 구성도"],
+  ["vlan-filtering.svg", "VLAN 필터링 활용 예제 구성도"],
+  ["qos.svg", "QoS 활용 예제 구성도"],
+  ["ovs-vxlan.svg", "OVS VXLAN 활용 예제 구성도"],
+  ["ovn-sdn.svg", "OVN SDN 활용 예제 구성도"],
+  ["security-group.svg", "보안 그룹 활용 예제 구성도"],
+  ["dpdk.svg", "DPDK 활용 예제 구성도"],
+  ["sriov.svg", "SR-IOV 활용 예제 구성도"],
+  ["debugging.svg", "네트워크 디버깅 활용 예제 구성도"],
+  ["prometheus-metrics.svg", "네트워크 Prometheus 메트릭 활용 예제 구성도"],
+  ["suricata.svg", "Suricata IDS IPS 활용 예제 구성도"],
+  ["local-vpc.svg", "Local VPC 활용 예제 구성도"]
+];
 const requiredFiles = [
   "index.html",
   "ko/index.html",
@@ -29,6 +44,7 @@ const requiredFiles = [
   "assets/diagrams/purecvisor-single-direct-https-architecture.svg",
   "assets/diagrams/purecvisor-single-database-architecture.svg",
   "assets/diagrams/purecvisor-single-network-services.svg",
+  ...networkExampleAssets.map(([file]) => `assets/diagrams/network-examples/${file}`),
   ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
 const forbiddenText = [
@@ -137,6 +153,10 @@ const architectureInteractions = await readFile(
   path.join(siteRoot, "src", "scripts", "architecture-interactions.js"),
   "utf8"
 );
+const sentenceBreakPlugin = await readFile(
+  path.join(siteRoot, "scripts", "rehype-sentence-breaks.mjs"),
+  "utf8"
+);
 const directArchitectureSource = await readFile(
   path.join(siteRoot, "..", "docs", "architecture", "purecvisor-single-direct-https-architecture.mmd"),
   "utf8"
@@ -185,6 +205,7 @@ for (const [selector, declarations] of [
   [".sl-markdown-content:not(:has(.pcv-landing)) > .sl-heading-wrapper.level-h3 > h3", ["font-size: clamp(1.35rem, 2vw, 1.5rem);", "line-height: 1.3;", "word-break: keep-all;"]],
   [".sl-markdown-content:not(:has(.pcv-landing)) > :is(table, .expressive-code, pre, .pcv-technical-wide)", ["width: fit-content;", "min-width: min(100%, var(--pcv-prose-width));", "max-width: min(100%, var(--pcv-technical-width));"]],
   [".sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide)", ["width: 100%;", "max-width: var(--pcv-architecture-width);", "margin-inline: auto;"]],
+  [".sl-markdown-content:not(:has(.pcv-landing)) :is(p, li, figcaption) > br", ["display: block;", "margin-block-end: 0.3rem;", "content: \"\";"]],
   ["main:not(:has(.pcv-landing)) > .content-panel > .sl-container > :is(h1, footer)", ["width: 100%;", "max-width: var(--pcv-prose-width);", "margin-inline-start: clamp(", "margin-inline-end: auto;"]]
 ]) {
   const start = landingStyles.indexOf(`${selector} {`);
@@ -193,6 +214,24 @@ for (const [selector, declarations] of [
   for (const declaration of declarations) {
     if (!block.includes(declaration)) {
       throw new Error(`reader width contract missing: ${selector} ${declaration}`);
+    }
+  }
+}
+if (landingStyles.includes("main:has(.pcv-network-page-kicker) .sl-markdown-content :is(p, li, figcaption) > br")) {
+  throw new Error("network reader must not override period-based sentence breaks");
+}
+for (const [selector, declarations] of [
+  [".pcv-network-example-diagram", ["max-width: var(--pcv-technical-width) !important;", "border: 1px solid var(--pcv-map-line);", "border-radius: 0.5rem;"]],
+  [".pcv-network-example-canvas", ["display: block;", "overflow-x: auto;", "overscroll-behavior-inline: contain;", "scrollbar-gutter: stable;"]],
+  [".pcv-network-example-canvas img", ["width: max(100%, 54rem);", "min-width: 54rem;", "height: auto;"]],
+  [".pcv-network-example-diagram figcaption", ["border-top: 1px solid var(--pcv-map-line);", "font-size: 0.75rem;", "line-height: 1.5;"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`network example diagram style missing: ${selector} ${declaration}`);
     }
   }
 }
@@ -210,7 +249,6 @@ for (const [selector, declarations] of [
   [".pcv-network-page-lead", ["max-width: 43rem;", "font-size: 1.125rem;", "line-height: 1.72;", "word-break: keep-all;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h2", ["border-top: 2px solid var(--sl-color-gray-1);", "padding-top: 1.4rem;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content > .sl-heading-wrapper.level-h3", ["border-inline-start: 3px solid var(--sl-color-accent);", "padding: 0.15rem 0 0.15rem 1rem;"]],
-  ["main:has(.pcv-network-page-kicker) .sl-markdown-content :is(p, li, figcaption) > br", ["display: none;", "margin: 0;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td)", ["word-break: keep-all;"]],
   ["main:has(.pcv-network-page-kicker) .sl-markdown-content table :is(th, td):first-child", ["min-width: 7.5rem;"]]
 ]) {
@@ -221,6 +259,17 @@ for (const [selector, declarations] of [
     if (!block.includes(declaration)) {
       throw new Error(`network reader hierarchy missing: ${selector} ${declaration}`);
     }
+  }
+}
+for (const marker of [
+  'new Set(["p", "li", "figcaption"])',
+  'breakAtEnd ? /\\.(?=\\s+\\S|\\s*$)/g : /\\.(?=\\s+\\S)/g',
+  "hasFollowingContent(node.children, index)",
+  "if (/[0-9]/.test(previousCharacter)) continue;",
+  'tagName: "br"'
+]) {
+  if (!sentenceBreakPlugin.includes(marker)) {
+    throw new Error(`period-based sentence break contract missing: ${marker}`);
   }
 }
 for (const [selector, declarations] of [
@@ -640,7 +689,13 @@ for (const marker of [
   "VFIO · IOMMU · PF/VF",
   "libvirt · VM NIC",
   "Local VPC OVN backend · 추가 검증 전 후보",
-  "공개 범위 · 한 Linux/KVM 호스트"
+  "공개 범위 · 한 Linux/KVM 호스트",
+  'data-pcv-node-id="networkBasic"',
+  'data-pcv-node-id="actualLinux"',
+  'data-pcv-node-id="outcomePublish"',
+  'class="control pcv-network-edge"',
+  'class="data pcv-network-edge"',
+  'class="accelerated pcv-network-edge"'
 ]) {
   if (!networkArchitectureSvgText.includes(marker)) {
     throw new Error(`network architecture SVG contract missing: ${marker}`);
@@ -648,6 +703,12 @@ for (const marker of [
 }
 if ((networkArchitectureSvgText.match(/<rect class="family"/g) || []).length !== 4) {
   throw new Error("network architecture SVG service family count mismatch");
+}
+if ((networkArchitectureSvgText.match(/data-pcv-node-id=/g) || []).length !== 19) {
+  throw new Error("network architecture interactive node count mismatch");
+}
+if ((networkArchitectureSvgText.match(/data-pcv-edge-id=/g) || []).length !== 18) {
+  throw new Error("network architecture interactive edge count mismatch");
 }
 for (const marker of [
   /<script\b/i,
@@ -658,6 +719,36 @@ for (const marker of [
 ]) {
   if (marker.test(networkArchitectureSvgText)) {
     throw new Error(`unsafe network architecture SVG marker: ${marker}`);
+  }
+}
+
+for (const [file, title] of networkExampleAssets) {
+  const source = await readFile(
+    path.join(distRoot, "assets", "diagrams", "network-examples", file),
+    "utf8"
+  );
+  for (const marker of [
+    'width="960" height="280" viewBox="0 0 960 280"',
+    'role="img" aria-labelledby=',
+    `<title`,
+    title,
+    "<desc",
+    '<path class="edge"'
+  ]) {
+    if (!source.includes(marker)) {
+      throw new Error(`network example SVG contract missing: ${file} ${marker}`);
+    }
+  }
+  for (const marker of [
+    /<script\b/i,
+    /<foreignObject\b/i,
+    /\bon\w+\s*=/i,
+    /\b(?:xlink:)?href\s*=/i,
+    /url\(\s*["']?(?:https?:|\/\/)/i
+  ]) {
+    if (marker.test(source)) {
+      throw new Error(`unsafe network example SVG marker: ${file} ${marker}`);
+    }
   }
 }
 
@@ -700,6 +791,15 @@ for (const marker of [
   }
 }
 for (const marker of [
+  'document.querySelectorAll("[data-pcv-architecture-interactive]")',
+  'canvas.closest("[data-pcv-architecture-tabs]")',
+  "canvas.parentElement"
+]) {
+  if (!headerComponent.includes(marker)) {
+    throw new Error(`standalone architecture interaction missing: ${marker}`);
+  }
+}
+for (const marker of [
   "new DOMParser()",
   '"image/svg+xml"',
   'svg.querySelector("script, foreignObject")',
@@ -711,7 +811,11 @@ for (const marker of [
   '"pointerover"',
   'event.pointerType === "touch"',
   'canvas.dataset.pcvArchitectureState = "fallback"',
-  'svg.setAttribute("aria-hidden", "true")'
+  'svg.setAttribute("aria-hidden", "true")',
+  'svg.querySelectorAll("[data-pcv-node-id]")',
+  'svg.querySelectorAll("[data-pcv-edge-id][data-pcv-from][data-pcv-to]")',
+  'img.pcv-architecture-source-image',
+  "for (const className of image.classList)"
 ]) {
   if (!architectureInteractions.includes(marker)) {
     throw new Error(`overview architecture rollover interaction missing: ${marker}`);
@@ -956,9 +1060,11 @@ for (const interactionContract of [
   "--pcv-architecture-flow: #12627a;",
   ".pcv-architecture-inline [data-pcv-node-id]",
   ".pcv-architecture-inline [data-pcv-layer-id]",
-  ".pcv-architecture-inline.pcv-is-inspecting .node:not(.pcv-is-related-node)",
-  ".pcv-architecture-inline.pcv-is-inspecting .flowchart-link:not(.pcv-is-related-edge)",
+  ".pcv-architecture-inline.pcv-is-inspecting [data-pcv-node-id]:not(.pcv-is-related-node)",
+  ".pcv-architecture-inline.pcv-is-inspecting :is(.flowchart-link, .pcv-network-edge):not(.pcv-is-related-edge)",
   ".pcv-architecture-inline .flowchart-link.pcv-is-related-edge",
+  ".pcv-architecture-inline .pcv-network-edge.pcv-is-related-edge",
+  ".pcv-architecture-inline .pcv-network-edge.pcv-is-related-edge.accelerated",
   "stroke: var(--pcv-architecture-flow) !important;",
   "animation: pcv-architecture-flow 560ms linear infinite;",
   ".pcv-architecture-inline marker .arrowMarkerPath",
@@ -1113,6 +1219,21 @@ for (const marker of [
 
 if ((networking.match(/purecvisor-single-network-services\.svg/g) || []).length !== 3) {
   throw new Error("network architecture asset reference count mismatch");
+}
+if (!networking.includes('data-pcv-architecture-interactive="network"')) {
+  throw new Error("network architecture rollover entry point missing");
+}
+if ((networking.match(/class="pcv-network-example-diagram/g) || []).length !== networkExampleAssets.length) {
+  throw new Error("network example diagram count mismatch");
+}
+for (const [file] of networkExampleAssets) {
+  const asset = `/assets/diagrams/network-examples/${file}`;
+  if ((networking.match(new RegExp(asset.replace(/[.*+?^${}()|[\]\\]/g, "\\$&"), "g")) || []).length !== 2) {
+    throw new Error(`network example diagram reference mismatch: ${file}`);
+  }
+}
+if (!networking.includes("로컬 네트워크 제어면입니다.<br>")) {
+  throw new Error("network period-based sentence break is not rendered");
 }
 for (const staleMarker of [
   '&quot;method&quot;:&quot;firewall.rule.add&quot;',

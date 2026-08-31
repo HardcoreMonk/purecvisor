@@ -2650,10 +2650,10 @@ Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 
       <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-network-services.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
     </div>
   </div>
-  <a class="pcv-architecture-source-canvas pcv-network-architecture-canvas" href="/assets/diagrams/purecvisor-single-network-services.svg" target="_blank" rel="noopener" aria-label="사용자 진입점과 purecvisorsd 네트워크 제어면에서 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스를 거쳐 Linux KVM 실제 패킷 경로로 이어지는 구성도를 새 탭에서 확대해서 보기">
+  <a class="pcv-architecture-source-canvas pcv-network-architecture-canvas" href="/assets/diagrams/purecvisor-single-network-services.svg" target="_blank" rel="noopener" aria-label="사용자 진입점과 purecvisorsd 네트워크 제어면에서 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스를 거쳐 Linux KVM 실제 패킷 경로로 이어지는 구성도를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="network">
     <img class="pcv-architecture-source-image pcv-network-architecture-image" src="/assets/diagrams/purecvisor-single-network-services.svg" width="1440" height="1080" loading="lazy" decoding="async" alt="Web UI와 pcvctl 요청이 purecvisorsd의 네트워크 제어면으로 들어와 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스로 나뉘고 Linux bridge, nftables, OVS, OVN, WireGuard, VFIO, IOMMU와 libvirt VM NIC에 적용되는 Single Edge 네트워크 구성도">
   </a>
-  <figcaption class="pcv-architecture-source-note">위쪽 청록색 화살표는 구성·조회·복구 제어 흐름이고, 아래쪽 회색 화살표는 VM 패킷이 흐르는 Linux/KVM 데이터 경로입니다. 주황색 점선은 DPDK·SR-IOV 가속 우회 경로이며, Local VPC의 OVN backend는 추가 검증 전 후보로 구분했습니다.</figcaption>
+  <figcaption class="pcv-architecture-source-note">위쪽 청록색 화살표는 구성·조회·복구 제어 흐름이고, 아래쪽 회색 화살표는 VM 패킷이 흐르는 Linux/KVM 데이터 경로입니다. 주황색 점선은 DPDK·SR-IOV 가속 우회 경로이며, Local VPC의 OVN backend는 추가 검증 전 후보로 구분했습니다. 마우스 환경에서는 서비스 또는 컴포넌트에 포인터를 올리면 직접 연결된 흐름이 움직이며 강조됩니다.</figcaption>
 </figure>
 
 ### 네트워크 서비스 활용 예제
@@ -2765,6 +2765,13 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 아래 다섯 모드는 같은 기능의 단계가 아니라 서로 다른 연결 목적입니다.
 호스트의 connected CIDR과 겹치지 않는 대역을 고르고, 물리 LAN을 사용하는 두 모드는 NIC 역할과 복구 경로를 먼저 확인합니다.
 `dedicated`에는 원격 관리 NIC를 사용하지 않고, `shared`는 host L3 보존 조건과 upstream의 다중 source MAC 허용 여부를 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-bridge-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/bridge-network.svg" target="_blank" rel="noopener" aria-label="브릿지 네트워크 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/bridge-network.svg" width="960" height="280" loading="lazy" decoding="async" alt="연결 mode와 CIDR 또는 uplink 선택이 PureCVisor desired state와 Linux bridge, dnsmasq, nftables 또는 물리 uplink를 거쳐 VM NIC actual state로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-bridge-caption">입력한 연결 목적이 host 데이터 경로와 VM NIC에 어떻게 반영되는지 먼저 확인합니다.</figcaption>
+</figure>
 
 ```bash
 # NAT 모드: 사설 DHCP 주소와 outbound NAT
@@ -2880,6 +2887,13 @@ PureCVisor는 nftables를 기본 네트워크, Security Group, Local VPC와 Suri
 아래 예제는 외부 통신이 필요한 workload와 외부에서 분리할 workload를 서로 다른 관리형 네트워크에 둡니다.
 NAT 쪽에는 outbound masquerade가 생기고, isolated 쪽은 같은 bridge의 VM 간 통신만 남습니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-firewall-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/managed-firewall.svg" target="_blank" rel="noopener" aria-label="관리형 방화벽 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/managed-firewall.svg" width="960" height="280" loading="lazy" decoding="async" alt="NAT 또는 isolated network mode가 purecvisorsd의 관리형 정책을 거쳐 nftables inet purecvisor 테이블과 VM 허용 범위에 반영되는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-firewall-caption">서비스 desired state와 nftables actual state를 함께 비교해야 정책 적용을 확인할 수 있습니다.</figcaption>
+</figure>
+
 ```bash
 # 서로 겹치지 않는 두 네트워크를 생성한다.
 pcvctl network create policy-nat --mode nat --cidr 10.47.0.1/24
@@ -2905,6 +2919,13 @@ VM NIC의 persistent libvirt XML에 802.1Q VLAN tag를 지정할 수 있습니�
 이 예제의 `pcvbr0`는 VLAN 100을 전달할 수 있는 Linux bridge 또는 OVS bridge여야 합니다.
 upstream switch port도 VLAN 100을 허용해야 하며, native VLAN과 guest tag 정책은 호스트 밖의 switch 설정과 일치해야 합니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vlan-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/vlan-filtering.svg" target="_blank" rel="noopener" aria-label="VLAN 필터링 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/vlan-filtering.svg" width="960" height="280" loading="lazy" decoding="async" alt="VLAN 100 입력이 PureCVisor 검증과 libvirt persistent XML의 VM NIC tag를 거쳐 bridge와 upstream trunk로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vlan-caption">VM NIC의 VLAN tag와 upstream trunk 허용 목록이 같은 값으로 이어져야 합니다.</figcaption>
+</figure>
+
 ```bash
 # VM 생성 body에 VLAN 100을 지정한다.
 echo '{"jsonrpc":"2.0","method":"vm.create","params":{
@@ -2927,6 +2948,13 @@ TC 기반 네트워크 QoS를 지원합니다.
 인터페이스 단위 `network.qos.*`는 기존 자동화 호환용 deprecated 표면이며, 새 구성은 VM·tenant SLA를 지속적으로 식별하고 reconcile하는 `qos.vm.*`와 `qos.tenant.*`를 우선합니다.
 
 #### 활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-qos-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/qos.svg" target="_blank" rel="noopener" aria-label="QoS 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/qos.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM 또는 tenant의 대역폭 SLA가 PureCVisor QoS handler와 Linux TC qdisc, filter를 거쳐 실제 rate와 drop 통계로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-qos-caption">desired SLA와 실제 vnet의 TC 통계를 함께 확인해 대역폭 제한의 수렴 여부를 판단합니다.</figcaption>
+</figure>
 
 ```bash
 # 기존 vnet 자동화와의 호환이 필요할 때만 인터페이스 상한을 설정한다.
@@ -2999,6 +3027,13 @@ Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
 
 이 예제는 PureCVisor 노드가 `192.0.2.19`를 tunnel source로 사용하고, 운영자가 관리하는 VXLAN 호환 endpoint `192.0.2.20`과 VNI 100을 연결하는 구성입니다.
 두 주소는 RFC 문서용 주소이므로 실제 tunnel endpoint로 바꾸고, underlay에서 UDP 4789와 MTU를 먼저 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vxlan-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/ovs-vxlan.svg" target="_blank" rel="noopener" aria-label="OVS VXLAN 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/ovs-vxlan.svg" width="960" height="280" loading="lazy" decoding="async" alt="tunnel source와 remote endpoint 및 VNI 100이 PureCVisor peer desired state, OVS VXLAN port와 UDP 4789 underlay를 거쳐 원격 endpoint로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vxlan-caption">수동 peer 구성은 OVS actual port와 두 endpoint 사이의 underlay 도달성을 모두 확인합니다.</figcaption>
+</figure>
 
 ```bash
 # 오버레이 생성
@@ -3105,6 +3140,13 @@ OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원�
 
 아래 절을 순서대로 실행하면 `ls-web` 논리 스위치와 `lr-main` 논리 라우터를 만들고, `10.0.1.0/24` DHCP와 웹 ACL, SNAT를 연결합니다.
 `203.0.113.1`은 RFC 문서용 주소이므로 실제 external IP로 교체하고, 실행 전 host 기준선과 `ovn status`가 모두 준비 상태인지 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-ovn-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/ovn-sdn.svg" target="_blank" rel="noopener" aria-label="OVN SDN 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/ovn-sdn.svg" width="960" height="280" loading="lazy" decoding="async" alt="웹 논리 네트워크 모델이 PureCVisor generic OVN RPC를 거쳐 logical switch, router, DHCP, ACL, SNAT과 OVS br-int actual state로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-ovn-caption">논리 객체의 REST 조회와 OVN·OVS actual state를 함께 비교해 단계별 수렴을 확인합니다.</figcaption>
+</figure>
 
 #### 작업 전 호스트 네트워크 기준선
 
@@ -3259,6 +3301,13 @@ CLI는 기본 생성·단일 포트 규칙·VM 연결을 제공하고, source CI
 아래 예제는 `web-prod` VM에 HTTP·HTTPS를 허용하고, SSH는 RFC 문서용 관리 대역 `192.0.2.0/24`에서만 허용합니다.
 실행 전 해당 대역을 실제 관리 CIDR로 바꾸며, VM에 기존 그룹이 있다면 교체 영향을 먼저 확인합니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-sg-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/security-group.svg" target="_blank" rel="noopener" aria-label="보안 그룹 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/security-group.svg" width="960" height="280" loading="lazy" decoding="async" alt="HTTP, HTTPS와 관리 CIDR SSH 규칙이 PureCVisor 보안 그룹 desired state와 nftables VM NIC 경계를 거쳐 web-prod의 허용 및 차단 결과로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-sg-caption">허용 규칙뿐 아니라 default-deny가 유지되는 차단 경로까지 함께 시험합니다.</figcaption>
+</figure>
+
 ```bash
 # 보안 그룹 생성
 pcvctl security-group create web-sg
@@ -3299,6 +3348,13 @@ sudo nft list table inet purecvisor
 `0000:03:00.0`은 예시 PCI 주소입니다.
 `dpdk status`의 `available`과 hugepage 준비 상태를 먼저 확인하고, host 관리 경로 또는 기본 route가 연결된 NIC는 대상으로 선택하지 않습니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-dpdk-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/dpdk.svg" target="_blank" rel="noopener" aria-label="DPDK 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/dpdk.svg" width="960" height="280" loading="lazy" decoding="async" alt="전용 PCI NIC와 hugepage 사전 조건이 PureCVisor vfio-pci bind와 OVS-DPDK bridge를 거쳐 VM vhost-user 가속 경로로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-dpdk-caption">주황색 점선은 host kernel network stack을 우회하는 가속 경로와 별도 복구 책임을 나타냅니다.</figcaption>
+</figure>
+
 ```bash
 # 사전 조건 확인
 pcvctl dpdk status
@@ -3331,6 +3387,13 @@ VF 트래픽은 일반 Linux bridge와 host TC QoS를 우회하므로 switch 정
 
 `eno2`는 예시 PF이며 host 관리 경로에 사용되지 않는 SR-IOV 지원 NIC여야 합니다.
 아래 MAC은 문서용 locally administered 주소이므로 실제 배포에서는 중복되지 않는 값으로 바꿉니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-sriov-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/sriov.svg" target="_blank" rel="noopener" aria-label="SR-IOV 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/sriov.svg" width="960" height="280" loading="lazy" decoding="async" alt="PF eno2의 VF 0과 VLAN 100, spoof check 설정이 PureCVisor 검증과 IOMMU hostdev 직접 할당을 거쳐 web-prod guest VF로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-sriov-caption">직접 할당은 Linux bridge와 host TC를 우회하므로 switch와 guest까지 검증 범위를 확장합니다.</figcaption>
+</figure>
 
 ```bash
 # SR-IOV 지원 NIC 상태
@@ -3371,6 +3434,13 @@ detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값
 한 번에 설정을 바꾸기보다 desired state, host link, bridge·OVS, 정책, VM NIC 순서로 실제 상태를 좁힙니다.
 VLAN 또는 VXLAN을 쓰지 않는 구성이라면 해당 단계의 빈 결과는 정상입니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-debug-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/debugging.svg" target="_blank" rel="noopener" aria-label="네트워크 디버깅 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/debugging.svg" width="960" height="280" loading="lazy" decoding="async" alt="PureCVisor desired state에서 host link와 route, bridge와 OVS, nftables와 Security Group, libvirt VM NIC 순서로 실제 상태를 좁히는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-debug-caption">기대 상태와 실제 상태가 처음 달라지는 계층을 장애 경계로 좁힙니다.</figcaption>
+</figure>
+
 ```bash
 # 1. PureCVisor desired state와 host 주소·route
 pcvctl network list
@@ -3402,6 +3472,13 @@ bridge와 VM NIC가 정상인데 통신이 실패하면 nftables·Security Group
 
 먼저 `ip -br link`로 실제 interface 이름을 확인한 뒤 내장 `/api/v1/metrics`에서 같은 device label을 조회합니다.
 counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율을 기준으로 판단합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-metrics-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/prometheus-metrics.svg" target="_blank" rel="noopener" aria-label="네트워크 Prometheus 메트릭 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/prometheus-metrics.svg" width="960" height="280" loading="lazy" decoding="async" alt="Linux NIC, socket과 conntrack 통계가 purecvisorsd collector와 metrics API를 거쳐 Prometheus의 증가율 및 포화 신호로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-metrics-caption">device label을 실제 interface와 맞춘 뒤 counter 증가율과 conntrack 사용 비율을 판정합니다.</figcaption>
+</figure>
 
 ```bash
 # eno1을 실제 uplink 이름으로 교체한다.
@@ -3485,6 +3562,13 @@ fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 
 
 먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.
 IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-suricata-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/suricata.svg" target="_blank" rel="noopener" aria-label="Suricata IDS IPS 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/suricata.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM forward packet이 nftables NFQUEUE와 Suricata IDS IPS engine을 거쳐 allow 또는 drop 결과와 PureCVisor 보안 이벤트로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-suricata-caption">queue readiness, 파생 drop 룰셋과 status가 수렴한 뒤 인라인 적용을 완료로 판단합니다.</figcaption>
+</figure>
 
 ```bash
 # 엔진 상태 조회
@@ -3574,6 +3658,13 @@ OPERATOR는 일반 변경, ADMIN은 VPC 삭제와 전체 reconcile을 수행할 
 `198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 client CIDR로 교체합니다.
 
 REST로 VPC와 첫 subnet을 한 Job에 생성합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vpc-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/local-vpc.svg" target="_blank" rel="noopener" aria-label="Local VPC 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/local-vpc.svg" width="960" height="280" loading="lazy" decoding="async" alt="허용된 client CIDR이 Single Edge host의 8443 listener와 Local VPC Service Publish, Linux bridge attachment를 거쳐 web-prod VM의 443 포트로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vpc-caption">허용 source CIDR과 host listener를 단일 VPC attachment의 target port에 제한적으로 연결합니다.</figcaption>
+</figure>
 
 ```bash
 curl -sS -X POST https://127.0.0.1:8443/api/v1/vpcs \
