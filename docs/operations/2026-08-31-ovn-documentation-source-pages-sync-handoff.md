@@ -2,7 +2,7 @@
 
 > **일자:** 2026-08-31
 > **대상:** PureCVisor Single Edge 공개 저장소와 `purecvisor.site`
-> **상태:** LOCAL-PASS / DEPLOY-PENDING — commit, push, Pages run과 live smoke receipt 기록 전
+> **상태:** Verified — source·문서 push, Pages build·deploy와 custom domain live smoke 완료
 
 ## 1. 목적
 
@@ -58,21 +58,23 @@
 | `git diff --check` | Markdown·Astro·JavaScript whitespace 오류 0 | **PASS** |
 | `cd site` 후 `npm run check` | Networking 계약, navigation, 전체 route와 내부 link PASS | **PASS** — HTML 26개, artifact 91개 |
 | 공개 소스·경계 관련 저장소 게이트 | 정확한 18 RPC, 금지 기능 비노출, 공개 주석 정책 PASS | **PASS** — `make test` C 1,375/1,375 + audit 5/5, `make check-all` 38/38, first-party comments 0 |
-| release·UI artifact | C23 release 경고 0, bundle/SW freshness, 소스맵 부재 | **PASS** — source `42a9b244`, cache `vf4b3dfc0` |
-| GitHub Pages workflow | build·deploy 성공 | PENDING |
-| custom domain live smoke | `/`, `/ko/`, `/en/`, `/ko/infrastructure/networking/` HTTP 200과 현행 계약 확인 | PENDING |
+| release·UI artifact | C23 release 경고 0, bundle/SW freshness, 소스맵 부재 | **PASS** — source `42a9b244`, cache `v02d35ab3` |
+| GitHub Pages workflow | build·deploy 성공 | **PASS** — run `33374449016`, 후속 문서 보정 run `33375300728` |
+| custom domain live smoke | `/`, `/ko/`, `/en/`, Networking·DB architecture HTTP 200과 현행 계약 확인 | **PASS** — OVN RPC 18개, 공개 SQLite 9개, 금지 기능·내부 주소 0 |
+| 공개 문서 잔여 비노출 | 과거 운영 주소와 stale `vm_port` 사용자 claim 제거 | **PASS** — 기존 UI review 주소 비식별화, 공개 인앱 가이드 경계 교정 |
 
 ## 5. 배포 receipt
 
 | 항목 | 값 |
 |---|---|
-| 공개 commit | PENDING |
-| push | PENDING |
-| GitHub Pages run | PENDING |
-| live canonical 확인 | PENDING |
+| 기능·본문 commit | `ab5f81a9fad447e6e66420332903d61fecda24f2` |
+| 후속 문서 보정 commit | `407904d89dfc6b37f9cfaf27a217c1938261cc82` |
+| push | **PASS** — `origin/main`이 후속 문서 보정 commit과 일치 |
+| GitHub Pages run | **PASS** — `33374449016`, `33375300728` build·deploy 성공 |
+| live canonical 확인 | **PASS** — `/`, `/ko/`, `/en/`, `/ko/infrastructure/networking/`, `/ko/development/database-architecture/` 모두 HTTP 200 |
 
-commit·run 식별자는 공개 저장소에서 확인 가능한 값만 여기에 기록한다. 이 문서 자체의
-receipt 보강 commit이 따로 생기면 기능·콘텐츠 commit과 구분해 표시한다.
+commit·run 식별자는 공개 저장소에서 확인 가능한 값만 기록했다. 이 문서의 최종 receipt
+보강 commit은 기능·본문 및 Pages 보정 commit과 분리하며, 식별자는 git history를 따른다.
 
 ## 6. 완료 판정
 

@@ -97,12 +97,17 @@ Starlight disclosure navigation의 형태·token·interaction을 그대로 사�
 
 | 우선순위 | 기준 | 현재 판정 |
 |---|---|---|
-| P0 | `/ko/infrastructure/networking/`이 host baseline, 정확한 18 RPC, DHCP cleanup, REST filter와 `-32602`를 설명한다. | LOCAL-PASS |
-| P0 | 과거 switch create의 subnet 인자, `vm_port` 사용자 기능, OVN/NFV Load Balancer 호출 절차가 없다. | LOCAL-PASS |
-| P0 | Header의 Networking이 6장으로 직접 이동하고 Storage는 landing 문서 맵·sidebar에서 접근 가능하다. | LOCAL-PASS |
+| P0 | `/ko/infrastructure/networking/`이 host baseline, 정확한 18 RPC, DHCP cleanup, REST filter와 `-32602`를 설명한다. | LIVE-PASS |
+| P0 | 과거 switch create의 subnet 인자, `vm_port` 사용자 기능, OVN/NFV Load Balancer 호출 절차가 없다. | LIVE-PASS |
+| P0 | Header의 Networking이 6장으로 직접 이동하고 Storage는 landing 문서 맵·sidebar에서 접근 가능하다. | LIVE-PASS |
 | P1 | 기존 header disclosure·keyboard·responsive 동작과 landing 정보 계층이 유지된다. | LOCAL-PASS |
-| P1 | `npm run check`, Pages run과 custom domain live smoke를 통과한다. | LOCAL-PASS / LIVE-PENDING |
+| P1 | `npm run check`, Pages run과 custom domain live smoke를 통과한다. | LIVE-PASS |
 
 검증·commit·Pages run receipt는
 [2026-08-31 공개 운영 인계](../operations/2026-08-31-ovn-documentation-source-pages-sync-handoff.md)에
 기록한다.
+
+후속 commit `407904d`와 Pages run `33375300728`에서 build·deploy가 성공했다. custom domain의
+landing 3개, Networking과 DB architecture 경로는 모두 HTTP 200이며, Networking의
+`network.host.info`·REST endpoint·정확한 OVN 18개 집합과 공개 SQLite 9개 경계를 확인했다.
+금지된 `vm_port`, Load Balancer 호출, 내부 운영 주소는 live 대상 문서에서 검출되지 않았다.
