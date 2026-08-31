@@ -1,0 +1,168 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1080" viewBox="0 0 1440 1080" role="img" aria-labelledby="pcv-network-title pcv-network-desc">
+  <title id="pcv-network-title">PureCVisor Single Edge 네트워크 서비스 구성도</title>
+  <desc id="pcv-network-desc">Web UI, pcvctl, REST와 RPC 요청이 purecvisorsd의 네트워크 제어면으로 들어와 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스로 나뉘고 Linux bridge, dnsmasq, nftables, TC, OVS, OVN, WireGuard, VFIO, IOMMU와 libvirt VM NIC에 적용되는 구조다. 패킷은 데몬을 경유하지 않고 선택한 Linux KVM 데이터 경로로 흐른다.</desc>
+  <defs>
+    <marker id="pcv-network-arrow-control" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#12627a"/>
+    </marker>
+    <marker id="pcv-network-arrow-data" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#3f4958"/>
+    </marker>
+    <marker id="pcv-network-arrow-fast" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
+      <path d="M0 0 10 5 0 10z" fill="#9a5b13"/>
+    </marker>
+    <style>
+      .canvas{fill:#f8fafc}.boundary{fill:#fff;stroke:#7f8b99;stroke-width:2}.client{fill:#e7f3ff;stroke:#3a78b8;stroke-width:2}.runtime{fill:#e6f7ed;stroke:#27845d;stroke-width:2}.family{fill:#fff;stroke:#7f8b99;stroke-width:1.5}.actual{fill:#f0f2f5;stroke:#667085;stroke-width:1.5}.fast{fill:#fff4e8;stroke:#b87543;stroke-width:1.5}.outcome{fill:#e5f7f6;stroke:#287f7a;stroke-width:1.5}.candidate-box{fill:#f7f9fb;stroke:#667085;stroke-width:1.5;stroke-dasharray:4 5}.title{font:700 30px system-ui,sans-serif;fill:#171c24}.subtitle{font:500 15px system-ui,sans-serif;fill:#5c6675}.eyebrow{font:700 13px system-ui,sans-serif;letter-spacing:1.35px;fill:#12627a}.boundary-title{font:700 16px system-ui,sans-serif;fill:#171c24}.node-title{font:700 17px system-ui,sans-serif;fill:#171c24}.node-copy{font:500 14px system-ui,sans-serif;fill:#5c6675}.node-copy-strong{font:650 14px system-ui,sans-serif;fill:#3f4958}.node-mono{font:700 14px ui-monospace,SFMono-Regular,Consolas,monospace;fill:#171c24}.small{font:600 12px system-ui,sans-serif;fill:#5c6675}.flow-label{font:700 13px system-ui,sans-serif;fill:#12627a}.data-label{font:700 13px system-ui,sans-serif;fill:#3f4958}.fast-label{font:700 13px system-ui,sans-serif;fill:#9a5b13}.control{fill:none;stroke:#12627a;stroke-width:2.5;marker-end:url(#pcv-network-arrow-control)}.control-line{fill:none;stroke:#12627a;stroke-width:2.2}.data{fill:none;stroke:#3f4958;stroke-width:2.2;marker-end:url(#pcv-network-arrow-data)}.data-line{fill:none;stroke:#3f4958;stroke-width:2}.accelerated{fill:none;stroke:#9a5b13;stroke-width:2.2;stroke-dasharray:8 6;marker-end:url(#pcv-network-arrow-fast)}.candidate{fill:none;stroke:#667085;stroke-width:2;stroke-dasharray:3 6}.divider{stroke:#dce1e8;stroke-width:1}.pill{fill:#e6f0f3;stroke:#12627a;stroke-width:1}.pill-warm{fill:#fff0df;stroke:#b87543;stroke-width:1}
+    </style>
+  </defs>
+  <rect class="canvas" width="1440" height="1080"/>
+  <text class="eyebrow" x="40" y="42">SINGLE EDGE · NETWORK SERVICES</text>
+  <text class="title" x="40" y="80">요청에서 Linux/KVM 패킷 경로까지 한 번에 읽기</text>
+  <text class="subtitle" x="40" y="108">제어 요청은 purecvisorsd가 적용하고, 실제 패킷은 선택한 host 데이터 경로로 직접 흐릅니다.</text>
+
+  <line class="control" x1="42" y1="137" x2="104" y2="137"/>
+  <text class="flow-label" x="116" y="141">구성 · 조회 · 복구</text>
+  <line class="data" x1="300" y1="137" x2="362" y2="137"/>
+  <text class="data-label" x="374" y="141">VM 데이터 경로</text>
+  <line class="accelerated" x1="548" y1="137" x2="610" y2="137"/>
+  <text class="fast-label" x="622" y="141">가속 우회 경로</text>
+  <line class="candidate" x1="812" y1="137" x2="874" y2="137"/>
+  <text class="data-label" x="886" y="141">후보 backend</text>
+  <rect class="pill" x="1122" y="123" width="278" height="28" rx="5"/>
+  <text class="small" x="1261" y="142" text-anchor="middle">공개 범위 · 한 Linux/KVM 호스트</text>
+
+  <rect class="boundary" x="40" y="170" width="1360" height="178" rx="12"/>
+  <text class="eyebrow" x="66" y="201">PURECVISORSD · SINGLE PROCESS · GMAINLOOP CONTROL PLANE</text>
+  <rect class="client" x="68" y="224" width="216" height="92" rx="8"/>
+  <text class="node-title" x="176" y="257" text-anchor="middle">사용자 진입점</text>
+  <text class="node-copy" x="176" y="283" text-anchor="middle">Web UI · pcvctl</text>
+  <text class="node-copy" x="176" y="304" text-anchor="middle">REST · UDS RPC</text>
+  <rect class="runtime" x="340" y="224" width="246" height="92" rx="8"/>
+  <text class="node-title" x="463" y="257" text-anchor="middle">인증 · dispatcher</text>
+  <text class="node-copy" x="463" y="283" text-anchor="middle">RBAC · tenant scope</text>
+  <text class="node-copy" x="463" y="304" text-anchor="middle">입력 검증 · audit 경계</text>
+  <rect class="runtime" x="642" y="224" width="330" height="92" rx="8"/>
+  <text class="node-title" x="807" y="257" text-anchor="middle">Network handlers</text>
+  <text class="node-copy" x="807" y="283" text-anchor="middle">짧은 조회·변경은 event loop에서 완료</text>
+  <text class="node-copy" x="807" y="304" text-anchor="middle">긴 작업은 accepted 후 제한된 GTask</text>
+  <rect class="runtime" x="1028" y="224" width="344" height="92" rx="8"/>
+  <text class="node-title" x="1200" y="257" text-anchor="middle">Desired state · reconcile</text>
+  <text class="node-copy" x="1200" y="283" text-anchor="middle">생성 · 조회 · 재수화 · 정리</text>
+  <text class="node-copy" x="1200" y="304" text-anchor="middle">actual 확인 · 결과 audit · 완료 통지</text>
+  <path class="control" d="M284 270H340"/>
+  <path class="control" d="M586 270H642"/>
+  <path class="control" d="M972 270H1028"/>
+
+  <path class="control-line" d="M1200 316V366H225"/>
+  <path class="control-line" d="M1200 366H1213"/>
+  <path class="control" d="M225 366V396"/>
+  <path class="control" d="M554 366V396"/>
+  <path class="control" d="M883 366V396"/>
+  <path class="control" d="M1213 366V396"/>
+
+  <rect class="boundary" x="40" y="396" width="1360" height="316" rx="12"/>
+  <text class="eyebrow" x="66" y="427">NETWORK SERVICE FAMILIES · 각 항목은 아래 활용 예제와 대응</text>
+
+  <rect class="family" x="68" y="452" width="315" height="228" rx="8"/>
+  <text class="node-title" x="90" y="484">기본 연결</text>
+  <text class="node-copy-strong" x="90" y="516">NAT · isolated · routed</text>
+  <text class="node-copy" x="90" y="540">사설 주소, 내부 격리, upstream 정적 route</text>
+  <line class="divider" x1="90" y1="556" x2="361" y2="556"/>
+  <text class="node-copy-strong" x="90" y="586">bridge/dedicated · bridge/shared</text>
+  <text class="node-copy" x="90" y="610">전용 또는 host L3 보존 물리 LAN</text>
+  <line class="divider" x1="90" y1="626" x2="361" y2="626"/>
+  <text class="node-copy-strong" x="90" y="655">VM VLAN tag</text>
+  <text class="small" x="90" y="675">libvirt persistent XML의 vlan_id</text>
+
+  <rect class="family" x="397" y="452" width="315" height="228" rx="8"/>
+  <text class="node-title" x="419" y="484">가상 네트워크</text>
+  <text class="node-copy-strong" x="419" y="516">OVS VXLAN · 수동 peer</text>
+  <text class="node-copy" x="419" y="540">명시한 VNI와 tunnel source</text>
+  <line class="divider" x1="419" y1="556" x2="690" y2="556"/>
+  <text class="node-copy-strong" x="419" y="586">tenant overlay · generic OVN</text>
+  <text class="node-copy" x="419" y="610">WireGuard 격리 · LS/LR/DHCP/ACL/NAT</text>
+  <line class="divider" x1="419" y1="626" x2="690" y2="626"/>
+  <text class="node-copy-strong" x="419" y="655">Local VPC · Linux 지원</text>
+  <text class="small" x="419" y="675">subnet · attachment · Service Publish</text>
+
+  <rect class="family" x="726" y="452" width="315" height="228" rx="8"/>
+  <text class="node-title" x="748" y="484">정책 · 보호</text>
+  <text class="node-copy-strong" x="748" y="516">관리형 nftables</text>
+  <text class="node-copy" x="748" y="540">NAT · 격리 · routed 경계</text>
+  <line class="divider" x1="748" y1="556" x2="1019" y2="556"/>
+  <text class="node-copy-strong" x="748" y="586">Security Group · QoS</text>
+  <text class="node-copy" x="748" y="610">VM 접근 정책 · VM/tenant SLA</text>
+  <line class="divider" x1="748" y1="626" x2="1019" y2="626"/>
+  <text class="node-copy-strong" x="748" y="655">Suricata IDS · IPS</text>
+  <text class="small" x="748" y="675">EVE 탐지 · 선택형 NFQUEUE 인라인</text>
+
+  <rect class="family" x="1055" y="452" width="317" height="228" rx="8"/>
+  <text class="node-title" x="1077" y="484">가속 · 관측</text>
+  <rect class="pill-warm" x="1077" y="504" width="273" height="54" rx="6"/>
+  <text class="node-copy-strong" x="1093" y="527">DPDK · SR-IOV</text>
+  <text class="small" x="1093" y="548">vfio-pci · OVS-DPDK · PF/VF 직접 할당</text>
+  <line class="divider" x1="1077" y1="578" x2="1350" y2="578"/>
+  <text class="node-copy-strong" x="1077" y="608">host baseline · 디버깅</text>
+  <text class="node-copy" x="1077" y="632">interface · route · bridge · OVS actual</text>
+  <line class="divider" x1="1077" y1="648" x2="1350" y2="648"/>
+  <text class="node-copy-strong" x="1077" y="674">Prometheus 네트워크 메트릭</text>
+
+  <path class="data" d="M225 680V752"/>
+  <path class="data" d="M704 680V734H731V752"/>
+  <path class="data" d="M883 680V722H461V752"/>
+  <path class="accelerated" d="M1213 680V734H1001V752"/>
+  <path class="control" d="M1213 680V714H1260V752"/>
+
+  <rect class="boundary" x="40" y="752" width="1360" height="178" rx="12"/>
+  <text class="eyebrow" x="66" y="783">LINUX / KVM HOST · ACTUAL DATA PATH</text>
+  <rect class="actual" x="68" y="806" width="246" height="92" rx="8"/>
+  <text class="node-mono" x="191" y="839" text-anchor="middle">Linux bridge · dnsmasq</text>
+  <text class="node-copy" x="191" y="865" text-anchor="middle">NAT · isolated · routed</text>
+  <text class="node-copy" x="191" y="886" text-anchor="middle">dedicated/shared portal</text>
+  <rect class="actual" x="338" y="806" width="246" height="92" rx="8"/>
+  <text class="node-mono" x="461" y="839" text-anchor="middle">nftables · TC · NFQUEUE</text>
+  <text class="node-copy" x="461" y="865" text-anchor="middle">firewall · SG · QoS</text>
+  <text class="node-copy" x="461" y="886" text-anchor="middle">Suricata inline</text>
+  <rect class="actual" x="608" y="806" width="246" height="92" rx="8"/>
+  <text class="node-mono" x="731" y="839" text-anchor="middle">OVS · OVN · WireGuard</text>
+  <text class="node-copy" x="731" y="865" text-anchor="middle">VXLAN · logical network</text>
+  <text class="node-copy" x="731" y="886" text-anchor="middle">tenant encrypted overlay</text>
+  <rect class="fast" x="878" y="806" width="246" height="92" rx="8"/>
+  <text class="node-mono" x="1001" y="839" text-anchor="middle">VFIO · IOMMU · PF/VF</text>
+  <text class="node-copy" x="1001" y="865" text-anchor="middle">DPDK vhost-user</text>
+  <text class="node-copy" x="1001" y="886" text-anchor="middle">SR-IOV hostdev</text>
+  <rect class="actual" x="1148" y="806" width="224" height="92" rx="8"/>
+  <text class="node-mono" x="1260" y="839" text-anchor="middle">libvirt · VM NIC</text>
+  <text class="node-copy" x="1260" y="865" text-anchor="middle">persistent XML · VLAN</text>
+  <text class="node-copy" x="1260" y="886" text-anchor="middle">attach · start</text>
+
+  <path class="data-line" d="M191 898V950"/>
+  <path class="data-line" d="M461 898V950"/>
+  <path class="data-line" d="M731 898V950"/>
+  <path class="data-line" d="M1260 898V950"/>
+  <path class="data-line" d="M145 950H1295"/>
+  <path class="accelerated" d="M1001 898V958H1065V988"/>
+
+  <text class="eyebrow" x="40" y="971">TRAFFIC OUTCOMES</text>
+  <rect class="outcome" x="40" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="145" y="1023" text-anchor="middle">VM 내부 격리 · DHCP</text>
+  <rect class="outcome" x="270" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="375" y="1023" text-anchor="middle">upstream LAN 직접 연결</text>
+  <rect class="outcome" x="500" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="605" y="1023" text-anchor="middle">NAT · routed 외부 통신</text>
+  <rect class="outcome" x="730" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="835" y="1023" text-anchor="middle">수동 VXLAN endpoint</text>
+  <rect class="outcome" x="960" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="1065" y="1023" text-anchor="middle">DPDK · SR-IOV 가속 NIC</text>
+  <rect class="outcome" x="1190" y="988" width="210" height="58" rx="7"/>
+  <text class="node-copy-strong" x="1295" y="1015" text-anchor="middle">Local VPC Service Publish</text>
+  <text class="small" x="1295" y="1035" text-anchor="middle">허용 CIDR → 지정 포트</text>
+  <path class="data" d="M145 950V988"/>
+  <path class="data" d="M375 950V988"/>
+  <path class="data" d="M605 950V988"/>
+  <path class="data" d="M835 950V988"/>
+  <path class="data" d="M1295 950V988"/>
+
+  <rect class="candidate-box" x="408" y="694" width="292" height="28" rx="5"/>
+  <text class="small" x="554" y="713" text-anchor="middle">Local VPC OVN backend · 추가 검증 전 후보</text>
+</svg>

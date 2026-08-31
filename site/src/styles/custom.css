@@ -718,6 +718,24 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
   max-width: none;
 }
 
+.pcv-network-architecture {
+  margin-block: 1.5rem 2rem;
+  border-radius: 0.5rem;
+}
+
+.pcv-network-architecture-canvas {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: var(--pcv-map-line) #f8fafc;
+  scrollbar-gutter: stable;
+}
+
+.pcv-network-architecture-image {
+  width: max(100%, 84rem);
+  min-width: 84rem;
+  max-width: none;
+}
+
 @keyframes pcv-architecture-flow {
   from {
     stroke-dashoffset: 24;

@@ -28,6 +28,7 @@ const requiredFiles = [
   "assets/diagrams/purecvisor-single-full-architecture.svg",
   "assets/diagrams/purecvisor-single-direct-https-architecture.svg",
   "assets/diagrams/purecvisor-single-database-architecture.svg",
+  "assets/diagrams/purecvisor-single-network-services.svg",
   ...readerDocuments.map((document) => `${document.contentSlug}/index.html`)
 ];
 const forbiddenText = [
@@ -581,6 +582,48 @@ for (const marker of [
   }
 }
 
+const networkArchitectureAsset = "/assets/diagrams/purecvisor-single-network-services.svg";
+const networkArchitectureSvgText = await readFile(
+  path.join(distRoot, networkArchitectureAsset),
+  "utf8"
+);
+for (const marker of [
+  'width="1440" height="1080" viewBox="0 0 1440 1080"',
+  'role="img" aria-labelledby="pcv-network-title pcv-network-desc"',
+  '<title id="pcv-network-title">PureCVisor Single Edge 네트워크 서비스 구성도</title>',
+  '<desc id="pcv-network-desc">',
+  "NETWORK SERVICE FAMILIES",
+  "기본 연결",
+  "가상 네트워크",
+  "정책 · 보호",
+  "가속 · 관측",
+  "Linux bridge · dnsmasq",
+  "nftables · TC · NFQUEUE",
+  "OVS · OVN · WireGuard",
+  "VFIO · IOMMU · PF/VF",
+  "libvirt · VM NIC",
+  "Local VPC OVN backend · 추가 검증 전 후보",
+  "공개 범위 · 한 Linux/KVM 호스트"
+]) {
+  if (!networkArchitectureSvgText.includes(marker)) {
+    throw new Error(`network architecture SVG contract missing: ${marker}`);
+  }
+}
+if ((networkArchitectureSvgText.match(/<rect class="family"/g) || []).length !== 4) {
+  throw new Error("network architecture SVG service family count mismatch");
+}
+for (const marker of [
+  /<script\b/i,
+  /<foreignObject\b/i,
+  /\bon\w+\s*=/i,
+  /\b(?:xlink:)?href\s*=/i,
+  /url\(\s*["']?(?:https?:|\/\/)/i
+]) {
+  if (marker.test(networkArchitectureSvgText)) {
+    throw new Error(`unsafe network architecture SVG marker: ${marker}`);
+  }
+}
+
 for (const marker of [
   "const navCloseDelayMs = 160;",
   "const navCloseTimers = new WeakMap();",
@@ -1001,10 +1044,48 @@ for (const marker of [
   "-32602",
   "ownership marker",
   "NET-OVN-01~07",
-  "Local VPC OVN backend"
+  "Local VPC OVN backend",
+  "서비스별 예제 지도",
+  "pcv-network-architecture",
+  'href="/assets/diagrams/purecvisor-single-network-services.svg"',
+  'src="/assets/diagrams/purecvisor-single-network-services.svg"',
+  'width="1440" height="1080" loading="lazy" decoding="async"',
+  "활용 예제 — 연결 목적에 맞는 기본 네트워크 생성",
+  "활용 예제 — NAT와 내부 격리 경계 비교",
+  "활용 예제 — VM을 upstream VLAN 100에 연결",
+  "활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용",
+  "활용 예제 — 외부 VXLAN endpoint와 수동 peer 구성",
+  "활용 예제 — 웹 논리 네트워크에 DHCP·ACL·SNAT 적용",
+  "활용 예제 — 웹 포트와 관리 CIDR의 SSH만 허용",
+  "활용 예제 — 전용 PCI NIC로 OVS-DPDK bridge 구성",
+  "활용 예제 — VLAN 100 VF를 웹 VM에 직접 할당",
+  "활용 예제 — link에서 VM NIC까지 계층별 장애 격리",
+  "활용 예제 — NIC drop과 conntrack 포화 징후 확인",
+  "활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단",
+  "활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시",
+  "pcvctl security-group create web-sg",
+  "pcvctl dpdk bridge create dpdk-br0 0000:03:00.0",
+  "pcvctl sriov set eno2 0",
+  "/api/v1/suricata/ips/status",
+  "node_nf_conntrack_entries_limit"
 ]) {
   if (!networking.includes(marker)) {
     throw new Error(`networking current contract missing: ${marker}`);
+  }
+}
+
+if ((networking.match(/purecvisor-single-network-services\.svg/g) || []).length !== 3) {
+  throw new Error("network architecture asset reference count mismatch");
+}
+for (const staleMarker of [
+  '&quot;method&quot;:&quot;firewall.rule.add&quot;',
+  '&quot;method&quot;:&quot;network.vlan.add&quot;',
+  "pcvctl sg create",
+  "pcvctl sg rule",
+  "pcvctl sg apply"
+]) {
+  if (networking.includes(staleMarker)) {
+    throw new Error(`stale networking example found: ${staleMarker}`);
   }
 }
 

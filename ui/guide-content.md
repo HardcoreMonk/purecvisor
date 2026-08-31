@@ -2306,6 +2306,8 @@ Local VPC를 사용하는 VM NIC는 VPC attachment 절차로 연결해야 하며
 Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 CLI의 terminal 결과 또는 `jobs.get`의 `completed`를 확인한 뒤 `vpc status`로 actual state를 검증합니다.<br>
 현재 공개 지원 backend는 `linux`이며, `ovn`은 이 장에 명시된 추가 검증을 모두 통과하기 전까지 구현 후보로 취급합니다.
 
+[Single Edge 네트워크 서비스와 실제 패킷 경로 SVG 확대 보기](https://purecvisor.site/assets/diagrams/purecvisor-single-network-services.svg)
+
 ### 네트워크 서비스 활용 예제
 
 #### 예제 1 — NAT 네트워크에 VM 연결
@@ -2387,13 +2389,38 @@ pcvctl vpc status
 Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인증서를 대신하지 않으므로 허용된 클라이언트에서 실제 응답까지 별도로 확인합니다.<br>
 명령이 실패하면 `vpc status`의 `reconcile_required`, resource의 `last_error`와 해당 Job의 terminal 오류를 먼저 확인합니다.
 
+#### 서비스별 예제 지도
+
+아래 표는 공개 네트워크 서비스 전체를 실제 작업 예제와 연결합니다.<br>
+한 예제에서 여러 기능을 함께 쓰더라도 각 서비스의 생성 또는 적용 명령과 actual state 확인 지점을 해당 절에 따로 제시합니다.
+
+| 서비스 | 활용 시나리오 | 적용 후 확인 |
+|---|---|---|
+| 기본 브릿지 네트워크 | NAT, 내부 격리, upstream 정적 route, 전용·공유 물리 LAN | `pcvctl network list`, `ip -br link`, upstream DHCP 또는 route |
+| 관리형 방화벽 | NAT와 isolated 네트워크 경계를 자동 생성 | `sudo nft list table inet purecvisor` |
+| VLAN | VM NIC를 upstream VLAN 100에 연결 | `virsh dumpxml`의 `<vlan>`과 switch port |
+| QoS | VM·tenant별 최소/최대 대역 SLA 적용 | `qos.vm.get`, `qos.tenant.get`, `qos.stats` |
+| OVS VXLAN·tenant overlay | 수동 VXLAN peer와 tenant 암호화 격리 | `pcvctl overlay info`, `tenant_overlay.get`, `ovs-vsctl show` |
+| generic OVN | 논리 스위치·라우터·DHCP·ACL·SNAT 구성 | `pcvctl ovn status`, 리소스별 list, 인증 REST 필터 |
+| Security Group | 웹 VM의 80·443과 관리 CIDR의 22만 허용 | 그룹 목록, VM binding, `nft` actual rule |
+| DPDK | 전용 NIC를 `vfio-pci`에 바인딩해 OVS-DPDK bridge 구성 | `pcvctl dpdk list`, `ovs-vsctl show` |
+| SR-IOV | VF에 VLAN·spoof check를 설정하고 VM에 직접 할당 | `pcvctl sriov list`, VM hostdev XML |
+| 네트워크 디버깅 | VM 통신 장애를 link→bridge→policy→overlay 순서로 격리 | 계층별 actual 명령의 일치 여부 |
+| Prometheus 메트릭 | NIC error·drop과 conntrack 포화를 관측 | `/api/v1/metrics` 필터 결과 |
+| Suricata IDS/IPS | 탐지 상태 확인 후 선택 SID만 인라인 차단 | IPS status, drop list, 보안 이벤트 |
+| Local VPC | tenant subnet의 VM 서비스를 허용 CIDR에 제한 게시 | Job terminal, `vpc get`, `vpc service-list`, `vpc status` |
+
 ### 6.1 브릿지 네트워크
 
-#### 네트워크 생성
+#### 활용 예제 — 연결 목적에 맞는 기본 네트워크 생성
+
+아래 다섯 모드는 같은 기능의 단계가 아니라 서로 다른 연결 목적입니다.<br>
+호스트의 connected CIDR과 겹치지 않는 대역을 고르고, 물리 LAN을 사용하는 두 모드는 NIC 역할과 복구 경로를 먼저 확인합니다.<br>
+`dedicated`에는 원격 관리 NIC를 사용하지 않고, `shared`는 host L3 보존 조건과 upstream의 다중 source MAC 허용 여부를 확인합니다.
 
 ```bash
-# NAT 모드 (기본, 인터넷 접근 가능)
-pcvctl network create mgmt-net --mode nat --cidr 192.168.100.1/24
+# NAT 모드: 사설 DHCP 주소와 outbound NAT
+pcvctl network create app-nat --mode nat --cidr 10.44.0.1/24
 
 # 전용 업링크: 호스트 IP/기본 경로가 없는 VM 전용 유선 NIC
 pcvctl network create prod-net --mode bridge --iface enp5s0 \
@@ -2403,11 +2430,15 @@ pcvctl network create prod-net --mode bridge --iface enp5s0 \
 pcvctl network create shared-lan --mode bridge --iface enp4s0 \
   --uplink-mode shared --confirm-shared-uplink
 
-# 격리 모드 (외부 접근 불가)
-pcvctl network create test-net --mode isolated --cidr 10.0.0.1/24 --mtu 9000
+# 격리 모드: host 내부 VM 간 통신만 허용
+pcvctl network create lab-isolated --mode isolated --cidr 10.45.0.1/24 --mtu 1500
 
-# 라우티드 모드 (NAT 없이 라우팅)
-pcvctl network create routed-net --mode routed --cidr 172.16.0.1/24
+# 라우티드 모드: upstream에 10.46.0.0/24 경로를 별도로 선언
+pcvctl network create routed-net --mode routed --cidr 10.46.0.1/24
+
+# desired state와 host actual bridge를 함께 확인
+pcvctl network list
+ip -br link
 ```
 
 | 모드 | 설명 | 외부 접근 | DHCP |
@@ -2487,56 +2518,74 @@ echo '{"jsonrpc":"2.0","method":"network.list","params":{},"id":"1"}' \
 
 ### 6.2 방화벽 (nftables)
 
-PureCVisor는 nftables 기반 방화벽을 사용합니다.
+PureCVisor는 nftables를 기본 네트워크, Security Group, Local VPC와 Suricata IPS의 공통 host 정책 경계로 사용합니다.<br>
+사용자가 임의 chain에 규칙을 넣는 독립 `firewall.rule.*` 공개 RPC는 없으며, 서비스의 desired state를 변경하면 데몬이 소유한 규칙을 함께 생성·복구·정리합니다.
+
+#### 활용 예제 — NAT와 내부 격리 경계 비교
+
+아래 예제는 외부 통신이 필요한 workload와 외부에서 분리할 workload를 서로 다른 관리형 네트워크에 둡니다.<br>
+NAT 쪽에는 outbound masquerade가 생기고, isolated 쪽은 같은 bridge의 VM 간 통신만 남습니다.
 
 ```bash
-# 현재 규칙 조회
-sudo nft list table inet purecvisor
+# 서로 겹치지 않는 두 네트워크를 생성한다.
+pcvctl network create policy-nat --mode nat --cidr 10.47.0.1/24
+pcvctl network create policy-isolated --mode isolated --cidr 10.48.0.1/24
 
-# 방화벽 규칙 추가 (RPC)
-echo '{"jsonrpc":"2.0","method":"firewall.rule.add","params":{
-  "chain": "input",
-  "protocol": "tcp",
-  "dport": 8080,
-  "action": "accept"
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+# desired state와 데몬 소유 nft actual state를 함께 확인한다.
+pcvctl network list
+sudo nft list table inet purecvisor
 ```
 
-> **Command Injection 방어**: 모든 방화벽 조작은 `pcv_spawn_sync()` argv 배열로 실행됩니다. `system()`/`popen()`은 전면 제거되었습니다.
+VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.13 Local VPC를 사용합니다.<br>
+데몬이 소유한 `inet purecvisor` table을 운영자가 직접 수정하면 desired state와 actual state가 어긋나므로 영구 설정 절차로 사용하지 않습니다.
+
+> **명령 실행 안전성**: 모든 방화벽 조작은 `pcv_spawn_sync()` argv 배열로 실행됩니다. `system()`과 `popen()`은 사용하지 않습니다.
 
 ### 6.3 VLAN 필터링
 
-OVS 브릿지에서 VLAN 태깅을 사용할 수 있습니다.
+VM NIC의 persistent libvirt XML에 802.1Q VLAN tag를 지정할 수 있습니다.<br>
+`vlan_id`는 고급 VM 속성이므로 현재 `pcvctl vm create` 옵션이 아니라 REST 또는 JSON-RPC body로 전달하며, 공개 `network.vlan.add` RPC는 없습니다.
+
+#### 활용 예제 — VM을 upstream VLAN 100에 연결
+
+이 예제의 `pcvbr0`는 VLAN 100을 전달할 수 있는 Linux bridge 또는 OVS bridge여야 합니다.<br>
+upstream switch port도 VLAN 100을 허용해야 하며, native VLAN과 guest tag 정책은 호스트 밖의 switch 설정과 일치해야 합니다.
 
 ```bash
-# VLAN 추가
-echo '{"jsonrpc":"2.0","method":"network.vlan.add","params":{
-  "bridge": "pcvbr0",
-  "interface": "vnet0",
-  "vlan_id": 100
+# VM 생성 body에 VLAN 100을 지정한다.
+echo '{"jsonrpc":"2.0","method":"vm.create","params":{
+  "name":"web-vlan","vcpu":2,"memory_mb":2048,"disk_size_gb":20,
+  "storage_type":"qcow2","network_bridge":"pcvbr0","vlan_id":100,
+  "qos_min_mbps":0,"qos_max_mbps":1000
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# VM 생성 시 VLAN 지정
-pcvctl vm create web-vlan --vcpu 2 --memory_mb 2048 --disk_size_gb 20 \
-  --network_bridge pcvbr0 --qos_min_mbps 0 --qos_max_mbps 1000
+# persistent XML에 VLAN tag가 남았는지 확인한다.
+sudo virsh dumpxml web-vlan
+sudo virsh domiflist web-vlan
 ```
+
+`dumpxml`의 VM interface 아래에 `<vlan><tag id="100"/></vlan>`이 있어야 합니다.<br>
+게스트에서 주소를 받지 못하면 VM XML만 반복 수정하지 말고 bridge의 VLAN filtering과 upstream trunk 허용 목록을 함께 확인합니다.
 
 ### 6.4 QoS (트래픽 제어)
 
-tc (traffic control) 기반 네트워크 QoS를 지원합니다.
+TC 기반 네트워크 QoS를 지원합니다.<br>
+인터페이스 단위 `network.qos.*`는 기존 자동화 호환용 deprecated 표면이며, 새 구성은 VM·tenant SLA를 지속적으로 식별하고 reconcile하는 `qos.vm.*`와 `qos.tenant.*`를 우선합니다.
+
+#### 활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용
 
 ```bash
-# 인터페이스 기반 QoS 설정
+# 기존 vnet 자동화와의 호환이 필요할 때만 인터페이스 상한을 설정한다.
 pcvctl network qos-set vnet0 --rate-mbps 100 --burst-kb 64
 
-# QoS 조회
+# 실제 tc 적용 상태를 조회한다.
 pcvctl network qos-get vnet0
 
-# QoS 제거
+# 호환 규칙이 더 필요하지 않으면 제거한다.
 pcvctl network qos-remove vnet0
 ```
 
-> **영속화**: QoS 규칙은 `/var/run/purecvisor/qos_rules.json`에 저장되어 데몬 재시작 시 자동 복원됩니다.
+> **호환 표면 영속화**: `network.qos.*` 규칙은 `/var/run/purecvisor/qos_rules.json`에 저장되어 데몬 재시작 시 복원됩니다. 새 workload SLA의 정본으로 사용하지 않습니다.
 
 #### 고급 QoS — per-VM/tenant SLA (2.0, D09)
 
@@ -2564,6 +2613,14 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   http://localhost:80/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"qos.tenant.set","params":{
         "tenant":"acme","min_mbps":200,"max_mbps":1000},"id":"1"}'
+
+# VM 설정과 tenant별 강제 통계를 다시 조회한다.
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:80/api/v1/rpc \
+  -d '{"jsonrpc":"2.0","method":"qos.vm.get","params":{"vm":"web-prod"},"id":"1"}'
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:80/api/v1/rpc \
+  -d '{"jsonrpc":"2.0","method":"qos.stats","params":{"tenant":"acme"},"id":"1"}'
 ```
 
 > **VM 생성 시 SLA 필수(D09)**: 커널 netdev(tc 셰이핑 가능) NIC — `network_bridge` 미지정/bridge 또는 `tenant-overlay` — 을 쓰는 VM은 `vm.create` 시 `--qos_min_mbps`/`--qos_max_mbps`가 필수입니다(§3.1 「기본 생성」의 D09 안내와 상호 참조). `dpdk`/`sriov` NIC만 면제되며, 생략 시 서버가 `vm.create`를 `-32602`로 거부합니다.
@@ -2580,30 +2637,30 @@ VM leaf class에 netem을 삽입해 지연·손실을 인위적으로 주입하�
 
 ### 6.5 OVS VXLAN 오버레이
 
-> **에디션 경계**: 오버레이 코어(`create/delete/list/info/add_peer/remove_peer`)는 Single Edge 공개 범위에 포함됩니다. 다만 자동 풀메시와 피어 기반 자동화는 비공개 멀티 제어면 참고 범위이며, 이 리포의 출시 표면에는 포함되지 않습니다.
+> **에디션 경계**: 오버레이 코어(`create/delete/list/info/add_peer/remove_peer`)는 Single Edge 공개 범위에 포함됩니다. 자동 풀메시와 peer discovery는 공개 출시 표면에 포함되지 않습니다.
 
 Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
 
-#### 수동 구성
+#### 활용 예제 — 외부 VXLAN endpoint와 수동 peer 구성
+
+이 예제는 PureCVisor 노드가 `192.0.2.19`를 tunnel source로 사용하고, 운영자가 관리하는 VXLAN 호환 endpoint `192.0.2.20`과 VNI 100을 연결하는 구성입니다.<br>
+두 주소는 RFC 문서용 주소이므로 실제 tunnel endpoint로 바꾸고, underlay에서 UDP 4789와 MTU를 먼저 확인합니다.
 
 ```bash
 # 오버레이 생성
 pcvctl overlay create --name pcvoverlay0 --vni 100 --cidr 10.100.0.1/24
 
-# 피어 추가 (VXLAN 터널 자동 생성)
+# 명시적으로 관리하는 endpoint만 peer로 추가
 pcvctl overlay add-peer pcvoverlay0 192.0.2.20
-pcvctl overlay add-peer pcvoverlay0 192.0.2.21
 
-# 오버레이 목록
+# desired state와 OVS actual port 확인
 pcvctl overlay list
-
-# 오버레이 상세 정보
 pcvctl overlay info pcvoverlay0
+sudo ovs-vsctl show
 
-# 피어 제거
-pcvctl overlay remove-peer pcvoverlay0 192.0.2.21
+# 사용을 마치면 peer와 overlay를 역순으로 정리
+pcvctl overlay remove-peer pcvoverlay0 192.0.2.20
 
-# 오버레이 삭제
 pcvctl overlay delete pcvoverlay0
 ```
 
@@ -2622,7 +2679,7 @@ echo '{"jsonrpc":"2.0","method":"overlay.info","params":{
 
 #### 자동 프로비저닝
 
-`daemon.conf [overlay]` 섹션을 설정하면 부팅 시 기본 브리지가 자동 생성됩니다. Single Edge에서는 로컬 브리지 생성까지만 자동화되며, 피어 기반 자동 풀메시는 공개 범위 밖 멀티 제어면 참고 기능으로 남겨 둡니다.
+`daemon.conf [overlay]` 섹션을 설정하면 부팅 시 기본 브리지가 자동 생성됩니다. Single Edge에서는 로컬 브리지 생성과 명시한 peer 적용까지만 사용하며, 자동 peer discovery나 자동 풀메시는 제공하지 않습니다.
 
 Single Edge는 overlay 코어 기능을 지원하지만, `tunnel_ip`는 자동 추론하지 않습니다. 따라서 Single Edge에서 overlay를 활성화하려면 운영자가 `[overlay]` 섹션에 `tunnel_ip`를 명시해야 합니다. 이 값은 로컬 호스트가 VXLAN 터널 소스로 사용할 IP이며, Single Edge에서는 운영 가이드에 따라 명시적으로 관리합니다.
 
@@ -2643,7 +2700,7 @@ sudo ovs-vsctl show
 
 #### 테넌트 암호화 오버레이 (tenant_overlay, 2.0)
 
-> **에디션 경계**: 테넌트 오버레이 코어(`create/delete/get/list/attach_vm/detach_vm`)는 Single Edge 공개 범위에 포함됩니다. 다만 피어 자동화·자동 풀메시와 암호화 프리미티브(키 교환·터널 배선)의 상세 운용은 비공개 멀티 제어면 참고 범위이며, 이 리포의 출시 표면에는 포함되지 않습니다.
+> **에디션 경계**: 테넌트 오버레이 코어(`create/delete/get/list/attach_vm/detach_vm`)는 Single Edge 공개 범위에 포함됩니다. 자동 peer 구성과 키 교환 자동화는 공개 출시 표면에 포함되지 않습니다.
 
 2.0은 멀티테넌트 VM 트래픽을 per-VM 암호화 오버레이로 격리하는 `tenant_overlay.*` 제어평면을 추가했습니다. 각 VM은 자체 network namespace 안의 per-VM WireGuard 엔드포인트로 배선되며, 공유 브리지 위를 지나는 오버레이 트래픽은 암호문입니다. 오버레이 레지스트리는 영속화되어 데몬 재시작 시 재수화되고, `vm.create`/`vm.start` 오케스트레이션은 fail-closed로 동작합니다(암호 오버레이 준비 실패 시 VM 기동을 막음).
 
@@ -2672,6 +2729,12 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   http://localhost:80/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"tenant_overlay.attach_vm","params":{
         "tenant":"acme","vm":"web-prod"},"id":"1"}'
+
+# tenant subnet과 VM overlay IP가 등록됐는지 다시 조회
+curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
+  http://localhost:80/api/v1/rpc \
+  -d '{"jsonrpc":"2.0","method":"tenant_overlay.get","params":{
+        "tenant":"acme"},"id":"1"}'
 ```
 
 ### 6.6 OVN SDN
@@ -2682,6 +2745,11 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 > 서비스 기동 시 local OVN controller를 자동 준비해 로컬 SDN 데이터면을 구성합니다.
 
 OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원합니다.
+
+#### 활용 예제 — 웹 논리 네트워크에 DHCP·ACL·SNAT 적용
+
+아래 절을 순서대로 실행하면 `ls-web` 논리 스위치와 `lr-main` 논리 라우터를 만들고, `10.0.1.0/24` DHCP와 웹 ACL, SNAT를 연결합니다.<br>
+`203.0.113.1`은 RFC 문서용 주소이므로 실제 external IP로 교체하고, 실행 전 `ovn status`가 준비 상태인지 확인합니다.
 
 #### OVN 상태
 
@@ -2770,58 +2838,70 @@ pcvctl ovn dhcp list ls-web
 
 ### 6.7 보안 그룹
 
-NFV 스타일의 보안 그룹으로 VM/컨테이너에 네트워크 정책을 적용합니다.
+Security Group으로 VM의 ingress와 egress 허용 범위를 선언하고, nftables actual rule로 적용합니다.<br>
+CLI는 기본 생성·단일 포트 규칙·VM 연결을 제공하고, source CIDR이나 rule 제거처럼 세부 속성이 필요한 작업은 JSON-RPC를 사용합니다.
+
+#### 활용 예제 — 웹 포트와 관리 CIDR의 SSH만 허용
+
+아래 예제는 `web-prod` VM에 HTTP·HTTPS를 허용하고, SSH는 RFC 문서용 관리 대역 `192.0.2.0/24`에서만 허용합니다.<br>
+실행 전 해당 대역을 실제 관리 CIDR로 바꾸며, VM에 기존 그룹이 있다면 교체 영향을 먼저 확인합니다.
 
 ```bash
 # 보안 그룹 생성
-pcvctl sg create --name web-sg --description "Web server security group"
+pcvctl security-group create web-sg
 
-# 인그레스 규칙 추가 (HTTP/HTTPS 허용)
-pcvctl sg rule add web-sg --direction ingress --protocol tcp \
-  --port 80-443 --source 0.0.0.0/0
+# 공개 웹 포트는 CLI로 각각 추가
+pcvctl security-group rule add web-sg --direction ingress --proto tcp --port 80
+pcvctl security-group rule add web-sg --direction ingress --proto tcp --port 443
 
-# SSH 허용 (특정 소스에서만)
-pcvctl sg rule add web-sg --direction ingress --protocol tcp \
-  --port 22 --source 192.168.1.0/24
+# SSH 규칙의 source CIDR은 JSON-RPC로 제한
+echo '{"jsonrpc":"2.0","method":"security_group.rule.add","params":{
+  "name":"web-sg","direction":"ingress","protocol":"tcp",
+  "port":22,"source":"192.0.2.0/24"
+},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# 이그레스 전체 허용
-pcvctl sg rule add web-sg --direction egress --protocol tcp \
-  --port 0 --source 0.0.0.0/0
+# 애플리케이션의 HTTPS egress 허용
+pcvctl security-group rule add web-sg --direction egress --proto tcp --port 443
 
 # VM에 보안 그룹 적용
-pcvctl sg apply web-sg --vm web-prod
+pcvctl vm security-group web-prod web-sg
 
-# 보안 그룹 목록
-pcvctl sg list
-
-# 규칙 목록
-pcvctl sg rule list web-sg
-
-# 규칙 삭제
-pcvctl sg rule remove web-sg --rule-id 3
+# desired state와 nft actual state 확인
+pcvctl security-group list
+sudo nft list table inet purecvisor
 ```
+
+이 예제는 DNS, NTP, package mirror 등 운영체제에 필요한 다른 egress를 자동으로 허용하지 않습니다.<br>
+실제 workload 의존성을 확인한 뒤 최소 규칙을 추가하고, 잘못 연결했으면 `pcvctl security-group detach web-prod web-sg`로 분리합니다.
 
 > **영속화**: 보안 그룹은 SQLite에 저장되며, 데몬 재시작 시 nftables 규칙이 자동 복원됩니다. default-deny 정책이 기본 적용됩니다.
 
 ### 6.8 DPDK
 
-고성능 데이터 플레인을 위한 DPDK (Data Plane Development Kit) 통합을 지원합니다.
+고성능 데이터 플레인을 위한 DPDK (Data Plane Development Kit) 통합을 지원합니다.<br>
+이 경로는 NIC를 host kernel network stack에서 분리하므로 out-of-band 복구 수단과 전용 NIC가 준비된 경우에만 사용합니다.
+
+#### 활용 예제 — 전용 PCI NIC로 OVS-DPDK bridge 구성
+
+`0000:03:00.0`은 예시 PCI 주소입니다.<br>
+`dpdk status`의 `available`과 hugepage 준비 상태를 먼저 확인하고, host 관리 경로 또는 기본 route가 연결된 NIC는 대상으로 선택하지 않습니다.
 
 ```bash
-# DPDK 상태
+# 사전 조건 확인
 pcvctl dpdk status
-
-# NIC 바인딩 (vfio-pci 드라이버)
-pcvctl dpdk bind 0000:03:00.0 vfio-pci
-
-# NIC 언바인딩 (원래 드라이버로 복원)
-pcvctl dpdk unbind 0000:03:00.0
-
-# DPDK 브릿지 생성
-pcvctl dpdk bridge create dpdk-br0
-
-# HugePages 정보
 pcvctl dpdk hugepage
+
+# 전용 NIC를 vfio-pci에 바인딩하고 같은 PCI 장치를 bridge port로 구성
+pcvctl dpdk bind 0000:03:00.0 vfio-pci
+pcvctl dpdk bridge create dpdk-br0 0000:03:00.0
+
+# desired state와 OVS actual state 확인
+pcvctl dpdk list
+sudo ovs-vsctl show
+
+# 사용 종료 시 bridge를 먼저 삭제한 뒤 kernel driver를 복원
+pcvctl dpdk bridge delete dpdk-br0
+pcvctl dpdk unbind 0000:03:00.0
 ```
 
 > **언바인딩 완료 판정:** `dpdk unbind`는 복원 명령의 종료코드만 믿지 않습니다.
@@ -2831,7 +2911,13 @@ pcvctl dpdk hugepage
 
 ### 6.9 SR-IOV
 
-SR-IOV를 사용하여 물리 NIC의 가상 기능(VF)을 VM에 직접 할당합니다.
+SR-IOV를 사용하여 물리 NIC의 가상 기능(VF)을 VM에 직접 할당합니다.<br>
+VF 트래픽은 일반 Linux bridge와 host TC QoS를 우회하므로 switch 정책, IOMMU 격리와 guest driver를 함께 검증해야 합니다.
+
+#### 활용 예제 — VLAN 100 VF를 웹 VM에 직접 할당
+
+`eno2`는 예시 PF이며 host 관리 경로에 사용되지 않는 SR-IOV 지원 NIC여야 합니다.<br>
+아래 MAC은 문서용 locally administered 주소이므로 실제 배포에서는 중복되지 않는 값으로 바꿉니다.
 
 ```bash
 # SR-IOV 지원 NIC 상태
@@ -2843,12 +2929,22 @@ pcvctl sriov enable eno2 4
 # VF 목록
 pcvctl sriov list eno2
 
+# VF 0에 MAC, VLAN과 spoof check를 적용
+pcvctl sriov set eno2 0 --mac 02:00:00:00:01:10 --vlan 100 --spoofchk on
+
 # VM에 VF 할당
 pcvctl sriov attach web-prod eno2 0
+
+# VM persistent XML과 VF actual state 확인
+sudo virsh dumpxml web-prod
+pcvctl sriov list eno2
 
 # VM에서 VF 분리
 pcvctl sriov detach web-prod 0000:03:10.0
 ```
+
+detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값을 사용합니다.<br>
+사용을 모두 마친 뒤에만 `pcvctl sriov disable eno2`로 VF 수를 0으로 되돌립니다.
 
 > **직접 할당 안전 경계:** `sriov attach`는 PF와 VF의 IOMMU group을 서버에서 모두
 > 확인한 뒤에만 첫 드라이버 변경을 시작합니다. `sriov detach`는 libvirt의 정확한
@@ -2857,24 +2953,48 @@ pcvctl sriov detach web-prod 0000:03:10.0
 
 ### 6.10 네트워크 디버깅
 
+#### 활용 예제 — link에서 VM NIC까지 계층별 장애 격리
+
+한 번에 설정을 바꾸기보다 desired state, host link, bridge·OVS, 정책, VM NIC 순서로 실제 상태를 좁힙니다.<br>
+VLAN 또는 VXLAN을 쓰지 않는 구성이라면 해당 단계의 빈 결과는 정상입니다.
+
 ```bash
-# 브릿지 상태
-ip link show type bridge
-brctl show
+# 1. PureCVisor desired state와 host 주소·route
+pcvctl network list
+ip -br address
+ip -4 route show table main
 
-# OVS 상태
+# 2. Linux bridge와 연결된 port
+ip -d link show type bridge
+bridge link
+
+# 3. OVS와 VXLAN actual state
 sudo ovs-vsctl show
+ip -d link show type vxlan
 
-# nftables 규칙
+# 4. 데몬이 소유한 정책
 sudo nft list table inet purecvisor
 
-# VXLAN 터널 상태
-ip -d link show type vxlan
+# 5. 대상 VM NIC와 persistent XML
+sudo virsh domiflist web-prod
+sudo virsh dumpxml web-prod
 ```
+
+기본 네트워크가 목록에 있지만 bridge가 없으면 생성 또는 재수화 오류를 확인합니다.<br>
+bridge와 VM NIC가 정상인데 통신이 실패하면 nftables·Security Group을 보고, VXLAN 구성에서만 실패하면 underlay endpoint, UDP 4789와 MTU를 확인합니다.
 
 ### 6.11 네트워크 Prometheus 메트릭
 
-```
+#### 활용 예제 — NIC drop과 conntrack 포화 징후 확인
+
+먼저 `ip -br link`로 실제 interface 이름을 확인한 뒤 내장 `/api/v1/metrics`에서 같은 device label을 조회합니다.<br>
+counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율을 기준으로 판단합니다.
+
+```bash
+# eno1을 실제 uplink 이름으로 교체한다.
+curl -s http://localhost:80/api/v1/metrics | \
+  grep -E '^(node_network_(receive|transmit)_(bytes|errors|drop)_total\{device="eno1"\}|node_nf_conntrack_(entries|entries_limit))'
+
 # 네트워크 인터페이스 메트릭
 node_network_receive_bytes_total{device="eno1"}
 node_network_transmit_bytes_total{device="eno1"}
@@ -2890,7 +3010,11 @@ node_sockstat_UDP_inuse
 
 # conntrack
 node_nf_conntrack_entries
+node_nf_conntrack_entries_limit
 ```
+
+`error` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.<br>
+`node_nf_conntrack_entries`가 limit에 가까우면 NAT·Security Group workload의 연결 수와 timeout 정책을 점검합니다.
 
 ### 6.12 Suricata DPI/IDS/IPS (2.0, D13)
 
@@ -2944,10 +3068,19 @@ fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 
 
 `drop.add`/`drop.remove`는 파생 룰셋 재생성 + `suricata -T` 검증 + 원자 교체 + 엔진 reload를 수행하므로 응답이 즉시 오더라도 **반영까지는 시간이 걸립니다**(최악 약 65초). 완료 여부는 `status`의 `last_toggle` 또는 `drop.list` 재조회로 확인하세요. 세 메서드 모두 role 2(ADMIN) 이상입니다.
 
+#### 활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단
+
+먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.<br>
+IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
+
 ```bash
 # 엔진 상태 조회
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://localhost:80/api/v1/suricata/status
+
+# 현재 inline 모드와 fail-open 설정 확인
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://localhost:80/api/v1/suricata/ips/status
 
 # IPS 인라인 경로 활성화 (queue_num/fail_open은 daemon.conf 값 사용)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
@@ -3003,21 +3136,31 @@ VPC name·tenant·backend·egress와 첫 subnet name·CIDR·MTU를 한 번에 �
 | `GET`, `POST`, `DELETE` | `/api/v1/vpcs/{vpc_id}/attachments`, `/api/v1/vpc-attachments[/{id}]` | VM 연결 관리 |
 | `GET`, `POST`, `DELETE` | `/api/v1/vpcs/{vpc_id}/services`, `/api/v1/vpc-services[/{id}]` | Service Publish 관리 |
 
+#### 활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시
+
+이 절의 예제는 공개 지원 backend인 `linux`를 사용합니다.<br>
+`198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 client CIDR로 교체합니다.
+
 ```bash
 # backend 준비 상태와 capacity를 먼저 확인한다.
 pcvctl vpc backends
 
-# CLI는 OVN VPC와 첫 subnet을 한 Job으로 만들고 terminal까지 기다린다.
+# CLI는 Linux VPC와 첫 subnet을 한 Job으로 만들고 terminal까지 기다린다.
 pcvctl vpc create prod --tenant acme --egress nat \
-  --backend ovn --subnet-name web --cidr 10.60.10.0/24 --mtu 1500
+  --backend linux --subnet-name web --cidr 10.60.10.0/24 --mtu 1500
 pcvctl vpc list --tenant acme
 
 # REST 응답의 job_id도 terminal까지 별도 확인한다.
 curl -sS -X POST https://127.0.0.1:8443/api/v1/vpcs \
   -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
-  -d '{"tenant":"acme","name":"prod","backend":"ovn","egress_mode":"nat","subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}'
+  -d '{"tenant":"acme","name":"prod","backend":"linux","egress_mode":"nat","subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}'
 curl -sS https://127.0.0.1:8443/api/v1/jobs/<job-id> \
   -H "Authorization: Bearer $TOKEN"
+
+# VM attachment와 Service Publish는 위 예제 2를 따르고 actual 수렴을 확인한다.
+pcvctl vpc get <vpc-uuid> --tenant acme
+pcvctl vpc service-list <vpc-uuid> --tenant acme
+pcvctl vpc status
 ```
 
 VIEWER는 조회, OPERATOR는 생성·egress·subnet·attachment·publish 변경, ADMIN은 VPC 삭제와

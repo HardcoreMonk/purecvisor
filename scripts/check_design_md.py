@@ -533,6 +533,18 @@ def main() -> int:
             "pcvctl network info" not in text,
         )
         require(
+            f"{path} must not advertise the nonexistent firewall rule RPC",
+            '"method":"firewall.rule.add"' not in text,
+        )
+        require(
+            f"{path} must not advertise the nonexistent VLAN mutation RPC",
+            '"method":"network.vlan.add"' not in text,
+        )
+        require(
+            f"{path} must not advertise the retired security-group CLI alias",
+            "pcvctl sg " not in text,
+        )
+        require(
             f"{path} must not advertise the retired in-app service guide",
             "| 도움말 | 서비스 가이드" not in text,
         )
@@ -548,8 +560,28 @@ def main() -> int:
                 "### 네트워크 서비스 활용 예제",
                 "#### 예제 1 — NAT 네트워크에 VM 연결",
                 "#### 예제 2 — Local VPC의 웹 서비스를 허용된 네트워크에 게시",
+                "purecvisor-single-network-services.svg",
+                "#### 서비스별 예제 지도",
+                "#### 활용 예제 — 연결 목적에 맞는 기본 네트워크 생성",
+                "#### 활용 예제 — NAT와 내부 격리 경계 비교",
+                "#### 활용 예제 — VM을 upstream VLAN 100에 연결",
+                "#### 활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용",
+                "#### 활용 예제 — 외부 VXLAN endpoint와 수동 peer 구성",
+                "#### 활용 예제 — 웹 논리 네트워크에 DHCP·ACL·SNAT 적용",
+                "#### 활용 예제 — 웹 포트와 관리 CIDR의 SSH만 허용",
+                "#### 활용 예제 — 전용 PCI NIC로 OVS-DPDK bridge 구성",
+                "#### 활용 예제 — VLAN 100 VF를 웹 VM에 직접 할당",
+                "#### 활용 예제 — link에서 VM NIC까지 계층별 장애 격리",
+                "#### 활용 예제 — NIC drop과 conntrack 포화 징후 확인",
+                "#### 활용 예제 — IDS 상태 확인 후 선택 SID만 IPS 차단",
+                "#### 활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시",
                 "--backend linux --subnet-name web",
                 'pcvctl vpc service-publish "$ATTACHMENT_ID"',
+                "pcvctl security-group create web-sg",
+                "pcvctl dpdk bridge create dpdk-br0 0000:03:00.0",
+                "pcvctl sriov set eno2 0",
+                "/api/v1/suricata/ips/status",
+                "node_nf_conntrack_entries_limit",
             ),
         )
 
