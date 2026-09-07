@@ -82,6 +82,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 
 505 PASS·독립 44 PASS·두 노드 UI 배포는 지정 개발선 시정의 근거다. 공개 제품 소스의 동기화나 전체 감사·환경 인증 완료를 의미하지 않는다. 공개 스냅샷의 과거 C 시험·gate 수와 개발선의 최신 검토 수치를 구분한다. 제품 버전, 페이지 route, CSS와 아키텍처 SVG의 변경은 없다.
 
+게시 콘텐츠 commit은 [`70f60cf`](https://github.com/HardcoreMonk/purecvisor/commit/70f60cf5212fa2b4682c8193cdf1e621b7666917)이며, [Pages workflow](https://github.com/HardcoreMonk/purecvisor/actions/runs/34104712998)가 2026-09-07 성공했다. 사이트 build·105파일 검사와 공개 소스 정책 gate를 통과했고, 실제 HTTPS 10개 문서·보조 파일의 SHA-256이 로컬 산출물과 일치했다. 실제 사이트의 8개 route를 데스크톱·모바일에서 확인한 16건과 검색·기존 주소 redirect도 통과했다.
+
 ## 시각 기준
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
