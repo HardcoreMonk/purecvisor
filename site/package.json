@@ -15,7 +15,7 @@
     "prepare:content": "node scripts/prepare-content.mjs",
     "dev": "npm run prepare:content && astro dev",
     "build": "npm run prepare:content && astro build && node scripts/publish-product-docs.mjs",
-    "check": "npm run build && node scripts/check-site.mjs"
+    "check": "npm run build && node scripts/check-site.mjs && node scripts/check-service-videos.mjs"
   },
   "dependencies": {
     "@astrojs/markdown-remark": "7.2.4",

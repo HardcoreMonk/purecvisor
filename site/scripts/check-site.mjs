@@ -885,9 +885,10 @@ for (const [name, source] of [["root", index], ["korean", korean], ["english", e
     if (source.includes(marker)) throw new Error(`${name} removed landing scene found: ${marker}`);
   }
   const sectionIds = [...source.matchAll(/<section\b[^>]*\bid="([^"]+)"/g)].map((match) => match[1]);
-  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "documentation"])) {
+  if (JSON.stringify(sectionIds) !== JSON.stringify(["_top", "service-demos", "documentation"])) {
     throw new Error(`${name} landing section order mismatch: ${sectionIds.join(" -> ")}`);
   }
+  if (!source.includes('<a class="pcv-button pcv-button-primary" href="#service-demos">')) throw new Error(`${name} service demo CTA missing`);
   const heroCopyPosition = source.indexOf('<div class="pcv-hero-copy">');
   if (heroCopyPosition < 0) {
     throw new Error(`${name} hero copy missing`);
@@ -1125,7 +1126,7 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }
-  if (!source.includes('datetime="2026-09-07T00:00:00.000Z"')) {
+  if (!source.includes('datetime="2026-09-08T00:00:00.000Z"')) {
     throw new Error(`${name} landing lastUpdated mismatch`);
   }
   if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {
@@ -1156,11 +1157,11 @@ if (!korean.includes(`href="${guideEntryPath}">설치 가이드</a>`)) {
 if (!english.includes(`href="${guideEntryPath}">Installation guide</a>`)) {
   throw new Error("english installation guide link missing");
 }
-if (!korean.includes(`<a class="pcv-button pcv-button-primary" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
+if (!korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
   || !korean.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
   throw new Error("korean hero guide actions missing");
 }
-if (!english.includes(`<a class="pcv-button pcv-button-primary" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
+if (!english.includes(`<a class="pcv-button pcv-button-ghost" href="${guidePath(1, "#14-5분-퀵스타트")}">`)
   || !english.includes(`<a class="pcv-button pcv-button-ghost" href="${guideEntryPath}">`)) {
   throw new Error("english hero guide actions missing");
 }

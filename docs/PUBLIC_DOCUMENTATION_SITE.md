@@ -2,7 +2,7 @@
 
 > 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
-> 현행화 기준: 2026-09-07
+> 현행화 기준: 2026-09-08
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
 
@@ -35,7 +35,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `docs/architecture/**`, `site/**`와 workflow 자체를 포함해 작성 정본이나 SVG 입력 중 어느
   하나만 바뀌어도 재배포한다.
 - landing source는 `site/src/content/docs/index.mdx`이며 제품 범위·기본 action을 간결한 Hero로
-  제공한 뒤 8개 그룹·22개 문서의 `문서 살펴보기` 맵을 이어서 제공한다. 상세 아키텍처와 문서
+  제공한 뒤 `서비스 기능 소개` 영상과 8개 그룹·22개 문서의 `문서 살펴보기` 맵을 이어서 제공한다. 상세 아키텍처와 문서
   본문 탐색은 문서 reader가 소유한다.
 - 기본 `/`과 명시적 `/ko/`는 한국어 landing을 제공하고 `/en/`은 영어 landing을 제공한다.
   한국어 콘텐츠 정본은 root `index.mdx`이며 build 준비 단계가 `/ko/`용 source를 복제한다.
@@ -317,3 +317,26 @@ domain에서 H1~H6·본문·표·code의 좌측축 차이 0, 표·code 50~60rem 
 [`33425021822`](https://github.com/HardcoreMonk/purecvisor/actions/runs/33425021822)과 custom
 domain에서 16rem sidebar, 일반 본문 56rem, 표·code 56~72rem, 88rem architecture canvas,
 1920·390px reflow와 Axe·browser 오류 0 계약을 검증했다.
+
+
+## 서비스 기능 영상 소개
+
+root·`/ko/`·`/en/` landing의 `#service-demos`는 Local VPC·OVN SDN·VXLAN을 6개
+실제 촬영 장면으로 소개한다. hero의 영상 보기와 서비스 메뉴에서 직접 이동한다.
+`ServiceShowcase.astro`와 `service-videos.mjs`가 세 언어 route의 동일한 정보 구조를
+공유하며 한국어와 영어 설명을 제공한다. 영상 화면 자체는 한국어 무음 녹화다.
+
+`site/public/assets/service-videos/`에는 공개용 MP4·WebP 포스터·hash manifest만 둔다.
+사용자가 재생하기 전에는 video src를 연결하지 않으며 autoplay·외부 embed·추적 SDK가
+없다. 기능·장면 전환과 페이지 이탈은 기존 재생을 종료한다. native 재생·전체화면,
+오류 후 다시 시도·직접 파일 링크와 JavaScript 없는 경우의 6개 직접 링크를 제공한다.
+
+영상은 기존 기능 테스트에서 파생했다. 계정 표시 toolbar는 crop했고, VXLAN의 운영
+receipt 영역은 기능 설명 패널로 교체했다. 테스트용 주소·촬영 시점의 화면이며 전체
+지원 환경 인증이나 클러스터 관리 기능을 의미하지 않는다. 원본 길이·제품 동작은 유지했다.
+
+`npm run check`는 기존 문서 gate와 함께 `check-service-videos.mjs`를 실행해 6개 영상·
+포스터 hash, 파일 목록·크기, MP4 faststart, 초기 src·autoplay 부재와 fallback을 검사한다.
+새 장면을 추가할 때 데이터·manifest·공개 미디어·gate를 함께 갱신한다.
+[설계](superpowers/specs/2026-09-08-service-video-showcase-design.md)와
+[운영 인계](operations/2026-09-08-service-video-showcase-handoff.md)를 기준으로 검증·원복한다.

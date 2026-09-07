@@ -75,7 +75,7 @@ if (!koreanLanding.includes(koreanLandingImport)) {
 }
 await writeFile(
   koreanLandingTarget,
-  koreanLanding.replace(koreanLandingImport, "../../../components/DocumentationMap.astro")
+  koreanLanding.replace(koreanLandingImport, "../../../components/DocumentationMap.astro").replace("../../components/ServiceShowcase.astro", "../../../components/ServiceShowcase.astro")
 );
 
 for (const [index, match] of chapterMatches.entries()) {

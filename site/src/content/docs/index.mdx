@@ -2,10 +2,12 @@
 title: PureCVisor Single Edge
 description: 단일 Linux/KVM 노드를 위한 Single Edge 하이퍼바이저 제어면
 template: splash
-lastUpdated: 2026-09-07
+lastUpdated: 2026-09-08
 sidebar:
   hidden: true
 ---
+
+import ServiceShowcase from '../../components/ServiceShowcase.astro';
 
 import DocumentationMap from '../../components/DocumentationMap.astro';
 
@@ -19,7 +21,8 @@ import DocumentationMap from '../../components/DocumentationMap.astro';
           <span>Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.</span>
         </p>
         <div class="pcv-actions">
-          <a class="pcv-button pcv-button-primary" href="/ko/getting-started/overview/#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a>
+          <a class="pcv-button pcv-button-primary" href="#service-demos">서비스 영상 보기 <span aria-hidden="true">▷</span></a>
+          <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/overview/#14-5분-퀵스타트">5분 퀵스타트 <span aria-hidden="true">→</span></a>
           <a class="pcv-button pcv-button-ghost" href="/ko/getting-started/installation/">설치 가이드</a>
         </div>
         <p class="pcv-hero-note">Ubuntu Server 26.04.1 LTS · Single Edge · 기본 HTTPS :443</p>
@@ -27,5 +30,6 @@ import DocumentationMap from '../../components/DocumentationMap.astro';
 
     </div>
   </section>
+  <ServiceShowcase locale="ko" />
   <DocumentationMap locale="ko" />
 </div>
