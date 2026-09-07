@@ -323,7 +323,7 @@ domain에서 16rem sidebar, 일반 본문 56rem, 표·code 56~72rem, 88rem archi
 
 root·`/ko/`·`/en/` landing의 `#service-demos`는 Local VPC·OVN SDN·VXLAN을 6개
 실제 촬영 장면으로 소개한다. hero의 영상 보기와 서비스 메뉴에서 직접 이동한다.
-`ServiceShowcase.astro`와 `service-videos.mjs`가 세 언어 route의 동일한 정보 구조를
+`ServiceShowcase.astro`와 `service-videos.mjs`가 세 landing route의 동일한 정보 구조를
 공유하며 한국어와 영어 설명을 제공한다. 영상 화면 자체는 한국어 무음 녹화다.
 
 `site/public/assets/service-videos/`에는 공개용 MP4·WebP 포스터·hash manifest만 둔다.

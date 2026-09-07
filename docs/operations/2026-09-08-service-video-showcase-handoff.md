@@ -1,6 +1,6 @@
 # 서비스 영상 소개 운영 인계
 
-> 상태: Release 준비 — 로컬 구현·브라우저 검증 통과
+> 상태: Operate — 공개 Pages 게시·실제 도메인 검증 완료
 > 공개 주소: <https://purecvisor.site/#service-demos>
 > 설계: [서비스 영상 소개](../superpowers/specs/2026-09-08-service-video-showcase-design.md)
 > 계획: [구현 계획](../superpowers/plans/2026-09-08-service-video-showcase.md)
@@ -37,7 +37,15 @@ MP4 6개의 합계는 2,939,786 bytes이고 포스터 포함 미디어는 3,170,
 
 게시 전 기준 commit은 `aedde77ed25875a3c0199e5cd2850639dafe932e`다. site 변경을 원복하는
 commit을 main에 반영해 Pages를 재발행한다. 제품 daemon·VM·인증 DB는 이번 배포에
-포함하지 않는다. 실제 게시 commit·workflow·HTTPS 확인 결과는 배포 후 기록한다.
+포함하지 않는다. 공개 콘텐츠 commit은 `7633ba434a957813b1d374984c787173ccb18887`이며
+[Pages 실행 34138227337](https://github.com/HardcoreMonk/purecvisor/actions/runs/34138227337)이
+2026-09-08 00:26:08 KST에 성공했다.
+
+게시 도메인의 HTML 3개·manifest·영상 6개·포스터 6개, 총 16개 파일이 로컬 hash와
+일치했다. MP4 6개는 `video/mp4`와 `206 Content-Range` 응답을 확인했다.
+실제 사이트에서도 9개 route/viewport·6개 재생·seek·전환·키보드·오류 재시도·dark·
+reduced motion·문서·검색·구주소와 JavaScript 없는 직접 링크 검증을 통과했다.
+첫 방문 MP4 요청은 0이며 JavaScript 오류·예기치 않은 HTTP 오류·가로 넘침도 0이다.
 
 ## 검증 해석
 
