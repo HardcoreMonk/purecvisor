@@ -2,8 +2,10 @@
 
 > **대상:** PureCVisor Single Edge
 > **목적:** 기능 개발, 버그 수정, 릴리스 직전 검증을 같은 기준으로 운영하기 위한 공식 규칙
-> **현행화 기준:** 2026-08-31
+> **현행화 기준:** 2026-09-07
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
+
+> **2026-09-07 현황:** 개발선의 지정 UI 시정·독립 리뷰·두 노드 정적 UI 배포 확인은 완료했으나 전체 감사와 지원 환경 인증은 미완료다. [가이드 품질 게이트](GUIDE.md#227-2026-09-07-검토시정-현황)의 회차별 범위를 따른다. Pages 문서 현행화와 공개 소스의 시정 포함 여부는 별도로 확인한다.
 
 ---
 

@@ -1125,7 +1125,7 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }
-  if (!source.includes('datetime="2026-08-31T00:00:00.000Z"')) {
+  if (!source.includes('datetime="2026-09-07T00:00:00.000Z"')) {
     throw new Error(`${name} landing lastUpdated mismatch`);
   }
   if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {

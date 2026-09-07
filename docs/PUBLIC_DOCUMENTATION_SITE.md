@@ -2,7 +2,7 @@
 
 > 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
-> 현행화 기준: 2026-08-31
+> 현행화 기준: 2026-09-07
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
 
@@ -75,6 +75,12 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   DHCP cleanup, 인증 REST ACL/NAT query filter와 canonical `-32602`를 설명한다. 미완성
   OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 사용자 기능으로 노출하지 않으며,
   generic OVN과 Local VPC OVN backend의 지원 gate를 분리한다.
+
+## 2026-09-07 콘텐츠 현행화
+
+기존 21개 운영 장·DB 아키텍처 route와 공개 SQLite 9개 범위를 유지하고, 시작하기·Web UI·아키텍처 리팩토링·품질 게이트의 개발선 감사/시정 현황을 갱신했다. landing의 마지막 업데이트도 같은 날짜로 맞췄다. 개발선의 실제 노드 주소·비공개 commit·원본 운영 로그는 게시하지 않는다.
+
+505 PASS·독립 44 PASS·두 노드 UI 배포는 지정 개발선 시정의 근거다. 공개 제품 소스의 동기화나 전체 감사·환경 인증 완료를 의미하지 않는다. 공개 스냅샷의 과거 C 시험·gate 수와 개발선의 최신 검토 수치를 구분한다. 제품 버전, 페이지 route, CSS와 아키텍처 SVG의 변경은 없다.
 
 ## 시각 기준
 
