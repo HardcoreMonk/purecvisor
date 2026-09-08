@@ -1,6 +1,6 @@
 ---
 import { serviceGroups, showcaseCopy } from '../data/service-videos.mjs';
-import manifest from '../../public/assets/service-videos/manifest.json';
+import manifest from '../../public/assets/service-recordings/manifest.json';
 const locale = Astro.props.locale === 'en' ? 'en' : 'ko';
 const copy = showcaseCopy[locale];
 const group = serviceGroups[0];
@@ -14,7 +14,7 @@ const duration = (id) => {
   <div class="pcv-shell">
     <div class="pcv-showcase-heading">
       <div>
-        <p class="pcv-eyebrow">NETWORK SERVICES · 06 SCENES</p>
+        <p class="pcv-eyebrow">NETWORK SERVICES · {serviceGroups.reduce((count, item) => count + item.clips.length, 0)} {locale === 'en' ? 'RECORDINGS' : '개 검증 영상'}</p>
         <h2 id="service-showcase-title">{copy.heading}</h2>
       </div>
       <p class="pcv-showcase-lead">{copy.lead}</p>
@@ -30,16 +30,20 @@ const duration = (id) => {
     </div>
     <div class="pcv-service-stage" id="service-stage" role="tabpanel" aria-labelledby="service-tab-vpc" tabindex="0">
       <div class="pcv-service-viewer">
-        <div class="pcv-video-topline"><span><i aria-hidden="true"></i> PureCVisor <span data-video-service>Local VPC</span></span><span>PRODUCT WALKTHROUGH</span></div>
+        <div class="pcv-video-topline"><span><i aria-hidden="true"></i> PureCVisor <span data-video-service>Local VPC</span></span><span>{copy.recording}</span></div>
         <div class="pcv-video-frame">
-          <img data-video-poster src={clip.poster} width="1280" height="754" loading="lazy" alt={clip[locale].title} />
+          <img data-video-poster src={clip.poster} width="1440" height="900" loading="lazy" alt={clip[locale].title} />
           <video data-service-video hidden controls playsinline preload="none" aria-label={clip[locale].title} aria-describedby="service-scene-summary service-video-context"></video>
           <button class="pcv-video-play" data-video-play type="button" aria-label={`${copy.play}: ${clip[locale].title}`}>
             <span class="pcv-play-disc"><svg viewBox="0 0 24 24" aria-hidden="true"><path d="m9 5 11 7-11 7Z" /></svg></span>
             <span class="pcv-play-label">{copy.play} <span data-video-duration>{duration(clip.id)}</span></span>
           </button>
         </div>
-        <div class="pcv-video-caption"><span data-video-status role="status" aria-live="polite">{copy.ready}</span><a data-video-direct href={clip.src} target="_blank" rel="noopener">{copy.direct} <span aria-hidden="true">↗</span></a><button data-video-retry hidden type="button">{copy.retry}</button></div>
+        <div class="pcv-video-caption"><span data-video-status role="status" aria-live="polite">{copy.ready}</span><a data-video-direct href={clip.src} target="_blank" rel="noopener">{copy.direct} <span aria-hidden="true">↗</span></a><a data-video-original href={clip.original} target="_blank" rel="noopener">{copy.original} <span aria-hidden="true">↗</span></a><button data-video-retry hidden type="button">{copy.retry}</button></div>
+        <div class="pcv-recording-description">
+          <h3 data-scene-title>{clip[locale].title}</h3>
+          <p class="pcv-video-scene-summary" id="service-scene-summary" data-scene-summary>{clip[locale].summary}</p>
+        </div>
       </div>
       <div class="pcv-service-detail">
         <p class="pcv-service-overline" data-service-tag>{group[locale].tag}</p>
@@ -53,12 +57,11 @@ const duration = (id) => {
             </button>
           ))}
         </div>
-        <p class="pcv-video-scene-summary" id="service-scene-summary" data-scene-summary>{clip[locale].summary}</p>
         <a class="pcv-service-guide" href="/ko/infrastructure/networking/">{copy.guide} <span aria-hidden="true">→</span></a>
       </div>
     </div>
     <div class="pcv-showcase-footnote"><p id="service-video-context">{copy.context}</p><p data-service-note>{group[locale].note}</p></div>
-    <noscript><p>{locale === 'en' ? 'Open a video directly:' : '영상 파일을 직접 열어 보세요:'}</p><ul>{serviceGroups.flatMap(item => item.clips).map(item => <li><a href={item.src}>{item[locale].title}</a></li>)}</ul></noscript>
+    <noscript><p>{locale === 'en' ? 'Open a recording directly:' : '영상 파일을 직접 열어 보세요:'}</p><ul>{serviceGroups.flatMap(item => item.clips).map(item => <li><a href={item.src}>{item[locale].title}</a> · <a href={item.original}>{copy.original}</a><p>{item[locale].summary}</p></li>)}</ul></noscript>
   </div>
 </section>
 <script>

@@ -3,6 +3,13 @@
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 
+## 2026-09-08 랜딩 기능 검증 원본 영상
+
+- 편집 영상 6편을 검증 당시 MP4 15편과 촬영 WebM 원본으로 교체했습니다.
+- Local VPC·OVN·VXLAN의 생성·VM 연결·통신·차단·복구·정리 과정을 전체 화면으로
+  제공하고 각 장면에 한국어·영어 목적과 결과 설명을 추가했습니다.
+- 기존 단일 player와 지연 재생을 유지하고 원본 링크·1440×900 화면·파일 hash를 검증했습니다.
+
 ## 2026-08-31 공개 네트워크·GitHub Pages 현행화
 
 - 읽기 전용 host network baseline RPC·REST·Web UI를 추가하고 OVN·Local VPC 작업 전에

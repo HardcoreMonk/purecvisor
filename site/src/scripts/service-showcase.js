@@ -1,5 +1,5 @@
 import { serviceGroups, showcaseCopy } from '../data/service-videos.mjs';
-import manifest from '../../public/assets/service-videos/manifest.json';
+import manifest from '../../public/assets/service-recordings/manifest.json';
 
 const root = document.querySelector('.pcv-showcase');
 if (root) {
@@ -56,6 +56,8 @@ if (root) {
     play.setAttribute('aria-label', `${copy.play}: ${clip[locale].title}`);
     find('[data-video-duration]').textContent = duration(clip.id);
     find('[data-video-direct]').href = clip.src;
+    find('[data-video-original]').href = clip.original;
+    find('[data-scene-title]').textContent = clip[locale].title;
     find('[data-scene-summary]').textContent = clip[locale].summary;
     sceneList.querySelectorAll('[data-scene]').forEach(button => {
       button.setAttribute('aria-pressed', String(button.dataset.scene === clip.id));
