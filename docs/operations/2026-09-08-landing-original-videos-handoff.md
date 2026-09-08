@@ -24,6 +24,13 @@ WebM 153,931,686 bytes와 실제 프레임 포스터를 합친 미디어는 188,
 - 실제 HTTP로 미디어 45개 hash·MIME 대조, MP4/WebM 30개 `206 Content-Range`,
   WebM 15개 브라우저 직접 재생 PASS.
 - `make check-public-comments`, `python3 scripts/check_design_md.py`, `git diff --check` PASS.
+- 공개 content commit `ee19f49705422cbfb1a431a907c55259d3c481e3`,
+  [Pages run 34200214552](https://github.com/HardcoreMonk/purecvisor/actions/runs/34200214552)
+  SUCCESS, 게시 완료 2026-09-08 16:37:58 KST.
+- 실제 `https://purecvisor.site`에서 9개 route/viewport·15편 MP4 재생/seek·오류 재시도·
+  키보드·검색·noscript와 WebM 15편 직접 재생 PASS. 예기치 않은 HTTP·JS 오류 0.
+- 공개 HTML 3개·manifest·미디어 45개 총 49개 hash가 로컬과 일치한다.
+  MP4/WebM 30개 MIME·range 206 PASS, 이전 편집 `vxlan-peer.mp4` 주소는 404다.
 
 ## Audit
 
@@ -35,7 +42,7 @@ Refero callable tool이 없어 신규 실시간 조회는 수행하지 않았다
 
 ## Blockers
 
-로컬 구현·검증 차단 이슈 없음. 실제 도메인 반영과 게시 검증은 아래 현재 단계에 따른다.
+없음. 공개 Pages 반영과 실제 도메인 검증을 완료했다.
 
 ## Warnings
 
@@ -50,15 +57,12 @@ Refero callable tool이 없어 신규 실시간 조회는 수행하지 않았다
 
 ## Current Lifecycle Stage
 
-release — 로컬 빌드·원본 대조·독립 리뷰 완료. 공개 Pages 반영과 live 검증 진행 전이다.
-operate에는 아직 진입하지 않았다.
+operate — 공개 content push·Pages 게시·실제 도메인 검증을 완료했다.
 
 ## Next Action
 
-게시 commit의 Pages 성공을 확인한 뒤 실제 도메인에서 MP4/WebM/포스터 identity,
-재생·seek·원본 링크·반응형을 재확인하고 이 인계에 결과를 기록한다.
+없음. 현재 원본 영상과 서비스 설명을 운영한다.
 
 ## Follow-Up Tasks
 
-- 공개 Pages 배포·실제 도메인 검증 후 operate 상태 확정.
-- 원복이 필요하면 이 교체 diff만 되돌리는 commit과 Pages 재발행을 사용한다.
+없음. 원복이 필요하면 이 교체 diff만 되돌리는 commit과 Pages 재발행을 사용한다.
