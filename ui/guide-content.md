@@ -405,7 +405,7 @@ sudo apt update && sudo apt install -y \
 OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
 일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
-> **ZFS는 선택형 런타임입니다**
+> **ZFS는 선택형 런타임입니다 — LXC 컨테이너 생성에는 필수**
 >
 > PureCVisor 데몬과 Web UI, REST API, CLI는 `zvol_pool`이나 ZFS volume이 없어도 시작하고 동작합니다.
 > VM 생성 요청에서 `storage_type`을 생략하면 설정된 ZFS dataset을 먼저 확인하고, 사용할 수 없으면 `[storage] image_dir`에 qcow2 파일 디스크를 생성합니다.
@@ -1757,6 +1757,14 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
 
 ### 4.1 컨테이너 생성
+
+> **ZFS 필수 — 컨테이너 생성 전 확인**
+>
+> PureCVisor 2.0.0의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
+> ZFS 커널 모듈과 `zfs` 명령을 준비하고, `daemon.conf`의 `[storage] container_pool`을 해당 풀 아래의 컨테이너 부모 데이터셋 경로로 설정하세요. 기본값은 `pcvpool/containers`이며 부모 데이터셋이 없으면 생성 과정에서 만들기를 시도합니다.
+> 이 저장소는 파일시스템 데이터셋입니다. VM용 블록 볼륨 `zvol`을 별도로 만드는 절차는 필요하지 않습니다.
+> **LXC 패키지만 설치하거나 Btrfs·ext4 디렉터리만 준비한 상태에서는 현재 PureCVisor의 컨테이너 생성이 실패합니다.** 현재 Btrfs·일반 디렉터리 백엔드와 자동 폴백은 지원하지 않습니다.
+> ZFS 없이 사용할 수 있는 qcow2/raw VM 생성과 컨테이너 생성의 전제조건을 구분하세요.
 
 ```bash
 # 기본 생성 (LXC + ZFS rootfs)
