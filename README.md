@@ -1,6 +1,6 @@
 # PureCVisor Single Edge
 
-> 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성, Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
+> 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
 [![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
@@ -9,66 +9,24 @@
 
 [공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [네트워크·OVN](https://purecvisor.site/ko/infrastructure/networking/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
 
-PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 운영 표면을 묶습니다. CLI, REST API, UDS JSON-RPC, Vanilla JS Web UI가 같은 dispatcher와 RBAC 정책을 통과하며, 긴 작업은 Job ID, WebSocket 완료 알림, polling, audit log로 추적됩니다.
+PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 운영 표면을 묶습니다.<br> CLI, REST API, UDS JSON-RPC, Vanilla JS Web UI가 같은 dispatcher와 RBAC 정책을 통과하며, 긴 작업은 Job ID, WebSocket 완료 알림, polling, audit log로 추적됩니다.
 
-이 저장소는 Linux/KVM 기반 `purecvisor-single` 공개 스냅샷입니다. 공개 범위는 Single Edge 기능과 그 실행에 필요한 공통 코어로 제한합니다. 전체 운영 매뉴얼은 [공개 문서 사이트](https://purecvisor.site)와 [docs/GUIDE.md](docs/GUIDE.md), 개발 규칙은 [AGENTS.md](AGENTS.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 봅니다.
+이 저장소는 Linux/KVM 기반 `purecvisor-single` 공개 스냅샷입니다.<br> 공개 범위는 Single Edge 기능과 그 실행에 필요한 공통 코어로 제한합니다.<br> 전체 운영 매뉴얼은 [공개 문서 사이트](https://purecvisor.site)와 [docs/GUIDE.md](docs/GUIDE.md), 개발 규칙은 [AGENTS.md](AGENTS.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 봅니다.
 
 공개 네트워크 계약은 작업 전 읽기 전용 host baseline 확인, 등록된 generic OVN
-18개 RPC, switch-owned DHCP 자동 정리와 인증 REST ACL/NAT filter까지입니다. 미완성
+18개 RPC, switch-owned DHCP 자동 정리와 인증 REST ACL/NAT filter까지입니다.<br> 미완성
 OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 공개 기능이 아니며, Local VPC의
-선택형 OVN backend는 별도 실환경 gate가 남아 있습니다. 공개 데이터베이스 설명은 이
+선택형 OVN backend는 별도 실환경 gate가 남아 있습니다.<br> 공개 데이터베이스 설명은 이
 저장소 소스에 실제 포함된 로컬 SQLite 9개를 기준으로 합니다.
 
-공개 소스에는 내부 전용 Monitoring 확장과 비공개 운영 자료를 포함하지 않습니다.
-기존 공개 host·VM·process 지표, Prometheus와 일반 알림은 유지합니다. 로컬 검증은
+공개 소스에는 내부 전용 Monitoring 확장과 비공개 운영 자료를 포함하지 않습니다.<br>
+기존 공개 host·VM·process 지표, Prometheus와 일반 알림은 유지합니다. <br> 로컬 검증은
 출시 인증과 별개이며, 전체 감사 **FAIL(미완료)**와 지원 환경·실노드 인증 잔여는
 [품질 게이트 현황](docs/GUIDE.md#227-2026-09-07-검토시정-현황)을 따릅니다.
 
----
-
-## 공개 소스 업데이트 — 2026-09-15
-
-검증된 Single Edge 소스를 공개 저장소 `main`의
-[`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)에 반영했습니다.
-
-- 부팅 직후 첫 CPU·메모리 호스트 경보가 쿨다운에 막히는 오류를 수정했습니다.
-  시각 0에서도 첫 경보를 기록하고, 이후 반복 경보에 기존 600초 쿨다운을 적용합니다.
-- 이벤트 조회·경보·감사·명령 버튼의 연결을 검사하는 `check-single-ui-surface`를
-  `check-all`과 `dev-check`에 포함했습니다. 공개판 소스맵 파일·링크·배포 항목·번들 참조도 거부합니다.
-
-아래는 해당 소스 스냅샷의 로컬 검증 결과입니다.
-
-| 검증 | 결과 |
-|------|------|
-| 일반·release C 시험 각각 | 1,479 PASS · 14 SKIP, audit startup 5 PASS |
-| 전체 계약 게이트 | 40개 PASS |
-| Web UI 시험 | 512 PASS |
-| 공개 UI 표면 회귀 | 11개 PASS |
-| ASan/UBSan | 전체 sanitizer 절차 PASS |
-| self-healing Valgrind | 4개 PASS, 오류·직접·간접·가능성 누수 0 |
-| debug·clean release 빌드 | PASS, 컴파일러 경고 0 |
-
-sanitizer의 leak detection은 기존 기본값에 따라 비활성입니다. 표적 Valgrind 결과는
-전체 메모리 검증이나 실노드 지원 인증을 대신하지 않습니다. 공개 문서의
-[GitHub Pages 빌드·배포](https://github.com/HardcoreMonk/purecvisor/actions/runs/34966289044)도 성공했습니다.
-
----
-
-## 왜 필요한가요?
-
-단일 노드 하이퍼바이저를 운영할 때도 VM, 컨테이너, 스토리지, 네트워크, 권한, 감사 로그, 모니터링은 쉽게 흩어집니다. PureCVisor는 이 표면을 한 데 묶어 다음 문제를 줄이는 데 초점을 둡니다.
-
-- VM lifecycle, LXC, ZFS, OVS/OVN, backup, auth를 한 제어면에서 다룹니다.
-- REST, UDS JSON-RPC, CLI, Web UI가 같은 권한 정책과 audit 경로를 공유합니다.
-- 장시간 작업은 accepted 응답과 실제 완료 결과를 분리해 거짓 성공을 줄입니다.
-- 공개판은 Single Edge 범위만 책임지고, 클러스터 자동화나 라이브 마이그레이션은 제외합니다.
-- C23 코드베이스와 검증 스크립트로 공개 전 빌드, UI, 보안, 경계 검사를 반복 가능하게 유지합니다.
-
----
-
 ## 빠른 시작
 
-Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
+Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. <br> 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
 공개 소스를 내려받고 저장소 디렉터리로 이동합니다.
 
@@ -149,76 +107,6 @@ Release 빌드는 다음 명령으로 확인합니다.
 ```bash
 make release
 ```
-
----
-
-## 포함 범위
-
-| 영역 | 제공 기능 |
-|------|-----------|
-| 데몬 | 단일 프로세스 `purecvisorsd`, `GMainLoop`, `GTask` 비동기 작업 |
-| 인터페이스 | UDS JSON-RPC, REST API, WebSocket, CLI, Web UI |
-| VM | 생성(**guest-agent 채널 기본 포함**), 시작, 중지, 삭제, 스냅샷, 리소스 조정, guest-exec/guest-ping, 안전 조건부 VM clone |
-| 컨테이너 | LXC 생성, 실행, 명령 실행, 리소스 제한 |
-| 스토리지 | ZFS pool, zvol, snapshot, scrub, quota, 백업(증분·S3 export)과 스냅샷 리텐션 |
-| 네트워크 | **관리형 기본 NAT `pcvnat0`(DHCP/DNS 자동)**, **호스트 방화벽 자동 공존**, physical bridge `dedicated`(전용 NIC)·`shared`(host L3 보존 TC-BPF portal), isolated, routed, OVS와 generic OVN 18개 RPC, host baseline, DHCP 소유 cleanup, REST ACL/NAT filter, QoS·오버레이 재부팅 재수화. Local VPC 공개 지원은 Linux backend, OVN backend는 별도 gate 상태 |
-| 보안 | JWT, RBAC(PBKDF2 해시·iter 임베딩), 보안 그룹(nftables 스코프 체인), operator VM/컨테이너 owner-scope, bootstrap admin fallback, API key 만료 집행, **audit 해시체인 무결성**, **AppArmor MAC 프로필 자산(1.0 이력, 2.0 데몬 self-confinement 미배포)**, **SSRF/CORS 하드닝**, **mTLS·전송 강제(opt-in)**, audit log |
-| 관측성 | health check, Prometheus metrics, WebSocket event stream, 알림 에스컬레이션·음소거·DLQ |
-| AI Ops | 이상탐지 메트릭 트리거, 합의 최소 정족수, VM 자동 재시작 self-healing(기본 `dry_run`)과 재시작 서킷브레이커 |
-| 운영 | systemd 배포, release build, 공개판 경계 검증 스크립트 |
-
-Single Edge 공개판에 포함하지 않는 기능은 다음과 같습니다.
-
-- 상용 Multi Edge 제어면
-- physical bridge의 Wi-Fi MAC proxy, host L3 자동 migration, bond/team·VLAN trunk와 물리
-  NIC 하나의 다중 shared bridge
-- 멀티 노드 클러스터 자동화
-- 라이브 마이그레이션
-- 페더레이션
-- 노드 드레인, 리밸런싱, 분산 스케줄링
-- generic OVN의 미등록 ACL/NAT/DHCP/tenant 역동작과 router port 제거
-- 완결되지 않은 OVN/NFV Load Balancer, production caller가 없는 VM 자동 포트 helper
-
-현재 공개판 경계의 단일 진실은 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)입니다.
-
----
-
-## 어떻게 동작하나요?
-
-```text
-CLI / Web UI / REST Client
-        |
-        v
-UDS JSON-RPC Server + REST Server + WebSocket
-        |
-        v
-Dispatcher
-  method policy / RBAC pre-route / VM owner-scope
-        |
-        v
-Handlers
-        |
-        v
-Core modules: VM, LXC, ZFS, Network, Auth, Audit, Metrics
-        |
-        v
-System: libvirt, qemu-system-x86/KVM, LXC, ZFS, OVS/OVN, nftables, dnsmasq
-```
-
-요청은 dispatcher에서 메서드 정책, RBAC, VM owner-scope를 먼저 통과합니다. 짧은 작업은 즉시 성공/오류 응답을 반환하고, 긴 작업은 먼저 accepted 응답을 보낸 뒤 worker callback에서 실제 결과를 기록합니다.
-
-fire-and-forget 작업의 완료 경로는 다음 패턴을 따릅니다.
-
-```text
-client request
-  -> accepted response with job id
-  -> GTask worker
-  -> pcv_audit_log(actual result)
-  -> pcv_ws_broadcast_job_complete
-  -> polling endpoint remains available
-```
-
-이 규칙은 [ADR-0018](docs/adr/0018-fire-and-forget-audit-policy.md)과 [docs/ADR_INDEX.md](docs/ADR_INDEX.md)의 현재 적용 상태를 기준으로 유지합니다.
 
 ---
 
@@ -326,7 +214,7 @@ make check-public-comments
 git diff --check
 ```
 
-Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다. UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
+Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다. <br> UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
 
 ```bash
 rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdelivr|fonts\.googleapis|fonts\.gstatic|sourceMappingURL" ui/index.html ui/guide.html ui/app.bundle.js ui/sw.js ui/vendor
@@ -385,26 +273,8 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 
 ---
 
-## 공개 저장소 기준
-
-외부 공개는 기존 개발 저장소의 `.git` 이력을 이전하지 않습니다. 릴리스마다 민감정보와 자체 설명 주석을 제거한 스냅샷만 공개 저장소(`HardcoreMonk/purecvisor`)에 반영합니다.
-
-현재 문서의 공개용 예시는 다음 placeholder를 사용합니다.
-
-| 항목 | 공개용 예시 |
-|------|-------------|
-| 표준 도메인 | `purecvisor.example.com` |
-| 호환 도메인 | `purecvisor-compat.example.com` |
-| 운영 노드 | `pcv-prod-node-1`, `pcv-prod-node-2` |
-| 내부 IP | `192.0.2.10`, `192.0.2.20` |
-| bootstrap 비밀번호 | `<configured-admin-password>` |
-
-공개 소스의 검사 명령은 [docs/PUBLIC_SOURCE_POLICY.md](docs/PUBLIC_SOURCE_POLICY.md)를 따릅니다.
-
----
-
 ## 라이선스
 
-PureCVisor는 [Apache License 2.0](LICENSE)에 따라 제공되는 오픈소스 소프트웨어입니다. 사용·수정·배포 시 해당 라이선스의 조건을 따라야 합니다.
+PureCVisor는 [Apache License 2.0](LICENSE)에 따라 제공되는 오픈소스 소프트웨어입니다.<br> 사용·수정·배포 시 해당 라이선스의 조건을 따라야 합니다.
 
 포함된 외부 자산과 개발 의존성의 라이선스는 [THIRD_PARTY_NOTICES.md](THIRD_PARTY_NOTICES.md)를 확인하십시오.
