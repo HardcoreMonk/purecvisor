@@ -13,16 +13,44 @@ PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 �
 
 이 저장소는 Linux/KVM 기반 `purecvisor-single` 공개 스냅샷입니다. 공개 범위는 Single Edge 기능과 그 실행에 필요한 공통 코어로 제한합니다. 전체 운영 매뉴얼은 [공개 문서 사이트](https://purecvisor.site)와 [docs/GUIDE.md](docs/GUIDE.md), 개발 규칙은 [AGENTS.md](AGENTS.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 봅니다.
 
-2026-08-31 공개 네트워크 계약은 작업 전 읽기 전용 host baseline 확인, 등록된 generic OVN
+공개 네트워크 계약은 작업 전 읽기 전용 host baseline 확인, 등록된 generic OVN
 18개 RPC, switch-owned DHCP 자동 정리와 인증 REST ACL/NAT filter까지입니다. 미완성
 OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 공개 기능이 아니며, Local VPC의
 선택형 OVN backend는 별도 실환경 gate가 남아 있습니다. 공개 데이터베이스 설명은 이
 저장소 소스에 실제 포함된 로컬 SQLite 9개를 기준으로 합니다.
 
-이 소스 후보에는 내부 전용 Monitoring 확장과 비공개 운영 자료를 포함하지 않습니다.
-기존 공개 host·VM·process 지표, Prometheus와 일반 알림은 유지합니다. 소스 공개 준비는
+공개 소스에는 내부 전용 Monitoring 확장과 비공개 운영 자료를 포함하지 않습니다.
+기존 공개 host·VM·process 지표, Prometheus와 일반 알림은 유지합니다. 로컬 검증은
 출시 인증과 별개이며, 전체 감사 **FAIL(미완료)**와 지원 환경·실노드 인증 잔여는
 [품질 게이트 현황](docs/GUIDE.md#227-2026-09-07-검토시정-현황)을 따릅니다.
+
+---
+
+## 공개 소스 업데이트 — 2026-09-15
+
+검증된 Single Edge 소스를 공개 저장소 `main`의
+[`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)에 반영했습니다.
+
+- 부팅 직후 첫 CPU·메모리 호스트 경보가 쿨다운에 막히는 오류를 수정했습니다.
+  시각 0에서도 첫 경보를 기록하고, 이후 반복 경보에 기존 600초 쿨다운을 적용합니다.
+- 이벤트 조회·경보·감사·명령 버튼의 연결을 검사하는 `check-single-ui-surface`를
+  `check-all`과 `dev-check`에 포함했습니다. 공개판 소스맵 파일·링크·배포 항목·번들 참조도 거부합니다.
+
+아래는 해당 소스 스냅샷의 로컬 검증 결과입니다.
+
+| 검증 | 결과 |
+|------|------|
+| 일반·release C 시험 각각 | 1,479 PASS · 14 SKIP, audit startup 5 PASS |
+| 전체 계약 게이트 | 40개 PASS |
+| Web UI 시험 | 512 PASS |
+| 공개 UI 표면 회귀 | 11개 PASS |
+| ASan/UBSan | 전체 sanitizer 절차 PASS |
+| self-healing Valgrind | 4개 PASS, 오류·직접·간접·가능성 누수 0 |
+| debug·clean release 빌드 | PASS, 컴파일러 경고 0 |
+
+sanitizer의 leak detection은 기존 기본값에 따라 비활성입니다. 표적 Valgrind 결과는
+전체 메모리 검증이나 실노드 지원 인증을 대신하지 않습니다. 공개 문서의
+[GitHub Pages 빌드·배포](https://github.com/HardcoreMonk/purecvisor/actions/runs/34966289044)도 성공했습니다.
 
 ---
 
@@ -42,14 +70,21 @@ OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 공개 기능이 아�
 
 Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
+공개 소스를 내려받고 저장소 디렉터리로 이동합니다.
+
+```bash
+git clone https://github.com/HardcoreMonk/purecvisor.git
+cd purecvisor
+```
+
 <details>
 <summary>Ubuntu 의존성 설치 예시</summary>
 
 ```bash
 sudo apt update
 sudo apt install -y \
-  ca-certificates curl git jq cpu-checker \
-  build-essential gcc-14 make pkg-config ccache \
+  ca-certificates curl git jq cpu-checker netcat-openbsd \
+  build-essential gcc-14 make pkg-config ccache fakeroot \
   libglib2.0-dev libjson-glib-dev libsoup-3.0-dev \
   libvirt-dev libvirt-clients libvirt-daemon-system qemu-system-x86 ovmf \
   libguestfs-tools \
@@ -62,7 +97,15 @@ sudo apt install -y \
 
 </details>
 
-.deb 바이너리 패키지로 빠르게 설치할 수도 있습니다(Ubuntu 26.04.1, 데몬·CLI·UI·systemd 유닛 일괄).
+UI 번들·검증 도구의 의존성은 저장소 루트에서 설치합니다. 검증 환경은 Node.js 24와
+npm을 사용했습니다. 전체 C·계약 검증에는 `wireguard-tools`, `sqlite3`,
+`openvswitch-switch`, `python3-pytest`, `strace`도 준비합니다.
+
+```bash
+npm ci
+```
+
+.deb 패키지를 직접 만들어 설치할 수도 있습니다(Ubuntu 26.04.1, 데몬·CLI·UI·systemd 유닛 일괄).
 
 ```bash
 make deb                                          # dist/purecvisor-single_<ver>_amd64.deb 생성
@@ -184,7 +227,7 @@ client request
 | 인터페이스 | 기본 경로 |
 |------------|-----------|
 | Web UI | `https://<management-ipv4>/ui/` |
-| 이벤트 센터 | `https://<management-ipv4>/ui#/ops-triage` |
+| 이벤트 센터 | `https://<management-ipv4>/ui/#/ops-triage` |
 | REST API | `https://<management-ipv4>/api/v1/` |
 | Health | `https://<management-ipv4>/api/v1/health` |
 | Metrics | `https://<management-ipv4>/api/v1/metrics` |
@@ -247,7 +290,16 @@ make memcheck
 make release
 ```
 
-`make check-all`은 RBAC 정책 정합(`check-rbac`)과 RPC 소비⊆등록 계약(`check-rpc-consumers` — FE/CLI가 호출하는 모든 RPC의 등록 여부)을 함께 검사하며, pre-commit 훅으로도 걸려 있습니다.
+`make check-all`은 RBAC 정책, RPC 소비⊆등록 계약, 공개 주석 정책, UI 표면과 소스맵
+부재를 포함한 40개 게이트를 실행합니다. 정확한 목록은 [Makefile](Makefile)의
+`check-all` 의존성을 따릅니다. UI 표면과 반사실 회귀만 확인하려면
+`make check-single-ui-surface`를 실행합니다.
+
+로컬 커밋 시 변경 유형에 맞는 검사를 자동 실행하려면 pre-commit 훅을 설치합니다.
+
+```bash
+make install-hooks
+```
 
 Web UI 번들, 디자인 표면, XSS 경계를 바꾼 경우:
 
@@ -262,16 +314,15 @@ python3 scripts/check_xss.py
 Single Edge 공개판 경계를 바꾼 경우:
 
 ```bash
-tests/integration/test_single_ui_surface.sh
-tests/integration/test_single_backend_build_boundaries.sh
-tests/integration/test_single_ovn_ovs_layout.sh
+make check-single-ui-surface
+bash tests/integration/test_single_backend_build_boundaries.sh
+bash tests/integration/test_single_ovn_ovs_layout.sh
 ```
 
 공개 소스의 주석 제거 정책을 확인할 때:
 
 ```bash
-python3 scripts/strip_source_comments.py --check
-tests/integration/test_public_comment_policy.sh
+make check-public-comments
 git diff --check
 ```
 
