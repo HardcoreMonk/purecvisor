@@ -29,8 +29,9 @@
                
                                                                                
              
-                                                                    
-                                         
+
+
+
   
                
                                                             
@@ -61,7 +62,7 @@
                                                           
                                                                    
   
-                                       
+
   
                
                                                                                          
@@ -94,7 +95,7 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id, UdsServer *s, GSocketConne
 void handle_dpdk_unbind(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
                                         
 void handle_dpdk_list(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
-                                                                           
+
 void handle_dpdk_bridge_create(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
                                                    
 void handle_dpdk_bridge_delete(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
@@ -124,6 +125,11 @@ void handle_sriov_set(JsonObject *p, const gchar *id, UdsServer *s, GSocketConne
 void handle_sriov_attach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
                                                                               
 void handle_sriov_detach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
+
+
+
+void handle_device_gpu_attach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
+void handle_device_gpu_detach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
 
 G_END_DECLS
 

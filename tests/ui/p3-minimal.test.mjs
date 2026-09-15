@@ -64,24 +64,57 @@ async function bootCommon(page, tab) {
   }, tab);
 }
 
-                                                                   
-test('overlay networks: state pill (up=ok / down=crit), no legacy badge', async () => {
+
+test('overlay networks: active boolean, CIDR and recording selectors match the backend contract', async () => {
   const OVERLAY = [
-    { name: 'ovl-a', vni: 100, peer_count: 2, state: 'up' },
-    { name: 'ovl-b', vni: 200, peer_count: 0, state: 'down' }
+    { name: 'ovl-a', vni: 100, cidr: '10.100.0.1/24', peer_count: 2, active: true },
+    { name: 'ovl-b', vni: 200, cidr: '10.200.0.1/24', peer_count: 0, active: false }
   ];
   await withPage(MODS_NETWORK, async page => {
     await bootCommon(page, 'network');
     await page.evaluate(() => window.renderOverlayNetworks(document.getElementById('cb')));
 
     assert.equal(await page.$$eval('#cb .badge', els => els.length), 0, 'legacy HN.badge must be gone');
-    const pills = await page.$$eval('#cb tbody .pill', els => els.map(e => ({ cls: e.className, text: e.textContent })));
+    assert.equal(await page.$$eval('#cb [data-overlay-list]', els => els.length), 1);
+    const rows = await page.$$eval('#cb [data-overlay-row]', trs => trs.map(tr =>
+      [...tr.querySelectorAll('td')].map(td => td.textContent.trim())));
+    assert.deepEqual(rows, [
+      ['ovl-a', '100', '10.100.0.1/24', '2', 'ACTIVE'],
+      ['ovl-b', '200', '10.200.0.1/24', '0', 'INACTIVE']
+    ]);
+    const pills = await page.$$eval('#cb [data-overlay-row] .pill', els => els.map(e => ({ cls: e.className, text: e.textContent })));
     assert.equal(pills.length, 2);
     assert.match(pills[0].cls, /pill-ok/);
-    assert.equal(pills[0].text, 'UP');
+    assert.equal(pills[0].text, 'ACTIVE');
     assert.match(pills[1].cls, /pill-crit/);
-    assert.equal(pills[1].text, 'DOWN');
+    assert.equal(pills[1].text, 'INACTIVE');
   }, { routes: { '/api/v1/overlay': { status: 200, body: { data: OVERLAY } } } });
+});
+
+test('overlay networks: backend error is not rendered as a normal empty list', async () => {
+  await withPage(MODS_NETWORK, async page => {
+    await bootCommon(page, 'network');
+    await page.evaluate(() => window.renderOverlayNetworks(document.getElementById('cb')));
+
+    assert.equal(await page.$$eval('#cb [data-overlay-error]', els => els.length), 1);
+    assert.equal(await page.$$eval('#cb [data-overlay-empty]', els => els.length), 0);
+    const text = await page.$eval('#cb [data-overlay-error]', el => el.textContent);
+    assert.match(text, /overlay disabled/);
+    assert.match(text, /tunnel_ip/);
+  }, { routes: { '/api/v1/overlay': {
+    status: 200,
+    body: { error: { code: -32000, message: 'overlay disabled' } }
+  } } });
+});
+
+test('overlay networks: a successful zero-length list keeps the explicit empty state', async () => {
+  await withPage(MODS_NETWORK, async page => {
+    await bootCommon(page, 'network');
+    await page.evaluate(() => window.renderOverlayNetworks(document.getElementById('cb')));
+
+    assert.equal(await page.$$eval('#cb [data-overlay-empty]', els => els.length), 1);
+    assert.equal(await page.$$eval('#cb [data-overlay-error]', els => els.length), 0);
+  }, { routes: { '/api/v1/overlay': { status: 200, body: { data: [] } } } });
 });
 
                                                                                                   

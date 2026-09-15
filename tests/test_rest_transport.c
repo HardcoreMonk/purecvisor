@@ -1,8 +1,9 @@
                                                                                               
+
                                                                                             
-                                                                                
+
                                                                      
-                             
+
                                                              
 #include <glib.h>
 
@@ -132,6 +133,23 @@ test_rest_transport_contract(void)
 }
 
 static void
+test_audit_chain_health_impact(void)
+{
+    g_assert_cmpint(
+        pcv_rest_audit_chain_health_impact(TRUE, FALSE), ==,
+        PCV_REST_AUDIT_HEALTH_NONE);
+    g_assert_cmpint(
+        pcv_rest_audit_chain_health_impact(TRUE, TRUE), ==,
+        PCV_REST_AUDIT_HEALTH_INFORMATIONAL);
+    g_assert_cmpint(
+        pcv_rest_audit_chain_health_impact(FALSE, FALSE), ==,
+        PCV_REST_AUDIT_HEALTH_CRITICAL);
+    g_assert_cmpint(
+        pcv_rest_audit_chain_health_impact(FALSE, TRUE), ==,
+        PCV_REST_AUDIT_HEALTH_CRITICAL);
+}
+
+static void
 test_rpc_error_http_status(void)
 {
     g_assert_cmpuint(
@@ -163,4 +181,6 @@ test_rest_transport_register(void)
 {
     g_test_add_func("/rest_transport", test_rest_transport_contract);
     g_test_add_func("/rest_transport/rpc_error_http_status", test_rpc_error_http_status);
+    g_test_add_func("/rest_transport/audit_chain_health_impact",
+                    test_audit_chain_health_impact);
 }

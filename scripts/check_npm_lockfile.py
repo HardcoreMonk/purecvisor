@@ -304,7 +304,7 @@ def main(argv=None) -> int:
         for b in bad:
             print(f"  - {b}", file=sys.stderr)
         print("       근거: OWASP Top 10:2025 A03 — "
-              "docs/DEVELOPMENT_VERIFICATION_POLICY.md", file=sys.stderr)
+              "docs/PUBLIC_SOURCE_POLICY.md", file=sys.stderr)
         return 1
 
     print(f"\033[32m[PASS]\033[0m npm 의존 {n_locked}개 SRI 핀 + 레지스트리 단일 출처 + "

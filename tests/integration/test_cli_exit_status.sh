@@ -200,7 +200,7 @@ expect(2, invoke(["format", "bogus"]), "invalid-repl-format-command")
 expect(2, invoke(["--socket=", "vm", "start", "demo"]), "empty-socket-option")
 expect(2, invoke(["--not-a-real-flag"]), "unknown-global-option")
 
-                       
+
 
 expect(
     2,

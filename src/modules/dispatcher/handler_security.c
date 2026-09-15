@@ -24,6 +24,7 @@
                                                  
                                                                 
    
+#include "api/drain.h"
 #include "handler_security.h"
 #include "rpc_utils.h"
 
@@ -573,7 +574,7 @@ handle_security_action_approve(JsonObject *params,
 
                                                  
                                                                     
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)security_approve_task_data_free);
     g_task_run_in_thread(task, security_action_approve_worker);
     g_object_unref(task);                                            

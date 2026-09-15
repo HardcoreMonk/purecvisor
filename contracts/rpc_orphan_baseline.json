@@ -1,5 +1,5 @@
 {
-  "_comment": "ADR-0025 고아 래칫. 등록됐으나 전 경로(CLI/FE/REST/passthrough/gRPC) 정적 소비 0. reason=dynamic-cli|rest-only|internal|future|test-only|dead-candidate. 단조 감소만.",
+  "_comment": "ADR-0025 고아 래칫. 등록됐으나 전 경로(CLI/FE/REST/passthrough/gRPC) 정적 소비 0. reason=dynamic-cli|rest-only|rpc-only|internal|future|test-only|dead-candidate. rpc-only는 외부 UDS 또는 인증 /api/v1/rpc 호출이 공개 계약인 메서드다. 단조 감소만.",
   "orphans": {
     "device.disk.attach": {
       "reason": "dynamic-cli",
@@ -34,24 +34,24 @@
       "note": "핸들러 실구현 network_manager.c:2189 handle_network_ovs_vxlan_del_request; 미배선. audit-interim.md:51 OVS 2.0 forward-decl."
     },
     "overlay.create": {
-      "reason": "future",
-      "note": "핸들러 실구현 handler_overlay.c handle_overlay_create; 클라 미배선(overlay.list만 REST rest_server.c:3900). audit-interim.md:51 'overlay/OVN/OVS 계열 2.0 forward-decl 추정'."
+      "reason": "rpc-only",
+      "note": "Single Edge 2.0 공개 mutation. 전용 CLI/REST/UI form은 없고 로컬 UDS JSON-RPC 또는 인증 POST /api/v1/rpc passthrough로 호출한다. overlay.list만 전용 REST/Web UI 소비자가 있다."
     },
     "overlay.delete": {
-      "reason": "future",
-      "note": "핸들러 실구현 handler_overlay.c handle_overlay_delete; 미배선(overlay.list만 REST). audit-interim.md:51 2.0 forward-decl. (test: tests/integration/test_overlay_query_safe.sh:137,141)"
+      "reason": "rpc-only",
+      "note": "Single Edge 2.0 공개 mutation. 로컬 UDS JSON-RPC 또는 인증 POST /api/v1/rpc passthrough로 호출한다. 전용 CLI/REST/UI form은 의도적으로 제공하지 않는다. (test: tests/integration/test_overlay_query_safe.sh:137,141)"
     },
     "overlay.info": {
-      "reason": "future",
-      "note": "핸들러 실구현 handler_overlay.c handle_overlay_info (단일 오버레이 상세); 미배선. audit-interim.md:51 2.0 forward-decl. (test: tests/integration/test_overlay_query_safe.sh:120,123)"
+      "reason": "rpc-only",
+      "note": "Single Edge 2.0 공개 상세 조회. 로컬 UDS JSON-RPC 또는 인증 POST /api/v1/rpc passthrough로 호출하며 전용 REST/UI detail은 없다. (test: tests/integration/test_overlay_query_safe.sh:120,123)"
     },
     "overlay.add_peer": {
-      "reason": "future",
-      "note": "핸들러 실구현 handler_overlay.c handle_overlay_add_peer (VXLAN 피어 추가); 미배선. audit-interim.md:51 2.0 forward-decl."
+      "reason": "rpc-only",
+      "note": "Single Edge 2.0 공개 수동 peer mutation. 각 독립 노드에서 로컬 UDS JSON-RPC 또는 인증 POST /api/v1/rpc passthrough로 별도 호출한다."
     },
     "overlay.remove_peer": {
-      "reason": "future",
-      "note": "핸들러 실구현 handler_overlay.c handle_overlay_remove_peer; 미배선. audit-interim.md:51 2.0 forward-decl."
+      "reason": "rpc-only",
+      "note": "Single Edge 2.0 공개 수동 peer mutation. 로컬 UDS JSON-RPC 또는 인증 POST /api/v1/rpc passthrough로 호출하며 전용 CLI/REST/UI form은 없다."
     },
     "ovn.port.add": {
       "reason": "future",

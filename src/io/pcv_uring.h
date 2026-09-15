@@ -175,14 +175,16 @@ typedef struct {
    
                      
                            
-                                                    
-                                                       
+
+
                                              
-                                 
+
+
    
 PcvUringBufPool *pcv_uring_buf_pool_new(gint count, gsize buf_size, GError **error);
 
                                            
+
 void             pcv_uring_buf_pool_free(PcvUringBufPool *pool);
 
    
@@ -197,7 +199,8 @@ gint             pcv_uring_buf_alloc(PcvUringBufPool *pool);
                              
                              
                                                
-                                                     
+
+
    
 void             pcv_uring_buf_release(PcvUringBufPool *pool, gint index);
 
@@ -223,7 +226,7 @@ typedef struct _PcvUringCtx PcvUringCtx;
   
                                                  
                                
-                                                    
+
                                               
                                                      
                                                                    
@@ -276,8 +279,8 @@ struct _PcvUringCtx {
                                                            
                                                         
                                        
-    volatile guint    next_id;                                                    
-    GMutex            submit_mu;                                                 
+    volatile guint    next_id;
+    GMutex            submit_mu;
     gboolean          running;                                                 
 };
 
@@ -310,6 +313,9 @@ PcvUringCtx *pcv_uring_new(guint queue_depth, GError **error);
   
                                                            
                                     
+
+
+
    
 void         pcv_uring_free(PcvUringCtx *ctx);
 
@@ -334,6 +340,9 @@ gboolean     pcv_uring_is_available(void);
                                                    
                                  
                                                  
+
+
+
    
 gboolean pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
                                 off_t offset, PcvUringCallback cb, gpointer data);
@@ -345,6 +354,8 @@ gboolean pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
                          
                                      
                                                   
+
+
    
 gboolean pcv_uring_submit_write(PcvUringCtx *ctx, int fd, const void *buf, gsize len,
                                  off_t offset, PcvUringCallback cb, gpointer data);

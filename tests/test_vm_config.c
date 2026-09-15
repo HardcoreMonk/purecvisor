@@ -40,6 +40,7 @@ extern gchar *_build_bridge_iface_xml(const gchar *safe_bridge,
                                       const gchar *virtualport_xml,
                                       const gchar *vlan_xml,
                                       gint mtu);
+extern gchar *_build_dpdk_iface_xml(const gchar *vm_name);
 extern gchar *_vm_xml_ensure_memballoon_stats(const gchar *xml);
 extern gchar *_vm_xml_insert_virtio_rng(const gchar *xml);
 extern gchar *_vm_xml_apply_cpu_invtsc(const gchar *xml);
@@ -350,6 +351,23 @@ static void test_n8_bridge_iface_mtu_contract(void) {
 }
 
    
+
+
+
+
+
+static void test_dpdk_vhost_rx_ring_contract(void) {
+    gchar *xml = _build_dpdk_iface_xml("dpdk-probe");
+    g_assert_nonnull(xml);
+    g_assert_nonnull(g_strstr_len(xml, -1, "<interface type='vhostuser'>"));
+    g_assert_nonnull(g_strstr_len(
+        xml, -1, "path='/run/libvirt/qemu/purecvisor-vhost-dpdk-probe.sock' mode='server'"));
+    g_assert_nonnull(g_strstr_len(xml, -1,
+        "<driver queues='2' rx_queue_size='1024' tx_queue_size='256'/>"));
+    g_free(xml);
+}
+
+
                                                
                                                                                   
                                                                
@@ -837,6 +855,8 @@ void test_vm_config_register(void) {
     g_test_add_func("/vm_config/n13_bridge_iface_vhost_driver",
                     test_n13_bridge_iface_has_vhost_driver);
     g_test_add_func("/vm_config/n8/bridge_iface_mtu", test_n8_bridge_iface_mtu_contract);
+    g_test_add_func("/vm_config/dpdk/vhost_rx_ring",
+                    test_dpdk_vhost_rx_ring_contract);
     g_test_add_func("/vm_config/n2_memballoon_stats_insert",
                     test_n2_memballoon_stats_insert_when_absent);
     g_test_add_func("/vm_config/n2_memballoon_stats_existing",

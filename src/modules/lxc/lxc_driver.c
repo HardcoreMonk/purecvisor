@@ -115,6 +115,7 @@
    
                                                                                 
 
+#include "api/drain.h"
 #include "lxc_driver.h"
 
 #include <glib.h>
@@ -917,6 +918,29 @@ _lxc_create_thread(GTask        *task,
     gchar *zfs_dataset  = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, d->name);
     gchar *mountpoint   = g_strdup_printf("%s/%s", PCV_LXC_PATH, d->name);
     {
+
+
+
+
+        const gchar *parent_probe[] = {
+            "zfs", "list", "-H", "-o", "name", PCV_LXC_ZFS_BASE, NULL
+        };
+        GError *parent_error = nullptr;
+        if (!_run_argv(parent_probe, &parent_error)) {
+            g_clear_error(&parent_error);
+            const gchar *parent_create[] = {
+                "zfs", "create", "-p", PCV_LXC_ZFS_BASE, NULL
+            };
+            if (!_run_argv(parent_create, &parent_error)) {
+                g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                        "ZFS container parent create failed for '%s': %s",
+                                        PCV_LXC_ZFS_BASE,
+                                        parent_error ? parent_error->message : "unknown");
+                g_clear_error(&parent_error);
+                g_free(mountpoint); g_free(zfs_dataset); g_strfreev(parts);
+                return;
+            }
+        }
         const gchar *zfs_argv[] = {
             "zfs", "create", "-o",
             g_strdup_printf("mountpoint=%s", mountpoint),
@@ -1097,7 +1121,7 @@ pcv_lxc_create_async_full(const gchar        *name,
                           GAsyncReadyCallback callback,
                           gpointer            user_data)
 {
-    GTask *task         = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task         = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     LxcCreateData *data = g_new0(LxcCreateData, 1);
     data->name          = g_strdup(name);
     data->image         = g_strdup(image ? image : "ubuntu:22.04");
@@ -1273,7 +1297,7 @@ pcv_lxc_destroy_async(const gchar        *name,
                       GAsyncReadyCallback callback,
                       gpointer            user_data)
 {
-    GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     g_task_set_task_data(task, g_strdup(name), (GDestroyNotify)g_free);                     
     g_task_run_in_thread(task, _lxc_destroy_thread);
     g_object_unref(task);
@@ -1382,7 +1406,7 @@ pcv_lxc_clone_async(const gchar *source, const gchar *target,
                     GAsyncReadyCallback callback,
                     gpointer user_data)
 {
-    GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     if (!source || !target || !*source || !*target) {                             
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                                 "source and target are required");
@@ -1575,7 +1599,7 @@ pcv_lxc_start_async(const gchar        *name,
                     GAsyncReadyCallback callback,
                     gpointer            user_data)
 {
-    GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     g_task_set_task_data(task, g_strdup(name), (GDestroyNotify)g_free);
     g_task_run_in_thread(task, _lxc_start_thread);
     g_object_unref(task);
@@ -1680,7 +1704,7 @@ pcv_lxc_stop_async(const gchar        *name,
                    GAsyncReadyCallback callback,
                    gpointer            user_data)
 {
-    GTask *task        = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task        = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     LxcStopData *data  = g_new0(LxcStopData, 1);
     data->name         = g_strdup(name);
     data->force        = force;
@@ -1819,7 +1843,7 @@ pcv_lxc_exec_async(const gchar        *name,
                    GAsyncReadyCallback callback,
                    gpointer            user_data)
 {
-    GTask *task      = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task      = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     LxcExecData *d   = g_new0(LxcExecData, 1);
     d->name          = g_strdup(name);
     d->argv          = g_strdupv((gchar **)argv);
@@ -1888,7 +1912,7 @@ void pcv_lxc_snapshot_create_async(const gchar *name, const gchar *snap_name,
                                     GCancellable *c, GAsyncReadyCallback cb,
                                     gpointer user_data)
 {
-    GTask *task     = g_task_new(NULL, c, cb, user_data);
+    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
     LxcSnapData *d  = g_new0(LxcSnapData, 1);
     d->name = g_strdup(name); d->snap = g_strdup(snap_name);
     g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
@@ -1926,7 +1950,7 @@ void pcv_lxc_snapshot_rollback_async(const gchar *name, const gchar *snap_name,
                                       GCancellable *c, GAsyncReadyCallback cb,
                                       gpointer user_data)
 {
-    GTask *task     = g_task_new(NULL, c, cb, user_data);
+    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
     LxcSnapData *d  = g_new0(LxcSnapData, 1);
     d->name = g_strdup(name); d->snap = g_strdup(snap_name);
     g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
@@ -1964,7 +1988,7 @@ void pcv_lxc_snapshot_delete_async(const gchar *name, const gchar *snap_name,
                                     GCancellable *c, GAsyncReadyCallback cb,
                                     gpointer user_data)
 {
-    GTask *task     = g_task_new(NULL, c, cb, user_data);
+    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
     LxcSnapData *d  = g_new0(LxcSnapData, 1);
     d->name = g_strdup(name); d->snap = g_strdup(snap_name);
     g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
@@ -2020,7 +2044,7 @@ void pcv_lxc_snapshot_list_async(const gchar *name,
                                    GCancellable *c, GAsyncReadyCallback cb,
                                    gpointer user_data)
 {
-    GTask *task = g_task_new(NULL, c, cb, user_data);
+    GTask *task = pcv_drain_task_new(NULL, c, cb, user_data);
     g_task_set_task_data(task, g_strdup(name), (GDestroyNotify)g_free);
     g_task_run_in_thread(task, _snap_list_thread);
     g_object_unref(task);

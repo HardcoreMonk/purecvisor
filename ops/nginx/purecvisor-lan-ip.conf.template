@@ -16,8 +16,11 @@
                                                        
                                                                          
 
+
+
+
 server {
-    listen __BIND_IP__:80;
+    listen __BIND_IP__:80 default_server;
     server_name _;
 
     location / {
@@ -26,7 +29,7 @@ server {
 }
 
 server {
-    listen __BIND_IP__:443 ssl;
+    listen __BIND_IP__:443 ssl default_server;
     http2 on;
     server_name _;
 

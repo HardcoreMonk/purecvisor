@@ -408,6 +408,9 @@ pcv_tenant_overlay_wg_endpoint_up(const char *ep_name,
                                            
                                                   
                   
+
+
+
                                                        
 gboolean
 pcv_tenant_overlay_wg_peer_add(const char *ep_name,
@@ -431,7 +434,7 @@ pcv_tenant_overlay_wg_peer_add(const char *ep_name,
 
     if (ok) {
         const gchar *s_route[] = { "ip", "netns", "exec", ep_name,
-                                   "ip", "route", "add", allowed, "dev", wgif, NULL };
+                                   "ip", "route", "replace", allowed, "dev", wgif, NULL };
         ok = _run((const gchar *const *)s_route, NULL, error);
     }
 

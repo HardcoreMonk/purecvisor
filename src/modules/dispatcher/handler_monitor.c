@@ -53,6 +53,7 @@
                            
    
 #include "handler_monitor.h"
+#include "host_hardware_inventory.h"
 #include "rpc_utils.h"
 #include <gio/gio.h>
 #include "api/uds_server.h"
@@ -317,7 +318,6 @@ gchar *
 handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
 {
     (void)params;
-                                                          
     virSetErrorFunc(NULL, silent_libvirt_error_func);
 
     virConnectPtr conn = virt_conn_pool_acquire();
@@ -676,6 +676,11 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
                                     
                                                                            
     JsonObject *host_obj = json_object_new();
+
+
+
+    json_object_set_object_member(host_obj, "hardware_inventory",
+                                  pcv_host_hardware_inventory_collect("/"));
 
                                                       
                                                 
@@ -1041,6 +1046,5 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
 
     virt_conn_pool_release(conn);
 
-                                                           
     return pcv_monitor_fleet_build_success_response(rpc_id, fleet_array, host_obj);
 }

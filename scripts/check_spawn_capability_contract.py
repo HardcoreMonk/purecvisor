@@ -16,7 +16,7 @@
                                                   
                                                
                                        
-                                                      
+
 
                                                 
                                                          
@@ -36,13 +36,13 @@ CENTRAL_SPAWN = "src/utils/pcv_spawn.c"
 PRIVDROP_SOURCE = "src/utils/pcv_privdrop.c"
 SYSTEMD_UNIT = "packaging/deb/purecvisorsd.service"
 MODULES_LOAD = "packaging/deb/purecvisor-lio.conf"
+VFIO_MODULES_LOAD = "packaging/deb/purecvisor-vfio.conf"
 
 DROPPED_CAPS = {
     "CAP_SYS_MODULE",
     "CAP_SYS_RAWIO",
     "CAP_SYS_TIME",
     "CAP_MAC_OVERRIDE",
-    "CAP_MAC_ADMIN",
 }
 REQUIRED_MODULES = [
     "target_core_mod",
@@ -50,6 +50,7 @@ REQUIRED_MODULES = [
     "target_core_iblock",
     "nf_conntrack_bridge",
 ]
+REQUIRED_VFIO_MODULES = ["vfio_pci"]
 PROFILE_CONSTANTS = {
     "PCV_CHILD_CAP_BASE",
     "PCV_CHILD_CAP_STORAGE",
@@ -208,11 +209,12 @@ def source_errors(rel_path: str, text: str) -> tuple[list[str], int]:
 def configuration_errors(root: Path) -> tuple[list[str], int]:
                                                                      
     errors: list[str] = []
-    checked = 3
+    checked = 4
     try:
         privdrop = (root / PRIVDROP_SOURCE).read_text(encoding="utf-8")
         unit = (root / SYSTEMD_UNIT).read_text(encoding="utf-8")
         modules_text = (root / MODULES_LOAD).read_text(encoding="utf-8")
+        vfio_modules_text = (root / VFIO_MODULES_LOAD).read_text(encoding="utf-8")
     except OSError as exc:
         raise RuntimeError(f"capability 설정 파일 읽기 실패: {exc}") from exc
 
@@ -255,6 +257,16 @@ def configuration_errors(root: Path) -> tuple[list[str], int]:
     if modules != REQUIRED_MODULES:
         errors.append(
             f"{MODULES_LOAD}: modules={modules}, 기대={REQUIRED_MODULES}"
+        )
+    vfio_modules = [
+        line.strip()
+        for line in vfio_modules_text.splitlines()
+        if line.strip() and not line.lstrip().startswith("#")
+    ]
+    if vfio_modules != REQUIRED_VFIO_MODULES:
+        errors.append(
+            f"{VFIO_MODULES_LOAD}: modules={vfio_modules}, "
+            f"기대={REQUIRED_VFIO_MODULES}"
         )
     return errors, checked
 
@@ -332,7 +344,7 @@ def main() -> int:
     print(
         "[check-spawn-capabilities] PASS "
         f"({checked} spawn/profile/config 계약, drop={len(DROPPED_CAPS)}, "
-        f"modules={len(REQUIRED_MODULES)})"
+        f"modules={len(REQUIRED_MODULES) + len(REQUIRED_VFIO_MODULES)})"
     )
     return 0
 

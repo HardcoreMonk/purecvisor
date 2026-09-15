@@ -22,6 +22,11 @@
 
 G_BEGIN_DECLS
 
+
+
+
+
+
 gchar *pcv_hotplug_select_nic_xml(const gchar *domain_xml,
                                   const gchar *mac,
                                   GError **error);

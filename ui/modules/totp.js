@@ -252,6 +252,9 @@ window.PCV = window.PCV || {};
     if (!container) return;
     PCV.uxlib.setMsg(container, 'loading', { tag: 'div', style: 'padding:14px' }, _bi('불러오는 중...', 'Loading...'));
     fetchGet(EP.AUTH_TOTP_STATUS()).then(function (r) {
+
+
+      if (r && r.error) { _paintSettingsCard(container, null); return; }
       _paintSettingsCard(container, unwrapData(r) || {});
     }).catch(function () {
       _paintSettingsCard(container, null);

@@ -240,6 +240,7 @@
   /{usr/,}{,s}bin/iptables        Ux,
   /{usr/,}{,s}bin/dnsmasq         Ux,
   /{usr/,}bin/ovs-vsctl           Ux,
+  /{usr/,}bin/ovsdb-client        Ux,
   /{usr/,}bin/ovn-nbctl           Ux,
   /{usr/,}{,s}bin/arp             Ux,
   /{usr/,}{,s}bin/ss              Ux,

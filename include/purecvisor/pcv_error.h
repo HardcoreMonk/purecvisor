@@ -80,8 +80,9 @@ G_BEGIN_DECLS
                                                     
                                                            
 
-                                                                                       
 #define PCV_VM_ERROR   (pcv_vm_error_quark())
+
+
 GQuark pcv_vm_error_quark(void);
 
 typedef enum {
@@ -99,8 +100,9 @@ typedef enum {
                                                     
                                                            
 
-                                                  
 #define PCV_LXC_ERROR  (pcv_lxc_error_quark())
+
+
 GQuark pcv_lxc_error_quark(void);
 
 typedef enum {
@@ -117,8 +119,9 @@ typedef enum {
                                                       
                                                            
 
-                                                                                  
 #define PCV_VALIDATE_ERROR (pcv_validate_error_quark())
+
+
 GQuark pcv_validate_error_quark(void);
 
 typedef enum {

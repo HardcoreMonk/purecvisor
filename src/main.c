@@ -63,8 +63,8 @@
                                                              
                                                 
                                                    
-                                            
                                                             
+
                                                   
   
                                                                        
@@ -88,7 +88,9 @@
                                                       
                                                          
                                                              
-                                                   
+
+
+
                                                                     
   
                                                                        
@@ -332,19 +334,52 @@ _watchdog_thread_func(gpointer data)
                                                    
                                                                 
                                                       
+
+
+
+
+static GThread *g_shutdown_producers;
+static guint qos_reconcile_timer_id;
+static guint qos_metrics_timer_id;
+
+static gpointer
+_quiesce_producers(gpointer unused)
+{
+    (void)unused;
+    pcv_suricata_ips_shutdown_signal();
+    pcv_suricata_health_stop();
+    pcv_suricata_eve_tail_stop();
+    pcv_bpf_consumer_stop();
+    pcv_ebpf_telemetry_quiesce();
+    pcv_alert_engine_shutdown();
+    pcv_virt_events_shutdown();
+    pcv_telemetry_shutdown();
+    pcv_overlay_reconcile_timer_shutdown();
+    pcv_drain_work_release();
+    return NULL;
+}
+
 static gboolean on_signal_received(gpointer user_data) {
     (void)user_data;                                           
     if (!loop) return G_SOURCE_REMOVE;
     g_message("Signal received, initiating graceful shutdown...");
 
-      
-                                                               
-                                
-                                        
-                                             
-                                                        
-       
+    if (pcv_drain_is_terminating()) return G_SOURCE_REMOVE;
+
+    pcv_backup_scheduler_quiesce();
+    pcv_security_group_resync_timer_shutdown();
+    pcv_qos_reconcile_timer_shutdown();
+    if (qos_reconcile_timer_id) {
+        g_source_remove(qos_reconcile_timer_id);
+        qos_reconcile_timer_id = 0;
+    }
+    if (qos_metrics_timer_id) {
+        g_source_remove(qos_metrics_timer_id);
+        qos_metrics_timer_id = 0;
+    }
+    pcv_drain_work_acquire();
     pcv_drain_begin(loop, pcv_config_get_drain_timeout());
+    g_shutdown_producers = g_thread_new("shutdown-producers", _quiesce_producers, NULL);
 
     return FALSE;                                             
 }
@@ -1013,7 +1048,7 @@ int main(int argc, char *argv[]) {
     }
 
                                                            
-                                                                          
+
                                                          
                                                          
                                                             
@@ -1022,8 +1057,8 @@ int main(int argc, char *argv[]) {
                                                        
                                                    
                                                     
-                                                               
-                                                             
+
+
                                                   
                     
     {
@@ -1104,8 +1139,8 @@ int main(int argc, char *argv[]) {
                                                        
                                                   
                                                            
-    guint qos_reconcile_timer_id = 0;
-    guint qos_metrics_timer_id = 0;
+    qos_reconcile_timer_id = 0;
+    qos_metrics_timer_id = 0;
     {
         gint qos_uplink_mbps = pcv_config_get_int("qos", "uplink_mbps", 1000);
         if (qos_uplink_mbps <= 0) {
@@ -1191,7 +1226,7 @@ int main(int argc, char *argv[]) {
                                                                      
                                                                  
                                                                      
-                                                             
+
                                                                   
                                                          
                                                  
@@ -1328,6 +1363,17 @@ int main(int argc, char *argv[]) {
         guint swept = pcv_tenant_overlay_sweep_orphan_endpoints(&sweep_fail);
         if (swept || sweep_fail)
             g_message("[ovl5] 고아 endpoint 스윕: 회수 %u, 실패 %u", swept, sweep_fail);
+
+
+
+
+        GError *mesh_err = NULL;
+        if (!pcv_tenant_overlay_reconcile_mesh(&mesh_err)) {
+            g_critical("[ovl6] 부팅 WireGuard mesh 복구 실패: %s",
+                       mesh_err && mesh_err->message ? mesh_err->message : "unknown");
+            g_clear_error(&mesh_err);
+            return EXIT_FAILURE;
+        }
     }
     STAGE_END("security");
 
@@ -1427,6 +1473,39 @@ int main(int argc, char *argv[]) {
        
     init_telemetry_daemon(_mgr);
     STAGE_END("libvirt-dispatcher");
+
+
+
+
+
+
+
+    STAGE_BEGIN("vpc-reconcile");
+    pcv_ovn_init();
+    {
+        GError *vpc_error = NULL;
+        if (!pcv_vpc_init(NULL, &vpc_error)) {
+            g_critical("[vpc] startup reconcile failed closed: %s",
+                       vpc_error ? vpc_error->message : "unknown");
+            g_clear_error(&vpc_error);
+            return EXIT_FAILURE;
+        }
+        if (!pcv_vpc_reconcile(&vpc_error)) {
+            if (g_error_matches(vpc_error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE)) {
+
+
+                g_warning("[vpc] startup reconcile completed with quarantine: %s",
+                          vpc_error->message);
+                g_clear_error(&vpc_error);
+            } else {
+                g_critical("[vpc] startup reconcile failed closed: %s",
+                           vpc_error ? vpc_error->message : "unknown");
+                g_clear_error(&vpc_error);
+                return EXIT_FAILURE;
+            }
+        }
+    }
+    STAGE_END("vpc-reconcile");
 
                                                                     
                         
@@ -1539,8 +1618,8 @@ int main(int argc, char *argv[]) {
       
                    
                                                         
+
                                                       
-                                     
       
                 
                                            
@@ -1568,35 +1647,6 @@ int main(int argc, char *argv[]) {
                                                   
     pcv_overlay_restore();
     pcv_iscsi_init();
-    pcv_ovn_init();
-
-                                                             
-                                                                
-                                                    
-                                                                
-    {
-        GError *vpc_error = NULL;
-        if (!pcv_vpc_init(NULL, &vpc_error)) {
-            g_critical("[vpc] startup reconcile failed closed: %s",
-                       vpc_error ? vpc_error->message : "unknown");
-            g_clear_error(&vpc_error);
-            return EXIT_FAILURE;
-        }
-        if (!pcv_vpc_reconcile(&vpc_error)) {
-            if (g_error_matches(vpc_error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE)) {
-                                                                             
-                                                                  
-                g_warning("[vpc] startup reconcile completed with quarantine: %s",
-                          vpc_error->message);
-                g_clear_error(&vpc_error);
-            } else {
-                g_critical("[vpc] startup reconcile failed closed: %s",
-                           vpc_error ? vpc_error->message : "unknown");
-                g_clear_error(&vpc_error);
-                return EXIT_FAILURE;
-            }
-        }
-    }
 
                                                                         
     pcv_dpdk_init();                                                    
@@ -2063,16 +2113,17 @@ int main(int argc, char *argv[]) {
     STAGE_END("scheduler-proxy");
 
                                                                     
-                                    
+
       
-                    
+
                                                            
+
+
                                            
-                                       
       
-               
+
                                                    
-                                                
+
                                                                        
     STAGE_BEGIN("overlay-provision");
     pcv_bootstrap_init_runtime_network();
@@ -2268,6 +2319,13 @@ int main(int argc, char *argv[]) {
                                               
                                                                        
     g_message("Cleaning up resources before exit...");
+    if (g_shutdown_producers) {
+        g_thread_join(g_shutdown_producers);
+        g_shutdown_producers = NULL;
+    }
+
+
+    pcv_worker_pool_shutdown();
 
                                                               
                                                                     
@@ -2386,8 +2444,8 @@ int main(int argc, char *argv[]) {
                                                                           
        
     pcv_job_queue_shutdown();                         
+    pcv_audit_shutdown();
     pcv_config_shutdown();                                      
-    pcv_worker_pool_shutdown();                        
     pcv_spawn_launcher_shutdown();                                
     pcv_log_shutdown();                                
 

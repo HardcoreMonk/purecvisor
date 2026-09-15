@@ -18,7 +18,8 @@
                                                        
                                                                       
                                                                
-                                                   
+
+
                                                         
                                                                   
                                               
@@ -51,7 +52,7 @@
                                           
                                                                
 static struct {
-    sqlite3  *db;                                                   
+    sqlite3  *db;
     GMutex    mu;                                    
     gboolean  initialized;                              
 } G = {0};
@@ -92,7 +93,8 @@ _status_str(PcvJobStatus s)
                                                                
                                                     
                                                          
-                                                        
+
+
                                                    
 void
 pcv_job_queue_init(void)
@@ -207,8 +209,10 @@ pcv_job_queue_cleanup_old(gint max_age_hours)
                                                                 
                                                 
                                                                            
+
                                                               
-                                                          
+
+
 gchar *
 pcv_job_create(const gchar *type, const gchar *target,
                 const gchar *params_json)
@@ -254,7 +258,8 @@ pcv_job_create(const gchar *type, const gchar *target,
                                                         
                                                    
                                                                      
-                                                               
+
+
 void
 pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
                        gint progress_pct, const gchar *detail)
@@ -285,7 +290,8 @@ pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
                                                        
                                                    
                                                                             
-                                            
+
+
 void
 pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
                     const gchar *result_json)

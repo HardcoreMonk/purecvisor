@@ -30,6 +30,7 @@
                                                    
                                                  
    
+#include "api/drain.h"
 #include "modules/network/pcv_qos.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_spawn.h"
@@ -1961,7 +1962,7 @@ _qos_reconcile_tick(gpointer data)
     (void)data;
     if (!g_atomic_int_compare_and_exchange(&g_qos_reconcile_inflight, 0, 1))
         return G_SOURCE_CONTINUE;                                    
-    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     pcv_worker_pool_push(t, _qos_reconcile_worker);
     g_object_unref(t);                                  
     return G_SOURCE_CONTINUE;
@@ -2213,7 +2214,7 @@ _qos_metrics_tick_cb(gpointer data)
     (void)data;
     if (!g_atomic_int_compare_and_exchange(&g_qos_metrics_inflight, 0, 1))
         return G_SOURCE_CONTINUE;                               
-    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     pcv_worker_pool_push(t, _qos_metrics_worker);
     g_object_unref(t);
     return G_SOURCE_CONTINUE;

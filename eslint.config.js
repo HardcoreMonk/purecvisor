@@ -24,7 +24,7 @@ const globals = require('globals');
 
 module.exports = [
   {
-    ignores: ['ui/vendor/**', 'ui/bundle.js', 'ui/app.bundle.js', 'node_modules/**'],
+    ignores: ['ui/vendor/**', 'ui/bundle.js', 'ui/app.bundle.js', 'ui/app.bundle.js.map', 'node_modules/**'],
   },
   js.configs.recommended,
   {

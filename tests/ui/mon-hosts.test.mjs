@@ -70,10 +70,10 @@ test('smoke: renders one block per host with correct UP/DOWN status pill and ide
       };
     }));
     assert.equal(blocks.length, 2, 'one bordered block per host (smoke)');
-    assert.match(blocks[0].heading, /^edge-a\s+192\.168\.3\.11/);
+    assert.match(blocks[0].heading, /^edge-a\s+192\.0\.2\.11/);
     assert.equal(blocks[0].pillClass, 'pill pill-ok');
     assert.equal(blocks[0].pillText, 'UP');
-    assert.match(blocks[1].heading, /^edge-b\s+192\.168\.3\.12/);
+    assert.match(blocks[1].heading, /^edge-b\s+192\.0\.2\.12/);
     assert.equal(blocks[1].pillClass, 'pill pill-crit');
     assert.equal(blocks[1].pillText, 'DOWN');
     assert.deepEqual(blocks.map(b => b.gaugeCount), [3, 3]);

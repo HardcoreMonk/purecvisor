@@ -22,20 +22,20 @@
                    
                                                     
                                                            
-                                                               
+
                                             
                                                                 
   
                             
                                                                           
                                                                        
-                                                                     
+
                                                                       
                                                                         
   
                             
                                                          
-                                                    
+
                                                      
                                         
   
@@ -43,9 +43,24 @@
                                                  
                                                       
                                                                 
-                                                               
+
+
                                                              
    
+
+#include "api/drain.h"
+
+
+
+static GThread *g_producer_thread;
+static gint g_producer_stop;
+static void
+_producer_wait(guint milliseconds)
+{
+    for (guint elapsed = 0; elapsed < milliseconds &&
+         !g_atomic_int_get(&g_producer_stop); elapsed += 50)
+        g_usleep(MIN(50U, milliseconds - elapsed) * 1000U);
+}
 
 #include <glib.h>
 #include <libvirt/libvirt.h>
@@ -54,6 +69,7 @@
                                         
 #include "../virt/vm_manager.h"
 #include "telemetry.h"
+#include "modules/daemons/pcv_telemetry_reconnect_guard.h"
 
                                                                          
 
@@ -145,6 +161,59 @@ VmMetrics* get_vm_metrics(const gchar *vm_id) {
                                                                
 
    
+
+
+
+
+
+
+
+
+
+
+
+static virConnectPtr
+telemetry_connection_open(guint attempt, gboolean connected_once)
+{
+    virConnectPtr conn = virConnectOpenReadOnly("qemu:///system");
+    if (!conn) {
+        g_warning("[Telemetry] Libvirt connection open failed; retrying in %us "
+                  "(attempt=%u)",
+                  PCV_TELEMETRY_RECONNECT_INTERVAL_MS / 1000U,
+                  attempt);
+        return NULL;
+    }
+
+    if (virConnectSetKeepAlive(conn, 5, 3) < 0) {
+        g_warning("[Telemetry] Libvirt keepalive unavailable; "
+                  "Bulk RPC watchdog remains active");
+    }
+
+    if (connected_once || attempt > 1U) {
+        g_message("[Telemetry] Reconnected to Libvirt (attempt=%u)", attempt);
+    } else {
+        g_message("📡 [Telemetry] Background Daemon Thread started successfully.");
+    }
+    return conn;
+}
+
+
+
+
+
+
+
+static void
+telemetry_connection_close(virConnectPtr *conn)
+{
+    if (!conn || !*conn)
+        return;
+
+    (void)virConnectClose(*conn);
+    *conn = NULL;
+}
+
+
                                                   
                                                             
    
@@ -152,32 +221,34 @@ static gpointer telemetry_worker_thread(gpointer data) {
     (void)data;                  
 
       
-                                                
+
       
                                                          
                                               
                                                       
       
-                                                       
-                                                       
+
+
+
        
-    virConnectPtr conn = virConnectOpen("qemu:///system");
-    if (!conn) {
-        g_critical("🚨 [Telemetry] Failed to connect to Libvirt. Telemetry daemon shutting down.");
-        return NULL;
-    }
-      
-                                                 
-                                                  
-                                               
-                       
-       
-    virConnectSetKeepAlive(conn, 5, 3);
-    
-    g_message("📡 [Telemetry] Background Daemon Thread started successfully.");
+    virConnectPtr conn = NULL;
+    gboolean connected_once = FALSE;
+    guint reconnect_attempt = 0U;
 
                   
-    while (TRUE) {
+    while (!g_atomic_int_get(&g_producer_stop)) {
+        if (!conn) {
+            if (reconnect_attempt < G_MAXUINT)
+                reconnect_attempt++;
+            conn = telemetry_connection_open(reconnect_attempt, connected_once);
+            if (!conn) {
+                _producer_wait(PCV_TELEMETRY_RECONNECT_INTERVAL_MS);
+                continue;
+            }
+            connected_once = TRUE;
+            reconnect_attempt = 0U;
+        }
+
         virDomainStatsRecordPtr *stats = NULL;
         
           
@@ -195,7 +266,7 @@ static gpointer telemetry_worker_thread(gpointer data) {
         unsigned int stats_flags = VIR_DOMAIN_STATS_CPU_TOTAL | VIR_DOMAIN_STATS_INTERFACE;
         int ret = virConnectGetAllDomainStats(conn, stats_flags, &stats, 0);
 
-        if (ret >= 0 && stats != NULL) {
+        if (!pcv_telemetry_reconnect_required(TRUE, ret, stats != NULL)) {
             
                                                         
                                                                                
@@ -256,17 +327,23 @@ static gpointer telemetry_worker_thread(gpointer data) {
 
                                                     
                                                  
-            g_main_context_invoke(NULL, update_metrics_cache_in_main_thread, new_cache);
+            pcv_drain_invoke(NULL, update_metrics_cache_in_main_thread, new_cache);
         } else {
-            g_warning("⚠️ [Telemetry] Failed to fetch domain stats from Libvirt.");
+            if (stats)
+                virDomainStatsRecordListFree(stats);
+            g_warning("[Telemetry] Libvirt stats connection lost; reconnecting in %us",
+                      PCV_TELEMETRY_RECONNECT_INTERVAL_MS / 1000U);
+            telemetry_connection_close(&conn);
+            _producer_wait(PCV_TELEMETRY_RECONNECT_INTERVAL_MS);
+            continue;
         }
 
                                  
-        g_usleep(1000000);                           
+        _producer_wait(PCV_TELEMETRY_POLL_INTERVAL_MS);
     }
 
-                         
-    virConnectClose(conn);
+
+    telemetry_connection_close(&conn);
     return NULL;
 }
 
@@ -287,10 +364,23 @@ void init_telemetry_daemon(PureCVisorVmManager *vm_manager) {
     g_weak_ref_init(&g_signal_emitter_ref, vm_manager);
 
     GError *error = NULL;
-    GThread *thread = g_thread_try_new("telemetry-daemon",
+    g_atomic_int_set(&g_producer_stop, FALSE);
+    g_producer_thread = g_thread_try_new("telemetry-daemon",
                                        telemetry_worker_thread, NULL, &error);
-    if (!thread) {
+    if (!g_producer_thread) {
         g_critical("Failed to create telemetry daemon thread: %s", error->message);
         g_error_free(error);
+    }
+}
+
+
+
+void
+pcv_telemetry_shutdown(void)
+{
+    g_atomic_int_set(&g_producer_stop, TRUE);
+    if (g_producer_thread) {
+        g_thread_join(g_producer_thread);
+        g_producer_thread = NULL;
     }
 }

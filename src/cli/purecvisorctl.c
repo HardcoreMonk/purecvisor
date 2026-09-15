@@ -175,6 +175,12 @@
 #include "cli_rpc.h"                                                                   
 #include "cli_output.h"                                      
 #include "modules/dispatcher/rpc_utils.h"                                  
+#include "modules/network/dpdk_manager.h"
+
+
+
+static gchar *_cli_wait_job(const gchar *job_id, const gchar *label,
+                            guint max_attempts);
 
                                 
 
@@ -2063,7 +2069,9 @@ void cmd_container_snapshot(int argc, char *argv[]) {
     const gchar *action = argv[2];
 
     if (g_strcmp0(action,"create") == 0) {
-        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+
+
+        if (argc < 5) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
         JsonObject *p = json_object_new();
         json_object_set_string_member(p,"name",     argv[3]);
         json_object_set_string_member(p,"snap_name",argv[4]);
@@ -2072,7 +2080,7 @@ void cmd_container_snapshot(int argc, char *argv[]) {
         print_action_response(r,"CONTAINER_SNAP_CREATE"); g_free(r);
 
     } else if (g_strcmp0(action,"list") == 0) {
-        if (argc < 5) { printf("%sNeed: <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        if (argc < 4) { printf("%sNeed: <name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
         JsonObject *p = json_object_new(); json_object_set_string_member(p,"name",argv[3]);
         GError *e = NULL; gchar *r = purectl_send_request("container.snapshot.list",p,&e);
         if (e) { g_printerr("%s[!] %s%s\n",ce(CYBER_RED),e->message,ce(CYBER_RESET)); g_error_free(e); return; }
@@ -2095,7 +2103,7 @@ void cmd_container_snapshot(int argc, char *argv[]) {
         g_object_unref(parser); g_free(r);
 
     } else if (g_strcmp0(action,"rollback") == 0) {
-        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        if (argc < 5) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
         if (g_ctx.fmt == FMT_TABLE)
             printf("%s[!] WARNING: Container will be stopped before rollback!%s\n",
                 cc(CYBER_RED), cc(CYBER_RESET));
@@ -2107,7 +2115,7 @@ void cmd_container_snapshot(int argc, char *argv[]) {
         print_action_response(r,"CONTAINER_SNAP_ROLLBACK"); g_free(r);
 
     } else if (g_strcmp0(action,"delete") == 0) {
-        if (argc < 6) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
+        if (argc < 5) { printf("%sNeed: <name> <snap_name>%s\n",cc(CYBER_YELLOW),cc(CYBER_RESET)); return; }
         JsonObject *p = json_object_new();
         json_object_set_string_member(p,"name",     argv[3]);
         json_object_set_string_member(p,"snap_name",argv[4]);
@@ -2138,7 +2146,8 @@ void cmd_container_snapshot(int argc, char *argv[]) {
              
                        
                             
-                                                           
+
+
                             
                                
                                                                           
@@ -2151,7 +2160,6 @@ void cmd_container_snapshot(int argc, char *argv[]) {
                      
                                                                                 
   
-
                                                        
    
 void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__((unused))) {
@@ -2172,7 +2180,7 @@ void cmd_ovn_status(int argc __attribute__((unused)), char *argv[] __attribute__
                     
                           
                                                               
-                                                               
+
                                                       
   
                                                    
@@ -2524,17 +2532,71 @@ void cmd_dpdk_list(int argc __attribute__((unused)), char *argv[] __attribute__(
     if (resp) { print_raw_response(resp); g_free(resp); }
 }
 
+
+
+static void
+_dpdk_bridge_wait_response(const gchar *response, const gchar *method)
+{
+    JsonParser *parser = json_parser_new();
+    if (!response || !json_parser_load_from_data(parser, response, -1, NULL)) {
+        g_printerr("%s[!] %s 응답을 해석할 수 없습니다%s\n",
+                   ce(CYBER_RED), method, ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return;
+    }
+    JsonNode *root_node = json_parser_get_root(parser);
+    if (!root_node || !JSON_NODE_HOLDS_OBJECT(root_node)) {
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return;
+    }
+    JsonObject *root = json_node_get_object(root_node);
+    if (!json_object_has_member(root, "result")) {
+        print_action_response(response, "DPDK");
+        g_object_unref(parser);
+        return;
+    }
+    JsonNode *result_node = json_object_get_member(root, "result");
+    if (!result_node || !JSON_NODE_HOLDS_OBJECT(result_node)) {
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return;
+    }
+    JsonObject *result = json_node_get_object(result_node);
+    const gchar *status = json_object_has_member(result, "status")
+        ? json_object_get_string_member(result, "status") : NULL;
+    const gchar *job_id_value = json_object_has_member(result, "job_id")
+        ? json_object_get_string_member(result, "job_id") : NULL;
+    if (g_strcmp0(status, "accepted") != 0 || !job_id_value || !*job_id_value) {
+        g_printerr("%s[!] %s가 accepted Job ID를 반환하지 않았습니다%s\n",
+                   ce(CYBER_RED), method, ce(CYBER_RESET));
+        pcv_cli_command_mark_runtime_failure();
+        g_object_unref(parser);
+        return;
+    }
+    gchar *job_id = g_strdup(job_id_value);
+    g_object_unref(parser);
+
+    gchar *terminal = _cli_wait_job(job_id, "DPDK", 1200);
+    if (terminal) {
+        print_raw_response(terminal);
+        g_free(terminal);
+    }
+    g_free(job_id);
+}
+
    
                    
   
                   
-                                                                    
+
                                              
    
 void cmd_dpdk_bridge(int argc, char *argv[]) {
     if (argc < 4) {
         printf("%sUsage:\n"
-               "  pcvctl dpdk bridge create <name> [dpdk_port]\n"
+               "  pcvctl dpdk bridge create <name> [dpdk_port] [--mtu 68..9216]\n"
                "  pcvctl dpdk bridge delete <name>%s\n",
             cc(CYBER_YELLOW), cc(CYBER_RESET));
         return;
@@ -2542,17 +2604,48 @@ void cmd_dpdk_bridge(int argc, char *argv[]) {
     const gchar *action = argv[2];
 
     if (g_strcmp0(action, "create") == 0) {
+        const gchar *dpdk_port = NULL;
+        gint64 mtu = PCV_DPDK_MTU_DEFAULT;
+        gboolean mtu_seen = FALSE;
+        for (gint i = 4; i < argc; i++) {
+            if (g_strcmp0(argv[i], "--mtu") == 0) {
+                if (mtu_seen || i + 1 >= argc) {
+                    g_printerr("%s[!] --mtu requires one value and may appear once%s\n",
+                               ce(CYBER_RED), ce(CYBER_RESET));
+                    return;
+                }
+                gchar *end = NULL;
+                mtu = g_ascii_strtoll(argv[++i], &end, 10);
+                if (end == argv[i] || *end != '\0' ||
+                    mtu < PCV_DPDK_MTU_MIN || mtu > PCV_DPDK_MTU_MAX) {
+                    g_printerr("%s[!] --mtu must be an integer between 68 and 9216%s\n",
+                               ce(CYBER_RED), ce(CYBER_RESET));
+                    return;
+                }
+                mtu_seen = TRUE;
+            } else if (g_str_has_prefix(argv[i], "--") || dpdk_port) {
+                g_printerr("%s[!] unexpected DPDK bridge option: %s%s\n",
+                           ce(CYBER_RED), argv[i], ce(CYBER_RESET));
+                return;
+            } else {
+                dpdk_port = argv[i];
+            }
+        }
         JsonObject *params = json_object_new();
         json_object_set_string_member(params, "name", argv[3]);
-        if (argc >= 5)
-            json_object_set_string_member(params, "dpdk_port", argv[4]);
+        if (dpdk_port)
+            json_object_set_string_member(params, "dpdk_port", dpdk_port);
+        json_object_set_int_member(params, "mtu", mtu);
         GError *error = NULL;
         gchar  *resp  = purectl_send_request("dpdk.bridge.create", params, &error);
         if (error) {
             g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
             g_error_free(error); return;
         }
-        if (resp) { print_raw_response(resp); g_free(resp); }
+        if (resp) {
+            _dpdk_bridge_wait_response(resp, "dpdk.bridge.create");
+            g_free(resp);
+        }
 
     } else if (g_strcmp0(action, "delete") == 0) {
         JsonObject *params = json_object_new();
@@ -2563,7 +2656,10 @@ void cmd_dpdk_bridge(int argc, char *argv[]) {
             g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
             g_error_free(error); return;
         }
-        if (resp) { print_raw_response(resp); g_free(resp); }
+        if (resp) {
+            _dpdk_bridge_wait_response(resp, "dpdk.bridge.delete");
+            g_free(resp);
+        }
 
     } else {
         printf("%s[!] UNKNOWN DPDK BRIDGE ACTION: %s%s\n",
@@ -2696,8 +2792,19 @@ void cmd_sriov_set(int argc, char *argv[]) {
             json_object_set_string_member(params, "mac", argv[++i]);
         else if (g_strcmp0(argv[i], "--vlan") == 0 && i+1 < argc)
             json_object_set_int_member(params, "vlan", atoi(argv[++i]));
-        else if (g_strcmp0(argv[i], "--spoofchk") == 0 && i+1 < argc)
-            json_object_set_string_member(params, "spoofchk", argv[++i]);
+        else if (g_strcmp0(argv[i], "--spoofchk") == 0 && i+1 < argc) {
+            const gchar *mode = argv[++i];
+            if (g_strcmp0(mode, "on") == 0)
+                json_object_set_int_member(params, "spoofchk", 1);
+            else if (g_strcmp0(mode, "off") == 0)
+                json_object_set_int_member(params, "spoofchk", 0);
+            else {
+                g_printerr("%s[!] --spoofchk must be on or off%s\n",
+                           ce(CYBER_RED), ce(CYBER_RESET));
+                json_object_unref(params);
+                return;
+            }
+        }
     }
     GError *error = NULL;
     gchar  *resp  = purectl_send_request("sriov.set", params, &error);
@@ -6995,11 +7102,16 @@ static void cmd_container_health_get(int argc, char *argv[]) {
             g_printerr("%s[!] %s%s\n", ce(CYBER_RED), json_object_get_string_member(err, "message"), ce(CYBER_RESET));
         } else if (json_object_has_member(root, "result")) {
             JsonObject *res = json_object_get_object_member(root, "result");
+            const gchar *status = "-";
+            if (json_object_has_member(res, "healthy"))
+                status = json_object_get_boolean_member(res, "healthy")
+                    ? "healthy" : "unhealthy";
             printf("%sHealth Check for %s%s\n", cc(CYBER_BOLD), argv[2], cc(CYBER_RESET));
             printf("  Type:     %s\n", json_object_get_string_member_with_default(res, "type", "-"));
             printf("  Target:   %s\n", json_object_get_string_member_with_default(res, "target", "-"));
-            printf("  Status:   %s\n", json_object_get_string_member_with_default(res, "status", "-"));
-            printf("  Interval: %" G_GINT64_FORMAT "s\n", json_object_get_int_member_with_default(res, "interval", 0));
+            printf("  Status:   %s\n", status);
+            printf("  Interval: %" G_GINT64_FORMAT "s\n",
+                   json_object_get_int_member_with_default(res, "interval_sec", 0));
         }
     }
     g_object_unref(parser); g_free(r);
@@ -7514,6 +7626,31 @@ static void cmd_gpu_list(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
+
+static void cmd_gpu_assignment(int argc, char *argv[]) {
+    if (argc < 4) {
+        printf("%sUsage: pcvctl gpu %s <vm_name> <canonical_pci_addr>%s\n",
+            cc(CYBER_YELLOW), argc >= 2 ? argv[1] : "attach|detach", cc(CYBER_RESET));
+        return;
+    }
+    gboolean attach = g_strcmp0(argv[1], "attach") == 0;
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "vm_name", argv[2]);
+    json_object_set_string_member(params, "pci_addr", argv[3]);
+    GError *error = NULL;
+    gchar *resp = purectl_send_request(
+        attach ? "device.gpu.attach" : "device.gpu.detach", params, &error);
+    if (error) {
+        g_printerr("%s[!] %s%s\n", ce(CYBER_RED), error->message, ce(CYBER_RESET));
+        g_error_free(error);
+        return;
+    }
+    if (resp) {
+        print_action_response(resp, attach ? "GPU_ATTACH" : "GPU_DETACH");
+        g_free(resp);
+    }
+}
+
                                                                        
                             
                                                                           
@@ -8022,17 +8159,17 @@ _vpc_print_job(const gchar *response, const gchar *method, gboolean accepted_onl
                                                                
                                                                
 static gchar *
-_vpc_wait_job(const gchar *job_id)
+_cli_wait_job(const gchar *job_id, const gchar *label, guint max_attempts)
 {
-    for (guint attempt = 0; attempt < 600; attempt++) {
+    for (guint attempt = 0; attempt < max_attempts; attempt++) {
         JsonObject *params = json_object_new();
         json_object_set_string_member(params, "job_id", job_id);
         g_autoptr(GError) error = NULL;
         gchar *response = purectl_send_request("jobs.get", params, &error);
         if (!response) {
             if (error)
-                g_printerr("%s[!] VPC Job 조회 실패: %s%s\n",
-                           ce(CYBER_RED), error->message, ce(CYBER_RESET));
+                g_printerr("%s[!] %s Job 조회 실패: %s%s\n",
+                           ce(CYBER_RED), label, error->message, ce(CYBER_RESET));
             return NULL;
         }
         JsonParser *parser = NULL;
@@ -8060,8 +8197,8 @@ _vpc_wait_job(const gchar *job_id)
         g_free(response);
         g_usleep(100000);
     }
-    g_printerr("%s[!] VPC Job %s terminal 대기 시간 초과%s\n",
-               ce(CYBER_RED), job_id, ce(CYBER_RESET));
+    g_printerr("%s[!] %s Job %s terminal 대기 시간 초과%s\n",
+               ce(CYBER_RED), label, job_id, ce(CYBER_RESET));
     pcv_cli_command_mark_runtime_failure();
     return NULL;
 }
@@ -8102,7 +8239,7 @@ _vpc_mutate_response(const gchar *method, const gchar *accepted_response,
         _vpc_print_job(accepted_response, method, TRUE);
         return;
     }
-    g_autofree gchar *terminal = _vpc_wait_job(job_id);
+    g_autofree gchar *terminal = _cli_wait_job(job_id, "VPC", 600);
     if (terminal)
         _vpc_print_job(terminal, method, FALSE);
 }
@@ -8630,6 +8767,8 @@ static CommandRoute routes[] = {
     {"network","qos-remove", cmd_network_qos_remove, "Remove network QoS"},
     {"healing","history",    cmd_healing_history,     "Self-healing action history"},
     {"gpu","list",           cmd_gpu_list,            "List GPUs (lspci)"},
+    {"gpu","attach",         cmd_gpu_assignment,      "Assign a VFIO-prebound GPU to a shut off VM"},
+    {"gpu","detach",         cmd_gpu_assignment,      "Remove a GPU from a shut off VM"},
     {NULL,NULL,NULL,NULL}
 };
 

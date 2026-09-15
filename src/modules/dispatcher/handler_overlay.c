@@ -7,9 +7,9 @@
                                                     
                                         
   
-                                                     
-                                                        
-                                                           
+
+
+
                                                             
                                                         
                                                       
@@ -19,9 +19,9 @@
                                                                     
                                      
                                                           
-                                                          
-                                                               
-                                         
+
+
+
                                                                     
                                                    
                                                             
@@ -57,6 +57,7 @@
                                                                                      
                                                                   
                                                                   
+
                                                                                      
                                                                  
                                                                                       
@@ -64,6 +65,7 @@
                                                                                      
                                                                   
                                                                   
+
                                                                         
                                                                        
                                                                                
@@ -87,8 +89,6 @@
                                                                                          
                                                                             
                                                                            
-
-
                                                                      
                                                                                
    
@@ -100,11 +100,74 @@
 #include "utils/pcv_validate.h"
 
                                                                  
+
+
+static gboolean
+_overlay_optional_string(JsonObject *params, const gchar *key,
+                         const gchar *fallback, const gchar **out)
+{
+    if (!json_object_has_member(params, key)) {
+        *out = fallback;
+        return TRUE;
+    }
+    JsonNode *node = json_object_get_member(params, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_STRING)
+        return FALSE;
+    const gchar *value = json_node_get_string(node);
+    if (!value)
+        return FALSE;
+    *out = value;
+    return TRUE;
+}
+
+static gboolean
+_overlay_optional_int64(JsonObject *params, const gchar *key,
+                        gint64 fallback, gint64 *out)
+{
+    if (!json_object_has_member(params, key)) {
+        *out = fallback;
+        return TRUE;
+    }
+    JsonNode *node = json_object_get_member(params, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node))
+        return FALSE;
+    GType type = json_node_get_value_type(node);
+    if (type != G_TYPE_INT64 && type != G_TYPE_INT && type != G_TYPE_LONG)
+        return FALSE;
+    *out = json_node_get_int(node);
+    return TRUE;
+}
+
+static PureRpcErrorCode
+_overlay_rpc_error_code(const GError *error)
+{
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT))
+        return PURE_RPC_ERR_INVALID_PARAMS;
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_EXISTS) ||
+        g_error_matches(error, G_IO_ERROR, G_IO_ERROR_BUSY))
+        return PURE_RPC_ERR_CONFLICT;
+    if (g_error_matches(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND))
+        return PURE_RPC_ERR_NOT_FOUND;
+    return PURE_RPC_ERR_ZFS_OPERATION;
+}
+
+static void
+_overlay_send_error(const gchar *rpc_id, PureRpcErrorCode code,
+                    const gchar *message, UdsServer *server,
+                    GSocketConnection *connection)
+{
+    gchar *response = pure_rpc_build_error_response(rpc_id, code, message);
+    pure_uds_server_send_response(server, connection, response);
+    g_free(response);
+}
+
+
                                                                       
   
                                             
-                                
-                                           
+
+
   
        
                                   
@@ -117,48 +180,61 @@
   
                                             
                                       
-                                                   
+
                                                                                 
    
 void handle_overlay_create(JsonObject *params, const gchar *rpc_id,
                             UdsServer *server, GSocketConnection *connection)
 {
-                               
-    const gchar *name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : "pcvoverlay0";
-    gint vni = json_object_has_member(params, "vni")
-        ? (gint)json_object_get_int_member(params, "vni") : 100;                           
-    const gchar *cidr = json_object_has_member(params, "cidr")
-        ? json_object_get_string_member(params, "cidr") : NULL;                          
+    const gchar *name = NULL;
+    const gchar *cidr = NULL;
+    gint64 vni_value = 0;
+    if (!_overlay_optional_string(params, "name", "pcvoverlay0", &name) ||
+        !_overlay_optional_string(params, "cidr", NULL, &cidr) ||
+        !_overlay_optional_int64(params, "vni", 100, &vni_value)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid type: name, vni, or cidr",
+                            server, connection);
+        return;
+    }
 
                                                             
                                 
                                                             
-    if (!pcv_validate_bridge_name(name)) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: name");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    if (!pcv_overlay_validate_name(name)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: name", server, connection);
         return;
     }
-    if (cidr && !pcv_validate_cidr(cidr)) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: cidr");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    if (!pcv_overlay_validate_vni(vni_value)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: vni must be 1..16777215",
+                            server, connection);
+        return;
+    }
+    if (cidr && !pcv_overlay_validate_cidr(cidr)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: cidr", server, connection);
         return;
     }
 
     GError *err = NULL;
-    if (!pcv_overlay_create(name, vni, cidr, &err)) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            err ? err->message : "overlay create failed");
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp); if (err) g_error_free(err);
+    if (!pcv_overlay_create(name, (gint)vni_value, cidr, &err)) {
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "overlay create failed",
+                            server, connection);
+        g_clear_error(&err);
         return;
     }
 
-                               
+
+
+
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "status", "created");
     json_object_set_string_member(res, "name", name);
-    json_object_set_int_member(res, "vni", vni);
+    json_object_set_int_member(res, "vni", vni_value);
+    json_object_set_string_member(res, "cidr", cidr ? cidr : "");
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, res);                         
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -170,20 +246,28 @@ void handle_overlay_create(JsonObject *params, const gchar *rpc_id,
                          
                                            
   
-                               
-                                                 
-                                                           
+
+
    
 void handle_overlay_delete(JsonObject *params, const gchar *rpc_id,
                             UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : "pcvoverlay0";
+    const gchar *name = NULL;
+    if (!_overlay_optional_string(params, "name", "pcvoverlay0", &name) ||
+        !pcv_overlay_validate_name(name)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: name", server, connection);
+        return;
+    }
 
     GError *err = NULL;
-    pcv_overlay_delete(name, &err);
-                                                       
-    if (err) g_error_free(err);
+    if (!pcv_overlay_delete(name, &err)) {
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "overlay delete failed",
+                            server, connection);
+        g_clear_error(&err);
+        return;
+    }
 
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "status", "deleted");
@@ -199,14 +283,22 @@ void handle_overlay_delete(JsonObject *params, const gchar *rpc_id,
                    
   
                                      
-                                                          
+
                                              
    
 void handle_overlay_list(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
-    JsonArray *arr = pcv_overlay_list();
+    GError *err = NULL;
+    JsonArray *arr = pcv_overlay_list(&err);
+    if (!arr) {
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "overlay list probe failed",
+                            server, connection);
+        g_clear_error(&err);
+        return;
+    }
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -224,10 +316,23 @@ void handle_overlay_list(JsonObject *params, const gchar *rpc_id,
 void handle_overlay_info(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : "pcvoverlay0";
+    const gchar *name = NULL;
+    if (!_overlay_optional_string(params, "name", "pcvoverlay0", &name) ||
+        !pcv_overlay_validate_name(name)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: name", server, connection);
+        return;
+    }
 
-    JsonObject *info = pcv_overlay_info(name);
+    GError *err = NULL;
+    JsonObject *info = pcv_overlay_info(name, &err);
+    if (!info) {
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "overlay info probe failed",
+                            server, connection);
+        g_clear_error(&err);
+        return;
+    }
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, info);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -239,40 +344,45 @@ void handle_overlay_info(JsonObject *params, const gchar *rpc_id,
                            
                                                                   
   
-                                      
-                                                                            
+
+
                                                        
                                                                      
    
 void handle_overlay_add_peer(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : "pcvoverlay0";
-    const gchar *peer_ip = json_object_has_member(params, "peer_ip")
-        ? json_object_get_string_member(params, "peer_ip") : NULL;
+    const gchar *name = NULL;
+    const gchar *peer_ip = NULL;
+    if (!_overlay_optional_string(params, "name", "pcvoverlay0", &name) ||
+        !_overlay_optional_string(params, "peer_ip", NULL, &peer_ip)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid type: name or peer_ip", server, connection);
+        return;
+    }
 
                                                   
                                                             
     if (!peer_ip || !*peer_ip) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: peer_ip");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Missing: peer_ip", server, connection);
         return;
     }
 
                                        
-    if (!pcv_validate_bridge_name(name) || !pcv_validate_ip_literal(peer_ip)) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: name or peer_ip");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    if (!pcv_overlay_validate_name(name) ||
+        !pcv_overlay_validate_peer_ip(peer_ip)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: name or IPv4 peer_ip", server, connection);
         return;
     }
 
     GError *err = NULL;
     if (!pcv_overlay_add_peer(name, peer_ip, &err)) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            err ? err->message : "add_peer failed");
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp); if (err) g_error_free(err);
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "add_peer failed",
+                            server, connection);
+        g_clear_error(&err);
         return;
     }
 
@@ -290,24 +400,42 @@ void handle_overlay_add_peer(JsonObject *params, const gchar *rpc_id,
                               
                                              
   
-                               
+
+
                                                             
    
 void handle_overlay_remove_peer(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
-    const gchar *name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : "pcvoverlay0";
-    const gchar *peer_ip = json_object_has_member(params, "peer_ip")
-        ? json_object_get_string_member(params, "peer_ip") : NULL;
-
-    if (!peer_ip) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Missing: peer_ip");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+    const gchar *name = NULL;
+    const gchar *peer_ip = NULL;
+    if (!_overlay_optional_string(params, "name", "pcvoverlay0", &name) ||
+        !_overlay_optional_string(params, "peer_ip", NULL, &peer_ip)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid type: name or peer_ip", server, connection);
         return;
     }
 
-    pcv_overlay_remove_peer(name, peer_ip, NULL);
+    if (!peer_ip || !*peer_ip) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Missing: peer_ip", server, connection);
+        return;
+    }
+    if (!pcv_overlay_validate_name(name) ||
+        !pcv_overlay_validate_peer_ip(peer_ip)) {
+        _overlay_send_error(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                            "Invalid: name or IPv4 peer_ip", server, connection);
+        return;
+    }
+
+    GError *err = NULL;
+    if (!pcv_overlay_remove_peer(name, peer_ip, &err)) {
+        _overlay_send_error(rpc_id, _overlay_rpc_error_code(err),
+                            err ? err->message : "remove_peer failed",
+                            server, connection);
+        g_clear_error(&err);
+        return;
+    }
 
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "status", "removed");
@@ -579,10 +707,10 @@ _reject_local_vpc_owned_ovn(const gchar *table,
 
    
                             
-                                                                  
+
   
                               
-                                        
+
   
                                       
                                                         
@@ -704,8 +832,8 @@ void handle_ovn_acl_add(JsonObject *p, const gchar *id, UdsServer *s, GSocketCon
     gchar *r=pure_rpc_build_success_response(id,n); pure_uds_server_send_response(s,c,r); g_free(r);
 }
 
-                                                         
-                                                        
+
+
 void handle_ovn_acl_list(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *sw=json_object_has_member(p,"switch")?json_object_get_string_member(p,"switch"):NULL;
     if (!sw) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: switch"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
@@ -894,8 +1022,8 @@ void handle_ovn_tenant_create(JsonObject *p, const gchar *id, UdsServer *s, GSoc
     gchar *r=pure_rpc_build_success_response(id,n); pure_uds_server_send_response(s,c,r); g_free(r);
 }
 
-                                                      
-                                                                        
+
+
 void handle_ovn_switch_detail(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *name=json_object_has_member(p,"name")?json_object_get_string_member(p,"name"):NULL;
     if (!name) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: name"); pure_uds_server_send_response(s,c,r); g_free(r); return; }
@@ -904,8 +1032,8 @@ void handle_ovn_switch_detail(JsonObject *p, const gchar *id, UdsServer *s, GSoc
     gchar *r=pure_rpc_build_success_response(id,n); pure_uds_server_send_response(s,c,r); g_free(r);
 }
 
-                                                      
-                                                                        
+
+
 void handle_ovn_router_detail(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c) {
     const gchar *name=json_object_has_member(p,"name")?json_object_get_string_member(p,"name"):NULL;
     if (!name) { gchar *r=pure_rpc_build_error_response(id,PURE_RPC_ERR_INVALID_PARAMS,"Missing: name"); pure_uds_server_send_response(s,c,r); g_free(r); return; }

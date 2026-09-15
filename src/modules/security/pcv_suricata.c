@@ -28,13 +28,13 @@
                                                       
                                                             
                                                                                
-                                                             
+
   
                                                              
                                                                  
                                              
                                                    
-                                                  
+
                                                         
   
                        
@@ -186,31 +186,27 @@ pcv_suricata_state_str(PcvSuricataState s)
                   
   
                                                        
-                                                      
-                                               
-                                                         
-  
-                                                                   
-                                            
+
+
                                                               
                                                     
-                                                    
-                                                                                  
-                                                  
-  
-                                                                         
-                                                                     
-                                                  
-                                                                 
-                                                     
-                                    
    
+
+
+static void
+_stop_aware_wait(gint *running, guint seconds)
+{
+    guint ticks = seconds * 20U;
+    for (guint i = 0; i < ticks && g_atomic_int_get(running); i++)
+        g_usleep(50000);
+}
+
 static gpointer
 _health_thread(gpointer data)
 {
     (void)data;
 
-    while (G.running) {
+    while (g_atomic_int_get(&G.running)) {
         PcvSuricataState s = pcv_suricata_probe();
         _probe_cache_store(s);                                   
 
@@ -257,7 +253,7 @@ _health_thread(gpointer data)
                                                          
         pcv_suricata_ips_health_tick();
 
-        g_usleep(SURICATA_HEALTH_INTERVAL_SEC * G_USEC_PER_SEC);
+        _stop_aware_wait(&G.running, SURICATA_HEALTH_INTERVAL_SEC);
     }
 
     PCV_LOG_INFO(SURICATA_LOG_DOM, "suricata health watch thread stopped");
@@ -278,7 +274,7 @@ pcv_suricata_health_start(void)
             "pcv_suricata_health_start() called twice — ignoring (idempotent)");
         return;
     }
-    G.running = TRUE;
+    g_atomic_int_set(&G.running, TRUE);
     G.initialized = TRUE;
     G.absent_logged = FALSE;
     G.thread = g_thread_new("suricata-health", _health_thread, NULL);
@@ -290,16 +286,15 @@ pcv_suricata_health_start(void)
                                                               
                                               
                                                           
-                                                            
-                                                             
                                                          
+
    
 void
 pcv_suricata_health_stop(void)
 {
     if (!G.initialized)
         return;
-    G.running = FALSE;
+    g_atomic_int_set(&G.running, FALSE);
     if (G.thread) {
         g_thread_join(G.thread);
         G.thread = NULL;
@@ -777,7 +772,7 @@ _eve_thread(gpointer data)
                                                          
     guint64 oversized_count = 0;
 
-    while (G_eve.running) {
+    while (g_atomic_int_get(&G_eve.running)) {
         GStatBuf st;
         gboolean exists = (g_stat(PCV_SURICATA_EVE_PATH, &st) == 0);
 
@@ -789,14 +784,14 @@ _eve_thread(gpointer data)
                     "eve.json not found (%s) — ingest degraded, retrying",
                     PCV_SURICATA_EVE_PATH);
             }
-            g_usleep(SURICATA_EVE_POLL_INTERVAL_SEC * G_USEC_PER_SEC);
+            _stop_aware_wait(&G_eve.running, SURICATA_EVE_POLL_INTERVAL_SEC);
             continue;
         }
 
         if (!fp) {
             fp = fopen(PCV_SURICATA_EVE_PATH, "r");
             if (!fp) {
-                g_usleep(SURICATA_EVE_POLL_INTERVAL_SEC * G_USEC_PER_SEC);
+                _stop_aware_wait(&G_eve.running, SURICATA_EVE_POLL_INTERVAL_SEC);
                 continue;
             }
                                                           
@@ -812,7 +807,7 @@ _eve_thread(gpointer data)
             fclose(fp);
             fp = fopen(PCV_SURICATA_EVE_PATH, "r");
             if (!fp) {
-                g_usleep(SURICATA_EVE_POLL_INTERVAL_SEC * G_USEC_PER_SEC);
+                _stop_aware_wait(&G_eve.running, SURICATA_EVE_POLL_INTERVAL_SEC);
                 continue;
             }
             g_string_set_size(linebuf, 0);
@@ -848,7 +843,7 @@ _eve_thread(gpointer data)
             }
         }
 
-        g_usleep(SURICATA_EVE_POLL_INTERVAL_SEC * G_USEC_PER_SEC);
+        _stop_aware_wait(&G_eve.running, SURICATA_EVE_POLL_INTERVAL_SEC);
     }
 
     if (fp) fclose(fp);
@@ -872,7 +867,7 @@ pcv_suricata_eve_tail_start(void)
         return;
     }
     (void)pcv_security_store_ensure_open();                                  
-    G_eve.running = TRUE;
+    g_atomic_int_set(&G_eve.running, TRUE);
     G_eve.initialized = TRUE;
     G_eve.absent_logged = FALSE;
     G_eve.thread = g_thread_new("suricata-eve", _eve_thread, NULL);
@@ -889,7 +884,7 @@ pcv_suricata_eve_tail_stop(void)
 {
     if (!G_eve.initialized)
         return;
-    G_eve.running = FALSE;
+    g_atomic_int_set(&G_eve.running, FALSE);
     if (G_eve.thread) {
         g_thread_join(G_eve.thread);
         G_eve.thread = NULL;
@@ -904,7 +899,7 @@ pcv_suricata_eve_tail_stop(void)
 gboolean
 pcv_suricata_eve_tail_running(void)
 {
-    return G_eve.running;
+    return g_atomic_int_get(&G_eve.running);
 }
 
                                                                      

@@ -153,15 +153,21 @@ run_test() {
     local clean_output
     clean_output=$(printf '%s\n' "$output" | sed -E 's/\x1B\[[0-9;]*[A-Za-z]//g')
 
-                              
-    local pass fail_count
-    pass=$(printf '%s\n' "$clean_output" | grep -E -c '^[[:space:]]*(ok |PASS([[:space:]]|$)|\[PASS\])' || true)
-    fail_count=$(printf '%s\n' "$clean_output" | grep -E -c '^[[:space:]]*(not ok |FAIL([[:space:]]|$)|\[FAIL\])' || true)
+
+
+    local pass fail_count skip_count
+    read -r pass fail_count skip_count < <(printf '%s\n' "$clean_output" | awk '
+        /^[[:space:]]*(ok |not ok |1\.\.0)/ && /#[[:space:]]*[Ss][Kk][Ii][Pp]([[:space:]]|$)/ { skip++; next }
+        /^[[:space:]]*(SKIP([[:space:]]|$)|\[SKIP\])/ { skip++; next }
+        /^[[:space:]]*(ok |PASS([[:space:]]|$)|\[PASS\])/ { pass++; next }
+        /^[[:space:]]*(not ok |FAIL([[:space:]]|$)|\[FAIL\])/ { fail++ }
+        END { print pass+0, fail+0, skip+0 }
+    ')
                                                     
                                           
     if [ "$exit_code" -ne 0 ] && [ "$fail_count" -eq 0 ]; then
         fail_count=1
-    elif [ "$exit_code" -eq 0 ] && [ "$pass" -eq 0 ] && [ "$fail_count" -eq 0 ]; then
+    elif [ "$exit_code" -eq 0 ] && [ "$pass" -eq 0 ] && [ "$fail_count" -eq 0 ] && [ "$skip_count" -eq 0 ]; then
         pass=1
     fi
 
@@ -174,15 +180,18 @@ run_test() {
 
     TOTAL_PASS=$((TOTAL_PASS + pass))
     TOTAL_FAIL=$((TOTAL_FAIL + fail_count))
+    TOTAL_SKIP=$((TOTAL_SKIP + skip_count))
 
     local status
-    if [ "$fail_count" -eq 0 ]; then
+    if [ "$fail_count" -eq 0 ] && [ "$pass" -eq 0 ] && [ "$skip_count" -gt 0 ]; then
+        status="${YELLOW}SKIP${NC}"
+    elif [ "$fail_count" -eq 0 ]; then
         status="${GREEN}PASS${NC}"
     else
         status="${RED}FAIL${NC}"
     fi
 
-    TIER_RESULTS="${TIER_RESULTS}\n  $status  $name (${duration}s, pass:$pass fail:$fail_count)"
+    TIER_RESULTS="${TIER_RESULTS}\n  $status  $name (${duration}s, pass:$pass fail:$fail_count skip:$skip_count)"
 }
 
 run_unit_suite() {
@@ -441,10 +450,14 @@ if [ "$TOTAL_FAIL" -gt 0 ]; then
 fi
 
 if [ "$TOTAL_SKIP" -gt 0 ] && [ "$TOTAL_PASS" -eq 0 ]; then
-    echo -e "\n${YELLOW}⚠ 모든 테스트 건너뜀 — 데몬 실행 필요${NC}"
+    echo -e "\n${YELLOW}⚠ 모든 테스트 건너뜀 — 각 실행의 환경 조건을 확인하십시오${NC}"
     $CI_MODE && exit 1
     exit 0
 fi
 
-echo -e "\n${GREEN}✓ 모든 테스트 통과${NC}"
+if [ "$TOTAL_SKIP" -gt 0 ]; then
+    echo -e "\n${GREEN}✓ 실행한 테스트 통과 — 건너뜀 ${TOTAL_SKIP}건은 미검증${NC}"
+else
+    echo -e "\n${GREEN}✓ 모든 테스트 통과${NC}"
+fi
 exit 0

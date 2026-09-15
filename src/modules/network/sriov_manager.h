@@ -58,7 +58,7 @@
                                                          
                                                             
                                                             
-                                                                 
+
                                                      
   
             
@@ -74,6 +74,7 @@
   
        
                                       
+
                                             
                                                 
                                                                        
@@ -141,8 +142,9 @@ gboolean pcv_sriov_attach_vm(const gchar *vm_name, const gchar *pf,
                                                             
                                                              
                                                              
-                                              
-                                                         
+
+
+
    
 gboolean pcv_sriov_detach_vm(const gchar *vm_name, const gchar *pci_addr, GError **error);
 

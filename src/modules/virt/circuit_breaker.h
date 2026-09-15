@@ -15,8 +15,9 @@
                                                  
   
                                                         
-                                                             
                                                               
+
+
                                                                
                                                
                             
@@ -31,7 +32,8 @@
                                                      
                                                                                
                                                                 
-                                                                             
+
+
                                                                               
                                                              
                                                              
@@ -108,6 +110,17 @@ void cb_init(void);
 [[nodiscard]] gboolean cb_is_open(void);
 
    
+
+
+
+
+
+
+
+
+[[nodiscard]] gboolean cb_should_reject_request(void);
+
+
                      
                              
                                        

@@ -1,34 +1,37 @@
    
                       
-                                                              
+
   
                            
                                                    
                                                     
                                         
   
-                                                 
+
                                                
-                                               
                                                  
-                                                    
+
   
                                                                        
        
                                                
-                                              
+
   
                        
                                                        
                                           
   
-                  
-                                                  
-                                              
-                                                                
-  
                          
-                                             
+
+
+
+
+
+
+
+
+
+
   
               
                                                          
@@ -36,9 +39,6 @@
                                         
                                           
   
-          
-                                                        
-                                      
                                                                        
    
 #ifndef PURECVISOR_NFV_MANAGER_H
@@ -53,7 +53,7 @@ G_BEGIN_DECLS
 void pcv_nfv_init(void);                                    
 void pcv_nfv_shutdown(void);                                 
 
-                                                    
+
 
 gboolean    pcv_nfv_fw_policy_create(const gchar *name, const gchar *sw, GError **error);
 

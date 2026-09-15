@@ -34,7 +34,6 @@ pcv_cluster_trigger_replication
 pcv_cluster_upgrade_status
 pcv_dispatcher_register_pre_hook
 pcv_dpdk_shutdown
-pcv_dpdk_vhost_socket_path
 pcv_ebpf_proc_stat_is_cpu_core_line
 pcv_ebpf_telemetry_get_all_vms
 pcv_ebpf_telemetry_get_vm
@@ -47,10 +46,7 @@ pcv_federation_site_join
 pcv_federation_site_leave
 pcv_federation_site_list
 pcv_federation_site_status
-pcv_gpu_attach
-pcv_gpu_detach
 pcv_gpu_info
-pcv_gpu_list
 pcv_gpu_shutdown
 pcv_gpu_vgpu_create
 pcv_gpu_vgpu_delete
@@ -162,14 +158,3 @@ pcv_qos_uplink_clear
 pcv_suricata_policy_free
 pcv_tenant_overlay_wg_capture_test
 pcv_undefine_debounce_free
-pcv_alert_dlq_reset
-pcv_alert_engine_apply_daemon_config
-pcv_alert_silence_reset
-pcv_anomaly_sync_auto_watches
-pcv_anomaly_watch_count
-pcv_prom_labels_fit
-pcv_suricata_ips_set_exec_hook
-pcv_suricata_ips_set_probe_hook
-pcv_suricata_ips_set_ready_hook
-pcv_vpc_error_quark
-pcv_webpush_set_post_hook

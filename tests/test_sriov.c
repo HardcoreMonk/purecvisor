@@ -245,13 +245,20 @@ sriov_fixture_set_blocking_attach_virsh(SriovExecFixture *fixture,
                                         const gchar *attach_release,
                                         const gchar *detach_invoked)
 {
+    gchar *state_path = g_build_filename(fixture->root,
+                                          "blocking-device.state", NULL);
+    g_assert_true(g_file_set_contents(state_path, "present\n", -1, NULL));
     gchar *script = g_strdup_printf(
         "#!/bin/sh\n"
         "printf '%%s\\n' \"$*\" >> '%s'\n"
         "if [ \"$1\" = dumpxml ]; then\n"
-        "  printf '%%s\\n' \"<domain><devices><hostdev type='pci'>"
+        "  if [ \"$(cat '%s')\" = present ]; then\n"
+        "    printf '%%s\\n' \"<domain><devices><hostdev type='pci'>"
         "<source><address domain='0xffff' bus='0xff' slot='0x1f' "
         "function='0x7'/></source></hostdev></devices></domain>\"\n"
+        "  else\n"
+        "    printf '%%s\\n' '<domain><devices></devices></domain>'\n"
+        "  fi\n"
         "elif [ \"$1\" = attach-device ]; then\n"
         "  : > '%s'\n"
         "  attempts=0\n"
@@ -262,12 +269,15 @@ sriov_fixture_set_blocking_attach_virsh(SriovExecFixture *fixture,
         "  done\n"
         "elif [ \"$1\" = detach-device ]; then\n"
         "  : > '%s'\n"
+        "  printf '%%s\\n' absent > '%s'\n"
         "fi\n"
         "exit 0\n",
-        fixture->log_path, attach_ready, attach_release, detach_invoked);
+        fixture->log_path, state_path, attach_ready, attach_release,
+        detach_invoked, state_path);
     g_assert_true(g_file_set_contents(fixture->virsh_path, script, -1, NULL));
     g_assert_cmpint(g_chmod(fixture->virsh_path, 0700), ==, 0);
     g_free(script);
+    g_free(state_path);
 }
 
 typedef struct {
@@ -334,6 +344,7 @@ sriov_fixture_add_vf(SriovExecFixture *fixture,
     gchar *vf_link = g_strdup_printf("%s/virtfn%d", pf_device, vf_index);
     gchar *pci_device = g_build_filename(fixture->pci_root, pci_addr, NULL);
     gchar *driver = g_build_filename(pci_device, "driver", NULL);
+    gchar *physfn = g_build_filename(pci_device, "physfn", NULL);
     gchar *host_driver = g_build_filename(fixture->drivers_root, "ixgbevf", NULL);
     gchar *vf_iommu_group = g_build_filename(pci_device, "iommu_group", NULL);
     gchar *pf_group_target = g_build_filename(fixture->iommu_root, "6", NULL);
@@ -343,6 +354,7 @@ sriov_fixture_add_vf(SriovExecFixture *fixture,
     g_assert_cmpint(g_mkdir_with_parents(host_driver, 0700), ==, 0);
     g_assert_cmpint(symlink(pci_device, vf_link), ==, 0);
     g_assert_cmpint(symlink(host_driver, driver), ==, 0);
+    g_assert_cmpint(symlink(pf_device, physfn), ==, 0);
     if (with_pf_iommu_group) {
         g_assert_cmpint(g_mkdir_with_parents(pf_group_target, 0700), ==, 0);
         g_assert_cmpint(symlink(pf_group_target, pf_iommu_group), ==, 0);
@@ -355,6 +367,7 @@ sriov_fixture_add_vf(SriovExecFixture *fixture,
     g_free(pf_group_target);
     g_free(vf_iommu_group);
     g_free(host_driver);
+    g_free(physfn);
     g_free(driver);
     g_free(pci_device);
     g_free(vf_link);
@@ -572,6 +585,38 @@ test_sriov_attach_without_iommu_fails_before_driver_change(void)
     }
 }
 
+
+
+
+static void
+test_sriov_attach_missing_vfio_control_fails_before_driver_change(void)
+{
+    const gchar *pci = "ffff:ff:1f.7";
+    SriovExecFixture *fixture = sriov_exec_fixture_new();
+    sriov_fixture_add_vf(fixture, "pf0", 0, pci, TRUE, TRUE);
+    sriov_fixture_add_driver_controls(fixture, pci);
+    sriov_fixture_set_virsh(fixture, 0, "must not run");
+
+    gchar *vfio_bind = sriov_fixture_driver_attr(fixture, "vfio-pci", "bind");
+    gchar *host_unbind = sriov_fixture_driver_attr(fixture, "ixgbevf", "unbind");
+    gchar *override = sriov_fixture_pci_attr(fixture, pci, "driver_override");
+    g_assert_cmpint(g_unlink(vfio_bind), ==, 0);
+
+    GError *error = NULL;
+    g_assert_false(pcv_sriov_attach_vm("vm-safe", "pf0", 0, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(g_strstr_len(error->message, -1, "vfio-pci"));
+    sriov_assert_file_value(host_unbind, "");
+    sriov_assert_file_value(override, "");
+    g_assert_false(g_file_test(fixture->log_path, G_FILE_TEST_EXISTS));
+
+    g_clear_error(&error);
+    g_free(override);
+    g_free(host_unbind);
+    g_free(vfio_bind);
+    sriov_exec_fixture_free(fixture);
+}
+
                                                                     
                                                             
                                                    
@@ -753,7 +798,8 @@ test_sriov_attach_detach_are_serialized(void)
     g_assert_cmpstr(lines[1], ==, "dumpxml vm-safe");
     g_assert_cmpstr(lines[2], !=, NULL);
     g_assert_true(g_str_has_prefix(lines[2], "detach-device vm-safe "));
-    g_assert_null(lines[3]);
+    g_assert_cmpstr(lines[3], ==, "dumpxml vm-safe");
+    g_assert_null(lines[4]);
 
     g_strfreev(lines);
     g_free(argv_text);
@@ -762,6 +808,52 @@ test_sriov_attach_detach_are_serialized(void)
     g_free(detach_invoked);
     g_free(attach_release);
     g_free(attach_ready);
+    sriov_exec_fixture_free(fixture);
+}
+
+
+
+static void
+test_sriov_detach_restores_native_vf_driver_controls(void)
+{
+    const gchar *pci = "0000:03:10.0";
+    SriovExecFixture *fixture = sriov_exec_fixture_new();
+    sriov_fixture_add_vf(fixture, "pf0", 0, pci, TRUE, TRUE);
+    sriov_fixture_add_driver_controls(fixture, pci);
+
+    gchar *driver = sriov_fixture_pci_attr(fixture, pci, "driver");
+    gchar *vfio_driver = g_build_filename(fixture->drivers_root,
+                                           "vfio-pci", NULL);
+    g_assert_cmpint(g_unlink(driver), ==, 0);
+    g_assert_cmpint(symlink(vfio_driver, driver), ==, 0);
+    gchar *probe = g_build_filename(fixture->root, "drivers_probe", NULL);
+    g_assert_true(g_file_set_contents(probe, "", -1, NULL));
+
+    SriovDetachVirshSpec spec = {TRUE, TRUE, FALSE, 0, "", 0, ""};
+    sriov_fixture_set_detach_virsh(fixture, &spec);
+    GError *error = NULL;
+    g_assert_true(pcv_sriov_detach_vm("vm-safe", pci, &error));
+    g_assert_no_error(error);
+
+    gchar *override = sriov_fixture_pci_attr(fixture, pci, "driver_override");
+    gchar *vfio_unbind = sriov_fixture_driver_attr(
+        fixture, "vfio-pci", "unbind");
+    sriov_assert_file_value(override, "");
+    sriov_assert_file_value(vfio_unbind, pci);
+    sriov_assert_file_value(probe, pci);
+
+
+    g_assert_cmpint(g_unlink(driver), ==, 0);
+    g_assert_true(g_file_set_contents(probe, "", -1, NULL));
+    g_assert_true(pcv_sriov_detach_vm("vm-safe", pci, &error));
+    g_assert_no_error(error);
+    sriov_assert_file_value(probe, pci);
+
+    g_free(vfio_unbind);
+    g_free(override);
+    g_free(probe);
+    g_free(vfio_driver);
+    g_free(driver);
     sriov_exec_fixture_free(fixture);
 }
 
@@ -787,7 +879,12 @@ test_sriov_detach_exact_idempotency_and_failure_classes(void)
         {
             "success",
             {TRUE, TRUE, FALSE, 0, "", 0, ""},
-            TRUE, TRUE, FALSE,
+            TRUE, TRUE, TRUE,
+        },
+        {
+            "success-but-device-remains",
+            {TRUE, FALSE, FALSE, 0, "", 0, ""},
+            FALSE, TRUE, TRUE,
         },
         {
             "already-absent-structured",
@@ -903,6 +1000,8 @@ void test_sriov_register(void) {
     g_test_add_func("/sriov/detach/reject_bad_vm",     test_sriov_detach_reject_bad_vm);
     g_test_add_func("/sriov/attach/no_iommu_before_driver_change",
                     test_sriov_attach_without_iommu_fails_before_driver_change);
+    g_test_add_func("/sriov/attach/missing_vfio_before_driver_change",
+                    test_sriov_attach_missing_vfio_control_fails_before_driver_change);
     g_test_add_func("/sriov/attach/seamed_sysfs_controls",
                     test_sriov_attach_writes_seamed_sysfs_controls);
     g_test_add_func("/sriov/attach/bind_failure_rolls_back",
@@ -913,4 +1012,6 @@ void test_sriov_register(void) {
                     test_sriov_attach_detach_are_serialized);
     g_test_add_func("/sriov/detach/exact_idempotency_and_failures",
                     test_sriov_detach_exact_idempotency_and_failure_classes);
+    g_test_add_func("/sriov/detach/restores_native_driver_controls",
+                    test_sriov_detach_restores_native_vf_driver_controls);
 }

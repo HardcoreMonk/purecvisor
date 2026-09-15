@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 304, REST = cfg.REST_COUNT || 229, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 306, REST = cfg.REST_COUNT || 230, METRICS = cfg.METRICS_COUNT || 155;
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -161,8 +161,8 @@ function renderHelp(b) {
       ['container.set_limits', 2, 'container set-limits', 'containers', '메모리/cpu_quota 제한 설정', 'Set memory/cpu_quota limits'],
       ['container.nic.list', 0, 'container nic-list', 'containers', '컨테이너 NIC 목록', 'List container NICs'],
       ['container.nic.attach', 2, 'container nic-attach', 'containers', '컨테이너에 NIC 연결 (브릿지)', 'Attach NIC to container (bridge)'],
-                                                               
-                                                                             
+
+
       ['container.nic.detach', 2, 'container nic-detach', 'containers', '컨테이너에서 NIC 분리 (nic-name)', 'Detach NIC from container (nic-name)'],
       ['container.set_bandwidth', 2, 'container set-bandwidth', 'containers', '컨테이너 인/아웃바운드 대역폭 설정', 'Set container inbound/outbound bandwidth'],
       ['container.logs', 0, 'container logs', 'containers', '컨테이너 로그 tail (N줄)', 'Tail container logs (lines N)'],
@@ -216,13 +216,13 @@ function renderHelp(b) {
       ['tenant_overlay.attach_vm', 2, '-', '-', 'VM을 테넌트 오버레이에 조인 (내부 IP 할당)', 'Join a VM to tenant overlay (assign internal IP)'],
       ['tenant_overlay.detach_vm', 2, '-', '-', '테넌트 오버레이에서 VM 제거', 'Remove VM from tenant overlay'],
     ]},
-    { id: 'overlay', ko: '오버레이 메시', en: 'Overlay Mesh', isNew: true, rows: [
-      ['overlay.create', 2, '-', 'overlay', '오버레이 네트워크 생성', 'Create overlay network'],
-      ['overlay.delete', 2, '-', 'overlay', '오버레이 삭제', 'Delete overlay'],
+    { id: 'overlay', ko: 'OVS VXLAN 오버레이', en: 'OVS VXLAN Overlay', isNew: true, rows: [
+      ['overlay.create', 2, '-', '-', '오버레이 네트워크 생성', 'Create overlay network'],
+      ['overlay.delete', 2, '-', '-', '오버레이 삭제', 'Delete overlay'],
       ['overlay.list', 0, '-', 'overlay', '오버레이 목록', 'List overlays'],
-      ['overlay.info', 0, '-', 'overlay', '오버레이 상세', 'Overlay detail'],
-      ['overlay.add_peer', 2, '-', 'overlay', '오버레이 메시에 피어 추가', 'Add peer to overlay mesh'],
-      ['overlay.remove_peer', 2, '-', 'overlay', '오버레이에서 피어 제거', 'Remove peer from overlay'],
+      ['overlay.info', 0, '-', '-', '오버레이 상세', 'Overlay detail'],
+      ['overlay.add_peer', 2, '-', '-', '오버레이에 수동 피어 추가', 'Add a manual peer to overlay'],
+      ['overlay.remove_peer', 2, '-', '-', '오버레이에서 수동 피어 제거', 'Remove a manual peer from overlay'],
     ]},
     { id: 'qos', ko: 'QoS · 카오스', en: 'QoS & Chaos', isNew: true, rpcOnly: true, rows: [
       ['qos.vm.set', 2, '-', '-', 'VM별 대역폭 QoS 설정', 'Set per-VM bandwidth QoS'],
@@ -344,6 +344,8 @@ function renderHelp(b) {
       ['device.nic.list', 0, 'nic list', 'summary', 'VM NIC 목록', 'List VM NICs'],
       ['device.nic.attach', 1, 'nic add', 'summary', 'NIC 핫 연결 (operator: 소유 VM)', 'Hot-attach NIC (operator: own VM)'],
       ['device.nic.detach', 1, 'nic remove', 'summary', 'NIC 핫 분리 (operator: 소유 VM)', 'Hot-detach NIC (operator: own VM)'],
+      ['device.gpu.attach', 2, 'gpu attach', '-', '정지 VM의 persistent 설정에 GPU slot group 할당', 'Assign a GPU slot group to a shut-off VM persistent config'],
+      ['device.gpu.detach', 2, 'gpu detach', '-', '정지 VM의 persistent 설정에서 GPU slot group 해제', 'Remove a GPU slot group from a shut-off VM persistent config'],
     ]},
     { id: 'dpdk', ko: 'DPDK', en: 'DPDK', rows: [
       ['dpdk.status', 0, 'dpdk status', 'dpdk', 'OVS-DPDK 상태', 'OVS-DPDK status'],
@@ -387,26 +389,25 @@ function renderHelp(b) {
       ['node.resume', 0, 'node resume', '-', '드레인 후 노드 재개 (미등록→VIEWER)', 'Resume node after drain (unlisted defaults VIEWER)'],
     ]},
     { id: 'ovn', ko: 'OVN SDN', en: 'OVN SDN', rows: [
-      ['ovn.switch.create', 2, 'ovn switch', 'ovn', 'OVN 논리 스위치 생성', 'Create OVN logical switch'],
-      ['ovn.switch.delete', 2, 'ovn switch', 'ovn', 'OVN 논리 스위치 삭제', 'Delete OVN logical switch'],
+      ['ovn.switch.create', 2, 'ovn switch', '-', 'OVN 논리 스위치 생성', 'Create OVN logical switch'],
+      ['ovn.switch.delete', 2, 'ovn switch', '-', 'OVN 논리 스위치와 소유 DHCP 옵션 삭제', 'Delete an OVN logical switch and its owned DHCP options'],
       ['ovn.switch.list', 0, 'ovn switch', 'ovn', '논리 스위치 목록', 'List logical switches'],
-      ['ovn.switch.detail', 0, 'ovn switch', 'ovn', '스위치 상세 (ports/ACL/DHCP)', 'Switch detail (ports/ACL/DHCP)'],
-      ['ovn.port.add', 2, '-', 'ovn', '논리 스위치 포트 추가', 'Add logical switch port'],
-      ['ovn.port.remove', 2, '-', 'ovn', '논리 스위치 포트 제거', 'Remove logical switch port'],
+      ['ovn.switch.detail', 0, '-', '-', '스위치 상세 (ports/ACL)', 'Switch detail (ports/ACL)'],
+      ['ovn.port.add', 2, '-', '-', '논리 스위치 포트 추가 (RPC 전용)', 'Add logical switch port (RPC only)'],
+      ['ovn.port.remove', 2, '-', '-', '논리 스위치 포트 제거 (RPC 전용)', 'Remove logical switch port (RPC only)'],
       ['ovn.acl.add', 2, 'ovn acl', 'ovn', '스위치에 ACL(방화벽) 규칙 추가', 'Add ACL (firewall) rule to switch'],
-      ['ovn.acl.list', 0, 'ovn acl', 'ovn', 'ACL 규칙 목록 (스위치별 선택)', 'List ACL rules (optionally per switch)'],
-      ['ovn.router.create', 2, 'ovn router', 'ovn', 'OVN 논리 라우터 생성', 'Create OVN logical router'],
-      ['ovn.router.delete', 2, 'ovn router', 'ovn', '논리 라우터 삭제', 'Delete logical router'],
+      ['ovn.acl.list', 0, 'ovn acl', 'security-groups', 'ACL 규칙 목록 (switch 필수)', 'List ACL rules (switch required)'],
+      ['ovn.router.create', 2, 'ovn router', '-', 'OVN 논리 라우터 생성', 'Create OVN logical router'],
+      ['ovn.router.delete', 2, 'ovn router', '-', '논리 라우터 삭제', 'Delete logical router'],
       ['ovn.router.list', 0, 'ovn router', 'ovn', '논리 라우터 목록', 'List logical routers'],
-      ['ovn.router.detail', 0, 'ovn router', 'ovn', '라우터 상세', 'Router detail'],
-      ['ovn.router.add_port', 2, '-', 'ovn', '라우터 포트를 스위치에 연결', 'Attach router port to switch'],
-                                                                      
-                                                                   
-                                                           
-      ['ovn.dhcp.enable', 2, 'ovn dhcp', 'ovn', '서브넷에 분산 DHCP 활성화 (subnet+gateway)', 'Enable distributed DHCP on a subnet (subnet + gateway)'],
-      ['ovn.nat.add', 2, 'ovn nat', 'ovn', 'SNAT/DNAT 규칙 추가', 'Add SNAT/DNAT rule'],
-      ['ovn.nat.list', 0, 'ovn nat', 'ovn', 'NAT 규칙 목록', 'List NAT rules'],
-      ['ovn.tenant.create', 2, '-', 'ovn', '격리된 테넌트 네트워크 세트 프로비저닝', 'Provision isolated tenant network set'],
+      ['ovn.router.detail', 0, '-', '-', '라우터 상세 (ports/NAT)', 'Router detail (ports/NAT)'],
+      ['ovn.router.add_port', 2, '-', '-', '라우터 포트를 스위치에 연결 (RPC 전용)', 'Attach router port to switch (RPC only)'],
+
+
+      ['ovn.dhcp.enable', 2, 'ovn dhcp', '-', '분산 DHCP 활성화 (선택 --switch로 소유·연결)', 'Enable distributed DHCP (optional --switch owns and attaches it)'],
+      ['ovn.nat.add', 2, '-', '-', 'SNAT/DNAT 규칙 추가 (RPC/REST 전용)', 'Add SNAT/DNAT rule (RPC/REST only)'],
+      ['ovn.nat.list', 0, 'ovn nat', '-', 'NAT 규칙 목록', 'List NAT rules'],
+      ['ovn.tenant.create', 2, '-', '-', '격리된 테넌트 네트워크 세트 프로비저닝 (RPC 전용)', 'Provision isolated tenant network set (RPC only)'],
       ['ovn.status', 0, 'ovn status', 'ovn', 'OVN 컨트롤러/서비스 상태', 'OVN controller/service status'],
     ]},
                                                                 
@@ -558,7 +559,7 @@ window.filterHelp = filterHelp;
                          
                                                    
                                                   
-                                                                    
+
                                                         
                                                                         
 function renderSwaggerApi(b) {
@@ -698,6 +699,7 @@ function renderSwaggerApi(b) {
                                             
     { id: 'networks', name: _L('네트워크', 'Networks'), endpoints: [
       { m: 'GET', p: '/networks', d: _L('네트워크 목록', 'Network list') },
+      { m: 'GET', p: '/networks/host-baseline', d: _L('호스트 interface·route·OVS 읽기 기준선', 'Host interface, route, and OVS baseline') },
       { m: 'POST', p: '/networks', d: _L('네트워크 생성', 'Create network'), body: '{"name":"br1","mode":"nat"}' },
       { m: 'GET', p: '/networks/{br}', d: _L('네트워크 상세', 'Network info') },
       { m: 'DELETE', p: '/networks/{br}', d: _L('네트워크 삭제', 'Delete network') },
@@ -936,7 +938,7 @@ function renderSwaggerApi(b) {
     var epNodes = g.endpoints.map(function(e, i) {
       var id = 'sw-d-' + g.id + '-' + i;
       var row = el('div', { onclick: "document.getElementById('" + id + "').classList.toggle('hidden')", style: 'display:flex;align-items:center;padding:8px 12px;cursor:pointer;gap:10px;background:var(--bg2)' },
-        el('span', { style: 'background:' + mc(e.m) + ';color:#fff;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;min-width:52px;text-align:center' }, e.m),
+        el('span', { class: 'sw-method-badge', style: 'background:' + mc(e.m) + ';color:#101820;font-size:10px;font-weight:700;padding:2px 8px;border-radius:3px;min-width:52px;text-align:center' }, e.m),
         el('span', { style: 'font-family:monospace;font-size:12px' }, e.p),
         el('span', { class: 'stat-label', style: 'margin-left:auto' }, e.d),
         e.auth === false ? null : el('span', { style: 'font-size:9px;color:var(--yellow)' }, '🔒'));

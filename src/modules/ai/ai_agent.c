@@ -76,6 +76,7 @@
            
                                                      
    
+#include "api/drain.h"
 #include "ai_agent.h"
 #include "ai_provider.h"
 #include <string.h>
@@ -1535,7 +1536,7 @@ pcv_agent_compare_async(const gchar *metrics_json, const gchar *anomaly_context)
                                                   
         G.month_calls++;
 
-        GTask *task = g_task_new(NULL, NULL, _on_provider_done, ctx);                       
+        GTask *task = pcv_drain_task_new(NULL, NULL, _on_provider_done, ctx);
         g_task_set_task_data(task, qctx, _query_ctx_free);                                
         g_task_run_in_thread(task, _query_thread);                                       
         g_object_unref(task);                                                            

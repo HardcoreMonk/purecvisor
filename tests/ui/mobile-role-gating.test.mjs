@@ -31,7 +31,7 @@ test('VIEWER: 모바일 전원 버튼(VM 4종+컨테이너) role-hidden(computed
 
       window.currentUser = { role: 'VIEWER' };
       window.applyRoleVisibility('VIEWER');
-      const buttons = Array.from(node.querySelectorAll('.m-actions button'));
+      const buttons = Array.from(node.querySelectorAll('.m-actions button, .m-vm-bulk-delete'));
       const viewerDisplays = buttons.map((b) => getComputedStyle(b).display);
 
       window.applyRoleVisibility('OPERATOR');
@@ -43,8 +43,8 @@ test('VIEWER: 모바일 전원 버튼(VM 4종+컨테이너) role-hidden(computed
       return { count: buttons.length, viewerDisplays, operatorDisplays, adminDisplays };
     }, POWER_DATA);
 
-                                                                  
-    assert.equal(r.count, 4);
+
+    assert.equal(r.count, 7);
     assert.ok(r.viewerDisplays.every((d) => d === 'none'), r.viewerDisplays.join(','));
     assert.ok(r.operatorDisplays.every((d) => d !== 'none'), r.operatorDisplays.join(','));
     assert.ok(r.adminDisplays.every((d) => d !== 'none'), r.adminDisplays.join(','));

@@ -737,7 +737,7 @@ pcv_iscsi_target_list(void)
                                           
   
          
-                                                           
+
                                                                  
                                                  
                                                  
@@ -759,14 +759,23 @@ pcv_iscsi_initiator_connect(const gchar *target_ip, const gchar *vm_name,
                                                                 
                                             
 
-                                                        
-                                                            
+
                                                                      
-                                                               
-                                                                    
+
+
+
+
+
+    const gchar *disc_new[] = { "iscsiadm", "-m", "discoverydb", "-t", "sendtargets",
+                                "-p", target_ip, "-o", "new", NULL };
+    _run_argv(disc_new, NULL, NULL);
+
     const gchar *disc[] = { "iscsiadm", "-m", "discoverydb", "-t", "sendtargets",
                             "-p", target_ip, "--discover", NULL };
-    _run_argv(disc, NULL, NULL);                                               
+    if (!_run_argv(disc, NULL, error)) {
+        g_free(iqn);
+        return FALSE;
+    }
 
                                                                    
       

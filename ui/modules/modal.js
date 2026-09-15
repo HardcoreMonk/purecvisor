@@ -268,19 +268,19 @@ window.PCV = window.PCV || {};
                       
                                                                       
                                                              
-                                                    
+
                                                                     
                                             
                                                                                 
-                                            
+
                                       
-                                                                              
+
                                           
       
                    
-                                                    
                                                             
                                                      
+
                                           
                                                               
                                             
@@ -302,7 +302,7 @@ window.PCV = window.PCV || {};
             autocomplete: 'new-password', style: 'width:100%' })),
         mkEl('div', { id: 'pcv-modal-msg', class: 'text-sm', style: 'min-height:18px', role: 'alert', 'aria-live': 'assertive' }),
         mkEl('div', { class: 'text-xs color-muted mt-12', style: 'text-align:center' },
-          _t('changepw.note', '변경 후 다른 디바이스의 모든 세션이 자동 로그아웃됩니다.'))
+          _t('changepw.note', '기존 로그인은 토큰 만료 시 종료됩니다(최대 15분). 이 브라우저는 다시 로그인합니다.'))
       ];
 
       Modal.show({

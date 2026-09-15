@@ -39,6 +39,29 @@
 window.PCV = window.PCV || {};
 (function(PCV) {
 
+
+
+
+function _vmGuestModalCurrent(body) {
+  return !!body && body.isConnected && PCV.modalCore.currentBody() === body;
+}
+
+
+
+function _vmGuestModalOpen(body) {
+  var dialog = body && body.closest('dialog');
+  return !!body && body.isConnected && !!dialog && dialog.open;
+}
+
+function _vmGuestModalTarget(body, kind) {
+  if (!_vmGuestModalCurrent(body)) return null;
+  var source = body._pcvGuestTarget;
+  if (!source || source.kind !== kind) return null;
+  var v = vmList.find(vm => vm && vm.name === source.name && (!source.uuid || vm.uuid === source.uuid));
+  if (!v) toast(_L('VM이 변경되었거나 없어졌습니다. 창을 다시 여세요.', 'VM changed or disappeared. Reopen the dialog.'), false);
+  return v;
+}
+
                          
 function hwCpuPin() {
   var el = PCV.uxlib.el;
@@ -139,10 +162,14 @@ async function showMemStats() {
     mkEl('div', { id: 'mem-stats-body' }, mkEl('span', { class: 'spinner' }), ' ' + t('loading')),
     mkEl('div', { class: 'text-right mt-12' }, mkEl('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
+
+  var body = PCV.modalCore.currentBody();
+  var el = body.querySelector('#mem-stats-body');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.memory.stats', params: { name: v.name } });
+    if (!_vmGuestModalOpen(body)) return;
+    if (r.error) throw new Error(r.error.message || 'Failed');
     var d = unwrapData(r);
-    var el = document.getElementById('mem-stats-body'); if (!el) return;
     var fmtKb = function(kb) {
       if (!kb && kb !== 0) return '-';
       if (kb >= 1048576) return (kb / 1048576).toFixed(2) + ' GB';
@@ -165,10 +192,7 @@ async function showMemStats() {
     PCV.uxlib.clearEl(el);
     el.appendChild(mk('div', { style: 'border:1px solid var(--border);border-radius:6px;padding:12px' }, grid));
   } catch (e) {
-                                                          
-                                           
-    el = document.getElementById('mem-stats-body');
-    if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
+    if (_vmGuestModalOpen(body)) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
@@ -194,10 +218,14 @@ async function showCpuStats() {
     mkEl('div', { id: 'cpu-stats-body' }, mkEl('span', { class: 'spinner' }), ' ' + t('loading')),
     mkEl('div', { class: 'text-right mt-12' }, mkEl('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
+  var body = PCV.modalCore.currentBody();
+  var statsEl = body.querySelector('#cpu-stats-body');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.cpu.stats', params: { name: v.name } });
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
-    var el = document.getElementById('cpu-stats-body'); if (!el) return;
+    var el = statsEl;
+    if (!_vmGuestModalCurrent(body) || !el.isConnected) return;
     var vcpuCount = d.vcpu_count || d.vcpu || v.vcpu || 0;
     var maxVcpu = d.max_vcpu || d.max || vcpuCount;
     var mk = PCV.uxlib.el;
@@ -230,10 +258,8 @@ async function showCpuStats() {
     PCV.uxlib.clearEl(el);
     el.appendChild(PCV.uxlib.frag(parts));
   } catch (e) {
-                                                          
-                                           
-    el = document.getElementById('cpu-stats-body');
-    if (el) PCV.uxlib.setMsg(el, 'err', { tag: 'p' }, 'Failed: ' + e.message);
+    if (_vmGuestModalCurrent(body) && statsEl.isConnected)
+      PCV.uxlib.setMsg(statsEl, 'err', { tag: 'p' }, 'Failed: ' + e.message);
   }
 }
 
@@ -251,6 +277,7 @@ function showDiskLiveResize() {
       ' ',
       el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
   ]);
+  PCV.modalCore.currentBody()._pcvGuestTarget = { kind: 'resize', name: v.name, uuid: v.uuid || null };
 }
 
    
@@ -263,22 +290,31 @@ function showDiskLiveResize() {
   
                
                                                             
-                                                      
-                                       
+
                                                       
                                                      
    
 async function doDiskLiveResize() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var target = (document.getElementById('dlr-target')?.value || 'vda').trim();
-  var size = parseInt(document.getElementById('dlr-size')?.value) || 0;
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'resize'); if (!v) return;
+  var target = (body.querySelector('#dlr-target')?.value || 'vda').trim();
+  var size = parseInt(body.querySelector('#dlr-size')?.value) || 0;
   if (size < 1) { toast('Size must be at least 1 GB', false); return; }
   try {
     var r = await fetchPost(EP.VM_DISK_RESIZE(v.name), { target: target, new_size_gb: size });
     if (r.error) { toast('Resize failed: ' + (r.error.message || ''), false); return; }
-    toast('Disk resized: ' + v.name + ' ' + target + ' -> ' + size + ' GB');
-    addEvt('Disk live resize: ' + v.name + ' ' + target + ' -> ' + size + 'GB');
-    closeModal();
+    var accepted = unwrapData(r) || {};
+    var jobId = accepted.job_id;
+    toast(_L('디스크 확장 접수: ', 'Disk resize accepted: ') + v.name + (jobId ? ' (' + jobId + ')' : ''));
+    addEvt('Disk resize accepted: ' + v.name + ' ' + target + (jobId ? ' job=' + jobId : ''));
+    if (_vmGuestModalCurrent(body)) closeModal();
+    if (jobId) {
+      var job = await PCV.api.waitForJob(jobId);
+      if (job.status === 'completed') {
+        toast('Disk resized: ' + v.name + ' ' + target + ' -> ' + size + ' GB');
+        addEvt('Disk resize completed: ' + v.name + ' job=' + jobId);
+      } else toast(_L('디스크 확장 진행 중: ', 'Disk resize still pending: ') + jobId, false);
+    }
   } catch (e) { toast('Resize error: ' + e.message, false); }
 }
 
@@ -449,8 +485,10 @@ function showGuestAgent() {
       el('div', { id: 'ga-exec-result', style: 'margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:250px;overflow:auto;font-size:11px;font-family:var(--font-mono);white-space:pre-wrap;display:none' })),
     el('div', { class: 'text-right' }, el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
+  var body = PCV.modalCore.currentBody();
+  body._pcvGuestTarget = { kind: 'agent', name: v.name, uuid: v.uuid || null };
   if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
-  setTimeout(gaRefreshStatus, 20);
+  setTimeout(function() { gaRefreshStatus(body); }, 20);
 }
 
 function gaCommand(key) {
@@ -508,10 +546,11 @@ function gaRenderInstallCommands(cmds) {
   return out;
 }
 
-function gaRenderStatus(d) {
+function gaRenderStatus(d, body) {
+  if (!_vmGuestModalCurrent(body)) return;
   var el = PCV.uxlib.el;
-  var statusEl = document.getElementById('ga-status-body');
-  var installEl = document.getElementById('ga-install-body');
+  var statusEl = body.querySelector('#ga-status-body');
+  var installEl = body.querySelector('#ga-install-body');
   if (installEl) { PCV.uxlib.clearEl(installEl); installEl.appendChild(gaRenderInstallCommands(d.install_commands || {})); }
   if (!statusEl) return;
   var grid = el('div', { style: 'display:grid;grid-template-columns:1fr 1fr;gap:8px 16px' },
@@ -526,16 +565,21 @@ function gaRenderStatus(d) {
   statusEl.appendChild(grid);
 }
 
-async function gaRefreshStatus() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var statusEl = document.getElementById('ga-status-body');
+async function gaRefreshStatus(originBody) {
+  var body = originBody || PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
+  var statusEl = body.querySelector('#ga-status-body');
+  var ticket = body._pcvGaStatusRequest = (body._pcvGaStatusRequest || 0) + 1;
   if (statusEl) PCV.uxlib.setMsg(statusEl, 'loading', null, 'Checking...');
   try {
     var r = await fetchGet(EP.VM_GUEST_AGENT(v.name));
+    if (!_vmGuestModalCurrent(body) || body._pcvGaStatusRequest !== ticket) return;
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
-    gaRenderStatus(d || {});
+    gaRenderStatus(d || {}, body);
   } catch (e) {
-    if (statusEl) PCV.uxlib.setMsg(statusEl, 'err', null, e.message);
+    if (_vmGuestModalCurrent(body) && body._pcvGaStatusRequest === ticket && statusEl)
+      PCV.uxlib.setMsg(statusEl, 'err', null, e.message);
   }
 }
 
@@ -554,15 +598,17 @@ async function gaRefreshStatus() {
                                         
    
 async function gaEnsureChannel() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
+  var ticket = body._pcvGaStatusRequest = (body._pcvGaStatusRequest || 0) + 1;
   try {
     var r = await fetchPost(EP.VM_GUEST_AGENT_CHANNEL(v.name), {});
     if (r.error) { toast(r.error.message || 'Channel update failed', false); return; }
     var d = unwrapData(r);
     toast(d.reboot_required ? 'Channel configured. Restart VM to activate it.' : 'Guest agent channel ready.');
     addEvt('Guest agent channel: ' + v.name + ' ' + (d.status || 'updated'));
-    gaRenderStatus(d || {});
-    setTimeout(gaRefreshStatus, 800);
+    if (_vmGuestModalCurrent(body) && body._pcvGaStatusRequest === ticket) gaRenderStatus(d || {}, body);
+    setTimeout(function() { gaRefreshStatus(body); }, 800);
   } catch (e) { toast(e.message, false); }
 }
 
@@ -578,14 +624,17 @@ function gaCopyInstall(key) {
                                                              
                                           
 async function gaPing() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var el = document.getElementById('ga-ping-result');
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
+  var el = body.querySelector('#ga-ping-result');
+  var ticket = body._pcvGaPingRequest = (body._pcvGaPingRequest || 0) + 1;
   if (el) PCV.uxlib.setMsg(el, 'loading', null, 'Pinging...');
   try {
     var r = await fetchPost(EP.VM_GUEST_PING(v.name), {});
+    if (!_vmGuestModalCurrent(body) || body._pcvGaPingRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, '❌ ' + _L('에이전트 응답 없음', 'Agent not responding') + ': ' + (r.error.message || '')); return; }
     if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + _L('게스트 에이전트 정상 응답', 'Guest agent is responding'));
-  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, '❌ ' + e.message); }
+  } catch (e) { if (_vmGuestModalCurrent(body) && body._pcvGaPingRequest === ticket && el) PCV.uxlib.setMsg(el, 'err', null, '❌ ' + e.message); }
 }
 
    
@@ -607,14 +656,16 @@ async function gaPing() {
                             
    
 async function gaShutdown() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
   if (!await customConfirm('Graceful Shutdown', 'Send ACPI shutdown signal via guest agent to ' + v.name + '?')) return;
+  if (!_vmGuestModalTarget(body, 'agent')) return;
   try {
     var r = await fetchPost(EP.VM_GUEST_SHUTDOWN(v.name), {});
     if (r.error) { toast('Shutdown failed: ' + (r.error.message || ''), false); return; }
     toast('Graceful shutdown sent: ' + v.name);
     addEvt('Guest agent shutdown: ' + v.name);
-    closeModal();
+    if (_vmGuestModalCurrent(body)) closeModal();
     setTimeout(loadAll, 3000);
   } catch (e) { toast('Error: ' + e.message, false); }
 }
@@ -640,16 +691,19 @@ async function gaShutdown() {
                                          
    
 async function gaExec() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var cmd = (document.getElementById('ga-cmd')?.value || '').trim();
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
+  var cmd = (body.querySelector('#ga-cmd')?.value || '').trim();
   if (!cmd) { toast('Command required', false); return; }
-  var args = (document.getElementById('ga-args')?.value || '').trim();
-  var el = document.getElementById('ga-exec-result');
+  var args = (body.querySelector('#ga-args')?.value || '').trim();
+  var el = body.querySelector('#ga-exec-result');
+  var ticket = body._pcvGaExecRequest = (body._pcvGaExecRequest || 0) + 1;
   if (el) { el.style.display = 'block'; PCV.uxlib.setMsg(el, 'loading', null, 'Executing...'); }
   try {
     var params = { name: v.name, command: cmd };
     if (args) params.args = args.split(/\s+/);
     var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params);
+    if (!_vmGuestModalCurrent(body) || body._pcvGaExecRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Error: ' + (r.error.message || '')); return; }
     var d = unwrapData(r);
     var mk = PCV.uxlib.el;
@@ -660,7 +714,7 @@ async function gaExec() {
     if (exitCode !== undefined) parts.push(mk('div', { style: 'margin-top:6px;color:var(--fg2)' }, 'Exit code: ' + exitCode));
     if (!parts.length) parts.push(mk('span', { class: 'color-muted' }, 'Command executed (no output)'));
     if (el) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.frag(parts)); }
-  } catch (e) { if (el) PCV.uxlib.setMsg(el, 'err', null, e.message); }
+  } catch (e) { if (_vmGuestModalCurrent(body) && body._pcvGaExecRequest === ticket && el) PCV.uxlib.setMsg(el, 'err', null, e.message); }
 }
 
                                           
@@ -725,7 +779,8 @@ async function vmMigrateDrop(vmName, targetIp, targetName) {
 function showBlkioEditor() {
   var v = vmList[selectedVmIndex]; if (!v) return;
   var el = PCV.uxlib.el;
-  showModal([
+  var body;
+  var dialog = showModal([
     el('h2', null, '💾 ' + (t('vm.blkio_title') || 'Disk I/O Limits') + ': ' + v.name),
     el('p', { class: 'stat-label mb-12' }, t('vm.blkio_desc') || 'Set disk I/O throttle limits. Values in bytes/sec and IOPS. Set 0 for unlimited.'),
     el('div', { class: 'fr' },
@@ -748,27 +803,36 @@ function showBlkioEditor() {
       el('button', { class: 'btn btn-g', onclick: 'blkioSet()' }, '✅ ' + (t('vm.blkio_apply') || 'Apply')),
       ' ',
       el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
-  ]);
+  ], { onClose: function() {
+    if (body) clearTimeout(body._pcvBlkioCloseTimer);
+  } });
+  body = dialog.querySelector('.modal-body');
+  body._pcvGuestTarget = { kind: 'blkio', name: v.name, uuid: v.uuid || null };
 }
 
 async function blkioGet() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var el = document.getElementById('blkio-status');
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'blkio'); if (!v) return;
+  var ticket = body._pcvBlkioRequest = (body._pcvBlkioRequest || 0) + 1;
+  clearTimeout(body._pcvBlkioCloseTimer);
+  var el = body.querySelector('#blkio-status');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, t('loading') || 'Loading...');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.blkio.get', params: { name: v.name } });
+    if (!_vmGuestModalOpen(body) || body._pcvBlkioRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed'); return; }
     var d = unwrapData(r);
-    var rdB = document.getElementById('blkio-rd-bytes');
-    var wrB = document.getElementById('blkio-wr-bytes');
-    var rdI = document.getElementById('blkio-rd-iops');
-    var wrI = document.getElementById('blkio-wr-iops');
+    var rdB = body.querySelector('#blkio-rd-bytes');
+    var wrB = body.querySelector('#blkio-wr-bytes');
+    var rdI = body.querySelector('#blkio-rd-iops');
+    var wrI = body.querySelector('#blkio-wr-iops');
     if (rdB) rdB.value = Math.round((d.read_bytes_sec || 0) / 1048576);
     if (wrB) wrB.value = Math.round((d.write_bytes_sec || 0) / 1048576);
     if (rdI) rdI.value = d.read_iops_sec || 0;
     if (wrI) wrI.value = d.write_iops_sec || 0;
     if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + (t('vm.blkio_loaded') || 'Current limits loaded'));
   } catch (e) {
+    if (!_vmGuestModalOpen(body) || body._pcvBlkioRequest !== ticket) return;
     if (el) PCV.uxlib.setMsg(el, 'err', null, e.message);
   }
 }
@@ -780,6 +844,9 @@ async function blkioGet() {
                                      
                                                                 
                       
+
+
+
   
                
                                                         
@@ -789,12 +856,16 @@ async function blkioGet() {
                                        
    
 async function blkioSet() {
-  var v = vmList[selectedVmIndex]; if (!v) return;
-  var rdMB = parseInt((document.getElementById('blkio-rd-bytes') || {}).value) || 0;
-  var wrMB = parseInt((document.getElementById('blkio-wr-bytes') || {}).value) || 0;
-  var rdIops = parseInt((document.getElementById('blkio-rd-iops') || {}).value) || 0;
-  var wrIops = parseInt((document.getElementById('blkio-wr-iops') || {}).value) || 0;
-  var el = document.getElementById('blkio-status');
+  var body = PCV.modalCore.currentBody();
+  var v = _vmGuestModalTarget(body, 'blkio'); if (!v) return;
+  var dialog = PCV.modalCore.currentDialog();
+  var ticket = body._pcvBlkioRequest = (body._pcvBlkioRequest || 0) + 1;
+  clearTimeout(body._pcvBlkioCloseTimer);
+  var rdMB = parseInt((body.querySelector('#blkio-rd-bytes') || {}).value) || 0;
+  var wrMB = parseInt((body.querySelector('#blkio-wr-bytes') || {}).value) || 0;
+  var rdIops = parseInt((body.querySelector('#blkio-rd-iops') || {}).value) || 0;
+  var wrIops = parseInt((body.querySelector('#blkio-wr-iops') || {}).value) || 0;
+  var el = body.querySelector('#blkio-status');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, t('vm.blkio_applying') || 'Applying...');
   try {
     var r = await fetchPost(EP.VM_RPC(v.name), {
@@ -808,16 +879,20 @@ async function blkioSet() {
       }
     });
     if (r.error) {
-      if (el) PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed');
+      if (_vmGuestModalOpen(body) && body._pcvBlkioRequest === ticket && el)
+        PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed');
       toast((t('vm.blkio_failed') || 'I/O limit failed') + ': ' + (r.error.message || ''), false);
       return;
     }
-    if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + (t('vm.blkio_applied') || 'I/O limits applied'));
     toast((t('vm.blkio_applied') || 'I/O limits applied') + ': ' + v.name);
     addEvt('BlkIO set: ' + v.name + ' R:' + rdMB + 'MB/s W:' + wrMB + 'MB/s');
-    setTimeout(closeModal, 1500);
+    if (!_vmGuestModalOpen(body) || body._pcvBlkioRequest !== ticket) return;
+    if (el) PCV.uxlib.setMsg(el, 'ok', null, '✅ ' + (t('vm.blkio_applied') || 'I/O limits applied'));
+
+    body._pcvBlkioCloseTimer = setTimeout(function() { PCV.modalCore.closeDialog(dialog); }, 1500);
   } catch (e) {
-    if (el) PCV.uxlib.setMsg(el, 'err', null, e.message);
+    if (_vmGuestModalOpen(body) && body._pcvBlkioRequest === ticket && el)
+      PCV.uxlib.setMsg(el, 'err', null, e.message);
     toast(e.message, false);
   }
 }

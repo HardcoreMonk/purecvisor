@@ -57,7 +57,7 @@ function sourceSection(source, startNeedle, endNeedle) {
                                                                            
                                                                    
 const REST_ADMIN_SECTION = sourceSection(
-  REST_RBAC_SOURCE, '/* ── ADMIN-only methods', '/* ── OPERATOR: known operational methods');
+  REST_RBAC_SOURCE, 'if (g_str_has_prefix(method, "auth."))', 'if (g_str_has_prefix(method, "vm.") ||');
 
 function assertRestAdmin(method) {
   assert.match(
@@ -75,11 +75,11 @@ function extractSource(source, startNeedle, endNeedle) {
 }
 
 const ROLE_GUARD_SOURCE = extractSource(
-  NAV_SOURCE, 'function pcvRoleAllows(minRole)', '/* ═══ CONTENT DISPATCH');
+  NAV_SOURCE, 'function pcvRoleAllows(minRole)', 'function renderContent()');
 const LEGACY_N_SHORTCUT_SOURCE = extractSource(
-  APP_SOURCE, '/* ═══ KEYBOARD SHORTCUTS ═══ */', '/* ═══ MOBILE ═══ */');
+  APP_SOURCE, "document.addEventListener('keydown', e => {", 'function handleResize()');
 const REGISTRY_N_SHORTCUT_SOURCE = extractSource(
-  APP_SOURCE, '/* #6 기본 단축키 등록 */', null);
+  APP_SOURCE, "if (typeof registerShortcut === 'function')", null);
 
 async function seedProductGlobals(page, tab) {
   await page.setViewport({ width: 1280, height: 900 });
@@ -247,14 +247,6 @@ test('representative UI mutations remain anchored to explicit backend policy', (
   assertRestAdmin('vm.export.ec2');
 });
 
-                           
-                                                           
-                                                                       
-                                                                
-  
-                       
-                                               
-                                 
 for (const surface of SURFACE_CASES) {
   test(`${surface.name} mutations follow backend VIEWER/OPERATOR/ADMIN visibility`, async () => {
     await withPage(surface.modules, async page => {

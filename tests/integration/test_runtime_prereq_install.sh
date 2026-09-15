@@ -205,18 +205,14 @@ verify_only_access_contract "$HELPER" "verify-no-access" ||
                                                        
 python3 - "$HELPER" "$STATE/verify-root-stat-mutant.sh" <<'PY'
 import pathlib
-import re
 import sys
 
 source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
-pattern = r"(?m)^        if verify_only:\n(?:[ \t]*\n)*            stage_fd = open_stage\(sys\.argv\[2\]\)"
-replacement = """        if verify_only:
-            os.stat(sys.argv[1])
-            stage_fd = open_stage(sys.argv[2])"""
-source, count = re.subn(pattern, replacement, source, count=1)
-if count != 1:
+old = "        if verify_only:\n"
+new = "        if verify_only:\n            os.stat(sys.argv[1])\n"
+if source.count(old) != 1:
     raise SystemExit("cannot construct verify-only root-stat mutant")
-pathlib.Path(sys.argv[2]).write_text(source, encoding="utf-8")
+pathlib.Path(sys.argv[2]).write_text(source.replace(old, new, 1), encoding="utf-8")
 PY
 chmod 0755 "$STATE/verify-root-stat-mutant.sh"
 if verify_only_access_contract \

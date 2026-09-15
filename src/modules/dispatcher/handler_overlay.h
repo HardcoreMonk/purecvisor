@@ -7,9 +7,9 @@
                                                     
                                         
   
-                                                         
-                                                             
-                                              
+
+
+
   
                                                                  
               
@@ -72,26 +72,27 @@
 G_BEGIN_DECLS
 
                                                                    
-                        
+
                                                          
                                                                                
-                                            
-                                                 
+
+
                                                                       
 
-                                                                        
+
 void handle_overlay_create(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                                            
+
+
 void handle_overlay_delete(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                    
+
 void handle_overlay_list(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                                           
+
 void handle_overlay_info(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                                                         
+
 void handle_overlay_add_peer(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
                                                               
@@ -102,7 +103,7 @@ void handle_overlay_remove_peer(JsonObject *params, const gchar *rpc_id, UdsServ
                                                       
                                                                                  
                                                            
-                          
+
                                                                       
 
                                                                                  

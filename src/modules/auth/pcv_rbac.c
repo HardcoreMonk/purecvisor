@@ -608,9 +608,10 @@ _pbkdf2_hex(const gchar *salt, const gchar *password, gint iter)
 {
     guchar dk[32];                                              
                                                                      
-    PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
-                       (const guchar *)salt, (int)strlen(salt),
-                       iter, EVP_sha256(), 32, dk);
+    if (PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
+                         (const guchar *)salt, (int)strlen(salt),
+                         iter, EVP_sha256(), 32, dk) != 1)
+        return NULL;
 
                               
     GString *hex = g_string_sized_new(64 + 1);
@@ -649,10 +650,13 @@ _pbkdf2_parse(const gchar *stored, gint *iter_out, const gchar **hex_out)
     const gchar *colon = strchr(rest, ':');                                   
     if (colon) {
                                                  
-        gchar *iter_str = g_strndup(rest, (gsize)(colon - rest));                       
-        gint64 v = g_ascii_strtoll(iter_str, NULL, 10);                        
-        g_free(iter_str);
-        if (v <= 0) return FALSE;                                  
+
+        if (colon == rest) return FALSE;
+        for (const gchar *it = rest; it < colon; it++)
+            if (!g_ascii_isdigit(*it)) return FALSE;
+        gchar *end = NULL;
+        gint64 v = g_ascii_strtoll(rest, &end, 10);
+        if (end != colon || v <= 0 || v > G_MAXINT) return FALSE;
         *iter_out = (gint)v;
         *hex_out  = colon + 1;                           
     } else {
@@ -689,6 +693,7 @@ _hash_password_pbkdf2(const gchar *salt, const gchar *password)
 {
     gint   iter = _pbkdf2_target_iterations();                                 
     gchar *hex  = _pbkdf2_hex(salt, password, iter);                   
+    if (!hex) return NULL;
     gchar *out  = g_strdup_printf("pbkdf2:%d:%s", iter, hex);                     
     g_free(hex);
     return out;
@@ -716,6 +721,57 @@ static gchar *
 _hash_password(const gchar *salt, const gchar *password)
 {
     return _hash_password_pbkdf2(salt, password);                           
+}
+
+
+
+
+
+
+
+static gboolean
+_password_matches(const gchar *stored, const gchar *salt, const gchar *password,
+                  gboolean *rehash)
+{
+    if (rehash) *rehash = FALSE;
+    if (!stored || !salt || !password) return FALSE;
+    const gchar *hex = stored;
+    gint iter = 0;
+    gboolean pbkdf2 = g_str_has_prefix(stored, "pbkdf2:");
+    if (pbkdf2 && !_pbkdf2_parse(stored, &iter, &hex)) return FALSE;
+
+    if (strlen(hex) != 64) return FALSE;
+    for (guint i = 0; i < 64; i++)
+        if (!g_ascii_isxdigit(hex[i])) return FALSE;
+    gchar *candidate = pbkdf2 ? _pbkdf2_hex(salt, password, iter)
+                              : _hash_password_legacy(salt, password);
+    gboolean match = candidate && CRYPTO_memcmp(hex, candidate, 64) == 0;
+    g_free(candidate);
+    if (match && rehash) *rehash = !pbkdf2 || iter < _pbkdf2_target_iterations();
+    return match;
+}
+
+
+
+
+
+
+static void
+_password_rehash_locked(const gchar *username, const gchar *salt, const gchar *password)
+{
+    gchar *hash = _hash_password_pbkdf2(salt, password);
+    if (!hash) return;
+    sqlite3_stmt *upd = NULL;
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "UPDATE users SET password_hash=? WHERE username=?", -1, &upd, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(upd, 1, hash, -1, SQLITE_STATIC);
+        sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
+        if (sqlite3_step(upd) == SQLITE_DONE)
+            PCV_LOG_INFO(RBAC_LOG_DOM, "Rehashed password to PBKDF2 %d iterations for '%s'",
+                         _pbkdf2_target_iterations(), username);
+    }
+    sqlite3_finalize(upd);
+    g_free(hash);
 }
 
                                                               
@@ -1001,7 +1057,13 @@ _method_min_role(const gchar *method)
         return PCV_ROLE_VIEWER;
     }
 
-                                 
+
+
+
+
+
+
+
     if (g_strcmp0(method, "iso.list") == 0        ||
         g_strcmp0(method, "vm.limit") == 0        ||
         g_strcmp0(method, "ovn.status") == 0      ||
@@ -1011,6 +1073,8 @@ _method_min_role(const gchar *method)
         g_strcmp0(method, "vpc.attachment.list") == 0 ||
         g_strcmp0(method, "vpc.service.list") == 0 ||
         g_strcmp0(method, "vpc.status") == 0      ||
+        g_strcmp0(method, "vm.delete.status") == 0 ||
+        g_strcmp0(method, "vm.guest.agent.status") == 0 ||
         g_strcmp0(method, "vm.import.status") == 0  ||
         g_strcmp0(method, "vm.export.status") == 0  ||
         g_strcmp0(method, "cloud.jobs.list") == 0)
@@ -1093,7 +1157,9 @@ _method_min_role(const gchar *method)
         g_strcmp0(method, "sriov.disable") == 0 ||
         g_strcmp0(method, "sriov.set") == 0 ||
         g_strcmp0(method, "sriov.attach") == 0 ||
-        g_strcmp0(method, "sriov.detach") == 0)
+        g_strcmp0(method, "sriov.detach") == 0 ||
+        g_strcmp0(method, "device.gpu.attach") == 0 ||
+        g_strcmp0(method, "device.gpu.detach") == 0)
     {
         return PCV_ROLE_ADMIN;
     }
@@ -1518,7 +1584,7 @@ static gboolean g_totp_required_roles[3];
                                                          
                                                   
                                                 
-                                                        
+
   
                                                      
                                                   
@@ -1999,13 +2065,13 @@ pcv_rbac_user_set_role(const gchar *username,
                                                     
   
                                                 
-                                                
-                                 
+
+
   
                                                          
                                                              
                                                              
-                                                                
+
    
 gboolean
 pcv_rbac_change_password(const gchar *username,
@@ -2030,64 +2096,88 @@ pcv_rbac_change_password(const gchar *username,
         return FALSE;
     }
 
-                                                            
-                                             
-    GError *verr = nullptr;
-    gchar *t = pcv_rbac_authenticate(username, old_password, &verr);
-    if (!t) {
-        if (verr) g_error_free(verr);                                
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Current password is incorrect");
-        pcv_audit_log(username, "auth.password.change", username,
-                      "fail", 401, 0, NULL);
+
+    _brute_ensure_init();
+    g_mutex_lock(&g_attempts_mu);
+    gboolean locked = _brute_check_locked(username);
+    g_mutex_unlock(&g_attempts_mu);
+    if (locked) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED, "Account locked");
         return FALSE;
     }
-    g_free(t);                             
 
     gchar *salt = _generate_salt();
     gchar *hash = _hash_password(salt, new_password);
-
+    if (!hash) {
+        g_free(salt);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Password hashing failed");
+        return FALSE;
+    }
+    gboolean ok = FALSE, transaction = FALSE, bad_password = FALSE;
+    sqlite3_stmt *stmt = NULL;
     g_mutex_lock(&g_rbac_mutex);
+    if (!g_rbac_db || sqlite3_exec(g_rbac_db, "BEGIN IMMEDIATE", NULL, NULL, NULL) != SQLITE_OK)
+        goto db_failure;
+    transaction = TRUE;
 
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "UPDATE users SET password_hash = ?, salt = ? WHERE username = ?;",
-        -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        g_free(salt); g_free(hash);
-        return FALSE;
+
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "SELECT password_hash, salt FROM users WHERE username=?", -1, &stmt, NULL) != SQLITE_OK ||
+        sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC) != SQLITE_OK)
+        goto db_failure;
+    int rc = sqlite3_step(stmt);
+    if (rc != SQLITE_ROW && rc != SQLITE_DONE) goto db_failure;
+    if (rc == SQLITE_DONE || !_password_matches(
+            (const gchar *)sqlite3_column_text(stmt, 0),
+            (const gchar *)sqlite3_column_text(stmt, 1), old_password, NULL)) {
+        bad_password = TRUE;
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                    "Current password is incorrect");
+        goto done;
     }
+    sqlite3_finalize(stmt); stmt = NULL;
 
-    sqlite3_bind_text(stmt, 1, hash,     -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 2, salt,     -1, SQLITE_STATIC);
-    sqlite3_bind_text(stmt, 3, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    int changes = sqlite3_changes(g_rbac_db);
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "UPDATE users SET password_hash=?, salt=? WHERE username=?", -1, &stmt, NULL) != SQLITE_OK ||
+        sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_STATIC) != SQLITE_OK ||
+        sqlite3_bind_text(stmt, 2, salt, -1, SQLITE_STATIC) != SQLITE_OK ||
+        sqlite3_bind_text(stmt, 3, username, -1, SQLITE_STATIC) != SQLITE_OK ||
+        sqlite3_step(stmt) != SQLITE_DONE || sqlite3_changes(g_rbac_db) != 1)
+        goto db_failure;
+    sqlite3_finalize(stmt); stmt = NULL;
+
+
+    if (sqlite3_prepare_v2(g_rbac_db,
+            "UPDATE sessions SET revoked=1 WHERE username=? AND revoked=0", -1, &stmt, NULL) != SQLITE_OK ||
+        sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC) != SQLITE_OK ||
+        sqlite3_step(stmt) != SQLITE_DONE)
+        goto db_failure;
+    sqlite3_finalize(stmt); stmt = NULL;
+    if (sqlite3_exec(g_rbac_db, "COMMIT", NULL, NULL, NULL) != SQLITE_OK) goto db_failure;
+    transaction = FALSE;
+    ok = TRUE;
+    goto done;
+
+db_failure:
+    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Password change transaction failed: %s",
+                g_rbac_db ? sqlite3_errmsg(g_rbac_db) : "RBAC unavailable");
+done:
     sqlite3_finalize(stmt);
+    if (transaction && sqlite3_exec(g_rbac_db, "ROLLBACK", NULL, NULL, NULL) != SQLITE_OK)
+        PCV_LOG_WARN(RBAC_LOG_DOM, "Password change rollback failed: %s", sqlite3_errmsg(g_rbac_db));
     g_mutex_unlock(&g_rbac_mutex);
+    g_free(salt); g_free(hash);
 
-    g_free(salt);
-    g_free(hash);
-
-    if (rc != SQLITE_DONE || changes == 0) {
-                                                          
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "Failed to update password for '%s'", username);
-        pcv_audit_log(username, "auth.password.change", username,
-                      "fail", 500, 0, NULL);
-        return FALSE;
+    if (ok || bad_password) {
+        g_mutex_lock(&g_attempts_mu);
+        if (ok) _brute_record_success(username);
+        else _brute_record_failure(username);
+        g_mutex_unlock(&g_attempts_mu);
     }
 
-                                                    
-    pcv_rbac_revoke_session(username, NULL);
-
-    PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.password.change", username,
-                  "Password changed (sessions revoked)");
-    pcv_audit_log(username, "auth.password.change", username, "ok", 0, 0, NULL);
-    return TRUE;
+    if (ok) PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.password.change", username,
+                          "Password changed (refresh sessions revoked)");
+    return ok;
 }
 
                                                                  
@@ -2121,6 +2211,8 @@ pcv_rbac_change_password(const gchar *username,
                                                    
                                                               
    
+
+
 
 gchar *
 pcv_rbac_authenticate(const gchar *username,
@@ -2176,85 +2268,10 @@ pcv_rbac_authenticate(const gchar *username,
     const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
     const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
 
-                                   
-                                                 
-                                     
-                                                      
-    gboolean match = FALSE;
-    if (g_str_has_prefix(stored_hash, "pbkdf2:")) {
-                                                   
-                                                         
-        gint         stored_iter = 0;
-        const gchar *stored_hex  = NULL;
-                                                       
-                                                        
-        if (_pbkdf2_parse(stored_hash, &stored_iter, &stored_hex) &&
-            strlen(stored_hex) >= 64) {
-            gchar *cand_hex = _pbkdf2_hex(stored_salt, password, stored_iter);                   
-                                                           
-            match = (CRYPTO_memcmp(stored_hex, cand_hex, 64) == 0);
-            g_free(cand_hex);
-        }
-
-                                                       
-                                                              
-        if (match && stored_iter < _pbkdf2_target_iterations()) {
-            gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
-            if (new_hash) {
-                sqlite3_stmt *upd = nullptr;
-                if (sqlite3_prepare_v2(g_rbac_db,
-                        "UPDATE users SET password_hash=? WHERE username=?",
-                        -1, &upd, NULL) == SQLITE_OK) {
-                    sqlite3_bind_text(upd, 1, new_hash, -1, SQLITE_STATIC);
-                    sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
-                    if (sqlite3_step(upd) == SQLITE_DONE) {
-                        PCV_LOG_INFO(RBAC_LOG_DOM,
-                            "Rehashed password to PBKDF2 %d iterations for user '%s'",
-                            _pbkdf2_target_iterations(), username);
-                    }
-                    sqlite3_finalize(upd);
-                }
-                g_free(new_hash);
-            }
-        }
-    } else {
-                                           
-                                                    
-        gchar *legacy_hash = _hash_password_legacy(stored_salt, password);
-        match = (strlen(stored_hash) >= 64) &&
-                (CRYPTO_memcmp(stored_hash, legacy_hash, 64) == 0);                
-        g_free(legacy_hash);
-
-                                                               
-        if (match) {
-            PCV_LOG_INFO(RBAC_LOG_DOM,
-                "Legacy SHA256 hash accepted for '%s' — will auto-migrate",
-                username);
-        }
-
-                                            
-                                                        
-                                            
-        if (match) {
-            gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
-            if (new_hash) {
-                sqlite3_stmt *upd = nullptr;                                    
-                if (sqlite3_prepare_v2(g_rbac_db,
-                        "UPDATE users SET password_hash=? WHERE username=?",
-                        -1, &upd, NULL) == SQLITE_OK) {
-                    sqlite3_bind_text(upd, 1, new_hash, -1, SQLITE_STATIC);
-                    sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
-                    if (sqlite3_step(upd) == SQLITE_DONE) {
-                        PCV_LOG_INFO(RBAC_LOG_DOM,
-                                     "Migrated password hash to PBKDF2 for user '%s'", username);
-                    }
-                    sqlite3_finalize(upd);
-                }
-                g_free(new_hash);
-                                                          
-            }
-        }
-    }
+    gboolean rehash = FALSE;
+    gboolean match = _password_matches(stored_hash, stored_salt, password, &rehash);
+    if (match && rehash)
+        _password_rehash_locked(username, stored_salt, password);
 
     sqlite3_finalize(stmt);                                               
     g_mutex_unlock(&g_rbac_mutex);
@@ -2460,47 +2477,10 @@ pcv_rbac_password_check(const gchar *username,
     const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
     const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
 
-                                    
-                                                                    
-                                                                     
-                                                               
-                                                                    
-                                                           
-                                                                    
-    gboolean match = FALSE;
-    if (g_str_has_prefix(stored_hash, "pbkdf2:")) {
-        gchar *pbkdf2_hash = _hash_password_pbkdf2(stored_salt, password);                   
-        const gchar *stored_hex = stored_hash + 7;                               
-        const gchar *computed_hex = pbkdf2_hash + 7;
-        match = (strlen(stored_hex) >= 64) &&
-                (CRYPTO_memcmp(stored_hex, computed_hex, 64) == 0);                    
-        g_free(pbkdf2_hash);
-    } else {
-        gchar *legacy_hash = _hash_password_legacy(stored_salt, password);
-        match = (strlen(stored_hash) >= 64) &&
-                (CRYPTO_memcmp(stored_hash, legacy_hash, 64) == 0);
-        g_free(legacy_hash);
-
-                                              
-        if (match) {
-            gchar *new_hash = _hash_password_pbkdf2(stored_salt, password);
-            if (new_hash) {
-                sqlite3_stmt *upd = nullptr;
-                if (sqlite3_prepare_v2(g_rbac_db,
-                        "UPDATE users SET password_hash=? WHERE username=?",
-                        -1, &upd, NULL) == SQLITE_OK) {
-                    sqlite3_bind_text(upd, 1, new_hash, -1, SQLITE_STATIC);
-                    sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
-                    if (sqlite3_step(upd) == SQLITE_DONE) {
-                        PCV_LOG_INFO(RBAC_LOG_DOM,
-                                     "Migrated password hash to PBKDF2 for user '%s'", username);
-                    }
-                    sqlite3_finalize(upd);
-                }
-                g_free(new_hash);
-            }
-        }
-    }
+    gboolean rehash = FALSE;
+    gboolean match = _password_matches(stored_hash, stored_salt, password, &rehash);
+    if (match && rehash)
+        _password_rehash_locked(username, stored_salt, password);
 
     sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);
@@ -2660,6 +2640,8 @@ pcv_rbac_issue_tokens(const gchar *username,
                                                                    
                                                           
    
+
+
 gchar *
 pcv_rbac_authenticate_v2(const gchar *username,
                          const gchar *password,

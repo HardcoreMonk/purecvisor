@@ -165,15 +165,18 @@ function buildSidebar() {
                                                        
   wrap.addEventListener('keydown', function (e) {
     if (e.key !== 'ArrowDown' && e.key !== 'ArrowUp') return;
-    var items = Array.prototype.filter.call(
-      wrap.querySelectorAll('.shell-navitem'),
-      function (n) { return n.style.display !== 'none'; });
+    var allItems = Array.prototype.slice.call(wrap.querySelectorAll('.shell-navitem'));
+
+
+    var items = allItems.filter(function (n) {
+      return n.getClientRects().length > 0 && getComputedStyle(n).visibility === 'visible';
+    });
     var idx = items.indexOf(document.activeElement);
     if (idx === -1) return;
     e.preventDefault();
     var n = items.length, d = e.key === 'ArrowDown' ? 1 : -1;
     var next = items[((idx + d) % n + n) % n];
-    items.forEach(function (m) { m.setAttribute('tabindex', m === next ? '0' : '-1'); });
+    allItems.forEach(function (m) { m.setAttribute('tabindex', m === next ? '0' : '-1'); });
     next.focus();
   });
   var first = wrap.querySelector('.shell-navitem');

@@ -27,6 +27,7 @@
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
+#include "modules/virt/snapshot_compat.h"
 
                                                               
 
@@ -126,6 +127,20 @@ build_zfs_dataset_path(const gchar *pool,
                         const gchar *snap_name)
 {
     return g_strdup_printf("%s/%s@%s", pool, vm_name, snap_name);
+}
+
+
+static void test_snapshot_invtsc_offline_contract(void) {
+    g_assert_true(pcv_snapshot_xml_requires_invtsc_offline(
+        "<domain><cpu><feature policy='require' name='invtsc'/></cpu></domain>"));
+    g_assert_true(pcv_snapshot_xml_requires_invtsc_offline(
+        "<domain><cpu><feature name=\"invtsc\" policy=\"require\"/></cpu></domain>"));
+    g_assert_false(pcv_snapshot_xml_requires_invtsc_offline(
+        "<domain><cpu><feature policy='optional' name='invtsc'/></cpu></domain>"));
+    g_assert_false(pcv_snapshot_xml_requires_invtsc_offline(
+        "<domain><description>feature policy='require' name='invtsc'</description></domain>"));
+    g_assert_false(pcv_snapshot_xml_requires_invtsc_offline("<domain>"));
+    g_assert_false(pcv_snapshot_xml_requires_invtsc_offline(NULL));
 }
 
                                                                  
@@ -371,6 +386,8 @@ static void test_zfs_token_boundary_129(void) {
                                                                     
 
 void test_snapshot_rollback_register(void) {
+    g_test_add_func("/snapshot/create/invtsc_offline_contract",
+                    test_snapshot_invtsc_offline_contract);
                     
     g_test_add_func("/snapshot/rollback/missing_vm_name",
                     test_rollback_missing_vm_name);

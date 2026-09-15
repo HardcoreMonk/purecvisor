@@ -88,6 +88,16 @@ def test_missing_health_wiring_fails():
     assert _run_with_source(3, mutated) == 1
 
 
+def test_historical_break_promoted_to_critical_fails():
+    source = gate.REST_TARGET.read_text()
+    mutated = source.replace(
+        "return PCV_REST_AUDIT_HEALTH_INFORMATIONAL;",
+        "return PCV_REST_AUDIT_HEALTH_CRITICAL;",
+    )
+    assert mutated != source
+    assert _run_with_source(3, mutated) == 1
+
+
 def test_missing_metric_wiring_fails():
     source = gate.TELEMETRY_TARGET.read_text()
     mutated = source.replace("purecvisor_audit_chain_ok", "removed_chain_metric")

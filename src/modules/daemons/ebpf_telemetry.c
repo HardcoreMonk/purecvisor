@@ -277,7 +277,7 @@ typedef struct {
    
 static struct {
     GThread      *thread;                                                
-    gboolean      running;                                      
+    gint          running;
     VmExtMetrics  vms[EBPF_MAX_VMS];                                     
     gint          vm_count;                                   
     HostMetrics   host;                                                
@@ -1528,7 +1528,7 @@ _ebpf_thread(gpointer data)
     (void)data;
     PCV_LOG_INFO(EBPF_LOG_DOM, "eBPF telemetry thread started (interval=%ds)", EBPF_INTERVAL_SEC);
 
-    while (G.running) {
+    while (g_atomic_int_get(&G.running)) {
                                   
         HostMetrics h = {0};
         _collect_host_cpu(&h);
@@ -1831,7 +1831,10 @@ _ebpf_thread(gpointer data)
         pcv_bpf_metrics_tick();
 
                                                                   
-        g_usleep(EBPF_INTERVAL_SEC * G_USEC_PER_SEC);
+
+        for (guint i = 0; i < EBPF_INTERVAL_SEC * 20U &&
+             g_atomic_int_get(&G.running); i++)
+            g_usleep(50000);
     }
 
     PCV_LOG_INFO(EBPF_LOG_DOM, "eBPF telemetry thread stopped");
@@ -1852,7 +1855,7 @@ void
 pcv_ebpf_telemetry_init(void)
 {
     g_mutex_init(&G.mu);
-    G.running = TRUE;
+    g_atomic_int_set(&G.running, TRUE);
     G.initialized = TRUE;
     G.thread = g_thread_new("ebpf-telem", _ebpf_thread, NULL);
     PCV_LOG_INFO(EBPF_LOG_DOM, "eBPF telemetry initialized");
@@ -1873,15 +1876,25 @@ pcv_ebpf_telemetry_init(void)
   
                                           
    
+
+
+
 void
-pcv_ebpf_telemetry_shutdown(void)
+pcv_ebpf_telemetry_quiesce(void)
 {
     if (!G.initialized) return;
-    G.running = FALSE;
+    g_atomic_int_set(&G.running, FALSE);
     if (G.thread) {
         g_thread_join(G.thread);
         G.thread = NULL;
     }
+}
+
+void
+pcv_ebpf_telemetry_shutdown(void)
+{
+    if (!G.initialized) return;
+    pcv_ebpf_telemetry_quiesce();
     g_mutex_clear(&G.mu);
     G.initialized = FALSE;
 }
@@ -2027,18 +2040,12 @@ pcv_ebpf_telemetry_get_host(void)
     return obj;
 }
 
-   
-                                                  
   
-                                                             
-  
-                                                                         
+
                                                            
-                      
-  
-                                          
-                                                             
-                                                   
+
+
+
    
 static JsonObject *
 _vm_to_json(const VmExtMetrics *vm)
@@ -2060,21 +2067,6 @@ _vm_to_json(const VmExtMetrics *vm)
     return obj;
 }
 
-   
-                                     
-  
-                                                                   
-  
-                                                        
-                                                      
-  
-                                            
-                                                              
-                                                                 
-  
-                                                
-                            
-   
 JsonObject *
 pcv_ebpf_telemetry_get_vm(const gchar *vm_name)
 {

@@ -76,7 +76,7 @@ window.PCV = window.PCV || {};
                                                                   
   function _pageHead(title, subtitle) {
     var el = PCV.uxlib.el;
-    return el('header', { class: 'm-pagehead' },
+    return el('div', { class: 'm-pagehead' },
       el('h1', { class: 'm-page-title' }, title),
       el('p', { class: 'm-page-subtitle' }, subtitle));
   }
@@ -176,6 +176,7 @@ window.PCV = window.PCV || {};
                                                                
                                                                
   function unmount() {
+    if (_deleteSelection) _deleteSelection.clear();
     document.body.classList.remove('mshell');
     var scr = document.getElementById(SCREEN_ID);
     if (scr) scr.remove();
@@ -371,10 +372,23 @@ window.PCV = window.PCV || {};
       silenceBtn,
       el('div', { class: 'mscreen-section-title' }, _t('보안', 'Security')), suriCard);
   }
+
+  var _deleteSelection = new Map();
   function buildPower(d) {
     var el = PCV.uxlib.el;
     d = d || { vms: [], containers: [] };
     var vms = d.vms || [], ctrs = d.containers || [];
+    _deleteSelection.forEach(function(subject, name) {
+      if (!vms.some(function(v) { return v.name === name && v.uuid === subject.uuid; })) _deleteSelection.delete(name);
+    });
+    var bulkDelete = el('button', { class: 'btn btn-r m-vm-bulk-delete', type: 'button',
+      style: 'min-height:40px', 'data-role': 'OPERATOR,ADMIN',
+      onClick: function() { PCV.vm.bulkDelete(Array.from(_deleteSelection.values())); } });
+    function updateDeleteCount() {
+      bulkDelete.disabled = !_deleteSelection.size;
+      bulkDelete.textContent = _t('일괄 삭제', 'Bulk delete') + ' (' + _deleteSelection.size + ')';
+    }
+    updateDeleteCount();
 
                                                                           
                                                                  
@@ -395,7 +409,16 @@ window.PCV = window.PCV || {};
         actions = el('div', { class: 'm-actions' },
           pbtn(_t('시작', 'Start'), 'btn-g', function () { _vmPowerAction(v.name, 'start'); }));
       }
+      var subject = { name: v.name, uuid: v.uuid || '' };
+      actions.appendChild(pbtn(_t('VM 삭제', 'Delete VM'), 'btn-r m-vm-delete', function() { PCV.vm.vmDel(subject); }));
       var row = el('div', { class: 'm-vm m-listcard' },
+        el('label', { class: 'm-vm-select', 'data-role': 'OPERATOR,ADMIN' },
+          el('input', { type: 'checkbox', checked: _deleteSelection.has(v.name) ? '' : null,
+            'aria-label': _t('선택: ', 'Select ') + v.name,
+            onChange: function(e) {
+              if (e.target.checked) _deleteSelection.set(v.name, subject); else _deleteSelection.delete(v.name);
+              updateDeleteCount();
+            } })),
         HN.statusDot(st, st === 'ok' ? { glow: true } : null),
         el('span', { class: 'm-name' }, v.name),
         HN.statusPill(st, v.state || '?'),
@@ -425,7 +448,9 @@ window.PCV = window.PCV || {};
     return el('div', { class: 'mscreen-body' },
       _pageHead(_t('전원 관리', 'Power controls'),
         'VM ' + vms.length + ' · ' + _t('컨테이너 ', 'Containers ') + ctrs.length),
-      el('div', { class: 'mscreen-section-title' }, 'VM'), vmSection,
+      el('div', { class: 'mscreen-section-title' }, 'VM'),
+      el('div', { 'data-role': 'OPERATOR,ADMIN' }, bulkDelete,
+        el('p', { class: 'm-hint' }, _t('체크박스로 삭제할 VM을 선택하세요.', 'Select VMs to delete using the checkboxes.'))), vmSection,
       el('div', { class: 'mscreen-section-title' }, _t('컨테이너', 'Containers')), ctrSection);
   }
   function buildHealing(state) {
@@ -559,10 +584,9 @@ window.PCV = window.PCV || {};
      
                                                   
     
-                                                                   
-                                                     
+
                                                     
-                                     
+
     
                     
                                                     
@@ -570,17 +594,16 @@ window.PCV = window.PCV || {};
                                                         
      
   async function _vmPowerAction(name, action) {
-                                                                       
     var vms = (PCV.state && PCV.state.vmList) || window.vmList || [];
     var idx = -1;
     for (var i = 0; i < vms.length; i++) { if (vms[i].name === name) { idx = i; break; } }
     if (idx < 0) { toast(_t('VM 목록 동기화 필요', 'VM list out of sync'), false); return; }
+    var target = { name: vms[idx].name, uuid: vms[idx].uuid || null };
     if (action === 'stop') {
       var ok = await customConfirm(_t('VM 정지', 'Stop VM'), name + ' — ' + _t('정지하시겠습니까?', 'Stop this VM?'));
       if (!ok) return;
     }
-    window.selectedVmIndex = idx;
-    if (typeof window.vmPower === 'function') window.vmPower(action);
+    if (typeof window.vmPower === 'function') window.vmPower(action, target);
   }
                                                         
                                                   

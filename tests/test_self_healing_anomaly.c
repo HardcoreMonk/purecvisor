@@ -1,8 +1,9 @@
                                                                                      
                                                                                        
                                                                                     
+
                                                                         
-                                      
+
                                     
   
                  
@@ -66,6 +67,19 @@ extern gboolean pcv_healing_should_trigger_agent_now(void);
 #define HAMMER_THREADS 3
 #define HAMMER_ITERS   30000
 
+
+
+
+
+
+static gint64 test_monotonic_us = -1;
+
+gint64
+pcv_test_healing_monotonic_time(void)
+{
+    return test_monotonic_us >= 0 ? test_monotonic_us : g_get_monotonic_time();
+}
+
                                                 
                                                               
                                                               
@@ -73,6 +87,8 @@ extern gboolean pcv_healing_should_trigger_agent_now(void);
 static void
 _ensure_init(void)
 {
+
+    g_assert_cmpint(test_monotonic_us, ==, -1);
     static gboolean done = FALSE;
     if (!done) {
         pcv_healing_init();                                                   
@@ -201,26 +217,68 @@ test_restart_policy_cooldown_is_per_target(void)
 }
 
                                                   
-                                                                                  
-                                                               
+
+
+
+
+
 static void
 test_hostwide_cooldown_stays_policy_scoped(void)
 {
     _ensure_init();
+    g_assert_true(pcv_healing_get_mode());
 
-    const gchar *const TARGET_KEY = "\"target\":\"cpu-overload\"";
-
+    const gchar *const CPU_KEY = "\"target\":\"cpu-overload\"";
+    const gchar *const MEM_KEY = "\"target\":\"mem-pressure\"";
+    const gchar *const DRY_RUN_KEY = "\"result\":\"dry_run\"";
     gchar *before = pcv_healing_get_history_json();
-    gint n0 = _count_occurrences(before, TARGET_KEY);
+    gint cpu_before = _count_occurrences(before, CPU_KEY);
+    gint mem_before = _count_occurrences(before, MEM_KEY);
+    gint dry_run_before = _count_occurrences(before, DRY_RUN_KEY);
     g_free(before);
+    gchar *pending_before = pcv_healing_get_pending_json();
 
-    pcv_healing_on_anomaly("purecvisor_host_cpu_percent", 95.0, 4.0, 3.0, NULL);
-                                                     
-    pcv_healing_on_anomaly("purecvisor_host_cpu_percent", 96.0, 4.1, 3.0, NULL);
+    const gint64 cooldown_us = 600 * G_USEC_PER_SEC;
+    const struct {
+        gint64 now_us;
+        const gchar *metric;
+        gint cpu_added;
+        gint mem_added;
+    } steps[] = {
+        {0, "purecvisor_host_cpu_percent", 1, 0},
+        {0, "purecvisor_host_cpu_percent", 1, 0},
+        {1, "purecvisor_host_memory_percent", 1, 1},
+        {1, "purecvisor_host_memory_percent", 1, 1},
+        {cooldown_us - 1, "purecvisor_host_cpu_percent", 1, 1},
+        {cooldown_us, "purecvisor_host_cpu_percent", 2, 1},
+        {cooldown_us, "purecvisor_host_cpu_percent", 2, 1},
+        {cooldown_us, "purecvisor_host_memory_percent", 2, 1},
+        {cooldown_us + 1, "purecvisor_host_memory_percent", 2, 2},
+        {cooldown_us + 1, "purecvisor_host_memory_percent", 2, 2},
+    };
 
-    gchar *after = pcv_healing_get_history_json();
-    g_assert_cmpint(_count_occurrences(after, TARGET_KEY), ==, n0 + 1);
-    g_free(after);
+    for (guint i = 0; i < G_N_ELEMENTS(steps); i++) {
+        test_monotonic_us = steps[i].now_us;
+        g_test_message("step=%u monotonic_us=%" G_GINT64_FORMAT " metric=%s",
+                       i, steps[i].now_us, steps[i].metric);
+        pcv_healing_on_anomaly(steps[i].metric, 95.0, 4.0, 3.0, NULL);
+
+        gchar *after = pcv_healing_get_history_json();
+        g_assert_cmpint(_count_occurrences(after, CPU_KEY), ==,
+                        cpu_before + steps[i].cpu_added);
+        g_assert_cmpint(_count_occurrences(after, MEM_KEY), ==,
+                        mem_before + steps[i].mem_added);
+        g_assert_cmpint(_count_occurrences(after, DRY_RUN_KEY), ==,
+                        dry_run_before + steps[i].cpu_added + steps[i].mem_added);
+        g_free(after);
+    }
+    test_monotonic_us = -1;
+
+    gchar *pending_after = pcv_healing_get_pending_json();
+    g_assert_cmpstr(pending_after, ==, pending_before);
+    g_free(pending_after);
+    g_free(pending_before);
+    g_assert_true(pcv_healing_get_mode());
 }
 
 void

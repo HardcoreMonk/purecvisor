@@ -81,6 +81,7 @@
                                                    
    
 
+#include "api/drain.h"
 #include "cloud_migration.h"
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_log.h"
@@ -1074,7 +1075,7 @@ pcv_cloud_import_ec2(const PcvCloudImportParams *params, GError **error)
     g_mutex_unlock(&g_jobs_mu);
 
                                                                          
-    GTask *task = g_task_new(NULL, cancel, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, cancel, NULL, NULL);
     g_task_set_task_data(task, d, _import_data_free);
     g_task_run_in_thread(task, _import_worker);
     g_object_unref(task);                                        
@@ -1138,7 +1139,7 @@ pcv_cloud_export_ec2(const PcvCloudExportParams *params, GError **error)
     g_hash_table_replace(g_cancellables, g_strdup(params->name), g_object_ref(cancel));
     g_mutex_unlock(&g_jobs_mu);
 
-    GTask *task = g_task_new(NULL, cancel, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, cancel, NULL, NULL);
     g_task_set_task_data(task, d, _export_data_free);
     g_task_run_in_thread(task, _export_worker);
     g_object_unref(task);
@@ -1653,7 +1654,7 @@ pcv_cloud_finalize_import(const gchar *name, GError **error)
     g_hash_table_replace(g_cancellables, g_strdup(name), g_object_ref(cancel));
     g_mutex_unlock(&g_jobs_mu);
 
-    GTask *task = g_task_new(NULL, cancel, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, cancel, NULL, NULL);
     g_task_set_task_data(task, d, _finalize_data_free);
     g_task_run_in_thread(task, _finalize_worker);
     g_object_unref(task);

@@ -152,6 +152,13 @@ var EP = (function() {
 
                          
     HEALTH:               function()     { return B() + '/health'; },
+
+
+    HEALTH_RECENT_ERRORS: function(n, limit) {
+      var parsed = Number(limit);
+      var safeLimit = Number.isInteger(parsed) && parsed >= 1 && parsed <= 100 ? parsed : 3;
+      return B() + '/health/recent-errors?vm=' + enc(n) + '&limit=' + safeLimit;
+    },
     ALERTS:               function()     { return B() + '/alerts'; },
     ALERTS_CONFIG:        function()     { return B() + '/alerts/config'; },
     METRICS:              function()     { return B() + '/metrics'; },

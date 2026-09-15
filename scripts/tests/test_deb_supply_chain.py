@@ -20,6 +20,7 @@
                                               
                              
                                          
+
                                                               
 
                                                  
@@ -32,6 +33,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from check_deb_supply_chain import (              
     ROOT, BUILD_REL, REQUIRED_FLOOR_COMPONENTS, REQUIRED_UI_ASSETS,
+    REQUIRED_RUNTIME_RECOMMENDS,
     check, control_body, func_body,
 )
 
@@ -44,9 +46,12 @@ FLOOR_ASSIGN = '[ -n "$mm" ] && floor=" (>= $mm)"'
 MD5_LINE = '( cd "$STAGE" && find usr etc -type f -exec md5sum {} \\; > DEBIAN/md5sums )'
 BUILD_LINE = 'fakeroot dpkg-deb --build --root-owner-group "$STAGE" "$OUT" >/dev/null'
 VENDOR_LINE = '[ -d ui/vendor ]  && cp -a ui/vendor  "$STAGE/usr/local/share/purecvisor/ui/"'
-ASSET_LOOP = 'for f in index.html style.css app.bundle.js sw.js i18n.js manifest.json; do'
+ASSET_LOOP = ('for f in index.html style.css app.bundle.js sw.js i18n.js manifest.json '
+              'offline.html maintenance.html maintenance-status.json; do')
 FLOOR_LIBS_LINE = ('SECURITY_FLOOR_LIBS="libssl3 libssl3t64 libsoup-3.0-0 '
                    'libsqlite3-0 libglib2.0-0 libglib2.0-0t64"')
+RECOMMENDS_LINE = ('Recommends: openvswitch-switch, ovn-central, ovn-host, zfsutils-linux, '
+                   'cloud-image-utils, apparmor-utils')
 
 
 def _run(build_text: str):
@@ -193,8 +198,16 @@ def test_asset_verification_loop_removed_fails():
 def test_bundle_dropped_from_asset_check_fails():
     rc, out = _run(_mutate(
         _src(), ASSET_LOOP,
-        "for f in index.html style.css sw.js i18n.js manifest.json; do"))
+        "for f in index.html style.css sw.js i18n.js manifest.json "
+        "offline.html maintenance.html maintenance-status.json; do"))
     assert rc == 1 and "불변식8" in out and "app.bundle.js" in out, out
+
+
+def test_openvswitch_runtime_recommend_removed_fails():
+    rc, out = _run(_mutate(
+        _src(), RECOMMENDS_LINE,
+        "Recommends: ovn-central, ovn-host, zfsutils-linux, cloud-image-utils, apparmor-utils"))
+    assert rc == 1 and "불변식9" in out and "openvswitch-switch" in out, out
 
 
                                                          
@@ -224,6 +237,12 @@ def test_control_body_extracts_metadata():
     ctrl = control_body(_src())
     assert "Package:" in ctrl and "Depends:" in ctrl, ctrl[:200]
     assert "md5sums" not in ctrl, "control heredoc 밖 내용을 삼켰다"
+
+
+def test_runtime_recommend_constant_matches_control():
+    ctrl = control_body(_src())
+    assert REQUIRED_RUNTIME_RECOMMENDS == {"openvswitch-switch"}
+    assert RECOMMENDS_LINE in ctrl
 
 
 def test_gate_constants_match_real_script():

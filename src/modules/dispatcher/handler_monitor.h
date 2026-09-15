@@ -30,7 +30,8 @@
   
        
                                                                     
-                                                   
+
+
    
 
 #ifndef PURECVISOR_HANDLER_MONITOR_H
@@ -65,10 +66,10 @@ gchar *pcv_monitor_fleet_build_success_response(const gchar *rpc_id,
                                                 JsonObject *host_obj);
 
    
-                                                          
-                                                 
-                                                              
-                                                                     
+
+
+
+
    
 gchar *handle_monitor_fleet(JsonObject *params, const gchar *rpc_id,
                             GError **error);

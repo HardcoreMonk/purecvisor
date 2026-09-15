@@ -108,16 +108,16 @@ static const guint64 PCV_DAEMON_EFFECTIVE_MASK =
     PCV_CAP_BIT(CAP_NET_ADMIN) |
     PCV_CAP_BIT(CAP_SYS_ADMIN);
 
-                                                                  
-                                                             
-                                            
+
+
+
+
 static const guint64 PCV_SPAWN_CEILING_MASK =
     ((PCV_CAP_BIT(CAP_LAST_CAP + 1) - 1) &
      ~PCV_CAP_BIT(CAP_SYS_MODULE) &
      ~PCV_CAP_BIT(CAP_SYS_RAWIO) &
      ~PCV_CAP_BIT(CAP_SYS_TIME) &
-     ~PCV_CAP_BIT(CAP_MAC_OVERRIDE) &
-     ~PCV_CAP_BIT(CAP_MAC_ADMIN));
+     ~PCV_CAP_BIT(CAP_MAC_OVERRIDE));
 
 G_STATIC_ASSERT(CAP_LAST_CAP < PCV_CAP_SCAN_MAX);
 
@@ -274,9 +274,16 @@ pcv_privdrop_child_setup(gpointer user_data)
         _exit(126);
 
     guint64 desired = pcv_privdrop_child_profile_mask(profile);
+
+
+
+
+    guint64 inherited = desired;
+    if (profile == PCV_CHILD_CAP_RUNTIME)
+        inherited &= ~PCV_CAP_BIT(CAP_MAC_ADMIN);
     guint64 setup = desired | PCV_CAP_BIT(CAP_SETPCAP);
 
-    if (_raw_capset(setup, setup, desired) != 0)
+    if (_raw_capset(setup, setup, inherited) != 0)
         _exit(126);
 
     for (int c = 0; c <= PCV_CAP_SCAN_MAX; c++) {
@@ -293,12 +300,12 @@ pcv_privdrop_child_setup(gpointer user_data)
                 SECBIT_NOROOT | SECBIT_NOROOT_LOCKED, 0, 0, 0) != 0)
         _exit(126);
 
-    if (_raw_capset(desired, desired, desired) != 0)
+    if (_raw_capset(desired, desired, inherited) != 0)
         _exit(126);
     if (syscall(SYS_prctl, PR_CAP_AMBIENT, PR_CAP_AMBIENT_CLEAR_ALL, 0, 0, 0) != 0)
         _exit(126);
     for (int c = 0; c <= CAP_LAST_CAP; c++) {
-        if ((desired & PCV_CAP_BIT(c)) &&
+        if ((inherited & PCV_CAP_BIT(c)) &&
             syscall(SYS_prctl, PR_CAP_AMBIENT, PR_CAP_AMBIENT_RAISE, c, 0, 0) != 0)
             _exit(126);
     }
@@ -308,8 +315,8 @@ pcv_privdrop_child_setup(gpointer user_data)
                                                        
   
                                                      
+
                                                         
-                                     
                                                                      
                                                    
   

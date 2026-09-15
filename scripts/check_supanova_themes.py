@@ -82,6 +82,11 @@ def main() -> int:
         "light theme color-scheme override is removed",
         re.search(r"color-scheme:\s*light", style_css) is None,
     )
+    require(
+        "mockup OPS readable secondary color is scoped to the OPS grid",
+        re.search(r'\[data-theme="supanova-mockup"\]\s+\.ops-triage-grid\s*'
+                  r'\{\s*--fg2:\s*#94a0b4\s*;', style_css) is not None,
+    )
 
     print("[PASS] Supanova theme static contract is present")
     return 0

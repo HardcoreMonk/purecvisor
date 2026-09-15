@@ -458,8 +458,8 @@ async function renderSnapshots(b, v) {
    
                                                     
   
-                                                            
-                                                          
+
+
                                                                       
   
                                                      
@@ -500,6 +500,7 @@ async function takeSnap() {
       mk('button', { class: 'btn', onclick: 'closeModal()' }, 'Cancel'),
       mk('button', { class: 'btn btn-g', id: 'snap-create-btn', onclick: 'snapCreateExec()' }, '📷 Create Snapshot'))
   ]);
+  PCV.modalCore.currentBody()._pcvSnapshotSource = { name: v.name, uuid: v.uuid || null };
   setTimeout(() => { const el = document.getElementById('snap-name-input'); if (el) { el.focus(); el.select(); } }, 100);
 }
 
@@ -520,7 +521,8 @@ function snapNameValidate() {
     else PCV.uxlib.setMsg(err, 'ok', null, '✅ Valid');
   }
   if (btn) btn.disabled = !valid || !n;
-  const v = vmList[selectedVmIndex];
+  const body = PCV.modalCore.currentBody();
+  const v = body && body._pcvSnapshotSource;
   if (preview && v) {
     var mk = PCV.uxlib.el;
     PCV.uxlib.clearEl(preview);
@@ -547,8 +549,10 @@ function snapNameValidate() {
                                                            
    
 async function snapCreateExec() {
-  const v = vmList[selectedVmIndex];
-  if (!v) return;
+  const body = PCV.modalCore.currentBody();
+  const source = body && body._pcvSnapshotSource;
+  const v = source && vmList.find(item => item.name === source.name && (!source.uuid || item.uuid === source.uuid));
+  if (!v) { toast(_L('원본 VM이 변경되었습니다. 다시 선택하십시오.', 'Source VM changed. Select it again.'), false); return; }
   const n = (document.getElementById('snap-name-input')?.value || '').trim();
   if (!n || !/^[a-zA-Z0-9_-]{1,128}$/.test(n)) { toast('Invalid snapshot name', false); return; }
   const btn = document.getElementById('snap-create-btn');
@@ -810,10 +814,8 @@ function sdaPreview() {
                                                       
                                                        
   
-                                                              
-                                                            
-                                                                 
-                                  
+
+
    
 async function sdaExec(vm) {
   const prefix = (document.getElementById('sda-prefix')?.value || '').trim();
@@ -832,7 +834,9 @@ async function sdaExec(vm) {
     closeModal();
     if (PCV.ui.navGen() === _navGen) renderSnapshots(PCV.ui.renderTarget(), vmList[selectedVmIndex]);
   } catch (e) { toast('Error: ' + e.message, false); }
-  if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '🗑 Done'); }
+  finally {
+    if (btn) { btn.disabled = false; PCV.uxlib.setMsg(btn, null, null, '🗑 Done'); }
+  }
 }
 
                          
@@ -886,8 +890,9 @@ async function renderPerformance(b, v) {
   var header = el('div', { class: 'justify-between items-center mb-12' },
     el('h3', null, t('tab.performance') + ': ' + v.name),
     el('div', { class: 'flex gap-6' },
-      el('button', { class: 'tb ' + (perfLayout === 'auto' ? '' : 'btn'), onclick: "perfLayout='auto';renderPerformance(PCV.ui.renderTarget(),vmList[selectedVmIndex])" }, '▦ Auto'),
-      el('button', { class: 'tb ' + (perfLayout === 'manual' ? '' : 'btn'), onclick: "perfLayout='manual';renderPerformance(PCV.ui.renderTarget(),vmList[selectedVmIndex])" }, '☰ Stack')));
+
+      el('button', { class: 'tb ' + (perfLayout === 'auto' ? '' : 'btn'), onClick: function() { perfLayout = 'auto'; renderPerformance(b, v); } }, '▦ Auto'),
+      el('button', { class: 'tb ' + (perfLayout === 'manual' ? '' : 'btn'), onClick: function() { perfLayout = 'manual'; renderPerformance(b, v); } }, '☰ Stack')));
   var perfGrid = el('div', { class: gridCls },
     HN.card('CPU Usage (60s) — ' + cpuPct.toFixed(1) + '%', [
       _vmcProgressBar(cpuPct),

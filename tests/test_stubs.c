@@ -39,12 +39,13 @@
 #include "api/uds_server.h"
 #include "modules/audit/pcv_audit_chain.h"
 #include "modules/daemons/telemetry.h"
+#include "bootstrap/pcv_single_edge_runtime.h"
 
                    
                                             
                                  
-void pcv_cluster_sync_vm_xml(const gchar *name __attribute__((unused)),
-                              const gchar *xml __attribute__((unused))) { }
+
+void pcv_cluster_sync_vm_xml(const gchar *name __attribute__((unused))) { }
 void pcv_cluster_remove_vm_xml(const gchar *name __attribute__((unused))) { }
 void pcv_cluster_notify_config_reload(void) { }
 gboolean pcv_cluster_check_zvol_fence(void) { return TRUE; }
@@ -254,7 +255,7 @@ virDomainPtr pure_virt_get_domain(virConnectPtr conn __attribute__((unused)),
                                              
                                                                
                                
-typedef struct PcvEtcdClient PcvEtcdClient;
+
 PcvEtcdClient *pcv_cluster_get_etcd(void) { return NULL; }
 gboolean pcv_etcd_acquire_inflight_lock(PcvEtcdClient *c __attribute__((unused)),
     const gchar *p __attribute__((unused)),

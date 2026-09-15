@@ -45,8 +45,9 @@
                                     
                                                          
                               
-                                                      
-                                      
+
+
+
   
                  
                                                                 
@@ -89,7 +90,7 @@ void handle_network_delete_request  (JsonObject *params, const gchar *rpc_id, Ud
                                                                        
 void handle_network_list_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                                              
+
 void handle_network_host_info_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
 
@@ -118,10 +119,10 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id, Ud
 gboolean network_bridge_create(const gchar *bridge_name, const gchar *cidr, gint mtu, GError **error);
 
    
+
                                                                       
-                                            
-                                                       
-                                                              
+
+
    
 JsonObject *pcv_network_host_baseline_parse_ip(const gchar *address_json,
                                                const gchar *route_json,
@@ -290,12 +291,14 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
           
                                               
                                                       
-                                                   
+
+
   
              
                                           
                                                         
-                                        
+
+
   
            
                                             

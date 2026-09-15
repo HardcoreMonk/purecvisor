@@ -191,6 +191,23 @@ typedef struct {
     GPtrArray  *members;
 } Tenant;
 
+
+
+typedef struct {
+    gchar     *tenant;
+    GPtrArray *members;
+} TenantMeshSnapshot;
+
+static void
+_tenant_mesh_snapshot_free(gpointer data)
+{
+    TenantMeshSnapshot *snapshot = data;
+    if (!snapshot) return;
+    g_free(snapshot->tenant);
+    g_ptr_array_unref(snapshot->members);
+    g_free(snapshot);
+}
+
                                                                
 
 static GHashTable *g_tenant_map = NULL;                        
@@ -1467,6 +1484,112 @@ pcv_tenant_overlay_sweep_orphan_endpoints(guint *fail_out)
     g_hash_table_unref(owned);
     if (fail_out) *fail_out = failed;
     return swept;
+}
+
+
+
+
+
+
+
+
+
+
+gboolean
+pcv_tenant_overlay_reconcile_mesh(GError **error)
+{
+    g_mutex_lock(&g_tenant_mesh_mu);
+
+    GPtrArray *snapshots = g_ptr_array_new_with_free_func(_tenant_mesh_snapshot_free);
+    g_mutex_lock(&g_tenant_mu);
+    _ensure_init();
+    GHashTableIter it;
+    gpointer key, val;
+    g_hash_table_iter_init(&it, g_tenant_map);
+    while (g_hash_table_iter_next(&it, &key, &val)) {
+        Tenant *t = val;
+        if (t->members->len == 0) continue;
+
+        TenantMeshSnapshot *snapshot = g_new0(TenantMeshSnapshot, 1);
+        snapshot->tenant = g_strdup(t->name);
+        snapshot->members = g_ptr_array_new_with_free_func(_member_free);
+        for (guint i = 0; i < t->members->len; i++) {
+            TenantMember *src = g_ptr_array_index(t->members, i);
+            TenantMember *copy = g_new0(TenantMember, 1);
+            copy->vm = g_strdup(src->vm);
+            copy->overlay_ip = g_strdup(src->overlay_ip);
+            copy->pubkey = g_strdup(src->pubkey);
+            copy->ep_name = g_strdup(src->ep_name);
+            copy->transport_ip = g_strdup(src->transport_ip);
+            copy->slot = src->slot;
+            g_ptr_array_add(snapshot->members, copy);
+        }
+        g_ptr_array_add(snapshots, snapshot);
+    }
+    g_mutex_unlock(&g_tenant_mu);
+
+    GError *lerr = NULL;
+    GPtrArray *netns = pcv_tenant_overlay_wg_list_netns(&lerr);
+    if (!netns) {
+        g_ptr_array_unref(snapshots);
+        g_mutex_unlock(&g_tenant_mesh_mu);
+        g_propagate_error(error, lerr);
+        return FALSE;
+    }
+
+    GHashTable *present = g_hash_table_new(g_str_hash, g_str_equal);
+    for (guint i = 0; i < netns->len; i++)
+        g_hash_table_add(present, g_ptr_array_index(netns, i));
+
+
+    for (guint i = 0; i < snapshots->len; i++) {
+        TenantMeshSnapshot *snapshot = g_ptr_array_index(snapshots, i);
+        for (guint j = 0; j < snapshot->members->len; j++) {
+            TenantMember *member = g_ptr_array_index(snapshot->members, j);
+            if (g_hash_table_contains(present, member->ep_name)) continue;
+            g_set_error(error, g_quark_from_static_string("tenant_overlay"),
+                        PCV_TOVL_ERR_NOT_FOUND,
+                        "테넌트 '%s' VM '%s' endpoint '%s'가 없어 mesh를 복구할 수 없습니다",
+                        snapshot->tenant, member->vm, member->ep_name);
+            g_hash_table_unref(present);
+            g_ptr_array_unref(netns);
+            g_ptr_array_unref(snapshots);
+            g_mutex_unlock(&g_tenant_mesh_mu);
+            return FALSE;
+        }
+    }
+    g_hash_table_unref(present);
+    g_ptr_array_unref(netns);
+
+
+    for (guint i = 0; i < snapshots->len; i++) {
+        TenantMeshSnapshot *snapshot = g_ptr_array_index(snapshots, i);
+        for (guint j = 0; j < snapshot->members->len; j++) {
+            TenantMember *self = g_ptr_array_index(snapshot->members, j);
+            for (guint k = 0; k < snapshot->members->len; k++) {
+                if (j == k) continue;
+                TenantMember *peer = g_ptr_array_index(snapshot->members, k);
+                gchar *endpoint = g_strdup_printf("%s:%u", peer->transport_ip,
+                                                  PCV_TOVL_WG_PORT);
+                gboolean ok = pcv_tenant_overlay_wg_peer_add(
+                    self->ep_name, peer->pubkey, peer->overlay_ip, endpoint, &lerr);
+                g_free(endpoint);
+                if (!ok) {
+                    g_prefix_error(&lerr,
+                                   "테넌트 '%s' VM '%s' -> '%s' mesh 복구 실패: ",
+                                   snapshot->tenant, self->vm, peer->vm);
+                    g_ptr_array_unref(snapshots);
+                    g_mutex_unlock(&g_tenant_mesh_mu);
+                    g_propagate_error(error, lerr);
+                    return FALSE;
+                }
+            }
+        }
+    }
+
+    g_ptr_array_unref(snapshots);
+    g_mutex_unlock(&g_tenant_mesh_mu);
+    return TRUE;
 }
 
    

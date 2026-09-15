@@ -37,6 +37,12 @@ NODE_DB_GUARD_RE = re.compile(
 VALIDATE_GUARD_RE = re.compile(
     r"if\s*\(\s*!\s*pcv_iscsi_chap_validate\s*\(", re.S
 )
+DISCOVERY_NEW_RE = re.compile(
+    r'"discoverydb".*?"-o"\s*,\s*"new"', re.S
+)
+DISCOVERY_HARD_FAIL_RE = re.compile(
+    r'if\s*\(\s*!\s*_run_argv\s*\(\s*disc\s*,\s*NULL\s*,\s*error\s*\)\s*\)', re.S
+)
 
 
 def strip_comments(text: str) -> str:
@@ -100,6 +106,10 @@ def scan_text(text: str) -> list[str]:
         failures.append("pcv_iscsi_chap_validate fail-closed guard 없음")
     if '"discoverydb"' not in code or '"--discover"' not in code:
         failures.append("영속 node record를 만드는 discoverydb --discover argv 없음")
+    if not DISCOVERY_NEW_RE.search(code):
+        failures.append("신규 initiator용 discoverydb -o new argv 없음")
+    if not DISCOVERY_HARD_FAIL_RE.search(code):
+        failures.append("discoverydb --discover 실패를 login 전에 거부하는 guard 없음")
     if '"--op=update"' in code or '"--op"' in code and '"update"' in code:
         failures.append("initiator manager에 iscsiadm node update argv가 다시 생김")
     if '"node.session.auth.password"' in code:
@@ -121,7 +131,7 @@ def main(argv: list[str] | None = None) -> int:
             print(f"FAIL {failure}")
         print(f"[check-iscsi-chap-argv] FAIL: {len(failures)}건")
         return 1
-    print("[check-iscsi-chap-argv] PASS: node DB fail-closed + CHAP argv 0건")
+    print("[check-iscsi-chap-argv] PASS: discovery/node DB fail-closed + CHAP argv 0건")
     return 0
 
 

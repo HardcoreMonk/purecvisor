@@ -38,12 +38,10 @@
 #define SHARED_LOG_DOM "shared-bridge"
 #define PCV_BPF_PIN_BASE "/sys/fs/bpf/purecvisor"
 
-static gchar g_shared_sha[65];
-static gboolean g_shared_prepared;
-
-#ifdef HAVE_LIBBPF
 static GMutex g_shared_bpf_mu;
 static gchar *g_shared_pin_dir;
+static gchar g_shared_sha[65];
+static gboolean g_shared_prepared;
 
 static const gchar *const g_program_names[] = {
     "pcv_phys_ing",
@@ -56,7 +54,6 @@ static const gchar *const g_map_names[] = {
     "pcv_sh_guests",
     "pcv_sh_stats",
 };
-#endif
 
   
                                                                         

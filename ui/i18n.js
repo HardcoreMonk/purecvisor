@@ -70,7 +70,7 @@ var I18N = {
       'changepw.old_ph': '현재 비밀번호',
       'changepw.new_ph': '새 비밀번호 (8자 이상)',
       'changepw.new2_ph': '새 비밀번호 확인',
-      'changepw.note': '변경 후 다른 디바이스의 모든 세션이 자동 로그아웃됩니다.',
+      'changepw.note': '기존 로그인은 토큰 만료 시 종료됩니다(최대 15분). 이 브라우저는 다시 로그인합니다.',
       'changepw.ok': '변경 완료. 3초 후 다시 로그인합니다.',
       'changepw.err_old': '현재 비밀번호를 입력하세요',
       'changepw.err_short': '새 비밀번호는 8자 이상',
@@ -81,6 +81,9 @@ var I18N = {
       'msg.processing': '처리 중...',
       'msg.network_err': '네트워크 오류',
       'monitor.cluster_timeline': '리소스 흐름 (최근 5분)',
+      'monitor.system_health': '시스템 상태',
+      'monitor.health_desc': '페이지를 열 때 각 하위 시스템의 상세 상태를 조회합니다.',
+      'monitor.uptime': '가동 시간',
 
                    
       'nav.vm_library': 'VM 자산',
@@ -495,7 +498,7 @@ var I18N = {
       'changepw.old_ph': 'Current password',
       'changepw.new_ph': 'New password (8+ chars)',
       'changepw.new2_ph': 'Confirm new password',
-      'changepw.note': 'Session will be invalidated after change. Re-login required.',
+      'changepw.note': 'Existing logins expire with their access tokens (up to 15 minutes). Sign in again in this browser.',
       'changepw.ok': 'Password changed. Please log in again.',
       'changepw.err_old': 'Current password is incorrect',
       'changepw.err_short': 'New password must be at least 8 characters',
@@ -506,6 +509,9 @@ var I18N = {
       'msg.processing': 'Processing...',
       'msg.network_err': 'Network error',
       'monitor.cluster_timeline': 'Resource Flow (last 5 min)',
+      'monitor.system_health': 'System Health',
+      'monitor.health_desc': 'Check detailed subsystem health each time this page opens.',
+      'monitor.uptime': 'Uptime',
 
       'nav.vm_library': 'VM Inventory',
       'nav.infrastructure': 'Infrastructure',

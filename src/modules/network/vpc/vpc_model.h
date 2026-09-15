@@ -36,13 +36,20 @@ typedef enum {
 } PcvVpcError;
 
 #define PCV_VPC_ERROR pcv_vpc_error_quark()
+
+
 GQuark pcv_vpc_error_quark(void);
+
+
 
 gboolean pcv_vpc_name_is_valid(const gchar *name);
 gboolean pcv_vpc_egress_mode_is_valid(const gchar *mode);
 gboolean pcv_vpc_backend_is_valid(const gchar *backend);
 gboolean pcv_vpc_protocol_is_valid(const gchar *protocol);
 gboolean pcv_vpc_port_is_valid(gint port);
+
+
+
 
 gboolean pcv_vpc_cidr_parse(const gchar *text,
                             PcvVpcIpv4Cidr *out,
@@ -52,6 +59,9 @@ gboolean pcv_vpc_subnet_cidr_parse(const gchar *text,
                                    PcvVpcIpv4Cidr *out,
                                    gchar **canonical_out,
                                    GError **error);
+
+
+
 gboolean pcv_vpc_cidr_overlaps(const PcvVpcIpv4Cidr *a,
                                const PcvVpcIpv4Cidr *b);
 gboolean pcv_vpc_cidr_contains_ip(const PcvVpcIpv4Cidr *cidr,
@@ -59,6 +69,9 @@ gboolean pcv_vpc_cidr_contains_ip(const PcvVpcIpv4Cidr *cidr,
 gboolean pcv_vpc_cidr_usable_range(const PcvVpcIpv4Cidr *cidr,
                                    guint32 *first_out,
                                    guint32 *last_out);
+
+
+
 gboolean pcv_vpc_sources_cover_all_ipv4(GPtrArray *sources);
 gchar *pcv_vpc_ipv4_to_string(guint32 host_order_ip);
 

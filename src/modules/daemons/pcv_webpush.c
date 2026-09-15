@@ -30,6 +30,7 @@
                                                       
                          
    
+#include "api/drain.h"
 #include "modules/daemons/pcv_webpush.h"
 #include "modules/daemons/pcv_webpush_crypto.h"
 #include "modules/audit/pcv_audit.h"
@@ -948,7 +949,7 @@ _dispatch_locked(GPtrArray *subs, gchar *payload, gsize payload_len,
                             
     G.inflight++;
 
-    GTask *task = g_task_new(NULL, b->cancel, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, b->cancel, NULL, NULL);
     g_task_set_task_data(task, b, _batch_free);
     g_task_run_in_thread(task, _batch_worker);
     g_object_unref(task);
@@ -1210,7 +1211,7 @@ pcv_webpush_set_policy(gboolean enabled, gboolean crit_only, const gchar *contac
 }
 
                                                                 
-                                                           
+
                    
 void
 pcv_webpush_set_post_hook(PcvWebpushPostFn fn)

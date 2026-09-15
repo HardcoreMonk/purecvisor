@@ -9,7 +9,7 @@
   
       
                                                                                    
-                                                      
+
                                                      
                                                                  
   
@@ -61,7 +61,7 @@ test('HN.pagehead: title+desc+actions 전체 경로 구조', async () => {
       document.getElementById('cb').appendChild(node);
       const root = document.querySelector('#cb > .pagehead');
       const copy = root.querySelector(':scope > .pagehead-copy');
-      const title = copy.querySelector(':scope > h2.pagehead-title');
+      const title = copy.querySelector(':scope > h1.pagehead-title');
       const desc = copy.querySelector(':scope > p.pagehead-desc');
       const actions = root.querySelector(':scope > .pagehead-actions');
       return {
@@ -76,11 +76,11 @@ test('HN.pagehead: title+desc+actions 전체 경로 구조', async () => {
     });
     assert.equal(shape.tag, 'DIV');
     assert.deepEqual(shape.childOrder, ['pagehead-copy', 'pagehead-actions']);
-    assert.equal(shape.titleTag, 'H2');
+    assert.equal(shape.titleTag, 'H1');
     assert.equal(shape.titleText, '가상 머신');
     assert.equal(shape.descText, '노드의 VM 자산과 전원 상태를 관리합니다.');
     assert.deepEqual(shape.actionLabels, ['+ 새 VM', '스냅샷']);
-    assert.equal(shape.h1Count, 0, 'pagehead는 h1을 만들지 않는다');
+    assert.equal(shape.h1Count, 1, '현재 라우트 제목은 정확히 하나의 h1이어야 한다');
   });
 });
 
@@ -94,7 +94,7 @@ test('HN.pagehead: desc/actions 생략 시 해당 노드 자체가 없다', asyn
         childOrder: Array.from(root.children).map(c => c.className),
         hasDesc: root.querySelector('.pagehead-desc') !== null,
         hasActions: root.querySelector('.pagehead-actions') !== null,
-        titleText: root.querySelector('h2.pagehead-title').textContent
+        titleText: root.querySelector('h1.pagehead-title').textContent
       };
     });
     assert.deepEqual(shape.childOrder, ['pagehead-copy']);

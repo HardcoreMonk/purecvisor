@@ -48,6 +48,10 @@
                                                                    
                                                                   
 
+
+
+
+
      
                                                                         
                                                                         
@@ -85,7 +89,15 @@ REQUIRED_FLOOR_COMPONENTS = {
     "sqlite": ("libsqlite3-0", "libsqlite3-0t64"),
     "glib": ("libglib2.0-0", "libglib2.0-0t64"),
 }
-REQUIRED_UI_ASSETS = ("index.html", "app.bundle.js", "sw.js")
+REQUIRED_UI_ASSETS = (
+    "index.html",
+    "app.bundle.js",
+    "sw.js",
+    "offline.html",
+    "maintenance.html",
+    "maintenance-status.json",
+)
+REQUIRED_RUNTIME_RECOMMENDS = {"openvswitch-switch"}
 
 
 def func_body(code: str, name: str) -> str:
@@ -217,6 +229,28 @@ def check(raw: str) -> tuple[list[str], dict]:
             bad.append(f"[불변식8] 필수 자산 검증 목록에서 빠짐: {', '.join(missing)}")
         info["verified_assets"] = sorted(listed)
 
+
+
+
+
+
+    if ctrl:
+        m_recommends = re.search(r"^Recommends:\s*(?P<val>.*)$", ctrl, re.M)
+        if not m_recommends:
+            bad.append("[불변식9] DEBIAN/control 에 Recommends 행이 없다 — "
+                       "선택형 OVS overlay 런타임이 설치되지 않는다")
+        else:
+            recommended = {
+                item.strip().split()[0]
+                for item in m_recommends.group("val").split(",")
+                if item.strip()
+            }
+            missing_runtime = sorted(REQUIRED_RUNTIME_RECOMMENDS - recommended)
+            if missing_runtime:
+                bad.append("[불변식9] Recommends 에 선택형 overlay 런타임이 빠졌다: "
+                           + ", ".join(missing_runtime))
+            info["runtime_recommends"] = sorted(recommended)
+
     return bad, info
 
 
@@ -242,11 +276,11 @@ def main(argv=None) -> int:
         for b in bad:
             print(f"  - {b}", file=sys.stderr)
         print("       근거: OWASP Top 10:2025 A03 — "
-              "docs/DEVELOPMENT_VERIFICATION_POLICY.md", file=sys.stderr)
+              "docs/PUBLIC_SOURCE_POLICY.md", file=sys.stderr)
         return 1
 
     print("\033[32m[PASS]\033[0m deb 공급망: 의존 버전 하한 + control 배선 + md5sums 전수 + "
-          "--root-owner-group + vendor 핀 전이 + 필수 자산 검증")
+          "--root-owner-group + vendor 핀 전이 + 필수 자산 검증 + OVS runtime 권장")
     return 0
 
 

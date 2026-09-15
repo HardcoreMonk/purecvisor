@@ -56,6 +56,12 @@
 
 ## 4. Level 1: 로컬 코드 검증
 
+### 4.0 Single Edge UI 표면 계약
+
+`make check-single-ui-surface`는 현재 이벤트 조회 카드, 경보·감사 조회 및 명령 버튼의
+연결을 검사하고 임시 사본의 연결 삭제 회귀를 실행한다. `make check-all`과 `make dev-check`에
+포함되며 별도 실행을 빠뜨려도 같은 계약을 검증한다. 공개판은 소스맵 파일·링크, manifest 항목과 번들 참조의 부재를 검사한다.
+
 ### 4.1 필수 대상
 
 - 신규 함수 추가
@@ -443,14 +449,14 @@ make check-container-owner-scope
 
 ### 4.19 런타임 전제 배포 게이트
 
-`scripts/install-runtime-prereqs.sh`, `scripts/deploy.sh`, 런타임 인증 자산 또는
-BPF 배포 계약을 바꾸면 Level 1에 다음 검증을 포함한다.
+`scripts/install-runtime-prereqs.sh`, `scripts/check-deploy-abi.sh`, `scripts/deploy.sh`,
+런타임 인증 자산 또는 BPF 배포 계약을 바꾸면 Level 1에 다음 검증을 포함한다.
 
 ```bash
 make check-runtime-prereqs
 ```
 
-두 integration test는 임시 디렉터리에 fixture BPF 자산을 합성하므로 BPF를
+helper unit과 integration test는 임시 디렉터리에 loader·BPF fixture를 합성하므로 BPF를
 다시 빌드하거나 실제 호스트에 배포하지 않는다. 실제 배포 경로에서는 이와 별도로
 현재 `build/bpf/` 자산을 preflight하고, 원격 접속 전에 helper의 `--verify-only`
 검증을 실행한다. 게이트는 다음 계약을 함께 확인한다.
@@ -463,6 +469,8 @@ make check-runtime-prereqs
   않는다. 검증 실패는 SSH/SCP와 로컬 `sudo` 실행 전에 배포를 중단한다.
 - 원격 staging은 mode `0700`으로 만들고, 성공·실패·중단 모든 경로에서
   helper와 BPF 자산을 정리한다. helper 실패 뒤에는 서비스를 시작하지 않는다.
+- 원격 daemon·CLI는 대상 호스트의 `ldd`로 모두 검사하고 dependency `not found`, loader
+  실패와 success marker 오염을 service stop 전에 차단한다. 실패 artifact는 정리한다.
 
 `make check-all`은 이 bounded fixture 검증을 `check-runtime-prereqs` 게이트로
 실행한다(서수는 적지 않는다 — 게이트가 늘 때마다 어긋난다. 정본은 Makefile 의

@@ -421,10 +421,10 @@ test_ssrf_guard(void)
     static const gchar *blocked[] = {
         "http://push.example.com/x",                        
         "https://127.0.0.1/x",                         
-        "https://192.168.254.1/x",                                  
+        "https://192.168.200.1/x",
         "https://10.0.0.5/x",                              
         "https://169.254.169.254/latest",                           
-        "https://[::ffff:192.168.254.1]/x",                    
+        "https://[::ffff:192.168.200.1]/x",
         "https://[::1]/x",                                  
         "https://[fd00::1]/x",                              
         "https://100.64.0.1/x",                          

@@ -49,29 +49,6 @@ SAFE_PREFIX = ('render', 'build')
                                             
 IDENT_RE = re.compile(r'\b([A-Za-z_][A-Za-z0-9_]*)\b')
 
-def expression_prefix(text):
-    quote = None
-    escaped = False
-    depth = 0
-    for idx, ch in enumerate(text):
-        if quote:
-            if escaped:
-                escaped = False
-            elif ch == '\\':
-                escaped = True
-            elif ch == quote:
-                quote = None
-            continue
-        if ch in ("'", '"', '`'):
-            quote = ch
-        elif ch in '([{':
-            depth += 1
-        elif ch in ')]}':
-            depth = max(0, depth - 1)
-        elif ch == ';' and depth == 0:
-            return text[:idx + 1]
-    return text
-
 def is_safe_call(name):
     if name in SAFE_CALLS:
         return True
@@ -88,7 +65,7 @@ def extract_rhs(lines, start):
         if not started:
             m = re.search(r'(innerHTML|outerHTML)\s*[+]?=\s*(.*)', ln)
             if m:
-                ln = expression_prefix(m.group(2))
+                ln = m.group(2)
                 started = True
         if not started:
             continue

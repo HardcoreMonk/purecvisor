@@ -124,8 +124,8 @@
                                                         
                                                                     
                                                             
-                                                           
-                                                        
+
+
    
 
 window.PCV = window.PCV || {};
@@ -138,6 +138,26 @@ window.PCV = window.PCV || {};
                                                        
                                        
 var _lastVmListHash = '';
+
+
+
+var _checkedVmSubjects = new Map();
+function getCheckedVmSubjects() {
+  if (!checkedVms.size) _checkedVmSubjects.clear();
+  if (!_checkedVmSubjects.size) {
+    checkedVms.forEach(function(i) {
+      var v = vmList[i];
+      if (v) _checkedVmSubjects.set(v.name, { name: v.name, uuid: v.uuid || '' });
+    });
+  }
+  checkedVms.clear();
+  _checkedVmSubjects.forEach(function(subject, name) {
+    var index = vmList.findIndex(function(v) { return v.name === name && (v.uuid || '') === subject.uuid; });
+    if (index < 0) _checkedVmSubjects.delete(name);
+    else checkedVms.add(index);
+  });
+  return Array.from(_checkedVmSubjects.values()).map(function(v) { return { name: v.name, uuid: v.uuid }; });
+}
 var vmViewMode = localStorage.getItem('pcv-vm-view') || 'list';
                                                                 
                                                   
@@ -189,7 +209,15 @@ function render(skipContent) {
 }
 function _renderCore(skipContent) {
   if (!document.getElementById('vl')) return;                               
-  var newHash = vmList.map(function(v){return v.name+v.state+(v.live_cpu_pct||0);}).join('|');
+  var selected = getCheckedVmSubjects();
+  var bulkDelete = document.getElementById('vm-bulk-delete');
+  if (bulkDelete) {
+    bulkDelete.disabled = selected.length === 0;
+    bulkDelete.textContent = _L('일괄 삭제', 'Bulk delete') + ' (' + selected.length + ')';
+  }
+  var stopSelected = document.getElementById('bbtn');
+  if (stopSelected) stopSelected.style.display = selected.length ? 'inline' : 'none';
+  var newHash = vmList.map(function(v){return v.name+v.uuid+v.state+(v.live_cpu_pct||0);}).join('|') + ':' + Array.from(checkedVms).join(',');
   if (skipContent && newHash === _lastVmListHash) return;
   _lastVmListHash = newHash;
   const l = getFiltered();
@@ -230,6 +258,11 @@ function _renderCore(skipContent) {
       var mp = v.mem_percent || 0;
       cardGrid.appendChild(el('div', { class: 'hc', draggable: 'true', ondragstart: "event.dataTransfer.setData('text/plain','" + v.name + "')", style: 'cursor:grab;border-left:3px solid ' + (on ? 'var(--st-ok)' : 'var(--st-idle)'), onclick: 'selectedVmIndex=' + vmList.indexOf(v) + ";window.navigateTo('summary')" },
         el('div', { class: 'flex items-center gap-6 mb-6' },
+          el('input', { type: 'checkbox', checked: checkedVms.has(vmList.indexOf(v)) ? '' : null,
+            'aria-label': _L('선택: ', 'Select ') + v.name,
+            onClick: function(e) { e.stopPropagation(); toggleChk(vmList.findIndex(function(current) {
+              return current.name === v.name && current.uuid === v.uuid;
+            })); } }),
           HN.statusDot(on ? 'ok' : 'idle', { glow: on }),
           el('b', null, v.name)),
         el('div', { class: 'flex gap-8 text-11' },
@@ -260,7 +293,10 @@ function _renderCore(skipContent) {
       const c = cp > 85 ? 'var(--red)' : cp > 60 ? 'var(--yellow)' : 'var(--green)';
       const star = favs.includes(v.name) ? '★' : '☆';
       parts.push(el('div', { class: 'vi ' + (ri === selectedVmIndex ? 'active' : ''), onclick: 'selectedVmIndex=' + ri + ";window.navigateTo(localStorage.getItem('pcv-last-vm-tab')||'summary')", oncontextmenu: 'showCtx(event,' + ri + ')' },
-        el('input', { type: 'checkbox', checked: checkedVms.has(ri) ? '' : null, 'aria-label': 'Select ' + v.name, onclick: 'event.stopPropagation();toggleChk(' + ri + ')' }),
+        el('input', { type: 'checkbox', checked: checkedVms.has(ri) ? '' : null, 'aria-label': 'Select ' + v.name,
+          onClick: function(e) { e.stopPropagation(); toggleChk(vmList.findIndex(function(current) {
+            return current.name === v.name && current.uuid === v.uuid;
+          })); } }),
         el('span', { class: 'fav-star', onclick: "event.stopPropagation();toggleFavorite('" + escapeAttr(v.name) + "')", title: 'Favorite' }, star),
         HN.statusDot(on ? 'ok' : 'idle', { glow: on }),
         el('span', { class: 'nm' }, v.name),
@@ -295,16 +331,17 @@ function _renderCore(skipContent) {
   }, 50);
   document.getElementById('vc').textContent = vmList.length;
   document.getElementById('bbtn').style.display = checkedVms.size > 0 ? 'inline' : 'none';
+  if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
 }
 
-                                
-                                                                    
-                                                                
-                                                        
-                                                                   
-                                                         
+
+
 function toggleChk(i) {
-  checkedVms.has(i) ? checkedVms.delete(i) : checkedVms.add(i);
+  getCheckedVmSubjects();
+  var v = vmList[i];
+  if (!v) return;
+  if (_checkedVmSubjects.has(v.name)) { _checkedVmSubjects.delete(v.name); checkedVms.delete(i); }
+  else { _checkedVmSubjects.set(v.name, { name: v.name, uuid: v.uuid || '' }); checkedVms.add(i); }
   render();
 }
 
@@ -388,6 +425,7 @@ function showCtx(e, i) {
   selectedVmIndex = i;
   const m = document.getElementById('ctx');
   const ri = i;
+  const deleteSubject = vmList[i] && { name: vmList[i].name, uuid: vmList[i].uuid };
                                                               
                                                        
                                                        
@@ -417,7 +455,7 @@ function showCtx(e, i) {
     ci('📋 Clone', function() { window.vmClone(ri); }, 'OPERATOR,ADMIN'),
     ci('📦 Export OVA', function() { window.vmExportOva(ri); }, 'ADMIN'),
     sep(),
-    ci('❌ ' + t('btn.delete'), function() { window.vmDel(); }, 'OPERATOR,ADMIN')
+    ci('❌ ' + t('btn.delete'), function() { if (deleteSubject) PCV.vm.vmDel(deleteSubject); }, 'OPERATOR,ADMIN')
   ));
   if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   m.style.display = 'block';
@@ -700,7 +738,13 @@ function renderVmScreen(b, v, tab) {
         el('span', { class: 'sb-sort', onclick: "setSort('mem')", role: 'button', tabindex: '0' }, 'MEM'),
         el('span', { class: 'sb-sort', onclick: "setSort('state')", role: 'button', tabindex: '0' }, _L('상태', 'State')))),
     el('div', { class: 'vm-list', id: 'vl', role: 'region', 'aria-label': 'Virtual machines' }),
-    el('button', { class: 'tb', id: 'bbtn', onclick: 'bulkStop()', style: 'display:none;margin:6px 8px', 'data-role': 'OPERATOR,ADMIN' }, _L('선택 항목 중지', 'Stop selected')));
+    el('button', { class: 'tb', id: 'bbtn', onclick: 'bulkStop()', style: 'display:none;margin:6px 8px', 'data-role': 'OPERATOR,ADMIN' }, _L('선택 항목 중지', 'Stop selected')),
+    el('div', { style: 'margin:6px 8px', 'data-role': 'OPERATOR,ADMIN' },
+      el('button', { class: 'btn btn-r w-full', id: 'vm-bulk-delete', disabled: true,
+        style: 'min-height:40px', 'aria-describedby': 'vm-delete-selection-hint',
+        onClick: function() { PCV.vm.bulkDelete(); } }, _L('일괄 삭제', 'Bulk delete') + ' (0)'),
+      el('p', { id: 'vm-delete-selection-hint', class: 'text-xs color-muted mt-6' },
+        _L('체크박스로 삭제할 VM을 선택하세요.', 'Select VMs to delete using the checkboxes.'))));
   var strip = el('div', { class: 'vm-tabstrip flex', role: 'tablist', 'aria-label': _L('VM 상세', 'VM details'), style: 'border-bottom:1px solid var(--border);padding:0 10px;gap:2px' },
     VM_DETAIL_TABS.map(function (d) {
       var on = d.t === tab;
@@ -720,7 +764,10 @@ function renderVmScreen(b, v, tab) {
     desc: _L('노드의 VM 자산과 전원 상태를 한 화면에서 관리합니다.', 'Manage this node’s VM inventory and power state in one place.'),
     actions: [
       el('button', { class: 'btn btn-primary', onclick: 'showCreate()', 'data-role': 'OPERATOR,ADMIN' }, '+ ' + _L('새 VM', 'New VM')),
-      el('button', { class: 'btn', onclick: 'showSnap()', 'data-role': 'OPERATOR,ADMIN' }, _L('스냅샷', 'Snapshots'))
+      el('button', { class: 'btn', onclick: 'showSnap()', 'data-role': 'OPERATOR,ADMIN' }, _L('스냅샷', 'Snapshots')),
+      el('button', { class: 'btn btn-r', id: 'vm-delete', style: 'min-height:40px', disabled: !v,
+        title: v ? v.name : _L('VM을 선택하세요', 'Select a VM'), 'data-role': 'OPERATOR,ADMIN',
+        onClick: function() { PCV.vm.vmDel(v); } }, _L('VM 삭제', 'Delete VM'))
     ]
   });
   b.appendChild(el('div', { style: 'display:flex;flex-direction:column;height:100%;min-height:0' },
@@ -755,6 +802,7 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   renderSummary: renderSummary,
   renderVmScreen: renderVmScreen,
   refreshVmDetail: refreshVmDetail,
+  getCheckedVmSubjects: getCheckedVmSubjects,
 });
 
                                                                             

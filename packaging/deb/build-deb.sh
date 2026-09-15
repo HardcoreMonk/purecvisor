@@ -26,6 +26,7 @@ set -euo pipefail
 
 PROJECT_DIR="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$PROJECT_DIR"
+UI_ASSET_MANIFEST="$PROJECT_DIR/packaging/ui-assets.manifest"
 
 ARCH="${DEB_ARCH:-amd64}"
                                                     
@@ -44,6 +45,51 @@ trap 'rm -rf "$STAGE"' EXIT
 
 echo "[deb] 패키지 $PKG_NAME v$PKG_VER ($ARCH) 조립..."
 
+
+
+
+stage_ui_manifest_assets() {
+    local source target policy extra source_path target_path target_dir
+    local -A seen_targets=()
+    local entry_count=0
+
+    [[ -r "$UI_ASSET_MANIFEST" ]] || {
+        echo "[deb] ERROR: UI asset manifest 없음: $UI_ASSET_MANIFEST"
+        return 1
+    }
+    while read -r source target policy extra; do
+        [[ -z "${source:-}" || "$source" == \#* ]] && continue
+        if [[ -n "${extra:-}" ]] ||
+           [[ ! "$source" =~ ^ui/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+           [[ ! "$target" =~ ^(ui|fallback)/[A-Za-z0-9][A-Za-z0-9._-]*$ ]] ||
+           [[ "$policy" != "replace" && "$policy" != "seed" ]] ||
+           [[ "$policy" == "seed" && "$target" != fallback/* ]] ||
+           [[ -n "${seen_targets[$target]+present}" ]]; then
+            echo "[deb] ERROR: 잘못되거나 중복된 UI asset entry: $source $target $policy ${extra:-}"
+            return 1
+        fi
+        source_path="$PROJECT_DIR/$source"
+        [[ -f "$source_path" ]] || {
+            echo "[deb] ERROR: UI asset source 누락: $source"
+            return 1
+        }
+        if [[ "$policy" == "seed" ]]; then
+            target_path="$STAGE/usr/local/share/purecvisor/fallback/.defaults/${target##*/}"
+        else
+            target_path="$STAGE/usr/local/share/purecvisor/$target"
+        fi
+        target_dir="${target_path%/*}"
+        install -d -m 0755 -- "$target_dir"
+        install -m 0644 -- "$source_path" "$target_path"
+        seen_targets[$target]=1
+        entry_count=$((entry_count + 1))
+    done < "$UI_ASSET_MANIFEST"
+    (( entry_count > 0 )) || {
+        echo "[deb] ERROR: UI asset manifest가 비어 있음"
+        return 1
+    }
+}
+
                                                            
 for b in bin/purecvisorsd bin/pcvctl; do
     [ -x "$b" ] || { echo "[deb] ERROR: $b 없음 — 먼저 'make release' 실행"; exit 1; }
@@ -55,6 +101,7 @@ mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/usr/local/bin" \
          "$STAGE/usr/local/sbin" \
          "$STAGE/usr/local/share/purecvisor/ui" \
+         "$STAGE/usr/local/share/purecvisor/fallback/.defaults" \
          "$STAGE/etc/systemd/system" \
          "$STAGE/etc/purecvisor" \
          "$STAGE/etc/apparmor.d" \
@@ -68,15 +115,24 @@ strip "$STAGE/usr/local/bin/purecvisorsd" \
 install -m755 packaging/apparmor/pcv-apparmor "$STAGE/usr/local/sbin/pcv-apparmor"
 install -m755 scripts/install-ovn-single.sh "$STAGE/usr/local/sbin/purecvisor-ovn-single"
 
-                         
-cp -a ui/*.js ui/*.html ui/*.css ui/*.md ui/*.json ui/*.png "$STAGE/usr/local/share/purecvisor/ui/" 2>/dev/null || true
+
+stage_ui_manifest_assets
 [ -d ui/vendor ]  && cp -a ui/vendor  "$STAGE/usr/local/share/purecvisor/ui/"
 [ -d ui/modules ] && cp -a ui/modules "$STAGE/usr/local/share/purecvisor/ui/"
+[ -d ui/assets ]  && cp -a ui/assets  "$STAGE/usr/local/share/purecvisor/ui/"
                                                                 
                                                 
-for f in index.html style.css app.bundle.js sw.js i18n.js manifest.json; do
+for f in index.html style.css app.bundle.js sw.js i18n.js manifest.json offline.html maintenance.html maintenance-status.json; do
     [ -f "$STAGE/usr/local/share/purecvisor/ui/$f" ] || { echo "[deb] ERROR: UI 필수 자산 누락: $f"; exit 1; }
 done
+[ -f "$STAGE/usr/local/share/purecvisor/fallback/maintenance.html" ] || {
+    echo "[deb] ERROR: fallback maintenance.html 누락"
+    exit 1
+}
+[ -f "$STAGE/usr/local/share/purecvisor/fallback/.defaults/maintenance-status.json" ] || {
+    echo "[deb] ERROR: fallback maintenance status seed 누락"
+    exit 1
+}
 
                                
 install -m644 packaging/deb/purecvisorsd.service "$STAGE/etc/systemd/system/purecvisorsd.service"
@@ -108,6 +164,8 @@ install -m644 packaging/apparmor/usr.local.bin.purecvisorsd \
                                                 
 install -m644 packaging/deb/purecvisor-lio.conf \
     "$STAGE/etc/modules-load.d/purecvisor-lio.conf"
+install -m644 packaging/deb/purecvisor-vfio.conf \
+    "$STAGE/etc/modules-load.d/purecvisor-vfio.conf"
 
                                                    
 resolve_deps() {
@@ -168,7 +226,7 @@ Version: $PKG_VER
 Section: admin
 Priority: optional
 Architecture: $ARCH
-Maintainer: PureCVisor <ops@purecvisor.local>
+Maintainer: PureCVisor <ops@purecvisor.example.com>
 Installed-Size: $INSTALLED_KB
 Depends: $ALLDEPS
 Recommends: openvswitch-switch, ovn-central, ovn-host, zfsutils-linux, cloud-image-utils, apparmor-utils
@@ -185,6 +243,7 @@ cat > "$STAGE/DEBIAN/conffiles" <<'CF'
 /etc/systemd/system/purecvisorsd.service
 /etc/apparmor.d/usr.local.bin.purecvisorsd
 /etc/modules-load.d/purecvisor-lio.conf
+/etc/modules-load.d/purecvisor-vfio.conf
 CF
 
 cat > "$STAGE/DEBIAN/postinst" <<'POST'
@@ -193,6 +252,24 @@ set -e
 case "$1" in
   configure)
     mkdir -p /var/lib/purecvisor /var/log/purecvisor /etc/purecvisor
+
+
+
+    FALLBACK_DIR="/usr/local/share/purecvisor/fallback"
+    STATUS_DEFAULT="$FALLBACK_DIR/.defaults/maintenance-status.json"
+    STATUS_TARGET="/usr/local/share/purecvisor/fallback/maintenance-status.json"
+    install -d -m 0755 -- "$FALLBACK_DIR"
+    if [ ! -e "$STATUS_TARGET" ]; then
+        status_tmp="$(mktemp "$FALLBACK_DIR/.maintenance-status.XXXXXX")"
+        cleanup_status_seed() {
+            [ -z "${status_tmp:-}" ] || rm -f -- "$status_tmp"
+        }
+        trap cleanup_status_seed 0 HUP INT TERM
+        install -m 0644 -- "$STATUS_DEFAULT" "$status_tmp"
+        mv -fT -- "$status_tmp" "$STATUS_TARGET"
+        status_tmp=""
+        trap - 0 HUP INT TERM
+    fi
     if [ ! -e /etc/purecvisor/daemon.conf ]; then
         cp -a /etc/purecvisor/daemon.conf.sample /etc/purecvisor/daemon.conf
         echo "purecvisor-single: /etc/purecvisor/daemon.conf 생성(sample 기반) — admin_password 등 편집 필요"
@@ -211,9 +288,9 @@ case "$1" in
                                                           
     systemctl enable purecvisor-host-tuning.service || true
 
-                                                             
-                                                                 
-                                                    
+
+
+
                                                          
                                                       
                                                                  
@@ -221,8 +298,8 @@ case "$1" in
                                                                 
                                                            
     systemctl restart systemd-modules-load.service >/dev/null 2>&1 || true
-    echo "purecvisor-single: /etc/modules-load.d/purecvisor-lio.conf 설치 — LIO 3종+nf_conntrack_bridge 부팅 로드."
-    echo "  확인: lsmod | grep -E '^(target_core_mod|iscsi_target_mod|target_core_iblock|nf_conntrack_bridge) '  및  ls -d /sys/kernel/config/target"
+    echo "purecvisor-single: LIO/bridge/VFIO modules-load 설정 설치 — 커널 선행 기능 부팅 로드."
+    echo "  확인: lsmod | grep -E '^(target_core_mod|iscsi_target_mod|target_core_iblock|nf_conntrack_bridge|vfio_pci) '  및  ls -d /sys/kernel/config/target"
     echo "  (systemd-modules-load 는 모듈을 못 찾아도 성공으로 끝나므로 status 를 신뢰하지 말 것)"
 
                                                                       
@@ -290,6 +367,10 @@ esac
                                                                 
                                                             
 if [ "$1" = "purge" ]; then
+
+
+
+    rm -f -- /etc/purecvisor/daemon.conf
     rm -f /etc/apparmor.d/disable/usr.local.bin.purecvisorsd 2>/dev/null || true
     rm -f /etc/apparmor.d/force-complain/usr.local.bin.purecvisorsd 2>/dev/null || true
     if command -v apparmor_parser >/dev/null 2>&1 \

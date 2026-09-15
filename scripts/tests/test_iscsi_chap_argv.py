@@ -22,7 +22,9 @@ from check_iscsi_chap_argv import scan_text
 GOOD = r'''
 gboolean pcv_iscsi_initiator_connect(void) {
     gchar *chap_password = get_secret();
-    const gchar *discovery[] = {"iscsiadm", "-m", "discoverydb", "--discover", NULL};
+    const gchar *disc_new[] = {"iscsiadm", "-m", "discoverydb", "-o", "new", NULL};
+    const gchar *disc[] = {"iscsiadm", "-m", "discoverydb", "--discover", NULL};
+    if (!_run_argv(disc, NULL, error)) return FALSE;
     if (!pcv_iscsi_chap_validate(chap_user, chap_password, error)) return FALSE;
     if (!pcv_iscsi_node_db_set_chap(iqn, portal, chap_user, chap_password, error))
         return FALSE;
@@ -70,6 +72,17 @@ def test_legacy_nonpersistent_discovery_turns_red() -> None:
 def test_missing_discover_action_turns_red() -> None:
     bad = GOOD.replace(', "--discover"', '')
     assert any("discoverydb" in item for item in scan_text(bad))
+
+
+def test_missing_discovery_record_create_turns_red() -> None:
+    bad = GOOD.replace('"-o", "new"', '"-o", "show"')
+    assert any("-o new" in item for item in scan_text(bad))
+
+
+def test_soft_failed_discovery_turns_red() -> None:
+    bad = GOOD.replace("if (!_run_argv(disc, NULL, error)) return FALSE;",
+                       "_run_argv(disc, NULL, NULL);")
+    assert any("login 전에" in item for item in scan_text(bad))
 
 
 def main() -> int:

@@ -210,15 +210,19 @@ pcv_bootstrap_init_runtime_network(void)
     if (!ovl_br || !*ovl_br)                                         
         return;
 
-                                                                 
+
+
     GError *ovl_err = NULL;
-    pcv_overlay_create(ovl_br,
-                       pcv_config_get_int("overlay", "default_vni", 100),
-                       pcv_config_get_string("overlay", "default_cidr", ""),
-                       &ovl_err);
-    if (ovl_err) {
-        g_warning("Overlay auto-create: %s", ovl_err->message);
-        g_error_free(ovl_err);
+    gboolean ovl_created = pcv_overlay_create(
+        ovl_br,
+        pcv_config_get_int("overlay", "default_vni", 100),
+        pcv_config_get_string("overlay", "default_cidr", ""),
+        &ovl_err);
+    if (!ovl_created) {
+        g_warning("Overlay auto-create failed: %s",
+                  ovl_err ? ovl_err->message : "unknown error");
+        g_clear_error(&ovl_err);
+        return;
     }
 
     g_message("OVS overlay '%s' auto-provisioned (VNI=%d)",

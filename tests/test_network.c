@@ -128,7 +128,7 @@ static void test_v11_iface_ip_vm_validation(void) {
     g_assert_false(pcv_validate_iface_name(NULL));
 
                                                      
-    g_assert_true(pcv_validate_ip_literal("192.168.1.1"));
+    g_assert_true(pcv_validate_ip_literal("192.0.2.1"));
     g_assert_true(pcv_validate_ip_literal("fd00::1"));
     g_assert_false(pcv_validate_ip_literal("10.0.0.0/24"));                        
     g_assert_false(pcv_validate_ip_literal("1.2.3.4; evil"));
@@ -978,7 +978,7 @@ static void test_physical_reconcile_idempotent_and_drift_closed(void)
     g_free(log); g_free(state); g_free(procroot); g_free(sysroot); g_free(base);
 }
 
-                                                        
+
 
 
 static void test_host_baseline_ip_parser(void)

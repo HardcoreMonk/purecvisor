@@ -73,6 +73,7 @@
                              
                                
    
+#include "api/drain.h"
 #include <unistd.h>
 #include <glib.h>
 #include <gio/gio.h>
@@ -94,6 +95,7 @@
 #include "modules/virt/cancellable_map.h"                                     
 #include "modules/virt/vm_manager.h"                                                       
 #include "modules/network/vpc/vpc_manager.h"                                            
+#include "modules/network/dpdk_manager.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_validate.h"
@@ -887,6 +889,25 @@ handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
+
+
+
+
+    {
+        gchar *dpdk_bridge = NULL;
+        PcvDpdkMetaResult dpdk_meta = pcv_vm_dpdk_metadata_read(dom, &dpdk_bridge);
+        g_free(dpdk_bridge);
+        if (dpdk_meta == PCV_DPDK_META_OK || dpdk_meta == PCV_DPDK_META_INVALID) {
+            virDomainFree(dom);
+            virt_conn_pool_release(conn);
+            _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
+                dpdk_meta == PCV_DPDK_META_OK
+                    ? "vm.rename is not supported for managed DPDK VMs; recreate the VM with the new name"
+                    : "VM DPDK metadata is unreadable; vm.rename blocked");
+            return;
+        }
+    }
+
                                                
     virDomainPtr existing = virDomainLookupByName(conn, new_name);
     if (existing) {
@@ -1323,7 +1344,7 @@ void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     }
 
                                      
-                                                       
+
                                                 
                                                       
                                                                  
@@ -1331,7 +1352,7 @@ void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *
                                                                
                                            
     GCancellable *cancel = g_cancellable_new();
-    GTask *task = g_task_new(NULL, cancel, vm_list_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, cancel, vm_list_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
                                                       
     guint timeout_id = g_timeout_add_seconds(30, _cancel_source_cb, cancel);
@@ -1731,7 +1752,7 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     ctx->holds_lock = TRUE;                                                  
 
     GCancellable *cancel = g_cancellable_new();
-    GTask *task = g_task_new(NULL, cancel, vm_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, cancel, vm_action_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_object_set_data(G_OBJECT(task), "is_delete", GINT_TO_POINTER(FALSE));
     guint tid = g_timeout_add_seconds(30, _cancel_source_cb, cancel);
@@ -1764,7 +1785,7 @@ void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     ctx->vm_id = g_strdup(vm_id); ctx->rpc_id = g_strdup(rpc_id);
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
     ctx->action = g_strdup("pause");
-    GTask *task = g_task_new(NULL, NULL, vm_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_task_run_in_thread(task, vm_action_worker);
     g_object_unref(task);
@@ -1788,7 +1809,7 @@ void handle_vm_resume_request(JsonObject *params, const gchar *rpc_id, UdsServer
     ctx->vm_id = g_strdup(vm_id); ctx->rpc_id = g_strdup(rpc_id);
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
     ctx->action = g_strdup("resume");
-    GTask *task = g_task_new(NULL, NULL, vm_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_task_run_in_thread(task, vm_action_worker);
     g_object_unref(task);
@@ -1864,7 +1885,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, vm_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     
                                                                   
@@ -2093,7 +2114,7 @@ void handle_vm_metrics_request(JsonObject *params, const gchar *rpc_id, UdsServe
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, vm_metrics_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_metrics_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);                
     g_task_run_in_thread(task, vm_metrics_worker);
     g_object_unref(task);
@@ -2205,6 +2226,23 @@ _vm_delete_ctx_free(VmDeleteCtx *ctx)
     g_free(ctx);
 }
 
+
+
+static void
+_vm_delete_restore_dpdk_port(gboolean removed, const gchar *bridge,
+                             const gchar *vm_name, const gchar *stage)
+{
+    if (!removed || !bridge || !vm_name)
+        return;
+    GError *restore_error = NULL;
+    if (!pcv_dpdk_vm_port_ensure(bridge, vm_name, &restore_error)) {
+        PCV_LOG_ERROR("vm_delete", "VM '%s': %s 뒤 DPDK port 복원 실패: %s",
+                      vm_name, stage,
+                      restore_error ? restore_error->message : "unknown");
+    }
+    g_clear_error(&restore_error);
+}
+
    
                      
                                    
@@ -2248,6 +2286,8 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
 
     virConnectPtr conn = virt_conn_pool_acquire();
     virDomainPtr  dom  = conn ? pure_virt_get_domain(conn, vm_id) : NULL;                         
+    g_autofree gchar *canonical_name = dom && virDomainGetName(dom)
+        ? g_strdup(virDomainGetName(dom)) : g_strdup(vm_id);
 
                                                            
     gchar *zvol_path  = g_strdup_printf("/dev/zvol/%s/%s", pcv_config_get_zvol_pool(), vm_id);
@@ -2257,6 +2297,8 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                                                                  
     gchar *file_disk_path = NULL;
     gchar *saved_xml      = NULL;                                 
+    g_autofree gchar *dpdk_bridge = NULL;
+    gboolean dpdk_port_removed = FALSE;
     if (dom) {
         char *xml = virDomainGetXMLDesc(dom, 0);
         if (xml) {
@@ -2281,6 +2323,35 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
             }
             free(xml);                                                                           
         }
+
+
+
+
+        PcvDpdkMetaResult dpdk_meta = pcv_vm_dpdk_metadata_read(dom, &dpdk_bridge);
+        if (dpdk_meta == PCV_DPDK_META_INVALID) {
+            g_free(zvol_path); g_free(zfs_dataset);
+            g_free(file_disk_path); g_free(saved_xml);
+            virDomainFree(dom);
+            if (conn) virt_conn_pool_release(conn);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                                    "DPDK metadata is invalid or unreadable; VM delete blocked");
+            return;
+        }
+        if (dpdk_meta == PCV_DPDK_META_OK) {
+            GError *dpdk_error = NULL;
+            if (!pcv_dpdk_vm_port_delete(canonical_name, &dpdk_error)) {
+                g_free(zvol_path); g_free(zfs_dataset);
+                g_free(file_disk_path); g_free(saved_xml);
+                virDomainFree(dom);
+                if (conn) virt_conn_pool_release(conn);
+                g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "DPDK vhost port cleanup failed; VM delete blocked: %s",
+                    dpdk_error ? dpdk_error->message : "unknown error");
+                g_clear_error(&dpdk_error);
+                return;
+            }
+            dpdk_port_removed = TRUE;
+        }
     }
     zfs_exists = zvol_path && access(zvol_path, F_OK) == 0;                              
 
@@ -2303,22 +2374,65 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                                                                    
        
     if (dom) {
-        virDomainInfo info;
-        virDomainGetInfo(dom, &info);
-        if (info.state == VIR_DOMAIN_RUNNING || info.state == VIR_DOMAIN_PAUSED)
-            virDomainDestroy(dom);
+        virDomainInfo info = {0};
+        if (virDomainGetInfo(dom, &info) < 0) {
+            const gchar *vir_message = virGetLastErrorMessage();
+            gchar *reason = g_strdup_printf(
+                "VM state query failed; undefine/storage delete blocked: %s",
+                vir_message ? vir_message : "unknown error");
+            virResetLastError();
+            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
+                                         canonical_name, "state query 실패");
+            virDomainFree(dom);
+            if (conn) virt_conn_pool_release(conn);
+            g_free(zvol_path); g_free(zfs_dataset);
+            g_free(file_disk_path); g_free(saved_xml);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "%s", reason);
+            g_free(reason);
+            return;
+        }
+        if ((info.state == VIR_DOMAIN_RUNNING || info.state == VIR_DOMAIN_PAUSED) &&
+            virDomainDestroy(dom) < 0) {
+            const gchar *vir_message = virGetLastErrorMessage();
+            gchar *reason = g_strdup_printf(
+                "VM destroy failed; undefine/storage delete blocked: %s",
+                vir_message ? vir_message : "unknown error");
+            virResetLastError();
+            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
+                                         canonical_name, "destroy 실패");
+            virDomainFree(dom);
+            if (conn) virt_conn_pool_release(conn);
+            g_free(zvol_path); g_free(zfs_dataset);
+            g_free(file_disk_path); g_free(saved_xml);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "%s", reason);
+            g_free(reason);
+            return;
+        }
         int undef_rc = virDomainUndefineFlags(dom,
                 VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
                 VIR_DOMAIN_UNDEFINE_MANAGED_SAVE);
         if (undef_rc < 0) {
                                                   
-            if (virDomainUndefine(dom) < 0) {
+            undef_rc = virDomainUndefine(dom);
+            if (undef_rc < 0) {
                 virErrorPtr e = virGetLastError();
                 PCV_LOG_WARN("vm_delete", "VM '%s': undefine failed: %s",
                              vm_id, e ? e->message : "unknown");
             }
         }
         virDomainFree(dom);
+        if (undef_rc < 0) {
+            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
+                                         canonical_name, "undefine 실패");
+            if (conn) virt_conn_pool_release(conn);
+            g_free(zvol_path); g_free(zfs_dataset);
+            g_free(file_disk_path); g_free(saved_xml);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "VM undefine failed; storage delete blocked");
+            return;
+        }
     }
     if (conn) virt_conn_pool_release(conn);
 
@@ -2426,6 +2540,8 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                     PCV_LOG_WARN("vm_delete",
                         "VM '%s': ZFS destroy failed — definition restored from saved XML. "
                         "Delete can be retried.", vm_id);
+                    _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
+                                                 canonical_name, "XML rollback");
                 } else {
                     virErrorPtr e = virGetLastError();
                     PCV_LOG_ERROR("vm_delete",
@@ -2449,7 +2565,8 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
         return;
     }
     g_free(zfs_err_msg);
-    g_free(saved_xml);                       
+
+
 
       
                                
@@ -2469,11 +2586,38 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                 int err = errno;
                 PCV_LOG_ERROR("vm_delete", "VM '%s': failed to delete disk file '%s': %s",
                               vm_id, file_disk_path, g_strerror(err));
+                gboolean redefined = FALSE;
+                if (!zfs_exists && saved_xml) {
+                    virConnectPtr rc = virt_conn_pool_acquire();
+                    if (rc) {
+                        virDomainPtr rdom = virDomainDefineXML(rc, saved_xml);
+                        if (rdom) {
+                            virDomainFree(rdom);
+                            redefined = TRUE;
+                            PCV_LOG_WARN("vm_delete",
+                                "VM '%s': file disk cleanup failed — definition restored. "
+                                "Delete can be retried.", vm_id);
+                            _vm_delete_restore_dpdk_port(
+                                dpdk_port_removed, dpdk_bridge, canonical_name,
+                                "file disk rollback");
+                        } else {
+                            virErrorPtr e = virGetLastError();
+                            PCV_LOG_ERROR("vm_delete",
+                                "VM '%s': file disk cleanup failed AND redefine failed: %s. "
+                                "Manual recovery required.", vm_id,
+                                e ? e->message : "unknown");
+                        }
+                        virt_conn_pool_release(rc);
+                    }
+                }
                 gchar *reason = g_strdup_printf(
-                    "VM definition removed, but disk file cleanup failed: %s (%s). "
-                    "Manual cleanup required.",
-                    file_disk_path, g_strerror(err));
+                    "Disk file cleanup failed%s: %s (%s). %s",
+                    redefined ? " (VM definition rolled back)" : "",
+                    file_disk_path, g_strerror(err),
+                    redefined ? "Delete can be retried."
+                              : "VM definition is absent; manual cleanup is required.");
                 g_free(file_disk_path);
+                g_free(saved_xml);
                 g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", reason);
                 g_free(reason);
                 return;
@@ -2481,6 +2625,7 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
         }
     }
     g_free(file_disk_path);
+    g_free(saved_xml);
 
     if (exorcism_partial) {
         PCV_LOG_WARN("vm_delete", "VM '%s': delete succeeded with partial exorcism (check above warnings)", vm_id);
@@ -2619,7 +2764,7 @@ void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id,
                                             
                                                       
                                                  
-    GTask *task = g_task_new(NULL, cancel, _vm_delete_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, cancel, _vm_delete_callback, ctx);
     g_task_set_task_data(task, ctx, NULL);                                 
     g_task_run_in_thread(task, _vm_delete_worker);
     g_object_unref(task);
@@ -3173,7 +3318,7 @@ handle_vm_guest_fsinfo_request(JsonObject *params, const gchar *rpc_id,
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _guest_fsinfo_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_fsinfo_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_task_run_in_thread(task, _guest_fsinfo_worker);                            
     g_object_unref(task);
@@ -3298,7 +3443,7 @@ handle_vm_guest_ping_request(JsonObject *params, const gchar *rpc_id,
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _guest_ping_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_ping_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_task_run_in_thread(task, _guest_ping_worker);
     g_object_unref(task);
@@ -3614,7 +3759,7 @@ handle_vm_guest_exec_request(JsonObject *params, const gchar *rpc_id,
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _guest_exec_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_exec_callback, ctx);
     g_task_set_task_data(task, ctx, _guest_exec_ctx_free);
     g_task_run_in_thread(task, _guest_exec_worker);
     g_object_unref(task);
@@ -3752,7 +3897,7 @@ handle_vm_guest_shutdown_request(JsonObject *params, const gchar *rpc_id,
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _guest_shutdown_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_shutdown_callback, ctx);
     g_task_set_task_data(task, ctx, free_lifecycle_ctx);
     g_task_run_in_thread(task, _guest_shutdown_worker);
     g_object_unref(task);

@@ -132,7 +132,7 @@ window.PCV.config = {
                                                                      
                                                           
                                            
-  RPC_COUNT: 304,
+  RPC_COUNT: 306,
   REST_COUNT: 230,
   METRICS_COUNT: 155
 };
@@ -214,7 +214,7 @@ applyEditionCapabilities();
 
                        
                                                     
-                                                     
+
 
                                                                  
                                              
@@ -858,6 +858,7 @@ window.sgListRules = async function() {
   if (el) PCV.uxlib.setMsg(el, 'loading', null, '조회 중...');
   try {
     const r = await fetchGet(EP.OVN_ACL() + '?switch=' + encodeURIComponent(sw));
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
     if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'ACL 규칙 없음'); return; }
     var mk = PCV.uxlib.el;
@@ -1646,7 +1647,7 @@ setInterval(() => { if (document.hidden) return; if (authToken) loadAll(true); }
 
                                      
                                                                            
-                                                                       
+
                                                            
                                                          
                                                            
@@ -1700,7 +1701,7 @@ async function collectHostMetrics() {
         if (isFinite(v)) { vmNetTotal += v; vmNetFound = true; }
       }
                                                                
-                                                          
+
                                   
       if (l.startsWith('node_network_receive_bytes_total{') || l.startsWith('node_network_transmit_bytes_total{')) {
         var dm = l.match(/device="([^"]+)"/);

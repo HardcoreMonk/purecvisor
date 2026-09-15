@@ -38,7 +38,7 @@ const HOST_BASELINE = {
   interfaces: [
     { name: 'eno1', type: 'ethernet', physical: true, state: 'up', carrier: true, mac: '02:00:00:00:00:01', mtu: 1500, master: null, ipv4: ['192.0.2.53/24'] },
     { name: 'br-int', type: 'openvswitch', physical: false, state: 'down', carrier: false, mac: '02:00:00:00:00:02', mtu: 1500, master: null, ipv4: [] },
-    { name: 'pcvnat0', type: 'bridge', physical: false, state: 'down', carrier: false, mac: '02:00:00:00:78:01', mtu: 1500, master: null, ipv4: ['10.78.0.1/24'] },
+    { name: 'pcvnat0', type: 'bridge', physical: false, state: 'down', carrier: false, mac: '02:00:00:00:00:03', mtu: 1500, master: null, ipv4: ['10.78.0.1/24'] },
     { name: 'vnet0', type: 'tun', physical: false, state: 'unknown', carrier: true, mac: 'fe:54:00:00:00:10', mtu: 1500, master: 'pcvnat0', ipv4: [] }
   ],
   routes: [
@@ -60,8 +60,8 @@ const VPC_STATUS = {
     { vpc_id: '22222222-2222-4222-8222-222222222222', vpc_name: 'ovn-lab', backend: 'ovn', cidr: '10.61.20.0/24', state: 'ACTIVE' }
   ],
   backends: [
-    { id: 'linux', ready: true, current_vpcs: 1, allocatable_vpcs: 127, reason: '' },
-    { id: 'ovn', ready: true, current_vpcs: 1, allocatable_vpcs: 127, reason: '' }
+    { id: 'linux', label: 'Linux bridge', ready: true, current_vpcs: 1, allocatable_vpcs: null },
+    { id: 'ovn', label: 'OVN (Open vSwitch)', ready: true, current_vpcs: 1, allocatable_vpcs: 127 }
   ]
 };
 

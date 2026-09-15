@@ -72,6 +72,7 @@
 #include "dispatcher.h"
 #include "uds_server.h"
 #include "snapshot_verify_probe.h"                                                  
+#include "ova_import_xml.h"
 #include "vm_batch_policy.h"                                                           
 #include "daemon_config_policy.h"                                                   
 #include "bootstrap/pcv_bootstrap.h"
@@ -109,6 +110,7 @@
 #include "modules/dispatcher/handler_container.h"
 #include "modules/dispatcher/handler_overlay.h"
 #include "modules/dispatcher/handler_accel.h"
+#include "modules/accel/gpu_manager.h"
 #include "modules/dispatcher/handler_template.h"
 #include "modules/dispatcher/handler_auth.h"
 #include "modules/dispatcher/handler_backup.h"
@@ -2529,11 +2531,23 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
             return;
         }
     }
+
+
+    if (g_strcmp0(nic_type, "dpdk") == 0 &&
+        (!bridge || !*bridge || g_strcmp0(bridge, "none") == 0 ||
+         !pcv_validate_bridge_name(bridge))) {
+        gchar *err = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "nic_type=dpdk requires an explicit valid network_bridge");
+        pure_uds_server_send_response(server, connection, err);
+        g_free(err);
+        return;
+    }
                                         
     if (json_object_has_member(params, "pci_addr")) {
         pci_addr = json_object_get_string_member(params, "pci_addr");
     }
-                                                              
+
     const gchar *base_image = nullptr;
     if (json_object_has_member(params, "base_image")) {
         base_image = json_object_get_string_member(params, "base_image");
@@ -2752,7 +2766,7 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
                                           image_dir,
                                           nic_type,
                                           pci_addr,
-                                          base_image,              
+                                          base_image,
                                           owner,
                                           network_mode,                      
                                           tenant,                            
@@ -4162,7 +4176,7 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
     g_free(job_id);
     free(real_out);
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _free_ova_ctx);
     g_task_run_in_thread(task, _ova_export_worker);
     g_object_unref(task);
@@ -4181,7 +4195,7 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
                          
                                   
                                            
-                             
+
                   
                                                                                 
 
@@ -4286,7 +4300,7 @@ _ova_import_destroy_zvol(const gchar *dataset)
                                                           
                                                                 
                                                                
-                                                   
+
                                                                
                                                                           
                                                          
@@ -4471,9 +4485,37 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         created_zvol_dataset = g_strdup(zvol_name);
         g_free(zvol_name);
 
-                              
+
+
+
+        gboolean zvol_ready = FALSE;
+        for (guint attempt = 0; attempt < 200; attempt++) {
+            if (g_file_test(zvol_path, G_FILE_TEST_EXISTS)) {
+                zvol_ready = TRUE;
+                break;
+            }
+            g_usleep(50 * G_TIME_SPAN_MILLISECOND);
+        }
+        if (!zvol_ready) {
+            g_warning("[OVA-Import] zvol device did not appear: %s", zvol_path);
+            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
+                               "\"zvol device did not appear\"");
+            audit_error = "zvol device did not appear";
+            (void)_ova_import_destroy_zvol(created_zvol_dataset);
+            g_clear_pointer(&created_zvol_dataset, g_free);
+            g_free(zvol_path);
+            goto import_cleanup;
+        }
+
+
+
+
+
+
+
+
         const gchar *conv_argv[] = {
-            "qemu-img", "convert", "-f", "vmdk", "-O", "raw",
+            "qemu-img", "convert", "-n", "-f", "vmdk", "-O", "raw",
             vmdk_path, zvol_path, NULL
         };
         error = nullptr;
@@ -4516,44 +4558,96 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     }
     g_clear_pointer(&vmdk_path, g_free);
 
-    pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 80, "Defining VM via virt-install");
+    pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 80,
+                          "Generating and normalizing libvirt domain XML");
 
-                                  
+
+
+
+
+
+
+
     {
         gchar *vcpu_str = g_strdup_printf("%d", vcpus);
         gchar *mem_str = g_strdup_printf("%d", memory_mb);
-        gchar *disk_arg = g_strdup_printf("path=%s", disk_path);
+        const gchar *disk_format = use_zvol ? "raw" : "qcow2";
+        gchar *disk_arg = g_strdup_printf("path=%s,format=%s,bus=virtio",
+                                          disk_path, disk_format);
         const gchar *argv[] = {
-            "virt-install", "--name", ctx->vm_name,
+            "virt-install", "--connect", pcv_config_get_libvirt_uri(),
+            "--name", ctx->vm_name,
             "--vcpus", vcpu_str, "--memory", mem_str,
             "--disk", disk_arg, "--import",
             "--os-variant", "generic",
-            "--noautoconsole", "--nographics", NULL
+            "--noautoconsole", "--nographics", "--print-xml", NULL
         };
         GError *error = nullptr;
+        gchar *domain_xml_generated = nullptr;
         gchar *std_err = nullptr;
-        if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
-            g_warning("[OVA-Import] virt-install failed for %s: %s", ctx->vm_name,
+        if (!pcv_spawn_sync(argv, &domain_xml_generated, &std_err, &error)) {
+            g_warning("[OVA-Import] virt-install XML generation failed for %s: %s", ctx->vm_name,
                 error ? error->message : (std_err ? std_err : "unknown"));
             pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"virt-install failed\"");
-            audit_error = "virt-install failed";
-            if (error) g_error_free(error);
-            g_free(std_err);
-            if (created_zvol_dataset) {
-                (void)_ova_import_destroy_zvol(created_zvol_dataset);
-                g_clear_pointer(&created_zvol_dataset, g_free);
-            } else if (disk_path) {
-                g_remove(disk_path);
-            }
-            g_free(vcpu_str);
-            g_free(mem_str);
-            g_free(disk_arg);
-            goto import_cleanup;
+            audit_error = "virt-install XML generation failed";
+            goto import_define_fail;
         }
-        g_free(std_err);
+
+        gchar *domain_xml = pcv_ova_import_normalize_domain_xml(
+            domain_xml_generated, disk_path, use_zvol, disk_format, &error);
+        if (!domain_xml) {
+            g_warning("[OVA-Import] domain XML normalization failed for %s: %s",
+                      ctx->vm_name, error ? error->message : "unknown");
+            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
+                               "\"domain XML normalization failed\"");
+            audit_error = "domain XML normalization failed";
+            goto import_define_fail;
+        }
+
+        pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 90,
+                              "Defining imported VM as shutoff domain");
+        virConnectPtr conn = virt_conn_pool_acquire();
+        virDomainPtr imported = conn ? virDomainDefineXML(conn, domain_xml) : NULL;
+        if (!imported) {
+            virErrorPtr verr = virGetLastError();
+            audit_error_owned = g_strdup_printf("libvirt define failed: %s",
+                verr && verr->message ? verr->message : "unknown");
+            audit_error = audit_error_owned;
+            g_warning("[OVA-Import] %s", audit_error_owned);
+            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"libvirt define failed\"");
+            if (conn) virt_conn_pool_release(conn);
+            g_free(domain_xml);
+            goto import_define_fail;
+        }
+        virDomainFree(imported);
+        virt_conn_pool_release(conn);
+        g_free(domain_xml);
+
+        g_clear_error(&error);
         g_free(vcpu_str);
         g_free(mem_str);
         g_free(disk_arg);
+        g_free(domain_xml_generated);
+        g_free(std_err);
+        goto import_define_done;
+
+import_define_fail:
+        g_clear_error(&error);
+        g_free(vcpu_str);
+        g_free(mem_str);
+        g_free(disk_arg);
+        g_free(domain_xml_generated);
+        g_free(std_err);
+        if (created_zvol_dataset) {
+            (void)_ova_import_destroy_zvol(created_zvol_dataset);
+            g_clear_pointer(&created_zvol_dataset, g_free);
+        } else if (disk_path) {
+            g_remove(disk_path);
+        }
+        goto import_cleanup;
+
+import_define_done:
+        ;
     }
 
     pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 95, "Cleaning up temporary files");
@@ -4728,7 +4822,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     free(real_ova);
     g_free(job_id);
 
-    GTask *itask = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *itask = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(itask, ctx, _free_ova_import_ctx);
     g_task_run_in_thread(itask, _ova_import_worker);
     g_object_unref(itask);
@@ -5289,7 +5383,7 @@ static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
     ctx->connection = g_object_ref(connection);
     ctx->rpc_id     = g_strdup(rpc_id);
     ctx->snap       = g_strdup(snap);
-    GTask *task = g_task_new(NULL, NULL, _snapshot_verify_done, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _snapshot_verify_done, ctx);
     g_task_set_task_data(task, ctx, _snapshot_verify_ctx_free);
     g_task_run_in_thread(task, _snapshot_verify_worker);
     g_object_unref(task);
@@ -5918,23 +6012,33 @@ static void _handle_container_health_check(JsonObject *params, const gchar *rpc_
                                             UdsServer *server, GSocketConnection *connection)
 {
     const gchar *name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
-    if (!name) {
+    if (!name || !pcv_validate_vm_name(name)) {
         gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
-                         
-    const gchar *argv[] = {"lxc-info", "-n", name, "-sH", NULL};
+
+
+    const gchar *argv[] = {"lxc-info", "-P", PCV_LXC_PATH, "-n", name, "-sH", NULL};
     gchar *out = nullptr;
-    pcv_spawn_sync(argv, &out, NULL, NULL);
-    gboolean running = (out && strstr(out, "RUNNING"));
+    gchar *stderr_out = nullptr;
+    GError *probe_error = nullptr;
+    gboolean probe_ok = pcv_spawn_sync(argv, &out, &stderr_out, &probe_error);
+    gboolean running = probe_ok && out && strstr(out, "RUNNING");
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "container", name);
     json_object_set_string_member(res, "state", running ? "healthy" : "unhealthy");
     json_object_set_boolean_member(res, "running", running);
+    if (!probe_ok) {
+        const gchar *detail = probe_error && probe_error->message
+            ? probe_error->message
+            : (stderr_out && *stderr_out ? stderr_out : "lxc-info failed");
+        json_object_set_string_member(res, "detail", detail);
+    }
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
-    pure_uds_server_send_response(server, connection, r); g_free(r); g_free(out);
+    pure_uds_server_send_response(server, connection, r);
+    g_free(r); g_free(out); g_free(stderr_out); g_clear_error(&probe_error);
 }
 
                                                                       
@@ -6820,6 +6924,27 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
+
+
+
+
+    {
+        gchar *dpdk_bridge = NULL;
+        PcvDpdkMetaResult dpdk_meta = pcv_vm_dpdk_metadata_read(dom, &dpdk_bridge);
+        g_free(dpdk_bridge);
+        if (dpdk_meta == PCV_DPDK_META_OK || dpdk_meta == PCV_DPDK_META_INVALID) {
+            virDomainFree(dom);
+            virt_conn_pool_release(conn);
+            _vm_clone_ctx_free(clone_ctx);
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
+                dpdk_meta == PCV_DPDK_META_OK
+                    ? "vm.clone is not supported for managed DPDK VMs; create a new DPDK VM instead"
+                    : "Source VM DPDK metadata is unreadable; vm.clone blocked");
+            pure_uds_server_send_response(server, connection, e); g_free(e);
+            return;
+        }
+    }
+
     int source_active_state = virDomainIsActive(dom);
     if (source_active_state < 0) {
         virDomainFree(dom);
@@ -6947,7 +7072,7 @@ static void _handle_vm_clone(JsonObject *params, const gchar *rpc_id,
                                             
                                                                       
                                                      
-    GTask *clone_task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *clone_task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(clone_task, clone_ctx, (GDestroyNotify)_vm_clone_ctx_free);
     pcv_worker_pool_push(clone_task, _vm_clone_thread);
     g_object_unref(clone_task);                                          
@@ -7020,22 +7145,7 @@ static void _handle_gpu_list(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
-    const gchar *argv[] = {"lspci", "-nn", NULL};
-    gchar *out = nullptr;
-    pcv_spawn_sync(argv, &out, NULL, NULL);
-    JsonArray *arr = json_array_new();
-    if (out) {
-        gchar **lines = g_strsplit(out, "\n", -1);
-        for (gchar **l = lines; *l; l++) {
-            if (g_strstr_len(*l, -1, "VGA") || g_strstr_len(*l, -1, "3D") ||
-                g_strstr_len(*l, -1, "Display")) {
-                JsonObject *gpu = json_object_new();
-                json_object_set_string_member(gpu, "pci", *l);
-                json_array_add_object_element(arr, gpu);
-            }
-        }
-        g_strfreev(lines); g_free(out);
-    }
+    JsonArray *arr = pcv_gpu_list();
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -7122,6 +7232,14 @@ static void _handle_node_resume(JsonObject *params, const gchar *rpc_id,
                                  UdsServer *server, GSocketConnection *connection)
 {
     (void)params;
+    if (pcv_drain_is_terminating()) {
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
+                         "Process shutdown cannot be resumed");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
+
     pcv_drain_cancel();
     JsonNode *ok_node = json_node_new(JSON_NODE_VALUE);
     json_node_set_boolean(ok_node, TRUE);
@@ -7380,7 +7498,7 @@ static void _handle_backup_export_s3(JsonObject *params, const gchar *rpc_id,
     ctx->s3_key_prefix = json_object_has_member(params, "s3_key_prefix")
         ? g_strdup(json_object_get_string_member(params, "s3_key_prefix")) : NULL;
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _s3_export_ctx_free);
     g_task_run_in_thread(task, _s3_export_worker);
     g_object_unref(task);
@@ -7623,11 +7741,11 @@ static void _handle_ai_healing_reject(JsonObject *params, const gchar *rpc_id,
     pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }
 
-                                                                         
-                                                          
-                                                                   
-                               
-                                                                   
+
+
+
+
+
 static void _handle_security_group_detach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
@@ -9274,7 +9392,7 @@ _handle_suricata_rules_update(JsonObject *params, const gchar *rpc_id,
     ctx->url = g_strdup(url);
     ctx->admin = g_strdup(admin ? admin : "system");
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _suricata_rules_update_ctx_free);
     g_task_run_in_thread(task, _suricata_rules_update_worker);
     g_object_unref(task);
@@ -9451,7 +9569,7 @@ _suricata_ips_toggle_async(gboolean enable, JsonObject *params, const gchar *rpc
     ctx->fail_open = pcv_config_get_ips_fail_open();
     ctx->admin     = g_strdup(admin ? admin : "system");
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _suricata_ips_toggle_ctx_free);
     g_task_run_in_thread(task, _suricata_ips_toggle_worker);
     g_object_unref(task);
@@ -9730,7 +9848,7 @@ _suricata_ips_drop_mutate(gboolean add, JsonObject *params, const gchar *rpc_id,
     ctx->desired = pcv_suricata_policy_drop_sids_snapshot();                   
     ctx->admin   = g_strdup(admin ? admin : "system");
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _suricata_ips_drop_ctx_free);
     g_task_run_in_thread(task, _suricata_ips_drop_worker);
     g_object_unref(task);
@@ -9854,6 +9972,8 @@ static void dispatcher_init_routes(void)
                                             
         "vm.list",                                                                
         "vm.metrics",                                                                
+        "dpdk.bridge.create",
+        "dpdk.bridge.delete",
         "vm.guest.ping",                                                              
         "vm.guest.exec",                                                              
         "vm.guest.shutdown",                                                              
@@ -9869,6 +9989,8 @@ static void dispatcher_init_routes(void)
         "backup.export_s3",                                              
         "backup.incremental",                                                          
         "container.create",                                                   
+        "container.start",
+        "container.stop",
         "container.clone",                                                      
         "container.destroy",                                                   
         "vm.disk.live_resize",                                                            
@@ -10170,7 +10292,8 @@ static void dispatcher_init_routes(void)
                                                                       
     g_hash_table_insert(g_rpc_routes, "gpu.metrics",         (gpointer)_handle_gpu_metrics);
     g_hash_table_insert(g_rpc_routes, "gpu.list",            (gpointer)_handle_gpu_list);
-                                                                         
+    g_hash_table_insert(g_rpc_routes, "device.gpu.attach",   (gpointer)handle_device_gpu_attach);
+    g_hash_table_insert(g_rpc_routes, "device.gpu.detach",   (gpointer)handle_device_gpu_detach);
 
                                                                       
     g_hash_table_insert(g_rpc_routes, "webhook.dlq.list",    (gpointer)_handle_webhook_dlq_list);

@@ -17,7 +17,6 @@
 <meta name="robots" content="noindex,nofollow">
 <meta name="description" content="PureCVisor 서비스 점검 및 복구 안내 페이지">
 <meta name="theme-color" content="#080b0f">
-<meta http-equiv="refresh" content="60">
 <meta name="design-system" content="Supanova Design Skill inspired">
 <title>PureCVisor 서비스 상태</title>
 <style>
@@ -806,27 +805,34 @@
     return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmed) ? trimmed : null;
   }
 
-  fetch('/maintenance-status.json', { cache: 'no-store' })
-    .then(function (res) { return res.ok ? res.json() : null; })
-    .then(function (status) {
-      if (!status) return;
-      text('state-label', status.title);
-      text('summary-state', status.title);
-      text('impact', status.impact);
-      text('scope', status.impact);
-      text('data-status', status.data_status);
-      text('eta', status.eta);
-      text('updated', status.updated_at);
 
-      var support = cleanEmail(status.support);
-      if (support) {
-        var mail = document.getElementById('support-link');
-        var label = document.getElementById('support-mail');
-        if (mail) mail.href = 'mailto:' + support;
-        if (label) label.textContent = support;
-      }
-    })
-    .catch(function () {});
+
+  function loadStatus() {
+    return fetch('/maintenance-status.json', { cache: 'no-store' })
+      .then(function (res) { return res.ok ? res.json() : null; })
+      .then(function (status) {
+        if (!status) return;
+        text('state-label', status.title);
+        text('summary-state', status.title);
+        text('impact', status.impact);
+        text('scope', status.impact);
+        text('data-status', status.data_status);
+        text('eta', status.eta);
+        text('updated', status.updated_at);
+
+        var support = cleanEmail(status.support);
+        if (support) {
+          var mail = document.getElementById('support-link');
+          var label = document.getElementById('support-mail');
+          if (mail) mail.href = 'mailto:' + support;
+          if (label) label.textContent = support;
+        }
+      })
+      .catch(function () {});
+  }
+
+  loadStatus();
+  setInterval(loadStatus, 60000);
 
   setInterval(function () {
     fetch('/api/v1/health', { cache: 'no-store' })

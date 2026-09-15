@@ -93,6 +93,8 @@
                                           
                                         
                                          
+
+
    
 
 #ifndef PURECVISOR_DAEMONS_TELEMETRY_H
@@ -168,8 +170,9 @@ typedef struct {
              
                                            
                                      
-                                                 
+
                                                   
+
   
                    
                                      
@@ -201,6 +204,9 @@ void init_telemetry_daemon(PureCVisorVmManager *vm_manager);
                                                               
    
 VmMetrics* get_vm_metrics(const gchar *vm_id);
+
+
+void pcv_telemetry_shutdown(void);
 
 G_END_DECLS
 

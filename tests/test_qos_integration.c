@@ -44,7 +44,7 @@
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <unistd.h>                         
-#include <stdlib.h>                        
+#include "utils/pcv_spawn.h"
 #include "modules/network/pcv_qos.h"
 #include "modules/network/pcv_qos_chaos.h"
 
@@ -60,14 +60,40 @@
                
 extern gboolean _chaos_expire_cb(gpointer data);
 
-                                                             
-                                              
+
+
+
+static gboolean
+_fixture_run(const gchar * const *argv)
+{
+    gchar *out = NULL;
+    gchar *err = NULL;
+    gboolean ok = pcv_spawn_sync(argv, &out, &err, NULL);
+    g_free(out);
+    g_free(err);
+    return ok;
+}
+
+
+
+static void
+_setup_dummy(const gchar *name)
+{
+    const gchar *add[] = {"ip", "link", "add", name, "type", "dummy", NULL};
+    const gchar *up[] = {"ip", "link", "set", name, "up", NULL};
+    if (_fixture_run(add))
+        (void)_fixture_run(up);
+}
+
+
 static void
 _cleanup_netdevs(void)
 {
-    system("ip link del " T2_VM_IFACE1 " >/dev/null 2>&1");
-    system("ip link del " T2_VM_IFACE2 " >/dev/null 2>&1");
-    system("ip link del " PCV_QOS_IFB_DEV " >/dev/null 2>&1");
+    const gchar *names[] = {T2_VM_IFACE1, T2_VM_IFACE2, PCV_QOS_IFB_DEV};
+    for (guint i = 0; i < G_N_ELEMENTS(names); i++) {
+        const gchar *argv[] = {"ip", "link", "del", names[i], NULL};
+        (void)_fixture_run(argv);
+    }
 }
 
                                                   
@@ -101,8 +127,8 @@ test_qos_ifb_lifecycle_root(void)
     _cleanup_netdevs();                               
     pcv_qos_ids_clear();                                      
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
-    system("ip link add " T2_VM_IFACE2 " type dummy && ip link set " T2_VM_IFACE2 " up");
+    _setup_dummy(T2_VM_IFACE1);
+    _setup_dummy(T2_VM_IFACE2);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -312,7 +338,7 @@ test_qos_tenant_sla_live_update_root(void)
     pcv_qos_ids_clear();
     pcv_qos_tenant_sla_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -390,7 +416,7 @@ test_qos_chaos_inject_expire_root(void)
     pcv_qos_ids_clear();
     pcv_qos_chaos_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -495,7 +521,7 @@ test_qos_chaos_stop_root(void)
     pcv_qos_ids_clear();
     pcv_qos_chaos_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -573,7 +599,7 @@ test_qos_chaos_purge_all_root(void)
     pcv_qos_ids_clear();
     pcv_qos_chaos_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -596,11 +622,9 @@ test_qos_chaos_purge_all_root(void)
                                                       
                                                   
     {
-        gchar *cmd = g_strdup_printf(
-            "tc qdisc replace dev " PCV_QOS_IFB_DEV " parent %s netem delay 50ms", vm_cid);
-        int rc = system(cmd);
-        g_free(cmd);
-        g_assert_cmpint(rc, ==, 0);
+        const gchar *argv[] = {"tc", "qdisc", "replace", "dev", PCV_QOS_IFB_DEV,
+            "parent", vm_cid, "netem", "delay", "50ms", NULL};
+        g_assert_true(_fixture_run(argv));
     }
     {
         gchar *qdisc_out = _tc_show("tc qdisc show dev " PCV_QOS_IFB_DEV);
@@ -696,11 +720,13 @@ test_qos_reconcile_orphan_cleanup_root(void)
     }
 
                                                                
-    g_assert_cmpint(system(
-        "tc class add dev " PCV_QOS_IFB_DEV " parent 1:1 classid 1:1234"
-        " hfsc ls m2 10Mbit ul m2 10Mbit"), ==, 0);
-    g_assert_cmpint(system(
-        "tc qdisc add dev " PCV_QOS_IFB_DEV " parent 1:1234 cake besteffort"), ==, 0);
+    const gchar *add_class[] = {"tc", "class", "add", "dev", PCV_QOS_IFB_DEV,
+        "parent", "1:1", "classid", "1:1234", "hfsc", "ls", "m2", "10Mbit",
+        "ul", "m2", "10Mbit", NULL};
+    const gchar *add_qdisc[] = {"tc", "qdisc", "add", "dev", PCV_QOS_IFB_DEV,
+        "parent", "1:1234", "cake", "besteffort", NULL};
+    g_assert_true(_fixture_run(add_class));
+    g_assert_true(_fixture_run(add_qdisc));
 
     {
         gchar *class_out = _tc_show("tc class show dev " PCV_QOS_IFB_DEV);
@@ -749,7 +775,7 @@ test_qos_reconcile_missing_reapply_root(void)
     pcv_qos_ids_clear();
     pcv_qos_set_expected_provider(NULL);
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -776,22 +802,20 @@ test_qos_reconcile_missing_reapply_root(void)
                                                     
              
     {
-        gchar *filter_del = g_strdup_printf(
-            "tc filter del dev " PCV_QOS_IFB_DEV " parent 1: pref %u handle 0x%x flower",
-            vm_minor, vm_minor);
-        system(filter_del);
-        g_free(filter_del);
+        gchar *pref = g_strdup_printf("%u", vm_minor);
+        gchar *handle = g_strdup_printf("0x%x", vm_minor);
+        const gchar *filter_del[] = {"tc", "filter", "del", "dev", PCV_QOS_IFB_DEV,
+            "parent", "1:", "pref", pref, "handle", handle, "flower", NULL};
+        (void)_fixture_run(filter_del);
+        g_free(pref);
+        g_free(handle);
 
-        gchar *cake_del = g_strdup_printf(
-            "tc qdisc del dev " PCV_QOS_IFB_DEV " parent %s", vm_cid);
-        system(cake_del);
-        g_free(cake_del);
-
-        gchar *class_del = g_strdup_printf(
-            "tc class del dev " PCV_QOS_IFB_DEV " classid %s", vm_cid);
-        int rc = system(class_del);
-        g_free(class_del);
-        g_assert_cmpint(rc, ==, 0);
+        const gchar *cake_del[] = {"tc", "qdisc", "del", "dev", PCV_QOS_IFB_DEV,
+            "parent", vm_cid, NULL};
+        (void)_fixture_run(cake_del);
+        const gchar *class_del[] = {"tc", "class", "del", "dev", PCV_QOS_IFB_DEV,
+            "classid", vm_cid, NULL};
+        g_assert_true(_fixture_run(class_del));
     }
     {
         gchar *class_out = _tc_show("tc class show dev " PCV_QOS_IFB_DEV);
@@ -859,7 +883,7 @@ test_qos_vm_gone_cleanup_root(void)
     _cleanup_netdevs();
     pcv_qos_ids_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -938,7 +962,7 @@ test_qos_remove_vm_postcondition_failure_root(void)
     _cleanup_netdevs();
     pcv_qos_ids_clear();
 
-    system("ip link add " T2_VM_IFACE1 " type dummy && ip link set " T2_VM_IFACE1 " up");
+    _setup_dummy(T2_VM_IFACE1);
 
     GError *e = NULL;
     if (!pcv_qos_ensure_root(1000, &e)) {
@@ -961,13 +985,15 @@ test_qos_remove_vm_postcondition_failure_root(void)
     guint32 foreign_pref = (guint32)vm_minor + 1;                                                   
 
     {
-        gchar *cmd = g_strdup_printf(
-            "tc filter add dev " PCV_QOS_IFB_DEV " parent 1: protocol all "
-            "pref %u handle 0x%x flower indev " T2_VM_IFACE1 " classid %s",
-            foreign_pref, foreign_pref, vm_cid);
-        int rc = system(cmd);
-        g_free(cmd);
-        g_assert_cmpint(rc, ==, 0);
+        gchar *pref = g_strdup_printf("%u", foreign_pref);
+        gchar *handle = g_strdup_printf("0x%x", foreign_pref);
+        const gchar *argv[] = {"tc", "filter", "add", "dev", PCV_QOS_IFB_DEV,
+            "parent", "1:", "protocol", "all", "pref", pref, "handle", handle,
+            "flower", "indev", T2_VM_IFACE1, "classid", vm_cid, NULL};
+        gboolean installed = _fixture_run(argv);
+        g_free(pref);
+        g_free(handle);
+        g_assert_true(installed);
     }
 
     GError *rerr = NULL;

@@ -192,9 +192,40 @@ test_legacy_implicit_iterations_are_100000(void)
     teardown();
 }
 
+
+
+static void
+test_password_check_stored_digest(gconstpointer data)
+{
+    const gchar *kind = data;
+    setup();
+    const gchar *salt = "0123456789abcdef";
+    const gchar *pw = "StoredIteration!42";
+    gint iter = g_str_equal(kind, "legacy") ? 100000 :
+                g_str_equal(kind, "iterations") ? 200000 : 600000;
+    gchar *hex = compute_pbkdf2_hex(salt, pw, iter);
+    if (g_str_equal(kind, "tail")) hex[63] = hex[63] == '0' ? '1' : '0';
+    gchar *hash = g_str_equal(kind, "legacy") ? g_strconcat("pbkdf2:", hex, NULL) :
+        g_strdup_printf("pbkdf2:%d:%s%s", iter, hex,
+                        g_str_equal(kind, "extra") ? "00" : "");
+    seed_user("digest-check", hash, salt);
+    GError *error = NULL;
+    gboolean expected = g_str_equal(kind, "legacy") || g_str_equal(kind, "iterations");
+    g_assert_cmpint(pcv_rbac_password_check("digest-check", pw, &error), ==, expected);
+    if (expected) g_assert_no_error(error);
+    else g_assert_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED);
+    g_clear_error(&error);
+    g_free(hex); g_free(hash);
+    teardown();
+}
+
 void
 test_pbkdf2_verify_register(void)
 {
+    g_test_add_data_func("/pbkdf2_verify/password_check/legacy", "legacy", test_password_check_stored_digest);
+    g_test_add_data_func("/pbkdf2_verify/password_check/iterations", "iterations", test_password_check_stored_digest);
+    g_test_add_data_func("/pbkdf2_verify/password_check/tail", "tail", test_password_check_stored_digest);
+    g_test_add_data_func("/pbkdf2_verify/password_check/extra", "extra", test_password_check_stored_digest);
     g_test_add_func("/pbkdf2_verify/new_format/correct_password_verifies",
                     test_new_format_correct_password_verifies);
     g_test_add_func("/pbkdf2_verify/new_format/wrong_password_rejected",

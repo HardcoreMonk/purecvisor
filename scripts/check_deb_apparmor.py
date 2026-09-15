@@ -14,8 +14,9 @@
                                                                           
                                            
 
-                                                                   
-                                                        
+
+
+
 
     
                                                                           
@@ -33,12 +34,15 @@
                                                         
                         
 
+
+
                                                                      
                                                          
                                                                     
 
-                                                                      
-                                                   
+
+
+
    
 import argparse
 import re
@@ -48,6 +52,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 BUILD_REL = "packaging/deb/build-deb.sh"
 HELPER_REL = "packaging/apparmor/pcv-apparmor"
+PROFILE_REL = "packaging/apparmor/usr.local.bin.purecvisorsd"
 
 APROF = "/etc/apparmor.d/usr.local.bin.purecvisorsd"
 DISLINK = "/etc/apparmor.d/disable/usr.local.bin.purecvisorsd"
@@ -373,30 +378,53 @@ def check_helper(helper: str):
     return bad
 
 
+def check_profile(profile: str):
+
+
+
+
+
+
+    if not profile.strip():
+        return ["AppArmor 프로필을 찾지 못함"]
+    code = strip_comments(profile)
+    if not re.search(r"^\s*/\{usr/,\}bin/ovsdb-client\s+Ux,\s*$", code, re.M):
+        return ["[불변식7] opt-in AppArmor 프로필에 "
+                "`/{usr/,}bin/ovsdb-client Ux,` 규칙이 없다 — "
+                "overlay bulk snapshot 실행이 차단된다"]
+    return []
+
+
 def main(argv=None) -> int:
     ap = argparse.ArgumentParser(description="2.0 deb AppArmor 미부착 게이트 (ADR-0028)")
     ap.add_argument("--build-script", default=str(ROOT / BUILD_REL))
     ap.add_argument("--helper", default=str(ROOT / HELPER_REL))
+    ap.add_argument("--profile", default=str(ROOT / PROFILE_REL))
     args = ap.parse_args(argv)
 
     build_text = Path(args.build_script).read_text(errors="replace")
     helper_text = Path(args.helper).read_text(errors="replace")
+    profile_text = Path(args.profile).read_text(errors="replace")
 
     postinst, p1 = extract_generated(build_text, "postinst")
     postrm, p2 = extract_generated(build_text, "postrm")
 
     bad = ([f"[구조] {p}" for p in p1 + p2]
-           + check_postinst(postinst) + check_postrm(postrm) + check_helper(helper_text))
+           + check_postinst(postinst) + check_postrm(postrm) + check_helper(helper_text)
+           + check_profile(profile_text))
 
     print(f"[check-deb-apparmor] postinst {len(postinst.splitlines())}줄 / "
-          f"postrm {len(postrm.splitlines())}줄 / 헬퍼 {len(helper_text.splitlines())}줄 검사")
+          f"postrm {len(postrm.splitlines())}줄 / 헬퍼 {len(helper_text.splitlines())}줄 / "
+          f"프로필 {len(profile_text.splitlines())}줄 검사")
     if bad:
         for b in bad:
             print(f"[FAIL] {b}", file=sys.stderr)
-        print(f"[FAIL] ADR-0028 위반 {len(bad)}건 — 2.0 deb 는 AppArmor 프로필을 "
-              "데몬에 부착하지 않는다(docs/adr/0028-*.md 결정 2)", file=sys.stderr)
+        print(f"[FAIL] AppArmor 패키징 계약 위반 {len(bad)}건 — 2.0 deb 는 프로필을 "
+              "기본 부착하지 않으며 opt-in 프로필은 실행 표면을 완비해야 한다"
+              "(docs/adr/0028-*.md 결정 2)", file=sys.stderr)
         return 1
-    print("[PASS] 2.0 deb: 프로필 미로드 + disable 심링크 + 로드분 해제 + 헬퍼 ADR-0028 경고")
+    print("[PASS] 2.0 deb: 프로필 미로드 + disable 심링크 + 로드분 해제 + "
+          "헬퍼 ADR-0028 경고 + opt-in OVS 조회 실행 규칙")
     return 0
 
 

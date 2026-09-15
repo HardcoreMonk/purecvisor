@@ -23,11 +23,11 @@
 
 static const gchar *ZVOL_WITH_CDROM_XML =
     "<domain type='kvm'>"
-    "  <name>example-vm-source</name>"
+    "  <name>leesieun</name>"
     "  <devices>"
     "    <disk type='block' device='disk'>"
     "      <driver name='qemu' type='raw'/>"
-    "      <source dev='/dev/zvol/pcvtntank/vms/example-vm-source'/>"
+    "      <source dev='/dev/zvol/pcvtntank/vms/leesieun'/>"
     "      <target dev='vda' bus='virtio'/>"
     "    </disk>"
     "    <disk type='file' device='cdrom'>"
@@ -57,7 +57,7 @@ test_zvol_with_cdrom_extracts_single_data_disk(void)
     g_assert_cmpuint(info.disk_count, ==, 1);
     g_assert_cmpuint(info.kind, ==, PCV_VM_CLONE_DISK_ZVOL);
     g_assert_cmpstr(info.source_attr, ==, "dev");
-    g_assert_cmpstr(info.source_path, ==, "/dev/zvol/pcvtntank/vms/example-vm-source");
+    g_assert_cmpstr(info.source_path, ==, "/dev/zvol/pcvtntank/vms/leesieun");
     g_assert_cmpstr(info.driver_type, ==, "raw");
 
     pcv_vm_clone_disk_info_clear(&info);
@@ -80,12 +80,12 @@ test_zvol_plan_uses_source_pool_path(void)
                                               &error_msg));
     g_assert_null(error_msg);
     g_assert_cmpuint(plan.kind, ==, PCV_VM_CLONE_DISK_ZVOL);
-    g_assert_cmpstr(plan.source_disk_path, ==, "/dev/zvol/pcvtntank/vms/example-vm-source");
+    g_assert_cmpstr(plan.source_disk_path, ==, "/dev/zvol/pcvtntank/vms/leesieun");
     g_assert_cmpstr(plan.target_disk_path, ==, "/dev/zvol/pcvtntank/vms/naverblog");
-    g_assert_cmpstr(plan.source_dataset, ==, "pcvtntank/vms/example-vm-source");
+    g_assert_cmpstr(plan.source_dataset, ==, "pcvtntank/vms/leesieun");
     g_assert_cmpstr(plan.target_dataset, ==, "pcvtntank/vms/naverblog");
     g_assert_cmpstr(plan.zfs_pool, ==, "pcvtntank/vms");
-    g_assert_cmpstr(plan.source_zvol_name, ==, "example-vm-source");
+    g_assert_cmpstr(plan.source_zvol_name, ==, "leesieun");
 
     pcv_vm_clone_disk_plan_clear(&plan);
     pcv_vm_clone_disk_info_clear(&info);

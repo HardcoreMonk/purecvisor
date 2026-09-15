@@ -78,6 +78,10 @@ require(
     "PCV_SSH_BIN" in source and "PCV_SCP_BIN" in source,
     "deploy does not expose test-safe SSH/SCP command injection",
 )
+require(
+    'ABI_PREFLIGHT_HELPER="$PROJECT_DIR/scripts/check-deploy-abi.sh"' in source,
+    "deploy has no repository-owned ABI preflight helper",
+)
 for literal in (
     "PCV_NGINX_BIND_IP",
     "install-nginx-termination.sh",
@@ -137,6 +141,19 @@ deploy_start = source.find("deploy_node()")
 local_start = source.find('if [[ $NO_LOCAL -eq 0 ]]; then')
 require(deploy_start >= 0 and local_start > deploy_start, "missing deploy_node boundary")
 remote_deploy = source[deploy_start:local_start]
+for literal in (
+    "$ABI_PREFLIGHT_HELPER",
+    "PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2",
+    "Remote ABI preflight failed before service stop",
+    'abi_result="$(bash "$ABI_HELPER" "$DAEMON_PATH" "$CLI_PATH")"',
+    'rm -f -- "$DAEMON_PATH" "$CLI_PATH"',
+):
+    require(literal in remote_deploy, f"missing remote ABI contract: {literal}")
+require(
+    remote_deploy.find("PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2")
+    < remote_deploy.find('sudo systemctl stop "$SERVICE"'),
+    "remote ABI preflight is not before service stop",
+)
 require(
     re.search(r"mkdir -m 0700 -- [\"']?\$1", remote_deploy)
     is not None,
@@ -173,6 +190,7 @@ for asset in (
     "$BPF_MANIFEST",
     "$HOST_TUNING_HELPER",
     "$HOST_TUNING_UNIT",
+    "$VFIO_MODULES_FILE",
 ):
     require(asset in runtime_scp, f"runtime scp does not stage {asset}")
 require(
@@ -246,6 +264,12 @@ require(
     is not None,
     "remote host-tuning install call missing --unit",
 )
+for literal in (
+    'sudo install -m 0644 "$RUNTIME_STAGE/purecvisor-vfio.conf"',
+    "sudo modprobe vfio-pci",
+    "sudo test -e /sys/bus/pci/drivers/vfio-pci/bind",
+):
+    require(literal in remote, f"missing remote VFIO prerequisite: {literal}")
 
 local = source[local_start:]
 ordered(
@@ -281,6 +305,28 @@ require(
     )
     is not None,
     "local host-tuning install call missing --unit",
+)
+for literal in (
+    'sudo install -m 0644 "$VFIO_MODULES_FILE"',
+    "sudo modprobe vfio-pci",
+    "sudo test -e /sys/bus/pci/drivers/vfio-pci/bind",
+):
+    require(literal in local, f"missing local VFIO prerequisite: {literal}")
+
+health_start = source.find('info "=== Health Check ==="')
+local_health_start = source.find('if [[ $NO_LOCAL -eq 0 ]] &&', health_start)
+require(
+    health_start >= 0 and local_health_start > health_start,
+    "missing remote post-deploy health boundary",
+)
+remote_health = source[health_start:local_health_start]
+require(
+    '"systemctl is-active $SERVICE"' in remote_health,
+    "remote post-deploy health does not query the service",
+)
+require(
+    "sudo systemctl is-active" not in remote_health,
+    "read-only remote post-deploy health must not require a second sudo authentication",
 )
 
 print("contract-ok")
@@ -328,6 +374,22 @@ if run_contract "$STATE/no-make-bpf.sh" >/dev/null 2>&1; then
   fail "counterfactual without make bpf must be rejected"
 fi
 
+
+python3 - "$DEPLOY_SCRIPT" "$STATE/daemon-only-abi.sh" <<'PY'
+import pathlib
+import sys
+
+source = pathlib.Path(sys.argv[1]).read_text(encoding="utf-8")
+old = 'abi_result="$(bash "$ABI_HELPER" "$DAEMON_PATH" "$CLI_PATH")"'
+new = 'abi_result="$(bash "$ABI_HELPER" "$DAEMON_PATH")"'
+if source.count(old) != 1:
+    raise SystemExit("could not build daemon-only ABI counterfactual")
+pathlib.Path(sys.argv[2]).write_text(source.replace(old, new), encoding="utf-8")
+PY
+if run_contract "$STATE/daemon-only-abi.sh" >/dev/null 2>&1; then
+  fail "counterfactual without CLI ABI inspection must be rejected"
+fi
+
 FAKE_BIN="$STATE/fake-bin"
 mkdir -p "$FAKE_BIN"
 
@@ -372,6 +434,32 @@ if [[ "${1:-}" == "bash" && "${2:-}" == "-s" ]]; then
   script="$FAKE_LOG_DIR/remote-script.$$.sh"
   output="$FAKE_LOG_DIR/remote-output.$$.txt"
   cat >"$script"
+  if grep -Fq '[[ "$1" == /tmp/purecvisorsd ]] || exit 2' "$script" &&
+     grep -Fq 'rm -f -- "$1" "$2" "$3"' "$script"; then
+    rm -f "$script" "$output"
+    exit 0
+  fi
+  if grep -Fq 'PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2' "$script"; then
+    case "${FAKE_ABI_STATUS:-ok}" in
+      ok)
+        printf 'PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2\n'
+        rc=0
+        ;;
+      missing)
+        printf '%s\n' 'error: ABI dependency resolution failed: /tmp/purecvisorsd' >&2
+        printf '%s\n' 'libxml2.so.2 => not found' >&2
+        rc=1
+        ;;
+      noisy)
+        printf '%s\n' 'unexpected-banner'
+        printf 'PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2\n'
+        rc=0
+        ;;
+      *) rc=2 ;;
+    esac
+    rm -f "$script" "$output"
+    exit "$rc"
+  fi
                                                        
                                              
                                                   
@@ -464,6 +552,11 @@ if [[ "${1:-}" == "env" ]]; then
   printf 'PCV_NGINX_DEPLOYMENT_ID=%064d\n' 1
   exit 0
 fi
+if [[ "${1:-}" == "test" && "${2:-}" == "-e" &&
+      "${3:-}" == "/usr/local/share/purecvisor/fallback/maintenance-status.json" ]]; then
+  [[ "${FAKE_MAINTENANCE_STATUS_EXISTS:-0}" == "1" ]]
+  exit $?
+fi
 if [[ "${1:-}" == */install-nginx-termination.sh ]]; then
   printf '%s\n' "$*" >>"$FAKE_LOG_DIR/nginx-transaction.log"
   if [[ "$*" == *"--rollback"* && "${FAKE_NGINX_ROLLBACK_FAIL:-0}" == "1" ]]; then
@@ -507,8 +600,17 @@ prepare_project() {
     "$project/bin" \
     "$project/ui" \
     "$project/systemd" \
-    "$project/packaging/systemd"
+    "$project/packaging/systemd" \
+    "$project/packaging/deb"
+  cp "$ROOT_DIR/packaging/ui-assets.manifest" \
+    "$project/packaging/ui-assets.manifest"
+  while read -r source _target _policy _extra; do
+    [[ -z "${source:-}" || "$source" == \#* ]] && continue
+    cp "$ROOT_DIR/$source" "$project/$source"
+  done <"$ROOT_DIR/packaging/ui-assets.manifest"
   cp "$candidate" "$project/scripts/deploy.sh"
+  cp "$ROOT_DIR/scripts/check-deploy-abi.sh" \
+    "$project/scripts/check-deploy-abi.sh"
   cp "$ROOT_DIR/scripts/install-runtime-prereqs.sh" \
     "$project/scripts/install-runtime-prereqs.sh"
   cp "$ROOT_DIR/scripts/install-nginx-termination.sh" \
@@ -519,8 +621,11 @@ prepare_project() {
     "$project/scripts/install-host-tuning.sh"
   cp "$ROOT_DIR/packaging/systemd/purecvisor-host-tuning.service" \
     "$project/packaging/systemd/purecvisor-host-tuning.service"
+  cp "$ROOT_DIR/packaging/deb/purecvisor-vfio.conf" \
+    "$project/packaging/deb/purecvisor-vfio.conf"
   chmod 0755 \
     "$project/scripts/deploy.sh" \
+    "$project/scripts/check-deploy-abi.sh" \
     "$project/scripts/install-runtime-prereqs.sh" \
     "$project/scripts/install-nginx-termination.sh" \
     "$project/scripts/wait-for-local-ip.sh" \
@@ -558,6 +663,7 @@ run_remote_deploy() {
   local helper_fail="$3"
   local stage_response="${4:-clean}"
   local health_status="${5:-active}"
+  local abi_status="${6:-ok}"
 
                                                                        
   (
@@ -566,6 +672,7 @@ run_remote_deploy() {
     export FAKE_BIN FAKE_LOG_DIR="$log_dir" FAKE_HELPER_FAIL="$helper_fail"
     export FAKE_STAGE_RESPONSE="$stage_response"
     export FAKE_HEALTH_STATUS="$health_status"
+    export FAKE_ABI_STATUS="$abi_status"
     export PCV_NODES="192.0.2.10"
     export PCV_SSH_BIN="$FAKE_BIN/ssh" PCV_SCP_BIN="$FAKE_BIN/scp"
     scripts/deploy.sh --skip-build --no-local
@@ -856,12 +963,40 @@ remote_success_contract() {
   [[ "$(wc -l <"$log_dir/start.log")" -eq 1 ]] || return 1
   [[ -s "$log_dir/stage-modes.log" ]] || return 1
   [[ "$(sort -u "$log_dir/stage-modes.log")" == "700" ]] || return 1
+  grep -Fq 'ui/offline.html' "$log_dir/scp.log" || return 1
+  grep -Fq 'ui-assets.manifest' "$log_dir/scp.log" || return 1
+  grep -Fq '/usr/local/share/purecvisor/fallback/maintenance.html' \
+    "$log_dir/sudo.log" || return 1
+  grep -Fq '/usr/local/share/purecvisor/fallback/maintenance-status.json' \
+    "$log_dir/sudo.log" || return 1
                                                          
                                                      
   grep -Fq '__PCV_NGINX_BIND_IP_EMPTY__' "$log_dir/ssh.log" || return 1
   ! grep -Fq 'install-nginx-termination.sh' "$log_dir/scp.log" || return 1
   [[ ! -s "$log_dir/nginx-transaction.log" ]] || return 1
   stages_are_cleaned "$log_dir"
+}
+
+remote_abi_failure_contract() {
+  local candidate="$1"
+  local label="$2"
+  local abi_status="$3"
+  local project log_dir rc
+
+  project="$(prepare_project "$candidate" "$label")"
+  log_dir="$(prepare_logs "$label")"
+  set +e
+  run_remote_deploy "$project" "$log_dir" 0 clean active "$abi_status"
+  rc=$?
+  set -e
+  [[ "$rc" -ne 0 ]] || return 1
+  [[ ! -s "$log_dir/sudo.log" ]] || return 1
+  [[ ! -s "$log_dir/start.log" ]] || return 1
+  [[ ! -s "$log_dir/stages.log" ]] || return 1
+  grep -Fq 'Remote ABI preflight' \
+    "$log_dir/deploy.out" ||
+    grep -Fq 'Remote ABI preflight' \
+      "$log_dir/deploy.err"
 }
 
 remote_helper_failure_contract() {
@@ -964,6 +1099,10 @@ no_local_contract() {
 
 remote_success_contract "$DEPLOY_SCRIPT" "current-success" ||
   fail "fake remote success must stage mode 700 and clean up"
+remote_abi_failure_contract "$DEPLOY_SCRIPT" "current-abi-missing" "missing" ||
+  fail "missing remote ABI dependency must fail before staging or service stop"
+remote_abi_failure_contract "$DEPLOY_SCRIPT" "current-abi-noisy" "noisy" ||
+  fail "noisy remote ABI success marker must fail closed before service stop"
 remote_helper_failure_contract "$DEPLOY_SCRIPT" "current-helper-failure" ||
   fail "helper failure must prevent start, fail deploy, and clean up"
 preflight_failure_contract "$DEPLOY_SCRIPT" "current-missing" "missing-object" ||
@@ -1357,6 +1496,16 @@ def anchored_contract(document_name, document):
 
 guide_contract = anchored_contract("GUIDE", guide)
 handoff_contract = anchored_contract("handoff", handoff)
+for literal in (
+    "TLS 배포 모드 선택",
+    "purecvisorsd` 자체 HTTPS",
+    "선택형 NGINX 외부 TLS 종료",
+    "mode=internal",
+    "https_port=443",
+    "PCV_NGINX_BIND_IP`를 다음 배포에서 생략",
+    "GitHub Pages",
+):
+    require(literal in guide_contract, f"GUIDE TLS mode comparison missing: {literal}")
 require(
     'NODE_IPV4="<configured-management-ipv4>"' in handoff_contract
     and 'PCV_NGINX_BIND_IP="${NODE_IPV4}"' in handoff_contract
@@ -1652,6 +1801,7 @@ for line in body.splitlines():
 for command in (
     "bash tests/integration/test_runtime_prereq_install.sh",
     "bash tests/integration/test_nginx_termination_install.sh",
+    "python3 scripts/tests/test_deploy_abi_preflight.py",
     "bash tests/integration/test_deploy_runtime_prereq_contract.sh",
 ):
     require(
@@ -1695,6 +1845,8 @@ expected_deps = {
                                                       
                                                                  
     "check-cli-exit-status",
+
+    "check-dpdk-owned-lifecycle",
                                                                               
     "check-network-mode-contract",
                                                                
@@ -1729,6 +1881,7 @@ expected_deps = {
     "check-rpc-route-unique",
                                                                       
     "check-rerror-guard",
+    "check-single-ui-surface",
     "check-runtime-prereqs",
 }
 require(
@@ -1737,12 +1890,13 @@ require(
 )
 require(
     set(deps) == expected_deps,
-    "check-all dependencies must match the complete expected 38-gate set",
+    "check-all dependencies must match the complete expected 40-gate set",
 )
 require(
-    "전체 통과 (38게이트:" in recipe and "network mode enum" in recipe and
-    "iSCSI CHAP argv 제거" in recipe and "runtime prerequisites" in recipe,
-    "check-all success message must describe all 38 gates",
+    "전체 통과 (40게이트:" in recipe and "DPDK ownership lifecycle" in recipe and
+    "network mode enum" in recipe and "iSCSI CHAP argv 제거" in recipe and
+    "runtime prerequisites" in recipe,
+    "check-all success message must describe all 40 gates",
 )
 
 policy_section = re.search(
@@ -1757,7 +1911,11 @@ require(
 )
 section = policy_section.group("body")
 trigger = section.split("```bash", 1)[0]
-for script in ("scripts/install-runtime-prereqs.sh", "scripts/deploy.sh"):
+for script in (
+    "scripts/install-runtime-prereqs.sh",
+    "scripts/check-deploy-abi.sh",
+    "scripts/deploy.sh",
+):
     require(
         script in trigger,
         f"runtime prerequisite policy trigger must include {script}",
@@ -1811,6 +1969,10 @@ require_bullet(
 require_bullet(
     (r"원격 staging", r"0700", r"(?:cleanup|정리)", r"시작하지"),
     "runtime prerequisite policy must secure and clean remote staging before start",
+)
+require_bullet(
+    (r"daemon", r"CLI", r"ldd", r"not found", r"service stop 전에", r"정리"),
+    "runtime prerequisite policy must fail closed on remote ABI before service stop",
 )
 PY
 }

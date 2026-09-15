@@ -23,6 +23,7 @@
                                                          
                                                         
                                                                 
+
                                                              
    
 import os
@@ -34,13 +35,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from check_deb_apparmor import (              
     check_postinst, check_postrm, check_helper, extract_generated,
-    apparmor_action, purge_block,
-    ROOT, BUILD_REL, HELPER_REL, APROF, DISLINK, FCLINK,
+    check_profile, apparmor_action, purge_block,
+    ROOT, BUILD_REL, HELPER_REL, PROFILE_REL, APROF, DISLINK, FCLINK,
 )
 
 GATE = Path(__file__).resolve().parent.parent / "check_deb_apparmor.py"
 BUILD = ROOT / BUILD_REL
 HELPER = ROOT / HELPER_REL
+PROFILE = ROOT / PROFILE_REL
 
 
                                                          
@@ -249,13 +251,14 @@ def test_missing_heredoc_flagged():
 
 
                                                          
-def _run(build_text=None, helper_text=None):
+def _run(build_text=None, helper_text=None, profile_text=None):
                                                                   
     tmps = []
     try:
         argv = [sys.executable, str(GATE)]
         for flag, text, suffix in (("--build-script", build_text, ".sh"),
-                                   ("--helper", helper_text, ".sh")):
+                                   ("--helper", helper_text, ".sh"),
+                                   ("--profile", profile_text, ".profile")):
             if text is None:
                 continue
             with tempfile.NamedTemporaryFile("w", suffix=suffix, delete=False) as f:
@@ -391,6 +394,23 @@ def test_real_helper_without_disable_removal_fails():
         src, '  complain)\n    adr0028_warn\n    rm -f "$DISLINK"\n',
         '  complain)\n    adr0028_warn\n'))
     assert rc == 1 and "불변식6" in out, out
+
+
+def test_profile_ovsdb_client_rule_and_counterfactual():
+
+    src = PROFILE.read_text()
+    rule = "  /{usr/,}bin/ovsdb-client        Ux,\n"
+    assert check_profile(src) == []
+    assert any("불변식7" in b for b in check_profile(_mutate(src, rule, "")))
+    assert any("불변식7" in b for b in check_profile(
+        _mutate(src, rule, "  # /{usr/,}bin/ovsdb-client        Ux,\n")))
+
+
+def test_real_profile_without_ovsdb_client_rule_fails():
+    src = PROFILE.read_text()
+    rc, out = _run(profile_text=_mutate(
+        src, "  /{usr/,}bin/ovsdb-client        Ux,\n", ""))
+    assert rc == 1 and "불변식7" in out and "ovsdb-client" in out, out
 
 
 def test_gate_constants_match_adr():

@@ -40,7 +40,7 @@
                                                         
    
 
-const CACHE_NAME="pcv-ui-v26d7acf5";
+const CACHE_NAME = 'pcv-ui-vf707ff74';
 const OFFLINE_URL = '/ui/offline.html';
 
                               
@@ -68,6 +68,7 @@ const STATIC_ASSETS = [
   '/ui/vendor/novnc/novnc.esm.js',
   '/ui/vendor/pretendard/pretendard.css',
   '/ui/vendor/coolicons/coolicons.svg',
+  '/ui/assets/diagrams/purecvisor-single-full-architecture.svg',
   '/ui/manifest.json',
   '/ui/icon-192.png',
   '/ui/icon-512.png',

@@ -1,5 +1,5 @@
                                                                            
-                                                                            
+
                                                               
                                                                        
                                                                              
@@ -45,6 +45,7 @@
 
                                                                                        
 #include <sched.h>
+#include <sys/mount.h>
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
@@ -106,12 +107,14 @@ void test_rest_middleware_register(void);
 void test_rest_auth_register(void);                                         
 void test_rpc_utils_register(void);                               
 void test_rpc_completion_register(void);                                            
+void test_host_hardware_inventory_register(void);
 void test_rpc_parse_guarded_register(void);                                  
 void test_drain_register(void);                                        
 void test_ai_agent_register(void);                                 
 void test_prometheus_register(void);                               
 void test_plugin_register(void);                                  
 void test_snapshot_rollback_register(void);                     
+void test_ova_import_xml_register(void);
 void test_bootstrap_register(void);                                   
 void test_bootstrap_rpc_registration_register(void);                                  
 void test_security_event_register(void);                                           
@@ -134,6 +137,8 @@ void test_qos_integration_register(void);
                                                                                              
 void test_trace_register(void);                                                                 
 void test_trace_integration_register(void);                                                             
+void test_telemetry_reconnect_guard_register(void);
+void test_virt_listener_guard_register(void);
 void test_suricata_register(void);                                                               
 void test_suricata_ips_register(void);                                            
 void test_suricata_ips_rules_register(void);                                                        
@@ -146,6 +151,7 @@ void test_anomaly_autowatch_register(void);
 void test_apikey_register(void);                                                 
 void test_rbac_user_exists_register(void);                                  
 void test_pbkdf2_verify_register(void);                                        
+void test_password_rotation_register(void);
 void test_handler_snapshot_verify_register(void);                                           
 void test_handler_vm_batch_register(void);                                                     
 void test_hotplug_flags_register(void);                                                                               
@@ -205,10 +211,10 @@ _isolate_netns(void)
         return;
     }
 
-    if (unshare(CLONE_NEWNET) != 0) {
+    if (unshare(CLONE_NEWNET | CLONE_NEWNS) != 0) {
         fprintf(stderr,
                 "FATAL: root 로 test_runner 를 실행하려 했으나 network "
-                "namespace 격리(unshare(CLONE_NEWNET))에 실패했습니다: %s\n"
+                "및 mount namespace 격리에 실패했습니다: %s\n"
                 "격리 없이 root 로 테스트를 계속하면 /security_group 스위트가 "
                 "호스트 네트워크에 nft drop 체인을 설치해 네트워크 전체가 "
                 "다운될 수 있습니다 (2026-07-04 gti12 장애 재현). 실행을 "
@@ -218,6 +224,25 @@ _isolate_netns(void)
     }
 
                                                                
+
+
+
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0 ||
+        mount("sysfs", "/sys", "sysfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
+        fprintf(stderr, "FATAL: 격리 netns의 sysfs 준비 실패: %s\n", strerror(errno));
+        _exit(1);
+    }
+
+
+
+
+    if (g_strcmp0(g_getenv("PCV_SHARED_BRIDGE_LIVE"), "1") == 0 &&
+        mount("bpf", "/sys/fs/bpf", "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
+        fprintf(stderr, "FATAL: 격리 TC 시험용 bpffs 준비 실패: %s\n", strerror(errno));
+        _exit(1);
+    }
+
+
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
     if (sock < 0) {
         fprintf(stderr,
@@ -334,12 +359,14 @@ int main(int argc, char *argv[]) {
     test_rest_auth_register();                                          
     test_rpc_utils_register();                                
     test_rpc_completion_register();                              
+    test_host_hardware_inventory_register();
     test_rpc_parse_guarded_register();                                  
     test_drain_register();                                         
     test_ai_agent_register();                                  
     test_prometheus_register();                                
     test_plugin_register();                                   
     test_snapshot_rollback_register();                     
+    test_ova_import_xml_register();
     test_bootstrap_register();                                   
     test_bootstrap_rpc_registration_register();                                  
     test_security_event_register();                                           
@@ -361,6 +388,8 @@ int main(int argc, char *argv[]) {
     test_qos_integration_register();                                                           
     test_trace_register();                                                                 
     test_trace_integration_register();                                                             
+    test_telemetry_reconnect_guard_register();
+    test_virt_listener_guard_register();
     test_suricata_register();                                                               
     test_suricata_ips_register();                                            
     test_suricata_ips_rules_register();                                                        
@@ -373,6 +402,7 @@ int main(int argc, char *argv[]) {
     test_apikey_register();                                                 
     test_rbac_user_exists_register();                                  
     test_pbkdf2_verify_register();                                        
+    test_password_rotation_register();
     test_handler_snapshot_verify_register();                                          
     test_handler_vm_batch_register();                                                    
     test_hotplug_flags_register();                                                                              

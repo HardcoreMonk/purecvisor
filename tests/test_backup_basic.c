@@ -37,6 +37,7 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include "purecvisor/pcv_validate.h"
+#include "modules/backup/backup_send_estimate.h"
 
                                                      
 
@@ -227,6 +228,17 @@ static void test_backup_incremental_result_json(void) {
     json_object_unref(result);
 }
 
+
+static void test_backup_send_estimate_parser(void) {
+    g_assert_cmpint(pcv_backup_parse_send_estimate(
+        "full\tpcvpool/vms/vm@snap\nsize\t1179648\n"), ==, 1179648);
+    g_assert_cmpint(pcv_backup_parse_send_estimate(
+        "size 4096\n"), ==, 4096);
+    g_assert_cmpint(pcv_backup_parse_send_estimate("size\t0\n"), ==, 0);
+    g_assert_cmpint(pcv_backup_parse_send_estimate("size\tnot-a-number\n"), ==, 0);
+    g_assert_cmpint(pcv_backup_parse_send_estimate(NULL), ==, 0);
+}
+
                                                               
                                                              
 void test_backup_basic_register(void) {
@@ -243,4 +255,5 @@ void test_backup_basic_register(void) {
     g_test_add_func("/backup/policy/json_roundtrip",     test_backup_policy_json_roundtrip);
     g_test_add_func("/backup/policy/wildcard",           test_backup_policy_wildcard);
     g_test_add_func("/backup/incremental/result_json",   test_backup_incremental_result_json);
+    g_test_add_func("/backup/verify/send_estimate",     test_backup_send_estimate_parser);
 }

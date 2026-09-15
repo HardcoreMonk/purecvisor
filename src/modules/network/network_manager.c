@@ -104,6 +104,7 @@
                                 
                                                                        
    
+#include "api/drain.h"
 #include <stdio.h>
 #include <glib.h>
 #include <glib/gstdio.h>                             
@@ -135,7 +136,7 @@
 
 #define NET_LOG_DOM "network"
 
-                                                                      
+
 
 
 #define PCV_HOST_NET_MAX_JSON_BYTES (4U * 1024U * 1024U)
@@ -503,7 +504,7 @@ _qos_reconcile_tick(gpointer data)
                                                        
     if (!g_atomic_int_compare_and_exchange(&g_qos_reconcile_inflight, 0, 1))
         return G_SOURCE_CONTINUE;                                            
-    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     pcv_worker_pool_push(t, _qos_reconcile_worker);                             
     g_object_unref(t);                                  
     return G_SOURCE_CONTINUE;
@@ -3269,7 +3270,7 @@ void handle_network_create_request(JsonObject *params, const gchar *rpc_id, UdsS
     g_hash_table_insert(g_net_inflight, g_strdup(br_name), GINT_TO_POINTER(TRUE));
     g_mutex_unlock(&g_net_inflight_mu);
 
-    GTask *task = g_task_new(NULL, NULL, network_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, network_action_callback, ctx);
 
                                 
     g_task_set_task_data(task, ctx, free_network_ctx);
@@ -3368,7 +3369,7 @@ void handle_network_delete_request(JsonObject *params, const gchar *rpc_id, UdsS
     ctx->server = g_object_ref(server);
     ctx->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, network_action_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, network_action_callback, ctx);
 
                                 
     g_task_set_task_data(task, ctx, free_network_ctx);
@@ -3655,22 +3656,22 @@ static gchar *_get_bridge_ip(const gchar *bridge_name)
     return result;
 }
 
-   
-                                                     
-                            
-                          
-                     
-                           
+
+
+
   
-                                               
-                                                
-                                                            
-                   
+
+
+
+
+
+
+
   
-                                   
-  
-               
-                                                                   
+
+
+
+
 static const gchar *
 _host_net_string_member(JsonObject *object, const gchar *member)
 {
@@ -5000,7 +5001,8 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
                         
                                                 
                                            
-                                              
+
+
   
                             
                                                   
@@ -5022,7 +5024,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
                            
   
                                                    
-                                                
+
   
                                                     
                                                   
@@ -5144,8 +5146,9 @@ void handle_network_ovs_delete_request(JsonObject *params, const gchar *rpc_id,
                                                        
                                                                  
   
-                                                             
-                                          
+
+
+
   
                     
                                                  

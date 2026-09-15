@@ -62,7 +62,13 @@ fi
 pcv_live_mgmt_iface=$(ip -4 -o addr show | awk -v pcv_ip="${PCV_LIVE_NODE_IPV4}" \
     '$4 ~ ("^" pcv_ip "/") {print $2; exit}')
 [[ -n "${pcv_live_mgmt_iface}" ]] || { echo "FAIL: management interface not resolved" >&2; exit 1; }
-pcv_live_addr_before=$(ip -4 -o addr show dev "${pcv_live_mgmt_iface}")
+
+
+pcv_live_addr_snapshot() {
+    ip -j -4 addr show dev "${pcv_live_mgmt_iface}" \
+        | jq -cS 'map(.addr_info |= map(del(.valid_life_time, .preferred_life_time)))'
+}
+pcv_live_addr_before=$(pcv_live_addr_snapshot)
 pcv_live_defaults_before=$(ip -4 route show default)
 pcv_live_pid_before=$(systemctl show "${pcv_live_service}" -p MainPID --value)
 pcv_live_restarts_before=$(systemctl show "${pcv_live_service}" -p NRestarts --value)
@@ -147,7 +153,7 @@ done
 [[ ! -e "/sys/class/net/${pcv_live_br}" ]]
 ! sudo -n find "${pcv_live_netdir}" -maxdepth 1 -name "dnsmasq-${pcv_live_br}.*" -print -quit | grep -q .
 ! sudo -n nft -a list table inet purecvisor | grep -Fq "\"${pcv_live_br}\""
-[[ "$(ip -4 -o addr show dev "${pcv_live_mgmt_iface}")" == "${pcv_live_addr_before}" ]]
+[[ "$(pcv_live_addr_snapshot)" == "${pcv_live_addr_before}" ]]
 [[ "$(ip -4 route show default)" == "${pcv_live_defaults_before}" ]]
 [[ "$(systemctl show "${pcv_live_service}" -p MainPID --value)" == "${pcv_live_pid_before}" ]]
 [[ "$(systemctl show "${pcv_live_service}" -p NRestarts --value)" == "${pcv_live_restarts_before}" ]]

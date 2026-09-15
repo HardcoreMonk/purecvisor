@@ -67,6 +67,7 @@
                                                                
                                                                              
    
+#include "api/drain.h"
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -1529,7 +1530,7 @@ _sg_resync_tick(gpointer data)
                                                   
     if (!g_atomic_int_compare_and_exchange(&g_sg_resync_inflight, 0, 1))
         return G_SOURCE_CONTINUE;                                         
-    GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     pcv_worker_pool_push(t, _sg_resync_worker);                  
     g_object_unref(t);                                           
     return G_SOURCE_CONTINUE;                    

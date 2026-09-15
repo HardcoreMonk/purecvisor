@@ -28,7 +28,7 @@
 
 static void test_cidr_ipv4_valid(void) {
     g_assert_true(pcv_validate_cidr("10.0.0.0/8"));
-    g_assert_true(pcv_validate_cidr("192.168.1.0/24"));
+    g_assert_true(pcv_validate_cidr("192.168.200.0/24"));
     g_assert_true(pcv_validate_cidr("172.16.0.0/12"));
     g_assert_true(pcv_validate_cidr("10.0.0.1/32"));                       
     g_assert_true(pcv_validate_cidr("0.0.0.0/0"));                   
@@ -178,7 +178,7 @@ static void test_net_create_bridge_requires_ack(void) {
 static void test_net_create_bridge_rejects_cidr(void) {
     GError *err = NULL;
     g_assert_false(pcv_validate_network_create_params(
-        "pcvbr0", "bridge", "192.0.2.73/24", "enp42s0",
+        "pcvbr0", "bridge", "192.168.200.73/24", "enp42s0",
         "dedicated", "dedicated-uplink", &err));
     g_assert_nonnull(err);
     g_clear_error(&err);
@@ -214,7 +214,7 @@ static void test_net_create_bridge_rejects_uplink_ack_mismatch(void) {
 static void test_private_cidr_valid(void) {
     g_assert_true(pcv_validate_private_cidr("10.0.0.0/8"));
     g_assert_true(pcv_validate_private_cidr("172.16.0.0/12"));
-    g_assert_true(pcv_validate_private_cidr("192.168.1.0/24"));
+    g_assert_true(pcv_validate_private_cidr("192.168.200.0/24"));
 }
 
 static void test_private_cidr_invalid(void) {

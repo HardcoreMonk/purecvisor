@@ -586,12 +586,11 @@ window.renderMonitoring = renderMonitoring;
 
                                            
 
-                                                        
-                                                   
-function _opsPct(n, fallback) {
+
+function _opsPct(n) {
+  if (n === null || n === undefined || n === '') return null;
   var v = Number(n);
-  if (!Number.isFinite(v)) v = fallback || 0;
-  return Math.max(0, Math.min(100, v));
+  return Number.isFinite(v) && v >= 0 ? Math.min(100, v) : null;
 }
 
 function _opsStatus(label, tone) {
@@ -615,7 +614,8 @@ function _opsMetricCard(label, value, detail, statusLabel, tone) {
 
 function _opsBar(pct) {
   var el = PCV.uxlib.el;
-  var safe = _opsPct(pct, 0);
+  var safe = _opsPct(pct);
+  if (safe === null) return el('span', { class: 'color-muted text-12' }, '미수집');
   var text = safe.toFixed(safe < 10 ? 1 : 0) + '%';
   return el('div', { class: 'ops-bar', style: '--value:' + safe.toFixed(1) + '%' },
     el('div', { class: 'ops-bar-fill' }),
@@ -631,15 +631,15 @@ function _opsVmStatus(v) {
 
                                                        
                                                                   
-                                                          
-                                                         
-function _opsVmRows(sourceVms) {
+
+function _opsVmRows(sourceVms, emptyText) {
   var el = PCV.uxlib.el;
   var rows = (sourceVms || []).slice(0, 5).map(function(v) {
     var maxMb = Number(v.memory_max_mb || v.memory_mb || v.maxmem || 0);
-    var usedMb = Number(v.memory_used_mb || v.mem_used_mb || 0);
-    var memPct = maxMb > 0 && usedMb > 0 ? usedMb / maxMb * 100 : _opsPct(v.mem || v.memory_percent, 34);
-    var cpuPct = _opsPct(v.cpu || v.cpu_percent || v.cpu_usage, v.running === 1 ? 12 : 0);
+    var usedMb = Number(v.memory_used_mb ?? v.mem_used_mb);
+    var memPct = maxMb > 0 && Number.isFinite(usedMb) && usedMb >= 0
+      ? usedMb / maxMb * 100 : _opsPct(v.mem ?? v.memory_percent);
+    var cpuPct = _opsPct(v.cpu ?? v.cpu_percent ?? v.cpu_usage);
     return {
       name: v.name || v.vm || '-',
       role: v.role || (v.node ? '호스트 ' + v.node : 'VM 자산'),
@@ -653,7 +653,7 @@ function _opsVmRows(sourceVms) {
   if (rows.length === 0) {
     return [el('tr', null,
       el('td', { colspan: '6', class: 'color-muted text-12' },
-        '수집된 VM 데이터가 없습니다. VM 모니터링 화면에서 연결 상태를 확인하십시오.'))];
+        emptyText || '수집된 VM 데이터가 없습니다. VM 모니터링 화면에서 연결 상태를 확인하십시오.'))];
   }
   return rows.map(function(v) {
     return el('tr', null,
@@ -671,8 +671,7 @@ function _opsVmRows(sourceVms) {
                                                                 
                                                   
                                                        
-                                                        
-                                   
+
 function _opsAuditRows() {
   var raw;
   try { raw = (window.eventLog || eventLog || []).slice(-3).reverse(); } catch (e) { raw = []; }
@@ -707,10 +706,9 @@ function _opsAuditRows() {
           
   
                
-                                          
-                                                       
-                                                            
-                                             
+
+
+
    
 async function renderOpsTriage(b) {
   if (typeof pcvDestroyAllInContainer === 'function') pcvDestroyAllInContainer(b);
@@ -718,13 +716,15 @@ async function renderOpsTriage(b) {
   showSkeleton(b);
   var all;
   var apiVms;
+  var haveVmData = false;
   try {
     var result = await Promise.all([
       fetchAllMetrics().catch(function() { return []; }),
-      fetchGet(EP.VM_LIST()).catch(function() { return { data: [] }; })
+      fetchGet(EP.VM_LIST()).catch(function() { return { error: true }; })
     ]);
     all = Array.isArray(result[0]) ? result[0] : [];
     apiVms = unwrapList(result[1]);
+    haveVmData = !!result[1] && !result[1].error;
   } catch (e) {
     all = [];
     apiVms = [];
@@ -737,11 +737,17 @@ async function renderOpsTriage(b) {
   });
   var sourceVms = metricVms.length ? metricVms : apiVms;
   var displayVms = sourceVms;
+  haveVmData = haveVmData || metricVms.length > 0;
   var usableMetrics = all.filter(function(n) { return !n.error; });
-  var avgCpu = usableMetrics.length ? usableMetrics.reduce(function(s, n) { return s + (n.cpu || 0); }, 0) / usableMetrics.length : 2.0;
-  var avgMem = usableMetrics.length ? usableMetrics.reduce(function(s, n) { return s + (n.mem || 0); }, 0) / usableMetrics.length : 41;
+  function averageMetric(key) {
+    var values = usableMetrics.map(function(n) { return _opsPct(n[key]); })
+      .filter(function(n) { return n !== null; });
+    return values.length ? values.reduce(function(sum, n) { return sum + n; }, 0) / values.length : null;
+  }
+  var avgCpu = averageMetric('cpu');
+  var avgMem = averageMetric('mem');
   var totalRam = usableMetrics.reduce(function(s, n) { return s + (n.ram_total || 0); }, 0);
-  var ramDetail = totalRam > 0 ? fmtBytes(totalRam) + ' total' : '32GB 중 13.1GB';
+  var ramDetail = totalRam > 0 ? fmtBytes(totalRam) + ' total' : '총 메모리 미수집';
   var running = displayVms.filter(function(v) {
     var st = String(v.state || '').toLowerCase();
     return v.running === 1 || st === 'running';
@@ -755,50 +761,39 @@ async function renderOpsTriage(b) {
       el('span', { class: 'ops-triage-card-meta' }, meta));
   }
 
-                                                       
-                                                                  
-                                               
-                                                      
+
+
   var header = HN.pagehead({
     title: '운영 이벤트 센터',
-    desc: 'VM, OVN, ZFS, 보안 이벤트를 한 화면에서 triage하고 즉시 조치하는 운영자용 화면입니다.',
-    actions: [el('div', { class: 'ops-triage-tabs', role: 'tablist', 'aria-label': '시간 범위' },
-      el('button', { class: 'ops-triage-tab is-active', type: 'button' }, 'LIVE'),
-      el('button', { class: 'ops-triage-tab', type: 'button' }, '1H'),
-      el('button', { class: 'ops-triage-tab', type: 'button' }, '24H'),
-      el('button', { class: 'ops-triage-tab', type: 'button' }, 'AUDIT'))]
+    desc: '현재 호스트·VM 상태를 요약하고 경보, 서버 감사와 브라우저 활동을 출처별로 확인합니다.'
   });
+  var vmRowsBody = el('tbody', null, _opsVmRows(displayVms));
 
   var section = el('section', { class: 'ops-triage-grid', 'aria-label': '운영 이벤트 센터' },
-    _opsMetricCard('호스트 CPU', avgCpu.toFixed(1) + '%', '단일 노드 평균', avgCpu > 80 ? '위험' : '정상', avgCpu > 80 ? 'bad' : avgCpu > 60 ? 'warn' : 'ok'),
-    _opsMetricCard('메모리', avgMem.toFixed(0) + '%', ramDetail, avgMem > 85 ? '위험' : '여유', avgMem > 85 ? 'bad' : avgMem > 70 ? 'warn' : 'ok'),
+    _opsMetricCard('호스트 CPU', avgCpu === null ? '미수집' : avgCpu.toFixed(1) + '%', '단일 노드 평균', avgCpu === null ? '미확인' : avgCpu > 80 ? '위험' : '정상', avgCpu === null ? 'info' : avgCpu > 80 ? 'bad' : avgCpu > 60 ? 'warn' : 'ok'),
+    _opsMetricCard('메모리', avgMem === null ? '미수집' : avgMem.toFixed(0) + '%', ramDetail, avgMem === null ? '미확인' : avgMem > 85 ? '위험' : '여유', avgMem === null ? 'info' : avgMem > 85 ? 'bad' : avgMem > 70 ? 'warn' : 'ok'),
     _opsMetricCard('OVN 관리', '로컬', 'OVN 상태 화면에서 확인', '확인', 'info'),
-    _opsMetricCard('실행 VM', running + '/' + totalVm, '현재 조회 결과', running > 0 ? '가동' : '확인', running > 0 ? 'ok' : 'warn'),
+    _opsMetricCard('실행 VM', haveVmData ? running + '/' + totalVm : '미수집', '현재 조회 결과', running > 0 ? '가동' : '확인', running > 0 ? 'ok' : 'warn'),
     el('article', { class: 'ops-triage-card ops-span-5' },
-      cardHead('이벤트 triage', '최근 15분'),
+      cardHead('실제 이벤트 조회', '서버 기록'),
       el('div', { class: 'ops-triage-list' },
-        el('div', { class: 'ops-triage-event' },
-          el('div', { class: 'ops-severity bad' }),
-          el('div', null,
-            el('p', { class: 'ops-event-title' }, 'viewer 계정 로그인 시도 증가'),
-            el('div', { class: 'ops-event-sub' }, 'nginx access log 기준 동일 User-Agent 반복 접근')),
-          el('div', { class: 'ops-event-time' }, 'LIVE')),
-        el('div', { class: 'ops-triage-event' },
-          el('div', { class: 'ops-severity warn' }),
-          el('div', null,
-            el('p', { class: 'ops-event-title' }, 'exporter scrape 지연 확인'),
-            el('div', { class: 'ops-event-sub' }, 'Prometheus full exporter 응답 지연은 관측성 품질에 영향')),
-          el('div', { class: 'ops-event-time' }, 'WARN')),
-        el('div', { class: 'ops-triage-event' },
-          el('div', { class: 'ops-severity ok' }),
-          el('div', null,
-            el('p', { class: 'ops-event-title' }, 'OVN 구성 상태 확인'),
-            el('div', { class: 'ops-event-sub' }, '논리 스위치, 라우터와 ACL 상태는 OVN 화면에서 확인')),
-          el('div', { class: 'ops-event-time' }, '이동')))),
+        el('p', { class: 'color-muted text-12' }, '경보와 감사 기록은 각 조회 화면에서 최신 결과를 확인하십시오.'),
+        el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-alerts'); } }, '경보 조회'),
+        el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); } }, '서버 감사 로그 조회'))),
     el('article', { class: 'ops-triage-card ops-span-7' },
       cardHead('VM 및 서비스 상태', totalVm + ' assets'),
       el('div', { class: 'ops-triage-toolbar' },
-        el('input', { class: 'ops-triage-field', type: 'search', placeholder: '이름 또는 IP', 'aria-label': '자산 검색' }),
+        el('input', { class: 'ops-triage-field', type: 'search', placeholder: '이름 또는 IP', 'aria-label': '자산 검색',
+          onInput: function(event) {
+            var query = event.target.value.trim().toLowerCase();
+            var filtered = displayVms.filter(function(v) {
+              return [v.name || v.vm || '', v.ip_addr || v.ip || v.addr || ''].some(function(value) {
+                return String(value).toLowerCase().includes(query);
+              });
+            });
+            clearEl(vmRowsBody);
+            vmRowsBody.appendChild(frag(_opsVmRows(filtered, query ? '검색 결과가 없습니다.' : null)));
+          } }),
         el('div', { class: 'ops-triage-actions' },
           el('button', { class: 'ops-triage-action', type: 'button', onclick: "renderOpsTriage(PCV.ui.renderTarget())" },
             _svgIcon('vendor/coolicons/coolicons.svg#ci-refresh', 'ci-icon'), '새로고침'),
@@ -809,18 +804,18 @@ async function renderOpsTriage(b) {
           el('thead', null, el('tr', null,
             el('th', null, '이름'), el('th', null, '역할'), el('th', null, 'IP'),
             el('th', null, 'CPU'), el('th', null, '메모리'), el('th', null, '상태'))),
-          el('tbody', null, _opsVmRows(displayVms))))),
+          vmRowsBody))),
     el('article', { class: 'ops-triage-card ops-span-4' },
-      cardHead('명령 팔레트', 'Ctrl K'),
+      cardHead('빠른 이동', '조회'),
       el('div', { class: 'ops-command' },
         el('button', { class: 'ops-command-row is-active', type: 'button', onclick: "navigateTo('host')" },
-          el('span', { class: 'ops-key' }, 'RUN'), el('span', null, 'qemu-guest-agent 설치 확인'), el('span', { class: 'ops-key' }, 'Enter')),
+          el('span', { class: 'ops-key' }, 'HOST'), el('span', null, '호스트 상태 열기')),
         el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('ovn')" },
-          el('span', { class: 'ops-key' }, 'NET'), el('span', null, 'OVN NAT 및 logical router 상태 확인'), el('span', { class: 'ops-key' }, 'N')),
+          el('span', { class: 'ops-key' }, 'NET'), el('span', null, 'OVN 관리 열기')),
         el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('mon-audit')" },
-          el('span', { class: 'ops-key' }, 'LOG'), el('span', null, 'viewer 성공 로그인 IP 목록 열기'), el('span', { class: 'ops-key' }, 'L')),
+          el('span', { class: 'ops-key' }, 'LOG'), el('span', null, '서버 감사 로그 열기')),
         el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('activity-log')" },
-          el('span', { class: 'ops-key' }, 'JOB'), el('span', null, '실패 작업만 필터링'), el('span', { class: 'ops-key' }, 'J')))),
+          el('span', { class: 'ops-key' }, 'JOB'), el('span', null, '활동 로그 열기')))),
     el('article', { class: 'ops-triage-card ops-span-4' },
       cardHead('OVN 관리', 'local'),
       el('p', { class: 'color-muted text-12' },
@@ -828,7 +823,7 @@ async function renderOpsTriage(b) {
       el('button', { class: 'ops-triage-action', type: 'button', onclick: "navigateTo('ovn')" },
         _svgIcon('vendor/coolicons/coolicons.svg#ci-layers', 'ci-icon'), 'OVN 화면 열기')),
     el('article', { class: 'ops-triage-card ops-span-4' },
-      cardHead('감사 추적', 'audit'),
+      cardHead('브라우저 활동', '이 브라우저'),
       el('div', { class: 'ops-triage-list' }, _opsAuditRows())));
 
   clearEl(b);
@@ -2898,8 +2893,8 @@ function _renderAlertHistoryRegion() {
       if (ackFallback) ackFallback.focus();
     }
   }
-                                                                 
-                                                          
+
+
                                                            
   if (window.currentUser && typeof applyRoleVisibility === 'function') {
     applyRoleVisibility(window.currentUser.role);
@@ -4051,14 +4046,11 @@ window.renderHost = renderHost;
 
                               
    
-                                  
+
   
                
-                                                    
-                                                         
-                                                 
-                                                        
-                                     
+
+
   
                   
                                                         
@@ -4069,39 +4061,32 @@ function renderHeatmap(b) {
   showSkeleton(b);
                                                              
   fetchGet(EP.VM_LIST()).then(function(r) {
+    if (r && r.error) throw new Error(r.error.message || _L('조회 실패', 'Request failed'));
     var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
     var vms = unwrapList(r);
     if (!vms || vms.length === 0) {
       clearEl(b);
       b.appendChild(frag(HN.pagehead({ title: _L('리소스 히트맵', 'Resource Heatmap') }),
-        el('p', { class: 'color-muted text-center', style: 'padding:24px' }, _L('실행 중인 VM이 없습니다', 'No running VMs'))));
+        el('p', { class: 'color-muted text-center', style: 'padding:24px' }, _L('조회된 VM이 없습니다', 'No VMs returned'))));
       return;
     }
-    var headCells = [el('th', null, _L('VM', 'VM'))];
-    for (var i = 0; i < 12; i++) headCells.push(el('th', { class: 'w-30 text-center text-9' }, (i * 5) + 'm'));
+    var headCells = [el('th', null, 'VM'), el('th', null, _L('CPU · 현재 조회', 'CPU · Current reading'))];
     var bodyRows = vms.map(function(vm) {
-      var cells = [el('td', { class: 'nowrap' }, el('b', null, vm.name || '?'))];
-      for (var j = 0; j < 12; j++) {
-        var cpu = (vm.live_cpu_pct || vm.cpu_percent || 0) + (Math.random() * 20 - 10);
-        cpu = Math.max(0, Math.min(100, cpu));
-        var rr = cpu > 80 ? 255 : Math.round(cpu * 2.5);
-        var gg = cpu < 50 ? Math.round(200 - cpu * 2) : Math.round(200 - cpu * 2);
-        gg = Math.max(0, gg);
-        var color = 'rgba(' + rr + ',' + gg + ',50,0.8)';
-        cells.push(el('td', { style: 'width:30px;height:20px;background:' + color + ';border-radius:2px', title: cpu.toFixed(0) + '%' }));
-      }
-      return el('tr', null, cells);
+      var cpu = _opsPct(vm.live_cpu_pct ?? vm.cpu_percent);
+      var tone = cpu === null ? 'idle' : cpu > 80 ? 'crit' : cpu > 60 ? 'warn' : 'ok';
+      var label = cpu === null ? _L('미수집', 'Unavailable') : cpu.toFixed(1) + '%';
+      return el('tr', null,
+        el('td', { class: 'nowrap' }, el('b', null, vm.name || '?')),
+        el('td', null, HN.statusPill(tone, label)));
     });
     var tableWrap = el('div', { style: 'overflow-x:auto' },
       el('table', { style: 'font-size:11px;border-collapse:separate;border-spacing:2px' },
         el('thead', null, el('tr', null, headCells)),
         el('tbody', null, bodyRows)));
-    var legend = el('div', { class: 'flex gap-8 mt-8 text-xs' },
-      el('span', { style: 'display:inline-block;width:12px;height:12px;background:rgba(0,200,50,0.8);border-radius:2px' }), ' ' + _L('낮음', 'Low'),
-      el('span', { style: 'display:inline-block;width:12px;height:12px;background:rgba(200,200,0,0.8);border-radius:2px;margin-left:12px' }), ' ' + _L('중간', 'Medium'),
-      el('span', { style: 'display:inline-block;width:12px;height:12px;background:rgba(255,50,50,0.8);border-radius:2px;margin-left:12px' }), ' ' + _L('높음', 'High'));
     clearEl(b);
-    b.appendChild(frag(HN.pagehead({ title: _L('리소스 히트맵', 'Resource Heatmap') }), tableWrap, legend));
+    b.appendChild(frag(HN.pagehead({ title: _L('리소스 히트맵', 'Resource Heatmap'),
+      desc: _L('VM 목록의 현재 CPU 조회값입니다. 과거 시간별 이력은 표시하지 않습니다.',
+        'Current CPU readings from the VM list. Historical readings are not shown.') }), tableWrap));
   }).catch(function(e) {
     PCV.uxlib.clearEl(b);
     b.appendChild(PCV.uxlib.frag(HN.pagehead({ title: _L('리소스 히트맵', 'Resource Heatmap') }),

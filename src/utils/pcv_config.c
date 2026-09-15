@@ -758,7 +758,7 @@ pcv_config_init(void)
                                                             
         g_key_file_set_string (sample, CFG_GROUP, "admin_password", "");
         g_key_file_set_comment(sample, CFG_GROUP, "admin_password",
-            " REQUIRED: set before first bootstrap login or use PURECVISOR_ADMIN_PASSWORD", NULL);
+            " Initial DB seed only: set before first login; existing users change passwords through Web UI/API", NULL);
         g_key_file_set_string (sample, CFG_GROUP, "jwt_secret",    "");
         g_key_file_set_comment(sample, CFG_GROUP, "jwt_secret",
             " Optional: leave empty to generate a random in-memory key on startup", NULL);

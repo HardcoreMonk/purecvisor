@@ -17,7 +17,7 @@
        
                                                 
                             
-                                                      
+
   
                        
                                                                
@@ -53,12 +53,12 @@
                                         
                                                        
                                     
-                                        
+
                                                          
                          
   
            
-                                                                          
+
                                                                      
                                                 
   
@@ -103,7 +103,7 @@ gboolean pcv_ovn_is_available(void);
 gboolean    pcv_ovn_switch_create(const gchar *name, GError **error);
 
 
-                                                          
+
                                                          
                                                                        
                                                        
@@ -113,9 +113,9 @@ gboolean    pcv_ovn_switch_delete(const gchar *name, GError **error);
                                                                         
                                                                               
 JsonArray  *pcv_ovn_switch_list(void);
-                                                                   
-                                              
-                                                                 
+
+
+
                                                                             
                                                              
 gboolean    pcv_ovn_port_add(const gchar *sw, const gchar *port, const gchar *mac, const gchar *ip, GError **error);
@@ -180,7 +180,7 @@ gboolean pcv_ovn_nat_add(const gchar *router, const gchar *type,
                           const gchar *external_ip, const gchar *logical_ip, GError **error);
 gboolean pcv_ovn_nat_delete(const gchar *router, const gchar *type,
                              const gchar *external_ip, const gchar *logical_ip, GError **error);
-                                                    
+
 JsonArray *pcv_ovn_nat_list_parse(const gchar *output);
 
                                                      
@@ -215,20 +215,20 @@ gboolean pcv_ovn_tenant_create(const gchar *tenant, const gchar *subnet, GError 
                                                            
 gboolean pcv_ovn_tenant_delete(const gchar *tenant, GError **error);
 
-                              
+
   
-                
-                                                                          
-                                                            
-                                               
+
+
+
+
 gboolean pcv_ovn_vm_port_setup(const gchar *sw, const gchar *vm_name,
                                 const gchar *mac, const gchar *ip,
                                 gchar **iface_id_out, GError **error);
-                                                             
+
                                                            
                                               
-                                                          
-                                            
+
+
 gboolean pcv_ovn_vm_port_cleanup(const gchar *vm_name, GError **error);
 
                                          

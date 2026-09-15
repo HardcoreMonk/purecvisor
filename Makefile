@@ -6,6 +6,8 @@
                                                                   
                                                                    
                                                                              
+
+
  
                       
                                                    
@@ -26,6 +28,26 @@ ifneq ($(CCACHE),)
 else
     CC = $(CC_BASE)
     $(info [ccache] not found — install: sudo apt install ccache)
+endif
+
+
+
+
+
+DEV_JOBS ?= $(shell scripts/dev_build_jobs.sh 2>/dev/null || printf '1')
+DEV_FAST ?= 0
+DEV_USE_MOLD ?= auto
+MOLD_BIN ?= $(shell command -v mold 2>/dev/null)
+DEV_JOB_FLAGS = $(if $(filter -j% --jobserver-auth=%,$(MAKEFLAGS)),,-j$(DEV_JOBS))
+
+
+
+
+DEV_MUTATING_CHECKS = check-rpc-consumers check-rpc-param-contract check-safety-controls check-fe-rpc-params check-rerror-guard
+DEV_PARALLEL_CHECKS = check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface
+
+ifeq ($(filter 0 1 auto,$(DEV_USE_MOLD)),)
+    $(error DEV_USE_MOLD must be one of: auto, 1, 0)
 endif
 
                               
@@ -54,6 +76,18 @@ ifeq ($(BUILD),release)
 else
     CFLAGS  += -g -O0
     LDFLAGS_EXTRA = -pie -Wl,-z,relro,-z,now,-z,noexecstack
+
+
+
+    ifeq ($(DEV_FAST),1)
+        ifneq ($(DEV_USE_MOLD),0)
+            ifneq ($(MOLD_BIN),)
+                LDFLAGS_EXTRA += -fuse-ld=mold
+            else ifeq ($(DEV_USE_MOLD),1)
+                $(error DEV_USE_MOLD=1 requested, but mold is not installed)
+            endif
+        endif
+    endif
 endif
 LDFLAGS_EXTRA += -Wl,--gc-sections
 
@@ -161,6 +195,9 @@ COMMON_CORE_SRCS = \
     src/modules/core/cpu_allocator.c \
     src/modules/virt/vm_config_builder.c \
     src/modules/virt/vm_clone_plan.c \
+    src/modules/virt/snapshot_compat.c \
+    src/modules/backup/backup_send_estimate.c \
+    src/api/ova_import_xml.c \
     src/modules/virt/vm_manager.c \
     src/modules/virt/circuit_breaker.c \
     src/modules/daemons/alert_silence.c \
@@ -223,7 +260,9 @@ DAEMON_COMMON_SRCS = \
     src/api/rest_middleware.c \
     src/api/grpc_server.c \
     src/modules/daemons/telemetry.c \
+    src/modules/daemons/pcv_telemetry_reconnect_guard.c \
     src/modules/daemons/virt_events.c \
+    src/modules/daemons/pcv_virt_listener_guard.c \
     src/modules/daemons/pcv_undefine_debounce.c \
     src/modules/daemons/pcv_vm_death_class.c \
     src/modules/daemons/pcv_trace.c \
@@ -239,6 +278,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/hotplug_nic_xml.c \
     $(COMMON_SINGLE_ALLOWED_NET_SRCS) \
     src/modules/dispatcher/handler_storage.c \
+    src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/lxc/lxc_driver.c \
     src/modules/dispatcher/handler_container.c \
@@ -373,12 +413,14 @@ TEST_COMMON_SRCS = \
     tests/test_rest_auth.c \
     tests/test_rpc_utils.c \
     tests/test_rpc_completion.c \
+    tests/test_host_hardware_inventory.c \
     tests/test_rpc_parse_guarded.c \
     tests/test_drain.c \
     tests/test_ai_agent.c \
     tests/test_prometheus.c \
     tests/test_plugin.c \
     tests/test_snapshot_rollback.c \
+    tests/test_ova_import_xml.c \
     tests/test_bootstrap.c \
     tests/test_bootstrap_rpc_registration.c \
     tests/test_security_event.c \
@@ -400,6 +442,10 @@ TEST_COMMON_SRCS = \
     tests/test_qos_integration.c \
     tests/test_trace.c \
     tests/test_trace_integration.c \
+    tests/test_telemetry_reconnect_guard.c \
+    src/modules/daemons/pcv_telemetry_reconnect_guard.c \
+    tests/test_virt_listener_guard.c \
+    src/modules/daemons/pcv_virt_listener_guard.c \
     tests/test_undefine_debounce.c \
     src/modules/daemons/pcv_undefine_debounce.c \
     tests/test_vm_death_class.c \
@@ -427,6 +473,7 @@ TEST_COMMON_SRCS = \
     tests/test_audit_chain.c \
     tests/test_rbac_user_exists.c \
     tests/test_pbkdf2_verify.c \
+    tests/test_password_rotation.c \
     tests/test_handler_snapshot_verify.c \
     tests/test_handler_vm_batch.c \
     tests/test_hotplug_flags.c \
@@ -451,6 +498,8 @@ TEST_COMMON_SRCS = \
     src/api/vm_batch_policy.c \
     src/api/hot_reload.c \
     src/modules/dispatcher/rpc_utils.c \
+    src/modules/dispatcher/host_hardware_inventory.c \
+    src/modules/daemons/process_monitor.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/dispatcher/hotplug_affect_policy.c \
     src/modules/dispatcher/hotplug_nic_xml.c \
@@ -494,11 +543,13 @@ CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c
 
                                
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
-TEST_OBJS   = $(TEST_SRCS:.c=.o)
+TEST_OBJS   = $(filter-out src/modules/ai/self_healing.o,$(TEST_SRCS:.c=.o))
 TEST_OBJS  += tests/rest_transport_policy.o
 TEST_OBJS  += tests/dispatcher_policy.o
+TEST_OBJS  += tests/self_healing_policy.o
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
 DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
+DEPENDS    += tests/self_healing_policy.d
 
                                                    
                                                 
@@ -510,6 +561,8 @@ ALL_DAEMON_SRCS = $(DAEMON_SRCS)
 ALL_TEST_SRCS = $(TEST_SRCS)
 ALL_EDITION_OBJS = $(ALL_DAEMON_SRCS:.c=.o) $(ALL_TEST_SRCS:.c=.o) $(CLI_SRCS:.c=.o)
 ALL_EDITION_DEPS = $(ALL_DAEMON_SRCS:.c=.d) $(ALL_TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
+ALL_EDITION_OBJS += tests/self_healing_policy.o
+ALL_EDITION_DEPS += tests/self_healing_policy.d
 CLEAN_REPORTS = test_results.txt test_results_tap.txt valgrind_report.txt sanitize_report.txt tsan_report.txt cppcheck_report.txt
 CLEAN_FUZZ_ARTIFACTS = fuzz_pcv_validate fuzz_pcv_jwt fuzz_rpc_envelope fuzz_validate.txt fuzz_jwt.txt fuzz_rpc.txt
 CLEAN_COVERAGE_ARTIFACTS = compile_commands.json *.gcda *.gcno *.gcov
@@ -544,9 +597,16 @@ BPF_VMLINUX  := build/bpf/vmlinux.h
 BPF_MANIFEST := build/bpf/manifest.json
 BPF_INSTALL  := /usr/lib/purecvisor/bpf
 CLANG        ?= clang
-BPFTOOL      ?= bpftool
+
+
+BPFTOOL_DETECTED := $(shell command -v bpftool 2>/dev/null || \
+	{ test -x /usr/sbin/bpftool && printf '%s\n' /usr/sbin/bpftool; })
+BPFTOOL      ?= $(if $(BPFTOOL_DETECTED),$(BPFTOOL_DETECTED),bpftool)
                                                   
-BPF_CFLAGS   := -g -O2 -target bpf -D__TARGET_ARCH_x86 -Isrc/bpf -Ibuild/bpf -Wall
+
+
+BPF_CFLAGS   := -g -O2 -target bpf -D__TARGET_ARCH_x86 -Isrc/bpf -Ibuild/bpf -Wall \
+	-Wno-missing-declarations
 
 $(BPF_VMLINUX):
 	@mkdir -p build/bpf
@@ -557,6 +617,7 @@ $(BPF_OBJ): $(BPF_SRC) src/bpf/pcv_bpf_shared.h $(BPF_VMLINUX)
 	@mkdir -p build/bpf
 	@command -v $(CLANG) >/dev/null || { echo "❌ clang 미설치 (sudo apt install clang)"; exit 1; }
 	$(CLANG) $(BPF_CFLAGS) -c $(BPF_SRC) -o $@
+
 	@$(BPFTOOL) btf dump file $@ format raw >/dev/null 2>&1 || { echo "❌ BPF .o에 BTF 부재 — CO-RE 불가"; exit 1; }
 
 $(BPF_SHARED_OBJ): $(BPF_SHARED_SRC) src/bpf/pcv_shared_bridge.h $(BPF_VMLINUX)
@@ -630,8 +691,9 @@ tests/test_audit_startup.o: tests/test_audit_startup.c \
                             src/modules/audit/pcv_audit.h \
                             src/modules/audit/pcv_audit_chain.h
 
-                                                             
-                                                 
+
+
+
 tests/rest_transport_policy.o: src/api/rest_server.c src/api/rest_server.h
 	@echo "🔨 Compiling REST transport policy seam: $<"
 	$(CC) $(CFLAGS) -DPCV_REST_TRANSPORT_POLICY_ONLY -c $< -o $@
@@ -645,7 +707,11 @@ tests/dispatcher_policy.o: src/api/dispatcher.c src/api/dispatcher.h
 	$(CC) $(CFLAGS) -DPCV_DISPATCHER_POLICY_ONLY -c $< -o $@
 
           
-test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml
+tests/self_healing_policy.o: src/modules/ai/self_healing.c src/modules/ai/self_healing.h
+	@echo "🔨 Compiling self-healing clock seam: $<"
+	$(CC) $(CFLAGS) -Dg_get_monotonic_time=pcv_test_healing_monotonic_time -c $< -o $@
+
+test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle
 	@echo "🧪 Running g_test_* suite..."
 	@sudo ./$(TEST_BIN) -v > test_results.txt 2>&1; \
 	 status=$$?; \
@@ -653,6 +719,23 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml
 	 exit $$status
 	@echo "📄 Results saved to test_results.txt"
 	@./$(AUDIT_STARTUP_TEST_BIN) -v
+
+
+
+
+check-server-defect-contracts:
+	@bash tests/integration/test_vpc_startup_order.sh
+	@bash tests/integration/test_tenant_overlay_startup_order.sh
+	@bash tests/integration/test_lxc_server_defect_contract.sh
+	@bash tests/integration/test_backup_job_contract.sh
+	@bash tests/integration/test_ovn_public_contract.sh
+	@bash tests/integration/test_gpu_passthrough_contract.sh
+	@python3 scripts/check_ova_async_result.py
+
+
+
+check-dpdk-owned-lifecycle:
+	@python3 scripts/check_dpdk_owned_lifecycle.py
 
                                                          
                                                           
@@ -761,8 +844,6 @@ clean:
 	rm -f $(DAEMON_BIN) bin/purecvisorsd \
 	      $(TEST_BIN) $(AUDIT_STARTUP_TEST_BIN) $(CLI_BIN) \
 	      tests/test_audit_startup.o tests/test_audit_startup.d \
-	      tests/rest_transport_policy.o tests/rest_transport_policy.d \
-	      tests/dispatcher_policy.o tests/dispatcher_policy.d \
 	      $(ALL_EDITION_OBJS) \
 	      $(ALL_EDITION_DEPS) \
 	      $(CLEAN_REPORTS) $(CLEAN_FUZZ_ARTIFACTS) \
@@ -805,7 +886,9 @@ UI_CACHE_INPUTS = $(UI_DIR)/index.html $(UI_DIR)/docs.html $(UI_DIR)/guide.html 
     $(UI_DIR)/guide-content.md $(UI_DIR)/offline.html $(UI_DIR)/style.css \
     $(UI_DIR)/app.bundle.js $(UI_DIR)/i18n.js $(UI_DIR)/vendor/chart.umd.min.js \
     $(UI_DIR)/vendor/novnc/novnc.esm.js $(UI_DIR)/vendor/pretendard/pretendard.css \
-    $(UI_DIR)/vendor/coolicons/coolicons.svg $(UI_DIR)/manifest.json \
+    $(UI_DIR)/vendor/coolicons/coolicons.svg \
+    $(UI_DIR)/assets/diagrams/purecvisor-single-full-architecture.svg \
+    $(UI_DIR)/manifest.json \
     $(UI_DIR)/icon-192.png $(UI_DIR)/icon-512.png
 
                                                       
@@ -821,7 +904,7 @@ ui-bundle: $(UI_MODULES)
 	@cat $(UI_MODULES) > $(UI_DIR)/bundle.js
 	@SRC=$$(cat $(UI_MODULES) | sha1sum | cut -c1-8); \
 	if npx --no-install esbuild --version >/dev/null 2>&1; then \
-		npx --no-install esbuild $(UI_DIR)/bundle.js --minify \
+		npx --no-install esbuild $(UI_DIR)/bundle.js --minify --legal-comments=none \
 			--target=es2020 --supported:template-literal=false --log-level=warning \
 			--banner:js="const PCV_UI_SOURCE_SHA1='$$SRC';" \
 			--outfile=$(UI_DIR)/app.bundle.js; \
@@ -831,7 +914,7 @@ ui-bundle: $(UI_MODULES)
 		echo "⚠️  esbuild 없음(npm install 필요) — 무민파이 concat 폴백: app.bundle.js $$(wc -c < $(UI_DIR)/app.bundle.js | tr -d ' ')B"; \
 	fi
 	@H=$$(sha1sum $(UI_CACHE_INPUTS) | sha1sum | cut -c1-8); \
-	sed -i -E "s|const CACHE_NAME ?= ?['\\\"]pcv-ui-v[^'\\\"]*['\\\"]|const CACHE_NAME=\\\"pcv-ui-v$$H\\\"|" $(UI_DIR)/sw.js; \
+	sed -i "s|const CACHE_NAME = 'pcv-ui-v[^']*';|const CACHE_NAME = 'pcv-ui-v$$H';|" $(UI_DIR)/sw.js; \
 	echo "✅ sw.js CACHE_NAME → pcv-ui-v$$H ($(words $(UI_CACHE_INPUTS))개 프리캐시 입력 자동 bump)"
 
 ui-prod: ui-bundle
@@ -993,7 +1076,46 @@ deb: release ui-bundle
 	@bash packaging/deb/build-deb.sh
 
 single:
-	$(MAKE) all
+	@echo "⚡ Local debug build: jobs=$(DEV_JOBS), mold=$(if $(filter 0,$(DEV_USE_MOLD)),disabled,$(if $(MOLD_BIN),enabled,unavailable))"
+	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) DEV_FAST=1 DEV_USE_MOLD=$(DEV_USE_MOLD) all
+
+
+
+dev-test:
+	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) DEV_FAST=1 DEV_USE_MOLD=$(DEV_USE_MOLD) test-auto
+
+dev-check:
+	@echo "⚡ Read-only contract gates: $(words $(DEV_PARALLEL_CHECKS)) parallel; worktree-mutating gates: $(words $(DEV_MUTATING_CHECKS)) sequential"
+	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) $(DEV_PARALLEL_CHECKS)
+	+@for gate in $(DEV_MUTATING_CHECKS); do \
+		echo "🔒 Running isolated gate: $$gate"; \
+		$(MAKE) --no-print-directory "$$gate" || exit $$?; \
+	done
+	@echo "✅ 개발 계약 게이트 40개 통과 (35 parallel-safe + 5 isolated)"
+
+dev-verify:
+	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) DEV_FAST=1 DEV_USE_MOLD=$(DEV_USE_MOLD) test-auto
+	+@$(MAKE) --no-print-directory DEV_JOBS=$(DEV_JOBS) dev-check
+
+dev-info:
+	@./scripts/dev_build_jobs.sh --report
+	@printf 'make_dev_jobs=%s\n' "$(DEV_JOBS)"
+	@if command -v ccache >/dev/null 2>&1; then \
+		printf 'ccache=enabled\n'; \
+		ccache --show-config | sed -n '/cache_dir/p; /max_size/p; /temporary_dir/p'; \
+	else \
+		printf 'ccache=disabled\n'; \
+	fi
+	@if [ -n "$(MOLD_BIN)" ]; then \
+		printf 'mold=available (%s)\n' "$$($(MOLD_BIN) --version | head -n 1)"; \
+	else \
+		printf 'mold=unavailable\n'; \
+	fi
+	@if command -v powerprofilesctl >/dev/null 2>&1; then \
+		printf 'power_profile=%s\n' "$$(powerprofilesctl get 2>/dev/null || printf unknown)"; \
+	fi
+
+
 
 multi:
 	@echo "purecvisor-single is Single Edge only; use the private Multi Edge repository." >&2
@@ -1066,6 +1188,8 @@ check-secret-wipe:
 check-rpc-consumers:
 	@echo "🔗 Running AF-C4 RPC consumer contract gate (소비 ⊆ 등록)..."
 	@python3 scripts/check_rpc_consumers.py
+
+
 	@python3 scripts/tests/test_rpc_extract.py
 	@python3 scripts/tests/test_orphan_gate.py
 	@python3 scripts/tests/test_rpc_consumers_acceptance.py
@@ -1075,9 +1199,17 @@ check-dead-exports:
 	@python3 scripts/check_dead_exports.py
 	@python3 scripts/tests/test_dead_exports.py
 
+
+
+
 check-rpc-param-contract:
 	@echo "🔑 Running RPC param-key contract gate (Stage 2)..."
 	@python3 scripts/check_rpc_param_contract.py
+
+
+
+
+
 	@python3 scripts/tests/test_param_gate.py
 	@python3 scripts/tests/test_handler_extract.py
 	@python3 scripts/tests/test_consumer_keys.py
@@ -1207,10 +1339,15 @@ check-public-comments: check-standalone-builds test_runner
 	@echo "🧹 Running 공개 소스 주석 제거 게이트..."
 	@python3 scripts/strip_source_comments.py --check
 	@node scripts/check_javascript_comments.mjs
+
+
 	@python3 scripts/check_spawn_capability_contract.py --self-test
 	@python3 scripts/check_spawn_capability_contract.py
+
+
 	@python3 scripts/check_test_runner_selectors.py --self-test
 	@python3 scripts/check_test_runner_selectors.py --test-runner ./$(TEST_BIN)
+
 	@python3 scripts/tests/test_script_safety_contracts.py
 	@bash tests/integration/test_live_cleanup_contract.sh
 	@bash tests/integration/test_public_comment_policy.sh
@@ -1235,6 +1372,9 @@ check-deb-supply-chain:
 	@echo "🚚 Running deb 산출물 공급망 계약 게이트 (A03)..."
 	@python3 scripts/check_deb_supply_chain.py
 	@python3 scripts/tests/test_deb_supply_chain.py
+	@python3 scripts/check_ui_asset_manifest.py
+	@python3 scripts/tests/test_ui_asset_manifest.py
+	@bash tests/integration/test_maintenance_page_helper.sh
 
                                                              
                                                                                    
@@ -1249,6 +1389,9 @@ check-fe-rpc-params:
 	@echo "🔗 Running FE 요청 파라미터 계약 게이트..."
 	@python3 scripts/check_fe_rpc_params.py
 	@python3 scripts/check_fe_rpc_params.py --self-test
+
+
+
 	@python3 scripts/tests/test_fe_rpc_params_acceptance.py
 
 check-network-mode-contract:
@@ -1271,6 +1414,9 @@ check-rerror-guard:
 	@echo "🛡  Running fetch r.error 가드 래칫..."
 	@python3 scripts/check_rerror_guard.py
 	@python3 scripts/check_rerror_guard.py --self-test
+
+
+
 	@python3 scripts/tests/test_rerror_guard_acceptance.py
 
                                                                        
@@ -1294,13 +1440,27 @@ check-runtime-prereqs:
 	}
 	@bash tests/integration/test_runtime_prereq_install.sh
 	@bash tests/integration/test_nginx_termination_install.sh
+	@python3 scripts/tests/test_deploy_abi_preflight.py
 	@bash tests/integration/test_deploy_runtime_prereq_contract.sh
+
+
+
 	@bash tests/integration/test_host_tuning_install.sh
+
+
+
 	@bash tests/integration/test_lio_modules_load_packaging.sh
 
-                                                           
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-runtime-prereqs
-	@echo "✅ 계약 게이트 전체 통과 (38게이트: RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + runtime prerequisites)"
+
+
+
+
+check-single-ui-surface:
+	@bash tests/integration/test_single_ui_surface.sh
+	@python3 scripts/tests/test_single_ui_surface.py
+
+check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs
+	@echo "✅ 계약 게이트 전체 통과 (40게이트: RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -1355,11 +1515,11 @@ coverage-check: coverage-html
 	     { echo "❌ coverage $${PCT}% < $(COV_MIN)% 임계값"; exit 1; } || \
 	     echo "✅ coverage $${PCT}% ≥ $(COV_MIN)%"
 
-.PHONY: all clean release deb single multi test_runner test test-auto test-tap test-vpc-cli-live \
+.PHONY: all clean release deb single multi dev-test dev-check dev-verify dev-info test_runner test test-auto test-tap test-vpc-cli-live \
         memcheck memcheck-daemon daemon cli sanitize tsan fuzz fuzz-run check-standalone-builds \
         install-completion install-completion-user ui-bundle ui-prod \
         install-hooks test-safe test-all test-integ \
         cppcheck cppcheck-strict check-rbac check-secret-wipe check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-help-counts check-runtime-prereqs \
         check-vendor-integrity check-npm-lockfile check-deb-supply-chain \
-        check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml \
-        check-all compile-commands coverage coverage-html coverage-check
+        check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle \
+        check-single-ui-surface check-all compile-commands coverage coverage-html coverage-check

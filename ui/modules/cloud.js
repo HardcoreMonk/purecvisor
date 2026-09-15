@@ -139,6 +139,7 @@ async function cmLoadJobs() {
 
   try {
     const r = await fetchGet(EP.CLOUD_JOBS());
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     const jobs = unwrapList(r);
     if (!Array.isArray(jobs) || jobs.length === 0) {
       PCV.uxlib.clearEl(el);
@@ -180,7 +181,7 @@ async function cmLoadJobs() {
     PCV.uxlib.clearEl(el);
     el.appendChild(mk('table', null, thead, tbody));
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
-  } catch (e) {                             }
+  } catch (e) { PCV.uxlib.setMsg(el, 'err', null, _L('작업 목록 조회 실패: ', 'Unable to load jobs: ') + e.message); }
 }
 window.cmLoadJobs = cmLoadJobs;
 

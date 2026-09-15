@@ -273,10 +273,10 @@
                                                                                                                  
 
                                                         
-<div class="app" id="app">
+<div class="app" id="app" aria-hidden="true" inert>
 <aside class="shell-sidebar" id="shell-sidebar">                              </aside>
 <div class="shell-main">
-  <div class="shell-topbar" id="shell-topbar-static">
+  <header class="shell-topbar" id="shell-topbar-static">
     <div class="shell-topbar-dyn" id="shell-topbar">                                     </div>
     <div class="shell-topbar-fixed">
       <span id="version-badge" class="version-badge" role="status" aria-live="polite" hidden></span>
@@ -301,11 +301,11 @@
       </span>
       <button id="mobile-menu-btn" class="mobile-menu-btn" onclick="toggleMobileSB()" aria-label="사이드바 열기"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-menu-alt-01"></use></svg></button>
     </div>
-  </div>
+  </header>
   <div class="shell-statusbar" id="shell-statusbar">                                </div>
-  <div class="content shell-content" role="main" aria-label="Content area">
+  <main class="content shell-content" aria-label="Content area">
     <div class="cb" id="cb" tabindex="0"></div>
-  </div>
+  </main>
 </div>
 </div>
 <div class="mobile-overlay" id="mobile-overlay" onclick="closeMobileSB()"></div>

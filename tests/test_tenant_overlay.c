@@ -2230,6 +2230,85 @@ test_overlay_sweep_orphan_endpoints(void)
     g_free(wal); g_free(shm); g_free(dbpath);
 }
 
+
+
+
+static void
+test_overlay_mesh_reconcile(void)
+{
+    if (geteuid() != 0) { g_test_skip("root(+netns) 필요"); return; }
+    if (!_wg_available()) { g_test_skip("wg(wireguard-tools) 미설치"); return; }
+
+    GError *err = NULL;
+    gchar *dbpath = g_strdup_printf("%s/pcv-overlay-reconcile-%u.db",
+                                    g_get_tmp_dir(), g_random_int());
+    g_assert_true(pcv_security_store_open(dbpath));
+    pcv_tenant_overlay_reset_for_test();
+
+    g_assert_true(pcv_tenant_overlay_create("recA", &err));
+    g_assert_no_error(err);
+    gchar *ipa = pcv_tenant_overlay_attach_vm("recA", "vmA", &err);
+    g_assert_no_error(err); g_assert_nonnull(ipa);
+    gchar *ipb = pcv_tenant_overlay_attach_vm("recA", "vmB", &err);
+    g_assert_no_error(err); g_assert_nonnull(ipb);
+
+    gchar *epa = NULL, *epb = NULL;
+    g_assert_true(pcv_tenant_overlay_get_member_ep("recA", "vmA", &epa));
+    g_assert_true(pcv_tenant_overlay_get_member_ep("recA", "vmB", &epb));
+
+
+    pcv_tenant_overlay_reset_for_test();
+    g_assert_true(pcv_tenant_overlay_rehydrate(&err));
+    g_assert_no_error(err);
+
+    gchar *wgifa = g_strdup_printf("wg-%s", epa);
+    gchar *peer = NULL;
+    const gchar *show_peer[] = { "ip", "netns", "exec", epa,
+                                 "wg", "show", wgifa, "peers", NULL };
+    g_assert_true(pcv_spawn_sync_timeout((const gchar *const *)show_peer,
+                                         &peer, NULL, 10, &err));
+    g_assert_no_error(err);
+    g_strstrip(peer);
+    g_assert_true(*peer != '\0');
+
+    const gchar *remove_peer[] = { "ip", "netns", "exec", epa,
+                                   "wg", "set", wgifa, "peer", peer, "remove", NULL };
+    g_assert_true(pcv_spawn_sync_timeout((const gchar *const *)remove_peer,
+                                         NULL, NULL, 10, &err));
+    g_assert_no_error(err);
+    g_free(peer);
+
+    g_assert_true(pcv_tenant_overlay_reconcile_mesh(&err));
+    g_assert_no_error(err);
+
+    gchar *restored = NULL;
+    g_assert_true(pcv_spawn_sync_timeout((const gchar *const *)show_peer,
+                                         &restored, NULL, 10, &err));
+    g_assert_no_error(err);
+    g_strstrip(restored);
+    g_assert_true(*restored != '\0');
+    g_free(restored);
+
+
+    g_assert_true(pcv_tenant_overlay_wg_endpoint_down(epb, &err));
+    g_assert_no_error(err);
+    g_assert_false(pcv_tenant_overlay_reconcile_mesh(&err));
+    g_assert_nonnull(err);
+    g_clear_error(&err);
+
+    (void)pcv_tenant_overlay_detach_vm("recA", "vmA", NULL);
+    (void)pcv_tenant_overlay_detach_vm("recA", "vmB", NULL);
+    (void)pcv_tenant_overlay_delete("recA", NULL);
+    pcv_tenant_overlay_reset_for_test();
+    pcv_security_store_close();
+    g_unlink(dbpath);
+    gchar *wal = g_strdup_printf("%s-wal", dbpath);
+    gchar *shm = g_strdup_printf("%s-shm", dbpath);
+    g_unlink(wal); g_unlink(shm);
+    g_free(wal); g_free(shm); g_free(dbpath);
+    g_free(wgifa); g_free(epa); g_free(epb); g_free(ipa); g_free(ipb);
+}
+
 void
 test_tenant_overlay_register(void)
 {
@@ -2331,4 +2410,6 @@ test_tenant_overlay_register(void)
                     test_overlay_ep_name_pattern);
     g_test_add_func("/tenant_overlay/sweep_orphan_endpoints",
                     test_overlay_sweep_orphan_endpoints);
+    g_test_add_func("/tenant_overlay/mesh_reconcile",
+                    test_overlay_mesh_reconcile);
 }

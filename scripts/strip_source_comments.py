@@ -3,6 +3,7 @@ import argparse
 import ast
 import io
 import re
+import shlex
 import sys
 import tokenize
 from pathlib import Path
@@ -118,10 +119,84 @@ def strip_python(text):
     return apply_line_spans(text, python_spans(text))
 
 
+def strip_shell_noop_comments(text, makefile=False):
+    out = []
+    logical_command = ""
+    quote_open = False
+    heredocs = []
+    continued = False
+    opaque_rest = False
+    for line in text.splitlines(keepends=True):
+        if opaque_rest:
+            out.append(line)
+            continue
+        if heredocs:
+            delimiter, executable = heredocs[-1]
+            if line.rstrip("\r\n") == delimiter:
+                heredocs.pop()
+                logical_command = ""
+                quote_open = False
+                out.append(line)
+                continued = False
+                continue
+            if not executable:
+                out.append(line)
+                continued = False
+                continue
+        if not quote_open:
+            if makefile and not continued:
+                line = re.sub(r"^\t[ \t]*[@+-]*[ \t]*#[^\r\n]*",
+                              lambda match: " " * len(match.group()), line)
+            if continued:
+                line = re.sub(
+                    r"^([ \t]*)`#[^`\r\n]*`(?=[ \t]*(?:\\[ \t]*)?(?:\r?\n|$))",
+                    lambda match: " " * len(match.group()),
+                    line,
+                )
+        out.append(line)
+        continued = line.rstrip("\r\n").endswith("\\")
+        logical_command += line
+        lexer = shlex.shlex(logical_command, posix=True, punctuation_chars="<")
+        lexer.whitespace_split = True
+        lexer.commenters = ""
+        try:
+            tokens = list(lexer)
+        except ValueError:
+            quote_open = True
+            continue
+        quote_open = False
+        if continued:
+            continue
+        logical_command = ""
+        while tokens and tokens[0] in {"if", "!"}:
+            tokens.pop(0)
+        if tokens.count("<<") > 1:
+            opaque_rest = True
+            continue
+        for index, token in enumerate(tokens[:-1]):
+            if token == "<<":
+                delimiter = tokens[index + 1]
+                if delimiter.startswith("-"):
+                    opaque_rest = True
+                    break
+                command = tokens[:index]
+                executable = (
+                    command[:2] == ["bash", "-s"]
+                    or (
+                        command
+                        and command[0] in {"ssh", "/usr/bin/ssh", "$SSH_BIN", "${SSH_BIN}"}
+                        and any(command[i:i + 2] == ["bash", "-s"] for i in range(len(command) - 1))
+                    )
+                )
+                if delimiter:
+                    heredocs.append((delimiter, executable))
+    return "".join(out)
+
+
 def strip_hash(text, apparmor=False):
     out = []
     state = "code"
-    for line_no, line in enumerate(text.splitlines(keepends=True)):
+    for line_no, line in enumerate(strip_shell_noop_comments(text).splitlines(keepends=True)):
         bare = line.lstrip()
         if bare.startswith("#!"):
             out.append(line)
@@ -169,6 +244,10 @@ def strip_hash(text, apparmor=False):
     return "".join(out)
 
 
+def strip_makefile(text):
+    return strip_hash(strip_shell_noop_comments(text, makefile=True))
+
+
 def strip_html(text):
     text = re.sub(r"<!--.*?-->", lambda m: mask(text, m.start(), m.end()), text, flags=re.DOTALL)
     text = re.sub(
@@ -212,6 +291,8 @@ def transform(path, kind):
         return text, strip_clike(text, line_comments=path.suffix != ".css")
     if kind == "javascript":
         return text, strip_clike(text)
+    if path.name == "Makefile":
+        return text, strip_makefile(text)
     return text, strip_hash(text, apparmor="apparmor" in path.parts or path.name == "pcv-apparmor")
 
 

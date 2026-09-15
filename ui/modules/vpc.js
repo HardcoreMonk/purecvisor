@@ -95,6 +95,14 @@ async function _waitJob(jobId) {
     var status = job && job.status;
     if (status === 'completed') return job;
     if (status === 'failed' || status === 'cancelled') {
+
+
+
+
+
+
+
+
       var detail = status, candidates = [job.result, job.detail, status];
       for (var i = 0; i < candidates.length; i++) {
         var value = candidates[i];

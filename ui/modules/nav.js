@@ -258,7 +258,7 @@ function _renderContentPaint(tab, generation) {
     }
     else if (_DEBUG) console.warn('Unknown tab:', tab);
   } catch (renderErr) {
-    if ((window._navGeneration || 0) !== gen) { return; }
+    if ((window._navGeneration || 0) !== gen) {                           }
     else {
       PCV.uxlib.clearEl(b);
       b.appendChild(mk('div', { style: 'padding:40px;text-align:center' },

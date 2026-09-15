@@ -83,6 +83,22 @@ typedef struct {
     const gchar *reason;
 } PcvRestTlsHealth;
 
+
+
+
+
+
+
+
+
+
+
+typedef enum {
+    PCV_REST_AUDIT_HEALTH_NONE,
+    PCV_REST_AUDIT_HEALTH_INFORMATIONAL,
+    PCV_REST_AUDIT_HEALTH_CRITICAL,
+} PcvRestAuditHealthImpact;
+
 typedef struct {
     PcvRestTlsMode mode;
     gboolean       initialize_tls;
@@ -92,6 +108,11 @@ typedef struct {
     const gchar   *plaintext_bind_mode;
     const gchar   *plaintext_host;
 } PcvRestTransportPlan;
+
+
+
+
+
 
 PcvRestTransportPlan pcv_rest_transport_plan(
     PcvRestTlsMode mode,
@@ -131,6 +152,12 @@ typedef struct {
     gboolean https_listening;
 } PcvRestTransportOutcome;
 
+
+
+
+
+
+
 gboolean pcv_rest_transport_start(const PcvRestTransportPlan *transport,
                                   const PcvRestTransportOps  *ops,
                                   gpointer                    context,
@@ -151,13 +178,36 @@ PcvRestTlsMode pcv_rest_tls_mode_from_config(gboolean https_enabled);
                                     
 typedef void (*PcvRestTlsInitFunc)(void);
 
+
+
 void pcv_rest_transport_initialize(const PcvRestTransportPlan *transport,
                                    PcvRestTlsInitFunc           init_func);
+
+
 
 PcvRestTlsHealth pcv_rest_tls_health(PcvRestTlsMode mode,
                                      gboolean tls_enabled,
                                      gboolean tls_degraded,
                                      const gchar *degraded_reason);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PcvRestAuditHealthImpact pcv_rest_audit_chain_health_impact(
+    gboolean current_ok,
+    gboolean historical_break);
 
                                                         
                                                     

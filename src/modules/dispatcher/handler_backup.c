@@ -75,6 +75,7 @@
                                                             
                                                                                   
    
+#include "api/drain.h"
 #include "handler_backup.h"
 #include "rpc_utils.h"
 #include "../backup/backup_scheduler.h"
@@ -82,6 +83,7 @@
 #include "../../api/uds_server.h"
 #include "../../api/ws_server.h"
 #include "../../utils/pcv_log.h"
+#include "../../utils/pcv_job_queue.h"
 #include "../../utils/pcv_validate.h"
 
 #include <glib.h>
@@ -370,6 +372,7 @@ void handle_backup_history(JsonObject       *params,
 typedef struct {
     gchar *vm_name;                                   
     gchar *snapshot_name;                              
+    gchar *job_id;
 } RestoreTaskData;
 
                                                   
@@ -380,6 +383,7 @@ static void _restore_task_data_free(gpointer p)
     if (!d) return;                                         
     g_free(d->vm_name);
     g_free(d->snapshot_name);
+    g_free(d->job_id);
     g_free(d);
 }
 
@@ -418,11 +422,12 @@ static void _restore_worker(GTask        *task,
     RestoreTaskData *d = (RestoreTaskData *)task_data;
     GError *err = NULL;
 
+    pcv_job_update_status(d->job_id, PCV_JOB_RUNNING, 10, "ZFS snapshot restore running");
+
                                                                       
     gboolean ok = pcv_backup_restore(d->vm_name, d->snapshot_name, &err);
-                                                                 
+
     gchar *target = g_strdup_printf("%s@%s", d->vm_name, d->snapshot_name);
-    gchar *job_id = g_strdup_printf("backup.restore:%s", target);
                                                                        
     if (!ok) {
         const gchar *err_msg = err ? err->message : "unknown";
@@ -430,7 +435,15 @@ static void _restore_worker(GTask        *task,
                      "Async restore failed: %s@%s — %s",
                      d->vm_name, d->snapshot_name, err_msg);
         pcv_audit_log(NULL, "backup.restore", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.restore", "failed", err_msg);
+        JsonObject *failed = json_object_new();
+        json_object_set_string_member(failed, "error", err_msg);
+        JsonNode *failed_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(failed_node, failed);
+        gchar *failed_json = json_to_string(failed_node, FALSE);
+        json_node_free(failed_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        g_free(failed_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.restore", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -442,10 +455,18 @@ static void _restore_worker(GTask        *task,
                      "Async restore complete: %s@%s",
                      d->vm_name, d->snapshot_name);
         pcv_audit_log(NULL, "backup.restore", target, "ok", 0, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.restore", "completed", NULL);
+        JsonObject *completed = json_object_new();
+        json_object_set_string_member(completed, "vm_name", d->vm_name);
+        json_object_set_string_member(completed, "snapshot_name", d->snapshot_name);
+        JsonNode *completed_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(completed_node, completed);
+        gchar *completed_json = json_to_string(completed_node, FALSE);
+        json_node_free(completed_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
+        g_free(completed_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.restore", "completed", NULL);
         g_task_return_boolean(task, TRUE);
     }
-    g_free(job_id);
     g_free(target);
 }
 
@@ -516,8 +537,20 @@ void handle_backup_restore(JsonObject       *params,
                                          
                                                                  
        
+    gchar *target = g_strdup_printf("%s@%s", vm_name, snapshot_name);
+    gchar *job_id = pcv_job_create("backup.restore", target, NULL);
+    g_free(target);
+    if (!job_id) {
+        gchar *job_error = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, "Failed to create backup restore job");
+        pure_uds_server_send_response(server, connection, job_error);
+        g_free(job_error);
+        return;
+    }
+
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
+    json_object_set_string_member(accepted, "job_id", job_id);
     json_object_set_string_member(accepted, "vm_name", vm_name);
     json_object_set_string_member(accepted, "snapshot_name", snapshot_name);
 
@@ -545,11 +578,12 @@ void handle_backup_restore(JsonObject       *params,
     RestoreTaskData *d = g_new0(RestoreTaskData, 1);
     d->vm_name       = g_strdup(vm_name);
     d->snapshot_name = g_strdup(snapshot_name);
+    d->job_id        = job_id;
 
       
                          
       
-                                                                   
+
                                                               
                                                 
                                                                  
@@ -568,7 +602,7 @@ void handle_backup_restore(JsonObject       *params,
                                                    
                                   
        
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)_restore_task_data_free);
     g_task_run_in_thread(task, _restore_worker);
     g_object_unref(task);
@@ -591,6 +625,7 @@ void handle_backup_restore(JsonObject       *params,
    
 typedef struct {
     gchar *vm_name;                               
+    gchar *job_id;
 } IncrementalTaskData;
 
                                    
@@ -600,6 +635,7 @@ static void _incremental_task_data_free(gpointer p)
     IncrementalTaskData *d = (IncrementalTaskData *)p;
     if (!d) return;
     g_free(d->vm_name);
+    g_free(d->job_id);
     g_free(d);
 }
 
@@ -626,17 +662,26 @@ static void _incremental_worker(GTask        *task,
     IncrementalTaskData *d = (IncrementalTaskData *)task_data;
     GError *err = NULL;
 
+    pcv_job_update_status(d->job_id, PCV_JOB_RUNNING, 10, "ZFS incremental backup running");
+
                                                               
                                                              
     JsonObject *result = pcv_backup_incremental(d->vm_name, &err);
     gboolean ok = (result != NULL);                                         
-    gchar *job_id = g_strdup_printf("backup.incremental:%s", d->vm_name);
     if (!ok) {
         const gchar *err_msg = err ? err->message : "unknown";
         PCV_LOG_WARN(BACKUP_HANDLER_LOG,
                      "Async incremental failed: %s — %s", d->vm_name, err_msg);
         pcv_audit_log(NULL, "backup.incremental", d->vm_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.incremental", "failed", err_msg);
+        JsonObject *failed = json_object_new();
+        json_object_set_string_member(failed, "error", err_msg);
+        JsonNode *failed_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(failed_node, failed);
+        gchar *failed_json = json_to_string(failed_node, FALSE);
+        json_node_free(failed_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        g_free(failed_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.incremental", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -647,11 +692,16 @@ static void _incremental_worker(GTask        *task,
         PCV_LOG_INFO(BACKUP_HANDLER_LOG,
                      "Async incremental complete: %s", d->vm_name);
         pcv_audit_log(NULL, "backup.incremental", d->vm_name, "ok", 0, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.incremental", "completed", NULL);
+        JsonNode *result_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_set_object(result_node, result);
+        gchar *result_json = json_to_string(result_node, FALSE);
+        json_node_free(result_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, result_json);
+        g_free(result_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.incremental", "completed", NULL);
         json_object_unref(result);
         g_task_return_boolean(task, TRUE);
     }
-    g_free(job_id);
 }
 
    
@@ -683,9 +733,19 @@ void handle_backup_incremental(JsonObject       *params,
         return;
     }
 
-                                                              
+    gchar *job_id = pcv_job_create("backup.incremental", name, NULL);
+    if (!job_id) {
+        gchar *job_error = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, "Failed to create incremental backup job");
+        pure_uds_server_send_response(server, connection, job_error);
+        g_free(job_error);
+        return;
+    }
+
+
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
+    json_object_set_string_member(accepted, "job_id", job_id);
     json_object_set_string_member(accepted, "vm_name", name);
 
     JsonNode *accepted_node = json_node_new(JSON_NODE_OBJECT);
@@ -698,8 +758,9 @@ void handle_backup_incremental(JsonObject       *params,
                                                     
     IncrementalTaskData *d = g_new0(IncrementalTaskData, 1);
     d->vm_name = g_strdup(name);
+    d->job_id = job_id;
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)_incremental_task_data_free);
     g_task_run_in_thread(task, _incremental_worker);
     g_object_unref(task);
@@ -770,6 +831,7 @@ typedef struct {
     gchar *vm_name;
     gchar *target_node;
     gchar *ssh_user;
+    gchar *job_id;
 } ReplicateTaskData;
 
                                               
@@ -780,6 +842,7 @@ static void _replicate_task_data_free(gpointer p)
     g_free(d->vm_name);
     g_free(d->target_node);
     g_free(d->ssh_user);
+    g_free(d->job_id);
     g_free(d);
 }
 
@@ -798,17 +861,26 @@ static void _replicate_worker(GTask        *task,
     ReplicateTaskData *d = (ReplicateTaskData *)task_data;
     GError *err = NULL;
 
+    pcv_job_update_status(d->job_id, PCV_JOB_RUNNING, 10, "ZFS replication running");
+
     gboolean ok = pcv_backup_replicate(d->vm_name, d->target_node,
                                         d->ssh_user, &err);
     gchar *target = g_strdup_printf("%s:%s", d->vm_name, d->target_node);
-    gchar *job_id = g_strdup_printf("backup.replicate:%s", target);
     if (!ok) {
         const gchar *err_msg = err ? err->message : "unknown";
         PCV_LOG_WARN(BACKUP_HANDLER_LOG,
                      "Async replication failed: %s → %s — %s",
                      d->vm_name, d->target_node, err_msg);
         pcv_audit_log(NULL, "backup.replicate", target, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.replicate", "failed", err_msg);
+        JsonObject *failed = json_object_new();
+        json_object_set_string_member(failed, "error", err_msg);
+        JsonNode *failed_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(failed_node, failed);
+        gchar *failed_json = json_to_string(failed_node, FALSE);
+        json_node_free(failed_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        g_free(failed_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.replicate", "failed", err_msg);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -820,10 +892,18 @@ static void _replicate_worker(GTask        *task,
                      "Async replication complete: %s → %s",
                      d->vm_name, d->target_node);
         pcv_audit_log(NULL, "backup.replicate", target, "ok", 0, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.replicate", "completed", NULL);
+        JsonObject *completed = json_object_new();
+        json_object_set_string_member(completed, "vm_name", d->vm_name);
+        json_object_set_string_member(completed, "target_node", d->target_node);
+        JsonNode *completed_node = json_node_new(JSON_NODE_OBJECT);
+        json_node_take_object(completed_node, completed);
+        gchar *completed_json = json_to_string(completed_node, FALSE);
+        json_node_free(completed_node);
+        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
+        g_free(completed_json);
+        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.replicate", "completed", NULL);
         g_task_return_boolean(task, TRUE);
     }
-    g_free(job_id);
     g_free(target);
 }
 
@@ -886,9 +966,21 @@ void handle_backup_replicate(JsonObject       *params,
         return;
     }
 
-                                         
+    gchar *target = g_strdup_printf("%s:%s", name, target_node);
+    gchar *job_id = pcv_job_create("backup.replicate", target, NULL);
+    g_free(target);
+    if (!job_id) {
+        gchar *job_error = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, "Failed to create backup replication job");
+        pure_uds_server_send_response(server, connection, job_error);
+        g_free(job_error);
+        return;
+    }
+
+
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
+    json_object_set_string_member(accepted, "job_id", job_id);
     json_object_set_string_member(accepted, "vm_name", name);
     json_object_set_string_member(accepted, "target_node", target_node);
 
@@ -905,8 +997,9 @@ void handle_backup_replicate(JsonObject       *params,
     d->target_node = g_strdup(target_node);
                                                                   
     d->ssh_user    = g_strdup(ssh_user ? ssh_user : "");
+    d->job_id      = job_id;
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)_replicate_task_data_free);
     g_task_run_in_thread(task, _replicate_worker);
     g_object_unref(task);

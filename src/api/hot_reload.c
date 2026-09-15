@@ -74,6 +74,12 @@ static struct {
 static gboolean
 _do_upgrade(gpointer user_data __attribute__((unused)))
 {
+
+    if (pcv_drain_is_terminating()) return G_SOURCE_REMOVE;
+    if (pcv_drain_get_work() != 0) {
+        g_timeout_add(100, _do_upgrade, NULL);
+        return G_SOURCE_REMOVE;
+    }
     g_mutex_lock(&G.mu);
     G.state = PCV_UPGRADE_EXECUTING;
     g_mutex_unlock(&G.mu);
@@ -135,7 +141,8 @@ static gboolean
 _drain_check_timer(gpointer user_data __attribute__((unused)))
 {
                                                                    
-    if (!(pcv_drain_get_inflight() == 0)) {
+    if (pcv_drain_is_terminating()) return G_SOURCE_REMOVE;
+    if (pcv_drain_get_inflight() != 0 || pcv_drain_get_work() != 0) {
                                         
         return G_SOURCE_CONTINUE;
     }
@@ -170,6 +177,7 @@ _drain_check_timer(gpointer user_data __attribute__((unused)))
 static gboolean
 _on_sigusr2(gpointer user_data __attribute__((unused)))
 {
+    if (pcv_drain_is_terminating()) return G_SOURCE_CONTINUE;
     PCV_LOG_INFO(HR_LOG_DOM, "SIGUSR2 received — initiating hot reload");
 
     g_mutex_lock(&G.mu);

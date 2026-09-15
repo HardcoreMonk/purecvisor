@@ -83,7 +83,7 @@ RSYNC_OPTS=(
     -aHAX                                                         
     --delete                                       
     --delete-excluded                            
-    --info=progress2 stats2            
+    --info=progress2,stats2
     --exclude='.git/objects/pack/*.tmp'
     --exclude='node_modules/'
     --exclude='__pycache__/'

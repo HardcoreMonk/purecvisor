@@ -1,0 +1,90 @@
+{
+  "pcv_alert_dlq_reset": {
+    "reason": "DLQ 회귀 테스트의 격리된 초기 상태를 준비하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_alert_dlq.c"]
+  },
+  "pcv_alert_engine_apply_daemon_config": {
+    "reason": "daemon 설정 원자 적용과 실패 시 무부수효과를 검증하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_alert_basic.c"]
+  },
+  "pcv_alert_silence_reset": {
+    "reason": "알림 억제 회귀 테스트에서 이전 상태를 제거하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_alert_silence.c"]
+  },
+  "pcv_anomaly_sync_auto_watches": {
+    "reason": "자동 감시 등록·회수·상한을 검증하도록 렌더 결과를 주입하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_anomaly_autowatch.c"]
+  },
+  "pcv_anomaly_watch_count": {
+    "reason": "자동 감시가 고정 감시 슬롯을 침범하지 않는지 확인하는 테스트 전용 조회다.",
+    "evidence": ["tests/test_anomaly_autowatch.c"]
+  },
+  "pcv_overlay_reconcile": {
+    "reason": "임베딩 호출자용으로 유지하는 lifecycle API다. daemon timer는 같은 내부 restore worker를 비동기로 호출한다.",
+    "evidence": ["src/modules/network/ovs_overlay.h"]
+  },
+  "pcv_overlay_set_dir_sync_test_hook": {
+    "reason": "메타데이터 디렉터리 동기화 실패의 내구성 효과를 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_lifecycle_test_hook": {
+    "reason": "public 작업과 shutdown 사이의 경쟁 및 drain 효과를 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_metadata_limit_for_test": {
+    "reason": "메타데이터 크기 상한의 실제 효과를 검증하는 테스트 전용 설정점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_metadata_stat_test_hook": {
+    "reason": "O_EXCL 이후 fstat 실패 경로를 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_metadata_test_hook": {
+    "reason": "메타데이터 commit과 cleanup 경쟁 및 잔존 파일 효과를 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_restore_deadline_for_test": {
+    "reason": "전체 restore와 audit의 제한 시간 효과를 검증하는 테스트 전용 설정점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_restore_snapshot_test_hook": {
+    "reason": "stale snapshot의 파싱·적용 경쟁을 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_overlay_set_test_context": {
+    "reason": "OVS 실행 경계와 메타데이터 저장 위치를 격리하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_ovn.c"]
+  },
+  "pcv_prom_labels_fit": {
+    "reason": "헤더 inline 함수여서 유일한 src C 출현이 실제 호출이다. 정의만 존재한다고 보는 탐지 휴리스틱을 보정한다.",
+    "evidence": ["src/modules/daemons/prometheus_exporter.h", "src/modules/daemons/prometheus_exporter.c", "tests/test_prometheus.c"]
+  },
+  "pcv_rbac_authenticate": {
+    "reason": "기존 단일 JWT C API와 비밀번호 검증 회귀 fixture의 호환성을 유지한다. REST 로그인은 분리된 TOTP 경로를 사용한다.",
+    "evidence": ["tests/test_pbkdf2_verify.c"]
+  },
+  "pcv_rbac_authenticate_v2": {
+    "reason": "기존 C API와 토큰·비밀번호 회전 회귀 fixture의 호환성을 유지한다. REST는 password_check와 issue_tokens를 별도로 호출한다.",
+    "evidence": ["tests/test_password_rotation.c"]
+  },
+  "pcv_suricata_ips_set_exec_hook": {
+    "reason": "IPS 외부 명령 실행의 성공·실패를 주입하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_suricata_ips.c"]
+  },
+  "pcv_suricata_ips_set_probe_hook": {
+    "reason": "IPS 서비스의 inactive·absent 상태를 주입하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_suricata_ips.c"]
+  },
+  "pcv_suricata_ips_set_ready_hook": {
+    "reason": "NFQUEUE 준비 상태와 실패·경쟁 경로를 주입하는 테스트 전용 진입점이다.",
+    "evidence": ["tests/test_suricata_ips.c"]
+  },
+  "pcv_vpc_error_quark": {
+    "reason": "PCV_VPC_ERROR 헤더 매크로가 간접 호출하는 GLib error domain이다. C 파일의 직접 심볼 출현만 세는 휴리스틱을 보정한다.",
+    "evidence": ["src/modules/network/vpc/vpc_model.h"]
+  },
+  "pcv_webpush_set_post_hook": {
+    "reason": "외부 푸시 서비스 없이 HTTP 202·410·500 결과를 검증하는 테스트 전용 주입점이다.",
+    "evidence": ["tests/test_webpush.c"]
+  }
+}

@@ -111,6 +111,7 @@
                                                   
    
 
+#include "api/drain.h"
 #include "modules/storage/zfs_driver.h"
 #include <string.h>
 #include <glib.h>
@@ -353,7 +354,7 @@ _zfs_async_command(const gchar * const *argv,
                    GAsyncReadyCallback  callback,
                    gpointer             user_data)
 {
-    GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     ZfsOpCtx *ctx = g_new0(ZfsOpCtx, 1);
                                                                     
     ctx->cancellable = cancellable ? g_object_ref(cancellable) : g_cancellable_new();
@@ -576,7 +577,7 @@ static void on_zfs_list_ready(GObject *source_object, GAsyncResult *res, gpointe
    
 void purecvisor_zfs_snapshot_list_async(const gchar *pool_name, const gchar *vm_name, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
 {
-    GTask *task = g_task_new(NULL, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
     ZfsOpCtx *ctx = g_new0(ZfsOpCtx, 1);
                                                         
     ctx->cancellable = cancellable ? g_object_ref(cancellable) : g_cancellable_new();

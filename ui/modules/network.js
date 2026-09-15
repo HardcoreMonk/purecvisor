@@ -32,6 +32,7 @@ window.PCV = window.PCV || {};
                                                                                   
                                                                 
 var _netData = null;
+var _netRequest = 0, _netBaselineRequest = 0, _netGeneration = -1;
 var _netUnsub = null;
 var _netBaselineData = null;
 var _netBaselineError = null;
@@ -54,7 +55,8 @@ function _netShown(list) {
 }
                   
                                                                   
-                                                                            
+
+
                                                                  
                         
 function _onNetFilterChange() {
@@ -62,7 +64,7 @@ function _onNetFilterChange() {
     if (_netUnsub) { _netUnsub(); _netUnsub = null; }
     return;
   }
-  if (!_netData) return;
+  if (!_netData || _netGeneration !== PCV.ui.navGen()) return;
   var ae = document.activeElement;
   var fk = ae && ae.getAttribute ? ae.getAttribute('data-facet') : null;
   var fv = ae && ae.getAttribute ? ae.getAttribute('data-val') : null;
@@ -77,6 +79,10 @@ function _onNetFilterChange() {
     }
   }
 }
+
+
+
+
 async function _netOptionalGet(url, fallback) {
   try {
     var response = await fetchGet(url);
@@ -124,7 +130,7 @@ function _hostNetSummary(label, value, note) {
     el('div', { class: 'stat-md font-mono', style: 'margin:3px 0;overflow-wrap:anywhere' }, value || '-'),
     el('div', { class: 'stat-label', style: 'line-height:1.45;overflow-wrap:anywhere' }, note || ''));
 }
-                                                                     
+
 function _hostNetBackendNote(backends) {
   if (!Array.isArray(backends) || !backends.length)
     return _L('Backend 정보 없음', 'No backend data');
@@ -135,9 +141,9 @@ function _hostNetBackendNote(backends) {
       (backend.ready ? 'READY' : 'UNAVAILABLE') + ' · ' + available;
   }).join(' / ');
 }
-                                                               
+
 function _renderHostNetworkBaseline(networks) {
-  var el = PCV.uxlib.el, frag = PCV.uxlib.frag;
+  var el = PCV.uxlib.el;
   var baseline = _netBaselineData;
   var vpcStatus = _netVpcStatusData || {};
   var management = baseline && baseline.management || {};
@@ -229,7 +235,7 @@ function _renderHostNetworkBaseline(networks) {
       el('td', null, _hostNetMono(subnet.cidr)),
       el('td', null, HN.statusPill(String(subnet.state || '').toUpperCase() === 'ACTIVE' ? 'ok' : 'warn', String(subnet.state || 'UNKNOWN').toUpperCase())));
   });
-                                                               
+
   var header = el('div', { class: 'ops-section-heading', style: 'margin-top:0' },
     el('div', null,
       el('h3', { id: 'host-network-baseline-title', role: 'heading', 'aria-level': '2' }, _L('호스트 네트워크 기준선', 'Host network baseline')),
@@ -272,6 +278,7 @@ function _renderHostNetworkBaseline(networks) {
 }
 
 async function retryHostNetworkBaseline() {
+  var generation = PCV.ui.navGen(), request = ++_netBaselineRequest;
   var button = document.querySelector('[data-host-network-retry]');
   if (button) {
     button.disabled = true;
@@ -281,6 +288,7 @@ async function retryHostNetworkBaseline() {
     _netOptionalGet(EP.NET_HOST_BASELINE(), _L('호스트 네트워크 기준선 조회 실패', 'Unable to load host network baseline')),
     _netOptionalGet(EP.VPC_STATUS(), _L('Local VPC 상태 조회 실패', 'Unable to load Local VPC status'))
   ]);
+  if (generation !== PCV.ui.navGen() || request !== _netBaselineRequest) return;
   _netBaselineData = results[0].data;
   _netBaselineError = results[0].error;
   _netVpcStatusData = results[1].data;
@@ -290,8 +298,17 @@ async function retryHostNetworkBaseline() {
 }
 
 async function renderNetworks(b, cachedList) {
+
+
+  var generation = PCV.ui.navGen(), request = _netRequest;
+  if (!cachedList) {
+    request = ++_netRequest;
+    ++_netBaselineRequest;
+    _netData = null;
+  }
   if (!cachedList) showSkeleton(b);
   try {
+
     var response = null;
     if (!cachedList) {
       var initial = await Promise.all([
@@ -299,15 +316,19 @@ async function renderNetworks(b, cachedList) {
         _netOptionalGet(EP.NET_HOST_BASELINE(), _L('호스트 네트워크 기준선 조회 실패', 'Unable to load host network baseline')),
         _netOptionalGet(EP.VPC_STATUS(), _L('Local VPC 상태 조회 실패', 'Unable to load Local VPC status'))
       ]);
+      if (generation !== PCV.ui.navGen() || request !== _netRequest) return;
       response = initial[0];
       _netBaselineData = initial[1].data;
       _netBaselineError = initial[1].error;
       _netVpcStatusData = initial[2].data;
       _netVpcStatusError = initial[2].error;
     }
+
+
     if (response && response.error) throw new Error(response.error.message || _L('네트워크 목록 조회 실패', 'Unable to load networks'));
     const l = cachedList || unwrapList(response);
     _netData = l;
+    _netGeneration = generation;
     if (!_netUnsub && PCV.ui && PCV.ui.filterState && PCV.ui.filterState.subscribe) {
       _netUnsub = PCV.ui.filterState.subscribe(_onNetFilterChange);
     }
@@ -337,8 +358,8 @@ async function renderNetworks(b, cachedList) {
       return;
     }
                                                            
-                                                                  
-                                                          
+
+
     var counts = { mode: {}, up: 0, down: 0 };
     l.forEach(function (v) {
       var m = String(v.mode || 'unknown');                                                    
@@ -439,6 +460,7 @@ async function renderNetworks(b, cachedList) {
     b.appendChild(frag(el('div', { id: 'net-inv' }, invContent), fwPanel));
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   } catch (e) {
+    if (generation !== PCV.ui.navGen() || request !== _netRequest) return;
     if(_DEBUG) console.warn('n:', e.message);
     PCV.uxlib.renderLoadError(b, {
       title: _L('네트워크 인벤토리', 'Network inventory'),
@@ -679,7 +701,7 @@ async function doNetDel(name) { const cv = document.getElementById('del-net-conf
                                                                  
                                                   
                                                             
-    const d = await fetchDelete(EP.NET_DETAIL(name)).catch(() => ({}));
+    const d = await fetchDelete(EP.NET_DETAIL(name));
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; ps.textContent = '❌ ' + d.error.message; toast(t('btn.delete') + ' failed', false); return; }
     pf.style.width = '100%'; ps.textContent = '✅ ' + t('net.deleted'); toast(t('net.deleted')); addEvt(t('net.deleted') + ': ' + name); setTimeout(() => { closeModal(); if (PCV.ui.navGen() === _navGen) renderNetworks(PCV.ui.renderTarget()); }, 1500);
   } catch (e) { pf.style.width = '100%'; ps.textContent = '❌ ' + e.message; toast(e.message, false); } }
@@ -881,9 +903,15 @@ async function doNetEdit(name) {
 async function renderOvn(b) {
   showSkeleton(b);
   try {
-    const st = await fetchGet(EP.OVN_STATUS()); const sd = unwrapData(st);
-    const sw = await fetchGet(EP.OVN_SWITCHES()); const sl = unwrapList(sw);
-    const rt = await fetchGet(EP.OVN_ROUTERS()); const rl = unwrapList(rt);
+    const st = await fetchGet(EP.OVN_STATUS());
+    if (st && st.error) throw new Error(st.error.message || 'Request failed');
+    const sd = unwrapData(st);
+    const sw = await fetchGet(EP.OVN_SWITCHES());
+    if (sw && sw.error) throw new Error(sw.error.message || 'Request failed');
+    const sl = unwrapList(sw);
+    const rt = await fetchGet(EP.OVN_ROUTERS());
+    if (rt && rt.error) throw new Error(rt.error.message || 'Request failed');
+    const rl = unwrapList(rt);
     var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
     var heading1 = HN.pagehead({
       title: 'OVN SDN',
@@ -920,12 +948,23 @@ async function renderOvn(b) {
         el('div', { class: 'fr' }, el('label', { for: 'fw-match' }, 'Match'), el('input', { id: 'fw-match', placeholder: 'ip4.src==10.0.0.0/24' })),
         el('div', { class: 'fr' }, el('label', { for: 'fw-act' }, _L('동작', 'Action')), el('select', { id: 'fw-act' }, el('option', null, 'allow'), el('option', null, 'drop'), el('option', null, 'reject'))),
         el('button', { class: 'btn btn-primary', onclick: 'nfvFwAdd()', 'data-role': 'ADMIN' }, _L('ACL 규칙 추가', 'Add ACL rule'))));
-    var lbAclGrid = el('div', { class: 'sg grid-1' }, aclPanel);
     clearEl(b);
-    b.appendChild(frag(heading1, grid1, heading3, topoGrid, lbAclGrid));
+    b.appendChild(frag(heading1, grid1, heading3, topoGrid, aclPanel));
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   } catch (e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-red' }, _L('OVN 정보를 불러오지 못했습니다', 'Unable to load OVN data')); }
 }
+
+
+
+
+
+
+
+
+
+
+
+
 
 async function nfvFwAdd() { try { const sw = document.getElementById('fw-sw')?.value; const dir = document.getElementById('fw-dir')?.value; const pri = document.getElementById('fw-pri')?.value; const match = document.getElementById('fw-match')?.value; const act = document.getElementById('fw-act')?.value; if (!sw || !match) { toast('Switch and Match required', false); return; } const r = await fetchPost(EP.OVN_ACL(), { switch: sw, direction: dir, priority: +pri, match: match, action: act }); if (r && r.error) { toast(r.error.message || 'Failed', false); return; } toast('ACL rule added'); addEvt('ACL rule added to ' + sw); } catch (e) { toast(e.message, false); } }
 
@@ -995,6 +1034,7 @@ window.sgListRules = async function() {
   if (el) PCV.uxlib.setMsg(el, 'loading', null, '조회 중...');
   try {
     const r = await fetchGet(EP.OVN_ACL() + '?switch=' + encodeURIComponent(sw));
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     const list = unwrapList(r);
     if (list.length === 0) { if (el) PCV.uxlib.setMsg(el, null, { tag: 'p', cls: 'color-muted text-12' }, 'ACL 규칙 없음'); return; }
                                                                      
@@ -1014,132 +1054,318 @@ window.sgListRules = async function() {
   } catch (e) { if (el) PCV.uxlib.setMsg(el, null, { cls: 'color-red' }, '오류: ', e.message); }
 };
 
-                              
+
+
+
+
+
+
+
+
+
+
+
+
 async function renderOverlayNetworks(b) {
   showSkeleton(b);
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var heading = function() {
+    return HN.pagehead({
+      title: _L('오버레이 네트워크 (VXLAN)', 'Overlay Networks (VXLAN)'),
+      desc: _L('조회 전용 화면입니다. 생성·삭제·피어 변경은 overlay.* JSON-RPC로 수행합니다.',
+        'Read-only view. Use overlay.* JSON-RPC to create, delete, or change peers.')
+    });
+  };
   try {
     const r = await fetchGet(EP.OVERLAY_LIST());
+    if (r && r.error)
+      throw new Error(r.error.message || r.error.code || _L('오버레이 조회 실패', 'Unable to load overlays'));
     const l = unwrapList(r);
     var body;
     if (!Array.isArray(l) || l.length === 0) {
-      body = el('div', { class: 'empty-state' }, el('div', { class: 'empty-state-icon' }, '🌐'), el('div', { class: 'empty-state-text' }, 'No overlay networks'));
+      body = el('div', { class: 'empty-state', 'data-overlay-empty': 'true' },
+        el('div', { class: 'empty-state-icon', 'aria-hidden': 'true' }, '🌐'),
+        el('div', { class: 'empty-state-text' }, _L('구성된 오버레이 네트워크가 없습니다.', 'No overlay networks configured.')));
     } else {
-      body = el('table', { class: 'table-sticky' },
-        el('thead', null, el('tr', null, el('th', null, 'Name'), el('th', null, 'VNI'), el('th', null, 'Peers'), el('th', null, 'Status'))),
-        el('tbody', null, l.map(function(v) {
-          return el('tr', null,
-            el('td', null, el('b', null, v.name || '?')),
-            el('td', null, v.vni || '-'),
-            el('td', null, v.peer_count || 0),
-            el('td', null, HN.statusPill(v.state === 'up' ? 'ok' : 'crit', String(v.state || '?').toUpperCase())));
-        })));
+      body = el('div', {
+        'data-overlay-list': 'true', role: 'region', tabindex: '0',
+        'aria-label': _L('오버레이 네트워크 표', 'Overlay networks table'),
+        style: 'width:100%;min-width:0;overflow-x:auto;max-width:100%'
+      },
+        el('table', { class: 'table-sticky', style: 'display:table;min-width:680px' },
+          el('thead', null, el('tr', null,
+            el('th', null, _L('이름', 'Name')),
+            el('th', null, 'VNI'),
+            el('th', null, 'CIDR'),
+            el('th', null, _L('피어', 'Peers')),
+            el('th', null, _L('상태', 'Status')))),
+          el('tbody', null, l.map(function(v) {
+            var active = v.active === true;
+            return el('tr', { 'data-overlay-row': 'true', 'data-overlay-name': v.name || '' },
+              el('td', null, el('b', { class: 'font-mono' }, v.name || '?')),
+              el('td', { class: 'font-mono' }, v.vni == null ? '-' : String(v.vni)),
+              el('td', { class: 'font-mono' }, v.cidr || '-'),
+              el('td', null, v.peer_count == null ? '0' : String(v.peer_count)),
+              el('td', null, HN.statusPill(active ? 'ok' : 'crit', active ? 'ACTIVE' : 'INACTIVE')));
+          }))));
     }
     clearEl(b);
-    b.appendChild(frag(HN.pagehead({ title: 'Overlay Networks (VXLAN)' }), body));
+    b.appendChild(frag(heading(), body));
   } catch (e) {
     clearEl(b);
-    b.appendChild(frag(HN.pagehead({ title: 'Overlay Networks' }), el('p', { class: 'color-muted' }, 'Failed to load: ', e.message)));
+    b.appendChild(frag(heading(),
+      el('div', { class: 'empty-state', 'data-overlay-error': 'true', role: 'alert' },
+        el('div', { class: 'empty-state-icon', 'aria-hidden': 'true' }, '⚠'),
+        el('div', { class: 'empty-state-text color-red' }, _L('오버레이 상태를 읽을 수 없습니다.', 'Overlay state unavailable.')),
+        el('p', { class: 'color-muted text-12' }, e && e.message ? e.message : _L('알 수 없는 오류', 'Unknown error')),
+        el('p', { class: 'color-muted text-12' },
+          _L('API 연결과 호스트별 daemon.conf의 ', 'Check the API connection and each host\'s daemon.conf '),
+          el('code', null, '[overlay] tunnel_ip'),
+          _L(' 설정을 확인하세요.', ' setting.')))));
   }
 }
 window.renderOverlayNetworks = renderOverlayNetworks;
 
-                              
+
+
+
+
+
+
+
+
+
+
+
+var TOPOLOGY_VM_LIMIT = 24;
+var TOPOLOGY_NIC_CONCURRENCY = 6;
+
+function _topologyResponseError(response, fallback) {
+  if (response && response.error) return new Error(response.error.message || fallback);
+  return null;
+}
+
+function _topologyNicSource(nic) {
+  if (!nic || typeof nic !== 'object') return '';
+  return String(nic.bridge || nic.source || nic.network || nic.type || '').trim();
+}
+
+function _topologyStatus(state, type) {
+  var normalized = String(state || '').toLowerCase();
+  if (type === 'network') {
+    return { tone: normalized === 'up' ? 'ok' : 'idle', label: normalized ? normalized.toUpperCase() : 'UNKNOWN' };
+  }
+  return { tone: normalized === 'running' ? 'ok' : 'idle', label: normalized ? normalized.toUpperCase() : 'UNKNOWN' };
+}
+
+async function _topologyLoadNics(vms) {
+  var entries = new Array(vms.length);
+  var next = 0;
+  async function worker() {
+    while (next < vms.length) {
+      var index = next++;
+      var vm = vms[index];
+      try {
+        var response = await fetchGet(EP.VM_NICS(vm.name));
+        if (response && response.error) {
+          throw new Error(response.error.message || _L('NIC 인벤토리 조회 실패', 'Unable to load NIC inventory'));
+        }
+        entries[index] = { vm: vm, ok: true, nics: unwrapList(response) };
+      } catch (error) {
+        entries[index] = {
+          vm: vm,
+          ok: false,
+          nics: [],
+          reason: error && error.message ? error.message : _L('NIC 인벤토리 조회 실패', 'Unable to load NIC inventory')
+        };
+      }
+    }
+  }
+  var workers = [];
+  for (var i = 0; i < Math.min(TOPOLOGY_NIC_CONCURRENCY, vms.length); i++) workers.push(worker());
+  await Promise.all(workers);
+  return entries;
+}
+
+function _topologySummaryItem(el, key, label, value, note) {
+  return el('div', { class: 'topology-summary-item', 'data-summary': key, role: 'listitem' },
+    el('span', { class: 'topology-summary-label' }, label),
+    el('strong', { class: 'topology-summary-value' }, String(value)),
+    el('span', { class: 'topology-summary-note' }, note));
+}
+
+function _topologyWorkloadRow(el, HN, entry) {
+  var status = _topologyStatus(entry.vm.state, 'vm');
+  var details = [];
+  if (entry.nic && entry.nic.ip) details.push(entry.nic.ip);
+  if (entry.nic && entry.nic.mac) details.push(entry.nic.mac);
+  return el('div', { class: 'topology-workload-row', role: 'listitem' },
+    el('div', { class: 'topology-workload-copy' },
+      el('strong', { class: 'topology-workload-name' }, entry.vm.name || _L('이름 없음', 'Unnamed workload')),
+      el('span', { class: 'topology-workload-meta' }, details.length ? details.join(' · ') : _L('NIC 주소 정보 없음', 'No NIC addressing observed'))),
+    HN.statusPill(status.tone, status.label));
+}
+
+function _topologyUnmappedRow(el, HN, entry) {
+  var status = _topologyStatus(entry.vm.state, 'vm');
+  return el('div', { class: 'topology-unmapped-row', role: 'listitem' },
+    el('div', { class: 'topology-workload-copy' },
+      el('strong', { class: 'topology-workload-name' }, entry.vm.name || _L('이름 없음', 'Unnamed workload')),
+      el('span', { class: 'topology-workload-meta' }, entry.reason)),
+    HN.statusPill(status.tone, status.label));
+}
+
 async function renderTopology(b) {
   showSkeleton(b);
-  try {
-    var results = await Promise.all([
-      fetchGet(EP.NET_LIST()).catch(function() { return { data: [] }; }),
-      fetchGet(EP.VM_LIST()).catch(function() { return { data: [] }; })
-    ]);
-    var nets = unwrapList(results[0]);
-    var vms = unwrapList(results[1]);
+  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var heading = HN.pagehead({
+    title: _L('Single Edge 아키텍처 맵', 'Single Edge architecture map'),
+    desc: _L('현재 Single Edge 런타임에서 관찰된 호스트·관리 네트워크·VM NIC 관계입니다.', 'Observed host, managed-network, and VM NIC relationships for this Single Edge runtime only.')
+  });
 
-    var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
+  var core = await Promise.allSettled([fetchGet(EP.NET_LIST()), fetchGet(EP.VM_LIST())]);
+  var networkError = core[0].status === 'rejected' ? core[0].reason
+    : _topologyResponseError(core[0].value, _L('네트워크 목록 조회 실패', 'Unable to load networks'));
+  var vmError = core[1].status === 'rejected' ? core[1].reason
+    : _topologyResponseError(core[1].value, _L('VM 목록 조회 실패', 'Unable to load workloads'));
+  var nets = networkError ? [] : unwrapList(core[0].value);
+  var vms = vmError ? [] : unwrapList(core[1].value);
+  var root = el('section', { class: 'topology-map', 'aria-label': _L('Single Edge 아키텍처 맵', 'Single Edge architecture map') });
+
+  if (networkError && vmError) {
+    root.appendChild(el('div', { class: 'topology-error', role: 'alert' },
+      el('strong', null, _L('아키텍처 데이터를 불러오지 못했습니다', 'Unable to load architecture data')),
+      el('span', null, _L('네트워크와 VM 목록 조회가 모두 실패했습니다.', 'Both managed-network and workload inventory requests failed.'))));
     clearEl(b);
-    b.appendChild(frag(
-      HN.pagehead({ title: _L('네트워크 토폴로지', 'Network Topology') }),
-      el('canvas', { id: 'topo-canvas', width: '800', height: '500', style: 'width:100%;max-width:800px;border:1px solid var(--border);border-radius:6px;background:var(--bg2)' }),
-      el('div', { class: 'flex gap-8 mt-8 text-xs' },
-        el('span', null, '🖥 ' + _L('노드', 'Node')),
-        el('span', null, '🌐 ' + _L('브릿지', 'Bridge')),
-        el('span', null, '💻 VM'))));
+    b.appendChild(frag(heading, root));
+    return;
+  }
 
-                       
-    setTimeout(function() {
-      var canvas = document.getElementById('topo-canvas');
-      if (!canvas) return;
-      var ctx = canvas.getContext('2d');
-      var W = canvas.width;
+  var visibleVms = vms.slice(0, TOPOLOGY_VM_LIMIT);
+  var inventory = vmError ? [] : await _topologyLoadNics(visibleVms);
+  var grouped = {};
+  nets.forEach(function(net) { grouped[String(net.name || '')] = []; });
+  var unmapped = [];
+  var linkCount = 0;
+  var nicSuccessCount = 0;
 
-                          
-      var style = getComputedStyle(document.documentElement);
-      var accentColor = style.getPropertyValue('--accent').trim() || '#00f0ff';
-      var greenColor = style.getPropertyValue('--green').trim() || '#00ff88';
-      var fgColor = style.getPropertyValue('--fg').trim() || '#e0f0ff';
-      var dimColor = style.getPropertyValue('--fg2').trim() || '#5a6a8a';
-
-                                                                      
-      var nodes = (typeof MON_NODES !== 'undefined' && MON_NODES) ? MON_NODES : [{name:'Node1',ip:'localhost'}];
-
-                      
-      var nodePositions = [];
-      nodes.forEach(function(nd, i) {
-        var x = (W / (nodes.length + 1)) * (i + 1);
-        var y = 50;
-        nodePositions.push({x:x, y:y, name:nd.name});
-        ctx.fillStyle = accentColor;
-        ctx.beginPath(); ctx.arc(x, y, 20, 0, Math.PI * 2); ctx.fill();
-        ctx.fillStyle = '#000';
-        ctx.font = '10px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(nd.name, x, y + 4);
-        ctx.fillStyle = dimColor;
-        ctx.fillText(nd.ip, x, y + 34);
+  inventory.forEach(function(entry) {
+    if (!entry.ok) {
+      unmapped.push({ vm: entry.vm, reason: entry.reason });
+      return;
+    }
+    nicSuccessCount++;
+    if (!entry.nics.length) {
+      unmapped.push({ vm: entry.vm, reason: _L('연결된 NIC 없음', 'No NICs attached') });
+      return;
+    }
+    var unknownSources = [];
+    entry.nics.forEach(function(nic) {
+      var source = _topologyNicSource(nic);
+      linkCount++;
+      if (source && Object.prototype.hasOwnProperty.call(grouped, source)) {
+        grouped[source].push({ vm: entry.vm, nic: nic });
+      } else {
+        unknownSources.push(source || _L('소스 정보 없음', 'Source not reported'));
+      }
+    });
+    if (unknownSources.length) {
+      unmapped.push({
+        vm: entry.vm,
+        reason: _L('관리 대상이 아닌 네트워크: ', 'Unmanaged network: ') + unknownSources.join(', ')
       });
+    }
+  });
 
-                        
-      var bridgePositions = [];
-      nets.slice(0, 6).forEach(function(net, i) {
-        var x = (W / (Math.min(nets.length, 6) + 1)) * (i + 1);
-        var y = 200;
-        bridgePositions.push({x:x, y:y, name:net.name});
-        ctx.fillStyle = greenColor;
-        ctx.fillRect(x - 30, y - 12, 60, 24);
-        ctx.fillStyle = '#000';
-        ctx.font = '9px monospace'; ctx.textAlign = 'center';
-        ctx.fillText(net.name, x, y + 4);
-                                     
-        var closest = nodePositions[0] || {x:x, y:50};
-        ctx.strokeStyle = dimColor; ctx.lineWidth = 1;
-        ctx.setLineDash([4, 4]);
-        ctx.beginPath(); ctx.moveTo(x, y - 12); ctx.lineTo(closest.x, closest.y + 20); ctx.stroke();
-        ctx.setLineDash([]);
-      });
+  var host = (typeof MON_NODES !== 'undefined' && Array.isArray(MON_NODES) && MON_NODES[0])
+    ? MON_NODES[0] : { name: 'Single Edge', ip: 'localhost' };
+  var runningCount = vms.filter(function(vm) { return String(vm.state || '').toLowerCase() === 'running'; }).length;
+  var summary = el('div', { class: 'topology-summary', 'aria-label': _L('런타임 요약', 'Runtime summary'), role: 'list' },
+    _topologySummaryItem(el, 'host', _L('호스트', 'Host'), '1', host.name || 'Single Edge'),
+    _topologySummaryItem(el, 'networks', _L('관리 네트워크', 'Managed networks'), nets.length, _L('network.list 결과', 'network.list result')),
+    _topologySummaryItem(el, 'running', _L('실행 중 VM', 'Running VMs'), runningCount + ' / ' + vms.length, _L('실행 중 / 전체', 'running / total')),
+    _topologySummaryItem(el, 'links', _L('관찰된 NIC 연결', 'Observed NIC links'), linkCount, _L('확장된 VM 기준', 'expanded workloads')));
+  root.appendChild(summary);
 
-                    
-      vms.slice(0, 12).forEach(function(vm, i) {
-        var cols = Math.min(vms.length, 6);
-        var row = Math.floor(i / cols);
-        var col = i % cols;
-        var x = (W / (cols + 1)) * (col + 1);
-        var y = 340 + row * 60;
-        var on = vm.state === 'running';
-        ctx.fillStyle = on ? greenColor : dimColor;
-        ctx.fillRect(x - 25, y - 10, 50, 20);
-        ctx.fillStyle = on ? '#000' : fgColor;
-        ctx.font = '8px monospace'; ctx.textAlign = 'center';
-        var label = vm.name.length > 8 ? vm.name.substring(0, 8) + '..' : vm.name;
-        ctx.fillText(label, x, y + 3);
-                                 
-        if (bridgePositions.length > 0) {
-          var br = bridgePositions[i % bridgePositions.length];
-          ctx.strokeStyle = on ? accentColor : 'rgba(90,106,138,0.3)';
-          ctx.lineWidth = on ? 1 : 0.5;
-          ctx.beginPath(); ctx.moveTo(x, y - 10); ctx.lineTo(br.x, br.y + 12); ctx.stroke();
-        }
-      });
-    }, 100);
-  } catch (e) { PCV.uxlib.clearEl(b); b.appendChild(PCV.uxlib.frag(HN.pagehead({ title: 'Topology' }), PCV.uxlib.el('p', { class: 'color-red' }, e.message))); }
+  var partialReasons = [];
+  if (networkError) partialReasons.push(_L('네트워크 목록 사용 불가', 'managed-network inventory unavailable'));
+  if (vmError) partialReasons.push(_L('VM 목록 사용 불가', 'workload inventory unavailable'));
+  if (visibleVms.length && nicSuccessCount < visibleVms.length) {
+    partialReasons.push(nicSuccessCount + ' / ' + visibleVms.length + ' ' + _L('VM NIC 조회 완료', 'VM NIC inventories loaded'));
+  }
+  if (partialReasons.length) {
+    root.appendChild(el('div', { class: 'topology-partial', role: 'status' },
+      HN.statusPill('warn', 'PARTIAL'),
+      el('span', null, partialReasons.join(' · '))));
+  }
+
+  var surface = el('div', { class: 'topology-surface' });
+  surface.appendChild(el('article', { class: 'topology-host-card', 'aria-label': _L('Single Edge 호스트', 'Single Edge host') + ': ' + (host.name || 'Single Edge') },
+    el('span', { class: 'topology-node-kicker' }, 'SINGLE EDGE HOST'),
+    el('strong', { class: 'topology-host-name' }, host.name || 'Single Edge'),
+    el('span', { class: 'topology-host-meta' }, host.ip || 'localhost')));
+
+  var networkStage = el('section', { class: 'topology-network-stage', 'aria-labelledby': 'topology-networks-title' },
+    el('div', { class: 'topology-section-head' },
+      el('div', null,
+        el('span', { class: 'topology-section-kicker' }, _L('호스트 네트워크', 'HOST NETWORK PLANE')),
+        el('h2', { id: 'topology-networks-title' }, _L('관리 네트워크', 'Managed networks'))),
+      el('span', { class: 'topology-section-count' }, String(nets.length))));
+  if (!nets.length) {
+    networkStage.appendChild(el('div', { class: 'topology-empty' },
+      el('strong', null, _L('관리 네트워크 없음', 'No managed networks')),
+      el('span', null, networkError
+        ? _L('네트워크 목록을 읽지 못했습니다.', 'The managed-network inventory could not be read.')
+        : _L('이 런타임에 network.list 결과가 없습니다.', 'network.list returned no networks for this runtime.'))));
+  } else {
+    networkStage.appendChild(el('div', { class: 'topology-network-grid', role: 'list' }, nets.map(function(net) {
+      var state = _topologyStatus(net.state, 'network');
+      var members = grouped[String(net.name || '')] || [];
+      return el('div', { class: 'topology-network-card', 'data-network': String(net.name || ''), role: 'listitem' },
+        el('header', { class: 'topology-network-head' },
+          el('div', { class: 'topology-network-copy' },
+            el('span', { class: 'topology-network-mode' }, String(net.mode || 'network').toUpperCase()),
+            el('h3', null, net.name || _L('이름 없는 네트워크', 'Unnamed network')),
+            el('span', { class: 'topology-network-meta' }, net.ip_cidr || net.subnet || _L('주소 계약 없음', 'No address contract'))),
+          HN.statusPill(state.tone, state.label)),
+        el('div', { class: 'topology-workload-list', role: 'list' }, members.length
+          ? members.map(function(member) { return _topologyWorkloadRow(el, HN, member); })
+          : el('div', { class: 'topology-network-empty', role: 'listitem' }, _L('관찰된 VM NIC 없음', 'No observed VM NICs'))));
+    })));
+  }
+  surface.appendChild(networkStage);
+  root.appendChild(surface);
+
+  if (!vms.length) {
+    root.appendChild(el('div', { class: 'topology-empty topology-workload-empty' },
+      el('strong', null, _L('발견된 워크로드 없음', 'No workloads discovered')),
+      el('span', null, vmError
+        ? _L('VM 목록을 읽지 못했습니다.', 'The workload inventory could not be read.')
+        : _L('이 Single Edge 런타임에 등록된 VM이 없습니다.', 'No VMs are registered in this Single Edge runtime.'))));
+  }
+
+  if (unmapped.length) {
+    root.appendChild(el('section', { class: 'topology-unmapped', 'aria-labelledby': 'topology-unmapped-title' },
+      el('div', { class: 'topology-section-head' },
+        el('div', null,
+          el('span', { class: 'topology-section-kicker' }, _L('조사 필요', 'NEEDS REVIEW')),
+          el('h2', { id: 'topology-unmapped-title' }, _L('매핑되지 않은 워크로드', 'Unmapped workloads'))),
+        el('span', { class: 'topology-section-count' }, String(unmapped.length))),
+      el('div', { class: 'topology-unmapped-list', role: 'list' }, unmapped.map(function(entry) {
+        return _topologyUnmappedRow(el, HN, entry);
+      }))));
+  }
+
+  if (vms.length > visibleVms.length) {
+    root.appendChild(el('div', { class: 'topology-overflow', role: 'note' },
+      '+' + (vms.length - visibleVms.length) + ' ' + _L('개 추가 워크로드는 확장하지 않음', 'more workload' + (vms.length - visibleVms.length === 1 ? '' : 's') + ' not expanded'),
+      el('span', null, _L('API 부하를 제한하기 위해 처음 24개 VM만 NIC 연결을 조회합니다.', 'NIC relationships are expanded for the first 24 VMs to bound API load.'))));
+  }
+
+  root.appendChild(el('p', { class: 'topology-footnote' },
+    _L('연결은 vm.nics의 bridge/source/network과 현재 network.list를 일치시킨 관찰값입니다.', 'Connections match vm.nics bridge/source/network values against the current network.list result.')));
+  clearEl(b);
+  b.appendChild(frag(heading, root));
 }
 window.renderTopology = renderTopology;
 
@@ -1178,38 +1404,44 @@ async function fwAddRule() {
 }
 
 async function fwLoadRules() {
-  var r = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'security_group.list', params:{}, id:'fwl1'});
-  var groups = unwrapList(r);
-  var el = document.getElementById('fw-rules-list');
-  if (!el) return;
-                                                                   
-  PCV.uxlib.clearEl(el);
-  if (groups.length === 0) { el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, 'No security groups')); return; }
-  var blocks = groups.map(function(sg) {
-    var kids = [
-      PCV.uxlib.el('strong', null, sg.name),
-      ' ',
-      PCV.uxlib.el('span', { class: 'stat-label' }, '(' + (sg.rule_count || 0) + ' rules)')
-    ];
-    if (sg.rules && sg.rules.length) {
-      var rows = sg.rules.map(function(rule) {
-        var portStr = rule.port_end > rule.port_start ? rule.port_start + '-' + rule.port_end : (rule.port_start || '*');
-        return PCV.uxlib.el('tr', null,
-          PCV.uxlib.el('td', null, rule.direction),
-          PCV.uxlib.el('td', null, rule.protocol),
-          PCV.uxlib.el('td', null, portStr),
-          PCV.uxlib.el('td', null, rule.source),
-          PCV.uxlib.el('td', null, PCV.uxlib.el('button', { class: 'btn btn-sm btn-r', onclick: "fwDelRule('" + sg.name + "'," + (rule.db_id || 0) + ")", 'data-role': 'ADMIN' }, _L('삭제', 'Del'))));
-      });
-      kids.push(PCV.uxlib.el('table', { class: 'tbl mt-4' },
-        PCV.uxlib.el('tbody', null,
-          PCV.uxlib.el('tr', null, PCV.uxlib.el('th', null, 'Dir'), PCV.uxlib.el('th', null, 'Proto'), PCV.uxlib.el('th', null, 'Port'), PCV.uxlib.el('th', null, 'Source'), PCV.uxlib.el('th', null)),
-          rows)));
-    }
-    return PCV.uxlib.el('div', { class: 'mb-8' }, kids);
-  });
-  el.appendChild(PCV.uxlib.frag(blocks));
-  if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
+  try {
+    var r = await fetchPost(EP.RPC(), {jsonrpc:'2.0', method:'security_group.list', params:{}, id:'fwl1'});
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
+    var groups = unwrapList(r);
+    var el = document.getElementById('fw-rules-list');
+    if (!el) return;
+
+    PCV.uxlib.clearEl(el);
+    if (groups.length === 0) { el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, 'No security groups')); return; }
+    var blocks = groups.map(function(sg) {
+      var kids = [
+        PCV.uxlib.el('strong', null, sg.name),
+        ' ',
+        PCV.uxlib.el('span', { class: 'stat-label' }, '(' + (sg.rule_count || 0) + ' rules)')
+      ];
+      if (sg.rules && sg.rules.length) {
+        var rows = sg.rules.map(function(rule) {
+          var portStr = rule.port_end > rule.port_start ? rule.port_start + '-' + rule.port_end : (rule.port_start || '*');
+          return PCV.uxlib.el('tr', null,
+            PCV.uxlib.el('td', null, rule.direction),
+            PCV.uxlib.el('td', null, rule.protocol),
+            PCV.uxlib.el('td', null, portStr),
+            PCV.uxlib.el('td', null, rule.source),
+            PCV.uxlib.el('td', null, PCV.uxlib.el('button', { class: 'btn btn-sm btn-r', onclick: "fwDelRule('" + sg.name + "'," + (rule.db_id || 0) + ")", 'data-role': 'ADMIN' }, _L('삭제', 'Del'))));
+        });
+        kids.push(PCV.uxlib.el('table', { class: 'tbl mt-4' },
+          PCV.uxlib.el('tbody', null,
+            PCV.uxlib.el('tr', null, PCV.uxlib.el('th', null, 'Dir'), PCV.uxlib.el('th', null, 'Proto'), PCV.uxlib.el('th', null, 'Port'), PCV.uxlib.el('th', null, 'Source'), PCV.uxlib.el('th', null)),
+            rows)));
+      }
+      return PCV.uxlib.el('div', { class: 'mb-8' }, kids);
+    });
+    el.appendChild(PCV.uxlib.frag(blocks));
+    if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
+  } catch (error) {
+    var target = document.getElementById('fw-rules-list');
+    if (target) PCV.uxlib.setMsg(target, 'err', null, error.message);
+  }
 }
 
 async function fwDelRule(sg, ruleId) {

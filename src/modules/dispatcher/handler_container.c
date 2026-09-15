@@ -685,13 +685,24 @@ _on_start_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer
     GError       *error = NULL;
 
     unlock_vm_operation(ctx->name);
+    gchar *job_id = g_strdup_printf("container.start:%s", ctx->name);
     if (!pcv_lxc_start_finish(res, &error)) {
+        const gchar *err_msg = error ? error->message : "unknown error";
         g_warning("container.start failed for '%s': %s",
-                  ctx->name, error ? error->message : "unknown");
+                  ctx->name, err_msg);
+        pcv_audit_log(NULL, "container.start", ctx->name, "fail",
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        pcv_ws_broadcast_job_complete(job_id, "container.start",
+                                      "failed", err_msg);
         if (error) g_error_free(error);
     } else {
         g_info("container.start succeeded for '%s'", ctx->name);
+        pcv_audit_log(NULL, "container.start", ctx->name, "ok",
+                      0, 0, "local");
+        pcv_ws_broadcast_job_complete(job_id, "container.start",
+                                      "completed", NULL);
     }
+    g_free(job_id);
     _ctx_free(ctx);
 }
 
@@ -793,13 +804,24 @@ _on_stop_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer 
     GError       *error = NULL;
 
     unlock_vm_operation(ctx->name);
+    gchar *job_id = g_strdup_printf("container.stop:%s", ctx->name);
     if (!pcv_lxc_stop_finish(res, &error)) {
+        const gchar *err_msg = error ? error->message : "unknown error";
         g_warning("container.stop failed for '%s': %s",
-                  ctx->name, error ? error->message : "unknown");
+                  ctx->name, err_msg);
+        pcv_audit_log(NULL, "container.stop", ctx->name, "fail",
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        pcv_ws_broadcast_job_complete(job_id, "container.stop",
+                                      "failed", err_msg);
         if (error) g_error_free(error);
     } else {
         g_info("container.stop succeeded for '%s'", ctx->name);
+        pcv_audit_log(NULL, "container.stop", ctx->name, "ok",
+                      0, 0, "local");
+        pcv_ws_broadcast_job_complete(job_id, "container.stop",
+                                      "completed", NULL);
     }
+    g_free(job_id);
     _ctx_free(ctx);
 }
 

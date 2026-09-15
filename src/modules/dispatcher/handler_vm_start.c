@@ -44,6 +44,7 @@
                                
                                             
    
+#include "api/drain.h"
 #include <glib.h>
 #include <gio/gio.h>
 #include <libvirt/libvirt.h>
@@ -66,6 +67,7 @@
 #include "../network/tenant_overlay.h"
 #include "../network/network_dhcp.h"                                                                     
 #include "../network/network_manager.h"                                     
+#include "../network/dpdk_manager.h"
 #include "../network/pcv_qos.h"                                                                
 #include "utils/pcv_validate.h"                                                                     
                                                                                               
@@ -369,6 +371,147 @@ fail:
     return FALSE;
 }
 
+
+
+
+
+static gboolean
+_reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
+                                const gchar *vm_name, gboolean active,
+                                GError **error)
+{
+    gchar *bridge = NULL;
+    PcvDpdkMetaResult metadata = pcv_vm_dpdk_metadata_read(*dom_io, &bridge);
+    if (metadata == PCV_DPDK_META_ABSENT)
+        return TRUE;
+    if (metadata != PCV_DPDK_META_OK) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "DPDK metadata is invalid or unreadable for VM '%s'", vm_name);
+        g_free(bridge);
+        return FALSE;
+    }
+
+    char *domain_xml = virDomainGetXMLDesc(
+        *dom_io, active ? 0 : VIR_DOMAIN_XML_INACTIVE);
+    if (!domain_xml) {
+        virErrorPtr vir_error = virGetLastError();
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "DPDK domain XML read failed for VM '%s': %s", vm_name,
+                    vir_error ? vir_error->message : "unknown error");
+        g_free(bridge);
+        return FALSE;
+    }
+
+    PcvDpdkVhostSourceResult source =
+        pcv_vm_dpdk_vhost_source_classify(domain_xml, vm_name);
+    PcvDpdkVhostStartAction action =
+        pcv_vm_dpdk_vhost_start_action(active, source);
+    gboolean deferred = action == PCV_DPDK_VHOST_START_DEFER_LEGACY;
+    if (action == PCV_DPDK_VHOST_START_INVALID) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "DPDK vhost source is missing, foreign, or ambiguous for VM '%s'",
+                    vm_name);
+        free(domain_xml);
+        g_free(bridge);
+        return FALSE;
+    }
+
+    if (action == PCV_DPDK_VHOST_START_MIGRATE_LEGACY) {
+
+
+        GError *local_error = NULL;
+        if (!pcv_dpdk_vhost_runtime_preflight(&local_error)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "DPDK canonical runtime preflight failed: %s",
+                        local_error ? local_error->message : "unknown error");
+            g_clear_error(&local_error);
+            free(domain_xml);
+            g_free(bridge);
+            return FALSE;
+        }
+        gchar *migrated_xml = pcv_vm_dpdk_vhost_migrate_legacy_xml(
+            domain_xml, vm_name, &local_error);
+        if (!migrated_xml) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                        "DPDK legacy XML migration failed: %s",
+                        local_error ? local_error->message : "unknown error");
+            g_clear_error(&local_error);
+            free(domain_xml);
+            g_free(bridge);
+            return FALSE;
+        }
+
+        virDomainPtr migrated_dom = virDomainDefineXML(conn, migrated_xml);
+        g_free(migrated_xml);
+        if (!migrated_dom) {
+            virErrorPtr vir_error = virGetLastError();
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "DPDK legacy domain redefine failed for VM '%s': %s", vm_name,
+                        vir_error ? vir_error->message : "unknown error");
+            free(domain_xml);
+            g_free(bridge);
+            return FALSE;
+        }
+        virDomainFree(*dom_io);
+        *dom_io = migrated_dom;
+        free(domain_xml);
+        domain_xml = virDomainGetXMLDesc(*dom_io, VIR_DOMAIN_XML_INACTIVE);
+
+        gchar *post_bridge = NULL;
+        PcvDpdkMetaResult post_metadata =
+            pcv_vm_dpdk_metadata_read(*dom_io, &post_bridge);
+        const gchar *post_name = virDomainGetName(*dom_io);
+        gboolean postcondition = domain_xml && post_name &&
+            g_strcmp0(post_name, vm_name) == 0 &&
+            post_metadata == PCV_DPDK_META_OK &&
+            g_strcmp0(post_bridge, bridge) == 0 &&
+            pcv_vm_dpdk_vhost_source_classify(domain_xml, vm_name) ==
+                PCV_DPDK_VHOST_SOURCE_CANONICAL;
+        g_free(post_bridge);
+        if (!postcondition) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                        "DPDK canonical migration re-read postcondition failed for VM '%s'",
+                        vm_name);
+            free(domain_xml);
+            g_free(bridge);
+            return FALSE;
+        }
+
+
+
+        g_message("[vm.start] VM '%s': DPDK vhost source migrated "
+                  "(legacy -> canonical)", vm_name);
+        pcv_audit_log(NULL, "vm.dpdk_vhost.runtime", vm_name,
+                      "migrated-legacy-to-canonical", 0, 0, "local");
+    }
+
+    PcvDpdkVhostEndpoint endpoint = deferred
+        ? PCV_DPDK_VHOST_ENDPOINT_ACTIVE_LEGACY
+        : PCV_DPDK_VHOST_ENDPOINT_CANONICAL;
+    GError *dpdk_error = NULL;
+    if (!pcv_dpdk_vm_port_ensure_endpoint(
+            bridge, vm_name, endpoint, &dpdk_error)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "DPDK vhost port reconcile failed: %s",
+                    dpdk_error ? dpdk_error->message : "unknown error");
+        g_clear_error(&dpdk_error);
+        free(domain_xml);
+        g_free(bridge);
+        return FALSE;
+    }
+
+    if (deferred) {
+        g_warning("[vm.start] VM '%s': DPDK vhost migration deferred "
+                  "(active source=legacy, endpoint=legacy)", vm_name);
+        pcv_audit_log(NULL, "vm.dpdk_vhost.runtime", vm_name,
+                      "deferred-active-legacy", 0, 0, "local");
+    }
+
+    free(domain_xml);
+    g_free(bridge);
+    return TRUE;
+}
+
    
                           
                                    
@@ -424,31 +567,48 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
                                                          
                               
     canonical_name = g_strdup(virDomainGetName(dom));
+    if (!pcv_validate_vm_name(canonical_name)) {
+        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "Domain has an invalid canonical VM name");
+        goto cleanup_dom;
+    }
+
+
+
+
+    gint active_state = virDomainIsActive(dom);
+    if (active_state < 0) {
+        virErrorPtr vir_error = virGetLastError();
+        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Failed to determine VM active state: %s",
+                    vir_error ? vir_error->message : "unknown error");
+        goto cleanup_dom;
+    }
+    gboolean domain_active = active_state == 1;
+    if (!_reconcile_dpdk_vhost_for_start(
+            conn, &dom, canonical_name, domain_active, &error))
+        goto cleanup_dom;
 
                                                                 
                                                                          
                                                           
                                                           
                                                       
-    {
-        virDomainInfo info;
-        if (virDomainGetInfo(dom, &info) == 0 &&
-            (info.state == VIR_DOMAIN_RUNNING || info.state == VIR_DOMAIN_BLOCKED)) {
-            g_message("[vm.start] VM '%s': already running (idempotent no-op)", ctx->vm_id);
-            virDomainFree(dom);
-            virt_conn_pool_release(conn);
-                                                              
-            pcv_security_group_sync_vm(ctx->vm_id);
-                                                                     
-                                                               
-                                                              
-                                                               
-                                                            
-                                                       
-            g_free(canonical_name);
-            g_task_return_boolean(task, TRUE);
-            return;
-        }
+    if (domain_active) {
+        g_message("[vm.start] VM '%s': already active (idempotent no-op)", ctx->vm_id);
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+
+        pcv_security_group_sync_vm(ctx->vm_id);
+
+
+
+
+
+
+        g_free(canonical_name);
+        g_task_return_boolean(task, TRUE);
+        return;
     }
 
                                               
@@ -876,7 +1036,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     ctx->worker_start_us = g_get_monotonic_time();                               
 
                                                                            
-    GTask *task = g_task_new(NULL, NULL, vm_start_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_start_callback, ctx);
     g_task_set_task_data(task, ctx, (GDestroyNotify)free_vm_start_context);
 
       

@@ -75,6 +75,7 @@
   
                            
    
+#include "api/drain.h"
 #include "self_healing.h"
 #include "ai_agent.h"
 #include "restart_breaker.h"                                      
@@ -185,6 +186,7 @@ static_assert(RATE_LIMIT_MAX >= 1);
   
                           
                                                               
+
                                               
    
 typedef struct {
@@ -200,6 +202,7 @@ typedef struct {
     gint     policy_dry_run;                                      
                                                                               
                                       
+    gboolean has_host_trigger;
     gint64   last_trigger_us;                                 
                                                                            
                                                                             
@@ -434,7 +437,7 @@ _add_policy(const gchar *name, const gchar *trigger_metric,
 {
     if (G.policy_count >= MAX_POLICIES) return;                              
     HealingPolicy *p = &G.policies[G.policy_count++];
-    memset(p, 0, sizeof(*p));                                                                   
+    memset(p, 0, sizeof(*p));
     g_strlcpy(p->name, name, sizeof(p->name));
     g_strlcpy(p->trigger_metric, trigger_metric, sizeof(p->trigger_metric));
     p->trigger_zscore = trigger_zscore;
@@ -700,7 +703,7 @@ _dispatch_vm_restart(const gchar *policy_name, const gchar *vm, const gchar *rea
     ctx->vm          = g_strdup(vm);
     ctx->reason      = g_strdup(reason);
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _restart_ctx_free);
     pcv_worker_pool_push(task, _vm_restart_worker);
     g_object_unref(task);                                                    
@@ -1114,11 +1117,15 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
     gint64 cooldown_us = (gint64)p->cooldown_sec * G_USEC_PER_SEC;
     gboolean per_target = (target_vm && *target_vm);
 
+
+
+
+
     if (per_target) {
                                                          
         if (_target_cooldown_slot(p->name, target_vm, now, FALSE) != NULL)
             return;                                          
-    } else if (now - p->last_trigger_us < cooldown_us) {
+    } else if (p->has_host_trigger && now - p->last_trigger_us < cooldown_us) {
         return;                              
     }
 
@@ -1147,6 +1154,7 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
                                                         
                                                          
     } else {
+        p->has_host_trigger = TRUE;
         p->last_trigger_us = now;
     }
 

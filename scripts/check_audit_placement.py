@@ -57,6 +57,8 @@ REQUIRED_FIRE_AND_FORGET_METHODS = [
     "backup.replicate",
     "backup.export_s3",
     "container.create",
+    "container.start",
+    "container.stop",
     "container.clone",
     "container.destroy",
     "vm.disk.live_resize",
@@ -97,6 +99,8 @@ WS_COMPLETE_RE = re.compile(
                                                
                                                   
 DYNAMIC_AUDIT_METHODS = {
+    "dpdk.bridge.create",
+    "dpdk.bridge.delete",
     "cloud.export",
     "cloud.import",
     "cloud.import.finalize",

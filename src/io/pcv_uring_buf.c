@@ -17,7 +17,8 @@
                                                                
                                                              
                                                            
-                                                                        
+
+
                                                                          
   
                               
@@ -36,7 +37,7 @@
                                                           
   
           
-                                                                    
+
                                              
                                                           
                                                             
@@ -52,7 +53,7 @@
          
                                                                 
                                               
-                                                      
+
    
 #include "pcv_uring.h"
 
@@ -119,7 +120,7 @@ pcv_uring_buf_pool_new(gint count, gsize buf_size, GError **error)
         return NULL;
     }
 
-                                                    
+
     pool->free_list = g_new(gint, count);
     for (gint i = 0; i < count; i++)
         pool->free_list[i] = i;
@@ -140,7 +141,8 @@ pcv_uring_buf_pool_new(gint count, gsize buf_size, GError **error)
   
                                         
   
-                                                        
+
+
    
 void
 pcv_uring_buf_pool_free(PcvUringBufPool *pool)
@@ -209,7 +211,8 @@ pcv_uring_buf_alloc(PcvUringBufPool *pool)
                                                                
   
                                                            
-                                       
+
+
   
                                 
                                       

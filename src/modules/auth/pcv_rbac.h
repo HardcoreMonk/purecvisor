@@ -207,11 +207,11 @@ gboolean pcv_rbac_user_set_role(const gchar *username,
    
                             
                                                  
-                        
-                                          
+
+
   
                                                                   
-                                                                
+
    
 gboolean pcv_rbac_change_password(const gchar *username,
                                   const gchar *old_password,
@@ -252,6 +252,7 @@ gchar *pcv_rbac_authenticate(const gchar *username,
   
                                                                
    
+
 gchar *pcv_rbac_authenticate_v2(const gchar *username,
                                 const gchar *password,
                                 gchar      **out_refresh_token,

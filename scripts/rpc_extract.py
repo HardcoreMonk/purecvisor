@@ -74,7 +74,7 @@ HAS_MEMBER_GUARD_RE = re.compile(
                                                                             
                                                                                
                                                 
-                                                                                  
+
 GET_MEMBER_RE = re.compile(
     r'json_object_get_(?:string|int|boolean|double)_member(_with_default)?\s*\(\s*'
     r'[A-Za-z_]\w*\s*,\s*"([a-z_][a-z0-9_]*)"(?:\s*,\s*([A-Za-z0-9_]+)\s*)?\)')

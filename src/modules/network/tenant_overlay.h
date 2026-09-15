@@ -498,6 +498,20 @@ GPtrArray *pcv_tenant_overlay_wg_list_netns(GError **error);
    
 guint pcv_tenant_overlay_sweep_orphan_endpoints(guint *fail_out);
 
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean pcv_tenant_overlay_reconcile_mesh(GError **error);
+
                                                                                
                                                                    
                                                                                

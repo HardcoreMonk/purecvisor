@@ -3,6 +3,7 @@ set -euo pipefail
 
 test -f docs/PUBLIC_SOURCE_POLICY.md
 test -x scripts/strip_source_comments.py
+python3 scripts/tests/test_public_comment_contracts.py
 python3 scripts/strip_source_comments.py --check
 node scripts/check_javascript_comments.mjs
 test ! -e ui/app.bundle.js.map

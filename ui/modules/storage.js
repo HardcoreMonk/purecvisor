@@ -144,7 +144,6 @@ async function renderStorage(b) {
       el('h4', { role: 'heading', 'aria-level': '3' }, '📈 ' + _L('용량 예측', 'Capacity planning')),
       el('p', { class: 'color-muted text-11 mb-8' }, _L('일별 증가량 기준으로 풀 소진 시점을 예측합니다. 확장이나 정리 시점을 먼저 판단하는 용도입니다.', 'Forecast pool exhaustion based on daily growth so you can plan expansion or cleanup ahead of time.')),
       el('div', { id: 'storage-forecast' }, el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...'))));
-    setTimeout(loadStorageForecast, 100);
 
     const z = await fetchGet(EP.STORAGE_ZVOLS());
     if (z && z.error) throw new Error(z.error.message || _L('Zvol 목록 조회 실패', 'Unable to load zvols'));
@@ -165,6 +164,7 @@ async function renderStorage(b) {
         el('div', { class: 'color-muted text-12' }, _L('추가 디스크가 필요할 때 생성 버튼으로 바로 만들 수 있습니다.', 'Use the create button when a workload needs an additional disk.'))));
       clearEl(b);
       b.appendChild(frag(parts));
+      loadStorageForecast(b.querySelector('#storage-forecast'));
       if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
       setTimeout(function() { pl.forEach(function(v, pi) { var canvas = document.getElementById('pool-donut-' + pi); if (!canvas) return; var ctx = canvas.getContext('2d'); var sz = parseSize(v.size), us = parseSize(v.alloc || v.used); var pct = sz > 0 ? us / sz : 0; var r = 50, cx = 60, cy = 60, lw = 14; ctx.lineWidth = lw; ctx.beginPath(); ctx.arc(cx, cy, r, 0, Math.PI * 2); ctx.strokeStyle = 'rgba(255,255,255,0.1)'; ctx.stroke(); ctx.beginPath(); ctx.arc(cx, cy, r, -Math.PI/2, -Math.PI/2 + Math.PI * 2 * pct); try { ctx.strokeStyle = getComputedStyle(document.documentElement).getPropertyValue(pct > 0.85 ? '--red' : pct > 0.6 ? '--yellow' : '--green').trim(); } catch(e) {} ctx.stroke(); }); }, 100);
       return;
@@ -191,6 +191,7 @@ async function renderStorage(b) {
     parts.push(el('table', { class: 'table-sticky' }, thead, tbody));
     clearEl(b);
     b.appendChild(frag(parts));
+    loadStorageForecast(b.querySelector('#storage-forecast'));
     if (window._zvolSel.size > 0) {
       var bd = document.getElementById('zvol-bulk-del');
       var sc = document.getElementById('zvol-sel-count');
@@ -393,14 +394,19 @@ async function doZvolDel(name) { const c = document.getElementById('del-zvol-con
   } catch (e) { pf.style.width = '100%'; ps.textContent = '❌ ' + e.message; toast(e.message, false); } }
 
                                        
-async function loadStorageForecast() {
-  var el = document.getElementById('storage-forecast'); if (!el) return;
+async function loadStorageForecast(target) {
+  var el = target || document.getElementById('storage-forecast'); if (!el || !el.isConnected) return;
+
+  var request = {}, generation = PCV.ui.navGen();
+  el._pcvForecastRequest = request;
                                                                 
                                                 
   PCV.uxlib.clearEl(el);
   el.appendChild(PCV.uxlib.frag(PCV.uxlib.el('span', { class: 'spinner' }), ' ' + (t('loading') || 'Loading...')));
   try {
     var r = await fetchPost(EP.RPC(), { method: 'storage.pool.forecast', params: {} });
+    if (!el.isConnected || el._pcvForecastRequest !== request || PCV.ui.navGen() !== generation) return;
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
     var pools = Array.isArray(d) ? d : (d.pools || [d]);
     if (pools.length === 0) { PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, t('storage.no_forecast') || 'No forecast data available')); return; }
@@ -429,6 +435,7 @@ async function loadStorageForecast() {
     PCV.uxlib.clearEl(el);
     el.appendChild(mk('table', { class: 'text-12 storage-forecast-table', tabindex: '0', 'aria-label': _L('스토리지 용량 예측', 'Storage capacity forecast') }, thead, tbody));
   } catch (e) {
+    if (!el.isConnected || el._pcvForecastRequest !== request || PCV.ui.navGen() !== generation) return;
     PCV.uxlib.clearEl(el);
     el.appendChild(PCV.uxlib.el('span', { class: 'color-muted' }, (t('storage.forecast_unavailable') || 'Forecast unavailable') + ': ' + e.message));
   }
@@ -454,6 +461,7 @@ async function renderIscsi(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   try {
     const r = await fetchGet(EP.ISCSI_TARGETS());
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     const l = unwrapList(r);
     var body;
     if (!Array.isArray(l) || l.length === 0) {
@@ -524,6 +532,7 @@ async function renderBackup(b) {
                      
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc: '2.0', method: 'backup.policy.list', params: {}, id: 'bp1' });
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
     var policies = Array.isArray(d) ? d : (d && d.result ? unwrapList(d) : []);
     var pe = document.getElementById('backup-policies');
@@ -622,6 +631,7 @@ async function backupLoadHistory() {
   var params = vm ? { vm_name: vm } : {};
   try {
     var r = await fetchPost(EP.RPC(), { jsonrpc:'2.0', method:'backup.history', params:params, id:'bh1' });
+    if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
     var snaps = Array.isArray(d) ? d : unwrapList(d);
     var el = document.getElementById('backup-history');

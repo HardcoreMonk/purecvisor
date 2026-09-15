@@ -71,8 +71,10 @@
   
                                                
                              
-                                     
-                                           
+
+
+
+
                                                    
                                    
    
@@ -102,6 +104,9 @@ G_BEGIN_DECLS
                                           
    
 void init_virt_events_daemon(void);
+
+
+void pcv_virt_events_shutdown(void);
 
 G_END_DECLS
 

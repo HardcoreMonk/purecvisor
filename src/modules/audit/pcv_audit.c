@@ -71,7 +71,7 @@ static struct {
     sqlite3       *db;
     GAsyncQueue   *queue;
     GThread       *worker;
-    gboolean       running;
+    gint           running;
     gint64         total_count;
     gint64         dropped_count;                         
     gchar         *node_name;
@@ -227,7 +227,7 @@ _audit_worker(gpointer data __attribute__((unused)))
 {
                                                         
                                                            
-    while (G.running || g_async_queue_length(G.queue) > 0) {
+    while (g_atomic_int_get(&G.running) || g_async_queue_length(G.queue) > 0) {
                                                           
                                              
         PcvAuditRecord *rec = g_async_queue_timeout_pop(G.queue, 500000);            
@@ -460,7 +460,7 @@ pcv_audit_init(const gchar *db_path, GError **error)
     }
 
     G.queue = g_async_queue_new();
-    G.running = TRUE;
+    g_atomic_int_set(&G.running, TRUE);
     G.total_count = 0;
                                                       
                                        
@@ -486,7 +486,7 @@ pcv_audit_init(const gchar *db_path, GError **error)
 void
 pcv_audit_shutdown(void)
 {
-    G.running = FALSE;                                                             
+    g_atomic_int_set(&G.running, FALSE);
     if (G.worker) {
         g_thread_join(G.worker);                                      
         G.worker = NULL;
@@ -541,7 +541,7 @@ pcv_audit_log(const gchar *username, const gchar *method,
                                                                        
                                                       
     pcv_rpc_completion_note_audit(method);
-    if (!G.running || !G.queue) return;                                             
+    if (!g_atomic_int_get(&G.running) || !G.queue) return;
 
                                                       
                                                         

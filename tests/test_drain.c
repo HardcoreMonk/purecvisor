@@ -135,10 +135,8 @@ static void test_drain_cancel(void) {
 static void test_drain_begin_shutdown(void) {
     pcv_drain_init();
 
-                                             
-                                   
-                                          
                                                                
+
     GMainLoop *loop = g_main_loop_new(NULL, FALSE);
     pcv_drain_begin(loop, 1              );
 
@@ -148,9 +146,11 @@ static void test_drain_begin_shutdown(void) {
                                      
     g_assert_false(pcv_drain_inc());
 
-                                 
+    g_main_loop_run(loop);
+    g_assert_cmpint(pcv_drain_get_work(), ==, 0);
     pcv_drain_shutdown();
     g_main_loop_unref(loop);
+    pcv_drain_init();
 }
 
                                                         

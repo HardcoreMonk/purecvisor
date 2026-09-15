@@ -24,14 +24,16 @@
             
                    
                                                          
-                                                                  
-                                                               
+
+
+
                                                                 
-                                                                  
+
                                                                                                 
   
                              
-                                                              
+
+
                                                                
                                                                 
                                                                                 
@@ -39,24 +41,41 @@
                                                                                     
                                                                           
   
-                                 
-                                    
+
+
                                              
-                                                           
+
                                                                
                                        
   
          
-                                                                
-                              
-                                                    
-                                                  
+
+
+
+
+
+
                                                      
    
+
+#include "api/drain.h"
+
+
+
+static GThread *g_producer_thread;
+static gint g_producer_stop;
+static void
+_producer_wait(guint milliseconds)
+{
+    for (guint elapsed = 0; elapsed < milliseconds &&
+         !g_atomic_int_get(&g_producer_stop); elapsed += 50)
+        g_usleep(MIN(50U, milliseconds - elapsed) * 1000U);
+}
 
 #include <glib.h>
 #include <libvirt/libvirt.h>
 #include <string.h>
+#include <time.h>
 
                                   
 #include "modules/core/cpu_allocator.h"
@@ -68,6 +87,7 @@
 #include "modules/daemons/pcv_undefine_debounce.h"                                         
 #include "../../utils/pcv_log.h"                                             
 #include "pcv_vm_death_class.h"                                 
+#include "modules/daemons/pcv_virt_listener_guard.h"
                                                 
 
                                                                
@@ -272,7 +292,7 @@ _schedule_sg_sync(const char *vm_name)
 {
     if (!vm_name || !pcv_security_group_vm_is_bound(vm_name))
         return;
-    GTask *sgt = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *sgt = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(sgt, g_strdup(vm_name), g_free);
     pcv_worker_pool_push(sgt, _sg_event_sync_worker);
     g_object_unref(sgt);                                                            
@@ -301,7 +321,7 @@ _schedule_sg_unbind_all(const char *vm_name)
 {
     if (!vm_name || !pcv_security_group_vm_is_bound(vm_name))
         return;
-    GTask *sgt = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *sgt = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(sgt, g_strdup(vm_name), g_free);
     pcv_worker_pool_push(sgt, _sg_event_unbind_all_worker);
     g_object_unref(sgt);                                              
@@ -333,7 +353,7 @@ _schedule_overlay_cleanup(const char *vm_name)
 {
     if (!vm_name || !pcv_tenant_overlay_vm_in_any_tenant(vm_name))
         return;
-    GTask *ovt = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *ovt = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(ovt, g_strdup(vm_name), g_free);
     pcv_worker_pool_push(ovt, _overlay_event_cleanup_worker);
     g_object_unref(ovt);                                                            
@@ -420,7 +440,7 @@ _schedule_qos_cleanup(const char *vm_name)
     ctx->tenant = tenant;               
     ctx->iface  = iface;                
 
-    GTask *qt = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *qt = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(qt, ctx, _qos_cleanup_ctx_free);
     pcv_worker_pool_push(qt, _qos_event_cleanup_worker);
     g_object_unref(qt);                                                            
@@ -553,7 +573,7 @@ static void _ovl4_expire_liveness_worker(GTask *task, gpointer src,
         Ovl4UndefPayload *q = g_new0(Ovl4UndefPayload, 1);
         q->uuid = g_strdup(p->uuid);
         q->name = g_strdup(p->name);
-        g_main_context_invoke(NULL, _ovl4_reclaim_main, q);
+        pcv_drain_invoke(NULL, _ovl4_reclaim_main, q);
     }
     g_task_return_boolean(task, TRUE);
 }
@@ -570,7 +590,7 @@ static gboolean _ovl4_undefine_expire(gpointer user_data) {
         Ovl4UndefPayload *w = g_new0(Ovl4UndefPayload, 1);
         w->uuid = g_strdup(p->uuid);
         w->name = name;                                     
-        GTask *t = g_task_new(NULL, NULL, NULL, NULL);
+        GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
         g_task_set_task_data(t, w, _ovl4_payload_free);
         pcv_worker_pool_push(t, _ovl4_expire_liveness_worker);
         g_object_unref(t);                                          
@@ -583,7 +603,7 @@ static gboolean _ovl4_undefine_expire(gpointer user_data) {
                             
 static gboolean _ovl4_on_undefined_main(gpointer user_data) {
     Ovl4UndefPayload *p = user_data;                                               
-    guint src = g_timeout_add_full(G_PRIORITY_DEFAULT, PCV_UNDEFINE_DEBOUNCE_MS,
+    guint src = pcv_drain_timeout(PCV_UNDEFINE_DEBOUNCE_MS,
                                    _ovl4_undefine_expire, p, _ovl4_payload_free);
     guint old = pcv_undefine_debounce_note_undefined(_undefine_debounce(), p->uuid, p->name, src);
     if (old) g_source_remove(old);                                                             
@@ -615,9 +635,9 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
 {
     (void)conn; (void)opaque;                                                 
 
-    char uuid[VIR_UUID_STRING_BUFLEN];
+    char uuid[VIR_UUID_STRING_BUFLEN] = "";
     const char *vm_name = virDomainGetName(dom);
-    virDomainGetUUIDString(dom, uuid);
+    const gboolean uuid_valid = virDomainGetUUIDString(dom, uuid) == 0;
 
                                                      
                                                      
@@ -632,15 +652,17 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
                                                            
                                                                 
     if (event == VIR_DOMAIN_EVENT_UNDEFINED) {
+        if (!uuid_valid) return 0;
         Ovl4UndefPayload *p = g_new0(Ovl4UndefPayload, 1);
         p->uuid = g_strdup(uuid);
         p->name = g_strdup(vm_name ? vm_name : "");
-        g_main_context_invoke(NULL, _ovl4_on_undefined_main, p);
+        pcv_drain_invoke(NULL, _ovl4_on_undefined_main, p);
         return 0;
     }
                                                                             
     if (event == VIR_DOMAIN_EVENT_DEFINED) {
-        g_main_context_invoke(NULL, _ovl4_on_defined_main, g_strdup(uuid));
+        if (!uuid_valid) return 0;
+        pcv_drain_invoke(NULL, _ovl4_on_defined_main, g_strdup(uuid));
         return 0;
     }
 
@@ -648,7 +670,8 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
     if (event == VIR_DOMAIN_EVENT_STARTED) {
         g_log("signal_probe", G_LOG_LEVEL_DEBUG,
               "[GIO P6] vm-started RECEIVED — vm_name='%s' uuid='%s'",
-              vm_name ? vm_name : "(unknown)", uuid);
+              vm_name ? vm_name : "(unknown)",
+              uuid_valid ? uuid : "(unavailable)");
         return 0;
     }
 
@@ -656,11 +679,12 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
     if (event == VIR_DOMAIN_EVENT_STOPPED || event == VIR_DOMAIN_EVENT_SHUTDOWN) {
         g_log("signal_probe", G_LOG_LEVEL_DEBUG,
               "[GIO P6] vm-stopped RECEIVED — vm_name='%s' uuid='%s'",
-              vm_name ? vm_name : "(unknown)", uuid);
+              vm_name ? vm_name : "(unknown)",
+              uuid_valid ? uuid : "(unavailable)");
                                                                                    
                                                                           
                                                     
-        if (pcv_vm_death_is_anomaly(event, detail))
+        if (uuid_valid && pcv_vm_death_is_anomaly(event, detail))
             _track_vm_stop(uuid, vm_name);
     }
 
@@ -677,7 +701,7 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
                                                                        
         _schedule_qos_cleanup(vm_name);
 
-        if (virDomainGetUUIDString(dom, uuid) == 0) {
+        if (uuid_valid) {
 
                                                  
                                                                        
@@ -691,7 +715,7 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
             p->anomaly = pcv_vm_death_is_anomaly(event, detail);                                    
 
                                                                 
-            g_main_context_invoke(NULL, handle_vm_death_in_main_thread, p);
+            pcv_drain_invoke(NULL, handle_vm_death_in_main_thread, p);
         }
     }
     
@@ -751,135 +775,208 @@ _deregister_device_callbacks(virConnectPtr conn, int *added_id, int *removed_id)
     }
 }
 
-   
-                                            
+#define PCV_VIRT_LISTENER_RECONNECT_DELAY_SEC 5U
+
+
+
+
+
+
   
-                                                      
                                                   
-                                                       
+
    
-static gpointer libvirt_event_loop_thread(gpointer data) {
-    (void)data;
+typedef struct {
+    virConnectPtr connection;
+    gint lifecycle_callback_id;
+    gint device_added_callback_id;
+    gint device_removed_callback_id;
+} PcvVirtEventListener;
 
-                                                
-    virEventRegisterDefaultImpl();
+static void
+_event_listener_reset(PcvVirtEventListener *listener)
+{
+    listener->connection = NULL;
+    listener->lifecycle_callback_id = -1;
+    listener->device_added_callback_id = -1;
+    listener->device_removed_callback_id = -1;
+}
 
-                            
-    virConnectPtr event_conn = virConnectOpen("qemu:///system");
-    if (!event_conn) {
-        g_critical("🚨 [Events] Failed to open Libvirt connection for events. Self-Healing disabled.");
-        return NULL;
+
+static void
+_event_listener_close(PcvVirtEventListener *listener)
+{
+    if (!listener)
+        return;
+    if (!listener->connection) {
+        _event_listener_reset(listener);
+        return;
     }
 
-                                                  
-    virConnectSetKeepAlive(event_conn, 5, 3);
+    if (listener->lifecycle_callback_id >= 0) {
+        virConnectDomainEventDeregisterAny(listener->connection,
+                                           listener->lifecycle_callback_id);
+        listener->lifecycle_callback_id = -1;
+    }
+    _deregister_device_callbacks(listener->connection,
+                                 &listener->device_added_callback_id,
+                                 &listener->device_removed_callback_id);
+    virConnectClose(listener->connection);
+    _event_listener_reset(listener);
+}
 
-      
-                             
-      
-                                                
-                                           
-                                                                   
-                                                            
-                                                                          
-                                                 
-                                                    
-                                                 
-      
-                                             
-      
-                                       
+
+
+
+
+
                                                              
-                                   
-       
-    int callback_id = virConnectDomainEventRegisterAny(
-        event_conn,
+
+
+static gboolean
+_event_listener_open(PcvVirtEventListener *listener)
+{
+    g_return_val_if_fail(listener != NULL, FALSE);
+    _event_listener_reset(listener);
+
+    listener->connection = virConnectOpen("qemu:///system");
+    if (!listener->connection)
+        return FALSE;
+
+    gint alive_result = virConnectIsAlive(listener->connection);
+    unsigned long libvirt_version = 0UL;
+    gint rpc_probe_result = alive_result == 1
+        ? virConnectGetLibVersion(listener->connection, &libvirt_version)
+        : -1;
+    if (pcv_virt_listener_connection_lost(TRUE, alive_result,
+                                          rpc_probe_result)) {
+        g_warning("⚠️ [Events] newly opened libvirt connection is unusable "
+                  "(is_alive=%d rpc_probe=%d)", alive_result,
+                  rpc_probe_result);
+        _event_listener_close(listener);
+        return FALSE;
+    }
+
+
+    gint keepalive_result = virConnectSetKeepAlive(listener->connection, 5, 3);
+    if (keepalive_result < 0)
+        g_warning("⚠️ [Events] libvirt keepalive setup failed; periodic health probe remains active");
+    else if (keepalive_result == 1)
+        g_message("[Events] libvirt peer does not support keepalive; periodic health probe is authoritative");
+
+    listener->lifecycle_callback_id = virConnectDomainEventRegisterAny(
+        listener->connection,
         NULL,
         VIR_DOMAIN_EVENT_ID_LIFECYCLE,
         VIR_DOMAIN_EVENT_CALLBACK(domain_lifecycle_cb),
-        NULL,                       
-        NULL                               
-    );
+        NULL,
+        NULL);
+    if (listener->lifecycle_callback_id < 0) {
+        g_warning("⚠️ [Events] failed to register libvirt lifecycle callback");
+        _event_listener_close(listener);
+        return FALSE;
+    }
 
-    if (callback_id < 0) {
-        g_critical("🚨 [Events] Failed to register Libvirt lifecycle callback.");
-        virConnectClose(event_conn);
+    _register_device_callbacks(listener->connection,
+                               &listener->device_added_callback_id,
+                               &listener->device_removed_callback_id);
+    return TRUE;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+static gpointer libvirt_listener_watchdog_thread(gpointer data) {
+    (void)data;
+
+
+    if (virInitialize() < 0 || virEventRegisterDefaultImpl() < 0) {
+        g_critical("🚨 [Events] Failed to initialize Libvirt default event loop. "
+                   "Lifecycle monitoring disabled.");
         return NULL;
     }
 
-    g_message("🛡️ [Events] Libvirt Lifecycle Listener & Self-Healing Daemon Started.");
+    PcvVirtEventListener listener;
+    _event_listener_reset(&listener);
+    gboolean connected_once = FALSE;
+    guint reconnect_attempt = 0U;
+    gint64 disconnected_at_us = 0;
 
-                                                                             
-    int dev_added_id = -1, dev_removed_id = -1;
-    _register_device_callbacks(event_conn, &dev_added_id, &dev_removed_id);
+    while (!g_atomic_int_get(&g_producer_stop)) {
+        if (!listener.connection) {
+            if (connected_once || reconnect_attempt > 0U)
+                _producer_wait(PCV_VIRT_LISTENER_RECONNECT_DELAY_SEC * 1000U);
+            if (g_atomic_int_get(&g_producer_stop)) break;
+            if (reconnect_attempt < G_MAXUINT)
+                reconnect_attempt++;
 
-      
-                               
-      
-                                                             
-                                          
-                                         
-      
-                                                               
-                         
-      
-                                               
-                                               
-                                        
-       
-    while (TRUE) {
-        if (virEventRunDefaultImpl() < 0) {
-            g_warning("⚠️ [Events] Error running Libvirt event loop. Checking connection...");
-        }
-
-                                      
-        if (!virConnectIsAlive(event_conn)) {
-            g_warning("⚠️ [Events] libvirtd connection lost — attempting reconnect");
-
-                                  
-            if (callback_id >= 0) {
-                virConnectDomainEventDeregisterAny(event_conn, callback_id);
-                callback_id = -1;
-            }
-            _deregister_device_callbacks(event_conn, &dev_added_id, &dev_removed_id);               
-            virConnectClose(event_conn);
-            event_conn = NULL;
-
-                                           
-            for (int retry = 0; retry < 6; retry++) {
-                g_usleep(5 * G_USEC_PER_SEC);
-                event_conn = virConnectOpen("qemu:///system");
-                if (event_conn && virConnectIsAlive(event_conn)) {
-                    virConnectSetKeepAlive(event_conn, 5, 3);
-                    callback_id = virConnectDomainEventRegisterAny(
-                        event_conn, NULL, VIR_DOMAIN_EVENT_ID_LIFECYCLE,
-                        VIR_DOMAIN_EVENT_CALLBACK(domain_lifecycle_cb),
-                        NULL, NULL);
-                    if (callback_id >= 0) {
-                        g_message("🛡️ [Events] Reconnected to libvirtd after %ds (callback_id=%d)",
-                                  (retry + 1) * 5, callback_id);
-                        _register_device_callbacks(event_conn, &dev_added_id, &dev_removed_id);               
-                        break;
-                    }
-                                              
-                    virConnectClose(event_conn);
-                    event_conn = NULL;
-                }
-                g_warning("⚠️ [Events] Reconnect attempt %d/6 failed", retry + 1);
-            }
-
-            if (!event_conn || !virConnectIsAlive(event_conn)) {
-                g_warning("⚠️ [Events] Failed to reconnect after 30s — will retry next loop iteration");
-                g_usleep(5 * G_USEC_PER_SEC);
+            if (!_event_listener_open(&listener)) {
+                if (reconnect_attempt == 1U || reconnect_attempt % 6U == 0U)
+                    g_warning("⚠️ [Events] listener connect attempt %u failed; "
+                              "retrying in %us", reconnect_attempt,
+                              PCV_VIRT_LISTENER_RECONNECT_DELAY_SEC);
                 continue;
             }
+
+            if (connected_once) {
+                gint64 downtime_sec = disconnected_at_us > 0
+                    ? (g_get_monotonic_time() - disconnected_at_us) / G_USEC_PER_SEC
+                    : 0;
+                g_message("🛡️ [Events] Reconnected to libvirt after %" G_GINT64_FORMAT
+                          "s (attempt=%u callback_id=%d)",
+                          downtime_sec, reconnect_attempt,
+                          listener.lifecycle_callback_id);
+            } else {
+                g_message("🛡️ [Events] Libvirt Lifecycle Listener & Self-Healing "
+                          "Daemon Started (callback_id=%d).",
+                          listener.lifecycle_callback_id);
+            }
+            connected_once = TRUE;
+            reconnect_attempt = 0U;
         }
+
+        if (!pcv_virt_listener_guard_wait(
+                PCV_VIRT_LISTENER_HEALTHCHECK_INTERVAL_MS)) {
+            g_critical("🚨 [Events] listener watchdog interval is invalid; "
+                       "lifecycle monitoring disabled");
+            _event_listener_close(&listener);
+            return NULL;
+        }
+        if (g_atomic_int_get(&g_producer_stop)) break;
+
+        gint alive_result = virConnectIsAlive(listener.connection);
+        unsigned long libvirt_version = 0UL;
+        gint rpc_probe_result = alive_result == 1
+            ? virConnectGetLibVersion(listener.connection, &libvirt_version)
+            : -1;
+        if (!pcv_virt_listener_connection_lost(listener.connection != NULL,
+                                               alive_result,
+                                               rpc_probe_result))
+            continue;
+
+        g_warning("⚠️ [Events] libvirt listener lost "
+                  "(is_alive=%d rpc_probe=%d); "
+                  "reconnecting",
+                  alive_result, rpc_probe_result);
+        disconnected_at_us = g_get_monotonic_time();
+        _event_listener_close(&listener);
+        reconnect_attempt = 0U;
     }
 
-                         
-    virConnectDomainEventDeregisterAny(event_conn, callback_id);
-    _deregister_device_callbacks(event_conn, &dev_added_id, &dev_removed_id);               
-    virConnectClose(event_conn);
+
+    _event_listener_close(&listener);
     return NULL;
 }
 
@@ -896,10 +993,25 @@ static gpointer libvirt_event_loop_thread(gpointer data) {
    
 void init_virt_events_daemon(void) {
     GError *error = NULL;
-    GThread *thread = g_thread_try_new("libvirt-events", libvirt_event_loop_thread, NULL, &error);
+    g_atomic_int_set(&g_producer_stop, FALSE);
+    g_producer_thread = g_thread_try_new("libvirt-events",
+                                       libvirt_listener_watchdog_thread,
+                                       NULL, &error);
     
-    if (!thread) {
+    if (!g_producer_thread) {
         g_critical("Failed to create Libvirt events daemon thread: %s", error->message);
         g_error_free(error);
+    }
+}
+
+
+
+void
+pcv_virt_events_shutdown(void)
+{
+    g_atomic_int_set(&g_producer_stop, TRUE);
+    if (g_producer_thread) {
+        g_thread_join(g_producer_thread);
+        g_producer_thread = NULL;
     }
 }

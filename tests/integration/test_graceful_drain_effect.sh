@@ -47,10 +47,8 @@
                                                           
                                              
  
-                                                             
-                                                            
-                                                              
-                                              
+
+
 
 set -uo pipefail
 
@@ -95,6 +93,7 @@ kill_daemon() {
     kill -9 "$BP" 2>/dev/null || true
     local i
     for i in $(seq 1 8); do kill -0 "$BP" 2>/dev/null || break; sleep 0.25; done
+    wait "$BP" 2>/dev/null || true
     BP=""
 }
 
@@ -123,10 +122,13 @@ drain_timeout = 10
 EOF
     setsid bwrap \
         --unshare-user --uid 0 --gid 0 \
+        --unshare-net \
+        --cap-add CAP_NET_ADMIN \
         --ro-bind / / \
         --dev /dev \
         --proc /proc \
         --tmpfs /tmp \
+        --tmpfs /run \
         --bind "$STATE/var-lib" /var/lib/purecvisor \
         --bind "$STATE/etc" /etc/purecvisor \
         --setenv PCV_LIBVIRT_URI test:///default \
@@ -134,7 +136,7 @@ EOF
         --chdir / \
         "$DAEMON_BIN" > "$STATE/daemon.log" 2>&1 < /dev/null &
     BP="$!"
-    disown "$BP" 2>/dev/null || true                                           
+
 
     local i
     for i in $(seq 1 60); do [ -S "$SOCK" ] && break; sleep 0.5; done
@@ -222,7 +224,7 @@ fi
                                                                            
                                                                               
                                                   
-                                                           
+
                                                                  
 echo -e "\n${CYAN}── Scenario B: SIGTERM inflight 대기 ──${NC}"
 if ! fresh_boot; then
@@ -232,7 +234,7 @@ else
     pass "B-S1: 격리 데몬 재기동 (fresh, shutdown_flag=0)"
 
     if [ -z "${DPID:-}" ] || ! kill -0 "$DPID" 2>/dev/null; then
-        note "B: 데몬 PID 확인 불가 — Scenario B 건너뜀(Scenario A 로 게이트 충족)"
+        fail "B: 데몬 PID 확인 불가 — 실제 SIGTERM 검증을 완료할 수 없음"
     else
         REQ="$STATE/req.fifo"; RESP="$STATE/resp.out"; mkfifo "$REQ"
                                                                     
@@ -258,6 +260,15 @@ else
             echo "---- daemon.log (마지막 15줄) ----"; tail -15 "$STATE/daemon.log" 2>/dev/null
         fi
 
+
+
+        RESP_TERM_RESUME="$(send_rpc '{"jsonrpc":"2.0","method":"node.resume","params":{},"id":"term-resume"}')"
+        if echo "$RESP_TERM_RESUME" | grep -Eq '"code"[[:space:]]*:[[:space:]]*-32004'; then
+            pass "B-S2b: SIGTERM 중 node.resume → BUSY (종료 취소 거짓 성공 없음)"
+        else
+            fail "B-S2b: SIGTERM 중 node.resume 결과 불일치 (resp='$RESP_TERM_RESUME')"
+        fi
+
                                                                                 
         printf '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"held"}\n' >&7
         exec 7>&-
@@ -277,6 +288,23 @@ else
             fail "B-S3: held 요청 드롭 또는 timeout (heldok=$HELDOK drained=$DRAINED timeout=$TIMEDOUT)"
             echo "---- RESP ----"; cat "$RESP" 2>/dev/null; echo
             echo "---- daemon.log (drain) ----"; grep -iE 'drain|in-flight|Timeout' "$STATE/daemon.log" 2>/dev/null | tail -8
+        fi
+
+        for _i in $(seq 1 300); do
+            kill -0 "$DPID" 2>/dev/null || break
+            sleep 0.1
+        done
+        if kill -0 "$DPID" 2>/dev/null; then
+            fail "B-S4: drain 뒤 실제 daemon 종료가 완료되지 않음"
+        else
+            if wait "$BP"; then
+                pass "B-S4: producer·callback·저장소 cleanup 후 실제 exit 0"
+            else
+                DAEMON_EXIT="$?"
+                fail "B-S4: daemon 비정상 종료(exit=$DAEMON_EXIT)"
+                tail -n 30 "$STATE/daemon.log"
+            fi
+            BP=""
         fi
     fi
 fi

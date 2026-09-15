@@ -43,6 +43,7 @@ static void cb_teardown(CbFixture *f, gconstpointer data) {
 static void test_initial_state(CbFixture *f, gconstpointer d) {
     (void)f; (void)d;
     g_assert_false(cb_is_open());
+    g_assert_false(cb_should_reject_request());
     g_assert_cmpint(cb_get_failure_count(), ==, 0);
     g_assert_cmpstr(cb_get_state_str(), ==, "CLOSED");
 }
@@ -209,6 +210,33 @@ static void test_half_open_state_after_open(CbFixture *f, gconstpointer d) {
 
                                                        
 
+
+static void test_request_precheck_does_not_consume_probe(CbFixture *f, gconstpointer d) {
+    (void)f; (void)d;
+    cb_set_failure_threshold(1);
+    cb_record_failure();
+
+    g_assert_true(cb_should_reject_request());
+    g_usleep((CB_BACKOFF_INITIAL_MS + 100) * 1000);
+
+    g_assert_false(cb_should_reject_request());
+    g_assert_false(cb_should_reject_request());
+    g_assert_cmpint(cb_get_state(), ==, CB_STATE_OPEN);
+
+    for (gint success = 1; success <= 3; success++) {
+        g_assert_false(cb_is_open());
+        g_assert_cmpint(cb_get_state(), ==, CB_STATE_HALF_OPEN);
+        g_assert_true(cb_should_reject_request());
+        cb_record_success();
+    }
+
+    g_assert_cmpint(cb_get_state(), ==, CB_STATE_CLOSED);
+    g_assert_false(cb_should_reject_request());
+    cb_set_failure_threshold(CB_FAILURE_THRESHOLD_DEFAULT);
+}
+
+
+
                                 
                                              
 static void test_named_instance_multi(CbFixture *f, gconstpointer d) {
@@ -254,6 +282,7 @@ void test_circuit_breaker_register(void) {
     CB_TEST("failure_resets_on_success", test_failure_count_resets_on_success);
     CB_TEST("state_enum_to_str",      test_state_enum_to_str);
     CB_TEST("half_open_state_after_open", test_half_open_state_after_open);
+    CB_TEST("request_precheck_does_not_consume_probe", test_request_precheck_does_not_consume_probe);
     CB_TEST("named_instance_multi",   test_named_instance_multi);
 #undef CB_TEST
 }

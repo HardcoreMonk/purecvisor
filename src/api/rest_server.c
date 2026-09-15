@@ -92,6 +92,7 @@
                                                                            
    
 
+#include "api/drain.h"
 #include "rest_server.h"
 #include "rest_middleware.h"
 #include "rest_auth.h"
@@ -144,19 +145,19 @@
 #include <unistd.h>
 
                                                                               
-                                                         
+
   
                                                         
                                                                 
-                                                     
+
                                              
   
-                                                    
-                                                      
-                                    
+
+
+
   
-                                                     
-                                                             
+
+
                                                                                  
 
                                                                
@@ -218,6 +219,33 @@ pcv_rest_tls_health(PcvRestTlsMode mode,
 }
 
    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+PcvRestAuditHealthImpact
+pcv_rest_audit_chain_health_impact(gboolean current_ok,
+                                   gboolean historical_break)
+{
+    if (!current_ok)
+        return PCV_REST_AUDIT_HEALTH_CRITICAL;
+    if (historical_break)
+        return PCV_REST_AUDIT_HEALTH_INFORMATIONAL;
+    return PCV_REST_AUDIT_HEALTH_NONE;
+}
+
+
                                                                        
   
                                               
@@ -993,21 +1021,6 @@ _vpc_rest_params(JsonObject *body,
     return params;
 }
 
-   
-                                                              
-  
-                                                
-                                                
-                                                       
-  
-                                                                          
-                                               
-                                                                   
-                                                            
-                                             
-                                                         
-                                                        
-   
 static gchar *
 _rpc_attach_auth_context(const gchar *rpc_json,
                          const gchar *subject,
@@ -1721,10 +1734,7 @@ _rest_async_worker(GTask *task, gpointer src __attribute__((unused)),
     ud->msg = actx->msg;                                       
     ud->resp = resp;                                
 
-    GSource *src2 = g_idle_source_new();
-    g_source_set_callback(src2, _rest_unpause_cb, ud, NULL);
-    g_source_attach(src2, actx->rest_ctx);
-    g_source_unref(src2);
+    pcv_drain_idle(actx->rest_ctx, _rest_unpause_cb, ud, NULL);
 
                                              
                                                                       
@@ -2411,8 +2421,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         }
 
                                                        
-                                                          
-                                                            
+
+
         {
             JsonObject *c = json_object_new();
             PcvAuditChainHealth audit = pcv_audit_get_chain_health();
@@ -2425,10 +2435,11 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             json_object_set_int_member(c, "last_verified_at",
                                        audit.last_verified_at);
             json_object_set_string_member(c, "reason", audit.reason);
-            if (!audit.current_ok)
+            PcvRestAuditHealthImpact impact =
+                pcv_rest_audit_chain_health_impact(audit.current_ok,
+                                                   audit.historical_break);
+            if (impact == PCV_REST_AUDIT_HEALTH_CRITICAL)
                 critical = TRUE;
-            else if (audit.historical_break)
-                degraded = TRUE;
             json_object_set_object_member(checks, "audit_chain", c);
         }
 
@@ -2946,77 +2957,57 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             }
         }
 
-        if (bootstrap_configured &&
-            g_strcmp0(username, cfg_user) == 0 &&
-            pcv_secret_str_eq(password, cfg_pass))
-        {
-                                                            
-            token = pcv_rbac_authenticate_v2(username, password, &refresh, &err);
-            if (!token) {
-                PcvUserExistence ex = pcv_rbac_user_exists(username);
-                gboolean user_in_db = (ex != PCV_USER_ABSENT);                                 
-                if (pcv_rest_auth_should_fallback_bootstrap(username, password,
-                                                            cfg_user, cfg_pass, user_in_db)) {
-                                                                  
-                    g_clear_error(&err);
-                    token = pcv_jwt_sign(username, 900, &err);
-                    pcv_audit_log(username, "auth.bootstrap.fallback",
-                                  "bootstrap recovery", "ok", 0, 0, client_ip);
-                }
-            }
-        } else {
-                                                                    
-                                                                
-                                                        
-              
                                                          
                                                               
-                                                             
-                                                                      
-                                                        
-                                                                 
-                                                                
-            if (pcv_rbac_password_check(username, password, &err)) {
-                PcvTotpStatus totp_st = { 0 };
-                gboolean have_st = pcv_rbac_totp_status(username, &totp_st);
-                gboolean confirmed = have_st && totp_st.confirmed;
-                PcvRole  role = pcv_rbac_get_role(username);
-                gboolean enroll_forced = !confirmed && pcv_rbac_totp_role_required((gint)role);
 
-                if (confirmed || enroll_forced) {
-                    GError *pend_err = nullptr;
-                    gchar *pending = pcv_jwt_sign_scoped(username, 180, client_ip,
-                                                          "totp", &pend_err);
-                    if (!pending) {
-                        if (body) json_object_unref(body);
-                        g_free(username);
-                        pcv_secure_free_str(&password);
-                        _error(msg, 500, "INTERNAL",
-                               pend_err ? pend_err->message : "Failed to issue pending token");
-                        if (pend_err) g_error_free(pend_err);
-                        return;
-                    }
-                    pcv_rbac_ip_record_auth_success(client_ip);                 
+        if (pcv_rbac_password_check(username, password, &err)) {
+            PcvTotpStatus totp_st = { 0 };
+            gboolean have_st = pcv_rbac_totp_status(username, &totp_st);
+            gboolean confirmed = have_st && totp_st.confirmed;
+            PcvRole  role = pcv_rbac_get_role(username);
+            gboolean enroll_forced = !confirmed && pcv_rbac_totp_role_required((gint)role);
 
-                    gchar *pend_resp = confirmed
-                        ? g_strdup_printf(
-                              "{\"totp_required\":true,\"pending_token\":\"%s\"}", pending)
-                        : g_strdup_printf(
-                              "{\"totp_enroll_required\":true,\"pending_token\":\"%s\"}", pending);
-                    _send_json(msg, 200, pend_resp);
-                    g_free(pend_resp);
-                    g_free(pending);
-                    PCV_LOG_INFO(REST_LOG_DOM,
-                        "TOTP pending token issued for '%s' (%s)",
-                        username, confirmed ? "totp_required" : "totp_enroll_required");
+            if (confirmed || enroll_forced) {
+                GError *pend_err = nullptr;
+                gchar *pending = pcv_jwt_sign_scoped(username, 180, client_ip,
+                                                      "totp", &pend_err);
+                if (!pending) {
                     if (body) json_object_unref(body);
                     g_free(username);
                     pcv_secure_free_str(&password);
+                    _error(msg, 500, "INTERNAL",
+                           pend_err ? pend_err->message : "Failed to issue pending token");
+                    if (pend_err) g_error_free(pend_err);
                     return;
                 }
+                pcv_rbac_ip_record_auth_success(client_ip);
 
-                token = pcv_rbac_issue_tokens(username, &refresh, &err);
+                gchar *pend_resp = confirmed
+                    ? g_strdup_printf(
+                          "{\"totp_required\":true,\"pending_token\":\"%s\"}", pending)
+                    : g_strdup_printf(
+                          "{\"totp_enroll_required\":true,\"pending_token\":\"%s\"}", pending);
+                _send_json(msg, 200, pend_resp);
+                g_free(pend_resp);
+                g_free(pending);
+                PCV_LOG_INFO(REST_LOG_DOM,
+                    "TOTP pending token issued for '%s' (%s)",
+                    username, confirmed ? "totp_required" : "totp_enroll_required");
+                if (body) json_object_unref(body);
+                g_free(username);
+                pcv_secure_free_str(&password);
+                return;
             }
+
+            token = pcv_rbac_issue_tokens(username, &refresh, &err);
+        } else if (bootstrap_configured &&
+                   pcv_rest_auth_should_fallback_bootstrap(username, password,
+                       cfg_user, cfg_pass, pcv_rbac_user_exists(username) != PCV_USER_ABSENT)) {
+
+            g_clear_error(&err);
+            token = pcv_jwt_sign(username, 900, &err);
+            if (token) pcv_audit_log(username, "auth.bootstrap.fallback",
+                                     "bootstrap recovery", "ok", 0, 0, client_ip);
         }
 
         if (!token) {
@@ -3246,14 +3237,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             return;
         }
 
-        const gchar *boot_admin = pcv_config_get_admin_user();
-        if (boot_admin && g_strcmp0(sub, boot_admin) == 0) {
-            g_free(sub);
-            _error(msg, 403, "FORBIDDEN",
-                   "Bootstrap admin password must be changed in daemon.conf [daemon] admin_password");
-            return;
-        }
-
         JsonObject *body = _parse_body(msg);
         const gchar *old_pw = body
             ? json_object_get_string_member_with_default(body, "old_password", "")
@@ -3292,12 +3275,12 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
         pcv_audit_log(sub, "auth.password.change", "self change",
                       "ok", 0, 0, rip);
-        PCV_LOG_INFO(REST_LOG_DOM, "Password changed for '%s' (sessions revoked)", sub);
+        PCV_LOG_INFO(REST_LOG_DOM, "Password changed for '%s' (refresh sessions revoked)", sub);
         g_free(sub);
         if (body) json_object_unref(body);
 
         _send_json(msg, 200,
-                   "{\"status\":\"ok\",\"message\":\"Password changed. All sessions revoked.\"}");
+                   "{\"status\":\"ok\",\"message\":\"Password changed. Refresh sessions revoked; existing access tokens remain valid until expiry.\"}");
         return;
     }
 
@@ -3804,7 +3787,10 @@ _on_request(SoupServer        *server   __attribute__((unused)),
          g_str_has_prefix(path, REST_API_PREFIX "/cluster/vms") ||
 #endif
          FALSE);
-    if (needs_libvirt && cb_is_open()) {
+
+
+
+    if (needs_libvirt && cb_should_reject_request()) {
         SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
         soup_message_headers_replace(rh, "Retry-After", "30");
         _error(msg, 503, "SERVICE_UNAVAILABLE",
@@ -4479,10 +4465,13 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
                                                                 
     else if (g_strcmp0(resource, "monitor") == 0) {
-        if (g_strcmp0(name, "metrics") == 0)
+        if (g_strcmp0(method, "GET") != 0) {
+            rpc = NULL;
+        } else if (g_strcmp0(name, "metrics") == 0)
             rpc = _build_rpc("monitor.metrics", NULL);
         else if (g_strcmp0(name, "fleet") == 0)
             rpc = _build_rpc("monitor.fleet", NULL);
+
     }
 
                                                                
@@ -4694,12 +4683,12 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
                                                               
                                                  
+
                                                  
                                                    
                                                    
                                                                   
                                                              
-
     else if (g_strcmp0(resource, "networks") == 0) {
         if (*name == '\0') {
             if (g_strcmp0(method, "GET") == 0)
@@ -5155,13 +5144,16 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         }
     }
 
-                                                           
+
     else if (g_strcmp0(resource, "gpu") == 0) {
         if (g_strcmp0(name, "list") == 0 && g_strcmp0(method, "GET") == 0)
             rpc = _build_rpc("gpu.list", body);
         else if (g_strcmp0(name, "metrics") == 0 && g_strcmp0(method, "GET") == 0)
             rpc = _build_rpc("gpu.metrics", NULL);
-                                                                     
+        else if (g_strcmp0(name, "attach") == 0 && g_strcmp0(method, "POST") == 0)
+            rpc = _build_rpc("device.gpu.attach", body);
+        else if (g_strcmp0(name, "detach") == 0 && g_strcmp0(method, "POST") == 0)
+            rpc = _build_rpc("device.gpu.detach", body);
     }
 
                                                                      
@@ -5329,7 +5321,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                           
                                                                 
                                                                         
-        GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+        GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
         g_task_set_task_data(task, actx, _rest_async_ctx_free);
         g_task_run_in_thread(task, _rest_async_worker);
         g_object_unref(task);
@@ -5373,6 +5365,21 @@ cleanup_no_free:
     g_free(req_id);
     pcv_trace_context_free(trace_ctx);
     pcv_log_req_id_set(NULL);
+}
+
+
+
+
+static void
+_on_request_drained(SoupServer *server, SoupServerMessage *msg, const gchar *path,
+            GHashTable *query, gpointer user_data)
+{
+    if (!pcv_drain_admit_rest()) {
+        soup_server_message_set_status(msg, SOUP_STATUS_SERVICE_UNAVAILABLE, NULL);
+        return;
+    }
+    _on_request(server, msg, path, query, user_data);
+    pcv_drain_work_release();
 }
 
   
@@ -5794,11 +5801,11 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
                                             
        
     soup_server_add_handler(self->soup, REST_API_PREFIX,
-                             _on_request, self, NULL);
+                             _on_request_drained, self, NULL);
     soup_server_add_handler(self->soup, "/ui",
-                             _on_request, self, NULL);
+                             _on_request_drained, self, NULL);
     soup_server_add_handler(self->soup, "/",
-                             _on_request, self, NULL);
+                             _on_request_drained, self, NULL);
 
                                                             
     pcv_ws_server_init(self->soup);

@@ -98,6 +98,66 @@ grep -Fq 'assert_error_or_unregistered "config.push: missing params rejected"' t
 grep -Fq 'ALERT_BASE_RESULT=' tests/integration/test_core_enhancement.sh
 grep -Fq 'network.qos.remove","params":{}' tests/integration/test_core_enhancement.sh
 grep -Fq 'BASE_URL="${PCV_TEST_BASE_URL:-http://$HOST}"' tests/integration/test_frontend_api.sh
+python3 - <<'PY'
+from pathlib import Path
+import re
+import subprocess
+import tempfile
+
+source = Path("tests/integration/test_frontend_api.sh").read_text()
+match = re.search(r"^cleanup\(\) \{.*?^\}", source, re.MULTILINE | re.DOTALL)
+assert match, "frontend cleanup 함수가 없다"
+cleanup = match.group()
+guard = 'if [ "$VIEWER_CREATED" -eq 1 ] || [ "$viewer_present" -eq 1 ]; then'
+assert cleanup.count(guard) == 1, "생성 응답 유실 시 목록 기반 계정 회수가 필요하다"
+
+harness = r'''
+set -eu
+MUTATION_STARTED=1
+SNAPSHOT_CLEANUP_ARMED=0
+VIEWER_CREATED=0
+VIEW_USER=pcv-view-fixture
+BASE=http://fixture.invalid/api/v1
+H=fixture-auth
+HJ=fixture-json
+HX=fixture-csrf
+R= N=
+get() {
+  [ "$1" = /auth/users ] || return 2
+  if [ -e "$VIEWER_STATE" ]; then
+    printf '{"data":[{"username":"pcv-view-fixture"}]}\n200\n'
+  else
+    printf '{"data":[]}\n200\n'
+  fi
+}
+curl() {
+  case " $* " in
+    *' -X DELETE '*'{"username":"pcv-view-fixture"}'*' http://fixture.invalid/api/v1/auth/users '*) ;;
+    *) return 2 ;;
+  esac
+  rm -- "$VIEWER_STATE"
+  printf '{"data":{"deleted":true}}\n200\n'
+}
+'''
+
+with tempfile.TemporaryDirectory(prefix="pcv-cleanup-contract-") as temporary:
+    state = Path(temporary) / "viewer"
+    for body, expected in (
+        (cleanup, 0),
+        (cleanup.replace(guard, 'if [ "$VIEWER_CREATED" -eq 1 ]; then'), 90),
+    ):
+        state.touch()
+        result = subprocess.run(
+            ["bash", "-c", harness + "\n" + body + "\ncleanup\n"],
+            env={"PATH": "/usr/bin:/bin", "VIEWER_STATE": str(state)},
+            text=True,
+            capture_output=True,
+        )
+        assert result.returncode == expected, (result.returncode, result.stdout, result.stderr)
+        assert state.exists() == (expected != 0), "실제 목록의 잔여 계정 상태를 확인해야 한다"
+        if expected:
+            assert "CLEANUP-FAIL" in result.stderr
+PY
 grep -Fq 'pcv_try_login "$BASE" "$PCV_TEST_ADMIN_USER" "$PCV_TEST_ADMIN_PASSWORD"' tests/integration/test_frontend_api.sh
 ! grep -Fq 'pcv_resolve_auth "$BASE"' tests/integration/test_frontend_api.sh
 grep -Fq 'wait_vm_delete_terminal' tests/integration/test_security_scan.sh

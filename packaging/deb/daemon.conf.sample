@@ -1,6 +1,6 @@
                           
                                                                  
-                                                    
+
                                                           
                                                                                                  
                                                       
@@ -27,6 +27,8 @@ socket_path = /var/run/purecvisor/daemon.sock
 rest_port = 8080
 drain_timeout = 30
 pool_max_conn = 16
+
+
                                                           
 
 [storage]
@@ -45,6 +47,17 @@ firewall_integration = auto
 [security_group]
                                   
 resync_interval_sec = 300
+
+
+
+[overlay]
+
+
+
+
+
+
+reconcile_interval_sec = 300
 
 [update]
                                                           

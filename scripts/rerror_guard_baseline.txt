@@ -75,8 +75,6 @@ ui/modules/vm-console.js|GET|EP.VM_SNAPSHOT_LIST#2
 ui/modules/vm-console.js|GET|EP.VNC#1
 ui/modules/vm-guest.js|GET|EP.VM_GUEST_AGENT#1
 ui/modules/vm-guest.js|POST|EP.VM_RPC:vm.cpu.stats#1
-ui/modules/vm-guest.js|POST|EP.VM_RPC:vm.memory.stats#1
-ui/modules/vm-lifecycle.js|GET|/api/v1/health/recent-errors#1
 ui/modules/vm-lifecycle.js|GET|EP.BACKUP_POLICIES#1
 ui/modules/vm-lifecycle.js|GET|EP.ISO_LIST#1
 ui/modules/vm-lifecycle.js|GET|EP.ISO_LIST#2

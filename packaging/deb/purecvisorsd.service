@@ -55,8 +55,9 @@ KillSignal=SIGTERM
 KillMode=process
 UMask=0077
                                                           
-                                                                
-CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_MAC_OVERRIDE CAP_MAC_ADMIN
+
+
+CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_MAC_OVERRIDE
 LimitNOFILE=1048576
 TasksMax=4096
 Delegate=yes

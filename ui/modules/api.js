@@ -79,10 +79,25 @@ var _wsMaxReconnect = 5;
 
                                                           
                                                                  
-                      
+
+
+
+function _setAuthSurfaceActive(node, active) {
+  if (!node) return;
+  if (!active && document.activeElement && node.contains(document.activeElement) &&
+      typeof document.activeElement.blur === 'function') {
+    document.activeElement.blur();
+  }
+  node.inert = !active;
+  if (active) node.removeAttribute('aria-hidden');
+  else node.setAttribute('aria-hidden', 'true');
+}
 function pcvSetLoginVisible(visible) {
   var loginPage = document.getElementById('login-page');
+  var app = document.getElementById('app');
   if (loginPage) loginPage.style.display = visible ? 'flex' : 'none';
+  _setAuthSurfaceActive(loginPage, !!visible);
+  _setAuthSurfaceActive(app, !visible);
   if (document.body) document.body.classList.toggle('login-active', !!visible);
                                                       
                                                
@@ -1005,6 +1020,25 @@ function unwrapList(r) {
   return Array.isArray(d) ? d : [];
 }
 
+
+
+
+async function waitForJob(jobId, options) {
+  var attempts = options && options.attempts || 5;
+  var interval = options && options.interval !== undefined ? options.interval : 2000;
+  var job = { job_id: jobId, status: 'pending' };
+  for (var i = 0; i < attempts; i++) {
+    if (i) await new Promise(resolve => setTimeout(resolve, interval));
+    var response = await fetchGet(EP.JOB(jobId));
+    if (response && response.error) throw new Error(response.error.message || 'Unable to read job result');
+    job = unwrapData(response) || job;
+    if (['failed', 'cancelled'].includes(job.status))
+      throw new Error(job.detail || job.error || ('Job ' + job.status));
+    if (job.status === 'completed') return job;
+  }
+  return job;
+}
+
                                                  
                                        
                                       
@@ -1085,6 +1119,7 @@ PCV.api = {
   _fetchWithTimeout: _fetchWithTimeout,
   unwrapData: unwrapData,
   unwrapList: unwrapList,
+  waitForJob: waitForJob,
   connectWS: connectWS,
   doLoginPage: doLoginPage,
   doLogin: doLogin,

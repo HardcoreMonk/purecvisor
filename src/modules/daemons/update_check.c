@@ -21,6 +21,7 @@
                                                     
                                    
    
+#include "api/drain.h"
 #include "update_check.h"
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -193,6 +194,7 @@ static gpointer _refresh_thread(gpointer unused)
     G.in_flight = FALSE;
     g_mutex_unlock(&G.mu);
     g_free(tag); g_free(url);
+    pcv_drain_work_release();
     return nullptr;
 }
 
@@ -236,8 +238,9 @@ PcvUpdateStatus pcv_update_check_get(void)
     if (G.enabled && stale && !G.in_flight) {
         G.in_flight = TRUE;
         G.last_attempt_mono = mono_now;                                                 
+        pcv_drain_work_acquire();
         GThread *t = g_thread_try_new("update-check", _refresh_thread, nullptr, nullptr);
-        if (t) g_thread_unref(t); else { G.in_flight = FALSE; G.last_attempt_mono = mono_now; }
+        if (t) g_thread_unref(t); else { G.in_flight = FALSE; G.last_attempt_mono = mono_now; pcv_drain_work_release(); }
     }
     g_strlcpy(s.state, G.enabled ? G.state : "disabled", sizeof s.state);
     g_strlcpy(s.latest, G.latest, sizeof s.latest);

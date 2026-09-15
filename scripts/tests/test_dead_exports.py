@@ -11,6 +11,67 @@ import sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from check_dead_exports import strip_code, collect_declared, count_uses, find_dead
+import check_dead_exports as gate
+
+
+def test_public_waiver_keeps_unlisted_dead_export_blocked():
+    assert hasattr(gate, "validate_waivers"), "공개 계약 파일의 근거 있는 예외를 지원해야 한다"
+    declared = {"pcv_fixture_hook", "pcv_unwired"}
+    entries = {"pcv_fixture_hook": {
+        "reason": "회귀 테스트의 실패 주입 진입점",
+        "evidence": ["tests/test_fixture.c"],
+    }}
+    evidence = {"tests/test_fixture.c": "void test_fail(){ pcv_fixture_hook(); }"}
+    waived = gate.validate_waivers(entries, declared, declared, evidence)
+    assert declared - waived == {"pcv_unwired"}
+
+
+def test_public_waiver_rejects_missing_reason_or_evidence():
+    assert hasattr(gate, "validate_waivers"), "공개 예외 근거 검증이 필요하다"
+    for entry in (
+        {"reason": "", "evidence": ["tests/test_fixture.c"]},
+        {"reason": "테스트 전용", "evidence": []},
+        {"reason": "테스트 전용", "evidence": ["tests/missing.c"]},
+        {"reason": "테스트 전용", "evidence": ["../private.c"]},
+    ):
+        try:
+            gate.validate_waivers(
+                {"pcv_fixture_hook": entry}, {"pcv_fixture_hook"}, {"pcv_fixture_hook"},
+                {"tests/test_fixture.c": "pcv_fixture_hook();"}
+            )
+        except ValueError:
+            continue
+        assert False, f"근거 없는 예외를 거부해야 한다: {entry}"
+
+
+def test_public_waiver_rejects_comment_or_string_only_evidence():
+    assert hasattr(gate, "validate_waivers"), "공개 예외의 실제 코드 근거 검증이 필요하다"
+    entries = {"pcv_fixture_hook": {
+        "reason": "회귀 테스트의 실패 주입 진입점",
+        "evidence": ["tests/test_fixture.c"],
+    }}
+    for source in ('/* pcv_fixture_hook(); */', 'log("pcv_fixture_hook");', 'pcv_fixture_hook_other();'):
+        try:
+            gate.validate_waivers(entries, {"pcv_fixture_hook"}, {"pcv_fixture_hook"},
+                                 {"tests/test_fixture.c": source})
+        except ValueError:
+            continue
+        assert False, "주석·문자열·다른 심볼은 예외 근거가 아니다"
+
+
+def test_public_waiver_rejects_stale_or_undeclared_symbols():
+    assert hasattr(gate, "validate_waivers"), "삭제되거나 배선된 예외를 거부해야 한다"
+    entries = {"pcv_fixture_hook": {
+        "reason": "회귀 테스트의 실패 주입 진입점",
+        "evidence": ["tests/test_fixture.c"],
+    }}
+    for declared, dead in ((set(), {"pcv_fixture_hook"}), ({"pcv_fixture_hook"}, set())):
+        try:
+            gate.validate_waivers(entries, declared, dead,
+                                 {"tests/test_fixture.c": "pcv_fixture_hook();"})
+        except ValueError:
+            continue
+        assert False, "현재 선언·dead 후보와 일치하지 않는 예외를 거부해야 한다"
 
 def test_strip_removes_comment_and_string():
     s = 'foo(); /* pcv_x() */ // pcv_y()\n bar("pcv_z()");'

@@ -73,8 +73,8 @@ async function renderTemplates(b) {
     }
                                                                  
                                                                
-                                                         
-                                                               
+
+
                                                       
     var rows = list.map(t2 => el('tr', null,
       el('td', null, el('b', null, t2.name || '-')),

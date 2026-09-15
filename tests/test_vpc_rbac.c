@@ -140,11 +140,13 @@ test_d2_rbac_rest_and_dispatcher_agree(void)
     g_rmdir(dir);
 }
 
+
+
+
                                                                 
-                                                                                             
                                                           
-                                                  
-                        
+
+
   
                                                
                                                       
@@ -169,8 +171,9 @@ test_shared_ui_reads_rest_and_dispatcher_agree(void)
     pcv_dispatcher_init_policy_map();
 
     static const gchar *reads[] = {
-        "alert.history", "healing.pending", "healing.history", "agent.history", "config.history",
-        "storage.pool.forecast",
+        "alert.history", "healing.pending",
+        "healing.history", "agent.history", "config.history", "storage.pool.forecast",
+        "vm.delete.status", "vm.guest.agent.status",
     };
     static const struct {
         const gchar *username;

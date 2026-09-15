@@ -108,7 +108,8 @@ test('R2-F4: renderContent 말미 role 재적용 — VIEWER 는 vm pagehead 액�
 
       return { viewer, admin };
     });
-    assert.deepEqual(r.viewer, ['none', 'none'], 'VIEWER 는 +새 VM / 스냅샷 액션이 숨는다');
+    assert.equal(r.viewer.length, 3, '새 VM / 스냅샷 / VM 삭제 진입점이 존재한다');
+    assert.ok(r.viewer.every(d => d === 'none'), 'VIEWER 는 모든 VM 변경 액션이 숨는다');
     assert.ok(r.admin.every(d => d !== 'none'), 'ADMIN 은 그대로 보인다: ' + r.admin.join(','));
   }, { routes: {} });
 });

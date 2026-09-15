@@ -144,7 +144,9 @@ int BPF_PROG(pcv_file_open, struct file *file, int ret_prev)
                                                       
                                                           
     char buf[PCV_LSM_PATH_MAX];
-    long n = bpf_d_path(&file->f_path, buf, sizeof(buf));
+
+
+    long n = bpf_d_path((struct path *)&file->f_path, buf, sizeof(buf));
     if (n <= 0) return ret_prev;                                                       
 
                                                             

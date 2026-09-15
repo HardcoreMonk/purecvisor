@@ -110,6 +110,7 @@
                                            
                                                    
                                                                               
+#include "api/drain.h"
 #include "vm_manager.h"
 #include "virt_conn_pool.h"
 #include "vm_config_builder.h"
@@ -120,6 +121,7 @@
 #include "modules/network/tenant_overlay.h"                                                           
 #include "modules/network/vm_iface.h"                                                                        
 #include "../network/network_manager.h"                                                          
+#include "modules/network/dpdk_manager.h"
 #include "modules/network/vpc/vpc_manager.h"                                        
 #include "api/ws_server.h"
 #if PCV_CLUSTER_ENABLED
@@ -127,6 +129,7 @@
 #endif
 #include "../../utils/pcv_spawn.h"                              
 #include "../../utils/pcv_log.h"                                     
+#include "utils/pcv_validate.h"
 #include "modules/dispatcher/rpc_utils.h"                               
 #include "modules/core/vm_state.h"                                                       
 
@@ -135,6 +138,11 @@
 #include <libvirt-gobject/libvirt-gobject.h>
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
+#include <libxml/parser.h>
+#include <libxml/tree.h>
+#include <errno.h>
+#include <fcntl.h>
+#include <unistd.h>
 
 #define PCV_VM_METADATA_URI "urn:purecvisor:metadata"
 
@@ -418,7 +426,7 @@ typedef struct {
     gchar *storage_type;                                              
     gchar *storage_pool;                                                         
     gchar *image_dir;                                               
-    gchar *base_image;                                                                    
+    gchar *base_image;
     gchar *owner;                                                    
     gchar *network_mode;                                                                                      
     gchar *tenant;                                                                                    
@@ -523,6 +531,281 @@ _vm_xml_inject_metadata_child(const gchar *xml, const gchar *child_xml)
     }
     g_free(metadata);
     return patched;
+}
+
+
+
+
+
+gchar *
+_dpdk_metadata_xml(const gchar *nic_type, const gchar *bridge_name)
+{
+    if (g_strcmp0(nic_type, "dpdk") != 0)
+        return g_strdup("");
+    gchar *safe_bridge = g_markup_escape_text(bridge_name ? bridge_name : "", -1);
+    gchar *xml = g_strdup_printf(
+        "<pcv:dpdk xmlns:pcv='%s' bridge='%s'/>\n",
+        PCV_DPDK_METADATA_URI, safe_bridge);
+    g_free(safe_bridge);
+    return xml;
+}
+
+
+gboolean
+_dpdk_metadata_parse(const gchar *metadata_xml, gchar **bridge_out)
+{
+    if (!metadata_xml || !bridge_out)
+        return FALSE;
+    *bridge_out = NULL;
+    GRegex *bridge_re = g_regex_new(
+        "<(?:[\\w.-]+:)?dpdk\\b[^>]*\\bbridge\\s*=\\s*[\"']([^\"']*)[\"']",
+        0, 0, NULL);
+    GMatchInfo *match = NULL;
+    gchar *bridge = NULL;
+    if (bridge_re && g_regex_match(bridge_re, metadata_xml, 0, &match))
+        bridge = g_match_info_fetch(match, 1);
+    g_clear_pointer(&match, g_match_info_free);
+    if (bridge_re)
+        g_regex_unref(bridge_re);
+    if (!bridge || !pcv_validate_bridge_name(bridge)) {
+        g_free(bridge);
+        return FALSE;
+    }
+    *bridge_out = bridge;
+    return TRUE;
+}
+
+
+
+
+static PcvDpdkVhostSourceResult
+_dpdk_vhost_source_classify_doc(xmlDocPtr doc, const gchar *vm_name,
+                                xmlNodePtr *source_out)
+{
+    if (source_out)
+        *source_out = NULL;
+    if (!doc || !pcv_validate_vm_name(vm_name))
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+
+    xmlNodePtr root = xmlDocGetRootElement(doc);
+    if (!root || root->type != XML_ELEMENT_NODE ||
+        xmlStrcmp(root->name, BAD_CAST "domain") != 0)
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+
+    xmlNodePtr devices = NULL;
+    xmlChar *domain_name = NULL;
+    guint devices_count = 0;
+    for (xmlNodePtr child = root->children; child; child = child->next) {
+        if (child->type != XML_ELEMENT_NODE)
+            continue;
+        if (xmlStrcmp(child->name, BAD_CAST "name") == 0 && !domain_name)
+            domain_name = xmlNodeGetContent(child);
+        if (xmlStrcmp(child->name, BAD_CAST "devices") == 0) {
+            devices = child;
+            devices_count++;
+        }
+    }
+    gboolean name_matches = domain_name &&
+        g_strcmp0(g_strstrip((gchar *)domain_name), vm_name) == 0;
+    if (domain_name)
+        xmlFree(domain_name);
+    if (!name_matches || devices_count > 1)
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+    if (!devices)
+        return PCV_DPDK_VHOST_SOURCE_NONE;
+
+    xmlNodePtr vhost_iface = NULL;
+    guint vhost_count = 0;
+    for (xmlNodePtr child = devices->children; child; child = child->next) {
+        if (child->type != XML_ELEMENT_NODE ||
+            xmlStrcmp(child->name, BAD_CAST "interface") != 0)
+            continue;
+        xmlChar *type = xmlGetProp(child, BAD_CAST "type");
+        if (type && xmlStrcmp(type, BAD_CAST "vhostuser") == 0) {
+            vhost_iface = child;
+            vhost_count++;
+        }
+        if (type)
+            xmlFree(type);
+    }
+    if (vhost_count == 0)
+        return PCV_DPDK_VHOST_SOURCE_NONE;
+    if (vhost_count != 1)
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+
+    xmlNodePtr source = NULL;
+    guint source_count = 0;
+    for (xmlNodePtr child = vhost_iface->children; child; child = child->next) {
+        if (child->type == XML_ELEMENT_NODE &&
+            xmlStrcmp(child->name, BAD_CAST "source") == 0) {
+            source = child;
+            source_count++;
+        }
+    }
+    if (source_count != 1)
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+
+    xmlChar *type = xmlGetProp(source, BAD_CAST "type");
+    xmlChar *mode = xmlGetProp(source, BAD_CAST "mode");
+    xmlChar *path = xmlGetProp(source, BAD_CAST "path");
+    g_autofree gchar *canonical = pcv_dpdk_vhost_socket_path(vm_name);
+    g_autofree gchar *legacy = g_strdup_printf(
+        "/var/run/purecvisor/vhost-%s.sock", vm_name);
+    PcvDpdkVhostSourceResult result = PCV_DPDK_VHOST_SOURCE_INVALID;
+    if (type && mode && path && canonical &&
+        xmlStrcmp(type, BAD_CAST "unix") == 0 &&
+        xmlStrcmp(mode, BAD_CAST "server") == 0) {
+        if (g_strcmp0((const gchar *)path, canonical) == 0)
+            result = PCV_DPDK_VHOST_SOURCE_CANONICAL;
+        else if (g_strcmp0((const gchar *)path, legacy) == 0)
+            result = PCV_DPDK_VHOST_SOURCE_LEGACY;
+    }
+    if (type)
+        xmlFree(type);
+    if (mode)
+        xmlFree(mode);
+    if (path)
+        xmlFree(path);
+    if (source_out && (result == PCV_DPDK_VHOST_SOURCE_CANONICAL ||
+                       result == PCV_DPDK_VHOST_SOURCE_LEGACY))
+        *source_out = source;
+    return result;
+}
+
+PcvDpdkVhostSourceResult
+pcv_vm_dpdk_vhost_source_classify(const gchar *domain_xml,
+                                  const gchar *vm_name)
+{
+    if (!domain_xml || !pcv_validate_vm_name(vm_name))
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+    xmlDocPtr doc = xmlReadMemory(
+        domain_xml, (int)strlen(domain_xml), "dpdk-domain.xml", NULL,
+        XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+    if (!doc)
+        return PCV_DPDK_VHOST_SOURCE_INVALID;
+    PcvDpdkVhostSourceResult result =
+        _dpdk_vhost_source_classify_doc(doc, vm_name, NULL);
+    xmlFreeDoc(doc);
+    return result;
+}
+
+PcvDpdkVhostStartAction
+pcv_vm_dpdk_vhost_start_action(gboolean active,
+                               PcvDpdkVhostSourceResult source)
+{
+    if (source == PCV_DPDK_VHOST_SOURCE_CANONICAL)
+        return PCV_DPDK_VHOST_START_CANONICAL;
+    if (source == PCV_DPDK_VHOST_SOURCE_LEGACY)
+        return active ? PCV_DPDK_VHOST_START_DEFER_LEGACY
+                      : PCV_DPDK_VHOST_START_MIGRATE_LEGACY;
+    return PCV_DPDK_VHOST_START_INVALID;
+}
+
+gchar *
+pcv_vm_dpdk_vhost_migrate_legacy_xml(const gchar *domain_xml,
+                                     const gchar *vm_name,
+                                     GError **error)
+{
+    if (!domain_xml || !pcv_validate_vm_name(vm_name)) {
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "Invalid DPDK domain XML or VM name");
+        return NULL;
+    }
+    xmlDocPtr doc = xmlReadMemory(
+        domain_xml, (int)strlen(domain_xml), "dpdk-domain.xml", NULL,
+        XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+    if (!doc) {
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "Invalid DPDK domain XML");
+        return NULL;
+    }
+
+    xmlNodePtr source = NULL;
+    PcvDpdkVhostSourceResult current =
+        _dpdk_vhost_source_classify_doc(doc, vm_name, &source);
+    if (current == PCV_DPDK_VHOST_SOURCE_CANONICAL) {
+        xmlFreeDoc(doc);
+        return g_strdup(domain_xml);
+    }
+    if (current != PCV_DPDK_VHOST_SOURCE_LEGACY || !source) {
+        xmlFreeDoc(doc);
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "DPDK vhost source is not exact legacy server endpoint");
+        return NULL;
+    }
+
+    g_autofree gchar *canonical = pcv_dpdk_vhost_socket_path(vm_name);
+    if (!canonical || !xmlSetProp(source, BAD_CAST "path", BAD_CAST canonical)) {
+        xmlFreeDoc(doc);
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "Failed to set canonical DPDK vhost source");
+        return NULL;
+    }
+
+    xmlChar *buffer = NULL;
+    int buffer_size = 0;
+    xmlDocDumpMemoryEnc(doc, &buffer, &buffer_size, "UTF-8");
+    xmlFreeDoc(doc);
+    if (!buffer || buffer_size <= 0) {
+        if (buffer)
+            xmlFree(buffer);
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "Failed to serialize canonical DPDK domain XML");
+        return NULL;
+    }
+    gchar *migrated = g_strndup((const gchar *)buffer, (gsize)buffer_size);
+    xmlFree(buffer);
+    if (pcv_vm_dpdk_vhost_source_classify(migrated, vm_name) !=
+        PCV_DPDK_VHOST_SOURCE_CANONICAL) {
+        g_free(migrated);
+        g_set_error_literal(error, g_quark_from_static_string("vm-dpdk-vhost"), 1,
+                            "Canonical DPDK vhost migration postcondition failed");
+        return NULL;
+    }
+    return migrated;
+}
+
+
+
+
+static gboolean
+_dpdk_vhost_interface_present(const gchar *domain_xml)
+{
+    return domain_xml && g_regex_match_simple(
+        "<interface\\b[^>]*\\btype\\s*=\\s*[\"']vhostuser[\"']",
+        domain_xml, 0, 0);
+}
+
+PcvDpdkMetaResult
+pcv_vm_dpdk_metadata_read(virDomainPtr dom, gchar **bridge_out)
+{
+    if (!dom || !bridge_out)
+        return PCV_DPDK_META_INVALID;
+    *bridge_out = NULL;
+    char *meta = virDomainGetMetadata(dom, VIR_DOMAIN_METADATA_ELEMENT,
+                                      PCV_DPDK_METADATA_URI, 0);
+    if (!meta) {
+        virErrorPtr last = virGetLastError();
+        gboolean metadata_absent = last && last->code == VIR_ERR_NO_DOMAIN_METADATA;
+        virResetLastError();
+        if (!metadata_absent)
+            return PCV_DPDK_META_INVALID;
+
+
+
+
+        char *domain_xml = virDomainGetXMLDesc(dom, 0);
+        if (!domain_xml) {
+            virResetLastError();
+            return PCV_DPDK_META_INVALID;
+        }
+        gboolean legacy_dpdk = _dpdk_vhost_interface_present(domain_xml);
+        free(domain_xml);
+        return legacy_dpdk ? PCV_DPDK_META_INVALID : PCV_DPDK_META_ABSENT;
+    }
+    gboolean parsed = _dpdk_metadata_parse(meta, bridge_out);
+    free(meta);
+    return parsed ? PCV_DPDK_META_OK : PCV_DPDK_META_INVALID;
 }
 
                                                            
@@ -1479,7 +1762,7 @@ _build_memory_backing_xml(gboolean hugepages, gboolean want_shared)
                                                                   
                                                        
                                                                                
-                                                             
+
    
 gchar *
 _build_bridge_iface_xml(const gchar *safe_bridge,
@@ -1505,6 +1788,40 @@ _build_bridge_iface_xml(const gchar *safe_bridge,
 }
 
    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gchar *
+_build_dpdk_iface_xml(const gchar *vm_name)
+{
+    g_autofree gchar *socket_path = pcv_dpdk_vhost_socket_path(vm_name);
+    if (!socket_path)
+        return NULL;
+    return g_strdup_printf(
+        "    <interface type='vhostuser'>\n"
+        "      <source type='unix' path='%s' mode='server'/>\n"
+        "      <model type='virtio'/>\n"
+        "      <driver queues='2' rx_queue_size='1024' tx_queue_size='256'/>\n"
+        "    </interface>\n",
+        socket_path);
+}
+
+
                                                                                 
   
                                                           
@@ -1712,6 +2029,136 @@ _vm_xml_apply_cpu_invtsc(const gchar *xml)
         (gint)head, xml, gt + 1);
 }
 
+
+
+static void
+_create_vm_rollback_disk(const gchar *disk_path, const gchar *vm_name,
+                         const gchar *reason)
+{
+    if (!disk_path || !*disk_path)
+        return;
+    if (g_str_has_prefix(disk_path, "/dev/zvol/")) {
+        gchar *zvol_name = g_strdup(disk_path + strlen("/dev/zvol/"));
+        const gchar *zfs_argv[] = {"zfs", "destroy", "-f", zvol_name, NULL};
+        gboolean removed = pcv_spawn_sync(zfs_argv, NULL, NULL, NULL);
+        PCV_LOG_WARN("vm_manager", "VM '%s': %s zvol rollback %s: %s",
+                     vm_name, reason, removed ? "completed" : "failed", disk_path);
+        g_free(zvol_name);
+    } else if (g_file_test(disk_path, G_FILE_TEST_EXISTS)) {
+        gboolean removed = g_unlink(disk_path) == 0;
+        PCV_LOG_WARN("vm_manager", "VM '%s': %s disk rollback %s: %s",
+                     vm_name, reason, removed ? "completed" : "failed", disk_path);
+    }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean
+purecvisor_vm_provision_file_disk(const gchar *format,
+                                  const gchar *disk_path,
+                                  gint size_gb,
+                                  const gchar *base_image,
+                                  GError **error)
+{
+    if (!format || (g_strcmp0(format, "qcow2") != 0 &&
+                    g_strcmp0(format, "raw") != 0) ||
+        !disk_path || !*disk_path || size_gb < 1) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "Invalid file disk provisioning arguments");
+        return FALSE;
+    }
+
+    const gboolean has_base = base_image && *base_image;
+    if (has_base && !g_file_test(base_image, G_FILE_TEST_IS_REGULAR)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                    "Base image '%s' is missing or is not a regular file",
+                    base_image);
+        return FALSE;
+    }
+
+
+
+    gint reserve_fd = g_open(disk_path, O_CREAT | O_EXCL | O_WRONLY, 0600);
+    if (reserve_fd < 0) {
+        const gint saved_errno = errno;
+        if (saved_errno == EEXIST) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS,
+                        "Disk image '%s' already exists — delete the VM first",
+                        disk_path);
+        } else {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "Cannot reserve disk image '%s': %s",
+                        disk_path, g_strerror(saved_errno));
+        }
+        return FALSE;
+    }
+    if (close(reserve_fd) != 0) {
+        const gint saved_errno = errno;
+        (void)g_unlink(disk_path);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Cannot close reserved disk image '%s': %s",
+                    disk_path, g_strerror(saved_errno));
+        return FALSE;
+    }
+
+    g_autofree gchar *size_str = g_strdup_printf("%dG", size_gb);
+    const gchar *create_argv[] = {
+        "qemu-img", "create", "-f", format, disk_path, size_str, NULL
+    };
+    g_autofree gchar *create_stderr = NULL;
+    GError *spawn_error = NULL;
+
+    if (!pcv_spawn_sync(create_argv, NULL, &create_stderr, &spawn_error)) {
+        const gchar *detail = spawn_error ? spawn_error->message
+            : (create_stderr && *create_stderr ? g_strstrip(create_stderr)
+                                                : "unknown qemu-img error");
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "%s disk creation failed: %s", format, detail);
+        g_clear_error(&spawn_error);
+        (void)g_unlink(disk_path);
+        return FALSE;
+    }
+
+    if (!has_base)
+        return TRUE;
+
+
+
+    const gchar *convert_argv[] = {
+        "qemu-img", "convert", "-n", "-O", format,
+        base_image, disk_path, NULL
+    };
+    g_autofree gchar *convert_stderr = NULL;
+
+    if (!pcv_spawn_sync(convert_argv, NULL, &convert_stderr, &spawn_error)) {
+        const gchar *detail = spawn_error ? spawn_error->message
+            : (convert_stderr && *convert_stderr ? g_strstrip(convert_stderr)
+                                                  : "unknown qemu-img error");
+        const gboolean removed = g_unlink(disk_path) == 0;
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Base image conversion to %s failed: %s", format, detail);
+        PCV_LOG_WARN("vm_manager",
+                     "base image conversion failed; target rollback %s: %s",
+                     removed ? "completed" : "failed", disk_path);
+        g_clear_error(&spawn_error);
+        return FALSE;
+    }
+
+    return TRUE;
+}
+
    
                                                   
   
@@ -1757,6 +2204,24 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
             "VPC-managed NICs must be attached through vpc.attachment.create");
         return;
+    }
+
+
+
+
+    if (g_strcmp0(data->nic_type, "dpdk") == 0) {
+        g_autofree gchar *vhost_path = pcv_dpdk_vhost_socket_path(data->name);
+        GError *preflight_error = NULL;
+        if (!vhost_path ||
+            !pcv_dpdk_vhost_runtime_preflight(&preflight_error)) {
+            g_task_return_new_error(
+                task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                "DPDK vhost runtime preflight failed: %s",
+                preflight_error ? preflight_error->message
+                                : "invalid or overlong canonical socket path");
+            g_clear_error(&preflight_error);
+            return;
+        }
     }
 
                                                        
@@ -1961,36 +2426,22 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
 
         disk_path = g_strdup_printf("%s/%s.%s", image_dir, data->name, ext);
 
-                         
-        if (g_file_test(disk_path, G_FILE_TEST_EXISTS)) {
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_EXISTS,
-                "Disk image '%s' already exists — delete the VM first",
-                disk_path);
+        GError *file_error = NULL;
+        if (!purecvisor_vm_provision_file_disk(fmt, disk_path, final_disk_size,
+                                               data->base_image, &file_error)) {
+            PCV_LOG_WARN("vm_manager", "VM '%s' file disk provisioning failed: %s",
+                         data->name,
+                         file_error ? file_error->message : "unknown error");
+            g_task_return_error(task, file_error ? file_error :
+                g_error_new(G_IO_ERROR, G_IO_ERROR_FAILED,
+                            "%s provisioning failed", fmt));
             g_free(disk_path);
             return;
         }
-
-        gchar *size_str = g_strdup_printf("%dG", final_disk_size);
-        const gchar *qimg_argv[] = {"qemu-img", "create", "-f", fmt,
-                                     disk_path, size_str, NULL};
-        gchar *std_err = nullptr;
-
-        if (!pcv_spawn_sync(qimg_argv, NULL, &std_err, &error)) {
-            gchar *err_msg = error ? error->message
-                                   : (std_err ? g_strstrip(std_err)
-                                              : "Unknown qemu-img error");
-            PCV_LOG_WARN("vm_manager", "VM '%s' qemu-img FAILED: %s (stderr=%s)",
-                         data->name, err_msg, std_err ? std_err : "(none)");
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "%s Provisioning Failed: %s", fmt, err_msg);
-            g_unlink(disk_path);
-            if (error) g_error_free(error);
-            g_free(std_err); g_free(size_str); g_free(disk_path);
-            return;
-        }
-        g_free(std_err); g_free(size_str);
-        PCV_LOG_INFO("vm_manager", "VM '%s': %s disk created at %s (%dG)",
-                      data->name, fmt, disk_path, final_disk_size);
+        PCV_LOG_INFO("vm_manager",
+                     "VM '%s': %s disk provisioned at %s (%dG, base_image=%s)",
+                     data->name, fmt, disk_path, final_disk_size,
+                     (data->base_image && *data->base_image) ? "applied" : "none");
     }
 
                                                            
@@ -2080,14 +2531,8 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
         if (g_strcmp0(nic_type, "dpdk") == 0) {
                                                                   
                                                   
-                                                                         
-            iface_xml = g_strdup_printf(
-                "    <interface type='vhostuser'>\n"
-                "      <source type='unix' path='/var/run/purecvisor/vhost-%s.sock' mode='server'/>\n"
-                "      <model type='virtio'/>\n"
-                "      <driver queues='2'/>\n"
-                "    </interface>\n",
-                data->name);
+
+            iface_xml = _build_dpdk_iface_xml(data->name);
         } else if (g_strcmp0(nic_type, "sriov") == 0 && data->pci_addr) {
                                                                       
                                                                
@@ -2190,6 +2635,18 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
             final_xml = merged_xml;
         }
         g_free(overlay_meta_xml);
+    }
+
+
+
+    {
+        gchar *dpdk_meta_xml = _dpdk_metadata_xml(data->nic_type, data->network_bridge);
+        if (dpdk_meta_xml && *dpdk_meta_xml) {
+            gchar *merged_xml = _vm_xml_inject_metadata_child(final_xml, dpdk_meta_xml);
+            g_free(final_xml);
+            final_xml = merged_xml;
+        }
+        g_free(dpdk_meta_xml);
     }
 
                                      
@@ -2577,8 +3034,56 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
                 }
             }
         }
-        g_free(stored);
+        free(stored);
         if (dom) {
+
+
+
+            if (g_strcmp0(data->nic_type, "dpdk") == 0) {
+                GError *dpdk_error = NULL;
+                char *dpdk_domain_xml = virDomainGetXMLDesc(
+                    dom, VIR_DOMAIN_XML_INACTIVE);
+                gboolean dpdk_ready = dpdk_domain_xml &&
+                    pcv_vm_dpdk_vhost_source_classify(
+                        dpdk_domain_xml, data->name) ==
+                            PCV_DPDK_VHOST_SOURCE_CANONICAL;
+                if (!dpdk_ready) {
+                    virErrorPtr vir_error = virGetLastError();
+                    g_set_error(&dpdk_error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                        "stored domain does not contain one canonical DPDK vhost source%s%s",
+                        (!dpdk_domain_xml && vir_error && vir_error->message) ? ": " : "",
+                        (!dpdk_domain_xml && vir_error && vir_error->message)
+                            ? vir_error->message : "");
+                }
+                free(dpdk_domain_xml);
+                if (dpdk_ready)
+                    dpdk_ready = pcv_dpdk_vm_port_ensure(
+                        data->network_bridge, data->name, &dpdk_error);
+                if (!dpdk_ready) {
+                    int undef_rc = virDomainUndefineFlags(
+                        dom, VIR_DOMAIN_UNDEFINE_NVRAM |
+                             VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA);
+                    if (undef_rc < 0)
+                        undef_rc = virDomainUndefine(dom);
+                    if (undef_rc == 0)
+                        _create_vm_rollback_disk(
+                            disk_path, data->name, "DPDK vhost provisioning failure");
+                    else
+                        PCV_LOG_ERROR("vm_manager",
+                            "VM '%s': DPDK vhost provisioning and domain rollback both failed; "
+                            "disk preserved for manual recovery", data->name);
+                    virDomainFree(dom);
+                    dom = NULL;
+                    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "DPDK vhost provisioning failed: %s%s",
+                        dpdk_error ? dpdk_error->message : "unknown error",
+                        undef_rc == 0 ? " (domain and disk rolled back)" :
+                                        " (domain rollback failed; manual recovery required)");
+                    g_clear_error(&dpdk_error);
+                    goto create_vm_cleanup;
+                }
+            }
+
                                                                          
                                                                 
                                                                  
@@ -2603,6 +3108,7 @@ static void create_vm_thread(GTask *task, gpointer source_object, gpointer task_
         }
     }
 
+create_vm_cleanup:
                                                                       
       
                  
@@ -2664,7 +3170,7 @@ void purecvisor_vm_manager_create_vm_async(PureCVisorVmManager *self,
                                            const gchar *image_dir,
                                            const gchar *nic_type,
                                            const gchar *pci_addr,
-                                           const gchar *base_image,                                 
+                                           const gchar *base_image,
                                            const gchar *owner,
                                            const gchar *network_mode,                                                                
                                            const gchar *tenant,                                                                 
@@ -2704,7 +3210,15 @@ void purecvisor_vm_manager_create_vm_async(PureCVisorVmManager *self,
                                                 
                                                                               
                                                                                                   
-    GTask *task = g_task_new(self, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, cancellable, callback, user_data);
+    if (g_strcmp0(nic_type, "dpdk") == 0 &&
+        (!network_bridge || !*network_bridge ||
+         !pcv_validate_bridge_name(network_bridge))) {
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                                "nic_type=dpdk requires an explicit valid network_bridge");
+        g_object_unref(task);
+        return;
+    }
     CreateVmTaskData *data = g_new0(CreateVmTaskData, 1);
 
     data->manager = g_object_ref(self);
@@ -2871,7 +3385,7 @@ void purecvisor_vm_manager_start_vm_async(PureCVisorVmManager *self,
                                           const gchar *name,
                                           GAsyncReadyCallback callback,
                                           gpointer user_data) {
-    GTask *task = g_task_new(self, NULL, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, NULL, callback, user_data);
     LifecycleTaskData *data = g_new0(LifecycleTaskData, 1);
     data->manager = g_object_ref(self);
     data->name = g_strdup(name);
@@ -3009,7 +3523,7 @@ void purecvisor_vm_manager_stop_vm_async(PureCVisorVmManager *self,
                                          const gchar *name,
                                          GAsyncReadyCallback callback,
                                          gpointer user_data) {
-    GTask *task = g_task_new(self, NULL, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, NULL, callback, user_data);
     LifecycleTaskData *data = g_new0(LifecycleTaskData, 1);
     data->manager = g_object_ref(self);
     data->name = g_strdup(name);
@@ -3374,7 +3888,7 @@ static void delete_vm_thread_impl(GTask *task,
     ZfsDestroyData *zd = g_new0(ZfsDestroyData, 1);
     zd->vm_name = g_strdup(data->name);
 
-    GTask *zfs_task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *zfs_task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(zfs_task, zd, _zfs_destroy_data_free);
     g_task_run_in_thread(zfs_task, _zfs_destroy_thread);
     g_object_unref(zfs_task);
@@ -3392,7 +3906,7 @@ void purecvisor_vm_manager_delete_vm_async(PureCVisorVmManager *self,
                                            const gchar *name,
                                            GAsyncReadyCallback callback,
                                            gpointer user_data) {
-    GTask *task = g_task_new(self, NULL, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, NULL, callback, user_data);
     LifecycleTaskData *data = g_new0(LifecycleTaskData, 1);
     data->manager = g_object_ref(self);
     data->name = g_strdup(name);
@@ -3535,7 +4049,7 @@ static void list_vms_thread(GTask *task,
 void purecvisor_vm_manager_list_vms_async(PureCVisorVmManager *self,
                                           GAsyncReadyCallback callback,
                                           gpointer user_data) {
-    GTask *task = g_task_new(self, NULL, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, NULL, callback, user_data);
     
                                                                  
                               
@@ -3654,7 +4168,7 @@ static void set_memory_thread_impl(GTask *task, gpointer source_object, gpointer
                                   
    
 void purecvisor_vm_manager_set_memory_async(PureCVisorVmManager *self, const gchar *name, guint memory_mb, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data) {
-    GTask *task = g_task_new(self, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, cancellable, callback, user_data);
     ResourceTuningData *data = g_new0(ResourceTuningData, 1);
     data->vm_name = g_strdup(name);
     data->target_value = memory_mb;
@@ -3722,7 +4236,7 @@ static void set_vcpu_thread_impl(GTask *task, gpointer source_object, gpointer t
                               
    
 void purecvisor_vm_manager_set_vcpu_async(PureCVisorVmManager *self, const gchar *name, guint vcpu_count, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data) {
-    GTask *task = g_task_new(self, cancellable, callback, user_data);
+    GTask *task = pcv_drain_task_new(self, cancellable, callback, user_data);
     ResourceTuningData *data = g_new0(ResourceTuningData, 1);
     data->vm_name = g_strdup(name);
     data->target_value = vcpu_count;
@@ -4011,7 +4525,7 @@ void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar 
     d->target = target ? g_strdup(target) : g_strdup("vda");
     d->holds_lock = holds_lock;                                            
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, d, (GDestroyNotify)resize_disk_data_free);
     g_task_run_in_thread(task, resize_disk_thread);
     g_object_unref(task);
@@ -4031,7 +4545,7 @@ void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar 
                                                        
   
             
-                                                          
+
                                    
                                                 
   

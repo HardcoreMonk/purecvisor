@@ -2739,17 +2739,62 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 
 ### 6.6 OVN SDN
 
-> **에디션 경계**: Single Edge의 generic OVN 공개 표면은 등록된 18개 RPC(`status`,
-> switch, port, ACL, router, DHCP, NAT, tenant)입니다. production caller가 없는 VM 자동
-> 포트 helper와 불완전한 OVN/NFV Load Balancer는 사용자 기능이 아닙니다. Single Edge는
-> 서비스 기동 시 local OVN controller를 자동 준비해 로컬 SDN 데이터면을 구성합니다.
+> **에디션 경계**: generic OVN 코어(`status`, switch/port/ACL/router/DHCP/NAT/tenant)는
+> Single Edge 공개 범위에 포함됩니다. 등록된 RPC inventory는 정확히 18개이며 완전한
+> CRUD를 뜻하지 않습니다. 완결되지 않은 OVN/NFV Load Balancer와 production caller가 없는
+> VM 자동 포트 내부 helper는 공개 기능이 아닙니다. encap 설정과 auto-provision 자동화는
+> 공개 범위 밖 멀티 제어면 참고 기능으로 남겨 둡니다.
 
 OVN (Open Virtual Network) 기반 소프트웨어 정의 네트워크를 지원합니다.
 
 #### 활용 예제 — 웹 논리 네트워크에 DHCP·ACL·SNAT 적용
 
 아래 절을 순서대로 실행하면 `ls-web` 논리 스위치와 `lr-main` 논리 라우터를 만들고, `10.0.1.0/24` DHCP와 웹 ACL, SNAT를 연결합니다.
-`203.0.113.1`은 RFC 문서용 주소이므로 실제 external IP로 교체하고, 실행 전 `ovn status`가 준비 상태인지 확인합니다.
+`203.0.113.1`은 RFC 문서용 주소이므로 실제 external IP로 교체하고, 실행 전 host 기준선과 `ovn status`가 모두 준비 상태인지 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-ovn-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/ovn-sdn.svg" target="_blank" rel="noopener" aria-label="OVN SDN 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/ovn-sdn.svg" width="960" height="280" loading="lazy" decoding="async" alt="웹 논리 네트워크 모델이 PureCVisor generic OVN RPC를 거쳐 logical switch, router, DHCP, ACL, SNAT과 OVS br-int actual state로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-ovn-caption">논리 객체의 REST 조회와 OVN·OVS actual state를 함께 비교해 단계별 수렴을 확인합니다.</figcaption>
+</figure>
+
+#### 작업 전 호스트 네트워크 기준선
+
+Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저 확인합니다.
+관리 interface/IP, IPv4 main route와 connected CIDR, Linux bridge/port, OVS bridge/port,
+현재 tenant의 Local VPC CIDR과 OVN readiness를 한 화면에서 비교할 수 있습니다.
+
+```bash
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/networks/host-baseline" | python3 -m json.tool
+```
+
+이 endpoint는 host interface·route·OVS actual을 변경하지 않는 읽기 전용 조회입니다.
+응답 일부가 `partial` 또는 `unavailable`이면 빈 상태로 해석하지 말고 해당 수집 실패를
+해결한 뒤 OVN이나 Local VPC 리소스를 생성합니다.
+
+#### 등록된 generic OVN RPC — 정확히 18개
+
+| 영역 | 개수 | 등록 RPC |
+|---|---:|---|
+| 상태 | 1 | `ovn.status` |
+| 스위치 | 4 | `ovn.switch.create`, `ovn.switch.delete`, `ovn.switch.list`, `ovn.switch.detail` |
+| 포트 | 2 | `ovn.port.add`, `ovn.port.remove` |
+| ACL | 2 | `ovn.acl.add`, `ovn.acl.list` |
+| 라우터 | 5 | `ovn.router.create`, `ovn.router.delete`, `ovn.router.list`, `ovn.router.detail`, `ovn.router.add_port` |
+| DHCP | 1 | `ovn.dhcp.enable` |
+| NAT | 2 | `ovn.nat.add`, `ovn.nat.list` |
+| 테넌트 | 1 | `ovn.tenant.create` |
+| **총계** | **18** | dispatcher에 등록된 generic `ovn.*` 공개 inventory |
+
+#### 등록되지 않은 역동작과 공개 제외 기능
+
+현재 `ACL 삭제`, `NAT 삭제`, `DHCP 목록·삭제`, `tenant 삭제`, `router port 제거` RPC는
+등록돼 있지 않습니다. manager 내부에 일부 역동작 함수가 있더라도 사용자 RPC로 간주하지
+않습니다. cleanup은 등록된 port/switch/router 삭제와 부모 리소스의 안전한 cascade를
+기준으로 합니다. OVN/NFV Load Balancer를 생성·연결·조회·삭제하는 사용자 절차도
+제공하지 않습니다. Local VPC의 제한형 Service Publish는 이 제외 기능과 별개입니다.
 
 #### OVN 상태
 
@@ -2761,26 +2806,23 @@ pcvctl ovn status
 
 ```bash
 # 스위치 생성
-pcvctl ovn switch create --name ls-web
+pcvctl ovn switch create ls-web
 
 # 스위치 목록
 pcvctl ovn switch list
-
-# 스위치 상세
-pcvctl ovn switch detail ls-web
 
 # 스위치 삭제
 pcvctl ovn switch delete ls-web
 ```
 
+논리 스위치 생성은 L2 switch만 만들며 subnet 입력을 받지 않습니다. 주소 대역과 DHCP는
+아래 `ovn dhcp enable` 단계에서 별도로 구성합니다.
+
 #### 논리 라우터
 
 ```bash
 # 라우터 생성
-pcvctl ovn router create --name lr-main
-
-# 라우터에 스위치 포트 연결
-pcvctl ovn router add-port lr-main ls-web --cidr 10.0.1.1/24
+pcvctl ovn router create lr-main
 
 # 라우터 목록
 pcvctl ovn router list
@@ -2793,48 +2835,72 @@ pcvctl ovn router delete lr-main
 
 ```bash
 # 인그레스 규칙 추가
-pcvctl ovn acl add ls-web --direction ingress --priority 100 \
-  --match "tcp.dst==80" --action allow
+pcvctl ovn acl add ls-web to-lport 100 'tcp.dst == 80' allow
 
 # 이그레스 규칙 추가
-pcvctl ovn acl add ls-web --direction egress --priority 50 \
-  --match "tcp.dst==443" --action allow
+pcvctl ovn acl add ls-web from-lport 50 'tcp.dst == 443' allow
 
 # ACL 목록
 pcvctl ovn acl list ls-web
-
-# ACL 삭제
-pcvctl ovn acl remove ls-web --priority 100 --direction ingress
 ```
 
 #### NAT
 
 ```bash
-# SNAT 규칙 추가
-pcvctl ovn nat add lr-main --type snat \
-  --external 203.0.113.1 --logical 10.0.1.0/24
-
-# DNAT 규칙 추가
-pcvctl ovn nat add lr-main --type dnat \
-  --external 203.0.113.1 --logical 10.0.1.10
-
 # NAT 목록
 pcvctl ovn nat list lr-main
+```
 
-# NAT 삭제
-pcvctl ovn nat remove lr-main --type snat --external 203.0.113.1
+NAT 추가와 router↔switch 포트 연결은 현재 JSON-RPC 표면을 사용한다.
+
+```bash
+echo '{"jsonrpc":"2.0","method":"ovn.router.add_port","params":{
+  "router":"lr-main","switch":"ls-web","mac":"02:00:00:00:01:01",
+  "cidr":"10.0.1.1/24"},"id":"1"}' \
+  | socat - UNIX-CONNECT:/var/run/purecvisor/daemon.sock
+
+echo '{"jsonrpc":"2.0","method":"ovn.nat.add","params":{
+  "router":"lr-main","type":"snat","external_ip":"203.0.113.1",
+  "logical_ip":"10.0.1.0/24"},"id":"1"}' \
+  | socat - UNIX-CONNECT:/var/run/purecvisor/daemon.sock
 ```
 
 #### DHCP
 
 ```bash
 # OVN DHCP 옵션 설정
-pcvctl ovn dhcp set ls-web --cidr 10.0.1.0/24 \
-  --router 10.0.1.1 --dns 8.8.8.8
-
-# DHCP 옵션 조회
-pcvctl ovn dhcp list ls-web
+pcvctl ovn dhcp enable 10.0.1.0/24 10.0.1.1 --switch ls-web
 ```
+
+`--switch`를 주면 DHCP option record를 스위치에 귀속시키고, 이미 있는
+일반 logical switch port와 이후 추가할 포트 모두에 같은 옵션을 연결한다.
+OVN 포트, DHCP, router link 생성은 하나의 `ovn-nbctl` transaction으로
+실패하며 부분 구성을 성공으로 보고하지 않는다.
+
+스위치를 삭제하면 같은 ownership marker를 가진 DHCP option record도 동일 transaction에서
+자동 정리합니다. 다른 스위치가 소유한 행과 foreign OVN 행은 보존하며, 소유권 조회가
+모호하거나 UUID가 비정상이거나 안전 상한을 넘으면 실제 변경 전에 실패합니다.
+
+#### 인증 REST 조회 필터
+
+ACL과 NAT 목록 REST는 대상 식별자를 query parameter로 받아 canonical RPC parameter로
+전달합니다.
+
+```bash
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/ovn/acl?switch=ls-web"
+
+curl -ksS -H "Authorization: Bearer $TOKEN" \
+  "https://${NODE_IPV4}/api/v1/ovn/nat?router=lr-main"
+```
+
+`switch` 또는 `router`가 없거나 비어 있으면 필터 없는 전체 목록으로 넓히지 않고 canonical
+JSON-RPC `-32602`(`Invalid params`)로 거부합니다. 대상이 지정된 성공 응답에는 다른
+switch/router의 표식이 섞이면 안 됩니다.
+
+generic OVN 18개 RPC의 `NET-OVN-01~07` 검증과 Local VPC OVN backend의 공개 지원 판정은
+서로 다른 gate입니다. generic OVN 검증이 통과해도 Local VPC OVN의 부팅 KVM,
+Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신하지 않습니다.
 
 ### 6.7 보안 그룹
 

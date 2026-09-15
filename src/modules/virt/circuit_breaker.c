@@ -16,6 +16,7 @@
   
                    
                                                                                 
+
   
                                                                    
                                            
@@ -231,15 +232,46 @@ cb_is_open(void)
             return TRUE;
         }
                                                     
-                                                    
-                                                         
+
+        g_cb.probe_in_flight = TRUE;
         g_mutex_unlock(&g_cb.mutex);
-        return (g_cb.state != CB_STATE_CLOSED);
+        return FALSE;
     }
     unreachable();                                  
 }
 
    
+
+
+
+
+
+
+
+gboolean
+cb_should_reject_request(void)
+{
+    gboolean reject;
+
+    g_mutex_lock(&g_cb.mutex);
+    switch (g_cb.state) {
+    case CB_STATE_CLOSED:
+        reject = FALSE;
+        break;
+    case CB_STATE_OPEN:
+        reject = g_get_monotonic_time() < g_cb.open_until_us;
+        break;
+    case CB_STATE_HALF_OPEN:
+        reject = g_cb.probe_in_flight;
+        break;
+    default:
+        unreachable();
+    }
+    g_mutex_unlock(&g_cb.mutex);
+    return reject;
+}
+
+
                                           
   
                                                   

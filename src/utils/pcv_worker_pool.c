@@ -11,7 +11,8 @@
                                                       
   
                                                                            
-                                                      
+
+
   
              
                                                          
@@ -20,16 +21,18 @@
                       
   
                 
-                                                   
+
    
 
 #include "pcv_worker_pool.h"
 #include "pcv_config.h"
 #include "pcv_log.h"
+#include "api/drain.h"
 
                                                                  
 
 static GThreadPool *g_pool = NULL;
+static GMutex g_pool_mutex;
 
    
              
@@ -76,7 +79,9 @@ _pool_worker(gpointer data, gpointer user_data)
 void
 pcv_worker_pool_init(void)
 {
+    g_mutex_lock(&g_pool_mutex);
     if (g_pool) {                                      
+        g_mutex_unlock(&g_pool_mutex);
         PCV_LOG_WARN("worker_pool", "Already initialized — skipping");
         return;
     }
@@ -91,9 +96,11 @@ pcv_worker_pool_init(void)
     if (error) {
         PCV_LOG_ERROR("worker_pool", "Failed to create thread pool: %s", error->message);
         g_error_free(error);
+        g_mutex_unlock(&g_pool_mutex);
         return;
     }
 
+    g_mutex_unlock(&g_pool_mutex);
     PCV_LOG_INFO("worker_pool", "Worker thread pool initialized (max_threads=%d)", max_threads);
 }
 
@@ -101,12 +108,15 @@ pcv_worker_pool_init(void)
 void
 pcv_worker_pool_shutdown(void)
 {
-    if (!g_pool) return;                        
+    g_mutex_lock(&g_pool_mutex);
+    GThreadPool *pool = g_pool;
+    g_pool = NULL;
+    g_mutex_unlock(&g_pool_mutex);
+    if (!pool) return;
 
                                           
                                        
-    g_thread_pool_free(g_pool, FALSE, TRUE);
-    g_pool = NULL;                                    
+    g_thread_pool_free(pool, FALSE, TRUE);
 
     PCV_LOG_INFO("worker_pool", "Worker thread pool shutdown complete");
 }
@@ -117,8 +127,11 @@ pcv_worker_pool_push(GTask *task, GTaskThreadFunc func)
 {
     g_return_if_fail(task != NULL);
     g_return_if_fail(func != NULL);
+    pcv_drain_track_task(task);
+    g_mutex_lock(&g_pool_mutex);
 
     if (!g_pool) {
+        g_mutex_unlock(&g_pool_mutex);
                                                             
         PCV_LOG_WARN("worker_pool", "Pool not initialized — falling back to g_task_run_in_thread");
         g_task_run_in_thread(task, func);
@@ -131,13 +144,13 @@ pcv_worker_pool_push(GTask *task, GTaskThreadFunc func)
 
     GError *error = NULL;
     g_thread_pool_push(g_pool, e, &error);
+    g_mutex_unlock(&g_pool_mutex);
     if (error) {
         PCV_LOG_ERROR("worker_pool", "Failed to push task: %s", error->message);
         g_error_free(error);
-                                                                
-        g_object_unref(e->task);                                    
-        g_free(e);                                   
-        g_task_run_in_thread(task, func);
+
+
+
     }
 }
 
@@ -145,6 +158,8 @@ pcv_worker_pool_push(GTask *task, GTaskThreadFunc func)
 guint
 pcv_worker_pool_get_pending(void)
 {
-    if (!g_pool) return 0;                     
-    return g_thread_pool_unprocessed(g_pool);
+    g_mutex_lock(&g_pool_mutex);
+    guint pending = g_pool ? g_thread_pool_unprocessed(g_pool) : 0;
+    g_mutex_unlock(&g_pool_mutex);
+    return pending;
 }

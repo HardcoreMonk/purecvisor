@@ -138,6 +138,8 @@ void pcv_backup_scheduler_init(void);
    
 void pcv_backup_scheduler_shutdown(void);
 
+void pcv_backup_scheduler_quiesce(void);
+
                                                             
 
    

@@ -64,6 +64,7 @@
                                                                               
                                              
    
+#include "api/drain.h"
 #include <glib.h>
 #include <gio/gio.h>
 #include <libvirt/libvirt.h>
@@ -389,7 +390,7 @@ void handle_vm_set_memory_request(JsonObject *params, const gchar *rpc_id, UdsSe
         ? json_object_get_string_member(params, "apply") : NULL;
     ctx->config_only = (_apply && g_strcmp0(_apply, "config") == 0);
 
-    GTask *task = g_task_new(NULL, NULL, hotplug_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, hotplug_callback, ctx);
     g_task_set_task_data(task, ctx, free_hotplug_ctx);
     g_task_run_in_thread(task, vm_set_memory_worker);
     g_object_unref(task);
@@ -456,7 +457,7 @@ void handle_vm_set_vcpu_request(JsonObject *params, const gchar *rpc_id, UdsServ
         ? json_object_get_string_member(params, "apply") : NULL;
     ctx->config_only = (_apply && g_strcmp0(_apply, "config") == 0);
 
-    GTask *task = g_task_new(NULL, NULL, hotplug_callback, ctx);
+    GTask *task = pcv_drain_task_new(NULL, NULL, hotplug_callback, ctx);
     g_task_set_task_data(task, ctx, free_hotplug_ctx);
     g_task_run_in_thread(task, vm_set_vcpu_worker);
     g_object_unref(task);
@@ -2302,7 +2303,7 @@ void handle_vm_disk_live_resize_request(JsonObject *params, const gchar *rpc_id,
     ctx->target = g_strdup(target);
     ctx->new_size_gb = new_size_gb;
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, free_disk_live_resize_ctx);
     g_task_run_in_thread(task, vm_disk_live_resize_worker);
     g_object_unref(task);

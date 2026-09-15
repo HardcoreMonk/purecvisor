@@ -1,0 +1,17 @@
+ui/index.html ui/index.html replace
+ui/style.css ui/style.css replace
+ui/app.js ui/app.js replace
+ui/app.bundle.js ui/app.bundle.js replace
+ui/i18n.js ui/i18n.js replace
+ui/sw.js ui/sw.js replace
+ui/manifest.json ui/manifest.json replace
+ui/docs.html ui/docs.html replace
+ui/guide.html ui/guide.html replace
+ui/guide-content.md ui/guide-content.md replace
+ui/icon-192.png ui/icon-192.png replace
+ui/icon-512.png ui/icon-512.png replace
+ui/offline.html ui/offline.html replace
+ui/maintenance.html ui/maintenance.html replace
+ui/maintenance-status.json ui/maintenance-status.json replace
+ui/maintenance.html fallback/maintenance.html replace
+ui/maintenance-status.json fallback/maintenance-status.json seed

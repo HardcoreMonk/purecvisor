@@ -1,6 +1,6 @@
 # PureCvisor Single Edge 데이터베이스 아키텍처 설명서
 
-> **기준 시점:** 2026-08-31
+> **기준 시점:** 2026-09-08 공개 소스 후보
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -121,15 +121,15 @@ BPF manager에서 확인한다.
 
 ### 연결 수명과 종료 순서
 
-`main.c`는 RBAC, Web Push, Local VPC, VM 상태, Job 상태 registry를 명시적으로 종료한다.
+`main.c`는 RBAC, Web Push, Local VPC, VM 상태, Job 상태 registry와 Audit을 명시적으로 종료한다.
 Web Push는 새 발화를 막은 뒤 진행 중 전송을 취소하고 최대 30초만 기다린다. Local VPC는
-요청 drain 뒤 libvirt·spawn 종료 전에 닫는다.
+요청 drain 뒤 libvirt·spawn 종료 전에 닫는다. Audit은 `pcv_audit_shutdown()`에서 writer
+종료를 요청하고 남은 queue를 처리한 worker의 종료를 기다린 뒤 DB를 닫는다.
 
 현재 구현에는 다음 process-lifetime 제약이 있다. 이는 목표 계약이 아니라 종료 배선이나
 신규 lifecycle 작업에서 확인해야 할 현행 상태다.
 
-- `pcv_audit_shutdown()`과 `pcv_security_store_close()` API는 존재하지만 `main.c` cleanup에
-  연결되어 있지 않다.
+- `pcv_security_store_close()` API는 존재하지만 `main.c` cleanup에 연결되어 있지 않다.
 - Security Group과 Cloud Jobs 전역 connection에는 명시적 public close 경로가 없다.
 - 정상 프로세스 종료 시 OS가 파일 descriptor를 회수하지만, 이 사실만으로 queue drain이나
   명시적 WAL checkpoint가 수행됐다고 간주하지 않는다.

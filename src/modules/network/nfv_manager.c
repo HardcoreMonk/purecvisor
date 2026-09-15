@@ -1,6 +1,6 @@
    
                       
-                                               
+
   
                            
                                                    
@@ -8,44 +8,44 @@
                                         
   
           
-                                             
-                                                  
+
                                                  
                                                     
                                                    
-                                              
-                                   
+
   
                 
-                                                
-                                                            
+
+
                                                     
   
                                                                        
             
                                              
+
+
+
+
+
+
+
+
                                                    
+
+
   
+
+
+
                                                        
-                                                      
-                                                    
                   
   
-                         
-                                             
-                                                      
-                                             
-  
           
-                                                       
-                                     
                                         
   
          
-                                                        
                                                          
                                                    
-                                                             
                                                                        
    
 #include "nfv_manager.h"
@@ -55,8 +55,8 @@
 
 #define NFV_LOG_DOM "nfv_manager"
 
-   
-                                         
+
+
 void pcv_nfv_init(void) { PCV_LOG_INFO(NFV_LOG_DOM, "NFV manager initialized"); }
 
                                                 
@@ -64,24 +64,24 @@ void pcv_nfv_init(void) { PCV_LOG_INFO(NFV_LOG_DOM, "NFV manager initialized"); 
 void pcv_nfv_shutdown(void) {}
 
                                                                  
+
+
+
                           
-                                        
-                                             
                                                                     
 
    
-                                    
+
                              
-                                        
-                        
-                                                     
+
                     
   
-                                              
-                                 
+
+
+
+
+
   
-                                                            
-                       
                                                        
                                                   
                                                                          

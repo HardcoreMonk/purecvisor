@@ -85,7 +85,9 @@
                                                      
    
 
+#include "api/drain.h"
 #include "backup_scheduler.h"
+#include "backup_send_estimate.h"
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_config.h"
 #include "../../utils/pcv_log.h"
@@ -979,7 +981,7 @@ _backup_worker(GTask *task, gpointer src, gpointer data, GCancellable *c)
    
 static gboolean _backup_check_cb(gpointer user_data __attribute__((unused)))
 {
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_run_in_thread(task, _backup_worker);
     g_object_unref(task);
     return G_SOURCE_CONTINUE;
@@ -1022,12 +1024,18 @@ void pcv_backup_scheduler_init(void)
                               
                                                          
    
-void pcv_backup_scheduler_shutdown(void)
+
+void pcv_backup_scheduler_quiesce(void)
 {
     if (g_timer_id > 0) {
         g_source_remove(g_timer_id);
         g_timer_id = 0;
     }
+}
+
+void pcv_backup_scheduler_shutdown(void)
+{
+    pcv_backup_scheduler_quiesce();
 
     g_mutex_lock(&g_policy_mutex);
     if (g_policies) {
@@ -1656,8 +1664,8 @@ JsonObject *pcv_backup_incremental(const gchar *vm_name, GError **error)
   
           
                                      
-                                      
-                            
+
+
   
                                                       
    
@@ -1693,14 +1701,19 @@ JsonObject *pcv_backup_verify(const gchar *vm_name,
     g_free(stderr_buf);
     if (local_err) { g_error_free(local_err); local_err = nullptr; }
 
-                                           
+
+
     const gchar *send_argv[] = {
-        "zfs", "send", "-n", snap_full, NULL
+        "zfs", "send", "-n", "-P", snap_full, NULL
     };
+    gchar *stdout_buf = nullptr;
     stderr_buf = nullptr;
-    ok = pcv_spawn_sync(send_argv, NULL, &stderr_buf, &local_err);
+    ok = pcv_spawn_sync(send_argv, &stdout_buf, &stderr_buf, &local_err);
 
     const gchar *integrity = ok ? "ok" : "failed";
+    gint64 size_bytes = pcv_backup_parse_send_estimate(stdout_buf);
+    if (size_bytes == 0)
+        size_bytes = pcv_backup_parse_send_estimate(stderr_buf);
 
     if (!ok) {
         PCV_LOG_WARN(BACKUP_LOG_DOM,
@@ -1709,20 +1722,26 @@ JsonObject *pcv_backup_verify(const gchar *vm_name,
                      local_err ? local_err->message
                                : (stderr_buf ? stderr_buf : "unknown"));
     }
+    g_free(stdout_buf);
     g_free(stderr_buf);
     if (local_err) { g_error_free(local_err); local_err = nullptr; }
 
+
+
                                              
     const gchar *size_argv[] = {
-        "zfs", "get", "-H", "-o", "value", "-p", "used", snap_full, NULL
+        "zfs", "get", "-H", "-o", "value", "-p", "referenced", snap_full, NULL
     };
-    gchar *stdout_buf = nullptr;
+    stdout_buf = nullptr;
     stderr_buf = nullptr;
-    gint64 size_bytes = 0;
 
-    if (pcv_spawn_sync(size_argv, &stdout_buf, &stderr_buf, &local_err)) {
+    if (ok && size_bytes == 0 &&
+        pcv_spawn_sync(size_argv, &stdout_buf, &stderr_buf, &local_err)) {
         if (stdout_buf) {
-            size_bytes = g_ascii_strtoll(g_strstrip(stdout_buf), NULL, 10);
+            gchar *end = NULL;
+            gint64 fallback = g_ascii_strtoll(g_strstrip(stdout_buf), &end, 10);
+            if (end && *end == '\0' && fallback > 0)
+                size_bytes = fallback;
         }
     }
     g_free(stdout_buf);

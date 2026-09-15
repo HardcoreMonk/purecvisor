@@ -69,6 +69,7 @@
                                                                  
                                                                       
    
+#include "api/drain.h"
 #include "ws_server.h"
 #include "rest_client_identity.h"
 #include "utils/pcv_log.h"
@@ -1227,7 +1228,7 @@ pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
                                                              
                                                   
                                                
-                                                           
+
                                                        
                                                           
 typedef struct {
@@ -1268,5 +1269,5 @@ pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
     d->error_msg = g_strdup(error_msg);                                           
 
                                                                 
-    g_main_context_invoke(NULL, _ws_broadcast_job_complete_mt_cb, d);
+    pcv_drain_invoke(NULL, _ws_broadcast_job_complete_mt_cb, d);
 }

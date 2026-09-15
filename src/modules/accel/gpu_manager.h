@@ -8,9 +8,9 @@
                                                  
   
           
-                                                                 
-                                    
-                                                          
+
+
+
   
           
                                                     
@@ -24,17 +24,17 @@
             
                                     
                                                               
-                                        
+
   
                   
                                               
                                                             
-                                                                  
+
   
                        
-                                                       
-                                    
-                                                    
+
+
+
   
                                               
                                                              
@@ -43,12 +43,9 @@
                                                             
   
                    
-                                                
-                                                             
-                                                  
-                                                                
-                                                               
-                                                            
+
+
+
   
            
                                                        
@@ -70,8 +67,9 @@ void        pcv_gpu_shutdown(void);
 
                                                    
                                                                 
-                                                                            
-                                                                                     
+
+
+
 JsonArray  *pcv_gpu_list(void);
 
                                                         
@@ -100,13 +98,16 @@ gboolean    pcv_gpu_vgpu_delete(const gchar *uuid, GError **error);
                                             
 JsonArray  *pcv_gpu_vgpu_list(void);
 
-                                                            
-                                                                            
-                                                              
+
+
+
+
+
 gboolean    pcv_gpu_attach(const gchar *vm_name, const gchar *pci_addr, GError **error);
 
-                                                               
-                                                                    
+
+
+
 gboolean    pcv_gpu_detach(const gchar *vm_name, const gchar *pci_addr, GError **error);
 
 G_END_DECLS

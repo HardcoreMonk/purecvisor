@@ -14,8 +14,9 @@
   
                                                                      
                                                                         
-                                                                           
-                                                         
+
+
+
                                                                       
                                                                          
   
@@ -37,26 +38,20 @@
                                                       
                                
   
-              
+
                                                           
-                                                  
-                                               
+
+
+
   
           
                                                                      
                                                                           
   
-                                    
-                                                               
-                                                   
-  
-                             
-                                               
+
+
+
                                                          
-                                                 
-                                                    
-  
-                                            
   
                                    
                                                                        
@@ -210,17 +205,17 @@ _on_uring_ready(gint fd, GIOCondition cond __attribute__((unused)), gpointer dat
                        
                                  
                                      
-                                            
+
   
                                                          
-                                                               
+
   
                                      
                                           
                                                     
                                                            
-                                                      
-                                                  
+
+
    
 guint64
 _register_pending(PcvUringCtx *ctx, PcvUringCallback cb, gpointer data, gint buf_idx)
@@ -282,7 +277,9 @@ _register_pending(PcvUringCtx *ctx, PcvUringCallback cb, gpointer data, gint buf
                                           
   
                            
-                                               
+
+
+
   
                                                          
                                                
@@ -300,7 +297,7 @@ _submit_ring(PcvUringCtx *ctx)
                                                        
                                                                
                                                           
-                                        
+
         PCV_LOG_WARN(URING_LOG_DOM, "io_uring_submit returned EAGAIN, retrying after 1ms yield");
         g_usleep(1000);                                                    
         ret = io_uring_submit(&ctx->ring);
@@ -416,12 +413,15 @@ pcv_uring_new(guint queue_depth, GError **error)
 }
 
    
-                                          
+
   
-                                            
+
+
   
                                                                     
                                             
+
+
   
                                                 
    
@@ -493,10 +493,12 @@ pcv_uring_is_available(void)
                              
                                               
                              
-                                            
+
                                                     
                                  
                                                        
+
+
    
 gboolean
 pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
@@ -540,7 +542,8 @@ pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
 
     gboolean ok = _submit_ring(ctx);
     if (!ok) {
-                                                           
+
+
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
     }
     g_mutex_unlock(&ctx->submit_mu);
@@ -558,7 +561,7 @@ pcv_uring_submit_read(PcvUringCtx *ctx, int fd, void *buf, gsize len,
                             
                                             
                          
-                                    
+
                                                    
                                  
                                
@@ -596,6 +599,7 @@ pcv_uring_submit_write(PcvUringCtx *ctx, int fd, const void *buf, gsize len,
     gboolean ok = _submit_ring(ctx);
     if (!ok) {
                                                            
+
         g_hash_table_remove(ctx->pending, GUINT_TO_POINTER((guint)id));
     }
     g_mutex_unlock(&ctx->submit_mu);

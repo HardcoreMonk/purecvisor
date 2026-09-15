@@ -43,10 +43,11 @@ test('buildPower running VM exposes stop+suspend; stopped VM exposes start', asy
       return { web: labels(cards[0]), db: labels(cards[1]), cache: labels(cards[2]) };
     }, DATA);
                               
-    assert.equal(r.web.length, 2);
+    assert.equal(r.web.length, 3);
                       
-    assert.equal(r.db.length, 1);
+    assert.equal(r.db.length, 2);
                              
-    assert.equal(r.cache.length, 2);
+    assert.equal(r.cache.length, 3);
+    assert.ok([r.web, r.db, r.cache].every(labels => labels.at(-1) === 'VM 삭제'));
   });
 });

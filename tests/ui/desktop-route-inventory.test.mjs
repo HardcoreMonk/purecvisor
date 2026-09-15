@@ -236,7 +236,11 @@ const LOAD_ERROR_CASES = [
     renderer: 'renderNetworks',
     path: '/api/v1/networks',
     success: { data: [] },
-    successSelector: '#cb .empty-state'
+    successSelector: '#cb .empty-state',
+    extraRoutes: {
+      '/api/v1/networks/host-baseline': { status: 200, body: { data: { interfaces: [], routes: [] } } },
+      '/api/v1/vpcs/status': { status: 200, body: { data: {} } }
+    }
   },
   {
     name: 'storage',

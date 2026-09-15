@@ -25,6 +25,7 @@ cd "$(dirname "$0")/.."
 make ui-bundle
 
 OUT="ui/app.bundle.js"
+MAP="ui/app.bundle.js.map"
 SW="ui/sw.js"
 
                                                   
@@ -35,10 +36,11 @@ if [ "${PCV_NO_DEPLOY:-0}" = "1" ]; then
 elif [ -d "$INSTALL_DIR" ]; then
   if sudo -n true 2>/dev/null; then
     sudo cp "$OUT" "$INSTALL_DIR/app.bundle.js"
+    [ -f "$MAP" ] && sudo cp "$MAP" "$INSTALL_DIR/app.bundle.js.map"
     [ -f "$SW" ] && sudo cp "$SW" "$INSTALL_DIR/sw.js"
     echo "[bundle] installed → $INSTALL_DIR"
   else
-    echo "[bundle] WARN: sudo password 필요 — 수동 배포: sudo cp $OUT $SW $INSTALL_DIR/"
+    echo "[bundle] WARN: sudo password 필요 — 수동 배포: sudo cp $OUT $MAP $SW $INSTALL_DIR/"
   fi
 else
   echo "[bundle] INFO: $INSTALL_DIR 미존재 — 데몬 미설치 환경, 배포 생략"

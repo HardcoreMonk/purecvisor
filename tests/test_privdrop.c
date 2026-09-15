@@ -228,14 +228,23 @@ privdrop1_parse_cap_mask(const gchar *status, const gchar *field, guint64 *out)
 }
 
 static void
-privdrop1_assert_status_masks(const gchar *status, guint64 expected)
+privdrop1_assert_status_masks_split(const gchar *status,
+                                    guint64 expected,
+                                    guint64 expected_inherited)
 {
     static const gchar *fields[] = { "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb" };
     for (guint i = 0; i < G_N_ELEMENTS(fields); i++) {
         guint64 actual = 0;
         g_assert_true(privdrop1_parse_cap_mask(status, fields[i], &actual));
-        g_assert_cmpuint(actual, ==, expected);
+        guint64 field_expected = (i == 0 || i == 4) ? expected_inherited : expected;
+        g_assert_cmpuint(actual, ==, field_expected);
     }
+}
+
+static void
+privdrop1_assert_status_masks(const gchar *status, guint64 expected)
+{
+    privdrop1_assert_status_masks_split(status, expected, expected);
 }
 
 typedef struct {
@@ -309,12 +318,18 @@ privdrop1_spawn_thread(gpointer user_data)
 {
     Privdrop1SpawnThread *ctx = user_data;
     guint64 expected = pcv_privdrop_child_profile_mask(ctx->profile);
+    guint64 expected_inherited = expected;
+    if (ctx->profile == PCV_CHILD_CAP_RUNTIME)
+        expected_inherited &= ~PRIVDROP1_CAP_BIT(CAP_MAC_ADMIN);
     for (guint i = 0; i < 8; i++) {
         gchar *status = privdrop1_spawn_status(ctx->profile);
         static const gchar *fields[] = { "CapInh", "CapPrm", "CapEff", "CapBnd", "CapAmb" };
         for (guint f = 0; f < G_N_ELEMENTS(fields); f++) {
             guint64 actual = 0;
-            if (!privdrop1_parse_cap_mask(status, fields[f], &actual) || actual != expected)
+            guint64 field_expected =
+                (f == 0 || f == 4) ? expected_inherited : expected;
+            if (!privdrop1_parse_cap_mask(status, fields[f], &actual) ||
+                actual != field_expected)
                 g_atomic_int_set(&ctx->failed, 1);
         }
         g_free(status);
@@ -354,7 +369,7 @@ privdrop1_parent_and_children_body(void)
     g_assert_cmpuint(bnd, ==, ceiling);
 
     const gint permanently_dropped[] = {
-        CAP_SYS_MODULE, CAP_SYS_RAWIO, CAP_SYS_TIME, CAP_MAC_OVERRIDE, CAP_MAC_ADMIN
+        CAP_SYS_MODULE, CAP_SYS_RAWIO, CAP_SYS_TIME, CAP_MAC_OVERRIDE
     };
     for (guint i = 0; i < G_N_ELEMENTS(permanently_dropped); i++)
         g_assert_cmpuint(ceiling & PRIVDROP1_CAP_BIT(permanently_dropped[i]), ==, 0);
@@ -362,13 +377,20 @@ privdrop1_parent_and_children_body(void)
     for (gint p = PCV_CHILD_CAP_BASE; p < PCV_CHILD_CAP_N_PROFILES; p++) {
         PcvChildCapabilityProfile profile = (PcvChildCapabilityProfile)p;
         guint64 expected = pcv_privdrop_child_profile_mask(profile);
+        guint64 expected_inherited = expected;
+        if (profile == PCV_CHILD_CAP_RUNTIME)
+            expected_inherited &= ~PRIVDROP1_CAP_BIT(CAP_MAC_ADMIN);
+        else
+            g_assert_cmpuint(expected & PRIVDROP1_CAP_BIT(CAP_MAC_ADMIN), ==, 0);
         Privdrop1ChildState state = privdrop1_capture_child_setup(profile);
         g_assert_true(state.ok);
-        g_assert_cmpuint(state.inheritable, ==, expected);
+        g_assert_cmpuint(state.inheritable, ==, expected_inherited);
         g_assert_cmpuint(state.permitted, ==, expected);
         g_assert_cmpuint(state.effective, ==, expected);
         g_assert_cmpuint(state.bounding, ==, expected);
-        g_assert_cmpuint(state.ambient, ==, expected);
+        g_assert_cmpuint(state.ambient, ==, expected_inherited);
+        if (profile == PCV_CHILD_CAP_RUNTIME)
+            g_assert_cmpuint(expected & PRIVDROP1_CAP_BIT(CAP_MAC_ADMIN), !=, 0);
         if (profile == PCV_CHILD_CAP_RUNTIME) {
             g_assert_cmpint(state.securebits & (SECBIT_NOROOT | SECBIT_NOROOT_LOCKED), ==, 0);
         } else {
@@ -377,7 +399,7 @@ privdrop1_parent_and_children_body(void)
         }
 
         gchar *status = privdrop1_spawn_status(profile);
-        privdrop1_assert_status_masks(status, expected);
+        privdrop1_assert_status_masks_split(status, expected, expected_inherited);
         g_free(status);
     }
 

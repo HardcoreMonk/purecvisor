@@ -200,8 +200,8 @@ async function approve(actionId) {
   
                                                        
                                              
-                                                    
-                                                        
+
+
   
                
                                                      
@@ -209,6 +209,7 @@ async function approve(actionId) {
    
 async function reject(actionId) {
   var reason = prompt('거부 사유 (선택):', '');
+  if (reason === null) return;
   try {
     await _rpc('ai.healing.reject', { action_id: actionId, reason: reason || 'manual' });
     alert('거부됨 (action_id=' + actionId + ')');

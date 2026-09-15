@@ -147,8 +147,13 @@ require_literal "운영 메모" "ui/modules/monitor.js" "host screen must expose
 require_literal "현재 조치" "ui/modules/monitor.js" "host screen must expose the new action guidance card"
 require_literal "renderOpsTriage" "ui/modules/monitor.js" "monitor module must expose the operations triage renderer"
 require_literal "운영 이벤트 센터" "ui/modules/monitor.js" "operations triage screen must expose the event center heading"
-require_literal "이벤트 triage" "ui/modules/monitor.js" "operations triage screen must include a triage event lane"
-require_literal "명령 팔레트" "ui/modules/monitor.js" "operations triage screen must include the command palette lane"
+ops_triage_markup="$(sed -n '/^async function renderOpsTriage(b) {/,/^window.renderOpsTriage = renderOpsTriage;/p' ui/modules/monitor.js)"
+require_literal_in_text "cardHead('실제 이벤트 조회', '서버 기록')" "$ops_triage_markup" "operations triage screen must render the actual server event card"
+require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-alerts'); } }, '경보 조회')" "$ops_triage_markup" "operations triage alert button must navigate to mon-alerts"
+require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); } }, '서버 감사 로그 조회')" "$ops_triage_markup" "operations triage audit button must navigate to mon-audit"
+ops_triage_action="$(sed -n "/el('button', { class: 'ops-triage-action primary'/,+1p" <<< "$ops_triage_markup")"
+require_literal_in_text "el('button', { class: 'ops-triage-action primary', type: 'button', onclick: 'openCmdPalette()' }," "$ops_triage_action" "operations triage action button must open the command palette"
+require_literal_in_text "'ci-icon'), '조치 선택'" "$ops_triage_action" "operations triage action button must expose the current action label"
 require_literal "'ops-triage': () => renderOpsTriage(b)" "ui/modules/nav.js" "navigation must route the operations triage page"
 require_literal "{ id: 'ops-triage', label: _L('이벤트 센터', 'Event Center')" "ui/modules/nav.js" "operations triage page must be reachable from global search"
                                                                                           
@@ -181,11 +186,19 @@ reject_literal "/demo/ovn-ovs/health" "src/api/rest_server.c" "REST server must 
 reject_literal "/demo/ovn-ovs/health" "ui/modules/help.js" "REST help must not catalog removed public OVN demo health"
 reject_literal "공개 OVN 데모 헬스" "ui/modules/network.js" "OVN screen must not show removed public demo health"
 reject_literal "OVN 데모 서비스 구성" "ui/modules/network.js" "OVN screen must not show removed demo service composition"
-reject_literal "demo.purecvisor.example.com" "ui/modules/network.js" "OVN screen must not expose the retired public demo domain"
+reject_literal "demo.purecvisor.site" "ui/modules/network.js" "OVN screen must not expose the retired public demo domain"
 reject_literal "/ovn-visual/" "ui/modules/network.js" "OVN screen must not expose the retired visual service path"
 reject_literal "pcv-demo" "ui/modules/monitor.js" "operations UI must not use retired demo assets as fallback data"
 reject_literal "ovn-demo" "ui/modules/monitor.js" "operations UI must not use retired OVN demo assets"
-reject_literal 'app.bundle.js.map' "scripts/deploy.sh" "public deploy must not ship a source map"
+if [[ -e ui/app.bundle.js.map || -L ui/app.bundle.js.map ]]; then
+  fail "public UI must not ship the runtime source map file"
+fi
+if [[ ! -f packaging/ui-assets.manifest ]]; then
+  fail "UI asset manifest must exist"
+fi
+reject_literal '.map' "packaging/ui-assets.manifest" "public UI manifest must not deploy source maps"
+reject_literal 'sourceMappingURL' "ui/app.bundle.js" "public runtime bundle must not reference a source map"
+require_literal 'load_ui_asset_manifest' "scripts/deploy.sh" "deploy must consume the canonical UI asset manifest"
 require_literal 'sudo rm -f "$UI_DIR/bundle.js"' "scripts/deploy.sh" "local deploy must remove the retired legacy UI bundle"
 require_literal 'sudo rm -f /usr/local/share/purecvisor/ui/bundle.js' "scripts/deploy.sh" "remote deploy must remove the retired legacy UI bundle"
 if [[ -e docs/purecvisor_ovn_demo_architecture.svg ]]; then

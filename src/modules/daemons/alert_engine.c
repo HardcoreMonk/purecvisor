@@ -99,6 +99,7 @@
                                      
                                                      
    
+#include "api/drain.h"
 #include "alert_engine.h"
 #include "alert_silence.h"
 #include "alert_dlq.h"
@@ -1409,7 +1410,7 @@ _webhook_post_async(const gchar *url, const gchar *payload,
     ctx->chat_id = g_strdup(config->telegram_chat_id);
     ctx->secret = g_strdup(config->webhook_secret);
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, ctx, _webhook_async_ctx_free);
     g_task_run_in_thread(task, _webhook_async_worker);
     g_object_unref(task);

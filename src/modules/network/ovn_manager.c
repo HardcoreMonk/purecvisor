@@ -30,7 +30,8 @@
                                                   
                                          
         
-                                                        
+
+
                                                           
                                             
         
@@ -40,7 +41,6 @@
             
                                              
                                      
-                                                          
   
                                                     
                                                         
@@ -50,6 +50,7 @@
                                                       
                                                 
                                    
+
                                                    
                                       
                                                       
@@ -57,6 +58,7 @@
                                                       
                                    
                                    
+
                                                              
                                                  
                                                              
@@ -79,7 +81,7 @@
   
              
                                
-                                                                     
+
                                                                 
   
              
@@ -88,11 +90,9 @@
                                          
                      
   
-                 
-                                   
-                                                         
-                 
-                                             
+
+
+
   
           
                                                                    
@@ -190,8 +190,8 @@ _run_argv(const gchar * const *argv, gchar **out, GError **error)
     return ok;
 }
 
-                                                         
-                                                          
+
+
 
 static gboolean
 _valid_ovn_uuid(const gchar *uuid)
@@ -342,7 +342,6 @@ gboolean pcv_ovn_is_available(void) { return g_ovn_available; }
    
                                              
                                
-                                            
                     
   
                                              
@@ -350,7 +349,8 @@ gboolean pcv_ovn_is_available(void) { return g_ovn_available; }
   
                                                         
                                                                  
-                                             
+
+
   
                     
    
@@ -379,18 +379,18 @@ pcv_ovn_switch_create(const gchar *name, GError **error)
                     
   
                                                 
+
   
-                                         
+
+
+
+
                                             
                                                          
                                                        
   
                     
    
-
-
-
-
 gboolean
 pcv_ovn_switch_delete(const gchar *name, GError **error)
 {
@@ -402,7 +402,7 @@ pcv_ovn_switch_delete(const gchar *name, GError **error)
     GPtrArray *dhcp_uuids = NULL;
     if (!_find_switch_dhcp_uuids(name, &dhcp_uuids, error))
         return FALSE;
-                                                  
+
 
     GPtrArray *args = g_ptr_array_new_with_free_func(g_free);
     g_ptr_array_add(args, g_strdup("ovn-nbctl"));
@@ -1053,12 +1053,12 @@ pcv_ovn_nat_delete(const gchar *router, const gchar *type,
   
                                                   
   
-                                                 
+
+
                                     
   
                                                                       
    
-
 JsonArray *
 pcv_ovn_nat_list_parse(const gchar *output)
 {
@@ -1245,7 +1245,7 @@ pcv_ovn_tenant_delete(const gchar *tenant, GError **error)
     return ok;
 }
 
-                                                                     
+
 
    
                          
@@ -1256,17 +1256,17 @@ pcv_ovn_tenant_delete(const gchar *tenant, GError **error)
                                                             
                     
   
-                            
+
   
          
                                                                          
                                                
   
                                                     
-                                                       
+
   
-                                                  
-                                                      
+
+
    
 gboolean
 pcv_ovn_vm_port_setup(const gchar *sw, const gchar *vm_name,
@@ -1307,11 +1307,11 @@ pcv_ovn_vm_port_setup(const gchar *sw, const gchar *vm_name,
                       
                     
   
-                                                     
+
+
   
-                                        
-                           
-                                    
+
+
    
 gboolean
 pcv_ovn_vm_port_cleanup(const gchar *vm_name, GError **error)

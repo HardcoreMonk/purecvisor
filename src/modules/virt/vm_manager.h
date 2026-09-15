@@ -95,6 +95,31 @@ PureCVisorVmManager *purecvisor_vm_manager_new(GVirConnection *conn);
                                                   
 
    
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean purecvisor_vm_provision_file_disk(const gchar *format,
+                                           const gchar *disk_path,
+                                           gint size_gb,
+                                           const gchar *base_image,
+                                           GError **error);
+
+
                                          
   
                                                     
@@ -159,7 +184,7 @@ void purecvisor_vm_manager_create_vm_async(PureCVisorVmManager *self,
                                            const gchar *image_dir,                          
                                            const gchar *nic_type,                                       
                                            const gchar *pci_addr,                          
-                                           const gchar *base_image,                              
+                                           const gchar *base_image,
                                            const gchar *owner,                                  
                                            const gchar *network_mode,                                                             
                                            const gchar *tenant,                                               
@@ -488,6 +513,47 @@ void purecvisor_vm_manager_emit_metrics_updated(PureCVisorVmManager *self,
                                                            
                                                                    
 #define PCV_OVERLAY_METADATA_URI "urn:purecvisor:overlay:1"
+
+
+#define PCV_DPDK_METADATA_URI "urn:purecvisor:dpdk:1"
+
+typedef enum {
+    PCV_DPDK_META_OK,
+    PCV_DPDK_META_ABSENT,
+    PCV_DPDK_META_INVALID
+} PcvDpdkMetaResult;
+
+
+
+typedef enum {
+    PCV_DPDK_VHOST_SOURCE_NONE,
+    PCV_DPDK_VHOST_SOURCE_CANONICAL,
+    PCV_DPDK_VHOST_SOURCE_LEGACY,
+    PCV_DPDK_VHOST_SOURCE_INVALID
+} PcvDpdkVhostSourceResult;
+
+typedef enum {
+    PCV_DPDK_VHOST_START_CANONICAL,
+    PCV_DPDK_VHOST_START_MIGRATE_LEGACY,
+    PCV_DPDK_VHOST_START_DEFER_LEGACY,
+    PCV_DPDK_VHOST_START_INVALID
+} PcvDpdkVhostStartAction;
+
+
+
+gchar *_dpdk_metadata_xml(const gchar *nic_type, const gchar *bridge_name);
+gboolean _dpdk_metadata_parse(const gchar *metadata_xml, gchar **bridge_out);
+
+
+PcvDpdkMetaResult pcv_vm_dpdk_metadata_read(virDomainPtr dom, gchar **bridge_out);
+
+PcvDpdkVhostSourceResult pcv_vm_dpdk_vhost_source_classify(
+    const gchar *domain_xml, const gchar *vm_name);
+PcvDpdkVhostStartAction pcv_vm_dpdk_vhost_start_action(
+    gboolean active, PcvDpdkVhostSourceResult source);
+gchar *pcv_vm_dpdk_vhost_migrate_legacy_xml(const gchar *domain_xml,
+                                             const gchar *vm_name,
+                                             GError **error);
 
    
                            

@@ -32,14 +32,14 @@
                                                        
                                                   
                                                                      
-                                                            
-                        
+
+
   
                            
                                                                                 
                                                                          
-                                                 
-                                             
+
+
   
                                                     
                                                     
@@ -55,10 +55,9 @@ window.PCV = window.PCV || {};
    
                                                 
   
-                                                                
-                                                          
-                                                           
-                              
+
+
+
   
                
                                                      
@@ -67,6 +66,7 @@ window.PCV = window.PCV || {};
                                                 
    
 function showBulkActions() {
+  var deleteSubjects = PCV.vm.getCheckedVmSubjects();
   if (checkedVms.size === 0) { toast(_L('VM을 선택하세요', 'Select VMs first'), false); return; }
   var count = checkedVms.size;
   var names = Array.from(checkedVms).map(function(idx) { return vmList[idx] ? vmList[idx].name : '?'; }).join(', ');
@@ -81,7 +81,11 @@ function showBulkActions() {
         el('input', { 'aria-label': 'snap-' + Date.now(), id: 'bulk-snap-name', placeholder: 'snap-' + Date.now(), class: 'w-full mb-6' }),
         el('button', { class: 'btn w-full', onclick: 'bulkSnapshot()' }, t('snap.created'))
       ]),
-      HN.card('❚❚ ' + _L('일괄 일시정지', 'Suspend All'), el('button', { class: 'btn w-full', onclick: "bulkAction('suspend')" }, t('power.pause') + ' ' + count + ' VMs'))
+      HN.card('❚❚ ' + _L('일괄 일시정지', 'Suspend All'), el('button', { class: 'btn w-full', onclick: "bulkAction('suspend')" }, t('power.pause') + ' ' + count + ' VMs')),
+      HN.card(_L('일괄 삭제', 'Bulk delete'), el('button', { class: 'btn btn-r w-full',
+        style: 'min-height:40px', 'data-role': 'OPERATOR,ADMIN',
+        onClick: function() { closeModal(); PCV.vm.bulkDelete(deleteSubjects); } },
+        _L('선택한 VM 삭제', 'Delete selected VMs') + ' (' + count + ')'))
     ),
     el('div', { class: 'text-right mt-14' }, el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
@@ -155,9 +159,9 @@ async function bulkAction(action) {
                                          
    
 async function bulkSnapshot() {
-  closeModal();
   var snapName = document.getElementById('bulk-snap-name')?.value || 'snap-' + Date.now();
   var names = Array.from(checkedVms).map(function(idx) { return vmList[idx] ? vmList[idx].name : null; }).filter(Boolean);
+  closeModal();
   var el = PCV.uxlib.el;
   showModal([
     el('h2', null, _L('일괄 스냅샷', 'Bulk Snapshot')),
@@ -207,7 +211,10 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
   }
                  
   try {
-    var resp = await fetchGet('/api/v1/health/recent-errors?vm=' + encodeURIComponent(vmName) + '&limit=3');
+    var resp = await fetchGet(EP.HEALTH_RECENT_ERRORS(vmName, 3));
+    if (resp && resp.error) {
+      throw new Error(resp.error.message || _L('최근 오류 조회 실패', 'Unable to load recent errors'));
+    }
     var errs = (resp && (resp.data || resp.errors)) || [];
     var detailEl = document.getElementById('pwr-err-detail');
     if (!detailEl) return;
@@ -243,7 +250,7 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
                                                                                          
                                                                              
   
-                                                                
+
                                                        
                                                                                     
                                             
@@ -259,8 +266,13 @@ async function showVmFailureDetail(statusEl, progEl, vmName, actionLabel) {
                                                       
                                                                            
    
-async function vmPower(a) {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+async function vmPower(a, target) {
+
+
+  const v = target
+    ? vmList.find(item => item.name === target.name && (!target.uuid || item.uuid === target.uuid))
+    : vmList[selectedVmIndex];
+  if (!v) { toast(_L('VM 목록 동기화 필요', 'VM list out of sync'), false); return; }
   var actionLabels = {
     start: { icon: '▶', label: _L('시작', 'Start'), past: _L('시작됨', 'Started'), color: 'var(--green)' },
     stop: { icon: '■', label: _L('중지', 'Stop'), past: _L('중지됨', 'Stopped'), color: 'var(--red)' },
@@ -330,129 +342,138 @@ async function vmPower(a) {
 
                                                           
    
-                                                   
-  
-                                                         
-                                                   
-                                                                
-                                                                 
-                                                          
-                           
-  
-               
-                                                     
-                                                     
-                                                       
-                                                
-   
-async function vmDel() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
-  if (typeof destroyConfirm !== 'function') {
-                                 
-    if (!confirm(_L('VM 삭제: ', 'Delete VM: ') + v.name + '?')) return;
-    return doVmDel(v.name);
-  }
-  destroyConfirm({
-    title: t('vm.delete'),
-    name: v.name,
-    warning: t('vm.delete.confirm') + ' — ' +
-             _L('ZFS 볼륨과 디스크 이미지까지 영구 삭제됩니다. 이 작업은 되돌릴 수 없습니다.',
-                'ZFS volume and disk image will be permanently destroyed. This cannot be undone.'),
-    onConfirm: function() { doVmDel(v.name); }
-  });
-}
 
-                                                                
-                                      
-   
-                                                          
-  
-                                                          
-                                                                
-  
-                                                                               
-                                                                                    
-                                                     
                                                        
-                                                         
-                                               
-  
-               
-                                                       
-                                                      
-                                       
-                                                                 
-                                                   
+
    
-async function doVmDel(n) {
+var _vmDeleteInFlight = false;
+function vmDel(subject) {
+  var v = subject || vmList[selectedVmIndex];
+  if (v) _confirmVmDelete([{ name: v.name, uuid: v.uuid || '' }], false);
+}
+function bulkDelete(subjects) {
+  var targets = subjects || PCV.vm.getCheckedVmSubjects();
+  if (!targets.length) { toast(_L('VM을 선택하세요', 'Select VMs first'), false); return; }
+  _confirmVmDelete(targets.map(function(v) { return { name: v.name, uuid: v.uuid || '' }; }), true);
+}
+function _confirmVmDelete(subjects, bulk) {
+  if (!['ADMIN', 'OPERATOR'].includes(String(window.currentUser && window.currentUser.role).toUpperCase())) return;
+  if (_vmDeleteInFlight) { toast(_L('이전 삭제 요청을 확인하고 있습니다.', 'Previous delete requests are still being checked.'), false); return; }
   var el = PCV.uxlib.el;
-  showModal([
-    el('h2', { class: 'color-red' }, '⚠ Deleting VM'),
-    el('p', null, el('b', { class: 'color-accent' }, n)),
-    el('div', { class: 'prog-bar' }, el('div', { class: 'prog-fill', id: 'dv-p' })),
-    el('div', { class: 'prog-status', id: 'dv-s' }, el('span', { class: 'spinner' }), 'Sending delete request...')
-  ]);
-  const pf = document.getElementById('dv-p'), ps = document.getElementById('dv-s');
-  var deleteError = null;
-  try {
-    if (pf) pf.style.width = '30%';
-    const d = await fetchDelete(EP.VM_DETAIL(n)).catch(function(e) { return { error: { message: e && e.message || 'Network error' } }; });
-    if (d && d.error) {
-      deleteError = d.error.message || 'Failed';
-                                                
-      if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), '⚠ ' + deleteError + _L(' — 서버 상태 확인 중...', ' — polling server state...'));
-    } else {
-      if (ps) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), 'Waiting for zvol cleanup...');
-    }
-    if (pf) pf.style.width = '50%';
-    for (let i = 0; i < 10; i++) {
-      await new Promise(r => setTimeout(r, 2000));
-      if (pf) pf.style.width = Math.min(95, 55 + i * 4) + '%';
-      if (ps && !deleteError) PCV.uxlib.setMsg(ps, null, null, PCV.uxlib.el('span', { class: 'spinner' }), 'Cleaning up (' + (i + 1) + '/10)...');
-      try {
-        const vl = await fetchGet(EP.VM_LIST());
-        const vms = unwrapList(vl);
-        if (!vms.find(x => x.name === n)) {
-                                       
-          if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--green)'; }
-          if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('vm.deleted'));
-          toast(t('vm.deleted'));
-          addEvt(t('vm.deleted') + ': ' + n);
-          setTimeout(function() { closeModal(); loadAll(); }, 1500);
-          return;
-        }
-      } catch (e) { if(typeof _DEBUG !== 'undefined' && _DEBUG) console.warn('vl:', e.message); }
-    }
-                               
-    if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--yellow)'; }
-    if (deleteError) {
-      if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + deleteError);
-                                                                    
-                                                               
-                                                                 
+  var phrase = bulk ? _L('삭제 ', 'DELETE ') + subjects.length : subjects[0].name;
+  var title = bulk ? _L('VM 일괄 삭제', 'Bulk delete VMs') + ' (' + subjects.length + ')' : _L('VM 삭제', 'Delete VM');
+  var dlg, submitted = false;
+  var input = el('input', { id: 'vm-delete-confirm', class: 'login-input w-full', autocomplete: 'off',
+    'aria-label': _L('삭제 확인 문구', 'Delete confirmation phrase') });
+  var cancel = el('button', { class: 'btn', style: 'min-height:40px',
+    onClick: function() { PCV.modalCore.closeDialog(dlg); } }, _L('취소', 'Cancel'));
+  var go = el('button', { id: 'vm-delete-confirm-go', class: 'btn btn-r', disabled: true,
+    style: 'min-height:40px', onClick: function() {
+      if (submitted || input.value !== phrase) return;
+      submitted = true; go.disabled = true;
+      PCV.modalCore.closeDialog(dlg);
+      _deleteVms(subjects);
+    } }, bulk ? _L('선택한 VM 영구 삭제', 'Permanently delete selected VMs') : _L('VM 영구 삭제', 'Permanently delete VM'));
+  input.addEventListener('input', function() { go.disabled = input.value !== phrase || submitted; });
+  dlg = showModal([
+    el('h2', { class: 'color-red' }, title),
+    el('p', null, _L('실행 중인 VM도 강제 종료하며 연결된 디스크를 영구 삭제합니다. 되돌릴 수 없습니다.',
+      'Running VMs will be forcibly stopped and attached disks permanently deleted. This cannot be undone.')),
+    el('ul', { style: 'max-height:28vh;overflow:auto;overflow-wrap:anywhere' },
+      subjects.map(function(v) { return el('li', null, v.name); })),
+    el('p', null, _L('계속하려면 다음 문구를 정확히 입력하세요: ', 'To continue, type exactly: '), el('strong', null, phrase)),
+    input,
+    el('div', { class: 'flex flex-wrap gap-8 justify-end mt-14' }, cancel, go)
+  ], { ariaLabel: title });
+  cancel.focus();
+}
+
+
                                                        
-      toast('&#10060; ' + escapeHtml(deleteError), false);
-    } else {
-      if (ps) PCV.uxlib.setMsg(ps, null, null, '⚠ ' + _L('삭제가 오래 걸리고 있습니다', 'Delete taking longer than expected'));
-      toast(_L('삭제가 오래 걸리고 있습니다. 잠시 후 새로고침하세요.', 'Delete taking longer than expected — refresh shortly.'), false);
+
+
+async function _deleteVms(subjects) {
+  if (_vmDeleteInFlight) return;
+  _vmDeleteInFlight = true;
+  var el = PCV.uxlib.el, closed = false, dlg;
+  var rows = subjects.map(function(v) { return el('li', { style: 'padding:8px 0;overflow-wrap:anywhere' },
+    el('strong', null, v.name), el('div', { class: 'vm-delete-result', role: 'status' }, _L('대기', 'Waiting'))); });
+  var close = el('button', { class: 'btn', style: 'min-height:40px',
+    onClick: function() { PCV.modalCore.closeDialog(dlg); } }, _L('닫기 · 남은 요청 중지', 'Close and stop unsent requests'));
+  try {
+    dlg = showModal([
+      el('h2', null, _L('VM 삭제 요청', 'VM delete requests')),
+      el('p', null, _L('창을 닫으면 아직 보내지 않은 요청은 중단됩니다. 접수된 삭제는 계속됩니다.',
+        'Closing stops unsent requests. Accepted deletions continue.')),
+      el('ul', { style: 'max-height:50vh;overflow:auto;padding-left:20px' }, rows),
+      el('p', { class: 'text-xs color-muted' }, _L('요청 접수는 삭제 완료를 뜻하지 않습니다. 최종 결과는 감사 로그에서 확인하세요.',
+        'An accepted request does not confirm deletion. Check the audit log for final results.')),
+      el('div', { class: 'text-right mt-14' }, close)
+    ], { onClose: function() { closed = true; } });
+    for (var i = 0; i < subjects.length && !closed; i++) {
+      var subject = subjects[i], status = rows[i].querySelector('.vm-delete-result');
+      var sent = false, accepted = false;
+      try {
+        status.textContent = _L('대상 확인 중', 'Checking target');
+        if (!subject.uuid) throw new Error(_L('VM 식별 정보를 확인할 수 없습니다. 목록을 새로고침하세요.', 'Cannot verify VM identity. Refresh the list.'));
+        var response = await fetchGet(EP.VM_LIST());
+        if (response && response.error) throw new Error(response.error.message || 'Unable to verify VM');
+        var list = unwrapData(response);
+        if (!Array.isArray(list)) throw new Error(_L('VM 목록을 확인할 수 없습니다.', 'Unable to verify VM list.'));
+        if (!list.some(function(v) { return v.name === subject.name && v.uuid === subject.uuid; }))
+          throw new Error(_L('대상 VM이 없어졌거나 교체됐습니다. 다시 선택하세요.', 'VM is missing or has been replaced. Select it again.'));
+        if (closed) break;
+        status.textContent = _L('삭제 요청 중', 'Sending delete request');
+        sent = true;
+        response = await fetchDelete(EP.VM_DETAIL(subject.name));
+        if (response && response.error) {
+          sent = false;
+          throw new Error(response.error.message || 'Delete request failed');
+        }
+        var data = unwrapData(response);
+        accepted = data === 'accepted' || data && (data.status === 'accepted' || data.accepted === true || data.job_id);
+        if (data && data.job_id) {
+          var job = await PCV.api.waitForJob(data.job_id);
+          if (job.status === 'completed') {
+            status.textContent = '✅ ' + _L('삭제 완료', 'Deleted');
+            addEvt(t('vm.deleted') + ': ' + subject.name);
+            continue;
+          }
+          status.textContent = _L('처리 중 · 완료 미확인', 'Processing · completion unconfirmed');
+        } else {
+          status.textContent = accepted
+            ? _L('요청 접수 · 완료 미확인', 'Request accepted · completion unconfirmed')
+            : _L('응답 수신 · 처리 결과 미확인', 'Response received · result unconfirmed');
+        }
+      } catch (error) {
+        status.setAttribute('role', 'alert');
+        status.textContent = (sent
+          ? (accepted ? _L('처리 결과 확인 필요: ', 'Check processing result: ') : _L('접수 여부 미확인: ', 'Acceptance unconfirmed: '))
+          : _L('요청 실패: ', 'Request failed: ')) + (error.message || 'Unknown error');
+      }
     }
-    setTimeout(function() { closeModal(); loadAll(); }, 2000);
-  } catch (e) {
-    if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
-    if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (e.message || 'Unknown error'));
-    toast(e.message || 'Unknown error', false);
-    setTimeout(closeModal, 3000);
+  } finally {
+    _vmDeleteInFlight = false;
+    if (!closed) close.textContent = _L('닫기', 'Close');
+    if (typeof loadAll === 'function') loadAll();
   }
 }
 
+
+async function doVmDel(n) {
+  var v = vmList.find(function(vm) { return vm.name === n; });
+  return _deleteVms([{ name: n, uuid: v && v.uuid || '' }]);
+}
+
                            
-                                             
+
                                                 
                                                                     
                                                            
                                        
                                                     
                                                                        
+var VM_QOS_MAX_MBPS = 4294967295;
 function wizDefaults() {
   return {
     name: '',
@@ -461,6 +482,10 @@ function wizDefaults() {
     disk: 20,
     iso: '',
     bridge: '',
+
+
+    qos_min_mbps: 0,
+    qos_max_mbps: 1000,
     storage_type: 'auto',
     storage_pool: '',
     image_dir: '',
@@ -484,6 +509,12 @@ function wizSave() {
     wizData.disk = +(document.getElementById('wd')?.value || wizData.disk);
     wizData.iso = document.getElementById('wi')?.value || wizData.iso;
     wizData.bridge = document.getElementById('wb')?.value || wizData.bridge;
+    const qosMinEl = document.getElementById('wqmin');
+    const qosMaxEl = document.getElementById('wqmax');
+
+
+    if (qosMinEl) wizData.qos_min_mbps = Number(qosMinEl.value);
+    if (qosMaxEl) wizData.qos_max_mbps = Number(qosMaxEl.value);
     wizData.storage_type = document.getElementById('wst')?.value || wizData.storage_type;
     wizData.storage_pool = (document.getElementById('wspool')?.value || wizData.storage_pool || '').trim();
     wizData.image_dir = (document.getElementById('widir')?.value || wizData.image_dir || '').trim();
@@ -570,6 +601,23 @@ function renderWiz() {
         el('div', { class: 'flex gap-6 flex-1' },
           el('select', { id: 'wb' }, el('option', { value: wizData.bridge }, t('loading'))),
           el('button', { class: 'btn text-xs', onclick: 'wizLoadNets()' }, 'Refresh'))),
+      el('div', { class: 'fr' },
+        el('label', { for: 'wqmin' }, _L('QoS 최소', 'QoS Minimum')),
+        el('input', {
+          id: 'wqmin', type: 'number', min: '0', max: String(VM_QOS_MAX_MBPS), step: '1',
+          required: '', inputmode: 'numeric', value: String(wizData.qos_min_mbps),
+          'aria-describedby': 'wq-help'
+        })),
+      el('div', { class: 'fr' },
+        el('label', { for: 'wqmax' }, _L('QoS 최대', 'QoS Maximum')),
+        el('input', {
+          id: 'wqmax', type: 'number', min: '1', max: String(VM_QOS_MAX_MBPS), step: '1',
+          required: '', inputmode: 'numeric', value: String(wizData.qos_max_mbps),
+          'aria-describedby': 'wq-help'
+        })),
+      el('div', { class: 'stat-label mb-8', id: 'wq-help' },
+        _L('단위: Mbit/s · 브리지 VM 필수 · 최소 0 이상 · 최대 1 이상 · 최소 ≤ 최대',
+           'Unit: Mbit/s · Required for bridge VMs · minimum ≥ 0 · maximum ≥ 1 · minimum ≤ maximum')),
       el('div', { class: 'text-right mt-12' },
         el('button', { class: 'tb', onclick: 'wizGo(2)' }, '← ' + t('btn.prev')),
         ' ',
@@ -762,7 +810,7 @@ function closeISOBrowser() { if (isoDialog) { var d = isoDialog; isoDialog = nul
    
                                                             
   
-                                                       
+
                                                
                                                                              
                                                                   
@@ -806,6 +854,22 @@ async function doCreate() {
     toast(_L('디스크는 1~65536 GB 사이', 'Disk must be 1~65536 GB'), false); return;
   }
 
+
+
+
+  if (!Number.isInteger(d.qos_min_mbps) || d.qos_min_mbps < 0 || d.qos_min_mbps > VM_QOS_MAX_MBPS) {
+    toast(_L('QoS 최소값은 0~4294967295 사이의 정수여야 합니다',
+             'QoS minimum must be an integer between 0 and 4294967295'), false); return;
+  }
+  if (!Number.isInteger(d.qos_max_mbps) || d.qos_max_mbps < 1 || d.qos_max_mbps > VM_QOS_MAX_MBPS) {
+    toast(_L('QoS 최대값은 1~4294967295 사이의 정수여야 합니다',
+             'QoS maximum must be an integer between 1 and 4294967295'), false); return;
+  }
+  if (d.qos_min_mbps > d.qos_max_mbps) {
+    toast(_L('QoS 최소값은 최대값보다 클 수 없습니다',
+             'QoS minimum cannot exceed the maximum'), false); return;
+  }
+
                          
   if (typeof clearFormDirty === 'function') clearFormDirty('vm-create');
   closeModal(true);
@@ -813,7 +877,15 @@ async function doCreate() {
 
   try {
                                                                          
-    const body = { name: name, vcpu: d.vcpu, memory_mb: d.mem, disk_size_gb: d.disk, network_bridge: d.bridge };
+    const body = {
+      name: name,
+      vcpu: d.vcpu,
+      memory_mb: d.mem,
+      disk_size_gb: d.disk,
+      network_bridge: d.bridge,
+      qos_min_mbps: d.qos_min_mbps,
+      qos_max_mbps: d.qos_max_mbps
+    };
     if (d.storage_type && d.storage_type !== 'auto') body.storage_type = d.storage_type;
     if (d.storage_pool) body.storage_pool = d.storage_pool;
     if (d.image_dir) body.image_dir = d.image_dir;
@@ -1515,6 +1587,8 @@ async function vmClone(idx) {
       el('button', { id: 'vm-clone-submit', class: 'btn btn-g', onclick: 'doVmClone()' }, _L('복제', 'Clone')))
   ]);
   const defaultModeInput = document.querySelector('input[name="vm-clone-mode-choice"][value="' + defaultMode + '"]');
+
+  PCV.modalCore.currentBody()._pcvCloneSource = { name: v.name, uuid: v.uuid || null };
   if (defaultModeInput) defaultModeInput.checked = true;
   document.querySelectorAll('input[name="vm-clone-mode-choice"], input[name="vm-clone-safety"]').forEach(el => {
     el.addEventListener('change', () => _vmCloneRefreshGuard(v));
@@ -1524,11 +1598,9 @@ async function vmClone(idx) {
    
                                                   
   
-                                                                      
-                                                       
-                                                              
-                                                      
-                                             
+
+
+
   
                                                                          
                                                  
@@ -1543,7 +1615,9 @@ async function vmClone(idx) {
                                                                             
    
 async function doVmClone() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const source = PCV.modalCore.currentBody()?._pcvCloneSource;
+  const v = source && vmList.find(item => item.name === source.name && (!source.uuid || item.uuid === source.uuid));
+  if (!v) { toast(_L('원본 VM이 변경되었거나 없어졌습니다. 복제 창을 다시 여세요.', 'Source VM changed or disappeared. Reopen Clone.'), false); return; }
   const name = (document.getElementById('vm-clone-name')?.value || '').trim();
   const mode = document.querySelector('input[name="vm-clone-mode-choice"]:checked')?.value ||
     document.getElementById('vm-clone-mode')?.value ||
@@ -1633,17 +1707,13 @@ async function vmDeleteStatus(name) {
                                                                                 
                                                              
   
-                                                                
-                                                                      
-                                                         
+
+
                                                      
   
                
-                                                        
-                                                         
-                                                      
-                                                      
-                      
+
+
    
 async function vmExportOva(idx) {
   const v = vmList[idx ?? selectedVmIndex]; if (!v) return;
@@ -1663,11 +1733,27 @@ async function vmExportOva(idx) {
     pf.style.width = '70%'; PCV.uxlib.setMsg(ps, 'loading', null, _L('변환 진행 중...', 'Converting...'));
     var d = unwrapData(r) || r;
     var path = d.path || d.ova_path || '';
-                                   
-    for (var pi = 0; pi < 5; pi++) {
-      await new Promise(function(res) { setTimeout(res, 2000); });
-      pf.style.width = (75 + pi * 5) + '%';
-      try { var st = await fetchGet(EP.VM_DETAIL(v.name) + '/export-status'); var sd = unwrapData(st) || st; if (sd.status === 'done' || sd.status === 'completed') break; } catch(e) { break; }
+
+    var completed = false;
+    if (d.job_id) {
+      PCV.uxlib.setMsg(ps, 'loading', null, _L('내보내기 접수: ', 'Export accepted: ') + d.job_id);
+      var job = await PCV.api.waitForJob(d.job_id);
+      completed = job.status === 'completed';
+    } else {
+      for (var pi = 0; pi < 5; pi++) {
+        await new Promise(function(res) { setTimeout(res, 2000); });
+        pf.style.width = (75 + pi * 5) + '%';
+        var st = await fetchGet(EP.VM_DETAIL(v.name) + '/export-status');
+        if (st && st.error) throw new Error(st.error.message || 'Unable to read export status');
+        var sd = unwrapData(st) || {};
+        if (sd.status === 'failed' || sd.status === 'cancelled') throw new Error(sd.error || sd.detail || 'Export failed');
+        if (sd.status === 'done' || sd.status === 'completed') { completed = true; path = sd.path || sd.ova_path || path; break; }
+      }
+    }
+    if (!completed) {
+      pf.style.background = 'var(--yellow)';
+      PCV.uxlib.setMsg(ps, null, null, _L('내보내기 완료 미확인. 작업 상태를 다시 확인하세요.', 'Export completion unconfirmed. Check job status again.') + (d.job_id ? ' (' + d.job_id + ')' : ''));
+      return;
     }
     pf.style.width = '100%'; pf.style.background = 'var(--green)';
     PCV.uxlib.setMsg(ps, null, null,
@@ -1709,6 +1795,7 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   vmDeleteStatus: vmDeleteStatus,
   showNicMgr: showNicMgr,
   showBulkActions: showBulkActions,
+  bulkDelete: bulkDelete,
   bulkAction: bulkAction,
   bulkSnapshot: bulkSnapshot,
 });

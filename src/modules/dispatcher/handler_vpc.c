@@ -47,7 +47,7 @@
                                
   
                            
-                                                                      
+
                                                                          
                                                              
                                                                     
@@ -69,8 +69,9 @@
                                                                                     
                                                                                     
                                                       
-                             
+
    
+#include "api/drain.h"
 #include "handler_vpc.h"
 
 #include "rpc_utils.h"
@@ -402,7 +403,7 @@ _enqueue(VpcWorkerData *data,
     json_object_set_string_member(accepted, "method", data->method);
     _send_object(server, connection, rpc_id, accepted);
 
-    GTask *task = g_task_new(NULL, NULL, NULL, NULL);
+    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
     g_task_set_task_data(task, data, (GDestroyNotify)_worker_data_free);
     g_task_run_in_thread(task, _vpc_worker);
     g_object_unref(task);

@@ -145,6 +145,8 @@ void        pcv_ebpf_telemetry_init(void);
    
 void        pcv_ebpf_telemetry_shutdown(void);
 
+void        pcv_ebpf_telemetry_quiesce(void);
+
                                    
 
    
@@ -162,6 +164,14 @@ void        pcv_ebpf_telemetry_shutdown(void);
 JsonObject *pcv_ebpf_telemetry_get_host(void);
 
    
+
+
+
+
+
+
+
+
                                           
   
                                                     

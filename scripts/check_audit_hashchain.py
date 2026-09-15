@@ -62,6 +62,11 @@ def analyze(chain: str, lifecycle: str, main: str, rest: str,
             '"audit_chain"', "pcv_audit_get_chain_health()",
             "audit.current_ok", "audit.historical_break"
         )),
+        "historical_info_only": all(token in rest for token in (
+            "pcv_rest_audit_chain_health_impact(",
+            "return PCV_REST_AUDIT_HEALTH_INFORMATIONAL;",
+            "impact == PCV_REST_AUDIT_HEALTH_CRITICAL",
+        )),
         "metric_wiring": all(token in telemetry for token in (
             '"purecvisor_audit_chain_ok"',
             '"purecvisor_audit_chain_historical_break"',
@@ -86,6 +91,7 @@ MESSAGES = {
     "sidecar_lock": "<db>.lock 비차단 단일 데몬 잠금 계약 누락",
     "main_fail_closed": "audit init 실패 시 listener 전 main 기동 중단 계약 누락",
     "health_wiring": "/health checks.audit_chain current/historical 배선 누락",
+    "historical_info_only": "격리된 legacy break가 top-level 장애로 다시 합산됨",
     "metric_wiring": "audit chain current/historical Prometheus gauge 배선 누락",
 }
 

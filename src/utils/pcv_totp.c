@@ -182,8 +182,8 @@ pcv_totp_base32_decode(const gchar *b32, guchar *out, gsize *out_len)
                                                          
                                                           
                                                            
-                                                              
-                                                         
+
+
    
 guint
 pcv_totp_code_at(const guchar *key, gsize key_len, gint64 step, guint digits)

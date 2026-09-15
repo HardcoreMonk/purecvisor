@@ -71,7 +71,7 @@ def main() -> int:
     text = _read(DISPATCHER_C)
     section_match = re.search(
         r"typedef struct \{(?P<ctx>.*?)\} OvaExportCtx;(?P<section>.*?)"
-        r"/\* ── OVA Import",
+        r"(?=typedef struct\s*\{\s*gchar\s*\*ova_path;)",
         text,
         re.DOTALL,
     )
@@ -89,7 +89,8 @@ def main() -> int:
         "accepted response exposes job_id": 'json_object_set_string_member(obj, "job_id", job_id)' in section,
         "worker context copies job_id": "ctx->job_id = g_strdup(job_id);" in section,
         "worker updates the accepted job": "pcv_job_set_result(ctx->job_id" in section,
-        "worker broadcasts completion": 'pcv_ws_broadcast_job_complete(ctx->job_id, "vm.export.ova"' in section,
+
+        "worker broadcasts completion": 'pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.export.ova"' in section,
         "worker records actual result once": worker.count("_ova_export_record_result(ctx, audit_ok") == 1,
         "worker return follows actual result": "g_task_return_boolean(task, audit_ok)" in worker,
         "qemu-img failure reaches cleanup": "qemu-img convert failed" in worker and "goto ova_cleanup;" in worker,
@@ -112,6 +113,11 @@ def main() -> int:
         "OVA import fails on zfs create failure": 'PCV_JOB_FAILED, "\\"zfs create failed\\""' in import_worker,
         "OVA import destroys created zvol on worker failure": "_ova_import_destroy_zvol(created_zvol_dataset)" in import_worker,
         "OVA import probes ZFS pool with zfs list": "use_zvol = pcv_spawn_sync(pool_argv" in import_worker,
+        "OVA import waits for the udev zvol device": "zvol device did not appear" in import_worker,
+        "OVA import reuses the pre-created zvol target": '"qemu-img", "convert", "-n", "-f", "vmdk"' in import_worker,
+        "OVA import generates XML without auto-start": '"--print-xml"' in import_worker,
+        "OVA import normalizes block/file disk source": "pcv_ova_import_normalize_domain_xml" in import_worker,
+        "OVA import defines normalized XML": "virDomainDefineXML(conn, domain_xml)" in import_worker,
         "OVA import preflights target domain": "virDomainLookupByName(conn, name)" in import_handler,
         "OVA import preflights raw .raw collision": '"%s/%s.raw"' in import_handler,
         "OVA import rejects disk collision before accepted": "Target VM disk already exists" in import_handler,

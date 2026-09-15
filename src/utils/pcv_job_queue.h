@@ -11,14 +11,16 @@
                                                              
                                                          
   
-                                                         
+
+
+
                                                    
                                                                 
   
           
                                                                 
                                            
-                                                        
+
   
             
                                                         
@@ -64,12 +66,14 @@ typedef enum {
                                                
                                    
                                     
+
+
    
 void pcv_job_queue_init(void);
 
    
                           
-                            
+
                                 
    
 void pcv_job_queue_shutdown(void);
@@ -80,7 +84,7 @@ void pcv_job_queue_shutdown(void);
                            
                                            
   
-                                                
+
    
 void pcv_job_queue_cleanup_old(gint max_age_hours);
 
@@ -88,13 +92,15 @@ void pcv_job_queue_cleanup_old(gint max_age_hours);
 
    
                   
-                            
-                                                     
+
+
+
+
   
                                                              
                                        
                                              
-                                        
+
    
 gchar *pcv_job_create(const gchar *type, const gchar *target,
                        const gchar *params_json);
@@ -103,6 +109,7 @@ gchar *pcv_job_create(const gchar *type, const gchar *target,
                          
                         
                                                
+
   
                             
                            
@@ -114,8 +121,10 @@ void pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
 
    
                       
-                           
+
                                                        
+
+
   
                            
                                               
@@ -131,7 +140,7 @@ void pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
                          
                                                      
   
-                                    
+
                                                   
    
 JsonArray *pcv_job_list(gint limit);
@@ -152,7 +161,9 @@ JsonObject *pcv_job_get(const gchar *job_id);
                                                    
   
                       
-                                       
+
+
+
    
 gboolean pcv_job_cancel(const gchar *job_id);
 

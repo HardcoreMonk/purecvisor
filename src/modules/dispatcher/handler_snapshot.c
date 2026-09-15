@@ -82,6 +82,7 @@
                           
    
 
+#include "api/drain.h"
 #include "handler_snapshot.h"
 #include "rpc_utils.h"
 #include "../storage/zfs_driver.h"
@@ -90,6 +91,7 @@
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_config.h"
 #include "../../modules/virt/virt_conn_pool.h"
+#include "../../modules/virt/snapshot_compat.h"
 #include "../audit/pcv_audit.h"
 
 #include <glib.h>
@@ -145,6 +147,30 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
+    }
+
+
+
+
+
+
+    int active = virDomainIsActive(dom);
+    char *domain_xml = active == 1 ? virDomainGetXMLDesc(dom, 0) : NULL;
+    gboolean requires_offline = active == 1 &&
+        pcv_snapshot_xml_requires_invtsc_offline(domain_xml);
+    free(domain_xml);
+    if (requires_offline) {
+        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail",
+                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        gchar *e = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+            "Running VM requires invtsc, which is incompatible with libvirt internal "
+            "system snapshots. Stop the VM and retry the snapshot.");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        return;
     }
                                                                               
     gchar *xml = g_strdup_printf(
@@ -786,7 +812,7 @@ static void _argv_finish(GPtrArray *a) {
                                                      
                                                             
 static void _snap_sync_dispatch(SnapSyncCtx *c) {
-    GTask *task = g_task_new(NULL, NULL, _snap_sync_callback, c);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _snap_sync_callback, c);
     g_task_set_task_data(task, c, _snap_sync_ctx_free);                             
     g_task_run_in_thread(task, _snap_sync_worker);
     g_object_unref(task);                                            
@@ -972,7 +998,7 @@ void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
     d->server    = g_object_ref(server);
     d->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _on_rollback_done, d);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _on_rollback_done, d);
     g_task_set_task_data(task, d, _rollback_task_data_free);                          
     g_task_run_in_thread(task, _rollback_worker);
     g_object_unref(task);
@@ -1238,7 +1264,7 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
     d->server = g_object_ref(server);
     d->connection = g_object_ref(connection);
 
-    GTask *task = g_task_new(NULL, NULL, _delete_all_callback, d);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _delete_all_callback, d);
     g_task_set_task_data(task, d, _delete_all_ctx_free);
     g_task_run_in_thread(task, _delete_all_worker);
     g_object_unref(task);

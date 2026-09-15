@@ -18,11 +18,11 @@
                                                       
                                                                     
                                                     
-                                                           
-                                        
+
+
         
                                                                
-                                                          
+
                                                                    
          
                                                     
@@ -117,33 +117,6 @@ static struct {
                                                                      
 
    
-                                                     
-                                                  
-                                                  
-  
-                                              
-                                                 
-                                                  
-                                                         
-                                                      
-                                     
-   
-static gboolean
-_run_shell(const gchar *cmd, gchar **out, GError **error)
-{
-                                                   
-                                  
-    const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-    gchar *std_err = NULL;
-    gboolean ok = pcv_spawn_sync(argv, out, &std_err, error);
-    if (!ok)
-        PCV_LOG_WARN(SRIOV_LOG_DOM, "cmd(shell) failed: %s  stderr=%s", cmd,
-                     std_err ? std_err : "(null)");
-    g_free(std_err);
-    return ok;
-}
-
-   
                                                                    
                                                    
                                                  
@@ -199,6 +172,15 @@ _sriov_pci_driver_attr_path(const gchar *driver, const gchar *attribute)
     return path;
 }
 
+static gchar *
+_sriov_pci_drivers_probe_path(void)
+{
+    gchar *pci_root = g_path_get_dirname(_sriov_pci_sysfs_devices());
+    gchar *path = g_build_filename(pci_root, "drivers_probe", NULL);
+    g_free(pci_root);
+    return path;
+}
+
 static gboolean
 _sriov_driver_name_is_safe(const gchar *driver)
 {
@@ -215,6 +197,31 @@ static const gchar *
 _sriov_virsh_path(void)
 {
     return G.test_virsh_path ? G.test_virsh_path : "virsh";
+}
+
+
+
+
+
+
+
+
+
+
+static gboolean
+_sriov_ensure_vfio_driver(GError **error)
+{
+    gchar *bind_path = _sriov_pci_driver_attr_path("vfio-pci", "bind");
+    if (g_file_test(bind_path, G_FILE_TEST_EXISTS)) {
+        g_free(bind_path);
+        return TRUE;
+    }
+
+    g_set_error(error, g_quark_from_static_string("sriov"), 12,
+                "vfio-pci is not preloaded; run the PureCVisor deployment "
+                "prerequisite (missing %s)", bind_path);
+    g_free(bind_path);
+    return FALSE;
 }
 
                                                                           
@@ -730,21 +737,32 @@ pcv_sriov_list(const gchar *pf)
             }
             g_free(vf_link);
 
-                                                      
-                                                                 
-                                                                  
-                                                       
-            gchar *mac_cmd = g_strdup_printf(
-                "ip link show %s 2>/dev/null | grep 'vf %d' | "
-                "sed -n 's/.*MAC \\([^ ]*\\).*/\\1/p'", iface, i);
-            gchar *mac_out = NULL;
-            if (_run_shell(mac_cmd, &mac_out, NULL) && mac_out) {
-                g_strstrip(mac_out);                 
-                if (strlen(mac_out) > 0)                           
-                    json_object_set_string_member(vf, "mac", mac_out);
+
+
+
+            const gchar *ip_argv[] = {"ip", "-details", "link", "show",
+                                       iface, NULL};
+            gchar *ip_out = NULL;
+            if (pcv_spawn_sync(ip_argv, &ip_out, NULL, NULL) && ip_out) {
+                gchar *vf_token = g_strdup_printf("vf %d ", i);
+                gchar *vf_line = strstr(ip_out, vf_token);
+                gchar *mac_start = vf_line ? strstr(vf_line, "link/ether ") : NULL;
+                gsize prefix_len = strlen("link/ether ");
+                if (!mac_start && vf_line) {
+                    mac_start = strstr(vf_line, "MAC ");
+                    prefix_len = strlen("MAC ");
+                }
+                if (mac_start) {
+                    mac_start += prefix_len;
+                    gsize mac_len = strcspn(mac_start, " ,\t\r\n");
+                    gchar *mac = g_strndup(mac_start, mac_len);
+                    if (pcv_validate_mac(mac))
+                        json_object_set_string_member(vf, "mac", mac);
+                    g_free(mac);
+                }
+                g_free(vf_token);
             }
-            g_free(mac_out);
-            g_free(mac_cmd);
+            g_free(ip_out);
 
             json_array_add_object_element(arr, vf);
         }
@@ -961,6 +979,13 @@ pcv_sriov_attach_vm(const gchar *vm_name, const gchar *pf,
     gchar *drv_real = g_file_read_link(drv_link, NULL);
     gchar *xml = NULL;
     gchar *xml_path = NULL;
+
+
+
+    if (!_sriov_ensure_vfio_driver(error)) {
+        ok = FALSE;
+        goto out;
+    }
 
     if (drv_real)
         original_driver = g_path_get_basename(drv_real);
@@ -1219,6 +1244,98 @@ _sriov_live_domain_has_pci(const gchar *vm_name,
     return ok;
 }
 
+
+
+
+
+
+
+
+
+
+static gboolean
+_sriov_restore_detached_vf_driver(const gchar *pci_addr, GError **error)
+{
+    gchar *device_path = g_build_filename(_sriov_pci_sysfs_devices(),
+                                           pci_addr, NULL);
+    gchar *physfn_path = g_build_filename(device_path, "physfn", NULL);
+    if (!g_file_test(device_path, G_FILE_TEST_IS_DIR)) {
+
+
+        if (G.test_pci_devices_root) {
+            g_free(physfn_path);
+            g_free(device_path);
+            return TRUE;
+        }
+        g_set_error(error, g_quark_from_static_string("sriov"), 15,
+                    "Detached PCI device disappeared: %s", pci_addr);
+        g_free(physfn_path);
+        g_free(device_path);
+        return FALSE;
+    }
+    if (!g_file_test(physfn_path, G_FILE_TEST_EXISTS)) {
+        g_set_error(error, g_quark_from_static_string("sriov"), 15,
+                    "PCI device %s is not an SR-IOV VF", pci_addr);
+        g_free(physfn_path);
+        g_free(device_path);
+        return FALSE;
+    }
+
+    gchar *driver_link = g_build_filename(device_path, "driver", NULL);
+    gchar *driver_target = g_file_read_link(driver_link, NULL);
+    gchar *driver = driver_target ? g_path_get_basename(driver_target) : NULL;
+    gchar *override_path = g_build_filename(device_path, "driver_override", NULL);
+    gboolean ok = _write_sysfs(override_path, "\n", error);
+    gboolean needs_native_probe = !driver ||
+                                  g_strcmp0(driver, "vfio-pci") == 0;
+
+    if (ok && g_strcmp0(driver, "vfio-pci") == 0) {
+        gchar *vfio_unbind = _sriov_pci_driver_attr_path("vfio-pci", "unbind");
+        ok = _write_sysfs(vfio_unbind, pci_addr, error);
+        g_free(vfio_unbind);
+    }
+
+
+
+
+    if (ok && needs_native_probe) {
+        gchar *probe = _sriov_pci_drivers_probe_path();
+        ok = _write_sysfs(probe, pci_addr, error);
+        g_free(probe);
+
+        if (ok && !G.test_pci_devices_root) {
+            g_free(driver_target);
+            g_free(driver);
+            driver_target = g_file_read_link(driver_link, NULL);
+            driver = driver_target ? g_path_get_basename(driver_target) : NULL;
+            if (!driver || g_strcmp0(driver, "vfio-pci") == 0) {
+                g_set_error(error, g_quark_from_static_string("sriov"), 16,
+                            "Native VF driver did not bind after detach: %s",
+                            pci_addr);
+                ok = FALSE;
+            }
+        }
+
+        if (!ok) {
+
+            _sriov_rollback_write(override_path, "vfio-pci",
+                                  "detached VF override rollback");
+            gchar *vfio_bind = _sriov_pci_driver_attr_path("vfio-pci", "bind");
+            _sriov_rollback_write(vfio_bind, pci_addr,
+                                  "detached VF vfio bind rollback");
+            g_free(vfio_bind);
+        }
+    }
+
+    g_free(override_path);
+    g_free(driver);
+    g_free(driver_target);
+    g_free(driver_link);
+    g_free(physfn_path);
+    g_free(device_path);
+    return ok;
+}
+
    
                                                  
                      
@@ -1226,7 +1343,7 @@ _sriov_live_domain_has_pci(const gchar *vm_name,
                     
   
                                                              
-                                                       
+
                                              
                                     
                                                    
@@ -1285,7 +1402,7 @@ pcv_sriov_detach_vm(const gchar *vm_name, const gchar *pci_addr, GError **error)
 
                                                              
                                                  
-                                                             
+
                                                              
                                                    
         g_mutex_lock(&G.mu);
@@ -1307,7 +1424,33 @@ pcv_sriov_detach_vm(const gchar *vm_name, const gchar *pci_addr, GError **error)
             gchar *serr = NULL;
             GError *detach_error = NULL;
             ok = pcv_spawn_sync(argv, NULL, &serr, &detach_error);
-            if (!ok) {
+            if (ok) {
+
+
+                gboolean present_after = TRUE;
+                GError *post_query_error = NULL;
+                gboolean inspected = _sriov_live_domain_has_pci(
+                    vm_name, domain, bus, slot, func, &present_after,
+                    &post_query_error);
+                if (inspected && !present_after) {
+                    present = FALSE;
+                } else {
+                    ok = FALSE;
+                    if (error && post_query_error) {
+                        g_propagate_error(error, post_query_error);
+                        post_query_error = NULL;
+                    } else {
+                        g_clear_error(&post_query_error);
+                    }
+                    if (error && !*error)
+                        g_set_error(error,
+                                    g_quark_from_static_string("sriov"), 17,
+                                    "PCI %s remains attached after successful "
+                                    "detach from VM '%s'",
+                                    pci_addr, vm_name);
+                }
+                g_clear_error(&post_query_error);
+            } else {
                                                         
                                                       
                                                            
@@ -1324,6 +1467,7 @@ pcv_sriov_detach_vm(const gchar *vm_name, const gchar *pci_addr, GError **error)
                         pci_addr);
                     g_clear_error(&detach_error);
                     ok = TRUE;
+                    present = FALSE;
                 } else {
                     PCV_LOG_WARN(SRIOV_LOG_DOM,
                                  "virsh detach-device failed: %s",
@@ -1346,6 +1490,9 @@ pcv_sriov_detach_vm(const gchar *vm_name, const gchar *pci_addr, GError **error)
             }
             g_free(serr);
         }
+
+        if (ok && !present)
+            ok = _sriov_restore_detached_vf_driver(pci_addr, error);
 
         g_mutex_unlock(&G.mu);
     }

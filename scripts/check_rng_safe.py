@@ -105,7 +105,7 @@ def main(argv: list[str]) -> int:
         print("\033[31m[FAIL]\033[0m RNG/PBKDF2 하드닝 계약 위반:", file=sys.stderr)
         for f in fails:
             print(f"  - {f}", file=sys.stderr)
-        print("       근거: 공개 보안 RNG 계약 (A02/V11)",
+        print("       근거: docs/operations 2026-07-16 보안 시정 로드맵 Item 6 (A02/V11)",
               file=sys.stderr)
         return 1
 

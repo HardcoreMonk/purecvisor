@@ -17,8 +17,15 @@
 
 G_BEGIN_DECLS
 
+
+
+
 JsonObject *pcv_vpc_ovn_backend_capability(const gchar *transit_pool);
 gboolean pcv_vpc_ovn_require_ready(const gchar *transit_pool, GError **error);
+
+
+
+
 gboolean pcv_vpc_ovn_ensure_vpc(JsonObject *vpc, JsonObject *binding, GError **error);
 gboolean pcv_vpc_ovn_remove_vpc(JsonObject *vpc, JsonObject *binding, GError **error);
 gboolean pcv_vpc_ovn_set_egress(JsonObject *vpc, JsonObject *binding, GError **error);

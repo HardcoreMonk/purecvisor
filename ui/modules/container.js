@@ -37,7 +37,7 @@ window.ctrHist = window.ctrHist || [];
 async function renderContainers(b) {
   const el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
   showSkeleton(b);
-                                                                      
+
                                 
   const pagehead = () => HN.pagehead({
     title: _L('컨테이너', 'Containers'),
@@ -371,10 +371,9 @@ async function ctrA(n, a) {
                                                                                 
                                                                             
                                                  
-                                                    
-                                                               
-                                                    
-                              
+
+
+
     
                                                                      
                                                           
@@ -398,17 +397,33 @@ async function ctrA(n, a) {
     const d = await fetchPost(a === 'start' ? EP.CTR_START(n) : EP.CTR_STOP(n), {});
     pf.style.width = '60%';
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + a + ' failed: ' + (d.error.message || 'Unknown error')); toast(a + ' failed', false); return; }
-    PCV.uxlib.setMsg(ps, 'loading', null, a, ' completed, refreshing...');
-    if (a === 'start') {
-      for (let i = 0; i < 8; i++) { pf.style.width = (65 + i * 4) + '%'; await new Promise(r => setTimeout(r, 1500));
-        try { const c = await fetchGet(EP.CTR_LIST()); const l = unwrapList(c); const ct = l.find(x => x.name === n);
-          if (ct && ct.state === 'RUNNING') { const ip = ct.ip_addr || ct.ip || '';
-            if (ip && ip !== 'N/A') { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Running — IP: ', PCV.uxlib.el('b', { class: 'color-green' }, ip)); toast(n + ' started (' + ip + ')'); addEvt('LXC Started — ' + n + ', IP: ' + ip); setTimeout(closeModal, 2500); if (PCV.ui.navGen() === _navGen) renderContainers(PCV.ui.renderTarget()); return; }
-            PCV.uxlib.setMsg(ps, 'loading', null, 'Running, waiting for DHCP IP... (', (i + 1), '/8)'); } } catch (e) { if(_DEBUG) console.warn('c:', e.message); } }
-      pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Running (IP pending)'); toast(n + ' started'); addEvt('LXC Started — ' + n + ' (IP pending)');
-    } else { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ Container stopped'); toast(n + ' stopped'); addEvt('LXC Stopped — ' + n); }
+    var targetState = a === 'start' ? 'RUNNING' : 'STOPPED';
+    PCV.uxlib.setMsg(ps, 'loading', null, _L('요청 접수, 상태 확인 중...', 'Request accepted, checking state...'));
+    for (let i = 0; i < 8; i++) {
+      pf.style.width = (65 + i * 4) + '%';
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      const response = await fetchGet(EP.CTR_LIST());
+      if (response && response.error) throw new Error(response.error.message || 'Unable to read container state');
+      const container = unwrapList(response).find(item => item.name === n);
+      if (container && container.state === targetState) {
+        pf.style.width = '100%';
+        PCV.uxlib.setMsg(ps, null, null, '✅ ' + targetState + (container.ip_addr ? ' — ' + container.ip_addr : ''));
+        toast(n + ' ' + targetState);
+        addEvt('LXC ' + targetState + ' — ' + n);
+        setTimeout(() => { closeModal(); if (PCV.ui.navGen() === _navGen) renderContainers(PCV.ui.renderTarget()); }, 2000);
+        return;
+      }
+    }
+    pf.style.background = 'var(--yellow)';
+    PCV.uxlib.setMsg(ps, null, null, _L('완료 상태를 확인하지 못했습니다. 다시 조회하세요.', 'Completion unconfirmed. Refresh the container state.'));
+    toast(n + ' ' + _L('완료 미확인', 'completion unconfirmed'), false);
+
     setTimeout(() => { closeModal(); if (PCV.ui.navGen() === _navGen) renderContainers(PCV.ui.renderTarget()); }, 2e3);
-  } catch (e) { if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + a + ' requested'); toast(n + ' ' + a); addEvt('LXC ' + a + ' — ' + n); setTimeout(() => { closeModal(); if (PCV.ui.navGen() === _navGen) renderContainers(PCV.ui.renderTarget()); }, 2500); }
+  } catch (e) {
+    if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; }
+    if (ps) PCV.uxlib.setMsg(ps, 'err', null, _L('요청/결과 확인 실패: ', 'Request/result check failed: ') + e.message);
+    toast(e.message, false);
+  }
 }
 
                            
@@ -586,12 +601,8 @@ function ctrDel(n) {
                                     
                                                                               
                                                  
-                                                                  
+
                                                   
-                                                       
-                                                     
-                                              
-                                                        
 async function doCtrDel(n) {
   const c = document.getElementById('del-ctr-confirm')?.value; if (c !== n) { toast(t('vm.name_mismatch'), false); return; }
                                                                                   
@@ -608,9 +619,21 @@ async function doCtrDel(n) {
   const pf = document.getElementById('dc-p'), ps = document.getElementById('dc-s');
   try { pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Destroying...');
     var _navGen = PCV.ui.navGen();
-    const d = await fetchDelete(EP.CTR_DETAIL(n)).catch(() => ({}));
+    const d = await fetchDelete(EP.CTR_DETAIL(n));
     pf.style.width = '80%';
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + d.error.message); toast(t('btn.delete') + ' failed', false); return; }
+    var gone = false;
+    for (var attempt = 0; attempt < 8; attempt++) {
+      await new Promise(resolve => setTimeout(resolve, 1500));
+      var listResponse = await fetchGet(EP.CTR_LIST());
+      if (listResponse && listResponse.error) throw new Error(listResponse.error.message || 'Unable to verify deletion');
+      if (!unwrapList(listResponse).some(item => item.name === n)) { gone = true; break; }
+    }
+    if (!gone) {
+      pf.style.background = 'var(--yellow)';
+      PCV.uxlib.setMsg(ps, null, null, _L('삭제 완료 미확인. 다시 조회하세요.', 'Deletion unconfirmed. Refresh the container list.'));
+      return;
+    }
     pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('ctr.destroyed')); toast(t('ctr.destroyed')); addEvt('LXC Destroyed — ' + n); selCtr = null; setTimeout(() => { closeModal(); if (PCV.ui.navGen() === _navGen) renderContainers(PCV.ui.renderTarget()); }, 1500);
   } catch (e) { pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + e.message); toast(e.message, false); }
 }

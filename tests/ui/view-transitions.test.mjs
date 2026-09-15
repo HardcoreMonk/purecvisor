@@ -289,7 +289,8 @@ test('started async network renderer settles only inside its detached generation
   await withPage(NETWORK_MODULES, async page => {
     await loadNavigation(page);
     const result = await page.evaluate(async () => {
-      window.EP = { NET_LIST: () => '/test/networks' };
+      window.EP = { NET_LIST: () => '/test/networks', NET_HOST_BASELINE: () => '/test/host-baseline', VPC_STATUS: () => '/test/vpc-status' };
+      window.unwrapData = response => response?.data ?? response;
       window.unwrapList = response => Array.isArray(response?.data) ? response.data : [];
       window.matchMedia = () => ({ matches: false, addEventListener() {}, removeEventListener() {} });
       Object.defineProperty(document, 'startViewTransition', {
@@ -314,7 +315,8 @@ test('started async network renderer settles only inside its detached generation
         window.PCV.uxlib.clearEl(document.getElementById('cb'));
         window.destroyAllCharts = () => { cleanups++; };
         window.applyRoleVisibility = () => { roleApplications++; };
-        window.fetchGet = () => {
+        window.fetchGet = path => {
+          if (path !== '/test/networks') return Promise.resolve({ data: { interfaces: [], routes: [] } });
           fetches++;
           return new Promise((resolve, reject) => {
             settleFetch = () => outcome === 'resolve'
@@ -397,14 +399,15 @@ test('started async network renderer settles only inside its detached generation
     assert.deepEqual(result.resolved, {
       outcome: 'resolve',
       ...common,
-      staleRoleDelta: 1,
-      oldState: 'empty'
+
+      staleRoleDelta: 0,
+      oldState: 'loading'
     });
     assert.deepEqual(result.rejected, {
       outcome: 'reject',
       ...common,
       staleRoleDelta: 0,
-      oldState: 'error'
+      oldState: 'loading'
     });
   });
 });
