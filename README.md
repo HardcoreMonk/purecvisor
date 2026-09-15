@@ -11,19 +11,6 @@
 
 PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 운영 표면을 묶습니다.<br> CLI, REST API, UDS JSON-RPC, Vanilla JS Web UI가 같은 dispatcher와 RBAC 정책을 통과하며, 긴 작업은 Job ID, WebSocket 완료 알림, polling, audit log로 추적됩니다.
 
-이 저장소는 Linux/KVM 기반 `purecvisor-single` 공개 스냅샷입니다.<br> 공개 범위는 Single Edge 기능과 그 실행에 필요한 공통 코어로 제한합니다.<br> 전체 운영 매뉴얼은 [공개 문서 사이트](https://purecvisor.site)와 [docs/GUIDE.md](docs/GUIDE.md), 개발 규칙은 [AGENTS.md](AGENTS.md), 공개판 경계는 [docs/PUBLIC_RELEASE_BOUNDARY.md](docs/PUBLIC_RELEASE_BOUNDARY.md)를 기준으로 봅니다.
-
-공개 네트워크 계약은 작업 전 읽기 전용 host baseline 확인, 등록된 generic OVN
-18개 RPC, switch-owned DHCP 자동 정리와 인증 REST ACL/NAT filter까지입니다.<br> 미완성
-OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 공개 기능이 아니며, Local VPC의
-선택형 OVN backend는 별도 실환경 gate가 남아 있습니다.<br> 공개 데이터베이스 설명은 이
-저장소 소스에 실제 포함된 로컬 SQLite 9개를 기준으로 합니다.
-
-공개 소스에는 내부 전용 Monitoring 확장과 비공개 운영 자료를 포함하지 않습니다.<br>
-기존 공개 host·VM·process 지표, Prometheus와 일반 알림은 유지합니다. <br> 로컬 검증은
-출시 인증과 별개이며, 전체 감사 **FAIL(미완료)**와 지원 환경·실노드 인증 잔여는
-[품질 게이트 현황](docs/GUIDE.md#227-2026-09-07-검토시정-현황)을 따릅니다.
-
 ## 빠른 시작
 
 Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. <br> 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
@@ -55,8 +42,8 @@ sudo apt install -y \
 
 </details>
 
-UI 번들·검증 도구의 의존성은 저장소 루트에서 설치합니다. 검증 환경은 Node.js 24와
-npm을 사용했습니다. 전체 C·계약 검증에는 `wireguard-tools`, `sqlite3`,
+UI 번들·검증 도구의 의존성은 저장소 루트에서 설치합니다.<br> 검증 환경은 Node.js 24와
+npm을 사용했습니다.<br> 전체 C·계약 검증에는 `wireguard-tools`, `sqlite3`,
 `openvswitch-switch`, `python3-pytest`, `strace`도 준비합니다.
 
 ```bash
@@ -122,9 +109,9 @@ make release
 | 로컬 복구 HTTP | `http://127.0.0.1:8080/` |
 | UDS socket | `/var/run/purecvisor/daemon.sock` |
 
-예시의 `-k`는 최초 자체서명 인증서 확인용입니다. 운영 CA 인증서를 배치한 뒤에는 `-k`를 제거하고 인증서 체인과 설정한 관리 IPv4 또는 DNS 이름의 SAN을 검증합니다.
+예시의 `-k`는 최초 자체서명 인증서 확인용입니다. <br>운영 CA 인증서를 배치한 뒤에는 `-k`를 제거하고 인증서 체인과 설정한 관리 IPv4 또는 DNS 이름의 SAN을 검증합니다.
 
-첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다. 셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
+첫 설치 bootstrap 계정은 운영 전 반드시 전용 관리자 계정으로 교체해야 합니다. <br>셀프 회원가입은 `[auth] allow_self_register` 설정으로 제어하며, 기본값은 비활성화입니다.
 
 ---
 
@@ -167,7 +154,7 @@ echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
 
 ## 검증 명령
 
-변경 유형별 검증 깊이는 [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md)를 따릅니다. 자주 쓰는 기준 명령은 다음과 같습니다.
+변경 유형별 검증 깊이는 [docs/DEVELOPMENT_VERIFICATION_POLICY.md](docs/DEVELOPMENT_VERIFICATION_POLICY.md)를 따릅니다. <br>자주 쓰는 기준 명령은 다음과 같습니다.
 
 ```bash
 make single
