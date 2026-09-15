@@ -3,6 +3,7 @@
 > 기준일: 2026-09-16 KST
 > 제품 소스 기준: `e028ef2` · 문서 시작점: `4cca6b3` · 제품 버전: `2.0.0`
 > 범위: PureCVisor Single Edge 공개 저장소의 문서·내장 도움말·Pages 작성 정본
+> 운영 단계: 공개 `main` 반영·Pages 배포·실제 HTTPS 검증 완료
 
 ## 점검 범위와 근거
 
@@ -61,7 +62,18 @@ CLAUDE·DESIGN·제3자 고지·아키텍처 원본과 나머지 날짜별 기�
 | 내장 도움말 캐시 | `PCV_NO_DEPLOY=1 scripts/bundle-ui.sh`, `check_ui_bundle_fresh.py` 통과. JS source `9b630eef`, 캐시 `75dcc77b`, 번들·SW 구문과 자체 소스 주석 0 재확인 |
 | 문법·diff | `node --check site/scripts/check-site.mjs`, `git diff --check` 통과 |
 
-게시 후 Pages 실행과 실제 HTTPS 본문·갱신일·기존 anchor를 대조하고 아래에 기록한다.
+## 게시 결과
+
+- 문서·도움말·캐시·날짜 검사 20개 파일을
+  [`88e485f`](https://github.com/HardcoreMonk/purecvisor/commit/88e485f8251782efb1747cabdeddf1b61003d1e6)로
+  공개 `main`에 반영했다. 작업용 로컬 브랜치는 병합 후 정리했다.
+- [Pages 실행 35018905339](https://github.com/HardcoreMonk/purecvisor/actions/runs/35018905339)의
+  build·deploy가 성공했다.
+- 실제 `https://purecvisor.site`의 HTML 27개(빌드 페이지 26개와 `docs.html` 호환 redirect)를
+  HTTPS로 조회했다. 전부 HTTP 200이며 SHA-256이 로컬 최종 산출물과 일치했다.
+- 한국어·영어 landing의 2026-09-16 갱신일, NVRAM·Btrfs·DB 본문, 날짜 없는 공개 현황
+  heading과 이전 날짜 anchor가 같은 산출물에 포함됨을 확인했다.
+- 검사·게시 원시 결과는 로컬 Git 메타데이터의 비공개 검증 기록에 보존한다.
 
 ## 운영 경계
 
