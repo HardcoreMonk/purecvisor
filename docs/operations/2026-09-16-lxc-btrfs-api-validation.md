@@ -72,3 +72,5 @@ LXC 7은 기존 `lxc.cgroup.cpu.shares` 키를 거부했다. 생성 시 cgroup v
 - 비공개 원시 증거에는 최초 실패, 최종 성공, API·명령·복구 상태, WS/audit 대조, before/after와 백업 위치를 함께 보존한다.
 - 원시 증거 archive SHA-256: `85845dfadad3dd5a781250d73f6e4b534d2dbb9491285b0378cb1b505d0b697b` (326개 파일).
 - 최종 내장 가이드·JS·서비스 워커는 실제 HTTPS 응답의 SHA-256과 배포 파일을 대조했다.
+- 공개 구현 commit: [`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b), `main`에 반영 완료.
+- 공개 가이드 [Pages 배포 #35012978025](https://github.com/HardcoreMonk/purecvisor/actions/runs/35012978025) 성공.
