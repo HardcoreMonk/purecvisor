@@ -269,6 +269,21 @@
       "editing": "none",
       "silent": true,
       "fullDecode": "PASS"
+    },
+    {
+      "id": "gpu-passthrough",
+      "duration": 124,
+      "width": 1920,
+      "height": 1080,
+      "bytes": 36917780,
+      "sha256": "e02e2d32d9a74a04d5eb1f490ab25de15f986ac63bc72b5394af6d3b46b396db",
+      "sourceMp4": "purecvisor-rtx3070ti-gpu-passthrough-ko.mp4",
+      "sourceMp4Sha256": "e02e2d32d9a74a04d5eb1f490ab25de15f986ac63bc72b5394af6d3b46b396db",
+      "posterSha256": "87715a2a41b0cd921cf5bd8b39820d99b9366717cbbb11e93cfcdd7ad2f2e256",
+      "recordedOn": "2026-09-14",
+      "editing": "korean-captions-and-audit-summary",
+      "silent": true,
+      "fullDecode": "PASS"
     }
   ]
 }

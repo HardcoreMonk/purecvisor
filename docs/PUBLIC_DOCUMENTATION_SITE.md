@@ -321,20 +321,21 @@ domain에서 16rem sidebar, 일반 본문 56rem, 표·code 56~72rem, 88rem archi
 
 ## 서비스 기능 영상 소개
 
-root·`/ko/`·`/en/` landing의 `#service-demos`는 Local VPC 7편·OVN SDN 4편·VXLAN 4편의
+root·`/ko/`·`/en/` landing의 `#service-demos`는 Local VPC 7편·OVN SDN 4편·VXLAN 4편·GPU Passthrough 1편의
 기능 검증 녹화를 제공한다. 생성·연결뿐 아니라 실제 통신·차단·복구·리소스 정리를
 포함한다. hero의 영상 보기와 서비스 메뉴에서 직접 이동한다.
 `ServiceShowcase.astro`와 `service-videos.mjs`가 세 landing route의 동일한 정보 구조를
 공유하며 한국어와 영어 설명을 제공한다. 영상 화면 자체는 한국어 무음 녹화다.
+기능 탭은 desktop 4열, 1000px 이하 2열로 배치한다.
 
-`site/public/assets/service-recordings/`에는 검증 당시 MP4와 촬영 WebM 원본,
+네트워크 15편은 `site/public/assets/service-recordings/`에 검증 당시 MP4와 촬영 WebM 원본,
 실제 프레임에서 추출한 WebP 포스터와 hash manifest를 둔다. MP4와 WebM은 검증 산출물과
 byte 단위로 동일하다. MP4는 촬영 당시에 만든 호환 파일이며 이번 랜딩 작업에서
 화면 자르기·배속·재인코딩·결과 패널 덮어쓰기를 적용하지 않는다. 원본 1440×900 전체 화면을
 표시하고 현재 장면 제목·설명을 player 바로 아래에 둔다.
 사용자가 재생하기 전에는 video src를 연결하지 않으며 autoplay·외부 embed·추적 SDK가
 없다. 기능·장면 전환과 페이지 이탈은 기존 재생을 종료한다. native 재생·전체화면,
-오류 후 다시 시도·직접 파일 링크와 JavaScript 없는 경우의 MP4·WebM 각 15개 링크와
+오류 후 다시 시도·직접 파일 링크와 JavaScript 없는 경우의 MP4 16개·WebM 15개 링크와
 장면 설명을 제공한다. 원본 영상 전체를 미리 내려받지 않는다.
 
 영상의 주소·계정 표시는 시험 환경의 촬영 당시 화면이다. OVN·VXLAN의 검증 패널은
@@ -343,10 +344,23 @@ backend, generic OVN, 수동 peer로 연결하는 두 독립 Single Edge를 구�
 환경 인증이나 클러스터 관리 기능을 의미하지 않는다. 기존 편집 영상 디렉터리는 발행에서
 제외하며 기존 인계의 편집 기록은 역사 증거로 남긴다.
 
-`npm run check`는 기존 문서 gate와 함께 `check-service-videos.mjs`를 실행해 15개 녹화의
-MP4·WebM·포스터 hash, 1440×900 치수, 원본 identity, 정확한 파일 목록, MP4 faststart,
+`npm run check`는 기존 문서 gate와 함께 `check-service-videos.mjs`를 실행해 16개 영상의
+미디어·포스터 hash, 영상별 치수, 원본 identity 또는 GPU 완성본 identity, 정확한 파일 목록, MP4 faststart,
 초기 src·autoplay 부재와 fallback을 검사한다. 전체 미디어는 250 MiB, 개별 파일은 50 MiB
 미만을 budget으로 사용한다. 실제 브라우저의 decode·seek와 원본 대조도 별도로 검증한다.
 새 장면을 추가할 때 데이터·manifest·공개 미디어·gate를 함께 갱신한다.
 [원본 교체 설계](superpowers/specs/2026-09-08-landing-original-videos-design.md)와
 [원본 교체 인계](operations/2026-09-08-landing-original-videos-handoff.md)를 기준으로 검증·원복한다.
+
+### GPU Passthrough 영상
+
+GPU 탭은 2026-09-14 촬영한 RTX 3070 Ti·Windows 11의 124초 한국어 자막 완성본을
+1920×1080 비율로 제공한다. GPU 연결·VM 시작 감사 기록의 설명, Windows 장치 확인과
+30초 Vulkan 렌더링의 실제 녹화, 종료·GPU 원복 결과를 포함한다.
+검수된 완성본을 추가 편집 없이 게시하며, 네트워크 영상의 무편집 원본 계약과 구분한다.
+이 영상에는 별도 WebM 원본 링크를 표시하지 않는다.
+
+플레이어의 화면 비율·안내 문구·원본 링크·문서 링크는 선택한 기능에 맞게 바뀐다.
+GPU 탭의 문서는 가상 머신 가이드로 연결한다. 렌더링 수치를 장기 안정성·게임 성능
+인증으로 표현하지 않는다. [UI 리뷰](ui-reviews/2026-09-15-landing-gpu-passthrough.md)의
+수용 기준을 따른다.

@@ -52,11 +52,18 @@ if (root) {
     clip = next;
     poster.src = clip.poster;
     poster.alt = clip[locale].title;
+    const info = manifest.videos.find(item => item.id === clip.id);
+    poster.width = info.width;
+    poster.height = info.height;
+    find('.pcv-video-frame').style.aspectRatio = `${info.width} / ${info.height}`;
     video.setAttribute('aria-label', clip[locale].title);
     play.setAttribute('aria-label', `${copy.play}: ${clip[locale].title}`);
     find('[data-video-duration]').textContent = duration(clip.id);
     find('[data-video-direct]').href = clip.src;
-    find('[data-video-original]').href = clip.original;
+    const original = find('[data-video-original]');
+    original.hidden = !clip.original;
+    if (clip.original) original.href = clip.original;
+    else original.removeAttribute('href');
     find('[data-scene-title]').textContent = clip[locale].title;
     find('[data-scene-summary]').textContent = clip[locale].summary;
     sceneList.querySelectorAll('[data-scene]').forEach(button => {
@@ -77,6 +84,9 @@ if (root) {
     find('[data-service-title]').textContent = group[locale].title;
     find('[data-service-description]').textContent = group[locale].description;
     find('[data-service-note]').textContent = group[locale].note;
+    find('#service-video-context').textContent = group[locale].context || copy.context;
+    find('[data-service-guide]').href = group.guide || '/ko/infrastructure/networking/';
+    find('[data-service-guide-label]').textContent = group[locale].guide || copy.guide;
     sceneList.replaceChildren(...group.clips.map((item, index) => {
       const button = document.createElement('button');
       button.type = 'button';

@@ -1163,9 +1163,9 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 .pcv-showcase button { font: inherit; cursor: pointer; touch-action: manipulation; }
 .pcv-showcase :is(button, a, video, [tabindex]):focus-visible { outline: 3px solid var(--pcv-accent); outline-offset: 4px; }
 .pcv-showcase-heading { display: flex; align-items: end; justify-content: space-between; gap: 2rem; margin-bottom: 1.5rem; }
-.pcv-showcase-heading h2 { margin-top: 0.65rem !important; font-size: 2.5rem; line-height: 1.15; letter-spacing: -0.025em; font-weight: 600; }
+.pcv-showcase-heading h2 { text-wrap: balance; word-break: keep-all; margin-top: 0.65rem !important; font-size: 2.5rem; line-height: 1.15; letter-spacing: -0.025em; font-weight: 600; }
 .pcv-showcase-lead { color: var(--pcv-muted); font-size: 1.0625rem; line-height: 1.65; white-space: pre-line; word-break: keep-all; }
-.pcv-service-tabs { display: grid; grid-template-columns: repeat(3, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--pcv-line); margin-bottom: 1.5rem; }
+.pcv-service-tabs { display: grid; grid-template-columns: repeat(4, minmax(0, 1fr)); gap: 0; border-block: 1px solid var(--pcv-line); margin-bottom: 1.5rem; }
 .pcv-service-tabs button { display: flex; gap: 1rem; align-items: center; min-width: 0; padding: 1rem 1.5rem; min-height: 5rem; text-align: start; border: 0; border-bottom: 3px solid transparent; background: transparent; color: var(--pcv-muted); transition: background-color 160ms, color 160ms, border-color 160ms; }
 .pcv-service-tabs button + button { border-left: 1px solid var(--pcv-line); }
 .pcv-service-tabs button:hover { background: var(--pcv-soft); color: var(--pcv-ink); }
@@ -1210,6 +1210,9 @@ main:has(.pcv-landing) > .content-panel:first-of-type {
 .pcv-showcase-footnote p { max-width: 35rem; margin-top: 0 !important; }
 
 @media (max-width: 1000px) {
+  .pcv-service-tabs { grid-template-columns: repeat(2, minmax(0, 1fr)); }
+  .pcv-service-tabs button:nth-child(odd) { border-left: 0; }
+  .pcv-service-tabs button:nth-child(n + 3) { border-top: 1px solid var(--pcv-line); }
   .pcv-service-stage { grid-template-columns: minmax(0, 1fr); gap: 1.75rem; }
   .pcv-service-detail h3 { max-width: 32rem; }
   .pcv-video-scene-list { display: grid; grid-template-columns: repeat(2, minmax(0, 1fr)); }

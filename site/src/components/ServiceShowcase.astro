@@ -14,7 +14,7 @@ const duration = (id) => {
   <div class="pcv-shell">
     <div class="pcv-showcase-heading">
       <div>
-        <p class="pcv-eyebrow">NETWORK SERVICES · {serviceGroups.reduce((count, item) => count + item.clips.length, 0)} {locale === 'en' ? 'RECORDINGS' : '개 검증 영상'}</p>
+        <p class="pcv-eyebrow">SINGLE EDGE SERVICES · {serviceGroups.reduce((count, item) => count + item.clips.length, 0)} {locale === 'en' ? 'RECORDINGS' : '개 검증 영상'}</p>
         <h2 id="service-showcase-title">{copy.heading}</h2>
       </div>
       <p class="pcv-showcase-lead">{copy.lead}</p>
@@ -57,11 +57,11 @@ const duration = (id) => {
             </button>
           ))}
         </div>
-        <a class="pcv-service-guide" href="/ko/infrastructure/networking/">{copy.guide} <span aria-hidden="true">→</span></a>
+        <a class="pcv-service-guide" data-service-guide href="/ko/infrastructure/networking/"><span data-service-guide-label>{copy.guide}</span> <span aria-hidden="true">→</span></a>
       </div>
     </div>
     <div class="pcv-showcase-footnote"><p id="service-video-context">{copy.context}</p><p data-service-note>{group[locale].note}</p></div>
-    <noscript><p>{locale === 'en' ? 'Open a recording directly:' : '영상 파일을 직접 열어 보세요:'}</p><ul>{serviceGroups.flatMap(item => item.clips).map(item => <li><a href={item.src}>{item[locale].title}</a> · <a href={item.original}>{copy.original}</a><p>{item[locale].summary}</p></li>)}</ul></noscript>
+    <noscript><p>{locale === 'en' ? 'Open a recording directly:' : '영상 파일을 직접 열어 보세요:'}</p><ul>{serviceGroups.flatMap(item => item.clips).map(item => <li><a href={item.src}>{item[locale].title}</a>{item.original && <> · <a href={item.original}>{copy.original}</a></>}<p>{item[locale].summary}</p></li>)}</ul></noscript>
   </div>
 </section>
 <script>
