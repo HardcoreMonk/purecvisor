@@ -94,10 +94,16 @@ require_literal "backdrop-filter: blur(18px)" "ui/docs.html" "documentation glas
 require_literal "reader-mobile-toc" "ui/docs.html" "documentation reader must expose the compact current-section strip"
 require_literal "reader-code-toolbar" "ui/docs.html" "documentation code blocks must expose the approved toolbar frame"
 require_literal "behavior: 'instant'" "ui/docs.html" "documentation deep links must align immediately after font loading"
-require_literal "22개" "DESIGN.md" "DESIGN.md must require full numbered chapter visibility"
+require_literal "숫자형 H2" "DESIGN.md" "DESIGN.md must require full numbered chapter visibility"
 require_literal "chapter-card" "ui/docs.html" "documentation portal must expose individual chapter cards"
 require_literal '$(UI_DIR)/docs.html' "Makefile" "documentation portal must participate in the service worker cache identity"
-require_literal "docs.html guide.html guide-content.md" "scripts/deploy.sh" "deploy must publish the docs portal with its source and detail reader"
+for doc_asset in docs.html guide.html guide-content.md; do
+  require_regex "^ui/${doc_asset//./\\.}[[:space:]]+ui/${doc_asset//./\\.}[[:space:]]+replace$" \
+    "packaging/ui-assets.manifest" "deploy manifest must publish $doc_asset"
+done
+require_literal 'UI_ASSET_MANIFEST="$PROJECT_DIR/packaging/ui-assets.manifest"' "scripts/deploy.sh" "deploy must load the canonical UI asset manifest"
+require_regex '^[[:space:]]+install_local_ui_manifest_assets$' "scripts/deploy.sh" "local deploy must install manifest assets"
+require_regex '^[[:space:]]+install_ui_manifest_assets "\$RUNTIME_STAGE"$' "scripts/deploy.sh" "remote deploy must install manifest assets"
 require_regex "restguide\\s*:\\s*['\\\"]\\/ui\\/docs\\.html#14-rest-api['\\\"]" "ui/modules/uxlib.js" "retired REST bookmark must replace into the canonical chapter"
 require_regex "href\\s*:\\s*['\\\"]\\/ui\\/docs\\.html#14-rest-api['\\\"]" "ui/modules/accounts.js" "API management must link directly to the canonical REST chapter"
 reject_literal "restguide" "ui/modules/nav.js" "retired REST route must not remain in the dispatcher"

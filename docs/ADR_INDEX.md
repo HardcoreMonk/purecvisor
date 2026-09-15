@@ -1,7 +1,7 @@
 # ADR 적용 상태 인덱스
 
 > **대상:** `purecvisor-single`
-> **현행화 기준:** 2026-08-31
+> **현행화 기준:** 2026-09-15
 > **목적:** ADR 원문 중 현재 Single Edge 공개 리포에 직접 적용되는 결정과 역사 기록으로만 보존되는 결정을 구분한다.
 
 ---
@@ -87,7 +87,7 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0039 | Verified | 제품 Q35 VM에 명시 `pcie-root index=0`과 8개 PCIe root-port를 보장하고 NIC config·MAC·MTU의 재시작 유지와 cleanup을 검증한다. |
 | ADR-0040 | Approved | Local VPC는 Linux bridge 우선 backend, VPC 1:N IPv4 subnet, host 전체 비중첩 CIDR과 legacy bridge 비자동 편입 계약을 사용한다. |
 | ADR-0041 | Approved | Local VPC는 cross-VPC default deny, attachment anti-spoofing, fail-closed 부팅 quarantine, managed bridge single writer와 제한형 Service Publish를 보안 경계로 사용한다. |
-| ADR-0042 | Implemented | 활성. PRIVDROP-1 로컬 후보는 daemon Effective keep-5와 감사된 spawn ceiling을 분리하고, 중앙 spawn의 raw-syscall child setup이 base/storage/signal/DHCP/runtime별 exact capability를 부여한다. LXC 기본 drop 5종은 daemon bounding에서도 제거하고 커널 모듈은 modules-load.d가 선행 준비한다. 안전 C 1344/1344(실 OVS 삭제 1건 skip)+audit 5/5, root 효과·39게이트·정적 반사실은 PASS, main·운영 검증 대기다. |
+| ADR-0042 | Verified | 활성. 원문의 배포·운영 검증 완료 상태를 따른다. daemon Effective keep-5와 감사된 spawn ceiling, 자식별 capability profile은 공개 소스 `22d6912`에 포함됐다. 이 ADR의 완료를 전체 소스 감사·모든 지원 환경 인증으로 확대하지 않는다. |
 | ADR-0043 | Implemented | 물리 bridge를 호스트 L3가 없는 전용 Ethernet 업링크로 제한하는 fail-closed guard, rollback 가능한 create·bind·비휘발 desired-state commit, 부팅 reconcile과 우회 차단을 구현·배포했다. shared가 이 계약을 완화하지 않는다. 격리 dedicated NIC와 host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0044 | Implemented | physical bridge를 `uplink_mode=dedicated\|shared`로 분리한다. shared mode는 관리 NIC의 host L3·master·MAC·MTU를 보존하고 게스트 MAC만 upstream 네트워크에 전달한다. 실제 KVM VM·host reboot 검증 전 `Verified` 승격은 보류한다. |
 | ADR-0045 | Implemented | Local VPC 생성 시 `linux\|ovn` backend를 고정하고 OVN resource를 external ID 기반 single writer로 수렴한다. generic OVN 18개 RPC의 `NET-OVN-01~07` 검증과 별개이며, 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계 fault injection과 공개 지원은 남아 있다. |

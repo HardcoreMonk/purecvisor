@@ -3,6 +3,21 @@
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 
+## 2026-09-15 공개 소스·GPU 테스트 영상·문서 현행화
+
+- 호스트 CPU·메모리 self-healing의 첫 발동 여부를 분리해 부팅 후 600초 이내의 첫 알림이
+  쿨다운에 막히지 않도록 수정했다. 재알림 간격과 정책별 독립성은 유지한다.
+- Single Edge 이벤트·명령 연결과 공개 소스맵 부재의 반사실 검사를 `check-all`·`dev-check`에
+  연결했다. 공개 `check-all`은 40개 계약 게이트다.
+- [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)
+  공개 소스 검증: C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP.
+  전체 감사와 지원 환경 인증은 별도 미완료 상태다.
+- 랜딩에 RTX 3070 Ti·Windows 11 GPU Passthrough 124초 영상을 추가했다.
+  기존 네트워크 원본 15편을 유지하며 4개 기능·16편을 제공한다.
+- 운영 가이드와 제품 내장 도움말의 로컬 HTTP 기본값을 `127.0.0.1:8080`으로 맞추고,
+  현재 검증 명령·공개 문서 인덱스·검증 기록·사이트 갱신 날짜를 정리했다.
+- 공개 제품 버전은 `2.0.0`을 유지한다.
+
 ## 2026-09-08 랜딩 기능 검증 원본 영상
 
 - 편집 영상 6편을 검증 당시 MP4 15편과 촬영 WebM 원본으로 교체했습니다.

@@ -26,8 +26,9 @@
    `InaccessiblePaths`, `TemporaryFileSystem`, `PrivateMounts`를 추가하지 않는다.
 2. WireGuard overlay에는 `wireguard-tools`, `iproute2`, `dnsmasq`, 커널
    WireGuard 모듈이 필요하다. TLS 자동 프로비저닝에는 `openssl` CLI가 필요하다.
-3. 외부 API는 HTTPS 443/tcp를 사용한다. HTTP 80/tcp는 기본적으로 loopback
-   전용이며 외부 방화벽에 열지 않는다.
+3. 외부 API는 HTTPS 443/tcp를 사용한다. 데몬의 평문 HTTP 기본값은
+   `127.0.0.1:8080`이며 외부 방화벽에 열지 않는다. 선택형 NGINX의 HTTP 80
+   리다이렉트와 데몬의 로컬 HTTP 리스너는 별개다.
 4. BPF 빌드에는 `clang`, `bpftool`, `libbpf-dev`와 커널 BTF가 필요하다.
    런타임에는 `pcv_lsm.bpf.o`, `pcv_shared_bridge.bpf.o`, `manifest.json`을
    함께 배포한다.

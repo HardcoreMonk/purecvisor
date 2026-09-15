@@ -56,3 +56,11 @@ VPC 복귀·16:10 표시·원본 링크 복원·재생 중지, 키보드 End·�
 
 캡처·검사 결과는 로컬 Git 메타데이터의 `gpu-landing-20260915/`에 보존한다.
 공개 배포 결과는 같은 위치의 후행 운영 인계와 publication receipt로 기록한다.
+
+## 공개 배포 확인 — 2026-09-15
+
+[`52587a5`](https://github.com/HardcoreMonk/purecvisor/commit/52587a5f4cc637d34a6a55a48c0cd76e93c800c9)의
+[Pages 실행](https://github.com/HardcoreMonk/purecvisor/actions/runs/34974574546)이 성공했다.
+실제 `purecvisor.site`의 `/`·`/ko/`·`/en/`에서 로컬과 같은 27개 브라우저 검사를 통과했고,
+GPU 파일 identity·Range 응답·재생·seek와 기존 VPC 복귀를 확인했다.
+공개 영상은 지정 GPU의 짧은 기능 검증 기록이며 장시간 안정성 인증을 의미하지 않는다.

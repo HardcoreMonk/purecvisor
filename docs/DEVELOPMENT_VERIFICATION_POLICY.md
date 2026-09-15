@@ -2,10 +2,10 @@
 
 > **대상:** PureCVisor Single Edge
 > **목적:** 기능 개발, 버그 수정, 릴리스 직전 검증을 같은 기준으로 운영하기 위한 공식 규칙
-> **현행화 기준:** 2026-09-07
+> **현행화 기준:** 2026-09-15
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
-> **2026-09-07 현황:** 개발선의 지정 UI 시정·독립 리뷰·두 노드 정적 UI 배포 확인은 완료했으나 전체 감사와 지원 환경 인증은 미완료다. [가이드 품질 게이트](GUIDE.md#227-2026-09-07-검토시정-현황)의 회차별 범위를 따른다. Pages 문서 현행화와 공개 소스의 시정 포함 여부는 별도로 확인한다.
+> **2026-09-15 현황:** 공개 소스 `22d6912`에 첫 호스트 self-healing 알림 쿨다운과 공개 UI 표면 게이트 수정이 반영됐다. 지정 공개 검증은 통과했지만 전체 감사·지원 환경 인증은 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
 
 ---
 
@@ -61,6 +61,12 @@
 `make check-single-ui-surface`는 현재 이벤트 조회 카드, 경보·감사 조회 및 명령 버튼의
 연결을 검사하고 임시 사본의 연결 삭제 회귀를 실행한다. `make check-all`과 `make dev-check`에
 포함되며 별도 실행을 빠뜨려도 같은 계약을 검증한다. 공개판은 소스맵 파일·링크, manifest 항목과 번들 참조의 부재를 검사한다.
+
+호스트 self-healing의 첫 발동 여부·쿨다운을 바꾸면
+`tests/test_self_healing_anomaly.c`의 `/selfhealing/hostwide_cooldown_policy_scoped`와
+VM 대상 쿨다운 회귀를 실행한다. 단조 시각 0, 600초 전·정확한 만료 경계,
+CPU·메모리 정책 독립성을 확인하고, 실제 수집기의 학습·정책 입력 확인은 Level 2·3과
+[기능 시나리오 5.13절](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md#513-호스트-self-healing-알림과-쿨다운)에서 별도로 판정한다.
 
 ### 4.1 필수 대상
 

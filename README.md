@@ -232,6 +232,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 
 | 문서 | 용도 |
 |------|------|
+| [docs/README.md](docs/README.md) | 전체 문서 진입점과 현행 기준·과거 기록 구분 |
 | [docs/GUIDE.md](docs/GUIDE.md) | 제품, 설치, 운영 통합 가이드 |
 | [docs/DATABASE_STRUCTURE.md](docs/DATABASE_STRUCTURE.md) | 공개 SQLite 9개 저장소의 책임과 복구 경계 |
 | [DESIGN.md](DESIGN.md) | Web UI 시각 규격, token, typography, component state |

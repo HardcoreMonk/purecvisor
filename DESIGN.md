@@ -311,7 +311,7 @@ git diff --check
   active state는 `#0d0d0d` 배경과 흰 글자를 사용한다. cyan은 focus·본문 link에 제한한다.
   외부 문서 사이트의 로고, 고유 색, 문구와 일러스트는 복제하지 않는다.
 - 8개 작업 category를 제목·설명으로 구분하고, 그 아래 `guide-content.md`의 숫자형 H2
-  22개를 각각 제목·한 줄 설명·정확한 deep link로 모두 노출한다. 상위 category 하나만
+  21개를 각각 제목·한 줄 설명·정확한 deep link로 모두 노출한다. 상위 category 하나만
   연결해 나머지 장을 검색 안에 숨기지 않는다.
 - chapter card는 desktop 3열, 1120px 이하 2열, 520px 이하 1열로 전환하며 radius는 8px을
   넘기지 않는다. 그림자보다 border와 surface 차이를 사용하고, 전체 본문은 상세 reader에 둔다.

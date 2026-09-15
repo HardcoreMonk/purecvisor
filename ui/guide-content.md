@@ -9,6 +9,8 @@
 > 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
 > 통과해야 합니다.
 >
+> **문서 현행화(2026-09-15)**: 공개 소스 검증, 호스트 self-healing 알림과 현재 설정·품질 게이트를 반영했습니다. 공개 현황과 잔여 검증은 22.8절을 따릅니다.
+>
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
 ---
@@ -32,8 +34,8 @@
 16. [설정 레퍼런스](#16-설정-레퍼런스)
 17. [트러블슈팅](#17-트러블슈팅)
 18. [부록](#18-부록)
-19. [개발자 & 엔지니어 가이드](#19-개발자-엔지니어-가이드)
-20. [영업 & 마케팅 가이드](#20-영업-마케팅-가이드)
+19. [개발자 & 엔지니어 가이드](#19-개발자--엔지니어-가이드)
+20. [영업 & 마케팅 가이드](#20-영업--마케팅-가이드)
 21. [아키텍처 리팩토링 가이드](#21-아키텍처-리팩토링-가이드)
 22. [품질 게이트 가이드](#22-품질-게이트-가이드)
 
@@ -71,7 +73,7 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
         v
 +-------+-------+--------------------+
 | UDS 서버              | REST 서버           |
-| (JSON-RPC 2.0)        | (HTTP :80 / HTTPS :443) |
+| (JSON-RPC 2.0)        | (loopback :8080 / HTTPS :443) |
 | io_uring 비동기 I/O   | libsoup3, JWT, CORS  |
 +-------+-------+--------------------+
         |
@@ -147,7 +149,7 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
 sudo systemctl start purecvisorsd   # Single Edge
 
 # 2. 상태 확인
-curl -s http://localhost:80/api/v1/health | python3 -m json.tool
+curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
 ```
 
 정상 응답 예시:
@@ -177,7 +179,7 @@ OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol
 # 3. bootstrap admin으로 첫 인증 토큰 발급
 # 첫 설치에는 내장 기본 비밀번호가 없습니다.
 # daemon.conf 또는 PURECVISOR_ADMIN_PASSWORD로 bootstrap 비밀번호를 먼저 설정합니다.
-TOKEN=$(curl -s -X POST http://localhost:80/api/v1/auth/token \
+TOKEN=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/token \
   -H 'Content-Type: application/json' \
   -d '{"username":"admin","password":"<configured-admin-password>"}' | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 
@@ -193,7 +195,7 @@ pcvctl vm start web-prod
 pcvctl vm list
 
 # 7. Web UI 접속
-echo "http://localhost:80/ui/ (admin / configured password)"
+echo "http://127.0.0.1:8080/ui/ (admin / configured password)"
 ```
 
 ### 1.5 접속 정보 요약
@@ -201,13 +203,13 @@ echo "http://localhost:80/ui/ (admin / configured password)"
 | 인터페이스 | 주소 | 인증 |
 |-----------|------|------|
 | UDS 소켓 | `/var/run/purecvisor/daemon.sock` | 없음 (로컬) |
-| REST API | `http://localhost:80/api/v1/` | JWT HS256 |
+| REST API | `http://127.0.0.1:8080/api/v1/` | JWT HS256 |
 | HTTPS | `https://localhost:443/api/v1/` | JWT HS256 + TLS |
-| Web UI | `http://localhost:80/ui/` | bootstrap admin `admin / configured password` |
-| WebSocket (이벤트) | `ws://localhost:80/api/v1/ws/events` | JWT |
-| WebSocket (VNC) | `ws://localhost:80/api/v1/ws/vnc` | JWT |
-| Prometheus | `http://localhost:80/api/v1/metrics` | 없음 |
-| Health | `http://localhost:80/api/v1/health` | 없음 |
+| Web UI | `http://127.0.0.1:8080/ui/` | bootstrap admin `admin / configured password` |
+| WebSocket (이벤트) | `ws://127.0.0.1:8080/api/v1/ws/events` | JWT |
+| WebSocket (VNC) | `ws://127.0.0.1:8080/api/v1/ws/vnc` | JWT |
+| Prometheus | `http://127.0.0.1:8080/api/v1/metrics` | 없음 |
+| Health | `http://127.0.0.1:8080/api/v1/health` | 없음 |
 
 ### 1.6 수동 RPC 테스트
 
@@ -1142,7 +1144,7 @@ echo '{"jsonrpc":"2.0","method":"vm.create","params":{
 #### REST API
 
 ```bash
-curl -X POST http://localhost:80/api/v1/vms \
+curl -X POST http://127.0.0.1:8080/api/v1/vms \
   -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{
@@ -1282,31 +1284,31 @@ echo '{"jsonrpc":"2.0","method":"vm.rename","params":{
 
 ```bash
 # VM 목록
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms | python3 -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms | python3 -m json.tool
 
 # VM 시작
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod/start
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/start
 
 # VM 중지
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod/stop
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/stop
 
 # VM 일시 정지
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod/suspend
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/suspend
 
 # VM 재개
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod/resume
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/resume
 
 # VM 삭제
-curl -X DELETE -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod
+curl -X DELETE -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod
 
 # VM 이름 변경
 curl -X PUT -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"new_name":"web-prod-01"}' \
-  http://localhost:80/api/v1/vms/web-prod/rename
+  http://127.0.0.1:8080/api/v1/vms/web-prod/rename
 
 # 삭제 상태 확인
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/vms/web-prod/delete-status
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/delete-status
 ```
 
 ### 3.3 핫플러그
@@ -1395,7 +1397,7 @@ pcvctl vm disk-resize web-prod vda 50
 
 # REST API
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/disk-resize \
+  http://127.0.0.1:8080/api/v1/vms/web-prod/disk-resize \
   -H "Content-Type: application/json" \
   -d '{"new_size_gb": 50}'
 ```
@@ -1651,25 +1653,25 @@ REST API:
 ```bash
 # Guest Agent 상태 진단
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/guest-agent
+  http://127.0.0.1:8080/api/v1/vms/web-prod/guest-agent
 
 # Guest Agent channel 보정
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/guest-agent-channel
+  http://127.0.0.1:8080/api/v1/vms/web-prod/guest-agent-channel
 
 # Guest Agent ping
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/guest-ping
+  http://127.0.0.1:8080/api/v1/vms/web-prod/guest-ping
 
 # Guest Agent 명령 실행
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/vms/web-prod/guest-exec \
+  http://127.0.0.1:8080/api/v1/vms/web-prod/guest-exec \
   -d '{"command": "cat /etc/hostname"}'
 
 # 게스트 파일시스템 디스크 사용량 조회
 curl -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/disk-usage
+  http://127.0.0.1:8080/api/v1/vms/web-prod/disk-usage
 ```
 
 VM 내부 설치 명령:
@@ -1745,7 +1747,7 @@ REST API:
 ```bash
 # 개별 VM 메트릭
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms/web-prod/metrics | python3 -m json.tool
+  http://127.0.0.1:8080/api/v1/vms/web-prod/metrics | python3 -m json.tool
 ```
 
 ---
@@ -1797,13 +1799,13 @@ REST API:
 
 ```bash
 # 컨테이너 목록
-curl -s -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/containers | python3 -m json.tool
+curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/containers | python3 -m json.tool
 
 # 컨테이너 시작
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/containers/app-ctr/start
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/containers/app-ctr/start
 
 # 컨테이너 중지
-curl -X POST -H "Authorization: Bearer $TOKEN" http://localhost:80/api/v1/containers/app-ctr/stop
+curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/containers/app-ctr/stop
 ```
 
 ### 4.3 명령 실행
@@ -2604,22 +2606,22 @@ pcvctl network qos-remove vnet0
 ```bash
 # per-VM SLA 설정 (POST /api/v1/rpc 패스스루)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"qos.vm.set","params":{
         "vm":"web-prod","qos_min_mbps":100,"qos_max_mbps":500},"id":"1"}'
 
 # per-tenant SLA 설정
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"qos.tenant.set","params":{
         "tenant":"acme","min_mbps":200,"max_mbps":1000},"id":"1"}'
 
 # VM 설정과 tenant별 강제 통계를 다시 조회한다.
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"qos.vm.get","params":{"vm":"web-prod"},"id":"1"}'
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"qos.stats","params":{"tenant":"acme"},"id":"1"}'
 ```
 
@@ -2720,19 +2722,19 @@ VM을 테넌트 오버레이에 붙이려면 `vm.create` 시 `nic_type`을 `tena
 ```bash
 # 테넌트 오버레이 생성 (POST /api/v1/rpc 패스스루)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"tenant_overlay.create","params":{
         "tenant":"acme"},"id":"1"}'
 
 # VM을 오버레이에 참여
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"tenant_overlay.attach_vm","params":{
         "tenant":"acme","vm":"web-prod"},"id":"1"}'
 
 # tenant subnet과 VM overlay IP가 등록됐는지 다시 조회
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"tenant_overlay.get","params":{
         "tenant":"acme"},"id":"1"}'
 ```
@@ -3058,7 +3060,7 @@ counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율
 
 ```bash
 # eno1을 실제 uplink 이름으로 교체한다.
-curl -s http://localhost:80/api/v1/metrics | \
+curl -s http://127.0.0.1:8080/api/v1/metrics | \
   grep -E '^(node_network_(receive|transmit)_(bytes|errors|drop)_total\{device="eno1"\}|node_nf_conntrack_(entries|entries_limit))'
 
 # 네트워크 인터페이스 메트릭
@@ -3191,10 +3193,10 @@ PureCVisor는 외부 에이전트 없이 자체 메트릭 수집, 알림 엔진,
 
 ```bash
 # Prometheus 메트릭 엔드포인트 (인증 불필요)
-curl -s http://localhost:80/api/v1/metrics
+curl -s http://127.0.0.1:8080/api/v1/metrics
 
 # 특정 메트릭 필터
-curl -s http://localhost:80/api/v1/metrics | grep purecvisor_cb_state
+curl -s http://127.0.0.1:8080/api/v1/metrics | grep purecvisor_cb_state
 ```
 
 ### 8.2 프로세스 모니터
@@ -3214,7 +3216,7 @@ pcvctl monitor processes --top 10
 
 # REST
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/processes | python3 -m json.tool
+  http://127.0.0.1:8080/api/v1/processes | python3 -m json.tool
 
 # RPC
 echo '{"jsonrpc":"2.0","method":"monitor.processes","params":{"top":10},"id":"1"}' \
@@ -3326,11 +3328,11 @@ pcvctl alert ack --id <alert-id>
 
 # REST
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/alerts | python3 -m json.tool
+  http://127.0.0.1:8080/api/v1/alerts | python3 -m json.tool
 
 # REST — per-alert ACK (OPERATOR 이상)
 curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/alerts/<alert-id>/ack
+  http://127.0.0.1:8080/api/v1/alerts/<alert-id>/ack
 
 # RPC
 echo '{"jsonrpc":"2.0","method":"alert.history","params":{},"id":"1"}' \
@@ -3418,10 +3420,10 @@ Grafana 대시보드: `192.0.2.61:3000` (Example Operations 통합 대시보드)
 
 ### 8.11 WebSocket 메트릭 Push (v1.0)
 
-`ws://localhost:80/api/v1/ws/events`로 10초 주기 실시간 메트릭을 push한다.
+`ws://127.0.0.1:8080/api/v1/ws/events`로 10초 주기 실시간 메트릭을 push한다.
 
 ```javascript
-const ws = new WebSocket('ws://localhost:80/api/v1/ws/events');
+const ws = new WebSocket('ws://127.0.0.1:8080/api/v1/ws/events');
 ws.onmessage = (e) => {
     const data = JSON.parse(e.data);
     // { type: "metrics", cpu: 45.2, mem: 62.1, ... }
@@ -3453,7 +3455,7 @@ retis가 설치되어 있지 않으면 추적은 조용히 degraded 상태로 �
 ```bash
 # 특정 VM 트래픽 30초 추적 (POST /api/v1/rpc 패스스루)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://localhost:80/api/v1/rpc \
+  http://127.0.0.1:8080/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"debug.trace.start","params":{
         "timebox_sec":30,"vm":"web-prod"},"id":"1"}'
 ```
@@ -3606,7 +3608,7 @@ echo '{"jsonrpc":"2.0","method":"backup.s3_upload","params":{
 ```bash
 # REST — 페이지네이션
 curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://localhost:80/api/v1/backups/web-prod/history?offset=0&limit=20"
+  "http://127.0.0.1:8080/api/v1/backups/web-prod/history?offset=0&limit=20"
 ```
 
 ### 9.9 스냅샷 일괄 삭제
@@ -3642,17 +3644,17 @@ PureCVisor는 엔터프라이즈급 다계층 보안 아키텍처를 구현한�
 
 ```bash
 # 토큰 발급
-TOKEN=$(curl -s -X POST http://localhost:80/api/v1/auth/token \
+TOKEN=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/token \
   -d '{"username":"admin","password":"<configured-admin-password>"}' \
   | python3 -c "import sys,json;print(json.load(sys.stdin)['access_token'])")
 
 # 토큰 갱신
-curl -s -X POST http://localhost:80/api/v1/auth/refresh \
+curl -s -X POST http://127.0.0.1:8080/api/v1/auth/refresh \
   -d "{\"refresh_token\":\"$REFRESH_TOKEN\"}"
 
 # API 호출
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/vms
+  http://127.0.0.1:8080/api/v1/vms
 ```
 
 #### PBKDF2-SHA256 패스워드 해싱 (v1.0)
@@ -3724,7 +3726,7 @@ pcvctl auth apikey revoke --key-id "pk_abc123"
 
 # API Key로 인증
 curl -s -H "X-API-Key: pk_abc123.secret" \
-  http://localhost:80/api/v1/vms
+  http://127.0.0.1:8080/api/v1/vms
 ```
 
 ### 10.4 JWT Bearer와 CSRF 정책
@@ -3933,7 +3935,7 @@ pcvctl audit list --limit 50
 
 # REST
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/audit?limit=50
+  http://127.0.0.1:8080/api/v1/audit?limit=50
 ```
 
 ### 10.11 /proc hidepid 하드닝 (2.0, D08)
@@ -4013,24 +4015,24 @@ IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간�
 ```bash
 # 엔진 상태 조회
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/status
+  http://127.0.0.1:8080/api/v1/suricata/status
 
 # 현재 inline 모드와 fail-open 설정 확인
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/ips/status
+  http://127.0.0.1:8080/api/v1/suricata/ips/status
 
 # IPS 인라인 경로 활성화 (queue_num/fail_open은 daemon.conf 값 사용)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -X POST http://localhost:80/api/v1/suricata/ips/enable
+  -X POST http://127.0.0.1:8080/api/v1/suricata/ips/enable
 
 # 차단 대상 SID 추가 (비동기 — 즉시 {"status":"started"} 반환)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  -X POST http://localhost:80/api/v1/suricata/ips/drop \
+  -X POST http://127.0.0.1:8080/api/v1/suricata/ips/drop \
   -d '{"sids":[2034647,2034648]}'
 
 # 반영 확인 (파생 룰셋 재생성 완료까지 최악 ~65초)
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://localhost:80/api/v1/suricata/ips/drop
+  http://127.0.0.1:8080/api/v1/suricata/ips/drop
 ```
 
 > **헬스 감시**: `suricata.service`·`suricata-ips` 유닛은 데몬의 보안 헬스 tick이 같은 주기로 probe 하며, FAILED 감지 시 bounded `systemctl restart`(30초 상한) + 감사 로그로 자동 복구합니다.
@@ -4203,19 +4205,35 @@ echo '{"jsonrpc":"2.0","method":"ai.baseline.reset","params":{},"id":"1"}' \
 
 ### 12.3 자가치유 5계층 안전 스택
 
-```
-Layer 5: 승인 큐 (v1.0) — 위험 액션은 관리자 승인 대기
-Layer 4: Rate Limit — 5분 내 최대 3개 자동 액션
-Layer 3: 쿨다운 — 동일 대상 재치유 최소 간격
+```text
+Layer 5: 승인 큐 — 승인이 필요한 액션은 관리자 승인 대기
+Layer 4: Rate Limit — 5분 내 최대 3개 자동 액션 (alert_only 제외)
+Layer 3: 쿨다운 — VM은 정책·대상별, 호스트 알림은 정책별 최소 간격
 Layer 2: 합의 검증 — 4-프로바이더 가중 쿼럼 60%+
 Layer 1: 정책 매칭 — 사전 정의된 치유 정책
 ```
 
-치유 액션 예시:
-- VM CPU 과부하 → vCPU hot-add
-- VM 메모리 부족 → memory balloon 조정
-- 프로세스 OOM → VM 재시작
-- 디스크 부족 → 오래된 스냅샷 정리
+**self-healing CPU 알림**은 호스트 CPU 이상 또는 예측 부하에 대한 `cpu-overload`
+정책의 `alert_only` 기록입니다. CPU를 강제로 제한하거나 VM을 재시작하는 지시가 아닙니다.
+기본 `[ai].mode`는 `dry_run`이므로 판단을 로그·감사·치유 이력에 기록합니다.
+`active`에서도 CPU·메모리 정책의 액션은 `alert_only`입니다.
+
+| 정책 | 이상 이벤트 입력의 Z-score 하한 | 5분 뒤 사용률 예측 조건 | 액션 | 쿨다운 |
+|---|---|---|---|---|
+| `cpu-overload` | 3.0 | CPU 예측값 > 85% | `alert_only` | 600초 |
+| `mem-pressure` | 2.5 | 메모리 예측값 > 90% | `alert_only` | 600초 |
+
+이상 이벤트와 예측은 별도 진입 경로입니다. 85%·90%는 현재 사용률의 고정 알림 임계값이
+아니라 예측 경로의 조건이며, 이상 이벤트는 수집·학습과 탐지 조건을 먼저 통과해야 합니다.
+
+2026-09-15 공개 수정부터 호스트 정책은 실제 첫 발동 여부를 따로 저장합니다. 조건에 맞는
+첫 이벤트는 부팅 후 600초 이내에도 기록하며, 이후 같은 정책의 반복은 600초 동안 억제합니다.
+CPU와 메모리는 서로의 쿨다운을 소비하지 않습니다. 이 수정이 이상탐지의 초기 학습 시간을
+없애지는 않습니다. VM 대상 정책의 쿨다운은 기존처럼 정책·VM 조합별로 유지합니다.
+
+실제 VM 재시작은 대상이 지정된 `vm-unresponsive`의 별도 `restart` 정책과 실행 모드·안전
+가드를 따릅니다. CPU 알림을 자동 vCPU 증설, 메모리 balloon 조정이나 스냅샷 정리 완료로
+해석하지 않습니다.
 
 ### 12.4 승인 큐 (v1.0)
 
@@ -4267,10 +4285,12 @@ per-VM PSI 연결 전의 이상탐지는 `/proc/pressure/*`의 **노드 전역 P
 
 ### 13.1 개요
 
+아래 loopback URL은 제품 노드 안에서의 로컬 점검 예시입니다. 원격 브라우저는 설치 시 설정한 관리 주소의 `https://<관리-주소>/ui/`와 `wss://`를 사용합니다.
+
 | 항목 | 값 |
 |------|-----|
-| URL | `http://localhost:80/ui/` |
-| 이벤트 센터 | `http://localhost:80/ui#/ops-triage` |
+| URL | `http://127.0.0.1:8080/ui/` |
+| 이벤트 센터 | `http://127.0.0.1:8080/ui#/ops-triage` |
 | bootstrap admin | `admin / configured password` |
 | 전용 admin | 설치 직후 RBAC `admin` 역할 사용자 추가 권장 |
 | 앱 셸 | 고정 사이드바 트리(236px) + topbar(브레드크럼·통합 검색·세션) + 글로벌 statusbar |
@@ -4396,8 +4416,8 @@ git diff --check
 
 ### 13.7 WebSocket 실시간 이벤트
 
-- `ws://localhost:80/api/v1/ws/events` — 메트릭 push (10초)
-- `ws://localhost:80/api/v1/ws/vnc` — noVNC WebSocket 프록시
+- `ws://127.0.0.1:8080/api/v1/ws/events` — 메트릭 push (10초)
+- `ws://127.0.0.1:8080/api/v1/ws/vnc` — noVNC WebSocket 프록시
 
 유휴 타임아웃: 300초 미활동 시 자동 종료. 최대 동시 연결: 1,000.
 
@@ -5211,7 +5231,7 @@ echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
 # Health 프로브
-curl -s http://localhost:80/api/v1/health | python3 -m json.tool
+curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
 
 # 브릿지/nftables
 ip link show type bridge && brctl show
@@ -5389,20 +5409,26 @@ make cppcheck
 
 ### 18.6 프로젝트 통계
 
-다음 수치는 2026-08-14 물리 bridge 후보를 포함한 로컬 작업트리 기준 스냅샷이다. 고정 계약이 아니라 현행 확인용이며, 릴리스 판단은 `git`, `Makefile`, 정적 게이트 출력이 우선한다.
+다음 수치는 2026-09-15 공개 소스 `22d6912`가 포함된 `main`의 추적 파일과
+`Makefile`, `make check-rbac`를 대조한 스냅샷입니다. 테스트 통과 수는 같은 날 공개 소스
+검증 회차의 기록이며, 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
 
-| 항목 | 2026-08-14 기준 |
-|------|--------------------------|
+| 항목 | 2026-09-15 기준 |
+|------|----------------|
 | C 표준 | `-std=gnu23` |
-| 에디션 | Single Edge 공개 범위 |
-| RPC 등록/정책 | `make check-rbac` 기준 RPC 304건, 정책 매핑 251건 |
-| C/H 소스 | 공개 stage 기준 C 파일 150개, 헤더 146개 |
-| Web UI | `ui/modules/*.js` 30개와 로컬 vendor 자산 |
-| 문서 | 공개 운영 가이드, 검증 정책, ADR |
-| 테스트 | C·통합·UI·정적 계약 테스트 |
-| 배포 구성 | Single Edge 단일 노드 검증 환경 |
-| 릴리스 검증 | `make test` · network UI · shared 커널 packet path · `make check-all` 38게이트 · release/BPF build |
-| 주요 정적 게이트 | `make check-all`(38종 — 정본은 Makefile `check-all:` 의존 목록) — `make check-rbac`, `scripts/check_audit_placement.py`, `scripts/check_help_counts.py`, `scripts/check_ui_bundle_fresh.py`, UI CSP/vendor 자산 검사 등 |
+| 에디션·버전 | Single Edge · `2.0.0` |
+| RPC 등록/정책 | RPC 307건, 정책 매핑 252건, 조회성 VIEWER 기본 73건 (`make check-rbac`) |
+| C/H 소스 | `src/` 아래 C 156개, 헤더 143개, 총 189,427행 (공백 포함) |
+| Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 64개 |
+| 테스트 파일 | `tests/` C 112개, `tests/integration/` 111개, `tests/ui/*.test.mjs` 59개 |
+| 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
+| 공개 소스 검증 기록 | C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP |
+| 계약 게이트 | `make check-all` 40개 — 정확한 목록은 Makefile 의존성과 22.4절 |
+| 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
+
+파일 수는 `git ls-files`의 해당 경로·확장자로 집계합니다. 등록 테스트 수·실행 통과 수와
+소스 파일 수는 서로 다른 값입니다. 과거 2026-08-31 C 1,375/1,375·게이트 38/38 기록은
+22.7절의 과거 회차와 함께 읽습니다.
 
 ---
 
@@ -5798,7 +5824,7 @@ typedef void (*PcvDispatchHandler)(
   <type>(scope): <description>
 
 예시:
-  feat: VM 라이브 마이그레이션 대역폭 제한
+  feat: VM 스냅샷 목록 필터 추가
   fix(rest_server): rate limiter 1024 IP 우회 수정
   refactor: C11 → C23 전환
   docs: CHANGELOG.md v1.0 업데이트
@@ -5812,38 +5838,39 @@ PureCVisor는 커밋 훅과 계약 게이트 타깃으로 코드 품질을 자�
 
 ```
 커밋 시:
-  pre-commit hook (조건부, 최대 46 게이트) → commit-msg hook (1단계) → 커밋 완료
+  설치된 pre-commit hook (변경 영역별 조건부 검사) → 선택 설치한 commit-msg hook → 커밋 완료
 
 릴리스 전:
-  make check-all (계약 게이트 29종) + make test (1,218건) → 릴리스 허용
+  make check-all (계약 게이트 전량) + make test (등록된 전체 테스트) → 검증 정책의 릴리스 조건 확인
 ```
 
 pre-commit은 staged 변경 종류(C 소스 / API / UI / 전체)를 보고 실행할 게이트를 고르므로 실제 실행
 수는 커밋마다 다릅니다. 문서만 바꾼 커밋은 빌드·테스트 게이트를 전부 건너뜁니다. 반면
-`make check-all`은 조건 분기 없이 29종을 매번 전부 돌립니다.
+`make check-all`은 조건 분기 없이 **의존 목록 전량**을 매번 돌립니다. 게이트 수의 정본은 항상
+Makefile 의 `check-all:` 의존 목록입니다 — 문서의 숫자가 어긋나면 Makefile 이 옳습니다.
 
-### 22.2 pre-commit hook (조건부 46 게이트)
+### 22.2 pre-commit hook (변경 영역별 조건부 검사)
 
 ```bash
-# 설치
+# pre-commit 설치
 make install-hooks
-# 또는
-cp scripts/pre-commit .git/hooks/pre-commit && chmod +x .git/hooks/pre-commit
-cp scripts/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
+# 커밋 메시지 형식 검사도 사용할 경우 별도 설치
+cp scripts/commit-msg .git/hooks/commit-msg
+chmod +x .git/hooks/commit-msg
 ```
 
 | 단계 | 게이트 | 트리거 | 차단 |
 |------|--------|--------|------|
-| 1 | 클러스터 빌드 경고 0 | C 변경 | 차단 |
+| 1 | 기본 빌드(`make all`, Single Edge) 경고 0 | C 변경 | 차단 |
 | 2 | Single Edge 빌드 경고 0 | C 변경 | 차단 |
-| 3 | 유닛 테스트 1,218건 (200건 최소) | C 변경 | 차단 |
+| 3 | 등록된 유닛 테스트 (hook 최소 200건) | C 변경 | 차단 |
 | 4 | REST↔RPC 정합성 | API 변경 | 차단 |
-| 4b~4z-2 | 계약 게이트 27종 (22.4의 29종 중 26종 + `check-help-counts`) | 해당 영역 변경 | 차단 |
+| 4 계열 | 변경 영역별 계약 게이트와 도움말 수 검사 (`scripts/pre-commit`의 조건이 정본) | 해당 영역 변경 | 차단 |
 | 5 | 프론트엔드 패턴 (10건 임계값) · ESLint · OpenAPI 동기화 · UI 번들 최신성 · XSS 패턴 · i18n 키 정합성 | UI 변경 | 차단 |
 | 6 | cppcheck 정적 분석 에러 | C 변경 + cppcheck 설치 | 차단 |
 | 7 | 바이너리 크기 3MB 상한 | C 변경 | 차단 |
 | 8 | SAFE 통합 테스트 + 보안 스캔 (OWASP Top 10) | API/UI + 데몬 실행 | 차단 |
-| 9 | 문서 정합성 (RPC/테스트 수) | C 변경 | 경고 |
+| 9 | 문서에 RPC/테스트 수가 있을 때 정합성 보조 검사 | C 변경 | 경고 |
 | 10 | 신규 TODO/FIXME | C 변경 | 경고 |
 | 11 | ASan/UBSan test_runner (5분 타임아웃) | C 변경 + sanitize 가능 | 차단 |
 | 12 | Valgrind definite leak | C 변경 + valgrind 설치 | 차단 |
@@ -5861,12 +5888,12 @@ cp scripts/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
   <type>(scope): <설명>
 
 예시:
-  feat: VM 라이브 마이그레이션 대역폭 제한
+  feat: VM 스냅샷 목록 필터 추가
   fix(rest_server): rate limiter 우회 수정
   perf: json_generator → json_to_string 전환
 ```
 
-### 22.4 계약 게이트 일괄 — `make check-all` (38게이트)
+### 22.4 계약 게이트 일괄 — `make check-all` (40게이트)
 
 `make check-all`은 "방어를 제거하면 RED가 되는" 반사실 게이트(ADR-0025)를 한 번에 돌리는 릴리스
 기준선입니다. pre-commit은 같은 계열을 변경 영역에 따라 조건부로 나눠 실행하고, `check-help-counts`
@@ -5903,22 +5930,30 @@ cp scripts/commit-msg .git/hooks/commit-msg && chmod +x .git/hooks/commit-msg
 | `check-ws-token-url` | WS URL-query 토큰 인증 제거 (A07) |
 | `check-zpool-suspend-recover` | ZFS 풀 SUSPENDED 탐지 + 가드된 자동복구 |
 | `check-deb-apparmor` | 2.0 deb AppArmor 미부착 (ADR-0028) |
-| `check-public-comments` | 자체 소스 주석·docstring과 Web UI 소스맵 부재 검사 |
+| `check-public-comments` | 자체 소스 설명 주석 0건과 UI 소스맵 제외 정책 |
 | `check-runtime-prereqs` | 배포 런타임 전제 배선 · nginx 종단 · LIO 모듈 패키징 |
 | `check-vendor-integrity` | 벤더링 자산 SHA-256 핀 — 전수 등재·유령·심링크 우회 차단 (A03) |
 | `check-npm-lockfile` | npm 의존 SRI 핀·레지스트리 단일 출처·lock 드리프트 0 (A03) |
 | `check-deb-supply-chain` | deb 의존 버전 하한 배선·md5sums 전수·벤더 핀 전이 (A03) |
-| `check-fe-rpc-params` | UI 요청 파라미터와 백엔드 핸들러 계약 |
-| `check-network-mode-contract` | UI network mode enum과 백엔드 whitelist 정합성 |
-| `check-iscsi-chap-argv` | initiator CHAP 비밀번호의 argv 재도입 차단 |
-| `check-rpc-route-unique` | JSON-RPC 라우트 중복 등록 차단 |
-| `check-rerror-guard` | Web UI의 JSON-RPC 오류 검사 계약 |
+| `check-fe-rpc-params` | UI 가 보내는 요청 파라미터 키 ⊆ 백엔드 핸들러가 읽는 키 |
+| `check-network-mode-contract` | UI network mode enum과 백엔드 whitelist 양방향 정합성 |
+| `check-iscsi-chap-argv` | initiator CHAP 비밀번호의 `iscsiadm` argv 재도입 차단 |
+| `check-rpc-route-unique` | `g_rpc_routes` 중복 등록 금지 (라우트 섀도잉 차단) |
+| `check-rerror-guard` | Web UI의 JSON-RPC `r.error` 미검사 호출부 래칫 |
+| `check-dpdk-owned-lifecycle` | DPDK 제품 소유 자원의 생성·회수·실패 정리 계약 |
+| `check-single-ui-surface` | Single Edge 이벤트·명령 연결, 공개 소스맵 부재와 반사실 회귀 |
+
+`check-rpc-param-contract` 와 `check-fe-rpc-params` 는 겹치는 것처럼 보이지만 소비처가 다릅니다 —
+전자는 `contracts/rpc_params.json` 레지스트리에 등재된 메서드의 **CLI** 소비를 보고, 후자는
+**Web UI** 소스를 훑습니다. 2026-08-06 계약 불일치 회차에서 전자가 UI 를 보지 않는다는 것이
+드러나 후자를 신설했습니다(설계 §8.1). 전자는 "보내는데 핸들러가 안 읽는다"를 아직 WARN 으로
+흘려보내며, FAIL 승격은 후속 과제입니다(설계 §8.3).
 
 ### 22.5 품질 게이트 건너뛰기
 
 ```bash
 # 긴급 커밋 (pre-commit + commit-msg 모두 건너뜀)
-git commit --no-verify -m "hotfix: 긴급 수정"
+git commit --no-verify -m "fix: 긴급 수정"
 
 # 주의: 훅을 건너뛴 커밋도 릴리스 전 make check-all + make test는 그대로 통과해야 함
 ```
@@ -5933,8 +5968,47 @@ git commit --no-verify -m "hotfix: 긴급 수정"
 6. `nc -U` 수동 RPC 테스트
 7. REST 필요 시 `rest_server.c` 라우팅 추가
 8. `scripts/verify_api_consistency.sh` — FAIL 0 확인
-9. CLAUDE.md RPC 수 갱신 (문서 정합성 게이트)
+9. 공개 가이드·RPC 계약을 갱신하고 `make check-rbac`로 등록·정책 매핑 검증
 10. `git commit` — pre-commit 조건부 게이트 통과
+
+---
+
+### 22.7 2026-09-07 검토·시정 현황
+
+아래는 **개발선의 감사·시정 회차**입니다. 공개 저장소의 제품 코드와 시험 수치, 지원 환경 인증은 별도로 판정합니다. 파일 목록을 만들거나 시험이 통과했다는 이유만으로 전체 감사를 완료 처리하지 않습니다.
+
+| 항목 | 확인 결과 | 판정 경계 |
+|---|---|---|
+| 전수 대상 | 현행 1,600파일 목록·해시 고정 | 목록화는 본문 검토가 아님 |
+| 이번 본문 검토 | 소스·시험 22파일, 4,626행과 직접 호출부 | 나머지 파일·계약은 후속 검토 대상 |
+| 기존 발견 처분 | 36건 중 34건 시정 검증·2건 후속 | 기존 회차의 누적 처분 |
+| 새 회차 발견 | I/O·모니터링 7건 미완료(P2 5·P3 2) | 기존 36건 처분과 구분 |
+| 지정 UI 시정 | 전체 60파일 505 PASS·독립 대조 44 PASS | 지정 시정의 로컬 검증 결과 |
+| UI 운영 확인 | 독립 운영 노드 2대의 자산 21/21·브라우저 cache 17/17·기본 로드·health 정상 | 실제 VM 변경 효과·모든 환경 인증은 별도 |
+| 전체 감사 | **FAIL(미완료)** | 미검토 소스, 결과·회수 계약과 지원 환경·전체 메모리 검사 잔여 |
+
+독립 리뷰는 변경 작성자와 별도 검토자가 같은 소스·입력·원본 결과를 대조하는 절차입니다. 시정 후 재검토와 실제 설치 확인은 완료 범위를 구체적으로 기록하며, 개발선 결과를 공개 소스의 시정 완료로 전용하지 않습니다.
+
+공개 스냅샷의 C 1,375/1,375·audit startup 5/5와 계약 gate 38/38은 2026-08-31 기록입니다. 2026-09-07 문서 배포에서 다시 실행한 전체 C·제품 UI 시험 수치가 아니며, 후속 공개 소스 검증은 22.8절을 따릅니다. Pages 자체는 콘텐츠 build·route·링크·공개 자산 검사와 게시 후 HTTP·브라우저 확인으로 검증합니다.
+
+---
+
+### 22.8 2026-09-15 공개 소스·문서 현황
+
+| 항목 | 공개 근거와 확인 범위 |
+|---|---|
+| 제품 소스 | [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8): 호스트 첫 알림 쿨다운 수정, 공개 UI 표면·소스맵 부재 검사를 `check-all`·`dev-check`에 연결 |
+| C·UI 시험 | 해당 소스 검증 회차에서 C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP |
+| 계약·빌드 | 공개 `check-all` 40 PASS, UI 표면 반사실 11 PASS, debug·clean release 경고 0 |
+| 메모리 검사 | ASan/UBSan 전체 통과(기본 leak detection 비활성), 지정 self-healing Valgrind 4 PASS·오류/definite/indirect/possible leak 0 |
+| GPU 테스트 영상 | [`52587a5`](https://github.com/HardcoreMonk/purecvisor/commit/52587a5f4cc637d34a6a55a48c0cd76e93c800c9), [Pages 게시 성공](https://github.com/HardcoreMonk/purecvisor/actions/runs/34974574546): 4개 기능·16편, RTX 3070 Ti·Windows 11의 124초 영상 추가 |
+| 영상 검증 범위 | 30초 Vulkan 렌더링과 종료·원복 확인. 장시간 안정성·모든 GPU·게임 성능 인증은 별도 |
+| 문서 현행화 | 현재 소스·설정·게이트와 문서를 대조하고 문서 링크·사이트 build·공개 자산을 검증. 문서 변경은 제품 시험의 재실행이나 전체 감사 완료를 의미하지 않음 |
+
+지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
+결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
+`FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
+않습니다. 공개 제품 버전은 `2.0.0`입니다.
 
 ---
 

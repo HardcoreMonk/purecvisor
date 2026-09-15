@@ -1,10 +1,10 @@
 # Single Edge 공개 릴리스 경계
 
 > **대상:** `purecvisor-single`
-> **현행화 기준:** 2026-09-07
+> **현행화 기준:** 2026-09-15
 > **판정 목적:** 소스 공개 전에 Single Edge 공개 범위 밖 기능이 산출물, 소스, 문서에서 기능 절차로 노출되지 않는지 확인한다.
 
-> **2026-09-07 현황:** 개발선의 지정 UI 시정·독립 리뷰·두 노드 정적 UI 배포 확인은 완료했으나 전체 감사와 지원 환경 인증은 미완료다. [가이드 품질 게이트](GUIDE.md#227-2026-09-07-검토시정-현황)의 회차별 범위를 따른다. Pages 문서 현행화와 공개 소스의 시정 포함 여부는 별도로 확인한다.
+> **2026-09-15 현황:** 공개 소스 `22d6912`에 첫 호스트 self-healing 알림 쿨다운과 공개 UI 표면 게이트 수정이 반영됐다. 지정 공개 검증은 통과했지만 전체 감사·지원 환경 인증은 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
 
 ---
 
@@ -14,7 +14,7 @@
 
 범위 밖 기능은 이 리포에서 출시 판정을 내리지 않는다. 별도 상용판과 비공개판의 출시 판정은 해당 독립 리포에서 수행해야 한다.
 
-표준 공개 운영 URL은 `https://purecvisor.example.com`이다. `https://purecvisor-compat.example.com`는 호환 공개 엔드포인트로 유지할 수 있지만, 문서 예시와 신규 운영 기준은 `purecvisor.example.com`를 우선한다. 호환 엔드포인트를 운영할 때도 같은 Single Edge 산출물, 같은 UI bundle/service worker 해시, 같은 공개판 경계를 만족해야 한다.
+`https://purecvisor.example.com`과 `https://purecvisor-compat.example.com`은 문서용 예시 주소다. 실제 제품 노드의 관리 주소와 인증서는 설치 환경에서 정한다. 기본 외부 API는 HTTPS 443, 평문 HTTP 기본값은 `127.0.0.1:8080`의 로컬 점검 경로다. 선택형 NGINX 모드는 공개 가이드의 TLS 종료 계약을 따른다.
 
 공개 문서 URL은 `https://purecvisor.site`이며 public `HardcoreMonk/purecvisor` 저장소의
 Astro·Starlight GitHub Pages artifact가 소유한다. 이 domain은 제품 daemon·Web UI runtime

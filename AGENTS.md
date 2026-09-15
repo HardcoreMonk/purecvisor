@@ -10,6 +10,7 @@
 
 ## 문서 진입점
 
+- 전체 문서 인덱스: `docs/README.md`
 - 제품·설치·운영: `docs/GUIDE.md`
 - 검증 정책: `docs/DEVELOPMENT_VERIFICATION_POLICY.md`
 - 기능 테스트: `docs/SERVICE_FUNCTIONAL_TEST_SCENARIOS.md`

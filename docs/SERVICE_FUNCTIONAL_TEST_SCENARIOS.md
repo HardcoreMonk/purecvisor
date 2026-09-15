@@ -2,7 +2,7 @@
 
 > **대상:** PureCVisor Single Edge 서비스 기능 검증
 > **목적:** 성능, 장시간 실행, 단순 API 성공 응답으로는 보장되지 않는 기능 정합성을 시나리오 단위로 검증하기 위한 기준
-> **현행화 기준:** 2026-08-31
+> **현행화 기준:** 2026-09-15
 > **관련 문서:** [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md), [GUIDE.md](GUIDE.md), [ADR_INDEX.md](ADR_INDEX.md)
 
 ---
@@ -91,8 +91,6 @@ Guest reset이 포함된 모든 `vm.clone` 시나리오의 host에는 필수 패
 
 필수 성공 시나리오:
 
-- 첫 생성 요청에 VPC와 subnet name/CIDR/MTU를 함께 보내면 한 Job에서 VPC row, subnet row,
-  bridge, gateway, dnsmasq와 nft policy가 모두 `ACTIVE`가 된다.
 - 준비된 ZFS zvol 템플릿 CoW clone
 - ZFS zvol full clone
 - Ubuntu 24.04 non-LVM qcow2 full clone + guest reset
@@ -247,6 +245,8 @@ libvirt persistent XML, 게스트 reachability를 같은 시나리오에서 대�
 
 필수 성공 시나리오:
 
+- 첫 생성 요청에 VPC와 subnet name/CIDR/MTU를 함께 보내면 한 Job에서 VPC row, subnet row,
+  bridge, gateway, dnsmasq와 nft policy가 모두 `ACTIVE`가 된다.
 - Local VPC 생성 전에 호스트 네트워크 기준선과 `vpc.status.subnet_cidrs`를 확인하고,
   생성·삭제 뒤 제품 소유 자원만 달라졌다가 원래 기준선으로 돌아오는지 대조한다.
 - Linux VPC에는 서로 겹치지 않는 subnet 둘을 만들고 각 bridge의 gateway·MTU·dnsmasq
@@ -375,6 +375,36 @@ external gateway port 지정은 격리 시험 fixture이며 제품의 멀티 노
 6. 하드웨어/피어 부재는 `SKIP-CAPABILITY`로 남기고, 위험한 관리 NIC 강제 전환으로 양성 결과를 만들지 않는다.
 
 ---
+
+### 5.13 호스트 self-healing 알림과 쿨다운
+
+CPU·메모리의 `alert_only`를 VM 대상 `restart`와 구분한다. 이상 이벤트의 Z-score와
+5분 예측값은 서로 다른 정책 진입 조건이며 [운영 가이드](GUIDE.md#123-자가치유-5계층-안전-스택)를 따른다.
+
+- 단조 시각 0에서도 조건에 맞는 첫 CPU 이벤트가 치유 이력에 한 번 기록된다.
+- CPU 최초 기록 직후 메모리 최초 이벤트도 독립적으로 한 번 기록된다.
+- 같은 정책을 600초 전에 반복해도 기록 수가 늘지 않는다. CPU 발동 시각부터 정확히
+  600초가 지나면 CPU만 다시 허용하며, 메모리는 자신의 600초 경계까지 억제한다.
+- 이상 탐지와 예측 경로가 같은 호스트 정책의 쿨다운을 공유하는지 확인한다.
+- VM별 정책은 다른 VM의 쿨다운을 소비하지 않으며, 호스트 정책과도 독립적이다.
+- 기본 `dry_run`의 감사·이력에는 실행 모드가 남아야 한다. CPU 알림을 VM 재시작이나
+  자원 증설의 실제 효과로 판정하지 않는다.
+
+시각 0·정확한 만료 경계·정책별 독립성은
+`tests/test_self_healing_anomaly.c`의 `/selfhealing/hostwide_cooldown_policy_scoped`로
+재현한다. 단위 테스트에서 첫 이벤트를 주입하는 것은 실제 수집기의 초기 학습 완료를
+증명하지 않으므로, 운영 검증에서는 탐지 입력·정책·발동 시각·이력을 함께 대조한다.
+
+### 5.14 GPU Passthrough 기능 영상의 검증 경계
+
+가이드의 PCI/GPU 할당 전제와 정지 VM 제약을 확인한 뒤, GPU 연결·VM 시작·게스트 장치
+인식·렌더링·종료·GPU 원복을 한 흐름으로 검증한다. 감사 기록 설명과 실제 게스트 녹화를
+구분하고 최종 리소스 상태를 확인한다.
+
+2026-09-14 RTX 3070 Ti·Windows 11의 124초 영상은 30초 Vulkan 렌더링과 원복을 확인한
+지정 기능 사례다. 장시간 부하, 다른 GPU·드라이버, 게임 성능과 모든 지원 환경 인증을
+대신하지 않는다. 공개 재생·미디어 무결성은
+[문서 사이트 운영 기준](PUBLIC_DOCUMENTATION_SITE.md#gpu-passthrough-영상)을 따른다.
 
 ## 6. 성능 테스트와 기능 테스트 분리
 

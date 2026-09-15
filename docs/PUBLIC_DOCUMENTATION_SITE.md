@@ -2,7 +2,7 @@
 
 > 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
-> 현행화 기준: 2026-09-08
+> 현행화 기준: 2026-09-15
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
 
@@ -76,6 +76,20 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 사용자 기능으로 노출하지 않으며,
   generic OVN과 Local VPC OVN backend의 지원 gate를 분리한다.
 
+## 2026-09-15 공개 현황
+
+- 공개 소스 [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)의
+  검증 범위는 [가이드 22.8절](GUIDE.md#228-2026-09-15-공개-소스문서-현황)을 따른다.
+- GPU 영상은 [`52587a5`](https://github.com/HardcoreMonk/purecvisor/commit/52587a5f4cc637d34a6a55a48c0cd76e93c800c9)와
+  [Pages 실행 34974574546](https://github.com/HardcoreMonk/purecvisor/actions/runs/34974574546)으로
+  게시됐다. 26페이지·154개 배포 파일, 4개 기능·16편, 미디어 225,189,881 bytes를 확인했다.
+  로컬과 실제 공개 도메인 각각 브라우저 27개 검사를 통과했다.
+- 공개 작업 사본은 `purecvisor-public-stage`로 이전했으며 로컬·원격 브랜치는 `main` 하나로
+  정리했다. Pages는 같은 공개 저장소의 `main` push workflow를 계속 사용한다.
+- 2026-09-15 문서 현행화는 작성 정본·제품 내장 도움말·정책·ADR 인덱스를 현재 소스와
+  대조한다. 문서 구조와 기록의 역할은 [공개 문서 인덱스](README.md)를 따른다.
+  아래 날짜별 배포 수치·화면 폭·route 수는 해당 회차의 역사 증거다.
+
 ## 2026-09-07 콘텐츠 현행화
 
 기존 21개 운영 장·DB 아키텍처 route와 공개 SQLite 9개 범위를 유지하고, 시작하기·Web UI·아키텍처 리팩토링·품질 게이트의 개발선 감사/시정 현황을 갱신했다. landing의 마지막 업데이트도 같은 날짜로 맞췄다. 개발선의 실제 노드 주소·비공개 commit·원본 운영 로그는 게시하지 않는다.
@@ -88,8 +102,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 
 - PureCVisor의 흰 canvas, soft gray, ink와 teal token 역할을 유지한다.
 - 첫 페이지는 제품명·단일 노드 운영 범위·기본 action과 배포 note를 담은 Hero 뒤에
-  `문서 살펴보기` 맵을 제공한다. 서비스 기능, 시작 흐름, 공개 범위와 전체 서비스 아키텍처는
-  반복하지 않고 Hero action·상단 disclosure·문서 맵에서 정본 운영 가이드로 연결한다.
+  `서비스 기능 소개` 영상과 `문서 살펴보기` 맵을 제공한다. 시작 흐름·공개 범위와 전체
+  서비스 아키텍처는 Hero action·상단 disclosure·문서 맵에서 정본 운영 가이드로 연결한다.
 - landing에는 architecture figure·범례·diagram image·원본 확대 link와 `/assets/diagrams/` request를
   두지 않는다. 전체 구조의 설명과 시각 자료는 시작하기의 `1.2 아키텍처 개요`가 소유한다.
 - NGINX 모드의 전체 Single Edge 서비스 아키텍처는

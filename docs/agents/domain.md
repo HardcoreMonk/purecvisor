@@ -35,5 +35,6 @@ Draft -> Review -> Approved -> Implemented -> Verified -> Archived
 ```
 
 `domain-architecture`는 ADR 후보나 `Draft`를 만들고, `grill-me`는 반례/대안/risk로
-`Review`를 진행하며, `plan-eng-review`가 `Approved` 여부를 결정한다. 기존 ADR의
+`Review`를 진행한다. `plan-eng-review`의 pipeline 통과는 ADR 승인과 별개이며,
+명시적인 ADR 승인 기록으로 `Approved` 여부를 판정한다. 기존 ADR의
 `Accepted`는 legacy alias로 `Approved`와 같이 해석한다.
