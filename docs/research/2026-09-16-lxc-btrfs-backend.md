@@ -1,9 +1,11 @@
 # LXC Btrfs 백엔드 조사
 
 > 조사일: 2026-09-16 KST
-> 상태: 조사 완료 · 구현 전 제안
+> 상태: 조사·LXC 자체 실기 완료 · PureCVisor 백엔드 구현 전 제안
 > 조사 기준: PureCVisor 공개 소스 `5e84387`, LXC 공식 매뉴얼, Btrfs 공식 문서와 시험 호스트의 읽기 전용 점검
 > 현재 제품 계약: PureCVisor 2.0.0의 LXC 생성에는 ZFS가 필요하다. 아래 후보 설정과 명령은 현재 PureCVisor의 지원 기능을 의미하지 않는다.
+
+> **승인 후 실기 결과:** [LXC Btrfs 실기 검증 인계](../operations/2026-09-16-lxc-btrfs-live-validation.md). 정상·거부 8개, 한계 재현 2개와 정리 1개를 확인했다. 네이티브 clone·restore에서 PureCVisor 메타데이터가 보존되지 않는 점과 중첩 서브볼륨 누락을 실제로 확인했다.
 
 ## 1. 결론과 배포판 전제
 
@@ -11,7 +13,7 @@
 
 Arch의 파일시스템은 설치자가 선택한다. [Arch 설치 가이드](https://wiki.archlinux.org/title/Installation_guide#Format_the_partitions)는 적절한 파일시스템 선택과 Ext4 예제를 제공한다. 모든 Arch 설치가 Btrfs라는 전제는 사용하지 않는다. [Omarchy 공식 수동 설치 안내](https://learn.omacom.io/2/the-omarchy-manual/96/manual-installation)는 Btrfs와 기본 서브볼륨 구조·압축을 지정한다.
 
-시험한 Omarchy 호스트의 현재 읽기 전용 점검 결과:
+최초 조사 당시 Omarchy 호스트의 읽기 전용 점검 결과:
 
 | 항목 | 관찰 |
 |---|---|
@@ -23,7 +25,7 @@ Arch의 파일시스템은 설치자가 선택한다. [Arch 설치 가이드](ht
 | PureCVisor 기본 LXC 경로 | `/var/lib/purecvisor/lxc`는 아직 없음. 상위 경로의 Btrfs만 확인 |
 | 실기 범위 | 컨테이너·서브볼륨 생성, quota 변경, 패키지 설치, 서비스 재시작은 수행하지 않음 |
 
-이 결과는 시험 준비 가능성을 뒷받침한다. PureCVisor를 통한 Btrfs 컨테이너 부팅 성공이나 Arch 전체 지원 인증은 아니다.
+이 최초 점검은 시험 준비 가능성을 뒷받침했다. 이후 승인된 실기 결과는 위 인계를 따른다. PureCVisor를 통한 Btrfs 컨테이너 부팅 성공이나 Arch 전체 지원 인증은 아직 아니다.
 
 ## 2. 공식 지원 기능
 
@@ -92,4 +94,4 @@ LXC upstream 소스는 조사 시점의 [`4f1258197c159b2d2d4bfcffb881872526560b
 4. **실패·재시작:** 비-Btrfs 경로, read-only/ENOSPC, 다운로드 중단, mount 누락, 중첩 서브볼륨, 동시 요청, 복원 전환 실패, 데몬 재시작·호스트 재부팅을 시험한다.
 5. **기존 ZFS 회귀:** 생성·복제·스냅샷·rollback·삭제와 기존 객체의 기본값 변경 후 처리를 Ubuntu ZFS 환경에서 재검증한다.
 
-이번 조사에서는 1~5단계의 실기나 백엔드 구현을 실행하지 않았다. 공식 지원과 소스 구조를 확인했으며, 지원 판정은 위 검증 이후에 내린다.
+최초 조사 후 사용자 승인을 받아 1단계를 시험 전용 경로에서 수행했다. 2~5단계와 PureCVisor 백엔드 구현은 후속이며, 제품 지원 판정은 통합·실패 복구·기존 ZFS 회귀 검증 이후에 내린다.
