@@ -724,6 +724,7 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-d
 
 
 check-server-defect-contracts:
+	@python3 scripts/tests/test_vm_delete_nvram.py
 	@bash tests/integration/test_vpc_startup_order.sh
 	@bash tests/integration/test_tenant_overlay_startup_order.sh
 	@bash tests/integration/test_lxc_server_defect_contract.sh

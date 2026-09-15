@@ -3,6 +3,14 @@
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 
+## 2026-09-16 UEFI VM 삭제 NVRAM 오류 수정
+
+- Ubuntu·Arch 공통 `vm.delete` 경로의 NVRAM 처리 옵션 누락을 수정했다.
+- 디스크 삭제가 성공할 때까지 NVRAM을 보존해 저장소 실패 후 XML 복원 시 UEFI 설정을 유지한다.
+- XML과 NVRAM 저장 형식이 불명확한 경우 삭제 전에 거부하고, 마지막 NVRAM 정리 실패를 audit `fail`로 기록한다.
+- 실제 worker 회귀를 `make test`에 연결하고 기본 AppArmor 프로필에 표준 NVRAM 경로 정리 권한을 추가했다.
+- 제품 버전 문자열은 `2.0.0`을 유지한다. 검증 범위와 적용 상태는 [운영 인계](docs/operations/2026-09-16-vm-delete-nvram-handoff.md)에 기록한다.
+
 ## 2026-09-15 공개 소스·GPU 테스트 영상·문서 현행화
 
 - 호스트 CPU·메모리 self-healing의 첫 발동 여부를 분리해 부팅 후 600초 이내의 첫 알림이

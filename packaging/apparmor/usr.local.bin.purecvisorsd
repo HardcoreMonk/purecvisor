@@ -161,6 +161,8 @@
   /pcvpool/**                     rwk,                                       
   /var/lib/libvirt/images/        rw,
   /var/lib/libvirt/images/**      rwk,                   
+  /var/lib/libvirt/qemu/nvram/    rw,
+  /var/lib/libvirt/qemu/nvram/**  rw,
   /var/lib/libvirt/dnsmasq/**     r,
 
                                                                            

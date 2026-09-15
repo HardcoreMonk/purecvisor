@@ -2,7 +2,7 @@
 
 > **대상:** PureCVisor Single Edge 서비스 기능 검증
 > **목적:** 성능, 장시간 실행, 단순 API 성공 응답으로는 보장되지 않는 기능 정합성을 시나리오 단위로 검증하기 위한 기준
-> **현행화 기준:** 2026-09-15
+> **현행화 기준:** 2026-09-16
 > **관련 문서:** [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md), [GUIDE.md](GUIDE.md), [ADR_INDEX.md](ADR_INDEX.md)
 
 ---
@@ -405,6 +405,21 @@ CPU·메모리의 `alert_only`를 VM 대상 `restart`와 구분한다. 이상 �
 지정 기능 사례다. 장시간 부하, 다른 GPU·드라이버, 게임 성능과 모든 지원 환경 인증을
 대신하지 않는다. 공개 재생·미디어 무결성은
 [문서 사이트 운영 기준](PUBLIC_DOCUMENTATION_SITE.md#gpu-passthrough-영상)을 따른다.
+
+### 5.15 UEFI VM 삭제와 NVRAM 보존
+
+- BIOS와 파일형 UEFI VM을 각각 삭제하고 domain, 주 디스크, NVRAM 부재와 `vm.delete` audit `ok`를 확인한다.
+- UEFI 최초 부팅 전 NVRAM 파일이 없는 경우와 실행 중인 VM을 정지·삭제하는 경우를 포함한다.
+- 테스트용 파일 디스크의 삭제 실패를 주입해 audit `fail`, 정의 복원, NVRAM SHA-256 보존을 확인한다.
+  실패 조건 제거 후 같은 VM을 재삭제해 잔여 자원이 없어야 한다.
+- 디스크 접근/삭제 권한 오류도 파일 부재로 오인하지 않고 정의·디스크·NVRAM을 보존한다.
+- XML 조회·파싱 및 libvirt 상태 조회·정의 해제 실패에서는 저장소와 NVRAM을 보존한다.
+- 주 디스크 삭제 후 NVRAM unlink만 실패하면 audit `fail`과 정확한 수동 정리 경로를 확인한다.
+  이 시점에 디스크가 복구됐다고 표시하거나 NVRAM 잔여를 성공으로 숨기면 안 된다.
+- 펌웨어 loader/template와 설치 ISO, 다른 VM의 정의·디스크·NVRAM은 변경하지 않는다.
+- 회귀는 `python3 scripts/tests/test_vm_delete_nvram.py`로 실제 worker를 컴파일하여 실행한다.
+  이 격리 회귀의 libvirt/DPDK/ZFS 경계는 대역이며 실제 libvirt와 API/audit 검증을 별도로 기록한다.
+- ZFS 실패의 격리 주입 결과를 실제 ZFS pool의 전체 원자성 검증으로 확대 해석하지 않는다.
 
 ## 6. 성능 테스트와 기능 테스트 분리
 

@@ -2246,6 +2246,53 @@ _vm_delete_restore_dpdk_port(gboolean removed, const gchar *bridge,
    
                      
                                    
+static gboolean
+_vm_delete_prepare_nvram(const gchar *xml, gchar **path, GError **error)
+{
+    *path = NULL;
+    xmlDocPtr doc = xml ? xmlReadMemory(xml, (int)strlen(xml), "vm-delete.xml",
+        NULL, XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING) : NULL;
+    xmlNodePtr root = doc ? xmlDocGetRootElement(doc) : NULL;
+    if (!root || xmlStrcmp(root->name, BAD_CAST "domain") != 0) {
+        if (doc) xmlFreeDoc(doc);
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+            "VM XML unavailable or invalid; undefine/storage delete blocked");
+        return FALSE;
+    }
+    xmlNodePtr os = _xml_direct_child(root, "os");
+    xmlNodePtr nvram = _xml_direct_child(os, "nvram");
+    xmlNodePtr varstore = _xml_direct_child(os, "varstore");
+    gboolean valid = varstore == NULL;
+    if (nvram) {
+        xmlChar *type = xmlGetProp(nvram, BAD_CAST "type");
+        xmlNodePtr source = _xml_direct_child(nvram, "source");
+        xmlChar *value = source ? xmlGetProp(source, BAD_CAST "file")
+                               : xmlNodeGetContent(nvram);
+        valid = valid && (!type || xmlStrcmp(type, BAD_CAST "file") == 0);
+        if (value) {
+            gchar *candidate = g_strdup((const gchar *)value);
+            g_strstrip(candidate);
+            if (*candidate && g_path_is_absolute(candidate)) *path = candidate;
+            else {
+                valid = valid && !*candidate && !source;
+                g_free(candidate);
+            }
+        } else if (source) valid = FALSE;
+        xmlFree(value);
+        xmlFree(type);
+    }
+    xmlFreeDoc(doc);
+    if (!valid) {
+        g_clear_pointer(path, g_free);
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+            "Unsupported NVRAM storage; undefine/storage delete blocked");
+    }
+    return valid;
+}
+
+
+
+
   
                                                         
                                                         
@@ -2297,6 +2344,7 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                                                                  
     gchar *file_disk_path = NULL;
     gchar *saved_xml      = NULL;                                 
+    g_autofree gchar *nvram_path = NULL;
     g_autofree gchar *dpdk_bridge = NULL;
     gboolean dpdk_port_removed = FALSE;
     if (dom) {
@@ -2322,6 +2370,16 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                 }
             }
             free(xml);                                                                           
+        }
+
+        GError *nvram_error = NULL;
+        if (!_vm_delete_prepare_nvram(saved_xml, &nvram_path, &nvram_error)) {
+            g_free(zvol_path); g_free(zfs_dataset);
+            g_free(file_disk_path); g_free(saved_xml);
+            virDomainFree(dom);
+            if (conn) virt_conn_pool_release(conn);
+            g_task_return_error(task, nvram_error);
+            return;
         }
 
 
@@ -2373,6 +2431,7 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                                                            
                                                                    
        
+
     if (dom) {
         virDomainInfo info = {0};
         if (virDomainGetInfo(dom, &info) < 0) {
@@ -2412,10 +2471,11 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
         }
         int undef_rc = virDomainUndefineFlags(dom,
                 VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
-                VIR_DOMAIN_UNDEFINE_MANAGED_SAVE);
+                VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
+                VIR_DOMAIN_UNDEFINE_KEEP_NVRAM);
         if (undef_rc < 0) {
-                                                  
-            undef_rc = virDomainUndefine(dom);
+            if (!nvram_path)
+                undef_rc = virDomainUndefine(dom);
             if (undef_rc < 0) {
                 virErrorPtr e = virGetLastError();
                 PCV_LOG_WARN("vm_delete", "VM '%s': undefine failed: %s",
@@ -2578,7 +2638,7 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
                                                       
        
     if (file_disk_path && !g_str_has_prefix(file_disk_path, "/dev/")) {
-        if (access(file_disk_path, F_OK) == 0) {
+        if (access(file_disk_path, F_OK) == 0 || errno != ENOENT) {
             if (unlink(file_disk_path) == 0) {
                 PCV_LOG_INFO("vm_delete", "VM '%s': disk file deleted: %s",
                              vm_id, file_disk_path);
@@ -2626,6 +2686,16 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
     }
     g_free(file_disk_path);
     g_free(saved_xml);
+
+
+
+    if (nvram_path && unlink(nvram_path) < 0 && errno != ENOENT) {
+        int err = errno;
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+            "NVRAM cleanup failed: %s (%s). VM storage is deleted; manual cleanup is required.",
+            nvram_path, g_strerror(err));
+        return;
+    }
 
     if (exorcism_partial) {
         PCV_LOG_WARN("vm_delete", "VM '%s': delete succeeded with partial exorcism (check above warnings)", vm_id);

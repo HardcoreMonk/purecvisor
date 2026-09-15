@@ -3,6 +3,29 @@
 날짜: 2026-04-11
 상태: accepted
 
+## 2026-09-16 NVRAM 삭제 순서 보강
+
+파일형 UEFI NVRAM은 `VIR_DOMAIN_UNDEFINE_KEEP_NVRAM`으로 정의 해제 동안 보존하고,
+ZFS/파일 디스크 정리가 모두 성공한 뒤 삭제한다. 저장소 삭제 실패 후 XML을 복원할 때
+기존 NVRAM 파일·내용·소유권을 유지하기 위한 순서다. `UNDEFINE_NVRAM`으로 먼저 지우면
+XML 복원만으로 UEFI 설정을 되살릴 수 없다.
+
+`<os><nvram>` 텍스트와 `type='file'`의 `<source file>`을 지원한다. XML 조회·파싱 실패,
+상대 경로, block/network NVRAM과 `varstore`는 정의 해제 전에 거부한다. loader와 template,
+CD-ROM ISO는 NVRAM 정리 대상이 아니다. NVRAM 없는 BIOS 및 아직 생성되지 않은 파일은
+정상 삭제할 수 있다. NVRAM 경로가 있는 경우 기본 undefine 폴백으로 보존 계약을 우회하지 않는다.
+
+디스크 존재 확인의 접근 오류는 파일 부재로 취급하지 않고 삭제 실패·롤백으로 처리한다.
+마지막 NVRAM unlink 실패는 audit `fail`과 수동 정리할 경로를 남긴다. 이미 삭제한 디스크를
+복원하거나 성공으로 기록하지 않는다. 이 경우와 삭제 중 프로세스/호스트 중단에 따른 잔여
+NVRAM의 자동 재수거는 이번 계약에 포함하지 않는다. 기본 AppArmor 프로필은 표준
+`/var/lib/libvirt/qemu/nvram/` 정리를 허용하며 사용자 지정 경로는 운영 프로필에 반영해야 한다.
+
+아래 실행 순서의 코드 예시는 최초 결정 당시 기록이다. 현재 NVRAM 처리는 이 보강을 따른다.
+회귀 명령: `python3 scripts/tests/test_vm_delete_nvram.py` (`make test`에 포함).
+libvirt 계약: [undefine API](https://libvirt.org/html/libvirt-libvirt-domain.html#virDomainUndefineFlags),
+[NVRAM XML](https://libvirt.org/formatdomain.html#bios-bootloader).
+
 ## 맥락
 
 VM 라이프사이클 수직 슬라이스 감사에서 `vm.delete` 경로의
