@@ -16,8 +16,8 @@ need() {
 
 need 'static gboolean'
 need '_ensure_container_config_ready'
-need 'Failed to mount container dataset'
-need 'config is not visible under'
+need 'pcv_lxc_ensure_config_ready\(name, out_config_path, error\)'
+rg -q 'config is not visible under' src/modules/lxc/lxc_driver.c
 
 count=$(rg -c '_ensure_container_config_ready\(name, &config_path, &cfg_err\)' "$FILE")
 if [ "$count" -lt 5 ]; then

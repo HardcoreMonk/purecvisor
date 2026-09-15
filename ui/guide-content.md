@@ -9,7 +9,7 @@
 > 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
 > 통과해야 합니다.
 >
-> **문서 현행화(2026-09-15)**: 공개 소스 검증, 호스트 self-healing 알림과 현재 설정·품질 게이트를 반영했습니다. 공개 현황과 잔여 검증은 22.8절을 따릅니다.
+> **문서 현행화(2026-09-16)**: 선택형 LXC Btrfs의 소스·설정 계약을 4장에 반영했습니다. 지정 Arch/Btrfs 호스트의 API·복구·완료 통지 검증을 통과했습니다. 기존 공개 현황과 잔여 검증은 22.8절을 따릅니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -405,12 +405,12 @@ sudo apt update && sudo apt install -y \
 OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
 일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
-> **ZFS는 선택형 런타임입니다 — LXC 컨테이너 생성에는 필수**
+> **ZFS는 선택형 런타임입니다 — ZFS backend를 선택한 LXC에는 필수**
 >
 > PureCVisor 데몬과 Web UI, REST API, CLI는 `zvol_pool`이나 ZFS volume이 없어도 시작하고 동작합니다.
 > VM 생성 요청에서 `storage_type`을 생략하면 설정된 ZFS dataset을 먼저 확인하고, 사용할 수 없으면 `[storage] image_dir`에 qcow2 파일 디스크를 생성합니다.
 > ZFS를 사용하지 않는 노드는 `zfsutils-linux`를 생략할 수 있지만 `image_dir`이 존재하고 쓰기 가능해야 하며 `qemu-img`를 사용할 수 있어야 합니다.
-> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 현재 ZFS dataset을 사용하는 LXC 경로에는 ZFS가 필요합니다.
+> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 `storage_backend=zfs`인 LXC에는 ZFS가 필요합니다. 선택형 Btrfs LXC의 소스 버전·설정·검증 범위는 4.1절을 따릅니다.
 
 ```bash
 # 일반 VM 복제의 Guest reset
@@ -419,8 +419,11 @@ sudo apt install -y libguestfs-tools
 # LXC 컨테이너
 sudo apt install -y lxc lxc-utils
 
-# 선택: ZFS zvol·snapshot·backup 또는 LXC를 사용하는 경우
+# 선택: ZFS zvol·snapshot·backup 또는 ZFS backend의 LXC
 sudo apt install -y zfsutils-linux
+
+# 선택: Btrfs backend의 LXC 점검 도구
+sudo apt install -y btrfs-progs
 
 # OVS 오버레이 네트워크
 sudo apt install -y openvswitch-switch
@@ -611,7 +614,7 @@ iso_dirs = /data/iso,/var/lib/libvirt/images
 
 자동 감지에서 `zvol_pool`을 찾지 못하면 `image_dir`에 qcow2 디스크를 생성합니다.
 `storage_type=zvol`을 명시하면 폴백하지 않고 지정한 ZFS 부모 dataset이 없다는 오류로 요청을 종료합니다.
-ZFS 미사용 노드에서는 VM file disk를 사용할 수 있지만 ZFS snapshot·rollback·send/receive backup과 현재 LXC 생성 경로는 사용할 수 없습니다.
+ZFS 미사용 노드에서는 VM file disk와 명시적으로 선택한 Btrfs LXC를 사용할 수 있습니다. ZFS snapshot·rollback·send/receive backup과 기본 ZFS LXC에는 ZFS가 필요합니다. Btrfs LXC의 준비 조건은 4.1절을 따릅니다.
 
 #### ZFS 기능을 사용하는 구성
 
@@ -1754,24 +1757,79 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ## 4. 컨테이너 관리
 
-PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
+PureCVisor는 LXC 컨테이너의 ZFS backend와 명시적으로 선택하는 Btrfs backend를 관리합니다.
 
 ### 4.1 컨테이너 생성
 
-> **ZFS 필수 — 컨테이너 생성 전 확인**
->
-> PureCVisor 2.0.0의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
-> ZFS 커널 모듈과 `zfs` 명령을 준비하고, `daemon.conf`의 `[storage] container_pool`을 해당 풀 아래의 컨테이너 부모 데이터셋 경로로 설정하세요. 기본값은 `pcvpool/containers`이며 부모 데이터셋이 없으면 생성 과정에서 만들기를 시도합니다.
-> 이 저장소는 파일시스템 데이터셋입니다. VM용 블록 볼륨 `zvol`을 별도로 만드는 절차는 필요하지 않습니다.
-> **LXC 패키지만 설치하거나 Btrfs·ext4 디렉터리만 준비한 상태에서는 현재 PureCVisor의 컨테이너 생성이 실패합니다.** 현재 Btrfs·일반 디렉터리 백엔드와 자동 폴백은 지원하지 않습니다.
-> ZFS 없이 사용할 수 있는 qcow2/raw VM 생성과 컨테이너 생성의 전제조건을 구분하세요.
+초기 `2.0.0` 태그의 LXC 생성은 ZFS 전용입니다. 이 변경을 포함한 공개 소스에는
+선택형 Btrfs backend가 구현되어 있으며, 기본값과 제품 버전은 `zfs`·`2.0.0`으로
+유지합니다. 새 태그나 버전 인상을 뜻하지 않으므로 설치한 소스 commit을 확인하세요.
+지정 Arch/Btrfs 호스트의 실제 API 통합 검증을 통과했으며 [Btrfs API 검증 기록](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)에
+결과를 별도로 기록합니다. 설계 계약은 [ADR-0058](../docs/adr/0058-lxc-storage-backend-identity.md)을 따릅니다.
+
+#### 기본 ZFS backend
+
+`[container] storage_backend=zfs`가 기본값입니다. 이 backend에는 사용 가능한 ZFS 풀,
+ZFS 커널 모듈과 `zfs` 명령이 필요합니다. `[storage] container_pool`은 컨테이너용
+부모 파일시스템 dataset이며 기본값은 `pcvpool/containers`입니다. 부모 dataset이 없으면
+생성 과정에서 만들기를 시도합니다. VM용 블록 볼륨 `zvol`을 별도로 만들 필요는 없습니다.
+
+#### 명시적인 Btrfs backend
+
+Btrfs를 사용할 때는 `daemon.conf`에 다음 값을 명시합니다.
+
+```ini
+[container]
+storage_backend = btrfs
+lxc_path = /var/lib/purecvisor/lxc
+rootless = false
+```
+
+`lxc_path`는 실제로 mount된 Btrfs 위의 절대 경로여야 합니다. 관리 디렉터리와
+상위 경로는 root가 관리하고, 관리 디렉터리는 그룹·다른 사용자가 쓸 수 없어야 하며
+symlink 경로는 허용하지 않습니다. LXC 런타임과 Btrfs 커널 지원을 준비하고,
+`btrfs-progs`로 파일시스템과 subvolume을 점검합니다. 이미 Btrfs인 경로를 선택한 뒤
+다음과 같이 확인할 수 있습니다. 이 명령은 파일시스템을 생성하거나 변환하지 않습니다.
 
 ```bash
-# 기본 생성 (LXC + ZFS rootfs)
+sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
+findmnt -T /var/lib/purecvisor/lxc -o TARGET,FSTYPE,OPTIONS
+sudo btrfs filesystem show /var/lib/purecvisor/lxc
+```
+
+Btrfs 생성은 `lxc-create -B btrfs`를 사용합니다. `rootless=false`인 privileged
+컨테이너만 지원하며, 요청에서 `rootless=true`를 지정해도 거부합니다. 잘못된 backend 값,
+비Btrfs 경로와 식별자 불일치는 오류로 종료합니다. 일반 디렉터리 backend와 다른
+backend로의 자동 폴백은 없습니다. Btrfs LXC만 사용할 때 ZFS는 필요하지 않습니다.
+
+LXC 7의 cgroup v2에서는 `vcpu_count`를 상대 CPU 배분 가중치로 기록합니다.
+예를 들어 2는 `cpu.weight=200`이며 CPU 코어 수의 강제 상한을 뜻하지 않습니다.
+1의 가중치는 100이고 최대값은 10000입니다. v1·v2 CPU 설정이 모두 거부되면
+생성을 실패로 처리합니다. 실제 CPU 상한과 상대 가중치는 구분해서 확인하세요.
+
+Arch의 파일시스템은 설치자가 선택합니다. 조사한 Omarchy 시험 환경이 Btrfs였다는
+사실을 모든 Arch 설치에 적용하지 않습니다.
+
+#### 기존 컨테이너와 실패 복구
+
+각 컨테이너의 rootfs 밖 `purecvisor.storage`에는 backend와 실제 ZFS dataset 또는
+Btrfs filesystem UUID·rootfs subvolume UUID/ID를 기록합니다. 후속 작업은 이 기록과
+실제 저장소를 대조하며, 현재의 기본 backend나 pool 이름으로 다시 계산하지 않습니다.
+기본값 변경은 기존 컨테이너의 변환·이동이 아닙니다. marker 없는 기존 ZFS는 실제
+mountpoint와 dataset이 정확히 일치할 때만 호환하며, marker 없는 Btrfs를 자동 편입하지 않습니다.
+
+생성 실패 후 marker가 없는 디렉터리나 subvolume이 남으면 데이터를 보존하고 작업을
+거부합니다. 이름이나 현재 설정만으로 삭제 대상을 추측하지 않습니다. 오류·설정·mount와
+subvolume identity를 확보한 뒤 관리자가 생성 결과를 확인해야 하며, marker를 임의로
+작성하거나 경로를 재귀 삭제해서 성공 상태로 만들지 마세요.
+
+```bash
+# 설정한 backend로 생성 (기본값은 ZFS)
 pcvctl container create --name app-ctr --dist ubuntu --release noble
 
-# 생성 후 바로 시작
+# 생성 요청 후 반환된 job_id의 completed 상태를 확인하고 시작
 pcvctl container create --name web-ctr --dist ubuntu --release jammy
+# 아래 작업 결과 조회 절차로 완료를 확인한 뒤 실행
 pcvctl container start web-ctr
 ```
 
@@ -1780,12 +1838,17 @@ RPC 직접 호출:
 ```bash
 echo '{"jsonrpc":"2.0","method":"container.create","params":{
   "name": "app-ctr",
-  "dist": "ubuntu",
-  "release": "noble"
+  "image": "ubuntu:noble"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **fire-and-forget**: 컨테이너 생성/시작/중지/삭제는 모두 fire-and-forget 패턴으로 즉시 응답합니다.
+> **비동기 작업 결과**: 생성·시작·중지·삭제·복제와 snapshot 생성·복원·삭제는 `status=accepted`와 `job_id`를 먼저 반환합니다. 접수는 완료가 아닙니다. 작업 worker의 실제 결과를 `GET /api/v1/jobs/<job_id>`의 `status=completed|failed`와 오류 `detail`, WebSocket `job.complete`, audit 기록으로 확인합니다. Web UI도 최종 job 결과를 기다립니다. 목록에 컨테이너가 보이는 것만으로 생성 성공을 판정하지 마세요.
+
+```bash
+JOB_ID="<accepted-response-job-id>"
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8080/api/v1/jobs/${JOB_ID}" | python3 -m json.tool
+```
 
 ### 4.2 라이프사이클
 
@@ -1874,6 +1937,20 @@ Container: app-ctr (RUNNING)
 
 ### 4.6 컨테이너 스냅샷
 
+Btrfs snapshot은 정지된 privileged 컨테이너의 **rootfs만** 읽기 전용 subvolume으로
+저장합니다. 생성·복원·삭제 중에는 컨테이너 작업 lock을 사용합니다. nested subvolume,
+실제로 연결된 외부 mount, 설정된 외부 bind volume 또는 `lxc.mount.fstab`이 있으면
+복제·snapshot·복원을 거부합니다. 해당 데이터가 snapshot에 포함된다고 가정하지 마세요.
+
+복원은 현재 LXC config, owner와 image metadata를 보존하고 rootfs만 원자적으로 교체합니다.
+이전·새 rootfs identity를 가진 journal로 중단된 복원을 판별하며, 다음 저장소 변경 또는
+시작 전에 정지 상태와 lock 아래에서 복구합니다. 모호한 identity는 데이터를 보존하고
+오류로 남깁니다. 삭제는 관리 rootfs와 snapshot을 먼저 검증하고, 부분 실패 시 남은
+marker·삭제 기록을 이용해 같은 삭제 요청을 재시도합니다.
+
+Btrfs의 rootless 컨테이너, backend 간 migration, 다른 filesystem으로의 CoW 복제,
+컨테이너별 디스크 quota와 Btrfs send/receive 기반 제품 백업은 지원하지 않습니다.
+
 ```bash
 # 스냅샷 생성
 pcvctl container snap create app-ctr --name v1
@@ -1890,8 +1967,12 @@ pcvctl container snap delete app-ctr v1
 
 ### 4.7 컨테이너 복제
 
+복제는 원본에 기록된 backend를 사용합니다. Btrfs는 정지된 원본에서
+`lxc-copy -B btrfs -s`로 CoW 복제하며, 대상은 새 저장소 identity와 원본의 image
+metadata를 갖습니다. owner는 원본의 값을 복사하지 않고 복제 요청자로 기록합니다.
+
 ```bash
-# CoW 클론 (lxc-copy, ZFS 기반)
+# 원본 backend로 복제 (Btrfs는 정지 상태의 CoW clone)
 pcvctl container clone app-ctr --name app-ctr-clone
 ```
 
@@ -5142,7 +5223,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | 키 | 기본값 | 설명 |
 |----|--------|------|
 | `zvol_pool` | `pcvpool/vms` | ZFS zvol 풀 경로 |
-| `container_pool` | `pcvpool/containers` | 컨테이너 ZFS 데이터셋 |
+| `container_pool` | `pcvpool/containers` | ZFS backend의 신규 컨테이너 부모 dataset |
 | `image_dir` | `/var/lib/libvirt/images` | qcow2 저장 경로 |
 | `iso_dirs` | `/pcvpool/iso,/var/lib/libvirt/images,/iso` | ISO 검색 경로 (CSV) |
 
@@ -5150,7 +5231,9 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 루트 경로 |
+| `storage_backend` | `zfs` | 신규 컨테이너 backend: `zfs` 또는 명시적 `btrfs`. 기존 객체를 변환하지 않음 |
+| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 관리 경로. Btrfs 선택 시 root가 관리하는 실제 Btrfs 경로 |
+| `rootless` | `false` | 기본 user namespace 생성 여부. Btrfs는 `false`만 지원 |
 
 #### [cluster]
 

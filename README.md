@@ -42,6 +42,9 @@ sudo apt install -y \
 
 </details>
 
+위 설치 예시는 ZFS를 포함합니다. Btrfs LXC와 file disk VM만 사용하는 구성은
+`zfsutils-linux`를 생략하고 Btrfs 점검용 `btrfs-progs`를 준비할 수 있습니다.
+
 UI 번들·검증 도구의 의존성은 저장소 루트에서 설치합니다.<br> 검증 환경은 Node.js 24와
 npm을 사용했습니다.<br> 전체 C·계약 검증에는 `wireguard-tools`, `sqlite3`,
 `openvswitch-switch`, `python3-pytest`, `strace`도 준비합니다.
@@ -94,6 +97,29 @@ Release 빌드는 다음 명령으로 확인합니다.
 ```bash
 make release
 ```
+
+## LXC 저장소 선택
+
+초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. 이 변경을 포함한 공개 소스는 기본 `zfs`와
+명시적 `btrfs`를 지원하며, 버전·태그를 올리지 않으므로 설치한 commit으로 구분합니다.
+Btrfs를 선택하려면 `daemon.conf`에 다음을 설정합니다.
+
+```ini
+[container]
+storage_backend = btrfs
+lxc_path = /var/lib/purecvisor/lxc
+rootless = false
+```
+
+`lxc_path`는 root가 관리하는 실제 Btrfs 경로여야 합니다. 기본 ZFS LXC에는 ZFS가
+필요하며, Btrfs 선택 실패 시 다른 backend로 폴백하지 않습니다. 기존 컨테이너는 기록된
+실제 저장소 identity를 사용하므로 기본값 변경은 migration이 아닙니다.
+
+Btrfs clone·snapshot·restore는 정지된 privileged 컨테이너의 rootfs를 대상으로 하며,
+복원 시 현재 config·owner·image metadata를 보존합니다. 세부 조건과 실패 복구는
+[컨테이너 가이드](docs/GUIDE.md#4-컨테이너-관리), 결정은
+[ADR-0058](docs/adr/0058-lxc-storage-backend-identity.md)을 따릅니다.
+지정 Arch/Btrfs 호스트의 실제 API·복구·완료 통지 검증을 통과했으며 [API 검증 기록](docs/operations/2026-09-16-lxc-btrfs-api-validation.md)에서 추적합니다.
 
 ---
 

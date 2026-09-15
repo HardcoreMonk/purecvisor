@@ -421,6 +421,21 @@ CPU·메모리의 `alert_only`를 VM 대상 `restart`와 구분한다. 이상 �
   이 격리 회귀의 libvirt/DPDK/ZFS 경계는 대역이며 실제 libvirt와 API/audit 검증을 별도로 기록한다.
 - ZFS 실패의 격리 주입 결과를 실제 ZFS pool의 전체 원자성 검증으로 확대 해석하지 않는다.
 
+### 5.16 선택형 LXC Btrfs 저장소
+
+- 기본 `zfs`와 명시 선택 `btrfs`를 구분한다. Btrfs 시험은 root 소유의 전용 Btrfs 경로와 `rootless=false`로 수행한다.
+- API 생성의 `accepted`·`job_id`, 작업의 최종 상태, 실제 rootfs 서브볼륨 UUID/ID, owner와 이미지 메타데이터를 대조한다.
+- 게스트 부팅과 파일 쓰기·재시작 후 영속화, 메모리 제한, 네트워크 주소를 게스트 안에서 확인한다.
+- 정지 상태의 CoW 복제에서 서로 다른 UUID와 데이터 쓰기 분리를 확인한다. 복제 대상 소유자는 실제 요청자여야 한다.
+- 읽기 전용 snapshot 생성·조회·삭제와 rootfs 복원을 확인한다. 복원 후 현재 config/owner/image 메타데이터는 바이트 단위로 동일해야 한다.
+- 실행 중 snapshot·clone·rollback, 중첩 서브볼륨, 외부 mount/fstab, 다른 filesystem, rootless, 중복 이름과 변조된 identity를 거부하고 기존 데이터를 보존한다.
+- 기본 backend를 ZFS로 변경하고 데몬을 재시작해도 기존 Btrfs 객체의 시작·정지·snapshot·복원·삭제는 기록된 실제 저장소를 사용한다.
+- 복원 교환 전·후 journal 상태, 메타데이터 임시 파일 잔존과 부분 삭제를 주입한다. 재시도는 소유한 데이터만 처리하고 모호한 신원·의심스러운 임시 파일은 보존해야 한다.
+- 설정 변경과 health 자동 재시작은 저장소 작업 잠금을 우회하지 않는다. 스냅샷 완료 감사는 요청자와 `container@snapshot`, 실제 성공·실패를 유지한다.
+- 생성 중 실패해 신원이 기록되지 않은 잔여 데이터는 자동 삭제하지 않는다. 시험에서 생성 경로와 실제 UUID를 확인한 대상만 별도 정리하고 증거를 남긴다.
+- `make check-lxc-storage`는 실제 저장소 모듈·driver·handler를 컴파일하는 격리 회귀다. 실제 Btrfs/API 검증 결과는 [운영 인계](operations/2026-09-16-lxc-btrfs-api-validation.md)와 구분한다.
+- 시험 후 VM·컨테이너 목록, 관리 경로, 서브볼륨, 서비스, 기존 호스트 네트워크를 대조한다. 장시간 운용·호스트 재부팅·ENOSPC·실제 Ubuntu ZFS 전체 회귀는 별도 검증이다.
+
 ## 6. 성능 테스트와 기능 테스트 분리
 
 성능 테스트는 다음 조건을 만족할 때만 서비스 기능 검증의 보조 증거로 사용한다.

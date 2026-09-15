@@ -65,3 +65,7 @@ reconcile_interval_sec = 300
 check_enabled = true
 check_url = https://api.github.com/repos/HardcoreMonk/purecvisor/releases/latest
 check_interval_hours = 24
+
+[container]
+storage_backend = zfs
+lxc_path = /var/lib/purecvisor/lxc

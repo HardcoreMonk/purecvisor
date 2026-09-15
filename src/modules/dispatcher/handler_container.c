@@ -98,6 +98,7 @@
 #include <limits.h>
 #include <stdlib.h>
 #include "utils/pcv_spawn.h"
+#include "utils/pcv_job_queue.h"
 
                                                                              
              
@@ -128,6 +129,8 @@
                                                                                
 
 typedef struct {
+    gchar            *job_id;
+    gchar            *actor;
     gchar            *name;                                 
     gchar            *rpc_id;                                    
     UdsServer        *server;                                      
@@ -161,6 +164,15 @@ _ctx_new(const gchar *name, const gchar *rpc_id,
     return ctx;
 }
 
+static void
+_ctx_set_actor(ContainerCtx *ctx, JsonNode *node)
+{
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) || json_node_get_value_type(node) != G_TYPE_STRING)
+        return;
+    const gchar *actor = json_node_get_string(node);
+    ctx->actor = actor && *actor ? g_strdup(actor) : NULL;
+}
+
    
              
                                    
@@ -175,6 +187,8 @@ static void
 _ctx_free(ContainerCtx *ctx)
 {
     if (!ctx) return;                                                    
+    g_free(ctx->job_id);
+    g_free(ctx->actor);
     g_free(ctx->name);
     g_free(ctx->rpc_id);
     g_free(ctx->str_param);                                                   
@@ -207,87 +221,11 @@ _ctx_free(ContainerCtx *ctx)
                                                              
    
 static gboolean
-_ensure_container_config_ready(const gchar *name,
-                               gchar      **out_config_path,
-                               GError     **error)
+_ensure_container_config_ready(const gchar *name, gchar **out_config_path, GError **error)
 {
-    gchar *config_path = g_strdup_printf("%s/%s/config", PCV_LXC_PATH, name);
-                                                 
-    if (g_file_test(config_path, G_FILE_TEST_EXISTS)) {
-        if (out_config_path) *out_config_path = config_path;              
-        else g_free(config_path);                                                 
-        return TRUE;
-    }
-
-                                                                   
-    gchar *dataset = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, name);
-    const gchar *mount_argv[] = { "zfs", "mount", dataset, NULL };
-    GError *mount_err = NULL;
-
-    if (!pcv_spawn_sync(mount_argv, NULL, NULL, &mount_err) && mount_err) {
-                                                                               
-                                                         
-                                                             
-        if (!g_strrstr(mount_err->message, "already mounted") &&
-            !g_file_test(config_path, G_FILE_TEST_EXISTS)) {
-            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                        "Failed to mount container dataset for '%s': %s",
-                        name, mount_err->message);
-            g_error_free(mount_err);
-            g_free(dataset);
-            g_free(config_path);
-            return FALSE;
-        }
-        g_error_free(mount_err);
-    }
-    g_free(dataset);
-
-                                                                
-    if (!g_file_test(config_path, G_FILE_TEST_EXISTS)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                    "Container '%s' config is not visible under %s",
-                    name, config_path);
-        g_free(config_path);
-        return FALSE;
-    }
-
-    if (out_config_path) *out_config_path = config_path;
-    else g_free(config_path);
-    return TRUE;
+    return pcv_lxc_ensure_config_ready(name, out_config_path, error);
 }
 
-                                                                         
-
-   
-            
-                                         
-                                                                    
-  
-                                      
-                                                                
-                                                                   
-   
-static void
-_send_ok(ContainerCtx *ctx)
-{
-    JsonObject *res = json_object_new();
-    json_object_set_boolean_member(res, "success", TRUE);
-    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(node, res);
-    gchar *resp = pure_rpc_build_success_response(ctx->rpc_id, node);
-    pure_uds_server_send_response(ctx->server, ctx->conn, resp);
-    g_free(resp);
-}
-
-   
-               
-                       
-                                                         
-                                      
-  
-                                              
-                                                   
-   
 static void
 _send_error(ContainerCtx *ctx, PureRpcErrorCode code, const gchar *msg)
 {
@@ -312,6 +250,30 @@ _send_error(ContainerCtx *ctx, PureRpcErrorCode code, const gchar *msg)
 
                                                               
                                            
+static gboolean
+_accept_container_job(ContainerCtx *ctx, const gchar *method, const gchar *target)
+{
+    ctx->job_id = pcv_job_create(method, target, NULL);
+    JsonObject *job = ctx->job_id ? pcv_job_get(ctx->job_id) : NULL;
+    if (!job) {
+        _send_error(ctx, PURE_RPC_ERR_INTERNAL_ERROR, "Unable to persist container job");
+        return FALSE;
+    }
+    json_object_unref(job);
+    pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 0, "Container operation accepted");
+    JsonObject *result = json_object_new();
+    json_object_set_string_member(result, "status", "accepted");
+    json_object_set_boolean_member(result, "success", TRUE);
+    json_object_set_string_member(result, "name", ctx->name);
+    json_object_set_string_member(result, "job_id", ctx->job_id);
+    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(node, result);
+    gchar *response = pure_rpc_build_success_response(ctx->rpc_id, node);
+    pure_uds_server_send_response(ctx->server, ctx->conn, response);
+    g_free(response);
+    return TRUE;
+}
+
 typedef struct {
     ContainerCtx *base;                                                              
     gchar        *image;
@@ -354,75 +316,21 @@ _create_ctx_free(CreateCtx *c)
 static void
 _on_create_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
-    CreateCtx *ctx = (CreateCtx *)user_data;
-    GError    *error = NULL;
-
-                              
-                                                            
-                                                             
-                            
-    unlock_vm_operation(ctx->base->name);                              
-    gchar *job_id = g_strdup_printf("container.create:%s", ctx->base->name);
-    if (!pcv_lxc_create_finish(res, &error)) {
-        const gchar *err_msg = error ? error->message : "unknown error";
-                                                  
-        g_warning("container.create failed for '%s': %s",
-                  ctx->base->name, err_msg);
-        pcv_audit_log(NULL, "container.create", ctx->base->name, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.create",
-                                      "failed", err_msg);
-        if (error) g_error_free(error);
-    } else {
-        g_info("container.create succeeded for '%s'", ctx->base->name);
-                                                                     
-                                                                       
-                                                            
-        pcv_lxc_stamp_owner(ctx->base->name, ctx->owner_sub);
-        pcv_audit_log(NULL, "container.create", ctx->base->name, "ok",
-                      0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.create",
-                                      "completed", NULL);
-    }
-    g_free(job_id);
+    CreateCtx *ctx = user_data;
+    ContainerCtx *base = ctx->base;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_create_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Container operation failed");
+    pcv_job_update_status(base->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    pcv_audit_log(NULL, "container.create", base->name,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(base->job_id, "container.create",
+                                  ok ? "completed" : "failed", detail);
+    unlock_vm_operation(base->name);
+    g_clear_error(&error);
     _create_ctx_free(ctx);
 }
 
-   
-                                                                    
-  
-                                                             
-                                                          
-                                                             
-                                                 
-                                                                      
-  
-                                                    
-                                                    
-                                                   
-                                                 
-                    
-  
-                                                        
-                                                                 
-                                 
-                                                           
-                                                                       
-                                                            
-                                                                           
-                                                                  
-                                                             
-                                                       
-                                                      
-                                                            
-                                   
-                                                                                  
-                                                                 
-                                        
-                                                   
-                                                        
-                                                      
-   
 void
 handle_container_create(JsonObject *params, const gchar *rpc_id,
                          UdsServer *server, GSocketConnection *conn)
@@ -434,8 +342,6 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e);
         g_free(e); return;
     }
-
-                                                                
     const gchar *name   = json_object_get_string_member(params, "name");
     const gchar *image  = json_object_has_member(params, "image")
                           ? json_object_get_string_member(params, "image")
@@ -447,19 +353,6 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
     const gchar *bridge = json_object_has_member(params, "network_bridge")
                           ? json_object_get_string_member(params, "network_bridge")
                           : NULL;
-
-      
-                          
-      
-                                           
-                                                       
-      
-                                                      
-                                                            
-                                                          
-      
-                                            
-       
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
@@ -475,16 +368,6 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
                        "Invalid network_bridge: 1-16 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-
-      
-                                   
-      
-                                                            
-                                                       
-                                             
-      
-                                                   
-       
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_CREATING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -492,35 +375,12 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e);
         g_free(e); g_free(lock_err); return;
     }
-
-                                                             
     gint rootless = -1;                                 
     if (json_object_has_member(params, "rootless")) {
         rootless = json_object_get_boolean_member(params, "rootless") ? 1 : 0;
     }
-
-                                                       
-                                              
-    {
-        JsonObject *accepted = json_object_new();
-        json_object_set_string_member(accepted, "status", "accepted");
-        json_object_set_string_member(accepted, "name", name);
-        json_object_set_string_member(accepted, "message", "Container creation started");
-        JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(node, accepted);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, conn, resp);
-        g_free(resp);
-    }
-
-                                      
-                                                                      
-                                                             
-                                                        
     const gchar *owner_sub =
         json_object_get_string_member_with_default(params, "_pcv_caller_sub", NULL);
-
-                                           
     CreateCtx *ctx  = g_new0(CreateCtx, 1);
     ctx->base       = _ctx_new(name, rpc_id, server, conn);
     ctx->image      = g_strdup(image);
@@ -529,91 +389,34 @@ handle_container_create(JsonObject *params, const gchar *rpc_id,
     ctx->bridge     = g_strdup(bridge ? bridge : PCV_LXC_DEFAULT_BRIDGE);
     ctx->rootless   = rootless;
     ctx->owner_sub  = g_strdup(owner_sub);
-
-                                              
+    if (!_accept_container_job(ctx->base, "container.create", name)) {
+        unlock_vm_operation(name);
+        _create_ctx_free(ctx);
+        return;
+    }
     pcv_lxc_create_async_full(name, ctx->image, memory_mb, vcpu_count,
-                               ctx->bridge, rootless,
+                               ctx->bridge, rootless, ctx->owner_sub,
                                NULL, _on_create_done, ctx);
 }
-
-                                                                             
-                    
-  
-                                                    
-  
-                                        
-                             
-  
-                        
-                        
-                                                                               
-
-   
-                    
-                                 
-                                                
-  
-                                                   
-  
-                                                                           
-                                                       
    
 static void
 _on_destroy_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-
-    unlock_vm_operation(ctx->name);                                       
-    gchar *job_id = g_strdup_printf("container.destroy:%s", ctx->name);
-    if (!pcv_lxc_destroy_finish(res, &error)) {
-        const gchar *err_msg = error ? error->message : "unknown";
-        g_warning("container.destroy failed for '%s': %s",
-                  ctx->name, err_msg);
-        pcv_audit_log(NULL, "container.destroy", ctx->name, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.destroy",
-                                      "failed", err_msg);
-        if (error) g_error_free(error);
-    } else {
-        g_info("container.destroy succeeded for '%s'", ctx->name);
-        pcv_audit_log(NULL, "container.destroy", ctx->name, "ok",
-                      0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.destroy",
-                                      "completed", NULL);
-    }
-    g_free(job_id);
+    ContainerCtx *ctx = user_data;
+    ContainerCtx *base = ctx;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_destroy_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Container operation failed");
+    pcv_job_update_status(base->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    pcv_audit_log(NULL, "container.destroy", base->name,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(base->job_id, "container.destroy",
+                                  ok ? "completed" : "failed", detail);
+    unlock_vm_operation(base->name);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                    
-  
-                                                            
-                                                                              
-                                                     
-                                                
-                                                                 
-                                                      
-  
-                                                    
-                                                 
-                                                   
-                             
-  
-                                                                   
-                                                              
-                                                                     
-                                       
-                                                        
-                                                          
-                                                         
-                                                
-                                        
-                                            
-                                                        
-                                                
-   
 void
 handle_container_destroy(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *conn)
@@ -625,15 +428,11 @@ handle_container_destroy(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name = json_object_get_string_member(params, "name");
-
-                    
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-
-                      
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_DELETING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -641,98 +440,33 @@ handle_container_destroy(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e);
         g_free(e); g_free(lock_err); return;
     }
-
-                                         
-    {
-        JsonObject *accepted = json_object_new();
-        json_object_set_string_member(accepted, "status", "accepted");
-        json_object_set_string_member(accepted, "name", name);
-        json_object_set_string_member(accepted, "message", "Container deletion started");
-        JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(node, accepted);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, conn, resp);
-        g_free(resp);
-    }
-
     ContainerCtx *ctx = _ctx_new(name, rpc_id, server, conn);
+    if (!_accept_container_job(ctx, "container.destroy", name)) {
+        unlock_vm_operation(name);
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_destroy_async(name, NULL, _on_destroy_done, ctx);
 }
-
-                                                                             
-                  
-  
-                             
-  
-                                                     
-  
-                        
-                        
-                                                                               
-
-   
-                  
-                               
-                                   
-  
-                                                    
-                                                       
    
 static void
 _on_start_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-
-    unlock_vm_operation(ctx->name);
-    gchar *job_id = g_strdup_printf("container.start:%s", ctx->name);
-    if (!pcv_lxc_start_finish(res, &error)) {
-        const gchar *err_msg = error ? error->message : "unknown error";
-        g_warning("container.start failed for '%s': %s",
-                  ctx->name, err_msg);
-        pcv_audit_log(NULL, "container.start", ctx->name, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.start",
-                                      "failed", err_msg);
-        if (error) g_error_free(error);
-    } else {
-        g_info("container.start succeeded for '%s'", ctx->name);
-        pcv_audit_log(NULL, "container.start", ctx->name, "ok",
-                      0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.start",
-                                      "completed", NULL);
-    }
-    g_free(job_id);
+    ContainerCtx *ctx = user_data;
+    ContainerCtx *base = ctx;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_start_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Container operation failed");
+    pcv_job_update_status(base->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    pcv_audit_log(NULL, "container.start", base->name,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(base->job_id, "container.start",
+                                  ok ? "completed" : "failed", detail);
+    unlock_vm_operation(base->name);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                
-  
-                                                                 
-                                                                        
-                                                                 
-                                                               
-                                                 
-                                                 
-  
-                                                  
-                                                
-                                                 
-                                     
-  
-                                                               
-                                     
-                                                                     
-                                
-                                             
-                                                                     
-                           
-                                        
-                                            
-                                                  
-                                                         
-   
 void
 handle_container_start(JsonObject *params, const gchar *rpc_id,
                         UdsServer *server, GSocketConnection *conn)
@@ -744,13 +478,11 @@ handle_container_start(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name = json_object_get_string_member(params, "name");
-
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_STARTING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -758,99 +490,33 @@ handle_container_start(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e);
         g_free(e); g_free(lock_err); return;
     }
-
-                                          
-                                        
-                                                                    
-    {
-        JsonObject *ok = json_object_new();
-        json_object_set_boolean_member(ok, "success", TRUE);
-        JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(node, ok);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, conn, resp);
-        g_free(resp);
-    }
-
     ContainerCtx *ctx = _ctx_new(name, rpc_id, server, conn);
+    if (!_accept_container_job(ctx, "container.start", name)) {
+        unlock_vm_operation(name);
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_start_async(name, NULL, _on_start_done, ctx);
 }
-
-                                                                             
-                 
-  
-                                                            
-                              
-  
-                     
-                                                                 
-  
-                                                
-                        
-                                                                               
-
-   
-                 
-                              
-                                   
-  
-                                                
-                                                       
    
 static void
 _on_stop_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-
-    unlock_vm_operation(ctx->name);
-    gchar *job_id = g_strdup_printf("container.stop:%s", ctx->name);
-    if (!pcv_lxc_stop_finish(res, &error)) {
-        const gchar *err_msg = error ? error->message : "unknown error";
-        g_warning("container.stop failed for '%s': %s",
-                  ctx->name, err_msg);
-        pcv_audit_log(NULL, "container.stop", ctx->name, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.stop",
-                                      "failed", err_msg);
-        if (error) g_error_free(error);
-    } else {
-        g_info("container.stop succeeded for '%s'", ctx->name);
-        pcv_audit_log(NULL, "container.stop", ctx->name, "ok",
-                      0, 0, "local");
-        pcv_ws_broadcast_job_complete(job_id, "container.stop",
-                                      "completed", NULL);
-    }
-    g_free(job_id);
+    ContainerCtx *ctx = user_data;
+    ContainerCtx *base = ctx;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_stop_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Container operation failed");
+    pcv_job_update_status(base->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    pcv_audit_log(NULL, "container.stop", base->name,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(base->job_id, "container.stop",
+                                  ok ? "completed" : "failed", detail);
+    unlock_vm_operation(base->name);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                 
-  
-                                                            
-                                                                 
-                                                            
-                                                     
-                         
-  
-                                                  
-                                                 
-                                                  
-                                                
-  
-                                                              
-                                     
-                                                            
-                                        
-                                          
-                                       
-                                                          
-                                        
-                                            
-                                                  
-                                                         
-   
 void
 handle_container_stop(JsonObject *params, const gchar *rpc_id,
                        UdsServer *server, GSocketConnection *conn)
@@ -865,13 +531,11 @@ handle_container_stop(JsonObject *params, const gchar *rpc_id,
     gboolean     force = json_object_has_member(params, "force")
                          ? json_object_get_boolean_member(params, "force")
                          : FALSE;
-
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-
     gchar *lock_err = NULL;
     if (!lock_vm_operation(name, VM_OP_STOPPING, &lock_err)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -879,48 +543,21 @@ handle_container_stop(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e);
         g_free(e); g_free(lock_err); return;
     }
-
-                                          
-                                                           
-    {
-        JsonObject *ok = json_object_new();
-        json_object_set_boolean_member(ok, "success", TRUE);
-        JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(node, ok);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, conn, resp);
-        g_free(resp);
-    }
-
     ContainerCtx *ctx  = _ctx_new(name, rpc_id, server, conn);
     ctx->bool_param    = force;
+    if (!_accept_container_job(ctx, "container.stop", name)) {
+        unlock_vm_operation(name);
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_stop_async(name, force, NULL, _on_stop_done, ctx);
 }
-
-                                                                             
-                                  
-  
-                                                     
-                                                             
-  
-                          
-                                             
-                         
-  
-           
-                                                                                                               
-  
-                                                    
-                                                              
-                                                                               
-
 void
 handle_container_list(JsonObject *params, const gchar *rpc_id,
                        UdsServer *server, GSocketConnection *conn)
 {
     GError    *error = NULL;
     GPtrArray *list  = pcv_lxc_list(&error);
-
     if (!list) {
         gchar *e = pure_rpc_build_error_response(
                        rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -930,8 +567,6 @@ handle_container_list(JsonObject *params, const gchar *rpc_id,
         if (error) g_error_free(error);
         return;
     }
-
-                                            
     JsonArray *arr = json_array_new();
     for (guint i = 0; i < list->len; i++) {
         PcvLxcInfo *info = g_ptr_array_index(list, i);
@@ -943,24 +578,16 @@ handle_container_list(JsonObject *params, const gchar *rpc_id,
         json_array_add_object_element(arr, obj);
     }
     g_ptr_array_unref(list);                                   
-
-                                                     
-                                                                 
     gint pg_offset = (params && json_object_has_member(params, "offset"))
         ? (gint)json_object_get_int_member(params, "offset") : 0;
     gint pg_limit = (params && json_object_has_member(params, "limit"))
         ? (gint)json_object_get_int_member(params, "limit") : 0;
-
     if (pg_limit > 0) {                                                      
-                                                                        
-                                                          
         if (pg_limit > 10000) pg_limit = 10000;
         gint total = (gint)json_array_get_length(arr);
         if (pg_offset < 0) pg_offset = 0;                                        
         if (pg_offset > total) pg_offset = total;                                              
         JsonArray *paged = json_array_new();
-                                                                       
-                                                      
         for (gint i = pg_offset; i < total && i < pg_offset + pg_limit; i++)
             json_array_add_element(paged, json_array_dup_element(arr, (guint)i));
         JsonObject *pg = json_object_new();
@@ -983,26 +610,6 @@ handle_container_list(JsonObject *params, const gchar *rpc_id,
         g_free(resp);
     }
 }
-
-                                                                             
-                             
-  
-                                                         
-                                                 
-  
-                          
-                                                             
-  
-                        
-                                                     
-                                                                 
-                                          
-                                                        
-                                                                 
-  
-                                                       
-                                                                               
-
 void
 handle_container_metrics(JsonObject *params, const gchar *rpc_id,
                           UdsServer *server, GSocketConnection *conn)
@@ -1014,14 +621,11 @@ handle_container_metrics(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name = json_object_get_string_member(params, "name");
-
-                    
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "Invalid container name: 1-64 chars [a-zA-Z0-9_-]");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-
     GError *error = NULL;
     PcvLxcMetrics *m = pcv_lxc_get_metrics(name, &error);
     if (!m) {
@@ -1032,8 +636,6 @@ handle_container_metrics(JsonObject *params, const gchar *rpc_id,
         if (error) g_error_free(error);
         return;
     }
-
-                                                         
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "name",         m->name);
     json_object_set_string_member(obj, "state",        m->state_str);
@@ -1049,31 +651,12 @@ handle_container_metrics(JsonObject *params, const gchar *rpc_id,
     json_object_set_string_member(obj, "ip_addr",      m->ip_addr);
     json_object_set_int_member   (obj, "init_pid",     (gint64)m->init_pid);
     pcv_lxc_metrics_free(m);
-
     JsonNode *result_node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(result_node, obj);
     gchar *resp = pure_rpc_build_success_response(rpc_id, result_node);
     pure_uds_server_send_response(server, conn, resp);
     g_free(resp);
 }
-
-                                                                             
-                 
-  
-                                                   
-                                                            
-  
-                                                      
-                                        
-                                                                               
-
-   
-                 
-                              
-                                                  
-  
-                                                    
-                                                          
    
 static void
 _on_exec_done(GObject *src __attribute__((unused)), GAsyncResult *res, gpointer user_data)
@@ -1171,46 +754,33 @@ handle_container_exec(JsonObject *params, const gchar *rpc_id,
 
                                                                          
                                                    
+static gboolean
+_accept_snapshot(ContainerCtx *ctx, const gchar *method)
+{
+    gchar *target = g_strdup_printf("%s@%s", ctx->name, ctx->str_param);
+    gboolean ok = _accept_container_job(ctx, method, target);
+    g_free(target);
+    return ok;
+}
+
 static void
 _on_snap_create_done(GObject *src __attribute__((unused)), GAsyncResult *res,
-                     gpointer user_data)
+                      gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-    if (!pcv_lxc_snapshot_create_finish(res, &error))
-        _send_error(ctx, PURE_RPC_ERR_INTERNAL_ERROR,
-                    error ? error->message : "snapshot.create failed");
-    else
-        _send_ok(ctx);
-    if (error) g_error_free(error);
+    ContainerCtx *ctx = user_data;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_snapshot_create_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Snapshot operation failed");
+    pcv_job_update_status(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    g_autofree gchar *target = g_strdup_printf("%s@%s", ctx->name, ctx->str_param);
+    pcv_audit_log(ctx->actor, "container.snapshot.create", target,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(ctx->job_id, "container.snapshot.create",
+                                  ok ? "completed" : "failed", detail);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                   
-  
-                                                  
-                                                           
-                                                                   
-                                                                    
-                                          
-  
-                                                   
-                                                    
-                                              
-  
-                                                               
-                                                                 
-                                                           
-                                                       
-                                                  
-                                       
-                                           
-                                        
-                                                              
-                                               
-                                                    
-   
 void
 handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *conn)
@@ -1240,6 +810,12 @@ handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
 
     ContainerCtx *ctx  = _ctx_new(name, rpc_id, server, conn);
     ctx->str_param     = g_strdup(snap_name);
+    JsonNode *actor_node = json_object_get_member(params, "_pcv_caller_sub");
+    _ctx_set_actor(ctx, actor_node);
+    if (!_accept_snapshot(ctx, "container.snapshot.create")) {
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_snapshot_create_async(name, snap_name, NULL, _on_snap_create_done, ctx);
 }
 
@@ -1262,44 +838,22 @@ handle_container_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                                
 static void
 _on_snap_rollback_done(GObject *src __attribute__((unused)), GAsyncResult *res,
-                       gpointer user_data)
+                      gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-    if (!pcv_lxc_snapshot_rollback_finish(res, &error))
-        _send_error(ctx, PURE_RPC_ERR_INTERNAL_ERROR,
-                    error ? error->message : "snapshot.rollback failed");
-    else
-        _send_ok(ctx);
-    if (error) g_error_free(error);
+    ContainerCtx *ctx = user_data;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_snapshot_rollback_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Snapshot operation failed");
+    pcv_job_update_status(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    g_autofree gchar *target = g_strdup_printf("%s@%s", ctx->name, ctx->str_param);
+    pcv_audit_log(ctx->actor, "container.snapshot.rollback", target,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(ctx->job_id, "container.snapshot.rollback",
+                                  ok ? "completed" : "failed", detail);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                           
-  
-                                                      
-                                                      
-                                                     
-                                               
-  
-                                                
-                                                 
-                                                   
-                                                   
-  
-                                                                
-                                                        
-                                  
-                                                  
-                                                    
-                                           
-                                                   
-                                        
-                                     
-                                               
-                                                       
-   
 void
 handle_container_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
                                     UdsServer *server, GSocketConnection *conn)
@@ -1329,6 +883,12 @@ handle_container_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
 
     ContainerCtx *ctx  = _ctx_new(name, rpc_id, server, conn);
     ctx->str_param     = g_strdup(snap_name);
+    JsonNode *actor_node = json_object_get_member(params, "_pcv_caller_sub");
+    _ctx_set_actor(ctx, actor_node);
+    if (!_accept_snapshot(ctx, "container.snapshot.rollback")) {
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_snapshot_rollback_async(name, snap_name, NULL, _on_snap_rollback_done, ctx);
 }
 
@@ -1349,41 +909,22 @@ handle_container_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
                                                  
 static void
 _on_snap_delete_done(GObject *src __attribute__((unused)), GAsyncResult *res,
-                     gpointer user_data)
+                      gpointer user_data)
 {
-    ContainerCtx *ctx = (ContainerCtx *)user_data;
-    GError       *error = NULL;
-    if (!pcv_lxc_snapshot_delete_finish(res, &error))
-        _send_error(ctx, PURE_RPC_ERR_INTERNAL_ERROR,
-                    error ? error->message : "snapshot.delete failed");
-    else
-        _send_ok(ctx);
-    if (error) g_error_free(error);
+    ContainerCtx *ctx = user_data;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_snapshot_delete_finish(res, &error);
+    const gchar *detail = ok ? NULL : (error ? error->message : "Snapshot operation failed");
+    pcv_job_update_status(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100, detail);
+    g_autofree gchar *target = g_strdup_printf("%s@%s", ctx->name, ctx->str_param);
+    pcv_audit_log(ctx->actor, "container.snapshot.delete", target,
+                  ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
+    pcv_ws_broadcast_job_complete(ctx->job_id, "container.snapshot.delete",
+                                  ok ? "completed" : "failed", detail);
+    g_clear_error(&error);
     _ctx_free(ctx);
 }
 
-   
-                                                                       
-  
-                                              
-                                                      
-                                                
-                      
-  
-                                                  
-                                                    
-                                      
-  
-                                                                
-                                                                 
-                                                        
-             
-                                                  
-                                        
-                                     
-                                               
-                                                       
-   
 void
 handle_container_snapshot_delete(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *conn)
@@ -1413,6 +954,12 @@ handle_container_snapshot_delete(JsonObject *params, const gchar *rpc_id,
 
     ContainerCtx *ctx  = _ctx_new(name, rpc_id, server, conn);
     ctx->str_param     = g_strdup(snap_name);
+    JsonNode *actor_node = json_object_get_member(params, "_pcv_caller_sub");
+    _ctx_set_actor(ctx, actor_node);
+    if (!_accept_snapshot(ctx, "container.snapshot.delete")) {
+        _ctx_free(ctx);
+        return;
+    }
     pcv_lxc_snapshot_delete_async(name, snap_name, NULL, _on_snap_delete_done, ctx);
 }
 
@@ -1662,6 +1209,22 @@ handle_container_logs(JsonObject *params, const gchar *rpc_id,
                                        
                                                                                
 
+static PcvLxcOperationGuard *
+_container_config_guard(const gchar *name, const gchar *rpc_id,
+                        UdsServer *server, GSocketConnection *conn)
+{
+    GError *error = NULL;
+    PcvLxcOperationGuard *guard = pcv_lxc_operation_guard_acquire(name, &error);
+    if (!guard) {
+        gchar *response = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, error->message);
+        pure_uds_server_send_response(server, conn, response);
+        g_free(response);
+        g_clear_error(&error);
+    }
+    return guard;
+}
+
 void
 handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *conn)
@@ -1676,6 +1239,8 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name           = json_object_get_string_member(params, "name");
+    g_autoptr(PcvLxcOperationGuard) guard = _container_config_guard(name, rpc_id, server, conn);
+    if (!guard) return;
     const gchar *host_path      = json_object_get_string_member(params, "host_path");
     const gchar *container_path = json_object_get_string_member(params, "container_path");
     gboolean     readonly       = json_object_has_member(params, "readonly")
@@ -1817,6 +1382,8 @@ handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name           = json_object_get_string_member(params, "name");
+    g_autoptr(PcvLxcOperationGuard) guard = _container_config_guard(name, rpc_id, server, conn);
+    if (!guard) return;
     const gchar *container_path = json_object_get_string_member(params, "container_path");
 
     if (!pcv_validate_vm_name(name)) {
@@ -1988,6 +1555,8 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name  = json_object_get_string_member(params, "name");
+    g_autoptr(PcvLxcOperationGuard) guard = _container_config_guard(name, rpc_id, server, conn);
+    if (!guard) return;
     const gchar *key   = json_object_get_string_member(params, "key");
     const gchar *value = json_object_get_string_member(params, "value");
 
@@ -2183,6 +1752,8 @@ handle_container_env_delete(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
     const gchar *name = json_object_get_string_member(params, "name");
+    g_autoptr(PcvLxcOperationGuard) guard = _container_config_guard(name, rpc_id, server, conn);
+    if (!guard) return;
     const gchar *key  = json_object_get_string_member(params, "key");
 
     if (!pcv_validate_vm_name(name)) {
@@ -2275,7 +1846,8 @@ typedef struct {
                 
     gint     consecutive_failures;                  
     gboolean healthy;                            
-    gint     restart_count;                       
+    gint     restart_count;
+    gboolean restart_pending;
     gint64   last_check_time;                                      
 } ContainerHealthProbe;
 
@@ -2298,6 +1870,51 @@ static gint _health_find(const gchar *ctr_name) {
 
                                    
                                                             
+static void
+_health_restart_finished(const gchar *name, gboolean ok)
+{
+    g_mutex_lock(&g_health_mu);
+    gint index = _health_find(name);
+    if (index >= 0) {
+        ContainerHealthProbe *probe = &g_health_probes[index];
+        probe->restart_pending = FALSE;
+        if (ok) {
+            probe->restart_count++;
+            probe->consecutive_failures = 0;
+        }
+    }
+    g_mutex_unlock(&g_health_mu);
+}
+
+static void
+_health_restart_started(GObject *source __attribute__((unused)),
+                        GAsyncResult *result, gpointer data)
+{
+    gchar *name = data;
+    GError *error = NULL;
+    gboolean ok = pcv_lxc_start_finish(result, &error);
+    _health_restart_finished(name, ok);
+    if (!ok) g_message("[HealthCheck] %s restart deferred: %s", name, error->message);
+    g_clear_error(&error);
+    g_free(name);
+}
+
+static void
+_health_restart_stopped(GObject *source __attribute__((unused)),
+                        GAsyncResult *result, gpointer data)
+{
+    gchar *name = data;
+    GError *error = NULL;
+    if (!pcv_lxc_stop_finish(result, &error)) {
+        _health_restart_finished(name, FALSE);
+        g_message("[HealthCheck] %s restart deferred: %s", name, error->message);
+        g_clear_error(&error);
+        g_free(name);
+        return;
+    }
+    pcv_lxc_start_async(name, NULL, _health_restart_started, name);
+}
+
 static gboolean _health_check_tick(gpointer user_data) {
     (void)user_data;                                     
     gint64 now = g_get_monotonic_time();                                      
@@ -2356,17 +1973,12 @@ hc_check_threshold:
                                                    
         if (p->consecutive_failures >= p->failure_threshold) {
             p->healthy = FALSE;
-            if (p->auto_restart) {
+            if (p->auto_restart && !p->restart_pending) {
                 g_message("[HealthCheck] %s unhealthy (%d failures), restarting",
                           p->name, p->consecutive_failures);
-                const gchar *stop_argv[]  = {"lxc-stop", "-P", PCV_LXC_PATH,
-                                              "-n", p->name, NULL};
-                const gchar *start_argv[] = {"lxc-start", "-P", PCV_LXC_PATH,
-                                              "-n", p->name, NULL};
-                pcv_spawn_sync(stop_argv, NULL, NULL, NULL);            
-                pcv_spawn_sync(start_argv, NULL, NULL, NULL);                       
-                p->restart_count++;                               
-                p->consecutive_failures = 0;                                       
+                p->restart_pending = TRUE;
+                pcv_lxc_stop_async(p->name, FALSE, NULL, _health_restart_stopped,
+                                   g_strdup(p->name));
             }
         }
     }
@@ -2409,7 +2021,8 @@ void handle_container_health_set(JsonObject *params, const gchar *rpc_id,
                            "Max health probes reached (32)");
             pure_uds_server_send_response(server, conn, e); g_free(e); return;
         }
-        idx = g_n_health_probes++;                                
+        idx = g_n_health_probes++;
+        memset(&g_health_probes[idx], 0, sizeof(g_health_probes[idx]));
     }
     ContainerHealthProbe *p = &g_health_probes[idx];
     g_strlcpy(p->name, cname, sizeof(p->name));

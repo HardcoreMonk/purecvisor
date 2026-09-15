@@ -55,7 +55,7 @@ async function renderContainers(b) {
       b.appendChild(emptyStatePro({
         icon: '&#9783;',
         title: _L('컨테이너가 없습니다', 'No containers'),
-        desc: _L('첫 LXC 컨테이너를 만들어보세요. ZFS 백엔드 + cloud-init 자동.', 'Create your first LXC container with ZFS backend.'),
+        desc: _L('설정된 저장소 백엔드로 첫 LXC 컨테이너를 만드세요.', 'Create your first LXC container using the configured storage backend.'),
         ctaLabel: _L('+ 컨테이너 만들기', '+ Create Container'),
         ctaAction: 'showCtrCreate()',
         ctaRole: 'OPERATOR,ADMIN'
@@ -395,6 +395,7 @@ async function ctrA(n, a) {
     pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting for container ' + a + '...');
     var _navGen = PCV.ui.navGen();
     const d = await fetchPost(a === 'start' ? EP.CTR_START(n) : EP.CTR_STOP(n), {});
+    await ctrWaitJobResult(d);
     pf.style.width = '60%';
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + a + ' failed: ' + (d.error.message || 'Unknown error')); toast(a + ' failed', false); return; }
     var targetState = a === 'start' ? 'RUNNING' : 'STOPPED';
@@ -473,11 +474,13 @@ async function ctrReboot(n) {
     if (pf) pf.style.width = '30%';
     var _navGen = PCV.ui.navGen();
     var rStop = await fetchPost(EP.CTR_STOP(n), {});
+    await ctrWaitJobResult(rStop);
     if (rStop && rStop.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (rStop.error.message || 'Reboot failed')); toast(t('msg.reboot_error'), false); return; }
     if (pf) pf.style.width = '50%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Waiting...');
     await new Promise(function(r) { setTimeout(r, 2000); });
     if (pf) pf.style.width = '70%'; if (ps) PCV.uxlib.setMsg(ps, 'loading', null, 'Starting...');
     var rStart = await fetchPost(EP.CTR_START(n), {});
+    await ctrWaitJobResult(rStart);
     if (rStart && rStart.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (rStart.error.message || 'Reboot failed')); toast(t('msg.reboot_error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ Reboot complete');
     toast(n + ' rebooted'); addEvt('LXC Reboot — ' + n);
@@ -494,6 +497,14 @@ async function ctrReboot(n) {
                                                                  
                                                 
                               
+async function ctrWaitJobResult(response) {
+  if (response && response.error) throw new Error(response.error.message || 'Container request failed');
+  var data = unwrapData(response);
+  if (!data || !data.job_id) return;
+  var job = await PCV.api.waitForJob(data.job_id, { attempts: 600, interval: 1000 });
+  if (job.status !== 'completed') throw new Error('Container job is still running: ' + data.job_id);
+}
+
 async function ctrSnapCreate(n) { var _navGen = PCV.ui.navGen(); var s = await showInputModal(t('snap.name_prompt') || 'Snapshot name', t('snap.name_prompt') || 'Name', 'snap-' + Date.now()); if (!s) return;
   var el = PCV.uxlib.el;
   showModal([
@@ -506,6 +517,7 @@ async function ctrSnapCreate(n) { var _navGen = PCV.ui.navGen(); var s = await s
   try {
     if (pf) pf.style.width = '60%';
     var r = await fetchPost(EP.CTR_SNAPSHOTS(n), { snap_name: s });
+    await ctrWaitJobResult(r);
     if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.created') + ': ' + s);
     toast(t('snap.created') + ': ' + s); addEvt('LXC Snapshot created — ' + n + '@' + s);
@@ -533,6 +545,7 @@ async function ctrSnapRb(n, s) { var _navGen = PCV.ui.navGen(); if (!await custo
   try {
     if (pf) pf.style.width = '60%';
     var r = await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s });
+    await ctrWaitJobResult(r);
     if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.reverted'));
     toast(t('snap.reverted')); addEvt('LXC Snapshot rollback — ' + n + '@' + s);
@@ -559,6 +572,7 @@ async function ctrSnapDel(n, s) { var _navGen = PCV.ui.navGen(); if (!await cust
   try {
     if (pf) pf.style.width = '60%';
     var r = await fetchDelete(EP.CTR_SNAP_DELETE(n, s));
+    await ctrWaitJobResult(r);
     if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.deleted'));
     toast(t('snap.deleted')); addEvt('LXC Snapshot deleted — ' + n + '@' + s);
@@ -620,6 +634,7 @@ async function doCtrDel(n) {
   try { pf.style.width = '30%'; PCV.uxlib.setMsg(ps, 'loading', null, 'Destroying...');
     var _navGen = PCV.ui.navGen();
     const d = await fetchDelete(EP.CTR_DETAIL(n));
+    await ctrWaitJobResult(d);
     pf.style.width = '80%';
     if (d.error) { pf.style.background = 'var(--red)'; pf.style.width = '100%'; PCV.uxlib.setMsg(ps, null, null, '❌ ' + d.error.message); toast(t('btn.delete') + ' failed', false); return; }
     var gone = false;
@@ -760,6 +775,7 @@ async function doCtrCreate() {
   try {
     var _navGen = PCV.ui.navGen();
     const r = await fetchPost(EP.CTR_LIST(), body);
+    await ctrWaitJobResult(r);
 
                   
     if (r && r.error) {
@@ -925,6 +941,7 @@ async function showCtrClone(name) {
       if (!dst) { toast(_L('이름 필수', 'Name required'), false); return; }
       try {
         const r = await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
+        await ctrWaitJobResult(r);
         if (r && r.error) { toast(r.error.message || _L('실패', 'Failed'), false); return; }
         toast(_L('클론 요청 완료', 'Clone requested'));
         addEvt('LXC Clone requested — ' + name + ' → ' + dst);

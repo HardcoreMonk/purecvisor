@@ -39,7 +39,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_REL = "src/api/dispatcher.c"
-HANDLER_REL = "src/modules/dispatcher/handler_container.c"
+HANDLER_REL = "src/modules/lxc/lxc_driver.c"
 OWNER_REL = "src/modules/lxc/lxc_owner.c"
 
 OWNER_SCOPE_METHODS = ("container.start", "container.stop", "container.clone")
@@ -169,8 +169,10 @@ def check_dispatcher(rel: str, text: str):
 def check_stamp(rel: str, text: str):
     code = strip_code(text)
     reasons = []
-    if not re.search(r'\bpcv_lxc_stamp_owner\s*\(', code):
-        reasons.append("container.create 경로에 pcv_lxc_stamp_owner 호출 없음 — 소유자 미기록(operator 전면 차단)")
+    for fn in ("_lxc_create_locked", "_clone_worker"):
+        body = extract_fn_body(text, code, fn)
+        if body is None or not re.search(r'\bpcv_lxc_stamp_owner\s*\(', strip_code(body)):
+            reasons.append(f"{fn} worker에 pcv_lxc_stamp_owner 호출 없음")
     return (not reasons), reasons
 
 
@@ -201,7 +203,7 @@ def main(argv=None) -> int:
 
     fails = []
     fails += [f"강제(dispatcher): {r}" for r in disp_r]
-    fails += [f"스탬프(handler): {r}" for r in stamp_r]
+    fails += [f"스탬프(driver): {r}" for r in stamp_r]
     fails += [f"저장소(lxc_owner): {r}" for r in sub_r]
 
     if fails:
@@ -209,7 +211,7 @@ def main(argv=None) -> int:
         for f in fails:
             print(f"  - {f}", file=sys.stderr)
         return 1
-    print("[PASS] container.start/stop/clone owner-scope 세트 + 게이트 배선 + create 스탬프 + 저장소 충족")
+    print("[PASS] container.start/stop/clone owner-scope 세트 + 게이트 배선 + create/clone worker 스탬프 + 저장소 충족")
     return 0
 
 

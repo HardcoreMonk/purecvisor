@@ -5901,6 +5901,8 @@ static void _handle_db_migration_status(JsonObject *params, const gchar *rpc_id,
 typedef struct {
     gchar *source;
     gchar *dest;
+    gchar *owner_sub;
+    gchar *job_id;
 } ContainerCloneAuditCtx;
 
                                                         
@@ -5911,6 +5913,8 @@ _container_clone_audit_ctx_free(ContainerCloneAuditCtx *ctx)
     if (!ctx) return;
     g_free(ctx->source);
     g_free(ctx->dest);
+    g_free(ctx->owner_sub);
+    g_free(ctx->job_id);
     g_free(ctx);
 }
 
@@ -5926,7 +5930,9 @@ _on_container_clone_done(GObject *src __attribute__((unused)),
     GError *error = NULL;
     gboolean ok = pcv_lxc_clone_finish(res, &error);
     gchar *target = g_strdup_printf("%s:%s", ctx->source, ctx->dest);
-    gchar *job_id = g_strdup_printf("container.clone:%s", target);
+    gchar *job_id = g_strdup(ctx->job_id);
+    pcv_job_update_status(job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, 100,
+                           ok ? NULL : (error ? error->message : "Container clone failed"));
 
     pcv_audit_log(NULL, "container.clone", target,
                   ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
@@ -5958,19 +5964,34 @@ static void _handle_container_clone(JsonObject *params, const gchar *rpc_id,
         pure_uds_server_send_response(server, connection, r); g_free(r); return;
     }
                                                   
+    ContainerCloneAuditCtx *ctx = g_new0(ContainerCloneAuditCtx, 1);
+    ctx->source = g_strdup(src);
+    ctx->dest = g_strdup(dst);
+    const gchar *owner_sub = _json_string_member(params, "_pcv_caller_sub");
+    ctx->owner_sub = g_strdup(owner_sub);
+    ctx->job_id = pcv_job_create("container.clone", dst, NULL);
+    JsonObject *job = ctx->job_id ? pcv_job_get(ctx->job_id) : NULL;
+    if (!job) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                                                  "Unable to persist container clone job");
+        pure_uds_server_send_response(server, connection, r);
+        g_free(r);
+        _container_clone_audit_ctx_free(ctx);
+        return;
+    }
+    json_object_unref(job);
+    pcv_job_update_status(ctx->job_id, PCV_JOB_RUNNING, 0, "Clone operation accepted");
     JsonObject *res = json_object_new();
     json_object_set_string_member(res, "source", src);
     json_object_set_string_member(res, "dest", dst);
     json_object_set_string_member(res, "status", "accepted");
+    json_object_set_string_member(res, "job_id", ctx->job_id);
     JsonNode *n = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(n, res);
     gchar *r = pure_rpc_build_success_response(rpc_id, n);
-    pure_uds_server_send_response(server, connection, r); g_free(r);
-                                                        
-    ContainerCloneAuditCtx *ctx = g_new0(ContainerCloneAuditCtx, 1);
-    ctx->source = g_strdup(src);
-    ctx->dest = g_strdup(dst);
-    pcv_lxc_clone_async(src, dst, NULL, _on_container_clone_done, ctx);
+    pure_uds_server_send_response(server, connection, r);
+    g_free(r);
+    pcv_lxc_clone_async(src, dst, ctx->owner_sub, NULL, _on_container_clone_done, ctx);
 }
 
                                                       
@@ -9992,6 +10013,9 @@ static void dispatcher_init_routes(void)
         "container.start",
         "container.stop",
         "container.clone",                                                      
+        "container.snapshot.create",
+        "container.snapshot.rollback",
+        "container.snapshot.delete",
         "container.destroy",                                                   
         "vm.disk.live_resize",                                                            
         "vm.resize_disk",                                                 

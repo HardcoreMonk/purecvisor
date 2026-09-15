@@ -81,7 +81,7 @@ pcv_lxc_stamp_owner(const gchar *name, const gchar *owner_sub)
 
     GError *err = NULL;
                                                          
-    gboolean ok = g_file_set_contents(path, owner_sub, -1, &err);
+    gboolean ok = g_file_set_contents_full(path, owner_sub, -1, G_FILE_SET_CONTENTS_CONSISTENT | G_FILE_SET_CONTENTS_DURABLE, 0600, &err);
     if (!ok) {
                                                            
         PCV_LOG_WARN(LXC_OWNER_LOG_DOM,

@@ -19,6 +19,10 @@
     "reason": "자동 감시가 고정 감시 슬롯을 침범하지 않는지 확인하는 테스트 전용 조회다.",
     "evidence": ["tests/test_anomaly_autowatch.c"]
   },
+  "pcv_lxc_operation_guard_free": {
+    "reason": "G_DEFINE_AUTOPTR_CLEANUP_FUNC 매크로가 설정 변경 scope 종료 시 호출한다. C 파일의 직접 호출만 세는 탐지 휴리스틱을 보정한다.",
+    "evidence": ["src/modules/lxc/lxc_driver.h"]
+  },
   "pcv_overlay_reconcile": {
     "reason": "임베딩 호출자용으로 유지하는 lifecycle API다. daemon timer는 같은 내부 restore worker를 비동기로 호출한다.",
     "evidence": ["src/modules/network/ovs_overlay.h"]

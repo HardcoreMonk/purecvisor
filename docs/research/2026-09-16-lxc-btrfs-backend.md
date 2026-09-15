@@ -1,9 +1,9 @@
 # LXC Btrfs 백엔드 조사
 
 > 조사일: 2026-09-16 KST
-> 상태: 조사·LXC 자체 실기 완료 · PureCVisor 백엔드 구현 전 제안
+> 기록 성격: 구현 전 조사·LXC 자체 실기 근거 보존 · 이후 구현 상태는 8절
 > 조사 기준: PureCVisor 공개 소스 `5e84387`, LXC 공식 매뉴얼, Btrfs 공식 문서와 시험 호스트의 읽기 전용 점검
-> 현재 제품 계약: PureCVisor 2.0.0의 LXC 생성에는 ZFS가 필요하다. 아래 후보 설정과 명령은 현재 PureCVisor의 지원 기능을 의미하지 않는다.
+> 조사 당시 제품 계약: 초기 PureCVisor `2.0.0` 태그와 조사 기준 소스의 LXC 생성에는 ZFS가 필요했다. 1~7절의 제안·미구현 표현은 당시 상태이며, 현재 구현 계약은 [ADR-0058](../adr/0058-lxc-storage-backend-identity.md)과 [가이드 4.1절](../GUIDE.md#41-컨테이너-생성)을 따른다.
 
 > **승인 후 실기 결과:** [LXC Btrfs 실기 검증 인계](../operations/2026-09-16-lxc-btrfs-live-validation.md). 정상·거부 8개, 한계 재현 2개와 정리 1개를 확인했다. 네이티브 clone·restore에서 PureCVisor 메타데이터가 보존되지 않는 점과 중첩 서브볼륨 누락을 실제로 확인했다.
 
@@ -38,9 +38,9 @@ Arch의 파일시스템은 설치자가 선택한다. [Arch 설치 가이드](ht
 
 LXC upstream 소스는 조사 시점의 [`4f1258197c159b2d2d4bfcffb881872526560b08`](https://github.com/lxc/lxc/blob/4f1258197c159b2d2d4bfcffb881872526560b08/src/lxc/storage/btrfs.c)를 참고했다. 이 코드는 설치된 Arch 패키지의 동일 소스라고 가정하지 않는다. `btrfs_create_clone()`의 데이터 복사, `btrfs_create_snapshot()`의 Btrfs ioctl, `btrfs_destroy()`의 서브볼륨 정리 경로를 확인했다. 구현 전에 실제 설치 패키지의 소스·패치와 다시 대조해야 한다.
 
-## 3. PureCVisor에서 바꿔야 하는 경계
+## 3. 조사 당시 PureCVisor에서 바꿔야 했던 경계
 
-소스 경로는 이 보고서와 같은 공개 저장소를 기준으로 한다.
+다음 표는 조사 기준 `5e84387`의 동작과 당시 요구사항을 보존한다. 소스 링크는 같은 공개 저장소의 파일을 가리키므로 현재 구현과는 다를 수 있다.
 
 | 위치 | 현재 동작 | Btrfs 추가 시 요구사항 |
 |---|---|---|
@@ -66,7 +66,7 @@ LXC upstream 소스는 조사 시점의 [`4f1258197c159b2d2d4bfcffb881872526560b
 
 ## 5. 추천안의 설계 후보
 
-아래 항목은 구현 전에 검토할 제안이며 승인된 ADR 또는 실제 설정이 아니다.
+아래 항목은 조사 당시의 구현 전 제안이다. 이후 승인·구현된 범위와 실제 설정은 8절에서 구분한다.
 
 1. **명시적 선택:** 후보 설정 `[container] storage_backend=zfs|btrfs`. 기존 기본값은 ZFS로 유지한다. 배포판 이름으로 선택하거나 실패 시 다른 저장 방식으로 자동 전환하지 않는다.
 2. **객체별 식별:** 생성 때 backend, 관리 root, Btrfs filesystem UUID·subvolume ID 또는 ZFS dataset을 기록한다. 누락된 기존 객체는 실제 저장소를 대조하고, 모호한 상태에서는 삭제·복원을 거부한다.
@@ -94,4 +94,30 @@ LXC upstream 소스는 조사 시점의 [`4f1258197c159b2d2d4bfcffb881872526560b
 4. **실패·재시작:** 비-Btrfs 경로, read-only/ENOSPC, 다운로드 중단, mount 누락, 중첩 서브볼륨, 동시 요청, 복원 전환 실패, 데몬 재시작·호스트 재부팅을 시험한다.
 5. **기존 ZFS 회귀:** 생성·복제·스냅샷·rollback·삭제와 기존 객체의 기본값 변경 후 처리를 Ubuntu ZFS 환경에서 재검증한다.
 
-최초 조사 후 사용자 승인을 받아 1단계를 시험 전용 경로에서 수행했다. 2~5단계와 PureCVisor 백엔드 구현은 후속이며, 제품 지원 판정은 통합·실패 복구·기존 ZFS 회귀 검증 이후에 내린다.
+최초 조사 후 사용자 승인을 받아 1단계를 시험 전용 경로에서 수행했다. 이때 2~5단계와 PureCVisor 백엔드 구현은 후속으로 남겼다. 이후 진행 상태는 다음 절에서 구분하며, native LXC 시험만으로 제품 API 통합이나 지원 환경 전체의 검증 완료를 선언하지 않는다.
+
+## 8. 조사 이후 구현 상태 — 2026-09-16
+
+[ADR-0058](../adr/0058-lxc-storage-backend-identity.md) 승인 후 현재 공개 소스에 선택형
+Btrfs backend를 구현했다. 초기 `2.0.0` 태그는 ZFS 전용이며, 이번 변경으로 제품 버전이나
+태그를 올리지 않는다. 설치 소스 commit과 [현재 가이드](../GUIDE.md#4-컨테이너-관리)를
+함께 확인해야 한다.
+
+- 신규 생성은 `[container] storage_backend=zfs|btrfs`를 사용하며 기본값은 `zfs`다.
+  Btrfs는 root가 관리하는 실제 Btrfs `lxc_path`와 `rootless=false`를 요구한다.
+  배포판 자동 선택과 실패 시 backend 폴백은 없다.
+- 기존 객체는 rootfs 밖 `purecvisor.storage`의 backend·실제 dataset 또는 filesystem과
+  subvolume identity를 대조한다. 기본 backend·pool 변경은 migration이 아니다.
+- Btrfs 복제·snapshot·복원은 정지된 privileged 컨테이너를 대상으로 한다. snapshot은
+  읽기 전용 rootfs만 포함하고, 복원은 현재 config·owner·image metadata를 보존한다.
+  clone은 새 identity와 원본 image metadata, 요청자의 owner를 기록한다.
+- nested subvolume·외부 mount·설정된 bind volume과 `lxc.mount.fstab`은 복제·snapshot·복원
+  대상에서 거부한다. rootless, backend 간 migration, quota와 Btrfs send/receive 제품 백업은
+  지원 범위 밖이다.
+- 식별자가 모호한 복구와 marker 없는 부분 생성 결과는 데이터를 남기고 거부한다.
+  추측한 경로를 삭제하거나 일반 재귀 정리로 우회하지 않는다.
+
+지정 Arch/Btrfs 호스트의 실제 PureCVisor API 통합·복구·정리 검증을 통과했다. 결과·실패 조건·기존 호스트 영향·정리는
+[API 검증 기록](../operations/2026-09-16-lxc-btrfs-api-validation.md)에 기록한다.
+조사한 Omarchy 시험 환경의 Btrfs 구성을 모든 Arch 설치의 기본값이나 지원 인증으로
+확대하지 않는다.

@@ -1,6 +1,6 @@
 # 공개 문서 인덱스
 
-> 현행화 기준: 2026-09-15 · PureCVisor Single Edge `2.0.0`
+> 현행화 기준: 2026-09-16 · PureCVisor Single Edge `2.0.0` · 초기 태그 이후 소스 변경 포함
 
 공개 문서의 현행 기준과 날짜별 검증 기록을 찾는 진입점이다.
 공개 소스는 [HardcoreMonk/purecvisor](https://github.com/HardcoreMonk/purecvisor),
@@ -38,7 +38,9 @@
 
 ## 기술 조사
 
-- [LXC Btrfs 백엔드 조사](research/2026-09-16-lxc-btrfs-backend.md): 공식 지원, 현재 ZFS 결합 지점, 선택형 백엔드 후보와 필요한 검증. 구현 전 제안이며 현재 제품의 Btrfs 지원을 뜻하지 않는다.
+- [LXC Btrfs 백엔드 조사](research/2026-09-16-lxc-btrfs-backend.md): 구현 전 조사와 native LXC 실기의 역사 근거, 이후 구현 상태를 구분한다.
+- [ADR-0058](adr/0058-lxc-storage-backend-identity.md): 기본 ZFS와 명시적 Btrfs, 객체별 실제 identity, rootfs 복원·안전한 삭제 계약.
+- [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md): 지정 Arch/Btrfs 호스트에서 실제 API·owner·복원 중단 상태·정리를 검증한 기록. 초기 `2.0.0` 태그와 Btrfs 구현을 포함한 공개 소스의 차이는 [가이드 4.1절](GUIDE.md#41-컨테이너-생성)을 따른다.
 
 ## 기록을 읽는 규칙
 

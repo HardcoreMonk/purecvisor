@@ -69,6 +69,13 @@
 
 G_BEGIN_DECLS
 
+typedef struct _PcvLxcOperationGuard PcvLxcOperationGuard;
+PcvLxcOperationGuard *pcv_lxc_operation_guard_acquire(const gchar *name, GError **error);
+void pcv_lxc_operation_guard_free(PcvLxcOperationGuard *guard);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(PcvLxcOperationGuard, pcv_lxc_operation_guard_free)
+
+gboolean pcv_lxc_ensure_config_ready(const gchar *name, gchar **out_config_path, GError **error);
+
                                                                              
            
                                                                                
@@ -179,6 +186,7 @@ void     pcv_lxc_create_async_full(const gchar        *name,
                                   guint               vcpu_count,
                                   const gchar        *network_bridge,
                                   gint                rootless,
+                                  const gchar        *owner_sub,
                                   GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
@@ -234,6 +242,7 @@ gboolean pcv_lxc_destroy_finish (GAsyncResult *result, GError **error);
    
 void     pcv_lxc_clone_async    (const gchar        *source,
                                   const gchar        *target,
+                                  const gchar        *owner_sub,
                                   GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);

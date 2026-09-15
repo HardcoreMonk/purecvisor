@@ -117,7 +117,7 @@ def test_red_gate_fn_removed():
                                                               
 def test_red_stamp_removed():
     d, h, o = _reals()
-    assert "pcv_lxc_stamp_owner" in h, "정본 handler에서 스탬프 호출 미발견 — 소스 변경?"
+    assert "pcv_lxc_stamp_owner" in h, "정본 driver에서 스탬프 호출 미발견 — 소스 변경?"
     assert _run_trio(d, h.replace("pcv_lxc_stamp_owner", "no_stamp_owner"), o) == 1
 
 

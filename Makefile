@@ -281,6 +281,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/lxc/lxc_driver.c \
+    src/modules/lxc/lxc_storage.c \
     src/modules/dispatcher/handler_container.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
@@ -1336,7 +1337,12 @@ check-deb-apparmor:
 	@python3 scripts/check_deb_apparmor.py
 	@python3 scripts/tests/test_deb_apparmor.py
 
-check-public-comments: check-standalone-builds test_runner
+check-lxc-storage:
+	@python3 scripts/tests/test_lxc_storage.py
+	@python3 scripts/tests/test_lxc_backend_driver.py
+	@python3 scripts/tests/test_container_snapshot_audit.py
+
+check-public-comments: check-standalone-builds test_runner check-lxc-storage
 	@echo "🧹 Running 공개 소스 주석 제거 게이트..."
 	@python3 scripts/strip_source_comments.py --check
 	@node scripts/check_javascript_comments.mjs
