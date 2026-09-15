@@ -6,6 +6,9 @@
 공개 소스는 [HardcoreMonk/purecvisor](https://github.com/HardcoreMonk/purecvisor),
 문서·기능 영상은 [purecvisor.site](https://purecvisor.site)에서 제공한다.
 
+현재 제품 소스 기준은 `e028ef2`다. 초기 `2.0.0` 태그의 ZFS 전용 LXC와 이후 `main`의
+선택형 Btrfs를 구분하며, 전체 공개 현황은 [가이드 22.8절](GUIDE.md#228-공개-소스문서-현황)을 따른다.
+
 ## 현재 기준
 
 | 문서 | 책임 |
@@ -41,6 +44,8 @@
 - [LXC Btrfs 백엔드 조사](research/2026-09-16-lxc-btrfs-backend.md): 구현 전 조사와 native LXC 실기의 역사 근거, 이후 구현 상태를 구분한다.
 - [ADR-0058](adr/0058-lxc-storage-backend-identity.md): 기본 ZFS와 명시적 Btrfs, 객체별 실제 identity, rootfs 복원·안전한 삭제 계약.
 - [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md): 지정 Arch/Btrfs 호스트에서 실제 API·owner·복원 중단 상태·정리를 검증한 기록. 초기 `2.0.0` 태그와 Btrfs 구현을 포함한 공개 소스의 차이는 [가이드 4.1절](GUIDE.md#41-컨테이너-생성)을 따른다.
+- [UEFI VM 삭제 NVRAM 검증](operations/2026-09-16-vm-delete-nvram-handoff.md): 디스크 실패 시 NVRAM 보존과 마지막 정리 실패 처리, 지정 Ubuntu·Arch 실기 범위.
+- [문서 전체 현행화 인계](operations/2026-09-16-public-documentation-refresh-handoff.md): 전수 문서 목록·링크 점검, 수정 내역과 게시 검증.
 
 ## 기록을 읽는 규칙
 

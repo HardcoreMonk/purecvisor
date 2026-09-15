@@ -15,6 +15,10 @@ PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 �
 
 Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. <br> 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
+Arch 계열 Omarchy의 소스 빌드·설치와 지정 VM 삭제·Btrfs LXC API 검증도 수행했습니다.
+검증한 환경과 한계는 [공개 현황](docs/GUIDE.md#228-공개-소스문서-현황)을 따릅니다.
+아래 `apt`·`.deb` 절차는 Ubuntu용입니다.
+
 공개 소스를 내려받고 저장소 디렉터리로 이동합니다.
 
 ```bash
@@ -100,8 +104,9 @@ make release
 
 ## LXC 저장소 선택
 
-초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. 이 변경을 포함한 공개 소스는 기본 `zfs`와
-명시적 `btrfs`를 지원하며, 버전·태그를 올리지 않으므로 설치한 commit으로 구분합니다.
+초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. 공개 소스
+[`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b)부터
+기본 `zfs`와 명시적 `btrfs`를 지원합니다. 제품 버전은 `2.0.0`을 유지하므로 설치한 commit으로 구분합니다.
 Btrfs를 선택하려면 `daemon.conf`에 다음을 설정합니다.
 
 ```ini
@@ -196,6 +201,10 @@ make release
 `check-all` 의존성을 따릅니다. UI 표면과 반사실 회귀만 확인하려면
 `make check-single-ui-surface`를 실행합니다.
 
+컨테이너 저장소·driver·snapshot 완료 audit 회귀는 `make check-lxc-storage`입니다.
+`check-public-comments`의 의존성이므로 `check-all`에도 포함됩니다. 임시 변이 fixture를
+사용하는 검사끼리 충돌하지 않도록 전체 게이트는 `make -j1 check-all`로 실행합니다.
+
 로컬 커밋 시 변경 유형에 맞는 검사를 자동 실행하려면 pre-commit 훅을 설치합니다.
 
 ```bash
@@ -242,6 +251,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 | `src/api/` | UDS, REST, WebSocket, middleware |
 | `src/modules/dispatcher/` | JSON-RPC handler 계층 |
 | `src/modules/virt/` | libvirt 기반 VM 관리 |
+| `src/modules/lxc/` | LXC 수명주기, ZFS/Btrfs 저장소 identity와 복원, 소유자 관리 |
 | `src/modules/storage/` | ZFS driver와 스토리지 기능 |
 | `src/modules/network/` | bridge, firewall, DHCP, OVS/OVN local networking |
 | `src/modules/auth/` | RBAC, 사용자, API key, JWT 관련 로직 |

@@ -49,6 +49,9 @@
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
+2026-09-16 공개 소스는 VM 삭제 NVRAM 보존 수정과 선택형 LXC Btrfs를 포함합니다.
+초기 `2.0.0` 태그와 현재 `main`의 차이, 지정 Arch 실기 결과와 잔여 검증은 22.8절을 따릅니다.
+
 ### 1.1 PureCVisor란?
 
 PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다. 단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 독립 노드 기준으로 통합 관리합니다.
@@ -1260,6 +1263,20 @@ echo '{"jsonrpc":"2.0","method":"vm.delete.status","params":{"name":"web-prod"},
 
 응답 상태값: `pending` | `deleting` | `done` | `failed`
 
+**UEFI 삭제와 NVRAM 보존:**
+
+공개 소스 `5e84387`부터 `vm.delete`는 파일형 NVRAM을 보존한 채 libvirt 정의를 해제하고,
+주 디스크 삭제가 성공한 뒤 NVRAM을 정리합니다. 디스크 접근·삭제 실패 시 XML을 복원하고
+기존 NVRAM을 보존합니다. 마지막 NVRAM 정리만 실패하면 이미 삭제한 디스크를 복구한
+것으로 표시하지 않으며, audit `fail`과 오류에 남은 파일 경로를 보고합니다.
+파일 부재와 권한 오류를 구분하고, block/network NVRAM·`varstore`와 불명확한 XML은
+변경 전에 거부합니다. 최초 부팅 전 NVRAM 파일이 아직 없는 경우도 처리합니다.
+
+삭제 결과는 접수 응답·목록만으로 판정하지 않고 최종 상태, `vm.delete` audit,
+실제 domain·디스크·NVRAM을 대조합니다. 펌웨어 loader/template와 설치 ISO는 삭제 대상이
+아닙니다. 지정 Ubuntu·Arch 검증과 수동 정리가 필요한 실패 경계는
+[NVRAM 수정 인계](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
+
 **이름 변경:**
 
 VM 이름 변경은 정지된 VM에서만 허용된다. libvirt domain 이름, 표준 ZFS zvol 또는 표준 qcow2/raw/img 파일 디스크 경로, UEFI NVRAM 경로를 함께 변경한다.
@@ -1761,7 +1778,8 @@ PureCVisor는 LXC 컨테이너의 ZFS backend와 명시적으로 선택하는 Bt
 
 ### 4.1 컨테이너 생성
 
-초기 `2.0.0` 태그의 LXC 생성은 ZFS 전용입니다. 이 변경을 포함한 공개 소스에는
+초기 `2.0.0` 태그의 LXC 생성은 ZFS 전용입니다. 공개 소스
+[`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b)부터
 선택형 Btrfs backend가 구현되어 있으며, 기본값과 제품 버전은 `zfs`·`2.0.0`으로
 유지합니다. 새 태그나 버전 인상을 뜻하지 않으므로 설치한 소스 commit을 확인하세요.
 지정 Arch/Btrfs 호스트의 실제 API 통합 검증을 통과했으며 [Btrfs API 검증 기록](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)에
@@ -5500,26 +5518,25 @@ make cppcheck
 
 ### 18.6 프로젝트 통계
 
-다음 수치는 2026-09-15 공개 소스 `22d6912`가 포함된 `main`의 추적 파일과
-`Makefile`, `make check-rbac`를 대조한 스냅샷입니다. 테스트 통과 수는 같은 날 공개 소스
-검증 회차의 기록이며, 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
+다음은 2026-09-16 공개 구현 `e028ef2`의 추적 파일과 `Makefile`, `make check-rbac`를
+대조한 스냅샷입니다. 시험 결과는 소스 회차별로 22.8절과 각 운영 인계에서 구분합니다.
 
-| 항목 | 2026-09-15 기준 |
+| 항목 | 2026-09-16 기준 |
 |------|----------------|
 | C 표준 | `-std=gnu23` |
 | 에디션·버전 | Single Edge · `2.0.0` |
 | RPC 등록/정책 | RPC 307건, 정책 매핑 252건, 조회성 VIEWER 기본 73건 (`make check-rbac`) |
-| C/H 소스 | `src/` 아래 C 156개, 헤더 143개, 총 189,427행 (공백 포함) |
+| C/H 소스 | `src/` 아래 C 157개, 헤더 144개, 총 190,653행 (공백 포함) |
 | Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 64개 |
 | 테스트 파일 | `tests/` C 112개, `tests/integration/` 111개, `tests/ui/*.test.mjs` 59개 |
 | 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
-| 공개 소스 검증 기록 | C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP |
-| 계약 게이트 | `make check-all` 40개 — 정확한 목록은 Makefile 의존성과 22.4절 |
+| 구현 검증 기록 | `e028ef2`의 `make test`·release·`check-all` 통과, 지정 Arch/Btrfs 실제 API 결과는 22.8절 참조 |
+| 계약 게이트 | `make check-all` 직접 의존성 40개. `check-lxc-storage`는 `check-public-comments` 아래 포함 |
 | 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
 
-파일 수는 `git ls-files`의 해당 경로·확장자로 집계합니다. 등록 테스트 수·실행 통과 수와
-소스 파일 수는 서로 다른 값입니다. 과거 2026-08-31 C 1,375/1,375·게이트 38/38 기록은
-22.7절의 과거 회차와 함께 읽습니다.
+파일 수는 `git ls-files`의 경로·확장자로, C/H 행 수는 해당 추적 파일의 전체 행으로 집계합니다.
+등록 테스트·실행 통과·파일 수는 서로 다른 값입니다. 과거 2026-08-31·2026-09-15
+시험 수치는 각 날짜의 기록이며 이번 문서 변경에서 전체 시험을 재실행했다는 뜻은 아닙니다.
 
 ---
 
@@ -5543,6 +5560,7 @@ make cppcheck
 |------|------------|-----------|
 | 처음 빌드한다 | 2장 설치 및 환경 구성 | 21장 아키텍처 리팩토링, 22장 품질 게이트 |
 | VM 기능을 바꾼다 | 3장 VM 관리 | [ADR-0022](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0022-vm-create-storage-location-contract.md), [ADR-0023](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md), `tests/test_vm_clone_plan.c` |
+| LXC 저장소를 바꾼다 | 4장 컨테이너 관리 | [ADR-0058](../docs/adr/0058-lxc-storage-backend-identity.md), `src/modules/lxc/lxc_storage.c`, `make check-lxc-storage` |
 | REST/API를 바꾼다 | 14장 REST API | `src/api/rest_server.c`, `src/api/dispatcher.c`, `scripts/verify_api_consistency.sh` |
 | 권한을 바꾼다 | 10장 보안 | `make check-rbac`, `docs/adr/0019-rbac-uds-bypass-policy.md` |
 | Web UI를 바꾼다 | 13장 Web UI | `ui/modules/endpoints.js`, `scripts/bundle-ui.sh`, `node --check ui/app.bundle.js`, 공개 URL route smoke |
@@ -6084,7 +6102,32 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ---
 
-### 22.8 2026-09-15 공개 소스·문서 현황
+<a id="228-2026-09-15-공개-소스문서-현황"></a>
+
+### 22.8 공개 소스·문서 현황
+
+현행화 기준은 **2026-09-16 공개 소스 `e028ef2`**입니다. 제품 버전은 `2.0.0`이며
+초기 `2.0.0` 태그와 이후 `main`을 설치한 commit으로 구분합니다.
+
+| 항목 | 공개 근거와 확인 범위 |
+|---|---|
+| 현재 제품 소스 | [`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b): 기본 ZFS·명시 선택 Btrfs LXC, 객체별 실제 저장소 identity, 정지 rootfs 복원, 영구 Job·snapshot 요청자 audit, LXC 7 CPU 가중치 |
+| VM 삭제 수정 | [`5e84387`](https://github.com/HardcoreMonk/purecvisor/commit/5e84387fac076b5e4deb91a6adda94fefd055d3c): 디스크 삭제 성공까지 파일형 NVRAM 보존. 지정 Ubuntu worker 실기와 Arch 설치 서비스 API 실기 각 5개 통과. Ubuntu 운영 daemon은 교체하지 않음 |
+| Btrfs 실기 | Omarchy 4.0.3·Arch, kernel `7.2.3-arch1-3`, LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치. API 생성·guest 부팅·파일 영속화·CoW 복제·snapshot·복원·거부·기본값 변경 후 동작·정리 통과 |
+| 복구·완료 관측 | 실제 Btrfs에 구성한 교환 전·후 journal 복구와 삭제 재시도 통과. snapshot 성공·거부·삭제의 terminal Job, 각 1개 WS 완료·요청자 audit 일치. 프로세스 강제 종료나 정전 시험은 아님 |
+| 구현 검증 | `e028ef2`의 `make test`, `make -j1 check-all` 40개와 release 빌드 통과. `check-lxc-storage`의 저장소 24개·반사실, driver 7그룹, snapshot audit 12조합 통과. 실제 guest 시험과 격리 회귀 수치를 합산하지 않음 |
+| 문서 게시 | [Btrfs 가이드 Pages 실행](https://github.com/HardcoreMonk/purecvisor/actions/runs/35012978025) 성공. 현재 문서 전체 대조 범위는 [문서 현행화 인계](../docs/operations/2026-09-16-public-documentation-refresh-handoff.md)에서 추적 |
+| 남은 범위 | Btrfs rootless·quota·send/receive 제품 백업·자동 migration은 미지원. Ubuntu ZFS 전체 실기 회귀·host reboot·정전·ENOSPC·장시간 안정성·모든 환경 인증은 별도 |
+
+원시 증거의 요약·해시는 [Btrfs API 검증 인계](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)와
+[NVRAM 수정 인계](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
+이번 문서 변경은 제품 실기 재실행이나 전체 감사 완료를 뜻하지 않습니다.
+
+#### 이전 공개 검증 회차 — 2026-09-15
+
+다음은 `22d6912`의 당시 결과입니다. 이후 Btrfs 소스에서 모든 UI·전체 메모리 검사를
+같은 수만큼 다시 통과했다는 뜻이 아닙니다.
+
 
 | 항목 | 공개 근거와 확인 범위 |
 |---|---|
@@ -6103,4 +6146,4 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ---
 
-> PureCVisor v2.0.0 Complete Guide — 22장 끝.
+> PureCVisor v2.0.0 운영 가이드 — 공개 범위 21개 장, 마지막 장 번호 22.

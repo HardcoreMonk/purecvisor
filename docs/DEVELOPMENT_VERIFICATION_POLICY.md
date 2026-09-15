@@ -2,10 +2,10 @@
 
 > **대상:** PureCVisor Single Edge
 > **목적:** 기능 개발, 버그 수정, 릴리스 직전 검증을 같은 기준으로 운영하기 위한 공식 규칙
-> **현행화 기준:** 2026-09-15
+> **현행화 기준:** 2026-09-16
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
-> **2026-09-15 현황:** 공개 소스 `22d6912`에 첫 호스트 self-healing 알림 쿨다운과 공개 UI 표면 게이트 수정이 반영됐다. 지정 공개 검증은 통과했지만 전체 감사·지원 환경 인증은 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
+> **2026-09-16 현황:** 공개 소스 `5e84387`의 VM 삭제 NVRAM 수정과 `e028ef2`의 선택형 LXC Btrfs를 검증했다. 지정 실기·격리 회귀·과거 시험은 [가이드의 공개 현황](GUIDE.md#228-공개-소스문서-현황)에서 구분한다. 전체 감사·지원 환경 인증은 미완료다.
 
 ---
 
@@ -449,9 +449,16 @@ make check-error-codes
 make check-container-owner-scope
 ```
 
-- `check-container-owner-scope`: VM operator owner-scope(자기 소유 VM만 조작)를 컨테이너로 미러한 접근통제를 검사. ① 강제(dispatcher): `_container_method_requires_owner_scope` 세트에 `container.start`/`container.stop`/`container.clone`이 모두 포함되고, 게이트 함수(`_lookup_container_owner`/`_container_owner_matches_caller`/`_container_owner_scoped_method_allowed`)가 정의·디스패치 배선되어 있는지. ② 스탬프(handler): `container.create` 성공 경로가 `pcv_lxc_stamp_owner`로 소유자를 기록하는지. ③ 저장소(lxc_owner): `pcv_lxc_stamp_owner`/`pcv_lxc_read_owner` 정의 + `purecvisor.owner` 파일 규칙 실재. 소유자는 libvirt domain이 없는 컨테이너 특성상 `<container_path>/<name>/purecvisor.owner`에 저장한다(VM은 domain XML `pcv:owner`). 자기검증 `scripts/tests/test_container_owner_scope.py`가 세트 제거·배선 제거·스탬프 제거·저장소 제거 각각에 대해 반사실 RED를 확인.
-- **하위호환 주의**: `.owner` 파일이 없는 기존 컨테이너(및 UDS 직결 admin 생성분)는 operator 접근이 거부되고 admin만 조작·재스탬프할 수 있다(VM 소유자 metadata 부재와 동일 fail-secure). upgrade 시 operator는 기존 컨테이너 접근을 잃으므로 admin 재스탬프/재생성이 필요하다.
-- **리뷰 체크리스트**: operator가 단일 컨테이너를 조작하는 신규 메서드를 추가하면 owner-scope 세트(`_container_method_requires_owner_scope`)에 포함하거나, 제외 사유(admin-only 등)를 남긴다. `container.clone`은 RBAC 정책 테이블에 min-role 매핑이 없어 현재 VIEWER 기본으로 처리되므로, owner-scope는 operator 교차테넌트만 차단한다(별도 RBAC min-role 매핑 필요 — 후속).
+- `check-container-owner-scope`는 dispatcher의 `container.start`·`container.stop`·`container.clone`
+  owner-scope 배선, 인증된 `_pcv_caller_sub` 전달, driver의 생성·복제 worker 안 소유자
+  기록과 `purecvisor.owner` 읽기·쓰기를 검사한다. 소유자는
+  `<lxc_path>/<name>/purecvisor.owner`에 저장하며 작업 잠금 안에서 기록한다.
+  clone의 새 소유자는 요청자이며 원본 소유자를 무조건 복사하지 않는다.
+  자기검증 `scripts/tests/test_container_owner_scope.py`는 배선·worker 기록 제거를 거부한다.
+- **하위호환 주의**: `purecvisor.owner`가 없는 기존 컨테이너와 인증 주체 없이 UDS로 생성한
+  컨테이너는 operator 접근을 거부한다. admin도 저장소 identity·작업 상태 검사를 통과해야
+  한다. 임의의 owner/저장소 marker 작성이나 자동 편입을 공개 복구 절차로 안내하지 않는다.
+- **리뷰 체크리스트**: operator가 단일 컨테이너를 조작하는 신규 메서드를 추가하면 owner-scope 세트(`_container_method_requires_owner_scope`)에 포함하거나, 제외 사유(admin-only 등)를 남긴다. `container.clone`은 현재 최소 OPERATOR로 매핑되며 operator는 원본 owner-scope도 통과해야 한다. `make check-rbac`로 실제 정책을 함께 대조한다.
 
 ### 4.19 런타임 전제 배포 게이트
 
@@ -605,6 +612,48 @@ Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신
 
 ---
 
+### 4.24 LXC 저장소와 비동기 완료
+
+`lxc_storage`, LXC driver·owner, 컨테이너 handler·clone dispatcher, CPU 설정 또는
+컨테이너 UI 완료 처리를 바꾸면 다음 격리 회귀를 실행한다.
+
+```bash
+make check-lxc-storage
+make check-container-owner-scope
+make check-rbac
+python3 scripts/check_audit_placement.py
+```
+
+`check-lxc-storage`는 실제 저장소 C 모듈의 identity·복원·삭제와 반사실 검사,
+driver의 worker·잠금·CPU·health 경로, snapshot 요청자·Job·audit 조합을 실행한다.
+`check-public-comments`의 의존성이므로 `check-all`에도 포함된다. 임시 변이 파일을 쓰는
+게이트끼리 충돌하지 않도록 전체 게이트는 `make -j1 check-all`로 실행한다.
+
+Level 2·3은 [기능 시나리오 5.16절](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md#516-선택형-lxc-btrfs-저장소)을 따른다.
+실제 rootfs UUID/ID, guest 부팅·파일, 상대 CPU 가중치·메모리, 정지 상태 복제·복원,
+현재 config·owner·image 보존, 거부 후 데이터 보존과 최종 정리를 확인한다.
+기본 backend를 바꾸고 재시작해도 기존 객체가 원래 저장소를 사용하는지 확인한다.
+accepted·영구 Job의 최종 상태·WS·audit와 실제 효과를 함께 대조한다.
+
+[2026-09-16 실기](operations/2026-09-16-lxc-btrfs-api-validation.md)는 지정 Arch/Btrfs 환경의
+API와 실제 Btrfs에 구성한 교환 전·후 journal 상태를 검증했다. 프로세스 강제 종료나
+정전 시험이 아니며, Ubuntu ZFS 전체 실기 회귀·host reboot·ENOSPC·장시간 검증은 별도다.
+
+### 4.25 VM 삭제와 파일형 NVRAM
+
+`vm.delete` worker, libvirt undefine·XML 해석, 디스크/NVRAM cleanup 또는 관련
+AppArmor 권한을 바꾸면 `python3 scripts/tests/test_vm_delete_nvram.py`를 실행한다.
+이 실제 worker 회귀는 `make test`에도 포함된다.
+
+Level 2·3은 [기능 시나리오 5.15절](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md#515-uefi-vm-삭제와-nvram-보존)을 따른다.
+BIOS·파일형 UEFI, 최초 부팅 전·실행 중 삭제, 디스크 접근/삭제 실패의 XML·NVRAM 보존과
+재시도, 마지막 NVRAM 정리 실패의 audit·잔여 경로를 확인한다.
+unsupported block/network NVRAM·`varstore`는 변경 전에 거부해야 한다.
+[지정 Ubuntu·Arch 결과](operations/2026-09-16-vm-delete-nvram-handoff.md)를 실제 ZFS 실패,
+Secure Boot 키·서명 또는 정전 복구 인증으로 확대하지 않는다.
+
+---
+
 ## 5. Level 2: 단일 노드 실행 검증
 
 ### 5.1 필수 대상
@@ -725,6 +774,8 @@ Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신
 | REST/UDS 핸들러 수정 | 필수 | 필수 | 조건부 | 릴리스 시 포함 |
 | Single Edge UI/API capability 수정 | 필수 | 필수 | 불필요 | 릴리스 시 포함 |
 | VM lifecycle / storage / network / backup / auth 변경 | 필수 | 필수 | 조건부 | 필수 |
+| LXC 저장소·worker·완료 결과 변경 | `check-lxc-storage`·owner·RBAC·audit 필수 | 영구 Job·실제 결과 필수 | 변경 backend의 실제 guest·identity·복원·거부·정리 필수 | 필수 |
+| `vm.delete`·NVRAM cleanup 변경 | 실제 worker 회귀·반사실·메모리 검사 필수 | 최종 audit·XML·disk·NVRAM 대조 필수 | 변경 저장소·펌웨어의 성공·실패·재시도 필수 | 필수 |
 | Local VPC backend/schema/OVN ownership 변경 | C model/store/policy/adapter + CLI 17 action + UI/backend capability + RBAC·audit 필수 | schema migration·reconcile 필수 | OVN 제품 packet·ownership·cleanup 필수, `Verified`는 부팅 KVM·공존·controller/host reboot·fault injection까지 | 필수 |
 | host baseline / generic OVN RPC·DHCP·REST filter 변경 | 정확한 18 RPC inventory + `test_ovn_sdn.sh` + UI/RBAC 경계 필수 | host baseline·canonical 오류·소유 cleanup 필수 | C0~C4 `NET-OVN-01~07`, packet·filter·residue 0 필수 | 필수 |
 | physical `bridge/dedicated`·`bridge/shared` controller/BPF/VM NIC 변경 | `make bpf test_runner` + shared packet-path + 관련 반사실 C/UI 게이트 필수 | reconcile·inventory 필수 | host 불변 비교·upstream DHCP 필수, `Verified`는 실제 KVM VM·reboot까지 | 필수 |

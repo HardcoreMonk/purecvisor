@@ -3,6 +3,19 @@
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 
+## 2026-09-16 선택형 LXC Btrfs와 공개 문서 현행화
+
+- 공개 소스 `e028ef2`부터 `[container] storage_backend=btrfs`를 명시해 ZFS 없이
+  privileged LXC를 생성·시작·정지·삭제하고, 정지 상태에서 CoW 복제·스냅샷·복원할 수 있다.
+- 기존 기본값은 ZFS다. 컨테이너별 실제 저장소 식별자를 대조하고, Btrfs rootfs 복원 시
+  현재 설정·소유자·이미지 메타데이터를 보존한다. 기본값 변경은 저장소 이동이 아니다.
+- 컨테이너 비동기 작업을 영구 Job ID와 실제 완료 결과로 추적하고, snapshot 완료 audit의
+  요청자·대상·성공/실패를 보존한다. LXC 7의 cgroup v2 CPU 가중치 설정을 반영했다.
+- 지정 Arch/Btrfs 호스트에서 실제 API·게스트 부팅·파일 복원·거부·복구 상태·완료 통지와
+  정리를 검증했다. 범위와 미검증 조건은 [API 검증 인계](docs/operations/2026-09-16-lxc-btrfs-api-validation.md)를 따른다.
+- README·공개 가이드·내장 도움말·DB 설명·검증 정책·공개 경계·사이트 운영 문서를
+  같은 소스 기준으로 맞췄다. 초기 `2.0.0` 태그는 ZFS 전용이며 버전·새 태그는 발급하지 않았다.
+
 ## 2026-09-16 UEFI VM 삭제 NVRAM 오류 수정
 
 - Ubuntu·Arch 공통 `vm.delete` 경로의 NVRAM 처리 옵션 누락을 수정했다.

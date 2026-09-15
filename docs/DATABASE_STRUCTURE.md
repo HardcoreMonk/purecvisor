@@ -1,6 +1,6 @@
 # PureCvisor Single Edge 데이터베이스 아키텍처 설명서
 
-> **기준 시점:** 2026-09-15 공개 소스 `22d6912` (SQLite 9개 파일·26개 영구 테이블)
+> **기준 시점:** 2026-09-16 공개 소스 `e028ef2` (SQLite 9개 파일·26개 영구 테이블)
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -10,7 +10,8 @@
 마이그레이션의 단일 진실은 각 모듈의 `CREATE TABLE`, `ALTER TABLE`, `PRAGMA` 코드다. 이
 문서는 그 구현을 운영자, 아키텍트, 개발자가 같은 기준으로 해석하기 위한 해설서다.
 
-이 문서의 범위는 SQLite에 한정된다. libvirt domain XML, ZFS dataset·snapshot, 네트워크
+이 문서의 범위는 SQLite에 한정된다. libvirt domain XML, ZFS dataset·snapshot, LXC Btrfs
+rootfs·snapshot·저장소 식별자와 복원 journal, 네트워크
 JSON·메타데이터, nftables·OVS·OVN, bpffs, systemd 상태처럼 DB 밖에 있는 실제 상태도
 PureCvisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 “서비스 전체 상태 복원”을
 뜻하지 않는다.
@@ -80,13 +81,21 @@ Job ID, audit, 로그, WebSocket 결과를 함께 대조해야 한다.
 | 상태 종류 | SQLite의 역할 | DB 밖 상태와의 관계 |
 |---|---|---|
 | 인증·정책·desired state | RBAC, Security, Security Group, Local VPC가 의도를 보존 | 실제 커널·가상화 상태는 별도 적용 또는 reconcile 필요 |
-| 작업 중 상태 | VM lock, Job 상태 registry, Cloud Jobs가 충돌 방지와 진행률을 보존 | 실제 작업 결과는 libvirt·qcow2/raw·선택형 ZFS·파일시스템과 함께 판정 |
+| 작업 중 상태 | VM lock, Job 상태 registry, Cloud Jobs가 충돌 방지와 진행률을 보존 | 실제 작업 결과는 libvirt·qcow2/raw·선택형 ZFS·LXC Btrfs·파일시스템과 함께 판정 |
 | 증거·외부 통합 | Audit, Security event, Web Push가 과거 사실이나 외부 전달 상태를 보존 | 현재 host 상태를 직접 제어하지 않으며 삭제·손상 시 증거 또는 구독이 유실됨 |
 
 Local VPC DB는 desired state의 정본이지만 bridge, dnsmasq, nftables, libvirt XML과 후보
 OVN backend는 actual state다. 데몬은 시작 시 둘을 수렴시킨다. VM DB는 VM 정의의 정본이 아니라 작업
 충돌을 막는 임시 락 장부다. BPF 프로그램의 attach 상태도 Security DB가 아니라 bpffs와
 BPF manager에서 확인한다.
+
+LXC 저장소의 정본은 별도 SQLite DB가 아니다. `purecvisor.storage`와 실제 ZFS dataset 또는
+Btrfs filesystem/subvolume 식별자를 대조한다. LXC driver의 객체 잠금은 process-local이다.
+컨테이너 생성·시작·정지·삭제 handler는 별도로 `vm_locks`도 사용하며,
+clone·snapshot의 driver 잠금을 이 DB 행으로 추정하지 않는다.
+Btrfs 복원 journal과 삭제 기록도 관리 경로의 파일이므로
+Job DB를 복원하는 것만으로 rootfs 교환이나 미완료 삭제가 복구되지는 않는다.
+[ADR-0058](adr/0058-lxc-storage-backend-identity.md)이 이 경계를 소유한다.
 
 ---
 
@@ -111,7 +120,7 @@ BPF manager에서 확인한다.
 |---|---|---|
 | VM 상태 | DB를 열지 못해도 lock API가 fail-open으로 동작 | 데몬은 계속될 수 있지만 VM별 직렬화 보장은 사라진다. 안전한 정상 상태로 간주하지 않는다. |
 | Audit | DB open 실패는 file-only 축소 운영. sidecar lock 충돌, schema/epoch 준비 실패, 활성 epoch 손상은 listener 전에 기동 중단 | 현재 감사 체인의 단일 writer·무결성은 fail-closed다. |
-| Job 상태 | 초기화 실패 시 registry persistence 비활성 | registry를 사용하는 비동기 작업의 조회·재시작 후 추적이 불완전해질 수 있다. |
+| Job 상태 | 초기화 실패 시 registry persistence 비활성 | 컨테이너 비동기 변경은 생성한 Job 조회 실패 시 worker 실행 전에 거부한다. 그 외 경로의 조회·재시작 후 추적은 각 handler를 확인한다. |
 | RBAC | DB·schema 초기화 실패 시 새 로그인·API key 검증은 실패하고 role 조회 fallback은 `VIEWER`로 제한 | 권한 상승으로 우회하지는 않지만 기존 JWT의 일부 읽기 경로까지 DB 정상으로 오인하면 안 된다. bootstrap 비밀번호 미설정 시 알려진 기본 계정을 만들지 않는다. |
 | Security | open/schema 실패 시 degraded, 조회는 빈 container가 될 수 있음 | “이벤트 0건”과 “DB 미가용”을 구분해 로그·health를 함께 본다. |
 | Security Group | DB 미가용 시 일부 경로는 인메모리·커널 동작을 계속하고 영속화를 생략 | 재시작 뒤 정책 복원이 보장되지 않는다. |
@@ -213,6 +222,10 @@ WireGuard 암호문, 감사 기록은 모두 민감 데이터로 취급한다. D
 
 VM 상태 DB는 VM별로 동시에 실행되면 안 되는 작업을 막는 락 장부다. 예를 들어 같은 VM에 대해 `start`와 `delete`가 동시에 들어오면 데이터 손상이나 libvirt 상태 불일치가 생길 수 있으므로, 먼저 락을 얻은 작업만 진행한다.
 
+현재 컨테이너 생성·시작·정지·삭제 handler도 컨테이너 이름으로 같은 락 API를 사용한다.
+이름만 저장하므로 행을 해석할 때 요청 메서드와 VM/LXC inventory를 함께 확인한다.
+LXC driver의 별도 객체 잠금과 clone·snapshot 작업 전체를 이 DB에서 조회할 수는 없다.
+
 ### 위치와 초기화
 
 | 항목 | 값 |
@@ -229,7 +242,7 @@ VM 상태 DB는 VM별로 동시에 실행되면 안 되는 작업을 막는 락 
 
 | 컬럼 | 타입 | 제약 | 의미 |
 |---|---|---|---|
-| `vm_id` | `TEXT` | `PRIMARY KEY` | VM 이름 또는 UUID |
+| `vm_id` | `TEXT` | `PRIMARY KEY` | VM 이름·UUID 또는 이 락을 공유하는 컨테이너 이름 |
 | `op_type` | `INTEGER` | `NOT NULL` | 진행 중인 작업 종류 |
 | `pid` | `INTEGER` | `NOT NULL` | 락을 잡은 데몬 프로세스 PID |
 | `locked_at` | `INTEGER` | `NOT NULL` | Unix timestamp 초 단위 |
@@ -247,7 +260,8 @@ VM 상태 DB는 VM별로 동시에 실행되면 안 되는 작업을 막는 락 
 | 6 | `VM_OP_SNAPSHOT` | 스냅샷 생성 또는 롤백 중 |
 | 7 | `VM_OP_MIGRATING` | 예약 상태. Single Edge 공개판은 라이브 마이그레이션 절차를 제공하지 않음 |
 
-운영 의미는 단순하다. 이 DB에 행이 있다는 것은 “해당 VM은 지금 누군가 작업 중이므로 다른 위험 작업을 받으면 안 된다”는 뜻이다.
+이 DB의 행은 해당 식별자에 대해 락을 사용하는 작업이 진행 중임을 뜻한다.
+행이 없다는 사실만으로 모든 VM·컨테이너 작업이 끝났다고 판단하지 않는다.
 
 ---
 
@@ -350,9 +364,20 @@ Job 상태 DB는 registry를 사용하는 장시간 작업의 현재 상태를 �
 `pcv_job_queue`지만 DB에서 작업을 꺼내 worker에 전달하지 않는다. handler가 Job ID를 만들고
 accepted 응답을 보낸 뒤 `GTask`를 직접 시작하며, worker가 진행률과 최종 결과를 이 DB에 기록한다.
 
-Local VPC처럼 이 registry를 사용하는 경로가 있는 반면, VM lifecycle·backup·Security의 일부
+Local VPC와 컨테이너 변경처럼 이 registry를 사용하는 경로가 있는 반면, VM lifecycle·backup·Security의 일부
 `GTask` 경로는 합성 Job ID와 WebSocket 완료 통지만 사용한다. 따라서 `pcv_jobs.db`에 행이
 없다는 사실만으로 비동기 작업이 실행되지 않았다고 판정하지 않는다.
+
+`e028ef2`부터 컨테이너 `create`, `start`, `stop`, `destroy`, `clone`,
+`snapshot.create`, `snapshot.rollback`, `snapshot.delete`는 `container.*` 작업 유형으로
+Job을 만들고 조회 가능함을 확인한 뒤 접수한다. 최종 callback은 `status`와 오류 `detail`,
+실제 결과 audit·WebSocket `job.complete`를 남긴다. snapshot Job의 대상과 audit 대상은
+`container@snapshot`이며 완료 audit에 인증된 요청자를 보존한다. UI는 컨테이너 목록에
+이름이 생긴 것만으로 성공 처리하지 않고 해당 Job의 최종 상태를 확인한다.
+
+이번 변경은 기존 `jobs` 테이블을 사용하며 SQLite 파일·테이블을 추가하지 않았다.
+Job의 SQL 기록·WebSocket·audit는 별도 쓰기이므로 전역 원자성이나 자동 작업 재실행을
+보장하는 것으로 해석하지 않는다.
 
 ### 위치와 초기화
 
@@ -1024,7 +1049,8 @@ make test
 | 데몬 시작 시 DB 초기화 순서 | `src/main.c` |
 | VM 작업 락 | `src/modules/core/vm_state.c`, `src/modules/core/vm_state.h` |
 | 감사 로그와 hashchain | `src/modules/audit/pcv_audit.c`, `src/modules/audit/pcv_audit_chain.c`, 각 헤더 |
-| 비동기 작업 큐 | `src/utils/pcv_job_queue.c`, `src/utils/pcv_job_queue.h` |
+| 비동기 작업 상태 registry | `src/utils/pcv_job_queue.c`, `src/utils/pcv_job_queue.h` |
+| 컨테이너 Job·DB 밖 저장소 복구 | `src/modules/dispatcher/handler_container.c`, `src/modules/lxc/lxc_storage.c`, `src/api/dispatcher.c`의 clone handler |
 | 사용자/세션/API key | `src/modules/auth/pcv_rbac.c`, `src/modules/auth/pcv_rbac.h` |
 | Security Guard 상태 | `src/modules/security/security_store.c`, `src/modules/dispatcher/handler_security.c` |
 | HIDS 파일 기준선 | `src/modules/security/hids_file_integrity.c` |

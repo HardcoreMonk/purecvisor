@@ -1,5 +1,9 @@
 # UEFI VM 삭제 NVRAM 수정 운영 인계
 
+> 이 문서는 `5e84387` 수정 회차의 증거다. 이후 동일 Arch 시험 호스트에는 이 수정을 포함한
+> Btrfs 구현 `e028ef2`를 배포했다. 현재 배포 바이너리·설정·시험 자원 정리 결과는
+> [Btrfs API 인계](2026-09-16-lxc-btrfs-api-validation.md)를 따른다.
+
 ## Release Scope
 
 Ubuntu와 Arch의 공통 `vm.delete` worker를 수정했다. NVRAM을 보존한 채 libvirt 정의를

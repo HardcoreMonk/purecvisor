@@ -2,7 +2,7 @@
 
 > 상태: 운영 중, main push 기반 Pages 자동 배포
 > 승인일: 2026-08-21
-> 현행화 기준: 2026-09-15
+> 현행화 기준: 2026-09-16
 > 공개 주소: `https://purecvisor.site`
 > 저장소: `HardcoreMonk/purecvisor`
 
@@ -76,10 +76,24 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   OVN/NFV Load Balancer와 VM 자동 포트 내부 helper는 사용자 기능으로 노출하지 않으며,
   generic OVN과 Local VPC OVN backend의 지원 gate를 분리한다.
 
-## 2026-09-15 공개 현황
+## 2026-09-16 공개 현황
+
+- 현재 제품 소스 기준은 `e028ef2`다. `5e84387`의 VM 삭제 NVRAM 보존과 선택형 LXC
+  Btrfs 구현·지정 Arch API 검증을 포함한다. 버전은 `2.0.0`이며 초기 태그의 ZFS 전용
+  LXC와 구분한다. [가이드 22.8절](GUIDE.md#228-공개-소스문서-현황)이 회차별 결과를 소유한다.
+- Btrfs 컨테이너 가이드는 [Pages 실행 35012978025](https://github.com/HardcoreMonk/purecvisor/actions/runs/35012978025)로
+  게시됐다. 실제 API·복구 상태·완료 통지 검증은 [API 인계](operations/2026-09-16-lxc-btrfs-api-validation.md)를 따른다.
+- 문서 전체 현행화는 공개 가이드·내장 도움말·DB 설명·검증 정책·공개 경계·ADR 인덱스의
+  소스 기준과 링크를 맞춘다. landing의 한국어·영어 마지막 갱신일과 해당 site 검사를
+  함께 갱신한다. [문서 인계](operations/2026-09-16-public-documentation-refresh-handoff.md)에서 확인한다.
+- 21개 가이드 장·DB 아키텍처와 4개 기능·16편 영상의 범위는 유지한다. Btrfs 실기 결과는
+  문서에 기록하며 새 Btrfs 영상이 추가된 것으로 안내하지 않는다. 아래 날짜별 수치는
+  해당 배포 회차의 역사 증거다.
+
+## 2026-09-15 공개 현황 기록
 
 - 공개 소스 [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)의
-  검증 범위는 [가이드 22.8절](GUIDE.md#228-2026-09-15-공개-소스문서-현황)을 따른다.
+  당시 검증 범위는 [가이드 22.8절](GUIDE.md#228-공개-소스문서-현황)의 이전 회차 표를 따른다.
 - GPU 영상은 [`52587a5`](https://github.com/HardcoreMonk/purecvisor/commit/52587a5f4cc637d34a6a55a48c0cd76e93c800c9)와
   [Pages 실행 34974574546](https://github.com/HardcoreMonk/purecvisor/actions/runs/34974574546)으로
   게시됐다. 26페이지·154개 배포 파일, 4개 기능·16편, 미디어 225,189,881 bytes를 확인했다.

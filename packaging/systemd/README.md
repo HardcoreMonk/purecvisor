@@ -37,6 +37,15 @@
 6. iSCSI target에는 `packaging/deb/purecvisor-lio.conf`의 LIO 모듈이 필요하다.
 7. Suricata IDS와 IPS는 데몬과 별도 유닛으로 실행한다. 미설치는 해당 기능의
    degraded 상태이며 데몬 자체의 기동을 막지 않는다.
+8. LXC의 기본 `storage_backend=zfs`에는 ZFS 커널 모듈·명령·풀이 필요하다.
+   `e028ef2` 이후 소스의 명시적 `btrfs`는 ZFS 없이 사용할 수 있지만 실제 Btrfs
+   `lxc_path`, LXC 런타임, `rootless=false`를 요구한다. 배포 스크립트나 유닛이
+   파일시스템을 변환하거나 backend를 자동 선택하지 않는다. 설정과 검증 범위는
+   [컨테이너 가이드](../../docs/GUIDE.md#41-컨테이너-생성)를 따른다.
+
+이 문서의 `libbpf-dev` 등 패키지명은 Ubuntu 기준이다. Arch 계열은 대상 호스트의
+패키지·커널·공유 라이브러리를 확인하고 소스를 native 빌드한다. Ubuntu `.deb`나
+Ubuntu에서 만든 바이너리를 그대로 설치하는 절차로 해석하지 않는다.
 
 ## 드롭인과 hidepid 설치
 
@@ -83,7 +92,8 @@ grep ' /proc ' /proc/mounts | grep hidepid
 grep ^Groups /proc/$(pidof purecvisorsd)/status
 readlink /proc/1/ns/mnt
 readlink /proc/$(pidof purecvisorsd)/ns/mnt
-curl -sk https://127.0.0.1/health | jq .
+NODE_IPV4="<configured-management-ipv4>"
+curl -sk "https://${NODE_IPV4}/api/v1/health" | jq .
 ```
 
 두 mount namespace 값은 같아야 한다. 배포 후 기능 검증은

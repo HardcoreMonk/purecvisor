@@ -1,10 +1,10 @@
 # Single Edge 공개 릴리스 경계
 
 > **대상:** `purecvisor-single`
-> **현행화 기준:** 2026-09-15
+> **현행화 기준:** 2026-09-16
 > **판정 목적:** 소스 공개 전에 Single Edge 공개 범위 밖 기능이 산출물, 소스, 문서에서 기능 절차로 노출되지 않는지 확인한다.
 
-> **2026-09-15 현황:** 공개 소스 `22d6912`에 첫 호스트 self-healing 알림 쿨다운과 공개 UI 표면 게이트 수정이 반영됐다. 지정 공개 검증은 통과했지만 전체 감사·지원 환경 인증은 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
+> **2026-09-16 현황:** 공개 소스 `5e84387`의 VM 삭제 NVRAM 수정과 `e028ef2`의 선택형 LXC Btrfs가 반영됐다. 지정 Ubuntu·Arch VM 삭제와 Arch/Btrfs API 검증 범위는 [가이드의 공개 현황](GUIDE.md#228-공개-소스문서-현황)을 따른다. 제품 버전은 `2.0.0`이며 초기 태그와 이후 소스를 구분한다. 전체 감사·지원 환경 인증은 미완료다.
 
 ---
 
@@ -29,6 +29,13 @@ endpoint가 아니며 문서 build와 운영 기준은 [PUBLIC_DOCUMENTATION_SIT
 - 데몬: `purecvisorsd`
 - 실행 모델: 단일 프로세스 + `GMainLoop`
 - REST/UDS: 단일 노드 API와 JSON-RPC
+- 컨테이너 저장소: 기본 `zfs`와 명시 선택 `btrfs`. ZFS backend는 사용 가능한 ZFS 풀을
+  요구한다. Btrfs backend는 실제 Btrfs 경로의 privileged LXC를 지원하며, 정지 상태의
+  rootfs CoW 복제·읽기 전용 snapshot·복원으로 범위를 제한한다. 현재 config·owner·image를
+  복원 시 보존하고 기존 객체는 기록된 실제 저장소로 처리한다. rootless Btrfs, nested
+  subvolume·외부 mount를 포함하는 복제/복원, quota, Btrfs send/receive 제품 백업과
+  자동 migration·import는 지원하지 않는다. [ADR-0058](adr/0058-lxc-storage-backend-identity.md)의
+  지정 실기 통과를 모든 배포판·Ubuntu ZFS 실기 회귀·정전·장시간 안정성 인증으로 확대하지 않는다.
 - 네트워크: 기존 저수준 bridge/OVS/OVN 표면, 물리 bridge의 `dedicated`/`shared` 업링크와
   단일 호스트 안의 tenant별 Local VPC. physical `dedicated`는 호스트 L3가 없는 전용
   Ethernet만 Linux bridge port로 사용하고, `shared`는 물리 NIC의 host L3를 유지한 채
@@ -103,6 +110,10 @@ cd site && npm run check
 generic OVN 변경은 dispatcher의 등록 메서드가 정확히 18개인지, switch 생성 명령에 subnet을
 섞지 않는지, host baseline endpoint, DHCP ownership cleanup, ACL/NAT REST query 전달과 누락
 filter의 `-32602`, 미완성 Load Balancer·VM 자동 포트 helper의 비노출을 함께 확인한다.
+
+컨테이너 저장소와 VM 삭제 경로를 바꾸면 각각 `make check-lxc-storage`와
+`python3 scripts/tests/test_vm_delete_nvram.py`를 실행한다. 실제 저장소·게스트·실패 후 보존과
+정리 검증은 [검증 정책 4.24·4.25절](DEVELOPMENT_VERIFICATION_POLICY.md#424-lxc-저장소와-비동기-완료)을 따른다.
 
 physical shared bridge controller, TC-BPF classifier, portal, desired state 또는 VM bridge NIC
 연결을 바꾼 릴리스는 추가로 다음을 통과해야 한다.

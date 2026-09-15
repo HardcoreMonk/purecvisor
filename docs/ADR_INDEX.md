@@ -1,7 +1,7 @@
 # ADR 적용 상태 인덱스
 
 > **대상:** `purecvisor-single`
-> **현행화 기준:** 2026-09-15
+> **현행화 기준:** 2026-09-16
 > **목적:** ADR 원문 중 현재 Single Edge 공개 리포에 직접 적용되는 결정과 역사 기록으로만 보존되는 결정을 구분한다.
 
 ---
@@ -62,7 +62,7 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0014 | accepted | 활성. JWT Bearer 기반 REST 인증 유지, CSRF 세션 모델 사용 안 함 |
 | ADR-0015 | accepted | 활성. gRPC 비루프백 바인딩 시 TLS 강제 원칙 유지 |
 | ADR-0016 | accepted | 활성. Supanova 테마 축소와 accent 변수화 유지 |
-| ADR-0017 | accepted | 활성. `vm.delete` 원자성 복구와 XML rollback 유지 |
+| ADR-0017 | accepted | 활성. `vm.delete` 원자성 복구와 XML rollback 유지. `5e84387`부터 파일형 NVRAM은 디스크 삭제 성공까지 보존하며, 마지막 NVRAM 정리 실패는 audit fail과 수동 정리 대상으로 남긴다. 지정 Ubuntu·Arch 실기는 원문의 후속 기록을 따른다. |
 | ADR-0018 | accepted | 활성. fire-and-forget audit는 워커 콜백에서 기록 |
 | ADR-0019 | accepted | 활성. UDS 우회 정책과 메서드명 기반 RBAC 방어 유지. operator의 VM 단일 대상 action은 owner metadata 일치 시만 허용하며, `make check-rbac`가 정책 계약 회귀를 차단 |
 | ADR-0020 | accepted | 활성. AI Ops producer → self-healing 호출 체인 유지 |
@@ -127,4 +127,4 @@ Single Edge 공개판에서 기능 절차를 문서화할 수 있는 조건:
 
 | ADR | 상태 | Single Edge 적용 |
 |---|---|---|
-| [ADR-0058](adr/0058-lxc-storage-backend-identity.md) | Verified | 명시 선택 Btrfs와 컨테이너별 실제 저장소 identity. 구현·실기는 계획에서 추적한다. |
+| [ADR-0058](adr/0058-lxc-storage-backend-identity.md) | Verified | 공개 소스 `e028ef2`의 기본 ZFS·명시 선택 Btrfs, 컨테이너별 실제 저장소 identity와 정지 rootfs 복원 계약. 지정 Arch/Btrfs API·복구 상태·관측성·정리 실기는 [운영 인계](operations/2026-09-16-lxc-btrfs-api-validation.md)에서 추적한다. rootless·quota·자동 migration은 미지원이며 Ubuntu ZFS 실기 전체 회귀·정전·장시간 안정성은 별도다. |

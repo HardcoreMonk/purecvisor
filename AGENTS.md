@@ -34,6 +34,8 @@
 - 단일 프로세스와 `GMainLoop` 실행 모델을 유지하고 fork를 도입하지 않는다.
 - 장시간 작업은 응답을 먼저 보낸 뒤 `GTask`로 실행한다.
 - fire-and-forget 작업은 worker callback에서 실제 결과 audit과 WebSocket 완료 통지를 남긴다.
+- LXC 저장소는 기본 ZFS·명시 선택 Btrfs와 객체별 실제 identity를 유지한다.
+  복원·삭제·소유자·비동기 완료 변경은 ADR-0058과 `make check-lxc-storage`를 따른다.
 - JSON-RPC 오류 코드는 `PureRpcErrorCode`만 사용한다.
 - UI 모듈은 `PCV.*` 네임스페이스와 Vanilla JS를 유지한다.
 - `site/`는 제품 `ui/`와 분리된 공개 문서 build이며 Astro와 Starlight 사용을 허용한다.
@@ -48,7 +50,7 @@
 ```bash
 make single
 make test
-make check-all
+make -j1 check-all
 make release
 PCV_NO_DEPLOY=1 scripts/bundle-ui.sh
 python3 scripts/check_ui_bundle_fresh.py
