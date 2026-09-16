@@ -302,6 +302,9 @@ router reservation을 사용할 수 없을 때만 정적 Netplan 절차를 사�
 
 ### 2.2 솔루션 설치
 
+Arch 계열 Omarchy의 의존성·native 빌드·최초 설치는 [2.10절](#210-arch-계열-omarchy-소스-컴파일-설치)을 따릅니다.
+이 절의 `apt`·`.deb`·Netplan 명령은 Ubuntu용입니다.
+
 #### 26.04 host 기본 준비
 
 > **인증서 생성 전 확정**
@@ -1046,6 +1049,251 @@ sudo cp systemd/purecvisor.logrotate /etc/logrotate.d/purecvisor
 Single Edge OVN local controller 준비 경로는 `ovn-controller` 재기동 직후
 파일 로그 레벨을 `ERR`로 낮춥니다. `OVNSB commit failed` 같은 INFO 폭주가
 재발하더라도 운영 로그가 무제한으로 불어나는 것을 막기 위한 안전장치입니다.
+
+### 2.10 Arch 계열 Omarchy 소스 컴파일 설치
+
+Omarchy에서는 대상 호스트에서 PureCVisor를 직접 컴파일해 설치합니다.
+아래 절차는 **새 설치**를 위한 것으로, Bash 셸에서 순서대로 실행합니다.
+각 단계에서 오류가 발생하면 해결한 뒤 다음 단계로 진행하세요.
+기존 설치를 갱신할 때는 바이너리·UI·설정·PKI를 먼저 백업하고 서비스 중지·교체·복구를
+별도 계획해야 합니다. 아래 최초 설치 명령으로 기존 설정을 덮어쓰지 않습니다.
+
+#### 검증한 환경과 소스 선택
+
+| 항목 | 확인한 기준 |
+|---|---|
+| 호스트 | Omarchy 4.0.3, Arch 계열 x86_64 |
+| 커널 | `7.2.3-arch1-3`, cgroup v2, KVM |
+| 컨테이너 | LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치 |
+| 빌드 | 대상 호스트의 GCC로 최적화·LTO 릴리스 전체 빌드, 최종 컴파일 경고 0 |
+| 제품 버전 | `2.0.0`, NVRAM 수정·Btrfs 구현 포함 소스 `e028ef2` |
+
+초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. NVRAM 수정은 `5e84387`, 선택형 Btrfs는
+`e028ef2`부터 포함되므로 현재 공개 `main`을 받거나 필요한 수정을 포함한 commit을
+선택하고 `git rev-parse HEAD`를 기록합니다. 위 패키지 버전은 시험 당시 값이며 설치용
+고정 핀이 아닙니다. 실제 API·복구 검증 범위는 [Btrfs 실기 기록](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)과
+[NVRAM 수정 기록](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)을 따릅니다.
+
+#### 호스트 준비와 Arch 패키지
+
+관리 IPv4는 DHCP reservation 등 현재 Omarchy 네트워크 관리 방식으로 고정합니다.
+2.2절의 Ubuntu용 `apt`·Netplan 명령을 이 호스트에 적용하지 않습니다.
+관리 NIC와 default route를 유지하고, 관리 NIC를 VM 브리지에 편입하지 않습니다.
+
+Arch 저장소 전체를 일관된 버전으로 갱신한 뒤 의존성을 설치합니다. `pacman -Sy`만
+실행한 상태에서 일부 패키지만 갱신하지 않습니다. 커널이 바뀌면 새 커널로 재부팅한 뒤
+KVM과 BTF를 다시 확인하고 컴파일을 시작합니다.
+
+```bash
+sudo pacman -Syu
+sudo pacman -S --needed \
+  base-devel git pkgconf ccache python nodejs npm \
+  glib2 glib2-devel json-glib libsoup3 libvirt libvirt-glib lxc \
+  sqlite openssl libcap libseccomp readline liburing libbpf libxml2 protobuf-c \
+  clang llvm bpf btrfs-progs \
+  qemu-base edk2-ovmf swtpm \
+  qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-vga \
+  dnsmasq nftables iproute2 wireguard-tools ca-certificates curl jq
+
+uname -r
+gcc --version
+node --version
+test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
+test -c /dev/kvm
+test -r /sys/kernel/btf/vmlinux
+command -v bpftool
+pkg-config --exists glib-2.0 gio-2.0 gio-unix-2.0 json-glib-1.0 \
+  libvirt-glib-1.0 libvirt-gobject-1.0 libvirt lxc libsoup-3.0 libcrypto
+```
+
+GCC는 C23 `-std=gnu23`을 지원해야 하며 UI 도구 검증에는 Node.js 24를 사용했습니다.
+Arch의 `bpf` 패키지가 BPF 도구를 제공하고, GLib 개발 파일은 `glib2-devel`로 준비합니다.
+[Arch BPF 패키지](https://archlinux.org/packages/extra/x86_64/bpf/),
+[GLib 개발 패키지](https://archlinux.org/packages/core/x86_64/glib2-devel/)에서 현재 구성을 확인할 수 있습니다.
+
+QEMU의 virtio 그래픽 장치는 별도 패키지입니다. 지정 실기에서는 기본
+`qemu-hw-display-virtio-gpu` 누락 시 QEMU 장치 조회가 실패했고 위 세 패키지를 갖춘 뒤
+정상화됐습니다. [Arch QEMU 패키지 구성](https://archlinux.org/packages/extra/x86_64/qemu-base/)을 함께 확인하세요.
+
+새 libvirt 설치에서는 다음을 실행합니다. 기존에 modular libvirt를 운영한다면 현재
+서비스 구성을 유지하고 `qemu:///system` 접속을 확인합니다.
+
+```bash
+sudo systemctl enable --now libvirtd.service virtlogd.socket virtlockd.socket
+sudo virt-host-validate qemu
+sudo virsh -c qemu:///system list --all
+```
+
+`/dev/kvm`·TUN·cgroup 실패는 먼저 해결합니다. GPU passthrough 등 IOMMU가 필요한
+기능은 해당 항목도 확인합니다. confidential guest 미사용 시 SEV/TDX 관련 경고는
+사용 기능과 구분해 기록합니다.
+
+#### 공개 소스와 릴리스 빌드
+
+```bash
+git clone https://github.com/HardcoreMonk/purecvisor.git
+cd purecvisor
+git rev-parse HEAD
+git merge-base --is-ancestor e028ef2 HEAD
+
+npm ci
+PCV_NO_DEPLOY=1 scripts/bundle-ui.sh
+python3 scripts/check_ui_bundle_fresh.py
+
+make clean
+make -j"$(nproc)" CC=gcc BUILD=release all
+make bpf
+scripts/install-runtime-prereqs.sh --verify-only --bpf-stage build/bpf
+
+ldd bin/purecvisorsd
+ldd bin/pcvctl
+bin/pcvctl --version
+sha256sum bin/purecvisorsd bin/pcvctl build/bpf/*.o build/bpf/manifest.json
+```
+
+`CC=gcc`로 Arch 호스트의 compiler를 명시합니다. `make release`와 같은
+`BUILD=release` 설정으로 데몬·CLI를 만들며, debug 산출물을 섞지 않도록 먼저 정리합니다.
+빌드 로그의 경고·오류가 없어야 하고 `ldd`에 `not found`가 없어야 합니다.
+임시 sysroot나 `LD_LIBRARY_PATH`에 의존하는 시험용 바이너리를 운영에 설치하지 않습니다.
+BPF는 객체 2개와 SHA-256 manifest를 함께 배포합니다.
+
+개발 검증까지 수행하려면 `strace`, `python-pytest`, `openvswitch`를 추가로 준비하고
+2.3절과 검증 정책을 따릅니다. 전체 계약 게이트는 `make -j1 check-all`로 순차 실행하며,
+선택형 기능의 도구·커널 의존성과 환경에 따른 skip을 별도로 기록합니다.
+
+#### 일반 UEFI 펌웨어 경로 준비
+
+현재 소스는 Ubuntu 계열 OVMF 파일명을 탐색합니다. Arch의
+[edk2-ovmf 파일 목록](https://archlinux.org/packages/extra/any/edk2-ovmf/files/)에서
+`/usr/share/edk2/x64/OVMF_CODE.4m.fd`와 `OVMF_VARS.4m.fd`를 확인한 뒤 호환 링크를 준비합니다.
+지정 실기에서는 `/usr/share/OVMF`가 `/usr/share/edk2`를 가리켰습니다.
+
+```bash
+test -r /usr/share/edk2/x64/OVMF_CODE.4m.fd
+test -r /usr/share/edk2/x64/OVMF_VARS.4m.fd
+test "$(readlink -f /usr/share/OVMF)" = /usr/share/edk2
+
+sudo tee /etc/tmpfiles.d/purecvisor-ovmf-compat.conf >/dev/null <<'EOF'
+L /usr/share/edk2/OVMF_CODE_4M.fd - - - - /usr/share/edk2/x64/OVMF_CODE.4m.fd
+L /usr/share/edk2/OVMF_VARS_4M.fd - - - - /usr/share/edk2/x64/OVMF_VARS.4m.fd
+EOF
+sudo systemd-tmpfiles --create /etc/tmpfiles.d/purecvisor-ovmf-compat.conf
+readlink -f /usr/share/OVMF/OVMF_CODE_4M.fd
+readlink -f /usr/share/OVMF/OVMF_VARS_4M.fd
+```
+
+마지막 두 경로는 각각 위 Arch CODE·VARS 파일이어야 합니다. `L`은 기존 경로를 강제로
+교체하지 않으므로, 다른 파일이 있거나 패키지 경로가 바뀌면 먼저 원인을 확인합니다.
+이 설정은 **일반 UEFI**용입니다. Secure Boot 서명·키 등록까지 검증한 설정은 아닙니다.
+
+#### 최초 설치와 Btrfs 설정
+
+다음 명령은 저장소 루트에서 실행합니다. 기존 설정 또는 설치 바이너리가 있으면 중단합니다.
+
+```bash
+if sudo test -e /etc/purecvisor/daemon.conf || sudo test -e /usr/local/bin/purecvisorsd; then
+  printf '%s\n' '기존 설치가 있습니다. 백업 후 업그레이드 절차를 사용하세요.' >&2
+  exit 1
+fi
+
+sudo install -d -m 0755 /usr/local/bin /usr/local/share/purecvisor/ui
+sudo install -m 0755 bin/purecvisorsd bin/pcvctl /usr/local/bin/
+sudo cp -R ui/. /usr/local/share/purecvisor/ui/
+sudo install -d -m 0755 /usr/local/share/purecvisor/fallback
+sudo install -m 0644 ui/maintenance.html ui/maintenance-status.json /usr/local/share/purecvisor/fallback/
+sudo install -d -m 0700 /etc/purecvisor/pki /var/run/purecvisor
+sudo install -d -m 0755 /etc/purecvisor/plugins.d /etc/purecvisor/seccomp /var/lib/purecvisor
+sudo install -d -m 0750 /var/log/purecvisor
+sudo install -d -m 0711 /var/lib/libvirt/images
+sudo install -m 0600 packaging/deb/daemon.conf.sample /etc/purecvisor/daemon.conf
+sudoedit /etc/purecvisor/daemon.conf
+```
+
+sample의 **기존 섹션을 편집**해 다음 값을 맞춥니다. 같은 이름의 섹션을 끝에 중복해서
+붙이지 않습니다. 관리자 비밀번호는 `sudoedit`에서 직접 12자 이상으로 설정하고
+아래 설명용 값을 그대로 사용하지 않습니다. NAT 대역은 관리망·기존 VM망과 겹치지 않게 선택합니다.
+
+```ini
+[daemon]
+admin_user = admin
+admin_password = <운영자가 설정할 12자 이상의 비밀번호>
+
+[server]
+rest_port = 8080
+bind_plaintext = loopback
+
+[tls]
+https_enabled = true
+cert = /etc/purecvisor/pki/node.crt
+key = /etc/purecvisor/pki/node.key
+
+[storage]
+image_dir = /var/lib/libvirt/images
+iso_dirs = /var/lib/libvirt/images
+
+[container]
+storage_backend = btrfs
+lxc_path = /var/lib/purecvisor/lxc
+rootless = false
+
+[network]
+default_bridge = pcvnat0
+default_subnet = 10.78.0.1/24
+default_ensure = 1
+firewall_integration = auto
+```
+
+Omarchy라는 배포판 이름만으로 Btrfs를 가정하지 말고 **실제 `lxc_path`의 파일시스템**을
+확인합니다. 다음 경로가 Btrfs가 아니면 중단하고 root가 관리하는 실제 Btrfs 경로를
+준비해 `lxc_path`를 수정합니다. 이 절차는 디스크를 포맷하거나 기존 컨테이너를 변환하지 않습니다.
+
+```bash
+sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
+findmnt -T /var/lib/purecvisor/lxc -o TARGET,SOURCE,FSTYPE
+test "$(stat -fc %T /var/lib/purecvisor/lxc)" = btrfs
+sudo btrfs filesystem show /var/lib/purecvisor/lxc
+
+sudo chown root:root /etc/purecvisor/daemon.conf
+sudo chmod 0600 /etc/purecvisor/daemon.conf
+sudo scripts/install-runtime-prereqs.sh --bpf-stage build/bpf
+```
+
+runtime helper는 BPF manifest를 검증·설치하고 누락된 JWT 비밀값을 안전하게 생성합니다.
+VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. ZFS LXC·zvol·ZFS backup을
+사용할 때는 별도로 ZFS 커널·도구·풀을 준비합니다. Btrfs의 정지 clone·snapshot·restore와
+지원 제한은 4.1절을 따릅니다. 게스트 reset에는 별도의 `libguestfs` 도구도 필요합니다.
+
+#### systemd 등록과 설치 확인
+
+```bash
+sudo install -m 0644 packaging/deb/purecvisorsd.service /etc/systemd/system/purecvisorsd.service
+sudo install -d -m 0755 /etc/systemd/system/purecvisorsd.service.d
+sudo install -m 0644 packaging/systemd/90-ovl3-netns.conf packaging/systemd/95-coredump-hardening.conf \
+  /etc/systemd/system/purecvisorsd.service.d/
+sudo install -m 0644 packaging/deb/purecvisor-lio.conf /etc/modules-load.d/purecvisor-lio.conf
+for module in target_core_mod iscsi_target_mod target_core_iblock nf_conntrack_bridge; do
+  sudo modprobe "$module"
+done
+sudo systemctl daemon-reload
+sudo systemctl enable --now purecvisorsd.service
+systemctl --no-pager --full status purecvisorsd.service
+sudo journalctl -u purecvisorsd.service -b --no-pager -n 100
+
+NODE_IPV4="<확정한-관리-IPv4>"
+sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
+  "https://${NODE_IPV4}/api/v1/health" | jq .
+sudo pcvctl vm list
+```
+
+서비스는 `active/running`, health는 `status=ok`·`version=2.0.0`·`cluster=false`인지
+확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
+최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
+SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
+loopback으로 유지합니다. NGINX는 이 직접 HTTPS 구성에 필요하지 않습니다.
+
+이 문서는 기존 지정 호스트의 설치·빌드 및 후속 NVRAM·Btrfs 실기 증거를 정리한 것입니다.
+OVS/OVN·GPU passthrough·Secure Boot·ZFS 전체 기능이나 모든 Arch 환경의 인증,
+호스트 재부팅·정전·장시간 안정성 검증을 뜻하지 않습니다.
 
 ---
 

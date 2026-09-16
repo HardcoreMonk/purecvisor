@@ -14,7 +14,7 @@
 | 문서 | 책임 |
 |---|---|
 | [저장소 README](../README.md) | 빠른 설치·사용·검증 명령 |
-| [통합 운영 가이드](GUIDE.md) | 제품 기능·설정·운영·개발, 22.8절의 최신 공개 검증 범위 |
+| [통합 운영 가이드](GUIDE.md) | 제품 기능·설정·운영·개발, 2.10절의 Omarchy 소스 설치와 22.8절의 최신 공개 검증 범위 |
 | [데이터베이스 아키텍처](DATABASE_STRUCTURE.md) | SQLite 9개 파일·26개 테이블의 소유권과 복구 경계 |
 | [공개 릴리스 경계](PUBLIC_RELEASE_BOUNDARY.md) | Single Edge 허용·제외 범위와 지원 승격 조건 |
 | [공개 소스 정책](PUBLIC_SOURCE_POLICY.md) | 설명 주석·소스맵 제외, 제3자 고지와 공개 기록 경계 |
@@ -46,6 +46,7 @@
 - [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md): 지정 Arch/Btrfs 호스트에서 실제 API·owner·복원 중단 상태·정리를 검증한 기록. 초기 `2.0.0` 태그와 Btrfs 구현을 포함한 공개 소스의 차이는 [가이드 4.1절](GUIDE.md#41-컨테이너-생성)을 따른다.
 - [UEFI VM 삭제 NVRAM 검증](operations/2026-09-16-vm-delete-nvram-handoff.md): 디스크 실패 시 NVRAM 보존과 마지막 정리 실패 처리, 지정 Ubuntu·Arch 실기 범위.
 - [문서 전체 현행화 인계](operations/2026-09-16-public-documentation-refresh-handoff.md): 전수 문서 목록·링크 점검, 수정 내역과 게시 검증.
+- [Omarchy 소스 설치 가이드 인계](operations/2026-09-16-omarchy-source-guide-handoff.md): 실제 설치 기록·공식 패키지·소스 대조, 문서 동기화와 게시 검증.
 
 ## 기록을 읽는 규칙
 

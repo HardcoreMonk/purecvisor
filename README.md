@@ -16,6 +16,8 @@ PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 �
 Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. <br> 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
 
 Arch 계열 Omarchy의 소스 빌드·설치와 지정 VM 삭제·Btrfs LXC API 검증도 수행했습니다.
+패키지 준비부터 릴리스·BPF 빌드, OVMF 호환 설정과 최초 서비스 설치는
+[Omarchy 소스 컴파일 가이드](docs/GUIDE.md#210-arch-계열-omarchy-소스-컴파일-설치)를 따릅니다.
 검증한 환경과 한계는 [공개 현황](docs/GUIDE.md#228-공개-소스문서-현황)을 따릅니다.
 아래 `apt`·`.deb` 절차는 Ubuntu용입니다.
 

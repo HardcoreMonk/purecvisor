@@ -46,6 +46,8 @@
 이 문서의 `libbpf-dev` 등 패키지명은 Ubuntu 기준이다. Arch 계열은 대상 호스트의
 패키지·커널·공유 라이브러리를 확인하고 소스를 native 빌드한다. Ubuntu `.deb`나
 Ubuntu에서 만든 바이너리를 그대로 설치하는 절차로 해석하지 않는다.
+Arch 계열의 패키지 준비·BPF 빌드·최초 서비스 등록은
+[Omarchy 소스 컴파일 설치](../../docs/GUIDE.md#210-arch-계열-omarchy-소스-컴파일-설치)를 따른다.
 
 ## 드롭인과 hidepid 설치
 
