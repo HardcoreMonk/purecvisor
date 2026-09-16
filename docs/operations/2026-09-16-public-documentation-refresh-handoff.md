@@ -124,3 +124,17 @@ daemon·RPC·저장소 동작을 바꾸거나 운영 호스트 서비스를 재�
   배포 전후 동일하다. VM 3대의 상태·비활성 XML 해시와 LXC 목록도 보존됐다.
 - 이번 배포는 내장 도움말과 캐시 갱신이다. 백엔드 바이너리 교체, 서비스 재시작과
   Btrfs·NVRAM 제품 기능의 로컬 재검증은 포함하지 않는다.
+
+## 공개 사이트 도움말 재게시 — 2026-09-16
+
+- 사용자 요청으로 공개 `main`의 `ec5b257`에서 Pages를 다시 빌드·배포했다.
+  가이드·DB 설명·사이트 입력은 앞선 `88e485f` 게시본과 동일하며, Btrfs·NVRAM·Arch
+  검증 범위를 담은 최신 도움말임을 확인했다.
+- 로컬 `npm --prefix site run check`가 통과했다. HTML 26개와 전체 산출물 154개,
+  영상 4개 그룹·녹화 16개의 기존 검사를 재실행했다.
+- [Pages 실행 35057352397](https://github.com/HardcoreMonk/purecvisor/actions/runs/35057352397)의
+  `workflow_dispatch` 입력 commit과 build·deploy 성공을 확인했다.
+- 배포 후 공개 HTML 27개를 HTTPS로 다시 조회했다. 모두 HTTP 200이며 SHA-256이
+  로컬 산출물과 일치했다. 컨테이너의 ZFS/Btrfs 설정·Arch 검증 안내, VM NVRAM 보존,
+  설치 안내와 공개 현황의 현재·이전 anchor를 확인했다.
+- 원시 게시·응답 증거는 로컬 Git 메타데이터의 비공개 검증 기록에 보존한다.
