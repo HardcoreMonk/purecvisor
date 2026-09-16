@@ -2,7 +2,7 @@
 
 > 기준일: 2026-09-16 · 문서 시작점: `90a0a58` · 제품 버전: `2.0.0`
 > 범위: 공개 가이드·내장 도움말·설치 진입점·Pages
-> 단계: 로컬 문서 검증 완료, 공개 게시 진행 중
+> 단계: operate — 공개 main·Pages 반영과 HTTPS 검증 완료
 
 ## 요청과 작성 기준
 
@@ -59,3 +59,13 @@ Arch 계열 Omarchy에서 소스 컴파일로 설치하는 절차를 추가한�
 
 명령 블록은 문법과 기존 소스·실기 기록을 대조한 것이며 이번 회차에서 새 Arch 설치를
 실행한 결과가 아니다. 원시 검사 결과는 로컬 Git 메타데이터에 보존한다.
+
+## 게시 결과
+
+- 문서·도움말·캐시 7개 파일을 [`85e9e55`](https://github.com/HardcoreMonk/purecvisor/commit/85e9e55b505aa1d593f4de18a1e566a75ad32e2d)로
+  공개 `main`에 반영했다. 병합된 로컬 작업 브랜치는 정리했다.
+- [Pages 실행 35060030720](https://github.com/HardcoreMonk/purecvisor/actions/runs/35060030720)의
+  build·deploy가 성공했다.
+- 공개 HTML 27개를 HTTPS로 조회해 전부 HTTP 200과 로컬 산출물 SHA-256 일치를 확인했다.
+- 실제 [Omarchy 설치 가이드](https://purecvisor.site/ko/getting-started/installation/#210-arch-계열-omarchy-소스-컴파일-설치)의
+  anchor·QEMU 패키지·OVMF 경로가 배포 결과에 포함됨을 확인했다.
