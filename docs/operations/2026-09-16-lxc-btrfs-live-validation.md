@@ -1,5 +1,7 @@
 # LXC Btrfs 실기 검증 인계
 
+> **현재 적용 제외:** 2026-10-02 개발 main 정합화로 공개 전용 Btrfs를 현재 main에서 제외했다. 아래 내용은 당시 소스·검증·배포의 역사 기록이다. [정합화 인계](2026-10-02-public-main-sync-handoff.md)를 따른다.
+
 > 검증일: 2026-09-16 KST
 > 승인 범위: [Btrfs 조사](../research/2026-09-16-lxc-btrfs-backend.md)의 다음 단계인 격리된 LXC 실기
 > 판정: LXC 자체의 지정 Btrfs 동작 검증 완료 · PureCVisor 백엔드 구현 전

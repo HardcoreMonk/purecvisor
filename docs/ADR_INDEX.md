@@ -127,4 +127,4 @@ Single Edge 공개판에서 기능 절차를 문서화할 수 있는 조건:
 
 | ADR | 상태 | Single Edge 적용 |
 |---|---|---|
-| [ADR-0058](adr/0058-lxc-storage-backend-identity.md) | Verified | 공개 소스 `e028ef2`의 기본 ZFS·명시 선택 Btrfs, 컨테이너별 실제 저장소 identity와 정지 rootfs 복원 계약. 지정 Arch/Btrfs API·복구 상태·관측성·정리 실기는 [운영 인계](operations/2026-09-16-lxc-btrfs-api-validation.md)에서 추적한다. rootless·quota·자동 migration은 미지원이며 Ubuntu ZFS 실기 전체 회귀·정전·장시간 안정성은 별도다. |
+| [ADR-0058](adr/0058-lxc-storage-backend-identity.md) | Archived | 개발 main 일치 요청으로 공개 전용 Btrfs를 현재 main에서 제외했다. `e028ef2` 당시 구현·지정 Arch 검증은 역사로 보존하며 현재 LXC는 ZFS 전용이다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)를 따른다. |

@@ -1,5 +1,8 @@
 # PureCVisor Single Edge 운영 가이드
 
+> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
+
+
 > **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.0
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
@@ -9,7 +12,12 @@
 > 주소는 배포 환경에 맞춰 설정하고, 선택한 모드의 health·version·BPF 상태 검사를
 > 통과해야 합니다.
 >
-> **문서 현행화(2026-09-16)**: 선택형 LXC Btrfs의 소스·설정 계약을 4장에 반영했습니다. 지정 Arch/Btrfs 호스트의 API·복구·완료 통지 검증을 통과했습니다. 기존 공개 현황과 잔여 검증은 22.8절을 따릅니다.
+> **기능 기준(2026-08-31)**: 네트워크 작업은 읽기 전용 호스트 기준선을 먼저 확인합니다.
+> generic OVN 공개 표면은 등록된 18개 RPC, switch-owned DHCP 자동 정리와 인증 REST
+> ACL/NAT 필터 전달까지입니다. 완결되지 않은 OVN/NFV Load Balancer와 VM 자동 포트 내부
+> helper는 공개 기능이 아니며, Local VPC의 선택형 OVN backend는 별도 지원 gate를 따릅니다.
+>
+> **문서 현행화(2026-09-15)**: 공개 소스 반영, self-healing 알림, 현재 검증 명령과 GPU 테스트 영상 게시 현황을 반영했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -49,12 +57,17 @@
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
-2026-09-16 공개 소스는 VM 삭제 NVRAM 보존 수정과 선택형 LXC Btrfs를 포함합니다.
-초기 `2.0.0` 태그와 현재 `main`의 차이, 지정 Arch 실기 결과와 잔여 검증은 22.8절을 따릅니다.
+**2026-09-15 공개 현황:** 공개 소스 스냅샷 [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)에 호스트 CPU·메모리 첫 self-healing 알림의 쿨다운 수정과 공개 UI 표면 게이트가 반영됐습니다. 공개판은 `2.0.0`과 Single Edge 범위를 유지합니다.
+
+지정 공개 소스 검증은 통과했지만 전체 소스 감사와 지원 환경 인증은 미완료이며, 전체 감사 판정은 `FAIL(미완료)`입니다. 회차별 결과와 GPU Passthrough 영상의 검증 범위는 [품질 게이트의 공개 현황](/ko/development/quality-gates/#228-2026-09-15-공개-소스문서-현황)을 따릅니다.
+
+> **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](../docs/DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요.<br>
+이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
 
 ### 1.1 PureCVisor란?
 
-PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다. 단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 독립 노드 기준으로 통합 관리합니다.
+PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이터입니다.<br>
+단일 프로세스 데몬 `purecvisorsd`가 fork 없이 GMainLoop 이벤트 루프로 동작하며, VM, 컨테이너, 스토리지, 네트워크를 통합 관리합니다.
 
 **핵심 특징:**
 
@@ -70,64 +83,146 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
 
 ### 1.2 아키텍처 개요
 
-```
-클라이언트 (pcvctl / Web UI / REST API)
-        |
-        v
-+-------+-------+--------------------+
-| UDS 서버              | REST 서버           |
-| (JSON-RPC 2.0)        | (loopback :8080 / HTTPS :443) |
-| io_uring 비동기 I/O   | libsoup3, JWT, CORS  |
-+-------+-------+--------------------+
-        |
-        v
-  디스패처 (Single Edge RPC, O(1) GHashTable 라우팅)
-  method policy / RBAC pre-route / VM owner-scope
-        |
-        v
-  핸들러 계층 (src/modules/dispatcher/ + src/modules/network/)
-        |
-        v
-  코어 모듈
-  +-- vm_manager (libvirt)     +-- lxc_driver (LXC)
-  +-- network_manager (OVS/OVN) +-- zfs_driver (ZFS)
-  +-- auth_manager (SQLite)     +-- backup_scheduler
-        |
-        v
-  시스템 (libvirt, nftables, dnsmasq, ZFS, LXC, OVS, OVN)
-```
+`purecvisorsd`는 API transport, dispatcher, 도메인 핸들러와 서비스 모듈을 한 프로세스에 두고 `GMainLoop`가 전체 수명주기를 소유합니다.<br>
+짧은 작업은 이벤트 루프에서 응답을 끝내고, 긴 작업만 제한된 `GTask` 워커 풀로 보냅니다.<br>
+아래 탭에서 실제 TLS 배포 모드를 선택하면 클라이언트와 부팅 입력부터 로컬 영속 상태와 Linux/KVM 호스트까지 이어지는 Single Edge 전체 구조를 해당 진입 경계로 확인할 수 있습니다.<br>
+기본 선택은 NGINX가 없는 `purecvisorsd` 직접 HTTPS 모드입니다.<br>
+마우스를 사용하는 환경에서는 SVG의 서비스 레이어 또는 컴포넌트에 포인터를 올려 직접 연결된 화살표의 흐름을 강조할 수 있습니다.
 
-**요청 처리 흐름 상세:**
+<section class="pcv-overview-architecture-tabs pcv-architecture-wide" data-pcv-architecture-tabs aria-label="TLS 배포 모드별 PureCVisor Single Edge 아키텍처">
+  <div class="pcv-architecture-tablist" role="tablist" aria-label="TLS 배포 모드">
+    <button class="pcv-architecture-tab" id="pcv-architecture-tab-direct" type="button" role="tab" aria-selected="true" aria-controls="pcv-architecture-panel-direct" tabindex="0" data-pcv-architecture-tab>purecvisorsd 직접 HTTPS</button>
+    <button class="pcv-architecture-tab" id="pcv-architecture-tab-nginx" type="button" role="tab" aria-selected="false" aria-controls="pcv-architecture-panel-nginx" tabindex="-1" data-pcv-architecture-tab>NGINX 외부 TLS 종료</button>
+  </div>
 
-1. 클라이언트가 UDS 소켓 또는 REST API로 요청 전송
-2. REST 서버는 JWT로 인증 주체를 검증하고, RBAC DB의 현재 role을 JSON-RPC params에 주입해 디스패처에 전달
-3. 디스패처가 GHashTable에서 O(1)로 핸들러 함수 조회 후 method policy, RBAC, VM owner-scope를 검사
-4. 핸들러가 코어 모듈을 호출하여 작업 수행
-5. 장시간 작업은 fire-and-forget 패턴으로 즉시 응답 후 GTask 비동기 실행
+  <div class="pcv-architecture-panel" id="pcv-architecture-panel-direct" role="tabpanel" aria-labelledby="pcv-architecture-tab-direct" data-pcv-architecture-panel>
+    <figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source" aria-labelledby="pcv-overview-architecture-direct-title">
+      <div class="pcv-map-bar">
+        <strong id="pcv-overview-architecture-direct-title">Single Edge · purecvisorsd 직접 HTTPS</strong>
+        <div class="pcv-map-meta">
+          <span class="pcv-status"><i aria-hidden="true"></i>기본 · NGINX 없음</span>
+          <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1817.8671875" height="2313.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      </a>
+      <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.</figcaption>
+    </figure>
+  </div>
 
-### 1.2.1 검증 문서 맵
+  <div class="pcv-architecture-panel" id="pcv-architecture-panel-nginx" role="tabpanel" aria-labelledby="pcv-architecture-tab-nginx" data-pcv-architecture-panel hidden>
+    <figure class="pcv-overview-architecture pcv-control-map pcv-architecture-source" aria-labelledby="pcv-overview-architecture-nginx-title">
+      <div class="pcv-map-bar">
+        <strong id="pcv-overview-architecture-nginx-title">Single Edge · NGINX 외부 TLS 종료</strong>
+        <div class="pcv-map-meta">
+          <span class="pcv-status"><i aria-hidden="true"></i>선택형 · host-loopback</span>
+          <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+        </div>
+      </div>
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1699.064208984375" height="2488" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      </a>
+      <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
+    </figure>
+  </div>
+</section>
+
+#### 1.2.1 런타임·접근 경계
+
+- **사용자와 외부 소비자**: Web UI, `pcvctl`, REST API client, 선택형 gRPC client와 Prometheus scraper가 단일 노드에 접근합니다.
+- **기본 HTTPS 모드**: `purecvisorsd`가 외부 `:443`의 REST·WebSocket TLS를 직접 종료합니다.<br>
+HTTP listener는 loopback 복구 경로로 제한합니다.
+- **선택형 NGINX 외부 종료 모드**: NGINX가 외부 `:443`을 소유하고 `127.0.0.1`의 daemon REST·WebSocket으로 전달합니다.<br>
+두 모드가 같은 주소의 `:443`을 동시에 소유하지 않습니다.
+- **부팅 입력**: `daemon.conf`, secret source와 Kernel LSM 목록이 bootstrap 정책, transport, BPF 준비 상태를 결정합니다.
+- **프로세스 내부 transport**: root 전용 UDS JSON-RPC, libsoup3 REST, 기본 비활성인 선택형 gRPC와 WebSocket event channel은 별도 서비스가 아니라 `purecvisorsd` 내부 진입점입니다.<br>
+선택형 외부 종료 모드의 NGINX만 별도 프로세스입니다.
+
+#### 1.2.2 요청·권한·완료 흐름
+
+1. `pcvctl`은 로컬 UDS로, Web UI와 REST client는 선택한 HTTPS 모드로 요청합니다.<br>
+선택형 gRPC는 token과 고정 caller role을 검증한 뒤 같은 RPC 정책으로 수렴합니다.
+2. transport가 인증 주체를 확정하면 dispatcher가 method policy, RBAC와 VM·컨테이너 owner-scope를 검사합니다.
+3. dispatcher는 `GHashTable`에서 O(1)로 도메인 핸들러를 찾아 검증된 요청만 전달합니다.
+4. 짧은 작업은 canonical JSON-RPC 응답으로 즉시 완료합니다.
+5. 긴 작업은 Job ID가 포함된 accepted 응답을 먼저 보내고 제한된 `GTask` 워커에서 실행합니다.<br>
+상태 registry를 사용하는 경로만 `pcv_jobs.db` 행을 생성하며, 일부 경로는 합성 Job ID를 사용합니다.
+6. worker callback은 실제 결과를 경로별 상태 저장소, `pcv_audit.db`, daemon log와 WebSocket 완료 이벤트에 남깁니다.<br>
+클라이언트는 WebSocket 또는 polling으로 최종 상태를 확인하며, **accepted 응답은 실제 성공을 뜻하지 않습니다.**
+
+#### 1.2.3 서비스 도메인
+
+- **Workload**: VM, LXC 컨테이너, template과 GPU 연결
+- **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
+- **Storage**: ZFS, snapshot, backup·restore, iSCSI와 cloud job
+- **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
+- **Monitoring**: host telemetry, process status와 Prometheus metrics
+- **Operations**: telemetry, alert, Web Push, AI healing과 plugin
+
+Monitoring 경로는 `handler_monitor`, telemetry, process monitor와 eBPF telemetry가 제공하는
+host·process 관측값을 조회합니다.<br>
+공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.
+
+#### 1.2.4 영속 상태와 호스트 통합
+
+PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 9개와 파일 기반 desired state를
+사용합니다.
+
+- **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
+- **Operations DB 2개**: `cloud_jobs.db`, `pcv_webpush.db`
+- **Desired state**: network, overlay, QoS, BPF와 backup 설정
+- **Virtualization**: libvirt, QEMU, KVM과 LXC
+- **Storage**: qcow2/raw, 선택형 ZFS, LIO와 open-iscsi
+- **Network host**: Linux bridge, nftables, dnsmasq, WireGuard, tc, eBPF, OVS와 OVN
+- **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
+- **Acceleration**: GPU, SR-IOV와 선택형 DPDK
+
+SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
+DB 사이의 분산 트랜잭션이나 노드 간 복제도 제공하지 않으므로, 재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를 함께 확인해야 합니다.<br>
+DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을 바꾸지 않는 audit-only 경계입니다.
+
+#### 1.2.5 Single Edge 경계와 상세 문서
+
+이 구조는 독립 Linux/KVM 노드 하나와 `purecvisorsd` 제어면 하나만 설명합니다.
+
+- SQLite 파일별 책임, schema, 일관성·백업·복구 경계: [데이터베이스 아키텍처](/ko/development/database-architecture/)
+- TLS 모드와 설치 절차: [설치 및 환경 구성](/ko/getting-started/installation/#tls-배포-모드-선택-purecvisorsd-자체-https-또는-선택형-nginx-외부-tls-종료)
+- REST 인증과 endpoint: [REST API](/ko/interfaces/rest-api/)
+- 현재 공개판 포함·제외 기준: [PUBLIC_RELEASE_BOUNDARY.md](../docs/PUBLIC_RELEASE_BOUNDARY.md)
+
+<span id="121-검증-문서-맵" aria-hidden="true"></span>
+
+#### 1.2.6 검증 문서 맵
 
 문서 역할은 다음처럼 나눠서 봐야 합니다.
 
 | 문서 | 역할 |
 |------|------|
-| [DEVELOPMENT_VERIFICATION_POLICY.md](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
-| [ADR_INDEX.md](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
+| [DEVELOPMENT_VERIFICATION_POLICY.md](../docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
+| [ADR_INDEX.md](../docs/ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [PUBLIC_SOURCE_POLICY.md](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
+| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 26개의 책임, schema와 복구 경계 |
+| [PUBLIC_SOURCE_POLICY.md](../docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
-### 1.2.2 설계 결정 빠른 보기
+<span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
 
-운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다. 통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며, 설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
+#### 1.2.7 설계 결정 빠른 보기
+
+운영 가이드 본문에서 `ADR-0023`처럼 표시되는 항목은 단순 참고 문구가 아니라 기능의 허용 조건과 예외 규칙이다.<br>
+통합 `ui/docs.html` reader는 같은 릴리스의 본문과 ADR 참조를 빠짐없이 표시하며, 설계 결정의 정본은 `docs/ADR_INDEX.md`와 `docs/adr/`에서 확인한다.
 
 | 설계 결정 | 먼저 봐야 하는 상황 | 현재 Single Edge 결론 |
 |-----------|--------------------|-----------------------|
-| [ADR-0023: VM clone 오픈 베타 안전장치](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md) | VM clone, Guest reset, Prepared template, power on 거부 조건 | source VM은 `shut off` 상태여야 하며, prepared template 또는 libguestfs 기반 Guest reset 중 하나가 필요하다 |
-| [ADR-0022: VM 생성 저장 위치 계약](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0022-vm-create-storage-location-contract.md) | VM 생성 저장소, zvol/qcow2/raw 위치 정책 변경 | `storage_type`과 `storage_pool` 또는 `image_dir` 조합을 명시 계약으로 유지한다 |
-| [ADR-0019: RBAC UDS 우회 정책](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0019-rbac-uds-bypass-policy.md) | 권한, operator owner-scope, UDS/REST 보안 변경 | REST 인증과 dispatcher method policy를 모두 유지하고 `make check-rbac`로 검증한다 |
-| [ADR-0018: fire-and-forget audit 기록 정책](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0018-fire-and-forget-audit-policy.md) | 장시간 RPC, worker callback, audit/WS completion 변경 | accepted 응답은 완료가 아니며 worker callback에서 실제 결과 audit를 남긴다 |
-| [ADR-0014: JWT Bearer 전용 인증](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0014-remove-csrf-jwt-bearer.md) | REST 인증, CSRF, 브라우저 호출 모델 설명 | 쿠키 세션 대신 `Authorization: Bearer <JWT>`를 사용하고 별도 CSRF 토큰을 운영하지 않는다 |
-| [ADR-0013: 프론트엔드 IIFE 모듈 스코프](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0013-frontend-iife-module-scope.md) | Web UI 모듈, endpoint registry, sanitizer 변경 | Vanilla JS를 유지하고 `PCV.*` 네임스페이스와 `EP` 레지스트리를 사용한다 |
+| [fork 금지 단일 데몬](../docs/adr/0001-no-fork-single-daemon.md) | 프로세스, event loop, worker lifecycle 변경 | `purecvisorsd` 단일 프로세스와 GMainLoop 소유권을 유지하고 긴 작업만 bounded worker로 보낸다 |
+| [비동기 결과 채널](../docs/adr/0012-async-result-channel.md) | Job ID, polling, WebSocket 완료 경로 변경 | accepted 응답과 실제 완료 상태를 분리하고 Job ID 기반 결과 채널을 유지한다 |
+| [REST/WS TLS 기본 활성](../docs/adr/0029-rest-ws-tls-always-on.md) | daemon 직접 HTTPS, 선택형 NGINX 외부 종료 변경 | 기본은 daemon 자체 TLS이며 외부 종료는 host-loopback 신뢰 경계의 명시적 opt-in으로만 허용한다 |
+| [VM clone 오픈 베타 안전장치](../docs/adr/0023-vm-clone-beta-safety-guard.md) | VM clone, Guest reset, Prepared template, power on 거부 조건 | source VM은 `shut off` 상태여야 하며, prepared template 또는 libguestfs 기반 Guest reset 중 하나가 필요하다 |
+| [VM 생성 저장 위치 계약](../docs/adr/0022-vm-create-storage-location-contract.md) | VM 생성 저장소, zvol/qcow2/raw 위치 정책 변경 | `storage_type`과 `storage_pool` 또는 `image_dir` 조합을 명시 계약으로 유지한다 |
+| [RBAC UDS 우회 정책](../docs/adr/0019-rbac-uds-bypass-policy.md) | 권한, operator owner-scope, UDS/REST 보안 변경 | REST 인증과 dispatcher method policy를 모두 유지하고 `make check-rbac`로 검증한다 |
+| [fire-and-forget audit 기록 정책](../docs/adr/0018-fire-and-forget-audit-policy.md) | 장시간 RPC, worker callback, audit/WS completion 변경 | accepted 응답은 완료가 아니며 worker callback에서 실제 결과 audit를 남긴다 |
+| [JWT Bearer 전용 인증](../docs/adr/0014-remove-csrf-jwt-bearer.md) | REST 인증, CSRF, 브라우저 호출 모델 설명 | 쿠키 세션 대신 `Authorization: Bearer <JWT>`를 사용하고 별도 CSRF 토큰을 운영하지 않는다 |
+| [프론트엔드 IIFE 모듈 스코프](../docs/adr/0013-frontend-iife-module-scope.md) | Web UI 모듈, endpoint registry, sanitizer 변경 | Vanilla JS를 유지하고 `PCV.*` 네임스페이스와 `EP` 레지스트리를 사용한다 |
 
 ### 1.3 Single Edge 공개 리포지토리
 
@@ -171,12 +266,10 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다. 소스 기준 단일 값은
-`include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며,
-`/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`, Web UI
-config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다. `/api/v1` 같은 API path,
-OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이
-아니므로 별도 계약으로 유지한다.
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.0`이다.<br>
+소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
+Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
+`/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
 
 ```bash
 # 3. bootstrap admin으로 첫 인증 토큰 발급
@@ -298,12 +391,9 @@ VM 데이터 사용률은 80% 아래로 유지하고, snapshot과 같은 pool에
 
 권장 방식은 현재 Netplan renderer와 DHCP를 유지하고 router에서 `<management-interface>`의 lease를 선택한 IPv4로 예약하는 것입니다.
 이 방식은 host에서 주소를 중복 선언하지 않으면서 서비스 주소를 고정합니다.
-router reservation을 사용할 수 없을 때만 정적 Netplan 절차를 사용합니다.
+router reservation을 사용할 수 없을 때만 아래 정적 Netplan 절차를 사용합니다.
 
 ### 2.2 솔루션 설치
-
-Arch 계열 Omarchy의 의존성·native 빌드·최초 설치는 [2.10절](#210-arch-계열-omarchy-소스-컴파일-설치)을 따릅니다.
-이 절의 `apt`·`.deb`·Netplan 명령은 Ubuntu용입니다.
 
 #### 26.04 host 기본 준비
 
@@ -347,10 +437,50 @@ sudo netplan get
 ip -4 address show dev "${MGMT_NIC}"
 ip route show default
 resolvectl status "${MGMT_NIC}"
+
+# 재부팅 후에도 아래 세 값이 유지되는지 확인
+# address: ${NODE_IPV4}/${PREFIX_LENGTH}
+# default route: ${GATEWAY_IPV4} via ${MGMT_NIC}
+# DNS server: ${DNS_IPV4}
 ```
 
-DHCP reservation을 사용할 수 없는 환경에서는 console 또는 BMC 접속을 확보한 뒤 `/etc/netplan/60-purecvisor-mgmt.yaml`에 `<management-interface>`, `<unused-management-ipv4>/<prefix-length>`, `<default-gateway-ipv4>`, `<dns-ipv4>`를 실제 값으로 치환해 설정합니다.
-기존 `sudo netplan get`의 renderer 정책을 유지하고 `sudo netplan generate`, `sudo netplan try --timeout 120` 순서로 검증하며 SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습니다.
+DHCP reservation을 사용할 수 없는 환경에서는 console 또는 BMC 접속을 확보한 뒤 `/etc/netplan/60-purecvisor-mgmt.yaml`을 다음과 같이 만듭니다.
+먼저 모든 `<...>` 값을 해당 노드의 실제 값으로 바꾸고, 기존 `sudo netplan get`에서 확인한 renderer 정책을 유지합니다.
+다른 Netplan 파일이 `<management-interface>`를 함께 정의하면 먼저 중복을 제거합니다.
+
+```yaml
+network:
+  version: 2
+  ethernets:
+    <management-interface>:
+      dhcp4: false
+      dhcp6: false
+      addresses:
+        - <unused-management-ipv4>/<prefix-length>
+      routes:
+        - to: default
+          via: <default-gateway-ipv4>
+      nameservers:
+        addresses:
+          - <dns-ipv4>
+```
+
+```bash
+sudo chown root:root /etc/netplan/60-purecvisor-mgmt.yaml
+sudo chmod 600 /etc/netplan/60-purecvisor-mgmt.yaml
+sudo netplan generate
+sudo netplan try --timeout 120
+
+MGMT_NIC="<management-interface>"
+GATEWAY_IPV4="<default-gateway-ipv4>"
+ip -4 address show dev "${MGMT_NIC}"
+ip route show default
+resolvectl status "${MGMT_NIC}"
+ping -c 3 "${GATEWAY_IPV4}"
+```
+
+SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습니다.
+`netplan try` 확인에 실패하거나 시간이 끝나면 이전 설정으로 돌아가므로 console에서 원인을 수정합니다.
 
 #### 방법 A — `.deb` 바이너리 패키지 (권장, Ubuntu 26.04)
 
@@ -358,7 +488,7 @@ DHCP reservation을 사용할 수 없는 환경에서는 console 또는 BMC 접�
 런타임 의존성인 libvirt, QEMU, dnsmasq, nftables와 iproute2는 apt가 자동 해결하며 OVS, OVN, ZFS는 package `Recommends`로 설치됩니다.
 
 ```bash
-# release 디렉터리의 checksum 검증
+# release 디렉터리에서 서명 또는 전달받은 SHA256SUMS를 먼저 검증
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
@@ -378,7 +508,9 @@ pcvctl --version
 - 설치 위치: 바이너리 `/usr/local/bin/{purecvisorsd,pcvctl}`, UI `/usr/local/share/purecvisor/ui/`, 유닛 `/etc/systemd/system/purecvisorsd.service`, 설정 `/etc/purecvisor/`.
 - 기본 모드는 선택한 관리 IPv4의 데몬 자체 HTTPS `:443`과 loopback HTTP `127.0.0.1:8080`입니다.
 - NGINX는 외부 TLS 종료가 필요한 경우에만 별도 설치하며 기본 의존성이 아닙니다.
-- 업그레이드: 새 `.deb`로 같은 명령 재실행. 기존 `daemon.conf`는 보존된다(conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
+- 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
+기존 `daemon.conf`는 보존된다.<br>
+(conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
 - 제거: `sudo apt remove purecvisor-single` (설정 보존) / `sudo apt purge purecvisor-single` (설정 포함 제거).
 
 #### 방법 B — 소스 빌드
@@ -400,9 +532,16 @@ sudo apt update && sudo apt install -y \
     protobuf-c-compiler libprotobuf-c-dev
 ```
 
-> **참고**: `libvirt-glib-1.0-dev`가 `libvirt-gobject-1.0.pc`도 함께 제공합니다. 별도의 `libvirt-gobject-1.0-dev` 패키지는 존재하지 않습니다.
+> **참고**: `libvirt-glib-1.0-dev`가 `libvirt-gobject-1.0.pc`도 함께 제공합니다.<br>
+별도의 `libvirt-gobject-1.0-dev` 패키지는 존재하지 않습니다.
+> `libbpf-dev` 부재 시 D07 eBPF 경로가 stub 으로 빌드되고(런타임 DEGRADED_NO_BTF 폴백),
+> `libxml2-dev` 는 `libvirt-gconfig-1.0.pc` 의 전이 의존이라 없으면 pkg-config 해석 전체가
+> 비어 `glib.h` 부터 못 찾는 것처럼 보일 수 있다.<br>
+> 테스트 스위트 실행에는 추가로 `wireguard-tools`·`sqlite3`·`openvswitch-switch`·
+> `python3-pytest`(게이트 자체테스트)가 필요하다.
 
-> **운영 필수**: `libguestfs-tools`는 일반 VM 복제의 Guest reset 경로에 필요하다. 이 패키지가 없으면 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없어 `guest_reset=true` clone이 preflight에서 거부된다.
+> **운영 필수**: `libguestfs-tools`는 일반 VM 복제의 Guest reset 경로에 필요하다.<br>
+이 패키지가 없으면 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없어 `guest_reset=true` clone이 preflight에서 거부된다.
 
 #### 공통 런타임 의존성 (사용 기능별)
 
@@ -411,12 +550,12 @@ sudo apt update && sudo apt install -y \
 OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
 일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
-> **ZFS는 선택형 런타임입니다 — ZFS backend를 선택한 LXC에는 필수**
+> **ZFS는 선택형 런타임입니다 — LXC 컨테이너 생성에는 필수**
 >
 > PureCVisor 데몬과 Web UI, REST API, CLI는 `zvol_pool`이나 ZFS volume이 없어도 시작하고 동작합니다.
 > VM 생성 요청에서 `storage_type`을 생략하면 설정된 ZFS dataset을 먼저 확인하고, 사용할 수 없으면 `[storage] image_dir`에 qcow2 파일 디스크를 생성합니다.
 > ZFS를 사용하지 않는 노드는 `zfsutils-linux`를 생략할 수 있지만 `image_dir`이 존재하고 쓰기 가능해야 하며 `qemu-img`를 사용할 수 있어야 합니다.
-> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 `storage_backend=zfs`인 LXC에는 ZFS가 필요합니다. 선택형 Btrfs LXC의 소스 버전·설정·검증 범위는 4.1절을 따릅니다.
+> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 현재 ZFS dataset을 사용하는 LXC 경로에는 ZFS가 필요합니다.
 
 ```bash
 # 일반 VM 복제의 Guest reset
@@ -425,11 +564,8 @@ sudo apt install -y libguestfs-tools
 # LXC 컨테이너
 sudo apt install -y lxc lxc-utils
 
-# 선택: ZFS zvol·snapshot·backup 또는 ZFS backend의 LXC
+# 선택: ZFS zvol·snapshot·backup 또는 LXC를 사용하는 경우
 sudo apt install -y zfsutils-linux
-
-# 선택: Btrfs backend의 LXC 점검 도구
-sudo apt install -y btrfs-progs
 
 # OVS 오버레이 네트워크
 sudo apt install -y openvswitch-switch
@@ -525,9 +661,12 @@ EOF
 sudo systemctl restart systemd-modules-load
 ```
 
-#### 검증용 도구 (선택)
+#### 검증용 도구
 
 ```bash
+# 런타임 전제 무접근 계약 게이트 필수
+sudo apt install -y strace
+
 # 정적 분석
 sudo apt install -y cppcheck
 
@@ -538,10 +677,15 @@ sudo apt install -y valgrind
 sudo apt install -y lcov
 ```
 
+`make check-runtime-prereqs`는 `strace -f -e trace=%file`로 BPF
+`--verify-only` 검증이 설치 root, config, PKI, JWT, 기존 BPF 목적지에 접근하지
+않음을 확인한다. 이 보안 게이트에서는 `strace` 미설치를 skip으로 처리하지 않으며,
+Ubuntu에서는 `sudo apt install strace`로 설치한 뒤 다시 실행한다.
+
 ### 2.3 빌드
 
 ```bash
-git clone <public-repo-url> purecvisor-single
+git clone https://github.com/HardcoreMonk/purecvisor.git purecvisor-single
 cd purecvisor-single
 ```
 
@@ -588,7 +732,7 @@ make coverage-html
 make test-tap
 ```
 
-### 2.4 디렉터리 구조 생성과 스토리지 경로 확정
+### 2.4 디렉터리 구조 생성과 배포 런타임 전제
 
 ```bash
 # 런타임 디렉터리
@@ -600,7 +744,9 @@ sudo install -d -m 0700 /var/run/purecvisor
 sudo install -d -m 0750 /var/log/purecvisor
 ```
 
-#### ZFS를 사용하지 않는 구성
+#### 스토리지 경로 확정
+
+##### ZFS를 사용하지 않는 구성
 
 ZFS volume은 서비스 시작의 필수 조건이 아닙니다.
 ZFS를 사용하지 않는 노드는 `image_dir`을 준비하고 VM 생성 시 `storage_type=qcow2` 또는 `raw`를 지정하거나 자동 감지를 사용합니다.
@@ -620,17 +766,21 @@ iso_dirs = /data/iso,/var/lib/libvirt/images
 
 자동 감지에서 `zvol_pool`을 찾지 못하면 `image_dir`에 qcow2 디스크를 생성합니다.
 `storage_type=zvol`을 명시하면 폴백하지 않고 지정한 ZFS 부모 dataset이 없다는 오류로 요청을 종료합니다.
-ZFS 미사용 노드에서는 VM file disk와 명시적으로 선택한 Btrfs LXC를 사용할 수 있습니다. ZFS snapshot·rollback·send/receive backup과 기본 ZFS LXC에는 ZFS가 필요합니다. Btrfs LXC의 준비 조건은 4.1절을 따릅니다.
+따라서 ZFS 미사용 노드에서는 VM file disk를 사용할 수 있지만 ZFS snapshot·rollback·send/receive backup과 현재 LXC 생성 경로는 사용할 수 없습니다.
 
-#### ZFS 기능을 사용하는 구성
+##### ZFS 기능을 사용하는 구성
 
-`zvol_pool`은 실제로 존재하는 ZFS dataset이어야 합니다.
-새 단일 NVMe 검증 설치는 `rpool/data/purecvisor/vms`를 사용할 수 있지만 운영 환경은 OS pool과 분리된 mirror data pool을 권장합니다.
-기존 VM이 있는 노드의 storage path는 직접 바꾸지 않고 별도 migration과 rollback 계획을 사용합니다.
+ZFS 기능을 사용하는 경우에만 `zvol_pool`에 실제로 존재하는 ZFS dataset을 지정합니다.
+설치 전에 ZFS zvol 또는 file image 중 주 저장 방식을 결정하고 설정과 실제 경로를 일치시킵니다.
+
+Ubuntu가 `rpool` 단일 NVMe에 설치된 검증 노드는 새 설치일 때만 다음 전용 dataset을 만들 수 있습니다.
+기존 VM이 있는 노드에서는 이 명령으로 경로를 바꾸지 말고 별도 migration과 rollback 계획을 사용합니다.
 
 ```bash
 sudo zpool status
 sudo zfs list
+
+# 새 설치 전용 예시
 sudo zfs create -o mountpoint=none -o canmount=off rpool/data/purecvisor
 sudo zfs create -o mountpoint=none -o canmount=off -o compression=lz4 \
   rpool/data/purecvisor/vms
@@ -638,6 +788,59 @@ sudo install -d -m 0711 /var/lib/libvirt/images
 sudo install -d -m 0755 /data/iso
 ```
 
+```ini
+[storage]
+zvol_pool = rpool/data/purecvisor/vms
+image_dir = /var/lib/libvirt/images
+iso_dirs = /data/iso,/var/lib/libvirt/images
+```
+
+```bash
+sudo zfs list rpool/data/purecvisor/vms
+sudo test -d /var/lib/libvirt/images
+sudo test -d /data/iso
+```
+
+운영 권장 구성은 OS `rpool`과 분리된 mirror data pool을 만들고 `zvol_pool=pcvpool/vms`를 사용하는 방식입니다.
+단일 디스크 `rpool` 예시는 검증 환경 재현용이며 디스크 장애에 대한 중복성을 제공하지 않습니다.
+
+#### 배포 런타임 전제와 보존 정책
+
+기본 `scripts/deploy.sh`는 `make release` 뒤 `make bpf`를 실행한다. `--skip-build`
+에서도 daemon/CLI, BPF object, manifest 존재 여부와 helper의 `--verify-only` 검사를
+SSH/SCP보다 앞선 로컬 preflight에서 수행하며, 실패하면 원격 상태를 바꾸기 전에
+배포를 중단한다. `--verify-only`는 BPF staging만 검증하는 전용 경로이며 설치 대상
+root, `daemon.conf`, PKI, JWT, 기존 BPF 목적지에는 접근하지 않는다.
+
+원격 설치 helper의 계약은 다음과 같다.
+
+- 최초 배포는 `/etc/purecvisor/pki`를 mode `0700`으로 준비한다. helper는 TLS
+  인증서 내용을 만들지 않으며, 기존 cert/key를 덮어쓰지 않고 보존한다. 인증서와
+  키가 모두 없을 때의 자가서명 생성은 데몬의 TLS 초기화가 담당한다.
+- 배포 helper가 관리하는 값은 `[daemon] jwt_secret`이다. 키가 누락됐거나 빈 값이면
+  Python CSPRNG `secrets.token_hex(32)`로 64자리 소문자 hex를 만들어
+  `/etc/purecvisor/daemon.conf`에 영속화하고 파일 mode를 `0600`으로 고정한다.
+  충분한 길이인 32바이트 이상의 기존 JWT와 인증서는 내용 그대로 보존한다.
+- 비어 있지 않은 기존 JWT가 32바이트 미만이거나 `placeholder`류 또는 반복 문자처럼
+  명백히 weak하면 자동 회전으로 예고 없이 기존 토큰을 무효화하지 않는다. 배포를
+  fail-closed로 거부하고 운영자가 값을 명시적으로 교체하도록 요구한다.
+- BPF 배포는 `manifest.json`의 schema와 SHA-256을 검증하고 성공한 object와
+  manifest만 `/usr/lib/purecvisor/bpf`에 설치한다. 디렉터리는 `0755`, 파일은
+  `0644`이며 manifest를 마지막 commit marker로 교체한다.
+- 원격 staging은 추측 불가능한 이름과 mode `0700`으로 만들고, helper 실패 시
+  서비스를 시작하지 않는다. 성공과 실패 모두 EXIT 경로에서 helper와 BPF staging을
+  cleanup하여 정리한다.
+- 이 배포는 커널 `lsm=bpf` 활성화나 커널 명령행 변경, 재부팅을 자동으로 수행하지
+  않는다. BPF LSM이 필요하면 별도 승인된 운영 절차로 변경하고 재부팅해야 한다.
+
+JWT 로드에는 두 경로가 공존한다. 데몬 시작 시
+`PCV_SECRET_AUTH_JWT_SECRET`과 정확한 `[auth] jwt_secret`을 먼저 읽는다. 둘 다
+없으면 `PURECVISOR_JWT_SECRET`, `[daemon] jwt_secret`을 호환 fallback으로 찾고,
+마지막으로 다른 섹션을 검색한다. 따라서 deploy helper의 `[daemon] jwt_secret` 영속화가
+모든 runtime override의 단일 정본이라는 뜻은 아니다. `[auth]` 또는 환경변수 override를
+운영자가 사용한다면 32바이트 이상 값을 별도로 보장해야 한다.
+
+<!-- PCV-NGINX-OPERATIONS:BEGIN -->
 #### TLS 배포 모드 선택: `purecvisorsd` 자체 HTTPS 또는 선택형 NGINX 외부 TLS 종료
 
 이 절은 제품 노드의 REST·Web UI·WebSocket 진입 경계를 설명한다. 공개 문서 도메인
@@ -666,6 +869,10 @@ sudo install -d -m 0755 /data/iso
 
 ##### 모드 A — `purecvisorsd` 자체 HTTPS
 
+자체 HTTPS는 기본 전송 모드다. 데몬이 인증서를 로드하고 외부 HTTPS listener를 직접
+소유한다. `[server] bind_plaintext=loopback`을 유지하면 평문 REST는 로컬 복구와 점검에만
+사용되고 원격 자격증명·JWT·API key가 HTTP로 노출되지 않는다.
+
 ```ini
 [tls]
 https_enabled = true
@@ -677,11 +884,12 @@ key = /etc/purecvisor/pki/node.key
 bind_plaintext = loopback
 ```
 
-- cert/key가 모두 없으면 자체서명 쌍을 생성하며 하나만 있으면 사용자 자산을 덮어쓰지 않고
-  TLS 초기화를 실패 처리한다.
-- TLS 초기화나 HTTPS bind 실패 시 외부 평문으로 확장하지 않고 루프백 HTTP와 UDS만 남긴
-  `degraded` 상태로 수렴한다.
-- 이 모드에는 NGINX service, NGINX vhost와 `PCV_NGINX_BIND_IP`가 필요하지 않다.
+- cert와 key가 모두 없으면 데몬이 자체서명 쌍을 원자적으로 생성한다. 둘 중 하나만 있으면
+  사용자 자산을 덮어쓰지 않고 TLS 초기화를 실패 처리한다.
+- 운영자가 제공한 cert/key 쌍은 자동 생성보다 우선하며 배포 helper가 내용을 교체하지 않는다.
+- TLS 초기화나 HTTPS bind가 실패하면 외부 평문으로 확장하지 않는다. 데몬은 루프백 HTTP와
+  UDS만 남긴 `degraded` 상태로 기동해 복구 경로는 보존하고 외부 표면은 닫는다.
+- 이 모드에서는 NGINX service, NGINX vhost와 `PCV_NGINX_BIND_IP`가 필요하지 않다.
 
 ```bash
 NODE_IPV4="<configured-management-ipv4>"
@@ -692,6 +900,10 @@ sudo ss -lntp | grep -E '127\.0\.0\.1:8080|0\.0\.0\.0:443'
 ```
 
 ##### 모드 B — 선택형 NGINX 외부 TLS 종료
+
+외부 종료 모드에서는 NGINX가 인증서와 `:443`을 소유하고 REST·Web UI·WebSocket 요청을
+데몬의 루프백 HTTP로 전달한다. 데몬 자체 HTTPS는 의도적으로 끄되 평문 upstream은 반드시
+loopback으로 제한한다.
 
 ```ini
 [daemon]
@@ -704,9 +916,9 @@ https_enabled = false
 bind_plaintext = loopback
 ```
 
-NGINX는 인증서와 `:443`을 소유하고 `proxy_pass http://127.0.0.1:8080`, WebSocket Upgrade,
-보안 헤더와 forwarded header 덮어쓰기를 제공해야 한다. vhost와 인증서를 먼저 준비한 뒤
-opt-in 배포를 실행한다.
+NGINX vhost는 최소한 TLS 인증서, HTTP→HTTPS 정책, `proxy_pass http://127.0.0.1:8080`,
+WebSocket Upgrade, 보안 헤더와 forwarded header 덮어쓰기를 포함해야 한다. vhost와 인증서를
+먼저 프로비저닝한 다음 opt-in 배포를 실행한다.
 
 ```bash
 PCV_NODES=<ip> \
@@ -720,13 +932,85 @@ curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
 #       status=disabled_by_config
 ```
 
-- `https_enabled=false`인데 NGINX listener가 없으면 외부 HTTPS 진입점이 사라진다.
-- 외부 종료 모드의 `bind_plaintext=all` 또는 누락은 허용되지 않는다.
-- 같은 IP의 `:443`을 NGINX와 데몬이 동시에 소유하도록 구성하지 않는다.
-- `PCV_NGINX_BIND_IP` 생략은 자체 HTTPS 복귀 명령이 아니다. 기존 전송 설정을 그대로 보존한다.
-- 모드 전환은 기존 설정·인증서를 백업하고 새 listener·health를 검증하는 maintenance로 수행한다.
-- 신뢰하지 않는 로컬 프로세스가 loopback upstream에 접근할 수 있으면 NGINX 외부 종료를
-  활성화하지 않는다(`PCV-NGINX-TRUST-BOUNDARY: host-loopback`).
+`enabled=false`는 외부 통신이 평문이라는 뜻이 아니라 데몬 대신 NGINX가 TLS를 정상 종료한다는
+뜻이다. `X-Forwarded-For`와 `X-Forwarded-Proto`는 loopback peer에서 온 요청만 신뢰한다.
+
+##### 선택·전환 시 금지 조합
+
+- `https_enabled=false`인데 정상 NGINX listener가 없으면 외부 HTTPS 진입점이 사라진다.
+- 외부 종료 모드에서 `bind_plaintext=all`을 쓰거나 값을 누락하면 데몬이 시작을 거부한다.
+- 같은 IP의 `:443`을 NGINX와 `purecvisorsd`가 동시에 소유하도록 구성하지 않는다.
+- `PCV_NGINX_BIND_IP`를 다음 배포에서 생략해도 기존 외부 종료 설정이 자체 HTTPS로 자동 복귀하지
+  않는다. 이 환경변수가 없으면 배포 스크립트는 기존 NGINX·daemon 전송 설정을 보존한다.
+- 두 모드 전환은 `:443` 소유자가 바뀌는 maintenance 작업이다. 기존 설정·인증서를 백업하고
+  새 listener와 health를 검증할 rollback 가능한 순서로 수행한다.
+- `PCV-NGINX-TRUST-BOUNDARY: host-loopback`을 만족하지 못해 신뢰하지 않는 로컬 프로세스가
+  loopback upstream에 접근할 수 있는 호스트에서는 NGINX 외부 종료 모드를 활성화하지 않는다.
+
+**선택형 NGINX 외부 TLS 종료 설치와 복구**
+
+`PCV_NGINX_BIND_IP`는 명시적으로 설정한 경우에만 활성화되는 opt-in이다. 값이
+없으면 nginx 설정, systemd drop-in, `daemon.conf`의 전송 모드를 바꾸지 않는다.
+활성화하면 nginx가 지정한 LAN 주소의 외부 TLS를 종료하고, `purecvisorsd`는
+`127.0.0.1` 루프백 HTTP만 수신한다.
+
+로컬 노드 배포:
+
+```bash
+NODE_IPV4="<configured-management-ipv4>"
+PCV_NODES="" \
+PCV_NGINX_BIND_IP="${NODE_IPV4}" \
+scripts/deploy.sh --nodes local
+```
+
+원격 노드 배포(ssh 경유, `<ip>` 를 대상 노드로):
+
+```bash
+PCV_NODES=<ip> \
+PCV_NGINX_BIND_IP=<ip> \
+scripts/deploy.sh --no-local
+```
+
+> nginx vhost 자체는 이 트랜잭션의 관리 대상이 아니다 — 도메인 노드는
+> `ops/nginx/purecvisor.example.com`, LAN IP 노드는
+> `ops/nginx/purecvisor-lan-ip.conf.template`(+ `purecvisor-common.conf` http 전제)를
+> 먼저 프로비저닝한다.
+
+설치 트랜잭션은 기존 인증서(cert)와 개인 키(key)를 내용 그대로 보존하고, nginx
+설정·systemd drop-in·daemon 설정의 이전 상태를 백업한다. 설치 후 LAN health
+검증이 실패하면 `rollback`으로 이 세 설정을 함께 복원하며 보존된 인증서와 키를
+삭제하거나 재생성하지 않는다. rollback 자체가 실패하면 서비스를 추측 상태로
+재시작하지 않고 복구 자료를 남긴다.
+
+부팅 시 `wait-for-local-ip`가 주소 준비를 기다린다. 제한 시간 안에 IP가 없으면
+`exit 75`로 끝나 systemd가 재시도한다. 반면 `nginx -t` 문법 오류는 `exit 1`이며
+`RestartPreventExitStatus=1`로 재시작 방지한다. 패키지 업데이트 뒤에는 vendor
+유닛의 `ExecStartPre`가 정확히
+`/usr/sbin/nginx -t -q -g 'daemon on; master_process on;'`인지 확인하고,
+drop-in이 IP 대기와 이 검사를 모두 유지하는지 재검증한다.
+
+Vendor 명령이 불일치하면 설치기는 변경 전에 실패한다.
+이 실패는 기존 상태를 변경하지 않고 보존한다.
+Vendor 계약은 자동 동기화하지 않는다.
+재시도 전에 installer 계약과 테스트를 갱신하고 재검토한다.
+
+정상 health의 전체 서비스 `status=ok`와 TLS check는 정확히
+`mode=external_termination`, `enabled=false`, `degraded=false`,
+`status=disabled_by_config`여야 한다. 이 값은 TLS가 꺼져 노출됐다는 뜻이 아니라
+외부 TLS 종료가 정상 선택됐다는 뜻이다. `X-Forwarded-For`와
+`X-Forwarded-Proto` 같은 프록시 헤더는 연결 peer가 `127.0.0.1` 또는 `::1`인
+경우에만 신뢰하며, 비루프백 클라이언트가 보낸 같은 헤더는 신원·scheme 판정에
+사용하지 않는다.
+
+`PCV-NGINX-TRUST-BOUNDARY: host-loopback`은 이 모드가 호스트의 모든 루프백
+프로세스를 privileged/trusted host boundary로 신뢰한다는 뜻이다.
+`PCV-NGINX-COUNTERFACTUAL: untrusted-local-process`처럼 신뢰하지 않는 로컬
+사용자나 프로세스가 daemon의 루프백 HTTP에 직접 접속할 수 있으면 전달 헤더를
+위조할 수 있으므로 이 모드를 활성화하지 않는다. 전용 호스트·최소 사용자,
+서비스 sandbox/MAC, 로컬 방화벽 또는 network namespace로 직접 루프백 접근을
+제한한다. 원격 클라이언트는 loopback peer가 아니고 nginx가 전달 헤더를
+덮어쓰므로 이 신뢰 경계를 직접 위조할 수 없다.
+<!-- PCV-NGINX-OPERATIONS:END -->
 
 ### 2.5 systemd 서비스 설치
 
@@ -753,7 +1037,8 @@ HTTP/2 support enabled (TLS via ALPN negotiation)
 REST API listening on http://127.0.0.1:8080 + https://0.0.0.0:443/api/v1
 ```
 
-외부 평문 `0.0.0.0:8080`이 보이면 `[server] bind_plaintext=loopback`을 확인합니다.
+외부 평문 `0.0.0.0:8080`이 보이면 정상 기준이 아닙니다.
+`ss -lntp`와 `[server] bind_plaintext=loopback`을 확인한 뒤 서비스를 다시 시작합니다.
 
 ### 2.6 daemon.conf 설정
 
@@ -762,7 +1047,8 @@ REST API listening on http://127.0.0.1:8080 + https://0.0.0.0:443/api/v1
 설정 우선순위: **환경 변수 > daemon.conf > 컴파일 기본값**
 
 REST `rest_port`의 컴파일 기본값은 `80`입니다.
-아래 `8080`은 자체 HTTPS 모드의 loopback 복구 listener이며 NGINX 외부 종료를 선택하면 proxy upstream으로 사용합니다.
+아래 Single Edge 권장 예시는 `8080`을 loopback 복구 listener로 두고 `purecvisorsd`가 설정한 관리 IPv4의 `443` HTTPS를 직접 소유합니다.
+NGINX 외부 TLS 종료를 선택한 경우에만 같은 `127.0.0.1:8080`을 proxy upstream으로 사용합니다.
 
 ```ini
 # /etc/purecvisor/daemon.conf
@@ -779,6 +1065,8 @@ socket_path = /var/run/purecvisor/daemon.sock
 rest_port = 8080
 # 자체 HTTPS에서는 loopback 복구 listener, 선택형 NGINX에서는 proxy upstream
 
+# 첫 로그인 전에 12자 이상의 임시 bootstrap 비밀번호를 설정
+# 전용 admin 생성 뒤에는 빈 값으로 바꾸고 재기동해 bootstrap 계정을 비활성화할 수 있음
 admin_user = admin
 admin_password = <운영자가 sudoedit로 설정>
 
@@ -966,9 +1254,33 @@ make install-completion-user
 pcvctl <TAB><TAB>
 ```
 
+#### CLI 종료상태 계약
+
+`pcvctl`은 화면 출력 형식과 무관하게 다음 프로세스 종료상태를 사용한다. JSON-RPC 오류의
+정확한 `code`가 필요하면 `--format=json` 응답을 함께 파싱한다.
+
+| 종료코드 | 의미 |
+|---:|---|
+| `0` | 명령 성공 또는 `help`/`version` 같은 정상 로컬 동작 |
+| `1` | 실행·UDS 전송·응답 프로토콜/파싱·JSON-RPC 거절 실패 |
+| `2` | 알 수 없는 명령, 필수 인자 누락, 잘못된 사용법 |
+
+```bash
+if pcvctl vm start web-prod; then
+    echo "started"
+else
+    rc=$?
+    echo "pcvctl failed: exit=$rc" >&2
+fi
+```
+
+2026-08-09 이전에는 화면에 RPC 오류가 표시돼도 exit 0이 반환될 수 있었다. 현재 계약은
+옵트인 없이 기본 동작이므로, 기존 자동화는 `set -e`, `&&`, `if` 분기가 달라질 수 있다.
+
 ### 2.8 로컬 Single Edge 배포
 
 배포 대상 노드 자체에서 실행할 때는 deploy target을 `local`로 명시합니다.
+빈 `PCV_NODES`는 저장된 원격 node 목록이 섞이는 것을 막고 `--nodes local`은 현재 host만 변경합니다.
 
 ```bash
 # 릴리스 빌드 + BPF + 현재 노드 배포
@@ -1049,6 +1361,11 @@ sudo cp systemd/purecvisor.logrotate /etc/logrotate.d/purecvisor
 Single Edge OVN local controller 준비 경로는 `ovn-controller` 재기동 직후
 파일 로그 레벨을 `ERR`로 낮춥니다. `OVNSB commit failed` 같은 INFO 폭주가
 재발하더라도 운영 로그가 무제한으로 불어나는 것을 막기 위한 안전장치입니다.
+OVN 구축 성공은 `ovn-nbctl` 설치 여부가 아니라 Northbound/Southbound DB 조회,
+`ovn-northd` 동기화, `ovn-controller` active, 로컬 Chassis 등록까지 모두 확인한
+상태를 뜻합니다. 단일 노드는 DB를 TCP로 공개하지 않고 로컬 Unix socket을 사용합니다.
+
+---
 
 ### 2.10 Arch 계열 Omarchy 소스 컴파일 설치
 
@@ -1066,13 +1383,13 @@ Omarchy에서는 대상 호스트에서 PureCVisor를 직접 컴파일해 설치
 | 커널 | `7.2.3-arch1-3`, cgroup v2, KVM |
 | 컨테이너 | LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치 |
 | 빌드 | 대상 호스트의 GCC로 최적화·LTO 릴리스 전체 빌드, 최종 컴파일 경고 0 |
-| 제품 버전 | `2.0.0`, NVRAM 수정·Btrfs 구현 포함 소스 `e028ef2` |
+| 제품 버전 | `2.0.0`, 당시 검증 소스 `e028ef2` (Btrfs는 현재 main에서 제외) |
 
-초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. NVRAM 수정은 `5e84387`, 선택형 Btrfs는
-`e028ef2`부터 포함되므로 현재 공개 `main`을 받거나 필요한 수정을 포함한 commit을
-선택하고 `git rev-parse HEAD`를 기록합니다. 위 패키지 버전은 시험 당시 값이며 설치용
-고정 핀이 아닙니다. 실제 API·복구 검증 범위는 [Btrfs 실기 기록](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)과
-[NVRAM 수정 기록](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)을 따릅니다.
+현재 공개 `main`은 개발 main과 같은 ZFS 전용 LXC를 사용합니다. NVRAM 수정은
+유지하지만 과거 `e028ef2`의 Btrfs 기능은 포함하지 않습니다. 아래 절차는 현재 main의
+소스 빌드·file disk VM 설치에 맞췄으며, 지정 Arch 실기 결과는 당시 소스의 역사 근거입니다.
+현재 main의 Arch 전체 기능을 다시 인증한 결과는 아닙니다. `git rev-parse HEAD`를
+기록하고 LXC를 사용할 때는 별도로 ZFS 환경을 준비합니다.
 
 #### 호스트 준비와 Arch 패키지
 
@@ -1090,7 +1407,7 @@ sudo pacman -S --needed \
   base-devel git pkgconf ccache python nodejs npm \
   glib2 glib2-devel json-glib libsoup3 libvirt libvirt-glib lxc \
   sqlite openssl libcap libseccomp readline liburing libbpf libxml2 protobuf-c \
-  clang llvm bpf btrfs-progs \
+  clang llvm bpf \
   qemu-base edk2-ovmf swtpm \
   qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-vga \
   dnsmasq nftables iproute2 wireguard-tools ca-certificates curl jq
@@ -1186,7 +1503,7 @@ readlink -f /usr/share/OVMF/OVMF_VARS_4M.fd
 교체하지 않으므로, 다른 파일이 있거나 패키지 경로가 바뀌면 먼저 원인을 확인합니다.
 이 설정은 **일반 UEFI**용입니다. Secure Boot 서명·키 등록까지 검증한 설정은 아닙니다.
 
-#### 최초 설치와 Btrfs 설정
+#### 최초 설치와 설정
 
 다음 명령은 저장소 루트에서 실행합니다. 기존 설정 또는 설치 바이너리가 있으면 중단합니다.
 
@@ -1231,11 +1548,6 @@ key = /etc/purecvisor/pki/node.key
 image_dir = /var/lib/libvirt/images
 iso_dirs = /var/lib/libvirt/images
 
-[container]
-storage_backend = btrfs
-lxc_path = /var/lib/purecvisor/lxc
-rootless = false
-
 [network]
 default_bridge = pcvnat0
 default_subnet = 10.78.0.1/24
@@ -1243,25 +1555,20 @@ default_ensure = 1
 firewall_integration = auto
 ```
 
-Omarchy라는 배포판 이름만으로 Btrfs를 가정하지 말고 **실제 `lxc_path`의 파일시스템**을
-확인합니다. 다음 경로가 Btrfs가 아니면 중단하고 root가 관리하는 실제 Btrfs 경로를
-준비해 `lxc_path`를 수정합니다. 이 절차는 디스크를 포맷하거나 기존 컨테이너를 변환하지 않습니다.
+LXC를 사용할 때는 2.2절과 4.1절의 ZFS 커널·도구·풀 전제를 먼저 충족합니다.
+호스트가 Btrfs 파일시스템이라는 사실만으로 현재 제품의 LXC를 사용할 수는 없습니다.
+file disk VM만 사용하는 최초 설치는 다음 런타임 준비를 계속합니다.
 
 ```bash
-sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
-findmnt -T /var/lib/purecvisor/lxc -o TARGET,SOURCE,FSTYPE
-test "$(stat -fc %T /var/lib/purecvisor/lxc)" = btrfs
-sudo btrfs filesystem show /var/lib/purecvisor/lxc
-
 sudo chown root:root /etc/purecvisor/daemon.conf
 sudo chmod 0600 /etc/purecvisor/daemon.conf
 sudo scripts/install-runtime-prereqs.sh --bpf-stage build/bpf
 ```
 
 runtime helper는 BPF manifest를 검증·설치하고 누락된 JWT 비밀값을 안전하게 생성합니다.
-VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. ZFS LXC·zvol·ZFS backup을
-사용할 때는 별도로 ZFS 커널·도구·풀을 준비합니다. Btrfs의 정지 clone·snapshot·restore와
-지원 제한은 4.1절을 따릅니다. 게스트 reset에는 별도의 `libguestfs` 도구도 필요합니다.
+VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. LXC·zvol·ZFS backup을
+사용할 때는 별도로 ZFS 커널·도구·풀을 준비합니다. 게스트 reset에는 별도의 `libguestfs`
+도구도 필요합니다.
 
 #### systemd 등록과 설치 확인
 
@@ -1321,7 +1628,7 @@ pcvctl vm create \
 #### 스토리지 타입 선택
 
 VM 디스크의 스토리지 백엔드를 선택할 수 있습니다.
-저장 위치 계약의 설계 기준은 [ADR-0022: VM 생성 저장 위치 계약](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0022-vm-create-storage-location-contract.md)을 따른다.
+저장 위치 계약의 설계 기준은 [ADR-0022: VM 생성 저장 위치 계약](../docs/adr/0022-vm-create-storage-location-contract.md)을 따른다.
 
 | 타입 | 설명 | 적합한 용도 |
 |------|------|-----------|
@@ -1511,20 +1818,6 @@ echo '{"jsonrpc":"2.0","method":"vm.delete.status","params":{"name":"web-prod"},
 
 응답 상태값: `pending` | `deleting` | `done` | `failed`
 
-**UEFI 삭제와 NVRAM 보존:**
-
-공개 소스 `5e84387`부터 `vm.delete`는 파일형 NVRAM을 보존한 채 libvirt 정의를 해제하고,
-주 디스크 삭제가 성공한 뒤 NVRAM을 정리합니다. 디스크 접근·삭제 실패 시 XML을 복원하고
-기존 NVRAM을 보존합니다. 마지막 NVRAM 정리만 실패하면 이미 삭제한 디스크를 복구한
-것으로 표시하지 않으며, audit `fail`과 오류에 남은 파일 경로를 보고합니다.
-파일 부재와 권한 오류를 구분하고, block/network NVRAM·`varstore`와 불명확한 XML은
-변경 전에 거부합니다. 최초 부팅 전 NVRAM 파일이 아직 없는 경우도 처리합니다.
-
-삭제 결과는 접수 응답·목록만으로 판정하지 않고 최종 상태, `vm.delete` audit,
-실제 domain·디스크·NVRAM을 대조합니다. 펌웨어 loader/template와 설치 ISO는 삭제 대상이
-아닙니다. 지정 Ubuntu·Arch 검증과 수동 정리가 필요한 실패 경계는
-[NVRAM 수정 인계](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
-
 **이름 변경:**
 
 VM 이름 변경은 정지된 VM에서만 허용된다. libvirt domain 이름, 표준 ZFS zvol 또는 표준 qcow2/raw/img 파일 디스크 경로, UEFI NVRAM 경로를 함께 변경한다.
@@ -1630,6 +1923,12 @@ pcvctl nic add web-prod --bridge pcvnat0 --model virtio
 # NIC 제거 (MAC 주소 지정)
 pcvctl nic remove web-prod --mac 52:54:00:ab:cd:ef
 ```
+
+> **model 허용목록**: `--model`은 `virtio` / `e1000` / `e1000e` / `rtl8139`만 허용한다. 범위 밖 값은
+> `device.nic.attach`에서 `-32602 INVALID_PARAMS`로 거부된다.
+
+> **MTU 명시(N8)**: NIC XML의 `<mtu>`는 attach 시점 브리지의 실측 MTU(`/sys/class/net/<bridge>/mtu`)를
+> 1500 포함 항상 명시한다. 자세한 계약은 6.1 절 참조.
 
 #### ISO 관리
 
@@ -1771,7 +2070,7 @@ echo '{"jsonrpc":"2.0","method":"vm.clone","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **안전 제한**: `vm.clone`은 source VM이 `shut off` 상태일 때만 허용하며, 단일 data disk VM만 지원한다. `template_prepared=true`가 없으면 `guest_reset=true` 경로로 `libguestfs-tools`의 `virt-sysprep`, `virt-filesystems`, `guestfish`, `virt-customize`를 실행해야 한다. qcow2/raw는 추가로 `mode=full`만 허용한다. 자세한 기준은 [ADR-0023](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md)을 따른다.
+> **안전 제한**: `vm.clone`은 source VM이 `shut off` 상태일 때만 허용하며, 단일 data disk VM만 지원한다. `template_prepared=true`가 없으면 `guest_reset=true` 경로로 `libguestfs-tools`의 `virt-sysprep`, `virt-filesystems`, `guestfish`, `virt-customize`를 실행해야 한다. qcow2/raw는 추가로 `mode=full`만 허용한다. 자세한 기준은 [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md)을 따른다.
 
 > **fire-and-forget**: 클론은 즉시 `accepted: true`를 반환하고 백그라운드에서 disk clone + guest reset + XML 패치를 수행합니다.
 
@@ -2010,6 +2309,19 @@ VM: web-prod (running)
 pcvctl monitor fleet
 ```
 
+출력 예시(사이버 테마):
+
+```
+ ENTITY_ID            │ LIFELINE   │ CPU_TIME │   MEM%
+──────────────────────┼────────────┼──────────┼────────
+ example-vm-source             │ RUNNING    │    63.0s │  26.4%
+ fitlog               │ RUNNING    │    50.7s │  17.2%
+```
+
+PLAIN/CSV(`--format=plain`/`--csv`)는 헤더가 `NAME,STATE,CPU_TIME,MEM%`로 바뀐다. CPU_TIME은 누적
+CPU 시간(초, 예 `63.0s`, 값 없으면 `-`)이고 MEM%는 `mem_used_mb/mem_max_mb*100`이다(정지 VM 등
+계산 불가 시 `N/A`).
+
 REST API:
 
 ```bash
@@ -2022,80 +2334,24 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ## 4. 컨테이너 관리
 
-PureCVisor는 LXC 컨테이너의 ZFS backend와 명시적으로 선택하는 Btrfs backend를 관리합니다.
+PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
 
 ### 4.1 컨테이너 생성
 
-초기 `2.0.0` 태그의 LXC 생성은 ZFS 전용입니다. 공개 소스
-[`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b)부터
-선택형 Btrfs backend가 구현되어 있으며, 기본값과 제품 버전은 `zfs`·`2.0.0`으로
-유지합니다. 새 태그나 버전 인상을 뜻하지 않으므로 설치한 소스 commit을 확인하세요.
-지정 Arch/Btrfs 호스트의 실제 API 통합 검증을 통과했으며 [Btrfs API 검증 기록](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)에
-결과를 별도로 기록합니다. 설계 계약은 [ADR-0058](../docs/adr/0058-lxc-storage-backend-identity.md)을 따릅니다.
-
-#### 기본 ZFS backend
-
-`[container] storage_backend=zfs`가 기본값입니다. 이 backend에는 사용 가능한 ZFS 풀,
-ZFS 커널 모듈과 `zfs` 명령이 필요합니다. `[storage] container_pool`은 컨테이너용
-부모 파일시스템 dataset이며 기본값은 `pcvpool/containers`입니다. 부모 dataset이 없으면
-생성 과정에서 만들기를 시도합니다. VM용 블록 볼륨 `zvol`을 별도로 만들 필요는 없습니다.
-
-#### 명시적인 Btrfs backend
-
-Btrfs를 사용할 때는 `daemon.conf`에 다음 값을 명시합니다.
-
-```ini
-[container]
-storage_backend = btrfs
-lxc_path = /var/lib/purecvisor/lxc
-rootless = false
-```
-
-`lxc_path`는 실제로 mount된 Btrfs 위의 절대 경로여야 합니다. 관리 디렉터리와
-상위 경로는 root가 관리하고, 관리 디렉터리는 그룹·다른 사용자가 쓸 수 없어야 하며
-symlink 경로는 허용하지 않습니다. LXC 런타임과 Btrfs 커널 지원을 준비하고,
-`btrfs-progs`로 파일시스템과 subvolume을 점검합니다. 이미 Btrfs인 경로를 선택한 뒤
-다음과 같이 확인할 수 있습니다. 이 명령은 파일시스템을 생성하거나 변환하지 않습니다.
+> **ZFS 필수 — 컨테이너 생성 전 확인**
+>
+> PureCVisor 2.0.0의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
+> ZFS 커널 모듈과 `zfs` 명령을 준비하고, `daemon.conf`의 `[storage] container_pool`을 해당 풀 아래의 컨테이너 부모 데이터셋 경로로 설정하세요. 기본값은 `pcvpool/containers`이며 부모 데이터셋이 없으면 생성 과정에서 만들기를 시도합니다.
+> 이 저장소는 파일시스템 데이터셋입니다. VM용 블록 볼륨 `zvol`을 별도로 만드는 절차는 필요하지 않습니다.
+> **LXC 패키지만 설치하거나 Btrfs·ext4 디렉터리만 준비한 상태에서는 현재 PureCVisor의 컨테이너 생성이 실패합니다.** 현재 Btrfs·일반 디렉터리 백엔드와 자동 폴백은 지원하지 않습니다.
+> ZFS 없이 사용할 수 있는 qcow2/raw VM 생성과 컨테이너 생성의 전제조건을 구분하세요.
 
 ```bash
-sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
-findmnt -T /var/lib/purecvisor/lxc -o TARGET,FSTYPE,OPTIONS
-sudo btrfs filesystem show /var/lib/purecvisor/lxc
-```
-
-Btrfs 생성은 `lxc-create -B btrfs`를 사용합니다. `rootless=false`인 privileged
-컨테이너만 지원하며, 요청에서 `rootless=true`를 지정해도 거부합니다. 잘못된 backend 값,
-비Btrfs 경로와 식별자 불일치는 오류로 종료합니다. 일반 디렉터리 backend와 다른
-backend로의 자동 폴백은 없습니다. Btrfs LXC만 사용할 때 ZFS는 필요하지 않습니다.
-
-LXC 7의 cgroup v2에서는 `vcpu_count`를 상대 CPU 배분 가중치로 기록합니다.
-예를 들어 2는 `cpu.weight=200`이며 CPU 코어 수의 강제 상한을 뜻하지 않습니다.
-1의 가중치는 100이고 최대값은 10000입니다. v1·v2 CPU 설정이 모두 거부되면
-생성을 실패로 처리합니다. 실제 CPU 상한과 상대 가중치는 구분해서 확인하세요.
-
-Arch의 파일시스템은 설치자가 선택합니다. 조사한 Omarchy 시험 환경이 Btrfs였다는
-사실을 모든 Arch 설치에 적용하지 않습니다.
-
-#### 기존 컨테이너와 실패 복구
-
-각 컨테이너의 rootfs 밖 `purecvisor.storage`에는 backend와 실제 ZFS dataset 또는
-Btrfs filesystem UUID·rootfs subvolume UUID/ID를 기록합니다. 후속 작업은 이 기록과
-실제 저장소를 대조하며, 현재의 기본 backend나 pool 이름으로 다시 계산하지 않습니다.
-기본값 변경은 기존 컨테이너의 변환·이동이 아닙니다. marker 없는 기존 ZFS는 실제
-mountpoint와 dataset이 정확히 일치할 때만 호환하며, marker 없는 Btrfs를 자동 편입하지 않습니다.
-
-생성 실패 후 marker가 없는 디렉터리나 subvolume이 남으면 데이터를 보존하고 작업을
-거부합니다. 이름이나 현재 설정만으로 삭제 대상을 추측하지 않습니다. 오류·설정·mount와
-subvolume identity를 확보한 뒤 관리자가 생성 결과를 확인해야 하며, marker를 임의로
-작성하거나 경로를 재귀 삭제해서 성공 상태로 만들지 마세요.
-
-```bash
-# 설정한 backend로 생성 (기본값은 ZFS)
+# 기본 생성 (LXC + ZFS rootfs)
 pcvctl container create --name app-ctr --dist ubuntu --release noble
 
-# 생성 요청 후 반환된 job_id의 completed 상태를 확인하고 시작
+# 생성 후 바로 시작
 pcvctl container create --name web-ctr --dist ubuntu --release jammy
-# 아래 작업 결과 조회 절차로 완료를 확인한 뒤 실행
 pcvctl container start web-ctr
 ```
 
@@ -2104,17 +2360,12 @@ RPC 직접 호출:
 ```bash
 echo '{"jsonrpc":"2.0","method":"container.create","params":{
   "name": "app-ctr",
-  "image": "ubuntu:noble"
+  "dist": "ubuntu",
+  "release": "noble"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **비동기 작업 결과**: 생성·시작·중지·삭제·복제와 snapshot 생성·복원·삭제는 `status=accepted`와 `job_id`를 먼저 반환합니다. 접수는 완료가 아닙니다. 작업 worker의 실제 결과를 `GET /api/v1/jobs/<job_id>`의 `status=completed|failed`와 오류 `detail`, WebSocket `job.complete`, audit 기록으로 확인합니다. Web UI도 최종 job 결과를 기다립니다. 목록에 컨테이너가 보이는 것만으로 생성 성공을 판정하지 마세요.
-
-```bash
-JOB_ID="<accepted-response-job-id>"
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8080/api/v1/jobs/${JOB_ID}" | python3 -m json.tool
-```
+> **fire-and-forget**: 컨테이너 생성/시작/중지/삭제는 모두 fire-and-forget 패턴으로 즉시 응답합니다.
 
 ### 4.2 라이프사이클
 
@@ -2203,20 +2454,6 @@ Container: app-ctr (RUNNING)
 
 ### 4.6 컨테이너 스냅샷
 
-Btrfs snapshot은 정지된 privileged 컨테이너의 **rootfs만** 읽기 전용 subvolume으로
-저장합니다. 생성·복원·삭제 중에는 컨테이너 작업 lock을 사용합니다. nested subvolume,
-실제로 연결된 외부 mount, 설정된 외부 bind volume 또는 `lxc.mount.fstab`이 있으면
-복제·snapshot·복원을 거부합니다. 해당 데이터가 snapshot에 포함된다고 가정하지 마세요.
-
-복원은 현재 LXC config, owner와 image metadata를 보존하고 rootfs만 원자적으로 교체합니다.
-이전·새 rootfs identity를 가진 journal로 중단된 복원을 판별하며, 다음 저장소 변경 또는
-시작 전에 정지 상태와 lock 아래에서 복구합니다. 모호한 identity는 데이터를 보존하고
-오류로 남깁니다. 삭제는 관리 rootfs와 snapshot을 먼저 검증하고, 부분 실패 시 남은
-marker·삭제 기록을 이용해 같은 삭제 요청을 재시도합니다.
-
-Btrfs의 rootless 컨테이너, backend 간 migration, 다른 filesystem으로의 CoW 복제,
-컨테이너별 디스크 quota와 Btrfs send/receive 기반 제품 백업은 지원하지 않습니다.
-
 ```bash
 # 스냅샷 생성
 pcvctl container snap create app-ctr --name v1
@@ -2233,12 +2470,8 @@ pcvctl container snap delete app-ctr v1
 
 ### 4.7 컨테이너 복제
 
-복제는 원본에 기록된 backend를 사용합니다. Btrfs는 정지된 원본에서
-`lxc-copy -B btrfs -s`로 CoW 복제하며, 대상은 새 저장소 identity와 원본의 image
-metadata를 갖습니다. owner는 원본의 값을 복사하지 않고 복제 요청자로 기록합니다.
-
 ```bash
-# 원본 backend로 복제 (Btrfs는 정지 상태의 CoW clone)
+# CoW 클론 (lxc-copy, ZFS 기반)
 pcvctl container clone app-ctr --name app-ctr-clone
 ```
 
@@ -2663,7 +2896,19 @@ Local VPC를 사용하는 VM NIC는 VPC attachment 절차로 연결해야 하며
 Local VPC 변경은 `accepted` 응답만으로 성공으로 판단하지 않고 CLI의 terminal 결과 또는 `jobs.get`의 `completed`를 확인한 뒤 `vpc status`로 actual state를 검증합니다.
 현재 공개 지원 backend는 `linux`이며, `ovn`은 이 장에 명시된 추가 검증을 모두 통과하기 전까지 구현 후보로 취급합니다.
 
-[Single Edge 네트워크 서비스와 실제 패킷 경로 SVG 확대 보기](https://purecvisor.site/assets/diagrams/purecvisor-single-network-services.svg)
+<figure class="pcv-network-architecture pcv-control-map pcv-architecture-wide" aria-labelledby="pcv-network-architecture-title">
+  <div class="pcv-map-bar">
+    <strong id="pcv-network-architecture-title">Single Edge · 네트워크 서비스와 실제 패킷 경로</strong>
+    <div class="pcv-map-meta">
+      <span class="pcv-status"><i aria-hidden="true"></i>Linux/KVM actual state</span>
+      <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-network-services.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
+    </div>
+  </div>
+  <a class="pcv-architecture-source-canvas pcv-network-architecture-canvas" href="/assets/diagrams/purecvisor-single-network-services.svg" target="_blank" rel="noopener" aria-label="사용자 진입점과 purecvisorsd 네트워크 제어면에서 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스를 거쳐 Linux KVM 실제 패킷 경로로 이어지는 구성도를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="network">
+    <img class="pcv-architecture-source-image pcv-network-architecture-image" src="/assets/diagrams/purecvisor-single-network-services.svg" width="1440" height="1080" loading="lazy" decoding="async" alt="Web UI와 pcvctl 요청이 purecvisorsd의 네트워크 제어면으로 들어와 기본 연결, 가상 네트워크, 정책, 가속과 관측 서비스로 나뉘고 Linux bridge, nftables, OVS, OVN, WireGuard, VFIO, IOMMU와 libvirt VM NIC에 적용되는 Single Edge 네트워크 구성도">
+  </a>
+  <figcaption class="pcv-architecture-source-note">위쪽 청록색 화살표는 구성·조회·복구 제어 흐름이고, 아래쪽 회색 화살표는 VM 패킷이 흐르는 Linux/KVM 데이터 경로입니다. 주황색 점선은 DPDK·SR-IOV 가속 우회 경로이며, Local VPC의 OVN backend는 추가 검증 전 후보로 구분했습니다. 마우스 환경에서는 서비스 또는 컴포넌트에 포인터를 올리면 직접 연결된 흐름이 움직이며 강조됩니다.</figcaption>
+</figure>
 
 ### 네트워크 서비스 활용 예제
 
@@ -2753,19 +2998,19 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 
 | 서비스 | 활용 시나리오 | 적용 후 확인 |
 |---|---|---|
-| 기본 브릿지 네트워크 | NAT, 내부 격리, upstream 정적 route, 전용·공유 물리 LAN | `pcvctl network list`, `ip -br link`, upstream DHCP 또는 route |
-| 관리형 방화벽 | NAT와 isolated 네트워크 경계를 자동 생성 | `sudo nft list table inet purecvisor` |
-| VLAN | VM NIC를 upstream VLAN 100에 연결 | `virsh dumpxml`의 `<vlan>`과 switch port |
-| QoS | VM·tenant별 최소/최대 대역 SLA 적용 | `qos.vm.get`, `qos.tenant.get`, `qos.stats` |
-| OVS VXLAN·tenant overlay | 수동 VXLAN peer와 tenant 암호화 격리 | `pcvctl overlay info`, `tenant_overlay.get`, `ovs-vsctl show` |
-| generic OVN | 논리 스위치·라우터·DHCP·ACL·SNAT 구성 | `pcvctl ovn status`, 리소스별 list, 인증 REST 필터 |
-| Security Group | 웹 VM의 80·443과 관리 CIDR의 22만 허용 | 그룹 목록, VM binding, `nft` actual rule |
-| DPDK | 전용 NIC를 `vfio-pci`에 바인딩해 OVS-DPDK bridge 구성 | `pcvctl dpdk list`, `ovs-vsctl show` |
-| SR-IOV | VF에 VLAN·spoof check를 설정하고 VM에 직접 할당 | `pcvctl sriov list`, VM hostdev XML |
-| 네트워크 디버깅 | VM 통신 장애를 link→bridge→policy→overlay 순서로 격리 | 계층별 actual 명령의 일치 여부 |
-| Prometheus 메트릭 | NIC error·drop과 conntrack 포화를 관측 | `/api/v1/metrics` 필터 결과 |
-| Suricata IDS/IPS (보안 10.12) | 탐지 상태 확인 후 선택 SID만 인라인 차단 | IPS status, drop list, 보안 이벤트 |
-| Local VPC | tenant subnet의 VM 서비스를 허용 CIDR에 제한 게시 | Job terminal, `vpc get`, `vpc service-list`, `vpc status` |
+| [기본 브릿지 네트워크](#61-브릿지-네트워크) | NAT, 내부 격리, upstream 정적 route, 전용·공유 물리 LAN | `pcvctl network list`, `ip -br link`, upstream DHCP 또는 route |
+| [관리형 방화벽](#62-방화벽-nftables) | NAT와 isolated 네트워크 경계를 자동 생성 | `sudo nft list table inet purecvisor` |
+| [VLAN](#63-vlan-필터링) | VM NIC를 upstream VLAN 100에 연결 | `virsh dumpxml`의 `<vlan>`과 switch port |
+| [QoS](#64-qos-트래픽-제어) | VM·tenant별 최소/최대 대역 SLA 적용 | `qos.vm.get`, `qos.tenant.get`, `qos.stats` |
+| [OVS VXLAN·tenant overlay](#65-ovs-vxlan-오버레이) | 수동 VXLAN peer와 tenant 암호화 격리 | `pcvctl overlay info`, `tenant_overlay.get`, `ovs-vsctl show` |
+| [generic OVN](#66-ovn-sdn) | 논리 스위치·라우터·DHCP·ACL·SNAT 구성 | `pcvctl ovn status`, 리소스별 list, 인증 REST 필터 |
+| [Security Group](#67-보안-그룹) | 웹 VM의 80·443과 관리 CIDR의 22만 허용 | 그룹 목록, VM binding, `nft` actual rule |
+| [DPDK](#68-dpdk) | 전용 NIC를 `vfio-pci`에 바인딩해 OVS-DPDK bridge 구성 | `pcvctl dpdk list`, `ovs-vsctl show` |
+| [SR-IOV](#69-sr-iov) | VF에 VLAN·spoof check를 설정하고 VM에 직접 할당 | `pcvctl sriov list`, VM hostdev XML |
+| [네트워크 디버깅](#610-네트워크-디버깅) | VM 통신 장애를 link→bridge→policy→overlay 순서로 격리 | 계층별 actual 명령의 일치 여부 |
+| [Prometheus 메트릭](#611-네트워크-prometheus-메트릭) | NIC error·drop과 conntrack 포화를 관측 | `/api/v1/metrics` 필터 결과 |
+| [Suricata IDS/IPS](https://purecvisor.site/ko/security/security/#1012-suricata-dpiidsips-20-d13) | 보안 10.12에서 탐지 상태 확인 후 선택 SID만 인라인 차단 | IPS status, drop list, 보안 이벤트 |
+| [Local VPC](#612-local-vpc) | tenant subnet의 VM 서비스를 허용 CIDR에 제한 게시 | Job terminal, `vpc get`, `vpc service-list`, `vpc status` |
 
 ### 6.1 브릿지 네트워크
 
@@ -2774,6 +3019,13 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 아래 다섯 모드는 같은 기능의 단계가 아니라 서로 다른 연결 목적입니다.
 호스트의 connected CIDR과 겹치지 않는 대역을 고르고, 물리 LAN을 사용하는 두 모드는 NIC 역할과 복구 경로를 먼저 확인합니다.
 `dedicated`에는 원격 관리 NIC를 사용하지 않고, `shared`는 host L3 보존 조건과 upstream의 다중 source MAC 허용 여부를 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-bridge-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/bridge-network.svg" target="_blank" rel="noopener" aria-label="브릿지 네트워크 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/bridge-network.svg" width="960" height="280" loading="lazy" decoding="async" alt="연결 mode와 CIDR 또는 uplink 선택이 PureCVisor desired state와 Linux bridge, dnsmasq, nftables 또는 물리 uplink를 거쳐 VM NIC actual state로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-bridge-caption">입력한 연결 목적이 host 데이터 경로와 VM NIC에 어떻게 반영되는지 먼저 확인합니다.</figcaption>
+</figure>
 
 ```bash
 # NAT 모드: 사설 DHCP 주소와 outbound NAT
@@ -2806,29 +3058,29 @@ ip -br link
 | `isolated` | 외부 격리, VM 간만 통신 | X | 자동 |
 | `routed` | 정적 라우팅 | O (라우팅) | 선택 |
 
-`bridge/dedicated`는 관리 NIC를 자동 변환하지 않습니다. 서버는 IPv4 주소, link-local 외
-IPv6 주소, IPv4/IPv6 기본 경로, 기존 master가 있거나 bond/VLAN이거나 상태를 확정할 수
-없는 NIC를 거부합니다. 호스트 관리 IP·route·DNS를 Linux bridge로 옮기려면 Web UI/RPC가
-아니라 사용 중인 Netplan/NetworkManager/systemd-networkd의 선언적 설정과 out-of-band
-복구 수단을 사용합니다. `network bind`는 원자 rollback을 제공할 수 없어 deprecated·차단되며,
-물리 NIC 연결은 위 `network create --mode bridge` 트랜잭션으로만 수행합니다.
-
+`bridge/dedicated`는 관리 NIC를 자동 변환하지 않는다. 서버는 IPv4 주소, link-local 외 IPv6
+주소, IPv4/IPv6 기본 경로, 기존 master가 있거나 bond/VLAN이거나 상태를 확정할 수 없는
+NIC를 거부한다.
+호스트 관리 IP·route·DNS를 Linux bridge로 옮기려면 Web UI/RPC가 아니라 사용 중인
+Netplan/NetworkManager/systemd-networkd의 선언적 설정과 out-of-band 복구 수단을 사용한다.
+`network bind`는 원자 rollback을 제공할 수 없어 deprecated·차단되며, 물리 NIC 연결은
+위 `network create --mode bridge` 트랜잭션으로만 수행한다.
 `bridge/shared`는 물리 NIC를 bridge port로 만들거나 host IP·route·DNS·renderer profile을
-이동하지 않습니다. 내부 unnumbered bridge와 veth portal, 물리 NIC의 PureCVisor 소유
-TC-BPF filter만 사용합니다. 최초 지원 범위는 untagged 유선 Ethernet 한 개이며 Wi-Fi,
-bond, VLAN, trunk는 거부합니다. 상위 스위치 포트가 여러 source MAC을 허용해야 VM이
-upstream DHCP에서 호스트와 같은 LAN 대역의 독립 주소를 받을 수 있습니다. port-security가
-VM MAC을 막아도 호스트 경로는 그대로 유지되며 NAT로 자동 fallback하지 않습니다.
+이동하지 않는다. 내부 unnumbered bridge와 veth portal, 물리 NIC의 PureCVisor 소유 TC-BPF
+filter만 사용한다. 최초 지원 범위는 untagged 유선 Ethernet 한 개이며 Wi-Fi, bond, VLAN,
+trunk는 거부한다. 상위 스위치 포트가 여러 source MAC을 허용해야 VM이 upstream DHCP에서
+호스트와 같은 LAN 대역의 독립 주소를 받을 수 있다. port-security가 VM MAC을 막아도 호스트
+경로는 그대로 유지되며 NAT로 자동 fallback하지 않는다.
 
-shared bridge는 고정 guest MAC이나 IP를 미리 만들지 않습니다. 각 KVM VM NIC는 생성·연결
-시점의 독립 MAC을 사용하고 upstream DHCP 또는 정적 설정으로 주소를 얻습니다. 검증 예제의
-`02:16:3e:44:55:66`과 `192.0.2.50`은 예약값이 아닙니다. 실제 배포에서는 충돌하지 않는
-게스트 MAC과 upstream 네트워크의 주소 정책을 사용합니다.
+shared bridge는 고정 guest MAC이나 IP를 미리 만들지 않는다. 각 KVM VM NIC는 생성·연결
+시점의 독립 MAC을 사용하고 upstream DHCP 또는 정적 설정으로 주소를 얻는다. 2026-08-14
+검증 예제의 `02:16:3e:44:55:66`과 `192.0.2.50`은 예약값이 아니다. 실제 배포에서는
+충돌하지 않는 게스트 MAC과 upstream 네트워크의 주소 정책을 사용한다.
 
-두 physical bridge 모드는 `network mode`로 live 전환할 수 없습니다. 먼저 관리형 삭제
-경로로 NIC를 분리·원상복구한 뒤 원하는 모드로 다시 생성합니다. 일반 삭제 경로도 desired
-state가 없는 host uplink를 발견하면 네트워크를 건드리지 않고 거부합니다. physical bridge의
-DHCP 활성화도 차단되며 게스트 주소 할당은 upstream 네트워크가 담당합니다.
+두 physical bridge 모드는 `network mode`로 live 전환할 수 없다. 먼저 관리형 삭제 경로로
+NIC를 분리·원상복구한 뒤 원하는 모드로 다시 생성한다. 일반 삭제 경로도 desired state가
+없는 host uplink를 발견하면 네트워크를 건드리지 않고 거부한다. physical bridge의
+DHCP 활성화도 차단되며 게스트 주소 할당은 upstream 네트워크가 담당한다.
 
 #### 네트워크 관리
 
@@ -2867,11 +3119,17 @@ echo '{"jsonrpc":"2.0","method":"network.list","params":{},"id":"1"}' \
 ```
 
 > **메타데이터와 desired state**: `/var/run/purecvisor/network/dnsmasq-<bridge>.meta`는
-> 현재 부팅의 조회 캐시입니다. dedicated/shared physical bridge의 재부팅 복구 정본은 mode
-> `0600`의 `/var/lib/purecvisor/networks/<bridge>.json`입니다. NAT/isolated/routed의 구성
-> 정본은 기존 설정·운영 계약을 따릅니다.
+> 현재 부팅의 조회 캐시다. dedicated/shared physical bridge의 재부팅 복구 정본은 mode `0600`의
+> `/var/lib/purecvisor/networks/<bridge>.json`이다. NAT/isolated/routed의 구성 정본은
+> 기존 설정·운영 계약을 따른다.
 
 > **멱등 삭제**: `network.delete`는 대상이 없어도 성공을 반환합니다 (재시도 안전).
+
+> **게스트 MTU 계약(N8)**: bridge NIC XML(정의 XML·`vm.start` 라이브 attach·핫플러그, 3경로 모두)은
+> attach/정의 시점 브리지 실측 MTU(`/sys/class/net/<bridge>/mtu` 단일 소스)로 `<mtu size='N'/>`를
+> 1500 포함 항상 명시한다. 유효 대역은 68–9216이며, 읽기 실패나 대역 밖 값은 생략 + 경고로
+> fail-open 한다(attach 자체는 계속 진행). dpdk(vhostuser)·SR-IOV(hostdev) 경로는 범위 밖이다.
+> 설계 근거: [ADR-0033](../docs/adr/0033-bridge-nic-mtu-contract.md).
 
 ### 6.2 방화벽 (nftables)
 
@@ -2882,6 +3140,13 @@ PureCVisor는 nftables를 기본 네트워크, Security Group, Local VPC와 Suri
 
 아래 예제는 외부 통신이 필요한 workload와 외부에서 분리할 workload를 서로 다른 관리형 네트워크에 둡니다.
 NAT 쪽에는 outbound masquerade가 생기고, isolated 쪽은 같은 bridge의 VM 간 통신만 남습니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-firewall-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/managed-firewall.svg" target="_blank" rel="noopener" aria-label="관리형 방화벽 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/managed-firewall.svg" width="960" height="280" loading="lazy" decoding="async" alt="NAT 또는 isolated network mode가 purecvisorsd의 관리형 정책을 거쳐 nftables inet purecvisor 테이블과 VM 허용 범위에 반영되는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-firewall-caption">서비스 desired state와 nftables actual state를 함께 비교해야 정책 적용을 확인할 수 있습니다.</figcaption>
+</figure>
 
 ```bash
 # 서로 겹치지 않는 두 네트워크를 생성한다.
@@ -2908,6 +3173,13 @@ VM NIC의 persistent libvirt XML에 802.1Q VLAN tag를 지정할 수 있습니�
 이 예제의 `pcvbr0`는 VLAN 100을 전달할 수 있는 Linux bridge 또는 OVS bridge여야 합니다.
 upstream switch port도 VLAN 100을 허용해야 하며, native VLAN과 guest tag 정책은 호스트 밖의 switch 설정과 일치해야 합니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vlan-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/vlan-filtering.svg" target="_blank" rel="noopener" aria-label="VLAN 필터링 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/vlan-filtering.svg" width="960" height="280" loading="lazy" decoding="async" alt="VLAN 100 입력이 PureCVisor 검증과 libvirt persistent XML의 VM NIC tag를 거쳐 bridge와 upstream trunk로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vlan-caption">VM NIC의 VLAN tag와 upstream trunk 허용 목록이 같은 값으로 이어져야 합니다.</figcaption>
+</figure>
+
 ```bash
 # VM 생성 body에 VLAN 100을 지정한다.
 echo '{"jsonrpc":"2.0","method":"vm.create","params":{
@@ -2930,6 +3202,13 @@ TC 기반 네트워크 QoS를 지원합니다.
 인터페이스 단위 `network.qos.*`는 기존 자동화 호환용 deprecated 표면이며, 새 구성은 VM·tenant SLA를 지속적으로 식별하고 reconcile하는 `qos.vm.*`와 `qos.tenant.*`를 우선합니다.
 
 #### 활용 예제 — 기존 vnet 제한과 VM·tenant SLA 적용
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-qos-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/qos.svg" target="_blank" rel="noopener" aria-label="QoS 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/qos.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM 또는 tenant의 대역폭 SLA가 PureCVisor QoS handler와 Linux TC qdisc, filter를 거쳐 실제 rate와 drop 통계로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-qos-caption">desired SLA와 실제 vnet의 TC 통계를 함께 확인해 대역폭 제한의 수렴 여부를 판단합니다.</figcaption>
+</figure>
 
 ```bash
 # 기존 vnet 자동화와의 호환이 필요할 때만 인터페이스 상한을 설정한다.
@@ -3002,6 +3281,13 @@ Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
 
 이 예제는 PureCVisor 노드가 `192.0.2.19`를 tunnel source로 사용하고, 운영자가 관리하는 VXLAN 호환 endpoint `192.0.2.20`과 VNI 100을 연결하는 구성입니다.
 두 주소는 RFC 문서용 주소이므로 실제 tunnel endpoint로 바꾸고, underlay에서 UDP 4789와 MTU를 먼저 확인합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vxlan-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/ovs-vxlan.svg" target="_blank" rel="noopener" aria-label="OVS VXLAN 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/ovs-vxlan.svg" width="960" height="280" loading="lazy" decoding="async" alt="tunnel source와 remote endpoint 및 VNI 100이 PureCVisor peer desired state, OVS VXLAN port와 UDP 4789 underlay를 거쳐 원격 endpoint로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vxlan-caption">수동 peer 구성은 OVS actual port와 두 endpoint 사이의 underlay 도달성을 모두 확인합니다.</figcaption>
+</figure>
 
 ```bash
 # 오버레이 생성
@@ -3269,6 +3555,13 @@ CLI는 기본 생성·단일 포트 규칙·VM 연결을 제공하고, source CI
 아래 예제는 `web-prod` VM에 HTTP·HTTPS를 허용하고, SSH는 RFC 문서용 관리 대역 `192.0.2.0/24`에서만 허용합니다.
 실행 전 해당 대역을 실제 관리 CIDR로 바꾸며, VM에 기존 그룹이 있다면 교체 영향을 먼저 확인합니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-sg-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/security-group.svg" target="_blank" rel="noopener" aria-label="보안 그룹 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/security-group.svg" width="960" height="280" loading="lazy" decoding="async" alt="HTTP, HTTPS와 관리 CIDR SSH 규칙이 PureCVisor 보안 그룹 desired state와 nftables VM NIC 경계를 거쳐 web-prod의 허용 및 차단 결과로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-sg-caption">허용 규칙뿐 아니라 default-deny가 유지되는 차단 경로까지 함께 시험합니다.</figcaption>
+</figure>
+
 ```bash
 # 보안 그룹 생성
 pcvctl security-group create web-sg
@@ -3309,6 +3602,13 @@ sudo nft list table inet purecvisor
 `0000:03:00.0`은 예시 PCI 주소입니다.
 `dpdk status`의 `available`과 hugepage 준비 상태를 먼저 확인하고, host 관리 경로 또는 기본 route가 연결된 NIC는 대상으로 선택하지 않습니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-dpdk-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/dpdk.svg" target="_blank" rel="noopener" aria-label="DPDK 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/dpdk.svg" width="960" height="280" loading="lazy" decoding="async" alt="전용 PCI NIC와 hugepage 사전 조건이 PureCVisor vfio-pci bind와 OVS-DPDK bridge를 거쳐 VM vhost-user 가속 경로로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-dpdk-caption">주황색 점선은 host kernel network stack을 우회하는 가속 경로와 별도 복구 책임을 나타냅니다.</figcaption>
+</figure>
+
 ```bash
 # 사전 조건 확인
 pcvctl dpdk status
@@ -3341,6 +3641,13 @@ VF 트래픽은 일반 Linux bridge와 host TC QoS를 우회하므로 switch 정
 
 `eno2`는 예시 PF이며 host 관리 경로에 사용되지 않는 SR-IOV 지원 NIC여야 합니다.
 아래 MAC은 문서용 locally administered 주소이므로 실제 배포에서는 중복되지 않는 값으로 바꿉니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-sriov-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/sriov.svg" target="_blank" rel="noopener" aria-label="SR-IOV 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/sriov.svg" width="960" height="280" loading="lazy" decoding="async" alt="PF eno2의 VF 0과 VLAN 100, spoof check 설정이 PureCVisor 검증과 IOMMU hostdev 직접 할당을 거쳐 web-prod guest VF로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-sriov-caption">직접 할당은 Linux bridge와 host TC를 우회하므로 switch와 guest까지 검증 범위를 확장합니다.</figcaption>
+</figure>
 
 ```bash
 # SR-IOV 지원 NIC 상태
@@ -3381,6 +3688,13 @@ detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값
 한 번에 설정을 바꾸기보다 desired state, host link, bridge·OVS, 정책, VM NIC 순서로 실제 상태를 좁힙니다.
 VLAN 또는 VXLAN을 쓰지 않는 구성이라면 해당 단계의 빈 결과는 정상입니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-debug-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/debugging.svg" target="_blank" rel="noopener" aria-label="네트워크 디버깅 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/debugging.svg" width="960" height="280" loading="lazy" decoding="async" alt="PureCVisor desired state에서 host link와 route, bridge와 OVS, nftables와 Security Group, libvirt VM NIC 순서로 실제 상태를 좁히는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-debug-caption">기대 상태와 실제 상태가 처음 달라지는 계층을 장애 경계로 좁힙니다.</figcaption>
+</figure>
+
 ```bash
 # 1. PureCVisor desired state와 host 주소·route
 pcvctl network list
@@ -3413,6 +3727,13 @@ bridge와 VM NIC가 정상인데 통신이 실패하면 nftables·Security Group
 먼저 `ip -br link`로 실제 interface 이름을 확인한 뒤 내장 `/api/v1/metrics`에서 같은 device label을 조회합니다.
 counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율을 기준으로 판단합니다.
 
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-metrics-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/prometheus-metrics.svg" target="_blank" rel="noopener" aria-label="네트워크 Prometheus 메트릭 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/prometheus-metrics.svg" width="960" height="280" loading="lazy" decoding="async" alt="Linux NIC, socket과 conntrack 통계가 purecvisorsd collector와 metrics API를 거쳐 Prometheus의 증가율 및 포화 신호로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-metrics-caption">device label을 실제 interface와 맞춘 뒤 counter 증가율과 conntrack 사용 비율을 판정합니다.</figcaption>
+</figure>
+
 ```bash
 # eno1을 실제 uplink 이름으로 교체한다.
 curl -s http://127.0.0.1:8080/api/v1/metrics | \
@@ -3441,80 +3762,190 @@ node_nf_conntrack_entries_limit
 
 ### 6.12 Local VPC
 
-Local VPC는 한 Single Edge 호스트에서 tenant별 VPC, IPv4 subnet, 정지 VM attachment와
-제한형 Service Publish를 하나의 desired state로 관리합니다. 생성 시 `linux` 또는 `ovn`
-backend를 고정하며 생략값은 `linux`입니다. Linux는 subnet별 bridge/dnsmasq를, OVN은 공유
-OVS `br-int` 위의 LS/LR/DHCP/LSP/Port Group/ACL을 사용합니다. 두 backend 모두 공통 nft
-경계에서 `nat`와 `isolated`를 제공하고 서로 다른 VPC와 VM→host 관리 서비스 트래픽을
-기본 차단합니다.
+Local VPC는 한 Single Edge 호스트에서 tenant별 VPC, 여러 IPv4 subnet과 정지 VM
+attachment를 하나의 desired state로 관리합니다. 생성할 때 `linux` 또는 `ovn` backend를
+고정하며, 생략하면 기존 호환값인 `linux`입니다. Linux는 subnet별 bridge/dnsmasq,
+OVN은 공유 OVS `br-int` 위의 LS/LR/DHCP/LSP/Port Group/ACL을 사용합니다. 두 backend 모두
+공통 nft 경계에서 `nat`와 `isolated` egress를 제공하고, 서로 다른 VPC와 VM에서 host 관리
+서비스로 향하는 트래픽을 기본 차단합니다.
+
+외부 inbound에는 Floating IP pool이나 범용 port forwarding 대신 제한형 Service
+Publish를 사용합니다. 운영자는 host의 `listen_address:listen_port`를 `ACTIVE`
+attachment의 `target_port`에 연결하고, 허용 source CIDR을 반드시 명시합니다. 대상 VM에는
+Security Group이 연결돼 있어야 합니다. 즉 VM에 직접 공인 IP를 주지 않아도 host IP와
+게시 포트를 통해 선택한 서비스만 외부에 노출할 수 있습니다.
+
+> **Web UI + REST + CLI + RPC:** Web UI의 `인프라 > Local VPC`, 전용 `/api/v1/vpcs`
+> REST resource, `pcvctl vpc` CLI와 `POST /api/v1/rpc` JSON-RPC 패스스루/UDS를 사용할 수
+> 있습니다. Web UI와 CLI 변경 명령은 `accepted`의 Job ID를 `jobs.get` terminal까지
+> 조회해 completed만 성공으로 확정합니다.
+> `--no-wait`를 지정하면 접수와 Job ID만 즉시 반환하므로 별도 결과 확인이 필요합니다.
 
 Local VPC 작업 전에는 Web UI의 `인프라 > 네트워크`에서 `호스트 네트워크 기준선`을 먼저
 확인합니다. `GET /api/v1/networks/host-baseline`은 읽기 전용 RPC
-`network.host.info`에 매핑되어 host interface·route·OVS actual을 반환합니다.
+`network.host.info`에 매핑되어 host interface·route·OVS actual을,
 `GET /api/v1/vpcs/status`의 `subnet_cidrs`는 현재 tenant 범위의 VPC 주소 대역을 반환합니다.
 어느 영역이 `partial` 또는 `unavailable`이면 빈 상태로 간주하지 말고 원인을 해결한 뒤
 생성합니다.
 
-Web UI의 `인프라 > Local VPC`에서 VPC 목록과 controller 상태를 확인하고, 선택한 VPC 아래의
-subnet, VM attachment, 게시 서비스를 한 context에서 관리할 수 있습니다. Local VPC 생성은
-VPC name·tenant·backend·egress와 첫 subnet name·CIDR·MTU를 한 번에 받아 하나의 Job으로
-적용합니다. 생성 전 backend readiness, 현재 VPC 수와 주소 기반 capacity를 표시합니다.
-실패는 블러된 배경 뒤 toast가 아니라 열린 모달의 읽을 수 있는 오류로 표시하고 입력을
-보존합니다. 첫 subnet 실패 시 이번 요청의 VPC도 rollback합니다. 두 번째 이후 subnet
-변경은 현재 revision을 자동 전달하고, 모든 비동기 변경은 `accepted` 응답 뒤 Job terminal
-`completed`까지 확인해야 성공으로 표시됩니다.
+Web UI의 `Local VPC 생성`은 VPC 이름·tenant·backend·egress와 첫 subnet 이름·IPv4 CIDR·MTU를
+한 모달에서 받아 하나의 Job으로 생성합니다. CIDR 입력 중 gateway와 VM 할당 범위를
+미리 표시하며, 첫 subnet 적용 실패 시 이번 요청에서 만든 VPC도 역순 rollback합니다.
+backend 준비 상태, 현재 VPC 수와 실제 주소 pool 잔량을 제출 전에 표시하며, 생성 실패는
+모달 내부의 읽을 수 있는 오류로 남겨 입력을 보존합니다.
+목록에서 VPC를 선택하면 같은 화면 아래에 subnet, VM attachment와 Service Publish를
+순서대로 표시합니다. egress와 두 번째 이후 subnet 변경은 상세에서 읽은 현재 revision을
+자동 전달하며, 삭제·연결 해제·게시 해제는 영향 확인을 거칩니다. VIEWER는 조회,
+OPERATOR는 일반 변경, ADMIN은 VPC 삭제와 전체 reconcile을 수행할 수 있으며 실제 인가는
+서버가 판정합니다.
+
+전용 REST 경로:
 
 | HTTP | 경로 | 기능 |
 |---|---|---|
 | `GET` | `/api/v1/networks/host-baseline` | 읽기 전용 host interface·route·Linux bridge·OVS·VPC 기준선 |
-| `GET`, `POST` | `/api/v1/vpcs` | VPC 목록, 생성 |
-| `GET` | `/api/v1/vpcs/backends` | backend readiness, 현재 수, 주소 기반 capacity |
-| `GET`, `POST` | `/api/v1/vpcs/status`, `/api/v1/vpcs/reconcile` | 상태 조회, 전체 수렴 |
+| `GET`, `POST` | `/api/v1/vpcs` | 목록, 생성 |
+| `GET` | `/api/v1/vpcs/backends` | backend readiness, 현재 수와 주소 기반 capacity |
+| `GET` | `/api/v1/vpcs/status` | controller/reconcile 상태 |
+| `POST` | `/api/v1/vpcs/reconcile` | 전체 desired state 수렴 |
 | `GET`, `DELETE` | `/api/v1/vpcs/{vpc_id}` | aggregate 상세, 삭제 |
 | `POST` | `/api/v1/vpcs/{vpc_id}/egress` | egress 변경 |
 | `GET`, `POST` | `/api/v1/vpcs/{vpc_id}/subnets` | subnet 목록, 생성 |
 | `DELETE` | `/api/v1/vpc-subnets/{subnet_id}` | subnet 삭제 |
-| `GET`, `POST`, `DELETE` | `/api/v1/vpcs/{vpc_id}/attachments`, `/api/v1/vpc-attachments[/{id}]` | VM 연결 관리 |
-| `GET`, `POST`, `DELETE` | `/api/v1/vpcs/{vpc_id}/services`, `/api/v1/vpc-services[/{id}]` | Service Publish 관리 |
+| `GET` | `/api/v1/vpcs/{vpc_id}/attachments` | VM 연결 목록 |
+| `POST`, `DELETE` | `/api/v1/vpc-attachments[/{attachment_id}]` | VM 연결, 해제 |
+| `GET` | `/api/v1/vpcs/{vpc_id}/services` | 게시 서비스 목록 |
+| `POST`, `DELETE` | `/api/v1/vpc-services[/{publish_id}]` | 서비스 게시, 해제 |
 
 #### 활용 예제 — Linux Local VPC의 VM 서비스를 제한 게시
 
-이 절의 예제는 공개 지원 backend인 `linux`를 사용합니다.
+이 절의 전체 예제는 공개 지원 backend인 `linux`를 사용합니다.
 `198.51.100.10`과 `192.0.2.0/24`는 RFC 문서용 주소이므로 실행 전 실제 node IPv4와 허용할 client CIDR로 교체합니다.
 
+REST로 VPC와 첫 subnet을 한 Job에 생성합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-vpc-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/local-vpc.svg" target="_blank" rel="noopener" aria-label="Local VPC 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/local-vpc.svg" width="960" height="280" loading="lazy" decoding="async" alt="허용된 client CIDR이 Single Edge host의 8443 listener와 Local VPC Service Publish, Linux bridge attachment를 거쳐 web-prod VM의 443 포트로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-vpc-caption">허용 source CIDR과 host listener를 단일 VPC attachment의 target port에 제한적으로 연결합니다.</figcaption>
+</figure>
+
 ```bash
-# backend 준비 상태와 capacity를 먼저 확인한다.
-pcvctl vpc backends
-
-# CLI는 Linux VPC와 첫 subnet을 한 Job으로 만들고 terminal까지 기다린다.
-pcvctl vpc create prod --tenant acme --egress nat \
-  --backend linux --subnet-name web --cidr 10.60.10.0/24 --mtu 1500
-pcvctl vpc list --tenant acme
-
-# REST 응답의 job_id도 terminal까지 별도 확인한다.
 curl -sS -X POST https://127.0.0.1:8443/api/v1/vpcs \
-  -H "Authorization: Bearer $TOKEN" -H 'Content-Type: application/json' \
+  -H "Authorization: Bearer $TOKEN" \
+  -H 'Content-Type: application/json' \
   -d '{"tenant":"acme","name":"prod","backend":"linux","egress_mode":"nat","subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}'
+
+# 응답의 job_id를 terminal까지 확인한다.
 curl -sS https://127.0.0.1:8443/api/v1/jobs/<job-id> \
   -H "Authorization: Bearer $TOKEN"
+```
 
-# VM attachment와 Service Publish는 위 예제 2를 따르고 actual 수렴을 확인한다.
+| 메서드 | 최소 역할 | 주요 파라미터 |
+|---|---|---|
+| `vpc.list`, `vpc.status`, `vpc.backend.list` | VIEWER | admin은 선택적 `tenant` |
+| `vpc.get`, `vpc.subnet.list`, `vpc.attachment.list`, `vpc.service.list` | VIEWER | `vpc_id` |
+| `vpc.create` | OPERATOR | `name`, `egress_mode`; 선택적 `backend=linux\|ovn`과 all-or-none `subnet_name`, `subnet_cidr`, `subnet_mtu`; admin UDS 호출은 `tenant` 명시 |
+| `vpc.egress.set` | OPERATOR | `vpc_id`, `egress_mode`, `expected_revision` |
+| `vpc.subnet.create` | OPERATOR | `vpc_id`, `name`, `cidr`, `expected_revision`, 선택적 `mtu` |
+| `vpc.subnet.delete` | OPERATOR | `subnet_id` |
+| `vpc.attachment.create` | OPERATOR | `subnet_id`, `vm`, 선택적 `ip_address` |
+| `vpc.attachment.delete` | OPERATOR | `attachment_id` |
+| `vpc.service.publish` | OPERATOR | `attachment_id`, `protocol`, `listen_address`, `listen_port`, `target_port`, `allowed_sources` |
+| `vpc.service.unpublish` | OPERATOR | `publish_id` |
+| `vpc.delete`, `vpc.reconcile` | ADMIN | `vpc_id` 또는 전체 수렴 |
+
+CLI로 같은 수명주기를 실행할 수 있습니다.
+
+```bash
+# backend 준비 상태와 주소 기반 capacity를 먼저 확인한다.
+pcvctl vpc backends
+
+# Linux NAT VPC와 첫 subnet 일괄 생성 — 기본값은 worker terminal 완료까지 기다린다.
+pcvctl vpc create prod --tenant acme --egress nat \
+  --backend linux --subnet-name web --cidr 10.60.10.0/24 --mtu 1500
+
+# 목록과 상세 조회
+pcvctl vpc list --tenant acme
+pcvctl vpc get <vpc-uuid> --tenant acme
+
+# 두 번째 이후 subnet 생성: vpc.get에서 확인한 현재 revision을 사용한다.
+pcvctl vpc subnet-create <vpc-uuid> db --tenant acme \
+  --cidr 10.60.20.0/24 --mtu 1500 --revision 2
+
+# 정지 VM 연결과 제한형 Service Publish
+pcvctl vpc attachment-create <subnet-uuid> web-prod --tenant acme
+pcvctl vpc service-publish <attachment-uuid> --tenant acme \
+  --protocol tcp --listen-address 198.51.100.10 --listen-port 8443 \
+  --target-port 443 --allowed-source 192.0.2.0/24
+
+# attachment, publish와 controller 수렴 상태 확인
 pcvctl vpc get <vpc-uuid> --tenant acme
 pcvctl vpc service-list <vpc-uuid> --tenant acme
 pcvctl vpc status
 ```
 
-VIEWER는 조회, OPERATOR는 생성·egress·subnet·attachment·publish 변경, ADMIN은 VPC 삭제와
-전체 reconcile을 수행합니다. 실제 권한과 tenant scope는 Web의 버튼 표시가 아니라 서버의
-dispatcher/handler가 판정합니다. 실행 중 VM live attach, routed egress, Floating IP와
-멀티 호스트 VPC는 현재 Single Edge 범위가 아닙니다.
+같은 기능의 raw UDS RPC 예시:
 
-backend는 생성 뒤 변경하거나 한 VPC 안에서 혼합할 수 없으며 OVN 장애 때 Linux로 자동
-fallback하지 않습니다. OVN의 기본 `100.64.0.0/16` transit pool은 VPC당 `/30`, 이론상
-16,384개 edge link를 제공하지만 제품 quota나 성능 보증이 아닙니다. 현재 공개 지원은
-Linux backend이고, OVN 후보는 부팅 KVM·Linux/OVN 공존·host/controller reboot·전 단계
-fault injection을 완료하기 전 `Implemented` 상태입니다. 후보 구현은 packet,
-schema migration, 최소 OVN 생성/삭제와 cleanup을 검증했습니다.
+```bash
+# NAT VPC와 첫 subnet 일괄 생성 — 응답 Job 완료 뒤 aggregate를 확인한다.
+echo '{"jsonrpc":"2.0","method":"vpc.create","params":{
+  "tenant":"acme","name":"prod","egress_mode":"nat",
+  "backend":"linux",
+  "subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500
+},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+
+# 두 번째 이후 subnet 생성
+echo '{"jsonrpc":"2.0","method":"vpc.subnet.create","params":{
+  "tenant":"acme","vpc_id":"<vpc-uuid>","name":"db",
+  "cidr":"10.60.20.0/24","mtu":1500,"expected_revision":2
+},"id":"2"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+
+# 정지 VM 연결
+echo '{"jsonrpc":"2.0","method":"vpc.attachment.create","params":{
+  "tenant":"acme","subnet_id":"<subnet-uuid>","vm":"web-prod"
+},"id":"3"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+
+# 지정한 host IPv4의 TCP 8443을 VM TCP 443으로 제한 게시
+echo '{"jsonrpc":"2.0","method":"vpc.service.publish","params":{
+  "tenant":"acme","attachment_id":"<attachment-uuid>","protocol":"tcp",
+  "listen_address":"198.51.100.10","listen_port":8443,"target_port":443,
+  "allowed_sources":["192.0.2.0/24"]
+},"id":"4"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+```
+
+제약과 안전 경계:
+
+- VPC subnet은 다른 VPC와 기존 host connected CIDR을 포함해 호스트 전체에서 겹칠 수
+  없습니다.
+- backend는 VPC 생성 뒤 바꿀 수 없고 한 VPC 안에서 혼합할 수 없습니다. OVN 장애 시 Linux로
+  자동 fallback하지 않으며 generic `ovn.*`는 Local VPC 소유 row 변경을 거부합니다.
+- OVN readiness는 NB/SB/northd/controller/chassis/`br-int`, 기능 parity와 `[ovn]`
+  `edge_transit_pool` 충돌을 함께 검사합니다. 기본 `100.64.0.0/16`을 VPC당 `/30`으로 나누면
+  이론상 16,384개지만, `allocatable_count`는 이미 예약한 주소를 뺀 현재값이고
+  `product_limit=null`은 무제한 보증이 아닙니다.
+- attachment는 정지 VM persistent XML만 변경합니다. 실행 중 VM live attach는 아직
+  지원하지 않습니다.
+- 한 VM의 cross-VPC multi-homing과 tenant-overlay 동시 연결은 거부합니다.
+- VPC managed bridge는 `network.*`, raw NIC attach와 `vm.create network_bridge`로
+  수정할 수 없습니다.
+- `isolated` VPC에는 Service Publish를 만들 수 없고, non-admin은 `0.0.0.0/0` 또는
+  동등한 분할 CIDR 합집합으로 전체 공개할 수 없습니다.
+- `0.0.0.0` listen은 모든 host IPv4 주소를 의미합니다. 특정 NIC만 공개하려면 해당 host
+  local IPv4를 명시합니다.
+- 데이터면 actual state가 불일치하면 데몬은 listener를 열기 전에 quarantine을 적용하며,
+  `vpc.status`의 `reconcile_required`와 각 resource의 `last_error`를 확인해야 합니다.
+
+Linux Local VPC backend와 데이터면은 실제 VM·패킷 효과 검증을 완료했습니다. 전용 CLI는
+17개 action과 create/list/get/delete terminal 왕복을 검증했습니다. 선택형 OVN backend
+후보는 제품 API 생성, inactive VM XML, LSP/chassis packet, NAT/isolated, SG, Service
+Publish, 관리면 차단, daemon restart, schema migration과 cleanup을 검증했습니다. 다만
+부팅 KVM·Linux/OVN 공존·host/controller reboot·
+전 단계 fault injection 전에는 `Implemented` 후보이며 공개 지원은 Linux backend만입니다.
+Network Flow/IPFIX
+collector, VPC peering, Floating IP pool, live attachment와 다중 노드 router는 이번 Local
+VPC 범위에 포함되지 않습니다.
 
 ## 8. 모니터링 & 알림
 
@@ -3632,6 +4063,17 @@ echo '{"jsonrpc":"2.0","method":"alert.config.set","params":{"expected_revision"
 - `alert.config.set`과 `pcvctl alert set` 변경은 현재 프로세스에만 적용된다.
   daemon.conf를 영속 수정하지 않으며, 프로세스 재시작 시 daemon.conf 값으로 복원된다.
 
+라이브 JSON-RPC 계약은 응답 가능한 실제 daemon에서 strict 모드로 검증한다.
+daemon socket이 없거나 응답하지 않으면 SKIP이 아니라 실패한다.
+
+```bash
+sudo env PCV_R7_ALERT_LIVE=1 \
+  bash tests/integration/test_alert_config_live.sh
+```
+
+이 전용 gate는 `daemon.conf`를 root 전용 백업으로 보존하고 모든 종료 경로에서
+원본 파일과 서비스를 복구한다. VM·스토리지·호스트 네트워크는 변경하지 않는다.
+
 #### DataPool 디스크 모니터링 (v1.0)
 
 ZFS pool 사용량을 `purecvisor_zpool_*` 메트릭으로 수집하고, disk_warn/disk_crit 임계값 초과 시 알림을 발생시킨다.
@@ -3659,6 +4101,8 @@ mem_warn=85
 mem_crit=95
 disk_warn=80
 disk_crit=90
+data_pool_warn=80
+data_pool_crit=90
 eval_period=30
 dedup_window=300
 webhook_url=https://hooks.slack.com/services/T.../B.../xxx
@@ -3666,8 +4110,6 @@ webhook_crit_url=https://events.example.com/purecvisor/critical
 webhook_secret=ENC:...
 webhook_format=slack
 telegram_chat_id=
-data_pool_warn=80
-data_pool_crit=90
 ```
 
 ### 8.5 알림 ACK & 에스컬레이션 (v1.0)
@@ -4016,6 +4458,69 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 100,000 iterations + 32바이트 랜덤 salt. 기존 평문 패스워드는 첫 로그인 시 자동 마이그레이션된다.
 
+#### TOTP 2FA (2단계 인증)
+
+RFC 6238 TOTP(HMAC-SHA1, 30초 스텝, 6자리, ±1 스텝 윈도)를 로그인에 추가할 수 있다.
+계정별 opt-in이 기본이며, `[auth] require_totp_roles`(콤마 구분 role 목록)로 특정
+role에 등록을 강제할 수 있다 — 예: `require_totp_roles = admin`이면 admin 로그인마다
+TOTP 미등록 시 강제 등록 흐름으로 진입한다. 설정값에 인식되지 않는 role 이 있으면
+데몬이 기동을 거부한다(fail-start).
+
+**2단계 로그인 흐름**
+
+1. `POST /auth/token`에 username/password 전송.
+2. TOTP가 걸린 계정이면 액세스 토큰 대신 `{totp_required: true, pending_token}`
+   (미등록이면 `{totp_enroll_required: true, pending_token}`)을 받는다.
+   `pending_token`은 `scope=totp` 클레임을 가진 JWT로 **TTL 180초**이며,
+   `/auth/totp/verify`·`/auth/totp/enroll` 외 어떤 보호 엔드포인트도 통과하지 못한다
+   (scope 클레임이 있으면 일반 `pcv_jwt_verify()` 경로는 fail-closed 거부).
+3. `POST /auth/totp/verify`에 `{pending_token, code}`(또는 등록 미완료 시
+   `/auth/totp/enroll`)로 6자리 코드를 제출하면, 성공 시 `/auth/token` 성공 응답과
+   같은 형태로 정식 `access_token`/`refresh_token`을 받는다.
+
+```bash
+# 1. 로그인 — TOTP 등록 계정이면 pending_token 반환
+resp=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/token \
+  -d '{"username":"admin","password":"<password>"}')
+PENDING=$(echo "$resp" | python3 -c "import sys,json;print(json.load(sys.stdin)['pending_token'])")
+
+# 2. TOTP 코드로 완주
+curl -s -X POST http://127.0.0.1:8080/api/v1/auth/totp/verify \
+  -d "{\"pending_token\":\"$PENDING\",\"code\":\"123456\"}"
+```
+
+이미 로그인한 사용자가 스스로 TOTP를 켜는 opt-in 경로도 같은 두 엔드포인트를
+공유한다 — `pending_token` 없이 `Authorization: Bearer <정식 access_token>` 헤더로
+호출하면 등록/재검증 경로로 분기한다(이 경로는 새 토큰을 발급하지 않는다).
+
+**RPC / REST 요약**
+
+| 인터페이스 | 대상 | 설명 |
+|------|------|------|
+| `POST /auth/token` | 전체 | 로그인 1단계. TOTP 대상이면 `pending_token` 반환(액세스 토큰 미발급) |
+| `POST /auth/totp/verify` | pending 또는 정식 세션 | 코드 검증 — 로그인 완주 또는 정식 세션 재검증(opt-in 확정) |
+| `POST /auth/totp/enroll` | pending 또는 정식 세션 | 등록 시작 — `otpauth://` URI 발급(QR 렌더용) |
+| `auth.totp.status` | VIEWER (self-scope) | 본인 TOTP 상태 조회. 타 사용자 지정 시 403 |
+| `auth.totp.disable` | VIEWER (self-scope) | 본인 TOTP 해제(코드 재검증 필요) |
+| `auth.totp.recovery.regenerate` | VIEWER (self-scope) | 복구코드 10개 재발급(기존 복구코드 전량 폐기) |
+| `auth.totp.reset` | ADMIN | 대상 사용자 TOTP 강제 해제(분실 대응) |
+
+**복구코드**: 등록 완료 시 10개(`xxxxx-xxxxx` 형식)가 **1회만** 화면에 표시되며
+(모달은 버튼으로만 닫힘 — 백드롭/ESC로 실수로 잃지 않도록), 서버에는 SHA-256 해시로만
+저장한다. 각 코드는 1회용 — 로그인 시 TOTP 코드 대신 복구코드를 제출하면 그 코드는
+즉시 소비된다. 단말 분실 등으로 전량 소진·분실했다면 ADMIN이 `auth.totp.reset`으로
+강제 해제한 뒤 재등록해야 한다.
+
+**오류코드**
+
+| 코드 | 이름 | 의미 |
+|------|------|------|
+| -32007 | TOTP_REQUIRED | TOTP 등록 계정 — pending_token으로 `/auth/totp/verify` 필요 |
+| -32008 | TOTP_ENROLL_REQUIRED | 강제 role인데 미등록 — `/auth/totp/enroll`로 등록 먼저 |
+| -32009 | TOTP_INVALID_CODE | 코드 불일치 |
+| -32010 | TOTP_PENDING_EXPIRED | pending_token TTL(180초) 만료 — 로그인부터 재시작 |
+| -32011 | TOTP_LOCKED | TOTP 전용 브루트 카운터 잠금(로그인 브루트포스 잠금과 독립) |
+
 ### 10.2 RBAC 3-Tier
 
 | 역할 | 레벨 | 권한 |
@@ -4031,7 +4536,7 @@ operator의 VM 단일 대상 action은 libvirt domain metadata의 `pcv:owner`와
 - `vm.create`는 생성자 subject를 `pcv:owner` metadata에 기록한다.
 - `vm.start`, `vm.stop`, `vm.delete`, snapshot, ISO, VM NIC hotplug, VNC 등 단일 VM action은 operator 호출 시 owner 일치 여부를 검사한다.
 - VM NIC 추가/제거(`device.nic.attach`, `device.nic.detach`)는 operator에게 열려 있지만, 자기 VM이 아니면 owner-scope에서 403으로 거부된다.
-- `vm.clone`은 [ADR-0023](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md)에 따라 source VM owner-scope를 통과한 operator와 admin에게 열려 있으며, source VM `shut off` 상태와 준비된 템플릿 확인 또는 libguestfs 기반 guest reset 경로를 요구한다.
+- `vm.clone`은 [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md)에 따라 source VM owner-scope를 통과한 operator와 admin에게 열려 있으며, source VM `shut off` 상태와 준비된 템플릿 확인 또는 libguestfs 기반 guest reset 경로를 요구한다.
 - `vm.batch`는 요청에 포함된 모든 VM owner가 호출자와 일치할 때만 실행한다.
 - owner metadata가 없는 기존 VM은 operator action이 거부된다. 소유권 정리와 복구는 admin 경로에서 처리한다.
 
@@ -4086,7 +4591,7 @@ curl -s -H "X-API-Key: pk_abc123.secret" \
 
 ### 10.4 JWT Bearer와 CSRF 정책
 
-PureCVisor REST API는 쿠키 기반 세션을 쓰지 않고 `Authorization: Bearer <JWT>` 헤더만 사용한다. 브라우저가 Authorization 헤더를 자동 첨부하지 않으므로 별도 `X-CSRF-Token`은 사용하지 않는다. 이 결정은 [ADR-0014](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0014-remove-csrf-jwt-bearer.md)를 따른다.
+PureCVisor REST API는 쿠키 기반 세션을 쓰지 않고 `Authorization: Bearer <JWT>` 헤더만 사용한다. 브라우저가 Authorization 헤더를 자동 첨부하지 않으므로 별도 `X-CSRF-Token`은 사용하지 않는다. 이 결정은 [ADR-0014](../docs/adr/0014-remove-csrf-jwt-bearer.md)를 따른다.
 
 ### 10.5 Rate Limiting
 
@@ -4297,7 +4802,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 2.0 고유 호스트 하드닝으로, `/proc`를 `hidepid=2` + `gid=pcvmon`으로 마운트해 프로세스 argv·환경의 무분별한 노출을 차단한다. 이는 iSCSI CHAP 비밀번호가 world-readable `/proc/*/cmdline`으로 새던 노출(D4 target·D7 initiator)을 소거하기 위한 조치이며, 1.0 라인에는 없는 2.0 전용 태세다. 메트릭 수집·프로세스 모니터 등 `/proc`를 읽어야 하는 구성요소는 `pcvmon` 그룹 멤버십으로 접근을 유지한다.
 
-> **AppArmor 데몬-confinement 미배포 결정([ADR-0028](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0028-2.0-host-hardening-hidepid-over-apparmor-confinement.md))**: 이 환경(hidepid=2)에서 데몬을 AppArmor 프로필로 confine 하면 libvirt 연결이 파손된다 — `hidepid=2`가 타 프로세스 `/proc/<pid>` 접근을 커널 `ptrace_may_access()`로 게이트하고, 그 경로가 AppArmor ptrace 매개를 발동해 confined libvirtd가 데몬의 `/proc/stat`을 identity로 읽지 못하기 때문이다. 2.0은 실증 소거가 확인된 **hidepid를 유지**하고, **AppArmor 데몬-self-confinement은 배포·enforce 하지 않는다**. AppArmor 프로필 파일 자체는 1.0 라인·참조용으로 패키지에 존치되며, VM(libvirt per-domain)·컨테이너(lxc per-container) 런타임 격리는 그대로 유지된다. 즉 2.0 호스트 통제는 capabilities 축소 + hidepid + 게스트/컨테이너 런타임 격리로 구성된다.
+> **AppArmor 데몬-confinement 미배포 결정([ADR-0028](../docs/adr/0028-2.0-host-hardening-hidepid-over-apparmor-confinement.md))**: 이 환경(hidepid=2)에서 데몬을 AppArmor 프로필로 confine 하면 libvirt 연결이 파손된다 — `hidepid=2`가 타 프로세스 `/proc/<pid>` 접근을 커널 `ptrace_may_access()`로 게이트하고, 그 경로가 AppArmor ptrace 매개를 발동해 confined libvirtd가 데몬의 `/proc/stat`을 identity로 읽지 못하기 때문이다. 2.0은 실증 소거가 확인된 **hidepid를 유지**하고, **AppArmor 데몬-self-confinement은 배포·enforce 하지 않는다**. AppArmor 프로필 파일 자체는 1.0 라인·참조용으로 패키지에 존치되며, VM(libvirt per-domain)·컨테이너(lxc per-container) 런타임 격리는 그대로 유지된다. 즉 2.0 호스트 통제는 capabilities 축소 + hidepid + 게스트/컨테이너 런타임 격리로 구성된다.
 
 ### 10.12 Suricata DPI/IDS/IPS (2.0, D13)
 
@@ -4366,6 +4871,13 @@ fail-closed는 **opt-in**입니다 — `[ips] fail_open` 기본값이 `true`라 
 
 먼저 IDS engine과 현재 IPS 모드를 읽고, 운영자가 검토한 SID만 drop 목록에 추가합니다.
 IPS 활성화는 host forward 경로에 영향을 주므로 유지보수 시간에 수행하고, 응답 직후가 아니라 status와 drop 목록이 수렴한 뒤 성공으로 판정합니다.
+
+<figure class="pcv-network-example-diagram pcv-technical-wide" aria-labelledby="pcv-network-example-suricata-caption">
+  <a class="pcv-network-example-canvas" href="/assets/diagrams/network-examples/suricata.svg" target="_blank" rel="noopener" aria-label="Suricata IDS IPS 활용 예제 구성도를 새 탭에서 확대해서 보기">
+    <img src="/assets/diagrams/network-examples/suricata.svg" width="960" height="280" loading="lazy" decoding="async" alt="VM forward packet이 nftables NFQUEUE와 Suricata IDS IPS engine을 거쳐 allow 또는 drop 결과와 PureCVisor 보안 이벤트로 이어지는 구성도">
+  </a>
+  <figcaption id="pcv-network-example-suricata-caption">queue readiness, 파생 drop 룰셋과 status가 수렴한 뒤 인라인 적용을 완료로 판단합니다.</figcaption>
+</figure>
 
 ```bash
 # 엔진 상태 조회
@@ -4649,7 +5161,7 @@ per-VM PSI 연결 전의 이상탐지는 `/proc/pressure/*`의 **노드 전역 P
 | bootstrap admin | `admin / configured password` |
 | 전용 admin | 설치 직후 RBAC `admin` 역할 사용자 추가 권장 |
 | 앱 셸 | 고정 사이드바 트리(236px) + topbar(브레드크럼·통합 검색·세션) + 글로벌 statusbar |
-| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 28개 + `i18n.js` + `sw.js` |
+| JS 모듈 | `app.js` + `app.bundle.js` + `modules/*.js` 30개 + `i18n.js` + `sw.js` |
 | 프레임워크 | Vanilla JS (단일 번들 + 임베디드 UI) |
 
 ### 13.2 페이지 구조
@@ -4706,7 +5218,7 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 남기고, 2026-04-26 접근성 후속으로 고대비 변형을 추가했다. 2026-05-08에는
 대시보드 선택지를 단순화하기 위해 emerald와 light 변형을 제거했으며, R4 데스크톱
 리뉴얼에서 승인된 `supanova-mockup` 운영 콘솔 팔레트를 네 번째 변형으로 고정했다.
-[ADR-0016](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0016-supanova-theme-reduction.md)에 따라 localStorage에 영속 저장하고, 새로고침 없이 즉시 전환한다.
+[ADR-0016](../docs/adr/0016-supanova-theme-reduction.md)에 따라 localStorage에 영속 저장하고, 새로고침 없이 즉시 전환한다.
 
 | 테마 id | accent | 설명 |
 |---|---|---|
@@ -4893,6 +5405,21 @@ location ~ ^/ui/.+\.(png|ico|svg|webp|woff|woff2)$ {
 noVNC는 반드시 `/ui/vendor/novnc/novnc.esm.js`에서 로드한다. `app.bundle.js` 안에 `https://cdn.jsdelivr.net/npm/@novnc/novnc` 같은 외부 ESM import가 남아 있으면 운영 CSP에서 차단된다. 정적 파일 교체 후에는 `/ui/vendor/novnc/novnc.esm.js`가 `200 application/javascript`로 응답하고, 공개 `app.bundle.js`에서 외부 CDN 문자열이 검색되지 않는지 확인한다.
 
 해시 라우팅은 `#/page`를 표준으로 사용한다. 공개 안내나 외부 링크가 `#page` 형식으로 들어와도 `ui/modules/uxlib.js`의 parser가 같은 page로 정규화해야 한다. 예: `/ui#ops-triage`와 `/ui#/ops-triage`는 모두 `운영 이벤트 센터`를 렌더링해야 한다.
+
+---
+
+### 13.13 VM 메모리·I/O 화면 시정과 확인 범위
+
+2026-09-07 개발선의 지정 시정은 다음 계약을 다룹니다. 목록의 순서와 현재 열린 창이 바뀌어도 작업 대상과 결과 표시가 일치하도록 보완했습니다.
+
+- I/O 조회·적용은 창을 열 때 정한 VM 이름/UUID를 확인합니다. 목록 재정렬, 대상 삭제와 동명 VM 교체를 구분합니다.
+- 메모리 통계·I/O의 늦은 응답은 요청한 창과 최신 요청에만 표시합니다. 이미 닫힌 창의 응답이 새 창을 바꾸지 않습니다.
+- RPC 오류는 정상 빈 결과와 구분합니다. 자동 닫기 timer도 원래 창에 속합니다.
+- 검색 팔레트가 겹쳐 열려 있어도 아래에서 열린 원래 창은 완료 상태를 받습니다.
+
+개발선 UI 전체 60파일 **505 PASS**, 최종 독립 대조 **44 PASS**와 두 운영 노드의 정적 자산·기본 페이지·health 확인을 완료했습니다. 이 수치를 공개 소스의 시험 집계에 합산하거나 모든 실제 VM 변경 효과의 인증으로 사용하지 않습니다. 공개 소스의 시정 포함 여부는 해당 릴리스 diff와 회귀 결과로 별도 확인해야 합니다.
+
+공개 스냅샷의 모니터링 차트에도 누적 RX/TX를 속도 단위로 표시하는 경로와 표본 간격을 5초로 고정하는 경로가 남아 있습니다. 해당 차트의 시간·속도 값만으로 운영 임계값을 판단하지 말고 원본 counter의 증가량과 실제 수집 간격을 함께 확인하세요. 관련 시정·독립 재검토는 진행 중입니다.
 
 ---
 
@@ -5217,12 +5744,19 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 | 항목 | 값 |
 |------|-----|
 | 바이너리 | `bin/pcvctl` |
-| 커맨드 수 | 178 |
+| 커맨드 수 | 194 (`routes[]` 기준) |
 | 모드 | readline REPL + 배치 |
 | 자동완성 | bash/zsh (`make install-completion`) |
 | 소켓 | `/var/run/purecvisor/daemon.sock` |
 
 ```bash
+# 단계적 도움말
+pcvctl help             # 32개 명령 그룹 요약
+pcvctl help vpc         # VPC 그룹 상세
+pcvctl vpc --help       # 같은 VPC 그룹 상세
+pcvctl help guest-agent # object·action·설명 검색
+pcvctl help all         # 전체 194개 명령
+
 # REPL 모드
 pcvctl
 pcvctl> vm list
@@ -5233,6 +5767,10 @@ pcvctl vm list
 pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
   --qos_min_mbps 0 --qos_max_mbps 1000
 ```
+
+기본 도움말은 전체 명령을 한 번에 펼치지 않고 그룹별 개수와 용도를 보여 준다. 그룹 상세는
+복사 가능한 `pcvctl <object> <action>` 형태이며 긴 설명은 같은 설명 열에서 자동 줄바꿈된다.
+기존 전체 목록과 부분 검색은 각각 `help all`, `help <검색어>`로 유지한다.
 
 ### 15.2 커맨드 분류
 
@@ -5489,7 +6027,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | 키 | 기본값 | 설명 |
 |----|--------|------|
 | `zvol_pool` | `pcvpool/vms` | ZFS zvol 풀 경로 |
-| `container_pool` | `pcvpool/containers` | ZFS backend의 신규 컨테이너 부모 dataset |
+| `container_pool` | `pcvpool/containers` | 컨테이너 ZFS 데이터셋 |
 | `image_dir` | `/var/lib/libvirt/images` | qcow2 저장 경로 |
 | `iso_dirs` | `/pcvpool/iso,/var/lib/libvirt/images,/iso` | ISO 검색 경로 (CSV) |
 
@@ -5497,9 +6035,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `storage_backend` | `zfs` | 신규 컨테이너 backend: `zfs` 또는 명시적 `btrfs`. 기존 객체를 변환하지 않음 |
-| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 관리 경로. Btrfs 선택 시 root가 관리하는 실제 Btrfs 경로 |
-| `rootless` | `false` | 기본 user namespace 생성 여부. Btrfs는 `false`만 지원 |
+| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 루트 경로 |
 
 #### [cluster]
 
@@ -5542,7 +6078,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | Rate Limit 429 | 요청 빈도 초과 | `Retry-After` 헤더 참조 |
 | WebSocket 끊김 | 300초 유휴 | 클라이언트 ping 구현 |
 | VM 삭제 지연 | ZFS 스냅샷 의존성 | `vm delete-status` 확인 후 스냅샷 정리 |
-| VM 삭제 후 ISO가 사라짐 | `vm.delete`가 CD-ROM ISO `<source file>`을 파일 디스크로 오인한 회귀 | [ADR-0017](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0017-vm-delete-atomicity-rollback.md) 기준으로 `device='disk'` source만 삭제 대상인지 확인하고 최신 데몬 배포 |
+| VM 삭제 후 ISO가 사라짐 | `vm.delete`가 CD-ROM ISO `<source file>`을 파일 디스크로 오인한 회귀 | [ADR-0017](../docs/adr/0017-vm-delete-atomicity-rollback.md) 기준으로 `device='disk'` source만 삭제 대상인지 확인하고 최신 데몬 배포 |
 | 메모리 누수 의심 | 알 수 없음 | `make memcheck-daemon` (Valgrind 5초) |
 | 빌드 경고 | 헤더 누락/타입 불일치 | `make clean && make single` 후 경고 확인 |
 | /health 느림 | libvirt 장애 (degraded) | `virsh list` 확인, libvirt 재시작 |
@@ -5698,6 +6234,10 @@ make cppcheck
 | -32000 | Server error (내부 오류) |
 | -32001 | Not implemented (placeholder) |
 
+`-32602`는 `PureRpcErrorCode`의 canonical invalid-params 값입니다. 예를 들어 인증 REST의
+OVN ACL `switch` 또는 NAT `router` 필터가 누락되면 이 값을 사용하며, handler나 adapter가
+raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
+
 ### 18.3 외부 의존성
 
 #### 빌드 시 의존성
@@ -5766,25 +6306,26 @@ make cppcheck
 
 ### 18.6 프로젝트 통계
 
-다음은 2026-09-16 공개 구현 `e028ef2`의 추적 파일과 `Makefile`, `make check-rbac`를
-대조한 스냅샷입니다. 시험 결과는 소스 회차별로 22.8절과 각 운영 인계에서 구분합니다.
+다음 수치는 2026-09-15 공개 소스 `22d6912`가 포함된 `main`의 추적 파일과
+`Makefile`, `make check-rbac`를 대조한 스냅샷입니다. 테스트 통과 수는 같은 날 공개 소스
+검증 회차의 기록이며, 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
 
-| 항목 | 2026-09-16 기준 |
+| 항목 | 2026-09-15 기준 |
 |------|----------------|
 | C 표준 | `-std=gnu23` |
 | 에디션·버전 | Single Edge · `2.0.0` |
 | RPC 등록/정책 | RPC 307건, 정책 매핑 252건, 조회성 VIEWER 기본 73건 (`make check-rbac`) |
-| C/H 소스 | `src/` 아래 C 157개, 헤더 144개, 총 190,653행 (공백 포함) |
+| C/H 소스 | `src/` 아래 C 156개, 헤더 143개, 총 189,427행 (공백 포함) |
 | Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 64개 |
 | 테스트 파일 | `tests/` C 112개, `tests/integration/` 111개, `tests/ui/*.test.mjs` 59개 |
 | 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
-| 구현 검증 기록 | `e028ef2`의 `make test`·release·`check-all` 통과, 지정 Arch/Btrfs 실제 API 결과는 22.8절 참조 |
-| 계약 게이트 | `make check-all` 직접 의존성 40개. `check-lxc-storage`는 `check-public-comments` 아래 포함 |
+| 공개 소스 검증 기록 | C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP |
+| 계약 게이트 | `make check-all` 40개 — 정확한 목록은 Makefile 의존성과 22.4절 |
 | 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
 
-파일 수는 `git ls-files`의 경로·확장자로, C/H 행 수는 해당 추적 파일의 전체 행으로 집계합니다.
-등록 테스트·실행 통과·파일 수는 서로 다른 값입니다. 과거 2026-08-31·2026-09-15
-시험 수치는 각 날짜의 기록이며 이번 문서 변경에서 전체 시험을 재실행했다는 뜻은 아닙니다.
+파일 수는 `git ls-files`의 해당 경로·확장자로 집계합니다. 등록 테스트 수·실행 통과 수와
+소스 파일 수는 서로 다른 값입니다. 과거 2026-08-31 C 1,375/1,375·게이트 38/38 기록은
+22.7절의 과거 회차와 함께 읽습니다.
 
 ---
 
@@ -5807,8 +6348,7 @@ make cppcheck
 | 상황 | 먼저 볼 장 | 다음 확인 |
 |------|------------|-----------|
 | 처음 빌드한다 | 2장 설치 및 환경 구성 | 21장 아키텍처 리팩토링, 22장 품질 게이트 |
-| VM 기능을 바꾼다 | 3장 VM 관리 | [ADR-0022](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0022-vm-create-storage-location-contract.md), [ADR-0023](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md), `tests/test_vm_clone_plan.c` |
-| LXC 저장소를 바꾼다 | 4장 컨테이너 관리 | [ADR-0058](../docs/adr/0058-lxc-storage-backend-identity.md), `src/modules/lxc/lxc_storage.c`, `make check-lxc-storage` |
+| VM 기능을 바꾼다 | 3장 VM 관리 | [ADR-0022](../docs/adr/0022-vm-create-storage-location-contract.md), [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md), `tests/test_vm_clone_plan.c` |
 | REST/API를 바꾼다 | 14장 REST API | `src/api/rest_server.c`, `src/api/dispatcher.c`, `scripts/verify_api_consistency.sh` |
 | 권한을 바꾼다 | 10장 보안 | `make check-rbac`, `docs/adr/0019-rbac-uds-bypass-policy.md` |
 | Web UI를 바꾼다 | 13장 Web UI | `ui/modules/endpoints.js`, `scripts/bundle-ui.sh`, `node --check ui/app.bundle.js`, 공개 URL route smoke |
@@ -5842,7 +6382,7 @@ make cppcheck
 |-----------|-----------|
 | C 코어/dispatcher | `make single`, `make test`, `make check-rbac` |
 | fire-and-forget RPC | `scripts/check_audit_placement.py`, 관련 worker 성공/실패 audit 확인 |
-| VM clone | `./test_runner -p /vm_clone_plan`, `scripts/check_vm_clone_cleanup.py`, [ADR-0023](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/adr/0023-vm-clone-beta-safety-guard.md) 실환경 기준 확인 |
+| VM clone | `./test_runner -r /vm_clone_plan`, `scripts/check_vm_clone_cleanup.py`, [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md) 실환경 기준 확인 |
 | Web UI | `PCV_NO_DEPLOY=1 scripts/bundle-ui.sh`, `python3 scripts/check_ui_bundle_fresh.py`, `node --check ui/app.bundle.js`, 공개 URL 해시와 `/ui#ops-triage` 확인 |
 | REST surface | `scripts/verify_api_consistency.sh`, 인증/권한/에러 응답 확인 |
 | ZFS inflight/metric | ZFS inflight 정적 검사와 Web UI 모니터링 노출 검사 |
@@ -6187,6 +6727,22 @@ typedef void (*PcvDispatchHandler)(
   docs: CHANGELOG.md v1.0 업데이트
 ```
 
+### 21.7 감사 후속의 결과·자원 수명 계약
+
+최근 개발선 감사는 기존 단일 프로세스·GMainLoop·GTask 구조 안에서 결과와 자원의 소유권을 재검토합니다. 새로운 프로세스 구조나 프레임워크 도입을 완료한 것으로 해석하지 않습니다.
+
+| 검토 영역 | 확인해야 할 계약 | 현재 상태 |
+|---|---|---|
+| Job 결과 | accepted 응답·Job ID·영속 row·실제 작업 결과가 일치하고 SQL 실패와 ID 충돌을 식별해야 함 | 시정·독립 검증 잔여 |
+| Trace 자식 프로세스 | stop 요청, 실제 wait 회수, 실행 guard 해제가 순서대로 확인돼야 함 | 실제 도구·환경 검증 잔여 |
+| 비동기 I/O | 실패 반환한 제출의 후속 실행 방지, pending 접근 동기화, 미전달 결과 FD와 ring 소유권 정리 | 지정 경로의 발견을 후속 처리 중 |
+| UI 요청과 창 | 대상 VM 식별과 요청 순번, 원래 창의 완료·timer 수명이 일치해야 함 | 개발선 지정 시정·독립 리뷰·UI 배포 확인 완료 |
+| 모니터링 표시 | 누적 counter, 실제 경과 시간과 차트 단위·시간축이 일치해야 함 | 시정·독립 검증 잔여 |
+
+본문 읽기·격리 시험·실환경 확인·독립 리뷰는 서로 다른 증거입니다. 지정 경로의 통과를 해당 모듈 전체나 공개 릴리스의 완료로 확대하지 않습니다.
+
+---
+
 ## 22. 품질 게이트 가이드
 
 ### 22.1 개요
@@ -6354,28 +6910,9 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
-현행화 기준은 **2026-09-16 공개 소스 `e028ef2`**입니다. 제품 버전은 `2.0.0`이며
-초기 `2.0.0` 태그와 이후 `main`을 설치한 commit으로 구분합니다.
+> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
-| 항목 | 공개 근거와 확인 범위 |
-|---|---|
-| 현재 제품 소스 | [`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b): 기본 ZFS·명시 선택 Btrfs LXC, 객체별 실제 저장소 identity, 정지 rootfs 복원, 영구 Job·snapshot 요청자 audit, LXC 7 CPU 가중치 |
-| VM 삭제 수정 | [`5e84387`](https://github.com/HardcoreMonk/purecvisor/commit/5e84387fac076b5e4deb91a6adda94fefd055d3c): 디스크 삭제 성공까지 파일형 NVRAM 보존. 지정 Ubuntu worker 실기와 Arch 설치 서비스 API 실기 각 5개 통과. Ubuntu 운영 daemon은 교체하지 않음 |
-| Btrfs 실기 | Omarchy 4.0.3·Arch, kernel `7.2.3-arch1-3`, LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치. API 생성·guest 부팅·파일 영속화·CoW 복제·snapshot·복원·거부·기본값 변경 후 동작·정리 통과 |
-| 복구·완료 관측 | 실제 Btrfs에 구성한 교환 전·후 journal 복구와 삭제 재시도 통과. snapshot 성공·거부·삭제의 terminal Job, 각 1개 WS 완료·요청자 audit 일치. 프로세스 강제 종료나 정전 시험은 아님 |
-| 구현 검증 | `e028ef2`의 `make test`, `make -j1 check-all` 40개와 release 빌드 통과. `check-lxc-storage`의 저장소 24개·반사실, driver 7그룹, snapshot audit 12조합 통과. 실제 guest 시험과 격리 회귀 수치를 합산하지 않음 |
-| 문서 게시 | [Btrfs 가이드 Pages 실행](https://github.com/HardcoreMonk/purecvisor/actions/runs/35012978025) 성공. 현재 문서 전체 대조 범위는 [문서 현행화 인계](../docs/operations/2026-09-16-public-documentation-refresh-handoff.md)에서 추적 |
-| 남은 범위 | Btrfs rootless·quota·send/receive 제품 백업·자동 migration은 미지원. Ubuntu ZFS 전체 실기 회귀·host reboot·정전·ENOSPC·장시간 안정성·모든 환경 인증은 별도 |
-
-원시 증거의 요약·해시는 [Btrfs API 검증 인계](../docs/operations/2026-09-16-lxc-btrfs-api-validation.md)와
-[NVRAM 수정 인계](../docs/operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
-이번 문서 변경은 제품 실기 재실행이나 전체 감사 완료를 뜻하지 않습니다.
-
-#### 이전 공개 검증 회차 — 2026-09-15
-
-다음은 `22d6912`의 당시 결과입니다. 이후 Btrfs 소스에서 모든 UI·전체 메모리 검사를
-같은 수만큼 다시 통과했다는 뜻이 아닙니다.
-
+#### 2026-09-15 검증 기록
 
 | 항목 | 공개 근거와 확인 범위 |
 |---|---|
@@ -6394,4 +6931,4 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ---
 
-> PureCVisor v2.0.0 운영 가이드 — 공개 범위 21개 장, 마지막 장 번호 22.
+> PureCVisor v2.0.0 Complete Guide — 22장 끝.

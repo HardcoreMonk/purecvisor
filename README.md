@@ -1,5 +1,8 @@
 # PureCVisor Single Edge
 
+> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
+
+
 > 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
@@ -14,12 +17,6 @@ PureCVisor Single Edge는 `purecvisorsd` 하나로 독립 노드의 가상화 �
 ## 빠른 시작
 
 Host 설치 기준은 Ubuntu Server 26.04.1 LTS `amd64`입니다. <br> 전체 권장 사양과 설치 환경별 관리 IPv4 선정·단일 노드 구성 절차는 [docs/GUIDE.md](docs/GUIDE.md)의 설치 장을 따릅니다.
-
-Arch 계열 Omarchy의 소스 빌드·설치와 지정 VM 삭제·Btrfs LXC API 검증도 수행했습니다.
-패키지 준비부터 릴리스·BPF 빌드, OVMF 호환 설정과 최초 서비스 설치는
-[Omarchy 소스 컴파일 가이드](docs/GUIDE.md#210-arch-계열-omarchy-소스-컴파일-설치)를 따릅니다.
-검증한 환경과 한계는 [공개 현황](docs/GUIDE.md#228-공개-소스문서-현황)을 따릅니다.
-아래 `apt`·`.deb` 절차는 Ubuntu용입니다.
 
 공개 소스를 내려받고 저장소 디렉터리로 이동합니다.
 
@@ -47,9 +44,6 @@ sudo apt install -y \
 ```
 
 </details>
-
-위 설치 예시는 ZFS를 포함합니다. Btrfs LXC와 file disk VM만 사용하는 구성은
-`zfsutils-linux`를 생략하고 Btrfs 점검용 `btrfs-progs`를 준비할 수 있습니다.
 
 UI 번들·검증 도구의 의존성은 저장소 루트에서 설치합니다.<br> 검증 환경은 Node.js 24와
 npm을 사용했습니다.<br> 전체 C·계약 검증에는 `wireguard-tools`, `sqlite3`,
@@ -103,30 +97,6 @@ Release 빌드는 다음 명령으로 확인합니다.
 ```bash
 make release
 ```
-
-## LXC 저장소 선택
-
-초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. 공개 소스
-[`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b)부터
-기본 `zfs`와 명시적 `btrfs`를 지원합니다. 제품 버전은 `2.0.0`을 유지하므로 설치한 commit으로 구분합니다.
-Btrfs를 선택하려면 `daemon.conf`에 다음을 설정합니다.
-
-```ini
-[container]
-storage_backend = btrfs
-lxc_path = /var/lib/purecvisor/lxc
-rootless = false
-```
-
-`lxc_path`는 root가 관리하는 실제 Btrfs 경로여야 합니다. 기본 ZFS LXC에는 ZFS가
-필요하며, Btrfs 선택 실패 시 다른 backend로 폴백하지 않습니다. 기존 컨테이너는 기록된
-실제 저장소 identity를 사용하므로 기본값 변경은 migration이 아닙니다.
-
-Btrfs clone·snapshot·restore는 정지된 privileged 컨테이너의 rootfs를 대상으로 하며,
-복원 시 현재 config·owner·image metadata를 보존합니다. 세부 조건과 실패 복구는
-[컨테이너 가이드](docs/GUIDE.md#4-컨테이너-관리), 결정은
-[ADR-0058](docs/adr/0058-lxc-storage-backend-identity.md)을 따릅니다.
-지정 Arch/Btrfs 호스트의 실제 API·복구·완료 통지 검증을 통과했으며 [API 검증 기록](docs/operations/2026-09-16-lxc-btrfs-api-validation.md)에서 추적합니다.
 
 ---
 
@@ -203,10 +173,6 @@ make release
 `check-all` 의존성을 따릅니다. UI 표면과 반사실 회귀만 확인하려면
 `make check-single-ui-surface`를 실행합니다.
 
-컨테이너 저장소·driver·snapshot 완료 audit 회귀는 `make check-lxc-storage`입니다.
-`check-public-comments`의 의존성이므로 `check-all`에도 포함됩니다. 임시 변이 fixture를
-사용하는 검사끼리 충돌하지 않도록 전체 게이트는 `make -j1 check-all`로 실행합니다.
-
 로컬 커밋 시 변경 유형에 맞는 검사를 자동 실행하려면 pre-commit 훅을 설치합니다.
 
 ```bash
@@ -253,7 +219,6 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 | `src/api/` | UDS, REST, WebSocket, middleware |
 | `src/modules/dispatcher/` | JSON-RPC handler 계층 |
 | `src/modules/virt/` | libvirt 기반 VM 관리 |
-| `src/modules/lxc/` | LXC 수명주기, ZFS/Btrfs 저장소 identity와 복원, 소유자 관리 |
 | `src/modules/storage/` | ZFS driver와 스토리지 기능 |
 | `src/modules/network/` | bridge, firewall, DHCP, OVS/OVN local networking |
 | `src/modules/auth/` | RBAC, 사용자, API key, JWT 관련 로직 |

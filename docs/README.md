@@ -1,13 +1,15 @@
 # 공개 문서 인덱스
 
-> 현행화 기준: 2026-09-16 · PureCVisor Single Edge `2.0.0` · 초기 태그 이후 소스 변경 포함
+> 현행화 기준: 2026-10-02 · PureCVisor Single Edge `2.0.0` · 초기 태그 이후 소스 변경 포함
 
 공개 문서의 현행 기준과 날짜별 검증 기록을 찾는 진입점이다.
 공개 소스는 [HardcoreMonk/purecvisor](https://github.com/HardcoreMonk/purecvisor),
 문서·기능 영상은 [purecvisor.site](https://purecvisor.site)에서 제공한다.
 
-현재 제품 소스 기준은 `e028ef2`다. 초기 `2.0.0` 태그의 ZFS 전용 LXC와 이후 `main`의
-선택형 Btrfs를 구분하며, 전체 공개 현황은 [가이드 22.8절](GUIDE.md#228-공개-소스문서-현황)을 따른다.
+현재 공개 제품 로직은 개발 main의 공개 허용 범위와 일치한다. LXC는 ZFS 전용이며
+NVRAM·첫 알림 시정을 유지한다. 공개 전용 Btrfs와 미병합 ISO·Windows 후속 브랜치는
+포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)와
+[가이드 22.8절](GUIDE.md#228-공개-소스문서-현황)에서 이번 검증과 과거 회차를 구분한다.
 
 ## 현재 기준
 
@@ -39,11 +41,11 @@
 - RPC·설정·테이블·게이트 수의 원본은 실행 코드와 `Makefile`이다. 파일 수와
   테스트 통과 수는 집계 시점·방법을 표시하며 다른 회차의 수치와 합산하지 않는다.
 
-## 기술 조사
+## 과거 Btrfs 조사·검증 기록
 
-- [LXC Btrfs 백엔드 조사](research/2026-09-16-lxc-btrfs-backend.md): 구현 전 조사와 native LXC 실기의 역사 근거, 이후 구현 상태를 구분한다.
-- [ADR-0058](adr/0058-lxc-storage-backend-identity.md): 기본 ZFS와 명시적 Btrfs, 객체별 실제 identity, rootfs 복원·안전한 삭제 계약.
-- [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md): 지정 Arch/Btrfs 호스트에서 실제 API·owner·복원 중단 상태·정리를 검증한 기록. 초기 `2.0.0` 태그와 Btrfs 구현을 포함한 공개 소스의 차이는 [가이드 4.1절](GUIDE.md#41-컨테이너-생성)을 따른다.
+- [LXC Btrfs 백엔드 조사](research/2026-09-16-lxc-btrfs-backend.md): `e028ef2` 당시 조사·native 실기 근거이며 현재 main의 기능 안내가 아니다.
+- [ADR-0058](adr/0058-lxc-storage-backend-identity.md): Archived. 당시 Btrfs identity·복원 계약이며 현재 ZFS 전용 main에는 적용하지 않는다.
+- [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md): 당시 공개 전용 구현의 지정 Arch 실기 기록. 현재 main의 기능 인증으로 사용하지 않는다.
 - [UEFI VM 삭제 NVRAM 검증](operations/2026-09-16-vm-delete-nvram-handoff.md): 디스크 실패 시 NVRAM 보존과 마지막 정리 실패 처리, 지정 Ubuntu·Arch 실기 범위.
 - [문서 전체 현행화 인계](operations/2026-09-16-public-documentation-refresh-handoff.md): 전수 문서 목록·링크 점검, 수정 내역과 게시 검증.
 - [Omarchy 소스 설치 가이드 인계](operations/2026-09-16-omarchy-source-guide-handoff.md): 실제 설치 기록·공식 패키지·소스 대조, 문서 동기화와 게시 검증.

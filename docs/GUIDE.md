@@ -1,5 +1,8 @@
 # PureCVisor Single Edge 운영 가이드
 
+> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
+
+
 > **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.0
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
@@ -14,7 +17,7 @@
 > ACL/NAT 필터 전달까지입니다. 완결되지 않은 OVN/NFV Load Balancer와 VM 자동 포트 내부
 > helper는 공개 기능이 아니며, Local VPC의 선택형 OVN backend는 별도 지원 gate를 따릅니다.
 >
-> **문서 현행화(2026-09-16)**: 선택형 LXC Btrfs의 소스·설정 계약을 4장에 반영했습니다. 지정 Arch/Btrfs 호스트의 API·복구·완료 통지 검증을 통과했습니다. 기존 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
+> **문서 현행화(2026-09-15)**: 공개 소스 반영, self-healing 알림, 현재 검증 명령과 GPU 테스트 영상 게시 현황을 반영했습니다. 공개 소스 검증 결과와 전체 감사·지원 환경 인증은 22.8절에서 구분합니다.
 >
 > **단축키**: `Ctrl+K`(또는 `/`, `Ctrl+Shift+F`) 통합 검색 팔레트 · `Ctrl+N` 또는 `n` 새 VM · `Ctrl+D` VM 설정 · `Ctrl+P` 환경설정 · `Ctrl+B` 사이드바 접기 · `F11` 전체 화면 · `?` 단축키 도움말 · `g` 대시보드 · `m` 운영 개요 · `Esc` 대화상자 닫기
 
@@ -54,9 +57,9 @@
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
-**2026-09-16 공개 현황:** 공개 소스 `5e84387`에 VM 삭제 NVRAM 보존 수정, `e028ef2`에 선택형 LXC Btrfs·저장소 identity·영구 Job 결과와 LXC 7 CPU 가중치가 반영됐습니다. 초기 `2.0.0` 태그는 ZFS 전용 LXC이며 현재 `main`과 설치 commit으로 구분합니다. 버전·Single Edge 범위는 유지합니다.
+**2026-09-15 공개 현황:** 공개 소스 스냅샷 [`22d6912`](https://github.com/HardcoreMonk/purecvisor/commit/22d6912fe5ee951cbc6c46e0da23e8f7971427a8)에 호스트 CPU·메모리 첫 self-healing 알림의 쿨다운 수정과 공개 UI 표면 게이트가 반영됐습니다. 공개판은 `2.0.0`과 Single Edge 범위를 유지합니다.
 
-지정 공개 소스 검증은 통과했지만 전체 소스 감사와 지원 환경 인증은 미완료이며, 전체 감사 판정은 `FAIL(미완료)`입니다. 회차별 결과와 GPU Passthrough 영상의 검증 범위는 [품질 게이트의 공개 현황](/ko/development/quality-gates/#228-공개-소스문서-현황)을 따릅니다.
+지정 공개 소스 검증은 통과했지만 전체 소스 감사와 지원 환경 인증은 미완료이며, 전체 감사 판정은 `FAIL(미완료)`입니다. 회차별 결과와 GPU Passthrough 영상의 검증 범위는 [품질 게이트의 공개 현황](/ko/development/quality-gates/#228-2026-09-15-공개-소스문서-현황)을 따릅니다.
 
 > **검증 운영 문서**: 개발 단계별 검증 기준은 [DEVELOPMENT_VERIFICATION_POLICY.md](DEVELOPMENT_VERIFICATION_POLICY.md)를 참조하세요.<br>
 이 문서는 `Level 1 로컬 코드 검증`부터 `Level 4 출시 게이트`까지의 공식 규칙을 정의합니다.
@@ -150,7 +153,7 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 
 #### 1.2.3 서비스 도메인
 
-- **Workload**: VM, LXC 컨테이너와 ZFS/Btrfs 저장소 처리, template과 GPU 연결
+- **Workload**: VM, LXC 컨테이너, template과 GPU 연결
 - **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
 - **Storage**: ZFS, snapshot, backup·restore, iSCSI와 cloud job
 - **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
@@ -170,12 +173,12 @@ PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 9개와 �
 - **Operations DB 2개**: `cloud_jobs.db`, `pcv_webpush.db`
 - **Desired state**: network, overlay, QoS, BPF와 backup 설정
 - **Virtualization**: libvirt, QEMU, KVM과 LXC
-- **Storage**: qcow2/raw, 선택형 ZFS, LXC Btrfs rootfs·snapshot, LIO와 open-iscsi
+- **Storage**: qcow2/raw, 선택형 ZFS, LIO와 open-iscsi
 - **Network host**: Linux bridge, nftables, dnsmasq, WireGuard, tc, eBPF, OVS와 OVN
 - **Host security**: Kernel LSM, bpffs, Suricata, systemd, journald, cgroups와 PSI
 - **Acceleration**: GPU, SR-IOV와 선택형 DPDK
 
-SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, LXC Btrfs rootfs·identity·복원 journal, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
+SQLite는 의도, 작업 상태와 증거를 보존하지만 libvirt domain, ZFS dataset, bridge, nftables, OVS·OVN과 bpffs의 actual state를 대신하지 않습니다.<br>
 DB 사이의 분산 트랜잭션이나 노드 간 복제도 제공하지 않으므로, 재시작과 복원 뒤에는 각 도메인의 reconcile과 실제 시스템 상태를 함께 확인해야 합니다.<br>
 DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정을 바꾸지 않는 audit-only 경계입니다.
 
@@ -392,9 +395,6 @@ router reservation을 사용할 수 없을 때만 아래 정적 Netplan 절차�
 
 ### 2.2 솔루션 설치
 
-Arch 계열 Omarchy의 의존성·native 빌드·최초 설치는 [2.10절](#210-arch-계열-omarchy-소스-컴파일-설치)을 따릅니다.
-이 절의 `apt`·`.deb`·Netplan 명령은 Ubuntu용입니다.
-
 #### 26.04 host 기본 준비
 
 > **인증서 생성 전 확정**
@@ -550,12 +550,12 @@ sudo apt update && sudo apt install -y \
 OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommends`를 사용했다면 필요한 기능의 패키지를 직접 설치합니다.
 일반 VM 복제, LXC와 iSCSI initiator는 해당 기능을 사용할 때 명시적으로 런타임 패키지를 설치합니다.
 
-> **ZFS는 선택형 런타임입니다 — ZFS backend를 선택한 LXC에는 필수**
+> **ZFS는 선택형 런타임입니다 — LXC 컨테이너 생성에는 필수**
 >
 > PureCVisor 데몬과 Web UI, REST API, CLI는 `zvol_pool`이나 ZFS volume이 없어도 시작하고 동작합니다.
 > VM 생성 요청에서 `storage_type`을 생략하면 설정된 ZFS dataset을 먼저 확인하고, 사용할 수 없으면 `[storage] image_dir`에 qcow2 파일 디스크를 생성합니다.
 > ZFS를 사용하지 않는 노드는 `zfsutils-linux`를 생략할 수 있지만 `image_dir`이 존재하고 쓰기 가능해야 하며 `qemu-img`를 사용할 수 있어야 합니다.
-> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 `storage_backend=zfs`인 LXC에는 ZFS가 필요합니다. 선택형 Btrfs LXC의 소스 버전·설정·검증 범위는 4.1절을 따릅니다.
+> `storage_type=zvol`을 명시한 VM 생성, ZFS snapshot·rollback·send/receive 기반 backup과 현재 ZFS dataset을 사용하는 LXC 경로에는 ZFS가 필요합니다.
 
 ```bash
 # 일반 VM 복제의 Guest reset
@@ -564,11 +564,8 @@ sudo apt install -y libguestfs-tools
 # LXC 컨테이너
 sudo apt install -y lxc lxc-utils
 
-# 선택: ZFS zvol·snapshot·backup 또는 ZFS backend의 LXC
+# 선택: ZFS zvol·snapshot·backup 또는 LXC를 사용하는 경우
 sudo apt install -y zfsutils-linux
-
-# 선택: Btrfs backend의 LXC 점검 도구
-sudo apt install -y btrfs-progs
 
 # OVS 오버레이 네트워크
 sudo apt install -y openvswitch-switch
@@ -769,7 +766,7 @@ iso_dirs = /data/iso,/var/lib/libvirt/images
 
 자동 감지에서 `zvol_pool`을 찾지 못하면 `image_dir`에 qcow2 디스크를 생성합니다.
 `storage_type=zvol`을 명시하면 폴백하지 않고 지정한 ZFS 부모 dataset이 없다는 오류로 요청을 종료합니다.
-ZFS 미사용 노드에서는 VM file disk와 명시적으로 선택한 Btrfs LXC를 사용할 수 있습니다. ZFS snapshot·rollback·send/receive backup과 기본 ZFS LXC에는 ZFS가 필요합니다. Btrfs LXC의 준비 조건은 4.1절을 따릅니다.
+따라서 ZFS 미사용 노드에서는 VM file disk를 사용할 수 있지만 ZFS snapshot·rollback·send/receive backup과 현재 LXC 생성 경로는 사용할 수 없습니다.
 
 ##### ZFS 기능을 사용하는 구성
 
@@ -1368,6 +1365,8 @@ OVN 구축 성공은 `ovn-nbctl` 설치 여부가 아니라 Northbound/Southboun
 `ovn-northd` 동기화, `ovn-controller` active, 로컬 Chassis 등록까지 모두 확인한
 상태를 뜻합니다. 단일 노드는 DB를 TCP로 공개하지 않고 로컬 Unix socket을 사용합니다.
 
+---
+
 ### 2.10 Arch 계열 Omarchy 소스 컴파일 설치
 
 Omarchy에서는 대상 호스트에서 PureCVisor를 직접 컴파일해 설치합니다.
@@ -1384,13 +1383,13 @@ Omarchy에서는 대상 호스트에서 PureCVisor를 직접 컴파일해 설치
 | 커널 | `7.2.3-arch1-3`, cgroup v2, KVM |
 | 컨테이너 | LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치 |
 | 빌드 | 대상 호스트의 GCC로 최적화·LTO 릴리스 전체 빌드, 최종 컴파일 경고 0 |
-| 제품 버전 | `2.0.0`, NVRAM 수정·Btrfs 구현 포함 소스 `e028ef2` |
+| 제품 버전 | `2.0.0`, 당시 검증 소스 `e028ef2` (Btrfs는 현재 main에서 제외) |
 
-초기 `2.0.0` 태그의 LXC는 ZFS 전용입니다. NVRAM 수정은 `5e84387`, 선택형 Btrfs는
-`e028ef2`부터 포함되므로 현재 공개 `main`을 받거나 필요한 수정을 포함한 commit을
-선택하고 `git rev-parse HEAD`를 기록합니다. 위 패키지 버전은 시험 당시 값이며 설치용
-고정 핀이 아닙니다. 실제 API·복구 검증 범위는 [Btrfs 실기 기록](operations/2026-09-16-lxc-btrfs-api-validation.md)과
-[NVRAM 수정 기록](operations/2026-09-16-vm-delete-nvram-handoff.md)을 따릅니다.
+현재 공개 `main`은 개발 main과 같은 ZFS 전용 LXC를 사용합니다. NVRAM 수정은
+유지하지만 과거 `e028ef2`의 Btrfs 기능은 포함하지 않습니다. 아래 절차는 현재 main의
+소스 빌드·file disk VM 설치에 맞췄으며, 지정 Arch 실기 결과는 당시 소스의 역사 근거입니다.
+현재 main의 Arch 전체 기능을 다시 인증한 결과는 아닙니다. `git rev-parse HEAD`를
+기록하고 LXC를 사용할 때는 별도로 ZFS 환경을 준비합니다.
 
 #### 호스트 준비와 Arch 패키지
 
@@ -1408,7 +1407,7 @@ sudo pacman -S --needed \
   base-devel git pkgconf ccache python nodejs npm \
   glib2 glib2-devel json-glib libsoup3 libvirt libvirt-glib lxc \
   sqlite openssl libcap libseccomp readline liburing libbpf libxml2 protobuf-c \
-  clang llvm bpf btrfs-progs \
+  clang llvm bpf \
   qemu-base edk2-ovmf swtpm \
   qemu-hw-display-virtio-gpu qemu-hw-display-virtio-gpu-pci qemu-hw-display-virtio-vga \
   dnsmasq nftables iproute2 wireguard-tools ca-certificates curl jq
@@ -1504,7 +1503,7 @@ readlink -f /usr/share/OVMF/OVMF_VARS_4M.fd
 교체하지 않으므로, 다른 파일이 있거나 패키지 경로가 바뀌면 먼저 원인을 확인합니다.
 이 설정은 **일반 UEFI**용입니다. Secure Boot 서명·키 등록까지 검증한 설정은 아닙니다.
 
-#### 최초 설치와 Btrfs 설정
+#### 최초 설치와 설정
 
 다음 명령은 저장소 루트에서 실행합니다. 기존 설정 또는 설치 바이너리가 있으면 중단합니다.
 
@@ -1549,11 +1548,6 @@ key = /etc/purecvisor/pki/node.key
 image_dir = /var/lib/libvirt/images
 iso_dirs = /var/lib/libvirt/images
 
-[container]
-storage_backend = btrfs
-lxc_path = /var/lib/purecvisor/lxc
-rootless = false
-
 [network]
 default_bridge = pcvnat0
 default_subnet = 10.78.0.1/24
@@ -1561,25 +1555,20 @@ default_ensure = 1
 firewall_integration = auto
 ```
 
-Omarchy라는 배포판 이름만으로 Btrfs를 가정하지 말고 **실제 `lxc_path`의 파일시스템**을
-확인합니다. 다음 경로가 Btrfs가 아니면 중단하고 root가 관리하는 실제 Btrfs 경로를
-준비해 `lxc_path`를 수정합니다. 이 절차는 디스크를 포맷하거나 기존 컨테이너를 변환하지 않습니다.
+LXC를 사용할 때는 2.2절과 4.1절의 ZFS 커널·도구·풀 전제를 먼저 충족합니다.
+호스트가 Btrfs 파일시스템이라는 사실만으로 현재 제품의 LXC를 사용할 수는 없습니다.
+file disk VM만 사용하는 최초 설치는 다음 런타임 준비를 계속합니다.
 
 ```bash
-sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
-findmnt -T /var/lib/purecvisor/lxc -o TARGET,SOURCE,FSTYPE
-test "$(stat -fc %T /var/lib/purecvisor/lxc)" = btrfs
-sudo btrfs filesystem show /var/lib/purecvisor/lxc
-
 sudo chown root:root /etc/purecvisor/daemon.conf
 sudo chmod 0600 /etc/purecvisor/daemon.conf
 sudo scripts/install-runtime-prereqs.sh --bpf-stage build/bpf
 ```
 
 runtime helper는 BPF manifest를 검증·설치하고 누락된 JWT 비밀값을 안전하게 생성합니다.
-VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. ZFS LXC·zvol·ZFS backup을
-사용할 때는 별도로 ZFS 커널·도구·풀을 준비합니다. Btrfs의 정지 clone·snapshot·restore와
-지원 제한은 4.1절을 따릅니다. 게스트 reset에는 별도의 `libguestfs` 도구도 필요합니다.
+VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. LXC·zvol·ZFS backup을
+사용할 때는 별도로 ZFS 커널·도구·풀을 준비합니다. 게스트 reset에는 별도의 `libguestfs`
+도구도 필요합니다.
 
 #### systemd 등록과 설치 확인
 
@@ -1828,20 +1817,6 @@ echo '{"jsonrpc":"2.0","method":"vm.delete.status","params":{"name":"web-prod"},
 ```
 
 응답 상태값: `pending` | `deleting` | `done` | `failed`
-
-**UEFI 삭제와 NVRAM 보존:**
-
-공개 소스 `5e84387`부터 `vm.delete`는 파일형 NVRAM을 보존한 채 libvirt 정의를 해제하고,
-주 디스크 삭제가 성공한 뒤 NVRAM을 정리합니다. 디스크 접근·삭제 실패 시 XML을 복원하고
-기존 NVRAM을 보존합니다. 마지막 NVRAM 정리만 실패하면 이미 삭제한 디스크를 복구한
-것으로 표시하지 않으며, audit `fail`과 오류에 남은 파일 경로를 보고합니다.
-파일 부재와 권한 오류를 구분하고, block/network NVRAM·`varstore`와 불명확한 XML은
-변경 전에 거부합니다. 최초 부팅 전 NVRAM 파일이 아직 없는 경우도 처리합니다.
-
-삭제 결과는 접수 응답·목록만으로 판정하지 않고 최종 상태, `vm.delete` audit,
-실제 domain·디스크·NVRAM을 대조합니다. 펌웨어 loader/template와 설치 ISO는 삭제 대상이
-아닙니다. 지정 Ubuntu·Arch 검증과 수동 정리가 필요한 실패 경계는
-[NVRAM 수정 인계](operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
 
 **이름 변경:**
 
@@ -2359,80 +2334,24 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ## 4. 컨테이너 관리
 
-PureCVisor는 LXC 컨테이너의 ZFS backend와 명시적으로 선택하는 Btrfs backend를 관리합니다.
+PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
 
 ### 4.1 컨테이너 생성
 
-초기 `2.0.0` 태그의 LXC 생성은 ZFS 전용입니다. 공개 소스
-[`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b)부터
-선택형 Btrfs backend가 구현되어 있으며, 기본값과 제품 버전은 `zfs`·`2.0.0`으로
-유지합니다. 새 태그나 버전 인상을 뜻하지 않으므로 설치한 소스 commit을 확인하세요.
-지정 Arch/Btrfs 호스트의 실제 API 통합 검증을 통과했으며 [Btrfs API 검증 기록](operations/2026-09-16-lxc-btrfs-api-validation.md)에
-결과를 별도로 기록합니다. 설계 계약은 [ADR-0058](adr/0058-lxc-storage-backend-identity.md)을 따릅니다.
-
-#### 기본 ZFS backend
-
-`[container] storage_backend=zfs`가 기본값입니다. 이 backend에는 사용 가능한 ZFS 풀,
-ZFS 커널 모듈과 `zfs` 명령이 필요합니다. `[storage] container_pool`은 컨테이너용
-부모 파일시스템 dataset이며 기본값은 `pcvpool/containers`입니다. 부모 dataset이 없으면
-생성 과정에서 만들기를 시도합니다. VM용 블록 볼륨 `zvol`을 별도로 만들 필요는 없습니다.
-
-#### 명시적인 Btrfs backend
-
-Btrfs를 사용할 때는 `daemon.conf`에 다음 값을 명시합니다.
-
-```ini
-[container]
-storage_backend = btrfs
-lxc_path = /var/lib/purecvisor/lxc
-rootless = false
-```
-
-`lxc_path`는 실제로 mount된 Btrfs 위의 절대 경로여야 합니다. 관리 디렉터리와
-상위 경로는 root가 관리하고, 관리 디렉터리는 그룹·다른 사용자가 쓸 수 없어야 하며
-symlink 경로는 허용하지 않습니다. LXC 런타임과 Btrfs 커널 지원을 준비하고,
-`btrfs-progs`로 파일시스템과 subvolume을 점검합니다. 이미 Btrfs인 경로를 선택한 뒤
-다음과 같이 확인할 수 있습니다. 이 명령은 파일시스템을 생성하거나 변환하지 않습니다.
+> **ZFS 필수 — 컨테이너 생성 전 확인**
+>
+> PureCVisor 2.0.0의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
+> ZFS 커널 모듈과 `zfs` 명령을 준비하고, `daemon.conf`의 `[storage] container_pool`을 해당 풀 아래의 컨테이너 부모 데이터셋 경로로 설정하세요. 기본값은 `pcvpool/containers`이며 부모 데이터셋이 없으면 생성 과정에서 만들기를 시도합니다.
+> 이 저장소는 파일시스템 데이터셋입니다. VM용 블록 볼륨 `zvol`을 별도로 만드는 절차는 필요하지 않습니다.
+> **LXC 패키지만 설치하거나 Btrfs·ext4 디렉터리만 준비한 상태에서는 현재 PureCVisor의 컨테이너 생성이 실패합니다.** 현재 Btrfs·일반 디렉터리 백엔드와 자동 폴백은 지원하지 않습니다.
+> ZFS 없이 사용할 수 있는 qcow2/raw VM 생성과 컨테이너 생성의 전제조건을 구분하세요.
 
 ```bash
-sudo install -d -o root -g root -m 0755 /var/lib/purecvisor/lxc
-findmnt -T /var/lib/purecvisor/lxc -o TARGET,FSTYPE,OPTIONS
-sudo btrfs filesystem show /var/lib/purecvisor/lxc
-```
-
-Btrfs 생성은 `lxc-create -B btrfs`를 사용합니다. `rootless=false`인 privileged
-컨테이너만 지원하며, 요청에서 `rootless=true`를 지정해도 거부합니다. 잘못된 backend 값,
-비Btrfs 경로와 식별자 불일치는 오류로 종료합니다. 일반 디렉터리 backend와 다른
-backend로의 자동 폴백은 없습니다. Btrfs LXC만 사용할 때 ZFS는 필요하지 않습니다.
-
-LXC 7의 cgroup v2에서는 `vcpu_count`를 상대 CPU 배분 가중치로 기록합니다.
-예를 들어 2는 `cpu.weight=200`이며 CPU 코어 수의 강제 상한을 뜻하지 않습니다.
-1의 가중치는 100이고 최대값은 10000입니다. v1·v2 CPU 설정이 모두 거부되면
-생성을 실패로 처리합니다. 실제 CPU 상한과 상대 가중치는 구분해서 확인하세요.
-
-Arch의 파일시스템은 설치자가 선택합니다. 조사한 Omarchy 시험 환경이 Btrfs였다는
-사실을 모든 Arch 설치에 적용하지 않습니다.
-
-#### 기존 컨테이너와 실패 복구
-
-각 컨테이너의 rootfs 밖 `purecvisor.storage`에는 backend와 실제 ZFS dataset 또는
-Btrfs filesystem UUID·rootfs subvolume UUID/ID를 기록합니다. 후속 작업은 이 기록과
-실제 저장소를 대조하며, 현재의 기본 backend나 pool 이름으로 다시 계산하지 않습니다.
-기본값 변경은 기존 컨테이너의 변환·이동이 아닙니다. marker 없는 기존 ZFS는 실제
-mountpoint와 dataset이 정확히 일치할 때만 호환하며, marker 없는 Btrfs를 자동 편입하지 않습니다.
-
-생성 실패 후 marker가 없는 디렉터리나 subvolume이 남으면 데이터를 보존하고 작업을
-거부합니다. 이름이나 현재 설정만으로 삭제 대상을 추측하지 않습니다. 오류·설정·mount와
-subvolume identity를 확보한 뒤 관리자가 생성 결과를 확인해야 하며, marker를 임의로
-작성하거나 경로를 재귀 삭제해서 성공 상태로 만들지 마세요.
-
-```bash
-# 설정한 backend로 생성 (기본값은 ZFS)
+# 기본 생성 (LXC + ZFS rootfs)
 pcvctl container create --name app-ctr --dist ubuntu --release noble
 
-# 생성 요청 후 반환된 job_id의 completed 상태를 확인하고 시작
+# 생성 후 바로 시작
 pcvctl container create --name web-ctr --dist ubuntu --release jammy
-# 아래 작업 결과 조회 절차로 완료를 확인한 뒤 실행
 pcvctl container start web-ctr
 ```
 
@@ -2441,17 +2360,12 @@ RPC 직접 호출:
 ```bash
 echo '{"jsonrpc":"2.0","method":"container.create","params":{
   "name": "app-ctr",
-  "image": "ubuntu:noble"
+  "dist": "ubuntu",
+  "release": "noble"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **비동기 작업 결과**: 생성·시작·중지·삭제·복제와 snapshot 생성·복원·삭제는 `status=accepted`와 `job_id`를 먼저 반환합니다. 접수는 완료가 아닙니다. 작업 worker의 실제 결과를 `GET /api/v1/jobs/<job_id>`의 `status=completed|failed`와 오류 `detail`, WebSocket `job.complete`, audit 기록으로 확인합니다. Web UI도 최종 job 결과를 기다립니다. 목록에 컨테이너가 보이는 것만으로 생성 성공을 판정하지 마세요.
-
-```bash
-JOB_ID="<accepted-response-job-id>"
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8080/api/v1/jobs/${JOB_ID}" | python3 -m json.tool
-```
+> **fire-and-forget**: 컨테이너 생성/시작/중지/삭제는 모두 fire-and-forget 패턴으로 즉시 응답합니다.
 
 ### 4.2 라이프사이클
 
@@ -2540,20 +2454,6 @@ Container: app-ctr (RUNNING)
 
 ### 4.6 컨테이너 스냅샷
 
-Btrfs snapshot은 정지된 privileged 컨테이너의 **rootfs만** 읽기 전용 subvolume으로
-저장합니다. 생성·복원·삭제 중에는 컨테이너 작업 lock을 사용합니다. nested subvolume,
-실제로 연결된 외부 mount, 설정된 외부 bind volume 또는 `lxc.mount.fstab`이 있으면
-복제·snapshot·복원을 거부합니다. 해당 데이터가 snapshot에 포함된다고 가정하지 마세요.
-
-복원은 현재 LXC config, owner와 image metadata를 보존하고 rootfs만 원자적으로 교체합니다.
-이전·새 rootfs identity를 가진 journal로 중단된 복원을 판별하며, 다음 저장소 변경 또는
-시작 전에 정지 상태와 lock 아래에서 복구합니다. 모호한 identity는 데이터를 보존하고
-오류로 남깁니다. 삭제는 관리 rootfs와 snapshot을 먼저 검증하고, 부분 실패 시 남은
-marker·삭제 기록을 이용해 같은 삭제 요청을 재시도합니다.
-
-Btrfs의 rootless 컨테이너, backend 간 migration, 다른 filesystem으로의 CoW 복제,
-컨테이너별 디스크 quota와 Btrfs send/receive 기반 제품 백업은 지원하지 않습니다.
-
 ```bash
 # 스냅샷 생성
 pcvctl container snap create app-ctr --name v1
@@ -2570,12 +2470,8 @@ pcvctl container snap delete app-ctr v1
 
 ### 4.7 컨테이너 복제
 
-복제는 원본에 기록된 backend를 사용합니다. Btrfs는 정지된 원본에서
-`lxc-copy -B btrfs -s`로 CoW 복제하며, 대상은 새 저장소 identity와 원본의 image
-metadata를 갖습니다. owner는 원본의 값을 복사하지 않고 복제 요청자로 기록합니다.
-
 ```bash
-# 원본 backend로 복제 (Btrfs는 정지 상태의 CoW clone)
+# CoW 클론 (lxc-copy, ZFS 기반)
 pcvctl container clone app-ctr --name app-ctr-clone
 ```
 
@@ -5529,23 +5425,91 @@ noVNC는 반드시 `/ui/vendor/novnc/novnc.esm.js`에서 로드한다. `app.bund
 
 ## 14. REST API
 
-### 14.1 기본 정보
+JWT Bearer 인증과 RBAC를 사용해 Single Edge의 VM, 컨테이너, 스토리지, 네트워크를 자동화한다. 먼저 인증 계약을 확인한 뒤 필요한 예제를 복사해 시작한다.
+
+### 14.1 개요와 기본 계약
 
 | 항목 | 값 |
 |------|-----|
-| Base URL | `http://127.0.0.1:8080/api/v1` |
-| 인증 | `Authorization: Bearer {JWT}` |
+| Base URL | `http://HOST/api/v1` |
+| 포트 | HTTP `80` / HTTPS `443` |
+| REST 엔드포인트 | 229+ |
+| JSON-RPC 메서드 | 304 (`POST /api/v1/rpc`) |
+| WebSocket | `/api/v1/ws/events` |
+| 인증 | `Authorization: Bearer {JWT}` · JWT HS256 |
 | CSRF | 쿠키 세션 미사용. `X-CSRF-Token` 헤더 없음 |
 | Content-Type | `application/json` |
 | 압축 | gzip (`Accept-Encoding: gzip`) |
 | CORS | 화이트리스트 기반 |
-| ETag/304 (v1.0) | 조건부 캐싱 (`If-None-Match`) |
-| 페이지네이션 (v1.0) | `X-Total-Count` + `Link: <url>; rel="next"` |
-| Correlation ID (v1.0) | 요청/응답 UUID (`X-Correlation-Id`) |
+| 성공 응답 | `{"data": ...}` |
+| 오류 응답 | `{"error": {code, message}}` |
+| 캐시 | ETag + `max-age=5` (GET) / `no-store` (POST) |
+| 페이지네이션 | `X-Total-Count` + `Link rel="next/prev"` |
+| Correlation ID | 요청/응답 UUID (`X-Correlation-Id`) |
 
-### 14.2 per-endpoint Rate Limit (v1.0)
+REST와 JSON-RPC passthrough, WebSocket은 같은 인증 경계를 사용한다. `HOST`는 현재 Single Edge 노드 주소로 바꿔 사용한다.
 
-엔드포인트별로 Rate Limit을 차등 적용:
+### 14.2 인증과 토큰
+
+PureCVisor REST API는 쿠키 세션 대신 `Authorization` header의 Bearer token을 사용한다.
+
+#### 14.2.1 로그인
+
+설정된 관리자 계정으로 access token을 발급한다.
+
+```bash
+curl -X POST /api/v1/auth/token \
+  -d '{"username":"admin","password":"<configured-admin-password>"}'
+```
+
+#### 14.2.2 토큰 사용
+
+모든 보호된 요청에 Bearer token을 전달한다.
+
+```bash
+curl -H "Authorization: Bearer eyJ..." \
+  /api/v1/vms
+```
+
+#### 14.2.3 쓰기 작업
+
+POST 작업도 같은 Authorization header와 역할 검사를 사용한다.
+
+```bash
+curl -X POST \
+  -H "Authorization: Bearer eyJ..." \
+  /api/v1/vms/web-prod/start
+```
+
+access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"eyJ..."}`를 전송해 갱신한다.
+
+### 14.3 RBAC 역할
+
+| 역할 | 레벨 | 권한 |
+|------|------|------|
+| `VIEWER` | 0 | 읽기 전용(GET). 자신의 브라우저 Push 구독 등록·해지·조회 허용 |
+| `OPERATOR` | 1 | VM/컨테이너 운영. VM action은 생성자 범위 |
+| `ADMIN` | 2 | 전체 관리자 |
+
+> 내장 기본 비밀번호가 없다. 첫 로그인 전 `daemon.conf` 또는 `PURECVISOR_ADMIN_PASSWORD`로 bootstrap 비밀번호를 설정한다.
+>
+> `OPERATOR`는 libvirt domain metadata의 owner가 본인인 VM에만 시작, 중지, 삭제, 스냅샷, VNC, 일괄 작업을 수행할 수 있다.
+
+### 14.4 보안
+
+| 항목 | 계약 |
+|------|------|
+| 속도 제한 | 600 IP / 1200 유저 / 60 인증 |
+| JWT 알고리즘 | HS256 |
+| JWT 만료 | 900s (15min) + refresh 7d |
+| CORS | 화이트리스트 |
+| ETag | GET 응답 조건부 캐싱(304) |
+| JWT IP 바인딩 | 선택적 클라이언트 IP 검증 |
+| 테넌트 오버레이 암호화 | per-VM WireGuard netns (fail-closed) |
+| hidepid | `/proc hidepid=2` 하드닝(ADR-0028) |
+| Suricata | IDS/IPS 심층 패킷 검사(D13) |
+
+#### 14.4.1 엔드포인트별 Rate Limit
 
 | 엔드포인트 | 제한 |
 |-----------|------|
@@ -5553,109 +5517,222 @@ noVNC는 반드시 `/ui/vendor/novnc/novnc.esm.js`에서 로드한다. `app.bund
 | `GET /metrics` | 3,600/시간 |
 | `GET /vms` | 600/분 |
 | `POST /vms` | 60/분 |
-| 기타 | 600/분 (IP 기본) |
+| 기타 | 600/분(IP 기본) |
 
-### 14.3 per-method 타임아웃 (v1.0)
+#### 14.4.2 메서드별 타임아웃
 
 | 유형 | 타임아웃 |
 |------|---------|
-| 읽기 (GET) | 8초 |
-| 쓰기 (POST/PUT) | 30초 |
-| 장기 작업 (migrate, backup) | 60초 |
+| 읽기(GET) | 8초 |
+| 쓰기(POST/PUT) | 30초 |
+| 장기 작업(migrate, backup) | 60초 |
 
-### 14.4 주요 엔드포인트
+### 14.5 엔드포인트와 응답
 
-#### 인증
-
-```bash
-# 토큰 발급
-curl -s -X POST http://127.0.0.1:8080/api/v1/auth/token \
-  -H "Content-Type: application/json" \
-  -d '{"username":"admin","password":"<configured-admin-password>"}'
-# → {"access_token":"eyJ...", "refresh_token":"eyJ..."}
-
-# 토큰 갱신
-curl -s -X POST http://127.0.0.1:8080/api/v1/auth/refresh \
-  -d '{"refresh_token":"eyJ..."}'
-```
-
-#### VM 관리
-
-```bash
-# VM 목록
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/vms
-
-# VM 생성
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name":"web-prod",
-    "vcpu":4,
-    "memory_mb":8192,
-    "disk_size_gb":50,
-    "os_variant":"ubuntu24.04",
-    "storage_type":"zvol"
-  }' http://127.0.0.1:8080/api/v1/vms
-
-# VM 시작/중지/삭제
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/vms/web-prod/start
-
-curl -s -X POST ... http://127.0.0.1:8080/api/v1/vms/web-prod/stop
-curl -s -X DELETE ... http://127.0.0.1:8080/api/v1/vms/web-prod
-
-# VM 삭제 상태 확인 (비동기)
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/vms/web-prod/delete-status
-```
-
-#### 컨테이너
-
-```bash
-# 목록
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/containers
-
-# 생성
-curl -s -X POST -H "Authorization: Bearer $TOKEN" \
-  -H "Content-Type: application/json" \
-  -d '{"name":"nginx-ct","image":"ubuntu:24.04"}' \
-  http://127.0.0.1:8080/api/v1/containers
-```
-
-#### 클러스터
+| 영역 | 경로 | 용도·응답 |
+|------|------|-----------|
+| 인증 | `POST /auth/token`, `POST /auth/refresh` | access/refresh token 발급과 갱신 |
+| VM | `GET/POST /vms`, `/vms/{name}/start`, `/stop`, `DELETE /vms/{name}` | 목록·생성·수명주기. 삭제 상태는 `GET /vms/{name}/delete-status` |
+| 컨테이너 | `GET/POST /containers`, `/containers/{name}/exec` | 목록·생성·명령 실행 |
+| 모니터링 | `GET /host/metrics`, `/processes`, `/alerts` | 호스트 메트릭·프로세스·알림 히스토리 |
+| Prometheus | `GET /metrics` | 인증 없는 Prometheus 메트릭 |
+| Health | `GET /health` | 인증 없는 심층 프로브. `status`와 `libvirt`, `etcd`, `disk`, `audit_db`, `tls`, `capabilities` 하위 상태 반환 |
 
 Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 마이그레이션 REST 절차를 운영 표면으로 제공하지 않는다. 관련 역사 기록은 `docs/adr/`와 Multi 범위 문서에서만 확인한다.
 
-#### 모니터링
+### 14.6 curl 예제
+
+`HOST`와 `TOKEN`을 현재 Single Edge 환경의 값으로 바꿔 실행한다.
+
+#### 14.6.1 VM 목록
 
 ```bash
-# 호스트 메트릭
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/host/metrics
-
-# 프로세스 목록
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/processes
-
-# 알림 히스토리
-curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/alerts
-
-# Prometheus 메트릭 (인증 불필요)
-curl -s http://127.0.0.1:8080/api/v1/metrics
+  http://HOST/api/v1/vms | jq
 ```
 
-#### Health
+#### 14.6.2 VM 생성
 
 ```bash
-# 심층 프로브 (인증 불필요)
-curl -s http://127.0.0.1:8080/api/v1/health
-# → {"status":"ok","subsystems":{
-#     "libvirt":"ok","etcd":"ok","disk":"ok",
-#     "audit_db":"ok","tls":"ok","capabilities":{...}
-#   }}
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"name":"web","vcpu":2,"memory_mb":2048,"disk_size_gb":20}' \
+  http://HOST/api/v1/vms
+```
+
+#### 14.6.3 스냅샷 생성
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"snap_name":"backup-1"}' \
+  http://HOST/api/v1/vms/web/snapshot/create
+```
+
+#### 14.6.4 컨테이너 실행
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"command":"hostname -I"}' \
+  http://HOST/api/v1/containers/app-ctr/exec
+```
+
+#### 14.6.5 클라우드 임포트(니어라이브)
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"name":"web","ami_id":"ami-0abc","mode":"near-live"}' \
+  http://HOST/api/v1/vms/web/import-ec2
+```
+
+#### 14.6.6 WebSocket 이벤트
+
+```bash
+wscat -c "ws://HOST/api/v1/ws/events?token=$TOKEN"
+```
+
+### 14.7 브라우저 푸시 (SP2b)
+
+> 구독은 3단계다. `GET /push/vapid`로 서버 공개키를 받고, 브라우저가 만든 `PushSubscription.toJSON()`을 `POST /push/subscribe`로 올리고, `POST /push/unsubscribe`로 해지한다. 내 구독은 `GET /push/mine`으로 확인한다.
+>
+> 소유자는 호출자 신원으로 고정된다. `VIEWER`도 자기 구독은 등록·해지·조회할 수 있지만 전체 명단, VAPID 회전, 테스트 발송은 `ADMIN` 전용이다. 발송은 `daemon.conf` `[webpush]`의 `enabled`, `min_severity(warn|crit)`, `contact`가 결정한다.
+>
+> iOS Safari는 이 화면을 홈 화면에 PWA로 설치한 경우에만 푸시를 받는다.
+
+#### 14.7.1 VAPID 공개키 조회
+
+요청:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://HOST/api/v1/push/vapid
+```
+
+응답:
+
+```json
+{"data":{"key":"BN1nZq...(base64url)"}}
+```
+
+#### 14.7.2 구독 등록
+
+요청:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/cXY..",
+       "keys":{"p256dh":"BN1n..","auth":"k9Xz.."}}' \
+  http://HOST/api/v1/push/subscribe
+```
+
+응답:
+
+```json
+{"data":{"status":"subscribed"}}
+```
+
+#### 14.7.3 구독 해지
+
+요청:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/cXY.."}' \
+  http://HOST/api/v1/push/unsubscribe
+```
+
+응답:
+
+```json
+{"data":{"status":"unsubscribed"}}
+```
+
+#### 14.7.4 구독 명단 (ADMIN)
+
+요청:
+
+```bash
+curl -s -H "Authorization: Bearer $TOKEN" \
+  http://HOST/api/v1/push/subscriptions
+```
+
+응답:
+
+```json
+{"data":{"subscriptions":[
+  {"username":"admin","endpoint":"https://fcm.googleapis.com/…",
+   "created_at":1785000000,"last_ok_at":1785003600,"fail_count":0}]}}
+```
+
+#### 14.7.5 VAPID 회전 (ADMIN — 전 구독 폐기)
+
+요청:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  http://HOST/api/v1/push/vapid/rotate
+```
+
+응답:
+
+```json
+{"data":{"revoked":3,"key":"BJ7pQw...(new)"}}
+```
+
+#### 14.7.6 테스트 발송 (ADMIN)
+
+요청:
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -d '{"username":"admin"}' \
+  http://HOST/api/v1/push/test
+```
+
+응답:
+
+```json
+{"data":{"status":"queued"}}
+```
+
+### 14.8 2.0 RPC 예제 (RPC 전용)
+
+> 테넌트 오버레이, QoS, Suricata, 트레이스 네임스페이스는 RPC 전용이다. 전용 REST 경로, CLI, UI 페이지가 없으며 `POST /api/v1/rpc` JSON-RPC passthrough로만 호출한다.
+
+#### 14.8.1 테넌트 암호화 오버레이 생성
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"tenant_overlay.create","params":{"tenant":"acme"},"id":"1"}' \
+  http://HOST/api/v1/rpc
+```
+
+#### 14.8.2 테넌트 QoS 설정
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"qos.tenant.set","params":{"tenant":"acme","min_mbps":100,"max_mbps":1000},"id":"1"}' \
+  http://HOST/api/v1/rpc
+```
+
+#### 14.8.3 Suricata IPS 활성화
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"suricata.ips.enable","params":{},"id":"1"}' \
+  http://HOST/api/v1/rpc
+```
+
+#### 14.8.4 트래픽 트레이스 시작
+
+```bash
+curl -X POST -H "Authorization: Bearer $TOKEN" \
+  -H "Content-Type: application/json" \
+  -d '{"jsonrpc":"2.0","method":"debug.trace.start","params":{"timebox_sec":30,"tenant":"acme"},"id":"1"}' \
+  http://HOST/api/v1/rpc
 ```
 
 ---
@@ -5950,7 +6027,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | 키 | 기본값 | 설명 |
 |----|--------|------|
 | `zvol_pool` | `pcvpool/vms` | ZFS zvol 풀 경로 |
-| `container_pool` | `pcvpool/containers` | ZFS backend의 신규 컨테이너 부모 dataset |
+| `container_pool` | `pcvpool/containers` | 컨테이너 ZFS 데이터셋 |
 | `image_dir` | `/var/lib/libvirt/images` | qcow2 저장 경로 |
 | `iso_dirs` | `/pcvpool/iso,/var/lib/libvirt/images,/iso` | ISO 검색 경로 (CSV) |
 
@@ -5958,9 +6035,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 
 | 키 | 기본값 | 설명 |
 |----|--------|------|
-| `storage_backend` | `zfs` | 신규 컨테이너 backend: `zfs` 또는 명시적 `btrfs`. 기존 객체를 변환하지 않음 |
-| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 관리 경로. Btrfs 선택 시 root가 관리하는 실제 Btrfs 경로 |
-| `rootless` | `false` | 기본 user namespace 생성 여부. Btrfs는 `false`만 지원 |
+| `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 루트 경로 |
 
 #### [cluster]
 
@@ -6231,25 +6306,26 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 
 ### 18.6 프로젝트 통계
 
-다음은 2026-09-16 공개 구현 `e028ef2`의 추적 파일과 `Makefile`, `make check-rbac`를
-대조한 스냅샷입니다. 시험 결과는 소스 회차별로 22.8절과 각 운영 인계에서 구분합니다.
+다음 수치는 2026-09-15 공개 소스 `22d6912`가 포함된 `main`의 추적 파일과
+`Makefile`, `make check-rbac`를 대조한 스냅샷입니다. 테스트 통과 수는 같은 날 공개 소스
+검증 회차의 기록이며, 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
 
-| 항목 | 2026-09-16 기준 |
+| 항목 | 2026-09-15 기준 |
 |------|----------------|
 | C 표준 | `-std=gnu23` |
 | 에디션·버전 | Single Edge · `2.0.0` |
 | RPC 등록/정책 | RPC 307건, 정책 매핑 252건, 조회성 VIEWER 기본 73건 (`make check-rbac`) |
-| C/H 소스 | `src/` 아래 C 157개, 헤더 144개, 총 190,653행 (공백 포함) |
+| C/H 소스 | `src/` 아래 C 156개, 헤더 143개, 총 189,427행 (공백 포함) |
 | Web UI | `ui/modules/*.js` 30개, 추적 UI 파일 64개 |
 | 테스트 파일 | `tests/` C 112개, `tests/integration/` 111개, `tests/ui/*.test.mjs` 59개 |
 | 공개 문서 사이트 | 21개 운영 가이드 장 + DB 아키텍처, 8개 분류·22개 문서 |
-| 구현 검증 기록 | `e028ef2`의 `make test`·release·`check-all` 통과, 지정 Arch/Btrfs 실제 API 결과는 22.8절 참조 |
-| 계약 게이트 | `make check-all` 직접 의존성 40개. `check-lxc-storage`는 `check-public-comments` 아래 포함 |
+| 공개 소스 검증 기록 | C 1,479 PASS·14 SKIP, audit startup 5 PASS, UI 512 PASS·0 SKIP |
+| 계약 게이트 | `make check-all` 40개 — 정확한 목록은 Makefile 의존성과 22.4절 |
 | 운영 인증 경계 | 지정 시험 통과와 전체 감사·지원 환경 인증은 별도이며 22.8절 참조 |
 
-파일 수는 `git ls-files`의 경로·확장자로, C/H 행 수는 해당 추적 파일의 전체 행으로 집계합니다.
-등록 테스트·실행 통과·파일 수는 서로 다른 값입니다. 과거 2026-08-31·2026-09-15
-시험 수치는 각 날짜의 기록이며 이번 문서 변경에서 전체 시험을 재실행했다는 뜻은 아닙니다.
+파일 수는 `git ls-files`의 해당 경로·확장자로 집계합니다. 등록 테스트 수·실행 통과 수와
+소스 파일 수는 서로 다른 값입니다. 과거 2026-08-31 C 1,375/1,375·게이트 38/38 기록은
+22.7절의 과거 회차와 함께 읽습니다.
 
 ---
 
@@ -6273,7 +6349,6 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 |------|------------|-----------|
 | 처음 빌드한다 | 2장 설치 및 환경 구성 | 21장 아키텍처 리팩토링, 22장 품질 게이트 |
 | VM 기능을 바꾼다 | 3장 VM 관리 | [ADR-0022](adr/0022-vm-create-storage-location-contract.md), [ADR-0023](adr/0023-vm-clone-beta-safety-guard.md), `tests/test_vm_clone_plan.c` |
-| LXC 저장소를 바꾼다 | 4장 컨테이너 관리 | [ADR-0058](adr/0058-lxc-storage-backend-identity.md), `src/modules/lxc/lxc_storage.c`, `make check-lxc-storage` |
 | REST/API를 바꾼다 | 14장 REST API | `src/api/rest_server.c`, `src/api/dispatcher.c`, `scripts/verify_api_consistency.sh` |
 | 권한을 바꾼다 | 10장 보안 | `make check-rbac`, `docs/adr/0019-rbac-uds-bypass-policy.md` |
 | Web UI를 바꾼다 | 13장 Web UI | `ui/modules/endpoints.js`, `scripts/bundle-ui.sh`, `node --check ui/app.bundle.js`, 공개 URL route smoke |
@@ -6835,28 +6910,9 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
-현행화 기준은 **2026-09-16 공개 소스 `e028ef2`**입니다. 제품 버전은 `2.0.0`이며
-초기 `2.0.0` 태그와 이후 `main`을 설치한 commit으로 구분합니다.
+> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
-| 항목 | 공개 근거와 확인 범위 |
-|---|---|
-| 현재 제품 소스 | [`e028ef2`](https://github.com/HardcoreMonk/purecvisor/commit/e028ef2bbd79cf25185f5f1be80c3b9d224a598b): 기본 ZFS·명시 선택 Btrfs LXC, 객체별 실제 저장소 identity, 정지 rootfs 복원, 영구 Job·snapshot 요청자 audit, LXC 7 CPU 가중치 |
-| VM 삭제 수정 | [`5e84387`](https://github.com/HardcoreMonk/purecvisor/commit/5e84387fac076b5e4deb91a6adda94fefd055d3c): 디스크 삭제 성공까지 파일형 NVRAM 보존. 지정 Ubuntu worker 실기와 Arch 설치 서비스 API 실기 각 5개 통과. Ubuntu 운영 daemon은 교체하지 않음 |
-| Btrfs 실기 | Omarchy 4.0.3·Arch, kernel `7.2.3-arch1-3`, LXC `7.0.0-2`, btrfs-progs `7.1-1`, ZFS 미설치. API 생성·guest 부팅·파일 영속화·CoW 복제·snapshot·복원·거부·기본값 변경 후 동작·정리 통과 |
-| 복구·완료 관측 | 실제 Btrfs에 구성한 교환 전·후 journal 복구와 삭제 재시도 통과. snapshot 성공·거부·삭제의 terminal Job, 각 1개 WS 완료·요청자 audit 일치. 프로세스 강제 종료나 정전 시험은 아님 |
-| 구현 검증 | `e028ef2`의 `make test`, `make -j1 check-all` 40개와 release 빌드 통과. `check-lxc-storage`의 저장소 24개·반사실, driver 7그룹, snapshot audit 12조합 통과. 실제 guest 시험과 격리 회귀 수치를 합산하지 않음 |
-| 문서 게시 | [Btrfs 가이드 Pages 실행](https://github.com/HardcoreMonk/purecvisor/actions/runs/35012978025) 성공. 현재 문서 전체 대조 범위는 [문서 현행화 인계](operations/2026-09-16-public-documentation-refresh-handoff.md)에서 추적 |
-| 남은 범위 | Btrfs rootless·quota·send/receive 제품 백업·자동 migration은 미지원. Ubuntu ZFS 전체 실기 회귀·host reboot·정전·ENOSPC·장시간 안정성·모든 환경 인증은 별도 |
-
-원시 증거의 요약·해시는 [Btrfs API 검증 인계](operations/2026-09-16-lxc-btrfs-api-validation.md)와
-[NVRAM 수정 인계](operations/2026-09-16-vm-delete-nvram-handoff.md)를 따릅니다.
-이번 문서 변경은 제품 실기 재실행이나 전체 감사 완료를 뜻하지 않습니다.
-
-#### 이전 공개 검증 회차 — 2026-09-15
-
-다음은 `22d6912`의 당시 결과입니다. 이후 Btrfs 소스에서 모든 UI·전체 메모리 검사를
-같은 수만큼 다시 통과했다는 뜻이 아닙니다.
-
+#### 2026-09-15 검증 기록
 
 | 항목 | 공개 근거와 확인 범위 |
 |---|---|
@@ -6875,4 +6931,4 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ---
 
-> PureCVisor v2.0.0 운영 가이드 — 공개 범위 21개 장, 마지막 장 번호 22.
+> PureCVisor v2.0.0 Complete Guide — 22장 끝.

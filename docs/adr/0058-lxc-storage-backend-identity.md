@@ -1,8 +1,12 @@
 # ADR-0058: LXC 저장소 backend와 실제 identity 고정
 
-- 상태: Verified
+- 상태: Archived
 - 날짜: 2026-09-16
 - 승인 근거: native LXC/Btrfs 검증 후 사용자의 다음 단계 구현 승인
+
+2026-10-02 사용자의 개발 main 정합화 요청에 따라 공개 전용 Btrfs 구현을 현재 main에서
+제외했다. 아래 결정·검증은 `e028ef2` 당시의 역사 기록이며 현재 지원 계약이 아니다.
+현재 LXC는 ZFS 전용이다. [정합화 인계](../operations/2026-10-02-public-main-sync-handoff.md)를 따른다.
 
 ## 맥락
 

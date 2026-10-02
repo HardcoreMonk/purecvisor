@@ -3,6 +3,14 @@
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 
+## 2026-10-02 개발 main 소스 정합화
+
+- 공개 제품 로직을 개발 main의 공개 허용 범위와 맞추고 자체 소스 주석·소스맵 제외 정책을 재검증했다.
+- 개발 main에 없는 공개 전용 LXC Btrfs, 저장소 identity 확장과 관련 Job·시험 확장을 제외했다. 현재 LXC는 ZFS 전용이다.
+- 기존 NVRAM 삭제·롤백 보호와 첫 알림 쿨다운 시정, 내부 Monitoring 제외 및 공개 검사 적응을 유지했다.
+- 미병합 ISO·Windows·UI 후속 브랜치는 포함하지 않았다. 실행 중 서비스·운영 컨테이너·데이터는 변경하지 않았다.
+- 과거 Btrfs 소스·ADR·지정 실기 기록은 보존하며 현재 지원 계약과 구분한다. 새 버전이나 태그는 발급하지 않았다.
+
 ## 2026-09-16 선택형 LXC Btrfs와 공개 문서 현행화
 
 - 공개 소스 `e028ef2`부터 `[container] storage_backend=btrfs`를 명시해 ZFS 없이

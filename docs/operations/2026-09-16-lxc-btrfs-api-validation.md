@@ -1,5 +1,7 @@
 # 선택형 LXC Btrfs API 검증 인계
 
+> **현재 적용 제외:** 2026-10-02 개발 main 정합화로 공개 전용 Btrfs를 현재 main에서 제외했다. 아래 내용은 당시 소스·검증·배포의 역사 기록이다. [정합화 인계](2026-10-02-public-main-sync-handoff.md)를 따른다.
+
 > 검증일: 2026-09-16 KST
 > 범위: [ADR-0058](../adr/0058-lxc-storage-backend-identity.md)의 선택형 컨테이너 Btrfs 구현
 > 판정: 지정 Arch/Btrfs 호스트의 API·복구·관측성·정리 검증 통과
