@@ -1,8 +1,5 @@
 # PureCVisor Single Edge
 
-> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
-
-
 > 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
@@ -189,20 +186,7 @@ node --check ui/app.bundle.js
 python3 scripts/check_xss.py
 ```
 
-Single Edge 공개판 경계를 바꾼 경우:
 
-```bash
-make check-single-ui-surface
-bash tests/integration/test_single_backend_build_boundaries.sh
-bash tests/integration/test_single_ovn_ovs_layout.sh
-```
-
-공개 소스의 주석 제거 정책을 확인할 때:
-
-```bash
-make check-public-comments
-git diff --check
-```
 
 Web UI 시각 규격은 루트 [DESIGN.md](DESIGN.md)를 기준으로 관리합니다. <br> UI 모듈, Service Worker, vendor 자산, `ui/samples/` 프리뷰를 바꾼 경우 공개 배포 전 외부 런타임 참조가 남지 않았는지 확인합니다.
 
