@@ -73,7 +73,7 @@
   
                    
                                                              
-                                                                      
+
                                                                      
                                                                 
                                                     
@@ -354,45 +354,6 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
                               const gchar *target_node,
                               const gchar *ssh_user,
                               GError     **error);
-
-                                                          
-
-   
-                        
-                          
-                                                                                       
-                                                   
-                                                                      
-                           
-  
-                                                    
-                                 
-  
-      
-                                                        
-                                                             
-                                      
-                                                            
-                   
-  
-                                           
-                                                                    
-  
-                             
-  
-                                                      
-                                                         
-  
-                                                                                
-                                             
-                                                              
-                                                   
-   
-gboolean pcv_backup_export_s3(const gchar *vm_name,
-                               const gchar *s3_endpoint,
-                               const gchar *s3_bucket,
-                               const gchar *s3_key_prefix,
-                               GError     **error);
 
                                                      
 

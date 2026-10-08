@@ -132,8 +132,8 @@ window.PCV.config = {
                                                                      
                                                           
                                            
-  RPC_COUNT: 306,
-  REST_COUNT: 230,
+  RPC_COUNT: 298,
+  REST_COUNT: 222,
   METRICS_COUNT: 155
 };
 Object.defineProperty(window.PCV, 'auth', {
@@ -146,7 +146,7 @@ Object.defineProperty(window.PCV, 'auth', {
   configurable: true
 });
 
-                                                                                                                                                                  
+
 
                                   
                                    
@@ -1920,8 +1920,8 @@ requestBrowserNotif();
                                                   
                                                                      
 
-                                                                   
-                                                                          
+
+
 
                                               
 CMD_ACTIONS.push(
@@ -1929,7 +1929,6 @@ CMD_ACTIONS.push(
   { icon: 'ci-settings', label: 'Config Management', action: () => window.navigateTo('config-mgmt') },
                                                     
   { icon: 'ci-file-document', label: 'Import OVA', role: 'operator', action: () => showImportOva() },
-  { icon: 'ci-cloud', label: 'Cloud Migration', action: () => window.navigateTo('cloud-migration') },
   { icon: 'ci-bell', label: 'Notifications', action: () => toggleNotifCenter() }
 );
 
@@ -1978,7 +1977,6 @@ if (!window._navTabsWrapped) {
         'apimgmt': _L('API 관리', 'API Management'),
         'templates': _L('템플릿', 'Templates'),
         'config-mgmt': _L('설정 관리', 'Configuration Management'),
-        'cloud-migration': _L('클라우드 마이그레이션', 'Cloud Migration')
       };
       var label = tabLabels[n] || n.replace(/-/g, ' ').replace(/\b\w/g, function(c) { return c.toUpperCase(); });
       return window._pcvOrigNavigateTo(n, {

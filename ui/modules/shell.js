@@ -83,7 +83,6 @@ function NAV_SECTIONS() {
       { id: 'pool-info', ko: '커넥션 풀', en: 'Connection Pool', ico: 'ci-chart-line' },
       { id: 'gpu', ko: 'GPU 장치', en: 'GPU Devices', ico: 'ci-desktop-tower' },
       { id: 'topology', ko: '토폴로지', en: 'Topology', ico: 'ci-chart-line' },
-      { id: 'cloud-migration', ko: '클라우드 마이그레이션', en: 'Cloud Migration', ico: 'ci-cloud' },
       { id: 'host', ko: '호스트 상태', en: 'Host Health', ico: 'ci-monitor' } ] },
     { label: L('관제', 'Monitoring'), items: [
       { id: 'mon-overview', ko: '운영 개요', en: 'Overview', ico: 'ci-chart-line' },

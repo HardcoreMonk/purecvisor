@@ -1,5 +1,7 @@
 # 개발 단계별 검증 규칙
 
+> **현재 범위(2026-10-08):** AWS 수동 이관·S3 백업을 제거했다. OVA·로컬 백업·일반 VM/Job을 유지한다. 과거 Cloud 기능 검증은 역사 기록이며 현재 지원 절차가 아니다. [현재 공개 인계](operations/2026-10-08-public-source-refresh-handoff.md)를 따른다.
+
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 

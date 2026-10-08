@@ -63,7 +63,7 @@
  
                                              
                                                                  
-                                                                      
+
                                                                            
                                                                      
                                                                       
@@ -83,7 +83,7 @@
   #include <abstractions/base>                                                           
   #include <abstractions/nameservice>                                                            
   #include <abstractions/openssl>                        
-  #include <abstractions/ssl_certs>                                 
+  #include <abstractions/ssl_certs>
 
                                                                   
                              
@@ -101,7 +101,7 @@
                                                                              
   network unix stream,                                                                     
   network unix dgram,
-  network inet  stream,                                                
+  network inet  stream,
   network inet6 stream,
   network inet  dgram,                           
   network inet6 dgram,
@@ -140,7 +140,7 @@
                                                                     
   /var/lib/purecvisor/            rw,
   /var/lib/purecvisor/**          rwk,                                                       
-                                                                                         
+
                                                                                              
   /var/log/purecvisor/            rw,
   /var/log/purecvisor/**          rw,                  
@@ -294,8 +294,6 @@
   /{usr/,}bin/lspci               Ux,
   /{usr/,}bin/systemctl           Ux,
 
-                                                                        
-  /{usr/,usr/local/}bin/aws       Ux,
 
                                                                         
                                                              

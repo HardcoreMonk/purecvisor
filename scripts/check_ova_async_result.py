@@ -90,7 +90,7 @@ def main() -> int:
         "worker context copies job_id": "ctx->job_id = g_strdup(job_id);" in section,
         "worker updates the accepted job": "pcv_job_set_result(ctx->job_id" in section,
 
-        "worker broadcasts completion": 'pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.export.ova"' in section,
+        "worker broadcasts completion": 'pcv_ws_broadcast_job_complete_tracked_mt(ctx->job_id, "vm.export.ova"' in section,
         "worker records actual result once": worker.count("_ova_export_record_result(ctx, audit_ok") == 1,
         "worker return follows actual result": "g_task_return_boolean(task, audit_ok)" in worker,
         "qemu-img failure reaches cleanup": "qemu-img convert failed" in worker and "goto ova_cleanup;" in worker,

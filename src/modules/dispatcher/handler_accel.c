@@ -438,15 +438,15 @@ _dpdk_bridge_worker(GTask *task, gpointer source_object G_GNUC_UNUSED,
 
     gint64 duration_ms = (g_get_monotonic_time() - data->started_us) / 1000;
     gchar *result_json = _dpdk_bridge_result_json(data, ok, error);
-    pcv_job_set_result(data->job_id,
+    gboolean result_persisted = pcv_job_set_result(data->job_id,
                        ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
                        result_json);
     pcv_audit_log(data->actor, method, data->name, ok ? "ok" : "fail",
                   ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR,
                   duration_ms, "local");
-    pcv_ws_broadcast_job_complete_mt(data->job_id, method,
+    pcv_ws_broadcast_job_complete_tracked_mt(data->job_id, method,
                                      ok ? "completed" : "failed",
-                                     ok ? NULL : (error ? error->message : "unknown"));
+                                     ok ? NULL : (error ? error->message : "unknown"), result_persisted);
     g_free(result_json);
 
     if (ok) {

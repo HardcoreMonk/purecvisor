@@ -1,6 +1,6 @@
    
                            
-                                                                
+
   
                            
                                                    
@@ -31,7 +31,7 @@
                           
                                                         
                                                  
-                                                         
+
   
          
                                                                       
@@ -61,6 +61,7 @@
 #include "modules/virt/vm_manager.h"                                                     
                                                                                                     
                                                                                            
+#include "modules/virt/vm_start_capacity.h"
 #include "modules/audit/pcv_audit.h"
 #include "api/ws_server.h"
 #include "../network/security_group.h"
@@ -512,18 +513,93 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
     return TRUE;
 }
 
+
+typedef struct {
+    virConnectPtr conn;
+    const gchar *vm_name;
+} InactiveDpdkPrepare;
+
+
+
+static gboolean
+_prepare_inactive_dpdk_for_start(virDomainPtr *domain_io, gpointer data, GError **error)
+{
+    InactiveDpdkPrepare *prepare = data;
+    return _reconcile_dpdk_vhost_for_start(
+        prepare->conn, domain_io, prepare->vm_name, FALSE, error);
+}
+
+
+
+
+
+
+static gboolean
+_wake_pm_suspended_for_start(virDomainPtr dom, GError **error)
+{
+    gint state, reason;
+    if (virDomainGetState(dom, &state, &reason, 0) < 0) {
+        virErrorPtr native_error = virGetLastError();
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Failed to read VM state before wakeup: %s",
+                    native_error ? native_error->message : "unknown error");
+        return FALSE;
+    }
+    if (state != VIR_DOMAIN_PMSUSPENDED) {
+        if (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_BLOCKED ||
+            state == VIR_DOMAIN_PAUSED || state == VIR_DOMAIN_SHUTDOWN)
+            return TRUE;
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "VM is no longer active before wakeup (state %d)", state);
+        return FALSE;
+    }
+
+    if (virDomainPMWakeup(dom, 0) < 0) {
+        virErrorPtr native_error = virGetLastError();
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Failed to wake guest from suspension: %s",
+                    native_error ? native_error->message : "unknown error");
+        return FALSE;
+    }
+
+    const gint64 deadline = g_get_monotonic_time() + 2 * G_TIME_SPAN_SECOND;
+    for (;;) {
+        if (virDomainGetState(dom, &state, &reason, 0) < 0) {
+            virErrorPtr native_error = virGetLastError();
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "Failed to confirm VM state after wakeup: %s",
+                        native_error ? native_error->message : "unknown error");
+            return FALSE;
+        }
+        if (state == VIR_DOMAIN_RUNNING) return TRUE;
+        if (state != VIR_DOMAIN_PMSUSPENDED) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "VM left guest suspension without running (state %d)", state);
+            return FALSE;
+        }
+        gint64 remaining = deadline - g_get_monotonic_time();
+        if (remaining <= 0) {
+            g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                                "Guest wakeup timed out while VM remained pmsuspended");
+            return FALSE;
+        }
+        g_usleep((gulong)MIN(remaining, 50 * G_TIME_SPAN_MILLISECOND));
+    }
+}
+
    
                           
                                    
   
                                                            
-                                                                 
+
                                                             
   
           
                   
                                                    
-                                              
+
+
                                            
                                           
                                                            
@@ -533,7 +609,7 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
                        
                                              
                                          
-                                             
+
   
                                                          
    
@@ -585,17 +661,21 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
         goto cleanup_dom;
     }
     gboolean domain_active = active_state == 1;
-    if (!_reconcile_dpdk_vhost_for_start(
-            conn, &dom, canonical_name, domain_active, &error))
-        goto cleanup_dom;
 
-                                                                
+
+
                                                                          
                                                           
                                                           
                                                       
     if (domain_active) {
-        g_message("[vm.start] VM '%s': already active (idempotent no-op)", ctx->vm_id);
+
+        if (!_reconcile_dpdk_vhost_for_start(
+                conn, &dom, canonical_name, TRUE, &error))
+            goto cleanup_dom;
+        if (!_wake_pm_suspended_for_start(dom, &error))
+            goto cleanup_dom;
+        g_message("[vm.start] VM '%s': active start/wakeup completed", ctx->vm_id);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
 
@@ -663,10 +743,13 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
         }
     }
 
-                                                                      
-    if (virDomainCreate(dom) < 0) {
-        virErrorPtr err = virGetLastError();
-        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to start VM: %s", err ? err->message : "Unknown error");
+
+
+
+
+    InactiveDpdkPrepare prepare = { .conn = conn, .vm_name = canonical_name };
+    if (!pcv_vm_start_with_capacity(
+            &dom, "/sys", _prepare_inactive_dpdk_for_start, &prepare, &error)) {
         goto cleanup_dom;
     }
 
@@ -848,8 +931,8 @@ cleanup_conn:
   
               
                                                
-                                                    
-                                  
+
+
    
 static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -862,7 +945,7 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
       
                                     
                                        
-                           
+
        
                                      
                                                                          
@@ -885,7 +968,10 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
                                             
                                                                                     
                                                                         
-        cpu_allocator_free_vm_cores(global_allocator, ctx->alloc_key);
+
+
+        if (ctx->allocated_cpus)
+            cpu_allocator_free_vm_cores(global_allocator, ctx->alloc_key);
         g_warning("[vm.start] async worker failed for '%s': %s",
                   ctx->vm_id, error ? error->message : "unknown");
         if (error) g_error_free(error);
@@ -907,8 +993,8 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
                              
                                                         
                                                
-                                                  
-                                         
+
+
   
         
                                       
@@ -973,7 +1059,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
        
                                                                                    
                                                                          
-                                                                       
+
                              
                                                                                 
                                                                  
@@ -988,7 +1074,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
                                                                
                                                     
     gchar *alloc_key = g_strdup(vm_id);                                                    
-    gboolean already_running = FALSE, skip_alloc = FALSE;
+    gboolean already_active = FALSE, skip_alloc = TRUE;
     {
         virConnectPtr pc_conn = virt_conn_pool_acquire();
         if (pc_conn) {
@@ -996,10 +1082,11 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
             if (pdom) {
                 const char *cn = virDomainGetName(pdom);                           
                 if (cn && *cn) { g_free(alloc_key); alloc_key = g_strdup(cn); }
-                virDomainInfo pinfo;
-                if (virDomainGetInfo(pdom, &pinfo) == 0 &&
-                    (pinfo.state == VIR_DOMAIN_RUNNING || pinfo.state == VIR_DOMAIN_BLOCKED))
-                    already_running = TRUE;           
+
+
+                gint active = virDomainIsActive(pdom);
+                already_active = active == 1;
+                skip_alloc = active != 0;
                 virDomainFree(pdom);
             } else {
                 skip_alloc = TRUE;                                           
@@ -1010,10 +1097,10 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
 
     GArray *allocated_cpus = NULL;
     gint actual_numa_node = -1;
-    if (already_running) {
-                                                          
-                                                                            
-        g_message("[vm.start] VM '%s': already running — CPU 할당 선-스킵(F2: 멱등, 유령 할당 방지)", alloc_key);
+    if (already_active) {
+
+
+        g_message("[vm.start] VM '%s': already active — CPU 할당 선-스킵(F2: 멱등, 유령 할당 방지)", alloc_key);
     } else if (!skip_alloc &&
                !cpu_allocator_allocate_exclusive(global_allocator, alloc_key, numa_node, vcpu_count,
                                                  &allocated_cpus, &actual_numa_node)) {
@@ -1049,7 +1136,7 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
        
                                                              
                                                        
-                                                             
+
     {
         JsonNode *acc_node = json_node_new(JSON_NODE_VALUE);
         json_node_set_string(acc_node, "accepted");

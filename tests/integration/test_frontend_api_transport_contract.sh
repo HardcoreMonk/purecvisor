@@ -106,10 +106,6 @@ class Handler(http.server.BaseHTTPRequestHandler):
                 self._send_json(404, {"error": "not found"})
                 return
 
-            if self.path == "/api/v1/vms/e2e-test/import-ec2":
-                self._send_json(200, {"error": "Invalid AMI"})
-                return
-
             if self.path in ("/api/v1/vms", "/api/v1/containers"):
                 self._send_json(200, [])
                 return

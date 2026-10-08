@@ -143,10 +143,10 @@ const invalidGuideBreakLines = guideSource
 if (invalidGuideBreakLines.length) {
   throw new Error(`GUIDE sentence break must follow a period: ${invalidGuideBreakLines.map(({ index }) => index).join(", ")}`);
 }
-if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 9) {
+if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 8) {
   throw new Error("database document schema group count mismatch");
 }
-if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 26) {
+if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 25) {
   throw new Error("database document table heading count mismatch");
 }
 if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)) {
@@ -364,8 +364,8 @@ for (const marker of [
   "Monitoring 경로는 <code dir=\"auto\">handler_monitor</code>, telemetry, process monitor와 eBPF telemetry가 제공하는",
   "공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.",
   "상태 registry를 사용하는 경로만 <code dir=\"auto\">pcv_jobs.db</code> 행을 생성하며",
-  "로컬 SQLite WAL 데이터베이스 9개",
-  "Operations DB 2개",
+  "로컬 SQLite WAL 데이터베이스 8개",
+  "Operations DB 1개",
   "vm_state.db",
   "pcv_audit.db",
   "pcv_jobs.db",
@@ -373,7 +373,6 @@ for (const marker of [
   "pcv_security.db",
   "security_groups.db",
   "vpc.db",
-  "cloud_jobs.db",
   "pcv_webpush.db",
   "audit-only 경계입니다.",
   'id="121-검증-문서-맵"',
@@ -433,12 +432,12 @@ const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "8929be785dce35aa307b1dd299f3dc939f192b95c1f3f339ff66b62bdd31b293") {
+if (architectureSvgHash !== "8ad354d7fb83a7df4d354b4264caa595ac0ab86fc89915440f0b601e44d3f1d7") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "b1a5596b79c43e219cd27216e0606288a47bcecc81fee995b11b518445e72bc6") {
+if (architectureStructureHash !== "c3b3de8ba063b8b34be65ec44261658c70ffd4ab6757f7ef58ebc4ff7fa6d082") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
@@ -458,7 +457,6 @@ for (const marker of [
   'pcv_security.db',
   'security_groups.db',
   'vpc.db',
-  'cloud_jobs.db',
   'pcv_webpush.db',
   'DPDK'
 ]) {
@@ -497,12 +495,12 @@ const directArchitectureSvg = await readFile(path.join(distRoot, directArchitect
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
-if (directArchitectureSvgHash !== "093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3") {
+if (directArchitectureSvgHash !== "7e10844dafb099c33b767c7bfa22137855ecff5c0a2106c1e2846021278fb16f") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
 }
 const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
-if (directArchitectureStructureHash !== "6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c") {
+if (directArchitectureStructureHash !== "5a59b1597d92f3ee7706f8e82c51d191155dd482710af7c988234e6de8c95906") {
   throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
 }
 for (const marker of [
@@ -538,7 +536,6 @@ for (const marker of [
   "pcv_security.db",
   "security_groups.db",
   "vpc.db",
-  "cloud_jobs.db",
   "pcv_webpush.db",
   'id="my-svg-flowchart-desiredStore-25"',
   'id="my-svg-flowchart-virtPlatform-26"',
@@ -588,7 +585,7 @@ for (const marker of [
   'apiClient <-->|"HTTPS"| restApi',
   'promClient -->|"HTTPS metrics scrape"| restApi',
   'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
-  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>cloud_jobs.db, pcv_webpush.db"]',
+  'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
   'handlers -->|"VIEWER read"| monitorDomain',
   'monitorDomain -.->|"Host and process probes"| securityPlatform',
   "class udsApi,restApi,grpcApi,wsApi ingressNode;"
@@ -610,7 +607,7 @@ for (const marker of [
   'nginx["nginx TLS termination"]',
   'nginx <-->|"Static UI and REST"| restApi',
   'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
-  'operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>cloud_jobs.db, pcv_webpush.db"]',
+  'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
   'handlers -->|"VIEWER read"| monitorDomain',
   'monitorDomain -.->|"Host and process probes"| securityPlatform'
 ]) {
@@ -630,7 +627,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "1d452424de7547c0a9e68043343759efe7ae44a0412dfe9942ba76fbc8bb41e7") {
+if (databaseArchitectureSvgHash !== "2b017da3ae170211627d29c6c928af5eedfe7759d75c5b9409bc2e848d0538a0") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -638,14 +635,14 @@ for (const marker of [
   'role="img" aria-labelledby="pcv-db-title pcv-db-desc"',
   '<title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>',
   '<desc id="pcv-db-desc">',
-  "9 local SQLite files · 26 permanent tables",
+  "8 local SQLite files · 25 permanent tables",
   "no cross-DB transaction",
   "즉시 응답 · accepted 먼저",
   "긴 작업만",
   "관련 정책 read/write",
   "VM lock · 선택형 job register",
   "정본과 정책 · 4 files / 19 tables",
-  "작업 상태 · 3 files / 3 tables",
+  "작업 상태 · 2 files / 2 tables",
   "증거와 외부 통합 · 2 files / 4 tables",
   "rbac.db",
   "vpc.db",
@@ -653,9 +650,10 @@ for (const marker of [
   "pcv_security.db",
   "vm_state.db",
   "pcv_jobs.db",
-  "cloud_jobs.db",
   "pcv_audit.db",
   "pcv_webpush.db",
+  "cloud_jobs.db (이력)",
+  "비활성 · 과거 파일 보존",
   "선택형 ZFS",
   "후보 OVN backend",
   "DB 복원 ≠ host actual state 복원"
@@ -1126,7 +1124,7 @@ for (const [name, source, language, heroCopy, heroFollowup, canonical] of [
   if (!source.includes(`<link rel="canonical" href="${canonical}"`)) {
     throw new Error(`${name} canonical route mismatch`);
   }
-  if (!source.includes('datetime="2026-09-16T00:00:00.000Z"')) {
+  if (!source.includes('datetime="2026-10-08T00:00:00.000Z"')) {
     throw new Error(`${name} landing lastUpdated mismatch`);
   }
   if ((source.match(/class="pcv-nav-group\b/g) || []).length !== 4) {
@@ -1393,8 +1391,8 @@ for (const document of supplementalDocuments) {
     }
   }
   for (const marker of [
-    "로컬 SQLite 파일 9개",
-    "영구 테이블 26개",
+    "로컬 SQLite 파일 8개",
+    "영구 테이블 25개",
     "pcv-database-summary",
     "pcv-database-architecture",
     'href="/assets/diagrams/purecvisor-single-database-architecture.svg"',

@@ -8,7 +8,7 @@ const definitions = [
   [8, "모니터링 & 알림", "운영·복구", "operations", "monitoring-alerts", "8-모니터링-알림"],
   [9, "백업 & 복원", "운영·복구", "operations", "backup-restore", "9-백업-복원"],
   [10, "보안", "보안·자동화", "security", "security", "10-보안"],
-  [11, "클라우드 마이그레이션", "보안·자동화", "security", "cloud-migration", "11-클라우드-마이그레이션"],
+  [11, "비동기 작업 관리", "보안·자동화", "security", "cloud-migration", "11-비동기-작업-관리"],
   [12, "AI & 자가치유", "보안·자동화", "security", "ai-self-healing", "12-ai-자가치유"],
   [13, "Web UI", "인터페이스", "interfaces", "web-ui", "13-web-ui"],
   [14, "REST API", "인터페이스", "interfaces", "rest-api", "14-rest-api"],

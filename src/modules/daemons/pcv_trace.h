@@ -180,7 +180,7 @@ gboolean pcv_trace_selfcheck(GError **error);
                                                           
                                    
                                                               
-                                                     
+
   
                                           
                                                                
@@ -192,7 +192,7 @@ gboolean pcv_trace_selfcheck(GError **error);
 
                                                           
                                                   
-                                               
+
 #define PCV_TRACE_RUNNING_MARKER ".running"
 
    
@@ -211,7 +211,7 @@ gboolean pcv_trace_try_acquire(void);
                      
                                                 
                                                             
-             
+
    
 void pcv_trace_release(void);
 
@@ -243,10 +243,11 @@ gchar *pcv_trace_start(const PcvTraceFilter *f, const char *admin, GError **erro
                                        
                                
   
-                                              
-                                           
+
+
+
   
-                                                                 
+
    
 gboolean pcv_trace_stop(const char *trace_id, GError **error);
 
@@ -257,10 +258,9 @@ gboolean pcv_trace_stop(const char *trace_id, GError **error);
                                                           
   
                                                       
-                                                            
-                                                            
-                           
-                                                                       
+
+
+
                             
   
                                                                     
@@ -516,8 +516,8 @@ JsonObject *pcv_trace_report(const char *trace_id, GError **error);
                                             
                                                            
                                                       
-                                                    
-                                 
+
+
                                                                                 
 
    

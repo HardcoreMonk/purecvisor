@@ -145,6 +145,90 @@ def strip_html_comments(text: str) -> str:
     return re.sub(r"<!--.*?-->", "", text, flags=re.DOTALL)
 
 
+def has_aws_removal_guidance(text: str) -> bool:
+
+    sections = re.findall(
+        r"^## 11\. 비동기 작업 관리\s*\n(.*?)(?=^## |\Z)",
+        strip_html_comments(text), re.MULTILINE | re.DOTALL,
+    )
+    if len(sections) != 1:
+        return False
+    body = sections[0]
+    return all(term in body for term in (
+        "현재 개발 소스에서 제거", "일반 VM·OVA·로컬 백업은 유지", "기존 AWS 작업 DB",
+        "외부 자원은 삭제하지 않습니다", "pcv_jobs.db", "result_persisted: false",
+    )) and "pcvctl cloud " not in body
+
+
+def self_test_aws_removal_guidance() -> int:
+    heading = "## 11. 비동기 작업 관리\n"
+    body = ("현재 개발 소스에서 제거; 일반 VM·OVA·로컬 백업은 유지; 기존 AWS 작업 DB\n"
+            "외부 자원은 삭제하지 않습니다; pcv_jobs.db; result_persisted: false\n")
+    fixture = heading + body + "## 12. AI\n"
+    cases = (
+        ("current removal boundary", fixture, True),
+        ("missing shared feature", fixture.replace("일반 VM·OVA·로컬 백업은 유지", ""), False),
+        ("unrelated chapter decoy", heading + "missing\n## 12. AI\n" + body, False),
+        ("commented boundary", heading + "<!--" + body + "-->\n## 12. AI\n", False),
+        ("active retired command", fixture.replace("## 12.", "pcvctl cloud import\n## 12."), False),
+        ("duplicate chapter", fixture + fixture, False),
+    )
+    for description, text, expected in cases:
+        require("AWS removal guide: " + description, has_aws_removal_guidance(text) == expected)
+    print("[PASS] AWS removal guide matchers (6 cases)")
+    return 0
+
+
+def guide_table_row(text: str, heading: str, label: str) -> list[str]:
+
+    match = re.search(
+        rf"^{re.escape(heading)}\s*\n(?P<body>.*?)(?=^#{{1,3}}\s|\Z)",
+        strip_html_comments(text), re.MULTILINE | re.DOTALL,
+    )
+    if match is None:
+        return []
+    rows = [
+        [cell.strip() for cell in line.strip().strip("|").split("|")]
+        for line in match["body"].splitlines() if line.strip().startswith("|")
+    ]
+    selected = [row for row in rows if row[0] == label]
+    return selected[0] if len(selected) == 1 else []
+
+
+def self_test_guide_table_rows() -> int:
+    heading = "### 1.5 접속 정보 요약"
+    row = "| Web UI | `https://localhost/ui/` | configured password |"
+    fixture = heading + "\n" + row + "\n### 18.6 프로젝트 통계\n| Web UI | 30개 |\n"
+    expected = ["Web UI", "`https://localhost/ui/`", "configured password"]
+    require("guide table selects its own section", guide_table_row(fixture, heading, "Web UI") == expected)
+    require("guide table rejects a missing section", guide_table_row(fixture, "### 없음", "Web UI") == [])
+    require("guide table rejects duplicate rows", guide_table_row(fixture.replace(row, row + "\n" + row), heading, "Web UI") == [])
+    require("guide table ignores commented rows", guide_table_row(fixture.replace(row, "<!--\n" + row + "\n-->"), heading, "Web UI") == [])
+    require("guide table exposes lost authentication cell", len(guide_table_row(fixture.replace(row, "| Web UI | 30개 |"), heading, "Web UI")) == 2)
+    print("[PASS] guide table section matcher self-test")
+    return 0
+
+
+def guide_help_counts_match(text: str, app_js: str) -> bool:
+
+    row = guide_table_row(text, "### 18.6 프로젝트 통계", "도움말 표시")
+    rpc = re.search(r"\bRPC_COUNT:\s*(\d+)", app_js)
+    rest = re.search(r"\bREST_COUNT:\s*(\d+)", app_js)
+    values = re.fullmatch(r"RPC (\d+)·REST (\d+) \(`make check-help-counts`\)", row[1]) if len(row) == 2 else None
+    return bool(values and rpc and rest and values.groups() == (rpc[1], rest[1]))
+
+
+def self_test_guide_help_counts() -> None:
+
+    fixture = "### 18.6 프로젝트 통계\n| 도움말 표시 | RPC 308·REST 222 (`make check-help-counts`) |\n"
+    source = "RPC_COUNT: 308, REST_COUNT: 222,"
+    require("guide help counts accept current source", guide_help_counts_match(fixture, source))
+    require("guide help counts reject jointly stale guides", not guide_help_counts_match(fixture.replace("308·REST 222", "316·REST 230"), source))
+    require("guide help counts reject missing source count", not guide_help_counts_match(fixture, "RPC_COUNT: 308,"))
+    require("guide help counts reject duplicate current rows", not guide_help_counts_match(fixture + fixture.splitlines()[1] + "\n", source))
+    print("[PASS] guide help counts source comparison (4 cases)")
+
+
 def strip_css_comments(text: str) -> str:
     return re.sub(r"/\*.*?\*/", "", text, flags=re.DOTALL)
 
@@ -504,12 +588,42 @@ def main() -> int:
         "scripts/check_design_md.py" in agents,
     )
 
+
+
     for path, text in (("docs/GUIDE.md", guide), ("ui/guide-content.md", ui_guide)):
+        require(f"{path} must explain AWS removal and shared feature/data preservation",
+                has_aws_removal_guidance(text))
+
+
+
+    for path, text in (("docs/GUIDE.md", guide), ("ui/guide-content.md", ui_guide)):
+        require(f"{path} current help counts must match product configuration", guide_help_counts_match(text, app_js))
+
+        gate_line = re.search(r"(?m)^check-all:\s*([^\n]+)$", read("Makefile"))
+        expected_gates = set(gate_line.group(1).split()) if gate_line else set()
+        heading = f"### 22.4 계약 게이트 일괄 — `make check-all` ({len(expected_gates)}게이트)"
+        require(f"{path} must name the current mandatory gate count", heading in text)
+        gate_section = re.search(rf"(?ms)^{re.escape(heading)}\s*\n(.*?)(?=^### |\Z)",
+                                 strip_html_comments(text))
+        listed_gates = re.findall(r"(?m)^\| `(check-[^`]+)` \|", gate_section.group(1)) if gate_section else []
+        require(f"{path} must list each mandatory gate exactly once",
+                bool(expected_gates) and set(listed_gates) == expected_gates and
+                len(listed_gates) == len(expected_gates))
+        require(f"{path} must distinguish actual Job outcome from persistence failure",
+                "result_persisted: false" in text and "신규 접수를 거부" in text)
+
+
+        trace_section = re.search(r"(?ms)^### 8\.12 .*?\n(.*?)(?=^### 8\.13 )", text)
+        require(f"{path} must distinguish Trace request from confirmed child completion",
+                trace_section is not None and all(term in trace_section.group(1) for term in (
+                    "stopped=true", "stop_requested=true", "state=running", "wait 성공 뒤에만",
+                    "완료는 status idle로 확인",
+                )))
         network_start = text.index("## 6. 네트워크")
         network_end = text.index("## 8. 모니터링 & 알림", network_start)
         network_chapter = text[network_start:network_end]
         security_start = text.index("## 10. 보안")
-        security_end = text.index("## 11. 클라우드 마이그레이션", security_start)
+        security_end = text.index("## 11. 비동기 작업 관리", security_start)
         security_chapter = text[security_start:security_end]
         require(f"{path} must link DESIGN.md", "DESIGN.md" in text)
         require(
@@ -695,7 +809,10 @@ def main() -> int:
 
 if __name__ == "__main__":
     if sys.argv[1:] == ["--self-test"]:
-        sys.exit(self_test_alert_lane_matchers())
+        self_test_alert_lane_matchers()
+        self_test_aws_removal_guidance()
+        self_test_guide_help_counts()
+        sys.exit(self_test_guide_table_rows())
     if sys.argv[1:]:
         print(
             "ERROR: usage: check_design_md.py [--self-test]",

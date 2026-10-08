@@ -124,7 +124,6 @@ tags:
   - { name: storage, description: ZFS/iSCSI 스토리지 }
   - { name: cluster, description: 클러스터 HA }
   - { name: monitor, description: 메트릭/알림 }
-  - { name: cloud, description: Cloud Migration }
   - { name: jobs, description: Job Queue }
   - { name: config, description: 설정 관리 }
   - { name: health, description: 헬스/probe }
@@ -141,7 +140,7 @@ def tag_for(path):
         "vms": "vm", "containers": "container", "networks": "network",
         "storage": "storage", "cluster": "cluster", "monitor": "monitor",
         "alerts": "monitor", "processes": "monitor",
-        "cloud": "cloud", "jobs": "jobs", "config": "config",
+        "jobs": "jobs", "config": "config",
         "auth": "auth", "iso": "vm", "health": "health",
         "metrics": "health", "internal": "health",
     }

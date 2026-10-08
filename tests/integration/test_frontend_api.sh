@@ -277,14 +277,7 @@ check_get "Metrics"      "/metrics"
 check_get "Processes"    "/processes"
 check_get "ISO list"     "/iso"
 
-                                                                
-section "8. CLOUD MODULE (cloud.js)"
-check_get "Cloud jobs" "/cloud/jobs"
 
-                                                                       
-log_skip "Import AMI validation (destructive async path omitted from shared-daemon test)"
-
-                                                                
 section "9. ACCOUNTS (api.js)"
 check_get "User list" "/auth/users"
 
@@ -354,8 +347,8 @@ if [ -n "$VTOK" ]; then
   VCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VTOK" "$BASE/vms" 2>/dev/null)
   [ "$VCODE" = "200" ] && log_pass "VIEWER → GET /vms (200)" || log_fail "VIEWER read" "HTTP $VCODE"
 
-  VCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VTOK" "$BASE/cloud/jobs" 2>/dev/null)
-  [ "$VCODE" = "200" ] && log_pass "VIEWER → GET /cloud/jobs (200)" || log_fail "VIEWER cloud read" "HTTP $VCODE"
+  VCODE=$(curl -s -o /dev/null -w '%{http_code}' -H "Authorization: Bearer $VTOK" "$BASE/jobs" 2>/dev/null)
+  [ "$VCODE" = "200" ] && log_pass "VIEWER → GET /jobs (200)" || log_fail "VIEWER jobs read" "HTTP $VCODE"
 
                                                                    
                                                 

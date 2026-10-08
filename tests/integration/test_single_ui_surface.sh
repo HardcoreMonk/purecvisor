@@ -147,6 +147,8 @@ require_literal "운영 메모" "ui/modules/monitor.js" "host screen must expose
 require_literal "현재 조치" "ui/modules/monitor.js" "host screen must expose the new action guidance card"
 require_literal "renderOpsTriage" "ui/modules/monitor.js" "monitor module must expose the operations triage renderer"
 require_literal "운영 이벤트 센터" "ui/modules/monitor.js" "operations triage screen must expose the event center heading"
+
+
 ops_triage_markup="$(sed -n '/^async function renderOpsTriage(b) {/,/^window.renderOpsTriage = renderOpsTriage;/p' ui/modules/monitor.js)"
 require_literal_in_text "cardHead('실제 이벤트 조회', '서버 기록')" "$ops_triage_markup" "operations triage screen must render the actual server event card"
 require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-alerts'); } }, '경보 조회')" "$ops_triage_markup" "operations triage alert button must navigate to mon-alerts"

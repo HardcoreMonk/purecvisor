@@ -129,11 +129,6 @@ var EP = (function() {
     OVN_ACL:              function()     { return B() + '/ovn/acl'; },
     OVERLAY_LIST:         function()     { return B() + '/overlay'; },
 
-                       
-    CLOUD_JOBS:           function()     { return B() + '/cloud/jobs'; },
-    CLOUD_CANCEL:         function()     { return B() + '/cloud/cancel'; },
-    CLOUD_IMPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/import-ec2'; },
-    CLOUD_EXPORT:         function(n)    { return B() + '/vms/' + enc(n) + '/export-ec2'; },
 
                       
     AUTH_TOKEN:           function()     { return B() + '/auth/token'; },
@@ -215,7 +210,6 @@ var EP = (function() {
     CONFIG_RELOAD:        function()     { return B() + '/config/reload'; },
     HEALTH_DEEP:          function()     { return B() + '/health/deep'; },
     BACKUP_VERIFY:        function()     { return B() + '/backup/verify'; },
-    JOBS_PERSIST:         function()     { return B() + '/jobs/persistent'; },
     JOB:                  function(id)   { return B() + '/jobs/' + enc(id); },
     POOL_CONNINFO:        function()     { return B() + '/pool/conninfo'; },
     DB_MIGRATION:         function()     { return B() + '/db/migration'; },

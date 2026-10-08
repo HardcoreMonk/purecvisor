@@ -53,7 +53,7 @@ flowchart TB
     subgraph persistence ["로컬 영속 상태"]
         direction LR
         coreDb["Core / identity / security / network DBs (SQLite WAL, 7 files)<br/>vm_state.db, pcv_audit.db, pcv_jobs.db, rbac.db<br/>pcv_security.db, security_groups.db, vpc.db"]
-        operationsDb["Operations DBs (SQLite WAL, 2 files)<br/>cloud_jobs.db, pcv_webpush.db"]
+        operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]
         desiredStore["Desired state: networks, overlay, QoS, BPF, backups"]
     end
 

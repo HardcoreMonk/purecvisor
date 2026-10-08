@@ -88,9 +88,12 @@ test('default dashboard surfaces compute to the docs canvas while optional theme
           <div class="menu-drop">메뉴</div><input type="text" value="검색">
           <button class="btn">승인</button><button class="btn btn-r">거부</button>
         </main>`;
-                                                        
-                                                             
-      await new Promise(resolve => setTimeout(resolve, 360));
+
+
+      getComputedStyle(document.body).backgroundColor;
+      await Promise.all(document.getAnimations()
+        .filter(animation => animation instanceof CSSTransition)
+        .map(animation => animation.finished.catch(() => {})));
       const computed = selector => getComputedStyle(document.querySelector(selector));
       const root = getComputedStyle(document.documentElement);
       const values = {

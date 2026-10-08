@@ -63,7 +63,7 @@ test('mount: 사이드바 6섹션·topbar·statusbar 6세그먼트', async () =>
       };
     }, SNAP);
     assert.equal(r.sections, 6);
-    assert.ok(r.items >= 36, `nav items ${r.items}`);
+    assert.equal(r.items, 35, `nav items ${r.items}`);
     assert.equal(r.navIcons, r.items);
     assert.ok(r.iconHrefs.every(href => /^vendor\/coolicons\/coolicons\.svg#ci-[a-z0-9-]+$/.test(href)),
       r.iconHrefs.join(','));

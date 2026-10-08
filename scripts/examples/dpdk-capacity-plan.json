@@ -1,0 +1,12 @@
+{
+  "schema_version": 1,
+  "page_size_kib": 2048,
+  "ovs": {
+    "allocation": "pending",
+    "socket_mem_mb": "1024",
+    "headroom_mb": {"0": 256}
+  },
+  "guests": [
+    {"name": "planned-vm", "host_node": 0, "memory_mb": 2048}
+  ]
+}

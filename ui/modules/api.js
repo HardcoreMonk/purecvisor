@@ -224,7 +224,7 @@ async function _fetchWithRefresh(url, opts) {
 
                                                                    
   
-                                                                            
+
                                                              
                                                          
                                                           
@@ -355,6 +355,22 @@ function _onJobFailureEvent(m) {
   }
 }
 
+
+
+
+
+function _onJobPersistenceFailureEvent(m) {
+  if (!m || m.result_persisted !== false) return;
+  var title = typeof _L === 'function'
+    ? _L('작업 결과 저장 실패', 'Job result was not saved') : 'Job result was not saved';
+  var detail = (m.method || '?') + ' (' + (m.status || '?') + '), Job ID: ' + (m.job_id || '?') + '. ';
+  detail += typeof _L === 'function'
+    ? _L('리소스 상태와 감사 로그를 확인하세요.', 'Check the resource state and audit log.')
+    : 'Check the resource state and audit log.';
+  if (typeof addNotification === 'function') addNotification('warn', title, detail);
+  if (typeof addEvt === 'function') addEvt('WARN Job result not saved — ' + detail);
+}
+
    
                                                     
   
@@ -470,7 +486,8 @@ function connectWS() {
                                                                                 
       if (m.type === 'job.complete') {
         var jobPayload = m.payload || m;                            
-        if (jobPayload && jobPayload.status === 'fail') {
+        try { _onJobPersistenceFailureEvent(jobPayload); } catch (_) {}
+        if (jobPayload && ['fail', 'failed'].includes(jobPayload.status)) {
           try { _onJobFailureEvent(jobPayload); } catch (_) {}
         }
       }

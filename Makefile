@@ -44,7 +44,7 @@ DEV_JOB_FLAGS = $(if $(filter -j% --jobserver-auth=%,$(MAKEFLAGS)),,-j$(DEV_JOBS
 
 
 DEV_MUTATING_CHECKS = check-rpc-consumers check-rpc-param-contract check-safety-controls check-fe-rpc-params check-rerror-guard
-DEV_PARALLEL_CHECKS = check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface
+DEV_PARALLEL_CHECKS = check-aws-manual-removed check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime
 
 ifeq ($(filter 0 1 auto,$(DEV_USE_MOLD)),)
     $(error DEV_USE_MOLD must be one of: auto, 1, 0)
@@ -199,6 +199,7 @@ COMMON_CORE_SRCS = \
     src/modules/backup/backup_send_estimate.c \
     src/api/ova_import_xml.c \
     src/modules/virt/vm_manager.c \
+    src/modules/virt/vm_start_capacity.c \
     src/modules/virt/circuit_breaker.c \
     src/modules/daemons/alert_silence.c \
     src/modules/daemons/alert_dlq.c \
@@ -336,9 +337,6 @@ DAEMON_COMMON_SRCS = \
     src/modules/ai/self_healing_restart.c \
     src/modules/ai/restart_breaker.c \
     src/modules/ai/ai_agent.c \
-    src/modules/cloud/cloud_migration.c \
-    src/modules/cloud/aws_client.c \
-    src/modules/cloud/disk_converter.c \
     $(URING_SRCS) \
     $(COMMON_CORE_SRCS)
 
@@ -707,9 +705,13 @@ tests/dispatcher_policy.o: src/api/dispatcher.c src/api/dispatcher.h
 	$(CC) $(CFLAGS) -DPCV_DISPATCHER_POLICY_ONLY -c $< -o $@
 
           
+
+
+
 tests/self_healing_policy.o: src/modules/ai/self_healing.c src/modules/ai/self_healing.h
 	@echo "🔨 Compiling self-healing clock seam: $<"
 	$(CC) $(CFLAGS) -Dg_get_monotonic_time=pcv_test_healing_monotonic_time -c $< -o $@
+
 
 test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle
 	@echo "🧪 Running g_test_* suite..."
@@ -723,7 +725,7 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-d
 
 
 
-check-server-defect-contracts:
+check-server-defect-contracts: check-vnc-proxy-lifetime
 	@python3 scripts/tests/test_vm_delete_nvram.py
 	@bash tests/integration/test_vpc_startup_order.sh
 	@bash tests/integration/test_tenant_overlay_startup_order.sh
@@ -732,11 +734,16 @@ check-server-defect-contracts:
 	@bash tests/integration/test_ovn_public_contract.sh
 	@bash tests/integration/test_gpu_passthrough_contract.sh
 	@python3 scripts/check_ova_async_result.py
+	@python3 tests/test_job_persistence_contract.py
+
 
 
 
 check-dpdk-owned-lifecycle:
 	@python3 scripts/check_dpdk_owned_lifecycle.py
+	@python3 scripts/tests/test_dpdk_capacity_preflight.py
+	@python3 tests/test_vm_start_capacity.py
+	@python3 tests/test_vm_start_pm_wakeup.py
 
                                                          
                                                           
@@ -872,7 +879,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
     $(UI_DIR)/modules/vm-guest.js \
     $(UI_DIR)/modules/container.js $(UI_DIR)/modules/network.js $(UI_DIR)/modules/vpc.js \
     $(UI_DIR)/modules/storage.js \
-    $(UI_DIR)/modules/cloud.js $(UI_DIR)/modules/help.js \
+    $(UI_DIR)/modules/help.js \
     $(UI_DIR)/modules/nav.js $(UI_DIR)/modules/theme.js \
     $(UI_DIR)/modules/accounts.js $(UI_DIR)/modules/advanced.js \
     $(UI_DIR)/modules/selfhealing.js \
@@ -1092,7 +1099,7 @@ dev-check:
 		echo "🔒 Running isolated gate: $$gate"; \
 		$(MAKE) --no-print-directory "$$gate" || exit $$?; \
 	done
-	@echo "✅ 개발 계약 게이트 40개 통과 (35 parallel-safe + 5 isolated)"
+	@echo "✅ 개발 계약 게이트 42개 통과 (37 parallel-safe + 5 isolated)"
 
 dev-verify:
 	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) DEV_FAST=1 DEV_USE_MOLD=$(DEV_USE_MOLD) test-auto
@@ -1246,6 +1253,10 @@ check-audit-placement:
 	@python3 scripts/check_audit_placement.py
 	@python3 scripts/tests/test_audit_placement.py
 
+	@python3 scripts/check_trace_reap_lifetime.py
+	@python3 scripts/tests/test_trace_reap_lifetime_wiring.py
+	@python3 tests/test_trace_reap_lifetime.py
+
 check-cors-anchor:
 	@echo "🌐 Running CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13)..."
 	@python3 scripts/check_cors_anchor.py
@@ -1325,6 +1336,10 @@ check-ws-token-url:
 	@echo "🔗 Running WS URL-query 토큰 인증 제거 게이트 (Q-5 / A07)..."
 	@python3 scripts/check_ws_token_url.py
 	@python3 scripts/tests/test_ws_token_url.py
+
+
+check-vnc-proxy-lifetime:
+	@python3 tests/test_vnc_proxy_lifetime.py
 
 check-zpool-suspend-recover:
 	@echo "💽 Running ZFS 풀 SUSPENDED 탐지+가드된 자동복구 게이트..."
@@ -1460,8 +1475,14 @@ check-single-ui-surface:
 	@bash tests/integration/test_single_ui_surface.sh
 	@python3 scripts/tests/test_single_ui_surface.py
 
-check-all: check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs
-	@echo "✅ 계약 게이트 전체 통과 (40게이트: RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites)"
+.PHONY: check-aws-manual-removed
+check-aws-manual-removed:
+	python3 scripts/check_aws_manual_removed.py
+	node --test tests/ui/aws-manual-removal.test.mjs
+
+
+check-all: check-aws-manual-removed check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime
+	@echo "✅ 계약 게이트 전체 통과 (42게이트: AWS 수동 이관 제거 + RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites + VNC proxy lifetime)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -1522,5 +1543,5 @@ coverage-check: coverage-html
         install-hooks test-safe test-all test-integ \
         cppcheck cppcheck-strict check-rbac check-secret-wipe check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-help-counts check-runtime-prereqs \
         check-vendor-integrity check-npm-lockfile check-deb-supply-chain \
-        check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle \
+        check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle check-vnc-proxy-lifetime \
         check-single-ui-surface check-all compile-commands coverage coverage-html coverage-check

@@ -1,9 +1,11 @@
 # PureCvisor Single Edge 데이터베이스 아키텍처 설명서
 
-> **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
+> **최신 소스:** [10/8 변경·검증 인계](operations/2026-10-08-public-source-refresh-handoff.md)를 따른다. AWS/S3 제거와 Job 접수·결과 저장 계약 보강을 적용했다.
+
+> **2026-10-02 역사 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **기준 시점:** 2026-09-15 공개 소스 `22d6912` (SQLite 9개 파일·26개 영구 테이블)
+> **기준 시점:** 2026-10-08 공개 소스 (SQLite 8개 파일·25개 영구 테이블)
 >
 > **대상:** `purecvisor-single`의 SQLite 기반 영속 상태
 >
@@ -22,14 +24,14 @@ PureCvisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 
 ## 1. 아키텍처 개요
 
-`purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 9개로 상태를 나눠
-저장한다. 이 9개 파일에는 영구 테이블 26개가 있으며, 모두 한 Single Edge 노드 안에서만
+`purecvisor-single`은 외부 DBMS를 요구하지 않고 로컬 SQLite 파일 8개로 상태를 나눠
+저장한다. 이 8개 파일에는 영구 테이블 25개가 있으며, 모두 한 Single Edge 노드 안에서만
 사용한다. 노드 간 복제·합의·분산 트랜잭션은 제공하지 않는다. 각 모듈이 자기 DB의 연결과
 스키마를 소유하고 대부분 WAL 모드로 연다.
 
 <div class="pcv-database-summary pcv-technical-wide" role="list" aria-label="데이터베이스 아키텍처 핵심 수치">
-  <div class="pcv-database-summary-item" role="listitem"><strong>9</strong><span>로컬 SQLite 파일</span></div>
-  <div class="pcv-database-summary-item" role="listitem"><strong>26</strong><span>영구 테이블</span></div>
+  <div class="pcv-database-summary-item" role="listitem"><strong>8</strong><span>로컬 SQLite 파일</span></div>
+  <div class="pcv-database-summary-item" role="listitem"><strong>25</strong><span>영구 테이블</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>외부 DBMS</span></div>
   <div class="pcv-database-summary-item" role="listitem"><strong>0</strong><span>DB 간 원자 트랜잭션</span></div>
 </div>
@@ -40,11 +42,11 @@ PureCvisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
   <div class="pcv-map-bar">
     <strong id="pcv-database-architecture-title">Single Edge · 로컬 데이터 흐름</strong>
     <div class="pcv-map-meta">
-      <span class="pcv-status"><i aria-hidden="true"></i>9 DB · 26 TABLES</span>
+      <span class="pcv-status"><i aria-hidden="true"></i>8 DB · 25 TABLES</span>
       <a class="pcv-architecture-source-open" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener">SVG 원본 열기 <span aria-hidden="true">↗</span></a>
     </div>
   </div>
-  <a class="pcv-architecture-source-canvas pcv-database-architecture-canvas" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트 요청이 purecvisorsd 제어면으로 들어와 요청 종류에 따라 9개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신하고 Linux KVM 실제 상태 및 응답 완료 채널과 연결되는 데이터베이스 아키텍처 SVG를 새 탭에서 확대해서 보기">
+  <a class="pcv-architecture-source-canvas pcv-database-architecture-canvas" href="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" target="_blank" rel="noopener" aria-label="클라이언트 요청이 purecvisorsd 제어면으로 들어와 요청 종류에 따라 8개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신하고 Linux KVM 실제 상태 및 응답 완료 채널과 연결되는 데이터베이스 아키텍처 SVG를 새 탭에서 확대해서 보기">
     <img class="pcv-architecture-source-image pcv-database-architecture-image" src="../site/public/assets/diagrams/purecvisor-single-database-architecture.svg" width="1440" height="1040" loading="lazy" decoding="async" alt="CLI, Web UI와 REST 요청이 인증 및 dispatcher로 들어와 짧은 작업은 즉시 응답하고 긴 작업만 GTask를 사용하며, 요청 종류에 따라 정책 정본, 작업 상태, 감사 및 Web Push 저장소 중 관련 저장소를 읽거나 갱신하는 PureCVisor Single Edge 데이터 흐름">
   </a>
   <figcaption id="pcv-database-architecture-note" class="pcv-architecture-source-note">실선은 호출·읽기·쓰기·적용, 점선은 비동기 실행·진행·완료 통지와 증거 기록을 뜻한다.<br>화살표는 외래 키나 여러 DB를 묶는 하나의 transaction을 뜻하지 않는다.<br>좁은 화면에서는 그림 영역을 좌우로 스크롤하고, 전체 크기는 ‘SVG 원본 열기’에서 확인한다.</figcaption>
@@ -54,7 +56,7 @@ PureCvisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 보안 증거를 함께 맡는 저장소는 두 역할을 가질 수 있다.
 
 - **정본과 정책**: RBAC, Local VPC, Security Group과 Security DB가 사용자·네트워크·보안 의도를 보존한다.
-- **작업 상태**: VM lock, Job 상태 registry와 Cloud Job이 충돌 방지·진행률·재시작 판정을 보존한다. DB가 worker를 실행하거나 작업을 꺼내 주지는 않는다.
+- **작업 상태**: VM lock과 Job 상태 registry가 충돌 방지·진행률·재시작 판정을 보존한다. DB가 worker를 실행하거나 작업을 꺼내 주지는 않는다.
 - **증거와 외부 통합**: Audit은 변조 탐지형 감사 증거를, Security는 보안 이벤트를, Web Push는 브라우저 구독과 발송 결과를 보존한다.
 
 ### 1.2 저장소 레지스트리
@@ -67,7 +69,6 @@ PureCvisor의 전체 상태를 구성한다. 따라서 “DB 복원”은 곧 �
 | RBAC | 인증·인가 정본 | 사용자, 세션, TOTP, API key, 쿼터 | `/var/lib/purecvisor/rbac.db` | 현재 `main.c` 고정 인자 |
 | Security | 보안 정본·증거 | 이벤트, 설정, 승인 액션, HIDS 기준선, overlay 키·tenant | `/var/lib/purecvisor/pcv_security.db` | `[security].db_path` |
 | Security Group | 네트워크 정책 정본 | 보안 그룹, 규칙, VM 바인딩 | `/var/lib/purecvisor/security_groups.db` | 현재 코드 상수 |
-| Cloud Jobs | 운영 상태 | AWS import/export 작업 상태 | `/var/lib/purecvisor/cloud_jobs.db` | 현재 코드 상수 |
 | Local VPC | desired state 정본 | tenant VPC, subnet, attachment, Service Publish | `/var/lib/purecvisor/vpc.db` | `pcv_vpc_init()` 인자(테스트 주입) |
 | Web Push | 외부 통합 상태 | 사용자별 브라우저 Push 구독 | `/var/lib/purecvisor/pcv_webpush.db` | 현재 `main.c` 고정 인자 |
 
@@ -83,7 +84,7 @@ Job ID, audit, 로그, WebSocket 결과를 함께 대조해야 한다.
 | 상태 종류 | SQLite의 역할 | DB 밖 상태와의 관계 |
 |---|---|---|
 | 인증·정책·desired state | RBAC, Security, Security Group, Local VPC가 의도를 보존 | 실제 커널·가상화 상태는 별도 적용 또는 reconcile 필요 |
-| 작업 중 상태 | VM lock, Job 상태 registry, Cloud Jobs가 충돌 방지와 진행률을 보존 | 실제 작업 결과는 libvirt·qcow2/raw·선택형 ZFS·파일시스템과 함께 판정 |
+| 작업 중 상태 | VM lock과 Job 상태 registry가 충돌 방지와 진행률을 보존 | 실제 작업 결과는 libvirt·qcow2/raw·선택형 ZFS·파일시스템과 함께 판정 |
 | 증거·외부 통합 | Audit, Security event, Web Push가 과거 사실이나 외부 전달 상태를 보존 | 현재 host 상태를 직접 제어하지 않으며 삭제·손상 시 증거 또는 구독이 유실됨 |
 
 Local VPC DB는 desired state의 정본이지만 bridge, dnsmasq, nftables, libvirt XML과 후보
@@ -114,11 +115,10 @@ BPF manager에서 확인한다.
 |---|---|---|
 | VM 상태 | DB를 열지 못해도 lock API가 fail-open으로 동작 | 데몬은 계속될 수 있지만 VM별 직렬화 보장은 사라진다. 안전한 정상 상태로 간주하지 않는다. |
 | Audit | DB open 실패는 file-only 축소 운영. sidecar lock 충돌, schema/epoch 준비 실패, 활성 epoch 손상은 listener 전에 기동 중단 | 현재 감사 체인의 단일 writer·무결성은 fail-closed다. |
-| Job 상태 | 초기화 실패 시 registry persistence 비활성 | registry를 사용하는 비동기 작업의 조회·재시작 후 추적이 불완전해질 수 있다. |
+| Job 상태 | 초기화 실패 시 registry persistence 비활성 | registry를 사용하는 신규 요청은 접수를 거절하며 worker를 시작하지 않는다. |
 | RBAC | DB·schema 초기화 실패 시 새 로그인·API key 검증은 실패하고 role 조회 fallback은 `VIEWER`로 제한 | 권한 상승으로 우회하지는 않지만 기존 JWT의 일부 읽기 경로까지 DB 정상으로 오인하면 안 된다. bootstrap 비밀번호 미설정 시 알려진 기본 계정을 만들지 않는다. |
 | Security | open/schema 실패 시 degraded, 조회는 빈 container가 될 수 있음 | “이벤트 0건”과 “DB 미가용”을 구분해 로그·health를 함께 본다. |
 | Security Group | DB 미가용 시 일부 경로는 인메모리·커널 동작을 계속하고 영속화를 생략 | 재시작 뒤 정책 복원이 보장되지 않는다. |
-| Cloud Jobs | DB 미가용 시 인메모리 작업은 계속될 수 있음 | 작업 이력과 재시작 판정이 불완전해질 수 있다. |
 | Local VPC | 미래 schema는 DDL 전에 거부. 치명적 init/migration/reconcile 실패는 listener 전에 중단하고 격리 가능한 actual 오류는 quarantine | desired state를 임의로 덮어쓰지 않는 fail-closed 경계다. |
 | Web Push | 초기화 실패 시 알림 발송만 no-op으로 축소 | webhook·이력·핵심 서비스는 유지되지만 Push 채널은 사용할 수 없다. |
 
@@ -133,7 +133,7 @@ Web Push는 새 발화를 막은 뒤 진행 중 전송을 취소하고 최대 30
 신규 lifecycle 작업에서 확인해야 할 현행 상태다.
 
 - `pcv_security_store_close()` API는 존재하지만 `main.c` cleanup에 연결되어 있지 않다.
-- Security Group과 Cloud Jobs 전역 connection에는 명시적 public close 경로가 없다.
+- Security Group 전역 connection에는 명시적 public close 경로가 없다.
 - 정상 프로세스 종료 시 OS가 파일 descriptor를 회수하지만, 이 사실만으로 queue drain이나
   명시적 WAL checkpoint가 수행됐다고 간주하지 않는다.
 
@@ -156,7 +156,7 @@ example.db-shm
 4. 복원 뒤 `PRAGMA integrity_check`, 모듈별 schema 검사, audit hashchain, VPC reconcile을 수행한다.
 
 `config.backup` RPC는 `/etc/purecvisor/daemon.conf`만
-`/var/lib/purecvisor/daemon.conf.<timestamp>`로 복사한다. 9개 SQLite DB를 백업하지 않는다.
+`/var/lib/purecvisor/daemon.conf.<timestamp>`로 복사한다. 8개 SQLite DB를 백업하지 않는다.
 
 복구 우선순위는 데이터 성격에 따라 다르다.
 
@@ -164,7 +164,7 @@ example.db-shm
 |---|---|---|
 | 높음 | RBAC, Local VPC, Security Group, Security | 인증·desired state·암호화 키의 무결성과 actual state 재수렴 |
 | 증거 보존 | Audit, Security event | audit 체인 검증과 보안 이벤트 원본 시각 보존 |
-| 운영 재구성 가능 | VM lock, Job 상태 registry, Cloud Jobs | 고아 락 제거, 비종료 job의 실패·재시도 판정 |
+| 운영 재구성 가능 | VM lock과 Job 상태 registry | 고아 락 제거, 비종료 job의 실패·재시도 판정 |
 | 통합 상태 | Web Push | DB와 `webpush_vapid.pem`을 같은 복구 단위로 관리. PEM이 바뀌면 기존 구독은 재등록 필요 |
 
 ### DB 파일 직접 수정 금지
@@ -205,7 +205,7 @@ WireGuard 암호문, 감사 기록은 모두 민감 데이터로 취급한다. D
 일반 진단 번들에 포함하지 않는다.
 
 서비스 top-level health는 disk, Audit DB·chain, VM state 등 일부 핵심 probe만 포함하며
-9개 저장소 모두의 쓰기 가능성을 증명하지 않는다. 따라서 `health=ok`와 “모든 DB 정상”은
+8개 저장소 모두의 쓰기 가능성을 증명하지 않는다. 따라서 `health=ok`와 “모든 DB 정상”은
 같은 명제가 아니다.
 
 ---
@@ -350,12 +350,17 @@ fire-and-forget RPC는 accepted 응답만으로 끝나지 않는다. ADR-0018에
 ### 목적
 
 Job 상태 DB는 registry를 사용하는 장시간 작업의 현재 상태를 저장한다. 구현 모듈 이름은
-`pcv_job_queue`지만 DB에서 작업을 꺼내 worker에 전달하지 않는다. handler가 Job ID를 만들고
-accepted 응답을 보낸 뒤 `GTask`를 직접 시작하며, worker가 진행률과 최종 결과를 이 DB에 기록한다.
+`pcv_job_queue`지만 DB에서 작업을 꺼내 worker에 전달하지 않는다. handler가 Job ID의 접수 행을 먼저 저장하고
+저장 성공 시 accepted 응답을 보낸 뒤 `GTask`를 직접 시작하며, worker가 진행률과 최종 결과를 이 DB에 기록한다.
 
 Local VPC처럼 이 registry를 사용하는 경로가 있는 반면, VM lifecycle·backup·Security의 일부
 `GTask` 경로는 합성 Job ID와 WebSocket 완료 통지만 사용한다. 따라서 `pcv_jobs.db`에 행이
 없다는 사실만으로 비동기 작업이 실행되지 않았다고 판정하지 않는다.
+
+추적 Job은 INSERT가 실제 성공한 경우에만 접수합니다. PK 충돌은 제한된 횟수로 새 ID를
+발급하며 기존 행을 덮어쓰지 않습니다. DB가 비활성인 경우에도 daemon은 살아 있지만 신규
+추적 작업은 거절합니다. 실제 작업 결과와 결과 저장 성공 여부는 분리하며, 저장 실패는
+`result_persisted: false`로 전달해 Job ID와 로그 확인 경로를 안내합니다.
 
 ### 위치와 초기화
 
@@ -696,54 +701,11 @@ Security Group DB는 VM에 적용할 네트워크 접근 정책을 저장한다.
 
 ---
 
-## 9. Cloud Jobs DB
+## 9. Cloud Jobs DB (보존 이력)
 
-### 목적
-
-Cloud Jobs DB는 `src/modules/cloud/cloud_migration.c`가 수행하는 AWS EC2 import/export와
-import finalize 작업 상태를 저장한다. 파일명과 구현 모듈에 `migration`이 남아 있지만 Single
-Edge 공개판의 다중 노드 라이브 마이그레이션 저장소는 아니다. 공개 범위 판단은
-[PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md)를 우선한다.
-
-### 위치와 초기화
-
-| 항목 | 값 |
-|---|---|
-| 기본 경로 | `/var/lib/purecvisor/cloud_jobs.db` |
-| 코드 | `src/modules/cloud/cloud_migration.c` |
-| 초기화 함수 | `_cloud_db_init()` |
-| 초기화 | 최초 저장 시 lazy open; 인메모리 hash table이 실행 중 주 상태 |
-| 동시성 | WAL, `busy_timeout=3000` |
-| 재시작 동작 | 완료되지 않은 작업을 `failed`로 표시 |
-| 장애 동작 | DB open 실패 시 persistence만 생략하고 인메모리 작업은 계속 가능 |
-
-### 스키마
-
-#### 테이블: `cloud_jobs`
-
-| 컬럼 | 타입 | 제약 | 의미 |
-|---|---|---|---|
-| `id` | `TEXT` | `PRIMARY KEY` | cloud 작업 ID |
-| `type` | `TEXT` | `NOT NULL` | 작업 유형 |
-| `vm_name` | `TEXT` | `NOT NULL` | 대상 VM |
-| `status` | `TEXT` | `NOT NULL DEFAULT 'pending'` | pending, running, done, failed 등 |
-| `progress` | `INTEGER` | `DEFAULT 0` | 진행률 |
-| `error` | `TEXT` | nullable | 실패 사유 |
-| `created_at` | `INTEGER` | nullable | 생성 시각 |
-| `updated_at` | `INTEGER` | nullable | 갱신 시각 |
-
-#### 인덱스
-
-| 인덱스 | 컬럼 | 용도 |
-|---|---|---|
-| `idx_cloud_jobs_vm_name` | `vm_name` | VM별 작업 조회 |
-| `idx_cloud_jobs_status` | `status` | 상태별 작업 조회 |
-
-`jobs.persist.list` RPC는 이 파일을 별도 SQLite connection으로 직접 읽는다. 따라서
-인메모리 작업 객체, cloud DB 행, 일반 Job 상태 DB 행이 항상 같은 transaction snapshot을
-공유한다고 가정하지 않는다.
-
----
+AWS 수동 이관 제거 후 과거 `/var/lib/purecvisor/cloud_jobs.db`는 본체가 읽거나 쓰지
+않습니다. 활성 DB/테이블 집계에서 제외하고 자동 삭제하지 않습니다. 복구본과 과거
+작업 증거의 보존 여부는 운영자가 결정합니다.
 
 ## 10. Local VPC DB
 
@@ -1013,7 +975,6 @@ make test
 | VM 상태 DB | VM start/stop/delete/create 충돌 방지 테스트 |
 | Security DB | `security.*` RPC, HIDS baseline refresh/scan, BPF LSM 제어 probe의 `source=lsm` row와 restart `REATTACH` 대조 |
 | Security Group DB | nftables restore와 VM binding 동작 |
-| Cloud Jobs DB | 재시작 시 non-terminal job의 `failed` 전환과 인메모리 상태 대조 |
 | Local VPC DB | `/vpc/model`, `/vpc/store`, `/vpc/policy`, schema v1→v2·future-version 무변경 거부, backend readiness/ownership, restart reconcile |
 | Web Push DB | `tests/test_webpush.c`, endpoint SSRF, 사용자별 10개 상한, VAPID rotate·구독 폐기, bounded shutdown |
 
@@ -1033,6 +994,5 @@ make test
 | HIDS 파일 기준선 | `src/modules/security/hids_file_integrity.c` |
 | BPF LSM audit 입력 | `src/utils/pcv_bpf.c`, `src/utils/pcv_bpf.h`, `src/bpf/pcv_lsm.bpf.c` |
 | 보안 그룹 | `src/modules/network/security_group.c` |
-| Cloud migration 작업 | `src/modules/cloud/cloud_migration.c` |
 | Local VPC desired state와 actual 수렴 | `src/modules/network/vpc/vpc_store.c`, `src/modules/network/vpc/vpc_manager.c`, `src/modules/network/vpc/vpc_backend_ovn.c` |
 | Web Push 구독·VAPID | `src/modules/daemons/pcv_webpush.c`, `src/modules/daemons/pcv_webpush_crypto.c`, 각 헤더 |

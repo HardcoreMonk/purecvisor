@@ -108,7 +108,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 
 ## 2026-09-07 콘텐츠 현행화
 
-기존 21개 운영 장·DB 아키텍처 route와 공개 SQLite 9개 범위를 유지하고, 시작하기·Web UI·아키텍처 리팩토링·품질 게이트의 개발선 감사/시정 현황을 갱신했다. landing의 마지막 업데이트도 같은 날짜로 맞췄다. 개발선의 실제 노드 주소·비공개 commit·원본 운영 로그는 게시하지 않는다.
+기존 21개 운영 장·DB 아키텍처 route와 공개 SQLite 8개 범위를 유지하고, 시작하기·Web UI·아키텍처 리팩토링·품질 게이트의 개발선 감사/시정 현황을 갱신했다. landing의 마지막 업데이트도 같은 날짜로 맞췄다. 개발선의 실제 노드 주소·비공개 commit·원본 운영 로그는 게시하지 않는다.
 
 505 PASS·독립 44 PASS·두 노드 UI 배포는 지정 개발선 시정의 근거다. 공개 제품 소스의 동기화나 전체 감사·환경 인증 완료를 의미하지 않는다. 공개 스냅샷의 과거 C 시험·gate 수와 개발선의 최신 검토 수치를 구분한다. 제품 버전, 페이지 route, CSS와 아키텍처 SVG의 변경은 없다.
 
@@ -125,12 +125,12 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - NGINX 모드의 전체 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 사용한다. SVG는
   클라이언트·설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher,
-  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·2개 저장소로 구분한 로컬 SQLite DB 9개,
+  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·1개 저장소로 구분한 로컬 SQLite DB 8개,
   host telemetry·process status, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
-  `security_groups.db`, `vpc.db`, `cloud_jobs.db`, `pcv_webpush.db`를 모두 명시한다.
-  공개 DB 개수는 공개 소스에 실제 존재하는 이 9개를 정본으로 하며 다른 내부 배포판의
+  `security_groups.db`, `vpc.db`, `pcv_webpush.db`를 모두 명시한다.
+  공개 DB 개수는 공개 소스에 실제 존재하는 이 8개를 정본으로 하며 다른 내부 배포판의
   저장소 수와 혼용하지 않는다.
 - Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.0`을 실제 H1으로 두고 범위 문장, action과
   배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
@@ -174,8 +174,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·22개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
-- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
-  영구 테이블 26개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
+- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 8개와
+  영구 테이블 25개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
   `site/public/assets/diagrams/purecvisor-single-database-architecture.svg`에서 요청·정책 정본·작업
   상태·감사 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
   본문 대체 설명, 원본 확대 link를 제공하고 mobile에서는 page가 아니라 figure canvas 안에서만
@@ -191,7 +191,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c`, 배포 파일 SHA-256은
   `093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
-  로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
+  로컬 SQLite DB 8개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
 - TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
   좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,
@@ -394,3 +394,8 @@ GPU 탭은 2026-09-14 촬영한 RTX 3070 Ti·Windows 11의 124초 한국어 자�
 GPU 탭의 문서는 가상 머신 가이드로 연결한다. 렌더링 수치를 장기 안정성·게임 성능
 인증으로 표현하지 않는다. [UI 리뷰](ui-reviews/2026-09-15-landing-gpu-passthrough.md)의
 수용 기준을 따른다.
+
+## 2026-10-08 현재 소스 정합성
+
+AWS/S3 제거에 따라 활성 DB는 8개·25테이블이다. Cloud DB는 보존 이력으로만 표시한다.
+기존 21개 운영 장과 공개 사이트 구조·동영상·배포 workflow를 유지한다.

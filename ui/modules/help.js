@@ -12,7 +12,7 @@
   
                                                                                 
                                                                                   
-                                                                                  
+
   
                         
                                               
@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 306, REST = cfg.REST_COUNT || 230, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 298, REST = cfg.REST_COUNT || 222, METRICS = cfg.METRICS_COUNT || 155;
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -59,7 +59,7 @@ function renderHelp(b) {
   var banner = el('div', { class: 'help-banner' },
     el('div', { class: 'help-banner-main' },
       el('div', { class: 'help-banner-title' }, 'PureCVisor 2.0 — ' + _L('전수 API 레퍼런스', 'Full API Reference')),
-      el('div', { class: 'help-banner-sub' }, RPC + ' RPC · ' + REST + ' REST · 178 CLI · ' + _L('네임스페이스별 접이식 카탈로그', 'collapsible per-namespace catalog')),
+      el('div', { class: 'help-banner-sub' }, RPC + ' RPC · ' + REST + ' REST · CLI · ' + _L('네임스페이스별 접이식 카탈로그', 'collapsible per-namespace catalog')),
       featChips),
     el('a', { href: '/ui/docs.html', target: '_blank', class: 'help-guide-btn' }, '📖 ' + _L('문서 홈', 'Open Docs')));
 
@@ -68,14 +68,14 @@ function renderHelp(b) {
     HN.card('⚙ ' + _L('시스템', 'System'), [
       HN.row(_L('RPC 메서드', 'RPC Methods'), RPC + '+'),
       HN.row(_L('REST 엔드포인트', 'REST Endpoints'), REST + '+'),
-      HN.row(_L('CLI 커맨드', 'CLI Commands'), '178')]),
+      HN.row(_L('CLI 명령 안내', 'CLI Reference'), 'pcvctl help all')]),
     HN.card('📈 ' + _L('모니터링', 'Monitoring'), [
       HN.row(_L('Prometheus 메트릭', 'Prometheus Metrics'), METRICS + '+'),
       HN.row(_L('메트릭 접두', 'Metric Prefixes'), 'node_* / purecvisor_*'),
       HN.row(_L('노출 엔드포인트', 'Exposed at'), el('code', null, '/metrics'))]),
     HN.card('💻 ' + _L('인프라', 'Infrastructure'), [
       HN.row(_L('에디션', 'Edition'), window.pcvClusterEnabled ? '3-Node Cluster HA' : _L('Single Edge (단일 노드)', 'Single Edge (single-node)')),
-      HN.row(_L('Web UI 페이지', 'Web UI Pages'), '40'),
+      HN.row(_L('Web UI 페이지', 'Web UI Pages'), '39'),
       HN.row(_L('i18n 키', 'i18n Keys'), '340+')]));
 
                                        
@@ -108,8 +108,6 @@ function renderHelp(b) {
       ['get_vnc_info', 1, '-', 'console', 'VNC 접속 정보 (vm.vnc 레거시 별칭)', 'VNC access info (legacy alias of vm.vnc)'],
       ['vm.mount_iso', 1, 'iso mount', 'console', '가상 CD-ROM에 ISO 마운트', 'Mount ISO into virtual CD-ROM'],
       ['vm.eject', 1, 'vm eject / iso eject', 'console', '가상 CD-ROM에서 ISO 꺼내기', 'Eject ISO from virtual CD-ROM'],
-      ['vm.import.ec2', 2, 'cloud import', 'cloud-migration', 'AWS EC2 AMI 임포트 (near-live 지원)', 'Import AWS EC2 AMI (near-live)'],
-      ['vm.export.ec2', 2, 'cloud export', 'cloud-migration', 'VM을 EC2 AMI로 내보내기', 'Export VM to EC2 AMI'],
       ['vm.resize_disk', 1, 'vm disk-resize', 'summary', 'VM 디스크 리사이즈 (오프라인/표준)', 'Resize VM disk (offline/standard)'],
       ['vm.clone', 1, 'vm clone', 'summary', 'VM 복제 (cow/full; 게스트리셋/템플릿)', 'Clone VM (cow/full; guest-reset/template)'],
       ['vm.set_bandwidth', 1, 'vm bandwidth', 'summary', 'VM NIC 인/아웃바운드 대역폭 설정', 'Set VM NIC inbound/outbound bandwidth'],
@@ -129,13 +127,11 @@ function renderHelp(b) {
       ['vm.usb.list', 0, 'vm usb-list', 'summary', 'VM에 연결된 USB hostdev 목록', 'List USB hostdevs attached to VM'],
       ['vm.blkio.set', 1, 'vm blkio-set / vm disk-throttle', 'summary', '블록 I/O 제한 설정 (bps/iops)', 'Set block I/O limits (bps/iops)'],
       ['vm.blkio.get', 0, 'vm blkio-get', 'summary', '블록 I/O 제한 조회', 'Get block I/O limits'],
-      ['vm.import.status', 0, 'cloud status', 'cloud-migration', '클라우드 임포트 작업 상태 폴링', 'Poll cloud-import job status'],
-      ['vm.export.status', 0, 'cloud status', 'cloud-migration', '클라우드 익스포트 작업 상태 폴링', 'Poll cloud-export job status'],
       ['vm.snapshot.schedule.set', 1, '-', 'snapshots', 'VM 자동 스냅샷 스케줄 설정', 'Set VM auto-snapshot schedule'],
       ['vm.snapshot.schedule.list', 0, '-', 'snapshots', 'VM 스냅샷 스케줄 목록', 'List VM snapshot schedules'],
       ['vm.snapshot.schedule.delete', 1, '-', 'snapshots', 'VM 스냅샷 스케줄 삭제', 'Delete a VM snapshot schedule'],
-      ['vm.import.ova', 1, 'vm import-ova', 'cloud-migration', 'OVA 파일에서 VM 임포트', 'Import VM from OVA file'],
-      ['vm.export.ova', 2, 'vm export-ova', 'cloud-migration', 'VM을 OVA 파일로 익스포트', 'Export VM to OVA file'],
+      ['vm.import.ova', 1, 'vm import-ova', 'vmlist', 'OVA 파일에서 VM 임포트', 'Import VM from OVA file'],
+      ['vm.export.ova', 2, 'vm export-ova', 'vmlist', 'VM을 OVA 파일로 익스포트', 'Export VM to OVA file'],
       ['vm.batch', 1, 'vm batch', 'dashboard', '여러 VM 일괄 시작/중지', 'Batch start/stop multiple VMs'],
       ['vm.numa.info', 0, 'vm numa', '-', '호스트 NUMA/코어 할당 토폴로지', 'Host NUMA/core allocation topology'],
       ['vm.autostart', 1, 'vm autostart', 'summary', 'VM 자동시작 활성/비활성', 'Enable/disable VM autostart'],
@@ -313,7 +309,6 @@ function renderHelp(b) {
     ]},
     { id: 'backup', ko: '백업', en: 'Backup', rows: [
       ['backup.policy.set', 2, 'backup set', 'backup', 'VM 백업 정책 설정', 'Set VM backup policy'],
-      ['backup.export_s3', 2, 'backup export-s3', 'backup', '백업 스냅샷 S3 내보내기', 'Export backup snapshot to S3'],
       ['backup.policy.list', 0, 'backup list', 'backup', '백업 정책 목록', 'List backup policies'],
       ['backup.policy.delete', 2, 'backup delete', 'backup', '백업 정책 삭제', 'Delete backup policy'],
       ['backup.history', 0, 'backup history', 'backup', 'VM 백업 이력', 'Backup history for VM'],
@@ -322,10 +317,6 @@ function renderHelp(b) {
       ['backup.verify', 2, 'backup verify', 'backup', '백업 무결성 검증', 'Verify backup integrity'],
       ['backup.replicate', 2, 'backup replicate', 'backup', '원격 대상으로 백업 복제', 'Replicate backup to remote target'],
       ['backup.snapshot.verify', 2, 'snapshot verify', 'backup', '스냅샷 존재/무결성 검증 (비동기)', 'Verify snapshot exists/intact (async)'],
-    ]},
-    { id: 'cloud', ko: '클라우드 마이그레이션', en: 'Cloud Migration', rows: [
-      ['cloud.jobs.list', 1, 'cloud jobs', 'cloud-migration', '클라우드 마이그레이션 작업 목록', 'List cloud migration jobs'],
-      ['cloud.job.cancel', 2, 'cloud cancel', 'cloud-migration', '마이그레이션 작업 취소', 'Cancel a migration job'],
     ]},
     { id: 'config', ko: '설정', en: 'Config', rows: [
       ['config.history', 0, 'config history', 'config-mgmt', '설정 변경 이력', 'Config-change history'],
@@ -377,7 +368,6 @@ function renderHelp(b) {
       ['jobs.get', 0, '-', 'activity-log', 'ID로 작업 1건 조회', 'Get one job by id'],
       ['jobs.status', 0, '-', 'activity-log', 'jobs.get 별칭 (ADR-0012)', 'Alias of jobs.get (ADR-0012)'],
       ['jobs.cancel', 0, '-', 'activity-log', '작업 취소 (미등록→VIEWER)', 'Cancel a job (unlisted defaults VIEWER)'],
-      ['jobs.persist.list', 0, '-', 'activity-log', '영속 작업 목록 (SQLite cloud_jobs.db)', 'List persisted jobs (SQLite cloud_jobs.db)'],
     ]},
     { id: 'monitor', ko: '모니터링', en: 'Monitoring', rows: [
       ['monitor.metrics', 0, 'monitor metrics', 'mon-overview', '단일 VM CPU/MEM 사용량', 'Single-VM CPU/MEM usage'],
@@ -652,10 +642,6 @@ function renderSwaggerApi(b) {
       { m: 'PUT', p: '/vms/{name}/bandwidth', d: _L('대역폭 설정', 'Set bandwidth'), body: '{"inbound_kbps":1000,"outbound_kbps":1000}' },
       { m: 'POST', p: '/vms/{name}/export', d: _L('OVA 익스포트', 'Export OVA') },
       { m: 'POST', p: '/vms/import', d: _L('OVA 임포트', 'Import OVA'), body: '{"ova_path":"/x.ova","name":"web"}' },
-      { m: 'POST', p: '/vms/{name}/import-ec2', d: _L('EC2 임포트', 'Import from EC2'), body: '{"ami_id":"ami-..."}' },
-      { m: 'POST', p: '/vms/{name}/export-ec2', d: _L('EC2 익스포트', 'Export to EC2') },
-      { m: 'GET', p: '/vms/{name}/import-status', d: _L('임포트 상태', 'Import status') },
-      { m: 'GET', p: '/vms/{name}/export-status', d: _L('익스포트 상태', 'Export status') },
       { m: 'GET', p: '/vms/{name}/memory-stats', d: _L('메모리 통계', 'Memory stats') },
       { m: 'GET', p: '/vms/{name}/snapshot-schedule', d: _L('스냅샷 스케줄 상태', 'Snapshot schedule status') },
       { m: 'POST', p: '/vms/{name}/guest-ping', d: _L('게스트 에이전트 핑', 'Guest-agent ping') },
@@ -762,11 +748,6 @@ function renderSwaggerApi(b) {
     { id: 'overlay', name: _L('오버레이 메시', 'Overlay Mesh'), endpoints: [
       { m: 'GET', p: '/overlay', d: _L('오버레이 목록', 'Overlay list') },
     ]},
-                                                
-    { id: 'cloud', name: _L('클라우드 마이그레이션', 'Cloud Migration'), endpoints: [
-      { m: 'GET', p: '/cloud/jobs', d: _L('마이그레이션 작업 목록', 'Migration job list') },
-      { m: 'POST', p: '/cloud/cancel', d: _L('마이그레이션 취소', 'Cancel migration'), body: '{"job_id":"..."}' },
-    ]},
                                                                                                       
     { id: 'monitoring', name: _L('모니터링 & 알림', 'Monitoring & Alerts'), endpoints: [
       { m: 'GET', p: '/monitor/metrics', d: _L('단일 VM 메트릭', 'Single-VM metrics') },
@@ -807,7 +788,6 @@ function renderSwaggerApi(b) {
     { id: 'jobs', name: _L('비동기 작업', 'Async Jobs'), endpoints: [
       { m: 'GET', p: '/jobs', d: _L('작업 목록', 'Job list') },
       { m: 'POST', p: '/jobs/{id}/cancel', d: _L('작업 취소', 'Cancel job') },
-      { m: 'GET', p: '/jobs/persistent', d: _L('영속 작업 목록', 'Persistent jobs') },
       { m: 'GET', p: '/jobs/{id}', d: _L('작업 1건 조회', 'Get one job') },
     ]},
                                               
@@ -849,7 +829,6 @@ function renderSwaggerApi(b) {
       { m: 'POST', p: '/backup/incremental', d: _L('증분 백업', 'Incremental backup'), body: '{"vm":"web"}' },
       { m: 'POST', p: '/backup/verify', d: _L('백업 검증', 'Verify backup'), body: '{"vm":"web"}' },
       { m: 'POST', p: '/backup/replicate', d: _L('원격 복제', 'Replicate to remote'), body: '{"vm":"web","target":"host2","user":"root"}' },
-      { m: 'POST', p: '/backup/export-s3', d: _L('S3 익스포트', 'Export to S3'), body: '{"vm":"web","bucket":".."}' },
     ]},
                                               
     { id: 'templates', name: _L('템플릿', 'Templates'), endpoints: [

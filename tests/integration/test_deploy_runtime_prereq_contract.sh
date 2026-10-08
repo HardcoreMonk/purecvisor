@@ -1835,6 +1835,7 @@ target_line = check_all.group("target")
 recipe = check_all.group("recipe")
 deps = target_line.split(":", 1)[1].split()
 expected_deps = {
+    "check-aws-manual-removed",
     "check-rbac",
     "check-rpc-consumers",
     "check-dead-exports",
@@ -1883,6 +1884,7 @@ expected_deps = {
     "check-rerror-guard",
     "check-single-ui-surface",
     "check-runtime-prereqs",
+    "check-vnc-proxy-lifetime",
 }
 require(
     len(deps) == len(set(deps)),
@@ -1890,13 +1892,13 @@ require(
 )
 require(
     set(deps) == expected_deps,
-    "check-all dependencies must match the complete expected 40-gate set",
+    "check-all dependencies must match the complete expected 42-gate set",
 )
 require(
-    "전체 통과 (40게이트:" in recipe and "DPDK ownership lifecycle" in recipe and
+    "전체 통과 (42게이트:" in recipe and "AWS 수동 이관 제거" in recipe and "DPDK ownership lifecycle" in recipe and
     "network mode enum" in recipe and "iSCSI CHAP argv 제거" in recipe and
-    "runtime prerequisites" in recipe,
-    "check-all success message must describe all 40 gates",
+    "runtime prerequisites" in recipe and "VNC proxy lifetime" in recipe,
+    "check-all success message must describe all 42 gates",
 )
 
 policy_section = re.search(
@@ -2008,7 +2010,7 @@ success_line = next(
     for line in makefile.splitlines()
     if "계약 게이트 전체 통과" in line
 )
-mutated_success = success_line.replace(" + runtime prerequisites)", ")")
+mutated_success = success_line.replace(" + runtime prerequisites", "")
 if mutated_success == success_line:
     raise SystemExit("cannot construct check-all success message mutant")
 write_mutant(
@@ -2030,14 +2032,14 @@ write_mutant(
     "\t@# bash tests/integration/test_deploy_runtime_prereq_contract.sh",
 )
 
-                                                         
-                                                                  
-                                                                          
+
+
+check_all_line = next(line for line in makefile.splitlines() if line.startswith("check-all:"))
 write_mutant(
     "check-all-duplicate.mk",
     makefile,
-    " check-runtime-prereqs\n",
-    " check-rbac check-runtime-prereqs\n",
+    check_all_line,
+    check_all_line.replace(" check-runtime-prereqs", " check-rbac check-runtime-prereqs", 1),
 )
 write_mutant(
     "policy-korean-cleanup.md",

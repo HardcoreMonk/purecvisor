@@ -48,14 +48,12 @@ DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 SEARCH_DIRS = [
     REPO_ROOT / "src" / "api",
     REPO_ROOT / "src" / "modules" / "dispatcher",
-    REPO_ROOT / "src" / "modules" / "cloud",                                           
-    REPO_ROOT / "src" / "modules" / "virt",                             
+    REPO_ROOT / "src" / "modules" / "virt",
 ]
 
 REQUIRED_FIRE_AND_FORGET_METHODS = [
     "backup.restore",
     "backup.replicate",
-    "backup.export_s3",
     "container.create",
     "container.start",
     "container.stop",
@@ -92,7 +90,7 @@ AUDIT_CALL_RE = re.compile(
                                                            
                
 WS_COMPLETE_RE = re.compile(
-    r'pcv_ws_broadcast_job_complete(?:_mt)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
+    r'pcv_ws_broadcast_job_complete(?:_tracked)?(?:_mt)?\s*\(\s*[^;]*?"([a-z][a-z0-9_.]+)"',
     re.DOTALL,
 )
 

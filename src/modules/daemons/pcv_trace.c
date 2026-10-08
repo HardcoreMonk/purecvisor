@@ -17,8 +17,8 @@
                                                   
                                                  
                                                         
-                                                         
-                                                  
+
+
                                                     
                                          
                                                                 
@@ -326,6 +326,9 @@ typedef struct {
     GSubprocess *proc;                             
     guint        backstop_id;                                
     gboolean     finalized;                     
+    gboolean     reaped;
+    const gchar *end_method;
+    const gchar *end_reason;
 } TraceState;
 
 static TraceState *g_trace = NULL;
@@ -367,6 +370,7 @@ _wrap_nsenter(gchar **retis_argv, const gchar *ep)
 
                                                      
                                                      
+
                                                                 
                                                                
                                            
@@ -392,7 +396,7 @@ _trace_summarize(const TraceState *s, const gchar *reason, gboolean *ok_out)
     return detail;
 }
 
-                                                      
+
                                                                       
                                          
                                               
@@ -401,7 +405,7 @@ _trace_summarize(const TraceState *s, const gchar *reason, gboolean *ok_out)
 static void
 _trace_finalize(const gchar *method, const gchar *reason)
 {
-    if (!g_trace || g_trace->finalized) return;
+    if (!g_trace || !g_trace->reaped || g_trace->finalized) return;
     g_trace->finalized = TRUE;
 
                                             
@@ -437,8 +441,8 @@ _trace_finalize(const gchar *method, const gchar *reason)
     pcv_trace_release();
 }
 
-                                                          
-                                         
+
+
                                              
                                                    
 static void
@@ -447,12 +451,36 @@ _trace_wait_done(GObject *src, GAsyncResult *res, gpointer user)
     gchar       *id   = user;
     GSubprocess *proc = G_SUBPROCESS(src);
     GError      *werr = NULL;
-    g_subprocess_wait_finish(proc, res, &werr);                      
+    gboolean reaped = g_subprocess_wait_finish(proc, res, &werr);
+    if (!reaped) {
+
+        PCV_LOG_WARN(TRACE_LOG_DOM, "trace %s: wait confirmation failed: %s", id,
+                     werr ? werr->message : "unknown error");
+    }
     g_clear_error(&werr);
 
-    if (g_trace && g_strcmp0(g_trace->trace_id, id) == 0 && !g_trace->finalized)
-        _trace_finalize("debug.trace.stop", "exit");
+    if (reaped && g_trace && g_trace->proc == proc &&
+        g_strcmp0(g_trace->trace_id, id) == 0 && !g_trace->finalized) {
+        g_trace->reaped = TRUE;
+        _trace_finalize(g_trace->end_method ? g_trace->end_method : "debug.trace.stop",
+                        g_trace->end_reason ? g_trace->end_reason : "exit");
+    }
     g_free(id);
+}
+
+
+
+static void
+_trace_request_stop(const gchar *method, const gchar *reason)
+{
+    if (!g_trace || g_trace->end_method) return;
+    g_trace->end_method = method;
+    g_trace->end_reason = reason;
+    if (g_trace->backstop_id) {
+        g_source_remove(g_trace->backstop_id);
+        g_trace->backstop_id = 0;
+    }
+    if (g_trace->proc) g_subprocess_force_exit(g_trace->proc);
 }
 
                                                     
@@ -468,10 +496,8 @@ _trace_backstop_cb(gpointer user)
         PCV_LOG_WARN(TRACE_LOG_DOM,
             "trace %s: 백스톱 발화(timebox+%us 초과) — 강제 종료",
             g_trace->trace_id, TRACE_BACKSTOP_GRACE_SEC);
-        if (g_trace->proc) g_subprocess_force_exit(g_trace->proc);               
-        _trace_finalize("debug.trace.expire", "timebox");
-                                                             
-                                         
+        _trace_request_stop("debug.trace.expire", "timebox");
+
     }
     return G_SOURCE_REMOVE;           
 }
@@ -641,8 +667,8 @@ fail:
 }
 
                                                 
-                                              
-                                                                                   
+
+
 gboolean
 pcv_trace_stop(const char *trace_id, GError **error)
 {
@@ -657,8 +683,7 @@ pcv_trace_stop(const char *trace_id, GError **error)
         return FALSE;
     }
 
-    if (g_trace->proc) g_subprocess_force_exit(g_trace->proc);               
-    _trace_finalize("debug.trace.stop", "stop");
+    _trace_request_stop("debug.trace.stop", "stop");
     return TRUE;
 }
 
@@ -680,11 +705,9 @@ pcv_trace_status(const char *trace_id)
     }
 
                                                               
-                                                                
-                                                  
-                                                             
-                                                   
+
     json_object_set_string_member(o, "state", "running");
+    json_object_set_boolean_member(o, "stop_requested", g_trace->end_method != NULL);
     json_object_set_string_member(o, "trace_id", g_trace->trace_id);
     json_object_set_string_member(o, "vm", g_trace->vm ? g_trace->vm : "");
     json_object_set_string_member(o, "filter", g_trace->filter_desc);

@@ -290,6 +290,7 @@ static struct {
                                                        
     gint64        action_times[RATE_LIMIT_MAX];                               
     gint          action_time_pos;                                   
+    gint          action_time_count;
                         
     guint64       total_triggered;                      
     guint64       total_executed;                         
@@ -471,10 +472,12 @@ _rate_check(void)
     gint64 now = g_get_monotonic_time();
     gint64 window = RATE_LIMIT_WINDOW * G_USEC_PER_SEC;                      
 
-                                                                
-                                                                  
+
+
+
+
     gint recent = 0;
-    for (gint i = 0; i < RATE_LIMIT_MAX; i++) {
+    for (gint i = 0; i < G.action_time_count; i++) {
         if (now - G.action_times[i] < window)
             recent++;
     }
@@ -491,6 +494,8 @@ _rate_record(void)
 {
     G.action_times[G.action_time_pos] = g_get_monotonic_time();
     G.action_time_pos = (G.action_time_pos + 1) % RATE_LIMIT_MAX;
+    if (G.action_time_count < RATE_LIMIT_MAX)
+        G.action_time_count++;
 }
 
                                                               

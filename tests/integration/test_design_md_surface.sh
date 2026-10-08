@@ -57,6 +57,42 @@ require_file "DESIGN.md"
 require_file "scripts/check_design_md.py"
 require_file "ui/samples/design-system-preview.html"
 require_file "ui/docs.html"
+require_file "packaging/ui-assets.manifest"
+require_file "packaging/deb/purecvisorsd.service"
+
+
+for guide_surface in docs/GUIDE.md ui/guide-content.md; do
+
+  require_literal '현재 개발 소스에서 제거' "$guide_surface" "guide must explain AWS removal"
+  require_literal '일반 VM·OVA·로컬 백업은 유지' "$guide_surface" "guide must preserve core features"
+  require_literal '외부 자원은 삭제하지 않습니다' "$guide_surface" "guide must preserve previous resources"
+  require_literal '| `check-aws-manual-removed` |' "$guide_surface" "guide must list the removal gate"
+
+  require_literal '| `check-vnc-proxy-lifetime` |' "$guide_surface" "guide must list the mandatory VNC lifetime gate"
+  require_literal 'result_persisted: false' "$guide_surface" "Job outcome must remain distinct from persistence failure"
+  require_literal '신규 접수를 거부' "$guide_surface" "guide must explain failed Job admission"
+
+  require_regex '(?ms)^### 8\.12 [^\n]*\n(?:(?!^### ).)*stopped=true(?:(?!^### ).)*stop_requested=true(?:(?!^### ).)*state=running(?:(?!^### ).)*wait 성공 뒤에만(?:(?!^### ).)*완료는 status idle로 확인' "$guide_surface" "Trace guide must distinguish request ACK from wait-confirmed completion"
+  require_literal '상단 **VM 삭제**' "$guide_surface" "guide must expose the single VM delete entry point"
+  require_literal '**일괄 삭제 (N)**' "$guide_surface" "guide must expose the selected VM delete entry point"
+  require_literal '**요청 접수 · 완료 미확인**' "$guide_surface" "delete acceptance must remain distinct from completion"
+  require_literal '아직 보내지 않은 요청만 중단' "$guide_surface" "closing deletion must distinguish sent and unsent requests"
+  require_literal '설정 파일 수정·서비스 재시작은 기존 비밀번호를 변경하지 않습니다' "$guide_surface" "bootstrap configuration must remain seed-only"
+  require_literal 'POST /api/v1/auth/password' "$guide_surface" "guide must name the normal password change API"
+  require_literal 'refresh 세션 폐기' "$guide_surface" "guide must distinguish refresh revocation"
+  require_literal '최대 15분' "$guide_surface" "guide must explain remaining access token validity"
+
+  require_regex '(?ms)^### 18\.6 프로젝트 통계\n(?:(?!^###? ).)*^\| 도움말 표시 \| RPC [0-9]+·REST [0-9]+ \(`make check-help-counts`\) \|$' "$guide_surface" "guide must expose current help counts for source comparison"
+  require_regex '(?ms)^### 18\.6 프로젝트 통계\n(?:(?!^###? ).)*^\| Web UI \|[^\n]*`tests/ui/\*\.test\.mjs` [0-9]+개[^\n]*\|$' "$guide_surface" "guide statistics must retain the current UI test file count"
+  require_regex '(?ms)^### 18\.6 프로젝트 통계\n(?:(?!^###? ).)*^\| 주요 정적 게이트 \|[^\n]+\|$' "$guide_surface" "guide statistics must retain the gate execution scope"
+  require_regex '(?ms)^### 18\.6 프로젝트 통계\n(?:(?!^###? ).)*^\| 운영 기능 아티팩트 \|[^\n]+\|$' "$guide_surface" "guide statistics must retain a separate runtime artifact row"
+  require_regex '(?ms)^### 1\.5 접속 정보 요약\n(?:(?!^### ).)*^\| Web UI \| `https?://[^`]+/ui/` \|[^\n]*configured password[^\n]*\|$' "$guide_surface" "Web UI connection section must retain address and authentication"
+  require_regex '(?ms)^### 19\.5 변경 유형별 최소 검증\n(?:(?!^### ).)*^\| Web UI \|[^\n]*PCV_NO_DEPLOY=1 scripts/bundle-ui\.sh[^\n]*scripts/check_ui_bundle_fresh\.py[^\n]*node --check ui/app\.bundle\.js[^\n]*\|$' "$guide_surface" "Web UI verification section must retain runnable checks"
+  require_literal 'DB·로그·PKI는 보존' "$guide_surface" "purge must distinguish retained operator data"
+  require_literal '`sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다' "$guide_surface" "purge must remove generated configuration"
+  require_literal "sudo cp packaging/deb/purecvisorsd.service /etc/systemd/system/" "$guide_surface" "guide must copy the existing service source"
+  reject_literal "sudo cp systemd/purecvisorsd.service" "$guide_surface" "guide must not copy a missing service source"
+done
 
 require_literal "DESIGN.md" "AGENTS.md" "AGENTS.md must require DESIGN.md before UI work"
 require_literal "scripts/check_design_md.py" "AGENTS.md" "AGENTS.md must name the DESIGN.md checker"

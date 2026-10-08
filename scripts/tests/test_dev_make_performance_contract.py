@@ -105,7 +105,7 @@ class DevMakePerformanceContractTest(unittest.TestCase):
         output = self.run_make("dev-verify", "DEV_JOBS=7", "DEV_USE_MOLD=0")
         self.assertLess(output.index("test-auto"), output.index("dev-check"))
 
-    def test_dev_check_partitions_all_40_public_gates_without_overlap(self) -> None:
+    def test_dev_check_partitions_all_42_public_gates_without_overlap(self) -> None:
         check_all_line = next(
             line for line in MAKEFILE_TEXT.splitlines()
             if line.startswith("check-all:")
@@ -116,7 +116,7 @@ class DevMakePerformanceContractTest(unittest.TestCase):
 
         self.assertEqual(parallel & mutating, set())
         self.assertEqual(parallel | mutating, all_gates)
-        self.assertEqual(len(all_gates), 40)
+        self.assertEqual(len(all_gates), 42)
         self.assertEqual(
             mutating,
             {

@@ -1703,7 +1703,7 @@ _rest_async_worker(GTask *task, gpointer src __attribute__((unused)),
     _RestAsyncCtx *actx = task_data;
 
                                                        
-                                                                
+
     gint timeout = pcv_get_rpc_timeout(actx->rpc_method);
     gchar *resp = _rpc_over_uds_timeout(actx->rpc, timeout);
 
@@ -3843,7 +3843,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                                      
                                                                                      
                                                                                      
-                                                                                    
                                                                                      
                                                                                      
                                                                                      
@@ -4178,36 +4177,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         } else if (g_strcmp0(action, "import") == 0 && g_strcmp0(method, "POST") == 0) {
             rpc = _build_rpc("vm.import.ova", body);
 
-                                                                  
-        } else if (g_strcmp0(action, "import-ec2") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.import.ec2", p);
-            json_object_unref(p);
-
-                                                                  
-        } else if (g_strcmp0(action, "export-ec2") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.export.ec2", p);
-            json_object_unref(p);
-
-                                                                   
-        } else if (g_strcmp0(action, "import-status") == 0 && g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.import.status", p);
-            json_object_unref(p);
-
-                                                                   
-        } else if (g_strcmp0(action, "export-status") == 0 && g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.export.status", p);
-            json_object_unref(p);
-
                                                                    
         } else if (g_strcmp0(action, "memory-stats") == 0 && g_strcmp0(method, "GET") == 0) {
             rpc = _build_rpc_name("vm.memory.stats", name);
@@ -4254,18 +4223,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             json_object_set_string_member(p, "name", name);
             rpc = _build_rpc("vm.guest.exec", p);
             json_object_unref(p);
-        }
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "cloud") == 0) {
-                                                      
-        if (g_strcmp0(name, "jobs") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc("cloud.jobs.list", NULL);
-        }
-                                               
-        else if (g_strcmp0(name, "cancel") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("cloud.job.cancel", body);
         }
     }
 
@@ -4636,9 +4593,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             json_object_unref(p);
         } else if (g_strcmp0(name, "persistent") == 0 && *action == '\0'
                    && g_strcmp0(method, "GET") == 0) {
-                                                       
-                                                                             
-            rpc = _build_rpc("jobs.persist.list", NULL);
+
+
         } else if (*name != '\0' && *action == '\0'
                    && g_strcmp0(method, "GET") == 0) {
             JsonObject *p = json_object_new();
@@ -4949,7 +4905,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                          
                                                     
                                                        
-                                                       
                                                                   
         } else if (g_strcmp0(name, "incremental") == 0 && g_strcmp0(method, "POST") == 0) {
             rpc = _build_rpc("backup.incremental", body);
@@ -4957,8 +4912,6 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             rpc = _build_rpc("backup.verify", body);
         } else if (g_strcmp0(name, "replicate") == 0 && g_strcmp0(method, "POST") == 0) {
             rpc = _build_rpc("backup.replicate", body);
-        } else if (g_strcmp0(name, "export-s3") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("backup.export_s3", body);
         }
     }
 

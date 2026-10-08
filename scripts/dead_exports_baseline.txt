@@ -13,7 +13,6 @@ pcv_alert_set_vm_webhook
 pcv_anomaly_get_recent_json
 pcv_anomaly_shutdown
 pcv_audit_get_total_count
-pcv_audit_shutdown
 pcv_backup_history_paged
 pcv_bridge_vlan_add
 pcv_bridge_vlan_remove

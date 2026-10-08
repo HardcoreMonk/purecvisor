@@ -61,7 +61,16 @@ def test_ws_regex_does_not_overmatch_unrelated():
     assert gate.WS_COMPLETE_RE.search(s) is None
 
 
-                                                                    
+def test_ws_regex_matches_tracked_variants():
+
+    for suffix in ("_tracked", "_tracked_mt"):
+        statement = f'pcv_ws_broadcast_job_complete{suffix}(id, "backup.restore", "completed", NULL, persisted);'
+        match = gate.WS_COMPLETE_RE.search(statement)
+        assert match is not None
+        assert match.group(1) == "backup.restore"
+
+
+
 
 def test_audit_regex_matches_log_and_rpc():
                                                    

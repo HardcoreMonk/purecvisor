@@ -7,8 +7,7 @@
                                                         
                                                                   
                                                                
-                                                               
-                                                 
+
    
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
@@ -17,15 +16,12 @@ import { withPage, CORE } from './harness.mjs';
 
 const DISPATCHER_SOURCE = readFileSync(
   new URL('../../src/api/dispatcher.c', import.meta.url), 'utf8');
-const REST_RBAC_SOURCE = readFileSync(
-  new URL('../../src/modules/auth/pcv_rbac.c', import.meta.url), 'utf8');
 const APP_SOURCE = readFileSync(new URL('../../ui/app.js', import.meta.url), 'utf8');
 const NAV_SOURCE = readFileSync(new URL('../../ui/modules/nav.js', import.meta.url), 'utf8');
 
 const BASE_MODULES = [...CORE, 'ui/modules/endpoints.js'];
 const NETWORK_MODULES = [...BASE_MODULES, 'ui/modules/filter-state.js', 'ui/modules/network.js'];
 const ADVANCED_MODULES = [...BASE_MODULES, 'ui/modules/advanced.js'];
-const CLOUD_MODULES = [...BASE_MODULES, 'ui/modules/cloud.js'];
 const VM_MODULES = [...BASE_MODULES, 'ui/modules/vm.js'];
 
 const ROLE_RANK = { VIEWER: 0, OPERATOR: 1, ADMIN: 2 };
@@ -45,26 +41,6 @@ function dispatcherMinRole(method) {
   assert.ok(values.length > 0, `${method} must be explicit in g_method_policies[]`);
   assert.equal(new Set(values).size, 1, `${method} has conflicting dispatcher role entries`);
   return values[0];
-}
-
-function sourceSection(source, startNeedle, endNeedle) {
-  const start = source.indexOf(startNeedle);
-  const end = source.indexOf(endNeedle, start + startNeedle.length);
-  assert.ok(start >= 0 && end > start, `source markers missing: ${startNeedle}`);
-  return source.slice(start, end);
-}
-
-                                                                           
-                                                                   
-const REST_ADMIN_SECTION = sourceSection(
-  REST_RBAC_SOURCE, 'if (g_str_has_prefix(method, "auth."))', 'if (g_str_has_prefix(method, "vm.") ||');
-
-function assertRestAdmin(method) {
-  assert.match(
-    REST_ADMIN_SECTION,
-    new RegExp(`g_strcmp0\\(method,\\s*"${regexEscape(method)}"\\)\\s*==\\s*0`),
-    `${method} must remain ADMIN at the REST RBAC gate`
-  );
 }
 
 function extractSource(source, startNeedle, endNeedle) {
@@ -174,28 +150,6 @@ const SURFACE_CASES = [
     readSelector: 'button[onclick="sgListRules()"]'
   },
   {
-    name: 'cloud-migration',
-    modules: CLOUD_MODULES,
-    tab: 'cloud-migration',
-    renderer: 'renderCloudMigration',
-    routes: {
-      '/api/v1/cloud/jobs': {
-        body: { data: [
-          { name: 'running-rbac', direction: 'import', status: 'running', progress_percent: 20 },
-          { name: 'cutover-rbac', direction: 'import', status: 'awaiting_cutover', progress_percent: 90 }
-        ] }
-      }
-    },
-    probes: [
-                                                                     
-      { selector: 'button[onclick^="cmDoImport"]', method: 'vm.import.ec2', minRole: 2, count: 1 },
-      { selector: 'button[onclick^="cmDoExport"]', method: 'vm.export.ec2', minRole: 2, count: 1 },
-      { selector: 'button[onclick^="cmCancelJob"]', method: 'cloud.job.cancel', minRole: 2, count: 1 },
-      { selector: 'button[onclick^="cmFinalize"]', method: 'cloud.import.finalize', minRole: 2, count: 1 }
-    ],
-    readSelector: '#cm-jobs table'
-  },
-  {
     name: 'config-mgmt',
     modules: ADVANCED_MODULES,
     tab: 'config-mgmt',
@@ -223,10 +177,6 @@ test('representative UI mutations remain anchored to explicit backend policy', (
     'template.delete': 2,
     'vm.create': 1,
     'ovn.acl.add': 2,
-    'vm.import.ec2': 1,
-    'vm.export.ec2': 1,
-    'cloud.job.cancel': 2,
-    'cloud.import.finalize': 2,
     'daemon.config.set': 2,
     'config.backup': 2,
     'storage.zvol.delete': 2,
@@ -243,8 +193,6 @@ test('representative UI mutations remain anchored to explicit backend policy', (
   for (const [method, minRole] of Object.entries(expected)) {
     assert.equal(dispatcherMinRole(method), minRole, method);
   }
-  assertRestAdmin('vm.import.ec2');
-  assertRestAdmin('vm.export.ec2');
 });
 
 for (const surface of SURFACE_CASES) {
@@ -257,9 +205,6 @@ for (const surface of SURFACE_CASES) {
           window.currentUser = effectiveRole ? { role: effectiveRole } : null;
           const target = document.getElementById('cb');
           await window[renderer](target);
-                                                                      
-                                                                          
-          if (renderer === 'renderCloudMigration') await window.cmLoadJobs();
 
           const mutations = probes.map(probe => ({
             probe,
@@ -301,7 +246,6 @@ for (const surface of SURFACE_CASES) {
       }
 
       await page.evaluate(() => {
-        if (typeof window._cloudCleanupTimer === 'function') window._cloudCleanupTimer();
       });
     }, { routes: surface.routes });
   });

@@ -170,9 +170,8 @@ pcv_get_rpc_timeout(const gchar *rpc_method)
                  
     if (g_strcmp0(rpc_method, "debug.trace.report") == 0)
         return 40;
-                                    
-    if (g_str_has_prefix(rpc_method, "cloud.") ||
-        g_strcmp0(rpc_method, "vm.create") == 0)
+
+    if (g_strcmp0(rpc_method, "vm.create") == 0)
         return 30;
 #if PCV_CLUSTER_ENABLED
     if (g_str_has_prefix(rpc_method, "cluster."))

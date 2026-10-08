@@ -7,7 +7,7 @@ import fs from 'node:fs';
 import { withPage } from './harness.mjs';
 
 const MODS = ['endpoints', 'api', 'ui', 'filter-state', 'uxlib', 'modal-core',
-  'network', 'storage', 'cloud', 'container', 'vm-guest', 'vm', 'vm-lifecycle']
+  'network', 'storage', 'container', 'vm-guest', 'vm', 'vm-lifecycle']
   .map(name => 'ui/modules/' + name + '.js');
 
 async function boot(page) {
@@ -125,7 +125,6 @@ regression('successful network/container/VM deletion has positive confirmation',
 regression('HTTP errors stay visible in inventory, backup, forecast and guest panels', async page => {
   const panels = await page.evaluate(async () => {
     const el = PCV.uxlib.el, cb = document.querySelector('#cb'), out = {};
-    cb.appendChild(el('div', { id: 'cm-jobs' })); await cmLoadJobs(); out.cloud = cb.textContent;
     await renderIscsi(cb); out.iscsi = cb.textContent;
     await renderBackup(cb); out.backup = cb.querySelector('#backup-policies').textContent;
     await backupLoadHistory(); out.history = cb.querySelector('#backup-history').textContent;

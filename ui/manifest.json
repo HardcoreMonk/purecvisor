@@ -1,7 +1,7 @@
 {
   "name": "PureCVisor — KVM Hypervisor",
   "short_name": "PureCVisor",
-  "description": "KVM Hypervisor Orchestrator with VM/Container management, monitoring, and cloud migration",
+  "description": "KVM Hypervisor Orchestrator with VM/Container management, monitoring, and backup",
   "id": "/ui/",
   "start_url": "/ui/",
   "scope": "/ui/",

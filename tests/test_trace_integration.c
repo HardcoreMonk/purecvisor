@@ -1,42 +1,43 @@
-                                                                                              
-                                                                                    
-                                                                         
-                                                               
-                             
-                                 
-  
-                                                     
-  
-                                                        
-                                                
-                                                                    
-                     
-  
-          
-                                                            
-                                                                   
-                         
-                                                            
-                                            
-                                                                      
-                                                
-                                               
-                                                              
-                                                            
-                                                        
-                                                          
-                                                 
-                                                 
-  
-                                                           
-                                                                
-                                                   
-                                                           
-                                                
-  
-                                                  
-                                   
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <gio/gio.h>
@@ -158,12 +159,22 @@ test_trace_stop_root_retis(void)
     g_assert_true(pcv_trace_stop(id, &e));
     g_assert_no_error(e);
 
-                        
+    gchar *marker = g_build_filename(PCV_TRACE_OUT_ROOT, id, PCV_TRACE_RUNNING_MARKER, NULL);
     {
         JsonObject *st = pcv_trace_status(id);
-        g_assert_cmpstr(json_object_get_string_member(st, "state"), ==, "idle");
+        g_assert_cmpstr(json_object_get_string_member(st, "state"), ==, "running");
+        g_assert_true(json_object_get_boolean_member(st, "stop_requested"));
         json_object_unref(st);
     }
+    g_assert_true(g_file_test(marker, G_FILE_TEST_EXISTS));
+    g_assert_false(pcv_trace_try_acquire());
+    g_assert_true(pcv_trace_stop(id, &e));
+    g_assert_no_error(e);
+
+
+    g_assert_true(_drive_until_idle(id, 8));
+    g_assert_false(g_file_test(marker, G_FILE_TEST_EXISTS));
+    g_free(marker);
     g_assert_true(pcv_trace_try_acquire());
     pcv_trace_release();
 
@@ -173,12 +184,6 @@ test_trace_stop_root_retis(void)
         g_assert_false(pcv_trace_stop(id, &e2));
         g_assert_error(e2, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
         g_clear_error(&e2);
-    }
-
-                                                        
-    for (int i = 0; i < 20; i++) {
-        g_main_context_iteration(NULL, FALSE);
-        g_usleep(10 * 1000);
     }
 
     _rm_out_dir(id);
@@ -252,12 +257,8 @@ test_trace_restart_purge_root_retis(void)
     g_assert_true(pcv_trace_stop(id, &e));
     g_assert_no_error(e);
 
-                                                    
-                                    
-    for (int i = 0; i < 20; i++) {
-        g_main_context_iteration(NULL, FALSE);
-        g_usleep(10 * 1000);
-    }
+
+    g_assert_true(_drive_until_idle(id, 8));
 
     g_assert_true(pcv_trace_try_acquire());
     pcv_trace_release();

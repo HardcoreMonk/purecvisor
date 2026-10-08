@@ -8,7 +8,8 @@ repo_root="$(cd "$(dirname "$0")/../.." && pwd)"
 cd "$repo_root"
 
 src=src/modules/backup/backup_scheduler.c
-block="$(sed -n '1103,1225p' "$src")"
+block="$(sed -n '/^gboolean pcv_backup_restore(/,/^}/p' "$src")"
+test -n "$block"
 
 printf 'checking restore waits for VIR_DOMAIN_SHUTOFF...\n'
 grep -q 'state == VIR_DOMAIN_SHUTOFF' <<<"$block"

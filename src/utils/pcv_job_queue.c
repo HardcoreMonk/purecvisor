@@ -47,6 +47,7 @@
 #include <time.h>
 
 #define JOB_LOG_DOM "job_queue"
+#define JOB_ID_ATTEMPTS 32
 #define JOB_DEFAULT_LIMIT 50                                             
 
                                           
@@ -117,7 +118,7 @@ pcv_job_queue_init(void)
                                 "/var/lib/purecvisor/pcv_jobs.db");
 
     if (sqlite3_open(db_path, &G.db) != SQLITE_OK) {
-                                                           
+
                                                                        
         PCV_LOG_WARN(JOB_LOG_DOM, "SQLite open failed: %s — job queue disabled",
                      db_path);
@@ -130,27 +131,27 @@ pcv_job_queue_init(void)
         return;
     }
 
-                                                                      
-    sqlite3_exec(G.db, "PRAGMA journal_mode=WAL", NULL, NULL, NULL);
-    sqlite3_exec(G.db,
+
+    const gchar *setup_sql[] = {
+        "PRAGMA journal_mode=WAL",
         "CREATE TABLE IF NOT EXISTS jobs ("
-        "  job_id TEXT PRIMARY KEY,"
-        "  type TEXT NOT NULL,"
-        "  target TEXT,"
-        "  status INTEGER DEFAULT 0,"
-        "  progress INTEGER DEFAULT 0,"
-        "  detail TEXT,"
-        "  params TEXT,"
-        "  result TEXT,"
-        "  created_at INTEGER,"
-        "  updated_at INTEGER"
-        ")", NULL, NULL, NULL);
-    sqlite3_exec(G.db,
+        "  job_id TEXT PRIMARY KEY, type TEXT NOT NULL, target TEXT,"
+        "  status INTEGER DEFAULT 0, progress INTEGER DEFAULT 0, detail TEXT,"
+        "  params TEXT, result TEXT, created_at INTEGER, updated_at INTEGER)",
         "CREATE INDEX IF NOT EXISTS idx_jobs_status ON jobs(status)",
-        NULL, NULL, NULL);
-    sqlite3_exec(G.db,
-        "CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC)",
-        NULL, NULL, NULL);
+        "CREATE INDEX IF NOT EXISTS idx_jobs_created ON jobs(created_at DESC)"
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(setup_sql); i++) {
+        gint rc = sqlite3_exec(G.db, setup_sql[i], NULL, NULL, NULL);
+        if (rc != SQLITE_OK) {
+            PCV_LOG_WARN(JOB_LOG_DOM, "Job queue setup failed (sqlite=%d) — queue disabled", rc);
+            sqlite3_close(G.db);
+            G.db = NULL;
+            G.initialized = TRUE;
+            g_mutex_unlock(&G.mu);
+            return;
+        }
+    }
 
     G.initialized = TRUE;
     PCV_LOG_INFO(JOB_LOG_DOM, "Job queue initialized (db=%s)", db_path);
@@ -206,119 +207,123 @@ pcv_job_queue_cleanup_old(gint max_age_hours)
 
                                                               
 
-                                                                
-                                                
-                                                                           
 
-                                                              
+
+
+static gboolean
+_write_finished(sqlite3_stmt *stmt, gint rc, const gchar *operation, const gchar *job_id)
+{
+    gint rows = rc == SQLITE_DONE ? sqlite3_changes(G.db) : 0;
+    gint finalized = sqlite3_finalize(stmt);
+    gboolean persisted = rc == SQLITE_DONE && rows == 1 && finalized == SQLITE_OK;
+    if (!persisted)
+        PCV_LOG_WARN(JOB_LOG_DOM, "Job %s %s not persisted (sqlite=%d rows=%d finalize=%d)",
+                     job_id, operation, rc, rows, finalized);
+    return persisted;
+}
+
+
+
+
 
 
 gchar *
-pcv_job_create(const gchar *type, const gchar *target,
-                const gchar *params_json)
+pcv_job_create(const gchar *type, const gchar *target, const gchar *params_json)
 {
-                                                                         
-    gchar *job_id = g_strdup_printf("job-%08x", g_random_int());
-    gint64 now = (gint64)time(NULL);                                                
-
     ensure_mutex();
-
     g_mutex_lock(&G.mu);
     if (!G.db) {
-                                                         
         g_mutex_unlock(&G.mu);
-        PCV_LOG_WARN(JOB_LOG_DOM, "Job queue not initialized, returning ID only");
-        return job_id;
+        PCV_LOG_WARN(JOB_LOG_DOM, "Job queue disabled — admission rejected");
+        return NULL;
     }
 
-                                                                     
     const gchar *sql =
-        "INSERT INTO jobs(job_id,type,target,status,progress,params,created_at,updated_at)"
-        " VALUES(?,?,?,0,0,?,?,?)";
-    sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-                                                                         
-                                                                     
-        sqlite3_bind_text(stmt, 1, job_id, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 2, type ? type : "", -1, SQLITE_TRANSIENT);                      
-        sqlite3_bind_text(stmt, 3, target, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_text(stmt, 4, params_json, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 5, now);
-        sqlite3_bind_int64(stmt, 6, now);
-        sqlite3_step(stmt);                      
-        sqlite3_finalize(stmt);                          
-    }
-    g_mutex_unlock(&G.mu);
+        "INSERT INTO jobs (job_id, type, target, status, progress, params, created_at, updated_at)"
+        " VALUES (?, ?, ?, 0, 0, ?, ?, ?)";
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    gint64 now = (gint64)time(NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 2, type ? type : "", -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 3, target, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 4, params_json, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 5, now);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 6, now);
 
-    PCV_LOG_INFO(JOB_LOG_DOM, "Job created: %s type=%s target=%s",
-                 job_id, type ? type : "?", target ? target : "?");
+    gchar *job_id = NULL;
+    for (guint attempt = 0; rc == SQLITE_OK && attempt < JOB_ID_ATTEMPTS; attempt++) {
+        g_free(job_id);
+        job_id = g_strdup_printf("job-%08x", g_random_int());
+        rc = sqlite3_bind_text(stmt, 1, job_id, -1, SQLITE_TRANSIENT);
+        if (rc == SQLITE_OK) rc = sqlite3_step(stmt);
+        if ((rc & 0xff) != SQLITE_CONSTRAINT ||
+            sqlite3_extended_errcode(G.db) != SQLITE_CONSTRAINT_PRIMARYKEY ||
+            attempt + 1 == JOB_ID_ATTEMPTS)
+            break;
+
+        sqlite3_reset(stmt);
+        rc = SQLITE_OK;
+    }
+    gboolean persisted = _write_finished(stmt, rc, "create", job_id ? job_id : "(no ID)");
+    g_mutex_unlock(&G.mu);
+    if (!persisted) {
+        g_free(job_id);
+        return NULL;
+    }
+    PCV_LOG_INFO(JOB_LOG_DOM, "Job created: %s (type=%s target=%s)",
+                 job_id, type ? type : "", target ? target : "");
     return job_id;
 }
 
-                                                        
-                                                   
-                                                                     
 
 
-void
+
+gboolean
 pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
                        gint progress_pct, const gchar *detail)
 {
-    if (!job_id) return;                          
-    gint64 now = (gint64)time(NULL);
-
+    if (!job_id) return FALSE;
     ensure_mutex();
-
     g_mutex_lock(&G.mu);
-    if (!G.db) { g_mutex_unlock(&G.mu); return; }
-
-    const gchar *sql =
-        "UPDATE jobs SET status=?, progress=?, detail=?, updated_at=? WHERE job_id=?";
-    sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-        sqlite3_bind_int(stmt, 1, (int)status);
-        sqlite3_bind_int(stmt, 2, progress_pct);
-        sqlite3_bind_text(stmt, 3, detail, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 4, now);
-        sqlite3_bind_text(stmt, 5, job_id, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-    }
+    if (!G.db) { g_mutex_unlock(&G.mu); return FALSE; }
+    const gchar *sql = "UPDATE jobs SET status=?, progress=?, detail=?, updated_at=? WHERE job_id=?";
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(stmt, 1, (int)status);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(stmt, 2, progress_pct);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 3, detail, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 4, (gint64)time(NULL));
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 5, job_id, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_step(stmt);
+    gboolean persisted = _write_finished(stmt, rc, "status update", job_id);
     g_mutex_unlock(&G.mu);
+    return persisted;
 }
 
-                                                       
-                                                   
-                                                                            
 
 
-void
-pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
-                    const gchar *result_json)
+
+
+gboolean
+pcv_job_set_result(const gchar *job_id, PcvJobStatus status, const gchar *result_json)
 {
-    if (!job_id) return;
-    gint64 now = (gint64)time(NULL);
-
+    if (!job_id) return FALSE;
     ensure_mutex();
-
     g_mutex_lock(&G.mu);
-    if (!G.db) { g_mutex_unlock(&G.mu); return; }
-
-                                                             
-    const gchar *sql =
-        "UPDATE jobs SET status=?, progress=100, result=?, updated_at=? WHERE job_id=?";
-    sqlite3_stmt *stmt;
-    if (sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-        sqlite3_bind_int(stmt, 1, (int)status);
-        sqlite3_bind_text(stmt, 2, result_json, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 3, now);
-        sqlite3_bind_text(stmt, 4, job_id, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-    }
+    if (!G.db) { g_mutex_unlock(&G.mu); return FALSE; }
+    const gchar *sql = "UPDATE jobs SET status=?, progress=100, result=?, updated_at=? WHERE job_id=?";
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int(stmt, 1, (int)status);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 2, result_json, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 3, (gint64)time(NULL));
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 4, job_id, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_step(stmt);
+    gboolean persisted = _write_finished(stmt, rc, "result update", job_id);
     g_mutex_unlock(&G.mu);
-
-    PCV_LOG_INFO(JOB_LOG_DOM, "Job %s finished: %s", job_id, _status_str(status));
+    if (persisted)
+        PCV_LOG_INFO(JOB_LOG_DOM, "Job %s finished: %s", job_id, _status_str(status));
+    return persisted;
 }
 
                                                                   
@@ -441,15 +446,12 @@ pcv_job_cancel(const gchar *job_id)
     const gchar *sql =
         "UPDATE jobs SET status=4, detail='Cancelled by user', updated_at=?"
         " WHERE job_id=? AND status < 2";
-    sqlite3_stmt *stmt;
-    gboolean ok = FALSE;
-    if (sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL) == SQLITE_OK) {
-        sqlite3_bind_int64(stmt, 1, now);
-        sqlite3_bind_text(stmt, 2, job_id, -1, SQLITE_TRANSIENT);
-        sqlite3_step(stmt);
-        ok = (sqlite3_changes(G.db) > 0);                            
-        sqlite3_finalize(stmt);
-    }
+    sqlite3_stmt *stmt = NULL;
+    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_int64(stmt, 1, now);
+    if (rc == SQLITE_OK) rc = sqlite3_bind_text(stmt, 2, job_id, -1, SQLITE_TRANSIENT);
+    if (rc == SQLITE_OK) rc = sqlite3_step(stmt);
+    gboolean ok = _write_finished(stmt, rc, "cancel", job_id);
     g_mutex_unlock(&G.mu);
 
     if (ok)

@@ -34,7 +34,6 @@ ui/modules/advanced.js|GET|EP.JOBS_PERSIST#1
 ui/modules/advanced.js|GET|EP.TEMPLATE#1
 ui/modules/advanced.js|GET|EP.TEMPLATES#1
 ui/modules/advanced.js|GET|EP.TEMPLATE_HISTORY#1
-ui/modules/cloud.js|GET|EP.CLOUD_JOBS#1
 ui/modules/container.js|GET|EP.CTR_HEALTH#1
 ui/modules/container.js|GET|EP.CTR_LIST#1
 ui/modules/container.js|GET|EP.CTR_LIST#2

@@ -14,7 +14,7 @@
                                                      
                                           
                                           
-                                                      
+
                                                  
                              
   
@@ -69,7 +69,7 @@
                                                                    
                                                                  
                                                      
-                                                                               
+
                                              
                                                                
   
@@ -91,9 +91,7 @@
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_config.h"
 #include "../../utils/pcv_log.h"
-#include "../../utils/pcv_secure.h"
 #include "../../utils/pcv_validate.h"
-#include "../../utils/pcv_ssrf.h"
 #include "../../modules/virt/virt_conn_pool.h"
 
 #include <glib.h>
@@ -120,7 +118,7 @@ static guint      g_timer_id  = 0;
 static GMutex     g_policy_mutex;                            
 
                          
-                                                                  
+
                                                           
 static GHashTable *g_vm_inflight = nullptr;
 
@@ -640,15 +638,15 @@ static void _destroy_snapshot(const gchar *vm_name, const gchar *snap_name)
 
    
                              
-                                                            
+
                      
-                                                    
+
   
                                                                 
                                           
                              
   
-                                                                         
+
                                                 
   
                                                             
@@ -702,7 +700,7 @@ static GPtrArray *_list_snapshots_by_prefix(const gchar *vm_name,
                               
                                                               
                              
-                                                                 
+
                                                                       
   
                                                                    
@@ -2059,482 +2057,6 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
     g_ptr_array_unref(snaps);
     _vm_backup_unlock(vm_name);
     return ok;
-}
-
-                                                                 
-                                                  
-  
-                                            
-                                         
-                                              
-                                                        
-                                  
-  
-                                   
-                                              
-                                
-                                    
-                             
-                               
-  
-          
-                                                                    
-                                                                   
-                                                                    
-
-#define S3_SNAP_PREFIX "pcv-s3-"                                        
-#define S3_TEMP_DIR    "/tmp"
-
-   
-                                        
-  
-                                                               
-                                               
-  
-                                                           
-                             
-  
-                                                         
-                                
-   
-static gchar **
-_s3_build_env(const gchar *region)
-{
-    gchar *access_key = pcv_config_get_secret("backup", "s3_access_key", NULL);
-    gchar *secret_key = pcv_config_get_secret("backup", "s3_secret_key", NULL);
-    const gchar *reg = (region && *region) ? region
-                       : pcv_config_get_string("backup", "s3_region", "ap-northeast-2");
-
-                                                                    
-                                                                   
-                                                                
-                                    
-    GPtrArray *env = g_ptr_array_new();
-                                                                  
-                                                              
-                                                                         
-                                                                        
-    if (access_key) { g_ptr_array_add(env, g_strdup_printf("AWS_ACCESS_KEY_ID=%s", access_key)); pcv_secure_free_str(&access_key); }
-    if (secret_key) { g_ptr_array_add(env, g_strdup_printf("AWS_SECRET_ACCESS_KEY=%s", secret_key)); pcv_secure_free_str(&secret_key); }
-    g_ptr_array_add(env, g_strdup_printf("AWS_DEFAULT_REGION=%s", reg));
-    g_ptr_array_add(env, NULL);
-    return (gchar **)g_ptr_array_free(env, FALSE);
-}
-
-                                                                         
-                                  
-  
-                                                     
-                                                    
-                         
-                                                                             
-
-#define S3_MULTIPART_THRESHOLD  (100 * 1024 * 1024)             
-
-   
-                                                  
-  
-                                                            
-  
-                              
-                               
-                                  
-                              
-                            
-                                                               
-                                                          
-                               
-  
-                   
-   
-static gboolean
-_s3_upload_multipart(const gchar *local_path, const gchar *s3_path,
-                     const gchar *endpoint, const gchar *bucket,
-                     const gchar *region, const gchar * const *envp,
-                     GError **error)
-{
-    gchar *s3_url = g_strdup_printf("s3://%s/%s", bucket, s3_path);
-
-                                      
-                                                                          
-    struct stat st;
-    gchar size_str[32] = "5368709120";                 
-    if (g_stat(local_path, &st) == 0) {
-        g_snprintf(size_str, sizeof(size_str), "%" G_GINT64_FORMAT, (gint64)st.st_size);
-    }
-
-    GPtrArray *argv = g_ptr_array_new();
-    g_ptr_array_add(argv, (gchar *)"aws");
-    g_ptr_array_add(argv, (gchar *)"s3");
-    g_ptr_array_add(argv, (gchar *)"cp");
-    g_ptr_array_add(argv, (gchar *)local_path);
-    g_ptr_array_add(argv, s3_url);
-    if (endpoint && *endpoint) {
-        g_ptr_array_add(argv, (gchar *)"--endpoint-url");
-        g_ptr_array_add(argv, (gchar *)endpoint);
-    }
-    if (region && *region) {
-        g_ptr_array_add(argv, (gchar *)"--region");
-        g_ptr_array_add(argv, (gchar *)region);
-    }
-    g_ptr_array_add(argv, (gchar *)"--expected-size");
-    g_ptr_array_add(argv, size_str);
-    g_ptr_array_add(argv, (gchar *)"--no-progress");
-    g_ptr_array_add(argv, NULL);
-
-    gchar *std_err = nullptr;
-    GError *local_err = nullptr;
-    gboolean ok = pcv_spawn_sync_env((const gchar * const *)argv->pdata,
-                                      envp, NULL, &std_err, &local_err);
-    if (!ok) {
-        PCV_LOG_WARN(BACKUP_LOG_DOM,
-                     "S3 multipart upload failed for %s: %s",
-                     s3_url,
-                     local_err ? local_err->message
-                               : (std_err ? std_err : "unknown"));
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "S3 multipart upload failed: %s — %s",
-                    s3_url,
-                    local_err ? local_err->message
-                              : (std_err ? std_err : "unknown"));
-        if (local_err) g_error_free(local_err);
-    } else {
-        PCV_LOG_INFO(BACKUP_LOG_DOM,
-                     "S3 multipart upload complete: %s (size=%s)",
-                     s3_url, size_str);
-    }
-
-    g_free(std_err);
-    g_free(s3_url);
-    g_ptr_array_free(argv, TRUE);
-    return ok;
-}
-
-   
-                                            
-  
-                                                                     
-  
-                                   
-                            
-                                     
-                               
-                                                      
-                                                               
-                                                                
-                                                           
-                                
-  
-                   
-   
-static gboolean
-_s3_upload_file(const gchar *endpoint, const gchar *bucket,
-                const gchar *s3_key, const gchar *local_path,
-                const gchar *content_type, const gchar *region,
-                const gchar * const *envp,
-                GError **error)
-{
-                                              
-                                                     
-    struct stat mp_st;
-    if (g_stat(local_path, &mp_st) == 0 && mp_st.st_size > S3_MULTIPART_THRESHOLD) {
-        PCV_LOG_INFO(BACKUP_LOG_DOM,
-                     "File %s exceeds 100MB (%" G_GINT64_FORMAT "), using multipart upload",
-                     local_path, (gint64)mp_st.st_size);
-                                                              
-        return _s3_upload_multipart(local_path, s3_key, endpoint, bucket,
-                                     region, envp, error);
-    }
-
-    gchar *s3_uri = g_strdup_printf("s3://%s/%s", bucket, s3_key);
-
-                                                                               
-                                                                       
-                                                                     
-    GPtrArray *argv = g_ptr_array_new();
-    g_ptr_array_add(argv, (gchar *)"aws");
-    g_ptr_array_add(argv, (gchar *)"s3");
-    g_ptr_array_add(argv, (gchar *)"cp");
-    g_ptr_array_add(argv, (gchar *)local_path);
-    g_ptr_array_add(argv, s3_uri);
-    if (endpoint && *endpoint) {
-        g_ptr_array_add(argv, (gchar *)"--endpoint-url");
-        g_ptr_array_add(argv, (gchar *)endpoint);
-    }
-    if (content_type && *content_type) {
-        g_ptr_array_add(argv, (gchar *)"--content-type");
-        g_ptr_array_add(argv, (gchar *)content_type);
-    }
-    g_ptr_array_add(argv, NULL);
-
-    gchar *stderr_buf = nullptr;
-    GError *local_err = nullptr;
-    gboolean ok = pcv_spawn_sync_env((const gchar * const *)argv->pdata,
-                                      envp, NULL, &stderr_buf, &local_err);
-    if (!ok) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "S3 upload failed: %s — %s",
-                    s3_uri,
-                    local_err ? local_err->message
-                              : (stderr_buf ? stderr_buf : "unknown"));
-        if (local_err) g_error_free(local_err);
-    }
-
-    g_free(stderr_buf);
-    g_free(s3_uri);
-    g_ptr_array_free(argv, TRUE);
-    return ok;
-}
-
-   
-                                                            
-                                                                  
-                                                 
-                           
-                                                                     
-                                                                          
-                                                
-                                                                             
-  
-                                                           
-                                                   
-                                                         
-   
-gboolean
-pcv_backup_export_s3(const gchar *vm_name,
-                      const gchar *s3_endpoint,
-                      const gchar *s3_bucket,
-                      const gchar *s3_key_prefix,
-                      GError     **error)
-{
-    if (!vm_name || !*vm_name) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "vm_name is required");
-        return FALSE;
-    }
-
-                               
-    if (!_vm_backup_try_lock(vm_name)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "Another backup operation is in progress for VM '%s'",
-                    vm_name);
-        return FALSE;
-    }
-
-                                                   
-    const gchar *endpoint = (s3_endpoint && *s3_endpoint) ? s3_endpoint
-        : pcv_config_get_string("backup", "s3_endpoint", "");
-    const gchar *bucket = (s3_bucket && *s3_bucket) ? s3_bucket
-        : pcv_config_get_string("backup", "s3_bucket", "");
-    const gchar *prefix = (s3_key_prefix && *s3_key_prefix) ? s3_key_prefix
-        : pcv_config_get_string("backup", "s3_key_prefix", "pcv-backup/");
-                                                                       
-                                          
-    const gchar *region = pcv_config_get_string("backup", "s3_region", "ap-northeast-2");
-
-    if (!bucket || !*bucket) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "S3 bucket not configured (daemon.conf [backup] s3_bucket)");
-        _vm_backup_unlock(vm_name);
-        return FALSE;
-    }
-
-                                                                       
-                                                                
-                                                         
-                                                
-    if (endpoint && *endpoint) {
-        GError *ssrf_err = NULL;
-        if (!pcv_url_target_allowed(endpoint, &ssrf_err)) {
-            g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                        "S3 endpoint blocked (SSRF guard): %s",
-                        ssrf_err ? ssrf_err->message : "blocked");
-            g_clear_error(&ssrf_err);
-            _vm_backup_unlock(vm_name);
-            return FALSE;
-        }
-    }
-
-                                               
-    time_t now = time(NULL);
-    struct tm *tm_now = localtime(&now);
-    gchar ts[32];
-    g_snprintf(ts, sizeof(ts), "%04d%02d%02d-%02d%02d%02d",
-               tm_now->tm_year + 1900, tm_now->tm_mon + 1,
-               tm_now->tm_mday, tm_now->tm_hour,
-               tm_now->tm_min, tm_now->tm_sec);
-
-                                    
-    _check_backup_disk_usage(S3_TEMP_DIR);
-
-                                               
-    const gchar *pool = pcv_config_get_zvol_pool();
-    gchar *snap_name = g_strdup_printf("%s%s", S3_SNAP_PREFIX, ts);
-    gchar *snap_full = g_strdup_printf("%s/%s@%s", pool, vm_name, snap_name);
-
-    const gchar *snap_argv[] = {"zfs", "snapshot", snap_full, NULL};
-    gchar *stderr_buf = nullptr;
-    GError *local_err = nullptr;
-
-    if (!pcv_spawn_sync(snap_argv, NULL, &stderr_buf, &local_err)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "ZFS snapshot failed: %s — %s",
-                    snap_full,
-                    local_err ? local_err->message
-                              : (stderr_buf ? stderr_buf : "unknown"));
-        g_free(snap_name);
-        g_free(snap_full);
-        g_free(stderr_buf);
-        if (local_err) g_error_free(local_err);
-        _vm_backup_unlock(vm_name);
-        return FALSE;
-    }
-    g_free(stderr_buf);
-    if (local_err) { g_error_free(local_err); local_err = nullptr; }
-
-    PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: snapshot created %s", snap_full);
-
-                                                                   
-                                                                      
-                                                          
-                                                                
-                                                          
-    _prune_snapshots_by_prefix(vm_name, S3_SNAP_PREFIX,
-                               pcv_config_get_int("backup", "s3_retention_count", 7));
-
-                                               
-    gchar *tmp_file = g_strdup_printf("%s/pcv-s3-%s-%s.zfs.gz",
-                                       S3_TEMP_DIR, vm_name, ts);
-
-                                           
-    gchar *q_snap = g_shell_quote(snap_full);
-    gchar *q_tmp  = g_shell_quote(tmp_file);
-    gchar *send_cmd = g_strdup_printf("zfs send %s | gzip -1 > %s", q_snap, q_tmp);
-    g_free(q_snap);
-    g_free(q_tmp);
-
-    const gchar *sh_argv[] = {"/bin/sh", "-c", send_cmd, NULL};
-    stderr_buf = nullptr;
-    local_err = nullptr;
-
-    gboolean ok = pcv_spawn_sync_profile(sh_argv, PCV_CHILD_CAP_STORAGE,
-                                         NULL, &stderr_buf, &local_err);
-    g_free(send_cmd);
-
-    if (!ok) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "ZFS send+gzip failed: %s",
-                    local_err ? local_err->message
-                              : (stderr_buf ? stderr_buf : "unknown"));
-        g_free(stderr_buf);
-        if (local_err) g_error_free(local_err);
-                     
-                                                        
-        g_unlink(tmp_file);
-        g_free(tmp_file);
-        g_free(snap_name);
-        g_free(snap_full);
-        _vm_backup_unlock(vm_name);
-        return FALSE;
-    }
-    g_free(stderr_buf);
-    if (local_err) { g_error_free(local_err); local_err = nullptr; }
-
-                       
-                                                       
-    struct stat st;
-    gint64 file_size = 0;
-    if (stat(tmp_file, &st) == 0) {
-        file_size = (gint64)st.st_size;
-    }
-
-    PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: stream created %s (%" G_GINT64_FORMAT " bytes)",
-                 tmp_file, file_size);
-
-                                                     
-                                                           
-                                                    
-    gchar **s3_env = _s3_build_env(region);
-
-                                               
-    gchar *s3_data_key = g_strdup_printf("%s%s/%s/backup.zfs.gz", prefix, vm_name, ts);
-    ok = _s3_upload_file(endpoint, bucket, s3_data_key, tmp_file,
-                          "application/gzip", region,
-                          (const gchar * const *)s3_env, error);
-    g_free(s3_data_key);
-
-    if (!ok) {
-        g_strfreev(s3_env);
-        g_unlink(tmp_file);
-        g_free(tmp_file);
-        g_free(snap_name);
-        g_free(snap_full);
-        _vm_backup_unlock(vm_name);
-        return FALSE;
-    }
-
-    PCV_LOG_INFO(BACKUP_LOG_DOM, "S3 backup: data uploaded for %s", vm_name);
-
-                                          
-    gchar *meta_file = g_strdup_printf("%s/pcv-s3-%s-%s-meta.json",
-                                        S3_TEMP_DIR, vm_name, ts);
-    {
-        JsonBuilder *b = json_builder_new();
-        json_builder_begin_object(b);
-        json_builder_set_member_name(b, "vm_name");
-        json_builder_add_string_value(b, vm_name);
-        json_builder_set_member_name(b, "snapshot");
-        json_builder_add_string_value(b, snap_name);
-        json_builder_set_member_name(b, "timestamp");
-        json_builder_add_string_value(b, ts);
-        json_builder_set_member_name(b, "size_bytes");
-        json_builder_add_int_value(b, file_size);
-        json_builder_set_member_name(b, "compression");
-        json_builder_add_string_value(b, "gzip");
-        json_builder_set_member_name(b, "pool");
-        json_builder_add_string_value(b, pool);
-        json_builder_end_object(b);
-
-        JsonGenerator *gen = json_generator_new();
-        json_generator_set_pretty(gen, TRUE);
-        JsonNode *root = json_builder_get_root(b);
-        json_generator_set_root(gen, root);
-
-        GError *write_err = nullptr;
-        json_generator_to_file(gen, meta_file, &write_err);
-        if (write_err) g_error_free(write_err);
-
-        json_node_free(root);
-        g_object_unref(gen);
-        g_object_unref(b);
-    }
-
-    gchar *s3_meta_key = g_strdup_printf("%s%s/%s/metadata.json", prefix, vm_name, ts);
-    GError *meta_err = nullptr;
-    _s3_upload_file(endpoint, bucket, s3_meta_key, meta_file,
-                     "application/json", region,
-                     (const gchar * const *)s3_env, &meta_err);
-    if (meta_err) {
-        PCV_LOG_WARN(BACKUP_LOG_DOM, "S3 metadata upload warning: %s", meta_err->message);
-        g_error_free(meta_err);
-    }
-    g_free(s3_meta_key);
-    g_strfreev(s3_env);
-
-                                                 
-    g_unlink(tmp_file);
-    g_unlink(meta_file);
-
-    PCV_LOG_INFO(BACKUP_LOG_DOM,
-                 "S3 backup complete: vm=%s snap=%s bucket=%s size=%" G_GINT64_FORMAT,
-                 vm_name, snap_name, bucket, file_size);
-
-    g_free(tmp_file);
-    g_free(meta_file);
-    g_free(snap_name);
-    g_free(snap_full);
-    _vm_backup_unlock(vm_name);
-    return TRUE;
 }
 
                                                                  

@@ -4,58 +4,62 @@
 
                                                                         
 
-                                    
-  
-                 
-                                                            
-                                               
-                                                       
-  
-                                                                            
-  
-                                     
-                                                                        
-                                                                         
-                                                                                
-                                                            
-                         
-  
-                   
-                                                                    
-                                                       
-                                                                
-                                                                  
-                                                       
-                                                          
-                                                                    
-                                             
-                                                              
-  
-                                                        
-                                                                    
-                                                                
-                                                   
-                                                                         
-                                              
-  
-                                                                     
-  
-                                                                         
-  
-                                                            
-                                                            
-                                                             
-                                                             
-                                                                    
-  
-                                                                
-                                                         
-                                                           
-                                                          
-  
-                                    
-                                              
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 #include <glib.h>
 #include <string.h>
 #include "modules/ai/self_healing.h"
@@ -80,10 +84,10 @@ pcv_test_healing_monotonic_time(void)
     return test_monotonic_us >= 0 ? test_monotonic_us : g_get_monotonic_time();
 }
 
-                                                
-                                                              
-                                                              
-             
+
+
+
+
 static void
 _ensure_init(void)
 {
@@ -222,6 +226,9 @@ test_restart_policy_cooldown_is_per_target(void)
 
 
 
+
+
+
 static void
 test_hostwide_cooldown_stays_policy_scoped(void)
 {
@@ -281,6 +288,50 @@ test_hostwide_cooldown_stays_policy_scoped(void)
     g_assert_true(pcv_healing_get_mode());
 }
 
+
+
+
+
+
+static void
+test_restart_rate_window_at_boot(void)
+{
+    if (!g_test_subprocess()) {
+        g_test_trap_subprocess(NULL, 10 * G_USEC_PER_SEC, 0);
+        g_test_trap_assert_passed();
+        return;
+    }
+    _ensure_init();
+    g_assert_true(pcv_healing_get_mode());
+    const gchar *targets[] = {"boot-rate-a", "boot-rate-b", "boot-rate-c", "boot-rate-d"};
+    test_monotonic_us = 0;
+    pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, "boot-rate-initial");
+    gchar *history = pcv_healing_get_history_json();
+    g_assert_cmpint(_count_occurrences(history, "\"result\":\"dry_run\""), ==, 1);
+    g_free(history);
+    pcv_healing_set_mode(FALSE);
+    for (guint i = 0; i < 3; i++) {
+        pcv_healing_on_anomaly(PCV_ANOMALY_AUTO_METRIC_MEM_FULL,
+                              42.0, 3.0, 2.5, targets[i]);
+    }
+    history = pcv_healing_get_history_json();
+    g_assert_cmpint(_count_occurrences(history, "\"result\":\"success\""), ==, 3);
+    g_free(history);
+    pcv_healing_set_mode(TRUE);
+    const gint64 window_us = 300 * G_USEC_PER_SEC;
+    for (gint boundary = 0; boundary < 2; boundary++) {
+        test_monotonic_us = window_us - 1 + boundary;
+        pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, targets[3]);
+        history = pcv_healing_get_history_json();
+        g_assert_cmpint(_count_occurrences(history, "\"result\":\"dry_run\""), ==,
+                        1 + boundary);
+        g_assert_cmpint(_count_occurrences(history, "\"target\":\"boot-rate-d\""), ==,
+                        boundary);
+        g_free(history);
+    }
+    test_monotonic_us = -1;
+}
+
 void
 test_self_healing_anomaly_register(void)
 {
@@ -293,4 +344,5 @@ test_self_healing_anomaly_register(void)
     g_test_add_func("/selfhealing/hostwide_cooldown_policy_scoped",
                     test_hostwide_cooldown_stays_policy_scoped);
     g_test_add_func("/selfhealing/anomaly_track_race", test_anomaly_track_race);
+    g_test_add_func("/selfhealing/restart_rate_window_at_boot", test_restart_rate_window_at_boot);
 }

@@ -164,7 +164,6 @@ const MODS_DASH = [
   'ui/modules/container.js',
   'ui/modules/network.js',
   'ui/modules/storage.js',
-  'ui/modules/cloud.js',
   'ui/modules/help.js',
   'ui/modules/nav.js',
   'ui/modules/theme.js',

@@ -135,8 +135,8 @@ gint pcv_ws_client_count(void);
                                                   
   
                                                               
-                                                      
-                                  
+
+
   
                                           
                                              
@@ -169,6 +169,36 @@ void pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
    
 void pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
                                        const gchar *status, const gchar *error_msg);
+
+
+
+
+
+
+
+
+
+
+
+
+void pcv_ws_broadcast_job_complete_tracked(const gchar *job_id, const gchar *method,
+                                            const gchar *status, const gchar *error_msg,
+                                            gboolean result_persisted);
+
+
+
+
+
+
+
+
+
+
+
+
+void pcv_ws_broadcast_job_complete_tracked_mt(const gchar *job_id, const gchar *method,
+                                               const gchar *status, const gchar *error_msg,
+                                               gboolean result_persisted);
 
 G_END_DECLS
 

@@ -366,12 +366,12 @@ _vpc_worker(GTask *task,
     PureRpcErrorCode code = ok ? 0 : _rpc_code(error);
     g_autofree gchar *result_json = ok
         ? _object_json(result) : _error_json(error ? error->message : NULL);
-    pcv_job_set_result(data->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, result_json);
+    gboolean result_persisted = pcv_job_set_result(data->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, result_json);
     pcv_audit_log(data->actor, data->method, data->target, ok ? "ok" : "fail",
                   code, duration_ms, "local");
-    pcv_ws_broadcast_job_complete_mt(data->job_id, data->method,
+    pcv_ws_broadcast_job_complete_tracked_mt(data->job_id, data->method,
                                      ok ? "completed" : "failed",
-                                     ok ? NULL : (error ? error->message : "unknown"));
+                                     ok ? NULL : (error ? error->message : "unknown"), result_persisted);
     if (ok)
         g_task_return_boolean(task, TRUE);
     else if (error)

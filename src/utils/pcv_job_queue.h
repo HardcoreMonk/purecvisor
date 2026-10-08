@@ -18,7 +18,7 @@
                                                                 
   
           
-                                                                
+
                                            
 
   
@@ -97,7 +97,7 @@ void pcv_job_queue_cleanup_old(gint max_age_hours);
 
 
   
-                                                             
+
                                        
                                              
 
@@ -116,7 +116,7 @@ gchar *pcv_job_create(const gchar *type, const gchar *target,
                                   
                                           
    
-void pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
+gboolean pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
                             gint progress_pct, const gchar *detail);
 
    
@@ -130,7 +130,7 @@ void pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
                                               
                                            
    
-void pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
+gboolean pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
                          const gchar *result_json);
 
                                                            

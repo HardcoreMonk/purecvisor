@@ -4,14 +4,14 @@
   
                                
   
-                                                                   
+
                                                      
                                                            
   
                                                 
-                                                                           
+
                                     
-                                                                 
+
                                                                                
                                                               
                                                            
@@ -22,7 +22,7 @@
                                                                              
                                                                   
                                       
-                                                             
+
   
                                                
    
@@ -31,7 +31,6 @@ import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
 
 const MODS_NETWORK = ['ui/modules/ui.js', 'ui/modules/uxlib.js', 'ui/modules/endpoints.js', 'ui/modules/network.js'];
-const MODS_CLOUD = ['ui/modules/ui.js', 'ui/modules/uxlib.js', 'ui/modules/endpoints.js', 'ui/modules/cloud.js'];
 const MODS_ACCOUNTS = ['ui/modules/ui.js', 'ui/modules/uxlib.js', 'ui/modules/endpoints.js', 'ui/modules/accounts.js'];
 const MODS_ADVANCED = ['ui/modules/ui.js', 'ui/modules/uxlib.js', 'ui/modules/endpoints.js', 'ui/modules/modal-core.js', 'ui/modules/advanced.js'];
               
@@ -115,41 +114,6 @@ test('overlay networks: a successful zero-length list keeps the explicit empty s
     assert.equal(await page.$$eval('#cb [data-overlay-empty]', els => els.length), 1);
     assert.equal(await page.$$eval('#cb [data-overlay-error]', els => els.length), 0);
   }, { routes: { '/api/v1/overlay': { status: 200, body: { data: [] } } } });
-});
-
-                                                                                                  
-test('cloud migration jobs: direction pill(idle, both import/export) + status pill(done=ok/failed=crit/running=warn), no legacy badge', async () => {
-  const JOBS = [
-    { name: 'j-import', direction: 'import', status: 'done', progress_percent: 100 },
-    { name: 'j-export', direction: 'export', status: 'failed', progress_percent: 40 },
-    { name: 'j-running', direction: 'import', status: 'running', progress_percent: 55 }
-  ];
-  await withPage(MODS_CLOUD, async page => {
-    await bootCommon(page, 'cloud');
-    await page.evaluate(() => {
-      const d = document.createElement('div');
-      d.id = 'cm-jobs';
-      document.getElementById('cb').appendChild(d);
-    });
-    await page.evaluate(() => window.cmLoadJobs());
-
-    assert.equal(await page.$$eval('#cm-jobs .badge', els => els.length), 0, 'legacy HN.badge must be gone');
-    const rows = await page.$$eval('#cm-jobs tbody tr', trs => trs.map(tr => {
-      const pills = tr.querySelectorAll('.pill');
-      return [0, 1].map(i => ({ cls: pills[i].className, text: pills[i].textContent }));
-    }));
-    assert.equal(rows.length, 3);
-    assert.match(rows[0][0].cls, /pill-idle/, 'direction pill is idle regardless of import/export');
-    assert.equal(rows[0][0].text, 'IMPORT');
-    assert.match(rows[0][1].cls, /pill-ok/);
-    assert.equal(rows[0][1].text, 'DONE');
-    assert.match(rows[1][0].cls, /pill-idle/);
-    assert.equal(rows[1][0].text, 'EXPORT');
-    assert.match(rows[1][1].cls, /pill-crit/);
-    assert.equal(rows[1][1].text, 'FAILED');
-    assert.match(rows[2][1].cls, /pill-warn/);
-    assert.equal(rows[2][1].text, 'RUNNING');
-  }, { routes: { '/api/v1/cloud/jobs': { status: 200, body: { data: JOBS } } } });
 });
 
                                                                          

@@ -128,3 +128,19 @@ Single Edge 공개판에서 기능 절차를 문서화할 수 있는 조건:
 | ADR | 상태 | Single Edge 적용 |
 |---|---|---|
 | [ADR-0058](adr/0058-lxc-storage-backend-identity.md) | Archived | 개발 main 일치 요청으로 공개 전용 Btrfs를 현재 main에서 제외했다. `e028ef2` 당시 구현·지정 Arch 검증은 역사로 보존하며 현재 LXC는 ZFS 전용이다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)를 따른다. |
+
+- [ADR-0060](adr/0060-job-admission-and-result-persistence.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0062](adr/0062-dpdk-hugepage-capacity-snapshot.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0063](adr/0063-vm-start-hugepage-preflight.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0064](adr/0064-trace-finalize-after-reap.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0065](adr/0065-vnc-proxy-context-and-lifetime.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0066](adr/0066-vm-start-pm-wakeup.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0068](adr/0068-remove-aws-manual-migration.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0069](adr/0069-remove-s3-backup-and-decouple-hcp-verification.md): Implemented, 2026-10-08 공개 소스 반영.

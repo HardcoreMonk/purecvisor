@@ -62,10 +62,16 @@ def _ordered(body: str, first: str, second: str, message: str) -> None:
     _require(first_pos >= 0 and second_pos >= 0 and first_pos < second_pos, message)
 
 
+def _code(text: str) -> str:
+
+    return re.sub(r"/\*.*?\*/|//[^\n]*", "", text, flags=re.DOTALL)
+
+
 def main() -> int:
     manager = _read("src/modules/network/dpdk_manager.c")
     vm_manager = _read("src/modules/virt/vm_manager.c")
     vm_start = _read("src/modules/dispatcher/handler_vm_start.c")
+    start_capacity = _read("src/modules/virt/vm_start_capacity.c")
     vm_lifecycle = _read("src/modules/dispatcher/handler_vm_lifecycle.c")
     dispatcher = _read("src/api/dispatcher.c")
     accel = _read("src/modules/dispatcher/handler_accel.c")
@@ -140,11 +146,34 @@ def main() -> int:
              "/var/run/purecvisor" not in iface_builder,
              "new DPDK XML must use only the canonical path helper")
 
-    start_worker = _function_body(vm_start, "vm_start_worker_thread")
+    start_worker = _function_body(_code(vm_start), "vm_start_worker_thread")
     _ordered(start_worker, "virDomainIsActive", "_reconcile_dpdk_vhost_for_start",
              "VM start must determine active state before DPDK mutation")
-    _ordered(start_worker, "_reconcile_dpdk_vhost_for_start", "virDomainCreate",
-             "VM start must reconcile the exact DPDK endpoint before domain start")
+    _require("virDomainCreate(" not in start_worker,
+             "VM start worker must not bypass the capacity controller")
+    _ordered(start_worker, "virDomainDefineXML", "pcv_vm_start_with_capacity",
+             "cold start must check the actual applied NUMA definition")
+    _require(re.search(r'pcv_vm_start_with_capacity\s*\(\s*&dom,\s*"/sys",\s*'
+                       r'_prepare_inactive_dpdk_for_start,\s*&prepare,\s*&error', start_worker),
+             "VM start worker must call the capacity controller with production sysfs and DPDK callback")
+    active_pos = start_worker.find("if (domain_active)")
+    _require(active_pos >= 0, "active VM idempotent branch is missing")
+    active_body = _function_body(start_worker[active_pos:], "if")
+    _require("pcv_vm_start_with_capacity" not in active_body and "return;" in active_body and
+             re.search(r'_reconcile_dpdk_vhost_for_start\s*\(\s*conn,\s*&dom,\s*'
+                       r'canonical_name,\s*TRUE,\s*&error', active_body),
+             "active VM must keep DPDK reconciliation and bypass capacity admission")
+    prepare = _function_body(_code(vm_start), "_prepare_inactive_dpdk_for_start")
+    _require(re.search(r'return\s+_reconcile_dpdk_vhost_for_start\s*\(\s*'
+                       r'prepare->conn,\s*domain_io,\s*prepare->vm_name,\s*FALSE,\s*error', prepare),
+             "cold start preparation must reconcile the inactive DPDK endpoint")
+    controller = _function_body(_code(start_capacity), "pcv_vm_start_with_capacity")
+    checks = [match.start() for match in re.finditer(
+        r'if\s*\(\s*!check_domain\(\*domain_io,\s*sysfs_root,\s*error\)\s*\)\s*return FALSE;',
+        controller)]
+    prepare_pos, create_pos = controller.find("!prepare(domain_io"), controller.find("virDomainCreate(")
+    _require(len(checks) == 2 and checks[0] < prepare_pos < checks[1] < create_pos,
+             "cold start must stop on capacity failure before preparation and recheck before native start")
 
     dpdk_start = _function_body(vm_start, "_reconcile_dpdk_vhost_for_start")
     for token in (
@@ -214,7 +243,7 @@ def main() -> int:
              "pcv_dpdk_bridge_delete" in bridge_worker,
              "DPDK bridge worker must execute create/delete manager effects")
     for token in ("pcv_job_update_status", "pcv_job_set_result",
-                  "pcv_audit_log", "pcv_ws_broadcast_job_complete_mt"):
+                  "pcv_audit_log", "pcv_ws_broadcast_job_complete_tracked_mt"):
         _require(token in bridge_worker,
                  f"DPDK bridge worker terminal path is missing {token}")
     bridge_schedule = _function_body(accel, "_dpdk_bridge_schedule")
@@ -236,7 +265,7 @@ def main() -> int:
     _require("_dpdk_bridge_wait_response" in cli_bridge,
              "pcvctl DPDK bridge mutation must wait for terminal Job state")
 
-    print("[PASS] ADR-0053/0054 DPDK lifecycle and vhost runtime wiring is present")
+    print("[PASS] ADR-0053/0054/0063 DPDK lifecycle and VM start capacity wiring is present")
     return 0
 
 

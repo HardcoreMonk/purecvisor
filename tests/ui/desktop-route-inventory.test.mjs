@@ -185,13 +185,13 @@ async function shellRoutes(page) {
   }, VM_ROUTES);
 }
 
-test('current shell and dispatcher expose the same 40 canonical desktop routes', async () => {
+test('current shell and dispatcher expose the same 39 canonical desktop routes', async () => {
   await withPage([...CORE, 'ui/modules/shell.js'], async page => {
     await page.evaluate(() => { window._L = (ko, en) => en || ko; });
     const shell = await shellRoutes(page);
     const dispatcher = dispatcherRoutes();
-    assert.equal(shell.length, 40);
-    assert.equal(new Set(shell).size, 40);
+    assert.equal(shell.length, 39);
+    assert.equal(new Set(shell).size, 39);
     assert.deepEqual([...shell].sort(), [...dispatcher].sort());
     assert.equal(shell.includes('serviceguide'), false, 'retired service guide must not remain canonical');
     assert.equal(shell.includes('restguide'), false, 'retired REST guide must not remain canonical');

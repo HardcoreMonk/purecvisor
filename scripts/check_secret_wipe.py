@@ -29,17 +29,15 @@ SECRET_RE = re.compile(
     r"(privkey|raw_priv|\bpriv\b|secret\w*|passwo\w*|plaintext\w*|apikey|api_key|\w+_key)\b",
     re.I,
 )
-                                                          
-                                                   
-                                                                       
-                                                         
-                                      
-                                                                    
+
+
+
+
+
 ALLOW = re.compile(
     r"^(pubkey|raw_pub|key_path|key_hash|keyfile|keyid|pkey_path|"
     r"cert\w*|ca_path|\w*pub\w*|hash_key|route_key|cache_key|map_key|"
-    r"rate_key|del_key|alloc_key|opt_key|parp_key|"
-    r"s3_key|s3_data_key|s3_meta_key)$",
+    r"rate_key|del_key|alloc_key|opt_key|parp_key)$",
     re.I,
 )
                                                                 

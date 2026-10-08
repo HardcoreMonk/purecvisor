@@ -47,7 +47,6 @@ window._navGeneration = 0;
                                         
                                                                 
                                                              
-                                                  
                                                                
                                                                             
                                                           
@@ -70,10 +69,6 @@ function _commitNavigation(n) {
   }
                                                            
   window._navGeneration = (window._navGeneration || 0) + 1;
-                                                          
-  if (typeof _cloudCleanupTimer === 'function' && currentTab === 'cloud-migration' && n !== 'cloud-migration') {
-    _cloudCleanupTimer();
-  }
                            
   if (typeof stopAdaptivePolling === 'function' && currentTab && currentTab.startsWith('mon-') && !(n && n.startsWith('mon-'))) {
     stopAdaptivePolling('mon-refresh');
@@ -212,7 +207,6 @@ function _renderContentPaint(tab, generation) {
       'gpu': () => renderGpu(b),
       'templates': () => renderTemplates(b),
       'config-mgmt': () => renderConfigMgmt(b),
-      'cloud-migration': () => renderCloudMigration(b),
       'overlay': () => renderOverlayNetworks(b),
       'iscsi': () => renderIscsi(b),
       'dpdk': () => renderDpdk(b),

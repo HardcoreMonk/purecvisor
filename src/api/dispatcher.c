@@ -137,7 +137,6 @@
 #include <string.h>
 #include <unistd.h>
 #include "modules/lxc/lxc_driver.h"
-#include "modules/cloud/cloud_migration.h"
 #include "modules/storage/zfs_driver.h"
 #include "modules/backup/backup_scheduler.h"
 #include "modules/core/cpu_allocator.h"                                               
@@ -217,9 +216,6 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "auth.user.create",          2 },
     { "auth.user.delete",          2 },
     { "auth.password.reset",       2 },
-    { "cloud.import",              2 },
-    { "cloud.export",              2 },
-    { "cloud.import.finalize",     2 },
     { "vm.export.ova",             2 },
                           
     { "vm.create",                 1 },
@@ -351,9 +347,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "tls.reload",                2 },
                      
     { "vm.blkio.set",              1 },
-    { "vm.import.ec2",             1 },
     { "vm.import.ova",             1 },
-    { "vm.export.ec2",             1 },
     { "vm.security_group.set",     1 },
     { "vm.set_bandwidth",          1 },
     { "vm.set_memory",             1 },
@@ -424,8 +418,6 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "sriov.detach",              2 },
                                                                    
     { "vm.delete.status",          0 },
-    { "vm.export.status",          0 },
-    { "vm.import.status",          0 },
     { "vm.snapshot.list",          0 },
     { "vm.snapshot.schedule.list", 0 },
     { "vm.guest.agent.status",     0 },
@@ -458,8 +450,6 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "security.baseline.refresh", PCV_ROLE_ADMIN },
     { "security.config.get",       PCV_ROLE_VIEWER },
     { "security.config.set",       PCV_ROLE_ADMIN },
-    { "cloud.job.cancel",          2 },
-    { "cloud.jobs.list",           1 },                            
     { "daemon.config.set",         2 },
                                                   
                                                                  
@@ -479,7 +469,6 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "iscsi.connect",             2 },
     { "iscsi.disconnect",          2 },
     { "network.qos.remove",        2 },
-    { "backup.export_s3",          2 },
     { "backup.incremental",        2 },
     { "backup.verify",             2 },
     { "backup.snapshot.verify",    2 },
@@ -547,7 +536,7 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "security_group.rule.remove",2 },                  
     { "webhook.dlq.retry",         2 },                                               
     { "config.backup",             2 },                                                      
-    { "jobs.cancel",               2 },                                                                                                            
+    { "jobs.cancel",               2 },
 
                                                            
     { "vm.numa.info",              0 },                       
@@ -854,8 +843,7 @@ _vm_method_requires_owner_scope(const gchar *method)
         return FALSE;
 
     if (g_strcmp0(method, "vm.create") == 0 ||
-        g_strcmp0(method, "vm.import.ova") == 0 ||
-        g_strcmp0(method, "vm.import.ec2") == 0)
+        g_strcmp0(method, "vm.import.ova") == 0)
         return FALSE;
 
                
@@ -866,8 +854,6 @@ _vm_method_requires_owner_scope(const gchar *method)
     if (g_strcmp0(method, "vm.list") == 0 ||
         g_strcmp0(method, "vm.event.webhook.list") == 0 ||
         g_strcmp0(method, "vm.delete.status") == 0 ||
-        g_strcmp0(method, "vm.import.status") == 0 ||
-        g_strcmp0(method, "vm.export.status") == 0 ||
         g_strcmp0(method, "vm.snapshot.schedule.list") == 0)
         return FALSE;
 
@@ -1525,9 +1511,9 @@ _on_vm_create_finished(GObject *source_object,
         PURECVISOR_VM_MANAGER(source_object), res, &error);
 
     if (ok) {
-        pcv_job_set_result(ctx->job_id, PCV_JOB_COMPLETED, NULL);
-        pcv_ws_broadcast_job_complete(ctx->job_id, "vm.create",
-                                       "completed", NULL);
+        gboolean result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_COMPLETED, NULL);
+        pcv_ws_broadcast_job_complete_tracked(ctx->job_id, "vm.create",
+                                       "completed", NULL, result_persisted);
                                                
         pcv_audit_log(NULL, "vm.create", ctx->vm_name, "ok", 0, 0, "local");
         PCV_LOG_INFO("dispatcher",
@@ -1535,9 +1521,9 @@ _on_vm_create_finished(GObject *source_object,
                      ctx->job_id, ctx->vm_name);
     } else {
         const gchar *err_msg = error ? error->message : "Unknown error";
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, err_msg);
-        pcv_ws_broadcast_job_complete(ctx->job_id, "vm.create",
-                                       "failed", err_msg);
+        gboolean result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, err_msg);
+        pcv_ws_broadcast_job_complete_tracked(ctx->job_id, "vm.create",
+                                       "failed", err_msg, result_persisted);
                                 
         pcv_audit_log(NULL, "vm.create", ctx->vm_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         PCV_LOG_WARN("dispatcher",
@@ -2700,6 +2686,15 @@ static void handle_vm_create(PureCVisorDispatcher *self, JsonObject *params,
                                                     
                                                            
     gchar *job_id = pcv_job_create("vm.create", name, NULL);
+
+    if (!job_id) {
+        unlock_vm_operation(name);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                                                 "Job persistence unavailable — VM creation rejected");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        return;
+    }
     pcv_job_update_status(job_id, PCV_JOB_RUNNING, 0, "VM creation started");
 
     JsonObject *accepted = json_object_new();
@@ -3472,257 +3467,6 @@ static void _handle_healing_history(JsonObject *params, const gchar *rpc_id,
     g_object_unref(p2);
 }
 
-                                                                      
-                                                        
-  
-                                                        
-                                                              
-                                                               
-                                             
-                                                                                
-                                                              
-                                                              
-                                                                    
-                                                                          
-static void _handle_vm_import_ec2(JsonObject *params, const gchar *rpc_id,
-                                   UdsServer *server, GSocketConnection *connection)
-{
-    PcvCloudImportParams ip = {0};
-    ip.name           = (gchar *)(json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : NULL);
-    ip.ami_id         = (gchar *)(json_object_has_member(params, "ami_id")
-        ? json_object_get_string_member(params, "ami_id") : NULL);
-    ip.aws_region     = (gchar *)(json_object_has_member(params, "aws_region")
-        ? json_object_get_string_member(params, "aws_region") : NULL);
-    ip.s3_bucket      = (gchar *)(json_object_has_member(params, "s3_bucket")
-        ? json_object_get_string_member(params, "s3_bucket") : NULL);
-    {
-        gint64 _v = json_object_has_member(params, "vcpu")
-            ? json_object_get_int_member(params, "vcpu") : 0;
-        gint64 _m = json_object_has_member(params, "memory_mb")
-            ? json_object_get_int_member(params, "memory_mb") : 0;
-        if (_v < 0 || _v > 1024 || _m < 0 || _m > (1024 * 1024)) {
-            gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                "vcpu must be 0..1024, memory_mb must be 0..1048576");
-            pure_uds_server_send_response(server, connection, resp); g_free(resp);
-            return;
-        }
-        ip.vcpu = (gint)_v;
-        ip.memory_mb = (gint)_m;
-    }
-    ip.network_bridge = (gchar *)(json_object_has_member(params, "network_bridge")
-        ? json_object_get_string_member(params, "network_bridge") : NULL);
-    ip.disk_format    = (gchar *)(json_object_has_member(params, "disk_format")
-        ? json_object_get_string_member(params, "disk_format") : NULL);
-    ip.mode = (gchar *)(json_object_has_member(params, "mode")
-        ? json_object_get_string_member(params, "mode") : NULL);
-    gboolean finalize = json_object_has_member(params, "finalize")
-        ? json_object_get_boolean_member(params, "finalize") : FALSE;
-    ip.instance_id = (gchar *)(json_object_has_member(params, "instance_id")
-        ? json_object_get_string_member(params, "instance_id") : NULL);
-    ip.volume_id = (gchar *)(json_object_has_member(params, "volume_id")
-        ? json_object_get_string_member(params, "volume_id") : NULL);
-    if (!ip.name || (!finalize && !ip.ami_id)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required: name, ami_id");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        GError *e = nullptr;
-        gchar *job_id = finalize
-            ? pcv_cloud_finalize_import(ip.name, &e)
-            : pcv_cloud_import_ec2(&ip, &e);
-        if (job_id) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "status", "accepted");
-            json_object_set_string_member(obj, "job_id", job_id);
-            json_object_set_string_member(obj, "message",
-                finalize ? "Finalize started — use vm.import.status to track"
-                         : "Import started — use vm.import.status to track");
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp);
-            g_free(resp); g_free(job_id);
-        } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                e ? e->message : "Import failed to start");
-            pure_uds_server_send_response(server, connection, er); g_free(er);
-            if (e) g_error_free(e);
-        }
-    }
-}
-
-                                                                      
-                                                       
-  
-                                                         
-                                                               
-                                                      
-                 
-                                                             
-                                                                 
-                                                                          
-static void _handle_vm_export_ec2(JsonObject *params, const gchar *rpc_id,
-                                   UdsServer *server, GSocketConnection *connection)
-{
-    PcvCloudExportParams ep = {0};
-    ep.name            = (gchar *)(json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : NULL);
-    ep.aws_region      = (gchar *)(json_object_has_member(params, "aws_region")
-        ? json_object_get_string_member(params, "aws_region") : NULL);
-    ep.s3_bucket       = (gchar *)(json_object_has_member(params, "s3_bucket")
-        ? json_object_get_string_member(params, "s3_bucket") : NULL);
-    ep.ami_name        = (gchar *)(json_object_has_member(params, "ami_name")
-        ? json_object_get_string_member(params, "ami_name") : NULL);
-    ep.ami_description = (gchar *)(json_object_has_member(params, "ami_description")
-        ? json_object_get_string_member(params, "ami_description") : NULL);
-    if (!ep.name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        GError *e = nullptr;
-        gchar *job_id = pcv_cloud_export_ec2(&ep, &e);
-        if (job_id) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "status", "accepted");
-            json_object_set_string_member(obj, "job_id", job_id);
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp);
-            g_free(resp); g_free(job_id);
-        } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                e ? e->message : "Export failed to start");
-            pure_uds_server_send_response(server, connection, er); g_free(er);
-            if (e) g_error_free(e);
-        }
-    }
-}
-
-                                                                       
-                                    
-  
-                                                      
-                                                
-                        
-                                                                              
-                                                                         
-                                                                                             
-                                                           
-                                             
-                                                                          
-static void _handle_cloud_migration_status(JsonObject *params, const gchar *rpc_id,
-                                            UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : NULL;
-    if (!vm_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        PcvCloudJobStatus *st = pcv_cloud_get_status(vm_name);
-        JsonObject *obj = json_object_new();
-        if (st) {
-            json_object_set_string_member(obj, "name", st->name ?: "");
-            json_object_set_string_member(obj, "job_id", st->job_id ?: "");
-            json_object_set_string_member(obj, "direction", st->direction ?: "");
-            json_object_set_string_member(obj, "status",
-                pcv_cloud_status_str(st->status));
-            json_object_set_int_member(obj, "progress_percent", st->progress);
-            json_object_set_string_member(obj, "detail", st->detail ?: "");
-            json_object_set_int_member(obj, "started_at", st->started_at);
-            json_object_set_int_member(obj, "elapsed_sec",
-                st->updated_at - st->started_at);
-            if (st->base_image_path)
-                json_object_set_string_member(obj, "base_image_path", st->base_image_path);
-            pcv_cloud_job_status_free(st);
-        } else {
-            json_object_set_string_member(obj, "status", "not_found");
-            json_object_set_string_member(obj, "detail", "No migration job for this VM");
-        }
-        JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(node, obj);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp);
-    }
-}
-
-                                                                       
-                                         
-                                                            
-                                                                         
-                                                                          
-static void _handle_cloud_jobs_list(JsonObject *params, const gchar *rpc_id,
-                                     UdsServer *server, GSocketConnection *connection)
-{
-    (void)params;
-    GPtrArray *jobs = pcv_cloud_list_jobs();
-    JsonArray *arr = json_array_new();
-    for (guint i = 0; i < jobs->len; i++) {
-        PcvCloudJobStatus *st = g_ptr_array_index(jobs, i);
-        JsonObject *obj = json_object_new();
-        json_object_set_string_member(obj, "name", st->name ?: "");
-        json_object_set_string_member(obj, "job_id", st->job_id ?: "");
-        json_object_set_string_member(obj, "direction", st->direction ?: "");
-        json_object_set_string_member(obj, "status",
-            pcv_cloud_status_str(st->status));
-        json_object_set_int_member(obj, "progress_percent", st->progress);
-        json_object_set_string_member(obj, "detail", st->detail ?: "");
-        json_object_set_int_member(obj, "started_at", st->started_at);
-        json_object_set_int_member(obj, "elapsed_sec",
-            st->updated_at - st->started_at);
-        json_array_add_object_element(arr, obj);
-    }
-    g_ptr_array_unref(jobs);
-    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
-    json_node_take_array(node, arr);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-    pure_uds_server_send_response(server, connection, resp);
-    g_free(resp);
-}
-
-                                                                       
-                                                    
-  
-                                                       
-                            
-                                                          
-                              
-                                                                          
-static void _handle_cloud_job_cancel(JsonObject *params, const gchar *rpc_id,
-                                      UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : NULL;
-    if (!vm_name) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        GError *e = nullptr;
-        if (pcv_cloud_cancel_job(vm_name, &e)) {
-            JsonObject *obj = json_object_new();
-            json_object_set_boolean_member(obj, "cancelled", TRUE);
-            json_object_set_string_member(obj, "name", vm_name);
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp);
-            g_free(resp);
-        } else {
-            gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                e ? e->message : "Cancel failed");
-            pure_uds_server_send_response(server, connection, err_resp);
-            g_free(err_resp);
-            if (e) g_error_free(e);
-        }
-    }
-}
-
                                                                          
                                                       
   
@@ -3825,13 +3569,13 @@ _ova_export_record_result(OvaExportCtx *ctx, gboolean ok,
                           const gchar *ova_path, const gchar *error_msg)
 {
     gchar *result_json = _ova_export_result_json(ctx, ok, ova_path, error_msg);
-    pcv_job_set_result(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
+    gboolean result_persisted = pcv_job_set_result(ctx->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
                        result_json);
     pcv_audit_log(NULL, "vm.export.ova", ctx->vm_name ?: "",
                   ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.export.ova",
+    pcv_ws_broadcast_job_complete_tracked_mt(ctx->job_id, "vm.export.ova",
                                      ok ? "completed" : "failed",
-                                     ok ? NULL : (error_msg ?: "OVA export failed"));
+                                     ok ? NULL : (error_msg ?: "OVA export failed"), result_persisted);
     g_free(result_json);
 }
 
@@ -3900,35 +3644,21 @@ static void _ova_export_worker(GTask *task, gpointer source_obj,
         goto ova_cleanup;
     }
 
-                               
+
+
+
     {
-                                                            
-        gchar *src = strstr(xml, "<source file='");
-        if (!src) src = strstr(xml, "<source dev='");
-        if (src) {
-            const gchar *start = strchr(src, '\'');
-            if (start) {
-                start++;
-                const gchar *end = strchr(start, '\'');
-                if (end)
-                    disk_path = g_strndup(start, (gsize)(end - start));
-            }
-        }
-                   
-        if (disk_path) {
-            if (g_str_has_suffix(disk_path, ".qcow2"))
-                disk_format = g_strdup("qcow2");
-            else if (strstr(disk_path, "/dev/") != nullptr)
-                disk_format = g_strdup("raw");
-            else
-                disk_format = g_strdup("raw");
+        GError *error = NULL;
+        if (!pcv_ova_export_disk_source(xml, &disk_path, &disk_format, &error)) {
+            audit_error_owned = g_strdup(error ? error->message : "no disk source found");
+            g_clear_error(&error);
         }
     }
     g_free(xml);
 
     if (!disk_path) {
         g_warning("[OVA] No disk source found for %s", ctx->vm_name);
-        audit_error = "no disk source found";
+        audit_error = audit_error_owned ? audit_error_owned : "no disk source found";
         goto ova_cleanup;
     }
 
@@ -4155,6 +3885,15 @@ static void _handle_vm_export_ova(JsonObject *params, const gchar *rpc_id,
                   
     gchar *job_id = pcv_job_create("ova_export", name, NULL);
 
+    if (!job_id) {
+        free(real_out);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                                                 "Job persistence unavailable — OVA export rejected");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        return;
+    }
+
                                            
     JsonObject *obj = json_object_new();
     json_object_set_string_member(obj, "status", "accepted");
@@ -4314,6 +4053,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     gchar *vmdk_path = nullptr;
     gchar *created_zvol_dataset = nullptr;
     gboolean audit_ok = FALSE;
+    gboolean result_persisted = FALSE;
     const gchar *audit_error = NULL;
     gchar *audit_error_owned = NULL;
 
@@ -4323,7 +4063,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     gchar tmpl[] = "/tmp/pcv-ova-import-XXXXXX";
     tmpdir = g_strdup(mkdtemp(tmpl));
     if (!tmpdir) {
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"mkdtemp failed\"");
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"mkdtemp failed\"");
         g_warning("[OVA-Import] mkdtemp failed for %s", ctx->vm_name);
         audit_error = "mkdtemp failed";
         goto import_cleanup;
@@ -4337,7 +4077,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (!pcv_spawn_sync(argv, NULL, &std_err, &error)) {
             g_warning("[OVA-Import] tar extraction failed: %s",
                 error ? error->message : (std_err ? std_err : "unknown"));
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"tar extraction failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"tar extraction failed\"");
             audit_error = "tar extraction failed";
             if (error) g_error_free(error);
             g_free(std_err);
@@ -4364,7 +4104,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     }
     if (!ovf_path) {
         g_warning("[OVA-Import] No .ovf file found in OVA for %s", ctx->vm_name);
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"no .ovf file in OVA\"");
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"no .ovf file in OVA\"");
         audit_error = "no .ovf file in OVA";
         goto import_cleanup;
     }
@@ -4374,7 +4114,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     gsize ovf_len = 0;
     if (!g_file_get_contents(ovf_path, &ovf_content, &ovf_len, NULL) || !ovf_content) {
         g_warning("[OVA-Import] Failed to read OVF: %s", ovf_path);
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"failed to read OVF\"");
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"failed to read OVF\"");
         audit_error = "failed to read OVF";
         g_free(ovf_path);
         goto import_cleanup;
@@ -4409,7 +4149,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
 
     if (!vmdk_name) {
         g_warning("[OVA-Import] No disk reference in OVF for %s", ctx->vm_name);
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"no disk file in OVF\"");
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"no disk file in OVF\"");
         audit_error = "no disk file in OVF";
         goto import_cleanup;
     }
@@ -4419,7 +4159,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
     g_free(vmdk_name);
     if (!g_file_test(vmdk_path, G_FILE_TEST_EXISTS)) {
         g_warning("[OVA-Import] VMDK not found: %s", vmdk_path);
-        pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"VMDK file not found\"");
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"VMDK file not found\"");
         audit_error = "VMDK file not found";
         goto import_cleanup;
     }
@@ -4447,16 +4187,10 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         GError *error = nullptr;
         gint64 disk_bytes = 10LL * 1024 * 1024 * 1024;              
         if (pcv_spawn_sync(info_argv, &stdout_buf, NULL, &error)) {
-                                      
-            if (stdout_buf) {
-                const gchar *vs = strstr(stdout_buf, "\"virtual-size\":");
-                if (vs) {
-                    vs += strlen("\"virtual-size\":");
-                    while (*vs == ' ') vs++;
-                    disk_bytes = g_ascii_strtoll(vs, NULL, 10);
-                    if (disk_bytes < 1024 * 1024) disk_bytes = 10LL * 1024 * 1024 * 1024;
-                }
-            }
+
+
+            gint64 virtual_size = pcv_ova_import_virtual_size(stdout_buf);
+            if (virtual_size > 0) disk_bytes = virtual_size;
         }
         if (error) g_error_free(error);
         g_free(stdout_buf);
@@ -4470,7 +4204,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
                 error ? error->message : (std_err ? std_err : "unknown"));
             audit_error_owned = g_strdup_printf("zfs create failed: %s",
                 error ? error->message : (std_err ? std_err : "unknown"));
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"zfs create failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"zfs create failed\"");
             audit_error = audit_error_owned;
             if (error) g_error_free(error);
             g_free(std_err);
@@ -4498,7 +4232,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         }
         if (!zvol_ready) {
             g_warning("[OVA-Import] zvol device did not appear: %s", zvol_path);
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
                                "\"zvol device did not appear\"");
             audit_error = "zvol device did not appear";
             (void)_ova_import_destroy_zvol(created_zvol_dataset);
@@ -4523,7 +4257,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (!pcv_spawn_sync(conv_argv, NULL, &std_err, &error)) {
             g_warning("[OVA-Import] qemu-img convert to zvol failed: %s",
                 error ? error->message : (std_err ? std_err : "unknown"));
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"disk conversion failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"disk conversion failed\"");
             audit_error = "disk conversion failed";
             if (created_zvol_dataset) {
                 (void)_ova_import_destroy_zvol(created_zvol_dataset);
@@ -4548,7 +4282,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (!pcv_spawn_sync(conv_argv, NULL, &std_err, &error)) {
             g_warning("[OVA-Import] qemu-img convert to qcow2 failed: %s",
                 error ? error->message : (std_err ? std_err : "unknown"));
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"disk conversion failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"disk conversion failed\"");
             audit_error = "disk conversion failed";
             if (error) g_error_free(error);
             g_free(std_err);
@@ -4588,7 +4322,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (!pcv_spawn_sync(argv, &domain_xml_generated, &std_err, &error)) {
             g_warning("[OVA-Import] virt-install XML generation failed for %s: %s", ctx->vm_name,
                 error ? error->message : (std_err ? std_err : "unknown"));
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"virt-install failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"virt-install failed\"");
             audit_error = "virt-install XML generation failed";
             goto import_define_fail;
         }
@@ -4598,7 +4332,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
         if (!domain_xml) {
             g_warning("[OVA-Import] domain XML normalization failed for %s: %s",
                       ctx->vm_name, error ? error->message : "unknown");
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED,
                                "\"domain XML normalization failed\"");
             audit_error = "domain XML normalization failed";
             goto import_define_fail;
@@ -4614,7 +4348,7 @@ static void _ova_import_worker(GTask *task, gpointer source_obj,
                 verr && verr->message ? verr->message : "unknown");
             audit_error = audit_error_owned;
             g_warning("[OVA-Import] %s", audit_error_owned);
-            pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"libvirt define failed\"");
+            result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_FAILED, "\"libvirt define failed\"");
             if (conn) virt_conn_pool_release(conn);
             g_free(domain_xml);
             goto import_define_fail;
@@ -4658,7 +4392,7 @@ import_define_done:
         gchar *result = g_strdup_printf(
             "{\"vm\":\"%s\",\"vcpus\":%d,\"memory_mb\":%d,\"disk\":\"%s\"}",
             ctx->vm_name, vcpus, memory_mb, disk_path ? disk_path : "");
-        pcv_job_set_result(ctx->job_id, PCV_JOB_COMPLETED, result);
+        result_persisted = pcv_job_set_result(ctx->job_id, PCV_JOB_COMPLETED, result);
         g_free(result);
         audit_ok = TRUE;
     }
@@ -4669,9 +4403,9 @@ import_cleanup:
     pcv_audit_log(NULL, "vm.import.ova", ctx->vm_name,
                   audit_ok ? "ok" : "fail", audit_ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION,
                   0, "local");
-    pcv_ws_broadcast_job_complete_mt(ctx->job_id, "vm.import.ova",
+    pcv_ws_broadcast_job_complete_tracked_mt(ctx->job_id, "vm.import.ova",
                                      audit_ok ? "completed" : "failed",
-                                     audit_ok ? NULL : audit_error);
+                                     audit_ok ? NULL : audit_error, result_persisted);
     g_free(disk_path);
     g_free(vmdk_path);
     g_free(created_zvol_dataset);
@@ -4799,6 +4533,15 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
 
                  
     gchar *job_id = pcv_job_create("ova_import", name, NULL);
+
+    if (!job_id) {
+        free(real_ova);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                                                 "Job persistence unavailable — OVA import rejected");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        return;
+    }
 
                                            
     JsonObject *obj = json_object_new();
@@ -5387,56 +5130,6 @@ static void _handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
     g_task_set_task_data(task, ctx, _snapshot_verify_ctx_free);
     g_task_run_in_thread(task, _snapshot_verify_worker);
     g_object_unref(task);
-}
-
-                                                               
-                                                       
-                                                   
-static void _handle_jobs_persist_list(JsonObject *params, const gchar *rpc_id,
-                                       UdsServer *server, GSocketConnection *connection)
-{
-    (void)params;
-    JsonArray *arr = json_array_new();
-
-                               
-    sqlite3 *db = nullptr;
-    if (sqlite3_open_v2("/var/lib/purecvisor/cloud_jobs.db", &db,
-                        SQLITE_OPEN_READONLY, NULL) == SQLITE_OK) {
-        sqlite3_stmt *stmt = nullptr;
-        if (sqlite3_prepare_v2(db,
-                "SELECT id, type, vm_name, status, progress, error, "
-                "created_at, updated_at FROM cloud_jobs "
-                "ORDER BY updated_at DESC LIMIT 100",
-                -1, &stmt, NULL) == SQLITE_OK) {
-            while (sqlite3_step(stmt) == SQLITE_ROW) {
-                JsonObject *job = json_object_new();
-                const char *id     = (const char *)sqlite3_column_text(stmt, 0);
-                const char *type   = (const char *)sqlite3_column_text(stmt, 1);
-                const char *vm     = (const char *)sqlite3_column_text(stmt, 2);
-                const char *status = (const char *)sqlite3_column_text(stmt, 3);
-                if (id)     json_object_set_string_member(job, "id", id);
-                if (type)   json_object_set_string_member(job, "type", type);
-                if (vm)     json_object_set_string_member(job, "vm_name", vm);
-                if (status) json_object_set_string_member(job, "status", status);
-                json_object_set_int_member(job, "progress",
-                    sqlite3_column_int(stmt, 4));
-                const char *err = (const char *)sqlite3_column_text(stmt, 5);
-                if (err) json_object_set_string_member(job, "error", err);
-                json_object_set_int_member(job, "created_at",
-                    sqlite3_column_int64(stmt, 6));
-                json_object_set_int_member(job, "updated_at",
-                    sqlite3_column_int64(stmt, 7));
-                json_array_add_object_element(arr, job);
-            }
-            sqlite3_finalize(stmt);
-        }
-        sqlite3_close(db);
-    }
-
-    JsonNode *n = json_node_new(JSON_NODE_ARRAY);
-    json_node_take_array(n, arr);
-    gchar *r = pure_rpc_build_success_response(rpc_id, n);
-    pure_uds_server_send_response(server, connection, r); g_free(r);
 }
 
                               
@@ -7418,92 +7111,6 @@ static void _handle_storage_pool_forecast(JsonObject *params, const gchar *rpc_i
 
 
 
-                                                                      
-typedef struct {
-    gchar *vm_name;
-    gchar *s3_endpoint;
-    gchar *s3_bucket;
-    gchar *s3_key_prefix;
-} S3ExportCtx;
-
-                                                          
-                                                        
-static void _s3_export_ctx_free(gpointer data) {
-    S3ExportCtx *ctx = data;
-    g_free(ctx->vm_name); g_free(ctx->s3_endpoint);
-    g_free(ctx->s3_bucket); g_free(ctx->s3_key_prefix);
-    g_free(ctx);
-}
-
-                                                                  
-                                                                
-                                                                       
-static void _s3_export_worker(GTask *task, gpointer source __attribute__((unused)),
-                               gpointer task_data, GCancellable *cancel __attribute__((unused))) {
-    S3ExportCtx *ctx = task_data;
-    GError *err = nullptr;
-    gboolean ok = pcv_backup_export_s3(ctx->vm_name, ctx->s3_endpoint,
-                                        ctx->s3_bucket, ctx->s3_key_prefix, &err);
-    gchar *job_id = g_strdup_printf("backup.export_s3:%s", ctx->vm_name);
-    if (!ok) {
-        const gchar *err_msg = err ? err->message : "unknown";
-        g_warning("[S3 Backup] Export failed for '%s': %s",
-                  ctx->vm_name, err_msg);
-        pcv_audit_log(NULL, "backup.export_s3", ctx->vm_name, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.export_s3",
-                                         "failed", err_msg);
-        if (err) g_error_free(err);
-    } else {
-        g_message("[S3 Backup] Export completed for '%s'", ctx->vm_name);
-        pcv_audit_log(NULL, "backup.export_s3", ctx->vm_name, "ok",
-                      0, 0, "local");
-        pcv_ws_broadcast_job_complete_mt(job_id, "backup.export_s3",
-                                         "completed", NULL);
-    }
-    g_free(job_id);
-    g_task_return_boolean(task, ok);
-}
-
-                                                                                 
-                                                                  
-static void _handle_backup_export_s3(JsonObject *params, const gchar *rpc_id,
-                                      UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = json_object_has_member(params, "name")
-        ? json_object_get_string_member(params, "name") : NULL;
-    if (!vm_name || !*vm_name) {
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing required param: name");
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        return;
-    }
-                                   
-    JsonObject *accepted = json_object_new();
-    json_object_set_string_member(accepted, "status", "accepted");
-    json_object_set_string_member(accepted, "vm_name", vm_name);
-    json_object_set_string_member(accepted, "target", "s3");
-    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(n, accepted);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, n);
-    pure_uds_server_send_response(server, connection, resp);
-    g_free(resp);
-
-    S3ExportCtx *ctx = g_new0(S3ExportCtx, 1);
-    ctx->vm_name = g_strdup(vm_name);
-    ctx->s3_endpoint = json_object_has_member(params, "s3_endpoint")
-        ? g_strdup(json_object_get_string_member(params, "s3_endpoint")) : NULL;
-    ctx->s3_bucket = json_object_has_member(params, "s3_bucket")
-        ? g_strdup(json_object_get_string_member(params, "s3_bucket")) : NULL;
-    ctx->s3_key_prefix = json_object_has_member(params, "s3_key_prefix")
-        ? g_strdup(json_object_get_string_member(params, "s3_key_prefix")) : NULL;
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
-    g_task_set_task_data(task, ctx, _s3_export_ctx_free);
-    g_task_run_in_thread(task, _s3_export_worker);
-    g_object_unref(task);
-}
-
                                                                         
                                     
   
@@ -8891,11 +8498,13 @@ _handle_qos_chaos_status(JsonObject *params, const gchar *rpc_id,
                                                        
                                           
   
-                                                                 
+
                                                 
                                                                  
                                                      
                                                    
+
+
   
                                                                   
                                                      
@@ -8978,7 +8587,7 @@ _handle_debug_trace_start(JsonObject *params, const gchar *rpc_id,
 }
 
                                 
-                                          
+
 static void
 _handle_debug_trace_stop(JsonObject *params, const gchar *rpc_id,
                          UdsServer *server, GSocketConnection *connection)
@@ -9003,7 +8612,9 @@ _handle_debug_trace_stop(JsonObject *params, const gchar *rpc_id,
     }
 
     JsonObject *res = json_object_new();
+
     json_object_set_boolean_member(res, "stopped", TRUE);
+    json_object_set_boolean_member(res, "stop_requested", TRUE);
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, res);
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
@@ -9052,7 +8663,7 @@ _handle_debug_trace_list(JsonObject *params, const gchar *rpc_id,
                                               
                                                          
                                                         
-                                                    
+
                                                                  
                                                        
                                           
@@ -9986,7 +9597,6 @@ static void dispatcher_init_routes(void)
                                                                    
         "backup.restore",                                                  
         "backup.replicate",                                                  
-        "backup.export_s3",                                              
         "backup.incremental",                                                          
         "container.create",                                                   
         "container.start",
@@ -9997,9 +9607,6 @@ static void dispatcher_init_routes(void)
         "vm.resize_disk",                                                 
         "vm.clone",                                                     
         "vm.import.ova",                                                  
-        "cloud.import",                                                                     
-        "cloud.export",                     
-        "cloud.import.finalize",                               
         "security.action.approve",                                                          
         "suricata.rules.update",                                                                        
         "suricata.ips.enable",                                                                 
@@ -10249,7 +9856,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "backup.incremental",  (gpointer)handle_backup_incremental);
     g_hash_table_insert(g_rpc_routes, "backup.verify",       (gpointer)handle_backup_verify);
     g_hash_table_insert(g_rpc_routes, "backup.replicate",    (gpointer)handle_backup_replicate);
-    g_hash_table_insert(g_rpc_routes, "backup.export_s3",   (gpointer)_handle_backup_export_s3);
 
                                                                        
     g_hash_table_insert(g_rpc_routes, "security.event.list",       (gpointer)handle_security_event_list);
@@ -10272,13 +9878,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "vm.blkio.set",     (gpointer)handle_vm_blkio_set);
     g_hash_table_insert(g_rpc_routes, "vm.blkio.get",     (gpointer)handle_vm_blkio_get);
 
-                                                                      
-    g_hash_table_insert(g_rpc_routes, "vm.import.ec2",       (gpointer)_handle_vm_import_ec2);
-    g_hash_table_insert(g_rpc_routes, "vm.export.ec2",       (gpointer)_handle_vm_export_ec2);
-    g_hash_table_insert(g_rpc_routes, "vm.import.status",    (gpointer)_handle_cloud_migration_status);
-    g_hash_table_insert(g_rpc_routes, "vm.export.status",    (gpointer)_handle_cloud_migration_status);
-    g_hash_table_insert(g_rpc_routes, "cloud.jobs.list",     (gpointer)_handle_cloud_jobs_list);
-    g_hash_table_insert(g_rpc_routes, "cloud.job.cancel",    (gpointer)_handle_cloud_job_cancel);
 
                                                                     
     g_hash_table_insert(g_rpc_routes, "daemon.version",      (gpointer)_handle_daemon_version);
@@ -10412,7 +10011,6 @@ static void dispatcher_init_routes(void)
     g_hash_table_insert(g_rpc_routes, "config.reload",        (gpointer)_handle_config_reload);
     g_hash_table_insert(g_rpc_routes, "health.deep",          (gpointer)_handle_health_deep);
     g_hash_table_insert(g_rpc_routes, "backup.snapshot.verify",(gpointer)_handle_snapshot_verify);
-    g_hash_table_insert(g_rpc_routes, "jobs.persist.list",    (gpointer)_handle_jobs_persist_list);
     g_hash_table_insert(g_rpc_routes, "alert.silence",        (gpointer)_handle_alert_silence);
     g_hash_table_insert(g_rpc_routes, "alert.silence.list",   (gpointer)_handle_alert_silence_list);
     g_hash_table_insert(g_rpc_routes, "alert.dlq.list",       (gpointer)_handle_alert_dlq_list);

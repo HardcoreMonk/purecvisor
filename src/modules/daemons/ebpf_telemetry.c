@@ -2067,6 +2067,21 @@ _vm_to_json(const VmExtMetrics *vm)
     return obj;
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 JsonObject *
 pcv_ebpf_telemetry_get_vm(const gchar *vm_name)
 {

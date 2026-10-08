@@ -40,9 +40,43 @@
                                                
                                     
 
-                                    
-                                               
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 import re
 import sys
 from pathlib import Path
@@ -56,7 +90,6 @@ CALL_RE = re.compile(r'\b' + re.escape(HELPER) + r'\s*\(')
 TARGET_RELS = [
     "src/modules/daemons/alert_engine.c",
     "src/modules/ai/ai_agent.c",
-    "src/modules/backup/backup_scheduler.c",
 ]
 
                                                  

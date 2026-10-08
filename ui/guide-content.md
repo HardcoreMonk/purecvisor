@@ -1,4 +1,9 @@
 # PureCVisor Single Edge 운영 가이드
+> **2026-10-08 공개 소스 기준:** 버전 2.0.0을 유지하며 AWS 수동 이관·S3 백업을 제거했습니다.
+> OVA·로컬 백업·공통 Job/WS·QGA를 유지하고 VM 시작·Trace·VNC·OVA·자가 치유를 보강했습니다.
+> 기존 v2.0.0 태그/바이너리와 현재 main은 다를 수 있으므로 source commit을 함께 확인합니다.
+> 전체 감사와 실환경 인증의 잔여는 유지합니다.
+
 
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
@@ -34,7 +39,7 @@
 8. [모니터링 & 알림](#8-모니터링--알림)
 9. [백업 & 복원](#9-백업--복원)
 10. [보안](#10-보안)
-11. [클라우드 마이그레이션](#11-클라우드-마이그레이션)
+11. [비동기 작업 관리](#11-비동기-작업-관리)
 12. [AI & 자가치유](#12-ai--자가치유)
 13. [Web UI](#13-web-ui)
 14. [REST API](#14-rest-api)
@@ -104,8 +109,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1817.8671875" height="2313.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX 없이 클라이언트가 purecvisorsd의 HTTPS와 WebSocket TLS에 직접 접근하고, GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 8개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="direct">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-direct-https-architecture.svg" width="1817.8671875" height="2313.699951171875" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 없이 purecvisorsd의 HTTPS REST와 WebSocket TLS transport에 직접 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 8개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note"><code>purecvisorsd</code>가 외부 <code>:443</code>의 HTTPS와 WebSocket TLS를 직접 종료하는 기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.</figcaption>
     </figure>
@@ -120,8 +125,8 @@ PureCVisor Single Edge는 C23 기반 KVM 하이퍼바이저 오케스트레이�
           <a class="pcv-architecture-source-open" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener">확대해서 보기 <span aria-hidden="true">↗</span></a>
         </div>
       </div>
-      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
-        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1699.064208984375" height="2488" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 9개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
+      <a class="pcv-architecture-source-canvas" href="/assets/diagrams/purecvisor-single-full-architecture.svg" target="_blank" rel="noopener" aria-label="NGINX가 외부 TLS를 종료하고 purecvisorsd의 loopback REST와 WebSocket으로 전달한 뒤 GMainLoop 제어면, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 8개와 Linux/KVM 호스트로 이어지는 전체 아키텍처 SVG를 새 탭에서 확대해서 보기" data-pcv-architecture-interactive="nginx">
+        <img class="pcv-overview-architecture-image pcv-architecture-source-image" src="/assets/diagrams/purecvisor-single-full-architecture.svg" width="1699.064208984375" height="2488" loading="lazy" decoding="async" alt="Web UI와 REST client가 NGINX 외부 TLS 종료를 거쳐 purecvisorsd의 loopback REST와 WebSocket transport에 접근하고, GMainLoop 제어면, 동기·비동기 완료 경로, 6개 서비스 도메인, 로컬 SQLite 데이터베이스 8개와 desired state를 거쳐 Linux/KVM 호스트로 이어지는 PureCVisor Single Edge 아키텍처">
       </a>
       <figcaption class="pcv-architecture-source-note">NGINX가 외부 <code>:443</code>을 소유하고 <code>purecvisorsd</code>의 loopback REST·WebSocket으로 전달하는 선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계가 성립하는 전용 호스트에서만 사용합니다.</figcaption>
     </figure>
@@ -155,7 +160,7 @@ HTTP listener는 loopback 복구 경로로 제한합니다.
 
 - **Workload**: VM, LXC 컨테이너, template과 GPU 연결
 - **Network**: Linux bridge, Local VPC, OVS·OVN, Security Group과 QoS
-- **Storage**: ZFS, snapshot, backup·restore, iSCSI와 cloud job
+- **Storage**: ZFS, snapshot, backup·restore, iSCSI와 로컬 백업 작업
 - **Security**: JWT, TOTP, RBAC, audit, HIDS·HIPS와 BPF LSM audit
 - **Monitoring**: host telemetry, process status와 Prometheus metrics
 - **Operations**: telemetry, alert, Web Push, AI healing과 plugin
@@ -166,11 +171,11 @@ host·process 관측값을 조회합니다.<br>
 
 #### 1.2.4 영속 상태와 호스트 통합
 
-PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 9개와 파일 기반 desired state를
+PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 8개와 파일 기반 desired state를
 사용합니다.
 
 - **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
-- **Operations DB 2개**: `cloud_jobs.db`, `pcv_webpush.db`
+- **Operations DB 1개**: `pcv_webpush.db`
 - **Desired state**: network, overlay, QoS, BPF와 backup 설정
 - **Virtualization**: libvirt, QEMU, KVM과 LXC
 - **Storage**: qcow2/raw, 선택형 ZFS, LIO와 open-iscsi
@@ -202,7 +207,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 | [DEVELOPMENT_VERIFICATION_POLICY.md](../docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](../docs/ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 26개의 책임, schema와 복구 경계 |
+| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 8개와 영구 테이블 25개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](../docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
 <span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
@@ -511,7 +516,7 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).
-- 제거: `sudo apt remove purecvisor-single` (설정 보존) / `sudo apt purge purecvisor-single` (설정 포함 제거).
+- 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
 
 #### 방법 B — 소스 빌드
 
@@ -1015,7 +1020,7 @@ Vendor 계약은 자동 동기화하지 않는다.
 ### 2.5 systemd 서비스 설치
 
 ```bash
-sudo cp systemd/purecvisorsd.service /etc/systemd/system/
+sudo cp packaging/deb/purecvisorsd.service /etc/systemd/system/
 sudo systemctl daemon-reload
 sudo systemctl enable --now purecvisorsd
 ```
@@ -1606,6 +1611,11 @@ OVS/OVN·GPU passthrough·Secure Boot·ZFS 전체 기능이나 모든 Arch 환�
 
 ## 3. VM 관리
 
+**2.0.0 시작 계약:** 정지 VM의 NUMA·2MiB hugepage 요구를 실제 XML로 확인하고 DPDK 준비
+뒤 다시 검사합니다. 용량 snapshot은 자원 예약 보장이 아닙니다. PMSUSPENDED VM은
+깨우기 요청 뒤 RUNNING을 확인하며 기존 active CPU 예약을 다시 할당하지 않습니다.
+
+
 ### 3.1 VM 생성
 
 #### 기본 생성
@@ -1779,6 +1789,26 @@ backend를 요구하기 때문에 해당 시정 전에는 **도메인 정의 자
 > "정의조차 되지 않던" 결함까지입니다.
 
 ### 3.2 VM 라이프사이클
+
+#### Web UI에서 VM 삭제
+
+가상 머신 화면에서 VM을 선택한 뒤 상단 **VM 삭제**를 누릅니다. 여러 VM은 목록 또는
+카드의 체크박스를 선택하고 아래 **일괄 삭제 (N)** 또는 **일괄 작업 → 선택한 VM 삭제**를
+사용합니다. 전화 폭(600px 이하)은 하단 **전원** 탭의 VM 카드와 **일괄 삭제**를 사용합니다.
+ADMIN/OPERATOR에게 표시되며 실제 요청은 서버의 소유권·권한 검사를 받습니다.
+
+확인창은 대상 이름 전체와 영구 디스크 삭제 경고를 표시합니다. 단일 삭제는 VM 이름,
+일괄 삭제는 표시된 수량 문구(예: `삭제 2`)를 정확히 입력해야 진행할 수 있습니다.
+실행 중인 VM도 강제 종료됩니다. 취소하면 삭제 요청을 보내지 않습니다.
+
+요청은 하나씩 전송하고 대상별 결과를 남깁니다. **요청 접수 · 완료 미확인**은 삭제 완료가
+아닙니다. 현재 VM 삭제 서버는 접수만 반환하므로 최종 워커 결과는 감사 로그의 `vm.delete`
+기록을 확인합니다. 목록에서 VM이 사라져도 디스크 정리가 끝났다고 단정하지 않습니다.
+결과 창을 닫으면 아직 보내지 않은 요청만 중단하며, 접수된 삭제는 계속됩니다.
+통신 오류 시 자동 재전송하지 않습니다. 대상이 없어지거나 동명 VM의 UUID가 바뀌면
+삭제 요청을 보내지 않으므로 목록을 새로고침하고 다시 선택합니다.
+
+
 
 ```bash
 # 목록 조회
@@ -4237,22 +4267,31 @@ ws.onmessage = (e) => {
 - **순환 보존 + 부팅 fail-safe purge**: 산출물은 순환 보존되며, 부팅 시 잔여 추적 상태를 정리합니다.
 - **report**: `debug.trace.report`는 수집 결과에서 병목·drop 지점을 분석해 돌려줍니다.
 
-retis가 설치되어 있지 않으면 추적은 조용히 degraded 상태로 빠집니다(가용성은 배포 환경에 따름).
+retis가 설치되어 있지 않거나 self-check에 실패하면 시작 요청은 명시 오류를 반환합니다.
+
+**종료 요청과 완료(ADR-0064, 2026-10-08 공개 소스 반영)**: `debug.trace.stop`의
+`stopped=true`는 요청 접수 의미이며 `stop_requested=true`도 반환합니다. 회수 대기 중
+status는 `state=running, stop_requested=true`이고 동시 1개 가드와 `.running` 마커를
+유지합니다. 동일 자식의 wait 성공 뒤에만 종료 audit·마커 제거·idle 전이·가드 해제가
+완료됩니다. RPC 접수 감사 자체는 캡처 완료 증거로 사용하지 않습니다.
+대기 중 같은 id의 stop은 멱등 접수, 완료 뒤에는 NOT_FOUND입니다.
+wait 확인 실패는 완료로 추정하지 않고 running·마커·가드와 warning을 유지합니다.
+실제 Retis·독립 리뷰·main 반영·지정 노드 인수·배포/원복은 남아 있습니다.
 
 > **RPC 전용(2.0)**: `debug.trace.*` 네임스페이스는 전용 REST 경로·CLI 서브커맨드·UI 페이지가 없습니다. `POST /api/v1/rpc` JSON-RPC 패스스루(또는 UDS 직접 `nc -U`)로만 호출하며, 5개 메서드 모두 ADMIN 권한이 필요합니다(전 테넌트 트래픽 관찰 표면).
 
 | 메서드 | 파라미터 | 용도 |
 |--------|----------|------|
 | `debug.trace.start` | `{timebox_sec, [vm], [tenant], [proto], [src_ip], [dst_ip]}` | 추적 시작(추적 ID·산출 폴더 반환) |
-| `debug.trace.stop` | 추적 ID 지정 | 추적 중지 |
-| `debug.trace.status` | 추적 ID 지정 | 추적 상태 |
+| `debug.trace.stop` | `{trace_id}` | 종료 요청 접수(완료는 status idle로 확인) |
+| `debug.trace.status` | `{[trace_id]}` | running/idle 상태·종료 요청 여부 |
 | `debug.trace.list` | `{}` | 추적 목록 |
 | `debug.trace.report` | 추적 ID 지정 | 추적 리포트(병목·drop 분석) |
 
 ```bash
 # 특정 VM 트래픽 30초 추적 (POST /api/v1/rpc 패스스루)
 curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
-  http://127.0.0.1:8080/api/v1/rpc \
+  http://localhost:80/api/v1/rpc \
   -d '{"jsonrpc":"2.0","method":"debug.trace.start","params":{
         "timebox_sec":30,"vm":"web-prod"},"id":"1"}'
 ```
@@ -4380,25 +4419,19 @@ Guest Agent가 설치된 VM에서 `fsfreeze --freeze` / `--thaw`를 통해 파�
 
 ### 9.5 원격 ZFS 복제 (범위 밖)
 
-원격 노드 증분 복제는 Multi 제어면과 연결되는 범위이므로 Single Edge 공개판의 운영 절차로 제공하지 않는다. Single Edge에서는 로컬 ZFS snapshot, 로컬 백업 정책, S3 업로드처럼 단일 노드에서 검증 가능한 백업 경로를 우선 사용한다.
+원격 노드 증분 복제는 Multi 제어면과 연결되는 범위이므로 Single Edge 공개판의 운영 절차로 제공하지 않는다. Single Edge에서는 로컬 ZFS snapshot, 로컬 백업 정책처럼 단일 노드에서 검증 가능한 백업 경로를 우선 사용한다.
 
 ### 9.6 원격 보존 정책 (v1.0)
 
 원격 노드 보존 정책은 Multi 제어면 참고 범위다. Single Edge 공개판에서는 로컬 snapshot 보존 정책을 기준으로 운영한다.
 
-### 9.7 S3 업로드 (v1.0)
+### 9.7 외부 오브젝트 백업 제거
 
-100MB 초과 시 멀티파트 업로드를 사용하여 AWS S3에 백업을 업로드한다.
+AWS 미사용 결정에 따라 S3 및 S3 호환 endpoint의 백업 업로드 기능은 제거했습니다.
+로컬 백업 정책·증분·검증·복구·보존 기능은 유지합니다. 기존 외부 객체·스냅샷과 설정은
+자동으로 삭제하지 않습니다.
 
-```bash
-# RPC
-echo '{"jsonrpc":"2.0","method":"backup.s3_upload","params":{
-  "name":"web-prod",
-  "snapshot":"auto-20260401",
-  "bucket":"purecvisor-backups",
-  "region":"ap-northeast-2"
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
-```
+<a id="98-히스토리-페이지네이션-v10"></a>
 
 ### 9.8 히스토리 페이지네이션 (v1.0)
 
@@ -4544,16 +4577,18 @@ operator의 VM 단일 대상 action은 libvirt domain metadata의 `pcv:owner`와
 
 Single Edge는 관리자 계정을 두 층으로 운영합니다.
 
-- `bootstrap admin`: `daemon.conf` 또는 `PURECVISOR_ADMIN_PASSWORD`에 명시된 경우에만 활성화되는 초기/비상 진입 계정입니다. 내장 기본 비밀번호는 없으며, 비밀번호 변경은 설정 파일 수정과 서비스 재기동으로 관리합니다.
-- `전용 admin`: RBAC DB에 별도로 생성한 운영용 관리자 계정입니다. 평소 운영, 감사 추적, 계정 회전은 이 계정을 기준으로 수행합니다.
+- `bootstrap admin`: 첫 설치에서 `daemon.conf`의 `[daemon] admin_password` 또는 `PURECVISOR_ADMIN_PASSWORD`로 **DB에 처음 생성하는** 관리자입니다. 내장 기본 비밀번호는 없습니다. 생성 이후의 인증 기준은 RBAC DB이며, 설정 파일 수정·서비스 재시작은 기존 비밀번호를 변경하지 않습니다.
+- `전용 admin`: RBAC DB에 별도로 생성한 운영용 관리자 계정입니다. 일상 운영과 감사 추적은 이 계정을 기준으로 수행합니다.
 
 권장 순서:
 1. `admin_password`를 명시 설정한 뒤 bootstrap admin으로 첫 로그인
-2. `pcvctl auth create <name> <password> admin`으로 전용 admin 생성 (또는 `POST /api/v1/auth/users`)
-3. `daemon.conf`의 bootstrap admin 비밀번호를 강한 값으로 교체
+2. 사용자 관리 화면에서 전용 admin을 생성하고 해당 계정의 로그인을 확인
+3. bootstrap admin 본인으로 로그인해 사용자 메뉴의 **비밀번호 변경**을 사용. API는 `POST /api/v1/auth/password`이며 Bearer 토큰과 `old_password`·`new_password`가 필요
 4. 이후 일상 운영과 API 사용은 전용 admin으로 수행
 
-> **평문 완전 제거 변형(선택)**: 3단계에서 강한 값으로 교체하는 대신 `admin_password=`를 **비우고** 데몬을 재기동하면 bootstrap admin이 비활성화되어 `daemon.conf`에 평문 자격증명이 전혀 남지 않는다. 전용 admin(RBAC DB 해시)만으로 운영. **트레이드오프**: 비상 진입 계정이 사라지므로, 전용 admin 자격증명 분실 시 다시 `admin_password`를 설정·재기동해야 재진입할 수 있다.
+비밀번호 변경은 새 해시·salt 저장과 기존 **refresh 세션 폐기**를 하나의 DB 트랜잭션으로 처리합니다. 어느 단계든 실패하면 전체 변경을 취소합니다. 이미 발급된 access 토큰은 원래 만료까지 최대 15분 유효하며, 현재 브라우저는 변경 후 다시 로그인합니다. 등록된 bootstrap admin에도 TOTP 확인·역할별 등록 의무가 동일하게 적용됩니다.
+
+> **초기 설정값 정리(선택)**: 전용 admin의 정상 로그인을 확인한 뒤 `admin_password=`를 비우면 설정에 평문 비밀번호를 남기지 않을 수 있습니다. 이는 새 bootstrap 생성과 DB 부재 시 fallback을 중지하며, **이미 생성된 계정을 삭제하거나 비활성화하지 않습니다**. 비밀번호를 분실한 기존 계정은 설정값을 다시 넣고 재시작해도 초기화되지 않습니다. DB 직접 UPDATE 대신 정상 로그인 상태에서 위 변경 API를 사용합니다.
 >
 > **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 `chmod 600 root:root`** 여야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
 
@@ -4563,13 +4598,13 @@ per-user 쿼터 (v1.0): 사용자별 VM 수, CPU 코어, 메모리 상한 설정
 # 전용 admin 포함 사용자 관리
 pcvctl auth list
 pcvctl auth create ops-admin strongpass admin
-pcvctl auth create dev pass123 operator
+pcvctl auth create dev "${PCV_NEW_USER_PASSWORD:?설정한 강한 비밀번호 필요}" operator
 pcvctl auth role dev admin
 pcvctl auth delete dev
 
 # RPC
-echo '{"jsonrpc":"2.0","method":"auth.create_user","params":{
-  "username":"dev","password":"pass123","role":"operator"
+echo '{"jsonrpc":"2.0","method":"auth.user.create","params":{
+  "username":"dev","password":"<configured-user-password>","role":"operator"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
 
@@ -4907,116 +4942,36 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ---
 
-## 11. 클라우드 마이그레이션
+## 11. 비동기 작업 관리
 
-AWS EC2와 PureCVisor 간 양방향 VM 이전을 지원한다. `cloud_migration.c` + `aws_client.c` + `disk_converter.c`로 구성.
+VM·OVA·백업 등 장시간 작업은 접수와 실제 결과를 구분합니다.
+AWS 수동 Import·Export·Near-Live와 전용 작업 관리는 2026-10-07 사용자 결정으로
+현재 개발 소스에서 제거했습니다. S3 백업도 추가로 제거했습니다. 일반 VM·OVA·로컬 백업은 유지합니다.
+공개 2.0.0 패키지와 운영 설치본은 이번 소스 변경으로 교체되지 않습니다.
 
-### 11.1 AWS EC2 Import
+### 11.1 접수·결과 저장
 
-#### 표준 Import (6단계)
+VM 생성·OVA·백업·Local VPC·DPDK 등 통합 Job 큐를 쓰는 요청은 SQLite에 접수 row를
+저장한 뒤에만 Job ID·accepted를 반환합니다.
+DB 비활성·쓰기 잠금/오류에는 신규 접수를 거부하며 실제 worker를 시작하지 않습니다.
+작업 ID 충돌은 기존 작업을 덮지 않고
+최대 32회 새 번호로 재발급합니다.
 
-```
-1. AMI → Snapshot → S3 Export (aws ec2 create-store-image-task)
-2. S3 다운로드 (멀티파트)
-3. qemu-img convert (VMDK/VHD → qcow2/raw)
-4. virt-customize (cloud-init 제거, 네트워크 재설정)
-5. virDomainDefineXML (VM 정의)
-6. virDomainCreate (VM 시작)
-```
+실행 뒤 결과 저장이 실패하면 완료 WS의 `result_persisted: false`와 UI 알림으로 구분합니다.
+이때 실제 작업 성공/실패와 audit는 유지되므로 같은 작업을 바로 재실행하지 말고 Job ID로
+리소스 상태와 감사 로그를 확인합니다. 완료 WS를 받지 못하면 `jobs.get`/`jobs.status`에
+이전 상태가 남을 수 있습니다. [ADR-0060](../docs/adr/0060-job-admission-and-result-persistence.md)의
+현재 공개 소스에 반영된 구현이며 일반 `pcv_jobs.db`의 계약입니다.
 
-#### Near-Live Import 2-Phase (v1.0)
 
-다운타임을 최소화하는 2단계 이전:
+### 11.2 상태 확인과 기존 이력
 
-```
-Phase 1: 사전 동기화 (다운타임 0)
-  ├── 소스 EC2 실행 중 상태로 디스크 스냅샷 생성
-  ├── 스냅샷을 qcow2로 변환 + 전송
-  └── PureCVisor에 VM 정의 (시작하지 않음)
+일반 작업은 `jobs.list`·`jobs.get`·`jobs.status`로 확인하고 해당 작업의 지원 범위에서
+`jobs.cancel`을 사용합니다. 완료 알림과 실제 리소스 상태·감사 로그를 함께 확인합니다.
+기존 AWS 작업 DB·감사 기록·VM·디스크·외부 자원은 삭제하지 않습니다.
+기능 제거로 이미 접수된 외부 작업이 취소되거나 자원이 정리되지는 않습니다.
+제거된 API/CLI는 미지원이며 Cloud 화면의 이전 북마크는 도움말로 이동합니다.
 
-Phase 2: 최종 전환 (다운타임 2~5분)
-  ├── aws ec2 stop-instances (소스 중지)
-  ├── aws ec2 create-snapshot (최종 스냅샷)
-  ├── aws ec2 wait snapshot-completed
-  ├── pcv_disk_apply_delta (증분 적용)
-  ├── virt-customize (최종 커스터마이즈)
-  ├── virDomainCreate (VM 시작)
-  └── 소스 EC2 종료 확인
-```
-
-```bash
-# CLI — 표준 Import
-pcvctl cloud import --ami ami-0abcdef1234567890 \
-  --vm-name web-prod --vcpu 4 --memory 8192
-
-# CLI — Near-Live Import
-pcvctl cloud import --ami ami-0abcdef1234567890 \
-  --vm-name web-prod --near-live
-
-# 최종 전환
-pcvctl cloud finalize --name web-prod
-
-# RPC
-echo '{"jsonrpc":"2.0","method":"cloud.import","params":{
-  "ami_id":"ami-0abcdef1234567890",
-  "vm_name":"web-prod",
-  "vcpu":4,
-  "memory_mb":8192,
-  "near_live": true
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
-```
-
-### 11.2 AWS EC2 Export (5단계)
-
-```
-1. VM 중지 + ZFS/qcow2 스냅샷
-2. qemu-img convert (qcow2 → VMDK/VHD)
-3. S3 업로드 (멀티파트)
-4. aws ec2 import-image (AMI 등록)
-5. aws ec2 run-instances (EC2 시작)
-```
-
-```bash
-# CLI
-pcvctl cloud export --name web-prod --region ap-northeast-2 \
-  --instance-type t3.large --bucket purecvisor-exports
-```
-
-### 11.3 Job 관리
-
-#### SQLite Job 영속화 (v1.0)
-
-마이그레이션 작업 상태를 SQLite에 영속 저장하여 데몬 재시작 후에도 복구 가능.
-
-#### AWAITING_CUTOVER 타임아웃 (v1.0)
-
-Near-Live Import의 Phase 1 완료 후 `AWAITING_CUTOVER` 상태에서 2시간 내에 finalize하지 않으면 자동 타임아웃.
-
-```bash
-# 작업 목록
-pcvctl cloud jobs
-
-# 영속 저장소 조회 (v1.0)
-echo '{"jsonrpc":"2.0","method":"cloud.jobs.persist.list","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock
-
-# 작업 취소
-pcvctl cloud cancel --name web-prod
-
-# RPC
-echo '{"jsonrpc":"2.0","method":"cloud.jobs.list","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock
-
-echo '{"jsonrpc":"2.0","method":"cloud.job.cancel","params":{
-  "vm_name":"web-prod"
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
-```
-
-### 11.4 GCancellable 취소
-
-진행 중인 작업은 `GCancellable`을 통해 안전하게 취소된다. 다운로드/변환 중 즉시 중단하며, 중간 파일을 정리한다.
-
----
 
 ## 12. AI & 자가치유
 
@@ -5190,7 +5145,7 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 |------|------|
 | (무제) | 운영 대시보드 |
 | 워크로드 | 가상 머신(요약·콘솔·스냅샷·성능·타임라인), 컨테이너, 템플릿 |
-| 인프라 | 네트워크, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, GPU 장치, 토폴로지, 클라우드 마이그레이션, 호스트 상태 |
+| 인프라 | 네트워크, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, GPU 장치, 토폴로지, 비동기 작업 관리, 호스트 상태 |
 | 관제 | 운영 개요, 이벤트 센터, 알림, 보안 이벤트, 감사 로그, 활동 로그, VM/스토리지/호스트 모니터, 히트맵, API 성능, 자가치유 |
 | 시스템 | 계정과 권한(ADMIN), API 관리(ADMIN), 설정 관리 |
 | 도움말 | 도움말, Swagger API |
@@ -5346,7 +5301,6 @@ ui/
     ├── storage.js      # 스토리지 관리
     ├── monitor.js      # 모니터링 대시보드, 운영 이벤트 센터
     ├── security.js     # 보안 이벤트 UI
-    ├── cloud.js        # Cloud Migration
     ├── help.js         # 도움말, Swagger API
     ├── nav.js          # 네비게이션, 라우팅, 이벤트 센터 route
     ├── theme.js        # 테마 관리
@@ -5576,12 +5530,10 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://HOST/api/v1/containers/app-ctr/exec
 ```
 
-#### 14.6.5 클라우드 임포트(니어라이브)
+#### 14.6.5 비동기 작업 조회
 
 ```bash
-curl -X POST -H "Authorization: Bearer $TOKEN" \
-  -d '{"name":"web","ami_id":"ami-0abc","mode":"near-live"}' \
-  http://HOST/api/v1/vms/web/import-ec2
+curl -H "Authorization: Bearer $TOKEN" http://HOST/api/v1/jobs
 ```
 
 #### 14.6.6 WebSocket 이벤트
@@ -5915,15 +5867,9 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `backup set <name> --interval N --retention N` | 정책 설정 |
 | `backup history <name>` | 히스토리 |
 
-#### 클라우드 (5+)
+#### 비동기 작업
 
-| 커맨드 | 설명 |
-|--------|------|
-| `cloud import --ami <id> --vm-name <n>` | EC2 Import |
-| `cloud export --name <n> --region <r>` | EC2 Export |
-| `cloud jobs` | 작업 목록 |
-| `cloud cancel --name <n>` | 작업 취소 |
-| `cloud finalize --name <n>` | Near-Live 최종 전환 |
+`jobs.list/get/cancel`로 공통 작업을 조회·취소합니다. AWS 수동 이관 명령은 제거했습니다.
 
 #### AI Agent (5+)
 
@@ -6306,6 +6252,19 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 
 ### 18.6 프로젝트 통계
 
+2026-10-08 공개 main 후보의 현재 도움말·필수 gate는 다음과 같습니다. 아래 기존 수치는
+해당 날짜의 기록입니다. 소스 게시와 전체 실환경 인증은 구분합니다.
+
+| 현재 항목 | 값·범위 |
+|---|---|
+| 도움말 표시 | RPC 298·REST 222 (`make check-help-counts`) |
+| 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
+| 활성 DB | 8개·영구 테이블 25개; 과거 Cloud DB는 자동 삭제하지 않음 |
+| Web UI | `tests/ui/*.test.mjs` 61개 |
+| 주요 정적 게이트 | `make -j1 check-all` 42개 게이트 |
+| 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
+
+
 다음 수치는 2026-09-15 공개 소스 `22d6912`가 포함된 `main`의 추적 파일과
 `Makefile`, `make check-rbac`를 대조한 스냅샷입니다. 테스트 통과 수는 같은 날 공개 소스
 검증 회차의 기록이며, 이번 문서 현행화에서 전체 제품 시험을 다시 실행했다는 뜻은 아닙니다.
@@ -6382,8 +6341,8 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 |-----------|-----------|
 | C 코어/dispatcher | `make single`, `make test`, `make check-rbac` |
 | fire-and-forget RPC | `scripts/check_audit_placement.py`, 관련 worker 성공/실패 audit 확인 |
-| VM clone | `./test_runner -r /vm_clone_plan`, `scripts/check_vm_clone_cleanup.py`, [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md) 실환경 기준 확인 |
-| Web UI | `PCV_NO_DEPLOY=1 scripts/bundle-ui.sh`, `python3 scripts/check_ui_bundle_fresh.py`, `node --check ui/app.bundle.js`, 공개 URL 해시와 `/ui#ops-triage` 확인 |
+| VM clone | `./test_runner -p /vm_clone_plan`, `scripts/check_vm_clone_cleanup.py`, [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md) 실환경 기준 확인 |
+| Web UI | `PCV_NO_DEPLOY=1 scripts/bundle-ui.sh`, `python3 scripts/check_ui_bundle_fresh.py`, `node --check ui/app.bundle.js`, 공개 URL의 bundle/guide/SW 해시 확인 |
 | REST surface | `scripts/verify_api_consistency.sh`, 인증/권한/에러 응답 확인 |
 | ZFS inflight/metric | ZFS inflight 정적 검사와 Web UI 모니터링 노출 검사 |
 | 문서만 변경 | `git diff --check`, 공개 가이드 배포 시 `/ui/guide-content.md` 해시 확인 |
@@ -6806,15 +6765,15 @@ chmod +x .git/hooks/commit-msg
   perf: json_generator → json_to_string 전환
 ```
 
-### 22.4 계약 게이트 일괄 — `make check-all` (40게이트)
+### 22.4 계약 게이트 일괄 — `make check-all` (42게이트)
 
-`make check-all`은 "방어를 제거하면 RED가 되는" 반사실 게이트(ADR-0025)를 한 번에 돌리는 릴리스
-기준선입니다. pre-commit은 같은 계열을 변경 영역에 따라 조건부로 나눠 실행하고, `check-help-counts`
-하나만 pre-commit 전용입니다 — 배포 계약 게이트 목록에 도움말 표시값 게이트를 끼우지 않기 위한
-의도적 분리입니다.
+```bash
+make -j1 check-all
+```
 
-| 게이트 | 검증 대상 |
-|--------|-----------|
+| 게이트 | 검사 범위 |
+|---|---|
+| `check-aws-manual-removed` | AWS 수동 이관·S3 실행/API/UI 부재·북마크와 VM/OVA/로컬 백업/일반 Job 보존 |
 | `check-rbac` | ADR-0019 RBAC 정책 계약 |
 | `check-rpc-consumers` | AF-C4 RPC 소비⊆등록 계약 |
 | `check-dead-exports` | 미소비 공개 심볼(dead export) 차단 |
@@ -6822,7 +6781,7 @@ chmod +x .git/hooks/commit-msg
 | `check-json-ingress` | JSON 파싱 초크포인트 |
 | `check-safety-controls` | 안전통제 효과 테스트 레지스트리 |
 | `check-error-codes` | raw 에러코드 리터럴 방지 (DISP-6) |
-| `check-cli-exit-status` | `pcvctl` 성공·실패·사용법 오류 0/1/2와 VPC terminal Job 효과 테스트 |
+| `check-cli-exit-status` | `pcvctl` 성공·실패·사용법 오류 0/1/2와 VPC terminal Job 효과 |
 | `check-audit-placement` | audit 배치 계약 (ADR-0018) |
 | `check-cors-anchor` | CORS 오리진 앵커 (A05·V3·V13) |
 | `check-secret-logging` | 감사 로그 자격증명 마스킹 (A09·V14·V16) |
@@ -6843,24 +6802,19 @@ chmod +x .git/hooks/commit-msg
 | `check-ws-token-url` | WS URL-query 토큰 인증 제거 (A07) |
 | `check-zpool-suspend-recover` | ZFS 풀 SUSPENDED 탐지 + 가드된 자동복구 |
 | `check-deb-apparmor` | 2.0 deb AppArmor 미부착 (ADR-0028) |
-| `check-public-comments` | 자체 소스 설명 주석 0건과 UI 소스맵 제외 정책 |
-| `check-runtime-prereqs` | 배포 런타임 전제 배선 · nginx 종단 · LIO 모듈 패키징 |
+| `check-public-comments` | 설명 주석·소스맵 제외, 변환 회귀와 공개 실행 계약 |
 | `check-vendor-integrity` | 벤더링 자산 SHA-256 핀 — 전수 등재·유령·심링크 우회 차단 (A03) |
 | `check-npm-lockfile` | npm 의존 SRI 핀·레지스트리 단일 출처·lock 드리프트 0 (A03) |
 | `check-deb-supply-chain` | deb 의존 버전 하한 배선·md5sums 전수·벤더 핀 전이 (A03) |
-| `check-fe-rpc-params` | UI 가 보내는 요청 파라미터 키 ⊆ 백엔드 핸들러가 읽는 키 |
-| `check-network-mode-contract` | UI network mode enum과 백엔드 whitelist 양방향 정합성 |
-| `check-iscsi-chap-argv` | initiator CHAP 비밀번호의 `iscsiadm` argv 재도입 차단 |
-| `check-rpc-route-unique` | `g_rpc_routes` 중복 등록 금지 (라우트 섀도잉 차단) |
-| `check-rerror-guard` | Web UI의 JSON-RPC `r.error` 미검사 호출부 래칫 |
-| `check-dpdk-owned-lifecycle` | DPDK 제품 소유 자원의 생성·회수·실패 정리 계약 |
-| `check-single-ui-surface` | Single Edge 이벤트·명령 연결, 공개 소스맵 부재와 반사실 회귀 |
-
-`check-rpc-param-contract` 와 `check-fe-rpc-params` 는 겹치는 것처럼 보이지만 소비처가 다릅니다 —
-전자는 `contracts/rpc_params.json` 레지스트리에 등재된 메서드의 **CLI** 소비를 보고, 후자는
-**Web UI** 소스를 훑습니다. 2026-08-06 계약 불일치 회차에서 전자가 UI 를 보지 않는다는 것이
-드러나 후자를 신설했습니다(설계 §8.1). 전자는 "보내는데 핸들러가 안 읽는다"를 아직 WARN 으로
-흘려보내며, FAIL 승격은 후속 과제입니다(설계 §8.3).
+| `check-fe-rpc-params` | UI 요청 파라미터 키와 backend 소비 계약 |
+| `check-network-mode-contract` | UI/backend network mode enum 양방향 정합성 |
+| `check-iscsi-chap-argv` | initiator CHAP 비밀번호 argv 재도입 차단 |
+| `check-rpc-route-unique` | `g_rpc_routes` 중복 등록 금지 |
+| `check-rerror-guard` | Web UI JSON-RPC `r.error` 미검사 호출부 래칫 |
+| `check-dpdk-owned-lifecycle` | DPDK OVS ownership·MTU·VM 수명주기와 accepted Job 결과 채널 |
+| `check-single-ui-surface` | 이벤트·경보·감사·명령 연결과 개발판 소스맵 배포 계약 |
+| `check-runtime-prereqs` | 원격 daemon/CLI ABI stop-before-mutation · 배포 런타임 전제 · nginx 종단 · LIO 모듈 패키징 |
+| `check-vnc-proxy-lifetime` | 실제 binary relay·REST context·WS signal/source/FD 종료 수명 (ADR-0065) |
 
 ### 22.5 품질 게이트 건너뛰기
 
@@ -6909,6 +6863,11 @@ git commit --no-verify -m "fix: 긴급 수정"
 <a id="228-2026-09-15-공개-소스문서-현황"></a>
 
 ### 22.8 공개 소스·문서 현황
+
+**2026-10-08 현재 소스:** AWS 수동 이관·S3 백업 제거와 공통 Job/WS·QGA·VM 시작·
+Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지하며 기존 태그·패키지는
+재발행하지 않았습니다. [최신 공개 인계](https://github.com/HardcoreMonk/purecvisor/blob/main/docs/operations/2026-10-08-public-source-refresh-handoff.md)의
+검증 범위를 따르며, 아래 표는 과거 회차의 검증 기록입니다.
 
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 

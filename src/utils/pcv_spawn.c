@@ -698,11 +698,11 @@ pcv_spawn_sync_profile(const gchar * const *argv,
    
                                                      
   
-                                                        
+
                                                   
   
                                                          
-                                                  
+
                                                                    
                                     
   
@@ -711,6 +711,9 @@ pcv_spawn_sync_profile(const gchar * const *argv,
                                                                          
                                                    
                                                       
+
+
+
    
 gboolean
 pcv_spawn_sync_env(const gchar * const *argv,

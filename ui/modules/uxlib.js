@@ -508,7 +508,7 @@ window.PCV = window.PCV || {};
   var _lastApprovedHash = location.hash || '';
                                                          
                                                                
-  var RETIRED_HASH_ROUTES = Object.freeze({ serviceguide: 'helppage' });
+  var RETIRED_HASH_ROUTES = Object.freeze({ serviceguide: 'helppage', 'cloud-migration': 'helppage' });
                                                                     
                                                                       
   var RETIRED_DOCUMENT_ROUTES = Object.freeze({ restguide: '/ui/docs.html#14-rest-api' });

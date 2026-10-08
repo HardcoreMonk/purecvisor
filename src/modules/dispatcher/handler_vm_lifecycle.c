@@ -2243,9 +2243,9 @@ _vm_delete_restore_dpdk_port(gboolean removed, const gchar *bridge,
     g_clear_error(&restore_error);
 }
 
-   
-                     
-                                   
+
+
+
 static gboolean
 _vm_delete_prepare_nvram(const gchar *xml, gchar **path, GError **error)
 {
@@ -2429,8 +2429,8 @@ _vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
       
                                                             
                                                            
-                                                                   
-       
+
+
 
     if (dom) {
         virDomainInfo info = {0};
@@ -3224,14 +3224,17 @@ _guest_fsinfo_worker(GTask *task, gpointer source_obj __attribute__((unused)),
 
     char *agent_result = virDomainQemuAgentCommand(
         dom, "{\"execute\":\"guest-get-fsinfo\"}", 10, 0);
+
+
+    g_autofree gchar *agent_error = !agent_result
+        ? g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1) : NULL;
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 
     if (!agent_result) {
-        const char *vir_err = virGetLastErrorMessage();
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "guest-get-fsinfo failed on '%s': %s",
-                                ctx->vm_id, vir_err ? vir_err : "unknown error");
+                                ctx->vm_id, agent_error);
         return;
     }
 
@@ -3441,14 +3444,15 @@ _guest_ping_worker(GTask *task, gpointer source_obj __attribute__((unused)),
                                           
     char *result = virDomainQemuAgentCommand(dom, "{\"execute\":\"guest-ping\"}",
                                               5, 0);
+    g_autofree gchar *agent_error = !result
+        ? g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1) : NULL;
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 
     if (!result) {
-        const char *vir_err = virGetLastErrorMessage();
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "Guest agent not available on '%s': %s",
-                                ctx->vm_id, vir_err ? vir_err : "unknown error");
+                                ctx->vm_id, agent_error);
         return;
     }
 
@@ -3628,7 +3632,7 @@ _guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
     g_free(exec_json);
 
     if (!exec_result) {
-        const char *vir_err = virGetLastErrorMessage();
+        g_autofree gchar *vir_err = g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
@@ -3889,7 +3893,7 @@ _guest_shutdown_worker(GTask *task, gpointer source_obj __attribute__((unused)),
         method_used = "acpi";
         rc = virDomainShutdown(dom);
         if (rc < 0) {
-            const char *vir_err = virGetLastErrorMessage();
+            g_autofree gchar *vir_err = g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1);
             virDomainFree(dom);
             virt_conn_pool_release(conn);
             g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,

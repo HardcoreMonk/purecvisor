@@ -114,7 +114,7 @@ test('docs portal: REST 전체 계약을 canonical 14장에 직접 제공한다'
     '600 IP / 1200 유저 / 60 인증',
     'X-Total-Count',
     '/api/v1/vms/web-prod/start',
-    '/api/v1/vms/web/import-ec2',
+    '/api/v1/jobs',
     'PushSubscription.toJSON()',
     '/api/v1/push/vapid/rotate',
     'tenant_overlay.create',

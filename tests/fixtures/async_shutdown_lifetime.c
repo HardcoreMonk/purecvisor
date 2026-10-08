@@ -94,6 +94,15 @@ void pcv_ws_broadcast_job_complete_mt(const gchar *id, const gchar *method,
     pcv_drain_idle(reply_context, deliver_ws, NULL, NULL);
 }
 
+
+void pcv_ws_broadcast_job_complete_tracked_mt(const gchar *id, const gchar *method,
+                                             const gchar *status, const gchar *error,
+                                             gboolean persisted)
+{
+    g_assert_true(persisted);
+    pcv_ws_broadcast_job_complete_mt(id, method, status, error);
+}
+
 static void probe_worker(GTask *task, gpointer source, gpointer data, GCancellable *cancel)
 {
     _restore_worker(task, source, data, cancel);

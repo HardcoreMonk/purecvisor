@@ -837,7 +837,7 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_id     = _get_param(params, "name", "vm_id");
     const gchar *snap_name = _get_param(params, "snapshot_name", "snap_name");
 
-                                                                   
+
                                                               
                                                              
                                                               

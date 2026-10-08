@@ -1,6 +1,6 @@
 <svg xmlns="http://www.w3.org/2000/svg" width="1440" height="1040" viewBox="0 0 1440 1040" role="img" aria-labelledby="pcv-db-title pcv-db-desc">
   <title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>
-  <desc id="pcv-db-desc">클라이언트 요청이 purecvisorsd의 인증과 dispatcher로 들어와 짧은 작업은 즉시 응답하고, 긴 작업만 accepted 응답 뒤 GTask와 Linux KVM 실제 상태를 거쳐 완료 통지로 이어지는 구조다. 요청 종류에 따라 9개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신한다. 파일은 주 책임을 기준으로 정본과 정책, 작업 상태, 증거와 외부 통합의 세 묶음으로 나뉘며 서로 다른 데이터베이스 사이의 원자적 트랜잭션은 없다.</desc>
+  <desc id="pcv-db-desc">클라이언트 요청이 purecvisorsd의 인증과 dispatcher로 들어와 짧은 작업은 즉시 응답하고, 긴 작업만 accepted 응답 뒤 GTask와 Linux KVM 실제 상태를 거쳐 완료 통지로 이어지는 구조다. 요청 종류에 따라 8개 로컬 SQLite 파일 중 관련 저장소를 읽거나 갱신한다. 파일은 주 책임을 기준으로 정본과 정책, 작업 상태, 증거와 외부 통합의 세 묶음으로 나뉘며 서로 다른 데이터베이스 사이의 원자적 트랜잭션은 없다.</desc>
   <defs>
     <marker id="pcv-db-arrow-flow" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="8" markerHeight="8" orient="auto-start-reverse">
       <path d="M 0 0 L 10 5 L 0 10 z" fill="#12627a"/>
@@ -15,7 +15,7 @@
   <rect class="canvas" width="1440" height="1040"/>
   <text class="eyebrow" x="40" y="42">PURECVISOR 2.0.0 · SINGLE EDGE</text>
   <text class="title" x="40" y="80">요청, 로컬 정본, 실제 상태를 한 흐름으로 읽기</text>
-  <text class="subtitle" x="40" y="108">9 local SQLite files · 26 permanent tables · no external DBMS · no cross-DB transaction</text>
+  <text class="subtitle" x="40" y="108">8 local SQLite files · 25 permanent tables · no external DBMS · no cross-DB transaction</text>
 
   <line class="flow" x1="42" y1="137" x2="104" y2="137"/>
   <text class="flow-label" x="116" y="141">호출 · 읽기/쓰기 · 적용</text>
@@ -95,7 +95,7 @@
   <text class="node-copy" x="372" y="720">정책 · event · HIDS · overlay</text>
 
   <rect class="boundary" x="640" y="496" width="342" height="264" rx="9"/>
-  <text class="lane-title" x="662" y="526">작업 상태 · 3 files / 3 tables</text>
+  <text class="lane-title" x="662" y="526">작업 상태 · 2 files / 2 tables</text>
   <text class="lane-copy" x="662" y="546">실행 queue가 아닌 충돌·진행 상태 registry</text>
   <line class="divider" x1="662" y1="559" x2="960" y2="559"/>
 
@@ -106,8 +106,8 @@
   <text class="node-mono" x="680" y="655">pcv_jobs.db</text>
   <text class="node-copy" x="680" y="674">job status registry · 1 table</text>
   <rect class="database" x="662" y="692" width="298" height="48" rx="7"/>
-  <text class="node-mono" x="680" y="712">cloud_jobs.db</text>
-  <text class="node-copy" x="680" y="731">AWS import/export · 1 table</text>
+  <text class="node-mono" x="680" y="712">cloud_jobs.db (이력)</text>
+  <text class="node-copy" x="680" y="731">비활성 · 과거 파일 보존</text>
 
   <rect class="boundary" x="1004" y="496" width="368" height="264" rx="9"/>
   <text class="lane-title" x="1026" y="526">증거와 외부 통합 · 2 files / 4 tables</text>

@@ -22,7 +22,7 @@
                                                                       
                    
                                                           
-                                                                                   
+
                                               
   
                                                            
@@ -702,38 +702,6 @@ function showBackupVerify() {
   ]);
 }
 
-                          
-                                                                
-                                                        
-                                                 
-async function renderPersistentJobs(b) {
-  showSkeleton(b);
-  var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
-  try {
-    var r = await fetchGet(EP.JOBS_PERSIST());
-    var list = unwrapList(r);
-    var parts = [HN.section(_L('영속 작업 목록', 'Persistent Jobs'))];
-    if (list.length === 0) {
-      parts.push(el('div', { class: 'empty-state', style: 'padding:30px;text-align:center' },
-        el('div', { style: 'font-size:36px;opacity:.5' }, '\u{1F4CB}'),
-        el('div', { class: 'color-muted' }, _L('진행 중인 작업 없음', 'No pending jobs'))));
-    } else {
-      var rows = list.map(function(j) {
-        return el('tr', null,
-          el('td', null, j.job_id || ''),
-          el('td', null, j.type || ''),
-          el('td', null, j.status || ''),
-          el('td', null, j.vm_name || ''));
-      });
-      parts.push(el('table', { class: 'data-table text-11' },
-        el('thead', null, el('tr', null,
-          el('th', null, 'ID'), el('th', null, _L('유형', 'Type')), el('th', null, _L('상태', 'Status')), el('th', null, _L('VM', 'VM')))),
-        el('tbody', null, rows)));
-    }
-    clearEl(b); b.appendChild(frag(parts));
-  } catch(e) { PCV.uxlib.setMsg(b, null, { tag: 'p', cls: 'color-muted' }, _L('로드 실패', 'Failed')); }
-}
-
                                  
 async function renderDbMigration(b) {
   showSkeleton(b);
@@ -775,7 +743,6 @@ async function renderDeepHealth(b) {
 
 window.doConfigReload = doConfigReload;
 window.showBackupVerify = showBackupVerify;
-window.renderPersistentJobs = renderPersistentJobs;
 window.renderDbMigration = renderDbMigration;
 window.renderDeepHealth = renderDeepHealth;
 
@@ -796,7 +763,6 @@ PCV.advanced = {
   doImportOva: doImportOva,
   doConfigReload: doConfigReload,
   showBackupVerify: showBackupVerify,
-  renderPersistentJobs: renderPersistentJobs,
   renderDbMigration: renderDbMigration,
   renderDeepHealth: renderDeepHealth
 };

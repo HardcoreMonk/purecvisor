@@ -441,9 +441,9 @@ static void _restore_worker(GTask        *task,
         json_node_take_object(failed_node, failed);
         gchar *failed_json = json_to_string(failed_node, FALSE);
         json_node_free(failed_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
         g_free(failed_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.restore", "failed", err_msg);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.restore", "failed", err_msg, result_persisted);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -462,9 +462,9 @@ static void _restore_worker(GTask        *task,
         json_node_take_object(completed_node, completed);
         gchar *completed_json = json_to_string(completed_node, FALSE);
         json_node_free(completed_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
         g_free(completed_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.restore", "completed", NULL);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.restore", "completed", NULL, result_persisted);
         g_task_return_boolean(task, TRUE);
     }
     g_free(target);
@@ -613,7 +613,7 @@ void handle_backup_restore(JsonObject       *params,
   
                                                                
                                             
-                                                          
+
                                               
                                                                  
 
@@ -679,9 +679,9 @@ static void _incremental_worker(GTask        *task,
         json_node_take_object(failed_node, failed);
         gchar *failed_json = json_to_string(failed_node, FALSE);
         json_node_free(failed_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
         g_free(failed_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.incremental", "failed", err_msg);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.incremental", "failed", err_msg, result_persisted);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -696,9 +696,9 @@ static void _incremental_worker(GTask        *task,
         json_node_set_object(result_node, result);
         gchar *result_json = json_to_string(result_node, FALSE);
         json_node_free(result_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, result_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, result_json);
         g_free(result_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.incremental", "completed", NULL);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.incremental", "completed", NULL, result_persisted);
         json_object_unref(result);
         g_task_return_boolean(task, TRUE);
     }
@@ -878,9 +878,9 @@ static void _replicate_worker(GTask        *task,
         json_node_take_object(failed_node, failed);
         gchar *failed_json = json_to_string(failed_node, FALSE);
         json_node_free(failed_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_FAILED, failed_json);
         g_free(failed_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.replicate", "failed", err_msg);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.replicate", "failed", err_msg, result_persisted);
         if (err) {
             g_task_return_error(task, err);
         } else {
@@ -899,9 +899,9 @@ static void _replicate_worker(GTask        *task,
         json_node_take_object(completed_node, completed);
         gchar *completed_json = json_to_string(completed_node, FALSE);
         json_node_free(completed_node);
-        pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
+        gboolean result_persisted = pcv_job_set_result(d->job_id, PCV_JOB_COMPLETED, completed_json);
         g_free(completed_json);
-        pcv_ws_broadcast_job_complete_mt(d->job_id, "backup.replicate", "completed", NULL);
+        pcv_ws_broadcast_job_complete_tracked_mt(d->job_id, "backup.replicate", "completed", NULL, result_persisted);
         g_task_return_boolean(task, TRUE);
     }
     g_free(target);

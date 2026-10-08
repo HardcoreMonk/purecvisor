@@ -1,5 +1,13 @@
 # Changelog
 
+## 2.0.0 소스 갱신 — 2026-10-08
+
+- AWS 수동 Import/Export·Near-Live·전용 작업 API/UI/CLI와 S3 백업 제거.
+- 공통 Job 접수·결과 영속화, QGA 오류 수명, Trace 자식 회수, VNC callback 수명 보강.
+- VM 시작 hugepage 사전 검사·절전 복귀, OVA 디스크/크기 판독, 부팅 초기 자가 치유 rate 시정.
+- 기존 공개 독립 이력과 로컬 VM·디스크·과거 DB 보존. 태그/바이너리 패키지는 재발행하지 않음.
+
+
 버전 문자열의 단일 소스는 `include/purecvisor/version.h`의
 `PCV_PRODUCT_VERSION`입니다.
 

@@ -1,5 +1,7 @@
 # PureCVisor Single Edge
 
+> **최신 소스(2026-10-08, 2.0.0):** AWS 수동 이관·S3 백업을 제거하고 공통 Job/WS·QGA·VM 시작·Trace·VNC·OVA·자가 치유를 보강했습니다. OVA와 로컬 백업을 유지합니다. 기존 v2.0.0 태그/게시 패키지는 재발행하지 않았습니다. [변경·검증 범위](docs/operations/2026-10-08-public-source-refresh-handoff.md)를 확인하세요.
+
 > 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)

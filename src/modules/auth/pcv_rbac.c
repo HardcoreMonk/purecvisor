@@ -1074,10 +1074,7 @@ _method_min_role(const gchar *method)
         g_strcmp0(method, "vpc.service.list") == 0 ||
         g_strcmp0(method, "vpc.status") == 0      ||
         g_strcmp0(method, "vm.delete.status") == 0 ||
-        g_strcmp0(method, "vm.guest.agent.status") == 0 ||
-        g_strcmp0(method, "vm.import.status") == 0  ||
-        g_strcmp0(method, "vm.export.status") == 0  ||
-        g_strcmp0(method, "cloud.jobs.list") == 0)
+        g_strcmp0(method, "vm.guest.agent.status") == 0)
     {
         return PCV_ROLE_VIEWER;
     }
@@ -1175,10 +1172,7 @@ _method_min_role(const gchar *method)
         g_strcmp0(method, "ovn.port.remove") == 0    ||
         g_strcmp0(method, "vpc.delete") == 0         ||
         g_strcmp0(method, "vpc.reconcile") == 0      ||
-        g_strcmp0(method, "backup.replicate") == 0   ||
-        g_strcmp0(method, "vm.import.ec2") == 0      ||
-        g_strcmp0(method, "vm.export.ec2") == 0      ||
-        g_strcmp0(method, "cloud.job.cancel") == 0)
+        g_strcmp0(method, "backup.replicate") == 0)
     {
         return PCV_ROLE_ADMIN;
     }

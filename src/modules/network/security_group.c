@@ -1431,7 +1431,7 @@ pcv_security_group_overlay_exclusion_audit(void)
         PCV_LOG_WARN("SG", "[M-4 감사] VM '%s' 는 overlay 멤버인데 SG '%s' 바인딩 잔존 — 제거(ADR-0030)",
                      vm, grp);
         gboolean ok = pcv_security_group_detach_vm(vm, grp);
-                                                                       
+
                                                                    
                                                   
                                                           
