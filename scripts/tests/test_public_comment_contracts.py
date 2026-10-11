@@ -11,6 +11,12 @@ import strip_source_comments as policy
 
 
 class PublicCommentContracts(unittest.TestCase):
+    def test_root_build_outputs_are_not_first_party(self):
+        from pathlib import Path
+        self.assertIsNone(policy.classify(Path("build/bpf/vmlinux.h")))
+        self.assertIsNotNone(policy.classify(Path("src/bpf/pcv_lsm.bpf.c")))
+        self.assertIsNotNone(policy.classify(Path("packaging/build/helper.sh")))
+
     def test_makefile_transform_applies_recipe_comment_policy(self):
         with tempfile.TemporaryDirectory(prefix="pcv-comment-policy-") as directory:
             path = Path(directory) / "Makefile"

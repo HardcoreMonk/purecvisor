@@ -268,6 +268,8 @@ def strip_html(text):
 def classify(path):
     if any(part in SKIP_PARTS for part in path.parts):
         return None
+    if path.parts[:1] == ("build",):
+        return None
     if path.suffix in PYTHON_SUFFIXES:
         return "python"
     if path.suffix in HTML_SUFFIXES:
