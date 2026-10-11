@@ -70,6 +70,8 @@ static void setup_ws(void)
     SoupWebsocketConnection *connection = soup_websocket_connection_new(
         G_IO_STREAM(stream), uri, SOUP_WEBSOCKET_CONNECTION_SERVER, NULL, NULL, NULL);
     g_uri_unref(uri); g_object_unref(stream); g_object_unref(first); g_object_unref(second);
+
+    g_object_set_data(G_OBJECT(connection), "pcv-ws-authed", GINT_TO_POINTER(1));
     g_mutex_init(&G.mu);
     G.clients = g_ptr_array_new_with_free_func(g_object_unref);
     g_ptr_array_add(G.clients, connection);

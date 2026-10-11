@@ -154,6 +154,22 @@ require(
     < remote_deploy.find('sudo systemctl stop "$SERVICE"'),
     "remote ABI preflight is not before service stop",
 )
+
+for forbidden in ("/tmp/pcv_ui_", "/tmp/purecvisorsd", "/tmp/pcvctl", "/tmp/check-deploy-abi.sh",
+                  "/tmp/purecvisor.logrotate"):
+    require(
+        forbidden not in remote_deploy and forbidden not in source[local_start:],
+        f"predictable remote staging path remains: {forbidden}",
+    )
+
+for tree_fn in ("install_ui_tree", "install_local_ui_tree"):
+    fn_match = re.search(tree_fn + r"\(\) \{\n(?P<body>.*?)\n[ \t]*\}\n", source, re.DOTALL)
+    require(fn_match is not None, f"missing {tree_fn}")
+    fn_body = fn_match.group("body")
+    for literal in ("--no-preserve=ownership,mode", "chown -R root:root",
+                    "-type d -exec chmod 0755", "-type f -exec chmod 0644"):
+        require(literal in fn_body, f"{tree_fn} missing ownership/mode normalization: {literal}")
+require("sudo cp -a" not in source, "preserving sudo cp -a leaked back into deploy.sh")
 require(
     re.search(r"mkdir -m 0700 -- [\"']?\$1", remote_deploy)
     is not None,
@@ -229,7 +245,7 @@ ordered(
     (
         ("service stop", r"sudo systemctl stop"),
         ("binary copy", r"sudo cp [^\n]*DAEMON_BIN"),
-        ("UI copy", r"sudo cp [^\n]*pcv_ui_"),
+        ("UI copy", r"install_ui_tree [^\n]*pcv_ui_"),
         (
             "runtime helper",
             r"^[ \t]*sudo [^\n]*install-runtime-prereqs[^\n]*--bpf-stage",
@@ -507,7 +523,7 @@ if [[ "$remote_path" == /tmp/pcv_runtime_prereqs.*/* ]]; then
   stage="${remote_path%/}"
   printf '%s\n' "$(stat -c '%a' "$stage")" >>"$FAKE_LOG_DIR/stage-modes.log"
   for (( index = 0; index < ${#args[@]} - 1; index++ )); do
-    cp "${args[$index]}" "$stage/"
+    cp -r "${args[$index]}" "$stage/"
   done
 fi
 SH
@@ -992,7 +1008,8 @@ remote_abi_failure_contract() {
   [[ "$rc" -ne 0 ]] || return 1
   [[ ! -s "$log_dir/sudo.log" ]] || return 1
   [[ ! -s "$log_dir/start.log" ]] || return 1
-  [[ ! -s "$log_dir/stages.log" ]] || return 1
+
+  stages_are_cleaned "$log_dir"
   grep -Fq 'Remote ABI preflight' \
     "$log_dir/deploy.out" ||
     grep -Fq 'Remote ABI preflight' \
@@ -2260,6 +2277,26 @@ fi
 if remote_health_failure_contract \
   "$STATE/health-failure-ignored.sh" "mutant-health-ignored" "inactive"; then
   fail "health failure accounting mutant must not return deployment success"
+fi
+
+
+
+if awk '/^clean:/{f=1;next} f&&/^[^\t]/{f=0} f' "$ROOT_DIR/Makefile" |
+  grep -qE 'rm -rf.*(^|[[:space:]])dist(/?)([[:space:]]|$)'; then
+  fail "make clean must not remove the whole dist/ directory"
+fi
+
+
+if ! python3 - "$DEPLOY_SCRIPT" <<'PY'
+import re, sys
+text = open(sys.argv[1]).read().replace("\\\n", " ")
+bad = [l.strip() for l in text.splitlines()
+       if re.search(r"\binstall\b", l) and " -- " in l and " -t " in l
+       and l.index(" -t ") > l.index(" -- ")]
+sys.exit(1 if bad else 0)
+PY
+then
+  fail "deploy.sh install must place -t before -- (GNU install reads options after -- as files)"
 fi
 
 printf 'PASS: deploy runtime prerequisite contract\n'

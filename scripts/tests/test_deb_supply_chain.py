@@ -63,6 +63,13 @@ def _run(build_text: str):
         return proc.returncode, proc.stdout + proc.stderr
 
 
+COPYRIGHT_LINE = 'install -m644 LICENSE "$STAGE/usr/share/doc/$PKG_NAME/copyright"'
+NOTICES_LINE = ('install -m644 THIRD_PARTY_NOTICES.md '
+                '"$STAGE/usr/share/doc/$PKG_NAME/THIRD_PARTY_NOTICES.md"')
+LOGROTATE_LINE = 'install -m644 systemd/purecvisor.logrotate "$STAGE/etc/logrotate.d/purecvisor"'
+CORE_CONF = "/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf"
+
+
 def _mutate(src: str, old: str, new: str) -> str:
     assert old in src, f"self-test 앵커가 실파일에 없다(스크립트 구조 변경?): {old[:70]}"
     return src.replace(old, new, 1)
@@ -211,6 +218,48 @@ def test_openvswitch_runtime_recommend_removed_fails():
 
 
                                                          
+def test_copyright_install_removed_fails():
+    rc, out = _run(_mutate(_src(), COPYRIGHT_LINE, ""))
+    assert rc == 1 and "불변식10" in out and "copyright" in out, out
+
+
+def test_third_party_notices_install_removed_fails():
+    rc, out = _run(_mutate(_src(), NOTICES_LINE, ""))
+    assert rc == 1 and "불변식10" in out and "THIRD_PARTY_NOTICES" in out, out
+
+
+def test_logrotate_install_removed_fails():
+    rc, out = _run(_mutate(_src(), LOGROTATE_LINE, ""))
+    assert rc == 1 and "불변식11" in out and "logrotate" in out, out
+
+
+def test_coredump_dropin_conffile_removed_fails():
+    rc, out = _run(_mutate(_src(), CORE_CONF + "\nCF", "CF"))
+    assert rc == 1 and "불변식11" in out and "conffiles" in out, out
+
+
+def test_coredump_dropin_install_removed_fails():
+    src = _src()
+    start = src.index("install -m644 packaging/systemd/95-coredump-hardening.conf")
+    end = src.index("\n", start)
+    rc, out = _run(src[:start] + src[end:])
+    assert rc == 1 and "불변식11" in out and "95-coredump" in out, out
+
+
+def test_notices_cover_every_vendor_component():
+    notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
+    for p in sorted((ROOT / "ui/vendor").iterdir()):
+        rel = f"ui/vendor/{p.name}" + ("/" if p.is_dir() else "")
+        assert rel in notices, f"{rel} 가 THIRD_PARTY_NOTICES.md 에 없다"
+
+
+def test_logrotate_template_has_no_phantom_unit():
+    text = (ROOT / "systemd/purecvisor.logrotate").read_text(encoding="utf-8")
+    assert "purecvisormd" not in text.replace("purecvisormd 유닛은 없다", "")
+    assert "reload purecvisorsd" in text
+
+
+
 def test_missing_build_script_is_exit2():
     proc = subprocess.run(
         [sys.executable, str(GATE), "--build-script", "/nonexistent/build-deb.sh"],

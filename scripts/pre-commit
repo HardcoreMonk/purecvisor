@@ -159,23 +159,68 @@ if $HAS_C_CHANGES; then
 fi
 
                                                             
+
+
+
+
+
+
+
+
+
+
+pcv_unit_test_verdict() {
+
+    local status="$1" log="$2" fails bails passes
+    fails=$(grep -c "^not ok" "$log" || true)
+    bails=$(grep -c "Bail out!" "$log" || true)
+    passes=$(grep "^ok " "$log" | grep -vc "# SKIP" || true)
+    if [ "$status" -ne 0 ]; then
+        fail "유닛 테스트 종료코드 ${status} (러너 실패 또는 사전 계약 gate 실패)"
+        grep -E "^not ok|Bail out!|Error|❌" "$log" | head -20
+        return 1
+    elif [ "$bails" -gt 0 ]; then
+        fail "러너 중단(Bail out!) ${bails}건"
+        grep -B2 "Bail out!" "$log" | head -20
+        return 1
+    elif [ "$fails" -gt 0 ]; then
+        fail "${fails}건 테스트 실패"
+        grep "^not ok" "$log"
+        return 1
+    elif [ "$passes" -lt 200 ]; then
+        fail "테스트 ${passes}건만 통과(SKIP 제외, 최소 200건 필요 — 테스트 등록 누락?)"
+        return 1
+    fi
+    pass "${passes}건 테스트 통과 (SKIP 제외)"
+    return 0
+}
+
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 유닛 테스트${NC}"
 
-    make test 2>&1 > /tmp/pcv_test_output.txt
-    REAL_FAILS=$(grep "^not ok" /tmp/pcv_test_output.txt | wc -l || true)
-    PASS_COUNT=$(grep -c "^ok" /tmp/pcv_test_output.txt || true)
-
-    if [ "$REAL_FAILS" -gt 0 ]; then
-        fail "${REAL_FAILS}건 테스트 실패"
-        grep "^not ok" /tmp/pcv_test_output.txt
-    elif [ "$PASS_COUNT" -lt 200 ]; then
-        fail "테스트 ${PASS_COUNT}건만 통과 (최소 200건 필요 — 테스트 등록 누락?)"
+    TEST_LOG=$(mktemp "${TMPDIR:-/tmp}/pcv-precommit-test.XXXXXX")
+    if [ "${PCV_PRECOMMIT_ROOT_TEST:-0}" = "1" ]; then
+        warn "PCV_PRECOMMIT_ROOT_TEST=1 — sudo make test (운영 겸용 호스트에서는 금지)"
+        make test >"$TEST_LOG" 2>&1
+        TEST_STATUS=$?
+    elif [ "$(id -u)" -eq 0 ]; then
+        echo "root 커밋에서 ./test_runner를 직접 돌리면 root 시험이 된다" >"$TEST_LOG"
+        TEST_STATUS=1
+        fail "root로 커밋 중 — 비root 사용자로 커밋하거나 PCV_PRECOMMIT_ROOT_TEST=1을 명시하십시오"
     else
-        pass "${PASS_COUNT}건 ��스트 통과"
+        {
+            make test_runner tests/audit_startup_test check-q35-hotplug-xml \
+                check-server-defect-contracts check-dpdk-owned-lifecycle &&
+            ./test_runner -v &&
+            ./tests/audit_startup_test -v
+        } >"$TEST_LOG" 2>&1
+        TEST_STATUS=$?
     fi
-    rm -f /tmp/pcv_test_output.txt
+    if [ "$(id -u)" -ne 0 ] || [ "${PCV_PRECOMMIT_ROOT_TEST:-0}" = "1" ]; then
+        pcv_unit_test_verdict "$TEST_STATUS" "$TEST_LOG" || true
+    fi
+    rm -f "$TEST_LOG"
 else
     skip "[3] C 소스 변경 없음 — 테스트 생략"
 fi

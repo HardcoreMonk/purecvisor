@@ -74,6 +74,25 @@ gchar *pcv_monitor_fleet_build_success_response(const gchar *rpc_id,
 gchar *handle_monitor_fleet(JsonObject *params, const gchar *rpc_id,
                             GError **error);
 
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean pcv_monitor_arp_lookup_ipv4(const gchar *proc_net_arp, const gchar *mac,
+                                     gchar *ip_out, gsize ip_out_len);
+
 G_END_DECLS
 
 #endif                                   

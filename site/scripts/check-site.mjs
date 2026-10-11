@@ -308,7 +308,7 @@ for (const marker of [
     throw new Error(`database architecture responsive style missing: ${marker}`);
   }
 }
-const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.0</code>입니다.<br>
+const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.1</code>입니다.<br>
 단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;
 if (!overview.includes(releaseSummaryLineBreakContract)) {
@@ -627,7 +627,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "2b017da3ae170211627d29c6c928af5eedfe7759d75c5b9409bc2e848d0538a0") {
+if (databaseArchitectureSvgHash !== "2a64d126fb40dc266cb578c6cffae5603a0c3a133e4d4484dc20d757c616601e") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -830,7 +830,7 @@ for (const marker of [
     throw new Error(`overview architecture rollover interaction missing: ${marker}`);
   }
 }
-const heroTitle = "PURECVISOR 2.0.0";
+const heroTitle = "PURECVISOR 2.0.1";
 const koreanHeroCopy = "한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.";
 const koreanHeroFollowup = "Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.";
 const englishHeroCopy = "Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.";

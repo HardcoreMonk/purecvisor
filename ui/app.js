@@ -126,14 +126,14 @@ Object.defineProperty(window.PCV, 'state', {
 });
 window.PCV.config = {
   API_BASE: API_BASE,
-  VERSION: '2.0.0',
+  VERSION: '2.0.1',
                                                            
                                                                           
                                                                      
                                                           
                                            
   RPC_COUNT: 298,
-  REST_COUNT: 222,
+  REST_COUNT: 223,
   METRICS_COUNT: 155
 };
 Object.defineProperty(window.PCV, 'auth', {
@@ -1591,9 +1591,24 @@ async function loadAll(skipContent) {
   window._loadAllInFlight = true;
   try {
     if (!skipContent && typeof invalidateCache === 'function') invalidateCache('vm.list');
+
+
+    var fetchVms = function () { return fetchGet(API_BASE + '/vms'); };
     const r = (typeof cachedFetch === 'function' && skipContent)
-      ? await cachedFetch('vm.list', 500, function(){ return fetchGet(API_BASE + '/vms'); })
+      ? await cachedFetch('vm.list', 500, fetchVms)
       : await fetchGet(API_BASE + '/vms');
+
+
+
+    if (r && r.error) {
+      window.vmListError = r.error;
+      render(skipContent);
+      if (typeof reportError === 'function') {
+        reportError('vm.list', new Error(r.error.message || ('HTTP ' + r.error.code)));
+      }
+      return;
+    }
+    window.vmListError = null;
     vmList = window.vmList = Array.isArray(r) ? r : (r.data || []);
     if (selectedVmIndex >= vmList.length) selectedVmIndex = window.selectedVmIndex = 0;
     lastLoadTime = Date.now();

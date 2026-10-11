@@ -217,15 +217,37 @@ function _renderCore(skipContent) {
   }
   var stopSelected = document.getElementById('bbtn');
   if (stopSelected) stopSelected.style.display = selected.length ? 'inline' : 'none';
-  var newHash = vmList.map(function(v){return v.name+v.uuid+v.state+(v.live_cpu_pct||0);}).join('|') + ':' + Array.from(checkedVms).join(',');
+
+
+  var listErr = window.vmListError || null;
+  var newHash = vmList.map(function(v){return v.name+v.uuid+v.state+(v.live_cpu_pct||0);}).join('|') + ':' + Array.from(checkedVms).join(',') +
+    (listErr ? ':E:' + (listErr.code || '') + (listErr.message || '') : '');
   if (skipContent && newHash === _lastVmListHash) return;
   _lastVmListHash = newHash;
   const l = getFiltered();
   const favs = getFavorites();
                                    
+
+  var listErrNode = null;
+  if (listErr) {
+    listErrNode = PCV.uxlib.msg('err', { tag: 'div', cls: 'vm-list-error', size: '12px', style: 'padding:6px 8px' },
+      _L('VM 목록을 불러오지 못했습니다', 'Unable to load the VM list') +
+      ' (' + (listErr.message || ('HTTP ' + listErr.code)) + ')' +
+      (vmList.length ? _L(' — 마지막으로 받은 목록을 표시합니다', ' — showing the last loaded list') : ''));
+    listErrNode.setAttribute('role', 'alert');
+    if (!vmList.length) {
+      var _vlErr = document.getElementById('vl');
+      PCV.uxlib.clearEl(_vlErr);
+      _vlErr.appendChild(listErrNode);
+      document.getElementById('vc').textContent = '—';
+      return;
+    }
+  }
+
   if (l.length === 0 && typeof emptyStatePro === 'function') {
     var _vl = document.getElementById('vl');
     PCV.uxlib.clearEl(_vl);
+    if (listErrNode) _vl.appendChild(listErrNode);
     _vl.appendChild(emptyStatePro({
       icon: '&#128187;',
       title: _L('VM이 없습니다', 'No virtual machines'),
@@ -237,6 +259,7 @@ function _renderCore(skipContent) {
   }
   var el = PCV.uxlib.el;
   var parts = [];
+  if (listErrNode) parts.push(listErrNode);
   parts.push(el('div', { class: 'flex gap-4 mb-8 justify-end' },
     el('button', { class: 'btn ' + (vmViewMode === 'list' ? 'btn-g' : '') + ' btn-xs', onclick: 'toggleVmView()' }, '☰ ' + _L('목록', 'List')),
     el('button', { class: 'btn ' + (vmViewMode === 'card' ? 'btn-g' : '') + ' btn-xs', onclick: 'toggleVmView()' }, '▦ ' + _L('카드', 'Card')),

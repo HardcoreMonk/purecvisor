@@ -56,7 +56,9 @@ server {
     add_header Permissions-Policy "accelerometer=(), autoplay=(), camera=(), display-capture=(), encrypted-media=(), fullscreen=(self), geolocation=(), gyroscope=(), microphone=(), midi=(), payment=(), usb=()" always;
     add_header Content-Security-Policy "default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' wss://purecvisor.example.com https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'" always;
 
-    client_max_body_size 10g;
+
+
+    client_max_body_size 2m;
     limit_conn pcv_conn 30;
     limit_req zone=pcv_api burst=120 nodelay;
     limit_req_status 429;

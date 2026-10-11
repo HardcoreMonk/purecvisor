@@ -81,6 +81,7 @@
 #include "modules/dispatcher/hotplug_nic_xml.h"
 #include "modules/audit/pcv_audit.h"
 #include "modules/virt/virt_conn_pool.h"
+#include "modules/virt/vm_manager.h"
 #include "modules/core/vm_state.h"                                                
 #include "modules/network/network_manager.h"
 #include "modules/network/vpc/vpc_manager.h"                                   
@@ -2098,6 +2099,7 @@ void handle_vm_cpu_stats_request(JsonObject *params, const gchar *rpc_id,
                                                                        
 
                                 
+
 typedef struct {
     gchar *vm_name;                  
     gchar *target;                                   
@@ -2156,6 +2158,12 @@ audit_disk_live_resize_failure(DiskLiveResizeCtx *ctx, const gchar *error_msg)
                                                                 
                  
    
+
+
+
+
+
+
 static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
                                         gpointer task_data, GCancellable *cancellable)
 {
@@ -2163,16 +2171,6 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
     (void)cancellable;
 
     DiskLiveResizeCtx *ctx = (DiskLiveResizeCtx *)task_data;
-
-                                                       
-    gchar *volsize_arg = g_strdup_printf("volsize=%dG", ctx->new_size_gb);
-    gchar *zvol_path = g_strdup_printf("pcvpool/vms/%s", ctx->vm_name);
-    const gchar *zfs_argv[] = {"zfs", "set", volsize_arg, zvol_path, NULL};
-    GError *zfs_err = NULL;
-    pcv_spawn_sync(zfs_argv, NULL, NULL, &zfs_err);
-    if (zfs_err) g_error_free(zfs_err);
-    g_free(volsize_arg);
-    g_free(zvol_path);
 
                                         
     virConnectPtr conn = virt_conn_pool_acquire();
@@ -2195,11 +2193,68 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
     }
 
                                                              
+    gchar *fail_msg = NULL;
+    gchar *disk_source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+    {
+        GError *gerr = NULL;
+        char *xml = virDomainGetXMLDesc(dom, 0);
+        if (!pcv_vm_disk_source_for_target(xml, ctx->target, &disk_source, &kind, &gerr)) {
+            fail_msg = g_strdup_printf("Cannot resolve disk '%s': %s", ctx->target,
+                                       gerr ? gerr->message : "unknown");
+        } else {
+            virDomainBlockInfo binfo;
+            if (virDomainGetBlockInfo(dom, ctx->target, &binfo, 0) < 0) {
+                virErrorPtr e = virGetLastError();
+                fail_msg = g_strdup_printf("Cannot read current size of disk '%s': %s",
+                                           ctx->target,
+                                           e && e->message ? e->message : "unknown");
+            } else if (!pcv_vm_disk_resize_check(binfo.capacity, ctx->new_size_gb, &gerr)) {
+                fail_msg = g_strdup_printf("Disk '%s': %s", ctx->target,
+                                           gerr ? gerr->message : "resize rejected");
+            }
+        }
+        free(xml);
+        g_clear_error(&gerr);
+    }
+
+
+
+    if (!fail_msg && kind == PCV_VM_DISK_SOURCE_ZVOL) {
+        const gchar *dataset = disk_source + strlen("/dev/zvol/");
+        gchar *volsize_arg = g_strdup_printf("volsize=%dG", ctx->new_size_gb);
+        const gchar *zfs_argv[] = {"zfs", "set", volsize_arg, dataset, NULL};
+        GError *zfs_err = NULL;
+        gchar *zfs_stderr = NULL;
+        if (!pcv_spawn_sync(zfs_argv, NULL, &zfs_stderr, &zfs_err)) {
+            fail_msg = g_strdup_printf("zfs set volsize failed for '%s': %s", dataset,
+                                       zfs_err ? zfs_err->message
+                                               : (zfs_stderr ? zfs_stderr : "unknown"));
+        }
+        g_clear_error(&zfs_err);
+        g_free(zfs_stderr);
+        g_free(volsize_arg);
+    }
+    g_free(disk_source);
+
+    if (fail_msg) {
+        audit_disk_live_resize_failure(ctx, fail_msg);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", fail_msg);
+        g_free(fail_msg);
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        return;
+    }
+
+
+
+
                                                    
     unsigned long long new_size_bytes =
         (unsigned long long)ctx->new_size_gb * 1024ULL * 1024ULL * 1024ULL;
 
-    if (virDomainBlockResize(dom, ctx->target, new_size_bytes, 0) < 0) {
+    if (virDomainBlockResize(dom, ctx->target, new_size_bytes,
+                             VIR_DOMAIN_BLOCK_RESIZE_BYTES) < 0) {
         virErrorPtr e = virGetLastError();
         const gchar *err_msg = e ? e->message : "Unknown";
         audit_disk_live_resize_failure(ctx, err_msg);
@@ -2213,6 +2268,8 @@ static void vm_disk_live_resize_worker(GTask *task, gpointer source_obj,
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 }
+
+
 
    
                                                                                     

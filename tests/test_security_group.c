@@ -1,3 +1,4 @@
+
                                                                                           
                                                                                                  
                                                                             
@@ -26,9 +27,12 @@
 #include <json-glib/json-glib.h>
 #include <unistd.h>
 #include <string.h>
+#include <sys/stat.h>
+#include <glib/gstdio.h>
 
 #include "../src/utils/pcv_spawn.h"
 #include "../src/modules/network/vm_vnet_cache.h"
+#include "test_host_isolation.h"
 #include <sqlite3.h>                                        
 
                                                                
@@ -42,6 +46,7 @@ extern void pcv_security_group_unbind_vm_all(const gchar *vm);
 extern gboolean pcv_security_group_vm_is_bound(const gchar *vm);
 extern gboolean pcv_security_group_rule_remove(const gchar *name, gint64 rule_id);
 extern void pcv_security_group_resync_all(void);
+extern gboolean pcv_security_group_db_prepare_file(const gchar *db_path);
 
 #define SGV5_GROUP "sgv5"
 
@@ -216,7 +221,9 @@ static void test_sg_rule_add_rolls_back_on_db_write_fail(void) {
 
                                                                  
                                             
-    const char *db_path = "/var/lib/purecvisor/security_groups.db";
+
+    const char *db_path = pcv_test_sg_db_path();
+    g_assert_true(g_str_has_prefix(db_path, pcv_test_host_root_dir()));
 
     g_assert_true(pcv_security_group_create("sgr8", "R8 write-fail"));
 
@@ -504,6 +511,55 @@ static void test_unbind_all_removes_all_bindings(void) {
 
                                                                     
 
+
+
+static guint _file_mode(const gchar *path) {
+    GStatBuf st;
+    g_assert_cmpint(g_stat(path, &st), ==, 0);
+    return (guint)(st.st_mode & 0777);
+}
+
+static void test_sg_db_file_mode_private(void) {
+    g_autofree gchar *dir = g_dir_make_tmp("pcv-sg-db-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    g_autofree gchar *db = g_build_filename(dir, "security_groups.db", NULL);
+    g_autofree gchar *wal = g_strconcat(db, "-wal", NULL);
+    g_autofree gchar *shm = g_strconcat(db, "-shm", NULL);
+    mode_t saved_umask = umask(022);
+
+    g_assert_true(pcv_security_group_db_prepare_file(db));
+    g_assert_cmpuint(_file_mode(db), ==, 0600);
+
+    g_assert_cmpint(g_chmod(db, 0644), ==, 0);
+    g_assert_true(g_file_set_contents(wal, "", 0, NULL));
+    g_assert_true(g_file_set_contents(shm, "", 0, NULL));
+    g_assert_cmpint(g_chmod(wal, 0644), ==, 0);
+    g_assert_cmpint(g_chmod(shm, 0644), ==, 0);
+    g_assert_true(pcv_security_group_db_prepare_file(db));
+    g_assert_cmpuint(_file_mode(db), ==, 0600);
+    g_assert_cmpuint(_file_mode(wal), ==, 0600);
+    g_assert_cmpuint(_file_mode(shm), ==, 0600);
+
+    g_assert_cmpint(g_unlink(wal), ==, 0);
+    g_assert_cmpint(g_unlink(shm), ==, 0);
+    sqlite3 *conn = NULL;
+    g_assert_cmpint(sqlite3_open(db, &conn), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_exec(conn,
+        "PRAGMA journal_mode=WAL; CREATE TABLE t(x); INSERT INTO t VALUES(1);",
+        NULL, NULL, NULL), ==, SQLITE_OK);
+    g_assert_cmpuint(_file_mode(wal), ==, 0600);
+    g_assert_cmpuint(_file_mode(shm), ==, 0600);
+    sqlite3_close(conn);
+
+    umask(saved_umask);
+    (void)g_unlink(wal);
+    (void)g_unlink(shm);
+    g_assert_cmpint(g_unlink(db), ==, 0);
+    g_assert_cmpint(g_rmdir(dir), ==, 0);
+}
+
+
+
 void test_security_group_register(void) {
     g_test_add_func("/security_group/reject_source_injection",   test_sg_reject_source_injection);
     g_test_add_func("/security_group/reject_protocol_injection", test_sg_reject_protocol_injection);
@@ -527,4 +583,5 @@ void test_security_group_register(void) {
                     test_sg_rule_add_rolls_back_on_db_write_fail);
     g_test_add_func("/security_group/unbind_all_noop",         test_unbind_all_noop_unbound);
     g_test_add_func("/security_group/unbind_all_removes_all",  test_unbind_all_removes_all_bindings);
+    g_test_add_func("/security_group/db_file_mode_private",    test_sg_db_file_mode_private);
 }

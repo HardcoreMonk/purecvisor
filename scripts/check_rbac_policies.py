@@ -1,4 +1,10 @@
 #!/usr/bin/env python3
+
+
+
+
+
+
                           
                                                                         
                                                                                       
@@ -40,6 +46,7 @@ from pathlib import Path
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
+REST_SERVER_C = REPO_ROOT / "src" / "api" / "rest_server.c"
 
                                                           
 ROUTE_RE = re.compile(
@@ -329,11 +336,66 @@ def owner_scope_includes_method(body: str | None, method: str) -> bool:
     return has_vm_prefix_gate
 
 
-def main() -> int:
-    if not DISPATCHER_C.exists():
-        print(f"ERROR: {DISPATCHER_C} 미존재", file=sys.stderr)
+
+
+
+ALIAS_CALL_RE = re.compile(
+    r'!\s*pcv_dispatcher_vm_target_aliases_valid\s*\(\s*method\s*,\s*params\s*,')
+OWNER_CALL_RE = re.compile(r'allowed\s*=\s*_vm_owner_scoped_method_allowed\s*\(')
+RBAC_BLOCK_ANCHOR = "_dispatcher_caller_role(params, connection)"
+
+
+def alias_wiring_failure(text: str) -> str | None:
+
+    owner = OWNER_CALL_RE.search(text)
+    if not owner:
+        return "dispatch 경로에서 _vm_owner_scoped_method_allowed 호출을 찾지 못함"
+    block_start = text.rfind(RBAC_BLOCK_ANCHOR, 0, owner.start())
+    if block_start < 0:
+        return "RBAC 블록 시작(_dispatcher_caller_role)을 찾지 못함"
+    segment = text[block_start:owner.start()]
+    call = ALIAS_CALL_RE.search(segment)
+    if not call:
+        return ("owner-scope 검사 앞에 pcv_dispatcher_vm_target_aliases_valid "
+                "호출이 없음 (상충 별칭으로 소유자 확인 대상과 실행 대상이 갈림)")
+    if "PURE_RPC_ERR_INVALID_PARAMS" not in segment[call.start():]:
+        return "별칭 상충 거절이 PURE_RPC_ERR_INVALID_PARAMS로 응답하지 않음"
+    return None
+
+
+
+
+
+REST_METHOD_CALL_RE = re.compile(
+    r'pcv_rest_rpc_envelope_method\s*\(\s*rpc\s*,\s*&\s*rpc_method\s*\)')
+REST_PERMISSION_CALL_RE = re.compile(
+    r'pcv_rbac_check_permission\s*\(\s*subject\s*,\s*rpc_method\s*\)')
+REST_RAW_METHOD_RE = re.compile(r'strstr\s*\([^;]*\\"method\\"')
+
+
+def rest_gate_failure(text: str) -> str | None:
+
+    permission = REST_PERMISSION_CALL_RE.search(text)
+    if not permission:
+        return "pcv_rbac_check_permission(subject, rpc_method) 호출을 찾지 못함"
+    if not REST_METHOD_CALL_RE.search(text, 0, permission.start()):
+        return ("권한 판정 앞에 pcv_rest_rpc_envelope_method(rpc, &rpc_method) 호출이 없음 "
+                "(params 안 decoy method로 판정이 갈릴 수 있음)")
+    raw = REST_RAW_METHOD_RE.search(text)
+    if raw:
+        line = text.count("\n", 0, raw.start()) + 1
+        return f"line {line}: 원문 strstr로 \"method\"를 추출함 — 최상위 method 파싱만 허용"
+    return None
+
+
+def main(argv: list[str] | None = None) -> int:
+    args = sys.argv[1:] if argv is None else argv
+    dispatcher_c = Path(args[0]) if args else DISPATCHER_C
+    rest_server_c = Path(args[1]) if len(args) > 1 else REST_SERVER_C
+    if not dispatcher_c.exists():
+        print(f"ERROR: {dispatcher_c} 미존재", file=sys.stderr)
         return 2
-    text = DISPATCHER_C.read_text(errors="replace")
+    text = dispatcher_c.read_text(errors="replace")
 
     routes = sorted(set(ROUTE_RE.findall(text)))
     if not routes:
@@ -416,10 +478,21 @@ def main() -> int:
                 f"{contract.method}: owner-scope 대상 아님 ({contract.reason})"
             )
 
+    wiring = alias_wiring_failure(text)
+    if wiring:
+        contract_failures.append(f"VM 대상 별칭 단일 대상 검사(ADR-0079): {wiring}")
+    if not rest_server_c.exists():
+        print(f"ERROR: {rest_server_c} 미존재", file=sys.stderr)
+        return 2
+    rest_wiring = rest_gate_failure(rest_server_c.read_text(errors="replace"))
+    if rest_wiring:
+        contract_failures.append(f"REST RBAC method 판정(ADR-0079): {rest_wiring}")
+
     if contract_failures:
         print()
-        print("\033[31m[FAIL]\033[0m ADR-0019 RBAC 정책 계약 회귀 감지")
-        print("       operator VM 단일 대상 action은 role=OPERATOR + owner-scope를 유지해야 합니다.")
+        print("\033[31m[FAIL]\033[0m ADR-0019/0079 RBAC 정책 계약·배선 회귀 감지")
+        print("       operator VM 단일 대상 action은 role=OPERATOR + owner-scope를 유지하고,")
+        print("       REST/dispatcher 게이트는 실제 실행 대상(method·VM)과 같은 값을 판정해야 합니다.")
         print()
         for failure in contract_failures:
             print(f"  - {failure}")
@@ -427,16 +500,22 @@ def main() -> int:
         print("       참고: docs/GUIDE.md#vm-owner-scope, docs/adr/0019-rbac-uds-bypass-policy.md")
         return 1
 
+
+
     if missing_other:
         print()
-        print(f"\033[33m[INFO]\033[0m {len(missing_other)}개 조회성 메서드가 매핑 없음 → VIEWER 기본 적용")
-        for m in missing_other[:5]:
+        print("\033[31m[FAIL]\033[0m 다음 라우트는 g_method_policies에 매핑이 없습니다.")
+        print("       dispatcher 기본 거부(ADR-0079)로 ADMIN 전용이 됩니다. REST 앞단")
+        print("       (src/modules/auth/pcv_rbac.c _method_min_role)과 같은 등급의 행을 추가하세요.")
+        print()
+        for m in missing_other:
             print(f"  - {m}")
-        if len(missing_other) > 5:
-            print(f"  ... and {len(missing_other) - 5} more")
+        print()
+        print("       참고: docs/adr/0079-dispatcher-default-deny-and-single-target-alias.md")
+        return 1
 
-    print("\033[32m[PASS]\033[0m destructive 메서드 모두 정책 매핑됨 (ADR-0019 준수)")
-    print("\033[32m[PASS]\033[0m operator VM owner-scope 정책 계약 준수")
+    print("\033[32m[PASS]\033[0m 모든 라우트가 정책 매핑됨 — 라우트 ⊆ 정책표 (ADR-0019/0079 준수)")
+    print("\033[32m[PASS]\033[0m operator VM owner-scope 정책 계약 + 별칭 단일 대상 배선 준수")
     return 0
 
 

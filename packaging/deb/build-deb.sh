@@ -105,7 +105,9 @@ mkdir -p "$STAGE/DEBIAN" \
          "$STAGE/etc/systemd/system" \
          "$STAGE/etc/purecvisor" \
          "$STAGE/etc/apparmor.d" \
-         "$STAGE/etc/modules-load.d"
+         "$STAGE/etc/modules-load.d" \
+         "$STAGE/etc/logrotate.d" \
+         "$STAGE/usr/share/doc/$PKG_NAME"
 
 install -m755 bin/purecvisorsd bin/pcvctl "$STAGE/usr/local/bin/"
 strip "$STAGE/usr/local/bin/purecvisorsd" \
@@ -135,6 +137,15 @@ done
 }
 
                                
+
+
+for f in LICENSE THIRD_PARTY_NOTICES.md; do
+    [ -f "$f" ] || { echo "[deb] ERROR: 재배포 고지 원본 누락: $f"; exit 1; }
+done
+install -m644 LICENSE "$STAGE/usr/share/doc/$PKG_NAME/copyright"
+install -m644 THIRD_PARTY_NOTICES.md "$STAGE/usr/share/doc/$PKG_NAME/THIRD_PARTY_NOTICES.md"
+
+
 install -m644 packaging/deb/purecvisorsd.service "$STAGE/etc/systemd/system/purecvisorsd.service"
 install -m644 packaging/deb/daemon.conf.sample   "$STAGE/etc/purecvisor/daemon.conf.sample"
 
@@ -142,6 +153,13 @@ install -m644 packaging/deb/daemon.conf.sample   "$STAGE/etc/purecvisor/daemon.c
 install -d "$STAGE/etc/systemd/system/purecvisorsd.service.d"
 install -m644 packaging/systemd/96-hidepid.conf     "$STAGE/etc/systemd/system/purecvisorsd.service.d/96-hidepid.conf"
 install -m644 packaging/systemd/proc-hidepid.service "$STAGE/etc/systemd/system/proc-hidepid.service"
+
+
+
+install -m644 packaging/systemd/95-coredump-hardening.conf "$STAGE/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf"
+
+
+install -m644 systemd/purecvisor.logrotate "$STAGE/etc/logrotate.d/purecvisor"
 
                                                                                     
 install -m644 packaging/systemd/purecvisor-host-tuning.service "$STAGE/etc/systemd/system/purecvisor-host-tuning.service"
@@ -217,6 +235,11 @@ LIBDEPS="$(apply_security_floors "$LIBDEPS")"
 SVCDEPS="libvirt-daemon-system, qemu-system-x86, dnsmasq-base, nftables, iproute2"
 ALLDEPS="${LIBDEPS:+$LIBDEPS, }$SVCDEPS"
 
+
+
+find "$STAGE" -path "$STAGE/DEBIAN" -prune -o -type d -exec chmod 0755 {} +
+find "$STAGE/usr/local/share/purecvisor" -type f -exec chmod 0644 {} +
+
 INSTALLED_KB="$(du -sk "$STAGE/usr" "$STAGE/etc" | awk '{s+=$1} END{print s}')"
 
                                                                 
@@ -244,6 +267,8 @@ cat > "$STAGE/DEBIAN/conffiles" <<'CF'
 /etc/apparmor.d/usr.local.bin.purecvisorsd
 /etc/modules-load.d/purecvisor-lio.conf
 /etc/modules-load.d/purecvisor-vfio.conf
+/etc/logrotate.d/purecvisor
+/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf
 CF
 
 cat > "$STAGE/DEBIAN/postinst" <<'POST'

@@ -38,17 +38,29 @@
 
 
 
+
+
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <unistd.h>                         
 #include <stdlib.h>                       
 #include "modules/daemons/pcv_trace.h"
+#include "test_host_isolation.h"
+
+
+
+
+
+
 
                                                          
 static const char *
 _trace_gate_skip_reason(void)
 {
+    if (!pcv_test_live_opt_in("PCV_TRACE_LIVE"))
+        return "PCV_TRACE_LIVE=1 opt-in 필요 — 운영 trace 루트 쓰기·retention과 pkill -f purge는 "
+               "purecvisorsd를 멈춘 전용 장비에서만 실행한다";
     if (geteuid() != 0)
         return "root 필요 — retis 는 BPF 캡(SYS_ADMIN/BPF 등) 요구(.50 실측 §1)";
     gchar *p = g_find_program_in_path("retis");

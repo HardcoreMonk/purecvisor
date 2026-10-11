@@ -1,4 +1,11 @@
 #!/usr/bin/env python3
+
+
+
+
+
+
+
                           
                                                                
                                                                                       
@@ -98,6 +105,13 @@ REQUIRED_UI_ASSETS = (
     "maintenance-status.json",
 )
 REQUIRED_RUNTIME_RECOMMENDS = {"openvswitch-switch"}
+NOTICES_REL = "THIRD_PARTY_NOTICES.md"
+LOGROTATE_REL = "systemd/purecvisor.logrotate"
+
+REQUIRED_NOTICE_PATHS = (
+    "ui/vendor/chart.umd.min.js", "ui/vendor/novnc/", "ui/vendor/coolicons/",
+    "ui/vendor/pretendard/", "ui/vendor/qrcode/",
+)
 
 
 def func_body(code: str, name: str) -> str:
@@ -251,6 +265,48 @@ def check(raw: str) -> tuple[list[str], dict]:
                            + ", ".join(missing_runtime))
             info["runtime_recommends"] = sorted(recommended)
 
+
+    if not re.search(r'install\s+-m\s*0?644\s+LICENSE\s+"\$STAGE/usr/share/doc/\$PKG_NAME/copyright"',
+                     code):
+        bad.append("[불변식10] LICENSE 를 /usr/share/doc/$PKG_NAME/copyright 로 싣지 않는다 — "
+                   "LICENSE §2 재배포 조건 위반")
+    if not re.search(r'install\s+-m\s*0?644\s+THIRD_PARTY_NOTICES\.md\s+'
+                     r'"\$STAGE/usr/share/doc/\$PKG_NAME/THIRD_PARTY_NOTICES\.md"', code):
+        bad.append("[불변식10] THIRD_PARTY_NOTICES.md 를 /usr/share/doc/$PKG_NAME/ 로 싣지 않는다 — "
+                   "ui/vendor 제3자 라이선스 고지가 산출물에서 사라진다")
+    notices = ROOT / NOTICES_REL
+    if notices.is_file():
+        ntext = notices.read_text(encoding="utf-8", errors="replace")
+        for needle in REQUIRED_NOTICE_PATHS:
+            if needle not in ntext:
+                bad.append(f"[불변식10] {NOTICES_REL} 에 {needle} 항목이 없다")
+    else:
+        bad.append(f"[불변식10] {NOTICES_REL} 가 저장소에 없다")
+
+
+    m_conf = re.search(r"<<'CF'\n(?P<body>.*?)\nCF\n", raw, re.S)
+    conffiles = set(m_conf.group("body").split()) if m_conf else set()
+    for target, install_re in (
+        ("/etc/logrotate.d/purecvisor",
+         r'install\s+-m\s*0?644\s+systemd/purecvisor\.logrotate\s+"\$STAGE/etc/logrotate\.d/purecvisor"'),
+        ("/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf",
+         r'install\s+-m\s*0?644\s+packaging/systemd/95-coredump-hardening\.conf\s+'
+         r'"\$STAGE/etc/systemd/system/purecvisorsd\.service\.d/95-coredump-hardening\.conf"'),
+    ):
+        if not re.search(install_re, code):
+            bad.append(f"[불변식11] {target} 를 deb 에 싣지 않는다")
+        if target not in conffiles:
+            bad.append(f"[불변식11] {target} 가 DEBIAN/conffiles 에 없다 — 운영자 편집이 업그레이드에 덮인다")
+    logrotate = ROOT / LOGROTATE_REL
+    if not logrotate.is_file():
+        bad.append(f"[불변식11] {LOGROTATE_REL} 정본이 없다")
+    else:
+        ltext = logrotate.read_text(encoding="utf-8", errors="replace")
+        if re.search(r"^[^#\n]*purecvisormd", ltext, re.M):
+            bad.append("[불변식11] logrotate 가 존재하지 않는 유닛 purecvisormd 를 참조한다")
+        if not re.search(r"^[^#\n]*reload\s+purecvisorsd\b", ltext, re.M):
+            bad.append("[불변식11] logrotate 가 purecvisorsd 를 reload 하지 않는다")
+
     return bad, info
 
 
@@ -280,7 +336,8 @@ def main(argv=None) -> int:
         return 1
 
     print("\033[32m[PASS]\033[0m deb 공급망: 의존 버전 하한 + control 배선 + md5sums 전수 + "
-          "--root-owner-group + vendor 핀 전이 + 필수 자산 검증 + OVS runtime 권장")
+          "--root-owner-group + vendor 핀 전이 + 필수 자산 검증 + OVS runtime 권장 + "
+          "재배포 고지 + logrotate/coredump 자산")
     return 0
 
 

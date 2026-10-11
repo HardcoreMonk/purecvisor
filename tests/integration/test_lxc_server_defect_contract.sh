@@ -23,4 +23,32 @@ if rg -q 'if \(argc < 6\).*<name> <snap_name>|if \(argc < 5\).*Need: <name>%s|js
     exit 1
 fi
 
+
+
+
+
+container_handler_c="$root_dir/src/modules/dispatcher/handler_container.c"
+typed_reads="$(rg -c 'pcv_rpc_params_get_string\(params, "container_path"\)' "$container_handler_c" || true)"
+if [ "$typed_reads" != "2" ]; then
+    echo "container volume attach/detach must read container_path via pcv_rpc_params_get_string (found ${typed_reads:-0})" >&2
+    exit 1
+fi
+if rg -q 'json_object_get_string_member\(params, "container_path"\)' "$container_handler_c"; then
+    echo "unchecked container_path read in container volume handlers" >&2
+    exit 1
+fi
+
+
+
+
+if rg -q 'json_object_get_string_member\(params, "(key|value)"\)' "$container_handler_c"; then
+    echo "unchecked env key/value read in container env handlers" >&2
+    exit 1
+fi
+token_guards="$(rg -c '_lxc_config_token_safe\((value|container_path|resolved),' "$container_handler_c" || true)"
+if [ "${token_guards:-0}" -lt 2 ]; then
+    echo "LXC config writers must reject control characters via _lxc_config_token_safe (found ${token_guards:-0})" >&2
+    exit 1
+fi
+
 echo "LXC server defect contract: PASS"

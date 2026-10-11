@@ -297,6 +297,56 @@ pcv_rest_http_status_for_rpc_error(gint64 rpc_error_code)
                                                  
                                           
                                                                            
+PcvRestRpcMethodStatus
+pcv_rest_rpc_envelope_method(const gchar *rpc_json, gchar **method_out)
+{
+    g_return_val_if_fail(method_out != NULL, PCV_REST_RPC_METHOD_MALFORMED);
+    *method_out = NULL;
+    if (!rpc_json)
+        return PCV_REST_RPC_METHOD_MALFORMED;
+
+    PcvRestRpcMethodStatus status = PCV_REST_RPC_METHOD_MALFORMED;
+    JsonParser *parser = json_parser_new();
+
+    if (json_parser_load_from_data(parser, rpc_json, -1, NULL)) {
+        JsonNode *root = json_parser_get_root(parser);
+        JsonObject *obj = (root && JSON_NODE_HOLDS_OBJECT(root))
+                          ? json_node_get_object(root) : NULL;
+        JsonNode *member = obj ? json_object_get_member(obj, "method") : NULL;
+        if (obj && !member) {
+            status = PCV_REST_RPC_METHOD_MISSING;
+        } else if (member && JSON_NODE_HOLDS_VALUE(member) &&
+                   json_node_get_value_type(member) == G_TYPE_STRING) {
+            const gchar *method = json_node_get_string(member);
+            if (method && *method) {
+                *method_out = g_strdup(method);
+                status = PCV_REST_RPC_METHOD_OK;
+            }
+        }
+    }
+    g_object_unref(parser);
+    return status;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
                                    
    
 PcvRestTransportPlan
@@ -443,6 +493,50 @@ pcv_rest_rate_limit_key_for_message(SoupServerMessage *message,
 {
     return pcv_build_rate_limit_key(
         pcv_rest_auth_audit_address(message), path, http_method);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+JsonObject *
+pcv_rest_container_volume_detach_params(const gchar *name, gchar **segments, JsonObject *body)
+{
+    JsonObject *params = json_object_new();
+    json_object_set_string_member(params, "name", name ? name : "");
+
+    if (segments && segments[0] && *segments[0]) {
+        for (guint i = 0; segments[i]; i++) {
+            if (!*segments[i])
+                return params;
+        }
+        g_autofree gchar *joined = g_strjoinv("/", segments);
+        g_autofree gchar *container_path = g_strconcat("/", joined, NULL);
+        json_object_set_string_member(params, "container_path", container_path);
+        return params;
+    }
+
+    JsonNode *path_node = body ? json_object_get_member(body, "container_path") : NULL;
+    if (path_node && JSON_NODE_HOLDS_VALUE(path_node) &&
+        json_node_get_value_type(path_node) == G_TYPE_STRING)
+        json_object_set_string_member(params, "container_path",
+                                      json_node_get_string(path_node));
+    return params;
 }
 
 #ifndef PCV_REST_TRANSPORT_POLICY_ONLY
@@ -4359,6 +4453,9 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                             
                                                                              
                                                                   
+
+
+
         } else if (g_strcmp0(action, "volumes") == 0) {
             if (*sub == '\0') {
                 if (g_strcmp0(method, "GET") == 0) {
@@ -4371,11 +4468,16 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     json_object_set_string_member(p, "name", name);
                     rpc = _build_rpc("container.volume.attach", p);
                     json_object_unref(p);
+                } else if (g_strcmp0(method, "DELETE") == 0) {
+
+                    JsonObject *p = pcv_rest_container_volume_detach_params(name, NULL, body);
+                    rpc = _build_rpc("container.volume.detach", p);
+                    json_object_unref(p);
                 }
             } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                json_object_set_string_member(p, "volume", sub);
+
+
+                JsonObject *p = pcv_rest_container_volume_detach_params(name, segs + 3, body);
                 rpc = _build_rpc("container.volume.detach", p);
                 json_object_unref(p);
             }
@@ -5175,11 +5277,14 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                        
                                                     
        
+
+    gchar *rpc_method = NULL;
     {
                                                                    
                                                                                     
-        const gchar *mp = strstr(rpc, "\"method\":\"");
-        if (!mp) {
+        PcvRestRpcMethodStatus method_status =
+            pcv_rest_rpc_envelope_method(rpc, &rpc_method);
+        if (method_status == PCV_REST_RPC_METHOD_MISSING) {
             static const char resp_missing_method[] =
                 "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Missing method field\"}}";
             g_message("[RBAC] reject: missing method field in RPC envelope");
@@ -5191,9 +5296,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 sizeof(resp_missing_method) - 1);
             goto cleanup;
         }
-        mp += 10;
-        const gchar *me = strchr(mp, '"');
-        if (!me || me == mp) {
+        if (method_status != PCV_REST_RPC_METHOD_OK) {
             static const char resp_malformed_method[] =
                 "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Malformed method field\"}}";
             g_message("[RBAC] reject: malformed method field in RPC envelope");
@@ -5205,23 +5308,21 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 sizeof(resp_malformed_method) - 1);
             goto cleanup;
         }
-        {
-            gchar *rpc_method = g_strndup(mp, (gsize)(me - mp));
-            if (!pcv_rbac_check_permission(subject, rpc_method)) {
-                static const char resp_forbidden[] =
-                    "{\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Insufficient permissions\"}}";
-                g_message("[RBAC] denied: user=%s method=%s", subject, rpc_method);
-                g_free(rpc_method);
-                g_free(rpc);
-                rpc = NULL;
-                soup_server_message_set_status(msg, 403, "Forbidden");
-                soup_server_message_set_response(msg, "application/json",
-                    SOUP_MEMORY_STATIC,
-                    resp_forbidden,
-                    sizeof(resp_forbidden) - 1);
-                goto cleanup;
-            }
+        if (!pcv_rbac_check_permission(subject, rpc_method)) {
+            static const char resp_forbidden[] =
+                "{\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Insufficient permissions\"}}";
+            g_message("[RBAC] denied: user=%s method=%s", subject, rpc_method);
+
+
             g_free(rpc_method);
+            g_free(rpc);
+            rpc = NULL;
+            soup_server_message_set_status(msg, 403, "Forbidden");
+            soup_server_message_set_response(msg, "application/json",
+                SOUP_MEMORY_STATIC,
+                resp_forbidden,
+                sizeof(resp_forbidden) - 1);
+            goto cleanup;
         }
     }
 
@@ -5252,14 +5353,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         actx->rpc = rpc;                                                
                                            
                                                                     
-        {
-            const gchar *mp = rpc ? strstr(rpc, "\"method\":\"") : NULL;
-            if (mp) {
-                mp += 10;                     
-                const gchar *me = strchr(mp, '"');
-                if (me) actx->rpc_method = g_strndup(mp, (gsize)(me - mp));
-            }
-        }
+        actx->rpc_method = g_steal_pointer(&rpc_method);
         actx->vm_delete_name = vm_delete_name;             
         actx->is_vm_delete = is_vm_delete;
         actx->rest_ctx = self_rest_ctx;                                        

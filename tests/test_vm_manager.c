@@ -1,3 +1,4 @@
+
                                                                                                
                                                                                                
                                                                                 
@@ -1068,6 +1069,120 @@ static void test_overlay_gw_cidr_malformed_returns_null(void) {
     g_assert_null(_overlay_gw_cidr_from_subnet("garbage"));
 }
 
+
+
+
+
+
+
+
+static const gchar *RESIZE_FIXTURE_XML =
+    "<domain type='kvm'><name>web01</name><devices>"
+    "<interface type='direct'><source dev='enp1s0' mode='bridge'/>"
+    "<target dev='macvtap0'/></interface>"
+    "<disk type='file' device='cdrom'><driver name='qemu' type='raw'/>"
+    "<source file='/iso/ubuntu.iso'/><target dev='sda' bus='sata'/></disk>"
+    "<disk type='block' device='disk'><driver name='qemu' type='raw'/>"
+    "<source dev='/dev/zvol/pcvpool/vms/web01'/><target dev='vda' bus='virtio'/></disk>"
+    "<disk type='file' device='disk'><driver name='qemu' type='qcow2'/>"
+    "<source file='/var/lib/libvirt/images/web01-data.qcow2'/>"
+    "<target dev='vdb' bus='virtio'/></disk>"
+    "<disk type='block' device='disk'><driver name='qemu' type='raw'/>"
+    "<source dev='/dev/disk/by-path/ip-10.0.0.5:3260-iscsi-iqn.x-lun-1'/>"
+    "<target dev='vdc' bus='virtio'/></disk>"
+    "<disk type='network' device='disk'><source protocol='rbd' name='pool/img'/>"
+    "<target dev='vdd' bus='virtio'/></disk>"
+    "</devices></domain>";
+
+static void test_resize_select_picks_requested_file_disk(void) {
+    gchar *source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_BLOCK;
+    GError *error = NULL;
+    g_assert_true(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, "vdb",
+                                                &source, &kind, &error));
+    g_assert_no_error(error);
+    g_assert_cmpstr(source, ==, "/var/lib/libvirt/images/web01-data.qcow2");
+    g_assert_cmpint(kind, ==, PCV_VM_DISK_SOURCE_FILE);
+    g_free(source);
+}
+
+static void test_resize_select_picks_requested_zvol_disk(void) {
+    gchar *source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+    GError *error = NULL;
+    g_assert_true(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, "vda",
+                                                &source, &kind, &error));
+    g_assert_no_error(error);
+
+    g_assert_cmpstr(source, ==, "/dev/zvol/pcvpool/vms/web01");
+    g_assert_cmpint(kind, ==, PCV_VM_DISK_SOURCE_ZVOL);
+    g_free(source);
+}
+
+static void test_resize_select_classifies_plain_block_device(void) {
+    gchar *source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_ZVOL;
+    GError *error = NULL;
+    g_assert_true(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, "vdc",
+                                                &source, &kind, &error));
+    g_assert_no_error(error);
+    g_assert_cmpint(kind, ==, PCV_VM_DISK_SOURCE_BLOCK);
+    g_free(source);
+}
+
+static void test_resize_select_rejects_missing_cdrom_and_network(void) {
+    const gchar *bad_targets[] = {"vdz", "sda", "vdd", NULL};
+    for (gsize i = 0; bad_targets[i]; i++) {
+        gchar *source = (gchar *)"sentinel";
+        PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+        GError *error = NULL;
+        g_assert_false(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, bad_targets[i],
+                                                     &source, &kind, &error));
+        g_assert_nonnull(error);
+        g_assert_null(source);
+        g_clear_error(&error);
+    }
+}
+
+static void test_resize_select_rejects_malformed_inputs(void) {
+    gchar *source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+    GError *error = NULL;
+    g_assert_false(pcv_vm_disk_source_for_target(NULL, "vda", &source, &kind, &error));
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_source_for_target("<domain>", "vda", &source, &kind, &error));
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, "", &source, &kind, &error));
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_source_for_target(RESIZE_FIXTURE_XML, NULL, &source, &kind, &error));
+    g_clear_error(&error);
+
+    g_assert_false(pcv_vm_disk_source_for_target(
+        "<domain><devices><disk type='block' device='disk'><source dev='/dev/zvol/'/>"
+        "<target dev='vda'/></disk></devices></domain>", "vda", &source, &kind, &error));
+    g_assert_null(source);
+    g_clear_error(&error);
+}
+
+static void test_resize_check_rejects_shrink(void) {
+    const guint64 gib = 1024ULL * 1024ULL * 1024ULL;
+    GError *error = NULL;
+    g_assert_true(pcv_vm_disk_resize_check(10 * gib, 20, &error));
+    g_assert_no_error(error);
+    g_assert_true(pcv_vm_disk_resize_check(10 * gib, 10, &error));
+    g_assert_no_error(error);
+    g_assert_false(pcv_vm_disk_resize_check(10 * gib, 9, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_resize_check(10 * gib + gib / 2, 10, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_resize_check(10 * gib, 0, &error));
+    g_clear_error(&error);
+    g_assert_false(pcv_vm_disk_resize_check(10 * gib, -5, &error));
+    g_clear_error(&error);
+}
+
 void test_vm_manager_register(void) {
     g_test_add_func("/vm_manager/file_disk/base_image_populates_qcow2_and_raw",
                     test_file_disk_base_image_populates_qcow2_and_raw);
@@ -1130,4 +1245,16 @@ void test_vm_manager_register(void) {
     g_test_add_func("/vm_manager/overlay_gw_cidr_basic", test_overlay_gw_cidr_basic);
     g_test_add_func("/vm_manager/overlay_gw_cidr_high_index", test_overlay_gw_cidr_high_index);
     g_test_add_func("/vm_manager/overlay_gw_cidr_malformed_returns_null", test_overlay_gw_cidr_malformed_returns_null);
+    g_test_add_func("/vm_manager/resize/select_picks_requested_file_disk",
+                    test_resize_select_picks_requested_file_disk);
+    g_test_add_func("/vm_manager/resize/select_picks_requested_zvol_disk",
+                    test_resize_select_picks_requested_zvol_disk);
+    g_test_add_func("/vm_manager/resize/select_classifies_plain_block_device",
+                    test_resize_select_classifies_plain_block_device);
+    g_test_add_func("/vm_manager/resize/select_rejects_missing_cdrom_and_network",
+                    test_resize_select_rejects_missing_cdrom_and_network);
+    g_test_add_func("/vm_manager/resize/select_rejects_malformed_inputs",
+                    test_resize_select_rejects_malformed_inputs);
+    g_test_add_func("/vm_manager/resize/check_rejects_shrink",
+                    test_resize_check_rejects_shrink);
 }

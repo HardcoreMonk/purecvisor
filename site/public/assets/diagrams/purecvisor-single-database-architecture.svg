@@ -13,7 +13,7 @@
     </style>
   </defs>
   <rect class="canvas" width="1440" height="1040"/>
-  <text class="eyebrow" x="40" y="42">PURECVISOR 2.0.0 · SINGLE EDGE</text>
+  <text class="eyebrow" x="40" y="42">PURECVISOR 2.0.1 · SINGLE EDGE</text>
   <text class="title" x="40" y="80">요청, 로컬 정본, 실제 상태를 한 흐름으로 읽기</text>
   <text class="subtitle" x="40" y="108">8 local SQLite files · 25 permanent tables · no external DBMS · no cross-DB transaction</text>
 

@@ -1,4 +1,6 @@
 #!/usr/bin/env bash
+
+
                                                                                   
                                                     
                                                                 
@@ -184,6 +186,7 @@ echo -e "${CYAN}═════════════════════�
                                                        
                                               
                                                                  
+
 echo -e "\n${CYAN}── Scenario A: CLI-17 container.set_bandwidth ──${NC}"
 if ! fresh_boot; then
     fail "A-S1: 격리 데몬 기동 실패"
@@ -192,11 +195,16 @@ else
     pass "A-S1: 격리 데몬 기동"
     RESP="$(send_rpc '{"jsonrpc":"2.0","method":"container.set_bandwidth","params":{"name":"med-cli17","inbound_kbps":5000,"outbound_kbps":3000},"id":"a1"}')"
     info "A-S2: set_bandwidth resp = ${RESP:0:160}"
-    if echo "$RESP" | grep -Eq '"inbound_kbps"[[:space:]]*:[[:space:]]*5000' && \
-       echo "$RESP" | grep -Eq '"outbound_kbps"[[:space:]]*:[[:space:]]*3000'; then
-        pass "A-S2(반사실): inbound_kbps=5000/outbound_kbps=3000 이 응답에 그대로 echo (핸들러가 신규 키를 읽음 — 예전 키 inbound/outbound 였다면 0/0)"
+    if echo "$RESP" | grep -q "Container 'med-cli17' not found" && \
+       ! echo "$RESP" | grep -q "No bandwidth limit requested"; then
+        pass "A-S2(반사실): 5000/3000 을 읽어 0/0 거부 없이 컨테이너 조회까지 진행 (예전 키 inbound/outbound 였다면 0/0 거부)"
     else
-        fail "A-S2: inbound_kbps/outbound_kbps 값이 응답에 없음 — CLI-17 rename 미반영 의심 (resp='$RESP')"
+        fail "A-S2: 키 반영 또는 미존재 컨테이너 오류 보고 불일치 — CLI-17 rename/대역폭 거짓 성공 회귀 의심 (resp='$RESP')"
+    fi
+    if echo "$RESP" | grep -Eq '"status"[[:space:]]*:[[:space:]]*"applied"'; then
+        fail "A-S3: 존재하지 않는 컨테이너에 대역폭 '적용 성공' 응답 — 거짓성공 회귀 (resp='$RESP')"
+    else
+        pass "A-S3(반사실): 미존재 컨테이너는 applied 성공을 받지 않는다"
     fi
 fi
 

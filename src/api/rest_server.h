@@ -218,6 +218,47 @@ guint pcv_rest_http_status_for_rpc_error(gint64 rpc_error_code);
                                                             
                                              
                                        
+typedef enum {
+    PCV_REST_RPC_METHOD_OK,
+    PCV_REST_RPC_METHOD_MISSING,
+    PCV_REST_RPC_METHOD_MALFORMED,
+} PcvRestRpcMethodStatus;
+
+
+
+
+
+
+
+
+
+
+
+
+PcvRestRpcMethodStatus pcv_rest_rpc_envelope_method(const gchar *rpc_json,
+                                                    gchar **method_out);
+
+
+
+
+
+
+
+
+
+
+
+
+
+JsonObject *pcv_rest_container_volume_detach_params(const gchar *name,
+                                                    gchar **segments,
+                                                    JsonObject *body);
+
+
+
+
+
+
   
                                                 
   

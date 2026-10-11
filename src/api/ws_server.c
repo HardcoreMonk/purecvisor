@@ -139,6 +139,18 @@ static struct {
     gboolean    initialized;
 } G = {0};
 
+
+
+
+
+
+
+static gboolean
+_ws_conn_is_authed(SoupWebsocketConnection *conn)
+{
+    return GPOINTER_TO_INT(g_object_get_data(G_OBJECT(conn), "pcv-ws-authed")) == 1;
+}
+
    
                            
   
@@ -776,6 +788,10 @@ _ws_heartbeat_cb(gpointer data __attribute__((unused)))
         }
 
                        
+        if (!_ws_conn_is_authed(conn))
+            continue;
+
+
         soup_websocket_connection_send_text(conn, ping_msg);
     }
     g_mutex_unlock(&G.mu);
@@ -1148,6 +1164,13 @@ pcv_ws_broadcast(const gchar *type, const gchar *payload_json)
                                                                
                                                                          
                                                                 
+        if (!_ws_conn_is_authed(conn)) {
+            i++;
+            continue;
+        }
+
+
+
         gint *pending = g_object_get_data(G_OBJECT(conn), "pcv-pending");
         if (pending && g_atomic_int_get(pending) >= ws_max_pending_msgs) {
             const gchar *bp_ip = g_object_get_data(G_OBJECT(conn), "client-ip");

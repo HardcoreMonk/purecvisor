@@ -86,6 +86,95 @@ test_vpc_policy_publish_has_source_dnat_and_forward(void)
         "tcp dport 443 ct status dnat accept"));
 }
 
+
+
+static PcvVpcPolicySnapshot *
+wildcard_publish_snapshot(void)
+{
+    PcvVpcPolicySnapshot *snapshot = sample_snapshot();
+    PcvVpcPolicyPublish *wildcard = pcv_vpc_policy_publish_new(
+        "udp", "0.0.0.0", 5353, "10.20.0.10", 53, "pcvsweb");
+    g_ptr_array_add(wildcard->allowed_sources, g_strdup("10.0.0.0/8"));
+    g_ptr_array_add(snapshot->publishes, wildcard);
+    return snapshot;
+}
+
+
+
+
+static void
+test_vpc_policy_publish_dnat_is_host_local_only(void)
+{
+    g_autoptr(PcvVpcPolicySnapshot) snapshot = wildcard_publish_snapshot();
+    g_autofree gchar *script = pcv_vpc_policy_build_script(snapshot);
+    g_auto(GStrv) lines = g_strsplit(script, "\n", -1);
+    guint dnat_lines = 0;
+    for (guint i = 0; lines[i]; i++) {
+        if (!g_str_has_prefix(lines[i], "add rule inet pcv_vpc prerouting "))
+            continue;
+        dnat_lines++;
+        g_assert_true(g_str_has_prefix(lines[i],
+            "add rule inet pcv_vpc prerouting iifname != @managed_ifaces "
+            "fib daddr type local "));
+    }
+    g_assert_cmpuint(dnat_lines, ==, 2);
+    g_assert_nonnull(strstr(script,
+        "add rule inet pcv_vpc prerouting iifname != @managed_ifaces "
+        "fib daddr type local ip saddr 10.0.0.0/8 udp dport 5353 "
+        "dnat ip to 10.20.0.10:53\n"));
+    g_assert_nonnull(strstr(script,
+        "add rule inet pcv_vpc prerouting iifname != @managed_ifaces "
+        "fib daddr type local ip daddr 192.0.2.10 ip saddr 198.51.100.0/24 "
+        "tcp dport 8443 dnat ip to 10.20.0.10:443\n"));
+}
+
+
+
+
+static void
+test_vpc_policy_publish_accept_follows_cross_drop(void)
+{
+    g_autoptr(PcvVpcPolicySnapshot) snapshot = wildcard_publish_snapshot();
+    g_autofree gchar *script = pcv_vpc_policy_build_script(snapshot);
+    const gchar *cross = strstr(script,
+        "add rule inet pcv_vpc forward iifname @managed_ifaces oifname @managed_ifaces drop\n");
+    const gchar *publish_accept = strstr(script, "ct status dnat accept");
+    const gchar *target_drop = strstr(script,
+        "add rule inet pcv_vpc forward oifname \"pcvsweb\" drop\n");
+    g_assert_nonnull(cross);
+    g_assert_nonnull(publish_accept);
+    g_assert_nonnull(target_drop);
+    g_assert_true(cross < publish_accept);
+    g_assert_true(publish_accept < target_drop);
+
+    g_autoptr(PcvVpcPolicySnapshot) ovn = pcv_vpc_policy_snapshot_new();
+    PcvVpcPolicyVpc *vpc = pcv_vpc_policy_vpc_new("vpc-ovn", "nat");
+    g_free(vpc->backend);
+    vpc->backend = g_strdup("ovn");
+    vpc->edge_interface = g_strdup("pcve12345678901");
+    g_ptr_array_add(ovn->vpcs, vpc);
+    PcvVpcPolicyPublish *edge = pcv_vpc_policy_publish_new(
+        "tcp", "0.0.0.0", 8080, "10.90.0.10", 80, "pcve12345678901");
+    g_ptr_array_add(edge->allowed_sources, g_strdup("192.168.0.0/16"));
+    g_ptr_array_add(ovn->publishes, edge);
+    g_autofree gchar *ovn_script = pcv_vpc_policy_build_script(ovn);
+    const gchar *ovn_cross = strstr(ovn_script,
+        "add rule inet pcv_vpc forward iifname @managed_ifaces oifname @managed_ifaces drop\n");
+    const gchar *ovn_accept = strstr(ovn_script,
+        "oifname \"pcve12345678901\" ip saddr 192.168.0.0/16 ip daddr 10.90.0.10 "
+        "tcp dport 80 ct status dnat accept");
+    const gchar *ovn_drop = strstr(ovn_script,
+        "add rule inet pcv_vpc forward oifname \"pcve12345678901\" drop\n");
+    g_assert_nonnull(ovn_cross);
+    g_assert_nonnull(ovn_accept);
+    g_assert_nonnull(ovn_drop);
+    g_assert_true(ovn_cross < ovn_accept);
+    g_assert_true(ovn_accept < ovn_drop);
+    g_assert_nonnull(strstr(ovn_script,
+        "prerouting iifname != @managed_ifaces fib daddr type local "
+        "ip saddr 192.168.0.0/16 tcp dport 8080 dnat ip to 10.90.0.10:80\n"));
+}
+
 static void
 test_vpc_policy_nat_rejects_unsolicited_inbound(void)
 {
@@ -177,6 +266,10 @@ test_vpc_policy_register(void)
     g_test_add_func("/vpc/policy/cross_drop_order", test_vpc_policy_cross_drop_precedes_nat_allow);
     g_test_add_func("/vpc/policy/source_guard", test_vpc_policy_source_guard_is_pair_bound);
     g_test_add_func("/vpc/policy/service_publish", test_vpc_policy_publish_has_source_dnat_and_forward);
+    g_test_add_func("/vpc/policy/service_publish_host_local_only",
+                    test_vpc_policy_publish_dnat_is_host_local_only);
+    g_test_add_func("/vpc/policy/service_publish_after_cross_drop",
+                    test_vpc_policy_publish_accept_follows_cross_drop);
     g_test_add_func("/vpc/policy/nat_inbound_default_drop", test_vpc_policy_nat_rejects_unsolicited_inbound);
     g_test_add_func("/vpc/policy/ovn_host_edge",
                     test_vpc_policy_ovn_uses_host_edge_without_linux_bridge_guard);

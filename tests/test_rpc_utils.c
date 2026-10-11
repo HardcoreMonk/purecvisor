@@ -213,7 +213,33 @@ static void test_params_get_int_alias_missing_key(void) {
     json_object_unref(params);
 }
 
+
+
+
+static void test_params_get_string_type_safe(void) {
+    g_autoptr(JsonParser) parser = json_parser_new();
+    g_assert_true(json_parser_load_from_data(parser,
+        "{\"s\":\"/mnt\",\"e\":\"\",\"n\":null,\"i\":7,\"o\":{\"x\":1},\"a\":[\"/mnt\"]}",
+        -1, NULL));
+    JsonObject *params = json_node_get_object(json_parser_get_root(parser));
+
+
+    GLogLevelFlags saved = g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
+
+    g_assert_cmpstr(pcv_rpc_params_get_string(params, "s"), ==, "/mnt");
+    g_assert_cmpstr(pcv_rpc_params_get_string(params, "e"), ==, "");
+    g_assert_null(pcv_rpc_params_get_string(params, "n"));
+    g_assert_null(pcv_rpc_params_get_string(params, "i"));
+    g_assert_null(pcv_rpc_params_get_string(params, "o"));
+    g_assert_null(pcv_rpc_params_get_string(params, "a"));
+    g_assert_null(pcv_rpc_params_get_string(params, "missing"));
+    g_assert_null(pcv_rpc_params_get_string(params, NULL));
+    g_assert_null(pcv_rpc_params_get_string(NULL, "s"));
+    g_log_set_always_fatal(saved);
+}
+
 void test_rpc_utils_register(void) {
+    g_test_add_func("/rpc_utils/params_get_string_type_safe", test_params_get_string_type_safe);
     g_test_add_func("/rpc_utils/error_response_basic", test_error_response_basic);
     g_test_add_func("/rpc_utils/error_response_null_id", test_error_response_null_id);
     g_test_add_func("/rpc_utils/error_response_all_codes", test_error_response_all_codes);

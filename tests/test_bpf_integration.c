@@ -1,3 +1,12 @@
+
+
+
+
+
+
+
+
+
                                                                                          
                                                                                     
                                                                        
@@ -42,6 +51,7 @@
 #include "utils/pcv_bpf.h"
 #include "modules/security/security_event.h"
 #include "modules/security/security_store.h"
+#include "test_host_isolation.h"
 
 #define PCV_T4_STORE   "/usr/lib/purecvisor/bpf"
 #define PCV_T4_PINDIR  "/sys/fs/bpf/purecvisor/pcv_lsm"
@@ -50,6 +60,25 @@
                                                   
                                   
 #define PCV_T4_STATE   "/var/lib/purecvisor/bpf_state.json"
+
+
+
+
+
+
+
+
+
+
+static gboolean
+_bpf_live_opted_in(void)
+{
+    if (pcv_test_live_opt_in("PCV_BPF_LIVE"))
+        return TRUE;
+    g_test_skip("PCV_BPF_LIVE=1 opt-in 필요 — 실 bpffs pin·bpf_state.json·커널 LSM attach를 바꾸므로 "
+                "purecvisorsd 정지 후 전용 호스트에서만 실행한다");
+    return FALSE;
+}
 
   
                                             
@@ -67,6 +96,8 @@ static void test_bpf_load_and_pin_root(void) {
         g_test_skip("root 필요 — BPF 로드/핀은 CAP_BPF/CAP_SYS_ADMIN 요구");
         return;
     }
+    if (!_bpf_live_opted_in())
+        return;
     if (!pcv_bpf_caps_btf() || !pcv_bpf_caps_lsm()) {
         g_test_skip("BTF 또는 lsm=bpf 부재 — LSM BPF 로드 불가(커널 lsm=...,bpf 재부팅 선행)");
         return;
@@ -122,6 +153,8 @@ static void test_bpf_ringbuf_roundtrip_root(void) {
         g_test_skip("root 필요 — BPF 로드/핀/ringbuf 소비는 CAP_BPF/CAP_SYS_ADMIN 요구");
         return;
     }
+    if (!_bpf_live_opted_in())
+        return;
     if (!pcv_bpf_caps_btf() || !pcv_bpf_caps_lsm()) {
         g_test_skip("BTF 또는 lsm=bpf 부재 — LSM BPF 로드 불가(커널 lsm=...,bpf 재부팅 선행)");
         return;
@@ -216,6 +249,8 @@ static void test_bpf_pin_survives_reload_root(void) {
         g_test_skip("root 필요 — BPF 로드/핀은 CAP_BPF/CAP_SYS_ADMIN 요구");
         return;
     }
+    if (!_bpf_live_opted_in())
+        return;
     if (!pcv_bpf_caps_btf() || !pcv_bpf_caps_lsm()) {
         g_test_skip("BTF 또는 lsm=bpf 부재 — LSM BPF 로드 불가(커널 lsm=...,bpf 재부팅 선행)");
         return;
@@ -299,6 +334,8 @@ static void test_bpf_detach_order_root(void) {
         g_test_skip("root 필요 — BPF 로드/핀은 CAP_BPF/CAP_SYS_ADMIN 요구");
         return;
     }
+    if (!_bpf_live_opted_in())
+        return;
     if (!pcv_bpf_caps_btf() || !pcv_bpf_caps_lsm()) {
         g_test_skip("BTF 또는 lsm=bpf 부재 — LSM BPF 로드 불가(커널 lsm=...,bpf 재부팅 선행)");
         return;

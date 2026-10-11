@@ -110,6 +110,25 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
     return FALSE;                                  
 }
 
+
+
+
+
+
+
+
+const gchar *
+pcv_rpc_params_get_string(JsonObject *params, const gchar *key)
+{
+    if (!params || !key)
+        return NULL;
+    JsonNode *node = json_object_get_member(params, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_STRING)
+        return NULL;
+    return json_node_get_string(node);
+}
+
    
                                  
                                  

@@ -144,3 +144,5 @@ Single Edge 공개판에서 기능 절차를 문서화할 수 있는 조건:
 - [ADR-0068](adr/0068-remove-aws-manual-migration.md): Implemented, 2026-10-08 공개 소스 반영.
 
 - [ADR-0069](adr/0069-remove-s3-backup-and-decouple-hcp-verification.md): Implemented, 2026-10-08 공개 소스 반영.
+
+- [ADR-0079](adr/0079-dispatcher-default-deny-and-single-target-alias.md): Implemented, 2026-10-11 공개 소스 2.0.1 반영.

@@ -101,6 +101,18 @@
                                              
 #define AUDIT_LOG_PATH  "/var/log/purecvisor/audit.log"
 
+
+
+
+
+
+#ifdef PCV_TEST_OVERRIDE_AUDIT_LOG_PATH
+#undef AUDIT_LOG_DIR
+#undef AUDIT_LOG_PATH
+#define AUDIT_LOG_DIR   PCV_TEST_OVERRIDE_AUDIT_LOG_DIR
+#define AUDIT_LOG_PATH  PCV_TEST_OVERRIDE_AUDIT_LOG_PATH
+#endif
+
                          
 #define LOG_DOM "pcv_log"
 
@@ -608,6 +620,42 @@ pcv_log_init(void)
                                     
                                                        
    
+
+
+
+
+
+gboolean
+pcv_log_reopen_audit(void)
+{
+    if (!g_pcv_log_state.initialized)
+        return FALSE;
+    FILE *fresh = fopen(AUDIT_LOG_PATH, "a");
+    if (!fresh) {
+        fprintf(stderr, "[pcv_log] Cannot reopen audit log %s: %s\n",
+                AUDIT_LOG_PATH, g_strerror(errno));
+        return FALSE;
+    }
+    g_mutex_lock(&g_pcv_log_state.audit_mutex);
+    FILE *old = g_pcv_log_state.audit_fp;
+    g_pcv_log_state.audit_fp = fresh;
+    if (old) {
+        fflush(old);
+        fclose(old);
+    }
+    g_mutex_unlock(&g_pcv_log_state.audit_mutex);
+    return TRUE;
+}
+
+
+
+
+
+
+
+
+
+
 void
 pcv_log_shutdown(void)
 {
@@ -762,10 +810,11 @@ _pcv_log_audit(const gchar *domain,
         ts, dom_esc, req_esc, op_esc, tgt_esc, msg_esc);
 
                                                          
-    FILE *dest = g_pcv_log_state.audit_fp ? g_pcv_log_state.audit_fp : stderr;
+
 
                                       
     g_mutex_lock(&g_pcv_log_state.audit_mutex);
+    FILE *dest = g_pcv_log_state.audit_fp ? g_pcv_log_state.audit_fp : stderr;
     fprintf(dest, "%s\n", line);
     fflush(dest);                                   
     g_mutex_unlock(&g_pcv_log_state.audit_mutex);

@@ -1,3 +1,9 @@
+
+
+
+
+
+
                                                                                              
                                                                                  
                                                                                    
@@ -51,18 +57,35 @@
 #include "modules/security/pcv_suricata_rules.h"
 #include "modules/security/security_store.h"
 #include "modules/security/security_event.h"
+#include "test_host_isolation.h"
 
                                                          
 static const char *
 _suricata_gate_skip_reason(void)
 {
     if (geteuid() != 0)
-        return "root 필요 — systemctl kill/restart + /var/log/suricata 쓰기(.50 실측 §3)";
+        return "root 필요 — systemctl kill/restart + suricata 로그 디렉터리 쓰기(.50 실측 §3)";
     gchar *p = g_find_program_in_path("suricata");
     if (!p)
         return "suricata 미설치 — 통합 실경로 스킵(이 개발 머신 기본 상태)";
     g_free(p);
     return NULL;
+}
+
+
+
+
+
+
+
+
+static const char *
+_suricata_live_skip_reason(void)
+{
+    if (!pcv_test_live_opt_in("PCV_SURICATA_LIVE"))
+        return "PCV_SURICATA_LIVE=1 opt-in 필요 — 실 suricata.service SIGKILL·실 eve.json append는 "
+               "운영과 분리된 E2E 장비에서만 실행한다";
+    return _suricata_gate_skip_reason();
 }
 
                                                                         
@@ -111,7 +134,7 @@ _synthetic_event_present(void)
 static void
 test_suricata_eve_ingest_root(void)
 {
-    const char *skip = _suricata_gate_skip_reason();
+    const char *skip = _suricata_live_skip_reason();
     if (skip) { g_test_skip(skip); return; }
 
                                                        
@@ -248,7 +271,7 @@ test_suricata_rules_rollback_root(void)
 static void
 test_suricata_engine_down_restart_root(void)
 {
-    const char *skip = _suricata_gate_skip_reason();
+    const char *skip = _suricata_live_skip_reason();
     if (skip) { g_test_skip(skip); return; }
 
                                                    

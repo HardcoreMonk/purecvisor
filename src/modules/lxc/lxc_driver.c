@@ -128,6 +128,8 @@
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_config.h"
 #include "utils/pcv_log.h"
+#include "utils/pcv_validate.h"
+#include <net/if.h>
 
                          
 #include <lxc/lxccontainer.h>
@@ -231,6 +233,12 @@ _unlock_container_op(const gchar *name)
                                                           
                                                             
    
+
+
+
+
+
+
 static gboolean
 _rootless_check_subid(const gchar *path, gint uid_start, gint uid_count)
 {
@@ -265,6 +273,39 @@ _rootless_check_subid(const gchar *path, gint uid_start, gint uid_count)
                                                             
   
                                                 
+gboolean
+pcv_lxc_rootless_subid_available(const gchar *subuid_path, const gchar *subgid_path,
+                                 gint start, gint count)
+{
+    if (!subuid_path || !subgid_path)
+        return FALSE;
+    return _rootless_check_subid(subuid_path, start, count) &&
+           _rootless_check_subid(subgid_path, start, count);
+}
+
+
+
+
+
+
+
+
+
+
+PcvLxcRootlessDecision
+pcv_lxc_rootless_decide(gint requested, gboolean config_default, gboolean subid_ok)
+{
+    if (requested == 1)
+        return subid_ok ? PCV_LXC_ROOTLESS_ON : PCV_LXC_ROOTLESS_REJECT;
+    if (requested == 0)
+        return PCV_LXC_ROOTLESS_OFF;
+    return (config_default && subid_ok) ? PCV_LXC_ROOTLESS_ON : PCV_LXC_ROOTLESS_OFF;
+}
+
+
+
+
+
                                                
                                    
   
@@ -283,13 +324,13 @@ _rootless_apply_config(struct lxc_container *c, gint uid_start, gint uid_count)
                                                                     
     if (!_rootless_check_subid("/etc/subuid", uid_start, uid_count)) {
         PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless: /etc/subuid missing range %d:%d, falling back to privileged",
+                     "rootless: /etc/subuid missing range %d:%d",
                      uid_start, uid_count);
         return FALSE;
     }
     if (!_rootless_check_subid("/etc/subgid", uid_start, uid_count)) {
         PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless: /etc/subgid missing range %d:%d, falling back to privileged",
+                     "rootless: /etc/subgid missing range %d:%d",
                      uid_start, uid_count);
         return FALSE;
     }
@@ -915,6 +956,44 @@ _lxc_create_thread(GTask        *task,
     }
 
 
+
+
+
+
+    gint uid_start = pcv_config_get_int("container", "rootless_uid_start", 100000);
+    gint uid_count = pcv_config_get_int("container", "rootless_uid_count", 65536);
+    gboolean config_rootless;
+    {
+
+        const gchar *cfg = pcv_config_get_string("container", "rootless", "false");
+        config_rootless = (g_ascii_strcasecmp(cfg, "true") == 0 ||
+                           g_ascii_strcasecmp(cfg, "1") == 0 ||
+                           g_ascii_strcasecmp(cfg, "yes") == 0);
+    }
+    gboolean rootless_wanted = d->rootless == 1 || (d->rootless < 0 && config_rootless);
+    gboolean subid_ok = rootless_wanted &&
+        pcv_lxc_rootless_subid_available("/etc/subuid", "/etc/subgid", uid_start, uid_count);
+    PcvLxcRootlessDecision rootless_mode =
+        pcv_lxc_rootless_decide(d->rootless, config_rootless, subid_ok);
+    if (rootless_mode == PCV_LXC_ROOTLESS_REJECT) {
+        PCV_LOG_WARN(LXC_LOG_DOM,
+                     "rootless requested for '%s' but /etc/subuid or /etc/subgid lacks %d:%d "
+                     "— refusing to create a privileged container", d->name, uid_start, uid_count);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                "rootless=true requested for '%s' but /etc/subuid or /etc/subgid "
+                                "lacks range %d:%d; container not created (refusing privileged fallback)",
+                                d->name, uid_start, uid_count);
+        g_strfreev(parts);
+        return;
+    }
+    if (rootless_wanted && rootless_mode == PCV_LXC_ROOTLESS_OFF) {
+
+        PCV_LOG_WARN(LXC_LOG_DOM,
+                     "daemon.conf rootless default unavailable for '%s' (subid %d:%d missing), "
+                     "continuing as privileged", d->name, uid_start, uid_count);
+    }
+
+
     gchar *zfs_dataset  = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, d->name);
     gchar *mountpoint   = g_strdup_printf("%s/%s", PCV_LXC_PATH, d->name);
     {
@@ -1040,26 +1119,29 @@ _lxc_create_thread(GTask        *task,
     c->set_config_item(c, "lxc.net.0.hwaddr",  "00:16:3e:xx:xx:xx");                 
 
 
-    {
-        gboolean want_rootless;
-        if (d->rootless >= 0) {
-            want_rootless = (d->rootless == 1);
-        } else {
 
-            const gchar *cfg = pcv_config_get_string("container", "rootless", "false");
-            want_rootless = (g_ascii_strcasecmp(cfg, "true") == 0 ||
-                             g_ascii_strcasecmp(cfg, "1") == 0 ||
-                             g_ascii_strcasecmp(cfg, "yes") == 0);
-        }
-        if (want_rootless) {
-            gint uid_start = pcv_config_get_int("container", "rootless_uid_start", 100000);
-            gint uid_count = pcv_config_get_int("container", "rootless_uid_count", 65536);
-            if (!_rootless_apply_config(c, uid_start, uid_count)) {
-                PCV_LOG_WARN(LXC_LOG_DOM,
-                             "rootless setup failed for '%s', continuing as privileged",
-                             d->name);
+
+    if (rootless_mode == PCV_LXC_ROOTLESS_ON &&
+        !_rootless_apply_config(c, uid_start, uid_count)) {
+        if (d->rootless == 1) {
+            lxc_container_put(c);
+            const gchar *rb_argv[] = { "zfs", "destroy", "-r", zfs_dataset, NULL };
+            GError *rb_err = nullptr;
+            gboolean removed = _run_argv(rb_argv, &rb_err);
+            if (!removed) {
+                PCV_LOG_WARN(LXC_LOG_DOM, "rootless rollback: zfs destroy -r %s failed: %s",
+                             zfs_dataset, rb_err ? rb_err->message : "unknown");
             }
+            if (rb_err) g_error_free(rb_err);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "rootless setup failed for '%s'; %s (refusing privileged fallback)",
+                                    d->name, removed ? "container removed"
+                                                     : "rollback of the ZFS dataset failed, remove it manually");
+            goto cleanup;
         }
+        PCV_LOG_WARN(LXC_LOG_DOM,
+                     "rootless setup failed for '%s' (daemon.conf default), continuing as privileged",
+                     d->name);
     }
 
 
@@ -2659,68 +2741,269 @@ pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, GError **error)
                                                                
                                                                    
    
+
+
+
+
+
+
+
+
+
+
+
+#define PCV_LXC_MAX_NETS 16
+
+
+
+
+
+gint
+pcv_lxc_bw_net_index(const gchar *const *net_names, guint n_nets, const gchar *iface)
+{
+    if (!net_names || !iface || !*iface)
+        return -1;
+    for (guint i = 0; i < n_nets; i++) {
+        if (net_names[i] && net_names[i][0] && g_strcmp0(net_names[i], iface) == 0)
+            return (gint)i;
+    }
+    if (!g_str_has_prefix(iface, "eth") || !iface[3])
+        return -1;
+    for (const gchar *p = iface + 3; *p; p++) {
+        if (!g_ascii_isdigit(*p))
+            return -1;
+    }
+    guint64 idx = g_ascii_strtoull(iface + 3, NULL, 10);
+    if (idx >= n_nets)
+        return -1;
+    if (net_names[idx] && net_names[idx][0])
+        return -1;
+    return (gint)idx;
+}
+
+
+
+
+gchar *
+pcv_lxc_bw_normalize_veth(const gchar *raw)
+{
+    if (!raw)
+        return NULL;
+    gchar *veth = g_strstrip(g_strdup(raw));
+    if (!pcv_validate_iface_name(veth)) {
+        g_free(veth);
+        return NULL;
+    }
+    return veth;
+}
+
+
+
+static gchar *
+_lxc_bw_running_item(struct lxc_container *c, const gchar *key)
+{
+    char *raw = c->get_running_config_item(c, key);
+    if (!raw)
+        return NULL;
+    gchar *copy = g_strstrip(g_strdup(raw));
+    free(raw);
+    return copy;
+}
+
+
+
+static gchar *
+_lxc_bw_resolve_host_veth(struct lxc_container *c, const gchar *name,
+                          const gchar *iface, GError **error)
+{
+    gchar *types[PCV_LXC_MAX_NETS] = {0};
+    gchar *names[PCV_LXC_MAX_NETS] = {0};
+    guint n = 0;
+    for (; n < PCV_LXC_MAX_NETS; n++) {
+        gchar key[64];
+        g_snprintf(key, sizeof(key), "lxc.net.%u.type", n);
+        types[n] = _lxc_bw_running_item(c, key);
+        if (!types[n] || !types[n][0])
+            break;
+        g_snprintf(key, sizeof(key), "lxc.net.%u.name", n);
+        names[n] = _lxc_bw_running_item(c, key);
+    }
+
+    gchar *veth = NULL;
+    gint idx = pcv_lxc_bw_net_index((const gchar *const *)names, n, iface);
+    if (idx < 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                    "NIC '%s' not found in running config of container '%s'", iface, name);
+    } else if (g_strcmp0(types[idx], "veth") != 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                    "NIC '%s' of container '%s' is type '%s', not veth", iface, name,
+                    types[idx] ? types[idx] : "?");
+    } else {
+        gchar key[64];
+        g_snprintf(key, sizeof(key), "lxc.net.%d.veth.pair", idx);
+        gchar *raw = _lxc_bw_running_item(c, key);
+        veth = pcv_lxc_bw_normalize_veth(raw);
+        if (!veth) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "Cannot resolve host-side veth for NIC '%s' of container '%s'",
+                        iface, name);
+        } else if (if_nametoindex(veth) == 0) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                        "Host-side veth '%s' for container '%s' does not exist", veth, name);
+            g_clear_pointer(&veth, g_free);
+        }
+        g_free(raw);
+    }
+
+    for (guint i = 0; i <= n && i < PCV_LXC_MAX_NETS; i++) {
+        g_free(types[i]);
+        g_free(names[i]);
+    }
+    return veth;
+}
+
+
+#define PCV_LXC_TBF_TAIL(rate) "root", "tbf", "rate", (rate), "burst", "32kbit", "latency", "50ms"
+
+
+
+static gboolean
+_lxc_bw_apply_host(const gchar *veth, guint kbps, GError **error)
+{
+    gchar *rate = g_strdup_printf("%ukbit", kbps);
+    const gchar *argv[] = {"tc", "qdisc", "replace", "dev", veth, PCV_LXC_TBF_TAIL(rate), NULL};
+    gchar *std_err = NULL;
+    GError *spawn_err = NULL;
+    gboolean ok = pcv_spawn_sync(argv, NULL, &std_err, &spawn_err);
+    if (!ok)
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "tc on host veth '%s' failed: %s", veth,
+                    std_err && *std_err ? g_strstrip(std_err)
+                                        : (spawn_err ? spawn_err->message : "unknown"));
+    g_clear_error(&spawn_err);
+    g_free(std_err);
+    g_free(rate);
+    return ok;
+}
+
+
+
+
+static gboolean
+_lxc_bw_apply_in_container(const gchar *name, const gchar *iface, guint kbps, GError **error)
+{
+    gchar *rate = g_strdup_printf("%ukbit", kbps);
+    const gchar *argv[] = {
+        "lxc-attach", "-P", PCV_LXC_PATH, "-n", name, "--",
+        "tc", "qdisc", "replace", "dev", iface, PCV_LXC_TBF_TAIL(rate), NULL
+    };
+    gchar *std_err = NULL;
+    GError *spawn_err = NULL;
+    gboolean ok = pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME, NULL, &std_err, &spawn_err);
+    if (!ok)
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "tc inside container '%s' on '%s' failed: %s", name, iface,
+                    std_err && *std_err ? g_strstrip(std_err)
+                                        : (spawn_err ? spawn_err->message : "unknown"));
+    g_clear_error(&spawn_err);
+    g_free(std_err);
+    g_free(rate);
+    return ok;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 gboolean
 pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
                         guint inbound_kbps, guint outbound_kbps,
                         GError **error)
 {
-    if (!name || !*name) {
+    const gchar *iface = nic_name ? nic_name : "eth0";
+    if (!name || !*name || !pcv_validate_vm_name(name)) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "Container name required");
+                    "Valid container name required");
+        return FALSE;
+    }
+    if (!pcv_validate_iface_name(iface)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "Invalid NIC name");
+        return FALSE;
+    }
+    if (inbound_kbps == 0 && outbound_kbps == 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "No bandwidth limit requested (inbound_kbps and outbound_kbps are both 0; "
+                    "removing limits is not supported)");
         return FALSE;
     }
 
                                                                   
                                                                
-    const gchar *iface = nic_name ? nic_name : "eth0";                          
-    gchar *find_cmd = g_strdup_printf(
-        "ip link show type veth 2>/dev/null | "
-        "awk -F'[@:]' '/%s/{gsub(/ /,\"\",$$2); print $$2}'",
-        name);
-    gchar *host_veth = nullptr;
-    const gchar *argv_find[] = {"/bin/sh", "-c", find_cmd, NULL};
-    pcv_spawn_sync(argv_find, &host_veth, NULL, NULL);
-    g_free(find_cmd);
-
-    if (!host_veth || !*host_veth) {
-                                                            
-        g_free(host_veth);
-        if (inbound_kbps > 0) {
-            gchar *cmd = g_strdup_printf(
-                "lxc-attach -P %s -n %s -- sh -c '"
-                "tc qdisc del dev %s root 2>/dev/null; "
-                "tc qdisc add dev %s root tbf rate %dkbit burst 32kbit latency 50ms"
-                "'", PCV_LXC_PATH, name, iface, iface, inbound_kbps);
-            const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-            pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME, NULL, NULL, NULL);
-            g_free(cmd);
-        }
-        return TRUE;
+    gchar *config_path = g_build_filename(PCV_LXC_PATH, name, "config", NULL);
+    gboolean defined = g_file_test(config_path, G_FILE_TEST_IS_REGULAR);
+    g_free(config_path);
+    if (!defined) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                    "Container '%s' not found", name);
+        return FALSE;
     }
 
-    g_strstrip(host_veth);
+    struct lxc_container *c = lxc_container_new(name, PCV_LXC_PATH);
+    if (!c || !c->is_defined(c)) {
+        if (c) lxc_container_put(c);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                    "Container '%s' not found", name);
+        return FALSE;
+    }
+    if (!c->is_running(c)) {
+        lxc_container_put(c);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "Container '%s' is not running; bandwidth limits apply to live interfaces",
+                    name);
+        return FALSE;
+    }
 
                                  
+
+    gchar *host_veth = NULL;
     if (outbound_kbps > 0) {
-        gchar *cmd = g_strdup_printf(
-            "tc qdisc del dev %s root 2>/dev/null; "
-            "tc qdisc add dev %s root tbf rate %dkbit burst 32kbit latency 50ms",
-            host_veth, host_veth, outbound_kbps);
-        const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-        pcv_spawn_sync(argv, NULL, NULL, NULL);
-        g_free(cmd);
+        host_veth = _lxc_bw_resolve_host_veth(c, name, iface, error);
+        if (!host_veth) {
+            lxc_container_put(c);
+            return FALSE;
+        }
+    }
+    lxc_container_put(c);
+
+    if (outbound_kbps > 0 && !_lxc_bw_apply_host(host_veth, outbound_kbps, error)) {
+        g_free(host_veth);
+        return FALSE;
     }
 
                                                                             
     if (inbound_kbps > 0) {
-        gchar *cmd = g_strdup_printf(
-            "lxc-attach -P %s -n %s -- sh -c '"
-            "tc qdisc del dev %s root 2>/dev/null; "
-            "tc qdisc add dev %s root tbf rate %dkbit burst 32kbit latency 50ms"
-            "'", PCV_LXC_PATH, name, iface, iface, inbound_kbps);
-        const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-        pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME, NULL, NULL, NULL);
-        g_free(cmd);
+        GError *in_err = NULL;
+        if (!_lxc_bw_apply_in_container(name, iface, inbound_kbps, &in_err)) {
+            if (outbound_kbps > 0)
+                g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                            "outbound limit applied on '%s' but inbound failed: %s",
+                            host_veth, in_err ? in_err->message : "unknown");
+            else
+                g_propagate_error(error, g_steal_pointer(&in_err));
+            g_clear_error(&in_err);
+            g_free(host_veth);
+            return FALSE;
+        }
     }
 
     g_free(host_veth);

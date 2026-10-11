@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 298, REST = cfg.REST_COUNT || 222, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 298, REST = cfg.REST_COUNT || 223, METRICS = cfg.METRICS_COUNT || 155;
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -674,8 +674,9 @@ function renderSwaggerApi(b) {
       { m: 'GET', p: '/containers/{name}/health', d: _L('헬스체크 조회', 'Get health-check') },
       { m: 'DELETE', p: '/containers/{name}/health', d: _L('헬스체크 삭제', 'Delete health-check') },
       { m: 'GET', p: '/containers/{name}/volumes', d: _L('볼륨 목록', 'Volume list') },
-      { m: 'POST', p: '/containers/{name}/volumes', d: _L('볼륨 연결', 'Attach volume'), body: '{"host_path":"/data","mount":"/mnt"}' },
-      { m: 'DELETE', p: '/containers/{name}/volumes/{vol}', d: _L('볼륨 분리', 'Detach volume') },
+      { m: 'POST', p: '/containers/{name}/volumes', d: _L('볼륨 연결', 'Attach volume'), body: '{"host_path":"/data","container_path":"/mnt"}' },
+      { m: 'DELETE', p: '/containers/{name}/volumes/{path}', d: _L('볼륨 분리 (컨테이너 안 경로, 예: /volumes/mnt/data)', 'Detach volume (container path, e.g. /volumes/mnt/data)') },
+      { m: 'DELETE', p: '/containers/{name}/volumes', d: _L('볼륨 분리 (본문으로 경로 지정)', 'Detach volume (path in body)'), body: '{"container_path":"/mnt/data"}' },
       { m: 'GET', p: '/containers/{name}/env', d: _L('환경변수 목록', 'Env list') },
       { m: 'PUT', p: '/containers/{name}/env', d: _L('환경변수 설정', 'Set env'), body: '{"key":"FOO","value":"bar"}' },
       { m: 'DELETE', p: '/containers/{name}/env', d: _L('환경변수 삭제', 'Delete env'), body: '{"key":"FOO"}' },

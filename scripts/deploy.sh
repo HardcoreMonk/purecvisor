@@ -108,6 +108,17 @@ load_ui_asset_manifest() {
 
 
 
+install_local_ui_tree() {
+    local src="$1" dst="$2"
+    sudo install -d -m 0755 -o root -g root -- "$dst"
+    sudo cp -r --no-preserve=ownership,mode -- "$src/." "$dst/"
+    sudo chown -R root:root -- "$dst"
+    sudo find "$dst" -type d -exec chmod 0755 {} +
+    sudo find "$dst" -type f -exec chmod 0644 {} +
+}
+
+
+
 install_local_ui_manifest_assets() {
     local source target policy extra source_path target_path target_dir staged_path
 
@@ -295,21 +306,6 @@ rm -rf -- "$1"
 CLEANUP_EOF
 }
 
-cleanup_remote_abi_artifacts() {
-    local ip="$1"
-
-    "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" bash -s -- \
-        "/tmp/$DAEMON_BIN" /tmp/pcvctl /tmp/check-deploy-abi.sh \
-        <<'ABI_CLEANUP_EOF' 2>/dev/null || true
-set -euo pipefail
-
-[[ "$1" == /tmp/purecvisorsd ]] || exit 2
-[[ "$2" == /tmp/pcvctl ]] || exit 2
-[[ "$3" == /tmp/check-deploy-abi.sh ]] || exit 2
-rm -f -- "$1" "$2" "$3"
-ABI_CLEANUP_EOF
-}
-
                              
 deploy_node() {
     local idx=$1
@@ -319,84 +315,6 @@ deploy_node() {
     info "[$name] Deploying to $ip..."
 
                           
-    if ! "$SCP_BIN" -o ConnectTimeout=5 "bin/$DAEMON_BIN" bin/pcvctl \
-         "$ABI_PREFLIGHT_HELPER" \
-         "${SSH_USER}@${ip}:/tmp/" 2>/dev/null; then
-        cleanup_remote_abi_artifacts "$ip"
-        error "[$name] SCP failed to $ip"
-        return 1
-    fi
-
-
-
-
-    local abi_response
-    if ! abi_response=$(
-        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" bash -s -- \
-            "/tmp/$DAEMON_BIN" /tmp/pcvctl /tmp/check-deploy-abi.sh \
-            <<'ABI_PREFLIGHT_EOF'
-set -euo pipefail
-DAEMON_PATH="$1"
-CLI_PATH="$2"
-ABI_HELPER="$3"
-cleanup_abi_preflight() {
-    local saved_rc=$?
-    rm -f -- "$ABI_HELPER"
-    if (( saved_rc != 0 )); then
-        rm -f -- "$DAEMON_PATH" "$CLI_PATH"
-    fi
-    return "$saved_rc"
-}
-trap cleanup_abi_preflight EXIT
-[[ "$DAEMON_PATH" == /tmp/purecvisorsd ]] || exit 2
-[[ "$CLI_PATH" == /tmp/pcvctl ]] || exit 2
-[[ "$ABI_HELPER" == /tmp/check-deploy-abi.sh ]] || exit 2
-[[ -f "$ABI_HELPER" && ! -L "$ABI_HELPER" ]] || exit 1
-abi_result="$(bash "$ABI_HELPER" "$DAEMON_PATH" "$CLI_PATH")"
-[[ "$abi_result" == 'PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2' ]] || exit 1
-printf '%s\n' "$abi_result"
-ABI_PREFLIGHT_EOF
-    ); then
-        cleanup_remote_abi_artifacts "$ip"
-        error "[$name] Remote ABI preflight failed before service stop"
-        return 1
-    fi
-    if [[ "$abi_response" != "PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2" ]]; then
-        cleanup_remote_abi_artifacts "$ip"
-        error "[$name] Remote ABI preflight returned an invalid response"
-        return 1
-    fi
-    info "[$name] Remote ABI preflight PASS (daemon + CLI)"
-
-
-
-                                                                                
-    if [ -d "${PROJECT_DIR}/ui/vendor" ]; then
-        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" "mkdir -p /tmp/pcv_ui_vendor" 2>/dev/null || true
-        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/vendor/"* \
-            "${SSH_USER}@${ip}:/tmp/pcv_ui_vendor/" 2>/dev/null || true
-    fi
-
-
-    if [ -d "${PROJECT_DIR}/ui/assets" ]; then
-        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" "mkdir -p /tmp/pcv_ui_assets" 2>/dev/null || true
-        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/assets/"* \
-            "${SSH_USER}@${ip}:/tmp/pcv_ui_assets/" 2>/dev/null || true
-    fi
-                       
-    if [ -d "${PROJECT_DIR}/ui/modules" ]; then
-        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" "mkdir -p /tmp/pcv_ui_modules" 2>/dev/null || true
-        "$SCP_BIN" -o ConnectTimeout=5 "${PROJECT_DIR}/ui/modules/"*.js \
-            "${SSH_USER}@${ip}:/tmp/pcv_ui_modules/" 2>/dev/null || true
-    fi
-                                                           
-    if [ -d "${PROJECT_DIR}/ui/samples" ]; then
-        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" "mkdir -p /tmp/pcv_ui_samples" 2>/dev/null || true
-        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/samples/"* \
-            "${SSH_USER}@${ip}:/tmp/pcv_ui_samples/" 2>/dev/null || true
-    fi
-    "$SCP_BIN" -o ConnectTimeout=5 "${PROJECT_DIR}/systemd/purecvisor.logrotate" \
-        "${SSH_USER}@${ip}:/tmp/purecvisor.logrotate" 2>/dev/null || true
 
                                                          
                                                         
@@ -415,6 +333,10 @@ set -euo pipefail
 umask 077
     mkdir -m 0700 -- "$1"
     mkdir -m 0700 -- "$1/ui"
+
+
+    mkdir -m 0700 -- "$1/bin" "$1/pcv_ui_vendor" "$1/pcv_ui_assets" \
+        "$1/pcv_ui_modules" "$1/pcv_ui_samples"
 printf 'PCV_RUNTIME_STAGE=%s\n' "$1"
 STAGE_EOF
     ); then
@@ -427,6 +349,83 @@ STAGE_EOF
         error "[$name] Runtime staging returned an invalid response"
         return 1
     fi
+
+    if ! "$SCP_BIN" -o ConnectTimeout=5 "bin/$DAEMON_BIN" bin/pcvctl \
+         "$ABI_PREFLIGHT_HELPER" \
+         "${SSH_USER}@${ip}:${runtime_stage}/bin/" 2>/dev/null; then
+        cleanup_remote_runtime_stage "$ip" "$runtime_stage"
+        error "[$name] SCP failed to $ip"
+        return 1
+    fi
+
+
+
+
+    local abi_response
+    if ! abi_response=$(
+        "$SSH_BIN" -o ConnectTimeout=5 "${SSH_USER}@${ip}" bash -s -- \
+            "${runtime_stage}/bin/$DAEMON_BIN" "${runtime_stage}/bin/pcvctl" \
+            "${runtime_stage}/bin/check-deploy-abi.sh" \
+            <<'ABI_PREFLIGHT_EOF'
+set -euo pipefail
+DAEMON_PATH="$1"
+CLI_PATH="$2"
+ABI_HELPER="$3"
+cleanup_abi_preflight() {
+    local saved_rc=$?
+    rm -f -- "$ABI_HELPER"
+    if (( saved_rc != 0 )); then
+        rm -f -- "$DAEMON_PATH" "$CLI_PATH"
+    fi
+    return "$saved_rc"
+}
+trap cleanup_abi_preflight EXIT
+[[ "$DAEMON_PATH" =~ ^/tmp/pcv_runtime_prereqs\.[0-9a-f]{32}/bin/purecvisorsd$ ]] || exit 2
+[[ "$CLI_PATH" =~ ^/tmp/pcv_runtime_prereqs\.[0-9a-f]{32}/bin/pcvctl$ ]] || exit 2
+[[ "$ABI_HELPER" =~ ^/tmp/pcv_runtime_prereqs\.[0-9a-f]{32}/bin/check-deploy-abi\.sh$ ]] || exit 2
+[[ -f "$ABI_HELPER" && ! -L "$ABI_HELPER" ]] || exit 1
+abi_result="$(bash "$ABI_HELPER" "$DAEMON_PATH" "$CLI_PATH")"
+[[ "$abi_result" == 'PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2' ]] || exit 1
+printf '%s\n' "$abi_result"
+ABI_PREFLIGHT_EOF
+    ); then
+        cleanup_remote_runtime_stage "$ip" "$runtime_stage"
+        error "[$name] Remote ABI preflight failed before service stop"
+        return 1
+    fi
+    if [[ "$abi_response" != "PCV_DEPLOY_ABI_PREFLIGHT=OK binaries=2" ]]; then
+        cleanup_remote_runtime_stage "$ip" "$runtime_stage"
+        error "[$name] Remote ABI preflight returned an invalid response"
+        return 1
+    fi
+    info "[$name] Remote ABI preflight PASS (daemon + CLI)"
+
+
+
+
+    if [ -d "${PROJECT_DIR}/ui/vendor" ]; then
+        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/vendor/"* \
+            "${SSH_USER}@${ip}:${runtime_stage}/pcv_ui_vendor/" 2>/dev/null || true
+    fi
+
+
+    if [ -d "${PROJECT_DIR}/ui/assets" ]; then
+        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/assets/"* \
+            "${SSH_USER}@${ip}:${runtime_stage}/pcv_ui_assets/" 2>/dev/null || true
+    fi
+
+    if [ -d "${PROJECT_DIR}/ui/modules" ]; then
+        "$SCP_BIN" -o ConnectTimeout=5 "${PROJECT_DIR}/ui/modules/"*.js \
+            "${SSH_USER}@${ip}:${runtime_stage}/pcv_ui_modules/" 2>/dev/null || true
+    fi
+
+    if [ -d "${PROJECT_DIR}/ui/samples" ]; then
+        "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/samples/"* \
+            "${SSH_USER}@${ip}:${runtime_stage}/pcv_ui_samples/" 2>/dev/null || true
+    fi
+    "$SCP_BIN" -o ConnectTimeout=5 "${PROJECT_DIR}/systemd/purecvisor.logrotate" \
+        "${SSH_USER}@${ip}:${runtime_stage}/" 2>/dev/null || true
+
     if ! "$SCP_BIN" -o ConnectTimeout=5 \
         "${UI_ASSET_SOURCES[@]}" \
         "${SSH_USER}@${ip}:${runtime_stage}/ui/" 2>/dev/null; then
@@ -512,6 +511,16 @@ STAGE_EOF
                 fi
             done < "$RUNTIME_STAGE/ui-assets.manifest"
         }
+
+
+        install_ui_tree() {
+            local src="$1" dst="$2"
+            sudo install -d -m 0755 -o root -g root -- "$dst"
+            sudo cp -r --no-preserve=ownership,mode -- "$src/." "$dst/"
+            sudo chown -R root:root -- "$dst"
+            sudo find "$dst" -type d -exec chmod 0755 {} +
+            sudo find "$dst" -type f -exec chmod 0644 {} +
+        }
         rollback_nginx_transaction() {
             local saved_rc=$?
             if [[ -n "$NGINX_DEPLOYMENT_ID" && "$NGINX_COMMITTED" -eq 0 ]]; then
@@ -573,8 +582,9 @@ STAGE_EOF
         sudo systemctl stop "$SERVICE" 2>/dev/null || true
                               
                                                     
-        sudo cp "/tmp/$DAEMON_BIN" "/usr/local/bin/$DAEMON_BIN"
-        sudo cp /tmp/pcvctl /usr/local/bin/
+        sudo cp "$RUNTIME_STAGE/bin/$DAEMON_BIN" "/usr/local/bin/$DAEMON_BIN"
+        sudo cp "$RUNTIME_STAGE/bin/pcvctl" /usr/local/bin/
+        sudo chown root:root "/usr/local/bin/$DAEMON_BIN" /usr/local/bin/pcvctl
         sudo chmod 755 "/usr/local/bin/$DAEMON_BIN" /usr/local/bin/pcvctl
                                                            
                                                         
@@ -586,32 +596,26 @@ STAGE_EOF
         sudo rm -f /usr/local/share/purecvisor/ui/bundle.js
         install_ui_manifest_assets "$RUNTIME_STAGE"
                                         
-        if [ -d /tmp/pcv_ui_vendor ] && ls /tmp/pcv_ui_vendor/* >/dev/null 2>&1; then
-            sudo mkdir -p /usr/local/share/purecvisor/ui/vendor
-            sudo cp -a /tmp/pcv_ui_vendor/. /usr/local/share/purecvisor/ui/vendor/
-            rm -rf /tmp/pcv_ui_vendor
+        if [ -d "$RUNTIME_STAGE/pcv_ui_vendor" ] && ls "$RUNTIME_STAGE"/pcv_ui_vendor/* >/dev/null 2>&1; then
+            install_ui_tree "$RUNTIME_STAGE/pcv_ui_vendor" /usr/local/share/purecvisor/ui/vendor
         fi
 
-        if [ -d /tmp/pcv_ui_assets ] && ls /tmp/pcv_ui_assets/* >/dev/null 2>&1; then
-            sudo mkdir -p /usr/local/share/purecvisor/ui/assets
-            sudo cp -a /tmp/pcv_ui_assets/. /usr/local/share/purecvisor/ui/assets/
-            rm -rf /tmp/pcv_ui_assets
+        if [ -d "$RUNTIME_STAGE/pcv_ui_assets" ] && ls "$RUNTIME_STAGE"/pcv_ui_assets/* >/dev/null 2>&1; then
+            install_ui_tree "$RUNTIME_STAGE/pcv_ui_assets" /usr/local/share/purecvisor/ui/assets
         fi
                            
-        if [ -d /tmp/pcv_ui_modules ] && ls /tmp/pcv_ui_modules/*.js >/dev/null 2>&1; then
-            sudo cp /tmp/pcv_ui_modules/*.js /usr/local/share/purecvisor/ui/modules/
-            rm -rf /tmp/pcv_ui_modules
+        if [ -d "$RUNTIME_STAGE/pcv_ui_modules" ] && ls "$RUNTIME_STAGE"/pcv_ui_modules/*.js >/dev/null 2>&1; then
+            sudo install -m 0644 -o root -g root -t /usr/local/share/purecvisor/ui/modules/ \
+                -- "$RUNTIME_STAGE"/pcv_ui_modules/*.js
         fi
                            
-        if [ -d /tmp/pcv_ui_samples ] && ls /tmp/pcv_ui_samples/* >/dev/null 2>&1; then
-            sudo mkdir -p /usr/local/share/purecvisor/ui/samples
-            sudo cp -a /tmp/pcv_ui_samples/. /usr/local/share/purecvisor/ui/samples/
-            rm -rf /tmp/pcv_ui_samples
+        if [ -d "$RUNTIME_STAGE/pcv_ui_samples" ] && ls "$RUNTIME_STAGE"/pcv_ui_samples/* >/dev/null 2>&1; then
+            install_ui_tree "$RUNTIME_STAGE/pcv_ui_samples" /usr/local/share/purecvisor/ui/samples
         fi
                                  
-        if [ -f /tmp/purecvisor.logrotate ]; then
-            sudo cp /tmp/purecvisor.logrotate /etc/logrotate.d/purecvisor
-            rm -f /tmp/purecvisor.logrotate
+        if [ -f "$RUNTIME_STAGE/purecvisor.logrotate" ]; then
+            sudo install -m 0644 -o root -g root -- "$RUNTIME_STAGE/purecvisor.logrotate" \
+                /etc/logrotate.d/purecvisor
         fi
         sudo "$RUNTIME_STAGE/install-runtime-prereqs.sh" --bpf-stage "$RUNTIME_STAGE"
 
@@ -692,7 +696,6 @@ raise SystemExit(0 if ok else 1)
             NGINX_COMMITTED=1
             NGINX_DEPLOYMENT_ID=""
         fi
-        rm -f "/tmp/$DAEMON_BIN" /tmp/pcvctl
         trap - EXIT INT TERM
         cleanup_runtime_stage
         echo "OK"
@@ -746,20 +749,19 @@ if [[ $NO_LOCAL -eq 0 ]]; then
         sudo rm -f "$UI_DIR/bundle.js"
         install_local_ui_manifest_assets
         if [ -d "${PROJECT_DIR}/ui/vendor" ]; then
-            sudo mkdir -p "$UI_DIR/vendor"
-            sudo cp -a "${PROJECT_DIR}/ui/vendor/." "$UI_DIR/vendor/"
+            install_local_ui_tree "${PROJECT_DIR}/ui/vendor" "$UI_DIR/vendor"
         fi
         if [ -d "${PROJECT_DIR}/ui/assets" ]; then
-            sudo mkdir -p "$UI_DIR/assets"
-            sudo cp -a "${PROJECT_DIR}/ui/assets/." "$UI_DIR/assets/"
+            install_local_ui_tree "${PROJECT_DIR}/ui/assets" "$UI_DIR/assets"
         fi
-        [ -d "${PROJECT_DIR}/ui/modules" ] && sudo cp "${PROJECT_DIR}/ui/modules/"*.js "$UI_DIR/modules/"
+        [ -d "${PROJECT_DIR}/ui/modules" ] && sudo install -m 0644 -o root -g root \
+            -t "$UI_DIR/modules/" -- "${PROJECT_DIR}/ui/modules/"*.js
         if [ -d "${PROJECT_DIR}/ui/samples" ]; then
-            sudo mkdir -p "$UI_DIR/samples"
-            sudo cp -a "${PROJECT_DIR}/ui/samples/." "$UI_DIR/samples/"
+            install_local_ui_tree "${PROJECT_DIR}/ui/samples" "$UI_DIR/samples"
         fi
         if [ -f "${PROJECT_DIR}/systemd/purecvisor.logrotate" ]; then
-            sudo cp "${PROJECT_DIR}/systemd/purecvisor.logrotate" /etc/logrotate.d/purecvisor
+            sudo install -m 0644 -o root -g root -- \
+                "${PROJECT_DIR}/systemd/purecvisor.logrotate" /etc/logrotate.d/purecvisor
         fi
         sudo "$RUNTIME_PREREQ_HELPER" --bpf-stage "$BPF_STAGE"
         sudo install -m 0644 "$VFIO_MODULES_FILE" \

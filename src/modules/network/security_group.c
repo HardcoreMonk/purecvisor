@@ -70,7 +70,11 @@
 #include "api/drain.h"
 #include <glib.h>
 #include <json-glib/json-glib.h>
+#include <glib/gstdio.h>
+#include <errno.h>
+#include <fcntl.h>
 #include <string.h>
+#include <unistd.h>
 #include <sqlite3.h>
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_log.h"
@@ -162,7 +166,22 @@ static GMutex      g_sg_mu;
 static sqlite3    *g_sg_db  = nullptr;                                          
 
 #define SG_DB_PATH "/var/lib/purecvisor/security_groups.db"
+#define SG_DB_FILE_MODE 0600
 #define SG_NFT_SCRIPT_PATH "/run/purecvisor/sg-ruleset.nft"
+#define SG_NFT_SCRIPT_DIR "/run/purecvisor"
+
+
+
+
+
+#ifdef PCV_TEST_OVERRIDE_SG_DB_PATH
+#undef SG_DB_PATH
+#undef SG_NFT_SCRIPT_PATH
+#undef SG_NFT_SCRIPT_DIR
+#define SG_DB_PATH          PCV_TEST_OVERRIDE_SG_DB_PATH
+#define SG_NFT_SCRIPT_PATH  PCV_TEST_OVERRIDE_SG_NFT_SCRIPT_PATH
+#define SG_NFT_SCRIPT_DIR   PCV_TEST_OVERRIDE_SG_NFT_SCRIPT_DIR
+#endif
                                                                          
 #define SG_SPAWN_TIMEOUT_SEC 30
 static GMutex g_sg_nft_mu;                                                       
@@ -222,8 +241,42 @@ _ensure_init(void)
                                                              
                                                        
                                                   
+
+
+
+
+gboolean
+pcv_security_group_db_prepare_file(const gchar *db_path)
+{
+    if (!db_path || !*db_path) return FALSE;
+    gboolean ok = TRUE;
+
+    gint fd = open(db_path, O_WRONLY | O_CREAT | O_EXCL | O_CLOEXEC, SG_DB_FILE_MODE);
+    if (fd >= 0) {
+        close(fd);
+    } else if (errno != EEXIST) {
+
+        PCV_LOG_WARN("SG", "SG DB 파일 생성 실패 %s: %s", db_path, g_strerror(errno));
+        return FALSE;
+    }
+
+    static const gchar *const suffixes[] = { "", "-wal", "-shm" };
+    for (gsize i = 0; i < G_N_ELEMENTS(suffixes); i++) {
+        g_autofree gchar *path = g_strconcat(db_path, suffixes[i], NULL);
+        if (g_chmod(path, SG_DB_FILE_MODE) == 0 || (errno == ENOENT && i > 0))
+            continue;
+        PCV_LOG_WARN("SG", "SG DB 권한 0600 보정 실패 %s: %s", path, g_strerror(errno));
+        ok = FALSE;
+    }
+    return ok;
+}
+
+
+
+
 static void _sg_db_init(void) {
     if (g_sg_db) return;                                                     
+    (void)pcv_security_group_db_prepare_file(SG_DB_PATH);
     int rc = sqlite3_open(SG_DB_PATH, &g_sg_db);
     if (rc != SQLITE_OK) {
                                                               
@@ -374,7 +427,7 @@ static gboolean
 _nft_run_script(const gchar *script, GError **error)
 {
     g_mutex_lock(&g_sg_nft_mu);                                            
-    g_mkdir_with_parents("/run/purecvisor", 0755);                                
+    g_mkdir_with_parents(SG_NFT_SCRIPT_DIR, 0755);
     gboolean ok = g_file_set_contents(SG_NFT_SCRIPT_PATH, script, -1, error);
     if (ok) {                            
         const gchar *argv[] = {"nft", "-f", SG_NFT_SCRIPT_PATH, NULL};

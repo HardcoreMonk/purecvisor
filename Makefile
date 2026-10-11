@@ -43,6 +43,8 @@ DEV_JOB_FLAGS = $(if $(filter -j% --jobserver-auth=%,$(MAKEFLAGS)),,-j$(DEV_JOBS
 
 
 
+
+
 DEV_MUTATING_CHECKS = check-rpc-consumers check-rpc-param-contract check-safety-controls check-fe-rpc-params check-rerror-guard
 DEV_PARALLEL_CHECKS = check-aws-manual-removed check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime
 
@@ -352,8 +354,12 @@ DAEMON_SRCS = src/main.c $(DAEMON_COMMON_SRCS) $(SINGLE_BOOTSTRAP_SRCS)
                                                                            
                                                                  
                                                                                
+
+
+
 TEST_COMMON_SRCS = \
     tests/test_stubs.c \
+    tests/test_host_isolation.c \
     tests/test_main.c \
     tests/test_validate.c \
     tests/test_circuit_breaker.c \
@@ -392,6 +398,8 @@ TEST_COMMON_SRCS = \
     tests/test_alert_basic.c \
     tests/test_backup_basic.c \
     tests/test_lxc_basic.c \
+    tests/test_lxc_driver.c \
+    src/modules/lxc/lxc_driver.c \
     tests/test_ws_basic.c \
     tests/test_hotreload.c \
     tests/test_txn.c \
@@ -412,6 +420,7 @@ TEST_COMMON_SRCS = \
     tests/test_rpc_utils.c \
     tests/test_rpc_completion.c \
     tests/test_host_hardware_inventory.c \
+    tests/test_monitor_arp.c \
     tests/test_rpc_parse_guarded.c \
     tests/test_drain.c \
     tests/test_ai_agent.c \
@@ -541,13 +550,19 @@ CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c
 
                                
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
-TEST_OBJS   = $(filter-out src/modules/ai/self_healing.o,$(TEST_SRCS:.c=.o))
+
+
+TEST_HOST_PATH_SEAM_REPLACED = src/utils/pcv_log.o src/modules/network/security_group.o
+TEST_HOST_PATH_SEAM_OBJS = tests/pcv_log_host_paths.o tests/security_group_host_paths.o
+TEST_OBJS   = $(filter-out src/modules/ai/self_healing.o $(TEST_HOST_PATH_SEAM_REPLACED),$(TEST_SRCS:.c=.o))
 TEST_OBJS  += tests/rest_transport_policy.o
 TEST_OBJS  += tests/dispatcher_policy.o
 TEST_OBJS  += tests/self_healing_policy.o
+TEST_OBJS  += $(TEST_HOST_PATH_SEAM_OBJS)
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
 DEPENDS     = $(DAEMON_SRCS:.c=.d) $(TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
 DEPENDS    += tests/self_healing_policy.d
+DEPENDS    += $(TEST_HOST_PATH_SEAM_OBJS:.o=.d)
 
                                                    
                                                 
@@ -561,6 +576,8 @@ ALL_EDITION_OBJS = $(ALL_DAEMON_SRCS:.c=.o) $(ALL_TEST_SRCS:.c=.o) $(CLI_SRCS:.c
 ALL_EDITION_DEPS = $(ALL_DAEMON_SRCS:.c=.d) $(ALL_TEST_SRCS:.c=.d) $(CLI_SRCS:.c=.d)
 ALL_EDITION_OBJS += tests/self_healing_policy.o
 ALL_EDITION_DEPS += tests/self_healing_policy.d
+ALL_EDITION_OBJS += $(TEST_HOST_PATH_SEAM_OBJS)
+ALL_EDITION_DEPS += $(TEST_HOST_PATH_SEAM_OBJS:.o=.d)
 CLEAN_REPORTS = test_results.txt test_results_tap.txt valgrind_report.txt sanitize_report.txt tsan_report.txt cppcheck_report.txt
 CLEAN_FUZZ_ARTIFACTS = fuzz_pcv_validate fuzz_pcv_jwt fuzz_rpc_envelope fuzz_validate.txt fuzz_jwt.txt fuzz_rpc.txt
 CLEAN_COVERAGE_ARTIFACTS = compile_commands.json *.gcda *.gcno *.gcov
@@ -713,6 +730,20 @@ tests/self_healing_policy.o: src/modules/ai/self_healing.c src/modules/ai/self_h
 	$(CC) $(CFLAGS) -Dg_get_monotonic_time=pcv_test_healing_monotonic_time -c $< -o $@
 
 
+
+
+
+
+TEST_HOST_PATH_SEAM_FLAGS = -DPCV_TEST_HOST_PATH_SEAM_MAP -include tests/test_host_isolation.h
+tests/pcv_log_host_paths.o: src/utils/pcv_log.c src/utils/pcv_log.h tests/test_host_isolation.h
+	@echo "🔨 Compiling test host-path seam: $<"
+	$(CC) $(CFLAGS) $(TEST_HOST_PATH_SEAM_FLAGS) -c $< -o $@
+
+tests/security_group_host_paths.o: src/modules/network/security_group.c tests/test_host_isolation.h
+	@echo "🔨 Compiling test host-path seam: $<"
+	$(CC) $(CFLAGS) $(TEST_HOST_PATH_SEAM_FLAGS) -c $< -o $@
+
+
 test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle
 	@echo "🧪 Running g_test_* suite..."
 	@sudo ./$(TEST_BIN) -v > test_results.txt 2>&1; \
@@ -858,7 +889,10 @@ clean:
 	      $(CLEAN_COVERAGE_ARTIFACTS) $(CLEAN_PROTO_ARTIFACTS) \
 	      $(CLEAN_UI_ARTIFACTS) \
 	      .edition-single $(EDITION_STATE_FILE)
-	rm -rf $(COV_DIR) dist
+
+
+	rm -rf $(COV_DIR)
+	rm -f dist/purecvisor-single_*_amd64.deb
 
                                                                
 UI_DIR = ui
@@ -1099,7 +1133,7 @@ dev-check:
 		echo "🔒 Running isolated gate: $$gate"; \
 		$(MAKE) --no-print-directory "$$gate" || exit $$?; \
 	done
-	@echo "✅ 개발 계약 게이트 42개 통과 (37 parallel-safe + 5 isolated)"
+	@echo "✅ 개발 계약 게이트 $(words $(DEV_PARALLEL_CHECKS) $(DEV_MUTATING_CHECKS))개 통과 ($(words $(DEV_PARALLEL_CHECKS)) parallel-safe + $(words $(DEV_MUTATING_CHECKS)) isolated)"
 
 dev-verify:
 	+@$(MAKE) --no-print-directory $(DEV_JOB_FLAGS) DEV_FAST=1 DEV_USE_MOLD=$(DEV_USE_MOLD) test-auto
@@ -1177,6 +1211,11 @@ cppcheck-strict: cppcheck
 check-rbac:
 	@echo "🔐 Running ADR-0019 RBAC policy gate..."
 	@python3 scripts/check_rbac_policies.py
+
+	@python3 scripts/tests/test_check_rbac_policies.py
+
+	@python3 scripts/check_ws_broadcast_auth.py
+	@python3 scripts/tests/test_check_ws_broadcast_auth.py
 
 check-secret-wipe:
 	@echo "🔐 Running secret free-without-wipe gate (OVL-1 후속 완전성)..."
@@ -1256,6 +1295,11 @@ check-audit-placement:
 	@python3 scripts/check_trace_reap_lifetime.py
 	@python3 scripts/tests/test_trace_reap_lifetime_wiring.py
 	@python3 tests/test_trace_reap_lifetime.py
+
+	@python3 scripts/check_snapshot_rollback_order.py
+	@python3 scripts/tests/test_snapshot_rollback_order.py
+
+	@python3 scripts/tests/test_ova_async_result.py
 
 check-cors-anchor:
 	@echo "🌐 Running CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13)..."
@@ -1360,6 +1404,12 @@ check-public-comments: check-standalone-builds test_runner
 	@python3 scripts/check_spawn_capability_contract.py --self-test
 	@python3 scripts/check_spawn_capability_contract.py
 
+	@python3 scripts/check_no_shell_exec.py
+	@python3 scripts/tests/test_no_shell_exec.py
+
+	@python3 scripts/check_test_hermetic.py
+	@python3 scripts/tests/test_test_hermetic.py
+
 
 	@python3 scripts/check_test_runner_selectors.py --self-test
 	@python3 scripts/check_test_runner_selectors.py --test-runner ./$(TEST_BIN)
@@ -1461,6 +1511,10 @@ check-runtime-prereqs:
 
 
 
+	@python3 scripts/tests/test_dev_make_performance_contract.py
+
+
+
 	@bash tests/integration/test_host_tuning_install.sh
 
 
@@ -1475,10 +1529,30 @@ check-single-ui-surface:
 	@bash tests/integration/test_single_ui_surface.sh
 	@python3 scripts/tests/test_single_ui_surface.py
 
+	@python3 scripts/check_help_counts.py --self-test
+	@python3 scripts/check_help_counts.py
+
 .PHONY: check-aws-manual-removed
 check-aws-manual-removed:
 	python3 scripts/check_aws_manual_removed.py
 	node --test tests/ui/aws-manual-removal.test.mjs
+
+
+
+
+
+
+
+
+
+ifneq ($(filter check-all,$(MAKECMDGOALS)),)
+CHECK_ALL_SERIAL_PREV := $(DEV_PARALLEL_CHECKS)
+define CHECK_ALL_SERIALIZE
+$(1): | $$(CHECK_ALL_SERIAL_PREV)
+CHECK_ALL_SERIAL_PREV := $(1)
+endef
+$(foreach gate,$(DEV_MUTATING_CHECKS),$(eval $(call CHECK_ALL_SERIALIZE,$(gate))))
+endif
 
 
 check-all: check-aws-manual-removed check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime

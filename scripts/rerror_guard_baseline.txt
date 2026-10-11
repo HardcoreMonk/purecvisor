@@ -15,7 +15,6 @@ ui/app.js|GET|/alerts/dlq#1
 ui/app.js|GET|/auth/whoami#1
 ui/app.js|GET|/gpu/list#1
 ui/app.js|GET|/vms#1
-ui/app.js|GET|/vms#2
 ui/app.js|GET|EP.OVN_ACL#1
 ui/app.js|GET|url#1
 ui/app.js|POST|/rpc:alert.dlq.list#1

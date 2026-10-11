@@ -1648,16 +1648,46 @@ _metadata_stat_fault_hook(const gchar *path, GError **error,
     return FALSE;
 }
 
+
+
+
+
+
+
+
+static void
+_overlay_disabled_context_begin(void)
+{
+    GError *error = NULL;
+    _overlay_fake_reset();
+    O_meta_dir = g_dir_make_tmp("pcv-overlay-disabled-XXXXXX", &error);
+    g_assert_no_error(error);
+    pcv_overlay_set_test_context(_overlay_fake_exec, O_meta_dir);
+}
+
+
+static void
+_overlay_disabled_context_end(void)
+{
+    pcv_overlay_set_test_context(NULL, NULL);
+    _overlay_test_remove_tree(O_meta_dir);
+    g_clear_pointer(&O_meta_dir, g_free);
+    _overlay_fake_clear();
+}
+
 static void test_overlay_list_empty_single(void)
 {
+    _overlay_disabled_context_begin();
     JsonArray *array = pcv_overlay_list(NULL);
     g_assert_nonnull(array);
     g_assert_cmpuint(json_array_get_length(array), ==, 0);
     json_array_unref(array);
+    _overlay_disabled_context_end();
 }
 
 static void test_overlay_disabled_and_validation(void)
 {
+    _overlay_disabled_context_begin();
     GError *error = NULL;
     JsonObject *info = pcv_overlay_info("pcvoverlay0", NULL);
     g_assert_cmpstr(json_object_get_string_member(info, "error"), ==,
@@ -1686,6 +1716,7 @@ static void test_overlay_disabled_and_validation(void)
                                       "2001:db8::1/64", &error));
     g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);
     g_clear_error(&error);
+    _overlay_disabled_context_end();
 }
 
 static void test_overlay_disabled_reads_expose_metadata_residue(void)

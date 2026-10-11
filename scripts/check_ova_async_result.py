@@ -1,4 +1,8 @@
 #!/usr/bin/env python3
+
+
+
+
                           
                                                            
                                                                                       
@@ -67,8 +71,78 @@ def _fail(message: str) -> int:
     return 1
 
 
-def main() -> int:
-    text = _read(DISPATCHER_C)
+def _strip_comments(code: str) -> str:
+
+
+    out = []
+    i, n = 0, len(code)
+    state, quote = "code", ""
+    while i < n:
+        ch, nxt = code[i], code[i + 1] if i + 1 < n else ""
+        if state == "code":
+            if ch == "/" and nxt == "/":
+                state = "line"; out.append("  "); i += 2; continue
+            if ch == "/" and nxt == "*":
+                state = "block"; out.append("  "); i += 2; continue
+            if ch in ('"', "'"):
+                state, quote = "literal", ch
+            out.append(ch); i += 1
+        elif state == "literal":
+            out.append(ch)
+            if ch == "\\" and i + 1 < n:
+                out.append(code[i + 1]); i += 2; continue
+            if ch == quote or ch == "\n":
+                state = "code"
+            i += 1
+        elif state == "line":
+            if ch == "\n":
+                state = "code"; out.append("\n")
+            else:
+                out.append(" ")
+            i += 1
+        else:
+            if ch == "*" and nxt == "/":
+                state = "code"; out.append("  "); i += 2; continue
+            out.append("\n" if ch == "\n" else " "); i += 1
+    return "".join(out)
+
+
+def check_import_name_lock(import_handler: str, ctx_free: str, import_ctx: str) -> list[str]:
+
+
+
+
+
+
+
+    handler = _strip_comments(import_handler)
+    fails = []
+    if "_valid_vm_storage_pool(pool)" not in handler:
+        fails.append("OVA import validates pool with the vm.create dataset validator")
+    lock_at = handler.find("lock_vm_operation(name, VM_OP_CREATING")
+    preflight_at = handler.find("virDomainLookupByName(conn, name)")
+    if lock_at < 0 or preflight_at < 0 or lock_at > preflight_at:
+        fails.append("OVA import takes the target-name op-lock before preflight checks")
+    else:
+        after_lock = handler[lock_at:]
+
+        returns = after_lock.count("return;") - 1
+        unlocks = after_lock.count("unlock_vm_operation(name)")
+        if returns != unlocks:
+            fails.append(f"OVA import releases the op-lock on every rejection after locking "
+                         f"({unlocks} unlocks for {returns} returns)")
+    if "ctx->holds_lock = TRUE;" not in handler:
+        fails.append("OVA import hands the op-lock to the worker context")
+    if "gboolean holds_lock;" not in _strip_comments(import_ctx):
+        fails.append("OvaImportCtx carries holds_lock")
+    if "if (ctx->holds_lock) unlock_vm_operation(ctx->vm_name);" not in _strip_comments(ctx_free):
+        fails.append("OVA import context free releases the op-lock")
+    return fails
+
+
+def main(argv: list[str] | None = None) -> int:
+    argv = sys.argv if argv is None else argv
+    text = _read(Path(argv[1]) if len(argv) > 1 else DISPATCHER_C)
     section_match = re.search(
         r"typedef struct \{(?P<ctx>.*?)\} OvaExportCtx;(?P<section>.*?)"
         r"(?=typedef struct\s*\{\s*gchar\s*\*ova_path;)",
@@ -125,6 +199,15 @@ def main() -> int:
     for description, ok in import_required_tokens.items():
         if not ok:
             return _fail(description)
+
+    import_ctx_match = re.search(r"typedef struct \{(?P<ctx>[^{}]*)\} OvaImportCtx;", text)
+    if not import_ctx_match:
+        return _fail("could not find OvaImportCtx")
+    lock_fails = check_import_name_lock(import_handler,
+                                        _function_body(text, "_free_ova_import_ctx"),
+                                        import_ctx_match.group("ctx"))
+    if lock_fails:
+        return _fail(lock_fails[0])
 
     print("[PASS] OVA import/export async result guard structure is present")
     return 0

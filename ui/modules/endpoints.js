@@ -135,6 +135,8 @@ var EP = (function() {
     AUTH_REGISTER:        function()     { return B() + '/auth/register'; },
     AUTH_PASSWORD:        function()     { return B() + '/auth/password'; },
     AUTH_REFRESH:         function()     { return B() + '/auth/refresh'; },
+
+    AUTH_LOGOUT:          function()     { return B() + '/auth/logout'; },
     AUTH_USERS:           function()     { return B() + '/auth/users'; },
     AUTH_USER:            function(u)    { return B() + '/auth/users/' + enc(u); },
     AUTH_ROLE:            function()     { return B() + '/auth/role'; },

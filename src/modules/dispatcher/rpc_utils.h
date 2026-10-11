@@ -177,6 +177,22 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
                                                    
                                                  
                          
+
+
+
+
+
+
+
+
+
+const gchar *pcv_rpc_params_get_string(JsonObject *params, const gchar *key);
+
+
+
+
+
+
 #define PCV_RPC_JSON_MAX_DEPTH 128
 
    

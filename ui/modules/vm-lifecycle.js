@@ -812,6 +812,31 @@ function closeISOBrowser() { if (isoDialog) { var d = isoDialog; isoDialog = nul
   
 
                                                
+async function _confirmVmCreated(name, spec, jobId) {
+  try {
+    var job = await PCV.api.waitForJob(jobId, { attempts: 15, interval: 2000 });
+    if (job.status === 'completed') {
+      toast(t('vm.created') + ': ' + name, 's');
+      addEvt(t('vm.created') + ': ' + spec + ' job=' + jobId);
+    } else {
+      toast(_L('VM 생성 진행 중 · 완료 미확인', 'VM creation in progress · completion unconfirmed') +
+        ': ' + name + ' (' + jobId + ')', 'w');
+    }
+  } catch (e) {
+    toast(_L('VM 생성 결과 확인 필요', 'Check VM creation result') + ': ' + name + ' (' + jobId + ') — ' +
+      ((e && e.message) || 'unknown'), false);
+  }
+}
+
+
+
+
+
+
+
+
+
+
                                                                              
                                                                   
                                                        
@@ -897,9 +922,18 @@ async function doCreate() {
       return;
     }
 
-    toast('&#9989; ' + t('vm.created') + ': ' + escapeHtml(name), 's');
+
+
+
+
+    const accepted = unwrapData(r) || {};
+    const jobId = accepted.job_id || '';
     const storageLabel = (d.storage_type && d.storage_type !== 'auto') ? d.storage_type : 'auto';
-    addEvt(t('vm.created') + ': ' + name + ' (' + d.vcpu + 'vCPU, ' + d.mem + 'MB, ' + d.disk + 'GB, ' + storageLabel + ')');
+    const spec = name + ' (' + d.vcpu + 'vCPU, ' + d.mem + 'MB, ' + d.disk + 'GB, ' + storageLabel + ')';
+    toast(_L('VM 생성 접수됨', 'VM creation accepted') + ': ' + name + (jobId ? ' (' + jobId + ')' : ''), 's');
+    addEvt('VM create accepted: ' + spec + (jobId ? ' job=' + jobId : ''));
+    if (jobId) _confirmVmCreated(name, spec, jobId);
+
                                                                           
                                                           
     if (typeof invalidateCache === 'function') invalidateCache('vm.list');
@@ -925,6 +959,10 @@ async function doCreate() {
           stopPoll();
           window.vmList = list; vmList = list;
           render();
+          if (!jobId) {
+            toast(t('vm.created') + ': ' + name, 's');
+            addEvt(t('vm.created') + ': ' + spec);
+          }
         } else if (attempts >= 20) {
           stopPoll();
           loadAll();
@@ -1064,7 +1102,9 @@ async function browseISOForMount() {
       Object.entries(dirs).forEach(([dir, files]) => {
         listKids.push(el('div', { style: 'padding:6px 10px;font-size:10px;color:var(--accent);border-bottom:1px solid var(--border);font-weight:600' }, '📂 ' + dir));
         files.forEach(iso => { const p = String(iso.path || iso.name || ''); const fn = (iso.name || p).replace(/^.*\//, ''); const sz = iso.size_mb ? iso.size_mb + 'MB' : '';
-          listKids.push(el('div', { onclick: 'selectISOForMount(' + escapeAttr(JSON.stringify(p)) + ')', style: 'padding:7px 12px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)', onmouseover: "this.style.background='var(--bg3)'", onmouseout: "this.style.background=''" },
+
+
+          listKids.push(el('div', { onClick: function() { selectISOForMount(p); }, style: 'padding:7px 12px;cursor:pointer;font-size:12px;display:flex;align-items:center;gap:6px;border-bottom:1px solid var(--border)', onmouseover: "this.style.background='var(--bg3)'", onmouseout: "this.style.background=''" },
             el('span', { class: 'color-accent' }, '💿'),
             el('span', { class: 'flex-1' }, fn),
             el('span', { class: 'color-muted text-xs' }, sz))); }); }); }
@@ -1678,8 +1718,10 @@ async function doDiskResize() {
   const v = vmList[selectedVmIndex]; if (!v) return;
   const size = document.getElementById('sd-size')?.value;
   const path = document.getElementById('sd-path')?.value;
-  const body = { size_gb: parseInt(size) || 40 };
-  if (path) body.disk_path = path;
+
+
+  const body = { new_size_gb: parseInt(size) || 40 };
+  if (path) body.target = path.trim();
   try {
     const r = await fetchPut(EP.VM_DISK(v.name), body);
     if (r.error) { toast('Resize failed: ' + (r.error.message || ''), false); return; }

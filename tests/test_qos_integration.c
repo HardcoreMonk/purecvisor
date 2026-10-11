@@ -62,6 +62,10 @@ extern gboolean _chaos_expire_cb(gpointer data);
 
 
 
+extern void pcv_qos_set_tenant_sla_path_for_test(const gchar *path);
+
+
+
 
 static gboolean
 _fixture_run(const gchar * const *argv)
@@ -334,6 +338,18 @@ test_qos_tenant_sla_live_update_root(void)
         return;
     }
 
+
+
+
+
+
+
+    GError *dir_err = NULL;
+    gchar *sla_dir = g_dir_make_tmp("pcv-qos-sla-live-XXXXXX", &dir_err);
+    g_assert_no_error(dir_err);
+    gchar *sla_path = g_build_filename(sla_dir, "qos_tenants.json", NULL);
+    pcv_qos_set_tenant_sla_path_for_test(sla_path);
+
     _cleanup_netdevs();
     pcv_qos_ids_clear();
     pcv_qos_tenant_sla_clear();
@@ -349,6 +365,10 @@ test_qos_tenant_sla_live_update_root(void)
         g_free(msg);
         g_clear_error(&e);
         _cleanup_netdevs();
+        pcv_qos_set_tenant_sla_path_for_test(NULL);
+        g_free(sla_path);
+        g_rmdir(sla_dir);
+        g_free(sla_dir);
         return;
     }
 
@@ -397,6 +417,11 @@ test_qos_tenant_sla_live_update_root(void)
     _cleanup_netdevs();
     pcv_qos_ids_clear();
     pcv_qos_tenant_sla_clear();
+    pcv_qos_set_tenant_sla_path_for_test(NULL);
+    g_unlink(sla_path);
+    g_free(sla_path);
+    g_rmdir(sla_dir);
+    g_free(sla_dir);
 }
 
                                                               

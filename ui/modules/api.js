@@ -77,6 +77,9 @@ window.PCV = window.PCV || {};
 var _wsReconnectAttempt = 0;
 var _wsMaxReconnect = 5;
 
+
+var _wsReconnectTimer = null;
+
                                                           
                                                                  
 
@@ -162,13 +165,9 @@ async function _tryRefreshToken() {
                                                      
                                         
    
+
 function _redirectToLogin() {
-  window.authToken = '';
-  sessionStorage.removeItem('pcv_token');
-  sessionStorage.removeItem('pcv_refresh_token');
-  sessionStorage.removeItem('pcv_user');
-                                       
-  if (window.wsConnection) window.wsConnection.close();
+  _teardownSession();
   pcvSetLoginVisible(true);
   var la = document.getElementById('la');
   if (la) la.classList.remove('hidden');
@@ -395,8 +394,46 @@ function _onJobPersistenceFailureEvent(m) {
                                                      
           
    
+
+
+
+
+function _wsScheduleReconnect(delay) {
+  if (_wsReconnectTimer) clearTimeout(_wsReconnectTimer);
+  _wsReconnectTimer = setTimeout(function() {
+    _wsReconnectTimer = null;
+    connectWS();
+  }, delay);
+}
+
+function _wsCancelReconnect() {
+  if (_wsReconnectTimer) { clearTimeout(_wsReconnectTimer); _wsReconnectTimer = null; }
+}
+
+
+
+function _wsCloseIntentionally(ws) {
+  if (!ws) return;
+  ws._pcvIntentionalClose = true;
+  ws.onmessage = null;
+  if (window.wsConnection === ws) window.wsConnection = null;
+  try { if (typeof ws.close === 'function') ws.close(); } catch (_) {             }
+}
+
+
+
+function _wsTeardown() {
+  _wsCancelReconnect();
+  _wsCloseIntentionally(window.wsConnection);
+  window.wsConnection = null;
+  _wsReconnectAttempt = 0;
+  var banner = document.getElementById('ws-reconnect-banner');
+  if (banner) banner.remove();
+}
+
 function connectWS() {
-  if (!window.authToken) { setTimeout(connectWS, 2e3); return; }
+  _wsCancelReconnect();
+  if (!window.authToken) { _wsScheduleReconnect(2e3); return; }
   if (_wsReconnectAttempt >= _wsMaxReconnect) {
     if (!document.getElementById('ws-reconnect-banner')) {
       var banner = document.createElement('div');
@@ -422,6 +459,8 @@ function connectWS() {
     }
     return;
   }
+
+  if (window.wsConnection) _wsCloseIntentionally(window.wsConnection);
   const p = location.protocol === 'https:' ? 'wss:' : 'ws:';
                                                      
   const ws = new WebSocket(p + '//' + location.host + window.API_BASE + '/ws/events');
@@ -434,12 +473,16 @@ function connectWS() {
   };
   ws._pcvAuthDone = false;
   ws.onclose = () => {
-    if (window.wsConnection === ws) window.wsConnection = null;
+    var wasCurrent = window.wsConnection === ws;
+    if (wasCurrent) window.wsConnection = null;
+
+
+    if (ws._pcvIntentionalClose || !wasCurrent) return;
     var wsStatus = document.getElementById('ws-s');
     if (wsStatus) { PCV.uxlib.clearEl(wsStatus); wsStatus.appendChild(PCV.uxlib.el('span', { class: 'color-red' }, '●')); }
     _wsReconnectAttempt++;
     var delay = Math.min(30000, 1000 * Math.pow(2, _wsReconnectAttempt));
-    setTimeout(connectWS, delay);
+    _wsScheduleReconnect(delay);
   };
   ws.onmessage = function(e) {
                               
@@ -499,6 +542,14 @@ function connectWS() {
                           
         var doFullRefresh = function(retry) {
           fetchGet(window.API_BASE + '/vms').then(function(r) {
+
+
+            if (r && r.error) {
+              window.vmListError = r.error;
+              if (typeof render === 'function') render(true);
+              return;
+            }
+            window.vmListError = null;
             var list = unwrapList(r);
             window.vmList = list;
             if (window.selectedVmIndex >= list.length) window.selectedVmIndex = 0;
@@ -838,20 +889,77 @@ async function doLogin() {
                                                                            
                                                           
                                                         
+function _teardownSession() {
+  window.authToken = '';
+  sessionStorage.removeItem('pcv_token');
+  sessionStorage.removeItem('pcv_refresh_token');
+  sessionStorage.removeItem('pcv_user');
+  _wsTeardown();
+  window.currentUser = null;
+  if (PCV.modalCore && typeof PCV.modalCore.close === 'function') PCV.modalCore.close(true);
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+async function _serverLogout(accessToken, refreshToken) {
+  var post = function(token) {
+    return _fetchWithTimeout(EP.AUTH_LOGOUT(), {
+      method: 'POST',
+      headers: { Authorization: 'Bearer ' + token },
+      keepalive: true
+    });
+  };
+  try {
+    var r = accessToken ? await post(accessToken) : null;
+    if ((!r || r.status === 401) && refreshToken) {
+      var rr = await _fetchWithTimeout(EP.AUTH_REFRESH(), {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ refresh_token: refreshToken }),
+        keepalive: true
+      });
+      var d = rr.ok ? await rr.json().catch(function() { return null; }) : null;
+      if (d && d.access_token) r = await post(d.access_token);
+    }
+    return !!(r && r.ok);
+  } catch (e) {
+    return false;
+  }
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
   
                
                                                     
                                            
    
 function doLogout() {
-  window.authToken = '';
-  sessionStorage.removeItem('pcv_token');
-  sessionStorage.removeItem('pcv_refresh_token');
-  sessionStorage.removeItem('pcv_user');
-                                       
-  if (window.wsConnection) window.wsConnection.close();
-  window.wsConnection = null;
+  var serverLogout = _serverLogout(window.authToken, sessionStorage.getItem('pcv_refresh_token'));
+  _teardownSession();
   window.vmList = [];
+  window.vmListError = null;
   pcvSetLoginVisible(true);
   document.getElementById('la').classList.remove('hidden');
   document.getElementById('us').classList.add('hidden');
@@ -864,6 +972,7 @@ function doLogout() {
   if (_vcEl) _vcEl.textContent = '0';
   window.toast(typeof t === 'function' ? t('logged.out') : 'Logged out');
   window.addEvt(typeof t === 'function' ? t('logged.out') : 'Logged out');
+  return serverLogout;
 }
 
                                     

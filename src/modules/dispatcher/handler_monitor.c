@@ -118,6 +118,73 @@ skip_proc_lines(FILE *stream, char *buf, gsize buf_size, guint lines)
     return TRUE;
 }
 
+
+
+#define PCV_ARP_FLAG_COMPLETE 0x2UL
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean
+pcv_monitor_arp_lookup_ipv4(const gchar *proc_net_arp, const gchar *mac,
+                            gchar *ip_out, gsize ip_out_len)
+{
+    if (!proc_net_arp || !mac || !*mac || !ip_out || ip_out_len == 0)
+        return FALSE;
+
+    gboolean found = FALSE;
+    gchar **lines = g_strsplit(proc_net_arp, "\n", -1);
+    for (gsize i = 0; lines[i] && !found; i++) {
+        char ip[64] = {0}, hwtype[16] = {0}, flags[16] = {0};
+        char hwaddr[32] = {0}, mask[32] = {0}, dev[32] = {0};
+
+        if (sscanf(lines[i], "%63s %15s %15s %31s %31s %31s",
+                   ip, hwtype, flags, hwaddr, mask, dev) != 6)
+            continue;
+        if (!g_hostname_is_ip_address(ip) || strchr(ip, ':'))
+            continue;
+        gchar *end = NULL;
+        guint64 flag_bits = g_ascii_strtoull(flags, &end, 16);
+        if (!end || end == flags || (flag_bits & PCV_ARP_FLAG_COMPLETE) == 0)
+            continue;
+        if (g_ascii_strcasecmp(hwaddr, mac) != 0)
+            continue;
+        if (strlen(ip) >= ip_out_len)
+            break;
+        g_strlcpy(ip_out, ip, ip_out_len);
+        found = TRUE;
+    }
+    g_strfreev(lines);
+    return found;
+}
+
+
+
+
+static gboolean
+_monitor_arp_cache_ipv4(const gchar *mac, gchar *ip_out, gsize ip_out_len)
+{
+    gchar *contents = NULL;
+
+    if (!g_file_get_contents("/proc/net/arp", &contents, NULL, NULL))
+        return FALSE;
+    gboolean ok = pcv_monitor_arp_lookup_ipv4(contents, mac, ip_out, ip_out_len);
+    g_free(contents);
+    return ok;
+}
+
   
                                                         
                                                             
@@ -440,40 +507,19 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
                                                              
                                                                 
                                                                 
+
+
             if (g_strcmp0(vm_ip, "N/A") == 0) {
-                char mac_lower[18] = {0};
+                char raw_mac[18] = {0};
                                                        
                 char *xml_tmp = virDomainGetXMLDesc(rec->dom, 0);
                 if (xml_tmp) {
-                    char raw_mac[18] = {0};
                     char *mp = strstr(xml_tmp, "<mac address='");
                     if (mp) sscanf(mp, "<mac address='%17[^']'", raw_mac);
-                                                   
-                    for (int i = 0; raw_mac[i]; i++)
-                        mac_lower[i] = (char)tolower((unsigned char)raw_mac[i]);
                     free(xml_tmp);
                 }
-                if (mac_lower[0]) {
-                                                                              
-                    FILE *arp = popen("arp -n 2>/dev/null", "r");
-                    if (arp) {
-                        char line[256];
-                        while (fgets(line, sizeof(line), arp)) {
-                            char ip_buf[64]={0}, hw[8]={0}, mac_buf[18]={0};
-                            if (sscanf(line, "%63s %7s %17s", ip_buf, hw, mac_buf) == 3) {
-                                             
-                                char mac_cmp[18]={0};
-                                for (int i=0; mac_buf[i]; i++)
-                                    mac_cmp[i]=(char)tolower((unsigned char)mac_buf[i]);
-                                if (g_strcmp0(mac_cmp, mac_lower) == 0) {
-                                    strncpy(vm_ip, ip_buf, sizeof(vm_ip)-1);
-                                    break;
-                                }
-                            }
-                        }
-                        pclose(arp);
-                    }
-                }
+                if (raw_mac[0])
+                    (void)_monitor_arp_cache_ipv4(raw_mac, vm_ip, sizeof(vm_ip));
             }
         }
         json_object_set_string_member(vm_obj, "ip", vm_ip);

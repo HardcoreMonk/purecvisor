@@ -1,3 +1,4 @@
+
    
                            
                                           
@@ -321,21 +322,38 @@ static void _libvirt_snapshot_delete(const gchar *vm_id, const gchar *snap_name,
                                                                  
                                                                          
                                                            
+
+
+
+
+
+
 static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_name,
                                         const gchar *rpc_id, UdsServer *server,
                                         GSocketConnection *connection)
 {
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
+        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
         pure_uds_server_send_response(server, connection, e); g_free(e); return;
     }
 
     virDomainPtr dom = virDomainLookupByName(conn, vm_id);
     if (!dom) {
+        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
         pure_uds_server_send_response(server, connection, e); g_free(e);
         virt_conn_pool_release(conn); return;
+    }
+
+
+    virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, snap_name, 0);
+    if (!snap) {
+        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot not found");
+        pure_uds_server_send_response(server, connection, e); g_free(e);
+        virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
 
                                                        
@@ -359,14 +377,6 @@ static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_nam
         virDomainGetState(dom, &state, &reason, 0);
         if (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_PAUSED)
             virDomainDestroy(dom);
-    }
-
-                           
-    virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, snap_name, 0);
-    if (!snap) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot not found");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-        virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
 
     int rc = virDomainRevertToSnapshot(snap, 0);                          
@@ -482,6 +492,23 @@ static const gchar *_get_param(JsonObject *params,
                                       
                                                         
                                         
+static gboolean _zfs_snapshot_exists(const gchar *vm_id, const gchar *snap_name)
+{
+    gchar *snapshot = g_strdup_printf("%s/%s@%s", pcv_config_get_zvol_pool(), vm_id, snap_name);
+    const gchar *argv[] = {"zfs", "list", "-H", "-t", "snapshot", "-o", "name", snapshot, NULL};
+    gboolean ok = pcv_spawn_sync(argv, NULL, NULL, NULL);
+    g_free(snapshot);
+    return ok;
+}
+
+
+
+
+
+
+
+
+
                                    
                                                                      
                                                             
@@ -524,6 +551,19 @@ _rollback_worker(GTask        *task,
 {
     RollbackTaskData *d = (RollbackTaskData *)task_data;
     GError *err = NULL;
+
+
+
+
+
+    if (!_zfs_snapshot_exists(d->vm_name, d->snap_name)) {
+        PCV_LOG_WARN(SNAP_LOG_DOM, "Rollback refused: snapshot '%s@%s' not found; VM untouched",
+                     d->vm_name, d->snap_name);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                                "Snapshot '%s' not found for VM '%s' (VM left untouched)",
+                                d->snap_name, d->vm_name);
+        return;
+    }
 
                                                            
     virConnectPtr conn = virt_conn_pool_acquire();
@@ -587,8 +627,22 @@ _rollback_worker(GTask        *task,
         const gchar *errmsg = err ? err->message
                             : (stderr_buf ? stderr_buf : "ZFS rollback failed");
         PCV_LOG_WARN(SNAP_LOG_DOM, "ZFS rollback failed: %s", errmsg);
+
+
+
+
+        const gchar *restart_note = "";
+        if (was_running) {
+            virDomainPtr rdom = virDomainLookupByName(conn, d->vm_name);
+            gboolean restarted = rdom && virDomainCreate(rdom) == 0;
+            if (rdom) virDomainFree(rdom);
+            restart_note = restarted ? " (VM restarted with its previous disk state)"
+                                     : " (VM restart failed; VM is stopped)";
+            PCV_LOG_WARN(SNAP_LOG_DOM, "Rollback failure restart for '%s': %s", d->vm_name,
+                         restarted ? "ok" : "failed");
+        }
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "%s", errmsg);
+                                "%s%s", errmsg, restart_note);
         g_free(stderr_buf);
         if (err) g_error_free(err);
         virt_conn_pool_release(conn);                           

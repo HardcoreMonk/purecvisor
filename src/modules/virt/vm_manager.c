@@ -4319,6 +4319,164 @@ audit_resize_disk_failure(ResizeDiskData *d, const gchar *error_msg)
 
    
                       
+static xmlNodePtr
+_vm_disk_child(xmlNodePtr disk, const gchar *name)
+{
+    for (xmlNodePtr child = disk ? disk->children : NULL; child; child = child->next) {
+        if (child->type == XML_ELEMENT_NODE && xmlStrcmp(child->name, BAD_CAST name) == 0)
+            return child;
+    }
+    return NULL;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean
+pcv_vm_disk_source_for_target(const gchar *domain_xml, const gchar *target_dev,
+                              gchar **source_out, PcvVmDiskSourceKind *kind_out,
+                              GError **error)
+{
+    if (source_out) *source_out = NULL;
+    if (!domain_xml || !target_dev || !*target_dev || !source_out || !kind_out) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "domain XML and disk target are required");
+        return FALSE;
+    }
+
+    xmlDocPtr doc = xmlReadMemory(domain_xml, (int)strlen(domain_xml), "domain.xml", NULL,
+                                  XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING);
+    if (!doc) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
+                    "Cannot parse domain XML");
+        return FALSE;
+    }
+
+    xmlNodePtr root = xmlDocGetRootElement(doc);
+    xmlNodePtr devices = NULL;
+    for (xmlNodePtr child = root ? root->children : NULL; child; child = child->next) {
+        if (child->type == XML_ELEMENT_NODE && xmlStrcmp(child->name, BAD_CAST "devices") == 0) {
+            devices = child;
+            break;
+        }
+    }
+
+    gboolean matched = FALSE;
+    gchar *source = NULL;
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+    const gchar *reject = NULL;
+    for (xmlNodePtr disk = devices ? devices->children : NULL; disk; disk = disk->next) {
+        if (disk->type != XML_ELEMENT_NODE || xmlStrcmp(disk->name, BAD_CAST "disk") != 0)
+            continue;
+        xmlNodePtr target = _vm_disk_child(disk, "target");
+        xmlChar *dev = target ? xmlGetProp(target, BAD_CAST "dev") : NULL;
+        gboolean same = dev && xmlStrcmp(dev, BAD_CAST target_dev) == 0;
+        if (dev) xmlFree(dev);
+        if (!same) continue;
+
+        matched = TRUE;
+
+        xmlChar *device = xmlGetProp(disk, BAD_CAST "device");
+        gboolean is_disk = !device || xmlStrcmp(device, BAD_CAST "disk") == 0;
+        if (device) xmlFree(device);
+        if (!is_disk) {
+            reject = "is not a disk device";
+            break;
+        }
+
+        xmlNodePtr src = _vm_disk_child(disk, "source");
+        xmlChar *dev_path = src ? xmlGetProp(src, BAD_CAST "dev") : NULL;
+        xmlChar *file_path = src ? xmlGetProp(src, BAD_CAST "file") : NULL;
+        if (dev_path && dev_path[0]) {
+            source = g_strdup((const gchar *)dev_path);
+            kind = g_str_has_prefix(source, "/dev/zvol/") ? PCV_VM_DISK_SOURCE_ZVOL
+                                                         : PCV_VM_DISK_SOURCE_BLOCK;
+        } else if (file_path && file_path[0]) {
+            source = g_strdup((const gchar *)file_path);
+            kind = PCV_VM_DISK_SOURCE_FILE;
+        } else {
+            reject = "has no local file or block source";
+        }
+        if (dev_path) xmlFree(dev_path);
+        if (file_path) xmlFree(file_path);
+        break;
+    }
+    xmlFreeDoc(doc);
+
+
+    if (source && kind == PCV_VM_DISK_SOURCE_ZVOL) {
+        const gchar *dataset = source + strlen("/dev/zvol/");
+        if (!*dataset || dataset[0] == '-' || dataset[0] == '/')
+            reject = "has an invalid zvol path";
+    }
+
+    if (!matched || reject) {
+        g_free(source);
+        if (!matched)
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
+                        "Disk target '%s' not found", target_dev);
+        else
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
+                        "Disk target '%s' %s", target_dev, reject);
+        return FALSE;
+    }
+
+    *source_out = source;
+    *kind_out = kind;
+    return TRUE;
+}
+
+
+
+
+
+
+
+gboolean
+pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GError **error)
+{
+    if (new_size_gb <= 0) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "new_size_gb must be > 0");
+        return FALSE;
+    }
+    guint64 new_bytes = (guint64)new_size_gb << 30;
+    if (new_bytes < current_bytes) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
+                    "Shrinking a disk is not allowed (current %" G_GUINT64_FORMAT
+                    " bytes, requested %d GiB)", current_bytes, new_size_gb);
+        return FALSE;
+    }
+    return TRUE;
+}
+
+
+
+
+static void
+resize_disk_fail(GTask *task, ResizeDiskData *d, const gchar *msg)
+{
+    audit_resize_disk_failure(d, msg);
+    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", msg);
+}
+
+
+
+
                                   
   
                                                 
@@ -4371,48 +4529,55 @@ static void resize_disk_thread(GTask *task, gpointer source_object __attribute__
                                                        
                                           
                                                        
+
+
     gchar *xml = virDomainGetXMLDesc(dom, 0);
-    gboolean is_zvol = FALSE;
     gchar *disk_source = nullptr;
-
-    if (xml) {
-                                                      
-        gchar *dev_tag = strstr(xml, "<source dev='");
-        if (dev_tag) {
-            dev_tag += strlen("<source dev='");
-            gchar *end = strchr(dev_tag, '\'');
-            if (end) {                                 
-                disk_source = g_strndup(dev_tag, (gsize)(end - dev_tag));
-                                                             
-                is_zvol = g_str_has_prefix(disk_source, "/dev/zvol/") ||
-                          g_str_has_prefix(disk_source, "/dev/zd");
-            }
-        }
-                                                         
-        if (!disk_source) {
-            gchar *file_tag = strstr(xml, "<source file='");
-            if (file_tag) {
-                file_tag += strlen("<source file='");
-                gchar *end = strchr(file_tag, '\'');
-                if (end) {
-                    disk_source = g_strndup(file_tag, (gsize)(end - file_tag));
-                    is_zvol = FALSE;
-                }
-            }
-        }
-        g_free(xml);
-    }
-
-    if (!disk_source) {
-        gchar *msg = g_strdup_printf("Cannot determine disk source for VM '%s'", d->name);
-        audit_resize_disk_failure(d, msg);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-            "Cannot determine disk source for VM '%s'", d->name);
+    PcvVmDiskSourceKind kind = PCV_VM_DISK_SOURCE_FILE;
+    GError *select_err = nullptr;
+    gboolean selected = pcv_vm_disk_source_for_target(xml, d->target, &disk_source,
+                                                      &kind, &select_err);
+    free(xml);
+    if (!selected || kind == PCV_VM_DISK_SOURCE_BLOCK) {
+        gchar *msg = selected
+            ? g_strdup_printf("Disk '%s' of VM '%s' is a non-zvol block device (%s); "
+                              "storage resize is not supported", d->target, d->name, disk_source)
+            : g_strdup_printf("Cannot resolve disk '%s' of VM '%s': %s", d->target, d->name,
+                              select_err ? select_err->message : "unknown");
+        resize_disk_fail(task, d, msg);
         g_free(msg);
+        g_clear_error(&select_err);
+        g_free(disk_source);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
         return;
     }
+
+
+
+    {
+        virDomainBlockInfo binfo;
+        GError *size_err = nullptr;
+        gchar *msg = nullptr;
+        if (virDomainGetBlockInfo(dom, d->target, &binfo, 0) < 0) {
+            virErrorPtr e = virGetLastError();
+            msg = g_strdup_printf("Cannot read current size of disk '%s' of VM '%s': %s",
+                                  d->target, d->name, e && e->message ? e->message : "unknown");
+        } else if (!pcv_vm_disk_resize_check(binfo.capacity, d->new_size_gb, &size_err)) {
+            msg = g_strdup_printf("Disk '%s' of VM '%s': %s", d->target, d->name,
+                                  size_err ? size_err->message : "resize rejected");
+        }
+        g_clear_error(&size_err);
+        if (msg) {
+            resize_disk_fail(task, d, msg);
+            g_free(msg);
+            g_free(disk_source);
+            virDomainFree(dom);
+            virt_conn_pool_release(conn);
+            return;
+        }
+    }
+    gboolean is_zvol = (kind == PCV_VM_DISK_SOURCE_ZVOL);
 
                       
     if (is_zvol) {

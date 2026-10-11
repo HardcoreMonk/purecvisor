@@ -178,9 +178,11 @@ function openNoVNC(addr, port) {
   const statusEndpoint = escapeHtml(addr) + ':' + escapeHtml(String(port));
   var el = PCV.uxlib.el;
   PCV.uxlib.clearEl(frame);
+
+
   frame.appendChild(el('div', { class: 'flex gap-6 mb-6 items-center' },
-    el('button', { class: 'btn', onclick: 'vncFullscreen()', title: escapeAttr(fullscreenText) }, '⛶ ' + fullscreenText),
-    el('button', { class: 'btn', onclick: 'vncFitWindow()', title: escapeAttr(fitText) }, '🔬 ' + fitText),
+    el('button', { class: 'btn', onclick: 'vncFullscreen()', title: fullscreenText }, '⛶ ' + fullscreenText),
+    el('button', { class: 'btn', onclick: 'vncFitWindow()', title: fitText }, '🔬 ' + fitText),
     el('span', { id: 'vnc-res', class: 'stat-label' })));
   frame.appendChild(el('div', { id: 'vnc-container', style: 'width:100%;flex:1;min-height:0;background:#000;border-radius:var(--r);position:relative' },
     el('div', { id: 'vnc-status', style: 'position:absolute;top:8px;left:8px;z-index:10;font-size:11px;color:var(--green);background:rgba(0,0,0,.7);padding:4px 10px;border-radius:4px' },

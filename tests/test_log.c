@@ -36,8 +36,10 @@
                                                                                
    
 #include <glib.h>
+#include <glib/gstdio.h>
 #include <string.h>
 #include "../src/utils/pcv_log.h"
+#include "test_host_isolation.h"
 
                                                            
                                                               
@@ -134,13 +136,61 @@ static void test_log_macros_no_crash(void) {
                                                    
 }
 
+
+
+
+
+
+
+
+
 static void test_audit_macro(void) {
     ensure_init();
+    const char *audit_path = pcv_test_audit_log_path();
+
+    g_assert_true(g_str_has_prefix(audit_path, pcv_test_host_root_dir()));
+
                                                            
     PCV_LOG_AUDIT("test", "vm.create", "test-vm", "vcpu=%d mem=%dMB", 2, 1024);
     PCV_LOG_AUDIT("test", "vm.delete", "test-vm", "completed");
                      
     PCV_LOG_AUDIT("test", "op", "tgt", "no args");
+
+
+    gchar *contents = NULL;
+    GError *error = NULL;
+    g_assert_true(g_file_get_contents(audit_path, &contents, NULL, &error));
+    g_assert_no_error(error);
+    g_assert_nonnull(strstr(contents, "\"op\":\"vm.create\""));
+    g_assert_nonnull(strstr(contents, "\"target\":\"test-vm\""));
+    g_free(contents);
+}
+
+
+
+
+static void test_audit_reopen_after_rotate(void) {
+    ensure_init();
+    const char *audit_path = pcv_test_audit_log_path();
+    g_assert_true(g_str_has_prefix(audit_path, pcv_test_host_root_dir()));
+    gchar *rotated = g_strdup_printf("%s.1", audit_path);
+
+    PCV_LOG_AUDIT("test", "rotate.before", "z48", "pre-rotate");
+    g_assert_cmpint(g_rename(audit_path, rotated), ==, 0);
+    g_assert_true(pcv_log_reopen_audit());
+    PCV_LOG_AUDIT("test", "rotate.after", "z48", "post-rotate");
+
+    gchar *fresh = NULL, *old = NULL;
+    g_assert_true(g_file_get_contents(audit_path, &fresh, NULL, NULL));
+    g_assert_true(g_file_get_contents(rotated, &old, NULL, NULL));
+    g_assert_nonnull(strstr(fresh, "\"op\":\"rotate.after\""));
+    g_assert_null(strstr(fresh, "\"op\":\"rotate.before\""));
+    g_assert_nonnull(strstr(old, "\"op\":\"rotate.before\""));
+    g_assert_null(strstr(old, "\"op\":\"rotate.after\""));
+    g_free(fresh);
+    g_free(old);
+    g_unlink(rotated);
+    g_free(rotated);
 }
 
 static void test_level_filtering(void) {
@@ -220,6 +270,7 @@ void test_log_register(void) {
     g_test_add_func("/log/trace_context_parse_invalid", test_trace_context_parse_invalid);
     g_test_add_func("/log/log_macros_no_crash", test_log_macros_no_crash);
     g_test_add_func("/log/audit_macro", test_audit_macro);
+    g_test_add_func("/log/audit_reopen_after_rotate", test_audit_reopen_after_rotate);
     g_test_add_func("/log/level_filtering", test_level_filtering);
     g_test_add_func("/log/module_level_load_no_config", test_module_level_load_no_config);
     g_test_add_func("/log/trace_context_format_roundtrip", test_trace_context_format_roundtrip);

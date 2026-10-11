@@ -162,6 +162,9 @@ void     pcv_lxc_create_async   (const gchar        *name,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
 
+
+
+
    
                                              
   
@@ -464,9 +467,65 @@ gboolean pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name,
                                              
                                               
    
+
+
+
+
+
+
+
 gboolean pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
                                  guint inbound_kbps, guint outbound_kbps,
                                  GError **error);
+
+
+
+
+
+
+
+
+
+
+
+gint pcv_lxc_bw_net_index(const gchar *const *net_names, guint n_nets, const gchar *iface);
+
+
+
+
+
+
+gchar *pcv_lxc_bw_normalize_veth(const gchar *raw);
+
+
+
+
+
+
+typedef enum {
+    PCV_LXC_ROOTLESS_OFF,
+    PCV_LXC_ROOTLESS_ON,
+    PCV_LXC_ROOTLESS_REJECT,
+} PcvLxcRootlessDecision;
+
+
+
+
+
+
+
+
+
+PcvLxcRootlessDecision pcv_lxc_rootless_decide(gint requested, gboolean config_default,
+                                               gboolean subid_ok);
+
+
+
+
+
+
+gboolean pcv_lxc_rootless_subid_available(const gchar *subuid_path, const gchar *subgid_path,
+                                          gint start, gint count);
 
                                                                              
                         

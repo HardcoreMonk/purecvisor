@@ -1,3 +1,6 @@
+
+
+
                                                                                   
                                                                                                   
                                                                         
@@ -30,6 +33,7 @@
 #include "modules/dispatcher/handler_tenant_overlay.h"
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_validate.h"
+#include "test_host_isolation.h"
 
                                              
                                                                          
@@ -302,6 +306,16 @@ static void
 test_overlay_dhcp(void)
 {
     if (geteuid() != 0) { g_test_skip("root(+netns) 필요"); return; }
+
+
+
+
+
+    if (!pcv_test_live_opt_in("PCV_OVERLAY_DHCP_LIVE")) {
+        g_test_skip("PCV_OVERLAY_DHCP_LIVE=1 opt-in 필요 — 운영 /var/run/purecvisor/network에 "
+                    "dnsmasq conf/pid를 쓰므로 전용 장비에서만 실행한다");
+        return;
+    }
     if (!_wg_available()) { g_test_skip("wg(wireguard-tools) 미설치"); return; }
     if (!_busybox_udhcpc_available()) { g_test_skip("busybox udhcpc 미설치"); return; }
 

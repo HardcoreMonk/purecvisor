@@ -456,6 +456,54 @@ void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar 
                                   
                 
                                  
+typedef enum {
+    PCV_VM_DISK_SOURCE_ZVOL,
+    PCV_VM_DISK_SOURCE_BLOCK,
+    PCV_VM_DISK_SOURCE_FILE,
+} PcvVmDiskSourceKind;
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean pcv_vm_disk_source_for_target(const gchar *domain_xml, const gchar *target_dev,
+                                       gchar **source_out, PcvVmDiskSourceKind *kind_out,
+                                       GError **error);
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GError **error);
+
+
+
+
+
+
+
                                           
                                   
               

@@ -1662,22 +1662,42 @@ handle_container_logs(JsonObject *params, const gchar *rpc_id,
                                        
                                                                                
 
+
+
+
+
+
+
+static gboolean
+_lxc_config_token_safe(const gchar *value, gboolean allow_space)
+{
+    if (!value || !*value)
+        return FALSE;
+    for (const guchar *p = (const guchar *)value; *p; p++) {
+        if (*p < 0x20 || *p == 0x7f)
+            return FALSE;
+        if (!allow_space && *p == ' ')
+            return FALSE;
+    }
+    return TRUE;
+}
+
 void
 handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *conn)
 {
-    if (!params
-        || !json_object_has_member(params, "name")
-        || !json_object_has_member(params, "host_path")
-        || !json_object_has_member(params, "container_path")) {
+
+
+
+    const gchar *name           = pcv_rpc_params_get_string(params, "name");
+    const gchar *host_path      = pcv_rpc_params_get_string(params, "host_path");
+    const gchar *container_path = pcv_rpc_params_get_string(params, "container_path");
+    if (!name || !host_path || !container_path) {
         gchar *e = pure_rpc_build_error_response(
                        rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                       "Missing required: name, host_path, container_path");
+                       "Missing or non-string required: name, host_path, container_path");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-    const gchar *name           = json_object_get_string_member(params, "name");
-    const gchar *host_path      = json_object_get_string_member(params, "host_path");
-    const gchar *container_path = json_object_get_string_member(params, "container_path");
     gboolean     readonly       = json_object_has_member(params, "readonly")
                                   ? json_object_get_boolean_member(params, "readonly") : FALSE;
 
@@ -1702,6 +1722,13 @@ handle_container_volume_attach(JsonObject *params, const gchar *rpc_id,
     if (container_path[0] != '/' || strstr(container_path, "..")) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
                        "container_path must be absolute with no '..'");
+        pure_uds_server_send_response(server, conn, e); g_free(e); return;
+    }
+
+    if (!_lxc_config_token_safe(container_path, FALSE) ||
+        !_lxc_config_token_safe(resolved, FALSE)) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                       "host_path/container_path must not contain whitespace or control characters");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
 
@@ -1808,16 +1835,15 @@ void
 handle_container_volume_detach(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *conn)
 {
-    if (!params
-        || !json_object_has_member(params, "name")
-        || !json_object_has_member(params, "container_path")) {
+
+    const gchar *name           = pcv_rpc_params_get_string(params, "name");
+    const gchar *container_path = pcv_rpc_params_get_string(params, "container_path");
+    if (!name || !container_path) {
         gchar *e = pure_rpc_build_error_response(
                        rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                       "Missing required: name, container_path");
+                       "Missing or non-string required: name, container_path");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-    const gchar *name           = json_object_get_string_member(params, "name");
-    const gchar *container_path = json_object_get_string_member(params, "container_path");
 
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -1987,9 +2013,17 @@ handle_container_env_set(JsonObject *params, const gchar *rpc_id,
                        "Missing required: name, key, value");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-    const gchar *name  = json_object_get_string_member(params, "name");
-    const gchar *key   = json_object_get_string_member(params, "key");
-    const gchar *value = json_object_get_string_member(params, "value");
+    const gchar *name  = pcv_rpc_params_get_string(params, "name");
+    const gchar *key   = pcv_rpc_params_get_string(params, "key");
+    const gchar *value = pcv_rpc_params_get_string(params, "value");
+
+
+    if (!name || !key || !*key || !value ||
+        (*value && !_lxc_config_token_safe(value, TRUE))) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                       "name, key, value must be strings; key non-empty; value without control characters");
+        pure_uds_server_send_response(server, conn, e); g_free(e); return;
+    }
 
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
@@ -2182,8 +2216,18 @@ handle_container_env_delete(JsonObject *params, const gchar *rpc_id,
                        "Missing required: name, key");
         pure_uds_server_send_response(server, conn, e); g_free(e); return;
     }
-    const gchar *name = json_object_get_string_member(params, "name");
-    const gchar *key  = json_object_get_string_member(params, "key");
+    const gchar *name = pcv_rpc_params_get_string(params, "name");
+    const gchar *key  = pcv_rpc_params_get_string(params, "key");
+
+
+    gboolean key_ok = key && *key;
+    for (const gchar *p = key; key_ok && *p; p++)
+        key_ok = g_ascii_isalnum(*p) || *p == '_';
+    if (!name || !key_ok) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                       "name and key must be strings; key alphanumeric and '_' only");
+        pure_uds_server_send_response(server, conn, e); g_free(e); return;
+    }
 
     if (!pcv_validate_vm_name(name)) {
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,

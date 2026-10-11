@@ -406,6 +406,10 @@ static gboolean on_sighup_received(gpointer user_data) {
                   "invalid alert daemon config");
     }
     pcv_log_load_module_levels();                     
+
+
+    if (!pcv_log_reopen_audit())
+        g_warning("[main] SIGHUP audit log reopen failed; keeping previous handle");
     return TRUE;                             
 }
 

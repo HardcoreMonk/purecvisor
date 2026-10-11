@@ -1,3 +1,10 @@
+
+
+
+
+
+
+
                                                                            
 
                                                               
@@ -43,8 +50,11 @@
 
 #include <glib.h>
 
+#include "test_host_isolation.h"
+
                                                                                        
 #include <sched.h>
+#include <fcntl.h>
 #include <sys/mount.h>
 #include <errno.h>
 #include <string.h>
@@ -91,6 +101,7 @@ void test_alert_dlq_register(void);
 void test_update_check_register(void);                                         
 void test_backup_basic_register(void);                     
 void test_lxc_basic_register(void);                           
+void test_lxc_driver_register(void);
 void test_ws_basic_register(void);                             
 void test_hotreload_register(void);                        
 void test_txn_register(void);                             
@@ -108,6 +119,7 @@ void test_rest_auth_register(void);
 void test_rpc_utils_register(void);                               
 void test_rpc_completion_register(void);                                            
 void test_host_hardware_inventory_register(void);
+void test_monitor_arp_register(void);
 void test_rpc_parse_guarded_register(void);                                  
 void test_drain_register(void);                                        
 void test_ai_agent_register(void);                                 
@@ -193,6 +205,35 @@ _test_log_handler(const gchar    *log_domain,
                                  
   
                                                                   
+static int
+_clone_host_mount(const char *path)
+{
+    int fd = open_tree(AT_FDCWD, path, OPEN_TREE_CLONE | OPEN_TREE_CLOEXEC | AT_RECURSIVE);
+    if (fd < 0) {
+        fprintf(stderr, "FATAL: PCV_BPF_LIVE=1 호스트 mount 복제 실패(%s): %s\n",
+                path, strerror(errno));
+        _exit(1);
+    }
+    return fd;
+}
+
+
+
+static void
+_attach_host_mount(int fd, const char *path)
+{
+    if (move_mount(fd, "", AT_FDCWD, path, MOVE_MOUNT_F_EMPTY_PATH) != 0) {
+        fprintf(stderr, "FATAL: PCV_BPF_LIVE=1 호스트 mount 재부착 실패(%s): %s\n",
+                path, strerror(errno));
+        _exit(1);
+    }
+    close(fd);
+}
+
+
+
+
+
                                                                
                                                         
                                                     
@@ -225,10 +266,60 @@ _isolate_netns(void)
 
                                                                
 
+    const gboolean shared_bridge_live = pcv_test_live_opt_in("PCV_SHARED_BRIDGE_LIVE");
+    const gboolean bpf_live = pcv_test_live_opt_in("PCV_BPF_LIVE");
+    if (shared_bridge_live && bpf_live) {
+        fprintf(stderr,
+                "FATAL: PCV_SHARED_BRIDGE_LIVE=1 과 PCV_BPF_LIVE=1 은 /sys/fs/bpf 요구가 달라 "
+                "동시에 실행할 수 없습니다. -p /network/shared_bridge_packet_path 와 -r /bpf 를 따로 "
+                "실행하십시오.\n");
+        _exit(1);
+    }
+
+    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0) {
+        fprintf(stderr, "FATAL: 격리 mount namespace 전파 차단 실패: %s\n", strerror(errno));
+        _exit(1);
+    }
 
 
-    if (mount(NULL, "/", NULL, MS_REC | MS_PRIVATE, NULL) != 0 ||
-        mount("sysfs", "/sys", "sysfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
+
+
+
+
+
+
+
+
+
+    if (g_mkdir_with_parents("/run/netns", 0755) != 0 ||
+        mount("tmpfs", "/run/netns", "tmpfs", MS_NOSUID | MS_NODEV | MS_NOEXEC,
+              "mode=0755") != 0) {
+        fprintf(stderr, "FATAL: 격리 /run/netns tmpfs 준비 실패: %s\n", strerror(errno));
+        _exit(1);
+    }
+
+
+
+
+
+
+
+
+
+
+
+    static const char *const bpf_live_mounts[] = {
+        "/sys/kernel/security", "/sys/fs/bpf", "/sys/fs/cgroup",
+    };
+    int bpf_live_fds[G_N_ELEMENTS(bpf_live_mounts)];
+    for (guint i = 0; i < G_N_ELEMENTS(bpf_live_mounts); i++)
+        bpf_live_fds[i] = bpf_live ? _clone_host_mount(bpf_live_mounts[i]) : -1;
+
+
+
+
+
+    if (mount("sysfs", "/sys", "sysfs", MS_RDONLY | MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
         fprintf(stderr, "FATAL: 격리 netns의 sysfs 준비 실패: %s\n", strerror(errno));
         _exit(1);
     }
@@ -236,11 +327,16 @@ _isolate_netns(void)
 
 
 
-    if (g_strcmp0(g_getenv("PCV_SHARED_BRIDGE_LIVE"), "1") == 0 &&
+    if (shared_bridge_live &&
         mount("bpf", "/sys/fs/bpf", "bpf", MS_NOSUID | MS_NODEV | MS_NOEXEC, NULL) != 0) {
         fprintf(stderr, "FATAL: 격리 TC 시험용 bpffs 준비 실패: %s\n", strerror(errno));
         _exit(1);
     }
+
+
+
+    for (guint i = 0; bpf_live && i < G_N_ELEMENTS(bpf_live_mounts); i++)
+        _attach_host_mount(bpf_live_fds[i], bpf_live_mounts[i]);
 
 
     int sock = socket(AF_INET, SOCK_DGRAM, 0);
@@ -343,6 +439,7 @@ int main(int argc, char *argv[]) {
     test_update_check_register();                                         
     test_backup_basic_register();                      
     test_lxc_basic_register();                            
+    test_lxc_driver_register();
     test_ws_basic_register();                              
     test_hotreload_register();                         
     test_txn_register();                              
@@ -360,6 +457,7 @@ int main(int argc, char *argv[]) {
     test_rpc_utils_register();                                
     test_rpc_completion_register();                              
     test_host_hardware_inventory_register();
+    test_monitor_arp_register();
     test_rpc_parse_guarded_register();                                  
     test_drain_register();                                         
     test_ai_agent_register();                                  

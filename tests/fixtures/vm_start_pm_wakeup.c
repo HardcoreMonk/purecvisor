@@ -190,20 +190,31 @@ gboolean __wrap_cpu_allocator_allocate_exclusive(CpuAllocator *alloc, const gcha
 
 #define PCV_PRODUCTION_FUNCTIONS
 
-static GIOStream *peer;
-static void setup_ws(void)
+static GIOStream *peer, *unauth_peer;
+static SoupWebsocketConnection *fixture_ws(GIOStream **peer_out)
 {
     int descriptors[2]; g_assert_cmpint(socketpair(AF_UNIX, SOCK_STREAM, 0, descriptors), ==, 0);
     GSocket *first = g_socket_new_from_fd(descriptors[0], NULL);
     GSocket *second = g_socket_new_from_fd(descriptors[1], NULL);
     GSocketConnection *stream = g_socket_connection_factory_create_connection(first);
-    peer = G_IO_STREAM(g_socket_connection_factory_create_connection(second));
+    *peer_out = G_IO_STREAM(g_socket_connection_factory_create_connection(second));
     GUri *uri = g_uri_parse("ws://localhost/fixture", G_URI_FLAGS_NONE, NULL);
     SoupWebsocketConnection *connection = soup_websocket_connection_new(
         G_IO_STREAM(stream), uri, SOUP_WEBSOCKET_CONNECTION_SERVER, NULL, NULL, NULL);
     g_uri_unref(uri); g_object_unref(stream); g_object_unref(first); g_object_unref(second);
+    return connection;
+}
+
+
+static void setup_ws(void)
+{
+    SoupWebsocketConnection *authed = fixture_ws(&peer);
+    g_object_set_data(G_OBJECT(authed), "pcv-ws-authed", GINT_TO_POINTER(1));
+    SoupWebsocketConnection *pending = fixture_ws(&unauth_peer);
+    g_object_set_data(G_OBJECT(pending), "pcv-ws-authed", GINT_TO_POINTER(0));
     g_mutex_init(&G.mu); G.clients = g_ptr_array_new_with_free_func(g_object_unref);
-    g_ptr_array_add(G.clients, connection); G.initialized = TRUE;
+    g_ptr_array_add(G.clients, pending); g_ptr_array_add(G.clients, authed);
+    G.initialized = TRUE;
 }
 
 int main(int argc, char **argv)
@@ -245,6 +256,6 @@ int main(int argc, char **argv)
     sqlite3_close(audit_db); g_free(rpc_response);
     pcv_drain_shutdown();
     G.initialized = FALSE; g_ptr_array_unref(G.clients); g_mutex_clear(&G.mu);
-    g_object_unref(peer); g_ptr_array_unref(frames);
+    g_object_unref(peer); g_object_unref(unauth_peer); g_ptr_array_unref(frames);
     return 0;
 }

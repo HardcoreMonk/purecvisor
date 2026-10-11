@@ -1,3 +1,6 @@
+
+
+
    
                          
                                             
@@ -325,6 +328,18 @@ _append_host_and_guard(GString *s, GPtrArray *subnets,
     }
 }
 
+
+
+
+
+
+
+
+
+
+
+
+
 static void
 _append_publishes(GString *s, const PcvVpcPolicySnapshot *snapshot)
 {
@@ -332,7 +347,9 @@ _append_publishes(GString *s, const PcvVpcPolicySnapshot *snapshot)
         PcvVpcPolicyPublish *p = g_ptr_array_index(snapshot->publishes, i);
         for (guint j = 0; p->allowed_sources && j < p->allowed_sources->len; j++) {
             const gchar *source = g_ptr_array_index(p->allowed_sources, j);
-            g_string_append(s, "add rule inet pcv_vpc prerouting ");
+            g_string_append(s,
+                "add rule inet pcv_vpc prerouting iifname != @managed_ifaces "
+                "fib daddr type local ");
             if (g_strcmp0(p->listen_address, "0.0.0.0") != 0)
                 g_string_append_printf(s, "ip daddr %s ", p->listen_address);
             g_string_append_printf(s,
@@ -347,7 +364,7 @@ _append_publishes(GString *s, const PcvVpcPolicySnapshot *snapshot)
 }
 
 static void
-_append_forward_and_nat(GString *s, const PcvVpcPolicySnapshot *snapshot)
+_append_cross_vpc_isolation(GString *s, const PcvVpcPolicySnapshot *snapshot)
 {
                                                                        
     for (guint i = 0; snapshot && snapshot->vpcs && i < snapshot->vpcs->len; i++) {
@@ -368,7 +385,11 @@ _append_forward_and_nat(GString *s, const PcvVpcPolicySnapshot *snapshot)
     g_string_append(s,
         "add rule inet pcv_vpc forward iifname @managed_ifaces "
         "oifname @managed_ifaces drop\n");
+}
 
+static void
+_append_egress_and_nat(GString *s, const PcvVpcPolicySnapshot *snapshot)
+{
     for (guint i = 0; snapshot && snapshot->vpcs && i < snapshot->vpcs->len; i++) {
         PcvVpcPolicyVpc *v = g_ptr_array_index(snapshot->vpcs, i);
         if (g_strcmp0(v->backend, "ovn") == 0) {
@@ -428,6 +449,7 @@ _append_forward_and_nat(GString *s, const PcvVpcPolicySnapshot *snapshot)
                                                           
                                                             
                        
+
 gchar *
 pcv_vpc_policy_build_script(const PcvVpcPolicySnapshot *snapshot)
 {
@@ -435,8 +457,10 @@ pcv_vpc_policy_build_script(const PcvVpcPolicySnapshot *snapshot)
     GString *s = g_string_new(NULL);
     _append_base(s, subnets, snapshot);
     _append_host_and_guard(s, subnets, snapshot);
+
+    _append_cross_vpc_isolation(s, snapshot);
     _append_publishes(s, snapshot);
-    _append_forward_and_nat(s, snapshot);
+    _append_egress_and_nat(s, snapshot);
     return g_string_free(s, FALSE);
 }
 

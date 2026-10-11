@@ -46,6 +46,9 @@ gboolean   pcv_security_group_vm_is_bound(const gchar *vm);
 JsonObject *pcv_security_group_policy_for_vm(const gchar *vm);
                                                 
 void       pcv_security_group_restore(void);
+
+
+gboolean   pcv_security_group_db_prepare_file(const gchar *db_path);
 void       pcv_security_group_overlay_exclusion_audit(void);                            
 
                                                                  

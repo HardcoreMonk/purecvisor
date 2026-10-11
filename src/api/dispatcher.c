@@ -547,6 +547,88 @@ static const PcvMethodPolicy g_method_policies[] = {
     { "vm.autostart",              1 },                               
     { "vm.schedule.set",           1 },                              
                                                
+
+
+
+
+
+
+
+    { "agent.config.get",          0 },
+    { "alert.action.list",         0 },
+    { "alert.config.get",          0 },
+    { "alert.silence.list",        0 },
+    { "backup.policy.list",        0 },
+    { "container.env.list",        0 },
+    { "container.health.get",      0 },
+    { "container.list",            0 },
+    { "container.metrics",         0 },
+    { "container.nic.list",        0 },
+    { "container.snapshot.list",   0 },
+    { "container.volume.list",     0 },
+    { "daemon.config.get",         0 },
+    { "device.nic.list",           0 },
+    { "dpdk.hugepage.info",        0 },
+    { "dpdk.list",                 0 },
+    { "dpdk.status",               0 },
+    { "gpu.list",                  0 },
+    { "gpu.metrics",               0 },
+    { "iscsi.target.list",         0 },
+    { "iso.list",                  0 },
+    { "jobs.get",                  0 },
+    { "jobs.list",                 0 },
+    { "monitor.fleet",             0 },
+    { "monitor.metrics",           0 },
+    { "monitor.processes",         0 },
+    { "network.info",              0 },
+    { "network.list",              0 },
+    { "network.qos.get",           0 },
+    { "overlay.info",              0 },
+    { "overlay.list",              0 },
+    { "ovn.acl.list",              0 },
+    { "ovn.nat.list",              0 },
+    { "ovn.router.list",           0 },
+    { "ovn.status",                0 },
+    { "ovn.switch.list",           0 },
+    { "pool.conninfo",             0 },
+    { "qos.tenant.get",            0 },
+    { "qos.vm.get",                0 },
+    { "quota.get",                 0 },
+    { "security_group.list",       0 },
+    { "sriov.list",                0 },
+    { "sriov.status",              0 },
+    { "storage.pool.list",         0 },
+    { "storage.zvol.list",         0 },
+    { "template.get",              0 },
+    { "template.list",             0 },
+    { "vm.blkio.get",              0 },
+    { "vm.event.webhook.list",     0 },
+    { "vm.list",                   0 },
+    { "vm.metrics",                0 },
+    { "vm.usb.list",               0 },
+    { "webhook.dlq.list",          0 },
+
+
+    { "backup.history",            1 },
+    { "container.health.check",    1 },
+    { "container.logs",            1 },
+    { "container.memory.stats",    1 },
+    { "ovn.router.detail",         1 },
+    { "ovn.switch.detail",         1 },
+    { "storage.pool.health",       1 },
+    { "template.history",          1 },
+    { "vm.cpu.stats",              1 },
+    { "vm.guest.ping",             1 },
+    { "vm.memory.stats",           1 },
+
+    { "audit.search",              2 },
+    { "daemon.version",            2 },
+    { "db.migration.status",       2 },
+    { "health.deep",               2 },
+    { "jobs.status",               2 },
+    { "prometheus.sd",             2 },
+    { "qos.stats",                 2 },
+    { "snapshot.schedule.status",  2 },
     { NULL, 0 }
 };
 
@@ -583,14 +665,17 @@ void pcv_dispatcher_init_policy_map(void)
                                                                    
                                                        
                                                    
+
+
 static int
 _method_min_role(const gchar *method)
 {
     if (!method) return 2;                      
                                                                             
     if (!g_method_policy_map) return 2;                                      
-    gpointer val = g_hash_table_lookup(g_method_policy_map, method);
-    if (!val) return 0;                                    
+    gpointer val = NULL;
+    if (!g_hash_table_lookup_extended(g_method_policy_map, method, NULL, &val))
+        return 2;
     return GPOINTER_TO_INT(val);
 }
 
@@ -604,6 +689,131 @@ gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role);
 gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role) {
     int min = _method_min_role(method);
     return caller_role >= min;
+}
+
+
+
+
+
+
+static gboolean
+_vm_method_requires_owner_scope(const gchar *method)
+{
+    if (!method)
+        return FALSE;
+
+    if (g_strcmp0(method, "get_vnc_info") == 0)
+        return TRUE;
+
+    if (g_strcmp0(method, "device.nic.attach") == 0 ||
+        g_strcmp0(method, "device.nic.detach") == 0)
+        return TRUE;
+
+    if (!g_str_has_prefix(method, "vm."))
+        return FALSE;
+
+    if (g_strcmp0(method, "vm.create") == 0 ||
+        g_strcmp0(method, "vm.import.ova") == 0)
+        return FALSE;
+
+
+
+
+
+
+    if (g_strcmp0(method, "vm.list") == 0 ||
+        g_strcmp0(method, "vm.event.webhook.list") == 0 ||
+        g_strcmp0(method, "vm.delete.status") == 0 ||
+        g_strcmp0(method, "vm.snapshot.schedule.list") == 0)
+        return FALSE;
+
+    return TRUE;
+}
+
+
+static const gchar *const k_vm_target_alias_keys[] = {
+    "name", "vm_id", "vm_name", "vm", NULL
+};
+
+
+
+
+
+
+static gboolean
+_vm_target_alias_merge(JsonObject *params, const gchar *key,
+                       const gchar **chosen, const gchar **reason_out)
+{
+    if (!json_object_has_member(params, key))
+        return TRUE;
+    JsonNode *node = json_object_get_member(params, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_STRING) {
+        *reason_out = "Invalid params: VM target aliases (name/vm_id/vm_name/vm/source) "
+                      "must be strings";
+        return FALSE;
+    }
+    const gchar *value = json_node_get_string(node);
+    if (!value || !*value)
+        return TRUE;
+    if (*chosen && g_strcmp0(*chosen, value) != 0) {
+        *reason_out = "Invalid params: VM target aliases (name/vm_id/vm_name/vm/source) "
+                      "must name the same VM";
+        return FALSE;
+    }
+    if (!*chosen)
+        *chosen = value;
+    return TRUE;
+}
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method, JsonObject *params,
+                                                const gchar **reason_out);
+gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method, JsonObject *params,
+                                                const gchar **reason_out)
+{
+    const gchar *reason = NULL;
+    if (reason_out) *reason_out = NULL;
+    if (!params || !_vm_method_requires_owner_scope(method) ||
+        g_strcmp0(method, "vm.batch") == 0)
+        return TRUE;
+
+    const gchar *chosen = NULL;
+    gboolean valid = TRUE;
+    if (g_strcmp0(method, "vm.clone") == 0)
+        valid = _vm_target_alias_merge(params, "source", &chosen, &reason);
+    for (guint i = 0; valid && k_vm_target_alias_keys[i]; i++)
+        valid = _vm_target_alias_merge(params, k_vm_target_alias_keys[i], &chosen, &reason);
+    if (!valid && reason_out)
+        *reason_out = reason;
+    return valid;
 }
 
                                                                   
@@ -819,45 +1029,6 @@ _vm_owner_scope_target_from_params(const gchar *method, JsonObject *params)
     }
 
     return _vm_name_from_params(params);
-}
-
-                                                                
-                                                       
-                                                            
-                                                   
-                                                                    
-static gboolean
-_vm_method_requires_owner_scope(const gchar *method)
-{
-    if (!method)
-        return FALSE;
-
-    if (g_strcmp0(method, "get_vnc_info") == 0)                                  
-        return TRUE;
-
-    if (g_strcmp0(method, "device.nic.attach") == 0 ||
-        g_strcmp0(method, "device.nic.detach") == 0)
-        return TRUE;
-
-    if (!g_str_has_prefix(method, "vm."))
-        return FALSE;
-
-    if (g_strcmp0(method, "vm.create") == 0 ||
-        g_strcmp0(method, "vm.import.ova") == 0)
-        return FALSE;
-
-               
-                                                
-                                               
-                                                       
-                                              
-    if (g_strcmp0(method, "vm.list") == 0 ||
-        g_strcmp0(method, "vm.event.webhook.list") == 0 ||
-        g_strcmp0(method, "vm.delete.status") == 0 ||
-        g_strcmp0(method, "vm.snapshot.schedule.list") == 0)
-        return FALSE;
-
-    return TRUE;
 }
 
                                                                            
@@ -3944,13 +4115,20 @@ typedef struct {
     gchar *pool;
     gchar *image_dir;
     gchar *job_id;
+    gboolean holds_lock;
 } OvaImportCtx;
+
+
+
+
+
 
                                                              
                                                   
 static void _free_ova_import_ctx(gpointer data) {
     if (!data) return;
     OvaImportCtx *ctx = data;
+    if (ctx->holds_lock) unlock_vm_operation(ctx->vm_name);
     g_free(ctx->ova_path);
     g_free(ctx->vm_name);
     g_free(ctx->pool);
@@ -4426,6 +4604,16 @@ import_cleanup:
                                                                     
                                                      
                                                         
+
+
+
+
+
+
+
+
+
+
 static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
                                    UdsServer *server, GSocketConnection *connection)
 {
@@ -4476,14 +4664,39 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
 
     const gchar *pool = json_object_has_member(params, "pool")
         ? json_object_get_string_member(params, "pool") : NULL;
+
+
+    if (pool && pool[0] && !_valid_vm_storage_pool(pool)) {
+        free(real_ova);
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "Invalid pool — must be a relative ZFS dataset path ([A-Za-z0-9_.-] segments)");
+        pure_uds_server_send_response(server, connection, e); g_free(e);
+        return;
+    }
     if (!pool || !pool[0])
         pool = pcv_config_get_zvol_pool();
     const gchar *image_dir = pcv_config_get_image_dir();
 
                                                                      
+
+
+    {
+        gchar *import_lock_err = NULL;
+        if (!lock_vm_operation(name, VM_OP_CREATING, &import_lock_err)) {
+            free(real_ova);
+            gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
+                import_lock_err ? import_lock_err : "VM is busy (another operation in progress)");
+            pure_uds_server_send_response(server, connection, e);
+            g_free(e); g_free(import_lock_err);
+            return;
+        }
+    }
+
+
     {
         virConnectPtr conn = virt_conn_pool_acquire();
         if (!conn) {
+            unlock_vm_operation(name);
             free(real_ova);
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
                 "Failed to acquire libvirt connection");
@@ -4495,6 +4708,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         if (existing) {
             virDomainFree(existing);
             virt_conn_pool_release(conn);
+            unlock_vm_operation(name);
             free(real_ova);
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target VM already exists");
@@ -4523,6 +4737,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
         }
 
         if (disk_exists) {
+            unlock_vm_operation(name);
             free(real_ova);
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                 "Target VM disk already exists");
@@ -4535,6 +4750,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     gchar *job_id = pcv_job_create("ova_import", name, NULL);
 
     if (!job_id) {
+        unlock_vm_operation(name);
         free(real_ova);
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
                                                  "Job persistence unavailable — OVA import rejected");
@@ -4562,6 +4778,7 @@ static void _handle_vm_import_ova(JsonObject *params, const gchar *rpc_id,
     ctx->pool = g_strdup(pool);
     ctx->image_dir = g_strdup(image_dir);
     ctx->job_id = g_strdup(job_id);
+    ctx->holds_lock = TRUE;
     free(real_ova);
     g_free(job_id);
 
@@ -7649,6 +7866,25 @@ void purecvisor_dispatcher_dispatch(PureCVisorDispatcher *self,
                 : _vm_owner_scope_target_from_params(method, params);
         gchar *deny_message = NULL;
         gboolean allowed = pcv_dispatcher_check_rbac(method, caller_role);
+        const gchar *alias_error = NULL;
+
+        if (allowed &&
+            !pcv_dispatcher_vm_target_aliases_valid(method, params, &alias_error)) {
+
+
+
+
+            gchar *err = pure_rpc_build_error_response(rpc_id_str,
+                PURE_RPC_ERR_INVALID_PARAMS, alias_error);
+            pure_uds_server_send_response(server, connection, err);
+            g_free(err);
+            dispatcher_request_context_free(ctx);
+            pcv_audit_log(caller_sub ? caller_sub : "-",
+                          method,
+                          audit_target ? audit_target : "",
+                          "fail", PURE_RPC_ERR_INVALID_PARAMS, 0, "rbac");
+            goto rpc_done;
+        }
 
         if (!allowed) {
             deny_message = g_strdup(
