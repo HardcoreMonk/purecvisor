@@ -1,4 +1,8 @@
 # PureCVisor Single Edge 운영 가이드
+> **2026-10-16 공개 소스 기준 (2.0.2):** 2.0.1의 REST 요청 처리 결함 두 건을 고친 보안 수정 릴리스입니다.
+> 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 변경 목록은 저장소의 `CHANGELOG.md` 2.0.2 항목을 따릅니다.
+> 2.0.1 이하 설치본의 업그레이드는 2장 `.deb` 설치 방법의 업그레이드 안내를 따릅니다.
+
 > **2026-10-11 공개 소스 기준 (2.0.1):** 2.0.0의 권한 판정·VPC 서비스 게시·세션 처리 결함을 고친 보안 수정 릴리스입니다.
 > 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 변경 목록은 저장소의 `CHANGELOG.md` 2.0.1 항목을 따릅니다.
 > 2.0.0 설치본의 업그레이드는 2장 `.deb` 설치 방법의 업그레이드 안내를 따릅니다.
@@ -12,7 +16,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.1
+> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.2
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
@@ -62,7 +66,7 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.1`입니다.<br>
+현재 공개 제품 버전은 `2.0.2`입니다.<br>
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
@@ -270,12 +274,12 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "2.0.1",
+    "version": "2.0.2",
     "node_name": "standalone"
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.1`이다.<br>
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.2`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -336,7 +340,7 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 ### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-PureCVisor 2.0.1 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+PureCVisor 2.0.2 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
 
 > **설치 기준**
@@ -501,7 +505,7 @@ SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습�
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
-sudo apt install -y ./purecvisor-single_2.0.1_amd64.deb
+sudo apt install -y ./purecvisor-single_2.0.2_amd64.deb
 
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
@@ -520,7 +524,7 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).<br>
-2.0.0에서 2.0.1로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
+2.0.1 이하에서 2.0.2로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.
 - 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
 
@@ -1339,7 +1343,7 @@ NODE_IPV4="<configured-management-ipv4>"
 curl -ksS "https://${NODE_IPV4}/api/v1/health" \
   | jq '{status,service,version,node_name,tls:.checks.tls}'
 curl -ksS -o /tmp/pcv-live-app.bundle.js \
-  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.1"
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.2"
 
 sha256sum ui/app.bundle.js \
   /usr/local/share/purecvisor/ui/app.bundle.js \
@@ -1350,7 +1354,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 ```
 
 세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
-health의 `status=ok`, `version=2.0.1`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
+health의 `status=ok`, `version=2.0.2`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -1603,7 +1607,7 @@ sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
 sudo pcvctl vm list
 ```
 
-서비스는 `active/running`, health는 `status=ok`·`version=2.0.1`·`cluster=false`인지
+서비스는 `active/running`, health는 `status=ok`·`version=2.0.2`·`cluster=false`인지
 확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
 최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
 SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
@@ -6870,6 +6874,9 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
+**2026-10-16 현재 소스 (2.0.2):** 2.0.1 공개 소스에 REST 요청 처리 보안 시정 두 건만 반영했습니다.
+변경 목록은 `CHANGELOG.md`의 2.0.2 항목을 따릅니다.
+
 **2026-10-11 현재 소스 (2.0.1):** 2.0.0 공개 소스에 보안 시정만 반영했습니다.
 변경 목록은 `CHANGELOG.md`의 2.0.1 항목, 결정은 ADR-0079를 따릅니다.
 
@@ -6895,8 +6902,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
 결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
 `FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 공개 제품 버전은 `2.0.1`입니다.
+않습니다. 공개 제품 버전은 `2.0.2`입니다.
 
 ---
 
-> PureCVisor v2.0.1 Complete Guide — 22장 끝.
+> PureCVisor v2.0.2 Complete Guide — 22장 끝.

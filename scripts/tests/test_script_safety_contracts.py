@@ -417,23 +417,23 @@ def test_release_executes_only_canonical_v_semver_tag() -> None:
         assert result.returncode == 2
         assert not git_log.exists(), "version.h와 다른 tag가 생성 경로까지 도달함"
 
-        result = _run(RELEASE, "2.0.1", "--tag-onl", cwd=base, env=env)
+        result = _run(RELEASE, "2.0.2", "--tag-onl", cwd=base, env=env)
         assert result.returncode == 2
         assert not git_log.exists(), "option 오타가 full release 또는 tag 경로까지 도달함"
 
         dirty_env = env | {"PCV_GIT_DIRTY": "1"}
-        result = _run(RELEASE, "2.0.1", "--tag-only", cwd=base, env=dirty_env)
+        result = _run(RELEASE, "2.0.2", "--tag-only", cwd=base, env=dirty_env)
         assert result.returncode != 0
         assert "tag -l" not in git_log.read_text(encoding="utf-8")
         git_log.unlink()
 
-        result = _run(RELEASE, "2.0.1", "--tag-only", cwd=base, env=env)
+        result = _run(RELEASE, "2.0.2", "--tag-only", cwd=base, env=env)
         assert result.returncode == 0, result.stderr
         assert sentinel.read_text(encoding="utf-8") == "preserve\n"
         calls = git_log.read_text(encoding="utf-8")
-        assert "tag -l v2.0.1" in calls
-        assert "tag -s v2.0.1" in calls
-        assert "v2.0.1-single" not in calls
+        assert "tag -l v2.0.2" in calls
+        assert "tag -s v2.0.2" in calls
+        assert "v2.0.2-single" not in calls
         assert str(ROOT) in calls, "외부 CWD에서 그 저장소를 태깅함"
 
 

@@ -10,7 +10,7 @@
 
 ## 목적
 
-PureCVisor 2.0.1 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
+PureCVisor 2.0.2 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
 `docs/GUIDE.md`의 숫자형 21개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
 `docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
@@ -132,7 +132,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `security_groups.db`, `vpc.db`, `pcv_webpush.db`를 모두 명시한다.
   공개 DB 개수는 공개 소스에 실제 존재하는 이 8개를 정본으로 하며 다른 내부 배포판의
   저장소 수와 혼용하지 않는다.
-- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.1`을 실제 H1으로 두고 범위 문장, action과
+- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.2`를 실제 H1으로 두고 범위 문장, action과
   배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
   줄바꿈한다.
 - NGINX 모드 SVG의 Mermaid 원본은

@@ -126,7 +126,7 @@ Object.defineProperty(window.PCV, 'state', {
 });
 window.PCV.config = {
   API_BASE: API_BASE,
-  VERSION: '2.0.1',
+  VERSION: '2.0.2',
                                                            
                                                                           
                                                                      

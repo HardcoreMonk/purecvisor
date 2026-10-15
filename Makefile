@@ -1305,6 +1305,8 @@ check-cors-anchor:
 	@echo "🌐 Running CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13)..."
 	@python3 scripts/check_cors_anchor.py
 	@python3 scripts/tests/test_cors_anchor.py
+	@python3 tests/test_rest_cleanup_init_contract.py
+	@python3 tests/test_rest_segs_bounds_contract.py
 
 check-secret-logging:
 	@echo "🔒 Running 감사 로그 자격증명 마스킹 게이트 (Wave A / A09·V14·V16)..."

@@ -191,7 +191,7 @@ test('docs portal: 정적 링크·배포·안전 DOM 계약이 정본과 일치�
 
 test('docs portal: 공개 사이트와 같은 landing·dropdown·theme 진입점을 제공한다', async () => {
   for (const content of [
-    'PURECVISOR 2.0.1 · SINGLE EDGE',
+    'PURECVISOR 2.0.2 · SINGLE EDGE',
     '하나의 Linux/KVM 노드, 하나의 제어면.',
     'VM, 컨테이너, ZFS 스토리지와 네트워크 가상화를 한곳에서 운영합니다.',
     '독립 노드 배포 · C23 단일 프로세스 · Web UI, REST API, CLI',

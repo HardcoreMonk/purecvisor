@@ -3,7 +3,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-이 디렉터리는 PureCVisor Single Edge 2.0.1의 보조 systemd 유닛과
+이 디렉터리는 PureCVisor Single Edge 2.0.2의 보조 systemd 유닛과
 `purecvisorsd.service` 드롭인을 보관한다. 전체 절차는
 [운영 가이드](../../docs/GUIDE.md)와
 [검증 정책](../../docs/DEVELOPMENT_VERIFICATION_POLICY.md)을 기준으로 한다.

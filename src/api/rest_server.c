@@ -1981,6 +1981,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
     const gchar *method = soup_server_message_get_method(msg);
     gchar *req_id = nullptr;                                                    
     PcvTraceContext *trace_ctx = nullptr;                                              
+    JsonObject *body = nullptr;
+    gchar **segs = nullptr, *subject = nullptr, *rpc = nullptr, *vm_delete_name = nullptr;
     const gchar *request_client_ip =
         pcv_rest_auth_audit_address(msg);
 
@@ -2251,7 +2253,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                             
     if (g_strcmp0(path, "/") == 0) {
         soup_server_message_set_redirect(msg, 302, "/ui/");
-        return;
+        goto cleanup;
     }
 
                                                             
@@ -2265,7 +2267,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                             
         if (strstr(file_path, "..")) {
             _error(msg, 403, "FORBIDDEN", "Path traversal blocked");
-            return;
+            goto cleanup;
         }
 
         static const char *ui_base_dir = "/usr/local/share/purecvisor/ui";
@@ -2275,7 +2277,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         if (ui_base_resolved[0] == '\0') {
             if (!realpath(ui_base_dir, ui_base_resolved)) {
                 _error(msg, 500, "SERVER_ERROR", "UI base dir missing");
-                return;
+                goto cleanup;
             }
             ui_base_len = strlen(ui_base_resolved);
         }
@@ -2290,14 +2292,14 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                    e == ENOENT ? "NOT_FOUND" : "FORBIDDEN",
                    e == ENOENT ? "UI file not found" : "Path traversal blocked");
             g_free(full);
-            return;
+            goto cleanup;
         }
                                                        
         if (strncmp(resolved, ui_base_resolved, ui_base_len) != 0 ||
             (resolved[ui_base_len] != '/' && resolved[ui_base_len] != '\0')) {
             _error(msg, 403, "FORBIDDEN", "Path traversal blocked");
             g_free(full);
-            return;
+            goto cleanup;
         }
 
         gchar *content = nullptr;
@@ -2334,7 +2336,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             _error(msg, 404, "NOT_FOUND", "UI file not found");
         }
         g_free(full);
-        return;
+        goto cleanup;
     }
 
                                                                      
@@ -2405,7 +2407,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         g_free(body);
         g_object_unref(gen);
         json_node_free(rn);
-        return;
+        goto cleanup;
     }
 
     if (g_strcmp0(path, REST_API_PREFIX "/health") == 0) {
@@ -2424,7 +2426,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         if (cache_body && (now - cache_ts) < 5 * G_USEC_PER_SEC) {
             _send_json(msg, cache_code, cache_body);
             g_mutex_unlock(&health_mu);
-            return;
+            goto cleanup;
         }
         g_mutex_unlock(&health_mu);
 
@@ -2626,7 +2628,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
         _send_json(msg, http_code, body);
         g_free(body);
-        return;
+        goto cleanup;
     }
 
                                                                 
@@ -2658,7 +2660,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         } else {
             _error(msg, 500, "INTERNAL_ERROR", "Version RPC failed");
         }
-        return;
+        goto cleanup;
     }
 
                                                                         
@@ -2690,7 +2692,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         } else {
             _error(msg, 500, "INTERNAL_ERROR", "Update-check RPC failed");
         }
-        return;
+        goto cleanup;
     }
 
       
@@ -2739,7 +2741,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         _send_json(msg, 200, data);
         g_free(data);
         json_node_free(node);
-        return;
+        goto cleanup;
     }
 
 #if PCV_CLUSTER_ENABLED
@@ -2752,7 +2754,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         g_free(rpc);
         _send_json(msg, 200, uds_resp ? uds_resp : "{\"result\":[]}");
         g_free(uds_resp);
-        return;
+        goto cleanup;
     }
 #endif
 
@@ -2804,7 +2806,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         gchar *td = json_to_string(tn, FALSE);
         _send_json(msg, 200, td);
         g_free(td); json_node_free(tn);
-        return;
+        goto cleanup;
     }
 
       
@@ -2838,7 +2840,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         const gchar *m_auth = pcv_config_get_string("metrics", "auth", "none");
         if (g_strcmp0(m_auth, "required") == 0) {
             gchar *subj = _authenticate(msg, NULL);                           
-            if (!subj) return;                 
+            if (!subj) goto cleanup;
             g_free(subj);
         }
 
@@ -2987,7 +2989,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             "text/plain; version=0.0.4; charset=utf-8",
             SOUP_MEMORY_COPY, prom->str, prom->len);
         g_string_free(prom, TRUE);
-        return;
+        goto cleanup;
     }
 
       
@@ -3047,7 +3049,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 soup_message_headers_replace(rh, "Retry-After", retry_buf);
                 _error(msg, 429, "TOO_MANY_REQUESTS",
                        "Too many failed login attempts from this IP");
-                return;
+                goto cleanup;
             }
         }
 
@@ -3072,7 +3074,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     _error(msg, 500, "INTERNAL",
                            pend_err ? pend_err->message : "Failed to issue pending token");
                     if (pend_err) g_error_free(pend_err);
-                    return;
+                    goto cleanup;
                 }
                 pcv_rbac_ip_record_auth_success(client_ip);
 
@@ -3090,7 +3092,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 if (body) json_object_unref(body);
                 g_free(username);
                 pcv_secure_free_str(&password);
-                return;
+                goto cleanup;
             }
 
             token = pcv_rbac_issue_tokens(username, &refresh, &err);
@@ -3138,7 +3140,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             if (body) json_object_unref(body);
             g_free(username);
             pcv_secure_free_str(&password);
-            return;
+            goto cleanup;
         }
 
         pcv_rbac_ip_record_auth_success(client_ip);             
@@ -3165,7 +3167,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         if (body) json_object_unref(body);
         g_free(username);
         pcv_secure_free_str(&password);
-        return;
+        goto cleanup;
     }
 
       
@@ -3189,7 +3191,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         if (!ref_tok || !*ref_tok) {
             if (body) json_object_unref(body);
             _error(msg, 400, "BAD_REQUEST", "refresh_token is required");
-            return;
+            goto cleanup;
         }
 
         GError *err = nullptr;
@@ -3202,7 +3204,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             _error(msg, 401, "UNAUTHORIZED",
                    err ? err->message : "Invalid refresh token");
             if (err) g_error_free(err);
-            return;
+            goto cleanup;
         }
 
         gchar *resp = nullptr;
@@ -3227,7 +3229,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         g_free(new_refresh);
         if (body) json_object_unref(body);
         PCV_LOG_INFO(REST_LOG_DOM, "Token refreshed via /auth/refresh");
-        return;
+        goto cleanup;
     }
 
       
@@ -3308,7 +3310,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         } else {
             _error(msg, 401, "UNAUTHORIZED", "Valid token required for logout");
         }
-        return;
+        goto cleanup;
     }
 
       
@@ -3321,14 +3323,14 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         const gchar *auth_hdr = soup_message_headers_get_one(hdrs, "Authorization");
         if (!auth_hdr || !g_str_has_prefix(auth_hdr, "Bearer ")) {
             _error(msg, 401, "UNAUTHORIZED", "Bearer token required");
-            return;
+            goto cleanup;
         }
         GError *verr = nullptr;
         gchar *sub = pcv_jwt_verify(auth_hdr, &verr);
         if (verr) g_error_free(verr);
         if (!sub) {
             _error(msg, 401, "UNAUTHORIZED", "Invalid or expired token");
-            return;
+            goto cleanup;
         }
 
         JsonObject *body = _parse_body(msg);
@@ -3344,7 +3346,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             g_free(sub);
             _error(msg, 400, "BAD_REQUEST",
                    "old_password and new_password are required");
-            return;
+            goto cleanup;
         }
 
         GError *err = nullptr;
@@ -3364,7 +3366,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                    err ? err->message : "Failed to change password");
             if (err) g_error_free(err);
             g_free(sub);
-            return;
+            goto cleanup;
         }
 
         pcv_audit_log(sub, "auth.password.change", "self change",
@@ -3375,7 +3377,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 
         _send_json(msg, 200,
                    "{\"status\":\"ok\",\"message\":\"Password changed. Refresh sessions revoked; existing access tokens remain valid until expiry.\"}");
-        return;
+        goto cleanup;
     }
 
       
@@ -3395,7 +3397,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             g_ascii_strcasecmp(enabled, "1")    != 0 &&
             g_ascii_strcasecmp(enabled, "yes")  != 0) {
             _error(msg, 403, "FORBIDDEN", "Self-registration is disabled");
-            return;
+            goto cleanup;
         }
 
         JsonObject *body = _parse_body(msg);
@@ -3417,26 +3419,26 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             if (body) json_object_unref(body);
             _error(msg, 400, "BAD_REQUEST",
                    "username must be 3-32 chars, lowercase alphanumeric or underscore");
-            return;
+            goto cleanup;
         }
 
         size_t plen = password ? strlen(password) : 0;
         if (plen < 8) {
             if (body) json_object_unref(body);
             _error(msg, 400, "BAD_REQUEST", "password must be at least 8 characters");
-            return;
+            goto cleanup;
         }
         if (g_strcmp0(username, password) == 0) {
             if (body) json_object_unref(body);
             _error(msg, 400, "BAD_REQUEST", "password must differ from username");
-            return;
+            goto cleanup;
         }
 
         const gchar *adm = pcv_config_get_admin_user();
         if (adm && g_strcmp0(username, adm) == 0) {
             if (body) json_object_unref(body);
             _error(msg, 409, "CONFLICT", "username is reserved");
-            return;
+            goto cleanup;
         }
 
         GError *err = nullptr;
@@ -3452,7 +3454,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             _error(msg, 409, "CONFLICT",
                    err ? err->message : "Failed to create user (already exists?)");
             if (err) g_error_free(err);
-            return;
+            goto cleanup;
         }
 
         pcv_audit_log(username, "auth.register", "self register",
@@ -3464,7 +3466,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         g_free(resp);
         if (body) json_object_unref(body);
         PCV_LOG_INFO(REST_LOG_DOM, "Self-registered user '%s'", username);
-        return;
+        goto cleanup;
     }
 
       
@@ -3511,7 +3513,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         if (!code || !*code) {
             if (body) json_object_unref(body);
             _error(msg, 400, "BAD_REQUEST", "code is required");
-            return;
+            goto cleanup;
         }
 
         gboolean is_pending_path = (pending_tok && *pending_tok);
@@ -3534,7 +3536,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     _error(msg, 401, "UNAUTHORIZED", "Invalid pending token");
                 }
                 if (verr) g_error_free(verr);
-                return;
+                goto cleanup;
             }
             g_free(scope);
         } else {
@@ -3545,7 +3547,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 if (body) json_object_unref(body);
                 _error(msg, 401, "UNAUTHORIZED",
                        "pending_token or Authorization: Bearer token required");
-                return;
+                goto cleanup;
             }
             GError *verr = nullptr;
             username = pcv_jwt_verify(auth_hdr, &verr);
@@ -3554,7 +3556,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 _error(msg, 401, "UNAUTHORIZED",
                        verr ? verr->message : "Invalid or expired token");
                 if (verr) g_error_free(verr);
-                return;
+                goto cleanup;
             }
             if (verr) g_error_free(verr);
         }
@@ -3585,7 +3587,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             }
             if (cerr) g_error_free(cerr);
             g_free(username);
-            return;
+            goto cleanup;
         }
 
                                                   
@@ -3628,7 +3630,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             PCV_LOG_INFO(REST_LOG_DOM, "TOTP self-service confirm for '%s'%s",
                          username, first_confirm ? " (first confirm)" : "");
             g_free(username);
-            return;
+            goto cleanup;
         }
 
                                                                       
@@ -3643,7 +3645,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             g_free(refresh);
             if (recovery) g_ptr_array_unref(recovery);
             g_free(username);
-            return;
+            goto cleanup;
         }
 
         pcv_audit_log(username, "auth.totp.verify", username, "ok", 0, 0, client_ip);
@@ -3677,7 +3679,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         PCV_LOG_INFO(REST_LOG_DOM, "TOTP verify completed login for '%s'%s",
                      username, first_confirm ? " (first confirm)" : "");
         g_free(username);
-        return;
+        goto cleanup;
     }
 
       
@@ -3734,7 +3736,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                     _error(msg, 401, "UNAUTHORIZED", "Invalid pending token");
                 }
                 if (verr) g_error_free(verr);
-                return;
+                goto cleanup;
             }
             g_free(scope);
         } else {
@@ -3745,7 +3747,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 if (body) json_object_unref(body);
                 _error(msg, 401, "UNAUTHORIZED",
                        "pending_token or Authorization: Bearer token required");
-                return;
+                goto cleanup;
             }
             GError *verr = nullptr;
             username = pcv_jwt_verify(auth_hdr, &verr);
@@ -3754,7 +3756,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 _error(msg, 401, "UNAUTHORIZED",
                        verr ? verr->message : "Invalid or expired token");
                 if (verr) g_error_free(verr);
-                return;
+                goto cleanup;
             }
             if (verr) g_error_free(verr);
         }
@@ -3767,7 +3769,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                    eerr ? eerr->message : "TOTP enrollment failed");
             if (eerr) g_error_free(eerr);
             g_free(username);
-            return;
+            goto cleanup;
         }
 
         const gchar *hostname = g_get_host_name();
@@ -3785,7 +3787,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         PCV_LOG_INFO(REST_LOG_DOM, "TOTP enroll issued secret for '%s' (%s path)",
                      username, is_pending_path ? "pending" : "self-service");
         g_free(username);
-        return;
+        goto cleanup;
     }
 
       
@@ -3813,8 +3815,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                    
                                                          
     gint key_role = -1;
-    gchar *subject = _authenticate(msg, &key_role);
-    if (!subject) return;                                                 
+    subject = _authenticate(msg, &key_role);
+    if (!subject) goto cleanup;
 
                                                             
 
@@ -3834,8 +3836,8 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                            
                                                                                
                                                                       
-    JsonObject *body    = _parse_body(msg);
-    gchar     **segs    = _split_path(path);
+    body = _parse_body(msg);
+    segs = _split_path(path);
       
                   
                                                                            
@@ -3846,14 +3848,13 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                               
                                                                            
        
-    const gchar *resource = segs[0] ? segs[0] : "";
-    const gchar *name     = segs[1] ? segs[1] : "";
-    const gchar *action   = segs[2] ? segs[2] : "";
-    const gchar *sub      = segs[3] ? segs[3] : "";
+    const guint nseg = g_strv_length(segs);
+    const gchar *resource = nseg > 0 ? segs[0] : "";
+    const gchar *name     = nseg > 1 ? segs[1] : "";
+    const gchar *action   = nseg > 2 ? segs[2] : "";
+    const gchar *sub      = nseg > 3 ? segs[3] : "";
 
-    gchar *rpc = nullptr;
     gboolean  is_vm_delete   = FALSE;
-    gchar    *vm_delete_name = nullptr;
 
                                                
       
