@@ -125,15 +125,6 @@ void handle_container_env_delete (JsonObject *params, const gchar *rpc_id,
 
                                                                       
                                                                 
-void handle_container_health_set   (JsonObject *params, const gchar *rpc_id,
-                                    UdsServer *server, GSocketConnection *conn);
-
-void handle_container_health_get   (JsonObject *params, const gchar *rpc_id,
-                                    UdsServer *server, GSocketConnection *conn);
-
-void handle_container_health_delete(JsonObject *params, const gchar *rpc_id,
-                                    UdsServer *server, GSocketConnection *conn);
-
 G_END_DECLS
 
 #endif                                     

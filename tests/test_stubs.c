@@ -275,6 +275,23 @@ gint pcv_etcd_compute_inflight_ttl(const gchar *op __attribute__((unused)),
                                                                  
                                                                      
                                          
+static gchar g_test_uds_last_response[4096] = {0};
+
+void pcv_test_uds_response_reset(void);
+void pcv_test_uds_response_reset(void)
+{
+    g_test_uds_last_response[0] = '\0';
+}
+
+const gchar *pcv_test_last_uds_response(void);
+const gchar *pcv_test_last_uds_response(void)
+{
+    return g_test_uds_last_response;
+}
+
 void pure_uds_server_send_response(UdsServer *self __attribute__((unused)),
                                    GSocketConnection *connection __attribute__((unused)),
-                                   const gchar *response __attribute__((unused))) { }
+                                   const gchar *response)
+{
+    g_strlcpy(g_test_uds_last_response, response ? response : "", sizeof g_test_uds_last_response);
+}

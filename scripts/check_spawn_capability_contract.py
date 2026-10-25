@@ -63,6 +63,11 @@ FORBIDDEN_SPAWN_RE = re.compile(
     r"g_spawn_[A-Za-z0-9_]+)\s*\("
 )
 
+BOUND_DECL_RE = re.compile(
+    r"\bPcvSpawnBound\s+(?:const\s+)?(?:\*\s*)?([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*(=\s*\{)?"
+)
+BOUND_LITERAL_RE = re.compile(r"\(\s*(?:const\s+)?PcvSpawnBound\s*\)\s*\{")
+
 
 def strip_c_comments_and_literals(text: str) -> str:
                                                
@@ -174,6 +179,87 @@ def find_calls(code: str, function_name: str) -> list[tuple[int, list[str]]]:
     return calls
 
 
+def balanced_brace_body(code: str, open_index: int) -> str:
+
+    depth = 1
+    cursor = open_index + 1
+    while cursor < len(code) and depth:
+        if code[cursor] == "{":
+            depth += 1
+        elif code[cursor] == "}":
+            depth -= 1
+        cursor += 1
+    if depth:
+        line = code.count("\n", 0, open_index) + 1
+        raise ValueError(f"PcvSpawnBound 초기화자의 닫는 중괄호가 없음(line {line})")
+    return code[open_index + 1 : cursor - 1]
+
+def profile_violation(rel_path: str, profile: str | None) -> str | None:
+
+    if profile is None:
+        return "PcvSpawnBound 초기화자에 .profile이 없음(명시 profile 필요)"
+    if profile not in PROFILE_CONSTANTS:
+        return f"PcvSpawnBound profile은 고정 enum 상수여야 함: '{profile or '<empty>'}'"
+    return None
+
+def bound_initializer_profile(body: str) -> str | None:
+
+    entries = [entry for entry in split_top_level_args(body) if entry]
+    for entry in entries:
+        match = re.fullmatch(r"\.\s*profile\s*=\s*(.*)", entry, re.DOTALL)
+        if match:
+            return match.group(1).strip()
+    if entries and not entries[0].startswith("."):
+        return entries[0]
+    return None
+
+def bound_profile_errors(rel_path: str, code: str) -> tuple[list[str], int]:
+
+    errors: list[str] = []
+    checked = 0
+    initializers: list[tuple[int, str, bool]] = []
+    names: set[str] = set()
+    for match in BOUND_DECL_RE.finditer(code):
+        names.add(match.group(1))
+        if match.group(3):
+            initializers.append((match.end() - 1, match.group(1), bool(match.group(2))))
+    for match in BOUND_LITERAL_RE.finditer(code):
+        initializers.append((match.end() - 1, "(PcvSpawnBound){}", False))
+    for open_index, _name, is_array in initializers:
+        line = code.count("\n", 0, open_index) + 1
+        body = balanced_brace_body(code, open_index)
+        bodies = [body]
+        if is_array:
+
+            bodies = []
+            for element in split_top_level_args(body):
+                element = re.sub(r"^\[[^\]]*\]\s*=\s*", "", element)
+                if element.startswith("{"):
+                    bodies.append(balanced_brace_body(element, 0))
+                elif element:
+                    checked += 1
+                    errors.append(f"{rel_path}:{line}: PcvSpawnBound 배열 요소가 중괄호 초기화자가 "
+                                  f"아니어서 profile을 확인할 수 없음: '{element}'")
+            if not bodies:
+                checked += 1
+                errors.append(f"{rel_path}:{line}: PcvSpawnBound 배열에서 profile을 확인한 요소가 없음")
+        for element in bodies:
+            checked += 1
+            reason = profile_violation(rel_path, bound_initializer_profile(element))
+            if reason:
+                errors.append(f"{rel_path}:{line}: {reason}")
+    for name in sorted(names):
+        assign_re = re.compile(
+            rf"\b{re.escape(name)}\s*(?:\.|->)\s*profile\s*=(?!=)\s*([^;]*);"
+        )
+        for match in assign_re.finditer(code):
+            checked += 1
+            line = code.count("\n", 0, match.start()) + 1
+            reason = profile_violation(rel_path, match.group(1).strip())
+            if reason:
+                errors.append(f"{rel_path}:{line}: {reason}")
+    return errors, checked
+
 def source_errors(rel_path: str, text: str) -> tuple[list[str], int]:
                                                    
     code = strip_c_comments_and_literals(text)
@@ -203,6 +289,9 @@ def source_errors(rel_path: str, text: str) -> tuple[list[str], int]:
                         f"{rel_path}:{line}: {name} profile은 고정 enum 상수여야 함: "
                         f"'{profile or '<empty>'}'"
                     )
+        bound_errors, bound_checked = bound_profile_errors(rel_path, code)
+        errors.extend(bound_errors)
+        checked += bound_checked
     return errors, checked
 
 
@@ -321,7 +410,31 @@ pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_STORAGE, NULL, NULL, error);
         print(f"self-test multiline fixture 실패: errors={errors}, checked={checked}", file=sys.stderr)
         return 1
 
-    print("[check-spawn-capabilities:self-test] PASS (4/4)")
+    bound_ok = (
+        "PcvSpawnBound b = { .profile = PCV_CHILD_CAP_RUNTIME, .timeout_sec = 5 };\n"
+        "pcv_spawn_sync_bounded(argv, &(PcvSpawnBound){ .timeout_sec = 3,\n"
+        "  .profile = PCV_CHILD_CAP_BASE }, NULL, NULL, &st, error);\n"
+        "static gboolean f(const PcvSpawnBound *bound) { return bound != NULL; }\n"
+        "PcvSpawnBound arr[] = { [0] = { .profile = PCV_CHILD_CAP_BASE },\n"
+        "  { .profile = PCV_CHILD_CAP_RUNTIME } };\n"
+    )
+    errors, checked = source_errors("src/modules/bound.c", bound_ok)
+    if errors or checked != 4:
+        print(f"self-test PcvSpawnBound 고정 profile fixture 실패: errors={errors}, checked={checked}",
+              file=sys.stderr)
+        return 1
+    for label, fixture in (
+        ("초기화자 동적 profile", "PcvSpawnBound b = { .timeout_sec = 5, .profile = user_profile };"),
+        ("복합 리터럴 동적 profile", "f(&(PcvSpawnBound){ .profile = p, .timeout_sec = 1 });"),
+        ("멤버 대입 동적 profile", "PcvSpawnBound b = { .profile = PCV_CHILD_CAP_BASE };\nb.profile = p;"),
+        ("profile 누락", "PcvSpawnBound b = { .timeout_sec = 5 };"),
+        ("배열 지정자 요소 동적 profile", "PcvSpawnBound a[] = { [0] = { .profile = p } };"),
+    ):
+        errors, _ = source_errors("src/modules/bound_bad.c", fixture)
+        if not errors:
+            print(f"self-test PcvSpawnBound {label} 반사실을 놓침", file=sys.stderr)
+            return 1
+    print("[check-spawn-capabilities:self-test] PASS (10/10)")
     return 0
 
 

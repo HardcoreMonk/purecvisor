@@ -428,6 +428,7 @@ typedef struct {
     gchar *hwaddr;                 
     gchar *ipv4;                               
     gchar *veth_peer;                     
+    gboolean ipv4_unavailable;
 } PcvLxcNicInfo;
 
                                         
@@ -458,7 +459,7 @@ gboolean pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                                              
    
 gboolean pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name,
-                              GError **error);
+                              gchar **warning_out, GError **error);
 
    
                                     

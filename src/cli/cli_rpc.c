@@ -230,7 +230,8 @@ gchar *purectl_send_request(const gchar *method,
     }
 
     GSocket *sock = g_socket_connection_get_socket(conn);
-    g_socket_set_timeout(sock, 10);                                                     
+    guint sock_timeout = g_strcmp0(method, "container.exec") == 0 ? 65 : 10;
+    g_socket_set_timeout(sock, sock_timeout);                                                     
 
                                    
                                                        

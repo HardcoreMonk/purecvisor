@@ -117,6 +117,7 @@
 
 #include "api/drain.h"
 #include "lxc_driver.h"
+#include "lxc_ns_exec.h"
 
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -1814,19 +1815,6 @@ gboolean pcv_lxc_stop_finish(GAsyncResult *result, GError **error)
                                                          
                                               
   
-          
-                                               
-                           
-                                                                               
-
-                                                                    
-static gboolean
-_cancel_on_timeout(gpointer user_data)
-{
-    g_cancellable_cancel(G_CANCELLABLE(user_data));
-    return G_SOURCE_REMOVE;
-}
-
 typedef struct { gchar *name; gchar **argv; } LxcExecData;                                  
 
 static void
@@ -1846,73 +1834,32 @@ _lxc_exec_thread(GTask        *task,
 {
     LxcExecData *d = (LxcExecData *)task_data;
     GError *error  = nullptr;
-
-                                                      
-                                                                
-                                       
-    gchar *q_name = g_shell_quote(d->name);
-    GString *cmd = g_string_new("lxc-attach --clear-env");                                   
-    g_string_append_printf(cmd, " -P %s -n %s --", PCV_LXC_PATH, q_name);
-    g_free(q_name);
-    for (int i = 0; d->argv[i]; i++) {                                    
-        gchar *q_arg = g_shell_quote(d->argv[i]);
-        g_string_append_printf(cmd, " %s", q_arg);
-        g_free(q_arg);
-    }
-
-                                         
-                                                        
-    const gchar *exec_argv[] = {"/bin/sh", "-c", cmd->str, NULL};
     gchar *stdout_out = nullptr;
     gchar *stderr_out = nullptr;
+    gint status = -1;
 
-    GSubprocess *proc = pcv_spawn_newv_profile(
-        exec_argv,
-        G_SUBPROCESS_FLAGS_STDOUT_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE,
-        PCV_CHILD_CAP_RUNTIME,
-        &error);
-    g_string_free(cmd, TRUE);
+    gchar **argv = pcv_lxc_attach_argv(PCV_LXC_PATH, d->name, (const gchar * const *)d->argv);
+    gboolean ran = argv && pcv_lxc_ns_run((const gchar * const *)argv, PCV_LXC_EXEC_TIMEOUT_SEC,
+                                          PCV_LXC_EXEC_OUTPUT_MAX, &stdout_out, &stderr_out,
+                                          &status, &error);
+    g_strfreev(argv);
 
-    if (!proc) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "exec spawn failed: %s",
-                                error ? error->message : "unknown");
-        if (error) g_error_free(error);
-        return;
-    }
-
-                                                                   
-    GCancellable *cancel = g_cancellable_new();
-    guint timer_id = g_timeout_add_seconds(60, _cancel_on_timeout, cancel);
-    gboolean ok = g_subprocess_communicate_utf8(
-        proc, NULL, cancel, &stdout_out, &stderr_out, &error);
-    g_source_remove(timer_id);                               
-    g_object_unref(cancel);
-
-    if (!ok) {
+    if (!ran) {
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "exec failed (timeout or error): %s",
-                                error ? error->message : "unknown");
-        if (error) g_error_free(error);
-        g_free(stdout_out); g_free(stderr_out);
-        g_object_unref(proc);
-        return;
-    }
-
-    gboolean success = g_subprocess_get_successful(proc);
-    g_object_unref(proc);
-
-    if (!success) {
+                                error ? error->message : "invalid exec request");
+        g_clear_error(&error);
+    } else if (status != 0) {
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "exec failed: %s",
                                 (stderr_out && *stderr_out) ? stderr_out : "non-zero exit");
-        g_free(stdout_out); g_free(stderr_out);
+        g_free(stdout_out);
     } else {
-        g_free(stderr_out);
         g_task_return_pointer(task,
                               stdout_out ? stdout_out : g_strdup(""),
                               (GDestroyNotify)g_free);
     }
+    g_free(stderr_out);
 }
 
                                                   
@@ -2553,39 +2500,29 @@ pcv_lxc_nic_list(const gchar *name, GError **error)
     }
 
                                                                  
-    if (c->is_running(c) && nics->len > 0) {
-        gchar *cmd_line = g_strdup_printf(
-            "lxc-attach -P %s -n %s -- ip -4 -o addr show 2>/dev/null",
-            PCV_LXC_PATH, name);
-        gchar *out = nullptr;
-        const gchar *argv[] = {"/bin/sh", "-c", cmd_line, NULL};
-        if (pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME,
-                                   &out, NULL, NULL) && out) {
                                                                           
-            gchar **lines = g_strsplit(out, "\n", -1);
-            for (int i = 0; lines[i]; i++) {
-                for (guint n = 0; n < nics->len; n++) {
-                    PcvLxcNicInfo *ni = g_ptr_array_index(nics, n);
-                    if (g_strstr_len(lines[i], -1, ni->name)) {                        
-                                                      
-                        const gchar *inet = g_strstr_len(lines[i], -1, "inet ");
-                        if (inet) {
-                            inet += 5;                                  
-                            const gchar *sp = strchr(inet, ' ');
-                            g_free(ni->ipv4);
-                            ni->ipv4 = sp ? g_strndup(inet, (gsize)(sp - inet))
-                                          : g_strdup(inet);
-                        }
-                        break;
-                    }
-                }
+    gchar *out = nullptr;
+    if (c->is_running(c) && nics->len > 0 && !pcv_lxc_ns_ip4_query(PCV_LXC_PATH, name, &out, NULL))
+        for (guint n = 0; n < nics->len; n++)
+            ((PcvLxcNicInfo *)g_ptr_array_index(nics, n))->ipv4_unavailable = TRUE;
+    gchar **lines = out ? g_strsplit(out, "\n", -1) : NULL;
+    for (int i = 0; lines && lines[i]; i++) {
+        for (guint n = 0; n < nics->len; n++) {
+            PcvLxcNicInfo *ni = g_ptr_array_index(nics, n);
+            const gchar *inet = g_strstr_len(lines[i], -1, "inet ");
+            if (!g_strstr_len(lines[i], -1, ni->name))
+                continue;
+            if (inet) {
+                const gchar *sp = strchr(inet + 5, ' ');
+                g_free(ni->ipv4);
+                ni->ipv4 = sp ? g_strndup(inet + 5, (gsize)(sp - inet - 5)) : g_strdup(inet + 5);
             }
-            g_strfreev(lines);
+            break;
         }
-        g_free(out);
-        g_free(cmd_line);
     }
 
+    g_strfreev(lines);
+    g_free(out);
     lxc_container_put(c);
     return nics;
 }
@@ -2647,22 +2584,15 @@ pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                                                           
                                                       
                                                                        
-                                                                
+    gboolean wired = TRUE;
     if (c->is_running(c)) {
-        gchar *cmd = g_strdup_printf(
-            "ip link add %s-host type veth peer name %s && "
-            "ip link set %s-host master %s && "
-            "ip link set %s-host up && "
-            "ip link set %s netns $(cat /sys/fs/cgroup/lxc.payload.%s/cgroup.procs | head -1) && "
-            "nsenter -t $(cat /sys/fs/cgroup/lxc.payload.%s/cgroup.procs | head -1) -n ip link set %s up",
-            ethname, ethname, ethname, br, ethname, ethname, name, name, ethname);
-        const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-        pcv_spawn_sync(argv, NULL, NULL, NULL);
-        g_free(cmd);
+        gchar host_if[24];
+        g_snprintf(host_if, sizeof(host_if), "%s-host", ethname);
+        wired = pcv_lxc_ns_nic_wire(host_if, ethname, br, c->init_pid(c), error);
     }
 
     lxc_container_put(c);
-    return TRUE;
+    return wired;
 }
 
    
@@ -2675,8 +2605,9 @@ pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                                                              
    
 gboolean
-pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, GError **error)
+pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, gchar **warning_out, GError **error)
 {
+    if (warning_out) *warning_out = NULL;
     struct lxc_container *c = lxc_container_new(name, PCV_LXC_PATH);
     if (!c || !c->is_defined(c)) {
         if (c) lxc_container_put(c);
@@ -2708,16 +2639,6 @@ pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, GError **error)
     }
 
                             
-    if (c->is_running(c)) {
-        gchar *cmd = g_strdup_printf(
-            "lxc-attach -P %s -n %s -- ip link del %s 2>/dev/null",
-            PCV_LXC_PATH, name, nic_name);
-        const gchar *argv[] = {"/bin/sh", "-c", cmd, NULL};
-        pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME, NULL, NULL, NULL);
-        g_free(cmd);
-    }
-
-                                  
     const gchar *keys[] = {"type", "link", "flags", "name", "hwaddr",
                             "ipv4.address", "ipv4.gateway", NULL};
     for (int i = 0; keys[i]; i++) {
@@ -2727,8 +2648,11 @@ pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, GError **error)
     }
     c->save_config(c, NULL);
 
+    gboolean removed = TRUE;
+    if (c->is_running(c))
+        removed = pcv_lxc_ns_nic_remove(PCV_LXC_PATH, name, nic_name, warning_out, error);
     lxc_container_put(c);
-    return TRUE;
+    return removed;
 }
 
    
@@ -2893,18 +2817,19 @@ static gboolean
 _lxc_bw_apply_in_container(const gchar *name, const gchar *iface, guint kbps, GError **error)
 {
     gchar *rate = g_strdup_printf("%ukbit", kbps);
-    const gchar *argv[] = {
-        "lxc-attach", "-P", PCV_LXC_PATH, "-n", name, "--",
-        "tc", "qdisc", "replace", "dev", iface, PCV_LXC_TBF_TAIL(rate), NULL
-    };
+    const gchar *cmd[] = {"tc", "qdisc", "replace", "dev", iface, PCV_LXC_TBF_TAIL(rate), NULL};
+    gchar **argv = pcv_lxc_attach_argv(PCV_LXC_PATH, name, cmd);
     gchar *std_err = NULL;
     GError *spawn_err = NULL;
-    gboolean ok = pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_RUNTIME, NULL, &std_err, &spawn_err);
+    gint status = -1;
+    gboolean ok = pcv_lxc_ns_run((const gchar * const *)argv, PCV_LXC_NS_CHANGE_TIMEOUT_SEC,
+                                 PCV_LXC_NS_OUTPUT_MAX, NULL, &std_err, &status, &spawn_err) && status == 0;
+    g_strfreev(argv);
     if (!ok)
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "tc inside container '%s' on '%s' failed: %s", name, iface,
                     std_err && *std_err ? g_strstrip(std_err)
-                                        : (spawn_err ? spawn_err->message : "unknown"));
+                                        : (spawn_err ? spawn_err->message : "non-zero exit"));
     g_clear_error(&spawn_err);
     g_free(std_err);
     g_free(rate);

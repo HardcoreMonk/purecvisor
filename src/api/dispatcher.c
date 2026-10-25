@@ -108,6 +108,7 @@
 #include "modules/dispatcher/handler_storage.h"
 #include "modules/dispatcher/handler_monitor.h"
 #include "modules/dispatcher/handler_container.h"
+#include "modules/dispatcher/handler_container_health.h"
 #include "modules/dispatcher/handler_overlay.h"
 #include "modules/dispatcher/handler_accel.h"
 #include "modules/accel/gpu_manager.h"
@@ -6508,36 +6509,233 @@ static void _handle_container_set_limits(JsonObject *params, const gchar *rpc_id
                                                                       
                                           
                                                             
+typedef enum { CNET_NIC_LIST, CNET_NIC_ATTACH, CNET_NIC_DETACH, CNET_SET_BANDWIDTH } CnetKind;
+
+typedef struct {
+    UdsServer         *server;
+    GSocketConnection *connection;
+    gchar             *rpc_id;
+    gchar             *actor;
+    CnetKind           kind;
+    gchar             *name;
+    gchar             *nic;
+    gchar             *bridge;
+    gchar             *hwaddr;
+    guint              in_kbps;
+    guint              out_kbps;
+    JsonNode          *result;
+    gint               code;
+    gchar             *message;
+} CnetCtx;
+
+static void
+_cnet_ctx_free(gpointer data)
+{
+    CnetCtx *ctx = data;
+    if (!ctx) return;
+    g_free(ctx->rpc_id);
+    g_free(ctx->actor);
+    g_free(ctx->name);
+    g_free(ctx->nic);
+    g_free(ctx->bridge);
+    g_free(ctx->hwaddr);
+    if (ctx->result) json_node_unref(ctx->result);
+    g_free(ctx->message);
+    if (ctx->server) g_object_unref(ctx->server);
+    if (ctx->connection) g_object_unref(ctx->connection);
+    g_free(ctx);
+}
+
+static void
+_cnet_fail(CnetCtx *ctx, gint code, const GError *e, const gchar *fallback)
+{
+    ctx->code = code;
+    ctx->message = g_strdup(e ? e->message : fallback);
+}
+
+static void
+_cnet_object_result(CnetCtx *ctx, JsonObject *obj)
+{
+    ctx->result = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(ctx->result, obj);
+}
+
+static void
+_cnet_nic_list(CnetCtx *ctx)
+{
+    GError *e = NULL;
+    GPtrArray *nics = pcv_lxc_nic_list(ctx->name, &e);
+    JsonArray *arr = json_array_new();
+    for (guint i = 0; nics && i < nics->len; i++) {
+        PcvLxcNicInfo *ni = g_ptr_array_index(nics, i);
+        JsonObject *o = json_object_new();
+        json_object_set_string_member(o, "name",   ni->name   ?: "");
+        json_object_set_string_member(o, "type",   ni->type   ?: "veth");
+        json_object_set_string_member(o, "bridge", ni->bridge ?: "");
+        json_object_set_string_member(o, "hwaddr", ni->hwaddr ?: "");
+        json_object_set_string_member(o, "ipv4",   ni->ipv4   ?: "");
+        json_object_set_boolean_member(o, "ipv4_unavailable", ni->ipv4_unavailable);
+        json_array_add_object_element(arr, o);
+    }
+    if (nics) g_ptr_array_unref(nics);
+    g_clear_error(&e);
+    ctx->result = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(ctx->result, arr);
+}
+
+static void
+_cnet_nic_attach(CnetCtx *ctx)
+{
+    GError *e = NULL;
+    if (!pcv_lxc_nic_attach(ctx->name, ctx->bridge, ctx->hwaddr, &e)) {
+        _cnet_fail(ctx, PURE_RPC_ERR_ZFS_OPERATION, e, "NIC attach failed");
+        g_clear_error(&e);
+        return;
+    }
+    JsonObject *obj = json_object_new();
+    json_object_set_string_member(obj, "status", "attached");
+    json_object_set_string_member(obj, "container", ctx->name);
+    json_object_set_string_member(obj, "bridge", ctx->bridge ?: PCV_LXC_DEFAULT_BRIDGE);
+    _cnet_object_result(ctx, obj);
+}
+
+static void
+_cnet_nic_detach(CnetCtx *ctx)
+{
+    GError *e = NULL;
+    gchar *warning = NULL;
+    if (!pcv_lxc_nic_detach(ctx->name, ctx->nic, &warning, &e)) {
+        _cnet_fail(ctx, PURE_RPC_ERR_ZFS_OPERATION, e, "NIC detach failed");
+        g_clear_error(&e);
+        return;
+    }
+    JsonObject *obj = json_object_new();
+    json_object_set_string_member(obj, "status", "detached");
+    json_object_set_string_member(obj, "nic", ctx->nic);
+    if (warning)
+        json_object_set_string_member(obj, "warning", warning);
+    g_free(warning);
+    _cnet_object_result(ctx, obj);
+}
+
+static void
+_cnet_set_bandwidth(CnetCtx *ctx)
+{
+    GError *e = NULL;
+    if (!pcv_lxc_set_bandwidth(ctx->name, ctx->nic, ctx->in_kbps, ctx->out_kbps, &e)) {
+        _cnet_fail(ctx, PURE_RPC_ERR_ZFS_OPERATION, e, "Bandwidth set failed");
+        g_clear_error(&e);
+        return;
+    }
+    JsonObject *obj = json_object_new();
+    json_object_set_string_member(obj, "status", "applied");
+    json_object_set_string_member(obj, "container", ctx->name);
+    json_object_set_int_member(obj, "inbound_kbps", ctx->in_kbps);
+    json_object_set_int_member(obj, "outbound_kbps", ctx->out_kbps);
+    _cnet_object_result(ctx, obj);
+}
+
+static void
+_cnet_worker(GTask *task, gpointer src, gpointer data, GCancellable *cancellable)
+{
+    (void)src; (void)cancellable;
+    CnetCtx *ctx = data;
+    gboolean locked = FALSE;
+    if (ctx->kind != CNET_NIC_LIST) {
+        gchar *lock_err = NULL;
+        if (!lock_vm_operation(ctx->name, VM_OP_TUNING, &lock_err)) {
+            ctx->code = PURE_RPC_ERR_INTERNAL_ERROR;
+            ctx->message = lock_err ? lock_err : g_strdup("Container is busy");
+            g_task_return_boolean(task, FALSE);
+            return;
+        }
+        g_free(lock_err);
+        locked = TRUE;
+    }
+    switch (ctx->kind) {
+    case CNET_NIC_LIST:      _cnet_nic_list(ctx);      break;
+    case CNET_NIC_ATTACH:    _cnet_nic_attach(ctx);    break;
+    case CNET_NIC_DETACH:    _cnet_nic_detach(ctx);    break;
+    case CNET_SET_BANDWIDTH: _cnet_set_bandwidth(ctx); break;
+    }
+    if (locked)
+        unlock_vm_operation(ctx->name);
+    g_task_return_boolean(task, ctx->code == 0);
+}
+
+static void
+_cnet_done(GObject *src, GAsyncResult *res, gpointer data)
+{
+    (void)src;
+    CnetCtx *ctx = data;
+    (void)g_task_propagate_boolean(G_TASK(res), NULL);
+    gchar *r = ctx->code ? pure_rpc_build_error_response(ctx->rpc_id, ctx->code, ctx->message)
+                         : pure_rpc_build_success_response(ctx->rpc_id, g_steal_pointer(&ctx->result));
+    pure_uds_server_send_response(ctx->server, ctx->connection, r);
+    g_free(r);
+    const gchar *outcome = ctx->code ? "fail" : "ok";
+    switch (ctx->kind) {
+    case CNET_NIC_LIST:
+        pcv_audit_log(ctx->actor, "container.nic.list", ctx->name, outcome, ctx->code, 0, "local");
+        break;
+    case CNET_NIC_ATTACH:
+        pcv_audit_log(ctx->actor, "container.nic.attach", ctx->name, outcome, ctx->code, 0, "local");
+        break;
+    case CNET_NIC_DETACH:
+        pcv_audit_log(ctx->actor, "container.nic.detach", ctx->name, outcome, ctx->code, 0, "local");
+        break;
+    case CNET_SET_BANDWIDTH:
+        pcv_audit_log(ctx->actor, "container.set_bandwidth", ctx->name, outcome, ctx->code, 0, "local");
+        break;
+    }
+}
+
+static void
+_cnet_reject(const gchar *caller, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection,
+             const gchar *method, const gchar *name, gint code, const gchar *message)
+{
+    gchar *e = pure_rpc_build_error_response(rpc_id, code, message);
+    pure_uds_server_send_response(server, connection, e);
+    g_free(e);
+    pcv_audit_log((caller && *caller) ? caller : "-", method, name ? name : "", "fail", code, 0, "local");
+}
+
+static void
+_cnet_start(CnetCtx *ctx, const gchar *caller, const gchar *rpc_id, UdsServer *server,
+            GSocketConnection *connection)
+{
+    ctx->server = g_object_ref(server);
+    ctx->connection = g_object_ref(connection);
+    ctx->rpc_id = g_strdup(rpc_id);
+    ctx->actor = g_strdup((caller && *caller) ? caller : "-");
+    GTask *task = pcv_drain_task_new(NULL, NULL, _cnet_done, ctx);
+    g_task_set_task_data(task, ctx, _cnet_ctx_free);
+    pcv_worker_pool_push(task, _cnet_worker);
+    g_object_unref(task);
+}
+
+static CnetCtx *
+_cnet_new(CnetKind kind, const gchar *name)
+{
+    CnetCtx *ctx = g_new0(CnetCtx, 1);
+    ctx->kind = kind;
+    ctx->name = g_strdup(name);
+    return ctx;
+}
+
 static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
                                         UdsServer *server, GSocketConnection *connection)
 {
+    const gchar *caller = _dispatcher_caller_subject(params, connection);
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
                                                                     
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        GError *e = nullptr;
-        GPtrArray *nics = pcv_lxc_nic_list(ctr_name, &e);
-        JsonArray *arr = json_array_new();
-        for (guint i = 0; nics && i < nics->len; i++) {
-            PcvLxcNicInfo *ni = g_ptr_array_index(nics, i);
-            JsonObject *o = json_object_new();
-            json_object_set_string_member(o, "name",   ni->name   ?: "");
-            json_object_set_string_member(o, "type",   ni->type   ?: "veth");
-            json_object_set_string_member(o, "bridge", ni->bridge ?: "");
-            json_object_set_string_member(o, "hwaddr", ni->hwaddr ?: "");
-            json_object_set_string_member(o, "ipv4",   ni->ipv4   ?: "");
-            json_array_add_object_element(arr, o);
-        }
-        if (nics) g_ptr_array_unref(nics);
-        if (e) g_error_free(e);
-        JsonNode *node = json_node_new(JSON_NODE_ARRAY);
-        json_node_take_array(node, arr);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
+        _cnet_reject(caller, rpc_id, server, connection, "container.nic.list", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
+        return;
     }
+    _cnet_start(_cnet_new(CNET_NIC_LIST, ctr_name), caller, rpc_id, server, connection);
 }
 
                                                                       
@@ -6547,6 +6745,7 @@ static void _handle_container_nic_list(JsonObject *params, const gchar *rpc_id,
 static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
+    const gchar *caller = _dispatcher_caller_subject(params, connection);
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     const gchar *bridge = json_object_has_member(params, "bridge")
@@ -6557,31 +6756,19 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
                                                                   
                                                     
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
+        _cnet_reject(caller, rpc_id, server, connection, "container.nic.attach", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
     } else if (bridge && !pcv_validate_bridge_name(bridge)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: bridge");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
+        _cnet_reject(caller, rpc_id, server, connection, "container.nic.attach", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: bridge");
     } else if (pcv_vpc_bridge_is_managed(bridge ?: PCV_LXC_DEFAULT_BRIDGE)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
-            "VPC-managed bridges cannot be attached through container.nic.attach");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
+        _cnet_reject(caller, rpc_id, server, connection, "container.nic.attach", ctr_name,
+                     PURE_RPC_ERR_CONFLICT, "VPC-managed bridges cannot be attached through container.nic.attach");
     } else {
-        GError *e = nullptr;
-        if (pcv_lxc_nic_attach(ctr_name, bridge, mac, &e)) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "status", "attached");
-            json_object_set_string_member(obj, "container", ctr_name);
-            json_object_set_string_member(obj, "bridge", bridge ?: PCV_LXC_DEFAULT_BRIDGE);
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "NIC attach failed");
-            pure_uds_server_send_response(server, connection, er); g_free(er);
-            if (e) g_error_free(e);
-        }
+        CnetCtx *ctx = _cnet_new(CNET_NIC_ATTACH, ctr_name);
+        ctx->bridge = g_strdup(bridge);
+        ctx->hwaddr = g_strdup(mac);
+        _cnet_start(ctx, caller, rpc_id, server, connection);
     }
 }
 
@@ -6591,6 +6778,7 @@ static void _handle_container_nic_attach(JsonObject *params, const gchar *rpc_id
 static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id,
                                           UdsServer *server, GSocketConnection *connection)
 {
+    const gchar *caller = _dispatcher_caller_subject(params, connection);
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     const gchar *nic_name = json_object_has_member(params, "nic_name")
@@ -6600,24 +6788,13 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
                                       
     if (!ctr_name || !pcv_validate_vm_name(ctr_name) ||
         !nic_name || !pcv_validate_iface_name(nic_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameters: name, nic_name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    } else {
-        GError *e = nullptr;
-        if (pcv_lxc_nic_detach(ctr_name, nic_name, &e)) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "status", "detached");
-            json_object_set_string_member(obj, "nic", nic_name);
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "NIC detach failed");
-            pure_uds_server_send_response(server, connection, er); g_free(er);
-            if (e) g_error_free(e);
-        }
+        _cnet_reject(caller, rpc_id, server, connection, "container.nic.detach", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameters: name, nic_name");
+        return;
     }
+    CnetCtx *ctx = _cnet_new(CNET_NIC_DETACH, ctr_name);
+    ctx->nic = g_strdup(nic_name);
+    _cnet_start(ctx, caller, rpc_id, server, connection);
 }
 
                                                                       
@@ -6626,6 +6803,7 @@ static void _handle_container_nic_detach(JsonObject *params, const gchar *rpc_id
 static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc_id,
                                              UdsServer *server, GSocketConnection *connection)
 {
+    const gchar *caller = _dispatcher_caller_subject(params, connection);
     const gchar *ctr_name = json_object_has_member(params, "name")
         ? json_object_get_string_member(params, "name") : NULL;
     const gchar *nic = json_object_has_member(params, "nic_name")
@@ -6637,28 +6815,17 @@ static void _handle_container_set_bandwidth(JsonObject *params, const gchar *rpc
                                                                   
                                                              
     if (!ctr_name || !pcv_validate_vm_name(ctr_name)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
+        _cnet_reject(caller, rpc_id, server, connection, "container.set_bandwidth", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid or missing parameter: name");
     } else if (nic && !pcv_validate_iface_name(nic)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: nic_name");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
+        _cnet_reject(caller, rpc_id, server, connection, "container.set_bandwidth", ctr_name,
+                     PURE_RPC_ERR_INVALID_PARAMS, "Invalid parameter: nic_name");
     } else {
-        GError *e = nullptr;
-        if (pcv_lxc_set_bandwidth(ctr_name, nic, in_kbps, out_kbps, &e)) {
-            JsonObject *obj = json_object_new();
-            json_object_set_string_member(obj, "status", "applied");
-            json_object_set_string_member(obj, "container", ctr_name);
-            json_object_set_int_member(obj, "inbound_kbps", in_kbps);
-            json_object_set_int_member(obj, "outbound_kbps", out_kbps);
-            JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-            json_node_take_object(node, obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-            pure_uds_server_send_response(server, connection, resp); g_free(resp);
-        } else {
-            gchar *er = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, e ? e->message : "Bandwidth set failed");
-            pure_uds_server_send_response(server, connection, er); g_free(er);
-            if (e) g_error_free(e);
-        }
+        CnetCtx *ctx = _cnet_new(CNET_SET_BANDWIDTH, ctr_name);
+        ctx->nic = g_strdup(nic);
+        ctx->in_kbps = in_kbps;
+        ctx->out_kbps = out_kbps;
+        _cnet_start(ctx, caller, rpc_id, server, connection);
     }
 }
 
@@ -9862,6 +10029,8 @@ static void dispatcher_init_routes(void)
         "vpc.attachment.create", "vpc.attachment.delete",
         "vpc.service.publish", "vpc.service.unpublish",
         "vpc.reconcile",
+        "container.nic.list", "container.nic.attach",
+        "container.nic.detach", "container.set_bandwidth",
         NULL
     };
     for (int _i = 0; _async_method_names[_i]; _i++) {

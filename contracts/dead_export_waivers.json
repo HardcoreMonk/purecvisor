@@ -139,5 +139,53 @@
       "tests/test_spawn_launcher.c",
       "tests/test_privdrop.c"
     ]
+  },
+  "pcv_lxc_ns_set_abort_fn_for_test": {
+    "reason": "컨테이너 네임스페이스 실행 회귀 시험이 종료 판정과 실행 profile을 관찰·주입하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_lxc_ns_exec.c"
+    ]
+  },
+  "pcv_lxc_ns_set_spawn_observer_for_test": {
+    "reason": "컨테이너 네임스페이스 실행 회귀 시험이 종료 판정과 실행 profile을 관찰·주입하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_lxc_ns_exec.c"
+    ]
+  },
+  "pcv_container_health_set_ops_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
+  },
+  "pcv_container_health_tick_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
+  },
+  "pcv_container_health_complete_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
+  },
+  "pcv_container_health_timer_active_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
+  },
+  "pcv_container_health_gen_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
+  },
+  "pcv_container_health_reset_for_test": {
+    "reason": "헬스 순찰의 진행 중·세대 번호·재시작 순서를 가짜 동작 표로 검증하는 테스트 전용 진입점이다.",
+    "evidence": [
+      "tests/test_container_health.c"
+    ]
   }
 }

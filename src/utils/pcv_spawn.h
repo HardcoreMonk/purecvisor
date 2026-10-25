@@ -191,6 +191,21 @@ gboolean pcv_spawn_sync_timeout(const gchar * const *argv,
                                                               
                                                                    
                                                                   
+typedef struct {
+    PcvChildCapabilityProfile profile;
+    guint                     timeout_sec;
+    gsize                     max_output_bytes;
+    GCancellable             *cancellable;
+    gboolean                (*should_abort)(void);
+    gboolean                  new_process_group;
+} PcvSpawnBound;
+
+#define PCV_SPAWN_BOUNDED_REAP_WAIT_SEC 5
+
+gboolean pcv_spawn_sync_bounded(const gchar * const *argv, const PcvSpawnBound *bound,
+                                gchar **stdout_out, gchar **stderr_out,
+                                gint *exit_status, GError **error);
+
                                                                            
                           
 

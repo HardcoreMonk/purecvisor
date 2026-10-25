@@ -100,5 +100,29 @@
     "effect_assertion": "매칭 성공한 step 을 last_step 으로 넘겨 같은 코드를 재검증하면 FALSE(replay 거부); step-2(윈도 밖)도 FALSE, step-1(윈도 안 + last_step 미만)은 TRUE",
     "effect_test": "tests/test_totp.c::test_check_window_and_replay",
     "status": "tested"
+  },
+  "spawn-bounded-group-kill": {
+    "description": "pcv_spawn_sync_bounded가 시간 상한·출력 상한(stdout+stderr 합)·호출자 취소·종료 판정(should_abort) 가운데 하나로 끝날 때 새 프로세스 그룹으로 띄운 자식의 그룹 전체를 spawn 때 저장한 pgid로(리더가 먼저 회수됐어도) SIGKILL하고, 읽기를 취소한 뒤 회수를 최대 5초(PCV_SPAWN_BOUNDED_REAP_WAIT_SEC) 기다렸다가 반환한다 — 상한이 지나면 데몬 쪽에 자식·손자 프로세스와 파이프 fd가 남지 않는다",
+    "effect_assertion": "/bin/sh -c 'sleep 60 & …; sleep 60'을 new_process_group=TRUE·1초 상한으로 실행하면 5초 안에 FALSE + G_IO_ERROR_TIMED_OUT이고, 그 뒤 최대 2초 안에 손자 sleep의 /proc/<pid>가 사라지며 /proc/self/fd 항목 수가 실행 전과 같다",
+    "effect_test": "tests/test_spawn_launcher.c::test_bounded_timeout_kills_group",
+    "status": "tested"
+  },
+  "spawn-env-allowlist": {
+    "description": "세 launcher(공유·호출 단위 폴백·pcv_spawn_sync_env)가 모두 데몬 환경에서 허용 키(USER·TZ·TMPDIR·LIBVIRT_*·ZFS_MODULE_TIMEOUT·프록시·CA)만 자식에게 넘기고 PATH/HOME/LANG은 고정한다 — PCV_*·PURECVISOR_*·NOTIFY_SOCKET·WATCHDOG_*·LISTEN_*·CREDENTIALS_DIRECTORY·LC_*는 자식에 가지 않는다",
+    "effect_assertion": "PURECVISOR_JWT_SECRET·NOTIFY_SOCKET·CREDENTIALS_DIRECTORY·LC_ALL 등을 데몬 환경에 둔 채 공유 launcher로 /usr/bin/env를 실행하면 출력에 그 키가 없고 PATH=/usr/sbin:/usr/bin:/sbin:/bin·HOME=/root·LANG=C.UTF-8이 있다",
+    "effect_test": "tests/test_spawn_launcher.c::test_env_allowlist_shared",
+    "status": "tested"
+  },
+  "container-ns-exec-bounded": {
+    "description": "컨테이너 네임스페이스 안 실행(pcv_lxc_ns_run — container.exec 등)은 셸 없는 `lxc-attach --clear-env --set-var PATH=… -- <argv>`를 RUNTIME profile·새 프로세스 그룹·시간 상한·출력 상한·데몬 종료 판정(pcv_drain_is_terminating)과 함께 pcv_spawn_sync_bounded로 돌린다 — 종료가 시작되면 상한을 기다리지 않고 1초 폴링 안에 그룹 SIGKILL·회수 뒤 G_IO_ERROR_CANCELLED로 끝난다",
+    "effect_assertion": "종료 판정 함수가 0.5초 뒤 TRUE가 되게 바꾼 채 pcv_lxc_ns_run({/bin/sleep 60}, 30초)을 부르면 3초 안에 FALSE + G_IO_ERROR_CANCELLED이고 출력은 NULL·exit_status -1이며, 판정 함수를 기본으로 되돌리면 /bin/true가 TRUE·종료 코드 0이다",
+    "effect_test": "tests/test_lxc_ns_exec.c::test_ns_run_aborts_when_terminating",
+    "status": "tested"
+  },
+  "container-health-off-mainloop": {
+    "description": "컨테이너 헬스 순찰(handler_container_health.c)은 1초 tick(메인 루프)이 잠금 안에서 due 슬롯의 사본만 만들고 프로브(lxc-info 5초·nsenter nc/curl t+1초·lxc-attach --clear-env t초, t는 [1,30])와 자동 재시작(VM_OP_STARTING 잠금 아래 lxc-stop -t 20 30초·lxc-start 30초)을 워커 풀에서 상한 실행으로 돌린다 — 진행 중 슬롯은 다시 띄우지 않고 동시 실행은 4개까지, 결과는 이름과 세대 번호가 같은 슬롯에만 반영하며 취소 결과는 세지 않는다. 종료 중이면 tick이 GTask 없이 멈추고 drain(접수 닫힘) 중이면 새 프로브 없이 타이머만 유지한다",
+    "effect_assertion": "프로브 1개를 run_inline=FALSE로 디스패치한 뒤 다음 간격의 tick 두 번은 due여도 디스패치 0(진행 중), 완료를 흉내 낸 뒤 tick은 다시 1이다",
+    "effect_test": "tests/test_container_health.c::test_inflight_skips_redispatch",
+    "status": "tested"
   }
 }

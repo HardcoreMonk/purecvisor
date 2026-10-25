@@ -1,5 +1,67 @@
 # Changelog
 
+## 2.0.3 보안 수정 — 2026-10-25
+
+2.0.2의 컨테이너 명령 실행 결함을 고친 보안 패치다. 새 기능은 없으며 데이터 형식과 설정 파일 형식은 그대로다.
+API에는 아래 "응답 변경"의 하위 호환 필드만 더해진다. 결함은 2.0.2 이하의 공개 릴리스에 모두 있으므로
+업그레이드를 권장한다.
+
+### 컨테이너 명령 실행
+
+- 컨테이너 안에서 실행하는 명령(`container.exec`, `container.nic.list`·`nic.attach`·`nic.detach`,
+  `container.set_bandwidth`, 헬스 프로브와 자동 재시작)이 끝나지 않으면 데몬의 요청 처리가 멈출 수 있던 결함을
+  고쳤다. 네 컨테이너 네트워크 RPC와 헬스 프로브는 워커에서 실행되고, 모든 실행에 시간·출력 상한이 있으며,
+  상한을 넘기면 명령의 프로세스 그룹 전체를 종료하고 회수한다. 데몬이 종료를 시작하면 진행 중인 실행을
+  기다리지 않고 정리한다.
+- 데몬이 띄우는 자식 프로세스와 컨테이너 안에서 실행되는 명령이 데몬 환경 변수를 그대로 물려받던 결함을
+  고쳤다. 자식 프로세스는 허용 목록의 환경 키만 받고, 컨테이너 안 실행은 환경을 비운 뒤 고정 `PATH`로 시작한다.
+- 컨테이너 안 실행은 셸 문자열을 조립하지 않고 인자 목록으로만 실행한다. `container.exec`의 RPC 계약
+  (컨테이너 안 `/bin/sh -c <cmd>`)은 그대로다.
+- 상한: `container.exec` 60초·출력 4 MiB, `nic.list`의 IP 조회 3초, `nic.detach`의 실행 중 제거 5초,
+  `set_bandwidth`의 컨테이너 안 설정 5초, 실행 중 `nic.attach` 배선 전체 6초(조회·변경 출력은 64 KiB).
+  헬스 프로브는 동시에 최대 4개를 실행하고 프로브 `timeout_sec`는 [1, 30]으로 제한한다. 클라이언트 대기도
+  맞췄다 — REST·CLI의 `container.exec`는 65초, 웹 UI 터미널은 70초(UI의 자동 조회는 기본 12초).
+- 실행 중 컨테이너의 `nic.attach` 배선은 컨테이너 init 프로세스의 네트워크 네임스페이스를 쓰는 단계별 명령으로
+  바꿨다. 배선을 확인하지 못하면 성공으로 답하지 않는다.
+
+### 응답 변경(하위 호환)
+
+- `container.nic.list` 원소에 `ipv4_unavailable`(bool)을 항상 더한다. 컨테이너가 실행 중인데 IP를 시간 안에
+  조회하지 못하면 `true`이고 `ipv4`는 빈 문자열이다.
+- `container.nic.detach` 응답에 `warning`이 붙을 수 있다. 설정에서는 제거됐지만 실행 중 인터페이스 제거 명령이
+  0이 아닌 값으로 끝난 경우다.
+- 실행 중 배선·제거를 확인하지 못하면 −32000 `config saved; live wiring not confirmed: <단계>: <원인>`·
+  `config removed; live interface removal not confirmed: <원인>`으로 답한다. `nic.attach`·`nic.detach`·
+  `set_bandwidth`는 같은 컨테이너에 다른 변경 작업(시작 등)이 진행 중이면 −32603 잠금 오류
+  (`VM '<name>' is already locked (op: …, pid: …)`, 원문이 없으면 `Container is busy`)로 답한다.
+- `container.exec`는 상한 초과뿐 아니라 프로세스 생성 실패·시그널 종료도 `exec failed (timeout or error): …`로
+  답한다. 오류 코드와 응답 필드는 그대로다.
+
+### 시험
+
+- 상한 실행·자식 환경 허용 목록·컨테이너 네임스페이스 실행·헬스 순찰 단위 시험(`/spawn_launcher`,
+  `/lxc_ns_exec`, `/container_health`)과 서버·클라이언트 상한 정렬 계약 시험
+  `tests/test_container_exec_bounds_contract.py`를 더했다. 계약 시험은 기존 `check-all` 42개 게이트 안에서
+  실행된다.
+
+### 업그레이드 시 확인할 점
+
+- `sudo apt install ./purecvisor-single_2.0.3_amd64.deb`로 설치한 뒤 `sudo systemctl restart purecvisorsd`로
+  실행 중인 데몬을 새 바이너리로 바꾼다. 기존 `daemon.conf`와 데이터는 보존된다.
+- 데몬이 띄우는 자식 프로세스(`virsh`·`zfs`·`ip`·`lxc-*` 등)는 **허용 목록 환경만** 받는다: `USER`, `TZ`,
+  `TMPDIR`, `LIBVIRT_DEFAULT_URI`, `LIBVIRT_LOG_OUTPUTS`, `LIBVIRT_LOG_FILTERS`, `ZFS_MODULE_TIMEOUT`,
+  `http_proxy`·`https_proxy`·`no_proxy`(대문자 포함), `SSL_CERT_FILE`, `SSL_CERT_DIR`, `CURL_CA_BUNDLE`.
+  `LC_*`는 전달되지 않으며(자식 로캘은 `LANG=C.UTF-8`), `PATH`는 `/usr/sbin:/usr/bin:/sbin:/bin`, `HOME`은
+  `/root`로 고정된다. 데몬 환경(systemd 드롭인 등)으로 자식 도구에 값을 넘기던 설정이 있으면 확인한다.
+- `container.exec`는 60초 안에 끝나야 한다. 넘으면 명령과 그 하위 프로세스가 종료되고 오류로 답한다.
+- exec 헬스 프로브도 `timeout_sec`(기본 5초, [1, 30]으로 제한) 안에 끝나야 성공이다. 이전에는 exec 프로브에
+  상한이 없었고 tcp 프로브는 1초 고정이었다. 5초 넘게 걸리는 exec 점검을 `auto_restart`와 함께 쓰고 있었다면
+  `timeout_sec`을 늘려 다시 등록한다(`pcvctl container health-set`에는 `--timeout` 옵션이 없으므로 RPC·REST로
+  지정한다).
+- 헬스 자동 재시작 도중 데몬이 종료 중이면 정지 뒤 시작을 건너뛰어 컨테이너가 정지 상태로 남는다. 데몬을 다시
+  올린 뒤 직접 시작한다.
+- 웹 UI 정적 자산의 버전 표기가 `2.0.3`으로 바뀐다. 업그레이드 뒤 브라우저를 새로고침해 새 UI를 받는다.
+
 ## 2.0.2 보안 수정 — 2026-10-16
 
 2.0.1의 REST 요청 처리 결함 두 건을 고친 보안 패치다. 새 기능은 없으며 데이터 형식, 설정 파일

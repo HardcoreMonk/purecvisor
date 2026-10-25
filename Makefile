@@ -216,6 +216,7 @@ COMMON_CORE_SRCS = \
     src/utils/pcv_error.c \
     src/utils/pcv_log.c \
     src/utils/pcv_spawn.c \
+    src/utils/pcv_spawn_env.c \
     src/utils/pcv_config.c \
     src/utils/pcv_privdrop.c \
     src/utils/pcv_crypto.c \
@@ -284,7 +285,9 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/lxc/lxc_driver.c \
+    src/modules/lxc/lxc_ns_exec.c \
     src/modules/dispatcher/handler_container.c \
+    src/modules/dispatcher/handler_container_health.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
     src/modules/storage/iscsi_manager.c \
@@ -386,6 +389,7 @@ TEST_COMMON_SRCS = \
     tests/test_sg_nft_builder.c \
     tests/test_container.c \
     tests/test_container_owner_scope.c \
+    tests/test_container_health.c \
     tests/test_privdrop.c \
     tests/test_ovn.c \
     tests/test_dpdk.c \
@@ -399,7 +403,9 @@ TEST_COMMON_SRCS = \
     tests/test_backup_basic.c \
     tests/test_lxc_basic.c \
     tests/test_lxc_driver.c \
+    tests/test_lxc_ns_exec.c \
     src/modules/lxc/lxc_driver.c \
+    src/modules/lxc/lxc_ns_exec.c \
     tests/test_ws_basic.c \
     tests/test_hotreload.c \
     tests/test_txn.c \
@@ -470,6 +476,7 @@ TEST_COMMON_SRCS = \
     tests/test_webpush.c \
     src/modules/daemons/pcv_webpush.c \
     src/modules/dispatcher/handler_auth.c \
+    src/modules/dispatcher/handler_container_health.c \
     src/modules/ai/restart_breaker.c \
     src/modules/ai/self_healing_restart.c \
     src/modules/ai/self_healing.c \
@@ -1357,6 +1364,7 @@ check-container-owner-scope:
 	@echo "📦 Running 컨테이너 operator owner-scope 게이트 (B1 / A01 IDOR)..."
 	@python3 scripts/check_container_owner_scope.py
 	@python3 scripts/tests/test_container_owner_scope.py
+	@python3 tests/test_container_exec_bounds_contract.py
 
 check-mtls-wiring:
 	@echo "🔐 Running mTLS 클라이언트 인증서 검증 배선 게이트 (C1 / A02·V12)..."

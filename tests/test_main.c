@@ -102,6 +102,8 @@ void test_update_check_register(void);
 void test_backup_basic_register(void);                     
 void test_lxc_basic_register(void);                           
 void test_lxc_driver_register(void);
+void test_lxc_ns_exec_register(void);
+void test_container_health_register(void);
 void test_ws_basic_register(void);                             
 void test_hotreload_register(void);                        
 void test_txn_register(void);                             
@@ -440,6 +442,8 @@ int main(int argc, char *argv[]) {
     test_backup_basic_register();                      
     test_lxc_basic_register();                            
     test_lxc_driver_register();
+    test_lxc_ns_exec_register();
+    test_container_health_register();
     test_ws_basic_register();                              
     test_hotreload_register();                         
     test_txn_register();                              

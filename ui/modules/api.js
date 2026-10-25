@@ -183,9 +183,9 @@ var PCV_FETCH_TIMEOUT_MS = 12000;
                                                                   
                                                              
                                                              
-function _fetchWithTimeout(url, opts) {
+function _fetchWithTimeout(url, opts, timeoutMs) {
   var controller = new AbortController();
-  var tid = setTimeout(function() { controller.abort(); }, PCV_FETCH_TIMEOUT_MS);
+  var tid = setTimeout(function() { controller.abort(); }, timeoutMs || PCV_FETCH_TIMEOUT_MS);
   var merged = Object.assign({}, opts, { signal: controller.signal });
   return fetch(url, merged).finally(function() { clearTimeout(tid); });
 }
@@ -202,8 +202,8 @@ function _fetchWithTimeout(url, opts) {
                                                                              
                                         
    
-async function _fetchWithRefresh(url, opts) {
-  var r = await _fetchWithTimeout(url, opts);
+async function _fetchWithRefresh(url, opts, timeoutMs) {
+  var r = await _fetchWithTimeout(url, opts, timeoutMs);
   if (r.status === 401 && sessionStorage.getItem('pcv_refresh_token')) {
     var refreshed = await _tryRefreshToken();
     if (refreshed) {
@@ -212,7 +212,7 @@ async function _fetchWithRefresh(url, opts) {
         if (typeof opts.headers.set === 'function') opts.headers.set('Authorization', 'Bearer ' + window.authToken);
         else opts.headers['Authorization'] = 'Bearer ' + window.authToken;
       }
-      return _fetchWithTimeout(url, opts);
+      return _fetchWithTimeout(url, opts, timeoutMs);
     } else {
       _redirectToLogin();
       throw new Error('Session expired');
@@ -256,12 +256,12 @@ function fetchGet(u) {
   });
 }
 
-function fetchPost(u, b) {
+function fetchPost(u, b, timeoutMs) {
   return _fetchWithRefresh(u, {
     method: 'POST',
     headers: { Authorization: 'Bearer ' + window.authToken, 'Content-Type': 'application/json' },
     body: JSON.stringify(b)
-  }).then(r => {
+  }, timeoutMs).then(r => {
     if (!r.ok) return r.json().catch(() => ({ error: { code: r.status, message: 'HTTP ' + r.status } }));
     return r.json();
   });

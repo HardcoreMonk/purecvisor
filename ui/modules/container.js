@@ -33,6 +33,8 @@ window.selCtr = window.selCtr || null;
 window.ctrTab = window.ctrTab || 'summary';
 window.ctrHist = window.ctrHist || [];
 
+const CTR_EXEC_TIMEOUT_MS = 70000;
+
                                   
 async function renderContainers(b) {
   const el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
@@ -449,7 +451,7 @@ async function ctrRunCmd(n) {
   const inp = document.getElementById('ctr-cmd'); const out = document.getElementById('ctr-output');
   if (!inp || !out) return; const cmd = inp.value.trim(); if (!cmd) return;
   ctrHist.push(cmd); out.textContent += '$ ' + cmd + '\n'; out.scrollTop = out.scrollHeight; inp.value = '';
-  try { const r = await fetchPost(EP.CTR_EXEC(n), { command: cmd }); if (r && r.error) { out.textContent += 'Error: ' + (r.error.message || 'command failed') + '\n'; out.scrollTop = out.scrollHeight; return; } const d = unwrapData(r); out.textContent += (d.output || d.stdout || '(no output)') + '\n'; out.scrollTop = out.scrollHeight; } catch (e) { out.textContent += 'Error: ' + e.message + '\n'; out.scrollTop = out.scrollHeight; }
+  try { const r = await fetchPost(EP.CTR_EXEC(n), { command: cmd }, CTR_EXEC_TIMEOUT_MS); if (r && r.error) { out.textContent += 'Error: ' + (r.error.message || 'command failed') + '\n'; out.scrollTop = out.scrollHeight; return; } const d = unwrapData(r); out.textContent += (d.output || d.stdout || '(no output)') + '\n'; out.scrollTop = out.scrollHeight; } catch (e) { out.textContent += 'Error: ' + e.message + '\n'; out.scrollTop = out.scrollHeight; }
 }
 
 async function ctrDnsAdd(n) { const ns = document.getElementById('dns-ns')?.value; if (!ns) return;

@@ -1,4 +1,8 @@
 # PureCVisor Single Edge 운영 가이드
+> **2026-10-25 공개 소스 기준 (2.0.3):** 2.0.2의 컨테이너 명령 실행 결함을 고친 보안 수정 릴리스입니다.
+> 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 변경 목록과 업그레이드 안내는 저장소의 `CHANGELOG.md` 2.0.3 항목을 따릅니다.
+> 2.0.2 이하 설치본의 업그레이드는 2장 `.deb` 설치 방법의 업그레이드 안내를 따릅니다.
+
 > **2026-10-16 공개 소스 기준 (2.0.2):** 2.0.1의 REST 요청 처리 결함 두 건을 고친 보안 수정 릴리스입니다.
 > 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 변경 목록은 저장소의 `CHANGELOG.md` 2.0.2 항목을 따릅니다.
 > 2.0.1 이하 설치본의 업그레이드는 2장 `.deb` 설치 방법의 업그레이드 안내를 따릅니다.
@@ -16,7 +20,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.2
+> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.3
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
@@ -66,7 +70,7 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.2`입니다.<br>
+현재 공개 제품 버전은 `2.0.3`입니다.<br>
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
@@ -274,12 +278,12 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "2.0.2",
+    "version": "2.0.3",
     "node_name": "standalone"
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.2`이다.<br>
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.3`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -340,7 +344,7 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 ### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-PureCVisor 2.0.2 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+PureCVisor 2.0.3 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
 
 > **설치 기준**
@@ -505,7 +509,7 @@ SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습�
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
-sudo apt install -y ./purecvisor-single_2.0.2_amd64.deb
+sudo apt install -y ./purecvisor-single_2.0.3_amd64.deb
 
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
@@ -524,7 +528,7 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).<br>
-2.0.1 이하에서 2.0.2로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
+2.0.2 이하에서 2.0.3으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.
 - 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
 
@@ -1343,7 +1347,7 @@ NODE_IPV4="<configured-management-ipv4>"
 curl -ksS "https://${NODE_IPV4}/api/v1/health" \
   | jq '{status,service,version,node_name,tls:.checks.tls}'
 curl -ksS -o /tmp/pcv-live-app.bundle.js \
-  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.2"
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.3"
 
 sha256sum ui/app.bundle.js \
   /usr/local/share/purecvisor/ui/app.bundle.js \
@@ -1354,7 +1358,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 ```
 
 세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
-health의 `status=ok`, `version=2.0.2`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
+health의 `status=ok`, `version=2.0.3`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -1607,7 +1611,7 @@ sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
 sudo pcvctl vm list
 ```
 
-서비스는 `active/running`, health는 `status=ok`·`version=2.0.2`·`cluster=false`인지
+서비스는 `active/running`, health는 `status=ok`·`version=2.0.3`·`cluster=false`인지
 확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
 최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
 SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
@@ -2449,6 +2453,8 @@ pcvctl container exec app-ctr "apt update && apt upgrade -y"
 pcvctl container exec app-ctr "systemctl status nginx"
 ```
 
+`container.exec`의 명령은 컨테이너 안 `/bin/sh -c`로 실행됩니다. 실행은 **60초**, 출력은 **4 MiB**까지이며, 넘으면 데몬이 명령 프로세스 그룹을 종료하고 `exec failed (timeout or error): …`로 답합니다(REST·CLI 응답 대기는 65초, UI 터미널은 70초; UI 요약·자원 탭의 자동 호출은 기본 12초). 컨테이너 안에서 실행되는 명령은 데몬 환경을 받지 않고 `PATH=/usr/sbin:/usr/bin:/sbin:/bin`으로 시작합니다.
+
 ### 4.4 리소스 제한 (cgroup v2)
 
 ```bash
@@ -2570,10 +2576,12 @@ echo '{"jsonrpc":"2.0","method":"container.env.delete","params":{
 # 헬스체크 등록
 echo '{"jsonrpc":"2.0","method":"container.health.set","params":{
   "name": "app-ctr",
-  "cmd": "curl -sf http://localhost:8080/health || exit 1",
-  "interval": 30,
-  "timeout": 5,
-  "retries": 3
+  "type": "http",
+  "target": "http://localhost:8080/health",
+  "interval_sec": 30,
+  "timeout_sec": 5,
+  "failure_threshold": 3,
+  "auto_restart": false
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
 # 헬스 상태 확인
@@ -2582,7 +2590,9 @@ echo '{"jsonrpc":"2.0","method":"container.health.get","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-상태값: `healthy` | `unhealthy` | `starting`
+`type`은 `tcp`(`target`은 포트), `http`(`target`은 URL), `exec`(`target`은 컨테이너 안에서 실행할 명령) 중 하나입니다. `interval_sec`는 5초 이상(기본 30), `timeout_sec`는 1~30초로 제한됩니다(기본 5). `exec` 프로브도 이 시간을 넘기면 실패로 셉니다(이전 판은 상한이 없었습니다). `failure_threshold`만큼 연속 실패하면 `auto_restart`가 켜진 컨테이너를 정지 후 다시 시작합니다. 프로브는 워커에서 동시에 최대 4개까지 실행하며 느린 프로브가 데몬을 막지 않습니다. 상태값은 `container.health.get` 응답의 `healthy`(true/false)와 `consecutive_failures`·`restart_count`입니다. CLI `pcvctl container health-set`에는 `--timeout` 옵션이 없으므로 `timeout_sec`는 RPC·REST로 지정합니다.
+
+> **자동 재시작 도중 데몬이 종료 중이면** 정지(stop) 뒤 시작(start)을 건너뛰어 컨테이너가 **정지 상태로 남습니다**. 데몬을 다시 올린 뒤 운영자가 직접 시작합니다(`pcvctl container start <name>`).
 
 ```bash
 # 헬스체크 해제
@@ -2643,9 +2653,16 @@ echo '{"jsonrpc":"2.0","method":"container.nic.attach","params":{
 # NIC 분리
 echo '{"jsonrpc":"2.0","method":"container.nic.detach","params":{
   "name": "app-ctr",
-  "interface": "eth1"
+  "nic_name": "eth1"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
+
+실행 중 컨테이너의 NIC 조회·추가·분리는 컨테이너 안에서 짧은 명령을 실행하므로 각각 시간 상한이 있습니다(조회 3초, 분리 5초, 실행 중 배선 전체 6초).
+
+- `container.nic.list` 원소의 `ipv4_unavailable`이 `true`면 컨테이너는 실행 중인데 IP를 시간 안에 조회하지 못한 것이며 `ipv4`는 빈 문자열입니다. 컨테이너가 꺼져 있으면 `false`입니다.
+- `container.nic.detach` 응답에 `warning`이 있으면 설정에서는 제거됐지만 실행 중 인터페이스 제거 명령이 0이 아닌 값으로 끝난 것입니다.
+- 실행 중 `nic.attach`가 실패하면 `config saved; live wiring not confirmed: <단계>: <원인>`(−32000)으로 답합니다 — 설정에는 저장됐으나 실행 중 컨테이너에는 연결을 확인하지 못했다는 뜻이며, 컨테이너를 다시 시작하면 설정대로 연결됩니다. 분리의 같은 상황은 `config removed; live interface removal not confirmed: <원인>`입니다.
+- 같은 컨테이너에 다른 변경 작업(시작 등)이 진행 중이면 −32603 잠금 오류(`VM '<이름>' is already locked (op: <작업>, pid: <PID>)`)입니다.
 
 ---
 
@@ -6874,6 +6891,9 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
+**2026-10-25 현재 소스 (2.0.3):** 2.0.2 공개 소스에 컨테이너 명령 실행 보안 시정만 반영했습니다.
+변경 목록은 `CHANGELOG.md`의 2.0.3 항목을 따릅니다.
+
 **2026-10-16 현재 소스 (2.0.2):** 2.0.1 공개 소스에 REST 요청 처리 보안 시정 두 건만 반영했습니다.
 변경 목록은 `CHANGELOG.md`의 2.0.2 항목을 따릅니다.
 
@@ -6902,8 +6922,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
 결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
 `FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 공개 제품 버전은 `2.0.2`입니다.
+않습니다. 공개 제품 버전은 `2.0.3`입니다.
 
 ---
 
-> PureCVisor v2.0.2 Complete Guide — 22장 끝.
+> PureCVisor v2.0.3 Complete Guide — 22장 끝.
