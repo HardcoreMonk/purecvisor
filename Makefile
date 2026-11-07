@@ -210,6 +210,8 @@ COMMON_CORE_SRCS = \
     src/modules/virt/virt_conn_pool.c \
     src/modules/storage/zfs_driver.c \
     src/modules/lxc/lxc_owner.c \
+    src/modules/lxc/lxc_volume_guard.c \
+    src/modules/lxc/lxc_volume_stage.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
     src/utils/pcv_ssrf.c \
@@ -404,6 +406,8 @@ TEST_COMMON_SRCS = \
     tests/test_lxc_basic.c \
     tests/test_lxc_driver.c \
     tests/test_lxc_ns_exec.c \
+    tests/test_lxc_volume_guard.c \
+    tests/test_lxc_volume_stage.c \
     src/modules/lxc/lxc_driver.c \
     src/modules/lxc/lxc_ns_exec.c \
     tests/test_ws_basic.c \
@@ -692,10 +696,12 @@ src/cli/%.o: src/cli/%.c
 	$(CC) $(CFLAGS) $(CLI_CFLAGS) -c $< -o $@
 
                                        
-$(CLI_BIN): $(CLI_OBJS)
+CLI_EXTRA_OBJS = src/modules/lxc/lxc_volume_guard.o
+
+$(CLI_BIN): $(CLI_OBJS) $(CLI_EXTRA_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking CLI Client: $@"
-	$(CC) -o $@ $(CLI_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
+	$(CC) -o $@ $(CLI_OBJS) $(CLI_EXTRA_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
 
              
 test_runner: $(TEST_OBJS)

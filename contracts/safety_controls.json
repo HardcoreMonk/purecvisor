@@ -124,5 +124,11 @@
     "effect_assertion": "프로브 1개를 run_inline=FALSE로 디스패치한 뒤 다음 간격의 tick 두 번은 due여도 디스패치 0(진행 중), 완료를 흉내 낸 뒤 tick은 다시 1이다",
     "effect_test": "tests/test_container_health.c::test_inflight_skips_redispatch",
     "status": "tested"
+  },
+  "container-volume-start-staging": {
+    "description": "컨테이너 시작 시 데몬이 각 bind 볼륨 원본을 링크 없이 연 fd에서 open_tree로 복제해(ro 줄은 붙이기 전에 MOUNT_ATTR_RDONLY) MS_SLAVE staging 마운트(/run/purecvisor-volstage/<이름>/<자리>)를 만들고, liblxc에는 원본 대신 staging 경로만 적힌 런타임 config(lxc-start -f /run/purecvisor/lxc-runtime/<이름>/config)를 넘긴다 — liblxc가 호스트 원본 문자열을 다시 풀지 않아 unprivileged 컨테이너 안의 ro 사본이 잠긴 읽기 전용(MNT_LOCK_READONLY)을 물려받는다. pre-start 훅(pcvctl container volume-guard-hook)이 원본이 staging 밖이거나 상대 경로면 시작을 거절한다",
+    "effect_assertion": "bind,ro 볼륨 줄이 있는 영속 config로 런타임 config 본문을 만들면 그 줄의 원본 필드가 staging 경로로 바뀌고 호스트 원본 경로는 런타임 config에 남지 않는다",
+    "effect_test": "tests/test_lxc_volume_guard.c::test_runtime_config_replaces_source",
+    "status": "tested"
   }
 }

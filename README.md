@@ -1,13 +1,13 @@
 # PureCVisor Single Edge
 
-> **최신 릴리스(2026-10-25, 2.0.3):** 컨테이너 안에서 실행한 명령이 끝나지 않으면 데몬의 요청 처리가 멈출 수 있던 결함과 데몬이 띄운 자식 프로세스가 데몬 환경 변수를 그대로 물려받던 결함을 고친 보안 수정 릴리스입니다. 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 자식 프로세스 환경과 컨테이너 명령 시간 상한이 바뀌었으니 [변경 목록](CHANGELOG.md)의 업그레이드 안내를 확인하세요.
+> **최신 릴리스(2026-11-08, 2.0.4):** 읽기 전용으로 붙인 컨테이너 볼륨이 컨테이너 안에서 읽기 전용 약속을 지키지 못할 수 있던 결함을 고친 보안 수정 릴리스입니다. 새 기능은 없으며 데이터·설정 형식과 API는 그대로입니다. 볼륨을 쓰는 컨테이너는 업그레이드 뒤 한 번 정지·시작해야 적용되니 [변경 목록](CHANGELOG.md)의 업그레이드 안내를 확인하세요.
 
 > 단일 Linux/KVM 노드에서 VM, LXC 컨테이너, ZFS 스토리지, OVS/OVN 네트워크, 인증, 감사, 관측성,<br> Web UI를 한 프로세스로 관리하는 C23 기반 하이퍼바이저 오케스트레이터입니다.
 
 [![Edition: Single Edge](https://img.shields.io/badge/Edition-Single%20Edge-blue.svg)](docs/PUBLIC_RELEASE_BOUNDARY.md)
 [![Runtime: Linux/KVM](https://img.shields.io/badge/Runtime-Linux%2FKVM-2f855a.svg)](docs/GUIDE.md)
 [![Language: C23](https://img.shields.io/badge/Language-C23-555.svg)](docs/PUBLIC_SOURCE_POLICY.md)
-[![Version: 2.0.3](https://img.shields.io/badge/Version-2.0.3-6b46c1.svg)](include/purecvisor/version.h)
+[![Version: 2.0.4](https://img.shields.io/badge/Version-2.0.4-6b46c1.svg)](include/purecvisor/version.h)
 
 [공개 문서](https://purecvisor.site) · [전체 운영 가이드](https://purecvisor.site/ko/getting-started/installation/) · [네트워크·OVN](https://purecvisor.site/ko/infrastructure/networking/) · [데이터베이스 아키텍처](https://purecvisor.site/ko/development/database-architecture/)
 
@@ -84,7 +84,7 @@ curl -ksS "https://${NODE_IPV4}/api/v1/health" | jq '{status,version,tls:.checks
 {
   "service": "purecvisorsd",
   "status": "ok",
-  "version": "2.0.3",
+  "version": "2.0.4",
   "capabilities": {
     "cluster": false
   }

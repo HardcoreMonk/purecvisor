@@ -187,5 +187,23 @@
     "evidence": [
       "tests/test_container_health.c"
     ]
+  },
+  "pcv_lxc_mount_error_quark": {
+    "reason": "PCV_LXC_MOUNT_ERROR 매크로로만 호출되는 GQuark 접근자(G_DEFINE_QUARK 관례) — 이름 직접 호출 없음이 의도다.",
+    "evidence": [
+      "src/modules/lxc/lxc_volume_guard.c"
+    ]
+  },
+  "pcv_lxc_volume_error_quark": {
+    "reason": "PCV_LXC_VOLUME_ERROR 매크로로만 호출되는 GQuark 접근자(G_DEFINE_QUARK 관례) — 이름 직접 호출 없음이 의도다.",
+    "evidence": [
+      "src/modules/lxc/lxc_volume_stage.c"
+    ]
+  },
+  "pcv_lxc_volume_set_roots_for_test": {
+    "reason": "시작 볼륨 staging의 staging 루트·런타임 config 루트를 임시 디렉터리로 바꾸는 테스트 전용 진입점이다. 프로덕션 호출자 없음이 의도다.",
+    "evidence": [
+      "tests/test_lxc_volume_stage.c"
+    ]
   }
 }

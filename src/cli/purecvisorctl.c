@@ -174,8 +174,9 @@
                                                                     
 #include "cli_rpc.h"                                                                   
 #include "cli_output.h"                                      
-#include "modules/dispatcher/rpc_utils.h"                                  
+#include "modules/dispatcher/rpc_utils.h"
 #include "modules/network/dpdk_manager.h"
+#include "modules/lxc/lxc_volume_guard.h"
 
 
 
@@ -6656,8 +6657,16 @@ static void cmd_container_volume_list(int argc, char *argv[]) {
     g_object_unref(parser); g_free(r);
 }
 
-                                                                
-                                        
+static void cmd_container_volume_guard_hook(int argc, char *argv[]) {
+    (void)argc; (void)argv;
+    if (pcv_lxc_volume_guard_hook_main(g_getenv("LXC_CONFIG_FILE"), g_getenv("LXC_NAME")) == 0)
+        pcv_cli_command_mark_success();
+    else
+        pcv_cli_command_mark_runtime_failure();
+}
+
+
+
 static void cmd_container_env_set(int argc, char *argv[]) {
     if (argc < 5) { printf("%sUsage: pcvctl container env-set <name> <key> <value>%s\n", cc(CYBER_YELLOW), cc(CYBER_RESET)); return; }
     JsonObject *p = json_object_new();
@@ -8367,6 +8376,7 @@ static CommandRoute routes[] = {
     {"container","volume-attach",  cmd_container_volume_attach,  "Attach host volume to container"},
     {"container","volume-detach",  cmd_container_volume_detach,  "Detach volume from container"},
     {"container","volume-list",    cmd_container_volume_list,    "List container volumes"},
+    {"container","volume-guard-hook", cmd_container_volume_guard_hook, "liblxc pre-start hook: re-check volume sources (local)"},
     {"container","env-set",        cmd_container_env_set,        "Set container environment variable"},
     {"container","env-list",       cmd_container_env_list,       "List container environment variables"},
     {"container","env-delete",     cmd_container_env_delete,     "Delete container environment variable"},

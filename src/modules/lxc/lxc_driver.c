@@ -118,6 +118,8 @@
 #include "api/drain.h"
 #include "lxc_driver.h"
 #include "lxc_ns_exec.h"
+#include "lxc_volume_guard.h"
+#include "lxc_volume_stage.h"
 
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -1293,6 +1295,9 @@ _lxc_destroy_thread(GTask        *task,
     }
     if (c) lxc_container_put(c);
 
+    pcv_lxc_volstage_clear(name);
+    pcv_lxc_runtime_config_remove(name);
+
                                                    
     {
         gboolean lxc_destroy_ok = FALSE;
@@ -1628,12 +1633,28 @@ _lxc_start_thread(GTask        *task,
     }
 
 
+    gchar *bad_guard = nullptr;
+    if (!pcv_lxc_volume_guard_check(PCV_LXC_PATH, name, &bad_guard)) {
+        g_autofree gchar *gmsg = pcv_lxc_volume_guard_message(bad_guard);
+        g_free(bad_guard);
+        g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED, gmsg);
+        g_task_return_error(task, error);
+        return;
+    }
+    g_free(bad_guard);
+    if (!pcv_lxc_volume_start_prepare(PCV_LXC_PATH, name, &error)) {
+        g_task_return_error(task, error);
+        return;
+    }
+    g_autofree gchar *rtcfg = pcv_lxc_runtime_config_path(name);
+
     const gchar *start_argv[] = {
-        "lxc-start", "-P", PCV_LXC_PATH, "-n", name, "-d", NULL
+        "lxc-start", "-P", PCV_LXC_PATH, "-n", name, "-f", rtcfg, "-d", NULL
     };
     gchar *start_out = nullptr;
     gchar *start_err = nullptr;
     if (!pcv_spawn_sync(start_argv, &start_out, &start_err, &error)) {
+        pcv_lxc_volume_start_abort(PCV_LXC_PATH, name);
 
         const gchar *detail = (start_err && *start_err) ? g_strstrip(start_err)
                             : (start_out && *start_out) ? g_strstrip(start_out)
@@ -1771,6 +1792,8 @@ _lxc_stop_thread(GTask        *task,
                     d->name, c->error_string);
         g_task_return_error(task, error);
     } else {
+        pcv_lxc_volstage_clear(d->name);
+        pcv_lxc_runtime_config_remove(d->name);
         g_task_return_boolean(task, TRUE);
     }
     lxc_container_put(c);
