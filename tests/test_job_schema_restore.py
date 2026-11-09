@@ -12,23 +12,13 @@ import shlex
 import shutil
 import sqlite3
 import subprocess
-import sys
 import unittest
 
 import test_job_recovery as recovery_fixture
 
 ROOT = recovery_fixture.ROOT
 
-PREVIOUS = "8f7be79a6b7600156018761fc1a6de311d8f3966"
-
-
-def previous_revision_available():
-                                                                         
-    try:
-        return subprocess.run(["git", "cat-file", "-e", f"{PREVIOUS}^{{commit}}"], cwd=ROOT,
-                              stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL).returncode == 0
-    except OSError:
-        return False
+PREVIOUS = Path("tests/fixtures/job_queue_previous")
 
 
 class JobSchemaRestore(unittest.TestCase):
@@ -40,22 +30,16 @@ class JobSchemaRestore(unittest.TestCase):
 
     @classmethod
     def setUpClass(cls):
-        if not previous_revision_available():
-            reason = f"이전 revision {PREVIOUS[:12]}이 git 이력에 없어 Job 스키마 복원 대조를 건너뛴다"
-            print(f"[test_job_schema_restore] {reason}", file=sys.stderr)
-            raise unittest.SkipTest(reason)
-        recovery_fixture.JobRecovery.setUpClass.__func__(cls)
-        previous = Path(cls.tmp.name) / "previous"
-        previous.mkdir()
         for name in ("pcv_job_queue.c", "pcv_job_queue.h"):
-            data = subprocess.check_output(["git", "show", f"{PREVIOUS}:src/utils/{name}"], cwd=ROOT)
-            (previous / name).write_bytes(data)
-        cls.previous_binary = previous / "probe"
+            if not (ROOT / PREVIOUS / name).is_file():
+                raise FileNotFoundError(ROOT / PREVIOUS / name)
+        recovery_fixture.JobRecovery.setUpClass.__func__(cls)
+        cls.previous_binary = Path(cls.tmp.name) / "previous-probe"
         flags = shlex.split(subprocess.check_output([
             "pkg-config", "--cflags", "--libs", "json-glib-1.0", "sqlite3"], text=True))
         subprocess.run([shutil.which("gcc-14") or "cc", "-std=gnu23", "-D_GNU_SOURCE",
-                        "-Wall", "-Wextra", "-Werror", "-g", "-I" + str(previous), "-Isrc",
-                        str(previous / "pcv_job_queue.c"), "tests/fixtures/job_legacy_schema_probe.c",
+                        "-Wall", "-Wextra", "-Werror", "-g", "-I" + str(PREVIOUS), "-Isrc",
+                        str(PREVIOUS / "pcv_job_queue.c"), "tests/fixtures/job_legacy_schema_probe.c",
                         "-o", str(cls.previous_binary), *flags,
                         *shlex.split(os.environ.get("PCV_JOB_TEST_CFLAGS", ""))], cwd=ROOT, check=True)
 

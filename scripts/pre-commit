@@ -93,7 +93,7 @@ echo "$STAGED" | grep -qE '^src/api/rest_(server|policy|response|request|async|t
 HAS_VM_NAME_LOCK_TEST_CHANGES=false
 echo "$STAGED" | grep -qE '^src/modules/dispatcher/handler_vm_(create|clone|lifecycle|rename|delete|guest|ova)\.c$' && HAS_VM_NAME_LOCK_TEST_CHANGES=true
 HAS_JOB_SCHEMA_TEST_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/utils/pcv_job_(queue|recovery)\.(c|h)|src/utils/pcv_job_queue_internal\.h|src/utils/pcv_(config|log)\.h|src/api/drain\.(c|h)|src/modules/dispatcher/rpc_completion\.(c|h)|src/modules/dispatcher/rpc_utils\.h|tests/fixtures/(job_legacy_schema_probe\.c|job_queue_legacy\.h|job_recovery_probe\.c))$' && HAS_JOB_SCHEMA_TEST_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/utils/pcv_job_(queue|recovery)\.(c|h)|src/utils/pcv_job_queue_internal\.h|src/utils/pcv_(config|log)\.h|src/api/drain\.(c|h)|src/modules/dispatcher/rpc_completion\.(c|h)|src/modules/dispatcher/rpc_utils\.h|tests/fixtures/(job_legacy_schema_probe\.c|job_queue_legacy\.h|job_recovery_probe\.c|job_queue_previous/pcv_job_queue\.(c|h))|tests/test_job_schema_restore\.py)$' && HAS_JOB_SCHEMA_TEST_CHANGES=true
 HAS_CORS_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_cors_anchor\.py|scripts/tests/test_cors_anchor\.py)$' && HAS_CORS_CHANGES=true
 HAS_SECRET_LOG_CHANGES=false
