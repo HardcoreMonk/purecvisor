@@ -168,7 +168,7 @@ make release
 ```
 
 `make check-all`은 RBAC 정책, RPC 소비⊆등록 계약, 공개 주석 정책, UI 표면과 소스맵
-부재를 포함한 40개 게이트를 실행합니다. 정확한 목록은 [Makefile](Makefile)의
+부재를 포함한 47개 게이트를 실행합니다. 정확한 목록은 [Makefile](Makefile)의
 `check-all` 의존성을 따릅니다. UI 표면과 반사실 회귀만 확인하려면
 `make check-single-ui-surface`를 실행합니다.
 
