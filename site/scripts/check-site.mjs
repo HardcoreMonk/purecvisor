@@ -433,24 +433,25 @@ const architectureSvg = await readFile(path.join(distRoot, architectureAsset));
 const architectureSvgText = architectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("NGINX architecture", architectureSvgText);
 const architectureSvgHash = createHash("sha256").update(architectureSvg).digest("hex");
-if (architectureSvgHash !== "8ad354d7fb83a7df4d354b4264caa595ac0ab86fc89915440f0b601e44d3f1d7") {
+if (architectureSvgHash !== "a470fc321a2c7372c8f98ea202fb92f2e1e8f8bd058e70505700bc87777b3af8") {
   throw new Error(`architecture source SVG checksum mismatch: ${architectureSvgHash}`);
 }
 const architectureStructure = architectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const architectureStructureHash = createHash("sha256").update(architectureStructure).digest("hex");
-if (architectureStructureHash !== "c3b3de8ba063b8b34be65ec44261658c70ffd4ab6757f7ef58ebc4ff7fa6d082") {
+if (architectureStructureHash !== "efd7ee48237069831db389d509d1fed8a12697f3e849b739821807097571a231") {
   throw new Error(`architecture SVG structure/content mismatch: ${architectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 1699.064208984375 2488"',
+  'viewBox="4 4 2009.1953125 2653"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'my-svg-flowchart-monitorDomain-22',
   'my-svg-flowchart-coreDb-24',
   'my-svg-flowchart-operationsDb-25',
+  'my-svg-flowchart-resourceDb-26',
   'my-svg-flowchart-securityDomain-21',
-  'my-svg-flowchart-accelPlatform-31',
+  'my-svg-flowchart-accelPlatform-32',
   'vm_state.db',
   'pcv_audit.db',
   'pcv_jobs.db',
@@ -459,6 +460,7 @@ for (const marker of [
   'security_groups.db',
   'vpc.db',
   'pcv_webpush.db',
+  'resource_registry.db',
   'DPDK'
 ]) {
   if (!architectureSvgText.includes(marker)) throw new Error(`architecture source SVG contract missing: ${marker}`);
@@ -496,17 +498,17 @@ const directArchitectureSvg = await readFile(path.join(distRoot, directArchitect
 const directArchitectureSvgText = directArchitectureSvg.toString("utf8");
 validateInteractiveArchitectureTopology("direct HTTPS architecture", directArchitectureSvgText);
 const directArchitectureSvgHash = createHash("sha256").update(directArchitectureSvg).digest("hex");
-if (directArchitectureSvgHash !== "7e10844dafb099c33b767c7bfa22137855ecff5c0a2106c1e2846021278fb16f") {
+if (directArchitectureSvgHash !== "8baadb1686cc3a381064bf8ab425850aba1c6fbfa00c41e20de9e57cb755720a") {
   throw new Error(`direct HTTPS architecture SVG checksum mismatch: ${directArchitectureSvgHash}`);
 }
 const directArchitectureStructure = directArchitectureSvgText.replace(/<style>[\s\S]*?<\/style>/, "<style></style>");
 const directArchitectureStructureHash = createHash("sha256").update(directArchitectureStructure).digest("hex");
-if (directArchitectureStructureHash !== "5a59b1597d92f3ee7706f8e82c51d191155dd482710af7c988234e6de8c95906") {
+if (directArchitectureStructureHash !== "07bdc51bb3199598cf8d5dc9afcf782d5f69a5a8d3e1b76615d075c0fa5dac82") {
   throw new Error(`direct HTTPS architecture SVG structure/content mismatch: ${directArchitectureStructureHash}`);
 }
 for (const marker of [
   'width="100%"',
-  'viewBox="4 4 1817.8671875 2313.699951171875"',
+  'viewBox="4 4 1935.1484375 2523.699951171875"',
   'role="graphics-document document"',
   'aria-roledescription="flowchart-elk"',
   'id="my-svg-clients"',
@@ -538,11 +540,13 @@ for (const marker of [
   "security_groups.db",
   "vpc.db",
   "pcv_webpush.db",
-  'id="my-svg-flowchart-desiredStore-25"',
-  'id="my-svg-flowchart-virtPlatform-26"',
-  'id="my-svg-flowchart-storagePlatform-27"',
-  'id="my-svg-flowchart-networkPlatform-28"',
-  'id="my-svg-flowchart-securityPlatform-29"',
+  "resource_registry.db",
+  'id="my-svg-flowchart-resourceDb-25"',
+  'id="my-svg-flowchart-desiredStore-26"',
+  'id="my-svg-flowchart-virtPlatform-27"',
+  'id="my-svg-flowchart-storagePlatform-28"',
+  'id="my-svg-flowchart-networkPlatform-29"',
+  'id="my-svg-flowchart-securityPlatform-30"',
   "DPDK"
 ]) {
   if (!directArchitectureSvgText.includes(marker)) {
@@ -587,6 +591,8 @@ for (const marker of [
   'promClient -->|"HTTPS metrics scrape"| restApi',
   'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
   'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
+  'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
+  'storageDomain --> resourceDb',
   'handlers -->|"VIEWER read"| monitorDomain',
   'monitorDomain -.->|"Host and process probes"| securityPlatform',
   "class udsApi,restApi,grpcApi,wsApi ingressNode;"
@@ -609,6 +615,8 @@ for (const marker of [
   'nginx <-->|"Static UI and REST"| restApi',
   'monitorDomain["Monitoring: host telemetry, process status, Prometheus"]',
   'operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]',
+  'resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]',
+  'storageDomain --> resourceDb',
   'handlers -->|"VIEWER read"| monitorDomain',
   'monitorDomain -.->|"Host and process probes"| securityPlatform'
 ]) {

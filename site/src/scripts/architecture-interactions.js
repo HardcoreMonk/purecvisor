@@ -24,7 +24,7 @@ export const architectureLayerNodeIds = Object.freeze({
   core: controlNodes,
   domains: domainNodes,
   daemon: Object.freeze([...transportNodes, ...controlNodes, ...domainNodes]),
-  persistence: Object.freeze(["coreDb", "operationsDb", "desiredStore"]),
+  persistence: Object.freeze(["coreDb", "operationsDb", "resourceDb", "desiredStore"]),
   host: Object.freeze([
     "virtPlatform",
     "storagePlatform",

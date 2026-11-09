@@ -50,6 +50,7 @@ flowchart TB
         direction LR
         coreDb["Core / identity / security / network DBs (SQLite WAL, 7 files)<br/>vm_state.db, pcv_audit.db, pcv_jobs.db, rbac.db<br/>pcv_security.db, security_groups.db, vpc.db"]
         operationsDb["Operations DBs (SQLite WAL, 1 file)<br/>pcv_webpush.db"]
+        resourceDb["Host resource boundary DB<br/>(SQLite, no WAL, 1 file)<br/>resource_registry.db"]
         desiredStore["Desired state: networks, overlay, QoS, BPF, backups"]
     end
 
@@ -89,11 +90,15 @@ flowchart TB
     handlers --> opsDomain
 
     workloadDomain --> coreDb
+    workloadDomain --> resourceDb
     networkDomain --> desiredStore
     networkDomain --> coreDb
+    networkDomain --> resourceDb
     storageDomain --> desiredStore
     storageDomain --> operationsDb
+    storageDomain --> resourceDb
     securityDomain --> coreDb
+    securityDomain --> resourceDb
     opsDomain --> operationsDb
 
     workloadDomain -.-> virtPlatform
@@ -118,5 +123,5 @@ flowchart TB
     class udsApi,restApi,grpcApi,wsApi ingressNode;
     class mainLoop,dispatcher,handlers,syncPath,workerPool,completion runtimeNode;
     class workloadDomain,networkDomain,storageDomain,securityDomain,monitorDomain,opsDomain domainNode;
-    class configStore,kernelLsm,coreDb,operationsDb,desiredStore dataNode;
+    class configStore,kernelLsm,coreDb,operationsDb,resourceDb,desiredStore dataNode;
     class virtPlatform,storagePlatform,networkPlatform,securityPlatform,accelPlatform hostNode;

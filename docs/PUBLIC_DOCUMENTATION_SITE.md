@@ -125,12 +125,13 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - NGINX 모드의 전체 Single Edge 서비스 아키텍처는
   `site/public/assets/diagrams/purecvisor-single-full-architecture.svg` 원본을 사용한다. SVG는
   클라이언트·설정 입력, TLS 경계, `purecvisorsd` 단일 프로세스, transport·dispatcher,
-  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·1개 저장소로 구분한 로컬 SQLite DB 8개,
+  동기·비동기 완료, 6개 서비스 도메인, 책임별 7개·1개·1개 저장소로 구분한 로컬 SQLite DB 9개,
   host telemetry·process status, 선택형 DPDK 수명주기, audit-only BPF LSM, 영속 상태와 Linux/KVM host
-  연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
+  연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 세 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
-  `security_groups.db`, `vpc.db`, `pcv_webpush.db`를 모두 명시한다.
-  2.1.0에서 더해진 자원 등록 DB `resource_registry.db`는 이 SVG와 Mermaid 원본에 아직 없다.
+  `security_groups.db`, `vpc.db`, `pcv_webpush.db`, `resource_registry.db`를 모두 명시한다.
+  2.1.0에서 더해진 자원 등록 DB `resource_registry.db`는 WAL을 쓰지 않는 별도 노드로 두고
+  Workload·Network·Storage·Security 도메인에서 연결한다. 직접 HTTPS SVG도 같은 노드와 연결을 가진다.
   공개 DB 개수의 정본은 공개 소스에 실제 존재하는 9개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
   아키텍처 SVG)이며 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
 - Hero는 별도 version eyebrow 없이 `PURECVISOR 2.1.0`를 실제 H1으로 두고 범위 문장, action과
@@ -138,10 +139,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   줄바꿈한다.
 - NGINX 모드 SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-full-architecture.mmd`가 소유한다. SVG 파일은
-  `1699.064208984375×2488` viewBox와 node·edge·label·좌표를 유지한다.
+  `2009.1953125×2653` viewBox와 node·edge·label·좌표를 유지한다.
   `<style>`을 제외한 구조·내용 SHA-256은
-  `b1a5596b79c43e219cd27216e0606288a47bcecc81fee995b11b518445e72bc6`, 배포 파일 SHA-256은
-  `8929be785dce35aa307b1dd299f3dc939f192b95c1f3f339ff66b62bdd31b293`로 고정한다.
+  `efd7ee48237069831db389d509d1fed8a12697f3e849b739821807097571a231`, 배포 파일 SHA-256은
+  `a470fc321a2c7372c8f98ea202fb92f2e1e8f8bd058e70505700bc87777b3af8`로 고정한다.
   `<script>`, event handler, `<foreignObject>`와 외부 link를 허용하지 않는다.
 - SVG 색은 Clients 하늘색, Config 주황색, API Transport 보라색, GMainLoop Control 초록색,
   Domain Modules 청록색, Persistent 살구색, Host 회색의 의미 체계를 사용한다. 상세 overview의
@@ -151,7 +152,11 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   좌표는 수정하지 않는다.
 - 두 전체 아키텍처 SVG는 Mermaid CLI `11.16.0`, white background와 고정 SVG ID로 생성한 뒤
   semantic palette를 적용한다. 다른 Mermaid 버전이나 font override를 사용하면 geometry와
-  hash가 달라진다.
+  hash가 달라진다. 2.1.0 자원 등록 DB 반영 재렌더는 CLI가 해석한 `mermaid` 11.17.2와
+  `@mermaid-js/layout-elk` 0.2.3, Puppeteer 설정의 `--lang=ko-KR`로 띄운 Chrome headless shell,
+  Arial 대체 Liberation Sans와 한글 Noto Sans CJK 글꼴을 사용했다. 이 환경은 이전 SVG의 node·edge
+  좌표를 그대로 재현한다. 한국어 locale이 없으면 한글 cluster label 폭이 달라진다. 이전 두 SVG에는
+  렌더 뒤 DB 라벨을 직접 고친 흔적(`7 file)`과 중복된 `pcv_webpush.db` 행)이 있었고 재렌더로 없어졌다.
 
   ```bash
   npx --yes -p @mermaid-js/mermaid-cli@11.16.0 mmdc \
@@ -188,9 +193,9 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `purecvisor-single-full-architecture.svg`를 사용하며 선택한 panel 하나만 표시한다. 직접
   HTTPS SVG의 Mermaid 원본은
   `docs/architecture/purecvisor-single-direct-https-architecture.mmd`가 소유한다. 이 SVG의
-  viewBox는 `1817.8671875×2313.699951171875`, 구조·내용 SHA-256은
-  `6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c`, 배포 파일 SHA-256은
-  `093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3`로 고정한다.
+  viewBox는 `1935.1484375×2523.699951171875`, 구조·내용 SHA-256은
+  `07bdc51bb3199598cf8d5dc9afcf782d5f69a5a8d3e1b76615d075c0fa5dac82`, 배포 파일 SHA-256은
+  `8baadb1686cc3a381064bf8ab425850aba1c6fbfa00c41e20de9e57cb755720a`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
   로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
