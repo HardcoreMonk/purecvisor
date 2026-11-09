@@ -969,7 +969,7 @@ tests/security_group_host_paths.o: src/modules/network/security_group.c tests/te
 
 test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle
 	@echo "🧪 Running g_test_* suite..."
-	@sudo ./$(TEST_BIN) -v > test_results.txt 2>&1; \
+	@bash scripts/run_root_in_private_ns.sh ./$(TEST_BIN) -v > test_results.txt 2>&1; \
 	 status=$$?; \
 	 cat test_results.txt; \
 	 exit $$status
@@ -1689,6 +1689,7 @@ check-public-comments: check-standalone-builds test_runner
 	@python3 scripts/check_test_runner_selectors.py --test-runner ./$(TEST_BIN)
 
 	@python3 scripts/tests/test_script_safety_contracts.py
+	@python3 scripts/tests/test_root_private_ns.py
 	@bash tests/integration/test_live_cleanup_contract.sh
 	@bash tests/integration/test_public_comment_policy.sh
 

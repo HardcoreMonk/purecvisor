@@ -37,11 +37,10 @@
 set -uo pipefail
 
 ROOT="${PCV_SANITIZE_ROOT:-$(cd "$(dirname "${BASH_SOURCE[0]}")/.." && pwd)}"
+NS_WRAPPER="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)/run_root_in_private_ns.sh"
 SAN_FLAGS="${PCV_SANITIZE_FLAGS:--fsanitize=address,undefined -fno-omit-frame-pointer -fno-sanitize-recover=all -O1 -g -U_FORTIFY_SOURCE}"
 ASAN_OPTIONS_VALUE="${PCV_SANITIZE_ASAN_OPTIONS:-detect_leaks=0:abort_on_error=0:halt_on_error=0:print_summary=1}"
 UBSAN_OPTIONS_VALUE="${PCV_SANITIZE_UBSAN_OPTIONS:-print_stacktrace=1:halt_on_error=1}"
-                                                                               
-COVER_PATHS="${PCV_SANITIZE_COVER_PATHS-/var/lib/purecvisor /var/log/purecvisor /etc/purecvisor /run/purecvisor /var/log/suricata /run/libvirt /run/openvswitch /var/lib/lxc /var/lib/libvirt/images}"
 REPORT="$ROOT/sanitize_report.txt"
 REPORT_TMP="$(mktemp "${TMPDIR:-/tmp}/pcv-sanitize-report.XXXXXX")" || exit 1
 SANITIZER_STATUS=0
@@ -66,19 +65,11 @@ exec {CALLER_STDOUT}>&1 {CALLER_STDERR}>&2
                                                              
 run_root_in_private_ns()
 {
-    sudo env PCV_NS_COVER="$COVER_PATHS" \
-        unshare --mount --propagation private -- bash -c '
-        set -u
-        for p in $PCV_NS_COVER; do
-            [ -d "$p" ] || continue
-            mount -t tmpfs tmpfs "$p" || { echo "[sanitize] ns: cover failed: $p" >&2; exit 97; }
-            if [ "$p" = /run/libvirt ]; then mkdir -p /run/libvirt/qemu || exit 97; fi
-        done
-        if [ -d /sys/fs/bpf ]; then
-            mount -t bpf bpf /sys/fs/bpf || { echo "[sanitize] ns: bpffs mount failed" >&2; exit 97; }
-        fi
-        exec "$@"
-    ' pcv-ns "$@"
+    if [[ -n "${PCV_SANITIZE_COVER_PATHS+set}" ]]; then
+        PCV_ROOT_NS_COVER_PATHS="$PCV_SANITIZE_COVER_PATHS" bash "$NS_WRAPPER" "$@"
+    else
+        bash "$NS_WRAPPER" "$@"
+    fi
 }
 
 record()

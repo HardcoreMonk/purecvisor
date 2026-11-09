@@ -598,7 +598,12 @@ def test_run_auto_tests_dispatches_argv_without_eval() -> None:
             stdout=subprocess.PIPE, stderr=subprocess.PIPE, check=False,
         )
         assert full_dry.returncode == 0, full_dry.stdout + full_dry.stderr
-        assert "sudo ./test_runner -v > test_results.txt" in full_dry.stdout
+
+        assert (
+            "bash scripts/run_root_in_private_ns.sh ./test_runner -v > test_results.txt"
+            in full_dry.stdout
+        )
+        assert "sudo ./test_runner" not in full_dry.stdout
         assert "-s /dpdk/bridge_delete/idempotent" not in full_dry.stdout
 
 

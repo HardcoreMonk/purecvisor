@@ -685,8 +685,18 @@ namespace는 호스트와 공유한다. 운영 데몬이 도는 호스트에서 
 
 1. **기본은 비root**다. 개발·검증 기본 명령은 `make test_runner && ./test_runner -v`이며 root leaf는
    SKIP된다. `make test`, `make test-auto`, `make test-tap`, `make sanitize`, `make memcheck`,
-   `make memcheck-sharded`, `make coverage`, `scripts/release.sh`는 내부에서 `sudo ./test_runner`를 부르므로
-   운영 겸용 호스트에서는 아래 3·4를 지킬 때만 실행한다. `scripts/pre-commit`의 유닛 테스트 gate도 기본은
+   `make memcheck-sharded`, `make coverage`, `scripts/release.sh`는 내부에서 root로 test_runner를 부르므로
+   운영 겸용 호스트에서는 아래 3·4를 지킬 때만 실행한다. 이 가운데 `make test`(그것을 부르는 `scripts/release.sh`
+   포함)와 `make sanitize`의 root 단계는 공용 래퍼 `scripts/run_root_in_private_ns.sh`를 거친다. 래퍼는 사설 mount
+   네임스페이스(`sudo unshare --mount --propagation private`) 안에서 운영 상태 경로(`/var/lib/purecvisor`,
+   `/var/log/purecvisor`, `/etc/purecvisor`, `/run/purecvisor`, `/var/log/suricata`, `/run/libvirt`(덮은 뒤 `qemu/`
+   재생성), `/run/openvswitch`, `/var/lib/lxc`, `/var/lib/libvirt/images` — 없는 경로는 건너뜀)를 빈 tmpfs로 덮고
+   새 bpffs를 올린 뒤에만 시험을 실행하며, 덮기나 bpffs 올리기에 실패하면 시험을 돌리지 않고 97로 끝난다
+   (fail-closed). 계약 시험은 `scripts/tests/test_root_private_ns.py`(`make check-public-comments` 안, 래퍼를 뺀
+   레시피·목록에서 경로를 뺀 래퍼 반사실 포함)다. 래퍼는 파일 경로만 가린다 — systemd(dbus)·pid·네트워크는
+   호스트와 공유하므로 3·4의 규칙은 그대로다. 나머지 대상(`make test-auto`, `make test-tap`, `make memcheck`,
+   `make memcheck-sharded`, `make coverage`)은 래퍼 없이 `sudo ./test_runner`를 부른다.
+   `scripts/pre-commit`의 유닛 테스트 gate도 기본은
    비root 실행이고, root `make test`는 `PCV_PRECOMMIT_ROOT_TEST=1`일 때만 부른다. 저장소 로컬 설정
    `pcv.hook.skipRootSanitize=true`인 checkout에서는 pre-commit의 root ASan/UBSan 단계를 만들지 않고
    생략으로 표시한다. `make memcheck-sharded`는 `make memcheck`와 같은 valgrind 옵션·억제 파일로 최상위
@@ -713,7 +723,9 @@ namespace는 호스트와 공유한다. 운영 데몬이 도는 호스트에서 
 | `PCV_SHARED_BRIDGE_LIVE=1` | `/network/shared_bridge_packet_path` | 격리 netns 안 물리 NIC 브리지·빈 사설 bpffs. `PCV_BPF_LIVE=1`과 동시 지정 시 test_runner가 시작 전에 중단한다 |
 
 4. **root 실행 명령 예시**(전용 장비 또는 승인된 정지 창): 기본 `sudo ./test_runner -v`는 위 leaf를
-   SKIP한 채 나머지 root leaf를 격리 안에서 실행한다. 실경로가 필요하면 영역별로 따로 연다 —
+   SKIP한 채 나머지 root leaf를 격리 안에서 실행한다. 운영 상태 경로까지 가리려면 1의 래퍼로 감싼다 —
+   `bash scripts/run_root_in_private_ns.sh ./test_runner -v`(`make test`의 root 단계와 같은 형태). 실경로가
+   필요하면 영역별로 따로 연다 —
    `sudo env PCV_BPF_LIVE=1 ./test_runner -r /bpf -v`. 결과의 SKIP 사유에 `opt-in 필요`가 남아 있으면
    해당 실경로는 검증되지 않은 것이며 PASS로 기록하지 않는다.
 5. **정적 gate**: `python3 scripts/check_test_hermetic.py`는 `tests/*.c`가 운영 경로 리터럴·운영 경로
