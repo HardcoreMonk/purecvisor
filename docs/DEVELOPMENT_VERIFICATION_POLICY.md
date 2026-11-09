@@ -474,13 +474,13 @@ python3 scripts/check_ui_bundle_fresh.py
 
 ### 4.14 JSON 파싱 초크포인트 게이트
 
-데몬 경계 파일(ws/uds/grpc/dispatcher/rest_server 및 rpc_utils) 또는 게이트 스크립트/baseline을 바꾸면 Level 1에 다음 검증을 포함한다.
+데몬 경계 파일(ws/uds/grpc/dispatcher/rest_server 및 rpc_utils) 또는 게이트 스크립트/신뢰 목록을 바꾸면 Level 1에 다음 검증을 포함한다.
 
 ```bash
 make check-json-ingress
 ```
 
-- `check-json-ingress`: 데몬 경계 5파일의 외부 JSON 파싱이 `pcv_rpc_parse_guarded` 초크포인트를 경유하는지 검사하고, 공개 기준의 불가피한 직접 파싱은 `scripts/json_ingress_baseline.txt`로 고정한다.
+- `check-json-ingress`: 데몬 경계 5파일의 외부 JSON 파싱이 `pcv_rpc_parse_guarded` 초크포인트를 경유하는지 검사하고, 불가피한 직접 파싱은 `contracts/json_ingress_trusted.json`에 파일·함수·파싱 대상·근거로 사이트마다 등록한다. 목록 밖 직접 파싱, 사라진 사이트를 가리키는 항목, 한 함수에서 같은 대상을 두 번 이상 직접 파싱하는 경우는 실패한다.
 
 ### 4.15 RPC 소비-완전성 + 고아 게이트
 

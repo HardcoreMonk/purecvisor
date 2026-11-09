@@ -75,7 +75,7 @@ echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.
 HAS_SYMBOL_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
 HAS_INGRESS_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc)_server\.c|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc)_server\.c|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/check_mainloop_guest_agent\.py|scripts/tests/test_json_ingress\.py|contracts/json_ingress_trusted\.json)$' && HAS_INGRESS_CHANGES=true
 HAS_SAFETY_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
 HAS_ERROR_CODE_CHANGES=false
@@ -599,7 +599,7 @@ if $HAS_INGRESS_CHANGES; then
     SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
     JI_OUT=$(python3 "$SCRIPT_DIR/check_json_ingress.py" 2>&1)
     if [ $? -ne 0 ]; then
-        fail "무가드 경계 JSON 파싱 (래퍼/waiver 누락)"
+        fail "무가드 경계 JSON 파싱 (래퍼 경유 또는 신뢰 목록 근거 누락)"
         echo "$JI_OUT" | tail -10
     else
         pass "$(echo "$JI_OUT" | grep -E '^\[' | tail -1)"

@@ -1,0 +1,74 @@
+[
+  {
+    "file": "src/api/grpc_server.c",
+    "function": "_extract_result",
+    "data": "json_resp",
+    "reason": "데몬 JSON-RPC 응답 파싱이다. _rpc_call이 UDS로 받은 데몬 자체 출력이며 gRPC 요청 원문이 아니다."
+  },
+  {
+    "file": "src/api/rest_auth_endpoints.c",
+    "function": "_logout_blacklist_access",
+    "data": "json_str",
+    "reason": "로그아웃 경로에서 pcv_jwt_verify() 서명 검증이 주체를 돌려준 뒤에만 호출된다. 페이로드는 데몬이 서명해 발급한 토큰이라 위조할 수 없고 서명 검증이 곧 가드다."
+  },
+  {
+    "file": "src/api/rest_policy.c",
+    "function": "pcv_rest_rpc_envelope_method",
+    "data": "rpc_json",
+    "reason": "pcv_rest_build_rpc와 pcv_rest_rpc_attach_auth_context가 재직렬화한 서버 envelope다. passthrough 본문도 pcv_rest_parse_body 가드를 통과한 노드의 재직렬화본이다."
+  },
+  {
+    "file": "src/api/rest_public_render.c",
+    "function": "pcv_rest_render_metrics",
+    "data": "fleet_resp",
+    "reason": "데몬 JSON-RPC 응답 파싱이다. 내부 신뢰 출력이며 외부 요청 원문이 아니다."
+  },
+  {
+    "file": "src/api/rest_public_render.c",
+    "function": "pcv_rest_render_rpc_result",
+    "data": "resp",
+    "reason": "데몬 JSON-RPC 응답 파싱이다. 내부 신뢰 출력이며 외부 요청 원문이 아니다."
+  },
+  {
+    "file": "src/api/rest_request.c",
+    "function": "pcv_rest_rpc_attach_auth_context",
+    "data": "rpc_json",
+    "reason": "서버가 만든 envelope 재파싱이다. pcv_rest_build_rpc/json_to_string 출력이며 passthrough도 pcv_rest_parse_body에서 깊이·크기 가드를 통과한 노드의 재직렬화본이다."
+  },
+  {
+    "file": "src/api/rest_response.c",
+    "function": "pcv_rest_send_rpc_result",
+    "data": "rpc_resp",
+    "reason": "데몬 JSON-RPC 응답 파싱이다. 비동기 REST 완료가 넘긴 데몬 출력이며 외부 요청 원문이 아니다."
+  },
+  {
+    "file": "src/modules/dispatcher/handler_alert.c",
+    "function": "handle_agent_history",
+    "data": "json_str",
+    "reason": "pcv_agent_get_last_comparison_json()이 데몬 안에서 JsonBuilder로 만든 문자열의 재파싱이다. 외부 입력이 아니다."
+  },
+  {
+    "file": "src/modules/dispatcher/handler_alert.c",
+    "function": "handle_healing_history",
+    "data": "json_str",
+    "reason": "pcv_healing_get_history_json()이 데몬 안에서 조립한 문자열의 재파싱이다. 외부 입력이 아니다."
+  },
+  {
+    "file": "src/modules/dispatcher/handler_alert.c",
+    "function": "handle_healing_pending",
+    "data": "json_str",
+    "reason": "pcv_healing_get_pending_json()이 데몬 안에서 json_to_string으로 만든 문자열의 재파싱이다. 외부 입력이 아니다."
+  },
+  {
+    "file": "src/modules/dispatcher/handler_alert.c",
+    "function": "handle_healing_status",
+    "data": "json_str",
+    "reason": "pcv_healing_get_pending_json()이 데몬 안에서 json_to_string으로 만든 문자열의 재파싱이다. 외부 입력이 아니다."
+  },
+  {
+    "file": "src/modules/dispatcher/handler_host_query.c",
+    "function": "handle_capacity_forecast",
+    "data": "fjson",
+    "reason": "pcv_predict_get_forecast_json()이 데몬 안에서 조립한 예측 결과 문자열의 재파싱이다. 외부 입력이 아니다."
+  }
+]
