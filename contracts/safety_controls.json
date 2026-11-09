@@ -184,5 +184,53 @@
     "effect_assertion": "가짜 PcvLxcRollbackOps에서 처음 상태 RUNNING·정지 뒤 상태 STOPPED이면 호출 기록이 정확히 exists → state(RUNNING) → halt(30) → state(STOPPED) → residue → zfs_rollback → forget이고 결과 TRUE·restart TRUE다.같은 시험에서 처음 상태가 STOPPING이면 기록에 zfs_rollback이 없고 결과 FALSE·restart FALSE다. 같은 묶음의 leaf가 FROZEN 정지, 정지 실패·정지 뒤 RUNNING이면 잔여 정리·zfs rollback 0회·restart FALSE, 스냅샷 없음이면 exists 하나뿐, STARTING·STOPPING·UNKNOWN이면 exists·state 둘뿐(rollback_transitional_state_refused), 잠금을 쥔 채 다시 부르면 BUSY·ops 0회를 고정한다",
     "effect_test": "tests/test_lxc_driver.c::test_rollback_stops_before_zfs_rollback",
     "status": "tested"
+  },
+  "replication-hostkey-pin": {
+    "description": "backup.replicate의 ssh는 pcv_repl_ssh_argv(StrictHostKeyChecking=yes·복제 전용 known_hosts·GlobalKnownHostsFile=/dev/null·-F /dev/null 등)로만 열리고, 미등록 대상은 HOSTKEY_UNTRUSTED(−32012), 키 불일치는 Job 첫 단계 탐침에서 HOSTKEY_MISMATCH(−32013)로 실패한다",
+    "effect_assertion": "pcv_repl_ssh_argv argv에 -F /dev/null·BatchMode=yes·StrictHostKeyChecking=yes·복제 전용 UserKnownHostsFile·GlobalKnownHostsFile=/dev/null·HostKeyAlias·CheckHostIP=no·UpdateHostKeys=no·IdentitiesOnly=yes·ConnectTimeout=10·-i 복제 키가 있고 StrictHostKeyChecking=no·accept-new·UserKnownHostsFile=/dev/null은 없다. 같은 파일의 known_hosts·classify_ssh_failures·rpc_code_mapping 시험이 미등록 −32012·불일치 −32013 분류를, scripts/check_backup_replicate_shell_free.py가 복제 경로의 ssh가 이 헬퍼로만 열리고 호스트 키 탐침이 원격 명령보다 먼저임을 함께 본다",
+    "effect_test": "tests/test_replication_hostkey.c::test_ssh_argv_required_options",
+    "status": "tested"
+  },
+  "logout-session-scope": {
+    "description": "POST /auth/logout이 본문 refresh_token의 세션 하나만 폐기(pcv_rbac_revoke_session_by_token)한다 — 같은 계정의 다른 refresh 세션은 살아남는다",
+    "effect_assertion": "같은 계정으로 두 번 로그인한 뒤 첫 refresh로 pcv_rbac_revoke_session_by_token을 부르면 1건만 폐기되고 소유자가 돌아오며, 첫 refresh 회전은 실패하고 둘째 refresh 회전은 성공한다",
+    "effect_test": "tests/test_rbac_logout_scope.c::test_revokes_only_presented_session",
+    "status": "tested"
+  },
+  "vpc-reserved-range-guard": {
+    "description": "VPC subnet이 호스트 관리 대역(reserved_cidrs·열린 관리 포트의 접속 peer)과 겹치면 OPERATOR 요청은 접수 전에 -32006으로 거절(겹친 값은 말하지 않음)하고 ADMIN 요청만 경고와 함께 확인 대기로 적용한다",
+    "effect_assertion": "pcv_vpc_mgmt_reserved_set이 설정 reserved_cidrs와 관리 포트 peer(/32)를 모으고 잘못된 항목 수를 세며 /proc/net/tcp를 못 읽으면 NULL(fail-closed)이고, pcv_vpc_mgmt_cidr_overlaps_any가 peer와 겹치는 subnet을 겹친 항목과 함께 참으로, 겹치지 않는 subnet을 거짓으로 판정한다. tests/test_vpc_mgmt_wiring_contract.py가 핸들러의 판정이 CIDR 검증 뒤·enqueue 전이고 OPERATOR 거절이 값 없는 -32006 고정 문구임을 함께 본다",
+    "effect_test": "tests/test_vpc_mgmt_guard.c::test_reserved_set_config_and_peers",
+    "status": "tested"
+  },
+  "vpc-confirm-auto-revert": {
+    "description": "예약 대역과 겹쳐 확인 대기로 적용된 subnet은 대기 시간 안에 vpc.subnet.confirm이 없으면 자동 원복하고, 재시작 때는 남은 시간과 관계없이 기동에서 원복한다(관리망 단절 자동 복구)",
+    "effect_assertion": "만료로 회수한 대기 항목을 pcv_vpc_mgmt_revert가 subnet 삭제 후 감사 vpc.subnet.auto_revert ok로 끝내고 원장에서 지우며 이후 confirm은 NOT_FOUND다. 삭제가 실패하면 원장 항목을 남기고 재시도 마감을 다시 걸며, 기동(pcv_vpc_mgmt_boot_with)은 대기 항목을 삭제·감사한 뒤에만 reconcile한다",
+    "effect_test": "tests/test_vpc_mgmt_guard.c::test_revert_keeps_ledger_until_delete_succeeds",
+    "status": "tested"
+  },
+  "vpc-tenant-pool": {
+    "description": "비ADMIN의 VPC subnet 생성(vpc.create 첫 subnet·vpc.subnet.create)은 서버가 정한 자기 테넌트의 주소 풀 CIDR 하나에 완전히 들어갈 때만 접수하고, 풀 밖·빈 풀은 예약 대역 판정보다 먼저 -32006으로 거절(풀·요청 값은 말하지 않음)하며, ADMIN의 vpc.pool.set은 그 테넌트가 쓰는 subnet을 풀 밖으로 미는 축소를 -32002로 거부한다",
+    "effect_assertion": "pcv_vpc_mgmt_pool_covers가 NULL·빈 풀·잘못된 CIDR에 거짓(fail-closed)이고, 풀 CIDR 하나에 완전히 들어가는 subnet만 참이며 두 풀 항목에 걸치거나 풀보다 넓은 subnet은 거짓이다. tests/test_vpc_mgmt_wiring_contract.py가 비ADMIN 풀 판정이 예약 대역 판정보다 먼저이고 거절이 값 없는 -32006이며 vpc.pool.set이 축소를 쓰기 전에 -32002로 막음을 함께 본다",
+    "effect_test": "tests/test_vpc_mgmt_guard.c::test_pool_covers_fail_closed",
+    "status": "tested"
+  },
+  "operator-resource-boundary": {
+    "description": "비ADMIN(OPERATOR·VIEWER)의 호스트 자원 참조(ISO·base image·OVA·저장 폴더·PCI·USB·브리지·오버레이 테넌트)는 서버가 정한 자기 테넌트에 허용된 등록 항목만 통과하고, 거절은 없는 경로와 남의 경로를 구분하지 않는 −32006 고정 문구와 감사 1행이다. ADMIN 요청은 판정 없이 원문 그대로 통과한다",
+    "effect_assertion": "OPERATOR의 허용되지 않은 ISO 경로에 pcv_res_gate가 거짓을 돌려주고 응답은 경로를 담지 않은 −32006이며 감사가 정확히 1행(method·denied·−32006·target·source=resource)이다. 허용 항목은 정규 경로로 통과하고 빈 값·NULL은 감사·응답 없이 통과한다. 같은 파일의 decision_table·deny_messages_identical·check_admin_keeps_raw_value 시험이 ADMIN 무판정과 거절 문구 동일성을 함께 본다",
+    "effect_test": "tests/test_resource_gate.c::test_gate_sends_forbidden_and_audits",
+    "status": "tested"
+  },
+  "subject-identity": {
+    "description": "인증 주체는 users에 PRESENT이고 신원 nonce(users.identity_nonce, 사용자 생성 때 CSPRNG 128비트)가 토큰·세션의 nonce와 상수 시간으로 같을 때만 통과한다 — ABSENT·불일치·빈 값은 거부(REJECT), 조회 불능은 UNAVAILABLE(fail-closed). 삭제·같은 이름 재생성된 사용자의 옛 토큰과 refresh 세션이 새 계정 권한을 얻지 못한다. 대조 지점은 pcv_rbac_identity_check_locked 하나다",
+    "effect_assertion": "pcv_rbac_subject_check가 같은 nonce의 사용자에 OK와 저장된 역할을, 없는 사용자·다른 nonce·NULL·빈 nonce·NULL 사용자에 REJECT를, users 테이블을 읽을 수 없으면 UNAVAILABLE을 돌려준다. 같은 파일의 issue_tokens_requires_nonce·refresh_rejects_identity_change 시험이 nonce 없는 토큰 발급 거부와 신원이 바뀐 refresh 거부를 함께 본다",
+    "effect_test": "tests/test_rbac_identity.c::test_identity_subject_check_states",
+    "status": "tested"
+  },
+  "mainloop-no-guest-agent": {
+    "description": "게스트 에이전트에 기대는 libvirt API(virDomainQemuAgentCommand·INTERFACE_ADDRESSES_SRC_AGENT·GetFSInfo·FSFreeze·SHUTDOWN_GUEST_AGENT·virDomainShutdown( 등)는 허용 목록 워커/실행기 스레드 함수 안에서만 부른다 — 응답 없는 QGA 한 대가 메인 루프를 멈춰 SIGTERM 정지가 시간 초과되는 경로를 정적 게이트가 막는다",
+    "effect_assertion": "handler_monitor.c 함수에 VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT를 삽입하면 check_mainloop_guest_agent.py가 exit 1이고 출력에 파일·함수 이름이 있다. 허용 목록 함수가 사라지면 stale로 FAIL",
+    "effect_test": "scripts/tests/test_mainloop_guest_agent.py::test_counterfactual_mainloop_agent_call_fails",
+    "status": "tested"
   }
 }

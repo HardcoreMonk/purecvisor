@@ -1546,6 +1546,7 @@ check-audit-placement:
                                                                  
 	@python3 scripts/check_mainloop_guest_agent.py --self-test
 	@python3 scripts/check_mainloop_guest_agent.py
+	@python3 scripts/tests/test_mainloop_guest_agent.py
                                                                  
 	@python3 scripts/tests/test_ova_async_result.py
                                                                                                                                            
