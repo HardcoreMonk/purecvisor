@@ -10,7 +10,7 @@
 > **현행화 기준:** 2026-09-15
 > **관련 문서:** [GUIDE.md](GUIDE.md), [PUBLIC_SOURCE_POLICY.md](PUBLIC_SOURCE_POLICY.md), [SERVICE_FUNCTIONAL_TEST_SCENARIOS.md](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md), [PUBLIC_RELEASE_BOUNDARY.md](PUBLIC_RELEASE_BOUNDARY.md), [ADR_INDEX.md](ADR_INDEX.md), `docs/adr/`
 
-> **2026-09-15 현황:** 공개 소스 `22d6912`에 첫 호스트 self-healing 알림 쿨다운과 공개 UI 표면 게이트 수정이 반영됐다. 지정 공개 검증은 통과했지만 전체 감사·지원 환경 인증은 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
+> **2026-11-09 현황:** 공개 `2.1.0`(`cca325c`)은 `2.0.4` 위에 Single Edge 기능을 반영한 기능 릴리스다. 게시 전 공개 계약 게이트 47개, release·debug C 단위 시험, 브라우저 UI 시험, 패키지·격리 Ubuntu lifecycle과 개발 호스트 실제 업그레이드를 확인했다. 전체 감사·지원 환경 인증은 여전히 미완료다. [가이드의 공개 현황](GUIDE.md#228-2026-09-15-공개-소스문서-현황)에서 소스 회차, 문서·영상 게시와 잔여 검증을 구분한다.
 
 ---
 
