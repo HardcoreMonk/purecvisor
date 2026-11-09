@@ -288,6 +288,25 @@ static void test_parse_keyfile(void) {
     g_free(cfgpath); g_free(tmpdir);
 }
 
+static void test_job_retention_days_key(void) {
+    clear_env();
+    pcv_config_init();
+    g_assert_cmpint(pcv_config_get_int("daemon", "job_retention_days", 30), ==, 30);
+    pcv_config_shutdown();
+
+    gchar *tmpdir = g_dir_make_tmp("pcv-cfg-XXXXXX", NULL);
+    gchar *cfgpath = g_build_filename(tmpdir, "daemon.conf", NULL);
+    g_file_set_contents(cfgpath, "[daemon]\njob_retention_days=7\n", -1, NULL);
+    g_setenv("PCV_CONFIG_PATH", cfgpath, TRUE);
+    pcv_config_init();
+    g_assert_cmpint(pcv_config_get_int("daemon", "job_retention_days", 30), ==, 7);
+    pcv_config_shutdown();
+
+    RESTORE_CFG_GUARD();
+    g_unlink(cfgpath); g_rmdir(tmpdir);
+    g_free(cfgpath); g_free(tmpdir);
+}
+
 static void test_dup_raw_value_distinguishes_empty_and_missing(void) {
     clear_env();
     gchar *tmpdir = g_dir_make_tmp("pcv-cfg-raw-XXXXXX", NULL);
@@ -1044,6 +1063,7 @@ void test_config_register(void) {
     g_test_add_func("/config/drain_timeout_env",        test_drain_timeout_env);
     g_test_add_func("/config/init_shutdown_cycle",      test_init_shutdown_cycle);
     g_test_add_func("/config/parse_keyfile",            test_parse_keyfile);
+    g_test_add_func("/config/job_retention_days_key",   test_job_retention_days_key);
     g_test_add_func("/config/dup_raw_value_distinguishes_empty_and_missing",
                     test_dup_raw_value_distinguishes_empty_and_missing);
     g_test_add_func("/config/parse_invalid_keyfile",    test_parse_invalid_keyfile);

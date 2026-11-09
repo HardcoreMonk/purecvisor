@@ -13,12 +13,12 @@
                   
   
                      
-                                                           
-                                                   
-                                                                       
+                                                    
+                                                         
+                                                             
   
                                              
-                                                               
+                                                        
                                        
   
                        
@@ -47,17 +47,6 @@
 G_BEGIN_DECLS
 
                                                                                
-                                                            
-                                                                               
-                                                         
-                                                                        
-                                                        
-gboolean purecvisor_zfs_create_volume(const gchar *pool_name, const gchar *vm_name, const gchar *size_str, GError **error);
-                                                                         
-gboolean purecvisor_zfs_destroy_volume(const gchar *pool_name, const gchar *vm_name, GError **error);
-
-
-                                                                               
                                   
                                                                                
                                                    
@@ -74,19 +63,6 @@ void purecvisor_zfs_snapshot_create_async(const gchar *pool_name,
                                     gpointer user_data);
 
 gboolean purecvisor_zfs_snapshot_create_finish(GAsyncResult *res, GError **error);
-
-                        
-void purecvisor_zfs_snapshot_delete_async(const gchar *pool_name,
-                                    const gchar *vm_name,
-                                    const gchar *snap_name,
-                                    GCancellable *cancellable,
-                                    GAsyncReadyCallback callback,
-                                    gpointer user_data);
-
-                                                                            
-                                                     
-                                                        
-gboolean purecvisor_zfs_snapshot_delete_finish(GAsyncResult *res, GError **error);
 
                           
 void purecvisor_zfs_snapshot_rollback_async(const gchar *pool_name,
@@ -369,25 +345,6 @@ JsonObject *purecvisor_zfs_pool_health_detail(const gchar *pool_name);
                              
    
 gboolean purecvisor_zfs_promote(const gchar *clone_name);
-
-                                                                               
-                                                                             
-                                                                               
-
-   
-                                        
-                                               
-                                              
-                                                           
-  
-                                                             
-                                          
-                                
-                                      
-                              
-   
-gboolean purecvisor_zfs_create_zvol_encrypted(const gchar *name, const gchar *size,
-                                               const gchar *passphrase, GError **error);
 
                                                                                
                                                                              

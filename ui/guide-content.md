@@ -1,7 +1,7 @@
 # PureCVisor Single Edge 운영 가이드
-> **2026-11-08 공개 소스 기준 (2.0.4):** 읽기 전용으로 붙인 컨테이너 볼륨이 컨테이너 안에서 읽기 전용으로 유지되도록 고친 보안 수정 릴리스입니다.
-> 새 기능은 없으며 데이터·설정 형식과 API는 그대로입니다. 변경 목록과 업그레이드 안내는 저장소의 `CHANGELOG.md` 2.0.4 항목을 따릅니다.
-> 볼륨을 쓰는 컨테이너는 업그레이드 뒤 한 번 정지·시작해야 새 동작이 적용됩니다.
+> **2026-11-09 공개 소스 기준 (2.1.0):** 2.0.4 이후의 Single Edge 기능을 담은 기능 릴리스입니다. 내부 구조 분할과 VM 상세 조회·백업 복제 호스트 키 고정·관리면 보호·세션 로그아웃·비동기 감사·LXC unprivileged 기본·자원/볼륨 경계·보안 사건 상한이 포함됩니다.
+> DB 스키마는 데몬 시작 때 자동 이관되고 설정 파일은 그대로 쓰지만, 일부 기본값과 응답 의미가 바뀌었습니다. 변경 목록과 업그레이드·원복 안내는 저장소의 `CHANGELOG.md` 2.1.0 항목을 따릅니다.
+> 실행 중이던 컨테이너는 업그레이드 뒤 한 번 정지·시작해야 전용 시작 유닛으로 옮겨집니다.
 
 > **2026-10-25 공개 소스 기준 (2.0.3):** 2.0.2의 컨테이너 명령 실행 결함을 고친 보안 수정 릴리스입니다.
 > 새 기능은 없으며 데이터·설정 형식은 그대로입니다. 변경 목록과 업그레이드 안내는 저장소의 `CHANGELOG.md` 2.0.3 항목을 따릅니다.
@@ -24,7 +24,7 @@
 > **2026-10-02 소스 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](../docs/operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
 
-> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.0.4
+> **Single Edge Edition** | 공개 배포용 독립 노드 가이드 | `purecvisorsd` | v2.1.0
 >
 > **현재 범위**: 이 문서는 `purecvisor-single` 기준으로 정리되며, Single Edge에서 실제로 제공하는 기능과 운영 절차만 안내합니다.
 >
@@ -74,7 +74,7 @@
 
 ### 1.0 최신 릴리스 기준
 
-현재 공개 제품 버전은 `2.0.4`입니다.<br>
+현재 공개 제품 버전은 `2.1.0`입니다.<br>
 단일 노드 배포 뒤 `purecvisorsd`는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 `/api/v1/health`, `/api/v1/version`과 BPF 상태 검사가 통과해야 합니다.
 
@@ -187,11 +187,12 @@ host·process 관측값을 조회합니다.<br>
 
 #### 1.2.4 영속 상태와 호스트 통합
 
-PureCVisor는 외부 DBMS 없이 로컬 SQLite WAL 데이터베이스 8개와 파일 기반 desired state를
+PureCVisor는 외부 DBMS 없이 로컬 SQLite 데이터베이스 9개(대부분 WAL 모드)와 파일 기반 desired state를
 사용합니다.
 
 - **Core·identity·security·network DB 7개**: `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`, `security_groups.db`, `vpc.db`
 - **Operations DB 1개**: `pcv_webpush.db`
+- **호스트 자원 경계 DB 1개**: `resource_registry.db`(호스트 자원 등록·테넌트 허용·VPC 주소 풀, 2.1.0)
 - **Desired state**: network, overlay, QoS, BPF와 backup 설정
 - **Virtualization**: libvirt, QEMU, KVM과 LXC
 - **Storage**: qcow2/raw, 선택형 ZFS, LIO와 open-iscsi
@@ -223,7 +224,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 | [DEVELOPMENT_VERIFICATION_POLICY.md](../docs/DEVELOPMENT_VERIFICATION_POLICY.md) | 개발 단계별 검증 규칙, Level 1~4 운영 기준 |
 | [ADR_INDEX.md](../docs/ADR_INDEX.md) | ADR별 현재 Single Edge 적용 상태 |
 | `docs/adr/` | 설계 결정과 예외 규칙의 단일 진실 |
-| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 8개와 영구 테이블 25개의 책임, schema와 복구 경계 |
+| [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md) | SQLite DB 9개와 영구 테이블 28개의 책임, schema와 복구 경계 |
 | [PUBLIC_SOURCE_POLICY.md](../docs/PUBLIC_SOURCE_POLICY.md) | 공개 소스 주석 제거와 소스맵 제외 정책 |
 
 <span id="122-설계-결정-빠른-보기" aria-hidden="true"></span>
@@ -282,12 +283,12 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     },
     "status": "ok",
     "service": "purecvisorsd",
-    "version": "2.0.4",
+    "version": "2.1.0",
     "node_name": "standalone"
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.0.4`이다.<br>
+제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.1.0`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -328,6 +329,8 @@ echo "http://127.0.0.1:8080/ui/ (admin / configured password)"
 | Prometheus | `http://127.0.0.1:8080/api/v1/metrics` | 없음 |
 | Health | `http://127.0.0.1:8080/api/v1/health` | 없음 |
 
+이벤트 WebSocket에서 데몬은 30초마다 `{"type":"ping"}`을 보내고, 60초 안에 `pong`이 없으면 연결을 닫습니다. Web UI는 `{"type":"pong"}`으로 답해 연결을 유지합니다. 직접 만든 클라이언트도 같이 답해야 합니다.
+
 ### 1.6 수동 RPC 테스트
 
 UDS 소켓을 통해 직접 JSON-RPC 요청을 보낼 수 있습니다.
@@ -348,7 +351,7 @@ echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
 
 ### 2.1 솔루션 권장사항 — Ubuntu 26.04.1 LTS
 
-PureCVisor 2.0.4 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
+PureCVisor 2.1.0 Single Edge의 공개 설치 기준은 Ubuntu Server 26.04.1 LTS(Resolute Raccoon) `amd64`입니다.
 Ubuntu 26.04 LTS는 2031년 4월까지 표준 보안 업데이트와 중요 수정이 제공되며, 26.04.1 설치 이미지는 26.04 출시 이후의 설치·기본 플랫폼 수정 사항을 포함합니다.
 
 > **설치 기준**
@@ -513,7 +516,7 @@ SSH 연결만 있는 상태에서 `netplan apply`를 바로 실행하지 않습�
 sha256sum -c SHA256SUMS --ignore-missing
 
 # 의존성 자동 해결 포함 설치
-sudo apt install -y ./purecvisor-single_2.0.4_amd64.deb
+sudo apt install -y ./purecvisor-single_2.1.0_amd64.deb
 
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
@@ -532,8 +535,9 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).<br>
-2.0.3 이하에서 2.0.4로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
-패키지 설치는 실행 중인 데몬을 재시작하지 않는다.
+2.0.4 이하에서 2.1.0로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
+패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
+같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
 - 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
 
 #### 방법 B — 소스 빌드
@@ -547,7 +551,7 @@ sudo apt update && sudo apt install -y \
     libvirt-dev libvirt-clients libvirt-daemon-system qemu-system-x86 ovmf \
     libguestfs-tools \
     libsoup-3.0-dev libjson-glib-dev \
-    libvirt-glib-1.0-dev liblxc-dev \
+    libvirt-glib-1.0-dev lxc-dev \
     zfsutils-linux lxc lxc-utils \
     libsqlite3-dev libssl-dev \
     libcap-dev libseccomp-dev libreadline-dev liburing-dev \
@@ -746,6 +750,8 @@ make cppcheck
 
 # 메모리 누수 검사
 make memcheck
+# 같은 검사를 최상위 suite 단위로 나눠 동시에 실행(운영 호스트가 아닌 개발 환경용, 로그는 valgrind_shards/)
+make memcheck-sharded MEMCHECK_JOBS=16
 
 # 코드 커버리지 HTML 리포트
 make coverage-html
@@ -850,6 +856,14 @@ root, `daemon.conf`, PKI, JWT, 기존 BPF 목적지에는 접근하지 않는다
 - BPF 배포는 `manifest.json`의 schema와 SHA-256을 검증하고 성공한 object와
   manifest만 `/usr/lib/purecvisor/bpf`에 설치한다. 디렉터리는 `0755`, 파일은
   `0644`이며 manifest를 마지막 commit marker로 교체한다.
+- 원자적 교체의 임시 파일은 대상과 같은 디렉터리 안의 고정 이름 `.pcv-install-<대상 이름>`이다
+  (예: `.pcv-install-manifest.json`, `.pcv-install-daemon.conf`). 이름이 반영마다 같으므로 LSM 감시
+  경로 아래의 보안 사건 키가 반영 횟수만큼 늘지 않는다. helper는 SIGTERM·SIGINT에서 임시 파일을
+  지우지만, SIGKILL·연결 끊김(SIGHUP)처럼 비정상으로 끝나 임시 파일이 남으면 다음 설치는 그 파일을
+  지우지 않고 멈춘다. BPF 쪽은 `error: BPF destination contains an unsafe entry`(이름 없음 —
+  `/usr/lib/purecvisor/bpf/.pcv-*`를 확인)로, 설정 쪽(JWT를 만드는 설치에서만 임시 파일을 쓴다)은
+  `error: stale atomic runtime temp file exists: .pcv-install-daemon.conf`로 멈춘다. 남은 파일이
+  앞선 설치의 잔재인지 확인한 뒤 지우고 다시 실행한다.
 - 원격 staging은 추측 불가능한 이름과 mode `0700`으로 만들고, helper 실패 시
   서비스를 시작하지 않는다. 성공과 실패 모두 EXIT 경로에서 helper와 BPF staging을
   cleanup하여 정리한다.
@@ -940,8 +954,11 @@ bind_plaintext = loopback
 ```
 
 NGINX vhost는 최소한 TLS 인증서, HTTP→HTTPS 정책, `proxy_pass http://127.0.0.1:8080`,
-WebSocket Upgrade, 보안 헤더와 forwarded header 덮어쓰기를 포함해야 한다. vhost와 인증서를
-먼저 프로비저닝한 다음 opt-in 배포를 실행한다.
+WebSocket Upgrade, 보안 헤더와 forwarded header 덮어쓰기, server 블록 수준의 공유 비밀 조각
+`include /etc/nginx/snippets/purecvisor-proxy-auth.conf;`를 포함해야 한다. 2.1.0 전에 만든
+vhost는 템플릿에서 왔든 손으로 만들었든 이 include가 없으므로 배포 전에 더한다. vhost와 인증서를
+먼저 프로비저닝한 다음 opt-in 배포를 실행한다. 배포는 `--commit` 전에 `nginx -T`에서 이
+include(또는 `proxy_set_header X-PCV-Proxy-Auth`)를 찾지 못하면 실패하고 nginx 트랜잭션을 롤백한다.
 
 ```bash
 PCV_NODES=<ip> \
@@ -956,7 +973,8 @@ curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
 ```
 
 `enabled=false`는 외부 통신이 평문이라는 뜻이 아니라 데몬 대신 NGINX가 TLS를 정상 종료한다는
-뜻이다. `X-Forwarded-For`와 `X-Forwarded-Proto`는 loopback peer에서 온 요청만 신뢰한다.
+뜻이다. `X-Forwarded-For`와 `X-Forwarded-Proto`는 연결 peer가 `[server] trusted_proxies`(기본
+`127.0.0.1`)에 있고, `proxy_auth_secret`이 설정됐으면 `X-PCV-Proxy-Auth`가 맞을 때만 신뢰한다.
 
 ##### 선택·전환 시 금지 조합
 
@@ -969,6 +987,7 @@ curl -ksS https://<ip>/api/v1/health | jq '.checks.tls'
   새 listener와 health를 검증할 rollback 가능한 순서로 수행한다.
 - `PCV-NGINX-TRUST-BOUNDARY: host-loopback`을 만족하지 못해 신뢰하지 않는 로컬 프로세스가
   loopback upstream에 접근할 수 있는 호스트에서는 NGINX 외부 종료 모드를 활성화하지 않는다.
+  공유 비밀이 설정된 호스트의 위조 범위는 아래 신뢰 경계 문단을 본다.
 
 **선택형 NGINX 외부 TLS 종료 설치와 복구**
 
@@ -997,12 +1016,14 @@ scripts/deploy.sh --no-local
 > nginx vhost 자체는 이 트랜잭션의 관리 대상이 아니다 — 도메인 노드는
 > `ops/nginx/purecvisor.example.com`, LAN IP 노드는
 > `ops/nginx/purecvisor-lan-ip.conf.template`(+ `purecvisor-common.conf` http 전제)를
-> 먼저 프로비저닝한다.
+> 먼저 프로비저닝한다. 2.1.0 전에 프로비저닝한
+> vhost에는 공유 비밀 조각 include가 없다 — server 블록에 `include /etc/nginx/snippets/purecvisor-proxy-auth.conf;`를
+> 먼저 더한다(위 점검 목록).
 
-설치 트랜잭션은 기존 인증서(cert)와 개인 키(key)를 내용 그대로 보존하고, nginx
-설정·systemd drop-in·daemon 설정의 이전 상태를 백업한다. 설치 후 LAN health
-검증이 실패하면 `rollback`으로 이 세 설정을 함께 복원하며 보존된 인증서와 키를
-삭제하거나 재생성하지 않는다. rollback 자체가 실패하면 서비스를 추측 상태로
+설치 트랜잭션은 기존 인증서(cert)와 개인 키(key)를 내용 그대로 보존하고, 네 대상(nginx
+systemd drop-in·`wait-for-local-ip` helper·daemon 설정·공유 비밀 조각)의 이전 상태를
+백업한다. 설치 후 LAN health 검증이나 include 확인이 실패하면 `rollback`으로 이 네 대상을
+함께 복원하며 보존된 인증서와 키를 삭제하거나 재생성하지 않는다. rollback 자체가 실패하면 서비스를 추측 상태로
 재시작하지 않고 복구 자료를 남긴다.
 
 부팅 시 `wait-for-local-ip`가 주소 준비를 기다린다. 제한 시간 안에 IP가 없으면
@@ -1021,8 +1042,9 @@ Vendor 계약은 자동 동기화하지 않는다.
 `mode=external_termination`, `enabled=false`, `degraded=false`,
 `status=disabled_by_config`여야 한다. 이 값은 TLS가 꺼져 노출됐다는 뜻이 아니라
 외부 TLS 종료가 정상 선택됐다는 뜻이다. `X-Forwarded-For`와
-`X-Forwarded-Proto` 같은 프록시 헤더는 연결 peer가 `127.0.0.1` 또는 `::1`인
-경우에만 신뢰하며, 비루프백 클라이언트가 보낸 같은 헤더는 신원·scheme 판정에
+`X-Forwarded-Proto` 같은 프록시 헤더는 연결 peer가 `[server] trusted_proxies`(기본
+`127.0.0.1`)에 있고, 공유 비밀(`proxy_auth_secret`)이 설정된 경우 `X-PCV-Proxy-Auth`가
+일치할 때만 신뢰하며, 그 밖의 클라이언트가 보낸 같은 헤더는 신원·scheme 판정에
 사용하지 않는다.
 
 `PCV-NGINX-TRUST-BOUNDARY: host-loopback`은 이 모드가 호스트의 모든 루프백
@@ -1033,6 +1055,16 @@ Vendor 계약은 자동 동기화하지 않는다.
 서비스 sandbox/MAC, 로컬 방화벽 또는 network namespace로 직접 루프백 접근을
 제한한다. 원격 클라이언트는 loopback peer가 아니고 nginx가 전달 헤더를
 덮어쓰므로 이 신뢰 경계를 직접 위조할 수 없다.
+`proxy_auth_secret`이 설정되면(설치기 재실행 뒤) 데몬은 `X-PCV-Proxy-Auth`가 맞는 요청에서만 전달 헤더를 믿으므로, 위조할 수 있는 로컬 주체는 root와 nginx 워커 uid로 좁혀진다.
+
+**관리면 노출 — 공유 비밀·신뢰 프록시·업그레이드 순서**
+
+- nginx 외부 종료 설치기(`scripts/install-nginx-termination.sh`)는 `/etc/nginx/snippets/purecvisor-proxy-auth.conf`와 `[server] proxy_auth_secret`을 같은 비밀로 함께 쓴다. 데몬은 이 비밀이 맞는 `X-PCV-Proxy-Auth` 헤더가 붙은 요청에서만 전달 헤더(`X-Real-IP` 등)를 믿는다. 2.1.0 전에 만든 vhost는 템플릿에서 왔든 손으로 만들었든 모두 include가 없으므로 server 블록에 `include /etc/nginx/snippets/purecvisor-proxy-auth.conf;` 한 줄을 더한다(include가 있는데 조각이 없으면 `nginx -t`가 실패해 드러나지만, include가 없으면 `nginx -t`는 통과하고 nginx 뒤 모든 클라이언트가 `127.0.0.1` 하나로 합쳐진다).
+- 믿을 프록시는 `[server] trusted_proxies`(쉼표, IP 또는 CIDR, 기본 `127.0.0.1`)로 정한다. `127.0.0.2`·`::1`에서 오는 프록시는 목록에 적어야 한다. 대역은 `127.0.0.1/8`이 아니라 `127.0.0.0/8`로 쓴다. 환경 변수 `PCV_SECRET_SERVER_PROXY_AUTH_SECRET`로 비밀을 줄 때는 nginx 조각과 같은 값이어야 한다.
+- 업그레이드 순서는 두 경우다. (a) 이미 nginx 종단인 설치: 기존 vhost 전부에 include 추가(이 릴리스 전에 만든 vhost는 템플릿에서 왔든 손으로 만들었든 모두 없다) → 설치기 재실행 → `nginx -t && systemctl reload nginx` → 데몬 재시작. 조각은 설치기가 만들므로 include를 더한 뒤 설치기를 다시 실행할 때까지 nginx를 reload·restart하지 않는다(`nginx -t` 실패). (b) 자체 HTTPS(INTERNAL)에서 처음 nginx로 옮길 때: 설치기 → 데몬 재시작(`:443` 해제) → nginx reload, 끝에 `ss -ltn`으로 `<BIND_IP>:443` 리스너를 확인한다. 데몬이 `:443`을 쥔 채 reload하면 `systemctl reload`는 성공(rc 0)을 돌려주지만 nginx는 bind에 실패하고 `/var/log/nginx/error.log`에만 남는다.
+- 설치기 `--rollback`과, 새 설치가 남은 pending 트랜잭션을 자동 복원할 때 모두 드롭인을 되돌린 뒤 `systemctl daemon-reload`를 한다.
+- `scripts/deploy.sh`(`PCV_NGINX_BIND_IP`, 원격·로컬)는 health 확인 뒤 `--commit` 전에 `nginx -T` 출력에서 `include /etc/nginx/snippets/purecvisor-proxy-auth.conf;` 줄이나 `proxy_set_header X-PCV-Proxy-Auth` 줄을 찾고, 없으면 commit하지 않고 실패해 nginx 트랜잭션을 롤백한다(조각이 지워지고 include 없는 vhost는 그대로라 롤백은 깨끗하다). 확인은 설정 어딘가에 있는지까지다 — vhost마다 server 블록에 있는지는 보지 않는다.
+- systemd 샌드박스 드롭인 `97-sandbox.conf`(`NotifyAccess=main`, `SystemCallArchitectures=native`, `LockPersonality=yes`, `RestrictRealtime=yes`, `SystemCallFilter=~@swap @obsolete @cpu-emulation @module @raw-io`)는 2.1.0 패키지가 `/etc/systemd/system/purecvisorsd.service.d/`에 설치한다. 컨테이너는 전용 유닛(4.2)으로 시작해 이 필터를 물려받지 않지만, `container.exec`와 헬스 `exec` 프로브는 `lxc-attach`로 실행되어 물려받으므로 그 안의 32비트 바이너리는 SIGSYS로, `setarch i686`은 EPERM으로 실패한다. 필요하면 `/etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf`를 지우고 `systemctl daemon-reload` 뒤 데몬을 재시작해 원복한다.
 <!-- PCV-NGINX-OPERATIONS:END -->
 
 ### 2.5 systemd 서비스 설치
@@ -1172,7 +1204,7 @@ eval_period = 30
 # 동일 경보 중복 억제 기간 (초)
 dedup_window = 300
 
-# Webhook URL
+# Webhook URL. Slack·Telegram 형식은 URL 자체가 자격 증명이다. ADMIN이 아닌 조회와 로그에는 scheme+host만 나간다
 webhook_url = https://hooks.slack.com/services/T00/B00/xxx
 webhook_crit_url = https://events.example.com/purecvisor/critical
 
@@ -1199,10 +1231,11 @@ default_subnet = 10.78.0.1/24
 # 0이면 기동 시 기본 네트워크 보장을 건너뜀
 default_ensure = 1
 
-# 호스트 방화벽(UFW/iptables FORWARD DROP) 자동 공존. "auto"면 관리형
-# NAT 설정 시 필요한 allow 룰을 자동 삽입(AUDIT 로그 기록), "off"면
-# 데몬이 호스트 방화벽을 건드리지 않음 (공존 실패 시 게스트 네트워크
-# 불통은 운영자 책임).
+# 호스트 방화벽(UFW/iptables FORWARD DROP) 자동 공존. "auto"면 UFW/iptables FORWARD DROP
+# 호스트에 모드별 최소 구멍(nat: 게스트 출발 포워딩 + DHCP·DNS·DHCPv6 포트,
+# routed: + 들어오는 포워딩, isolated: 포트만)을 맞추고 데몬이 예전에 만든 전 포트
+# 규칙은 지움(AUDIT 기록). "off"면 UFW·iptables를 건드리지 않음 — 데몬 nft 차단은
+# off와 무관하게 적용됨.
 firewall_integration = auto
 
 # ─────────────────────────────────────────────
@@ -1221,6 +1254,9 @@ allow_overcommit = false
 
 # 격리 코어 목록 (예: 4-7,12-15)
 # isolated_cores = 4-7
+# vm.start는 vcpu_count가 없으면 도메인의 현재 vCPU 수만큼 격리 코어를 잡고,
+# 모자라면 핀 없이 시작해 WARN을 남긴다.
+# 명시 vcpu_count가 도메인의 현재 vCPU 수보다 크면 −32602로 거절한다
 
 # ─────────────────────────────────────────────
 # [update] 버전 알림 설정
@@ -1351,7 +1387,7 @@ NODE_IPV4="<configured-management-ipv4>"
 curl -ksS "https://${NODE_IPV4}/api/v1/health" \
   | jq '{status,service,version,node_name,tls:.checks.tls}'
 curl -ksS -o /tmp/pcv-live-app.bundle.js \
-  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.0.4"
+  "https://${NODE_IPV4}/ui/app.bundle.js?v=2.1.0"
 
 sha256sum ui/app.bundle.js \
   /usr/local/share/purecvisor/ui/app.bundle.js \
@@ -1362,7 +1398,7 @@ rg -n "iconify|code\.iconify|api\.iconify|api\.unisvg|api\.simplesvg|cdn\.jsdeli
 ```
 
 세 SHA-256 값은 같아야 하며 외부 런타임 참조를 찾는 `rg` 명령은 결과가 없어야 합니다.
-health의 `status=ok`, `version=2.0.4`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
+health의 `status=ok`, `version=2.1.0`, TLS `mode=internal`, `enabled=true`, `degraded=false`, `status=ok`를 확인합니다.
 
 ### 2.9 logrotate 설정
 
@@ -1615,7 +1651,7 @@ sudo curl --fail --silent --show-error --cacert /etc/purecvisor/pki/node.crt \
 sudo pcvctl vm list
 ```
 
-서비스는 `active/running`, health는 `status=ok`·`version=2.0.4`·`cluster=false`인지
+서비스는 `active/running`, health는 `status=ok`·`version=2.1.0`·`cluster=false`인지
 확인합니다. libvirt·TLS·BPF 세부 상태도 확인하고 `https://<관리-IPv4>/ui/`에서 로그인합니다.
 최초 자체서명 인증서는 hostname·관리 주소를 확정한 뒤 생성하며, HTTPS 검사에서 신뢰와
 SAN 주소가 일치해야 합니다. 외부 접속은 관리망에서 443/tcp를 허용하고 평문 8080은
@@ -1653,6 +1689,8 @@ pcvctl vm create \
 > 경우만 면제). 생략하면 서버가 `vm.create` 자체를 `-32602`로 거부한다. 아래 스토리지 타입
 > 예시들은 지면상 이 두 플래그를 생략했지만 실제 호출에는 포함해야 한다.
 
+> **새 VM 이름**: UUID 표기(16진수 32자리, 하이픈 유무 무관) 이름은 `-32602`로 거부한다.
+
 #### 스토리지 타입 선택
 
 VM 디스크의 스토리지 백엔드를 선택할 수 있습니다.
@@ -1681,7 +1719,7 @@ pcvctl vm create dev-vm --vcpu 2 --memory_mb 4096 --disk_size_gb 50 --storage_ty
 pcvctl vm create bench-vm --vcpu 8 --memory_mb 16384 --disk_size_gb 200 --storage_type raw
 ```
 
-> **자동 감지**: CLI/REST/RPC에서 `storage_type`을 지정하지 않으면 dispatcher inline `vm.create`가 `vm_manager.c`로 위임하고, `vm_manager.c`가 ZFS 풀 존재 여부를 감지합니다. ZFS 풀이 있으면 `zvol`, 없으면 `daemon.conf [storage] image_dir`에 `qcow2`로 폴백합니다. `storage_pool` 또는 `image_dir`를 함께 주면 자동 감지 대상 위치도 해당 값으로 바뀝니다. `storage_type=zvol`을 명시하면 지정한 ZFS 부모 데이터셋이 없을 때 실패합니다.
+> **자동 감지**: CLI/REST/RPC에서 `storage_type`을 지정하지 않으면 dispatcher inline `vm.create`가 `vm_create.c`로 위임하고, `vm_create.c`가 ZFS 풀 존재 여부를 감지합니다. ZFS 풀이 있으면 `zvol`, 없으면 `daemon.conf [storage] image_dir`에 `qcow2`로 폴백합니다. `storage_pool` 또는 `image_dir`를 함께 주면 자동 감지 대상 위치도 해당 값으로 바뀝니다. `storage_type=zvol`을 명시하면 지정한 ZFS 부모 데이터셋이 없을 때 실패합니다.
 
 #### 고급 옵션
 
@@ -1711,6 +1749,20 @@ pcvctl vm create \
 | `--qos_max_mbps` | QoS 상한 대역(Mbit/s). 0 이면 서버가 거부(`> 0` 필수) |
 
 고급 VM 속성(`firmware`, `boot_mode`, `tpm`, `cpu_mode`, `hugepages`, `vlan_id`, `base_image`, `ovn_switch`)은 현재 REST/RPC body로 지정한다. `pcvctl vm create` CLI는 위 표의 기본 옵션과 저장 위치 옵션을 직접 파싱한다.
+
+`base_image`를 지정하면 제품은 저장 방식(zvol, qcow2, raw)과 상관없이 요청한 크기의 새 target을
+먼저 생성하고 base content를 기록한다. source의 format은 파일 내용으로 판별하므로 확장자 `.qcow2`·`.qcow`·`.img`·`.raw`인
+raw·qcow2·qcow 파일을 쓸 수 있다. source가 없거나 변환이 실패하면(target보다 큰 이미지 포함) VM 생성을
+성공으로 보고하지 않고 이 요청이 새로 만든 target만 정리한다. Job과 감사에는 실패로 남는다.
+이미 존재하는 target과 base source는 덮어쓰거나 삭제하지 않는다.
+
+변환은 root로 돌기 때문에 이미지 안에 적힌 경로를 따라가면 호스트 파일이 VM 디스크로 복사된다. 그래서 target을 만들기 전에
+`qemu-img info`로 검사해 다음은 거부한다: backing file이 있는 이미지, external data file이 있는 qcow2, raw·qcow2·qcow가 아닌
+형식, 30초 안에 조회되지 않거나 조회에 실패한 파일. 이름이 `.raw`여도 내용으로 판별한다. backing file이 있는 이미지는
+`qemu-img convert`로 합쳐 올린다. `vm.import.ova`의 디스크는 `create-type`이 `monolithicSparse`·`streamOptimized`이고 모든 extent가
+자기 파일인 vmdk만 받는다. OVF의 `ovf:href`는 경로 구분자가 없는 파일 이름이어야 하고, `.ovf`와 vmdk는 심볼릭 링크가 아닌 일반 파일이어야 한다.
+
+Web UI는 생성 Job이 실패하면 서버가 기록한 사유를 보인다. 기다리는 시간 안에 끝나지 않으면 `완료 미확인 + job_id`로 남는다.
 
 #### RPC 직접 호출
 
@@ -1792,6 +1844,12 @@ curl -X POST http://127.0.0.1:8080/api/v1/vms \
 (프리플라이트가 새 실패 지점이 되면 안 되므로). 프리플라이트를 디스크 생성보다 앞에 두는 이유는
 뒤에 두면 실패해도 zvol/qcow2가 남기 때문입니다.
 
+**동시 시작 제어**: 지원 hugepage 구성의 정지 VM `vm.start`는 같은 프로세스에서 첫 검사~DPDK 준비~시작 반환을
+직렬화합니다. 다른 지원 시작이 진행 중이면 대기 없이 `hugepage start admission busy`로 실패하므로 실제 VM 상태를
+확인한 뒤 재시도합니다. 일반 메모리·DEFERRED·실행 중 VM은 이 제한에서 제외합니다. 다른 NUMA node도 공통 잠금을
+쓰며 외부 OVS/virsh와 create/restore 등 다른 시작 경로의 경쟁은 통제하지 않습니다. 실제 page 예약을 보장하지는
+않습니다.
+
 **vhost-user(DPDK) 공유 메모리**: `nic_type="dpdk"`는 libvirt가 vhost-user 인터페이스에 공유 메모리
 backend를 요구하기 때문에 해당 시정 전에는 **도메인 정의 자체가 거부되던 죽은 경로**였습니다
 (`unsupported configuration: 'interface' requires shared memory`). NXV-F1은 memoryBacking을 조합으로
@@ -1819,14 +1877,33 @@ ADMIN/OPERATOR에게 표시되며 실제 요청은 서버의 소유권·권한 �
 일괄 삭제는 표시된 수량 문구(예: `삭제 2`)를 정확히 입력해야 진행할 수 있습니다.
 실행 중인 VM도 강제 종료됩니다. 취소하면 삭제 요청을 보내지 않습니다.
 
-요청은 하나씩 전송하고 대상별 결과를 남깁니다. **요청 접수 · 완료 미확인**은 삭제 완료가
-아닙니다. 현재 VM 삭제 서버는 접수만 반환하므로 최종 워커 결과는 감사 로그의 `vm.delete`
-기록을 확인합니다. 목록에서 VM이 사라져도 디스크 정리가 끝났다고 단정하지 않습니다.
+요청은 하나씩 전송하고 대상별 결과를 남깁니다. 서버는 삭제 요청을 Job으로 접수하고(`job_id`),
+화면은 그 Job이 끝날 때까지 기다려 **삭제 완료**(남긴 디스크나 부속 정리 실패가 있으면 경고 문구를 모두 덧붙임) 또는
+거절·실패 사유를 표시합니다. 기다리는 시간 안에 끝나지 않으면 **처리 중 · 완료 미확인**으로 남으며, 이때는
+`vm delete-status <이름>` 또는 `jobs.get`으로 최종 결과를 확인합니다. `job_id` 없이 접수만 돌려주는 이전 서버에서는
+**요청 접수 · 완료 미확인**으로 남으며 삭제 완료가 아닙니다. 목록에서 VM이 사라져도 디스크 정리가 끝났다고 단정하지 않습니다.
 결과 창을 닫으면 아직 보내지 않은 요청만 중단하며, 접수된 삭제는 계속됩니다.
 통신 오류 시 자동 재전송하지 않습니다. 대상이 없어지거나 동명 VM의 UUID가 바뀌면
 삭제 요청을 보내지 않으므로 목록을 새로고침하고 다시 선택합니다.
 
 
+**삭제 범위.** 함께 지우는 저장소는 VM 정의의 **첫 `device='disk'` 블록 하나**이고, 그 이름이 VM과 맞을 때뿐입니다.
+zvol은 `/dev/zvol/<풀>/<VM 이름>`, 파일은 `<VM 이름>.qcow2`·`.raw`·`.img`입니다. rename·clone·OVA로 만든 VM도 이 규칙에 맞습니다.
+
+- **남는 것**: 따로 붙인 zvol·파일, 업그레이드 전에 `device.disk.detach`로 live에서만 뗀 디스크(영구 정의에 남아 있습니다), 이름이 다른 첫 디스크, `/dev/sdX` 같은 물리 장치.
+  VM은 지워지고 Job이 `completed`로 끝나며 `warnings`에 `Disk not deleted (not owned by this VM): <데이터셋·경로>`가 적힙니다. 지우려면 직접 지웁니다.
+- **거절되는 것**: 스냅샷에 클론이 있는 zvol(`vm.clone --mode cow`의 원본 등), 다른 VM(켜짐·꺼짐 모두, 정의 기준)이 참조하는 저장소, 다른 VM 이미지의 backing 파일.
+  Job은 `failed`이고 사유에 의존 대상과 먼저 할 일이 적히며, VM 상태·정의·DPDK 포트·저장소는 그대로입니다. 클론을 먼저 지우거나 `zfs promote`로 독립시킨 뒤 다시 삭제합니다.
+  다른 VM의 정의에 남은 참조는 그 VM에서 `pcvctl device disk detach <VM> --target <dev>`로 live와 영구 정의에서 뺍니다.
+- **libvirt에 닿지 못하면 삭제하지 않습니다.** 연결이 없거나 조회가 `no such domain` 말고 다른 이유로 실패하면 Job은 `failed`이고 아무것도 바뀌지 않습니다. 정의가 정말 없을 때만 기본 경로 `<zvol_pool>/<이름>`을 치우고 성공합니다(멱등).
+- **다른 VM 이미지를 읽지 못해도 삭제하지 않습니다.** backing 검사는 다른 VM의 `raw`가 아닌 디스크를 `qemu-img info`로 읽습니다. 이미지 머리가 깨진 VM이 하나라도 있으면 그 VM이 있는 동안 다른 VM 삭제가 Job `failed`(`could not read the backing chain …`)로 끝나고 아무것도 바뀌지 않습니다.
+  그 이미지를 고치거나 그 VM을 먼저 지웁니다. 그 VM 자신의 삭제는 자기 디스크를 검사하지 않으므로 막히지 않습니다.
+
+파일형 UEFI VM 삭제는 NVRAM을 보존한 채 domain을 해제한 뒤 주 디스크를 삭제하고,
+성공 후 해당 VM XML의 NVRAM을 정리합니다. 디스크 삭제 실패는 domain을 복원하고 NVRAM을
+보존합니다. 주 디스크 삭제 뒤 NVRAM 정리만 실패하면 삭제는 완료(감사 `ok`)이고 Job 결과에
+`NVRAM cleanup failed: <경로>` 경고가 붙어 수동 정리 대상을 알려 주며, 디스크가 복구됐다고 안내하지 않습니다. firmware loader/template·설치 ISO는 삭제 대상이
+아닙니다.
 
 ```bash
 # 목록 조회
@@ -1842,10 +1919,10 @@ pcvctl vm stop web-prod
 pcvctl vm pause web-prod
 pcvctl vm resume web-prod
 
-# 삭제 (비동기, 스토리지 포함)
+# 삭제 (비동기, VM 소유 디스크만 함께 삭제)
 pcvctl vm delete web-prod
 
-# 삭제 진행 상태 확인
+# 삭제 결과 확인 (최근 삭제 Job 상태, 거절 사유·남긴 디스크)
 pcvctl vm delete-status web-prod
 ```
 
@@ -1856,15 +1933,16 @@ pcvctl vm delete-status web-prod
 3. 타임아웃 시 `virDomainDestroy`로 강제 종료
 4. 반환값 검증 후 결과 보고
 
-**삭제 진행 상태:**
+**삭제 결과(Job):**
 
 ```bash
-# RPC로 삭제 상태 확인
+# RPC로 삭제 결과 확인
 echo '{"jsonrpc":"2.0","method":"vm.delete.status","params":{"name":"web-prod"},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-응답 상태값: `pending` | `deleting` | `done` | `failed`
+`vm.delete` 응답은 `{"accepted": true, "name": "<VM 이름>", "job_id": "job-…", "status": "accepted"}`이다. 결과는 `jobs.get`, WebSocket `job.complete`, `vm.delete.status {name}`으로 본다.
+`vm.delete.status` 응답 `status`는 Job 상태(`pending` | `running` | `completed` | `failed` | `cancelled` | `interrupted`, 기록 없음 `not_found`)이고, 정의·디스크를 지운 뒤 부속 정리만 실패했거나 VM 소유가 아닌 디스크를 남겼으면 `completed`에 `warnings`가 붙는다. 거절·실패 사유는 `error`다.
 
 **이름 변경:**
 
@@ -1874,8 +1952,11 @@ VM 이름 변경은 정지된 VM에서만 허용된다. libvirt domain 이름, �
 
 - VM 상태가 `shut off`여야 한다.
 - 새 이름은 `pcv_validate_vm_name()` 규칙을 따른다. 허용 문자는 영문, 숫자, 하이픈, 언더스코어이며 최대 64자다.
+- 새 이름이 UUID 표기(16진수 32자리, 하이픈 유무 무관)이면 `-32602`로 거부한다.
 - 기본 디스크는 `/dev/zvol/<parent>/<vm>` 또는 `<vm>.qcow2`, `<vm>.raw`, `<vm>.img` 형식이어야 한다.
 - libvirt snapshot metadata가 남아 있으면 이름 변경을 거부한다.
+- 그 VM(옛 이름)이나 새 이름에 다른 작업(스냅샷·백업·시작 등)이 진행 중이면 `vm.rename`은 `-32004`(BUSY)로 거절하고 아무것도 바꾸지 않는다.
+- 보안 그룹이 바인딩된 VM은 `vm.rename`을 `-32002`(CONFLICT, REST 409)으로 거절한다. 바인딩이 VM 이름에 묶여 있어 이름이 바뀌면 필터가 풀리기 때문이다. `security_group.detach`로 해제한 뒤 이름을 바꾸고 다시 붙인다.
 
 ```bash
 # CLI
@@ -1916,9 +1997,31 @@ curl -X PUT -H "Authorization: Bearer $TOKEN" \
   -d '{"new_name":"web-prod-01"}' \
   http://127.0.0.1:8080/api/v1/vms/web-prod/rename
 
-# 삭제 상태 확인
+# 최근 삭제 Job 상태 확인
 curl -s -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/vms/web-prod/delete-status
 ```
+
+#### ADMIN 전용 구성 관측 (`vm.inspect`)
+
+2.1.0부터 ADMIN이 정규 소문자 UUID로 VM 구성을 조회합니다.
+2.0.4 이하 공개 패키지에는 이 명령이 없습니다.
+
+```bash
+sudo pcvctl --format=json vm inspect <canonical-lowercase-uuid>
+# 기존 ADMIN 토큰 또는 API key 인증 사용; UUID를 실제 값으로 지정
+curl -s -H "Authorization: Bearer $TOKEN" \
+  "http://127.0.0.1:8080/api/v1/vms/$VM_UUID/inspection"
+```
+
+이름 fallback 없이 UUID 하나만 받습니다. GET 전용 경로의 추가 path/query/body는 거절합니다.
+기존 ADMIN 인증·root UDS 정책을 유지하며 VIEWER/OPERATOR 권한은 넓히지 않습니다.
+응답 contract는 `pcv-vm-inspection-v1`, 구성 범위는 `configuration_view=inactive-redacted`입니다.
+`outcome`은 `observed`·`not_observed`·`unavailable`이고 모르는 사실은 null/unknown으로 남깁니다.
+실행 중 VM의 용량·OS·Secure Boot·backing/encryption을 추정하지 않으며 원시 XML·호스트
+disk 경로·credential을 응답하지 않습니다. 구성 hash는 디스크 내용 revision이나 source 보호의 증거가 아닙니다.
+XML 1 MiB·disk 64개·응답 256 KiB 상한과 30초 협력적 deadline을 적용합니다. blocking libvirt
+호출을 강제 중단하는 한도는 아닙니다. REST bridge/CLI 대기는 35초이며 다른 CLI의 기본 10초와 구분합니다.
+VM을 변경하거나 Job/WS 완료 이벤트를 만들지 않고 실제 완료·timeout·입력 거절을 audit에 기록합니다.
 
 ### 3.3 핫플러그
 
@@ -1945,6 +2048,8 @@ echo '{"jsonrpc":"2.0","method":"vm.cpu.stats","params":{"name":"web-prod"},"id"
 echo '{"jsonrpc":"2.0","method":"vm.memory.stats","params":{"name":"web-prod"},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
+
+Web UI CPU 핀 화면도 같습니다. vCPU 번호와 물리 CPU 목록(예: `0-3,6`)을 넣어 한 번에 vCPU 하나씩 고정합니다.
 
 메모리 통계 응답 예시:
 
@@ -1991,6 +2096,21 @@ pcvctl iso mount web-prod /pcvpool/iso/ubuntu-24.04-live-server-amd64.iso
 pcvctl iso eject web-prod
 ```
 
+#### 디스크 핫플러그
+
+```bash
+# 블록 장치 연결 (--bus 생략 시 virtio, scsi·sata·ide 선택 가능)
+pcvctl device disk attach web-prod --source /dev/zvol/pcvpool/vms/new-disk --target vdb
+
+# 분리
+pcvctl device disk detach web-prod --target vdb
+```
+
+- `attach`는 실행 중이면 live와 영구 정의 모두에, 꺼진 VM이면 영구 정의에만 붙입니다. `detach`도 같아서 live와 영구 정의에서 함께 뺍니다(꺼진 VM은 영구 정의만). 응답에 바뀐 쪽이 `{"live": <bool>, "config": <bool>}`로 담깁니다. `live: true`는 탈착 요청이 받아들여졌다는 뜻이라 게스트 협조가 늦으면 잠시 남을 수 있습니다.
+- 한쪽에만 있는 디스크는 있는 쪽만 바꿉니다. 실행 중 VM의 live와 영구 정의에서 같은 target의 source가 다르면 −32000 `Disk '<target>' differs between the running VM and its persistent definition; nothing was changed`로 거절하고 아무것도 바꾸지 않습니다. 어느 쪽에도 없으면 −32000 `Device not found in live or persistent XML`입니다.
+- 같은 VM에 다른 작업이 진행 중이면 VM 존재 여부와 무관하게 −32004가 먼저 옵니다. VM을 UUID로 지정했는데 바로 쓸 libvirt 연결이 없으면(libvirtd 무응답·연결 풀 고갈 등) 잠금 전에 −32004 `VM '<uuid>' identifier could not be resolved (libvirt unavailable)`이고, 이름으로 지정하면 연결을 기다렸다가 끝내 얻지 못할 때 −32000 `Hypervisor connection pool exhausted`입니다.
+- 업그레이드 전에 "임시 탈착"한 디스크는 영구 정의에 남아 있어 다음 부팅에 다시 붙습니다. 빼려면 같은 detach를 한 번 더 보냅니다(live에 없으면 영구 정의만 바뀝니다).
+
 #### USB 핫플러그
 
 ```bash
@@ -2016,6 +2136,8 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"new_size_gb": 50}'
 ```
+
+파일 디스크는 VM 정의의 `driver type`을 형식으로 고정해 키웁니다. `driver type`이 없거나 raw·qcow2가 아니면 아무것도 바꾸지 않고 실패합니다.
 
 > **주의**: ZFS zvol의 경우 `zfs set volsize`와 `virDomainBlockResize`가 동시에 수행됩니다. 게스트 OS 내에서 파티션 확장이 별도로 필요할 수 있습니다.
 
@@ -2049,6 +2171,8 @@ echo '{"jsonrpc":"2.0","method":"vm.blkio.set","params":{
 # VM 네트워크 대역폭 제한 (KB/s)
 pcvctl vm bandwidth web-prod --inbound-kbps 100000 --outbound-kbps 100000
 ```
+
+Web UI 대역폭 화면도 같은 값을 KB/s로 받습니다(125000 KB/s는 약 1 Gbps). 빈 칸은 바꾸지 않으며 둘 중 하나는 넣어야 합니다. Burst 입력은 서버가 쓰지 않아 없앴습니다.
 
 ### 3.4 스냅샷
 
@@ -2106,6 +2230,8 @@ pcvctl vm clone web-template web-staging --mode cow --template-prepared
 # 일반 VM: target disk 생성 후 libguestfs guest reset 수행
 pcvctl vm clone web-prod web-prod-copy --mode full --guest-reset
 ```
+
+> **새 VM 이름**: UUID 표기(16진수 32자리, 하이픈 유무 무관) 이름은 `-32602`로 거부한다.
 
 RPC 직접 호출:
 
@@ -2204,8 +2330,8 @@ not found
 클론 후 독립 데이터셋으로 전환하려면:
 
 ```bash
-# ZFS 프로모트 (원본 스냅샷 의존 해소)
-pcvctl storage promote rpool/web-staging
+# 원본 snapshot 의존 조회; promote 전용 제품 CLI는 없음
+sudo zfs get origin rpool/web-staging
 ```
 
 ### 3.6 OVA 내보내기 / 가져오기
@@ -2217,6 +2343,8 @@ pcvctl vm export-ova web-prod --output-dir /tmp
 # OVA 가져오기
 pcvctl vm import-ova /tmp/web-prod.ova web-imported
 ```
+
+> **새 VM 이름**: UUID 표기(16진수 32자리, 하이픈 유무 무관) 이름은 `-32602`로 거부한다.
 
 ### 3.7 Guest Agent 연동
 
@@ -2289,6 +2417,8 @@ curl -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/vms/web-prod/disk-usage
 ```
 
+Web UI 명령 실행 칸은 게스트의 `/bin/sh -c`가 그대로 실행하는 한 줄이라 인자도 같은 칸에 적습니다. 서버가 읽지 않던 Args 입력은 없앴습니다.
+
 VM 내부 설치 명령:
 
 ```bash
@@ -2310,6 +2440,15 @@ sudo systemctl enable --now qemu-guest-agent
 | `reboot_required` | 영구 XML에는 channel이 있으나 실행 중 VM에는 아직 없음 | VM 재시작 또는 live attach 재시도 |
 | `agent_unavailable` | channel은 있으나 VM 내부 agent가 응답하지 않음 | VM 내부 `qemu-guest-agent` 설치/시작 |
 | `vm_stopped` | channel은 있으나 VM이 꺼져 있어 ping 불가 | VM 시작 후 재확인 |
+
+#### 에이전트 IP 조회와 `ip_source`
+
+`monitor.fleet`(모니터 화면·`/metrics`)과 `device.nic.list`는 메인 루프에서 게스트 에이전트를 직접 기다리지 않는다. 에이전트가 알려 주는 IP는 데몬이 메인 루프 밖에서 5초 상한으로 조회해 VM별로 캐시하고(60초 동안 신선), 응답하지 않는 에이전트는 60초부터 두 배씩(최대 600초) 간격을 두고 다시 묻는다. 그래서:
+
+- libvirt lease가 없고 에이전트만 IP를 아는 VM은 **시작 직후 첫 조회에서 IP가 비거나 ARP 값이 나오고, 한 폴링 주기(약 30초) 늦게** 에이전트 IP가 보인다.
+- `monitor.fleet`의 VM 항목에 `ip_source`가 더해졌다: `lease`(libvirt DHCP lease), `guest-agent`(에이전트 캐시), `lease-file`(dnsmasq lease 파일), `arp`(호스트 ARP 표), 못 찾으면 빈 문자열(이때 `ip`는 `N/A`). `device.nic.list`의 `ip_source`는 값 이름은 같고 `guest-agent`가 캐시에서 온 결과를 뜻한다.
+- 에이전트가 응답하지 않는 VM이 있어도 다른 요청이 느려지지 않는다. 데몬 로그에 `guest agent of VM '<이름>' did not answer guest-network-get-interfaces (…); next try in <초> s` WARN이 나오면 그 VM 안의 `qemu-guest-agent`를 확인한다(회복하면 `answered again` INFO).
+- `vm.guest.agent.status`도 같은 실행기에서 3초 `guest-ping`으로 돌고, 같은 VM에 대한 겹친 호출은 결과를 함께 받는다. 비 ZFS VM의 `vm.snapshot.rollback`은 같은 VM에서 겹치면 BUSY로 거절된다.
 
 ### 3.8 VM 템플릿
 
@@ -2396,10 +2535,10 @@ PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
 
 ```bash
 # 기본 생성 (LXC + ZFS rootfs)
-pcvctl container create --name app-ctr --dist ubuntu --release noble
+pcvctl container create app-ctr --image ubuntu:24.04
 
 # 생성 후 바로 시작
-pcvctl container create --name web-ctr --dist ubuntu --release jammy
+pcvctl container create web-ctr --image ubuntu:22.04
 pcvctl container start web-ctr
 ```
 
@@ -2408,12 +2547,17 @@ RPC 직접 호출:
 ```bash
 echo '{"jsonrpc":"2.0","method":"container.create","params":{
   "name": "app-ctr",
-  "dist": "ubuntu",
-  "release": "noble"
+  "image": "ubuntu:24.04"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
 > **fire-and-forget**: 컨테이너 생성/시작/중지/삭제는 모두 fire-and-forget 패턴으로 즉시 응답합니다.
+
+새 컨테이너 이름은 `-`로 시작할 수 없습니다. `pcvctl`은 사용법 오류(exit 2)로, RPC `container.create`·`container.clone`(`dest`)은 −32602로 끝납니다. `--image`를 생략하면 `ubuntu:22.04`입니다. 예전 가이드대로 만들어 이름이 `--name`이 된 컨테이너는 `pcvctl container destroy --name`으로 지울 수 있습니다.
+
+`container.create`는 브리지를 `network_bridge`로 받으며 `bridge`는 같은 뜻의 별칭입니다(웹 UI가 `bridge`를 보냅니다). 둘 다 보내면 값이 같아야 하고 다르면 −32602입니다. 별칭도 `network_bridge`와 같은 이름 검증·OPERATOR 자원 경계 판정을 받습니다 — 허용되지 않은 브리지는 −32006입니다(예전에는 UI가 고른 브리지가 조용히 무시되고 기본 브리지에 붙었습니다).
+
+Web UI 생성 폼에는 정적 IP·게이트웨이·DNS 입력이 없습니다. 서버가 읽지 않아 조용히 버려지던 값이기 때문입니다. 상세 요약 탭의 Bridge는 실제 NIC 설정을 보여 주고, 옵션 탭의 권한 값은 서버가 준 값입니다. AppArmor처럼 서버가 주지 않는 값은 "알 수 없음"으로 표시합니다.
 
 ### 4.2 라이프사이클
 
@@ -2424,7 +2568,7 @@ pcvctl container start app-ctr
 # 중지 (오퍼레이션 잠금으로 동시 실행 방지)
 pcvctl container stop app-ctr
 
-# 삭제
+# 삭제 (ZFS 데이터셋 정리가 끝나야 성공)
 pcvctl container destroy app-ctr
 
 # 목록 조회
@@ -2444,6 +2588,17 @@ curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/cont
 curl -X POST -H "Authorization: Bearer $TOKEN" http://127.0.0.1:8080/api/v1/containers/app-ctr/stop
 ```
 
+같은 컨테이너에 다른 작업이 진행 중이면 작업 잠금 충돌로 거절됩니다. `container.create`, `container.destroy`, `container.start`, `container.stop`과 nic 워커(`nic.attach`, `nic.detach`, `set_bandwidth`)의 잠금 충돌은 모두 JSON-RPC `-32004`, REST **409**로 통일되어(볼륨 attach/detach, clone, env.set/delete, set_limits, snapshot.rollback과 같은 "지금 사용 중, 잠시 뒤 다시" 의미), 자동화가 한 코드로 재시도를 가릅니다. 응답 문구는 `Container is busy` 또는 작업 잠금 사유 문자열입니다. HTTP 500을 서버 오류로 처리하던 자동화는 409 재시도 분기로 옮깁니다.
+
+컨테이너는 데몬이 직접 띄우지 않고 전용 템플릿 유닛 `purecvisor-lxc@<이름>.service`로 시작합니다(2.1.0). 그래서 컨테이너 안의 systemd 서비스(networkd·resolved·journald 등)가 데몬 서비스의 보안 필터를 물려받지 않고 정상 동작합니다. 시작 상태는 `systemctl status purecvisor-lxc@app-ctr`로도 볼 수 있습니다.
+
+- **유닛 파일이 없으면 시작하지 않습니다.** 패키지(deb)는 유닛을 자동으로 설치합니다. deb 밖 설치는 `packaging/systemd/purecvisor-lxc@.service`를 `/etc/systemd/system/`에 두고 `systemctl daemon-reload`를 한 번 실행해야 합니다. 없으면 오류 문구가 이 안내를 줍니다.
+- 시작 실패의 원인은 컨테이너 로그 파일에 남습니다(4.11). 시작 전체는 최악 약 31초 안에 끝납니다.
+- 유닛 표시의 `Tasks`·메모리는 컨테이너를 세지 않습니다 — root가 띄운 LXC는 컨테이너를 유닛 cgroup 밖에 둡니다. 자원은 `pcvctl container list`·메트릭(4.5)으로 봅니다.
+- 실행 중인 컨테이너가 있을 때 `daemon.conf`의 `lxc_path`를 바꾸는 것은 지원하지 않습니다(정상 정지가 실패합니다). 바꾼 경로는 다음 시작부터 적용됩니다.
+- **업그레이드 직후에는 컨테이너를 한 번 stop/start 하세요.** 업그레이드 전 데몬이 띄워 실행 중이던 컨테이너는 다음 정지·시작 전까지 전용 유닛 밖에서 돕니다.
+- 삭제 도중 ZFS 데이터셋이 사용 중이면 데몬이 1초 간격으로 최대 10번 다시 시도합니다. 그래도 남으면 작업이 **실패**로 끝나며 `container '<이름>' removed but ZFS dataset '<데이터셋>' remains: <원인>; run container.destroy again to finish cleanup` 문구를 줍니다. 같은 이름으로 `pcvctl container destroy`를 다시 실행하면 남은 데이터셋을 정리합니다.
+
 ### 4.3 명령 실행
 
 ```bash
@@ -2459,7 +2614,11 @@ pcvctl container exec app-ctr "systemctl status nginx"
 
 `container.exec`의 명령은 컨테이너 안 `/bin/sh -c`로 실행됩니다. 실행은 **60초**, 출력은 **4 MiB**까지이며, 넘으면 데몬이 명령 프로세스 그룹을 종료하고 `exec failed (timeout or error): …`로 답합니다(REST·CLI 응답 대기는 65초, UI 터미널은 70초; UI 요약·자원 탭의 자동 호출은 기본 12초). 컨테이너 안에서 실행되는 명령은 데몬 환경을 받지 않고 `PATH=/usr/sbin:/usr/bin:/sbin:/bin`으로 시작합니다.
 
+> **한계**: `container.exec`와 헬스 `exec` 프로브는 `lxc-attach`로 실행되므로 그 프로세스는 데몬의 보안 필터를 그대로 상속합니다(예: 32비트 바이너리는 SIGSYS, `setarch`는 EPERM). 컨테이너 안에서 서비스로 도는 프로세스(init 하위)는 영향을 받지 않습니다.
+
 ### 4.4 리소스 제한 (cgroup v2)
+
+컨테이너의 vCPU 수 N은 **CPU를 최대 N코어까지 쓸 수 있다**는 상한입니다(`cpu.max`가 `N×100000 100000`). `set_limits`로 CPU를 정하면 그 값이 우선하고 재시작 뒤에도 유지됩니다. 실행 중 컨테이너에도 `set_limits`가 cgroup에 바로 반영되며, 반영에 실패하면 오류로 답합니다.
 
 ```bash
 # CPU/메모리 제한 설정
@@ -2477,6 +2636,10 @@ echo '{"jsonrpc":"2.0","method":"container.set_limits","params":{
   "memory_mb": 1024
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
+
+`name`이 컨테이너 이름 규칙을 어기면 −32602 `Invalid container name`입니다. 같은 컨테이너에 시작·정지·스냅샷·복제·헬스 재시작이 도는 동안에는 −32004이므로 끝난 뒤 다시 합니다(설정 파일을 롤백과 겹쳐 쓰지 않게 컨테이너별 작업 잠금을 잡습니다).
+
+Web UI 자원 제한 화면은 CPU 상한(%), CPU Weight(1-10000), 메모리 상한(MB)을 받습니다. 빈 칸은 바꾸지 않습니다. 서버가 쓰지 않는 CPU Shares·Quota·Swap 입력은 없앴습니다. 꺼진 컨테이너는 다음 시작 때 적용된다고 알려 줍니다.
 
 #### 네트워크 대역폭 QoS
 
@@ -2502,6 +2665,8 @@ Container: app-ctr (RUNNING)
   Net:    eth0 RX 15.2MB TX 3.1MB
 ```
 
+CPU %는 같은 컨테이너의 직전 `container.metrics` 조회(어느 클라이언트든)와의 차이 — 누적 CPU 시간 증가 ÷ 흐른 시간 × 100(100 = 한 코어를 다 씀, 여러 코어면 100을 넘는다) — 로 계산한다. 그래서 첫 조회와 컨테이너를 다시 켠 뒤 첫 조회는 0이다(직전 조회 때와 컨테이너 init 프로세스가 다르면 직전 값과 견주지 않는다). 응답(`-o json`·REST)에는 누적 CPU 시간 `cpu_time_ns`(정수, 나노초)도 있어 직접 차이를 낼 수 있다.
+
 ### 4.6 컨테이너 스냅샷
 
 ```bash
@@ -2518,14 +2683,34 @@ pcvctl container snap rollback app-ctr v1
 pcvctl container snap delete app-ctr v1
 ```
 
+**롤백은 실행 중 컨테이너를 멈췄다가 다시 켭니다.** 실행 중(또는 일시 정지)이면 정상 정지(최대 30초) → 강제 정지 → 정지 확인 → 되돌림 순으로 하고, 응답·감사 뒤 정식 `container.start`로 다시 켭니다(재시작 감사 행위자는 롤백 요청자). 응답은 되돌림 결과이고 재시작 결과는 `container.start` 감사와 `job.complete` 이벤트로 봅니다. 실패 응답 끝에는 다시 켜기를 요청했으면 ` (container restart requested; see container.start result)`가 붙습니다. 정상 정지를 기다리므로 응답이 늦습니다 — 응답 상한은 REST·CLI 75초, Web UI 80초입니다. 되돌림은 스냅샷 뒤의 rootfs·config 변경을 버리지만 붙어 있던 rw 호스트 볼륨의 데이터는 되돌리지 않습니다.
+
+- 스냅샷이 없으면 컨테이너는 그대로이고 −32603 `Snapshot '<s>' not found for container '<n>' (container left untouched)`입니다.
+- 시작·정지 중이거나 상태를 읽지 못하면 아무것도 하지 않고 −32603 `container '<n>' is <상태>; nothing was rolled back (retry when it is running or stopped)`입니다. 끝난 뒤 다시 합니다.
+- 정지에 실패하면 되돌리지 않고 컨테이너는 실행 중 그대로입니다(`… could not be stopped for the rollback: …; nothing was rolled back`).
+- 롤백 중에는 같은 컨테이너의 `env.set`·`env.delete`·`set_limits`·볼륨 attach·detach가 −32004입니다.
+
 ### 4.7 컨테이너 복제
 
+복제는 원본 데이터셋을 **ZFS send/recv로 통째로 복사**합니다(전체 복사 — 원본 크기만큼 시간·공간을 씁니다). 복제본은 원본이나 원본 스냅샷에 의존하지 않으므로 복제 뒤 원본을 지워도 됩니다. 원본은 정지해 있어야 합니다(실행 중이면 `stop the source container before cloning`).
+
 ```bash
-# CoW 클론 (lxc-copy, ZFS 기반)
-pcvctl container clone app-ctr --name app-ctr-clone
+# 전체 복사 (ZFS send/recv) — 원본은 정지 상태
+echo '{"jsonrpc":"2.0","method":"container.clone","params":{"source":"app-ctr","dest":"app-ctr-clone"},"id":"1"}' \
+  | nc -U /var/run/purecvisor/daemon.sock
 ```
 
+- **볼륨 줄 상속**: 복제본 config는 원본의 호스트 볼륨 줄(`lxc.mount.entry`)을 그대로 가집니다 — 복제본도 같은 호스트 폴더를 붙입니다. 접수 응답의 `volume_entries`가 그 줄 수입니다(원본 config를 읽었을 때만 있습니다). 원치 않으면 복제 뒤 `container.volume.detach`합니다.
+- **권한**: OPERATOR도 자기 컨테이너를 복제할 수 있지만, privileged 원본과 **호스트 볼륨 줄이 있는 원본**(원본 config를 읽지 못한 경우 포함)의 복제는 ADMIN만 합니다. 아니면 −32006 `cloning a container with host volumes requires admin role`입니다(privileged는 `cloning a privileged container requires admin role`). NIC가 테넌트 허용 밖 브리지(ADMIN이 `container.nic.attach`로 붙인 것 등)에 붙은 원본도 OPERATOR는 복제할 수 없습니다 — −32006 `cloning a container connected to bridge '<브리지>' requires admin role: the bridge is not allowed for this account`. 규칙은 `container.create`의 `network_bridge` 판정과 같고, 생략 기본 `virbr0`은 허용됩니다.
+- **소유자**: 복제본의 소유자는 요청자입니다. UDS 직결 ADMIN 요청처럼 요청자가 없으면 소유자를 기록하지 않습니다(생성과 같습니다 — ADMIN 전용 컨테이너).
+- **임시 스냅샷**: 복사하는 동안 원본에 `@pcv-clone-<dest>` 스냅샷이 잠시 보입니다(`container.snapshot.list`). 끝나면 지웁니다. 지우지 못해도 복제는 성공이고 남은 스냅샷은 `container.snapshot.delete`로 지웁니다.
+- **바뀌는 것**: `lxc.rootfs.path`, `lxc.uts.name`, NIC `hwaddr`(새 `00:16:3e:XX:XX:XX` — 사용자가 지정한 값도 새 값), 컨테이너 디렉터리 안 훅·`lxc.mount.fstab` 경로, rootfs `/etc/hostname`. 원본 config에 `lxc.hook.clone` 줄이 있으면 거절합니다(PureCVisor는 복제 훅을 실행하지 않습니다 — 그 줄을 지운 뒤 다시 합니다). `zfs send`는 원본에 손으로 건 ZFS 속성(quota 등)을 옮기지 않습니다.
+- **실패하면**: 만든 데이터셋·대상 디렉터리·임시 스냅샷을 지우고 `clone '<dest>' failed at <단계>: <원인>; clone removed`로 끝납니다. 같은 이름으로 다시 복제할 수 있습니다. 못 지운 것이 있으면 `…; could not remove <이름>; remove it manually`이므로 그것을 손으로 지웁니다.
+- 원본·대상에 다른 작업이 돌면 접수 전 −32004입니다.
+
 ### 4.8 볼륨 마운트
+
+`readonly`를 적지 않으면 읽기 전용으로 붙습니다(2.1.0부터, 2.0.4 이하는 읽기·쓰기). 아래 예시는 쓰기를 허용하려고 `"readonly": false`를 명시한 것입니다.
 
 ```bash
 # 호스트 디렉터리를 컨테이너에 바인드 마운트
@@ -2548,7 +2733,77 @@ echo '{"jsonrpc":"2.0","method":"container.volume.detach","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **경로 순회 방어**: `realpath` 검증으로 심볼릭 링크를 통한 경로 순회 공격을 차단합니다.
+#### 컨테이너 볼륨 원본 규칙
+
+`host_path`(원본)는 데몬이 루트부터 한 성분씩 **심볼릭 링크를 따르지 않고** 열어 확인하고, 확인한 그 디렉터리를 붙인다(실행 중 attach는 확인한 fd 그대로, 정지 attach는 정규 경로를 config에 적는다). 그래서 **링크를 지나는 경로는 쓸 수 없다 — 실제 경로를 쓴다**(예: `/var/run/…` 대신 `/run/…`, merged-usr 배포판의 `/lib/…` 대신 `/usr/lib/…`). 데몬이 켤 때마다(`container.start`, 헬스 자동 재시작, 롤백 재시작) config에 남은 원본을 같은 방식으로 다시 확인하고, **확인한 그 원본을 root 전용 staging 자리(`/run/purecvisor-volstage/<이름>/`)에 붙인 뒤 liblxc에는 staging 경로만 넘긴다**(데몬이 시작마다 쓰는 런타임 config `/run/purecvisor/lxc-runtime/<이름>/config`, 전용 유닛의 `lxc-start -f`). 그래서 읽기 전용 볼륨은 컨테이너 안에서 쓰기 가능으로 바꿀 수 없고, 확인과 마운트 사이에 원본이 바뀌는 창도 없다. 영속 config(`<lxc_path>/<이름>/config`)는 실제 원본을 그대로 적는다. 컨테이너 안 `reboot`는 같은 staging을 다시 붙인다. config에 들어간 시작 검사 훅(`lxc.hook.pre-start = /usr/local/bin/pcvctl container volume-guard-hook`)은 볼륨 원본이 그 컨테이너 staging 밖이면(데몬 밖 `lxc-start`) 또는 상대 경로이면 시작을 거절하고, staging 경로에 링크가 끼었는지 다시 본다. 시작은 볼륨마다 컨테이너 안 대상 자리를 실행 중 attach와 같은 규칙으로 링크 없이 걷고 없으면 만든다(대상 경로가 컨테이너 안 링크를 지나면 시작 실패).
+
+**detach 계약**: `container.volume.detach` 성공은 **컨테이너 프로세스의 마운트 NS 어디에도 그 볼륨이 보이지 않는다**는 뜻이다. 실행 중이면 호스트 쪽 마운트와 컨테이너 안쪽 사본(시작 때 붙은 볼륨 포함)을 떼고, 컨테이너의 모든 프로세스·스레드를 확인한 뒤에만 그 줄의 staging 마운트를 떼고 config 줄을 지운다. 남았거나 확인하지 못하면 −32002이고 config 줄은 그대로다 — 컨테이너를 정지한 뒤 같은 detach를 한 번 더 한다. 열어 둔 파일 등 프로세스 없이 쥔 참조까지 회수하는 완전한 떼기는 정지 뒤 detach다. 실행 중 확인은 컨테이너 root가 일부러 숨기거나 피한 사본까지 보장하지 않으므로, 신뢰하지 않는 컨테이너의 볼륨은 정지한 뒤 detach한다. 한 번의 확인이 오래 걸리면(5초 넘게) −32002로 끝나니 큰 컨테이너도 정지 뒤 detach한다. 정지 상태 detach는 호스트에 남은 마운트·staging을 정리한 뒤 config 줄을 지운다.
+
+**볼륨 자리 규칙**: `container_path`는 빈 성분·`.`를 지운 한 철자로 저장한다(`/mnt//./data/` → `mnt/data`). 이미 붙은 볼륨을 가리는 자리(그 볼륨 자리의 조상)에는 붙이지 않는다. 실행 중에는 이미 볼륨이 있는 자리나 다른 볼륨 안쪽 자리에 붙이지 않는다 — 정지한 뒤 attach한다. 정지 상태에서 다른 볼륨 안쪽에 붙이려면 그 바깥 볼륨의 호스트 원본에 같은 종류의 자리를 먼저 만든다(데몬은 사용자 데이터에 자리를 만들지 않는다).
+
+| 오류 | 뜻 | 조치 |
+|---|---|---|
+| −32602 `host_path must not traverse symbolic links` | 원본 경로에 링크·`..`가 있다 | 링크를 푼 실제 경로로 다시 attach한다 |
+| −32602 `host_path must be an absolute path` | 상대 경로다 | `/`로 시작하는 절대 경로를 쓴다 |
+| −32602 `host_path/container_path must not contain whitespace, control characters or backslashes` | 공백·제어 문자·`\`가 든 경로다 | 그런 글자가 없는 경로로 바꾼다 |
+| −32002 `volume source changed since attach: <container_path>` | 시작 거절 — attach 뒤 그 볼륨 원본의 어느 성분이 링크로 바뀌었다 | 누가 링크를 만들었는지(특히 다른 컨테이너의 쓰기 볼륨 아래인지) 확인하고, `container.volume.detach`로 그 항목을 뗀 뒤 실제 경로로 다시 attach하고 `container.start`한다 |
+| −32002 `volume source changed since attach: (volume guard fingerprint could not be reset)` | 시작 거절 — 데몬이 컨테이너 디렉터리에 남은 옛 시작 기록 파일(`purecvisor.volgen`)을 지우지 못했다(볼륨이 없는 컨테이너에도 해당. 데몬은 이 파일을 쓰지 않고 남은 것만 지운다) | 컨테이너 디렉터리에 쓸 수 있는지(디스크·권한) 확인한 뒤 다시 `container.start`한다 |
+| −32602 `host_path is already attached to this container at <container_path>` | 같은 호스트 경로가 이미 이 컨테이너에 붙어 있다 | 이미 붙은 자리를 그대로 쓰거나, 그 자리를 detach한 뒤 새 자리로 attach한다 |
+| −32602 `container_path would cover another attached volume: <자리>; detach it first` | 새 자리가 이미 붙은 볼륨을 가린다(그 볼륨 자리의 조상) | 안쪽 볼륨을 먼저 detach하거나 다른 자리를 쓴다 |
+| −32002 `container_path already has a volume attached while the container is running: …` · `container_path is inside another attached volume while the container is running: …` | 실행 중 attach 자리에 이미 볼륨이 있거나 다른 볼륨 안쪽이다(붙여도 컨테이너에 보이지 않는다) | 정지한 뒤 attach한다(다른 볼륨 안쪽이면 그 원본에 자리를 먼저 만든다) |
+| −32602 `container_path is inside the attached volume at <바깥>, but <나머지> does not exist in that volume's source; create it there first` | 정지 attach 자리가 다른 볼륨 안쪽인데 바깥 볼륨 원본에 그 자리가 없다 | 바깥 볼륨의 호스트 원본에 `<나머지>`를 새 원본과 같은 종류로 만든 뒤 다시 attach한다 |
+| −32602 `container_path must name an entry below the root` | 자리가 컨테이너 루트(`/`)다 | 루트 아래 경로를 쓴다 |
+| −32002 `volume is still mounted inside the container: <container_path>; stop the container, then detach again` | detach 뒤에도 컨테이너 안 어딘가(다른 마운트 NS 포함)에 볼륨이 보인다. config 줄은 그대로다 | 컨테이너를 정지한 뒤 같은 detach를 한 번 더 한다 |
+| −32002 `cannot verify that the volume is gone from the container: <사유>; …` · `cannot identify the volume source on the host; …` · `the same host path is attached twice to this container; …` · `another attached volume is mounted under this path: …` · `cannot identify the host source of another attached volume: …` | 실행 중 detach가 떼거나 확인할 수 없다(확인 상한 — 스레드 4,096·하위 cgroup 1,024·5초 초과, 원본을 식별하지 못함, 옛 config의 같은 원본 중복, 대상 아래 다른 볼륨) | 정지한 뒤 detach한다(대상 아래 다른 볼륨이면 안쪽부터 떼도 된다) |
+| −32603 `volume detached from the running container, but its staging mount was not removed: …` · `…, but its config line was not removed: …; run detach again` | 떼기는 끝났지만 뒤 단계가 실패했다 | 같은 detach를 다시 한다 |
+| 시작 실패 `container '<n>' has leftover volume mounts under its rootfs that could not be removed: …` | 호스트에 남은 볼륨 마운트를 떼지 못해 켜지 않았다(fail-closed) | 문구 끝이 `follow the GUIDE procedure "pre-upgrade stacked volume mounts"`면 아래 절차를 따른다. 아니면 데몬 로그의 `leftover host mount` 줄을 보고 원인을 없앤 뒤 다시 시작한다 |
+| 시작 실패 `cannot prepare the volume staging for <container_path>: …` · `staging path <경로> has unexpected type, owner or mode; refusing to start` · `cannot write the runtime config: …` | staging·컨테이너 안 대상·런타임 config를 준비하지 못했다(대상 종류 불일치·링크, 중첩 볼륨의 바깥 원본에 자리 없음 포함). 그 시작에서 만든 staging은 지운다 | 사유대로 고친 뒤 다시 시작한다. staging 성분 불일치는 데몬 밖에서 만든 자리라 그 경로를 지운 뒤 시작한다 |
+| −32002 `volume guard hook not installed: /usr/local/bin/pcvctl` | 시작 검사 훅 실행체가 root 소유로 설치돼 있지 않다 | 데몬과 같은 판의 `pcvctl`을 `/usr/local/bin/pcvctl`(root 소유)에 설치한다 |
+| −32002 `host_path check needs openat2 (kernel 5.6+)` | 커널이 `openat2`를 모른다 | 커널 5.6 이상을 쓴다 |
+
+컨테이너 안 `reboot`나 데몬 밖 `lxc-start`가 정지로 끝나면(liblxc 로그 `pcv volume guard: …`) 볼륨 원본이 staging 밖이거나(데몬 밖 `lxc-start`), 상대 경로 원본 bind 줄이 있거나, staging 경로에 링크가 끼었다. 데몬 `container.start`로 켠다(그때 다시 확인하고 staging을 새로 만든다). 전용 유닛을 `systemctl start purecvisor-lxc@<이름>`으로 직접 켜는 것은 지원 경로가 아니다 — 데몬이 정지를 처리하지 않은 컨테이너(컨테이너 안 poweroff)는 이전 시작의 staging으로 켜져 그 사이 config 변경이 반영되지 않는다.
+
+**업그레이드 노트(2.0.4 이하 → 2.1.0, 볼륨 마운트 생명주기·롤백·복제)** — 시작 볼륨 staging, 시작 검사 훅, 데몬 밖 `lxc-start` 거절은 2.0.4와 같다. 그 밖의 바뀐 동작은 다음과 같다:
+
+1. **데몬·`pcvctl`·컨테이너 시작 유닛(`purecvisor-lxc@.service`)은 함께 반영하고 함께 되돌린다.** deb는 셋을 함께 설치한다. 유닛 파일이 없으면 2.1.0 데몬은 컨테이너를 시작하지 않는다. **되돌리기 전에 볼륨 컨테이너를 정지한다** — 2.1.0 데몬이 정지 때 staging을 정리한다.
+2. **detach는 정말 떨어졌을 때만 성공한다.** 성공은 컨테이너 프로세스의 마운트 NS 어디에도 그 볼륨이 보이지 않는다는 뜻이다. 시작 때 붙은 볼륨도 실행 중 detach로 뗀다. 컨테이너가 다른 마운트 NS에 사본을 쥐고 있거나 열어 둔 파일 등으로 쥔 참조까지 끊으려면 정지한 뒤 detach한다. −32002면 컨테이너를 정지한 뒤 같은 detach를 한 번 더 한다.
+3. 업그레이드 전 detach가 남긴 마운트: 컨테이너 안 마운트는 정지로 사라진다. 호스트 쪽 잔여는 다음 시작·삭제·복제·정지 상태 detach가 정리하고, 정리하지 못하면 시작이 실패한다(fail-closed). 반영 때 실행 중 컨테이너는 멈추지 않는다.
+4. 실행 중 스냅샷 롤백은 컨테이너를 멈췄다가(정상 정지에 최대 30초) 되돌린 뒤 다시 켠다. 응답이 늦어진다. 재시작 결과는 `container.start` 감사·이벤트로 본다.
+5. 같은 컨테이너에 다른 작업(시작·정지·스냅샷·복제·헬스 재시작)이 도는 동안 `env.set`·`env.delete`·`set_limits`·볼륨 attach·detach는 −32004다. 끝난 뒤 다시 한다.
+6. 같은 호스트 경로를 한 컨테이너에 두 번 붙일 수 없다. 기존 config의 중복은 시작에는 영향이 없고, detach가 어느 쪽인지 가릴 수 없으면 −32002 → 정지 뒤 detach.
+7. 복제는 전체 복사(ZFS send/recv)이고 원본의 볼륨 줄을 그대로 갖는다. **호스트 볼륨이 붙은 컨테이너와 테넌트 허용 밖 브리지에 NIC가 붙은 컨테이너의 복제는 ADMIN만 할 수 있다**(OPERATOR −32006). 복제본의 소유자는 요청자다. 복제 중 원본에 임시 스냅샷이 잠시 보인다.
+8. 헬스 exec target에 공백을 넣으면 −32602다(인자는 지원하지 않는다).
+9. 컨테이너 메트릭의 메모리·CPU가 실제 값으로 바뀐다. CPU %는 직전 조회와의 차이라 첫 조회와 재시작 뒤 첫 조회는 0이고, 응답에 누적 CPU 시간 `cpu_time_ns`(정수, ns)가 더해졌다.
+10. **볼륨 자리 규칙이 엄격해진다.** 다른 볼륨을 가리는 자리는 상태와 무관하게 −32602다. 실행 중에는 이미 볼륨이 있는 자리와 다른 볼륨 안쪽 자리를 −32002로 거절한다 — 정지한 뒤 attach한다. 정지 attach로 다른 볼륨 안쪽에 붙이려면 바깥 볼륨 원본에 자리를 먼저 만든다(없으면 −32602). 시작도 기존 config의 중첩 줄을 같은 규칙으로 보고, 바깥 원본에 자리가 없으면 liblxc 앞에서 실패한다. attach가 config에 적는 `container_path`는 빈 성분·`.`를 지운 한 철자다.
+11. **실행 중 detach가 떼기 전에 거절하는 경우가 있다.** 대상 아래에 다른 볼륨이 있거나 남는 다른 볼륨의 원본을 식별하지 못하면 −32002다. 안쪽 볼륨부터 떼거나 정지한 뒤 detach한다.
+12. **업그레이드 전 겹친 볼륨 마운트.** 업그레이드 전 판이 한 자리에 실행 중 attach를 두 번 해 생긴 겹침은 데몬이 떼지 않는다 — 시작·삭제·복제·정지 상태 detach가 아래 절차를 가리키며 실패한다. 손으로 경로 umount하지 말고 그 절차를 따른다.
+13. **스냅샷 롤백이 상태를 확인한다.** 시작·정지 중이거나 상태를 읽지 못하면 아무것도 하지 않고 실패한다 — 끝난 뒤 다시 한다. 응답 상한은 REST·CLI 75초, Web UI 80초다.
+14. **잠금·검증 응답.** `container.clone`도 원본·대상에 다른 작업이 있으면 접수 전 −32004다. `container.set_limits`는 이름이 컨테이너 이름 규칙을 어기면 −32602 `Invalid container name`이다.
+15. **보안 사건 분류.** 데몬이 `lxc-copy`를 실행하면 이제 WARN 사건이다(PureCVisor는 더 부르지 않는다). 데몬이 띄우는 `/usr/local/bin/pcvctl`(실행 중 detach의 정리 자식)은 INFO다.
+16. **데몬 밖 유닛 시작은 지원 경로가 아니다.** 컨테이너 안 poweroff처럼 데몬이 정지를 처리하지 않은 뒤 `systemctl start purecvisor-lxc@<이름>`을 직접 부르면 이전 시작의 staging으로 켜진다 — 그 사이 config 변경은 반영되지 않는다. 시작은 `container.start`로 한다.
+
+#### 업그레이드 전 겹친 볼륨 마운트 (pre-upgrade stacked volume mounts)
+
+업그레이드 전 판은 한 `container_path`에 실행 중 attach를 두 번 하면 두 마운트를 겹쳐 걸었고, 그 마운트는 호스트 원본과 같은 전파 묶음(shared)에 들어 있었다. 이런 겹침이 남은 컨테이너는 시작·삭제·복제·정지 상태 detach가 `… stacked volume mounts at <호스트 경로> include a shared mount from before the upgrade and were left in place; unmounting them directly can detach host mounts — follow the GUIDE procedure "pre-upgrade stacked volume mounts"`로 실패한다(실행 중 detach는 −32002 같은 문구). 데몬은 이 겹침을 떼지 않는다 — 덮인 shared 마운트는 경로로 열 수 없고, 위의 것을 그대로 떼면 해제가 호스트 원본 쪽 마운트로 번진다. **`<호스트 경로>`를 바로 `umount`하지 않는다.** 실 LXC 시험에서 잰 절차는 다음과 같다(`<lxc_path>` 기본값 `/var/lib/purecvisor/lxc`, `<이름>` = 컨테이너 이름).
+
+1. 컨테이너를 정지한다(정지 상태에서 잰 절차다).
+2. 컨테이너 디렉터리 아래 마운트 전체를 private로 바꾼다 — 이제 떼어도 호스트 쪽으로 번지지 않는다.
+   ```bash
+   sudo mount --make-rprivate <lxc_path>/<이름>
+   ```
+3. 문구의 `<호스트 경로>`를 위에서부터 하나씩 뗀다. 마운트가 남지 않을 때까지(`findmnt <호스트 경로>`가 빈 출력) 되풀이한다.
+   ```bash
+   sudo umount <호스트 경로>
+   ```
+   `target is busy`가 나오면 그 경로 아래에 호스트 마운트가 번져 들어온 자식이 있는 것이다(예: 원본 아래 호스트에서 건 마운트의 사본 `<호스트 경로>/sub`). 그 자식 경로를 먼저 `sudo umount <호스트 경로>/sub`로 뗀 뒤 3을 계속한다 — 2에서 private로 바꿨으므로 자식을 떼도 호스트 원본 쪽 마운트는 그대로다.
+4. 전파를 원래대로 되돌린다 — 이것을 빼면 뒤의 실행 중 attach가 컨테이너 안으로 번지지 않는다.
+   ```bash
+   sudo mount --make-rshared <lxc_path>/<이름>
+   ```
+5. `container.start`로 켠다. 같은 자리 볼륨 줄들은 staging으로 config 순서대로 겹쳐 붙고 뒤 줄이 보인다.
+6. 업그레이드 전 판은 둘째 볼륨을 **첫 볼륨의 호스트 원본 경로 위에도** 걸어 두었을 수 있다. `findmnt <첫 볼륨 host_path>`에 볼륨 마운트가 보이면 `sudo umount <첫 볼륨 host_path>`로 뗀다(측정에서 원본 아래 호스트 마운트는 그대로였다. 측정은 5 뒤에 뗐다).
+
+이 절차는 kernel 7.0·LXC 6.0.6 실 LXC 시험에서 확인했다 — 호스트 원본 아래 마운트가 어느 단계에서도 떨어지지 않았고, 다음 시작은 RUNNING, 뒤 실행 중 attach는 컨테이너 안에서 보였다.
 
 ### 4.9 환경 변수
 
@@ -2572,6 +2827,8 @@ echo '{"jsonrpc":"2.0","method":"container.env.delete","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
+같은 컨테이너에 시작·정지·스냅샷·복제·헬스 재시작이 도는 동안 `env.set`·`env.delete`는 −32004입니다. 끝난 뒤 다시 합니다.
+
 ### 4.10 헬스체크
 
 컨테이너에 주기적 헬스체크를 등록할 수 있습니다.
@@ -2594,7 +2851,7 @@ echo '{"jsonrpc":"2.0","method":"container.health.get","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-`type`은 `tcp`(`target`은 포트), `http`(`target`은 URL), `exec`(`target`은 컨테이너 안에서 실행할 명령) 중 하나입니다. `interval_sec`는 5초 이상(기본 30), `timeout_sec`는 1~30초로 제한됩니다(기본 5). `exec` 프로브도 이 시간을 넘기면 실패로 셉니다(이전 판은 상한이 없었습니다). `failure_threshold`만큼 연속 실패하면 `auto_restart`가 켜진 컨테이너를 정지 후 다시 시작합니다. 프로브는 워커에서 동시에 최대 4개까지 실행하며 느린 프로브가 데몬을 막지 않습니다. 상태값은 `container.health.get` 응답의 `healthy`(true/false)와 `consecutive_failures`·`restart_count`입니다. CLI `pcvctl container health-set`에는 `--timeout` 옵션이 없으므로 `timeout_sec`는 RPC·REST로 지정합니다.
+`name`은 컨테이너 이름 규칙(1–64자 `[a-zA-Z0-9_-]`)을 지켜야 하고, `target`은 type별로 검증해 아니면 −32602입니다 — `tcp`는 1–65535 십진 포트, `http`는 `http://` 또는 `https://`로 시작하고 공백·제어 문자가 없는 URL, `exec`는 비어 있지 않고 `-`로 시작하지 않으며 제어 문자·공백이 없는 프로그램 경로 하나(255바이트까지)입니다 — 인자는 지원하지 않으므로 공백이 있으면 −32602 `Invalid exec target: a single program path without spaces (arguments are not supported)`입니다(인자가 필요하면 컨테이너 안에 스크립트를 두고 그 경로를 씁니다). `type`은 `tcp`(`target`은 포트), `http`(`target`은 URL), `exec`(`target`은 컨테이너 안에서 실행할 명령) 중 하나입니다. `interval_sec`는 5초 이상(기본 30), `timeout_sec`는 1~30초로 제한됩니다(기본 5). `exec` 프로브도 이 시간을 넘기면 실패로 셉니다(이전 판은 상한이 없었습니다). `failure_threshold`만큼 연속 실패하면 `auto_restart`가 켜진 컨테이너를 정지 후 다시 시작합니다. 프로브는 워커에서 동시에 최대 4개까지 실행하며 느린 프로브가 데몬을 막지 않습니다. 상태값은 `container.health.get` 응답의 `healthy`(true/false)와 `consecutive_failures`·`restart_count`입니다. `failure_threshold`가 1보다 작으면 1로 맞춥니다. **같은 이름으로 다시 등록(갱신)하면 새 등록으로 보고 `restart_count`·연속 실패 수가 0으로 돌아갑니다.** CLI는 `pcvctl container health-set … --timeout <초>`로 `timeout_sec`을 지정합니다. 자동 재시작도 컨테이너 시작 유닛을 거칩니다.
 
 > **자동 재시작 도중 데몬이 종료 중이면** 정지(stop) 뒤 시작(start)을 건너뛰어 컨테이너가 **정지 상태로 남습니다**. 데몬을 다시 올린 뒤 운영자가 직접 시작합니다(`pcvctl container start <name>`).
 
@@ -2613,7 +2870,14 @@ echo '{"jsonrpc":"2.0","method":"container.logs","params":{
   "name": "app-ctr",
   "lines": 100
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+
+# CLI는 줄을 그대로 출력한다 (없으면 "(no log lines yet)")
+pcvctl container logs app-ctr
 ```
+
+OPERATOR의 `container.logs`·`container.memory.stats`·`container.health.check`는 자기가 만든 컨테이너만 통과한다(남의 것은 403, ADMIN은 전부). `container.metrics`는 `vm.metrics`처럼 VIEWER 전체 조회다.
+
+`container.logs`는 **LXC의 기동·정지 기록**(`<lxc_path>/<이름>/<이름>.log`, 시작 실패의 원인 포함)입니다. 컨테이너 안 프로그램의 콘솔 출력은 여기에 없습니다 — `lxc-console`이나 `container.exec`로 봅니다. 아직 한 번도 유닛으로 시작하지 않아 로그 파일이 없으면 오류가 아니라 빈 결과(`lines: []`, `total: 0`)입니다. 로그는 시작 전에 1 MiB를 넘었으면 한 판만 남기고 새로 시작하며, 1 MiB를 넘는 로그의 `total`은 끝 1 MiB 기준입니다. OPERATOR는 자기 컨테이너의 로그만 읽을 수 있습니다(−32006).
 
 ### 4.12 CRIU 체크포인트/복원
 
@@ -2666,7 +2930,39 @@ echo '{"jsonrpc":"2.0","method":"container.nic.detach","params":{
 - `container.nic.list` 원소의 `ipv4_unavailable`이 `true`면 컨테이너는 실행 중인데 IP를 시간 안에 조회하지 못한 것이며 `ipv4`는 빈 문자열입니다. 컨테이너가 꺼져 있으면 `false`입니다.
 - `container.nic.detach` 응답에 `warning`이 있으면 설정에서는 제거됐지만 실행 중 인터페이스 제거 명령이 0이 아닌 값으로 끝난 것입니다.
 - 실행 중 `nic.attach`가 실패하면 `config saved; live wiring not confirmed: <단계>: <원인>`(−32000)으로 답합니다 — 설정에는 저장됐으나 실행 중 컨테이너에는 연결을 확인하지 못했다는 뜻이며, 컨테이너를 다시 시작하면 설정대로 연결됩니다. 분리의 같은 상황은 `config removed; live interface removal not confirmed: <원인>`입니다.
-- 같은 컨테이너에 다른 변경 작업(시작 등)이 진행 중이면 −32603 잠금 오류(`VM '<이름>' is already locked (op: <작업>, pid: <PID>)`)입니다.
+- `hwaddr`는 `xx:xx:xx:xx:xx:xx` 형식(16진 두 자리 6개)만 받고 아니면 −32602이며, 브리지 이름 등 설정 줄에 들어가는 값의 개행·제어 문자는 거절됩니다. 실행 중 NIC의 호스트 쪽 인터페이스 이름은 컨테이너마다 다릅니다(같은 번호의 NIC를 두 컨테이너에 붙여도 충돌하지 않습니다). 업그레이드 전에 붙인 옛 이름(`ethN-host`)의 NIC는 분리하면 컨테이너 안 제거만 하고, 호스트에 남은 옛 이름은 다른 컨테이너 것일 수 있어 자동으로 지우지 않습니다.
+- 같은 컨테이너에 다른 변경 작업(시작 등)이 진행 중이면 −32004 잠금 오류(REST 409, `VM '<이름>' is already locked (op: <작업>, pid: <PID>)` 또는 `Container is busy`)입니다.
+
+### 4.15 격리 방식과 호스트 준비
+
+컨테이너는 2.1.0부터 기본이 **unprivileged**입니다. 컨테이너 안의 root는 호스트에서 일반 uid(`rootless_uid_start`부터, 기본 100000)로 보이므로 컨테이너가 침해되어도 호스트 root가 아닙니다. 이전 판에서 만든 컨테이너는 그대로이며, `container.list`·CLI `pcvctl container list`의 `PRIV` 열·UI 목록 배지로 privileged와 구별합니다.
+
+**호스트 준비** — 기본 생성은 root에게 위임된 범위가 있어야 하고 다른 계정의 범위와 겹치지 않아야 합니다. `/etc/subuid`와 `/etc/subgid` 두 파일에 같은 줄을 둡니다.
+
+```text
+root:100000:65536
+```
+
+겹침 확인: `awk -F: '$1!="root" && $1!="0"' /etc/subuid /etc/subgid` 결과의 범위가 `rootless_uid_start`부터 65536개와 한 uid라도 겹치면 안 됩니다. 겹치면 둘 중 하나로 풉니다.
+
+1. 다른 계정의 범위를 비어 있는 곳으로 옮깁니다: `sudo usermod --del-subuids 100000-165535 --del-subgids 100000-165535 <계정>; sudo usermod --add-subuids 200000-265535 --add-subgids 200000-265535 <계정>`. 그 계정에 rootless podman·docker 저장소가 있으면 `podman system migrate` 등으로 다시 정리해야 합니다. 그 뒤 `root:100000:65536`을 두 파일에 더합니다.
+2. 또는 `daemon.conf`의 `[container]`에서 `rootless_uid_start = 1000000` 같은 비어 있는 범위로 바꾸고 `root:1000000:65536`을 두 파일에 더합니다.
+
+준비가 안 되면 `container.create`는 privileged로 조용히 떨어지지 않고 **즉시 −32002**로 거절합니다(메시지에 다른 계정 이름은 없습니다).
+
+| 거절 원인 | 메시지 요지 | 해결 |
+|---|---|---|
+| `NO_ROOT_RANGE` | `… must delegate <시작>:<개수> to root. Add 'root:<시작>:<개수>' to both files.` | 두 파일에 root 줄을 더합니다 |
+| `OVERLAP` | `another account's subordinate id range overlaps <시작>-<끝>. …` | 위 1번(다른 계정 범위 이동) 또는 2번(`rootless_uid_start` 변경) 뒤 root 줄 추가 |
+| `BAD_RANGE` | `[container] rootless_uid_start=… rootless_uid_count=… is not a valid range …` | `count ≥ 65536`, `start ≥ count`, `start + count ≤ 4294967295`가 되게 `daemon.conf`를 고칩니다 |
+
+원인이 둘 이상이면 `BAD_RANGE` → `OVERLAP` → `NO_ROOT_RANGE` 순서로 하나만 알립니다.
+
+**privileged 요청**(ADMIN 전용): `pcvctl container create <name> --privileged`, 또는 RPC `container.create`의 `"rootless": false`. ADMIN이 아니면 −32006입니다. 호스트 단위로 기본을 바꾸려면 `daemon.conf`의 `[container] rootless = false`(ADMIN 선택)입니다. privileged 컨테이너를 복제하는 것도 ADMIN 전용입니다.
+
+**바인드 마운트** — `container.volume.attach`는 `readonly`를 적지 않으면 읽기 전용입니다. 쓰려면 `"readonly": false`(CLI는 `volume-attach <name> <host_path> <container_path> --rw`)를 명시합니다. unprivileged 컨테이너에서는 호스트 파일이 매핑 밖 uid라 컨테이너 안에서 `nobody`로 보이고, 쓰기를 허용해도 실제 쓰기는 호스트 파일 권한에 달려 있습니다. 실행 중 컨테이너에 붙일 때는 `container_path`에 심볼릭 링크 성분이 있으면 −32602로 거절하므로(`/var/run` 대신 `/run`처럼) 실제 경로를 쓰거나 정지 상태에서 붙입니다. 실행 중 attach는 커널 5.12 이상이 필요합니다.
+
+> **이전 판에서 `rootless:true`로 만든 컨테이너**는 목록에서 `privileged:false`로 보이지만 rootfs가 호스트 uid 0 소유로 풀려 있어 정상 동작하지 않을 수 있습니다. 재생성을 권장합니다.
 
 ---
 
@@ -2690,21 +2986,17 @@ datapool   4.0T   1.5T   2.5T   38%  ONLINE
 
 #### 풀 생성
 
-```bash
-# mirror 풀 (2-디스크 미러)
-pcvctl storage pool create --name datapool --vdev /dev/sdb /dev/sdc --type mirror
+> **`pcvctl storage pool`에는 `list`만 있습니다.** 풀 생성·스크럽·삭제는 RPC(또는 REST·웹 UI)로만 합니다.
 
-# raidz1 풀 (3-디스크 RAIDZ)
-pcvctl storage pool create --name raidpool --vdev /dev/sdb /dev/sdc /dev/sdd --type raidz1
-```
+Web UI 풀 생성 화면은 디스크를 공백으로 구분해 받고, 구성(Stripe·Mirror·RAIDZ·RAIDZ2)을 반드시 고르게 합니다. Stripe는 중복이 없어 디스크 하나가 고장 나면 풀 전체를 잃으므로 기본값으로 두지 않습니다. RPC의 `disks`는 문자열 배열이며, 배열이 아니거나 문자열이 아닌 원소가 있으면 `-32602`입니다. `vdev_type`은 `mirror`, `raidz`, `raidz1`, `raidz2`, `raidz3`이고, 빈 문자열이나 생략은 stripe입니다. 그 밖의 값은 `zpool`을 부르기 전에 `-32602`입니다.
 
 RPC 직접 호출:
 
 ```bash
 echo '{"jsonrpc":"2.0","method":"storage.pool.create","params":{
   "name": "datapool",
-  "vdevs": ["/dev/sdb", "/dev/sdc"],
-  "type": "mirror"
+  "disks": ["/dev/sdb", "/dev/sdc"],
+  "vdev_type": "mirror"
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
@@ -2712,20 +3004,22 @@ echo '{"jsonrpc":"2.0","method":"storage.pool.create","params":{
 
 ```bash
 # 풀 헬스 (health, scrub 진행률, 용량)
-pcvctl storage pool health pcvpool
+pcvctl storage health pcvpool
 
 # 스크럽 시작
-pcvctl storage pool scrub pcvpool
+echo '{"jsonrpc":"2.0","method":"storage.pool.scrub","params":{"name":"pcvpool"},"id":"1"}' \
+  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# 풀 삭제
-pcvctl storage pool destroy datapool
+# 풀 삭제 (풀 안의 데이터셋·스냅샷이 즉시 영구 삭제됩니다)
+echo '{"jsonrpc":"2.0","method":"storage.pool.destroy","params":{"name":"datapool"},"id":"1"}' \
+  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
 #### 용량 예측
 
 ```bash
 # 현재 사용량 추세 기반 용량 고갈 예측
-pcvctl storage pool forecast pcvpool
+pcvctl storage pool-forecast pcvpool
 ```
 
 ### 5.2 ZFS Zvol 관리
@@ -2755,6 +3049,8 @@ pcvctl storage zvol create pcvpool/vms/new-disk --size 50G
 pcvctl storage zvol delete pcvpool/vms/old-disk
 ```
 
+같은 풀의 `zfs create`·`zfs destroy`는 VM 생성·삭제, 컨테이너, 스냅샷 삭제를 통틀어 한 번에 하나씩 돈다. 긴 삭제가 끝날 때까지 VM·컨테이너 생성·삭제 같은 Job은 최대 5분 기다린다. 응답을 바로 돌려주는 RPC(`storage.zvol.create`·`delete`, `vm.snapshot.delete`·`delete_all`, `container.snapshot.delete`)는 5초만 기다리고 `-32004`("풀 사용 중, 다시 시도")로 끝난다. 어느 쪽이든 시간을 넘기면 그 `zfs` 명령은 돌지 않은 채 실패하므로 다시 시도하면 된다. 여러 단계로 된 Job은 앞 단계가 이미 끝났을 수 있으니 Job 결과를 확인한다. 대기는 지표 `purecvisor_zfs_pool_lock_wait_ms`·`purecvisor_zfs_pool_lock_contentions_total`에서 볼 수 있다.
+
 RPC 직접 호출:
 
 ```bash
@@ -2779,7 +3075,7 @@ echo '{"jsonrpc":"2.0","method":"storage.zvol.delete","params":{
 클론 데이터셋을 독립 데이터셋으로 전환합니다 (원본 스냅샷 의존 해소).
 
 ```bash
-pcvctl storage promote pcvpool/vms/web-staging
+sudo zfs get origin pcvpool/vms/web-staging
 ```
 
 ### 5.3 iSCSI 관리
@@ -2857,20 +3153,12 @@ echo '{"jsonrpc":"2.0","method":"iscsi.disconnect","params":{
 
 ### 5.4 스토리지 티어링
 
-ZFS 풀의 디스크를 NVMe/SSD/HDD 계층으로 자동 분류합니다.
+스토리지 티어 manager의 내부 초기화와 실제 공개 관리 표면을 구분합니다. 현재 tier 목록
+CLI·RPC는 등록돼 있지 않으며 NVMe/SSD/HDD 자동 분류·자동 이동과 고정 IOPS/latency를
+제품 지원으로 보장하지 않습니다. 현재 pool 상태는 다음 지원 명령으로 확인합니다.
 
 ```bash
-# 티어 목록
-pcvctl storage tier list
-```
-
-출력 예시:
-
-```
-TIER     DEVICES         IOPS      LATENCY
-NVMe     nvme0n1         500K      0.1ms
-SSD      sda, sdb        50K       0.5ms
-HDD      sdc, sdd        200       5.0ms
+pcvctl storage health
 ```
 
 ### 5.5 ISO 관리
@@ -3119,6 +3407,8 @@ ip -br link
 | `isolated` | 외부 격리, VM 간만 통신 | X | 자동 |
 | `routed` | 정적 라우팅 | O (라우팅) | 선택 |
 
+> **게스트 격리**: nat 게스트는 외부와 다른 legacy 망에서 새로 들어오는 연결을 받지 않습니다(운영자가 호스트에 직접 둔 DNAT만 통과). UFW(기본 FORWARD 정책 DROP) 호스트에서 DNAT를 쓰려면 포워드마다 좁힌 규칙도 둡니다 — 예: `ufw route allow in on eno1 out on pcvnat0 to 10.78.0.5 port 22 proto tcp`. `ufw route allow out on <브릿지>`처럼 넓은 규칙은 데몬이 다음 적용에서 지우고, 좁힌 규칙은 그대로 둡니다. iptables FORWARD DROP 호스트도 같은 꼴의 좁힌 FORWARD 규칙이 필요합니다. legacy 망 사이(nat·isolated·routed 어느 조합이든) 새 연결은 막힙니다. 게스트는 호스트의 DHCP(67)·자기 게이트웨이 DNS(53)·DHCPv6(547)·이웃 탐색·게이트웨이 ping만 쓸 수 있고 SSH·UI·NFS·iSCSI 등 호스트 서비스에는 닿지 않습니다. routed 게스트로 들어오는 외부 연결은 그대로 허용되며 보안 그룹으로 제한합니다. 이 규칙은 UFW·iptables·firewalld 유무와 관계없이 데몬이 집행합니다.
+
 `bridge/dedicated`는 관리 NIC를 자동 변환하지 않는다. 서버는 IPv4 주소, link-local 외 IPv6
 주소, IPv4/IPv6 기본 경로, 기존 master가 있거나 bond/VLAN이거나 상태를 확정할 수 없는
 NIC를 거부한다.
@@ -3222,6 +3512,8 @@ sudo nft list table inet purecvisor
 VM 단위 포트 허용은 §6.7 Security Group을 사용하고, tenant subnet과 inbound 게시 수명주기는 §6.12 Local VPC를 사용합니다.
 데몬이 소유한 `inet purecvisor` table을 운영자가 직접 수정하면 desired state와 actual state가 어긋나므로 영구 설정 절차로 사용하지 않습니다.
 
+`inet purecvisor`의 `postrouting`·`forward`·`guest_input` 체인과 `guest_*_ifaces` 집합 넷은 데몬 소유로 망 생성·전환·삭제·기동 때 통째로 다시 쓰입니다 — 여기에 손으로 넣은 규칙은 지워지므로 운영자 규칙은 별도 테이블에 둡니다. `nft list set inet purecvisor guest_nat_ifaces`로 망별 소속을 봅니다.
+
 > **명령 실행 안전성**: 모든 방화벽 조작은 `pcv_spawn_sync()` argv 배열로 실행됩니다. `system()`과 `popen()`은 사용하지 않습니다.
 
 ### 6.3 VLAN 필터링
@@ -3282,7 +3574,7 @@ pcvctl network qos-get vnet0
 pcvctl network qos-remove vnet0
 ```
 
-> **호환 표면 영속화**: `network.qos.*` 규칙은 `/var/run/purecvisor/qos_rules.json`에 저장되어 데몬 재시작 시 복원됩니다. 새 workload SLA의 정본으로 사용하지 않습니다.
+> **호환 표면 영속화**: 물리 NIC·브리지의 `network.qos.*` 규칙은 `/var/lib/purecvisor/qos_rules.json`에 저장되어 데몬 재시작과 재부팅 뒤 자동 복원됩니다. `vnet` 뒤가 숫자인 이름(`vnet[0-9]+`)의 규칙은 재부팅 뒤 같은 이름이 다른 VM에 붙을 수 있어 **현재 세션에만** 적용하고 저장하지 않습니다(`vm_name`으로 호출해도 같으며 응답의 `persisted`가 `false`입니다). 파일 쓰기가 실패해도 `persisted`는 `false`입니다. 이전 버전이 저장한 해당 키는 다음 기동 때 WARN을 남기고 파일에서 지워집니다. VM 대역폭을 재시작 뒤에도 유지하려면 `qos.vm.set`을 쓰세요. D09 계층 QoS가 관리하는 인터페이스에는 `network.qos.set`·`network.qos.remove`의 ingress(`all` 포함)가 거부되고 복원도 건너뜁니다. 새 workload SLA의 정본으로 사용하지 않습니다.
 
 #### 고급 QoS — per-VM/tenant SLA (2.0, D09)
 
@@ -3676,6 +3968,8 @@ pcvctl dpdk status
 pcvctl dpdk hugepage
 
 # 전용 NIC를 vfio-pci에 바인딩하고 같은 PCI 장치를 bridge port로 구성
+# 호스트가 쓰는 NIC(브리지·본드 소속, 위에 VLAN이 있음, IPv4·IPv6 주소, 기본 경로 보유)는 거부됩니다.
+# 아래 bridge create 의 PCI 인자도 같은 기준으로 거부됩니다.
 pcvctl dpdk bind 0000:03:00.0 vfio-pci
 pcvctl dpdk bridge create dpdk-br0 0000:03:00.0
 
@@ -3736,6 +4030,9 @@ pcvctl sriov detach web-prod 0000:03:10.0
 
 detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값을 사용합니다.
 사용을 모두 마친 뒤에만 `pcvctl sriov disable eno2`로 VF 수를 0으로 되돌립니다.
+
+`vm.create`의 `nic_type=sriov`는 `pci_addr`(`DDDD:BB:SS.F` 또는 `BB:SS.F`)가 필수이고, 없거나 형식이 틀리면 −32602로 거절합니다.
+브리지가 없으면(`network_bridge: "none"` 또는 빈 기본 브리지) −32602 `nic_type=sriov cannot be used without a network bridge (…)`로 거절하고, `network_mode: "tenant-overlay"`와 함께 쓰면 −32602 `nic_type=sriov cannot be combined with network_mode "tenant-overlay" (…)`로 거절합니다. 두 거절 모두 접수 전에 일어나므로 VM·디스크가 만들어지지 않습니다. 이 거절은 테넌트 게이트(−32006)·QoS SLA(−32602)보다 먼저 옵니다. NIC 없는 VM이 목적이면 `nic_type`을 빼고 `"none"`을 씁니다.
 
 > **직접 할당 안전 경계:** `sriov attach`는 PF와 VF의 IOMMU group을 서버에서 모두
 > 확인한 뒤에만 첫 드라이버 변경을 시작합니다. `sriov detach`는 libvirt의 정확한
@@ -3917,6 +4214,10 @@ curl -sS https://127.0.0.1:8443/api/v1/jobs/<job-id> \
 | `vpc.service.unpublish` | OPERATOR | `publish_id` |
 | `vpc.delete`, `vpc.reconcile` | ADMIN | `vpc_id` 또는 전체 수렴 |
 
+tenant가 없는 비ADMIN 사용자는 VPC 조회도 변경과 같은 오류(`이 작업에는 tenant가 필요합니다`, `-32002`, REST 409)로 거부된다. 빈 목록을 돌려주지 않아 "tenant 없음"과 "VPC 없음"이 구분된다. `auth.user.tenant.set`으로 tenant를 지정하면 풀린다. ADMIN의 전역 조회는 그대로다.
+
+비ADMIN API 키의 주체는 키 이름(`client_name`)이고 tenant는 같은 이름의 사용자에서 읽는다. 그런 사용자가 없는 키는 tenant가 없어 VPC 조회가 같은 오류로 거부되고, `auth.user.tenant.set`도 `-32005`(`User '<이름>' not found`, REST 404)로 실패해 풀리지 않는다. 키 이름과 같은 사용자를 만들고 그 사용자에게 tenant를 지정하면 풀린다.
+
 CLI로 같은 수명주기를 실행할 수 있습니다.
 
 ```bash
@@ -3997,6 +4298,11 @@ echo '{"jsonrpc":"2.0","method":"vpc.service.publish","params":{
   local IPv4를 명시합니다.
 - 데이터면 actual state가 불일치하면 데몬은 listener를 열기 전에 quarantine을 적용하며,
   `vpc.status`의 `reconcile_required`와 각 resource의 `last_error`를 확인해야 합니다.
+- OVN 쪽 실패의 범위는 그 VPC입니다. NB 장애나 준비 미달이면 해당 OVN VPC만 `DEGRADED`가 되고 host edge가
+  내려가며, Linux VPC는 계속 수렴하고 데몬도 기동합니다. 다만 NB 장애 동안에는 OVN VPC가 있는 호스트의 VPC 변경
+  API가 Linux VPC 대상이어도 실패합니다. 이 실패는 Linux 방화벽을 건드리기 전에 나므로 Linux VPC 트래픽은 끊기지 않으며,
+  먼저 ACL을 건 다른 OVN VPC만 되돌릴 때까지 잠깐 끊길 수 있습니다. 외부에서 Port_Group이 지워졌는데 `ACTIVE` attachment가 있는 VPC는 다른 VPC 변경을 막지 않고 그 VPC만 `DEGRADED`가 되며 host edge가 내려갑니다. 그 VPC 자신을 대상으로 한 변경은 같이 `DEGRADED`가 되고 실패로 돌아옵니다. `vpc reconcile`이 복구합니다. 생성에 실패해 `DEGRADED`·`CREATING`으로 남은 VPC는
+  NB 복구 뒤 `vpc delete`로 지우거나 `vpc reconcile`로 복구합니다. Linux 방화벽 적용 실패는 지금도 전체 bridge DOWN입니다.
 
 Linux Local VPC backend와 데이터면은 실제 VM·패킷 효과 검증을 완료했습니다. 전용 CLI는
 17개 action과 create/list/get/delete terminal 왕복을 검증했습니다. 선택형 OVN backend
@@ -4007,6 +4313,107 @@ Publish, 관리면 차단, daemon restart, schema migration과 cleanup을 검증
 Network Flow/IPFIX
 collector, VPC peering, Floating IP pool, live attachment와 다중 노드 router는 이번 Local
 VPC 범위에 포함되지 않습니다.
+
+#### 6.12.1 관리 대역 보호와 콘솔 복구
+
+VPC subnet을 만들 때 호스트가 응답하는 **관리 PC 대역**을 가리면 그 PC와의 연결이 끊깁니다.
+호스트의 그 대역행 응답이 VPC 브리지로 가기 때문입니다. 이를 막기 위해 데몬은 요청마다
+**예약 대역**을 계산합니다 — `[vpc] reserved_cidrs`에 적은 대역과, 지금 관리 포트(`[vpc] mgmt_ports`,
+기본 `22,80,443`과 REST 포트)에 ESTABLISHED로 붙어 있는 사설(RFC1918·100.64.0.0/10) 관리 피어의 `/32`입니다.
+
+- OPERATOR가 예약 대역과 겹치는 subnet을 만들면 접수 전에 −32006으로 거절합니다(Job 없음).
+- ADMIN은 만들 수 있지만 경고가 나오고, `confirm_timeout_sec`(기본 120초) 안에
+  `pcvctl vpc subnet-confirm <subnet_id>`를 보내지 않으면 **자동 원복**(subnet 삭제, 첫 subnet이면
+  VPC까지)됩니다. 확인 대기 중인 subnet에는 VM을 연결할 수 없습니다.
+- 확인 대기 항목은 `/var/lib/purecvisor/vpc_confirm_pending.json`(0600)에 남아, 데몬을 재시작하거나
+  재부팅해도 기동 때 원복됩니다. UI로 만든 ADMIN은 확인 화면이 없어 대기 시간 뒤 subnet이 사라집니다.
+
+| 오류 | 뜻 | 조치 |
+|---|---|---|
+| −32006 `Permission denied: subnet CIDR overlaps a reserved host management range` | OPERATOR 요청이 예약 대역과 겹침 | 다른 대역을 쓰거나 ADMIN에게 요청. 예약 대역 계산 실패도 같은 문구로 거절(fail-closed) |
+| −32005 `no pending confirmation for this subnet` | 확인할 대기 항목 없음 | 이미 확인·원복됨. `pcvctl vpc subnet-list <vpc>`로 상태 확인 |
+| −32002 `subnet auto-revert in progress` | 자동 원복이 진행 중이라 확인할 수 없음 | 원복이 끝난 뒤 `pcvctl vpc subnet-list <vpc>`로 상태 확인. 원복이 실패하면 다시 확인 대기로 돌아가 확인할 수 있음 |
+| −32002 `subnet is awaiting confirmation — run vpc.subnet.confirm first` | 확인 대기 subnet에 VM 연결 시도 | `pcvctl vpc subnet-confirm <subnet_id>` 뒤 연결 |
+| −32602 (cidr) | 정규 표기가 아닌 cidr | 이제 접수 전에 동기로 거절(이전에는 접수 뒤 실패 Job) |
+
+설정(`/etc/purecvisor/daemon.conf`의 `[vpc]`, 모두 선택):
+
+| 키 | 기본 | 뜻 |
+|---|---|---|
+| `reserved_cidrs` | 빈 값 | 항상 보호할 대역(쉼표). **지금 붙어 있지 않은 관리 PC 대역은 여기에 적어야 합니다.** 정규 CIDR이 아닌 항목은 버리고 경고 |
+| `mgmt_ports` | `22,80,443` | 관리 피어를 찾을 지역 포트(`[server] rest_port`는 자동 포함) |
+| `confirm_timeout_sec` | 120 | ADMIN 확인 대기 시간, 허용 5–3600(밖이면 120) |
+
+**콘솔 복구 절차** — 특정 대역과만 연결이 안 되고 그 대역의 게이트웨이에는 닿을 때, 호스트 콘솔에서:
+
+1. 증상을 확인합니다. 특정 대역(관리 PC 쪽)과만 불통이고 같은 대역의 게이트웨이는 닿습니다.
+2. `ip route get <관리 PC 주소>`가 `dev pcvse…`처럼 **VPC 브리지**를 가리키는지 봅니다.
+3. `ip -br addr show type bridge`로 그 브리지에 걸린 게이트웨이 주소(관리 대역과 겹치는 주소)를 확인합니다.
+4. 지웁니다.
+   - (가) 데몬이 살아 있으면: `pcvctl vpc subnet-list <vpc>` → `pcvctl vpc subnet-delete <subnet_id>`
+     (VPC째 지우려면 `pcvctl vpc delete <vpc>`).
+   - (나) 데몬이 기동 때 다시 세우면: `touch /etc/purecvisor/vpc-reconcile.skip`(root 소유 일반 파일이어야 함)
+     뒤 재부팅하거나 `systemctl restart purecvisorsd`합니다. 기동 로그에
+     `VPC reconcile skipped by /etc/purecvisor/vpc-reconcile.skip — remove it after console recovery`가
+     나오고 VPC 재적용이 건너뛰어집니다. 기동 뒤 (가)로 subnet을 지우고, 플래그를 지운 다음
+     `pcvctl vpc reconcile`로 나머지를 수렴시킵니다. 플래그는 데몬이 지우지 않습니다.
+5. 임시로 관리 경로만 살리려면 `ip route add <관리 PC 주소>/32 via <기본 게이트웨이> dev <장치>`를 추가합니다
+   (복구 뒤 `ip route del`로 지웁니다).
+6. 예방: `[vpc] reserved_cidrs`에 관리 PC 대역을 적습니다. 확인 대기 경고가 오면 의도한 subnet일 때만
+   120초 안에 `pcvctl vpc subnet-confirm <subnet_id>`를 보내고, 아니면 그대로 두어 원복시킵니다.
+
+**VPC 재적용 건너뛰기 조건** — 다음 넷 중 하나면 데몬은 그 기동에서 VPC를 재적용(reconcile)하지 않고
+경고와 감사 `vpc.reconcile.skip`을 남깁니다(`vpc.status`의 `boot_reconcile_skipped`가 true). 건너뛴 기동에서는
+`pcvctl vpc reconcile`(ADMIN)을 실행하기 전까지 VPC가 내려가 있습니다.
+
+| 기동 로그(WARN) | 원인 | 조치 |
+|---|---|---|
+| `VPC reconcile skipped by /etc/purecvisor/vpc-reconcile.skip — remove it after console recovery` | 유효한 플래그 | 복구 뒤 플래그 삭제 → `pcvctl vpc reconcile` |
+| `VPC reconcile skipped: confirm ledger unreadable — fix access to <원장 경로> (do not delete it), …` | 원장 파일을 읽지 못함(권한·I/O) | **원장을 지우지 말고** 접근을 고친 뒤 데몬 재시작 또는 `pcvctl vpc reconcile` |
+| `VPC reconcile skipped: confirm ledger was unreadable — inspect and remove <….corrupt-…>, …` | 깨진 원장이 `.corrupt-*`로 옮겨져 남아 있음(**지울 때까지 매 기동**) | 아래 `.corrupt-*` 순서 |
+| `VPC reconcile skipped: auto-revert failed for <n> pending subnet(s) — fix the cause and run vpc.reconcile` | 기동 원복 실패(원복은 30초 간격 3회까지 재시도) | 원인(예: OVN NB 미준비)을 고친 뒤 `pcvctl vpc reconcile` |
+
+`.corrupt-*` 처리 순서: ① 파일 내용을 확인합니다(어떤 subnet이 확인 대기였는지). ② 위험 subnet이 남았는지
+`pcvctl vpc subnet-list <vpc>`로 보고 필요하면 지웁니다. ③ `.corrupt-*` 파일을 삭제합니다.
+④ `pcvctl vpc reconcile`을 실행합니다.
+
+#### 6.12.2 테넌트 주소 풀
+
+OPERATOR가 만드는 VPC subnet은 **ADMIN이 그 테넌트에 배정한 주소 풀 안**에서만 만들어집니다. 풀은 테넌트마다
+CIDR 목록이고, subnet 대역 하나가 풀의 CIDR 하나에 **완전히** 들어가야 합니다. ADMIN의 요청에는 풀 판정이 없습니다.
+풀로 쓸 수 있는 대역은 subnet 생성이 받는 IPv4 공간(RFC1918과 `100.64.0.0/10`)에서 정규 표기이면서 그 블록 하나에
+들어가는 대역입니다(`10.0.0.0/7`처럼 블록 밖으로 걸치거나 정규 표기가 아닌 값은 −32602). `pool-set` 목록
+안에서 같은 값이 반복되거나 서로 포함·걸치면 거절되고(−32602), `vpc_pool` 일괄 등록에서는 이미 풀에 있는 같은 값이 한 항목으로
+합쳐지며(멱등) 기존 풀 대역을 포함하거나 걸치는 값은 거절됩니다.
+
+**ADMIN 절차**
+
+- 배정: `pcvctl vpc pool-set <tenant> <cidr>[,<cidr>…]` — 목록을 **통째로 교체**합니다. 빈 값 `""`이면 풀을 비웁니다.
+- 조회: `pcvctl vpc pool-list [--tenant <tenant>]` — 테넌트와 CIDR 목록. `--tenant` 없이는 풀이 있는 모든 테넌트를 보입니다.
+- 결과의 `warnings`: 다른 테넌트의 풀(`overlaps pool of tenant <t>: <cidr>`)이나 예약 대역(6.12.1,
+  `overlaps reserved management range: <cidr>`)과 겹치면 **막지 않고 알립니다**. 의도한 배정인지 확인하세요.
+- 지금 쓰는 대역 확인: `pcvctl resource unregistered --tenant <tenant> --json`의 `vpc_subnets`는 그 테넌트 풀 밖에 있는
+  기존 subnet(`tenant`·`vpc_id`·`vpc_name`·`cidr`)을 보입니다(`--tenant`로 거르지 않으므로 항목의 `tenant`를 보고 검토합니다). 그 항목을 `{"kind":"vpc_pool","tenant":"<t>","cidr":"<c>"}`로
+  바꿔 `resource.import`하면 풀에 **합쳐집니다**(교체가 아니며 되풀이해도 같습니다). 지금 `vpc_pool` import는 UDS RPC로만
+  됩니다 — `pcvctl resource import` 파일은 `vpc_pool` 항목의 `tenant`·`cidr`를 나르지 못합니다.
+
+| 오류 | 뜻 | 조치 |
+|---|---|---|
+| −32006 `Permission denied: subnet CIDR is outside this tenant's address pool` | OPERATOR 요청 대역이 자기 테넌트 풀 밖이거나 풀이 비어 있음(풀을 읽지 못해도 같은 문구, fail-closed). 풀·요청 값은 알려 주지 않음 | ADMIN에게 풀 배정을 요청하거나 풀 안 대역을 쓴다 |
+| −32006 `Permission denied: subnet CIDR overlaps a reserved host management range` | 풀 안이지만 예약 대역(6.12.1)과 겹침. 풀 판정이 **먼저**이고 그다음에 예약 판정입니다 | 다른 대역을 쓰거나 ADMIN에게 요청 |
+| −32002 `이 작업에는 tenant가 필요합니다` | 테넌트가 없는 비ADMIN의 VPC 변경·조회 | ADMIN이 `pcvctl auth tenant <user> <tenant>` |
+| −32002 `pool change would leave subnets outside the pool: <cidr>[, …]` | `pool-set`이 그 테넌트가 이미 쓰는 subnet을 풀 밖으로 밀어냄(**축소 거부**, 저장되지 않음). cidr를 읽을 수 없는 subnet도 밖으로 셈 | 풀에 그 대역을 포함하거나, 먼저 그 subnet을 지운다 |
+| −32602 `cidrs[N] must be a canonical private IPv4 network (RFC1918 or 100.64.0.0/10): <값>` 등 | 형식·허용 공간 위반, 같은 목록 안 중복·겹침(`cidrs must not repeat or overlap each other`) | 값을 고친다. 아무것도 바뀌지 않음 |
+
+테넌트는 서버가 정합니다 — RBAC 사용자 테넌트이고, gRPC는 설정 `[grpc] tenant`(없으면 테넌트 없음)입니다. REST 본문의
+`_pcv_caller_tenant`는 서버가 지웁니다. 테넌트 없는 비ADMIN과 테넌트 이름 규칙을 어긴 옛 계정(테넌트 없음으로 봅니다)은
+VPC 목록·조회도 −32002 `이 작업에는 tenant가 필요합니다`(REST 409)로 거절됩니다(6.12). 두 RPC(`vpc.pool.set`·`vpc.pool.list`)는
+ADMIN 전용입니다.
+
+**업그레이드(2.0.4 이하 → 2.1.0)** — VPC를 쓰는 테넌트의 OPERATOR는 업그레이드 직후 풀이 비어 있어 **새 subnet을 만들 수 없습니다**.
+기존 subnet과 VPC는 그대로 동작합니다. 위 절차로 `vpc_subnets`를 확인하고 풀을 배정하세요(10.2.1 단계 6).
+풀과 자원 등록은 2.1.0에서 새로 생기는 `resource_registry.db`(`user_version` 2)에 저장됩니다. 2.0.4 이하는 이 파일을 쓰지 않으므로
+되돌리면 테넌트 주소 풀과 호스트 자원 경계가 적용되지 않습니다. 파일은 지우지 말고 보존합니다 — 다시 올리면 그대로 열립니다.
 
 ## 8. 모니터링 & 알림
 
@@ -4045,6 +4452,10 @@ curl -s http://127.0.0.1:8080/api/v1/metrics
 # 특정 메트릭 필터
 curl -s http://127.0.0.1:8080/api/v1/metrics | grep purecvisor_cb_state
 ```
+
+#### 모니터 화면의 IP 출처
+
+`monitor.fleet`은 VM IP를 다음 순서로 찾고 찾은 곳을 `ip_source`로 알린다: libvirt DHCP lease(`lease`) → 게스트 에이전트 캐시(`guest-agent`) → dnsmasq lease 파일(`lease-file`) → 호스트 ARP 표(`arp`, 완성된 항목만). 에이전트 IP는 메인 루프 밖에서 조회하므로 처음에는 보이지 않다가 한 폴링 주기 늦게 나타날 수 있다(§3.7). 첫 NIC가 direct 방식인 멀티 NIC VM은 lease 파일 단계에서 놓칠 수 있다.
 
 ### 8.2 프로세스 모니터
 
@@ -4259,6 +4670,10 @@ AND/OR 조건으로 최대 8개 조건을 조합한 복합 알림 규칙을 생�
 
 웹훅 발송 실패 시 DLQ에 최대 1000건까지 보관하며, 재시도 가능하다.
 
+웹훅 URL은 자격 증명으로 다룬다. DLQ 조회(`webhook.dlq.list`·`alert.dlq.list`)와 재전송(`webhook.dlq.retry`)은 ADMIN 전용이다. `alert.config.get`·`alert.action.list`·`vm.event.webhook.list`는 ADMIN에게만 원문을 주고 VIEWER·OPERATOR에게는 scheme+host만 준다(키 이름과 형식은 같다). 시작·재시도·실패 로그에도 scheme+host만 남고, URL이 든 REST 요청 본문은 로그에서 가린다.
+
+`webhook.dlq.retry`는 한 번 호출에 항목 **100개, 총 60초**까지만 다시 보낸다(데몬이 종료 중이면 중단). 상한에 걸리면 남은 항목은 DLQ에 그대로 두고 결과에 `remaining`(남은 건수)과 `capped`(`true`면 상한에 걸림)를 담는다 — 기존 `retried`·`succeeded`·`failed`는 그대로다. `capped`이면 같은 호출을 다시 하면 이어서 보낸다. 오래 걸릴 수 있어 클라이언트 대기 시간이 늘었다: REST 70초, CLI 70초, 웹 UI 75초. ADMIN 호출이 겹치면 순서대로 처리된다.
+
 ### 8.10 Prometheus 연동
 
 ```yaml
@@ -4275,6 +4690,10 @@ scrape_configs:
 ```
 
 Grafana 대시보드: `192.0.2.61:3000` (Example Operations 통합 대시보드)
+
+`[metrics] auth`는 `/metrics`·`/internal/vms`·`/internal/telemetry`·`/health/recent-errors` 넷을 함께 다룹니다. 기본 `loopback`은 호스트에서 데몬 평문 리스너(`127.0.0.1:8080`)로 곧장 온 요청(전달 헤더 없음)만 무인증으로 받고, 원격·nginx 경유 요청에는 토큰을 요구합니다. `required`는 언제나 토큰, `none`은 언제나 무인증(기동 경고)이며 그 밖의 값은 `required`로 봅니다. 원격 Prometheus는 가장 낮은 권한의 API 키(RPC/REST `auth.apikey.create`에 `role: 0`을 명시 — 생략하면 role 1(OPERATOR)이고 `pcvctl`에는 이 명령이 없습니다)를 `authorization: { type: Bearer, credentials_file: … }`로 보냅니다. 전달 헤더를 붙이지 않는 사용자 정의 프록시 뒤 요청은 직접 로컬로 보이므로 그런 프록시는 쓰지 않습니다.
+
+`purecvisor_mainloop_stalls_total{level="warn"}`·`{level="crit"}`는 메인 루프 정지 감지 횟수(counter)입니다. 평소 0이 정상이고, 늘면 17.1절의 정지 로그와 `current RPC`를 봅니다.
 
 ### 8.11 WebSocket 메트릭 Push (v1.0)
 
@@ -4299,6 +4718,9 @@ ws.onmessage = (e) => {
 - **report**: `debug.trace.report`는 수집 결과에서 병목·drop 지점을 분석해 돌려줍니다.
 
 retis가 설치되어 있지 않거나 self-check에 실패하면 시작 요청은 명시 오류를 반환합니다.
+overlay의 `nsenter` 내부는 중앙 launcher의 고정 PATH(`/usr/sbin:/usr/bin:/sbin:/bin`)를 사용합니다.
+같은 Retis binary가 이 경로에서도 실행 가능해야 합니다. usr/local-only 설치의 native self-check
+성공은 overlay 실행 가능성을 증명하지 않으며 해당 exit 127 실패를 별도로 확인해야 합니다.
 
 **종료 요청과 완료(ADR-0064, 2026-10-08 공개 소스 반영)**: `debug.trace.stop`의
 `stopped=true`는 요청 접수 의미이며 `stop_requested=true`도 반환합니다. 회수 대기 중
@@ -4307,7 +4729,8 @@ status는 `state=running, stop_requested=true`이고 동시 1개 가드와 `.run
 완료됩니다. RPC 접수 감사 자체는 캡처 완료 증거로 사용하지 않습니다.
 대기 중 같은 id의 stop은 멱등 접수, 완료 뒤에는 NOT_FOUND입니다.
 wait 확인 실패는 완료로 추정하지 않고 running·마커·가드와 warning을 유지합니다.
-실제 Retis·독립 리뷰·main 반영·지정 노드 인수·배포/원복은 남아 있습니다.
+**수집 권한**: 수집 호출만 keep-5+BPF+SYSLOG capability를 사용하며 일반 child와 daemon Effective
+capability는 그대로 유지합니다.
 
 > **RPC 전용(2.0)**: `debug.trace.*` 네임스페이스는 전용 REST 경로·CLI 서브커맨드·UI 페이지가 없습니다. `POST /api/v1/rpc` JSON-RPC 패스스루(또는 UDS 직접 `nc -U`)로만 호출하며, 5개 메서드 모두 ADMIN 권한이 필요합니다(전 테넌트 트래픽 관찰 표면).
 
@@ -4440,6 +4863,10 @@ Guest Agent가 설치된 VM에서 `fsfreeze --freeze` / `--thaw`를 통해 파�
 
 백업 완료 후 `zfs list` 명령으로 스냅샷 존재 여부와 크기를 검증한다.
 
+### 9.3a 복원(`backup.restore`) 잠금과 재기동
+
+다른 작업 중인 VM은 `-32004`(BUSY)로 바로 거절한다. 원래 켜져 있던 VM은 정식 `vm.start`로 다시 켜고 그 결과로 작업이 끝난다.
+
 ### 9.4 GTask 비동기 (v1.0)
 
 백업 작업은 GTask 스레드에서 비동기 실행되어 메인 GMainLoop를 블로킹하지 않는다. fire-and-forget 패턴:
@@ -4451,6 +4878,32 @@ Guest Agent가 설치된 VM에서 `fsfreeze --freeze` / `--thaw`를 통해 파�
 ### 9.5 원격 ZFS 복제 (범위 밖)
 
 원격 노드 증분 복제는 Multi 제어면과 연결되는 범위이므로 Single Edge 공개판의 운영 절차로 제공하지 않는다. Single Edge에서는 로컬 ZFS snapshot, 로컬 백업 정책처럼 단일 노드에서 검증 가능한 백업 경로를 우선 사용한다.
+
+RPC(`backup.replicate`)를 직접 쓰는 경우 대상 노드의 SSH 호스트 키를 먼저 등록해야 한다(2.1.0). 복제 ssh는
+`StrictHostKeyChecking=yes`와 복제 전용 `/var/lib/purecvisor/replication_known_hosts`만 쓰며 `/root/.ssh/*`,
+`/etc/ssh/ssh_config`, 전역 known_hosts는 읽지 않는다. 등록·조회·삭제는 ADMIN 전용이다.
+
+```bash
+pcvctl backup hostkey scan node-b                 # 키 형식·지문·상태(untrusted|trusted|mismatch)
+# 원격 콘솔에서: ssh-keygen -lf /etc/ssh/ssh_host_ed25519_key.pub  → 지문을 눈으로 대조한다
+pcvctl backup hostkey trust node-b SHA256:<지문>   # 서버가 다시 스캔한 지문과 같을 때만 등록
+pcvctl backup hostkey list
+pcvctl backup hostkey remove node-b               # 원격 재설치로 키가 바뀌면 remove → 대조 → trust
+```
+
+| 코드 | 이름 | 의미 |
+|------|------|------|
+| -32012 | HOSTKEY_UNTRUSTED | 대상에 등록된 키가 없다 — `backup.replicate`는 Job 없이 거절된다 |
+| -32013 | HOSTKEY_MISMATCH | 대상이 보인 키가 기대한 키와 다르다 — trust에서는 RPC 오류, replicate에서는 `accepted` 뒤 Job 실패(`jobs.get` 결과의 `error_code`) |
+
+- 키가 바뀌었으면 Job은 어떤 원격 명령·전송보다 먼저 실패한다(전송 0바이트). 연결 불가는 지금처럼 일반 Job 실패다.
+- 업그레이드 직후에는 등록 파일이 비어 있어 모든 복제가 −32012로 거절된다(유예 스위치 없음). 대상마다 위 절차를 한 번 한다.
+  `/root/.ssh/known_hosts`의 기존 키는 가져오지 않는다.
+- IP와 호스트명은 서로 다른 대상이다(대소문자는 무시). 스캔은 인증되지 않은 채널이므로 대조 없이 trust하지 않는다.
+- `ssh-keyscan`이 없으면 scan·trust가 −32000(`ssh-keyscan not found`)으로 실패한다. replicate는 쓰지 않는다.
+- 등록 파일(`replication_known_hosts`)은 데몬이 쓰고 데몬이 읽는 단일 정본이다. 손으로 편집하는 것은 지원하지 않는다 —
+  ssh는 모듈이 무시하는 줄(같은 대상의 둘째 줄, 주석이 붙은 4필드 줄, 대소문자가 다른 항목)도 일치로 볼 수 있어 모듈의 판정과 어긋난다.
+  키를 바꿀 때는 `remove` → `trust`를 쓴다.
 
 ### 9.6 원격 보존 정책 (v1.0)
 
@@ -4518,9 +4971,51 @@ curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/vms
 ```
 
+#### 로그아웃 (세션 단위)
+
+`POST /api/v1/auth/logout`은 본문 `refresh_token`이 가리키는 세션 하나만 폐기한다. 같은 계정의 다른 브라우저·탭과
+직후 재로그인 세션은 살아남는다. Bearer access를 함께 보내면 그 access도 즉시 무효화한다(그 사용자의 세션일 때만 폐기).
+
+| Bearer | 본문 `refresh_token` | 결과 |
+|------|------|------|
+| 유효 | 그 사용자의 활성 refresh | 200 `scope:"session"`, `session_revoked:true` |
+| 유효 | 회전·폐기·만료됐거나 다른 사용자의 refresh | 200 `scope:"session"`, `session_revoked:false`(access만 무효화) |
+| 유효 | 없음 | 200 `scope:"access"` — 세션은 남는다(전체 폐기는 `/auth/logout/all`) |
+| 없음·무효 | 활성 refresh | 200 `scope:"session"`, `session_revoked:true` |
+| 없음·무효 | 없음 또는 비활성 | 401 |
+| 무관 | 문자열이 아니거나 빈 값, 깨진 JSON | 400 |
+
+로그아웃 두 경로는 Bearer `pcv_` API 키·`X-API-Key`를 세션 판정에 쓰지 않는다(키 단독 401).
+
+`POST /api/v1/auth/logout/all`은 그 사용자의 refresh 세션을 전부 폐기한다(유효 Bearer 또는 활성 refresh로 신원 확인,
+`scope:"all"`). 다른 곳에 이미 발급된 access는 만료(최대 15분)까지 유효하다. Web UI 상단의 '모든 기기' 버튼이 이 경로를
+부른다. refresh는 탭의 sessionStorage에 있으므로 '로그아웃'은 이 탭의 로그인만 끝낸다.
+
+```bash
+curl -s -X POST http://127.0.0.1:8080/api/v1/auth/logout \
+  -H "Authorization: Bearer $TOKEN" -d "{\"refresh_token\":\"$REFRESH_TOKEN\"}"
+curl -s -X POST http://127.0.0.1:8080/api/v1/auth/logout/all -H "Authorization: Bearer $TOKEN"
+```
+
+Bearer만 보내던 스크립트는 이제 access만 무효화된다(`scope:"access"`). 전체 폐기가 필요하면 `/auth/logout/all`을 쓴다.
+
 #### PBKDF2-SHA256 패스워드 해싱 (v1.0)
 
 100,000 iterations + 32바이트 랜덤 salt. 기존 평문 패스워드는 첫 로그인 시 자동 마이그레이션된다.
+
+#### 로그인 실패와 잠금
+
+`POST /auth/token`의 실패 응답은 계정이 있든 없든 같습니다. 없는 계정도 비밀번호 지문을 현재 반복수만큼 계산한 뒤 같은 문구(`401 Invalid credentials`)로 답하고, 저장 형식이 옛것인 계정의 실패도 같은 비용으로 맞춥니다. 실제 사유(`user not found`)는 감사 행과 운영 로그에만 남습니다.
+
+| 축 | 규칙 | 응답 |
+|----|------|------|
+| 같은 이름 연속 실패 5회 | 다섯 번째 실패부터 잠금. 잠금 시간은 30초 → 60초 → 5분 → 1시간으로 늘고, 성공하면 처음으로 돌아갑니다. **계정이 없는 이름도 똑같이 잠깁니다** | `429`, `Retry-After` |
+| 같은 IP 실패 20회 | 300초 동안 그 IP의 로그인을 비밀번호 확인 전에 거절합니다 | `429`, `Retry-After` |
+
+- 잠금 기록은 메모리에만 있어 데몬을 다시 시작하면 사라집니다. 이름 기록과 IP 기록은 각각 4,096개까지입니다. 가득 차면 지금 잠기지 않은 기록 중 가장 오래된 것부터 지우고, 모두 잠겨 있으면 새 항목을 기록하지 않으며 `Login attempt table (name|IP) is full of locked entries` WARN을 1분에 한 번 남깁니다. 잠긴 기록은 지우지 않습니다.
+- 없는 이름이 잠긴 동안 그 이름으로 계정을 만들면 남은 잠금 시간만큼 로그인이 429입니다.
+- 관리자 행이 없는 부트스트랩 이름도 같은 잠금을 거칩니다. 잠겨도 복구 안내 로그(`bootstrap fallback refused`)와 감사 `auth.bootstrap.fallback`은 시도마다 남고, 응답만 401에서 429로 바뀝니다.
+- 비밀번호 계산은 REST 스레드 밖의 전용 스레드 2개에서 돕니다. 로그인이 몰려도 화면 파일과 다른 API는 늦어지지 않고, 데몬이 로그인 계산에 쓰는 CPU는 약 2코어로 묶입니다. 계산 중이거나 줄 선 로그인이 12건이면 그다음 요청은 비밀번호를 확인하지 않고 바로 `429 Login service is busy`와 `Retry-After: 2`로 답합니다. 이 응답은 이름과 무관하고 잠금 카운터에 세지 않습니다. 줄이 빠지면 정상 로그인은 그대로 됩니다. 넘친 동안 `login worker pool is full` WARN이 1분에 한 번 남습니다.
 
 #### TOTP 2FA (2단계 인증)
 
@@ -4602,6 +5097,8 @@ operator의 VM 단일 대상 action은 libvirt domain metadata의 `pcv:owner`와
 - VM NIC 추가/제거(`device.nic.attach`, `device.nic.detach`)는 operator에게 열려 있지만, 자기 VM이 아니면 owner-scope에서 403으로 거부된다.
 - `vm.clone`은 [ADR-0023](../docs/adr/0023-vm-clone-beta-safety-guard.md)에 따라 source VM owner-scope를 통과한 operator와 admin에게 열려 있으며, source VM `shut off` 상태와 준비된 템플릿 확인 또는 libguestfs 기반 guest reset 경로를 요구한다.
 - `vm.batch`는 요청에 포함된 모든 VM owner가 호출자와 일치할 때만 실행한다.
+- `vm.batch start`는 VM을 한 대씩 차례로(앞 VM의 시작이 끝난 뒤 다음) 정식 `vm.start` 경로로 시작하며 같은 이름은 `duplicate`로 거절한다. 대수만큼 시간이 더 걸린다. `vm.batch stop`은 정상 종료(최대 30초 뒤 강제)를 풀 크기에 맞춘 상한(최대 4대)씩 진행하며, 이 상한 K(`MIN(4, pool_max_conn−1)`)는 요청마다가 아니라 **프로세스 전역**이다. `vm.batch stop` 요청이 여러 개 겹쳐도 합산 K대 이하로 정지하고, 겹친 요청은 거절되지 않고 교대로 진행되어 늦게 끝난다(응답은 즉시). 또 VM별 작업 잠금은 차례가 올 때 얻는다. 그때 다른 작업 중인 VM은 응답 `rejected`가 아니라 `vm.stop` 감사 기록(fail)로 남는다(2.1.0).
+- 같은 VM을 이름으로 요청하든 UUID로 요청하든 같은 작업 잠금으로 서로 배제되며, 거절 메시지는 VM 이름을 쓴다(`VM '<이름>' is already locked (op: …, pid: …)`). 잠금 거절 오류 코드는 RPC마다 이전과 같다(2.1.0).
 - owner metadata가 없는 기존 VM은 operator action이 거부된다. 소유권 정리와 복구는 admin 경로에서 처리한다.
 
 #### Bootstrap admin과 전용 admin
@@ -4619,9 +5116,11 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 
 비밀번호 변경은 새 해시·salt 저장과 기존 **refresh 세션 폐기**를 하나의 DB 트랜잭션으로 처리합니다. 어느 단계든 실패하면 전체 변경을 취소합니다. 이미 발급된 access 토큰은 원래 만료까지 최대 15분 유효하며, 현재 브라우저는 변경 후 다시 로그인합니다. 등록된 bootstrap admin에도 TOTP 확인·역할별 등록 의무가 동일하게 적용됩니다.
 
-> **초기 설정값 정리(선택)**: 전용 admin의 정상 로그인을 확인한 뒤 `admin_password=`를 비우면 설정에 평문 비밀번호를 남기지 않을 수 있습니다. 이는 새 bootstrap 생성과 DB 부재 시 fallback을 중지하며, **이미 생성된 계정을 삭제하거나 비활성화하지 않습니다**. 비밀번호를 분실한 기존 계정은 설정값을 다시 넣고 재시작해도 초기화되지 않습니다. DB 직접 UPDATE 대신 정상 로그인 상태에서 위 변경 API를 사용합니다.
+> **초기 설정값 정리(선택)**: 전용 admin의 정상 로그인을 확인한 뒤 `admin_password=`를 비우면 설정에 평문 비밀번호를 남기지 않을 수 있습니다. 이는 새 bootstrap 생성(기동 때 `admin_password`로 관리자 행을 시딩)을 중지하며, **이미 생성된 계정을 삭제하거나 비활성화하지 않습니다**. 예전에 있던 "DB에 계정이 없을 때 설정값으로 비상 토큰을 발급하는 fallback"은 없어졌습니다(아래 "사용자 삭제와 인증 수단"). 비밀번호를 분실한 기존 계정은 설정값을 다시 넣고 재시작해도 초기화되지 않습니다. DB 직접 UPDATE 대신 정상 로그인 상태에서 위 변경 API를 사용합니다.
 >
 > **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 `chmod 600 root:root`** 여야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
+
+> **사용자 삭제와 인증 수단**: 사용자를 삭제하면 그 사용자의 access 토큰·refresh 세션·대기 중 로그인(pending)·WebSocket·VNC 연결이 즉시 무효가 되고, 열려 있던 WebSocket·VNC 연결은 닫힙니다. 같은 이름으로 다시 만든 사용자는 **다른 계정**이며(사용자마다 신원 세대 값이 따로 있음) 옛 토큰·refresh 세션·TOTP 등록을 물려받지 않습니다. 인증된 요청은 매번 주체가 DB에 있는지와 신원 세대가 맞는지 확인하며, 조회 자체가 실패하면 허용하지 않고 503으로 답합니다(예전의 "없는 사용자는 VIEWER" 폴백은 없습니다). API 키는 사용자 역할이 아니라 **키에 저장된 역할**로 판정하고, 업그레이드 때 저장 역할이 사용자 역할보다 높은 키는 한 번 낮춥니다(올리지는 않으며, 낮춘 키 수는 기동 로그에 남습니다). 부트스트랩 비상 토큰 발급은 중지되었습니다: 관리자 계정이 없으면 `pcvctl auth create`(UDS)로 만들거나 데몬을 재기동해 `admin_password`로 다시 시딩합니다. 이 변경을 반영한 뒤에는 모든 사용자가 **한 번 다시 로그인**해야 합니다(옛 refresh 세션은 이관 때 폐기됨).
 
 per-user 쿼터 (v1.0): 사용자별 VM 수, CPU 코어, 메모리 상한 설정 가능.
 
@@ -4639,6 +5138,70 @@ echo '{"jsonrpc":"2.0","method":"auth.user.create","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
 
+사용자 이름은 자원 경계 이름 규칙 `[A-Za-z0-9][A-Za-z0-9._-]{0,62}`(첫 글자 영숫자, 이후 영숫자·`.`·`_`·`-`, 63자 이하)를 따라야 합니다. `auth.user.create`는 이 규칙을 어긴 이름을 `-32602`로 거절합니다(`auth.user.tenant.set`의 테넌트 이름 규칙과 같은 집합). 자가 등록 `auth.register`는 자체 규칙(3–32자 소문자 영숫자·`_`)을 그대로 쓰고, 부트스트랩 `admin_user`는 영향받지 않습니다. 이미 만들어진 비규칙 이름 계정은 계속 동작하지만, 규칙에 맞게 고치려면 삭제 후 재생성해야 합니다(덮어쓰기 경로는 없습니다). 재생성 계정은 새 신원 세대를 받아 옛 토큰·세션·TOTP 등록을 물려받지 않고 테넌트·소유 범위도 초기화됩니다.
+
+`auth create`의 비밀번호, `container env-set`의 값, `alert set --webhook`의 URL은 입력을 되풀이하는 출력(`--verbose`의 요청·응답 줄, `--batch`의 되풀이·실패 줄, 오류 안내)과 REPL 이력에 남지 않습니다. 예외로 `--format=json`은 사용자가 고른 원문 출력이라 `alert set`의 응답을 그대로 찍어 URL이 보이고, `alert config`도 ADMIN에게 URL 원문을 보여 줍니다. 또 명령줄 인자이므로 실행 중에는 같은 호스트의 `ps`에, `sudo`로 실행하면 sudo 로그에, 값을 직접 치면 셸 이력에 보일 수 있습니다. 위처럼 환경변수로 넘기고 공유 호스트에서는 REST(`POST /api/v1/auth/users`)를 씁니다.
+
+REST에서 자기 역할을 바꾸는 `auth.role.set`은 거부된다(`-32602`, HTTP 400, 감사 `denied` 1행). 자기 권한을 스스로 올리지 못하게 하기 위해서다. 다른 ADMIN 계정이나 UDS(`pcvctl auth role`)로 바꾼다.
+
+#### 10.2.1 호스트 자원 등록과 테넌트 허용
+
+ADMIN이 아닌 계정(OPERATOR·VIEWER)은 요청에 넣는 **호스트 자원 참조**를 자기 **테넌트**에 허용된 등록 항목으로만 쓸 수 있다. 경로·장치 주소는 지금처럼 넘기고, 데몬이 그 값이 허용 항목과 맞을 때만 받아들인다. ADMIN은 그대로다(값을 판정하지 않고 원문을 쓴다). 설정 기본 저장 위치(`[storage] image_dir`·`zvol_pool`)와 기본 브리지(`[network] default_bridge`, 생략 기본 `virbr0`)는 등록 없이 모든 테넌트에 허용된다.
+
+| 종류 | 판정하는 요청 값 | 맞는 기준 |
+|---|---|---|
+| `image` | `vm.create` `base_image`, `vm.import.ova` `ova_path` | 링크를 푼 실제 경로가 같고, 등록할 때의 그 파일(파일시스템 id·inode·생성 시각)이다 |
+| `iso` | `vm.create`·`vm.mount_iso` `iso_path` | 위와 같다 |
+| `storage` | `vm.create` `image_dir`·`storage_pool`, `vm.import.ova` `pool` | 등록한 디렉터리·ZFS 데이터셋 아래다(디렉터리는 등록할 때 있어야 한다) |
+| `pci` | `vm.create` `pci_addr` | 정규 표기(`0000:3b:00.1`)가 같다 |
+| `usb` | `vm.usb.attach` `vendor_id`/`product_id` | `vvvv:pppp`가 같다 |
+| `bridge` | `vm.create` `network_bridge`, `device.nic.attach` 브리지, `container.create` `network_bridge` | 이름이 같다 |
+
+- 계정의 테넌트는 `auth.user.create`의 `tenant`다. 테넌트가 비어 있는 계정은 `pcvctl auth tenant <user> <tenant>`로 한 번 정한다(이미 있으면 바꿀 수 없다). 테넌트 이름은 `[A-Za-z0-9][A-Za-z0-9._-]{0,62}`다.
+- 테넌트 없는 OPERATOR는 위 참조를 전혀 쓸 수 없다. 비ADMIN의 `vm.create` `tenant`(tenant-overlay)는 자기 테넌트 이름일 때만 통과한다.
+- gRPC 요청의 테넌트는 `[grpc] tenant`다(설정이 없으면 테넌트 없음, `[grpc] role = admin`이면 ADMIN). REST 본문에 넣은 `_pcv_caller_tenant`는 서버가 지운다.
+- 비ADMIN의 `iso.list`·`sriov.list`·`gpu.list`·`vm.usb.list`·`template.list`·`template.get`은 자기 테넌트에 허용된 항목만 보인다(템플릿은 `iso_path`가 빠진다). 테넌트가 없으면 빈 목록이다.
+- 등록 항목을 쓰는 VM이 있으면 해제(`revoke` — 그 테넌트 소유 VM 기준)·삭제(`unregister` — 모든 VM 기준)가 거절되고 VM 이름이 나온다. ISO를 빼거나 장치·NIC를 떼거나 VM을 지운 뒤 해제한다.
+- 판정을 통과한 비ADMIN의 `base_image`·`ova_path`는 워커가 읽기 전에 등록 때의 그 파일인지 다시 대조한다.
+
+```bash
+# 등록과 허용 (ADMIN)
+pcvctl resource register iso iso-ubuntu /pcvpool/iso/ubuntu-24.04.iso
+pcvctl resource grant iso-ubuntu team-a
+pcvctl resource register storage st-team-a /data/team-a
+pcvctl resource grant st-team-a team-a
+pcvctl resource list --kind iso
+pcvctl resource revoke iso-ubuntu team-a      # 그 테넌트 VM이 쓰면 −32002
+pcvctl resource unregister iso-ubuntu         # 어떤 VM이든 쓰면 −32002
+
+# 테넌트 지정 (비어 있을 때만)
+pcvctl auth tenant alice team-a
+
+# 기존 VM의 미등록 참조 → 검토·편집 → 일괄 등록
+pcvctl resource unregistered --tenant team-a --json > /tmp/resource-import.json
+pcvctl resource import /tmp/resource-import.json
+```
+
+| 오류 | 뜻 | 조치 |
+|---|---|---|
+| −32006 `Permission denied: this account has no tenant — host resource references are disabled until an admin assigns one` | 계정에 테넌트가 없다 | ADMIN이 `pcvctl auth tenant <user> <tenant>` |
+| −32006 `Permission denied: <파라미터> is not a resource allowed for this tenant` | 등록·허용되지 않은 값이다(없는 경로도 같은 응답) | ADMIN이 등록·허용하거나 허용된 값으로 바꾼다 |
+| −32002 `resource '<name>' is in use by VM(s): …` | 해제·삭제할 항목을 VM이 쓰는 중이다 | 그 VM에서 떼거나 VM을 지운 뒤 다시 한다 |
+| −32002 `tenant already set — moving a user between tenants is not supported` | 이미 테넌트가 있는 계정이다 | 테넌트 이동은 지원하지 않는다 |
+| −32002 `resource name '<name>' is already registered for a different kind or reference` 등 | 같은 이름이나 같은 (종류, 참조값)의 다른 항목이 있다 | 다른 이름을 쓰거나 기존 항목을 쓴다. 같은 이름·값의 재등록은 정체성만 갱신한다(`refreshed:true`) |
+| −32602·−32002·−32005 `item N: …` (`resource.import`) | N번째 항목이 잘못됐다 — 아무것도 바뀌지 않았다 | 그 항목을 고쳐 다시 import한다 |
+
+**업그레이드 절차(호스트 자원 참조 경계, ADMIN)**:
+
+1. 업그레이드 전 `pcvctl --format=json auth list`로 OPERATOR·VIEWER 계정과 테넌트(`tenant`)를 기록한다(표 출력에는 테넌트 열이 없다). 테넌트 없는 OPERATOR는 업그레이드 직후 이미지·ISO·OVA·저장 위치·PCI·USB·브리지 참조가 전부 −32006이다. `vm.create`의 저장 위치·브리지·PCI는 요청에 준 `storage_pool`·`image_dir`, 해석한 브리지(생략하면 기본 브리지 `pcvnat0`, `none`이면 판정 없음), 요청에 키가 있는 `pci_addr`(빈 값 포함)를 판정하고, 생략한 저장 위치(설정 기본값)는 판정하지 않는다. 그래서 참조가 없는 `vm.create`도 브리지를 생략하면 −32006이지만, `network_bridge:"none"`이면 판정할 참조가 없어 테넌트 없는 OPERATOR도 통과한다. 단, `network_bridge`를 생략한 `container.create`는 판정하지 않는다.
+2. 업그레이드 직후 `pcvctl auth tenant <user> <tenant>`로 테넌트를 지정한다. 이름 규칙(`[A-Za-z0-9][A-Za-z0-9._-]{0,62}`)을 어긴 테넌트로 만든 기존 계정은 게이트에서 테넌트 없음이 되고 `auth.user.tenant.set`도 already로 거절되므로, 그런 계정은 다시 만든다.
+3. `pcvctl resource unregistered --tenant <tenant> --json > /tmp/resource-import.json`으로 기존 VM의 미등록 참조를 받아 확인·편집한 뒤 `pcvctl resource import /tmp/resource-import.json`한다. `--tenant`는 import 입력의 허용 대상 표지일 뿐 필터가 아니다 — 다른 테넌트 VM의 참조도 들어 있으니 검토한 뒤에 import한다. 사라진 경로를 가리키는 VM이 있거나 같은 경로의 파일이 바뀌어 이름이 `-2`로 제안되면, 그대로 import할 때 일괄 등록 전체가 거절된다(그 항목을 빼거나 고친다).
+4. ISO·이미지 라이브러리를 `pcvctl resource register`·`grant`로 등록한다. 기본 저장 위치·기본 브리지는 등록 없이 모두 허용된다.
+5. gRPC를 OPERATOR로 쓰면 `[grpc] tenant`를 설정하고 재시작한다.
+6. VPC를 쓰는 테넌트의 OPERATOR는 업그레이드 직후 풀이 비어 있어 새 subnet을 만들 수 없다 — `pcvctl resource unregistered --tenant <t> --json`의 `vpc_subnets`로 지금 쓰는 대역을 확인하고 `pcvctl vpc pool-set <t> <cidr,…>` 또는 `vpc_pool` 항목 import로 풀을 배정한다(6.12.2). 기존 subnet은 그대로 동작한다.
+
+기존 VM의 기동·정지·재시작은 등록 여부와 상관없이 그대로다.
+
 ### 10.3 API Key
 
 해시 저장, 만료일 설정, 해지(revoke) 지원.
@@ -4654,6 +5217,8 @@ pcvctl auth apikey revoke --key-id "pk_abc123"
 curl -s -H "X-API-Key: pk_abc123.secret" \
   http://127.0.0.1:8080/api/v1/vms
 ```
+
+`auth.apikey.list`의 `last_used_at`은 그 키로 인증에 성공한 마지막 시각이다. 쓰기 부하를 막기 위해 같은 키는 60초에 한 번만 갱신한다.
 
 ### 10.4 JWT Bearer와 CSRF 정책
 
@@ -4703,12 +5268,57 @@ CLI는 `pcvctl security ...` 명령군을 제공한다.
 |------|------|---------|
 | HIDS | 호스트 파일 무결성과 런타임 보안 이벤트 탐지 | admin이 명시한 파일 baseline을 저장하고 변경 상태를 `trusted`, `stale`, `unknown`으로 노출한다. |
 | HIPS | 탐지 이벤트에 대한 대응 후보 생성 | `pending` action을 만들고, 운영자가 승인한 경우에만 실행한다. |
-| 감사 상관 | 보안 이벤트와 감사 로그 연결 | WARN/CRIT 이벤트는 `security.event` audit을 남기며 audit `target`은 같은 `event_id`를 사용한다. |
+| 감사 상관 | 보안 이벤트와 감사 로그 연결 | WARN/CRIT 새 이벤트는 `security.event` audit을 남기며 audit `target`은 사건 행 id(`event_id`)다. 같은 키로 합쳐지는 반복은 매번 감사하지 않고 `occurrence_count`만 올리며, 키마다 시간당 한 번 `security.event.repeat`(target `<event_id>#n=<반복 수>`)로 요약한다. |
+| 감사 증가 상한 | 반복·폭주 이벤트가 감사 DB와 사건 DB를 채우지 못하게 함 | 출처별 시간당 감사 예산 600건을 새 사건과 반복 요약이 함께 쓴다(WARN 몫 500, CRIT 몫 보장). 넘은 새 사건은 감사하지 않고 창이 끝나면 `security.event.flood`(target `<source>#n=<건수>,since=<창 시작>`) 1행으로 요약한다. 접을 수 있는 열린 사건(CRIT·대기 액션 제외)이 5,000건을 넘으면 `last_seen`이 가장 오래된 500행을 `suppressed`로 접고(`closed_reason=overflow`, 감사 `security.event.overflow`), 14일 넘게 갱신 없는 열린 사건도 `suppressed`로 접는다(`closed_reason=expired`, 감사 `security.event.expire`). CRIT·대기 액션 사건은 접지 않으며, 그 수가 상한을 넘으면 `security.config.get`의 `protected_open_over_cap`·`protected_open_count`로 경고한다. |
+| 알려진 도구 실행 | 데몬이 직접 실행하는 도구의 LSM 실행 사건을 일반 의심 실행과 구분 | 출처 `lsm`, 종류 `process_suspicious`인 사건의 target이 신뢰 디렉터리의 알려진 도구 경로와 정확히 같으면 `info`로 낮춘다. `info`는 감사·알림 대상이 아니다. 규칙은 아래 "알려진 도구 INFO 규칙"에 있다. |
+| 운영자 종결 | 확인이 끝난 열린 사건을 운영자가 한 건씩 닫음 | `security.event.close`(ADMIN)가 열린 사건을 `resolved`로 바꾸고 사유를 사건 행에 남긴다. `closed_reason`은 `operator`다. 종결 보관은 최근에 닫힌 행을 남긴다. 자세한 규칙은 아래 "운영자 단건 종결"에 있다. |
 | 운영 인터페이스 | Web UI, CLI, UDS | 같은 `security.*` RPC를 사용하므로 이벤트와 pending action 상태가 일관된다. |
 
 HIDS baseline은 처음에는 `unknown`이다. 운영자가 신뢰할 수 있는 시점에 핵심 파일을 지정해 refresh해야 `trusted`가 된다.
 HIPS는 자동 차단 제품처럼 동작하지 않는다. v1에서 승인 후 실제 실행 가능한 대응은 `block_ip`와 `revoke_api_key`뿐이고,
 `lock_user`, `restart_service`, `quarantine_process`, `restore_config` 계열은 `manual_runbook`으로만 남긴다.
+
+#### 알려진 도구 INFO 규칙
+
+데몬은 `ip`·`virsh`·`zfs` 같은 도구를 직접 실행하고, LSM은 그 실행마다 `process_suspicious` 사건을 남긴다. 이 중 데몬이 직접 쓰는 도구는 `info`로 구분한다.
+
+- 신뢰 디렉터리는 `/usr/sbin`·`/usr/bin`·`/sbin`·`/bin` 4곳이다. target이 `<신뢰 디렉터리>/<알려진 이름>`과 정확히 같을 때만 `info`가 된다. 접두사나 basename만 같은 경로(`/usr/sbin//ip`, `/usr/sbin/../sbin/ip`)는 해당하지 않는다.
+- 정확 경로 `/usr/local/bin/purecvisorsd`(핫 리로드 재실행)도 `info`다.
+- `/usr/local/sbin`·`/usr/local/bin`의 같은 이름 도구는 `warn`으로 남는다. 데몬 PATH는 `/usr/local`이 먼저라 그쪽에 놓인 같은 이름은 가로채기일 수 있다.
+- 이름 표는 데몬이 argv[0]으로 직접 실행하는 도구 이름이다(`security_policy.c`).
+- 절대 낮추지 않는 이름 16개는 데몬이 쓰더라도 표에 넣지 않는다: `sh`·`bash`·`dash`·`zsh`·`busybox`·`curl`·`wget`·`nc`·`ncat`·`socat`·`ssh`·`scp`·`openssl`·`python3`·`perl`·`nsenter`. BPF 사건에는 argv가 없어 데몬의 고정 명령과 다른 주체의 같은 도구를 구분할 수 없기 때문이다.
+- 이미 열린 `warn` 행은 다음 발생 때 같은 키로 합쳐지면서 `info`로 바뀐다. 새 행은 생기지 않는다.
+
+#### 다른 파일시스템 열기
+
+LSM은 열린 경로 문자열만 보므로, 운영 서비스가 아닌 곳(격리 시험 데몬의 샌드박스 등)이 감시 경로와 같은 이름의 파일을 열어도 사건이 만들어졌습니다. 이제 열린 파일이 tmpfs에 있으면 `file_open` 사건에 그 파일시스템의 superblock 장치를 함께 담고, 데몬이 `/proc/self/mountinfo`로 감시 경로가 놓인 장치 집합을 유지합니다. tmpfs 파일의 장치가 그 집합에 없으면(감시 경로와 무관한 tmpfs에 있는 같은 이름 파일) 보안 사건으로 올리지 않고 카운터로만 셉니다. tmpfs는 자기 내용만 담아 호스트 실물을 드러낼 수 없기 때문입니다.
+
+- tmpfs가 아닌 파일시스템(overlay 포함)은 장치를 담지 않고 **그대로 사건**이 됩니다. overlay처럼 아래층의 실물을 드러낼 수 있는 파일시스템을 다른 파일로 치지 않기 위해서입니다.
+- 이 구분에는 2.1.0 릴리스의 선택형 BPF tarball에 든 객체가 필요합니다. 사건 레코드 크기(304바이트)와 경로 위치는 그대로이므로 2.0.4 객체도 그대로 적재되며, 그 객체는 장치 필드를 0으로 채워 모든 열기가 이전처럼 사건으로 제출됩니다.
+
+- 카운터는 지표 `pcv_bpf_lsm_foreign_fs_total`로 노출됩니다. 첫 건에만 INFO 로그가 한 번 남습니다.
+- 감시 경로 아래에 새 마운트가 생기거나 사라지면(`mountinfo` 변경 통지) 집합을 다시 만듭니다. 장치를 알 수 없는 열기와 `bprm_check_security` 사건은 지금까지처럼 사건으로 제출됩니다.
+
+#### 운영자 단건 종결
+
+확인이 끝난 열린 사건은 `security.event.close`로 닫는다.
+
+- 권한은 ADMIN이다. REST 앞단도 ADMIN이다.
+- 입력은 `event_id`와 `reason`이다. 사유는 필수이고 제어 문자(C0·DEL·C1·양방향 제어)를 공백으로 바꾸고 앞뒤 공백을 지운 뒤 1~200자여야 한다. 200자를 넘으면 자르지 않고 거절한다.
+- 열린(`open`) 사건만 닫는다. 없는 사건, 이미 닫힌 사건(`resolved`·`suppressed`), 살아 있는 대기 액션이 있는 사건은 거절한다.
+- 성공하면 `status=resolved`, `closed_reason=operator`가 되고 응답은 바뀐 사건 객체다. 같은 키가 다시 오면 새 열린 행이 생긴다.
+- 감사는 dispatcher 자동 감사 1행(op `security.event.close`, target `event_id`)이다. 행위자는 인증된 사용자이고 요청 본문의 이름은 쓰지 않는다. 사유는 감사가 아니라 사건 행에 남는다.
+- 사건 JSON에 필드 3개가 더해졌다: `closed_by`(종결자), `closed_at`(종결 시각), `close_note`(사유). 열린 사건과 접기·만료로 닫힌 사건은 빈 값(`closed_at`은 0)이다. `closed_reason`에는 `operator`가 더해졌다.
+- 종결 보관은 `MAX(timestamp, closed_at)` 순으로 최근에 닫힌 행을 남긴다. 방금 닫은 오래된 사건이 곧바로 지워지지 않는다.
+- approve/dismiss는 사건이 `open`·`action_pending`일 때만 사건 상태를 바꾼다. 이미 닫힌 사건의 상태는 바꾸지 않는다.
+- REST 역할이 dispatcher와 맞춰졌다. 이제 VIEWER는 `security.action.pending`·`security.baseline.status`·`capacity.forecast`·`daemon.update_check`·`vm.billing.report`·`vm.guest.fsinfo`·`vm.sla.report`를, OPERATOR는 `security.action.dismiss`를 REST로도 쓸 수 있다(8개 메서드). REST가 dispatcher보다 엄격한 메서드는 없다.
+
+```bash
+pcvctl security close <event_id> --reason "reviewed: known maintenance job"
+pcvctl audit search --method security.event.close --limit 10
+```
+
+Web UI에서는 열린 사건의 상세 패널에서 ADMIN에게만 '종결' 버튼이 보인다. 사유를 입력하면 닫히고, 닫힌 사건의 상세 패널에는 종결 구분·종결자·종결 시각·종결 사유가 보인다.
 
 #### 운영 흐름
 
@@ -4767,7 +5377,7 @@ pcvctl job list
 
 #### 인터페이스별 사용
 
-Web UI에서는 `관제 > 보안 이벤트`에서 Security Guard 토글, 이벤트 상세, evidence, 감사 상관키, 승인/거부 버튼을 사용한다.
+Web UI에서는 `관제 > 보안 이벤트`에서 Security Guard 토글, 이벤트 상세, evidence, 감사 상관키, 승인/거부/종결 버튼을 사용한다.
 
 CLI 기본 명령은 다음과 같다.
 
@@ -4781,6 +5391,9 @@ pcvctl security pending
 # HIPS 승인/거부
 pcvctl security approve <event_id>
 pcvctl security dismiss <event_id> --reason "operator dismissed"
+
+# 열린 사건 종결 (ADMIN, 사유 필수)
+pcvctl security close <event_id> --reason "operator closed"
 
 # baseline과 guard 토글
 pcvctl security baseline-status
@@ -4802,12 +5415,12 @@ echo '{"jsonrpc":"2.0","method":"security.config.get","params":{},"id":"1"}' \
 echo '{"jsonrpc":"2.0","method":"security.baseline.status","params":{},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# admin 명시 baseline refresh
-echo '{"jsonrpc":"2.0","method":"security.baseline.refresh","params":{"admin_user":"ops-admin","paths":["/etc/purecvisor/daemon.conf","/var/lib/purecvisor/rbac.db"]},"id":"1"}' \
+# baseline refresh (감사 주체는 서버가 확인한 호출자다. UDS 직결은 system으로 남는다)
+echo '{"jsonrpc":"2.0","method":"security.baseline.refresh","params":{"paths":["/etc/purecvisor/daemon.conf","/var/lib/purecvisor/rbac.db"]},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
 # Security Guard 활성화
-echo '{"jsonrpc":"2.0","method":"security.config.set","params":{"admin_user":"ops-admin","enabled":true},"id":"1"}' \
+echo '{"jsonrpc":"2.0","method":"security.config.set","params":{"enabled":true},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
@@ -4821,6 +5434,7 @@ bash tests/integration/test_security_cli_surface.sh
 
 - baseline이 `unknown`인 상태에서 guard만 켜면 파일 무결성 판단 기준이 없다. 신규 설치, 설정 변경, RBAC DB 교체 후에는 baseline을 먼저 갱신한다.
 - HIPS action은 `pending` 상태에서만 승인한다. 이미 닫힌 이벤트를 다시 실행 대상으로 쓰지 않는다.
+- `security.event.close`는 대기 액션이 있는 사건을 닫지 않는다. 먼저 승인하거나 거부한다.
 - `manual_runbook` 이벤트는 자동 실행하지 않는다. 운영자가 이벤트 evidence를 보고 별도 절차로 처리한 뒤 dismiss한다.
 - `security.config.set`은 runtime security DB의 `enabled` 값을 바꾼다. `/etc/purecvisor/daemon.conf`를 자동 수정하지 않는다.
 
@@ -4863,6 +5477,19 @@ pcvctl audit list --limit 50
 curl -s -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/audit?limit=50
 ```
+
+REST 검색 조건은 쿼리로 줍니다. 허용 키는 `from_ts`, `to_ts`, `username`, `method`, `limit`, `offset`입니다. `from_ts`·`to_ts`는 감사 시각과 같은 UTC `YYYY-MM-DD HH:MM:SS` 문자열이고, `method`는 SQL LIKE 패턴입니다. `limit`은 1 이상, `offset`은 0 이상 정수입니다. 모르는 키·중복 키·형식이 틀린 값(시각의 숫자 자리에 공백·부호가 든 값 포함)은 필터 없는 결과 대신 400입니다. 응답의 `total`은 전체 일치 수가 아니라 이번에 읽은 행 수(최대 `offset+limit+1`)입니다. 다음 페이지가 있는지 알려고 한 행을 더 읽고, 그 결과가 `has_more`입니다. `items`는 `limit`만큼만 돌려줍니다.
+
+```bash
+curl -s -G -H "Authorization: Bearer $TOKEN" \
+  --data-urlencode 'username=bob' --data-urlencode 'method=vm.delete' \
+  --data-urlencode 'from_ts=2026-11-01 00:00:00' --data-urlencode 'limit=50' \
+  http://127.0.0.1:8080/api/v1/audit/search
+```
+
+`audit.search`는 ADMIN 전용이라 Web UI 감사 로그 메뉴도 ADMIN에게만 보입니다. 화면의 날짜는 브라우저 시간대의 하루이며 UTC로 바꿔 보내고, 결과 시각은 UTC로 표시합니다. 권한 거부 같은 오류는 "검색 결과 없음"이 아니라 오류로 표시합니다.
+
+감사 `username`은 REST 인증 주체, gRPC는 `grpc`, 서버에서 직접 연 pcvctl(UDS)은 `local-admin`, 요청 없이 데몬이 한 일은 `system`이다. `-`는 행위자를 알 수 없는 기록이다.
 
 ### 10.11 /proc hidepid 하드닝 (2.0, D08)
 
@@ -4978,7 +5605,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 VM·OVA·백업 등 장시간 작업은 접수와 실제 결과를 구분합니다.
 AWS 수동 Import·Export·Near-Live와 전용 작업 관리는 2026-10-07 사용자 결정으로
 현재 개발 소스에서 제거했습니다. S3 백업도 추가로 제거했습니다. 일반 VM·OVA·로컬 백업은 유지합니다.
-공개 2.0.0 패키지와 운영 설치본은 이번 소스 변경으로 교체되지 않습니다.
+2.1.0은 Job 결과를 별도 journal에 먼저 내구화한 뒤 DB를 갱신합니다(11.1). 2.0.4 이하 공개 패키지에는 이 journal이 없습니다.
 
 ### 11.1 접수·결과 저장
 
@@ -4988,12 +5615,18 @@ DB 비활성·쓰기 잠금/오류에는 신규 접수를 거부하며 실제 wo
 작업 ID 충돌은 기존 작업을 덮지 않고
 최대 32회 새 번호로 재발급합니다.
 
-실행 뒤 결과 저장이 실패하면 완료 WS의 `result_persisted: false`와 UI 알림으로 구분합니다.
-이때 실제 작업 성공/실패와 audit는 유지되므로 같은 작업을 바로 재실행하지 말고 Job ID로
-리소스 상태와 감사 로그를 확인합니다. 완료 WS를 받지 못하면 `jobs.get`/`jobs.status`에
-이전 상태가 남을 수 있습니다. [ADR-0060](../docs/adr/0060-job-admission-and-result-persistence.md)의
-현재 공개 소스에 반영된 구현이며 일반 `pcv_jobs.db`의 계약입니다.
+실제 작업 결과와 결과 기록의 저장 여부는 별개입니다. 2.1.0은 별도 결과 journal을 내구화한 뒤 DB를 갱신합니다. 완료 WS의 `result_persisted: false`,
+`recovery_pending: true`는 실제 결과는 기록됐지만 조회 반영 재시도가 남았다는 뜻입니다.
+WS가 끊겨도 journal이 남았다면 재시도/재시작 뒤 `jobs.get`으로 결과를 확인할 수 있습니다.
+같은 작업을 바로 재실행하지 말고 Job ID, 실제 리소스 상태와 audit를 대조합니다.
 
+결과 파일이 없거나 손상된 이전 실행은 `interrupted`, `outcome_known: false`로
+표시하며 자동 재실행하지 않습니다. 취소 요청도 worker의 실제 중단을 보장하지 않습니다.
+시작 복구 중 DB가 잠기면 최대 32회 재시도하며 정리가 완료되기 전에는 신규 접수를 거부합니다.
+DB/journal 양쪽 저장 실패나 효과 직후 기록 전 crash는 자동 복구 보장 밖입니다.
+이 구현은 일반 `pcv_jobs.db`의 schema version 2(`PRAGMA user_version=2`)를 쓰며 데몬 시작 때 자동 이관합니다.
+2.0.4 이하 binary로 되돌릴 때의 주의는 [DATABASE_STRUCTURE.md](../docs/DATABASE_STRUCTURE.md)의 Job 상태 DB 절을 따릅니다.
+[ADR-0060](../docs/adr/0060-job-admission-and-result-persistence.md)의 접수 계약은 그대로 유지됩니다.
 
 ### 11.2 상태 확인과 기존 이력
 
@@ -5002,6 +5635,8 @@ DB 비활성·쓰기 잠금/오류에는 신규 접수를 거부하며 실제 wo
 기존 AWS 작업 DB·감사 기록·VM·디스크·외부 자원은 삭제하지 않습니다.
 기능 제거로 이미 접수된 외부 작업이 취소되거나 자원이 정리되지는 않습니다.
 제거된 API/CLI는 미지원이며 Cloud 화면의 이전 북마크는 도움말로 이동합니다.
+
+종료된 Job 기록은 보존 기간이 지나면 하루 한 번 자동으로 정리됩니다. 완료·실패·취소로 결과가 확정된(`outcome_known`) Job만 대상이며, 진행 중·대기·결과 미확정 Job은 남깁니다. 기본 보존 기간은 30일이고 `[daemon]` 설정의 `job_retention_days`로 조정합니다 — 0 이하(0·음수)는 정리를 끄고(보존 기간을 잘못 0으로 두어 전량 삭제되는 것을 막는 안전값), 양수 N은 N일을 뜻합니다. 보존 기간을 넘긴 Job은 기록에서 지워지므로 `jobs.get`·`jobs.status`가 `not_found`를 돌려줍니다. 장기 보관이 필요하면 완료 WebSocket·감사 로그로 결과를 따로 남기거나 보존 기간을 늘립니다.
 
 
 ## 12. AI & 자가치유
@@ -5019,21 +5654,30 @@ PureCVisor AI Agent는 복수의 AI 프로바이더에 동시 질의하여 합�
 
 #### 가중 쿼럼 (v1.0)
 
-프로바이더별 가중치를 부여하여, 가중 합산이 60% 초과 시 합의 성립.
+프로바이더별 가중치를 부여하여, 가중 합산이 60% 초과 시 합의 성립. 가중치는 데몬에 고정된 값(Claude·OpenAI 1.0, Gemini 0.9, Ollama 0.7)이라 설정으로 바꾸지 않습니다.
 
 ```bash
 # AI Agent 설정
 pcvctl agent config
 
-# 프로바이더 설정
-pcvctl agent set --provider claude --api-key "sk-ant-..." --weight 0.3
-pcvctl agent set --provider openai --api-key "sk-..." --weight 0.3
-pcvctl agent set --provider ollama --endpoint "http://localhost:11434" --weight 0.2
-pcvctl agent set --provider gemini --api-key "AI..." --weight 0.2
+# 프로바이더 설정 (키를 넣으면 켜집니다)
+pcvctl agent set --provider claude --api_key "$ANTHROPIC_API_KEY"
+pcvctl agent set --provider openai --api_key "$OPENAI_API_KEY" --model gpt-4o-2024-08-06
+pcvctl agent set --provider gemini --api_key "$GEMINI_API_KEY"
+
+# Ollama는 키를 쓰지 않지만, 활성 여부를 키 유무로 정하므로 아무 값이나 넣습니다
+pcvctl agent set --provider ollama --endpoint "http://localhost:11434" --api_key local
+
+# 프로바이더 끄기 (빈 키)
+pcvctl agent set --provider openai --api_key ""
 
 # 합의 이력
 pcvctl agent history
 ```
+
+`agent set`은 `--provider` 외에 `--api_key`·`--model`·`--endpoint` 중 하나 이상을 받습니다. `--enabled`와 `--weight`, 모르는 프로바이더 이름, `...`이 든 키와 `***`(가려진 값)는 RPC를 보내지 않고 사용법 오류(exit 2)로 끝납니다. 이 값은 실행 중인 데몬에만 적용되므로, 재시작 뒤에도 유지하려면 `daemon.conf`의 `[ai]`에 적습니다. 키는 출력(`--batch`의 되풀이·실패 줄 포함)과 REPL 이력(`~/.pcvctl_history`)에 남지 않습니다. 명령줄 인자는 같은 호스트의 `ps`에 보일 수 있으니 위처럼 환경변수로 넘기고, 셸 이력에 키를 직접 남기지 않습니다. RPC `agent.config.set`의 `providers`는 `[{name,api_key,model,endpoint}]` 배열이며, 배열이 아니면 −32602입니다.
+
+Web UI AI Agent 화면에서 공급자는 API 키가 있으면 켜지고, 키 칸을 비우고 저장하면 꺼집니다. 켜고 끄는 체크박스는 서버에 닿지 않아 없앴습니다. 호출 간격(300초)과 요청 시간 제한(10초)은 데몬 고정값이라 설정 탭에서 읽기만 합니다.
 
 #### per-policy dry-run (v1.0)
 
@@ -5047,6 +5691,11 @@ pcvctl agent history
 Z = (현재값 - 평균) / 표준편차
 |Z| > 3.0 이면 이상(anomaly) 판정
 ```
+
+이름이 `_total`로 끝나는 누적 카운터(`node_disk_io_time_seconds_total`, `node_network_receive_errs_total`,
+`node_pressure_*_total` 등)와 `/proc/vmstat` 누적값인 `node_vmstat_*`(`swap-storm`이 보는 `node_vmstat_pswpout` 포함)는 원값이 아니라 주기 증가량으로 평가한다. 첫 표본과 합이 줄어든 주기(카운터 리셋, VM 삭제 뒤
+장치 번호 재사용)는 건너뛴다. 누적 지표는 평균보다 큰 증가량만 이상으로 보므로 부하가 끝나 증가량이 줄어들 때는 경보가 나지 않는다. 게이지 지표는 양방향이다. Z-Score는 평상시와 달라지는 전환을 잡는다. 부하가 일정하게 계속되면 증가량도 일정해 Z가
+0에 가까워지므로 **지속 포화 자체로는 `disk-saturated`가 발동하지 않는다.** 포화가 계속되는지는 지표 값을 직접 확인한다.
 
 기준선 리셋 (v1.0): 배포/유지보수 후 기준선을 수동 리셋하여 오탐을 방지.
 
@@ -5094,21 +5743,32 @@ CPU와 메모리는 서로의 쿨다운을 소비하지 않습니다. 이 수정
 
 ```bash
 # 승인 대기 목록
-echo '{"jsonrpc":"2.0","method":"ai.approval.list","params":{},"id":"1"}' \
+echo '{"jsonrpc":"2.0","method":"healing.pending","params":{},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock
 
 # 승인
-echo '{"jsonrpc":"2.0","method":"ai.approval.approve","params":{
-  "action_id":"heal-001"
+echo '{"jsonrpc":"2.0","method":"ai.healing.approve","params":{
+  "action_id":1
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 
 # 거부
-echo '{"jsonrpc":"2.0","method":"ai.approval.reject","params":{
-  "action_id":"heal-001"
+echo '{"jsonrpc":"2.0","method":"ai.healing.reject","params":{
+  "action_id":1
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
 
 Web UI에서도 approve/reject 가능 (v1.0).
+
+승인 예제의 `action_id`는 `healing.pending`에서 읽은 정수로 바꿉니다. 승인/거부 응답의 `true`만으로 실행 성공·실제 대상 변경을 단정하지 않고 목록·이력·actual state를 재조회합니다.
+
+현재 모드와 대기 건수는 읽기 전용 RPC `healing.status`(VIEWER)로 봅니다. 응답은 `{"mode":"active"|"dry_run","pending":정수}`입니다.
+
+```bash
+echo '{"jsonrpc":"2.0","method":"healing.status","params":{},"id":"1"}' \
+  | nc -U /var/run/purecvisor/daemon.sock
+```
+
+Web UI의 운영 개요, 자가치유 화면, 모바일은 이 값을 그대로 표시합니다. `ACTIVE`이면 자동 조치가 실제로 실행되고, 조회에 실패하면 `DRY RUN`으로 짐작하지 않고 "알 수 없음"으로 표시합니다. 운영 개요의 대기 목록은 `healing.pending`을 읽습니다.
 
 ### 12.5 per-VM 압력(PSI) 연결 (2.0.0, NXV-F1/F2)
 
@@ -5510,6 +6170,7 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 |------|---------|
 | 읽기(GET) | 8초 |
 | 쓰기(POST/PUT) | 30초 |
+| `vm.inspect` | 35초 bridge 대기·30초 협력적 수집 deadline |
 | 장기 작업(migrate, backup) | 60초 |
 
 ### 14.5 엔드포인트와 응답
@@ -5762,12 +6423,13 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | 커맨드 | 설명 |
 |--------|------|
 | `vm list` | VM 목록 |
+| `vm inspect <canonical-lowercase-uuid>` | ADMIN 구성 관측·JSON 출력(2.1.0) |
 | `vm create <name> --vcpu N --memory_mb N --disk_size_gb N` | VM 생성 |
 | `vm rename <old_name> <new_name>` | 정지된 VM 이름과 표준 디스크/NVRAM 경로 변경 |
 | `vm start <name>` | VM 시작 |
 | `vm stop <name>` | VM 중지 (graceful) |
 | `vm delete <name>` | VM 삭제 |
-| `vm delete-status <name>` | 비동기 삭제 상태 |
+| `vm delete-status <name>` | 최근 삭제 Job 상태(경고·오류 포함) |
 | `vm clone <source> <clone_name> --mode cow\|full --guest-reset\|--template-prepared` | VM 복제 |
 | `vm vnc <name>` | VNC 포트 조회 |
 | `snapshot create <name> <snap>` | 스냅샷 생성 |
@@ -5776,6 +6438,7 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | `snapshot delete <name> <snap>` | 스냅샷 삭제 |
 | `vm snapshot-delete-all <name>` | 스냅샷 일괄 삭제 |
 | `vm disk-resize <name> <target> <new_size_gb>` | 디스크 크기 조정 |
+| `vm limit <name> [--cpu <percent>] [--mem <mb>]` | 실행 중 VM의 CPU·메모리 상한. `-1`은 상한 해제 |
 | `vm disk-throttle <name> [--device vda] --read-iops N --write-iops N` | 디스크 IOPS 제한 |
 | `vm blkio-set <name> [--read_bps N] [--write_bps N] [--read_iops N] [--write_iops N]` | 블록 I/O 제한 |
 | `vm bandwidth <name> --inbound-kbps N --outbound-kbps N` | VM 네트워크 대역폭 제한 |
@@ -5877,7 +6540,7 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `auth create <user> <pass> <role>` | 사용자 생성 |
 | `auth role <user> <role>` | 역할 변경 |
 | `auth delete <user>` | 사용자 삭제 |
-| `auth apikey create --name <n>` | API Key 생성 |
+| (CLI 명령 없음) RPC/REST `auth.apikey.create` | API Key 생성. `role`을 생략하면 1(OPERATOR)이므로 원격 Prometheus용은 `role: 0`(viewer)을 명시해 `Authorization: Bearer`로 사용 |
 | `security-group create <name>` | 보안 그룹 |
 | `security-group add-rule <sg> ...` | 규칙 추가 |
 
@@ -5907,7 +6570,7 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | 커맨드 | 설명 |
 |--------|------|
 | `agent config` | Agent 설정 |
-| `agent set --provider <p> --api-key <k>` | 프로바이더 설정 |
+| `agent set --provider <p> --api_key <k>` | 프로바이더 설정 |
 | `agent history` | 합의 이력 |
 
 #### 템플릿 (5+)
@@ -5969,7 +6632,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | `db_path` | `/var/lib/purecvisor/vm_state.db` | 경로 | SQLite 상태 DB |
 | `log_level` | `info` | debug/info/warn/error | 로그 레벨 |
 | `pool_max_conn` | 8 | 1-64 | libvirt 커넥션 풀 |
-| `drain_timeout` | 30 | >= 5 | 드레인 타임아웃 (초) |
+| `drain_timeout` | 30 | >= 5 | 드레인 타임아웃 (초). **정지 신호 인수 기한도 정한다** — SIGTERM/SIGINT를 받고 이 시간 안에 메인 루프가 정지 처리를 시작하지 않으면 데몬이 실패 코드로 스스로 종료한다. systemd `TimeoutStopSec`(180)보다 작게 둔다(같거나 크면 이 보호가 사라진다) |
 | `rest_port` | 80 | 1-65535 | REST API 포트 컴파일 기본값 |
 | `jwt_secret` | (최초 배포 시 생성) | 32바이트 이상 | deploy helper가 관리하는 영속 JWT 호환 fallback |
 
@@ -6013,6 +6676,9 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | 키 | 기본값 | 설명 |
 |----|--------|------|
 | `lxc_path` | `/var/lib/purecvisor/lxc` | LXC 루트 경로 |
+| `rootless` | `true` | 기본 격리 방식. `false`/`0`/`no`만 거짓(새 컨테이너 기본이 privileged가 되며 ADMIN 선택)이고 알 수 없는 값은 참으로 보고 경고를 남깁니다 |
+| `rootless_uid_start` | `100000` | unprivileged 컨테이너의 호스트 시작 uid. `/etc/subuid`·`/etc/subgid`에 `root:<start>:<count>` 위임이 필요합니다 |
+| `rootless_uid_count` | `65536` | 매핑 uid 개수. `start ≥ count ≥ 65536`이어야 합니다 |
 
 #### [cluster]
 
@@ -6054,11 +6720,13 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | 인증 토큰 만료 | 15분 초과 | refresh token으로 갱신 |
 | Rate Limit 429 | 요청 빈도 초과 | `Retry-After` 헤더 참조 |
 | WebSocket 끊김 | 300초 유휴 | 클라이언트 ping 구현 |
-| VM 삭제 지연 | ZFS 스냅샷 의존성 | `vm delete-status` 확인 후 스냅샷 정리 |
+| VM 삭제 실패 | ZFS 스냅샷 의존성(hold·clone) | `vm delete-status`의 `error` 확인 후 스냅샷 정리, 정의는 롤백돼 있어 재시도 가능 |
 | VM 삭제 후 ISO가 사라짐 | `vm.delete`가 CD-ROM ISO `<source file>`을 파일 디스크로 오인한 회귀 | [ADR-0017](../docs/adr/0017-vm-delete-atomicity-rollback.md) 기준으로 `device='disk'` source만 삭제 대상인지 확인하고 최신 데몬 배포 |
 | 메모리 누수 의심 | 알 수 없음 | `make memcheck-daemon` (Valgrind 5초) |
 | 빌드 경고 | 헤더 누락/타입 불일치 | `make clean && make single` 후 경고 확인 |
 | /health 느림 | libvirt 장애 (degraded) | `virsh list` 확인, libvirt 재시작 |
+| 정지 때 `stop signal not handled by main loop within <N> s … exiting unsuccessfully` CRIT가 나오고 데몬이 실패 코드로 끝남 | 메인 루프가 `drain_timeout`초 동안 정지 신호를 받아 가지 못함(로그의 `current RPC`가 그때 멈춰 있던 요청) | 설계된 동작이다 — 데몬이 실패 코드로 끝나므로 `systemctl stop` 뒤 유닛이 `failed`로 남을 수 있다(`systemctl reset-failed purecvisorsd` 또는 다음 `start`로 정리). 직전 `main loop stalled` 로그의 RPC를 보고 그 요청의 외부 의존(libvirt·ZFS 등)을 확인한다 |
+| `main loop stalled for <N> s (current RPC: <메서드>, running <M> s)` WARN(10초) / `main loop unresponsive for <N> s …` CRIT(60초) | 메인 루프가 멈춰 있음. `current RPC`가 원인 후보(`none`이면 요청 밖) | 해당 메서드가 기다리는 libvirt·ZFS·외부 명령 상태를 확인한다. 회복하면 `main loop recovered after <N> s stall` INFO가 남는다. 로그만 남기고 데몬을 죽이지는 않는다. 횟수는 `purecvisor_mainloop_stalls_total` 지표로 본다 |
 | 컨테이너 IP 없음 | lxc-info 지연 | 시작 후 10초 대기 (IP 할당 폴백) |
 | `Permissions-Policy`의 `ambient-light-sensor` 경고 | 브라우저가 더 이상 인식하지 않는 feature 토큰 | nginx/데몬 보안 헤더에서 해당 토큰 제거 |
 | CSP가 Iconify API 접속을 차단 | 외부 아이콘 런타임이 JSON API를 fetch | Iconify 런타임 제거, inline SVG 또는 로컬 아이콘 사용 |
@@ -6079,6 +6747,31 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | `vm.clone` 후 worker CPU가 높게 유지됨 | 오래된 MAC 치환 루프가 새로 생성한 `<mac address='...'>`를 다시 매칭해 무한 반복 | one-pass `g_regex_replace_eval()` 기반 수정본을 배포하고 orphan zvol/snapshot을 정리한 뒤 재시도 |
 | 일반 VM `vm.clone`이 libguestfs 도구 없음으로 거부됨 | host에 `libguestfs-tools`가 설치되지 않아 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없음 | `libguestfs-tools` 설치 후 재시도하거나, 운영자가 이미 정리한 템플릿이면 `template_prepared=true`로 호출 |
 | `vm.clone`이 source power on으로 거부됨 | 실행 중인 VM의 디스크와 guest identity를 복제하면 일관성을 보장할 수 없음 | source VM을 종료한 뒤 재시도. qcow2/raw는 `mode=full` 사용 |
+
+#### libvirtd·외부 명령이 응답하지 않을 때
+
+오래 걸릴 수 있는 일부 RPC는 자원별 줄(레인)에서 돈다. 창구인 메인 루프는 그동안 다른 요청을 받으므로 `daemon.version`은 바로 답하고, 막힌 줄의 RPC만 느려지거나 오류가 된다.
+
+| 줄 | 동시 실행 | 대기 칸 | RPC |
+|---|---:|---:|---|
+| libvirt 읽기 | 2 | 32 | `monitor.fleet`, `quota.get`, `vm.cpu.stats`, `vm.memory.stats`, `vm.blkio.get`, `vm.usb.list`, `device.nic.list`, `vm.vnc`, `get_vnc_info`, `qos.vm.get`, `resource.unregistered.list` |
+| 외부 명령 읽기 | 2 | 32 | `dpdk.list`, `dpdk.status`, `gpu.list`, `gpu.metrics`, `sriov.list`, `backup.history`, `container.env.list`, `container.volume.list`, `network.host.info`, `network.info`, `network.qos.get`, `storage.pool.health`, `push.subscribe` |
+| 망 변경 | 1 | 8 | `security_group.create`·`delete`·`detach`·`rule.add`·`rule.remove`, `vm.security_group.set`, `dpdk.bind`·`unbind` |
+| 저장소 변경 | 1 | 8 | `storage.pool.create`, `vm.snapshot.create`·`delete`·`delete_all`·`list` |
+
+| 보이는 것 | 뜻 | 할 일 |
+|---|---|---|
+| −32004 `<method>: server busy` (REST 409) | **BUSY.** 그 줄의 대기 칸이 찼다. 요청은 실행되지 않았다 | 잠시 뒤 다시 보낸다. 계속되면 그 줄이 기다리는 libvirtd·ZFS·외부 명령을 확인한다 |
+| −32004 `<method>: queued too long` (REST 409) | 변경 줄에서 8초 넘게 기다려 **실행하지 않았다.** | 앞 작업이 끝난 뒤 다시 보낸다 |
+| −32004 `VM '<이름>' is already locked (op: SNAPSHOT, …)` (REST 409) | 비 ZFS VM의 스냅샷 생성·삭제와 겹쳤다 | 스냅샷이 끝난 뒤 다시 보낸다 |
+| −32000 `<method>: host command timed out`(`vm.snapshot.list`는 zfs 확인이 멈출 때 폴백 없이 이 응답) | 외부 명령 읽기가 명령당 10초(호출당 20초)를 넘겼다. 감사는 `fail`이다. REST는 8초 504, CLI는 10초 소켓 시간 초과가 먼저 보일 수 있다 | `zfs`·`zpool`·`tc` 등 그 명령과 호스트 상태를 확인한다 |
+| −32000 `server is shutting down` | 데몬이 내려가는 중이라 실행하지 않았거나, 진행 중 명령이 끊겼다 | 재시작 뒤 다시 보낸다 |
+| −32000 `Hypervisor connection pool exhausted`, 로그 `libvirtd not answering for <N> s; refusing libvirt calls on the main loop` | libvirtd가 10초 넘게 답하지 않아 메인 루프의 libvirt 호출을 하지 않는다. 이름 지정 `vm.start`도 핀닝 없이 뜨는 대신 같은 오류로 거절된다 | libvirtd를 확인한다. 회복하면 `libvirtd answering again` INFO가 남고 다시 보내면 된다 |
+| OPERATOR가 자기 VM에 −32006 `Permission denied: operators can access only VMs they created` | libvirtd 무응답이면 소유자를 확인할 수 없어 거부한다. 권한 문제가 아니다 | libvirtd 회복 뒤 다시 보낸다 |
+| `vm.list` −32000 `Failed to list domains.` (REST 500) | 목록을 읽는 중 연결이 끊겼다. VM이 빠진 목록을 내지 않는다. UI는 직전 목록을 유지한다 | libvirtd 회복 뒤 다음 주기에 정상으로 돌아온다 |
+| `/health` 503 `critical`이 약 3초 뒤 | libvirt 확인이 3초 안에 끝나지 않았다. 5초 동안 캐시한다 | libvirtd를 확인한다 |
+
+정지 감지 횟수는 `purecvisor_mainloop_stalls_total` 지표(`level` = `warn`, `crit`, counter)로 본다. `monitor.metrics`, `snapshot.schedule.status`, `health.deep`과 변경 RPC 대부분은 아직 메인 루프에서 돈다. 무응답이 시작되고 10초 안에 들어온 그런 호출은 libvirtd가 회복할 때까지 묶일 수 있다.
 
 ### 17.2 디버그 명령어
 
@@ -6209,7 +6902,9 @@ make cppcheck
 | -32601 | Method not found (미등록 RPC) |
 | -32602 | Invalid params (파라미터 검증 실패) |
 | -32000 | Server error (내부 오류) |
-| -32001 | Not implemented (placeholder) |
+| -32001 | 대상 없음(VM·Job·보안 사건 등, REST 404) |
+| -32004 | BUSY (큐 포화·대기 초과·VM 잠금 겹침, 다시 시도, REST 409) |
+| -32006 | Permission denied (REST 403) |
 
 `-32602`는 `PureRpcErrorCode`의 canonical invalid-params 값입니다. 예를 들어 인증 REST의
 OVN ACL `switch` 또는 NAT `router` 필터가 누락되면 이 값을 사용하며, handler나 adapter가
@@ -6228,7 +6923,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | libjson-glib-dev | JSON 파싱 |
 | libvirt-dev | VM 관리 |
 | libvirt-glib-1.0-dev | libvirt GObject 바인딩 |
-| liblxc-dev | LXC 컨테이너 |
+| lxc-dev | LXC 컨테이너 (Ubuntu 26.04 패키지 이름) |
 | libsqlite3-dev | SQLite (상태 DB, 감사 로그) |
 | libssl-dev | OpenSSL crypto/JWT 서명 |
 | libcap-dev | Linux capabilities |
@@ -6288,11 +6983,11 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 
 | 현재 항목 | 값·범위 |
 |---|---|
-| 도움말 표시 | RPC 298·REST 222 (`make check-help-counts`) |
+| 도움말 표시 | RPC 316·REST 224 (`make check-help-counts`) |
 | 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
-| 활성 DB | 8개·영구 테이블 25개; 과거 Cloud DB는 자동 삭제하지 않음 |
-| Web UI | `tests/ui/*.test.mjs` 61개 |
-| 주요 정적 게이트 | `make -j1 check-all` 42개 게이트 |
+| 활성 DB | 9개·영구 테이블 28개; 과거 Cloud DB는 자동 삭제하지 않음 |
+| Web UI | `tests/ui/*.test.mjs` 66개 |
+| 주요 정적 게이트 | `make -j1 check-all` 47개 게이트 |
 | 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
 
 
@@ -6388,6 +7083,8 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | UI만 최신이 아니다 | 로컬 번들 해시, `/usr/local/share/purecvisor/ui`, 공개 URL 해시, Service Worker cache name, `/ui` base href, `#/page` 해시 라우팅 |
 | 네트워크가 이상하다 | `ip -brief addr`, `ovs-vsctl show`, bridge metadata, nftables, dnsmasq 상태 |
 | 스토리지 오류가 난다 | `zpool status`, `zfs list -o name,origin`, dataset lock, target cleanup 여부 |
+| 메인 루프가 멈춘 것 같다(UDS 응답 없음) | `journalctl -u purecvisorsd`에서 `main loop stalled`(WARN 10초)·`main loop unresponsive`(CRIT 60초)·`main loop recovered`(INFO)와 `current RPC`, 그 메서드가 기다릴 libvirt(`virsh list`)·ZFS(`zpool status`) 상태. 정지가 `exiting unsuccessfully` CRIT로 끝났다면 같은 줄의 RPC 이름이 정지 원인 후보 |
+| VM IP가 비어 있다 | `monitor.fleet`의 `ip_source`, 데몬 로그의 `guest agent of VM … did not answer`(WARN, 백오프 초), VM 안 `qemu-guest-agent` 상태. 에이전트 IP는 한 폴링 주기 늦게 나올 수 있다 |
 
 ### 19.7 PR/배포 증거 기준
 
@@ -6625,7 +7322,7 @@ cli_rpc.c: purectl_send_request("vm.list", params)
     ↓
 UDS 소켓: /var/run/purecvisor/daemon.sock
     ↓
-dispatcher.c → handler_vm_lifecycle.c → vm_manager.c
+dispatcher.c → handler_vm_lifecycle.c → vm_ops.c
 ```
 
 #### PcvCtx 전역 컨텍스트
@@ -6678,14 +7375,15 @@ ptbl_free(t);
 | CSV | `--csv` | RFC 4180 CSV |
 | Plain | 파이프 시 | 색상 없는 테이블 |
 
-### 21.5 디스패처 핸들러 시그니처 (`src/api/dispatcher.c`)
+### 21.5 디스패처 핸들러 시그니처 (`src/api/dispatcher.c`, `src/modules/dispatcher/handler_*.c`)
 
 RPC 핸들러는 모두 **같은 시그니처**를 가지며, `g_rpc_routes` 해시테이블이
 메서드 이름(`"vm.clone"` 등)을 그 함수 포인터로 매핑합니다.
 
-**정의 위치는 한 곳이 아닙니다** — `src/api/dispatcher.c` 안에 `static` 으로 있는 것과,
-`src/modules/dispatcher/handler_*.c`(일부는 `src/modules/network/network_manager.c`)로
-분리돼 외부 링크를 갖는 것이 섞여 있으며 후자가 더 많습니다. 한 곳에 모여 있는 것은
+**정의 위치는 한 곳이 아닙니다** — 핸들러 본문은 네임스페이스별
+`src/modules/dispatcher/handler_*.c`(일부는 `src/modules/network/network_manager.c`)로 나뉘어 외부 링크를 갖고,
+`src/api/dispatcher.c`에는 디스패치 흐름과 라우트 등록이 남습니다. 정책표(`src/api/dispatcher_policy.c`)·owner-scope
+실행부(`src/api/dispatcher_owner_scope.c`)·영역 공용 보조(`src/modules/dispatcher/dispatcher_shared.c`)도 별도 파일입니다. 한 곳에 모여 있는 것은
 정의가 아니라 **등록**입니다 — `dispatcher_init_routes()` 의 `g_rpc_routes` 삽입 목록이
 "어떤 메서드가 존재하는가"의 진리원이고, 계약 게이트들도 그 표를 읽습니다.
 
@@ -6775,11 +7473,13 @@ chmod +x .git/hooks/commit-msg
 | 8 | SAFE 통합 테스트 + 보안 스캔 (OWASP Top 10) | API/UI + 데몬 실행 | 차단 |
 | 9 | 문서에 RPC/테스트 수가 있을 때 정합성 보조 검사 | C 변경 | 경고 |
 | 10 | 신규 TODO/FIXME | C 변경 | 경고 |
-| 11 | ASan/UBSan test_runner (5분 타임아웃) | C 변경 + sanitize 가능 | 차단 |
-| 12 | Valgrind definite leak | C 변경 + valgrind 설치 | 차단 |
+| 11 | ASan/UBSan test_runner — 스테이징된 트리를 임시 디렉터리로 꺼낸 사본(`git checkout-index`)에서 훅 시작과 함께 백그라운드로 돌며 작업 트리는 make clean·재빌드하지 않는다. ASan/UBSan 오류 문구가 있으면 차단하고, 오류 문구 없는 5분 타임아웃은 경고 후 생략하며, 그 밖의 비정상 종료 코드(빌드·링크 실패 포함)는 차단한다. 사본은 버리는 트리라 `PCV_SANITIZE_DISPOSABLE_TREE=1`로 계측 실패·중단 때 복원을 건너뛴다 | C 변경 + sanitize 가능 | 차단 |
+| 12 | Valgrind 표적 검사 — 스테이징된 `tests/*.c`가 등록한 GLib 시험 경로만(`check_test_runner_selectors.py --paths-for`, `test_runner -p 경로…`) 300초 상한으로 돈다. 메모리 오류·definite leak과 경로 추출 실패는 차단하고, 그 밖의 시간 초과·valgrind 아래 시험 실패는 경고한다. 시험 파일이 스테이징되지 않으면 생략한다 — 전체 memcheck는 `make memcheck` 또는 최상위 suite 단위를 `MEMCHECK_JOBS`개씩 동시에 돌리는 `make memcheck-sharded`(로그·합본 요약은 `valgrind_shards/`) | C 변경 + valgrind 설치 + `tests/*.c` staged | 차단 |
 | 13 | gitleaks 시크릿 스캔 | staged diff | 차단 |
 
 커밋 메시지 형식은 pre-commit이 아니라 commit-msg hook이 판정합니다(22.3 참조).
+
+설치된 훅(`.git/hooks/pre-commit`)은 `scripts/pre-commit`의 **복사본**입니다. `scripts/pre-commit`을 고치면 `make install-hooks`를 다시 실행해야 반영됩니다.
 
 ### 22.3 commit-msg hook
 
@@ -6796,7 +7496,7 @@ chmod +x .git/hooks/commit-msg
   perf: json_generator → json_to_string 전환
 ```
 
-### 22.4 계약 게이트 일괄 — `make check-all` (42게이트)
+### 22.4 계약 게이트 일괄 — `make check-all` (47게이트)
 
 ```bash
 make -j1 check-all
@@ -6805,6 +7505,7 @@ make -j1 check-all
 | 게이트 | 검사 범위 |
 |---|---|
 | `check-aws-manual-removed` | AWS 수동 이관·S3 실행/API/UI 부재·북마크와 VM/OVA/로컬 백업/일반 Job 보존 |
+| `check-help-contract` | help.js RPC 역할 표 = `dispatcher_policy.c`, REST 예시의 경로·본문 키 = 라우팅·핸들러, 예시 이름은 실재하기 어려운 값 |
 | `check-rbac` | ADR-0019 RBAC 정책 계약 |
 | `check-rpc-consumers` | AF-C4 RPC 소비⊆등록 계약 |
 | `check-dead-exports` | 미소비 공개 심볼(dead export) 차단 |
@@ -6813,8 +7514,8 @@ make -j1 check-all
 | `check-safety-controls` | 안전통제 효과 테스트 레지스트리 |
 | `check-error-codes` | raw 에러코드 리터럴 방지 (DISP-6) |
 | `check-cli-exit-status` | `pcvctl` 성공·실패·사용법 오류 0/1/2와 VPC terminal Job 효과 |
-| `check-audit-placement` | audit 배치 계약 (ADR-0018) |
-| `check-cors-anchor` | CORS 오리진 앵커 (A05·V3·V13) |
+| `check-audit-placement` | audit 배치 계약 (ADR-0018). Job 스키마 복원 계약 시험 포함(이전 revision을 `git show`로 읽으며, 그 이력이 없는 트리·얕은 clone에서는 사유를 남기고 건너뜀) |
+| `check-cors-anchor` | CORS 오리진 앵커 (A05·V3·V13). REST 요청 경로 계약 시험 2종(cleanup 초기화·segs 경계) 포함 |
 | `check-secret-logging` | 감사 로그 자격증명 마스킹 (A09·V14·V16) |
 | `check-ssrf-guard` | 아웃바운드 리다이렉트 금지 (A10·V4) |
 | `check-grpc-authz` | gRPC 인증/RBAC (A01·V8) |
@@ -6843,9 +7544,13 @@ make -j1 check-all
 | `check-rpc-route-unique` | `g_rpc_routes` 중복 등록 금지 |
 | `check-rerror-guard` | Web UI JSON-RPC `r.error` 미검사 호출부 래칫 |
 | `check-dpdk-owned-lifecycle` | DPDK OVS ownership·MTU·VM 수명주기와 accepted Job 결과 채널 |
-| `check-single-ui-surface` | 이벤트·경보·감사·명령 연결과 개발판 소스맵 배포 계약 |
+| `check-single-ui-surface` | 이벤트·경보·감사·명령 연결, VM 디스크 사용량 표면과 개발판 소스맵 배포 계약 |
 | `check-runtime-prereqs` | 원격 daemon/CLI ABI stop-before-mutation · 배포 런타임 전제 · nginx 종단 · LIO 모듈 패키징 |
 | `check-vnc-proxy-lifetime` | 실제 binary relay·REST context·WS signal/source/FD 종료 수명 (ADR-0065) |
+| `check-vnc-flow-control` | 인증·소유 VM·ACK·bounded queue·inline 경쟁·REST 종료 효과 (ADR-0072/0076) |
+| `check-vm-start-single-entry` | VM 시작 단일 진입점(ADR-0080): start/stop async 직접 참조·virDomainCreate* 허용 목록 밖 호출 차단(래칫). 새 VM 이름 UUID 거부·`vm.rename` 잠금 계약 시험(ADR-0083) 포함 |
+| `check-file-size-ratchet` | 파일 크기 래칫(ADR-0082): 추적 소스 파일 상한 1,500줄, 기준선 파일은 줄이는 방향만 허용 |
+| `check-mainloop-reach` | 메인 루프에서 도달 가능한 차단 호출의 래칫(ADR-0097): 기준선 밖의 새 도달을 막고, 비어 있어야 하는 범주(`g_mutation_mu`·동기 DNS)는 0을 지킨다 |
 
 ### 22.5 품질 게이트 건너뛰기
 
@@ -6864,7 +7569,7 @@ git commit --no-verify -m "fix: 긴급 수정"
 4. `Makefile` DAEMON_SRCS에 소스 등록
 5. `make clean && make all` — 경고 0 확인
 6. `nc -U` 수동 RPC 테스트
-7. REST 필요 시 `rest_server.c` 라우팅 추가
+7. REST 필요 시 매핑 사슬(`rest_map_compute.c`·`rest_map_observe.c`·`rest_map_platform.c` 중 그 리소스 묶음)에 라우팅 추가
 8. `scripts/verify_api_consistency.sh` — FAIL 0 확인
 9. 공개 가이드·RPC 계약을 갱신하고 `make check-rbac`로 등록·정책 매핑 검증
 10. `git commit` — pre-commit 조건부 게이트 통과
@@ -6895,8 +7600,8 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
-**2026-11-08 현재 소스 (2.0.4):** 2.0.3 공개 소스에 시작 볼륨 읽기 전용 보안 시정만 반영했습니다.
-변경 목록은 `CHANGELOG.md`의 2.0.4 항목을 따릅니다.
+**2026-11-09 현재 소스 (2.1.0):** 2.0.4 이후의 Single Edge 기능을 담은 기능 릴리스입니다.
+변경 목록은 `CHANGELOG.md`의 2.1.0 항목을 따릅니다.
 
 **2026-10-25 현재 소스 (2.0.3):** 2.0.2 공개 소스에 컨테이너 명령 실행 보안 시정만 반영했습니다.
 변경 목록은 `CHANGELOG.md`의 2.0.3 항목을 따릅니다.
@@ -6929,8 +7634,8 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
 결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
 `FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 공개 제품 버전은 `2.0.4`입니다.
+않습니다. 공개 제품 버전은 `2.1.0`입니다.
 
 ---
 
-> PureCVisor v2.0.4 Complete Guide — 22장 끝.
+> PureCVisor v2.1.0 Complete Guide — 22장 끝.

@@ -46,7 +46,7 @@ DEV_JOB_FLAGS = $(if $(filter -j% --jobserver-auth=%,$(MAKEFLAGS)),,-j$(DEV_JOBS
 
 
 DEV_MUTATING_CHECKS = check-rpc-consumers check-rpc-param-contract check-safety-controls check-fe-rpc-params check-rerror-guard
-DEV_PARALLEL_CHECKS = check-aws-manual-removed check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime
+DEV_PARALLEL_CHECKS = check-aws-manual-removed check-help-contract check-runtime-prereqs check-rbac check-dead-exports check-json-ingress check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-dpdk-owned-lifecycle check-single-ui-surface check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach
 
 ifeq ($(filter 0 1 auto,$(DEV_USE_MOLD)),)
     $(error DEV_USE_MOLD must be one of: auto, 1, 0)
@@ -193,14 +193,28 @@ COMMON_CORE_SRCS = \
     src/bootstrap/pcv_bootstrap_info.c \
     src/modules/audit/pcv_audit_chain.c \
     src/modules/dispatcher/rpc_completion.c \
+    src/modules/dispatcher/guest_ip.c \
+    src/modules/dispatcher/rpc_singleflight.c \
+    src/modules/dispatcher/guest_agent_exec.c \
+    src/modules/dispatcher/poll_async.c \
+    src/modules/dispatcher/rpc_offload.c \
+    src/modules/dispatcher/snapshot_fallback_lock.c \
+    src/modules/dispatcher/vm_delete_status.c \
+    src/modules/dispatcher/vm_delete_plan.c \
     src/modules/core/vm_state.c \
     src/modules/core/cpu_allocator.c \
     src/modules/virt/vm_config_builder.c \
     src/modules/virt/vm_clone_plan.c \
+    src/modules/virt/disk_image_guard.c \
     src/modules/virt/snapshot_compat.c \
     src/modules/backup/backup_send_estimate.c \
+    src/modules/backup/replication_hostkey.c \
     src/api/ova_import_xml.c \
     src/modules/virt/vm_manager.c \
+    src/modules/virt/vm_ops.c \
+    src/modules/virt/vm_create.c \
+    src/modules/virt/vm_xml_build.c \
+    src/modules/virt/vm_metadata.c \
     src/modules/virt/vm_start_capacity.c \
     src/modules/virt/circuit_breaker.c \
     src/modules/daemons/alert_silence.c \
@@ -208,10 +222,14 @@ COMMON_CORE_SRCS = \
     src/modules/daemons/update_check.c \
     src/modules/virt/cancellable_map.c \
     src/modules/virt/virt_conn_pool.c \
+    src/modules/virt/pcv_virt_open.c \
     src/modules/storage/zfs_driver.c \
     src/modules/lxc/lxc_owner.c \
+    src/modules/lxc/lxc_userns.c \
+    src/modules/lxc/lxc_mountinfo.c \
     src/modules/lxc/lxc_volume_guard.c \
-    src/modules/lxc/lxc_volume_stage.c \
+    src/modules/resource/resource_registry.c \
+    src/modules/resource/resource_domain_refs.c \
     src/utils/logger.c \
     src/utils/pcv_validate.c \
     src/utils/pcv_ssrf.c \
@@ -219,6 +237,7 @@ COMMON_CORE_SRCS = \
     src/utils/pcv_log.c \
     src/utils/pcv_spawn.c \
     src/utils/pcv_spawn_env.c \
+    src/utils/pcv_proc_state.c \
     src/utils/pcv_config.c \
     src/utils/pcv_privdrop.c \
     src/utils/pcv_crypto.c \
@@ -226,20 +245,30 @@ COMMON_CORE_SRCS = \
     src/utils/pcv_totp.c \
     src/utils/pcv_txn.c \
     src/utils/pcv_worker_pool.c \
+    src/utils/pcv_mainloop_guard.c \
     src/utils/pcv_job_queue.c \
+    src/utils/pcv_job_recovery.c \
     src/utils/pcv_zfs_lock.c \
-    src/utils/pcv_bpf.c
+    src/utils/pcv_zfs_exec.c \
+    src/utils/pcv_bpf.c \
+    src/utils/pcv_lsm_mounts.c
 
 COMMON_SINGLE_ALLOWED_NET_SRCS = \
     src/modules/network/network_manager.c \
+    src/modules/network/network_qos_rules.c \
+    src/modules/network/iface_guard.c \
     src/modules/network/pcv_shared_bridge.c \
     src/modules/network/network_firewall.c \
+    src/modules/network/network_firewall_nft.c \
     src/modules/network/network_dhcp.c \
     src/modules/network/vpc/vpc_model.c \
+    src/modules/network/vpc/vpc_mgmt_guard.c \
     src/modules/network/vpc/vpc_policy_nft.c \
     src/modules/network/vpc/vpc_store.c \
     src/modules/network/vpc/vpc_backend_ovn.c \
+    src/modules/network/vpc/vpc_fence.c \
     src/modules/network/vpc/vpc_manager.c \
+    src/modules/network/vpc/vpc_mgmt_guard_runtime.c \
     src/modules/network/ovs_overlay_core.c \
     src/modules/network/ovn_core.c
 
@@ -256,12 +285,44 @@ SINGLE_BOOTSTRAP_SRCS = \
 DAEMON_COMMON_SRCS = \
     src/api/uds_server.c \
     src/api/dispatcher.c \
+    src/modules/dispatcher/handler_host_query.c \
+    src/modules/dispatcher/handler_jobs.c \
+    src/modules/dispatcher/handler_security_group.c \
+    src/modules/dispatcher/handler_push.c \
+    src/modules/dispatcher/handler_container_net.c \
+    src/modules/dispatcher/handler_qos.c \
+    src/modules/dispatcher/handler_daemon.c \
+    src/modules/dispatcher/handler_alert.c \
+    src/modules/dispatcher/handler_suricata.c \
+    src/modules/dispatcher/handler_vm_admin.c \
+    src/modules/dispatcher/handler_vm_create.c \
+    src/modules/dispatcher/handler_vm_clone.c \
+    src/modules/dispatcher/handler_vm_ova.c \
+    src/api/dispatcher_owner_scope.c \
+    src/modules/dispatcher/dispatcher_shared.c \
+    src/api/dispatcher_policy.c \
     src/api/daemon_config_policy.c \
     src/api/snapshot_verify_probe.c \
     src/api/vm_batch_policy.c \
+    src/api/vm_batch_queue.c \
+    src/modules/dispatcher/snapshot_restart_policy.c \
     src/api/drain.c \
     src/api/rest_auth.c \
     src/api/rest_server.c \
+    src/api/rest_map_compute.c \
+    src/api/rest_map_observe.c \
+    src/api/rest_map_platform.c \
+    src/api/rest_prelude.c \
+    src/api/rest_public.c \
+    src/api/rest_public_render.c \
+    src/api/rest_login.c \
+    src/api/rest_auth_endpoints.c \
+    src/api/rest_request_auth.c \
+    src/api/rest_transport.c \
+    src/api/rest_async.c \
+    src/api/rest_request.c \
+    src/api/rest_response.c \
+    src/api/rest_policy.c \
     src/api/rest_client_identity.c \
     src/api/rest_middleware.c \
     src/api/grpc_server.c \
@@ -279,17 +340,36 @@ DAEMON_COMMON_SRCS = \
     src/modules/dispatcher/handler_vm_start.c \
     src/modules/dispatcher/handler_vnc.c \
     src/modules/dispatcher/handler_vm_lifecycle.c \
+    src/modules/dispatcher/handler_vm_guest.c \
+    src/modules/dispatcher/handler_vm_delete.c \
+    src/modules/dispatcher/handler_vm_rename.c \
+    src/modules/dispatcher/handler_vm_inspect.c \
+    src/modules/virt/vm_inspection.c \
     src/modules/dispatcher/handler_vm_hotplug.c \
+    src/modules/dispatcher/handler_vm_diskio.c \
+    src/modules/dispatcher/handler_vm_device.c \
     src/modules/dispatcher/hotplug_affect_policy.c \
+    src/modules/dispatcher/vm_limit_policy.c \
     src/modules/dispatcher/hotplug_nic_xml.c \
+    src/modules/dispatcher/hotplug_disk_xml.c \
+    src/modules/dispatcher/vnc_port_xml.c \
     $(COMMON_SINGLE_ALLOWED_NET_SRCS) \
     src/modules/dispatcher/handler_storage.c \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/lxc/lxc_driver.c \
+    src/modules/lxc/lxc_rollback.c \
+    src/modules/lxc/lxc_clone.c \
+    src/modules/lxc/lxc_volume_mount.c \
+    src/modules/lxc/lxc_volume_attach.c \
+    src/modules/lxc/lxc_volume_detach.c \
     src/modules/lxc/lxc_ns_exec.c \
+    src/modules/lxc/lxc_unit.c \
+    src/modules/lxc/lxc_limits.c \
     src/modules/dispatcher/handler_container.c \
+    src/modules/dispatcher/handler_container_volume.c \
     src/modules/dispatcher/handler_container_health.c \
+    src/modules/dispatcher/handler_container_mode.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
     src/modules/storage/iscsi_manager.c \
@@ -301,17 +381,25 @@ DAEMON_COMMON_SRCS = \
     src/modules/template/vm_template.c \
     src/modules/dispatcher/handler_auth.c \
     src/modules/auth/pcv_rbac.c \
+    src/modules/auth/pcv_rbac_tenant.c \
+    src/modules/auth/pcv_rbac_identity.c \
+    src/modules/auth/pcv_rbac_attempts.c \
+    src/modules/resource/resource_gate.c \
+    src/modules/dispatcher/handler_resource.c \
     src/modules/daemons/ebpf_telemetry.c \
     src/modules/daemons/cgroup_psi.c \
     src/modules/daemons/alert_engine.c \
     src/modules/daemons/process_monitor.c \
     src/modules/backup/backup_scheduler.c \
     src/modules/dispatcher/handler_backup.c \
+    src/modules/dispatcher/handler_replication_hostkey.c \
     src/modules/dispatcher/handler_security.c \
     src/modules/dispatcher/handler_tenant_overlay.c \
     src/modules/dispatcher/handler_vpc.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
+    src/modules/security/security_event_bounds.c \
+    src/modules/security/security_event_row.c \
     src/modules/security/security_policy.c \
     src/modules/security/hips_actions.c \
     src/modules/security/hids_file_integrity.c \
@@ -321,6 +409,7 @@ DAEMON_COMMON_SRCS = \
     src/modules/security/pcv_suricata_ips_rules.c \
     src/api/hot_reload.c \
     src/api/ws_server.c \
+    src/api/rest_shutdown.c \
     src/modules/daemons/prometheus_exporter.c \
     src/modules/audit/pcv_audit.c \
     src/modules/storage/storage_tier.c \
@@ -362,6 +451,7 @@ DAEMON_SRCS = src/main.c $(DAEMON_COMMON_SRCS) $(SINGLE_BOOTSTRAP_SRCS)
 
 
 
+
 TEST_COMMON_SRCS = \
     tests/test_stubs.c \
     tests/test_host_isolation.c \
@@ -376,16 +466,22 @@ TEST_COMMON_SRCS = \
     tests/test_update_check.c \
     tests/test_cancellable_map.c \
     tests/test_cpu_allocator.c \
+    tests/test_vm_start_pin.c \
     tests/test_config.c \
     tests/test_vm_signals.c \
     tests/test_spawn_launcher.c \
     tests/test_jwt.c \
     tests/test_totp.c \
     tests/test_rbac_totp.c \
+    tests/test_rbac_logout_scope.c \
     tests/test_network.c \
+    tests/test_network_qos_rules.c \
+    tests/test_network_guest_fw.c \
     tests/test_vpc_model.c \
+    tests/test_vpc_mgmt_guard.c \
     tests/test_vpc_policy.c \
     tests/test_vpc_store.c \
+    tests/test_vpc_fence.c \
     tests/test_vpc_rbac.c \
     tests/test_security_group.c \
     tests/test_sg_nft_builder.c \
@@ -401,15 +497,34 @@ TEST_COMMON_SRCS = \
     tests/test_validate_ext.c \
     tests/test_vm_config.c \
     tests/test_vm_clone_plan.c \
+    tests/test_disk_image_guard.c \
     tests/test_alert_basic.c \
     tests/test_backup_basic.c \
+    tests/test_replication_hostkey.c \
     tests/test_lxc_basic.c \
     tests/test_lxc_driver.c \
     tests/test_lxc_ns_exec.c \
+    tests/test_lxc_unit.c \
+    tests/test_lxc_limits.c \
+    tests/test_lxc_userns.c \
+    tests/test_lxc_mountinfo.c \
     tests/test_lxc_volume_guard.c \
-    tests/test_lxc_volume_stage.c \
+    tests/test_lxc_volume_mount.c \
+    tests/test_lxc_volume_detach.c \
+    tests/test_lxc_clone.c \
+    tests/test_resource_registry.c \
+    tests/test_rbac_tenant.c \
+    tests/test_resource_gate.c \
+    tests/test_resource_domain_refs.c \
     src/modules/lxc/lxc_driver.c \
+    src/modules/lxc/lxc_rollback.c \
+    src/modules/lxc/lxc_clone.c \
+    src/modules/lxc/lxc_volume_mount.c \
+    src/modules/lxc/lxc_volume_attach.c \
+    src/modules/lxc/lxc_volume_detach.c \
     src/modules/lxc/lxc_ns_exec.c \
+    src/modules/lxc/lxc_unit.c \
+    src/modules/lxc/lxc_limits.c \
     tests/test_ws_basic.c \
     tests/test_hotreload.c \
     tests/test_txn.c \
@@ -418,7 +533,10 @@ TEST_COMMON_SRCS = \
     tests/test_vm_state.c \
     tests/test_log.c \
     tests/test_conn_pool.c \
+    tests/test_virt_open.c \
     tests/test_zfs.c \
+    tests/test_zfs_exec.c \
+    src/modules/dispatcher/handler_storage.c \
     tests/test_lio.c \
     src/modules/storage/pcv_lio.c \
     tests/test_iscsi.c \
@@ -426,22 +544,36 @@ TEST_COMMON_SRCS = \
     src/modules/storage/pcv_iscsi_node_db.c \
     tests/test_vm_manager.c \
     tests/test_rest_middleware.c \
+    tests/test_rest_public_render.c \
+    src/api/rest_public_render.c \
+    src/api/rest_login.c \
+    src/api/rest_response.c \
     tests/test_rest_auth.c \
     tests/test_rpc_utils.c \
     tests/test_rpc_completion.c \
     tests/test_host_hardware_inventory.c \
     tests/test_monitor_arp.c \
+    tests/test_guest_ip.c \
+    tests/test_rpc_singleflight.c \
+    tests/test_proc_state.c \
+    tests/test_guest_agent_exec.c \
+    tests/test_poll_async.c \
+    tests/test_rpc_offload.c \
     tests/test_rpc_parse_guarded.c \
     tests/test_drain.c \
+    tests/test_mainloop_guard.c \
     tests/test_ai_agent.c \
     tests/test_prometheus.c \
     tests/test_plugin.c \
     tests/test_snapshot_rollback.c \
+    tests/test_snapshot_fallback.c \
+    src/modules/dispatcher/handler_snapshot.c \
     tests/test_ova_import_xml.c \
     tests/test_bootstrap.c \
     tests/test_bootstrap_rpc_registration.c \
     tests/test_security_event.c \
     tests/test_security_store.c \
+    tests/test_security_event_bounds.c \
     tests/test_security_policy.c \
     tests/test_security_actions.c \
     tests/test_hids_file_integrity.c \
@@ -451,8 +583,10 @@ TEST_COMMON_SRCS = \
     tests/test_tls_autogen.c \
     tests/test_rest_transport.c \
     tests/test_rest_client_identity.c \
+    tests/test_rest_exposure.c \
     tests/test_bpf_manifest.c \
     tests/test_bpf_integration.c \
+    tests/test_lsm_mounts.c \
     tests/test_shared_bridge_integration.c \
     tests/test_qos.c \
     tests/test_qos_chaos.c \
@@ -468,6 +602,7 @@ TEST_COMMON_SRCS = \
     tests/test_vm_death_class.c \
     src/modules/daemons/pcv_vm_death_class.c \
     tests/test_cgroup_psi.c \
+    tests/test_process_monitor.c \
     src/modules/daemons/cgroup_psi.c \
     tests/test_suricata.c \
     tests/test_suricata_integration.c \
@@ -480,6 +615,8 @@ TEST_COMMON_SRCS = \
     tests/test_webpush.c \
     src/modules/daemons/pcv_webpush.c \
     src/modules/dispatcher/handler_auth.c \
+    src/modules/dispatcher/dispatcher_shared.c \
+    src/modules/dispatcher/handler_container_mode.c \
     src/modules/dispatcher/handler_container_health.c \
     src/modules/ai/restart_breaker.c \
     src/modules/ai/self_healing_restart.c \
@@ -490,14 +627,27 @@ TEST_COMMON_SRCS = \
     tests/test_apikey.c \
     tests/test_audit_chain.c \
     tests/test_rbac_user_exists.c \
+    tests/test_rbac_identity.c \
+    tests/test_rbac_login_enum.c \
+    tests/test_rest_login.c \
+    tests/test_sec_consistency.c \
     tests/test_pbkdf2_verify.c \
     tests/test_password_rotation.c \
     tests/test_handler_snapshot_verify.c \
     tests/test_handler_vm_batch.c \
+    tests/test_vm_batch_queue.c \
+    tests/test_snapshot_restart_policy.c \
+    tests/test_vm_delete_status.c \
+    tests/test_vm_delete_plan.c \
     tests/test_hotplug_flags.c \
     tests/test_hotplug_nic_xml.c \
+    tests/test_hotplug_disk_xml.c \
+    tests/test_vnc_port_xml.c \
+    tests/test_ws_send.c \
     src/modules/security/security_event.c \
     src/modules/security/security_store.c \
+    src/modules/security/security_event_bounds.c \
+    src/modules/security/security_event_row.c \
     src/modules/security/security_policy.c \
     src/modules/security/hips_actions.c \
     src/modules/security/hids_file_integrity.c \
@@ -505,22 +655,34 @@ TEST_COMMON_SRCS = \
     src/modules/security/pcv_suricata_rules.c \
     src/modules/security/pcv_suricata_ips.c \
     src/modules/auth/pcv_rbac.c \
+    src/modules/auth/pcv_rbac_tenant.c \
+    src/modules/auth/pcv_rbac_identity.c \
+    src/modules/auth/pcv_rbac_attempts.c \
+    src/modules/resource/resource_gate.c \
     src/modules/network/ovs_overlay_core.c \
     src/modules/network/ovn_core.c \
     src/api/rest_middleware.c \
     src/api/rest_auth.c \
+    src/api/rest_policy.c \
     src/api/rest_client_identity.c \
     src/api/drain.c \
     src/api/daemon_config_policy.c \
     src/api/snapshot_verify_probe.c \
     src/api/vm_batch_policy.c \
+    src/api/dispatcher_policy.c \
+    src/api/dispatcher_owner_scope.c \
+    src/api/vm_batch_queue.c \
+    src/modules/dispatcher/snapshot_restart_policy.c \
     src/api/hot_reload.c \
     src/modules/dispatcher/rpc_utils.c \
     src/modules/dispatcher/host_hardware_inventory.c \
     src/modules/daemons/process_monitor.c \
     src/modules/dispatcher/handler_monitor.c \
     src/modules/dispatcher/hotplug_affect_policy.c \
+    src/modules/dispatcher/vm_limit_policy.c \
     src/modules/dispatcher/hotplug_nic_xml.c \
+    src/modules/dispatcher/hotplug_disk_xml.c \
+    src/modules/dispatcher/vnc_port_xml.c \
     src/modules/network/dpdk_manager.c \
     src/modules/network/sriov_manager.c \
     src/modules/network/security_group.c \
@@ -538,12 +700,17 @@ TEST_COMMON_SRCS = \
     src/utils/pcv_tls.c \
     src/utils/pcv_secure.c \
     src/modules/network/network_manager.c \
+    src/modules/network/network_qos_rules.c \
+    src/modules/network/iface_guard.c \
     src/modules/network/pcv_shared_bridge.c \
     src/modules/network/network_firewall.c \
+    src/modules/network/network_firewall_nft.c \
     src/modules/network/vpc/vpc_model.c \
+    src/modules/network/vpc/vpc_mgmt_guard.c \
     src/modules/network/vpc/vpc_policy_nft.c \
     src/modules/network/vpc/vpc_store.c \
     src/modules/network/vpc/vpc_backend_ovn.c \
+    src/modules/network/vpc/vpc_fence.c \
     $(URING_SRCS) \
     $(COMMON_CORE_SRCS)
 
@@ -557,7 +724,10 @@ TEST_SRCS = \
     $(TEST_COMMON_SRCS) \
     $(SINGLE_TEST_SRCS)
 
-CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c
+CLI_SRCS = src/cli/purecvisorctl.c src/cli/cli_rpc.c src/cli/cli_output.c src/cli/cli_backup_hostkey.c src/cli/cli_vpc_mgmt.c \
+           src/cli/cli_container_guard.c src/cli/cli_container_ns.c src/cli/cli_resource.c src/cli/cli_security_close.c src/cli/cli_agent_set.c \
+           src/cli/cli_secret_echo.c \
+           src/modules/lxc/lxc_volume_guard.c src/modules/lxc/lxc_mountinfo.c
 
                                
 DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
@@ -566,8 +736,6 @@ DAEMON_OBJS = $(DAEMON_SRCS:.c=.o)
 TEST_HOST_PATH_SEAM_REPLACED = src/utils/pcv_log.o src/modules/network/security_group.o
 TEST_HOST_PATH_SEAM_OBJS = tests/pcv_log_host_paths.o tests/security_group_host_paths.o
 TEST_OBJS   = $(filter-out src/modules/ai/self_healing.o $(TEST_HOST_PATH_SEAM_REPLACED),$(TEST_SRCS:.c=.o))
-TEST_OBJS  += tests/rest_transport_policy.o
-TEST_OBJS  += tests/dispatcher_policy.o
 TEST_OBJS  += tests/self_healing_policy.o
 TEST_OBJS  += $(TEST_HOST_PATH_SEAM_OBJS)
 CLI_OBJS    = $(CLI_SRCS:.c=.o)
@@ -632,12 +800,14 @@ BPFTOOL      ?= $(if $(BPFTOOL_DETECTED),$(BPFTOOL_DETECTED),bpftool)
 
 
 BPF_CFLAGS   := -g -O2 -target bpf -D__TARGET_ARCH_x86 -Isrc/bpf -Ibuild/bpf -Wall \
-	-Wno-missing-declarations
+	-Wno-missing-declarations -ffile-prefix-map=$(CURDIR)=.
 
-$(BPF_VMLINUX):
+$(BPF_VMLINUX): FORCE
 	@mkdir -p build/bpf
 	@command -v $(BPFTOOL) >/dev/null || { echo "❌ bpftool 미설치 (sudo apt install linux-tools-common linux-tools-$$(uname -r))"; exit 1; }
-	$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@
+	@$(BPFTOOL) btf dump file /sys/kernel/btf/vmlinux format c > $@.tmp
+	@if cmp -s $@.tmp $@; then rm -f $@.tmp; \
+	 else mv -f $@.tmp $@; echo "🔄 $@: 실행 중인 커널 BTF로 갱신"; fi
 
 $(BPF_OBJ): $(BPF_SRC) src/bpf/pcv_bpf_shared.h $(BPF_VMLINUX)
 	@mkdir -p build/bpf
@@ -696,17 +866,73 @@ src/cli/%.o: src/cli/%.c
 	$(CC) $(CFLAGS) $(CLI_CFLAGS) -c $< -o $@
 
                                        
-CLI_EXTRA_OBJS = src/modules/lxc/lxc_volume_guard.o
-
-$(CLI_BIN): $(CLI_OBJS) $(CLI_EXTRA_OBJS)
+$(CLI_BIN): $(CLI_OBJS)
 	@mkdir -p bin
 	@echo "🔗 Linking CLI Client: $@"
-	$(CC) -o $@ $(CLI_OBJS) $(CLI_EXTRA_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
+	$(CC) -o $@ $(CLI_OBJS) $(LDFLAGS) $(CLI_LDFLAGS)
 
              
 test_runner: $(TEST_OBJS)
 	@echo "🔗 Linking Test Runner: $@"
 	$(CC) -o $(TEST_BIN) $(TEST_OBJS) $(LDFLAGS)
+
+LIFECYCLE_TEST_BIN = tests/test_lifecycle
+LIFECYCLE_TEST_OBJS = tests/test_lifecycle.o $(filter-out tests/test_main.o,$(TEST_OBJS))
+.PHONY: test-lifecycle-bin
+test-lifecycle-bin: $(LIFECYCLE_TEST_BIN)
+
+$(LIFECYCLE_TEST_BIN): $(LIFECYCLE_TEST_OBJS)
+	@echo "🔗 Linking opt-in lifecycle test: $@"
+	$(CC) -o $@ $(LIFECYCLE_TEST_OBJS) $(LDFLAGS)
+
+.PHONY: check-test-link-deps
+check-test-link-deps: $(TEST_OBJS)
+	@tmp_bin=$$(mktemp) ; tmp_log=$$(mktemp) ; \
+	if $(CC) -o "$$tmp_bin" $(TEST_OBJS) $(LDFLAGS) -Wl,--no-gc-sections >"$$tmp_log" 2>&1 ; then \
+	    echo "[test-link-deps] PASS: 시험 러너가 --no-gc-sections로도 링크된다" ; rc=0 ; \
+	else \
+	    grep -E 'undefined reference|error:' "$$tmp_log" | sort -u | head -20 ; \
+	    echo "[test-link-deps] FAIL: 시험 러너 링크 의존 누락 — 정의가 있는 소스를 TEST_COMMON_SRCS에 더한다" ; rc=1 ; \
+	fi ; \
+	rm -f "$$tmp_bin" "$$tmp_log" ; exit $$rc
+
+INSPECTION_OUT ?= build/inspection-candidate
+INSPECTION_SRCS = src/modules/virt/vm_inspection.c \
+    src/modules/dispatcher/handler_vm_inspect.c src/modules/dispatcher/rpc_utils.c \
+    src/modules/dispatcher/rpc_completion.c src/api/drain.c \
+    tests/test_vm_inspection_candidate.c
+INSPECTION_WRAPS = virDomainLookupByUUIDString virDomainGetXMLDesc virDomainIsActive \
+    virDomainIsPersistent virDomainGetState virDomainGetBlockInfo virDomainGetUUIDString \
+    virGetLastErrorCode
+
+$(INSPECTION_OUT)/test_vm_inspection: $(INSPECTION_SRCS) \
+    src/modules/virt/vm_inspection.h src/modules/dispatcher/handler_vm_inspect.h
+	@mkdir -p $(INSPECTION_OUT)
+	$(CC) $(CFLAGS) -Werror -DPCV_INSPECTION_TIMEOUT_MS=100 $(INSPECTION_SRCS) \
+	    $(foreach function,$(INSPECTION_WRAPS),-Wl,--wrap=$(function)) \
+	    $(LDFLAGS) -o $@
+
+.PHONY: inspection-candidate inspection-candidate-test
+inspection-candidate: src/modules/virt/vm_inspection.o src/modules/dispatcher/handler_vm_inspect.o
+
+inspection-candidate-test: $(INSPECTION_OUT)/test_vm_inspection
+	$(INSPECTION_OUT)/test_vm_inspection --tap
+
+$(INSPECTION_OUT)/inspection_api_server: tests/inspection_api_server.o $(filter-out src/main.o,$(DAEMON_OBJS))
+	@mkdir -p $(INSPECTION_OUT)
+	$(CC) -o $@ $^ $(LDFLAGS)
+
+.PHONY: inspection-api-server
+inspection-api-server: $(INSPECTION_OUT)/inspection_api_server
+
+GUEST_FW_EMIT_BIN = bin/guest_fw_emit
+$(GUEST_FW_EMIT_BIN): tests/guest_fw_emit.c src/modules/network/network_firewall_nft.c src/modules/network/network_firewall_nft.h
+	@mkdir -p bin
+	$(CC) $(filter-out -MMD -MP -D_FORTIFY_SOURCE=2,$(CFLAGS)) -Werror tests/guest_fw_emit.c src/modules/network/network_firewall_nft.c \
+	    $(shell pkg-config --libs glib-2.0 gio-2.0) -o $@
+
+.PHONY: guest-fw-emit
+guest-fw-emit: $(GUEST_FW_EMIT_BIN)
 
 $(AUDIT_STARTUP_TEST_BIN): tests/test_audit_startup.o \
                            src/modules/audit/pcv_audit.o \
@@ -722,30 +948,14 @@ tests/test_audit_startup.o: tests/test_audit_startup.c \
 
 
 
-tests/rest_transport_policy.o: src/api/rest_server.c src/api/rest_server.h
-	@echo "🔨 Compiling REST transport policy seam: $<"
-	$(CC) $(CFLAGS) -DPCV_REST_TRANSPORT_POLICY_ONLY -c $< -o $@
+tests/self_healing_policy.o: tests/self_healing_policy.c src/modules/ai/self_healing.c src/modules/ai/self_healing.h
+	@echo "🔨 Compiling self-healing clock seam: $<"
+	$(CC) $(CFLAGS) -Dg_get_monotonic_time=pcv_test_healing_monotonic_time -c $< -o $@
 
                                                                           
                                                              
                                                           
                                                            
-tests/dispatcher_policy.o: src/api/dispatcher.c src/api/dispatcher.h
-	@echo "🔨 Compiling RBAC policy seam: $<"
-	$(CC) $(CFLAGS) -DPCV_DISPATCHER_POLICY_ONLY -c $< -o $@
-
-          
-
-
-
-tests/self_healing_policy.o: src/modules/ai/self_healing.c src/modules/ai/self_healing.h
-	@echo "🔨 Compiling self-healing clock seam: $<"
-	$(CC) $(CFLAGS) -Dg_get_monotonic_time=pcv_test_healing_monotonic_time -c $< -o $@
-
-
-
-
-
 
 TEST_HOST_PATH_SEAM_FLAGS = -DPCV_TEST_HOST_PATH_SEAM_MAP -include tests/test_host_isolation.h
 tests/pcv_log_host_paths.o: src/utils/pcv_log.c src/utils/pcv_log.h tests/test_host_isolation.h
@@ -769,16 +979,21 @@ test: test_runner $(AUDIT_STARTUP_TEST_BIN) check-q35-hotplug-xml check-server-d
 
 
 
-check-server-defect-contracts: check-vnc-proxy-lifetime
+check-server-defect-contracts: check-vnc-proxy-lifetime check-vnc-flow-control
 	@python3 scripts/tests/test_vm_delete_nvram.py
 	@bash tests/integration/test_vpc_startup_order.sh
 	@bash tests/integration/test_tenant_overlay_startup_order.sh
 	@bash tests/integration/test_lxc_server_defect_contract.sh
+	@python3 tests/test_lxc_unprivileged_contract.py
 	@bash tests/integration/test_backup_job_contract.sh
 	@bash tests/integration/test_ovn_public_contract.sh
 	@bash tests/integration/test_gpu_passthrough_contract.sh
 	@python3 scripts/check_ova_async_result.py
 	@python3 tests/test_job_persistence_contract.py
+	@python3 tests/test_job_recovery.py
+	@python3 -m pytest -q tests/test_vm_delete_job_contract.py
+	@python3 -m pytest -q tests/test_vpc_mgmt_wiring_contract.py
+	@python3 -m pytest -q tests/test_resource_wiring_contract.py
 
 
 
@@ -787,6 +1002,7 @@ check-dpdk-owned-lifecycle:
 	@python3 scripts/check_dpdk_owned_lifecycle.py
 	@python3 scripts/tests/test_dpdk_capacity_preflight.py
 	@python3 tests/test_vm_start_capacity.py
+	@python3 tests/test_vm_start_admission.py
 	@python3 tests/test_vm_start_pm_wakeup.py
 
                                                          
@@ -855,6 +1071,9 @@ memcheck: test_runner
 	 grep -E "LEAK SUMMARY|definitely lost|indirectly lost|possibly lost|ERROR SUMMARY" valgrind_report.txt | tail -n 8 || true; \
 	 exit $$status
 
+memcheck-sharded: test_runner
+	@MEMCHECK_JOBS="$(MEMCHECK_JOBS)" bash scripts/memcheck_sharded.sh ./$(TEST_BIN)
+
 memcheck-daemon: $(DAEMON_BIN)
 	@echo "🔍 Running Valgrind on daemon (5s timeout)..."
 	G_SLICE=always-malloc G_DEBUG=gc-friendly valgrind \
@@ -895,6 +1114,7 @@ clean:
 	@echo "🧹 Cleaning up build artifacts..."
 	rm -f $(DAEMON_BIN) bin/purecvisorsd \
 	      $(TEST_BIN) $(AUDIT_STARTUP_TEST_BIN) $(CLI_BIN) \
+	      $(LIFECYCLE_TEST_BIN) tests/test_lifecycle.o tests/test_lifecycle.d \
 	      tests/test_audit_startup.o tests/test_audit_startup.d \
 	      $(ALL_EDITION_OBJS) \
 	      $(ALL_EDITION_DEPS) \
@@ -940,7 +1160,7 @@ UI_MODULES = $(UI_DIR)/modules/endpoints.js $(UI_DIR)/modules/api.js $(UI_DIR)/m
 UI_CACHE_INPUTS = $(UI_DIR)/index.html $(UI_DIR)/docs.html $(UI_DIR)/guide.html \
     $(UI_DIR)/guide-content.md $(UI_DIR)/offline.html $(UI_DIR)/style.css \
     $(UI_DIR)/app.bundle.js $(UI_DIR)/i18n.js $(UI_DIR)/vendor/chart.umd.min.js \
-    $(UI_DIR)/vendor/novnc/novnc.esm.js $(UI_DIR)/vendor/pretendard/pretendard.css \
+    $(UI_DIR)/vendor/novnc/novnc.esm.js $(UI_DIR)/vnc-flow.mjs $(UI_DIR)/vendor/pretendard/pretendard.css \
     $(UI_DIR)/vendor/coolicons/coolicons.svg \
     $(UI_DIR)/assets/diagrams/purecvisor-single-full-architecture.svg \
     $(UI_DIR)/manifest.json \
@@ -1029,6 +1249,7 @@ fuzz_pcv_jwt: tests/fuzz/fuzz_pcv_jwt.c src/utils/pcv_jwt.c src/utils/pcv_secure
 check-standalone-builds:
 	@echo "🔩 Checking standalone lifecycle API and JWT fuzz link..."
 	@$(CC) $(filter-out -MMD -MP,$(CFLAGS)) -fsyntax-only tests/test_lifecycle.c
+	@python3 tests/test_lifecycle_source_contract.py
 	@linked=$$(mktemp --suffix=.so); missing=$$(mktemp --suffix=.so); \
 	 trap 'rm -f "$$linked" "$$missing"' EXIT; \
 	 $(CC) -shared -fPIC -std=gnu23 -Wall -Wextra -D_GNU_SOURCE $(FUZZ_INC) \
@@ -1193,8 +1414,9 @@ test-integ:
                         
 install-hooks:
 	@echo "🔗 Installing pre-commit hook..."
-	@cp scripts/pre-commit .git/hooks/pre-commit
-	@chmod +x .git/hooks/pre-commit
+	@cp scripts/pre-commit .git/hooks/pre-commit.new
+	@chmod +x .git/hooks/pre-commit.new
+	@mv -f .git/hooks/pre-commit.new .git/hooks/pre-commit
 	@echo "✅ pre-commit hook installed (.git/hooks/pre-commit)"
 
                  
@@ -1224,9 +1446,9 @@ cppcheck-strict: cppcheck
 check-rbac:
 	@echo "🔐 Running ADR-0019 RBAC policy gate..."
 	@python3 scripts/check_rbac_policies.py
-
+                                                                   
 	@python3 scripts/tests/test_check_rbac_policies.py
-
+                                                              
 	@python3 scripts/check_ws_broadcast_auth.py
 	@python3 scripts/tests/test_check_ws_broadcast_auth.py
 
@@ -1251,16 +1473,19 @@ check-rpc-consumers:
 
 
 	@python3 scripts/tests/test_rpc_extract.py
+	@python3 scripts/tests/test_rpc_extract_sources.py
+                                                                                         
+	@python3 scripts/tests/test_rest_family_sources.py
+                                                                                  
+	@python3 scripts/tests/test_vm_family_sources.py
 	@python3 scripts/tests/test_orphan_gate.py
 	@python3 scripts/tests/test_rpc_consumers_acceptance.py
+
 
 check-dead-exports:
 	@echo "🧹 Running dead export 게이트 (헤더 선언 사용처0)..."
 	@python3 scripts/check_dead_exports.py
 	@python3 scripts/tests/test_dead_exports.py
-
-
-
 
 check-rpc-param-contract:
 	@echo "🔑 Running RPC param-key contract gate (Stage 2)..."
@@ -1286,6 +1511,9 @@ check-safety-controls:
 	@python3 scripts/check_safety_controls.py
 	@python3 scripts/tests/test_safety_controls.py
 	@python3 scripts/tests/test_safety_controls_acceptance.py
+                                                                                  
+	@python3 scripts/check_backup_replicate_shell_free.py
+	@python3 scripts/check_backup_replicate_shell_free.py --self-test
 
 check-error-codes:
 	@echo "🔢 Running raw 에러코드 리터럴 방지 게이트 (DISP-6)..."
@@ -1299,6 +1527,10 @@ check-cli-exit-status: $(CLI_BIN)
 	@bash tests/integration/test_cli_help_readability.sh
 	@echo "🌐 Running pcvctl Local VPC route/params/terminal Job 효과 테스트..."
 	@bash tests/integration/test_vpc_cli_surface.sh
+	@echo "🧾 Running pcvctl vm delete-status 경고·오류 표시 테스트..."
+	@bash tests/integration/test_vm_delete_status_cli.sh
+	@echo "🧷 Running pcvctl argv→RPC params·문서 예시 테스트..."
+	@bash tests/integration/test_cli_argv_params.sh
 
 check-audit-placement:
 	@echo "📋 Running audit 배치 계약 게이트 (ADR-0018 — async registry/audit/WS completion)..."
@@ -1308,11 +1540,32 @@ check-audit-placement:
 	@python3 scripts/check_trace_reap_lifetime.py
 	@python3 scripts/tests/test_trace_reap_lifetime_wiring.py
 	@python3 tests/test_trace_reap_lifetime.py
-
+                                                                       
 	@python3 scripts/check_snapshot_rollback_order.py
 	@python3 scripts/tests/test_snapshot_rollback_order.py
-
+                                                                 
+	@python3 scripts/check_mainloop_guest_agent.py --self-test
+	@python3 scripts/check_mainloop_guest_agent.py
+                                                                 
 	@python3 scripts/tests/test_ova_async_result.py
+                                                                                                                                           
+	@python3 tests/test_job_schema_restore.py
+
+check-vm-start-single-entry:
+	@python3 scripts/check_vm_start_single_entry.py --self-test
+	@python3 scripts/check_vm_start_single_entry.py
+                                                                         
+	@python3 tests/test_vm_new_name_uuid_contract.py
+	@python3 tests/test_vm_rename_lock_contract.py
+
+check-mainloop-reach:
+	@python3 scripts/check_mainloop_reach.py --self-test
+	@python3 scripts/check_mainloop_reach.py
+	@python3 scripts/tests/test_mainloop_reach.py
+
+check-file-size-ratchet:
+	@python3 scripts/check_file_size_ratchet.py --self-test
+	@python3 scripts/check_file_size_ratchet.py
 
 check-cors-anchor:
 	@echo "🌐 Running CORS 오리진 앵커 검증 게이트 (Wave A / A05·V3·V13)..."
@@ -1371,6 +1624,7 @@ check-container-owner-scope:
 	@python3 scripts/check_container_owner_scope.py
 	@python3 scripts/tests/test_container_owner_scope.py
 	@python3 tests/test_container_exec_bounds_contract.py
+	@python3 tests/test_container_rollback_bounds_contract.py
 
 check-mtls-wiring:
 	@echo "🔐 Running mTLS 클라이언트 인증서 검증 배선 게이트 (C1 / A02·V12)..."
@@ -1401,10 +1655,17 @@ check-ws-token-url:
 check-vnc-proxy-lifetime:
 	@python3 tests/test_vnc_proxy_lifetime.py
 
+check-vnc-flow-control:
+	@python3 tests/test_vnc_flow_control.py
+	@python3 tests/test_vnc_flow_control.py --mutations
+	@node --test tests/ui/vnc-flow.test.mjs tests/ui/vnc-console-race.test.mjs
+
 check-zpool-suspend-recover:
 	@echo "💽 Running ZFS 풀 SUSPENDED 탐지+가드된 자동복구 게이트..."
 	@python3 scripts/check_zpool_suspend_recover.py
 	@python3 scripts/tests/test_zpool_suspend_recover.py
+	@python3 scripts/check_zfs_mutation_argv.py --self-test
+	@python3 scripts/check_zfs_mutation_argv.py
 
 check-deb-apparmor:
 	@echo "🛡  Running 2.0 deb AppArmor 미부착 게이트 (ADR-0028)..."
@@ -1419,14 +1680,10 @@ check-public-comments: check-standalone-builds test_runner
 
 	@python3 scripts/check_spawn_capability_contract.py --self-test
 	@python3 scripts/check_spawn_capability_contract.py
-
 	@python3 scripts/check_no_shell_exec.py
 	@python3 scripts/tests/test_no_shell_exec.py
-
 	@python3 scripts/check_test_hermetic.py
 	@python3 scripts/tests/test_test_hermetic.py
-
-
 	@python3 scripts/check_test_runner_selectors.py --self-test
 	@python3 scripts/check_test_runner_selectors.py --test-runner ./$(TEST_BIN)
 
@@ -1515,6 +1772,12 @@ check-help-counts:
 	@python3 scripts/check_help_counts.py --self-test
 	@python3 scripts/check_help_counts.py
 
+check-help-contract:
+	@echo "📚 Running help 역할 표·REST 예시 정본 게이트..."
+	@python3 scripts/check_help_contract.py --self-test
+	@python3 scripts/check_help_contract.py
+	@python3 scripts/tests/test_help_contract.py
+
 check-runtime-prereqs:
 	@command -v strace >/dev/null || { \
 		echo "❌ strace 미설치 (sudo apt install strace)"; \
@@ -1524,18 +1787,25 @@ check-runtime-prereqs:
 	@bash tests/integration/test_nginx_termination_install.sh
 	@python3 scripts/tests/test_deploy_abi_preflight.py
 	@bash tests/integration/test_deploy_runtime_prereq_contract.sh
-
-
-
 	@python3 scripts/tests/test_dev_make_performance_contract.py
-
-
-
 	@bash tests/integration/test_host_tuning_install.sh
 
 
 
 	@bash tests/integration/test_lio_modules_load_packaging.sh
+                                                                      
+                                                                               
+                                                                
+	@bash tests/integration/test_install_daemon_dropins.sh
+                                                                   
+                                                            
+                                        
+	@bash tests/integration/test_deploy_dropin_parity_contract.sh
+                                                                                  
+                                                                  
+                                                                    
+                                                         
+	@bash tests/integration/test_deploy_lio_modules_parity_contract.sh
 
 
 
@@ -1543,8 +1813,9 @@ check-runtime-prereqs:
 
 check-single-ui-surface:
 	@bash tests/integration/test_single_ui_surface.sh
+	@bash tests/integration/test_vm_disk_usage_surface.sh
 	@python3 scripts/tests/test_single_ui_surface.py
-
+                                                                     
 	@python3 scripts/check_help_counts.py --self-test
 	@python3 scripts/check_help_counts.py
 
@@ -1571,8 +1842,8 @@ $(foreach gate,$(DEV_MUTATING_CHECKS),$(eval $(call CHECK_ALL_SERIALIZE,$(gate))
 endif
 
 
-check-all: check-aws-manual-removed check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime
-	@echo "✅ 계약 게이트 전체 통과 (42게이트: AWS 수동 이관 제거 + RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites + VNC proxy lifetime)"
+check-all: check-aws-manual-removed check-help-contract check-rbac check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-secret-wipe check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-vendor-integrity check-npm-lockfile check-deb-supply-chain check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-dpdk-owned-lifecycle check-single-ui-surface check-runtime-prereqs check-vnc-proxy-lifetime check-vnc-flow-control check-vm-start-single-entry check-file-size-ratchet check-mainloop-reach
+	@echo "✅ 계약 게이트 전체 통과 (47게이트: AWS 수동 이관 제거 + help 역할 표/REST 예시 + RBAC + RPC consumers + dead exports + param contract + JSON ingress + safety controls + error codes + CLI exit status + audit placement + CORS anchor + secret logging + SSRF guard + gRPC authz + SSRF target guard + audit hashchain + RNG safe + UDS authz + transport bind + proxy identity + container owner-scope + mTLS wiring + TLS min-version + secret wipe + security headers + password policy + WS token URL + zpool suspend-recover + deb AppArmor 미부착 + public comments + 벤더 자산 무결성 + npm 의존 핀 + deb 공급망 + FE 요청 파라미터 + network mode enum + iSCSI CHAP argv 제거 + RPC 라우트 중복 등록 + r.error 가드 + DPDK ownership lifecycle + Single Edge UI surface + runtime prerequisites + VNC proxy lifetime + VNC flow control + VM start single entry + file size ratchet + mainloop reach ratchet)"
 
 compile-commands:
 	@echo "📝 Generating compile_commands.json..."
@@ -1633,5 +1904,5 @@ coverage-check: coverage-html
         install-hooks test-safe test-all test-integ \
         cppcheck cppcheck-strict check-rbac check-secret-wipe check-rpc-consumers check-dead-exports check-rpc-param-contract check-json-ingress check-safety-controls check-error-codes check-cli-exit-status check-audit-placement check-cors-anchor check-secret-logging check-ssrf-guard check-grpc-authz check-ssrf-target-guard check-audit-hashchain check-rng-safe check-uds-authz check-transport-bind check-proxy-identity check-container-owner-scope check-mtls-wiring check-tls-min-version check-security-headers check-password-policy check-ws-token-url check-zpool-suspend-recover check-deb-apparmor check-public-comments check-help-counts check-runtime-prereqs \
         check-vendor-integrity check-npm-lockfile check-deb-supply-chain \
-        check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle check-vnc-proxy-lifetime \
+        check-help-contract check-fe-rpc-params check-network-mode-contract check-iscsi-chap-argv check-rpc-route-unique check-rerror-guard check-q35-hotplug-xml check-server-defect-contracts check-dpdk-owned-lifecycle check-vnc-proxy-lifetime check-vnc-flow-control \
         check-single-ui-surface check-all compile-commands coverage coverage-html coverage-check

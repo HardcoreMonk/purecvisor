@@ -118,4 +118,9 @@ void handle_template_delete(JsonObject *params, const gchar *rpc_id,
 
 G_END_DECLS
 
+                                                                                 
+                           
+void handle_template_history(JsonObject *params, const gchar *rpc_id,
+                                      UdsServer *server, GSocketConnection *connection);
+
 #endif                                    

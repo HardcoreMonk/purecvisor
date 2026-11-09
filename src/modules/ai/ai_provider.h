@@ -11,7 +11,7 @@
                                                             
                                                        
   
-                                                             
+                                                                       
                                               
   
           
@@ -37,6 +37,7 @@
 #define PURECVISOR_AI_PROVIDER_H
 
 #include <glib.h>
+#include <string.h>
 
 G_BEGIN_DECLS
 
@@ -83,6 +84,21 @@ pcv_ai_provider_name(PcvAiProvider p)
     case PCV_AI_PROVIDER_OLLAMA:  return "Ollama";
     default:                      return "Unknown";                      
     }
+}
+
+   
+                        
+                                  
+                                                                        
+  
+                                                                                   
+  
+                                                             
+   
+static inline gboolean
+pcv_ai_key_is_masked(const gchar *key)
+{
+    return key && (strstr(key, "...") != NULL || strcmp(key, "***") == 0);
 }
 
    

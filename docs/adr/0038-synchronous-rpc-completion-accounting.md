@@ -25,6 +25,8 @@ success/error builder를 통과한다.
 6. fire-and-forget 실제 결과 audit는 계속 ADR-0018의 worker callback이 소유한다.
 7. 응답이 callback에서 나중에 오는 async 메서드는 반환 시점 미관측을 정상 dispatch로
    집계한다. 단, 즉시 validation error envelope가 관측되면 그 오류를 그대로 보존한다.
+   (2026-10 각주: 이 즉시 오류 envelope은 감사도 1건 남긴다 — async 메서드의 범위 안 오류 응답은 `fail`로 기록되고
+   같은 메서드의 직접 감사가 있으면 생략한다.)
 
 ## Consequences
 

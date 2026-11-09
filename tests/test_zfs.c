@@ -41,33 +41,6 @@ static void ensure_spawn(void) {
     if (!initialized) { pcv_spawn_launcher_init(); initialized = TRUE; }
 }
 
-                                                             
-
-static void test_create_volume_bad_pool(void) {
-    ensure_spawn();
-    GError *err = NULL;
-    gboolean ok = purecvisor_zfs_create_volume(BAD_POOL, BAD_VM, "1G", &err);
-    g_assert_false(ok);
-    g_assert_nonnull(err);
-    g_error_free(err);
-}
-
-static void test_destroy_volume_bad_pool(void) {
-    ensure_spawn();
-    GError *err = NULL;
-    gboolean ok = purecvisor_zfs_destroy_volume(BAD_POOL, BAD_VM, &err);
-                                    
-    if (!ok) g_clear_error(&err);
-}
-
-static void test_create_volume_null_safe(void) {
-    ensure_spawn();
-    GError *err = NULL;
-    gboolean ok = purecvisor_zfs_create_volume(NULL, NULL, NULL, &err);
-    g_assert_false(ok);
-    if (err) g_error_free(err);
-}
-
                                                           
 
 static void test_destroy_pool_nonexistent(void) {
@@ -210,9 +183,6 @@ static void test_recover_guard_window_limit(void) {
 }
 
 void test_zfs_register(void) {
-    g_test_add_func("/zfs/create_volume_bad_pool",      test_create_volume_bad_pool);
-    g_test_add_func("/zfs/destroy_volume_bad_pool",     test_destroy_volume_bad_pool);
-    g_test_add_func("/zfs/create_volume_null_safe",     test_create_volume_null_safe);
     g_test_add_func("/zfs/destroy_pool_nonexistent",    test_destroy_pool_nonexistent);
     g_test_add_func("/zfs/scrub_pool_nonexistent",      test_scrub_pool_nonexistent);
     g_test_add_func("/zfs/pool_health_detail_nonexistent", test_pool_health_detail_nonexistent);

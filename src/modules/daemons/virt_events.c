@@ -24,44 +24,45 @@
             
                    
                                                          
-
-
-
+                                                                         
+                                                            
+                                                                                
                                                                 
-
-                                                                                                
+                                                             
+                                                                                                         
   
                              
-
-
+                                                                       
+                                                            
                                                                
                                                                 
                                                                                 
-                                                   
+                                                                    
+                                                         
                                                                                     
                                                                           
   
-
-
+                                        
+                                                            
                                              
-
+                                                      
                                                                
                                        
   
          
-
-
-
-
-
-
+                                                           
+                                         
+                                                                          
+                                                               
+                                                                 
+                                 
                                                      
    
 
 #include "api/drain.h"
 
-
-
+                                                             
+                                                                  
 static GThread *g_producer_thread;
 static gint g_producer_stop;
 static void
@@ -79,6 +80,7 @@ _producer_wait(guint milliseconds)
 
                                   
 #include "modules/core/cpu_allocator.h"
+#include "modules/core/vm_state.h"                                        
 #include "modules/ai/self_healing.h"                                       
 #include "../network/security_group.h"                             
 #include "../network/tenant_overlay.h"                                     
@@ -88,6 +90,9 @@ _producer_wait(guint milliseconds)
 #include "../../utils/pcv_log.h"                                             
 #include "pcv_vm_death_class.h"                                 
 #include "modules/daemons/pcv_virt_listener_guard.h"
+#include "modules/virt/pcv_virt_open.h"
+#include "modules/virt/virt_conn_pool.h"
+#include "modules/dispatcher/guest_agent_exec.h"                                       
                                                 
 
                                                                
@@ -203,13 +208,15 @@ void init_virt_events_daemon(void);
                                                                         
                                                               
   
-                                                        
-                                                  
+                                                     
+                                                       
+                                            
                                   
   
                                                                               
                                                                            
-                                                                  
+                                                            
+                                 
                                                        
                                                                              
                                
@@ -239,7 +246,32 @@ static gboolean handle_vm_death_in_main_thread(gpointer user_data) {
                                                                         
                                                       
     if (global_allocator != NULL && p->name && *p->name) {
-        cpu_allocator_free_vm_cores(global_allocator, p->name);
+                                                                  
+                                                                                       
+                                                                  
+                                                             
+                                                                
+                                                                                            
+                                                                      
+                                                                     
+                                                               
+                                                                         
+                                                                     
+                                                                              
+                                                                           
+                                                              
+                                                                       
+                                                                
+                                                              
+        gboolean starting = pcv_vm_state_start_in_progress(p->name);
+        gboolean release = !starting &&
+            pcv_vm_death_should_release_cores(pcv_vm_state_get_runtime_nowait(p->name), FALSE);
+        if (release) {
+            cpu_allocator_free_vm_cores(global_allocator, p->name);
+        } else {
+            g_message("[lifecycle] VM '%s' 종료 이벤트가 늦게 도착 — 이미 다시 켜졌거나 시작 중이라 코어를 유지한다",
+                      p->name);
+        }
     }
 
                                                                        
@@ -524,7 +556,7 @@ static void _ovl4_payload_free(gpointer data) {
                                                      
 static gboolean _ovl4_domain_still_active(const char *uuid) {
     if (!uuid || !*uuid) return FALSE;
-    virConnectPtr c = virConnectOpenReadOnly("qemu:///system");
+    virConnectPtr c = pcv_virt_open_bounded("qemu:///system", TRUE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
     if (!c) return FALSE;                                    
     gboolean active = FALSE;
     virDomainPtr d = virDomainLookupByUUIDString(c, uuid);
@@ -657,6 +689,7 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
         p->uuid = g_strdup(uuid);
         p->name = g_strdup(vm_name ? vm_name : "");
         pcv_drain_invoke(NULL, _ovl4_on_undefined_main, p);
+        pcv_guest_agent_invalidate(uuid);                                           
         return 0;
     }
                                                                             
@@ -692,7 +725,7 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
     if (event == VIR_DOMAIN_EVENT_STOPPED || event == VIR_DOMAIN_EVENT_CRASHED) {
 
                                                                  
-                                                                          
+                                                                                 
                                           
         _schedule_overlay_cleanup(vm_name);
 
@@ -702,6 +735,7 @@ static int domain_lifecycle_cb(virConnectPtr conn, virDomainPtr dom,
         _schedule_qos_cleanup(vm_name);
 
         if (uuid_valid) {
+            pcv_guest_agent_invalidate(uuid);                                       
 
                                                  
                                                                        
@@ -777,14 +811,14 @@ _deregister_device_callbacks(virConnectPtr conn, int *added_id, int *removed_id)
 
 #define PCV_VIRT_LISTENER_RECONNECT_DELAY_SEC 5U
 
-
-
-
-
-
+  
+                           
+                                                                            
+                                                                
+                                                               
   
                                                   
-
+                                              
    
 typedef struct {
     virConnectPtr connection;
@@ -802,7 +836,7 @@ _event_listener_reset(PcvVirtEventListener *listener)
     listener->device_removed_callback_id = -1;
 }
 
-
+                                                                         
 static void
 _event_listener_close(PcvVirtEventListener *listener)
 {
@@ -825,21 +859,22 @@ _event_listener_close(PcvVirtEventListener *listener)
     _event_listener_reset(listener);
 }
 
-
-
-
-
-
+   
+                        
+                                  
+  
+                                                                                         
                                                              
-
-
+                                                              
+   
 static gboolean
 _event_listener_open(PcvVirtEventListener *listener)
 {
     g_return_val_if_fail(listener != NULL, FALSE);
     _event_listener_reset(listener);
 
-    listener->connection = virConnectOpen("qemu:///system");
+                                                                                                       
+    listener->connection = pcv_virt_open_bounded("qemu:///system", FALSE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
     if (!listener->connection)
         return FALSE;
 
@@ -857,13 +892,6 @@ _event_listener_open(PcvVirtEventListener *listener)
         return FALSE;
     }
 
-
-    gint keepalive_result = virConnectSetKeepAlive(listener->connection, 5, 3);
-    if (keepalive_result < 0)
-        g_warning("⚠️ [Events] libvirt keepalive setup failed; periodic health probe remains active");
-    else if (keepalive_result == 1)
-        g_message("[Events] libvirt peer does not support keepalive; periodic health probe is authoritative");
-
     listener->lifecycle_callback_id = virConnectDomainEventRegisterAny(
         listener->connection,
         NULL,
@@ -880,28 +908,29 @@ _event_listener_open(PcvVirtEventListener *listener)
     _register_device_callbacks(listener->connection,
                                &listener->device_added_callback_id,
                                &listener->device_removed_callback_id);
+    virt_conn_pool_note_libvirtd_ok();                               
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                                          
+  
+                           
+                                                                              
+                                                     
+                                                        
+                                                                         
+                                                        
+                                                            
+                                                      
+  
+                                                   
+                                                       
+   
 static gpointer libvirt_listener_watchdog_thread(gpointer data) {
     (void)data;
 
-
+                                                                          
     if (virInitialize() < 0 || virEventRegisterDefaultImpl() < 0) {
         g_critical("🚨 [Events] Failed to initialize Libvirt default event loop. "
                    "Lifecycle monitoring disabled.");
@@ -951,6 +980,7 @@ static gpointer libvirt_listener_watchdog_thread(gpointer data) {
                 PCV_VIRT_LISTENER_HEALTHCHECK_INTERVAL_MS)) {
             g_critical("🚨 [Events] listener watchdog interval is invalid; "
                        "lifecycle monitoring disabled");
+            virt_conn_pool_note_coverage_end();
             _event_listener_close(&listener);
             return NULL;
         }
@@ -963,19 +993,22 @@ static gpointer libvirt_listener_watchdog_thread(gpointer data) {
             : -1;
         if (!pcv_virt_listener_connection_lost(listener.connection != NULL,
                                                alive_result,
-                                               rpc_probe_result))
+                                               rpc_probe_result)) {
+            virt_conn_pool_note_libvirtd_ok();                                
             continue;
+        }
 
         g_warning("⚠️ [Events] libvirt listener lost "
                   "(is_alive=%d rpc_probe=%d); "
-                  "reconnecting",
+                  "ending coverage and reconnecting",
                   alive_result, rpc_probe_result);
         disconnected_at_us = g_get_monotonic_time();
         _event_listener_close(&listener);
         reconnect_attempt = 0U;
     }
 
-
+                                                                        
+    virt_conn_pool_note_coverage_end();
     _event_listener_close(&listener);
     return NULL;
 }
@@ -1004,8 +1037,8 @@ void init_virt_events_daemon(void) {
     }
 }
 
-
-
+                                                
+                                                             
 void
 pcv_virt_events_shutdown(void)
 {

@@ -27,6 +27,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 TARGET_REL = "src/api/rest_server.c"
 TARGET = ROOT / TARGET_REL
@@ -114,21 +117,29 @@ def scan_text(text: str):
     return fails, has_helper
 
 
+def _sources(argv: list) -> list:
+
+    if argv:
+        return [(argv[0], Path(argv[0]).read_text(errors="replace"))]
+    return [(p.relative_to(ROOT).as_posix(), p.read_text(errors="replace"))
+            for p in rpc_extract.rest_family(ROOT)]
+
 def main(argv=None) -> int:
                                                           
                                                  
     argv = list(sys.argv[1:]) if argv is None else list(argv)
-    target = Path(argv[0]) if argv else TARGET
-    rel = argv[0] if argv else TARGET_REL
-    text = target.read_text(errors="replace")
-    fails, has_helper = scan_text(text)
+    fails, has_helper = [], False
+    for rel, text in _sources(argv):
+        file_fails, file_helper = scan_text(text)
+        fails += [(rel, ln, desc, src) for ln, desc, src in file_fails]
+        has_helper = has_helper or file_helper
 
     print(f"[check-cors-anchor] 금지 substring 패턴 {len(fails)}건 / "
           f"{REQUIRED_HELPER} 사용 {'예' if has_helper else '아니오'}")
 
     if fails:
         print(f"[FAIL] CORS origin substring 매칭 재등장 {len(fails)}건:", file=sys.stderr)
-        for ln, desc, src in fails:
+        for rel, ln, desc, src in fails:
             print(f"  - {rel}:{ln} {desc}: {src}", file=sys.stderr)
         return 1
     if not has_helper:

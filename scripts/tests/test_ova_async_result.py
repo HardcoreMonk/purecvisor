@@ -1,23 +1,23 @@
 #!/usr/bin/env python3
+                          
+                                                                                 
+                         
+                                                                    
+                                                                        
+                                                         
+ 
+                      
+                                                       
+                                               
+                                                             
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+             
+                        
+                           
+                                  
+                                 
+                                
+   
 import os
 import subprocess
 import sys
@@ -25,16 +25,22 @@ import tempfile
 from pathlib import Path
 
 GATE = Path(__file__).resolve().parent.parent / "check_ova_async_result.py"
-DISPATCHER = Path(__file__).resolve().parent.parent.parent / "src" / "api" / "dispatcher.c"
+DISPATCHER = Path(__file__).resolve().parent.parent.parent / "src" / "modules" / "dispatcher" / "handler_vm_ova.c"
 
-POOL_CHECK = "    if (pool && pool[0] && !_valid_vm_storage_pool(pool)) {"
-LOCK_CALL = "        if (!lock_vm_operation(name, VM_OP_CREATING, &import_lock_err)) {"
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import rpc_extract              
+
+REPO_ROOT = Path(__file__).resolve().parent.parent.parent
+                                                      
+_POOL_FN = rpc_extract.current_fn_name(REPO_ROOT, "_valid_vm_storage_pool")
+POOL_CHECK = f"    if (pool && pool[0] && !{_POOL_FN}(pool)) {{"
+LOCK_CALL = "        op_lock = pcv_vm_lock_acquire(name, VM_OP_CREATING, &import_lock_err);"
 PREFLIGHT = "        virDomainPtr existing = virDomainLookupByName(conn, name);\n"
 DISK_EXISTS_UNLOCK = (
     "        if (disk_exists) {\n"
-    "            unlock_vm_operation(name);\n"
+    "            pcv_vm_lock_release(op_lock);\n"
 )
-CTX_FREE_UNLOCK = "    if (ctx->holds_lock) unlock_vm_operation(ctx->vm_name);\n"
+CTX_FREE_UNLOCK = "    g_clear_pointer(&ctx->lock, pcv_vm_lock_release);\n"
 
 
 def _source() -> str:
@@ -59,23 +65,23 @@ def _mutate(old: str, new: str) -> str:
 
 
 def test_gate_passes_on_current_tree():
-
+                       
     result = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
 
 
 def test_missing_pool_validation_fails():
-
+                                  
     assert _run_gate_on(_mutate(POOL_CHECK, "    if (0) {")) == 1
 
 
 def test_missing_name_lock_fails():
-
-    assert _run_gate_on(_mutate(LOCK_CALL, "        if (0) {")) == 1
+                                   
+    assert _run_gate_on(_mutate(LOCK_CALL, "        op_lock = NULL;")) == 1
 
 
 def test_lock_after_preflight_fails():
-
+                                              
     text = _source()
     assert text.count(PREFLIGHT) == 1 and text.count(LOCK_CALL) == 1
     mutated = text.replace(PREFLIGHT, "        virDomainPtr existing = NULL;\n")
@@ -86,12 +92,12 @@ def test_lock_after_preflight_fails():
 
 
 def test_missing_unlock_on_rejection_fails():
-
+                                                    
     assert _run_gate_on(_mutate(DISK_EXISTS_UNLOCK, "        if (disk_exists) {\n")) == 1
 
 
 def test_ctx_free_without_unlock_fails():
-
+                                      
     assert _run_gate_on(_mutate(CTX_FREE_UNLOCK, "")) == 1
 
 

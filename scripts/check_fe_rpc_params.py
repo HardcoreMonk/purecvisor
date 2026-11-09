@@ -141,12 +141,14 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 UI_DIR = ROOT / "ui"
 UNCOVERED_FILE = ROOT / "scripts" / "fe_rpc_params_uncovered.txt"
 VIOLATION_FILE = ROOT / "scripts" / "fe_rpc_params_baseline.txt"
 MISSING_FILE = ROOT / "scripts" / "fe_rpc_params_missing_baseline.txt"
-REST_SERVER = ROOT / "src" / "api" / "rest_server.c"
 
                                        
                                                                     
@@ -186,11 +188,14 @@ EP_TO_RPC = {
     ("CONFIG_DAEMON", "PUT"): "daemon.config.set",
     ("CTR_BANDWIDTH", "PUT"): "container.set_bandwidth",
     ("CTR_CLONE", "POST"): "container.clone",
+    ("CTR_LIMITS", "PUT"): "container.set_limits",
+    ("CTR_LIST", "POST"): "container.create",
     ("CTR_NICS", "POST"): "container.nic.attach",
     ("CTR_SNAPSHOTS", "POST"): "container.snapshot.create",
     ("CTR_SNAP_ROLLBACK", "POST"): "container.snapshot.rollback",
     ("DPDK_BIND", "POST"): "dpdk.bind",
     ("DPDK_UNBIND", "POST"): "dpdk.unbind",
+    ("NET_LIST", "POST"): "network.create",
     ("NET_MODE", "POST"): "network.mode_set",
     ("OVA_IMPORT", "POST"): "vm.import.ova",
     ("OVN_ACL", "POST"): "ovn.acl.add",
@@ -222,11 +227,19 @@ EP_TO_RPC = {
     ("VPC_SERVICE", "DELETE"): "vpc.service.unpublish",                           
     ("VPC_RECONCILE", "POST"): "vpc.reconcile",                                   
     ("VM_BANDWIDTH", "PUT"): "vm.set_bandwidth",                                   
+    ("VM_CLONE", "POST"): "vm.clone",
     ("VM_CPU_PIN", "PUT"): "vm.pin_vcpu",                                          
+    ("VM_CREATE", "POST"): "vm.create",
+    ("VM_DISK", "PUT"): "vm.resize_disk",
     ("VM_DISK_RESIZE", "POST"): "vm.disk.live_resize",                             
+    ("VM_GUEST_EXEC", "POST"): "vm.guest.exec",
     ("VM_ISO", "POST"): "vm.mount_iso",                                            
     ("VM_NICS", "POST"): "device.nic.attach",                                      
+
+    ("VM_SNAPSHOT_DELETE_ALL", "POST"): "vm.snapshot.delete_all",
 }
+
+SPECIAL_HANDLERS = {"vm.create": "handle_vm_create"}
 
                                                         
                                                                
@@ -241,6 +254,9 @@ RPC_CALL = re.compile(
                                                                                 
 REST_CALL = re.compile(
     r"fetch(Post|Put|Delete)\s*\(\s*EP\.([A-Z0-9_]+)\s*\([^)]*\)\s*,\s*\{([^{}]*)\}", re.S)
+
+REST_VAR_CALL = re.compile(
+    r"fetch(Post|Put|Delete)\s*\(\s*EP\.([A-Z0-9_]+)\s*\([^)]*\)\s*,\s*([A-Za-z_$][\w$]*)\s*[,)]")
                                                                
                                                             
                                                        
@@ -261,7 +277,8 @@ def be_read_re(var):
 
                                                                     
                                                                           
-    return re.compile(r'(?:json_object_\w*member\w*|_json_\w+_member|_string_member|_int_member)\(\s*'
+    return re.compile(r'(?:json_object_\w*member\w*|_json_\w+_member|_string_member|_int_member'
+                      r'|pcv_rpc_params_get_(?:string|bool))\(\s*'
                       + re.escape(var) + r'\s*,\s*"([a-z0-9_]+)"')
 
 
@@ -273,9 +290,50 @@ def get_param_re(var):
                       + r'\s*,\s*"([a-z0-9_]+)"\s*(?:,\s*"([a-z0-9_]+)"\s*)?\)')
 
 
+def _top_level_items(body):
+
+    items, cur, depth, i, n = [], [], 0, 0, len(body)
+    while i < n:
+        c = body[i]
+        if c in "\"'`":
+            j = i + 1
+            while j < n and body[j] != c:
+                j += 2 if body[j] == "\\" else 1
+            cur.append(body[i:j + 1])
+            i = j + 1
+            continue
+        if c == "/" and i + 1 < n and body[i + 1] in "/*":
+            end = body.find("\n", i) if body[i + 1] == "/" else body.find("*/", i + 2)
+            i = n if end < 0 else end + (0 if body[i + 1] == "/" else 2)
+            continue
+        if c in "([{":
+            depth += 1
+        elif c in ")]}":
+            depth -= 1
+        if c == "," and depth == 0:
+            items.append("".join(cur))
+            cur = []
+        else:
+            cur.append(c)
+        i += 1
+    items.append("".join(cur))
+    return [it.strip() for it in items if it.strip()]
+
+def object_keys(body):
+
+    keys, complete = set(), True
+    for item in _top_level_items(body):
+        if item.startswith("...") or item.startswith("["):
+            complete = False
+            continue
+        m = re.match(r"""(?:'([A-Za-z_$][\w$]*)'|"([A-Za-z_$][\w$]*)"|([A-Za-z_$][\w$]*))\s*(:|\(|$)""", item)
+        if m:
+            keys.add(m.group(1) or m.group(2) or m.group(3))
+    return keys, complete
+
 def keys_in(body):
                                                        
-    return {a or b or c for a, b, c in KEY.findall("," + body)}
+    return object_keys(body)[0]
 
 
 def required_guard_re(var):
@@ -291,7 +349,7 @@ ANY_HAS_MEMBER = re.compile(r'json_object_has_member\s*\(')
 IF_HEAD = re.compile(r'\bif\s*\(')
                                                                             
                                           
-RPC_INJECTED_KEYS = frozenset({"_pcv_caller_sub", "_pcv_caller_role"})
+RPC_INJECTED_KEYS = frozenset({"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"})
 
 
                                                  
@@ -311,6 +369,7 @@ ENVELOPE_KEYS = {"jsonrpc", "id", "method", "params"}
 C_CONTROL = {"if", "while", "for", "switch", "return", "sizeof", "do", "else"}
 PARAM_SAFE_CALLEES = {"_get_param", "_wipe_json_string_member",
                       "_string_member", "_int_member",
+                      "pcv_rpc_params_get_string", "pcv_rpc_params_get_bool",
                       "g_return_if_fail", "g_return_val_if_fail",
                       "g_assert", "g_assert_nonnull", "g_assert_true"}
 
@@ -335,7 +394,18 @@ PARAM_HELPERS = {
         "tenant", "_pcv_caller_sub", "_pcv_caller_role",
         "vpc_id", "subnet_id", "attachment_id", "publish_id",
     },
+
+    "pcv_res_gate": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
+
+    "pcv_res_caller_init": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
+    "pcv_res_request_can_see_usb": {"_pcv_caller_sub", "_pcv_caller_role", "_pcv_caller_tenant"},
 }
+
+for _old, _new in rpc_extract.split_renames(ROOT).items():
+    if _old in PARAM_SAFE_CALLEES:
+        PARAM_SAFE_CALLEES = PARAM_SAFE_CALLEES | {_new}
+    if _old in PARAM_HELPERS:
+        PARAM_HELPERS[_new] = PARAM_HELPERS[_old]
 
 _be_cache = {}
 _req_cache = {}
@@ -355,6 +425,71 @@ def ui_sources():
     return out
 
 
+def _balanced_js(text, i):
+
+    depth, n = 0, len(text)
+    while i < n:
+        c = text[i]
+        if c in "\"'`":
+            j = i + 1
+            while j < n and text[j] != c:
+                j += 2 if text[j] == "\\" else 1
+            i = j + 1
+            continue
+        if c == "/" and i + 1 < n and text[i + 1] in "/*":
+            end = text.find("\n", i) if text[i + 1] == "/" else text.find("*/", i + 2)
+            if end < 0:
+                return -1
+            i = end + (0 if text[i + 1] == "/" else 2)
+            continue
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth == 0:
+                return i
+        i += 1
+    return -1
+
+def resolve_var_body(text, name, call_pos):
+
+    esc = re.escape(name)
+    decls = list(re.finditer(r'\b(?:const|let|var)\s+' + esc + r'\s*=\s*\{', text[:call_pos]))
+    if not decls:
+        return None
+    decl = decls[-1]
+    open_at = decl.end() - 1
+    close = _balanced_js(text, open_at)
+    if close < 0 or close > call_pos:
+        return None
+    _, masked = mask_source(text[close + 1:call_pos])
+    depth = 0
+    for c in masked:
+        if c == "{":
+            depth += 1
+        elif c == "}":
+            depth -= 1
+            if depth < 0:
+                return None
+    keys, complete = object_keys(text[open_at + 1:close])
+    code, masked = mask_source(text[close + 1:call_pos])
+    keys |= set(re.findall(r'(?<![\w$.])' + esc + r'\.([A-Za-z_$][\w$]*)\s*=(?!=)', code))
+    keys |= set(re.findall(r'(?<![\w$.])' + esc + r"""\[\s*['"]([A-Za-z_$][\w$]*)['"]\s*\]\s*=(?!=)""", code))
+    if re.search(r'(?<![\w$.])' + esc + r"""\[\s*[^'"\s]""", masked):
+        complete = False
+    for am in re.finditer(r'Object\.assign\(\s*' + esc + r'\s*,\s*(.)', code):
+        if am.group(1) != "{":
+            complete = False
+            continue
+        end = _balanced_js(code, am.start(1))
+        if end < 0:
+            complete = False
+            continue
+        extra, extra_complete = object_keys(code[am.start(1) + 1:end])
+        keys |= extra
+        complete = complete and extra_complete
+    return keys, complete
+
 def extract_sent(text):
                                     
 
@@ -362,12 +497,22 @@ def extract_sent(text):
                              
     found = []
     for m in RPC_CALL.finditer(text):
-        found.append((m.group(1), keys_in(m.group(2)) - ENVELOPE_KEYS, False))
+        keys, complete = object_keys(m.group(2))
+        found.append((m.group(1), keys - ENVELOPE_KEYS, False, complete))
     for m in REST_CALL.finditer(text):
         if m.group(2) in EP_NOT_REST:
             continue
-        found.append(((m.group(2), m.group(1).upper()),
-                      keys_in(m.group(3)) - ENVELOPE_KEYS, True))
+        keys, complete = object_keys(m.group(3))
+        found.append(((m.group(2), m.group(1).upper()), keys - ENVELOPE_KEYS, True, complete))
+    for m in REST_VAR_CALL.finditer(text):
+        if m.group(2) in EP_NOT_REST:
+            continue
+        target = (m.group(2), m.group(1).upper())
+        resolved = resolve_var_body(text, m.group(3), m.start())
+        if resolved is None:
+            found.append((target, None, True, False))
+            continue
+        found.append((target, resolved[0] - ENVELOPE_KEYS, True, resolved[1]))
     return found
 
 
@@ -438,13 +583,15 @@ def _routes():
 
                                                                 
                                                      
-    disp = ROOT / "src" / "api" / "dispatcher.c"
+    disp = rpc_extract.dispatcher_route_file(ROOT)
     table = {}
     for path, code, _ in _src_files():
         if path != disp:
             continue
         for method, fn in ROUTE.findall(code):
             table[method] = fn
+    for method, fn in SPECIAL_HANDLERS.items():
+        table.setdefault(method, fn)
     return table
 
 
@@ -478,25 +625,93 @@ def forwards_params(body, var="params"):
                                        
                                                                
                                                   
+    return bool(forwarded_calls(body, var))
+
+def _strip_nested_readers(args, var):
+
+    return re.sub(r'(?:json_object_\w+|(?:pcv_disp)?_json_\w+_member|pcv_rpc_params_get_\w+|_get_param)\s*\(\s*'
+                  + re.escape(var) + r'\b', "(", args)
+
+def forwarded_calls(body, var):
+
     token = re.compile(r'\b' + re.escape(var) + r'\b')
+    calls = []
     for m in CALLEE.finditer(body):
         name = m.group(1)
         if (name in C_CONTROL or name in PARAM_SAFE_CALLEES or name in PARAM_HELPERS
                 or name.startswith("json_object_")
-                or re.fullmatch(r"_json_\w+_member", name)):
+                or re.fullmatch(r"(?:pcv_disp)?_json_\w+_member", name)):
             continue
-        i, depth = m.end() - 1, 0
-        while i < len(body):
-            if body[i] == "(":
+        close = _balanced(body, m.end() - 1, "(", ")")
+        if close < 0:
+            continue
+        args = _strip_nested_readers(body[m.end():close], var)
+        if not token.search(args):
+            continue
+        pos, depth, start, found = 0, 0, 0, None
+        for k, c in enumerate(args + ","):
+            if c in "([{":
                 depth += 1
-            elif body[i] == ")":
+            elif c in ")]}":
                 depth -= 1
-                if depth == 0:
-                    break
-            i += 1
-        if token.search(body[m.end():i]):
-            return True
-    return False
+            elif c == "," and depth == 0:
+                if token.fullmatch(args[start:k].strip()):
+                    found = pos
+                pos += 1
+                start = k + 1
+        calls.append((name, found))
+    return calls
+
+def _callee_read_keys(name, arg_pos, depth):
+
+    if depth <= 0 or arg_pos is None:
+        return None
+    macro = re.compile(r'^[ \t]*#[ \t]*define[ \t]+' + re.escape(name) + r'\(([^)]*)\)((?:.*\\\n)*.*)', re.M)
+    for _, code, masked in _src_files():
+        if name not in masked:
+            continue
+        mm = macro.search(code)
+        if mm:
+            formals = [a.strip() for a in mm.group(1).split(",")]
+            if arg_pos >= len(formals):
+                return None
+            return _read_keys_in(mm.group(2), mm.group(2), formals[arg_pos], depth - 1)
+
+        fm = re.search(r'\b' + re.escape(name) + r'\s*\(([^;(){}]*)\)\s*\{', masked)
+        if not fm:
+            continue
+        formals = [a.strip() for a in fm.group(1).split(",")]
+        if arg_pos >= len(formals):
+            return None
+        decl = PARAM_DECL.fullmatch(formals[arg_pos].replace("const ", "").strip())
+        if not decl:
+            return None
+        end = _balanced(masked, fm.end() - 1, "{", "}")
+        if end < 0:
+            return None
+        return _read_keys_in(code[fm.end():end], masked[fm.end():end], decl.group(1), depth - 1)
+    return None
+
+def _read_keys_in(code, masked, var, depth):
+
+    if re.search(r'json_object_(?:get_members|foreach_member)\s*\(\s*' + re.escape(var) + r'\b', code):
+        return None
+    keys = set(be_read_re(var).findall(code))
+
+    keys |= set(re.findall(r'\b\w+\(\s*' + re.escape(var) + r'\s*,\s*"([a-z0-9_]+)"', code))
+    for primary, fallback in get_param_re(var).findall(code):
+        keys.add(primary)
+        if fallback:
+            keys.add(fallback)
+    for helper, helper_keys in PARAM_HELPERS.items():
+        if re.search(r'\b' + helper + r'\(\s*' + re.escape(var) + r'\s*[,)]', code):
+            keys |= helper_keys
+    for name, pos in forwarded_calls(masked, var):
+        sub = _callee_read_keys(name, pos, depth)
+        if sub is None:
+            return None
+        keys |= sub
+    return keys
 
 
 def _handler_body(method):
@@ -511,15 +726,24 @@ def _handler_body(method):
     result = None
     if fn:
         for _, code, masked in _src_files():
+            if fn not in masked:
+                continue
             span = _function_span(masked, fn)
             if span is None:
                 continue
             start, end, var = span
-            if var is not None and not forwards_params(masked[start:end], var):
+            if var is not None:
                 result = (code[start:end], masked[start:end], var)
             break
     _body_cache[method] = result
     return result
+
+FORWARD_DEPTH = 4
+
+SCHEMA_READERS = {
+    "alert.config.set": ("src/modules/daemons/alert_engine.c",
+                         r'g_strcmp0\(key,\s*"([a-z0-9_]+)"\)', {"expected_revision"}),
+}
 
 
 def be_read_keys(method):
@@ -530,19 +754,16 @@ def be_read_keys(method):
                                            
     if method in _be_cache:
         return _be_cache[method]
+    if method in SCHEMA_READERS:
+        rel, pattern, extra = SCHEMA_READERS[method]
+        text, _ = mask_source((ROOT / rel).read_text(encoding="utf-8", errors="replace"))
+        _be_cache[method] = set(re.findall(pattern, text)) | extra
+        return _be_cache[method]
     span = _handler_body(method)
     result = None
     if span is not None:
-        body, _, var = span
-        keys = set(be_read_re(var).findall(body))
-        for primary, fallback in get_param_re(var).findall(body):
-            keys.add(primary)
-            if fallback:
-                keys.add(fallback)
-        for helper, helper_keys in PARAM_HELPERS.items():
-            if re.search(r'\b' + helper + r'\(\s*' + re.escape(var) + r'\s*[,)]', body):
-                keys |= helper_keys
-        result = keys
+        code, masked, var = span
+        result = _read_keys_in(code, masked, var, FORWARD_DEPTH)
     _be_cache[method] = result
     return result
 
@@ -605,7 +826,7 @@ def be_required_keys(method):
     if method in _req_cache:
         return _req_cache[method]
     span = _handler_body(method)
-    _req_cache[method] = None if span is None else required_keys_in(*span)
+    _req_cache[method] = None if span is None or be_read_keys(method) is None else required_keys_in(*span)
     return _req_cache[method]
 
 
@@ -617,7 +838,8 @@ def rest_injected_keys():
                                                     
     global _rest_injected
     if _rest_injected is None:
-        code, _ = mask_source(REST_SERVER.read_text(encoding="utf-8", errors="replace"))
+
+        code, _ = mask_source(rpc_extract.rest_family_text(ROOT))
         _rest_injected = frozenset(
             re.findall(r'json_object_set_\w+_member\(\s*\w+\s*,\s*"([a-z0-9_]+)"', code))
     return _rest_injected
@@ -669,9 +891,9 @@ def scan(sources=None, resolve_read=None, resolve_required=None):
         resolve_required = be_required_keys
     violations, missing, uncovered = [], [], set()
     for name, text in sources:
-        for target, keys, is_ep in extract_sent(text):
+        for target, keys, is_ep, complete in extract_sent(text):
             method = EP_TO_RPC.get(target) if is_ep else target
-            if method is None:
+            if method is None or keys is None:
                 uncovered.add(label(target, is_ep))
                 continue
             read = resolve_read(method)
@@ -681,6 +903,10 @@ def scan(sources=None, resolve_read=None, resolve_required=None):
             extra = keys - read
             if extra:
                 violations.append((name, method, sorted(extra), sorted(read)))
+            if not complete:
+
+                uncovered.add(label(target, is_ep))
+                continue
             required = resolve_required(method)
             if required:
                                                                 
@@ -860,6 +1086,11 @@ def self_test():
         print("[SELF-TEST FAIL] _json_*_member 판독기 추출 실패")
         ok = False
                                                              
+    typed = 'pcv_rpc_params_get_string(params, "hwaddr"); pcv_rpc_params_get_bool(params, "readonly", TRUE, &ro);'
+    if set(be_read_re("params").findall(typed)) != {"hwaddr", "readonly"} or forwards_params(typed):
+        print("[SELF-TEST FAIL] pcv_rpc_params_get_* 판독기 추출 실패 또는 params 전달로 오인")
+        ok = False
+
     if set(be_read_re("params").findall(
             '_string_member(params, "egress_mode"); _int_member(params, "listen_port", &p);')) \
             != {"egress_mode", "listen_port"}:
@@ -1009,6 +1240,89 @@ def self_test():
         ok = False
 
                              
+    sent = extract_sent("async function f(n) {\n  const body = { a: 1, 'b': 2, n };\n"
+                        "  if (n) body.c = 3;\n  body['d'] = 4;\n"
+                        "  await fetchPost(EP.FOO(n), body);\n}\n")
+    if not sent or sent[0][0] != ("FOO", "POST") or sent[0][1] != {"a", "b", "n", "c", "d"} or sent[0][3] is not True:
+        print(f"[SELF-TEST FAIL] 변수 본문 추출 실패: {sent}")
+        ok = False
+
+    sent = extract_sent("function f() { var p = { a: { inner: 1 }, b: [ { deep: 2 } ] }; fetchPut(EP.FOO(), p); }")
+    if not sent or sent[0][1] != {"a", "b"}:
+        print(f"[SELF-TEST FAIL] 중첩 객체 키를 본문 키로 셌다: {sent}")
+        ok = False
+
+    sent = extract_sent("function g() { var body = { wrong: 1 }; use(body); }\n"
+                        "function f(body) { fetchPost(EP.FOO(), body); }\n")
+    if not sent or sent[0][1] is not None:
+        print(f"[SELF-TEST FAIL] 다른 함수의 지역 변수를 본문으로 읽었다: {sent}")
+        ok = False
+
+    sent = extract_sent("function f() { var body = build(); fetchPost(EP.FOO(), body); }")
+    if not sent or sent[0][1] is not None:
+        print(f"[SELF-TEST FAIL] 비리터럴 본문을 해석했다: {sent}")
+        ok = False
+
+    sent = extract_sent("function f(k) { var b = { a: 1, ...rest }; fetchPost(EP.FOO(), b); }")
+    if not sent or sent[0][1] != {"a"} or sent[0][3] is not False:
+        print(f"[SELF-TEST FAIL] 스프레드 본문의 complete 판정 실패: {sent}")
+        ok = False
+    v, miss, unc = scan([("t.js", "function f(k) { var b = { a: 1 }; b[k] = 2; "
+                                  "fetchPost(EP.AUTH_USERS(), b); }")],
+                        lambda m: {"a", "username"}, lambda m: {"username"})
+    if v or miss:
+        print(f"[SELF-TEST FAIL] 키를 다 모르는 본문에 역방향을 적용했다: {v} / {miss}")
+        ok = False
+    if unc != {"EP.AUTH_USERS[POST]"}:
+        print(f"[SELF-TEST FAIL] 키를 다 모르는 본문이 uncovered 로 가지 않는다: {unc}")
+        ok = False
+
+    v, _, unc = scan([("t.js", "function f(k) { var b = { bogus: 1 }; b[k] = 2; "
+                               "fetchPost(EP.AUTH_USERS(), b); }")],
+                     lambda m: {"a"}, lambda m: set())
+    if [(f, meth, extra) for f, meth, extra, _ in v] != [("t.js", "auth.user.create", ["bogus"])] \
+            or unc != {"EP.AUTH_USERS[POST]"}:
+        print(f"[SELF-TEST FAIL] 키를 다 모르는 본문의 정방향 판정이 어긋난다: {v} / {unc}")
+        ok = False
+
+    sent = extract_sent("fetchPost(EP.RPC(), { method:'a.b', params:{ x: 1, ...rest }, id:'i' });")
+    if not sent or sent[0][1] != {"x"} or sent[0][3] is not False:
+        print(f"[SELF-TEST FAIL] RPC params 스프레드의 complete 판정 실패: {sent}")
+        ok = False
+
+    v, miss, unc = scan([("t.js", "function f() { const b = { role: 1, bogus: 2 }; "
+                                  "fetchPost(EP.AUTH_USERS(), b); }")],
+                        lambda m: {"role", "username"}, lambda m: {"username"})
+    if [(f, meth, extra) for f, meth, extra, _ in v] != [("t.js", "auth.user.create", ["bogus"])] \
+            or [(f, meth, lack) for f, meth, lack, _ in miss] != [("t.js", "auth.user.create", ["username"])] or unc:
+        print(f"[SELF-TEST FAIL] 변수 본문 scan 판정이 어긋난다: {v} / {miss} / {unc}")
+        ok = False
+    v, miss, unc = scan([("t.js", "function f(b) { fetchPost(EP.AUTH_USERS(), b); }")],
+                        lambda m: {"role"}, lambda m: set())
+    if v or miss or unc != {"EP.AUTH_USERS[POST]"}:
+        print(f"[SELF-TEST FAIL] 해석 못 한 변수 본문이 uncovered 로 가지 않는다: {v} / {miss} / {unc}")
+        ok = False
+
+    if EP_TO_RPC.get(("CTR_LIST", "POST")) != "container.create":
+        print("[SELF-TEST FAIL] EP_TO_RPC 에 CTR_LIST POST 가 없다")
+        ok = False
+
+    if forwards_params('x = g_strdup(json_object_get_string_member(params, "k"));'):
+        print("[SELF-TEST FAIL] 중첩 판독기를 params 전달로 오인")
+        ok = False
+    if not forwards_params('g_strdup(helper(params));'):
+        print("[SELF-TEST FAIL] 중첩 호출의 params 전달을 놓쳤다")
+        ok = False
+    if forwarded_calls('helper(a, params, b);', "params") != [("helper", 1)]:
+        print("[SELF-TEST FAIL] 넘긴 인자 위치를 못 읽었다")
+        ok = False
+    if forwarded_calls('helper(wrap(params), b);', "params") != [("helper", None), ("wrap", 0)]:
+        print(f"[SELF-TEST FAIL] 표현식 안의 params 판정이 어긋난다: {forwarded_calls('helper(wrap(params), b);', 'params')}")
+        ok = False
+    if _read_keys_in('json_object_get_members(params);', 'json_object_get_members(params);', "params", 1) is not None:
+        print("[SELF-TEST FAIL] 멤버 열거 본문을 키 0개로 읽었다(커버 불가여야 한다)")
+        ok = False
+
     if extract_sent("fetchPost(EP.FOO(), { jsonrpc: '2.0', k: 1 });")[0][1] != {"k"}:
         print("[SELF-TEST FAIL] JSON-RPC 봉투 필드가 params 키로 셈해진다")
         ok = False

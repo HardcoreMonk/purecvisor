@@ -1,11 +1,11 @@
-
-
-
-
-
-
-
-
+                                                                     
+                                                                   
+                                                                       
+                                                                          
+                                                   
+                           
+                                                           
+                                               
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
@@ -16,9 +16,9 @@ const CORE = [
   'ui/modules/filter-state.js', 'ui/modules/uxlib.js',
   'ui/modules/modal-core.js', 'ui/modules/modal.js',
 ];
-const VM_MODS = [...CORE, 'ui/modules/vm-lifecycle.js'];
+const VM_MODS = [...CORE, 'ui/modules/vm.js', 'ui/modules/vm-lifecycle.js'];
 
-
+                                                                          
 async function recordFeedback(page) {
   await page.evaluate(() => {
     I18N.setLang('ko');
@@ -220,8 +220,8 @@ test('데몬 설정 폼은 서버 값을 엔티티로 바꾸지 않고 저장도
   });
 });
 
-
-
+                                                                
+                                                                    
 test("디스크 크기 변경 PUT 은 new_size_gb·target 키를 보낸다", async () => {
   await withPage(VM_MODS, async (page, { requests }) => {
     await recordFeedback(page);
@@ -229,6 +229,7 @@ test("디스크 크기 변경 PUT 은 new_size_gb·target 키를 보낸다", asy
       window.vmList = [{ name: 'vm-disk', state: 'running' }];
       window.selectedVmIndex = 0;
       window.showModal(window.hwDisk());
+      PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'settings', window.vmList[0]);                       
       document.getElementById('sd-size').value = '80';
       document.getElementById('sd-path').value = ' vdb ';
       await window.doDiskResize();

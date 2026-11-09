@@ -29,6 +29,7 @@
    
 #include "alert_dlq.h"
 #include "utils/pcv_log.h"
+#include "api/drain.h"
 
 #include <glib.h>
 #include <string.h>
@@ -43,6 +44,27 @@ static GPtrArray  *g_webhook_dlq = nullptr;
 static GMutex      g_dlq_mu;                                             
 static GMutex      g_dlq_retry_mu;                                                    
 static PcvDlqPostFn g_post_fn = nullptr;                                              
+
+                                                                                         
+                                                                                   
+#define DLQ_RETRY_MAX_ITEMS  100
+#define DLQ_RETRY_MAX_USEC   (60 * G_USEC_PER_SEC)
+static gint64   (*g_now_fn)(void) = nullptr;
+static gboolean (*g_terminating_fn)(void) = nullptr;
+
+                                                   
+static gint64
+_dlq_now(void)
+{
+    return g_now_fn ? g_now_fn() : g_get_monotonic_time();
+}
+
+                                                      
+static gboolean
+_dlq_terminating(void)
+{
+    return g_terminating_fn ? g_terminating_fn() : pcv_drain_is_terminating();
+}
 
                                                         
 void
@@ -139,12 +161,17 @@ pcv_alert_dlq_remove_matching(GPtrArray *values)
 }
 
                                            
-                                                       
+                                                            
+                                                          
+                                                    
+                                                                  
 JsonObject *
 pcv_alert_dlq_retry(void)
 {
     JsonObject *result = json_object_new();
     gint retried = 0, succeeded = 0, failed = 0;                  
+    gint64 started_us = _dlq_now();                                     
+    gboolean capped = FALSE;
 
                                                                
                                                                 
@@ -155,7 +182,14 @@ pcv_alert_dlq_retry(void)
     GPtrArray *ok_entries = g_ptr_array_new_with_free_func(g_free);
 
                                                                   
-    for (guint i = 0; i < snapshot->len; i++) {
+    guint i = 0;
+    for (; i < snapshot->len; i++) {
+                                                               
+        if (retried >= DLQ_RETRY_MAX_ITEMS || _dlq_now() - started_us >= DLQ_RETRY_MAX_USEC
+            || _dlq_terminating()) {
+            capped = TRUE;
+            break;
+        }
         const gchar *entry = g_ptr_array_index(snapshot, i);
         const gchar *sep = strchr(entry, '|');
         retried++;
@@ -174,6 +208,8 @@ pcv_alert_dlq_retry(void)
         }
     }
 
+    gint remaining = (gint)(snapshot->len - i);                          
+
                                   
     pcv_alert_dlq_remove_matching(ok_entries);
 
@@ -185,8 +221,10 @@ pcv_alert_dlq_retry(void)
     json_object_set_int_member(result, "retried", retried);
     json_object_set_int_member(result, "succeeded", succeeded);
     json_object_set_int_member(result, "failed", failed);
-    PCV_LOG_INFO(ALERT_DLQ_LOG_DOM, "DLQ retry: %d retried, %d succeeded, %d failed",
-                 retried, succeeded, failed);
+    json_object_set_int_member(result, "remaining", remaining);
+    json_object_set_boolean_member(result, "capped", capped);
+    PCV_LOG_INFO(ALERT_DLQ_LOG_DOM, "DLQ retry: %d retried, %d succeeded, %d failed, %d remaining%s",
+                 retried, succeeded, failed, remaining, capped ? " (capped)" : "");
     return result;
 }
 
@@ -202,4 +240,20 @@ pcv_alert_dlq_reset(void)
     if (g_webhook_dlq)
         g_ptr_array_set_size(g_webhook_dlq, 0);
     g_mutex_unlock(&g_dlq_mu);
+}
+
+                                                                        
+                        
+void
+pcv_alert_dlq_set_now_fn_for_test(gint64 (*fn)(void))
+{
+    g_now_fn = fn;
+}
+
+                                                                                      
+                        
+void
+pcv_alert_dlq_set_terminating_fn_for_test(gboolean (*fn)(void))
+{
+    g_terminating_fn = fn;
 }

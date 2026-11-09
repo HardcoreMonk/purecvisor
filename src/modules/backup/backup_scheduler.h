@@ -73,7 +73,7 @@
   
                    
                                                              
-
+                                                            
                                                                      
                                                                 
                                                     
@@ -137,7 +137,7 @@ void pcv_backup_scheduler_init(void);
                                               
    
 void pcv_backup_scheduler_shutdown(void);
-
+                                        
 void pcv_backup_scheduler_quiesce(void);
 
                                                             
@@ -237,22 +237,25 @@ GPtrArray *pcv_backup_history_paged(const gchar *vm_name,
                       
                       
                               
+                                                                      
+                                               
                                             
   
                                                     
-                                                       
-                                                   
+                                                      
+                                                          
+                            
   
                                                
                                                                      
                                                                                     
                                                               
-                                     
+                                                                             
             
                               
                                                                  
                                              
-                                                                      
+                                                                              
   
                                                                
   
@@ -263,6 +266,7 @@ GPtrArray *pcv_backup_history_paged(const gchar *vm_name,
    
 [[nodiscard]] gboolean   pcv_backup_restore(const gchar *vm_name,
                                const gchar *snapshot_name,
+                               gboolean    *was_running,
                                GError     **error);
 
    

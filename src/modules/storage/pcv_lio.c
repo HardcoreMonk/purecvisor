@@ -14,11 +14,6 @@
                                                          
                                              
                                       
-  
-                                                       
-                                                                         
-                                                                
-                                                         
    
 #include "modules/storage/pcv_lio.h"
 
@@ -1045,7 +1040,7 @@ pcv_lio_target_create_at(const gchar *root, const gchar *vm_name,
                                                                
                                                              
                                                   
-                                                            
+                                                   
                                                                   
                                               
                                                                    

@@ -158,6 +158,55 @@ function getCheckedVmSubjects() {
   });
   return Array.from(_checkedVmSubjects.values()).map(function(v) { return { name: v.name, uuid: v.uuid }; });
 }
+
+var _vmSelectionLost = false;
+var _VM_DETAIL_TAB_NAMES = ['summary', 'console', 'snapshots', 'performance', 'timeline'];
+function replaceVmList(list) {
+  var prev = (vmList || [])[selectedVmIndex];
+  var idx;
+  vmList = window.vmList = list;
+  if (prev) {
+    idx = list.findIndex(function(v) { return v && v.name === prev.name && (!prev.uuid || v.uuid === prev.uuid); });
+    _vmSelectionLost = idx < 0;
+  } else {
+    idx = selectedVmIndex >= list.length ? 0 : selectedVmIndex;
+    if (idx >= 0) _vmSelectionLost = false;
+  }
+  selectedVmIndex = window.selectedVmIndex = idx;
+  if (prev && idx < 0 && _VM_DETAIL_TAB_NAMES.indexOf(currentTab) >= 0) refreshVmDetail();
+}
+
+function pinTarget(body, kind, v) {
+  if (body && v) body._pcvVmTarget = { kind: kind, name: v.name, uuid: v.uuid || null };
+}
+function pinnedCurrent(body) {
+  return !!body && body.isConnected && PCV.modalCore.currentBody() === body;
+}
+function pinnedOpen(body) {
+  var dialog = body && body.closest('dialog');
+  return !!body && body.isConnected && !!dialog && dialog.open;
+}
+function _pinnedLookup(kind, body) {
+  body = body || PCV.modalCore.currentBody();
+  if (!pinnedCurrent(body)) return { v: null, lost: false };
+  var source = body._pcvVmTarget;
+  var kinds = Array.isArray(kind) ? kind : [kind];
+  if (!source || kinds.indexOf(source.kind) < 0) return { v: null, lost: false };
+  var v = vmList.find(function(item) { return item && item.name === source.name && (!source.uuid || item.uuid === source.uuid); });
+  return { v: v || null, lost: !v };
+}
+
+function pinnedIdentity(kind, body) {
+  body = body || PCV.modalCore.currentBody();
+  var source = body && body._pcvVmTarget;
+  return source && source.kind === kind ? { name: source.name, uuid: source.uuid } : null;
+}
+function pinnedPeek(kind, body) { return _pinnedLookup(kind, body).v; }
+function pinnedTarget(kind, body) {
+  var r = _pinnedLookup(kind, body);
+  if (r.lost) toast(_L('VM이 변경되었거나 없어졌습니다. 창을 다시 여세요.', 'VM changed or disappeared. Reopen the dialog.'), false);
+  return r.v;
+}
 var vmViewMode = localStorage.getItem('pcv-vm-view') || 'list';
                                                                 
                                                   
@@ -202,7 +251,16 @@ function getFiltered() {
                                                 
                                                           
 var _renderInFlight = false;
+
+function _syncVmDeleteButton() {
+  var btn = document.getElementById('vm-delete');
+  if (!btn) return;
+  var cur = vmList[selectedVmIndex];
+  btn.disabled = !cur;
+  btn.title = cur ? cur.name : _L('VM을 선택하세요', 'Select a VM');
+}
 function render(skipContent) {
+  _syncVmDeleteButton();
   if (_renderInFlight) return;
   _renderInFlight = true;
   try { _renderCore(skipContent); } finally { _renderInFlight = false; }
@@ -387,12 +445,17 @@ function toggleChk(i) {
    
 async function bulkStop() {
   if (!await customConfirm(t('btn.stop_selected'), 'Stop ' + checkedVms.size + ' VMs?')) return;
-  var total = checkedVms.size;
+
+  var subjects = getCheckedVmSubjects();
+  var total = subjects.length;
   var failed = [];
-  for (const i of checkedVms) {
-    const r = await fetchPost(EP.VM_STOP(vmList[i].name), {});
-    if (r && r.error) { failed.push(vmList[i].name + ': ' + (r.error.message || '')); continue; }
-    addEvt('VM Bulk stop — ' + vmList[i].name);
+  for (const s of subjects) {
+    if (!vmList.some(function(v) { return v.name === s.name && (v.uuid || '') === s.uuid; })) {
+      failed.push(s.name + ': VM changed or disappeared'); continue;
+    }
+    const r = await fetchPost(EP.VM_STOP(s.name), {});
+    if (r && r.error) { failed.push(s.name + ': ' + (r.error.message || '')); continue; }
+    addEvt('VM Bulk stop — ' + s.name);
   }
   checkedVms.clear();
   if (failed.length) toast(failed.length + ' / ' + total + ' stop failed', false);
@@ -447,8 +510,11 @@ function showCtx(e, i) {
   e.preventDefault();
   selectedVmIndex = i;
   const m = document.getElementById('ctx');
-  const ri = i;
-  const deleteSubject = vmList[i] && { name: vmList[i].name, uuid: vmList[i].uuid };
+  const subjectOf = function() { return vmList[i] && { name: vmList[i].name, uuid: vmList[i].uuid }; };
+  const pinned = subjectOf();
+
+  const indexOfPinned = function() { return _vmPinnedIndex(pinned); };
+  const deleteSubject = pinned;
                                                               
                                                        
                                                        
@@ -475,8 +541,8 @@ function showCtx(e, i) {
     ci('💬 Guest Agent', function() { window.showGuestAgent(); }, 'OPERATOR,ADMIN'),
     sep(),
     ci('🌐 NIC', function() { window.showNicMgr(); }, 'OPERATOR,ADMIN'),
-    ci('📋 Clone', function() { window.vmClone(ri); }, 'OPERATOR,ADMIN'),
-    ci('📦 Export OVA', function() { window.vmExportOva(ri); }, 'ADMIN'),
+    ci('📋 Clone', function() { var k = indexOfPinned(); if (k >= 0) window.vmClone(k); }, 'OPERATOR,ADMIN'),
+    ci('📦 Export OVA', function() { var k = indexOfPinned(); if (k >= 0) window.vmExportOva(k); }, 'ADMIN'),
     sep(),
     ci('❌ ' + t('btn.delete'), function() { if (deleteSubject) PCV.vm.vmDel(deleteSubject); }, 'OPERATOR,ADMIN')
   ));
@@ -485,6 +551,8 @@ function showCtx(e, i) {
   m.style.left = e.pageX + 'px';
   m.style.top = e.pageY + 'px';
   render();
+
+  if (['summary', 'snapshots', 'performance', 'timeline'].indexOf(currentTab) >= 0) refreshVmDetail();
 }
 
 function _vmStripCidr(v) {
@@ -573,8 +641,22 @@ function _vmPrimaryNicValue(nics, field) {
                                            
    
 async function renderSummary(b, v) {
-  if (!v) { PCV.uxlib.clearEl(b); b.appendChild(PCV.uxlib.el('p', { class: 'color-muted' }, t('vm.select'))); return; }
+  var gen = b._pcvSummaryGen = (b._pcvSummaryGen || 0) + 1;
+  if (!v) {
+    b._pcvSummaryKey = null;
+    b._pcvSummaryParts = null;
+    _vmRenderNoSelection(b);
+    return;
+  }
   const on = v.state === 'running';
+  var key = v.name + '\u0000' + (v.uuid || '');
+  var parts = b._pcvSummaryParts;
+  if (b._pcvSummaryKey !== key || !parts || !b.contains(parts.actions)) {
+    parts = _vmBuildSummarySkeleton(b, v);
+    b._pcvSummaryKey = key;
+    b._pcvSummaryParts = parts;
+    b._pcvSummaryPinned = parts.pinned;
+  }
 
                            
   var metrics = {};
@@ -586,6 +668,8 @@ async function renderSummary(b, v) {
     fetchGet(EP.NET_LIST())
   ];
   var summaryResults = await Promise.allSettled(summaryReqs);
+
+  if (b._pcvSummaryGen !== gen || b._pcvSummaryKey !== key || !b.isConnected || !b.contains(parts.data)) return;
   if (summaryResults[0].status === 'fulfilled')
     metrics = unwrapData(summaryResults[0].value) || summaryResults[0].value || {};
   if (summaryResults[1].status === 'fulfilled')
@@ -603,9 +687,10 @@ async function renderSummary(b, v) {
   var netTx = metrics.net_tx || v.net_tx || 0;
   var primaryIp = _vmPrimaryNicValue(nics, 'ip') || v.ip || '-';
   var primaryDns = nics.length ? _vmNicDns(nics[0], _vmNetworkMap(networks)) : '-';
-  var diskUsageAction = on
-    ? PCV.uxlib.el('button', { class: 'btn btn-xs', onclick: 'showVmDiskUsage()' }, '📊 ' + _L('디스크 사용량', 'Disk Usage'))
-    : PCV.uxlib.el('span', { class: 'color-muted text-xs' }, _L('실행 중인 VM에서 확인 가능', 'Available while running'));
+
+  parts.diskBtn.style.display = on ? '' : 'none';
+  var diskUsageAction = PCV.uxlib.el('span', { class: 'color-muted text-xs' },
+    on ? _L('헤더의 [디스크 사용량]', 'Use the Disk Usage button in the header') : _L('실행 중인 VM에서 확인 가능', 'Available while running'));
 
                                             
   v.live_cpu_pct = cpuPct;
@@ -616,11 +701,8 @@ async function renderSummary(b, v) {
 
   const cpuHi = cpuPct > 85;
   var el = PCV.uxlib.el;
-  var header = el('div', { class: 'flex gap-10 items-center mb-14' },
-    el('span', { class: 'neon-blink color-accent' }, '>>'),
-    el('h2', { style: 'font-family:var(--font-display);font-size:16px;letter-spacing:.05em' }, v.name),
-    HN.statusPill(cpuHi ? 'warn' : (on ? 'ok' : 'idle'), String(v.state || '?').toUpperCase() + (cpuHi ? ' [HIGH_LOAD]' : '')));
-  var sg = el('div', { class: 'sg' },
+  _vmFillSummaryHeader(parts.head, v, cpuHi);
+  var cards = [
     HN.card('💻 System', [
       HN.row('Guest OS', 'Linux (KVM)'),
       HN.row('UUID', el('span', { class: 'text-xs' }, v.uuid || '-')),
@@ -659,34 +741,85 @@ async function renderSummary(b, v) {
       HN.row('DNS', primaryDns),
       HN.row('RX pps', el('span', { class: 'color-muted' }, (metrics.net_rx_pkts || 0).toLocaleString())),
       HN.row('TX pps', el('span', { class: 'color-muted' }, (metrics.net_tx_pkts || 0).toLocaleString())),
-      _vmRenderNicDetails(nics, networks, v)),
-    el('div', { class: 'hc', style: 'grid-column:1/-1' },
-      el('h4', null, _L('작업', 'Actions')),
-      el('div', { class: 'flex gap-4 flex-wrap mb-8', 'data-role': 'OPERATOR,ADMIN' },
-        el('button', { class: 'btn btn-g', onclick: "vmPower('start')" }, '▶ ' + t('power.start')),
-        el('button', { class: 'btn', onclick: "vmPower('suspend')" }, '❚❚ ' + t('power.pause')),
-        el('button', { class: 'btn', onclick: "vmPower('resume')" }, '▶▶ ' + t('power.resume')),
-        el('button', { class: 'btn btn-r', onclick: "vmPower('stop')" }, '■ ' + t('power.stop'))),
-      el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:4px' },
-        el('button', { class: 'btn', onclick: 'showSnap()', 'data-role': 'OPERATOR,ADMIN' }, t('vm.snapshot')),
-        el('button', { class: 'btn', onclick: 'showSettings()', 'data-role': 'OPERATOR,ADMIN' }, t('vm.settings')),
-        el('button', { class: 'btn', onclick: 'showRenameVm()', 'data-role': 'OPERATOR,ADMIN' }, '✎ ' + _L('이름', 'Rename')),
-        el('button', { class: 'btn', onclick: 'showNicMgr()', 'data-role': 'OPERATOR,ADMIN' }, 'NIC'),
-        el('button', { class: 'btn', onclick: 'vmClone(' + selectedVmIndex + ')', 'data-role': 'OPERATOR,ADMIN' }, '📋 Clone'),
-        el('button', { class: 'btn', onclick: 'vmExportOva(' + selectedVmIndex + ')', 'data-role': 'ADMIN' }, '📦 Export'),
-        el('button', { class: 'btn', onclick: 'showImportOva()', 'data-role': 'OPERATOR,ADMIN' }, '📥 Import'),
-        el('button', { class: 'btn', onclick: 'showMemStats()' }, '📌 Mem'),
-        el('button', { class: 'btn', onclick: 'showCpuStats()' }, '⚙ CPU'),
-        el('button', { class: 'btn', onclick: 'showVmDiskUsage()' }, '📊 ' + _L('디스크 사용량', 'Disk Usage')),
-        el('button', { class: 'btn', onclick: 'showDiskLiveResize()', 'data-role': 'OPERATOR,ADMIN' }, '💾 Disk'),
-        el('button', { class: 'btn', onclick: 'showBlkioEditor()', 'data-role': 'OPERATOR,ADMIN' }, '⚙ I/O'),
-        el('button', { class: 'btn', onclick: 'showGuestAgent()', 'data-role': 'OPERATOR,ADMIN' }, '💬 Agent'))));
-  PCV.uxlib.clearEl(b);
-  b.appendChild(header);
-  b.appendChild(sg);
+      _vmRenderNicDetails(nics, networks, v))
+  ];
+
+  PCV.uxlib.clearEl(parts.data);
+  cards.forEach(function(card) { parts.data.appendChild(card); });
   if (typeof applyRoleVisibility === 'function') {
     applyRoleVisibility(window.currentUser && window.currentUser.role);
   }
+}
+
+function _vmFillSummaryHeader(head, v, cpuHi) {
+  var el = PCV.uxlib.el;
+  var on = v.state === 'running';
+  PCV.uxlib.clearEl(head);
+  head.appendChild(el('span', { class: 'neon-blink color-accent' }, '>>'));
+  head.appendChild(el('h2', { style: 'font-family:var(--font-display);font-size:16px;letter-spacing:.05em' }, v.name));
+  head.appendChild(HN.statusPill(cpuHi ? 'warn' : (on ? 'ok' : 'idle'), String(v.state || '?').toUpperCase() + (cpuHi ? ' [HIGH_LOAD]' : '')));
+}
+
+function _vmPinnedIndex(pinned) {
+  var k = pinned ? vmList.findIndex(function(v) { return v.name === pinned.name && (!pinned.uuid || v.uuid === pinned.uuid); }) : -1;
+  if (k < 0) toast(_L('VM이 변경되었거나 없어졌습니다.', 'VM changed or disappeared.'), false);
+  return k;
+}
+
+function _vmRenderNoSelection(b) {
+  PCV.uxlib.clearEl(b);
+  if (_vmSelectionLost && selectedVmIndex < 0) {
+    b.appendChild(PCV.uxlib.msg('muted', { tag: 'p' }, _L('선택한 VM이 목록에 없습니다. 목록에서 다시 고르세요.', 'The selected VM is no longer listed. Pick a VM from the list.')));
+  } else b.appendChild(PCV.uxlib.msg('muted', { tag: 'p' }, t('vm.select')));
+}
+
+function _vmBuildSummarySkeleton(b, v) {
+  var el = PCV.uxlib.el;
+  var pinned = { name: v.name, uuid: v.uuid || '' };
+  var call = function(fn) { return function() { window[fn](); }; };
+  var btn = function(cls, label, onclick, role, cmd) {
+    return el('button', { class: cls, onclick: onclick, 'data-role': role || null, 'data-cmd': cmd }, label);
+  };
+  var power = function(a, cls, label) {
+    return btn(cls, label, function() { window.vmPower(a, pinned); }, null, "vmPower('" + a + "')");
+  };
+
+  var head = el('div', { class: 'flex gap-10 items-center mb-14' });
+  var title = el('div', { class: 'flex gap-10 items-center', style: 'display:contents' });
+  var diskBtn = el('button', { class: 'btn btn-xs', style: 'margin-left:auto' + (v.state === 'running' ? '' : ';display:none'),
+    onclick: call('showVmDiskUsage') }, '📊 ' + _L('디스크 사용량', 'Disk Usage'));
+  head.appendChild(title);
+  head.appendChild(diskBtn);
+  var data = el('div', { style: 'display:contents' });
+  var actions = el('div', { class: 'hc', style: 'grid-column:1/-1' },
+    el('h4', null, _L('작업', 'Actions')),
+    el('div', { class: 'flex gap-4 flex-wrap mb-8', 'data-role': 'OPERATOR,ADMIN' },
+      power('start', 'btn btn-g', '▶ ' + t('power.start')),
+      power('suspend', 'btn', '❚❚ ' + t('power.pause')),
+      power('resume', 'btn', '▶▶ ' + t('power.resume')),
+      power('stop', 'btn btn-r', '■ ' + t('power.stop'))),
+    el('div', { style: 'display:grid;grid-template-columns:repeat(auto-fill,minmax(100px,1fr));gap:4px' },
+      btn('btn', t('vm.snapshot'), call('showSnap'), 'OPERATOR,ADMIN', 'showSnap()'),
+      btn('btn', t('vm.settings'), call('showSettings'), 'OPERATOR,ADMIN', 'showSettings()'),
+      btn('btn', '✎ ' + _L('이름', 'Rename'), call('showRenameVm'), 'OPERATOR,ADMIN', 'showRenameVm()'),
+      btn('btn', 'NIC', call('showNicMgr'), 'OPERATOR,ADMIN', 'showNicMgr()'),
+      btn('btn', '📋 Clone', function() { var k = _vmPinnedIndex(pinned); if (k >= 0) window.vmClone(k); }, 'OPERATOR,ADMIN', 'vmClone()'),
+      btn('btn', '📦 Export', function() { var k = _vmPinnedIndex(pinned); if (k >= 0) window.vmExportOva(k); }, 'ADMIN', 'vmExportOva()'),
+      btn('btn', '📥 Import', call('showImportOva'), 'OPERATOR,ADMIN', 'showImportOva()'),
+      btn('btn', '📌 Mem', call('showMemStats'), null, 'showMemStats()'),
+      btn('btn', '⚙ CPU', call('showCpuStats'), null, 'showCpuStats()'),
+      btn('btn', '📊 ' + _L('디스크 사용량', 'Disk Usage'), call('showVmDiskUsage'), null, 'showVmDiskUsage()'),
+      btn('btn', '💾 Disk', call('showDiskLiveResize'), 'OPERATOR,ADMIN', 'showDiskLiveResize()'),
+      btn('btn', '⚙ I/O', call('showBlkioEditor'), 'OPERATOR,ADMIN', 'showBlkioEditor()'),
+      btn('btn', '💬 Agent', call('showGuestAgent'), 'OPERATOR,ADMIN', 'showGuestAgent()')));
+  PCV.uxlib.clearEl(b);
+  b.appendChild(head);
+  b.appendChild(el('div', { class: 'sg' }, actions, data));
+  _vmFillSummaryHeader(title, v, false);
+  if (typeof applyRoleVisibility === 'function') {
+    applyRoleVisibility(window.currentUser && window.currentUser.role);
+  }
+  return { head: title, data: data, actions: actions, diskBtn: diskBtn, pinned: pinned };
 }
 
                                      
@@ -739,7 +872,8 @@ function refreshVmDetail() {
   if (!d) return;
   var fn = _vmDetailFns()[currentTab];
   if (!fn) return;
-  PCV.uxlib.clearEl(d);
+
+  if (currentTab !== 'summary') PCV.uxlib.clearEl(d);
   var result = fn(d, vmList[selectedVmIndex]);
   if (result && typeof result.catch === 'function') result.catch(function () {});
 }
@@ -788,9 +922,13 @@ function renderVmScreen(b, v, tab) {
     actions: [
       el('button', { class: 'btn btn-primary', onclick: 'showCreate()', 'data-role': 'OPERATOR,ADMIN' }, '+ ' + _L('새 VM', 'New VM')),
       el('button', { class: 'btn', onclick: 'showSnap()', 'data-role': 'OPERATOR,ADMIN' }, _L('스냅샷', 'Snapshots')),
+
       el('button', { class: 'btn btn-r', id: 'vm-delete', style: 'min-height:40px', disabled: !v,
         title: v ? v.name : _L('VM을 선택하세요', 'Select a VM'), 'data-role': 'OPERATOR,ADMIN',
-        onClick: function() { PCV.vm.vmDel(v); } }, _L('VM 삭제', 'Delete VM'))
+        onClick: function() {
+          var cur = vmList[selectedVmIndex];
+          if (cur) PCV.vm.vmDel({ name: cur.name, uuid: cur.uuid || '' });
+        } }, _L('VM 삭제', 'Delete VM'))
     ]
   });
   b.appendChild(el('div', { style: 'display:flex;flex-direction:column;height:100%;min-height:0' },
@@ -826,6 +964,14 @@ PCV.vm = Object.assign(PCV.vm || {}, {
   renderVmScreen: renderVmScreen,
   refreshVmDetail: refreshVmDetail,
   getCheckedVmSubjects: getCheckedVmSubjects,
+  replaceVmList: replaceVmList,
+  renderNoSelection: _vmRenderNoSelection,
+  pinTarget: pinTarget,
+  pinnedTarget: pinnedTarget,
+  pinnedPeek: pinnedPeek,
+  pinnedIdentity: pinnedIdentity,
+  pinnedCurrent: pinnedCurrent,
+  pinnedOpen: pinnedOpen,
 });
 
                                                                             

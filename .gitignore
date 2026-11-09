@@ -7,6 +7,7 @@
 /release/
 /test_runner
 /tests/audit_startup_test
+/tests/test_lifecycle
 *.o
 *.d
 .edition-state
@@ -16,6 +17,7 @@
 /test_results.txt
 /test_results_tap.txt
 /valgrind_report.txt
+/valgrind_shards/
 /sanitize_report.txt
 /tsan_report.txt
 /cppcheck_report.txt

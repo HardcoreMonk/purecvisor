@@ -108,10 +108,15 @@ JsonArray  *pcv_alert_dlq_list(void);
   
                                                 
                                       
-                                                                            
+                                                                    
+                                                                                               
                                                
    
 JsonObject *pcv_alert_dlq_retry(void);
+
+                                                                             
+void        pcv_alert_dlq_set_now_fn_for_test(gint64 (*fn)(void));
+void        pcv_alert_dlq_set_terminating_fn_for_test(gboolean (*fn)(void));
 
    
                           

@@ -87,6 +87,12 @@
 - start/stop/reboot/delete는 libvirt domain 상태와 API/UI 표시가 일치해야 한다.
 - guest boot smoke는 단순 domain `running`이 아니라 guest agent, SSH, console, 내부 서비스 중 시나리오가 요구한 신호로 확인한다.
 - 실패 경로는 이미 stopped/running/deleted 상태에서 멱등성 또는 명시적 error code를 확인한다.
+- `vm.delete`는 VM 소유 저장소(정의 XML의 첫 `device='disk'` + 이름 일치)만 지우는지 붙인 zvol·추가 파일·같은
+  이름의 무관한 zvol을 함께 둔 VM으로 본다 — 남은 저장소와 Job `warnings`를 대조한다. 클론이 있는 원본·다른 VM이
+  참조한 저장소·libvirt 연결 불가는 정의·포트·저장소 변경 0의 Job `failed`여야 한다. accepted `job_id`의
+  최신 결과는 `vm.delete.status`로 다시 조회할 수 있어야 한다.
+- 정지·대기·차단 장애(응답 없는 게스트 에이전트·libvirtd·외부 명령) 중에도 다른 RPC가 응답하고 SIGTERM 정지가
+  기한 안에 끝나는지 본다. `vm.list`는 연결이 끊기면 부분 목록 대신 −32000이어야 한다.
 
 ### 5.2 VM clone
 
@@ -138,6 +144,17 @@ VM 게스트 디스크 사용량 조회:
 
 OVA import/export는 파일 생성이나 `accepted` 응답만으로 완료 처리하지 않는다.
 
+추적 Job의 접수·결과 영속은 [ADR-0060](adr/0060-job-admission-and-result-persistence.md)과 결과 journal·
+재시작 복구 계약([DB 설명서 5절](DATABASE_STRUCTURE.md#5-job-상태-db))에 따라 별도로 검증한다.
+`tests/test_job_recovery.py`에서 효과 횟수·audit·별도 SQLite·checksum 파일을 대조한다. 접수 commit 전후,
+효과 직후, 부분 write, rename, DB commit 전후와 journal 삭제 뒤 crash를 별개 회차로 확인한다. DB 잠금/SQL
+오류/0-row와 WS 유실 후 polling 수렴, 손상 원문 보존, 다른 세대·대상·method, 상충 terminal/취소 경쟁,
+반복 replay, 128개 burst의 writer 동시 I/O 1개, 파일/bytes 상한, 32회 backoff와 재시작 새 회차, 중간
+migration 실패의 schema rollback을 검증한다. startup DB 잠금 해제 뒤 원자 정리/접수 재개, 중간 UPDATE 실패
+시 전체 rollback, 32회 소진 시 접수 차단과 다음 회차 복구, 현재 process Job이 재정리되지 않는 것도
+대조한다. 자동 효과 재실행과 거짓 terminal 성공은 허용하지 않는다. 결과 UPDATE 실패에서는 실제 operation
+status·audit를 유지한 WS의 `result_persisted=false`와 UI 안내를 확인한다.
+
 필수 성공 시나리오:
 
 - `vm.export.ova`: accepted 응답의 `job_id`와 worker가 완료 처리한 job이 같고, 최종 OVA 파일이 존재하며 0바이트가 아니다.
@@ -164,6 +181,10 @@ OVA import/export는 파일 생성이나 `accepted` 응답만으로 완료 처�
 - bridge, OVS/OVN, NIC hotplug는 host 링크 상태와 guest 내부 reachability를 함께 확인한다.
 - 단순 인터페이스 목록 응답이 아니라 DHCP, gateway, DNS, 외부 통신 중 시나리오가 요구한 신호를 검증한다.
 - 실패 경로는 잘못된 bridge, 중복 NIC, owner-scope 불일치, rollback 후 domain XML 상태를 포함한다.
+- legacy 게스트 망 격리: nat·routed·기본 브리지 게스트에서 isolated 게스트로, legacy 망 사이로, 외부에서 nat
+  게스트로 가는 신규 연결이 막히고 응답 트래픽은 통과하는지 실제 packet으로 본다. 게스트→호스트는 DHCP·자기
+  게이트웨이 DNS·이웃 탐색·게이트웨이 ping만 열리고 SSH·UI 같은 호스트 서비스는 막혀야 한다. 결과는 망 생성
+  순서와 UFW·iptables 유무와 무관해야 하고, 데몬 재시작 뒤 규칙이 바이트 단위로 같아야 한다.
 - 생성 전 `GET /api/v1/networks/host-baseline`과 Web UI `호스트 네트워크 기준선`에서 관리
   interface/IP, main route, connected CIDR, Linux bridge, OVS와 현재 tenant의 VPC CIDR을
   기록한다. `partial` 또는 `unavailable`을 빈 inventory로 오판하면 실패다.
@@ -197,7 +218,17 @@ OVA import/export는 파일 생성이나 `accepted` 응답만으로 완료 처�
 
 - viewer/operator/admin별 허용/거부를 같은 기능 입력으로 비교한다.
 - operator 대상 VM action은 owner metadata 일치/불일치 케이스를 모두 둔다.
-- audit는 성공과 거부를 구분해 남아야 한다.
+- audit는 성공과 거부를 구분해 남아야 한다. 비동기 작업은 워커·콜백 감사 행에도 요청 행위자(REST 주체·gRPC
+  `grpc`·UDS `local-admin`·데몬 기원 `system`)가 남는지 본다.
+- 비ADMIN의 호스트 자원 참조: 같은 입력을 테넌트 허용 항목·미허용 항목·없는 경로·다른 테넌트 항목·테넌트 없는
+  계정으로 나눠, 허용만 통과하고 나머지는 접수 전 −32006(없는 경로와 남의 경로가 같은 응답)·감사 `denied` 1행·
+  자원 변화 없음인지 대조한다. ADMIN의 같은 요청은 바뀌지 않아야 한다.
+- 세션 단위 로그아웃: 두 브라우저 세션에서 한쪽 `/auth/logout`이 다른 세션의 refresh를 살려 두고,
+  `/auth/logout/all`이 모두 폐기하는지 본다.
+- 인증 주체: 사용자를 지우고 같은 이름으로 다시 만든 뒤 옛 access·refresh·WS·VNC 토큰이 새 계정 권한을 얻지
+  못하는지 본다.
+- 로그인 계정 비노출: 있는 이름과 없는 이름의 실패 응답·시간·잠금 순서가 같은지, 병렬 로그인이 넘치면 이름과
+  무관하게 429 `Login service is busy`(`Retry-After: 2`)이고 그동안 UI 정적 자산·`/health`가 밀리지 않는지 본다.
 
 ### 5.8 UI/API
 
@@ -215,6 +246,12 @@ OVA import/export는 파일 생성이나 `accepted` 응답만으로 완료 처�
 - 거부 경로는 `pcvctl security dismiss <event_id>` 후 action/event 상태와 감사 기록을 확인한다.
 - baseline refresh는 admin의 명시 입력으로만 수행하며, `pcvctl security baseline-refresh --path ...`, UDS `security.baseline.refresh`가 `trusted` 상태와 audit 기록을 남겨야 한다.
 - CLI 표면 회귀는 `bash tests/integration/test_security_cli_surface.sh`로 확인한다.
+- 증가 상한: 같은 키 반복은 감사 대신 시간당 `security.event.repeat` 1행, 출처별 예산을 넘은 새 사건은
+  `security.event.flood` 1행, 열린 사건 상한·14일 만료는 `suppressed`(`closed_reason`)로 접히는지 사건 DB와 감사
+  DB를 함께 본다. CRIT·대기 액션 사건은 접히지 않아야 한다.
+- 운영자 종결: `pcvctl security close <event_id> --reason …`·`security.event.close`(ADMIN)가 열린 사건만
+  `resolved`로 닫고 `closed_by`·`closed_at`·`close_note`·감사 1행을 남기는지, VIEWER·OPERATOR·대기 액션이 살아
+  있는 사건·빈 사유는 거절되는지 본다.
 
 ### 5.10 nginx 외부 TLS 종료와 프록시 신원
 
@@ -233,9 +270,13 @@ LAN 성공 시나리오는 `PCV_NGINX_BIND_IP=192.0.2.10`으로 전환한 예시
 격리로 직접 접근이 제한됐는지 확인한다. 원격 대조군은 실제 peer가 비루프백이고
 nginx가 헤더를 덮어써 원격 클라이언트의 spoof가 성립하지 않음을 확인한다.
 
-- 루프백 peer(`127.0.0.1` 또는 `::1`)를 통해 들어온 `X-Forwarded-For`와
-  `X-Forwarded-Proto`만 trusted 프록시 헤더로 신뢰하며, 해석된 client IP와 외부
-  HTTPS scheme가 기대값과 일치해야 한다.
+- `[server] trusted_proxies`(기본 `127.0.0.1` — `::1`·다른 루프백 주소는 목록에 적어야 한다)에 든 peer가
+  보낸 전달 헤더(`X-Real-IP`·`X-Forwarded-For`·`X-Forwarded-Proto`)만 trusted 프록시 헤더로 신뢰하며,
+  `proxy_auth_secret`을 설정했으면 `X-PCV-Proxy-Auth`가 맞을 때만 신뢰한다. 해석된 client IP와 외부 HTTPS
+  scheme가 기대값과 일치해야 하고, 비밀이 틀리거나 빠지면 직접 peer 주소로 판정돼야 한다.
+- 수집기 경로(`/metrics`·`/internal/vms`·`/internal/telemetry`·`/health/recent-errors`)는
+  `[metrics] auth=loopback`(기본)에서 전달 헤더 없는 직접 로컬 요청만 무인증이고 nginx 경유·원격은 401이어야
+  한다. `required`·`none`·알 수 없는 값의 동작도 따로 본다.
 - 비루프백 peer가 임의의 `X-Forwarded-For` 또는 `X-Forwarded-Proto: https`를
   보내도 해당 프록시 헤더를 신뢰하지 않는다. client IP는 실제 peer로 유지하고
   외부 HTTPS 판정을 위조할 수 없어야 한다.
@@ -279,6 +320,11 @@ libvirt persistent XML, 게스트 reachability를 같은 시나리오에서 대�
   actual 적용 실패 시 이번 요청에서 만든 VPC/subnet/bridge/dnsmasq를 역순 rollback한다.
 - 다른 VPC·기존 host connected CIDR과 겹치는 subnet, network/broadcast/gateway 주소의
   수동 할당, stale `expected_revision`을 거부한다.
+- 호스트 관리 대역(`[vpc] reserved_cidrs`와 열린 관리 포트의 접속 peer)과 겹치는 OPERATOR subnet은 접수 전
+  −32006(Job 없음, 감사 `denied`)이고, ADMIN의 겹침 subnet은 경고와 함께 만들어지되 대기 시간 안에
+  `vpc.subnet.confirm`이 없으면 자동 원복되며 확인 대기 중 attachment는 −32002다. 관리망 단절 0을 함께 확인한다.
+- 비ADMIN subnet은 자기 테넌트 주소 풀 CIDR 하나에 완전히 들어갈 때만 접수되고 풀 밖·빈 풀은 −32006, 쓰는
+  subnet을 밀어내는 풀 축소는 −32002다. 판정 순서(테넌트 → 풀 → 예약 대역)를 거절 사유로 확인한다.
 - cross-VPC 신규 트래픽과 정책 변경 전 established conntrack 트래픽, MAC/IP/ARP spoof,
   VPC VM의 host SSH·REST·Prometheus 접근을 차단한다.
 - `isolated` VPC Service Publish, 전체 공개 source를 요청한 non-admin, host에 없는
@@ -419,12 +465,39 @@ CPU·메모리의 `alert_only`를 VM 대상 `restart`와 구분한다. 이상 �
   실패 조건 제거 후 같은 VM을 재삭제해 잔여 자원이 없어야 한다.
 - 디스크 접근/삭제 권한 오류도 파일 부재로 오인하지 않고 정의·디스크·NVRAM을 보존한다.
 - XML 조회·파싱 및 libvirt 상태 조회·정의 해제 실패에서는 저장소와 NVRAM을 보존한다.
-- 주 디스크 삭제 후 NVRAM unlink만 실패하면 audit `fail`과 정확한 수동 정리 경로를 확인한다.
-  이 시점에 디스크가 복구됐다고 표시하거나 NVRAM 잔여를 성공으로 숨기면 안 된다.
+- 주 디스크 삭제 후 NVRAM unlink만 실패하면 Job `completed`·audit `ok`와 `warnings`의 `NVRAM cleanup failed:`
+  정확한 수동 정리 경로를 확인한다. 이 시점에 디스크가 복구됐다고 표시하거나 NVRAM 잔여를 경고 없이 숨기면 안 된다.
 - 펌웨어 loader/template와 설치 ISO, 다른 VM의 정의·디스크·NVRAM은 변경하지 않는다.
 - 회귀는 `python3 scripts/tests/test_vm_delete_nvram.py`로 실제 worker를 컴파일하여 실행한다.
   이 격리 회귀의 libvirt/DPDK/ZFS 경계는 대역이며 실제 libvirt와 API/audit 검증을 별도로 기록한다.
 - ZFS 실패의 격리 주입 결과를 실제 ZFS pool의 전체 원자성 검증으로 확대 해석하지 않는다.
+
+### 5.16 LXC 컨테이너 권한과 명령 실행 격리
+
+unprivileged 기본, 컨테이너 안 명령 실행 격리, 볼륨 원본 경계와 볼륨 생명주기의 효과를 실제 컨테이너
+상태로 본다.
+
+- 기본 `container.create`가 unprivileged(idmap·rootfs 매핑 소유)로 만들어지고, 호스트 준비가 없으면 생성 전
+  동기 −32002, 비ADMIN의 privileged 요청은 −32006인지 본다. 성공 판정은 응답이 아니라 컨테이너 config·rootfs
+  소유권·`container.list` `privileged`로 한다.
+- 컨테이너 안 실행(`container.exec`·`container.nic.list`·`container.nic.attach`·`container.nic.detach`·
+  `container.set_bandwidth`·헬스 프로브)은
+  컨테이너 안 명령이 끝나지 않아도 상한 안에 실패로 끝나고 남은 자식이 없어야 하며, 그동안 다른 RPC가
+  응답해야 한다(메인 루프 비차단). 데몬 환경의 비밀 변수가 자식·컨테이너 안에 보이지 않아야 한다.
+- 실행 중 NIC 배선·제거는 응답뿐 아니라 컨테이너 안 링크와 호스트 veth를 함께 확인하고, 확인하지 못한 경우의
+  −32000 문구와 잔여를 기록한다.
+- privileged·unprivileged 둘 다, systemd 이미지로 확인한다. systemd 없는 이미지는 컨테이너 안 서비스 영향을
+  드러내지 못한다. 컨테이너 안 IP·DNS·저널 동작을 함께 본다.
+- 컨테이너는 전용 유닛(`purecvisor-lxc@<이름>`)으로 시작한다. 유닛 미설치는 fail-closed이고 실패 원인이
+  응답에 남아야 한다. 헬스 등록, `container.logs` 범위, 생성 브리지 별칭을 함께 보고, 실제 init의 seccomp
+  필터·컨테이너 안 서비스 상태는 실LXC에서만 확인한다.
+- 볼륨 원본이 링크로 바뀌면 attach는 −32602, 시작은 −32002로 거절되는지 보고, 컨테이너 안 reboot·데몬 밖
+  `lxc-start`도 시작 훅이 막는지 본다.
+- 볼륨 생명주기: 시작 때 붙은 읽기 전용 볼륨을 컨테이너 root가 쓰기 가능으로 바꾸지 못하는지, 정지·삭제·
+  복제·정지 상태 detach 뒤 호스트에 볼륨 마운트가 남지 않는지, 실행 중 detach가 성공이면 컨테이너의 모든
+  프로세스 마운트 NS에서 볼륨이 사라졌는지(남으면 −32002) 본다. 실행 중 스냅샷 롤백은 정지 → 되돌림 →
+  재시작과 `container.start` 감사, 복제는 ZFS 전체 복사본이 원본 스냅샷에 기대지 않고 볼륨 줄이 있는 원본은
+  비ADMIN에게 −32006인지 본다.
 
 ## 6. 성능 테스트와 기능 테스트 분리
 
@@ -448,3 +521,18 @@ CPU·메모리의 `alert_only`를 VM 대상 `restart`와 구분한다. 이상 �
 - 비동기 기능은 accepted 응답, worker completion, audit, 최종 리소스 상태를 모두 대조했다.
 - guest, storage, network처럼 시스템 경계를 넘는 기능은 실제 경계 안쪽 상태를 확인했다.
 - 검증하지 않은 format, distro, 권한, 배포 조합은 `정상`이 아니라 `미확인`으로 기록했다.
+
+## 8. ADMIN VM inspection 인수 기준
+
+| 시나리오 | 기대 결과·확인 항목 |
+|---|---|
+| 정규 소문자 UUID·이름/누락/추가 필드 | UUID 하나만 허용. provider 진입 전 잘못된 입력 거절·audit 1회 |
+| 무인증·VIEWER·OPERATOR·ADMIN·root UDS | 기존 인증/role 경계 유지, low-role 거부·ADMIN 관측, transport 내부 caller 위조 값 무효 |
+| GET path/query/body·CLI 인수 | 전용 GET만 허용, 추가 선택 옵션 거부, 단일 UUID·JSON·실패 종료 코드 |
+| inactive/transient/실행 중·전후 구성/active 변경 | inactive-redacted 범위와 null/unknown, 변경 시 앞선 facts/capacity 폐기, not_observed/unavailable 보존 |
+| XML·disk·출력 상한/기한/오류 | 1 MiB·64개·256 KiB·협력적 30초/bridge·CLI 35초, raw XML/path/credential/libvirt 오류 문자열 부재 |
+| 취소·timeout·worker/drain·반복 해제 | closed socket에 늦은 응답 없음·자원 소유권 보존·실제 결과 audit 1회, Job/WS completion 없음 |
+| 운영 인수·원복 | 같은 source/build/install identity, VM·설정·schema 보존, inspection API를 보존한 원복과 ADMIN live REST 성공 |
+
+격리 native·전송 회귀는 `tests/test_vm_inspection_candidate.c`가 맡는다. 인증 live REST 성공·전체 제품
+회귀·장애 주입 원복은 별도 실환경 회차의 판정이며 시나리오 추가를 PASS로 계상하지 않는다.

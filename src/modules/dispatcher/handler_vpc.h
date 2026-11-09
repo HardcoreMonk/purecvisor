@@ -59,4 +59,31 @@ void handle_vpc_service_publish(JsonObject *, const gchar *, UdsServer *, GSocke
 void handle_vpc_service_unpublish(JsonObject *, const gchar *, UdsServer *, GSocketConnection *);
 void handle_vpc_reconcile(JsonObject *, const gchar *, UdsServer *, GSocketConnection *);
 
+   
+                           
+                                                                                      
+                                                                                   
+                                                        
+  
+                                                                           
+   
+void handle_vpc_subnet_confirm(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                               GSocketConnection *connection);
+
+   
+                           
+                                                                                    
+                                                                                                         
+                                                                                        
+                                                                                 
+                                                                                         
+                                                                                      
+  
+                                                               
+   
+void handle_vpc_pool_set(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                         GSocketConnection *connection);
+void handle_vpc_pool_list(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                          GSocketConnection *connection);
+
 G_END_DECLS

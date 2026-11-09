@@ -73,7 +73,6 @@ var EP = (function() {
     VM_EXPORT:            function(n)    { return B() + '/vms/' + enc(n) + '/export'; },
     VM_CPU_PIN:           function(n)    { return B() + '/vms/' + enc(n) + '/cpu-pin'; },
     VM_BANDWIDTH:         function(n)    { return B() + '/vms/' + enc(n) + '/bandwidth'; },
-    VM_RPC:               function(n)    { return B() + '/vms/' + enc(n) + '/rpc'; },
     VM_DISK_RESIZE:       function(n)    { return B() + '/vms/' + enc(n) + '/disk-resize'; },
     VM_GUEST_PING:        function(n)    { return B() + '/vms/' + enc(n) + '/guest-ping'; },
     VM_GUEST_AGENT:       function(n)    { return B() + '/vms/' + enc(n) + '/guest-agent'; },
@@ -137,6 +136,8 @@ var EP = (function() {
     AUTH_REFRESH:         function()     { return B() + '/auth/refresh'; },
 
     AUTH_LOGOUT:          function()     { return B() + '/auth/logout'; },
+
+    AUTH_LOGOUT_ALL:      function()     { return B() + '/auth/logout/all'; },
     AUTH_USERS:           function()     { return B() + '/auth/users'; },
     AUTH_USER:            function(u)    { return B() + '/auth/users/' + enc(u); },
     AUTH_ROLE:            function()     { return B() + '/auth/role'; },

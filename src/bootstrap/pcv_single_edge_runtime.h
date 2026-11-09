@@ -87,9 +87,6 @@ JsonObject *pcv_cluster_exit_maintenance(void);
                                                        
 gboolean pcv_cluster_is_maintenance(void);
                                                               
-                                            
-PcvEtcdClient *pcv_cluster_get_etcd(void);
-                                                              
 void pcv_cluster_sync_vm_xml(const gchar *vm_name);
                                                
 void pcv_cluster_remove_vm_xml(const gchar *vm_name);
@@ -114,24 +111,16 @@ void pcv_cluster_notify_config_reload(void);
 JsonObject *pcv_cluster_config_get(const gchar *section, const gchar *key);
 
                                                                    
-                                                                    
+                                                 
                                                               
                                                       
-                                                                
+                                                                             
 gboolean pcv_etcd_acquire_inflight_lock(PcvEtcdClient *c,
                                         const gchar *pool,
                                         const gchar *node_name,
                                         const gchar *op,
                                         gint ttl_sec,
                                         GError **error);
-                                                      
-                                                 
-gboolean pcv_etcd_release_inflight_lock(PcvEtcdClient *c,
-                                        const gchar *pool,
-                                        GError **error);
-                                                      
-                                 
-gint pcv_etcd_compute_inflight_ttl(const gchar *op, gint size_gb);
 
                                                             
                                                                

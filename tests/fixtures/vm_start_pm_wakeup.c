@@ -17,13 +17,14 @@
 #include "modules/core/vm_state.h"
 #include "modules/virt/vm_manager.h"
 #include "modules/virt/vm_start_capacity.h"
+#include "modules/dispatcher/handler_vm_start.h"
 #include "modules/virt/virt_conn_pool.h"
 #include "modules/network/pcv_qos.h"
 #include "modules/network/network_manager.h"
 #include "utils/pcv_validate.h"
 #include <libvirt/virterror.h>
 
-static const gchar *mode, *state_path, *effects_path;
+static const gchar *mode, *state_path, *effects_path, *driver;
 static sqlite3 *audit_db;
 static GPtrArray *frames;
 static gchar *rpc_response;
@@ -56,12 +57,16 @@ static void write_state(gint state)
 }
 
 
-virConnectPtr virt_conn_pool_acquire(void) { return (virConnectPtr)1; }
+virConnectPtr virt_conn_pool_acquire(void) { return g_str_equal(mode, "acquire-fail") ? NULL : (virConnectPtr)1; }
 void virt_conn_pool_release(virConnectPtr connection) { (void)connection; effect("RELEASE"); }
 virDomainPtr pure_virt_get_domain(virConnectPtr connection, const gchar *id)
-{ (void)connection; (void)id; return g_str_equal(mode, "missing") ? NULL : (virDomainPtr)2; }
+{ (void)connection; (void)id; return g_str_equal(mode, "missing") || g_str_equal(mode, "lookup-error") ? NULL : (virDomainPtr)2; }
+
+int virGetLastErrorCode(void)
+{ return g_str_equal(mode, "missing") ? VIR_ERR_NO_DOMAIN : g_str_equal(mode, "lookup-error") ? VIR_ERR_INTERNAL_ERROR : VIR_ERR_OK; }
 const char *virDomainGetName(virDomainPtr domain) { (void)domain; return "sleep-vm"; }
 int virDomainFree(virDomainPtr domain) { (void)domain; effect("FREE"); return 0; }
+
 int virDomainIsActive(virDomainPtr domain)
 {
     (void)domain;
@@ -69,8 +74,17 @@ int virDomainIsActive(virDomainPtr domain)
     if (g_str_equal(mode, "active-error")) return -1;
     return read_state() != VIR_DOMAIN_SHUTOFF;
 }
+
 int virDomainGetInfo(virDomainPtr domain, virDomainInfoPtr info)
-{ (void)domain; memset(info, 0, sizeof(*info)); info->state = read_state(); return 0; }
+{
+    (void)domain;
+    effect("INFO");
+    if (g_str_equal(mode, "info-error-prepare")) return -1;
+    memset(info, 0, sizeof(*info));
+    info->state = read_state();
+    info->nrVirtCpu = g_str_equal(mode, "vcpus-2") ? 2 : 1;
+    return 0;
+}
 int virDomainGetState(virDomainPtr domain, int *state, int *reason, unsigned int flags)
 {
     (void)domain;
@@ -111,9 +125,10 @@ int virDomainDestroy(virDomainPtr domain) { (void)domain; effect("DESTROY"); ret
 
 
 static gboolean _reconcile_dpdk_vhost_for_start(virConnectPtr connection, virDomainPtr *domain,
-                                                const gchar *name, gboolean active, GError **error)
+                                                const gchar *name, gboolean active,
+                                                const gchar *actor, GError **error)
 {
-    (void)connection; (void)domain; (void)name;
+    (void)connection; (void)domain; (void)name; (void)actor;
     effect(active ? "RECONCILE_ACTIVE" : "RECONCILE_COLD");
     if (g_str_equal(mode, "reconcile-error")) {
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "fixture reconcile failed");
@@ -147,9 +162,19 @@ gboolean pcv_qos_apply_vm(const gchar *iface, const PcvQosSla *sla, GError **err
 { (void)iface; (void)sla; (void)error; return TRUE; }
 gboolean pcv_qos_ids_save(const gchar *path, GError **error) { (void)path; (void)error; return TRUE; }
 
-gboolean lock_vm_operation(const gchar *id, gint operation, gchar **error)
-{ (void)id; (void)operation; (void)error; effect("LOCK"); return TRUE; }
-void unlock_vm_operation(const gchar *id) { (void)id; effect("UNLOCK"); }
+static int fixture_lock_token;
+PcvVmLock *pcv_vm_lock_acquire(const gchar *id, gint operation, gchar **error)
+{
+    (void)id; (void)operation;
+    if (g_strcmp0(mode, "lock-busy") == 0) {
+        if (error) *error = g_strdup("fixture: VM busy");
+        effect("LOCK_BUSY");
+        return NULL;
+    }
+    effect("LOCK");
+    return (PcvVmLock *)&fixture_lock_token;
+}
+void pcv_vm_lock_release(PcvVmLock *lock) { (void)lock; effect("UNLOCK"); }
 void _pcv_log(GLogLevelFlags level, const gchar *domain, const gchar *fmt, ...)
 { (void)level; (void)domain; (void)fmt; }
 const gchar *pcv_config_get_string(const gchar *section, const gchar *key, const gchar *fallback)
@@ -183,12 +208,28 @@ void __wrap_soup_websocket_connection_send_text(SoupWebsocketConnection *connect
 gboolean __real_cpu_allocator_allocate_exclusive(CpuAllocator *, const gchar *, guint, guint, GArray **, gint *);
 gboolean __wrap_cpu_allocator_allocate_exclusive(CpuAllocator *alloc, const gchar *name,
                                                  guint node, guint count, GArray **cpus, gint *actual)
-{ effect("ALLOCATE"); return __real_cpu_allocator_allocate_exclusive(alloc, name, node, count, cpus, actual); }
+{
+    effect("ALLOCATE");
+    gchar *line = g_strdup_printf("ALLOCATE_COUNT %u", count);
+    effect(line);
+    g_free(line);
+    return __real_cpu_allocator_allocate_exclusive(alloc, name, node, count, cpus, actual);
+}
 
 
-
+void __real_cpu_allocator_free_vm_cores(CpuAllocator *, const gchar *);
+void __wrap_cpu_allocator_free_vm_cores(CpuAllocator *alloc, const gchar *vm_id)
+{ effect("CPU_RETURN"); __real_cpu_allocator_free_vm_cores(alloc, vm_id); }
 
 #define PCV_PRODUCTION_FUNCTIONS
+
+static void fixture_done(const gchar *vm_id, gboolean ok, const GError *error, gpointer user_data)
+{
+    (void)vm_id; (void)error; (void)user_data;
+    g_assert_true(g_thread_self() == main_thread);
+    effect(ok ? "DONE_OK" : "DONE_FAIL");
+}
+
 
 static GIOStream *peer, *unauth_peer;
 static SoupWebsocketConnection *fixture_ws(GIOStream **peer_out)
@@ -214,13 +255,16 @@ static void setup_ws(void)
     g_object_set_data(G_OBJECT(pending), "pcv-ws-authed", GINT_TO_POINTER(0));
     g_mutex_init(&G.mu); G.clients = g_ptr_array_new_with_free_func(g_object_unref);
     g_ptr_array_add(G.clients, pending); g_ptr_array_add(G.clients, authed);
+
+    G.ctx = g_main_context_ref(g_main_context_default());
     G.initialized = TRUE;
 }
 
 int main(int argc, char **argv)
 {
-    g_assert_cmpint(argc, ==, 5);
+    g_assert_true(argc == 5 || argc == 6);
     mode = argv[1]; state_path = argv[2]; effects_path = argv[3];
+    driver = argc == 6 ? argv[5] : "rpc";
     main_thread = g_thread_self();
     frames = g_ptr_array_new_with_free_func(g_free);
     g_assert_cmpint(sqlite3_open(argv[4], &audit_db), ==, SQLITE_OK);
@@ -236,18 +280,46 @@ int main(int argc, char **argv)
     pcv_drain_init(); setup_ws();
     JsonObject *params = json_object_new();
     json_object_set_string_member(params, "vm_id", "11111111-2222-3333-4444-555555555555");
+
+    if (g_strcmp0(driver, "rpc-vcpu1") == 0) json_object_set_int_member(params, "vcpu_count", 1);
+    else if (g_strcmp0(driver, "rpc-vcpu3") == 0) json_object_set_int_member(params, "vcpu_count", 3);
+    else if (g_strcmp0(driver, "rpc-vcpu-neg") == 0) json_object_set_int_member(params, "vcpu_count", -1);
+    else if (g_strcmp0(driver, "rpc-vcpu-str") == 0) json_object_set_string_member(params, "vcpu_count", "2");
+    else if (g_strcmp0(driver, "rpc-vcpu-real") == 0) json_object_set_double_member(params, "vcpu_count", 2.5);
     GObject *server = g_object_new(G_TYPE_OBJECT, NULL);
     GSocketConnection *connection = g_object_ref(G_SOCKET_CONNECTION(peer));
-    handle_vm_start_request(params, "probe-request", (UdsServer *)server, connection);
+    gboolean expect_frame = TRUE;
+    if (g_strcmp0(driver, "submit") == 0 || g_strcmp0(driver, "submit-skip") == 0) {
+        gboolean skip = g_strcmp0(driver, "submit-skip") == 0;
+        PcvVmStartRequest req = { .vm_id = "11111111-2222-3333-4444-555555555555", .numa_node = 0,
+                                  .vcpu_count = 0, .bridge_name = NULL,
+                                  .origin = skip ? "self-healing" : "vm.batch", .skip_if_active = skip };
+        gchar *submit_err = NULL;
+        switch (pcv_vm_start_submit(&req, fixture_done, NULL, &submit_err)) {
+        case PCV_VM_START_SUBMITTED:      effect("SUBMITTED"); break;
+        case PCV_VM_START_ALREADY_ACTIVE: effect("ALREADY_ACTIVE"); expect_frame = FALSE; break;
+        case PCV_VM_START_REJECTED:
+            effect("SUBMIT_REJECTED");
+            pcv_vm_start_report_rejected(req.vm_id, req.origin, submit_err, req.actor);
+            break;
+        }
+        g_free(submit_err);
+    } else {
+        handle_vm_start_request(params, "probe-request", (UdsServer *)server, connection);
+
+        if (g_str_equal(mode, "acquire-fail") || g_str_equal(mode, "lookup-error") || g_str_equal(mode, "info-error-prepare")
+            || g_strcmp0(driver, "rpc-vcpu3") == 0)
+            expect_frame = FALSE;
+    }
     json_object_unref(params); g_object_unref(server); g_object_unref(connection);
     gint64 deadline = g_get_monotonic_time() + 5 * G_TIME_SPAN_SECOND;
-    while (!frames->len && g_get_monotonic_time() < deadline) {
+    while (expect_frame && !frames->len && g_get_monotonic_time() < deadline) {
         g_main_context_iteration(NULL, FALSE); g_usleep(1000);
     }
-    g_assert_cmpuint(frames->len, ==, 1);
+    g_assert_cmpuint(frames->len, ==, expect_frame ? 1 : 0);
     while (g_main_context_pending(NULL)) g_main_context_iteration(NULL, FALSE);
-    printf("FRAME %s\n", (gchar *)g_ptr_array_index(frames, 0));
-    printf("RESPONSE %s\n", rpc_response);
+    printf("FRAME %s\n", frames->len ? (gchar *)g_ptr_array_index(frames, 0) : "null");
+    printf("RESPONSE %s\n", rpc_response ? rpc_response : "null");
     GArray *competitor = NULL; gint node;
     gboolean acquired = __real_cpu_allocator_allocate_exclusive(global_allocator, "other-vm", 0, 1, &competitor, &node);
     if (acquired) effect("COMPETITOR_ACQUIRED"); else effect("COMPETITOR_DENIED");
@@ -255,7 +327,8 @@ int main(int argc, char **argv)
     cpu_allocator_free(global_allocator); global_allocator = NULL;
     sqlite3_close(audit_db); g_free(rpc_response);
     pcv_drain_shutdown();
-    G.initialized = FALSE; g_ptr_array_unref(G.clients); g_mutex_clear(&G.mu);
+    G.initialized = FALSE; g_ptr_array_unref(G.clients); g_clear_pointer(&G.ctx, g_main_context_unref);
+    g_mutex_clear(&G.mu);
     g_object_unref(peer); g_object_unref(unauth_peer); g_ptr_array_unref(frames);
     return 0;
 }

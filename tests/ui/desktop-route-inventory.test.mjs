@@ -139,12 +139,14 @@ async function renderMutationSurface(page, surface, role) {
       network: /^(?:showNetCreate|showNetEdit|netDel|fwAddRule)\b/,
       storage: /^(?:showPoolCreate|poolScrub|poolDestroy|showZvol|zvolDel)\b/
     }[surfaceName];
+
+    const commandOf = button => button.getAttribute('onclick') || button.getAttribute('data-cmd') || '';
     const buttons = [...target.querySelectorAll('button')].filter(button =>
-      commandPattern.test(button.getAttribute('onclick') || ''));
+      commandPattern.test(commandOf(button)));
     return buttons.map(button => {
       const gate = button.closest('[data-role]');
       return {
-        command: button.getAttribute('onclick'),
+        command: commandOf(button),
         dataRole: gate?.getAttribute('data-role') || null,
         roleHidden: gate?.classList.contains('role-hidden') || false,
         display: gate ? getComputedStyle(gate).display : null

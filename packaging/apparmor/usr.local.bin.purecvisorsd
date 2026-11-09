@@ -233,6 +233,7 @@
   /{usr/,}bin/guestmount          Ux,
   /{usr/,}bin/lxc-*               Ux,                                      
   /{usr/,}bin/nsenter             Ux,
+  /usr/local/bin/pcvctl           Ux,
 
                                                                            
   /{usr/,}{,s}bin/ip              Ux,
@@ -287,6 +288,7 @@
   /{usr/,}bin/xz                  Ux,
   /{usr/,}bin/curl                Ux,                             
   /{usr/,}{,s}bin/ssh             Ux,                            
+  /{usr/,}bin/ssh-keyscan         Ux,
 
                                                                       
   /{usr/,}bin/pkill               Ux,

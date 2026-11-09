@@ -208,4 +208,9 @@ void handle_snapshot_schedule_delete(JsonObject       *params,
 
 G_END_DECLS
 
+                                                                               
+                           
+void handle_snapshot_verify(JsonObject *params, const gchar *rpc_id,
+                                     UdsServer *server, GSocketConnection *connection);
+
 #endif                                  

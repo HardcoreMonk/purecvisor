@@ -853,7 +853,7 @@ _apply_result_locked(const WpSub *sub)
                                                                 
         gchar *summary = _ep_summary(sub->endpoint);
         PCV_LOG_INFO(WP_LOG_DOM, "죽은 구독 폐기(HTTP %u): %s", sub->status, summary);
-        pcv_audit_log(NULL, "push.prune", summary, "ok", 0, 0, NULL);
+        pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "push.prune", summary, "ok", 0, 0, NULL);
         g_free(summary);
         return;
     }
@@ -1211,7 +1211,7 @@ pcv_webpush_set_policy(gboolean enabled, gboolean crit_only, const gchar *contac
 }
 
                                                                 
-
+                                                                              
                    
 void
 pcv_webpush_set_post_hook(PcvWebpushPostFn fn)

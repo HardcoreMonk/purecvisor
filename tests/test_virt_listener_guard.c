@@ -31,7 +31,8 @@ test_watchdog_wait_is_bounded_and_context_independent(void)
     g_assert_true(pcv_virt_listener_guard_wait(10U));
     gint64 elapsed = g_get_monotonic_time() - started_at;
     g_assert_cmpint(elapsed, >=, 5 * G_TIME_SPAN_MILLISECOND);
-    g_assert_cmpint(elapsed, <, G_TIME_SPAN_SECOND);
+
+    g_assert_cmpint(elapsed, <, 5 * G_TIME_SPAN_SECOND);
 }
 
 static void

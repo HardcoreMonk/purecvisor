@@ -238,7 +238,116 @@ static void test_params_get_string_type_safe(void) {
     g_log_set_always_fatal(saved);
 }
 
+
+static void test_params_get_uint_in_range(void) {
+    g_autoptr(JsonParser) parser = json_parser_new();
+    g_assert_true(json_parser_load_from_data(parser,
+        "{\"ok\":57,\"lo\":1,\"hi\":86400,\"zero\":0,\"neg\":-5,\"big\":86401,"
+        "\"s\":\"57\",\"f\":57.5,\"b\":true,\"n\":null,\"o\":{\"x\":1}}",
+        -1, NULL));
+    JsonObject *params = json_node_get_object(json_parser_get_root(parser));
+    GLogLevelFlags saved = g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
+    guint out = 0;
+
+    g_assert_true(pcv_rpc_params_get_uint_in_range(params, "ok", 1, 86400, 30, &out));
+    g_assert_cmpuint(out, ==, 57);
+    g_assert_true(pcv_rpc_params_get_uint_in_range(params, "lo", 1, 86400, 30, &out));
+    g_assert_cmpuint(out, ==, 1);
+    g_assert_true(pcv_rpc_params_get_uint_in_range(params, "hi", 1, 86400, 30, &out));
+    g_assert_cmpuint(out, ==, 86400);
+    g_assert_true(pcv_rpc_params_get_uint_in_range(params, "missing", 1, 86400, 30, &out));
+    g_assert_cmpuint(out, ==, 30);
+    out = 99;
+    g_assert_true(pcv_rpc_params_get_uint_in_range(NULL, "ok", 1, 86400, 30, &out));
+    g_assert_cmpuint(out, ==, 30);
+
+    const gchar *invalid[] = { "zero", "neg", "big", "s", "f", "b", "n", "o" };
+    for (gsize i = 0; i < G_N_ELEMENTS(invalid); i++) {
+        out = 4242;
+        g_assert_false(pcv_rpc_params_get_uint_in_range(params, invalid[i], 1, 86400, 30, &out));
+        g_assert_cmpuint(out, ==, 4242);
+    }
+    g_assert_false(pcv_rpc_params_get_uint_in_range(params, NULL, 1, 86400, 30, &out));
+    g_assert_false(pcv_rpc_params_get_uint_in_range(params, "ok", 1, 86400, 30, NULL));
+    g_log_set_always_fatal(saved);
+}
+
+static void test_params_get_bool_type_safe(void) {
+    JsonParser *pr = json_parser_new();
+    g_assert_true(json_parser_load_from_data(pr,
+        "{\"t\":true,\"f\":false,\"s\":\"true\",\"n\":1,\"z\":null,\"o\":{}}", -1, NULL));
+    JsonObject *p = json_node_get_object(json_parser_get_root(pr));
+    gboolean v = FALSE;
+    g_assert_true(pcv_rpc_params_get_bool(p, "t", FALSE, &v));       g_assert_true(v);
+    g_assert_true(pcv_rpc_params_get_bool(p, "f", TRUE, &v));        g_assert_false(v);
+    v = FALSE;
+    g_assert_true(pcv_rpc_params_get_bool(p, "missing", TRUE, &v));  g_assert_true(v);
+    v = FALSE;
+    g_assert_true(pcv_rpc_params_get_bool(NULL, "t", TRUE, &v));     g_assert_true(v);
+    for (const gchar *const *k = (const gchar *const[]){ "s", "n", "z", "o", NULL }; *k; k++) {
+        v = TRUE;
+        g_assert_false(pcv_rpc_params_get_bool(p, *k, FALSE, &v));
+        g_assert_true(v);
+    }
+    g_assert_false(pcv_rpc_params_get_bool(p, "t", TRUE, NULL));
+    g_object_unref(pr);
+}
+
+static void test_params_is_object_array(void) {
+    JsonParser *pr = json_parser_new();
+    g_assert_true(json_parser_load_from_data(pr,
+        "{\"ok\":[{\"name\":\"Claude\"},{}],\"empty\":[],\"o\":{\"Claude\":{}},\"s\":\"x\",\"n\":1,\"z\":null,"
+        "\"strs\":[\"x\"],\"mixed\":[{},1],\"nulls\":[null]}", -1, NULL));
+    JsonObject *p = json_node_get_object(json_parser_get_root(pr));
+    g_assert_true(pcv_rpc_params_is_object_array(p, "ok"));
+    g_assert_true(pcv_rpc_params_is_object_array(p, "empty"));
+    for (const gchar *const *k = (const gchar *const[]){ "o", "s", "n", "z", "strs", "mixed", "nulls", "missing", NULL }; *k; k++)
+        g_assert_false(pcv_rpc_params_is_object_array(p, *k));
+    g_assert_false(pcv_rpc_params_is_object_array(NULL, "ok"));
+    g_assert_false(pcv_rpc_params_is_object_array(p, NULL));
+    g_object_unref(pr);
+}
+
+static gboolean source_cb_remove(gpointer data) {
+    (*(gint *)data)++;
+    return G_SOURCE_REMOVE;
+}
+
+static void test_source_remove_fired_not_removed_again(void) {
+    gint count = 0;
+    guint id = g_timeout_add(0, source_cb_remove, &count);
+    g_assert_cmpuint(id, >, 0);
+    for (gint i = 0; i < 50 && count == 0; i++)
+        g_main_context_iteration(NULL, TRUE);
+    g_assert_cmpint(count, ==, 1);
+    GLogLevelFlags saved = g_log_set_always_fatal(G_LOG_FATAL_MASK | G_LOG_LEVEL_CRITICAL);
+    gboolean removed = pcv_source_remove_if_attached(id);
+    g_log_set_always_fatal(saved);
+    g_assert_false(removed);
+    g_assert_cmpint(count, ==, 1);
+}
+
+static void test_source_remove_pending_removed(void) {
+    gint count = 0;
+    guint id = g_timeout_add_seconds(30, source_cb_remove, &count);
+    g_assert_cmpuint(id, >, 0);
+    g_assert_true(pcv_source_remove_if_attached(id));
+    for (gint i = 0; i < 5; i++)
+        g_main_context_iteration(NULL, FALSE);
+    g_assert_cmpint(count, ==, 0);
+    g_assert_false(pcv_source_remove_if_attached(id));
+}
+
+static void test_source_remove_zero_id(void) {
+    g_assert_false(pcv_source_remove_if_attached(0));
+}
+
 void test_rpc_utils_register(void) {
+    g_test_add_func("/rpc_utils/source_remove/fired_source_not_removed_again", test_source_remove_fired_not_removed_again);
+    g_test_add_func("/rpc_utils/source_remove/pending_source_removed", test_source_remove_pending_removed);
+    g_test_add_func("/rpc_utils/source_remove/zero_id", test_source_remove_zero_id);
+    g_test_add_func("/rpc_utils/params_get_uint_in_range", test_params_get_uint_in_range);
+    g_test_add_func("/rpc_utils/params_get_bool_type_safe", test_params_get_bool_type_safe);
     g_test_add_func("/rpc_utils/params_get_string_type_safe", test_params_get_string_type_safe);
     g_test_add_func("/rpc_utils/error_response_basic", test_error_response_basic);
     g_test_add_func("/rpc_utils/error_response_null_id", test_error_response_null_id);
@@ -252,4 +361,5 @@ void test_rpc_utils_register(void) {
     g_test_add_func("/rpc_utils/params_get_int_alias_primary_key", test_params_get_int_alias_primary_key);
     g_test_add_func("/rpc_utils/params_get_int_alias_alias_key", test_params_get_int_alias_alias_key);
     g_test_add_func("/rpc_utils/params_get_int_alias_missing_key", test_params_get_int_alias_missing_key);
+    g_test_add_func("/rpc_utils/params_is_object_array", test_params_is_object_array);
 }

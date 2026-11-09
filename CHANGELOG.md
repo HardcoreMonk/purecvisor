@@ -1,5 +1,109 @@
 # Changelog
 
+## 2.1.0 기능 릴리스 — 2026-11-09
+
+2.0.4 이후의 Single Edge 기능·보안·안정성 변경을 담은 기능 릴리스다. 기존 RPC 메서드와 REST 경로는 그대로 쓸 수
+있지만 일부 기본값과 응답 의미가 바뀌었고 DB 스키마가 확장됐다. `daemon.conf`는 그대로 읽으며 새 키는 모두 선택이다.
+업그레이드 전에 아래 "업그레이드 시 확인할 점"과 "2.0.4로 되돌릴 때"를 확인한다.
+
+### 구조
+
+- REST·디스패처·VM 계열 내부 구현을 여러 변환 단위로 분할해 유지보수성과 빌드 범위를 개선했다. 공개 API 표면은
+  동일하다.
+
+### 신규 기능
+
+- ADMIN 전용 VM 구성 관측(`vm.inspect`, `GET /api/v1/vms/{uuid}/inspection`, `pcvctl vm inspect`)을 추가했다.
+- 세션 단위 로그아웃을 추가했다. `POST /api/v1/auth/logout`은 본문 `refresh_token`의 세션 하나만 폐기하고,
+  `POST /api/v1/auth/logout/all`은 그 사용자의 세션을 모두 폐기한다.
+- 백업 복제 대상 SSH 호스트 키 고정(`pcvctl backup hostkey scan|trust|list|remove`)을 추가했다.
+- 컨테이너 볼륨 마운트 생명주기·실행 중 스냅샷 롤백·ZFS send/recv 복제 경로를 보강했다.
+- 보안 사건 운영자 종결(`security.event.close`, `pcvctl security close`), 자가치유 상태 조회(`healing.status`),
+  호스트 자원 등록(`pcvctl resource …`)과 테넌트 VPC 주소 풀(`pcvctl vpc pool-set|pool-list`)을 추가했다.
+
+### 보안·격리
+
+- 관리면 노출을 좁히고(nginx 공유 비밀 `X-PCV-Proxy-Auth`, `[server] trusted_proxies`) VPC 관리 대역을 보호한다.
+- LXC 컨테이너를 기본 unprivileged로 만들고, 컨테이너를 전용 systemd 유닛 `purecvisor-lxc@.service`로 시작한다.
+- OPERATOR의 호스트 자원 경계와 컨테이너 볼륨 원본 경계, VPC 테넌트 주소 풀·자원 등록을 도입했다.
+- 보안 사건·감사 증가 상한과 사건 종료(`security.event.close`)를 추가하고, 인증 주체 존재 검사를 더했다.
+- 데몬에 systemd 샌드박스 드롭인 `97-sandbox.conf`를 더했다.
+- 감사 기록을 비동기 행위자로 분리해 요청 처리 지연을 줄였다.
+
+### 안정성
+
+- 메인 루프 정지를 막는 보강과 데몬 견고성 개선을 반영했다. 오래 걸리는 일부 RPC는 자원별 실행 줄에서 돌고,
+  메인 루프 정지는 로그와 `purecvisor_mainloop_stalls_total` 지표로 드러난다.
+- Job 결과를 별도 journal에 먼저 내구화하고, 재시작 때 결과가 확정되지 않은 이전 실행을 `interrupted`로 표시한다.
+  종료된 Job 기록은 기본 30일 뒤 정리한다(`[daemon] job_retention_days`).
+
+### 업그레이드 시 확인할 점
+
+- `sudo apt install ./purecvisor-single_2.1.0_amd64.deb`로 설치한 뒤 `sudo systemctl restart purecvisorsd`로 실행
+  중인 데몬을 새 바이너리로 바꾼다. 기존 `daemon.conf`와 데이터는 보존된다.
+- **DB 스키마는 자동 이관된다.** 데몬 시작(자원 등록 DB는 첫 사용) 때 다음이 적용된다: Job 상태 DB(`pcv_jobs.db`)의
+  열 4개·인덱스·`PRAGMA user_version=2`와 결과 journal, VM 상태 DB의 `vm_locks.owner` 열, RBAC DB의
+  `identity_nonce` 열·`PRAGMA user_version=2`, Security DB의 `security_events` 열 6개·인덱스, 새 파일
+  `resource_registry.db`. 자동 되돌림은 없으므로 **업그레이드 전에 데몬을 정지하고 `/var/lib/purecvisor/*.db*`
+  (WAL 포함)를 백업**한다. 세부는 `docs/DATABASE_STRUCTURE.md`를 따른다.
+- **모든 사용자가 한 번 다시 로그인한다.** RBAC 이관이 신원 세대 값이 없는 옛 refresh 세션을 폐기한다. 저장 역할이
+  사용자 역할보다 높은 API 키는 한 번 낮춘다(낮춘 수는 기동 로그에 남는다). DB에 관리자 계정이 없을 때 설정값으로
+  비상 토큰을 발급하던 fallback은 없어졌다 — 관리자는 `pcvctl auth create`(UDS)나 `admin_password` 시딩으로 만든다.
+  Bearer만 보내는 `POST /api/v1/auth/logout`은 이제 그 access만 무효화한다. 전체 폐기는 `/auth/logout/all`을 쓴다.
+- **패키지가 systemd 파일 두 개를 새로 설치한다.** 데몬 드롭인
+  `/etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf`(`NotifyAccess=main`, `SystemCallArchitectures=native`,
+  `LockPersonality=yes`, `RestrictRealtime=yes`, `SystemCallFilter=~@swap @obsolete @cpu-emulation @module @raw-io`)와
+  컨테이너 시작 유닛 `/etc/systemd/system/purecvisor-lxc@.service`다. 둘 다 dpkg conffile이며 설치 스크립트가
+  `systemctl daemon-reload`를 한다. 샌드박스는 데몬을 재시작해야 적용된다. `container.exec`와 헬스 `exec` 프로브는
+  이 필터를 물려받으므로 컨테이너 안 32비트 바이너리는 SIGSYS, `setarch`는 EPERM으로 실패한다. 필요하면 드롭인을
+  지우고 `daemon-reload` 뒤 데몬을 재시작한다. deb 밖 설치는 두 파일을 직접 설치하고 `daemon-reload`한다 — 유닛
+  파일이 없으면 컨테이너가 시작되지 않는다.
+- **컨테이너 기본 격리가 unprivileged로 바뀐다**(`[container] rootless` 기본 `true`, 2.0.4는 `false`). 새 컨테이너를
+  만들려면 `/etc/subuid`·`/etc/subgid`에 `root:100000:65536`(또는 `rootless_uid_start`·`rootless_uid_count`에
+  맞춘 줄)이 있어야 하며, 없거나 다른 계정 범위와 겹치면 `container.create`가 privileged로 바꾸지 않고 −32002로
+  거절한다. 이전 기본이 필요하면 `[container] rootless = false`를 둔다. 이미 있는 컨테이너의 격리 방식은 바뀌지 않으며
+  목록의 `PRIV` 열로 구별한다. privileged 생성과 privileged·호스트 볼륨 컨테이너의 복제는 ADMIN 전용이다.
+- **실행 중이던 컨테이너는 한 번 정지·시작한다.** 2.0.4 데몬이 띄운 컨테이너는 다음 정지·시작 전까지 전용 유닛 밖에서
+  돈다.
+- **`container.volume.attach`는 `readonly`를 생략하면 읽기 전용이다**(2.0.4는 읽기·쓰기). 쓰기 볼륨은
+  `"readonly": false`(CLI `--rw`)를 명시한다.
+- 컨테이너 생성·삭제·시작·정지와 NIC 작업의 잠금 충돌은 −32004(REST 409)로 통일됐다(2.0.4는 −32603, REST 500).
+  500을 재시도 신호로 쓰던 자동화는 409로 옮긴다.
+- **Prometheus 수집 인증 기본이 바뀐다.** `[metrics] auth` 기본이 `none`에서 `loopback`이 되어, 같은 호스트에서
+  데몬 평문 리스너(`127.0.0.1:8080`)로 직접 온 요청만 토큰 없이 받는다. 원격·nginx 경유 수집은 토큰이 필요하다 —
+  `auth.apikey.create`에 `role: 0`을 명시한 API 키를 Bearer로 보낸다. 이전 동작이 필요하면 `[metrics] auth = none`을
+  명시한다. `/internal/vms`·`/internal/telemetry`·`/health/recent-errors`도 같은 규칙을 따른다.
+- **nginx 외부 TLS 종료 설치본**은 기존 vhost의 server 블록에 `include /etc/nginx/snippets/purecvisor-proxy-auth.conf;`를
+  더한 뒤 설치기(`scripts/install-nginx-termination.sh`)를 다시 실행하고 nginx reload·데몬 재시작 순으로 반영한다.
+  include가 없으면 nginx 뒤 모든 클라이언트가 `127.0.0.1` 하나로 보인다.
+- **백업 복제**: 업그레이드 직후에는 등록된 호스트 키가 없어 모든 `backup.replicate`가 −32012로 거절된다. 대상마다
+  `pcvctl backup hostkey scan` → 지문 대조 → `pcvctl backup hostkey trust`를 한 번 한다.
+- **OPERATOR 자원 경계**: 테넌트가 없는 OPERATOR는 이미지·ISO·OVA·저장 위치·PCI·USB·브리지 참조가 −32006, VPC
+  조회·변경이 −32002로 거절된다. 업그레이드 직후 ADMIN이 테넌트 지정·자원 등록·VPC 주소 풀 배정을 한다(가이드
+  10.2.1·6.12.2).
+- **BPF 객체가 다시 빌드됐다.** LSM 사건 레코드의 끝 여유 공간에 파일시스템 장치 필드가 더해졌다. 레코드 크기(304바이트)와
+  경로 위치는 그대로라 2.0.4 BPF 객체도 그대로 적재·동작하지만(장치 필드가 0이라 사건은 이전처럼 제출된다), 감시
+  경로와 무관한 tmpfs의 같은 이름 파일 열기를 사건에서 거르려면 2.1.0 BPF tarball을 설치한다.
+- 웹 UI 정적 자산의 버전 표기가 `2.1.0`로 바뀐다. 업그레이드 뒤 브라우저를 새로고침해 새 UI를 받는다.
+
+### 2.0.4로 되돌릴 때
+
+- 자동 되돌림(down-migration)은 없다. 확실한 방법은 2.0.4 패키지를 다시 설치하고 업그레이드 전에 떠 둔 DB 백업을
+  복원하는 것이다. 그 사이 생긴 Job·감사·보안 사건 이력은 따로 보관해 대조한다. 되돌리기 전에 볼륨을 쓰는 컨테이너를
+  정지한다(2.1.0 데몬이 정지 때 staging을 정리한다).
+- 백업 없이 2.0.4 바이너리로 돌아가도 DB는 열린다. 더해진 열은 모두 기본값이 있고 2.0.4는 열 이름을 명시해 읽고
+  쓰기 때문이다. 다만 다음이 남는다.
+  - Job 상태 DB: 2.0.4는 `interrupted` 상태를 알 수 없는 값으로 읽고, 그 사이 쓴 Job 행에는 세대·method 값이 비어
+    있다.
+  - RBAC DB: 낮춘 API 키 역할은 되돌아가지 않는다. 2.0.4에서 만든 계정과 세션은 다시 2.1.0으로 올릴 때 이관되어 그
+    세션이 폐기된다(재로그인).
+  - `resource_registry.db`: 2.0.4는 이 파일을 쓰지 않으므로 OPERATOR 호스트 자원 경계와 테넌트 VPC 주소 풀이 적용되지
+    않는다. 파일은 지우지 말고 보존한다 — 다시 올리면 그대로 열린다.
+  - `[metrics] auth`, 컨테이너 `rootless`, 볼륨 `readonly` 기본값은 2.0.4 기본으로 돌아간다.
+- dpkg는 새 패키지에 없는 conffile을 지우지 않으므로 2.0.4 deb로 내려도 `97-sandbox.conf`와
+  `purecvisor-lxc@.service`가 남는다. 2.0.4 데몬은 컨테이너를 직접 띄우므로 `97-sandbox.conf`가 남아 있으면 그 필터가
+  컨테이너에 상속된다. 두 파일을 지우고 `systemctl daemon-reload` 뒤 데몬을 재시작한다.
+
 ## 2.0.4 보안 수정 — 2026-11-08
 
 2.0.3의 시작 볼륨 읽기 전용 결함을 고친 보안 패치다. 새 기능은 없으며 데이터 형식과 설정 파일 형식, RPC·REST API는

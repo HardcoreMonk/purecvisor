@@ -23,6 +23,7 @@
    
 
 #include <glib.h>
+#include <string.h>
 #include "../src/utils/pcv_jwt.h"
 
                                                                 
@@ -335,7 +336,7 @@ static void test_jwt_scoped_sign_verify(gpointer *f, gconstpointer d)
 {
     (void)f; (void)d;
     GError *err = NULL;
-    gchar *tok = pcv_jwt_sign_scoped("alice", 180, "10.0.0.5", "totp", &err);
+    gchar *tok = pcv_jwt_sign_scoped("alice", 180, "10.0.0.5", "totp", NULL, &err);
     g_assert_no_error(err); g_assert_nonnull(tok);
 
                                                           
@@ -351,7 +352,7 @@ static void test_jwt_scoped_sign_verify(gpointer *f, gconstpointer d)
     g_free(sub); g_free(scope); g_free(tok);
 
                        
-    tok = pcv_jwt_sign_scoped("alice", 180, "10.0.0.5", "totp", &err);
+    tok = pcv_jwt_sign_scoped("alice", 180, "10.0.0.5", "totp", NULL, &err);
     sub = pcv_jwt_verify_scoped(tok, "10.9.9.9", &scope, &err);
     g_assert_null(sub); g_clear_error(&err); g_free(tok);
 
@@ -362,6 +363,43 @@ static void test_jwt_scoped_sign_verify(gpointer *f, gconstpointer d)
     g_assert_cmpstr(sub, ==, "bob");
     g_assert_null(scope);
     g_free(sub); g_free(tok);
+}
+
+static void test_jwt_identity_nonce_roundtrip(gpointer *f, gconstpointer d)
+{
+    (void)f; (void)d;
+    GError *err = NULL;
+    const gchar *idn = "0123456789abcdef0123456789abcdef";
+
+    gchar *tok = pcv_jwt_sign_scoped("alice", 900, NULL, NULL, idn, &err);
+    g_assert_no_error(err); g_assert_nonnull(tok);
+    gchar *sub = pcv_jwt_verify(tok, &err);
+    g_assert_no_error(err); g_assert_cmpstr(sub, ==, "alice"); g_free(sub);
+    gchar *got = pcv_jwt_identity_nonce(tok);
+    g_assert_cmpstr(got, ==, idn); g_free(got);
+    gchar *bearer = g_strconcat("Bearer ", tok, NULL);
+    got = pcv_jwt_identity_nonce(bearer);
+    g_assert_cmpstr(got, ==, idn); g_free(got); g_free(bearer);
+
+    gchar *pend = pcv_jwt_sign_scoped("alice", 180, "10.0.0.5", "totp", idn, &err);
+    g_assert_no_error(err);
+    got = pcv_jwt_identity_nonce(pend);
+    g_assert_cmpstr(got, ==, idn); g_free(got); g_free(pend);
+
+    gchar *bad = g_strdup(tok);
+    gsize len = strlen(bad);
+    bad[len - 2] = (bad[len - 2] == 'A') ? 'B' : 'A';
+    g_assert_null(pcv_jwt_identity_nonce(bad));
+    g_free(bad); g_free(tok);
+
+    tok = pcv_jwt_sign("bob", 900, &err);
+    g_assert_null(pcv_jwt_identity_nonce(tok)); g_free(tok);
+    tok = pcv_jwt_sign_scoped("bob", 900, NULL, NULL, "", &err);
+    g_assert_null(pcv_jwt_identity_nonce(tok)); g_free(tok);
+    tok = pcv_jwt_sign_scoped("bob", 900, NULL, NULL, NULL, &err);
+    g_assert_null(pcv_jwt_identity_nonce(tok)); g_free(tok);
+    g_assert_null(pcv_jwt_identity_nonce(NULL));
+    g_assert_null(pcv_jwt_identity_nonce("not-a-jwt"));
 }
 
                                                                  
@@ -384,6 +422,7 @@ test_jwt_register(void)
     ADD("update_secret",         test_jwt_update_secret);
     ADD("sign_with_ip",          test_jwt_sign_with_ip);
     ADD("scoped_sign_verify",    test_jwt_scoped_sign_verify);
+    ADD("identity_nonce_roundtrip", test_jwt_identity_nonce_roundtrip);
 
 #undef ADD
 }

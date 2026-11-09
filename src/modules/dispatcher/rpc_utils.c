@@ -110,23 +110,81 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
     return FALSE;                                  
 }
 
-
-
-
-
-
-
-
+   
+                                                                     
+                                                 
+                                     
+                                                                 
+                                                            
+   
 const gchar *
 pcv_rpc_params_get_string(JsonObject *params, const gchar *key)
 {
     if (!params || !key)
         return NULL;
-    JsonNode *node = json_object_get_member(params, key);
+    JsonNode *node = json_object_get_member(params, key);                   
     if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
         json_node_get_value_type(node) != G_TYPE_STRING)
-        return NULL;
+        return NULL;                                    
     return json_node_get_string(node);
+}
+
+                                                                                            
+                                                                  
+gboolean
+pcv_rpc_params_is_object_array(JsonObject *params, const gchar *key)
+{
+    if (!params || !key)
+        return FALSE;
+    JsonNode *node = json_object_get_member(params, key);                   
+    if (!node || !JSON_NODE_HOLDS_ARRAY(node))
+        return FALSE;
+    JsonArray *items = json_node_get_array(node);
+    for (guint i = 0; i < json_array_get_length(items); i++) {
+        if (!JSON_NODE_HOLDS_OBJECT(json_array_get_element(items, i)))
+            return FALSE;
+    }
+    return TRUE;
+}
+
+                                                                      
+                                                            
+gboolean
+pcv_rpc_params_get_bool(JsonObject *params, const gchar *key, gboolean default_value, gboolean *out)
+{
+    if (!out || !key)
+        return FALSE;
+    JsonNode *node = params ? json_object_get_member(params, key) : NULL;
+    if (!node) {
+        *out = default_value;
+        return TRUE;
+    }
+    if (!JSON_NODE_HOLDS_VALUE(node) || json_node_get_value_type(node) != G_TYPE_BOOLEAN)
+        return FALSE;                          
+    *out = json_node_get_boolean(node);
+    return TRUE;
+}
+
+gboolean
+pcv_rpc_params_get_uint_in_range(JsonObject *params, const gchar *key,
+                                 guint min_value, guint max_value,
+                                 guint default_value, guint *out)
+{
+    if (!key || !out)
+        return FALSE;
+    if (!params || !json_object_has_member(params, key)) {
+        *out = default_value;
+        return TRUE;
+    }
+    JsonNode *node = json_object_get_member(params, key);
+    if (!node || !JSON_NODE_HOLDS_VALUE(node) ||
+        json_node_get_value_type(node) != G_TYPE_INT64)
+        return FALSE;                                       
+    gint64 value = json_node_get_int(node);
+    if (value < (gint64)min_value || value > (gint64)max_value)
+        return FALSE;
+    *out = (guint)value;
+    return TRUE;
 }
 
    
@@ -319,5 +377,14 @@ gboolean pcv_rpc_parse_guarded(const gchar *data, gssize len,
     g_free(buf);
     if (parser) *parser = p;
     else        g_object_unref(p);
+    return TRUE;
+}
+
+                                                                                           
+gboolean pcv_source_remove_if_attached(guint source_id) {
+    if (source_id == 0) return FALSE;
+    GSource *src = g_main_context_find_source_by_id(NULL, source_id);
+    if (!src) return FALSE;
+    g_source_destroy(src);
     return TRUE;
 }

@@ -35,7 +35,7 @@ text = open(sys.argv[1], encoding="utf-8").read()
 code = "\n".join(l for l in text.splitlines() if not l.lstrip().startswith("#"))
 UNIT = {"": 1, "k": 1 << 10, "m": 1 << 20, "g": 1 << 30}
 LIMIT = 8 << 20
-
+                                                 
 depth, stack, server_level, locations = 0, [], [], []
 for tok in re.finditer(r"[^{};]*[{};]", code):
     t = tok.group(0)
@@ -60,6 +60,37 @@ for _, body in locations:
     lm = re.search(r"client_max_body_size\s+(\d+)([kKmMgG]?)", body)
     if lm and int(lm.group(1)) * UNIT[lm.group(2).lower()] > LIMIT:
         assert re.search(r"proxy_request_buffering\s+off", body), "large-body location buffers request"
+PY
+done
+
+
+for vhost in "$LAN_VHOST" "$ROOT_DIR/ops/nginx/purecvisor.example.com"; do
+  python3 - "$vhost" <<'PY' || fail "nginx proxy-auth include contract violated: $vhost"
+import re, sys
+text = open(sys.argv[1], encoding="utf-8").read()
+code = "\n".join(l.split("#", 1)[0] for l in text.splitlines())
+include = "include /etc/nginx/snippets/purecvisor-proxy-auth.conf;"
+stack, servers, location_psh = [], [], 0
+for tok in re.finditer(r"[^{};]*[{};]", code):
+    t = tok.group(0)
+    if t.endswith("{"):
+        stack.append(t[:-1].strip())
+        if stack[-1].startswith("server"):
+            servers.append({"include": False, "proxy": False})
+    elif t.endswith("}"):
+        stack.pop()
+    else:
+        s = " ".join(t.split())
+        in_location = any(x.startswith("location") for x in stack)
+        if servers and len(stack) >= 1 and stack[0].startswith("server"):
+            if s == include and not in_location:
+                servers[-1]["include"] = True
+            if s.startswith("proxy_pass "):
+                servers[-1]["proxy"] = True
+        if in_location and s.startswith("proxy_set_header"):
+            location_psh += 1
+assert all(sv["include"] for sv in servers if sv["proxy"]), f"proxy_pass server에 include 없음: {servers}"
+assert location_psh == 0, f"location 안 proxy_set_header {location_psh}개"
 PY
 done
 

@@ -28,6 +28,20 @@ typedef struct {
                                                   
 void pcv_rpc_completion_begin(const gchar *method);
 
+   
+                                                                             
+                                                               
+                                     
+   
+void pcv_rpc_completion_set_actor(const gchar *actor);
+
+   
+                                                                
+                                                         
+                                                       
+   
+const gchar *pcv_rpc_completion_actor(void);
+
                                                         
 void pcv_rpc_completion_observe_response(gboolean success, gint error_code);
 
@@ -50,6 +64,16 @@ PcvRpcCompletionResult pcv_rpc_completion_finish(void);
    
 gboolean pcv_rpc_completion_dispatch_succeeded(PcvRpcCompletionResult result,
                                                 gboolean response_may_arrive_later);
+
+   
+                                                                      
+  
+                                                                     
+                                                                        
+                                                                      
+                                                                
+   
+gboolean pcv_rpc_completion_should_audit(PcvRpcCompletionResult result, gboolean is_async);
 
 G_END_DECLS
 

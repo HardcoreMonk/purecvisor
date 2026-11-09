@@ -94,31 +94,9 @@ async function _waitJob(jobId) {
     var job = dataOrThrow(response);
     var status = job && job.status;
     if (status === 'completed') return job;
-    if (status === 'failed' || status === 'cancelled') {
 
-
-
-
-
-
-
-
-      var detail = status, candidates = [job.result, job.detail, status];
-      for (var i = 0; i < candidates.length; i++) {
-        var value = candidates[i];
-        if (value === undefined || value === null || value === '') continue;
-        try {
-          var parsed = typeof value === 'string' ? JSON.parse(value) : value;
-          if (parsed && typeof parsed === 'object') {
-            var message = parsed.error || parsed.message;
-            if (message) { detail = String(message); break; }
-            continue;
-          }
-          if (String(parsed).trim()) { detail = String(parsed); break; }
-        } catch (_) { detail = String(value); break; }
-      }
-      throw new Error(String(detail));
-    }
+    if (status === 'failed' || status === 'cancelled' || status === 'interrupted')
+      throw new Error(PCV.api.jobFailureReason(job));
     await new Promise(function (resolve) { setTimeout(resolve, 100); });
   }
   throw new Error(L('작업 완료 확인 시간이 초과됐습니다', 'Timed out waiting for job completion'));
@@ -526,7 +504,8 @@ function _render() {
       summaryCard('VPC', s.vpc_count || 0, L('tenant aggregate', 'tenant aggregates')),
       summaryCard('Subnet / VM', (s.subnet_count || 0) + ' / ' + (s.attachment_count || 0), L('subnet · attachment', 'subnets · attachments')),
       summaryCard('Service Publish', s.service_publish_count || 0, L('제한형 inbound', 'restricted inbound'))),
-    state.vpcs.length === 0 ? el('section', { class: 'hc empty-state vpc-empty' },
+
+    state.error && state.vpcs.length === 0 ? null : state.vpcs.length === 0 ? el('section', { class: 'hc empty-state vpc-empty' },
       el('div', { class: 'empty-icon', 'aria-hidden': 'true' }, '◎'),
       el('div', { class: 'empty-title' }, L('Local VPC가 없습니다', 'No Local VPC yet')),
       el('div', { class: 'empty-desc' }, L('tenant와 egress를 정해 첫 격리 네트워크를 생성하세요.', 'Choose a tenant and egress mode to create the first isolated network.')),

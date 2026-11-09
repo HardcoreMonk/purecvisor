@@ -18,10 +18,10 @@
                                         
   
                     
-                                                                              
-                                                                             
-                                                                             
-                                                                             
+                                                                                           
+                                                                                          
+                                                                                        
+                                                                                        
   
                 
                                                        
@@ -55,7 +55,7 @@
 #include "api/uds_server.h"
 
    
-                              
+                                                            
   
                                                  
   
@@ -68,7 +68,7 @@
 void handle_storage_pool_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
    
-                                          
+                                                                        
   
                                                 
   
@@ -114,7 +114,7 @@ void handle_storage_zvol_delete_request(JsonObject *params, const gchar *rpc_id,
                                
                                                   
   
-                                                                                                 
+                                                                                                                                               
    
 void handle_storage_pool_create_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
@@ -148,5 +148,12 @@ void handle_storage_pool_scrub_request(JsonObject *params, const gchar *rpc_id, 
                                                        
    
 void handle_iso_list(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
+
+                                                                                
+                           
+void handle_storage_pool_health(JsonObject *params, const gchar *rpc_id,
+                                         UdsServer *server, GSocketConnection *connection);
+void handle_storage_pool_forecast(JsonObject *params, const gchar *rpc_id,
+                                           UdsServer *server, GSocketConnection *connection);
 
 #endif                     

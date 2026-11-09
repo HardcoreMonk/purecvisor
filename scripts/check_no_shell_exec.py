@@ -1,27 +1,27 @@
 #!/usr/bin/env python3
+                          
+                                                                          
+                                                                                       
+                                                    
+                                                                             
+                                                         
+                                                       
+                                                                 
+                                          
+ 
+                      
+                                                       
+                                                      
+                                                
+                                                           
 
+   
+                                                                      
+                                                                    
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                                     
+                                                            
+   
 from __future__ import annotations
 
 import re
@@ -31,12 +31,12 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 DEFAULT_ROOTS = [ROOT / "src"]
 SOURCE_SUFFIXES = {".c", ".h"}
-
+                                                
 FORBIDDEN_CALL_RE = re.compile(r"(?<![\w.>])(system|popen)\s*\(")
 
 
 def strip_comments_and_literals(text: str) -> str:
-
+                                               
     out: list[str] = []
     i, n = 0, len(text)
     state = "code"
@@ -72,7 +72,7 @@ def strip_comments_and_literals(text: str) -> str:
             if ch == quote:
                 state = "code"
                 out.append(" ")
-            elif ch == "\n":
+            elif ch == "\n":                                   
                 state = "code"
                 out.append("\n")
             else:
@@ -85,7 +85,7 @@ def strip_comments_and_literals(text: str) -> str:
             else:
                 out.append(" ")
             i += 1
-        else:
+        else:                 
             if ch == "*" and nxt == "/":
                 state = "code"
                 out.append("  ")
@@ -97,7 +97,7 @@ def strip_comments_and_literals(text: str) -> str:
 
 
 def find_violations(text: str) -> list[tuple[int, str]]:
-
+                                   
     code = strip_comments_and_literals(text)
     hits = []
     for match in FORBIDDEN_CALL_RE.finditer(code):

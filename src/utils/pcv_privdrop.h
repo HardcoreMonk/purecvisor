@@ -76,6 +76,7 @@ typedef enum {
     PCV_CHILD_CAP_SIGNAL,                             
     PCV_CHILD_CAP_DHCP,                                           
     PCV_CHILD_CAP_RUNTIME,                                        
+    PCV_CHILD_CAP_TRACE,                                                      
     PCV_CHILD_CAP_N_PROFILES
 } PcvChildCapabilityProfile;
 

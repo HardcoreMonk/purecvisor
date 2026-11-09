@@ -4,6 +4,7 @@ ui/app.js ui/app.js replace
 ui/app.bundle.js ui/app.bundle.js replace
 ui/i18n.js ui/i18n.js replace
 ui/sw.js ui/sw.js replace
+ui/vnc-flow.mjs ui/vnc-flow.mjs replace
 ui/manifest.json ui/manifest.json replace
 ui/docs.html ui/docs.html replace
 ui/guide.html ui/guide.html replace

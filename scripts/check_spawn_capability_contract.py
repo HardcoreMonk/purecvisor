@@ -1,27 +1,28 @@
 #!/usr/bin/env python3
-                          
-                                                                     
-                                                      
-                                                                 
-                                                      
- 
-                      
-                                                  
-                                                  
-                                                 
-                                                   
-
-      
-
-                                                  
-                                               
-                                       
 
 
-                                                
-                                                         
-                                               
-   
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
+
 
 from __future__ import annotations
 
@@ -35,6 +36,9 @@ ROOT = Path(__file__).resolve().parent.parent
 CENTRAL_SPAWN = "src/utils/pcv_spawn.c"
 PRIVDROP_SOURCE = "src/utils/pcv_privdrop.c"
 SYSTEMD_UNIT = "packaging/deb/purecvisorsd.service"
+
+LXC_SYSTEMD_UNIT = "packaging/systemd/purecvisor-lxc@.service"
+SYSTEMD_UNITS = (SYSTEMD_UNIT, LXC_SYSTEMD_UNIT)
 MODULES_LOAD = "packaging/deb/purecvisor-lio.conf"
 VFIO_MODULES_LOAD = "packaging/deb/purecvisor-vfio.conf"
 
@@ -57,11 +61,14 @@ PROFILE_CONSTANTS = {
     "PCV_CHILD_CAP_SIGNAL",
     "PCV_CHILD_CAP_DHCP",
     "PCV_CHILD_CAP_RUNTIME",
+    "PCV_CHILD_CAP_TRACE",
 }
 FORBIDDEN_SPAWN_RE = re.compile(
     r"\b(?:g_subprocess_newv|g_subprocess_launcher_(?:new|spawnv)|"
     r"g_spawn_[A-Za-z0-9_]+)\s*\("
 )
+
+
 
 BOUND_DECL_RE = re.compile(
     r"\bPcvSpawnBound\s+(?:const\s+)?(?:\*\s*)?([A-Za-z_]\w*)\s*(\[[^\]]*\])?\s*(=\s*\{)?"
@@ -70,7 +77,7 @@ BOUND_LITERAL_RE = re.compile(r"\(\s*(?:const\s+)?PcvSpawnBound\s*\)\s*\{")
 
 
 def strip_c_comments_and_literals(text: str) -> str:
-                                               
+
     out: list[str] = []
     state = "code"
     i = 0
@@ -119,7 +126,7 @@ def strip_c_comments_and_literals(text: str) -> str:
             i += 1
             continue
 
-                                             
+
         out.append("\n" if ch == "\n" else " ")
         if ch == "\\" and i + 1 < len(text):
             next_ch = text[i + 1]
@@ -133,7 +140,7 @@ def strip_c_comments_and_literals(text: str) -> str:
 
 
 def split_top_level_args(argument_text: str) -> list[str]:
-                                               
+
     args: list[str] = []
     start = 0
     round_depth = square_depth = brace_depth = 0
@@ -158,7 +165,7 @@ def split_top_level_args(argument_text: str) -> list[str]:
 
 
 def find_calls(code: str, function_name: str) -> list[tuple[int, list[str]]]:
-                                              
+
     calls: list[tuple[int, list[str]]] = []
     pattern = re.compile(rf"\b{re.escape(function_name)}\s*\(")
     for match in pattern.finditer(code):
@@ -194,13 +201,17 @@ def balanced_brace_body(code: str, open_index: int) -> str:
         raise ValueError(f"PcvSpawnBound 초기화자의 닫는 중괄호가 없음(line {line})")
     return code[open_index + 1 : cursor - 1]
 
+
 def profile_violation(rel_path: str, profile: str | None) -> str | None:
 
     if profile is None:
         return "PcvSpawnBound 초기화자에 .profile이 없음(명시 profile 필요)"
     if profile not in PROFILE_CONSTANTS:
         return f"PcvSpawnBound profile은 고정 enum 상수여야 함: '{profile or '<empty>'}'"
+    if profile == "PCV_CHILD_CAP_TRACE" and rel_path != "src/modules/daemons/pcv_trace.c":
+        return "TRACE 프로필은 pcv_trace 수집 경계에만 허용됨"
     return None
+
 
 def bound_initializer_profile(body: str) -> str | None:
 
@@ -212,6 +223,7 @@ def bound_initializer_profile(body: str) -> str | None:
     if entries and not entries[0].startswith("."):
         return entries[0]
     return None
+
 
 def bound_profile_errors(rel_path: str, code: str) -> tuple[list[str], int]:
 
@@ -230,6 +242,7 @@ def bound_profile_errors(rel_path: str, code: str) -> tuple[list[str], int]:
         body = balanced_brace_body(code, open_index)
         bodies = [body]
         if is_array:
+
 
             bodies = []
             for element in split_top_level_args(body):
@@ -260,8 +273,9 @@ def bound_profile_errors(rel_path: str, code: str) -> tuple[list[str], int]:
                 errors.append(f"{rel_path}:{line}: {reason}")
     return errors, checked
 
+
 def source_errors(rel_path: str, text: str) -> tuple[list[str], int]:
-                                                   
+
     code = strip_c_comments_and_literals(text)
     errors: list[str] = []
     checked = 0
@@ -289,19 +303,37 @@ def source_errors(rel_path: str, text: str) -> tuple[list[str], int]:
                         f"{rel_path}:{line}: {name} profile은 고정 enum 상수여야 함: "
                         f"'{profile or '<empty>'}'"
                     )
+                elif profile == "PCV_CHILD_CAP_TRACE" and rel_path != "src/modules/daemons/pcv_trace.c":
+                    errors.append(f"{rel_path}:{line}: TRACE 프로필은 pcv_trace 수집 경계에만 허용됨")
         bound_errors, bound_checked = bound_profile_errors(rel_path, code)
         errors.extend(bound_errors)
         checked += bound_checked
     return errors, checked
 
 
+def bounding_unit_errors(rel_path: str, unit: str) -> list[str]:
+
+    bounding_lines = [
+        line.strip().split("=", 1)[1].split()
+        for line in unit.splitlines()
+        if line.strip().startswith("CapabilityBoundingSet=")
+    ]
+    if len(bounding_lines) != 1 or not bounding_lines[0] or not bounding_lines[0][0].startswith("~"):
+        return [f"{rel_path}: negative CapabilityBoundingSet 한 줄이 필요함"]
+    tokens = bounding_lines[0]
+    unit_drops = {tokens[0][1:], *tokens[1:]}
+    if unit_drops != DROPPED_CAPS:
+        return [f"{rel_path}: bounding 제외={sorted(unit_drops)}, 기대={sorted(DROPPED_CAPS)}"]
+    return []
+
+
 def configuration_errors(root: Path) -> tuple[list[str], int]:
-                                                                     
+
     errors: list[str] = []
-    checked = 4
+    checked = 3 + len(SYSTEMD_UNITS)
     try:
         privdrop = (root / PRIVDROP_SOURCE).read_text(encoding="utf-8")
-        unit = (root / SYSTEMD_UNIT).read_text(encoding="utf-8")
+        units = {rel: (root / rel).read_text(encoding="utf-8") for rel in SYSTEMD_UNITS}
         modules_text = (root / MODULES_LOAD).read_text(encoding="utf-8")
         vfio_modules_text = (root / VFIO_MODULES_LOAD).read_text(encoding="utf-8")
     except OSError as exc:
@@ -322,21 +354,8 @@ def configuration_errors(root: Path) -> tuple[list[str], int]:
                 f"기대={sorted(DROPPED_CAPS)}"
             )
 
-    bounding_lines = [
-        line.strip().split("=", 1)[1].split()
-        for line in unit.splitlines()
-        if line.strip().startswith("CapabilityBoundingSet=")
-    ]
-    if len(bounding_lines) != 1 or not bounding_lines[0] or not bounding_lines[0][0].startswith("~"):
-        errors.append(f"{SYSTEMD_UNIT}: negative CapabilityBoundingSet 한 줄이 필요함")
-    else:
-        tokens = bounding_lines[0]
-        unit_drops = {tokens[0][1:], *tokens[1:]}
-        if unit_drops != DROPPED_CAPS:
-            errors.append(
-                f"{SYSTEMD_UNIT}: bounding 제외={sorted(unit_drops)}, "
-                f"기대={sorted(DROPPED_CAPS)}"
-            )
+    for rel, unit in units.items():
+        errors.extend(bounding_unit_errors(rel, unit))
 
     modules = [
         line.strip()
@@ -361,7 +380,7 @@ def configuration_errors(root: Path) -> tuple[list[str], int]:
 
 
 def check_tree(root: Path) -> tuple[list[str], int]:
-                                                     
+
     errors: list[str] = []
     checked = 0
     for path in sorted((root / "src").rglob("*.c")):
@@ -381,7 +400,7 @@ def check_tree(root: Path) -> tuple[list[str], int]:
 
 
 def self_test() -> int:
-                                                
+
     safe = """
 /* g_subprocess_newv(argv, error); */
 const char *example = "g_spawn_sync(";
@@ -410,6 +429,16 @@ pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_STORAGE, NULL, NULL, error);
         print(f"self-test multiline fixture 실패: errors={errors}, checked={checked}", file=sys.stderr)
         return 1
 
+    trace = "pcv_spawn_newv_profile(argv, flags, PCV_CHILD_CAP_TRACE, error);"
+    errors, checked = source_errors("src/modules/daemons/pcv_trace.c", trace)
+    if errors or checked != 1:
+        print("self-test Trace 수집 고정 프로필을 거부함", file=sys.stderr)
+        return 1
+    errors, _ = source_errors("src/modules/example.c", trace)
+    if not any("수집 경계" in error for error in errors):
+        print("self-test Trace 프로필의 무관 caller 확산을 놓침", file=sys.stderr)
+        return 1
+
     bound_ok = (
         "PcvSpawnBound b = { .profile = PCV_CHILD_CAP_RUNTIME, .timeout_sec = 5 };\n"
         "pcv_spawn_sync_bounded(argv, &(PcvSpawnBound){ .timeout_sec = 3,\n"
@@ -434,12 +463,25 @@ pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_STORAGE, NULL, NULL, error);
         if not errors:
             print(f"self-test PcvSpawnBound {label} 반사실을 놓침", file=sys.stderr)
             return 1
-    print("[check-spawn-capabilities:self-test] PASS (10/10)")
+
+    good = "[Service]\nCapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_MAC_OVERRIDE\n"
+    if bounding_unit_errors(LXC_SYSTEMD_UNIT, good):
+        print("self-test 컨테이너 유닛 정상 bounding을 거부함", file=sys.stderr)
+        return 1
+    for label, fixture in (
+        ("CAP_SYS_TIME 누락", good.replace(" CAP_SYS_TIME", "")),
+        ("양의 bounding", good.replace("=~", "=")),
+        ("bounding 줄 없음", "[Service]\n"),
+    ):
+        if not bounding_unit_errors(LXC_SYSTEMD_UNIT, fixture):
+            print(f"self-test 컨테이너 유닛 {label} 반사실을 놓침", file=sys.stderr)
+            return 1
+    print("[check-spawn-capabilities:self-test] PASS (13/13)")
     return 0
 
 
 def main() -> int:
-                                                               
+
     parser = argparse.ArgumentParser()
     parser.add_argument("--self-test", action="store_true")
     args = parser.parse_args()

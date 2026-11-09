@@ -35,6 +35,8 @@ window.ctrHist = window.ctrHist || [];
 
 const CTR_EXEC_TIMEOUT_MS = 70000;
 
+const CTR_ROLLBACK_TIMEOUT_MS = 80000;
+
                                   
 async function renderContainers(b) {
   const el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl;
@@ -74,7 +76,9 @@ async function renderContainers(b) {
       },
         el('div', { class: 'flex items-center gap-6' },
           HN.statusDot(on ? 'ok' : 'idle', { glow: on }),
-          el('span', { style: 'font-size:13px;font-weight:' + (s ? '600' : '400') }, v.name)),
+          el('span', { style: 'font-size:13px;font-weight:' + (s ? '600' : '400') }, v.name),
+
+          v.privileged === true ? HN.statusPill('warn', _L('특권', 'privileged')) : null),
         el('div', { class: 'stat-label', style: 'margin-left:15px' }, v.state + (on ? ' • ' + (v.ip_addr || '') : '')));
     });
     const sidebar = el('div', { style: 'min-width:220px;max-width:220px;border-right:1px solid var(--border);overflow-y:auto;padding:8px' },
@@ -136,6 +140,26 @@ async function renderContainers(b) {
 
                                      
 
+function ctrIsolationLabel(cv) {
+  if (cv.privileged === true) return 'LXC (privileged)';
+  if (cv.privileged === false) return 'LXC (unprivileged)';
+  return 'LXC';
+}
+
+function ctrUnknownLabel() { return _L('알 수 없음', 'Unknown'); }
+
+async function ctrBridgeLabel(name) {
+  try {
+    const r = await fetchGet(EP.CTR_NICS(name));
+    if (r && r.error) return ctrUnknownLabel();
+    const bridges = unwrapList(r).map(nc => nc && nc.bridge).filter(Boolean);
+    return bridges.length ? [...new Set(bridges)].join(', ') : ctrUnknownLabel();
+  } catch (e) {
+    if (_DEBUG) console.warn('ctrBridgeLabel:', e.message);
+    return ctrUnknownLabel();
+  }
+}
+
 async function ctrRenderTab(tb, cv) {
   const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
                                                                          
@@ -159,6 +183,7 @@ async function ctrRenderTab(tb, cv) {
       for (const [k, c] of cmds) { try { const r = await fetchPost(EP.CTR_EXEC(n), { command: c }); if (r && r.error) { info[k] = _L('조회 실패', 'Fetch failed'); continue; } info[k] = unwrapData(r).output?.trim() || ''; } catch (e) { info[k] = _L('조회 실패', 'Fetch failed'); if(_DEBUG) console.warn('ctrRenderTab:', e.message); } } }
     const cpu = m.cpu_percent || 0, mem_u = m.mem_used_mb || 0, mem_l = m.mem_limit_mb || 0, mem_p = mem_l > 0 ? mem_u / mem_l * 100 : 0;
     const nrx = m.net_rx_mb || 0, ntx = m.net_tx_mb || 0;
+    const bridgeLabel = await ctrBridgeLabel(n);
     clearEl(tb);
     tb.appendChild(frag(
       HN.grid(4,
@@ -188,9 +213,9 @@ async function ctrRenderTab(tb, cv) {
           HN.row('Image', cv.image || '-')
         ]),
         HN.card('Configuration', [
-          HN.row('Bridge', 'pcvbr0'),
-          HN.row('AppArmor', 'unconfined'),
-          HN.row('Type', 'LXC (unprivileged: no)'),
+          HN.row('Bridge', bridgeLabel),
+          HN.row('AppArmor', ctrUnknownLabel()),
+          HN.row('Type', ctrIsolationLabel(cv)),
           HN.row('Node', location.hostname)
         ]))
     ));
@@ -224,13 +249,13 @@ async function ctrRenderTab(tb, cv) {
       el('h3', { class: 'section-title-md mt-14' }, 'Resource Limits (cgroup v2)'),
       el('div', { class: 'sg grid-2' },
         HN.card('Set CPU Limit', [
-          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-shares' }, 'CPU Shares'), el('input', { id: 'ctr-cpu-shares', type: 'number', value: '1024' })),
-          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-quota' }, 'CPU Quota (µs)'), el('input', { id: 'ctr-cpu-quota', type: 'number', value: '100000' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-percent' }, _L('CPU 상한 (%)', 'CPU limit (%)')), el('input', { id: 'ctr-cpu-percent', type: 'number', min: '1', placeholder: '50' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-cpu-weight' }, 'CPU Weight (1-10000)'), el('input', { id: 'ctr-cpu-weight', type: 'number', min: '1', max: '10000', placeholder: '100' })),
+          el('p', { class: 'stat-label' }, _L('100%는 코어 하나입니다. 빈 칸은 바꾸지 않습니다.', '100% is one core. A blank field is left unchanged.')),
           el('button', { class: 'btn btn-g mt-8', onclick: "ctrSetLimits('" + n + "','cpu')", 'data-role': 'ADMIN' }, 'Apply CPU Limit')
         ]),
         HN.card('Set Memory Limit', [
-          el('div', { class: 'fr' }, el('label', { for: 'ctr-mem-limit' }, 'Memory Limit (MB)'), el('input', { id: 'ctr-mem-limit', type: 'number', value: '512' })),
-          el('div', { class: 'fr' }, el('label', { for: 'ctr-swap-limit' }, 'Swap Limit (MB)'), el('input', { id: 'ctr-swap-limit', type: 'number', value: '0' })),
+          el('div', { class: 'fr' }, el('label', { for: 'ctr-mem-limit' }, 'Memory Limit (MB)'), el('input', { id: 'ctr-mem-limit', type: 'number', min: '1', placeholder: '512' })),
           el('button', { class: 'btn btn-g mt-8', onclick: "ctrSetLimits('" + n + "','mem')", 'data-role': 'ADMIN' }, 'Apply Memory Limit')
         ]))
     ));
@@ -280,8 +305,7 @@ async function ctrRenderTab(tb, cv) {
       const nicEl = document.getElementById('ctr-nic-list');
       if (nicEl) { clearEl(nicEl); nicEl.appendChild(HN.card('Interface eth0', [
         HN.row('IP Address', el('span', { class: 'color-accent' }, cv.ip_addr || '-')),
-        HN.row('Bridge', 'pcvbr0'),
-        HN.row('Type', 'veth')])); }
+        HN.row('Bridge', ctrUnknownLabel())])); }
     }
                            
     if (on) {
@@ -318,9 +342,9 @@ async function ctrRenderTab(tb, cv) {
     tb.appendChild(frag(
       el('h3', { class: 'section-title-md' }, 'Options'),
       el('div', { class: 'sg' },
-        HN.card('General', [HN.row('Start on boot', 'No'), HN.row('Start order', '---'), HN.row('Protection', 'No'), HN.row('Unprivileged', 'No')]),
-        HN.card('Security', [HN.row('AppArmor', 'unconfined'), HN.row('Keyctl', 'No'), HN.row('Nesting', 'No'), HN.row('FUSE', 'No')]),
-        HN.card('Signals', [HN.row('Halt', 'SIGRTMIN+3'), HN.row('Reboot', 'SIGTERM')]))
+
+        HN.card('General', [HN.row('Unprivileged', cv.privileged === true ? 'No' : cv.privileged === false ? 'Yes' : ctrUnknownLabel())]),
+        HN.card('Security', [HN.row('AppArmor', ctrUnknownLabel())]))
     ));
   } else if (ctrTab === 'snapshots') {
     clearEl(tb);
@@ -523,7 +547,7 @@ async function ctrSnapCreate(n) { var _navGen = PCV.ui.navGen(); var s = await s
                                                           
                                                
                                         
-async function ctrSnapRb(n, s) { var _navGen = PCV.ui.navGen(); if (!await customConfirm('Rollback', n + ' → ' + s + '?')) return;
+async function ctrSnapRb(n, s) { var _navGen = PCV.ui.navGen(); if (!await customConfirm('Rollback', n + ' → ' + s + '? ' + _L('실행 중이면 멈췄다가 다시 켭니다', 'If it is running, it is stopped and started again'))) return;
   var el = PCV.uxlib.el;
   showModal([
     el('h2', null, '⏪ Rollback'),
@@ -534,7 +558,7 @@ async function ctrSnapRb(n, s) { var _navGen = PCV.ui.navGen(); if (!await custo
   var pf = document.getElementById('crb-p'), ps = document.getElementById('crb-s');
   try {
     if (pf) pf.style.width = '60%';
-    var r = await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s });
+    var r = await fetchPost(EP.CTR_SNAP_ROLLBACK(n), { snap_name: s }, CTR_ROLLBACK_TIMEOUT_MS);
     if (r && r.error) { if (pf) { pf.style.width = '100%'; pf.style.background = 'var(--red)'; } if (ps) PCV.uxlib.setMsg(ps, null, null, '❌ ' + (r.error.message || t('error'))); toast(r.error.message || t('error'), false); return; }
     if (pf) pf.style.width = '100%'; if (ps) PCV.uxlib.setMsg(ps, null, null, '✅ ' + t('snap.reverted'));
     toast(t('snap.reverted')); addEvt('LXC Snapshot rollback — ' + n + '@' + s);
@@ -676,20 +700,6 @@ function showCtrCreate() {
             el('select', { id: 'cc-br', style: selStyle },
               el('option', { value: 'pcvbr0' }, 'pcvbr0 (default)')),
             el('button', { class: 'btn text-xs', onclick: 'ctrLoadBridges()' }, '🔄'))),
-        el('div', { class: 'fr' },
-          el('label', { for: 'cc-ipmode', class: 'min-w-70' }, 'IP Mode'),
-          el('select', { id: 'cc-ipmode', onchange: 'ctrIpModeChanged()', style: selStyle },
-            el('option', { value: 'dhcp' }, 'DHCP (auto)'),
-            el('option', { value: 'static' }, 'Static IP'))),
-        el('div', { class: 'fr hidden', id: 'cc-static-row' },
-          el('label', { for: 'cc-ip', class: 'min-w-70' }, 'Static IP'),
-          el('input', { id: 'cc-ip', placeholder: '10.0.3.100/24', class: 'flex-1' })),
-        el('div', { class: 'fr hidden', id: 'cc-gw-row' },
-          el('label', { for: 'cc-gw', class: 'min-w-70' }, 'Gateway'),
-          el('input', { id: 'cc-gw', placeholder: '10.0.3.1', class: 'flex-1' })),
-        el('div', { class: 'fr' },
-          el('label', { for: 'cc-dns', class: 'min-w-70' }, 'DNS'),
-          el('input', { id: 'cc-dns', placeholder: '8.8.8.8 (optional)', class: 'flex-1' })),
         el('h4', { style: 'margin:12px 0 8px' }, '⚙ Resources'),
         el('div', { class: 'fr' },
           el('label', { for: 'cc-vcpu', class: 'min-w-70' }, 'vCPU'),
@@ -716,12 +726,6 @@ function ctrDistChanged() {
   rel.value = defaults[dist] || '';
 }
 
-function ctrIpModeChanged() {
-  const mode = document.getElementById('cc-ipmode')?.value;
-  document.getElementById('cc-static-row')?.classList.toggle('hidden', mode !== 'static');
-  document.getElementById('cc-gw-row')?.classList.toggle('hidden', mode !== 'static');
-}
-
 async function ctrLoadBridges() {
   const el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const sel = document.getElementById('cc-br'); if (!sel) return;
@@ -744,10 +748,6 @@ async function doCtrCreate() {
   const br = document.getElementById('cc-br')?.value;
   const vcpu = parseInt(document.getElementById('cc-vcpu')?.value) || 1;
   const mem = parseInt(document.getElementById('cc-mem')?.value) || 512;
-  const ipmode = document.getElementById('cc-ipmode')?.value;
-  const ip = document.getElementById('cc-ip')?.value;
-  const gw = document.getElementById('cc-gw')?.value;
-  const dns = document.getElementById('cc-dns')?.value;
   if (!n) { toast(t('msg.name_required'), false); return; }
 
                             
@@ -756,8 +756,6 @@ async function doCtrCreate() {
   toast('&#9783; ' + escapeHtml(n) + ' ' + _L('생성 시작...', 'Creating...'), 's');
 
   const body = { name: n, image: dist + ':' + rel, bridge: br || 'pcvbr0', vcpu_count: vcpu, memory_mb: mem };
-  if (ipmode === 'static' && ip) { body.static_ip = ip; if (gw) body.gateway = gw; }
-  if (dns) body.dns = dns;
 
   try {
     var _navGen = PCV.ui.navGen();
@@ -797,18 +795,34 @@ async function doCtrCreate() {
 
                                   
 async function ctrSetLimits(name, type) {
-  const body = { name };
-  if (type === 'cpu') {
-    body.cpu_shares = parseInt(document.getElementById('ctr-cpu-shares')?.value) || 1024;
-    body.cpu_quota = parseInt(document.getElementById('ctr-cpu-quota')?.value) || 100000;
-  } else {
-    body.memory_limit_mb = parseInt(document.getElementById('ctr-mem-limit')?.value) || 512;
-    body.swap_limit_mb = parseInt(document.getElementById('ctr-swap-limit')?.value) || 0;
+
+  const read = (id, max) => {
+    const raw = (document.getElementById(id)?.value || '').trim();
+    if (!raw) return null;
+    const value = /^\d+$/.test(raw) ? Number(raw) : 0;
+    return value >= 1 && value <= max ? value : NaN;
+  };
+  const isCpu = type === 'cpu';
+  const cpuPercent = isCpu ? read('ctr-cpu-percent', 2147483647) : null;
+  const cpuWeight = isCpu ? read('ctr-cpu-weight', 10000) : null;
+  const memoryMb = isCpu ? null : read('ctr-mem-limit', 2147483647);
+  const values = [cpuPercent, cpuWeight, memoryMb];
+  if (values.some(Number.isNaN) || values.every(value => value === null)) {
+    toast(_L('제한 값을 범위 안의 양의 정수로 넣으세요', 'Enter a positive whole number within range'), false);
+    return;
   }
+
+  const body = { name: name };
+  if (cpuPercent !== null) body.cpu_percent = cpuPercent;
+  if (cpuWeight !== null) body.cpu_weight = cpuWeight;
+  if (memoryMb !== null) body.memory_mb = memoryMb;
   try {
     const r = await fetchPut(EP.CTR_LIMITS(name), body);
     if (r.error) { toast('Set limits failed: ' + (r.error.message || ''), false); return; }
-    toast('Resource limits applied: ' + name); addEvt('CTR limits: ' + name);
+
+    const applied = unwrapData(r)?.applied;
+    toast(applied === 'config' ? _L('제한 저장됨, 다음 시작 때 적용: ', 'Limits saved, applied on next start: ') + name : 'Resource limits applied: ' + name);
+    addEvt('CTR limits: ' + name);
   } catch (e) { toast(e.message, false); }
 }
 
@@ -891,7 +905,6 @@ window.ctrDel = ctrDel;
 window.doCtrDel = doCtrDel;
 window.showCtrCreate = showCtrCreate;
 window.ctrDistChanged = ctrDistChanged;
-window.ctrIpModeChanged = ctrIpModeChanged;
 window.ctrLoadBridges = ctrLoadBridges;
 window.doCtrCreate = doCtrCreate;
 window.ctrSetLimits = ctrSetLimits;
@@ -928,7 +941,10 @@ async function showCtrClone(name) {
       try {
         const r = await fetchPost(EP.CTR_CLONE(name), { source: name, dest: dst });
         if (r && r.error) { toast(r.error.message || _L('실패', 'Failed'), false); return; }
-        toast(_L('클론 요청 완료', 'Clone requested'));
+
+        var volEntries = (unwrapData(r) || {}).volume_entries;
+        if (volEntries > 0) toast(_L('클론 요청 완료 — 호스트 볼륨 줄 ' + volEntries + '개도 복제됩니다', 'Clone requested — ' + volEntries + ' host volume entries are copied too'));
+        else toast(_L('클론 요청 완료', 'Clone requested'));
         addEvt('LXC Clone requested — ' + name + ' → ' + dst);
         closeModal();
       } catch (e) { toast(_L('실패', 'Failed'), false); }
@@ -943,6 +959,8 @@ async function showCtrClone(name) {
 async function showCtrMemoryStats(name) {
   try {
     var r = await fetchGet(EP.CTR_MEMORY_STATS(name));
+
+    if (r && r.error) { toast(r.error.message || _L('로드 실패', 'Failed'), false); return; }
     var d = unwrapData(r) || {};
     var el = PCV.uxlib.el;
     var fields = ['anon', 'file', 'slab', 'sock', 'shmem', 'pgfault', 'pgmajfault'];
@@ -1005,7 +1023,6 @@ PCV.container = {
   doCtrDel: doCtrDel,
   showCtrCreate: showCtrCreate,
   ctrDistChanged: ctrDistChanged,
-  ctrIpModeChanged: ctrIpModeChanged,
   ctrLoadBridges: ctrLoadBridges,
   doCtrCreate: doCtrCreate,
   ctrSetLimits: ctrSetLimits,

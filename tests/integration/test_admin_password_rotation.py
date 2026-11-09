@@ -189,7 +189,7 @@ def run_inside(daemon, host_net):
 
         sql('DELETE FROM users WHERE username="admin"')
         status, pair = login(NEW)
-        check(status == 200 and pair.get('access_token'), 'SEC-2 absent-user bootstrap recovery preserved')
+        check(status == 401 and not pair.get('access_token'), 'SEC-2 absent-user bootstrap token is not issued (P4)')
         sql('ALTER TABLE users RENAME TO fixture_users_unavailable')
         check(login(NEW)[0] == 401, 'SEC-2 unknown DB state denies bootstrap fallback')
     except Exception:

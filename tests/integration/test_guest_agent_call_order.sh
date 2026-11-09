@@ -1,11 +1,11 @@
 #!/usr/bin/env bash
-                                                                         
+                                                                     
                                                                                 
                                                                          
 set -euo pipefail
 
 ROOT="$(cd "$(dirname "$0")/../.." && pwd)"
-FILE="$ROOT/src/modules/dispatcher/handler_vm_lifecycle.c"
+FILE="$ROOT/src/modules/dispatcher/handler_vm_guest.c"
 
 require_in_file() {
   local pattern="$1"

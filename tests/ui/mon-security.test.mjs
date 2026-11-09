@@ -9,6 +9,7 @@ import { withPage } from './harness.mjs';
 const MODS = [
   'ui/modules/ui.js',
   'ui/modules/uxlib.js',
+  'ui/modules/modal-core.js',
   'ui/modules/endpoints.js',
   'ui/modules/filter-state.js',
   'ui/modules/security.js'
@@ -24,7 +25,9 @@ const EVENTS = [
     confidence: 60, occurrence_count: 1, evidence_json: '{}' },
   { event_id: 'ev-3', timestamp: 1753600200, severity: 'info', source: 'suricata', status: 'resolved',
     target: 'sshd', target_kind: 'service', summary: 'benign probe', recommended_action: '',
-    confidence: 10, occurrence_count: 1, evidence_json: '{}' },
+    confidence: 10, occurrence_count: 1, evidence_json: '{}',
+
+    closed_reason: 'operator', closed_by: 'alice', closed_at: 1753600500, close_note: 'checked <b>benign</b> probe' },
   { event_id: 'ev-4', timestamp: 1753600300, severity: 'warn', source: 'runtime', status: 'suppressed',
     target: 'gti12', target_kind: 'host', summary: 'rate spike', recommended_action: '',
     confidence: 40, occurrence_count: 2, evidence_json: '{}' }
@@ -84,7 +87,11 @@ async function boot(page, opts) {
     window.t = key => key;
                                                                          
                                                                  
-    window.pcvRoleAllows = role => o && o.role === 'viewer' ? false : true;
+    const RANK = { viewer: 0, operator: 1, admin: 2 };
+    const mine = RANK[(o && o.role) || 'admin'];
+    window.pcvRoleAllows = need => mine >= (need in RANK ? RANK[need] : 2);
+    window.__toasts = [];
+    window.toast = (m, ok) => { window.__toasts.push([String(m), ok !== false]); };
     window.__confirmCalls = [];
     window.customConfirm = (...args) => {
       window.__confirmCalls.push(args);
@@ -349,5 +356,122 @@ test('orphan non-canonical URL value vanishes from DOM on click (DOM-toggle scre
     assert.doesNotMatch(await page.evaluate(() => location.search), /secsev/);
     assert.equal(await page.$$eval('#cb .sec-event-row', rows =>
       rows.filter(r => r.style.display !== 'none').length), 4);
+  }, { routes: ROUTES });
+});
+
+function closeRoutes(closed) {
+  return {
+    ...ROUTES,
+    '/api/v1/rpc': record => {
+      const m = record.json && record.json.method;
+      if (m !== 'security.event.close') return ROUTES['/api/v1/rpc'](record);
+      const p = record.json.params || {};
+      closed.push(p);
+      const ev = EVENTS.find(e => e.event_id === p.event_id) || {};
+      const result = { ...ev, status: 'resolved', closed_reason: 'operator', closed_by: 'admin',
+        closed_at: 1753600900, close_note: p.reason };
+      return { status: 200, body: { jsonrpc: '2.0', id: record.json.id, result } };
+    }
+  };
+}
+
+async function openDetail(page, id) {
+  await page.evaluate(i => PCV.security.selectEvent(i), id);
+  await page.waitForFunction(i => {
+    const d = document.getElementById('security-detail');
+    return d && d.textContent.includes('Selected Event') && d.textContent.includes(i);
+  }, {}, id);
+}
+
+async function openCloseModal(page, id) {
+  await page.click('#security-detail [data-sec-close="' + id + '"]');
+  await page.waitForSelector('dialog[open] input.input');
+  await new Promise(r => setTimeout(r, 120));
+}
+
+async function until(fn, label) {
+  for (let i = 0; i < 100; i++) {
+    if (await fn()) return;
+    await new Promise(r => setTimeout(r, 30));
+  }
+  assert.fail('timeout: ' + label);
+}
+
+const rpcMethods = requests => requests.filter(r => r.path === '/api/v1/rpc').map(r => r.json && r.json.method);
+
+test('ADMIN closes an open event: reason modal → security.event.close {event_id, reason} → toast → re-render', async () => {
+  const closed = [];
+  await withPage(MODS, async (page, { requests }) => {
+    await boot(page);
+    await openDetail(page, 'ev-1');
+    assert.ok(await page.$('#security-detail [data-sec-close="ev-1"]'), 'close button on open event for ADMIN');
+    const listBefore = rpcMethods(requests).filter(m => m === 'security.event.list').length;
+    await openCloseModal(page, 'ev-1');
+    assert.match(await page.$eval('dialog[open] h2', e => e.textContent), /Close security event — ev-1/);
+    await page.type('dialog[open] input.input', '  false positive  ');
+    await page.click('dialog[open] .btn-g');
+    await until(() => closed.length === 1, 'security.event.close request');
+    assert.deepEqual(closed[0], { event_id: 'ev-1', reason: 'false positive' });
+    await until(() => page.evaluate(() => window.__toasts.some(t => t[0] === 'Security event closed' && t[1])), 'success toast');
+    await until(() => rpcMethods(requests).filter(m => m === 'security.event.list').length === listBefore + 1, 're-render');
+    assert.equal(await page.$('dialog[open]'), null, 'modal closed after OK');
+  }, { routes: closeRoutes(closed) });
+});
+
+test('cancel / Escape / empty reason never call security.event.close', async () => {
+  const closed = [];
+  await withPage(MODS, async (page, { requests }) => {
+    await boot(page);
+    await openDetail(page, 'ev-1');
+    await openCloseModal(page, 'ev-1');
+    await page.click('dialog[open] .btn-r');
+    await until(async () => (await page.$('dialog[open]')) === null, 'modal closed by cancel');
+    await openCloseModal(page, 'ev-1');
+    await page.focus('dialog[open] input.input');
+    await page.keyboard.press('Escape');
+    await until(async () => (await page.$('dialog[open]')) === null, 'modal closed by Escape');
+    await openCloseModal(page, 'ev-1');
+    await page.click('dialog[open] .btn-g');
+    await until(() => page.evaluate(() => window.__toasts.some(t => /Enter a reason/.test(t[0]) && !t[1])), 'empty-reason toast');
+    await new Promise(r => setTimeout(r, 150));
+    assert.equal(closed.length, 0);
+    assert.equal(rpcMethods(requests).filter(m => m === 'security.event.close').length, 0);
+  }, { routes: closeRoutes(closed) });
+});
+
+test('close button follows the panel role convention: OPERATOR sees dismiss only, VIEWER neither', async () => {
+  for (const role of ['operator', 'viewer']) {
+    await withPage(MODS, async page => {
+      await boot(page, { role });
+      await openDetail(page, 'ev-1');
+      assert.equal(await page.$('#security-detail [data-sec-close]'), null, role + ': close hidden');
+      const dismiss = await page.$('#security-detail [data-sec-dismiss="ev-1"]');
+      assert.equal(Boolean(dismiss), role === 'operator', role + ': dismiss visibility');
+    }, { routes: ROUTES });
+  }
+});
+
+test('closed and pending events show no close button; closed record renders as text', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    const rows = () => page.$$eval('#security-detail .hr', els =>
+      Object.fromEntries(els.map(r => [r.querySelector('.k').textContent, r.querySelector('.v').textContent])));
+    await openDetail(page, 'ev-3');
+    assert.equal(await page.$('#security-detail [data-sec-close]'), null);
+    let kv = await rows();
+    assert.equal(kv['Closed Reason'], 'operator');
+    assert.equal(kv['Closed By'], 'alice');
+    assert.equal(kv['Closed At'], await page.evaluate(() => new Date(1753600500 * 1000).toLocaleString()));
+    assert.equal(kv['Close Note'], 'checked <b>benign</b> probe');
+    assert.equal(await page.$('#security-detail .v b'), null, 'close_note is text, not markup');
+    await openDetail(page, 'ev-4');
+    kv = await rows();
+    assert.deepEqual([kv['Closed Reason'], kv['Closed By'], kv['Closed At'], kv['Close Note']], ['-', '-', '-', '-']);
+    assert.equal(await page.$('#security-detail [data-sec-close]'), null);
+    await openDetail(page, 'ev-2');
+    assert.equal(await page.$('#security-detail [data-sec-close]'), null);
+    assert.equal('Closed Reason' in (await rows()), false);
+    await openDetail(page, 'ev-1');
+    assert.equal('Closed Reason' in (await rows()), false);
   }, { routes: ROUTES });
 });

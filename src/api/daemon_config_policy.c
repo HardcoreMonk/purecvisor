@@ -24,6 +24,23 @@
 #include "utils/pcv_config.h"
 #include "utils/pcv_secure.h"
 
+                                                         
+                                                                  
+JsonObject *
+pcv_alert_config_patch_from_rpc(JsonObject *params)
+{
+    JsonObject *patch = json_object_new();
+    GList *members = params ? json_object_get_members(params) : NULL;
+    for (GList *it = members; it; it = it->next) {
+        const gchar *key = it->data;
+        if (g_strcmp0(key, "expected_revision") == 0 || g_str_has_prefix(key, "_pcv_"))
+            continue;                                                                    
+        json_object_set_member(patch, key, json_node_copy(json_object_get_member(params, key)));
+    }
+    g_list_free(members);
+    return patch;
+}
+
 static GMutex g_daemon_config_set_mu;
 
                                                         

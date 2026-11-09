@@ -110,6 +110,34 @@ pcv_live_assert_dhcp_alive() {
     sudo -n test "$(sudo -n cat "/proc/${pcv_live_dns_pid}/comm")" = "dnsmasq"
 }
 
+                                                                
+                                                                            
+pcv_live_in_set() {                           
+    local pcv_live_set_out
+    pcv_live_set_out=$(sudo -n nft list set inet purecvisor "$1") || return 1
+    grep -Fq "\"${pcv_live_br}\"" <<<"${pcv_live_set_out}"
+}
+                                                                      
+pcv_live_not_in_set() {                              
+    ! pcv_live_in_set "$1"
+}
+pcv_live_no_masquerade() {                                   
+    local pcv_live_table pcv_live_rules
+    pcv_live_table=$(sudo -n nft -a list table inet purecvisor) || return 1
+    pcv_live_rules=$(grep -F "\"${pcv_live_br}\"" <<<"${pcv_live_table}") || pcv_live_rules=""
+    ! grep -q masquerade <<<"${pcv_live_rules}"
+}
+pcv_live_no_runtime_files() {                                                             
+    local pcv_live_found
+    pcv_live_found=$(sudo -n find "${pcv_live_netdir}" -maxdepth 1 -name "dnsmasq-${pcv_live_br}.*" -print -quit) || return 1
+    [[ -z "${pcv_live_found}" ]]
+}
+pcv_live_not_in_table() {                                                     
+    local pcv_live_table
+    pcv_live_table=$(sudo -n nft -a list table inet purecvisor) || return 1
+    ! grep -Fq "\"${pcv_live_br}\"" <<<"${pcv_live_table}"
+}
+
 pcv_live_cli_json network create "${pcv_live_br}" \
     --mode nat --cidr "${pcv_live_cidr}" --mtu 9000 \
     | jq -e '.result.status=="created"' >/dev/null
@@ -118,24 +146,26 @@ ip -4 -o addr show dev "${pcv_live_br}" | grep -Fq "${pcv_live_cidr}"
 pcv_live_assert_mode nat
 pcv_live_assert_dhcp_alive
 sudo -n nft -a list table inet purecvisor | grep -F "\"${pcv_live_br}\"" | grep -q masquerade
-echo "PASS create: nat + MTU 9000 + CIDR + DHCP + metadata + masquerade"
+pcv_live_in_set guest_nat_ifaces
+echo "PASS create: nat + MTU 9000 + CIDR + DHCP + metadata + masquerade + guest_nat_ifaces member"
 
 pcv_live_cli_json network mode "${pcv_live_br}" isolated "${pcv_live_cidr}" \
     | jq -e '.result.mode=="isolated"' >/dev/null
 pcv_live_assert_mode isolated
 pcv_live_assert_dhcp_alive
-pcv_live_rules=$(sudo -n nft -a list table inet purecvisor | grep -F "\"${pcv_live_br}\"")
-grep -q drop <<<"${pcv_live_rules}"
-! grep -q masquerade <<<"${pcv_live_rules}"
-echo "PASS mode isolated: DHCP converged + drop rules + no masquerade"
+pcv_live_in_set guest_isolated_ifaces
+pcv_live_not_in_set guest_nat_ifaces
+pcv_live_no_masquerade
+echo "PASS mode isolated: DHCP converged + guest_isolated_ifaces member (not nat) + no masquerade"
 
 pcv_live_cli_json network mode "${pcv_live_br}" routed "${pcv_live_cidr}" \
     | jq -e '.result.mode=="routed"' >/dev/null
 pcv_live_assert_mode routed
 sudo -n test ! -e "${pcv_live_netdir}/dnsmasq-${pcv_live_br}.pid"
-pcv_live_rules=$(sudo -n nft -a list table inet purecvisor | grep -F "\"${pcv_live_br}\"")
-! grep -Eq 'masquerade| drop' <<<"${pcv_live_rules}"
-echo "PASS mode routed: DHCP stopped + no stale PID + no masquerade/drop"
+pcv_live_in_set guest_routed_ifaces
+pcv_live_not_in_set guest_isolated_ifaces
+pcv_live_no_masquerade
+echo "PASS mode routed: DHCP stopped + no stale PID + guest_routed_ifaces member (not isolated) + no masquerade"
 
                                                                
 pcv_live_cli_json network mode "${pcv_live_br}" nat "${pcv_live_cidr}" \
@@ -143,7 +173,9 @@ pcv_live_cli_json network mode "${pcv_live_br}" nat "${pcv_live_cidr}" \
 pcv_live_assert_mode nat
 pcv_live_assert_dhcp_alive
 sudo -n nft -a list table inet purecvisor | grep -F "\"${pcv_live_br}\"" | grep -q masquerade
-echo "PASS mode nat: immediate DHCP restart + masquerade"
+pcv_live_in_set guest_nat_ifaces
+pcv_live_not_in_set guest_routed_ifaces
+echo "PASS mode nat: immediate DHCP restart + masquerade + guest_nat_ifaces member (not routed)"
 
 pcv_live_cli_json network delete "${pcv_live_br}" | jq -e '.result.status=="deleted"' >/dev/null
 for _pcv_live_i in $(seq 1 30); do
@@ -151,8 +183,8 @@ for _pcv_live_i in $(seq 1 30); do
     sleep 0.2
 done
 [[ ! -e "/sys/class/net/${pcv_live_br}" ]]
-! sudo -n find "${pcv_live_netdir}" -maxdepth 1 -name "dnsmasq-${pcv_live_br}.*" -print -quit | grep -q .
-! sudo -n nft -a list table inet purecvisor | grep -Fq "\"${pcv_live_br}\""
+pcv_live_no_runtime_files
+pcv_live_not_in_table
 [[ "$(pcv_live_addr_snapshot)" == "${pcv_live_addr_before}" ]]
 [[ "$(ip -4 route show default)" == "${pcv_live_defaults_before}" ]]
 [[ "$(systemctl show "${pcv_live_service}" -p MainPID --value)" == "${pcv_live_pid_before}" ]]

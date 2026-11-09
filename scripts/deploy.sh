@@ -45,7 +45,21 @@ NGINX_TERMINATION_HELPER="$PROJECT_DIR/scripts/install-nginx-termination.sh"
 WAIT_FOR_LOCAL_IP_HELPER="$PROJECT_DIR/scripts/wait-for-local-ip.sh"
 HOST_TUNING_HELPER="$PROJECT_DIR/scripts/install-host-tuning.sh"
 HOST_TUNING_UNIT="$PROJECT_DIR/packaging/systemd/purecvisor-host-tuning.service"
+                                                                      
+LXC_UNIT="$PROJECT_DIR/packaging/systemd/purecvisor-lxc@.service"
 VFIO_MODULES_FILE="$PROJECT_DIR/packaging/deb/purecvisor-vfio.conf"
+                                                                                         
+                                                   
+LIO_MODULES_FILE="$PROJECT_DIR/packaging/deb/purecvisor-lio.conf"
+                                                                                           
+DAEMON_DROPIN_HELPER="$PROJECT_DIR/scripts/install-daemon-dropins.sh"
+DAEMON_DROPIN_DIR="$PROJECT_DIR/packaging/systemd"
+DAEMON_DROPIN_FILES=(
+    "$DAEMON_DROPIN_DIR/95-coredump-hardening.conf"
+    "$DAEMON_DROPIN_DIR/96-hidepid.conf"
+    "$DAEMON_DROPIN_DIR/97-sandbox.conf"
+    "$DAEMON_DROPIN_DIR/proc-hidepid.service"
+)
 NGINX_BIND_IP="${PCV_NGINX_BIND_IP:-}"
                                                        
                                                             
@@ -117,8 +131,8 @@ install_local_ui_tree() {
     sudo find "$dst" -type f -exec chmod 0644 {} +
 }
 
-
-
+                                                                       
+                                                       
 install_local_ui_manifest_assets() {
     local source target policy extra source_path target_path target_dir staged_path
 
@@ -262,6 +276,10 @@ if [[ ! -r "$VFIO_MODULES_FILE" ]]; then
     error "VFIO modules-load prerequisite missing: $VFIO_MODULES_FILE"
     exit 1
 fi
+if [[ ! -r "$LIO_MODULES_FILE" ]]; then
+    error "LIO modules-load prerequisite missing: $LIO_MODULES_FILE"
+    exit 1
+fi
 "$RUNTIME_PREREQ_HELPER" --verify-only --bpf-stage "$BPF_STAGE"
 
                                        
@@ -314,8 +332,8 @@ deploy_node() {
 
     info "[$name] Deploying to $ip..."
 
-                          
-
+                                                                    
+                                         
                                                          
                                                         
     local runtime_token runtime_stage stage_response
@@ -349,7 +367,7 @@ STAGE_EOF
         error "[$name] Runtime staging returned an invalid response"
         return 1
     fi
-
+                     
     if ! "$SCP_BIN" -o ConnectTimeout=5 "bin/$DAEMON_BIN" bin/pcvctl \
          "$ABI_PREFLIGHT_HELPER" \
          "${SSH_USER}@${ip}:${runtime_stage}/bin/" 2>/dev/null; then
@@ -400,9 +418,9 @@ ABI_PREFLIGHT_EOF
     fi
     info "[$name] Remote ABI preflight PASS (daemon + CLI)"
 
-
-
-
+                                                                         
+                                              
+                                                                                
     if [ -d "${PROJECT_DIR}/ui/vendor" ]; then
         "$SCP_BIN" -r -o ConnectTimeout=5 "${PROJECT_DIR}/ui/vendor/"* \
             "${SSH_USER}@${ip}:${runtime_stage}/pcv_ui_vendor/" 2>/dev/null || true
@@ -441,7 +459,11 @@ ABI_PREFLIGHT_EOF
         "$UI_ASSET_MANIFEST" \
         "$HOST_TUNING_HELPER" \
         "$HOST_TUNING_UNIT" \
+        "$LXC_UNIT" \
+        "$DAEMON_DROPIN_HELPER" \
+        "${DAEMON_DROPIN_FILES[@]}" \
         "$VFIO_MODULES_FILE" \
+        "$LIO_MODULES_FILE" \
         "${SSH_USER}@${ip}:${runtime_stage}/" 2>/dev/null; then
         cleanup_remote_runtime_stage "$ip" "$runtime_stage"
         error "[$name] Runtime prerequisite SCP failed to $ip"
@@ -567,14 +589,21 @@ ABI_PREFLIGHT_EOF
             exit 2
         chmod 0700 "$RUNTIME_STAGE" "$RUNTIME_STAGE/ui" \
             "$RUNTIME_STAGE/install-runtime-prereqs.sh" \
-            "$RUNTIME_STAGE/install-host-tuning.sh"
+            "$RUNTIME_STAGE/install-host-tuning.sh" \
+            "$RUNTIME_STAGE/install-daemon-dropins.sh"
         chmod 0600 "$RUNTIME_STAGE/pcv_lsm.bpf.o" \
             "$RUNTIME_STAGE/pcv_shared_bridge.bpf.o" \
             "$RUNTIME_STAGE/manifest.json" \
             "$RUNTIME_STAGE/ui-assets.manifest" \
             "$RUNTIME_STAGE"/ui/* \
             "$RUNTIME_STAGE/purecvisor-host-tuning.service" \
-            "$RUNTIME_STAGE/purecvisor-vfio.conf"
+            "$RUNTIME_STAGE/purecvisor-lxc@.service" \
+            "$RUNTIME_STAGE/purecvisor-vfio.conf" \
+            "$RUNTIME_STAGE/purecvisor-lio.conf" \
+            "$RUNTIME_STAGE/95-coredump-hardening.conf" \
+            "$RUNTIME_STAGE/96-hidepid.conf" \
+            "$RUNTIME_STAGE/97-sandbox.conf" \
+            "$RUNTIME_STAGE/proc-hidepid.service"
         if [[ -n "$NGINX_BIND_IP" ]]; then
             chmod 0700 "$RUNTIME_STAGE/install-nginx-termination.sh" \
                 "$RUNTIME_STAGE/wait-for-local-ip.sh"
@@ -599,7 +628,7 @@ ABI_PREFLIGHT_EOF
         if [ -d "$RUNTIME_STAGE/pcv_ui_vendor" ] && ls "$RUNTIME_STAGE"/pcv_ui_vendor/* >/dev/null 2>&1; then
             install_ui_tree "$RUNTIME_STAGE/pcv_ui_vendor" /usr/local/share/purecvisor/ui/vendor
         fi
-
+                                                                  
         if [ -d "$RUNTIME_STAGE/pcv_ui_assets" ] && ls "$RUNTIME_STAGE"/pcv_ui_assets/* >/dev/null 2>&1; then
             install_ui_tree "$RUNTIME_STAGE/pcv_ui_assets" /usr/local/share/purecvisor/ui/assets
         fi
@@ -625,10 +654,28 @@ ABI_PREFLIGHT_EOF
             /etc/modules-load.d/purecvisor-vfio.conf
         sudo modprobe vfio-pci
         sudo test -e /sys/bus/pci/drivers/vfio-pci/bind
+                                                                          
+                                                                   
+                                                                                 
+                                                                   
+                                                                            
+                                                                              
+                                                                          
+        sudo install -m 0644 "$RUNTIME_STAGE/purecvisor-lio.conf" /etc/modules-load.d/purecvisor-lio.conf
+        sudo modprobe -a target_core_mod iscsi_target_mod target_core_iblock nf_conntrack_bridge
+        sudo test -d /sys/kernel/config/target
                                                                          
         sudo "$RUNTIME_STAGE/install-host-tuning.sh" \
             --unit "$RUNTIME_STAGE/purecvisor-host-tuning.service" ||
             echo "[!] host-tuning unit install failed (non-blocking)"
+                                                                  
+                                                                           
+                                                                                  
+                                                                                
+        sudo "$RUNTIME_STAGE/install-daemon-dropins.sh" --src "$RUNTIME_STAGE"
+        sudo install -m 0644 -o root -g root -- "$RUNTIME_STAGE/purecvisor-lxc@.service" \
+            /etc/systemd/system/purecvisor-lxc@.service
+        sudo systemctl daemon-reload
         if [[ -n "$NGINX_BIND_IP" ]]; then
             install_result="$(
                 sudo env \
@@ -691,6 +738,22 @@ raise SystemExit(0 if ok else 1)
                 sleep "$retry_sleep"
             done
             [[ "$verified" -eq 1 ]] || exit 1
+                                                              
+                                                                       
+                                                                            
+                                                                  
+                                                                
+                                                                    
+                                                           
+            if ! timeout --foreground 10 sudo nginx -T 2>/dev/null |
+                awk '
+                    /^[ \t]*include[ \t]+"?\/etc\/nginx\/snippets\/purecvisor-proxy-auth\.conf"?[ \t]*;/ { found = 1 }
+                    tolower($0) ~ /^[ \t]*proxy_set_header[ \t]+x-pcv-proxy-auth[ \t]/ { found = 1 }
+                    END { exit !found }
+                '; then
+                echo "error: nginx config does not send X-PCV-Proxy-Auth — add 'include /etc/nginx/snippets/purecvisor-proxy-auth.conf;' to every purecvisor vhost server block (ADR-0087); rolling back" >&2
+                exit 1
+            fi
             sudo "$RUNTIME_STAGE/install-nginx-termination.sh" \
                 --commit "$NGINX_DEPLOYMENT_ID" >/dev/null
             NGINX_COMMITTED=1
@@ -768,9 +831,20 @@ if [[ $NO_LOCAL -eq 0 ]]; then
             /etc/modules-load.d/purecvisor-vfio.conf
         sudo modprobe vfio-pci
         sudo test -e /sys/bus/pci/drivers/vfio-pci/bind
+                                                                     
+        sudo install -m 0644 "$LIO_MODULES_FILE" /etc/modules-load.d/purecvisor-lio.conf
+        sudo modprobe -a target_core_mod iscsi_target_mod target_core_iblock nf_conntrack_bridge
+        sudo test -d /sys/kernel/config/target
                                                                          
         sudo "$HOST_TUNING_HELPER" --unit "$HOST_TUNING_UNIT" ||
             warn "[$LOCAL_NAME] host-tuning unit install failed (non-blocking)"
+                                                                  
+                                                                                   
+                                                                           
+        sudo "$DAEMON_DROPIN_HELPER" --src "$DAEMON_DROPIN_DIR"
+        sudo install -m 0644 -o root -g root -- "$LXC_UNIT" \
+            /etc/systemd/system/purecvisor-lxc@.service
+        sudo systemctl daemon-reload
         local_nginx_deployment_id=""
         local_nginx_source_stage=""
         if [[ -n "$NGINX_BIND_IP" ]]; then
@@ -897,6 +971,17 @@ raise SystemExit(0 if tls.get("enabled") is False
                 sleep "$local_sleep"
             done
             if [[ "$local_nginx_ok" -eq 1 ]]; then
+                                                             
+                                                                      
+                if ! timeout --foreground 10 sudo nginx -T 2>/dev/null |
+                    awk '
+                        /^[ \t]*include[ \t]+"?\/etc\/nginx\/snippets\/purecvisor-proxy-auth\.conf"?[ \t]*;/ { found = 1 }
+                        tolower($0) ~ /^[ \t]*proxy_set_header[ \t]+x-pcv-proxy-auth[ \t]/ { found = 1 }
+                        END { exit !found }
+                    '; then
+                    error "[$LOCAL_NAME] nginx config does not send X-PCV-Proxy-Auth — add 'include /etc/nginx/snippets/purecvisor-proxy-auth.conf;' to every purecvisor vhost server block (ADR-0087); rolling back"
+                    exit 1
+                fi
                 sudo "$NGINX_TERMINATION_HELPER" \
                     --commit "$local_nginx_deployment_id" >/dev/null
                 local_nginx_deployment_id=""

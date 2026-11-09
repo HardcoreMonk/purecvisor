@@ -60,15 +60,15 @@
 import json, sys
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
 from rpc_extract import (read, strip_comments, is_source_js,
     CLI_RE, extract_method_to_fn, extract_fn_body,
     extract_handler_required, extract_consumer_sent)
 
 ROOT = Path(__file__).resolve().parent.parent
 CONTRACTS = ROOT / "contracts"
-DISPATCHER = ROOT / "src" / "api" / "dispatcher.c"
 HANDLER_GLOBS = ["src/modules/dispatcher/handler_*.c", "src/modules/network/network_manager.c",
-                 "src/api/dispatcher.c"]
+                 "src/api/dispatcher*.c"]
 CLI_C = ROOT / "src" / "cli" / "purecvisorctl.c"
 IGNORED_BASELINE = ROOT / "scripts" / "rpc_param_ignored_baseline.txt"
 
@@ -200,7 +200,7 @@ def main() -> int:
     registry = json.loads((CONTRACTS / "rpc_params.json").read_text())
     baseline = _load_baseline()
     ign_base = load_ignored_baseline()
-    disp = read(DISPATCHER)
+    disp = read(rpc_extract.dispatcher_route_file(ROOT))
     m2fn = extract_method_to_fn(disp)
     handler_srcs = {}
     for g in HANDLER_GLOBS:

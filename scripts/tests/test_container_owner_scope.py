@@ -30,13 +30,14 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from check_container_owner_scope import (              
-    ROOT, DISPATCHER_REL, HANDLER_REL, OWNER_REL,
+    ROOT, DISPATCHER_REL, HANDLER_REL, OWNER_REL, OWNER_SCOPE_METHODS,
     check_dispatcher, check_stamp, check_substrate,
 )
+import rpc_extract
 
 GATE = Path(__file__).resolve().parent.parent / "check_container_owner_scope.py"
 
-DISP = ROOT / DISPATCHER_REL
+DISP_TEXT = rpc_extract.dispatcher_family_text(ROOT)
 HANDLER = ROOT / HANDLER_REL
 OWNER = ROOT / OWNER_REL
 
@@ -61,7 +62,7 @@ def _run_trio(disp_text: str, handler_text: str, owner_text: str) -> int:
 
 
 def _reals():
-    return DISP.read_text(), HANDLER.read_text(), OWNER.read_text()
+    return DISP_TEXT, HANDLER.read_text(), OWNER.read_text()
 
 
                                                                 
@@ -71,7 +72,7 @@ def test_current_tree_pass():
 
 
 def test_current_invariants_recognized():
-    disp_ok, disp_r = check_dispatcher(DISPATCHER_REL, DISP.read_text())
+    disp_ok, disp_r = check_dispatcher(DISPATCHER_REL, DISP_TEXT)
     stamp_ok, stamp_r = check_stamp(HANDLER_REL, HANDLER.read_text())
     sub_ok, sub_r = check_substrate(OWNER_REL, OWNER.read_text())
     assert disp_ok, f"강제 불변식 미인식: {disp_r}"
@@ -100,9 +101,34 @@ def test_red_set_missing_clone():
     assert _run_trio(d.replace(needle, "FALSE;"), h, o) == 1
 
 
+def test_red_set_missing_logs():
+
+    assert "container.logs" in OWNER_SCOPE_METHODS, "게이트 OWNER_SCOPE_METHODS에 container.logs 없음"
+    d, h, o = _reals()
+    assert _run_trio(d, h, o) == 0, "현행 트리오가 PASS가 아니다"
+    needle = 'g_strcmp0(method, "container.logs") == 0 ||'
+    assert needle in d, "정본에서 owner-scope 세트의 container.logs 미발견 — 소스 변경?"
+    assert _run_trio(d.replace(needle, "FALSE ||"), h, o) == 1
+
+def test_red_set_missing_memory_stats():
+
+    assert "container.memory.stats" in OWNER_SCOPE_METHODS
+    d, h, o = _reals()
+    needle = 'g_strcmp0(method, "container.memory.stats") == 0 ||'
+    assert needle in d, "정본에서 owner-scope 세트의 container.memory.stats 미발견 — 소스 변경?"
+    assert _run_trio(d.replace(needle, "FALSE ||"), h, o) == 1
+
+def test_red_set_missing_health_check():
+    assert "container.health.check" in OWNER_SCOPE_METHODS
+    d, h, o = _reals()
+    needle = 'g_strcmp0(method, "container.health.check") == 0 ||'
+    assert needle in d, "정본에서 owner-scope 세트의 container.health.check 미발견 — 소스 변경?"
+    assert _run_trio(d.replace(needle, "FALSE ||"), h, o) == 1
+
 def test_red_wiring_removed():
     d, h, o = _reals()
-    needle = "_container_owner_scoped_method_allowed(method, params, connection"
+    needle = rpc_extract.current_fn_name(ROOT, "_container_owner_scoped_method_allowed") \
+        + "(method, params, connection"
     assert needle in d, "정본에서 operator 분기 게이트 호출 미발견 — 소스 변경?"
                                            
     assert _run_trio(d.replace(needle, "_bypass_owner_gate(method, params, connection"), h, o) == 1
@@ -110,8 +136,9 @@ def test_red_wiring_removed():
 
 def test_red_gate_fn_removed():
     d, h, o = _reals()
-    assert "_container_owner_matches_caller" in d, "정본에서 게이트 함수 미발견 — 소스 변경?"
-    assert _run_trio(d.replace("_container_owner_matches_caller", "_x_matches"), h, o) == 1
+    fn = rpc_extract.current_fn_name(ROOT, "_container_owner_matches_caller")
+    assert fn in d, "정본에서 게이트 함수 미발견 — 소스 변경?"
+    assert _run_trio(d.replace(fn, "_x_matches"), h, o) == 1
 
 
                                                               

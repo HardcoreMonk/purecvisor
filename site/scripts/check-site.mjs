@@ -143,10 +143,10 @@ const invalidGuideBreakLines = guideSource
 if (invalidGuideBreakLines.length) {
   throw new Error(`GUIDE sentence break must follow a period: ${invalidGuideBreakLines.map(({ index }) => index).join(", ")}`);
 }
-if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 8) {
+if ((databaseStructureSource.match(/^### 스키마$/gm) || []).length !== 9) {
   throw new Error("database document schema group count mismatch");
 }
-if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 25) {
+if ((databaseStructureSource.match(/^#### 테이블:/gm) || []).length !== 28) {
   throw new Error("database document table heading count mismatch");
 }
 if (/^### (?:테이블:|.*인덱스$|인덱스$)/m.test(databaseStructureSource)) {
@@ -308,7 +308,7 @@ for (const marker of [
     throw new Error(`database architecture responsive style missing: ${marker}`);
   }
 }
-const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.0.4</code>입니다.<br>
+const releaseSummaryLineBreakContract = `현재 공개 제품 버전은 <code dir="auto">2.1.0</code>입니다.<br>
 단일 노드 배포 뒤 <code dir="auto">purecvisorsd</code>는 항상 active여야 하고, NGINX는 선택형 외부 TLS 종료 모드에서만 active 조건입니다.<br>
 선택한 모드의 <code dir="auto">/api/v1/health</code>, <code dir="auto">/api/v1/version</code>과 BPF 상태 검사가 통과해야 합니다.`;
 if (!overview.includes(releaseSummaryLineBreakContract)) {
@@ -364,8 +364,9 @@ for (const marker of [
   "Monitoring 경로는 <code dir=\"auto\">handler_monitor</code>, telemetry, process monitor와 eBPF telemetry가 제공하는",
   "공개 소스에는 systemd D-Bus availability writer나 별도 Monitoring SQLite DB가 없습니다.",
   "상태 registry를 사용하는 경로만 <code dir=\"auto\">pcv_jobs.db</code> 행을 생성하며",
-  "로컬 SQLite WAL 데이터베이스 8개",
+  "로컬 SQLite 데이터베이스 9개",
   "Operations DB 1개",
+  "resource_registry.db",
   "vm_state.db",
   "pcv_audit.db",
   "pcv_jobs.db",
@@ -627,7 +628,7 @@ const databaseArchitectureSvgText = databaseArchitectureSvg.toString("utf8");
 const databaseArchitectureSvgHash = createHash("sha256")
   .update(databaseArchitectureSvg)
   .digest("hex");
-if (databaseArchitectureSvgHash !== "487207888773500d06b54a7294fe5bcc0ba863775f0b1e17bc5e9bf927fb7ab9") {
+if (databaseArchitectureSvgHash !== "4a8f377cbe82d0496a1d7c71ddee664d65503c7bc53a0f49d06b51841c5c8bde") {
   throw new Error(`database architecture SVG checksum mismatch: ${databaseArchitectureSvgHash}`);
 }
 for (const marker of [
@@ -635,13 +636,14 @@ for (const marker of [
   'role="img" aria-labelledby="pcv-db-title pcv-db-desc"',
   '<title id="pcv-db-title">PureCVisor Single Edge 데이터베이스 아키텍처</title>',
   '<desc id="pcv-db-desc">',
-  "8 local SQLite files · 25 permanent tables",
+  "9 local SQLite files · 28 permanent tables",
   "no cross-DB transaction",
   "즉시 응답 · accepted 먼저",
   "긴 작업만",
   "관련 정책 read/write",
   "VM lock · 선택형 job register",
-  "정본과 정책 · 4 files / 19 tables",
+  "정본과 정책 · 5 files / 22 tables",
+  "resource_registry.db",
   "작업 상태 · 2 files / 2 tables",
   "증거와 외부 통합 · 2 files / 4 tables",
   "rbac.db",
@@ -662,7 +664,7 @@ for (const marker of [
     throw new Error(`database architecture SVG contract missing: ${marker}`);
   }
 }
-if ((databaseArchitectureSvgText.match(/<rect class="database"/g) || []).length !== 9) {
+if ((databaseArchitectureSvgText.match(/<rect class="database"/g) || []).length !== 10) {
   throw new Error("database architecture SVG store count mismatch");
 }
 for (const marker of [
@@ -830,7 +832,7 @@ for (const marker of [
     throw new Error(`overview architecture rollover interaction missing: ${marker}`);
   }
 }
-const heroTitle = "PURECVISOR 2.0.4";
+const heroTitle = "PURECVISOR 2.1.0";
 const koreanHeroCopy = "한 대의 Linux/KVM 호스트에서 VM, 컨테이너, ZFS 스토리지와 네트워크를 설치하고 운영합니다.";
 const koreanHeroFollowup = "Web UI, REST API와 CLI가 하나의 로컬 제어면을 사용합니다.";
 const englishHeroCopy = "Install and operate VMs, containers, ZFS storage, and networking on one Linux/KVM host.";
@@ -1391,8 +1393,8 @@ for (const document of supplementalDocuments) {
     }
   }
   for (const marker of [
-    "로컬 SQLite 파일 8개",
-    "영구 테이블 25개",
+    "로컬 SQLite 파일 9개",
+    "영구 테이블 28개",
     "pcv-database-summary",
     "pcv-database-architecture",
     'href="/assets/diagrams/purecvisor-single-database-architecture.svg"',

@@ -34,6 +34,7 @@ MAKEFILE_TEXT = (ROOT / "Makefile").read_text(encoding="utf-8")
 
 
 
+
 _INHERITED_MAKE_VARS = ("MAKEFLAGS", "MFLAGS", "MAKELEVEL", "MAKEOVERRIDES", "GNUMAKEFLAGS", "BUILD")
 
 
@@ -165,7 +166,7 @@ class DevMakePerformanceContractTest(unittest.TestCase):
         labels = [label.strip() for label in message.group(2).split(" + ")]
         self.assertEqual(len(labels), count, labels)
         self.assertEqual(len(set(labels)), count, "완료 문구 항목 중복")
-        self.assertIn("VNC proxy lifetime", labels)
+        self.assertIn("VNC flow control", labels)
 
     def make_database(self, goal: str) -> str:
 

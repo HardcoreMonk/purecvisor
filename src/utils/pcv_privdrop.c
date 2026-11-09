@@ -77,7 +77,7 @@
                                                               
                                                                    
                                  
-                                                                        
+                                                                             
    
 
 #include "pcv_privdrop.h"
@@ -108,10 +108,10 @@ static const guint64 PCV_DAEMON_EFFECTIVE_MASK =
     PCV_CAP_BIT(CAP_NET_ADMIN) |
     PCV_CAP_BIT(CAP_SYS_ADMIN);
 
-
-
-
-
+                                                                
+                                                                         
+                                                              
+                                                              
 static const guint64 PCV_SPAWN_CEILING_MASK =
     ((PCV_CAP_BIT(CAP_LAST_CAP + 1) - 1) &
      ~PCV_CAP_BIT(CAP_SYS_MODULE) &
@@ -154,6 +154,11 @@ pcv_privdrop_child_profile_mask(PcvChildCapabilityProfile profile)
                PCV_CAP_BIT(CAP_SETPCAP) | PCV_CAP_BIT(CAP_NET_RAW);
     case PCV_CHILD_CAP_RUNTIME:
         return PCV_SPAWN_CEILING_MASK;
+    case PCV_CHILD_CAP_TRACE:
+                                                                 
+                                                                    
+        return PCV_DAEMON_EFFECTIVE_MASK |
+               PCV_CAP_BIT(CAP_BPF) | PCV_CAP_BIT(CAP_SYSLOG);
     case PCV_CHILD_CAP_BASE:
     default:
         return PCV_DAEMON_EFFECTIVE_MASK;
@@ -274,10 +279,10 @@ pcv_privdrop_child_setup(gpointer user_data)
         _exit(126);
 
     guint64 desired = pcv_privdrop_child_profile_mask(profile);
-
-
-
-
+                                                                        
+                                                                     
+                                                                
+                                                              
     guint64 inherited = desired;
     if (profile == PCV_CHILD_CAP_RUNTIME)
         inherited &= ~PCV_CAP_BIT(CAP_MAC_ADMIN);
@@ -315,7 +320,7 @@ pcv_privdrop_child_setup(gpointer user_data)
                                                        
   
                                                      
-
+                                                       
                                                         
                                                                      
                                                    
@@ -726,6 +731,16 @@ static const int ALLOWED_SYSCALLS[] = {
     SCMP_SYS(personality),                                                          
     SCMP_SYS(capset),         SCMP_SYS(capget),                             
     SCMP_SYS(seccomp),                                                                  
+                                                                                             
+#ifdef __NR_open_tree
+    SCMP_SYS(open_tree),
+#endif
+#ifdef __NR_move_mount
+    SCMP_SYS(move_mount),
+#endif
+#ifdef __NR_mount_setattr
+    SCMP_SYS(mount_setattr),
+#endif
 };
 
    

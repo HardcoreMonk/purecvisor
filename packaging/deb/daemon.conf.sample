@@ -28,6 +28,8 @@ rest_port = 8080
 drain_timeout = 30
 pool_max_conn = 16
 
+[metrics]
+
 
                                                           
 
@@ -58,6 +60,10 @@ resync_interval_sec = 300
 
 
 reconcile_interval_sec = 300
+
+[vpc]
+
+[grpc]
 
 [update]
                                                           

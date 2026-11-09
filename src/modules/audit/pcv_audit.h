@@ -158,6 +158,11 @@ void pcv_audit_shutdown(void);
 
                                                          
 
+                                                                   
+                                                                        
+#define PCV_AUDIT_ACTOR_LOCAL  "local-admin"                               
+#define PCV_AUDIT_ACTOR_SYSTEM "system"                            
+
    
                  
                                     

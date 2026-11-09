@@ -3,10 +3,12 @@
 
 
 #include <glib.h>
+#include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
 #include <string.h>
+#include <unistd.h>
 
 #include "api/ova_import_xml.h"
 
@@ -202,9 +204,46 @@ test_ova_import_invalid_virtual_size(void)
         g_assert_cmpint(pcv_ova_import_virtual_size(cases[i]), ==, 0);
 }
 
+static void
+test_ova_member_name(void)
+{
+    const gchar *good[] = {"disk.vmdk", "a b.vmdk", "..hidden.vmdk", "x..y", NULL};
+    const gchar *bad[] = {"", ".", "..", "/etc/passwd", "../x.vmdk", "a/b.vmdk", "a\\b.vmdk", "..\\x", "./x.vmdk", NULL};
+    for (guint i = 0; good[i]; i++)
+        g_assert_true(pcv_ova_import_member_name_is_safe(good[i]));
+    for (guint i = 0; bad[i]; i++)
+        g_assert_false(pcv_ova_import_member_name_is_safe(bad[i]));
+    g_assert_false(pcv_ova_import_member_name_is_safe(NULL));
+}
+
+static void
+test_ova_member_regular(void)
+{
+    g_autofree gchar *dir = g_dir_make_tmp("pcv-ova-member-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    g_autofree gchar *file = g_build_filename(dir, "disk.vmdk", NULL);
+    g_autofree gchar *link = g_build_filename(dir, "link.vmdk", NULL);
+    g_autofree gchar *sub = g_build_filename(dir, "sub.vmdk", NULL);
+    g_autofree gchar *gone = g_build_filename(dir, "gone.vmdk", NULL);
+    g_assert_true(g_file_set_contents(file, "x", 1, NULL));
+    g_assert_cmpint(symlink(file, link), ==, 0);
+    g_assert_cmpint(g_mkdir(sub, 0700), ==, 0);
+    g_assert_true(pcv_ova_import_member_is_regular(file));
+    g_assert_false(pcv_ova_import_member_is_regular(link));
+    g_assert_false(pcv_ova_import_member_is_regular(sub));
+    g_assert_false(pcv_ova_import_member_is_regular(gone));
+    g_assert_false(pcv_ova_import_member_is_regular(NULL));
+    g_assert_cmpint(g_remove(link), ==, 0);
+    g_assert_cmpint(g_remove(file), ==, 0);
+    g_assert_cmpint(g_rmdir(sub), ==, 0);
+    g_assert_cmpint(g_rmdir(dir), ==, 0);
+}
+
 void
 test_ova_import_xml_register(void)
 {
+    g_test_add_func("/ova/import_xml/member_name", test_ova_member_name);
+    g_test_add_func("/ova/import_xml/member_regular", test_ova_member_regular);
     g_test_add_func("/ova/import_xml/zvol_block_raw", test_ova_import_zvol_block_raw);
     g_test_add_func("/ova/import_xml/qcow2_file", test_ova_import_qcow2_file);
     g_test_add_func("/ova/import_xml/invalid", test_ova_import_xml_rejects_invalid_input);

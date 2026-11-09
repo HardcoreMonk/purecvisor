@@ -17,7 +17,7 @@ SPEC = importlib.util.spec_from_file_location("trace_gate", ROOT / "scripts/chec
 GATE = importlib.util.module_from_spec(SPEC)
 SPEC.loader.exec_module(GATE)
 TRACE = "src/modules/daemons/pcv_trace.c"
-RPC = "src/api/dispatcher.c"
+RPC = "src/modules/dispatcher/handler_daemon.c"
 
 
 class TraceWiringTests(unittest.TestCase):
@@ -40,6 +40,17 @@ class TraceWiringTests(unittest.TestCase):
 
     def test_current_source_passes(self):
         GATE.check(self.root)
+
+    def test_collect_cannot_use_base_profile(self):
+        self.reject(TRACE, "PCV_CHILD_CAP_TRACE,", "PCV_CHILD_CAP_BASE,", "fixed Trace")
+
+    def test_collect_cannot_use_runtime_profile(self):
+        self.reject(TRACE, "PCV_CHILD_CAP_TRACE,", "PCV_CHILD_CAP_RUNTIME,", "fixed Trace")
+
+    def test_report_cannot_acquire_trace_profile(self):
+        self.reject(TRACE, "pcv_spawn_sync_timeout(argv, &out, NULL, 30u, &serr)",
+                    "pcv_spawn_sync_profile(argv, PCV_CHILD_CAP_TRACE, &out, NULL, &serr)",
+                    "collection-only")
 
     def test_stop_cannot_finalize_directly(self):
         self.reject(TRACE, '_trace_request_stop("debug.trace.stop", "stop");',

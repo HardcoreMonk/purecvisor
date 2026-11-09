@@ -1,0 +1,35 @@
+<domain type='kvm'>
+  <name>a</name>
+  <metadata>
+    <pcv:owner xmlns:pcv='urn:purecvisor:metadata'>alice</pcv:owner>
+  </metadata>
+  <devices>
+    <disk type='file' device='disk'>
+      <source file='/srv/vm/a.qcow2'/>
+      <target dev='vda' bus='virtio'/>
+    </disk>
+    <disk type='block' device='disk'>
+      <source dev='/dev/zvol/tank/vms/a'/>
+      <target dev='vdb' bus='virtio'/>
+    </disk>
+    <disk type='file' device='cdrom'>
+      <source file='/isos/u.iso'/>
+      <target dev='sda' bus='sata'/>
+    </disk>
+    <hostdev mode='subsystem' type='pci' managed='yes'>
+      <source>
+        <address domain='0x0000' bus='0x3b' slot='0x00' function='0x1'/>
+      </source>
+    </hostdev>
+    <hostdev mode='subsystem' type='usb' managed='yes'>
+      <source>
+        <vendor id='0x1d6b'/>
+        <product id='0x0002'/>
+      </source>
+    </hostdev>
+    <interface type='bridge'>
+      <source bridge='br-x'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>

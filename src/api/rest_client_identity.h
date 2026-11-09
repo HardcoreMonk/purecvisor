@@ -1,6 +1,6 @@
    
                                
-                                          
+                                                                  
   
                            
                                                    
@@ -9,12 +9,12 @@
   
                                                         
                                                       
-                                                      
+                                                         
                                                      
                          
   
-                                             
-                         
+                                                                      
+                                                                              
    
 
 #ifndef PCV_REST_CLIENT_IDENTITY_H
@@ -32,34 +32,74 @@ G_DECLARE_FINAL_TYPE(PcvRestClientIdentity,
                      GObject)
 
    
-                              
-                                           
-                                         
-                                                     
-  
-                                             
-                                                 
-                                                   
-                                              
-  
-                                                                
+                     
+                                                                          
+                                                                                            
+                                                      
    
-gchar *pcv_rest_resolve_client_ip(const gchar *peer_ip,
-                                  const gchar *x_real_ip,
-                                  const gchar *x_forwarded_for);
+typedef struct PcvRestProxyTrust PcvRestProxyTrust;
+
+   
+                            
+                                                                                         
+                                                         
+                                                                                        
+                                                         
+   
+PcvRestProxyTrust *pcv_rest_proxy_trust_new(const gchar *trusted_proxies, const gchar *secret,
+                                            GPtrArray **rejected_entries);
+
+                                      
+void pcv_rest_proxy_trust_free(PcvRestProxyTrust *trust);
+G_DEFINE_AUTOPTR_CLEANUP_FUNC(PcvRestProxyTrust, pcv_rest_proxy_trust_free)
+
+   
+                                
+                                                                             
+                                                
+                           
+   
+void pcv_rest_proxy_trust_install(PcvRestProxyTrust *trust);
+
+   
+                                    
+                                                                                                     
+                                                                                   
+                                        
+   
+void pcv_rest_proxy_trust_load_config(void);
+
+   
+                          
+                                                           
+                                                      
+                                                                                 
+                      
+   
+gboolean pcv_rest_proxy_trusted(const PcvRestProxyTrust *trust, const gchar *peer_ip,
+                                const gchar *proxy_auth_header);
+
+   
+                              
+                                                             
+                                                                                               
+                                                  
+   
+gchar *pcv_rest_resolve_client_ip(gboolean trusted, const gchar *peer_ip,
+                                  const gchar *x_real_ip, const gchar *x_forwarded_for);
 
    
                                    
-                                           
-                                                         
-  
-                                                     
-                                                         
-  
-                                        
+                                                              
    
-gboolean pcv_rest_resolve_external_https(const gchar *peer_ip,
-                                         const gchar *x_forwarded_proto);
+gboolean pcv_rest_resolve_external_https(gboolean trusted, const gchar *x_forwarded_proto);
+
+   
+                            
+                                                                                          
+                                                 
+   
+gboolean pcv_rest_is_direct_local(const gchar *peer_ip, gboolean has_forwarding_header);
 
    
                                 
@@ -86,10 +126,16 @@ const gchar *pcv_rest_client_identity_get_client_ip(
                                               
                       
   
-                                                
+                                                                   
    
 gboolean pcv_rest_client_identity_is_external_https(
     const PcvRestClientIdentity *identity);
+
+   
+                                            
+                                                                                 
+   
+gboolean pcv_rest_client_identity_is_direct_local(const PcvRestClientIdentity *identity);
 
    
                                           

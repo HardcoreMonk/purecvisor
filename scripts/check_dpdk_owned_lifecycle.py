@@ -17,6 +17,8 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
 
@@ -69,11 +71,11 @@ def _code(text: str) -> str:
 
 def main() -> int:
     manager = _read("src/modules/network/dpdk_manager.c")
-    vm_manager = _read("src/modules/virt/vm_manager.c")
+    vm_manager = rpc_extract.vm_family_text("vm_manager", REPO_ROOT)
     vm_start = _read("src/modules/dispatcher/handler_vm_start.c")
     start_capacity = _read("src/modules/virt/vm_start_capacity.c")
-    vm_lifecycle = _read("src/modules/dispatcher/handler_vm_lifecycle.c")
-    dispatcher = _read("src/api/dispatcher.c")
+    vm_lifecycle = rpc_extract.vm_family_text("vm_lifecycle", REPO_ROOT)
+    dispatcher = rpc_extract.dispatcher_family_text(REPO_ROOT)
     accel = _read("src/modules/dispatcher/handler_accel.c")
     cli = _read("src/cli/purecvisorctl.c")
     config = _read("src/utils/pcv_config.c")
@@ -121,6 +123,9 @@ def main() -> int:
 
     create_worker = _function_body(vm_manager, "create_vm_thread")
     _ordered(create_worker, "pcv_dpdk_vhost_runtime_preflight",
+             "purecvisor_vm_provision_zvol_disk",
+             "DPDK runtime preflight must precede disk provisioning")
+    _ordered(create_worker, "pcv_dpdk_vhost_runtime_preflight",
              "purecvisor_vm_provision_file_disk",
              "DPDK runtime preflight must precede disk provisioning")
     _ordered(create_worker, "pcv_dpdk_vhost_runtime_preflight", "virDomainDefineXML",
@@ -137,7 +142,7 @@ def main() -> int:
 
     file_provision = _function_body(vm_manager, "purecvisor_vm_provision_file_disk")
     for token in ("O_CREAT | O_EXCL", '"qemu-img", "create"',
-                  '"qemu-img", "convert", "-n"', "g_unlink(disk_path)"):
+                  "pcv_disk_image_convert_into(", "g_unlink(disk_path)"):
         _require(token in file_provision,
                  f"file base image provisioning is missing {token}")
 
@@ -161,19 +166,21 @@ def main() -> int:
     active_body = _function_body(start_worker[active_pos:], "if")
     _require("pcv_vm_start_with_capacity" not in active_body and "return;" in active_body and
              re.search(r'_reconcile_dpdk_vhost_for_start\s*\(\s*conn,\s*&dom,\s*'
-                       r'canonical_name,\s*TRUE,\s*&error', active_body),
+                       r'canonical_name,\s*TRUE,\s*pcv_drain_task_actor\(task\),\s*&error', active_body),
              "active VM must keep DPDK reconciliation and bypass capacity admission")
     prepare = _function_body(_code(vm_start), "_prepare_inactive_dpdk_for_start")
     _require(re.search(r'return\s+_reconcile_dpdk_vhost_for_start\s*\(\s*'
-                       r'prepare->conn,\s*domain_io,\s*prepare->vm_name,\s*FALSE,\s*error', prepare),
+                       r'prepare->conn,\s*domain_io,\s*prepare->vm_name,\s*FALSE,\s*prepare->actor,\s*error', prepare),
              "cold start preparation must reconcile the inactive DPDK endpoint")
     controller = _function_body(_code(start_capacity), "pcv_vm_start_with_capacity")
     checks = [match.start() for match in re.finditer(
-        r'if\s*\(\s*!check_domain\(\*domain_io,\s*sysfs_root,\s*error\)\s*\)\s*return FALSE;',
+        r'if\s*\(\s*!check_domain\(\*domain_io,\s*sysfs_root,\s*error,\s*&admission\)\s*\)\s*return FALSE;',
         controller)]
     prepare_pos, create_pos = controller.find("!prepare(domain_io"), controller.find("virDomainCreate(")
     _require(len(checks) == 2 and checks[0] < prepare_pos < checks[1] < create_pos,
              "cold start must stop on capacity failure before preparation and recheck before native start")
+    _require("g_auto(StartAdmission) admission" in controller,
+             "supported starts must keep admission cleanup across every return")
 
     dpdk_start = _function_body(vm_start, "_reconcile_dpdk_vhost_for_start")
     for token in (
@@ -214,6 +221,8 @@ def main() -> int:
              "control/runtime packaging must not introduce broad ACL mutation")
 
     delete_worker = _function_body(vm_lifecycle, "_vm_delete_worker")
+    _ordered(delete_worker, "_vm_delete_refuse_dependents", "pcv_vm_dpdk_metadata_read",
+             "VM delete must refuse shared storage before touching the DPDK port (ADR-0098)")
     _ordered(delete_worker, "pcv_vm_dpdk_metadata_read", "pcv_dpdk_vm_port_delete",
              "VM delete must verify metadata before DPDK port cleanup")
     _ordered(delete_worker, "pcv_dpdk_vm_port_delete", "virDomainUndefineFlags",
@@ -229,7 +238,7 @@ def main() -> int:
     _require("pcv_vm_dpdk_metadata_read" in rename and "PCV_DPDK_META_OK" in rename,
              "vm.rename must fail closed for managed DPDK VMs")
 
-    clone = _function_body(dispatcher, "_handle_vm_clone")
+    clone = _function_body(dispatcher, rpc_extract.current_fn_name(REPO_ROOT, "_handle_vm_clone"))
     _require("pcv_vm_dpdk_metadata_read" in clone and "PCV_DPDK_META_OK" in clone,
              "vm.clone must fail closed for managed DPDK VMs")
 
@@ -242,12 +251,12 @@ def main() -> int:
     _require("pcv_dpdk_bridge_create" in bridge_worker and
              "pcv_dpdk_bridge_delete" in bridge_worker,
              "DPDK bridge worker must execute create/delete manager effects")
-    for token in ("pcv_job_update_status", "pcv_job_set_result",
-                  "pcv_audit_log", "pcv_ws_broadcast_job_complete_tracked_mt"):
+    for token in ("pcv_job_progress(data->job_ref",
+                  "pcv_audit_log", "pcv_ws_finish_job(data->job_ref"):
         _require(token in bridge_worker,
                  f"DPDK bridge worker terminal path is missing {token}")
     bridge_schedule = _function_body(accel, "_dpdk_bridge_schedule")
-    for token in ("pcv_job_create", '"status", "accepted"',
+    for token in ("pcv_job_admit", "if (!data->job_ref)", '"status", "accepted"',
                   '"job_id"', "pure_uds_server_send_response",
                   "g_task_run_in_thread"):
         _require(token in bridge_schedule,

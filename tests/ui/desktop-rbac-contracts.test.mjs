@@ -14,8 +14,8 @@ import assert from 'node:assert/strict';
 import { readFileSync } from 'node:fs';
 import { withPage, CORE } from './harness.mjs';
 
-const DISPATCHER_SOURCE = readFileSync(
-  new URL('../../src/api/dispatcher.c', import.meta.url), 'utf8');
+const DISPATCHER_SOURCE = ['dispatcher.c', 'dispatcher_policy.c'].map(
+  name => readFileSync(new URL(`../../src/api/${name}`, import.meta.url), 'utf8')).join('\n');
 const APP_SOURCE = readFileSync(new URL('../../ui/app.js', import.meta.url), 'utf8');
 const NAV_SOURCE = readFileSync(new URL('../../ui/modules/nav.js', import.meta.url), 'utf8');
 

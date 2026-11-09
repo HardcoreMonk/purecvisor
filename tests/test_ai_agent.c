@@ -28,6 +28,7 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include <ctype.h>
+#include "modules/ai/ai_provider.h"
 
                                                                       
                                               
@@ -597,10 +598,28 @@ test_consensus_quorum_configurable_below_default(void)
      
                                                                          
 
+static void
+test_key_is_masked(void)
+{
+    g_assert_true(pcv_ai_key_is_masked("***"));
+    g_assert_true(pcv_ai_key_is_masked("abc...xyz"));
+    g_assert_true(pcv_ai_key_is_masked("..."));
+    g_assert_false(pcv_ai_key_is_masked(NULL));
+    g_assert_false(pcv_ai_key_is_masked(""));
+    g_assert_false(pcv_ai_key_is_masked("local"));
+    g_assert_false(pcv_ai_key_is_masked("fixture-key"));
+
+    g_assert_false(pcv_ai_key_is_masked("****"));
+    g_assert_false(pcv_ai_key_is_masked("**"));
+    g_assert_false(pcv_ai_key_is_masked("a***b"));
+}
+
 void
 test_ai_agent_register(void)
 {
 #define ADD(path, func) g_test_add_func("/ai/" path, func)
+
+    ADD("key_is_masked",                  test_key_is_masked);
 
                           
     ADD("sanitize/valid_prompt",          test_prompt_valid);

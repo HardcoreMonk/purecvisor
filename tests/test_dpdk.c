@@ -67,7 +67,10 @@ extern gboolean pcv_validate_pci_addr(const gchar *addr);
 
                         
 extern gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason);
-extern gboolean pcv_dpdk_route_is_default_dev(const gchar *netdev, const gchar *proc_base);
+extern void pcv_dpdk_test_set_guard_paths(const gchar *net_root, const gchar *proc_root);
+typedef gboolean (*PcvIfaceAddrProbe)(const gchar *iface, gboolean *has_ipv4,
+                                      gboolean *has_v6_global, gpointer user_data);
+extern void pcv_iface_guard_test_set_addr_probe(PcvIfaceAddrProbe probe, gpointer user_data);
 
 typedef struct {
     gchar *root;
@@ -273,6 +276,8 @@ dpdk_ovs_fixture_begin(DpdkOvsFixture *fixture)
     fixture->bridge_netdev = TRUE;
     fixture->mtu = 1500;
     fixture->commands = g_string_new(NULL);
+
+    pcv_dpdk_test_set_unbind_paths("/nonexistent-pcv-dpdk-test", NULL);
     pcv_dpdk_test_set_ovs_runner(dpdk_ovs_fixture_run, fixture, 1);
 }
 
@@ -280,6 +285,7 @@ static void
 dpdk_ovs_fixture_end(DpdkOvsFixture *fixture)
 {
     pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    pcv_dpdk_test_set_unbind_paths(NULL, NULL);
     g_free(fixture->vhost_type);
     g_free(fixture->vhost_path);
     g_string_free(fixture->commands, TRUE);
@@ -1052,32 +1058,335 @@ static void test_dpdk_vm_port_ensure_rejects_non_dpdk_bridge(void) {
                                                                      
                                                     
                                                        
+#define GUARD_BDF "0000:fe:1f.6"
+#define GUARD_NETDEV "enpguard0"
+
+typedef struct {
+    gchar *root, *pci_root, *sysnet, *iface, *proc, *route4, *route6;
+    gchar *devbind, *argv_log, *apply_marker, *driver_link;
+    gboolean known, has_ipv4, has_v6;
+} GuardFx;
+
+static gboolean
+guard_addr_probe(const gchar *iface, gboolean *has_ipv4, gboolean *has_v6, gpointer data)
+{
+    GuardFx *f = data;
+    g_assert_cmpstr(iface, ==, GUARD_NETDEV);
+    *has_ipv4 = f->has_ipv4;
+    *has_v6 = f->has_v6;
+    return f->known;
+}
+
+static void
+guard_write(const gchar *dir, const gchar *name, const gchar *value)
+{
+    gchar *path = g_build_filename(dir, name, NULL);
+    g_assert_true(g_file_set_contents(path, value, -1, NULL));
+    g_free(path);
+}
+
+static void
+guard_fx_setup(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    f->root = g_dir_make_tmp("pcv-dpdk-guard-XXXXXX", NULL);
+    g_assert_nonnull(f->root);
+    f->pci_root = g_build_filename(f->root, "pci", NULL);
+    gchar *pci_net = g_build_filename(f->pci_root, "devices", GUARD_BDF, "net", GUARD_NETDEV, NULL);
+    g_assert_cmpint(g_mkdir_with_parents(pci_net, 0700), ==, 0);
+    g_free(pci_net);
+    f->driver_link = g_build_filename(f->pci_root, "devices", GUARD_BDF, "driver", NULL);
+    g_assert_cmpint(symlink("/sys/bus/pci/drivers/ixgbe", f->driver_link), ==, 0);
+
+    f->sysnet = g_build_filename(f->root, "sysnet", NULL);
+    f->iface = g_build_filename(f->sysnet, GUARD_NETDEV, NULL);
+    g_assert_cmpint(g_mkdir_with_parents(f->iface, 0700), ==, 0);
+    guard_write(f->iface, "type", "1\n");
+    guard_write(f->iface, "flags", "0x1003\n");
+    guard_write(f->iface, "device", "");
+
+    f->proc = g_build_filename(f->root, "proc", NULL);
+    gchar *proc_net = g_build_filename(f->proc, "net", NULL);
+    g_assert_cmpint(g_mkdir_with_parents(proc_net, 0700), ==, 0);
+    f->route4 = g_build_filename(proc_net, "route", NULL);
+    f->route6 = g_build_filename(proc_net, "ipv6_route", NULL);
+    g_assert_true(g_file_set_contents(f->route4, "Iface\tDestination\tGateway\tFlags\n", -1, NULL));
+    g_assert_true(g_file_set_contents(f->route6, "", -1, NULL));
+    g_free(proc_net);
                                                
                                                               
                                                        
+    f->devbind = g_build_filename(f->root, "devbind", NULL);
+    f->argv_log = g_build_filename(f->root, "devbind.argv", NULL);
+    f->apply_marker = g_build_filename(f->root, "apply", NULL);
+    gchar *q_log = g_shell_quote(f->argv_log);
+    gchar *q_marker = g_shell_quote(f->apply_marker);
+    gchar *q_link = g_shell_quote(f->driver_link);
+    gchar *body = g_strdup_printf(
+        "#!/bin/sh\nprintf '%%s\\n' \"$*\" >> %s\n"
+        "[ -e %s ] && ln -sfn /sys/bus/pci/drivers/vfio-pci %s\nexit 0\n",
+        q_log, q_marker, q_link);
+    g_assert_true(g_file_set_contents(f->devbind, body, -1, NULL));
+    g_assert_cmpint(g_chmod(f->devbind, 0755), ==, 0);
+    g_free(body); g_free(q_link); g_free(q_marker); g_free(q_log);
+
+    f->known = TRUE;
+    pcv_dpdk_test_set_unbind_paths(f->pci_root, f->devbind);
+    pcv_dpdk_test_set_guard_paths(f->sysnet, f->proc);
+    pcv_iface_guard_test_set_addr_probe(guard_addr_probe, f);
+}
+
+static void
+guard_fx_teardown(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    pcv_iface_guard_test_set_addr_probe(NULL, NULL);
+    pcv_dpdk_test_set_guard_paths(NULL, NULL);
+    pcv_dpdk_test_set_unbind_paths(NULL, NULL);
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    dpdk_remove_tree(f->root);
+    g_free(f->driver_link); g_free(f->apply_marker); g_free(f->argv_log);
+    g_free(f->devbind); g_free(f->route6); g_free(f->route4); g_free(f->proc);
+    g_free(f->iface); g_free(f->sysnet); g_free(f->pci_root); g_free(f->root);
+}
+
+static void
+guard_link(GuardFx *f, const gchar *name, const gchar *target)
+{
+    gchar *path = g_build_filename(f->iface, name, NULL);
+    g_assert_cmpint(symlink(target, path), ==, 0);
+    g_free(path);
+}
+
+static void
+guard_assert_protected(const gchar *needle)
+{
+    gchar *reason = NULL;
+    g_assert_true(pcv_dpdk_nic_is_protected(GUARD_BDF, &reason));
+    g_assert_nonnull(reason);
+    g_assert_nonnull(strstr(reason, "refusing to bind"));
+    if (!strstr(reason, needle))
+        g_test_message("reason: %s", reason);
+    g_assert_nonnull(strstr(reason, needle));
+    g_free(reason);
+}
+
+static void
+test_guard_dedicated_passes(GuardFx *f, gconstpointer unused)
+{
+    (void)f; (void)unused;
+    gchar *reason = NULL;
+    g_assert_false(pcv_dpdk_nic_is_protected(GUARD_BDF, &reason));
+    g_assert_null(reason);
+}
+
+static void
+test_guard_bridge_member(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    guard_link(f, "master", "../br0");
+    guard_link(f, "upper_br0", "../br0");
+    guard_assert_protected("master 'br0'");
+}
+
+static void
+test_guard_bond_member(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    guard_link(f, "master", "../bond0");
+    guard_link(f, "upper_bond0", "../bond0");
+    guard_assert_protected("master 'bond0'");
+}
+
+static void
+test_guard_vlan_lower(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    guard_link(f, "upper_" GUARD_NETDEV ".10", "../" GUARD_NETDEV ".10");
+    guard_assert_protected(GUARD_NETDEV ".10");
+}
+
+static void
+test_guard_ipv6_only(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    f->has_v6 = TRUE;
+    guard_assert_protected("IPv6");
+}
+
+static void
+test_guard_ipv4(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    f->has_ipv4 = TRUE;
+    guard_assert_protected("IPv4");
+}
+
+static void
+test_guard_address_inventory_unknown(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    f->known = FALSE;
+    guard_assert_protected("cannot inspect addresses");
+}
+
+static void
+test_guard_default_route_v4(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    g_assert_true(g_file_set_contents(f->route4,
+        "Iface\tDestination\tGateway\tFlags\n"
+        GUARD_NETDEV "\t00000000\t0102A8C0\t0003\n", -1, NULL));
+    guard_assert_protected("IPv4 default route");
+}
+
+static void
+test_guard_default_route_v6(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    g_assert_true(g_file_set_contents(f->route6,
+        "00000000000000000000000000000000 00 00000000000000000000000000000000 00 "
+        "fe800000000000000000000000000001 00000400 00000000 00000000 00000003 "
+        GUARD_NETDEV "\n", -1, NULL));
+    guard_assert_protected("IPv6 default route");
+}
+
+static void
+test_guard_route_unreadable(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    g_assert_cmpint(g_remove(f->route4), ==, 0);
+    guard_assert_protected("refusing");
+}
+
+static void
+test_guard_ipv6_disabled_passes(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    g_assert_cmpint(g_remove(f->route6), ==, 0);
+    gchar *reason = NULL;
+    gboolean protected_nic = pcv_dpdk_nic_is_protected(GUARD_BDF, &reason);
+    g_test_message("reason: %s", reason ? reason : "(none)");
+    g_assert_false(protected_nic);
+    g_free(reason);
+    f->has_ipv4 = TRUE;
+    guard_assert_protected("IPv4");
+}
+
+static void
+test_guard_ipv6_route_unreadable(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    g_assert_cmpint(g_remove(f->route6), ==, 0);
+    g_assert_cmpint(g_mkdir(f->route6, 0700), ==, 0);
+    guard_assert_protected("refusing");
+    g_assert_cmpint(g_rmdir(f->route6), ==, 0);
+    g_assert_true(g_file_set_contents(f->route6, "", -1, NULL));
+}
+
+static void
+test_guard_bind_refused_without_devbind(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, 1);
+    guard_link(f, "master", "../br0");
+    GError *error = NULL;
+    g_assert_false(pcv_dpdk_bind(GUARD_BDF, NULL, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "refusing to bind"));
+    g_clear_error(&error);
+    g_assert_false(g_file_test(f->argv_log, G_FILE_TEST_EXISTS));
+}
+
+static void
+test_bind_false_success_detected(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, 1);
+    GError *error = NULL;
+    g_assert_false(pcv_dpdk_bind(GUARD_BDF, NULL, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "did not bind"));
+    g_clear_error(&error);
+    gchar *argv_text = NULL;
+    g_assert_true(g_file_get_contents(f->argv_log, &argv_text, NULL, NULL));
+    g_assert_cmpstr(g_strstrip(argv_text), ==, "--bind=vfio-pci " GUARD_BDF);
+    g_free(argv_text);
+}
+
+static void
+test_bind_success_after_postcondition(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, 1);
+    g_assert_true(g_file_set_contents(f->apply_marker, "", -1, NULL));
+    GError *error = NULL;
+    g_assert_true(pcv_dpdk_bind(GUARD_BDF, NULL, &error));
+    g_assert_no_error(error);
+}
+
+static void
+test_guard_bridge_create_refused(GuardFx *f, gconstpointer unused)
+{
+    (void)unused;
+    DpdkOvsFixture ovs;
+    memset(&ovs, 0, sizeof ovs);
+    ovs.bridge_netdev = TRUE;
+    ovs.mtu = 1500;
+    ovs.commands = g_string_new(NULL);
+    pcv_dpdk_test_set_ovs_runner(dpdk_ovs_fixture_run, &ovs, 1);
+    guard_link(f, "upper_" GUARD_NETDEV ".10", "../" GUARD_NETDEV ".10");
+    GError *error = NULL;
+    g_assert_false(pcv_dpdk_bridge_create("dpdk-br0", GUARD_BDF, 1500, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "refusing to bind"));
+    g_clear_error(&error);
+    g_assert_cmpuint(ovs.commands->len, ==, 0);
+    pcv_dpdk_test_set_ovs_runner(NULL, NULL, -1);
+    g_free(ovs.vhost_type); g_free(ovs.vhost_path);
+    g_string_free(ovs.commands, TRUE);
+}
                                                     
                                
 
+static gboolean
+guard_probe_under_ovs_lock(const gchar * const *argv G_GNUC_UNUSED, gchar **stdout_out G_GNUC_UNUSED,
+                           gchar **stderr_out G_GNUC_UNUSED, GError **error, gpointer user_data)
+{
+    gboolean *probed = user_data;
+    gchar *reason = NULL;
+    g_assert_false(pcv_dpdk_nic_is_protected(GUARD_BDF, &reason));
+    g_free(reason);
+    *probed = TRUE;
+    g_set_error(error, g_quark_from_static_string("test"), 1, "stop");
+    return FALSE;
+}
                                                           
-static void test_dpdk_nic_route_default(void) {
-    gchar *base = g_dir_make_tmp("pcvdpdk_XXXXXX", NULL);
-    g_assert_nonnull(base);
-    gchar *pd = g_build_filename(base, "proc", "net", NULL);
-    g_assert_cmpint(g_mkdir_with_parents(pd, 0700), ==, 0);
-    gchar *route = g_build_filename(pd, "route", NULL);
+static void
+test_guard_does_not_wait_for_bridge_job(GuardFx *f, gconstpointer unused)
+{
+    (void)f; (void)unused;
+    gboolean probed = FALSE;
+    pcv_dpdk_test_set_ovs_runner(guard_probe_under_ovs_lock, &probed, 1);
+    GError *error = NULL;
+    g_assert_false(pcv_dpdk_bridge_create("dpdk-br0", NULL, 1500, &error));
+    g_clear_error(&error);
+    g_assert_true(probed);
+}
                                                                
-    g_assert_true(g_file_set_contents(route,
-        "Iface\tDestination\tGateway\tFlags\n"
-        "eth0\t00000000\t0102A8C0\t0003\n"
-        "eth1\t0000A8C0\t00000000\t0001\n", -1, NULL));
-    g_assert_true (pcv_dpdk_route_is_default_dev("eth0", base));
-    g_assert_false(pcv_dpdk_route_is_default_dev("eth1", base));
-    g_assert_false(pcv_dpdk_route_is_default_dev("ethX", base));
-    g_assert_false(pcv_dpdk_route_is_default_dev(NULL,   base));
-    g_unlink(route); g_rmdir(pd);
-    gchar *pdir = g_build_filename(base, "proc", NULL);
-    g_rmdir(pdir); g_rmdir(base);
-    g_free(route); g_free(pd); g_free(pdir); g_free(base);
+static void
+test_guard_real_host_readonly(void)
+{
+    const gchar *bdf = g_getenv("PCV_DPDK_GUARD_REAL_BDF");
+    if (!bdf || !*bdf) {
+        g_test_skip("PCV_DPDK_GUARD_REAL_BDF 미지정");
+        return;
+    }
+    gchar *reason = NULL;
+    gboolean prot = pcv_dpdk_nic_is_protected(bdf, &reason);
+    g_test_message("real host %s protected=%d reason=%s", bdf, prot, reason ? reason : "(none)");
+    g_assert_true(prot);
+    g_free(reason);
 }
 
                                               
@@ -1164,7 +1473,27 @@ void test_dpdk_register(void) {
                     test_dpdk_vm_port_delete_rejects_foreign);
     g_test_add_func("/dpdk/vhost/rejects_non_dpdk_bridge",
                     test_dpdk_vm_port_ensure_rejects_non_dpdk_bridge);
-    g_test_add_func("/dpdk/nic_protected/route_default",  test_dpdk_nic_route_default);
+#define GUARD_ADD(path, fn) \
+    g_test_add("/dpdk/nic_protected/" path, GuardFx, NULL, guard_fx_setup, fn, guard_fx_teardown)
+    GUARD_ADD("dedicated_passes", test_guard_dedicated_passes);
+    GUARD_ADD("bridge_member", test_guard_bridge_member);
+    GUARD_ADD("bond_member", test_guard_bond_member);
+    GUARD_ADD("vlan_lower", test_guard_vlan_lower);
+    GUARD_ADD("ipv6_only", test_guard_ipv6_only);
+    GUARD_ADD("ipv6_disabled_passes", test_guard_ipv6_disabled_passes);
+    GUARD_ADD("ipv6_route_unreadable", test_guard_ipv6_route_unreadable);
+    GUARD_ADD("ipv4", test_guard_ipv4);
+    GUARD_ADD("address_inventory_unknown", test_guard_address_inventory_unknown);
+    GUARD_ADD("default_route_v4", test_guard_default_route_v4);
+    GUARD_ADD("default_route_v6", test_guard_default_route_v6);
+    GUARD_ADD("route_unreadable", test_guard_route_unreadable);
+    GUARD_ADD("bind_refused_without_devbind", test_guard_bind_refused_without_devbind);
+    GUARD_ADD("bind_false_success", test_bind_false_success_detected);
+    GUARD_ADD("bind_success", test_bind_success_after_postcondition);
+    GUARD_ADD("bridge_create_refused", test_guard_bridge_create_refused);
+    GUARD_ADD("does_not_wait_for_bridge_job", test_guard_does_not_wait_for_bridge_job);
+#undef GUARD_ADD
+    g_test_add_func("/dpdk/nic_protected/real_host_readonly", test_guard_real_host_readonly);
     g_test_add_func("/dpdk/nic_protected/null_failsecure", test_dpdk_nic_null_failsecure);
     g_test_add_func("/dpdk/nic_protected/absent_netdir",  test_dpdk_nic_absent_netdir_passes);
     g_test_add_func("/dpdk/nic_protected/malformed",      test_dpdk_nic_malformed_failsecure);

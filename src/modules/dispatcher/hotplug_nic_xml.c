@@ -3,7 +3,7 @@
                                                        
   
                            
-                                                                
+                                                               
                                                    
   
                                                   
@@ -12,6 +12,8 @@
                                                             
                                                             
                                
+                                                                                            
+                                                                                                                  
                                                      
                                                                          
                               
@@ -70,6 +72,16 @@ gchar *pcv_hotplug_select_nic_xml(const gchar *domain_xml,
                 xmlFree(address);
                 if (!matches)
                     continue;
+
+                for (xmlNodePtr field = iface->children; field;) {
+                    xmlNodePtr next = field->next;
+                    if (field->type == XML_ELEMENT_NODE &&
+                        xmlStrcmp(field->name, BAD_CAST "address") == 0) {
+                        xmlUnlinkNode(field);
+                        xmlFreeNode(field);
+                    }
+                    field = next;
+                }
 
                 xmlBufferPtr buffer = xmlBufferCreate();
                 if (buffer && xmlNodeDump(buffer, doc, iface, 0, 1) >= 0)

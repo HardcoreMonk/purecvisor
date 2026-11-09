@@ -33,6 +33,12 @@ available하지 않다. per-VPC namespace나 OVN logical router는 중첩 CIDR�
 - CIDR validation은 DB row뿐 아니라 host route·기존 bridge actual state를 확인해야 한다.
 - bridge, dnsmasq, nft 상태는 SQLite desired state에서 재생성 가능해야 한다.
 
+## 후속 결정 (2026-10)
+
+이 ADR의 "host route overlap 거부"는 호스트 주소·경로표만 본다. 기본 경로 너머의 관리 클라이언트 대역을 subnet이 가리면 관리망이 끊길 수 있어
+관리 대역 보호를 더했다 — 예약 대역(`[vpc] reserved_cidrs` ∪ 활성 관리 피어 /32)과 겹치는 OPERATOR 생성은 접수 전에 거절하고,
+ADMIN의 겹침은 확인 대기(`vpc.subnet.confirm`)·자동 원복이며, 기동 재적용 건너뛰기가 콘솔 복구 경로를 연다. 이 ADR의 CIDR 계약(전역 겹침 거부)은 그대로다.
+
 ## Verification
 
 둘 이상의 subnet을 가진 VPC routing, global overlap 거부, host route overlap 거부,

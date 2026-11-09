@@ -16,8 +16,17 @@
                                                                                             
                                                                          
                                                              
-                                                               
-                          
+                                                                                     
+                                                                                     
+                                                                    
+                                                                     
+                                                                     
+                                                                             
+                                                                                
+                                                                    
+                                                            
+                                                          
+                         
  
                          
                                                             
@@ -35,9 +44,12 @@
                          
                                                      
                                              
+                                                                     
+                                                                      
+                                                                     
                                                                 
-                                                   
-                                                        
+                                                                  
+                                                                 
                                                                     
                  
                                                                      
@@ -133,7 +145,17 @@ TARGETS = (
         "50-purecvisor-bind-ready.conf",
         0o644,
     ),
+    ("proxyauth", ("etc", "nginx", "snippets"), "purecvisor-proxy-auth.conf", 0o600),
 )
+                                           
+LEGACY_TARGET_SET = frozenset({"daemon", "helper", "dropin"})
+                                                                   
+SECRET_RE = re.compile(r"[A-Za-z0-9._~+/=-]{32,256}")
+                                                                                                  
+                                         
+GLIB_SPACE = " \t\n\f\r"
+                                                                                    
+GROUP_LINE_RE = re.compile(r"\[([^\]]*)\][ \t]*")
 
 
 def fail(message: str) -> None:
@@ -362,12 +384,86 @@ def unlink_at(directory_fd: int, name: str) -> None:
     os.fsync(directory_fd)
 
 
-def update_ini(original: bytes) -> bytes:
+def split_lines_keepends(text: str) -> list[str]:
+    """GKeyFile 처럼 "\n"으로만 줄을 나눈다(줄 끝 유지). str.splitlines()는 \f·\v·\x1c·\u2028 등에서도 나눠 데몬과 어긋난다."""
+    lines = [part + "\n" for part in text.split("\n")]
+    lines[-1] = lines[-1][:-1]
+    if not lines[-1]:
+        lines.pop()
+    return lines
+
+def existing_proxy_secret(original: bytes) -> str | None:
+    """데몬이 실제로 쓸 [server] proxy_auth_secret 원문을 데몬(GKeyFile)과 같게 읽는다. 없거나 빈 값이면 None.
+
+    데몬은 pcv_config_get_secret("server", "proxy_auth_secret")로 [server]만 읽는다 — [daemon]은 보지 않는다( M7의
+    "[daemon] 먼저"는 틀린 전제였다, Task 5 리뷰 I1). GKeyFile 은 "\n"으로만 줄을 나누고 "\n" 바로 앞 "\r" 하나만 버리며
+    (파일 끝 "\r"은 값에 남는다 — Task 5 재리뷰 m1), 같은 이름 그룹을 합치고 같은 키는 마지막 값이 이기며, 값 앞 공백만
+    건너뛰고 뒤 공백은 값에 남긴다.
+    nginx 조각과 데몬이 다른 비밀을 갖거나 데몬이 비밀 없이 뜰 수 있는 모호한 설정은 값을 출력하지 않고 거절한다
+    (fail closed): [server] 그룹 둘 이상, [server] 안 키 둘 이상, [daemon]의 proxy_auth_secret, [server]로 읽힐 수 있지만
+    정확히 "[server]"가 아닌 머리(앞뒤 공백·대소문자), SECRET_RE에 맞지 않는 원문(뒤 공백·폼피드·파일 끝 \r·ENC/ENC2·따옴표·
+    인라인 주석 포함). GKeyFile 이 파일 전체를 못 읽는 줄(주석·그룹·key=value 어느 것도 아닌 줄, "="로 시작하는 줄, 첫 그룹
+    앞의 키, 잘못된 그룹 이름 — GLib 2.88 탐침으로 확인한 문법)도 거절한다: 데몬은 그런 파일을 통째로 버리고 기본값(비밀
+    없음)으로 뜨므로 설치 성공을 보고하면 안 된다(재리뷰 m3, 키 이름 세부 규칙 위반은 보지 않는다).
+    데몬 1순위인 환경 변수 PCV_SECRET_SERVER_PROXY_AUTH_SECRET는 설치기가 볼 수 없다(운영 문서 안내).
+    [쉬운 설명] 데몬이 설정 파일을 읽는 방식 그대로 읽어, 데몬과 nginx가 서로 다른 암호를 들고 시작하는 일을 막는다.
+    """
+    unparsable = ("daemon.conf has a line the daemon's key-file parser cannot read (not a comment, [group] or key=value, "
+                  "or a key before the first group); the daemon would ignore the whole file and start without "
+                  "proxy_auth_secret — fix it, then rerun")
+    server_groups = 0
+    values: list[str] = []
+    section: str | None = None
+    parts = original.decode("utf-8", errors="strict").split("\n")
+    for index, line in enumerate(parts):
+        if index < len(parts) - 1 and line.endswith("\r"):
+            line = line[:-1]
+        text = line.lstrip(GLIB_SPACE)
+        if not text or text.startswith("#"):
+            continue
+        if text.startswith("["):
+            header = GROUP_LINE_RE.fullmatch(text)
+            group = header.group(1) if header else ""
+            if not group or "[" in group or any(ord(ch) < 32 or ord(ch) == 127 for ch in group):
+                fail(unparsable)
+            name = group.strip(GLIB_SPACE).lower()
+            if name == "server" and line != "[server]":
+                fail("daemon.conf has a group header that reads like [server] but is not exactly '[server]'; "
+                     "fix it so proxy_auth_secret has one unambiguous location, then rerun")
+            if name == "server":
+                server_groups += 1
+                if server_groups > 1:
+                    fail("daemon.conf has more than one [server] group; merge them so proxy_auth_secret "
+                         "has one unambiguous location, then rerun")
+            section = name
+            continue
+        if "=" not in text or text.startswith("=") or section is None:
+            fail(unparsable)
+        key, value = text.split("=", 1)
+        if key.rstrip(GLIB_SPACE) != "proxy_auth_secret":
+            continue
+        if section == "daemon":
+            fail("daemon.conf has proxy_auth_secret under [daemon], which the daemon ignores (it reads [server] only); "
+                 "move it to [server] or remove it, then rerun")
+        if section == "server":
+            values.append(value.lstrip(" \t"))
+    if len(values) > 1:
+        fail("[server] proxy_auth_secret appears more than once (the daemon would use the last one); "
+             "keep a single line, then rerun")
+    if not values or not values[0]:
+        return None
+    if not SECRET_RE.fullmatch(values[0]):
+                                                                  
+        fail("existing [server] proxy_auth_secret is encrypted or unsafe for nginx; "
+             "set a plain value matching [A-Za-z0-9._~+/=-]{32,256} or remove it and rerun")
+    return values[0]
+
+def update_ini(original: bytes, secret_to_write: str | None) -> bytes:
     try:
         text = original.decode("utf-8")
     except UnicodeDecodeError as exc:
         raise InstallError("daemon.conf is not UTF-8") from exc
-    lines = text.splitlines(keepends=True)
+    lines = split_lines_keepends(text)
 
     def set_key(source: list[str], section: str, key: str, value: str) -> list[str]:
         header = f"[{section}]"
@@ -389,18 +485,22 @@ def update_ini(original: bytes) -> bytes:
             source.extend([header + "\n", f"{key}={value}\n"])
             return source
         for index in range(section_start + 1, section_end):
-            candidate = source[index].lstrip()
+            candidate = source[index].lstrip(GLIB_SPACE)                                             
             if candidate.startswith(("#", ";")) or "=" not in candidate:
                 continue
-            if candidate.split("=", 1)[0].strip() == key:
+            if candidate.split("=", 1)[0].rstrip(GLIB_SPACE) == key:
                 newline = "\n" if source[index].endswith("\n") else ""
                 source[index] = f"{key}={value}{newline}"
                 return source
+        if section_end > 0 and not source[section_end - 1].endswith("\n"):
+            source[section_end - 1] += "\n"                                              
         source.insert(section_end, f"{key}={value}\n")
         return source
 
     lines = set_key(lines, "tls", "https_enabled", "false")
     lines = set_key(lines, "server", "bind_plaintext", "loopback")
+    if secret_to_write is not None:
+        lines = set_key(lines, "server", "proxy_auth_secret", secret_to_write)
     return "".join(lines).encode("utf-8")
 
 
@@ -439,9 +539,14 @@ def validate_transaction(
     ):
         fail("invalid transaction manifest schema")
     targets = manifest["targets"]
-    if not isinstance(targets, dict) or set(targets) != {item[0] for item in TARGETS}:
+    if not isinstance(targets, dict) or set(targets) not in (
+        {item[0] for item in TARGETS},
+        set(LEGACY_TARGET_SET),
+    ):
         fail("invalid transaction target set")
     for label, _parts, _name, _mode in TARGETS:
+        if label not in targets:
+            continue
         entry = targets[label]
         if not isinstance(entry, dict) or set(entry) != {
             "present", "backup", "mode", "uid", "gid"
@@ -483,7 +588,7 @@ def cleanup_state_directory(
         allowed = {"manifest.json", *(f"{label}.bak" for label, *_rest in TARGETS)}
         for entry_name in os.listdir(f"/proc/self/fd/{directory_fd}"):
             temporary_ok = creating and re.fullmatch(
-                r"\.(?:manifest\.json|daemon\.bak|helper\.bak|dropin\.bak)"
+                r"\.(?:manifest\.json|daemon\.bak|helper\.bak|dropin\.bak|proxyauth\.bak)"
                 r"\.pcv-[0-9a-f]{32}",
                 entry_name,
             )
@@ -517,6 +622,8 @@ def restore(root_fd: int, state_fd: int, txid: str) -> None:
     tx_fd, manifest = validate_transaction(state_fd, txid)
     try:
         for label, parts, name, mode in TARGETS:
+            if label not in manifest["targets"]:
+                continue
             destination_fd = walk(root_fd, parts, create=True)
             try:
                 entry = manifest["targets"][label]
@@ -590,6 +697,26 @@ def vendor_exec(root_fd: int) -> str:
     return expected
 
 
+def run_daemon_reload() -> None:
+    """드롭인 변경을 systemd 에 알린다. fixture 에서는 훅이 있을 때만 실행한다. 실패는 예외로 전파한다."""
+    reload_command = (
+        os.environ.get("PCV_NGINX_TEST_DAEMON_RELOAD_COMMAND")
+        if fixture
+        else None
+    )
+    if fixture and not reload_command:
+        return
+    reload_timeout = 10.0
+    command = ["systemctl", "daemon-reload"]
+    if fixture:
+        reload_timeout = float(
+            os.environ.get("PCV_NGINX_TEST_DAEMON_RELOAD_TIMEOUT", "1")
+        )
+        if not 0.05 <= reload_timeout <= 2:
+            fail("invalid fixture daemon-reload timeout")
+        command = [reload_command]
+    subprocess.run(command, check=True, timeout=reload_timeout)
+
 try:
     root_fd = os.open(root_path, O_DIRECTORY)
     state_fd = state_dir(root_fd)
@@ -650,6 +777,14 @@ try:
         pass
     elif action == "rollback":
         restore(root_fd, state_fd, deployment_id)
+        try:
+            run_daemon_reload()
+        except BaseException:
+                                                  
+            raise InstallError(
+                "systemd daemon-reload failed after rollback; files stay restored — "
+                "run 'systemctl daemon-reload' manually, then --finalize-rollback"
+            )
     elif action == "commit":
         tx_fd, manifest = validate_transaction(state_fd, deployment_id)
         os.close(tx_fd)
@@ -670,6 +805,16 @@ try:
             fail("multiple pending nginx transactions require manual recovery")
         if pending:
             restore(root_fd, state_fd, pending[0])
+                                                                            
+                                                                             
+            try:
+                run_daemon_reload()
+            except BaseException:
+                raise InstallError(
+                    "pending nginx transaction rolled back but systemd daemon-reload failed; "
+                    "files stay restored — run 'systemctl daemon-reload' manually; "
+                    "rollback recovery requires explicit finalization"
+                )
             fail(
                 "pending nginx transaction rolled back; "
                 "rollback recovery requires explicit finalization"
@@ -726,6 +871,18 @@ try:
                 if present:
                     write_atomic(tx_fd, f"{label}.bak", snapshots[label], 0o600)
             crash_point("creating-backups")
+            daemon_bytes = snapshots["daemon"] or b""
+            try:
+                current_secret = existing_proxy_secret(daemon_bytes)                            
+            except UnicodeDecodeError as exc:
+                raise InstallError("daemon.conf is not UTF-8") from exc
+            proxy_secret = current_secret or secrets.token_hex(32)
+            secret_to_write = None if current_secret else proxy_secret
+            daemon_new = update_ini(daemon_bytes, secret_to_write)
+                                                                                 
+            if existing_proxy_secret(daemon_new) != proxy_secret:
+                fail("internal check failed: rewritten daemon.conf would not carry the nginx proxy_auth_secret; "
+                     "nothing was changed")
             write_atomic(
                 tx_fd,
                 "manifest.json",
@@ -749,9 +906,9 @@ try:
             dropin_fd = walk(
                 root_fd, ("etc", "systemd", "system", "nginx.service.d"), create=True
             )
+            proxyauth_fd = walk(root_fd, ("etc", "nginx", "snippets"), create=True)
             try:
-                daemon_data = snapshots["daemon"] or b""
-                write_atomic(daemon_fd, "daemon.conf", update_ini(daemon_data), 0o600)
+                write_atomic(daemon_fd, "daemon.conf", daemon_new, 0o600)
                 write_atomic(helper_fd, "wait-for-local-ip", helper, 0o755)
                 dropin = (
                     "[Unit]\nStartLimitIntervalSec=0\n\n[Service]\nExecStartPre=\n"
@@ -762,12 +919,18 @@ try:
                 write_atomic(
                     dropin_fd, "50-purecvisor-bind-ready.conf", dropin, 0o644
                 )
+                snippet = (
+                    "# purecvisor install-nginx-termination.sh 관리 파일 — 손으로 고치지 말 것.\n"
+                    f'proxy_set_header X-PCV-Proxy-Auth "{proxy_secret}";\n'
+                ).encode()
+                write_atomic(proxyauth_fd, "purecvisor-proxy-auth.conf", snippet, 0o600)
                 if os.environ.get("PCV_NGINX_INSTALL_FAILPOINT") == "after-write":
                     fail("injected installer failure")
             finally:
                 os.close(daemon_fd)
                 os.close(helper_fd)
                 os.close(dropin_fd)
+                os.close(proxyauth_fd)
             installed = True
             wait_test_hook(
                 "PCV_NGINX_TEST_HOLD_FILE",
@@ -787,32 +950,13 @@ try:
         finally:
             if installed and tx_fd >= 0:
                 os.close(tx_fd)
-        reload_command = (
-            os.environ.get("PCV_NGINX_TEST_DAEMON_RELOAD_COMMAND")
-            if fixture
-            else None
-        )
-        if not fixture or reload_command:
-            reload_timeout = 10.0
-            command = ["systemctl", "daemon-reload"]
-            if fixture:
-                reload_timeout = float(
-                    os.environ.get("PCV_NGINX_TEST_DAEMON_RELOAD_TIMEOUT", "1")
-                )
-                if not 0.05 <= reload_timeout <= 2:
-                    fail("invalid fixture daemon-reload timeout")
-                command = [reload_command]
-            try:
-                subprocess.run(
-                    command,
-                    check=True,
-                    timeout=reload_timeout,
-                )
-            except BaseException:
-                restore(root_fd, state_fd, deployment_id)
-                raise InstallError(
-                    "systemd daemon-reload failed; rollback state preserved"
-                )
+        try:
+            run_daemon_reload()
+        except BaseException:
+            restore(root_fd, state_fd, deployment_id)
+            raise InstallError(
+                "systemd daemon-reload failed; rollback state preserved"
+            )
         print(f"PCV_NGINX_DEPLOYMENT_ID={deployment_id}")
 except (
     InstallError,

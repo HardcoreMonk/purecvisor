@@ -28,6 +28,8 @@
 #include <json-glib/json-glib.h>
 #include <string.h>
 #include "utils/pcv_validate.h"                                                      
+#include "modules/dispatcher/vm_limit_policy.h"
+#include "modules/dispatcher/rpc_utils.h"
 
                                                     
 
@@ -469,8 +471,11 @@ static void test_set_memory_params_missing_both(void) {
 static guint
 node_drain_read_timeout_sec(JsonObject *params)
 {
-    return json_object_has_member(params, "timeout_sec")
-        ? (guint)json_object_get_int_member(params, "timeout_sec") : 30;
+
+    guint timeout_sec = 0;
+    g_assert_true(pcv_rpc_params_get_uint_in_range(params, "timeout_sec", 1, 86400, 30,
+                                                   &timeout_sec));
+    return timeout_sec;
 }
 
 static void test_node_drain_timeout_default_30(void) {
@@ -632,7 +637,35 @@ static void test_memtune_floor_rejects_bare_guest_ram(void) {
     g_assert_cmpuint((guint64)ram, <, pcv_memtune_safe_floor_mb(ram));                   
 }
 
+static void test_vm_limit_cpu_unlimited_applies(void) {
+    gint64 quota = 0;
+    g_assert_true(pcv_vm_limit_cpu_quota_us(-1, &quota));
+    g_assert_cmpint(quota, ==, -1);
+}
+
+static void test_vm_limit_cpu_percent_scales(void) {
+    gint64 quota = 0;
+    g_assert_true(pcv_vm_limit_cpu_quota_us(50, &quota));
+    g_assert_cmpint(quota, ==, 50000);
+    g_assert_true(pcv_vm_limit_cpu_quota_us(9999999, &quota));
+    g_assert_cmpint(quota, ==, G_GINT64_CONSTANT(9999999000));
+}
+
+static void test_vm_limit_cpu_absent_skips(void) {
+    gint64 quota = 77;
+    g_assert_false(pcv_vm_limit_cpu_quota_us(0, &quota));
+    g_assert_false(pcv_vm_limit_cpu_quota_us(-2, &quota));
+    g_assert_cmpint(quota, ==, 77);
+}
+
 void test_handler_params_register(void) {
+
+    g_test_add_func("/handler_params/vm_limit/cpu_unlimited_applies",
+                    test_vm_limit_cpu_unlimited_applies);
+    g_test_add_func("/handler_params/vm_limit/cpu_percent_scales",
+                    test_vm_limit_cpu_percent_scales);
+    g_test_add_func("/handler_params/vm_limit/cpu_absent_skips",
+                    test_vm_limit_cpu_absent_skips);
                                        
     g_test_add_func("/handler_params/memtune/floor_small_guest",
                     test_memtune_floor_small_guest);

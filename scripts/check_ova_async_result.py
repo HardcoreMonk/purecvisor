@@ -30,8 +30,10 @@ import sys
 from pathlib import Path
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 
 
 def _read(path: Path) -> str:
@@ -44,7 +46,7 @@ def _read(path: Path) -> str:
 
 def _function_body(text: str, name: str) -> str:
     pattern = re.compile(
-        rf"static\s+\w+\s+{re.escape(name)}\s*\([^)]*\)\s*\{{"
+        rf"(?:static\s+)?\w+\s+{re.escape(name)}\s*\([^)]*\)\s*\{{"
     )
     match = pattern.search(text)
     if not match:
@@ -117,9 +119,10 @@ def check_import_name_lock(import_handler: str, ctx_free: str, import_ctx: str) 
 
     handler = _strip_comments(import_handler)
     fails = []
-    if "_valid_vm_storage_pool(pool)" not in handler:
+    pool_fn = rpc_extract.current_fn_name(REPO_ROOT, "_valid_vm_storage_pool")
+    if f"{pool_fn}(pool)" not in handler:
         fails.append("OVA import validates pool with the vm.create dataset validator")
-    lock_at = handler.find("lock_vm_operation(name, VM_OP_CREATING")
+    lock_at = handler.find("pcv_vm_lock_acquire(name, VM_OP_CREATING")
     preflight_at = handler.find("virDomainLookupByName(conn, name)")
     if lock_at < 0 or preflight_at < 0 or lock_at > preflight_at:
         fails.append("OVA import takes the target-name op-lock before preflight checks")
@@ -127,22 +130,23 @@ def check_import_name_lock(import_handler: str, ctx_free: str, import_ctx: str) 
         after_lock = handler[lock_at:]
 
         returns = after_lock.count("return;") - 1
-        unlocks = after_lock.count("unlock_vm_operation(name)")
+        unlocks = after_lock.count("pcv_vm_lock_release(op_lock)")
         if returns != unlocks:
             fails.append(f"OVA import releases the op-lock on every rejection after locking "
                          f"({unlocks} unlocks for {returns} returns)")
-    if "ctx->holds_lock = TRUE;" not in handler:
+    if "ctx->lock = op_lock;" not in handler:
         fails.append("OVA import hands the op-lock to the worker context")
-    if "gboolean holds_lock;" not in _strip_comments(import_ctx):
-        fails.append("OvaImportCtx carries holds_lock")
-    if "if (ctx->holds_lock) unlock_vm_operation(ctx->vm_name);" not in _strip_comments(ctx_free):
+    if "PcvVmLock *lock;" not in _strip_comments(import_ctx):
+        fails.append("OvaImportCtx carries the PcvVmLock handle")
+    if "g_clear_pointer(&ctx->lock, pcv_vm_lock_release);" not in _strip_comments(ctx_free):
         fails.append("OVA import context free releases the op-lock")
     return fails
 
 
 def main(argv: list[str] | None = None) -> int:
     argv = sys.argv if argv is None else argv
-    text = _read(Path(argv[1]) if len(argv) > 1 else DISPATCHER_C)
+    text = (_read(Path(argv[1])) if len(argv) > 1
+            else rpc_extract.dispatcher_family_text(REPO_ROOT))
     section_match = re.search(
         r"typedef struct \{(?P<ctx>.*?)\} OvaExportCtx;(?P<section>.*?)"
         r"(?=typedef struct\s*\{\s*gchar\s*\*ova_path;)",
@@ -156,15 +160,15 @@ def main(argv: list[str] | None = None) -> int:
     section = section_match.group("section")
     worker = _function_body(text, "_ova_export_worker")
     import_worker = _function_body(text, "_ova_import_worker")
-    import_handler = _function_body(text, "_handle_vm_import_ova")
+    import_handler = _function_body(text, rpc_extract.current_fn_name(REPO_ROOT, "_handle_vm_import_ova"))
 
     required_tokens = {
         "OvaExportCtx carries job_id": "gchar *job_id;" in ctx_body,
         "accepted response exposes job_id": 'json_object_set_string_member(obj, "job_id", job_id)' in section,
         "worker context copies job_id": "ctx->job_id = g_strdup(job_id);" in section,
-        "worker updates the accepted job": "pcv_job_set_result(ctx->job_id" in section,
+        "worker carries captured generation": "PcvJobRef *job_ref;" in ctx_body and "ctx->job_ref = job_ref;" in section,
 
-        "worker broadcasts completion": 'pcv_ws_broadcast_job_complete_tracked_mt(ctx->job_id, "vm.export.ova"' in section,
+        "worker journals and broadcasts completion": "pcv_ws_finish_job(ctx->job_ref" in section,
         "worker records actual result once": worker.count("_ova_export_record_result(ctx, audit_ok") == 1,
         "worker return follows actual result": "g_task_return_boolean(task, audit_ok)" in worker,
         "qemu-img failure reaches cleanup": "qemu-img convert failed" in worker and "goto ova_cleanup;" in worker,
@@ -184,7 +188,8 @@ def main(argv: list[str] | None = None) -> int:
 
     import_required_tokens = {
         "OVA import has zvol cleanup helper": "_ova_import_destroy_zvol" in text,
-        "OVA import fails on zfs create failure": 'PCV_JOB_FAILED, "\\"zfs create failed\\""' in import_worker,
+        "OVA import fails on zfs create failure": 'terminal_result = g_strdup("\\"zfs create failed\\"")' in import_worker,
+        "OVA import completes once with captured generation": import_worker.count("pcv_ws_finish_job(ctx->job_ref") == 1,
         "OVA import destroys created zvol on worker failure": "_ova_import_destroy_zvol(created_zvol_dataset)" in import_worker,
         "OVA import probes ZFS pool with zfs list": "use_zvol = pcv_spawn_sync(pool_argv" in import_worker,
         "OVA import waits for the udev zvol device": "zvol device did not appear" in import_worker,

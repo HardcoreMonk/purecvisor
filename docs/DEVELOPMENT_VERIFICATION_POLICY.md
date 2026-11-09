@@ -63,8 +63,8 @@
 
 ### 4.0 Single Edge UI 표면 계약
 
-`make check-single-ui-surface`는 현재 이벤트 조회 카드, 경보·감사 조회 및 명령 버튼의
-연결을 검사하고 임시 사본의 연결 삭제 회귀를 실행한다. `make check-all`과 `make dev-check`에
+`make check-single-ui-surface`는 현재 이벤트 조회 카드, 경보·감사 조회 및 명령 버튼, VM 디스크
+사용량 표면(버튼 `vm.js`·조회 `vm-guest.js`)의 연결을 검사하고 임시 사본의 연결 삭제 회귀를 실행한다. `make check-all`과 `make dev-check`에
 포함되며 별도 실행을 빠뜨려도 같은 계약을 검증한다. 공개판은 소스맵 파일·링크, manifest 항목과 번들 참조의 부재를 검사한다.
 
 호스트 self-healing의 첫 발동 여부·쿨다운을 바꾸면
@@ -166,9 +166,61 @@ make check-rbac
 
 이 검증은 내부적으로 `scripts/check_rbac_policies.py`를 실행한다. destructive RPC의 정책 매핑 누락뿐 아니라 `device.nic.attach`/`device.nic.detach`처럼 operator에게 열려야 하지만 VM owner-scope를 반드시 통과해야 하는 정책 계약도 검사한다. 해당 메서드가 admin-only로 되돌아가거나 owner-scope 대상에서 빠지면 회귀로 보고 실패해야 한다.
 
+VM 시작·정지 경로(`src/`의 `virDomainCreate*`, vm_manager start/stop async 참조)를 바꾸면 다음 게이트를
+Level 1에 포함한다. 정식 `vm.start` 진입점과 허용된 파일 밖에서 시작·정지 async나 `virDomainCreate*`를
+부르면 실패한다. 이 타깃은 새 VM 이름의 UUID 표기 거부와 `vm.rename` 잠금 계약 시험
+(`tests/test_vm_new_name_uuid_contract.py`, `tests/test_vm_rename_lock_contract.py`)도 함께 돌리며
+`check-all`에 포함된다.
+
+```bash
+make check-vm-start-single-entry
+```
+
+추적되는 `src/**/*.c`·`src/**/*.h`·`ui/app.js`·`ui/modules/*.js`를 바꾸면 파일 크기 래칫을 Level 1에
+포함한다. 파일 하나가 1,500 물리 줄을 넘지 못하게 하며 기준선 `scripts/file_size_baseline.txt`는
+줄이기만 한다. `check-all`에 포함되고, 해당 파일이나 기준선·게이트 스크립트를 스테이징하면 pre-commit도
+실행한다.
+
+```bash
+make check-file-size-ratchet
+```
+
+시험 러너는 `-ffunction-sections`·`--gc-sections`로 링크되어, `TEST_COMMON_SRCS`에 없는 소스의 함수를
+미참조 호출자가 부르면 `make test`가 조용히 통과할 수 있다. C 소스·헤더, `tests/`의 C 파일 또는
+`Makefile`을 스테이징하면 pre-commit이 `make check-test-link-deps`(같은 객체를 `--no-gc-sections`로 임시
+링크)를 실행해 이를 잡는다. 이 점검은 `check-all`에 넣지 않는다. pre-commit의 ASan/UBSan 단계는 오류
+문구를 타임아웃(124)보다 먼저 판정하고 그 밖의 비정상 종료도 FAIL로 처리한다.
+
+```bash
+make check-test-link-deps
+```
+
+메인 루프·REST 스레드의 차단 도달 집합은 `make check-mainloop-reach`(`scripts/check_mainloop_reach.py`,
+`check-all` 포함)가 기준선 `scripts/mainloop_reach_baseline.txt`와 행 집합으로 대조한다. 새 행은 호출
+사슬과 함께 FAIL이고, 사라진 행도 FAIL이다. 경로를 일꾼 스레드로 옮겼으면 `--tighten`(줄이기만 한다),
+함수·표지 이름만 바뀌었으면 `--rebaseline '<사유>'`로 기준선을 고치고 추가 행을 커밋 메시지에 적는다.
+새 차단을 통과시키려고 기준선을 늘리지 않는다. 텍스트 분석이라 빌드가 필요 없다. Level 2에서는 컴파일러
+대조(`gcc -O0 -fcallgraph-info` 산출물 + `--crosscheck <디렉터리>`, 차이 0)를 다시 돌려 파서 드리프트를
+잡는다. 표·ops를 거친 간접 호출과 목록 밖 차단(파일 I/O, 일반 mutex)은 보지 못한다.
+
+```bash
+make check-mainloop-reach
+```
+
+문서·시험에 적힌 `test_runner -p/-r` 명령은 시험 선택자 계약을 지킨다. GLib의 `-p`는 정확히 일치하는
+leaf 하나만 실행하므로 suite prefix에는 `-r`을 쓴다(suite prefix를 `-p`로 주면 0건을 실행하고도
+성공한다). `scripts/check_test_runner_selectors.py`가 `tests/test_*.c`, `docs/GUIDE.md`, 이 문서,
+`docs/ADR_INDEX.md`, `docs/adr/*.md`의 명령을 실제 등록 목록과 대조한다. 이 파일들을 스테이징하면
+pre-commit이 실행하고, `check-all`에서는 `check-public-comments` 타깃 안에서 실행된다.
+
+```bash
+python3 scripts/check_test_runner_selectors.py --self-test
+python3 scripts/check_test_runner_selectors.py --test-runner ./test_runner
+```
+
 ### 4.7 VM Guest Agent 조회/요약 UI 변경
 
-`vm.guest.*` 조회 RPC, REST VM 상세 하위 경로, `ui/modules/vm.js` 요약 카드, qemu-guest-agent 기반 디스크 사용량 표시를 바꾸면 Level 1에 다음을 포함한다.
+`vm.guest.*` 조회 RPC, REST VM 상세 하위 경로, 요약 카드 버튼(`vm.js`)과 조회(`vm-guest.js`), qemu-guest-agent 기반 디스크 사용량 표시를 바꾸면 Level 1에 다음을 포함한다.
 
 ```bash
 make single
@@ -215,7 +267,7 @@ scripts/check_vm_clone_cleanup.py
 PCV_NO_DEPLOY=1 scripts/bundle-ui.sh
 python3 scripts/check_ui_bundle_fresh.py
 for f in ui/app.js ui/modules/*.js ui/vendor/chart.umd.min.js ui/vendor/novnc/novnc.esm.js; do node -c "$f"; done
-git diff --check -- src/api/dispatcher.c src/modules/virt/vm_clone_plan.c src/modules/virt/vm_clone_plan.h src/modules/storage/zfs_driver.c src/modules/storage/zfs_driver.h src/utils/pcv_spawn.c src/utils/pcv_spawn.h src/cli/purecvisorctl.c ui/modules/vm.js ui/app.bundle.js tests/test_spawn_launcher.c tests/test_vm_clone_plan.c scripts/check_vm_clone_cleanup.py docs/adr/0023-vm-clone-beta-safety-guard.md docs/DEVELOPMENT_VERIFICATION_POLICY.md docs/GUIDE.md docs/ADR_INDEX.md Makefile tests/test_main.c
+git diff --check -- src/api/dispatcher.c src/modules/dispatcher/handler_vm_clone.c src/modules/virt/vm_clone_plan.c src/modules/virt/vm_clone_plan.h src/modules/storage/zfs_driver.c src/modules/storage/zfs_driver.h src/utils/pcv_spawn.c src/utils/pcv_spawn.h src/cli/purecvisorctl.c ui/modules/vm.js ui/app.bundle.js tests/test_spawn_launcher.c tests/test_vm_clone_plan.c scripts/check_vm_clone_cleanup.py docs/adr/0023-vm-clone-beta-safety-guard.md docs/DEVELOPMENT_VERIFICATION_POLICY.md docs/GUIDE.md docs/ADR_INDEX.md Makefile tests/test_main.c
 ```
 
 필수 회귀 케이스:
@@ -244,6 +296,22 @@ git diff --check -- src/api/dispatcher.c src/modules/virt/vm_clone_plan.c src/mo
 - 현재 필수 guest reset 실환경 기준은 Ubuntu 24.04 non-LVM qcow2/raw와 Ubuntu 24.04 LVM qcow2/raw/ZFS zvol full clone에서 target disk 독립성, `virt-sysprep` identity reset, ext filesystem UUID 분리, LVM PV/VG UUID 분리, `/etc/fstab` UUID 참조 갱신, boot artifact 재생성, hostname 변경, machine-id 재생성, clone VM boot smoke, audit `result=ok`를 확인하는 것이다.
 - Rocky/RHEL LVM, SELinux enforcing boot smoke는 문서상 후속 검증 항목으로만 유지한다. 해당 계약을 직접 바꾸는 변경에서는 별도 실환경 검증을 다시 계획한다.
 - 모든 모드에서 accepted 응답의 `source_disk`/`target_disk`/`job_id`/`guest_reset`, 원본/clone UUID와 MAC 분리, audit `result=ok`, 검증 리소스 정리를 확인한다.
+
+### 4.9.1 `vm.delete` 저장소 소유 게이트
+
+`vm.delete` 워커, `src/modules/dispatcher/vm_delete_plan.c`, 디스크 파일 이름을 정하는 경로(`vm.create`·
+`vm.clone`·`vm.rename`·`vm.import.ova`), `device.nic.detach` 선택기를 바꾸면 Level 1에 다음을 포함한다.
+
+```bash
+./test_runner -r /vm_delete_plan
+./test_runner -r /hotplug/nic_xml
+python3 scripts/tests/test_vm_delete_nvram.py
+python3 scripts/check_dpdk_owned_lifecycle.py
+```
+
+실제 libvirtd·파일 풀 확인(Level 3)은 VM과 zpool을 만드므로 `check-all`·pre-commit에 넣지 않고 운영
+호스트가 아닌 전용 시험 호스트에서 한다. 판정 기준은
+[기능 시나리오 5.1절](SERVICE_FUNCTIONAL_TEST_SCENARIOS.md#51-vm-lifecycle)을 따른다.
 
 ### 4.10 Web UI 보안 헤더/정적 자산 게이트
 
@@ -383,8 +451,8 @@ PCV_VPC_CLI_LIVE=1 make test-vpc-cli-live
 
 ### 4.13.3 Local VPC Web UI/API 계약 게이트
 
-`src/api/rest_server.c`의 VPC REST adapter, `ui/modules/vpc.js`, VPC endpoint/nav/help 또는
-관련 반응형 CSS를 바꾼 경우 Level 1에 다음 검증을 포함한다.
+`src/api/rest_server.c`의 VPC REST adapter(파라미터 변환 `pcv_rest_vpc_params`는 `src/api/rest_request.c`),
+`ui/modules/vpc.js`, VPC endpoint/nav/help 또는 관련 반응형 CSS를 바꾼 경우 Level 1에 다음 검증을 포함한다.
 
 ```bash
 python3 scripts/tests/test_rpc_extract.py
@@ -393,6 +461,7 @@ make check-rbac
 make check-rpc-param-contract
 make check-rpc-consumers
 python3 scripts/check_help_counts.py
+python3 scripts/check_help_contract.py
 python3 scripts/check_ui_bundle_fresh.py
 ```
 
@@ -448,15 +517,15 @@ make check-error-codes
 
 ### 4.18 컨테이너 operator owner-scope 게이트 (B1 / A01 IDOR)
 
-`src/api/dispatcher.c`, `src/modules/dispatcher/handler_container.c`, `src/modules/lxc/lxc_owner.(c|h)`, 또는 게이트 스크립트/자기검증(`scripts/check_container_owner_scope.py`, `scripts/tests/test_container_owner_scope.py`)을 바꾸면 Level 1에 다음 검증을 포함한다.
+`src/api/dispatcher.c`, `src/api/dispatcher_owner_scope.c`, `src/modules/dispatcher/handler_container.c`, `src/modules/lxc/lxc_owner.(c|h)`, 또는 게이트 스크립트/자기검증(`scripts/check_container_owner_scope.py`, `scripts/tests/test_container_owner_scope.py`)을 바꾸면 Level 1에 다음 검증을 포함한다.
 
 ```bash
 make check-container-owner-scope
 ```
 
-- `check-container-owner-scope`: VM operator owner-scope(자기 소유 VM만 조작)를 컨테이너로 미러한 접근통제를 검사. ① 강제(dispatcher): `_container_method_requires_owner_scope` 세트에 `container.start`/`container.stop`/`container.clone`이 모두 포함되고, 게이트 함수(`_lookup_container_owner`/`_container_owner_matches_caller`/`_container_owner_scoped_method_allowed`)가 정의·디스패치 배선되어 있는지. ② 스탬프(handler): `container.create` 성공 경로가 `pcv_lxc_stamp_owner`로 소유자를 기록하는지. ③ 저장소(lxc_owner): `pcv_lxc_stamp_owner`/`pcv_lxc_read_owner` 정의 + `purecvisor.owner` 파일 규칙 실재. 소유자는 libvirt domain이 없는 컨테이너 특성상 `<container_path>/<name>/purecvisor.owner`에 저장한다(VM은 domain XML `pcv:owner`). 자기검증 `scripts/tests/test_container_owner_scope.py`가 세트 제거·배선 제거·스탬프 제거·저장소 제거 각각에 대해 반사실 RED를 확인.
+- `check-container-owner-scope`: VM operator owner-scope(자기 소유 VM만 조작)를 컨테이너로 미러한 접근통제를 검사. ① 강제(dispatcher): `pcv_disp_container_method_requires_owner_scope` 세트에 `container.start`/`container.stop`/`container.clone`/`container.logs`/`container.memory.stats`/`container.health.check`가 모두 포함되고, 게이트 함수(`_lookup_container_owner`/`_container_owner_matches_caller`/`pcv_disp_container_owner_scoped_method_allowed` — 분할 전 이름 `_container_owner_scoped_method_allowed`, 게이트는 치환표로 둘 다 푼다)가 정의·디스패치 배선되어 있는지. ② 스탬프(handler): `container.create` 성공 경로가 `pcv_lxc_stamp_owner`로 소유자를 기록하는지. ③ 저장소(lxc_owner): `pcv_lxc_stamp_owner`/`pcv_lxc_read_owner` 정의 + `purecvisor.owner` 파일 규칙 실재. 소유자는 libvirt domain이 없는 컨테이너 특성상 `<container_path>/<name>/purecvisor.owner`에 저장한다(VM은 domain XML `pcv:owner`). 자기검증 `scripts/tests/test_container_owner_scope.py`가 세트 제거·배선 제거·스탬프 제거·저장소 제거 각각에 대해 반사실 RED를 확인.
 - **하위호환 주의**: `.owner` 파일이 없는 기존 컨테이너(및 UDS 직결 admin 생성분)는 operator 접근이 거부되고 admin만 조작·재스탬프할 수 있다(VM 소유자 metadata 부재와 동일 fail-secure). upgrade 시 operator는 기존 컨테이너 접근을 잃으므로 admin 재스탬프/재생성이 필요하다.
-- **리뷰 체크리스트**: operator가 단일 컨테이너를 조작하는 신규 메서드를 추가하면 owner-scope 세트(`_container_method_requires_owner_scope`)에 포함하거나, 제외 사유(admin-only 등)를 남긴다. `container.clone`은 RBAC 정책 테이블에 min-role 매핑이 없어 현재 VIEWER 기본으로 처리되므로, owner-scope는 operator 교차테넌트만 차단한다(별도 RBAC min-role 매핑 필요 — 후속).
+- **리뷰 체크리스트**: operator가 단일 컨테이너를 조작하는 신규 메서드를 추가하면 owner-scope 세트(`pcv_disp_container_method_requires_owner_scope`)에 포함하거나, 제외 사유(admin-only 등)를 남긴다. `container.clone`은 RBAC 정책 테이블에 min-role 매핑이 없어 현재 VIEWER 기본으로 처리되므로, owner-scope는 operator 교차테넌트만 차단한다(별도 RBAC min-role 매핑 필요 — 후속).
 
 ### 4.19 런타임 전제 배포 게이트
 
@@ -608,6 +677,64 @@ C4 ownership cleanup 순서로 기록한다. 정상 경로의 emergency cleanup�
 제품 근거로 사용하지 않는다. 이 generic OVN 결과는 Local VPC OVN backend의 부팅 KVM,
 Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신하지 않는다.
 
+### 4.24 운영 겸용 호스트에서 root 테스트 실행 규칙
+
+`tests/test_main.c`의 root 격리는 network·mount namespace만 나누고 파일 경로·systemd(dbus)·pid
+namespace는 호스트와 공유한다. 운영 데몬이 도는 호스트에서 C 단위 테스트를 실행할 때는 다음 규칙을
+적용한다.
+
+1. **기본은 비root**다. 개발·검증 기본 명령은 `make test_runner && ./test_runner -v`이며 root leaf는
+   SKIP된다. `make test`, `make test-auto`, `make test-tap`, `make sanitize`, `make memcheck`,
+   `make memcheck-sharded`, `make coverage`, `scripts/release.sh`는 내부에서 `sudo ./test_runner`를 부르므로
+   운영 겸용 호스트에서는 아래 3·4를 지킬 때만 실행한다. `scripts/pre-commit`의 유닛 테스트 gate도 기본은
+   비root 실행이고, root `make test`는 `PCV_PRECOMMIT_ROOT_TEST=1`일 때만 부른다. 저장소 로컬 설정
+   `pcv.hook.skipRootSanitize=true`인 checkout에서는 pre-commit의 root ASan/UBSan 단계를 만들지 않고
+   생략으로 표시한다. `make memcheck-sharded`는 `make memcheck`와 같은 valgrind 옵션·억제 파일로 최상위
+   suite 단위를 `MEMCHECK_JOBS`개씩 동시에 돌리고 단위마다 `TMPDIR`를 따로 준다. 단위 사이 실행 순서가
+   바뀌므로 도입·변경 때는 같은 커밋의 직렬 `make memcheck`와 실행 leaf 수·ERROR SUMMARY·definitely
+   lost를 대조한다. 시작 순서는 긴 단위부터이며 시드 `tests/memcheck_durations.tsv`는 순서에만 쓴다.
+2. **경로 seam**: root로 돌아도 감사 로그·보안그룹 DB·SG nft script는 운영 경로에 쓰지 않는다.
+   test_runner는 `src/utils/pcv_log.c`·`src/modules/network/security_group.c`를
+   `tests/test_host_isolation.h` 치환표로 재컴파일한 seam object를 링크해 mkdtemp(0700) 임시 루트에
+   쓴다(`tests/pcv_log_host_paths.o`, `tests/security_group_host_paths.o`). overlay disabled leaf는
+   `pcv_overlay_set_test_context()` 임시 meta dir을, QoS 테넌트 SLA live leaf는
+   `pcv_qos_set_tenant_sla_path_for_test()` 임시 파일을 쓴다. root 격리는 `/run/netns`에도 private
+   tmpfs를 덮어 tenant overlay 시험의 named netns 생성·삭제·고아 sweep이 운영 endpoint를 보지 못하게 한다.
+3. **실 전역 자원은 opt-in 전용**: 아래 leaf는 root여도 환경변수 값이 정확히 `1`이 아니면 SKIP한다.
+   opt-in은 운영과 분리된 전용 장비, 또는 `purecvisorsd`를 정지(`sudo systemctl stop purecvisorsd`)하고
+   서비스 영향 승인을 받은 창에서만 켠다. 실행 뒤 서비스 복구와 잔여물(아래 표)을 확인한다.
+
+| 환경변수 | 대상 leaf | opt-in 시 바뀌는 호스트 상태 |
+|---|---|---|
+| `PCV_SURICATA_LIVE=1` | `/suricata/integration/eve_ingest`, `/suricata/integration/engine_down_restart` | 실 `/var/log/suricata/eve.json`에 합성 경보 append, 실 `suricata.service` SIGKILL·재기동 |
+| `PCV_BPF_LIVE=1` | `/bpf/load_and_pin`, `/bpf/ringbuf_roundtrip`, `/bpf/pin_survives_reload`, `/bpf/detach_order` | 커널 전역 LSM attach, 운영 bpffs pin `/sys/fs/bpf/purecvisor/pcv_lsm`, `/var/lib/purecvisor/bpf_state.json`(복원). 이 opt-in일 때만 격리 mount namespace에 호스트 securityfs·bpffs·cgroup2를 다시 붙여 lsm=bpf 판정이 보인다 |
+| `PCV_TRACE_LIVE=1` | `/trace/timebox_roundtrip_root_retis`, `/trace/stop_root_retis`, `/trace/restart_purge` | 운영 trace 루트 `/var/run/purecvisor/trace` 쓰기·retention, `pkill -f`로 호스트의 모든 해당 retis 종료 |
+| `PCV_OVERLAY_DHCP_LIVE=1` | `/tenant_overlay/overlay_dhcp` | 운영 `/var/run/purecvisor/network`에 dnsmasq conf/pid/lease 기록·삭제 |
+| `PCV_SHARED_BRIDGE_LIVE=1` | `/network/shared_bridge_packet_path` | 격리 netns 안 물리 NIC 브리지·빈 사설 bpffs. `PCV_BPF_LIVE=1`과 동시 지정 시 test_runner가 시작 전에 중단한다 |
+
+4. **root 실행 명령 예시**(전용 장비 또는 승인된 정지 창): 기본 `sudo ./test_runner -v`는 위 leaf를
+   SKIP한 채 나머지 root leaf를 격리 안에서 실행한다. 실경로가 필요하면 영역별로 따로 연다 —
+   `sudo env PCV_BPF_LIVE=1 ./test_runner -r /bpf -v`. 결과의 SKIP 사유에 `opt-in 필요`가 남아 있으면
+   해당 실경로는 검증되지 않은 것이며 PASS로 기록하지 않는다.
+5. **정적 gate**: `python3 scripts/check_test_hermetic.py`는 `tests/*.c`가 운영 경로 리터럴·운영 경로
+   매크로·`systemctl`/`virsh`/`ovs-vsctl` 변이 명령·운영 상태 제품 함수를 opt-in 가드나 seam 없이
+   참조하는지와, test_runner 링크 seam(Makefile·제품 소스 `#ifdef PCV_TEST_OVERRIDE_*`)을 검사한다.
+   파일 접근이 없는 fixture 문자열은 사유와 함께 gate의 허용 목록에 둔다. 반사실은
+   `python3 scripts/tests/test_test_hermetic.py`(수정 전 테스트 파일 RED 포함)가 맡는다. 두 명령은
+   `check-all`의 `check-public-comments` 타깃 안에서도 실행된다.
+
+[쉬운 설명] 운영과 같은 서버에서 테스트를 돌려도 감사 기록·보안그룹·서비스·커널 보안 감시가
+시험 데이터로 오염되지 않게 하는 규칙이다. 실제 장비 상태를 바꾸는 시험은 "이 장비는 시험용이고
+서비스도 멈췄다"는 운영자의 명시 opt-in이 있을 때만 열린다.
+
+### 4.25 BPF 오브젝트 재현 빌드
+
+`make bpf`는 `BPF_CFLAGS`의 `-ffile-prefix-map=$(CURDIR)=.`로 DWARF·BTF의 빌드 디렉터리 절대 경로를
+지우고, `build/bpf/vmlinux.h`를 매 빌드 실행 중인 커널 BTF로 다시 만든다(내용이 같으면 파일 유지).
+같은 호스트·커널에서는 체크아웃 경로와 무관하게 같은 오브젝트 바이트가 나온다. 공유 브리지 BPF는
+오브젝트 sha256으로 세대 이름을 만들므로, 이 성질이 깨지면 반영마다 미부착 세대가 쌓인다. 다른
+커널·도구체인 사이의 재현성이나 `.deb` 전체 재현성은 이 규칙이 보장하지 않는다.
+
 ---
 
 ## 5. Level 2: 단일 노드 실행 검증
@@ -637,6 +764,15 @@ Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신
 - `/health`의 `service`와 `capabilities.cluster=false` 일치
 - VM lifecycle, storage, network, backup/restore, auth/rbac 중 관련 기능 확인
 - 공개판 범위 밖 UI/API가 Single Edge 산출물에 기능 절차로 포함되지 않음
+
+### 5.4 `check-all` 병렬 실행
+
+- `check-all`은 `make -j8 --output-sync=target check-all`처럼 병렬로 돌릴 수 있다. 소스를 잠시 바꾸는
+  gate(`DEV_MUTATING_CHECKS`)는 Makefile이 병렬 gate 뒤에서 하나씩 돌리고,
+  `scripts/tests/test_dev_make_performance_contract.py`가 그 순서를 지킨다. `--output-sync`가 없으면 gate
+  출력이 줄 안에서 섞여 줄 단위 grep이 PASS 줄을 놓친다.
+- 비root `check-runtime-prereqs`는 `check-all`에 같은 target이 들어 있으므로 따로 돌리지 않는다. root
+  `check-runtime-prereqs`는 파일 소유권·권한 경로가 달라 비root 실행이 대신하지 못하므로 유지한다.
 
 ---
 
@@ -694,6 +830,35 @@ Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신
 - 변경 경로가 실환경에서 재현 가능하게 검증됐다.
 - 운영 로그에 새로운 치명 오류가 없다.
 - 결과가 실행 로그나 run log 형태로 남아 있다.
+
+### 6.5 opt-in VM lifecycle 시험
+
+`tests/test_lifecycle.c`는 `make test`·`check-all`에 들지 않는 파괴적 실호스트 시험이다. 임시 VM을
+Create → Start → (active·VNC 포트 ≥ 5900 확인) → Stop → 시험이 직접 정의와 데이터셋 제거 → 부재 확인까지
+한 번 돌린다. 평소 게이트는 이 파일의 구문 검사와 소스 계약 시험(`tests/test_lifecycle_source_contract.py`,
+`make check-standalone-builds`)뿐이고, 바이너리는 `make test-lifecycle-bin`으로 따로 빌드한다.
+
+- **호스트:** 일회용 시험 호스트에서만 돌린다. 운영 호스트에서는 돌리지 않는다. root가 필요하고 도메인을
+  정의하고 zpool을 만드는 단계가 있으므로 다른 실호스트 시험과 겹치지 않게 잠금을 잡는다. 기존 VM의
+  상태는 바꾸지 않는다.
+- **풀:** 시험은 Create·정리·부재 확인에 같은 풀 하나만 쓴다. 파일 기반 시험 풀을 만든다
+  (`truncate -s 16G <파일>` → `zpool create <풀> <파일>`; 시험이 만드는 두꺼운 10G zvol이 4G 풀에는 들어가지
+  않는다). `PCV_LIFECYCLE_TEST_STORAGE_POOL=<풀>`로 지정하고, 비우면 기본값 `pcvpool/vms`를 쓴다(시험은
+  `daemon.conf`를 읽지 않으므로 설정의 zvol 풀이 아니라 `pcv_config_get_zvol_pool()`의 기본값이다). Create
+  전에 그 데이터셋이 `zfs list`에 없으면 `[FATAL] Storage pool dataset '<풀>' not found (zfs list failed)`로
+  rc 2다. 정리는 켜진 도메인 `virsh destroy` → undefine → `udevadm settle` → 데이터셋 destroy 순이고,
+  `dataset is busy`면 다시 destroy한다.
+- **환경변수:** `PCV_RUN_DESTRUCTIVE_LIFECYCLE_TEST=1`(opt-in), `PCV_LIFECYCLE_TEST_ISO=<읽을 수 있는 ISO
+  파일>`(부팅 가능할 필요는 없다. 시험은 도메인이 active이고 VNC 포트가 열렸는지만 본다), 선택
+  `PCV_LIBVIRT_URI`(기본 `qemu:///system`). 시험 도메인 이름은 `pcv-lifecycle-<pid>`다.
+- **실행:** `prlimit --core=1:1 -- sudo -E tests/test_lifecycle`처럼 `prlimit`을 가장 바깥에 둔다(abort 시
+  덤프 방지).
+- **종료코드:** 0 PASS, 1 FAIL(Create 이후 실패는 정리로 수렴하고 정리 실패도 1), 2 준비 실패(`[FATAL]`:
+  ISO·풀 확인), 77 opt-in 없음(`[SKIP]`). libvirt 연결·VmManager 생성 실패도 `[FATAL]`을 찍지만 rc는 1이다.
+- **시험 밖 잔여 확인(둘 다 0이어야 PASS):**
+  - `zfs list -t all -r <풀> | grep -c pcv-lifecycle-`
+  - `virsh -c qemu:///system list --all --name | grep -c '^pcv-lifecycle-'`
+- **해체:** 위 두 값이 0임을 확인한 뒤 `zpool destroy <풀>`과 풀 파일 삭제로 시험 풀을 치우고 잠금을 푼다.
 
 ---
 

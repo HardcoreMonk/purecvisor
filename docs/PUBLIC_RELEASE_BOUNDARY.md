@@ -52,6 +52,9 @@ endpoint가 아니며 문서 build와 운영 기준은 [PUBLIC_DOCUMENTATION_SIT
   backend로 표시하지 않는다. 후보 구현의 packet·schema migration·최소 수명주기·cleanup
   검증은 `Implemented` 근거이며, generic OVN `NET-OVN-01~07`의 `LIVE-PASS`가 이 잔여 gate를
   대신하지 않는다.
+- VM 구성 관측: ADMIN read-only `vm.inspect`(UUID 지정, `configuration_view=inactive-redacted`)는
+  Single Edge 공통 조회 계약이다. 이름 fallback·VM 변경·HCP project/connection/Plan·migration·source
+  보호는 포함하지 않는다.
 - UI: Single Edge 메뉴, Single Edge endpoint registry, `운영 > 이벤트 센터` 같은 단일 노드 운영 triage 화면
 - 운영 스크립트: 로컬 단일 노드 설치와 선택적 원격 단일 노드 배포
 - 실패 가드: `make multi`는 잘못된 에디션 빌드를 차단하기 위해 exit code `2`로 실패해야 한다.

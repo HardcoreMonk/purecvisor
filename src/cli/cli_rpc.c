@@ -174,6 +174,56 @@ static gboolean _classify_rpc_response(const gchar *response) {
 }
 
                                                                       
+                                          
+static const char *const VERBOSE_SECRET_WORDS[] = {
+    "password", "passphrase", "secret", "token", "api_key", "apikey", "recovery_codes", "webhook_url", "webhook_crit_url",
+};
+
+                                                                                                 
+static gboolean
+_verbose_key_is_secret(const gchar *key, gboolean is_request)
+{
+    if (is_request && g_strcmp0(key, "value") == 0) return TRUE;
+    for (gsize i = 0; i < G_N_ELEMENTS(VERBOSE_SECRET_WORDS); i++)
+        if (strstr(key, VERBOSE_SECRET_WORDS[i])) return TRUE;
+    return FALSE;
+}
+
+                                                                                             
+static void
+_verbose_mask_node(JsonNode *node, gboolean is_request)
+{
+    if (JSON_NODE_HOLDS_ARRAY(node)) {
+        JsonArray *arr = json_node_get_array(node);
+        for (guint i = 0; i < json_array_get_length(arr); i++)
+            _verbose_mask_node(json_array_get_element(arr, i), is_request);
+    } else if (JSON_NODE_HOLDS_OBJECT(node)) {
+        JsonObject *obj = json_node_get_object(node);
+        GList *members = json_object_get_members(obj);
+        for (GList *m = members; m; m = m->next) {
+            JsonNode *child = json_object_get_member(obj, m->data);
+            if (!_verbose_key_is_secret(m->data, is_request)) { _verbose_mask_node(child, is_request); continue; }
+            gboolean text = JSON_NODE_HOLDS_VALUE(child) && json_node_get_value_type(child) == G_TYPE_STRING;
+            if (JSON_NODE_HOLDS_ARRAY(child) || JSON_NODE_HOLDS_OBJECT(child) || (text && *json_node_get_string(child)))
+                json_object_set_string_member(obj, m->data, "****");
+        }
+        g_list_free(members);
+    }
+}
+
+                                                                                       
+static gchar *
+_verbose_masked_payload(const gchar *payload, gboolean is_request)
+{
+                                                                                       
+    JsonNode *copy = json_from_string(payload, NULL);
+    if (!copy) return g_strdup(is_request ? "(unprintable request)" : "(unprintable response)");
+    _verbose_mask_node(copy, is_request);
+    gchar *masked = json_to_string(copy, FALSE);
+    json_node_unref(copy);
+    return masked;
+}
+
    
                                                                
   
@@ -230,8 +280,17 @@ gchar *purectl_send_request(const gchar *method,
     }
 
     GSocket *sock = g_socket_connection_get_socket(conn);
-    guint sock_timeout = g_strcmp0(method, "container.exec") == 0 ? 65 : 10;
-    g_socket_set_timeout(sock, sock_timeout);                                                     
+                                                                                            
+                                                                               
+                                                                                                                                                                                                                      
+                                
+    guint sock_timeout = g_strcmp0(method, "vm.inspect") == 0 ? 35
+                       : (g_strcmp0(method, "backup.replication.hostkey.scan") == 0 ||
+                          g_strcmp0(method, "backup.replication.hostkey.trust") == 0) ? 40
+                       : g_strcmp0(method, "webhook.dlq.retry") == 0 ? 70
+                       : g_strcmp0(method, "container.exec") == 0 ? 65
+                       : g_strcmp0(method, "container.snapshot.rollback") == 0 ? 75 : 10;
+    g_socket_set_timeout(sock, sock_timeout);
 
                                    
                                                        
@@ -251,34 +310,9 @@ gchar *purectl_send_request(const gchar *method,
     json_node_free(root_node);                                                  
 
     if (g_ctx.verbose) {
-                                                                        
-                                                          
-                                                   
-                                                                 
-        gchar *masked = g_strdup(payload);                                  
-        static const char *sensitive_keys[] = {
-            "password", "secret", "token", "api_key", "apikey",
-            "jwt_secret", "refresh_token", "access_token",
-            "totp_secret", "recovery_codes", NULL                        
-        };
-        for (int i = 0; sensitive_keys[i]; i++) {
-                                                                      
-            gchar *needle = g_strdup_printf("\"%s\":\"", sensitive_keys[i]);
-            gchar *found = strstr(masked, needle);
-            if (found) {
-                gchar *val_start = found + strlen(needle);                  
-                gchar *val_end = strchr(val_start, '"');                      
-                if (val_end) {
-                    gsize val_len = (gsize)(val_end - val_start);                
-                                                          
-                    memset(val_start, '*', val_len > 4 ? 4 : val_len);
-                                                                
-                                                                
-                    if (val_len > 4) memmove(val_start + 4, val_end, strlen(val_end) + 1);
-                }
-            }
-            g_free(needle);                              
-        }
+                                                                               
+                                                                                      
+        gchar *masked = _verbose_masked_payload(payload, TRUE);
         g_printerr("%s[→ %s]%s\n", ce(CYBER_DIM), masked, ce(CYBER_RESET));                   
         g_free(masked);
     }
@@ -334,8 +368,11 @@ gchar *purectl_send_request(const gchar *method,
     gchar *result = g_strdup((gchar *)buf->data);                              
     g_byte_array_free(buf, TRUE);                                                 
 
-    if (g_ctx.verbose)
-        g_printerr("%s[← %s]%s\n", ce(CYBER_DIM), result, ce(CYBER_RESET));                    
+    if (g_ctx.verbose) {
+        gchar *masked = _verbose_masked_payload(result, FALSE);                                         
+        g_printerr("%s[← %s]%s\n", ce(CYBER_DIM), masked, ce(CYBER_RESET));                    
+        g_free(masked);
+    }
 
                                             
                                                              

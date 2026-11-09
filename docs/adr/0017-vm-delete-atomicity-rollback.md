@@ -3,6 +3,11 @@
 날짜: 2026-04-11
 상태: accepted
 
+## 2026-11-03 삭제 대상과 재정의 XML 보강
+
+지울 저장소는 VM 소유 규칙으로 정한다 — VM이 소유한 저장소(첫 `device='disk'`이고 이름이 일치)만 파괴하고, 클론·다른 도메인·backing이 쓰는 저장소가 있으면 아무것도 바꾸기 전에 거절한다. 아래 본문의 `zfs destroy -R`은 `-r`로 바뀌었고 기본 경로 추정은 정의가 없을 때만 쓴다.
+롤백 재정의 XML은 live가 아니라 정의 XML(`VIR_DOMAIN_XML_INACTIVE`)이다. 저장소 실패 때 재정의하는 동작, NVRAM 순서, ISO 보존은 그대로다.
+
 ## 2026-09-16 NVRAM 삭제 순서 보강
 
 파일형 UEFI NVRAM은 `VIR_DOMAIN_UNDEFINE_KEEP_NVRAM`으로 정의 해제 동안 보존하고,

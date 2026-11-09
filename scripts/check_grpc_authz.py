@@ -32,7 +32,7 @@ ROOT = Path(__file__).resolve().parent.parent
 TARGET_REL = "src/api/grpc_server.c"
 TARGET = ROOT / TARGET_REL
 
-INJECT_TOKENS = ["_pcv_caller_role", "_pcv_caller_sub"]
+INJECT_TOKENS = ["_pcv_caller_role", "_pcv_caller_sub", "_pcv_caller_tenant"]
 START_FN = "pcv_grpc_server_start"
                                                                    
 EMPTY_TOKEN_IF_RE = re.compile(r'if\s*\(\s*!\s*G_grpc_auth_token')

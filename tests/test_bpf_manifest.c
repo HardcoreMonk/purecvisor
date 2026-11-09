@@ -11,8 +11,10 @@
    
 #include <glib.h>
 #include <glib/gstdio.h>                   
+#include <stddef.h>
 #include <string.h>                                           
 #include "utils/pcv_bpf.h"
+#include "bpf/pcv_bpf_shared.h"
 
 static void test_caps_lsm_detects_bpf_token(void) {
                                   
@@ -181,6 +183,7 @@ static void test_metrics_gauge_names_valid(void) {
         "pcv_bpf_degraded",
         "pcv_bpf_lsm_events_total",
         "pcv_bpf_ringbuf_dropped_total",
+        "pcv_bpf_lsm_foreign_fs_total",
     };
     for (guint i = 0; i < G_N_ELEMENTS(names); i++)
         g_assert_true(_valid_metric_name(names[i]));
@@ -236,6 +239,13 @@ static void test_count_pinned_links_missing_dir_zero(void) {
     g_assert_cmpuint(pcv_bpf_count_pinned_links_path("/nonexistent/pcv_bpf_pindir"), ==, 0);
 }
 
+static void test_lsm_event_layout_tail_sdev(void) {
+    g_assert_cmpuint(sizeof(struct pcv_lsm_event), ==, 304);
+    g_assert_cmpuint(offsetof(struct pcv_lsm_event, path), ==, 44);
+    g_assert_cmpuint(offsetof(struct pcv_lsm_event, s_dev), ==, 300);
+    g_assert_cmpuint(sizeof(((struct pcv_lsm_event *)0)->s_dev), ==, 4);
+}
+
 void test_bpf_manifest_register(void) {
     g_test_add_func("/bpf/caps_lsm_token", test_caps_lsm_detects_bpf_token);
     g_test_add_func("/bpf/caps_lsm_no_fp", test_caps_lsm_no_substring_false_positive);
@@ -254,4 +264,5 @@ void test_bpf_manifest_register(void) {
     g_test_add_func("/bpf/count_pinned_links_link_prefix_only", test_count_pinned_links_counts_link_prefix_only);
     g_test_add_func("/bpf/count_pinned_links_empty_dir", test_count_pinned_links_empty_dir_zero);
     g_test_add_func("/bpf/count_pinned_links_missing_dir", test_count_pinned_links_missing_dir_zero);
+    g_test_add_func("/bpf/lsm_event_layout", test_lsm_event_layout_tail_sdev);
 }

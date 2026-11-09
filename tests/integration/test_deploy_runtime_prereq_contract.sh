@@ -206,6 +206,7 @@ for asset in (
     "$BPF_MANIFEST",
     "$HOST_TUNING_HELPER",
     "$HOST_TUNING_UNIT",
+    "$LXC_UNIT",
     "$VFIO_MODULES_FILE",
 ):
     require(asset in runtime_scp, f"runtime scp does not stage {asset}")
@@ -533,7 +534,9 @@ cat >"$FAKE_BIN/sudo" <<'SH'
 set -euo pipefail
 printf '%s\n' "$*" >>"$FAKE_LOG_DIR/sudo.log"
 if [[ "${1:-}" == "systemctl" ]]; then
-  if [[ "${2:-}" == "daemon-reload" && "${FAKE_ROLLBACK_RECOVERY_FAIL:-}" == "reload" ]]; then
+                                                                        
+  if [[ "${2:-}" == "daemon-reload" && "${FAKE_ROLLBACK_RECOVERY_FAIL:-}" == "reload" &&
+        "$(grep -Fc 'systemctl daemon-reload' "$FAKE_LOG_DIR/sudo.log")" -ge 2 ]]; then
     exit 1
   fi
   if [[ "${2:-}" == "restart" && "${3:-}" == "purecvisorsd" &&
@@ -566,6 +569,39 @@ if [[ "${1:-}" == "ss" ]]; then
 fi
 if [[ "${1:-}" == "env" ]]; then
   printf 'PCV_NGINX_DEPLOYMENT_ID=%064d\n' 1
+  exit 0
+fi
+                                                               
+                                                             
+                                                   
+if [[ "${1:-}" == "nginx" && "${2:-}" == "-T" ]]; then
+  vhost='# configuration file /etc/nginx/sites-enabled/purecvisor-lan-ip.conf:'
+  case "${FAKE_NGINX_DUMP:-missing}" in
+    include)
+      printf '%s\nserver {\n    proxy_set_header X-Real-IP $remote_addr;\n' "$vhost"
+      printf '    include /etc/nginx/snippets/purecvisor-proxy-auth.conf;\n}\n'
+      printf '# configuration file /etc/nginx/snippets/purecvisor-proxy-auth.conf:\n'
+      printf 'proxy_set_header X-PCV-Proxy-Auth "fixture-proxy-secret-must-not-leak";\n'
+      printf '# fixture filler line that overflows one pipe buffer %.0s\n' $(seq 2000)
+      ;;
+    header)
+      printf '%s\nserver {\n    proxy_set_header X-Real-IP $remote_addr;\n' "$vhost"
+      printf '    proxy_set_header x-pcv-proxy-auth "fixture-proxy-secret-must-not-leak";\n}\n'
+      ;;
+    commented)
+      printf '%s\nserver {\n    proxy_set_header X-Real-IP $remote_addr;\n' "$vhost"
+      printf '    # include /etc/nginx/snippets/purecvisor-proxy-auth.conf;\n'
+      printf '    #proxy_set_header X-PCV-Proxy-Auth "fixture-proxy-secret-must-not-leak";\n}\n'
+      ;;
+    error)
+      printf '%s\nserver {\n    include /etc/nginx/snippets/purecvisor-proxy-auth.conf;\n}\n' "$vhost"
+      printf 'nginx: configuration file /etc/nginx/nginx.conf test failed\n' >&2
+      exit 1
+      ;;
+    *)
+      printf '%s\nserver {\n    proxy_set_header X-Real-IP $remote_addr;\n}\n' "$vhost"
+      ;;
+  esac
   exit 0
 fi
 if [[ "${1:-}" == "test" && "${2:-}" == "-e" &&
@@ -635,17 +671,34 @@ prepare_project() {
     "$project/scripts/wait-for-local-ip.sh"
   cp "$ROOT_DIR/scripts/install-host-tuning.sh" \
     "$project/scripts/install-host-tuning.sh"
+                                             
+  cp "$ROOT_DIR/scripts/install-daemon-dropins.sh" \
+    "$project/scripts/install-daemon-dropins.sh"
   cp "$ROOT_DIR/packaging/systemd/purecvisor-host-tuning.service" \
     "$project/packaging/systemd/purecvisor-host-tuning.service"
+  cp "$ROOT_DIR/packaging/systemd/purecvisor-lxc@.service" \
+    "$project/packaging/systemd/purecvisor-lxc@.service"
+  cp "$ROOT_DIR/packaging/systemd/95-coredump-hardening.conf" \
+    "$project/packaging/systemd/95-coredump-hardening.conf"
+  cp "$ROOT_DIR/packaging/systemd/96-hidepid.conf" \
+    "$project/packaging/systemd/96-hidepid.conf"
+  cp "$ROOT_DIR/packaging/systemd/97-sandbox.conf" \
+    "$project/packaging/systemd/97-sandbox.conf"
+  cp "$ROOT_DIR/packaging/systemd/proc-hidepid.service" \
+    "$project/packaging/systemd/proc-hidepid.service"
   cp "$ROOT_DIR/packaging/deb/purecvisor-vfio.conf" \
     "$project/packaging/deb/purecvisor-vfio.conf"
+                                                    
+  cp "$ROOT_DIR/packaging/deb/purecvisor-lio.conf" \
+    "$project/packaging/deb/purecvisor-lio.conf"
   chmod 0755 \
     "$project/scripts/deploy.sh" \
     "$project/scripts/check-deploy-abi.sh" \
     "$project/scripts/install-runtime-prereqs.sh" \
     "$project/scripts/install-nginx-termination.sh" \
     "$project/scripts/wait-for-local-ip.sh" \
-    "$project/scripts/install-host-tuning.sh"
+    "$project/scripts/install-host-tuning.sh" \
+    "$project/scripts/install-daemon-dropins.sh"
   printf 'fixture-daemon\n' >"$project/bin/purecvisorsd"
   printf 'fixture-cli\n' >"$project/bin/pcvctl"
   printf 'fixture-bpf-object\n' >"$project/build/bpf/pcv_lsm.bpf.o"
@@ -784,7 +837,8 @@ nginx_rollback_failure_contract() {
   set -e
   [[ "$rc" -ne 0 ]] || return 1
   grep -Fq 'nginx transaction rollback failed' "$log_dir/deploy.err" || return 1
-  ! grep -Fq 'systemctl daemon-reload' "$log_dir/sudo.log" || return 1
+                                                                        
+  [[ "$(grep -Fc 'systemctl daemon-reload' "$log_dir/sudo.log")" -eq 1 ]] || return 1
   ! grep -Fq 'systemctl restart purecvisorsd' "$log_dir/sudo.log"
 }
 
@@ -842,6 +896,66 @@ nginx_rollback_recovery_failure_contract() {
     [[ "$(grep -Fc 'systemctl restart nginx' "$log_dir/sudo.log")" -eq 2 ]] ||
       return 1
   fi
+}
+
+                                                                
+                                                                      
+                                                                        
+                                                             
+nginx_proxy_auth_include_contract() {
+  local candidate="$1"
+  local label="$2"
+  local scope="$3"
+  local dump_mode="$4"
+  local expect="$5"
+  local project log_dir rc
+
+  project="$(prepare_project "$candidate" "$label")"
+  log_dir="$(prepare_logs "$label")"
+  set +e
+  (
+    cd "$project"
+    export PATH="$FAKE_BIN:$PATH"
+    export FAKE_BIN FAKE_LOG_DIR="$log_dir" FAKE_HELPER_FAIL=0
+    export FAKE_STAGE_RESPONSE=clean
+    export FAKE_HEALTH_STATUS=active FAKE_LOCAL_HEALTH_STATUS=active
+    export FAKE_NGINX_HEALTH=success FAKE_NGINX_DUMP="$dump_mode"
+    export PCV_NGINX_BIND_IP="192.0.2.10" PCV_NGINX_VERIFY_TIMEOUT=10
+    export PCV_SSH_BIN="$FAKE_BIN/ssh" PCV_SCP_BIN="$FAKE_BIN/scp"
+    if [[ "$scope" == remote ]]; then
+      export PCV_NODES="192.0.2.10"
+      scripts/deploy.sh --skip-build --no-local
+    else
+      export PCV_NODES=""
+      scripts/deploy.sh --skip-build --nodes local
+    fi
+  ) >"$log_dir/deploy.out" 2>"$log_dir/deploy.err"
+  rc=$?
+  set -e
+  grep -Fq 'nginx -T' "$log_dir/sudo.log" || return 1
+  ! grep -Fq 'fixture-proxy-secret-must-not-leak' \
+    "$log_dir/deploy.out" "$log_dir/deploy.err" || return 1
+  if [[ "$expect" == commit ]]; then
+    [[ "$rc" -eq 0 ]] || return 1
+    grep -Fq -- '--commit' "$log_dir/nginx-transaction.log" || return 1
+    ! grep -Fq -- '--rollback' "$log_dir/nginx-transaction.log" || return 1
+    return 0
+  fi
+  [[ "$rc" -ne 0 ]] || return 1
+  ! grep -Fq -- '--commit' "$log_dir/nginx-transaction.log" || return 1
+  grep -Fq -- '--rollback' "$log_dir/nginx-transaction.log" || return 1
+  grep -Fq -- '--finalize-rollback' "$log_dir/nginx-transaction.log" || return 1
+                                               
+  awk '
+    /systemctl restart nginx/ && !restarted { restarted = NR }
+    /nginx -T/ && !dumped { dumped = NR }
+                                                  
+    /systemctl daemon-reload/ { reloaded = NR }
+    END { exit !(restarted && dumped && reloaded &&
+                 restarted < dumped && dumped < reloaded) }
+  ' "$log_dir/sudo.log" || return 1
+  grep -Fq 'include /etc/nginx/snippets/purecvisor-proxy-auth.conf;' \
+    "$log_dir/deploy.out" "$log_dir/deploy.err"
 }
 
 remote_health_failure_contract() {
@@ -1008,7 +1122,7 @@ remote_abi_failure_contract() {
   [[ "$rc" -ne 0 ]] || return 1
   [[ ! -s "$log_dir/sudo.log" ]] || return 1
   [[ ! -s "$log_dir/start.log" ]] || return 1
-
+                                                                
   stages_are_cleaned "$log_dir"
   grep -Fq 'Remote ABI preflight' \
     "$log_dir/deploy.out" ||
@@ -1173,6 +1287,20 @@ for scope in remote local; do
       "$DEPLOY_SCRIPT" "current-${scope}-rollback-${failure}-failure" \
       "$scope" "$failure" ||
       fail "$scope rollback $failure failure must preserve retryable recovery state"
+  done
+done
+for scope in remote local; do
+  for dump_mode in include header; do
+    nginx_proxy_auth_include_contract \
+      "$DEPLOY_SCRIPT" "current-${scope}-proxy-auth-${dump_mode}" \
+      "$scope" "$dump_mode" commit ||
+      fail "$scope nginx deploy must check nginx -T and commit when X-PCV-Proxy-Auth is configured ($dump_mode)"
+  done
+  for dump_mode in missing commented error; do
+    nginx_proxy_auth_include_contract \
+      "$DEPLOY_SCRIPT" "current-${scope}-proxy-auth-${dump_mode}" \
+      "$scope" "$dump_mode" rollback ||
+      fail "$scope nginx deploy must not commit and must roll back when nginx -T shows no X-PCV-Proxy-Auth include ($dump_mode)"
   done
 done
 local_duplicate_failure_contract \
@@ -1897,11 +2025,17 @@ expected_deps = {
                                                     
     "check-fe-rpc-params",
     "check-rpc-route-unique",
+    "check-help-contract",
                                                                       
     "check-rerror-guard",
     "check-single-ui-surface",
     "check-runtime-prereqs",
     "check-vnc-proxy-lifetime",
+    "check-vnc-flow-control",
+    "check-vm-start-single-entry",
+    "check-file-size-ratchet",
+                                                   
+    "check-mainloop-reach",
 }
 require(
     len(deps) == len(set(deps)),
@@ -1909,13 +2043,13 @@ require(
 )
 require(
     set(deps) == expected_deps,
-    "check-all dependencies must match the complete expected 42-gate set",
+    "check-all dependencies must match the complete expected 47-gate set",
 )
 require(
-    "전체 통과 (42게이트:" in recipe and "AWS 수동 이관 제거" in recipe and "DPDK ownership lifecycle" in recipe and
+    "전체 통과 (47게이트:" in recipe and "AWS 수동 이관 제거" in recipe and "DPDK ownership lifecycle" in recipe and
     "network mode enum" in recipe and "iSCSI CHAP argv 제거" in recipe and
     "runtime prerequisites" in recipe and "VNC proxy lifetime" in recipe,
-    "check-all success message must describe all 42 gates",
+    "check-all success message must describe all 47 gates",
 )
 
 policy_section = re.search(

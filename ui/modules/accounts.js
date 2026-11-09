@@ -501,9 +501,7 @@ function renderAgentProviders(b, d) {
     return mk('div', { class: 'hc mb-10' },
       mk('h4', { class: 'justify-between items-center' },
         mk('span', null, ico + ' ' + p.name),
-        mk('label', { style: 'display:flex;align-items:center;gap:6px;cursor:pointer;font-size:10px' },
-          mk('input', { type: 'checkbox', id: 'agen' + i, checked: p.enabled ? '' : null, style: 'accent-color:var(--accent)' }),
-          p.enabled ? mk('span', { class: 'color-green' }, 'ENABLED') : mk('span', { class: 'color-muted' }, 'DISABLED'))),
+        mk('span', { class: p.enabled ? 'color-green' : 'color-muted', style: 'font-size:10px' }, p.enabled ? 'ENABLED' : 'DISABLED')),
       mk('div', { class: 'fr' },
         mk('label', { for: 'agm' + i }, 'Model'),
         mk('input', { id: 'agm' + i, value: p.model || '', class: 'text-11' })),
@@ -520,35 +518,30 @@ function renderAgentProviders(b, d) {
         i === 0 ? mk('button', { class: 'btn', onclick: 'testAllProviders()', style: 'font-size:10px;padding:4px 10px' }, '⚡ Test All') : null,
         mk('span', { id: 'agr' + i, class: 'text-11' })));
   });
+  var note = mk('p', { class: 'stat-label mb-8' }, _L('API 키가 있으면 켜지고, 끄려면 키 칸을 비우고 저장합니다. 가려진 키를 그대로 두면 바뀌지 않습니다.', 'A provider is on while it has an API key. To turn it off, clear the key and save. A masked key left as-is is not changed.'));
   var footer = mk('div', { class: 'flex gap-8 justify-end mt-14' },
     mk('button', { class: 'btn btn-g', onclick: 'saveAgentConfig()' }, t('btn.save') + ' All'),
     mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')));
   clearEl(b);
-  b.appendChild(frag(cards, footer));
+  b.appendChild(frag(note, cards, footer));
 }
 
 function renderAgentSettings(b, d) {
   var mk = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   const en = ((d.providers || []).filter(p => p.enabled).length);
+
+  const seconds = v => (typeof v === 'number' ? v + _L('초', ' s') : _L('알 수 없음', 'Unknown'));
   var general = mk('div', { class: 'hc mb-10' },
     mk('h4', null, '⚙ General ' + t('vm.settings')),
-    mk('div', { class: 'fr' },
-      mk('label', { for: 'ag-rate' }, 'Rate Limit'),
-      mk('div', { class: 'flex gap-6 items-center flex-1' },
-        mk('input', { id: 'ag-rate', type: 'number', value: (d.rate_limit_sec || 300), class: 'text-11 w-80' }),
-        mk('span', { class: 'stat-label' }, 'seconds between queries'))),
-    mk('div', { class: 'fr' },
-      mk('label', { for: 'ag-timeout' }, 'Timeout'),
-      mk('div', { class: 'flex gap-6 items-center flex-1' },
-        mk('input', { id: 'ag-timeout', type: 'number', value: (d.timeout_sec || 10), class: 'text-11 w-80' }),
-        mk('span', { class: 'stat-label' }, 'seconds per request'))));
+    HN.row(_L('호출 간격', 'Rate limit'), seconds(d.rate_limit_sec)),
+    HN.row(_L('요청 시간 제한', 'Request timeout'), seconds(d.timeout_sec)),
+    mk('p', { class: 'stat-label' }, _L('데몬에 고정된 값이라 여기서 바꿀 수 없습니다.', 'These are fixed in the daemon and cannot be changed here.')));
   var stats = mk('div', { class: 'hc mb-10' },
     mk('h4', null, '📊 Statistics'),
     HN.row('Total Queries', mk('span', { class: 'color-accent' }, (d.total_queries || 0))),
     HN.row('Active Providers', mk('span', { class: 'color-green' }, en + ' / ' + (d.providers || []).length)));
   var footer = mk('div', { class: 'flex gap-8 justify-end mt-14' },
-    mk('button', { class: 'btn btn-g', onclick: 'saveAgentSettings()' }, t('btn.save')),
-    mk('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.cancel')));
+    mk('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')));
   clearEl(b);
   b.appendChild(frag(general, stats, footer));
 }
@@ -677,16 +670,14 @@ async function testAllProviders() { const provNames = ['Claude', 'OpenAI', 'Gemi
    
 async function saveAgentConfig() {
   try { const provNames = ['Claude', 'OpenAI', 'Gemini', 'Ollama'];
-    const providers = provNames.map((name, i) => { const enEl = document.getElementById('agen' + i); return { name, model: document.getElementById('agm' + i).value, api_key: document.getElementById('agk' + i).value, endpoint: document.getElementById('age' + i).value, enabled: enEl ? enEl.checked : undefined }; });
+    const providers = provNames.map((name, i) => ({ name, model: document.getElementById('agm' + i).value, api_key: document.getElementById('agk' + i).value, endpoint: document.getElementById('age' + i).value }));
+    const edited = id => { const input = document.getElementById(id); return input.value !== input.defaultValue; };
+    const dropped = provNames.filter((_, i) => !providers[i].api_key && (edited('agm' + i) || edited('age' + i)));
+    if (dropped.length) {
+      toast(_L(dropped.join(', ') + ': API 키가 비어 있으면 끄기로 저장되어 고친 모델·엔드포인트가 버려집니다. 키를 넣거나 값을 되돌리세요.', dropped.join(', ') + ': with an empty API key the provider is turned off and the edited model or endpoint is discarded. Enter a key or revert the edit.'), false);
+      return;
+    }
     const res = await fetch(EP.AGENT_CONFIG(), { method: 'PUT', headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ providers }) });
-    if (!res.ok) throw new Error('HTTP ' + res.status);
-    toast(t('agent.config_saved')); closeModal();
-  } catch (e) { toast('Save failed: ' + e.message, false); }
-}
-
-async function saveAgentSettings() {
-  try { const rate = parseInt(document.getElementById('ag-rate').value) || 300; const timeout = parseInt(document.getElementById('ag-timeout').value) || 10;
-    const res = await fetch(EP.AGENT_CONFIG(), { method: 'PUT', headers: { Authorization: 'Bearer ' + authToken, 'Content-Type': 'application/json' }, body: JSON.stringify({ rate_limit_sec: rate, timeout_sec: timeout }) });
     if (!res.ok) throw new Error('HTTP ' + res.status);
     toast(t('agent.config_saved')); closeModal();
   } catch (e) { toast('Save failed: ' + e.message, false); }
@@ -1067,7 +1058,6 @@ window.toggleKeyVis = toggleKeyVis;
 window.testProvider = testProvider;
 window.testAllProviders = testAllProviders;
 window.saveAgentConfig = saveAgentConfig;
-window.saveAgentSettings = saveAgentSettings;
 
                                            
 PCV.accounts = {
@@ -1089,7 +1079,6 @@ PCV.accounts = {
   testProvider: testProvider,
   testAllProviders: testAllProviders,
   saveAgentConfig: saveAgentConfig,
-  saveAgentSettings: saveAgentSettings,
   renderApiPerf: renderApiPerf,
   runApiBenchmark: runApiBenchmark,
   renderActivityLog: renderActivityLog,

@@ -16,6 +16,7 @@
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
+import { captureAlertConfigBodies } from './alert-config-bodies.mjs';
 
 const MODS = [
   'ui/modules/ui.js',
@@ -124,7 +125,6 @@ async function attachActualNavigationApp(page) {
       'sdaPreview',
       'sdaExec',
       'ctrDistChanged',
-      'ctrIpModeChanged',
       'ctrLoadBridges',
       'vmPower',
       'render'
@@ -191,6 +191,25 @@ function okRoutes(config = CONFIG, history = []) {
     '/api/v1/alerts': { status: 200, body: history }
   };
 }
+
+test('alert config bodies carry only keys the daemon accepts', async () => {
+  const bodies = await captureAlertConfigBodies(CONFIG, {
+    warn: 'https://hooks.example.invalid/warn',
+    crit: 'https://hooks.example.invalid/crit',
+    secret: 'not-a-real-secret'
+  });
+  assert.deepEqual(bodies.routing, {
+    webhook_url: 'https://hooks.example.invalid/warn',
+    webhook_crit_url: 'https://hooks.example.invalid/crit',
+    webhook_secret: 'not-a-real-secret',
+    expected_revision: 11
+  });
+  assert.deepEqual(Object.keys(bodies.form).sort(), [
+    'cpu_crit', 'cpu_warn', 'disk_crit', 'disk_warn', 'enabled', 'eval_period', 'expected_revision',
+    'mem_crit', 'mem_warn', 'telegram_chat_id', 'webhook_format', 'webhook_url'
+  ]);
+  assert.equal(bodies.form.disk_warn, CONFIG.disk_warn - 1);
+});
 
 test('mon-alerts renders exactly one configuration heading and one apply action', async () => {
   await withPage(MODS, async (page) => {

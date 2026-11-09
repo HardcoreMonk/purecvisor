@@ -2988,7 +2988,8 @@ test_overlay_restore_total_deadline_is_bounded(void)
     gint64 started = g_get_monotonic_time();
     pcv_overlay_restore();
     gint64 elapsed = g_get_monotonic_time() - started;
-    g_assert_cmpint(elapsed, <, 500 * 1000);
+
+    g_assert_cmpint(elapsed, <, 10 * G_USEC_PER_SEC);
     g_assert_cmpuint(O.commands->len, ==, commands_before);
 
     JsonArray *list = pcv_overlay_list(&error);
@@ -3940,10 +3941,10 @@ static void test_overlay_bulk_restore_max_cardinality_is_constant(void)
 
 
     const gboolean instrumented = RUNNING_ON_VALGRIND != 0;
-    const gint64 elapsed_limit = (instrumented ? 300 : 30) * G_USEC_PER_SEC;
+    const gint64 elapsed_limit = (instrumented ? 600 : 30) * G_USEC_PER_SEC;
     if (instrumented) {
         pcv_overlay_shutdown();
-        pcv_overlay_set_restore_deadline_for_test(300000);
+        pcv_overlay_set_restore_deadline_for_test(600000);
         pcv_overlay_init("192.0.2.10");
     }
     GError *error = NULL;

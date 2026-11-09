@@ -26,6 +26,7 @@
 #define PURECVISOR_SECURITY_STORE_H
 
 #include "modules/security/security_event.h"
+#include "modules/security/security_event_bounds.h"                           
 
 G_BEGIN_DECLS
 
@@ -52,8 +53,14 @@ void pcv_security_store_close(void);
                                                                       
 gboolean pcv_security_submit_event(PcvSecurityEvent *ev, GError **error);
                                                                  
-                                                        
+                                                     
+                                                                                    
 gboolean pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error);
+                                                              
+                                                            
+                                                           
+gboolean pcv_security_store_insert_event_ex(const PcvSecurityEvent *ev, PcvSecInsertResult *out,
+                                            GError **error);
                                                       
                                               
                                                                                        
@@ -63,10 +70,17 @@ JsonArray *pcv_security_store_list_events(gint offset, gint limit,
                                            const gchar *status);
                                                                     
 JsonObject *pcv_security_store_get_event(const gchar *event_id);
-                                                                         
+                                                                                          
+                                             
 gboolean pcv_security_store_update_event_status(const gchar *event_id,
                                                 PcvSecurityStatus status,
                                                 GError **error);
+                                                                             
+                                                                                      
+                                                            
+                                                                          
+PcvSecCloseResult pcv_security_store_close_event(const gchar *event_id, const gchar *actor,
+                                                 const gchar *reason, GError **error);
                                                           
 gint pcv_security_store_count_by_coalesce_key(const gchar *coalesce_key);
                                                            

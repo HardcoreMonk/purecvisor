@@ -152,7 +152,7 @@ require_literal "운영 이벤트 센터" "ui/modules/monitor.js" "operations tr
 ops_triage_markup="$(sed -n '/^async function renderOpsTriage(b) {/,/^window.renderOpsTriage = renderOpsTriage;/p' ui/modules/monitor.js)"
 require_literal_in_text "cardHead('실제 이벤트 조회', '서버 기록')" "$ops_triage_markup" "operations triage screen must render the actual server event card"
 require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-alerts'); } }, '경보 조회')" "$ops_triage_markup" "operations triage alert button must navigate to mon-alerts"
-require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); } }, '서버 감사 로그 조회')" "$ops_triage_markup" "operations triage audit button must navigate to mon-audit"
+require_literal_in_text "el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); }, 'data-role': 'ADMIN' }, '서버 감사 로그 조회')" "$ops_triage_markup" "operations triage audit button must navigate to mon-audit"
 ops_triage_action="$(sed -n "/el('button', { class: 'ops-triage-action primary'/,+1p" <<< "$ops_triage_markup")"
 require_literal_in_text "el('button', { class: 'ops-triage-action primary', type: 'button', onclick: 'openCmdPalette()' }," "$ops_triage_action" "operations triage action button must open the command palette"
 require_literal_in_text "'ci-icon'), '조치 선택'" "$ops_triage_action" "operations triage action button must expose the current action label"
@@ -184,7 +184,11 @@ require_literal "방화벽 정책 편집" "ui/modules/network.js" "network scree
 require_literal "OVN ACL 운영 메모" "ui/modules/network.js" "network screen must expose the new OVN ACL operations note"
 require_literal "OVN 가용성" "ui/modules/network.js" "ovn screen must expose the new availability heading"
 reject_literal "DEMO_OVN_HEALTH" "ui/modules/endpoints.js" "endpoint registry must not expose removed public OVN demo health"
-reject_literal "/demo/ovn-ovs/health" "src/api/rest_server.c" "REST server must not route removed public OVN demo health"
+rest_files=(src/api/rest_*.c)
+[ -f "${rest_files[0]}" ] || fail "REST server sources (src/api/rest_*.c) must exist"
+for rest_file in "${rest_files[@]}"; do
+  reject_literal "/demo/ovn-ovs/health" "$rest_file" "REST server must not route removed public OVN demo health"
+done
 reject_literal "/demo/ovn-ovs/health" "ui/modules/help.js" "REST help must not catalog removed public OVN demo health"
 reject_literal "공개 OVN 데모 헬스" "ui/modules/network.js" "OVN screen must not show removed public demo health"
 reject_literal "OVN 데모 서비스 구성" "ui/modules/network.js" "OVN screen must not show removed demo service composition"

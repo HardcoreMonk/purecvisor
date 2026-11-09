@@ -204,7 +204,7 @@ static_assert(AUTO_RECLAIM_MISSES >= 1);
 typedef struct {
     gchar    name[128];                                                                       
                                                                  
-    gchar    labels[ANOMALY_LABELS_BUF];                                       
+    gchar    labels[ANOMALY_LABELS_BUF];                                                       
     gdouble  ring[ANOMALY_WINDOW];                          
     gint     pos;                                                    
     gint     count;                                                  
@@ -220,6 +220,9 @@ typedef struct {
     gboolean auto_registered;                                   
     gboolean missing_now;                                                 
     gint     miss_streak;                                                      
+                                                                               
+    gboolean has_prev_raw;                                                 
+    gdouble  prev_raw;                         
 } AnomalyMetric;
 
                                                        
@@ -320,6 +323,22 @@ _zscore(const AnomalyMetric *m, gdouble value)
 }
 
    
+                         
+                
+  
+                                                                      
+                                                                               
+  
+                                        
+                       
+   
+static gboolean
+_metric_is_cumulative(const gchar *name)
+{
+    return g_str_has_suffix(name, "_total") || g_str_has_prefix(name, "node_vmstat_");
+}
+
+   
          
                  
                 
@@ -329,7 +348,7 @@ _zscore(const AnomalyMetric *m, gdouble value)
          
                                                 
                                        
-                                
+                                                                                      
                                                 
   
                                                    
@@ -362,6 +381,8 @@ _push(AnomalyMetric *m, gdouble value)
     }
 
     gdouble z = _zscore(m, value);
+    if (_metric_is_cumulative(m->name) && value < _mean(m))
+        z = 0.0;                                                
     m->last_zscore = z;                                                        
 
     if (z > m->threshold) {
@@ -375,6 +396,34 @@ _push(AnomalyMetric *m, gdouble value)
         return TRUE;
     }
     return FALSE;
+}
+
+   
+                  
+                  
+                          
+                           
+  
+                                                   
+                                                                       
+                                                   
+                                                                
+  
+                                                                   
+                                 
+   
+static gboolean
+_metric_sample(AnomalyMetric *m, gdouble raw, gdouble *sample)
+{
+    if (!_metric_is_cumulative(m->name)) {
+        *sample = raw;
+        return TRUE;
+    }
+    const gboolean usable = m->has_prev_raw && raw >= m->prev_raw;
+    *sample = usable ? raw - m->prev_raw : 0.0;
+    m->prev_raw = raw;
+    m->has_prev_raw = TRUE;
+    return usable;
 }
 
                                                              
@@ -945,6 +994,8 @@ pcv_anomaly_init(void)
                                                                
     _add_watch("purecvisor_host_cpu_percent", "", 2.5);
     _add_watch("purecvisor_host_memory_percent", "", 2.5);
+                                                                                    
+                                                                     
     _add_watch("node_disk_io_time_seconds_total", "", 3.0);
     _add_watch("node_network_receive_errs_total", "", 2.0);
     _add_watch("purecvisor_rpc_duration_ms", "method=\"vm.list\"", 3.0);
@@ -966,6 +1017,61 @@ pcv_anomaly_shutdown(void)
     if (!G.initialized) return;
     G.initialized = FALSE;
     g_mutex_clear(&G.mu);
+}
+
+static void _evaluate_render_locked(const gchar *last_render);
+
+                                                           
+                                                           
+static gdouble
+_line_value(const gchar *line)
+{
+    const gchar *eol = strchr(line, '\n');
+    if (!eol) eol = line + strlen(line);
+    const gchar *sp = eol;
+    while (sp > line && sp[-1] != ' ') sp--;
+    if (sp == line || sp == eol) return NAN;
+    gchar *end = NULL;
+    gdouble v = g_ascii_strtod(sp, &end);
+                                                                   
+    return (end == sp || !isfinite(v)) ? NAN : v;
+}
+
+                                         
+                                                       
+                              
+gdouble
+pcv_anomaly_read_value(const gchar *render_text, const gchar *name, const gchar *labels)
+{
+    if (!render_text || !name || !*name) return NAN;
+    gsize name_len = strlen(name);
+    gsize labels_len = labels ? strlen(labels) : 0;
+    gdouble sum = 0.0;
+    gboolean summed = FALSE;                              
+                                                                            
+                                                                        
+    for (const gchar *line = render_text; line && *line; ) {
+        const gchar *next = strchr(line, '\n');
+        if (strncmp(line, name, name_len) == 0) {
+            const gchar *after = line + name_len;
+            if (labels_len) {
+                                                                  
+                if (*after == '{' && strncmp(after + 1, labels, labels_len) == 0
+                    && after[1 + labels_len] == '}')
+                    return _line_value(line);
+            } else if (*after == ' ') {
+                return _line_value(line);                             
+            } else if (*after == '{') {
+                                                                         
+                                                                           
+                                                                         
+                gdouble v = _line_value(line);
+                if (!isnan(v)) { sum += v; summed = TRUE; }                             
+            }
+        }
+        line = next ? next + 1 : NULL;
+    }
+    return summed ? sum : NAN;
 }
 
    
@@ -1023,6 +1129,26 @@ pcv_anomaly_evaluate(void)
         }
     }
 
+    _evaluate_render_locked(last_render);
+    g_mutex_unlock(&G.mu);
+}
+
+                                                                                  
+void
+pcv_anomaly_evaluate_text(const gchar *render_text)
+{
+    if (!G.initialized) return;
+    g_mutex_lock(&G.mu);
+    _evaluate_render_locked(render_text);
+    g_mutex_unlock(&G.mu);
+}
+
+                                                                
+                                                         
+                                                                 
+static void
+_evaluate_render_locked(const gchar *last_render)
+{
                                    
       
                                                            
@@ -1062,55 +1188,17 @@ pcv_anomaly_evaluate(void)
 
         if (!last_render) continue;                                     
 
-                                                
                                                           
-        gdouble value = NAN;
-        gchar search_key[ANOMALY_SEARCH_KEY_BUF];
-        if (m->labels[0]) {
-                                                      
-            g_snprintf(search_key, sizeof(search_key), "%s{%s}", m->name, m->labels);
-        } else {
-                                                                     
-            g_snprintf(search_key, sizeof(search_key), "%s ", m->name);
-        }
+        gdouble value = pcv_anomaly_read_value(last_render, m->name, m->labels);
 
-                                                              
-                                                              
-                                                                
-                                                        
-                                                             
-                                                            
-        const gchar *found = last_render;
-        while ((found = strstr(found, search_key)) != NULL) {
-                                                                  
-            if (found == last_render || found[-1] == '\n') break;
-            found += 1;                                
+        if (isnan(value)) {                                                        
+            m->has_prev_raw = FALSE;
+            continue;
         }
-        if (found) {
-                                                               
-                                                          
-            const gchar *space = strrchr(search_key, ' ');
-            if (!space) space = strchr(found + strlen(m->name), ' ');
-            else space = found + strlen(search_key) - 1;
-            if (space) {
-                                                  
-                                               
-                const gchar *val_start = found + strlen(search_key);
-                if (m->labels[0]) {
-                                                                         
-                    val_start = strchr(found, '}');
-                    if (val_start) val_start++;                            
-                    while (val_start && *val_start == ' ') val_start++;
-                }
-                                                                     
-                                                                  
-                if (val_start) value = g_ascii_strtod(val_start, NULL);
-            }
-        }
+        gdouble sample = value;
+        if (!_metric_sample(m, value, &sample)) continue;                              
 
-        if (isnan(value)) continue;                                
-
-        gboolean anomaly = _push(m, value);                        
+        gboolean anomaly = _push(m, sample);                        
 
                                                 
                                                                
@@ -1120,7 +1208,7 @@ pcv_anomaly_evaluate(void)
         pcv_prom_gauge_set_labels("purecvisor_anomaly_score", lbl, m->last_zscore);
 
         if (anomaly) {
-            _emit_alert(m, value);                      
+            _emit_alert(m, sample);                                        
             active++;
         } else if (m->last_zscore > m->threshold * 0.8) {
                                                                  
@@ -1134,8 +1222,6 @@ pcv_anomaly_evaluate(void)
                                                                         
     pcv_prom_gauge_set_labels("purecvisor_anomaly_active", "", (gdouble)active);
     pcv_prom_gauge_set_labels("purecvisor_anomaly_alerts_total", "", (gdouble)G.total_alerts);
-
-    g_mutex_unlock(&G.mu);
 }
 
    
@@ -1178,6 +1264,7 @@ pcv_anomaly_reset_baseline(void)
                                                        
         m->miss_streak = 0;
         m->missing_now = FALSE;
+        m->has_prev_raw = FALSE;
     }
 
                          

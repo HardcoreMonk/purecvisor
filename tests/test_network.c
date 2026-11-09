@@ -24,8 +24,8 @@
 #include <unistd.h>
 #include "purecvisor/pcv_validate.h"
 #include "modules/network/network_firewall_host.h"
-#include "modules/network/network_firewall.h"                                     
 #include "modules/network/network_manager.h"                     
+#include "modules/network/iface_guard.h"
 #include "utils/pcv_spawn.h"                                                            
 
                                                             
@@ -168,187 +168,6 @@ static void test_firewall_teardown_token_match(void) {
                                            
                                               
                                         
-
-                                     
-static gboolean _plan_contains(GPtrArray *cmds, const gchar *needle) {
-    for (guint i = 0; i < cmds->len; i++)
-        if (strstr((const gchar *)g_ptr_array_index(cmds, i), needle))
-            return TRUE;
-    return FALSE;
-}
-
-static void test_host_fw_plan_ufw_add(void) {
-    GPtrArray *cmds = pcv_host_fw_plan(PCV_HOST_FW_UFW, "br0", FALSE);
-                                        
-    g_assert_cmpuint(cmds->len, ==, 3);
-    g_assert_true(_plan_contains(cmds, "ufw route allow in on br0"));
-    g_assert_true(_plan_contains(cmds, "ufw route allow out on br0"));
-    g_assert_true(_plan_contains(cmds, "ufw allow in on br0"));
-                                    
-    g_assert_false(_plan_contains(cmds, "delete"));
-    g_ptr_array_unref(cmds);
-}
-
-static void test_host_fw_plan_ufw_remove(void) {
-    GPtrArray *cmds = pcv_host_fw_plan(PCV_HOST_FW_UFW, "br0", TRUE);
-    g_assert_cmpuint(cmds->len, ==, 3);
-                                     
-    g_assert_true(_plan_contains(cmds, "ufw --force delete route allow in on br0"));
-    g_assert_true(_plan_contains(cmds, "ufw --force delete route allow out on br0"));
-    g_assert_true(_plan_contains(cmds, "ufw --force delete allow in on br0"));
-    g_ptr_array_unref(cmds);
-}
-
-static void test_host_fw_plan_iptables_add(void) {
-    GPtrArray *cmds = pcv_host_fw_plan(PCV_HOST_FW_IPTABLES_DROP, "br0", FALSE);
-                                                  
-    g_assert_cmpuint(cmds->len, ==, 5);
-    g_assert_true(_plan_contains(cmds, "iptables -I FORWARD -i br0 -j ACCEPT"));
-                                              
-    g_assert_true(_plan_contains(cmds, "conntrack"));
-    g_assert_true(_plan_contains(cmds, "--ctstate RELATED,ESTABLISHED"));
-                                 
-    g_assert_true(_plan_contains(cmds, "INPUT -i br0 -p udp --dport 67"));
-    g_assert_true(_plan_contains(cmds, "INPUT -i br0 -p udp --dport 53"));
-    g_assert_true(_plan_contains(cmds, "INPUT -i br0 -p tcp --dport 53"));
-                                                            
-    g_assert_false(_plan_contains(cmds, "-C "));
-    g_ptr_array_unref(cmds);
-}
-
-static void test_host_fw_plan_iptables_remove(void) {
-    GPtrArray *cmds = pcv_host_fw_plan(PCV_HOST_FW_IPTABLES_DROP, "br0", TRUE);
-    g_assert_cmpuint(cmds->len, ==, 5);
-                           
-    g_assert_true(_plan_contains(cmds, "iptables -D FORWARD -i br0 -j ACCEPT"));
-    g_assert_false(_plan_contains(cmds, "-I "));
-    g_ptr_array_unref(cmds);
-}
-
-static void test_host_fw_plan_open_empty(void) {
-                                      
-    GPtrArray *add = pcv_host_fw_plan(PCV_HOST_FW_OPEN, "br0", FALSE);
-    GPtrArray *rem = pcv_host_fw_plan(PCV_HOST_FW_OPEN, "br0", TRUE);
-    g_assert_cmpuint(add->len, ==, 0);
-    g_assert_cmpuint(rem->len, ==, 0);
-    g_ptr_array_unref(add);
-    g_ptr_array_unref(rem);
-}
-
-static void test_host_fw_plan_firewalld_empty(void) {
-                                                          
-    GPtrArray *cmds = pcv_host_fw_plan(PCV_HOST_FW_FIREWALLD, "br0", FALSE);
-    g_assert_cmpuint(cmds->len, ==, 0);
-    g_ptr_array_unref(cmds);
-}
-
-                                                            
-  
-                                                                      
-                                                    
-                                                                
-                                                       
-  
-                                                                                
-                                                               
-                                                      
-                                                          
-
-static void _net2_write_mock(const gchar *dir, const gchar *name, const gchar *body) {
-    gchar *path = g_build_filename(dir, name, NULL);
-    g_assert_true(g_file_set_contents(path, body, -1, NULL));
-    g_assert_cmpint(g_chmod(path, 0755), ==, 0);
-    g_free(path);
-}
-
-                                                           
-static gboolean _net2_run_isolated(int nft_exit, GError **err) {
-                                                        
-    pcv_spawn_launcher_shutdown();
-
-    gchar *dir = g_dir_make_tmp("pcvnet2-XXXXXX", NULL);
-    g_assert_nonnull(dir);
-    gchar *nft_body = g_strdup_printf("#!/bin/sh\nexit %d\n", nft_exit);
-    _net2_write_mock(dir, "nft", nft_body);
-    _net2_write_mock(dir, "sysctl", "#!/bin/sh\nexit 0\n");              
-    g_free(nft_body);
-
-    gchar *saved = g_strdup(g_getenv("PATH"));
-    gchar *newp  = g_strdup_printf("%s:%s", dir, saved ? saved : "");
-    g_setenv("PATH", newp, TRUE);
-
-    gboolean ok = network_firewall_setup_isolated("pcvbrtest0", "10.9.9.1/24", err);
-
-    if (saved) g_setenv("PATH", saved, TRUE); else g_unsetenv("PATH");
-
-    gchar *p_nft = g_build_filename(dir, "nft", NULL);
-    gchar *p_sc  = g_build_filename(dir, "sysctl", NULL);
-    g_remove(p_nft); g_remove(p_sc); g_rmdir(dir);
-    g_free(p_nft); g_free(p_sc);
-    g_free(saved); g_free(newp); g_free(dir);
-    return ok;
-}
-
-                                                                    
-static void test_firewall_isolated_nft_failure_propagates(void) {
-    GError *err = NULL;
-    gboolean ok = _net2_run_isolated(1, &err);
-    g_assert_false(ok);
-    g_assert_nonnull(err);
-    g_clear_error(&err);
-}
-
-                                                               
-                                 
-static void test_firewall_isolated_nft_success_returns_true(void) {
-    GError *err = NULL;
-    gboolean ok = _net2_run_isolated(0, &err);
-    g_assert_true(ok);
-    g_assert_no_error(err);
-}
-
-                                                          
-                                                               
-                                                           
-                                                           
-                                                        
-                                           
-static void test_firewall_isolated_drop_rule_failure_propagates(void) {
-    pcv_spawn_launcher_shutdown();
-
-    gchar *dir = g_dir_make_tmp("pcvnet2d-XXXXXX", NULL);
-    g_assert_nonnull(dir);
-    _net2_write_mock(dir, "nft",
-        "#!/bin/sh\nfor a in \"$@\"; do [ \"$a\" = \"drop\" ] && exit 1; done\nexit 0\n");
-    _net2_write_mock(dir, "sysctl", "#!/bin/sh\nexit 0\n");              
-
-    gchar *saved = g_strdup(g_getenv("PATH"));
-    gchar *newp  = g_strdup_printf("%s:%s", dir, saved ? saved : "");
-    g_setenv("PATH", newp, TRUE);
-
-    GError *err = NULL;
-    gboolean ok = network_firewall_setup_isolated("pcvbrtest0", "10.9.9.1/24", &err);
-
-    if (saved) g_setenv("PATH", saved, TRUE); else g_unsetenv("PATH");
-
-    gchar *p_nft = g_build_filename(dir, "nft", NULL);
-    gchar *p_sc  = g_build_filename(dir, "sysctl", NULL);
-    g_remove(p_nft); g_remove(p_sc); g_rmdir(dir);
-    g_free(p_nft); g_free(p_sc);
-    g_free(saved); g_free(newp); g_free(dir);
-
-    g_assert_false(ok);
-    g_assert_nonnull(err);
-    g_clear_error(&err);
-}
-
-                                                           
-
-   
-                           
-                                                           
-                                                
-   
 static void test_n8_bridge_mtu_read(void) {
     gchar *base = g_dir_make_tmp("pcv_mtu_XXXXXX", NULL);
     g_assert_nonnull(base);
@@ -482,12 +301,59 @@ static void test_physical_preflight_rejects_master_and_uncertain(void)
 
     gchar *route6 = g_build_filename(procroot, "net", "ipv6_route", NULL);
     g_remove(route6);                                
+    g_assert_true(pcv_network_iface_preflight_dedicated(
+        "enptest0", sysroot, procroot, NULL, &error));
+    g_assert_no_error(error);
+
+    g_assert_cmpint(g_mkdir(route6, 0700), ==, 0);
+    g_assert_false(pcv_network_iface_preflight_dedicated(
+        "enptest0", sysroot, procroot, NULL, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_assert_cmpint(g_rmdir(route6), ==, 0);
+    _pb_write(route6, "");
+
+    gchar *route4 = g_build_filename(procroot, "net", "route", NULL);
+    g_remove(route4);
     g_assert_false(pcv_network_iface_preflight_dedicated(
         "enptest0", sysroot, procroot, NULL, &error));
     g_assert_nonnull(error);
     g_clear_error(&error);
 
-    g_free(route6); g_free(master);
+    g_free(route4); g_free(route6); g_free(master);
+    _pb_remove_tree(base);
+    g_free(procroot); g_free(sysroot); g_free(base);
+}
+
+static void test_physical_preflight_rejects_stacked_upper(void)
+{
+    gchar *base = g_dir_make_tmp("pcv-physical-XXXXXX", NULL);
+    gchar *sysroot = g_build_filename(base, "sys", NULL);
+    gchar *procroot = g_build_filename(base, "proc", NULL);
+    _pb_fixture_create(sysroot, procroot, "enptest0");
+    gchar *upper = g_build_filename(sysroot, "enptest0", "upper_enptest0.10", NULL);
+    g_assert_cmpint(symlink("../enptest0.10", upper), ==, 0);
+
+    GError *error = NULL;
+    g_assert_false(pcv_network_iface_preflight_dedicated(
+        "enptest0", sysroot, procroot, NULL, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "enptest0.10"));
+    g_clear_error(&error);
+    g_remove(upper);
+
+    gchar *own = g_build_filename(sysroot, "enptest0", "upper_pcvbr7", NULL);
+    g_assert_cmpint(symlink("../pcvbr7", own), ==, 0);
+    g_assert_true(pcv_iface_guard_check_dedicated(
+        "enptest0", "pcvbr7", sysroot, procroot, NULL, &error));
+    g_assert_no_error(error);
+    g_assert_false(pcv_iface_guard_check_dedicated(
+        "enptest0", NULL, sysroot, procroot, NULL, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_remove(own);
+
+    g_free(own); g_free(upper);
     _pb_remove_tree(base);
     g_free(procroot); g_free(sysroot); g_free(base);
 }
@@ -1144,20 +1010,6 @@ void test_network_register(void) {
     g_test_add_func("/network/v11/iface_ip_vm",           test_v11_iface_ip_vm_validation);
     g_test_add_func("/network/v15/teardown_token_match",  test_firewall_teardown_token_match);
                                       
-    g_test_add_func("/network/host_fw_plan_ufw_add",        test_host_fw_plan_ufw_add);
-    g_test_add_func("/network/host_fw_plan_ufw_remove",     test_host_fw_plan_ufw_remove);
-    g_test_add_func("/network/host_fw_plan_iptables_add",   test_host_fw_plan_iptables_add);
-    g_test_add_func("/network/host_fw_plan_iptables_remove",test_host_fw_plan_iptables_remove);
-    g_test_add_func("/network/host_fw_plan_open_empty",     test_host_fw_plan_open_empty);
-    g_test_add_func("/network/host_fw_plan_firewalld_empty",test_host_fw_plan_firewalld_empty);
-                                                                
-    g_test_add_func("/network/net2/isolated_nft_failure_propagates",
-                    test_firewall_isolated_nft_failure_propagates);
-    g_test_add_func("/network/net2/isolated_nft_success_returns_true",
-                    test_firewall_isolated_nft_success_returns_true);
-    g_test_add_func("/network/net2/drop_rule_failure_propagates",
-                    test_firewall_isolated_drop_rule_failure_propagates);
-                            
     g_test_add_func("/network/n8/bridge_mtu_read", test_n8_bridge_mtu_read);
     g_test_add_func("/network/physical/preflight_safe_default_route",
                     test_physical_preflight_safe_and_default_route);
@@ -1165,6 +1017,8 @@ void test_network_register(void) {
                     test_physical_preflight_rejects_master_and_uncertain);
     g_test_add_func("/network/physical/preflight_wireless_ipv6_loopback",
                     test_physical_preflight_rejects_wireless_ipv6_and_loopback);
+    g_test_add_func("/network/physical/preflight_rejects_stacked_upper",
+                    test_physical_preflight_rejects_stacked_upper);
     g_test_add_func("/network/physical/address_facts_fail_closed",
                     test_physical_address_facts_fail_closed);
     g_test_add_func("/network/shared/preflight_address_facts",

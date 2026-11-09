@@ -96,8 +96,10 @@ gboolean pcv_tenant_overlay_get_member_ep(const gchar *tenant, const gchar *vm, 
 }
 
 
-GSubprocess *pcv_spawn_newv(const gchar *const *argv, GSubprocessFlags flags, GError **error)
+GSubprocess *pcv_spawn_newv_profile(const gchar *const *argv, GSubprocessFlags flags,
+                                  PcvChildCapabilityProfile profile, GError **error)
 {
+    g_assert_cmpint(profile, ==, PCV_CHILD_CAP_TRACE);
     GSubprocess *proc = g_subprocess_newv(argv, flags, error);
     if (proc) capture_proc = g_object_ref(proc);
     return proc;

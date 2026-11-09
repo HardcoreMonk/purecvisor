@@ -1,6 +1,6 @@
    
                            
-
+                                                                      
   
                            
                                                    
@@ -31,13 +31,13 @@
                           
                                                         
                                                  
-
+                                                                            
   
          
                                                                       
                                     
                                                                        
-                                                                
+                                                                                
                                                       
   
           
@@ -54,6 +54,7 @@
 #include <stdlib.h>
 
 #include "api/uds_server.h"
+#include "modules/dispatcher/handler_vm_start.h"                                                     
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/core/vm_state.h"
 #include "modules/core/cpu_allocator.h"
@@ -61,14 +62,14 @@
 #include "modules/virt/vm_manager.h"                                                     
                                                                                                     
                                                                                            
-#include "modules/virt/vm_start_capacity.h"
+#include "modules/virt/vm_start_capacity.h"                                                    
 #include "modules/audit/pcv_audit.h"
 #include "api/ws_server.h"
 #include "../network/security_group.h"
 #include "../network/tenant_overlay.h"
 #include "../network/network_dhcp.h"                                                                     
 #include "../network/network_manager.h"                                     
-#include "../network/dpdk_manager.h"
+#include "../network/dpdk_manager.h"                                                           
 #include "../network/pcv_qos.h"                                                                
 #include "utils/pcv_validate.h"                                                                     
                                                                                               
@@ -88,17 +89,17 @@ extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identi
                                   
   
                                
-                                            
-                                    
+                                                             
+                 
                                               
                                             
                                                        
   
-                                                          
+                                                                  
                                                                      
    
 typedef struct {
-    gchar *vm_id;                                                                      
+    gchar *vm_id;                                                          
     gchar *alloc_key;                                                                  
                                                                                 
                                                                 
@@ -108,10 +109,11 @@ typedef struct {
                                                                  
     GArray *allocated_cpus;                                             
     gint numa_node;                                                      
-    gchar *rpc_id;                                    
-    UdsServer *server;                                           
-    GSocketConnection *connection;                                  
+    gchar *origin;                                                          
+    PcvVmStartDoneFn done;                                         
+    gpointer done_data;                                         
     gint64 worker_start_us;                                                    
+    PcvVmLock *lock;                                                                    
 } VmStartContext;
 
    
@@ -127,10 +129,8 @@ static void free_vm_start_context(gpointer data) {
     g_free(ctx->vm_id);
     g_free(ctx->alloc_key);
     g_free(ctx->bridge_name);
-    g_free(ctx->rpc_id);
+    g_free(ctx->origin);
     if (ctx->allocated_cpus) g_array_unref(ctx->allocated_cpus);
-    if (ctx->server) g_object_unref(ctx->server);
-    if (ctx->connection) g_object_unref(ctx->connection);
     g_free(ctx);
 }
 
@@ -372,14 +372,14 @@ fail:
     return FALSE;
 }
 
-
-
-
-
+                                                                         
+                                                                       
+                                                                     
+                                            
 static gboolean
 _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
                                 const gchar *vm_name, gboolean active,
-                                GError **error)
+                                const gchar *actor, GError **error)
 {
     gchar *bridge = NULL;
     PcvDpdkMetaResult metadata = pcv_vm_dpdk_metadata_read(*dom_io, &bridge);
@@ -418,8 +418,8 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
     }
 
     if (action == PCV_DPDK_VHOST_START_MIGRATE_LEGACY) {
-
-
+                                                                               
+                                              
         GError *local_error = NULL;
         if (!pcv_dpdk_vhost_runtime_preflight(&local_error)) {
             g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
@@ -477,12 +477,12 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
             g_free(bridge);
             return FALSE;
         }
-
-
-
+                                                                       
+                                                                   
+                                                          
         g_message("[vm.start] VM '%s': DPDK vhost source migrated "
                   "(legacy -> canonical)", vm_name);
-        pcv_audit_log(NULL, "vm.dpdk_vhost.runtime", vm_name,
+        pcv_audit_log(actor, "vm.dpdk_vhost.runtime", vm_name,
                       "migrated-legacy-to-canonical", 0, 0, "local");
     }
 
@@ -504,7 +504,7 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
     if (deferred) {
         g_warning("[vm.start] VM '%s': DPDK vhost migration deferred "
                   "(active source=legacy, endpoint=legacy)", vm_name);
-        pcv_audit_log(NULL, "vm.dpdk_vhost.runtime", vm_name,
+        pcv_audit_log(actor, "vm.dpdk_vhost.runtime", vm_name,
                       "deferred-active-legacy", 0, 0, "local");
     }
 
@@ -513,27 +513,28 @@ _reconcile_dpdk_vhost_for_start(virConnectPtr conn, virDomainPtr *dom_io,
     return TRUE;
 }
 
-
+                                                                   
 typedef struct {
     virConnectPtr conn;
     const gchar *vm_name;
+    const gchar *actor;                                                     
 } InactiveDpdkPrepare;
 
-
-
+                                                                        
+                                                                   
 static gboolean
 _prepare_inactive_dpdk_for_start(virDomainPtr *domain_io, gpointer data, GError **error)
 {
     InactiveDpdkPrepare *prepare = data;
     return _reconcile_dpdk_vhost_for_start(
-        prepare->conn, domain_io, prepare->vm_name, FALSE, error);
+        prepare->conn, domain_io, prepare->vm_name, FALSE, prepare->actor, error);
 }
 
-
-
-
-
-
+                                                              
+                                                               
+                                                   
+                                                    
+                                                               
 static gboolean
 _wake_pm_suspended_for_start(virDomainPtr dom, GError **error)
 {
@@ -592,14 +593,14 @@ _wake_pm_suspended_for_start(virDomainPtr dom, GError **error)
                                    
   
                                                            
-
+                                                                                  
                                                             
   
           
                   
                                                    
-
-
+                                                                                     
+                                                                       
                                            
                                           
                                                            
@@ -609,7 +610,7 @@ _wake_pm_suspended_for_start(virDomainPtr dom, GError **error)
                        
                                              
                                          
-
+                                                                    
   
                                                          
    
@@ -626,7 +627,7 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
                                  
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
-        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to connect to Libvirt daemon.");
+        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_NOT_CONNECTED, "Failed to connect to Libvirt daemon.");
         g_task_return_error(task, error);
         return;
     }
@@ -649,9 +650,9 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
         goto cleanup_dom;
     }
 
-
-
-
+                                                                    
+                                                                      
+                             
     gint active_state = virDomainIsActive(dom);
     if (active_state < 0) {
         virErrorPtr vir_error = virGetLastError();
@@ -662,30 +663,30 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
     }
     gboolean domain_active = active_state == 1;
 
-
-
+                                                                           
+                                                            
                                                                          
                                                           
                                                           
                                                       
     if (domain_active) {
-
+                                                                     
         if (!_reconcile_dpdk_vhost_for_start(
-                conn, &dom, canonical_name, TRUE, &error))
+                conn, &dom, canonical_name, TRUE, pcv_drain_task_actor(task), &error))
             goto cleanup_dom;
         if (!_wake_pm_suspended_for_start(dom, &error))
             goto cleanup_dom;
         g_message("[vm.start] VM '%s': active start/wakeup completed", ctx->vm_id);
         virDomainFree(dom);
         virt_conn_pool_release(conn);
-
+                                                          
         pcv_security_group_sync_vm(ctx->vm_id);
-
-
-
-
-
-
+                                                                 
+                                                           
+                                                          
+                                                           
+                                                        
+                                                   
         g_free(canonical_name);
         g_task_return_boolean(task, TRUE);
         return;
@@ -743,11 +744,12 @@ static void vm_start_worker_thread(GTask *task, gpointer source_object, gpointer
         }
     }
 
-
-
-
-
-    InactiveDpdkPrepare prepare = { .conn = conn, .vm_name = canonical_name };
+                                                                        
+                                                      
+                                                                 
+                                                             
+    InactiveDpdkPrepare prepare = { .conn = conn, .vm_name = canonical_name,
+                                    .actor = pcv_drain_task_actor(task) };
     if (!pcv_vm_start_with_capacity(
             &dom, "/sys", _prepare_inactive_dpdk_for_start, &prepare, &error)) {
         goto cleanup_dom;
@@ -931,8 +933,8 @@ cleanup_conn:
   
               
                                                
-
-
+                                                       
+                                              
    
 static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -940,18 +942,18 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
     GError *error = NULL;
 
     gboolean success = g_task_propagate_boolean(task, &error);
-    unlock_vm_operation(ctx->vm_id);                              
+    g_clear_pointer(&ctx->lock, pcv_vm_lock_release);                              
 
       
                                     
                                        
-
+                                               
        
                                      
                                                                          
                                                          
     gint64 worker_dur_ms = (g_get_monotonic_time() - ctx->worker_start_us) / 1000;
-    pcv_audit_log(NULL, "vm.start", ctx->vm_id,
+    pcv_audit_log(pcv_drain_task_actor(res), "vm.start", ctx->vm_id,
                   success ? "ok" : "fail",
                   success ? 0 : PURE_RPC_ERR_ZFS_OPERATION, worker_dur_ms, "local");
 
@@ -968,16 +970,235 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
                                             
                                                                                     
                                                                         
-
-
+                                                                   
+                                                                  
         if (ctx->allocated_cpus)
             cpu_allocator_free_vm_cores(global_allocator, ctx->alloc_key);
-        g_warning("[vm.start] async worker failed for '%s': %s",
-                  ctx->vm_id, error ? error->message : "unknown");
-        if (error) g_error_free(error);
+        g_warning("[vm.start] async worker failed for '%s' (origin=%s): %s",
+                  ctx->vm_id, ctx->origin, error ? error->message : "unknown");
     } else {
-        g_message("[vm.start] VM '%s' started successfully (async)", ctx->vm_id);
+        g_message("[vm.start] VM '%s' started successfully (async, origin=%s)", ctx->vm_id, ctx->origin);
     }
+                                                                              
+    if (ctx->done)
+        ctx->done(ctx->vm_id, success, error, ctx->done_data);
+    if (error) g_error_free(error);
+}
+
+void pcv_vm_start_report_rejected(const gchar *vm_id, const gchar *origin, const gchar *reason, const gchar *actor)
+{
+    const gchar *why = (reason && *reason) ? reason : "start rejected";
+    pcv_audit_log(actor, "vm.start", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+    gchar *job_id = g_strdup_printf("vm.start:%s", vm_id);
+    pcv_ws_broadcast_job_complete(job_id, "vm.start", "fail", why);
+    g_free(job_id);
+    g_warning("[vm.start] submit rejected for '%s' (origin=%s): %s", vm_id, origin ? origin : "vm.start", why);
+}
+
+   
+                     
+                                                                    
+  
+                                                                     
+                                                  
+  
+                                                                                 
+                                                                           
+                                                              
+  
+                                                                            
+                                                                               
+                                                                                     
+                                                 
+                                                                                    
+                                                                                    
+                                                                                        
+                                                                                  
+                                                                                      
+                                                             
+                                                                                          
+   
+static PcvVmStartSubmit _vm_start_prepare(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                           gpointer user_data, GTask **task_out, gchar **err_msg,
+                                           gint *reject_code)
+{
+    *task_out = NULL;
+    if (!req || !req->vm_id) {
+        if (err_msg) *err_msg = g_strdup("Invalid params");
+        return PCV_VM_START_REJECTED;
+    }
+    const gchar *vm_id = req->vm_id;
+    const gchar *origin = req->origin ? req->origin : "vm.start";
+    guint numa_node = req->numa_node;
+    guint vcpu_count = req->vcpu_count;                                                             
+
+      
+                                              
+                                             
+                                                              
+       
+                                                          
+                                                              
+    PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_STARTING, err_msg);
+    if (!op_lock)
+        return PCV_VM_START_REJECTED;
+    g_message("[vm.start] submit '%s' (origin=%s)", vm_id, origin);
+
+      
+                                     
+      
+                                  
+                                              
+                                                   
+                                     
+      
+                                                
+                                             
+       
+                                                                                   
+                                                                         
+                                     
+                             
+                                                                                
+                                                                 
+                                                                        
+                                                                         
+                                                                        
+                                                                  
+                                                                   
+                                                                 
+                                                                                   
+                                                                                  
+                                                                                                     
+                                                                           
+                                                                
+                                                               
+                                                    
+    gchar *alloc_key = g_strdup(vm_id);                                                    
+    gboolean already_active = FALSE, skip_alloc = TRUE, precheck_failed = FALSE;
+    guint domain_vcpus = 0;                                                                       
+    {
+        virConnectPtr pc_conn = virt_conn_pool_acquire();
+        if (pc_conn) {
+            virDomainPtr pdom = pure_virt_get_domain(pc_conn, vm_id);
+            if (pdom) {
+                const char *cn = virDomainGetName(pdom);                           
+                if (cn && *cn) { g_free(alloc_key); alloc_key = g_strdup(cn); }
+                                                                                                               
+                virDomainInfo info;
+                if (virDomainGetInfo(pdom, &info) < 0) {
+                    precheck_failed = TRUE;
+                } else {
+                    gboolean active = pcv_vm_start_info_active(info.state);
+                    already_active = active;
+                    skip_alloc = active;
+                    domain_vcpus = info.nrVirtCpu;
+                }
+                virDomainFree(pdom);
+            } else if (virGetLastErrorCode() == VIR_ERR_NO_DOMAIN) {
+                skip_alloc = TRUE;                                           
+            } else {
+                precheck_failed = TRUE;
+            }
+            virt_conn_pool_release(pc_conn);
+        } else {
+            precheck_failed = TRUE;
+        }
+    }
+
+                                                                             
+    if (precheck_failed) {
+        g_free(alloc_key);
+        pcv_vm_lock_release(op_lock);
+        if (err_msg) *err_msg = g_strdup("Hypervisor connection pool exhausted");
+        return PCV_VM_START_REJECTED;
+    }
+
+                                                                                        
+                                                                                                       
+                                                                                      
+                                                    
+                                                                                        
+                                                                    
+                                                                                     
+                                                                                 
+                                                    
+                                                                              
+    if (vcpu_count > 0 && domain_vcpus > 0 && vcpu_count > domain_vcpus) {
+        g_free(alloc_key);
+        pcv_vm_lock_release(op_lock);
+        if (err_msg) *err_msg = g_strdup_printf("Invalid vcpu_count: %u exceeds the %u vCPUs of this VM", vcpu_count, domain_vcpus);
+        if (reject_code) *reject_code = PURE_RPC_ERR_INVALID_PARAMS;
+        return PCV_VM_START_REJECTED;
+    }
+
+                                                            
+                                                          
+                                                                       
+    if (req->skip_if_active && already_active) {
+        g_message("[vm.start] '%s' already active — skip (origin=%s)", alloc_key, origin);
+        g_free(alloc_key);
+        pcv_vm_lock_release(op_lock);
+        return PCV_VM_START_ALREADY_ACTIVE;
+    }
+
+    GArray *allocated_cpus = NULL;
+    gint actual_numa_node = -1;
+                                                                                              
+                                                                             
+                                                      
+    guint pin_count = pcv_vm_start_pin_count(vcpu_count, domain_vcpus);
+    const gchar *pin_source = vcpu_count > 0 ? "requested vcpu_count" : "domain vCPUs";
+    if (already_active) {
+                                                             
+                                                                 
+        g_message("[vm.start] VM '%s': already active — CPU 할당 선-스킵(F2: 멱등, 유령 할당 방지)", alloc_key);
+    } else if (!skip_alloc) {
+        if (!cpu_allocator_allocate_exclusive(global_allocator, alloc_key, numa_node, pin_count,
+                                              &allocated_cpus, &actual_numa_node)) {
+            g_warning("[vm.start] No isolated cores for '%s' (need %u, %s), starting without CPU pinning",
+                      alloc_key, pin_count, pin_source);
+            allocated_cpus = NULL;               
+            actual_numa_node = -1;                   
+        } else if (vcpu_count > 0 && vcpu_count < domain_vcpus) {
+            g_warning("[vm.start] '%s': vcpu_count=%u pins %u of %u vCPUs; the rest run unpinned",
+                      alloc_key, vcpu_count, vcpu_count, domain_vcpus);
+        }
+    }
+
+                                    
+    VmStartContext *ctx = g_new0(VmStartContext, 1);
+    ctx->vm_id = g_strdup(vm_id);
+    ctx->alloc_key = alloc_key;                                                            
+    ctx->bridge_name = g_strdup(req->bridge_name ? req->bridge_name : "");
+    ctx->allocated_cpus = allocated_cpus;                               
+    ctx->numa_node = actual_numa_node;                           
+    ctx->origin = g_strdup(origin);
+    ctx->done = done;
+    ctx->done_data = user_data;
+    ctx->worker_start_us = g_get_monotonic_time();                               
+    ctx->lock = op_lock;                                                  
+
+                                                                           
+    GTask *task = pcv_drain_task_new(NULL, NULL, vm_start_callback, ctx);
+    if (req->actor)                                                                         
+        pcv_drain_task_set_actor(task, req->actor);
+    g_task_set_task_data(task, ctx, (GDestroyNotify)free_vm_start_context);
+    *task_out = task;
+    return PCV_VM_START_SUBMITTED;
+}
+
+PcvVmStartSubmit pcv_vm_start_submit(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                     gpointer user_data, gchar **err_msg)
+{
+    GTask *task = NULL;
+    PcvVmStartSubmit r = _vm_start_prepare(req, done, user_data, &task, err_msg, NULL);
+    if (r != PCV_VM_START_SUBMITTED)
+        return r;
+                                                 
+    g_task_run_in_thread(task, vm_start_worker_thread);
+    g_object_unref(task);                                     
+    return PCV_VM_START_SUBMITTED;
 }
 
    
@@ -990,16 +1211,17 @@ static void vm_start_callback(GObject *source_object, GAsyncResult *res, gpointe
                                    
   
                                       
-                             
+               
+                                                                           
+                                                                   
                                                         
-                                               
-
-
+                                                      
+                                                                 
   
         
                                       
                                      
-                                     
+                                                         
                                         
   
                                                               
@@ -1016,118 +1238,41 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
         g_free(err_resp);
         return;
     }
-
-                                 
-    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
-    guint numa_node = json_object_has_member(params, "numa_node") ? json_object_get_int_member(params, "numa_node") : 0;
-    guint vcpu_count = json_object_has_member(params, "vcpu_count") ? json_object_get_int_member(params, "vcpu_count") : 1;
-    const gchar *bridge = json_object_has_member(params, "bridge_name") ? json_object_get_string_member(params, "bridge_name") : "";
-
+                                                                                                 
+                                                  
+                                                                 
+    guint vcpu_count = 0;
+    JsonNode *vcpu_node = json_object_get_member(params, "vcpu_count");
+    if (vcpu_node && JSON_NODE_HOLDS_VALUE(vcpu_node) && json_node_get_value_type(vcpu_node) == G_TYPE_INT64) {
+        gint64 requested = json_node_get_int(vcpu_node);
+        if (requested >= 1 && requested <= (gint64)G_MAXUINT)
+            vcpu_count = (guint)requested;
+    }
+    PcvVmStartRequest req = {
+        .vm_id = json_object_get_string_member(params, "vm_id"),
+        .numa_node = json_object_has_member(params, "numa_node") ? json_object_get_int_member(params, "numa_node") : 0,
+        .vcpu_count = vcpu_count,
+        .bridge_name = json_object_has_member(params, "bridge_name") ? json_object_get_string_member(params, "bridge_name") : "",
+        .origin = "vm.start",
+    };
                                                               
                                                       
     if (json_object_has_member(params, "tenant")) {
         g_warning("[vm.start] VM '%s': params 'tenant' 는 무시된다 — tenant-overlay 조인은 "
-                  "vm.create network_mode/tenant(도메인 메타데이터)가 유일 소스", vm_id);
+                  "vm.create network_mode/tenant(도메인 메타데이터)가 유일 소스", req.vm_id);
     }
-
-      
-                                              
-                                             
-                                           
-       
-                                                          
-                                                              
     gchar *err_msg = NULL;
-    if (!lock_vm_operation(vm_id, VM_OP_STARTING, &err_msg)) {
-        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
+    GTask *task = NULL;
+    gint reject_code = PURE_RPC_ERR_ZFS_OPERATION;                                              
+    if (_vm_start_prepare(&req, NULL, NULL, &task, &err_msg, &reject_code) != PCV_VM_START_SUBMITTED) {
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, reject_code, err_msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp);
         g_free(err_msg);
         return;
     }
-
       
-                                     
-      
-                                  
-                                              
-                                                   
-                                     
-      
-                                                
-                                             
-       
-                                                                                   
-                                                                         
-
-                             
-                                                                                
-                                                                 
-                                                                        
-                                                                         
-                                                                        
-                                                                  
-                                                                   
-                                                                 
-                                                  
-                                                                
-                                                               
-                                                    
-    gchar *alloc_key = g_strdup(vm_id);                                                    
-    gboolean already_active = FALSE, skip_alloc = TRUE;
-    {
-        virConnectPtr pc_conn = virt_conn_pool_acquire();
-        if (pc_conn) {
-            virDomainPtr pdom = pure_virt_get_domain(pc_conn, vm_id);
-            if (pdom) {
-                const char *cn = virDomainGetName(pdom);                           
-                if (cn && *cn) { g_free(alloc_key); alloc_key = g_strdup(cn); }
-
-
-                gint active = virDomainIsActive(pdom);
-                already_active = active == 1;
-                skip_alloc = active != 0;
-                virDomainFree(pdom);
-            } else {
-                skip_alloc = TRUE;                                           
-            }
-            virt_conn_pool_release(pc_conn);
-        }
-    }
-
-    GArray *allocated_cpus = NULL;
-    gint actual_numa_node = -1;
-    if (already_active) {
-
-
-        g_message("[vm.start] VM '%s': already active — CPU 할당 선-스킵(F2: 멱등, 유령 할당 방지)", alloc_key);
-    } else if (!skip_alloc &&
-               !cpu_allocator_allocate_exclusive(global_allocator, alloc_key, numa_node, vcpu_count,
-                                                 &allocated_cpus, &actual_numa_node)) {
-        g_warning("[vm.start] No isolated cores for '%s' (need %u), starting without CPU pinning",
-                  alloc_key, vcpu_count);
-        allocated_cpus = NULL;               
-        actual_numa_node = -1;                   
-    }
-
-                                              
-    VmStartContext *ctx = g_new0(VmStartContext, 1);
-    ctx->vm_id = g_strdup(vm_id);
-    ctx->alloc_key = alloc_key;                                                            
-    ctx->bridge_name = g_strdup(bridge);
-    ctx->allocated_cpus = allocated_cpus;                               
-    ctx->numa_node = actual_numa_node;                           
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);                                   
-    ctx->connection = g_object_ref(connection);
-    ctx->worker_start_us = g_get_monotonic_time();                               
-
-                                                                           
-    GTask *task = pcv_drain_task_new(NULL, NULL, vm_start_callback, ctx);
-    g_task_set_task_data(task, ctx, (GDestroyNotify)free_vm_start_context);
-
-      
-                                               
+                                                                    
       
                                                                    
                                                          
@@ -1136,14 +1281,12 @@ void handle_vm_start_request(JsonObject *params, const gchar *rpc_id, UdsServer 
        
                                                              
                                                        
-
-    {
-        JsonNode *acc_node = json_node_new(JSON_NODE_VALUE);
-        json_node_set_string(acc_node, "accepted");
-        gchar *acc_resp = pure_rpc_build_success_response(rpc_id, acc_node);
-        pure_uds_server_send_response(server, connection, acc_resp);                
-        g_free(acc_resp);
-    }
+                                                            
+    JsonNode *acc_node = json_node_new(JSON_NODE_VALUE);
+    json_node_set_string(acc_node, "accepted");
+    gchar *acc_resp = pure_rpc_build_success_response(rpc_id, acc_node);
+    pure_uds_server_send_response(server, connection, acc_resp);                
+    g_free(acc_resp);
 
                                                  
     g_task_run_in_thread(task, vm_start_worker_thread);

@@ -1,6 +1,7 @@
    
                        
-                                                           
+                                                                  
+                                                                            
   
                            
                                                    
@@ -9,7 +10,7 @@
   
                                                      
                                                   
-                                                            
+                                                                        
                                                         
   
                                                        
@@ -26,20 +27,20 @@
                                                                    
            
            
-                                                                              
+                                                                                   
            
            
-                                      
+                                            
            
            
-                                                                   
+                                                                               
   
                                                                                
-                                                   
+                                                                                  
                                                                                
                                                            
                                                                                             
-                                                          
+                                                                      
   
                                                                  
                         
@@ -52,6 +53,9 @@
                                                             
                                                                 
                                                             
+  
+                                                                                           
+                                                                                 
   
                                                                                  
                                                               
@@ -68,10 +72,10 @@
                                           
   
                                                                                
-                               
+                            
                                                                                
                                                     
-                                                          
+                                                                      
                                                                  
                                                                
   
@@ -112,7 +116,7 @@
   
                      
   
-                                                                   
+                                                                
                                                                              
                                                                                          
                                                                
@@ -126,12 +130,18 @@
 #include "rpc_utils.h"
 #include "../auth/pcv_rbac.h"
 #include "../audit/pcv_audit.h"
+#include "rpc_completion.h"                                  
 #include "../daemons/pcv_webpush.h"                                              
+#include "api/ws_server.h"                                                                 
 #include "utils/pcv_validate.h"                                                         
+#include "modules/resource/resource_registry.h"                                                            
 
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
+#include "modules/dispatcher/dispatcher_shared.h"
+#include "utils/pcv_secure.h"
+#include "utils/pcv_jwt.h"
 
                                                                   
                                                                  
@@ -217,6 +227,24 @@ handle_auth_user_create(JsonObject       *params,
     }
 
       
+                                                                    
+      
+                                                                       
+                                                           
+                                                                         
+                                                       
+                                                                         
+       
+    if (!pcv_res_name_is_valid(username)) {
+        gchar *resp = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "username must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        return;
+    }
+
+      
                                                      
       
                                                                   
@@ -270,7 +298,7 @@ handle_auth_user_create(JsonObject       *params,
                                    
       
                                   
-                                                   
+                                                               
                                                                                   
                                                   
       
@@ -283,7 +311,7 @@ handle_auth_user_create(JsonObject       *params,
     gboolean ok = pcv_rbac_user_create(username, password, role, tenant, &err);
 
     if (!ok) {
-        pcv_audit_log(NULL, "auth.user.create", username, "fail",
+        pcv_audit_log(pcv_rpc_completion_actor(), "auth.user.create", username, "fail",
                       PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
         gchar *resp = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -310,7 +338,7 @@ handle_auth_user_create(JsonObject       *params,
                                                                                              
        
                           
-    pcv_audit_log(NULL, "auth.user.create", username, "ok", 0, 0, "local");
+    pcv_audit_log(pcv_rpc_completion_actor(), "auth.user.create", username, "ok", 0, 0, "local");
 
     JsonObject *result_obj = json_object_new();
     json_object_set_string_member(result_obj, "username", username);
@@ -422,7 +450,8 @@ handle_auth_user_list(JsonObject       *params,
                        
                            
   
-                                                           
+                                                               
+                                                  
                                        
                                                                  
                                                     
@@ -453,18 +482,17 @@ handle_auth_user_delete(JsonObject       *params,
     }
 
       
-                                             
-                                               
+                                                                             
                                             
-                                                    
-                                                              
-                                                                  
+                                                                         
+                                                                          
+                                                                         
        
     GError *err = NULL;
     gboolean ok = pcv_rbac_user_delete(username, &err);
 
     if (!ok) {
-        pcv_audit_log(NULL, "auth.user.delete", username, "fail",
+        pcv_audit_log(pcv_rpc_completion_actor(), "auth.user.delete", username, "fail",
                       PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
         gchar *resp = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -476,7 +504,7 @@ handle_auth_user_delete(JsonObject       *params,
     }
 
                           
-    pcv_audit_log(NULL, "auth.user.delete", username, "ok", 0, 0, "local");
+    pcv_audit_log(pcv_rpc_completion_actor(), "auth.user.delete", username, "ok", 0, 0, "local");
 
                                                                
                                                          
@@ -487,6 +515,10 @@ handle_auth_user_delete(JsonObject       *params,
     if (push_revoked > 0)
         g_message("[auth] 사용자 '%s' 삭제 — Web Push 구독 %u건 연쇄 삭제",
                   username, push_revoked);
+
+                                                                                
+                                                                    
+    pcv_ws_close_subject(username);
 
     JsonObject *result_obj = json_object_new();
     json_object_set_string_member(result_obj, "username", username);
@@ -524,7 +556,8 @@ handle_auth_user_delete(JsonObject       *params,
   
              
                                                        
-                                                       
+                                                                       
+                                                                              
                                                               
                                                       
                     
@@ -578,21 +611,19 @@ handle_auth_role_set(JsonObject       *params,
 
                                                          
                                                           
-                                                                
-                                                                 
-                                                                 
-    if (connection) {
-        const gchar *caller_sub = g_object_get_data(G_OBJECT(connection), "pcv-caller-sub");
-        if (caller_sub && g_strcmp0(caller_sub, username) == 0) {
-            gchar *resp = pure_rpc_build_error_response(
-                rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                "Self role change is not permitted (B6-W4 self-elevation protection)");
-            pure_uds_server_send_response(server, connection, resp);
-            g_free(resp);
-            pcv_audit_log(NULL, "auth.role.set", username, "denied",
-                          PURE_RPC_ERR_INVALID_PARAMS, 0, "self-elevation");
-            return;
-        }
+                                                                        
+                                                                                    
+                                                    
+    const gchar *caller_sub = pcv_disp_dispatcher_caller_subject(params, connection);
+    if (caller_sub && g_strcmp0(caller_sub, username) == 0) {
+        gchar *resp = pure_rpc_build_error_response(
+            rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "Self role change is not permitted (B6-W4 self-elevation protection)");
+        pure_uds_server_send_response(server, connection, resp);
+        g_free(resp);
+        pcv_audit_log(pcv_rpc_completion_actor(), "auth.role.set", username, "denied",
+                      PURE_RPC_ERR_INVALID_PARAMS, 0, "self-elevation");
+        return;
     }
 
       
@@ -601,10 +632,11 @@ handle_auth_role_set(JsonObject       *params,
                                                 
        
     GError *err = NULL;
-    gboolean ok = pcv_rbac_user_set_role(username, role, &err);
+    PcvRole previous = PCV_ROLE_VIEWER;
+    gboolean ok = pcv_rbac_user_set_role(username, role, &previous, &err);
 
     if (!ok) {
-        pcv_audit_log(NULL, "auth.role.set", username, "fail",
+        pcv_audit_log(pcv_rpc_completion_actor(), "auth.role.set", username, "fail",
                       PURE_RPC_ERR_INTERNAL_ERROR, 0, "local");
         gchar *resp = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
@@ -615,8 +647,12 @@ handle_auth_role_set(JsonObject       *params,
         return;
     }
 
-                         
-    pcv_audit_log(NULL, "auth.role.set", username, "ok", 0, 0, "local");
+                                                                                      
+                                                
+                                                                   
+    g_autofree gchar *transition = g_strdup_printf("%s->%s", pcv_rbac_role_to_str(previous),
+                                                   pcv_rbac_role_to_str(role));
+    pcv_audit_log(pcv_rpc_completion_actor(), "auth.role.set", username, "ok", 0, 0, transition);
 
     JsonObject *result_obj = json_object_new();
     json_object_set_string_member(result_obj, "username", username);
@@ -626,6 +662,81 @@ handle_auth_role_set(JsonObject       *params,
     JsonNode *result_node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(result_node, result_obj);
 
+    gchar *resp = pure_rpc_build_success_response(rpc_id, result_node);
+    pure_uds_server_send_response(server, connection, resp);
+    g_free(resp);
+}
+
+                                                                  
+                                                                 
+                                                                  
+
+                                                       
+static void
+_tenant_set_error(const gchar *rpc_id, UdsServer *server, GSocketConnection *connection,
+                  PureRpcErrorCode code, const gchar *message)
+{
+    gchar *resp = pure_rpc_build_error_response(rpc_id, code, message);
+    pure_uds_server_send_response(server, connection, resp);
+    g_free(resp);
+}
+
+   
+                                                    
+  
+                                                                           
+                                                                                      
+                                                                                                              
+                                                                                 
+   
+void
+handle_auth_user_tenant_set(JsonObject       *params,
+                            const gchar      *rpc_id,
+                            UdsServer        *server,
+                            GSocketConnection *connection)
+{
+    if (!json_object_has_member(params, "username") ||
+        !json_object_has_member(params, "tenant")) {
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_INVALID_PARAMS,
+                          "Missing required params: username, tenant");
+        return;
+    }
+    const gchar *username = pcv_disp_json_string_member(params, "username");
+    const gchar *tenant = pcv_disp_json_string_member(params, "tenant");
+    if (!username || !*username || !tenant || !*tenant) {
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_INVALID_PARAMS,
+                          "username and tenant must be non-empty strings");
+        return;
+    }
+    if (!pcv_res_name_is_valid(tenant)) {
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_INVALID_PARAMS,
+                          "tenant must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        return;
+    }
+
+    switch (pcv_rbac_user_set_tenant_if_empty(username, tenant)) {
+    case PCV_RBAC_TENANT_SET:
+        break;
+    case PCV_RBAC_TENANT_ALREADY:
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_CONFLICT,
+                          "tenant already set — moving a user between tenants is not supported");
+        return;
+    case PCV_RBAC_TENANT_NO_USER: {
+        g_autofree gchar *msg = g_strdup_printf("User '%s' not found", username);
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_NOT_FOUND, msg);
+        return;
+    }
+    case PCV_RBAC_TENANT_ERROR:
+    default:
+        _tenant_set_error(rpc_id, server, connection, PURE_RPC_ERR_INTERNAL_ERROR, "Tenant update failed");
+        return;
+    }
+
+    JsonObject *result_obj = json_object_new();
+    json_object_set_string_member(result_obj, "username", username);
+    json_object_set_string_member(result_obj, "tenant", tenant);
+    JsonNode *result_node = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(result_node, result_obj);                           
     gchar *resp = pure_rpc_build_success_response(rpc_id, result_node);
     pure_uds_server_send_response(server, connection, resp);
     g_free(resp);
@@ -1018,4 +1129,197 @@ handle_auth_totp_recovery_regenerate(JsonObject       *params,
     g_free(resp);
 
     pcv_audit_log(caller_sub, "auth.totp.recovery.regenerate", target, "ok", 0, 0, "local");
+}
+
+
+                                                                        
+                                                                  
+                                             
+                                              
+                                                                   
+                                
+                            
+                                                           
+                               
+static gint64 _apikey_parse_expires_at(JsonObject *params)
+{
+    if (!params || !json_object_has_member(params, "expires_at")) return 0;
+    JsonNode *node = json_object_get_member(params, "expires_at");
+    if (!node || JSON_NODE_HOLDS_NULL(node) || !JSON_NODE_HOLDS_VALUE(node)) return 0;
+
+    GType vt = json_node_get_value_type(node);
+    if (vt == G_TYPE_INT64)  return json_node_get_int(node);
+    if (vt == G_TYPE_DOUBLE) return (gint64)json_node_get_double(node);
+    if (vt == G_TYPE_STRING) {
+        const gchar *s = json_node_get_string(node);
+        if (!s || !*s) return 0;
+        gchar *end = NULL;
+        gint64 v = g_ascii_strtoll(s, &end, 10);
+        if (end && *end == '\0') return v;                    
+        GDateTime *dt = g_date_time_new_from_iso8601(s, NULL);
+        if (dt) { gint64 u = g_date_time_to_unix(dt); g_date_time_unref(dt); return u; }
+    }
+    return 0;
+}
+
+                                       
+                                                          
+                                                        
+                                
+                                                                                      
+                                                              
+                                                         
+                                                                     
+void handle_apikey_create(JsonObject *params, const gchar *rpc_id,
+                                   UdsServer *server, GSocketConnection *connection)
+{
+                                                   
+    const gchar *client_name = params ? json_object_get_string_member_with_default(params, "name", NULL) : NULL;
+    if (!client_name || !*client_name)
+        client_name = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
+    gint role = (params && json_object_has_member(params, "role"))
+        ? (gint)json_object_get_int_member(params, "role") : 1;
+    const gchar *description = params
+        ? json_object_get_string_member_with_default(params, "description", NULL) : NULL;
+    gint64 expires_at = _apikey_parse_expires_at(params);
+    if (!client_name || !*client_name) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "name required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+                                                                          
+                                                          
+                                                               
+                                                                    
+                                                             
+    if (role < PCV_ROLE_VIEWER || role > PCV_ROLE_ADMIN) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+            "role out of range (0=viewer, 1=operator, 2=admin)");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    {
+        gint caller_role = pcv_disp_dispatcher_caller_role(params, connection);
+        if (role > caller_role) {
+            gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                "requested key role exceeds caller role");
+            pure_uds_server_send_response(server, connection, r); g_free(r); return;
+        }
+    }
+    gchar *key_out = nullptr;
+    GError *err = nullptr;
+    if (!pcv_rbac_apikey_create(client_name, (PcvRole)role, description, expires_at, &key_out, &err)) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err ? err->message : "Create failed");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        if (err) g_error_free(err);
+        return;
+    }
+    JsonObject *res = json_object_new();
+    json_object_set_string_member(res, "api_key", key_out);
+    json_object_set_string_member(res, "client_name", client_name);
+    if (description) json_object_set_string_member(res, "description", description);
+    if (expires_at > 0) json_object_set_int_member(res, "expires_at", expires_at);
+    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(n, res);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r);
+                                                                        
+    g_free(r); pcv_secure_free_str(&key_out);
+}
+
+                                                          
+                                                                  
+void handle_apikey_list(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonArray *arr = pcv_rbac_apikey_list();
+    JsonNode *n = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(n, arr);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+                                              
+                                                                    
+void handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
+                                   UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *cn = params ? json_object_get_string_member_with_default(params, "client_name", NULL) : NULL;
+    if (!cn || !*cn) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "client_name required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+    GError *err = nullptr;
+    if (!pcv_rbac_apikey_revoke(cn, &err)) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err ? err->message : "Revoke failed");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        if (err) g_error_free(err);
+        return;
+    }
+    JsonNode *n = json_node_new(JSON_NODE_NULL);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+                                        
+                                                        
+                                                                
+                                                                                           
+void handle_session_revoke(JsonObject *params, const gchar *rpc_id,
+                                    UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *jti = params ? json_object_get_string_member_with_default(params, "jti", NULL) : NULL;
+    if (!jti) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, "jti required");
+        pure_uds_server_send_response(server, connection, r); g_free(r); return;
+    }
+                                                                      
+                                                            
+                                                            
+    gint64 exp = g_get_real_time() / G_USEC_PER_SEC + 900;
+    pcv_jwt_blacklist_add(jti, exp);
+    gchar jti_masked[9];
+    g_snprintf(jti_masked, sizeof(jti_masked), "%.8s", jti);
+    const gchar *caller_sub = pcv_disp_dispatcher_caller_subject(params, connection);
+    pcv_audit_log(caller_sub && *caller_sub ? caller_sub : "-",
+                  "auth.session.revoke", jti_masked, "ok", 0, 0, "local");
+    JsonNode *n = json_node_new(JSON_NODE_NULL);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
+}
+
+                                                                                      
+                                                            
+                                                                   
+                                                                                
+                                                                    
+                                                                 
+                                                                   
+void handle_user_sessions_revoke(JsonObject *params, const gchar *rpc_id,
+                                         UdsServer *server, GSocketConnection *connection)
+{
+    const gchar *username = params
+        ? json_object_get_string_member_with_default(params, "username", NULL) : NULL;
+    if (!username || !*username) {
+        gchar *r = pure_rpc_build_error_response(rpc_id,
+            PURE_RPC_ERR_INVALID_PARAMS, "username required");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        return;
+    }
+    const gchar *caller = pcv_disp_dispatcher_caller_subject(params, connection);
+    GError *err = nullptr;
+    gboolean ok = pcv_rbac_revoke_session(username, &err);
+    if (!ok) {
+        gchar *r = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+            err ? err->message : "Failed to revoke sessions");
+        pure_uds_server_send_response(server, connection, r); g_free(r);
+        pcv_audit_log((caller && *caller) ? caller : "-",
+                      "auth.user.sessions.revoke", username, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        if (err) g_error_free(err);
+        return;
+    }
+    pcv_audit_log((caller && *caller) ? caller : "-",
+                  "auth.user.sessions.revoke", username, "ok", 0, 0, "local");
+    JsonNode *n = json_node_new(JSON_NODE_NULL);
+    gchar *r = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, r); g_free(r);
 }

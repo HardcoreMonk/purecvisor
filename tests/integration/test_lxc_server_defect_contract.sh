@@ -7,10 +7,11 @@ set -euo pipefail
 
 root_dir="$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)"
 lxc_c="$root_dir/src/modules/lxc/lxc_driver.c"
-dispatcher_c="$root_dir/src/api/dispatcher.c"
+dispatcher_c="$root_dir/src/modules/dispatcher/handler_container_net.c"
 cli_c="$root_dir/src/cli/purecvisorctl.c"
 
-rg -q '"zfs", "create", "-p", PCV_LXC_ZFS_BASE' "$lxc_c"
+rg -q 'parent_options\[\] = \{ "-p", NULL \}' "$lxc_c"
+rg -q 'pcv_zfs_create_locked\(parent_options, PCV_LXC_ZFS_BASE' "$lxc_c"
 rg -q '"lxc-info", "-P", PCV_LXC_PATH, "-n", name, "-sH"' "$dispatcher_c"
 rg -q 'if \(argc < 5\).*<name> <snap_name>' "$cli_c"
 rg -q 'if \(argc < 4\).*Need: <name>' "$cli_c"
@@ -28,12 +29,13 @@ fi
 
 
 container_handler_c="$root_dir/src/modules/dispatcher/handler_container.c"
-typed_reads="$(rg -c 'pcv_rpc_params_get_string\(params, "container_path"\)' "$container_handler_c" || true)"
+container_volume_c="$root_dir/src/modules/dispatcher/handler_container_volume.c"
+typed_reads="$(rg -c 'pcv_rpc_params_get_string\(params, "container_path"\)' "$container_volume_c" || true)"
 if [ "$typed_reads" != "2" ]; then
     echo "container volume attach/detach must read container_path via pcv_rpc_params_get_string (found ${typed_reads:-0})" >&2
     exit 1
 fi
-if rg -q 'json_object_get_string_member\(params, "container_path"\)' "$container_handler_c"; then
+if rg -q 'json_object_get_string_member\(params, "container_path"\)' "$container_handler_c" "$container_volume_c"; then
     echo "unchecked container_path read in container volume handlers" >&2
     exit 1
 fi
@@ -45,9 +47,9 @@ if rg -q 'json_object_get_string_member\(params, "(key|value)"\)' "$container_ha
     echo "unchecked env key/value read in container env handlers" >&2
     exit 1
 fi
-token_guards="$(rg -c '_lxc_config_token_safe\((value|container_path|resolved),' "$container_handler_c" || true)"
+token_guards="$(cat "$container_handler_c" "$container_volume_c" | rg -c 'pcv_container_config_token_safe\((value|container_path|resolved),' || true)"
 if [ "${token_guards:-0}" -lt 2 ]; then
-    echo "LXC config writers must reject control characters via _lxc_config_token_safe (found ${token_guards:-0})" >&2
+    echo "LXC config writers must reject control characters via pcv_container_config_token_safe (found ${token_guards:-0})" >&2
     exit 1
 fi
 

@@ -444,6 +444,83 @@ test_alert_config_rejects_unknown_and_read_only_keys(void)
     engine_teardown();
 }
 
+static JsonObject *
+rpc_params_with_injected_caller(gint64 revision)
+{
+    JsonObject *params = json_object_new();
+    json_object_set_int_member(params, "expected_revision", revision);
+    json_object_set_string_member(params, "_pcv_caller_sub", "admin");
+    json_object_set_int_member(params, "_pcv_caller_role", 2);
+    json_object_set_null_member(params, "_pcv_caller_tenant");
+    return params;
+}
+
+static void
+test_alert_config_rpc_patch_drops_injected_keys(void)
+{
+    engine_setup();
+
+    JsonObject *params = rpc_params_with_injected_caller(config_revision());
+    json_object_set_string_member(params, "webhook_url", "https://alerts.example.com/hook");
+    JsonObject *patch = pcv_alert_config_patch_from_rpc(params);
+    g_assert_false(json_object_has_member(patch, "expected_revision"));
+    g_assert_false(json_object_has_member(patch, "_pcv_caller_sub"));
+    g_assert_false(json_object_has_member(patch, "_pcv_caller_role"));
+    g_assert_false(json_object_has_member(patch, "_pcv_caller_tenant"));
+    g_assert_cmpint(pcv_alert_engine_set_config(patch, json_object_get_int_member(params, "expected_revision")),
+                    ==, PCV_ALERT_CONFIG_SET_OK);
+    json_object_unref(patch);
+    json_object_unref(params);
+
+    params = rpc_params_with_injected_caller(config_revision());
+    json_object_set_boolean_member(params, "enabled", FALSE);
+    json_object_set_int_member(params, "cpu_warn", 71);
+    json_object_set_int_member(params, "cpu_crit", 91);
+    json_object_set_int_member(params, "eval_period", 45);
+    json_object_set_string_member(params, "webhook_format", "generic");
+    json_object_set_string_member(params, "telegram_chat_id", "");
+    patch = pcv_alert_config_patch_from_rpc(params);
+    g_assert_cmpint(pcv_alert_engine_set_config(patch, json_object_get_int_member(params, "expected_revision")),
+                    ==, PCV_ALERT_CONFIG_SET_OK);
+    json_object_unref(patch);
+    json_object_unref(params);
+
+    JsonObject *actual = pcv_alert_engine_get_config();
+    g_assert_cmpint(json_object_get_int_member(actual, "cpu_warn"), ==, 71);
+    g_assert_cmpint(json_object_get_int_member(actual, "eval_period"), ==, 45);
+    g_assert_cmpstr(json_object_get_string_member(actual, "webhook_url"), ==, "https://alerts.example.com/hook");
+    json_object_unref(actual);
+    engine_teardown();
+}
+
+static void
+test_alert_config_rpc_patch_keeps_unknown_keys_rejected(void)
+{
+    engine_setup();
+    static const gchar *const unknown[] = { "cpu_wran", "_pcv", "pcv_caller_sub", "_PCV_caller_sub" };
+    for (guint i = 0; i < G_N_ELEMENTS(unknown); i++) {
+        gint64 revision = config_revision();
+        JsonObject *params = rpc_params_with_injected_caller(revision);
+        json_object_set_int_member(params, "cpu_warn", 72);
+        json_object_set_int_member(params, unknown[i], 1);
+        JsonObject *patch = pcv_alert_config_patch_from_rpc(params);
+        g_assert_true(json_object_has_member(patch, unknown[i]));
+        g_assert_cmpint(pcv_alert_engine_set_config(patch, revision), ==, PCV_ALERT_CONFIG_SET_INVALID);
+        g_assert_cmpint(config_revision(), ==, revision);
+        json_object_unref(patch);
+        json_object_unref(params);
+    }
+
+    gint64 revision = config_revision();
+    JsonObject *params = rpc_params_with_injected_caller(revision);
+    JsonObject *patch = pcv_alert_config_patch_from_rpc(params);
+    g_assert_cmpuint(json_object_get_size(patch), ==, 0);
+    g_assert_cmpint(pcv_alert_engine_set_config(patch, revision), ==, PCV_ALERT_CONFIG_SET_INVALID);
+    json_object_unref(patch);
+    json_object_unref(params);
+    engine_teardown();
+}
+
 static void
 test_alert_config_valid_partial(void)
 {
@@ -1706,6 +1783,10 @@ test_alert_basic_register(void)
         test_alert_config_canonicalizes_case_insensitive_webhook_scheme);
     g_test_add_func("/alert/config/rejects_unknown_and_read_only_keys",
                     test_alert_config_rejects_unknown_and_read_only_keys);
+    g_test_add_func("/alert/config/rpc_patch_drops_injected_keys",
+                    test_alert_config_rpc_patch_drops_injected_keys);
+    g_test_add_func("/alert/config/rpc_patch_keeps_unknown_keys_rejected",
+                    test_alert_config_rpc_patch_keeps_unknown_keys_rejected);
     g_test_add_func("/alert/config/valid_partial",
                     test_alert_config_valid_partial);
     g_test_add_func("/alert/config/disabled_loads_values",

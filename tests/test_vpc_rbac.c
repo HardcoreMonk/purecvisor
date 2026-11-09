@@ -19,6 +19,8 @@
 
 void pcv_dispatcher_init_policy_map(void);
 gboolean pcv_dispatcher_check_rbac(const gchar *method, gint caller_role);
+
+const gchar *pcv_dispatcher_policy_method_at(guint index);
 gboolean pcv_dispatcher_vm_target_aliases_valid(const gchar *method,
                                                 JsonObject *params,
                                                 const gchar **reason_out);
@@ -70,6 +72,12 @@ test_vpc_rbac_rest_and_dispatcher_agree(void)
         g_assert_false(pcv_dispatcher_check_rbac(admin_only[i], PCV_ROLE_OPERATOR));
         g_assert_true(pcv_rbac_check_permission("vpc_admin", admin_only[i]));
         g_assert_true(pcv_dispatcher_check_rbac(admin_only[i], PCV_ROLE_ADMIN));
+    }
+
+    static const gchar *dispatcher_admin_only[] = { "vpc.subnet.confirm", "vpc.pool.set", "vpc.pool.list" };
+    for (guint i = 0; i < G_N_ELEMENTS(dispatcher_admin_only); i++) {
+        g_assert_false(pcv_dispatcher_check_rbac(dispatcher_admin_only[i], PCV_ROLE_OPERATOR));
+        g_assert_true(pcv_dispatcher_check_rbac(dispatcher_admin_only[i], PCV_ROLE_ADMIN));
     }
 
     pcv_rbac_shutdown();
@@ -226,6 +234,28 @@ test_shared_ui_reads_rest_and_dispatcher_agree(void)
 
 
 
+static void test_inspection_rbac_agreement(void)
+{
+    g_autofree gchar *dir = g_dir_make_tmp("pcv-inspection-rbac-XXXXXX", NULL);
+    g_autofree gchar *db = g_build_filename(dir, "rbac.db", NULL);
+    pcv_rbac_init(db);
+    pcv_dispatcher_init_policy_map();
+    const gchar *users[] = {"inspection-viewer", "inspection-operator", "inspection-admin"};
+    for (guint role = 0; role < G_N_ELEMENTS(users); role++) {
+        g_autoptr(GError) error = NULL;
+        g_assert_true(pcv_rbac_user_create(users[role], "fixture-only", (PcvRole)role, NULL, &error));
+        g_assert_no_error(error);
+        g_assert_cmpint(pcv_rbac_check_permission(users[role], "vm.inspect"), ==, role == 2);
+        g_assert_cmpint(pcv_dispatcher_check_rbac("vm.inspect", role), ==, role == 2);
+        g_assert_true(pcv_rbac_check_permission(users[role], "vm.list"));
+    }
+    g_assert_false(pcv_rbac_check_permission("no-such-inspection-user", "vm.inspect"));
+    g_assert_false(pcv_dispatcher_check_rbac("vm.inspect", -1));
+    pcv_rbac_shutdown();
+    g_autofree gchar *wal = g_strconcat(db, "-wal", NULL);
+    g_autofree gchar *shm = g_strconcat(db, "-shm", NULL);
+    g_remove(wal); g_remove(shm); g_remove(db); g_rmdir(dir);
+}
 
 
 
@@ -318,9 +348,9 @@ test_dispatcher_policy_formerly_unmapped_match_rest(void)
         { "vm.cpu.stats", 1 },            { "vm.event.webhook.list", 0 },
         { "vm.guest.ping", 1 },           { "vm.list", 0 },
         { "vm.memory.stats", 1 },         { "vm.metrics", 0 },
-        { "vm.usb.list", 0 },             { "webhook.dlq.list", 0 },
+        { "vm.usb.list", 0 },
     };
-    g_assert_cmpuint(G_N_ELEMENTS(table), ==, 72);
+    g_assert_cmpuint(G_N_ELEMENTS(table), ==, 71);
     for (guint i = 0; i < G_N_ELEMENTS(table); i++) {
         for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++) {
             gboolean expected = role >= table[i].role;
@@ -329,6 +359,13 @@ test_dispatcher_policy_formerly_unmapped_match_rest(void)
                 g_error("%s role=%d: expected %s (min role %d)", table[i].method, role,
                         expected ? "allow" : "deny", table[i].role);
         }
+    }
+
+
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++) {
+        g_assert_cmpint(pcv_dispatcher_check_rbac("webhook.dlq.list", role), ==, role == PCV_ROLE_ADMIN);
+        g_assert_cmpint(pcv_dispatcher_check_rbac("alert.dlq.list", role), ==, role == PCV_ROLE_ADMIN);
+        g_assert_cmpint(pcv_dispatcher_check_rbac("webhook.dlq.retry", role), ==, role == PCV_ROLE_ADMIN);
     }
 
     pcv_rbac_shutdown();
@@ -400,6 +437,9 @@ test_dispatcher_vm_target_alias_single_target(void)
                       "{\"vm_id\":\"mine\",\"name\":\"mine\",\"snap_name\":\"s1\"}", TRUE);
 
 
+    assert_vm_aliases("vm.inspect",
+                      "{\"uuid\":\"00000000-0000-0000-0000-000000000000\","
+                      "\"name\":\"a\",\"vm_id\":\"b\"}", TRUE);
     assert_vm_aliases("vm.batch",
                       "{\"action\":\"stop\",\"vms\":[\"mine\"],\"name\":\"a\",\"vm\":\"b\"}", TRUE);
     assert_vm_aliases("vm.list", "{\"name\":\"a\",\"vm_id\":\"b\"}", TRUE);
@@ -412,6 +452,100 @@ test_dispatcher_vm_target_alias_single_target(void)
     g_assert_null(reason);
 }
 
+
+static gchar *
+rbac_role_fixture(const gchar *prefix, const gchar *users[3])
+{
+    gchar *dir = g_dir_make_tmp("pcv-rest-disp-rbac-XXXXXX", NULL);
+    g_assert_nonnull(dir);
+    g_autofree gchar *db_path = g_build_filename(dir, "rbac.db", NULL);
+    pcv_rbac_init(db_path);
+    static const gchar *suffix[] = { "viewer", "operator", "admin" };
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++) {
+        g_autoptr(GError) error = NULL;
+        users[role] = g_strdup_printf("%s_%s", prefix, suffix[role]);
+        g_assert_true(pcv_rbac_user_create(users[role], "fixture-only", (PcvRole)role, NULL, &error));
+        g_assert_no_error(error);
+    }
+    pcv_dispatcher_init_policy_map();
+    return dir;
+}
+
+static void
+rbac_role_fixture_free(gchar *dir, const gchar *users[3])
+{
+    pcv_rbac_shutdown();
+    g_autofree gchar *db_path = g_build_filename(dir, "rbac.db", NULL);
+    g_autofree gchar *wal = g_strconcat(db_path, "-wal", NULL);
+    g_autofree gchar *shm = g_strconcat(db_path, "-shm", NULL);
+    g_remove(wal); g_remove(shm); g_remove(db_path); g_rmdir(dir);
+    g_free(dir);
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++)
+        g_free((gchar *)users[role]);
+}
+
+static gint
+rest_min_role(const gchar *users[3], const gchar *method)
+{
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++)
+        if (pcv_rbac_check_permission(users[role], method))
+            return role;
+    return PCV_ROLE_ADMIN + 1;
+}
+
+static gint
+dispatcher_min_role(const gchar *method)
+{
+    for (gint role = PCV_ROLE_VIEWER; role <= PCV_ROLE_ADMIN; role++)
+        if (pcv_dispatcher_check_rbac(method, role))
+            return role;
+    return PCV_ROLE_ADMIN + 1;
+}
+
+static void
+test_rest_never_stricter_than_dispatcher(void)
+{
+    const gchar *users[3] = { NULL, NULL, NULL };
+    gchar *dir = rbac_role_fixture("rs", users);
+    g_autoptr(GString) stricter = g_string_new(NULL);
+    guint rows = 0;
+    for (const gchar *m; (m = pcv_dispatcher_policy_method_at(rows)) != NULL; rows++) {
+        gint rest = rest_min_role(users, m), disp = dispatcher_min_role(m);
+        if (rest > disp)
+            g_string_append_printf(stricter, "%s REST=%d dispatcher=%d; ", m, rest, disp);
+    }
+    g_assert_cmpuint(rows, >, 300);
+    g_assert_cmpstr(stricter->str, ==, "");
+    rbac_role_fixture_free(dir, users);
+}
+
+static void
+test_rest_roles_for_eight_methods(void)
+{
+    const gchar *users[3] = { NULL, NULL, NULL };
+    gchar *dir = rbac_role_fixture("r8", users);
+    static const struct { const gchar *method; gint role; } eight[] = {
+        { "security.action.pending", 0 }, { "security.baseline.status", 0 },
+        { "security.action.dismiss", 1 }, { "capacity.forecast", 0 },
+        { "daemon.update_check", 0 },     { "vm.billing.report", 0 },
+        { "vm.guest.fsinfo", 0 },         { "vm.sla.report", 0 },
+    };
+    g_autoptr(GString) wrong = g_string_new(NULL);
+    for (guint i = 0; i < G_N_ELEMENTS(eight); i++) {
+        gint rest = rest_min_role(users, eight[i].method), disp = dispatcher_min_role(eight[i].method);
+        if (rest != eight[i].role || disp != eight[i].role)
+            g_string_append_printf(wrong, "%s REST=%d dispatcher=%d want=%d; ", eight[i].method, rest, disp,
+                                   eight[i].role);
+    }
+    g_assert_cmpstr(wrong->str, ==, "");
+
+    static const gchar *admin_only[] = { "security.action.approve", "security.config.set",
+                                         "security.baseline.refresh" };
+    for (guint i = 0; i < G_N_ELEMENTS(admin_only); i++)
+        g_assert_cmpint(rest_min_role(users, admin_only[i]), ==, PCV_ROLE_ADMIN);
+    rbac_role_fixture_free(dir, users);
+}
+
 void
 test_vpc_rbac_register(void)
 {
@@ -421,10 +555,15 @@ test_vpc_rbac_register(void)
                     test_dispatcher_policy_default_deny);
     g_test_add_func("/dispatcher/rbac/formerly_unmapped_match_rest",
                     test_dispatcher_policy_formerly_unmapped_match_rest);
+    g_test_add_func("/inspection-rbac/rest-dispatcher-agreement", test_inspection_rbac_agreement);
     g_test_add_func("/vpc/rbac/rest_dispatcher_agreement",
                     test_vpc_rbac_rest_and_dispatcher_agree);
     g_test_add_func("/d2/rbac/rest_dispatcher_agreement",
                     test_d2_rbac_rest_and_dispatcher_agree);
     g_test_add_func("/ui/rbac/shared_read_agreement",
                     test_shared_ui_reads_rest_and_dispatcher_agree);
+    g_test_add_func("/dispatcher/rbac/rest_never_stricter_than_dispatcher",
+                    test_rest_never_stricter_than_dispatcher);
+    g_test_add_func("/dispatcher/rbac/rest_roles_for_eight_methods",
+                    test_rest_roles_for_eight_methods);
 }

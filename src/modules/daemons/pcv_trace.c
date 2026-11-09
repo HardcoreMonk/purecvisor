@@ -17,8 +17,8 @@
                                                   
                                                  
                                                         
-
-
+                                                           
+                                                        
                                                     
                                          
                                                                 
@@ -326,9 +326,9 @@ typedef struct {
     GSubprocess *proc;                             
     guint        backstop_id;                                
     gboolean     finalized;                     
-    gboolean     reaped;
-    const gchar *end_method;
-    const gchar *end_reason;
+    gboolean     reaped;                                           
+    const gchar *end_method;                                              
+    const gchar *end_reason;                                          
 } TraceState;
 
 static TraceState *g_trace = NULL;
@@ -370,7 +370,7 @@ _wrap_nsenter(gchar **retis_argv, const gchar *ep)
 
                                                      
                                                      
-
+                                                                      
                                                                 
                                                                
                                            
@@ -396,7 +396,7 @@ _trace_summarize(const TraceState *s, const gchar *reason, gboolean *ok_out)
     return detail;
 }
 
-
+                                                             
                                                                       
                                          
                                               
@@ -441,8 +441,8 @@ _trace_finalize(const gchar *method, const gchar *reason)
     pcv_trace_release();
 }
 
-
-
+                                                        
+                                                              
                                              
                                                    
 static void
@@ -453,7 +453,7 @@ _trace_wait_done(GObject *src, GAsyncResult *res, gpointer user)
     GError      *werr = NULL;
     gboolean reaped = g_subprocess_wait_finish(proc, res, &werr);
     if (!reaped) {
-
+                                                        
         PCV_LOG_WARN(TRACE_LOG_DOM, "trace %s: wait confirmation failed: %s", id,
                      werr ? werr->message : "unknown error");
     }
@@ -468,8 +468,8 @@ _trace_wait_done(GObject *src, GAsyncResult *res, gpointer user)
     g_free(id);
 }
 
-
-
+                                                        
+                                                        
 static void
 _trace_request_stop(const gchar *method, const gchar *reason)
 {
@@ -497,7 +497,7 @@ _trace_backstop_cb(gpointer user)
             "trace %s: 백스톱 발화(timebox+%us 초과) — 강제 종료",
             g_trace->trace_id, TRACE_BACKSTOP_GRACE_SEC);
         _trace_request_stop("debug.trace.expire", "timebox");
-
+                                                                    
     }
     return G_SOURCE_REMOVE;           
 }
@@ -593,11 +593,14 @@ pcv_trace_start(const PcvTraceFilter *f, const char *admin, GError **error)
 
                                                                      
                                                          
-                                                      
+                                                   
+                                                               
+                                                     
     GError      *serr = NULL;
-    GSubprocess *proc = pcv_spawn_newv(
+    GSubprocess *proc = pcv_spawn_newv_profile(
         (const gchar * const *)final_argv,
         G_SUBPROCESS_FLAGS_STDOUT_SILENCE | G_SUBPROCESS_FLAGS_STDERR_SILENCE,
+        PCV_CHILD_CAP_TRACE,
         &serr);
     if (!proc) {
         g_propagate_prefixed_error(error, serr, "retis spawn 실패: ");
@@ -667,8 +670,8 @@ fail:
 }
 
                                                 
-
-
+                                                          
+                                                                                    
 gboolean
 pcv_trace_stop(const char *trace_id, GError **error)
 {
@@ -705,7 +708,7 @@ pcv_trace_status(const char *trace_id)
     }
 
                                                               
-
+                                                                     
     json_object_set_string_member(o, "state", "running");
     json_object_set_boolean_member(o, "stop_requested", g_trace->end_method != NULL);
     json_object_set_string_member(o, "trace_id", g_trace->trace_id);

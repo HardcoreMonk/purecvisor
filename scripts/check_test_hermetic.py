@@ -1,49 +1,50 @@
 #!/usr/bin/env python3
+                          
+                                                               
+                                                           
+                                                                          
+                                                                          
+                                                                
+ 
+                      
+                                                             
+                                                                
+                                                                      
+                                                             
 
+    
+                                                                                    
+                                                                       
+                                                                                     
 
+                                  
+                                                        
+                                                                         
+                                                                                     
+                                          
+                                           
+                                                               
+                           
+                                                                                 
+                                                                     
 
+                        
+                                                                                                       
+                                                    
+                                                                     
+                                  
+                                                                                                                                    
+                                                        
+                                                             
 
+                                                                       
 
+                                                        
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                                                          
+                                                                                       
+   
 from __future__ import annotations
 
 import argparse
@@ -54,7 +55,7 @@ from pathlib import Path
 
 ROOT = Path(__file__).resolve().parent.parent
 
-
+                                                         
 PRODUCTION_ROOTS = (
     "/var/lib/purecvisor",
     "/var/log/purecvisor",
@@ -68,7 +69,7 @@ PRODUCTION_ROOTS = (
 )
 PRODUCTION_URIS = ("qemu:///system",)
 
-
+                                                 
 MUTATING_VERBS = {
     "systemctl": {
         "start", "stop", "restart", "try-restart", "reload", "reload-or-restart", "kill",
@@ -88,7 +89,7 @@ MUTATING_VERBS = {
     },
 }
 
-
+                                                  
 SENSITIVE_CALLS = {
     "pcv_trace_start": "운영 trace 루트(PCV_TRACE_OUT_ROOT) 쓰기와 retention 적용",
     "pcv_trace_purge_all": "호스트 pid namespace의 retis `pkill -f`와 운영 trace 루트 삭제",
@@ -98,7 +99,7 @@ SENSITIVE_CALLS = {
     "network_dhcp_release_overlay_ip": "운영 PCV_NETWORK_RUNDIR pid 파일 기반 프로세스 종료",
 }
 
-
+                                              
 SEAM_CALLS = {
     "pcv_qos_tenant_sla_set": (
         "pcv_qos_set_tenant_sla_path_for_test",
@@ -106,10 +107,25 @@ SEAM_CALLS = {
     ),
     "pcv_overlay_list": ("pcv_overlay_set_test_context", "운영 overlay 메타 디렉터리 읽기"),
     "pcv_overlay_info": ("pcv_overlay_set_test_context", "운영 overlay 메타 디렉터리 읽기"),
+    "pcv_guest_agent_probe_request": (
+        "pcv_guest_agent_set_ops_for_test",
+        "운영 호스트의 실제 libvirt 연결로 게스트 에이전트 호출",
+    ),
+    "pcv_guest_agent_status_submit": (
+        "pcv_guest_agent_set_ops_for_test",
+        "운영 호스트의 실제 libvirt 연결로 게스트 에이전트 호출",
+    ),
+    "network_firewall_setup_nat": ("network_firewall_set_paths_for_test", "운영 PCV_NETWORK_RUNDIR/guest-fw.json 덮어쓰기"),
+    "network_firewall_setup_isolated": ("network_firewall_set_paths_for_test", "운영 PCV_NETWORK_RUNDIR/guest-fw.json 덮어쓰기"),
+    "network_firewall_setup_routed": ("network_firewall_set_paths_for_test", "운영 PCV_NETWORK_RUNDIR/guest-fw.json 덮어쓰기"),
+    "network_firewall_teardown": ("network_firewall_set_paths_for_test", "운영 PCV_NETWORK_RUNDIR/guest-fw.json 덮어쓰기"),
+    "network_firewall_reconcile": ("network_firewall_set_paths_for_test", "운영 PCV_NETWORK_RUNDIR/guest-fw.json·meta 읽기와 덮어쓰기"),
+                                                                                    
+    "pcv_poll_async_submit": ("pcv_poll_async_set_spawn_fn_for_test", "운영 호스트에서 실제 zpool·zfs·ip·ss 명령 실행"),
 }
 
-
-
+                                                                     
+                                                                  
 LINK_SEAMS = (
     ("src/utils/pcv_log.o", "tests/pcv_log_host_paths.o",
      "src/utils/pcv_log.c", "PCV_TEST_OVERRIDE_AUDIT_LOG_PATH"),
@@ -131,9 +147,11 @@ FUNC_HEADER_RE = re.compile(
 )
 KEYWORDS = {"if", "for", "while", "switch", "return", "sizeof", "do", "else"}
 
-
+                                                           
 _FIXTURE_XML = "libvirt domain XML/argv 비교용 문자열 fixture — 경로를 열거나 실행하지 않는다"
 ALLOWLIST: dict[tuple[str, str, str], str] = {
+    ("tests/test_lxc_unit.c", "test_reset_failed_after_destroy_argv", "systemctl reset-failed"):
+        "가짜 ops가 기록한 argv 비교용 문자열 — 실행하지 않음, fake run이 진짜 systemctl 경로를 대체한다",
     ("tests/test_backup_basic.c", "test_backup_incremental_result_json", "/var/lib/purecvisor"):
         "JSON 결과 객체의 file 필드 문자열 fixture — 파일시스템 접근 없음",
     ("tests/test_bpf_manifest.c", "test_seal_rejects_load_and_rehydrate", "pcv_bpf_rehydrate"):
@@ -167,6 +185,8 @@ ALLOWLIST: dict[tuple[str, str, str], str] = {
         "retis argv 빌더 입력·비교 문자열 — 실행·디렉터리 생성 없음",
     ("tests/test_trace.c", "test_build_argv_omits_f_flag_when_no_filter", "/var/run/purecvisor"):
         "retis argv 빌더 입력 출력 디렉터리 문자열 — 실행·디렉터리 생성 없음",
+    ("tests/test_replication_hostkey.c", "test_ssh_argv_required_options", "/etc/purecvisor"):
+        "ssh argv 조립 결과의 -i 키 경로 문자열 비교 — ssh 실행·파일 접근 없음(known_hosts 는 임시 경로 seam)",
     ("tests/test_trace.c", "test_build_argv_shape", "/var/run/purecvisor"):
         "retis argv 빌더 입력·비교 문자열 — 실행·디렉터리 생성 없음",
     ("tests/test_trace.c", "test_start_selfcheck_fail_leaves_guard_free", "pcv_trace_start"):
@@ -197,8 +217,8 @@ class Literal:
 @dataclass
 class Function:
     name: str
-    start: int
-    end: int
+    start: int                    
+    end: int                                  
     refs: set[str] = field(default_factory=set)
     guarded: bool = False
     seams: set[str] = field(default_factory=set)
@@ -221,11 +241,11 @@ def _line_of(text: str, offset: int) -> int:
 
 
 def mask_source(text: str) -> tuple[str, str, list[Literal]]:
+                                                          
 
-
-
-
-
+                                                                          
+                                                  
+       
     code = list(text)
     masked = list(text)
     literals: list[Literal] = []
@@ -266,7 +286,7 @@ def mask_source(text: str) -> tuple[str, str, list[Literal]]:
 
 
 def _blank_preprocessor(masked: str) -> str:
-
+                                                 
     out = list(masked)
     lines = masked.split("\n")
     offset = 0
@@ -281,7 +301,7 @@ def _blank_preprocessor(masked: str) -> str:
 
 
 def find_functions(masked: str) -> list[Function]:
-
+                                         
     text = _blank_preprocessor(masked)
     funcs: list[Function] = []
     depth = 0
@@ -314,7 +334,7 @@ def find_functions(masked: str) -> list[Function]:
 
 
 def parse_defines(code: str, known: set[str]) -> set[str]:
-
+                                                                           
     defines: dict[str, str] = {}
     for line in code.split("\n"):
         m = DEFINE_RE.match(line)
@@ -336,7 +356,7 @@ def parse_defines(code: str, known: set[str]) -> set[str]:
 
 
 def production_macros(src_dir: Path) -> set[str]:
-
+                                                
     names: set[str] = set()
     headers = sorted(src_dir.rglob("*.h")) if src_dir.is_dir() else []
     texts = []
@@ -348,30 +368,30 @@ def production_macros(src_dir: Path) -> set[str]:
 
 
 def _literal_is_production(value: str) -> str | None:
-
+                                                              
     for uri in PRODUCTION_URIS:
         if uri in value:
             return uri
     hits = []
     for root in PRODUCTION_ROOTS:
-
+                                                                   
         for m in re.finditer(re.escape(root) + r"(?=/|$|[\s'\"=,;:%)])", value):
             hits.append((m.start(), -len(root), root))
     return min(hits)[2] if hits else None
 
 
 def _command_violations(masked: str, literals: list[Literal], lo: int, hi: int) -> list[tuple[str, int]]:
-
+                                                    
     hits: list[tuple[str, int]] = []
     body_literals = [lit for lit in literals if lo <= lit.start <= hi]
-
+                                                                
     for lit in body_literals:
         words = lit.value.split()
         if len(words) >= 2 and words[0] in MUTATING_VERBS:
             verbs = MUTATING_VERBS[words[0]]
             if any(word in verbs for word in words[1:]):
                 hits.append((f"{words[0]} {next(w for w in words[1:] if w in verbs)}", lit.start))
-
+                                         
     by_start = {lit.start: lit for lit in body_literals}
     for m in re.finditer(r"\{\s*(?=\")", masked[lo:hi + 1]):
         first_pos = lo + m.end()
@@ -389,14 +409,14 @@ def _command_violations(masked: str, literals: list[Literal], lo: int, hi: int) 
 
 
 def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]:
-
+                                                   
     text = path.read_text(encoding="utf-8", errors="replace")
     code, masked, literals = mask_source(text)
     funcs = find_functions(masked)
     names = {f.name for f in funcs}
     local_macros = parse_defines(code, prod_macros)
 
-
+                   
     for f in funcs:
         body_masked = masked[f.start:f.end + 1]
         body_code = code[f.start:f.end + 1]
@@ -404,8 +424,9 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
         f.guarded = bool(GUARD_RE.search(body_code))
         f.seams = {seam for seam, _ in SEAM_CALLS.values() if re.search(r"\b" + seam + r"\s*\(", body_masked)}
 
-
+                                        
     leaves = {"main"} & names
+    groups: list[tuple[set[str], set[str]]] = []                                                
     for m in REGISTER_RE.finditer(masked):
         depth, j = 1, m.end()
         while j < len(masked) and depth:
@@ -414,7 +435,21 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
             elif masked[j] == ")":
                 depth -= 1
             j += 1
-        leaves |= {ident for ident in IDENT_RE.findall(masked[m.end():j]) if ident in names}
+        group = {ident for ident in IDENT_RE.findall(masked[m.end():j]) if ident in names}
+        leaves |= group
+        if re.match(r"g_test_add(?:_vtable)?\s*\(", m.group(0)):
+            args, d, cur = [], 0, []                                                               
+            for ch in masked[m.end():j - 1]:
+                d += ch in "([{"
+                d -= ch in ")]}"
+                if ch == "," and d == 0:
+                    args.append("".join(cur)); cur = []
+                else:
+                    cur.append(ch)
+            args.append("".join(cur))
+            if len(args) >= 5:
+                pick = lambda a: {i for i in IDENT_RE.findall(a) if i in names}
+                groups.append((pick(args[3]), pick(args[4])))
 
     referencers: dict[str, set[str]] = {f.name: set() for f in funcs}
     for f in funcs:
@@ -424,15 +459,19 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
     def safe_set(direct: set[str]) -> set[str]:
         providers = set(direct)
         changed = True
-        while changed:
+        while changed:                                        
             changed = False
+            for setup, tests in groups:                                                      
+                if setup & providers and not tests <= providers:
+                    providers |= tests
+                    changed = True
             for f in funcs:
                 if f.name not in providers and f.refs & providers:
                     providers.add(f.name)
                     changed = True
         safe = set(providers)
         changed = True
-        while changed:
+        while changed:                                       
             changed = False
             for f in funcs:
                 if f.name in safe or f.name in leaves:
@@ -466,7 +505,7 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
 
     define_lines = {i for i, line in enumerate(code.split("\n"), 1) if DEFINE_RE.match(line)}
 
-
+                                            
     for lit in literals:
         if lit.line in define_lines:
             continue
@@ -475,19 +514,19 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
             add(lit.start, "production-path", root, safe_guard)
 
     blank = _blank_preprocessor(masked)
-
+                    
     if local_macros:
         macro_re = re.compile(r"\b(" + "|".join(sorted(map(re.escape, local_macros))) + r")\b")
         for m in macro_re.finditer(blank):
             add(m.start(), "production-macro", m.group(1), safe_guard)
 
-
+                 
     for f in funcs:
         for token, offset in _command_violations(masked, literals, f.start, f.end):
             if f.name not in safe_guard:
                 violations.append(Violation(rel, f.name, "host-command", token, _line_of(text, offset)))
 
-
+                                        
     for name in SENSITIVE_CALLS:
         for m in re.finditer(r"\b" + re.escape(name) + r"\s*\(", blank):
             add(m.start(), "sensitive-call", name, safe_guard)
@@ -499,16 +538,16 @@ def analyze_file(path: Path, rel: str, prod_macros: set[str]) -> list[Violation]
 
 
 def _make_var(makefile: str, name: str) -> list[str]:
-
+                                                               
     m = re.search(r"(?m)^" + re.escape(name) + r"\s*=\s*(.*)$", makefile)
     return m.group(1).split() if m else []
 
 
 def link_seam_problems(makefile: str, sources: dict[str, str]) -> list[str]:
+                                                                               
 
-
-
-
+                                                           
+       
     problems: list[str] = []
     logical = makefile.replace("\\\n", " ")
     replaced = _make_var(logical, "TEST_HOST_PATH_SEAM_REPLACED")
@@ -546,7 +585,7 @@ def _relative(path: Path) -> str:
 
 def run(files: list[Path], src_dir: Path, allowlist: dict[tuple[str, str, str], str],
         seam_problems: list[str] | None = None) -> int:
-
+                                                                        
     seam_problems = seam_problems or []
     if not files:
         print("ERROR: 검사할 tests/*.c 파일이 없다", file=sys.stderr)
@@ -595,14 +634,14 @@ def run(files: list[Path], src_dir: Path, allowlist: dict[tuple[str, str, str], 
 
 
 def main(argv: list[str]) -> int:
-    parser = argparse.ArgumentParser(description="C 단위 테스트 호스트 격리(hermetic) 정적 게이트")
+    parser = argparse.ArgumentParser(description=__doc__)
     parser.add_argument("files", nargs="*", type=Path, help="검사할 C 파일(기본: tests/*.c)")
     parser.add_argument("--src-dir", type=Path, default=ROOT / "src",
                         help="운영 경로 매크로를 추출할 헤더 루트(기본: src)")
     args = parser.parse_args(argv[1:])
     files = args.files or sorted((ROOT / "tests").glob("*.c"))
     seam_problems: list[str] = []
-    if not args.files:
+    if not args.files:                                                
         makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
         sources = {src: (ROOT / src).read_text(encoding="utf-8") for _, _, src, _ in LINK_SEAMS
                    if (ROOT / src).is_file()}

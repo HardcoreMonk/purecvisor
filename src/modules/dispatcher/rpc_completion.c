@@ -24,6 +24,7 @@
 
 typedef struct {
     gchar *method;
+    gchar *actor;                                                     
     PcvRpcCompletionResult result;
 } PcvRpcCompletionScope;
 
@@ -33,6 +34,7 @@ _completion_scope_free(gpointer data)
     PcvRpcCompletionScope *scope = data;
     if (!scope) return;
     g_free(scope->method);
+    g_free(scope->actor);
     g_free(scope);
 }
 
@@ -56,6 +58,26 @@ pcv_rpc_completion_begin(const gchar *method)
     scope->method = g_strdup(method);
     scope->result.error_code = PURE_RPC_ERR_INTERNAL_ERROR;
     g_private_replace(&completion_scope_key, scope);
+}
+
+                                                              
+                                                   
+void
+pcv_rpc_completion_set_actor(const gchar *actor)
+{
+    PcvRpcCompletionScope *scope = g_private_get(&completion_scope_key);
+    if (!scope) return;
+    g_free(scope->actor);
+    scope->actor = g_strdup(actor);
+}
+
+                                                             
+                                                 
+const gchar *
+pcv_rpc_completion_actor(void)
+{
+    PcvRpcCompletionScope *scope = g_private_get(&completion_scope_key);
+    return scope ? scope->actor : NULL;
 }
 
    
@@ -141,4 +163,15 @@ pcv_rpc_completion_dispatch_succeeded(PcvRpcCompletionResult result,
         return result.success;
 
     return response_may_arrive_later;
+}
+
+                                                                            
+                                                               
+                                                            
+gboolean
+pcv_rpc_completion_should_audit(PcvRpcCompletionResult result, gboolean is_async)
+{
+    if (result.direct_audit)
+        return FALSE;
+    return !is_async || (result.response_observed && !result.success);
 }

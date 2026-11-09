@@ -43,6 +43,10 @@ static const PcvSecurityStringMap k_sources[] = {
                                                                                      
     { PCV_SECURITY_SOURCE_SURICATA, "suricata" },
 };
+                                                                               
+                                                                             
+static_assert(G_N_ELEMENTS(k_sources) == PCV_SECURITY_SOURCE_COUNT,
+              "k_sources rows != PCV_SECURITY_SOURCE_COUNT: add a new source before the enum marker and to this table");
 
 static const PcvSecurityStringMap k_types[] = {
     { PCV_SECURITY_EVENT_FILE_CHANGED, "file_changed" },

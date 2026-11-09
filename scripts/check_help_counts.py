@@ -54,8 +54,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER = ROOT / "src/api/dispatcher.c"
 APP_JS = ROOT / "ui/app.js"
 HELP_JS = ROOT / "ui/modules/help.js"
 
@@ -85,7 +87,7 @@ def _array_lines(lines, opener):
 def registered_routes(text=None) -> set:
                                               
     if text is None:
-        text = DISPATCHER.read_text(errors="replace")
+        text = rpc_extract.dispatcher_route_file(ROOT).read_text(errors="replace")
     return set(ROUTE_RE.findall(text))
 
 

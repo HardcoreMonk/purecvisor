@@ -105,6 +105,7 @@
                                                                        
    
 #include "api/drain.h"
+#include "modules/audit/pcv_audit.h"                                              
 #include <stdio.h>
 #include <glib.h>
 #include <glib/gstdio.h>                             
@@ -121,14 +122,15 @@
 #include "modules/network/network_manager.h"
 #include "../../utils/pcv_validate.h"
 #include "modules/dispatcher/rpc_utils.h"
+#include "modules/dispatcher/poll_async.h"                                        
 #include "modules/network/network_firewall.h"
 #include "modules/network/network_dhcp.h"
 #include "../../utils/pcv_spawn.h"
 #include "../../utils/pcv_log.h"
-#include "../../utils/pcv_config.h"                                             
-#include "../../utils/pcv_worker_pool.h"                                
 #include "vm_iface.h"
 #include "modules/network/pcv_qos.h"                                                   
+#include "modules/network/network_qos_rules.h"                              
+#include "modules/network/iface_guard.h"                                 
 #include "modules/network/vpc/vpc_manager.h"                                   
 #include "modules/network/pcv_shared_bridge.h"                                        
 #include "bpf/pcv_shared_bridge.h"                                                   
@@ -136,9 +138,9 @@
 
 #define NET_LOG_DOM "network"
 
-
-
-
+                                                                   
+                                                            
+           
 #define PCV_HOST_NET_MAX_JSON_BYTES (4U * 1024U * 1024U)
 #define PCV_HOST_NET_MAX_INTERFACES 256U
 #define PCV_HOST_NET_MAX_IPV4_PER_INTERFACE 32U
@@ -146,9 +148,6 @@
 #define PCV_HOST_NET_MAX_OVS_BRIDGES 64U
 #define PCV_HOST_NET_MAX_OVS_PORTS 512U
 
-
-static guint g_qos_reconcile_timer_id = 0;                             
-static gint  g_qos_reconcile_inflight = 0;                          
 
                                                        
                                                          
@@ -166,384 +165,6 @@ _reject_vpc_managed_bridge(const gchar *bridge_name,
     pure_uds_server_send_response(server, connection, response);
     g_free(response);
     return TRUE;
-}
-
-                                                                          
-                                            
-  
-                                        
-                                            
-                                                           
-  
-                                                     
-                                                           
-                                                                                
-                                            
-                                       
-  
-                                        
-                                     
-                                                                               
-                                             
-                            
-  
-                                    
-                                                 
-                                                               
-                                                       
-  
-                      
-                                                     
-                                                           
-                                                       
-  
-                             
-                                                 
-                                 
-                                                          
-                                        
-                                           
-                                                  
-                                                                             
-                                                     
-                                          
-#define QOS_PERSIST_PATH "/var/lib/purecvisor/qos_rules.json"
-
-   
-                                             
-  
-                                                 
-  
-                                                   
-                                                     
-                                                 
-                               
-                                                       
-   
-static void
-_qos_ensure_dir(void)
-{
-    gchar *dir = g_path_get_dirname(QOS_PERSIST_PATH);
-    if (g_mkdir_with_parents(dir, 0700) != 0) {
-        PCV_LOG_WARN("QOS", "Cannot create dir %s: %s", dir, g_strerror(errno));
-    }
-    g_free(dir);
-}
-
-   
-                                                
-  
-                                                  
-                                                  
-  
-                                                      
-                                             
-                                          
-                              
-  
-                                         
-                                         
-                                 
-                               
-   
-static void
-_qos_persist_save(const gchar *iface, const gchar *direction,
-                  gint rate_mbps, gint burst_kb)
-{
-    _qos_ensure_dir();                                          
-
-                     
-    JsonParser *parser = json_parser_new();
-    JsonObject *root = NULL;
-    if (g_file_test(QOS_PERSIST_PATH, G_FILE_TEST_EXISTS)) {
-        if (json_parser_load_from_file(parser, QOS_PERSIST_PATH, NULL)) {
-            root = json_node_dup_object(json_parser_get_root(parser));
-        }
-    }
-    if (!root) root = json_object_new();
-
-                           
-    gchar *key = g_strdup_printf("%s:%s", iface, direction);
-    JsonObject *rule = json_object_new();
-    json_object_set_string_member(rule, "interface", iface);
-    json_object_set_string_member(rule, "direction", direction);
-    json_object_set_int_member(rule, "rate_mbps", rate_mbps);
-    json_object_set_int_member(rule, "burst_kb", burst_kb);
-    json_object_set_object_member(root, key, rule);
-    g_free(key);
-
-                    
-    JsonGenerator *gen = json_generator_new();
-    json_generator_set_pretty(gen, TRUE);
-    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-    json_node_set_object(node, root);
-    json_generator_set_root(gen, node);
-    json_generator_to_file(gen, QOS_PERSIST_PATH, NULL);
-
-    json_node_unref(node);
-    json_object_unref(root);
-    g_object_unref(gen);
-    g_object_unref(parser);
-}
-
-   
-                                             
-  
-                                             
-                                        
-  
-                                      
-                                                  
-                        
-                                                                         
-                                                      
-   
-static void
-_qos_persist_remove(const gchar *iface, const gchar *direction)
-{
-    if (!g_file_test(QOS_PERSIST_PATH, G_FILE_TEST_EXISTS)) return;
-
-    JsonParser *parser = json_parser_new();
-    if (!json_parser_load_from_file(parser, QOS_PERSIST_PATH, NULL)) {
-        g_object_unref(parser);
-        return;
-    }
-    JsonNode *root_n = json_parser_get_root(parser);
-    if (!root_n || json_node_get_node_type(root_n) != JSON_NODE_OBJECT) {
-        g_object_unref(parser);
-        return;
-    }
-    JsonObject *root = json_node_dup_object(root_n);
-
-                                         
-    if (g_strcmp0(direction, "both") == 0) {
-        gchar *key_eg = g_strdup_printf("%s:egress", iface);
-        gchar *key_in = g_strdup_printf("%s:ingress", iface);
-        json_object_remove_member(root, key_eg);
-        json_object_remove_member(root, key_in);
-        g_free(key_eg); g_free(key_in);
-    } else {
-        gchar *key = g_strdup_printf("%s:%s", iface, direction);
-        json_object_remove_member(root, key);
-        g_free(key);
-    }
-
-    JsonGenerator *gen = json_generator_new();
-    json_generator_set_pretty(gen, TRUE);
-    JsonNode *node = json_node_new(JSON_NODE_OBJECT);
-    json_node_set_object(node, root);
-    json_generator_set_root(gen, node);
-    json_generator_to_file(gen, QOS_PERSIST_PATH, NULL);
-
-    json_node_unref(node);
-    json_object_unref(root);
-    g_object_unref(gen);
-    g_object_unref(parser);
-}
-
-   
-                                            
-  
-                                              
-                                                 
-                                     
-  
-                                
-                                              
-                                                                 
-                                            
-                                                      
-                           
-                                                               
-                                                  
-   
-void
-pcv_qos_restore(void)
-{
-    if (!g_file_test(QOS_PERSIST_PATH, G_FILE_TEST_EXISTS)) return;
-
-    JsonParser *parser = json_parser_new();
-    if (!json_parser_load_from_file(parser, QOS_PERSIST_PATH, NULL)) {
-        g_object_unref(parser);
-        return;
-    }
-
-    JsonNode *qos_root_n = json_parser_get_root(parser);
-    if (!qos_root_n || json_node_get_node_type(qos_root_n) != JSON_NODE_OBJECT) {
-        g_warning("[QOS] %s is not a valid JSON object — skipping restore",
-                  QOS_PERSIST_PATH);
-        g_object_unref(parser);
-        return;
-    }
-    JsonObject *root = json_node_get_object(qos_root_n);
-    GList *members = json_object_get_members(root);
-    gint restored = 0;
-
-    for (GList *l = members; l; l = l->next) {
-        const gchar *member_key = l->data;
-        JsonObject *rule = json_object_get_object_member(root, member_key);
-        const gchar *iface = json_object_get_string_member(rule, "interface");
-        const gchar *dir   = json_object_get_string_member(rule, "direction");
-        gint rate  = (gint)json_object_get_int_member(rule, "rate_mbps");
-        gint burst = (gint)json_object_get_int_member(rule, "burst_kb");
-
-                                                        
-        if (!iface || rate <= 0) continue;
-
-                                                      
-                                             
-                                                         
-                                                               
-                                                                           
-                                                      
-        gchar *sys_path = g_strdup_printf("/sys/class/net/%s", iface);
-        gboolean iface_present = g_file_test(sys_path, G_FILE_TEST_EXISTS);
-        g_free(sys_path);
-        if (!iface_present) {
-            PCV_LOG_INFO("QOS", "QoS restore skip %s (%s): iface 미존재 — 다음 reconcile 재시도",
-                         iface, dir ? dir : "egress");
-            continue;
-        }
-
-        PCV_LOG_INFO("QOS", "Restoring QoS for %s (%s): %d Mbps, %d KB burst",
-                     iface, dir ? dir : "egress", rate, burst);
-
-                                                       
-                                                        
-                                                       
-                           
-        if (!dir || g_strcmp0(dir, "egress") == 0) {
-            const gchar *qdisc_argv[] = {"tc", "qdisc", "replace", "dev", iface,
-                "root", "handle", "1:", "htb", "default", "10", NULL};
-            pcv_spawn_sync(qdisc_argv, NULL, NULL, NULL);
-
-            gchar *rate_str = g_strdup_printf("%dMbit", rate);
-            gchar *burst_str = g_strdup_printf("%dk", burst);
-            const gchar *class_argv[] = {"tc", "class", "replace", "dev", iface,
-                "parent", "1:", "classid", "1:10", "htb",
-                "rate", rate_str, "burst", burst_str, NULL};
-            pcv_spawn_sync(class_argv, NULL, NULL, NULL);
-            g_free(rate_str); g_free(burst_str);
-        } else {
-                                     
-                                                              
-                                                                   
-                                            
-            const gchar *ing_del_argv[] = {"tc", "qdisc", "del", "dev", iface,
-                "ingress", NULL};
-            pcv_spawn_sync(ing_del_argv, NULL, NULL, NULL);
-
-            const gchar *ing_argv[] = {"tc", "qdisc", "add", "dev", iface,
-                "ingress", NULL};
-            pcv_spawn_sync(ing_argv, NULL, NULL, NULL);
-
-            gchar *rate_str = g_strdup_printf("%dmbit", rate);
-            gchar *burst_str = g_strdup_printf("%dk", burst);
-            const gchar *filter_argv[] = {"tc", "filter", "add", "dev", iface,
-                "parent", "ffff:", "protocol", "all", "u32",
-                "match", "u32", "0", "0",
-                "police", "rate", rate_str, "burst", burst_str,
-                "action", "drop", NULL};
-            pcv_spawn_sync(filter_argv, NULL, NULL, NULL);
-            g_free(rate_str); g_free(burst_str);
-        }
-        restored++;
-    }
-
-    g_list_free(members);
-    g_object_unref(parser);
-
-    if (restored > 0)
-        PCV_LOG_INFO("QOS", "Restored %d QoS rule(s) from %s",
-                     restored, QOS_PERSIST_PATH);
-}
-
-                                                                        
-                                                               
-                                                                    
-  
-                                                 
-                                       
-                                                                
-void
-pcv_qos_rehydrate_reconcile(void)
-{
-                                                              
-                                                                   
-    pcv_qos_restore();
-}
-
-                                                                               
-  
-                                               
-                                            
-                                                               
-                                                             
-static void
-_qos_reconcile_worker(GTask *task, gpointer src, gpointer td, GCancellable *c)
-{
-    (void)src; (void)td; (void)c;                       
-    pcv_qos_rehydrate_reconcile();
-    g_atomic_int_set(&g_qos_reconcile_inflight, 0);                                
-    g_task_return_boolean(task, TRUE);
-}
-
-                                                           
-                                                      
-  
-                                              
-                                                  
-                                                  
-                                 
-                                                           
-static gboolean
-_qos_reconcile_tick(gpointer data)
-{
-    (void)data;
-                                                           
-                                                       
-    if (!g_atomic_int_compare_and_exchange(&g_qos_reconcile_inflight, 0, 1))
-        return G_SOURCE_CONTINUE;                                            
-    GTask *t = pcv_drain_task_new(NULL, NULL, NULL, NULL);
-    pcv_worker_pool_push(t, _qos_reconcile_worker);                             
-    g_object_unref(t);                                  
-    return G_SOURCE_CONTINUE;
-}
-
-   
-                                                   
-  
-                                                  
-                                    
-                                                               
-                                   
-   
-void
-pcv_qos_reconcile_timer_init(void)
-{
-                                                    
-    gint interval = pcv_config_get_int("qos", "reconcile_interval_sec", 300);
-    if (interval <= 0) {
-        PCV_LOG_INFO("QOS", "QoS reconcile 타이머 비활성 (reconcile_interval_sec=%d)", interval);
-        return;
-    }
-    g_qos_reconcile_timer_id = g_timeout_add_seconds((guint)interval, _qos_reconcile_tick, NULL);
-    PCV_LOG_INFO("QOS", "QoS reconcile 타이머 등록 (%d초 주기)", interval);
-}
-
-   
-                                                       
-  
-                                                       
-                                              
-   
-void
-pcv_qos_reconcile_timer_shutdown(void)
-{
-    if (g_qos_reconcile_timer_id) {
-        g_source_remove(g_qos_reconcile_timer_id);
-        g_qos_reconcile_timer_id = 0;                    
-    }
 }
 
    
@@ -838,265 +459,6 @@ pcv_bridge_mtu_read(const gchar *bridge, const gchar *sysfs_net_root)
     return mtu;
 }
 
-                                                            
-static GPtrArray *_route_fields(const gchar *line)
-{
-    GPtrArray *fields = g_ptr_array_new_with_free_func(g_free);
-    gchar **raw = g_strsplit_set(line ? line : "", " \t\r", -1);
-    for (guint i = 0; raw[i]; i++) {
-        if (*raw[i]) g_ptr_array_add(fields, g_strdup(raw[i]));
-    }
-    g_strfreev(raw);
-    return fields;
-}
-
-                                                                      
-                                                         
-static gboolean _route_file_has_default(const gchar *path,
-                                        const gchar *iface,
-                                        gboolean ipv6,
-                                        gboolean *has_default,
-                                        GError **error)
-{
-    gchar *contents = NULL;
-    if (!g_file_get_contents(path, &contents, NULL, error)) return FALSE;
-
-    *has_default = FALSE;
-    gchar **lines = g_strsplit(contents, "\n", -1);
-    for (guint i = 0; lines[i]; i++) {
-        GPtrArray *f = _route_fields(lines[i]);
-        if (!ipv6 && f->len >= 2) {
-            const gchar *row_iface = g_ptr_array_index(f, 0);
-            const gchar *dest = g_ptr_array_index(f, 1);
-            if (g_strcmp0(row_iface, iface) == 0 && g_strcmp0(dest, "00000000") == 0)
-                *has_default = TRUE;
-        } else if (ipv6 && f->len >= 3) {
-            const gchar *dest = g_ptr_array_index(f, 0);
-            const gchar *prefix = g_ptr_array_index(f, 1);
-            const gchar *row_iface = g_ptr_array_index(f, f->len - 1);
-            if (g_strcmp0(row_iface, iface) == 0
-                && g_strcmp0(dest, "00000000000000000000000000000000") == 0
-                && g_strcmp0(prefix, "00") == 0)
-                *has_default = TRUE;
-        }
-        g_ptr_array_unref(f);
-        if (*has_default) break;
-    }
-    g_strfreev(lines);
-    g_free(contents);
-    return TRUE;
-}
-
-static gboolean _iface_master_read(const gchar *sysfs_net_root,
-                                   const gchar *iface,
-                                   gchar **master_out,
-                                   GError **error)
-{
-    *master_out = NULL;
-    gchar *path = g_build_filename(sysfs_net_root, iface, "master", NULL);
-    GStatBuf st = {0};
-    if (g_lstat(path, &st) != 0) {
-        gint saved_errno = errno;
-        g_free(path);
-        if (saved_errno == ENOENT) return TRUE;
-        g_set_error(error, G_IO_ERROR, g_io_error_from_errno(saved_errno),
-                    "cannot inspect interface '%s' master: %s",
-                    iface, g_strerror(saved_errno));
-        return FALSE;
-    }
-    gchar *link = g_file_read_link(path, error);
-    if (!link) {
-        g_free(path);
-        return FALSE;
-    }
-    *master_out = g_path_get_basename(link);
-    g_free(link);
-    g_free(path);
-    return TRUE;
-}
-
-static gboolean
-_iface_preflight_dedicated(const gchar *physical_if,
-                           const gchar *expected_master,
-                           const gchar *sysfs_net_root,
-                           const gchar *proc_root,
-                           gboolean *was_up,
-                           GError **error)
-{
-    const gchar *sysroot = sysfs_net_root ? sysfs_net_root : "/sys/class/net";
-    const gchar *procroot = proc_root ? proc_root : "/proc";
-    gboolean real_host_view = !sysfs_net_root && !proc_root;
-    if (was_up) *was_up = FALSE;
-
-    if (!pcv_validate_iface_name(physical_if) || g_strcmp0(physical_if, "lo") == 0) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "physical_if must be a non-loopback interface");
-        return FALSE;
-    }
-
-    gchar *iface_path = g_build_filename(sysroot, physical_if, NULL);
-    gchar *type_path = g_build_filename(iface_path, "type", NULL);
-    gchar *flags_path = g_build_filename(iface_path, "flags", NULL);
-    gchar *device_path = g_build_filename(iface_path, "device", NULL);
-    gchar *wireless_path = g_build_filename(iface_path, "wireless", NULL);
-    gchar *bridge_path = g_build_filename(iface_path, "bridge", NULL);
-    gchar *bonding_path = g_build_filename(iface_path, "bonding", NULL);
-    gchar *vlan_path = g_build_filename(procroot, "net", "vlan", physical_if, NULL);
-    gboolean ok = FALSE;
-    gchar *contents = NULL;
-
-    if (!g_file_test(iface_path, G_FILE_TEST_IS_DIR)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                    "physical interface '%s' does not exist", physical_if);
-        goto out;
-    }
-    if (!g_file_get_contents(type_path, &contents, NULL, error)) goto out;
-    g_strstrip(contents);
-    if (g_strcmp0(contents, "1") != 0) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "interface '%s' is not an Ethernet uplink", physical_if);
-        goto out;
-    }
-    g_clear_pointer(&contents, g_free);
-    if (!g_file_test(device_path, G_FILE_TEST_EXISTS)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "interface '%s' is not a physical device", physical_if);
-        goto out;
-    }
-    if (g_file_test(wireless_path, G_FILE_TEST_EXISTS)
-        || g_file_test(bridge_path, G_FILE_TEST_EXISTS)
-        || g_file_test(bonding_path, G_FILE_TEST_EXISTS)
-        || g_file_test(vlan_path, G_FILE_TEST_EXISTS)) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "interface '%s' is wireless, bonded, VLAN, or already a bridge",
-                    physical_if);
-        goto out;
-    }
-    gchar *master = NULL;
-    if (!_iface_master_read(sysroot, physical_if, &master, error)) goto out;
-    if (master && g_strcmp0(master, expected_master) != 0) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "interface '%s' already belongs to master '%s'", physical_if, master);
-        g_free(master);
-        goto out;
-    }
-    g_free(master);
-
-    if (!g_file_get_contents(flags_path, &contents, NULL, error)) goto out;
-    gchar *end = NULL;
-    guint64 flags = g_ascii_strtoull(contents, &end, 0);
-    if (end == contents) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                    "cannot determine administrative state of '%s'", physical_if);
-        goto out;
-    }
-    if (was_up) *was_up = (flags & IFF_UP) != 0;
-    g_clear_pointer(&contents, g_free);
-
-    gchar *route4 = g_build_filename(procroot, "net", "route", NULL);
-    gchar *route6 = g_build_filename(procroot, "net", "ipv6_route", NULL);
-    gboolean has_default = FALSE;
-    if (!_route_file_has_default(route4, physical_if, FALSE, &has_default, error)) {
-        g_free(route4); g_free(route6); goto out;
-    }
-    if (has_default) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "interface '%s' owns the IPv4 default route and may be the management NIC",
-                    physical_if);
-        g_free(route4); g_free(route6); goto out;
-    }
-    if (!_route_file_has_default(route6, physical_if, TRUE, &has_default, error)) {
-        g_free(route4); g_free(route6); goto out;
-    }
-    g_free(route4); g_free(route6);
-    if (has_default) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "interface '%s' owns the IPv6 default route and may be the management NIC",
-                    physical_if);
-        goto out;
-    }
-
-                                                                         
-                                                          
-    if (real_host_view) {
-        struct ifaddrs *ifaddr = NULL;
-        if (getifaddrs(&ifaddr) != 0) {
-            pcv_network_iface_address_facts_dedicated(
-                physical_if, FALSE, FALSE, FALSE, error);
-            goto out;
-        }
-        gboolean has_ipv4 = FALSE;
-        gboolean has_non_link_local_ipv6 = FALSE;
-        for (struct ifaddrs *it = ifaddr; it; it = it->ifa_next) {
-            if (!it->ifa_addr || g_strcmp0(it->ifa_name, physical_if) != 0) continue;
-            int family = it->ifa_addr->sa_family;
-            if (family == AF_INET) {
-                has_ipv4 = TRUE;
-            }
-            if (family == AF_INET6) {
-                const struct sockaddr_in6 *sa6 = (const struct sockaddr_in6 *)it->ifa_addr;
-                if (!IN6_IS_ADDR_LINKLOCAL(&sa6->sin6_addr))
-                    has_non_link_local_ipv6 = TRUE;
-            }
-        }
-        freeifaddrs(ifaddr);
-        if (!pcv_network_iface_address_facts_dedicated(
-                physical_if, TRUE, has_ipv4, has_non_link_local_ipv6, error))
-            goto out;
-    }
-
-    ok = TRUE;
-out:
-    g_free(contents);
-    g_free(iface_path);
-    g_free(type_path);
-    g_free(flags_path);
-    g_free(device_path);
-    g_free(wireless_path);
-    g_free(bridge_path);
-    g_free(bonding_path);
-    g_free(vlan_path);
-    return ok;
-}
-
-gboolean
-pcv_network_iface_address_facts_dedicated(const gchar *physical_if,
-                                          gboolean inventory_known,
-                                          gboolean has_ipv4,
-                                          gboolean has_non_link_local_ipv6,
-                                          GError **error)
-{
-    if (!inventory_known) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "cannot inspect addresses on interface '%s'", physical_if);
-        return FALSE;
-    }
-    if (has_ipv4) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "interface '%s' has a host IPv4 address; dedicated uplink required",
-                    physical_if);
-        return FALSE;
-    }
-    if (has_non_link_local_ipv6) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
-                    "interface '%s' has a non-link-local host IPv6 address",
-                    physical_if);
-        return FALSE;
-    }
-    return TRUE;
-}
-
-gboolean
-pcv_network_iface_preflight_dedicated(const gchar *physical_if,
-                                      const gchar *sysfs_net_root,
-                                      const gchar *proc_root,
-                                      gboolean *was_up,
-                                      GError **error)
-{
-    return _iface_preflight_dedicated(physical_if, NULL, sysfs_net_root, proc_root,
-                                      was_up, error);
-}
-
 gboolean
 pcv_network_iface_address_facts_shared(const gchar *physical_if,
                                        gboolean inventory_known,
@@ -1172,7 +534,7 @@ pcv_network_iface_preflight_shared(const gchar *physical_if,
         goto out;
     }
     gchar *master = NULL;
-    if (!_iface_master_read(sysroot, physical_if, &master, error)) goto out;
+    if (!pcv_iface_guard_master_read(sysroot, physical_if, &master, error)) goto out;
     if (master) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
                     "shared interface '%s' already belongs to master '%s'",
@@ -2309,7 +1671,7 @@ _physical_detach_restore_at(const gchar *bridge_name,
     }
     g_free(iface_path);
     gchar *master = NULL;
-    if (!_iface_master_read(sysroot, physical_if, &master, error)) return FALSE;
+    if (!pcv_iface_guard_master_read(sysroot, physical_if, &master, error)) return FALSE;
     if (master && g_strcmp0(master, bridge_name) != 0) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_BUSY,
                     "interface '%s' moved to unexpected master '%s'; refusing to detach",
@@ -2496,7 +1858,7 @@ _shared_bridge_reconcile(PcvPhysicalBridgeState *state,
         }
     } else {
         gchar *master = NULL;
-        if (!_iface_master_read(sysroot, state->portal_bridge_if, &master, error)) {
+        if (!pcv_iface_guard_master_read(sysroot, state->portal_bridge_if, &master, error)) {
             g_free(before);
             return FALSE;
         }
@@ -2622,7 +1984,7 @@ pcv_network_reconcile_physical_bridges_at(const gchar *state_dir,
         gboolean bridge_exists = g_file_test(bridge_path, G_FILE_TEST_IS_DIR);
         gboolean bridge_is_linux = g_file_test(bridge_kind, G_FILE_TEST_IS_DIR);
         gchar *master = NULL;
-        if (!_iface_master_read(sysroot, state.physical_if, &master, &local)) {
+        if (!pcv_iface_guard_master_read(sysroot, state.physical_if, &master, &local)) {
             g_string_append_printf(failures, "%s: %s; ", state.bridge_name,
                                    local ? local->message : "cannot inspect master");
             g_clear_error(&local);
@@ -2642,7 +2004,7 @@ pcv_network_reconcile_physical_bridges_at(const gchar *state_dir,
                         "uplink belongs to unexpected master '%s'", master);
         } else if (converged) {
             gboolean ignored_was_up = FALSE;
-            if (_iface_preflight_dedicated(state.physical_if, state.bridge_name,
+            if (pcv_iface_guard_check_dedicated(state.physical_if, state.bridge_name,
                                            sysfs_net_root, proc_root,
                                            &ignored_was_up, &local)) {
                 if (production_view) _network_meta_save(state.bridge_name, "bridge", NULL);
@@ -3054,9 +2416,7 @@ static void network_delete_worker(GTask *task, gpointer source_obj, gpointer tas
 
    
                                                          
-                        
-                                  
-                                 
+                                                                                               
   
                                               
                                                   
@@ -3065,15 +2425,13 @@ static void network_delete_worker(GTask *task, gpointer source_obj, gpointer tas
                                                       
                                                  
   
-                                                      
-  
        
+                                                                               
                                                       
                                                                       
                                                            
   
-                                                         
-                                               
+                                                                                   
    
 static void network_action_callback(GObject *source_obj, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -3089,7 +2447,10 @@ static void network_action_callback(GObject *source_obj, GAsyncResult *res, gpoi
         g_mutex_unlock(&g_net_inflight_mu);
     }
 
-    if (!g_task_propagate_boolean(task, &error)) {
+    gboolean ok = g_task_propagate_boolean(task, &error);
+    pcv_audit_log(pcv_drain_task_actor(res), is_delete ? "network.delete" : "network.create",                                                       
+                  ctx->bridge_name, ok ? "ok" : "fail", ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+    if (!ok) {
         gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
         pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
         g_free(err_resp);
@@ -3097,8 +2458,7 @@ static void network_action_callback(GObject *source_obj, GAsyncResult *res, gpoi
     } else {
         JsonObject *result_obj = json_object_new();
         json_object_set_string_member(result_obj, "bridge", ctx->bridge_name);
-        
-                                                            
+
         if (is_delete) {
             json_object_set_string_member(result_obj, "status", "deleted");
         } else {
@@ -3387,10 +2747,6 @@ void handle_network_delete_request(JsonObject *params, const gchar *rpc_id, UdsS
                                                               
                                                                      
 
-#include "../../utils/pcv_log.h"
-#include <net/if.h>
-
-
                                                            
 
    
@@ -3564,10 +2920,10 @@ _libvirt_dhcp_active_for_bridge(const gchar *bridge_name)
   
                                                  
                                                  
-                          
+                                                                                              
    
 static gboolean
-_dhcp_socket_active_for_bridge(const gchar *bridge_name)
+_dhcp_socket_active_for_bridge(const gchar *bridge_name, PcvPollGuard *guard)
 {
     const gchar *argv[] = {"ss", "-lun", NULL};
     gchar *stdout_buf = NULL;
@@ -3577,7 +2933,8 @@ _dhcp_socket_active_for_bridge(const gchar *bridge_name)
         return FALSE;
     }
 
-    if (!pcv_spawn_sync(argv, &stdout_buf, NULL, NULL) || !stdout_buf) {
+    if (!(guard ? pcv_poll_guard_spawn(guard, argv, &stdout_buf, NULL, NULL)
+                : pcv_spawn_sync(argv, &stdout_buf, NULL, NULL)) || !stdout_buf) {
         g_free(stdout_buf);
         return FALSE;
     }
@@ -3601,10 +2958,10 @@ _dhcp_socket_active_for_bridge(const gchar *bridge_name)
                         
   
                                                   
-                                        
+                                                                           
    
 static gboolean
-_network_dhcp_active(const gchar *bridge_name)
+_network_dhcp_active(const gchar *bridge_name, PcvPollGuard *guard)
 {
     gchar *pid_path = g_strdup_printf(PCV_NETWORK_RUNDIR "/dnsmasq-%s.pid", bridge_name);
     gboolean active = _pid_file_process_alive(pid_path);
@@ -3618,7 +2975,7 @@ _network_dhcp_active(const gchar *bridge_name)
         return TRUE;
     }
 
-    return _dhcp_socket_active_for_bridge(bridge_name);
+    return _dhcp_socket_active_for_bridge(bridge_name, guard);
 }
 
    
@@ -3629,15 +2986,17 @@ _network_dhcp_active(const gchar *bridge_name)
   
                                                            
                                            
+                                                                                      
   
                                                            
    
-static gchar *_get_bridge_ip(const gchar *bridge_name)
+static gchar *_get_bridge_ip(const gchar *bridge_name, PcvPollGuard *guard)
 {
     const gchar *argv[] = {"ip", "-4", "addr", "show",
                             "dev", bridge_name, NULL};
     gchar *stdout_buf = NULL;
-    pcv_spawn_sync(argv, &stdout_buf, NULL, NULL);
+    if (guard) (void)pcv_poll_guard_spawn(guard, argv, &stdout_buf, NULL, NULL);
+    else       pcv_spawn_sync(argv, &stdout_buf, NULL, NULL);
     if (!stdout_buf) return g_strdup("");
 
                                           
@@ -3656,21 +3015,21 @@ static gchar *_get_bridge_ip(const gchar *bridge_name)
     return result;
 }
 
-
-
-
+                                                                  
+                                                                  
+                                                                  
   
-
-
-
-
-
-
-
+                           
+                                                      
+                                                        
+                                                                
+                                                          
+                                                        
+                      
   
-
-
-
+                                                 
+                                              
+   
 
 static const gchar *
 _host_net_string_member(JsonObject *object, const gchar *member)
@@ -4351,22 +3710,20 @@ handle_network_host_info_request(JsonObject *params __attribute__((unused)),
     g_free(response);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                                                                                                  
+                                                                                      
+                                                                                                          
+  
+                                               
+                                                
+                                                            
+                   
+  
+                                   
+  
+               
+                                                                   
   
           
                                                      
@@ -4378,23 +3735,18 @@ handle_network_host_info_request(JsonObject *params __attribute__((unused)),
                                     
                                         
    
-void handle_network_list_request(JsonObject *params __attribute__((unused)),
-                                  const gchar *rpc_id,
-                                  UdsServer *server,
-                                  GSocketConnection *connection)
+static JsonNode *
+pcv_network_list_compute(JsonObject *params, PcvPollGuard *guard, GError **error)
 {
-    const gchar *argv[] = {"ip", "-o", "link", "show",
-                            "type", "bridge", NULL};
+    (void)params;
+    const gchar *argv[] = {"ip", "-o", "link", "show", "type", "bridge", NULL};
     gchar *stdout_buf = NULL;
     GError *err = NULL;
-
-    if (!pcv_spawn_sync(argv, &stdout_buf, NULL, &err)) {
-        const gchar *msg = err ? err->message : "ip link failed";
-        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
-        pure_uds_server_send_response(server, connection, resp);
-        g_free(resp);
-        if (err) g_error_free(err);
-        return;
+    if (!pcv_poll_guard_spawn(guard, argv, &stdout_buf, NULL, &err)) {
+        g_set_error_literal(error, g_quark_from_static_string("pcv-network-list"), PURE_RPC_ERR_ZFS_OPERATION,
+                            err ? err->message : "ip link failed");
+        g_clear_error(&err);
+        return NULL;
     }
 
     JsonArray *bridges = json_array_new();
@@ -4422,7 +3774,7 @@ void handle_network_list_request(JsonObject *params __attribute__((unused)),
         gboolean is_up = (strstr(*l, "UP") != NULL);
 
                    
-        gchar     *ip_cidr = _get_bridge_ip(br_name);
+        gchar     *ip_cidr = _get_bridge_ip(br_name, guard);
         JsonArray *slaves  = _read_bridge_slaves(br_name);
 
                                     
@@ -4431,7 +3783,7 @@ void handle_network_list_request(JsonObject *params __attribute__((unused)),
                             
                                                                  
                                                  
-        gboolean dhcp_on = _network_dhcp_active(br_name);
+        gboolean dhcp_on = _network_dhcp_active(br_name, guard);
 
                                                                              
         gchar *phys_uplink = g_strdup("-");
@@ -4546,9 +3898,15 @@ void handle_network_list_request(JsonObject *params __attribute__((unused)),
 
     JsonNode *result = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(result, bridges);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, result);
-    pure_uds_server_send_response(server, connection, resp);
-    g_free(resp);
+    return result;
+}
+
+                                                                                           
+                                                                        
+void handle_network_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                                 GSocketConnection *connection)
+{
+    pcv_poll_async_submit("network.list", params, rpc_id, server, connection, pcv_network_list_compute);
 }
 
    
@@ -4597,14 +3955,14 @@ void handle_network_info_request(JsonObject *params,
         return;
     }
 
-    gchar     *ip_cidr  = _get_bridge_ip(br_name);
+    gchar     *ip_cidr  = _get_bridge_ip(br_name, NULL);
     JsonArray *slaves   = _read_bridge_slaves(br_name);
     const gchar *carrier = _bridge_carrier(br_name);
 
                   
                                                    
                                                                 
-    gboolean has_dhcp = _network_dhcp_active(br_name);
+    gboolean has_dhcp = _network_dhcp_active(br_name, NULL);
 
                  
     guint slave_count = json_array_get_length(slaves);
@@ -4670,7 +4028,7 @@ void handle_network_info_request(JsonObject *params,
                                                        
                                       
   
-                                    
+                                                             
                                       
                                                   
                                                                      
@@ -4771,10 +4129,7 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-                           
-    network_firewall_teardown(br, NULL);
-
-                       
+                                                                                            
     gboolean ok = FALSE;
     if      (g_strcmp0(mode, "nat")      == 0) ok = network_firewall_setup_nat     (br, cidr, &error);
     else if (g_strcmp0(mode, "isolated") == 0) ok = network_firewall_setup_isolated(br, cidr, &error);
@@ -5001,8 +4356,8 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
                         
                                                 
                                            
-
-
+                                                  
+                                    
   
                             
                                                   
@@ -5024,7 +4379,7 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
                            
   
                                                    
-
+                                           
   
                                                     
                                                   
@@ -5146,9 +4501,9 @@ void handle_network_ovs_delete_request(JsonObject *params, const gchar *rpc_id,
                                                        
                                                                  
   
-
-
-
+                                                   
+                                              
+                                    
   
                     
                                                  
@@ -5339,7 +4694,8 @@ _qos_deprecate_warn_once(void)
                                                           
                                                             
                                                   
-                                                  
+                                                          
+                                                         
   
          
                                                           
@@ -5557,8 +4913,9 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
         g_message("[QoS] Set egress %dMbit burst=%dk on %s", rate_mbps, burst_kb, iface);
     }
 
-                                                    
-    _qos_persist_save(iface, direction, rate_mbps, burst_kb);
+                                                                               
+                                                                         
+    gboolean persisted = pcv_network_qos_rules_save(iface, direction, rate_mbps, burst_kb);
 
     JsonObject *qos_res = json_object_new();
     json_object_set_string_member(qos_res, "status", "ok");
@@ -5566,6 +4923,7 @@ void handle_network_qos_set(JsonObject *params, const gchar *rpc_id,
     json_object_set_string_member(qos_res, "direction", direction);
     json_object_set_int_member(qos_res, "rate_mbps", rate_mbps);
     json_object_set_int_member(qos_res, "burst_kb", burst_kb);
+    json_object_set_boolean_member(qos_res, "persisted", persisted);
     JsonNode *qos_node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(qos_node, qos_res);
     gchar *qos_resp = pure_rpc_build_success_response(rpc_id, qos_node);
@@ -5644,6 +5002,7 @@ void handle_network_qos_get(JsonObject *params, const gchar *rpc_id,
   
                                                   
                                                    
+                                                      
   
          
                                  
@@ -5666,6 +5025,16 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id,
 
     gboolean remove_egress  = (g_strcmp0(direction, "egress") == 0 || g_strcmp0(direction, "all") == 0);
     gboolean remove_ingress = (g_strcmp0(direction, "ingress") == 0 || g_strcmp0(direction, "all") == 0);
+
+                                                             
+                                                                    
+    if (remove_ingress && pcv_qos_iface_is_managed(iface)) {
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+            "iface is under D09 hierarchical QoS — use qos.vm.*; "
+            "removing the ingress qdisc would destroy the SLA redirect");
+        pure_uds_server_send_response(server, connection, err);
+        g_free(err); return;
+    }
 
                                 
     if (remove_egress) {
@@ -5720,7 +5089,7 @@ void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id,
     g_message("[QoS] Removed tc qdisc (%s) on %s", direction, iface);
 
                                 
-    _qos_persist_remove(iface,
+    pcv_network_qos_rules_remove(iface,
         g_strcmp0(direction, "all") == 0 ? "both" : direction);
 
     JsonObject *qrm_res = json_object_new();

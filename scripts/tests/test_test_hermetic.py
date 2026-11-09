@@ -1,22 +1,22 @@
 #!/usr/bin/env python3
+                          
+                                                                     
+                                                                                 
+                                                                             
+                                                                
+ 
+                      
+                                                             
+                                          
+                                    
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                           
+                                                                
+                                                                  
+                                                   
+                                                 
+                          
+   
 from __future__ import annotations
 
 import subprocess
@@ -25,15 +25,15 @@ import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import check_test_hermetic as gate
+import check_test_hermetic as gate              
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts" / "check_test_hermetic.py"
-BASE_COMMIT = "ed147de"
+BASE_COMMIT = "5d19bd31"
 
 
 def _violations(source: str, header: str = "") -> list[gate.Violation]:
-
+                                                                
     with tempfile.TemporaryDirectory() as tmp:
         tmp_path = Path(tmp)
         src_dir = tmp_path / "src"
@@ -47,7 +47,7 @@ def _violations(source: str, header: str = "") -> list[gate.Violation]:
 
 
 def _wrap(body: str, extra: str = "") -> str:
-
+                                                              
     return (
         "#include <glib.h>\n"
         f"{extra}\n"
@@ -61,34 +61,34 @@ def _wrap(body: str, extra: str = "") -> str:
 
 
 def test_gate_passes_on_current_tree():
-
+                       
     r = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert r.returncode == 0, r.stdout + r.stderr
 
 
 def test_unguarded_production_literal_is_red():
-
+                                         
     v = _violations(_wrap('    FILE *fp = fopen("/var/log/purecvisor/audit.log", "a");'))
     assert [(x.func, x.kind, x.token) for x in v] == [
         ("test_leaf", "production-path", "/var/log/purecvisor")]
 
 
 def test_opt_in_guard_in_leaf_is_green():
-
+                                                  
     body = ('    if (!pcv_test_live_opt_in("PCV_AUDIT_LIVE")) { g_test_skip("x"); return; }\n'
             '    FILE *fp = fopen("/var/log/purecvisor/audit.log", "a");')
     assert _violations(_wrap(body)) == []
 
 
 def test_non_live_env_name_is_not_a_guard():
-
+                                                   
     body = ('    if (g_strcmp0(g_getenv("PCV_FOO"), "1") != 0) return;\n'
             '    g_file_set_contents("/var/lib/purecvisor/x.db", "", 0, NULL);')
     assert len(_violations(_wrap(body))) == 1
 
 
 def test_guard_via_helper_and_helper_paths():
-
+                                                                     
     helpers = (
         "static const char *gate_reason(void) {\n"
         '    if (!pcv_test_live_opt_in("PCV_TRACE_LIVE")) return "opt-in";\n'
@@ -107,7 +107,7 @@ def test_guard_via_helper_and_helper_paths():
 
 
 def test_comments_are_ignored():
-
+                                
     body = ("    /* 운영 /var/lib/purecvisor/security_groups.db 를 쓰지 않는다 */\n"
             "    // systemctl kill suricata 는 opt-in 전용\n"
             "    int x = 0; (void)x;")
@@ -115,7 +115,7 @@ def test_comments_are_ignored():
 
 
 def test_host_commands():
-
+                                                     
     argv_kill = '    const char *argv[] = { "systemctl", "kill", "suricata", NULL };'
     assert [x.token for x in _violations(_wrap(argv_kill))] == ["systemctl kill"]
     shell = '    (void)system("virsh undefine pcv-vm >/dev/null 2>&1");'
@@ -127,7 +127,7 @@ def test_host_commands():
 
 
 def test_production_macros_from_headers_and_local_defines():
-
+                                                           
     header = ('#define PCV_FIX_ROOT "/var/run/purecvisor/fix"\n'
               '#define PCV_FIX_PID PCV_FIX_ROOT "/x.pid"\n')
     body = "    g_unlink(PCV_FIX_PID);"
@@ -138,19 +138,52 @@ def test_production_macros_from_headers_and_local_defines():
 
 
 def test_sensitive_and_seam_calls():
-
+                                                        
     assert [x.token for x in _violations(_wrap("    pcv_trace_purge_all();"))] == [
         "pcv_trace_purge_all"]
     sla = '    pcv_qos_tenant_sla_set("beta", 1, 2, NULL, NULL, NULL);'
     assert [x.kind for x in _violations(_wrap(sla))] == ["seam-required"]
     seamed = '    pcv_qos_set_tenant_sla_path_for_test(path);\n' + sla
     assert _violations(_wrap(seamed)) == []
+    probe = '    pcv_guest_agent_probe_request("u", "vm");'
+    assert [x.kind for x in _violations(_wrap(probe))] == ["seam-required"]
+    status = '    pcv_guest_agent_status_submit("vm", "1", NULL, NULL);'
+    assert [x.token for x in _violations(_wrap(status))] == ["pcv_guest_agent_status_submit"]
+    assert _violations(_wrap("    pcv_guest_agent_set_ops_for_test(NULL);\n" + probe)) == []
+    fixture = ("static void setup(void) { pcv_guest_agent_set_ops_for_test(NULL); }\n"
+               "static void t(void) { pcv_guest_agent_probe_request(\"u\", \"v\"); }\n"
+               "int main(void) { g_test_add(\"/x\", Fx, NULL, setup, t, NULL); return 0; }\n")
+    assert _violations(fixture) == [], "fixture setup 의 seam 이 같은 g_test_add 의 test 를 보호한다"
+    bare = fixture.replace("pcv_guest_agent_set_ops_for_test(NULL);", "")
+    assert [x.kind for x in _violations(bare)] == ["seam-required"]
+                                                                   
+    teardown_only = (
+        "static void td(void) { pcv_guest_agent_set_ops_for_test(NULL); }\n"
+        "static void t(void) { pcv_guest_agent_probe_request(\"u\", \"v\"); }\n"
+        "int main(void) { g_test_add(\"/x\", Fx, NULL, NULL, t, td); return 0; }\n")
+    assert [x.kind for x in _violations(teardown_only)] == ["seam-required"]
     overlay = "    JsonArray *a = pcv_overlay_list(NULL); (void)a;"
     assert [x.token for x in _violations(_wrap(overlay))] == ["pcv_overlay_list"]
 
 
-def test_pre_fix_test_files_are_red():
+def test_poll_async_submit_requires_spawn_seam():
+                                                                                    
+                                                  
+    submit = "    pcv_poll_async_submit(\"storage.pool.list\", NULL, \"1\", NULL, NULL, fn);"
+    found = _violations(_wrap(submit))
+    assert [(x.kind, x.token) for x in found] == [("seam-required", "pcv_poll_async_submit")], found
+    assert _violations(_wrap("    pcv_poll_async_set_spawn_fn_for_test(fake);\n" + submit)) == []
+    fixture = ("static void setup(void) { pcv_poll_async_set_spawn_fn_for_test(fake); }\n"
+               "static void t(void) { pcv_poll_async_submit(\"m\", NULL, \"1\", NULL, NULL, fn); }\n"
+               "int main(void) { g_test_add(\"/x\", Fx, NULL, setup, t, NULL); return 0; }\n")
+    assert _violations(fixture) == [], "setup 의 seam 이 같은 g_test_add 의 test 를 보호한다"
+                                                              
+    teardown_only = fixture.replace("NULL, setup, t, NULL", "NULL, NULL, t, setup")
+    assert [x.kind for x in _violations(teardown_only)] == ["seam-required"]
 
+
+def test_pre_fix_test_files_are_red():
+                                                   
     expected = {
         "test_security_group.c": ("production-path", "/var/lib/purecvisor"),
         "test_suricata_integration.c": ("host-command", "systemctl kill"),
@@ -178,7 +211,7 @@ def test_pre_fix_test_files_are_red():
 
 
 def test_link_seam_contract():
-
+                                                       
     makefile = (ROOT / "Makefile").read_text(encoding="utf-8")
     sources = {src: (ROOT / src).read_text(encoding="utf-8") for _, _, src, _ in gate.LINK_SEAMS}
     assert gate.link_seam_problems(makefile, sources) == []
@@ -204,7 +237,7 @@ def test_link_seam_contract():
 
 
 def test_stale_and_weak_allowlist_are_red():
-
+                                           
     with tempfile.TemporaryDirectory() as tmp:
         c_file = Path(tmp) / "test_fixture.c"
         c_file.write_text(_wrap("    int x = 0; (void)x;"), encoding="utf-8")

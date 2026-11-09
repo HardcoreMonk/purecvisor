@@ -1,6 +1,3 @@
-
-
-
    
                          
                                             
@@ -8,10 +5,11 @@
                            
                                                                            
                                                                    
-                                                                           
-                                                                           
-                                                           
-                                                               
+                                                                             
+                                                                             
+                                                                              
+                                                          
+                                                                  
                                                                          
                                                                             
                                                
@@ -25,10 +23,12 @@
                                                                      
                                                                                 
                                                                      
+                                                                           
                                                                          
-                                                                             
-                                                                             
-                                          
+                                                               
+                                                                               
+                                                                       
+          
   
                   
                                                                            
@@ -328,18 +328,18 @@ _append_host_and_guard(GString *s, GPtrArray *subnets,
     }
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
+                           
+                                                                                    
+                                                                     
+                                                                  
+                                                                 
+                                                          
+                                                                            
+                                                                    
+  
+                       
+                                                     
+                                                        
 static void
 _append_publishes(GString *s, const PcvVpcPolicySnapshot *snapshot)
 {
@@ -439,17 +439,17 @@ _append_egress_and_nat(GString *s, const PcvVpcPolicySnapshot *snapshot)
 
                            
                                                                    
-                                                                                  
-                                                                       
-                                                                     
-                                                                
-                                                              
+                                                                                
+                                                                  
+                                                                              
+                                                                  
+                                                                  
+       
   
                        
                                                           
                                                             
                        
-
 gchar *
 pcv_vpc_policy_build_script(const PcvVpcPolicySnapshot *snapshot)
 {
@@ -457,7 +457,7 @@ pcv_vpc_policy_build_script(const PcvVpcPolicySnapshot *snapshot)
     GString *s = g_string_new(NULL);
     _append_base(s, subnets, snapshot);
     _append_host_and_guard(s, subnets, snapshot);
-
+                                                                                          
     _append_cross_vpc_isolation(s, snapshot);
     _append_publishes(s, snapshot);
     _append_egress_and_nat(s, snapshot);

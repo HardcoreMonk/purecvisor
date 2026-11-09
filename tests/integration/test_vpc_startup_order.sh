@@ -17,7 +17,7 @@ line_of() {
 }
 
 ovn_line="$(line_of '^[[:space:]]*pcv_ovn_init\(\);')"
-vpc_line="$(line_of '^[[:space:]]*if \(!pcv_vpc_reconcile\(&vpc_error\)\)')"
+vpc_line="$(line_of '^[[:space:]]*if \(!pcv_vpc_mgmt_boot_reconcile\(&vpc_error\)\)')"
 uds_line="$(line_of '^[[:space:]]*if \(!uds_server_start\(server, &error\)\)')"
 rest_line="$(line_of '^[[:space:]]*if \(!pcv_rest_server_start\(rest_server, &error\)\)')"
 grpc_line="$(line_of '^[[:space:]]*pcv_grpc_server_start\(\);')"

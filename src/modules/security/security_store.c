@@ -48,12 +48,11 @@
 
 #include "utils/pcv_config.h"                                                      
 #include <glib/gstdio.h>                                         
-#include "modules/audit/pcv_audit.h"
-#include "modules/daemons/alert_engine.h"
 #include "modules/security/security_policy.h"
+#include "modules/security/security_event_bounds.h"                              
+#include "modules/security/security_event_row.h"                                      
 
 #include <sqlite3.h>
-#include <string.h>                                            
 #include <time.h>
 
   
@@ -71,43 +70,6 @@ static struct {
 } G = {0};
 
 static gsize g_mutex_once = 0;                                                  
-
-  
-                                                       
-                                                   
-                                                         
-  
-                                                                         
-                                                                                
-                                                                     
-                                                                             
-                               
-                                                            
-                                                        
-                                                              
-               
-   
-#define PCV_MAX_RETAINED_EVENTS 20000                           
-
-                                                                      
-static gint g_retention_cap = PCV_MAX_RETAINED_EVENTS;
-
-  
-                                                   
-                                     
-  
-                                                                                
-                                                               
-                                                               
-                                 
-                                                             
-   
-void
-pcv_security_store_set_retention_cap_for_test(gint cap)
-{
-                                                
-    g_retention_cap = (cap > 0) ? cap : PCV_MAX_RETAINED_EVENTS;
-}
 
   
                                                  
@@ -332,38 +294,10 @@ init_schema(GError **error)
         }
     }
 
-      
-                                                         
-                                                         
-                                            
-      
-                                                                    
-                                                                
-                                                       
-                                                                  
-                        
-       
-    {
-        gchar *aerr = NULL;
-        gint arc = sqlite3_exec(
-            G.db,
-            "ALTER TABLE overlay_wg_keys ADD COLUMN slot INTEGER NOT NULL DEFAULT -1",
-            NULL, NULL, &aerr);
-        if (arc != SQLITE_OK) {
-                                                                           
-            gboolean dup = (aerr && strstr(aerr, "duplicate column") != NULL);
-            if (!dup) {
-                                                           
-                if (error) {
-                    g_set_error(error, security_store_error_quark(), arc,
-                                "%s", aerr ? aerr : sqlite3_errmsg(G.db));
-                }
-                sqlite3_free(aerr);
-                G.degraded = TRUE;
-                return FALSE;
-            }
-            sqlite3_free(aerr);                                     
-        }
+                                                                                  
+    if (!pcv_sec_bounds_migrate(G.db, error)) {
+        G.degraded = TRUE;
+        return FALSE;
     }
     return TRUE;
 }
@@ -543,68 +477,22 @@ update_existing_event(const PcvSecurityEvent *ev, const gchar *key, GError **err
 }
 
   
-                                                            
-                                                    
-                                                       
-                                                                      
-                                        
-   
-static void
-enforce_event_retention(void)
-{
-      
-                                                                     
-                                                         
-      
-                                                                                
-                                                                                
-                                                                                 
-                                                                              
-                                                                             
-                                                                    
-      
-                                                                               
-                                                         
-                                                                 
-                                                                     
-                                                                      
-                                                                    
-                                                                       
-       
-                                                                                 
-    const gchar *sql =
-        "DELETE FROM security_events "
-        "WHERE status IN ('resolved','suppressed') AND rowid NOT IN ("
-        "SELECT rowid FROM security_events "
-        "WHERE status IN ('resolved','suppressed') "
-        "ORDER BY timestamp DESC, rowid DESC LIMIT ?1)";
-    sqlite3_stmt *stmt = NULL;
-    gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        g_warning("security_store: prepare retention prune failed: %s",
-                  sqlite3_errmsg(G.db));
-        return;
-    }
-    sqlite3_bind_int(stmt, 1, g_retention_cap);
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    if (rc != SQLITE_DONE) {
-        g_warning("security_store: execute retention prune failed: %s",
-                  sqlite3_errmsg(G.db));
-    }
-}
-
-  
-                                                             
-                                                      
-                                                    
-                                                            
                                                                             
-                                                                    
+                                                      
+                                                          
+                                                                     
+                                                            
+                                                                           
+                                                                            
+                                                                            
    
 gboolean
-pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error)
+pcv_security_store_insert_event_ex(const PcvSecurityEvent *ev, PcvSecInsertResult *out,
+                                   GError **error)
 {
+    if (out) {
+        *out = (PcvSecInsertResult){0};
+    }
     if (!ev) {
         g_set_error(error, security_store_error_quark(), SQLITE_MISUSE,
                     "event is required");
@@ -624,6 +512,9 @@ pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error)
     g_autofree gchar *key = pcv_security_event_coalesce_key(ev);
     gboolean coalesced = update_existing_event(ev, key, error);
     if (coalesced) {
+        if (out) {                                                      
+            (void)pcv_sec_bounds_apply(G.db, ev, PCV_SEC_INSERT_COALESCED, now_sec(), out, NULL);
+        }
         g_mutex_unlock(&G.mu);
         return TRUE;                                                            
     }
@@ -675,16 +566,27 @@ pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error)
         G.degraded = TRUE;
     } else {
                                                           
-        enforce_event_retention();
+        (void)pcv_sec_bounds_enforce_retention(G.db, NULL);                                   
+        if (out) {                                             
+            (void)pcv_sec_bounds_apply(G.db, ev, PCV_SEC_INSERT_NEW, now_sec(), out, NULL);
+        }
     }
     g_mutex_unlock(&G.mu);
     return ok;
 }
 
+                                                                      
+gboolean
+pcv_security_store_insert_event(const PcvSecurityEvent *ev, GError **error)
+{
+    return pcv_security_store_insert_event_ex(ev, NULL, error);
+}
+
   
                                                              
                                                        
-                                                             
+                                                                
+                                                                     
                                                                                 
                                                                          
                                                                  
@@ -719,63 +621,14 @@ pcv_security_submit_event(PcvSecurityEvent *ev, GError **error)
     g_strlcpy(ev->recommended_action, action ? action : "manual_runbook",
               sizeof ev->recommended_action);                            
 
-    if (!pcv_security_store_insert_event(ev, error)) {
+    PcvSecInsertResult r;
+    if (!pcv_security_store_insert_event_ex(ev, &r, error)) {
         return FALSE;                                                        
     }
-
-    if (pcv_security_policy_should_audit(ev)) {
-          
-                                                                 
-          
-                                                                                 
-                                                                           
-                                                                     
-                                                 
-           
-        const gchar *severity = pcv_security_severity_to_string(ev->severity);
-        pcv_audit_log(NULL, "security.event", ev->event_id,
-                      "ok", 0, 0, "local");                                      
-        pcv_alert_record_security_event(ev->event_id, severity, ev->summary);
-    }
+                                                                       
+                                                                        
+    pcv_sec_bounds_emit(ev, &r);
     return TRUE;
-}
-
-  
-                                                               
-                                                        
-                                                                    
-                                                           
-   
-static JsonObject *
-row_to_event_json(sqlite3_stmt *stmt)
-{
-      
-                                                       
-      
-                                                                              
-                                                                           
-                                             
-                                                                 
-                                                                   
-       
-    JsonObject *obj = json_object_new();
-    json_object_set_string_member(obj, "event_id", col_text(stmt, 0));
-    json_object_set_int_member(obj, "timestamp", sqlite3_column_int64(stmt, 1));
-    json_object_set_string_member(obj, "source", col_text(stmt, 2));
-    json_object_set_string_member(obj, "type", col_text(stmt, 3));
-    json_object_set_string_member(obj, "severity", col_text(stmt, 4));
-    json_object_set_int_member(obj, "confidence", sqlite3_column_int(stmt, 5));
-    json_object_set_string_member(obj, "target_kind", col_text(stmt, 6));
-    json_object_set_string_member(obj, "target", col_text(stmt, 7));
-    json_object_set_string_member(obj, "summary", col_text(stmt, 8));
-    json_object_set_string_member(obj, "recommended_action", col_text(stmt, 9));
-    json_object_set_string_member(obj, "status", col_text(stmt, 10));
-    json_object_set_string_member(obj, "evidence_json", col_text(stmt, 11));
-    json_object_set_string_member(obj, "coalesce_key", col_text(stmt, 12));
-    json_object_set_int_member(obj, "occurrence_count", sqlite3_column_int(stmt, 13));
-    json_object_set_int_member(obj, "last_seen", sqlite3_column_int64(stmt, 14));
-    json_object_set_int_member(obj, "created_at", sqlite3_column_int64(stmt, 15));
-    return obj;
 }
 
   
@@ -819,10 +672,7 @@ pcv_security_store_list_events(gint offset, gint limit,
 
                                                                   
                                                                  
-    GString *sql = g_string_new(
-        "SELECT event_id,timestamp,source,type,severity,confidence,target_kind,target,summary,"
-        "recommended_action,status,evidence_json,coalesce_key,occurrence_count,last_seen,created_at "
-        "FROM security_events WHERE 1=1");
+    GString *sql = g_string_new("SELECT " PCV_SEC_EVENT_SELECT_COLUMNS " FROM security_events WHERE 1=1");
     if (severity && *severity) {
         g_string_append(sql, " AND severity=?");
     }
@@ -861,7 +711,7 @@ pcv_security_store_list_events(gint offset, gint limit,
 
                                  
     while ((rc = sqlite3_step(stmt)) == SQLITE_ROW) {
-        JsonObject *obj = row_to_event_json(stmt);
+        JsonObject *obj = pcv_security_event_row_to_json(stmt);
         json_array_add_object_element(arr, obj);
     }
     if (rc != SQLITE_DONE) {
@@ -894,10 +744,7 @@ pcv_security_store_get_event(const gchar *event_id)
         return NULL;
     }
 
-    const gchar *sql =
-        "SELECT event_id,timestamp,source,type,severity,confidence,target_kind,target,summary,"
-        "recommended_action,status,evidence_json,coalesce_key,occurrence_count,last_seen,created_at "
-        "FROM security_events WHERE event_id=?";
+    const gchar *sql = "SELECT " PCV_SEC_EVENT_SELECT_COLUMNS " FROM security_events WHERE event_id=?";
     sqlite3_stmt *stmt = NULL;
     gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -909,7 +756,7 @@ pcv_security_store_get_event(const gchar *event_id)
     sqlite3_bind_text(stmt, 1, event_id, -1, SQLITE_TRANSIENT);
     JsonObject *obj = NULL;
     if (sqlite3_step(stmt) == SQLITE_ROW) {                                       
-        obj = row_to_event_json(stmt);
+        obj = pcv_security_event_row_to_json(stmt);
     }
     sqlite3_finalize(stmt);
     g_mutex_unlock(&G.mu);
@@ -921,7 +768,7 @@ pcv_security_store_get_event(const gchar *event_id)
                                                       
                                        
                                                                            
-                                                                          
+                                                                            
                 
    
 gboolean
@@ -954,7 +801,9 @@ pcv_security_store_update_event_status(const gchar *event_id,
         return FALSE;
     }
 
-    const gchar *sql = "UPDATE security_events SET status=? WHERE event_id=?";
+                                                                                       
+    const gchar *sql = "UPDATE security_events SET status=? WHERE event_id=? "
+                       "AND status IN ('open','action_pending')";
     sqlite3_stmt *stmt = NULL;
     gint rc = sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
@@ -976,6 +825,23 @@ pcv_security_store_update_event_status(const gchar *event_id,
     }
     g_mutex_unlock(&G.mu);
     return ok;
+}
+
+  
+                                                                                      
+                                                            
+                                                                        
+                                                                                          
+   
+PcvSecCloseResult
+pcv_security_store_close_event(const gchar *event_id, const gchar *actor, const gchar *reason,
+                               GError **error)
+{
+    ensure_mutex();
+    g_mutex_lock(&G.mu);
+    PcvSecCloseResult r = pcv_sec_bounds_close_event(G.db, event_id, actor, reason, now_sec(), error);
+    g_mutex_unlock(&G.mu);
+    return r;
 }
 
   
@@ -1492,8 +1358,9 @@ pcv_security_store_update_action_status(const gchar *event_id,
   
                                                              
                                                         
-                             
-                                                                            
+                                                         
+                                                                                                  
+                                                             
                                                                    
    
 JsonObject *
@@ -1508,8 +1375,11 @@ pcv_security_store_health(void)
                                                                       
     g_autofree gchar *path = g_strdup(G.path ? G.path : "");
     gint event_count = 0;
+    gint protected_count = 0;
+    gboolean protected_over = FALSE;
 
     if (G.db) {
+        protected_over = pcv_sec_bounds_protected_over_cap(G.db, now_sec(), &protected_count);
         sqlite3_stmt *stmt = NULL;
         if (sqlite3_prepare_v2(G.db, "SELECT COUNT(*) FROM security_events",
                                -1, &stmt, NULL) == SQLITE_OK) {
@@ -1529,6 +1399,8 @@ pcv_security_store_health(void)
     json_object_set_boolean_member(obj, "degraded", degraded);
     json_object_set_string_member(obj, "path", path);
     json_object_set_int_member(obj, "event_count", event_count);
+    json_object_set_boolean_member(obj, "protected_open_over_cap", protected_over);
+    json_object_set_int_member(obj, "protected_open_count", protected_count);
     return obj;
 }
 

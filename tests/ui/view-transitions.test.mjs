@@ -145,7 +145,7 @@ test('delayed native callbacks coalesce rapid dashboard to networks to dashboard
   });
 });
 
-test('rapid VM tabs paint once and restore focus with complete tab semantics', async () => {
+test('rapid VM tabs paint immediately without a View Transition and keep focus with complete tab semantics', async () => {
   await withPage(VM_MODULES, async page => {
     await page.evaluate(vms => {
       window._DEBUG = false;
@@ -214,8 +214,8 @@ test('rapid VM tabs paint once and restore focus with complete tab semantics', a
       };
     });
 
-    assert.equal(result.queuedCount, 3);
-    assert.deepEqual(result.paints, ['performance']);
+    assert.equal(result.queuedCount, 0);
+    assert.deepEqual(result.paints, ['console', 'snapshots', 'performance']);
     assert.equal(result.tab, 'performance');
     assert.equal(result.focused, 'performance');
     assert.equal(result.tablistCount, 1);

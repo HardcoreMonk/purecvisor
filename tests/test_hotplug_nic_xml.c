@@ -27,6 +27,28 @@ static const gchar *DOMAIN_XML =
     "<filterref filter='clean-traffic'/></interface>"
     "</devices></domain>";
 
+static const gchar *DOMAIN_XML_ADDR =
+    "<domain><devices>"
+    "<interface type='bridge'><mac address='52:54:00:AA:BB:CC'/>"
+    "<source bridge='pcvbr0'/><model type='virtio'/>"
+    "<address type='pci' domain='0x0000' bus='0x09' slot='0x00' function='0x0'/></interface>"
+    "<disk type='file'><address type='pci' bus='0x08'/></disk>"
+    "</devices></domain>";
+
+static void test_select_drops_config_pci_address(void)
+{
+    GError *error = NULL;
+    gchar *xml = pcv_hotplug_select_nic_xml(DOMAIN_XML_ADDR, "52:54:00:aa:bb:cc", &error);
+    g_assert_no_error(error);
+    g_assert_nonnull(xml);
+    g_assert_null(strstr(xml, "<address"));
+    g_assert_null(strstr(xml, "0x09"));
+    g_assert_nonnull(strstr(xml, "bridge=\"pcvbr0\""));
+    g_assert_nonnull(strstr(xml, "address=\"52:54:00:AA:BB:CC\""));
+    g_assert_nonnull(strstr(xml, "type=\"virtio\""));
+    g_free(xml);
+}
+
 static void test_select_preserves_complete_interface(void)
 {
     GError *error = NULL;
@@ -69,6 +91,8 @@ void test_hotplug_nic_xml_register(void)
 {
     g_test_add_func("/hotplug/nic_xml/preserves_complete_interface",
                     test_select_preserves_complete_interface);
+    g_test_add_func("/hotplug/nic_xml/drops_config_pci_address",
+                    test_select_drops_config_pci_address);
     g_test_add_func("/hotplug/nic_xml/missing_mac",
                     test_select_reports_missing_mac);
     g_test_add_func("/hotplug/nic_xml/malformed_xml",

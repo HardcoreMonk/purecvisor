@@ -42,15 +42,17 @@ if [[ "$*" == *"CFLAGS_EXTRA="* ]]; then
         exit "$PCV_FAKE_SAN_BUILD_RC"
     fi
     touch .pcv_fake_instrumented
-elif [[ " $* " == *" single "* && " $* " == *" test_runner "* ]]; then
+elif [[ " $* " == *" single "* || " $* " == *" test_runner "* ]]; then
     if [[ "${PCV_FAKE_NORMAL_BUILD_RC:-0}" -ne 0 ]]; then
         exit "$PCV_FAKE_NORMAL_BUILD_RC"
     fi
     rm -f .pcv_fake_instrumented
-    mkdir -p bin
-    printf '#!/usr/bin/env bash\nexit 0\n' >bin/purecvisorsd
-    printf '#!/usr/bin/env bash\nexit 0\n' >bin/pcvctl
-    chmod +x bin/purecvisorsd bin/pcvctl
+    if [[ " $* " == *" single "* ]]; then
+        mkdir -p bin
+        printf '#!/usr/bin/env bash\nexit 0\n' >bin/purecvisorsd
+        printf '#!/usr/bin/env bash\nexit 0\n' >bin/pcvctl
+        chmod +x bin/purecvisorsd bin/pcvctl
+    fi
 else
     exit 97
 fi
@@ -84,6 +86,20 @@ while [[ "${1:-}" == -* ]]; do shift; done
 exec "$@"
 SH
 chmod +x "$FAKE_BIN/sudo"
+
+                                                                                  
+                                                                         
+cat >"$FAKE_BIN/unshare" <<'SH'
+#!/usr/bin/env bash
+set -euo pipefail
+while [[ "${1:-}" != "--" ]]; do shift; done
+shift
+exec "$@"
+SH
+chmod +x "$FAKE_BIN/unshare"
+printf '#!/usr/bin/env bash\nexit 0\n' >"$FAKE_BIN/mount"
+chmod +x "$FAKE_BIN/mount"
+export PCV_SANITIZE_COVER_PATHS=""
 
 cat >"$FAKE_BIN/ldd" <<'SH'
 #!/usr/bin/env bash
@@ -137,6 +153,10 @@ run_gate()
     fi
     grep -q 'runner .* -x /privdrop/seccomp_subprocess' "$LOG"
     grep -q 'runner -p /privdrop/seccomp_subprocess' "$LOG"
+                                                                                 
+    grep -qx 'make single' "$LOG"
+    grep -qx 'make test_runner' "$LOG"
+    ! grep -Eq '^make .*single.*test_runner|^make .*test_runner.*single' "$LOG"
     [[ -x "$FIXTURE/test_runner" ]]
     [[ -x "$FIXTURE/bin/purecvisorsd" ]]
     [[ ! -e "$FIXTURE/.pcv_fake_instrumented" ]]

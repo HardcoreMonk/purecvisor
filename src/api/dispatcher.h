@@ -22,7 +22,6 @@
   
           
                                                                       
-                                                                        
                                                                          
                                                                       
   
@@ -53,9 +52,6 @@ G_DECLARE_FINAL_TYPE(PureCVisorDispatcher, purecvisor_dispatcher, PURECVISOR, DI
 
                                                        
 PureCVisorDispatcher *purecvisor_dispatcher_new(void);
-
-                                                             
-void purecvisor_dispatcher_set_connection(PureCVisorDispatcher *self, GVirConnection *conn);
 
    
                                         

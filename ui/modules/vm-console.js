@@ -71,7 +71,7 @@ function _applyVmSurfaceRoles() {
                                                  
    
 async function renderConsole(b, v) {
-  if (!v) return;
+  if (!v) { PCV.vm.renderNoSelection(b); return; }
   var el = PCV.uxlib.el;
   var vncHtml = el('div', { class: 'text-center p-20' },
     el('p', { class: 'text-14' }, '🖨 ' + v.name),
@@ -94,8 +94,8 @@ async function renderConsole(b, v) {
         el('div', { class: 'flex gap-12 items-center mb-12 flex-wrap', 'data-role': 'OPERATOR,ADMIN' },
           HN.statusPill('ok', 'VNC ' + t('vnc.connected')),
           el('span', { class: 'text-13 font-600' }, addr + ':' + String(port)),
-          el('button', { class: 'btn btn-g', onclick: "openNoVNCPopup('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "','" + escapeAttr(v.name) + "')" }, '🖨 ' + t('vnc.open_popup')),
-          el('button', { class: 'btn', onclick: "openNoVNC('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "')" }, t('vnc.embedded')),
+          el('button', { class: 'btn btn-g', onclick: "openNoVNCPopup('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "','" + escapeAttr(v.name) + "','" + escapeAttr(v.uuid) + "')" }, '🖨 ' + t('vnc.open_popup')),
+          el('button', { class: 'btn', onclick: "openNoVNC('" + escapeAttr(addr) + "','" + escapeAttr(String(port)) + "','" + escapeAttr(v.uuid) + "')" }, t('vnc.embedded')),
           el('button', { class: 'btn', onclick: "copyVncAddr('" + escapeAttr(String(port)) + "')" }, '📋 ' + t('vnc.copy_addr'))),
         el('div', { id: 'vnc-placeholder', style: 'background:#111;flex:1;min-height:0;border-radius:var(--r);display:flex;align-items:center;justify-content:center;color:var(--fg2)' },
           el('div', { class: 'text-center' },
@@ -153,16 +153,11 @@ async function renderConsole(b, v) {
                                                               
   
                                                               
+function openNoVNC(addr, port, uuid) {
                                                       
   
-                                                         
-                                                     
-  
-                                                                
-                                                              
-                                                         
-   
-function openNoVNC(addr, port) {
+  if (window._vncView) window._vncView.abort.abort();
+  if (window._vncRfb) { window._vncRfb.disconnect(); window._vncRfb = null; }
   const frame = document.getElementById('vnc-frame');
   if (!frame) return;
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
@@ -189,11 +184,27 @@ function openNoVNC(addr, port) {
       el('span', { class: 'spinner' }),
       ' ' + loadingConnectingText + ' ' + statusEndpoint + '...'),
     vncIsoEjectTipHtml()));
-  const existing = document.getElementById('novnc-loader');
+  const view = { container: document.getElementById('vnc-container'),
+    status: document.getElementById('vnc-status'), abort: new AbortController() };
+  window._vncView = view;
+  const observer = new MutationObserver(() => {
+    if (!view.container.isConnected) { view.abort.abort(); observer.disconnect(); }
+  });
+  observer.observe(document.body, { childList: true, subtree: true });
+  view.abort.signal.addEventListener('abort', () => observer.disconnect(), { once: true });
+  const existing = document.querySelector('script[data-vnc-loader]');
   if (existing) existing.remove();
   const m = document.createElement('script');
   m.id = 'novnc-loader'; m.type = 'module';
+  m._vncView = view; m.dataset.vncLoader = "true";
+  window._vncLoaderSeq = (window._vncLoaderSeq || 0) + 1;
+  const loaderId = 'novnc-loader-' + window._vncLoaderSeq;
+  m.id = loaderId;
   m.textContent = 'import _mod from "/ui/vendor/novnc/novnc.esm.js";\n'
+  + 'import {openVncChannel} from "/ui/vnc-flow.mjs";\n'
+  + 'const view=document.getElementById(' + JSON.stringify(loaderId) + ')?._vncView;\n'
+  + 'const current=()=>view && window._vncView===view && !view.abort.signal.aborted && view.container.isConnected;\n'
+  + 'const uuid=' + JSON.stringify(uuid) + ';\n'
   + 'const RFB=_mod.default||_mod;\n'
   + 'const wsUrl=' + JSON.stringify(wsUrl) + ';\n'
   + 'const statusEndpoint=' + JSON.stringify(statusEndpoint) + ';\n'
@@ -203,18 +214,23 @@ function openNoVNC(addr, port) {
   + 'const securityFailureText=' + JSON.stringify(escapeHtml(securityFailureText)) + ';\n'
   + 'const remoteText=' + JSON.stringify(remoteText) + ';\n'
   + 'try{\n'
-  + 'const container=document.getElementById("vnc-container");\n'
-  + 'const st=document.getElementById("vnc-status");\n'
-  + 'function setStatusMark(color,text){if(!st)return;const mark=document.createElement("span");mark.style.color=color;mark.textContent="\\u25cf";st.replaceChildren(mark," ",text);}\n'
+  + 'if(current()){\n'
+  + 'const container=view.container;\n'
+  + 'const st=view.status;\n'
+  + 'function setStatusMark(color,text){if(!st || !current())return;const mark=document.createElement("span");mark.style.color=color;mark.textContent="\\u25cf";st.replaceChildren(mark," ",text);}\n'
   + 'if(!container){console.error("no vnc-container");}\n'
   + 'if(typeof RFB!=="function"){throw new Error("RFB loaded as "+typeof RFB+", keys: "+Object.keys(_mod).join(","));}\n'
-  + 'const rfb=new RFB(container,wsUrl);\n'
+  + 'const channel=await openVncChannel(wsUrl,uuid,window.authToken,WebSocket,view.abort.signal);\n'
+  + 'if(!current()){channel.close();}else{\n'
+  + 'const rfb=new RFB(container,channel);\n'
+  + 'view.abort.signal.addEventListener("abort",()=>{rfb.disconnect();if(window._vncRfb===rfb)window._vncRfb=null;},{once:true});\n'
   + 'rfb.scaleViewport=true;rfb.resizeSession=true;rfb.clipViewport=false;rfb.qualityLevel=6;rfb.compressionLevel=2;\n'
   + 'rfb.addEventListener("connect",()=>{setStatusMark("lime",connectedText+": "+statusEndpoint);const ri=document.getElementById("vnc-res");if(ri)ri.textContent=remoteText+": "+rfb._fbWidth+"x"+rfb._fbHeight;});\n'
-  + 'rfb.addEventListener("disconnect",(e)=>{setStatusMark("red",disconnectedText+(e.detail.clean?"":" "+errorSuffixText));});\n'
+  + 'rfb.addEventListener("disconnect",(e)=>{setStatusMark("red",disconnectedText+(e.detail.clean?"":" "+errorSuffixText));view.abort.abort();if(window._vncRfb===rfb)window._vncRfb=null;});\n'
   + 'rfb.addEventListener("securityfailure",()=>{setStatusMark("red",securityFailureText);});\n'
   + 'window._vncRfb=rfb;\n'
-  + '}catch(e){const st=document.getElementById("vnc-status");if(st)st.textContent="\\u25cf "+e.message;console.error("noVNC:",e)}\n';
+  + '}}\n'
+  + '}catch(e){if(current()){view.status.textContent="\\u25cf "+e.message;view.abort.abort();console.error("noVNC:",e)}}\n';
   document.head.appendChild(m);
 }
 
@@ -291,7 +307,7 @@ document.addEventListener('fullscreenchange', function() {
                                                    
                                     
    
-function openNoVNCPopup(addr, port, vmName) {
+function openNoVNCPopup(addr, port, vmName, uuid) {
   const wsProto = location.protocol === 'https:' ? 'wss:' : 'ws:';
   const wsUrl = wsProto + '//' + location.host + '/api/v1/ws/vnc?port=' + port;
   const w = window.open('', 'vnc_' + port, 'width=1060,height=820,menubar=no,toolbar=no,location=no,status=no,resizable=yes');
@@ -325,7 +341,9 @@ function openNoVNCPopup(addr, port, vmName) {
 <div id="install-tip"><div class="tip-title">${escapeHtml(isoTipTitle)}</div><div class="tip-body">${escapeHtml(isoTipBody)}</div></div>
 <script type="module">
 	import _mod from "/ui/vendor/novnc/novnc.esm.js";
+import {openVncChannel} from "/ui/vnc-flow.mjs";
 const RFB=_mod.default||_mod;
+const uuid=${JSON.stringify(uuid)};
 const wsUrl=${JSON.stringify(wsUrl)};
 const vmTitle=${JSON.stringify('VNC: ' + vmName)};
 const connectedText=${JSON.stringify(connectedText)};
@@ -337,6 +355,7 @@ const st=document.getElementById("st");
 const vc=document.getElementById("vc");
 let rfb=null;
 let connectSeq=0;
+let connecting=null;
 function setStatusText(text){if(st)st.textContent=text}
 function setStatusMark(color,text){
   if(!st)return;
@@ -345,24 +364,29 @@ function setStatusMark(color,text){
   mark.textContent="\\u25cf";
   st.replaceChildren(mark," ",text);
 }
-function connectVNC(){
+async function connectVNC(){
   const seq=++connectSeq;
+  if(connecting)connecting.abort();
+  connecting=new AbortController();
+  const signal=connecting.signal;
   if(rfb){try{rfb.disconnect()}catch(e){} rfb=null}
   if(vc)vc.replaceChildren();
   setStatusText(connectingText+"...");
   try{
-    const next=new RFB(vc,wsUrl);
+    const channel=await openVncChannel(wsUrl,uuid,window.opener && window.opener.authToken,WebSocket,signal);
+    if(seq!==connectSeq){channel.close();return;}
+    const next=new RFB(vc,channel);
     rfb=next;
     next.scaleViewport=true;next.resizeSession=true;next.clipViewport=false;next.qualityLevel=6;next.compressionLevel=2;
     next.addEventListener("connect",()=>{if(seq!==connectSeq)return;setStatusMark("lime",connectedText);document.title=vmTitle});
     next.addEventListener("disconnect",(e)=>{if(seq!==connectSeq)return;setStatusMark("red",disconnectedText+(e.detail.clean?"":" "+errorSuffixText))});
     next.addEventListener("securityfailure",()=>{if(seq!==connectSeq)return;setStatusMark("red",securityFailureText)});
     window._popupRfb=next;
-  }catch(e){setStatusText(e.message)}
+  }catch(e){if(seq===connectSeq)setStatusText(e.message)}
 }
 document.getElementById("vnc-fullscreen").addEventListener("click",()=>{vc.requestFullscreen().catch(()=>{})});
 document.getElementById("vnc-reconnect").addEventListener("click",connectVNC);
-window.addEventListener("beforeunload",()=>{if(rfb){try{rfb.disconnect()}catch(e){}}});
+window.addEventListener("beforeunload",()=>{++connectSeq;if(connecting)connecting.abort();if(rfb){try{rfb.disconnect()}catch(e){}}});
 window.addEventListener("resize",()=>{if(rfb)rfb.scaleViewport=true});
 connectVNC();
 </script></body></html>`);
@@ -402,7 +426,7 @@ function copyVncAddr(port) {
                                       
    
 async function renderSnapshots(b, v) {
-  if (!v) return;
+  if (!v) { PCV.vm.renderNoSelection(b); return; }
   var el = PCV.uxlib.el;
   PCV.uxlib.clearEl(b);
   b.appendChild(el('div', null,
@@ -410,13 +434,21 @@ async function renderSnapshots(b, v) {
       el('h3', null, t('vm.snapshot') + ': ' + v.name),
       el('div', { class: 'flex gap-6' },
         el('button', { class: 'btn btn-g', onclick: 'takeSnap()', 'data-role': 'OPERATOR,ADMIN' }, '+ ' + t('btn.create')),
-        el('button', { class: 'btn btn-r', onclick: "snapDeleteAll('" + escapeAttr(v.name) + "')", 'data-role': 'ADMIN' }, '🗑 Delete All'))),
+        el('button', { class: 'btn btn-r', onclick: "snapDeleteAll('" + escapeAttr(v.name) + "','" + escapeAttr(v.uuid) + "')", 'data-role': 'ADMIN' }, '🗑 Delete All'))),
     el('div', { id: 'stree' },
       el('span', { class: 'spinner' }),
       ' ' + t('loading'))));
   _applyVmSurfaceRoles();
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(v.name));
+
+    if (r && r.error) {
+      PCV.uxlib.setMsg('stree', 'err', { tag: 'p' },
+        _L('스냅샷 목록을 불러오지 못했습니다. 스냅샷이 없다는 뜻이 아닙니다: ', 'Failed to load snapshots. This does not mean there are none: ') +
+        (r.error.message || r.error.code));
+      _applyVmSurfaceRoles();
+      return;
+    }
     const raw = unwrapList(r);
                                                  
     const snaps = raw.map(s => {
@@ -502,7 +534,7 @@ async function takeSnap() {
       mk('button', { class: 'btn', onclick: 'closeModal()' }, 'Cancel'),
       mk('button', { class: 'btn btn-g', id: 'snap-create-btn', onclick: 'snapCreateExec()' }, '📷 Create Snapshot'))
   ]);
-  PCV.modalCore.currentBody()._pcvSnapshotSource = { name: v.name, uuid: v.uuid || null };
+  PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'snapshot', v);
   setTimeout(() => { const el = document.getElementById('snap-name-input'); if (el) { el.focus(); el.select(); } }, 100);
 }
 
@@ -523,8 +555,7 @@ function snapNameValidate() {
     else PCV.uxlib.setMsg(err, 'ok', null, '✅ Valid');
   }
   if (btn) btn.disabled = !valid || !n;
-  const body = PCV.modalCore.currentBody();
-  const v = body && body._pcvSnapshotSource;
+  const v = PCV.vm.pinnedIdentity('snapshot');
   if (preview && v) {
     var mk = PCV.uxlib.el;
     PCV.uxlib.clearEl(preview);
@@ -551,9 +582,7 @@ function snapNameValidate() {
                                                            
    
 async function snapCreateExec() {
-  const body = PCV.modalCore.currentBody();
-  const source = body && body._pcvSnapshotSource;
-  const v = source && vmList.find(item => item.name === source.name && (!source.uuid || item.uuid === source.uuid));
+  const v = PCV.vm.pinnedPeek('snapshot');
   if (!v) { toast(_L('원본 VM이 변경되었습니다. 다시 선택하십시오.', 'Source VM changed. Select it again.'), false); return; }
   const n = (document.getElementById('snap-name-input')?.value || '').trim();
   if (!n || !/^[a-zA-Z0-9_-]{1,128}$/.test(n)) { toast('Invalid snapshot name', false); return; }
@@ -710,6 +739,7 @@ async function snapDeleteAll(vm) {
   let snaps;
   try {
     const r = await fetchGet(EP.VM_SNAPSHOT_LIST(vm));
+    if (r && r.error) { toast('Failed to load snapshots', false); return; }
     const raw = unwrapList(r);
     snaps = raw.map(s => {
       if (typeof s === 'string') {
@@ -872,7 +902,7 @@ function _vmcProgressBar(p, c) {
                           
    
 async function renderPerformance(b, v) {
-  if (!v) return;
+  if (!v) { PCV.vm.renderNoSelection(b); return; }
                   
   var metrics = {};
   if (v.state === 'running') {
@@ -937,7 +967,7 @@ async function renderPerformance(b, v) {
               
    
 function renderTimeline(b, v) {
-  if (!v) { PCV.uxlib.setMsg(b, 'muted', { tag: 'p' }, t('vm.select')); return; }
+  if (!v) { PCV.vm.renderNoSelection(b); return; }
   var events = (eventLog || []).filter(function(e) {
     var msg = (e.msg || e.raw || '').toLowerCase();
     return msg.includes(v.name.toLowerCase());

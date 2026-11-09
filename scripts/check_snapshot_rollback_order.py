@@ -1,28 +1,40 @@
 #!/usr/bin/env python3
+                          
+                                                                       
+                                                                
+                                                                                   
+                                                                     
+                                                                            
+                                                                         
+                                                  
+                                              
+ 
+                      
+                                                       
+                                                                 
+                                                                           
 
+      
+                                                                                          
+                                              
+                                                                          
+                                                                             
+                                                                                                    
+                                                                                                  
+                                                                                       
+                                                                                        
+                                                                                   
+                                                                                              
+                                                                      
+                                                                                              
+                                   
+                                                                                  
+                                                                                                    
+                                                                                                    
+                                                                                                                           
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                                  
+   
 from __future__ import annotations
 
 import re
@@ -38,7 +50,7 @@ class ExtractError(Exception):
 
 
 def strip_comments(text: str) -> str:
-
+                                                                
     out: list[str] = []
     i, n = 0, len(text)
     state = "code"
@@ -78,7 +90,7 @@ def strip_comments(text: str) -> str:
             else:
                 out.append(" ")
             i += 1
-        else:
+        else:         
             if ch == "*" and nxt == "/":
                 state = "code"
                 out.append("  ")
@@ -90,7 +102,7 @@ def strip_comments(text: str) -> str:
 
 
 def function_body(code: str, name: str) -> str:
-
+                                                
     match = re.search(rf"\b{re.escape(name)}\s*\([^;{{]*\)\s*\{{", code)
     if not match:
         raise ExtractError(f"missing definition of {name}()")
@@ -107,7 +119,7 @@ def function_body(code: str, name: str) -> str:
 
 
 def block_after(code: str, anchor: str) -> str | None:
-
+                                              
     idx = code.find(anchor)
     if idx < 0:
         return None
@@ -125,13 +137,21 @@ def block_after(code: str, anchor: str) -> str | None:
     return None
 
 
+UNLOCK_TOKENS = ("pcv_vm_lock_release", "pcv_snapshot_lock_keeper_stop_and_release")
+
+
+def _last_unlock(body: str) -> int:
+                                                                                     
+    return max(body.rfind(tok) for tok in UNLOCK_TOKENS)
+
+
 def _first(body: str, token: str) -> int:
     idx = body.find(token)
     return idx if idx >= 0 else len(body) + 1
 
 
 def check_text(text: str) -> list[str]:
-
+                                                         
     code = strip_comments(text)
     fails: list[str] = []
 
@@ -145,20 +165,61 @@ def check_text(text: str) -> list[str]:
     elif "g_task_return_new_error(" not in worker[exists_at:power_at]:
         fails.append("① 스냅샷 미존재 시 VM 제어 전에 실패 반환(g_task_return_new_error)이 없다")
 
-    failure_block = block_after(worker, "if (!zfs_ok)")
-    if failure_block is None or "virDomainCreate(" not in failure_block:
-        fails.append("② ZFS 롤백 실패 블록이 끈 VM 을 재기동(virDomainCreate)하지 않는다")
+    done = function_body(code, "_on_rollback_done")
+    if "virDomainCreate(" in worker:
+        fails.append("② _rollback_worker 가 virDomainCreate 로 직접 재기동한다")
+    elif ("pcv_snapshot_rollback_should_restart(PCV_ROLLBACK_PATH_ZFS" not in done
+          or "_rollback_submit_restart(" not in done):
+        fails.append("② ZFS 롤백 실패 뒤 끈 VM 을 정식 경로로 재기동하는 호출이 _on_rollback_done 에 없다")
+    else:
+        zfs_restart_at = done.find("_rollback_submit_restart(")
+        zfs_respond_at = done.rfind("pure_uds_server_send_response(")
+        zfs_unlock_at = _last_unlock(done)
+        if zfs_respond_at < 0 or zfs_unlock_at < 0 or zfs_restart_at < zfs_respond_at or zfs_restart_at < zfs_unlock_at:
+            fails.append("② ZFS 롤백 완료 콜백이 응답·잠금 해제(keeper 해제 포함) 전에 재기동을 요청한다 — 자기 잠금에 막힌다")
 
-    fallback = function_body(code, "_libvirt_snapshot_rollback")
-    lookup_at = fallback.find("virDomainSnapshotLookupByName(")
-    shutdown_at = _first(fallback, "virDomainShutdown(")
+    lv_worker = function_body(code, "_libvirt_rollback_worker")
+    lv_done = function_body(code, "_on_libvirt_rollback_done")
+    lookup_at = lv_worker.find("virDomainSnapshotLookupByName(")
+    shutdown_at = _first(lv_worker, "virDomainShutdown(")
     if lookup_at < 0 or lookup_at > shutdown_at:
-        fails.append("③ libvirt 폴백이 스냅샷 조회 전에 VM 을 종료한다")
+        fails.append("③ libvirt 폴백 워커가 스냅샷 조회 전에 VM 을 종료한다")
 
-    error_responses = fallback.count("pure_rpc_build_error_response(")
-    fail_audits = len(re.findall(r'pcv_audit_log\([^;]*"vm\.snapshot\.rollback"[^;]*"fail"', fallback))
+    revert_at = lv_worker.find("virDomainRevertToSnapshot(")
+    if revert_at >= 0:
+        after = lv_worker[revert_at:]
+        err_at, free_at = _first(after, "virGetLastError("), _first(after, "virDomainSnapshotFree(")
+        if "virGetLastError(" not in after or "virDomainSnapshotFree(" not in after:
+            fails.append("③ libvirt 폴백 워커의 virDomainRevertToSnapshot() 뒤에 virGetLastError() 또는 "
+                         "virDomainSnapshotFree() 가 없다 — 오류 읽기→해제 순서를 확인할 수 없다 "
+                         "(SNAPSHOT-ROLLBACK-LIBVIRT-ERROR-TEXT)")
+        elif err_at > free_at:
+            fails.append("③ libvirt 폴백 워커가 스냅샷 해제 뒤에 libvirt 오류를 읽는다 — "
+                         "read the libvirt error before freeing the snapshot (SNAPSHOT-ROLLBACK-LIBVIRT-ERROR-TEXT)")
+    else:
+        fails.append("③ libvirt 폴백 워커에 virDomainRevertToSnapshot() 호출이 없다")
+
+    worker_io = [tok for tok in ("pure_rpc_build_error_response(", "pure_rpc_build_success_response(",
+                                 "pure_uds_server_send_response(", "pcv_audit_log(") if tok in lv_worker]
+    if worker_io:
+        fails.append(f"④ libvirt 폴백 워커가 직접 응답·감사한다({', '.join(worker_io)}) — "
+                     "완료 콜백 _on_libvirt_rollback_done 만 한다")
+    error_responses = lv_done.count("pure_rpc_build_error_response(")
+    fail_audits = len(re.findall(r'pcv_audit_log\([^;]*"vm\.snapshot\.rollback"[^;]*"fail"', lv_done))
     if fail_audits < error_responses:
         fails.append(f"④ libvirt 폴백 오류 응답 {error_responses}건 중 fail audit 은 {fail_audits}건뿐이다")
+
+    for tok in ("_rollback_submit_restart(", "pcv_vm_start_submit("):
+        if tok in lv_worker:
+            fails.append(f"⑤ libvirt 폴백 워커가 {tok}) 로 재기동한다 — 재기동은 메인 루프 완료 콜백만")
+    restart_at = lv_done.find("_rollback_submit_restart(")
+    respond_at = lv_done.rfind("pure_uds_server_send_response(")
+    unlock_at = _last_unlock(lv_done)
+    if restart_at < 0 or "pcv_snapshot_rollback_should_restart(PCV_ROLLBACK_PATH_LIBVIRT" not in lv_done:
+        fails.append("⑤ libvirt 폴백 완료 콜백이 정식 경로 재기동"
+                     "(pcv_snapshot_rollback_should_restart(PCV_ROLLBACK_PATH_LIBVIRT → _rollback_submit_restart)을 하지 않는다")
+    elif respond_at < 0 or unlock_at < 0 or restart_at < respond_at or restart_at < unlock_at:
+        fails.append("⑤ libvirt 폴백 완료 콜백이 응답·잠금 해제 전에 재기동을 요청한다")
     return fails
 
 

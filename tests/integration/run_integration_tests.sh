@@ -575,6 +575,13 @@ test_vm_delete() {
     pass "T-07a: vm.delete RPC 성공"
 
                           
+    if ! command -v jq >/dev/null 2>&1; then
+        fail "T-07b: jq 없음 — vm.delete Job 응답을 판정할 수 없음"
+    elif echo "$resp" | jq -e '(.result | type == "object") and ((.result.job_id // "") != "")' >/dev/null 2>&1; then
+        pass "T-07b: vm.delete 응답 객체·job_id=$(echo "$resp" | jq -r '.result.job_id')"
+    else
+        fail "T-07b: vm.delete 응답이 Job 접수 객체가 아님 — $resp"
+    fi
                                                                          
                                
     local waited=0
@@ -584,10 +591,25 @@ test_vm_delete() {
         [ $waited -ge 20 ] && break
     done
 
-    if zfs list -H -o name "$zfs_dataset" &>/dev/null; then
-        fail "T-07b: ZFS dataset '$zfs_dataset' 여전히 존재 (20초 초과) — daemon log 확인: $LOG_FILE"
+                                                                              
+    local sreq sresp sstatus=""
+    sreq=$(printf '{"jsonrpc":"2.0","method":"vm.delete.status","params":{"name":"%s"},"id":5}' "$TEST_VM")
+    for _ in $(seq 1 15); do
+        sresp=$(send_rpc "$sreq")
+        sstatus=$(echo "$sresp" | jq -r '.result.status // empty' 2>/dev/null)
+        case "$sstatus" in pending|running|"") sleep 1 ;; *) break ;; esac
+    done
+    if [ "$sstatus" = "completed" ]; then
+        pass "T-07c: vm.delete.status completed"
     else
-        pass "T-07b: ZFS dataset '$zfs_dataset' 자동 삭제 확인 (${waited}초 소요)"
+        fail "T-07c: vm.delete.status가 completed가 아님 — $sresp"
+    fi
+
+                                    
+    if zfs list -H -o name "$zfs_dataset" &>/dev/null; then
+        fail "T-07d: ZFS dataset '$zfs_dataset' 여전히 존재 (20초 초과) — daemon log 확인: $LOG_FILE"
+    else
+        pass "T-07d: ZFS dataset '$zfs_dataset' 자동 삭제 확인 (${waited}초 소요)"
     fi
 }
 

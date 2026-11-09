@@ -1,4 +1,3 @@
-
    
                            
                                           
@@ -18,7 +17,7 @@
          
                                                                       
                                                          
-                                                
+                                                                                   
                                                                 
                                                                      
                                   
@@ -29,8 +28,9 @@
                                                                    
                                                     
                                                                 
-                                                                 
-                                                  
+                                                                                  
+                                                                                   
+                                                                                   
   
          
                                                  
@@ -38,10 +38,10 @@
                                                      
   
             
-                                                     
-                                                                            
-                                                                   
-                                                   
+                                                                                                                                                                   
+                                                                                             
+                                                                                   
+                                                                         
                                                                    
                                                                             
                                                                  
@@ -52,7 +52,8 @@
             
                                                                 
                                                                                                
-                                                                                          
+                                                                                      
+                                                                                                          
   
                       
                                                                      
@@ -61,14 +62,26 @@
                                                                      
   
                        
-                                                         
-                                                 
+                                                                  
+                                                  
+                                                                      
+                                                     
                             
-                                                              
+                                                      
+                                                                                       
                                
-                                            
                                                 
-                                                
+                                                               
+                                                                  
+                                                               
+                                                               
+                                              
+                                                                    
+                                                                                          
+                                                                     
+                                                                               
+                             
+                                                                     
   
          
                         
@@ -90,6 +103,7 @@
 #include "../../api/uds_server.h"
 #include "../../utils/pcv_log.h"
 #include "../../utils/pcv_spawn.h"
+#include "../../utils/pcv_zfs_exec.h"
 #include "../../utils/pcv_config.h"
 #include "../../modules/virt/virt_conn_pool.h"
 #include "../../modules/virt/snapshot_compat.h"
@@ -101,7 +115,12 @@
 #include <libvirt/libvirt.h>
 #include <libvirt/virterror.h>
 #include <string.h>
-#include "modules/core/vm_state.h"                                                  
+#include "modules/core/vm_state.h"                                                    
+#include "modules/dispatcher/handler_vm_start.h"                                          
+#include "modules/dispatcher/snapshot_restart_policy.h"                         
+#include "modules/dispatcher/rpc_completion.h"                                                               
+#include "modules/dispatcher/snapshot_fallback_lock.h"                           
+#include "modules/backup/backup_scheduler.h"
 
 #define SNAP_LOG_DOM "snapshot"
 
@@ -110,27 +129,63 @@
                                                                                                
 
                                                  
-                                                            
-                                                       
+                                                                           
+                                                               
+typedef enum { ZFS_DS_ABSENT, ZFS_DS_PRESENT, ZFS_DS_UNKNOWN } ZfsDatasetProbe;
+
+                                                           
                                                          
-                                                        
-                                                            
-static gboolean _zfs_dataset_exists(const gchar *vm_id) {
+                                                                     
+                                                                    
+                                                         
+static ZfsDatasetProbe _zfs_dataset_probe(const gchar *vm_id) {
                                                                         
     gchar *dataset = g_strdup_printf("%s/%s", pcv_config_get_zvol_pool(), vm_id);
                                                        
     const gchar *argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
+    GError *err = NULL;
                                                        
-    gboolean ok = pcv_spawn_sync(argv, NULL, NULL, NULL);
+    gboolean ok = pcv_spawn_sync(argv, NULL, NULL, &err);
     g_free(dataset);                                        
-    return ok;
+    ZfsDatasetProbe r = ok ? ZFS_DS_PRESENT : ZFS_DS_ABSENT;
+    if (!ok && err && err->domain == G_IO_ERROR &&
+        (err->code == G_IO_ERROR_TIMED_OUT || err->code == G_IO_ERROR_BUSY || err->code == G_IO_ERROR_CANCELLED))
+        r = ZFS_DS_UNKNOWN;
+    g_clear_error(&err);
+    return r;
+}
+
+                                                                       
+                                                                                            
+static gboolean _zfs_dataset_exists(const gchar *vm_id) {
+    return _zfs_dataset_probe(vm_id) == ZFS_DS_PRESENT;
+}
+
+                                                                                                                    
+                                          
+                                                       
+static void _libvirt_snapshot_locked(void (*fn)(const gchar *, const gchar *, const gchar *, UdsServer *, GSocketConnection *),
+                                      const gchar *vm_id, const gchar *snap_name, const gchar *rpc_id,
+                                      UdsServer *server, GSocketConnection *connection)
+{
+    gchar *lock_err = NULL;
+    PcvSnapshotFallbackLock *lock = pcv_snapshot_fallback_lock_begin(vm_id, &lock_err);
+    if (!lock) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e); g_free(lock_err);
+        return;
+    }
+    fn(vm_id, snap_name, rpc_id, server, connection);
+    pcv_snapshot_fallback_lock_end(lock);
 }
 
                                  
                                                                          
                                                           
                                                                
-                                                                        
+                                                                                                                
                                                                               
 static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
                                       const gchar *rpc_id, UdsServer *server,
@@ -150,18 +205,18 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
         virt_conn_pool_release(conn); return;
     }
 
-
-
-
-
-
+                                                                     
+                                                               
+                                                 
+                                                      
+                                                  
     int active = virDomainIsActive(dom);
     char *domain_xml = active == 1 ? virDomainGetXMLDesc(dom, 0) : NULL;
     gboolean requires_offline = active == 1 &&
         pcv_snapshot_xml_requires_invtsc_offline(domain_xml);
     free(domain_xml);
     if (requires_offline) {
-        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail",
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.create", vm_id, "fail",
                       PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         gchar *e = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
@@ -181,7 +236,7 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
     g_free(xml);
 
     if (snap) {                                     
-        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "ok", 0, 0, "local");
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.create", vm_id, "ok", 0, 0, "local");
         virDomainSnapshotFree(snap);
         JsonNode *node = json_node_new(JSON_NODE_VALUE);
         json_node_set_boolean(node, TRUE);
@@ -190,7 +245,7 @@ static void _libvirt_snapshot_create(const gchar *vm_id, const gchar *snap_name,
     } else {
                                                        
         virErrorPtr verr = virGetLastError();
-        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.create", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
             verr ? verr->message : "libvirt snapshot creation failed");
         pure_uds_server_send_response(server, connection, e); g_free(e);
@@ -259,7 +314,7 @@ static void _libvirt_snapshot_list(const gchar *vm_id, const gchar *rpc_id,
         g_free(names);                                      
     }
 
-    pcv_audit_log(NULL, "vm.snapshot.list", vm_id, "ok", 0, 0, "local");                           
+    pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.list", vm_id, "ok", 0, 0, "local");                           
 
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);                                            
@@ -300,13 +355,13 @@ static void _libvirt_snapshot_delete(const gchar *vm_id, const gchar *snap_name,
     virDomainSnapshotFree(snap);
 
     if (rc == 0) {                 
-        pcv_audit_log(NULL, "vm.snapshot.delete", vm_id, "ok", 0, 0, "local");
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.delete", vm_id, "ok", 0, 0, "local");
         JsonNode *node = json_node_new(JSON_NODE_VALUE);
         json_node_set_boolean(node, TRUE);
         gchar *resp = pure_rpc_build_success_response(rpc_id, node);
         pure_uds_server_send_response(server, connection, resp); g_free(resp);
     } else {                 
-        pcv_audit_log(NULL, "vm.snapshot.delete", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.delete", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Failed to delete snapshot");
         pure_uds_server_send_response(server, connection, e); g_free(e);
     }
@@ -314,100 +369,16 @@ static void _libvirt_snapshot_delete(const gchar *vm_id, const gchar *snap_name,
     virt_conn_pool_release(conn);
 }
 
-                                       
-                                                              
-                                                     
-                                                     
-                                               
-                                                                 
-                                                                         
-                                                           
-
-
-
-
-
-
-static void _libvirt_snapshot_rollback(const gchar *vm_id, const gchar *snap_name,
-                                        const gchar *rpc_id, UdsServer *server,
-                                        GSocketConnection *connection)
+                                                                                   
+                                                                            
+static void _rollback_submit_restart(const gchar *vm_name, const gchar *actor)
 {
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Hypervisor connection failed");
-        pure_uds_server_send_response(server, connection, e); g_free(e); return;
-    }
-
-    virDomainPtr dom = virDomainLookupByName(conn, vm_id);
-    if (!dom) {
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM not found");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-        virt_conn_pool_release(conn); return;
-    }
-
-
-    virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, snap_name, 0);
-    if (!snap) {
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "Snapshot not found");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-        virDomainFree(dom); virt_conn_pool_release(conn); return;
-    }
-
-                                                       
-    int state = 0, reason = 0;
-    gboolean was_running = FALSE;
-    virDomainGetState(dom, &state, &reason, 0);
-                                                    
-    was_running = (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_PAUSED);
-
-    if (was_running) {
-        virDomainShutdown(dom);                                      
-                                                 
-        for (int i = 0; i < 50; i++) {
-            g_usleep(100 * 1000);                         
-            virDomainGetState(dom, &state, &reason, 0);
-            if (state != VIR_DOMAIN_RUNNING &&
-                state != VIR_DOMAIN_PAUSED) break;                      
-        }
-
-                                                           
-        virDomainGetState(dom, &state, &reason, 0);
-        if (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_PAUSED)
-            virDomainDestroy(dom);
-    }
-
-    int rc = virDomainRevertToSnapshot(snap, 0);                          
-    virDomainSnapshotFree(snap);
-
-                                                           
-    if (rc == 0 && was_running) {
-        if (virDomainCreate(dom) != 0) {
-            virErrorPtr verr = virGetLastError();
-            PCV_LOG_WARN(SNAP_LOG_DOM,
-                         "libvirt rollback restart failed for '%s': %s",
-                         vm_id, verr ? verr->message : "unknown");
-        }
-    }
-
-    if (rc == 0) {                                    
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "ok", 0, 0, "local");
-        JsonNode *node = json_node_new(JSON_NODE_VALUE);
-        json_node_set_boolean(node, TRUE);
-        gchar *resp = pure_rpc_build_success_response(rpc_id, node);
-        pure_uds_server_send_response(server, connection, resp); g_free(resp);
-    } else {
-        virErrorPtr verr = virGetLastError();
-        pcv_audit_log(NULL, "vm.snapshot.rollback", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-            verr ? verr->message : "Failed to rollback snapshot");
-        pure_uds_server_send_response(server, connection, e); g_free(e);
-    }
-
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
+    PcvVmStartRequest req = { .vm_id = vm_name, .numa_node = 0, .vcpu_count = 0,
+                              .bridge_name = NULL, .origin = "vm.snapshot.rollback", .actor = actor };
+    gchar *err = NULL;
+    if (pcv_vm_start_submit(&req, NULL, NULL, &err) != PCV_VM_START_SUBMITTED)
+        pcv_vm_start_report_rejected(vm_name, "vm.snapshot.rollback", err, actor);
+    g_free(err);
 }
 
                                                          
@@ -485,13 +456,13 @@ static const gchar *_get_param(JsonObject *params,
 
                                                                                 
 
+                                                                     
+                                                    
                                                                   
-                               
-  
-                     
-                                      
-                                                        
-                                        
+                                                                           
+                                                      
+                                             
+                                               
 static gboolean _zfs_snapshot_exists(const gchar *vm_id, const gchar *snap_name)
 {
     gchar *snapshot = g_strdup_printf("%s/%s@%s", pcv_config_get_zvol_pool(), vm_id, snap_name);
@@ -501,17 +472,18 @@ static gboolean _zfs_snapshot_exists(const gchar *vm_id, const gchar *snap_name)
     return ok;
 }
 
-
-
-
-
-
-
-
-
-                                   
-                                                                     
+                                                                  
+                               
+  
+                     
+                                                                        
+                                      
+                                                        
+                                        
                                                             
+                                  
+                                                                     
+                                                                           
                                                                     
                                                                         
 typedef struct {
@@ -521,6 +493,8 @@ typedef struct {
     gchar *rpc_id;
     UdsServer *server;
     GSocketConnection *connection;
+    PcvSnapshotLockKeeper *keeper;                                                                    
+    gboolean was_running;                                                            
 } RollbackTaskData;
 
                                                                                        
@@ -536,9 +510,9 @@ static void _rollback_task_data_free(gpointer p)
     g_free(d);
 }
 
-                                                       
+                                                                              
                                                     
-                                        
+                                                             
                                                        
                                                                              
                                                                 
@@ -552,10 +526,10 @@ _rollback_worker(GTask        *task,
     RollbackTaskData *d = (RollbackTaskData *)task_data;
     GError *err = NULL;
 
-
-
-
-
+                                                           
+                                                          
+                                                                        
+                                                              
     if (!_zfs_snapshot_exists(d->vm_name, d->snap_name)) {
         PCV_LOG_WARN(SNAP_LOG_DOM, "Rollback refused: snapshot '%s@%s' not found; VM untouched",
                      d->vm_name, d->snap_name);
@@ -610,6 +584,7 @@ _rollback_worker(GTask        *task,
         }
         virDomainFree(dom);
     }
+    d->was_running = was_running;
                                                      
 
                                                                   
@@ -627,20 +602,13 @@ _rollback_worker(GTask        *task,
         const gchar *errmsg = err ? err->message
                             : (stderr_buf ? stderr_buf : "ZFS rollback failed");
         PCV_LOG_WARN(SNAP_LOG_DOM, "ZFS rollback failed: %s", errmsg);
-
-
-
-
-        const gchar *restart_note = "";
-        if (was_running) {
-            virDomainPtr rdom = virDomainLookupByName(conn, d->vm_name);
-            gboolean restarted = rdom && virDomainCreate(rdom) == 0;
-            if (rdom) virDomainFree(rdom);
-            restart_note = restarted ? " (VM restarted with its previous disk state)"
-                                     : " (VM restart failed; VM is stopped)";
-            PCV_LOG_WARN(SNAP_LOG_DOM, "Rollback failure restart for '%s': %s", d->vm_name,
-                         restarted ? "ok" : "failed");
-        }
+                                                                        
+                                                              
+                                            
+                                                                  
+                                                                     
+                                                       
+        const gchar *restart_note = was_running ? " (VM restart requested; see vm.start result)" : "";
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "%s%s", errmsg, restart_note);
         g_free(stderr_buf);
@@ -651,26 +619,10 @@ _rollback_worker(GTask        *task,
     g_free(stderr_buf);
     PCV_LOG_INFO(SNAP_LOG_DOM, "ZFS rollback complete for '%s'", d->vm_name);
 
-                                                       
-                                                     
-    if (was_running) {
-        dom = virDomainLookupByName(conn, d->vm_name);
-        if (dom) {
-            PCV_LOG_INFO(SNAP_LOG_DOM,
-                         "Rollback: restarting VM '%s'", d->vm_name);
-            if (virDomainCreate(dom) != 0) {
-                virErrorPtr ve = virGetLastError();
-                PCV_LOG_WARN(SNAP_LOG_DOM,
-                             "Rollback: VM restart failed: %s",
-                             ve ? ve->message : "unknown");
-                                                          
-            }
-            virDomainFree(dom);
-        }
-    }
+                                                                               
 
     virt_conn_pool_release(conn);                    
-    g_task_return_boolean(task, TRUE);                                              
+    g_task_return_boolean(task, TRUE);                                                         
 }
 
                                                            
@@ -692,7 +644,7 @@ _on_rollback_done(GObject *src __attribute__((unused)),
     {
                                                              
         gchar *_target = g_strdup_printf("%s:%s", d->vm_name ?: "?", d->snap_name ?: "?");
-        pcv_audit_log(NULL, "vm.snapshot.rollback", _target,
+        pcv_audit_log(pcv_drain_task_actor(res), "vm.snapshot.rollback", _target,
                       _ok ? "ok" : "fail",
                       _ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         g_free(_target);
@@ -713,10 +665,155 @@ _on_rollback_done(GObject *src __attribute__((unused)),
 
     pure_uds_server_send_response(d->server, d->connection, resp);
     g_free(resp);
-                                                                     
-    unlock_vm_operation(d->vm_name);
+                                                                                                       
+    g_clear_pointer(&d->keeper, pcv_snapshot_lock_keeper_stop_and_release);
+                                                                       
+    if (pcv_snapshot_rollback_should_restart(PCV_ROLLBACK_PATH_ZFS, d->was_running, _ok))
+        _rollback_submit_restart(d->vm_name, pcv_drain_task_actor(res));
                                                                                
                                                                   
+}
+
+                                                                   
+                                                                                   
+                                                                  
+                                                                       
+                                                   
+                                                                 
+                                                                                        
+                                                                                
+                                                                                              
+                                                                                       
+                                                                                     
+                                             
+                                                                                              
+static void
+_libvirt_rollback_worker(GTask        *task,
+                         gpointer      source __attribute__((unused)),
+                         gpointer      task_data,
+                         GCancellable *cancel __attribute__((unused)))
+{
+    RollbackTaskData *d = (RollbackTaskData *)task_data;
+    virConnectPtr conn = virt_conn_pool_acquire();
+    if (!conn) {
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "Hypervisor connection failed");
+        return;
+    }
+    virDomainPtr dom = virDomainLookupByName(conn, d->vm_name);
+    if (!dom) {
+        virt_conn_pool_release(conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "VM not found");
+        return;
+    }
+
+                                                                     
+    virDomainSnapshotPtr snap = virDomainSnapshotLookupByName(dom, d->snap_name, 0);
+    if (!snap) {
+        virDomainFree(dom);
+        virt_conn_pool_release(conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "Snapshot not found");
+        return;
+    }
+
+                                                                       
+    int state = 0, reason = 0;
+    virDomainGetState(dom, &state, &reason, 0);
+    d->was_running = (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_PAUSED);
+    if (d->was_running) {
+        virDomainShutdown(dom);                                       
+        for (int i = 0; i < 50; i++) {                                
+            g_usleep(100 * 1000);
+            virDomainGetState(dom, &state, &reason, 0);
+            if (state != VIR_DOMAIN_RUNNING && state != VIR_DOMAIN_PAUSED)
+                break;
+        }
+                                                     
+        virDomainGetState(dom, &state, &reason, 0);
+        if (state == VIR_DOMAIN_RUNNING || state == VIR_DOMAIN_PAUSED)
+            virDomainDestroy(dom);
+    }
+
+    int rc = virDomainRevertToSnapshot(snap, 0);                            
+                                                                                      
+    virErrorPtr verr = rc == 0 ? NULL : virGetLastError();
+    gchar *revert_err = rc == 0 ? NULL
+                      : g_strdup(verr && verr->message ? verr->message : "Failed to rollback snapshot");
+    virDomainSnapshotFree(snap);
+    virDomainFree(dom);
+    virt_conn_pool_release(conn);
+    if (rc == 0) {
+        g_task_return_boolean(task, TRUE);
+        return;
+    }
+    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", revert_err);
+    g_free(revert_err);
+}
+
+                                                                                     
+                                                                  
+                         
+                                                                                  
+                                                                          
+                                                                              
+                                                              
+                                                                                       
+static void
+_on_libvirt_rollback_done(GObject *src __attribute__((unused)),
+                          GAsyncResult *res,
+                          gpointer user_data)
+{
+    RollbackTaskData *d = (RollbackTaskData *)user_data;
+    GError *err = NULL;
+    gboolean ok = g_task_propagate_boolean(G_TASK(res), &err);
+    pcv_audit_log(pcv_drain_task_actor(res), "vm.snapshot.rollback", d->vm_name, ok ? "ok" : "fail",
+                  ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+    gchar *resp;
+    if (ok) {                                    
+        JsonNode *node = json_node_new(JSON_NODE_VALUE);
+        json_node_set_boolean(node, TRUE);
+        resp = pure_rpc_build_success_response(d->rpc_id, node);
+    } else {
+        resp = pure_rpc_build_error_response(d->rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+                                             err ? err->message : "Failed to rollback snapshot");
+    }
+    g_clear_error(&err);
+    pure_uds_server_send_response(d->server, d->connection, resp);
+    g_free(resp);
+    g_clear_pointer(&d->keeper, pcv_snapshot_lock_keeper_stop_and_release);                                                
+    if (pcv_snapshot_rollback_should_restart(PCV_ROLLBACK_PATH_LIBVIRT, d->was_running, ok))
+        _rollback_submit_restart(d->vm_name, pcv_drain_task_actor(res));
+}
+
+                                                                                  
+                                                                    
+                                           
+                                                                                   
+                                                            
+static void
+_libvirt_rollback_submit(const gchar *vm_name, const gchar *snap_name, const gchar *rpc_id,
+                         UdsServer *server, GSocketConnection *connection)
+{
+    gchar *lock_err = NULL;
+    PcvVmLock *lock = pcv_vm_lock_acquire(vm_name, VM_OP_SNAPSHOT, &lock_err);
+    if (!lock) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
+                       lock_err ? lock_err : "VM busy (operation in progress)");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        g_free(lock_err);
+        return;
+    }
+    RollbackTaskData *d = g_new0(RollbackTaskData, 1);
+    d->keeper     = pcv_snapshot_lock_keeper_start(lock);                                             
+    d->vm_name    = g_strdup(vm_name);
+    d->snap_name  = g_strdup(snap_name);
+    d->rpc_id     = g_strdup(rpc_id);
+    d->server     = g_object_ref(server);
+    d->connection = g_object_ref(connection);
+    GTask *task = pcv_drain_task_new(NULL, NULL, _on_libvirt_rollback_done, d);
+    g_task_set_task_data(task, d, _rollback_task_data_free);
+    g_task_run_in_thread(task, _libvirt_rollback_worker);
+    g_object_unref(task);
 }
 
                                                                                           
@@ -729,21 +826,23 @@ _on_rollback_done(GObject *src __attribute__((unused)),
                         
                                                                      
                                                                       
-                                                                          
-                                  
+                                                                                    
+                                                                                                                     
                                                         
                                                                    
 typedef struct {
     gchar    *rpc_id;
     UdsServer *server;
     GSocketConnection *connection;
-    GPtrArray *argv;                                            
+    GPtrArray *argv;                                                          
+    gchar    *destroy_target;                                                                     
     gboolean  capture_stdout;
     gchar    *audit_method;
     gchar    *audit_target;
-    gchar    *lock_vm;                                                                            
+    PcvSnapshotLockKeeper *keeper;                                                                         
                     
     gboolean  ok;
+    gint      err_code;                                                    
     gchar    *stdout_buf;
     gchar    *err_msg;
 } SnapSyncCtx;
@@ -752,7 +851,7 @@ typedef struct {
 static void _snap_sync_ctx_free(gpointer p) {
     SnapSyncCtx *c = p;
     g_free(c->rpc_id); g_free(c->audit_method); g_free(c->audit_target);
-    g_free(c->stdout_buf); g_free(c->err_msg); g_free(c->lock_vm);
+    g_free(c->stdout_buf); g_free(c->err_msg); g_free(c->destroy_target);
     if (c->argv) g_ptr_array_unref(c->argv);
     if (c->server) g_object_unref(c->server);
     if (c->connection) g_object_unref(c->connection);
@@ -772,17 +871,21 @@ _snap_sync_worker(GTask *task, gpointer src __attribute__((unused)),
     GError *error = NULL;
     gchar *stderr_buf = NULL;
 
-                                                                      
-    c->ok = pcv_spawn_sync((const gchar * const *)c->argv->pdata,
-                            c->capture_stdout ? &c->stdout_buf : NULL,
-                            &stderr_buf, &error);
+                                                                    
+                                                            
+    c->ok = c->destroy_target
+        ? pcv_zfs_destroy_locked_short(NULL, c->destroy_target, &stderr_buf, &error)
+        : pcv_spawn_sync((const gchar * const *)c->argv->pdata,
+                         c->capture_stdout ? &c->stdout_buf : NULL,
+                         &stderr_buf, &error);
+    c->err_code = g_error_matches(error, G_IO_ERROR, G_IO_ERROR_TIMED_OUT) ? PURE_RPC_ERR_BUSY : PURE_RPC_ERR_ZFS_OPERATION;
 
                                                                                
                                                      
     if (c->audit_method) {
-        pcv_audit_log(NULL, c->audit_method, c->audit_target ?: "",
+        pcv_audit_log(pcv_drain_task_actor(task), c->audit_method, c->audit_target ?: "",
                       c->ok ? "ok" : "fail",
-                      c->ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+                      c->ok ? 0 : c->err_code, 0, "local");
     }
     if (!c->ok) {                                                            
         c->err_msg = g_strdup(error ? error->message
@@ -795,7 +898,7 @@ _snap_sync_worker(GTask *task, gpointer src __attribute__((unused)),
 
                                                        
                                                       
-                                                                             
+                                                                       
 static void
 _snap_sync_callback(GObject *src __attribute__((unused)),
                     GAsyncResult *res __attribute__((unused)),
@@ -804,9 +907,8 @@ _snap_sync_callback(GObject *src __attribute__((unused)),
     SnapSyncCtx *c = user_data;
     gchar *resp;
 
-    if (!c->ok) {                                          
-        resp = pure_rpc_build_error_response(c->rpc_id,
-                   PURE_RPC_ERR_ZFS_OPERATION, c->err_msg);
+    if (!c->ok) {                                                            
+        resp = pure_rpc_build_error_response(c->rpc_id, c->err_code, c->err_msg);
     } else if (c->capture_stdout && c->stdout_buf) {                                     
                                                     
                                                                      
@@ -844,8 +946,8 @@ _snap_sync_callback(GObject *src __attribute__((unused)),
 
     pure_uds_server_send_response(c->server, c->connection, resp);
     g_free(resp);
-                                                                                 
-    if (c->lock_vm) unlock_vm_operation(c->lock_vm);
+                                                                                
+    g_clear_pointer(&c->keeper, pcv_snapshot_lock_keeper_stop_and_release);
                                                
 }
 
@@ -882,7 +984,7 @@ static void _snap_sync_dispatch(SnapSyncCtx *c) {
                                              
                                                                    
                                                                                 
-                                                          
+                                                                          
 void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                 UdsServer *server, GSocketConnection *connection)
 {
@@ -891,7 +993,7 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_id     = _get_param(params, "name", "vm_id");
     const gchar *snap_name = _get_param(params, "snapshot_name", "snap_name");
 
-
+                                                           
                                                               
                                                              
                                                               
@@ -899,7 +1001,7 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                                                
                                                              
     if (g_str_has_prefix(snap_name, PCV_SYSTEM_SNAP_NS)) {
-        pcv_audit_log(NULL, "vm.snapshot.create", vm_id, "fail",
+        pcv_audit_log(pcv_rpc_completion_actor(), "vm.snapshot.create", vm_id, "fail",
                       PURE_RPC_ERR_INVALID_PARAMS, 0, "local");
         gchar *e = pure_rpc_build_error_response(rpc_id,
             PURE_RPC_ERR_INVALID_PARAMS,
@@ -910,10 +1012,10 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
     }
 
                                                                       
-                                                       
+                                                             
     if (!_zfs_dataset_exists(vm_id)) {
         PCV_LOG_INFO(SNAP_LOG_DOM, "ZFS dataset not found for '%s', using libvirt snapshot", vm_id);
-        _libvirt_snapshot_create(vm_id, snap_name, rpc_id, server, connection);
+        _libvirt_snapshot_locked(_libvirt_snapshot_create, vm_id, snap_name, rpc_id, server, connection);
         return;
     }
 
@@ -933,14 +1035,15 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
         g_free(dataset);
     }
 
-                                                                      
-                                                                   
-                                                       
-                                                      
+                                                                                            
+                                                                                                                                              
+                                                               
+    PcvVmLock *op_lock = NULL;
     {
                                                             
         gchar *snap_lock_err = NULL;
-        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+        op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_SNAPSHOT, &snap_lock_err);
+        if (!op_lock) {
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
@@ -951,7 +1054,7 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
 
                                                            
     SnapSyncCtx *c = g_new0(SnapSyncCtx, 1);
-    c->lock_vm      = g_strdup(vm_id);                           
+    c->keeper       = pcv_snapshot_lock_keeper_start(op_lock);                                      
     c->rpc_id       = g_strdup(rpc_id);
     c->server       = g_object_ref(server);
     c->connection   = g_object_ref(connection);
@@ -971,22 +1074,33 @@ void handle_vm_snapshot_create(JsonObject *params, const gchar *rpc_id,
                                                                  
                                                             
                                                                                     
-                                                                        
+                                                                   
 void handle_vm_snapshot_list(JsonObject *params, const gchar *rpc_id,
                               UdsServer *server, GSocketConnection *connection)
 {
     VALIDATE_VM_ID_PARAM(params, rpc_id, server, connection);
     const gchar *vm_id = _get_param(params, "name", "vm_id");
 
+                                                                                         
+                                                                                    
+                                                                                            
+    ZfsDatasetProbe probe = _zfs_dataset_probe(vm_id);
+    if (probe == ZFS_DS_UNKNOWN) {
+        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "vm.snapshot.list: host command timed out");
+        pure_uds_server_send_response(server, connection, e);
+        g_free(e);
+        return;
+    }
+
                                                             
-    if (!_zfs_dataset_exists(vm_id)) {
+    if (probe == ZFS_DS_ABSENT) {
         PCV_LOG_INFO(SNAP_LOG_DOM, "ZFS dataset not found for '%s', using libvirt snapshot list", vm_id);
         _libvirt_snapshot_list(vm_id, rpc_id, server, connection);
         return;
     }
 
     SnapSyncCtx *c = g_new0(SnapSyncCtx, 1);
-                                         
+                                        
     c->rpc_id       = g_strdup(rpc_id);
     c->server       = g_object_ref(server);
     c->connection   = g_object_ref(connection);
@@ -1012,9 +1126,9 @@ void handle_vm_snapshot_list(JsonObject *params, const gchar *rpc_id,
                                                                            
                                                        
                                              
-                                                             
+                                                                  
                                                      
-                                                                   
+                                                                                        
 void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
                                   UdsServer *server, GSocketConnection *connection)
 {
@@ -1022,20 +1136,22 @@ void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
     const gchar *vm_name   = _get_param(params, "name", "vm_id");
     const gchar *snap_name = _get_param(params, "snapshot_name", "snap_name");
 
-                                                                    
+                                                                                    
     if (!_zfs_dataset_exists(vm_name)) {
         PCV_LOG_INFO(SNAP_LOG_DOM, "ZFS dataset not found for '%s', using libvirt snapshot rollback", vm_name);
-        _libvirt_snapshot_rollback(vm_name, snap_name, rpc_id, server, connection);
+        _libvirt_rollback_submit(vm_name, snap_name, rpc_id, server, connection);
         return;
     }
 
                                                                          
-                                                            
-                  
+                                                                   
+                                                
+    PcvVmLock *op_lock = NULL;
     {
                                                             
         gchar *snap_lock_err = NULL;
-        if (!lock_vm_operation(vm_name, VM_OP_SNAPSHOT, &snap_lock_err)) {
+        op_lock = pcv_vm_lock_acquire(vm_name, VM_OP_SNAPSHOT, &snap_lock_err);
+        if (!op_lock) {
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
@@ -1046,6 +1162,7 @@ void handle_vm_snapshot_rollback(JsonObject *params, const gchar *rpc_id,
 
                                                        
     RollbackTaskData *d = g_new0(RollbackTaskData, 1);
+    d->keeper    = pcv_snapshot_lock_keeper_start(op_lock);                                     
     d->vm_name   = g_strdup(vm_name);
     d->snap_name = g_strdup(snap_name);
     d->rpc_id    = g_strdup(rpc_id);
@@ -1072,15 +1189,17 @@ void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id,
                                                             
     if (!_zfs_dataset_exists(vm_id)) {
         PCV_LOG_INFO(SNAP_LOG_DOM, "ZFS dataset not found for '%s', using libvirt snapshot delete", vm_id);
-        _libvirt_snapshot_delete(vm_id, snap_name, rpc_id, server, connection);
+        _libvirt_snapshot_locked(_libvirt_snapshot_delete, vm_id, snap_name, rpc_id, server, connection);
         return;
     }
 
-                                                                            
+                                                                                                            
+    PcvVmLock *op_lock = NULL;
     {
                                        
         gchar *snap_lock_err = NULL;
-        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+        op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_SNAPSHOT, &snap_lock_err);
+        if (!op_lock) {
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
@@ -1090,19 +1209,15 @@ void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id,
     }
 
     SnapSyncCtx *c = g_new0(SnapSyncCtx, 1);
-    c->lock_vm      = g_strdup(vm_id);                           
+    c->keeper       = pcv_snapshot_lock_keeper_start(op_lock);                                      
     c->rpc_id       = g_strdup(rpc_id);
     c->server       = g_object_ref(server);
     c->connection   = g_object_ref(connection);
     c->capture_stdout = FALSE;                       
     c->audit_method = g_strdup("vm.snapshot.delete");
     c->audit_target = g_strdup_printf("%s:%s", vm_id, snap_name);
-    c->argv = _argv_new();
                                                   
-    _argv_add(c->argv, "zfs"); _argv_add(c->argv, "destroy");
-    gchar *ds = g_strdup_printf("%s/%s@%s", pcv_config_get_zvol_pool(), vm_id, snap_name);
-    _argv_add(c->argv, ds); g_free(ds);
-    _argv_finish(c->argv);
+    c->destroy_target = g_strdup_printf("%s/%s@%s", pcv_config_get_zvol_pool(), vm_id, snap_name);
 
     _snap_sync_dispatch(c);
 }
@@ -1112,7 +1227,7 @@ void handle_vm_snapshot_delete(JsonObject *params, const gchar *rpc_id,
                                                  
                                             
                                                                                     
-                                                                         
+                                                                                                 
 typedef struct {
     gchar *vm_id;
     gchar *prefix;
@@ -1125,6 +1240,8 @@ typedef struct {
     gint   to_delete;
     gint   del_count;
     gchar *err_msg;
+    gboolean pool_busy;                                                    
+    PcvSnapshotLockKeeper *keeper;                                                                           
 } DeleteAllCtx;
 
                                                                         
@@ -1186,9 +1303,8 @@ _delete_all_worker(GTask *task, gpointer src __attribute__((unused)),
     d->del_count = 0;
     for (gint i = 0; i < d->to_delete && i < d->total; i++) {                         
         const gchar *snap = g_ptr_array_index(targets, i);
-        const gchar *del_argv[] = {"zfs", "destroy", snap, NULL};
         gchar *del_stderr = NULL; GError *del_err = NULL;
-        if (pcv_spawn_sync(del_argv, NULL, &del_stderr, &del_err)) {
+        if (pcv_zfs_destroy_locked_short(NULL, snap, &del_stderr, &del_err)) {                            
             d->del_count++;                                   
         } else {
                                     
@@ -1198,7 +1314,11 @@ _delete_all_worker(GTask *task, gpointer src __attribute__((unused)),
                                        : (del_stderr ?: "unknown"));
         }
         g_free(del_stderr);
+        const gboolean lock_timed_out = g_error_matches(del_err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
+        d->pool_busy = lock_timed_out && d->del_count == 0;                                    
+        if (d->pool_busy) d->err_msg = g_strdup(del_err->message);
         if (del_err) g_error_free(del_err);
+        if (lock_timed_out) break;                                             
     }
     g_ptr_array_unref(targets);
     g_task_return_boolean(task, TRUE);                                           
@@ -1216,15 +1336,15 @@ _delete_all_callback(GObject *src __attribute__((unused)),
     gboolean ok = g_task_propagate_boolean(G_TASK(res), &err);
 
                                                                    
-    unlock_vm_operation(d->vm_id);
+    g_clear_pointer(&d->keeper, pcv_snapshot_lock_keeper_stop_and_release);
 
-    if (!ok || d->err_msg) {                                                  
-        gchar *resp = pure_rpc_build_error_response(d->rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+    if (!ok || d->err_msg) {                                                                   
+        const gint code = d->pool_busy ? PURE_RPC_ERR_BUSY : PURE_RPC_ERR_ZFS_OPERATION;
+        gchar *resp = pure_rpc_build_error_response(d->rpc_id, code,
             d->err_msg ? d->err_msg : (err ? err->message : "delete_all failed"));
         pure_uds_server_send_response(d->server, d->connection, resp);
         g_free(resp);
-        pcv_audit_log(NULL, "vm.snapshot.delete_all", d->vm_id, "fail",
-                      PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+        pcv_audit_log(pcv_drain_task_actor(res), "vm.snapshot.delete_all", d->vm_id, "fail", code, 0, "local");
         if (err) g_error_free(err);
         return;
     }
@@ -1252,7 +1372,7 @@ _delete_all_callback(GObject *src __attribute__((unused)),
     } else {
         audit_result = "partial_fail"; audit_code = PURE_RPC_ERR_ZFS_OPERATION;
     }
-    pcv_audit_log(NULL, "vm.snapshot.delete_all", d->vm_id,
+    pcv_audit_log(pcv_drain_task_actor(res), "vm.snapshot.delete_all", d->vm_id,
                   audit_result, audit_code, 0, "local");
 
     PCV_LOG_INFO(SNAP_LOG_DOM, "Bulk delete: vm=%s prefix=%s keep=%d deleted=%d/%d",
@@ -1297,10 +1417,12 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
     }
 
                                                                                  
+    PcvVmLock *op_lock = NULL;
     {
                                               
         gchar *snap_lock_err = NULL;
-        if (!lock_vm_operation(vm_id, VM_OP_SNAPSHOT, &snap_lock_err)) {
+        op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_SNAPSHOT, &snap_lock_err);
+        if (!op_lock) {
             gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_BUSY,
                            snap_lock_err ? snap_lock_err : "VM busy (operation in progress)");
             pure_uds_server_send_response(server, connection, e);
@@ -1311,6 +1433,7 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
 
                                                           
     DeleteAllCtx *d = g_new0(DeleteAllCtx, 1);
+    d->keeper = pcv_snapshot_lock_keeper_start(op_lock);                                        
     d->vm_id = g_strdup(vm_id);
     d->prefix = g_strdup(prefix);                                                  
     d->keep = keep;
@@ -1322,4 +1445,18 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id,
     g_task_set_task_data(task, d, _delete_all_ctx_free);
     g_task_run_in_thread(task, _delete_all_worker);
     g_object_unref(task);
+}
+
+
+                                                         
+                                                 
+void handle_snapshot_schedule_status(JsonObject *params, const gchar *rpc_id,
+                                              UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    JsonObject *result = pcv_snapshot_schedule_status();
+    JsonNode *n = json_node_new(JSON_NODE_OBJECT);
+    json_node_take_object(n, result);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, n);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }

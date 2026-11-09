@@ -783,11 +783,17 @@ test('toggleNode: RESYNC_INTERVAL_MS 가 지나면 다시 수렴한다', async (
       window.PCV.push.RESYNC_INTERVAL_MS = 120;                
       const host = document.getElementById('cb');
       host.replaceChildren(window.PCV.push.toggleNode({ id: 'push-toggle' }));
-      await new Promise(res => setTimeout(res, 300));              
-      host.replaceChildren(window.PCV.push.toggleNode({ id: 'push-toggle' }));
-      await new Promise(res => setTimeout(res, 200));
     });
-    assert.equal(await waitRequests(requests, '/api/v1/push/mine', 2), 2);
+
+    const mine = () => requests.filter(q => q.path === '/api/v1/push/mine').length;
+    const deadline = Date.now() + 20000;
+    while (mine() < 2 && Date.now() < deadline) {
+      await page.evaluate(async () => {
+        await new Promise(res => setTimeout(res, 150));
+        document.getElementById('cb').replaceChildren(window.PCV.push.toggleNode({ id: 'push-toggle' }));
+      });
+    }
+    assert.ok(mine() >= 2, `간격이 지나도 다시 수렴하지 않았다(요청 ${mine()}회)`);
   }, { routes: ROUTES_REGISTERED });
 });
 

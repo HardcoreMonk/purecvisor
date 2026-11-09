@@ -163,7 +163,7 @@ export async function withPage(moduleFiles, fn, options = {}) {
     browser = await launch({
       headless: true,
       args: ['--no-sandbox'],
-      protocolTimeout: 30_000,
+      protocolTimeout: options.protocolTimeout ?? 30_000,
     });
     const page = await browser.newPage();
     const errors = [];

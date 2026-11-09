@@ -80,7 +80,7 @@ gchar *pcv_compute_etag(const gchar *body, gsize len);
 gboolean pcv_validate_required(SoupServerMessage *msg, JsonObject *body,
                                const gchar *fields[], gint count);
 
-                                                           
+                                                                                
                                                     
 void pcv_rest_error(SoupServerMessage *msg, guint status,
                     const gchar *code, const gchar *detail);

@@ -45,9 +45,9 @@
                                     
                                                          
                               
-
-
-
+                                                     
+                                            
+                                     
   
                  
                                                                 
@@ -86,14 +86,15 @@ void handle_network_create_request  (JsonObject *params, const gchar *rpc_id, Ud
                                                        
 void handle_network_delete_request  (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                       
+                                                                                       
+                                  
                                                                        
 void handle_network_list_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-
+                                                                         
 void handle_network_host_info_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-
+                                                              
 void handle_network_info_request    (JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
                                                  
@@ -119,33 +120,33 @@ void handle_network_mode_set_request(JsonObject *params, const gchar *rpc_id, Ud
 gboolean network_bridge_create(const gchar *bridge_name, const gchar *cidr, gint mtu, GError **error);
 
    
-
+                                      
                                                                       
-
-
+                                                                                    
+                                     
    
 JsonObject *pcv_network_host_baseline_parse_ip(const gchar *address_json,
                                                const gchar *route_json,
                                                GError **error);
 
-
-
-
-
-
+   
+                                       
+                                                                          
+                                                            
+   
 JsonObject *pcv_network_host_baseline_parse_ovs(const gchar *bridge_json,
                                                 const gchar *port_json,
                                                 GError **error);
 
-
+                                                                        
 JsonObject *pcv_network_host_baseline_collect(GError **error);
 
-
-
-
-
-
-
+   
+                                                                      
+                                            
+                                                       
+                                                              
+   
 gint pcv_bridge_mtu_read(const gchar *bridge, const gchar *sysfs_net_root);
 
    
@@ -291,14 +292,14 @@ void handle_network_dhcp_toggle_request(JsonObject *params, const gchar *rpc_id,
           
                                               
                                                       
-
-
+                                                      
+                                            
   
              
                                           
                                                         
-
-
+                                      
+                                          
   
            
                                             
@@ -345,7 +346,8 @@ void handle_network_qos_get(JsonObject *params, const gchar *rpc_id, UdsServer *
                                       
 void handle_network_qos_remove(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection);
 
-                                         
+                                                            
+                                                                                    
 void pcv_qos_restore(void);
 
                                                             

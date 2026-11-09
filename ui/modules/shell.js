@@ -89,7 +89,7 @@ function NAV_SECTIONS() {
       { id: 'ops-triage', ko: '이벤트 센터', en: 'Event Center', ico: 'ci-warning' },
       { id: 'mon-alerts', ko: '알림', en: 'Alerts', ico: 'ci-bell', dot: 'alerts' },
       { id: 'mon-security', ko: '보안 이벤트', en: 'Security Events', ico: 'ci-shield-check', dot: 'sec' },
-      { id: 'mon-audit', ko: '감사 로그', en: 'Audit Log', ico: 'ci-search' },
+      { id: 'mon-audit', ko: '감사 로그', en: 'Audit Log', ico: 'ci-search', role: 'ADMIN' },
       { id: 'activity-log', ko: '활동 로그', en: 'Activity Log', ico: 'ci-file-document' },
       { id: 'mon-vms', ko: 'VM 모니터', en: 'VM Monitor', ico: 'ci-desktop' },
       { id: 'mon-storage', ko: '스토리지 모니터', en: 'Storage Monitor', ico: 'ci-data' },

@@ -1,3 +1,26 @@
+                                                                             
+                                     
+                                                                                        
+  
+                           
+                                                                                      
+                                                                                                   
+                                                                              
+                                                                                                      
+                                                                                 
+                                                                                           
+                                                                          
+                                                                                                         
+                                                                                                        
+                                                                                                              
+                                                                                   
+                                                                         
+                                                                            
+  
+                                                                            
+                                                    
+                                                                                
+
 #include "lxc_volume_guard.h"
 #include <errno.h>
 #include <fcntl.h>
@@ -12,7 +35,11 @@
 #include <linux/openat2.h>
 
 #define VOLUME_LINK_MSG "host_path must not traverse symbolic links"
+#define VOLGEN_RESET_FAILED "(volume guard fingerprint could not be reset)"                                            
 
+                                                                                       
+                                                                                                   
+                                                                    
 static void
 _walk_error(GError **error, int e)
 {
@@ -20,7 +47,7 @@ _walk_error(GError **error, int e)
         g_set_error_literal(error, PCV_LXC_MOUNT_ERROR, PCV_LXC_MOUNT_ERROR_BAD_PATH, VOLUME_LINK_MSG);
     else if (e == ENOENT || e == ENOTDIR)
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND, "host_path does not exist");
-    else if (e == ENOSYS)
+    else if (e == ENOSYS)                                            
         g_set_error_literal(error, PCV_LXC_MOUNT_ERROR, PCV_LXC_MOUNT_ERROR_NO_KERNEL_SUPPORT, "kernel lacks openat2");
     else
         g_set_error(error, G_IO_ERROR, g_io_error_from_errno(e), "walk host_path: %s", g_strerror(e));
@@ -31,13 +58,15 @@ pcv_lxc_volume_source_open(const gchar *host_path, gchar **canon_out, GError **e
 {
     if (canon_out)
         *canon_out = NULL;
-    if (!host_path || host_path[0] != '/') {
+    if (!host_path || host_path[0] != '/') {                                 
         g_set_error_literal(error, PCV_LXC_MOUNT_ERROR, PCV_LXC_MOUNT_ERROR_BAD_PATH, "host_path must be an absolute path");
         return -1;
     }
+                                                                            
+                                                       
     gchar **parts = g_strsplit(host_path, "/", -1);
     GPtrArray *comps = g_ptr_array_new();
-    gboolean dotdot = FALSE, dir_tail = FALSE;
+    gboolean dotdot = FALSE, dir_tail = FALSE;                                                                  
     for (gchar **p = parts; *p; p++) {
         if (!**p || strcmp(*p, ".") == 0) {
             dir_tail = comps->len > 0;
@@ -54,6 +83,7 @@ pcv_lxc_volume_source_open(const gchar *host_path, gchar **canon_out, GError **e
         _walk_error(error, errno);
     GString *canon = g_string_new(NULL);
     for (guint i = 0; cur >= 0 && i < comps->len; i++) {
+                                                                                   
         struct open_how how = {
             .flags   = O_PATH | O_CLOEXEC | (i + 1 < comps->len || dir_tail ? O_DIRECTORY : 0),
             .resolve = RESOLVE_NO_SYMLINKS | RESOLVE_NO_MAGICLINKS,
@@ -73,7 +103,7 @@ pcv_lxc_volume_source_open(const gchar *host_path, gchar **canon_out, GError **e
         g_string_free(canon, TRUE);
         return -1;
     }
-    if (canon->len == 0)
+    if (canon->len == 0)                          
         g_string_append_c(canon, '/');
     if (canon_out)
         *canon_out = g_string_free(canon, FALSE);
@@ -82,6 +112,10 @@ pcv_lxc_volume_source_open(const gchar *host_path, gchar **canon_out, GError **e
     return cur;
 }
 
+                                                                              
+
+                                                                                        
+                              
 static void
 _mount_entry_free(gpointer data)
 {
@@ -92,6 +126,9 @@ _mount_entry_free(gpointer data)
     g_free(e);
 }
 
+                                                                                                    
+                                                                                            
+                                                 
 static gboolean
 _options_have_bind(const gchar *options)
 {
@@ -103,16 +140,20 @@ _options_have_bind(const gchar *options)
     return bind;
 }
 
+                                                                                                         
+                                                                                                           
+                                                                           
+                                                      
 static gboolean
 _config_span(const gchar *line, const gchar *key, gsize *start, gsize *len, gboolean *quote_open)
 {
     gsize kl = strlen(key);
     const gchar *p = line + strspn(line, " \t");
-    if (strncmp(p, key, kl) != 0)
+    if (strncmp(p, key, kl) != 0)                                           
         return FALSE;
     p += kl;
     p += strspn(p, " \t");
-    if (*p != '=')
+    if (*p != '=')                                                             
         return FALSE;
     p++;
     p += strspn(p, " \t");
@@ -121,7 +162,7 @@ _config_span(const gchar *line, const gchar *key, gsize *start, gsize *len, gboo
         n--;
     if (quote_open)
         *quote_open = n > 0 && (p[0] == '"' || p[0] == '\'') && !(n > 1 && p[n - 1] == p[0]);
-    if (n > 1 && (p[0] == '"' || p[0] == '\'') && p[n - 1] == p[0]) {
+    if (n > 1 && (p[0] == '"' || p[0] == '\'') && p[n - 1] == p[0]) {                                 
         p++;
         n -= 2;
     }
@@ -130,6 +171,9 @@ _config_span(const gchar *line, const gchar *key, gsize *start, gsize *len, gboo
     return TRUE;
 }
 
+                                                                                                   
+                           
+                                                              
 static gchar *
 _config_value(const gchar *line, const gchar *key)
 {
@@ -137,6 +181,10 @@ _config_value(const gchar *line, const gchar *key)
     return _config_span(line, key, &start, &len, NULL) ? g_strndup(line + start, len) : NULL;
 }
 
+                                                                                                     
+                                                                                             
+                                                          
+                                          
 static PcvLxcMountEntry *
 _mount_entry_parse(gchar *value)
 {
@@ -156,20 +204,24 @@ _mount_entry_parse(gchar *value)
     return e;
 }
 
+                                                   
+                                       
 gboolean
 pcv_lxc_mount_entry_is_volume(const PcvLxcMountEntry *e)
 {
     return e && e->is_bind && e->source[0] == '/';
 }
 
+                                                                                       
+                                                      
 GPtrArray *
 pcv_lxc_config_mount_entries(const gchar *config_text)
 {
     GPtrArray *out = g_ptr_array_new_with_free_func(_mount_entry_free);
-    gchar **lines = g_strsplit_set(config_text ? config_text : "", "\r\n", -1);
+    gchar **lines = g_strsplit_set(config_text ? config_text : "", "\r\n", -1);                                    
     for (gchar **l = lines; *l; l++) {
         gchar *value = _config_value(*l, "lxc.mount.entry");
-        PcvLxcMountEntry *e = value && *value ? _mount_entry_parse(value) : NULL;
+        PcvLxcMountEntry *e = value && *value ? _mount_entry_parse(value) : NULL;                       
         if (e)
             g_ptr_array_add(out, e);
         g_free(value);
@@ -178,6 +230,10 @@ pcv_lxc_config_mount_entries(const gchar *config_text)
     return out;
 }
 
+                                                                                                     
+                                                                                       
+                                                                               
+                                                                            
 static gboolean
 _guard_text(const gchar *text, gchar **bad_container_path_out)
 {
@@ -185,12 +241,13 @@ _guard_text(const gchar *text, gchar **bad_container_path_out)
     gboolean ok = TRUE;
     for (guint i = 0; ok && i < entries->len; i++) {
         const PcvLxcMountEntry *e = entries->pdata[i];
-        if (!pcv_lxc_mount_entry_is_volume(e))
+        if (!pcv_lxc_mount_entry_is_volume(e))                                                    
             continue;
         GError *err = NULL;
         int fd = pcv_lxc_volume_source_open(e->source, NULL, &err);
         if (fd >= 0)
             close(fd);
+                                                                                        
         ok = !g_error_matches(err, PCV_LXC_MOUNT_ERROR, PCV_LXC_MOUNT_ERROR_BAD_PATH);
         if (!ok && bad_container_path_out)
             *bad_container_path_out = g_strconcat("/", e->dest + strspn(e->dest, "/"), NULL);
@@ -200,36 +257,48 @@ _guard_text(const gchar *text, gchar **bad_container_path_out)
     return ok;
 }
 
+                                                                            
+                                                          
 gboolean
 pcv_lxc_volume_guard_check(const gchar *lxc_path, const gchar *name, gchar **bad_container_path_out)
 {
     if (bad_container_path_out)
         *bad_container_path_out = NULL;
     if (!lxc_path || !name)
-        return TRUE;
+        return TRUE;                                          
     gchar *path = g_build_filename(lxc_path, name, "config", NULL);
     gchar *text = NULL;
     gboolean have = g_file_get_contents(path, &text, NULL, NULL);
     g_free(path);
-    if (!have)
+    if (!have)                                                                            
         return TRUE;
     gboolean ok = _guard_text(text, bad_container_path_out);
     g_free(text);
     return ok;
 }
 
+                                                               
+                                         
 gchar *
 pcv_lxc_volume_guard_message(const gchar *container_path)
 {
     return g_strdup_printf("volume source changed since attach: %s", container_path ? container_path : "");
 }
 
+                                                                                               
+                                                                               
+                                                                                         
 GQuark
 pcv_lxc_mount_error_quark(void)
 {
     return g_quark_from_static_string("pcv-lxc-mount-error-quark");
 }
 
+                                                                                
+
+                                                                              
+                                                                                                          
+                                                             
 static gboolean
 _hook_active(gchar **lines)
 {
@@ -247,6 +316,8 @@ _hook_active(gchar **lines)
     return active;
 }
 
+                                                                                  
+                                                           
 gchar *
 pcv_lxc_config_with_guard_hook(const gchar *config_text)
 {
@@ -255,31 +326,46 @@ pcv_lxc_config_with_guard_hook(const gchar *config_text)
     gboolean bind = FALSE;
     for (guint i = 0; !bind && i < entries->len; i++) {
         const PcvLxcMountEntry *e = entries->pdata[i];
-        bind = pcv_lxc_mount_entry_is_volume(e);
+        bind = pcv_lxc_mount_entry_is_volume(e);                                      
     }
     g_ptr_array_unref(entries);
-    gchar **lines = g_strsplit_set(text, "\r\n", -1);
+    gchar **lines = g_strsplit_set(text, "\r\n", -1);                                    
     gboolean have = _hook_active(lines);
     g_strfreev(lines);
     if (!bind || have)
         return NULL;
     gsize n = strlen(text);
-    gboolean open_line = n > 0 && text[n - 1] != '\n' && text[n - 1] != '\r';
+    gboolean open_line = n > 0 && text[n - 1] != '\n' && text[n - 1] != '\r';                              
     return g_strconcat(text, open_line ? "\n" : "",
                        PCV_LXC_VOLUME_GUARD_HOOK_KEY " = " PCV_LXC_VOLUME_GUARD_HOOK_VALUE "\n", NULL);
 }
 
+                                                                           
+                                                     
+gboolean
+pcv_lxc_volume_guard_hook_installed(const gchar *path)
+{
+    struct stat st;
+    return path && stat(path, &st) == 0 && S_ISREG(st.st_mode) && st.st_uid == 0 && (st.st_mode & S_IXUSR) != 0;
+}
+
+                                                                                           
+                                             
 static gboolean
 _lxc_name_ok(const gchar *name)
 {
     return name && *name && !strchr(name, '/') && strcmp(name, ".") != 0 && strcmp(name, "..") != 0;
 }
 
+                                                                    
+                                                                                            
+                                                                                           
 int
 pcv_lxc_volume_guard_hook_run_with_root(const gchar *volstage_root, const gchar *config_path, const gchar *lxc_name)
 {
     gchar *text = NULL;
     if (!config_path || !*config_path || !g_file_get_contents(config_path, &text, NULL, NULL)) {
+                                                                          
         g_printerr("pcv volume guard: cannot read the container config (LXC_CONFIG_FILE)\n");
         return 1;
     }
@@ -288,13 +374,14 @@ pcv_lxc_volume_guard_hook_run_with_root(const gchar *volstage_root, const gchar 
         g_free(text);
         return 1;
     }
+                                                                                                 
     gchar *prefix = g_strconcat(volstage_root, "/", lxc_name, "/", NULL);
     GPtrArray *entries = pcv_lxc_config_mount_entries(text);
     gboolean inside = TRUE;
     gchar *relative_dest = NULL;
     for (guint i = 0; inside && i < entries->len; i++) {
         const PcvLxcMountEntry *e = entries->pdata[i];
-        if (e->is_bind && e->source[0] != '/') {
+        if (e->is_bind && e->source[0] != '/') {                                                                    
             relative_dest = g_strdup(e->dest);
             inside = FALSE;
         } else {
@@ -303,7 +390,7 @@ pcv_lxc_volume_guard_hook_run_with_root(const gchar *volstage_root, const gchar 
     }
     g_ptr_array_unref(entries);
     g_free(prefix);
-    if (relative_dest) {
+    if (relative_dest) {                                         
         g_printerr("pcv volume guard: bind mount with a relative source is not allowed: %s\n", relative_dest);
         g_free(relative_dest);
         g_free(text);
@@ -315,10 +402,10 @@ pcv_lxc_volume_guard_hook_run_with_root(const gchar *volstage_root, const gchar 
         return 1;
     }
     gchar *bad = NULL;
-    gboolean ok = _guard_text(text, &bad);
+    gboolean ok = _guard_text(text, &bad);                                           
     g_free(text);
     if (!ok) {
-        gchar *msg = pcv_lxc_volume_guard_message(bad);
+        gchar *msg = pcv_lxc_volume_guard_message(bad);                             
         g_printerr("pcv volume guard: %s\n", msg);
         g_free(msg);
     }
@@ -326,12 +413,20 @@ pcv_lxc_volume_guard_hook_run_with_root(const gchar *volstage_root, const gchar 
     return ok ? 0 : 1;
 }
 
+                                                                                                      
+                                                                  
 int
 pcv_lxc_volume_guard_hook_main(const gchar *config_path, const gchar *lxc_name)
 {
     return pcv_lxc_volume_guard_hook_run_with_root(PCV_LXC_VOLSTAGE_ROOT, config_path, lxc_name);
 }
 
+                                                                                             
+                                                                                   
+
+                                                                                                                      
+                                                                              
+                                               
 gchar *
 pcv_lxc_volume_dest_canon(const gchar *dest)
 {
@@ -339,7 +434,7 @@ pcv_lxc_volume_dest_canon(const gchar *dest)
     gchar **parts = g_strsplit(dest ? dest : "", "/", -1);
     for (gchar **p = parts; *p; p++) {
         if (!**p || g_str_equal(*p, "."))
-            continue;
+            continue;                                                                
         if (s->len)
             g_string_append_c(s, '/');
         g_string_append(s, *p);
@@ -348,17 +443,21 @@ pcv_lxc_volume_dest_canon(const gchar *dest)
     return g_string_free(s, FALSE);
 }
 
+                                                        
+                                                             
 gchar *
 pcv_lxc_volstage_slot(const gchar *volstage_root, const gchar *name, const gchar *dest, guint ordinal)
 {
     gchar *trim = pcv_lxc_volume_dest_canon(dest);
-    gchar *hex = g_compute_checksum_for_string(G_CHECKSUM_SHA256, trim, -1);
+    gchar *hex = g_compute_checksum_for_string(G_CHECKSUM_SHA256, trim, -1);                    
     gchar *slot = g_strdup_printf("%s/%s/%.16s.%u", volstage_root, name, hex, ordinal);
     g_free(trim);
     g_free(hex);
     return slot;
 }
 
+                                                                                                           
+                                                           
 static void
 _escape_field(GString *out, const gchar *v)
 {
@@ -376,6 +475,8 @@ _escape_field(GString *out, const gchar *v)
     }
 }
 
+                                                                                      
+                                      
 static void
 _volstage_line_free(gpointer data)
 {
@@ -387,13 +488,16 @@ _volstage_line_free(gpointer data)
     g_free(l);
 }
 
+                                                                                              
+                                                                                               
+                                                         
 static PcvLxcVolstageLine *
 _volstage_line_new(const PcvLxcMountEntry *e, gchar *slot)
 {
     PcvLxcVolstageLine *l = g_new0(PcvLxcVolstageLine, 1);
     l->source = g_strdup(e->source);
     l->dest = g_strdup(e->dest);
-    l->container_path = g_strconcat("/", e->dest + strspn(e->dest, "/"), NULL);
+    l->container_path = g_strconcat("/", e->dest + strspn(e->dest, "/"), NULL);                      
     l->slot = slot;
     gchar **items = g_strsplit(e->options, ",", -1);
     for (gchar **i = items; *i; i++) {
@@ -408,16 +512,21 @@ _volstage_line_new(const PcvLxcMountEntry *e, gchar *slot)
     return l;
 }
 
+                                                                                                      
+                                                                                                 
+                                                                                         
+                        
+                                                                       
 static const gchar *
 _runtime_line(GString *out, const gchar *line, const gchar *root, const gchar *name, GHashTable *ordinals, GPtrArray *lines)
 {
     gsize st = 0, len = 0;
     gboolean quote_open = FALSE;
-    if (!_config_span(line, "lxc.mount.entry", &st, &len, &quote_open) || len == 0) {
+    if (!_config_span(line, "lxc.mount.entry", &st, &len, &quote_open) || len == 0) {                    
         g_string_append(out, line);
         return NULL;
     }
-    if (quote_open)
+    if (quote_open)                                                         
         return "unterminated quote in a lxc.mount.entry value";
     gchar *value = g_strndup(line + st, len);
     PcvLxcMountEntry *e = _mount_entry_parse(value);
@@ -429,22 +538,26 @@ _runtime_line(GString *out, const gchar *line, const gchar *root, const gchar *n
         return NULL;
     }
     gsize f0 = 0;
-    while (value[f0] && g_ascii_isspace(value[f0]))
+    while (value[f0] && g_ascii_isspace(value[f0]))                                
         f0++;
-    gsize f1 = f0 + strcspn(value + f0, " \t");
+    gsize f1 = f0 + strcspn(value + f0, " \t");                               
     gchar *key = pcv_lxc_volume_dest_canon(e->dest);
     guint ord = GPOINTER_TO_UINT(g_hash_table_lookup(ordinals, key));
-    g_hash_table_insert(ordinals, key, GUINT_TO_POINTER(ord + 1));
+    g_hash_table_insert(ordinals, key, GUINT_TO_POINTER(ord + 1));                        
     gchar *slot = pcv_lxc_volstage_slot(root, name, e->dest, ord);
     g_string_append_len(out, line, (gssize)(st + f0));
     _escape_field(out, slot);
     g_string_append(out, line + st + f1);
-    g_ptr_array_add(lines, _volstage_line_new(e, slot));
+    g_ptr_array_add(lines, _volstage_line_new(e, slot));                          
     _mount_entry_free(e);
     g_free(value);
     return NULL;
 }
 
+                                                                                                 
+                                                                                                        
+                                                                              
+                          
 static gchar *
 _runtime_build(const gchar *config_text, const gchar *volstage_root, const gchar *name, GPtrArray **lines_out, GError **error)
 {
@@ -458,7 +571,7 @@ _runtime_build(const gchar *config_text, const gchar *volstage_root, const gchar
     GPtrArray *lines = g_ptr_array_new_with_free_func(_volstage_line_free);
     const gchar *why = NULL;
     gsize n = strlen(text), i = 0;
-    while (!why && i < n) {
+    while (!why && i < n) {                                                    
         gsize j = i + strcspn(text + i, "\r\n");
         gchar *line = g_strndup(text + i, j - i);
         why = _runtime_line(out, line, volstage_root, name, ordinals, lines);
@@ -468,7 +581,7 @@ _runtime_build(const gchar *config_text, const gchar *volstage_root, const gchar
         i = j + 1;
     }
     gchar *result = g_string_free(out, FALSE);
-    if (!why) {
+    if (!why) {                                                          
         GPtrArray *eo = pcv_lxc_config_mount_entries(text), *er = pcv_lxc_config_mount_entries(result);
         guint v = 0;
         if (eo->len != er->len)
@@ -501,12 +614,16 @@ _runtime_build(const gchar *config_text, const gchar *volstage_root, const gchar
     return result;
 }
 
+                                                          
+                                                        
 gchar *
 pcv_lxc_runtime_config_text(const gchar *config_text, const gchar *volstage_root, const gchar *name, GError **error)
 {
     return _runtime_build(config_text, volstage_root, name, NULL, error);
 }
 
+                                                                      
+                                                                        
 GPtrArray *
 pcv_lxc_volstage_lines(const gchar *config_text, const gchar *volstage_root, const gchar *name, GError **error)
 {
@@ -516,6 +633,8 @@ pcv_lxc_volstage_lines(const gchar *config_text, const gchar *volstage_root, con
     return lines;
 }
 
+                                                     
+                                                               
 gboolean
 pcv_lxc_config_root_gid(const gchar *config_text, gint64 *gid_out)
 {
@@ -524,7 +643,7 @@ pcv_lxc_config_root_gid(const gchar *config_text, gint64 *gid_out)
     for (gchar **l = lines; !found && *l; l++) {
         gchar *value = _config_value(*l, "lxc.idmap");
         gchar **tok = value ? g_strsplit_set(value, " \t", -1) : NULL;
-        GPtrArray *f = g_ptr_array_new();
+        GPtrArray *f = g_ptr_array_new();                           
         for (gchar **t = tok; t && *t; t++)
             if (**t)
                 g_ptr_array_add(f, *t);
@@ -543,4 +662,57 @@ pcv_lxc_config_root_gid(const gchar *config_text, gint64 *gid_out)
     }
     g_strfreev(lines);
     return found;
+}
+
+                                                                                        
+                                                                                                       
+                                                        
+static gboolean
+_volgen_clear(const gchar *lxc_path, const gchar *name)
+{
+    gchar *dir = g_build_filename(lxc_path, name, NULL);
+    gchar *path = g_build_filename(dir, PCV_LXC_VOLUME_GUARD_VOLGEN, NULL);
+    struct stat st;
+    gboolean ok;
+    if (lstat(dir, &st) != 0)
+        ok = errno == ENOENT;
+    else if (!S_ISDIR(st.st_mode) || st.st_uid != geteuid())
+        ok = FALSE;
+    else
+        ok = unlink(path) == 0 || errno == ENOENT;
+    g_free(dir);
+    g_free(path);
+    return ok;
+}
+
+                                                                                   
+                                                                  
+gboolean
+pcv_lxc_volume_guard_forget(const gchar *lxc_path, const gchar *name)
+{
+    return _volgen_clear(lxc_path, name);
+}
+
+                                                                  
+                                                                                         
+                                           
+static gboolean
+_volgen_refuse(const gchar *name, gchar **bad_container_path_out)
+{
+    g_warning("volume guard fingerprint for container '%s' could not be reset — refusing to start it", name);
+    if (bad_container_path_out)
+        *bad_container_path_out = g_strdup(VOLGEN_RESET_FAILED);
+    return FALSE;
+}
+
+                                                                                                
+                                                               
+gboolean
+pcv_lxc_volume_guard_check_start(const gchar *lxc_path, const gchar *name, gchar **bad_container_path_out)
+{
+    if (bad_container_path_out)
+        *bad_container_path_out = NULL;
+    if (lxc_path && name && !_volgen_clear(lxc_path, name))                                         
+        return _volgen_refuse(name, bad_container_path_out);
+    return pcv_lxc_volume_guard_check(lxc_path, name, bad_container_path_out);
 }

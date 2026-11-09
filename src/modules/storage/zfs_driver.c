@@ -21,15 +21,15 @@
                                                                  
                                                              
                          
-                                                                             
-                                                                    
+                                                                                
+                                                                                                  
                                                                 
                                                              
                        
                                                                  
                                                            
                                                              
-                                                                 
+                                                   
                                 
                                                                                    
                                                                                  
@@ -38,8 +38,9 @@
                                                                   
   
                    
-                                                                      
-                                                          
+                                                  
+                                                              
+                                                  
   
                 
                                                 
@@ -68,7 +69,7 @@
                                                 
   
                                             
-                                                                          
+                                                                                          
                                                     
                                                    
                                          
@@ -77,11 +78,6 @@
                                                
                                       
                                          
-  
-                                    
-                                                                
-                                                                                       
-                                                         
   
                                  
                                        
@@ -94,16 +90,9 @@
                                                 
                                                            
   
-                    
-                                                                               
-                                                              
-  
                   
                                               
                                                                       
-                                              
-                                                           
-                                                 
                                                            
   
                  
@@ -119,7 +108,6 @@
 #include <json-glib/json-glib.h>
 #include <time.h>
 #include "../../utils/pcv_spawn.h"
-#include "../../utils/pcv_zfs_lock.h"                                  
 #include "../../utils/pcv_config.h"
 #include "../../utils/pcv_log.h"                                  
 #include "../audit/pcv_audit.h"                            
@@ -130,7 +118,10 @@
 #endif
 
                                                         
-                                              
+                                           
+                                                                  
+                                                                                        
+                   
 #if PCV_CLUSTER_ENABLED
                                                                    
                                                                        
@@ -333,12 +324,12 @@ static void on_zfs_command_ready(GObject *source_object, GAsyncResult *res, gpoi
 }
 
                                                                             
-                                                   
+                                              
                                                                                
    
                                                                           
   
-                                                          
+                                                       
                                                          
   
                                                                                    
@@ -361,7 +352,7 @@ _zfs_async_command(const gchar * const *argv,
     g_task_set_task_data(task, ctx, zfs_op_ctx_free);                           
 
     GError *error = NULL;
-                                                               
+                                                
     GSubprocess *proc = pcv_spawn_newv(argv, G_SUBPROCESS_FLAGS_STDERR_PIPE, &error);
 
                                                                
@@ -452,40 +443,6 @@ void purecvisor_zfs_snapshot_rollback_async(const gchar *pool_name, const gchar 
 
                                                           
 gboolean purecvisor_zfs_snapshot_rollback_finish(GAsyncResult *res, GError **error) {
-    return g_task_propagate_boolean(G_TASK(res), error);
-}
-
-                                                                            
-                              
-                                            
-                                               
-                                                                               
-
-   
-                                        
-                           
-  
-                                                      
-                                                      
-  
-                              
-                           
-                                
-                                        
-                           
-                                
-   
-void purecvisor_zfs_snapshot_delete_async(const gchar *pool_name, const gchar *vm_name, const gchar *snap_name, GCancellable *cancellable, GAsyncReadyCallback callback, gpointer user_data)
-{
-    gchar *target = g_strdup_printf("%s/vms/%s@%s", pool_name, vm_name, snap_name);
-                                                               
-    const gchar *argv[] = {"zfs", "destroy", target, NULL};
-    _zfs_async_command((const gchar * const *)argv, cancellable, callback, user_data);
-    g_free(target);
-}
-
-                                                          
-gboolean purecvisor_zfs_snapshot_delete_finish(GAsyncResult *res, GError **error) {
     return g_task_propagate_boolean(G_TASK(res), error);
 }
 
@@ -618,150 +575,6 @@ GPtrArray* purecvisor_zfs_snapshot_list_finish(GAsyncResult *res, GError **error
 }
 
                                                                             
-                                        
-  
-                                           
-                                      
-                                                                               
-
-   
-                                
-                           
-                                                     
-  
-                                                       
-                                                   
-  
-                                                
-                                       
-                                                 
-                                     
-                              
-  
-                                                  
-                                
-                                              
-                                        
-   
-gboolean purecvisor_zfs_create_volume(const gchar *pool_name, const gchar *vm_name, const gchar *size_str, GError **error)
-{
-    gboolean success;
-    gchar *target_dataset = g_strdup_printf("%s/%s", pool_name, vm_name);
-    gchar *stderr_buf = NULL;
-
-                                                           
-                                                             
-                                                            
-    if (!pcv_zfs_pool_lock(pool_name, "create", 30000, error)) {
-        g_free(target_dataset);
-        return FALSE;
-    }
-
-                                                                      
-                                                                 
-#if PCV_CLUSTER_ENABLED
-    PcvEtcdClient *etcd = pcv_cluster_get_etcd();
-    const gchar *node_name = pcv_config_get_string("cluster", "node_name", "local");
-                                                    
-                                                           
-    gint size_gb = 0;
-    if (size_str && *size_str) {
-        size_gb = (gint)g_ascii_strtoll(size_str, NULL, 10);
-        if (size_gb < 1) size_gb = 1;                                
-    }
-                                                        
-    gint dyn_ttl = pcv_etcd_compute_inflight_ttl("create", size_gb);
-    gboolean dist_locked = _zfs_acquire_inflight_lock_with_metrics(
-        etcd, pool_name, node_name, "create", dyn_ttl);
-                                                                    
-#endif
-
-                                                                    
-    const gchar *argv[] = {"zfs", "create", "-s", "-V", size_str, target_dataset, NULL};
-
-                                             
-    success = pcv_spawn_sync(argv, NULL, &stderr_buf, error);
-                                                                    
-    if (!success && error && !*error) {
-        gchar *clean_err = stderr_buf ? g_strstrip(g_strdup(stderr_buf)) : g_strdup("Unknown ZFS creation error");
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "ZFS Create Error: %s", clean_err);
-        g_free(clean_err);
-    }
-
-#if PCV_CLUSTER_ENABLED
-                                              
-    if (dist_locked && etcd) {
-        pcv_etcd_release_inflight_lock(etcd, pool_name, NULL);
-    }
-#endif
-    pcv_zfs_pool_unlock(pool_name);                                          
-    g_free(stderr_buf);
-    g_free(target_dataset);
-    return success;
-}
-
-   
-                                 
-                                 
-                                           
-                               
-  
-                                                      
-                                                   
-  
-                             
-                          
-                                     
-                              
-  
-                                                      
-                                                         
-   
-gboolean purecvisor_zfs_destroy_volume(const gchar *pool_name, const gchar *vm_name, GError **error)
-{
-    gboolean success;
-    gchar *target_dataset = g_strdup_printf("%s/%s", pool_name, vm_name);
-    gchar *stderr_buf = NULL;
-
-                                                                        
-    if (!pcv_zfs_pool_lock(pool_name, "destroy", 30000, error)) {
-        g_free(target_dataset);
-        return FALSE;
-    }
-
-#if PCV_CLUSTER_ENABLED
-    PcvEtcdClient *etcd = pcv_cluster_get_etcd();
-    const gchar *node_name = pcv_config_get_string("cluster", "node_name", "local");
-                                                                  
-    gint dyn_ttl = pcv_etcd_compute_inflight_ttl("destroy", 0);
-    gboolean dist_locked = _zfs_acquire_inflight_lock_with_metrics(
-        etcd, pool_name, node_name, "destroy", dyn_ttl);
-                                                             
-#endif
-
-                             
-    const gchar *argv[] = {"zfs", "destroy", "-r", target_dataset, NULL};
-
-    success = pcv_spawn_sync(argv, NULL, &stderr_buf, error);
-                                                            
-    if (!success && error && !*error) {
-        gchar *clean_err = stderr_buf ? g_strstrip(g_strdup(stderr_buf)) : g_strdup("Unknown ZFS destroy error");
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "ZFS Destroy Error: %s", clean_err);
-        g_free(clean_err);
-    }
-
-#if PCV_CLUSTER_ENABLED
-    if (dist_locked && etcd) {
-        pcv_etcd_release_inflight_lock(etcd, pool_name, NULL);
-    }
-#endif
-    pcv_zfs_pool_unlock(pool_name);                                  
-    g_free(stderr_buf);
-    g_free(target_dataset);
-    return success;
-}
-
-                                                                            
                                                     
   
                                       
@@ -776,7 +589,7 @@ gboolean purecvisor_zfs_destroy_volume(const gchar *pool_name, const gchar *vm_n
                                           
   
                                         
-                                                                             
+                                                                                                                     
                                                              
                            
                                                                      
@@ -1781,83 +1594,6 @@ purecvisor_zfs_promote(const gchar *clone_name)
     }
     g_free(std_err);
     return ok;
-}
-
-                                                                            
-                                              
-  
-                                    
-                                          
-                                         
-                                                                               
-
-   
-                                        
-                              
-                                                     
-                                                                
-  
-                                                        
-                                                       
-                                                                 
-  
-                                                             
-                                                  
-                                           
-                                      
-                              
-   
-gboolean
-purecvisor_zfs_create_zvol_encrypted(const gchar *name, const gchar *size,
-                                      const gchar *passphrase, GError **error)
-{
-    if (!name || !size || !passphrase || !*passphrase) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "name, size, and passphrase are required");
-        return FALSE;
-    }
-
-                                                                   
-    const gchar *argv[] = {
-        "zfs", "create",
-        "-V", size,
-        "-o", "encryption=aes-256-gcm",
-        "-o", "keyformat=passphrase",
-        "-o", "keylocation=prompt",
-        "-s",                         
-        name, NULL
-    };
-
-                                              
-                                                       
-    gchar *input = g_strdup_printf("%s\n%s\n", passphrase, passphrase);
-
-                                                         
-    GSubprocess *proc = pcv_spawn_newv(argv,
-        G_SUBPROCESS_FLAGS_STDIN_PIPE | G_SUBPROCESS_FLAGS_STDERR_PIPE, error);
-    if (!proc) {
-        g_free(input);                                
-        return FALSE;
-    }
-
-    gchar *stderr_out = NULL;
-                                                
-    gboolean ok = g_subprocess_communicate_utf8(proc, input, NULL, NULL, &stderr_out, error);
-    gint exit_status = g_subprocess_get_exit_status(proc);
-    g_free(input);                                           
-    g_object_unref(proc);
-
-                                                            
-    if (!ok || exit_status != 0) {
-        if (stderr_out && *stderr_out && error && !*error)
-            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", g_strstrip(stderr_out));
-        g_free(stderr_out);
-        return FALSE;
-    }
-    g_free(stderr_out);
-
-    g_message("[ZFS] Created encrypted zvol: %s (aes-256-gcm)", name);
-    return TRUE;
 }
 
                                                                             

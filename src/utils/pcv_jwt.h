@@ -159,10 +159,13 @@ gchar *pcv_jwt_verify_with_ip(const gchar *token,
                                     
                                                       
                                                            
+                                                                            
                      
   
                                                           
-                                       
+                                                                        
+                                                                    
+                                                  
                                                
                                         
   
@@ -175,7 +178,24 @@ gchar *pcv_jwt_sign_scoped(const gchar *subject,
                            guint        expires_in,
                            const gchar *client_ip,
                            const gchar *scope,
+                           const gchar *identity_nonce,
                            GError     **error);
+
+                                                                                         
+#define PCV_JWT_IDENTITY_CLAIM "idn"
+
+   
+                          
+                                                           
+  
+                                                                         
+                                                                
+                                                                                
+                                                                  
+  
+                                                                      
+   
+gchar *pcv_jwt_identity_nonce(const gchar *token_or_bearer);
 
    
                          

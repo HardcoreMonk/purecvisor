@@ -11,14 +11,14 @@
                                                      
                                                       
                                               
-                                      
+                                     
   
                    
-                                                                             
+                                                                            
                                              
                                                                             
                                              
-                                                                
+                                                               
                                              
                                                                         
   
@@ -61,7 +61,7 @@
   
                                 
                                              
-                                                     
+                                                    
    
                                           
 
@@ -197,7 +197,7 @@ const gchar *purecvisor_vm_config_get_tenant(PureCVisorVmConfig *config) {
    
            
                                         
-                                                   
+                                                  
                                                           
    
 void purecvisor_vm_config_set_boot_mode(PureCVisorVmConfig *config, gint mode) {
@@ -206,7 +206,7 @@ void purecvisor_vm_config_set_boot_mode(PureCVisorVmConfig *config, gint mode) {
 
    
                        
-                                                   
+                                                  
                                           
                                                         
    
@@ -227,7 +227,7 @@ void purecvisor_vm_config_set_cpu_mode(PureCVisorVmConfig *config, gint mode) {
 
    
                        
-                                                           
+                                                          
                                                             
                                                      
    
@@ -254,7 +254,7 @@ void purecvisor_vm_config_set_hugepages(PureCVisorVmConfig *config, gboolean ena
                                                         
   
                                                        
-                                                  
+                                                 
    
 GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
     if (!config) return NULL;
@@ -377,7 +377,7 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
           
                                                                          
                                                        
-                                                                            
+                                                                           
                                                    
           
                                  
@@ -494,13 +494,13 @@ GVirConfigDomain *purecvisor_vm_config_build(PureCVisorVmConfig *config) {
 
                                                          
                                                            
-                                                             
+                                                            
       
                                                              
                                                  
                                                                
                                                         
-                                                             
+                                                            
 
     return domain;
 }

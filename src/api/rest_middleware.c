@@ -14,8 +14,9 @@
                                                                                
            
                                                                                
-                                                                        
-                                                                 
+                                                                                                      
+                                                                                
+                                                           
                                                                   
   
                                            
@@ -85,7 +86,7 @@ _endpoint_rate_bucket(const gchar *path, const gchar *http_method)
   
                                                
   
-                                         
+                                                                     
                                                     
   
                     
@@ -142,8 +143,11 @@ constexpr int REST_RPC_TIMEOUT_SEC_MW = 8;
   
                                                      
   
-                                                                        
+                                                                                        
                                           
+                                                      
+                                                                          
+                                                                   
                                        
                                              
                                            
@@ -155,6 +159,9 @@ gint
 pcv_get_rpc_timeout(const gchar *rpc_method)
 {
     if (!rpc_method) return REST_RPC_TIMEOUT_SEC_MW;
+                                                                    
+    if (g_strcmp0(rpc_method, "vm.inspect") == 0)
+        return 35;
                         
     if (g_str_has_prefix(rpc_method, "zfs.") ||
         g_strcmp0(rpc_method, "backup.restore") == 0
@@ -170,10 +177,24 @@ pcv_get_rpc_timeout(const gchar *rpc_method)
                  
     if (g_strcmp0(rpc_method, "debug.trace.report") == 0)
         return 40;
-
+                                                                                                   
+    if (g_strcmp0(rpc_method, "backup.replication.hostkey.scan") == 0 ||
+        g_strcmp0(rpc_method, "backup.replication.hostkey.trust") == 0)
+        return 40;
+                                                                                                    
+                                             
+    if (g_strcmp0(rpc_method, "webhook.dlq.retry") == 0)
+        return 70;
+                                                                                             
+                                                                            
     if (g_strcmp0(rpc_method, "container.exec") == 0)
         return 65;
-
+                                                                                                
+                                                                
+                                                                 
+    if (g_strcmp0(rpc_method, "container.snapshot.rollback") == 0)
+        return 75;
+                          
     if (g_strcmp0(rpc_method, "vm.create") == 0)
         return 30;
 #if PCV_CLUSTER_ENABLED
@@ -190,7 +211,7 @@ pcv_get_rpc_timeout(const gchar *rpc_method)
   
                                                        
   
-                                                 
+                                                           
                                                         
                                                         
   
@@ -221,10 +242,10 @@ pcv_compute_etag(const gchar *body, gsize len)
 
                                                                
 
-                                                                          
+                                                                                    
                                                                          
-                                                                        
-                               
+                                                                                
+                                                                                  
    
                                                
   
@@ -233,9 +254,9 @@ pcv_compute_etag(const gchar *body, gsize len)
                                                            
                                                                                         
   
-                                            
-                                                    
-                                                                   
+                                                      
+                                                            
+                                                                       
                                                   
   
                                
@@ -268,7 +289,7 @@ void pcv_rest_error(SoupServerMessage *msg, guint status,
   
                                                     
   
-                                                 
+                                                                                             
                                                   
                                                                             
                                                        

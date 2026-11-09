@@ -9,6 +9,7 @@ const MODS = [
   'ui/modules/ui.js',
   'ui/modules/uxlib.js',
   'ui/modules/endpoints.js',
+  'ui/modules/api.js',
   'ui/modules/modal-core.js',
   'ui/modules/vpc.js'
 ];
@@ -106,7 +107,11 @@ function routes(jobStatus = 'completed', createError = null, backends = [
       status: 200,
       body: { data: { status: 'accepted', job_id: 'job-vpc-reconcile' } }
     },
-    '/api/v1/jobs/job-vpc-create': {
+    '/api/v1/jobs/job-vpc-create': jobStatus === 'interrupted' ? {
+      status: 200,
+      body: { data: { id: 'job-vpc-create', status: 'interrupted',
+        detail: 'Execution interrupted; actual outcome unknown' } }
+    } : {
       status: 200,
       body: { data: { id: 'job-vpc-create', status: jobStatus,
         detail: jobStatus === 'failed' ? 'Local VPC mutation running' : '{}',
@@ -128,7 +133,7 @@ function routes(jobStatus = 'completed', createError = null, backends = [
   };
 }
 
-async function boot(page, width = 1280, role = 'ADMIN') {
+async function boot(page, width = 1280, role = 'ADMIN', ready = '.vpc-detail-summary') {
   await page.setViewport({ width, height: 900 });
   await page.evaluate(async effectiveRole => {
     window.authToken = 'test-token';
@@ -150,7 +155,7 @@ async function boot(page, width = 1280, role = 'ADMIN') {
     root.classList.add('cb');
     await window.renderVpcs(root);
   }, role);
-  await page.waitForSelector('.vpc-detail-summary');
+  await page.waitForSelector(ready);
 }
 
 async function fillInitialSubnet(page, name = 'web', cidr = '10.60.20.0/24') {
@@ -283,6 +288,24 @@ test('backend capability failure stays visible while Linux fallback remains usab
   }, { routes: routes('completed', null, undefined, 'capability service unavailable') });
 });
 
+test('tenantless account sees the server error instead of a false empty inventory', async () => {
+  const message = '이 작업에는 tenant가 필요합니다';
+  const denied = { status: 409, body: { error: { code: -32002, message } } };
+  await withPage(MODS, async page => {
+    await boot(page, 1280, 'VIEWER', '.vpc-error');
+    const result = await page.evaluate(() => ({
+      error: document.querySelector('.vpc-error[role="alert"] span')?.textContent,
+      retry: !!document.querySelector('.vpc-error button'),
+      emptyState: !!document.querySelector('.vpc-empty'),
+      table: !!document.querySelector('.vpc-list-card')
+    }));
+    assert.equal(result.error, message);
+    assert.equal(result.retry, true);
+    assert.equal(result.emptyState, false, 'tenant 없음을 "VPC 없음"으로 안내하면 안 된다');
+    assert.equal(result.table, false);
+  }, { routes: { ...routes(), '/api/v1/vpcs': denied, '/api/v1/vpcs/status': denied } });
+});
+
 test('VPC and subnet forms expose truthful count and address capacity before submit', async () => {
   await withPage(MODS, async page => {
     await boot(page);
@@ -391,6 +414,21 @@ test('reconcile and reverse-order removals use dedicated REST routes with tenant
       assert.deepEqual(removal?.json, { tenant: 'acme' }, `missing tenant-scoped DELETE ${path}`);
     }
   }, { routes: routes() });
+});
+
+test('interrupted terminal job shows the server reason without waiting for the deadline', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    await page.click('.pagehead-actions .btn-primary');
+    await page.type('#vpc-create-name', 'edge-int');
+    await page.type('#vpc-create-tenant', 'tenant-a');
+    await fillInitialSubnet(page);
+    const started = Date.now();
+    await page.click('[data-vpc-submit]');
+    await page.waitForFunction(() => document.querySelector('.vpc-form-error')?.textContent === 'Execution interrupted; actual outcome unknown', { timeout: 5000 });
+    await page.waitForFunction(() => document.querySelector('[data-vpc-submit]')?.disabled === false, { timeout: 5000 });
+    assert.ok(Date.now() - started < 5000);
+  }, { routes: routes('interrupted') });
 });
 
 test('failed terminal job remains a failure and keeps the mutation form recoverable', async () => {

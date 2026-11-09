@@ -1,9 +1,9 @@
-
-
-
-
-
-
+                                                                           
+                                                                     
+                                                                     
+                                                          
+                                                                   
+                                  
 import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
@@ -43,8 +43,8 @@ const VMS = [
   { name: 'db-01', uuid: 'u-2', state: 'shutoff' },
 ];
 
-
-
+                                                                 
+                                                   
 async function boot(page, port) {
   await page.evaluate(async () => {
     const html = await fetch('/ui/index.html').then(response => response.text());

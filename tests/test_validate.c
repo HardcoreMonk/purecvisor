@@ -68,6 +68,38 @@ static void test_vm_name_boundary(void) {
     g_free(overmax);
 }
 
+static void test_uuid_like_libvirt_forms(void) {
+    g_assert_true(pcv_validate_is_uuid_like("8c1f5a3e-2b4d-4e6f-9a0b-1c2d3e4f5a6b"));
+    g_assert_true(pcv_validate_is_uuid_like("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b"));
+    g_assert_true(pcv_validate_is_uuid_like("8C1F5A3E-2B4D-4E6F-9A0B-1C2D3E4F5A6B"));
+    g_assert_true(pcv_validate_is_uuid_like("8c-1f-5a3e2b4d4e6f9a0b1c2d3e4f5a6b"));
+    g_assert_true(pcv_validate_is_uuid_like("  8c1f5a3e-2b4d-4e6f-9a0b-1c2d3e4f5a6b \n"));
+    g_assert_true(pcv_validate_is_uuid_like("8c 1f 5a 3e 2b 4d 4e 6f 9a 0b 1c 2d 3e 4f 5a 6b"));
+}
+
+static void test_uuid_like_near_misses(void) {
+    g_assert_false(pcv_validate_is_uuid_like(NULL));
+    g_assert_false(pcv_validate_is_uuid_like(""));
+    g_assert_false(pcv_validate_is_uuid_like("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6"));
+    g_assert_false(pcv_validate_is_uuid_like("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b7"));
+    g_assert_false(pcv_validate_is_uuid_like("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6g"));
+    g_assert_false(pcv_validate_is_uuid_like("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b-a"));
+    g_assert_false(pcv_validate_is_uuid_like("8c1-f5a3e2b4d4e6f9a0b1c2d3e4f5a6b"));
+    g_assert_false(pcv_validate_is_uuid_like("web-01"));
+}
+
+static void test_new_vm_name_rejects_uuid_forms(void) {
+    g_assert_false(pcv_validate_new_vm_name("8c1f5a3e-2b4d-4e6f-9a0b-1c2d3e4f5a6b"));
+    g_assert_false(pcv_validate_new_vm_name("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b"));
+    g_assert_false(pcv_validate_new_vm_name("bad name!"));
+    g_assert_false(pcv_validate_new_vm_name(NULL));
+    g_assert_true(pcv_validate_new_vm_name("web-01"));
+    g_assert_true(pcv_validate_new_vm_name("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b-a"));
+
+    g_assert_true(pcv_validate_vm_name("8c1f5a3e-2b4d-4e6f-9a0b-1c2d3e4f5a6b"));
+    g_assert_true(pcv_validate_vm_name("8c1f5a3e2b4d4e6f9a0b1c2d3e4f5a6b"));
+}
+
                                                             
 
 static void test_snap_name_valid(void) {
@@ -426,6 +458,9 @@ void test_validate_register(void) {
     g_test_add_func("/validate/vm_name/valid",    test_vm_name_valid);
     g_test_add_func("/validate/vm_name/invalid",  test_vm_name_invalid);
     g_test_add_func("/validate/vm_name/boundary", test_vm_name_boundary);
+    g_test_add_func("/validate/uuid_like/libvirt_forms", test_uuid_like_libvirt_forms);
+    g_test_add_func("/validate/uuid_like/near_misses",   test_uuid_like_near_misses);
+    g_test_add_func("/validate/new_vm_name/uuid_forms",  test_new_vm_name_rejects_uuid_forms);
                    
     g_test_add_func("/validate/snap_name/valid",   test_snap_name_valid);
     g_test_add_func("/validate/snap_name/invalid", test_snap_name_invalid);

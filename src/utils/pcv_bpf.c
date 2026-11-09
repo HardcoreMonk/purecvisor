@@ -47,6 +47,7 @@
 #include "modules/security/security_event.h"                                  
 #include "modules/security/security_store.h"                                       
 #include "modules/daemons/prometheus_exporter.h"                                       
+#include "utils/pcv_lsm_mounts.h"                                                   
 #include <json-glib/json-glib.h>
 #include <glib/gstdio.h>                                                    
 
@@ -58,6 +59,7 @@
 #include <string.h>                                
 #include <unistd.h>                                             
 #endif
+#include <stdatomic.h>                                                         
 
 #define BPF_LOG_DOM "bpf"
 
@@ -891,31 +893,48 @@ void pcv_bpf_shutdown(void) {
                                                  
                                                        
    
-#ifdef HAVE_LIBBPF
 
-                                                                              
-#define PCV_BPF_LSM_ENTRY_NAME  "pcv_lsm"
-#define PCV_BPF_LSM_RINGBUF_MAP "pcv_lsm_events"
+                                                                   
+                                                            
+                                                                 
+static atomic_uint_fast64_t g_lsm_foreign_fs_total;
 
-static struct {
-    volatile gint running;                                                     
-    GThread *thread;
-    int      rb_fd;
-} g_consumer = { 0, NULL, -1 };
+                                                                               
+guint64
+pcv_bpf_lsm_foreign_fs_total(void)
+{
+    return (guint64)atomic_load(&g_lsm_foreign_fs_total);
+}
 
-                                                           
+                                                                
                                                     
                                       
+                                                                         
                                                                      
                                                             
-                                                      
-                                         
-static int
+                                                                                
+                                                                       
+                                                              
+                                                           
+                                                                
+                                                           
+                                                                       
+int
 pcv_bpf__rb_handle(void *ctx, void *data, size_t sz)
 {
-    (void)ctx;
     if (sz < sizeof(struct pcv_lsm_event)) return 0;                       
     const struct pcv_lsm_event *ev = data;
+
+    if (pcv_lsm_mount_tracker_classify(ctx, ev->hook, ev->s_dev, ev->path, g_get_monotonic_time())
+            == PCV_LSM_CLASS_FOREIGN_FS) {
+        guint64 prev = atomic_fetch_add(&g_lsm_foreign_fs_total, 1);
+        if (prev == 0)                                      
+            PCV_LOG_INFO(BPF_LOG_DOM,
+                         "LSM: 감시 경로와 다른 파일시스템의 같은 이름 파일 열기는 운영 사건 대신 "
+                         "카운터로 센다(첫 건 dev=%u:%u path=%.*s) — 지표 pcv_bpf_lsm_foreign_fs_total",
+                         ev->s_dev >> 20, ev->s_dev & 0xFFFFFu, (int)sizeof ev->path, ev->path);
+        return 0;
+    }
 
     PcvSecurityEvent se = {0};
                                                                   
@@ -956,27 +975,48 @@ pcv_bpf__rb_handle(void *ctx, void *data, size_t sz)
     return 0;
 }
 
+#ifdef HAVE_LIBBPF
+
+                                                                              
+#define PCV_BPF_LSM_ENTRY_NAME  "pcv_lsm"
+#define PCV_BPF_LSM_RINGBUF_MAP "pcv_lsm_events"
+
+static struct {
+    volatile gint running;                                                     
+    GThread *thread;
+    int      rb_fd;
+    PcvLsmMountTracker *mounts;                                                    
+} g_consumer = { 0, NULL, -1, NULL };
+
                                                                
                                                                         
                                            
-                                                            
+                                                                                            
+                                                                        
+                                                     
+                                                         
+                                                        
 static gpointer
 pcv_bpf__consumer_thread(gpointer arg)
 {
     struct ring_buffer *rb = arg;
+    PcvLsmMountTracker *mounts = g_consumer.mounts;                                     
+    int rb_epoll_fd = ring_buffer__epoll_fd(rb);
     guint poll_err_count = 0;
     PCV_LOG_INFO(BPF_LOG_DOM, "LSM ringbuf 소비 스레드 시작");
     while (g_atomic_int_get(&g_consumer.running)) {
                                                          
                                                        
-        int n = ring_buffer__poll(rb, 200);
+        int n = pcv_lsm_mount_tracker_poll(mounts, rb_epoll_fd, 200);
+        if (n >= 0 || n == -EINTR)
+            n = ring_buffer__consume(rb);                                        
         if (n < 0 && n != -EINTR) {
                                                       
                                                  
                                                      
             poll_err_count++;
             if (poll_err_count == 1) {
-                PCV_LOG_WARN(BPF_LOG_DOM, "ring_buffer__poll 오류: %s", g_strerror(-n));
+                PCV_LOG_WARN(BPF_LOG_DOM, "LSM ringbuf poll/consume 오류: %s", g_strerror(-n));
             }
             g_usleep(200 * 1000);
         } else {
@@ -1015,13 +1055,18 @@ pcv_bpf_consumer_start(void)
     }
     g_free(rb_path);
 
-    struct ring_buffer *rb = ring_buffer__new(rb_fd, pcv_bpf__rb_handle, NULL, NULL);
+                                                                      
+                                                
+    PcvLsmMountTracker *mounts = pcv_lsm_mount_tracker_open();
+    struct ring_buffer *rb = ring_buffer__new(rb_fd, pcv_bpf__rb_handle, mounts, NULL);
     if (!rb) {
         PCV_LOG_WARN(BPF_LOG_DOM, "ring_buffer__new 실패 — LSM 이벤트 소비 비활성");
+        pcv_lsm_mount_tracker_free(mounts);
         close(rb_fd);
         return;
     }
 
+    g_consumer.mounts = mounts;
     g_consumer.rb_fd = rb_fd;
     g_atomic_int_set(&g_consumer.running, 1);
     g_consumer.thread = g_thread_new("bpf-lsm-rb", pcv_bpf__consumer_thread, rb);
@@ -1040,6 +1085,8 @@ pcv_bpf_consumer_stop(void)
     g_consumer.thread = NULL;
     close(g_consumer.rb_fd);
     g_consumer.rb_fd = -1;
+    pcv_lsm_mount_tracker_free(g_consumer.mounts);                              
+    g_consumer.mounts = NULL;
 }
 
 #else                                         
@@ -1100,4 +1147,7 @@ pcv_bpf_metrics_tick(void)
 #endif
     pcv_prom_gauge_set_labels("pcv_bpf_lsm_events_total", "", (gdouble)emitted);
     pcv_prom_gauge_set_labels("pcv_bpf_ringbuf_dropped_total", "", (gdouble)dropped);
+                                                                     
+    pcv_prom_gauge_set_labels("pcv_bpf_lsm_foreign_fs_total", "",
+                              (gdouble)pcv_bpf_lsm_foreign_fs_total());
 }

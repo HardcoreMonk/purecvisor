@@ -18,6 +18,7 @@ static const char *mode;
 static GMainLoop *main_loop;
 static GMainContext *reply_context;
 static gchar *job_id;
+static PcvJobRef *job_ref;
 
 void _pcv_log(GLogLevelFlags level, const gchar *domain, const gchar *fmt, ...)
 { (void)level; (void)domain; (void)fmt; }
@@ -58,9 +59,10 @@ static void set_flag(gboolean *flag)
     g_mutex_unlock(&gate);
 }
 
-gboolean pcv_backup_restore(const gchar *vm, const gchar *snapshot, GError **error)
+gboolean pcv_backup_restore(const gchar *vm, const gchar *snapshot, gboolean *was_running, GError **error)
 {
     (void)vm; (void)snapshot; (void)error;
+    if (was_running) *was_running = FALSE;
     set_flag(&started);
     if (!is_mode("callback") && !is_mode("destructor")) wait_flag(&released);
     g_atomic_int_inc(&backend_effect);
@@ -70,6 +72,19 @@ gboolean pcv_backup_restore(const gchar *vm, const gchar *snapshot, GError **err
     }
     return TRUE;
 }
+
+static gint fixture_lock_token;
+PcvVmLock *pcv_vm_lock_acquire(const gchar *id, gint operation, gchar **error)
+{ (void)id; (void)operation; (void)error; return (PcvVmLock *)&fixture_lock_token; }
+void pcv_vm_lock_release(PcvVmLock *lock) { (void)lock; }
+PcvVmStartSubmit pcv_vm_start_submit(const PcvVmStartRequest *req, PcvVmStartDoneFn done,
+                                     gpointer user_data, gchar **err_msg)
+{
+    (void)req; (void)done; (void)user_data; (void)err_msg;
+    g_error("fixture: restore of a stopped VM must not submit a start");
+}
+void pcv_vm_start_report_rejected(const gchar *vm_id, const gchar *origin, const gchar *reason, const gchar *actor)
+{ (void)vm_id; (void)origin; (void)reason; (void)actor; }
 
 void pcv_audit_log(const gchar *user, const gchar *method, const gchar *target,
                    const gchar *result, gint error_code, gint64 duration,
@@ -95,17 +110,29 @@ void pcv_ws_broadcast_job_complete_mt(const gchar *id, const gchar *method,
 }
 
 
-void pcv_ws_broadcast_job_complete_tracked_mt(const gchar *id, const gchar *method,
-                                             const gchar *status, const gchar *error,
-                                             gboolean persisted)
+static void result_ready(const PcvJobRef *ref, PcvJobStatus status, const gchar *error,
+                         gboolean persisted, gboolean pending, const gchar *reason,
+                         gpointer unused)
 {
-    g_assert_true(persisted);
-    pcv_ws_broadcast_job_complete_mt(id, method, status, error);
+    (void)ref; (void)status; (void)error; (void)reason; (void)unused;
+    g_assert_true(persisted); g_assert_false(pending);
+    pcv_drain_idle(reply_context, deliver_ws, NULL, NULL);
+}
+void pcv_ws_finish_job(PcvJobRef *ref, PcvJobStatus status, const gchar *result, const gchar *error)
+{
+    pcv_job_finish_async(ref, status, result, error, result_ready, NULL, NULL);
+}
+
+static gboolean finish_on_task_context(gpointer task)
+{
+    _restore_task_done(NULL, G_ASYNC_RESULT(task), NULL);
+    return G_SOURCE_REMOVE;
 }
 
 static void probe_worker(GTask *task, gpointer source, gpointer data, GCancellable *cancel)
 {
     _restore_worker(task, source, data, cancel);
+    pcv_drain_idle(g_task_get_context(task), finish_on_task_context, g_object_ref(task), g_object_unref);
     set_flag(&worker_done);
 }
 
@@ -114,11 +141,10 @@ static void no_return_worker(GTask *task, gpointer source, gpointer data, GCance
     (void)task; (void)source; (void)data; (void)cancel;
     set_flag(&started);
     wait_flag(&released);
-    pcv_job_set_result(job_id, PCV_JOB_COMPLETED,
-                      "{\"vm_name\":\"audit-probe\",\"snapshot_name\":\"snapshot\"}");
     g_atomic_int_inc(&backend_effect);
     g_atomic_int_inc(&audit_calls);
-    pcv_drain_idle(NULL, deliver_ws, NULL, NULL);
+    pcv_ws_finish_job(job_ref, PCV_JOB_COMPLETED,
+                      "{\"vm_name\":\"audit-probe\",\"snapshot_name\":\"snapshot\"}", NULL);
     set_flag(&worker_done);
 
 }
@@ -197,7 +223,9 @@ int main(int argc, char **argv)
     g_setenv("PCV_JOBS_DB_PATH", argv[2], TRUE);
     pcv_drain_init();
     pcv_job_queue_init();
-    job_id = pcv_job_create("backup.restore", "audit-probe@snapshot", NULL);
+    job_ref = pcv_job_admit("backup.restore", "audit-probe@snapshot", NULL, "backup.restore");
+    g_assert_nonnull(job_ref);
+    job_id = g_strdup(pcv_job_id(job_ref));
     if (is_mode("manual")) {
         pcv_drain_begin(NULL, 1);
         g_assert_true(pcv_drain_is_shutdown());
@@ -219,6 +247,7 @@ int main(int argc, char **argv)
     data->vm_name = g_strdup("audit-probe");
     data->snapshot_name = g_strdup("snapshot");
     data->job_id = g_strdup(job_id);
+    data->job_ref = pcv_job_ref(job_ref);
     GCancellable *cancel = g_cancellable_new();
     gboolean pool_mode = is_mode("pool") || is_mode("pool-push-error");
     gboolean null_callback = is_mode("shared") || pool_mode || is_mode("fallback") || is_mode("no-return");
@@ -254,6 +283,7 @@ int main(int argc, char **argv)
     g_assert_cmpint(ws_calls, ==, 1);
     if (is_mode("chain")) g_assert_cmpint(child_done, ==, 1);
     pcv_worker_pool_shutdown();
+    pcv_job_unref(job_ref);
     pcv_job_queue_shutdown();
     if (other_thread) {
         g_main_loop_quit(other_loop);

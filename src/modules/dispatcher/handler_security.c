@@ -14,6 +14,7 @@
   
                                                                       
                                                                      
+                                                                              
                                                                
                                                             
                                                                        
@@ -26,6 +27,7 @@
    
 #include "api/drain.h"
 #include "handler_security.h"
+#include "rpc_completion.h"                                                  
 #include "rpc_utils.h"
 
 #include "../audit/pcv_audit.h"
@@ -131,25 +133,18 @@ json_int_default(JsonObject *params, const gchar *key, gint def)
 
    
                                                               
-                                                                 
-                                                                             
+                                                              
+                                                             
+  
+                                                                                                   
+                                                                                      
+                                                                          
    
 static const gchar *
 admin_user_from_params(JsonObject *params)
 {
-      
-                                                                                  
-                                                                     
-      
-                                                                      
-                                                    
-       
-    const gchar *user = json_string_default(params, "_pcv_username", NULL);
-    if (user && *user) {
-        return user;                                
-    }
-    user = json_string_default(params, "_pcv_caller_sub", NULL);
-    return user && *user ? user : "system";                                       
+    const gchar *user = json_string_default(params, "_pcv_caller_sub", NULL);
+    return user && *user ? user : "system";
 }
 
   
@@ -474,6 +469,91 @@ handle_security_event_get(JsonObject *params,
     send_success_object(server, connection, rpc_id, obj);
 }
 
+  
+                                                                         
+                                                                                  
+                               
+   
+static void
+close_failure_reply(UdsServer *server, GSocketConnection *connection, const gchar *rpc_id,
+                    PcvSecCloseResult r, const GError *error)
+{
+    switch (r) {
+    case PCV_SEC_CLOSE_INVALID_REASON:
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                   "reason must be 1-200 characters after control characters are removed");
+        return;
+    case PCV_SEC_CLOSE_NOT_FOUND:
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "security event not found");
+        return;
+    case PCV_SEC_CLOSE_NOT_OPEN:
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT, "security event is not open");
+        return;
+    case PCV_SEC_CLOSE_PENDING:
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
+                   "security event has a pending action");
+        return;
+    default:
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                   error ? error->message : "failed to close security event");
+        return;
+    }
+}
+
+   
+                                                                                    
+                                                               
+                                                            
+                                                                         
+                                                                                                           
+                                                                             
+                                                                                        
+                                                                            
+                                                                                     
+   
+void
+handle_security_event_close(JsonObject *params,
+                            const gchar *rpc_id,
+                            UdsServer *server,
+                            GSocketConnection *connection)
+{
+    const gchar *event_id = json_string_default(params, "event_id", "");
+    const gchar *reason = json_string_default(params, "reason", "");
+    if (!event_id[0] || !reason[0]) {                                         
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                   event_id[0] ? "reason is required" : "event_id is required");
+        return;
+    }
+    const gchar *actor = pcv_rpc_completion_actor();                               
+    if (!actor || !*actor) {
+                                                                      
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                   "security close actor is unavailable");
+        return;
+    }
+    if (!ensure_security_store_open()) {
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                   "security store is unavailable");
+        return;
+    }
+
+    GError *error = NULL;
+    PcvSecCloseResult r = pcv_security_store_close_event(event_id, actor, reason, &error);
+    if (r != PCV_SEC_CLOSE_OK) {
+        close_failure_reply(server, connection, rpc_id, r, error);
+        g_clear_error(&error);
+        return;
+    }
+    JsonObject *obj = pcv_security_store_get_event(event_id);                                 
+    if (obj) {
+        send_success_object(server, connection, rpc_id, obj);
+    } else {
+                                                              
+        send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                   "security event was closed but could not be read back");
+    }
+}
+
    
                                                                                 
                                          
@@ -499,7 +579,7 @@ handle_security_action_pending(JsonObject *params __attribute__((unused)),
                                                                                 
                                                          
                                                                       
-                                                                                
+                                                               
                                                                          
                                                                                       
                                                        
@@ -584,7 +664,7 @@ handle_security_action_approve(JsonObject *params,
                                                                                  
                                                           
                                                
-                                                                                       
+                                                                         
                                                                     
    
 void
@@ -653,7 +733,7 @@ handle_security_baseline_status(JsonObject *params __attribute__((unused)),
                                                                                      
                                                           
                                                                 
-                                                                   
+                                                                      
                                                                                      
    
 void
@@ -701,7 +781,8 @@ handle_security_baseline_refresh(JsonObject *params,
                                                                               
                                                                      
                                                           
-                                                                            
+                                                                           
+                                                        
    
 void
 handle_security_config_get(JsonObject *params __attribute__((unused)),
@@ -720,7 +801,7 @@ handle_security_config_get(JsonObject *params __attribute__((unused)),
     guint pending_count = json_array_get_length(pending);
     json_array_unref(pending);
 
-                                                                  
+                                                                       
     g_autoptr(JsonObject) health = pcv_security_store_health();
     JsonObject *obj = json_object_new();
     json_object_set_boolean_member(obj, "enabled",
@@ -732,13 +813,18 @@ handle_security_config_get(JsonObject *params __attribute__((unused)),
     json_object_set_int_member(obj, "pending_actions", (gint)pending_count);
     json_object_set_boolean_member(obj, "degraded",
                                    json_object_get_boolean_member(health, "degraded"));
+                                                                              
+    json_object_set_boolean_member(obj, "protected_open_over_cap",
+                                   json_object_get_boolean_member(health, "protected_open_over_cap"));
+    json_object_set_int_member(obj, "protected_open_count",
+                               json_object_get_int_member(health, "protected_open_count"));
     send_success_object(server, connection, rpc_id, obj);
 }
 
    
                                                                                      
                                                              
-                                                                 
+                                                                    
                                                                                   
    
 void

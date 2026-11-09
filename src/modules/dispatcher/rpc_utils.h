@@ -113,7 +113,13 @@ typedef enum {
                                                          
     PURE_RPC_ERR_TOTP_PENDING_EXPIRED = -32010,
                                                    
-    PURE_RPC_ERR_TOTP_LOCKED          = -32011
+    PURE_RPC_ERR_TOTP_LOCKED          = -32011,
+                                                                     
+                                                                
+    PURE_RPC_ERR_HOSTKEY_UNTRUSTED    = -32012,
+                                                                               
+                                                                 
+    PURE_RPC_ERR_HOSTKEY_MISMATCH     = -32013
 } PureRpcErrorCode;
 
    
@@ -172,27 +178,71 @@ gboolean pcv_rpc_params_get_int_alias(JsonObject *params,
                                       const gchar *alias_key,
                                       gint *out_value);
 
+   
+                                
+  
+                                                  
+                                                     
+  
+                                                             
+                                                         
+                                                     
+  
+                                                 
+                                   
+                                                              
+   
+const gchar *pcv_rpc_params_get_string(JsonObject *params, const gchar *key);
+
+   
+                                                          
+  
+                                                                             
+  
+                                                                                                         
+                                          
+                                                                               
+   
+gboolean pcv_rpc_params_is_object_array(JsonObject *params, const gchar *key);
+
+   
+                                      
+  
+                                                          
+                                                            
+  
+                                                                                           
+                                              
+                                                                                              
+   
+gboolean pcv_rpc_params_get_bool(JsonObject *params, const gchar *key, gboolean default_value, gboolean *out);
+
+   
+                                       
+  
+                                                       
+                                                           
+  
+                                                                      
+                                                                      
+  
+                                                                
+                                           
+                                   
+                                   
+                                    
+                                                              
+                                                
+   
+gboolean pcv_rpc_params_get_uint_in_range(JsonObject *params, const gchar *key,
+                                          guint min_value, guint max_value,
+                                          guint default_value, guint *out);
+
                                         
                                                
                                                    
                                                  
                          
-
-
-
-
-
-
-
-
-
-const gchar *pcv_rpc_params_get_string(JsonObject *params, const gchar *key);
-
-
-
-
-
-
 #define PCV_RPC_JSON_MAX_DEPTH 128
 
    
@@ -215,6 +265,16 @@ gboolean pcv_rpc_json_depth_ok(const gchar *json, gint max_depth);
    
 gboolean pcv_rpc_parse_guarded(const gchar *data, gssize len,
                                JsonParser **parser, GError **err);
+
+   
+                                                              
+                                                             
+                                                                         
+                                                     
+                                                                             
+                                         
+   
+gboolean pcv_source_remove_if_attached(guint source_id);
 
 G_END_DECLS
 

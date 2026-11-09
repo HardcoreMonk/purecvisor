@@ -48,6 +48,8 @@ def main() -> int:
         shutil.copy2(ROOT / "ui/modules/network.js", ui_target)
         shutil.copy2(ROOT / "src/modules/network/network_manager.c", be_target)
         shutil.copy2(ROOT / "src/bootstrap/pcv_bootstrap_single.c", bootstrap_target)
+        for name in ("network_firewall.c", "network_firewall_nft.c"):
+            shutil.copy2(ROOT / "src/modules/network" / name, be_target.parent / name)
 
         original = ui_target.read_text(encoding="utf-8")
         mutated = original.replace(
@@ -87,7 +89,29 @@ def main() -> int:
         assert rejected.returncode == 1, rejected.stdout
         assert "TOCTOU 게이트 잔존" in rejected.stdout, rejected.stdout
 
-    print("PASS: network mode contract production scan + FE enum/DHCP/bootstrap mutations RED")
+        bootstrap_target.write_text(bootstrap, encoding="utf-8")
+        mutated_reconcile = bootstrap.replace(
+            "if (!network_firewall_reconcile(&gfw_err)) {", "if (FALSE) {", 1)
+        assert mutated_reconcile != bootstrap, "bootstrap reconcile mutation anchor missing"
+        bootstrap_target.write_text(mutated_reconcile, encoding="utf-8")
+        rejected = run(fixture)
+        assert rejected.returncode == 1, rejected.stdout
+        assert "reconcile 호출 누락" in rejected.stdout, rejected.stdout
+
+        bootstrap_target.write_text(bootstrap, encoding="utf-8")
+        gap_anchor = ("    gboolean ok = FALSE;\n"
+                      "    if      (g_strcmp0(mode, \"nat\")      == 0) ok = network_firewall_setup_nat     (br, cidr, &error);\n")
+        assert backend.count(gap_anchor) == 1, "mode_set teardown gap mutation anchor count"
+        mutated_gap = backend.replace(
+            gap_anchor,
+            "    network_firewall_teardown(br, NULL);\n" + gap_anchor, 1)
+        assert mutated_gap != backend, "mode_set teardown gap mutation anchor missing"
+        be_target.write_text(mutated_gap, encoding="utf-8")
+        rejected = run(fixture)
+        assert rejected.returncode == 1, rejected.stdout
+        assert "teardown 뒤 setup" in rejected.stdout, rejected.stdout
+
+    print("PASS: network mode contract production scan + FE enum/DHCP/bootstrap + D2 mode_set 틈·reconcile mutations RED")
     return 0
 
 

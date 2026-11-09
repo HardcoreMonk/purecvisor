@@ -183,10 +183,12 @@ echo "[3] vm.delete 호출 → XML 롤백 예상"
 LOG_SINCE=$(date -d '3 seconds ago' '+%Y-%m-%d %H:%M:%S')
 info "LOG_SINCE=$LOG_SINCE"
 RESP=$(curl -s --max-time 10 -X DELETE -H "$AUTH" "${BASE}/vms/${VM_NAME}")
-if echo "$RESP" | grep -q '"accepted"'; then
-    info "vm.delete accepted (fire-and-forget)"
+                                                                                      
+JOB_ID=$(echo "$RESP" | jq -r '.data.job_id // empty' 2>/dev/null)
+if [ -n "$JOB_ID" ]; then
+    info "vm.delete accepted (job_id=${JOB_ID})"
 else
-    fail "vm.delete" "$RESP"
+    fail "vm.delete" "job_id 없음 — $RESP"
 fi
 
                                                       
@@ -215,7 +217,7 @@ else
 fi
 
                           
-                                             
+                                          
 SERVICE_NAMES="purecvisorsd.service purecvisormd.service"
 ROLLBACK_LOG_PATTERN="definition restored from saved XML"
 ZFS_FAIL_PATTERN="ZFS destroy failed"
@@ -248,10 +250,11 @@ sudo zfs destroy "${POOL}/${VM_NAME}@${SNAP}" 2>&1 >/dev/null || true
 pass "hold 해제 + 테스트 스냅샷 삭제"
 
 RESP=$(curl -s --max-time 10 -X DELETE -H "$AUTH" "${BASE}/vms/${VM_NAME}")
-if echo "$RESP" | grep -q '"accepted"'; then
-    info "재시도 vm.delete accepted"
+RETRY_JOB_ID=$(echo "$RESP" | jq -r '.data.job_id // empty' 2>/dev/null)
+if [ -n "$RETRY_JOB_ID" ]; then
+    info "재시도 vm.delete accepted (job_id=${RETRY_JOB_ID})"
 else
-    fail "재시도 vm.delete" "$RESP"
+    fail "재시도 vm.delete" "job_id 없음 — $RESP"
 fi
 
 info "worker 완료 대기 (10초)..."

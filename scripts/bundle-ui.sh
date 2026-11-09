@@ -35,12 +35,13 @@ if [ "${PCV_NO_DEPLOY:-0}" = "1" ]; then
   echo "[bundle] PCV_NO_DEPLOY=1 — skipping install to $INSTALL_DIR"
 elif [ -d "$INSTALL_DIR" ]; then
   if sudo -n true 2>/dev/null; then
+    sudo cp "ui/vnc-flow.mjs" "$INSTALL_DIR/vnc-flow.mjs"
     sudo cp "$OUT" "$INSTALL_DIR/app.bundle.js"
     [ -f "$MAP" ] && sudo cp "$MAP" "$INSTALL_DIR/app.bundle.js.map"
     [ -f "$SW" ] && sudo cp "$SW" "$INSTALL_DIR/sw.js"
     echo "[bundle] installed → $INSTALL_DIR"
   else
-    echo "[bundle] WARN: sudo password 필요 — 수동 배포: sudo cp $OUT $MAP $SW $INSTALL_DIR/"
+    echo "[bundle] WARN: sudo password 필요 — 수동 배포: sudo cp $OUT $MAP $SW ui/vnc-flow.mjs $INSTALL_DIR/"
   fi
 else
   echo "[bundle] INFO: $INSTALL_DIR 미존재 — 데몬 미설치 환경, 배포 생략"

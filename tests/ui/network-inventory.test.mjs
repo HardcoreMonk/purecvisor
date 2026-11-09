@@ -204,6 +204,76 @@ test('optional baseline failure stays explicit without erasing the bridge invent
   } });
 });
 
+const NO_TENANT_ROUTES = {
+  '/api/v1/networks': { status: 200, body: { data: NETWORKS } },
+  '/api/v1/networks/host-baseline': { status: 200, body: { data: HOST_BASELINE } },
+  '/api/v1/vpcs/status': { status: 409, body: { error: { code: -32002, message: '이 작업에는 tenant가 필요합니다' } } }
+};
+
+async function hostPanelState(page) {
+  return page.evaluate(() => {
+    const panel = document.querySelector('[data-host-network-baseline]');
+    return {
+      text: panel.textContent,
+      summary: panel.querySelector('[data-host-network-summary]').textContent,
+      warn: !!panel.querySelector('.net-mode-impact-warn'),
+      retry: !!panel.querySelector('[data-host-network-retry]'),
+      backends: panel.querySelector('[data-host-network-empty="backends"]')?.textContent,
+      cidrs: panel.querySelector('[data-host-network-empty="vpc-cidrs"]')?.textContent
+    };
+  });
+}
+
+test('tenant-less account sees Local VPC as not applicable, not as a failure', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    const state = await hostPanelState(page);
+    assert.equal(state.warn, false, state.text);
+    assert.equal(state.retry, false);
+    assert.doesNotMatch(state.text, /Partial|Unable to load Local VPC/);
+    assert.match(state.text, /Current/);
+    assert.match(state.summary, /N\/A/);
+    assert.match(state.summary, /no tenant/);
+    assert.match(state.backends, /no tenant/);
+    assert.match(state.cidrs, /no tenant/);
+  }, { routes: NO_TENANT_ROUTES });
+});
+
+test('tenant-less state uses the resolved error shape of the real fetchGet and survives a filter rerender', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    await page.evaluate(async () => {
+
+      window.fetchGet = url => fetch(url).then(response => response.json());
+      await window.renderNetworks(document.getElementById('cb'));
+    });
+    let state = await hostPanelState(page);
+    assert.equal(state.warn, false, state.text);
+    assert.match(state.summary, /N\/A/);
+    await page.click('#cb .chip[data-facet="netstate"][data-val="up"]');
+    state = await hostPanelState(page);
+    assert.equal(state.warn, false, state.text);
+    assert.match(state.summary, /N\/A/);
+  }, { routes: NO_TENANT_ROUTES });
+});
+
+test('other Local VPC status failures keep the warning and Retry', async () => {
+  await withPage(MODS, async page => {
+    await boot(page);
+    const state = await hostPanelState(page);
+    assert.equal(state.warn, true);
+    assert.equal(state.retry, true);
+    assert.match(state.text, /Partial/);
+    assert.match(state.text, /Unable to load Local VPC CIDRs and backend status: vpc store unavailable/);
+    assert.match(state.backends, /unavailable/);
+    assert.doesNotMatch(state.summary, /N\/A/);
+  }, { routes: {
+    '/api/v1/networks': { status: 200, body: { data: NETWORKS } },
+    '/api/v1/networks/host-baseline': { status: 200, body: { data: HOST_BASELINE } },
+    '/api/v1/vpcs/status': { status: 500, body: { error: { code: -32603, message: 'vpc store unavailable' } } }
+  } });
+});
+
 test('baseline and firewall state survive a bridge filter rerender without refetch', async () => {
   await withPage(MODS, async (page, { requests }) => {
     await boot(page);

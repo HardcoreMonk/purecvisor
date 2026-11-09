@@ -47,16 +47,16 @@ HTTP=$($CURL -o /dev/null -w "%{http_code}" "${BASE}/health")
 [ "$HTTP" = "200" ] && pass "GET /health → 200" || fail "GET /health" "HTTP $HTTP"
 
          
-HTTP=$($CURL -o /dev/null -w "%{http_code}" "${BASE}/metrics")
-[ "$HTTP" = "200" ] && pass "GET /metrics → 200" || fail "GET /metrics" "HTTP $HTTP"
 
               
-HTTP=$($CURL -o /dev/null -w "%{http_code}" "${BASE}/internal/vms")
-[ "$HTTP" = "200" ] && pass "GET /internal/vms → 200" || fail "GET /internal/vms" "HTTP $HTTP"
-
-                    
-HTTP=$($CURL -o /dev/null -w "%{http_code}" "${BASE}/internal/telemetry")
-[ "$HTTP" = "200" ] && pass "GET /internal/telemetry → 200" || fail "GET /internal/telemetry" "HTTP $HTTP"
+for COLLECTOR in metrics internal/vms internal/telemetry; do
+  HTTP=$($CURL -o /dev/null -w "%{http_code}" "${BASE}/${COLLECTOR}")
+  case "$HTTP" in
+    200) pass "GET /${COLLECTOR} (토큰 없음) → 200 (직접 로컬)" ;;
+    401) pass "GET /${COLLECTOR} (토큰 없음) → 401 (원격·프록시 — 토큰 필요)" ;;
+    *)   fail "GET /${COLLECTOR} (토큰 없음)" "HTTP $HTTP" ;;
+  esac
+done
 
                  
 echo ""
@@ -77,6 +77,15 @@ fi
 
             
 [ -n "$TOKEN" ] && [ -n "$CSRF" ] && pass "POST /auth/token → CSRF 토큰 발급" || skip "CSRF 토큰 (미구현 가능)"
+
+for COLLECTOR in metrics internal/vms internal/telemetry; do
+  if [ -n "$TOKEN" ]; then
+    HTTP=$($CURL -o /dev/null -w "%{http_code}" -H "Authorization: Bearer ${TOKEN}" "${BASE}/${COLLECTOR}")
+    [ "$HTTP" = "200" ] && pass "GET /${COLLECTOR} (토큰) → 200" || fail "GET /${COLLECTOR} (토큰)" "HTTP $HTTP"
+  else
+    skip "GET /${COLLECTOR} (토큰) → 인증 자격 증명 없음"
+  fi
+done
 
         
 HTTP=$($CURL -o /dev/null -w "%{http_code}" -X POST "${BASE}/auth/token" \

@@ -13,7 +13,8 @@
   
                                                               
                                                 
-                                                                                           
+                                                                                   
+                                       
                                                   
                                                                     
   
@@ -35,10 +36,10 @@
   
                           
                                                        
-                                                                
-                                                       
-                                                     
                                                    
+                                                    
+                                                                                       
+                                                                
   
                           
                                                      
@@ -83,16 +84,16 @@ typedef struct {
     const gchar *reason;
 } PcvRestTlsHealth;
 
-
-
-
-
-
-
-
-
-
-
+   
+                            
+                                                        
+                                                    
+                                                             
+                                         
+  
+                                                 
+                                              
+   
 typedef enum {
     PCV_REST_AUDIT_HEALTH_NONE,
     PCV_REST_AUDIT_HEALTH_INFORMATIONAL,
@@ -109,11 +110,11 @@ typedef struct {
     const gchar   *plaintext_host;
 } PcvRestTransportPlan;
 
-
-
-
-
-
+   
+                                                   
+                                                            
+                                
+   
 PcvRestTransportPlan pcv_rest_transport_plan(
     PcvRestTlsMode mode,
     const gchar   *configured_plaintext_bind);
@@ -134,6 +135,36 @@ gchar *pcv_rest_rate_limit_key_for_message(SoupServerMessage *message,
                                            const gchar *path,
                                            const gchar *http_method);
 
+                                                                                            
+                                                                                                         
+typedef enum {
+    PCV_COLLECTOR_AUTH_LOOPBACK,
+    PCV_COLLECTOR_AUTH_REQUIRED,
+    PCV_COLLECTOR_AUTH_NONE,
+} PcvCollectorAuthMode;
+
+   
+                                      
+                                                                                           
+                                          
+                                                          
+   
+PcvCollectorAuthMode pcv_rest_collector_auth_mode_parse(const gchar *value, gboolean *recognized);
+
+   
+                                            
+                                                                                
+                                                                                           
+                                                                  
+   
+PcvCollectorAuthMode pcv_rest_collector_auth_mode_from_config(gboolean *recognized);
+
+   
+                                 
+                                                                                              
+   
+gboolean pcv_rest_collector_needs_auth(PcvCollectorAuthMode mode, gboolean direct_local);
+
 typedef gboolean (*PcvRestTransportStep)(gpointer     context,
                                          const gchar *endpoint,
                                          GError     **error);
@@ -152,12 +183,12 @@ typedef struct {
     gboolean https_listening;
 } PcvRestTransportOutcome;
 
-
-
-
-
-
-
+   
+                                                    
+                                                       
+                                                          
+              
+   
 gboolean pcv_rest_transport_start(const PcvRestTransportPlan *transport,
                                   const PcvRestTransportOps  *ops,
                                   gpointer                    context,
@@ -178,33 +209,33 @@ PcvRestTlsMode pcv_rest_tls_mode_from_config(gboolean https_enabled);
                                     
 typedef void (*PcvRestTlsInitFunc)(void);
 
-
-
+                                                         
+                                    
 void pcv_rest_transport_initialize(const PcvRestTransportPlan *transport,
                                    PcvRestTlsInitFunc           init_func);
 
-
-
+                                                      
+                                                          
 PcvRestTlsHealth pcv_rest_tls_health(PcvRestTlsMode mode,
                                      gboolean tls_enabled,
                                      gboolean tls_degraded,
                                      const gchar *degraded_reason);
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                      
+                                                   
+  
+                           
+                                                              
+                                                            
+                                                                     
+                                                                                  
+                                                    
+  
+                       
+                                                
+                                
+   
 PcvRestAuditHealthImpact pcv_rest_audit_chain_health_impact(
     gboolean current_ok,
     gboolean historical_break);
@@ -212,53 +243,54 @@ PcvRestAuditHealthImpact pcv_rest_audit_chain_health_impact(
                                                         
                                                     
 guint pcv_rest_http_status_for_rpc_error(gint64 rpc_error_code);
+gboolean pcv_rest_method_is_user_admin(const gchar *method);                                                          
+
+   
+                          
+                                                           
+                                               
+   
+typedef enum {
+    PCV_REST_RPC_METHOD_OK,
+    PCV_REST_RPC_METHOD_MISSING,                               
+    PCV_REST_RPC_METHOD_MALFORMED,                               
+} PcvRestRpcMethodStatus;
+
+   
+                                
+                                                          
+                                                                         
+  
+                                                         
+                                                                
+              
+  
+                                                
+   
+PcvRestRpcMethodStatus pcv_rest_rpc_envelope_method(const gchar *rpc_json,
+                                                    gchar **method_out);
+
+   
+                                           
+                                   
+                                                                           
+                                                                        
+  
+                                                                                   
+                                                                 
+                           
+  
+                                                                 
+   
+JsonObject *pcv_rest_container_volume_detach_params(const gchar *name,
+                                                    gchar **segments,
+                                                    JsonObject *body);
 
    
                        
                                                             
                                              
                                        
-typedef enum {
-    PCV_REST_RPC_METHOD_OK,
-    PCV_REST_RPC_METHOD_MISSING,
-    PCV_REST_RPC_METHOD_MALFORMED,
-} PcvRestRpcMethodStatus;
-
-
-
-
-
-
-
-
-
-
-
-
-PcvRestRpcMethodStatus pcv_rest_rpc_envelope_method(const gchar *rpc_json,
-                                                    gchar **method_out);
-
-
-
-
-
-
-
-
-
-
-
-
-
-JsonObject *pcv_rest_container_volume_detach_params(const gchar *name,
-                                                    gchar **segments,
-                                                    JsonObject *body);
-
-
-
-
-
-
   
                                                 
   

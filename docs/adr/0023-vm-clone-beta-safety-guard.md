@@ -53,7 +53,7 @@ Ubuntu뿐 아니라 Rocky/RHEL/Alma/CentOS/Fedora 등 LVM을 쓰는 Linux 계열
 - 디스크 판별과 target 경로 계산은 `src/modules/virt/vm_clone_plan.c`로 분리한다. dispatcher는 요청/권한/응답을 맡고, clone plan 모듈은 XML의 data disk가 zvol/qcow2/raw 중 무엇인지 판별한다.
 - zvol clone은 XML에서 읽은 실제 dataset을 기준으로 수행한다.
 - zvol full clone은 `zfs send` stdout을 `zfs recv` stdin으로 직접 연결하는 `pcv_spawn_pipe_sync()` 스트리밍 경로를 사용한다. `/bin/sh -c`, 셸 파이프, 리다이렉션, `/tmp` 대용량 임시 파일은 사용하지 않는다.
-- zvol full clone 성공 후에는 독립 target dataset이 만들어졌으므로 source 임시 snapshot을 best-effort로 삭제한다. CoW clone은 origin 의존성이 있으므로 snapshot을 유지한다.
+- zvol full clone 성공 후에는 독립 target dataset이 만들어졌으므로 source 임시 snapshot을 best-effort로 삭제한다. CoW clone은 origin 의존성이 있으므로 snapshot을 유지한다. 원본 VM 삭제는 클론이 있으면 거절된다. 클론을 먼저 지우거나 `zfs promote` 한다.
 - snapshot 생성 이후 ZFS 복제, XML 재조회, disk source 치환, domain define이 실패하면 target dataset을 먼저 best-effort 삭제하고, source 임시 snapshot이 더 이상 origin으로 필요하지 않은 실패 경로에서는 source 임시 snapshot도 best-effort 삭제한다.
 - source VM이 power on 상태이면 zvol/qcow2/raw 모두 preflight에서 거부한다.
 - qcow2/raw는 clone plan 단계에서 같은 디렉터리 아래의 새 target file path를 계산한다. qcow2는 `.qcow2`, raw는 기존 `.raw`/`.img` 확장자 유지 또는 `.img` 기본값을 사용한다.

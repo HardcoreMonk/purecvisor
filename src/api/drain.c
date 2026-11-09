@@ -1,25 +1,26 @@
    
                 
-
+                                              
   
                            
-
-
+                                                                          
+                                                                        
                                                                    
-
-
+                                                             
+                                                              
   
                                                  
-
+                                                   
                                     
-
-
-
-
-
+  
+                                                                     
+                                                                                   
+                                                             
+                                                              
    
 
 #include "drain.h"
+#include "modules/dispatcher/rpc_completion.h"                                                          
 
 #include <glib.h>
 #include <glib-unix.h>
@@ -39,10 +40,13 @@ typedef struct {
     GThread       *drain_thread;                                   
     GMainLoop     *loop;                                              
     guint          timeout_sec;
-    gint           work;
-    gboolean       terminating;
-    gboolean       sealed;
+    gint           work;                                         
+    gboolean       terminating;                                
+    gboolean       sealed;                                
     guint          poll_source;
+    guint          manual_source;                                                  
+    guint          manual_timeout_sec;                            
+    gint64         manual_deadline;                         
     gboolean       initialized;
 } DrainState;
 
@@ -54,7 +58,7 @@ static DrainState g_drain = { 0 };
 void
 pcv_drain_init(void)
 {
-
+                                                            
     g_assert(g_drain.drain_thread == NULL);
     g_atomic_int_set(&g_drain.inflight,      0);
     g_atomic_int_set(&g_drain.shutdown_flag, 0);
@@ -143,11 +147,11 @@ pcv_drain_get_inflight(void)
     return g_atomic_int_get(&g_drain.inflight);
 }
 
-
-
-
-
-
+                                                               
+                                                                   
+                                                       
+                                                               
+                                                    
 void
 pcv_drain_work_acquire(void)
 {
@@ -182,11 +186,34 @@ void
 pcv_drain_track_task(GTask *task)
 {
     GQuark key = g_quark_from_static_string("pcv-drain-task-lifetime");
-
+                                                             
     if (g_object_get_qdata(G_OBJECT(task), key))
         return;
     pcv_drain_work_acquire();
     g_object_set_qdata_full(G_OBJECT(task), key, GINT_TO_POINTER(1), _task_lifetime_end);
+}
+
+                                                             
+static GQuark
+_task_actor_quark(void)
+{
+    return g_quark_from_static_string("pcv-drain-task-actor");
+}
+
+void
+pcv_drain_task_set_actor(GTask *task, const gchar *actor)
+{
+    g_return_if_fail(G_IS_TASK(task));
+                                                            
+    g_object_set_qdata_full(G_OBJECT(task), _task_actor_quark(), g_strdup(actor), g_free);
+}
+
+                                                                                 
+const gchar *
+pcv_drain_task_actor_of(gpointer task_or_result)
+{
+    return G_IS_TASK(task_or_result)
+        ? g_object_get_qdata(G_OBJECT(task_or_result), _task_actor_quark()) : NULL;
 }
 
 GTask *
@@ -195,6 +222,10 @@ pcv_drain_task_new(gpointer source, GCancellable *cancel,
 {
     GTask *task = g_task_new(source, cancel, callback, data);
     pcv_drain_track_task(task);
+                                                                                             
+    const gchar *actor = pcv_rpc_completion_actor();
+    if (actor)
+        pcv_drain_task_set_actor(task, actor);
     return task;
 }
 
@@ -216,8 +247,8 @@ pcv_drain_is_terminating(void)
     return terminating;
 }
 
-
-
+                                                           
+                                                          
 gboolean
 pcv_drain_admit_rest(void)
 {
@@ -275,7 +306,34 @@ pcv_drain_invoke(GMainContext *context, GSourceFunc callback, gpointer data)
                                entry, _drain_source_free);
 }
 
+                                                                                
+                                                                                  
+                                                                                   
+                                                                    
+                                                                
+gboolean
+pcv_drain_try_invoke(GMainContext *context, gint priority, GSourceFunc callback,
+                     gpointer data, GDestroyNotify destroy)
+{
+    g_mutex_lock(&g_drain.mutex);
+    if (g_drain.sealed) {
+        g_mutex_unlock(&g_drain.mutex);
+        return FALSE;
+    }
+    g_drain.work++;
+    g_mutex_unlock(&g_drain.mutex);
 
+    DrainSource *entry = g_new0(DrainSource, 1);
+    *entry = (DrainSource){callback, data, destroy};
+    GSource *source = g_idle_source_new();
+    g_source_set_priority(source, priority);
+    g_source_set_callback(source, _drain_source_dispatch, entry, _drain_source_free);
+    g_source_attach(source, context);
+    g_source_unref(source);
+    return TRUE;
+}
+
+                                                                
 guint
 pcv_drain_timeout(guint milliseconds, GSourceFunc callback,
                   gpointer data, GDestroyNotify destroy)
@@ -440,9 +498,9 @@ pcv_drain_get_watchdog_usec(void)
     return usec;
 }
 
-
-
-
+                                                    
+                                                      
+                                                  
 static gboolean
 _drain_poll(gpointer unused)
 {
@@ -461,9 +519,9 @@ _drain_poll(gpointer unused)
     return G_SOURCE_REMOVE;
 }
 
-
-
-
+                                                         
+                                                              
+                                              
 static gpointer
 _drain_thread_func(gpointer unused)
 {
@@ -486,15 +544,71 @@ _drain_thread_func(gpointer unused)
     return NULL;
 }
 
+                                                           
+                                                            
+                                                              
+                                                                 
+                                                              
+static gboolean
+_drain_manual_poll(gpointer unused)
+{
+    (void)unused;
+    g_mutex_lock(&g_drain.mutex);
+    if (g_drain.terminating || !g_atomic_int_get(&g_drain.shutdown_flag)) {
+        g_drain.manual_source = 0;
+        g_mutex_unlock(&g_drain.mutex);
+        return G_SOURCE_REMOVE;
+    }
+    gint requests = g_atomic_int_get(&g_drain.inflight);
+    gint work = g_drain.work;
+    guint timeout_sec = g_drain.manual_timeout_sec;
+    gboolean idle = requests == 0 && work == 0;
+    gboolean expired = !idle && g_get_monotonic_time() >= g_drain.manual_deadline;
+    if (idle || expired)
+        g_drain.manual_source = 0;
+    g_mutex_unlock(&g_drain.mutex);
 
+    if (idle) {
+        g_message("[drain] Manual drain complete: no in-flight requests or asynchronous work; "
+                  "intake stays closed until node.resume");
+        return G_SOURCE_REMOVE;
+    }
+    if (expired) {
+        g_warning("[drain] Manual drain timeout after %us: requests=%d work=%d still running; "
+                  "intake stays closed until node.resume", timeout_sec, requests, work);
+        return G_SOURCE_REMOVE;
+    }
+    return G_SOURCE_CONTINUE;
+}
+
+                                                                                    
 void
 pcv_drain_begin(GMainLoop *loop, guint timeout_sec)
 {
     g_mutex_lock(&g_drain.mutex);
-
+                                                                      
     g_atomic_int_set(&g_drain.shutdown_flag, 1);
-    if (!loop || g_drain.terminating) {
+    if (g_drain.terminating) {
         g_mutex_unlock(&g_drain.mutex);
+        return;
+    }
+    if (!loop) {
+                                                                  
+        g_drain.manual_timeout_sec = timeout_sec;
+        g_drain.manual_deadline = g_get_monotonic_time()
+                                  + (gint64)timeout_sec * G_TIME_SPAN_SECOND;
+        if (!g_drain.manual_source) {
+            GSource *source = g_timeout_source_new(100);
+            g_source_set_priority(source, G_PRIORITY_LOW);
+            g_source_set_callback(source, _drain_manual_poll, NULL, NULL);
+            g_drain.manual_source = g_source_attach(source, NULL);
+            g_source_unref(source);
+        }
+        gint requests = g_atomic_int_get(&g_drain.inflight);
+        gint work = g_drain.work;
+        g_mutex_unlock(&g_drain.mutex);
+        g_message("[drain] Manual drain: intake stopped; waiting for %d in-flight request(s) and "
+                  "%d asynchronous work item(s) (timeout: %us)", requests, work, timeout_sec);
         return;
     }
     g_drain.terminating = TRUE;
@@ -512,8 +626,8 @@ pcv_drain_begin(GMainLoop *loop, guint timeout_sec)
               pcv_drain_get_inflight(), pcv_drain_get_work(), timeout_sec);
 }
 
-
-
+                                                          
+                                                    
 void
 pcv_drain_cancel(void)
 {
@@ -525,11 +639,16 @@ pcv_drain_cancel(void)
     g_mutex_unlock(&g_drain.mutex);
 }
 
-
-
+                                                        
+                                                          
 void
 pcv_drain_shutdown(void)
 {
+                                                                 
+    if (g_drain.manual_source) {
+        g_source_remove(g_drain.manual_source);
+        g_drain.manual_source = 0;
+    }
     if (g_drain.drain_thread) {
         g_thread_join(g_drain.drain_thread);
         g_drain.drain_thread = NULL;

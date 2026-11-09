@@ -17,7 +17,14 @@ root_dir=$(cd "$(dirname "${BASH_SOURCE[0]}")/../.." && pwd)
 manager="$root_dir/src/modules/accel/gpu_manager.c"
 dispatcher="$root_dir/src/api/dispatcher.c"
 cli="$root_dir/src/cli/purecvisorctl.c"
-rest="$root_dir/src/api/rest_server.c"
+                       
+shopt -s nullglob
+rest_files=("$root_dir"/src/api/rest_*.c)
+shopt -u nullglob
+if [ "${#rest_files[@]}" -eq 0 ]; then
+    echo "GPU passthrough contract: rest 계열 파일(src/api/rest_*.c)을 0개 찾았다" >&2
+    exit 1
+fi
 
 rg -q "IOMMU group member .*pre-bind the whole GPU group to vfio-pci" "$manager"
 rg -q "managed='no'" "$manager"
@@ -30,8 +37,8 @@ fi
 
 rg -q '"device\.gpu\.attach".*handle_device_gpu_attach' "$dispatcher"
 rg -q '"device\.gpu\.detach".*handle_device_gpu_detach' "$dispatcher"
-rg -q '_build_rpc\("device\.gpu\.attach"' "$rest"
-rg -q '_build_rpc\("device\.gpu\.detach"' "$rest"
+rg -q '\bpcv_rest_build_rpc\("device\.gpu\.attach"' "${rest_files[@]}"
+rg -q '\bpcv_rest_build_rpc\("device\.gpu\.detach"' "${rest_files[@]}"
 rg -q 'json_object_get_string_member_with_default\(g, "pci_addr"' "$cli"
 rg -q 'json_object_get_string_member_with_default\(g, "device"' "$cli"
 rg -q 'json_object_get_string_member_with_default\(g, "driver"' "$cli"

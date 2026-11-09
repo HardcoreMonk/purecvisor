@@ -1,0 +1,77 @@
+name = "rest_server"
+source = "src/api/rest_server.c"
+manifest = "scripts/split/rest_server_manifest.tsv"
+rename_map = "scripts/split/rest_server_rename_map.tsv"
+family_globs = ["src/api/rest_*.c", "src/api/rest_*.h"]
+makefile_anchor = "    src/api/rest_server.c \\"
+internal_header = "src/api/rest_internal.h"
+header_includes = ["<glib.h>", "<libsoup/soup.h>", "<json-glib/json-glib.h>", "\"api/rest_server.h\""]
+c_prologue = """/**
+ * @file {base}
+ * @brief {brief}
+ *
+ * Developer note — 신입 개발자:
+ *   (rest_server.c 분할 1단계)으로 {source}에서 옮긴 함수다. 본문은 옮기기 전과 같고(scripts/split_move_identity.py --config rest_server),
+ *   여러 rest 파일이 함께 쓰는 선언은 src/api/rest_internal.h에 있다. REST 라우트 매핑(_on_request)은 2단계에서 rest_server.c 골격과
+ *   구간 파일(rest_prelude·rest_public·rest_auth_endpoints·rest_map_*.c)로 나뉘었으니, 여기 함수의 계약을 바꾸면 그 호출부·REST 게이트
+ *   (rpc_extract.rest_family)·시험을 같은 변경에서 고친다.
+ *   실패 시 영향: 옮긴 함수의 계약(인자·소유권·반환)이 호출부와 어긋나면 그 함수를 거치는 REST 경로의 응답·인증·감사 동작이 바뀐다.
+ *
+ * [쉬운 설명] {easy}
+ */
+
+{includes}
+"""
+h_prologue = '''/**
+ * @file {base}
+ * @brief {brief} — 선언
+ *
+ * Developer note — 신입 개발자:
+ *   (rest_server.c 분할 1단계)으로 {source}에서 옮긴 함수의 선언이다. rest 계열 파일
+ *   (rest_server.c와 거기서 나뉜 rest_*.c)끼리만 쓰는 내부 선언이며 공개 API가 아니다 — rest 계열 밖에서
+ *   include하지 않는다. 각 함수의 계약은 정의부 머리 주석을 따르고, 공유 매크로·구조체·상태는
+ *   src/api/rest_internal.h에 있다.
+ *   실패 시 영향: 선언이 정의부와 어긋나면 빌드가 깨지고, rest 계열 밖에서 include하면 내부 선언이 공개 API처럼 굳어 분할 경계가 무너진다.
+ *
+ * [쉬운 설명] {easy} 이 헤더는 REST 서버 조각 파일들이 서로의 함수를 부르려고 쓰는 내부 목록이다.
+ */
+               
+               
+
+{includes}
+
+                    
+'''
+group_comment = "rest_server 계열 파일끼리 쓰는 함수"
+split_files = ["src/api/rest_policy.c", "src/api/rest_response.c", "src/api/rest_request.c",
+               "src/api/rest_async.c", "src/api/rest_transport.c", "src/api/rest_request_auth.c",
+               "src/api/rest_auth_endpoints.c", "src/api/rest_public.c", "src/api/rest_public_render.c", "src/api/rest_login.c", "src/api/rest_prelude.c",
+               "src/api/rest_map_platform.c", "src/api/rest_map_observe.c", "src/api/rest_map_compute.c"]
+
+blocks = "scripts/split/targets/rest_server_blocks.tsv"
+block_function = "_on_request"
+                                                                                  
+                                                                 
+chain_files = ["src/api/rest_map_compute.c", "src/api/rest_map_observe.c", "src/api/rest_map_platform.c"]
+context_type = "PcvRestRequest"
+context_var = "rq"
+extract_c_prologue = """/**
+ * @file {base}
+ * @brief {brief}
+ *
+ * Developer note — 신입 개발자:
+ *   (rest_server.c 분할 2단계)으로 {source}의 _on_request에서 뽑은 구간 함수다. 본문은 원문과 같고
+ *   (scripts/split/extract_identity.py --config rest_server), 구간은 PcvRestRequest(src/api/rest_internal.h)로 상태를 주고받으며
+ *   출구는 PcvRestStep(NEXT/CLEANUP/RETURN/UNMATCHED)으로 골격 _on_request가 나눈다. 호출 순서는 rest_server.c _on_request가 정본이다.
+ *   실패 시 영향: {impact}
+ *
+ * [쉬운 설명] {easy}
+ */
+
+{includes}
+"""
+
+[identity]
+routes = false
+async = false
+policy = "none"

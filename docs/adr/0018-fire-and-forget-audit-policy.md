@@ -163,6 +163,12 @@ B2 fail audit: 5/5 PASSED
 B3 smoke:      4/4 PASSED
 ```
 
+## 후속 결정 (2026-10)
+
+워커·콜백 감사의 행위자 NULL(`"-"` 저장), 콜백에서 나중에 응답하는 RPC 10개의 비동기 등록 누락, 비동기 즉시 거절의 감사 누락을 닫았다.
+dispatcher가 요청 행위자를 dispatch 범위와 task(`pcv_drain_task_new`)에 싣고 워커·콜백이 그것을 쓰며,
+나중에 응답하는 메서드도 비동기 등록 대상이고(등록과 콜백 실결과 감사는 한 변경), 비동기 즉시 거절은 `fail` 1건이다. 이 ADR의 "워커 콜백이 실제 결과를 기록한다"는 원칙은 그대로다.
+
 ## 후속 작업
 
 1. **pre-commit hook**: `scripts/check_audit_placement.py` — dispatcher.c의 g_async_methods 와 핸들러 콜백 audit 호출을 정적 검사한다.

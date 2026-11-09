@@ -1,6 +1,6 @@
    
                    
-                                                                  
+                                                                              
   
                            
                                                    
@@ -26,12 +26,12 @@
                                                      
         
                                                             
-                                                                       
+                                                                                            
                                                    
   
           
                                           
-                                                   
+                                                               
                                                  
                                           
   
@@ -49,10 +49,10 @@
                                              
                
                                          
-                                                                     
+                                                                                                      
                                                        
                                                                 
-                                                        
+                                                                          
   
                                      
                                                                           
@@ -68,9 +68,9 @@
                                                  
   
           
-                                       
-                                                  
-                                        
+                                                                                                         
+                                                               
+                                                                    
                                                    
                                                      
                                                
@@ -83,11 +83,12 @@
          
                                                                      
                                                    
-                                                       
+                                                                              
                                                       
    
 
 #include "pcv_rbac.h"
+#include "pcv_rbac_internal.h"                                                  
 #include "../../utils/pcv_jwt.h"
 #include "../../utils/pcv_log.h"
 #include "../../utils/pcv_config.h"
@@ -108,10 +109,9 @@
 #define RBAC_LOG_DOM  "pcv_rbac"
 #define SALT_LEN      16                                     
 
-                                                         
-#define ACCESS_TOKEN_EXPIRY   900                                     
-#define REFRESH_TOKEN_EXPIRY  604800          
+                                                                              
 #define REFRESH_TOKEN_BYTES   32                                   
+#define IDENTITY_NONCE_BYTES  16                                                          
 
                                                                  
                
@@ -127,11 +127,6 @@ static void _migrate_api_keys_schema(void);
 static void _migrate_apikey_columns(void);
                                                              
 static void _migrate_freeze_apikey_effective_roles(void);
-                                                                    
-                                                       
-                                                
-static gboolean _totp_delete_rows(const gchar *username);
-
                                                                         
                                                      
 #define PCV_RBAC_USER_VERSION_APIKEY_FREEZE 1
@@ -177,306 +172,6 @@ _fill_random_bytes(guchar *buf, gsize len)
     g_error("pcv_rbac: secure RNG unavailable "
             "(/dev/urandom and OpenSSL RAND_bytes both failed) — refusing to "
             "generate predictable salt/token/API key");
-}
-
-                                                                 
-                                  
-  
-                                                
-                                                
-                                                         
-  
-                                                   
-                
-                                               
-                                                       
-                                                      
-                                               
-                                                                    
-
-typedef struct {
-    gint    attempts;                     
-    gint    lockout_count;                         
-    gint64  locked_until;                                            
-} LoginAttemptInfo;
-
-static GHashTable *g_login_attempts = nullptr;                                    
-static GMutex      g_attempts_mu;
-
-                                                                     
-                                                                   
-                                                
-static GHashTable *g_ip_attempts = nullptr;                                        
-
-                                                         
-                                                                      
-                                                                    
-static GHashTable *g_totp_attempts = nullptr;                                               
-
-#define BRUTE_MAX_ATTEMPTS  5
-static const gint  BRUTE_BACKOFF_SEC[] = { 30, 60, 300, 3600 };
-#define BRUTE_BACKOFF_STAGES  4
-
-#define BRUTE_IP_MAX_ATTEMPTS  20
-#define BRUTE_IP_LOCKOUT_SEC   300
-
-   
-                                                      
-                                          
-                                                                    
-                                              
-                                                   
-                                        
-   
-static void
-_brute_ensure_init(void)
-{
-    if (!g_login_attempts) {                                  
-        g_mutex_init(&g_attempts_mu);
-        g_login_attempts = g_hash_table_new_full(g_str_hash, g_str_equal,
-                                                  g_free, g_free);                            
-        g_ip_attempts = g_hash_table_new_full(g_str_hash, g_str_equal,
-                                               g_free, g_free);
-        g_totp_attempts = g_hash_table_new_full(g_str_hash, g_str_equal,
-                                                 g_free, g_free);                        
-    }
-}
-
-   
-                                                           
-                                                
-                                                             
-                                     
-   
-static LoginAttemptInfo *
-_brute_get_info(const gchar *username)
-{
-    _brute_ensure_init();
-    LoginAttemptInfo *info = g_hash_table_lookup(g_login_attempts, username);
-    if (!info) {
-                                                            
-        info = g_new0(LoginAttemptInfo, 1);
-        g_hash_table_insert(g_login_attempts, g_strdup(username), info);
-    }
-    return info;
-}
-
-   
-                                                            
-                                                      
-                                                         
-                                                    
-   
-static gboolean
-_brute_check_locked(const gchar *username)
-{
-    LoginAttemptInfo *info = _brute_get_info(username);
-    if (info->locked_until <= 0) return FALSE;                    
-    gint64 now = g_get_monotonic_time();                                       
-    if (now >= info->locked_until) {
-                                                          
-                                                     
-                                       
-        info->locked_until = 0;
-        info->attempts = 0;
-        return FALSE;
-    }
-    return TRUE;                                        
-}
-
-   
-                                                                     
-                                                      
-                                                                     
-   
-static void
-_brute_record_failure(const gchar *username)
-{
-    LoginAttemptInfo *info = _brute_get_info(username);
-    info->attempts++;                     
-
-    if (info->attempts >= BRUTE_MAX_ATTEMPTS) {                      
-                                                              
-                                                               
-        gint stage = info->lockout_count;
-        if (stage >= BRUTE_BACKOFF_STAGES)
-            stage = BRUTE_BACKOFF_STAGES - 1;                          
-        gint backoff_sec = BRUTE_BACKOFF_SEC[stage];                            
-
-                                                       
-        info->locked_until = g_get_monotonic_time() + (gint64)backoff_sec * G_USEC_PER_SEC;
-        info->lockout_count++;                            
-
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-            "Account '%s' locked for %d seconds (attempt %d, lockout #%d)",
-            username, backoff_sec, info->attempts, info->lockout_count);
-    }
-}
-
-   
-                                                                  
-                                                    
-   
-static void
-_brute_record_success(const gchar *username)
-{
-    LoginAttemptInfo *info = _brute_get_info(username);
-    info->attempts = 0;                     
-    info->locked_until = 0;              
-    info->lockout_count = 0;                             
-}
-
-                                                                     
-                                                 
-                                                              
-                                        
-
-   
-                                                                     
-                                       
-   
-static LoginAttemptInfo *
-_brute_ip_get_info(const gchar *ip)
-{
-    LoginAttemptInfo *info = g_hash_table_lookup(g_ip_attempts, ip);
-    if (!info) {
-        info = g_new0(LoginAttemptInfo, 1);
-        g_hash_table_insert(g_ip_attempts, g_strdup(ip), info);
-    }
-    return info;
-}
-
-   
-                                                                         
-                                                  
-                                                      
-   
-static gboolean
-_brute_ip_check_locked(const gchar *ip)
-{
-    if (!ip || !*ip) return FALSE;                         
-    LoginAttemptInfo *info = _brute_ip_get_info(ip);
-    if (info->locked_until <= 0) return FALSE;
-    gint64 now = g_get_monotonic_time();
-    if (now >= info->locked_until) {
-                                                      
-                                                       
-        info->locked_until = 0;
-        info->attempts = 0;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-   
-                                                                             
-                                                
-   
-static void
-_brute_ip_record_failure(const gchar *ip)
-{
-    if (!ip || !*ip) return;                         
-    LoginAttemptInfo *info = _brute_ip_get_info(ip);
-    info->attempts++;
-    if (info->attempts >= BRUTE_IP_MAX_ATTEMPTS) {                       
-        info->locked_until = g_get_monotonic_time()
-                             + (gint64)BRUTE_IP_LOCKOUT_SEC * G_USEC_PER_SEC;              
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-            "IP '%s' locked for %d seconds (%d failed attempts)",
-            ip, BRUTE_IP_LOCKOUT_SEC, info->attempts);
-    }
-}
-
-   
-                                                                        
-                                          
-   
-static void
-_brute_ip_record_success(const gchar *ip)
-{
-    if (!ip || !*ip) return;
-    LoginAttemptInfo *info = _brute_ip_get_info(ip);
-    info->attempts = 0;
-    info->locked_until = 0;
-}
-
-                                                                
-                                                       
-                                                  
-                                                   
-
-   
-                                                                 
-                                                  
-                                                                        
-   
-static LoginAttemptInfo *
-_totp_brute_get_info(const gchar *username)
-{
-    _brute_ensure_init();
-    LoginAttemptInfo *info = g_hash_table_lookup(g_totp_attempts, username);
-    if (!info) {
-        info = g_new0(LoginAttemptInfo, 1);
-        g_hash_table_insert(g_totp_attempts, g_strdup(username), info);
-    }
-    return info;
-}
-
-   
-                                                                             
-                                                          
-   
-static gboolean
-_totp_brute_check_locked(const gchar *username)
-{
-    LoginAttemptInfo *info = _totp_brute_get_info(username);
-    if (info->locked_until <= 0) return FALSE;
-    gint64 now = g_get_monotonic_time();
-    if (now >= info->locked_until) {
-        info->locked_until = 0;
-        info->attempts = 0;
-        return FALSE;
-    }
-    return TRUE;
-}
-
-   
-                                                                          
-                                                     
-                                        
-   
-static void
-_totp_brute_record_failure(const gchar *username)
-{
-    LoginAttemptInfo *info = _totp_brute_get_info(username);
-    info->attempts++;
-
-    if (info->attempts >= BRUTE_MAX_ATTEMPTS) {
-        gint stage = info->lockout_count;
-        if (stage >= BRUTE_BACKOFF_STAGES)
-            stage = BRUTE_BACKOFF_STAGES - 1;                          
-        gint backoff_sec = BRUTE_BACKOFF_SEC[stage];
-
-        info->locked_until = g_get_monotonic_time() + (gint64)backoff_sec * G_USEC_PER_SEC;
-        info->lockout_count++;
-
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-            "TOTP verification for '%s' locked for %d seconds (attempt %d, lockout #%d)",
-            username, backoff_sec, info->attempts, info->lockout_count);
-    }
-}
-
-   
-                                                                       
-                                                            
-   
-static void
-_totp_brute_record_success(const gchar *username)
-{
-    LoginAttemptInfo *info = _totp_brute_get_info(username);
-    info->attempts = 0;
-    info->locked_until = 0;
-    info->lockout_count = 0;
 }
 
                                                                  
@@ -568,6 +263,15 @@ _hash_password_legacy(const gchar *salt, const gchar *password)
 #define PBKDF2_ITER_TARGET  600000
 #define PBKDF2_ITER_LEGACY  100000
 
+                                                                            
+static void (*g_pbkdf2_probe)(gint iter, gboolean db_locked) = NULL;
+void pcv_rbac_set_pbkdf2_probe_for_test(void (*probe)(gint iter, gboolean db_locked));
+void
+pcv_rbac_set_pbkdf2_probe_for_test(void (*probe)(gint iter, gboolean db_locked))
+{
+    g_pbkdf2_probe = probe;
+}
+
    
                              
   
@@ -607,11 +311,16 @@ static gchar *
 _pbkdf2_hex(const gchar *salt, const gchar *password, gint iter)
 {
     guchar dk[32];                                              
+    if (G_UNLIKELY(g_pbkdf2_probe)) {
+        gboolean free_now = g_mutex_trylock(&g_rbac_mutex);                                   
+        if (free_now) g_mutex_unlock(&g_rbac_mutex);
+        g_pbkdf2_probe(iter, !free_now);
+    }
                                                                      
     if (PKCS5_PBKDF2_HMAC(password, (int)strlen(password),
                          (const guchar *)salt, (int)strlen(salt),
                          iter, EVP_sha256(), 32, dk) != 1)
-        return NULL;
+        return NULL;                                     
 
                               
     GString *hex = g_string_sized_new(64 + 1);
@@ -650,7 +359,7 @@ _pbkdf2_parse(const gchar *stored, gint *iter_out, const gchar **hex_out)
     const gchar *colon = strchr(rest, ':');                                   
     if (colon) {
                                                  
-
+                                                   
         if (colon == rest) return FALSE;
         for (const gchar *it = rest; it < colon; it++)
             if (!g_ascii_isdigit(*it)) return FALSE;
@@ -693,7 +402,7 @@ _hash_password_pbkdf2(const gchar *salt, const gchar *password)
 {
     gint   iter = _pbkdf2_target_iterations();                                 
     gchar *hex  = _pbkdf2_hex(salt, password, iter);                   
-    if (!hex) return NULL;
+    if (!hex) return NULL;                     
     gchar *out  = g_strdup_printf("pbkdf2:%d:%s", iter, hex);                     
     g_free(hex);
     return out;
@@ -723,26 +432,29 @@ _hash_password(const gchar *salt, const gchar *password)
     return _hash_password_pbkdf2(salt, password);                           
 }
 
-
-
-
-
-
-
+   
+                                                     
+                                            
+                                                            
+                                             
+                                            
+   
 static gboolean
 _password_matches(const gchar *stored, const gchar *salt, const gchar *password,
-                  gboolean *rehash)
+                  gboolean *rehash, gint *spent_iter)
 {
     if (rehash) *rehash = FALSE;
+    if (spent_iter) *spent_iter = 0;
     if (!stored || !salt || !password) return FALSE;
     const gchar *hex = stored;
     gint iter = 0;
     gboolean pbkdf2 = g_str_has_prefix(stored, "pbkdf2:");
     if (pbkdf2 && !_pbkdf2_parse(stored, &iter, &hex)) return FALSE;
-
+                                                 
     if (strlen(hex) != 64) return FALSE;
     for (guint i = 0; i < 64; i++)
         if (!g_ascii_isxdigit(hex[i])) return FALSE;
+    if (pbkdf2 && spent_iter) *spent_iter = iter;
     gchar *candidate = pbkdf2 ? _pbkdf2_hex(salt, password, iter)
                               : _hash_password_legacy(salt, password);
     gboolean match = candidate && CRYPTO_memcmp(hex, candidate, 64) == 0;
@@ -751,27 +463,150 @@ _password_matches(const gchar *stored, const gchar *salt, const gchar *password,
     return match;
 }
 
+                                                                               
+#define LOGIN_COST_SALT "00000000000000000000000000000000"
 
-
-
-
-
+   
+                                                                            
+                                                      
+                                                                                   
+                                                                                
+                          
+                                                 
+   
 static void
-_password_rehash_locked(const gchar *username, const gchar *salt, const gchar *password)
+_login_failure_cost(const gchar *password, gint spent_iter)
 {
-    gchar *hash = _hash_password_pbkdf2(salt, password);
-    if (!hash) return;
-    sqlite3_stmt *upd = NULL;
-    if (sqlite3_prepare_v2(g_rbac_db,
-            "UPDATE users SET password_hash=? WHERE username=?", -1, &upd, NULL) == SQLITE_OK) {
-        sqlite3_bind_text(upd, 1, hash, -1, SQLITE_STATIC);
-        sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
-        if (sqlite3_step(upd) == SQLITE_DONE)
-            PCV_LOG_INFO(RBAC_LOG_DOM, "Rehashed password to PBKDF2 %d iterations for '%s'",
-                         _pbkdf2_target_iterations(), username);
+    gint rest = _pbkdf2_target_iterations() - spent_iter;
+    if (rest <= 0) return;
+    gchar *discard = _pbkdf2_hex(LOGIN_COST_SALT, password, rest);
+    g_free(discard);
+}
+
+   
+                                                                          
+                                                                           
+                                                         
+                                                                                  
+                                                                                        
+                                                                              
+                                                  
+   
+static gboolean
+_login_commit(const gchar *username, const gchar *stored_hash, const gchar *stored_salt,
+              const gchar *new_hash, PcvRole *out_role, gchar **out_nonce)
+{
+    gboolean same = FALSE;
+    sqlite3_stmt *stmt = NULL;
+    g_mutex_lock(&g_rbac_mutex);
+    if (g_rbac_db && sqlite3_prepare_v2(g_rbac_db,
+            "SELECT password_hash, salt FROM users WHERE username = ?;", -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+        same = sqlite3_step(stmt) == SQLITE_ROW
+            && g_strcmp0((const gchar *)sqlite3_column_text(stmt, 0), stored_hash) == 0
+            && g_strcmp0((const gchar *)sqlite3_column_text(stmt, 1), stored_salt) == 0;
     }
-    sqlite3_finalize(upd);
-    g_free(hash);
+    sqlite3_finalize(stmt);
+    if (same && new_hash) {
+        sqlite3_stmt *upd = NULL;
+        if (sqlite3_prepare_v2(g_rbac_db,
+                "UPDATE users SET password_hash=? WHERE username=? AND password_hash=?", -1, &upd, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(upd, 1, new_hash, -1, SQLITE_STATIC);
+            sqlite3_bind_text(upd, 2, username, -1, SQLITE_STATIC);
+            sqlite3_bind_text(upd, 3, stored_hash, -1, SQLITE_STATIC);
+            if (sqlite3_step(upd) == SQLITE_DONE && sqlite3_changes(g_rbac_db) == 1)
+                PCV_LOG_INFO(RBAC_LOG_DOM, "Rehashed password to PBKDF2 %d iterations for '%s'",
+                             _pbkdf2_target_iterations(), username);
+        }
+        sqlite3_finalize(upd);
+    }
+    if (same)
+        (void)pcv_rbac_lookup_subject_locked(g_rbac_db, username, out_role, out_nonce);
+    g_mutex_unlock(&g_rbac_mutex);
+    return same;
+}
+
+   
+                                                                                           
+                                                                                              
+                                                                                                      
+                                                                                   
+                                               
+                                                                                                            
+                                                                
+   
+static gboolean
+_login_verify(const gchar *username, const gchar *password, PcvRole *out_role, gchar **out_nonce, GError **error)
+{
+    if (out_role) *out_role = PCV_ROLE_VIEWER;
+    if (out_nonce) *out_nonce = NULL;
+
+                                  
+    gint remain = 0;
+    if (pcv_rbac_attempts_login_locked(username, &remain)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                    "Account locked — retry after %d seconds", remain);
+        return FALSE;
+    }
+
+    g_mutex_lock(&g_rbac_mutex);
+    sqlite3_stmt *stmt = nullptr;
+    int rc = sqlite3_prepare_v2(g_rbac_db,
+        "SELECT password_hash, salt FROM users WHERE username = ?;",
+        -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
+        g_mutex_unlock(&g_rbac_mutex);
+        return FALSE;
+    }
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    g_autofree gchar *stored_hash = NULL, *stored_salt = NULL;
+    if (rc == SQLITE_ROW) {
+        stored_hash = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));
+        stored_salt = g_strdup((const gchar *)sqlite3_column_text(stmt, 1));
+    }
+    sqlite3_finalize(stmt);
+    g_mutex_unlock(&g_rbac_mutex);
+
+    if (rc != SQLITE_ROW) {
+                                                                                 
+                                                                                          
+        _login_failure_cost(password, 0);
+        if (rc == SQLITE_DONE)
+            pcv_rbac_attempts_login_record(username, FALSE);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                    "Invalid credentials");
+        pcv_audit_log(username, "auth.login.failed", username, "user not found", 404, 0, NULL);
+        return FALSE;
+    }
+
+    gboolean rehash = FALSE;
+    gint spent_iter = 0;
+    gboolean match = _password_matches(stored_hash, stored_salt, password, &rehash, &spent_iter);
+    if (match) {
+                                                              
+        g_autofree gchar *new_hash = rehash ? _hash_password_pbkdf2(stored_salt, password) : NULL;
+        match = _login_commit(username, stored_hash, stored_salt, new_hash, out_role, out_nonce);
+    } else {
+        _login_failure_cost(password, spent_iter);
+    }
+
+    if (!match) {
+                                                                 
+        pcv_rbac_attempts_login_record(username, FALSE);
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
+                    "Invalid credentials");                       
+        PCV_LOG_WARN(RBAC_LOG_DOM,
+                     "Authentication failed for user '%s'", username);
+        pcv_audit_log(username, "auth.login.failed", username, "invalid credentials", 401, 0, NULL);
+        return FALSE;
+    }
+
+                                                          
+    pcv_rbac_attempts_login_record(username, TRUE);
+    return TRUE;
 }
 
                                                               
@@ -797,7 +632,7 @@ _password_rehash_locked(const gchar *username, const gchar *salt, const gchar *p
                                                              
                                           
                                                            
-                                                   
+                                                                     
   
                                                                      
                                              
@@ -811,7 +646,8 @@ _ensure_table(void)
         "  password_hash TEXT NOT NULL,"
         "  salt          TEXT NOT NULL,"
         "  role          INTEGER NOT NULL DEFAULT 0,"
-        "  tenant        TEXT"
+        "  tenant        TEXT,"
+        "  identity_nonce TEXT NOT NULL DEFAULT ''"                                       
         ");";
 
     gchar *errmsg = nullptr;
@@ -833,7 +669,8 @@ _ensure_table(void)
         "  refresh_token_hash TEXT NOT NULL UNIQUE,"
         "  created_at         INTEGER NOT NULL,"
         "  expires_at         INTEGER NOT NULL,"
-        "  revoked            INTEGER NOT NULL DEFAULT 0"
+        "  revoked            INTEGER NOT NULL DEFAULT 0,"
+        "  identity_nonce     TEXT NOT NULL DEFAULT ''"                                 
         ");";
 
     errmsg = nullptr;
@@ -958,6 +795,8 @@ _ensure_admin_user(void)
     GError *err = nullptr;
     gboolean ok = pcv_rbac_user_create(admin_user, admin_pass,
                                        PCV_ROLE_ADMIN, NULL, &err);
+                                                                 
+    pcv_audit_log("-", "auth.user.create", admin_user, ok ? "ok" : "fail", ok ? 0 : -1, 0, "bootstrap");
     if (ok) {
         PCV_LOG_INFO(RBAC_LOG_DOM,
                      "Auto-created admin user '%s' (ADMIN role)", admin_user);
@@ -1004,41 +843,52 @@ _method_min_role(const gchar *method)
     if (!method || !*method) return PCV_ROLE_ADMIN;
 
                                                                 
-                                                  
-                                                        
+                                                                         
+                                                          
+                                                                                      
+      
+                                                              
+    static const gchar *const k_viewer_exact[] = {
                                                                  
+                                                                                  
                                                     
-      
-                                                   
-                                     
-    if (g_strcmp0(method, "pool.conninfo") == 0 ||
-        g_strcmp0(method, "dpdk.status") == 0 ||
-        g_strcmp0(method, "dpdk.list") == 0 ||
-        g_strcmp0(method, "dpdk.hugepage.info") == 0 ||
-        g_strcmp0(method, "sriov.status") == 0 ||
-        g_strcmp0(method, "sriov.list") == 0)
-    {
-        return PCV_ROLE_VIEWER;
-    }
-
-                                                  
-                                                             
-                                                        
+        "pool.conninfo", "dpdk.status", "dpdk.list", "dpdk.hugepage.info", "sriov.status", "sriov.list",
+                                                                   
+                                                                                        
+                                                                        
+        "alert.history", "healing.pending", "healing.history", "healing.status",
+        "agent.history", "config.history", "storage.pool.forecast",
+                                                                                 
+                                                                                 
+                                                                      
+        "iso.list", "vm.limit", "ovn.status", "vpc.list", "vpc.get", "vpc.subnet.list",
+        "vpc.attachment.list", "vpc.service.list", "vpc.status", "vm.delete.status", "vm.guest.agent.status",
+                                                                               
+                                                                                      
+                                                                                         
+                                                                     
+        "security.action.pending", "security.baseline.status", "capacity.forecast",
+        "daemon.update_check", "vm.billing.report", "vm.guest.fsinfo", "vm.sla.report",
+                                                                      
+                                                                        
+                                                                                      
+                                                                                  
+                                                                                  
+                                                                           
+        "push.subscribe", "push.unsubscribe", "push.mine",
+                                                                             
+                                                                     
+                                                                                   
+                                                                                      
+                                                                         
+                                                                                      
                                                                   
-                                                     
-                                                               
-      
-                                                    
-                                                    
-                            
-    if (g_strcmp0(method, "alert.history") == 0 ||
-        g_strcmp0(method, "healing.pending") == 0 ||
-        g_strcmp0(method, "healing.history") == 0 ||
-        g_strcmp0(method, "agent.history") == 0 ||
-        g_strcmp0(method, "config.history") == 0 ||
-        g_strcmp0(method, "storage.pool.forecast") == 0)
-    {
-        return PCV_ROLE_VIEWER;
+                                                           
+        "auth.totp.status", "auth.totp.disable", "auth.totp.recovery.regenerate",
+    };
+    for (gsize i = 0; i < G_N_ELEMENTS(k_viewer_exact); i++) {
+        if (g_strcmp0(method, k_viewer_exact[i]) == 0)
+            return PCV_ROLE_VIEWER;
     }
 
                                                         
@@ -1056,50 +906,6 @@ _method_min_role(const gchar *method)
     {
         return PCV_ROLE_VIEWER;
     }
-
-
-
-
-
-
-
-
-    if (g_strcmp0(method, "iso.list") == 0        ||
-        g_strcmp0(method, "vm.limit") == 0        ||
-        g_strcmp0(method, "ovn.status") == 0      ||
-        g_strcmp0(method, "vpc.list") == 0        ||
-        g_strcmp0(method, "vpc.get") == 0         ||
-        g_strcmp0(method, "vpc.subnet.list") == 0 ||
-        g_strcmp0(method, "vpc.attachment.list") == 0 ||
-        g_strcmp0(method, "vpc.service.list") == 0 ||
-        g_strcmp0(method, "vpc.status") == 0      ||
-        g_strcmp0(method, "vm.delete.status") == 0 ||
-        g_strcmp0(method, "vm.guest.agent.status") == 0)
-    {
-        return PCV_ROLE_VIEWER;
-    }
-
-                                                       
-                                              
-      
-                                                               
-                                           
-                                                                          
-                                                            
-                                      
-                                                            
-                                                                           
-                                                                
-                                                            
-                                                          
-                                                                    
-                                                             
-    if (g_strcmp0(method, "push.subscribe") == 0 ||
-        g_strcmp0(method, "push.unsubscribe") == 0 ||
-        g_strcmp0(method, "push.mine") == 0)
-    {
-        return PCV_ROLE_VIEWER;
-    }
 #if PCV_CLUSTER_ENABLED
     if (g_strcmp0(method, "cluster.status") == 0 ||
         g_strcmp0(method, "cluster.role") == 0   ||
@@ -1109,31 +915,11 @@ _method_min_role(const gchar *method)
     }
 #endif
 
-                                                                       
-                                                     
-                                                      
-                                                          
-                                                               
-      
-                                                    
-                                                              
                                                                 
-                                                       
+                                                                   
                                                            
-                                                           
-               
-      
-                                                
-                                                     
-                   
-    if (g_strcmp0(method, "auth.totp.status") == 0 ||
-        g_strcmp0(method, "auth.totp.disable") == 0 ||
-        g_strcmp0(method, "auth.totp.recovery.regenerate") == 0)
-    {
-        return PCV_ROLE_VIEWER;
-    }
-
-                                                                
+    if (g_strcmp0(method, "vm.inspect") == 0)
+        return PCV_ROLE_ADMIN;
                                                           
     if (g_str_has_prefix(method, "auth."))
         return PCV_ROLE_ADMIN;
@@ -1187,6 +973,11 @@ _method_min_role(const gchar *method)
         return PCV_ROLE_ADMIN;
     }
 #endif
+
+                                                                                       
+                                                                                     
+    if (g_strcmp0(method, "security.action.dismiss") == 0)
+        return PCV_ROLE_OPERATOR;
 
                                                                   
                                                                                
@@ -1578,7 +1369,7 @@ static gboolean g_totp_required_roles[3];
                                                          
                                                   
                                                 
-
+                                                              
   
                                                      
                                                   
@@ -1694,6 +1485,9 @@ pcv_rbac_init(const gchar *db_path)
                                                                                        
     _migrate_freeze_apikey_effective_roles();
 
+                                                                                     
+    pcv_rbac_identity_migrate();
+
     _ensure_admin_user();
 
                                    
@@ -1734,7 +1528,7 @@ pcv_rbac_shutdown(void)
                                        
                                                        
                                                                   
-                                     
+                                                                
                                          
   
                          
@@ -1763,13 +1557,14 @@ pcv_rbac_user_create(const gchar *username,
 
     gchar *salt = _generate_salt();                               
     gchar *hash = _hash_password(salt, password);                   
+    g_autofree gchar *nonce = pcv_rbac_identity_nonce_new();                           
 
     g_mutex_lock(&g_rbac_mutex);
 
     sqlite3_stmt *stmt = nullptr;
     int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO users (username, password_hash, salt, role, tenant) "
-        "VALUES (?, ?, ?, ?, ?);",
+        "INSERT INTO users (username, password_hash, salt, role, tenant, identity_nonce) "
+        "VALUES (?, ?, ?, ?, ?, ?);",
         -1, &stmt, NULL);
 
     if (rc != SQLITE_OK) {
@@ -1788,7 +1583,8 @@ pcv_rbac_user_create(const gchar *username,
     if (tenant)
         sqlite3_bind_text(stmt, 5, tenant, -1, SQLITE_STATIC);
     else
-        sqlite3_bind_null(stmt, 5);                                       
+        sqlite3_bind_null(stmt, 5);                                                      
+    sqlite3_bind_text(stmt, 6, nonce, -1, SQLITE_STATIC);
 
     rc = sqlite3_step(stmt);
     sqlite3_finalize(stmt);
@@ -1802,137 +1598,16 @@ pcv_rbac_user_create(const gchar *username,
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS,
                     "User '%s' already exists or DB error: %s",
                     username, sqlite3_errmsg(g_rbac_db));
-        pcv_audit_log(NULL, "auth.user.create", username, "failed", -1, 0, NULL);
         return FALSE;
     }
 
     PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.user.create", username,
                   "User created (role=%s, tenant=%s)",
                   pcv_rbac_role_to_str(role), tenant ? tenant : "global");
-    pcv_audit_log(NULL, "auth.user.create", username, "ok", 0, 0, NULL);
     return TRUE;
 }
 
-   
-                        
-                        
-  
-                                
-                                                  
-                                                   
-               
-  
-                                                
-                                                  
-                 
-  
-                                                                                     
-                              
-   
-PcvUserExistence
-pcv_rbac_user_exists(const gchar *username)
-{
-    if (!username || !*username) return PCV_USER_ABSENT;
-
-    g_mutex_lock(&g_rbac_mutex);
-    if (!g_rbac_db) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return PCV_USER_UNKNOWN;
-    }
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-                                "SELECT 1 FROM users WHERE username = ? LIMIT 1;",
-                                -1, &stmt, NULL);
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return PCV_USER_UNKNOWN;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    if (rc == SQLITE_ROW)  return PCV_USER_PRESENT;                  
-    if (rc == SQLITE_DONE) return PCV_USER_ABSENT;                   
-    return PCV_USER_UNKNOWN;                                    
-}
-
-   
-                        
-                        
-                       
-  
-                        
-                                                            
-  
-                                                
-                                           
-  
-                                                                                    
-                                          
-                     
-  
-                                                                  
-                                                        
-                                                                   
-   
-gboolean
-pcv_rbac_user_delete(const gchar *username, GError **error)
-{
-    g_return_val_if_fail(username && *username, FALSE);
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "DELETE FROM users WHERE username = ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        return FALSE;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    int changes = sqlite3_changes(g_rbac_db);                              
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE) {
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB error: %s", sqlite3_errmsg(g_rbac_db));
-        return FALSE;
-    }
-
-    if (changes == 0) {
-                                                              
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "User '%s' not found", username);
-        return FALSE;
-    }
-
-                                                  
-                                                   
-                                                         
-    if (!_totp_delete_rows(username)) {
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-            "Failed to cascade-delete TOTP rows for deleted user '%s' — "
-            "orphaned user_totp/totp_recovery_codes rows may remain", username);
-    }
-
-    g_mutex_unlock(&g_rbac_mutex);
-
-    PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.user.delete", username,
-                  "User deleted");
-    pcv_audit_log(NULL, "auth.user.delete", username, "ok", 0, 0, NULL);
-    return TRUE;
-}
+                                                                                                                    
 
    
                       
@@ -1976,7 +1651,7 @@ pcv_rbac_user_list(void)
         u->username = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));             
         u->role     = (PcvRole)sqlite3_column_int(stmt, 1);
         const gchar *t = (const gchar *)sqlite3_column_text(stmt, 2);
-        u->tenant   = t ? g_strdup(t) : NULL;                            
+        u->tenant   = t ? g_strdup(t) : NULL;                                                      
         u->totp_enrolled  = sqlite3_column_int(stmt, 3) != 0;
         u->totp_confirmed = sqlite3_column_int(stmt, 4) != 0;
         g_ptr_array_add(arr, u);
@@ -2001,23 +1676,44 @@ pcv_rbac_user_list(void)
                                                                
   
                                                                                     
-                                                                
+                                                                                  
+                                                                                          
                      
    
 gboolean
 pcv_rbac_user_set_role(const gchar *username,
                        PcvRole      role,
+                       PcvRole     *out_previous,
                        GError     **error)
 {
     g_return_val_if_fail(username && *username, FALSE);
 
     g_mutex_lock(&g_rbac_mutex);
 
+                                                                
     sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "UPDATE users SET role = ? WHERE username = ?;",
-        -1, &stmt, NULL);
+    int rc = sqlite3_prepare_v2(g_rbac_db, "SELECT role FROM users WHERE username = ?;", -1, &stmt, NULL);
+    if (rc != SQLITE_OK) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
+        g_mutex_unlock(&g_rbac_mutex);
+        return FALSE;
+    }
+    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
+    rc = sqlite3_step(stmt);
+    PcvRole previous = (rc == SQLITE_ROW) ? (PcvRole)sqlite3_column_int(stmt, 0) : PCV_ROLE_VIEWER;
+    sqlite3_finalize(stmt);
+    if (rc != SQLITE_ROW) {
+        if (rc == SQLITE_DONE)
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "User '%s' not found", username);
+        else
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "DB error: %s", sqlite3_errmsg(g_rbac_db));
+        g_mutex_unlock(&g_rbac_mutex);
+        return FALSE;
+    }
 
+    stmt = nullptr;
+    rc = sqlite3_prepare_v2(g_rbac_db, "UPDATE users SET role = ? WHERE username = ?;", -1, &stmt, NULL);
     if (rc != SQLITE_OK) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
@@ -2028,29 +1724,18 @@ pcv_rbac_user_set_role(const gchar *username,
     sqlite3_bind_int (stmt, 1, (int)role);
     sqlite3_bind_text(stmt, 2, username, -1, SQLITE_STATIC);
     rc = sqlite3_step(stmt);
-    int changes = sqlite3_changes(g_rbac_db);
     sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
     if (rc != SQLITE_DONE) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "DB error: %s", sqlite3_errmsg(g_rbac_db));
+        g_mutex_unlock(&g_rbac_mutex);
         return FALSE;
     }
+    g_mutex_unlock(&g_rbac_mutex);
 
-    if (changes == 0) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "User '%s' not found", username);
-        return FALSE;
-    }
-
-    PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.role.set", username,
-                  "Role changed to %s", pcv_rbac_role_to_str(role));
-    {
-        gchar *detail = g_strdup_printf("role changed to %s", pcv_rbac_role_to_str(role));
-        pcv_audit_log(NULL, "auth.role.change", username, detail, 0, 0, NULL);
-        g_free(detail);
-    }
+    if (out_previous) *out_previous = previous;
+    PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.role.set", username, "Role changed from %s to %s",
+                  pcv_rbac_role_to_str(previous), pcv_rbac_role_to_str(role));
     return TRUE;
 }
 
@@ -2059,13 +1744,13 @@ pcv_rbac_user_set_role(const gchar *username,
                                                     
   
                                                 
-
-
+                                                        
+                                         
   
                                                          
                                                              
                                                              
-
+                                                               
    
 gboolean
 pcv_rbac_change_password(const gchar *username,
@@ -2090,12 +1775,8 @@ pcv_rbac_change_password(const gchar *username,
         return FALSE;
     }
 
-
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    gboolean locked = _brute_check_locked(username);
-    g_mutex_unlock(&g_attempts_mu);
-    if (locked) {
+                                                          
+    if (pcv_rbac_attempts_login_locked(username, NULL)) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED, "Account locked");
         return FALSE;
     }
@@ -2114,7 +1795,7 @@ pcv_rbac_change_password(const gchar *username,
         goto db_failure;
     transaction = TRUE;
 
-
+                                                       
     if (sqlite3_prepare_v2(g_rbac_db,
             "SELECT password_hash, salt FROM users WHERE username=?", -1, &stmt, NULL) != SQLITE_OK ||
         sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC) != SQLITE_OK)
@@ -2123,7 +1804,7 @@ pcv_rbac_change_password(const gchar *username,
     if (rc != SQLITE_ROW && rc != SQLITE_DONE) goto db_failure;
     if (rc == SQLITE_DONE || !_password_matches(
             (const gchar *)sqlite3_column_text(stmt, 0),
-            (const gchar *)sqlite3_column_text(stmt, 1), old_password, NULL)) {
+            (const gchar *)sqlite3_column_text(stmt, 1), old_password, NULL, NULL)) {
         bad_password = TRUE;
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
                     "Current password is incorrect");
@@ -2140,7 +1821,7 @@ pcv_rbac_change_password(const gchar *username,
         goto db_failure;
     sqlite3_finalize(stmt); stmt = NULL;
 
-
+                                                              
     if (sqlite3_prepare_v2(g_rbac_db,
             "UPDATE sessions SET revoked=1 WHERE username=? AND revoked=0", -1, &stmt, NULL) != SQLITE_OK ||
         sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC) != SQLITE_OK ||
@@ -2162,13 +1843,9 @@ done:
     g_mutex_unlock(&g_rbac_mutex);
     g_free(salt); g_free(hash);
 
-    if (ok || bad_password) {
-        g_mutex_lock(&g_attempts_mu);
-        if (ok) _brute_record_success(username);
-        else _brute_record_failure(username);
-        g_mutex_unlock(&g_attempts_mu);
-    }
-
+    if (ok || bad_password)
+        pcv_rbac_attempts_login_record(username, ok);
+                                                           
     if (ok) PCV_LOG_AUDIT(RBAC_LOG_DOM, "auth.password.change", username,
                           "Password changed (refresh sessions revoked)");
     return ok;
@@ -2192,22 +1869,22 @@ done:
                                                        
                                                      
                                                      
-                                          
+                                                
+                             
   
                                           
                                                                
   
-                                                
-                                                        
+                                                                                
+                                                                              
   
                                                                                    
-                                                                     
-                                                   
+                                          
                                                               
    
 
-
-
+                                                           
+                                                 
 gchar *
 pcv_rbac_authenticate(const gchar *username,
                       const gchar *password,
@@ -2216,78 +1893,8 @@ pcv_rbac_authenticate(const gchar *username,
     g_return_val_if_fail(username && *username, NULL);
     g_return_val_if_fail(password && *password, NULL);
 
-                                                               
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    if (_brute_check_locked(username)) {
-                                                       
-        LoginAttemptInfo *info = g_hash_table_lookup(g_login_attempts, username);
-        gint remain = info ? (gint)((info->locked_until - g_get_monotonic_time()) / G_USEC_PER_SEC) : 0;
-        g_mutex_unlock(&g_attempts_mu);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Account locked — retry after %d seconds", remain > 0 ? remain : 1);
+    if (!_login_verify(username, password, NULL, NULL, error))
         return NULL;
-    }
-    g_mutex_unlock(&g_attempts_mu);                                   
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT password_hash, salt FROM users WHERE username = ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        return NULL;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-
-    if (rc != SQLITE_ROW) {
-                                                              
-                                                               
-        sqlite3_finalize(stmt);
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Invalid credentials");
-        pcv_audit_log(username, "auth.login.failed", username, "user not found", 404, 0, NULL);
-        return NULL;
-    }
-
-                                                                             
-    const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
-    const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
-
-    gboolean rehash = FALSE;
-    gboolean match = _password_matches(stored_hash, stored_salt, password, &rehash);
-    if (match && rehash)
-        _password_rehash_locked(username, stored_salt, password);
-
-    sqlite3_finalize(stmt);                                               
-    g_mutex_unlock(&g_rbac_mutex);
-
-    if (!match) {
-                                                                 
-        g_mutex_lock(&g_attempts_mu);
-        _brute_record_failure(username);
-        g_mutex_unlock(&g_attempts_mu);
-
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Invalid credentials");                       
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-                     "Authentication failed for user '%s'", username);
-        pcv_audit_log(username, "auth.login.failed", username, "invalid credentials", 401, 0, NULL);
-        return NULL;
-    }
-
-                                                          
-    g_mutex_lock(&g_attempts_mu);
-    _brute_record_success(username);
-    g_mutex_unlock(&g_attempts_mu);
 
                                                                
     gchar *token = pcv_jwt_sign(username, 0, error);
@@ -2303,8 +1910,21 @@ pcv_rbac_authenticate(const gchar *username,
                                       
                                                                     
 
+                                                                                                  
+                                                                                                     
+gchar *
+pcv_rbac_identity_nonce_new(void)
+{
+    guchar raw[IDENTITY_NONCE_BYTES];
+    _fill_random_bytes(raw, sizeof(raw));                                   
+    gchar *hex = g_malloc(IDENTITY_NONCE_BYTES * 2 + 1);
+    for (gsize i = 0; i < sizeof(raw); i++)
+        g_snprintf(hex + i * 2, 3, "%02x", raw[i]);
+    return hex;
+}
+
    
-                           
+                                                                                   
   
                                                
                                                               
@@ -2314,8 +1934,8 @@ pcv_rbac_authenticate(const gchar *username,
   
                                                     
    
-static gchar *
-_generate_refresh_token(void)
+gchar *
+pcv_rbac_refresh_token_new(void)
 {
     guchar raw[REFRESH_TOKEN_BYTES];
     _fill_random_bytes(raw, sizeof(raw));                                
@@ -2328,7 +1948,7 @@ _generate_refresh_token(void)
 }
 
    
-                       
+                                                                                
                                           
   
                                           
@@ -2339,8 +1959,8 @@ _generate_refresh_token(void)
   
                                                           
    
-static gchar *
-_hash_refresh_token(const gchar *token)
+gchar *
+pcv_rbac_refresh_token_hash(const gchar *token)
 {
     GChecksum *cksum = g_checksum_new(G_CHECKSUM_SHA256);
     g_checksum_update(cksum, (const guchar *)token, (gssize)strlen(token));
@@ -2349,57 +1969,6 @@ _hash_refresh_token(const gchar *token)
     return hex;
 }
 
-   
-                  
-                         
-                                                          
-  
-                                 
-                                  
-  
-                                                  
-                         
-  
-                                                               
-                                 
-   
-static gboolean
-_store_session(const gchar *username, const gchar *token_hash)
-{
-    sqlite3_stmt *stmt = nullptr;
-                                                                  
-    gint64 now = (gint64)g_get_real_time() / G_USEC_PER_SEC;
-
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "INSERT INTO sessions (username, refresh_token_hash, created_at, expires_at, revoked) "
-        "VALUES (?, ?, ?, ?, 0);",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        PCV_LOG_ERROR(RBAC_LOG_DOM,
-                      "Failed to prepare session INSERT: %s",
-                      sqlite3_errmsg(g_rbac_db));
-        return FALSE;
-    }
-
-    sqlite3_bind_text (stmt, 1, username,   -1, SQLITE_STATIC);
-    sqlite3_bind_text (stmt, 2, token_hash, -1, SQLITE_STATIC);
-    sqlite3_bind_int64(stmt, 3, now);                                        
-    sqlite3_bind_int64(stmt, 4, now + REFRESH_TOKEN_EXPIRY);                          
-
-    rc = sqlite3_step(stmt);
-    sqlite3_finalize(stmt);
-
-    if (rc != SQLITE_DONE) {
-        PCV_LOG_ERROR(RBAC_LOG_DOM,
-                      "Failed to store session: %s",
-                      sqlite3_errmsg(g_rbac_db));
-        return FALSE;
-    }
-
-    return TRUE;
-}
-
                                                                  
                                                                    
                                                                     
@@ -2414,12 +1983,10 @@ _store_session(const gchar *username, const gchar *token_hash)
                                                 
                                                          
   
-                                                                
-                                                                         
-                                                                
-                                                                   
+                                                                                                 
                                                  
    
+                                                                                                               
 gboolean
 pcv_rbac_password_check(const gchar *username,
                         const gchar *password,
@@ -2427,343 +1994,28 @@ pcv_rbac_password_check(const gchar *username,
 {
     g_return_val_if_fail(username && *username, FALSE);
     g_return_val_if_fail(password && *password, FALSE);
-
-                           
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    if (_brute_check_locked(username)) {
-        LoginAttemptInfo *info = g_hash_table_lookup(g_login_attempts, username);
-        gint remain = info ? (gint)((info->locked_until - g_get_monotonic_time()) / G_USEC_PER_SEC) : 0;
-        g_mutex_unlock(&g_attempts_mu);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Account locked — retry after %d seconds", remain > 0 ? remain : 1);
-        return FALSE;
-    }
-    g_mutex_unlock(&g_attempts_mu);
-
-                                                       
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT password_hash, salt FROM users WHERE username = ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        return FALSE;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-
-    if (rc != SQLITE_ROW) {
-        sqlite3_finalize(stmt);
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Invalid credentials");
-        pcv_audit_log(username, "auth.login.failed", username, "user not found", 404, 0, NULL);
-        return FALSE;
-    }
-
-    const gchar *stored_hash = (const gchar *)sqlite3_column_text(stmt, 0);
-    const gchar *stored_salt = (const gchar *)sqlite3_column_text(stmt, 1);
-
-    gboolean rehash = FALSE;
-    gboolean match = _password_matches(stored_hash, stored_salt, password, &rehash);
-    if (match && rehash)
-        _password_rehash_locked(username, stored_salt, password);
-
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    if (!match) {
-                                         
-        g_mutex_lock(&g_attempts_mu);
-        _brute_record_failure(username);
-        g_mutex_unlock(&g_attempts_mu);
-
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Invalid credentials");
-        PCV_LOG_WARN(RBAC_LOG_DOM,
-                     "Authentication failed for user '%s'", username);
-        pcv_audit_log(username, "auth.login.failed", username, "invalid credentials", 401, 0, NULL);
-        return FALSE;
-    }
-
-                                                                 
-                                                                     
-    g_mutex_lock(&g_attempts_mu);
-    _brute_record_success(username);
-    g_mutex_unlock(&g_attempts_mu);
-
-    return TRUE;
+    return _login_verify(username, password, NULL, NULL, error);
 }
 
-   
-                         
-  
-                                                            
-                                                       
-                                                                           
-                                                               
-  
-                                                
-                                                      
-                                     
-  
-                                                      
-  
-                                                                                    
-                                                                          
-                                                            
-                                                             
-                                                 
-                                                 
-                       
-                                                                   
-                                                          
-   
-gchar *
-pcv_rbac_issue_tokens(const gchar *username,
-                      gchar      **out_refresh_token,
-                      GError     **error)
+                                                                     
+gboolean
+pcv_rbac_password_check_subject(const gchar *username,
+                                const gchar *password,
+                                PcvRole     *out_role,
+                                gchar      **out_identity_nonce,
+                                GError     **error)
 {
-    g_return_val_if_fail(username && *username, NULL);
-
-    g_mutex_lock(&g_rbac_mutex);
-
-                                                         
-                                                                    
-                                                                  
-                                                   
-                                           
-                                                                    
-                                                      
-                                                             
-                                                   
-    sqlite3_stmt *chk = nullptr;
-    int chk_rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT 1 FROM users WHERE username = ?;",
-        -1, &chk, NULL);
-
-    if (chk_rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        return NULL;
-    }
-
-    sqlite3_bind_text(chk, 1, username, -1, SQLITE_STATIC);
-    chk_rc = sqlite3_step(chk);
-    sqlite3_finalize(chk);
-
-    if (chk_rc != SQLITE_ROW) {
-                                                               
-                                                        
-                                                             
-        g_mutex_unlock(&g_rbac_mutex);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                    "User '%s' no longer exists", username);
-        return NULL;
-    }
-
-                                                        
-                                                                 
-    gchar *refresh = nullptr;
-    if (out_refresh_token) {
-        refresh = _generate_refresh_token();
-        gchar *hash = _hash_refresh_token(refresh);                    
-
-        if (!_store_session(username, hash)) {
-            g_free(hash);
-            g_free(refresh);
-            g_mutex_unlock(&g_rbac_mutex);
-            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                        "Failed to create session");
-            return NULL;
-        }
-        g_free(hash);
-    }
-
-    g_mutex_unlock(&g_rbac_mutex);
-
-                                                               
-    gchar *token = pcv_jwt_sign(username, ACCESS_TOKEN_EXPIRY, error);
-    if (token) {
-        if (out_refresh_token)
-            *out_refresh_token = refresh;
-        PCV_LOG_INFO(RBAC_LOG_DOM,
-                     "User '%s' authenticated (v2, refresh=%s)",
-                     username, out_refresh_token ? "yes" : "no");
-        pcv_audit_log(username, "auth.login", username, "ok", 0, 0, NULL);
-    } else {
-        g_free(refresh);
-    }
-
-    return token;
+    g_return_val_if_fail(username && *username, FALSE);
+    g_return_val_if_fail(password && *password, FALSE);
+    return _login_verify(username, password, out_role, out_identity_nonce, error);
 }
 
-   
-                            
-  
-                                  
-                                                                   
-                                                 
-  
-                                                    
-                                                  
-                                     
-  
-                                                     
-                                     
-  
-                                                                        
-                                                  
-  
-                                                                        
-                                                                     
-                                     
-                                                                         
-                                                                     
-                                                  
-                                                                 
-                                                                          
-                                                                   
-                                                          
-   
-
-
-gchar *
-pcv_rbac_authenticate_v2(const gchar *username,
-                         const gchar *password,
-                         gchar      **out_refresh_token,
-                         GError     **error)
-{
-    if (!pcv_rbac_password_check(username, password, error))
-        return NULL;
-
-    return pcv_rbac_issue_tokens(username, out_refresh_token, error);
-}
-
+                                                                                                                            
                                                                  
                                                   
                                                                     
 
-   
-                          
-  
-                                                               
-                                                    
-  
-                                                   
-                                                   
-  
-                                                              
-                                                                
-                                                          
-                                                            
-   
-gchar *
-pcv_rbac_refresh_token(const gchar *refresh_token,
-                       gchar      **out_new_refresh,
-                       GError     **error)
-{
-    g_return_val_if_fail(refresh_token && *refresh_token, NULL);
-
-    gchar *token_hash = _hash_refresh_token(refresh_token);                           
-    gint64 now = (gint64)g_get_real_time() / G_USEC_PER_SEC;                        
-
-    g_mutex_lock(&g_rbac_mutex);
-
-                                                      
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT id, username FROM sessions "
-        "WHERE refresh_token_hash = ? AND revoked = 0 AND expires_at > ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DB prepare failed: %s", sqlite3_errmsg(g_rbac_db));
-        g_mutex_unlock(&g_rbac_mutex);
-        g_free(token_hash);
-        return NULL;
-    }
-
-    sqlite3_bind_text (stmt, 1, token_hash, -1, SQLITE_STATIC);
-    sqlite3_bind_int64(stmt, 2, now);
-    rc = sqlite3_step(stmt);
-
-    if (rc != SQLITE_ROW) {
-                                                                
-        sqlite3_finalize(stmt);
-        g_mutex_unlock(&g_rbac_mutex);
-        g_free(token_hash);
-        g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "Invalid or expired refresh token");
-        PCV_LOG_WARN(RBAC_LOG_DOM, "Refresh token validation failed");
-        pcv_audit_log(NULL, "auth.token.refresh", "unknown", "invalid token", 401, 0, NULL);
-        return NULL;
-    }
-
-    gint64 session_id = sqlite3_column_int64(stmt, 0);                                
-    gchar *username = g_strdup((const gchar *)sqlite3_column_text(stmt, 1));                    
-    sqlite3_finalize(stmt);
-
-                                                      
-                                                           
-                                
-    stmt = nullptr;
-    rc = sqlite3_prepare_v2(g_rbac_db,
-        "UPDATE sessions SET revoked = 1 WHERE id = ?;",
-        -1, &stmt, NULL);
-
-    if (rc == SQLITE_OK) {
-        sqlite3_bind_int64(stmt, 1, session_id);
-        sqlite3_step(stmt);
-        sqlite3_finalize(stmt);
-    }
-
-                                                            
-    gchar *new_refresh = nullptr;
-    if (out_new_refresh) {
-        new_refresh = _generate_refresh_token();
-        gchar *new_hash = _hash_refresh_token(new_refresh);
-
-        if (!_store_session(username, new_hash)) {
-            g_free(new_hash);
-            g_free(new_refresh);
-            g_free(username);
-            g_mutex_unlock(&g_rbac_mutex);
-            g_free(token_hash);
-            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                        "Failed to rotate refresh token");
-            return NULL;
-        }
-        g_free(new_hash);
-    }
-
-    g_mutex_unlock(&g_rbac_mutex);
-    g_free(token_hash);
-
-                                                              
-    gchar *access_token = pcv_jwt_sign(username, ACCESS_TOKEN_EXPIRY, error);
-    if (access_token) {
-        if (out_new_refresh)
-            *out_new_refresh = new_refresh;
-        PCV_LOG_INFO(RBAC_LOG_DOM,
-                     "Token refreshed for user '%s'", username);
-        pcv_audit_log(username, "auth.token.refresh", username, "ok", 0, 0, NULL);
-    } else {
-        g_free(new_refresh);
-    }
-
-    g_free(username);
-    return access_token;
-}
+                                                                                                 
 
    
                            
@@ -2856,7 +2108,7 @@ pcv_rbac_cleanup_expired_sessions(void)
 }
 
                                                                  
-                                        
+                                            
                                                                     
 
    
@@ -2903,51 +2155,51 @@ pcv_rbac_list_sessions(const gchar *username)
 }
 
    
-                                 
-                               
-                                       
-  
-                       
-                                              
-  
-                                                      
-                                                  
-  
-                                                        
-                           
+                                    
+                                                                              
+                                                                             
+                                                               
+                                                                                
+                                                                                 
    
-gboolean
-pcv_rbac_revoke_session_by_id(const gchar *username, gint64 session_id)
+gint
+pcv_rbac_revoke_session_by_token(const gchar *refresh_token, const gchar *username,
+                                 gchar **out_username)
 {
-    if (!g_rbac_db || !username) return FALSE;
+    if (out_username) *out_username = NULL;
+    if (!refresh_token || !*refresh_token) return 0;
+    gchar *token_hash = pcv_rbac_refresh_token_hash(refresh_token);
+    gint64 now = (gint64)g_get_real_time() / G_USEC_PER_SEC;
+    gint result = -1;
+    gchar *owner = nullptr;
+    sqlite3_stmt *stmt = nullptr;
 
     g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-                                                                  
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "UPDATE sessions SET revoked=1 WHERE id=? AND username=? AND revoked=0",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return FALSE;
+    if (g_rbac_db && sqlite3_prepare_v2(g_rbac_db,
+            "SELECT id, username FROM sessions WHERE refresh_token_hash = ? AND revoked = 0 "
+            "AND expires_at > ? AND (?3 IS NULL OR username = ?3);", -1, &stmt, NULL) == SQLITE_OK) {
+        sqlite3_bind_text(stmt, 1, token_hash, -1, SQLITE_STATIC);
+        sqlite3_bind_int64(stmt, 2, now);
+        sqlite3_bind_text(stmt, 3, username, -1, SQLITE_STATIC);                                   
+        int rc = sqlite3_step(stmt);
+        result = rc == SQLITE_ROW ? 1 : rc == SQLITE_DONE ? 0 : -1;
+        gint64 id = result == 1 ? sqlite3_column_int64(stmt, 0) : 0;
+        if (result == 1) owner = g_strdup((const gchar *)sqlite3_column_text(stmt, 1));
+        sqlite3_finalize(stmt);
+        if (result == 1) {
+            result = -1;
+            if (sqlite3_prepare_v2(g_rbac_db, "UPDATE sessions SET revoked = 1 WHERE id = ?;", -1, &stmt, NULL) == SQLITE_OK) {
+                sqlite3_bind_int64(stmt, 1, id);
+                result = sqlite3_step(stmt) == SQLITE_DONE ? 1 : -1;
+                sqlite3_finalize(stmt);
+            }
+        }
     }
-
-    sqlite3_bind_int64(stmt, 1, session_id);
-    sqlite3_bind_text(stmt, 2, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-    int changes = sqlite3_changes(g_rbac_db);
-    sqlite3_finalize(stmt);
     g_mutex_unlock(&g_rbac_mutex);
-
-    gboolean ok = (rc == SQLITE_DONE && changes > 0);
-    if (ok) {
-        PCV_LOG_INFO(RBAC_LOG_DOM,
-                     "Revoked session %ld for user '%s'", (long)session_id, username);
-        pcv_audit_log(username, "auth.session.revoke", username, "ok", 0, 0, NULL);
-    }
-    return ok;
+    if (result == 1 && out_username) *out_username = g_steal_pointer(&owner);
+    g_free(owner);
+    g_free(token_hash);
+    return result;
 }
 
                                                                  
@@ -2970,7 +2222,7 @@ pcv_rbac_revoke_session_by_id(const gchar *username, gint64 session_id)
                                                       
   
                                                            
-                                                   
+                                                         
    
 
 gboolean
@@ -2979,112 +2231,35 @@ pcv_rbac_check_permission(const gchar *username,
 {
     if (!username || !method) return FALSE;                   
 
-    PcvRole user_role = pcv_rbac_get_role(username);                       
-    PcvRole min_role  = _method_min_role(method);                          
-
-    return (user_role >= min_role);                          
+                                                                                   
+    PcvRole user_role = PCV_ROLE_VIEWER;
+    if (pcv_rbac_lookup_subject(username, &user_role, NULL) != PCV_USER_PRESENT) return FALSE;
+    return pcv_rbac_role_permits(user_role, method);
 }
 
-   
-                     
-                        
-  
-                       
-                                                  
-  
-                                                     
+                                                                                  
+gboolean
+pcv_rbac_role_permits(PcvRole role, const gchar *method)
+{
+    if (!method || role < PCV_ROLE_VIEWER || role > PCV_ROLE_ADMIN) return FALSE;                      
+    return role >= _method_min_role(method);                          
+}
+
+                                                                                               
                                                             
-  
-                                                              
-   
-PcvRole
-pcv_rbac_get_role(const gchar *username)
+
+                                                                                                          
+                                                                             
+                                                                       
+sqlite3 *
+pcv_rbac_db_lock(void)
 {
-                                      
-    if (!username || !*username) return PCV_ROLE_VIEWER;
-
     g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT role FROM users WHERE username = ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return PCV_ROLE_VIEWER;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-
-    PcvRole role = PCV_ROLE_VIEWER;
-    if (rc == SQLITE_ROW)
-        role = (PcvRole)sqlite3_column_int(stmt, 0);
-
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    return role;
+    return g_rbac_db;
 }
 
-   
-                       
-                        
-  
-                     
-                                                
-  
-                                                    
-                                                
-  
-             
-                                         
-                                            
-                                       
-  
-                                                                   
-                                                         
-   
-const gchar *
-pcv_rbac_get_tenant(const gchar *username)
-{
-                                                      
-                                                      
-                                                     
-    static __thread gchar t_tenant[256];
-
-    if (!username || !*username) return NULL;
-
-    g_mutex_lock(&g_rbac_mutex);
-
-    sqlite3_stmt *stmt = nullptr;
-    int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT tenant FROM users WHERE username = ?;",
-        -1, &stmt, NULL);
-
-    if (rc != SQLITE_OK) {
-        g_mutex_unlock(&g_rbac_mutex);
-        return NULL;
-    }
-
-    sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
-    rc = sqlite3_step(stmt);
-
-    const gchar *result = nullptr;
-    if (rc == SQLITE_ROW) {
-        const gchar *val = (const gchar *)sqlite3_column_text(stmt, 0);
-        if (val) {
-            g_strlcpy(t_tenant, val, sizeof(t_tenant));
-            result = t_tenant;
-        }
-    }
-
-    sqlite3_finalize(stmt);
-    g_mutex_unlock(&g_rbac_mutex);
-
-    return result;
-}
+void
+pcv_rbac_db_unlock(void) { g_mutex_unlock(&g_rbac_mutex); }
 
                                                                  
                                     
@@ -3178,7 +2353,7 @@ _sha256_hex(const gchar *data, gsize len)
   
                                                                       
                                                                
-                                                                                 
+                                                                                     
    
                                                   
                                                     
@@ -3188,6 +2363,7 @@ _sha256_hex(const gchar *data, gsize len)
                                                                     
                                                                                  
                                                                                  
+                                                                         
    
 gchar *
 pcv_rbac_verify_api_key(const gchar *api_key, PcvRole *out_role, GError **error)
@@ -3210,8 +2386,10 @@ pcv_rbac_verify_api_key(const gchar *api_key, PcvRole *out_role, GError **error)
 
     sqlite3_stmt *stmt = nullptr;
                                                                 
+                                                                                        
     int rc = sqlite3_prepare_v2(g_rbac_db,
-        "SELECT client_name, role FROM api_keys "
+        "SELECT client_name, role, (last_used_at IS NULL OR last_used_at NOT BETWEEN "
+        "datetime('now','-59 seconds') AND datetime('now')) FROM api_keys "
         "WHERE key_hash = ? AND revoked = 0 "
         "AND (expires_at = 0 OR expires_at > ?);",
         -1, &stmt, NULL);
@@ -3233,7 +2411,21 @@ pcv_rbac_verify_api_key(const gchar *api_key, PcvRole *out_role, GError **error)
         client_name = g_strdup((const gchar *)sqlite3_column_text(stmt, 0));
         if (out_role) *out_role = (PcvRole)sqlite3_column_int(stmt, 1);
     }
+    gboolean touch = (rc == SQLITE_ROW) && sqlite3_column_int(stmt, 2) != 0;
     sqlite3_finalize(stmt);
+                                                                            
+                                                            
+                                                                 
+    if (touch) {
+        sqlite3_stmt *upd = nullptr;
+        if (sqlite3_prepare_v2(g_rbac_db, "UPDATE api_keys SET last_used_at=datetime('now') WHERE key_hash=?",
+                               -1, &upd, NULL) == SQLITE_OK) {
+            sqlite3_bind_text(upd, 1, key_hash, -1, SQLITE_STATIC);
+            if (sqlite3_step(upd) != SQLITE_DONE)
+                PCV_LOG_WARN(RBAC_LOG_DOM, "API key last_used_at update failed: %s", sqlite3_errmsg(g_rbac_db));
+        }
+        sqlite3_finalize(upd);
+    }
     g_mutex_unlock(&g_rbac_mutex);
     g_free(key_hash);
 
@@ -3267,105 +2459,6 @@ pcv_user_free(PcvUser *u)
     g_free(u->username);
     g_free(u->tenant);
     g_free(u);
-}
-
-                                                                 
-                        
-                                                                    
-
-   
-                                                          
-                                      
-                                                   
-   
-gboolean
-pcv_rbac_is_locked(const gchar *username)
-{
-    if (!username || !*username) return FALSE;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    gboolean locked = _brute_check_locked(username);
-    g_mutex_unlock(&g_attempts_mu);
-    return locked;
-}
-
-   
-                                                         
-                                                    
-                                                  
-   
-gint
-pcv_rbac_get_remaining_lockout(const gchar *username)
-{
-    if (!username || !*username) return 0;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    LoginAttemptInfo *info = g_hash_table_lookup(g_login_attempts, username);
-    gint remaining = 0;
-    if (info && info->locked_until > 0) {
-        gint64 now = g_get_monotonic_time();
-        if (now < info->locked_until)                             
-            remaining = (gint)((info->locked_until - now) / G_USEC_PER_SEC);
-    }
-    g_mutex_unlock(&g_attempts_mu);
-    return remaining;
-}
-
-                                              
-
-   
-                                                           
-                                             
-                                                                
-   
-gint
-pcv_rbac_get_ip_remaining_lockout(const gchar *ip)
-{
-    if (!ip || !*ip) return 0;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-                                                   
-    gboolean locked = _brute_ip_check_locked(ip);
-    gint remaining = 0;
-    if (locked) {
-        LoginAttemptInfo *info = g_hash_table_lookup(g_ip_attempts, ip);
-        if (info && info->locked_until > 0) {
-            gint64 now = g_get_monotonic_time();
-            if (now < info->locked_until)
-                remaining = (gint)((info->locked_until - now) / G_USEC_PER_SEC);
-        }
-    }
-    g_mutex_unlock(&g_attempts_mu);
-    return remaining;
-}
-
-   
-                                                                 
-                                                    
-                                                
-   
-void
-pcv_rbac_ip_record_auth_failure(const gchar *ip)
-{
-    if (!ip || !*ip) return;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    _brute_ip_record_failure(ip);
-    g_mutex_unlock(&g_attempts_mu);
-}
-
-   
-                                                                   
-                                          
-   
-void
-pcv_rbac_ip_record_auth_success(const gchar *ip)
-{
-    if (!ip || !*ip) return;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    _brute_ip_record_success(ip);
-    g_mutex_unlock(&g_attempts_mu);
 }
 
                                                                  
@@ -3426,7 +2519,7 @@ static void _migrate_apikey_columns(void)
     }
                                                                            
                                                          
-                                                                              
+                                                              
                                                                    
                                                                
     {
@@ -3504,52 +2597,6 @@ pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
     *out_key = g_string_free(plaintext_key, FALSE);
     g_free(hash);
     return TRUE;
-}
-
-   
-                                                  
-                                                    
-                                              
-                                                                
-   
-gint
-pcv_rbac_apikey_validate(const gchar *api_key)
-{
-    if (!api_key || !g_str_has_prefix(api_key, "pcv_")) return -1;               
-
-    gchar *hash = g_compute_checksum_for_string(G_CHECKSUM_SHA256, api_key, -1);            
-    gint role = -1;
-    gint64 now_epoch = g_get_real_time() / G_USEC_PER_SEC;              
-
-                                                                  
-    g_mutex_lock(&g_rbac_mutex);
-    _ensure_apikey_table();
-    sqlite3_stmt *stmt = nullptr;
-                                                                
-    if (sqlite3_prepare_v2(g_rbac_db,
-        "SELECT role FROM api_keys WHERE key_hash = ? AND revoked = 0 "
-        "AND (expires_at = 0 OR expires_at > ?)", -1, &stmt, NULL) == SQLITE_OK) {
-        sqlite3_bind_text(stmt, 1, hash, -1, SQLITE_TRANSIENT);
-        sqlite3_bind_int64(stmt, 2, now_epoch);
-        if (sqlite3_step(stmt) == SQLITE_ROW)
-            role = sqlite3_column_int(stmt, 0);
-    }
-    if (stmt) sqlite3_finalize(stmt);
-
-                                                                      
-    if (role >= 0) {
-        sqlite3_stmt *upd = nullptr;
-        if (sqlite3_prepare_v2(g_rbac_db,
-            "UPDATE api_keys SET last_used_at=datetime('now') WHERE key_hash=?",
-            -1, &upd, NULL) == SQLITE_OK) {
-            sqlite3_bind_text(upd, 1, hash, -1, SQLITE_TRANSIENT);
-            sqlite3_step(upd);
-            sqlite3_finalize(upd);
-        }
-    }
-    g_mutex_unlock(&g_rbac_mutex);
-    g_free(hash);
-    return role;
 }
 
    
@@ -3791,7 +2838,7 @@ pcv_rbac_check_user_rate(const gchar *username)
                                                                     
 
    
-                     
+                                                                                   
                     
   
                                                               
@@ -3804,8 +2851,8 @@ pcv_rbac_check_user_rate(const gchar *username)
   
                                                                     
    
-static gboolean
-_totp_delete_rows(const gchar *username)
+gboolean
+pcv_rbac_totp_delete_rows_locked(const gchar *username)
 {
     sqlite3_stmt *stmt = nullptr;
 
@@ -3877,11 +2924,20 @@ pcv_rbac_totp_status(const gchar *username, PcvTotpStatus *out)
                                                     
    
 gchar *
-pcv_rbac_totp_enroll(const gchar *username, GError **error)
+pcv_rbac_totp_enroll(const gchar *username, const gchar *identity_nonce, GError **error)
 {
     g_return_val_if_fail(username && *username, NULL);
 
     g_mutex_lock(&g_rbac_mutex);
+
+                                                                                            
+    PcvSubjectCheck who = pcv_rbac_identity_check_locked(g_rbac_db, username, identity_nonce, NULL);
+    if (who != PCV_SUBJECT_OK) {
+        g_mutex_unlock(&g_rbac_mutex);
+        g_set_error(error, G_IO_ERROR, who == PCV_SUBJECT_REJECT ? G_IO_ERROR_PERMISSION_DENIED : G_IO_ERROR_FAILED,
+                    who == PCV_SUBJECT_REJECT ? "Invalid token" : "Authentication store unavailable");
+        return NULL;
+    }
 
                                                              
     sqlite3_stmt *stmt = nullptr;
@@ -3969,17 +3025,12 @@ pcv_rbac_totp_verify_code(const gchar *username, const gchar *code,
     if (out_first_confirm) *out_first_confirm = FALSE;
 
                                                  
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    if (_totp_brute_check_locked(username)) {
-        LoginAttemptInfo *info = g_hash_table_lookup(g_totp_attempts, username);
-        gint remain = info ? (gint)((info->locked_until - g_get_monotonic_time()) / G_USEC_PER_SEC) : 0;
-        g_mutex_unlock(&g_attempts_mu);
+    gint remain = 0;
+    if (pcv_rbac_attempts_totp_locked(username, &remain)) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED,
-                    "TOTP locked — retry after %d seconds", remain > 0 ? remain : 1);
+                    "TOTP locked — retry after %d seconds", remain);
         return FALSE;
     }
-    g_mutex_unlock(&g_attempts_mu);                                   
 
     g_mutex_lock(&g_rbac_mutex);
 
@@ -3996,7 +3047,7 @@ pcv_rbac_totp_verify_code(const gchar *username, const gchar *code,
     sqlite3_bind_text(stmt, 1, username, -1, SQLITE_STATIC);
     rc = sqlite3_step(stmt);
     if (rc != SQLITE_ROW) {
-                                                      
+                                                                       
                                                                       
         sqlite3_finalize(stmt);
         g_mutex_unlock(&g_rbac_mutex);
@@ -4114,10 +3165,8 @@ pcv_rbac_totp_verify_code(const gchar *username, const gchar *code,
                                                        
                                                           
                                                 
-    g_mutex_lock(&g_attempts_mu);
-    if (success) _totp_brute_record_success(username);
-    else if (!consume_failed) _totp_brute_record_failure(username);
-    g_mutex_unlock(&g_attempts_mu);
+    if (success || !consume_failed)
+        pcv_rbac_attempts_totp_record(username, success);
 
     if (!success) {
         if (consume_failed) {
@@ -4229,7 +3278,7 @@ pcv_rbac_totp_disable(const gchar *username, GError **error)
     g_return_val_if_fail(username && *username, FALSE);
 
     g_mutex_lock(&g_rbac_mutex);
-    gboolean ok = _totp_delete_rows(username);
+    gboolean ok = pcv_rbac_totp_delete_rows_locked(username);
     g_mutex_unlock(&g_rbac_mutex);
 
     if (!ok) {
@@ -4238,24 +3287,4 @@ pcv_rbac_totp_disable(const gchar *username, GError **error)
         return FALSE;
     }
     return TRUE;                                                     
-}
-
-   
-                                                                   
-   
-gint
-pcv_rbac_totp_get_remaining_lockout(const gchar *username)
-{
-    if (!username || !*username) return 0;
-    _brute_ensure_init();
-    g_mutex_lock(&g_attempts_mu);
-    LoginAttemptInfo *info = g_hash_table_lookup(g_totp_attempts, username);
-    gint remaining = 0;
-    if (info && info->locked_until > 0) {
-        gint64 now = g_get_monotonic_time();
-        if (now < info->locked_until)
-            remaining = (gint)((info->locked_until - now) / G_USEC_PER_SEC);
-    }
-    g_mutex_unlock(&g_attempts_mu);
-    return remaining;
 }

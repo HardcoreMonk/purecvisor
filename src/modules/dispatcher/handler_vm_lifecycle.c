@@ -1,6 +1,6 @@
    
                                
-                                                 
+                                                      
   
                            
                                                    
@@ -21,7 +21,7 @@
         
                                                                          
                                                                          
-                                                               
+                                                                
                                                    
                                                                 
                                      
@@ -40,7 +40,7 @@
                                                                                 
                                                            
   
-                                                                     
+                                                                                        
                                                                               
   
             
@@ -48,16 +48,14 @@
                                                                                                    
                                                                                    
   
-                      
-                                                                       
-                                                                                          
-                                                                                   
-                                                                     
-                                                                     
-                                                          
+                                                                                                  
+                                                                                                                                     
+                                                         
+                                               
+                                                                                                      
   
           
-                                                                           
+                                                                                       
                                                                
                                                
   
@@ -74,7 +72,6 @@
                                
    
 #include "api/drain.h"
-#include <unistd.h>
 #include <glib.h>
 #include <gio/gio.h>
 #include <libvirt/libvirt.h>
@@ -82,73 +79,25 @@
 #include <libvirt/virterror.h>
 #include <json-glib/json-glib.h>
 #include <glib/gstdio.h>
-#include <libxml/parser.h>
-#include <libxml/tree.h>
 #include "../audit/pcv_audit.h"
 #include <string.h>
-#include <stdio.h>
-#include <errno.h>
 #include "api/uds_server.h"
+#include "modules/dispatcher/vnc_port_xml.h"
 #include "modules/dispatcher/rpc_utils.h"
 #include "modules/core/vm_state.h"
 #include "modules/dispatcher/handler_vm_lifecycle.h"
-#include "modules/virt/cancellable_map.h"                                     
+#include "modules/dispatcher/guest_agent_exec.h"                                               
 #include "modules/virt/vm_manager.h"                                                       
-#include "modules/network/vpc/vpc_manager.h"                                            
-#include "modules/network/dpdk_manager.h"
-#include "utils/pcv_config.h"
 #include "utils/pcv_spawn.h"
+#include "modules/dispatcher/vm_limit_policy.h"
 #include "utils/pcv_validate.h"
-#include "utils/pcv_log.h"
 #include "modules/virt/virt_conn_pool.h"
 #include "purecvisor/pcv_handler_util.h"
 #include "../network/security_group.h"
-
-                                                                    
-              
-  
-                                             
-                                                  
-  
-                                                          
-                                                       
-  
-               
-                                                                  
-                                                                         
-                                                            
-                                                                       
-typedef struct {
-    gchar *vm_id;                                                           
-    gchar *action;                                                                             
-    gint cpu_quota;                                                           
-    gint mem_quota_mb;                                            
-    gchar *rpc_id;                                         
-    UdsServer *server;                                       
-    GSocketConnection *connection;                                  
-                                                  
-    gint out_cpu_pct;                                   
-    gint out_mem_pct;                                   
-    gint out_vcpu;                        
-    gint64 out_memory_mb;                     
-    gint64 out_disk_rd;                       
-    gint64 out_disk_wr;                       
-    gint64 out_net_rx;                         
-    gint64 out_net_tx;                         
-    gint64 out_disk_rd_req;                       
-    gint64 out_disk_wr_req;                        
-    gint64 out_net_rx_pkts;                           
-    gint64 out_net_tx_pkts;                           
-                                
-    gint page_offset;                                      
-    gint page_limit;                                       
-                                                                    
-                                                                          
-    gboolean holds_lock;
-} VmLifecycleCtx;
+#include "modules/dispatcher/handler_vm_internal.h"
 
    
-                      
+                               
                                          
                                                      
   
@@ -159,7 +108,7 @@ typedef struct {
                                                                  
                                                                                 
    
-static void free_lifecycle_ctx(gpointer data) {
+void pcv_disp_free_lifecycle_ctx(gpointer data) {
     if (!data) return;                                                                  
     VmLifecycleCtx *ctx = (VmLifecycleCtx *)data;
     g_free(ctx->vm_id);
@@ -181,900 +130,6 @@ static void free_lifecycle_ctx(gpointer data) {
 static gboolean _cancel_source_cb(gpointer c) {
     g_cancellable_cancel(G_CANCELLABLE(c));                                  
     return G_SOURCE_REMOVE;
-}
-
-   
-                                                                        
-                                                                       
-  
-                                                          
-                                                    
-  
-                              
-                                                                                 
-                                                                
-                                            
-  
-                                                       
-                                                                      
-                                                  
-                                                          
-   
-static gchar *
-_extract_domain_disk_source_attr(const gchar *xml, const gchar *attr)
-{
-    if (!xml || !attr || !*attr)                                                  
-        return NULL;
-
-    const gchar *p = xml;
-                                           
-    while ((p = strstr(p, "<disk")) != NULL) {
-        const gchar *tag_end = strchr(p, '>');                              
-        const gchar *disk_end = strstr(p, "</disk>");                            
-                                                       
-        if (!tag_end || !disk_end || disk_end <= tag_end)
-            return NULL;
-
-                                                                         
-        gboolean is_primary_disk =
-            g_strstr_len(p, tag_end - p, "device='disk'") ||
-            g_strstr_len(p, tag_end - p, "device=\"disk\"");
-        if (!is_primary_disk) {                                                          
-            p = disk_end + strlen("</disk>");
-            continue;
-        }
-
-                                                                      
-        gchar *needle = g_strdup_printf("<source %s='", attr);
-        const gchar *start = g_strstr_len(tag_end, disk_end - tag_end, needle);
-        gchar quote = '\'';                                                  
-        if (!start) {                                                               
-            g_free(needle);
-            needle = g_strdup_printf("<source %s=\"", attr);
-            start = g_strstr_len(tag_end, disk_end - tag_end, needle);
-            quote = '"';
-        }
-
-        if (start) {
-            start += strlen(needle);                                               
-            const gchar *end = strchr(start, quote);                        
-            g_free(needle);
-            if (end && end <= disk_end)                                              
-                return g_strndup(start, end - start);
-            return NULL;                                                                
-        }
-
-        g_free(needle);
-        p = disk_end + strlen("</disk>");                                                    
-    }
-
-    return NULL;                                                                    
-}
-
-                                                  
-                                                               
-typedef enum {
-    PCV_VM_RENAME_DISK_NONE = 0,                 
-    PCV_VM_RENAME_DISK_ZVOL,                                           
-    PCV_VM_RENAME_DISK_FILE,                                            
-} PcvVmRenameDiskKind;
-
-                                                          
-                                                       
-                                                                              
-typedef struct {
-    PcvVmRenameDiskKind disk_kind;                           
-    gchar *old_disk_path;                          
-    gchar *new_disk_path;                            
-    gchar *old_dataset;                                           
-    gchar *new_dataset;                                             
-    gchar *old_nvram_path;                                        
-    gchar *new_nvram_path;                                          
-} PcvVmRenamePlan;
-
-                                          
-static const gchar *_guest_get_vm_name(JsonObject *params);
-virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier);
-
-   
-                                                          
-                                                             
-                                                             
-   
-static void
-_vm_rename_plan_clear(PcvVmRenamePlan *plan)
-{
-    if (!plan) return;
-    g_free(plan->old_disk_path);
-    g_free(plan->new_disk_path);
-    g_free(plan->old_dataset);
-    g_free(plan->new_dataset);
-    g_free(plan->old_nvram_path);
-    g_free(plan->new_nvram_path);
-    memset(plan, 0, sizeof(*plan));                                                       
-}
-
-   
-                                                           
-                                                    
-                                                                                  
-                                    
-   
-static void
-_send_rpc_error(UdsServer *server, GSocketConnection *connection,
-                const gchar *rpc_id, gint code, const gchar *message)
-{
-    gchar *err = pure_rpc_build_error_response(rpc_id, code,
-                    message ? message : "Unknown error");                        
-    pure_uds_server_send_response(server, connection, err);
-    g_free(err);
-}
-
-   
-                                                                 
-                                                                       
-                                                  
-   
-static const gchar *
-_vm_rename_get_new_name(JsonObject *params)
-{
-    if (!params) return NULL;
-                                                                 
-    if (json_object_has_member(params, "new_name"))
-        return json_object_get_string_member(params, "new_name");
-    if (json_object_has_member(params, "target_name"))
-        return json_object_get_string_member(params, "target_name");
-    if (json_object_has_member(params, "target"))
-        return json_object_get_string_member(params, "target");
-    return NULL;
-}
-
-   
-                                                                 
-                                                       
-                                                                     
-   
-static xmlNodePtr
-_xml_direct_child(xmlNodePtr parent, const gchar *name)
-{
-    if (!parent || !name) return NULL;
-    for (xmlNodePtr cur = parent->children; cur; cur = cur->next) {
-        if (cur->type == XML_ELEMENT_NODE &&                                      
-            xmlStrcmp(cur->name, BAD_CAST name) == 0)
-            return cur;
-    }
-    return NULL;
-}
-
-   
-                                                                           
-                                                                               
-                                                           
-                                                                 
-                                                             
-   
-static xmlNodePtr
-_xml_find_primary_disk_source(xmlNodePtr node)
-{
-    for (xmlNodePtr cur = node; cur; cur = cur->next) {                        
-        if (cur->type == XML_ELEMENT_NODE &&
-            xmlStrcmp(cur->name, BAD_CAST "disk") == 0) {
-            xmlChar *device = xmlGetProp(cur, BAD_CAST "device");                          
-            gboolean is_disk = device && xmlStrcmp(device, BAD_CAST "disk") == 0;
-            if (device) xmlFree(device);                                                   
-            if (is_disk) {
-                xmlNodePtr source = _xml_direct_child(cur, "source");
-                if (source)
-                    return source;                                                      
-            }
-        }
-
-        xmlNodePtr child = _xml_find_primary_disk_source(cur->children);                   
-        if (child)
-            return child;
-    }
-    return NULL;
-}
-
-   
-                                                                             
-                                                            
-  
-                                                           
-                                      
-  
-                                                        
-                                                                               
-                                                                     
-                                                         
-   
-static gboolean
-_vm_rename_build_zvol_target(const gchar *old_name, const gchar *new_name,
-                             const gchar *old_path, PcvVmRenamePlan *plan,
-                             gchar **error_msg)
-{
-    if (!g_str_has_prefix(old_path, "/dev/zvol/")) {                             
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename supports only ZFS zvol or standard qcow2/raw primary disks");
-        return FALSE;
-    }
-
-    gchar *dataset = g_strdup(old_path + strlen("/dev/zvol/"));                        
-    gchar *slash = strrchr(dataset, '/');                                         
-                                            
-    if (!slash || slash == dataset || *(slash + 1) == '\0') {
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename could not parse source zvol dataset path");
-        g_free(dataset);
-        return FALSE;
-    }
-
-    const gchar *leaf = slash + 1;                                                      
-    if (g_strcmp0(leaf, old_name) != 0) {                                             
-        if (error_msg) {
-            *error_msg = g_strdup_printf(
-                "vm.rename requires the primary zvol leaf '%s' to match VM name '%s'",
-                leaf, old_name);
-        }
-        g_free(dataset);
-        return FALSE;
-    }
-
-    gchar *parent = g_strndup(dataset, (gsize)(slash - dataset));                         
-    gchar *target_dataset = g_strdup_printf("%s/%s", parent, new_name);                   
-    gchar *target_path = g_strdup_printf("/dev/zvol/%s", target_dataset);                      
-
-    plan->disk_kind = PCV_VM_RENAME_DISK_ZVOL;
-    plan->old_disk_path = g_strdup(old_path);
-    plan->new_disk_path = target_path;                                                    
-    plan->old_dataset = dataset;                                                     
-    plan->new_dataset = target_dataset;
-
-    g_free(parent);                                                           
-    return TRUE;
-}
-
-   
-                                                                                 
-                                                  
-                                                            
-                                                                     
-   
-static gboolean
-_vm_rename_file_ext_allowed(const gchar *base, const gchar *old_name,
-                            const gchar **ext_out)
-{
-    static const gchar *exts[] = { ".qcow2", ".raw", ".img", NULL };                 
-    for (gint i = 0; exts[i]; i++) {
-        gchar *expected = g_strdup_printf("%s%s", old_name, exts[i]);                           
-        gboolean match = g_strcmp0(base, expected) == 0;
-        g_free(expected);
-        if (match) {
-            if (ext_out) *ext_out = exts[i];                                
-            return TRUE;
-        }
-    }
-    return FALSE;
-}
-
-   
-                                                                 
-                                                 
-                                                     
-                                                                             
-   
-static gboolean
-_vm_rename_build_file_target(const gchar *old_name, const gchar *new_name,
-                             const gchar *old_path, PcvVmRenamePlan *plan,
-                             gchar **error_msg)
-{
-    gchar *base = g_path_get_basename(old_path);                          
-    gchar *dir = g_path_get_dirname(old_path);                             
-    const gchar *ext = NULL;
-
-    if (!_vm_rename_file_ext_allowed(base, old_name, &ext)) {                    
-        if (error_msg) {
-            *error_msg = g_strdup_printf(
-                "vm.rename requires primary file disk basename to be %s.qcow2, %s.raw, or %s.img",
-                old_name, old_name, old_name);
-        }
-        g_free(base);
-        g_free(dir);
-        return FALSE;
-    }
-
-    gchar *new_base = g_strdup_printf("%s%s", new_name, ext);                         
-    gchar *target_path = g_build_filename(dir, new_base, NULL);                     
-
-    plan->disk_kind = PCV_VM_RENAME_DISK_FILE;
-    plan->old_disk_path = g_strdup(old_path);
-    plan->new_disk_path = target_path;                                      
-
-    g_free(new_base);
-    g_free(base);
-    g_free(dir);
-    return TRUE;
-}
-
-   
-                                                                         
-                                                        
-  
-                                                            
-                                                               
-  
-                 
-                                                          
-                                                             
-                                                                
-                                                              
-   
-static gboolean
-_vm_rename_prepare_nvram(xmlNodePtr root, const gchar *old_name,
-                         const gchar *new_name, PcvVmRenamePlan *plan,
-                         gchar **error_msg)
-{
-    xmlNodePtr os = _xml_direct_child(root, "os");
-    xmlNodePtr nvram = os ? _xml_direct_child(os, "nvram") : NULL;
-    if (!nvram)
-        return TRUE;                                                                       
-
-    xmlChar *content = xmlNodeGetContent(nvram);                                
-    if (!content || !*content) {                                           
-        if (content) xmlFree(content);
-        return TRUE;
-    }
-
-    gchar *old_path = g_strdup((const gchar *)content);
-    xmlFree(content);
-    g_strstrip(old_path);                                                          
-    if (!*old_path) {                                                  
-        g_free(old_path);
-        return TRUE;
-    }
-
-    gchar *base = g_path_get_basename(old_path);
-    gchar *expected = g_strdup_printf("%s_VARS.fd", old_name);                       
-    if (g_strcmp0(base, expected) != 0) {                                          
-        if (error_msg) {
-            *error_msg = g_strdup_printf(
-                "vm.rename found non-standard NVRAM path '%s'; expected basename '%s'",
-                old_path, expected);
-        }
-        g_free(base);
-        g_free(expected);
-        g_free(old_path);
-        return FALSE;
-    }
-
-    gchar *dir = g_path_get_dirname(old_path);
-    gchar *new_base = g_strdup_printf("%s_VARS.fd", new_name);                          
-    gchar *new_path = g_build_filename(dir, new_base, NULL);                          
-    xmlNodeSetContent(nvram, BAD_CAST new_path);                                       
-
-    plan->old_nvram_path = old_path;                                              
-    plan->new_nvram_path = new_path;
-
-    g_free(new_base);
-    g_free(dir);
-    g_free(base);
-    g_free(expected);
-    return TRUE;
-}
-
-   
-                                                                            
-                                                     
-                                       
-  
-                                                             
-                                                   
-  
-                                                                      
-                                               
-                                                                         
-                                                       
-   
-static gchar *
-_vm_rename_build_patched_xml(const gchar *xml,
-                             const gchar *old_name,
-                             const gchar *new_name,
-                             PcvVmRenamePlan *plan,
-                             gchar **error_msg)
-{
-                                                                            
-    xmlDocPtr doc = xmlReadMemory(xml, (int)strlen(xml), "pcv-vm-rename.xml",
-                                  NULL, XML_PARSE_NONET | XML_PARSE_NOERROR |
-                                                XML_PARSE_NOWARNING);
-    if (!doc) {
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename failed to parse domain XML");
-        return NULL;                                                                     
-    }
-
-    gchar *patched = NULL;                                                               
-    xmlNodePtr root = xmlDocGetRootElement(doc);
-    xmlNodePtr name_node = root ? _xml_direct_child(root, "name") : NULL;
-    if (!name_node) {
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename could not find domain <name> node");
-        goto cleanup;
-    }
-    xmlNodeSetContent(name_node, BAD_CAST new_name);                            
-
-    xmlNodePtr source = root ? _xml_find_primary_disk_source(root) : NULL;
-    if (!source) {                                                                      
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename requires a primary disk source");
-        goto cleanup;
-    }
-
-                                                            
-    xmlChar *dev = xmlGetProp(source, BAD_CAST "dev");
-    xmlChar *file = dev ? NULL : xmlGetProp(source, BAD_CAST "file");
-    if (dev) {
-                                                         
-        if (!_vm_rename_build_zvol_target(old_name, new_name, (const gchar *)dev,
-                                          plan, error_msg)) {
-            xmlFree(dev);
-            goto cleanup;
-        }
-        xmlSetProp(source, BAD_CAST "dev", BAD_CAST plan->new_disk_path);                     
-        xmlFree(dev);
-    } else if (file) {
-                                                         
-        if (!_vm_rename_build_file_target(old_name, new_name, (const gchar *)file,
-                                          plan, error_msg)) {
-            xmlFree(file);
-            goto cleanup;
-        }
-        xmlSetProp(source, BAD_CAST "file", BAD_CAST plan->new_disk_path);
-        xmlFree(file);
-    } else {
-        if (error_msg)                                                                  
-            *error_msg = g_strdup("vm.rename could not find primary disk dev/file source");
-        goto cleanup;
-    }
-
-    if (!_vm_rename_prepare_nvram(root, old_name, new_name, plan, error_msg))
-        goto cleanup;                                                         
-
-                                 
-    xmlChar *out = NULL;
-    int out_len = 0;
-    xmlDocDumpMemory(doc, &out, &out_len);
-    if (!out || out_len <= 0) {
-        if (error_msg)
-            *error_msg = g_strdup("vm.rename failed to serialize patched XML");
-        if (out) xmlFree(out);
-        goto cleanup;
-    }
-    patched = g_strdup((const gchar *)out);                                     
-    xmlFree(out);                                                                     
-
-cleanup:
-    xmlFreeDoc(doc);                                                            
-    if (!patched)
-        _vm_rename_plan_clear(plan);                                                  
-    return patched;
-}
-
-   
-                                                                    
-                                                
-                                                               
-   
-static gboolean
-_vm_rename_zfs_exists(const gchar *dataset)
-{
-    const gchar *argv[] = {"zfs", "list", "-H", "-o", "name", dataset, NULL};
-    return pcv_spawn_sync(argv, NULL, NULL, NULL);                                
-}
-
-   
-                                                                                 
-                                                        
-                                                         
-   
-static gboolean
-_vm_rename_zfs_rename(const gchar *from, const gchar *to, gchar **error_msg)
-{
-    gchar *stderr_s = NULL;
-    const gchar *argv[] = {"zfs", "rename", from, to, NULL};
-    gboolean ok = pcv_spawn_sync(argv, NULL, &stderr_s, NULL);
-    if (!ok && error_msg) {                                                   
-        *error_msg = g_strdup_printf("zfs rename %s -> %s failed: %s",
-                                     from, to, stderr_s ? stderr_s : "unknown error");
-    }
-    g_free(stderr_s);
-    return ok;
-}
-
-   
-                                                                          
-                                                 
-  
-                                                    
-                                     
-  
-                                                                                    
-                                          
-   
-static gboolean
-_vm_rename_storage_apply(PcvVmRenamePlan *plan, gchar **error_msg)
-{
-    if (plan->disk_kind == PCV_VM_RENAME_DISK_ZVOL) {
-        if (!_vm_rename_zfs_exists(plan->old_dataset)) {                        
-            if (error_msg)
-                *error_msg = g_strdup_printf("source zvol dataset not found: %s",
-                                             plan->old_dataset);
-            return FALSE;
-        }
-        if (_vm_rename_zfs_exists(plan->new_dataset)) {                             
-            if (error_msg)
-                *error_msg = g_strdup_printf("target zvol dataset already exists: %s",
-                                             plan->new_dataset);
-            return FALSE;
-        }
-        return _vm_rename_zfs_rename(plan->old_dataset, plan->new_dataset, error_msg);
-    }
-
-    if (plan->disk_kind == PCV_VM_RENAME_DISK_FILE) {
-        if (!g_file_test(plan->old_disk_path, G_FILE_TEST_EXISTS)) {                     
-            if (error_msg)
-                *error_msg = g_strdup_printf("source disk file not found: %s",
-                                             plan->old_disk_path);
-            return FALSE;
-        }
-        if (g_file_test(plan->new_disk_path, G_FILE_TEST_EXISTS)) {                         
-            if (error_msg)
-                *error_msg = g_strdup_printf("target disk file already exists: %s",
-                                             plan->new_disk_path);
-            return FALSE;
-        }
-        if (g_rename(plan->old_disk_path, plan->new_disk_path) != 0) {                
-            if (error_msg)
-                *error_msg = g_strdup_printf("disk file rename failed: %s",
-                                             g_strerror(errno));
-            return FALSE;
-        }
-        return TRUE;
-    }
-
-    if (error_msg)                                                                     
-        *error_msg = g_strdup("vm.rename has no storage plan");
-    return FALSE;
-}
-
-   
-                                                                
-                                                   
-                                                                 
-   
-static void
-_vm_rename_storage_rollback(PcvVmRenamePlan *plan)
-{
-    if (!plan) return;
-    if (plan->disk_kind == PCV_VM_RENAME_DISK_ZVOL) {
-                                                 
-        if (plan->new_dataset && plan->old_dataset &&
-            _vm_rename_zfs_exists(plan->new_dataset)) {
-            gchar *ignored = NULL;                                          
-            if (!_vm_rename_zfs_rename(plan->new_dataset, plan->old_dataset, &ignored)) {
-                PCV_LOG_ERROR("vm_rename", "storage rollback failed: %s",
-                              ignored ? ignored : "unknown error");
-            }
-            g_free(ignored);
-        }
-    } else if (plan->disk_kind == PCV_VM_RENAME_DISK_FILE) {
-        if (plan->new_disk_path && plan->old_disk_path &&
-            g_file_test(plan->new_disk_path, G_FILE_TEST_EXISTS)) {
-            if (g_rename(plan->new_disk_path, plan->old_disk_path) != 0) {
-                PCV_LOG_ERROR("vm_rename", "disk rollback failed: %s",
-                              g_strerror(errno));
-            }
-        }
-    }
-}
-
-   
-                                                         
-                                                 
-                                                                    
-   
-static gboolean
-_vm_rename_nvram_apply(PcvVmRenamePlan *plan, gchar **error_msg)
-{
-    if (!plan->old_nvram_path || !plan->new_nvram_path)
-        return TRUE;                                                                   
-
-    if (g_file_test(plan->new_nvram_path, G_FILE_TEST_EXISTS)) {                         
-        if (error_msg)
-            *error_msg = g_strdup_printf("target NVRAM file already exists: %s",
-                                         plan->new_nvram_path);
-        return FALSE;
-    }
-
-    if (!g_file_test(plan->old_nvram_path, G_FILE_TEST_EXISTS))
-        return TRUE;                                                               
-
-    if (g_rename(plan->old_nvram_path, plan->new_nvram_path) != 0) {                
-        if (error_msg)
-            *error_msg = g_strdup_printf("NVRAM file rename failed: %s",
-                                         g_strerror(errno));
-        return FALSE;
-    }
-    return TRUE;
-}
-
-   
-                                                                            
-                                                       
-   
-static void
-_vm_rename_nvram_rollback(PcvVmRenamePlan *plan)
-{
-    if (!plan || !plan->old_nvram_path || !plan->new_nvram_path)
-        return;
-    if (g_file_test(plan->new_nvram_path, G_FILE_TEST_EXISTS)) {
-        if (g_rename(plan->new_nvram_path, plan->old_nvram_path) != 0) {
-            PCV_LOG_ERROR("vm_rename", "NVRAM rollback failed: %s",
-                          g_strerror(errno));
-        }
-    }
-}
-
-                                                                    
-                                           
-                                                                       
-
-   
-                                                                       
-                                                            
-  
-                                                        
-                                                   
-                                      
-  
-                                                            
-                                      
-  
-                                                                       
-                                                             
-  
-                                                                         
-                                                                                    
-                                                                            
-   
-void
-handle_vm_rename_request(JsonObject *params, const gchar *rpc_id,
-                         UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *old_name = _guest_get_vm_name(params);                        
-    const gchar *new_name = _vm_rename_get_new_name(params);                                     
-
-    if (!old_name || !new_name) {                                       
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                        "Invalid params: 'name' and 'new_name' are required");
-        return;
-    }
-                                           
-    if (!pcv_validate_vm_name(old_name) || !pcv_validate_vm_name(new_name)) {
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                        "Invalid VM name: only [A-Za-z0-9_-], max 64 chars");
-        return;
-    }
-    if (g_strcmp0(old_name, new_name) == 0) {                                    
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                        "new_name must be different from current name");
-        return;
-    }
-    if (pcv_vpc_vm_is_attached(old_name)) {
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
-                        "VM has a Local VPC attachment; detach it before vm.rename");
-        return;
-    }
-
-    virConnectPtr conn = virt_conn_pool_acquire();                             
-    if (!conn) {
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                        "Failed to connect to Libvirt.");
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, old_name);                           
-    if (!dom) {
-        virt_conn_pool_release(conn);                                         
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_VM_NOT_FOUND, "VM not found.");
-        return;
-    }
-
-
-
-
-
-    {
-        gchar *dpdk_bridge = NULL;
-        PcvDpdkMetaResult dpdk_meta = pcv_vm_dpdk_metadata_read(dom, &dpdk_bridge);
-        g_free(dpdk_bridge);
-        if (dpdk_meta == PCV_DPDK_META_OK || dpdk_meta == PCV_DPDK_META_INVALID) {
-            virDomainFree(dom);
-            virt_conn_pool_release(conn);
-            _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
-                dpdk_meta == PCV_DPDK_META_OK
-                    ? "vm.rename is not supported for managed DPDK VMs; recreate the VM with the new name"
-                    : "VM DPDK metadata is unreadable; vm.rename blocked");
-            return;
-        }
-    }
-
-                                               
-    virDomainPtr existing = virDomainLookupByName(conn, new_name);
-    if (existing) {
-        virDomainFree(existing);
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                        "Target VM name already exists.");
-        return;
-    }
-    virResetLastError();                                                                    
-
-    int active = virDomainIsActive(dom);                                         
-    if (active < 0) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                        "Could not verify VM power state.");
-        return;
-    }
-    if (active == 1) {                                                             
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                        "vm.rename requires the VM to be shut off.");
-        return;
-    }
-
-    int snap_count = virDomainSnapshotNum(dom, 0);                        
-    if (snap_count > 0) {                                                                
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                        "vm.rename is blocked while libvirt snapshot metadata exists.");
-        return;
-    }
-    if (snap_count < 0)
-        virResetLastError();                                                              
-
-                                                  
-    char *xml = virDomainGetXMLDesc(dom, VIR_DOMAIN_XML_INACTIVE);
-    if (!xml)
-        xml = virDomainGetXMLDesc(dom, 0);
-    if (!xml) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                        "Failed to read domain XML.");
-        return;
-    }
-
-    PcvVmRenamePlan plan = {0};                                                
-    gchar *err_msg = NULL;
-                                                                    
-    gchar *new_xml = _vm_rename_build_patched_xml(xml, old_name, new_name,
-                                                  &plan, &err_msg);
-    if (!new_xml) {
-        free(xml);                                                                         
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
-        g_free(err_msg);
-        return;
-    }
-
-                                                    
-    gboolean storage_moved = FALSE;
-    gboolean nvram_moved = FALSE;
-    gboolean old_undefined = FALSE;
-
-    if (!_vm_rename_storage_apply(&plan, &err_msg))                       
-        goto fail;
-    storage_moved = TRUE;
-
-    if (!_vm_rename_nvram_apply(&plan, &err_msg))                           
-        goto fail;
-                                            
-    nvram_moved = plan.old_nvram_path && plan.new_nvram_path &&
-                  g_file_test(plan.new_nvram_path, G_FILE_TEST_EXISTS);
-
-                                                                      
-    int undef_rc = virDomainUndefineFlags(dom, VIR_DOMAIN_UNDEFINE_KEEP_NVRAM);
-    if (undef_rc < 0) {
-        virResetLastError();
-        undef_rc = virDomainUndefine(dom);                                        
-    }
-    if (undef_rc < 0) {
-        const gchar *vir_err = virGetLastErrorMessage();
-        err_msg = g_strdup_printf("Failed to undefine old VM: %s",
-                                  vir_err ? vir_err : "unknown error");
-        virResetLastError();
-        goto fail;
-    }
-    old_undefined = TRUE;                                                              
-    virDomainFree(dom);
-    dom = NULL;                                                                            
-
-                               
-    virDomainPtr new_dom = virDomainDefineXML(conn, new_xml);
-    if (!new_dom) {
-        const gchar *vir_err = virGetLastErrorMessage();
-        err_msg = g_strdup_printf("Failed to define renamed VM: %s",
-                                  vir_err ? vir_err : "unknown error");
-        virResetLastError();
-        goto fail;
-    }
-    virDomainFree(new_dom);                                                     
-
-#if PCV_CLUSTER_ENABLED
-                                                         
-    pcv_cluster_remove_vm_xml(old_name);
-    pcv_cluster_sync_vm_xml(new_name);
-#endif
-
-    pcv_audit_log(NULL, "vm.rename", new_name, "ok", 0, 0, "local");                 
-
-                                              
-    JsonObject *res_obj = json_object_new();
-    json_object_set_string_member(res_obj, "status", "renamed");
-    json_object_set_string_member(res_obj, "old_name", old_name);
-    json_object_set_string_member(res_obj, "new_name", new_name);
-    json_object_set_string_member(res_obj, "storage_type",
-        plan.disk_kind == PCV_VM_RENAME_DISK_ZVOL ? "zvol" : "file");
-    json_object_set_string_member(res_obj, "old_disk", plan.old_disk_path);
-    json_object_set_string_member(res_obj, "new_disk", plan.new_disk_path);
-    json_object_set_boolean_member(res_obj, "disk_renamed", storage_moved);
-    json_object_set_boolean_member(res_obj, "nvram_renamed", nvram_moved);
-
-    JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(res_node, res_obj);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
-    pure_uds_server_send_response(server, connection, resp);
-    g_free(resp);
-
-                                      
-    _vm_rename_plan_clear(&plan);
-    g_free(new_xml);
-    free(xml);
-    virt_conn_pool_release(conn);
-    return;
-
-fail:
-                                                        
-    pcv_audit_log(NULL, "vm.rename", old_name, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    if (nvram_moved)
-        _vm_rename_nvram_rollback(&plan);                                
-    if (storage_moved)
-        _vm_rename_storage_rollback(&plan);                            
-    if (old_undefined) {
-                                                      
-        virDomainPtr rollback_dom = virDomainDefineXML(conn, xml);
-        if (rollback_dom)
-            virDomainFree(rollback_dom);
-        else
-            PCV_LOG_ERROR("vm_rename", "failed to restore original XML for '%s'",
-                          old_name);                                               
-    }
-
-    if (dom)
-        virDomainFree(dom);                                                           
-    _send_rpc_error(server, connection, rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                    err_msg ? err_msg : "vm.rename failed");
-    g_free(err_msg);
-    _vm_rename_plan_clear(&plan);
-    g_free(new_xml);
-    free(xml);
-    virt_conn_pool_release(conn);
 }
 
                                                                     
@@ -1234,6 +289,16 @@ static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data,
     free(domains);                                                        
                                                                          
                                                                                                      
+                                                                                         
+                                                                                      
+                     
+                                                                                 
+    if (virConnectIsAlive(conn) != 1) {
+        json_array_unref(array);
+        virt_conn_pool_release(conn);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to list domains.");
+        return;
+    }
     virt_conn_pool_release(conn);                                 
 
                                                   
@@ -1252,7 +317,7 @@ static void vm_list_worker(GTask *task, gpointer source_obj, gpointer task_data,
                                       
                                  
                                 
-                                                                    
+                                                                             
    
 static void vm_list_callback(GObject *source_obj, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -1261,12 +326,12 @@ static void vm_list_callback(GObject *source_obj, GAsyncResult *res, gpointer us
 
                                     
     guint tid = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(task), "timeout_id"));
-    if (tid > 0) g_source_remove(tid);
+    pcv_source_remove_if_attached(tid);
 
                                                        
     JsonNode *result_node = g_task_propagate_pointer(task, &error);
                                                          
-    pcv_audit_log(NULL, "vm.list", "", error ? "fail" : "ok",
+    pcv_audit_log(pcv_drain_task_actor(res), "vm.list", "", error ? "fail" : "ok",
                   error ? PURE_RPC_ERR_ZFS_OPERATION : 0, 0, "local");
     if (error) {
         gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
@@ -1316,7 +381,7 @@ static void vm_list_callback(GObject *source_obj, GAsyncResult *res, gpointer us
                       
                                                                   
                                                            
-                                                                  
+                                                                           
    
 void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     VmLifecycleCtx *ctx = g_new0(VmLifecycleCtx, 1);
@@ -1343,17 +408,12 @@ void handle_vm_list_request(JsonObject *params, const gchar *rpc_id, UdsServer *
         return;
     }
 
-                                     
-
-                                                
-                                                      
-                                                                 
-                                                                           
-                                                               
-                                           
+                                                                                 
+                                                                                      
+                             
     GCancellable *cancel = g_cancellable_new();
     GTask *task = pcv_drain_task_new(NULL, cancel, vm_list_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);
                                                       
     guint timeout_id = g_timeout_add_seconds(30, _cancel_source_cb, cancel);
     g_object_set_data(G_OBJECT(task), "timeout_id", GUINT_TO_POINTER(timeout_id));
@@ -1405,18 +465,18 @@ virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier) {
                     
                                        
   
-                                                     
+                                             
                                                            
                                                        
                                                                          
   
                                                      
-                                                                 
                                                                     
-                                                      
                                                                 
                                                                     
                                                                      
+  
+                                                                                                  
   
                                         
                                                       
@@ -1466,36 +526,12 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
                                                   
                                                    
 
-                                   
-    if (g_strcmp0(ctx->action, "start") == 0) {
-        if (virDomainIsActive(dom)) {
-            g_print("VM '%s' is already running. Skipping start sequence.\n", ctx->vm_id);
-        } else if (virDomainCreate(dom) < 0) {
-            g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to start VM: %s", ctx->vm_id);
-            virDomainFree(dom); virt_conn_pool_release(conn); g_task_return_error(task, error); return;
-        }
-    }
                                                                      
-    else if (g_strcmp0(ctx->action, "stop") == 0) {
+    if (g_strcmp0(ctx->action, "stop") == 0) {
         if (!virDomainIsActive(dom)) {
             g_print("VM '%s' is already shut off. Skipping stop sequence.\n", ctx->vm_id);
         } else if (virDomainDestroy(dom) < 0) {
             g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to stop VM: %s", ctx->vm_id);
-            virDomainFree(dom); virt_conn_pool_release(conn); g_task_return_error(task, error); return;
-        }
-    }
-                                            
-    else if (g_strcmp0(ctx->action, "reset") == 0) {
-        if (virDomainIsActive(dom)) {
-            if (virDomainDestroy(dom) < 0) {
-                g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                            "Failed to destroy VM before reset: %s", ctx->vm_id);
-                virDomainFree(dom); virt_conn_pool_release(conn);
-                g_task_return_error(task, error); return;
-            }
-        }
-        if (virDomainCreate(dom) < 0) {
-            g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to reset VM: %s", ctx->vm_id);
             virDomainFree(dom); virt_conn_pool_release(conn); g_task_return_error(task, error); return;
         }
     }
@@ -1544,24 +580,16 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
           
                                          
                                                                         
-                                                          
-                                                                    
+                                                                             
+                                                                                 
            
-        if (ctx->cpu_quota > 0) {
+        gint64 cpu_quota_us = 0;
+        if (pcv_vm_limit_cpu_quota_us(ctx->cpu_quota, &cpu_quota_us)) {
             virTypedParameter params[1];
                                                                                 
             strncpy(params[0].field, VIR_DOMAIN_SCHEDULER_VCPU_QUOTA, VIR_TYPED_PARAM_FIELD_LENGTH);
             params[0].type = VIR_TYPED_PARAM_LLONG;
-            
-                                                                  
-            params[0].value.l = (long long)ctx->cpu_quota * 1000;
-
-                                                        
-            if (ctx->cpu_quota == -1) {
-                params[0].value.l = -1;                    
-            } else {
-                params[0].value.l = (long long)ctx->cpu_quota * 1000;
-            }
+            params[0].value.l = cpu_quota_us;
 
             if (virDomainSetSchedulerParametersFlags(dom, params, 1, VIR_DOMAIN_AFFECT_LIVE) < 0) {
                 g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to inject cgroup limits to kernel.");
@@ -1641,10 +669,10 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
     virDomainFree(dom);
     virt_conn_pool_release(conn);
 
-                                                            
+                                                      
                                                                 
                                               
-    if (g_strcmp0(ctx->action, "stop") == 0 || g_strcmp0(ctx->action, "reset") == 0)
+    if (g_strcmp0(ctx->action, "stop") == 0)
         pcv_security_group_sync_vm(ctx->vm_id);
 
     g_task_return_boolean(task, TRUE);
@@ -1661,10 +689,10 @@ static void vm_action_worker(GTask *task, gpointer source_obj, gpointer task_dat
                                                   
                                                              
   
-                                                                     
-                                                               
+                                                          
                                                             
-                                                            
+                                                              
+                                                 
    
 static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer user_data) {
     GTask *task = G_TASK(res);
@@ -1673,20 +701,16 @@ static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer 
 
                     
     guint action_tid = GPOINTER_TO_UINT(g_object_get_data(G_OBJECT(task), "timeout_id"));
-    if (action_tid > 0) g_source_remove(action_tid);
+    pcv_source_remove_if_attached(action_tid);
 
     gboolean success = g_task_propagate_boolean(task, &error);
-                                                               
-                                                              
-                                   
-    if (ctx->holds_lock) unlock_vm_operation(ctx->vm_id);
-
-                            
-                                                             
                                                                                 
+    g_clear_pointer(&ctx->lock, pcv_vm_lock_release);
+
+                                                                                                 
     {
         gchar *audit_method = g_strdup_printf("vm.%s", ctx->action ? ctx->action : "unknown");
-        pcv_audit_log(NULL, audit_method, ctx->vm_id,
+        pcv_audit_log(pcv_drain_task_actor(res), audit_method, ctx->vm_id,
                       success ? "ok" : "fail",
                       success ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
         g_free(audit_method);
@@ -1704,6 +728,65 @@ static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer 
     }
 }
 
+                                  
+typedef struct {
+    gchar           *vm_id;
+    gchar           *origin;
+    PcvVmStopDoneFn  done;
+    gpointer         done_data;
+    PcvVmLock       *lock;                                        
+    gchar           *actor;                                                         
+} GracefulStopCtx;
+
+                                                                     
+static void _graceful_stop_done(GObject *source, GAsyncResult *res, gpointer user_data)
+{
+    GracefulStopCtx *c = user_data;
+    GError *err = NULL;
+    gboolean ok = purecvisor_vm_manager_stop_vm_finish(PURECVISOR_VM_MANAGER(source), res, &err);
+    g_clear_pointer(&c->lock, pcv_vm_lock_release);
+    pcv_audit_log(c->actor, "vm.stop", c->vm_id, ok ? "ok" : "fail",
+                  ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+    if (!ok)
+        g_warning("[vm.stop] graceful stop failed for '%s' (origin=%s): %s",
+                  c->vm_id, c->origin, err ? err->message : "unknown");
+    if (c->done)
+        c->done(c->vm_id, ok, err, c->done_data);
+    if (err) g_error_free(err);
+    g_free(c->vm_id); g_free(c->origin); g_free(c->actor);
+    g_free(c);
+}
+
+gboolean pcv_vm_graceful_stop_submit(PureCVisorVmManager *mgr, const gchar *vm_id, const gchar *origin,
+                                     const gchar *actor, PcvVmStopDoneFn done, gpointer user_data, gchar **err_msg)
+{
+    if (!mgr || !vm_id || !*vm_id) {
+        if (err_msg) *err_msg = g_strdup("vm manager unavailable");
+        return FALSE;
+    }
+    PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_STOPPING, err_msg);
+    if (!op_lock)
+        return FALSE;
+    g_message("[vm.stop] graceful submit '%s' (origin=%s)", vm_id, origin ? origin : "vm.batch");
+    GracefulStopCtx *c = g_new0(GracefulStopCtx, 1);
+    c->vm_id = g_strdup(vm_id);
+    c->origin = g_strdup(origin ? origin : "vm.batch");
+    c->actor = g_strdup(actor);
+    c->done = done;
+    c->done_data = user_data;
+    c->lock = op_lock;
+    purecvisor_vm_manager_stop_vm_async(mgr, vm_id, _graceful_stop_done, c);
+    return TRUE;
+}
+
+                                                                                  
+void pcv_vm_stop_report_rejected(const gchar *vm_id, const gchar *origin, const gchar *reason, const gchar *actor)
+{
+    const gchar *why = (reason && *reason) ? reason : "stop rejected";
+    pcv_audit_log(actor, "vm.stop", vm_id, "fail", PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
+    g_warning("[vm.stop] batch stop rejected '%s' (origin=%s): %s", vm_id, origin ? origin : "vm.batch", why);
+}
+
    
                           
                                            
@@ -1714,12 +797,11 @@ static void vm_action_callback(GObject *source_obj, GAsyncResult *res, gpointer 
   
           
                           
-                                                            
+                                                             
                                                       
                           
   
-                                                   
-                            
+                                                                  
                                
    
 void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
@@ -1733,12 +815,12 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
 
                                             
                                                            
-                                                            
-                                          
-                                                                     
+                                                              
+                                                                                                
                                               
     gchar *err_msg = NULL;
-    if (!lock_vm_operation(vm_id, 2, &err_msg)) {                   
+    PcvVmLock *op_lock = pcv_vm_lock_acquire(vm_id, VM_OP_STOPPING, &err_msg);
+    if (!op_lock) {
         gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err_msg);
         pure_uds_server_send_response(server, connection, err_resp);
         g_free(err_resp); g_free(err_msg); return;
@@ -1749,11 +831,11 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
                                                    
     ctx->action = g_strdup("stop");
-    ctx->holds_lock = TRUE;                                                  
+    ctx->lock = op_lock;                                          
 
     GCancellable *cancel = g_cancellable_new();
     GTask *task = pcv_drain_task_new(NULL, cancel, vm_action_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);
     g_object_set_data(G_OBJECT(task), "is_delete", GINT_TO_POINTER(FALSE));
     guint tid = g_timeout_add_seconds(30, _cancel_source_cb, cancel);
     g_object_set_data(G_OBJECT(task), "timeout_id", GUINT_TO_POINTER(tid));
@@ -1773,7 +855,7 @@ void handle_vm_stop_request(JsonObject *params, const gchar *rpc_id, UdsServer *
   
                                  
                                              
-                                                                        
+                                                                 
    
 void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer *server, GSocketConnection *connection) {
     if (!params || !json_object_has_member(params, "vm_id")) {
@@ -1786,7 +868,7 @@ void handle_vm_pause_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
     ctx->action = g_strdup("pause");
     GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);
     g_task_run_in_thread(task, vm_action_worker);
     g_object_unref(task);
 }
@@ -1810,7 +892,7 @@ void handle_vm_resume_request(JsonObject *params, const gchar *rpc_id, UdsServer
     ctx->server = g_object_ref(server); ctx->connection = g_object_ref(connection);
     ctx->action = g_strdup("resume");
     GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);
     g_task_run_in_thread(task, vm_action_worker);
     g_object_unref(task);
 }
@@ -1845,7 +927,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
         gint64 cpu_val = json_object_get_int_member(params, "cpu");
         if (cpu_val != -1 && (cpu_val <= 0 || cpu_val >= 10000000)) {
             gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                "Invalid params: 'cpu' must be -1 (unlimited) or 1..9999999 (microseconds)");
+                "Invalid params: 'cpu' must be -1 (unlimited) or 1..9999999 (percent)");
             pure_uds_server_send_response(server, connection, err_resp);
             g_free(err_resp);
             return;
@@ -1886,7 +968,7 @@ void handle_vm_limit_request(JsonObject *params, const gchar *rpc_id, UdsServer 
     ctx->connection = g_object_ref(connection);
 
     GTask *task = pcv_drain_task_new(NULL, NULL, vm_action_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);
     
                                                                   
     g_object_set_data(G_OBJECT(task), "is_delete", GINT_TO_POINTER(FALSE)); 
@@ -1910,7 +992,7 @@ static void vm_metrics_callback(GObject *source_object, GAsyncResult *res, gpoin
     GError *error = NULL;
     gboolean _success = g_task_propagate_boolean(task, &error);
                                                  
-    pcv_audit_log(NULL, "vm.metrics", ctx->vm_id ?: "",
+    pcv_audit_log(pcv_drain_task_actor(res), "vm.metrics", ctx->vm_id ?: "",
                   _success ? "ok" : "fail",
                   _success ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
     if (_success) {
@@ -2115,7 +1197,7 @@ void handle_vm_metrics_request(JsonObject *params, const gchar *rpc_id, UdsServe
     ctx->connection = g_object_ref(connection);
 
     GTask *task = pcv_drain_task_new(NULL, NULL, vm_metrics_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);                
+    g_task_set_task_data(task, ctx, pcv_disp_free_lifecycle_ctx);                
     g_task_run_in_thread(task, vm_metrics_worker);
     g_object_unref(task);
 }
@@ -2149,1830 +1231,37 @@ void handle_vm_vnc_request(JsonObject *params, const gchar *rpc_id, UdsServer *s
         pure_uds_server_send_response(server, connection, err); g_free(err); virt_conn_pool_release(conn); return;
     }
     virDomainInfo info;
-    virDomainGetInfo(dom, &info);
+    if (virDomainGetInfo(dom, &info) < 0) {
+        virErrorPtr verr = virGetLastError();
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, verr && verr->message ? verr->message : "Failed to read VM state");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virDomainFree(dom); virt_conn_pool_release(conn); return;
+    }
     if (info.state != VIR_DOMAIN_RUNNING) {
         gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VM is not running. No VNC port active.");
         pure_uds_server_send_response(server, connection, err); g_free(err); virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
     gchar *xml = virDomainGetXMLDesc(dom, 0);
-                                        
-                                                        
-                                          
-                                                             
-                                          
-      
-                                          
-                                    
-                                             
-    gchar *port_start = strstr(xml, "graphics type='vnc' port='");
-    if (port_start) {
-        port_start += 26;                                                 
-        gchar *port_end = strchr(port_start, '\'');
-        if (port_end) {
-            gchar *port_str = g_strndup(port_start, port_end - port_start);
-            JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-            JsonObject *res_obj = json_object_new();
-            json_object_set_string_member(res_obj, "vnc_port", port_str);
-            json_node_take_object(res_node, res_obj);
-            gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
-            pure_uds_server_send_response(server, connection, resp);
-            g_free(resp); g_free(port_str);
-        }
-    } else {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, "VNC Graphics adapter not found in XML");
-        pure_uds_server_send_response(server, connection, err); g_free(err);
+    if (!xml) {
+        virErrorPtr verr = virGetLastError();
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, verr && verr->message ? verr->message : "Failed to read domain XML");
+        pure_uds_server_send_response(server, connection, err); g_free(err); virDomainFree(dom); virt_conn_pool_release(conn); return;
     }
-    g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
-}
-
-                                                                                                      
-                                                
-  
-                          
-                                                      
-                                                               
-                                                          
-  
-                  
-                                                                
-                                     
-  
-                
-                                                             
-                                                                                                         
-
-                                                                     
-                                                            
-                                                                          
-typedef struct {
-    gchar        *vm_id;                                  
-    gchar        *rpc_id;                                       
-    UdsServer    *server;                            
-    GSocketConnection *connection;                                      
-} VmDeleteCtx;
-
-   
-                                                       
-                                  
-                                                               
-   
-static void
-_vm_delete_ctx_free(VmDeleteCtx *ctx)
-{
-    g_free(ctx->vm_id);
-    g_free(ctx->rpc_id);
-    g_object_unref(ctx->server);
-    g_object_unref(ctx->connection);
-    g_free(ctx);
-}
-
-
-
-static void
-_vm_delete_restore_dpdk_port(gboolean removed, const gchar *bridge,
-                             const gchar *vm_name, const gchar *stage)
-{
-    if (!removed || !bridge || !vm_name)
-        return;
-    GError *restore_error = NULL;
-    if (!pcv_dpdk_vm_port_ensure(bridge, vm_name, &restore_error)) {
-        PCV_LOG_ERROR("vm_delete", "VM '%s': %s 뒤 DPDK port 복원 실패: %s",
-                      vm_name, stage,
-                      restore_error ? restore_error->message : "unknown");
-    }
-    g_clear_error(&restore_error);
-}
-
-
-
-
-static gboolean
-_vm_delete_prepare_nvram(const gchar *xml, gchar **path, GError **error)
-{
-    *path = NULL;
-    xmlDocPtr doc = xml ? xmlReadMemory(xml, (int)strlen(xml), "vm-delete.xml",
-        NULL, XML_PARSE_NONET | XML_PARSE_NOERROR | XML_PARSE_NOWARNING) : NULL;
-    xmlNodePtr root = doc ? xmlDocGetRootElement(doc) : NULL;
-    if (!root || xmlStrcmp(root->name, BAD_CAST "domain") != 0) {
-        if (doc) xmlFreeDoc(doc);
-        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-            "VM XML unavailable or invalid; undefine/storage delete blocked");
-        return FALSE;
-    }
-    xmlNodePtr os = _xml_direct_child(root, "os");
-    xmlNodePtr nvram = _xml_direct_child(os, "nvram");
-    xmlNodePtr varstore = _xml_direct_child(os, "varstore");
-    gboolean valid = varstore == NULL;
-    if (nvram) {
-        xmlChar *type = xmlGetProp(nvram, BAD_CAST "type");
-        xmlNodePtr source = _xml_direct_child(nvram, "source");
-        xmlChar *value = source ? xmlGetProp(source, BAD_CAST "file")
-                               : xmlNodeGetContent(nvram);
-        valid = valid && (!type || xmlStrcmp(type, BAD_CAST "file") == 0);
-        if (value) {
-            gchar *candidate = g_strdup((const gchar *)value);
-            g_strstrip(candidate);
-            if (*candidate && g_path_is_absolute(candidate)) *path = candidate;
-            else {
-                valid = valid && !*candidate && !source;
-                g_free(candidate);
-            }
-        } else if (source) valid = FALSE;
-        xmlFree(value);
-        xmlFree(type);
-    }
-    xmlFreeDoc(doc);
-    if (!valid) {
-        g_clear_pointer(path, g_free);
-        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_NOT_SUPPORTED,
-            "Unsupported NVRAM storage; undefine/storage delete blocked");
-    }
-    return valid;
-}
-
-
-
-
-  
-                                                        
-                                                        
-                                                     
-                                       
-  
-                       
-                                             
-                                               
-  
-                               
-                                           
-                                                
-                                          
-                                         
-  
-          
-                                            
-                          
-                                  
-                          
-                             
-                                                      
-   
-static void
-_vm_delete_worker(GTask *task, gpointer src __attribute__((unused)),
-                  gpointer task_data, GCancellable *cancel)
-{
-    VmDeleteCtx *ctx = task_data;
-    const gchar  *vm_id = ctx->vm_id;
-
-                                                        
-    if (cancel && g_cancellable_is_cancelled(cancel)) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_CANCELLED,
-                                "vm.delete cancelled before start");
-        return;
-    }
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    virDomainPtr  dom  = conn ? pure_virt_get_domain(conn, vm_id) : NULL;                         
-    g_autofree gchar *canonical_name = dom && virDomainGetName(dom)
-        ? g_strdup(virDomainGetName(dom)) : g_strdup(vm_id);
-
-                                                           
-    gchar *zvol_path  = g_strdup_printf("/dev/zvol/%s/%s", pcv_config_get_zvol_pool(), vm_id);
-    gchar *zfs_dataset = g_strdup_printf("%s/%s", pcv_config_get_zvol_pool(), vm_id);
-    gboolean zfs_exists = FALSE;
-
-                                                                 
-    gchar *file_disk_path = NULL;
-    gchar *saved_xml      = NULL;                                 
-    g_autofree gchar *nvram_path = NULL;
-    g_autofree gchar *dpdk_bridge = NULL;
-    gboolean dpdk_port_removed = FALSE;
-    if (dom) {
-        char *xml = virDomainGetXMLDesc(dom, 0);
-        if (xml) {
-            saved_xml = g_strdup(xml);                             
-                                                
                                                                       
-                                                           
-            file_disk_path = _extract_domain_disk_source_attr(xml, "file");
-                                                            
-                                                                       
-                                                     
-            gchar *xml_zvol_path = _extract_domain_disk_source_attr(xml, "dev");
-            if (xml_zvol_path) {
-                if (g_str_has_prefix(xml_zvol_path, "/dev/zvol/")) {
-                    g_free(zvol_path);
-                    g_free(zfs_dataset);
-                    zvol_path = xml_zvol_path;
-                    zfs_dataset = g_strdup(xml_zvol_path + strlen("/dev/zvol/"));
-                } else {
-                    g_free(xml_zvol_path);
-                }
-            }
-            free(xml);                                                                           
-        }
-
-        GError *nvram_error = NULL;
-        if (!_vm_delete_prepare_nvram(saved_xml, &nvram_path, &nvram_error)) {
-            g_free(zvol_path); g_free(zfs_dataset);
-            g_free(file_disk_path); g_free(saved_xml);
-            virDomainFree(dom);
-            if (conn) virt_conn_pool_release(conn);
-            g_task_return_error(task, nvram_error);
-            return;
-        }
-
-
-
-
-        PcvDpdkMetaResult dpdk_meta = pcv_vm_dpdk_metadata_read(dom, &dpdk_bridge);
-        if (dpdk_meta == PCV_DPDK_META_INVALID) {
-            g_free(zvol_path); g_free(zfs_dataset);
-            g_free(file_disk_path); g_free(saved_xml);
-            virDomainFree(dom);
-            if (conn) virt_conn_pool_release(conn);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_DATA,
-                                    "DPDK metadata is invalid or unreadable; VM delete blocked");
-            return;
-        }
-        if (dpdk_meta == PCV_DPDK_META_OK) {
-            GError *dpdk_error = NULL;
-            if (!pcv_dpdk_vm_port_delete(canonical_name, &dpdk_error)) {
-                g_free(zvol_path); g_free(zfs_dataset);
-                g_free(file_disk_path); g_free(saved_xml);
-                virDomainFree(dom);
-                if (conn) virt_conn_pool_release(conn);
-                g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "DPDK vhost port cleanup failed; VM delete blocked: %s",
-                    dpdk_error ? dpdk_error->message : "unknown error");
-                g_clear_error(&dpdk_error);
-                return;
-            }
-            dpdk_port_removed = TRUE;
-        }
-    }
-    zfs_exists = zvol_path && access(zvol_path, F_OK) == 0;                              
-
-                                                      
-                                                               
-    gboolean file_exists = file_disk_path && access(file_disk_path, F_OK) == 0;
-    if (!dom && !zfs_exists && !file_exists) {
-        g_free(zvol_path); g_free(zfs_dataset); g_free(file_disk_path); g_free(saved_xml);
-        if (conn) virt_conn_pool_release(conn);
-        PCV_LOG_INFO("vm_delete", "VM '%s': already absent (idempotent success)", vm_id);
-        g_task_return_boolean(task, TRUE);
-        return;
-    }
-
-      
-                                      
-      
-                                                            
-                                                           
-
-
-
-    if (dom) {
-        virDomainInfo info = {0};
-        if (virDomainGetInfo(dom, &info) < 0) {
-            const gchar *vir_message = virGetLastErrorMessage();
-            gchar *reason = g_strdup_printf(
-                "VM state query failed; undefine/storage delete blocked: %s",
-                vir_message ? vir_message : "unknown error");
-            virResetLastError();
-            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
-                                         canonical_name, "state query 실패");
-            virDomainFree(dom);
-            if (conn) virt_conn_pool_release(conn);
-            g_free(zvol_path); g_free(zfs_dataset);
-            g_free(file_disk_path); g_free(saved_xml);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "%s", reason);
-            g_free(reason);
-            return;
-        }
-        if ((info.state == VIR_DOMAIN_RUNNING || info.state == VIR_DOMAIN_PAUSED) &&
-            virDomainDestroy(dom) < 0) {
-            const gchar *vir_message = virGetLastErrorMessage();
-            gchar *reason = g_strdup_printf(
-                "VM destroy failed; undefine/storage delete blocked: %s",
-                vir_message ? vir_message : "unknown error");
-            virResetLastError();
-            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
-                                         canonical_name, "destroy 실패");
-            virDomainFree(dom);
-            if (conn) virt_conn_pool_release(conn);
-            g_free(zvol_path); g_free(zfs_dataset);
-            g_free(file_disk_path); g_free(saved_xml);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "%s", reason);
-            g_free(reason);
-            return;
-        }
-        int undef_rc = virDomainUndefineFlags(dom,
-                VIR_DOMAIN_UNDEFINE_SNAPSHOTS_METADATA |
-                VIR_DOMAIN_UNDEFINE_MANAGED_SAVE |
-                VIR_DOMAIN_UNDEFINE_KEEP_NVRAM);
-        if (undef_rc < 0) {
-            if (!nvram_path)
-                undef_rc = virDomainUndefine(dom);
-            if (undef_rc < 0) {
-                virErrorPtr e = virGetLastError();
-                PCV_LOG_WARN("vm_delete", "VM '%s': undefine failed: %s",
-                             vm_id, e ? e->message : "unknown");
-            }
-        }
-        virDomainFree(dom);
-        if (undef_rc < 0) {
-            _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
-                                         canonical_name, "undefine 실패");
-            if (conn) virt_conn_pool_release(conn);
-            g_free(zvol_path); g_free(zfs_dataset);
-            g_free(file_disk_path); g_free(saved_xml);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "VM undefine failed; storage delete blocked");
-            return;
-        }
-    }
-    if (conn) virt_conn_pool_release(conn);
-
-                                                              
-    pcv_security_group_sync_vm(vm_id);
-
-      
-                                                
-      
-                                                       
-                                                         
-      
-                      
-                                                          
-                                                                 
-                                             
-                                                           
-                                              
-                                             
-                                         
-                                                     
-                                            
-      
-                     
-                                                   
-                                                         
-                                                  
-       
-    gboolean  zfs_success = TRUE;
-    gchar    *zfs_err_msg = g_strdup("Success");
-    gboolean  exorcism_partial = FALSE;                    
-
-    if (zfs_exists) {
-                                                            
-                                             
-        GError *spawn_e = NULL;
-
-        const gchar *fuser_argv[] = {"fuser", "-k", "-9", zvol_path, NULL};
-        if (!pcv_spawn_sync(fuser_argv, NULL, NULL, &spawn_e)) {
-            PCV_LOG_WARN("vm_delete", "VM '%s': fuser partial: %s",
-                         vm_id, spawn_e ? spawn_e->message : "nonzero exit (non-fatal)");
-            exorcism_partial = TRUE;
-        }
-        if (spawn_e) { g_error_free(spawn_e); spawn_e = NULL; }
-
-        const gchar *wipefs_argv[] = {"wipefs", "-a", zvol_path, NULL};
-        if (!pcv_spawn_sync(wipefs_argv, NULL, NULL, &spawn_e)) {
-            PCV_LOG_WARN("vm_delete", "VM '%s': wipefs partial: %s",
-                         vm_id, spawn_e ? spawn_e->message : "nonzero exit");
-            exorcism_partial = TRUE;
-        }
-        if (spawn_e) { g_error_free(spawn_e); spawn_e = NULL; }
-
-        gchar *dd_of = g_strdup_printf("of=%s", zvol_path);
-        const gchar *dd_argv[] = {"dd", "if=/dev/zero", dd_of,
-                                   "bs=1M", "count=10", "status=none", NULL};
-        if (!pcv_spawn_sync(dd_argv, NULL, NULL, &spawn_e)) {
-            PCV_LOG_WARN("vm_delete", "VM '%s': dd zero partial: %s",
-                         vm_id, spawn_e ? spawn_e->message : "nonzero exit");
-            exorcism_partial = TRUE;
-        }
-        g_free(dd_of);
-        if (spawn_e) { g_error_free(spawn_e); spawn_e = NULL; }
-
-        const gchar *partx_argv[] = {"partx", "-d", zvol_path, NULL};
-        (void)pcv_spawn_sync(partx_argv, NULL, NULL, NULL);                       
-
-        const gchar *kpartx_argv[] = {"kpartx", "-d", zvol_path, NULL};
-        (void)pcv_spawn_sync(kpartx_argv, NULL, NULL, NULL);
-
-        const gchar *partprobe_argv[] = {"partprobe", NULL};
-        (void)pcv_spawn_sync(partprobe_argv, NULL, NULL, NULL);
-
-        const gchar *udevadm_argv[] = {"udevadm", "settle", "--timeout=5", NULL};
-        (void)pcv_spawn_sync(udevadm_argv, NULL, NULL, NULL);
-
-        g_usleep(1 * G_USEC_PER_SEC);
-
-                                                    
-        gchar *zfs_stderr = NULL;
-        const gchar *zfs_argv[] = {"zfs", "destroy", "-R", zfs_dataset, NULL};
-        if (!pcv_spawn_sync(zfs_argv, NULL, &zfs_stderr, NULL)) {
-            zfs_success = FALSE;
-            g_free(zfs_err_msg);
-            zfs_err_msg = zfs_stderr ? g_strdup(zfs_stderr) : g_strdup("zfs destroy failed");
-        }
-        g_free(zfs_stderr);
-    }
-
-    g_free(zvol_path);
-    g_free(zfs_dataset);
-
-    if (!zfs_success) {
-                                                         
-                                                         
-                                                     
-        gboolean redefined = FALSE;
-        if (saved_xml) {
-            virConnectPtr rc = virt_conn_pool_acquire();
-            if (rc) {
-                virDomainPtr rdom = virDomainDefineXML(rc, saved_xml);
-                if (rdom) {
-                    virDomainFree(rdom);
-                    redefined = TRUE;
-                    PCV_LOG_WARN("vm_delete",
-                        "VM '%s': ZFS destroy failed — definition restored from saved XML. "
-                        "Delete can be retried.", vm_id);
-                    _vm_delete_restore_dpdk_port(dpdk_port_removed, dpdk_bridge,
-                                                 canonical_name, "XML rollback");
-                } else {
-                    virErrorPtr e = virGetLastError();
-                    PCV_LOG_ERROR("vm_delete",
-                        "VM '%s': ZFS destroy failed AND redefine failed: %s. "
-                        "Manual recovery required: restore XML and investigate zvol state.",
-                        vm_id, e ? e->message : "unknown");
-                }
-                virt_conn_pool_release(rc);
-            }
-        }
-
-        gchar *reason = g_strdup_printf(
-            "ZFS destroy failed%s: %s",
-            redefined ? " (VM definition rolled back)" : " (VM XML gone — manual recovery)",
-            zfs_err_msg);
-        g_free(zfs_err_msg);
-        g_free(file_disk_path);
-        g_free(saved_xml);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", reason);
-        g_free(reason);
-        return;
-    }
-    g_free(zfs_err_msg);
-
-
-
-      
-                               
-      
-                                             
-                                       
-                                              
-      
-                                                      
-       
-    if (file_disk_path && !g_str_has_prefix(file_disk_path, "/dev/")) {
-        if (access(file_disk_path, F_OK) == 0 || errno != ENOENT) {
-            if (unlink(file_disk_path) == 0) {
-                PCV_LOG_INFO("vm_delete", "VM '%s': disk file deleted: %s",
-                             vm_id, file_disk_path);
-            } else {
-                int err = errno;
-                PCV_LOG_ERROR("vm_delete", "VM '%s': failed to delete disk file '%s': %s",
-                              vm_id, file_disk_path, g_strerror(err));
-                gboolean redefined = FALSE;
-                if (!zfs_exists && saved_xml) {
-                    virConnectPtr rc = virt_conn_pool_acquire();
-                    if (rc) {
-                        virDomainPtr rdom = virDomainDefineXML(rc, saved_xml);
-                        if (rdom) {
-                            virDomainFree(rdom);
-                            redefined = TRUE;
-                            PCV_LOG_WARN("vm_delete",
-                                "VM '%s': file disk cleanup failed — definition restored. "
-                                "Delete can be retried.", vm_id);
-                            _vm_delete_restore_dpdk_port(
-                                dpdk_port_removed, dpdk_bridge, canonical_name,
-                                "file disk rollback");
-                        } else {
-                            virErrorPtr e = virGetLastError();
-                            PCV_LOG_ERROR("vm_delete",
-                                "VM '%s': file disk cleanup failed AND redefine failed: %s. "
-                                "Manual recovery required.", vm_id,
-                                e ? e->message : "unknown");
-                        }
-                        virt_conn_pool_release(rc);
-                    }
-                }
-                gchar *reason = g_strdup_printf(
-                    "Disk file cleanup failed%s: %s (%s). %s",
-                    redefined ? " (VM definition rolled back)" : "",
-                    file_disk_path, g_strerror(err),
-                    redefined ? "Delete can be retried."
-                              : "VM definition is absent; manual cleanup is required.");
-                g_free(file_disk_path);
-                g_free(saved_xml);
-                g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", reason);
-                g_free(reason);
-                return;
-            }
-        }
-    }
-    g_free(file_disk_path);
-    g_free(saved_xml);
-
-
-
-    if (nvram_path && unlink(nvram_path) < 0 && errno != ENOENT) {
-        int err = errno;
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-            "NVRAM cleanup failed: %s (%s). VM storage is deleted; manual cleanup is required.",
-            nvram_path, g_strerror(err));
-        return;
-    }
-
-    if (exorcism_partial) {
-        PCV_LOG_WARN("vm_delete", "VM '%s': delete succeeded with partial exorcism (check above warnings)", vm_id);
-    }
-    g_task_return_boolean(task, TRUE);
-}
-
-   
-                       
-                                     
-  
-                                                      
-                                                   
-  
-                                              
-                                                            
-                                                   
-                         
-  
-                                             
-                                                      
-   
-static void
-_vm_delete_callback(GObject *src __attribute__((unused)), GAsyncResult *res,
-                    gpointer user_data)
-{
-    VmDeleteCtx *ctx = user_data;
-    GError      *err = NULL;
-
-                                                         
-                                                          
-    unlock_vm_operation(ctx->vm_id);
-
-    gboolean ok = g_task_propagate_boolean(G_TASK(res), &err);
-                                                
-    pcv_audit_log(NULL, "vm.delete", ctx->vm_id,
-                  ok ? "ok" : "fail",
-                  ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION,
-                  0, "local");
-                                                                   
-    cmap_remove(ctx->vm_id);
-    if (!ok) {
-        g_warning("[vm.delete] background worker failed for '%s': %s",
-                  ctx->vm_id, err ? err->message : "unknown");
-        if (err) g_error_free(err);
-    } else {
-        g_message("[vm.delete] ZFS destroy complete for '%s'", ctx->vm_id);
-    }
-    _vm_delete_ctx_free(ctx);
-}
-
-   
-                            
-                                                
-  
-                                                          
-                                                       
-                                                                     
-  
-                       
-                          
-                                               
-                                                              
-                                         
-  
-                  
-                                                                 
-                                   
-  
-                                                
-   
-void handle_vm_delete_request(JsonObject *params, const gchar *rpc_id,
-                              UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_id = json_object_get_string_member(params, "vm_id");
-    if (!vm_id || !pcv_validate_vm_name(vm_id)) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-            "Missing or invalid param: vm_id (alphanumeric, -, _ only)");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-    if (pcv_vpc_vm_is_attached(vm_id)) {
-        gchar *err = pure_rpc_build_error_response(
-            rpc_id, PURE_RPC_ERR_CONFLICT,
-            "VM has a Local VPC attachment; detach it explicitly before vm.delete");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-                                                             
-                                                                      
-                                                                        
-                                                             
-                                                  
-    gchar *lock_err = NULL;
-    if (!lock_vm_operation(vm_id, VM_OP_DELETING, &lock_err)) {
-        gchar *e = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_CONFLICT,
-                       lock_err ? lock_err : "VM is busy (another operation in progress)");
-        pure_uds_server_send_response(server, connection, e);
-        g_free(e); g_free(lock_err);
-        return;
-    }
-
-                                                                   
-                                                        
-                                 
-      
-                                       
-                                              
-                                         
-                                                            
-                                                   
-                                                        
-    JsonNode *acc_node = json_node_new(JSON_NODE_VALUE);
-    json_node_set_string(acc_node, "accepted");
-    gchar *acc_resp = pure_rpc_build_success_response(rpc_id, acc_node);
-    pure_uds_server_send_response(server, connection, acc_resp);                     
-    g_free(acc_resp);
-
-    VmDeleteCtx *ctx = g_new0(VmDeleteCtx, 1);
-    ctx->vm_id      = g_strdup(vm_id);
-    ctx->rpc_id     = g_strdup(rpc_id);
-    ctx->server     = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-                                                    
-                                                 
-                                                       
-    GCancellable *cancel = g_cancellable_new();
-    cmap_register(vm_id, cancel);
-
-                                                 
-                                                      
-                                            
-                                                      
-                                                 
-    GTask *task = pcv_drain_task_new(NULL, cancel, _vm_delete_callback, ctx);
-    g_task_set_task_data(task, ctx, NULL);                                 
-    g_task_run_in_thread(task, _vm_delete_worker);
-    g_object_unref(task);
-    g_object_unref(cancel);                             
-}
-
-                                                                    
-                              
-  
-                                           
-                                                               
-  
-                             
-                                         
-                                                                       
-
-   
-                      
-                                       
-                       
-  
-                                                                     
-                                       
-   
-static const gchar *
-_guest_get_vm_name(JsonObject *params)
-{
-    if (!params) return NULL;
-    if (json_object_has_member(params, "name"))
-        return json_object_get_string_member(params, "name");
-    if (json_object_has_member(params, "vm_id"))
-        return json_object_get_string_member(params, "vm_id");
-    return NULL;
-}
-
-   
-                                                                             
-                                                       
-                                                   
-   
-static gboolean
-_guest_agent_xml_has_channel(const gchar *xml)
-{
-    return xml && strstr(xml, "org.qemu.guest_agent.0") != NULL;
-}
-
-   
-                                                                           
-                                                       
-                                                             
-   
-static void
-_guest_agent_add_install_commands(JsonObject *obj)
-{
-    JsonObject *cmds = json_object_new();
-    json_object_set_string_member(cmds, "debian_ubuntu",
-        "sudo apt update && sudo apt install -y qemu-guest-agent && sudo systemctl enable --now qemu-guest-agent");
-    json_object_set_string_member(cmds, "rhel_rocky_fedora",
-        "sudo dnf install -y qemu-guest-agent && sudo systemctl enable --now qemu-guest-agent");
-    json_object_set_string_member(cmds, "suse",
-        "sudo zypper install -y qemu-guest-agent && sudo systemctl enable --now qemu-guest-agent");
-    json_object_set_object_member(obj, "install_commands", cmds);
-}
-
-                                                                    
-                                              
-                                                                       
-
-   
-                                                                      
-                                                                                               
-  
-                                                       
-                                                     
-                                            
-  
-                                                                  
-                                                                            
-   
-void
-handle_vm_guest_agent_status_request(JsonObject *params, const gchar *rpc_id,
-                                     UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                         "Failed to connect to Libvirt.");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, vm_name);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
-                         "VM not found.");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    gboolean running = virDomainIsActive(dom) == 1;
-                                                           
-    char *config_xml = virDomainGetXMLDesc(dom, VIR_DOMAIN_XML_INACTIVE);
-    char *live_xml = virDomainGetXMLDesc(dom, 0);
-    gboolean channel_configured = _guest_agent_xml_has_channel(config_xml);                 
-    gboolean channel_live = _guest_agent_xml_has_channel(live_xml);                           
-    gboolean agent_ping = FALSE;
-    gchar *agent_error = NULL;
-
-                                                 
-    if (running && channel_live) {
-        char *result = virDomainQemuAgentCommand(dom, "{\"execute\":\"guest-ping\"}", 3, 0);
-        if (result) {
-            agent_ping = TRUE;                                         
-            free(result);                                                            
-        } else {
-            const char *vir_err = virGetLastErrorMessage();
-            agent_error = g_strdup(vir_err ? vir_err : "unknown error");
-            virResetLastError();                                             
-        }
-    }
-
-                                                    
-    const gchar *status = "channel_missing";                                
-    const gchar *message = "Guest agent channel is not configured.";
-    if (agent_ping) {                                                           
-        status = "ok";
-        message = "Guest agent is responding.";
-    } else if (!running && (channel_configured || channel_live)) {                          
-        status = "vm_stopped";
-        message = "Guest agent channel is configured; start the VM to verify the agent.";
-    } else if (running && channel_configured && !channel_live) {                            
-        status = "reboot_required";
-        message = "Guest agent channel is configured for the next boot; restart the VM or attach it live.";
-    } else if (running && channel_live) {                                               
-        status = "agent_unavailable";
-        message = "Guest agent channel exists, but qemu-guest-agent is not responding in the guest.";
-    }
-
-    JsonObject *res_obj = json_object_new();
-    json_object_set_string_member(res_obj, "name", vm_name);
-    json_object_set_string_member(res_obj, "status", status);
-    json_object_set_string_member(res_obj, "message", message);
-    json_object_set_boolean_member(res_obj, "running", running);
-    json_object_set_boolean_member(res_obj, "channel_present", channel_configured || channel_live);
-    json_object_set_boolean_member(res_obj, "channel_configured", channel_configured);
-    json_object_set_boolean_member(res_obj, "channel_live", channel_live);
-    json_object_set_boolean_member(res_obj, "agent_ping", agent_ping);
-    json_object_set_boolean_member(res_obj, "reboot_required", running && channel_configured && !channel_live);
-    json_object_set_boolean_member(res_obj, "package_required", running && channel_live && !agent_ping);
-    json_object_set_boolean_member(res_obj, "can_ensure_channel", TRUE);
-    if (agent_error)
-        json_object_set_string_member(res_obj, "agent_error", agent_error);
-    _guest_agent_add_install_commands(res_obj);
-
-    JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(res_node, res_obj);
-    gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
-    pure_uds_server_send_response(server, connection, resp);
-    g_free(resp);
-
-    g_free(agent_error);
-    if (config_xml) free(config_xml);
-    if (live_xml) free(live_xml);
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-}
-
-                                                                    
-                                                              
-                                                                       
-
-   
-                                                                                
-                                                                
-  
-                                                         
-                                                       
-                                               
-  
-                                                                           
-                                                               
-   
-void
-handle_vm_guest_agent_ensure_channel_request(JsonObject *params, const gchar *rpc_id,
-                                             UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
-                         "Failed to connect to Libvirt.");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, vm_name);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_VM_NOT_FOUND,
-                         "VM not found.");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    gboolean running = virDomainIsActive(dom) == 1;
-    gboolean persistent = virDomainIsPersistent(dom) == 1;
-    char *config_xml = virDomainGetXMLDesc(dom, VIR_DOMAIN_XML_INACTIVE);
-    char *live_xml = virDomainGetXMLDesc(dom, 0);
-    gboolean channel_configured = _guest_agent_xml_has_channel(config_xml);
-    gboolean channel_live = _guest_agent_xml_has_channel(live_xml);
-    gboolean config_changed = FALSE;
-    gboolean live_changed = FALSE;
-    gchar *config_error = NULL;
-    gchar *live_error = NULL;
-
-                                                      
-    const gchar *channel_xml =
-        "<channel type='unix'>"
-          "<target type='virtio' name='org.qemu.guest_agent.0'/>"
-        "</channel>";
-
-                                                                               
-    if (!channel_configured && persistent) {
-        if (virDomainAttachDeviceFlags(dom, channel_xml, VIR_DOMAIN_AFFECT_CONFIG) == 0) {
-            channel_configured = TRUE;
-            config_changed = TRUE;
-        } else {
-            const char *vir_err = virGetLastErrorMessage();
-            config_error = g_strdup(vir_err ? vir_err : "unknown error");                       
-            virResetLastError();
-        }
-    }
-
-                                                                  
-    if (running && !channel_live) {
-        if (virDomainAttachDeviceFlags(dom, channel_xml, VIR_DOMAIN_AFFECT_LIVE) == 0) {
-            channel_live = TRUE;
-            live_changed = TRUE;
-        } else {
-            const char *vir_err = virGetLastErrorMessage();
-            live_error = g_strdup(vir_err ? vir_err : "unknown error");
-            virResetLastError();
-        }
-    }
-
-    if (!channel_configured && !channel_live) {
-        gchar *msg = g_strdup_printf(
-            "Failed to add guest agent channel.%s%s%s%s",
-            config_error ? " config: " : "", config_error ? config_error : "",
-            live_error ? " live: " : "", live_error ? live_error : "");
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, msg);
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        g_free(msg);
-    } else {
-        JsonObject *res_obj = json_object_new();
-        json_object_set_string_member(res_obj, "name", vm_name);
-        json_object_set_string_member(res_obj, "status",
-            (config_changed || live_changed) ? "updated" : "already_configured");
-        json_object_set_boolean_member(res_obj, "running", running);
-        json_object_set_boolean_member(res_obj, "persistent", persistent);
-        json_object_set_boolean_member(res_obj, "changed", config_changed || live_changed);
-        json_object_set_boolean_member(res_obj, "channel_configured", channel_configured);
-        json_object_set_boolean_member(res_obj, "channel_live", channel_live);
-        json_object_set_boolean_member(res_obj, "reboot_required", channel_configured && running && !channel_live);
-        json_object_set_boolean_member(res_obj, "install_required", TRUE);
-        if (config_error)
-            json_object_set_string_member(res_obj, "config_warning", config_error);
-        if (live_error)
-            json_object_set_string_member(res_obj, "live_warning", live_error);
-        _guest_agent_add_install_commands(res_obj);
-
+    GError *port_error = NULL;
+    gchar *port_str = pcv_vnc_port_from_domain_xml(xml, &port_error);
+    if (port_str) {
         JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
+        JsonObject *res_obj = json_object_new();
+        json_object_set_string_member(res_obj, "vnc_port", port_str);
         json_node_take_object(res_node, res_obj);
         gchar *resp = pure_rpc_build_success_response(rpc_id, res_node);
         pure_uds_server_send_response(server, connection, resp);
-        g_free(resp);
-    }
-
-    g_free(config_error);
-    g_free(live_error);
-    if (config_xml) free(config_xml);
-    if (live_xml) free(live_xml);
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-}
-
-                                                                    
-                                                  
-                                                                       
-
-   
-                                                                        
-                                                       
-                                                       
-   
-static gboolean
-_guest_fsinfo_get_int64(JsonObject *obj, const gchar *member, gint64 *out)
-{
-    if (!obj || !member || !json_object_has_member(obj, member))
-        return FALSE;
-    *out = json_object_get_int_member(obj, member);
-    return TRUE;
-}
-
-   
-                                                                 
-                                                         
-                                        
-                                                          
-   
-static gboolean
-_guest_fsinfo_should_count(const gchar *type)
-{
-                                 
-    static const gchar *skip[] = {
-        "tmpfs", "devtmpfs", "proc", "sysfs", "devpts",
-        "cgroup", "cgroup2", "squashfs", "overlay", NULL
-    };
-
-    if (!type || !*type)
-        return TRUE;                                                              
-    for (guint i = 0; skip[i]; i++) {
-        if (g_strcmp0(type, skip[i]) == 0)
-            return FALSE;                                                      
-    }
-    return TRUE;
-}
-
-   
-                                                                       
-                                                        
-                                           
-                                                                    
-                                                                   
-   
-static void
-_guest_fsinfo_worker(GTask *task, gpointer source_obj __attribute__((unused)),
-                     gpointer task_data, GCancellable *cancellable __attribute__((unused)))
-{
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)task_data;
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to connect to Libvirt.");
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                                "VM not found: %s", ctx->vm_id);
-        return;
-    }
-
-    if (!virDomainIsActive(dom)) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "VM '%s' is not running.", ctx->vm_id);
-        return;
-    }
-
-    char *agent_result = virDomainQemuAgentCommand(
-        dom, "{\"execute\":\"guest-get-fsinfo\"}", 10, 0);
-
-
-    g_autofree gchar *agent_error = !agent_result
-        ? g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1) : NULL;
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-
-    if (!agent_result) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "guest-get-fsinfo failed on '%s': %s",
-                                ctx->vm_id, agent_error);
-        return;
-    }
-
-    GError *parse_error = NULL;
-    JsonParser *parser = json_parser_new();
-    if (!json_parser_load_from_data(parser, agent_result, -1, &parse_error)) {
-        free(agent_result);
-        g_object_unref(parser);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to parse guest-get-fsinfo response: %s",
-                                parse_error ? parse_error->message : "invalid JSON");
-        g_clear_error(&parse_error);
-        return;
-    }
-    free(agent_result);
-
-    JsonNode *root = json_parser_get_root(parser);
-    JsonObject *root_obj = root && JSON_NODE_HOLDS_OBJECT(root)
-        ? json_node_get_object(root) : NULL;
-    if (!root_obj || !json_object_has_member(root_obj, "return")) {
-        g_object_unref(parser);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "guest-get-fsinfo response missing return array.");
-        return;
-    }
-
-                                                                       
-    JsonArray *raw_filesystems = json_object_get_array_member(root_obj, "return");
-    JsonArray *filesystems = json_array_new();
-    gint64 total_bytes = 0;                                                   
-    gint64 used_bytes = 0;                                                   
-
-    for (guint i = 0; raw_filesystems && i < json_array_get_length(raw_filesystems); i++) {
-        JsonObject *raw = json_array_get_object_element(raw_filesystems, i);
-        if (!raw)
-            continue;                                                   
-
-        const gchar *name = json_object_has_member(raw, "name")
-            ? json_object_get_string_member(raw, "name") : "";
-        const gchar *mountpoint = json_object_has_member(raw, "mountpoint")
-            ? json_object_get_string_member(raw, "mountpoint") : "";
-        const gchar *type = json_object_has_member(raw, "type")
-            ? json_object_get_string_member(raw, "type") : "";
-
-        gint64 fs_total = 0;
-        gint64 fs_used = 0;
-        gboolean has_total = _guest_fsinfo_get_int64(raw, "total-bytes", &fs_total);
-        gboolean has_used = _guest_fsinfo_get_int64(raw, "used-bytes", &fs_used);
-
-        JsonObject *fs_obj = json_object_new();
-        json_object_set_string_member(fs_obj, "name", name);
-        json_object_set_string_member(fs_obj, "mountpoint", mountpoint);
-        json_object_set_string_member(fs_obj, "type", type);
-        if (has_total)
-            json_object_set_int_member(fs_obj, "total_bytes", fs_total);
-        if (has_used)
-            json_object_set_int_member(fs_obj, "used_bytes", fs_used);
-                                                              
-        if (has_total && has_used && fs_total >= fs_used) {
-            json_object_set_int_member(fs_obj, "available_bytes", fs_total - fs_used);
-            if (fs_total > 0) {                                       
-                double pct = ((double)fs_used * 100.0) / (double)fs_total;
-                json_object_set_double_member(fs_obj, "usage_percent", pct);
-            }
-        }
-
-        if (json_object_has_member(raw, "disk")) {
-            JsonArray *disks = json_object_get_array_member(raw, "disk");
-            if (disks && json_array_get_length(disks) > 0) {
-                JsonObject *disk = json_array_get_object_element(disks, 0);
-                if (disk && json_object_has_member(disk, "dev"))
-                    json_object_set_string_member(fs_obj, "device",
-                                                  json_object_get_string_member(disk, "dev"));
-            }
-        }
-
-                                                          
-        if (has_total && has_used && fs_total > 0 && _guest_fsinfo_should_count(type)) {
-            total_bytes += fs_total;
-            used_bytes += fs_used;
-        }
-
-        json_array_add_object_element(filesystems, fs_obj);                          
-    }
-
-    JsonObject *res_obj = json_object_new();
-    json_object_set_string_member(res_obj, "name", ctx->vm_id);
-    json_object_set_string_member(res_obj, "status", "ok");
-    json_object_set_int_member(res_obj, "total_bytes", total_bytes);
-    json_object_set_int_member(res_obj, "used_bytes", used_bytes);
-    if (total_bytes > 0)
-        json_object_set_double_member(res_obj, "usage_percent",
-                                      ((double)used_bytes * 100.0) / (double)total_bytes);
-    json_object_set_array_member(res_obj, "filesystems", filesystems);
-
-    JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(res_node, res_obj);
-    g_object_unref(parser);
-    g_task_return_pointer(task, res_node, (GDestroyNotify)json_node_free);
-}
-
-   
-                                                                   
-                                                     
-   
-static void
-_guest_fsinfo_callback(GObject *source_obj __attribute__((unused)),
-                       GAsyncResult *res, gpointer user_data)
-{
-    GTask *task = G_TASK(res);
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)user_data;
-    GError *error = NULL;
-    JsonNode *result_node = g_task_propagate_pointer(task, &error);
-
-    pcv_audit_log(NULL, "vm.guest.fsinfo", ctx->vm_id ?: "",
-                  error ? "fail" : "ok",
-                  error ? PURE_RPC_ERR_ZFS_OPERATION : 0, 0, "local");
-
-    if (error) {
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id,
-            PURE_RPC_ERR_ZFS_OPERATION, error->message);
-        pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
-        g_free(err_resp);
-        g_error_free(error);
+        g_free(resp); g_free(port_str);
     } else {
-        gchar *resp = pure_rpc_build_success_response(ctx->rpc_id, result_node);
-        pure_uds_server_send_response(ctx->server, ctx->connection, resp);
-        g_free(resp);
+        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION,
+                         port_error ? port_error->message : "VNC Graphics adapter not found in XML");
+        pure_uds_server_send_response(server, connection, err); g_free(err);
+        g_clear_error(&port_error);
     }
-}
-
-   
-                                                                              
-                                                               
-                                                                     
-   
-void
-handle_vm_guest_fsinfo_request(JsonObject *params, const gchar *rpc_id,
-                               UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-                                                                                
-    VmLifecycleCtx *ctx = g_new0(VmLifecycleCtx, 1);
-    ctx->vm_id = g_strdup(vm_name);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_fsinfo_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
-    g_task_run_in_thread(task, _guest_fsinfo_worker);                            
-    g_object_unref(task);
-}
-
-                                                                    
-                                         
-  
-                                           
-                                                  
-                              
-  
-                                           
-                                                                       
-
-   
-                                                                  
-                                                          
-                                                                 
-   
-static void
-_guest_ping_worker(GTask *task, gpointer source_obj __attribute__((unused)),
-                   gpointer task_data, GCancellable *cancellable __attribute__((unused)))
-{
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)task_data;
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to connect to Libvirt.");
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                                "VM not found: %s", ctx->vm_id);
-        return;
-    }
-
-    if (!virDomainIsActive(dom)) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "VM '%s' is not running.", ctx->vm_id);
-        return;
-    }
-
-                                          
-    char *result = virDomainQemuAgentCommand(dom, "{\"execute\":\"guest-ping\"}",
-                                              5, 0);
-    g_autofree gchar *agent_error = !result
-        ? g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1) : NULL;
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-
-    if (!result) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Guest agent not available on '%s': %s",
-                                ctx->vm_id, agent_error);
-        return;
-    }
-
-    free(result);                                                         
-                                                                                  
-    g_task_return_boolean(task, TRUE);
-}
-
-   
-                                                                              
-                                            
-   
-static void
-_guest_ping_callback(GObject *source_obj __attribute__((unused)), GAsyncResult *res, gpointer user_data)
-{
-    GTask *task = G_TASK(res);
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)user_data;
-    GError *error = NULL;
-    gboolean _ok = g_task_propagate_boolean(task, &error);
-                               
-    pcv_audit_log(NULL, "vm.guest.ping", ctx->vm_id ?: "",
-                  _ok ? "ok" : "fail",
-                  _ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    if (!_ok) {
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
-        pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
-        g_free(err_resp);
-        g_error_free(error);
-    } else {
-        JsonObject *res_obj = json_object_new();
-        json_object_set_string_member(res_obj, "agent", "connected");
-        json_object_set_string_member(res_obj, "name", ctx->vm_id);
-        JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(res_node, res_obj);
-        gchar *resp = pure_rpc_build_success_response(ctx->rpc_id, res_node);
-        pure_uds_server_send_response(ctx->server, ctx->connection, resp);
-        g_free(resp);
-    }
-}
-
-   
-                                                                        
-                                                           
-                                                                     
-   
-void
-handle_vm_guest_ping_request(JsonObject *params, const gchar *rpc_id,
-                             UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    VmLifecycleCtx *ctx = g_new0(VmLifecycleCtx, 1);
-    ctx->vm_id = g_strdup(vm_name);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_ping_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
-    g_task_run_in_thread(task, _guest_ping_worker);
-    g_object_unref(task);
-}
-
-                                                                    
-                                                                  
-  
-                                             
-       
-                                                      
-                                                                 
-                                                                    
-                                                              
-  
-                      
-                                                                       
-
-   
-                
-                                     
-                                                              
-   
-typedef struct {
-    gchar *vm_id;                              
-    gchar *command;                                                           
-    gchar *rpc_id;                                      
-    UdsServer *server;                          
-    GSocketConnection *connection;              
-} GuestExecCtx;
-
-   
-                                                                     
-                                                 
-   
-static void
-_guest_exec_ctx_free(gpointer data)
-{
-    if (!data) return;
-    GuestExecCtx *ctx = (GuestExecCtx *)data;
-    g_free(ctx->vm_id);
-    g_free(ctx->command);
-    g_free(ctx->rpc_id);
-    if (ctx->server) g_object_unref(ctx->server);
-    if (ctx->connection) g_object_unref(ctx->connection);
-    g_free(ctx);
-}
-
-   
-                                                               
-                                          
-  
-                                                        
-                                                        
-                                                        
-  
-                                                        
-                                                        
-                                                                            
-                                                                                
-   
-static void
-_guest_exec_worker(GTask *task, gpointer source_obj __attribute__((unused)),
-                   gpointer task_data, GCancellable *cancellable __attribute__((unused)))
-{
-    GuestExecCtx *ctx = (GuestExecCtx *)task_data;
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to connect to Libvirt.");
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                                "VM not found: %s", ctx->vm_id);
-        return;
-    }
-
-    if (!virDomainIsActive(dom)) {                                             
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "VM '%s' is not running.", ctx->vm_id);
-        return;
-    }
-
-                                                      
-      
-                                 
-                                             
-                                          
-                                                            
-    GString *safe_cmd = g_string_new(NULL);
-    for (const gchar *p = ctx->command; *p; p++) {
-        if (*p == '"' || *p == '\\')
-            g_string_append_c(safe_cmd, '\\');
-        g_string_append_c(safe_cmd, *p);
-    }
-
-    gchar *exec_json = g_strdup_printf(
-        "{\"execute\":\"guest-exec\",\"arguments\":"
-        "{\"path\":\"/bin/sh\",\"arg\":[\"-c\",\"%s\"],\"capture-output\":true}}",
-        safe_cmd->str);
-    g_string_free(safe_cmd, TRUE);
-
-    char *exec_result = virDomainQemuAgentCommand(dom, exec_json,
-                                                   30, 0);
-    g_free(exec_json);
-
-    if (!exec_result) {
-        g_autofree gchar *vir_err = g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1);
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "guest-exec failed on '%s': %s",
-                                ctx->vm_id, vir_err ? vir_err : "unknown error");
-        return;
-    }
-
-                                   
-    JsonParser *parser = json_parser_new();
-    gint64 pid = -1;
-    if (json_parser_load_from_data(parser, exec_result, -1, NULL)) {
-        JsonNode *root = json_parser_get_root(parser);
-        if (root && JSON_NODE_HOLDS_OBJECT(root)) {
-            JsonObject *obj = json_node_get_object(root);
-            if (json_object_has_member(obj, "return")) {
-                JsonObject *ret_obj = json_object_get_object_member(obj, "return");
-                if (ret_obj && json_object_has_member(ret_obj, "pid"))
-                    pid = json_object_get_int_member(ret_obj, "pid");
-            }
-        }
-    }
-    g_object_unref(parser);
-    free(exec_result);
-
-    if (pid < 0) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to parse guest-exec PID from response.");
-        return;
-    }
-
-                                                                        
-                                                                     
-                                             
-                                                          
-    gint64 exitcode = -1;
-    gboolean exited = FALSE;
-    gchar *stdout_decoded = NULL;
-    gchar *stderr_decoded = NULL;
-
-    gchar *status_json = g_strdup_printf(
-        "{\"execute\":\"guest-exec-status\",\"arguments\":{\"pid\":%" G_GINT64_FORMAT "}}",
-        pid);
-
-    for (int attempt = 0; attempt < 50; attempt++) {
-        char *status_result = virDomainQemuAgentCommand(dom, status_json,
-                                                         30, 0);
-        if (!status_result) {
-            g_free(status_json);
-            virDomainFree(dom);
-            virt_conn_pool_release(conn);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "guest-exec-status failed for PID %" G_GINT64_FORMAT, pid);
-            return;
-        }
-
-                                                                       
-        JsonParser *sp = json_parser_new();
-        if (json_parser_load_from_data(sp, status_result, -1, NULL)) {
-            JsonNode *sroot = json_parser_get_root(sp);
-            if (sroot && JSON_NODE_HOLDS_OBJECT(sroot)) {
-                JsonObject *sobj = json_node_get_object(sroot);
-                if (json_object_has_member(sobj, "return")) {
-                    JsonObject *sret = json_object_get_object_member(sobj, "return");
-                    if (sret) {
-                        exited = json_object_get_boolean_member_with_default(
-                                     sret, "exited", FALSE);
-                        if (exited) {
-                            if (json_object_has_member(sret, "exitcode"))
-                                exitcode = json_object_get_int_member(sret, "exitcode");
-
-                            if (json_object_has_member(sret, "out-data")) {
-                                const gchar *b64 = json_object_get_string_member(sret, "out-data");
-                                if (b64) {
-                                    gsize out_len = 0;
-                                    guchar *decoded = g_base64_decode(b64, &out_len);
-                                    stdout_decoded = g_strndup((const gchar *)decoded, out_len);
-                                    g_free(decoded);
-                                }
-                            }
-
-                            if (json_object_has_member(sret, "err-data")) {
-                                const gchar *b64 = json_object_get_string_member(sret, "err-data");
-                                if (b64) {
-                                    gsize out_len = 0;
-                                    guchar *decoded = g_base64_decode(b64, &out_len);
-                                    stderr_decoded = g_strndup((const gchar *)decoded, out_len);
-                                    g_free(decoded);
-                                }
-                            }
-                        }
-                    }
-                }
-            }
-        }
-        g_object_unref(sp);
-        free(status_result);
-
-        if (exited) break;
-        g_usleep(200000);                   
-    }
-    g_free(status_json);
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-
-                            
-    JsonObject *res_obj = json_object_new();
-    json_object_set_string_member(res_obj, "name", ctx->vm_id);
-    json_object_set_int_member(res_obj, "exitcode", exitcode);
-    json_object_set_boolean_member(res_obj, "exited", exited);
-    json_object_set_string_member(res_obj, "stdout", stdout_decoded ? stdout_decoded : "");
-    json_object_set_string_member(res_obj, "stderr", stderr_decoded ? stderr_decoded : "");
-
-    g_free(stdout_decoded);
-    g_free(stderr_decoded);
-
-    JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-    json_node_take_object(res_node, res_obj);
-    g_task_return_pointer(task, res_node, (GDestroyNotify)json_node_free);
-}
-
-   
-                                                                  
-                                                             
-   
-static void
-_guest_exec_callback(GObject *source_obj __attribute__((unused)), GAsyncResult *res, gpointer user_data)
-{
-    GTask *task = G_TASK(res);
-    GuestExecCtx *ctx = (GuestExecCtx *)user_data;
-    GError *error = NULL;
-
-    JsonNode *result_node = g_task_propagate_pointer(task, &error);
-                                               
-    pcv_audit_log(NULL, "vm.guest.exec", ctx->vm_id ?: "",
-                  error ? "fail" : "ok",
-                  error ? PURE_RPC_ERR_ZFS_OPERATION : 0, 0, "local");
-    if (error) {
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
-        pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
-        g_free(err_resp);
-        g_error_free(error);
-    } else {
-        gchar *resp = pure_rpc_build_success_response(ctx->rpc_id, result_node);
-        pure_uds_server_send_response(ctx->server, ctx->connection, resp);
-        g_free(resp);
-    }
-}
-
-   
-                                                                          
-  
-                                                         
-                                               
-  
-                                                                             
-                                                               
-   
-void
-handle_vm_guest_exec_request(JsonObject *params, const gchar *rpc_id,
-                             UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    const gchar *command = NULL;
-    if (params && json_object_has_member(params, "command"))
-        command = json_object_get_string_member(params, "command");
-
-    if (!command || strlen(command) == 0) {                          
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'command' must be non-empty");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    if (strlen(command) > 1024) {                                                
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'command' exceeds 1024 characters");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    GuestExecCtx *ctx = g_new0(GuestExecCtx, 1);
-    ctx->vm_id = g_strdup(vm_name);
-    ctx->command = g_strdup(command);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_exec_callback, ctx);
-    g_task_set_task_data(task, ctx, _guest_exec_ctx_free);
-    g_task_run_in_thread(task, _guest_exec_worker);
-    g_object_unref(task);
-}
-
-                                                                    
-                                                  
-  
-       
-                                                       
-                                                    
-  
-                                                                                 
-                                                                       
-
-   
-                                                                          
-                                                         
-                                                                   
-                                                                  
-   
-static void
-_guest_shutdown_worker(GTask *task, gpointer source_obj __attribute__((unused)),
-                       gpointer task_data, GCancellable *cancellable __attribute__((unused)))
-{
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)task_data;
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Failed to connect to Libvirt.");
-        return;
-    }
-
-    virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm_id);
-    if (!dom) {
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_NOT_FOUND,
-                                "VM not found: %s", ctx->vm_id);
-        return;
-    }
-
-    if (!virDomainIsActive(dom)) {
-        virDomainFree(dom);
-        virt_conn_pool_release(conn);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "VM '%s' is not running.", ctx->vm_id);
-        return;
-    }
-
-                                  
-    const gchar *method_used = "guest-agent";
-    int rc = virDomainShutdownFlags(dom, VIR_DOMAIN_SHUTDOWN_GUEST_AGENT);
-    if (rc < 0) {
-                               
-        virResetLastError();
-        method_used = "acpi";
-        rc = virDomainShutdown(dom);
-        if (rc < 0) {
-            g_autofree gchar *vir_err = g_utf8_make_valid(virGetLastErrorMessage() ?: "unknown error", -1);
-            virDomainFree(dom);
-            virt_conn_pool_release(conn);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "Failed to shutdown VM '%s': %s",
-                                    ctx->vm_id, vir_err ? vir_err : "unknown error");
-            return;
-        }
-    }
-
-    virDomainFree(dom);
-    virt_conn_pool_release(conn);
-
-                                                          
-    g_free(ctx->action);
-    ctx->action = g_strdup(method_used);
-    g_task_return_boolean(task, TRUE);
-}
-
-   
-                                                                                         
-                                                              
-                                                                
-   
-static void
-_guest_shutdown_callback(GObject *source_obj __attribute__((unused)), GAsyncResult *res, gpointer user_data)
-{
-    GTask *task = G_TASK(res);
-    VmLifecycleCtx *ctx = (VmLifecycleCtx *)user_data;
-    GError *error = NULL;
-    gboolean _ok = g_task_propagate_boolean(task, &error);
-                               
-    pcv_audit_log(NULL, "vm.guest.shutdown", ctx->vm_id ?: "",
-                  _ok ? "ok" : "fail",
-                  _ok ? 0 : PURE_RPC_ERR_ZFS_OPERATION, 0, "local");
-    if (!_ok) {
-        gchar *err_resp = pure_rpc_build_error_response(ctx->rpc_id, PURE_RPC_ERR_ZFS_OPERATION, error->message);
-        pure_uds_server_send_response(ctx->server, ctx->connection, err_resp);
-        g_free(err_resp);
-        g_error_free(error);
-    } else {
-        JsonObject *res_obj = json_object_new();
-        json_object_set_string_member(res_obj, "status", "shutdown_initiated");
-        json_object_set_string_member(res_obj, "name", ctx->vm_id);
-        json_object_set_string_member(res_obj, "method", ctx->action ? ctx->action : "unknown");
-        JsonNode *res_node = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(res_node, res_obj);
-        gchar *resp = pure_rpc_build_success_response(ctx->rpc_id, res_node);
-        pure_uds_server_send_response(ctx->server, ctx->connection, resp);
-        g_free(resp);
-    }
-}
-
-   
-                                                                              
-                                                             
-                                                       
-                                                                     
-   
-void
-handle_vm_guest_shutdown_request(JsonObject *params, const gchar *rpc_id,
-                                 UdsServer *server, GSocketConnection *connection)
-{
-    const gchar *vm_name = _guest_get_vm_name(params);
-    if (!vm_name) {
-        gchar *err = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
-                         "Invalid params: 'name' missing");
-        pure_uds_server_send_response(server, connection, err);
-        g_free(err);
-        return;
-    }
-
-    VmLifecycleCtx *ctx = g_new0(VmLifecycleCtx, 1);
-    ctx->vm_id = g_strdup(vm_name);
-    ctx->rpc_id = g_strdup(rpc_id);
-    ctx->server = g_object_ref(server);
-    ctx->connection = g_object_ref(connection);
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, _guest_shutdown_callback, ctx);
-    g_task_set_task_data(task, ctx, free_lifecycle_ctx);
-    g_task_run_in_thread(task, _guest_shutdown_worker);
-    g_object_unref(task);
+    g_free(xml); virDomainFree(dom); virt_conn_pool_release(conn);
 }

@@ -172,6 +172,11 @@ test_rpc_error_http_status(void)
         pcv_rest_http_status_for_rpc_error(PURE_RPC_ERR_TOTP_INVALID_CODE), ==, 401);
     g_assert_cmpuint(
         pcv_rest_http_status_for_rpc_error(PURE_RPC_ERR_TOTP_LOCKED), ==, 429);
+
+    g_assert_cmpuint(
+        pcv_rest_http_status_for_rpc_error(PURE_RPC_ERR_HOSTKEY_UNTRUSTED), ==, 409);
+    g_assert_cmpuint(
+        pcv_rest_http_status_for_rpc_error(PURE_RPC_ERR_HOSTKEY_MISMATCH), ==, 409);
     g_assert_cmpuint(
         pcv_rest_http_status_for_rpc_error(PURE_RPC_ERR_ZFS_OPERATION), ==, 500);
 }

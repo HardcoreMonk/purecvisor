@@ -33,6 +33,7 @@
 - C23 `-std=gnu23`, 빌드 경고 0을 유지한다.
 - 단일 프로세스와 `GMainLoop` 실행 모델을 유지하고 fork를 도입하지 않는다.
 - 장시간 작업은 응답을 먼저 보낸 뒤 `GTask`로 실행한다.
+- 메인 루프를 막을 수 있는 RPC는 `src/modules/dispatcher/rpc_offload.c` 라우트 표에 한 줄을 더해 자원별 레인(`PCV_OFFLOAD_LANE_*`)에서 실행한다. 메인 루프 차단 도달 기준선(`scripts/mainloop_reach_baseline.txt`, `make check-mainloop-reach`)은 새 차단을 통과시키려고 늘리지 않는다.
 - fire-and-forget 작업은 worker callback에서 실제 결과 audit과 WebSocket 완료 통지를 남긴다.
 - LXC 저장소는 개발 main과 같은 ZFS 전용 구성을 유지한다.
   공개 전용 Btrfs의 ADR-0058과 검증 기록은 과거 소스의 이력이며 현재 지원 계약이 아니다.

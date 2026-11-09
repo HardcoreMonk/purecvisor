@@ -7,9 +7,13 @@
  
                       
                                                                               
+import contextlib
+import io
 import sys
+import tempfile
 from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+import check_json_ingress
 from check_json_ingress import count_violations
 
 def test_raw_is_violation():
@@ -49,8 +53,57 @@ def test_waiver_prev_line_survives_block_strip():
     assert count_violations(src) == 0
 
 
+@contextlib.contextmanager
+def _root(files):
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+        saved = check_json_ingress.ROOT, check_json_ingress.BASELINE_FILE
+        check_json_ingress.ROOT = root
+        check_json_ingress.BASELINE_FILE = root / "scripts" / "json_ingress_baseline.txt"
+        try:
+            yield root
+        finally:
+            check_json_ingress.ROOT, check_json_ingress.BASELINE_FILE = saved
+
+def _main_rc():
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = check_json_ingress.main()
+    return rc, out.getvalue() + err.getvalue()
+
+RAW = 'void f(void) {\n    json_parser_load_from_data(p, text, sz, NULL);\n}\n'
+WAIVED = 'void f(void) {\n    /* PCV_PARSE_TRUSTED: 내부 */\n    json_parser_load_from_data(p, text, sz, NULL);\n}\n'
+
+def test_split_file_raw_parse_is_counted():
+
+    with _root({"src/api/rest_server.c": "int x;\n", "src/api/rest_request.c": RAW}):
+        assert "src/api/rest_request.c" in check_json_ingress.ingress_files()
+        rc, out = _main_rc()
+    assert rc == 1 and "src/api/rest_request.c: 1" in out, out
+
+def test_split_file_waived_parse_passes():
+    with _root({"src/api/rest_server.c": "int x;\n", "src/api/rest_request.c": WAIVED}):
+        rc, out = _main_rc()
+    assert rc == 0, out
+
+def test_missing_rest_route_file_is_error():
+
+    with _root({"src/api/rest_request.c": WAIVED}):
+        try:
+            check_json_ingress.ingress_files()
+        except FileNotFoundError:
+            return
+    raise AssertionError("rest_server.c 없는 루트에서 예외가 없다")
+
 if __name__ == "__main__":
     tests = [
+        test_split_file_raw_parse_is_counted,
+        test_split_file_waived_parse_passes,
+        test_missing_rest_route_file_is_error,
         test_raw_is_violation,
         test_wrapper_not_counted,
         test_waiver_same_line,

@@ -63,8 +63,8 @@ M5(v1.3.7) 병합으로 `0025`·`0026`이 각각 두 ADR 파일에 겹쳤던 공
 | ADR-0015 | accepted | 활성. gRPC 비루프백 바인딩 시 TLS 강제 원칙 유지 |
 | ADR-0016 | accepted | 활성. Supanova 테마 축소와 accent 변수화 유지 |
 | ADR-0017 | accepted | 활성. `vm.delete` 원자성 복구와 XML rollback 유지. `5e84387`부터 파일형 NVRAM은 디스크 삭제 성공까지 보존하며, 마지막 NVRAM 정리 실패는 audit fail과 수동 정리 대상으로 남긴다. 지정 Ubuntu·Arch 실기는 원문의 후속 기록을 따른다. |
-| ADR-0018 | accepted | 활성. fire-and-forget audit는 워커 콜백에서 기록 |
-| ADR-0019 | accepted | 활성. UDS 우회 정책과 메서드명 기반 RBAC 방어 유지. operator의 VM 단일 대상 action은 owner metadata 일치 시만 허용하며, `make check-rbac`가 정책 계약 회귀를 차단 |
+| ADR-0018 | accepted | 활성. fire-and-forget audit는 워커 콜백에서 기록. 본문 표의 `dispatcher.c::` 콜백(`_on_vm_create_finished`·`_vm_clone_thread`·`_ova_export_worker`·`_ova_import_worker`·`_on_container_clone_done`)은 dispatcher 분할 뒤 `src/modules/dispatcher/handler_vm_create.c`·`handler_vm_clone.c`·`handler_vm_ova.c`·`handler_container_net.c`에 있다(본문은 바꾸지 않았다) |
+| ADR-0019 | accepted | 활성. UDS 우회 정책과 메서드명 기반 RBAC 방어 유지. operator의 VM 단일 대상 action은 owner metadata 일치 시만 허용하며, `make check-rbac`가 정책 계약 회귀를 차단. 정책표 파일은 dispatcher 분할 이후 `src/api/dispatcher_policy.c` |
 | ADR-0020 | accepted | 활성. AI Ops producer → self-healing 호출 체인 유지 |
 | ADR-0021 | historical | 분산 ZFS lock 기록. Single Edge는 intra-node 보호와 공개판 경계를 우선 |
 | ADR-0022 | accepted | 활성. `vm.create`의 `storage_type` + `storage_pool`/`image_dir` 저장 위치 계약 유지 |

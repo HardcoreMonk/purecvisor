@@ -38,6 +38,7 @@ REQUIRED_UI_TARGETS = {
     "ui/style.css",
     "ui/app.bundle.js",
     "ui/sw.js",
+    "ui/vnc-flow.mjs",
     "ui/i18n.js",
     "ui/manifest.json",
     "ui/offline.html",

@@ -48,7 +48,7 @@ window.PCV = window.PCV || {};
 function renderHelp(b) {
   var el = PCV.uxlib.el, frag = PCV.uxlib.frag, clearEl = PCV.uxlib.clearEl;
   var cfg = (typeof PCV !== 'undefined' && PCV.config) ? PCV.config : {};
-  var RPC = cfg.RPC_COUNT || 298, REST = cfg.REST_COUNT || 223, METRICS = cfg.METRICS_COUNT || 155;
+  var RPC = cfg.RPC_COUNT || 316, REST = cfg.REST_COUNT || 224, METRICS = cfg.METRICS_COUNT || 155;
 
                                                                 
   var featChips = el('div', { class: 'help-feat-chips' },
@@ -92,15 +92,16 @@ function renderHelp(b) {
       ['vm.stop', 1, 'vm stop', 'summary/console', '실행 도메인 종료/강제 파괴', 'Shut down / destroy running domain'],
       ['vm.pause', 1, 'vm pause', 'summary', 'VM 일시정지 (vCPU 동결)', 'Suspend VM (freeze vCPUs)'],
       ['vm.resume', 1, 'vm resume', 'summary', '일시정지된 VM 재개', 'Resume a paused VM'],
-      ['vm.guest.ping', 0, 'vm guest-ping', 'summary', 'qemu-guest-agent 채널 핑', 'Ping qemu-guest-agent channel'],
+      ['vm.guest.ping', 1, 'vm guest-ping', 'summary', 'qemu-guest-agent 채널 핑', 'Ping qemu-guest-agent channel'],
       ['vm.guest.agent.status', 0, 'vm guest-agent-status', 'summary', '게스트 에이전트 채널/패키지 상태 조회', 'Inspect guest-agent channel/package status'],
       ['vm.guest.agent.ensure_channel', 1, 'vm guest-agent-ensure-channel', 'summary', 'qemu-guest-agent libvirt 채널 장치 추가', 'Add qemu-guest-agent libvirt channel device'],
       ['vm.guest.fsinfo', 0, '-', 'summary', '에이전트로 게스트 파일시스템/디스크 사용량 조회', 'Query guest filesystem/disk usage via agent'],
       ['vm.guest.exec', 2, 'vm guest-exec', '-', '에이전트로 게스트 내부 명령 실행 (관리자 전용)', 'Execute command inside guest via agent (admin-only)'],
       ['vm.guest.shutdown', 1, 'vm guest-shutdown', 'summary', '게스트 에이전트 통한 우아한 ACPI 종료', 'Graceful ACPI shutdown via guest agent'],
-      ['vm.delete', 1, 'vm delete', 'summary', 'VM 삭제 (비동기; operator는 소유 범위)', 'Delete VM (async; owner-scoped for operator)'],
-      ['vm.delete.status', 0, 'vm delete-status', 'summary', '비동기 VM 삭제 진행률 폴링', 'Poll async VM-delete progress'],
+      ['vm.delete', 1, 'vm delete', 'summary', 'VM 삭제 (비동기 Job; VM 이름과 맞는 첫 디스크만 함께 삭제, operator는 소유 범위)', 'Delete VM (async job; only the first disk named after the VM is deleted with it; owner-scoped for operator)'],
+      ['vm.delete.status', 0, 'vm delete-status', 'summary', '최근 VM 삭제 Job 상태 조회', 'Latest VM-delete job status'],
       ['vm.list', 0, 'vm list', 'dashboard', '전체 VM 목록 (offset/limit 페이징)', 'List all VMs (offset/limit paging)'],
+      ['vm.inspect', 2, 'vm inspect', '-', 'UUID 기반 비밀정보 제외 영구 구성 관측 (관리자 전용)', 'Observe redacted persistent configuration by UUID (admin-only)'],
       ['vm.limit', 1, 'vm limit', 'summary', 'cgroup CPU/MEM 제한 설정', 'Set cgroup CPU/MEM limits'],
       ['vm.metrics', 0, 'monitor metrics', 'summary/performance', 'VM별 CPU/MEM/디스크/네트워크 메트릭', 'Per-VM CPU/MEM/disk/net metrics'],
       ['vm.rename', 1, 'vm rename', 'summary', '중지된 VM 이름 변경 + 표준 디스크 경로', 'Rename shut-off VM + standard disk path'],
@@ -119,8 +120,8 @@ function renderHelp(b) {
       ['vm.set_memory', 1, 'vm set-memory', 'summary', 'RAM 핫 설정 (MB)', 'Hot-set RAM (MB)'],
       ['vm.set_vcpu', 1, 'vm set-vcpu', 'summary', 'vCPU 개수 핫 설정', 'Hot-set vCPU count'],
       ['vm.pin_vcpu', 1, 'vm pin-vcpu', 'summary', 'vCPU를 호스트 cpuset에 핀', 'Pin vCPU to host cpuset'],
-      ['vm.memory.stats', 0, 'vm memory-stats', 'performance', '메모리 balloon/RSS/swap 통계', 'Memory balloon/RSS/swap stats'],
-      ['vm.cpu.stats', 0, 'vm cpu-stats', 'performance', 'CPU 시간 + vCPU별 통계', 'CPU time + per-vCPU stats'],
+      ['vm.memory.stats', 1, 'vm memory-stats', 'performance', '메모리 balloon/RSS/swap 통계', 'Memory balloon/RSS/swap stats'],
+      ['vm.cpu.stats', 1, 'vm cpu-stats', 'performance', 'CPU 시간 + vCPU별 통계', 'CPU time + per-vCPU stats'],
       ['vm.disk.live_resize', 1, '-', 'summary', '실행 도메인 디스크 라이브 리사이즈', 'Live-resize VM disk (running domain)'],
       ['vm.usb.attach', 1, 'vm usb-attach', 'summary', 'USB 호스트 장치 연결 (vendor/product)', 'Attach USB host device (vendor/product)'],
       ['vm.usb.detach', 1, 'vm usb-detach', 'summary', 'USB 호스트 장치 분리', 'Detach USB host device'],
@@ -143,15 +144,15 @@ function renderHelp(b) {
       ['vm.event.webhook.list', 0, 'webhook list', '-', 'VM 이벤트 웹훅 대상 목록', 'List VM-event webhook targets'],
     ]},
     { id: 'container', ko: '컨테이너 (LXC)', en: 'Containers (LXC)', rows: [
-      ['container.create', 1, 'container create', 'containers', 'LXC 컨테이너 생성', 'Create LXC container'],
+      ['container.create', 1, 'container create', 'containers', 'LXC 컨테이너 생성 (기본 unprivileged, rootless:false는 ADMIN)', 'Create LXC container (unprivileged by default; rootless:false is admin-only)'],
       ['container.destroy', 2, 'container destroy', 'containers', 'LXC 컨테이너 파괴', 'Destroy LXC container'],
       ['container.start', 1, 'container start', 'containers', '컨테이너 시작', 'Start container'],
       ['container.stop', 1, 'container stop', 'containers', '컨테이너 중지', 'Stop container'],
-      ['container.list', 0, 'container list', 'containers', '컨테이너 목록 (페이징)', 'List containers (paged)'],
+      ['container.list', 0, 'container list', 'containers', '컨테이너 목록 (페이징, privileged 표시)', 'List containers (paged, shows privileged)'],
       ['container.metrics', 0, 'container metrics', 'containers', '컨테이너 CPU/MEM/리소스 사용량', 'Container CPU/MEM/resource usage'],
       ['container.exec', 2, 'container exec', 'containers', '컨테이너 내부 명령 실행', 'Exec command inside container'],
       ['container.snapshot.create', 2, 'container snapshot', 'containers', '컨테이너 ZFS 스냅샷 생성', 'Create container ZFS snapshot'],
-      ['container.snapshot.rollback', 2, 'container snapshot', 'containers', '컨테이너를 스냅샷으로 롤백', 'Roll container back to snapshot'],
+      ['container.snapshot.rollback', 2, 'container snapshot', 'containers', '컨테이너를 스냅샷으로 롤백 (실행 중이면 정지 → 되돌림 → 다시 시작)', 'Roll container back to snapshot (if running: stop, roll back, start again)'],
       ['container.snapshot.delete', 2, 'container snapshot', 'containers', '컨테이너 스냅샷 삭제', 'Delete container snapshot'],
       ['container.snapshot.list', 0, 'container snapshot', 'containers', '컨테이너 스냅샷 목록', 'List container snapshots'],
       ['container.set_limits', 2, 'container set-limits', 'containers', '메모리/cpu_quota 제한 설정', 'Set memory/cpu_quota limits'],
@@ -161,9 +162,9 @@ function renderHelp(b) {
 
       ['container.nic.detach', 2, 'container nic-detach', 'containers', '컨테이너에서 NIC 분리 (nic-name)', 'Detach NIC from container (nic-name)'],
       ['container.set_bandwidth', 2, 'container set-bandwidth', 'containers', '컨테이너 인/아웃바운드 대역폭 설정', 'Set container inbound/outbound bandwidth'],
-      ['container.logs', 0, 'container logs', 'containers', '컨테이너 로그 tail (N줄)', 'Tail container logs (lines N)'],
-      ['container.volume.attach', 2, 'container volume-attach', 'containers', '호스트 볼륨을 컨테이너에 연결', 'Attach host volume to container'],
-      ['container.volume.detach', 2, 'container volume-detach', 'containers', '컨테이너에서 볼륨 분리', 'Detach volume from container'],
+      ['container.logs', 1, 'container logs', 'containers', '컨테이너 로그 tail (N줄, OPERATOR는 자기 컨테이너만)', 'Tail container logs (lines N, OPERATOR: own containers only)'],
+      ['container.volume.attach', 2, 'container volume-attach', 'containers', '호스트 볼륨을 컨테이너에 연결 (기본 읽기 전용)', 'Attach host volume to container (read-only by default)'],
+      ['container.volume.detach', 2, 'container volume-detach', 'containers', '컨테이너에서 볼륨 분리 (컨테이너 안 모든 마운트 NS에서 떨어졌을 때만 성공)', 'Detach volume from container (succeeds only when it is gone from every mount namespace in the container)'],
       ['container.volume.list', 0, 'container volume-list', 'containers', '컨테이너 볼륨 목록', 'List container volumes'],
       ['container.env.set', 2, 'container env-set', 'containers', '컨테이너 환경변수 설정', 'Set container env variable'],
       ['container.env.list', 0, 'container env-list', 'containers', '컨테이너 환경변수 목록', 'List container env variables'],
@@ -171,9 +172,9 @@ function renderHelp(b) {
       ['container.health.set', 2, 'container health-set', 'containers', '컨테이너 헬스체크 설정 (type/target)', 'Set container health-check (type/target)'],
       ['container.health.get', 0, 'container health-get', 'containers', '컨테이너 헬스체크 설정 조회', 'Get container health-check config'],
       ['container.health.delete', 2, 'container health-delete', 'containers', '컨테이너 헬스체크 삭제', 'Delete container health-check'],
-      ['container.clone', 1, '-', 'containers', '컨테이너 복제 (source→dest)', 'Clone container (source to dest)'],
-      ['container.memory.stats', 0, '-', 'containers', '컨테이너 메모리 통계', 'Container memory statistics'],
-      ['container.health.check', 0, 'container health-check', 'containers', '컨테이너 헬스 프로브 즉시 실행 (미등록→VIEWER)', 'Run container health probe now (unlisted defaults VIEWER)'],
+      ['container.clone', 1, '-', 'containers', '컨테이너 복제 (source→dest 전체 복사, privileged·호스트 볼륨·허용 밖 브리지 원본은 ADMIN)', 'Clone container (full copy source to dest; privileged, host-volume or disallowed-bridge source is admin-only)'],
+      ['container.memory.stats', 1, '-', 'containers', '컨테이너 메모리 통계 (OPERATOR는 자기 컨테이너만)', 'Container memory statistics (OPERATOR: own containers only)'],
+      ['container.health.check', 1, 'container health-check', 'containers', '컨테이너 헬스 프로브 즉시 실행 (OPERATOR는 자기 컨테이너만)', 'Run container health probe now (OPERATOR: own containers only)'],
     ]},
     { id: 'network', ko: '네트워크', en: 'Network', rows: [
       ['network.create', 2, 'network create', 'networks', '관리형 네트워크/전용 L2 브릿지 생성', 'Create managed network/dedicated L2 bridge'],
@@ -200,7 +201,7 @@ function renderHelp(b) {
       ['storage.pool.create', 2, '-', 'storage', 'ZFS 풀 생성', 'Create ZFS pool'],
       ['storage.pool.destroy', 2, '-', 'storage', 'ZFS 풀 파괴', 'Destroy ZFS pool'],
       ['storage.pool.scrub', 2, '-', 'storage', '풀 백그라운드 scrub 시작', 'Start background pool scrub'],
-      ['storage.pool.health', 0, 'storage health', 'storage', '풀 상태 (state/errors)', 'Pool health (state/errors)'],
+      ['storage.pool.health', 1, 'storage health', 'storage', '풀 상태 (state/errors)', 'Pool health (state/errors)'],
       ['storage.pool.forecast', 0, 'storage pool-forecast', 'storage', '풀 용량 소진 예측', 'Pool capacity-exhaustion forecast'],
     ]},
                       
@@ -225,7 +226,7 @@ function renderHelp(b) {
       ['qos.vm.get', 0, '-', '-', 'VM별 QoS 조회', 'Get per-VM QoS'],
       ['qos.tenant.set', 2, '-', '-', '테넌트별 QoS 설정', 'Set per-tenant QoS'],
       ['qos.tenant.get', 0, '-', '-', '테넌트별 QoS 조회', 'Get per-tenant QoS'],
-      ['qos.stats', 0, '-', '-', 'QoS 집행 통계', 'QoS enforcement statistics'],
+      ['qos.stats', 2, '-', '-', 'QoS 집행 통계', 'QoS enforcement statistics'],
       ['qos.chaos.start', 2, '-', '-', 'netem 카오스(지연/손실) 폴트 주입 시작', 'Start netem chaos (delay/loss) fault injection'],
       ['qos.chaos.stop', 2, '-', '-', 'netem 카오스 중지', 'Stop netem chaos'],
       ['qos.chaos.status', 2, '-', '-', '카오스 상태 (민감→ADMIN)', 'Chaos status (sensitive, ADMIN)'],
@@ -262,6 +263,9 @@ function renderHelp(b) {
       ['vpc.egress.set', 1, 'vpc egress-set', 'vpcs', 'VPC egress 모드 설정', 'Set VPC egress mode'],
       ['vpc.subnet.create', 1, 'vpc subnet-create', 'vpcs', 'VPC 서브넷 생성', 'Create a VPC subnet'],
       ['vpc.subnet.delete', 1, 'vpc subnet-delete', 'vpcs', 'VPC 서브넷 삭제', 'Delete a VPC subnet'],
+      ['vpc.subnet.confirm', 2, 'vpc subnet-confirm', 'vpcs', '예약 대역과 겹친 subnet 확인(자동 원복 취소)', 'Confirm a subnet overlapping a reserved range (cancel auto-revert)'],
+      ['vpc.pool.set', 2, 'vpc pool-set', 'vpcs', '테넌트 VPC 주소 풀 설정', 'Set tenant VPC address pool'],
+      ['vpc.pool.list', 2, 'vpc pool-list', 'vpcs', '테넌트 VPC 주소 풀 목록', 'List tenant VPC address pools'],
       ['vpc.attachment.create', 1, 'vpc attachment-create', 'vpcs', 'VM을 VPC 서브넷에 연결', 'Attach a VM to a VPC subnet'],
       ['vpc.attachment.delete', 1, 'vpc attachment-delete', 'vpcs', 'VPC VM 연결 해제', 'Detach a VM from a VPC'],
       ['vpc.service.publish', 1, 'vpc service-publish', 'vpcs', 'VM 서비스 공개', 'Publish a VM service'],
@@ -271,13 +275,13 @@ function renderHelp(b) {
                          
     { id: 'agent', ko: 'AI 에이전트', en: 'AI Agent', rows: [
       ['agent.config.get', 0, 'agent config', 'selfhealing', 'AI 에이전트 설정 조회', 'Get AI agent config'],
-      ['agent.config.set', 2, 'agent set', 'selfhealing', 'AI 프로바이더/api_key/활성 설정', 'Set AI provider/api_key/enabled'],
+      ['agent.config.set', 2, 'agent set', 'selfhealing', 'AI 프로바이더/api_key/모델/엔드포인트 설정', 'Set AI provider/api_key/model/endpoint'],
       ['agent.history', 0, 'agent history', 'selfhealing', 'AI 합의/결정 이력', 'AI consensus/decision history'],
       ['agent.compare_manual', 2, '-', 'selfhealing', 'AI 진단 수동 트리거', 'Manually trigger AI diagnosis now'],
     ]},
     { id: 'ai', ko: 'AI 힐링 승인', en: 'AI Healing Approval', rows: [
-      ['ai.healing.approve', 0, '-', 'selfhealing', 'AI 제안 힐링 승인 (미등록→VIEWER)', 'Approve AI-proposed healing (unlisted defaults VIEWER)'],
-      ['ai.healing.reject', 0, '-', 'selfhealing', 'AI 제안 힐링 거절 (미등록→VIEWER)', 'Reject AI-proposed healing (unlisted defaults VIEWER)'],
+      ['ai.healing.approve', 2, '-', 'selfhealing', 'AI 제안 힐링 승인', 'Approve AI-proposed healing'],
+      ['ai.healing.reject', 2, '-', 'selfhealing', 'AI 제안 힐링 거절', 'Reject AI-proposed healing'],
     ]},
     { id: 'alert', ko: '알림', en: 'Alerts', rows: [
       ['alert.history', 0, 'alert list', 'mon-alerts', '알림 이력', 'Alert history'],
@@ -297,6 +301,7 @@ function renderHelp(b) {
       ['auth.user.list', 2, 'auth list', 'accounts', '사용자 목록', 'List users'],
       ['auth.user.delete', 2, 'auth delete', 'accounts', '사용자 삭제', 'Delete user'],
       ['auth.role.set', 2, 'auth role', 'accounts', '사용자 역할 설정', 'Set user role'],
+      ['auth.user.tenant.set', 2, 'auth tenant', 'accounts', '테넌트 없는 사용자에게 테넌트 지정', 'Assign a tenant to a user that has none'],
       ['auth.apikey.create', 2, '-', 'apimgmt', 'API 키 생성 (이름/역할/만료)', 'Create API key (name/role/expiry)'],
       ['auth.apikey.list', 2, '-', 'apimgmt', 'API 키 목록', 'List API keys'],
       ['auth.apikey.revoke', 2, '-', 'apimgmt', 'API 키 폐기', 'Revoke an API key'],
@@ -311,27 +316,31 @@ function renderHelp(b) {
       ['backup.policy.set', 2, 'backup set', 'backup', 'VM 백업 정책 설정', 'Set VM backup policy'],
       ['backup.policy.list', 0, 'backup list', 'backup', '백업 정책 목록', 'List backup policies'],
       ['backup.policy.delete', 2, 'backup delete', 'backup', '백업 정책 삭제', 'Delete backup policy'],
-      ['backup.history', 0, 'backup history', 'backup', 'VM 백업 이력', 'Backup history for VM'],
+      ['backup.history', 1, 'backup history', 'backup', 'VM 백업 이력', 'Backup history for VM'],
       ['backup.restore', 2, 'backup restore', 'backup', '백업 스냅샷에서 VM 복원', 'Restore VM from backup snapshot'],
       ['backup.incremental', 2, 'backup incremental', 'backup', '증분 백업 실행', 'Run incremental backup'],
       ['backup.verify', 2, 'backup verify', 'backup', '백업 무결성 검증', 'Verify backup integrity'],
       ['backup.replicate', 2, 'backup replicate', 'backup', '원격 대상으로 백업 복제', 'Replicate backup to remote target'],
+      ['backup.replication.hostkey.scan', 2, 'backup hostkey scan', 'backup', '복제 대상 SSH 호스트 키 스캔 (지문 대조용)', 'Scan replication target SSH host keys (for fingerprint check)'],
+      ['backup.replication.hostkey.trust', 2, 'backup hostkey trust', 'backup', '재스캔 지문이 같을 때 호스트 키 등록', 'Trust host key when the rescanned fingerprint matches'],
+      ['backup.replication.hostkey.list', 2, 'backup hostkey list', 'backup', '등록된 복제 호스트 키 목록', 'List trusted replication host keys'],
+      ['backup.replication.hostkey.remove', 2, 'backup hostkey remove', 'backup', '복제 호스트 키 등록 해제', 'Remove a trusted replication host key'],
       ['backup.snapshot.verify', 2, 'snapshot verify', 'backup', '스냅샷 존재/무결성 검증 (비동기)', 'Verify snapshot exists/intact (async)'],
     ]},
     { id: 'config', ko: '설정', en: 'Config', rows: [
       ['config.history', 0, 'config history', 'config-mgmt', '설정 변경 이력', 'Config-change history'],
-      ['config.backup', 0, 'config backup', 'config-mgmt', '현재 설정 파일 스냅샷', 'Snapshot current config file'],
+      ['config.backup', 2, 'config backup', 'config-mgmt', '현재 설정 파일 스냅샷', 'Snapshot current config file'],
       ['config.reload', 2, '-', 'config-mgmt', '설정 핫 리로드 (SIGHUP)', 'Hot-reload config (SIGHUP)'],
     ]},
     { id: 'daemon', ko: '데몬', en: 'Daemon', rows: [
-      ['daemon.version', 0, 'node version', 'host', '데몬 버전 문자열', 'Daemon version string'],
+      ['daemon.version', 2, 'node version', 'host', '데몬 버전 문자열', 'Daemon version string'],
       ['daemon.update_check', 0, '-', 'host', '신규 버전 확인 (읽기 전용)', 'Check for newer version (read-only)'],
       ['daemon.config.get', 0, '-', 'config-mgmt', 'daemon.conf 설정 조회', 'Get daemon.conf settings'],
       ['daemon.config.set', 2, '-', 'config-mgmt', 'daemon.conf 설정 변경', 'Set daemon.conf settings'],
     ]},
     { id: 'device', ko: '장치 핫플러그', en: 'Device Hotplug', rows: [
-      ['device.disk.attach', 2, 'device disk', 'summary', 'VM에 블록 장치 핫 연결', 'Hot-attach block device to VM'],
-      ['device.disk.detach', 2, 'device disk', 'summary', '블록 장치 핫 분리', 'Hot-detach block device'],
+      ['device.disk.attach', 2, 'device disk', 'summary', 'VM에 블록 장치 연결(실행 중이면 live+영구, 꺼져 있으면 영구)', 'Attach block device (running: live+persistent, stopped: persistent)'],
+      ['device.disk.detach', 2, 'device disk', 'summary', '블록 장치 분리(live와 영구 정의)', 'Detach block device (live and persistent definition)'],
       ['device.nic.list', 0, 'nic list', 'summary', 'VM NIC 목록', 'List VM NICs'],
       ['device.nic.attach', 1, 'nic add', 'summary', 'NIC 핫 연결 (operator: 소유 VM)', 'Hot-attach NIC (operator: own VM)'],
       ['device.nic.detach', 1, 'nic remove', 'summary', 'NIC 핫 분리 (operator: 소유 VM)', 'Hot-detach NIC (operator: own VM)'],
@@ -354,6 +363,7 @@ function renderHelp(b) {
     { id: 'healing', ko: '자가치유', en: 'Self-Healing', rows: [
       ['healing.history', 0, 'healing history', 'selfhealing', '자가치유 액션 이력', 'Self-healing action history'],
       ['healing.pending', 0, '-', 'selfhealing', '대기 중 힐링 액션 (BUG-21)', 'Pending healing actions (BUG-21)'],
+      ['healing.status', 0, '-', 'selfhealing', '자가치유 모드·대기 건수 조회', 'Self-healing mode and pending count'],
       ['healing.set_mode', 2, '-', 'selfhealing', 'dry_run↔active 모드 전환 (관리자)', 'Switch dry_run/active mode (admin)'],
     ]},
     { id: 'iscsi', ko: 'iSCSI', en: 'iSCSI', rows: [
@@ -366,8 +376,8 @@ function renderHelp(b) {
     { id: 'jobs', ko: '비동기 작업', en: 'Async Jobs', rows: [
       ['jobs.list', 0, 'job list', 'activity-log', '비동기 작업 목록 (페이징)', 'List async jobs (paged)'],
       ['jobs.get', 0, '-', 'activity-log', 'ID로 작업 1건 조회', 'Get one job by id'],
-      ['jobs.status', 0, '-', 'activity-log', 'jobs.get 별칭 (ADR-0012)', 'Alias of jobs.get (ADR-0012)'],
-      ['jobs.cancel', 0, '-', 'activity-log', '작업 취소 (미등록→VIEWER)', 'Cancel a job (unlisted defaults VIEWER)'],
+      ['jobs.status', 2, '-', 'activity-log', 'jobs.get 별칭 (ADR-0012)', 'Alias of jobs.get (ADR-0012)'],
+      ['jobs.cancel', 2, '-', 'activity-log', '작업 취소', 'Cancel a job'],
     ]},
     { id: 'monitor', ko: '모니터링', en: 'Monitoring', rows: [
       ['monitor.metrics', 0, 'monitor metrics', 'mon-overview', '단일 VM CPU/MEM 사용량', 'Single-VM CPU/MEM usage'],
@@ -376,13 +386,13 @@ function renderHelp(b) {
     ]},
     { id: 'node', ko: '노드', en: 'Node', rows: [
       ['node.drain', 2, 'node drain', '-', '노드 드레인 (신규 RPC 수신 중단)', 'Drain node (stop accepting new RPCs)'],
-      ['node.resume', 0, 'node resume', '-', '드레인 후 노드 재개 (미등록→VIEWER)', 'Resume node after drain (unlisted defaults VIEWER)'],
+      ['node.resume', 2, 'node resume', '-', '드레인 후 노드 재개', 'Resume node after drain'],
     ]},
     { id: 'ovn', ko: 'OVN SDN', en: 'OVN SDN', rows: [
       ['ovn.switch.create', 2, 'ovn switch', '-', 'OVN 논리 스위치 생성', 'Create OVN logical switch'],
       ['ovn.switch.delete', 2, 'ovn switch', '-', 'OVN 논리 스위치와 소유 DHCP 옵션 삭제', 'Delete an OVN logical switch and its owned DHCP options'],
       ['ovn.switch.list', 0, 'ovn switch', 'ovn', '논리 스위치 목록', 'List logical switches'],
-      ['ovn.switch.detail', 0, '-', '-', '스위치 상세 (ports/ACL)', 'Switch detail (ports/ACL)'],
+      ['ovn.switch.detail', 1, '-', '-', '스위치 상세 (ports/ACL)', 'Switch detail (ports/ACL)'],
       ['ovn.port.add', 2, '-', '-', '논리 스위치 포트 추가 (RPC 전용)', 'Add logical switch port (RPC only)'],
       ['ovn.port.remove', 2, '-', '-', '논리 스위치 포트 제거 (RPC 전용)', 'Remove logical switch port (RPC only)'],
       ['ovn.acl.add', 2, 'ovn acl', 'ovn', '스위치에 ACL(방화벽) 규칙 추가', 'Add ACL (firewall) rule to switch'],
@@ -390,7 +400,7 @@ function renderHelp(b) {
       ['ovn.router.create', 2, 'ovn router', '-', 'OVN 논리 라우터 생성', 'Create OVN logical router'],
       ['ovn.router.delete', 2, 'ovn router', '-', '논리 라우터 삭제', 'Delete logical router'],
       ['ovn.router.list', 0, 'ovn router', 'ovn', '논리 라우터 목록', 'List logical routers'],
-      ['ovn.router.detail', 0, '-', '-', '라우터 상세 (ports/NAT)', 'Router detail (ports/NAT)'],
+      ['ovn.router.detail', 1, '-', '-', '라우터 상세 (ports/NAT)', 'Router detail (ports/NAT)'],
       ['ovn.router.add_port', 2, '-', '-', '라우터 포트를 스위치에 연결 (RPC 전용)', 'Attach router port to switch (RPC only)'],
 
 
@@ -412,9 +422,19 @@ function renderHelp(b) {
       ['push.vapid.rotate', 2, '-', '-', 'VAPID 키 재생성 + 전 구독 폐기 (브라우저 재구독 필요)', 'Regenerate VAPID key + revoke every subscription (browsers must re-subscribe)'],
       ['push.test', 2, '-', '-', '테스트 알림 큐잉 (운영 진단·E2E 앵커)', 'Queue a test notification (ops diagnosis / E2E anchor)'],
     ]},
+    { id: 'resource', ko: '호스트 자원 등록', en: 'Host resources', rows: [
+      ['resource.register', 2, 'resource register', '-', '호스트 자원(이미지·ISO·PCI·USB·스토리지·브리지)에 이름을 붙여 등록', 'Register a named host resource (image/ISO/PCI/USB/storage/bridge)'],
+      ['resource.unregister', 2, 'resource unregister', '-', '등록 해제 — 어떤 VM이든 쓰고 있으면 거절', 'Unregister a resource — refused while any VM uses it'],
+      ['resource.grant', 2, 'resource grant', '-', '테넌트에게 등록 자원 사용 허용', 'Allow a tenant to use a registered resource'],
+      ['resource.revoke', 2, 'resource revoke', '-', '테넌트 허용 해제 — 그 테넌트 소유 VM이 쓰고 있으면 거절', 'Revoke a tenant grant — refused while VMs owned by that tenant use it'],
+      ['resource.list', 2, 'resource list', '-', '등록 자원과 허용 테넌트 목록', 'List registered resources and granted tenants'],
+      ['resource.unregistered.list', 2, 'resource unregistered', '-', '기존 VM이 쓰는 미등록 호스트 자원 참조 목록 (제안 이름·VM·소유자)', 'List host references used by VMs but not registered (suggested name, VMs, owners)'],
+      ['resource.import', 2, 'resource import', '-', '미등록 목록을 입력으로 일괄 등록·허용 (전부 아니면 전무)', 'Bulk register and grant from the unregistered list (all or nothing)'],
+    ]},
     { id: 'security', ko: '보안 (HIDS/HIPS)', en: 'Security (HIDS/HIPS)', rows: [
       ['security.event.list', 0, 'security events', 'mon-security', 'HIDS/HIPS 보안 이벤트 목록', 'List HIDS/HIPS security events'],
       ['security.event.get', 0, 'security event', 'mon-security', '보안 이벤트 1건 조회', 'Show one security event'],
+      ['security.event.close', 2, 'security close', 'mon-security', '열린 보안 이벤트 운영자 종결(사유 필수)', 'Close an open security event (reason required)'],
       ['security.action.pending', 0, 'security pending', 'mon-security', '대기 중 HIPS 액션 목록', 'List pending HIPS actions'],
       ['security.action.approve', 2, 'security approve', 'mon-security', '대기 HIPS 액션 승인', 'Approve pending HIPS action'],
       ['security.action.dismiss', 1, 'security dismiss', 'mon-security', '대기 HIPS 액션 기각', 'Dismiss pending HIPS action'],
@@ -427,8 +447,8 @@ function renderHelp(b) {
       ['security_group.create', 2, 'security-group create', 'security-groups', '보안 그룹 생성', 'Create security group'],
       ['security_group.list', 0, 'security-group list', 'security-groups', '보안 그룹 목록', 'List security groups'],
       ['security_group.delete', 2, 'security-group delete', 'security-groups', '보안 그룹 삭제', 'Delete security group'],
-      ['security_group.rule.add', 0, 'security-group rule', 'security-groups', '규칙 추가 (미등록→VIEWER)', 'Add rule (unlisted defaults VIEWER)'],
-      ['security_group.rule.remove', 0, '-', 'security-groups', '규칙 제거 (미등록→VIEWER)', 'Remove rule (unlisted defaults VIEWER)'],
+      ['security_group.rule.add', 2, 'security-group rule', 'security-groups', '규칙 추가', 'Add rule'],
+      ['security_group.rule.remove', 2, '-', 'security-groups', '규칙 제거', 'Remove rule'],
       ['security_group.detach', 2, 'security-group detach', 'security-groups', 'VM에서 보안 그룹 분리', 'Detach security group from VM'],
     ]},
     { id: 'sriov', ko: 'SR-IOV', en: 'SR-IOV', rows: [
@@ -445,22 +465,22 @@ function renderHelp(b) {
       ['template.get', 0, 'template get', 'templates', '템플릿 상세 조회', 'Get template detail'],
       ['template.create', 2, 'template create', 'templates', 'VM 템플릿 생성', 'Create VM template'],
       ['template.delete', 2, 'template delete', 'templates', 'VM 템플릿 삭제', 'Delete VM template'],
-      ['template.history', 0, 'template history', 'templates', '템플릿 변경 이력', 'Template change history'],
+      ['template.history', 1, 'template history', 'templates', '템플릿 변경 이력', 'Template change history'],
     ]},
     { id: 'webhook', ko: '웹훅 DLQ', en: 'Webhook DLQ', rows: [
-      ['webhook.dlq.list', 0, 'webhook dlq', '-', '웹훅 데드레터 큐 목록', 'List webhook dead-letter queue'],
-      ['webhook.dlq.retry', 0, 'webhook dlq', '-', '웹훅 DLQ 재전송 (미등록→VIEWER)', 'Retry webhook DLQ (unlisted defaults VIEWER)'],
+      ['webhook.dlq.list', 2, 'webhook dlq', '-', '웹훅 데드레터 큐 목록', 'List webhook dead-letter queue'],
+      ['webhook.dlq.retry', 2, 'webhook dlq', '-', '웹훅 DLQ 재전송', 'Retry webhook DLQ'],
     ]},
                         
     { id: 'singletons', ko: '기타 (싱글톤)', en: 'Misc (Singletons)', rows: [
-      ['audit.search', 0, 'audit search', 'mon-audit', '감사 로그 검색 (user/from/to/method)', 'Search audit logs (user/from/to/method)'],
-      ['snapshot.schedule.status', 0, 'snapshot schedule-status', 'snapshots', '전역 스냅샷 스케줄 상태', 'Global snapshot-schedule status'],
+      ['audit.search', 2, 'audit search', 'mon-audit', '감사 로그 검색 (username/from_ts/to_ts/method)', 'Search audit logs (username/from_ts/to_ts/method)'],
+      ['snapshot.schedule.status', 2, 'snapshot schedule-status', 'snapshots', '전역 스냅샷 스케줄 상태', 'Global snapshot-schedule status'],
       ['quota.get', 0, '-', '-', '리소스 쿼터 사용량 조회', 'Get resource quota usage'],
-      ['prometheus.sd', 0, 'prometheus sd', '-', 'Prometheus HTTP 서비스 디스커버리 타겟', 'Prometheus HTTP service-discovery targets'],
+      ['prometheus.sd', 2, 'prometheus sd', '-', 'Prometheus HTTP 서비스 디스커버리 타겟', 'Prometheus HTTP service-discovery targets'],
       ['pool.conninfo', 0, '-', '-', 'libvirt 커넥션 풀 상태 (idle/total/max)', 'libvirt connection-pool status (idle/total/max)'],
       ['iso.list', 0, 'iso list', 'console', '사용 가능 ISO 이미지 목록', 'List available ISO images'],
-      ['health.deep', 0, '-', '-', '심층 헬스 (ZFS 풀 + nftables 규칙)', 'Deep health (ZFS pool + nftables rules)'],
-      ['db.migration.status', 0, '-', '-', '내부 DB 스키마 버전/위치', 'Internal DB schema version/location'],
+      ['health.deep', 2, '-', '-', '심층 헬스 (ZFS 풀 + nftables 규칙)', 'Deep health (ZFS pool + nftables rules)'],
+      ['db.migration.status', 2, '-', '-', '내부 DB 스키마 버전/위치', 'Internal DB schema version/location'],
       ['capacity.forecast', 0, 'capacity forecast', '-', '리소스 소진 용량 예측', 'Resource-exhaustion capacity forecast'],
       ['anomaly.reset_baseline', 2, '-', 'selfhealing', 'Z-Score 이상탐지 베이스라인 리셋 (관리자)', 'Reset Z-Score anomaly baseline (admin)'],
     ]},
@@ -575,40 +595,41 @@ function renderSwaggerApi(b) {
                                                                     
     { id: 'health', name: _L('헬스 & 시스템', 'Health & System'), open: true, endpoints: [
       { m: 'GET', p: '/health', d: _L('라이브니스 프로브', 'Liveness probe'), auth: false },
-      { m: 'GET', p: '/health/recent-errors', d: _L('인메모리 에러 링', 'In-memory error ring'), auth: false },
+      { m: 'GET', p: '/health/recent-errors', d: _L('인메모리 에러 링 (loopback 또는 토큰)', 'In-memory error ring (loopback or token)') },
       { m: 'GET', p: '/health/deep', d: _L('심층 헬스 (ZFS 풀 + nftables)', 'Deep health (ZFS pool + nftables)') },
       { m: 'GET', p: '/version', d: _L('데몬 버전', 'Daemon version'), auth: false },
       { m: 'GET', p: '/update-check', d: _L('업데이트 확인', 'Update check'), auth: false },
-      { m: 'GET', p: '/metrics', d: _L('Prometheus 메트릭 (' + METRICS + '개)', 'Prometheus metrics (' + METRICS + ')') },
+      { m: 'GET', p: '/metrics', d: _L('Prometheus 메트릭 (' + METRICS + '개, loopback 또는 토큰)', 'Prometheus metrics (' + METRICS + ', loopback or token)') },
     ]},
                                                       
     { id: 'auth', name: _L('인증 & RBAC', 'Auth & RBAC'), endpoints: [
-      { m: 'POST', p: '/auth/token', d: _L('JWT 로그인', 'JWT login'), auth: false, body: '{"username":"admin","password":"configured-admin-password"}' },
+      { m: 'POST', p: '/auth/token', d: _L('JWT 로그인', 'JWT login'), auth: false, body: '{"username":"pcv-example-user","password":".."}' },
       { m: 'POST', p: '/auth/refresh', d: _L('액세스 토큰 갱신', 'Refresh access token'), auth: false, body: '{"refresh_token":"..."}' },
-      { m: 'POST', p: '/auth/logout', d: _L('로그아웃 (세션 폐기)', 'Logout (revoke session)') },
+      { m: 'POST', p: '/auth/logout', d: _L('로그아웃 (이 세션만 폐기)', 'Logout (revoke this session only)'), body: '{"refresh_token":"..."}' },
+      { m: 'POST', p: '/auth/logout/all', d: _L('모든 기기에서 로그아웃 (사용자 세션 전부 폐기)', 'Log out of all devices (revoke all user sessions)'), body: '{"refresh_token":"..."}' },
       { m: 'POST', p: '/auth/password', d: _L('비밀번호 변경', 'Change own password'), body: '{"old_password":"..","new_password":".."}' },
-      { m: 'POST', p: '/auth/register', d: _L('자가 등록', 'Self-registration'), auth: false, body: '{"username":"..","password":".."}' },
+      { m: 'POST', p: '/auth/register', d: _L('자가 등록', 'Self-registration'), auth: false, body: '{"username":"pcv-example-user","password":".."}' },
       { m: 'GET', p: '/auth/whoami', d: _L('현재 사용자/역할/테넌트', 'Current user/role/tenant') },
       { m: 'GET', p: '/auth/users', d: _L('사용자 목록', 'User list') },
-      { m: 'POST', p: '/auth/users', d: _L('사용자 생성', 'Create user'), body: '{"username":"bob","password":"..","role":"operator"}' },
-      { m: 'DELETE', p: '/auth/users', d: _L('사용자 삭제', 'Delete user'), body: '{"username":"bob"}' },
-      { m: 'POST', p: '/auth/role', d: _L('역할 설정', 'Set role'), body: '{"username":"bob","role":"admin"}' },
+      { m: 'POST', p: '/auth/users', d: _L('사용자 생성', 'Create user'), body: '{"username":"pcv-example-user","password":"..","role":"viewer"}' },
+      { m: 'DELETE', p: '/auth/users', d: _L('사용자 삭제', 'Delete user'), body: '{"username":"pcv-example-user"}' },
+      { m: 'POST', p: '/auth/role', d: _L('역할 설정', 'Set role'), body: '{"username":"pcv-example-user","role":"viewer"}' },
       { m: 'POST', p: '/auth/sessions/revoke', d: _L('세션 1건 폐기', 'Revoke one session'), body: '{"jti":"..."}' },
-      { m: 'POST', p: '/auth/user-sessions/revoke', d: _L('사용자 전체 세션 폐기', 'Revoke all user sessions'), body: '{"username":"bob"}' },
+      { m: 'POST', p: '/auth/user-sessions/revoke', d: _L('사용자 전체 세션 폐기', 'Revoke all user sessions'), body: '{"username":"pcv-example-user"}' },
       { m: 'GET', p: '/auth/apikeys', d: _L('API 키 목록', 'API key list') },
-      { m: 'POST', p: '/auth/apikeys', d: _L('API 키 생성', 'Create API key'), body: '{"name":"ci","role":"viewer","expires_at":1750000000}' },
+      { m: 'POST', p: '/auth/apikeys', d: _L('API 키 생성', 'Create API key'), body: '{"name":"pcv-example-key","role":"viewer","expires_at":1750000000}' },
       { m: 'POST', p: '/auth/apikeys/{client_name}/revoke', d: _L('API 키 폐기', 'Revoke API key') },
       { m: 'POST', p: '/auth/totp/verify', d: _L('TOTP 코드 확인', 'Verify TOTP code'), body: '{"pending_token":"...","code":"123456"}' },
       { m: 'POST', p: '/auth/totp/enroll', d: _L('TOTP 등록 시작', 'Start TOTP enrollment'), body: '{"pending_token":"..."}' },
       { m: 'GET', p: '/auth/totp/status', d: _L('본인 TOTP 상태', 'Own TOTP status') },
       { m: 'POST', p: '/auth/totp/disable', d: _L('본인 TOTP 해제', 'Disable own TOTP'), body: '{"code":"123456"}' },
-      { m: 'POST', p: '/auth/totp/reset', d: _L('사용자 TOTP 초기화', 'Reset user TOTP'), body: '{"username":"bob"}' },
+      { m: 'POST', p: '/auth/totp/reset', d: _L('사용자 TOTP 초기화', 'Reset user TOTP'), body: '{"username":"pcv-example-user"}' },
       { m: 'POST', p: '/auth/totp/recovery/regenerate', d: _L('복구코드 재발급', 'Regenerate recovery codes'), body: '{"code":"123456"}' },
     ]},
                                            
     { id: 'vms', name: _L('가상 머신', 'Virtual Machines'), endpoints: [
       { m: 'GET', p: '/vms', d: _L('VM 목록', 'VM list') },
-      { m: 'POST', p: '/vms', d: _L('VM 생성', 'Create VM'), body: '{"name":"web","vcpu":2,"memory_mb":2048}' },
+      { m: 'POST', p: '/vms', d: _L('VM 생성', 'Create VM'), body: '{"name":"pcv-example-vm","vcpu":2,"memory_mb":2048}' },
       { m: 'GET', p: '/vms/{name}', d: _L('VM 메트릭/상세', 'VM metrics/detail') },
       { m: 'DELETE', p: '/vms/{name}', d: _L('VM 삭제', 'Delete VM') },
       { m: 'POST', p: '/vms/{name}/start', d: _L('시작', 'Start') },
@@ -617,31 +638,31 @@ function renderSwaggerApi(b) {
       { m: 'POST', p: '/vms/{name}/resume', d: _L('재개', 'Resume') },
       { m: 'GET', p: '/vms/{name}/metrics', d: _L('VM 메트릭', 'VM metrics') },
       { m: 'GET', p: '/vms/{name}/snapshot', d: _L('스냅샷 목록', 'Snapshot list') },
-      { m: 'POST', p: '/vms/{name}/snapshot/create', d: _L('스냅샷 생성', 'Create snapshot'), body: '{"snapshot_name":"pre-up"}' },
-      { m: 'POST', p: '/vms/{name}/snapshot/rollback', d: _L('스냅샷 롤백', 'Rollback snapshot'), body: '{"snapshot_name":"pre-up"}' },
-      { m: 'POST', p: '/vms/{name}/snapshot/delete_all', d: _L('스냅샷 일괄 삭제', 'Bulk-delete snapshots'), body: '{"prefix":"auto-","keep_recent":3}' },
-      { m: 'POST', p: '/vms/{name}/snapshot/schedule', d: _L('스냅샷 스케줄 설정', 'Set snapshot schedule'), body: '{"cron":"0 2 * * *","keep":7}' },
+      { m: 'POST', p: '/vms/{name}/snapshot/create', d: _L('스냅샷 생성', 'Create snapshot'), body: '{"snapshot_name":"pcv-example-snap"}' },
+      { m: 'POST', p: '/vms/{name}/snapshot/rollback', d: _L('스냅샷 롤백', 'Rollback snapshot'), body: '{"snapshot_name":"pcv-example-snap"}' },
+      { m: 'POST', p: '/vms/{name}/snapshot/delete_all', d: _L('스냅샷 일괄 삭제', 'Bulk-delete snapshots'), body: '{"prefix":"pcv-example-","keep_recent":3}' },
+      { m: 'POST', p: '/vms/{name}/snapshot/schedule', d: _L('스냅샷 스케줄 설정', 'Set snapshot schedule'), body: '{"interval_hours":24,"retention_count":7}' },
       { m: 'GET', p: '/vms/{name}/snapshot/schedule', d: _L('스냅샷 스케줄 조회', 'List snapshot schedule') },
       { m: 'DELETE', p: '/vms/{name}/snapshot/schedule', d: _L('스냅샷 스케줄 삭제', 'Delete snapshot schedule') },
       { m: 'DELETE', p: '/vms/{name}/snapshot/{snap}', d: _L('스냅샷 삭제', 'Delete snapshot') },
       { m: 'GET', p: '/vms/{name}/nics', d: _L('NIC 목록', 'NIC list') },
-      { m: 'POST', p: '/vms/{name}/nics', d: _L('NIC 추가', 'Attach NIC'), body: '{"bridge":"br0","model":"virtio"}' },
+      { m: 'POST', p: '/vms/{name}/nics', d: _L('NIC 추가', 'Attach NIC'), body: '{"bridge":"pcvexbr0","model":"virtio"}' },
       { m: 'DELETE', p: '/vms/{name}/nics/{mac}', d: _L('NIC 제거', 'Detach NIC') },
       { m: 'GET', p: '/vms/{name}/usb', d: _L('USB 목록', 'USB list') },
       { m: 'POST', p: '/vms/{name}/usb', d: _L('USB 연결', 'Attach USB'), body: '{"vendor_id":"1234","product_id":"5678"}' },
       { m: 'DELETE', p: '/vms/{name}/usb', d: _L('USB 분리', 'Detach USB'), body: '{"vendor_id":"1234","product_id":"5678"}' },
       { m: 'PUT', p: '/vms/{name}/vcpu', d: _L('vCPU 설정', 'Set vCPU'), body: '{"vcpu_count":4}' },
       { m: 'PUT', p: '/vms/{name}/memory', d: _L('메모리 설정', 'Set memory'), body: '{"memory_mb":4096}' },
-      { m: 'GET', p: '/vms/{name}/delete-status', d: _L('삭제 진행률', 'Delete progress') },
-      { m: 'PUT', p: '/vms/{name}/rename', d: _L('이름 변경', 'Rename VM'), body: '{"new_name":"web2"}' },
-      { m: 'POST', p: '/vms/{name}/iso', d: _L('ISO 마운트', 'Mount ISO'), body: '{"iso_path":"/isos/x.iso"}' },
+      { m: 'GET', p: '/vms/{name}/delete-status', d: _L('최근 삭제 Job 상태', 'Latest delete job status') },
+      { m: 'PUT', p: '/vms/{name}/rename', d: _L('이름 변경', 'Rename VM'), body: '{"new_name":"pcv-example-vm2"}' },
+      { m: 'POST', p: '/vms/{name}/iso', d: _L('ISO 마운트', 'Mount ISO'), body: '{"iso_path":"/isos/pcv-example.iso"}' },
       { m: 'DELETE', p: '/vms/{name}/iso', d: _L('ISO 꺼내기', 'Eject ISO') },
-      { m: 'POST', p: '/vms/{name}/clone', d: _L('VM 복제', 'Clone VM'), body: '{"dest":"web-clone","mode":"cow"}' },
-      { m: 'PUT', p: '/vms/{name}/disk', d: _L('디스크 리사이즈', 'Resize disk'), body: '{"size_gb":50}' },
+      { m: 'POST', p: '/vms/{name}/clone', d: _L('VM 복제', 'Clone VM'), body: '{"clone_name":"pcv-example-clone","mode":"cow"}' },
+      { m: 'PUT', p: '/vms/{name}/disk', d: _L('디스크 리사이즈', 'Resize disk'), body: '{"new_size_gb":50,"target":"vda"}' },
       { m: 'PUT', p: '/vms/{name}/cpu-pin', d: _L('vCPU 핀', 'Pin vCPU'), body: '{"vcpu":0,"cpuset":"2-3"}' },
       { m: 'PUT', p: '/vms/{name}/bandwidth', d: _L('대역폭 설정', 'Set bandwidth'), body: '{"inbound_kbps":1000,"outbound_kbps":1000}' },
       { m: 'POST', p: '/vms/{name}/export', d: _L('OVA 익스포트', 'Export OVA') },
-      { m: 'POST', p: '/vms/import', d: _L('OVA 임포트', 'Import OVA'), body: '{"ova_path":"/x.ova","name":"web"}' },
+      { m: 'POST', p: '/vms/import/import', d: _L('OVA 임포트', 'Import OVA'), body: '{"ova_path":"/isos/pcv-example.ova","name":"pcv-example-vm"}' },
       { m: 'GET', p: '/vms/{name}/memory-stats', d: _L('메모리 통계', 'Memory stats') },
       { m: 'GET', p: '/vms/{name}/snapshot-schedule', d: _L('스냅샷 스케줄 상태', 'Snapshot schedule status') },
       { m: 'POST', p: '/vms/{name}/guest-ping', d: _L('게스트 에이전트 핑', 'Guest-agent ping') },
@@ -649,101 +670,101 @@ function renderSwaggerApi(b) {
       { m: 'POST', p: '/vms/{name}/guest-agent-channel', d: _L('게스트 채널 추가', 'Add guest-agent channel') },
       { m: 'POST', p: '/vms/{name}/guest-shutdown', d: _L('게스트 종료', 'Guest shutdown') },
       { m: 'GET', p: '/vms/{name}/disk-usage', d: _L('게스트 디스크 사용량', 'Guest disk usage') },
-      { m: 'POST', p: '/vms/{name}/disk-resize', d: _L('라이브 디스크 리사이즈', 'Live disk resize'), body: '{"size_gb":50}' },
-      { m: 'POST', p: '/vms/{name}/guest-exec', d: _L('게스트 명령 실행', 'Guest exec'), body: '{"cmd":"uptime"}' },
+      { m: 'POST', p: '/vms/{name}/disk-resize', d: _L('라이브 디스크 리사이즈', 'Live disk resize'), body: '{"new_size_gb":50,"target":"vda"}' },
+      { m: 'POST', p: '/vms/{name}/guest-exec', d: _L('게스트 명령 실행', 'Guest exec'), body: '{"command":"uptime"}' },
     ]},
                                                          
     { id: 'containers', name: _L('컨테이너 (LXC)', 'Containers (LXC)'), endpoints: [
       { m: 'GET', p: '/containers', d: _L('컨테이너 목록', 'Container list') },
-      { m: 'POST', p: '/containers', d: _L('컨테이너 생성', 'Create container'), body: '{"name":"c1","template":"debian-12"}' },
+      { m: 'POST', p: '/containers', d: _L('컨테이너 생성', 'Create container'), body: '{"name":"pcv-example-ctr","image":"ubuntu:22.04"}' },
       { m: 'DELETE', p: '/containers/{name}', d: _L('컨테이너 삭제', 'Destroy container') },
       { m: 'POST', p: '/containers/{name}/start', d: _L('시작', 'Start') },
       { m: 'POST', p: '/containers/{name}/stop', d: _L('중지', 'Stop') },
       { m: 'GET', p: '/containers/{name}/metrics', d: _L('메트릭', 'Metrics') },
       { m: 'POST', p: '/containers/{name}/exec', d: _L('명령 실행', 'Exec command'), body: '{"command":"ls"}' },
       { m: 'GET', p: '/containers/{name}/snapshots', d: _L('스냅샷 목록', 'Snapshot list') },
-      { m: 'POST', p: '/containers/{name}/snapshots', d: _L('스냅샷 생성', 'Create snapshot'), body: '{"snap_name":"s1"}' },
-      { m: 'POST', p: '/containers/{name}/snapshots/rollback', d: _L('스냅샷 롤백', 'Rollback snapshot'), body: '{"snap_name":"s1"}' },
+      { m: 'POST', p: '/containers/{name}/snapshots', d: _L('스냅샷 생성', 'Create snapshot'), body: '{"snap_name":"pcv-example-snap"}' },
+      { m: 'POST', p: '/containers/{name}/snapshots/rollback', d: _L('스냅샷 롤백', 'Rollback snapshot'), body: '{"snap_name":"pcv-example-snap"}' },
       { m: 'DELETE', p: '/containers/{name}/snapshots/{snap}', d: _L('스냅샷 삭제', 'Delete snapshot') },
-      { m: 'PUT', p: '/containers/{name}/limits', d: _L('리소스 제한', 'Set limits'), body: '{"memory_mb":512,"cpu_quota":50000}' },
+      { m: 'PUT', p: '/containers/{name}/limits', d: _L('리소스 제한', 'Set limits'), body: '{"memory_mb":512,"cpu_percent":50}' },
       { m: 'GET', p: '/containers/{name}/nics', d: _L('NIC 목록', 'NIC list') },
-      { m: 'POST', p: '/containers/{name}/nics', d: _L('NIC 연결', 'Attach NIC'), body: '{"bridge":"br0"}' },
+      { m: 'POST', p: '/containers/{name}/nics', d: _L('NIC 연결', 'Attach NIC'), body: '{"bridge":"pcvexbr0"}' },
       { m: 'DELETE', p: '/containers/{name}/nics/{nic}', d: _L('NIC 분리', 'Detach NIC') },
-      { m: 'PUT', p: '/containers/{name}/bandwidth', d: _L('대역폭 설정', 'Set bandwidth'), body: '{"inbound":1000,"outbound":1000}' },
+      { m: 'PUT', p: '/containers/{name}/bandwidth', d: _L('대역폭 설정', 'Set bandwidth'), body: '{"inbound_kbps":1000,"outbound_kbps":1000}' },
       { m: 'PUT', p: '/containers/{name}/health', d: _L('헬스체크 설정', 'Set health-check'), body: '{"type":"tcp","target":"80"}' },
       { m: 'GET', p: '/containers/{name}/health', d: _L('헬스체크 조회', 'Get health-check') },
       { m: 'DELETE', p: '/containers/{name}/health', d: _L('헬스체크 삭제', 'Delete health-check') },
       { m: 'GET', p: '/containers/{name}/volumes', d: _L('볼륨 목록', 'Volume list') },
-      { m: 'POST', p: '/containers/{name}/volumes', d: _L('볼륨 연결', 'Attach volume'), body: '{"host_path":"/data","container_path":"/mnt"}' },
+      { m: 'POST', p: '/containers/{name}/volumes', d: _L('볼륨 연결', 'Attach volume'), body: '{"host_path":"/srv/pcv-example","container_path":"/mnt/pcv-example"}' },
       { m: 'DELETE', p: '/containers/{name}/volumes/{path}', d: _L('볼륨 분리 (컨테이너 안 경로, 예: /volumes/mnt/data)', 'Detach volume (container path, e.g. /volumes/mnt/data)') },
-      { m: 'DELETE', p: '/containers/{name}/volumes', d: _L('볼륨 분리 (본문으로 경로 지정)', 'Detach volume (path in body)'), body: '{"container_path":"/mnt/data"}' },
+      { m: 'DELETE', p: '/containers/{name}/volumes', d: _L('볼륨 분리 (본문으로 경로 지정)', 'Detach volume (path in body)'), body: '{"container_path":"/mnt/pcv-example"}' },
       { m: 'GET', p: '/containers/{name}/env', d: _L('환경변수 목록', 'Env list') },
-      { m: 'PUT', p: '/containers/{name}/env', d: _L('환경변수 설정', 'Set env'), body: '{"key":"FOO","value":"bar"}' },
-      { m: 'DELETE', p: '/containers/{name}/env', d: _L('환경변수 삭제', 'Delete env'), body: '{"key":"FOO"}' },
-      { m: 'POST', p: '/containers/{name}/clone', d: _L('컨테이너 복제', 'Clone container'), body: '{"dest":"c2"}' },
+      { m: 'PUT', p: '/containers/{name}/env', d: _L('환경변수 설정', 'Set env'), body: '{"key":"PCV_EXAMPLE","value":"1"}' },
+      { m: 'DELETE', p: '/containers/{name}/env', d: _L('환경변수 삭제', 'Delete env'), body: '{"key":"PCV_EXAMPLE"}' },
+      { m: 'POST', p: '/containers/{name}/clone', d: _L('컨테이너 복제', 'Clone container'), body: '{"dest":"pcv-example-ctr2"}' },
       { m: 'GET', p: '/containers/{name}/memory-stats', d: _L('메모리 통계', 'Memory stats') },
     ]},
                                             
     { id: 'networks', name: _L('네트워크', 'Networks'), endpoints: [
       { m: 'GET', p: '/networks', d: _L('네트워크 목록', 'Network list') },
       { m: 'GET', p: '/networks/host-baseline', d: _L('호스트 interface·route·OVS 읽기 기준선', 'Host interface, route, and OVS baseline') },
-      { m: 'POST', p: '/networks', d: _L('네트워크 생성', 'Create network'), body: '{"name":"br1","mode":"nat"}' },
+      { m: 'POST', p: '/networks', d: _L('네트워크 생성', 'Create network'), body: '{"bridge_name":"pcvexbr0","mode":"nat"}' },
       { m: 'GET', p: '/networks/{br}', d: _L('네트워크 상세', 'Network info') },
       { m: 'DELETE', p: '/networks/{br}', d: _L('네트워크 삭제', 'Delete network') },
       { m: 'POST', p: '/networks/{br}/mode', d: _L('모드 변경', 'Set mode'), body: '{"mode":"routed"}' },
-      { m: 'PUT', p: '/networks/{iface}/qos', d: _L('인터페이스 QoS 설정', 'Set interface QoS'), body: '{"rate":"100mbit"}' },
+      { m: 'PUT', p: '/networks/{iface}/qos', d: _L('인터페이스 QoS 설정', 'Set interface QoS'), body: '{"rate_mbps":100}' },
       { m: 'GET', p: '/networks/{iface}/qos', d: _L('인터페이스 QoS 조회', 'Get interface QoS') },
       { m: 'DELETE', p: '/networks/{iface}/qos', d: _L('인터페이스 QoS 제거', 'Remove interface QoS') },
     ]},
                                                                              
     { id: 'vpcs', name: 'Local VPC', isNew: true, endpoints: [
       { m: 'GET', p: '/vpcs', d: _L('tenant VPC 목록', 'Tenant VPC list') },
-      { m: 'POST', p: '/vpcs', d: _L('VPC와 첫 subnet 생성', 'Create VPC and initial subnet'), body: '{"tenant":"acme","name":"prod","backend":"ovn","egress_mode":"nat","subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}' },
+      { m: 'POST', p: '/vpcs', d: _L('VPC와 첫 subnet 생성', 'Create VPC and initial subnet'), body: '{"tenant":"pcv-example-tenant","name":"pcv-example-vpc","backend":"ovn","egress_mode":"nat","subnet_name":"pcv-example-subnet","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}' },
       { m: 'GET', p: '/vpcs/backends', d: _L('backend 준비 상태와 주소 기반 용량', 'Backend readiness and address capacity') },
       { m: 'GET', p: '/vpcs/status', d: _L('reconcile 상태', 'Reconcile status') },
       { m: 'POST', p: '/vpcs/reconcile', d: _L('전체 desired state 수렴', 'Reconcile all desired state') },
       { m: 'GET', p: '/vpcs/{vpc_id}', d: _L('VPC aggregate 상세', 'VPC aggregate detail') },
-      { m: 'DELETE', p: '/vpcs/{vpc_id}', d: _L('VPC 삭제', 'Delete VPC'), body: '{"tenant":"acme"}' },
-      { m: 'POST', p: '/vpcs/{vpc_id}/egress', d: _L('egress 변경', 'Change egress'), body: '{"tenant":"acme","egress_mode":"isolated","expected_revision":3}' },
+      { m: 'DELETE', p: '/vpcs/{vpc_id}', d: _L('VPC 삭제', 'Delete VPC'), body: '{"tenant":"pcv-example-tenant"}' },
+      { m: 'POST', p: '/vpcs/{vpc_id}/egress', d: _L('egress 변경', 'Change egress'), body: '{"tenant":"pcv-example-tenant","egress_mode":"isolated","expected_revision":3}' },
       { m: 'GET', p: '/vpcs/{vpc_id}/subnets', d: _L('subnet 목록', 'Subnet list') },
-      { m: 'POST', p: '/vpcs/{vpc_id}/subnets', d: _L('subnet 생성', 'Create subnet'), body: '{"tenant":"acme","name":"web","cidr":"10.60.10.0/24","expected_revision":1}' },
-      { m: 'DELETE', p: '/vpc-subnets/{subnet_id}', d: _L('subnet 삭제', 'Delete subnet'), body: '{"tenant":"acme"}' },
+      { m: 'POST', p: '/vpcs/{vpc_id}/subnets', d: _L('subnet 생성', 'Create subnet'), body: '{"tenant":"pcv-example-tenant","name":"pcv-example-subnet","cidr":"10.60.10.0/24","expected_revision":1}' },
+      { m: 'DELETE', p: '/vpc-subnets/{subnet_id}', d: _L('subnet 삭제', 'Delete subnet'), body: '{"tenant":"pcv-example-tenant"}' },
       { m: 'GET', p: '/vpcs/{vpc_id}/attachments', d: _L('VM 연결 목록', 'VM attachment list') },
-      { m: 'POST', p: '/vpc-attachments', d: _L('정지 VM 연결', 'Attach stopped VM'), body: '{"tenant":"acme","subnet_id":"<uuid>","vm":"web-prod"}' },
-      { m: 'DELETE', p: '/vpc-attachments/{attachment_id}', d: _L('VM 연결 해제', 'Detach VM'), body: '{"tenant":"acme"}' },
+      { m: 'POST', p: '/vpc-attachments', d: _L('정지 VM 연결', 'Attach stopped VM'), body: '{"tenant":"pcv-example-tenant","subnet_id":"<uuid>","vm":"pcv-example-vm"}' },
+      { m: 'DELETE', p: '/vpc-attachments/{attachment_id}', d: _L('VM 연결 해제', 'Detach VM'), body: '{"tenant":"pcv-example-tenant"}' },
       { m: 'GET', p: '/vpcs/{vpc_id}/services', d: _L('게시 서비스 목록', 'Published service list') },
-      { m: 'POST', p: '/vpc-services', d: 'Service Publish', body: '{"tenant":"acme","attachment_id":"<uuid>","protocol":"tcp","listen_address":"0.0.0.0","listen_port":8443,"target_port":443,"allowed_sources":["192.0.2.0/24"]}' },
-      { m: 'DELETE', p: '/vpc-services/{publish_id}', d: _L('서비스 게시 해제', 'Unpublish service'), body: '{"tenant":"acme"}' },
+      { m: 'POST', p: '/vpc-services', d: 'Service Publish', body: '{"tenant":"pcv-example-tenant","attachment_id":"<uuid>","protocol":"tcp","listen_address":"0.0.0.0","listen_port":8443,"target_port":443,"allowed_sources":["192.0.2.0/24"]}' },
+      { m: 'DELETE', p: '/vpc-services/{publish_id}', d: _L('서비스 게시 해제', 'Unpublish service'), body: '{"tenant":"pcv-example-tenant"}' },
     ]},
                                       
     { id: 'ovn', name: _L('OVN SDN', 'OVN SDN'), endpoints: [
       { m: 'GET', p: '/ovn/status', d: _L('OVN 상태', 'OVN status') },
       { m: 'GET', p: '/ovn/switches', d: _L('논리 스위치 목록', 'Logical switch list') },
-      { m: 'POST', p: '/ovn/switches', d: _L('논리 스위치 생성', 'Create switch'), body: '{"name":"ls0"}' },
+      { m: 'POST', p: '/ovn/switches', d: _L('논리 스위치 생성', 'Create switch'), body: '{"name":"pcv-example-ls"}' },
       { m: 'GET', p: '/ovn/routers', d: _L('논리 라우터 목록', 'Logical router list') },
-      { m: 'POST', p: '/ovn/routers', d: _L('논리 라우터 생성', 'Create router'), body: '{"name":"lr0"}' },
-      { m: 'GET', p: '/ovn/acl?switch=ls0', d: _L('스위치별 ACL 목록', 'ACL list for a switch') },
-      { m: 'POST', p: '/ovn/acl', d: _L('ACL 추가', 'Add ACL'), body: '{"switch":"ls0","match":"..","action":"drop"}' },
-      { m: 'GET', p: '/ovn/nat?router=lr0', d: _L('라우터별 NAT 목록', 'NAT list for a router') },
-      { m: 'POST', p: '/ovn/nat', d: _L('NAT 추가', 'Add NAT'), body: '{"router":"lr0","type":"snat"}' },
+      { m: 'POST', p: '/ovn/routers', d: _L('논리 라우터 생성', 'Create router'), body: '{"name":"pcv-example-lr"}' },
+      { m: 'GET', p: '/ovn/acl?switch=pcv-example-ls', d: _L('스위치별 ACL 목록', 'ACL list for a switch') },
+      { m: 'POST', p: '/ovn/acl', d: _L('ACL 추가', 'Add ACL'), body: '{"switch":"pcv-example-ls","match":"..","action":"drop"}' },
+      { m: 'GET', p: '/ovn/nat?router=pcv-example-lr', d: _L('라우터별 NAT 목록', 'NAT list for a router') },
+      { m: 'POST', p: '/ovn/nat', d: _L('NAT 추가', 'Add NAT'), body: '{"router":"pcv-example-lr","type":"snat","external_ip":"192.0.2.10","logical_ip":"192.0.2.20"}' },
     ]},
                                           
     { id: 'storage', name: _L('스토리지 (ZFS)', 'Storage (ZFS)'), endpoints: [
       { m: 'GET', p: '/storage/pools', d: _L('ZFS 풀 목록', 'ZFS pool list') },
-      { m: 'POST', p: '/storage/pools', d: _L('풀 생성', 'Create pool'), body: '{"name":"tank","devices":["sdb"]}' },
-      { m: 'DELETE', p: '/storage/pools', d: _L('풀 파괴', 'Destroy pool'), body: '{"name":"tank"}' },
-      { m: 'POST', p: '/storage/pools/scrub', d: _L('스크럽 시작', 'Start scrub'), body: '{"name":"tank"}' },
+      { m: 'POST', p: '/storage/pools', d: _L('풀 생성', 'Create pool'), body: '{"name":"pcv-example-pool","disks":["/dev/pcv-example-disk1","/dev/pcv-example-disk2"],"vdev_type":"mirror"}' },
+      { m: 'DELETE', p: '/storage/pools', d: _L('풀 파괴', 'Destroy pool'), body: '{"name":"pcv-example-pool"}' },
+      { m: 'POST', p: '/storage/pools/scrub', d: _L('스크럽 시작', 'Start scrub'), body: '{"name":"pcv-example-pool"}' },
       { m: 'GET', p: '/storage/zvols', d: _L('zvol 목록', 'Zvol list') },
-      { m: 'POST', p: '/storage/zvols', d: _L('zvol 생성', 'Create zvol'), body: '{"name":"tank/v1","size_gb":10}' },
-      { m: 'DELETE', p: '/storage/zvols', d: _L('zvol 삭제', 'Delete zvol'), body: '{"name":"tank/v1"}' },
+      { m: 'POST', p: '/storage/zvols', d: _L('zvol 생성', 'Create zvol'), body: '{"name":"pcv-example-pool/pcv-example-zvol","size_gb":10}' },
+      { m: 'DELETE', p: '/storage/zvols', d: _L('zvol 삭제', 'Delete zvol'), body: '{"name":"pcv-example-pool/pcv-example-zvol"}' },
     ]},
                                       
     { id: 'iscsi', name: _L('iSCSI', 'iSCSI'), endpoints: [
       { m: 'GET', p: '/iscsi/targets', d: _L('타겟 목록', 'Target list') },
-      { m: 'POST', p: '/iscsi/targets', d: _L('타겟 생성', 'Create target'), body: '{"vm_name":"web01","zvol_path":"/dev/zvol/tank/web01"}' },
-      { m: 'DELETE', p: '/iscsi/targets', d: _L('타겟 삭제', 'Delete target'), body: '{"vm_name":"web01"}' },
-      { m: 'POST', p: '/iscsi/connect', d: _L('타겟 연결', 'Connect target'), body: '{"target_ip":"192.0.2.50","vm_name":"web01"}' },
-      { m: 'POST', p: '/iscsi/disconnect', d: _L('세션 해제', 'Disconnect session'), body: '{"target_ip":"192.0.2.50","vm_name":"web01"}' },
+      { m: 'POST', p: '/iscsi/targets', d: _L('타겟 생성', 'Create target'), body: '{"vm_name":"pcv-example-vm","zvol_path":"/dev/zvol/pcv-example-pool/pcv-example-vm"}' },
+      { m: 'DELETE', p: '/iscsi/targets', d: _L('타겟 삭제', 'Delete target'), body: '{"vm_name":"pcv-example-vm"}' },
+      { m: 'POST', p: '/iscsi/connect', d: _L('타겟 연결', 'Connect target'), body: '{"target_ip":"192.0.2.50","vm_name":"pcv-example-vm"}' },
+      { m: 'POST', p: '/iscsi/disconnect', d: _L('세션 해제', 'Disconnect session'), body: '{"target_ip":"192.0.2.50","vm_name":"pcv-example-vm"}' },
     ]},
                                                
     { id: 'overlay', name: _L('오버레이 메시', 'Overlay Mesh'), endpoints: [
@@ -756,15 +777,15 @@ function renderSwaggerApi(b) {
       { m: 'GET', p: '/processes', d: _L('호스트 프로세스', 'Host processes') },
       { m: 'GET', p: '/alerts', d: _L('알림 이력', 'Alert history') },
       { m: 'GET', p: '/alerts/config', d: _L('알림 설정 조회', 'Get alert config') },
-      { m: 'PUT', p: '/alerts/config', d: _L('알림 설정 변경', 'Set alert config'), body: '{"cpu_threshold":90}' },
+      { m: 'PUT', p: '/alerts/config', d: _L('알림 설정 변경', 'Set alert config'), body: '{"cpu_warn":90,"expected_revision":1}' },
       { m: 'GET', p: '/alerts/actions', d: _L('알림 액션 목록', 'Alert actions') },
-      { m: 'POST', p: '/alerts/silence', d: _L('알림 무음화', 'Silence alert'), body: '{"alert":"cpu","duration":3600}' },
+      { m: 'POST', p: '/alerts/silence', d: _L('알림 무음화', 'Silence alert'), body: '{"metric":"cpu","duration_min":60,"reason":"pcv-example"}' },
       { m: 'GET', p: '/alerts/silences', d: _L('무음 목록', 'Silence list') },
       { m: 'GET', p: '/alerts/dlq', d: _L('알림 DLQ', 'Alert DLQ') },
       { m: 'POST', p: '/alerts/{id}/ack', d: _L('개별 알림 확인 처리', 'Acknowledge a single alert') },
-      { m: 'GET', p: '/audit/search', d: _L('감사 로그 검색', 'Audit log search'), body: '{"user":"..","method":"..","limit":50}' },
+      { m: 'GET', p: '/audit/search?username=pcv-example-user&limit=50', d: _L('감사 로그 검색 (from_ts·to_ts·username·method·limit·offset)', 'Audit log search (from_ts, to_ts, username, method, limit, offset)') },
       { m: 'GET', p: '/agent/config', d: _L('AI 에이전트 설정 조회', 'Get AI agent config') },
-      { m: 'PUT', p: '/agent/config', d: _L('AI 에이전트 설정 변경', 'Set AI agent config'), body: '{"provider":"openai","enabled":true}' },
+      { m: 'PUT', p: '/agent/config', d: _L('AI 에이전트 설정 변경', 'Set AI agent config'), body: '{"providers":[{"name":"pcv-example","api_key":"..","model":"..","endpoint":".."}]}' },
       { m: 'GET', p: '/agent/history', d: _L('AI 결정 이력', 'AI decision history') },
       { m: 'GET', p: '/prometheus/sd', d: _L('Prometheus SD 타겟', 'Prometheus SD targets') },
       { m: 'GET', p: '/pool/conninfo', d: _L('libvirt 커넥션 풀', 'libvirt connection pool') },
@@ -783,7 +804,7 @@ function renderSwaggerApi(b) {
       { m: 'GET', p: '/push/mine', d: _L('본인 구독 조회 (VIEWER, 인자 없음 — 요약 + SHA-256 지문)', 'List own subscriptions (VIEWER, no params — summary + SHA-256 digest)') },
       { m: 'GET', p: '/push/subscriptions', d: _L('전체 구독 목록 (ADMIN)', 'List all subscriptions (ADMIN)') },
       { m: 'POST', p: '/push/vapid/rotate', d: _L('VAPID 회전 + 전 구독 폐기 (ADMIN)', 'Rotate VAPID + revoke all subscriptions (ADMIN)') },
-      { m: 'POST', p: '/push/test', d: _L('테스트 알림 큐잉 (ADMIN, username 생략 시 전체)', 'Queue test notification (ADMIN; omit username for all)'), body: '{"username":"admin"}' },
+      { m: 'POST', p: '/push/test', d: _L('테스트 알림 큐잉 (ADMIN, username 생략 시 전체)', 'Queue test notification (ADMIN; omit username for all)'), body: '{"username":"pcv-example-user"}' },
     ]},
                                     
     { id: 'jobs', name: _L('비동기 작업', 'Async Jobs'), endpoints: [
@@ -799,22 +820,22 @@ function renderSwaggerApi(b) {
                                     
     { id: 'dpdk', name: _L('DPDK', 'DPDK'), endpoints: [
       { m: 'GET', p: '/dpdk/status', d: _L('DPDK 상태', 'DPDK status') },
-      { m: 'POST', p: '/dpdk/bind', d: _L('NIC 바인드', 'Bind NIC'), body: '{"pci_addr":"0000:01:00.0","driver":"vfio-pci"}' },
-      { m: 'POST', p: '/dpdk/unbind', d: _L('NIC 언바인드', 'Unbind NIC'), body: '{"pci_addr":"0000:01:00.0"}' },
+      { m: 'POST', p: '/dpdk/bind', d: _L('NIC 바인드', 'Bind NIC'), body: '{"pci_addr":"0000:fe:1f.7","driver":"vfio-pci"}' },
+      { m: 'POST', p: '/dpdk/unbind', d: _L('NIC 언바인드', 'Unbind NIC'), body: '{"pci_addr":"0000:fe:1f.7"}' },
       { m: 'GET', p: '/dpdk/list', d: _L('DPDK 장치 목록', 'DPDK device list') },
       { m: 'GET', p: '/dpdk/hugepage', d: _L('Hugepage 정보', 'Hugepage info') },
-      { m: 'POST', p: '/dpdk/bridge/create', d: _L('DPDK 브릿지 생성', 'Create DPDK bridge'), body: '{"name":"dpdk-br0"}' },
-      { m: 'POST', p: '/dpdk/bridge/delete', d: _L('DPDK 브릿지 삭제', 'Delete DPDK bridge'), body: '{"name":"dpdk-br0"}' },
+      { m: 'POST', p: '/dpdk/bridge/create', d: _L('DPDK 브릿지 생성', 'Create DPDK bridge'), body: '{"name":"pcvexdpdk0"}' },
+      { m: 'POST', p: '/dpdk/bridge/delete', d: _L('DPDK 브릿지 삭제', 'Delete DPDK bridge'), body: '{"name":"pcvexdpdk0"}' },
     ]},
                                        
     { id: 'sriov', name: _L('SR-IOV', 'SR-IOV'), endpoints: [
       { m: 'GET', p: '/sriov/status', d: _L('SR-IOV 상태', 'SR-IOV status') },
-      { m: 'POST', p: '/sriov/enable', d: _L('VF 활성화', 'Enable VFs'), body: '{"pf":"eth0","num_vfs":8}' },
-      { m: 'POST', p: '/sriov/disable', d: _L('VF 비활성화', 'Disable VFs'), body: '{"pf":"eth0"}' },
+      { m: 'POST', p: '/sriov/enable', d: _L('VF 활성화', 'Enable VFs'), body: '{"pf":"pcvexnic0","num_vfs":8}' },
+      { m: 'POST', p: '/sriov/disable', d: _L('VF 비활성화', 'Disable VFs'), body: '{"pf":"pcvexnic0"}' },
       { m: 'GET', p: '/sriov/list', d: _L('VF 목록', 'VF list') },
-      { m: 'POST', p: '/sriov/set', d: _L('VF 속성 설정', 'Set VF attributes'), body: '{"pf":"eno2","vf_index":0,"mac":"52:54:00:12:34:56","vlan":100,"spoofchk":1}' },
-      { m: 'POST', p: '/sriov/attach', d: _L('VF→VM 연결', 'Attach VF to VM'), body: '{"vm_name":"web-prod","pf":"eno2","vf_index":0}' },
-      { m: 'POST', p: '/sriov/detach', d: _L('VF→VM 분리', 'Detach VF from VM'), body: '{"vm_name":"web-prod","pci_addr":"0000:03:10.0"}' },
+      { m: 'POST', p: '/sriov/set', d: _L('VF 속성 설정', 'Set VF attributes'), body: '{"pf":"pcvexnic0","vf_index":0,"mac":"52:54:00:12:34:56","vlan":100,"spoofchk":1}' },
+      { m: 'POST', p: '/sriov/attach', d: _L('VF→VM 연결', 'Attach VF to VM'), body: '{"vm_name":"pcv-example-vm","pf":"pcvexnic0","vf_index":0}' },
+      { m: 'POST', p: '/sriov/detach', d: _L('VF→VM 분리', 'Detach VF from VM'), body: '{"vm_name":"pcv-example-vm","pci_addr":"0000:fe:1f.7"}' },
     ]},
                                   
     { id: 'gpu', name: _L('GPU', 'GPU'), endpoints: [
@@ -824,17 +845,17 @@ function renderSwaggerApi(b) {
                                         
     { id: 'backup', name: _L('백업', 'Backup'), endpoints: [
       { m: 'GET', p: '/backup/policies', d: _L('백업 정책 목록', 'Backup policy list') },
-      { m: 'POST', p: '/backup/policies', d: _L('백업 정책 설정', 'Set backup policy'), body: '{"vm":"web","schedule":"daily","keep":7}' },
-      { m: 'DELETE', p: '/backup/policies', d: _L('백업 정책 삭제', 'Delete backup policy'), body: '{"vm":"web"}' },
-      { m: 'GET', p: '/backup/history', d: _L('백업 이력', 'Backup history'), body: '{"vm":"web"}' },
-      { m: 'POST', p: '/backup/incremental', d: _L('증분 백업', 'Incremental backup'), body: '{"vm":"web"}' },
-      { m: 'POST', p: '/backup/verify', d: _L('백업 검증', 'Verify backup'), body: '{"vm":"web"}' },
-      { m: 'POST', p: '/backup/replicate', d: _L('원격 복제', 'Replicate to remote'), body: '{"vm":"web","target":"host2","user":"root"}' },
+      { m: 'POST', p: '/backup/policies', d: _L('백업 정책 설정', 'Set backup policy'), body: '{"vm_name":"pcv-example-vm","interval_hours":24,"retention_count":7}' },
+      { m: 'DELETE', p: '/backup/policies', d: _L('백업 정책 삭제', 'Delete backup policy'), body: '{"vm_name":"pcv-example-vm"}' },
+      { m: 'POST', p: '/backup/history', d: _L('백업 이력', 'Backup history'), body: '{"vm_name":"pcv-example-vm"}' },
+      { m: 'POST', p: '/backup/incremental', d: _L('증분 백업', 'Incremental backup'), body: '{"name":"pcv-example-vm"}' },
+      { m: 'POST', p: '/backup/verify', d: _L('백업 검증', 'Verify backup'), body: '{"name":"pcv-example-vm","snapshot":"pcv-example-snap"}' },
+      { m: 'POST', p: '/backup/replicate', d: _L('원격 복제', 'Replicate to remote'), body: '{"name":"pcv-example-vm","target_node":"pcv-example-node","ssh_user":"pcv-example-user"}' },
     ]},
                                               
     { id: 'templates', name: _L('템플릿', 'Templates'), endpoints: [
       { m: 'GET', p: '/templates', d: _L('템플릿 목록', 'Template list') },
-      { m: 'POST', p: '/templates', d: _L('템플릿 생성', 'Create template'), body: '{"name":"t1","vcpu":2}' },
+      { m: 'POST', p: '/templates', d: _L('템플릿 생성', 'Create template'), body: '{"name":"pcv-example-tpl","vcpu":2,"memory_mb":512,"disk_gb":10,"os_variant":"generic"}' },
       { m: 'GET', p: '/templates/history', d: _L('템플릿 이력', 'Template history') },
       { m: 'GET', p: '/templates/{name}', d: _L('템플릿 상세', 'Get template') },
       { m: 'DELETE', p: '/templates/{name}', d: _L('템플릿 삭제', 'Delete template') },
@@ -846,7 +867,7 @@ function renderSwaggerApi(b) {
       { m: 'GET', p: '/config/history', d: _L('설정 변경 이력', 'Config history') },
       { m: 'POST', p: '/config/reload', d: _L('설정 핫 리로드', 'Hot-reload config') },
       { m: 'GET', p: '/config/daemon', d: _L('daemon.conf 조회', 'Get daemon.conf') },
-      { m: 'PUT', p: '/config/daemon', d: _L('daemon.conf 변경', 'Set daemon.conf'), body: '{"key":"value"}' },
+      { m: 'PUT', p: '/config/daemon', d: _L('daemon.conf 변경', 'Set daemon.conf'), body: '{"section":"pcv-example","key":"pcv-example","value":"1"}' },
     ]},
                                                    
     { id: 'iso-vnc', name: _L('ISO & 콘솔', 'ISO & Console'), endpoints: [
@@ -926,7 +947,7 @@ function renderSwaggerApi(b) {
         e.body ? el('div', { class: 'mb-6' },
           el('b', null, _L('요청 본문:', 'Request Body:')),
           el('pre', { style: 'background:var(--bg);padding:8px;border-radius:4px;color:var(--green);overflow-x:auto' }, e.body)) : null,
-        el('button', { class: 'btn', style: 'font-size:10px;padding:3px 10px', onclick: "swTry('" + e.m + "','" + e.p + "'," + (e.body ? "'" + e.body.replace(/'/g, "\\'") + "'" : 'null') + ")" }, '▶ ' + _L('실행', 'Try it')));
+        el('button', { class: 'btn', style: 'font-size:10px;padding:3px 10px', onClick: function() { swTry(e.m, e.p, e.body || null); } }, '▶ ' + _L('실행', 'Try it')));
       return el('div', { class: 'mb-2 sw-ep', 'data-sw': (e.m + ' ' + e.p + ' ' + e.d).toLowerCase(), style: 'border:1px solid var(--border);border-radius:4px;overflow:hidden' }, row, detail);
     });
     return el('div', { class: 'sw-group' + (collapsed ? ' collapsed' : ''), id: 'sw-grp-' + g.id, 'data-default-collapsed': collapsed ? '1' : '0' },
@@ -978,13 +999,19 @@ window.filterSwagger = filterSwagger;
                                                                  
                                                          
                                                      
+var SW_IRREVERSIBLE_PATH = /\/(rotate|revoke|delete|delete_all|rollback|reset|regenerate)(\/|$)|^\/auth\/logout\/all$/;
+var SW_IRREVERSIBLE_RPC = /\.(delete|destroy|rollback|rotate|revoke|reset)$/;
+function swIsIrreversible(m, p, body) {
+  if (m === 'DELETE' || SW_IRREVERSIBLE_PATH.test(p)) return true;
+  if (p !== '/rpc' || !body) return false;
+  try { return SW_IRREVERSIBLE_RPC.test(JSON.parse(body).method || ''); } catch (e) { return true; }
+}
                                                  
                                                                   
                                      
-async function swTry(m, p, body) {
-  var url = API_BASE + p.replace(/\{[^}]+\}/g, 'test');
+async function swSend(m, p, url, body) {
   try { var opts = { headers: { Authorization: 'Bearer ' + authToken } };
-    if (m === 'POST' || m === 'PUT' || m === 'DELETE') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
+    if (m !== 'GET') { opts.method = m; opts.headers['Content-Type'] = 'application/json'; if (body) opts.body = body; }
     var r = await fetch(url, opts); var txt = await r.text(); var pretty = txt; try { pretty = JSON.stringify(JSON.parse(txt), null, 2); } catch (e) {                }
     var el = PCV.uxlib.el;
     showModal([
@@ -995,6 +1022,25 @@ async function swTry(m, p, body) {
         el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
     ]);
   } catch (e) { toast(_L('요청 실패', 'Request failed') + ': ' + e.message, false); }
+}
+
+async function swTry(m, p, body) {
+  var resolved = p.replace(/\{[^}]+\}/g, 'test');
+  var url = API_BASE + resolved;
+  if (m === 'GET') return swSend(m, p, url, null);
+  var lines = [m + ' ' + url];
+  if (resolved !== p) lines.push(_L('자리표시자를 test로 바꿔 보냅니다', 'Placeholders are sent as test') + ': ' + p);
+  lines.push(_L('본문', 'Body') + ': ' + (body || _L('없음', 'none')));
+  if (swIsIrreversible(m, p, body)) {
+    destroyConfirm({
+      title: _L('되돌릴 수 없는 요청', 'Irreversible request'),
+      name: resolved,
+      warning: PCV.uxlib.el('span', { style: 'white-space:pre-wrap;word-break:break-all' }, lines.join('\n')),
+      onConfirm: function() { return swSend(m, p, url, body); }
+    });
+    return;
+  }
+  if (await customConfirm(_L('요청 실행 확인', 'Confirm request'), lines.join('\n'))) await swSend(m, p, url, body);
 }
 window.swTry = swTry;
 

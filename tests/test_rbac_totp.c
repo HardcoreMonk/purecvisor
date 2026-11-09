@@ -102,7 +102,9 @@ test_totp_enroll_confirm_flow(gpointer *f, gconstpointer d)
     g_assert_true(pcv_rbac_totp_status("tuser", &st));
     g_assert_false(st.enrolled);
                       
-    gchar *b32 = pcv_rbac_totp_enroll("tuser", &err);
+    g_autofree gchar *tuser_idn = NULL;
+    g_assert_cmpint(pcv_rbac_lookup_subject("tuser", NULL, &tuser_idn), ==, PCV_USER_PRESENT);
+    gchar *b32 = pcv_rbac_totp_enroll("tuser", tuser_idn, &err);
     g_assert_no_error(err); g_assert_nonnull(b32);
     pcv_rbac_totp_status("tuser", &st);
     g_assert_true(st.enrolled); g_assert_false(st.confirmed);
@@ -224,7 +226,9 @@ test_user_list_includes_totp_state(void)
                                        PCV_ROLE_VIEWER, NULL, &err));
     g_assert_no_error(err);
 
-    gchar *b32 = pcv_rbac_totp_enroll("list_totp_user", &err);
+    g_autofree gchar *totp_idn = NULL;
+    g_assert_cmpint(pcv_rbac_lookup_subject("list_totp_user", NULL, &totp_idn), ==, PCV_USER_PRESENT);
+    gchar *b32 = pcv_rbac_totp_enroll("list_totp_user", totp_idn, &err);
     g_assert_nonnull(b32);
     g_assert_no_error(err);
     guchar key[64];
@@ -238,7 +242,9 @@ test_user_list_includes_totp_state(void)
     g_assert_true(pcv_rbac_totp_verify_code(
         "list_totp_user", code, FALSE, &first, &err));
     g_assert_no_error(err);
-    gchar *pending_b32 = pcv_rbac_totp_enroll("list_pending_user", &err);
+    g_autofree gchar *pending_idn = NULL;
+    g_assert_cmpint(pcv_rbac_lookup_subject("list_pending_user", NULL, &pending_idn), ==, PCV_USER_PRESENT);
+    gchar *pending_b32 = pcv_rbac_totp_enroll("list_pending_user", pending_idn, &err);
     g_assert_nonnull(pending_b32);
     g_assert_no_error(err);
 
@@ -318,7 +324,9 @@ test_issue_tokens_stores_session_for_refresh(void)
     g_assert_no_error(err);
 
     gchar *refresh = NULL;
-    gchar *access = pcv_rbac_issue_tokens("ituser", &refresh, &err);
+    g_autofree gchar *idn = NULL;
+    g_assert_cmpint(pcv_rbac_lookup_subject("ituser", NULL, &idn), ==, PCV_USER_PRESENT);
+    gchar *access = pcv_rbac_issue_tokens("ituser", idn, &refresh, &err);
     g_assert_nonnull(access);
     g_assert_nonnull(refresh);
     g_assert_no_error(err);
@@ -345,7 +353,7 @@ test_issue_tokens_rejects_nonexistent_user(void)
     GError *err = NULL;
 
     gchar *refresh = NULL;
-    gchar *access = pcv_rbac_issue_tokens("ghost-user", &refresh, &err);
+    gchar *access = pcv_rbac_issue_tokens("ghost-user", "0123456789abcdef0123456789abcdef", &refresh, &err);
     g_assert_null(access);
     g_assert_null(refresh);
     g_assert_error(err, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT);

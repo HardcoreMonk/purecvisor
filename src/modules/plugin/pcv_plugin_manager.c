@@ -344,7 +344,7 @@ gboolean pcv_plugin_load(const gchar *path, GError **error)
         gchar *bn = g_path_get_basename(path);                              
         PCV_LOG_WARN(PLUG_LOG_DOM, "Skipping '%s': not a regular file (symlink?)", bn);
         g_free(bn);
-        pcv_audit_log(NULL, "plugin.load", path, "fail", 6, 0, "local");                     
+        pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.load", path, "fail", 6, 0, "local");                     
         return FALSE;
     }
 
@@ -352,7 +352,7 @@ gboolean pcv_plugin_load(const gchar *path, GError **error)
     GModule *mod = g_module_open(path, G_MODULE_BIND_LOCAL);
     if (!mod) {                           
         g_set_error(error, g_quark_from_static_string("plugin"), 2, "%s", g_module_error());
-        pcv_audit_log(NULL, "plugin.load", path, "fail", 2, 0, "local");
+        pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.load", path, "fail", 2, 0, "local");
         return FALSE;
     }
                                                        
@@ -367,7 +367,7 @@ gboolean pcv_plugin_load(const gchar *path, GError **error)
         !reg_fn) {
         g_set_error(error, g_quark_from_static_string("plugin"), 3, "missing required symbols");
         g_module_close(mod);                             
-        pcv_audit_log(NULL, "plugin.load", path, "fail", 3, 0, "local");
+        pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.load", path, "fail", 3, 0, "local");
         return FALSE;
     }
                                                                 
@@ -380,7 +380,7 @@ gboolean pcv_plugin_load(const gchar *path, GError **error)
     if (!meta || meta->abi_version != PCV_PLUGIN_ABI_VERSION) {
         g_set_error(error, g_quark_from_static_string("plugin"), 4, "ABI version mismatch");
         g_module_close(mod);
-        pcv_audit_log(NULL, "plugin.load", path, "fail", 4, 0, "local");
+        pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.load", path, "fail", 4, 0, "local");
         return FALSE;
     }
 
@@ -400,7 +400,7 @@ gboolean pcv_plugin_load(const gchar *path, GError **error)
     gchar *bn = g_path_get_basename(path);                    
     PCV_LOG_INFO(PLUG_LOG_DOM, "Loaded plugin: %s v%s (%s)", meta->name, meta->version, bn);
     g_free(bn);
-    pcv_audit_log(NULL, "plugin.load", meta->name, "ok", 0, 0, "local");                     
+    pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.load", meta->name, "ok", 0, 0, "local");                     
     return TRUE;
 }
 
@@ -457,13 +457,13 @@ gboolean pcv_plugin_unload(const gchar *name, GError **error)
             PCV_LOG_INFO(PLUG_LOG_DOM,
                 "Unloaded plugin: %s (removed %d methods from registry)",
                 name, removed);
-            pcv_audit_log(NULL, "plugin.unload", name, "ok", 0, 0, "local");                  
+            pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.unload", name, "ok", 0, 0, "local");                  
             return TRUE;
         }
     }
                                         
     g_set_error(error, g_quark_from_static_string("plugin"), 5, "plugin '%s' not found", name);
-    pcv_audit_log(NULL, "plugin.unload", name, "fail", 5, 0, "local");
+    pcv_audit_log(PCV_AUDIT_ACTOR_SYSTEM, "plugin.unload", name, "fail", 5, 0, "local");
     return FALSE;
 }
 

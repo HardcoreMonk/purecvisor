@@ -1,18 +1,18 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-#include <ftw.h>
+                                                                                     
+                                                                       
+                                                        
+                                                                     
+                                                                         
+                              
+  
+                                                   
+                                                    
+                                                        
+                                                                 
+                                                                                  
+                                                                       
+   
+#include <ftw.h>                                                            
 #include <stdio.h>
 #include <stdlib.h>
 
@@ -21,7 +21,7 @@
 
 #include "test_host_isolation.h"
 
-
+                                                   
 static gchar *G_root;
 static gchar *G_audit_dir;
 static gchar *G_audit_path;
@@ -29,13 +29,13 @@ static gchar *G_sg_db_path;
 static gchar *G_sg_script_dir;
 static gchar *G_sg_script_path;
 
-
+                                                                            
 static int
 _remove_entry(const char *path, const struct stat *sb, int typeflag, struct FTW *ftwbuf)
 {
     (void)sb;
     (void)ftwbuf;
-
+                                                                
     if (typeflag == FTW_DP)
         (void)g_rmdir(path);
     else
@@ -43,8 +43,8 @@ _remove_entry(const char *path, const struct stat *sb, int typeflag, struct FTW 
     return 0;
 }
 
-
-
+                                                         
+                                                                 
 static void
 _host_root_cleanup(void)
 {
@@ -52,8 +52,8 @@ _host_root_cleanup(void)
         (void)nftw(G_root, _remove_entry, 16, FTW_DEPTH | FTW_PHYS | FTW_MOUNT);
 }
 
-
-
+                                                     
+                                                             
 static const gchar *
 _host_root(void)
 {
@@ -73,8 +73,8 @@ _host_root(void)
         G_sg_script_dir = g_build_filename(root, "run", NULL);
         G_sg_script_path = g_build_filename(G_sg_script_dir, "sg-ruleset.nft", NULL);
 
-
-
+                                                                     
+                                                                         
         gchar *lib_dir = g_path_get_dirname(G_sg_db_path);
         if (g_mkdir_with_parents(lib_dir, 0700) != 0) {
             fprintf(stderr, "FATAL: test host-path seam DB 디렉터리 생성 실패: %s\n", lib_dir);

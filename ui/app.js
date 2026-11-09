@@ -126,14 +126,14 @@ Object.defineProperty(window.PCV, 'state', {
 });
 window.PCV.config = {
   API_BASE: API_BASE,
-  VERSION: '2.0.4',
+  VERSION: '2.1.0',
                                                            
                                                                           
                                                                      
                                                           
                                            
-  RPC_COUNT: 298,
-  REST_COUNT: 223,
+  RPC_COUNT: 316,
+  REST_COUNT: 224,
   METRICS_COUNT: 155
 };
 Object.defineProperty(window.PCV, 'auth', {
@@ -575,7 +575,6 @@ var selCtr = null, ctrTab = 'summary', ctrHist = [];
 
 window.ctrDistChanged = ctrDistChanged;
 
-window.ctrIpModeChanged = ctrIpModeChanged;
 
 window.ctrLoadBridges = ctrLoadBridges;
 
@@ -915,6 +914,7 @@ window.testGpuList = async function() {
   PCV.uxlib.setMsg(el, 'loading', null, 'GPU 목록 조회 중...');
   try {
     const r = await fetchGet(API_BASE + '/gpu/list');
+    if (r && r.error) { PCV.uxlib.setMsg(el, 'err', { tag: 'p', size: '12px' }, 'GPU 목록을 불러오지 못했습니다: ' + (r.error.message || r.error.code)); return; }
     const list = Array.isArray(r) ? r : (r.data || r.result || []);
     if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p', size: '12px' }, 'GPU 디바이스 없음'); return; }
     var mk = PCV.uxlib.el;
@@ -981,14 +981,17 @@ window.doAuditSearch = async function() {
     const m = document.getElementById('audit-method')?.value;
     const f = document.getElementById('audit-from')?.value;
     const t2 = document.getElementById('audit-to')?.value;
-    let qs = 'limit=100';
-    if (u) qs += '&user=' + encodeURIComponent(u);
-    if (m) qs += '&action=' + encodeURIComponent(m);
-    if (f) qs += '&from=' + encodeURIComponent(f);
-    if (t2) qs += '&to=' + encodeURIComponent(t2);
-    const url = API_BASE + '/audit/search?' + qs;
-    const r = await fetchGet(url);
-    const list = Array.isArray(r) ? r : (r.data || r.result || []);
+    const utc = time => new Date(time).toISOString().slice(0, 19).replace('T', ' ');
+    const qs = new URLSearchParams({ limit: '100' });
+    if (u) qs.set('username', u);
+    if (m) qs.set('method', m);
+    if (f) qs.set('from_ts', utc(f + 'T00:00:00'));
+    if (t2) qs.set('to_ts', utc(t2 + 'T23:59:59'));
+    const r = await fetchGet(API_BASE + '/audit/search?' + qs.toString());
+    if (r && r.error) throw new Error(r.error.message || 'HTTP error');
+    const d = unwrapData(r);
+    const list = Array.isArray(d) ? d : (d && d.items);
+    if (!Array.isArray(list)) throw new Error('unexpected response');
     if (list.length === 0) { PCV.uxlib.setMsg(el, 'muted', { tag: 'p' }, '검색 결과 없음'); return; }
     var mk = PCV.uxlib.el;
     var rows = list.map(function(e) {
@@ -1002,11 +1005,11 @@ window.doAuditSearch = async function() {
     });
     var table = mk('table', { style: 'font-size:11px' },
       mk('thead', null, mk('tr', null,
-        mk('th', null, '시각'), mk('th', null, '사용자'), mk('th', null, '메서드'),
+        mk('th', null, '시각(UTC)'), mk('th', null, '사용자'), mk('th', null, '메서드'),
         mk('th', null, '대상'), mk('th', null, '결과'), mk('th', null, 'IP'))),
       mk('tbody', null, rows));
     PCV.uxlib.clearEl(el); el.appendChild(table);
-  } catch (e) { PCV.uxlib.setMsg(el, 'err', null, '오류: ' + e.message); }
+  } catch (e) { PCV.uxlib.setMsg(el, 'err', { cls: 'audit-search-error' }, '오류: ' + e.message); }
 };
 
                       
@@ -1069,7 +1072,7 @@ window.retryWebhookDlq = async function() {
   const el = document.getElementById('dlq-list');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, '재시도 중...');
   try {
-    var r = await fetchPost(EP.WEBHOOK_DLQ_RETRY(), {});
+    var r = await fetchPost(EP.WEBHOOK_DLQ_RETRY(), {}, 75000);
     if (r && r.error) {
       toast('DLQ 재시도 실패: ' + r.error.message, false);
       if (el) PCV.uxlib.setMsg(el, 'warn', { size: '12px' }, 'DLQ 재시도 실패: ' + r.error.message);
@@ -1278,6 +1281,8 @@ function _renderDashWorkloads(host) {
     ? { f: _ae.getAttribute('data-facet'), v: _ae.getAttribute('data-val') } : null;
   PCV.uxlib.clearEl(host);
 
+  if (window.vmListError) host.appendChild(mk('div', { style: 'padding:10px 14px' }, PCV.uxlib.msg('err', { size: '12px' },
+    _L('VM 목록을 불러오지 못했습니다: ', 'Failed to load VMs: ') + (window.vmListError.message || window.vmListError.code))));
                                                         
   var ctrs = (window._shellSlow && _shellSlow.raw) ? (_shellSlow.raw.ctrs || []) : [];
   var items = _dashVms.map(function (v) {
@@ -1418,6 +1423,12 @@ function _feedText(it) {
 function _isRec(x) { return !!x && typeof x === 'object' && !Array.isArray(x); }
 
                             
+function _dashEmptyMsg(host, keys, ko, en) {
+  var s = window._shellSlow || {};
+  host.appendChild(PCV.uxlib.el('div', { style: 'padding:14px' }, (s.collected && keys.some(function (k) { return s[k] === null; }))
+    ? PCV.uxlib.msg('err', { size: '12px' }, _L('불러오지 못했습니다', 'Failed to load'))
+    : PCV.uxlib.msg('muted', { size: '12px' }, _L(ko, en))));
+}
                                                                       
                                                
                               
@@ -1444,8 +1455,7 @@ function _renderDashFeed(host) {
     _L('알림 · 보안 이벤트', 'Alerts · Security') + ' (' + _L('총 ', 'Total ') + items.length + ' · ' + unack + ' unack)'));
   var top = items.slice(0, 8);
   if (!top.length) {
-    host.appendChild(mk('div', { style: 'padding:14px' },
-      PCV.uxlib.msg('muted', { size: '12px' }, _L('최근 이벤트 없음', 'No recent events'))));
+    _dashEmptyMsg(host, ['alerts', 'sec'], '최근 이벤트 없음', 'No recent events');
     return;
   }
   top.forEach(function (it) {
@@ -1482,8 +1492,7 @@ function _renderDashHealing(host) {
   host.appendChild(mk('h4', { style: 'margin:0;padding:12px 14px 10px;border-bottom:1px solid var(--bg3)', role: 'heading', 'aria-level': '3' },
     _L('자가치유 승인 대기', 'Self-healing approvals') + ' (' + pend.length + ')'));
   if (!pend.length) {
-    host.appendChild(mk('div', { style: 'padding:14px' },
-      PCV.uxlib.msg('muted', { size: '12px' }, _L('대기 없음', 'Nothing pending'))));
+    _dashEmptyMsg(host, ['healing'], '대기 없음', 'Nothing pending');
   } else {
     var qaStyle = 'font-size:10px;padding:3px 8px';
     pend.slice(0, 3).forEach(function (p) {
@@ -1527,8 +1536,9 @@ async function renderDashboard(b) {
                      
   await collectHostMetrics();
   try {
-    var r = await fetchGet(API_BASE + '/vms').catch(function () { return { data: [] }; });
-    var vms = unwrapList(r);
+    var r = await fetchGet(API_BASE + '/vms').catch(function (e) { return { error: { message: e.message } }; });
+    window.vmListError = (r && r.error) || null;
+    var vms = window.vmListError ? _dashVms : unwrapList(r);
     _dashVms = vms;
     if (PCV.metrics) vms.forEach(function (v) { PCV.metrics.push('vm.' + v.name + '.cpu', v.live_cpu_pct || 0); });
     var mk = PCV.uxlib.el;
@@ -1603,14 +1613,16 @@ async function loadAll(skipContent) {
     if (r && r.error) {
       window.vmListError = r.error;
       render(skipContent);
+      var wErr = currentTab === 'dashboard' && document.getElementById('dash-workloads');
+      if (wErr) _renderDashWorkloads(wErr);
+      _pushShellSnapshot();
       if (typeof reportError === 'function') {
         reportError('vm.list', new Error(r.error.message || ('HTTP ' + r.error.code)));
       }
       return;
     }
     window.vmListError = null;
-    vmList = window.vmList = Array.isArray(r) ? r : (r.data || []);
-    if (selectedVmIndex >= vmList.length) selectedVmIndex = window.selectedVmIndex = 0;
+    PCV.vm.replaceVmList(Array.isArray(r) ? r : (r.data || []));
     lastLoadTime = Date.now();
     if (PCV.metrics) {
       vmList.forEach(function (v) { PCV.metrics.push('vm.' + v.name + '.cpu', v.live_cpu_pct || 0); });
@@ -2108,6 +2120,7 @@ window._shellSlow = { ctrs: null, alerts: null, sec: null, storage: null, healin
                                                               
                                       
                                                  
+function _shellOk(r) { if (r && r.error) throw new Error(r.error.message || 'API error'); return r; }
                                   
                                                                          
                            
@@ -2143,12 +2156,12 @@ async function _collectShellSlow() {
   if (!authToken) return;
   var s = window._shellSlow;
   await Promise.allSettled([
-    fetchGet(EP.CTR_LIST()).then(function (r) {
+    fetchGet(EP.CTR_LIST()).then(_shellOk).then(function (r) {
       var l = unwrapList(r);
       s.raw.ctrs = l;
       s.ctrs = { run: l.filter(function (c) { return c.state === 'RUNNING'; }).length, total: l.length };
     }).catch(function () { s.ctrs = null; }),
-    fetchGet(API_BASE + '/alerts').then(function (r) {
+    fetchGet(API_BASE + '/alerts').then(_shellOk).then(function (r) {
       var l = unwrapList(r);
       s.raw.alerts = l;
       var crit = l.filter(function (a) { return HN.alertSeverity(a) === 'crit'; }).length;
@@ -2173,7 +2186,7 @@ async function _collectShellSlow() {
       }) ? 'crit' : (recent.length ? 'warn' : 'ok');
       s.sec = { count1h: recent.length, worst: worst };
     }).catch(function () { s.sec = null; }),
-    fetchGet(EP.STORAGE_POOLS()).then(function (r) {
+    fetchGet(EP.STORAGE_POOLS()).then(_shellOk).then(function (r) {
       var pools = unwrapList(r);
                                                                              
                                                      
@@ -2203,6 +2216,7 @@ async function _collectShellSlow() {
       s.raw.networks = unwrapList(r);
     })
   ]);
+  s.collected = true;
                                                         
                                                        
   if (currentTab === 'dashboard') {
@@ -2217,7 +2231,7 @@ window._collectShellSlow = _collectShellSlow;
 function _buildShellSnapshot() {
   var s = window._shellSlow;
   return {
-    vms: vmList ? { run: vmList.filter(function (v) { return v.state === 'running'; }).length, total: vmList.length } : null,
+    vms: (vmList && !window.vmListError) ? { run: vmList.filter(function (v) { return v.state === 'running'; }).length, total: vmList.length } : null,
     ctrs: s.ctrs, alerts: s.alerts, sec: s.sec, storage: s.storage, healing: s.healing
   };
 }

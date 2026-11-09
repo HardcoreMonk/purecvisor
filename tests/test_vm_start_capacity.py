@@ -16,6 +16,7 @@ import re
 import shlex
 import shutil
 import subprocess
+import sys
 import tempfile
 import unittest
 from pathlib import Path
@@ -266,7 +267,20 @@ class VmStartCapacityWiringTests(unittest.TestCase):
         self.root = Path(self.temp.name)
         gate = "scripts/check_dpdk_owned_lifecycle.py"
         text = (ROOT / gate).read_text()
-        for path in {gate, *re.findall(r'_read\("([^"]+)"\)', text)}:
+
+        sys.path.insert(0, str(ROOT / "scripts"))
+        import rpc_extract
+        family = {p.relative_to(ROOT).as_posix() for p in rpc_extract.dispatcher_family(ROOT)}
+
+        for config in ("vm_manager", "vm_lifecycle"):
+            family |= {p.relative_to(ROOT).as_posix() for p in rpc_extract.vm_family(config)}
+
+        extra = {"scripts/rpc_extract.py", "scripts/split/split_target.py", "scripts/split/c_blocks.py",
+                 "scripts/split/targets/dispatcher.toml", "scripts/split/targets/vm_manager.toml",
+                 "scripts/split/targets/vm_lifecycle.toml"}
+        if (ROOT / rpc_extract.RENAME_MAP_REL).exists():
+            extra.add(rpc_extract.RENAME_MAP_REL)
+        for path in {gate, *family, *extra, *re.findall(r'_read\("([^"]+)"\)', text)}:
             target = self.root / path
             target.parent.mkdir(parents=True, exist_ok=True)
             shutil.copyfile(ROOT / path, target)
@@ -302,7 +316,7 @@ class VmStartCapacityWiringTests(unittest.TestCase):
 
     def test_post_prepare_check_removal_is_rejected(self):
         self.mutate("src/modules/virt/vm_start_capacity.c",
-                    "if (!check_domain(*domain_io, sysfs_root, error)) return FALSE;\n    if (virDomainCreate",
+                    "if (!check_domain(*domain_io, sysfs_root, error, &admission)) return FALSE;\n    if (virDomainCreate",
                     "/* missing post-prepare check */\n    if (virDomainCreate")
 
     def test_active_capacity_readmission_is_rejected(self):

@@ -37,9 +37,12 @@
 #include <json-glib/json-glib.h>
 #include <stdlib.h>
 #include <string.h>
+#include <unistd.h>
 #include <libvirt/libvirt.h>
 #include <libvirt-gobject/libvirt-gobject.h>
 #include "../src/modules/virt/vm_manager.h"
+#include "../src/modules/virt/virt_conn_pool.h"
+#include "../src/modules/resource/resource_registry.h"
 #include "../src/utils/pcv_spawn.h"
 
                                                               
@@ -51,8 +54,9 @@ extern gboolean _overlay_metadata_parse(const gchar *metadata_xml,
 extern gchar *_dpdk_metadata_xml(const gchar *nic_type, const gchar *bridge_name);
 extern gboolean _dpdk_metadata_parse(const gchar *metadata_xml, gchar **bridge_out);
 
-static GVirConnection *g_conn = NULL;
-static gboolean g_have_conn = FALSE;
+extern gboolean purecvisor_vm_sriov_pci_parse(const gchar *pci, guint out[4]);
+extern gboolean purecvisor_vm_sriov_nic_check(const gchar *nic_type, const gchar *network_bridge,
+                                              const gchar *network_mode, GError **error);
 
 
 
@@ -141,13 +145,13 @@ test_file_disk_base_image_populates_qcow2_and_raw(void)
     g_assert_no_error(error);
 
     g_assert_true(purecvisor_vm_provision_file_disk(
-        "qcow2", qcow2_target, 1, source, &error));
+        "qcow2", qcow2_target, 1, source, NULL, &error));
     g_assert_no_error(error);
     assert_file_disk_prefix("qcow2", qcow2_target, payload, sizeof payload, scratch);
 
     g_assert_cmpint(g_remove(scratch), ==, 0);
     g_assert_true(purecvisor_vm_provision_file_disk(
-        "raw", raw_target, 1, source, &error));
+        "raw", raw_target, 1, source, NULL, &error));
     g_assert_no_error(error);
     assert_file_disk_prefix("raw", raw_target, payload, sizeof payload, scratch);
 
@@ -173,7 +177,7 @@ test_file_disk_without_base_creates_requested_shape(void)
 
     pcv_spawn_launcher_init();
     g_assert_true(purecvisor_vm_provision_file_disk(
-        "qcow2", target, 1, NULL, &error));
+        "qcow2", target, 1, NULL, NULL, &error));
     g_assert_no_error(error);
     assert_file_disk_shape("qcow2", target);
 
@@ -191,11 +195,41 @@ test_file_disk_missing_base_removes_target(void)
     GError *error = NULL;
 
     g_assert_false(purecvisor_vm_provision_file_disk(
-        "qcow2", target, 1, source, &error));
+        "qcow2", target, 1, source, NULL, &error));
     g_assert_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
     g_clear_error(&error);
     g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
     g_assert_cmpint(g_rmdir(directory), ==, 0);
+}
+
+static void
+test_file_disk_backing_base_is_refused(void)
+{
+    if (!vm_manager_qemu_img_available()) {
+        g_test_skip("qemu-img not available");
+        return;
+    }
+    g_autofree gchar *directory = vm_manager_file_disk_tmpdir();
+    g_autofree gchar *secret = g_build_filename(directory, "secret.raw", NULL);
+    g_autofree gchar *backed = g_build_filename(directory, "backed.qcow2", NULL);
+    g_autofree gchar *target = g_build_filename(directory, "guest.img", NULL);
+    g_autofree gchar *secret_bytes = g_malloc0(1024 * 1024);
+    GError *error = NULL;
+    memcpy(secret_bytes, "SECRET-BACKING-MARKER", 21);
+    g_assert_true(g_file_set_contents(secret, secret_bytes, 1024 * 1024, &error));
+    pcv_spawn_launcher_init();
+    const gchar *mk[] = {"qemu-img", "create", "-f", "qcow2", "-b", secret, "-F", "raw", backed, "1M", NULL};
+    g_assert_true(pcv_spawn_sync(mk, NULL, NULL, &error));
+    g_assert_no_error(error);
+    g_assert_false(purecvisor_vm_provision_file_disk("raw", target, 1, backed, NULL, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
+    g_assert_nonnull(strstr(error->message, "backing file"));
+    g_clear_error(&error);
+    g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
+    g_assert_cmpint(g_remove(backed), ==, 0);
+    g_assert_cmpint(g_remove(secret), ==, 0);
+    g_assert_cmpint(g_rmdir(directory), ==, 0);
+    pcv_spawn_launcher_shutdown();
 }
 
 static void
@@ -218,7 +252,7 @@ test_file_disk_convert_failure_removes_target(void)
     g_assert_true(pcv_spawn_sync(source_argv, NULL, NULL, &error));
     g_assert_no_error(error);
     g_assert_false(purecvisor_vm_provision_file_disk(
-        "qcow2", target, 1, source, &error));
+        "qcow2", target, 1, source, NULL, &error));
     g_assert_error(error, G_IO_ERROR, G_IO_ERROR_FAILED);
     g_clear_error(&error);
     g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
@@ -240,7 +274,7 @@ test_file_disk_existing_target_is_preserved(void)
     g_assert_true(g_file_set_contents(target, sentinel, -1, &error));
     g_assert_no_error(error);
     g_assert_false(purecvisor_vm_provision_file_disk(
-        "qcow2", target, 1, NULL, &error));
+        "qcow2", target, 1, NULL, NULL, &error));
     g_assert_error(error, G_IO_ERROR, G_IO_ERROR_EXISTS);
     g_clear_error(&error);
     g_assert_true(g_file_get_contents(target, &actual, NULL, &error));
@@ -251,29 +285,336 @@ test_file_disk_existing_target_is_preserved(void)
     g_assert_cmpint(g_rmdir(directory), ==, 0);
 }
 
-static void ensure_conn(void) {
-    if (g_have_conn) return;
-    g_conn = gvir_connection_new("test:///default");
-    GError *err = NULL;
-    if (!gvir_connection_open(g_conn, NULL, &err)) {
-        if (err) g_error_free(err);
-        g_object_unref(g_conn);
-        g_conn = NULL;
+static void
+file_disk_swap_base(const gchar *base, const gchar *keep, gsize size, PcvResPin *pin_out)
+{
+    g_autofree gchar *bytes = g_malloc0(size);
+    GError *error = NULL;
+    PcvResNorm n = {0};
+
+    memcpy(bytes, "original", 8);
+    g_assert_true(g_file_set_contents(base, bytes, (gssize)size, &error));
+    g_assert_no_error(error);
+    g_assert_true(pcv_res_normalize(PCV_RES_IMAGE, base, &n, &error));
+    g_assert_no_error(error);
+    if (pin_out) {
+        *pin_out = (PcvResPin){ n.dev, n.ino, n.gen };
+        g_assert_true(pcv_res_pin_matches(base, pin_out));
     }
-    g_have_conn = TRUE;
+    pcv_res_norm_clear(&n);
+    g_assert_cmpint(link(base, keep), ==, 0);
+    g_assert_cmpint(g_unlink(base), ==, 0);
+    memcpy(bytes, "swapped!", 8);
+    g_assert_true(g_file_set_contents(base, bytes, (gssize)size, &error));
+    g_assert_no_error(error);
 }
 
                                                       
 
-static void test_new_with_null_conn(void) {
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(NULL);
-    if (m) g_object_unref(m);
+static void
+test_file_disk_pinned_base_swap_rejected(void)
+{
+    g_autofree gchar *directory = vm_manager_file_disk_tmpdir();
+    g_autofree gchar *base = g_build_filename(directory, "base.raw", NULL);
+    g_autofree gchar *keep = g_build_filename(directory, "keep.raw", NULL);
+    g_autofree gchar *target = g_build_filename(directory, "guest.qcow2", NULL);
+    GError *error = NULL;
+    PcvResPin pin = { 0 };
+
+    file_disk_swap_base(base, keep, 1024 * 1024, &pin);
+    g_assert_false(purecvisor_vm_provision_file_disk("qcow2", target, 1, base, &pin, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&error);
+    g_assert_false(g_file_test(target, G_FILE_TEST_EXISTS));
+
+    g_assert_cmpint(g_remove(base), ==, 0);
+    g_assert_cmpint(g_remove(keep), ==, 0);
+    g_assert_cmpint(g_rmdir(directory), ==, 0);
 }
 
-static void test_new_with_test_conn(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
+static void
+test_file_disk_unpinned_base_swap_passes(void)
+{
+    if (!vm_manager_qemu_img_available()) {
+        g_test_skip("qemu-img not available");
+        return;
+    }
+
+    g_autofree gchar *directory = vm_manager_file_disk_tmpdir();
+    g_autofree gchar *base = g_build_filename(directory, "base.raw", NULL);
+    g_autofree gchar *keep = g_build_filename(directory, "keep.raw", NULL);
+    g_autofree gchar *target = g_build_filename(directory, "guest.img", NULL);
+    GError *error = NULL;
+
+    pcv_spawn_launcher_init();
+    file_disk_swap_base(base, keep, 1024 * 1024, NULL);
+    g_assert_true(purecvisor_vm_provision_file_disk("raw", target, 1, base, NULL, &error));
+    g_assert_no_error(error);
+
+    g_assert_cmpint(g_remove(target), ==, 0);
+    g_assert_cmpint(g_remove(base), ==, 0);
+    g_assert_cmpint(g_remove(keep), ==, 0);
+    g_assert_cmpint(g_rmdir(directory), ==, 0);
+    pcv_spawn_launcher_shutdown();
+}
+
+typedef struct {
+    gchar *root, *bin, *log, *base, *saved_path;
+} ZvolEnv;
+
+#define QIMG_INFO_RAW "[ \"$1\" = info ] && { echo '{\"format\":\"raw\"}'; exit 0; }\n"
+
+static void
+zvol_env_mock(const ZvolEnv *e, const gchar *tool, const gchar *body)
+{
+    g_autofree gchar *file = g_build_filename(e->bin, tool, NULL);
+    g_autofree gchar *qlog = g_shell_quote(e->log);
+    g_autofree gchar *script = g_strdup_printf("#!/bin/sh\nprintf '%%s %%s\\n' \"${0##*/}\" \"$*\" >> %s\n%s", qlog, body);
+    g_assert_true(g_file_set_contents(file, script, -1, NULL));
+    g_assert_cmpint(g_chmod(file, 0755), ==, 0);
+}
+
+static void
+zvol_env_begin(ZvolEnv *e)
+{
+    e->root = vm_manager_file_disk_tmpdir();
+    e->bin = g_build_filename(e->root, "bin", NULL);
+    e->log = g_build_filename(e->root, "calls.log", NULL);
+    e->base = g_build_filename(e->root, "base.raw", NULL);
+    g_assert_cmpint(g_mkdir_with_parents(e->bin, 0700), ==, 0);
+    g_assert_true(g_file_set_contents(e->base, "raw-bytes", -1, NULL));
+    zvol_env_mock(e, "zfs", "exit 0\n");
+    zvol_env_mock(e, "udevadm", "exit 0\n");
+    zvol_env_mock(e, "qemu-img", QIMG_INFO_RAW "exit 0\n");
+    e->saved_path = g_strdup(g_getenv("PATH"));
+    g_autofree gchar *path = g_strdup_printf("%s:%s", e->bin, e->saved_path ? e->saved_path : "");
+    g_setenv("PATH", path, TRUE);
+    pcv_spawn_launcher_init();
+}
+
+static void
+zvol_env_end(ZvolEnv *e)
+{
+    pcv_spawn_launcher_shutdown();
+    if (e->saved_path) g_setenv("PATH", e->saved_path, TRUE); else g_unsetenv("PATH");
+    g_autofree gchar *cmd = g_strdup_printf("rm -rf %s", e->root);
+    g_assert_true(g_spawn_command_line_sync(cmd, NULL, NULL, NULL, NULL));
+    g_free(e->root); g_free(e->bin); g_free(e->log); g_free(e->base); g_free(e->saved_path);
+}
+
+static gchar *
+zvol_env_calls(const ZvolEnv *e)
+{
+    gchar *text = NULL;
+    return g_file_get_contents(e->log, &text, NULL, NULL) ? text : g_strdup("");
+}
+
+static void
+test_zvol_disk_base_format_is_probed(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    GError *error = NULL;
+    g_assert_true(purecvisor_vm_provision_zvol_disk("zp/vms/a", 2, e.base, NULL, &error));
+    g_assert_no_error(error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_autofree gchar *want = g_strdup_printf(
+        "qemu-img info --output=json --force-share %s\n"
+        "zfs create -V 2G zp/vms/a\n"
+        "udevadm settle --timeout=5\n"
+        "qemu-img info --output=json --force-share %s\n"
+        "qemu-img convert -n -f raw -O raw %s /dev/zvol/zp/vms/a\n", e.base, e.base, e.base);
+    g_assert_cmpstr(calls, ==, want);
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_convert_failure_rolls_back(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    zvol_env_mock(&e, "qemu-img", QIMG_INFO_RAW "echo 'Could not open image: boom' >&2\nexit 1\n");
+    GError *error = NULL;
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/b", 2, e.base, NULL, &error));
+    g_assert_nonnull(error);
+    g_assert_nonnull(strstr(error->message, "conversion to raw failed"));
+    g_assert_nonnull(strstr(error->message, "boom"));
+    g_clear_error(&error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_assert_true(g_str_has_suffix(calls, "udevadm settle --timeout=5\nzfs destroy -f zp/vms/b\n"));
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_rollback_retries_busy(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    zvol_env_mock(&e, "qemu-img", QIMG_INFO_RAW "exit 1\n");
+    g_autofree gchar *qlog = g_shell_quote(e.log);
+    g_autofree gchar *body = g_strdup_printf(
+        "[ \"$1\" = destroy ] && [ \"$(grep -c '^zfs destroy' %s)\" -le 2 ] && { echo 'cannot destroy: dataset is busy' >&2; exit 1; }\nexit 0\n",
+        qlog);
+    zvol_env_mock(&e, "zfs", body);
+    GError *error = NULL;
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/r", 1, e.base, NULL, &error));
+    g_assert_null(strstr(error->message, "remove it manually"));
+    g_clear_error(&error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_auto(GStrv) lines = g_strsplit(calls, "\n", -1);
+    guint destroys = 0;
+    for (guint i = 0; lines[i]; i++)
+        destroys += g_str_has_prefix(lines[i], "zfs destroy -f zp/vms/r") ? 1 : 0;
+    g_assert_cmpuint(destroys, ==, 3);
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_rollback_failure_is_reported(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    zvol_env_mock(&e, "qemu-img", QIMG_INFO_RAW "exit 1\n");
+    zvol_env_mock(&e, "zfs", "[ \"$1\" = destroy ] && { echo 'cannot destroy: dataset is busy' >&2; exit 1; }\nexit 0\n");
+    GError *error = NULL;
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/s", 1, e.base, NULL, &error));
+    g_assert_nonnull(strstr(error->message, "remove it manually"));
+    g_clear_error(&error);
+    zvol_env_end(&e);
+}
+
+static void
+zvol_env_mock_second_info(const ZvolEnv *e, const gchar *second_json)
+{
+    g_autofree gchar *counter = g_build_filename(e->root, "info-count", NULL);
+    g_autofree gchar *body = g_strdup_printf(
+        "if [ \"$1\" = info ]; then\n"
+        "  if [ -e '%s' ]; then echo '%s'; else : > '%s'; echo '{\"format\":\"raw\"}'; fi\n"
+        "  exit 0\nfi\nexit 0\n", counter, second_json, counter);
+    zvol_env_mock(e, "qemu-img", body);
+}
+
+static void
+test_zvol_disk_recheck_after_lock_wait(void)
+{
+    const gchar *seconds[] = {"{\"format\":\"qcow2\"}", "{\"format\":\"qcow2\",\"backing-filename\":\"/x\"}", "not json"};
+    for (guint i = 0; i < G_N_ELEMENTS(seconds); i++) {
+        ZvolEnv e = {0};
+        zvol_env_begin(&e);
+        zvol_env_mock_second_info(&e, seconds[i]);
+        GError *error = NULL;
+        g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/w", 1, e.base, NULL, &error));
+        g_assert_error(error, G_IO_ERROR, G_IO_ERROR_FAILED);
+        g_assert_nonnull(strstr(error->message, "changed while waiting"));
+        g_clear_error(&error);
+        g_autofree gchar *calls = zvol_env_calls(&e);
+        g_assert_null(strstr(calls, "convert"));
+        g_assert_true(g_str_has_suffix(calls, "zfs destroy -f zp/vms/w\n"));
+        zvol_env_end(&e);
+    }
+}
+
+static void
+test_zvol_disk_pin_recheck_after_lock_wait(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    GError *error = NULL;
+    PcvResNorm n = {0};
+    g_assert_true(pcv_res_normalize(PCV_RES_IMAGE, e.base, &n, &error));
+    g_assert_no_error(error);
+    PcvResPin pin = { n.dev, n.ino, n.gen };
+    pcv_res_norm_clear(&n);
+    g_autofree gchar *qbase = g_shell_quote(e.base);
+    g_autofree gchar *body = g_strdup_printf(
+        "[ \"$1\" = create ] && { rm -f %s; printf swapped > %s; }\nexit 0\n", qbase, qbase);
+    zvol_env_mock(&e, "zfs", body);
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/p", 1, e.base, &pin, &error));
+    g_assert_nonnull(strstr(error->message, "changed while waiting"));
+    g_clear_error(&error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_assert_null(strstr(calls, "convert"));
+    g_assert_true(g_str_has_suffix(calls, "zfs destroy -f zp/vms/p\n"));
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_refused_base_creates_nothing(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    zvol_env_mock(&e, "qemu-img", "[ \"$1\" = info ] && { echo '{\"format\":\"qcow2\",\"backing-filename\":\"/x\"}'; exit 0; }\nexit 0\n");
+    GError *error = NULL;
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/x", 1, e.base, NULL, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_DATA);
+    g_assert_nonnull(strstr(error->message, "backing file"));
+    g_clear_error(&error);
+    zvol_env_mock(&e, "qemu-img", "echo boom >&2\nexit 1\n");
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/x", 1, e.base, NULL, &error));
+    g_assert_nonnull(error);
+    g_clear_error(&error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_assert_null(strstr(calls, "zfs"));
+    g_assert_null(strstr(calls, "convert"));
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_without_base(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    GError *error = NULL;
+    g_assert_true(purecvisor_vm_provision_zvol_disk("zp/vms/c", 1, NULL, NULL, &error));
+    g_assert_no_error(error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_assert_cmpstr(calls, ==, "zfs create -V 1G zp/vms/c\n");
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_bad_base_rejected_before_create(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    GError *error = NULL;
+    g_autofree gchar *gone = g_build_filename(e.root, "gone.raw", NULL);
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/d", 1, gone, NULL, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&error);
+
+    g_autofree gchar *keep = g_build_filename(e.root, "keep.raw", NULL);
+    PcvResPin pin = { 0 };
+    file_disk_swap_base(e.base, keep, 4096, &pin);
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/d", 1, e.base, &pin, &error));
+    g_assert_error(error, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&error);
+
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_assert_cmpstr(calls, ==, "");
+    zvol_env_end(&e);
+}
+
+static void
+test_zvol_disk_create_failure(void)
+{
+    ZvolEnv e = {0};
+    zvol_env_begin(&e);
+    zvol_env_mock(&e, "zfs", "echo 'no such pool' >&2\nexit 1\n");
+    GError *error = NULL;
+    g_assert_false(purecvisor_vm_provision_zvol_disk("zp/vms/e", 1, e.base, NULL, &error));
+    g_assert_nonnull(strstr(error->message, "ZFS Provisioning Failed"));
+    g_assert_nonnull(strstr(error->message, "no such pool"));
+    g_clear_error(&error);
+    g_autofree gchar *calls = zvol_env_calls(&e);
+    g_autofree gchar *want = g_strdup_printf(
+        "qemu-img info --output=json --force-share %s\nzfs create -V 1G zp/vms/e\n", e.base);
+    g_assert_cmpstr(calls, ==, want);
+    zvol_env_end(&e);
+}
+
+static void test_new(void) {
+    PureCVisorVmManager *m = purecvisor_vm_manager_new();
     g_assert_nonnull(m);
     g_assert_true(PURECVISOR_IS_VM_MANAGER(m));
     g_object_unref(m);
@@ -281,110 +622,9 @@ static void test_new_with_test_conn(void) {
 
                                                       
 
-static void test_delete_status_unknown(void) {
-    const gchar *st = pcv_vm_delete_status_get("nonexistent-vm-XYZ");
-    g_assert_nonnull(st);
-    g_assert_cmpstr(st, ==, "not_found");
-}
-
-static void test_delete_status_null_safe(void) {
-                                       
-    const gchar *st = pcv_vm_delete_status_get(NULL);
-                                                
-    if (st) {
-        g_assert_true(g_strcmp0(st, "not_found") == 0 ||
-                      g_strcmp0(st, "unknown") == 0);
-    }
-}
-
-                                                          
-
-static void test_cleanup_idempotent(void) {
-    pcv_vm_manager_cleanup();
-    pcv_vm_manager_cleanup();              
-}
-
-                                                     
-
 static GMainLoop *g_loop = NULL;
 static gboolean g_async_done = FALSE;
-static JsonNode *g_async_node = NULL;
 static GError *g_async_err = NULL;
-
-static void on_list_done(GObject *src, GAsyncResult *res, gpointer u) {
-    (void)u;
-    g_async_node = purecvisor_vm_manager_list_vms_finish(
-        PURECVISOR_VM_MANAGER(src), res, &g_async_err);
-    g_async_done = TRUE;
-    g_main_loop_quit(g_loop);
-}
-
-static void test_list_vms_test_driver(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
-    g_loop = g_main_loop_new(NULL, FALSE);
-    g_async_done = FALSE;
-    g_async_node = NULL;
-    g_async_err = NULL;
-
-    purecvisor_vm_manager_list_vms_async(m, on_list_done, NULL);
-    g_main_loop_run(g_loop);
-
-    g_assert_true(g_async_done);
-                                           
-    if (g_async_node) {
-        g_assert_true(JSON_NODE_HOLDS_ARRAY(g_async_node) || JSON_NODE_HOLDS_OBJECT(g_async_node));
-        if (JSON_NODE_HOLDS_ARRAY(g_async_node)) {
-            JsonArray *arr = json_node_get_array(g_async_node);
-            g_test_message("test driver vms: %u", json_array_get_length(arr));
-        }
-        json_node_free(g_async_node);
-    }
-    if (g_async_err) g_error_free(g_async_err);
-
-    g_object_unref(m);
-    g_main_loop_unref(g_loop);
-    g_loop = NULL;
-}
-
-                                                      
-static void test_list_vms_metadata(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
-    g_loop = g_main_loop_new(NULL, FALSE);
-    g_async_done = FALSE;
-    g_async_node = NULL;
-    g_async_err = NULL;
-
-    purecvisor_vm_manager_list_vms_async(m, on_list_done, NULL);
-    g_main_loop_run(g_loop);
-
-    g_assert_true(g_async_done);
-    if (g_async_node && JSON_NODE_HOLDS_ARRAY(g_async_node)) {
-        JsonArray *arr = json_node_get_array(g_async_node);
-        for (guint i = 0; i < json_array_get_length(arr); i++) {
-            JsonNode *el = json_array_get_element(arr, i);
-            if (JSON_NODE_HOLDS_OBJECT(el)) {
-                JsonObject *obj = json_node_get_object(el);
-                                                                      
-                if (json_object_has_member(obj, "name")) {
-                    const gchar *n = json_object_get_string_member(obj, "name");
-                    g_assert_nonnull(n);
-                }
-            }
-        }
-        json_node_free(g_async_node);
-    }
-    if (g_async_err) g_error_free(g_async_err);
-
-    g_object_unref(m);
-    g_main_loop_unref(g_loop);
-    g_loop = NULL;
-}
 
                                                        
 
@@ -398,11 +638,27 @@ static void on_start_done(GObject *src, GAsyncResult *res, gpointer u) {
     g_main_loop_quit(g_loop);
 }
 
-static void test_start_vm_nonexistent(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
+static gboolean nonexistent_pool_begin(void) {
+    g_setenv("PCV_LIBVIRT_URI", "test:///default", TRUE);
+    virt_conn_pool_init(1);
+    virConnectPtr probe = virt_conn_pool_acquire();
+    if (!probe) {
+        virt_conn_pool_shutdown();
+        g_unsetenv("PCV_LIBVIRT_URI");
+        g_test_skip("test:///default 연결 불가");
+        return FALSE;
+    }
+    virt_conn_pool_release(probe);
+    return TRUE;
+}
+static void nonexistent_pool_end(void) {
+    virt_conn_pool_shutdown();
+    g_unsetenv("PCV_LIBVIRT_URI");
+}
 
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
+static void test_start_vm_nonexistent(void) {
+    if (!nonexistent_pool_begin()) return;
+    PureCVisorVmManager *m = purecvisor_vm_manager_new();
     g_loop = g_main_loop_new(NULL, FALSE);
     g_async_done = FALSE;
     g_async_err = NULL;
@@ -413,11 +669,13 @@ static void test_start_vm_nonexistent(void) {
 
     g_assert_true(g_async_done);
     g_assert_false(g_async_ok);                       
-    if (g_async_err) g_error_free(g_async_err);
+    g_assert_error(g_async_err, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&g_async_err);
 
     g_object_unref(m);
     g_main_loop_unref(g_loop);
     g_loop = NULL;
+    nonexistent_pool_end();
 }
 
 static void on_stop_done(GObject *src, GAsyncResult *res, gpointer u) {
@@ -429,10 +687,8 @@ static void on_stop_done(GObject *src, GAsyncResult *res, gpointer u) {
 }
 
 static void test_stop_vm_nonexistent(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
+    if (!nonexistent_pool_begin()) return;
+    PureCVisorVmManager *m = purecvisor_vm_manager_new();
     g_loop = g_main_loop_new(NULL, FALSE);
     g_async_done = FALSE;
     g_async_err = NULL;
@@ -443,43 +699,13 @@ static void test_stop_vm_nonexistent(void) {
 
     g_assert_true(g_async_done);
     g_assert_false(g_async_ok);
-    if (g_async_err) g_error_free(g_async_err);
+    g_assert_error(g_async_err, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&g_async_err);
 
     g_object_unref(m);
     g_main_loop_unref(g_loop);
     g_loop = NULL;
-}
-
-                                                         
-
-static void on_delete_done(GObject *src, GAsyncResult *res, gpointer u) {
-    (void)u;
-    g_async_ok = purecvisor_vm_manager_delete_vm_finish(
-        PURECVISOR_VM_MANAGER(src), res, &g_async_err);
-    g_async_done = TRUE;
-    g_main_loop_quit(g_loop);
-}
-
-static void test_delete_vm_nonexistent(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
-    g_loop = g_main_loop_new(NULL, FALSE);
-    g_async_done = FALSE;
-    g_async_err = NULL;
-    g_async_ok = TRUE;
-
-    purecvisor_vm_manager_delete_vm_async(m, "nonexistent-vm-XYZ", on_delete_done, NULL);
-    g_main_loop_run(g_loop);
-
-    g_assert_true(g_async_done);
-    g_assert_false(g_async_ok);
-    if (g_async_err) g_error_free(g_async_err);
-
-    g_object_unref(m);
-    g_main_loop_unref(g_loop);
-    g_loop = NULL;
+    nonexistent_pool_end();
 }
 
                                                          
@@ -493,10 +719,8 @@ static void on_set_vcpu_done(GObject *src, GAsyncResult *res, gpointer u) {
 }
 
 static void test_set_vcpu_nonexistent(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
+    if (!nonexistent_pool_begin()) return;
+    PureCVisorVmManager *m = purecvisor_vm_manager_new();
     g_loop = g_main_loop_new(NULL, FALSE);
     g_async_done = FALSE;
     g_async_err = NULL;
@@ -505,11 +729,13 @@ static void test_set_vcpu_nonexistent(void) {
     g_main_loop_run(g_loop);
 
     g_assert_true(g_async_done);
-    if (g_async_err) g_error_free(g_async_err);
+    g_assert_error(g_async_err, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&g_async_err);
 
     g_object_unref(m);
     g_main_loop_unref(g_loop);
     g_loop = NULL;
+    nonexistent_pool_end();
 }
 
 static void on_set_mem_done(GObject *src, GAsyncResult *res, gpointer u) {
@@ -521,10 +747,8 @@ static void on_set_mem_done(GObject *src, GAsyncResult *res, gpointer u) {
 }
 
 static void test_set_memory_nonexistent(void) {
-    ensure_conn();
-    if (!g_conn) { g_test_skip("libvirt test:/// 사용 불가"); return; }
-
-    PureCVisorVmManager *m = purecvisor_vm_manager_new(g_conn);
+    if (!nonexistent_pool_begin()) return;
+    PureCVisorVmManager *m = purecvisor_vm_manager_new();
     g_loop = g_main_loop_new(NULL, FALSE);
     g_async_done = FALSE;
     g_async_err = NULL;
@@ -533,11 +757,13 @@ static void test_set_memory_nonexistent(void) {
     g_main_loop_run(g_loop);
 
     g_assert_true(g_async_done);
-    if (g_async_err) g_error_free(g_async_err);
+    g_assert_error(g_async_err, G_IO_ERROR, G_IO_ERROR_NOT_FOUND);
+    g_clear_error(&g_async_err);
 
     g_object_unref(m);
     g_main_loop_unref(g_loop);
     g_loop = NULL;
+    nonexistent_pool_end();
 }
 
                                                              
@@ -687,6 +913,58 @@ static void test_dpdk_metadata_build_parse_roundtrip(void) {
     g_assert_cmpstr(bridge, ==, "dpdk-br0");
     g_free(bridge);
     g_free(xml);
+}
+
+static void test_sriov_nic_check_table(void) {
+    struct { const gchar *nic, *br, *mode; const gchar *msg; } bad[] = {
+        {"sriov", NULL, NULL, PCV_VM_SRIOV_NO_BRIDGE_MSG},
+        {"sriov", "", "bridge", PCV_VM_SRIOV_NO_BRIDGE_MSG},
+        {"sriov", "pcvnat0", "tenant-overlay", PCV_VM_SRIOV_OVERLAY_MSG},
+        {"sriov", NULL, "tenant-overlay", PCV_VM_SRIOV_NO_BRIDGE_MSG},
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(bad); i++) {
+        GError *err = NULL;
+        g_assert_false(purecvisor_vm_sriov_nic_check(bad[i].nic, bad[i].br, bad[i].mode, &err));
+        g_assert_nonnull(err);
+        g_assert_true(g_error_matches(err, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT));
+        g_assert_cmpstr(err->message, ==, bad[i].msg);
+        g_clear_error(&err);
+    }
+
+    struct { const gchar *nic, *br, *mode; } ok[] = {
+        {"sriov", "pcvnat0", NULL},
+        {NULL, NULL, NULL},
+        {"bridge", NULL, "bridge"},
+        {NULL, "pcvnat0", "tenant-overlay"},
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(ok); i++) {
+        GError *err = NULL;
+        g_assert_true(purecvisor_vm_sriov_nic_check(ok[i].nic, ok[i].br, ok[i].mode, &err));
+        g_assert_no_error(err);
+    }
+}
+
+static void test_sriov_pci_parse_table(void) {
+    guint out[4] = {9, 9, 9, 9};
+    g_assert_true(purecvisor_vm_sriov_pci_parse("0000:3b:10.1", out));
+    g_assert_cmpuint(out[0], ==, 0x0000);
+    g_assert_cmpuint(out[1], ==, 0x3b);
+    g_assert_cmpuint(out[2], ==, 0x10);
+    g_assert_cmpuint(out[3], ==, 0x1);
+    g_assert_true(purecvisor_vm_sriov_pci_parse("0000:01:00.0", out));
+    g_assert_cmpuint(out[0], ==, 0);
+    g_assert_cmpuint(out[1], ==, 1);
+    g_assert_cmpuint(out[2], ==, 0);
+    g_assert_cmpuint(out[3], ==, 0);
+
+    const gchar *bad[] = {NULL, "", "garbage", "01:00.0", "0000:3B:00.1",
+                          "0000:00:20.0", "0000:3b:10.8", "0000:3b:10.1 "};
+    for (guint i = 0; i < G_N_ELEMENTS(bad); i++) {
+        guint o[4] = {9, 9, 9, 9};
+        g_assert_false(purecvisor_vm_sriov_pci_parse(bad[i], o));
+        for (guint k = 0; k < 4; k++)
+            g_assert_cmpuint(o[k], ==, 0);
+    }
 }
 
 static void test_dpdk_metadata_non_dpdk_is_empty(void) {
@@ -1190,22 +1468,31 @@ void test_vm_manager_register(void) {
                     test_file_disk_without_base_creates_requested_shape);
     g_test_add_func("/vm_manager/file_disk/missing_base_removes_target",
                     test_file_disk_missing_base_removes_target);
+    g_test_add_func("/vm_manager/file_disk/backing_base_is_refused",
+                    test_file_disk_backing_base_is_refused);
     g_test_add_func("/vm_manager/file_disk/convert_failure_removes_target",
                     test_file_disk_convert_failure_removes_target);
     g_test_add_func("/vm_manager/file_disk/existing_target_is_preserved",
                     test_file_disk_existing_target_is_preserved);
-    g_test_add_func("/vm_manager/new_with_null_conn", test_new_with_null_conn);
-    g_test_add_func("/vm_manager/new_with_test_conn", test_new_with_test_conn);
-    g_test_add_func("/vm_manager/delete_status_unknown", test_delete_status_unknown);
-    g_test_add_func("/vm_manager/delete_status_null_safe", test_delete_status_null_safe);
-    g_test_add_func("/vm_manager/cleanup_idempotent", test_cleanup_idempotent);
-    g_test_add_func("/vm_manager/list_vms_test_driver", test_list_vms_test_driver);
+    g_test_add_func("/vm_manager/file_disk/pinned_base_swap_rejected",
+                    test_file_disk_pinned_base_swap_rejected);
+    g_test_add_func("/vm_manager/file_disk/unpinned_base_swap_passes",
+                    test_file_disk_unpinned_base_swap_passes);
+    g_test_add_func("/vm_manager/new", test_new);
     g_test_add_func("/vm_manager/start_vm_nonexistent", test_start_vm_nonexistent);
+    g_test_add_func("/vm_manager/zvol_disk/base_format_is_probed", test_zvol_disk_base_format_is_probed);
+    g_test_add_func("/vm_manager/zvol_disk/convert_failure_rolls_back", test_zvol_disk_convert_failure_rolls_back);
+    g_test_add_func("/vm_manager/zvol_disk/rollback_retries_busy", test_zvol_disk_rollback_retries_busy);
+    g_test_add_func("/vm_manager/zvol_disk/rollback_failure_is_reported", test_zvol_disk_rollback_failure_is_reported);
+    g_test_add_func("/vm_manager/zvol_disk/refused_base_creates_nothing", test_zvol_disk_refused_base_creates_nothing);
+    g_test_add_func("/vm_manager/zvol_disk/recheck_after_lock_wait", test_zvol_disk_recheck_after_lock_wait);
+    g_test_add_func("/vm_manager/zvol_disk/pin_recheck_after_lock_wait", test_zvol_disk_pin_recheck_after_lock_wait);
+    g_test_add_func("/vm_manager/zvol_disk/without_base", test_zvol_disk_without_base);
+    g_test_add_func("/vm_manager/zvol_disk/bad_base_rejected_before_create", test_zvol_disk_bad_base_rejected_before_create);
+    g_test_add_func("/vm_manager/zvol_disk/create_failure", test_zvol_disk_create_failure);
     g_test_add_func("/vm_manager/stop_vm_nonexistent", test_stop_vm_nonexistent);
-    g_test_add_func("/vm_manager/delete_vm_nonexistent", test_delete_vm_nonexistent);
     g_test_add_func("/vm_manager/set_vcpu_nonexistent", test_set_vcpu_nonexistent);
     g_test_add_func("/vm_manager/set_memory_nonexistent", test_set_memory_nonexistent);
-    g_test_add_func("/vm_manager/list_vms_metadata", test_list_vms_metadata);
     g_test_add_func("/vm_manager/resolve_bridge_null_defaults", test_resolve_bridge_null_defaults);
     g_test_add_func("/vm_manager/resolve_bridge_empty_defaults", test_resolve_bridge_empty_defaults);
     g_test_add_func("/vm_manager/resolve_bridge_none_is_null", test_resolve_bridge_none_is_null);
@@ -1220,6 +1507,8 @@ void test_vm_manager_register(void) {
     g_test_add_func("/vm_manager/overlay_metadata_parse_libvirt_stripped_form", test_overlay_metadata_parse_libvirt_stripped_form);
     g_test_add_func("/vm_manager/overlay_metadata_parse_libvirt_attr_reordered", test_overlay_metadata_parse_libvirt_attr_reordered);
     g_test_add_func("/vm_manager/dpdk_metadata_build_parse_roundtrip", test_dpdk_metadata_build_parse_roundtrip);
+    g_test_add_func("/vm_manager/sriov_pci_parse_table", test_sriov_pci_parse_table);
+    g_test_add_func("/vm_manager/sriov_nic_check_table", test_sriov_nic_check_table);
     g_test_add_func("/vm_manager/dpdk_metadata_non_dpdk_is_empty", test_dpdk_metadata_non_dpdk_is_empty);
     g_test_add_func("/vm_manager/dpdk_metadata_parse_libvirt_stripped_form", test_dpdk_metadata_parse_libvirt_stripped_form);
     g_test_add_func("/vm_manager/dpdk_metadata_parse_malformed_fails", test_dpdk_metadata_parse_malformed_fails);

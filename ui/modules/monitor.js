@@ -779,7 +779,7 @@ async function renderOpsTriage(b) {
       el('div', { class: 'ops-triage-list' },
         el('p', { class: 'color-muted text-12' }, '경보와 감사 기록은 각 조회 화면에서 최신 결과를 확인하십시오.'),
         el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-alerts'); } }, '경보 조회'),
-        el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); } }, '서버 감사 로그 조회'))),
+        el('button', { class: 'ops-triage-action', type: 'button', onClick: function() { navigateTo('mon-audit'); }, 'data-role': 'ADMIN' }, '서버 감사 로그 조회'))),
     el('article', { class: 'ops-triage-card ops-span-7' },
       cardHead('VM 및 서비스 상태', totalVm + ' assets'),
       el('div', { class: 'ops-triage-toolbar' },
@@ -812,7 +812,7 @@ async function renderOpsTriage(b) {
           el('span', { class: 'ops-key' }, 'HOST'), el('span', null, '호스트 상태 열기')),
         el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('ovn')" },
           el('span', { class: 'ops-key' }, 'NET'), el('span', null, 'OVN 관리 열기')),
-        el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('mon-audit')" },
+        el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('mon-audit')", 'data-role': 'ADMIN' },
           el('span', { class: 'ops-key' }, 'LOG'), el('span', null, '서버 감사 로그 열기')),
         el('button', { class: 'ops-command-row', type: 'button', onclick: "navigateTo('activity-log')" },
           el('span', { class: 'ops-key' }, 'JOB'), el('span', null, '활동 로그 열기')))),
@@ -1083,7 +1083,7 @@ function renderMonOverview(b, all, allVms, running, avgCpu, avgMem, avgDisk, tot
     el('div', { style: 'font-size:12px;color:var(--fg2);margin-bottom:8px;line-height:1.6;border-left:2px solid var(--green);padding-left:8px' },
       el('b', null, '정책 기반 자동 복구 준비 정보'), el('br'),
       '• 기본값은 DRY RUN으로 유지됩니다.'),
-    HN.row('Mode', HN.statusPill('warn', 'DRY RUN')),
+    HN.row('Mode', el('span', { id: 'healing-mode-value' }, PCV.selfhealing ? PCV.selfhealing.modePill() : HN.statusPill('idle', _L('알 수 없음', 'Unknown')))),
     HN.row('Pending', all.reduce((s, n) => s + (n.healing_pending || 0), 0)),
     HN.row('Executed', Math.round(all.reduce((s, n) => s + (n.healing_total || 0), 0))),
     providerBlock,
@@ -4312,19 +4312,11 @@ window.renderPoolInfo = renderPoolInfo;
 async function loadHealingPending() {
                                                                            
   try {
-    var r;
-    try {
-      r = await fetchPost(EP.RPC(), { jsonrpc:'2.0', method:'healing.history', params:{}, id:'hp1' });
-    } catch (e) {
-      var elx = document.getElementById('healing-pending-list');
-      if (elx) { PCV.uxlib.clearEl(elx); elx.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, _L('대기 중인 액션 없음', 'No pending actions'))); }
-      return;
-    }
-    var d = unwrapData(r);
-    var raw = Array.isArray(d) ? d : (unwrapList ? unwrapList(d) : []);
-    var actions = raw.filter(function(a) { return a && (a.status === 'pending' || a.state === 'pending'); });
+    var r = await fetchPost(EP.RPC(), { jsonrpc:'2.0', method:'healing.pending', params:{}, id:'hp1' });
+    var actions = unwrapData(r);
     var el = document.getElementById('healing-pending-list');
     if (!el) return;
+    if (!Array.isArray(actions)) throw new Error((actions && actions.error && actions.error.message) || 'healing.pending');
     if (actions.length === 0) {
       PCV.uxlib.clearEl(el); el.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, _L('대기 중인 액션 없음', 'No pending actions')));
       return;
@@ -4332,7 +4324,7 @@ async function loadHealingPending() {
     var mk = PCV.uxlib.el;
     var rows = actions.map(function(a) {
       var flexKids = [mk('strong', null, a.action || 'unknown')];
-      if (a.target) flexKids.push(' — ' + a.target);
+      if (a.policy) flexKids.push(' — ' + a.policy);
       if (a.reason) flexKids.push(' ', mk('span', { class: 'stat-label' }, '(' + a.reason + ')'));
                                               
                                                                          
@@ -4357,7 +4349,7 @@ async function loadHealingPending() {
     if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   } catch (e) {
     var el2 = document.getElementById('healing-pending-list');
-    if (el2) { PCV.uxlib.clearEl(el2); el2.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, e.message)); }
+    if (el2) { PCV.uxlib.clearEl(el2); el2.appendChild(PCV.uxlib.el('div', { class: 'stat-label' }, _L('알 수 없음', 'Unknown') + ': ' + e.message)); }
   }
 }
 

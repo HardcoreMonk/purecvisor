@@ -15,7 +15,8 @@
                                                                      
                                                         
                                                                
-                                                      
+                                                                  
+                                                                
                                                              
                                                               
                                                  
@@ -36,18 +37,22 @@ G_BEGIN_DECLS
                                                                               
    
                                                                  
-                                                              
+                                                                         
+                                                             
+                                                           
 typedef enum {
     PCV_SECURITY_SOURCE_FILE_INTEGRITY,
     PCV_SECURITY_SOURCE_RUNTIME,
     PCV_SECURITY_SOURCE_LOG,
     PCV_SECURITY_SOURCE_PCV_AUDIT,
-    PCV_SECURITY_SOURCE_LSM,                                           
-    PCV_SECURITY_SOURCE_SURICATA                                       
+    PCV_SECURITY_SOURCE_LSM,                                        
+    PCV_SECURITY_SOURCE_SURICATA,                                   
+    PCV_SECURITY_SOURCE_COUNT                                             
 } PcvSecuritySource;
 
                                                          
-                                                                       
+                                                               
+                                   
 typedef enum {
     PCV_SECURITY_EVENT_FILE_CHANGED,
     PCV_SECURITY_EVENT_PROCESS_SUSPICIOUS,

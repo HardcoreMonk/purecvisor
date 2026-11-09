@@ -10,18 +10,45 @@
                                                                                         
                                                         
 
+import contextlib
+import io
+import re
 import subprocess
 import sys
+import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-from check_transport_bind import scan_text, TARGET, MAIN_TARGET              
+import check_transport_bind
+import rpc_extract
+from check_transport_bind import scan_text, MAIN_TARGET
 
 GATE = Path(__file__).resolve().parent.parent / "check_transport_bind.py"
+REPO = Path(__file__).resolve().parents[2]
+
+NAMED_FUNCTIONS = {
+    "pcv_rest_transport_plan": "transport plan",
+    "pcv_rest_transport_start": "transport orchestration",
+    "pcv_rest_server_new": "REST constructor",
+    "pcv_rest_server_start": "REST start",
+    "_transport_listen_plaintext": "plaintext listener",
+}
 
 
 def _sources() -> tuple[str, str]:
-    return TARGET.read_text(), MAIN_TARGET.read_text()
+    return rpc_extract.rest_family_text(), MAIN_TARGET.read_text()
+
+def _apply_rest_renames(text: str) -> str:
+
+    for old, new in rpc_extract.rest_renames().items():
+        text = re.sub(rf"\b{re.escape(old)}\b", new, text)
+    return text
+
+def _drop_definition(text: str, name: str) -> str:
+
+    for candidate in {name, rpc_extract.rest_renames().get(name, name)}:
+        text = re.sub(rf"^({re.escape(candidate)})(\s*\()", r"\1_gone\2", text, flags=re.M)
+    return text
 
 
 def _assert_red(rest: str, main: str) -> None:
@@ -212,13 +239,16 @@ def test_red_validation_bypass_fresh_unsafe_plan_if0_decoy():
 def test_red_unconditional_listen_all_with_if0_loopback_decoy():
                                                              
     rest, main = _sources()
-    start = rest.index("static gboolean\n_transport_listen_plaintext")
-    end = rest.index("static gboolean\n_transport_listen_https", start)
-    unsafe = """
+
+    plaintext = rpc_extract.rest_fn_name_in(rest, "_transport_listen_plaintext")
+    https = rpc_extract.rest_fn_name_in(rest, "_transport_listen_https")
+    start = re.search(rf"^(?:static )?gboolean\n{plaintext}\(", rest, re.M).start()
+    end = start + re.search(rf"^(?:static )?gboolean\n{https}\(", rest[start:], re.M).start()
+    unsafe = f"""
 static gboolean
-_transport_listen_plaintext(gpointer data, const gchar *endpoint,
+{plaintext}(gpointer data, const gchar *endpoint,
                             GError **error)
-{
+{{
     RestTransportContext *ctx = data;
 #if 0
     GInetAddress *lo = g_inet_address_new_loopback(AF_INET);
@@ -227,7 +257,7 @@ _transport_listen_plaintext(gpointer data, const gchar *endpoint,
 #endif
     return soup_server_listen_all(ctx->server->soup, ctx->server->port,
                                   SOUP_SERVER_LISTEN_IPV4_ONLY, error);
-}
+}}
 
 """
     _assert_red(rest[:start] + unsafe + rest[end:], main)
@@ -307,10 +337,12 @@ def test_red_server_start_transport_overwrite():
 def test_red_plaintext_callback_substituted_with_https():
                                                               
     rest, main = _sources()
-    expected = ".listen_plaintext = _transport_listen_plaintext,"
+    plaintext = rpc_extract.rest_fn_name_in(rest, "_transport_listen_plaintext")
+    https = rpc_extract.rest_fn_name_in(rest, "_transport_listen_https")
+    expected = f".listen_plaintext = {plaintext},"
     assert expected in rest
     rest = rest.replace(
-        expected, ".listen_plaintext = _transport_listen_https,", 1)
+        expected, f".listen_plaintext = {https},", 1)
     _assert_red(rest, main)
 
 
@@ -373,6 +405,63 @@ def test_red_orchestration_fail_if_after_https():
     _assert_red(
         rest[:function_start] + orchestration + rest[function_end:], main)
 
+
+def test_renamed_family_passes():
+
+    rest, main = _sources()
+    renamed = _apply_rest_renames(rest)
+    assert ".listen_plaintext = pcv_rest_transport_listen_plaintext," in renamed
+    assert scan_text(renamed, main) == []
+
+def test_each_named_function_missing_is_red():
+
+    rest, main = _sources()
+    for text in (rest, _apply_rest_renames(rest)):
+        for name, scope in NAMED_FUNCTIONS.items():
+            mutated = _drop_definition(text, name)
+            assert mutated != text, f"정의를 못 찾아 변조 불가: {name}"
+            reasons = scan_text(mutated, main)
+            assert any(reason.startswith(scope) for reason in reasons), (name, reasons)
+
+@contextlib.contextmanager
+def _family_root(files: dict):
+
+    with tempfile.TemporaryDirectory() as tmp:
+        root = Path(tmp)
+        for rel, text in files.items():
+            (root / rel).parent.mkdir(parents=True, exist_ok=True)
+            (root / rel).write_text(text)
+        saved = check_transport_bind.ROOT
+        check_transport_bind.ROOT = root
+        try:
+            yield root
+        finally:
+            check_transport_bind.ROOT = saved
+
+def _main_rc() -> tuple:
+    out, err = io.StringIO(), io.StringIO()
+    with contextlib.redirect_stdout(out), contextlib.redirect_stderr(err):
+        rc = check_transport_bind.main()
+    return rc, out.getvalue() + err.getvalue()
+
+def test_default_mode_reads_split_file_with_new_name():
+
+    family, _ = _sources()
+    body = rpc_extract.function_body_in(
+        family, rpc_extract.rest_fn_name_in(family, "_transport_listen_plaintext"))
+    assert body is not None
+    moved = ("gboolean\npcv_rest_transport_listen_plaintext(gpointer data, const gchar *endpoint,\n"
+             "                                    GError **error)\n" + body + "\n")
+    base = {p.relative_to(REPO).as_posix():
+            _apply_rest_renames(_drop_definition(p.read_text(), "_transport_listen_plaintext"))
+            for p in rpc_extract.rest_family()}
+    with_split = {**base, "src/api/rest_transport.c": base.get("src/api/rest_transport.c", "") + moved}
+    with _family_root(with_split):
+        rc, out = _main_rc()
+    assert rc == 0, f"분할 파일의 새 이름 정의를 못 읽음:\n{out}"
+    with _family_root(base):
+        rc, out = _main_rc()
+    assert rc == 1 and "plaintext listener" in out, f"정의 0건인데 RED가 아님:\n{out}"
 
 if __name__ == "__main__":
     tests = [value for name, value in sorted(globals().items())

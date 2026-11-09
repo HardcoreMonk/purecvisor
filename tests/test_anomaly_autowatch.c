@@ -37,10 +37,12 @@
                                                                                
    
 #include <glib.h>
+#include <math.h>
 #include <string.h>
 #include <json-glib/json-glib.h>                            
 
 #include "modules/ai/anomaly_detector.h"
+#include "modules/ai/self_healing.h"
 #include "modules/daemons/cgroup_psi.h"
 #include "modules/daemons/prometheus_exporter.h"                        
 #include "utils/pcv_log.h"                              
@@ -97,6 +99,300 @@ _render_lines(int n)
         g_string_append_printf(s, "%s{vm_name=\"vm%d\",kind=\"vm\"} %.17g\n",
                                PCV_ANOMALY_AUTO_METRIC_MEM_FULL, i, 1.5);
     return g_string_free(s, FALSE);
+}
+
+void pcv_test_self_healing_ensure_init(void);
+void pcv_test_anomaly_scores_reset(void);
+gboolean pcv_test_anomaly_score_seen(const gchar *labels);
+
+static void
+test_read_value_labeled_watch_sums_series(void)
+{
+    const gchar *render =
+        "# TYPE node_disk_io_time_seconds_total gauge\n"
+        "node_disk_io_time_seconds_total{device=\"nvme0n1\"} 12.5\n"
+        "node_disk_io_time_seconds_total{device=\"sda\"} 2.5\n"
+        "# TYPE node_disk_io_time_weighted_seconds_total gauge\n"
+        "node_disk_io_time_weighted_seconds_total{device=\"nvme0n1\"} 9000\n"
+        "# TYPE node_disk_io_time_seconds_total_extra gauge\n"
+        "node_disk_io_time_seconds_total_extra{device=\"sda\"} 7000\n"
+        "node_disk_io_time_seconds_total_extra 7000\n";
+
+    g_assert_cmpfloat(pcv_anomaly_read_value(render, "node_disk_io_time_seconds_total", ""), ==, 15.0);
+    g_assert_cmpfloat(pcv_anomaly_read_value(render, "node_disk_io_time_seconds_total", NULL), ==, 15.0);
+    g_assert_cmpfloat(pcv_anomaly_read_value(render, "node_disk_io_time_weighted_seconds_total", ""), ==, 9000.0);
+
+    g_assert_cmpfloat(pcv_anomaly_read_value("x{a=\"1\"} 1\nx{a=\"2\"} 2", "x", ""), ==, 3.0);
+}
+
+static void
+test_read_value_type_line_and_prefix_are_not_values(void)
+{
+
+    const gchar *only_type = "# TYPE node_vmstat_pswpout gauge\n# HELP node_vmstat_pswpout x\n";
+    g_assert_true(isnan(pcv_anomaly_read_value(only_type, "node_vmstat_pswpout", "")));
+
+    g_assert_true(isnan(pcv_anomaly_read_value("other{m=\"node_x\"} 5\nmy_node_x 6\n", "node_x", "")));
+
+    g_assert_true(isnan(pcv_anomaly_read_value("node_x_extra 5\nnode_x_extra{a=\"1\"} 6\n", "node_x", "")));
+    g_assert_true(isnan(pcv_anomaly_read_value(NULL, "node_x", "")));
+    g_assert_true(isnan(pcv_anomaly_read_value("", "node_x", "")));
+    g_assert_true(isnan(pcv_anomaly_read_value("node_x{a=\"1\"} abc\n", "node_x", "")));
+}
+
+static void
+test_read_value_unlabeled_line_wins_over_sum(void)
+{
+
+    g_assert_cmpfloat(pcv_anomaly_read_value("x 5\nx{a=\"1\"} 3\n", "x", ""), ==, 5.0);
+    g_assert_cmpfloat(pcv_anomaly_read_value("x{a=\"1\"} 3\nx 5\n", "x", ""), ==, 5.0);
+}
+
+static void
+test_read_value_labeled_filter_is_exact(void)
+{
+    const gchar *render =
+        "node_hwmon_temp_celsius{chip=\"coretemp\",sensor=\"temp1\"} 41\n"
+        "node_hwmon_temp_celsius{chip=\"coretemp\",sensor=\"temp10\"} 99\n"
+        "purecvisor_rpc_duration_ms{method=\"vm.list\"} 3.5\n";
+    g_assert_cmpfloat(pcv_anomaly_read_value(render, "node_hwmon_temp_celsius",
+                                             "chip=\"coretemp\",sensor=\"temp1\""), ==, 41.0);
+    g_assert_true(isnan(pcv_anomaly_read_value(render, "node_hwmon_temp_celsius", "chip=\"coretemp\"")));
+    g_assert_cmpfloat(pcv_anomaly_read_value(render, "purecvisor_rpc_duration_ms", "method=\"vm.list\""), ==, 3.5);
+
+    g_assert_cmpfloat(pcv_anomaly_read_value("x{a=\"b c} d\"} 7\n", "x", "a=\"b c} d\""), ==, 7.0);
+}
+
+static void
+test_read_value_skips_non_finite_series(void)
+{
+
+    g_assert_cmpfloat(pcv_anomaly_read_value("x{a=\"1\"} nan\nx{a=\"2\"} 2\nx{a=\"3\"} inf\n", "x", ""), ==, 2.0);
+    g_assert_true(isnan(pcv_anomaly_read_value("x{a=\"1\"} nan\n", "x", "")));
+    g_assert_true(isnan(pcv_anomaly_read_value("x inf\n", "x", "")));
+}
+
+static gchar *
+_render_fixed_watches(gdouble counter, gdouble jitter)
+{
+    GString *s = g_string_new(NULL);
+    gdouble v = 100.0 + jitter;
+    gdouble d = counter;
+    g_string_append_printf(s, "# TYPE purecvisor_host_cpu_percent gauge\npurecvisor_host_cpu_percent %.17g\n", v);
+    g_string_append_printf(s, "# TYPE purecvisor_host_memory_percent gauge\npurecvisor_host_memory_percent %.17g\n", v);
+    g_string_append_printf(s, "# TYPE node_disk_io_time_seconds_total gauge\n"
+                              "node_disk_io_time_seconds_total{device=\"nvme0n1\"} %.17g\n"
+                              "node_disk_io_time_seconds_total{device=\"sda\"} %.17g\n", d, d);
+    g_string_append_printf(s, "# TYPE node_disk_io_time_weighted_seconds_total gauge\n"
+                              "node_disk_io_time_weighted_seconds_total{device=\"sda\"} %.17g\n", v);
+    g_string_append_printf(s, "# TYPE node_network_receive_errs_total gauge\n"
+                              "node_network_receive_errs_total{device=\"lo\"} 0\n"
+                              "node_network_receive_errs_total{device=\"eno1\"} %.17g\n", d);
+    g_string_append_printf(s, "# TYPE purecvisor_rpc_duration_ms gauge\npurecvisor_rpc_duration_ms{method=\"vm.list\"} %.17g\n", v);
+    g_string_append_printf(s, "# TYPE node_vmstat_pswpout gauge\nnode_vmstat_pswpout %.17g\n", v);
+    g_string_append_printf(s, "# TYPE node_pressure_cpu_some_seconds_total gauge\nnode_pressure_cpu_some_seconds_total %.17g\n", v);
+    g_string_append_printf(s, "# TYPE node_hwmon_temp_celsius gauge\n"
+                              "node_hwmon_temp_celsius{chip=\"coretemp\",sensor=\"temp1\"} %.17g\n"
+                              "node_hwmon_temp_celsius{chip=\"k10temp\",sensor=\"temp1\"} %.17g\n", v, v);
+    g_string_append_printf(s, "# TYPE node_nf_conntrack_entries gauge\nnode_nf_conntrack_entries %.17g\n", v);
+    return g_string_free(s, FALSE);
+}
+
+static void
+test_fixed_watches_write_score_from_real_render(void)
+{
+    _ensure_init();
+    pcv_anomaly_reset_baseline();
+    pcv_test_anomaly_scores_reset();
+
+    for (int cycle = 0; cycle < 2; cycle++) {
+        gchar *render = _render_fixed_watches(100.0 + cycle, 0.0);
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    static const gchar *const expected[] = {
+        "purecvisor_host_cpu_percent", "purecvisor_host_memory_percent",
+        "node_disk_io_time_seconds_total", "node_network_receive_errs_total",
+        "purecvisor_rpc_duration_ms", "node_vmstat_pswpout", "node_pressure_cpu_some_seconds_total",
+        "node_hwmon_temp_celsius", "node_nf_conntrack_entries",
+    };
+    guint missing = 0;
+    for (guint i = 0; i < G_N_ELEMENTS(expected); i++) {
+        gchar *labels = g_strdup_printf("metric=\"%s\"", expected[i]);
+        gboolean seen = pcv_test_anomaly_score_seen(labels);
+        g_test_message("감시 %s: 점수 게이지 %s", expected[i], seen ? "있음" : "없음");
+        if (!seen) missing++;
+        g_free(labels);
+    }
+    g_assert_cmpuint(missing, ==, 0);
+    pcv_anomaly_reset_baseline();
+}
+
+static gdouble
+_counter_warmup(gdouble start, int cycles, gdouble step)
+{
+    gdouble counter = start;
+    for (int cycle = 0; cycle < cycles; cycle++) {
+        counter += step + ((cycle % 2) ? 0.5 : -0.5);
+        gchar *render = _render_fixed_watches(counter, (cycle % 2) ? 0.5 : -0.5);
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    return counter;
+}
+
+static void
+test_labeled_watches_reach_policies_after_warmup(void)
+{
+    _ensure_init();
+    pcv_test_self_healing_ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = _counter_warmup(100.0, 13, 10.0);
+    gchar *quiet = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(quiet, ==, "[]");
+    g_free(quiet);
+
+    gchar *spike = _render_fixed_watches(counter + 100000.0, 0.0);
+    pcv_anomaly_evaluate_text(spike);
+    g_free(spike);
+
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_nonnull(strstr(recent, "\"metric\":\"node_disk_io_time_seconds_total\""));
+    g_assert_nonnull(strstr(recent, "\"metric\":\"node_network_receive_errs_total\""));
+    JsonParser *parser = json_parser_new();
+    g_assert_true(json_parser_load_from_data(parser, recent, -1, NULL));
+    g_assert_cmpuint(json_array_get_length(json_node_get_array(json_parser_get_root(parser))), ==, 2);
+    g_object_unref(parser);
+    g_free(recent);
+
+    gchar *hist = pcv_healing_get_history_json();
+    g_assert_nonnull(strstr(hist, "\"target\":\"disk-saturated\""));
+    g_assert_nonnull(strstr(hist, "\"target\":\"net-errors\""));
+    g_free(hist);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_counter_idle_to_load_fires(void)
+{
+    _ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = _counter_warmup(1000.0, 30, 10.0);
+    gchar *quiet = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(quiet, ==, "[]");
+    g_free(quiet);
+    gchar *load = _render_fixed_watches(counter + 30.0, 0.0);
+    pcv_anomaly_evaluate_text(load);
+    g_free(load);
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_nonnull(strstr(recent, "\"metric\":\"node_disk_io_time_seconds_total\""));
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_counter_decrease_is_quiet(void)
+{
+    _ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = _counter_warmup(1000000.0, 20, 10.0);
+    (void)counter;
+    gchar *reset = _render_fixed_watches(5.0, 0.0);
+    pcv_anomaly_evaluate_text(reset);
+    g_free(reset);
+    _counter_warmup(5.0, 3, 10.0);
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(recent, ==, "[]");
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_counter_vmstat_pswpout_is_cumulative(void)
+{
+    _ensure_init();
+    pcv_test_self_healing_ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = 1000.0;
+    for (int cycle = 0; cycle < 30; cycle++) {
+        counter += 10.0 + ((cycle % 2) ? 0.5 : -0.5);
+        gchar *render = g_strdup_printf("node_vmstat_pswpout %.17g\n", counter);
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    gchar *quiet = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(quiet, ==, "[]");
+    g_free(quiet);
+    gchar *load = g_strdup_printf("node_vmstat_pswpout %.17g\n", counter + 30.0);
+    pcv_anomaly_evaluate_text(load);
+    g_free(load);
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_nonnull(strstr(recent, "\"metric\":\"node_vmstat_pswpout\""));
+    g_free(recent);
+
+    pcv_anomaly_reset_baseline();
+    counter = 1000000.0;
+    for (int cycle = 0; cycle < 20; cycle++) {
+        counter += 10.0 + ((cycle % 2) ? 0.5 : -0.5);
+        gchar *render = g_strdup_printf("node_vmstat_pswpout %.17g\n", counter);
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    pcv_anomaly_evaluate_text("node_vmstat_pswpout 5\n");
+    recent = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(recent, ==, "[]");
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_counter_load_end_is_quiet(void)
+{
+    _ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = _counter_warmup(1000.0, 30, 1000.0);
+    gchar *idle = _render_fixed_watches(counter + 1.0, 0.0);
+    pcv_anomaly_evaluate_text(idle);
+    g_free(idle);
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(recent, ==, "[]");
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_gauge_downward_still_fires(void)
+{
+    _ensure_init();
+    pcv_test_self_healing_ensure_init();
+    pcv_anomaly_reset_baseline();
+    for (int cycle = 0; cycle < 30; cycle++) {
+        gchar *render = g_strdup_printf("node_nf_conntrack_entries %.17g\n", 5000.0 + ((cycle % 2) ? 0.5 : -0.5));
+        pcv_anomaly_evaluate_text(render);
+        g_free(render);
+    }
+    pcv_anomaly_evaluate_text("node_nf_conntrack_entries 1\n");
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_nonnull(strstr(recent, "\"metric\":\"node_nf_conntrack_entries\""));
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
+}
+
+static void
+test_counter_gap_does_not_double(void)
+{
+    _ensure_init();
+    pcv_anomaly_reset_baseline();
+    gdouble counter = _counter_warmup(1000.0, 20, 10.0);
+    pcv_anomaly_evaluate_text("# 값 없음\n");
+
+    gchar *after = _render_fixed_watches(counter + 500.0, 0.0);
+    pcv_anomaly_evaluate_text(after);
+    g_free(after);
+    gchar *recent = pcv_anomaly_get_recent_json();
+    g_assert_cmpstr(recent, ==, "[]");
+    g_free(recent);
+    pcv_anomaly_reset_baseline();
 }
 
                                                                            
@@ -568,6 +864,19 @@ void
 test_anomaly_autowatch_register(void)
 {
     g_test_add_func("/anomaly/label_json_escape_roundtrip", test_label_json_escape_roundtrip);
+    g_test_add_func("/anomaly/read_value_labeled_watch_sums_series", test_read_value_labeled_watch_sums_series);
+    g_test_add_func("/anomaly/read_value_type_line_and_prefix", test_read_value_type_line_and_prefix_are_not_values);
+    g_test_add_func("/anomaly/read_value_unlabeled_line_wins", test_read_value_unlabeled_line_wins_over_sum);
+    g_test_add_func("/anomaly/read_value_labeled_filter_exact", test_read_value_labeled_filter_is_exact);
+    g_test_add_func("/anomaly/read_value_skips_non_finite", test_read_value_skips_non_finite_series);
+    g_test_add_func("/anomaly/fixed_watches_write_score", test_fixed_watches_write_score_from_real_render);
+    g_test_add_func("/anomaly/labeled_watches_reach_policies", test_labeled_watches_reach_policies_after_warmup);
+    g_test_add_func("/anomaly/counter_idle_to_load_fires", test_counter_idle_to_load_fires);
+    g_test_add_func("/anomaly/counter_decrease_is_quiet", test_counter_decrease_is_quiet);
+    g_test_add_func("/anomaly/counter_gap_does_not_double", test_counter_gap_does_not_double);
+    g_test_add_func("/anomaly/counter_vmstat_pswpout", test_counter_vmstat_pswpout_is_cumulative);
+    g_test_add_func("/anomaly/counter_load_end_is_quiet", test_counter_load_end_is_quiet);
+    g_test_add_func("/anomaly/gauge_downward_still_fires", test_gauge_downward_still_fires);
     g_test_add_func("/anomaly/extract_vm_name_basic", test_extract_vm_name_basic);
     g_test_add_func("/anomaly/extract_vm_name_key_collisions", test_extract_vm_name_key_collisions);
     g_test_add_func("/anomaly/extract_vm_name_malformed", test_extract_vm_name_malformed);

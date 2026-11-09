@@ -158,11 +158,15 @@ install -m644 packaging/systemd/proc-hidepid.service "$STAGE/etc/systemd/system/
 
 install -m644 packaging/systemd/95-coredump-hardening.conf "$STAGE/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf"
 
+install -m644 packaging/systemd/97-sandbox.conf "$STAGE/etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf"
+
 
 install -m644 systemd/purecvisor.logrotate "$STAGE/etc/logrotate.d/purecvisor"
 
                                                                                     
 install -m644 packaging/systemd/purecvisor-host-tuning.service "$STAGE/etc/systemd/system/purecvisor-host-tuning.service"
+
+install -m644 packaging/systemd/purecvisor-lxc@.service "$STAGE/etc/systemd/system/purecvisor-lxc@.service"
 
                                                       
                                                             
@@ -269,6 +273,8 @@ cat > "$STAGE/DEBIAN/conffiles" <<'CF'
 /etc/modules-load.d/purecvisor-vfio.conf
 /etc/logrotate.d/purecvisor
 /etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf
+/etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf
+/etc/systemd/system/purecvisor-lxc@.service
 CF
 
 cat > "$STAGE/DEBIAN/postinst" <<'POST'

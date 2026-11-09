@@ -22,20 +22,20 @@
                    
                                                     
                                                            
-
+                                                          
                                             
                                                                 
   
                             
                                                                           
                                                                        
-
+                                                                
                                                                       
                                                                         
   
                             
                                                          
-
+                                               
                                                      
                                         
   
@@ -43,15 +43,15 @@
                                                  
                                                       
                                                                 
-
-
+                                                                      
+                                                    
                                                              
    
 
 #include "api/drain.h"
 
-
-
+                                                             
+                                                                  
 static GThread *g_producer_thread;
 static gint g_producer_stop;
 static void
@@ -68,6 +68,7 @@ _producer_wait(guint milliseconds)
 
                                         
 #include "../virt/vm_manager.h"
+#include "../virt/pcv_virt_open.h"
 #include "telemetry.h"
 #include "modules/daemons/pcv_telemetry_reconnect_guard.h"
 
@@ -161,32 +162,27 @@ VmMetrics* get_vm_metrics(const gchar *vm_id) {
                                                                
 
    
-
-
-
-
-
-
-
-
-
-
-
+                                                            
+  
+                           
+                                                                
+                                                            
+                                                                     
+  
+                                           
+                                                          
+                                             
+   
 static virConnectPtr
 telemetry_connection_open(guint attempt, gboolean connected_once)
 {
-    virConnectPtr conn = virConnectOpenReadOnly("qemu:///system");
+    virConnectPtr conn = pcv_virt_open_bounded("qemu:///system", TRUE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);                     
     if (!conn) {
         g_warning("[Telemetry] Libvirt connection open failed; retrying in %us "
                   "(attempt=%u)",
                   PCV_TELEMETRY_RECONNECT_INTERVAL_MS / 1000U,
                   attempt);
         return NULL;
-    }
-
-    if (virConnectSetKeepAlive(conn, 5, 3) < 0) {
-        g_warning("[Telemetry] Libvirt keepalive unavailable; "
-                  "Bulk RPC watchdog remains active");
     }
 
     if (connected_once || attempt > 1U) {
@@ -197,12 +193,12 @@ telemetry_connection_open(guint attempt, gboolean connected_once)
     return conn;
 }
 
-
-
-
-
-
-
+   
+                                                                    
+  
+                                                               
+                                                     
+   
 static void
 telemetry_connection_close(virConnectPtr *conn)
 {
@@ -213,7 +209,7 @@ telemetry_connection_close(virConnectPtr *conn)
     *conn = NULL;
 }
 
-
+   
                                                   
                                                             
    
@@ -221,15 +217,15 @@ static gpointer telemetry_worker_thread(gpointer data) {
     (void)data;                  
 
       
-
+                                              
       
                                                          
                                               
                                                       
       
-
-
-
+                                                                
+                                                                 
+                                       
        
     virConnectPtr conn = NULL;
     gboolean connected_once = FALSE;
@@ -342,7 +338,7 @@ static gpointer telemetry_worker_thread(gpointer data) {
         _producer_wait(PCV_TELEMETRY_POLL_INTERVAL_MS);
     }
 
-
+                                                  
     telemetry_connection_close(&conn);
     return NULL;
 }
@@ -373,8 +369,8 @@ void init_telemetry_daemon(PureCVisorVmManager *vm_manager) {
     }
 }
 
-
-
+                                                
+                                                             
 void
 pcv_telemetry_shutdown(void)
 {

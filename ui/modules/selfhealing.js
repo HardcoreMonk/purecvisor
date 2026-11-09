@@ -105,6 +105,15 @@ var _state = {
 };
 
                           
+function _knownMode(mode) { return mode === 'active' || mode === 'dry_run' ? mode : null; }
+function _modeLabel(mode) {
+  return mode === 'active' ? 'ACTIVE' : mode === 'dry_run' ? 'DRY RUN' : _L('알 수 없음', 'Unknown');
+}
+
+function modePill() {
+  var mode = _knownMode(_state.mode);
+  return HN.statusPill(mode === 'active' ? 'crit' : mode === 'dry_run' ? 'warn' : 'idle', _modeLabel(mode));
+}
    
                                                       
   
@@ -119,6 +128,13 @@ var _state = {
    
 async function refresh() {
   _state.loading = true;
+  try {
+    var status = await _rpc('healing.status', {});
+    _state.mode = _knownMode(status && status.mode);
+  } catch (e) {
+    _state.mode = null;
+    console.error('[selfhealing] status failed:', e);
+  }
   try {
     var pending = await _rpc('healing.pending', {});
     _state.pending = Array.isArray(pending) ? pending : [];
@@ -275,6 +291,8 @@ async function triggerAgent() {
                                   
    
 function render() {
+  var modeSlot = document.getElementById('healing-mode-value');
+  if (modeSlot) { while (modeSlot.firstChild) modeSlot.removeChild(modeSlot.firstChild); modeSlot.appendChild(modePill()); }
   var root = document.getElementById('selfhealing-panel');
   if (!root) return;
 
@@ -283,8 +301,8 @@ function render() {
 
               
   var modeBadge = _el('span', {
-    class: 'sh-badge ' + (_state.mode === 'active' ? 'sh-active' : 'sh-dry'),
-    text: _state.mode === 'active' ? 'ACTIVE' : 'DRY RUN'
+    class: 'sh-badge ' + (_state.mode === 'active' ? 'sh-active' : _state.mode === 'dry_run' ? 'sh-dry' : 'sh-unknown'),
+    text: _modeLabel(_state.mode)
   });
   var ctrls = _el('div', { class: 'sh-controls' }, [
     modeBadge,
@@ -449,6 +467,7 @@ window.renderSelfHealing = renderSelfHealing;
 
                                           
 PCV.selfhealing = {
+  modePill: modePill,
   refresh:        refresh,
   setMode:        setMode,
   approve:        approve,

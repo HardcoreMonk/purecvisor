@@ -351,7 +351,7 @@ gboolean
 pcv_qos_vm_requires_sla(const gchar *network_mode, const gchar *nic_type)
 {
                                                                
-                                                               
+                                                              
                                            
     if (g_strcmp0(network_mode, "tenant-overlay") == 0)
         return TRUE;

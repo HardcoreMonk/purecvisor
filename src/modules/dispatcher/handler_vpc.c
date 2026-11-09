@@ -22,7 +22,8 @@
                                    
                                                                         
                                                                  
-                                                                            
+                                                                                     
+                                                                        
                                                      
   
                                
@@ -47,9 +48,13 @@
                                
   
                            
-
-                                                                         
-                                                             
+                                                                              
+                                                                                       
+                                                                                           
+                                                                                        
+                                                                        
+                                                                              
+                                                                          
                                                                     
   
                  
@@ -69,7 +74,7 @@
                                                                                     
                                                                                     
                                                       
-
+                                
    
 #include "api/drain.h"
 #include "handler_vpc.h"
@@ -78,11 +83,18 @@
 #include "api/uds_server.h"
 #include "api/ws_server.h"
 #include "modules/audit/pcv_audit.h"
+#include "modules/dispatcher/rpc_completion.h"                                 
 #include "modules/auth/pcv_rbac.h"
 #include "modules/network/vpc/vpc_manager.h"
+#include "modules/network/vpc/vpc_mgmt_guard.h"                                         
 #include "modules/network/vpc/vpc_model.h"
+#include "modules/resource/resource_gate.h"                                              
+#include "modules/resource/resource_registry.h"                                 
 #include "utils/pcv_job_queue.h"
+#include "utils/pcv_log.h"
 #include "utils/pcv_validate.h"
+
+#define VPC_LOG "vpc"
 
 typedef enum {
     VPC_OP_CREATE,
@@ -101,6 +113,7 @@ typedef struct {
     VpcWorkerOp op;
     gchar *method;
     gchar *job_id;
+    PcvJobRef *job_ref;                                     
     gchar *target;
     gchar *actor;
     gchar *tenant;
@@ -121,6 +134,11 @@ typedef struct {
     gint64 expected_revision;
     gboolean actor_is_admin;
     GPtrArray *allowed_sources;
+                                                                       
+                                                                
+    gboolean confirm_required;
+    gchar *reserved_hit;
+    guint confirm_timeout_sec;
 } VpcWorkerData;
 
 static const gchar *
@@ -163,6 +181,7 @@ _rpc_code(const GError *error)
     case PCV_VPC_ERROR_CONFLICT:
     case PCV_VPC_ERROR_STALE_REVISION:
     case PCV_VPC_ERROR_STATE:
+    case PCV_VPC_ERROR_PORT_GROUP_MISSING:
         return PURE_RPC_ERR_CONFLICT;
     case PCV_VPC_ERROR_IO:
     default:
@@ -198,7 +217,10 @@ _send_array(UdsServer *server, GSocketConnection *connection, const gchar *rpc_i
     pure_uds_server_send_response(server, connection, response);
 }
 
-                                                     
+                                                                                          
+                                                                                                        
+                                                                                        
+                                                         
 static gboolean
 _caller_scope(JsonObject *params,
               gboolean tenant_required,
@@ -214,6 +236,7 @@ _caller_scope(JsonObject *params,
         role_value = PCV_ROLE_ADMIN;
     gboolean admin = role_value == PCV_ROLE_ADMIN;
     const gchar *tenant = NULL;
+    g_autofree gchar *resolved = NULL;
     if (admin) {
         tenant = _string_member(params, "tenant");
     } else {
@@ -222,20 +245,28 @@ _caller_scope(JsonObject *params,
                         "인증 subject가 없어 tenant scope를 결정할 수 없습니다");
             return FALSE;
         }
-        tenant = pcv_rbac_get_tenant(actor);
+                                                                         
+        PcvResCaller caller = {0};
+        pcv_res_caller_init(&caller, params, NULL);
+        resolved = g_steal_pointer(&caller.tenant);
+        pcv_res_caller_clear(&caller);
+        tenant = resolved;
     }
     if (tenant && !pcv_vpc_name_is_valid(tenant)) {
         g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_INVALID_ARGUMENT,
                     "tenant 형식이 유효하지 않습니다");
         return FALSE;
     }
-    if (tenant_required && (!tenant || !*tenant)) {
+                                                                                        
+                                                                                                
+                                                              
+    if ((tenant_required || !admin) && (!tenant || !*tenant)) {
         g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE,
                     "이 작업에는 tenant가 필요합니다");
         return FALSE;
     }
     if (actor_out)
-        *actor_out = g_strdup(actor && *actor ? actor : "local-admin");
+        *actor_out = g_strdup(pcv_rpc_completion_actor() ? pcv_rpc_completion_actor() : PCV_AUDIT_ACTOR_LOCAL);
     if (tenant_out)
         *tenant_out = tenant ? g_strdup(tenant) : NULL;
     if (admin_out)
@@ -286,6 +317,7 @@ _worker_data_free(VpcWorkerData *data)
     if (!data)
         return;
     g_free(data->method);
+    pcv_job_unref(data->job_ref);
     g_free(data->job_id);
     g_free(data->target);
     g_free(data->actor);
@@ -301,9 +333,67 @@ _worker_data_free(VpcWorkerData *data)
     g_free(data->requested_ip);
     g_free(data->protocol);
     g_free(data->listen_address);
+    g_free(data->reserved_hit);
     if (data->allowed_sources)
         g_ptr_array_unref(data->allowed_sources);
     g_free(data);
+}
+
+                                                                         
+                                                                        
+                                                                                   
+static PcvVpcMgmtPending *
+_pending_entry(const VpcWorkerData *data, JsonObject *result)
+{
+    gboolean first = data->op == VPC_OP_CREATE;
+    JsonObject *subnet = result;
+    if (first) {
+        JsonNode *node = result ? json_object_get_member(result, "subnet") : NULL;
+        subnet = node && JSON_NODE_HOLDS_OBJECT(node) ? json_node_get_object(node) : NULL;
+    }
+    PcvVpcMgmtPending *p = g_new0(PcvVpcMgmtPending, 1);
+    p->subnet_id = g_strdup(_string_member(subnet, "id"));
+    p->vpc_id = g_strdup(first ? _string_member(result, "id") : data->vpc_id);
+    p->tenant = g_strdup(data->tenant);
+    p->cidr = g_strdup(data->cidr);
+    p->requested_by = g_strdup(data->actor);
+    p->revert_vpc = first;
+    p->deadline_unix = g_get_real_time() / G_USEC_PER_SEC + (gint64)data->confirm_timeout_sec;
+    return p;
+}
+
+                                                                
+                                                                            
+                                                                          
+                                                
+static void
+_revert_unrecorded(const PcvVpcMgmtPending *p, const GError *ledger_error, GError **error)
+{
+    GError *e = NULL;
+    gboolean reverted = FALSE;
+    if (p->subnet_id)
+        reverted = pcv_vpc_subnet_delete(p->subnet_id, p->tenant, &e) ||
+                   g_error_matches(e, PCV_VPC_ERROR, PCV_VPC_ERROR_NOT_FOUND);
+    else                                                       
+        g_set_error_literal(&e, PCV_VPC_ERROR, PCV_VPC_ERROR_IO, "subnet id unknown");
+    if (reverted && p->revert_vpc && p->vpc_id) {
+        g_clear_error(&e);
+        reverted = pcv_vpc_delete(p->vpc_id, p->tenant, &e) ||
+                   g_error_matches(e, PCV_VPC_ERROR, PCV_VPC_ERROR_NOT_FOUND) ||
+                   g_error_matches(e, PCV_VPC_ERROR, PCV_VPC_ERROR_CONFLICT);
+    }
+    PCV_LOG_WARN(VPC_LOG, "확인 대기 원장 기록 실패(%s) — subnet %s 원복 %s%s%s",
+                 ledger_error ? ledger_error->message : "unknown",
+                 p->subnet_id ? p->subnet_id : "-", reverted ? "완료" : "실패",
+                 reverted ? "" : ": ", reverted ? "" : (e ? e->message : "unknown"));
+    if (reverted)
+        g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_IO,
+                    "confirm guard unavailable — subnet reverted");
+    else
+        g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_IO,
+                    "confirm guard unavailable — subnet revert failed: %s",
+                    e ? e->message : "unknown");
+    g_clear_error(&e);
 }
 
 static void
@@ -316,7 +406,7 @@ _vpc_worker(GTask *task,
     g_autoptr(GError) error = NULL;
     g_autoptr(JsonObject) result = NULL;
     gint64 started = g_get_monotonic_time();
-    pcv_job_update_status(data->job_id, PCV_JOB_RUNNING, 10, "Local VPC mutation running");
+    pcv_job_progress(data->job_ref, 10, "Local VPC mutation running");
     gboolean ok = FALSE;
 
     switch (data->op) {
@@ -362,16 +452,34 @@ _vpc_worker(GTask *task,
         break;
     }
 
+                                                                         
+                                                                        
+    if (ok && data->confirm_required) {
+        PcvVpcMgmtPending *pending = _pending_entry(data, result);
+        g_autoptr(GError) ledger_error = NULL;
+        if (pcv_vpc_mgmt_pending_add(pending, &ledger_error)) {
+            pcv_vpc_mgmt_arm_pending(pending);
+            g_autofree gchar *warning = pcv_vpc_mgmt_warning_text(
+                data->reserved_hit, data->confirm_timeout_sec, pending->subnet_id);
+            json_object_set_string_member(result, "warning", warning);
+            json_object_set_boolean_member(result, "confirm_pending", TRUE);
+            json_object_set_int_member(result, "confirm_deadline_unix", pending->deadline_unix);
+            json_object_set_string_member(result, "subnet_id", pending->subnet_id);
+        } else {
+            ok = FALSE;
+            _revert_unrecorded(pending, ledger_error, &error);
+        }
+        pcv_vpc_mgmt_pending_free(pending);
+    }
+
     gint64 duration_ms = (g_get_monotonic_time() - started) / 1000;
     PureRpcErrorCode code = ok ? 0 : _rpc_code(error);
     g_autofree gchar *result_json = ok
         ? _object_json(result) : _error_json(error ? error->message : NULL);
-    gboolean result_persisted = pcv_job_set_result(data->job_id, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED, result_json);
     pcv_audit_log(data->actor, data->method, data->target, ok ? "ok" : "fail",
                   code, duration_ms, "local");
-    pcv_ws_broadcast_job_complete_tracked_mt(data->job_id, data->method,
-                                     ok ? "completed" : "failed",
-                                     ok ? NULL : (error ? error->message : "unknown"), result_persisted);
+    pcv_ws_finish_job(data->job_ref, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
+                       result_json, ok ? NULL : (error ? error->message : "unknown"));
     if (ok)
         g_task_return_boolean(task, TRUE);
     else if (error)
@@ -390,17 +498,24 @@ _enqueue(VpcWorkerData *data,
          UdsServer *server,
          GSocketConnection *connection)
 {
-    data->job_id = pcv_job_create(data->method, data->target, NULL);
-    if (!data->job_id) {
+    data->job_ref = pcv_job_admit(data->method, data->target, NULL, data->method);
+    if (!data->job_ref) {
         _send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
                     "VPC Job을 만들 수 없습니다");
         _worker_data_free(data);
         return;
     }
+    data->job_id = g_strdup(pcv_job_id(data->job_ref));
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
     json_object_set_string_member(accepted, "job_id", data->job_id);
     json_object_set_string_member(accepted, "method", data->method);
+    if (data->confirm_required) {
+        g_autofree gchar *warning = pcv_vpc_mgmt_warning_text(
+            data->reserved_hit, data->confirm_timeout_sec, NULL);
+        json_object_set_string_member(accepted, "warning", warning);
+        json_object_set_int_member(accepted, "confirm_timeout_sec", data->confirm_timeout_sec);
+    }
     _send_object(server, connection, rpc_id, accepted);
 
     GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
@@ -409,10 +524,90 @@ _enqueue(VpcWorkerData *data,
     g_object_unref(task);
 }
 
+                                                                     
+                                                                                 
+                                                                                         
+                                                               
+                                                                     
+                                                                                          
+                                                                    
+                                                    
+static gboolean
+_mgmt_admission(VpcWorkerData *data, const gchar *cidr, const gchar *rpc_id,
+                UdsServer *server, GSocketConnection *connection)
+{
+    if (!cidr)
+        return TRUE;
+                                                                                                                 
+    if (!data->actor_is_admin) {                                                                
+        GPtrArray *pool = pcv_res_pool_list(data->tenant);
+        gboolean inside = pcv_vpc_mgmt_pool_covers(pool, cidr);                                             
+        if (!pool)
+            PCV_LOG_WARN(VPC_LOG, "테넌트 주소 풀을 읽지 못해 %s 를 풀 밖으로 판정한다", data->method);
+        else
+            g_ptr_array_unref(pool);
+        if (!inside) {
+            _send_error(server, connection, rpc_id, PURE_RPC_ERR_FORBIDDEN,
+                        "Permission denied: subnet CIDR is outside this tenant's address pool");
+            pcv_audit_log(data->actor, data->method, data->target, "denied",
+                          PURE_RPC_ERR_FORBIDDEN, 0, "vpc");
+            _worker_data_free(data);
+            return FALSE;
+        }
+    }
+    g_autoptr(GError) error = NULL;
+    GPtrArray *reserved = pcv_vpc_mgmt_reserved_set(NULL, &error);
+    const gchar *hit = "예약 대역 계산 실패";
+    gboolean overlaps = TRUE;
+    if (reserved)
+        overlaps = pcv_vpc_mgmt_cidr_overlaps_any(cidr, reserved, &hit);
+    else
+        PCV_LOG_WARN(VPC_LOG, "예약 대역 계산 실패 — %s 를 겹침으로 판정한다: %s",
+                     data->method, error ? error->message : "unknown");
+    gboolean admin = data->actor_is_admin;
+                                                                                                              
+    if (overlaps && !admin) {
+        _send_error(server, connection, rpc_id, PURE_RPC_ERR_FORBIDDEN,
+                    "Permission denied: subnet CIDR overlaps a reserved host management range");
+        pcv_audit_log(data->actor, data->method, data->target, "denied",
+                      PURE_RPC_ERR_FORBIDDEN, 0, "vpc");
+        _worker_data_free(data);
+    } else if (overlaps) {
+        data->confirm_required = TRUE;
+        data->reserved_hit = g_strdup(hit);                                         
+        data->confirm_timeout_sec = pcv_vpc_mgmt_confirm_timeout_sec();
+        pcv_audit_log(data->actor, "vpc.reserved.warning", data->target, "warn", 0, 0, "vpc");
+    }
+    if (reserved)
+        g_ptr_array_free(reserved, TRUE);
+    return !overlaps || admin;
+}
+
 static gboolean
 _read_scope(JsonObject *params, gchar **tenant, GError **error)
 {
     return _caller_scope(params, FALSE, NULL, tenant, NULL, error);
+}
+
+                                                                   
+                                                                        
+                                                                            
+static void
+_decorate_subnets(JsonArray *subnets)
+{
+    for (guint i = 0; subnets && i < json_array_get_length(subnets); i++) {
+        JsonNode *node = json_array_get_element(subnets, i);
+        if (!node || !JSON_NODE_HOLDS_OBJECT(node))
+            continue;
+        JsonObject *subnet = json_node_get_object(node);
+        gint64 deadline = 0;
+        gboolean pending = pcv_vpc_mgmt_pending_lookup(_string_member(subnet, "id"), &deadline);
+        json_object_set_boolean_member(subnet, "confirm_pending", pending);
+        if (pending)
+            json_object_set_int_member(subnet, "confirm_deadline_unix", deadline);
+        else
+            json_object_set_null_member(subnet, "confirm_deadline_unix");
+    }
 }
 
 void
@@ -447,6 +642,7 @@ handle_vpc_get(JsonObject *params, const gchar *rpc_id, UdsServer *server,
         json_object_unref(object);
         goto fail;
     }
+    _decorate_subnets(subnets);
     json_object_set_array_member(object, "subnets", subnets);
     json_object_set_array_member(object, "attachments", attachments);
     json_object_set_array_member(object, "service_publishes", services);
@@ -467,6 +663,8 @@ _handle_child_list(JsonObject *params, const gchar *rpc_id, UdsServer *server,
     JsonArray *array = kind == 0 ? pcv_vpc_subnet_list(id, tenant, &error)
         : kind == 1 ? pcv_vpc_attachment_list(id, tenant, &error)
                     : pcv_vpc_service_list(id, tenant, &error);
+    if (array && kind == 0)
+        _decorate_subnets(array);
     if (array) { _send_array(server, connection, rpc_id, array); return; }
 fail:
     _send_error(server, connection, rpc_id, _rpc_code(error),
@@ -487,7 +685,20 @@ handle_vpc_status(JsonObject *params, const gchar *rpc_id, UdsServer *server,
     g_autofree gchar *tenant = NULL; g_autoptr(GError) error = NULL;
     if (!_read_scope(params, &tenant, &error)) goto fail;
     JsonObject *object = pcv_vpc_status(tenant, &error);
-    if (object) { _send_object(server, connection, rpc_id, object); return; }
+    if (object) {
+                                                                               
+                                                          
+        guint config_errors = 0;
+        GPtrArray *reserved = pcv_vpc_mgmt_reserved_set(&config_errors, NULL);
+        if (reserved)
+            g_ptr_array_free(reserved, TRUE);
+        json_object_set_int_member(object, "pending_confirmations", pcv_vpc_mgmt_pending_count(tenant));
+        json_object_set_boolean_member(object, "boot_reconcile_skipped",
+                                       pcv_vpc_mgmt_boot_reconcile_skipped());
+        json_object_set_int_member(object, "reserved_config_errors", config_errors);
+        _send_object(server, connection, rpc_id, object);
+        return;
+    }
 fail:
     _send_error(server, connection, rpc_id, _rpc_code(error),
                 error ? error->message : "VPC 상태 조회 실패");
@@ -537,9 +748,11 @@ handle_vpc_create(JsonObject *params, const gchar *rpc_id, UdsServer *server,
     gint64 subnet_mtu = 1500;
     if (has_subnet_mtu && !_int_member(params, "subnet_mtu", &subnet_mtu))
         subnet_mtu = -1;
+    PcvVpcIpv4Cidr parsed_cidr;                                                    
     gboolean valid_initial_subnet = !has_initial_subnet ||
         (has_subnet_name && has_subnet_cidr && pcv_vpc_name_is_valid(subnet_name) &&
-         subnet_cidr && subnet_mtu >= 68 && subnet_mtu <= 9216);
+         subnet_cidr && pcv_vpc_cidr_parse(subnet_cidr, &parsed_cidr, NULL, NULL) &&
+         subnet_mtu >= 68 && subnet_mtu <= 9216);
     if (!data || !pcv_vpc_name_is_valid(name) || !pcv_vpc_egress_mode_is_valid(mode) ||
         !pcv_vpc_backend_is_valid(backend) ||
         !valid_initial_subnet) {
@@ -554,6 +767,8 @@ handle_vpc_create(JsonObject *params, const gchar *rpc_id, UdsServer *server,
     data->target = has_initial_subnet
         ? g_strdup_printf("%s/%s[%s:%s]", data->tenant, name, subnet_name, subnet_cidr)
         : g_strdup_printf("%s/%s", data->tenant, name);
+    if (!_mgmt_admission(data, data->cidr, rpc_id, server, connection))
+        return;
     _enqueue(data, rpc_id, server, connection);
 }
 
@@ -633,8 +848,10 @@ handle_vpc_subnet_create(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     gint64 mtu = 1500;
     if (json_object_has_member(params, "mtu") && !_int_member(params, "mtu", &mtu))
         mtu = -1;
+    PcvVpcIpv4Cidr parsed_cidr;                                                    
     if (!data || !_require_uuid(params, "vpc_id", &vpc_id, &error) ||
-        !name || !cidr || mtu < 68 || mtu > 9216 ||
+        !name || !cidr || !pcv_vpc_cidr_parse(cidr, &parsed_cidr, NULL, NULL) ||
+        mtu < 68 || mtu > 9216 ||
         !_require_revision(params, data ? &data->expected_revision : NULL, &error)) {
         if (!error) g_set_error(&error, PCV_VPC_ERROR, PCV_VPC_ERROR_INVALID_ARGUMENT,
                                 "subnet name, cidr 또는 mtu가 유효하지 않습니다");
@@ -643,6 +860,8 @@ handle_vpc_subnet_create(JsonObject *params, const gchar *rpc_id, UdsServer *ser
     data->vpc_id = g_strdup(vpc_id); data->name = g_strdup(name); data->cidr = g_strdup(cidr);
     data->mtu = (gint)mtu;
     data->target = g_strdup_printf("%s/%s/%s[%s]", data->tenant, vpc_id, name, cidr);
+    if (!_mgmt_admission(data, data->cidr, rpc_id, server, connection))
+        return;
     _enqueue(data, rpc_id, server, connection);
 }
 
@@ -682,6 +901,12 @@ handle_vpc_attachment_create(JsonObject *params, const gchar *rpc_id, UdsServer 
         if (!error) g_set_error(&error, PCV_VPC_ERROR, PCV_VPC_ERROR_INVALID_ARGUMENT,
                                 "유효한 vm이 필요합니다");
         _reject_worker(data, error, rpc_id, server, connection); return;
+    }
+                                                                           
+    if (pcv_vpc_mgmt_pending_lookup(subnet_id, NULL)) {
+        _send_error(server, connection, rpc_id, PURE_RPC_ERR_CONFLICT,
+                    "subnet is awaiting confirmation — run vpc.subnet.confirm first");
+        _worker_data_free(data); return;
     }
     data->id = g_strdup(subnet_id); data->vm = g_strdup(vm);
     data->requested_ip = requested_ip ? g_strdup(requested_ip) : NULL;
@@ -768,4 +993,224 @@ handle_vpc_reconcile(JsonObject *params, const gchar *rpc_id, UdsServer *server,
     if (!data) { _reject_worker(NULL, error, rpc_id, server, connection); return; }
     data->target = g_strdup("all");
     _enqueue(data, rpc_id, server, connection);
+}
+
+                                                                                 
+                                                                      
+                                                                 
+                                                                           
+                                                           
+                                                                  
+void
+handle_vpc_subnet_confirm(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                          GSocketConnection *connection)
+{
+    g_autoptr(GError) error = NULL; const gchar *subnet_id = NULL;
+    if (!_require_uuid(params, "subnet_id", &subnet_id, &error)) {
+        _send_error(server, connection, rpc_id, _rpc_code(error), error->message);
+        return;
+    }
+    const gchar *actor = pcv_rpc_completion_actor() ? pcv_rpc_completion_actor()
+                                                    : PCV_AUDIT_ACTOR_LOCAL;
+    if (pcv_vpc_mgmt_confirm(subnet_id, &error)) {
+        pcv_audit_log(actor, "vpc.subnet.confirm", subnet_id, "ok", 0, 0, "vpc");
+        JsonObject *object = json_object_new();
+        json_object_set_string_member(object, "subnet_id", subnet_id);
+        json_object_set_boolean_member(object, "confirmed", TRUE);
+        _send_object(server, connection, rpc_id, object);
+        return;
+    }
+    PureRpcErrorCode code = _rpc_code(error);
+    pcv_audit_log(actor, "vpc.subnet.confirm", subnet_id, "fail", code, 0, "vpc");
+    _send_error(server, connection, rpc_id, code,
+                error ? error->message : "subnet confirmation failed");
+}
+
+                                                                    
+                                                                                                     
+                                                                                                 
+
+                                                    
+static PureRpcErrorCode
+_pool_rpc_code(const GError *error)
+{
+    return (error && error->domain == PCV_RES_ERROR && error->code == PCV_RES_ERROR_INVALID)
+        ? PURE_RPC_ERR_INVALID_PARAMS : PURE_RPC_ERR_INTERNAL_ERROR;
+}
+
+                                                                                     
+                                                                                                
+                                                                                           
+                    
+static GPtrArray *
+_pool_cidrs_param(JsonObject *params, gchar **msg)
+{
+    JsonNode *node = params && json_object_has_member(params, "cidrs") ? json_object_get_member(params, "cidrs") : NULL;
+    if (!node || !JSON_NODE_HOLDS_ARRAY(node)) {
+        *msg = g_strdup("Missing required parameter: cidrs (array of strings)");
+        return NULL;
+    }
+    JsonArray *in = json_node_get_array(node);
+    GPtrArray *out = g_ptr_array_new_with_free_func(g_free);
+    for (guint i = 0; i < json_array_get_length(in) && !*msg; i++) {
+        JsonNode *item = json_array_get_element(in, i);
+        const gchar *cidr = item && JSON_NODE_HOLDS_VALUE(item) &&
+                            json_node_get_value_type(item) == G_TYPE_STRING ? json_node_get_string(item) : NULL;
+        const gchar *hit = NULL;
+        if (!pcv_res_pool_cidr_is_valid(cidr))
+            *msg = g_strdup_printf("cidrs[%u] must be a canonical private IPv4 network (RFC1918 or 100.64.0.0/10): %.64s",
+                                   i, cidr ? cidr : "(not a string)");
+        else if (pcv_vpc_mgmt_cidr_overlaps_any(cidr, out, &hit))
+            *msg = g_strdup_printf("cidrs must not repeat or overlap each other: %s, %s", hit, cidr);
+        else
+            g_ptr_array_add(out, g_strdup(cidr));
+    }
+    if (*msg)
+        g_clear_pointer(&out, g_ptr_array_unref);
+    return out;
+}
+
+                                                                                 
+                                                                                
+static JsonArray *
+_pool_warnings(const gchar *tenant, GPtrArray *cidrs)
+{
+    JsonArray *warnings = json_array_new();
+    JsonArray *all = pcv_res_pool_list_all();
+    for (guint i = 0; all && i < json_array_get_length(all); i++) {
+        JsonObject *entry = json_array_get_object_element(all, i);
+        const gchar *other = json_object_get_string_member_with_default(entry, "tenant", "");
+        JsonNode *cn = json_object_get_member(entry, "cidrs");
+        if (g_strcmp0(other, tenant) == 0 || !cn || !JSON_NODE_HOLDS_ARRAY(cn))
+            continue;
+        GPtrArray *set = g_ptr_array_new();                                   
+        for (guint j = 0; j < json_array_get_length(json_node_get_array(cn)); j++)
+            g_ptr_array_add(set, (gpointer)json_array_get_string_element(json_node_get_array(cn), j));
+        for (guint k = 0; k < cidrs->len; k++) {
+            const gchar *cidr = g_ptr_array_index(cidrs, k);
+            if (pcv_vpc_mgmt_cidr_overlaps_any(cidr, set, NULL)) {
+                g_autofree gchar *w = g_strdup_printf("overlaps pool of tenant %s: %s", other, cidr);
+                json_array_add_string_element(warnings, w);
+            }
+        }
+        g_ptr_array_unref(set);
+    }
+    if (all)
+        json_array_unref(all);
+    else
+        json_array_add_string_element(warnings, "other tenants' pools could not be read — overlap not checked");
+    GPtrArray *reserved = pcv_vpc_mgmt_reserved_set(NULL, NULL);
+    for (guint k = 0; reserved && k < cidrs->len; k++) {
+        const gchar *cidr = g_ptr_array_index(cidrs, k);
+        if (pcv_vpc_mgmt_cidr_overlaps_any(cidr, reserved, NULL)) {
+            g_autofree gchar *w = g_strdup_printf("overlaps reserved management range: %s", cidr);
+            json_array_add_string_element(warnings, w);
+        }
+    }
+    if (reserved)
+        g_ptr_array_free(reserved, TRUE);
+    else
+        json_array_add_string_element(warnings, "reserved management ranges could not be computed — overlap not checked");
+    return warnings;
+}
+
+                                                                                          
+                                                                                                
+                                                                                          
+                                                                                             
+                                                                                    
+void
+handle_vpc_pool_set(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                    GSocketConnection *connection)
+{
+    const gchar *tenant = _string_member(params, "tenant");
+    if (!pcv_res_name_is_valid(tenant)) {
+        _send_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                    "tenant must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        return;
+    }
+    const gchar *actor = pcv_rpc_completion_actor() ? pcv_rpc_completion_actor()
+                                                    : PCV_AUDIT_ACTOR_LOCAL;
+    g_autofree gchar *target = g_strdup_printf("pool:%s", tenant);
+    g_autofree gchar *msg = NULL;
+    g_autoptr(GError) error = NULL;
+    PureRpcErrorCode code = PURE_RPC_ERR_INVALID_PARAMS;
+    GPtrArray *cidrs = _pool_cidrs_param(params, &msg);
+    JsonObject *status = cidrs ? pcv_vpc_status(tenant, &error) : NULL;
+    JsonNode *sn = status ? json_object_get_member(status, "subnet_cidrs") : NULL;
+    if (cidrs && (!sn || !JSON_NODE_HOLDS_ARRAY(sn))) {                                              
+        code = status ? PURE_RPC_ERR_INTERNAL_ERROR : _rpc_code(error);
+        msg = g_strdup_printf("cannot read the tenant's subnets: %s", error ? error->message : "subnet_cidrs missing");
+    } else if (cidrs) {                                                                    
+        g_autofree gchar *outside = pcv_vpc_mgmt_pool_outside(cidrs, json_node_get_array(sn));
+        if (outside) {
+            code = PURE_RPC_ERR_CONFLICT;
+            msg = g_strdup_printf("pool change would leave subnets outside the pool: %s", outside);
+        }
+    }
+    if (status)
+        json_object_unref(status);
+    if (!msg && !pcv_res_pool_set(tenant, cidrs, &error)) {
+        code = _pool_rpc_code(error);
+        msg = g_strdup(error ? error->message : "vpc pool write failed");
+    }
+    if (msg) {
+        pcv_audit_log(actor, "vpc.pool.set", target, "fail", code, 0, "vpc");
+        _send_error(server, connection, rpc_id, code, msg);
+        if (cidrs)
+            g_ptr_array_unref(cidrs);
+        return;
+    }
+    pcv_audit_log(actor, "vpc.pool.set", target, "ok", 0, 0, "vpc");
+    GPtrArray *saved = pcv_res_pool_list(tenant);                                      
+    GPtrArray *shown = saved ? saved : cidrs;
+    JsonArray *arr = json_array_new();
+    for (guint i = 0; i < shown->len; i++)
+        json_array_add_string_element(arr, g_ptr_array_index(shown, i));
+    JsonObject *object = json_object_new();
+    json_object_set_string_member(object, "tenant", tenant);
+    json_object_set_array_member(object, "cidrs", arr);
+    json_object_set_array_member(object, "warnings", _pool_warnings(tenant, cidrs));
+    if (saved)
+        g_ptr_array_unref(saved);
+    g_ptr_array_unref(cidrs);
+    _send_object(server, connection, rpc_id, object);
+}
+
+                                                                                              
+                                                                                                      
+void
+handle_vpc_pool_list(JsonObject *params, const gchar *rpc_id, UdsServer *server,
+                     GSocketConnection *connection)
+{
+    JsonNode *tn = params && json_object_has_member(params, "tenant") ? json_object_get_member(params, "tenant") : NULL;
+    const gchar *tenant = (tn && !JSON_NODE_HOLDS_NULL(tn)) ? _string_member(params, "tenant") : NULL;
+    if (tn && !JSON_NODE_HOLDS_NULL(tn) && !pcv_res_name_is_valid(tenant)) {
+        _send_error(server, connection, rpc_id, PURE_RPC_ERR_INVALID_PARAMS,
+                    "tenant must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}");
+        return;
+    }
+    JsonArray *out = NULL;
+    if (tenant) {
+        GPtrArray *pool = pcv_res_pool_list(tenant);
+        if (pool) {
+            JsonArray *cidrs = json_array_new();
+            for (guint i = 0; i < pool->len; i++)
+                json_array_add_string_element(cidrs, g_ptr_array_index(pool, i));
+            JsonObject *entry = json_object_new();
+            json_object_set_string_member(entry, "tenant", tenant);
+            json_object_set_array_member(entry, "cidrs", cidrs);
+            out = json_array_new();
+            json_array_add_object_element(out, entry);
+            g_ptr_array_unref(pool);
+        }
+    } else {
+        out = pcv_res_pool_list_all();
+    }
+    if (!out) {
+        _send_error(server, connection, rpc_id, PURE_RPC_ERR_INTERNAL_ERROR,
+                    "vpc pool registry is unavailable");
+        return;
+    }
+    _send_array(server, connection, rpc_id, out);
 }

@@ -37,12 +37,18 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 DISPATCHER_REL = "src/api/dispatcher.c"
 HANDLER_REL = "src/modules/dispatcher/handler_container.c"
 OWNER_REL = "src/modules/lxc/lxc_owner.c"
 
-OWNER_SCOPE_METHODS = ("container.start", "container.stop", "container.clone")
+OWNER_SCOPE_METHODS = (
+    "container.start", "container.stop", "container.clone", "container.logs",
+    "container.memory.stats", "container.health.check",
+)
 GATE_FNS = (
     "_container_method_requires_owner_scope",
     "_lookup_container_owner",
@@ -140,25 +146,33 @@ def extract_fn_body(text: str, code: str, fn: str):
     return None
 
 
+def _resolve_fn(text: str, code: str, fn: str) -> str:
+
+    if extract_fn_body(text, code, fn) is not None:
+        return fn
+    return rpc_extract.split_renames(ROOT).get(fn, fn)
+
 def check_dispatcher(rel: str, text: str):
     code = strip_code(text)
     reasons = []
 
     for fn in GATE_FNS:
+        fn = _resolve_fn(text, code, fn)
         if extract_fn_body(text, code, fn) is None:
             reasons.append(f"게이트 함수 {fn} 정의 없음")
 
-    set_body = extract_fn_body(text, code, "_container_method_requires_owner_scope")
+    set_fn = _resolve_fn(text, code, "_container_method_requires_owner_scope")
+    set_body = extract_fn_body(text, code, set_fn)
     if set_body is None:
-        reasons.append("_container_method_requires_owner_scope 본문 부재 — owner-scope 세트 확인 불가")
+        reasons.append(f"{set_fn} 본문 부재 — owner-scope 세트 확인 불가")
     else:
         for meth in OWNER_SCOPE_METHODS:
             if f'"{meth}"' not in set_body:
                 reasons.append(f"owner-scope 세트에 {meth} 누락 — operator 교차테넌트 재노출")
 
                                              
-    for fn in ("_container_owner_scoped_method_allowed",
-               "_container_method_requires_owner_scope"):
+    for fn in (_resolve_fn(text, code, "_container_owner_scoped_method_allowed"),
+               set_fn):
         cnt = len(re.findall(r'\b' + re.escape(fn) + r'\b', code))
         if cnt < 2:
             reasons.append(f"{fn} 디스패치 배선 없음(참조 {cnt}회<2) — 게이트 미호출(우회)")
@@ -188,11 +202,12 @@ def check_substrate(rel: str, text: str):
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
-    disp = Path(argv[0]) if len(argv) >= 1 else ROOT / DISPATCHER_REL
     handler = Path(argv[1]) if len(argv) >= 2 else ROOT / HANDLER_REL
     owner = Path(argv[2]) if len(argv) >= 3 else ROOT / OWNER_REL
 
-    disp_ok, disp_r = check_dispatcher(DISPATCHER_REL, disp.read_text(errors="replace"))
+    disp_text = (Path(argv[0]).read_text(errors="replace") if len(argv) >= 1
+                 else rpc_extract.dispatcher_family_text(ROOT))
+    disp_ok, disp_r = check_dispatcher(DISPATCHER_REL, disp_text)
     stamp_ok, stamp_r = check_stamp(HANDLER_REL, handler.read_text(errors="replace"))
     sub_ok, sub_r = check_substrate(OWNER_REL, owner.read_text(errors="replace"))
 
@@ -209,7 +224,7 @@ def main(argv=None) -> int:
         for f in fails:
             print(f"  - {f}", file=sys.stderr)
         return 1
-    print("[PASS] container.start/stop/clone owner-scope 세트 + 게이트 배선 + create 스탬프 + 저장소 충족")
+    print("[PASS] container.start/stop/clone/logs/memory.stats/health.check owner-scope 세트 + 게이트 배선 + create 스탬프 + 저장소 충족")
     return 0
 
 

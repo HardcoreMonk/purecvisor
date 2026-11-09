@@ -101,4 +101,9 @@ void handle_vm_snapshot_delete_all(JsonObject *params, const gchar *rpc_id, UdsS
 
 G_END_DECLS
 
+                                                                                 
+                           
+void handle_snapshot_schedule_status(JsonObject *params, const gchar *rpc_id,
+                                              UdsServer *server, GSocketConnection *connection);
+
 #endif                                    

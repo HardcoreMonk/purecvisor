@@ -19,6 +19,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 CHAIN_TARGET = ROOT / "src/modules/audit/pcv_audit_chain.c"
 LIFECYCLE_TARGET = ROOT / "src/modules/audit/pcv_audit.c"
@@ -96,25 +99,35 @@ MESSAGES = {
 }
 
 
+def rest_text() -> str:
+
+    return rpc_extract.rest_family_text(ROOT)
+
 def failures(signals: dict[str, bool]) -> list[str]:
     return [message for key, message in MESSAGES.items() if not signals.get(key)]
 
 
 def main(argv: list[str]) -> int:
                                                          
-    targets = [CHAIN_TARGET, LIFECYCLE_TARGET, MAIN_TARGET,
-               REST_TARGET, TELEMETRY_TARGET]
+    targets: list[Path | None] = [CHAIN_TARGET, LIFECYCLE_TARGET, MAIN_TARGET,
+                                  None, TELEMETRY_TARGET]
     for index, value in enumerate(argv[1:]):
         if index >= len(targets):
             print("ERROR: override 대상은 최대 5개", file=sys.stderr)
             return 2
         targets[index] = Path(value)
-    missing = [str(path) for path in targets if not path.exists()]
+    missing = [str(path) for path in targets if path is not None and not path.exists()]
     if missing:
         print(f"ERROR: 대상 파일 미존재: {', '.join(missing)}", file=sys.stderr)
         return 2
+    try:
+        texts = [rest_text() if path is None else path.read_text(errors="replace")
+                 for path in targets]
+    except FileNotFoundError as error:
+        print(f"ERROR: rest 계열 파일 미존재: {error}", file=sys.stderr)
+        return 2
 
-    signals = analyze(*(path.read_text(errors="replace") for path in targets))
+    signals = analyze(*texts)
     failed = failures(signals)
     passed = sum(signals.values())
     print(f"[check-audit-hashchain] ADR-0034 계약 {passed}/{len(signals)}")

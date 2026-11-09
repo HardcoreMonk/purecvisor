@@ -17,9 +17,10 @@
                                                                                 
                                        
   
-                                                      
+                                                       
                                                                                  
                                                                                  
+                                                                                           
                                                                                    
                                                                                              
                                                                         
@@ -32,7 +33,7 @@
                                                           
                                                                    
   
-                                                          
+                                                           
                                                                  
                                                       
                                                    
@@ -73,6 +74,12 @@ void handle_security_event_list(JsonObject *params, const gchar *rpc_id,
                                   
 void handle_security_event_get(JsonObject *params, const gchar *rpc_id,
                                UdsServer *server, GSocketConnection *connection);
+                                                                                            
+                                                                                   
+                                                       
+                                                        
+void handle_security_event_close(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection);
                                                    
                                            
 void handle_security_action_pending(JsonObject *params, const gchar *rpc_id,

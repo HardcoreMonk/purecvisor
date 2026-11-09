@@ -31,8 +31,7 @@
                                                    
   
                                     
-                                                       
-                        
+                                                                       
   
                                                               
                                                               
@@ -42,13 +41,11 @@
                                                     
                                                                
                                            
-                                                   
-                                                                      
-                                                              
+                                                                                               
+                                                                             
                           
                                                                   
-                                          
-                                          
+                                                                             
                                                                     
                                                                         
                                 
@@ -60,9 +57,9 @@
                                                                            
                                                                     
                                                                       
-                                                               
-                                                                
-                                                               
+                                                                                                 
+                                                                                                 
+                                                                           
                                                                      
                                                                     
                                                                          
@@ -72,8 +69,6 @@
                                           
                                                                
                                                        
-  
-                           
    
 #include "api/drain.h"
 #include "self_healing.h"
@@ -82,21 +77,13 @@
 #include "self_healing_restart.h"                                                               
 #include <string.h>
 #include <stdio.h>
-#include <libvirt/libvirt.h>                                              
-#include <libvirt/virterror.h>                                        
 #include "modules/daemons/prometheus_exporter.h"
 #include "modules/daemons/ebpf_telemetry.h"
 #include "modules/ai/anomaly_detector.h"                                                          
 #include "modules/audit/pcv_audit.h"
-#include "modules/virt/virt_conn_pool.h"                                   
-#include "utils/pcv_worker_pool.h"                                   
+#include "modules/dispatcher/handler_vm_start.h"                                                 
 #include "utils/pcv_config.h"                                           
 #include "utils/pcv_log.h"
-
-                                                        
-                                                             
-                                                       
-extern virDomainPtr pure_virt_get_domain(virConnectPtr conn, const gchar *identifier);
 
   
                                                                                
@@ -186,7 +173,7 @@ static_assert(RATE_LIMIT_MAX >= 1);
   
                           
                                                               
-
+                                                              
                                               
    
 typedef struct {
@@ -202,7 +189,7 @@ typedef struct {
     gint     policy_dry_run;                                      
                                                                               
                                       
-    gboolean has_host_trigger;
+    gboolean has_host_trigger;                                                
     gint64   last_trigger_us;                                 
                                                                            
                                                                             
@@ -290,7 +277,7 @@ static struct {
                                                        
     gint64        action_times[RATE_LIMIT_MAX];                               
     gint          action_time_pos;                                   
-    gint          action_time_count;
+    gint          action_time_count;                                               
                         
     guint64       total_triggered;                      
     guint64       total_executed;                         
@@ -438,7 +425,7 @@ _add_policy(const gchar *name, const gchar *trigger_metric,
 {
     if (G.policy_count >= MAX_POLICIES) return;                              
     HealingPolicy *p = &G.policies[G.policy_count++];
-    memset(p, 0, sizeof(*p));
+    memset(p, 0, sizeof(*p));                                                      
     g_strlcpy(p->name, name, sizeof(p->name));
     g_strlcpy(p->trigger_metric, trigger_metric, sizeof(p->trigger_metric));
     p->trigger_zscore = trigger_zscore;
@@ -461,8 +448,8 @@ _add_policy(const gchar *name, const gchar *trigger_metric,
   
                                                      
                          
-                                           
-                      
+                                                           
+                                
   
                                        
    
@@ -472,10 +459,10 @@ _rate_check(void)
     gint64 now = g_get_monotonic_time();
     gint64 window = RATE_LIMIT_WINDOW * G_USEC_PER_SEC;                      
 
-
-
-
-
+                                                        
+                                                  
+                                                   
+                                                      
     gint recent = 0;
     for (gint i = 0; i < G.action_time_count; i++) {
         if (now - G.action_times[i] < window)
@@ -532,36 +519,37 @@ _record_healing_action(const gchar *action, const gchar *target,
     g_mutex_unlock(&g_healing_hist_mu);
 }
 
-                                                       
+                                                                   
 
    
                      
-                                                 
+                                                                        
   
-                                               
-                                                
-                                                        
+                                                       
+                                                               
   
-                                            
-                                                
-                                                   
+                                                                      
+                                                                               
+                                                                   
+                         
    
 typedef struct {
     gchar *policy_name;                            
     gchar *vm;                                         
     gchar *reason;                     
+    gint64 start_us;                                                   
 } RestartCtx;
 
    
                                                                
-                                                               
+                                         
                                                   
    
 static void
 _restart_ctx_free(gpointer data)
 {
     RestartCtx *c = data;
-    if (!c) return;                                           
+    if (!c) return;                         
     g_free(c->policy_name);
     g_free(c->vm);
     g_free(c->reason);
@@ -569,99 +557,34 @@ _restart_ctx_free(gpointer data)
 }
 
    
-                                                                    
-                                                              
-                                                      
-                                   
-   
-static int
-_sh_domain_create(gpointer dom)
-{
-    return virDomainCreate((virDomainPtr)dom);
-}
-
-   
-                                                 
+                                                                     
   
-                                              
-                                                      
-                                               
+                                                            
   
-         
-                                                 
-                                               
-                                                                        
-                                 
+                                                                               
+                                                                                        
   
        
-                                
-                                         
                                                                       
-                                                                      
-                                                     
-  
-                                                                     
-                                                      
-                                                            
-           
+                                                                  
+                                                          
+                                                              
    
 static void
-_vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *c)
+_healing_restart_finish(RestartCtx *ctx, const gchar *result, gint rb_feedback)
 {
-    (void)src; (void)c;
-    RestartCtx *ctx = task_data;
-    gint64 start_us = g_get_monotonic_time();
-    const gchar *result = "failed";
-                                  
                                                            
-                                                          
-                                                             
-    gint rb_feedback = 0;
-
-    virConnectPtr conn = virt_conn_pool_acquire();
-    if (!conn) {
-        PCV_LOG_WARN(HEALING_LOG_DOM,
-            "[restart] VM '%s': libvirt 커넥션 획득 실패 — 재시작 중단", ctx->vm);
-    } else {
-        virDomainPtr dom = pure_virt_get_domain(conn, ctx->vm);
-        if (!dom) {
-            PCV_LOG_WARN(HEALING_LOG_DOM,
-                "[restart] VM '%s' 조회 실패 (UUID/이름 불일치) — 재시작 중단", ctx->vm);
-        } else {
-                                                                               
-            result = pcv_healing_restart_decide(virDomainIsActive(dom),
-                                                _sh_domain_create, dom, &rb_feedback);
-            if (g_strcmp0(result, "skipped") == 0) {
-                                                                        
-                                                           
-                PCV_LOG_INFO(HEALING_LOG_DOM,
-                    "[restart] VM '%s' 이미 실행 중 — running-guard skip", ctx->vm);
-            } else if (g_strcmp0(result, "success") == 0) {
-                PCV_LOG_WARN(HEALING_LOG_DOM,
-                    "[restart] VM '%s' 재시작 성공 (policy=%s)", ctx->vm, ctx->policy_name);
-            } else {
-                virErrorPtr err = virGetLastError();
-                PCV_LOG_WARN(HEALING_LOG_DOM,
-                    "[restart] VM '%s' 재시작 실패: %s", ctx->vm,
-                    (err && err->message) ? err->message : "(unknown)");
-            }
-        }
-        if (dom) virDomainFree(dom);
-        virt_conn_pool_release(conn);
-    }
-
-                                                              
-                                                        
+                                                    
                                                     
                                 
     if (rb_feedback > 0)      rb_record(ctx->vm, TRUE);
     else if (rb_feedback < 0) rb_record(ctx->vm, FALSE);
     else                      rb_release_probe(ctx->vm);                                 
 
-    gint64 dur_ms = (g_get_monotonic_time() - start_us) / 1000;
+    gint64 dur_ms = (g_get_monotonic_time() - ctx->start_us) / 1000;
 
                                                                                        
-                                                         
+                                                       
                                                       
     if (g_strcmp0(result, "success") == 0) {
         g_mutex_lock(&G.mu);
@@ -691,14 +614,83 @@ _vm_restart_worker(GTask *task, gpointer src, gpointer task_data, GCancellable *
     pcv_audit_log("ai-ops", "healing_action", ctx->policy_name, detail, 0, 0, "local");
     _record_healing_action("restart", ctx->vm, ctx->reason, result, dur_ms);
 
-    g_task_return_boolean(task, TRUE);
+    _restart_ctx_free(ctx);
 }
 
    
-                                                              
-                                                        
+                                                                      
+  
+                                                           
+  
+                                                                 
+                                                                       
+   
+static void
+_healing_restart_done(const gchar *vm_id, gboolean ok, const GError *error, gpointer user_data)
+{
+    (void)vm_id;
+    RestartCtx *ctx = user_data;
+    gint fb = 0;
+    const gchar *result = pcv_healing_restart_outcome(PCV_VM_START_SUBMITTED, ok, error, &fb);
+    if (ok)
+        PCV_LOG_WARN(HEALING_LOG_DOM, "[restart] VM '%s' 재시작 성공 (policy=%s)", ctx->vm, ctx->policy_name);
+    else
+        PCV_LOG_WARN(HEALING_LOG_DOM, "[restart] VM '%s' 재시작 실패: %s", ctx->vm,
+                     error ? error->message : "(unknown)");
+    _healing_restart_finish(ctx, result, fb);
+}
+
+   
+                                                                                        
+  
+                                                      
                                                     
-                                     
+  
+                                                                
+                                                                                            
+                                                       
+                                                                                
+                                                                          
+                                                
+                                       
+   
+static gboolean
+_healing_restart_on_main(gpointer data)
+{
+    RestartCtx *ctx = data;
+    if (pcv_drain_is_terminating()) {
+        PCV_LOG_INFO(HEALING_LOG_DOM, "[restart] VM '%s': 데몬 종료 중 — 재시작 생략", ctx->vm);
+        _healing_restart_finish(ctx, "skipped", 0);
+        return G_SOURCE_REMOVE;
+    }
+    PcvVmStartRequest req = { .vm_id = ctx->vm, .numa_node = 0, .vcpu_count = 0, .bridge_name = NULL,
+                              .origin = "self-healing", .skip_if_active = TRUE, .actor = PCV_AUDIT_ACTOR_SYSTEM };
+    gchar *err = NULL;
+    PcvVmStartSubmit r = pcv_vm_start_submit(&req, _healing_restart_done, ctx, &err);
+    if (r != PCV_VM_START_SUBMITTED) {
+        gint fb = 0;
+        const gchar *result = pcv_healing_restart_outcome(r, FALSE, NULL, &fb);
+        if (r == PCV_VM_START_ALREADY_ACTIVE)
+            PCV_LOG_INFO(HEALING_LOG_DOM, "[restart] VM '%s' 이미 실행 중 — running-guard skip", ctx->vm);
+        else
+            PCV_LOG_WARN(HEALING_LOG_DOM, "[restart] VM '%s' 재시작 접수 거절: %s", ctx->vm,
+                         err ? err : "(unknown)");
+        _healing_restart_finish(ctx, result, fb);
+    }
+    g_free(err);
+    return G_SOURCE_REMOVE;
+}
+
+   
+                                                                                
+  
+                                                         
+                                   
+  
+                                                                              
+                                              
+                                                                   
+                                            
    
 static void
 _dispatch_vm_restart(const gchar *policy_name, const gchar *vm, const gchar *reason)
@@ -707,11 +699,8 @@ _dispatch_vm_restart(const gchar *policy_name, const gchar *vm, const gchar *rea
     ctx->policy_name = g_strdup(policy_name);
     ctx->vm          = g_strdup(vm);
     ctx->reason      = g_strdup(reason);
-
-    GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
-    g_task_set_task_data(task, ctx, _restart_ctx_free);
-    pcv_worker_pool_push(task, _vm_restart_worker);
-    g_object_unref(task);                                                    
+    ctx->start_us    = g_get_monotonic_time();
+    g_idle_add(_healing_restart_on_main, ctx);
 }
 
                                                                 
@@ -728,7 +717,7 @@ _dispatch_vm_restart(const gchar *policy_name, const gchar *vm, const gchar *rea
                                                         
                                                                     
                                                                         
-                                                                 
+                                                                              
                                                             
   
                                    
@@ -785,10 +774,11 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
         return;
     }
 
-                                                               
-                                                                   
-                                                           
-                                                     
+                                                                           
+                                                                            
+                                                                           
+                                                       
+                              
     if (restart_with_target) {
                                                              
                                                           
@@ -826,8 +816,8 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
         G.total_triggered++;
         _rate_record();
                                                        
-                                                              
-                                          
+                                                                                    
+                                                 
         p->cooldown_sec = p->base_cooldown_sec;
         p->consecutive_failures = 0;
         return;
@@ -880,8 +870,8 @@ _execute_action(HealingPolicy *p, const gchar *reason, const gchar *target_vm)
         pcv_ws_broadcast("healing", payload);
     }
 
-    _rate_record();
-
+                                                                             
+    if (g_strcmp0(p->action, "alert_only") != 0) _rate_record();
                                              
                                                      
     p->cooldown_sec = p->base_cooldown_sec;
@@ -1122,10 +1112,10 @@ _try_policy(HealingPolicy *p, const gchar *metric, gdouble value,
     gint64 cooldown_us = (gint64)p->cooldown_sec * G_USEC_PER_SEC;
     gboolean per_target = (target_vm && *target_vm);
 
-
-
-
-
+                                                    
+                                                            
+                                                   
+                                                  
     if (per_target) {
                                                          
         if (_target_cooldown_slot(p->name, target_vm, now, FALSE) != NULL)
@@ -1201,8 +1191,8 @@ pcv_healing_init(void)
     G.dry_run = (g_ascii_strcasecmp(mode, "active") != 0);
 
                                       
-                                                                  
-                                                   
+                                                                           
+                                                                      
                                                                  
     rb_init();
     gint rb_threshold = pcv_config_get_int("ai", "restart_breaker_threshold",
@@ -1497,35 +1487,40 @@ pcv_healing_on_prediction(gdouble cpu_pred, gdouble mem_pred,
   
                                                           
   
-                                      
-                                                     
-                                          
+                                                                      
+                                                                                  
   
-                                                    
+                                                                                 
    
 gchar *
 pcv_healing_get_pending_json(void)
 {
     g_mutex_lock(&G.mu);
 
-    GString *buf = g_string_new("[");
+    JsonArray *arr = json_array_new();
                                                   
                                                         
     for (gint i = 0; i < G.pending_count; i++) {
         gint idx = (G.pending_pos - G.pending_count + i + MAX_PENDING) % MAX_PENDING;
         PendingAction *pa = &G.pending[idx];
         if (pa->resolved) continue;                              
-        if (buf->len > 1) g_string_append_c(buf, ',');
-        g_string_append_printf(buf,
-            "{\"id\":%d,\"policy\":\"%s\",\"action\":\"%s\","
-            "\"reason\":\"%s\",\"ts\":%ld}",
-            pa->id, pa->policy_name, pa->action, pa->reason,
-            (long)(pa->created_us / G_USEC_PER_SEC));
+        const gchar *const texts[][2] = {{"policy", pa->policy_name}, {"action", pa->action}, {"reason", pa->reason}};
+        JsonObject *o = json_object_new();
+        json_object_set_int_member(o, "id", pa->id);
+        for (guint t = 0; t < G_N_ELEMENTS(texts); t++) {                                    
+            g_autofree gchar *valid = g_utf8_make_valid(texts[t][1], -1);
+            json_object_set_string_member(o, texts[t][0], valid);
+        }
+        json_object_set_int_member(o, "ts", pa->created_us / G_USEC_PER_SEC);
+        json_array_add_object_element(arr, o);
     }
-    g_string_append_c(buf, ']');
 
     g_mutex_unlock(&G.mu);
-    return g_string_free(buf, FALSE);
+    JsonNode *root = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(root, arr);
+    gchar *json = json_to_string(root, FALSE);
+    json_node_unref(root);
+    return json;
 }
 
    

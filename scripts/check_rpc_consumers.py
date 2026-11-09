@@ -37,6 +37,7 @@ import sys
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
 from rpc_extract import (
     ROUTE_RE, SPECIAL_RE, CLI_RE, SECREQ_RE, FE_RE_A, FE_RE_B,
     extract_rest_methods, extract_fe_helper, extract_grpc_methods,
@@ -45,24 +46,24 @@ from rpc_extract import (
 )
 
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
-CLI_C = REPO_ROOT / "src" / "cli" / "purecvisorctl.c"
+CLI_DIR = REPO_ROOT / "src" / "cli"
+CLI_FILES = sorted(CLI_DIR.glob("*.c"))
 UI_DIR = REPO_ROOT / "ui"
-REST_C = REPO_ROOT / "src" / "api" / "rest_server.c"
 GRPC_C = REPO_ROOT / "src" / "api" / "grpc_server.c"
 TESTS_DIR = REPO_ROOT / "tests"
 ORPHAN_BASELINE = REPO_ROOT / "contracts" / "rpc_orphan_baseline.json"
 
 
 def main() -> int:
-    if not DISPATCHER_C.exists():
-        print(f"ERROR: {DISPATCHER_C} 미존재", file=sys.stderr)
-        return 2
-
-    disp = read(DISPATCHER_C)
+    disp = read(rpc_extract.dispatcher_route_file(REPO_ROOT))
     registered = set(ROUTE_RE.findall(disp)) | set(SPECIAL_RE.findall(disp))
     if not registered:
         print("ERROR: 등록 route 0건 — dispatcher.c 파싱 실패", file=sys.stderr)
+        return 2
+
+    if not CLI_FILES:
+
+        print(f"ERROR: CLI 소스 0건 — {CLI_DIR}/*.c 를 찾지 못함", file=sys.stderr)
         return 2
 
     consumers: dict[str, set[str]] = {}
@@ -71,8 +72,10 @@ def main() -> int:
         for m in methods:
             consumers.setdefault(m, set()).add(label)
 
-    add(CLI_RE.findall(strip_comments(read(CLI_C))), "cli")
-    add(SECREQ_RE.findall(strip_comments(read(CLI_C))), "cli")                           
+    for cli_c in CLI_FILES:
+        cli_text = strip_comments(read(cli_c))
+        add(CLI_RE.findall(cli_text), "cli")
+        add(SECREQ_RE.findall(cli_text), "cli")
                                                                        
                                 
     js_files = [p for p in (list(UI_DIR.glob("*.js"))
@@ -84,7 +87,7 @@ def main() -> int:
         add((m for m in methods if "." in m), f"fe:{js.name}")
 
                                                                
-    add(extract_rest_methods(read(REST_C)), "rest")
+    add(extract_rest_methods(rpc_extract.rest_family_text(REPO_ROOT)), "rest")
                                                
     add(extract_grpc_methods(read(GRPC_C), registered), "grpc")
                                                          

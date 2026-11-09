@@ -58,18 +58,6 @@
                                             
                                            
   
-               
-                                                                               
-                                                                                 
-                                                               
-                                                                               
-                                                              
-  
-                  
-                                                         
-                                                           
-                                                            
-  
          
                                                    
                                                    
@@ -93,9 +81,6 @@
                                                               
                                                        
                                                              
-  
-                                                  
-                                                            
    
 
 #include "pcv_validate.h"
@@ -128,10 +113,6 @@
                 
                                                 
                                      
-  
-        
-                                            
-                                             
   
                                 
                                           
@@ -203,21 +184,38 @@ is_ipv4_literal(const gchar *host)
                                  
   
                                                
-                                   
-  
-          
-                                              
-                                                    
-                
-      
-  
-               
-                                         
-                                          
-                                    
+                                                            
    
 gboolean pcv_validate_vm_name(const gchar *name) {
     return is_safe_token(name, PCV_MAX_VM_NAME);
+}
+
+                                                                                                              
+gboolean pcv_validate_is_uuid_like(const gchar *s) {
+    if (!s)
+        return FALSE;
+    while (g_ascii_isspace(*s))
+        s++;
+    for (gint pair = 0; pair < 16; pair++) {
+        while (*s == '-' || *s == ' ')
+            s++;
+        if (!g_ascii_isxdigit(s[0]) || !g_ascii_isxdigit(s[1]))
+            return FALSE;
+        s += 2;
+    }
+    while (g_ascii_isspace(*s))
+        s++;
+    return *s == '\0';
+}
+
+                                                                                  
+gboolean pcv_validate_new_vm_name(const gchar *name) {
+    return pcv_validate_vm_name(name) && !pcv_validate_is_uuid_like(name);
+}
+
+                                                                                             
+gboolean pcv_validate_new_container_name(const gchar *name) {
+    return pcv_validate_vm_name(name) && name[0] != '-';
 }
 
    
@@ -427,7 +425,7 @@ gboolean pcv_validate_iso_path(const gchar *path) {
                      
   
                   
-                                                                           
+                                                                          
                                                         
                                                           
                                                
@@ -1044,10 +1042,10 @@ gboolean pcv_validate_network_create_params(const gchar  *bridge_name,
         return FALSE;
     }
 
-
-
-
-
+                                                                   
+                                                                
+                                                        
+                                                        
     if (g_strcmp0(bridge_name, "host-baseline") == 0) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
             "Invalid bridge_name '%s': reserved for the host network baseline resource",
@@ -1055,7 +1053,7 @@ gboolean pcv_validate_network_create_params(const gchar  *bridge_name,
         return FALSE;
     }
 
-
+                                                           
     if (mode && g_strcmp0(mode,"nat") != 0 && g_strcmp0(mode,"isolated") != 0
              && g_strcmp0(mode,"routed") != 0 && g_strcmp0(mode,"bridge") != 0) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,

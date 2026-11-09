@@ -28,7 +28,13 @@ set -uo pipefail
 
 SCRIPT_DIR="$(cd "$(dirname "$0")" && pwd)"
 PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
-REST_SERVER="$PROJECT_ROOT/src/api/rest_server.c"
+                           
+                                                                  
+mapfile -t REST_FILES < <(cd "$PROJECT_ROOT" && python3 -c 'import sys; sys.path.insert(0, "scripts"); import rpc_extract; print("\n".join(str(p) for p in rpc_extract.rest_family()))') || true
+if [ "${#REST_FILES[@]}" -eq 0 ]; then
+    echo "ERROR: rest 계열 파일 목록을 얻지 못했다(rpc_extract.rest_family)" >&2
+    exit 2
+fi
 DISPATCHER="$PROJECT_ROOT/src/api/dispatcher.c"
 
 CI_MODE=false
@@ -58,9 +64,13 @@ echo -e "${CYAN}[1/4] REST → Dispatcher 정합성 검증${NC}"
 echo "  REST 서버가 호출하는 모든 RPC 메서드가 디스패처에 등록되어 있는지 확인"
 echo ""
 
-                        
-                                                                     
-REST_METHODS=$(grep -oP '_build_rpc(_name)?\("\K[^"]+' "$REST_SERVER" | sort -u)
+                                    
+                                                                                     
+REST_METHODS=$(grep -ohP '\bpcv_rest_build_rpc(_name)?\("\K[^"]+' "${REST_FILES[@]}" | sort -u)
+if [ -z "$REST_METHODS" ]; then
+    echo "ERROR: rest 계열에서 pcv_rest_build_rpc 호출을 0건 찾았다 — 추출 경로·이름 변경?" >&2
+    exit 2
+fi
 
                             
 DISP_METHODS=$(grep -oP 'g_hash_table_insert\(g_rpc_routes,\s*"\K[^"]+' "$DISPATCHER" | sort -u)

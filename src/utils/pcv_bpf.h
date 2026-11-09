@@ -203,6 +203,12 @@ void pcv_bpf_consumer_start(void);
                                                             
 void pcv_bpf_consumer_stop(void);
 
+                                                                                         
+                                                                
+                                                              
+                                                                
+guint64 pcv_bpf_lsm_foreign_fs_total(void);
+
                                                        
                                               
                                                                       
@@ -215,6 +221,7 @@ void pcv_bpf_consumer_stop(void);
                                                                                
                                                                         
                                                                         
+                                                                                       
   
                                                     
                                                          

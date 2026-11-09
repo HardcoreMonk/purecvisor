@@ -10,6 +10,8 @@ import configparser
 import json
 import os
 import pathlib
+import re
+import secrets
 import shutil
 import stat
 import subprocess
@@ -18,17 +20,22 @@ import tempfile
 import time
 
 
+for _sudo_key in ("SUDO_UID", "SUDO_GID", "SUDO_USER", "SUDO_COMMAND"):
+    os.environ.pop(_sudo_key, None)
+
 INSTALLER = pathlib.Path(sys.argv[1]).resolve()
 WAIT_HELPER = pathlib.Path(sys.argv[2]).resolve()
 
 
-def run(root: pathlib.Path, *args: str, check: bool = True) -> subprocess.CompletedProcess[str]:
+def run(
+    root: pathlib.Path, *args: str, check: bool = True, installer: pathlib.Path | None = None
+) -> subprocess.CompletedProcess[str]:
     safe_helper = root / ".fixture-wait-for-local-ip"
     if not safe_helper.exists():
         safe_helper.write_bytes(WAIT_HELPER.read_bytes())
         safe_helper.chmod(0o700)
     return subprocess.run(
-        [str(INSTALLER), "--root", str(root), *args],
+        [str(installer or INSTALLER), "--root", str(root), *args],
         text=True,
         capture_output=True,
         check=check,
@@ -747,6 +754,337 @@ def daemon_reload_timeout_and_identity_seam() -> None:
         assert "424242:434343" in identity_log.read_text(encoding="ascii")
 
 
+SNIPPET = "etc/nginx/snippets/purecvisor-proxy-auth.conf"
+
+def proxy_auth_secret_contract() -> None:
+
+    with tempfile.TemporaryDirectory(prefix="pcv-nginx-proxyauth.") as directory:
+        root = pathlib.Path(directory)
+        seed(root)
+        before = (root / "etc/purecvisor/daemon.conf").read_bytes()
+        first = install_and_id(root)
+        snippet = root / SNIPPET
+        assert_regular(snippet, 0o600)
+        body = snippet.read_text(encoding="utf-8")
+        match = re.search(r'^proxy_set_header X-PCV-Proxy-Auth "([0-9a-f]{64})";$', body, re.M)
+        assert match, body
+        secret = match.group(1)
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(root / "etc/purecvisor/daemon.conf")
+        assert parser["server"]["proxy_auth_secret"] == secret
+        result = run(root, "--commit", first)
+        assert secret not in result.stdout + result.stderr
+        second = install_and_id(root)
+        assert secret in snippet.read_text(encoding="utf-8")
+        parser = configparser.ConfigParser(interpolation=None)
+        parser.read(root / "etc/purecvisor/daemon.conf")
+        assert parser["server"]["proxy_auth_secret"] == secret
+        rollback_and_finalize(root, second)
+        assert secret in snippet.read_text(encoding="utf-8")
+        assert (root / "etc/purecvisor/daemon.conf").read_bytes() != before
+    with tempfile.TemporaryDirectory(prefix="pcv-nginx-proxyauth-rb.") as directory:
+        root = pathlib.Path(directory)
+        seed(root)
+        before = (root / "etc/purecvisor/daemon.conf").read_bytes()
+        deployment_id = install_and_id(root)
+        run(root, "--rollback", deployment_id)
+        assert (root / "etc/purecvisor/daemon.conf").read_bytes() == before
+        assert not (root / SNIPPET).exists()
+        run(root, "--finalize-rollback", deployment_id)
+    for bad in ("ENC2:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=", 'x' * 32 + '"; return 444; #', "short-secret"):
+        with tempfile.TemporaryDirectory(prefix="pcv-nginx-proxyauth-bad.") as directory:
+            root = pathlib.Path(directory)
+            seed(root)
+            conf = root / "etc/purecvisor/daemon.conf"
+            conf.write_text(conf.read_text(encoding="utf-8") + f"proxy_auth_secret={bad}\n", encoding="utf-8")
+            before = conf.read_bytes()
+            result = run(root, "--nginx-bind-ip", "10.168.3.73", check=False)
+            assert result.returncode == 1, result
+            assert "proxy_auth_secret" in result.stderr, result.stderr
+            assert bad not in result.stderr
+            assert conf.read_bytes() == before
+            assert not (root / SNIPPET).exists()
+    proxy_auth_secret_daemon_parity()
+    proxy_auth_secret_self_check_contract()
+
+GLIB_SPACE = " \t\n\f\r"
+
+SECRET_A = secrets.token_hex(32)
+SECRET_B = secrets.token_hex(32)
+CONF_HEAD = "[unknown]\nkeep=yes\n\n[tls]\nhttps_enabled=true\n\n"
+
+def gkeyfile_model(data: bytes) -> dict[tuple[str, str], str] | None:
+
+    values: dict[tuple[str, str], str] = {}
+    group = None
+    parts = data.decode("utf-8").split("\n")
+    for index, line in enumerate(parts):
+        if index < len(parts) - 1 and line.endswith("\r"):
+            line = line[:-1]
+        text = line.lstrip(GLIB_SPACE)
+        if not text or text.startswith("#"):
+            continue
+        if text.startswith("["):
+            header = re.fullmatch(r"\[([^\]]*)\][ \t]*", text)
+            if not header:
+                return None
+            name = header.group(1)
+            if not name or "[" in name or any(ord(ch) < 32 or ord(ch) == 127 for ch in name):
+                return None
+            group = name
+            continue
+        if "=" not in text or text.startswith("=") or group is None:
+            return None
+        key, raw = text.split("=", 1)
+        values[(group, key.rstrip(GLIB_SPACE))] = raw.lstrip(GLIB_SPACE)
+    return values
+
+def daemon_effective_secret(data: bytes) -> str | None:
+
+    model = gkeyfile_model(data)
+    return (model or {}).get(("server", "proxy_auth_secret")) or None
+
+def proxy_auth_secret_daemon_parity() -> None:
+
+    rejects = {
+
+        "daemon-and-server": f"[daemon]\nproxy_auth_secret={SECRET_A}\n\n"
+                             f"[server]\nbind_plaintext=all\nproxy_auth_secret={SECRET_B}\n",
+        "duplicate-key": f"[server]\nproxy_auth_secret={SECRET_A}\nproxy_auth_secret={SECRET_B}\n",
+        "duplicate-groups": f"[server]\nproxy_auth_secret={SECRET_A}\n\n[server]\nproxy_auth_secret={SECRET_B}\n",
+        "trailing-spaces": f"[server]\nproxy_auth_secret={SECRET_A}   \n",
+        "trailing-tab": f"[server]\nproxy_auth_secret={SECRET_A}\t\n",
+        "duplicate-groups-empty-first": f"[server]\nproxy_auth_secret=\n\n[server]\nproxy_auth_secret={SECRET_A}\n",
+        "form-feed": f"[server]\nproxy_auth_secret={SECRET_A}\x0c{SECRET_B}\n",
+
+        "daemon-only": f"[daemon]\nproxy_auth_secret={SECRET_A}\n\n[server]\nbind_plaintext=all\n",
+        "spaced-header": f"[ server ]\nproxy_auth_secret={SECRET_A}\n",
+        "duplicate-groups-empty-second": "[server]\nbind_plaintext=all\n\n[server]\nproxy_auth_secret=\n",
+        "padded-header": f"[server] \nproxy_auth_secret={SECRET_A}\n",
+
+        "inline-comment": f"[server]\nproxy_auth_secret={SECRET_A} # note\n",
+        "quoted": f'[server]\nproxy_auth_secret="{SECRET_A}"\n',
+        "enc2-daemon-valid-server": "[daemon]\nproxy_auth_secret=ENC2:QUJDREVGR0hJSktMTU5PUFFSU1RVVldYWVo=\n\n"
+                                    f"[server]\nproxy_auth_secret={SECRET_A}\n",
+
+        "cr-at-eof": f"[server]\nbind_plaintext=all\nproxy_auth_secret={SECRET_A}\r",
+
+        "line-without-equals": f"[server]\nbind_plaintext=all\ngarbage\nproxy_auth_secret={SECRET_A}\n",
+        "equals-first": "[server]\nbind_plaintext=all\n=value\n",
+        "bracket-line-not-group": "[server]\nbind_plaintext=all\n[foo] x\n",
+        "bracket-key": "[server]\nbind_plaintext=all\n[foo]=bar\n",
+        "invalid-group-name": "[server]\nbind_plaintext=all\n[a[b]\nx=1\n",
+        "empty-group-name": "[server]\nbind_plaintext=all\n[]\nx=1\n",
+        "vt-only-line": "[server]\nbind_plaintext=all\n\v\n",
+        "semicolon-comment": "[server]\nbind_plaintext=all\n; note\n",
+    }
+    unloadable = {"line-without-equals", "equals-first", "bracket-line-not-group", "bracket-key", "invalid-group-name",
+                  "empty-group-name", "vt-only-line", "semicolon-comment", "key-before-first-group", "utf8-bom"}
+    raw_rejects = {
+        "key-before-first-group": "stray=1\n" + CONF_HEAD + f"[server]\nproxy_auth_secret={SECRET_A}\n",
+        "utf8-bom": "\ufeff" + CONF_HEAD + f"[server]\nproxy_auth_secret={SECRET_A}\n",
+    }
+    for name, body in [*((n, CONF_HEAD + b) for n, b in rejects.items()), *raw_rejects.items()]:
+        with tempfile.TemporaryDirectory(prefix="pcv-nginx-proxyauth-amb.") as directory:
+            root = pathlib.Path(directory)
+            seed(root)
+            conf = root / "etc/purecvisor/daemon.conf"
+            conf.write_bytes(body.encode("utf-8"))
+            assert (gkeyfile_model(conf.read_bytes()) is None) == (name in unloadable), name
+            before = conf.read_bytes()
+            result = run(root, "--nginx-bind-ip", "10.168.3.73", check=False)
+            assert result.returncode == 1, (name, result)
+            assert "proxy_auth_secret" in result.stderr, (name, result.stderr)
+            output = result.stdout + result.stderr
+            assert SECRET_A not in output and SECRET_B not in output, name
+            assert conf.read_bytes() == before, name
+            assert not (root / SNIPPET).exists(), name
+    matches = {
+        "crlf": ((CONF_HEAD + f"[server]\nbind_plaintext=all\nproxy_auth_secret={SECRET_A}\n").replace("\n", "\r\n"),
+                 SECRET_A),
+        "spaces-around-equals": (f"[server]\nproxy_auth_secret =   {SECRET_A}\n", SECRET_A),
+        "empty-single-server": ("[server]\nbind_plaintext=all\nproxy_auth_secret=\n", None),
+        "no-key": ("[server]\nbind_plaintext=all\n", None),
+        "no-server-group": ("", None),
+
+        "no-eol-secret-last": (f"[server]\nproxy_auth_secret={SECRET_A}", SECRET_A),
+        "no-eol-other-key-last": ("[server]\nextra=1", None),
+
+        "vt-before-key": (f"[server]\nbind_plaintext=all\n\vproxy_auth_secret={SECRET_A}\n", None),
+        "vt-before-equals": (f"[server]\nbind_plaintext=all\nproxy_auth_secret\v={SECRET_A}\n", None),
+    }
+    for name, (body, expected) in matches.items():
+        with tempfile.TemporaryDirectory(prefix="pcv-nginx-proxyauth-match.") as directory:
+            root = pathlib.Path(directory)
+            seed(root)
+            conf = root / "etc/purecvisor/daemon.conf"
+            conf.write_bytes((body if name == "crlf" else CONF_HEAD + body).encode("utf-8"))
+            result = run(root, "--nginx-bind-ip", "10.168.3.73", check=False)
+            assert result.returncode == 0, (name, result)
+            snippet = (root / SNIPPET).read_text(encoding="utf-8")
+            found = re.search(r'^proxy_set_header X-PCV-Proxy-Auth "([^"]+)";$', snippet, re.M)
+            assert found, (name, snippet)
+            secret = found.group(1)
+            if expected is not None:
+                assert secret == expected, name
+            else:
+                assert re.fullmatch(r"[0-9a-f]{64}", secret), name
+            written = gkeyfile_model(conf.read_bytes())
+            assert written is not None, name
+            assert written.get(("server", "proxy_auth_secret")) == secret, name
+            assert written.get(("server", "bind_plaintext")) == "loopback", name
+            assert written.get(("tls", "https_enabled")) == "false", name
+            if name == "no-eol-other-key-last":
+                assert written.get(("server", "extra")) == "1", name
+            assert secret not in result.stdout + result.stderr, name
+
+def proxy_auth_secret_self_check_contract() -> None:
+
+    source = INSTALLER.read_text(encoding="utf-8")
+    target = 'lines = set_key(lines, "server", "proxy_auth_secret", secret_to_write)'
+    assert source.count(target) == 1, "installer secret write line changed — update this mutation"
+    with tempfile.TemporaryDirectory(prefix="pcv-nginx-selfcheck.") as directory:
+        base = pathlib.Path(directory)
+        mutant = base / "install-nginx-termination-mutant.sh"
+        mutant.write_text(source.replace(target, target.replace('"server"', '"server-elsewhere"')), encoding="utf-8")
+        mutant.chmod(0o700)
+        root = base / "root"
+        root.mkdir(mode=0o700)
+        seed(root)
+        conf = root / "etc/purecvisor/daemon.conf"
+        before = conf.read_bytes()
+        result = run(root, "--nginx-bind-ip", "10.168.3.73", check=False, installer=mutant)
+        assert result.returncode == 1, result
+        assert "internal check failed" in result.stderr, result.stderr
+        assert "PCV_NGINX_DEPLOYMENT_ID" not in result.stdout, result.stdout
+        assert not re.search(r"[0-9a-f]{64}", result.stdout + result.stderr)
+        assert conf.read_bytes() == before
+        assert not (root / SNIPPET).exists()
+
+def legacy_pending_manifest_rollback() -> None:
+
+    with tempfile.TemporaryDirectory(prefix="pcv-nginx-legacy.") as directory:
+        root = pathlib.Path(directory)
+        seed(root)
+        before = (root / "etc/purecvisor/daemon.conf").read_bytes()
+        deployment_id = install_and_id(root)
+        tx = transaction_state(root, "pending", deployment_id)
+        manifest_path = tx / "manifest.json"
+        manifest = json.loads(manifest_path.read_text(encoding="utf-8"))
+        manifest["targets"].pop("proxyauth")
+        manifest_path.write_text(json.dumps(manifest, sort_keys=True, separators=(",", ":")), encoding="utf-8")
+        manifest_path.chmod(0o600)
+        backup = tx / "proxyauth.bak"
+        if backup.exists():
+            backup.unlink()
+        run(root, "--rollback", deployment_id)
+        assert (root / "etc/purecvisor/daemon.conf").read_bytes() == before
+        run(root, "--finalize-rollback", deployment_id)
+
+def rollback_daemon_reload_contract() -> None:
+
+    for failing in (False, True):
+        with tempfile.TemporaryDirectory(prefix="pcv-nginx-rb-reload.") as directory:
+            root = pathlib.Path(directory)
+            seed(root)
+            before = (root / "etc/purecvisor/daemon.conf").read_bytes()
+            dropin = root / "etc/systemd/system/nginx.service.d/50-purecvisor-bind-ready.conf"
+            log = root / "reload.log"
+            hook = root / "reload-hook"
+
+            hook.write_text(
+                f'#!/bin/sh\nif [ -e "{dropin}" ]; then echo present >> "{log}"; '
+                f'else echo absent >> "{log}"; fi\n'
+                + f'[ ! -e "{root}/reload-fail" ]\n',
+                encoding="utf-8",
+            )
+            hook.chmod(0o700)
+            source = root / ".fixture-wait-for-local-ip"
+            source.write_bytes(WAIT_HELPER.read_bytes())
+            source.chmod(0o700)
+            env = {
+                **os.environ,
+                "PCV_WAIT_FOR_LOCAL_IP_SOURCE": str(source),
+                "PCV_NGINX_TEST_DAEMON_RELOAD_COMMAND": str(hook),
+            }
+            installed = subprocess.run(
+                [str(INSTALLER), "--root", str(root), "--nginx-bind-ip", "10.168.3.73"],
+                text=True, capture_output=True, check=True, env=env,
+            )
+            deployment_id = installed.stdout.strip().split("=", 1)[1]
+            assert log.read_text(encoding="ascii").splitlines() == ["present"]
+            if failing:
+                (root / "reload-fail").write_text("", encoding="ascii")
+            rolled_back = subprocess.run(
+                [str(INSTALLER), "--root", str(root), "--rollback", deployment_id],
+                text=True, capture_output=True, env=env,
+            )
+            calls = log.read_text(encoding="ascii").splitlines()
+            assert calls == ["present", "absent"], calls
+            assert (root / "etc/purecvisor/daemon.conf").read_bytes() == before
+            assert not dropin.exists()
+            assert transaction_state(root, "rolledback", deployment_id).is_dir()
+            if failing:
+                assert rolled_back.returncode == 1, rolled_back
+                assert "systemd daemon-reload failed after rollback" in rolled_back.stderr
+                assert "systemctl daemon-reload" in rolled_back.stderr
+            else:
+                assert rolled_back.returncode == 0, rolled_back
+            run(root, "--finalize-rollback", deployment_id)
+
+def pending_restore_daemon_reload_contract() -> None:
+
+    for failing in (False, True):
+        with tempfile.TemporaryDirectory(prefix="pcv-nginx-pending-reload.") as directory:
+            root = pathlib.Path(directory)
+            seed(root)
+            before = (root / "etc/purecvisor/daemon.conf").read_bytes()
+            dropin = root / "etc/systemd/system/nginx.service.d/50-purecvisor-bind-ready.conf"
+            log = root / "reload.log"
+            hook = root / "reload-hook"
+            hook.write_text(
+                f'#!/bin/sh\nif [ -e "{dropin}" ]; then echo present >> "{log}"; '
+                f'else echo absent >> "{log}"; fi\n'
+                + f'[ ! -e "{root}/reload-fail" ]\n',
+                encoding="utf-8",
+            )
+            hook.chmod(0o700)
+            source = root / ".fixture-wait-for-local-ip"
+            source.write_bytes(WAIT_HELPER.read_bytes())
+            source.chmod(0o700)
+            env = {
+                **os.environ,
+                "PCV_WAIT_FOR_LOCAL_IP_SOURCE": str(source),
+                "PCV_NGINX_TEST_DAEMON_RELOAD_COMMAND": str(hook),
+            }
+            command = [str(INSTALLER), "--root", str(root), "--nginx-bind-ip", "10.168.3.73"]
+            first = subprocess.run(command, text=True, capture_output=True, check=True, env=env)
+            first_id = first.stdout.strip().split("=", 1)[1]
+            assert transaction_state(root, "pending", first_id).is_dir()
+            assert log.read_text(encoding="ascii").splitlines() == ["present"]
+            if failing:
+                (root / "reload-fail").write_text("", encoding="ascii")
+            again = subprocess.run(command, text=True, capture_output=True, env=env)
+            assert again.returncode == 1, again
+            assert "pending nginx transaction rolled back" in again.stderr, again.stderr
+            assert "rollback recovery requires explicit finalization" in again.stderr, again.stderr
+            calls = log.read_text(encoding="ascii").splitlines()
+            assert calls == ["present", "absent"], calls
+            assert (root / "etc/purecvisor/daemon.conf").read_bytes() == before
+            assert not dropin.exists()
+            assert not (root / SNIPPET).exists()
+            assert not transaction_state(root, "pending", first_id).exists()
+            assert transaction_state(root, "rolledback", first_id).is_dir()
+            assert not re.search(r"PCV_NGINX_DEPLOYMENT_ID=", again.stdout)
+            if failing:
+                assert "systemd daemon-reload failed" in again.stderr, again.stderr
+                assert "systemctl daemon-reload" in again.stderr
+            else:
+                assert "daemon-reload failed" not in again.stderr, again.stderr
+            run(root, "--finalize-rollback", first_id)
+            assert not transaction_state(root, "rolledback", first_id).exists()
+            assert log.read_text(encoding="ascii").splitlines() == ["present", "absent"]
+
 def main() -> None:
     basic_install_and_rollback()
     rollback_action_conflict_safety()
@@ -759,6 +1097,10 @@ def main() -> None:
     transaction_state_crash_consistency()
     metadata_and_action_contract()
     daemon_reload_timeout_and_identity_seam()
+    proxy_auth_secret_contract()
+    legacy_pending_manifest_rollback()
+    rollback_daemon_reload_contract()
+    pending_restore_daemon_reload_contract()
     print("nginx-termination-security-ok")
 
 

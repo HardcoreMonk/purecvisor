@@ -100,7 +100,6 @@
                                                      
    
 #include "api/drain.h"
-#include "api/drain.h"
 #include "alert_engine.h"
 #include "alert_silence.h"
 #include "alert_dlq.h"
@@ -172,6 +171,9 @@ constexpr int ALERT_CHECK_SEC = 5;
                                                   
                                                           
 constexpr int ALERT_HISTORY_MAX = 1000;
+
+                                                                  
+constexpr int ALERT_TRANSITION_MAX = 2048;
 
                                                       
                                                         
@@ -250,7 +252,24 @@ typedef struct {
     gboolean   crit_fired;                                           
     gint64     last_warn_fired_at;                                                 
     gint64     last_crit_fired_at;                                                 
+    AlertLevel active_level;                                                 
+    gint64     active_alarm_id;                                            
+    gint64     active_opened_at;                                              
+    gint64     active_last_transition_at;                               
+    gdouble    active_value;                             
 } MetricWatch;
+
+                                                                     
+typedef struct {
+    gint64 transition_id;
+    gint64 alarm_id;
+    gchar metric[16];
+    AlertLevel from_level;
+    AlertLevel to_level;
+    gint64 happened_at;
+    gdouble value;
+    gchar reason_code[48];
+} AlertTransition;
 
    
                     
@@ -418,6 +437,12 @@ static struct {
                                                                 
     gint           hist_idx;                                            
                                                                 
+    AlertTransition transitions[ALERT_TRANSITION_MAX];                           
+    gint           transition_count;
+    gint           transition_idx;
+    gint64         next_transition_id;
+    gint64         next_active_alarm_id;
+    gint64         active_observed_at;
     gint64         config_revision;                                        
     gboolean       daemon_config_valid;                                 
     gchar          daemon_config_error[128];                              
@@ -461,6 +486,90 @@ _engine_is_initialized(void)
     initialized = G.initialized;
     g_mutex_unlock(&G.lifecycle_mu);
     return initialized;
+}
+
+static const gchar *
+_active_level_name(AlertLevel level)
+{
+    if (level == ALERT_WARN) return "warning";
+    if (level == ALERT_CRIT) return "critical";
+    return "ok";
+}
+
+static const gchar *
+_metric_contract_id(const gchar *metric)
+{
+    if (g_strcmp0(metric, "CPU") == 0) return "host.cpu.utilization";
+    if (g_strcmp0(metric, "Memory") == 0) return "host.memory.utilization";
+    if (g_strcmp0(metric, "Disk") == 0) return "host.disk.utilization";
+    if (g_strcmp0(metric, "DataPool") == 0) return "host.data_pool.utilization";
+    return "host.metric.unknown";
+}
+
+  
+                                                                   
+                                                          
+                                                       
+                                                  
+   
+static void
+_set_active_level_locked(MetricWatch *watch,
+                         const gchar *metric,
+                         AlertLevel desired,
+                         gdouble value,
+                         const gchar *reason_code)
+{
+    const gint64 now = (gint64)time(NULL);
+    G.active_observed_at = now;
+    watch->active_value = value;
+    if (watch->active_level == desired) return;
+
+    const AlertLevel previous = watch->active_level;
+    if (previous == ALERT_NONE && desired != ALERT_NONE) {
+        watch->active_alarm_id = ++G.next_active_alarm_id;
+        watch->active_opened_at = now;
+    }
+    const gint64 episode_id = watch->active_alarm_id;
+    AlertTransition *transition = &G.transitions[G.transition_idx];
+    memset(transition, 0, sizeof(*transition));
+    transition->transition_id = ++G.next_transition_id;
+    transition->alarm_id = episode_id;
+    g_strlcpy(transition->metric, metric, sizeof(transition->metric));
+    transition->from_level = previous;
+    transition->to_level = desired;
+    transition->happened_at = now;
+    transition->value = value;
+    g_strlcpy(transition->reason_code,
+              reason_code ? reason_code : "threshold_state_changed",
+              sizeof(transition->reason_code));
+    G.transition_idx = (G.transition_idx + 1) % ALERT_TRANSITION_MAX;
+    if (G.transition_count < ALERT_TRANSITION_MAX) G.transition_count++;
+
+    watch->active_level = desired;
+    watch->active_last_transition_at = now;
+    if (desired == ALERT_NONE) {
+        watch->active_alarm_id = 0;
+        watch->active_opened_at = 0;
+    }
+}
+
+static void
+_update_active_level_locked(MetricWatch *watch,
+                            const gchar *metric,
+                            gdouble current_pct,
+                            gdouble warn_thresh)
+{
+    AlertLevel desired = ALERT_NONE;
+    if (watch->crit_fired) desired = ALERT_CRIT;
+    else if (watch->warn_fired) desired = ALERT_WARN;
+    else if (watch->active_level != ALERT_NONE && current_pct >= warn_thresh)
+        desired = watch->active_level;
+
+    const gchar *reason = desired == ALERT_NONE
+        ? "threshold_cleared"
+        : watch->active_level == ALERT_NONE
+            ? "threshold_sustained" : "severity_changed";
+    _set_active_level_locked(watch, metric, desired, current_pct, reason);
 }
 
    
@@ -1083,7 +1192,10 @@ static void
 _reset_metric_watch_state_locked(void)
 {
     MetricWatch *watches[] = {&G.cpu, &G.mem, &G.disk, &G.data_pool};
+    const gchar *names[] = {"CPU", "Memory", "Disk", "DataPool"};
     for (guint i = 0; i < G_N_ELEMENTS(watches); i++) {
+        _set_active_level_locked(watches[i], names[i], ALERT_NONE,
+                                 watches[i]->active_value, "policy_reset");
         watches[i]->warn_since = watches[i]->crit_since = 0;
         watches[i]->warn_fired = watches[i]->crit_fired = FALSE;
         watches[i]->last_warn_fired_at = watches[i]->last_crit_fired_at = 0;
@@ -1241,9 +1353,9 @@ _webhook_post_once(const gchar *url, const gchar *payload, const gchar *secret)
     if (!url || !url[0]) return FALSE;
 
                                                                 
+    g_autofree gchar *origin = pcv_url_redact_origin(url);                                                  
     if (!_webhook_url_valid(url)) {
-        PCV_LOG_WARN(ALERT_LOG_DOM,
-                     "Webhook URL rejected (invalid scheme): %.100s", url);
+        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook URL rejected (invalid scheme): %s", origin);
         return FALSE;
     }
 
@@ -1252,9 +1364,8 @@ _webhook_post_once(const gchar *url, const gchar *payload, const gchar *secret)
                                                       
     GError *ssrf_err = NULL;
     if (!pcv_url_target_allowed(url, &ssrf_err)) {
-        PCV_LOG_WARN(ALERT_LOG_DOM,
-                     "Webhook URL rejected (SSRF guard): %.100s — %s",
-                     url, ssrf_err ? ssrf_err->message : "blocked");
+        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook URL rejected (SSRF guard): %s — %s",
+                     origin, ssrf_err ? ssrf_err->message : "blocked");
         g_clear_error(&ssrf_err);
         return FALSE;
     }
@@ -1328,7 +1439,7 @@ _webhook_post_with_retry(const gchar *url, const gchar *payload,
                          const gchar *secret, gint max_retries)
 {
     if (!url || !url[0]) return FALSE;
-
+    g_autofree gchar *origin = pcv_url_redact_origin(url);                                      
                                                                      
     for (gint attempt = 0; attempt <= max_retries; attempt++) {
         if (attempt > 0) {
@@ -1336,8 +1447,8 @@ _webhook_post_with_retry(const gchar *url, const gchar *payload,
             g_usleep((guint64)delay_ms * 1000);                                     
         }
         if (_webhook_post_once(url, payload, secret)) return TRUE;                          
-        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook retry %d/%d failed for %.100s",
-                     attempt + 1, max_retries, url);
+        PCV_LOG_WARN(ALERT_LOG_DOM, "Webhook retry %d/%d failed for %s",
+                     attempt + 1, max_retries, origin);
     }
                                             
     pcv_alert_dlq_store(url, payload);
@@ -1765,6 +1876,7 @@ _eval_metric(MetricWatch *w, const gchar *name, gdouble current_pct,
         w->warn_since = 0;
         w->warn_fired = FALSE;
     }
+    _update_active_level_locked(w, name, current_pct, warn_thresh);
 }
 
                                                                    
@@ -2071,11 +2183,10 @@ _alert_thread(gpointer data)
     g_auto(AlertConfigSnapshot) startup_config = {0};
     _config_snapshot(&startup_config);
     gint64 next_sla_check = _mono_now() + SLA_CHECK_INTERVAL;
+    g_autofree gchar *startup_origin = pcv_url_redact_origin(startup_config.webhook_url);               
     PCV_LOG_INFO(ALERT_LOG_DOM, "Alert engine started (eval=%ds, webhook=%s, format=%s)",
                  startup_config.eval_period_sec,
-                 startup_config.webhook_url[0]
-                    ? startup_config.webhook_url : "(none)",
-                 startup_config.webhook_format);
+                 startup_origin[0] ? startup_origin : "(none)", startup_config.webhook_format);
     _config_snapshot_clear(&startup_config);
 
     for (;;) {
@@ -2741,6 +2852,25 @@ pcv_alert_engine_init(void)
     }
     g_mutex_unlock(&G.lifecycle_mu);
 
+                                                           
+                                                  
+    g_mutex_lock(&G.state_mu);
+    MetricWatch *watches[] = {&G.cpu, &G.mem, &G.disk, &G.data_pool};
+    for (guint i = 0; i < G_N_ELEMENTS(watches); i++) {
+        watches[i]->active_level = ALERT_NONE;
+        watches[i]->active_alarm_id = 0;
+        watches[i]->active_opened_at = 0;
+        watches[i]->active_last_transition_at = 0;
+        watches[i]->active_value = 0.0;
+    }
+    memset(G.transitions, 0, sizeof(G.transitions));
+    G.transition_count = 0;
+    G.transition_idx = 0;
+    G.next_transition_id = 0;
+    G.next_active_alarm_id = 0;
+    G.active_observed_at = 0;
+    g_mutex_unlock(&G.state_mu);
+
                                                             
                                                           
     pcv_alert_dlq_set_post_fn(_webhook_post);
@@ -2921,6 +3051,88 @@ pcv_alert_engine_get_history(void)
     }
     g_free(snapshot);
     return arr;
+}
+
+JsonArray *
+pcv_alert_engine_get_active_alarms(gint64 *observed_at)
+{
+    JsonArray *active = json_array_new();
+    _ensure_alert_locks_initialized();
+    g_mutex_lock(&G.state_mu);
+    const MetricWatch *watches[] = {&G.cpu, &G.mem, &G.disk, &G.data_pool};
+    const gchar *names[] = {"CPU", "Memory", "Disk", "DataPool"};
+    for (guint i = 0; i < G_N_ELEMENTS(watches); i++) {
+        const MetricWatch *watch = watches[i];
+        if (watch->active_level == ALERT_NONE) continue;
+        JsonObject *item = json_object_new();
+        gchar *alarm_id = g_strdup_printf("alarm:%" G_GINT64_FORMAT,
+                                          watch->active_alarm_id);
+        json_object_set_string_member(item, "alarm_id", alarm_id);
+        json_object_set_string_member(item, "metric_id",
+                                      _metric_contract_id(names[i]));
+        json_object_set_string_member(item, "condition",
+                                      _active_level_name(watch->active_level));
+        json_object_set_string_member(item, "priority",
+            watch->active_level == ALERT_CRIT ? "high" : "medium");
+        json_object_set_double_member(item, "value", watch->active_value);
+        json_object_set_int_member(item, "opened_at", watch->active_opened_at);
+        json_object_set_int_member(item, "last_transition_at",
+                                   watch->active_last_transition_at);
+        json_object_set_string_member(item, "acknowledgement", "not_available");
+        json_array_add_object_element(active, item);
+        g_free(alarm_id);
+    }
+    if (observed_at) *observed_at = G.active_observed_at;
+    g_mutex_unlock(&G.state_mu);
+    return active;
+}
+
+JsonArray *
+pcv_alert_engine_get_transitions(gint64 after_transition_id,
+                                 gint limit,
+                                 gboolean *truncated,
+                                 gint64 *observed_at)
+{
+    JsonArray *output = json_array_new();
+    const gint bounded_limit = CLAMP(limit > 0 ? limit : ALERT_TRANSITION_MAX,
+                                     1, ALERT_TRANSITION_MAX);
+    gboolean more = FALSE;
+    _ensure_alert_locks_initialized();
+    g_mutex_lock(&G.state_mu);
+    const gint start = G.transition_count < ALERT_TRANSITION_MAX
+        ? 0 : G.transition_idx;
+    gint emitted = 0;
+    for (gint i = 0; i < G.transition_count; i++) {
+        const gint index = (start + i) % ALERT_TRANSITION_MAX;
+        const AlertTransition *transition = &G.transitions[index];
+        if (transition->transition_id <= after_transition_id) continue;
+        if (emitted >= bounded_limit) {
+            more = TRUE;
+            break;
+        }
+        JsonObject *item = json_object_new();
+        gchar *alarm_id = g_strdup_printf("alarm:%" G_GINT64_FORMAT,
+                                          transition->alarm_id);
+        json_object_set_int_member(item, "transition_id",
+                                   transition->transition_id);
+        json_object_set_string_member(item, "alarm_id", alarm_id);
+        json_object_set_string_member(item, "metric_id",
+                                      _metric_contract_id(transition->metric));
+        json_object_set_string_member(item, "from_condition",
+                                      _active_level_name(transition->from_level));
+        json_object_set_string_member(item, "to_condition",
+                                      _active_level_name(transition->to_level));
+        json_object_set_int_member(item, "happened_at", transition->happened_at);
+        json_object_set_double_member(item, "value", transition->value);
+        json_object_set_string_member(item, "reason_code", transition->reason_code);
+        json_array_add_object_element(output, item);
+        emitted++;
+        g_free(alarm_id);
+    }
+    if (truncated) *truncated = more;
+    if (observed_at) *observed_at = G.active_observed_at;
+    g_mutex_unlock(&G.state_mu);
+    return output;
 }
 
    

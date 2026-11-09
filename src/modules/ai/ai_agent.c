@@ -79,6 +79,7 @@
 #include "api/drain.h"
 #include "ai_agent.h"
 #include "ai_provider.h"
+#include "modules/dispatcher/rpc_utils.h"
 #include <string.h>
 #include <stdio.h>
 #include <libsoup/soup.h>
@@ -1536,7 +1537,7 @@ pcv_agent_compare_async(const gchar *metrics_json, const gchar *anomaly_context)
                                                   
         G.month_calls++;
 
-        GTask *task = pcv_drain_task_new(NULL, NULL, _on_provider_done, ctx);
+        GTask *task = pcv_drain_task_new(NULL, NULL, _on_provider_done, ctx);                       
         g_task_set_task_data(task, qctx, _query_ctx_free);                                
         g_task_run_in_thread(task, _query_thread);                                       
         g_object_unref(task);                                                            
@@ -1605,42 +1606,40 @@ pcv_agent_get_config(void)
                                         
   
                                                
-                                                      
+                                                                
                                                            
   
                                     
-                                                   
+                                                                
   
-                                                                        
+                                                                                     
                            
    
 gboolean
 pcv_agent_set_config(JsonObject *params)
 {
-    if (!params) return FALSE;
-
                                                                                      
-    if (json_object_has_member(params, "providers")) {
+    if (pcv_rpc_params_is_object_array(params, "providers")) {
         JsonArray *arr = json_object_get_array_member(params, "providers");
         guint len = json_array_get_length(arr);
         for (guint i = 0; i < len; i++) {
             JsonObject *p = json_array_get_object_element(arr, i);
-            const gchar *name = json_object_get_string_member_with_default(p, "name", "");
+            const gchar *name = pcv_rpc_params_get_string(p, "name");                                           
             PcvAiProvider prov = PCV_AI_PROVIDER_COUNT;                         
             for (gint j = 0; j < PCV_AI_PROVIDER_COUNT; j++) {
-                if (g_ascii_strcasecmp(name, pcv_ai_provider_name(j)) == 0) {                             
+                if (name && g_ascii_strcasecmp(name, pcv_ai_provider_name(j)) == 0) {                             
                     prov = (PcvAiProvider)j;
                     break;
                 }
             }
             if (prov >= PCV_AI_PROVIDER_COUNT) continue;                        
 
-            const gchar *key = json_object_get_string_member_with_default(p, "api_key", NULL);
-            const gchar *model = json_object_get_string_member_with_default(p, "model", NULL);
-            const gchar *ep = json_object_get_string_member_with_default(p, "endpoint", NULL);
+            const gchar *key = pcv_rpc_params_get_string(p, "api_key");
+            const gchar *model = pcv_rpc_params_get_string(p, "model");
+            const gchar *ep = pcv_rpc_params_get_string(p, "endpoint");
 
-                                                       
-            if (key && strstr(key, "...")) key = NULL;                                   
+                                                              
+            if (pcv_ai_key_is_masked(key)) key = NULL;                                   
             if (key && *key == '\0') {                                              
                 g_mutex_lock(&G.mu);
                 G.providers[prov].api_key[0] = '\0';

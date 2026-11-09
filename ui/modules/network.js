@@ -34,10 +34,8 @@ window.PCV = window.PCV || {};
 var _netData = null;
 var _netRequest = 0, _netBaselineRequest = 0, _netGeneration = -1;
 var _netUnsub = null;
-var _netBaselineData = null;
-var _netBaselineError = null;
-var _netVpcStatusData = null;
-var _netVpcStatusError = null;
+var _netBaselineData = null, _netBaselineError = null;
+var _netVpcStatusData = null, _netVpcStatusError = null;
                                                                    
                                                   
 const NETWORK_MODE_SET_MODES = Object.freeze(['nat', 'isolated', 'routed']);
@@ -154,7 +152,10 @@ function _renderHostNetworkBaseline(networks) {
   var ovsBridges = ovs && Array.isArray(ovs.bridges) ? ovs.bridges : [];
   var backends = Array.isArray(vpcStatus.backends) ? vpcStatus.backends : [];
   var subnetCidrs = Array.isArray(vpcStatus.subnet_cidrs) ? vpcStatus.subnet_cidrs : [];
-  var partial = !baseline || !!baseline.partial || !!_netVpcStatusError;
+
+  var noTenant = String(_netVpcStatusError || '').indexOf('tenant가 필요합니다') !== -1, vpcError = noTenant ? null : _netVpcStatusError;
+  var noTenantText = _L('이 계정에 tenant가 없어 해당 없음', 'Not applicable: this account has no tenant');
+  var partial = !baseline || !!baseline.partial || !!vpcError;
   var status = !baseline ? HN.statusPill('crit', _L('조회 불가', 'Unavailable'))
     : partial ? HN.statusPill('warn', _L('부분 수집', 'Partial'))
     : HN.statusPill('ok', _L('현재 상태', 'Current'));
@@ -165,8 +166,8 @@ function _renderHostNetworkBaseline(networks) {
   var notices = [];
   if (_netBaselineError)
     notices.push(_L('호스트 interface·route 기준선을 읽지 못했습니다: ', 'Unable to load the host interface and route baseline: ') + _netBaselineError);
-  if (_netVpcStatusError)
-    notices.push(_L('Local VPC CIDR·backend 상태를 읽지 못했습니다: ', 'Unable to load Local VPC CIDRs and backend status: ') + _netVpcStatusError);
+  if (vpcError)
+    notices.push(_L('Local VPC CIDR·backend 상태를 읽지 못했습니다: ', 'Unable to load Local VPC CIDRs and backend status: ') + vpcError);
   if (baseline && Array.isArray(baseline.warnings))
     notices = notices.concat(baseline.warnings);
 
@@ -254,7 +255,7 @@ function _renderHostNetworkBaseline(networks) {
     _hostNetSummary(_L('기본 게이트웨이', 'Default gateway'), gatewayValue, gatewayNote),
     _hostNetSummary(_L('가상 스위칭', 'Virtual switching'), String((networks || []).length) + ' Linux · ' + ovsValue,
       !ovs ? '' : ovs.available ? _L('OVS DB 조회 가능', 'OVS database available') : (ovs.reason || _L('OVS DB 조회 불가', 'OVS database unavailable'))),
-    _hostNetSummary('Local VPC', String(Number(vpcStatus.vpc_count) || 0), _hostNetBackendNote(backends)));
+    _hostNetSummary('Local VPC', noTenant ? _L('해당 없음', 'N/A') : String(Number(vpcStatus.vpc_count) || 0), noTenant ? noTenantText : _hostNetBackendNote(backends)));
 
   return el('section', { class: 'hc hc-mb', style: 'min-width:0;max-width:100%;overflow:hidden', 'aria-labelledby': 'host-network-baseline-title', 'data-host-network-baseline': '' },
     header, notice, summary,
@@ -271,10 +272,10 @@ function _renderHostNetworkBaseline(networks) {
       switchRows, _L('Linux/OVS 가상 스위치 없음', 'No Linux or OVS virtual switches')),
     el('div', { style: 'height:10px' }),
     _hostNetTable('backends', ['Backend', _L('준비 상태', 'Readiness'), _L('현재 VPC', 'Current VPCs'), _L('추가 가능', 'Allocatable'), _L('근거', 'Reason')],
-      backendRows, _netVpcStatusError ? _L('VPC backend 상태 조회 불가', 'VPC backend status unavailable') : _L('VPC backend 정보 없음', 'No VPC backend data')),
+      backendRows, noTenant ? noTenantText : vpcError ? _L('VPC backend 상태 조회 불가', 'VPC backend status unavailable') : _L('VPC backend 정보 없음', 'No VPC backend data')),
     el('div', { style: 'height:10px' }),
     _hostNetTable('vpc-cidrs', ['Local VPC', 'Backend', 'CIDR', _L('상태', 'State')],
-      cidrRows, _netVpcStatusError ? _L('Local VPC CIDR 조회 불가', 'Local VPC CIDRs unavailable') : _L('현재 tenant에 Local VPC CIDR 없음', 'No Local VPC CIDRs for this tenant')));
+      cidrRows, noTenant ? noTenantText : vpcError ? _L('Local VPC CIDR 조회 불가', 'Local VPC CIDRs unavailable') : _L('현재 tenant에 Local VPC CIDR 없음', 'No Local VPC CIDRs for this tenant')));
 }
 
 async function retryHostNetworkBaseline() {

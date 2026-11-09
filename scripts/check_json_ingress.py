@@ -13,9 +13,12 @@
 import re, sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 INGRESS = ["src/api/ws_server.c", "src/api/uds_server.c", "src/api/grpc_server.c",
-           "src/api/dispatcher.c", "src/api/rest_server.c"]
+           "src/api/rest_server.c"]
 RAW_RE = re.compile(r'\bjson_parser_load_from_data\s*\(')
 WAIVER = "PCV_PARSE_TRUSTED"
 BASELINE_FILE = ROOT / "scripts" / "json_ingress_baseline.txt"
@@ -53,10 +56,17 @@ def count_violations(text: str) -> int:
     return viol
 
 
+def ingress_files() -> list:
+
+    rels = list(INGRESS)
+    rels += [p.relative_to(ROOT).as_posix() for p in rpc_extract.rest_family(ROOT)]
+    rels += [p.relative_to(ROOT).as_posix() for p in rpc_extract.dispatcher_family(ROOT)]
+    return list(dict.fromkeys(rels))
+
 def main() -> int:
     total = 0
     per_file = {}
-    for rel in INGRESS:
+    for rel in ingress_files():
         p = ROOT / rel
         if not p.exists():
             continue

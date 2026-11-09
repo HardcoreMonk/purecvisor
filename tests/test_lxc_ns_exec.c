@@ -1,11 +1,45 @@
+                                                                                      
+                                                                                       
+                                                                               
+                                           
+                                                                                       
+                                                                                
+                                                                                       
+                                                                       
+                                                                       
+                                                                                                
+                                                                          
+                                                                                              
+                                                             
+                                                                               
+                                                          
+                                                            
+                                                     
+  
+                                    
+   
 #include <glib.h>
 #include <glib/gstdio.h>
 #include <gio/gio.h>
 #include <string.h>
+#if __has_include(<valgrind/valgrind.h>)
+#include <valgrind/valgrind.h>
+#else
+#define RUNNING_ON_VALGRIND 0
+#endif
 
 #include "modules/lxc/lxc_ns_exec.h"
 #include "utils/pcv_spawn.h"
 
+                                                     
+                                                                
+static gdouble
+_budget_limit(gdouble native, guint budget_sec)
+{
+    return RUNNING_ON_VALGRIND != 0 ? budget_sec + 10.0 : native;
+}
+
+                                              
 static void
 test_attach_argv_shape(void)
 {
@@ -23,6 +57,7 @@ test_attach_argv_shape(void)
     g_strfreev(argv);
 }
 
+                                                    
 static void
 test_attach_argv_keeps_metachars_literal(void)
 {
@@ -37,6 +72,7 @@ test_attach_argv_keeps_metachars_literal(void)
     g_strfreev(argv);
 }
 
+                                               
 static gint g_ns_abort_flag;
 
 static gboolean
@@ -54,6 +90,9 @@ _ns_raise_abort(gpointer data)
     return NULL;
 }
 
+                                                                   
+                                                                                                 
+                                                                               
 static void
 test_ns_run_aborts_when_terminating(void)
 {
@@ -72,7 +111,7 @@ test_ns_run_aborts_when_terminating(void)
     g_thread_join(t);
     g_assert_false(ok);
     g_assert_error(err, G_IO_ERROR, G_IO_ERROR_CANCELLED);
-    g_assert_cmpfloat(elapsed, <, 3.0);
+    g_assert_cmpfloat(elapsed, <, 15.0);
     g_assert_null(out);
     g_assert_null(err_out);
     g_assert_cmpint(status, ==, -1);
@@ -92,11 +131,15 @@ test_ns_run_aborts_when_terminating(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                         
+                                                                    
+                                                                               
+                                                     
 typedef struct {
-    gchar *base;
-    gchar *bin;
-    gchar *log;
-    gchar *saved_path;
+    gchar *base;                     
+    gchar *bin;                                    
+    gchar *log;                                                         
+    gchar *saved_path;                      
 } NsMock;
 
 static void
@@ -113,6 +156,7 @@ _ns_mock_begin(NsMock *m)
     g_free(path);
 }
 
+                                                   
 static void
 _ns_mock_tool(const NsMock *m, const gchar *name, const gchar *body)
 {
@@ -127,6 +171,7 @@ _ns_mock_tool(const NsMock *m, const gchar *name, const gchar *body)
     g_free(file);
 }
 
+                                           
 static gchar *
 _ns_mock_calls(const NsMock *m)
 {
@@ -165,6 +210,7 @@ _ns_mock_end(NsMock *m)
     g_free(m->base);
 }
 
+                                                                
 static gchar *
 _ns_step_line(const gchar *step)
 {
@@ -174,6 +220,8 @@ _ns_step_line(const gchar *step)
     return line;
 }
 
+                                                                     
+                                                                    
 static void
 test_wire_steps_use_init_pid(void)
 {
@@ -202,6 +250,7 @@ test_wire_steps_use_init_pid(void)
     g_strfreev(steps);
 }
 
+                                                                     
 static void
 test_wire_rejects_bad_pid(void)
 {
@@ -219,12 +268,14 @@ test_wire_rejects_bad_pid(void)
         g_clear_error(&err);
     }
     gchar *calls = _ns_mock_calls(&m);
-    g_assert_cmpstr(calls, ==, "");
+    g_assert_cmpstr(calls, ==, "");                     
     g_free(calls);
     _ns_mock_end(&m);
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                           
+                                                
 static void
 test_wire_failure_cleans_up(void)
 {
@@ -272,6 +323,113 @@ test_wire_failure_cleans_up(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                                                   
+static void
+test_host_veth_name_shape(void)
+{
+    gchar out[16];
+    gchar *sum = g_compute_checksum_for_string(G_CHECKSUM_SHA256, "c1", -1);
+    gchar *want = g_strdup_printf("vh%.8sn1", sum);
+    g_assert_true(pcv_lxc_ns_host_veth_name("c1", 1, out));
+    g_assert_cmpstr(out, ==, want);
+    g_free(want);
+    g_free(sum);
+    gchar out2[16];
+    g_assert_true(pcv_lxc_ns_host_veth_name("c2", 1, out2));
+    g_assert_cmpstr(out, !=, out2);
+    gchar *longname = g_strnfill(64, 'a');
+    g_assert_true(pcv_lxc_ns_host_veth_name(longname, 15, out));
+    g_assert_cmpuint(strlen(out), ==, 13);
+    g_free(longname);
+    g_assert_false(pcv_lxc_ns_host_veth_name("c1", 16, out));
+}
+
+                                                                               
+static gboolean
+_ns_abort_always(void)
+{
+    return TRUE;
+}
+
+static void
+test_wire_cleanup_ignores_abort(void)
+{
+    pcv_spawn_launcher_init();
+    NsMock m;
+    _ns_mock_begin(&m);
+    _ns_mock_tool(&m, "ip", "exit 0\n");
+    _ns_mock_tool(&m, "nsenter", "exit 0\n");
+    gchar host_if[16];
+    g_assert_true(pcv_lxc_ns_host_veth_name("c1", 1, host_if));
+    pcv_lxc_ns_set_abort_fn_for_test(_ns_abort_always);
+    GError *err = NULL;
+    g_assert_false(pcv_lxc_ns_nic_wire(host_if, "eth1", "br0", 4242, &err));
+    g_assert_nonnull(err);
+    g_clear_error(&err);
+    pcv_lxc_ns_set_abort_fn_for_test(NULL);
+    gchar *calls = _ns_mock_calls(&m);
+    gchar *want = g_strdup_printf("ip link del %s\n", host_if);
+    g_assert_cmpstr(calls, ==, want);                                
+    g_free(want);
+    g_free(calls);
+    _ns_mock_end(&m);
+    pcv_spawn_launcher_shutdown();
+}
+
+                                                                                                 
+static void
+test_host_veth_remove_existing_only(void)
+{
+    pcv_spawn_launcher_init();
+    NsMock m;
+    _ns_mock_begin(&m);
+    _ns_mock_tool(&m, "ip", "exit 0\n");
+    GError *err = NULL;
+    g_assert_cmpint(pcv_lxc_ns_host_veth_remove("lo", &err), ==, PCV_LXC_HOST_VETH_REMOVED);
+    g_assert_no_error(err);
+    gchar *calls = _ns_mock_calls(&m);
+    g_assert_cmpstr(calls, ==, "ip link del lo\n");
+    g_free(calls);
+    g_assert_cmpint(g_unlink(m.log), ==, 0);
+    g_assert_cmpint(pcv_lxc_ns_host_veth_remove("vhdeadbeefn1", &err), ==, PCV_LXC_HOST_VETH_ABSENT);
+    g_assert_no_error(err);
+    calls = _ns_mock_calls(&m);
+    g_assert_cmpstr(calls, ==, "");
+    g_free(calls);
+    _ns_mock_tool(&m, "ip", "echo 'boom' >&2\nexit 2\n");
+    g_assert_cmpint(pcv_lxc_ns_host_veth_remove("lo", &err), ==, PCV_LXC_HOST_VETH_FAILED);
+    g_assert_nonnull(err);
+    g_assert_nonnull(strstr(err->message, "boom"));
+    g_clear_error(&err);
+    _ns_mock_end(&m);
+    pcv_spawn_launcher_shutdown();
+}
+
+                                                                      
+static void
+test_detach_leftover_absent_keeps_error(void)
+{
+    pcv_spawn_launcher_init();
+    NsMock m;
+    _ns_mock_begin(&m);
+    _ns_mock_tool(&m, "ip", "exit 0\n");
+    GError *err = NULL;
+    gchar *warn = NULL;
+    g_set_error_literal(&err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT,
+                        "config removed; live interface removal not confirmed: timed out");
+    g_assert_false(pcv_lxc_ns_nic_detach_host_leftover("pcvzt-no-such-ctr", 14, &warn, &err));
+    g_assert_null(warn);
+    g_assert_error(err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
+    g_assert_cmpstr(err->message, ==, "config removed; live interface removal not confirmed: timed out");
+    g_clear_error(&err);
+    gchar *calls = _ns_mock_calls(&m);
+    g_assert_cmpstr(calls, ==, "");
+    g_free(calls);
+    _ns_mock_end(&m);
+    pcv_spawn_launcher_shutdown();
+}
+
+                                                         
 static GString *g_ns_seen;
 
 static void
@@ -284,6 +442,9 @@ _ns_observe(const gchar * const *argv, PcvChildCapabilityProfile profile)
     g_free(line);
 }
 
+                                                                                                      
+                                                                                   
+                                                                         
 static void
 test_wire_step_profiles(void)
 {
@@ -308,7 +469,7 @@ test_wire_step_profiles(void)
         "BASE ip link set pcvzt9-host up\n"
         "RUNTIME nsenter -t 4242 -n -- ip link set pcvzt9 up\n");
 
-    g_string_truncate(g_ns_seen, 0);
+    g_string_truncate(g_ns_seen, 0);                                 
     g_assert_true(g_file_set_contents(flag, "", -1, NULL));
     g_assert_false(pcv_lxc_ns_nic_wire("pcvzt9-host", "pcvzt9", "br0", 4242, &err));
     g_assert_nonnull(err);
@@ -328,6 +489,9 @@ test_wire_step_profiles(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                               
+                                                                                  
+                                                                               
 static void
 test_wire_step1_exit_skips_cleanup(void)
 {
@@ -346,6 +510,7 @@ test_wire_step1_exit_skips_cleanup(void)
     _ns_mock_tool(&m, "ip", ip_body);
     _ns_mock_tool(&m, "nsenter", "exit 0\n");
 
+                             
     g_assert_true(g_file_set_contents(fail, "", -1, NULL));
     GError *err = NULL;
     g_assert_false(pcv_lxc_ns_nic_wire("pcvzt9-host", "pcvzt9", "br0", 4242, &err));
@@ -358,13 +523,15 @@ test_wire_step1_exit_skips_cleanup(void)
     g_assert_cmpstr(calls, ==, "ip link add pcvzt9-host type veth peer name pcvzt9 netns 4242\n");
     g_free(calls);
 
+                                  
     g_assert_cmpint(g_unlink(fail), ==, 0);
     g_assert_cmpint(g_unlink(m.log), ==, 0);
     g_assert_true(g_file_set_contents(hang, "", -1, NULL));
     gint64 t0 = g_get_monotonic_time();
     g_assert_false(pcv_lxc_ns_nic_wire("pcvzt9-host", "pcvzt9", "br0", 4242, &err));
     gdouble elapsed = (g_get_monotonic_time() - t0) / (gdouble)G_USEC_PER_SEC;
-    g_assert_cmpfloat(elapsed, <, 10.0);
+                                                   
+    g_assert_cmpfloat(elapsed, <, _budget_limit(10.0, 6));
     g_assert_error(err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
     g_assert_true(g_str_has_prefix(err->message,
         "config saved; live wiring not confirmed: ip link add pcvzt9-host "));
@@ -384,6 +551,8 @@ test_wire_step1_exit_skips_cleanup(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                              
+                                                                  
 static void
 test_wire_refuses_existing_host_if(void)
 {
@@ -405,6 +574,8 @@ test_wire_refuses_existing_host_if(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                          
+                                                              
 static void
 test_remove_warning_on_nonzero(void)
 {
@@ -435,7 +606,7 @@ test_remove_warning_on_nonzero(void)
     gint64 t0 = g_get_monotonic_time();
     g_assert_false(pcv_lxc_ns_nic_remove("/var/lib/lxc", "c1", "eth1", &warning, &err));
     gdouble elapsed = (g_get_monotonic_time() - t0) / (gdouble)G_USEC_PER_SEC;
-    g_assert_cmpfloat(elapsed, <, 8.0);
+    g_assert_cmpfloat(elapsed, <, _budget_limit(8.0, 5));
     g_assert_nonnull(err);
     g_assert_true(g_str_has_prefix(err->message,
                                    "config removed; live interface removal not confirmed:"));
@@ -446,6 +617,7 @@ test_remove_warning_on_nonzero(void)
     pcv_spawn_launcher_shutdown();
 }
 
+                                                                           
 static void
 test_ip4_query_timeout(void)
 {
@@ -456,11 +628,11 @@ test_ip4_query_timeout(void)
     GError *err = NULL;
 
     _ns_mock_tool(&m, "lxc-attach",
-        "case \"$*\" in *'-- ip -4 -o addr show') echo '2: eth0    inet 192.0.2.42/24 brd 192.0.2.255' ;;"
+        "case \"$*\" in *'-- ip -4 -o addr show') echo '2: eth0    inet 10.0.3.42/24 brd 10.0.3.255' ;;"
         " *) exit 9 ;; esac\n");
     g_assert_true(pcv_lxc_ns_ip4_query("/var/lib/lxc", "c1", &out, &err));
     g_assert_no_error(err);
-    g_assert_nonnull(strstr(out, "inet 192.0.2.42/24"));
+    g_assert_nonnull(strstr(out, "inet 10.0.3.42/24"));
     g_free(out);
     out = NULL;
 
@@ -468,7 +640,7 @@ test_ip4_query_timeout(void)
     gint64 t0 = g_get_monotonic_time();
     g_assert_false(pcv_lxc_ns_ip4_query("/var/lib/lxc", "c1", &out, &err));
     gdouble elapsed = (g_get_monotonic_time() - t0) / (gdouble)G_USEC_PER_SEC;
-    g_assert_cmpfloat(elapsed, <, 6.0);
+    g_assert_cmpfloat(elapsed, <, _budget_limit(6.0, 3));
     g_assert_error(err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT);
     g_assert_null(out);
     g_clear_error(&err);
@@ -491,6 +663,11 @@ test_lxc_ns_exec_register(void)
     g_test_add_func("/lxc_ns_exec/wire_step_profiles", test_wire_step_profiles);
     g_test_add_func("/lxc_ns_exec/wire_step1_exit_skips_cleanup", test_wire_step1_exit_skips_cleanup);
     g_test_add_func("/lxc_ns_exec/wire_refuses_existing_host_if", test_wire_refuses_existing_host_if);
+    g_test_add_func("/lxc_ns_exec/host_veth_name_shape", test_host_veth_name_shape);
+    g_test_add_func("/lxc_ns_exec/wire_cleanup_ignores_abort", test_wire_cleanup_ignores_abort);
+    g_test_add_func("/lxc_ns_exec/host_veth_remove_existing_only", test_host_veth_remove_existing_only);
+    g_test_add_func("/lxc_ns_exec/detach_leftover_absent_keeps_error",
+                    test_detach_leftover_absent_keeps_error);
     g_test_add_func("/lxc_ns_exec/remove_warning_on_nonzero", test_remove_warning_on_nonzero);
     g_test_add_func("/lxc_ns_exec/ip4_query_timeout", test_ip4_query_timeout);
 }

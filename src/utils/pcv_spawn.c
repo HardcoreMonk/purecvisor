@@ -52,8 +52,9 @@
                                                                               
   
               
-                                                        
-                                   
+                                                                     
+                                                          
+                                      
   
                          
                                                            
@@ -81,6 +82,7 @@
                                                        
                                 
                                                  
+                                                                  
                              
                                                                
   
@@ -138,7 +140,7 @@ _spawn_profile_path_is_trusted(const gchar *path)
     if (!path || !*path)
         return FALSE;
     if (!strchr(path, '/'))
-        return TRUE;                                          
+        return TRUE;                                                                            
 
     static const gchar *prefixes[] = { "/usr/sbin/", "/usr/bin/", "/sbin/", "/bin/" };
     for (guint i = 0; i < G_N_ELEMENTS(prefixes); i++) {
@@ -196,7 +198,7 @@ pcv_spawn_capability_profile_for_argv(const gchar * const *argv)
 
     const gchar *base = _spawn_basename(argv[0]);
     static const gchar * const runtime_names[] = {
-        "lxc-attach", "lxc-checkpoint", "lxc-copy", "lxc-create", "lxc-destroy",
+        "lxc-attach", "lxc-checkpoint", "lxc-create", "lxc-destroy",
         "lxc-info", "lxc-start", "lxc-stop",
         "virt-customize", "virt-filesystems", "virt-install", "virt-sysprep",
         "guestfish", "guestmount", "qemu-nbd", "qemu-system-x86_64",
@@ -224,10 +226,13 @@ pcv_spawn_capability_profile_for_argv(const gchar * const *argv)
     return PCV_CHILD_CAP_BASE;
 }
 
-                                                               
+                                                                                
 #define SPAWN_SETUP_PROFILE_MASK 0xff
 #define SPAWN_SETUP_CAPS         0x100
 
+                                                                   
+                                                               
+                                                                  
 static void
 _spawn_group_child_setup(gpointer user_data)
 {
@@ -237,7 +242,10 @@ _spawn_group_child_setup(gpointer user_data)
     if (v & SPAWN_SETUP_CAPS)
         pcv_privdrop_child_setup(GINT_TO_POINTER(v & SPAWN_SETUP_PROFILE_MASK));
 }
-                                                                        
+
+                                                               
+                                                                     
+                                                               
 static void
 _launcher_set_capability_profile(GSubprocessLauncher *launcher,
                                  PcvChildCapabilityProfile profile,
@@ -314,7 +322,7 @@ pcv_spawn_launcher_init(void)
                                 
                                     
                                                                             
-    pcv_spawn_env_apply(g_launcher);
+    pcv_spawn_env_apply(g_launcher);                                         
 
                                                                          
                         
@@ -443,54 +451,14 @@ pcv_spawn_newv(const gchar * const *argv,
          
                                                                                
 
-   
-                                        
-                                               
-                                                               
-                                                   
-                                                              
-                                                                    
-                                                                    
-                                                                  
-  
-                                             
-                                                            
-  
-          
-                                                   
-                                         
-                                            
-                                                       
-                                              
-  
-           
-                                   
-                                       
-                                              
-              
-  
-               
-                             
-
-                                                                 
-                                
-        
-                                         
-                                                                   
-        
-  
-           
-                                         
-                                       
-                     
-   
                                                             
                                              
                                                       
                                 
                                                                            
                                                                      
-                                             
+                                                        
+                                                                            
 static gboolean
 _spawn_exit_failed(const gchar *arg0, gchar *captured_stderr, GError **error)
 {
@@ -549,36 +517,43 @@ _spawn_timeout_cb(gpointer user_data)
     return G_SOURCE_REMOVE;                       
 }
 
-   
+                                                                            
                                                   
-  
-                                                    
-                                                 
-  
-                                      
-                                                                             
-                                                                             
+                                                        
+                                                      
+                                                                          
+                                                                            
+                                                           
+                                                        
+                                                                               
 typedef enum { BOUND_RUNNING, BOUND_TIMEOUT, BOUND_CANCELLED, BOUND_ABORTED, BOUND_TOO_LARGE } BoundStop;
 typedef struct BoundRun BoundRun;
-
+                                                        
 typedef struct {
     BoundRun *run; GInputStream *in; GByteArray *buf; gboolean eof; guint8 chunk[8192];
 } BoundReader;
 struct BoundRun {
     const PcvSpawnBound *b;
     GSubprocess  *proc;
-    pid_t         pgid;
-    GCancellable *io_cancel;
-    GCancellable *wait_cancel;
-    gsize         total;
-    guint         pending;
-    gboolean      exited;
-    gboolean      reap_late;
-    BoundStop     stop;
-    GError       *read_err;
+    pid_t         pgid;                                                          
+    GCancellable *io_cancel;                              
+    GCancellable *wait_cancel;                                                      
+    gsize         total;                                    
+    guint         pending;                           
+    gboolean      exited;                                     
+    gboolean      reap_late;                             
+    BoundStop     stop;                        
+    GError       *read_err;                                 
     BoundReader   rd[2];
 };
 
+                                                        
+                                                                              
+                                                                                  
+                                                            
+                                                                        
+                                                                       
+                                                                      
 static void
 _bound_stop(BoundRun *r, BoundStop why)
 {
@@ -602,6 +577,7 @@ _bound_read_next(BoundReader *rd)
                               rd->run->io_cancel, _bound_read_done, rd);
 }
 
+                                                                   
 static void
 _bound_read_done(GObject *src, GAsyncResult *res, gpointer user_data)
 {
@@ -627,6 +603,7 @@ _bound_read_done(GObject *src, GAsyncResult *res, gpointer user_data)
     rd->eof = TRUE;
 }
 
+                                                                        
 static void
 _bound_wait_done(GObject *src, GAsyncResult *res, gpointer user_data)
 {
@@ -635,6 +612,7 @@ _bound_wait_done(GObject *src, GAsyncResult *res, gpointer user_data)
     r->exited = g_subprocess_wait_finish(G_SUBPROCESS(src), res, NULL);
 }
 
+                                                    
 static gboolean
 _bound_reap_late_cb(gpointer user_data)
 {
@@ -649,6 +627,7 @@ _bound_timeout_cb(gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+                                                                
 static gboolean
 _bound_abort_poll_cb(gpointer user_data)
 {
@@ -666,6 +645,15 @@ _bound_cancelled_cb(GCancellable *cancellable, gpointer user_data)
     return G_SOURCE_REMOVE;
 }
 
+                                                                                            
+                                                           
+                                                                             
+                                                                                  
+                                                                      
+                                                                                      
+                                                                                
+                                                                                   
+                                      
 static gboolean
 _spawn_bounded_core(const gchar * const *argv, const PcvSpawnBound *b, gchar **stdout_out,
                     gchar **stderr_out, gint *exit_status, gboolean strict, GError **error)
@@ -691,10 +679,11 @@ _spawn_bounded_core(const gchar * const *argv, const PcvSpawnBound *b, gchar **s
 
     GMainContext *ctx = g_main_context_new();
     g_main_context_push_thread_default(ctx);
-    const gchar *leader = b->new_process_group ? g_subprocess_get_identifier(proc) : NULL;
+    const gchar *ident = g_subprocess_get_identifier(proc);
+    pid_t child = ident ? (pid_t)g_ascii_strtoll(ident, NULL, 10) : 0;                               
     BoundRun r = { .b = b, .proc = proc, .io_cancel = g_cancellable_new(),
                    .wait_cancel = g_cancellable_new(),
-                   .pgid = leader ? (pid_t)g_ascii_strtoll(leader, NULL, 10) : 0 };
+                   .pgid = b->new_process_group ? child : 0 };
     GInputStream *ins[2] = { stdout_out ? g_subprocess_get_stdout_pipe(proc) : NULL,
                              stderr_out ? g_subprocess_get_stderr_pipe(proc) : NULL };
     for (int i = 0; i < 2; i++) {
@@ -719,7 +708,7 @@ _spawn_bounded_core(const gchar * const *argv, const PcvSpawnBound *b, gchar **s
 
     while (r.stop == BOUND_RUNNING && !(r.exited && r.rd[0].eof && r.rd[1].eof))
         g_main_context_iteration(ctx, TRUE);
-    if (strict && r.stop != BOUND_RUNNING && !r.exited) {
+    if (strict && r.stop != BOUND_RUNNING && !r.exited) {                             
         GSource *reap = g_timeout_source_new(PCV_SPAWN_BOUNDED_REAP_WAIT_SEC * 1000);
         g_source_set_callback(reap, _bound_reap_late_cb, &r, NULL);
         g_source_attach(reap, ctx);
@@ -727,12 +716,15 @@ _spawn_bounded_core(const gchar * const *argv, const PcvSpawnBound *b, gchar **s
             g_main_context_iteration(ctx, TRUE);
         g_source_destroy(reap);
         g_source_unref(reap);
-        if (!r.exited)
+        if (!r.exited) {
             PCV_LOG_WARN(SPAWN_LOG_DOM, "'%s' SIGKILL 뒤 %d초 안에 회수되지 않음 — D 상태? 회수는 "
                          "GLib child watch에 맡긴다", argv[0], PCV_SPAWN_BOUNDED_REAP_WAIT_SEC);
+            if (b->unreaped_pid_out)                                                 
+                *b->unreaped_pid_out = child;
+        }
     }
-    g_cancellable_cancel(r.wait_cancel);
-    while (r.pending > 0)
+    g_cancellable_cancel(r.wait_cancel);                                    
+    while (r.pending > 0)                                              
         g_main_context_iteration(ctx, TRUE);
     for (int i = 0; i < 3; i++)
         if (srcs[i]) {
@@ -791,6 +783,12 @@ _spawn_bounded_core(const gchar * const *argv, const PcvSpawnBound *b, gchar **s
     return ok;
 }
 
+   
+                                                                     
+                                                          
+                                                                                
+                                                                        
+   
 gboolean
 pcv_spawn_sync_bounded(const gchar * const *argv, const PcvSpawnBound *bound,
                        gchar **stdout_out, gchar **stderr_out,
@@ -800,6 +798,7 @@ pcv_spawn_sync_bounded(const gchar * const *argv, const PcvSpawnBound *bound,
     if (exit_status) *exit_status = -1;
     if (stdout_out) *stdout_out = NULL;
     if (stderr_out) *stderr_out = NULL;
+    if (bound && bound->unreaped_pid_out) *bound->unreaped_pid_out = 0;                          
     g_return_val_if_fail(argv && argv[0] && bound && bound->timeout_sec > 0, FALSE);
     g_return_val_if_fail(bound->profile >= PCV_CHILD_CAP_BASE &&
                          bound->profile < PCV_CHILD_CAP_N_PROFILES, FALSE);
@@ -807,6 +806,16 @@ pcv_spawn_sync_bounded(const gchar * const *argv, const PcvSpawnBound *bound,
     if (ok && exit_status) *exit_status = status;
     return ok;
 }
+
+   
+                                                  
+  
+                                                    
+                                                 
+  
+                                      
+                                                                             
+                                                                             
                                                                 
                                                             
                                                                                
@@ -824,7 +833,8 @@ _spawn_sync_timeout_with_profile(const gchar * const *argv,
 {
     g_return_val_if_fail(argv && argv[0], FALSE);
 
-                                                                
+                                                                       
+                                                                  
     if (timeout_sec > 0) {
         PcvSpawnBound b = { .profile = profile, .timeout_sec = timeout_sec };
         gint status = -1;
@@ -834,6 +844,7 @@ _spawn_sync_timeout_with_profile(const gchar * const *argv,
                _spawn_exit_failed(argv[0], stderr_out ? *stderr_out : NULL, error);
     }
 
+                                                                
     GSubprocessFlags flags = G_SUBPROCESS_FLAGS_NONE;
     if (stdout_out) flags |= G_SUBPROCESS_FLAGS_STDOUT_PIPE;
     else            flags |= G_SUBPROCESS_FLAGS_STDOUT_SILENCE;
@@ -861,6 +872,18 @@ _spawn_sync_timeout_with_profile(const gchar * const *argv,
     return ok;
 }
 
+                                                                 
+static __thread PcvSpawnOverride t_spawn_override;
+static __thread gpointer         t_spawn_override_data;
+
+                                                                                    
+void
+pcv_spawn_set_thread_override(PcvSpawnOverride fn, gpointer data)
+{
+    t_spawn_override = fn;
+    t_spawn_override_data = data;
+}
+
 gboolean
 pcv_spawn_sync_timeout(const gchar * const *argv,
                        gchar              **stdout_out,
@@ -868,6 +891,8 @@ pcv_spawn_sync_timeout(const gchar * const *argv,
                        guint                timeout_sec,
                        GError             **error)
 {
+    if (timeout_sec == 0 && t_spawn_override)                                                         
+        return t_spawn_override(t_spawn_override_data, argv, stdout_out, stderr_out, error);
     return _spawn_sync_timeout_with_profile(
         argv, stdout_out, stderr_out, timeout_sec,
         pcv_spawn_capability_profile_for_argv(argv), error);
@@ -876,6 +901,7 @@ pcv_spawn_sync_timeout(const gchar * const *argv,
    
                                                           
                                
+                                                            
   
                                                          
                                                               
@@ -885,11 +911,13 @@ pcv_spawn_sync_timeout(const gchar * const *argv,
                                       
                                                                              
                                                                              
-                                                   
+                                                                            
+                                               
                                
   
-                                                       
-                                           
+                                                              
+                                                                   
+                            
    
 gboolean
 pcv_spawn_sync(const gchar * const *argv,
@@ -912,13 +940,64 @@ pcv_spawn_sync_profile(const gchar * const *argv,
 }
 
    
+                                                       
+  
+                                                              
+                                                                
+  
+                                                                           
+                                                                 
+                                                                
+                                    
+   
+gboolean
+pcv_spawn_sync_status(const gchar * const *argv,
+                      gchar              **stdout_out,
+                      gchar              **stderr_out,
+                      gint                *exit_status,
+                      GError             **error)
+{
+    g_return_val_if_fail(argv && argv[0] && exit_status, FALSE);
+    *exit_status = -1;
+
+    GSubprocessFlags flags =
+        (stdout_out ? G_SUBPROCESS_FLAGS_STDOUT_PIPE : G_SUBPROCESS_FLAGS_STDOUT_SILENCE) |
+        (stderr_out ? G_SUBPROCESS_FLAGS_STDERR_PIPE : G_SUBPROCESS_FLAGS_STDERR_SILENCE);
+    GSubprocess *proc = pcv_spawn_newv(argv, flags, error);
+    if (!proc)
+        return FALSE;
+
+    gchar *captured_out = NULL, *captured_err = NULL;
+    gboolean ok = g_subprocess_communicate_utf8(proc, NULL, NULL,
+                                                stdout_out ? &captured_out : NULL,
+                                                stderr_out ? &captured_err : NULL,
+                                                error);
+    if (ok && !g_subprocess_get_if_exited(proc)) {
+                                                             
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "%s: terminated by signal %d", argv[0],
+                    g_subprocess_get_if_signaled(proc) ? g_subprocess_get_term_sig(proc) : 0);
+        ok = FALSE;
+    }
+    if (ok) {
+        *exit_status = g_subprocess_get_exit_status(proc);
+        if (stdout_out) *stdout_out = captured_out ? captured_out : g_strdup("");
+        if (stderr_out) *stderr_out = captured_err ? captured_err : g_strdup("");
+    } else {
+        g_free(captured_out);
+        g_free(captured_err);
+    }
+    g_object_unref(proc);
+    return ok;
+}
+
+   
                                                      
   
-
+                                               
                                                   
   
                                                          
-
+                                             
                                                                    
                                     
   
@@ -927,9 +1006,9 @@ pcv_spawn_sync_profile(const gchar * const *argv,
                                                                          
                                                    
                                                       
-
-
-
+                                                               
+                                                      
+                                                                
    
 gboolean
 pcv_spawn_sync_env(const gchar * const *argv,

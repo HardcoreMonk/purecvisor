@@ -15,6 +15,24 @@
 #endif
 #include PCV_VNC_SOURCE
 
+gint pcv_config_get_int(const gchar *section, const gchar *key, gint fallback)
+{ (void)section; (void)key; return fallback; }
+
+static virConnectPtr test_conn;
+gchar *pcv_jwt_verify_with_ip(const gchar *token,const gchar *ip,GError **error)
+{ (void)ip;(void)error;return !strcmp(token,"admin") || !strcmp(token,"operator") || !strcmp(token,"viewer") ? g_strdup(token) : NULL; }
+
+PcvSubjectCheck pcv_rbac_subject_check_token(const gchar *user,const gchar *token,PcvRole *role)
+{(void)token;if(role)*role=!strcmp(user,"admin")?PCV_ROLE_ADMIN:!strcmp(user,"operator")?PCV_ROLE_OPERATOR:PCV_ROLE_VIEWER;return PCV_SUBJECT_OK;}
+gboolean pcv_rbac_role_permits(PcvRole role,const gchar *method)
+{ (void)method;return role!=PCV_ROLE_VIEWER; }
+virConnectPtr virt_conn_pool_acquire(void){return test_conn;}
+void virt_conn_pool_release(virConnectPtr conn){(void)conn;}
+const PcvRestClientIdentity *pcv_rest_client_identity_get(SoupServerMessage *msg)
+{(void)msg;return NULL;}
+const gchar *pcv_rest_client_identity_get_client_ip(const PcvRestClientIdentity *identity)
+{(void)identity;return "127.0.0.1";}
+
 typedef struct {
     GMainContext *context;
     SoupServer *server;
@@ -23,6 +41,7 @@ typedef struct {
     GByteArray *frames;
     guint browser_closed, proxy_closed;
     guint tcp_reads;
+    gboolean ready;
     int listener, peer, proxy_fd;
 } Fixture;
 
@@ -63,6 +82,18 @@ static void received(SoupWebsocketConnection *conn, SoupWebsocketDataType type,
 {
     Fixture *f = data;
     (void)conn;
+    if (type == SOUP_WEBSOCKET_DATA_TEXT) {
+        JsonParser *p=json_parser_new();gsize n;const char *text=g_bytes_get_data(bytes,&n);
+        g_assert_true(json_parser_load_from_data(p,text,n,NULL));
+        JsonObject *o=json_node_get_object(json_parser_get_root(p));
+        if(!g_strcmp0(_vnc_string(o,"type"),"auth_ok")) f->ready=TRUE;
+        else if(!g_strcmp0(_vnc_string(o,"type"),"checkpoint")) {
+            json_object_set_string_member(o,"type","ack");
+            gchar *ack=json_to_string(json_parser_get_root(p),FALSE);
+            soup_websocket_connection_send_text(f->browser,ack);g_free(ack);
+        }
+        g_object_unref(p);return;
+    }
     g_assert_cmpint(type, ==, SOUP_WEBSOCKET_DATA_BINARY);
     gsize size;
     const guint8 *payload = g_bytes_get_data(bytes, &size);
@@ -148,7 +179,8 @@ static void setup(Fixture *f, gboolean private_context)
     g_assert_cmpint(port, <=, 6100);
     g_assert_cmpint(listen(f->listener, 1), ==, 0);
     f->server = soup_server_new(NULL, NULL);
-    soup_server_add_websocket_handler(f->server, "/vnc", NULL, NULL, upgraded, f, NULL);
+    char *protocols[]={VNC_PROTOCOL,NULL};
+    soup_server_add_websocket_handler(f->server, "/vnc", NULL, protocols, upgraded, f, NULL);
     GError *error = NULL;
     g_assert_true(soup_server_listen_local(f->server, 0, SOUP_SERVER_LISTEN_IPV4_ONLY, &error));
     g_assert_no_error(error);
@@ -160,7 +192,7 @@ static void setup(Fixture *f, gboolean private_context)
 
     g_object_set(f->session, "proxy-resolver", NULL, NULL);
     SoupMessage *message = soup_message_new("GET", url);
-    soup_session_websocket_connect_async(f->session, message, NULL, NULL,
+    soup_session_websocket_connect_async(f->session, message, NULL, protocols,
                                         G_PRIORITY_DEFAULT, NULL, connected, f);
     g_object_unref(message);
     g_free(url);
@@ -168,6 +200,13 @@ static void setup(Fixture *f, gboolean private_context)
     while ((!f->proxy || !f->browser) && g_get_monotonic_time() < deadline) step(f);
     g_assert_nonnull(f->proxy);
     g_assert_nonnull(f->browser);
+    test_conn=virConnectOpen("test:///default");g_assert_nonnull(test_conn);
+    gchar *xml=g_strdup_printf("<domain type='test'><name>vnc-lifetime-owned</name><uuid>11111111-1111-1111-1111-111111111111</uuid><memory unit='KiB'>65536</memory><vcpu>1</vcpu><os><type>hvm</type></os><devices><graphics type='vnc' port='%d' listen='127.0.0.1'/></devices></domain>",port);
+    virDomainPtr dom=virDomainCreateXML(test_conn,xml,0);g_assert_nonnull(dom);virDomainFree(dom);g_free(xml);
+    soup_websocket_connection_send_text(f->browser,"{\"type\":\"auth\",\"token\":\"admin\",\"uuid\":\"11111111-1111-1111-1111-111111111111\"}");
+    deadline=g_get_monotonic_time()+G_TIME_SPAN_SECOND;
+    while(!f->ready && g_get_monotonic_time()<deadline)step(f);
+    g_assert_true(f->ready);
     f->peer = accept4(f->listener, NULL, NULL, SOCK_CLOEXEC | SOCK_NONBLOCK);
     g_assert_cmpint(f->peer, >=, 0);
     f->proxy_fd = find_proxy_fd(port);
@@ -233,6 +272,7 @@ static void teardown(Fixture *f)
     g_clear_object(&f->proxy);
     g_clear_object(&f->session);
     g_clear_object(&f->server);
+    if(test_conn){virConnectClose(test_conn);test_conn=NULL;}
     g_byte_array_unref(f->frames);
     if (f->peer >= 0) close(f->peer);
     close(f->listener);
@@ -267,7 +307,8 @@ int main(int argc, char **argv)
         if (!tcp_first || !strcmp(mode, "simultaneous"))
             soup_websocket_connection_close(f.browser, SOUP_WEBSOCKET_CLOSE_NORMAL, "fixture");
         terminated(&f);
-        if (!strcmp(mode, "tcp-hup")) g_assert_cmpuint(f.tcp_reads, ==, 0);
+        if (!strcmp(mode, "tcp-hup"))
+            g_assert_cmpuint(f.tcp_reads, ==, 1);
         teardown(&f);
     }
     printf("PASS %s: peer bytes/EOF, FD closed, signals detached (%u sessions)\n", mode, runs);

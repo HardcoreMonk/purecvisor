@@ -1,7 +1,28 @@
+   
+                        
+                                             
+  
+                           
+                                                   
+                                                    
+                                        
+  
+                                                                 
+                                                              
+                                                         
+                                                             
+                                                        
+                                                                  
+                                                                   
+  
+                                                                                
+   
 #include "pcv_spawn_env.h"
 
 #include <string.h>
 
+                                                                           
+                                                                                               
 static const gchar * const _spawn_env_allow[] = {
     "USER", "TZ", "TMPDIR",
     "LIBVIRT_DEFAULT_URI", "LIBVIRT_LOG_OUTPUTS", "LIBVIRT_LOG_FILTERS",
@@ -40,6 +61,7 @@ pcv_spawn_env_apply(GSubprocessLauncher *launcher)
     g_subprocess_launcher_set_environ(launcher, (gchar **)base->pdata);
     g_ptr_array_free(base, TRUE);
 
+                                                  
     g_subprocess_launcher_setenv(launcher, "PATH", "/usr/sbin:/usr/bin:/sbin:/bin", TRUE);
     g_subprocess_launcher_setenv(launcher, "HOME", "/root", TRUE);
     g_subprocess_launcher_setenv(launcher, "LANG", "C.UTF-8", TRUE);

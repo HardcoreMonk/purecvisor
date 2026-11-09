@@ -130,8 +130,17 @@ require_literal "backdrop-filter: blur(18px)" "ui/docs.html" "documentation glas
 require_literal "reader-mobile-toc" "ui/docs.html" "documentation reader must expose the compact current-section strip"
 require_literal "reader-code-toolbar" "ui/docs.html" "documentation code blocks must expose the approved toolbar frame"
 require_literal "behavior: 'instant'" "ui/docs.html" "documentation deep links must align immediately after font loading"
-require_literal "숫자형 H2" "DESIGN.md" "DESIGN.md must require full numbered chapter visibility"
-require_literal "chapter-card" "ui/docs.html" "documentation portal must expose individual chapter cards"
+require_literal "22개" "DESIGN.md" "DESIGN.md must require full numbered chapter visibility"
+require_literal "하나의 Linux/KVM 노드, 하나의 제어면." "DESIGN.md" "DESIGN.md must publish the live-site hero contract"
+require_literal "PURECVISOR 2.1.0 · SINGLE EDGE" "ui/docs.html" "documentation landing must expose the live eyebrow"
+require_literal "Single Edge 서비스 아키텍처" "ui/docs.html" "documentation landing must expose the architecture source"
+require_literal "pcv-architecture-legend" "ui/docs.html" "documentation landing must expose the seven-layer legend"
+require_literal "data-nav-group" "ui/docs.html" "documentation header must expose dropdown groups"
+require_literal "docs-theme-select" "ui/docs.html" "documentation header must expose theme selection"
+require_literal "https://github.com/HardcoreMonk/purecvisor" "ui/docs.html" "documentation landing must link the public repository"
+require_literal 'target="_blank" rel="noopener"' "ui/docs.html" "public repository action must isolate its opener"
+require_literal "docs.html#purecvisor-single-edge-운영-가이드" "ui/docs.html" "documentation landing must link the canonical full reader"
+require_literal "legacy-docs-landing" "ui/docs.html" "documentation portal must preserve non-visible chapter metadata for reader navigation"
 require_literal '$(UI_DIR)/docs.html' "Makefile" "documentation portal must participate in the service worker cache identity"
 for doc_asset in docs.html guide.html guide-content.md; do
   require_regex "^ui/${doc_asset//./\\.}[[:space:]]+ui/${doc_asset//./\\.}[[:space:]]+replace$" \
@@ -265,6 +274,24 @@ for index in "${!lanes[@]}"; do
     "(?s)<tr[^>]*class=\"[^\"]*alert-row-$lane[^\"]*\"[^>]*>(?:(?!</tr>).)*<span[^>]*class=\"[^\"]*pill-$lane[^\"]*\"[^>]*>[[:space:]]*$label[[:space:]]*</span>(?:(?!</tr>).)*</tr>" \
     "ui/samples/design-system-preview.html" \
     "preview alert-row-$lane must contain pill-$lane with $label"
+done
+
+                                           
+                                           
+require_literal "4.5:1" "DESIGN.md" "OPS must document the small text contrast threshold"
+require_regex \
+  "(?s)\\.ops-triage-card[[:space:]]*\\{[^}]*background:[[:space:]]*var\\(--bg2\\)" \
+  "ui/style.css" \
+  "OPS cards must retain an opaque theme surface"
+
+                                                                 
+for guide in docs/GUIDE.md ui/guide-content.md; do
+  for field in result_persisted recovery_pending interrupted outcome_known; do
+    require_literal "$field" "$guide" "$guide must explain $field"
+  done
+  require_literal "운영 배포" "$guide" "$guide must retain candidate deployment boundary"
+  require_literal '#### ADMIN 전용 구성 관측 (`vm.inspect`)' "$guide" "$guide must locate the inspection scope"
+  require_literal '공개 `ed147de` 패키지에는 이 명령이 없습니다' "$guide" "$guide must distinguish the published package"
 done
 
 python3 "$ROOT/scripts/check_design_md.py" --self-test

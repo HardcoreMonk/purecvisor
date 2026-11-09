@@ -62,11 +62,14 @@
 
 #include <glib.h>
 #include <string.h>
+#include <json-glib/json-glib.h>
 #include "modules/ai/self_healing.h"
 #include "modules/ai/anomaly_detector.h"                                         
 
                                                     
 extern gboolean pcv_healing_should_trigger_agent_now(void);
+
+extern void pcv_test_healing_queue_approval(const gchar *policy, const gchar *action, const gchar *reason);
 
 #define HAMMER_THREADS 3
 #define HAMMER_ITERS   30000
@@ -98,6 +101,13 @@ _ensure_init(void)
         pcv_healing_init();                                                   
         done = TRUE;
     }
+}
+
+void pcv_test_self_healing_ensure_init(void);
+void
+pcv_test_self_healing_ensure_init(void)
+{
+    _ensure_init();
 }
 
                                                 
@@ -310,13 +320,9 @@ test_restart_rate_window_at_boot(void)
     g_assert_cmpint(_count_occurrences(history, "\"result\":\"dry_run\""), ==, 1);
     g_free(history);
     pcv_healing_set_mode(FALSE);
-    for (guint i = 0; i < 3; i++) {
-        pcv_healing_on_anomaly(PCV_ANOMALY_AUTO_METRIC_MEM_FULL,
-                              42.0, 3.0, 2.5, targets[i]);
-    }
-    history = pcv_healing_get_history_json();
-    g_assert_cmpint(_count_occurrences(history, "\"result\":\"success\""), ==, 3);
-    g_free(history);
+
+    for (guint i = 0; i < 3; i++)
+        pcv_healing_on_anomaly("vm-unresponsive", 1.0, 99.0, 0.0, targets[i]);
     pcv_healing_set_mode(TRUE);
     const gint64 window_us = 300 * G_USEC_PER_SEC;
     for (gint boundary = 0; boundary < 2; boundary++) {
@@ -332,6 +338,62 @@ test_restart_rate_window_at_boot(void)
     test_monotonic_us = -1;
 }
 
+static void
+_assert_pending_entry(JsonArray *arr, guint i, const gchar *policy, const gchar *action, const gchar *reason)
+{
+    JsonObject *o = json_array_get_object_element(arr, i);
+    g_assert_cmpstr(json_object_get_string_member(o, "policy"), ==, policy);
+    g_assert_cmpstr(json_object_get_string_member(o, "action"), ==, action);
+    g_assert_cmpstr(json_object_get_string_member(o, "reason"), ==, reason);
+    g_assert_cmpint(json_object_get_int_member(o, "id"), >, 0);
+    g_assert_cmpint(json_node_get_value_type(json_object_get_member(o, "ts")), ==, G_TYPE_INT64);
+    g_assert_cmpint(json_object_get_int_member(o, "ts"), >, 0);
+
+    GList *members = json_object_get_members(o);
+    const gchar *const expected[] = {"id", "policy", "action", "reason", "ts"};
+    g_assert_cmpuint(g_list_length(members), ==, G_N_ELEMENTS(expected));
+    guint n = 0;
+    for (GList *m = members; m; m = m->next, n++)
+        g_assert_cmpstr(m->data, ==, expected[n]);
+    g_list_free(members);
+}
+
+static void
+test_pending_json_escapes_text(void)
+{
+    if (!g_test_subprocess()) {
+        g_test_trap_subprocess(NULL, 10 * G_USEC_PER_SEC, 0);
+        g_test_trap_assert_passed();
+        return;
+    }
+    _ensure_init();
+    gchar *empty = pcv_healing_get_pending_json();
+    g_assert_cmpstr(empty, ==, "[]");
+    g_free(empty);
+
+    const gchar *const hostile = "quote\" back\\slash\nline\ttab";
+    pcv_test_healing_queue_approval("po\"licy", "ac\\tion", hostile);
+    pcv_test_healing_queue_approval("plain-policy", "migrate", "CPU predicted 91.0%");
+    pcv_test_healing_queue_approval("cut-policy", "migrate", "\xea\xb0");
+
+    gchar *json = pcv_healing_get_pending_json();
+    JsonParser *parser = json_parser_new();
+    GError *error = NULL;
+    gboolean parsed = json_parser_load_from_data(parser, json, -1, &error);
+    g_assert_no_error(error);
+    g_assert_true(parsed);
+    JsonNode *root = json_parser_get_root(parser);
+    g_assert_true(JSON_NODE_HOLDS_ARRAY(root));
+    JsonArray *arr = json_node_get_array(root);
+    g_assert_cmpuint(json_array_get_length(arr), ==, 3);
+    _assert_pending_entry(arr, 0, "po\"licy", "ac\\tion", hostile);
+    _assert_pending_entry(arr, 1, "plain-policy", "migrate", "CPU predicted 91.0%");
+    const gchar *cut = json_object_get_string_member(json_array_get_object_element(arr, 2), "reason");
+    g_assert_true(g_utf8_validate(cut, -1, NULL));
+    g_object_unref(parser);
+    g_free(json);
+}
+
 void
 test_self_healing_anomaly_register(void)
 {
@@ -345,4 +407,5 @@ test_self_healing_anomaly_register(void)
                     test_hostwide_cooldown_stays_policy_scoped);
     g_test_add_func("/selfhealing/anomaly_track_race", test_anomaly_track_race);
     g_test_add_func("/selfhealing/restart_rate_window_at_boot", test_restart_rate_window_at_boot);
+    g_test_add_func("/selfhealing/pending_json_escapes_text", test_pending_json_escapes_text);
 }

@@ -192,17 +192,6 @@ pcv_cluster_is_maintenance(void)
 }
 
   
-                                                        
-                                         
-                                                          
-   
-__attribute__((weak)) PcvEtcdClient *
-pcv_cluster_get_etcd(void)
-{
-    return NULL;
-}
-
-  
                                                                    
                                                         
                                                     

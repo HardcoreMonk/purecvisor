@@ -30,8 +30,10 @@ import sys
 from pathlib import Path
 
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 REPO_ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER_C = REPO_ROOT / "src" / "api" / "dispatcher.c"
 VM_CLONE_PLAN_C = REPO_ROOT / "src" / "modules" / "virt" / "vm_clone_plan.c"
 
 
@@ -66,7 +68,7 @@ def _function_body(text: str, name: str) -> str:
 
 
 def main() -> int:
-    text = _read(DISPATCHER_C)
+    text = rpc_extract.dispatcher_family_text(REPO_ROOT)
     plan_text = _read(VM_CLONE_PLAN_C)
 
     cleanup_body = _function_body(text, "_vm_clone_cleanup_failed_artifacts")

@@ -13,7 +13,7 @@
                                                        
                                                     
                                                       
-                            
+                                                                     
   
                                                          
                                                     
@@ -25,8 +25,8 @@
                    
                                                                    
   
-                                                                        
-                                                    
+                                                                   
+                                               
   
                        
                                                   
@@ -42,10 +42,8 @@
              
                                                             
                                                                         
-                                                                      
-                                                                             
-                                                          
-                                                             
+                                                                    
+                                                                    
    
                                    
 
@@ -57,6 +55,8 @@
 #include <libvirt-gobject/libvirt-gobject.h>
 #include <libvirt/libvirt.h>
 #include "modules/network/pcv_qos.h"                                              
+#include "modules/core/vm_state.h"                                       
+#include "modules/resource/resource_registry.h"                                                     
 
 G_BEGIN_DECLS
 
@@ -68,17 +68,14 @@ G_DECLARE_FINAL_TYPE(PureCVisorVmManager, purecvisor_vm_manager, PURECVISOR, VM_
 
    
                              
-                                                        
   
-                      
-                                          
+                                            
   
                                                     
-                                                        
                                                   
    
-                            
-PureCVisorVmManager *purecvisor_vm_manager_new(GVirConnection *conn);
+                                           
+PureCVisorVmManager *purecvisor_vm_manager_new(void);
 
                                                                             
                                         
@@ -95,31 +92,54 @@ PureCVisorVmManager *purecvisor_vm_manager_new(GVirConnection *conn);
                                                   
 
    
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                                     
+                                           
+                                                 
+                                          
+                                                                         
+                                                                                                      
+                                                                                         
+                                                           
+                                                                
+  
+                                                                         
+                                                                    
+                                                             
+                                                          
+                                              
+  
+                                                   
+                                                      
+  
+                                                                    
+   
 gboolean purecvisor_vm_provision_file_disk(const gchar *format,
                                            const gchar *disk_path,
                                            gint size_gb,
                                            const gchar *base_image,
+                                           const PcvResPin *base_pin,
                                            GError **error);
 
+   
+                                     
+                                                   
+                        
+                                                                                           
+                                                          
+                
+  
+                                                                                   
+                                                      
+                                                            
+  
+                               
+   
+gboolean purecvisor_vm_provision_zvol_disk(const gchar *zvol_name,
+                                           gint size_gb,
+                                           const gchar *base_image, const PcvResPin *base_pin,
+                                           GError **error);
 
+   
                                          
   
                                                     
@@ -142,6 +162,8 @@ gboolean purecvisor_vm_provision_file_disk(const gchar *format,
                                                   
                                                                    
                                                                                
+                                                                                                   
+                                                                                                                     
                                                   
                                                                                        
                                                                         
@@ -184,7 +206,8 @@ void purecvisor_vm_manager_create_vm_async(PureCVisorVmManager *self,
                                            const gchar *image_dir,                          
                                            const gchar *nic_type,                                       
                                            const gchar *pci_addr,                          
-                                           const gchar *base_image,
+                                           const gchar *base_image,                                       
+                                           const PcvResPin *base_image_pin,                                         
                                            const gchar *owner,                                  
                                            const gchar *network_mode,                                                             
                                            const gchar *tenant,                                               
@@ -265,72 +288,6 @@ void purecvisor_vm_manager_stop_vm_async(PureCVisorVmManager *self,
 gboolean purecvisor_vm_manager_stop_vm_finish(PureCVisorVmManager *manager,
                                               GAsyncResult *res,
                                               GError **error);
-
-   
-                                         
-                    
-                       
-                   
-                     
-  
-                                                   
-                                                   
-                                                
-                                        
-  
-         
-                                      
-                                             
-                                                 
-                                       
-                        
-   
-         
-void purecvisor_vm_manager_delete_vm_async(PureCVisorVmManager *self,
-                                           const gchar *name,
-                                           GAsyncReadyCallback callback,
-                                           gpointer user_data);
-gboolean purecvisor_vm_manager_delete_vm_finish(PureCVisorVmManager *manager,
-                                                GAsyncResult *res,
-                                                GError **error);
-
-   
-                            
-             
-  
-                     
-                                                                
-  
-                                                      
-                                                  
-   
-const gchar *pcv_vm_delete_status_get(const gchar *vm);
-
-                               
-                                                       
-void pcv_vm_manager_cleanup(void);
-
-   
-                                        
-                    
-                   
-                     
-  
-                                                
-                                                                    
-  
-                                                    
-                                   
-  
-                                                      
-   
-       
-void purecvisor_vm_manager_list_vms_async(PureCVisorVmManager *self,
-                                          GAsyncReadyCallback callback,
-                                          gpointer user_data);
-JsonNode *purecvisor_vm_manager_list_vms_finish(PureCVisorVmManager *manager,
-                                                GAsyncResult *res,
-                                                GError **error);
 
                                                                                
                                                                         
@@ -433,22 +390,71 @@ gboolean purecvisor_vm_manager_set_vcpu_finish(PureCVisorVmManager *self,
                          
                               
                                                  
-                                                          
+                                                                    
+                                                             
                                                                             
-                                                              
+                                              
   
                                                          
                                                  
   
-                                                          
-                                                           
+                                                       
+                                                               
   
                                      
                                                         
                                               
    
 void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar *target,
-                                gboolean holds_lock);
+                                PcvVmLock *op_lock);
+
+   
+                       
+                                        
+  
+                                                       
+   
+typedef enum {
+    PCV_VM_DISK_SOURCE_ZVOL,                                                                 
+    PCV_VM_DISK_SOURCE_BLOCK,                                                      
+    PCV_VM_DISK_SOURCE_FILE,                                                
+} PcvVmDiskSourceKind;
+
+   
+                                 
+                                             
+                                                      
+                                                              
+                                
+                     
+  
+                                                                            
+                                                                    
+                                                                  
+  
+                                                         
+                               
+  
+                   
+   
+gboolean pcv_vm_disk_source_for_target(const gchar *domain_xml, const gchar *target_dev,
+                                       gchar **source_out, PcvVmDiskSourceKind *kind_out,
+                                       GError **error);
+
+   
+                            
+                                                                     
+                             
+                        
+  
+                                                     
+  
+                                                  
+                     
+  
+                        
+   
+gboolean pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GError **error);
 
                                                                             
                                            
@@ -456,54 +462,6 @@ void purecvisor_vm_resize_disk(const gchar *name, gint new_size_gb, const gchar 
                                   
                 
                                  
-typedef enum {
-    PCV_VM_DISK_SOURCE_ZVOL,
-    PCV_VM_DISK_SOURCE_BLOCK,
-    PCV_VM_DISK_SOURCE_FILE,
-} PcvVmDiskSourceKind;
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-gboolean pcv_vm_disk_source_for_target(const gchar *domain_xml, const gchar *target_dev,
-                                       gchar **source_out, PcvVmDiskSourceKind *kind_out,
-                                       GError **error);
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-gboolean pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GError **error);
-
-
-
-
-
-
-
                                           
                                   
               
@@ -527,6 +485,16 @@ gboolean pcv_vm_disk_resize_check(guint64 current_bytes, gint new_size_gb, GErro
 void purecvisor_vm_clone_async(const gchar *source_name, const gchar *clone_name,
                                 gboolean full_copy, GCancellable *cancellable,
                                 GAsyncReadyCallback callback, gpointer user_data);
+
+                                                                                        
+                                         
+                                                            
+#define PCV_VM_SRIOV_NO_BRIDGE_MSG \
+    "nic_type=sriov cannot be used without a network bridge " \
+    "(network_bridge \"none\" would create the VM without its SR-IOV NIC)"
+#define PCV_VM_SRIOV_OVERLAY_MSG \
+    "nic_type=sriov cannot be combined with network_mode \"tenant-overlay\" " \
+    "(the VM would be created without its SR-IOV NIC)"
 
                                                                
 #define PCV_VM_SIGNAL_STARTED          "vm-started"
@@ -554,7 +522,7 @@ void purecvisor_vm_manager_emit_metrics_updated(PureCVisorVmManager *self,
                                                              
                                
   
-                                                                           
+                                                                            
                                                                  
                                                                                
 
@@ -562,7 +530,7 @@ void purecvisor_vm_manager_emit_metrics_updated(PureCVisorVmManager *self,
                                                                    
 #define PCV_OVERLAY_METADATA_URI "urn:purecvisor:overlay:1"
 
-
+                                                             
 #define PCV_DPDK_METADATA_URI "urn:purecvisor:dpdk:1"
 
 typedef enum {
@@ -571,8 +539,8 @@ typedef enum {
     PCV_DPDK_META_INVALID
 } PcvDpdkMetaResult;
 
-
-
+                                                                           
+                                                                          
 typedef enum {
     PCV_DPDK_VHOST_SOURCE_NONE,
     PCV_DPDK_VHOST_SOURCE_CANONICAL,
@@ -587,12 +555,12 @@ typedef enum {
     PCV_DPDK_VHOST_START_INVALID
 } PcvDpdkVhostStartAction;
 
-
-
+                                                                    
+                                                     
 gchar *_dpdk_metadata_xml(const gchar *nic_type, const gchar *bridge_name);
 gboolean _dpdk_metadata_parse(const gchar *metadata_xml, gchar **bridge_out);
 
-
+                                                          
 PcvDpdkMetaResult pcv_vm_dpdk_metadata_read(virDomainPtr dom, gchar **bridge_out);
 
 PcvDpdkVhostSourceResult pcv_vm_dpdk_vhost_source_classify(
@@ -712,7 +680,7 @@ typedef enum {
                                                        
                                               
   
-                                                        
+                                                       
                                                        
                                                  
           
@@ -766,7 +734,7 @@ void pcv_qos_backfill_existing(void);
                                                                
                                                   
                                               
-                       
+                        
                                                                                
 
    

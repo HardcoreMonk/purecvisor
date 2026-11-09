@@ -140,7 +140,40 @@ for(const state of ['completed','pending','failed']) scenario('Job 응답은 실
     _handler=(url,opts)=>_reply({data:opts.method==='DELETE'?{job_id:'fixture'}:_serverVms});PCV.vm.vmDel(vmList[0]);
   },state);
   await confirm(page,'vm-alpha');
-  const result=await page.evaluate(()=>({text:document.querySelector('.vm-delete-result').textContent,events:_events.length}));
+  const result=await page.evaluate(()=>{const n=document.querySelector('.vm-delete-result');return {text:n.textContent,role:n.getAttribute('role'),events:_events.length};});
   assert.equal(result.events,state==='completed'?1:0);
-  assert.match(result.text,state==='completed'?/✅ Deleted/:state==='pending'?/unconfirmed/:/CONTROLLED_JOB_FAILURE/);
+  assert.match(result.text,state==='completed'?/^✅ Deleted$/:state==='pending'?/unconfirmed/:/CONTROLLED_JOB_FAILURE/);
+  if(state==='failed') assert.equal(result.role,'alert');
+});
+
+for(const [label,res,expect] of [
+  ['warnings',JSON.stringify({name:'vm-alpha',warnings:['NVRAM cleanup failed: /n/vm-alpha_VARS.fd (Is a directory); manual cleanup is required']}),
+   /^✅ Deleted · Warning: NVRAM cleanup failed: \/n\/vm-alpha_VARS\.fd \(Is a directory\); manual cleanup is required$/],
+  ['several kept disks',JSON.stringify({name:'vm-alpha',warnings:['Disk not deleted (not owned by this VM): tank/data','Disk not deleted (not owned by this VM): /img/extra.raw']}),
+   /^✅ Deleted · Warning: Disk not deleted \(not owned by this VM\): tank\/data · Disk not deleted \(not owned by this VM\): \/img\/extra\.raw$/],
+  ['unreadable','not-json',/^✅ Deleted$/]]) scenario('완료 Job 경고 표시: '+label,async page=>{
+  await page.evaluate(res=>{
+    PCV.api.waitForJob=async()=>({status:'completed',result:res});
+    _handler=(url,opts)=>_reply({data:opts.method==='DELETE'?{accepted:true,name:'vm-alpha',job_id:'fixture',status:'accepted'}:_serverVms});PCV.vm.vmDel(vmList[0]);
+  },res);
+  await confirm(page,'vm-alpha');
+  assert.match(await page.$eval('.vm-delete-result',n=>n.textContent),expect);
+});
+
+scenario('거절된 삭제는 진행 문구가 아니라 Job result의 사유를 보인다',async page=>{
+  await page.evaluate(()=>{
+    const job={job_id:'fixture',status:'failed',detail:'VM deletion started',
+      result:JSON.stringify({name:'vm-alpha',error:"VM delete refused: ZFS dataset 'tank/vm-alpha' has dependent clones: tank/kid."})};
+    _handler=(url,opts)=>{
+      if(opts.method==='DELETE') return _reply({data:{accepted:true,name:'vm-alpha',job_id:'fixture',status:'accepted'}});
+      if(String(url).includes('/jobs/')) return _reply({data:job});
+      return _reply({data:_serverVms});
+    };
+    PCV.vm.vmDel(vmList[0]);
+  });
+  await confirm(page,'vm-alpha');
+  const result=await page.evaluate(()=>{const n=document.querySelector('.vm-delete-result');return {text:n.textContent,role:n.getAttribute('role')};});
+  assert.match(result.text,/dependent clones: tank\/kid/);
+  assert.doesNotMatch(result.text,/VM deletion started/);
+  assert.equal(result.role,'alert');
 });

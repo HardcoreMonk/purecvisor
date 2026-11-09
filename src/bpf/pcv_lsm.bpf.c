@@ -33,6 +33,10 @@
                                                             
 char LICENSE[] SEC("license") = "GPL";
 
+                                                                                          
+                                                                    
+#define PCV_TMPFS_MAGIC 0x01021994UL
+
                                                           
                                                     
                                                            
@@ -88,8 +92,10 @@ static __always_inline void bump(__u32 idx) {
                                                 
                                             
                                                                
+                                                                                
+                                                               
                                                                     
-static __always_inline void emit(__u32 hook, const char *path) {
+static __always_inline void emit(__u32 hook, const char *path, __u32 s_dev) {
     struct pcv_lsm_event *e =
         bpf_ringbuf_reserve(&pcv_lsm_events, sizeof(*e), 0);                       
     if (!e) { bump(1); return; }                             
@@ -101,6 +107,7 @@ static __always_inline void emit(__u32 hook, const char *path) {
     bpf_get_current_comm(&e->comm, sizeof(e->comm));                        
     if (path) bpf_probe_read_kernel_str(&e->path, sizeof(e->path), path);                     
     else      e->path[0] = '\0';                                             
+    e->s_dev     = s_dev;                                                              
     bpf_ringbuf_submit(e, 0);                                                 
     bump(0);                
 }
@@ -119,7 +126,7 @@ int BPF_PROG(pcv_bprm, struct linux_binprm *bprm, int ret_prev)
     __u64 dcg = daemon_cgroup_id();                                                      
     if (dcg && bpf_get_current_cgroup_id() == dcg) {                                  
         const char *fn = BPF_CORE_READ(bprm, filename);                                
-        emit(PCV_LSM_HOOK_BPRM, fn);
+        emit(PCV_LSM_HOOK_BPRM, fn, 0);                                                    
     }
     return ret_prev;                               
 }
@@ -144,8 +151,8 @@ int BPF_PROG(pcv_file_open, struct file *file, int ret_prev)
                                                       
                                                           
     char buf[PCV_LSM_PATH_MAX];
-
-
+                                                               
+                                                                      
     long n = bpf_d_path((struct path *)&file->f_path, buf, sizeof(buf));
     if (n <= 0) return ret_prev;                                                       
 
@@ -166,8 +173,24 @@ int BPF_PROG(pcv_file_open, struct file *file, int ret_prev)
         PCV_CRIT("/usr/lib/purecvisor/bpf") ||                                     
         PCV_CRIT("/etc/systemd/system/purecvisor") ||                          
         PCV_CRIT("/usr/lib/systemd/system/purecvisor") ||                  
-        PCV_CRIT("/lib/systemd/system/purecvisor"))                                   
-        emit(PCV_LSM_HOOK_FILE_OPEN, buf);                                    
+        PCV_CRIT("/lib/systemd/system/purecvisor")) {                                 
+                                                                       
+                                                                  
+                                                                 
+                                   
+                                                                       
+                                                                        
+                                                                    
+                                                                      
+                                                               
+                                                                     
+                                                                  
+        const struct super_block *sb = BPF_CORE_READ(file, f_inode, i_sb);
+        __u32 s_dev = 0;                                                                
+        if (BPF_CORE_READ(sb, s_magic) == PCV_TMPFS_MAGIC)
+            s_dev = BPF_CORE_READ(sb, s_dev);
+        emit(PCV_LSM_HOOK_FILE_OPEN, buf, s_dev);                             
+    }
 #undef PCV_CRIT
     return ret_prev;                               
 }

@@ -113,6 +113,12 @@ static void test_vm_minor_range(void) {
 
                                                                         
                                                                     
+static void _qos_tmp_cleanup(const gchar *tmpdir, const gchar *path) {
+    if (path)
+        g_unlink(path);
+    g_rmdir(tmpdir);
+    g_assert_false(g_file_test(tmpdir, G_FILE_TEST_EXISTS));
+}
                                                                         
 
 static void test_tenant_minor_collision_probes(void) {
@@ -144,8 +150,8 @@ static void test_tenant_minor_collision_probes(void) {
     g_assert_cmpuint(pcv_qos_tenant_minor("acme"), !=, x);
     g_assert_cmpuint(pcv_qos_tenant_minor("other"), ==, x);
 
+    _qos_tmp_cleanup(tmpdir, path);
     g_free(path);
-    g_rmdir(tmpdir);
     g_free(tmpdir);
 
     pcv_qos_ids_clear();
@@ -177,9 +183,8 @@ static void test_ids_persist_roundtrip(void) {
     g_assert_cmpuint(pcv_qos_tenant_minor("acme"), ==, t_before);
     g_assert_cmpuint(pcv_qos_vm_minor("acme", "vm1"), ==, v_before);
 
-    g_unlink(path);
+    _qos_tmp_cleanup(tmpdir, path);
     g_free(path);
-    g_rmdir(tmpdir);
     g_free(tmpdir);
 
     pcv_qos_ids_clear();
@@ -198,7 +203,7 @@ static void test_ids_load_missing_file_is_empty_ok(void) {
     g_assert_cmpuint(m, <=, 0x0FFF);
 
     g_free(missing);
-    g_rmdir(tmpdir);
+    _qos_tmp_cleanup(tmpdir, NULL);
     g_free(tmpdir);
     pcv_qos_ids_clear();
 }
@@ -229,8 +234,8 @@ static void test_ids_load_rejects_out_of_range_minor(void) {
     g_assert_cmpuint(m, <=, 0x0FFF);
     g_assert_cmpuint(m, !=, 1);
 
+    _qos_tmp_cleanup(tmpdir, path);
     g_free(path);
-    g_rmdir(tmpdir);
     g_free(tmpdir);
     pcv_qos_ids_clear();
 }
@@ -258,8 +263,8 @@ static void test_ids_load_rejects_duplicate_minor(void) {
     guint16 b = pcv_qos_tenant_minor("beta");
     g_assert_cmpuint(a, !=, b);
 
+    _qos_tmp_cleanup(tmpdir, path);
     g_free(path);
-    g_rmdir(tmpdir);
     g_free(tmpdir);
     pcv_qos_ids_clear();
 }
@@ -278,8 +283,8 @@ static void test_ids_load_rejects_json_syntax_error(void) {
 
     g_assert_false(pcv_qos_ids_load(path));                       
 
+    _qos_tmp_cleanup(tmpdir, path);
     g_free(path);
-    g_rmdir(tmpdir);
     g_free(tmpdir);
     pcv_qos_ids_clear();
 }

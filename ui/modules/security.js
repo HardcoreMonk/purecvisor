@@ -620,6 +620,11 @@ window.PCV = window.PCV || {};
         dismissAction(btn.getAttribute('data-sec-dismiss') || '');
       });
     });
+    root.querySelectorAll('[data-sec-close]').forEach(function(btn) {
+      btn.addEventListener('click', function() {
+        closeEvent(btn.getAttribute('data-sec-close') || '');
+      });
+    });
     var q = root.querySelector('#sec-filter-q');
     if (q) q.addEventListener('input', function() { applyFilters(root); });
     var enabled = root.querySelector('[data-sec-enabled]');
@@ -745,6 +750,17 @@ window.PCV = window.PCV || {};
     }
   }
 
+  function renderCloseInfo(ev) {
+    if (ev.status !== 'resolved' && ev.status !== 'suppressed') return PCV.uxlib.frag();
+    var el = PCV.uxlib.el;
+    return PCV.uxlib.frag(
+      HN.row(_L('종결 구분', 'Closed Reason'), el('code', null, ev.closed_reason || '-')),
+      HN.row(_L('종결자', 'Closed By'), ev.closed_by || '-'),
+      HN.row(_L('종결 시각', 'Closed At'), formatTs(ev.closed_at)),
+      HN.row(_L('종결 사유', 'Close Note'), el('span', { style: 'white-space:pre-wrap;overflow-wrap:anywhere' }, ev.close_note || '-'))
+    );
+  }
+
   function renderEventDetail(ev) {
                                                                   
     var el = PCV.uxlib.el;
@@ -762,6 +778,10 @@ window.PCV = window.PCV || {};
       controls.push(' ', el('button', { class: 'btn', type: 'button', 'data-sec-dismiss': ev.event_id || '' }, _L('거부', 'Dismiss')));
     }
 
+    if (ev.status === 'open' && canRole('admin')) {
+      controls.push(' ', el('button', { class: 'btn', type: 'button', 'data-sec-close': ev.event_id || '' }, _L('종결', 'Close')));
+    }
+
     return PCV.uxlib.frag(
       el('h4', null, _L('Selected Event', 'Selected Event') + ' ', badgeSeverity(ev.severity || 'info')),
       el('div', { class: 'mb-8' }, el('b', null, ev.summary || ev.event_id || '-')),
@@ -776,6 +796,7 @@ window.PCV = window.PCV || {};
       HN.row(_L('권고 대응', 'Recommended Response'), HN.statusPill(executable ? 'crit' : 'idle', (action || '-').toUpperCase())),
       HN.row(_L('감사 상관키', 'Audit Correlation'), el('code', null, 'security.event target=' + (ev.event_id || ''))),
       HN.row(_L('발생 횟수', 'Occurrences'), String(ev.occurrence_count || 1)),
+      renderCloseInfo(ev),
       el('div', { class: 'mt-10 mb-8' }, el('b', { class: 'text-12' }, _L('Evidence', 'Evidence'))),
       el('pre', { class: 'stat-label', style: 'white-space:pre-wrap;overflow:auto;max-height:260px;margin:0' }, ev.evidence_json || '{}'),
       el('div', { class: 'flex gap-6 mt-10 flex-wrap' }, controls)
@@ -986,12 +1007,37 @@ window.PCV = window.PCV || {};
     }
   }
 
+  async function closeEvent(eventId) {
+    if (!eventId) return;
+    if (!canRole('admin')) {
+      notify(_L('admin 권한이 필요합니다.', 'admin role required'), false);
+      return;
+    }
+    if (typeof showInputModal !== 'function') return;
+    var _navGen = PCV.ui.navGen();
+    var reason = await showInputModal(_L('보안 이벤트 종결', 'Close security event') + ' — ' + eventId,
+      _L('종결 사유', 'Reason'), '');
+    if (reason === null || reason === undefined) return;
+    if (!reason) {
+      notify(_L('종결 사유를 입력하세요.', 'Enter a reason to close the event.'), false);
+      return;
+    }
+    try {
+      await rpc('security.event.close', { event_id: eventId, reason: reason });
+      notify(_L('보안 이벤트를 종결했습니다', 'Security event closed'), true);
+      if (PCV.ui.navGen() === _navGen) refresh();
+    } catch (e) {
+      notify(e.message || 'failed', false);
+    }
+  }
+
   PCV.security = {
     render: renderSecurityEvents,
     refresh: refresh,
     selectEvent: selectEvent,
     approveAction: approveAction,
     dismissAction: dismissAction,
+    closeEvent: closeEvent,
     setGuardEnabled: setGuardEnabled,
     _lastEvents: function() { return lastEvents.slice(); }
   };

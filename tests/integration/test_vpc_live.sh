@@ -289,6 +289,7 @@ wait_guest()
 cleanup()
 {
     local exit_code=$?
+    local leftover_list
     local undefine_vm_a=1
     local undefine_vm_b=1
     [[ "$CLEANUP_RUNNING" -eq 0 ]] || return
@@ -349,6 +350,26 @@ cleanup()
         cleanup_mutation "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.delete\",\"params\":{\"tenant\":\"$TENANT\",\"subnet_id\":\"$subnet_id\"},\"id\":\"cleanup-subnet\"}" \
             || exit_code=1
     done
+                                                               
+    for vpc_id in "$VPC_A_ID" "$VPC_B_ID" "$VPC_ISOLATED_ID"; do
+        [[ -n "$vpc_id" ]] || continue
+        leftover_list="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.list\",\"params\":{\"tenant\":\"$TENANT\",\"vpc_id\":\"$vpc_id\"},\"id\":\"cleanup-subnet-list\"}" 2>/dev/null)"
+        while IFS= read -r subnet_id; do
+            [[ -n "$subnet_id" ]] || continue
+            log "추적하지 않은 남은 subnet 정리: $subnet_id" >&2
+            cleanup_mutation "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.delete\",\"params\":{\"tenant\":\"$TENANT\",\"subnet_id\":\"$subnet_id\"},\"id\":\"cleanup-subnet-leftover\"}" \
+                || exit_code=1
+        done < <(printf '%s' "$leftover_list" | python3 -c '
+import json, sys
+try:
+    items = json.load(sys.stdin).get("result") or []
+except ValueError:
+    items = []
+for item in items:
+    if isinstance(item, dict) and item.get("id"):
+        print(item["id"])
+' 2>/dev/null)
+    done
     SUBNET_A1_ID=""
     SUBNET_A2_ID=""
     SUBNET_B_ID=""
@@ -367,6 +388,11 @@ cleanup()
         rpc "{\"jsonrpc\":\"2.0\",\"method\":\"security_group.delete\",\"params\":{\"name\":\"$SG_NAME\"},\"id\":\"cleanup-sg\"}" >/dev/null 2>&1
     fi
     SG_CREATED=0
+
+    if [[ "$HOST_OVERLAP_CREATED" -eq 1 ]]; then
+        ip link delete "$HOST_OVERLAP_DEV" >/dev/null 2>&1
+    fi
+    HOST_OVERLAP_CREATED=0
 
     if [[ "$SOURCE_NS_CREATED" -eq 1 ]]; then
         ip netns delete "$SOURCE_NS" >/dev/null 2>&1
@@ -411,6 +437,20 @@ for command in python3 jq sqlite3 nft ip virsh cpio gzip busybox timeout file so
 done
 [[ "$(file -b /usr/bin/busybox)" == *"statically linked"* ]] \
     || die "/usr/bin/busybox가 정적 실행 파일이 아니다"
+
+                                                      
+HOST_DEFAULT_DEV="$(ip -4 route show default | awk '{for (i = 1; i < NF; i++) if ($i == "dev") {print $(i + 1); exit}}')"
+[[ -n "$HOST_DEFAULT_DEV" ]] || die "호스트 기본 경로 장치를 알 수 없다"
+HOST_LAN_IP="$(ip -4 -o addr show dev "$HOST_DEFAULT_DEV" | awk 'NR == 1 {sub(/\/.*/, "", $4); print $4}')"
+[[ -n "$HOST_LAN_IP" ]] || die "호스트 LAN 주소를 알 수 없다: dev=$HOST_DEFAULT_DEV"
+readonly HOST_LAN_IP
+log "호스트 LAN: dev=$HOST_DEFAULT_DEV ip=$HOST_LAN_IP"
+if ip link show "$HOST_OVERLAP_DEV" >/dev/null 2>&1; then
+    die "host-overlap 시험 장치가 이미 있다: $HOST_OVERLAP_DEV"
+fi
+if ip -4 route show table all | grep -qF "$HOST_OVERLAP_CIDR"; then
+    die "host-overlap 시험 대역을 이미 쓰고 있다: $HOST_OVERLAP_CIDR"
+fi
 
 BASE_STATUS="$(rpc '{"jsonrpc":"2.0","method":"vpc.status","params":{},"id":"base"}')"
 assert_field "$BASE_STATUS" result.vpc_count 0 "초기 VPC 수"
@@ -586,7 +626,12 @@ OVERLAP="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.create\",\"params\"
 OVERLAP_JOB="$(wait_job "$(field "$OVERLAP" result.job_id)" 2>&1 || true)"
 [[ "$OVERLAP_JOB" == *'"status":"failed"'* ]] \
     || die "cross-VPC overlap이 실패 Job으로 끝나지 않았다: $OVERLAP_JOB"
-HOST_OVERLAP="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.create\",\"params\":{\"tenant\":\"$TENANT\",\"vpc_id\":\"$VPC_B_ID\",\"name\":\"host-overlap\",\"cidr\":\"192.0.2.0/24\",\"mtu\":1500,\"expected_revision\":$REV_B},\"id\":\"host-overlap\"}")"
+ip link add "$HOST_OVERLAP_DEV" type dummy || die "host-overlap dummy 장치를 만들 수 없다"
+HOST_OVERLAP_CREATED=1
+ip addr add "$HOST_OVERLAP_IP/24" dev "$HOST_OVERLAP_DEV" \
+    || die "host-overlap dummy 주소를 설정할 수 없다"
+ip link set "$HOST_OVERLAP_DEV" up || die "host-overlap dummy 장치를 올릴 수 없다"
+HOST_OVERLAP="$(rpc "{\"jsonrpc\":\"2.0\",\"method\":\"vpc.subnet.create\",\"params\":{\"tenant\":\"$TENANT\",\"vpc_id\":\"$VPC_B_ID\",\"name\":\"host-overlap\",\"cidr\":\"$HOST_OVERLAP_CIDR\",\"mtu\":1500,\"expected_revision\":$REV_B},\"id\":\"host-overlap\"}")"
 HOST_OVERLAP_JOB="$(wait_job "$(field "$HOST_OVERLAP" result.job_id)" 2>&1 || true)"
 [[ "$HOST_OVERLAP_JOB" == *'"status":"failed"'* ]] \
     || die "host overlap이 실패 Job으로 끝나지 않았다: $HOST_OVERLAP_JOB"
@@ -689,7 +734,7 @@ guest_run "$VM_A" "ping -c 2 -W 1 $SOURCE_NS_IP" >/dev/null \
 if guest_run "$VM_A" "ping -c 1 -W 1 $ATTACHMENT_B_IP" >/dev/null; then
     die "cross-VPC 신규 트래픽이 통과했다"
 fi
-if guest_run "$VM_A" "nc -w 2 192.0.2.53 22 </dev/null" >/dev/null; then
+if guest_run "$VM_A" "nc -w 2 $HOST_LAN_IP 22 </dev/null" >/dev/null; then
     die "VPC VM의 host SSH 접근이 통과했다"
 fi
 pass "NAT outbound/reply 허용, cross-VPC와 host input 차단"

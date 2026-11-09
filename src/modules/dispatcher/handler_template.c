@@ -67,10 +67,12 @@
 #include "../../modules/template/vm_template.h"
 #include "../../api/uds_server.h"
 #include "../../utils/pcv_validate.h"
+#include "../../modules/resource/resource_gate.h"                              
 
 #include <glib.h>
 #include <json-glib/json-glib.h>
 #include <string.h>
+#include <sys/stat.h>
 
                                                                          
                                             
@@ -144,16 +146,19 @@ void
 handle_template_list(JsonObject *params, const gchar *rpc_id,
                      UdsServer *server, GSocketConnection *conn)
 {
-    (void)params;                                    
-
     GPtrArray *list = pcv_vm_template_list();                 
+    PcvResCaller caller = { 0 };
+    pcv_res_caller_init(&caller, params, conn);                                        
 
     JsonArray *arr = json_array_new();
     for (guint i = 0; i < list->len; i++) {
         PcvVmTemplate *t = g_ptr_array_index(list, i);
-                                                     
-        json_array_add_object_element(arr, _tmpl_to_json_obj(t));
+                                                                           
+        JsonObject *obj = pcv_res_template_view(&caller, _tmpl_to_json_obj(t));
+        if (obj)
+            json_array_add_object_element(arr, obj);
     }
+    pcv_res_caller_clear(&caller);
 
     JsonNode *node = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(node, arr);                         
@@ -235,7 +240,19 @@ handle_template_get(JsonObject *params, const gchar *rpc_id,
         return;
     }
 
-    JsonObject *obj = _tmpl_to_json_obj(t);                               
+    PcvResCaller caller = { 0 };
+    pcv_res_caller_init(&caller, params, conn);
+    JsonObject *obj = pcv_res_template_view(&caller, _tmpl_to_json_obj(t));                               
+    pcv_res_caller_clear(&caller);
+    if (!obj) {                                                    
+        gchar *msg = g_strdup_printf("Template not found: %s", name);
+        gchar *resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_INVALID_PARAMS, msg);
+        pure_uds_server_send_response(server, conn, resp);
+        g_free(resp);
+        g_free(msg);
+        pcv_vm_template_free(t);
+        return;
+    }
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, obj);                         
 
@@ -470,4 +487,38 @@ handle_template_delete(JsonObject *params, const gchar *rpc_id,
     gchar *resp = pure_rpc_build_success_response(rpc_id, node);
     pure_uds_server_send_response(server, conn, resp);
     g_free(resp);
+}
+
+
+                                                                      
+                                                 
+void handle_template_history(JsonObject *params, const gchar *rpc_id,
+                                      UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    const gchar *template_dir = "/etc/purecvisor/templates";
+    JsonArray *arr = json_array_new();
+    GDir *dir = g_dir_open(template_dir, 0, NULL);
+    if (dir) {
+        const gchar *name;
+        while ((name = g_dir_read_name(dir))) {
+            if (g_str_has_suffix(name, ".json")) {
+                JsonObject *entry = json_object_new();
+                json_object_set_string_member(entry, "name", name);
+                gchar *path = g_strdup_printf("%s/%s", template_dir, name);
+                struct stat st;
+                if (stat(path, &st) == 0) {
+                    json_object_set_int_member(entry, "mtime", (gint64)st.st_mtime);
+                    json_object_set_int_member(entry, "size", (gint64)st.st_size);
+                }
+                g_free(path);
+                json_array_add_object_element(arr, entry);
+            }
+        }
+        g_dir_close(dir);
+    }
+    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, arr);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }

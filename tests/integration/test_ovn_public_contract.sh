@@ -86,9 +86,9 @@ help_js = read("ui/modules/help.js")
 require("'ACL 규칙 목록 (switch 필수)'" in help_js and
         "'List ACL rules (switch required)'" in help_js,
         "help catalog must describe switch as the required ACL list filter")
-require("{ m: 'GET', p: '/ovn/acl?switch=ls0'" in help_js,
+require("{ m: 'GET', p: '/ovn/acl?switch=pcv-example-ls'" in help_js,
         "API explorer ACL GET must show its query string")
-require("{ m: 'GET', p: '/ovn/nat?router=lr0'" in help_js,
+require("{ m: 'GET', p: '/ovn/nat?router=pcv-example-lr'" in help_js,
         "API explorer NAT GET must show its query string")
 require("{ m: 'GET', p: '/ovn/acl'," not in help_js and
         "{ m: 'GET', p: '/ovn/nat'," not in help_js,

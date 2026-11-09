@@ -29,6 +29,7 @@ umask 077
                                                   
                                                
                                           
+                                                                  
 
 usage() {
   printf 'usage: %s [--verify-only] [--root PATH] --bpf-stage PATH\n' "$0" >&2
@@ -124,7 +125,10 @@ OPEN_REGULAR = os.O_RDONLY | os.O_CLOEXEC | os.O_NOFOLLOW | os.O_NONBLOCK
 
 
 class InstallError(Exception):
-    """공격자 입력이나 secret을 포함하지 않는 예상 설치 실패다."""
+    """공격자 입력이나 secret을 포함하지 않는 예상 설치 실패다.
+
+    예외: 낡은 임시 파일 실패는 SAFE_NAME을 통과한 고정 임시 이름만 담는다(write_temp_at).
+    """
 
 
 @dataclass(frozen=True)
@@ -527,27 +531,32 @@ def validate_bpf_stage(stage_fd):
 
 
 def unique_transaction_name(prefix):
+                                                                  
     return f".pcv-{prefix}-{secrets.token_hex(16)}"
 
 
 def write_temp_at(directory_fd, target_name, content, mode, root_mode):
-    del target_name
-    for _attempt in range(16):
-        temporary_name = unique_transaction_name("install")
-        try:
-            temporary_fd = os.open(
-                temporary_name,
-                os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
-                mode,
-                dir_fd=directory_fd,
-            )
-            break
-        except FileExistsError:
-            continue
-        except (OSError, ValueError) as exc:
-            raise InstallError("cannot prepare atomic runtime file") from exc
-    else:
-        raise InstallError("cannot allocate atomic runtime file")
+                                                               
+                                                                           
+                                  
+    if SAFE_NAME.fullmatch(target_name) is None:
+        raise InstallError("cannot prepare atomic runtime file")
+    temporary_name = f".pcv-install-{target_name}"
+    try:
+        temporary_fd = os.open(
+            temporary_name,
+            os.O_WRONLY | os.O_CREAT | os.O_EXCL | os.O_CLOEXEC | os.O_NOFOLLOW,
+            mode,
+            dir_fd=directory_fd,
+        )
+    except FileExistsError as exc:
+                                                                  
+                                                          
+        raise InstallError(
+            f"stale atomic runtime temp file exists: {temporary_name}"
+        ) from exc
+    except (OSError, ValueError) as exc:
+        raise InstallError("cannot prepare atomic runtime file") from exc
 
     try:
         os.fchmod(temporary_fd, mode)

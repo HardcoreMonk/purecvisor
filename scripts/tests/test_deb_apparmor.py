@@ -413,6 +413,20 @@ def test_real_profile_without_ovsdb_client_rule_fails():
     assert rc == 1 and "불변식7" in out and "ovsdb-client" in out, out
 
 
+def test_profile_pcvctl_rule_and_counterfactual():
+
+    src = PROFILE.read_text()
+    rule = "  /usr/local/bin/pcvctl           Ux,\n"
+    assert check_profile(src) == []
+    assert any("불변식8" in b for b in check_profile(_mutate(src, rule, "")))
+    assert any("불변식8" in b for b in check_profile(
+        _mutate(src, rule, "  # /usr/local/bin/pcvctl           Ux,\n")))
+
+def test_real_profile_without_pcvctl_rule_fails():
+    src = PROFILE.read_text()
+    rc, out = _run(profile_text=_mutate(src, "  /usr/local/bin/pcvctl           Ux,\n", ""))
+    assert rc == 1 and "불변식8" in out and "pcvctl" in out, out
+
 def test_gate_constants_match_adr():
                                                     
     adr = (ROOT / "docs/adr/0028-2.0-host-hardening-hidepid-over-apparmor-confinement.md").read_text()

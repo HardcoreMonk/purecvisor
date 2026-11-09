@@ -92,6 +92,7 @@
 #include "uds_server.h"                                        
 #include "dispatcher.h"                                                               
 #include "drain.h"                                                                                      
+#include "../modules/dispatcher/rpc_offload.h"                                                
 #include "../modules/dispatcher/rpc_utils.h"                                                    
 #include <gio/gio.h>                                                               
 #include <gio/gunixsocketaddress.h>                                             
@@ -1358,6 +1359,7 @@ void uds_server_stop(UdsServer *self) {
                                                   
 void pure_uds_server_send_response(UdsServer *self, GSocketConnection *connection, const gchar *response) {
     (void)self;              
+    if (pcv_rpc_offload_capture(response)) return;                                         
 
                      
     GOutputStream *output = g_io_stream_get_output_stream(G_IO_STREAM(connection));

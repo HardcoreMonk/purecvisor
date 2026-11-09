@@ -108,6 +108,25 @@
 gboolean pcv_validate_vm_name(const gchar *name);
 
    
+                                                                                     
+                                                                        
+   
+gboolean pcv_validate_is_uuid_like(const gchar *s);
+
+   
+                                                                    
+                                           
+   
+gboolean pcv_validate_new_vm_name(const gchar *name);
+
+   
+                                                                                                 
+                                                                                     
+                                                         
+   
+gboolean pcv_validate_new_container_name(const gchar *name);
+
+   
                                                
                                             
    
@@ -318,5 +337,12 @@ gboolean pcv_validate_ipv6_prefix(const gchar *prefix);
                                                    
    
 gboolean pcv_validate_l4_proto(const gchar *proto);
+
+   
+                                                                                    
+                                                                     
+                                                            
+   
+gboolean pcv_validate_password_complexity(const gchar *password, const gchar **reason);
 
 #endif                            

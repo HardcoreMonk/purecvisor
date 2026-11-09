@@ -244,8 +244,10 @@ for (const panel of ['cpu', 'agent']) for (const failure of ['success', 'http', 
   regression(`${panel} late ${failure} response cannot overwrite another VM dialog`, async page => {
     const result = await page.evaluate(async ({ panel, failure }) => {
       const original = vmList[0]; let release;
-      window._handler = async url => {
-        if (url.includes('/vm-a/')) {
+
+      window._handler = async (url, opts = {}) => {
+        const body = typeof opts.body === 'string' ? JSON.parse(opts.body) : null;
+        if (url.includes('/vm-a/') || body?.params?.name === 'vm-a') {
           await new Promise(resolve => { release = resolve; });
           if (failure === 'transport') throw new TypeError('OLD_VM_FAILURE');
           if (failure === 'http') return _reply({ error: { message: 'OLD_VM_FAILURE' } }, 503);

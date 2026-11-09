@@ -1,29 +1,31 @@
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                         
+                                                 
+  
+                                                                         
+                                                                  
+                                                            
+                                                          
+                                                                
+                                                  
+                                                  
+                                                     
+                                    
+   
 #include "ova_import_xml.h"
 
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
 #include <libxml/parser.h>
 #include <libxml/tree.h>
+#include <glib/gstdio.h>
 #include <string.h>
+#include <sys/stat.h>
 
-
-
-
-
+                                                                
+                                                                    
+                                                         
+                                                          
 gint64
 pcv_ova_import_virtual_size(const gchar *info_json)
 {
@@ -42,6 +44,23 @@ pcv_ova_import_virtual_size(const gchar *info_json)
     }
     g_object_unref(parser);
     return bytes;
+}
+
+                                                                 
+gboolean
+pcv_ova_import_member_name_is_safe(const gchar *name)
+{
+    if (!name || !*name || strcmp(name, ".") == 0 || strcmp(name, "..") == 0)
+        return FALSE;
+    return strpbrk(name, "/\\") == NULL;
+}
+
+                                                  
+gboolean
+pcv_ova_import_member_is_regular(const gchar *path)
+{
+    GStatBuf st = {0};
+    return path && g_lstat(path, &st) == 0 && S_ISREG(st.st_mode);
 }
 
 static xmlNodePtr
@@ -73,10 +92,10 @@ _child_named(xmlNodePtr parent, const gchar *name)
     return NULL;
 }
 
-
-
-
-
+                                               
+                                                                        
+                                                                
+                                                  
 gboolean
 pcv_ova_export_disk_source(const gchar *domain_xml, gchar **disk_path,
                            gchar **format, GError **error)
@@ -155,7 +174,7 @@ pcv_ova_import_normalize_domain_xml(const gchar *domain_xml,
     xmlNodePtr driver = _child_named(disk, "driver");
     if (!driver) {
         driver = xmlNewNode(NULL, BAD_CAST "driver");
-        xmlAddPrevSibling(source, driver);
+        xmlAddPrevSibling(source, driver);                                          
     }
     xmlSetProp(driver, BAD_CAST "name", BAD_CAST "qemu");
     xmlSetProp(driver, BAD_CAST "type", BAD_CAST format);

@@ -29,6 +29,9 @@
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 TARGET_REL = "src/api/rest_server.c"
 TARGET = ROOT / TARGET_REL
@@ -109,10 +112,15 @@ def scan_text(text: str):
 
 
 def main(argv=None) -> int:
+
     argv = list(sys.argv[1:]) if argv is None else list(argv)
-    target = Path(argv[0]) if argv else TARGET
-    rel = argv[0] if argv else TARGET_REL
-    text = target.read_text(errors="replace")
+    if argv:
+        rel = argv[0]
+        text = Path(argv[0]).read_text(errors="replace")
+    else:
+        family = rpc_extract.rest_family(ROOT)
+        rel = "rest 계열: " + ", ".join(p.relative_to(ROOT).as_posix() for p in family)
+        text = rpc_extract.rest_family_text(ROOT)
 
     reasons = scan_text(text)
     ok = not reasons

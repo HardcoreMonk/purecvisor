@@ -12,7 +12,7 @@
                                                          
                                                       
                                                   
-                                                  
+                                                               
   
                                                                        
             
@@ -32,10 +32,10 @@
                                                                    
   
                                    
-
-
-
-
+                                                                       
+                                                                   
+                                                                     
+                                                                             
   
                
                                  
@@ -55,8 +55,8 @@
                   
                                                          
                                                  
-
-
+                                                                    
+                                                                 
   
           
                                                       
@@ -76,11 +76,10 @@
 #include "utils/pcv_spawn.h"
 #include "utils/pcv_log.h"
 #include "../../include/purecvisor/pcv_validate.h"
+#include "modules/network/iface_guard.h"
 #include <errno.h>
 #include <string.h>
 #include <stdio.h>
-#include <ifaddrs.h>
-#include <net/if.h>
 #include <sys/stat.h>
 #include <sys/un.h>
 #include <unistd.h>
@@ -91,6 +90,7 @@
 #define DPDK_HUGEPAGE   "/sys/kernel/mm/hugepages"
 #define DPDK_PCI_SYSFS  "/sys/bus/pci"
 #define DPDK_DEVBIND_TIMEOUT_SEC 5u
+#define DPDK_DEVBIND_BIND_TIMEOUT_SEC 30u                                       
 #define DPDK_OVS_PROBE_TIMEOUT_SEC 2u
 #define DPDK_OVS_COMMAND_TIMEOUT_SEC 12u
 
@@ -115,10 +115,12 @@ static struct {
     GMutex   mu;
     gchar   *test_pci_sysfs_root;
     gchar   *test_devbind_path;
-    gint     test_vswitchd_state;
+    gchar   *test_net_root;                                
+    gchar   *test_proc_root;                      
+    gint     test_vswitchd_state;                           
     PcvDpdkTestOvsRunner test_ovs_runner;
     gpointer test_ovs_runner_data;
-    gint test_available_override;
+    gint test_available_override;                         
 } G = { .test_vswitchd_state = -1, .test_available_override = -1 };
 
                                                                      
@@ -157,8 +159,8 @@ _dpdk_available(void)
         ? G.test_available_override == 1 : G.available;
 }
 
-
-
+                                                                   
+                                                                             
 static gboolean
 _ovs_run_locked(const gchar * const *argv, gchar **stdout_out,
                 gchar **stderr_out, GError **error)
@@ -308,13 +310,13 @@ _dpdk_driver_is_userspace(const gchar *driver)
            g_strcmp0(driver, "uio_pci_generic") == 0;
 }
 
-
-
-
-
-
-
-
+                                                                
+                                                              
+                                                            
+                                                 
+  
+                                                   
+                                         
 static gboolean
 _dpdk_vswitchd_holds_dpdk_devices(void)
 {
@@ -403,28 +405,30 @@ _dpdk_clear_driver_override(const gchar *path, GError **error)
 }
 
                                                           
-                                                                 
+                                                              
+                                                                                  
 static gboolean
-_dpdk_run_unbind_tool(const gchar *pci_addr, GError **error)
+_dpdk_run_devbind_tool(const gchar *action, const gchar *pci_addr,
+                       guint timeout_sec, GError **error)
 {
     const gchar *override = G.test_devbind_path;
     if (override && *override) {
-        const gchar *argv[] = {override, "--unbind", pci_addr, NULL};
+        const gchar *argv[] = {override, action, pci_addr, NULL};
         gchar *stderr_text = NULL;
         gboolean ok = pcv_spawn_sync_timeout(
-            argv, NULL, &stderr_text, DPDK_DEVBIND_TIMEOUT_SEC, error);
+            argv, NULL, &stderr_text, timeout_sec, error);
         if (!ok)
-            PCV_LOG_WARN(DPDK_LOG_DOM, "devbind unbind failed: %s",
+            PCV_LOG_WARN(DPDK_LOG_DOM, "devbind %s failed: %s", action,
                          stderr_text ? stderr_text : "(null)");
         g_free(stderr_text);
         return ok;
     }
 
-    const gchar *primary[] = {"dpdk-devbind.py", "--unbind", pci_addr, NULL};
+    const gchar *primary[] = {"dpdk-devbind.py", action, pci_addr, NULL};
     gchar *stderr_text = NULL;
     GError *primary_error = NULL;
     if (pcv_spawn_sync_timeout(primary, NULL, &stderr_text,
-                               DPDK_DEVBIND_TIMEOUT_SEC, &primary_error)) {
+                               timeout_sec, &primary_error)) {
         g_free(stderr_text);
         return TRUE;
     }
@@ -441,12 +445,12 @@ _dpdk_run_unbind_tool(const gchar *pci_addr, GError **error)
     g_clear_error(&primary_error);
 
     const gchar *fallback[] = {"python3",
-        "/usr/share/dpdk/usertools/dpdk-devbind.py", "--unbind", pci_addr, NULL};
+        "/usr/share/dpdk/usertools/dpdk-devbind.py", action, pci_addr, NULL};
     stderr_text = NULL;
     gboolean ok = pcv_spawn_sync_timeout(
-        fallback, NULL, &stderr_text, DPDK_DEVBIND_TIMEOUT_SEC, error);
+        fallback, NULL, &stderr_text, timeout_sec, error);
     if (!ok)
-        PCV_LOG_WARN(DPDK_LOG_DOM, "fallback devbind unbind failed: %s",
+        PCV_LOG_WARN(DPDK_LOG_DOM, "fallback devbind %s failed: %s", action,
                      stderr_text ? stderr_text : "(null)");
     g_free(stderr_text);
     return ok;
@@ -504,6 +508,8 @@ pcv_dpdk_shutdown(void)
     g_mutex_lock(&G.mu);
     g_clear_pointer(&G.test_pci_sysfs_root, g_free);
     g_clear_pointer(&G.test_devbind_path, g_free);
+    g_clear_pointer(&G.test_net_root, g_free);
+    g_clear_pointer(&G.test_proc_root, g_free);
     G.test_vswitchd_state = -1;
     G.test_ovs_runner = NULL;
     G.test_ovs_runner_data = NULL;
@@ -543,13 +549,26 @@ pcv_dpdk_test_set_unbind_paths(const gchar *pci_sysfs_root,
     g_mutex_unlock(&G.mu);
 }
 
+                                                                               
+                                                                                  
+void
+pcv_dpdk_test_set_guard_paths(const gchar *net_root, const gchar *proc_root)
+{
+    g_mutex_lock(&G.mu);
+    g_free(G.test_net_root);
+    g_free(G.test_proc_root);
+    G.test_net_root = g_strdup(net_root);
+    G.test_proc_root = g_strdup(proc_root);
+    g_mutex_unlock(&G.mu);
+}
 
-
-
-
-
-
-
+   
+                                                                         
+                                            
+  
+                                                                 
+                                                                
+   
 void
 pcv_dpdk_test_set_vswitchd_running(gint state)
 {
@@ -559,15 +578,15 @@ pcv_dpdk_test_set_vswitchd_running(gint state)
     g_mutex_unlock(&G.mu);
 }
 
-
-
-
-
-
-
-
-
-
+   
+                                                                 
+                                                                                   
+                                            
+                                                       
+  
+                                                                          
+                                                          
+   
 void
 pcv_dpdk_test_set_ovs_runner(PcvDpdkTestOvsRunner runner, gpointer user_data,
                              gint available_override)
@@ -731,21 +750,106 @@ pcv_dpdk_hugepage_info(void)
     return obj;
 }
 
+                                                                
+
+                                                    
+                                                    
+                                                   
+                                   
+static GList *_dpdk_pci_netdevs(const gchar *pci_addr, gboolean *unreadable)
+{
+    gchar *dir = g_build_filename(_dpdk_pci_sysfs_root(), "devices", pci_addr, "net", NULL);
+    GList *out = NULL;
+    GError *error = NULL;
+    GDir *d = g_dir_open(dir, 0, &error);
+    *unreadable = !d && !g_error_matches(error, G_FILE_ERROR, G_FILE_ERROR_NOENT);
+    g_clear_error(&error);
+    if (d) {
+        const gchar *n;
+        while ((n = g_dir_read_name(d))) out = g_list_prepend(out, g_strdup(n));
+        g_dir_close(d);
+    }
+    g_free(dir);
+    return out;
+}
+
+                                                                            
+                                                                                                     
+                                                         
+static gboolean
+_dpdk_nic_protected(const gchar *pci_addr, gchar **reason)
+{
+    if (reason) *reason = NULL;
+    if (!pci_addr || !*pci_addr) return TRUE;                          
+                                                                        
+    if (!pcv_validate_pci_addr(pci_addr)) {
+        if (reason) *reason = g_strdup("refusing to bind: invalid PCI address");
+        return TRUE;
+    }
+    gboolean unreadable = FALSE;
+    GList *devs = _dpdk_pci_netdevs(pci_addr, &unreadable);
+    if (unreadable) {
+        if (reason) *reason = g_strdup_printf(
+            "refusing to bind: cannot inspect netdevs of %s (fail-secure)", pci_addr);
+        return TRUE;
+    }
+    gboolean prot = FALSE;
+    for (GList *l = devs; l && !prot; l = l->next) {
+        GError *guard_error = NULL;
+        if (!pcv_iface_guard_check_dedicated(l->data, NULL, G.test_net_root, G.test_proc_root,
+                                             NULL, &guard_error)) {
+            if (reason) *reason = g_strdup_printf(
+                "refusing to bind: NIC %s is in use by the host: %s",
+                (const gchar *)l->data, guard_error->message);
+            g_clear_error(&guard_error);
+            prot = TRUE;
+        }
+    }
+    g_list_free_full(devs, g_free);                           
+    return prot;
+}
+
+                                                                
+static gboolean
+_dpdk_require_unprotected(const gchar *pci_addr, GError **error)
+{
+    gchar *reason = NULL;
+    gboolean prot = _dpdk_nic_protected(pci_addr, &reason);
+    if (prot)
+        g_set_error(error, g_quark_from_static_string("dpdk"), 2, "%s",
+                    reason ? reason : "refusing to bind NIC in use by host");
+    g_free(reason);
+    return !prot;
+}
+
+                                                                   
+                                            
+                                                           
+                                                  
+                                                   
+                                                     
+gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason)
+{
+    return _dpdk_nic_protected(pci_addr, reason);
+}
+
                                                                      
 
    
                                       
                                                    
-                                                 
+                                                    
+                                         
                                         
                                                      
                     
   
-                                                       
-                                                
+                                                                          
+                                                                 
+                                        
   
-                                          
-                        
+                                                           
+                                                  
   
                     
    
@@ -773,21 +877,29 @@ pcv_dpdk_bind(const gchar *pci_addr, const gchar *driver, GError **error)
                     "Unsupported DPDK driver: %s", drv);
         return FALSE;
     }
-    if (!G.available) {
+    if (!_dpdk_available()) {
         g_set_error(error, g_quark_from_static_string("dpdk"), 1,
                     "OVS-DPDK not available (dpdk-init != true)");
         return FALSE;
     }
-    gchar *cmd = g_strdup_printf(
-        "dpdk-devbind.py --bind=%s %s 2>&1 || "
-        "python3 /usr/share/dpdk/usertools/dpdk-devbind.py --bind=%s %s 2>&1",
-        drv, pci_addr, drv, pci_addr);
+    gchar *action = g_strdup_printf("--bind=%s", drv);
 
     g_mutex_lock(&G.mu);
-    gboolean ok = _run_cmd(cmd, NULL, error);
+    gboolean ok = FALSE;
+    if (_dpdk_require_unprotected(pci_addr, error) &&
+        _dpdk_run_devbind_tool(action, pci_addr, DPDK_DEVBIND_BIND_TIMEOUT_SEC, error)) {
+        gboolean device_exists = FALSE;
+        gchar *actual = _dpdk_current_driver(pci_addr, &device_exists);
+        ok = device_exists && g_strcmp0(actual, drv) == 0;
+        if (!ok)
+            g_set_error(error, g_quark_from_static_string("dpdk"), 4,
+                        "PCI %s did not bind to %s (current driver: %s)",
+                        pci_addr, drv, actual ? actual : "none");
+        g_free(actual);
+    }
     g_mutex_unlock(&G.mu);
 
-    g_free(cmd);
+    g_free(action);
     if (ok)
         PCV_LOG_INFO(DPDK_LOG_DOM, "Bound %s to %s", pci_addr, drv);
     return ok;
@@ -860,9 +972,9 @@ pcv_dpdk_unbind(const gchar *pci_addr, GError **error)
         goto out;
     }
 
-
-
-
+                                                                  
+                                                       
+                                                                
     if (driver && _dpdk_vswitchd_holds_dpdk_devices()) {
         g_set_error(error, g_quark_from_static_string("dpdk"), 5,
                     "PCI %s is still owned by OVS-DPDK; delete its DPDK port, "
@@ -879,7 +991,8 @@ pcv_dpdk_unbind(const gchar *pci_addr, GError **error)
                            
                                                        
                                              
-    if (driver && !_dpdk_run_unbind_tool(pci_addr, error)) {
+    if (driver && !_dpdk_run_devbind_tool("--unbind", pci_addr,
+                                          DPDK_DEVBIND_TIMEOUT_SEC, error)) {
         goto out;
     }
     g_clear_pointer(&driver, g_free);
@@ -1000,15 +1113,16 @@ pcv_dpdk_list(void)
                                                                      
 
    
-
-
-
+                                                                              
+                   
+                                                         
                                                         
                 
   
-
-
-
+                                                        
+                                                                   
+                                                                         
+                                                                      
    
 gboolean
 pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port,
@@ -1053,7 +1167,10 @@ pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port,
 
     g_mutex_lock(&G.mu);
 
+    if (dpdk_port && *dpdk_port && !_dpdk_require_unprotected(dpdk_port, error))
+        goto out;
 
+                                                         
     if (!_ovs_find_name_locked("Bridge", name, &bridge_exists, error))
         goto out;
     if (bridge_exists) {
@@ -1161,7 +1278,7 @@ pcv_dpdk_bridge_create(const gchar *name, const gchar *dpdk_port,
     goto out;
 
 rollback:
-
+                                    
     if (physical_created) {
         const gchar *del_port[] = {
             "ovs-vsctl", "--timeout=10", "--if-exists", "del-port",
@@ -1220,9 +1337,9 @@ pcv_dpdk_bridge_delete(const gchar *name, GError **error)
     if (!ok)
         goto out;
 
-
-
-
+                                                          
+                                                              
+                                                               
     const gchar *list_ports[] = {
         "ovs-vsctl", "--timeout=10", "list-ports", name, NULL
     };
@@ -1296,9 +1413,9 @@ out:
   
                                              
                                              
-
+                                                        
   
-
+                                                                  
    
 gchar *
 pcv_dpdk_vhost_socket_path(const gchar *vm_name)
@@ -1333,8 +1450,8 @@ _dpdk_vhost_socket_path_for_endpoint(const gchar *vm_name,
     return path;
 }
 
-
-
+                                                                    
+                                                                         
 static gboolean
 _dpdk_vhost_runtime_preflight_at(const gchar *runtime_dir, GError **error)
 {
@@ -1366,7 +1483,7 @@ pcv_dpdk_vhost_runtime_preflight(GError **error)
     return _dpdk_vhost_runtime_preflight_at(DPDK_VHOST_RUNTIME_DIR, error);
 }
 
-
+                                                         
 gboolean
 pcv_dpdk_test_vhost_runtime_preflight_at(const gchar *runtime_dir,
                                          GError **error)
@@ -1526,8 +1643,8 @@ pcv_dpdk_vm_port_ensure_endpoint(const gchar *bridge_name,
         g_free(actual_path);
     }
     if (!ok && added_this_call) {
-
-
+                                                                        
+                                                              
         const gchar *rollback_argv[] = {
             "ovs-vsctl", "--timeout=10", "--if-exists", "del-port", port_name, NULL
         };
@@ -1616,123 +1733,4 @@ out:
     g_mutex_unlock(&G.mu);
     g_free(bridge); g_free(port_name);
     return ok;
-}
-
-                                                                
-
-                                                                         
-                                                    
-                                                    
-gboolean pcv_dpdk_route_is_default_dev(const gchar *netdev, const gchar *proc_base)
-{
-    if (!netdev) return FALSE;
-    gchar *path = g_strdup_printf("%s/proc/net/route", proc_base ? proc_base : "");
-    gchar *content = NULL;
-    gboolean is_def = FALSE;
-    if (g_file_get_contents(path, &content, NULL, NULL)) {
-        gchar **lines = g_strsplit(content, "\n", -1);
-        for (gint i = 1; lines[i]; i++) {                    
-            gchar **f = g_strsplit_set(lines[i], "\t ", -1);
-            gchar *iface = NULL, *dest = NULL; gint n = 0;
-            for (gchar **c = f; *c; c++) {
-                if (**c == '\0') continue;                 
-                if (n == 0) iface = *c; else if (n == 1) dest = *c;
-                n++;
-            }
-                                                                        
-                                                     
-            if (iface && dest && g_strcmp0(dest, "00000000") == 0 &&
-                g_strcmp0(iface, netdev) == 0)
-                is_def = TRUE;
-            g_strfreev(f);
-        }
-        g_strfreev(lines);
-        g_free(content);
-    }
-    g_free(path);
-    return is_def;
-}
-
-                                                    
-                                                    
-                                     
-static GList *_dpdk_pci_netdevs(const gchar *pci_addr)
-{
-    gchar *dir = g_strdup_printf("/sys/bus/pci/devices/%s/net", pci_addr);
-    GList *out = NULL;
-    GDir *d = g_dir_open(dir, 0, NULL);
-    if (d) {
-        const gchar *n;
-        while ((n = g_dir_read_name(d))) out = g_list_prepend(out, g_strdup(n));
-        g_dir_close(d);
-    }
-    g_free(dir);
-    return out;
-}
-
-                                                                
-                                                         
-                                                    
-                                                 
-                   
-                                                       
-                                                     
-static gboolean _dpdk_up_with_ipv4(const gchar *netdev, gboolean *out_ifaddr_err)
-{
-    if (out_ifaddr_err) *out_ifaddr_err = FALSE;
-    struct ifaddrs *ifa = NULL;
-    if (getifaddrs(&ifa) != 0) {
-        if (out_ifaddr_err) *out_ifaddr_err = TRUE;
-        return TRUE;                    
-    }
-    gboolean prot = FALSE;
-    for (struct ifaddrs *p = ifa; p; p = p->ifa_next) {
-        if (p->ifa_name && g_strcmp0(p->ifa_name, netdev) == 0 &&
-            p->ifa_addr && p->ifa_addr->sa_family == AF_INET &&
-            (p->ifa_flags & IFF_UP)) { prot = TRUE; break; }
-    }
-    freeifaddrs(ifa);
-    return prot;
-}
-
-                                                                   
-                                                        
-                                                      
-                                                           
-                                                  
-                                                   
-                                                     
-gboolean pcv_dpdk_nic_is_protected(const gchar *pci_addr, gchar **reason)
-{
-    if (reason) *reason = NULL;
-    if (!pci_addr || !*pci_addr) return TRUE;                          
-                                                                        
-    if (!pcv_validate_pci_addr(pci_addr)) {
-        if (reason) *reason = g_strdup("refusing to bind: invalid PCI address");
-        return TRUE;
-    }
-    GList *devs = _dpdk_pci_netdevs(pci_addr);
-    if (!devs) return FALSE;                                             
-    gboolean prot = FALSE;
-    for (GList *l = devs; l && !prot; l = l->next) {
-        const gchar *nd = l->data;
-        gboolean ifaddr_err = FALSE;
-        if (_dpdk_up_with_ipv4(nd, &ifaddr_err)) {
-                                                                  
-                                                                   
-                                                          
-            if (reason) *reason = ifaddr_err
-                ? g_strdup_printf(
-                    "refusing to bind: interface enumeration failed for %s (fail-secure)", nd)
-                : g_strdup_printf(
-                    "refusing to bind: NIC %s is up with an IPv4 address", nd);
-            prot = TRUE;
-        } else if (pcv_dpdk_route_is_default_dev(nd, "")) {
-            if (reason) *reason = g_strdup_printf(
-                "refusing to bind: NIC %s carries the default route", nd);
-            prot = TRUE;
-        }
-    }
-    g_list_free_full(devs, g_free);
-    return prot;
 }

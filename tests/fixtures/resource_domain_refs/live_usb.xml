@@ -1,0 +1,11 @@
+<domain type='kvm'>
+  <name>b</name>
+  <devices>
+    <hostdev mode='subsystem' type='usb' managed='yes'>
+      <source>
+        <vendor id='0x1d6b'/>
+        <product id='0x0002'/>
+      </source>
+    </hostdev>
+  </devices>
+</domain>

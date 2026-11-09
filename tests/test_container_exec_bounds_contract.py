@@ -1,5 +1,17 @@
 #!/usr/bin/env python3
-
+                                                                                  
+                                                                                                  
+                                                                                            
+                                                                          
+                                                                               
+                                                                                  
+                                                                        
+                                                                  
+                                                                   
+                                                                      
+                                                               
+                                                         
+                                                                            
 import re
 import sys
 import unittest
@@ -12,15 +24,16 @@ CLI_C = "src/cli/cli_rpc.c"
 API_JS = "ui/modules/api.js"
 CTR_JS = "ui/modules/container.js"
 UI_MODULES = "ui/modules"
-TERMINAL_FN = "ctrRunCmd"
+TERMINAL_FN = "ctrRunCmd"                                                           
 
 NS_KEYS = ("PCV_LXC_NS_READ_TIMEOUT_SEC", "PCV_LXC_NS_CHANGE_TIMEOUT_SEC",
            "PCV_LXC_NS_WIRING_BUDGET_SEC", "PCV_LXC_EXEC_TIMEOUT_SEC")
-EXEC_CLIENT_MARGIN_SEC = 5
-EXEC_UI_MARGIN_SEC = 10
+EXEC_CLIENT_MARGIN_SEC = 5                               
+EXEC_UI_MARGIN_SEC = 10                                   
+
 
 def strip_comments(text: str) -> str:
-
+                                                
     out, i, n = [], 0, len(text)
     while i < n:
         if text.startswith("/*", i):
@@ -44,8 +57,9 @@ def strip_comments(text: str) -> str:
             i += 1
     return "".join(out)
 
-def matching_close(text: str, open_idx: int) -> int:
 
+def matching_close(text: str, open_idx: int) -> int:
+                                                                             
     pair = {"(": ")", "{": "}"}
     opener = text[open_idx]
     closer, depth, i, n = pair[opener], 0, open_idx, len(text)
@@ -66,14 +80,16 @@ def matching_close(text: str, open_idx: int) -> int:
         i += 1
     return -1
 
-def function_body(code: str, head_re: str) -> str | None:
 
+def function_body(code: str, head_re: str) -> str | None:
+                                                        
     m = re.search(head_re + r"\s*\{", code)
     if not m:
         return None
     start = m.end() - 1
     end = matching_close(code, start)
     return None if end < 0 else code[start:end + 1]
+
 
 def ns_constants(h_text: str) -> dict[str, int]:
     code = strip_comments(h_text)
@@ -84,8 +100,9 @@ def ns_constants(h_text: str) -> dict[str, int]:
             out[key] = int(m.group(1))
     return out
 
-def rest_timeouts(text: str) -> tuple[int | None, int | None]:
 
+def rest_timeouts(text: str) -> tuple[int | None, int | None]:
+                                          
     code = strip_comments(text)
     d = re.search(r"\bREST_RPC_TIMEOUT_SEC_MW\s*=\s*(\d+)\s*;", code)
     body = function_body(code, r"\bgint\s+pcv_get_rpc_timeout\s*\(\s*const\s+gchar\s*\*\s*rpc_method\s*\)")
@@ -96,8 +113,9 @@ def rest_timeouts(text: str) -> tuple[int | None, int | None]:
         exec_v = int(m.group(1)) if m else None
     return (int(d.group(1)) if d else None), exec_v
 
-def cli_timeouts(text: str) -> tuple[int | None, int | None]:
 
+def cli_timeouts(text: str) -> tuple[int | None, int | None]:
+                                                                       
     code = strip_comments(text)
     m = re.search(r"\bguint\s+sock_timeout\s*=([^;]*);", code, re.S)
     if not m:
@@ -107,8 +125,9 @@ def cli_timeouts(text: str) -> tuple[int | None, int | None]:
     e = re.search(r'g_strcmp0\s*\(\s*method\s*,\s*"container\.exec"\s*\)\s*==\s*0\s*\)?\s*\?\s*(\d+)', chain)
     return (int(d.group(1)) if d else None), (int(e.group(1)) if e else None)
 
-def api_js_violations(text: str) -> list[str]:
 
+def api_js_violations(text: str) -> list[str]:
+                                                                                               
     code = strip_comments(text)
     errs = []
     fwt = function_body(code, r"\bfunction\s+_fetchWithTimeout\s*\(\s*url\s*,\s*opts\s*,\s*timeoutMs\s*\)")
@@ -133,12 +152,14 @@ def api_js_violations(text: str) -> list[str]:
         errs.append("fetchPost가 timeoutMs를 _fetchWithRefresh에 넘기지 않음")
     return errs
 
+
 def ui_exec_timeout_ms(ctr_text: str) -> int | None:
     m = re.search(r"\bconst\s+CTR_EXEC_TIMEOUT_MS\s*=\s*(\d+)\s*;", strip_comments(ctr_text))
     return int(m.group(1)) if m else None
 
-def split_args(args: str) -> list[str]:
 
+def split_args(args: str) -> list[str]:
+                                                            
     parts, cur, depth, i, n = [], [], 0, 0, len(args)
     while i < n:
         c = args[i]
@@ -163,17 +184,23 @@ def split_args(args: str) -> list[str]:
     parts.append("".join(cur).strip())
     return parts
 
+
 TOP_FUNC_RE = re.compile(r"^(?:async\s+)?function\s+([A-Za-z_$][\w$]*)\s*\(", re.M)
 
-def enclosing_top_function(code: str, pos: int) -> str | None:
 
+def enclosing_top_function(code: str, pos: int) -> str | None:
+                                                                         
     name = None
     for m in TOP_FUNC_RE.finditer(code, 0, pos):
         name = m.group(1)
     return name
 
-def ui_exec_call_violations(sources: dict[str, str]) -> tuple[int, int, list[str]]:
 
+def ui_exec_call_violations(sources: dict[str, str]) -> tuple[int, int, list[str]]:
+                                                      
+                                                                                       
+                                                                                  
+                                                    
     count, terminal, errs = 0, 0, []
     for name, text in sources.items():
         code = strip_comments(text)
@@ -200,8 +227,9 @@ def ui_exec_call_violations(sources: dict[str, str]) -> tuple[int, int, list[str
                             f"써야 함(상한 인자 금지): {', '.join(args[2:])}")
     return count, terminal, errs
 
-def check(texts: dict[str, str]) -> list[str]:
 
+def check(texts: dict[str, str]) -> list[str]:
+                                                                           
     errs = []
     ns = ns_constants(texts[NS_H])
     for key in NS_KEYS:
@@ -240,6 +268,7 @@ def check(texts: dict[str, str]) -> list[str]:
     errs += call_errs
     return errs
 
+
 def load_tree() -> dict[str, str]:
     texts = {}
     for rel in (NS_H, REST_C, CLI_C):
@@ -249,9 +278,11 @@ def load_tree() -> dict[str, str]:
         texts[f"{UI_MODULES}/{p.name}"] = p.read_text(errors="replace")
     return texts
 
+
 def _once(text: str, old: str, new: str) -> str:
     assert text.count(old) == 1, f"반사실 기준 문자열이 정확히 한 번 있어야 함: {old!r}"
     return text.replace(old, new)
+
 
 class ContainerExecBoundsContract(unittest.TestCase):
     def setUp(self):
@@ -320,6 +351,7 @@ class ContainerExecBoundsContract(unittest.TestCase):
         t = dict(self.texts)
         t[API_JS] = code[:m.start()] + "return _fetchWithTimeout(url, opts)" + code[m.end():]
         self.assertRed(t, "재시도 포함")
+
 
 if __name__ == "__main__":
     sys.exit(0 if unittest.main(exit=False).result.wasSuccessful() else 1)

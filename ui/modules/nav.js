@@ -132,7 +132,12 @@ function renderContent() {
   var ticket = ++_renderContentTicket;
   var generation = window._navGeneration || 0;
   var tab = currentTab;
-  PCV.uxlib.viewTransition(function() {
+
+  var paint = function(run) {
+    if (['summary', 'console', 'snapshots', 'performance', 'timeline'].indexOf(tab) >= 0) run();
+    else PCV.uxlib.viewTransition(run);
+  };
+  paint(function() {
                                                                  
                                                               
                                                                  
@@ -252,8 +257,7 @@ function _renderContentPaint(tab, generation) {
     }
     else if (_DEBUG) console.warn('Unknown tab:', tab);
   } catch (renderErr) {
-    if ((window._navGeneration || 0) !== gen) {                           }
-    else {
+    if ((window._navGeneration || 0) === gen) {
       PCV.uxlib.clearEl(b);
       b.appendChild(mk('div', { style: 'padding:40px;text-align:center' },
         mk('div', { style: 'font-size:48px;margin-bottom:12px' }, '⚠'),

@@ -101,11 +101,11 @@
                                              
 #define AUDIT_LOG_PATH  "/var/log/purecvisor/audit.log"
 
-
-
-
-
-
+                                                                          
+                                                                        
+                                                             
+                                                                
+                                          
 #ifdef PCV_TEST_OVERRIDE_AUDIT_LOG_PATH
 #undef AUDIT_LOG_DIR
 #undef AUDIT_LOG_PATH
@@ -611,20 +611,20 @@ pcv_log_init(void)
              g_pcv_log_state.audit_fp   ? AUDIT_LOG_PATH : "stderr-fallback");
 }
 
-   
-                               
   
+                        
+                                                                   
+  
+                                                                            
+                                                                  
+                                                              
+                                                                  
+                                          
+                                                                
+                            
                                                          
-                                                          
-  
-                                    
-                                                       
+              
    
-
-
-
-
-
 gboolean
 pcv_log_reopen_audit(void)
 {
@@ -647,15 +647,15 @@ pcv_log_reopen_audit(void)
     return TRUE;
 }
 
-
-
-
-
-
-
-
-
-
+   
+                               
+  
+                                                         
+                                                          
+  
+                                    
+                                                       
+   
 void
 pcv_log_shutdown(void)
 {
@@ -810,9 +810,9 @@ _pcv_log_audit(const gchar *domain,
         ts, dom_esc, req_esc, op_esc, tgt_esc, msg_esc);
 
                                                          
-
-
-                                      
+                                                        
+                                                               
+                                 
     g_mutex_lock(&g_pcv_log_state.audit_mutex);
     FILE *dest = g_pcv_log_state.audit_fp ? g_pcv_log_state.audit_fp : stderr;
     fprintf(dest, "%s\n", line);

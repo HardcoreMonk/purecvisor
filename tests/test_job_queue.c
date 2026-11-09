@@ -34,6 +34,8 @@
 #include <json-glib/json-glib.h>
 #include <stdlib.h>
 #include <sqlite3.h>
+#include <string.h>
+#include "fixtures/job_queue_legacy.h"
 #include "../src/utils/pcv_job_queue.h"
 
 static gchar *g_tmpdir = NULL;
@@ -56,7 +58,9 @@ static void teardown_db(void) {
         gchar *wal = g_strconcat(g_tmpdir, "/jobs.db-wal", NULL);
         gchar *shm = g_strconcat(g_tmpdir, "/jobs.db-shm", NULL);
         g_unlink(wal); g_unlink(shm); g_free(wal); g_free(shm);
-        g_rmdir(g_tmpdir); g_free(g_tmpdir); g_tmpdir = NULL;
+        gchar *journal = g_build_filename(g_tmpdir, "jobs.db.journal", NULL);
+        g_rmdir(journal); g_free(journal);
+        g_assert_cmpint(g_rmdir(g_tmpdir), ==, 0); g_free(g_tmpdir); g_tmpdir = NULL;
     }
 }
 
@@ -211,6 +215,55 @@ static void assert_external_count(sqlite3 *db, gint count) {
     sqlite3_finalize(stmt);
 }
 
+static void test_retention_tick_daily_gate(void) {
+    setup_db();
+    gchar *id = pcv_job_create("backup", "vm-old", NULL);
+    pcv_job_set_result(id, PCV_JOB_COMPLETED, NULL);
+    sqlite3 *db = external_db();
+    external_sql(db, "UPDATE jobs SET updated_at = strftime('%s','now') - 100000");
+    gint64 now = (gint64)time(NULL);
+    gint64 last_run = now - 100;
+    g_assert_false(pcv_job_queue_retention_tick(&last_run, now, 30));
+    g_assert_cmpint(last_run, ==, now - 100);
+    assert_external_count(db, 1);
+    sqlite3_close(db); g_free(id); teardown_db();
+}
+
+static void test_retention_tick_disabled_guard(void) {
+    setup_db();
+    gchar *id = pcv_job_create("backup", "vm-old", NULL);
+    pcv_job_set_result(id, PCV_JOB_COMPLETED, NULL);
+    sqlite3 *db = external_db();
+    external_sql(db, "UPDATE jobs SET updated_at = strftime('%s','now') - 100000");
+    gint64 now = (gint64)time(NULL);
+    gint64 last0 = 0;
+    g_assert_false(pcv_job_queue_retention_tick(&last0, now, 0));
+    assert_external_count(db, 1);
+    gint64 lastn = 0;
+    g_assert_false(pcv_job_queue_retention_tick(&lastn, now, -5));
+    assert_external_count(db, 1);
+    sqlite3_close(db); g_free(id); teardown_db();
+}
+
+static void test_retention_tick_deletes_terminal_keeps_running(void) {
+    setup_db();
+    gchar *done = pcv_job_create("backup", "vm-done", NULL);
+    pcv_job_set_result(done, PCV_JOB_COMPLETED, NULL);
+    gchar *pending = pcv_job_create("backup", "vm-pending", NULL);
+    sqlite3 *db = external_db();
+    external_sql(db, "UPDATE jobs SET updated_at = strftime('%s','now') - 100000");
+    gint64 now = (gint64)time(NULL);
+    gint64 last0 = 0;
+    g_assert_true(pcv_job_queue_retention_tick(&last0, now, 1));
+    g_assert_cmpint(last0, ==, now);
+    assert_external_count(db, 1);
+    JsonObject *job = pcv_job_get(pending);
+    g_assert_nonnull(job);
+    g_assert_cmpint((gint)json_object_get_int_member(job, "status_code"), ==, PCV_JOB_PENDING);
+    json_object_unref(job);
+    sqlite3_close(db); g_free(done); g_free(pending); teardown_db();
+}
+
 static void test_create_locked(void) {
     setup_db();
     sqlite3 *db = external_db();
@@ -362,6 +415,116 @@ static void test_durable_result(void) {
     g_free(id); sqlite3_close(db); teardown_db();
 }
 
+static void insert_job_row(sqlite3 *db, gint64 rowid, const gchar *id, const gchar *method,
+                           const gchar *target, PcvJobStatus status, gint64 created) {
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "INSERT INTO jobs(rowid,job_id,type,target,status,progress,created_at,updated_at,generation,method,outcome_known)"
+        " VALUES(?,?,?,?,?,0,?,?,'g',?,?)", -1, &stmt, NULL), ==, SQLITE_OK);
+    sqlite3_bind_int64(stmt, 1, rowid);
+    sqlite3_bind_text(stmt, 2, id, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 3, method, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_text(stmt, 4, target, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 5, status);
+    sqlite3_bind_int64(stmt, 6, created);
+    sqlite3_bind_int64(stmt, 7, created);
+    sqlite3_bind_text(stmt, 8, method, -1, SQLITE_TRANSIENT);
+    sqlite3_bind_int(stmt, 9, status == PCV_JOB_COMPLETED || status == PCV_JOB_FAILED);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_DONE);
+    sqlite3_finalize(stmt);
+}
+
+static gchar *latest_id(const gchar *method, const gchar *target) {
+    JsonObject *job = NULL;
+    g_assert_true(pcv_job_find_latest(method, target, &job));
+    gchar *id = job ? g_strdup(json_object_get_string_member(job, "job_id")) : NULL;
+    if (job) json_object_unref(job);
+    return id;
+}
+
+static void test_find_latest_absent(void) {
+    setup_db();
+    JsonObject *job = json_object_new();
+    JsonObject *keep = job;
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_null(job);
+    json_object_unref(keep);
+    teardown_db();
+}
+
+static void test_find_latest_newest_and_method_filter(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_job_row(db, 1, "job-old", "vm.delete", "web", PCV_JOB_COMPLETED, 100);
+    insert_job_row(db, 2, "job-new", "vm.delete", "web", PCV_JOB_FAILED, 200);
+    insert_job_row(db, 3, "job-create", "vm.create", "web", PCV_JOB_COMPLETED, 300);
+    insert_job_row(db, 4, "job-other", "vm.delete", "db", PCV_JOB_COMPLETED, 400);
+    gchar *id = latest_id("vm.delete", "web");
+    g_assert_cmpstr(id, ==, "job-new");
+    g_free(id);
+    JsonObject *job = NULL;
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_cmpstr(json_object_get_string_member(job, "status"), ==, "failed");
+    g_assert_cmpstr(json_object_get_string_member(job, "method"), ==, "vm.delete");
+    json_object_unref(job);
+    sqlite3_close(db); teardown_db();
+}
+
+static void test_find_latest_same_second_uses_rowid(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_job_row(db, 20, "job-later", "vm.delete", "web", PCV_JOB_COMPLETED, 300);
+    insert_job_row(db, 10, "job-earlier", "vm.delete", "web", PCV_JOB_FAILED, 300);
+    gchar *id = latest_id("vm.delete", "web");
+    g_assert_cmpstr(id, ==, "job-later");
+    g_free(id);
+    external_sql(db, "DROP INDEX idx_jobs_method_target");
+    id = latest_id("vm.delete", "web");
+    g_assert_cmpstr(id, ==, "job-later");
+    g_free(id);
+    sqlite3_close(db); teardown_db();
+}
+
+static void test_find_latest_returns_interrupted(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    insert_job_row(db, 1, "job-int", "vm.delete", "web", PCV_JOB_INTERRUPTED, 100);
+    JsonObject *job = NULL;
+    g_assert_true(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_cmpstr(json_object_get_string_member(job, "status"), ==, "interrupted");
+    g_assert_false(json_object_get_boolean_member(job, "outcome_known"));
+    json_object_unref(job);
+    sqlite3_close(db); teardown_db();
+}
+
+static void test_find_latest_disabled_ledger(void) {
+    setup_db(); pcv_job_queue_shutdown();
+    gchar *missing = g_build_filename(g_tmpdir, "missing", "jobs.db", NULL);
+    g_setenv("PCV_JOBS_DB_PATH", missing, TRUE);
+    pcv_job_queue_init();
+    JsonObject *job = NULL;
+    g_assert_false(pcv_job_find_latest("vm.delete", "web", &job));
+    g_assert_null(job);
+    g_assert_false(pcv_job_find_latest(NULL, "web", &job));
+    g_free(missing); teardown_db();
+}
+
+static void test_find_latest_index_created(void) {
+    setup_db();
+    sqlite3 *db = external_db();
+    sqlite3_stmt *stmt = NULL;
+    g_assert_cmpint(sqlite3_prepare_v2(db,
+        "SELECT sql FROM sqlite_master WHERE type='index' AND name='idx_jobs_method_target'", -1, &stmt, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_nonnull(strstr((const gchar *)sqlite3_column_text(stmt, 0), "method, target, created_at"));
+    sqlite3_finalize(stmt);
+    g_assert_cmpint(sqlite3_prepare_v2(db, "PRAGMA user_version", -1, &stmt, NULL), ==, SQLITE_OK);
+    g_assert_cmpint(sqlite3_step(stmt), ==, SQLITE_ROW);
+    g_assert_cmpint(sqlite3_column_int(stmt, 0), ==, 2);
+    sqlite3_finalize(stmt);
+    sqlite3_close(db); teardown_db();
+}
+
 void test_job_queue_register(void) {
     g_test_add_func("/job_queue/init_shutdown_idempotent", test_init_shutdown_idempotent);
     g_test_add_func("/job_queue/create_returns_id", test_create_returns_id);
@@ -373,6 +536,9 @@ void test_job_queue_register(void) {
     g_test_add_func("/job_queue/list_returns_recent", test_list_returns_recent);
     g_test_add_func("/job_queue/get_nonexistent", test_get_nonexistent);
     g_test_add_func("/job_queue/cleanup_old", test_cleanup_old);
+    g_test_add_func("/job_queue/retention_tick_daily_gate", test_retention_tick_daily_gate);
+    g_test_add_func("/job_queue/retention_tick_disabled_guard", test_retention_tick_disabled_guard);
+    g_test_add_func("/job_queue/retention_tick_deletes_terminal_keeps_running", test_retention_tick_deletes_terminal_keeps_running);
     g_test_add_func("/job_queue/create_locked", test_create_locked);
     g_test_add_func("/job_queue/collision_retry", test_collision_retry);
     g_test_add_func("/job_queue/collision_limit", test_collision_limit);
@@ -384,4 +550,10 @@ void test_job_queue_register(void) {
     g_test_add_func("/job_queue/insert_ignored", test_insert_ignored);
     g_test_add_func("/job_queue/update_ignored", test_update_ignored);
     g_test_add_func("/job_queue/durable_result", test_durable_result);
+    g_test_add_func("/job_queue/find_latest_absent", test_find_latest_absent);
+    g_test_add_func("/job_queue/find_latest_newest_and_method_filter", test_find_latest_newest_and_method_filter);
+    g_test_add_func("/job_queue/find_latest_same_second_uses_rowid", test_find_latest_same_second_uses_rowid);
+    g_test_add_func("/job_queue/find_latest_returns_interrupted", test_find_latest_returns_interrupted);
+    g_test_add_func("/job_queue/find_latest_disabled_ledger", test_find_latest_disabled_ledger);
+    g_test_add_func("/job_queue/find_latest_index_created", test_find_latest_index_created);
 }

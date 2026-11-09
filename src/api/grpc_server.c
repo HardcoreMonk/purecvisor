@@ -38,6 +38,7 @@
              
                      
                    
+                                                                        
   
                                                       
                                                            
@@ -52,7 +53,9 @@
                                                                    
                                                                 
                                                                  
-                                                                 
+                                                                                 
+                                                                                
+                                               
                                                    
                                                            
                                         
@@ -72,6 +75,7 @@
 #include "utils/pcv_tls.h"
 #include "modules/auth/pcv_rbac.h"                                                   
 #include "modules/dispatcher/rpc_utils.h"                                            
+#include "modules/resource/resource_registry.h"                                                         
 #include <glib.h>
 #include <gio/gio.h>
 #include <json-glib/json-glib.h>
@@ -217,10 +221,12 @@ _extract_result(const gchar *json_resp)
                                                                       
                                                                          
                                                              
+                                                                                                       
+                                                                               
                                               
    
 static gchar *
-_grpc_inject_caller_identity(const gchar *params_json, gint role)
+_grpc_inject_caller_identity(const gchar *params_json, gint role, const gchar *tenant)
 {
     JsonParser *parser = NULL;
     JsonObject *params = NULL;
@@ -239,8 +245,13 @@ _grpc_inject_caller_identity(const gchar *params_json, gint role)
                                                 
         json_object_remove_member(params, "_pcv_caller_role");                       
         json_object_remove_member(params, "_pcv_caller_sub");                       
+        json_object_remove_member(params, "_pcv_caller_tenant");                            
         json_object_set_int_member(params, "_pcv_caller_role", role);                      
-        json_object_set_string_member(params, "_pcv_caller_sub", "grpc");                
+        json_object_set_string_member(params, "_pcv_caller_sub", PCV_GRPC_CALLER_SUBJECT);                
+        if (tenant)
+            json_object_set_string_member(params, "_pcv_caller_tenant", tenant);                      
+        else
+            json_object_set_null_member(params, "_pcv_caller_tenant");                            
         out = json_to_string(json_parser_get_root(parser), FALSE);
     }
     if (parser) g_object_unref(parser);
@@ -248,8 +259,10 @@ _grpc_inject_caller_identity(const gchar *params_json, gint role)
     if (!out) {
                                                                  
                                                                         
+                                                                                     
         out = g_strdup_printf(
-            "{\"_pcv_caller_role\":%d,\"_pcv_caller_sub\":\"grpc\"}", role);
+            "{\"_pcv_caller_role\":%d,\"_pcv_caller_sub\":\"" PCV_GRPC_CALLER_SUBJECT "\",\"_pcv_caller_tenant\":null}",
+            role);
     }
     return out;
 }
@@ -371,11 +384,12 @@ _handle_client(int client_fd)
                                                                          
                                                                            
     extern gint G_grpc_caller_role;                                    
+    extern gchar *G_grpc_caller_tenant;                                                    
                                                                          
                                                                         
     const gchar *raw_params = (payload_len > 0 && payload[0] == '{') ? payload : "{}";
                                                        
-    gchar *params = _grpc_inject_caller_identity(raw_params, G_grpc_caller_role);
+    gchar *params = _grpc_inject_caller_identity(raw_params, G_grpc_caller_role, G_grpc_caller_tenant);
     gchar *resp = _rpc_call(rpc_method, params);                                      
     g_free(params);
 
@@ -487,6 +501,7 @@ _grpc_thread(gpointer data __attribute__((unused)))
 gchar *G_grpc_auth_token = NULL;
 gchar *G_grpc_bind_addr  = NULL;
 gint   G_grpc_caller_role = PCV_ROLE_OPERATOR;                                     
+gchar *G_grpc_caller_tenant = NULL;                                                              
 
    
                                                             
@@ -550,6 +565,18 @@ pcv_grpc_server_start(void)
                                         
     G_grpc_caller_role = _grpc_role_from_string(
         pcv_config_get_string("grpc", "role", "operator"));
+
+                                                                                               
+                                                                            
+    const gchar *cfg_tenant = pcv_config_get_string("grpc", "tenant", NULL);
+    g_clear_pointer(&G_grpc_caller_tenant, g_free);
+    if (cfg_tenant && *cfg_tenant) {
+        if (pcv_res_name_is_valid(cfg_tenant))
+            G_grpc_caller_tenant = g_strdup(cfg_tenant);
+        else
+            PCV_LOG_WARN(GRPC_LOG_DOM, "[grpc] tenant ignored — must match [A-Za-z0-9][A-Za-z0-9._-]{0,62}; "
+                         "gRPC callers get no tenant (host resource references disabled for non-admin)");
+    }
 
                                                                   
     gboolean is_loopback = (g_strcmp0(G_grpc_bind_addr, "127.0.0.1") == 0 ||

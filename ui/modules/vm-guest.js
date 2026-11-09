@@ -41,26 +41,16 @@ window.PCV = window.PCV || {};
 
 
 
+function _vmGuestModalCurrent(body) { return PCV.vm.pinnedCurrent(body); }
+function _vmGuestModalOpen(body) { return PCV.vm.pinnedOpen(body); }
 
-function _vmGuestModalCurrent(body) {
-  return !!body && body.isConnected && PCV.modalCore.currentBody() === body;
+
+
+function _vmGuestRpc(method, params) {
+  return fetchPost(EP.RPC(), { jsonrpc: '2.0', method: method, params: params, id: 'vmg-' + Date.now() });
 }
 
-
-
-function _vmGuestModalOpen(body) {
-  var dialog = body && body.closest('dialog');
-  return !!body && body.isConnected && !!dialog && dialog.open;
-}
-
-function _vmGuestModalTarget(body, kind) {
-  if (!_vmGuestModalCurrent(body)) return null;
-  var source = body._pcvGuestTarget;
-  if (!source || source.kind !== kind) return null;
-  var v = vmList.find(vm => vm && vm.name === source.name && (!source.uuid || vm.uuid === source.uuid));
-  if (!v) toast(_L('VM이 변경되었거나 없어졌습니다. 창을 다시 여세요.', 'VM changed or disappeared. Reopen the dialog.'), false);
-  return v;
-}
+function _vmGuestModalTarget(body, kind) { return PCV.vm.pinnedTarget(kind, body); }
 
                          
 function hwCpuPin() {
@@ -68,8 +58,9 @@ function hwCpuPin() {
   return [
     el('h4', null, '📌 CPU Pinning'),
     el('p', { class: 'stat-label mb-8' }, 'Pin vCPUs to physical cores for performance isolation.'),
-    el('div', { class: 'fr' }, el('label', { for: 'scpin' }, 'vCPU Map'), el('input', { id: 'scpin', placeholder: '0:0,1:2,2:4', class: 'flex-1' })),
-    el('p', { class: 'stat-label' }, 'Format: vCPU:pCPU pairs, comma separated (e.g., 0:0,1:2)'),
+    el('div', { class: 'fr' }, el('label', { for: 'scpin-vcpu' }, 'vCPU'), el('input', { id: 'scpin-vcpu', type: 'number', min: '0', placeholder: '0', class: 'flex-1' })),
+    el('div', { class: 'fr' }, el('label', { for: 'scpin-cpuset' }, _L('물리 CPU', 'Physical CPUs')), el('input', { id: 'scpin-cpuset', placeholder: '0-3,6', class: 'flex-1' })),
+    el('p', { class: 'stat-label' }, _L('한 번에 vCPU 하나씩 고정합니다. 물리 CPU는 번호와 범위를 쉼표로 적습니다(예: 0-3,6).', 'Pins one vCPU at a time. Physical CPUs are numbers and ranges, comma separated (e.g., 0-3,6).')),
     el('button', { class: 'btn btn-g mt-8', onclick: 'doCpuPin()' }, t('btn.apply'))
   ];
 }
@@ -87,11 +78,15 @@ function hwCpuPin() {
                                                
    
 async function doCpuPin() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
-  const map = document.getElementById('scpin')?.value;
-  if (!map) { toast('vCPU pin map required', false); return; }
+  const v = PCV.vm.pinnedTarget('settings'); if (!v) return;
+  const vcpu = (document.getElementById('scpin-vcpu')?.value || '').trim();
+  const cpuset = (document.getElementById('scpin-cpuset')?.value || '').trim();
+  if (!/^\d+$/.test(vcpu) || !/^\d+(-\d+)?(,\s*\d+(-\d+)?)*$/.test(cpuset)) {
+    toast(_L('vCPU 번호와 물리 CPU 목록(예: 0-3,6)을 넣으세요', 'Enter a vCPU number and a physical CPU list (e.g., 0-3,6)'), false);
+    return;
+  }
   try {
-    const r = await fetchPut(EP.VM_CPU_PIN(v.name), { vcpu_pin: map });
+    const r = await fetchPut(EP.VM_CPU_PIN(v.name), { vcpu: Number(vcpu), cpuset: cpuset });
     if (r.error) { toast('CPU pin failed: ' + (r.error.message || ''), false); return; }
     toast('CPU pinning applied: ' + v.name); addEvt('CPU pin: ' + v.name);
   } catch (e) { toast(e.message, false); }
@@ -103,9 +98,9 @@ function hwBandwidth() {
   return [
     el('h4', null, '📶 Network Bandwidth (QoS)'),
     el('p', { class: 'stat-label mb-8' }, 'Set network bandwidth limits for VM interfaces.'),
-    el('div', { class: 'fr' }, el('label', { for: 'sbw-in' }, 'Inbound (Mbps)'), el('input', { id: 'sbw-in', type: 'number', value: '1000', placeholder: '1000' })),
-    el('div', { class: 'fr' }, el('label', { for: 'sbw-out' }, 'Outbound (Mbps)'), el('input', { id: 'sbw-out', type: 'number', value: '1000', placeholder: '1000' })),
-    el('div', { class: 'fr' }, el('label', { for: 'sbw-burst' }, 'Burst (KB)'), el('input', { id: 'sbw-burst', type: 'number', value: '1024', placeholder: '1024' })),
+    el('div', { class: 'fr' }, el('label', { for: 'sbw-in' }, 'Inbound (KB/s)'), el('input', { id: 'sbw-in', type: 'number', min: '1', placeholder: '125000' })),
+    el('div', { class: 'fr' }, el('label', { for: 'sbw-out' }, 'Outbound (KB/s)'), el('input', { id: 'sbw-out', type: 'number', min: '1', placeholder: '125000' })),
+    el('p', { class: 'stat-label' }, _L('단위는 KB/s입니다(125000 KB/s는 약 1 Gbps). 빈 칸은 바꾸지 않으며 하나는 넣어야 합니다.', 'Unit is KB/s (125000 KB/s is about 1 Gbps). A blank field is left unchanged; fill in at least one.')),
     el('button', { class: 'btn btn-g mt-8', onclick: 'doBandwidth()' }, t('btn.apply'))
   ];
 }
@@ -123,13 +118,25 @@ function hwBandwidth() {
                         
    
 async function doBandwidth() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const v = PCV.vm.pinnedTarget('settings'); if (!v) return;
+
+  const readKbps = id => {
+    const raw = (document.getElementById(id)?.value || '').trim();
+    if (!raw) return null;
+    const value = /^\d+$/.test(raw) ? Number(raw) : 0;
+    return value >= 1 && value <= 2147483647 ? value : NaN;
+  };
+  const inbound = readKbps('sbw-in'), outbound = readKbps('sbw-out');
+  if (Number.isNaN(inbound) || Number.isNaN(outbound) || (inbound === null && outbound === null)) {
+    toast(_L('Inbound·Outbound 중 하나 이상에 양의 정수(KB/s)를 넣으세요', 'Enter a positive whole number (KB/s) for inbound or outbound'), false);
+    return;
+  }
+
+  const body = {};
+  if (inbound !== null) body.inbound_kbps = inbound;
+  if (outbound !== null) body.outbound_kbps = outbound;
   try {
-    const r = await fetchPut(EP.VM_BANDWIDTH(v.name), {
-      inbound_avg: parseInt(document.getElementById('sbw-in')?.value) || 1000,
-      outbound_avg: parseInt(document.getElementById('sbw-out')?.value) || 1000,
-      burst: parseInt(document.getElementById('sbw-burst')?.value) || 1024
-    });
+    const r = await fetchPut(EP.VM_BANDWIDTH(v.name), body);
     if (r.error) { toast('Bandwidth set failed: ' + (r.error.message || ''), false); return; }
     toast('Bandwidth QoS applied: ' + v.name); addEvt('Bandwidth: ' + v.name);
   } catch (e) { toast(e.message, false); }
@@ -166,7 +173,7 @@ async function showMemStats() {
   var body = PCV.modalCore.currentBody();
   var el = body.querySelector('#mem-stats-body');
   try {
-    var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.memory.stats', params: { name: v.name } });
+    var r = await _vmGuestRpc('vm.memory.stats', { name: v.name });
     if (!_vmGuestModalOpen(body)) return;
     if (r.error) throw new Error(r.error.message || 'Failed');
     var d = unwrapData(r);
@@ -221,7 +228,7 @@ async function showCpuStats() {
   var body = PCV.modalCore.currentBody();
   var statsEl = body.querySelector('#cpu-stats-body');
   try {
-    var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.cpu.stats', params: { name: v.name } });
+    var r = await _vmGuestRpc('vm.cpu.stats', { name: v.name });
     if (r && r.error) throw new Error(r.error.message || 'Request failed');
     var d = unwrapData(r);
     var el = statsEl;
@@ -277,7 +284,7 @@ function showDiskLiveResize() {
       ' ',
       el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.cancel')))
   ]);
-  PCV.modalCore.currentBody()._pcvGuestTarget = { kind: 'resize', name: v.name, uuid: v.uuid || null };
+  PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'resize', v);
 }
 
    
@@ -480,13 +487,13 @@ function showGuestAgent() {
     el('div', { class: 'mb-14 p-10 border-muted rounded-md' },
       el('h4', { class: 'mb-8' }, '💻 Execute Command'),
       el('div', { class: 'fr' }, el('label', { for: 'ga-cmd' }, 'Command'), el('input', { id: 'ga-cmd', placeholder: 'cat /etc/hostname', class: 'flex-1' })),
-      el('div', { class: 'fr' }, el('label', { for: 'ga-args' }, 'Args'), el('input', { id: 'ga-args', placeholder: '(optional, space separated)', class: 'flex-1' })),
+      el('p', { class: 'stat-label' }, _L('게스트의 /bin/sh -c가 한 줄을 그대로 실행합니다. 인자도 이 칸에 함께 적습니다.', 'The guest runs this line as-is with /bin/sh -c. Put arguments in this field too.')),
       el('button', { class: 'btn btn-g', onclick: 'gaExec()', style: 'margin-top:6px', 'data-role': 'ADMIN' }, '▶ Execute'),
       el('div', { id: 'ga-exec-result', style: 'margin-top:10px;background:var(--bg);border:1px solid var(--border);border-radius:6px;padding:10px;max-height:250px;overflow:auto;font-size:11px;font-family:var(--font-mono);white-space:pre-wrap;display:none' })),
     el('div', { class: 'text-right' }, el('button', { class: 'btn', onclick: 'closeModal()' }, t('btn.close')))
   ]);
   var body = PCV.modalCore.currentBody();
-  body._pcvGuestTarget = { kind: 'agent', name: v.name, uuid: v.uuid || null };
+  PCV.vm.pinTarget(body, 'agent', v);
   if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
   setTimeout(function() { gaRefreshStatus(body); }, 20);
 }
@@ -695,13 +702,11 @@ async function gaExec() {
   var v = _vmGuestModalTarget(body, 'agent'); if (!v) return;
   var cmd = (body.querySelector('#ga-cmd')?.value || '').trim();
   if (!cmd) { toast('Command required', false); return; }
-  var args = (body.querySelector('#ga-args')?.value || '').trim();
   var el = body.querySelector('#ga-exec-result');
   var ticket = body._pcvGaExecRequest = (body._pcvGaExecRequest || 0) + 1;
   if (el) { el.style.display = 'block'; PCV.uxlib.setMsg(el, 'loading', null, 'Executing...'); }
   try {
     var params = { name: v.name, command: cmd };
-    if (args) params.args = args.split(/\s+/);
     var r = await fetchPost(EP.VM_GUEST_EXEC(v.name), params);
     if (!_vmGuestModalCurrent(body) || body._pcvGaExecRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, 'Error: ' + (r.error.message || '')); return; }
@@ -807,7 +812,7 @@ function showBlkioEditor() {
     if (body) clearTimeout(body._pcvBlkioCloseTimer);
   } });
   body = dialog.querySelector('.modal-body');
-  body._pcvGuestTarget = { kind: 'blkio', name: v.name, uuid: v.uuid || null };
+  PCV.vm.pinTarget(body, 'blkio', v);
 }
 
 async function blkioGet() {
@@ -818,7 +823,7 @@ async function blkioGet() {
   var el = body.querySelector('#blkio-status');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, t('loading') || 'Loading...');
   try {
-    var r = await fetchPost(EP.VM_RPC(v.name), { method: 'vm.blkio.get', params: { name: v.name } });
+    var r = await _vmGuestRpc('vm.blkio.get', { name: v.name });
     if (!_vmGuestModalOpen(body) || body._pcvBlkioRequest !== ticket) return;
     if (r.error) { if (el) PCV.uxlib.setMsg(el, 'err', null, r.error.message || 'Failed'); return; }
     var d = unwrapData(r);
@@ -868,15 +873,12 @@ async function blkioSet() {
   var el = body.querySelector('#blkio-status');
   if (el) PCV.uxlib.setMsg(el, 'loading', null, t('vm.blkio_applying') || 'Applying...');
   try {
-    var r = await fetchPost(EP.VM_RPC(v.name), {
-      method: 'vm.blkio.set',
-      params: {
-        name: v.name,
-        read_bytes_sec: rdMB * 1048576,
-        write_bytes_sec: wrMB * 1048576,
-        read_iops_sec: rdIops,
-        write_iops_sec: wrIops
-      }
+    var r = await _vmGuestRpc('vm.blkio.set', {
+      name: v.name,
+      read_bytes_sec: rdMB * 1048576,
+      write_bytes_sec: wrMB * 1048576,
+      read_iops_sec: rdIops,
+      write_iops_sec: wrIops
     });
     if (r.error) {
       if (_vmGuestModalOpen(body) && body._pcvBlkioRequest === ticket && el)

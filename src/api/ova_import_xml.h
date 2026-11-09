@@ -1,13 +1,13 @@
-
-
-
-
-
-
-
-
-
-
+   
+                         
+                                                 
+  
+                                                                  
+                                                                
+                                                 
+                                                       
+                                   
+   
 #ifndef PCV_OVA_IMPORT_XML_H
 #define PCV_OVA_IMPORT_XML_H
 
@@ -15,41 +15,61 @@
 
 G_BEGIN_DECLS
 
-
-
-
-
-
-
-
-
+   
+                               
+                                              
+  
+                                                      
+                                                  
+                                                       
+   
 gint64 pcv_ova_import_virtual_size(const gchar *info_json);
 
+   
+                                      
+                                       
+  
+                                                               
+                                             
+                                    
+   
+gboolean pcv_ova_import_member_name_is_safe(const gchar *name);
 
+   
+                                    
+                         
+  
+                                                                             
+                                                        
+                                           
+   
+gboolean pcv_ova_import_member_is_regular(const gchar *path);
 
-
-
-
-
-
-
-
-
+   
+                              
+                                   
+                                                              
+                                                    
+                                                       
+  
+                                              
+                                                       
+   
 gboolean pcv_ova_export_disk_source(const gchar *domain_xml,
                                     gchar **disk_path,
                                     gchar **format,
                                     GError **error);
 
-
-
-
-
-
-
-
-
-
-
+   
+                                       
+                                              
+                               
+                                                                                  
+                                                          
+                 
+  
+                                                             
+   
 gchar *pcv_ova_import_normalize_domain_xml(const gchar *domain_xml,
                                             const gchar *disk_path,
                                             gboolean block_device,
@@ -58,4 +78,4 @@ gchar *pcv_ova_import_normalize_domain_xml(const gchar *domain_xml,
 
 G_END_DECLS
 
-#endif
+#endif                           

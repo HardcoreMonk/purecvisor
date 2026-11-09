@@ -246,18 +246,27 @@ window.PCV = window.PCV || {};
   }
 
                                                                  
+  function _loadFailed(ko, en) {
+    return PCV.uxlib.msg('err', { tag: 'div', cls: 'm-hint' }, _t(ko, en));
+  }
+
   function buildHome(d) {
     var el = PCV.uxlib.el;
     d = d || { vms: [], containers: [], alerts: [], hostCpu: 0, hostMem: 0 };
     var vms = d.vms || [], ctrs = d.containers || [], alerts = d.alerts || [];
+
+    function unknownSeg(label) { return { count: '—', label: label, status: 'idle', sub: _t('알 수 없음', 'unknown') }; }
     var vmRun = vms.filter(function (v) { return v.state === 'running'; }).length;
     var ctrRun = ctrs.filter(function (c) { return c.state === 'RUNNING'; }).length;
     var critWarn = alerts.filter(function (a) { var s = _alertSev(a); return s === 'crit' || s === 'warn'; }).length;
 
     var bar = HN.statusBar([
-      { count: vmRun, label: _t('VM 실행', 'VMs up'), status: vmRun === vms.length ? 'ok' : 'warn', sub: '/ ' + vms.length },
-      { count: ctrRun, label: _t('컨테이너', 'Containers'), status: ctrRun === ctrs.length ? 'ok' : 'warn', sub: '/ ' + ctrs.length },
-      { count: critWarn, label: _t('알림', 'Alerts'), status: critWarn > 0 ? 'crit' : 'ok', sub: _t('미해결', 'open') }
+      d.vms === null ? unknownSeg(_t('VM 실행', 'VMs up'))
+        : { count: vmRun, label: _t('VM 실행', 'VMs up'), status: vmRun === vms.length ? 'ok' : 'warn', sub: '/ ' + vms.length },
+      d.containers === null ? unknownSeg(_t('컨테이너', 'Containers'))
+        : { count: ctrRun, label: _t('컨테이너', 'Containers'), status: ctrRun === ctrs.length ? 'ok' : 'warn', sub: '/ ' + ctrs.length },
+      d.alerts === null ? unknownSeg(_t('알림', 'Alerts'))
+        : { count: critWarn, label: _t('알림', 'Alerts'), status: critWarn > 0 ? 'crit' : 'ok', sub: _t('미해결', 'open') }
     ], { onNavigate: function (s) { if (s.label === _t('알림', 'Alerts')) showTab('alerts'); else showTab('power'); } });
 
     var cpu = Math.round(d.hostCpu || 0), mem = Math.round(d.hostMem || 0);
@@ -276,9 +285,11 @@ window.PCV = window.PCV || {};
         HN.statusPill(_alertSev(record), _alertLabel(record)),
         el('span', { class: 'm-name' }, record.message || ''));
     });
-    var recent = el('div', { class: 'm-recent' }, recentItems.length
-      ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(recentItems))
-      : el('div', { class: 'm-hint' }, _t('최근 알림 없음', 'No recent alerts')));
+    var recent = el('div', { class: 'm-recent' }, d.alerts === null
+      ? _loadFailed('알림을 불러오지 못했습니다', 'Failed to load alerts')
+      : recentItems.length
+        ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(recentItems))
+        : el('div', { class: 'm-hint' }, _t('최근 알림 없음', 'No recent alerts')));
 
     return el('div', { class: 'mscreen-body' },
       _pageHead(_t('운영 개요', 'Operations overview'),
@@ -301,8 +312,8 @@ window.PCV = window.PCV || {};
     var counts = { crit: 0, warn: 0 };
     alerts.forEach(function (a) { var s = _alertSev(a); if (s === 'crit') counts.crit++; else if (s === 'warn') counts.warn++; });
     var bar = HN.filterBar([{ key: 'severity', options: [
-      { value: 'crit', label: _t('심각', 'Critical'), count: counts.crit, sw: 'crit' },
-      { value: 'warn', label: _t('경고', 'Warning'), count: counts.warn, sw: 'warn' }
+      { value: 'crit', label: _t('심각', 'Critical'), count: d.alerts === null ? null : counts.crit, sw: 'crit' },
+      { value: 'warn', label: _t('경고', 'Warning'), count: d.alerts === null ? null : counts.warn, sw: 'warn' }
     ] }]);
 
                                                      
@@ -336,9 +347,11 @@ window.PCV = window.PCV || {};
           el('div', { class: 'm-hint', style: 'padding:0' }, (record.metric || '') + ' · ' + (typeof record.value === 'number' ? record.value.toFixed(1) + '%' : ''))),
         ackCell);
     });
-    var list = rows.length
-      ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(rows))
-      : el('div', { class: 'm-hint' }, _t('알림 없음', 'No alerts'));
+    var list = d.alerts === null
+      ? _loadFailed('알림을 불러오지 못했습니다', 'Failed to load alerts')
+      : rows.length
+        ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(rows))
+        : el('div', { class: 'm-hint' }, _t('알림 없음', 'No alerts'));
 
     var silenceBtn = el('button', { class: 'btn', type: 'button',
       onClick: function () { if (typeof window.showSilenceCreate === 'function') window.showSilenceCreate(); } },
@@ -363,8 +376,8 @@ window.PCV = window.PCV || {};
     var suriCard = el('div', { class: 'm-suricata' }, HN.card('Suricata IDS/IPS', suriBody));
 
     return el('div', { class: 'mscreen-body' },
-      _pageHead(_t('알림·보안', 'Alerts and security'),
-        _t('심각 ' + counts.crit + ' · 경고 ' + counts.warn,
+      _pageHead(_t('알림·보안', 'Alerts and security'), d.alerts === null ? _t('알 수 없음', 'Unknown')
+        : _t('심각 ' + counts.crit + ' · 경고 ' + counts.warn,
           counts.crit + ' critical · ' + counts.warn + ' warning')),
       pushCard,
       bar,
@@ -378,7 +391,8 @@ window.PCV = window.PCV || {};
     var el = PCV.uxlib.el;
     d = d || { vms: [], containers: [] };
     var vms = d.vms || [], ctrs = d.containers || [];
-    _deleteSelection.forEach(function(subject, name) {
+
+    if (d.vms !== null) _deleteSelection.forEach(function(subject, name) {
       if (!vms.some(function(v) { return v.name === name && v.uuid === subject.uuid; })) _deleteSelection.delete(name);
     });
     var bulkDelete = el('button', { class: 'btn btn-r m-vm-bulk-delete', type: 'button',
@@ -442,12 +456,14 @@ window.PCV = window.PCV || {};
         actions);
     });
 
-    var vmSection = vmCards.length ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(vmCards)) : el('div', { class: 'm-hint' }, _t('VM 없음', 'No VMs'));
-    var ctrSection = ctrCards.length ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(ctrCards)) : el('div', { class: 'm-hint' }, _t('컨테이너 없음', 'No containers'));
+    var vmSection = d.vms === null ? _loadFailed('VM 목록을 불러오지 못했습니다', 'Failed to load VMs')
+      : vmCards.length ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(vmCards)) : el('div', { class: 'm-hint' }, _t('VM 없음', 'No VMs'));
+    var ctrSection = d.containers === null ? _loadFailed('컨테이너 목록을 불러오지 못했습니다', 'Failed to load containers')
+      : ctrCards.length ? el.apply(null, ['div', { class: 'mscreen-body' }].concat(ctrCards)) : el('div', { class: 'm-hint' }, _t('컨테이너 없음', 'No containers'));
 
     return el('div', { class: 'mscreen-body' },
       _pageHead(_t('전원 관리', 'Power controls'),
-        'VM ' + vms.length + ' · ' + _t('컨테이너 ', 'Containers ') + ctrs.length),
+        'VM ' + (d.vms === null ? '—' : vms.length) + ' · ' + _t('컨테이너 ', 'Containers ') + (d.containers === null ? '—' : ctrs.length)),
       el('div', { class: 'mscreen-section-title' }, 'VM'),
       el('div', { 'data-role': 'OPERATOR,ADMIN' }, bulkDelete,
         el('p', { class: 'm-hint' }, _t('체크박스로 삭제할 VM을 선택하세요.', 'Select VMs to delete using the checkboxes.'))), vmSection,
@@ -457,14 +473,14 @@ window.PCV = window.PCV || {};
     var el = PCV.uxlib.el;
     state = state || { mode: null, pending: [], history: [] };
     var pending = state.pending || [], history = state.history || [];
-    var active = state.mode === 'active';
+    var active = state.mode === 'active', dry = state.mode === 'dry_run';
 
                                                        
                                                                    
                                               
                                                    
                                                               
-    var modeBadge = HN.statusPill(active ? 'crit' : 'ok', active ? 'ACTIVE' : 'DRY RUN');
+    var modeBadge = HN.statusPill(active ? 'crit' : dry ? 'ok' : 'idle', active ? 'ACTIVE' : dry ? 'DRY RUN' : _t('알 수 없음', 'Unknown'));
     modeBadge.classList.add('m-heal-mode');
 
     var pendCards = pending.map(function (p) {
@@ -508,40 +524,45 @@ window.PCV = window.PCV || {};
                                                    
                                                     
                                                     
+  async function _fetchListOrNull(url) {
+    try {
+      var r = await fetchGet(url);
+      return (r && r.error) ? null : unwrapList(r);
+    } catch { return null; }
+  }
   async function showHome() {
     var scr = document.getElementById(SCREEN_ID); if (!scr) return;
     if (!scr.querySelector('.mscreen-body')) showSkeleton(scr, 4);
     if (!window.authToken) { _paint(_empty(_t('로그인 후 이용 가능', 'Sign in to continue'))); return; }
-    var vmsR = await fetchGet(EP.VM_LIST());
-    var ctrR = await fetchGet(EP.CTR_LIST());
-    var alR = await fetchGet(EP.ALERTS());
-    var alerts = unwrapList(alR);
+    var vms = await _fetchListOrNull(EP.VM_LIST());
+    var ctrs = await _fetchListOrNull(EP.CTR_LIST());
+    var alerts = await _fetchListOrNull(EP.ALERTS());
     var d = {
-      vms: unwrapList(vmsR), containers: unwrapList(ctrR), alerts: alerts,
+      vms: vms, containers: ctrs, alerts: alerts,
       hostCpu: (PCV.metrics && PCV.metrics.latest('host.cpu')) || 0,
       hostMem: (PCV.metrics && PCV.metrics.latest('host.mem')) || 0
     };
-    setBadges({ alerts: alerts.filter(function (a) { var s = _alertSev(a); return s === 'crit' || s === 'warn'; }).length });
+    if (alerts) setBadges({ alerts: _alertBadgeCount(alerts) });
     if (_state.activeTab === 'home') _paint(buildHome(d));
   }
   async function showAlerts() {
     var scr = document.getElementById(SCREEN_ID); if (!scr) return;
     if (!scr.querySelector('.mscreen-body')) showSkeleton(scr, 4);
     if (!window.authToken) { _paint(_empty(_t('로그인 후 이용 가능', 'Sign in to continue'))); return; }
-    var alR = await fetchGet(EP.ALERTS());
+    var alerts = await _fetchListOrNull(EP.ALERTS());
     var sur = await _rpc('suricata.status', {}).catch(function () { return null; });
     var ips = await _rpc('suricata.ips.status', {}).catch(function () { return null; });
-    _alertsData = { alerts: unwrapList(alR), suricata: sur, ips: ips };
-    setBadges({ alerts: _alertsData.alerts.filter(function (a) { var s = _alertSev(a); return s === 'crit' || s === 'warn'; }).length });
+    _alertsData = { alerts: alerts, suricata: sur, ips: ips };
+    if (alerts) setBadges({ alerts: _alertBadgeCount(alerts) });
     if (_state.activeTab === 'alerts') { _renderAlerts(); _ensureAlertsSub(); }
   }
   async function showPower() {
     var scr = document.getElementById(SCREEN_ID); if (!scr) return;
     if (!scr.querySelector('.mscreen-body')) showSkeleton(scr, 4);
     if (!window.authToken) { _paint(_empty(_t('로그인 후 이용 가능', 'Sign in to continue'))); return; }
-    var vmsR = await fetchGet(EP.VM_LIST());
-    var ctrR = await fetchGet(EP.CTR_LIST());
-    if (_state.activeTab === 'power') _paint(buildPower({ vms: unwrapList(vmsR), containers: unwrapList(ctrR) }));
+    var vms = await _fetchListOrNull(EP.VM_LIST());
+    var ctrs = await _fetchListOrNull(EP.CTR_LIST());
+    if (_state.activeTab === 'power') _paint(buildPower({ vms: vms, containers: ctrs }));
   }
   async function showHealing() {
     var scr = document.getElementById(SCREEN_ID); if (!scr) return;
@@ -567,6 +588,9 @@ window.PCV = window.PCV || {};
                                                
   var _alertsData = { alerts: [], suricata: null, ips: null };
   var _alertsSub = null;
+  function _alertBadgeCount(alerts) {
+    return alerts.filter(function (a) { var s = _alertSev(a); return s === 'crit' || s === 'warn'; }).length;
+  }
   function _renderAlerts() {
     var fs = PCV.ui && PCV.ui.filterState;
     var filter = (fs && fs.current().severity) || [];
@@ -691,11 +715,11 @@ window.PCV = window.PCV || {};
   async function refreshBadges() {
     if (!window.authToken) return;
     try {
-      var aR = await fetchGet(EP.ALERTS());
-      var alerts = unwrapList(aR).filter(function (a) { var s = _alertSev(a); return s === 'crit' || s === 'warn'; }).length;
+      var alerts = await _fetchListOrNull(EP.ALERTS());
+      if (alerts) setBadges({ alerts: _alertBadgeCount(alerts) });
       var hR = await _rpc('healing.pending', {});
       var healing = Array.isArray(hR) ? hR.length : 0;
-      setBadges({ alerts: alerts, healing: healing });
+      setBadges({ healing: healing });
     } catch {                                                                        }
   }
   function _wireLiveRefresh() {
@@ -718,6 +742,7 @@ window.PCV = window.PCV || {};
     vmStatus: vmStatus, ctrStatus: ctrStatus, sevStatus: sevStatus,
     TABS: TABS,
     _wireLiveRefresh: _wireLiveRefresh,
+    _refreshBadges: refreshBadges,
     get activeTab() { return _state.activeTab; }
   };
 })(window.PCV);

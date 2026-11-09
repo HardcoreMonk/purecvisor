@@ -50,7 +50,6 @@
 #include "modules/network/network_firewall.h"                                        
 #include "modules/network/network_dhcp.h"                                    
 #include "utils/pcv_config.h"
-#include "utils/pcv_validate.h"                                               
 
   
                                                                 
@@ -101,7 +100,7 @@ pcv_bootstrap_init_federation(void)
                                                          
                                                        
                                                  
-                                                                 
+                                                                           
    
 void
 pcv_bootstrap_init_runtime_network(void)
@@ -129,13 +128,19 @@ pcv_bootstrap_init_runtime_network(void)
                                          
                                                                 
                                                                            
-                                                       
-                                                        
-                                                          
-                             
                                                          
                                                      
                                             
+                                                                                              
+                                                                           
+                                                                
+    GError *gfw_err = NULL;
+    if (!network_firewall_reconcile(&gfw_err)) {
+        g_warning("[init] guest firewall reconcile failed (이전 규칙 유지): %s",
+                  gfw_err ? gfw_err->message : "unknown");
+        g_clear_error(&gfw_err);
+    }
+
     if (pcv_config_get_int("network", "default_ensure", 1)) {
         const gchar *def_br   = pcv_config_get_string("network", "default_bridge", "pcvnat0");
         const gchar *def_cidr = pcv_config_get_string("network", "default_subnet", "10.78.0.1/24");
@@ -159,19 +164,15 @@ pcv_bootstrap_init_runtime_network(void)
         }
 
         if (br_exists) {
-            gchar *nat_mark = g_strdup_printf(PCV_NETWORK_RUNDIR "/nat-%s.ok", def_br);
-            if (!g_file_test(nat_mark, G_FILE_TEST_EXISTS)) {
-                if (network_firewall_setup_nat(def_br, def_cidr, &net_err)) {
-                    if (!g_file_set_contents(nat_mark, "ok\n", -1, NULL))
-                        g_warning("[init] NAT marker write failed: %s", nat_mark);
-                    g_message("[init] default NAT rules applied on '%s'", def_br);
-                } else {
-                    g_warning("[init] default NAT setup failed (재시작 시 재시도): %s",
-                              net_err ? net_err->message : "unknown");
-                    g_clear_error(&net_err);
-                }
+                                                                                           
+                                                                                          
+            if (network_firewall_setup_nat(def_br, def_cidr, &net_err)) {
+                g_message("[init] default NAT rules applied on '%s'", def_br);
+            } else {
+                g_warning("[init] default NAT setup failed (재시작 시 재시도): %s",
+                          net_err ? net_err->message : "unknown");
+                g_clear_error(&net_err);
             }
-            g_free(nat_mark);
 
                                                      
                                                            
@@ -210,8 +211,8 @@ pcv_bootstrap_init_runtime_network(void)
     if (!ovl_br || !*ovl_br)                                         
         return;
 
-
-
+                                              
+                                                           
     GError *ovl_err = NULL;
     gboolean ovl_created = pcv_overlay_create(
         ovl_br,

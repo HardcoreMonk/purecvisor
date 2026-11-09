@@ -16,7 +16,7 @@
                                                      
   
                    
-                                                                            
+                                                                           
   
               
                                                            
@@ -36,7 +36,7 @@
                             
                                                                       
                                                      
-                                                                
+                                                               
   
                         
                                                   
@@ -122,7 +122,7 @@ void purecvisor_vm_config_set_iso(PureCVisorVmConfig *config, const gchar *path)
                                                     
   
                                            
-                                         
+                                        
    
                        
 void purecvisor_vm_config_set_network_bridge(PureCVisorVmConfig *config, const gchar *bridge_name);
@@ -151,7 +151,7 @@ void purecvisor_vm_config_set_vlan_id(PureCVisorVmConfig *config, gint vlan_id);
   
                                                                
                                                    
-                                                      
+                                                     
                                                             
                                                  
                                                              
@@ -206,7 +206,7 @@ const gchar *purecvisor_vm_config_get_tenant(PureCVisorVmConfig *config);
                                                                   
   
                                      
-                                                      
+                                                     
   
                                                       
    

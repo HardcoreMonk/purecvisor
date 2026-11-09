@@ -5,6 +5,11 @@
 Single Edge 적용 상태: 활성
 관계: ADR-0001, ADR-0026, ADR-0028
 
+> **2026-10-09 확장:** Retis 수집 호출만 여섯 번째 고정 프로필 keep-5+BPF+SYSLOG로 추가한다.
+> 이 ADR의 기존 parent/base/runtime·ceiling·중앙 launcher 결정과 과거 Verified 근거는 보존한다.
+
+> **2026-10-18 확장:** LXC unprivileged 경로는 프로필을 더하지 않고 storage(chown·chmod)·runtime(lxc-usernsexec) 프로필을 명시 API로 쓴다. 데몬 Effective keep-5는 그대로다.
+
 ## 맥락
 
 `pcv_privdrop_capabilities()`는 데몬의 Permitted/Effective/Inheritable 집합에서

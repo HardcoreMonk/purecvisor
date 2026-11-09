@@ -1,29 +1,29 @@
 #!/usr/bin/env python3
+                          
+                                                            
+                                                                        
+                                                                        
+                                                                           
+ 
+                      
+                                                             
+                                 
+                                                   
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+                  
+                                                             
+                                            
+                                                   
+                       
+                                           
+   
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
-import check_no_shell_exec as gate
+import check_no_shell_exec as gate              
 
 GATE = Path(__file__).resolve().parent.parent / "check_no_shell_exec.py"
 MONITOR = gate.ROOT / "src" / "modules" / "dispatcher" / "handler_monitor.c"
@@ -37,13 +37,13 @@ def _run_on(files: dict) -> subprocess.CompletedProcess:
 
 
 def test_current_tree_passes():
-
+                                              
     result = subprocess.run([sys.executable, str(GATE)], capture_output=True, text=True)
     assert result.returncode == 0, f"{result.stdout}\n{result.stderr}"
 
 
 def test_legacy_arp_popen_is_blocked():
-
+                                                                   
     body = ('#include <stdio.h>\n'
             'void f(void) {\n'
             '    FILE *arp = popen("arp -n 2>/dev/null", "r");\n'
@@ -56,7 +56,7 @@ def test_legacy_arp_popen_is_blocked():
 
 
 def test_spaced_and_macro_calls_are_blocked():
-
+                                      
     body = ('#define RUN(c) system (c)\n'
             'int g(const char *c) { return system\t(c); }\n')
     assert [name for _, name in gate.find_violations(body)] == ["system", "system"]
@@ -64,7 +64,7 @@ def test_spaced_and_macro_calls_are_blocked():
 
 
 def test_mentions_members_and_prefixed_names_pass():
-
+                                             
     body = ('/* system()/popen() 금지 — pcv_spawn_sync() 사용 */\n'
             '// popen("x") 예시\n'
             'static const char *m = "use system() never popen(\\"x\\")";\n'
@@ -78,17 +78,18 @@ def test_mentions_members_and_prefixed_names_pass():
 
 
 def test_comment_disguise_does_not_hide_real_call():
-
+                                     
     body = 'void z(void) { /* safe */ popen("id", "r"); }\n'
     assert gate.find_violations(body) == [(1, "popen")]
 
 
 def test_reintroduced_popen_in_monitor_copy_fails():
-
+                                                        
     text = MONITOR.read_text(encoding="utf-8")
-    anchor = "                    (void)_monitor_arp_cache_ipv4(raw_mac, vm_ip, sizeof(vm_ip));"
+                                                                                              
+    anchor = "        in.proc_net_arp_text = arp_text = _monitor_proc_net_arp_text();"
     assert anchor in text, "ARP 폴백 포맷 변경?"
-    mutated = text.replace(anchor, anchor + '\n                    pclose(popen("arp -n", "r"));')
+    mutated = text.replace(anchor, anchor + '\n        pclose(popen("arp -n", "r"));')
     assert gate.find_violations(text) == []
     assert [name for _, name in gate.find_violations(mutated)] == ["popen"]
     assert _run_on({"handler_monitor.c": mutated}).returncode == 1

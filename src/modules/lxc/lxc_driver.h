@@ -111,13 +111,14 @@ typedef struct {
     gchar       *state_str;                                            
     gchar       *ip_addr;                                                 
     gchar       *image;                                      
+    gboolean     privileged;                                                    
 } PcvLxcInfo;
 
    
                                        
   
                                                      
-                                                                   
+                                                                                                                    
    
 typedef struct {
     gchar    *name;
@@ -125,7 +126,7 @@ typedef struct {
     guint64   mem_used_bytes;                             
     guint64   mem_limit_bytes;                                       
     guint64   cpu_time_ns;                                        
-    gdouble   cpu_percent;                                                        
+    gdouble   cpu_percent;                                                                         
     guint64   net_rx_bytes;                           
     guint64   net_tx_bytes;                           
     gchar    *ip_addr;
@@ -145,7 +146,9 @@ typedef struct {
          
                                                                                 
                                                                                                
-                                                           
+                                                                                 
+                                                                                            
+                                                                                                  
   
                                                    
                                                                              
@@ -162,19 +165,19 @@ void     pcv_lxc_create_async   (const gchar        *name,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
 
-
-
-
    
                                              
   
                                                             
-                                                       
+                                                    
+                                     
   
                                                
+                                                                                           
                                                                            
-                                                                       
-                                                                          
+                                                                                      
+                                                                           
+                                          
    
 void     pcv_lxc_create_async_full(const gchar        *name,
                                   const gchar        *image,
@@ -199,7 +202,8 @@ gboolean pcv_lxc_create_finish  (GAsyncResult *result, GError **error);
          
                               
                                           
-                                                
+                                                                                                
+                                                                               
    
 void     pcv_lxc_destroy_async  (const gchar        *name,
                                   GCancellable       *cancellable,
@@ -209,24 +213,151 @@ void     pcv_lxc_destroy_async  (const gchar        *name,
                                                                      
                                                                 
                                                   
-                                                         
-                                          
+                                                                                      
+                                                                                            
+                                                             
                                                        
-                                                     
-                                            
+                                                          
+                                
 gboolean pcv_lxc_destroy_finish (GAsyncResult *result, GError **error);
+
+                                                       
+#define PCV_LXC_ZFS_DESTROY_RETRIES      10
+                 
+#define PCV_LXC_ZFS_DESTROY_INTERVAL_MS  1000
+
+   
+                             
+                                              
+                        
+  
+                                                                                                                
+                                                                                    
+                                                                                  
+                                                                     
+   
+gboolean pcv_lxc_zfs_destroy_retry(const gchar *dataset, GError **error);
+
+   
+                                             
+                                                              
+                                        
+                               
+   
+void     pcv_lxc_zfs_destroy_set_interval_for_test(guint ms);
+
+   
+                                              
+                                                                                     
+  
+                                                             
+                                                           
+   
+void     pcv_lxc_destroy_set_running_probe_for_test(gboolean (*fn)(const gchar *name));
+
+   
+                 
+                                                                        
+                                                                     
+  
+                                           
+   
+typedef struct {
+    gboolean (*is_running)(const gchar *name);
+    gboolean (*stop)(const gchar *name, gboolean force);
+} PcvLxcStopOps;
+
+   
+                                 
+                                                                                            
+                                                                                        
+  
+                                                                       
+                                                                             
+                                                            
+   
+void     pcv_lxc_stop_set_ops_for_test(const PcvLxcStopOps *ops);
+
+   
+                          
+                                                                                                           
+                                                                   
+                                                    
+   
+#define PCV_LXC_STOP_GRACE_SEC 30
+
+                                                                                                 
+                                                           
+
+   
+                   
+                           
+                                              
+                                                                                       
+                                           
+   
+gboolean    pcv_lxc_op_lock(const gchar *name);
+
+   
+                     
+                                                               
+                              
+   
+void        pcv_lxc_op_unlock(const gchar *name);
+
+   
+                
+                                                                         
+                                                                                               
+                                                                                                                             
+                                         
+   
+gboolean    pcv_lxc_halt(const gchar *name, guint grace_sec, GError **error);
+
+   
+                    
+                  
+                                                                                        
+                                
+   
+PcvLxcState pcv_lxc_state_of(const gchar *name);
+
+   
+                      
+                 
+                                                                                                     
+                                  
+   
+const gchar *pcv_lxc_state_name(PcvLxcState state);
+
+   
+                          
+                                               
+  
+                                                                                          
+                                                                                     
+                                                                                  
+                                                              
+   
+typedef void (*PcvLxcCloneReleaseFunc)(gpointer data);
 
    
                                         
   
-                                                         
-                           
+                                                               
+                                  
   
-                                                    
-                                                 
+                                                                                                                        
+                                                                                                          
+                                                                                                 
   
                            
                            
+                                                                                                        
+                                                                                                        
+                                                                                                     
+                                                                                                           
+                                                                
                                       
                                                          
                                                               
@@ -237,6 +368,9 @@ gboolean pcv_lxc_destroy_finish (GAsyncResult *result, GError **error);
    
 void     pcv_lxc_clone_async    (const gchar        *source,
                                   const gchar        *target,
+                                  const gchar        *subject,
+                                  PcvLxcCloneReleaseFunc release_cb,
+                                  gpointer            release_data,
                                   GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
@@ -258,6 +392,8 @@ gboolean pcv_lxc_clone          (const gchar *source, const gchar *target);
                                                                    
                 
 #include "lxc_owner.h"
+#include "lxc_userns.h"                                  
+#include "lxc_volume_guard.h"                                         
 
                                                                              
                                          
@@ -265,18 +401,37 @@ gboolean pcv_lxc_clone          (const gchar *source, const gchar *target);
 
    
                        
-                                    
-                                                      
+                                                                                                     
+                                                                                    
+                                           
+                                                                                      
+                      
    
 void     pcv_lxc_start_async    (const gchar        *name,
+                                  const gchar        *actor,
                                   GCancellable       *cancellable,
                                   GAsyncReadyCallback callback,
                                   gpointer            user_data);
                                                               
                                                           
                                               
-                                                                    
+                                                                                                    
 gboolean pcv_lxc_start_finish   (GAsyncResult *result, GError **error);
+
+   
+                      
+                              
+                      
+  
+                                                                                              
+                                                                               
+                                                                                         
+                                                                          
+                                                          
+                                                              
+                                           
+   
+gboolean pcv_lxc_start_sync     (const gchar *name, GError **error);
 
    
                        
@@ -302,10 +457,14 @@ gboolean pcv_lxc_stop_finish    (GAsyncResult *result, GError **error);
          
                                                                                
 
-                                              
-                                          
-                                                                      
-GPtrArray      *pcv_lxc_list        (GError **error);
+                                                                                                
+struct PcvPollGuard;
+
+                                                                                          
+                                                                        
+                                                             
+                                                                                                  
+GPtrArray      *pcv_lxc_list_guarded(struct PcvPollGuard *g, GError **error);
 
                              
                                                
@@ -316,6 +475,11 @@ PcvLxcMetrics  *pcv_lxc_get_metrics (const gchar *name, GError **error);
                                               
 gchar          *pcv_lxc_get_state   (const gchar *name);
 
+                                                                                             
+                                                                                       
+                                                       
+gboolean        pcv_lxc_container_privileged(const gchar *name);
+
                                                                              
            
                                                                                
@@ -323,7 +487,7 @@ gchar          *pcv_lxc_get_state   (const gchar *name);
    
                                
                                                       
-                                                           
+                                                                                                              
                                        
    
 void  pcv_lxc_exec_async  (const gchar        *name,
@@ -333,9 +497,12 @@ void  pcv_lxc_exec_async  (const gchar        *name,
                             gpointer            user_data);
                              
                                                                    
-                                                                 
-                                                            
-                                                          
+                                                                
+                                                                                  
+                                                                              
+                                                                           
+                                                             
+                        
 gchar *pcv_lxc_exec_finish (GAsyncResult *result, GError **error);
 
                                                                              
@@ -354,11 +521,46 @@ gboolean pcv_lxc_snapshot_create_finish  (GAsyncResult *result, GError **error);
 void     pcv_lxc_snapshot_rollback_async (const gchar *name, const gchar *snap_name,
                                            GCancellable *c, GAsyncReadyCallback cb,
                                            gpointer user_data);
-                                                                    
+                                                                           
                                     
+                                                                                              
+                                                                                             
+                                                                                                         
+                                                                                                                    
                                                       
-                                                              
-gboolean pcv_lxc_snapshot_rollback_finish(GAsyncResult *result, GError **error);
+                                                                                            
+gboolean pcv_lxc_snapshot_rollback_finish(GAsyncResult *result, gboolean *restart_out, GError **error);
+
+   
+                     
+                                                                                                         
+                                                                 
+                                                                                                        
+                                                                                          
+                                                         
+                                                            
+  
+                                                                                                            
+                                       
+                                                               
+   
+typedef struct {
+    gboolean    (*snapshot_exists)(const gchar *snapshot);
+    PcvLxcState (*state)(const gchar *name);
+    gboolean    (*halt)(const gchar *name, guint grace_sec, GError **error);
+    gboolean    (*residue_clear)(const gchar *lxc_path, const gchar *name, GError **error);
+    gboolean    (*zfs_rollback)(const gchar *snapshot, GError **error);
+    gboolean    (*forget)(const gchar *lxc_path, const gchar *name);
+} PcvLxcRollbackOps;
+
+   
+                                              
+                                                        
+  
+                                                                                                    
+                                                           
+   
+void     pcv_lxc_snapshot_set_rollback_ops_for_test(const PcvLxcRollbackOps *ops);
 
 void     pcv_lxc_snapshot_delete_async   (const gchar *name, const gchar *snap_name,
                                            GCancellable *c, GAsyncReadyCallback cb,
@@ -428,7 +630,7 @@ typedef struct {
     gchar *hwaddr;                 
     gchar *ipv4;                               
     gchar *veth_peer;                     
-    gboolean ipv4_unavailable;
+    gboolean ipv4_unavailable;                                                          
 } PcvLxcNicInfo;
 
                                         
@@ -437,6 +639,7 @@ void pcv_lxc_nic_info_free(PcvLxcNicInfo *nic);
    
                         
                                                          
+                                                                                    
                                          
                                                             
    
@@ -445,7 +648,11 @@ GPtrArray *pcv_lxc_nic_list(const gchar *name, GError **error);
    
                                   
                                             
-                                          
+                                                                             
+                                                                                  
+                                                                                            
+                                                                                                      
+                                                                                               
                                                         
                                       
    
@@ -453,80 +660,62 @@ gboolean pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                               const gchar *hwaddr, GError **error);
 
    
+                                            
+                                                                                        
+  
+                                                                                           
+                                                                     
+   
+void pcv_lxc_nic_attach_set_rmw_hook_for_test(void (*fn)(const gchar *name));
+
+   
                        
                                     
-                                       
-                                             
+                                                               
+                                                                                         
+                                                
+                                                                                    
+                                                                                                          
    
 gboolean pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name,
                               gchar **warning_out, GError **error);
 
    
-                                    
-                                                          
-                                         
-                                             
-                                              
+                                        
+                                                     
+                                       
+  
+                                                                               
+                                                                          
+                                                    
+                                                  
+                                                 
+                                                
+                                                 
+                                                            
    
-
-
-
-
-
-
-
 gboolean pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
                                  guint inbound_kbps, guint outbound_kbps,
                                  GError **error);
 
-
-
-
-
-
-
-
-
-
-
+   
+                                                 
+                                                       
+  
+                                                                              
+                                 
+                                                               
+                                           
+                                 
+   
 gint pcv_lxc_bw_net_index(const gchar *const *net_names, guint n_nets, const gchar *iface);
 
-
-
-
-
-
+   
+                                                                             
+                                                        
+                                                                              
+   
 gchar *pcv_lxc_bw_normalize_veth(const gchar *raw);
-
-
-
-
-
-
-typedef enum {
-    PCV_LXC_ROOTLESS_OFF,
-    PCV_LXC_ROOTLESS_ON,
-    PCV_LXC_ROOTLESS_REJECT,
-} PcvLxcRootlessDecision;
-
-
-
-
-
-
-
-
-
-PcvLxcRootlessDecision pcv_lxc_rootless_decide(gint requested, gboolean config_default,
-                                               gboolean subid_ok);
-
-
-
-
-
-
-gboolean pcv_lxc_rootless_subid_available(const gchar *subuid_path, const gchar *subgid_path,
-                                          gint start, gint count);
 
                                                                              
                         
@@ -553,15 +742,6 @@ gboolean pcv_lxc_restore(const gchar *name, const gchar *checkpoint_dir);
                                                                              
                         
                                                                                
-
-   
-                               
-                                                   
-                              
-                                                                       
-                                         
-   
-gboolean pcv_lxc_set_seccomp_profile(const gchar *name, const gchar *profile_name);
 
    
                                   

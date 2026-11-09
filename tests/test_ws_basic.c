@@ -167,9 +167,9 @@ static void
 test_ws_forwarded_clients_have_distinct_admission_keys(void)
 {
     g_autofree gchar *first =
-        pcv_rest_resolve_client_ip("127.0.0.1", "198.51.100.10", NULL);
+        pcv_rest_resolve_client_ip(TRUE, "127.0.0.1", "198.51.100.10", NULL);
     g_autofree gchar *second =
-        pcv_rest_resolve_client_ip("127.0.0.1", "198.51.100.11", NULL);
+        pcv_rest_resolve_client_ip(TRUE, "127.0.0.1", "198.51.100.11", NULL);
     g_autoptr(GHashTable) counts =
         g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
 
@@ -183,7 +183,7 @@ static void
 test_ws_direct_peer_ignores_forwarded_spoof(void)
 {
     g_autofree gchar *key =
-        pcv_rest_resolve_client_ip("192.0.2.44", "198.51.100.99",
+        pcv_rest_resolve_client_ip(FALSE, "192.0.2.44", "198.51.100.99",
                                    "198.51.100.100");
     g_autoptr(GHashTable) counts =
         g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);

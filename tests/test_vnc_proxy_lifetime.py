@@ -24,12 +24,12 @@ MODES = ("private-forward", "default-forward", "tcp-eof", "tcp-hup", "late-close
 
 def compile_fixture(binary, source):
     flags = shlex.split(subprocess.check_output(
-        ["pkg-config", "--cflags", "--libs", "libsoup-3.0", "gio-2.0", "json-glib-1.0"], text=True))
+        ["pkg-config", "--cflags", "--libs", "libsoup-3.0", "gio-2.0", "json-glib-1.0", "libvirt", "libxml-2.0"], text=True))
     command = [os.environ.get("CC", "gcc-14"), "-std=gnu23", "-D_GNU_SOURCE", "-DPCV_CLUSTER_ENABLED=0",
                "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-g", "-O1",
                "-ffunction-sections", "-fdata-sections", "-I.", "-Isrc", "-Isrc/api", "-Iinclude",
                "-Iinclude/purecvisor", f'-DPCV_VNC_SOURCE="{source}"',
-               "tests/fixtures/vnc_proxy_lifetime.c", "-Wl,--gc-sections",
+               "tests/fixtures/vnc_proxy_lifetime.c", "src/modules/dispatcher/rpc_utils.c", "src/api/drain.c", "src/modules/dispatcher/rpc_completion.c", "src/utils/pcv_worker_pool.c", "-Wl,--gc-sections",
                "-Wl,--wrap=soup_websocket_connection_close", "-Wl,--wrap=read", "-o", str(binary), *flags,
                *shlex.split(os.environ.get("PCV_VNC_TEST_CFLAGS", ""))]
     result = subprocess.run(command, cwd=ROOT, capture_output=True, text=True, timeout=90)
@@ -71,16 +71,17 @@ class VncProxyLifetime(unittest.TestCase):
     def test_rest_context_and_source_ownership_wiring(self):
 
         source = (ROOT / os.environ.get("PCV_VNC_TEST_SOURCE", "src/api/ws_server.c")).read_text()
+        source = source.replace('#include "vnc_proxy.h"', (ROOT / "src/api/vnc_proxy.h").read_text())
         source = re.sub(r"/\*.*?\*/|//[^\n]*", "", source, flags=re.S)
-        connected = source[source.index("static void\n_on_vnc_connected("):source.index("void\npcv_ws_server_init(")]
+        connected = source[source.index("static void _on_vnc_connected("):source.index("void\npcv_ws_server_init(")]
         self.assertNotIn("g_io_add_watch(", connected)
         self.assertIn("g_main_context_ref_thread_default()", connected)
-        self.assertIn("g_source_attach(vp->tcp_watch, context)", connected)
-        self.assertIn("g_io_channel_set_close_on_unref(vp->tcp_chan, FALSE)", connected)
-        cleanup = source[source.index("static void\n_vnc_proxy_free("):source.index("static void\n_vnc_proxy_close(")]
+        self.assertIn("g_source_attach(vp->tcp_watch, context)", source)
+        self.assertIn("g_io_channel_set_close_on_unref(vp->tcp_chan, FALSE)", source)
+        cleanup = source[source.index("static void _vnc_proxy_free("):source.index("static void _vnc_proxy_close(VncProxy *vp, const char *reason)\n{")]
         self.assertLess(cleanup.index("g_signal_handlers_disconnect_by_data"), cleanup.index("g_free(vp)"))
-        self.assertLess(cleanup.index("g_source_destroy"), cleanup.index("close(vp->tcp_fd)"))
-        self.assertIn("g_clear_pointer(&vp->tcp_watch, g_source_unref)", cleanup)
+        self.assertLess(cleanup.index("_vnc_source_clear"), cleanup.index("close(vp->tcp_fd)"))
+        self.assertIn("_vnc_source_clear(&vp->tcp_watch)", cleanup)
         rest = (ROOT / "src/api/rest_server.c").read_text()
         self.assertIn("g_main_context_push_thread_default(self->rest_ctx)", rest)
         self.assertIn("pcv_ws_server_init(self->soup)", rest)
@@ -95,14 +96,14 @@ class VncProxyLifetime(unittest.TestCase):
 
 def mutations():
 
-    source = (ROOT / "src/api/ws_server.c").read_text()
+    source = (ROOT / "src/api/ws_server.c").read_text().replace('#include "vnc_proxy.h"', (ROOT / "src/api/vnc_proxy.h").read_text())
     variants = {
         "keep-signal-handlers": ("g_signal_handlers_disconnect_by_data(vp->ws, vp);", "(void)vp->ws;", "late-close"),
-        "global-default-watch": ("g_source_attach(vp->tcp_watch, context);", "g_source_attach(vp->tcp_watch, NULL);", "private-forward"),
-        "keep-tcp-source": ("g_source_destroy(vp->tcp_watch);", "/* mutation: keep source */", "private-ws-first"),
+        "global-default-watch": ("g_source_attach(vp->tcp_watch, context);", "(void)context; g_source_attach(vp->tcp_watch, NULL);", "private-forward"),
+        "keep-tcp-source": ("_vnc_source_clear(&vp->tcp_watch);\n    _vnc_source_clear(&vp->write_watch);", "/* mutation: keep read source */\n    _vnc_source_clear(&vp->write_watch);", "private-ws-first"),
         "keep-tcp-fd": ("close(vp->tcp_fd);", "/* mutation: keep FD */", "private-ws-first"),
-        "skip-ws-cleanup": ("PCV_LOG_INFO(WS_LOG_DOM, \"VNC WebSocket closed\");\n    _vnc_proxy_free(vp);",
-                            "PCV_LOG_INFO(WS_LOG_DOM, \"VNC WebSocket closed\");\n    (void)vp;", "default-ws-first"),
+        "skip-ws-cleanup": ("PCV_LOG_INFO(WS_LOG_DOM,\"VNC WebSocket closed\");\n    _vnc_proxy_free(vp);",
+                            "PCV_LOG_INFO(WS_LOG_DOM,\"VNC WebSocket closed\");\n    (void)vp;", "default-ws-first"),
         "close-before-cleanup": ("_vnc_proxy_free(vp);\n    if (soup_websocket_connection_get_state(ws)",
                                  "/* mutation: cleanup after callout */\n    if (soup_websocket_connection_get_state(ws)", "tcp-eof"),
     }

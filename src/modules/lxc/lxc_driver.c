@@ -30,12 +30,11 @@
                                                                       
                                                                
                                         
-                                                                   
-                                        
+                                                                                               
+                                                                                
                                                  
-                                                          
-                                                         
-                                               
+                                                                          
+                                                     
                                                                       
                                                 
   
@@ -66,7 +65,7 @@
   
                                    
                                                     
-                                                         
+                                                                            
                                                                  
                                                              
                                                           
@@ -117,9 +116,11 @@
 
 #include "api/drain.h"
 #include "lxc_driver.h"
-#include "lxc_ns_exec.h"
-#include "lxc_volume_guard.h"
-#include "lxc_volume_stage.h"
+#include "lxc_ns_exec.h"                                      
+#include "lxc_limits.h"                                                                                
+#include "lxc_unit.h"                                                                           
+#include "lxc_volume_mount.h"                                                                                                           
+#include "lxc_clone.h"                                                                  
 
 #include <glib.h>
 #include <glib/gstdio.h>
@@ -128,11 +129,15 @@
 #include <stdio.h>
 #include <errno.h>
 #include <ftw.h>
+#include <fcntl.h>
+#include <sys/mount.h>                                                                 
 #include "utils/pcv_spawn.h"
+#include "utils/pcv_zfs_exec.h"
+#include "modules/dispatcher/poll_async.h"                                                     
 #include "utils/pcv_config.h"
 #include "utils/pcv_log.h"
-#include "utils/pcv_validate.h"
-#include <net/if.h>
+#include "utils/pcv_validate.h"                                   
+#include <net/if.h>                                                                     
 
                          
 #include <lxc/lxccontainer.h>
@@ -204,168 +209,18 @@ _unlock_container_op(const gchar *name)
     g_mutex_unlock(&g_ctr_lock_mu);
 }
 
-                                                                             
-                         
-  
-                                                     
-                                                 
-                                            
-                                                           
-                                        
-  
-                                                   
-                                                                 
-  
-                                                          
-                                            
-  
-                                                     
-                                                  
-                                                                               
-
-   
-                                                          
-                                                    
-  
-                                                   
-                                                   
-  
-                                             
-                       
-                    
-                                                          
-                                                            
-   
-
-
-
-
-
-
-static gboolean
-_rootless_check_subid(const gchar *path, gint uid_start, gint uid_count)
-{
-    gchar *contents = nullptr;
-    if (!g_file_get_contents(path, &contents, NULL, NULL))
-        return FALSE;                                             
-
-    gboolean found = FALSE;
-    gchar **lines = g_strsplit(contents, "\n", -1);
-    for (gint i = 0; lines[i]; i++) {
-                                                             
-        gchar **fields = g_strsplit(lines[i], ":", 3);                        
-        if (fields[0] && fields[1] && fields[2]) {
-            gint64 start = g_ascii_strtoll(fields[1], NULL, 10);
-            gint64 count = g_ascii_strtoll(fields[2], NULL, 10);
-                                                                                
-                                                 
-            if (start <= uid_start && start + count >= uid_start + uid_count) {
-                found = TRUE;
-                g_strfreev(fields);
-                break;                         
-            }
-        }
-        g_strfreev(fields);
-    }
-    g_strfreev(lines);
-    g_free(contents);
-    return found;
-}
-
-   
-                                                            
-  
-                                                
-gboolean
-pcv_lxc_rootless_subid_available(const gchar *subuid_path, const gchar *subgid_path,
-                                 gint start, gint count)
-{
-    if (!subuid_path || !subgid_path)
-        return FALSE;
-    return _rootless_check_subid(subuid_path, start, count) &&
-           _rootless_check_subid(subgid_path, start, count);
-}
-
-
-
-
-
-
-
-
-
-
-PcvLxcRootlessDecision
-pcv_lxc_rootless_decide(gint requested, gboolean config_default, gboolean subid_ok)
-{
-    if (requested == 1)
-        return subid_ok ? PCV_LXC_ROOTLESS_ON : PCV_LXC_ROOTLESS_REJECT;
-    if (requested == 0)
-        return PCV_LXC_ROOTLESS_OFF;
-    return (config_default && subid_ok) ? PCV_LXC_ROOTLESS_ON : PCV_LXC_ROOTLESS_OFF;
-}
-
-
-
-
-
-                                               
-                                   
-  
-                                                    
-                                                                 
-  
+                                                                                          
                                                       
-                                        
-                               
-                                                               
-                                                               
-   
-static gboolean
-_rootless_apply_config(struct lxc_container *c, gint uid_start, gint uid_count)
+gboolean
+pcv_lxc_op_lock(const gchar *name)
 {
-                                                                    
-    if (!_rootless_check_subid("/etc/subuid", uid_start, uid_count)) {
-        PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless: /etc/subuid missing range %d:%d",
-                     uid_start, uid_count);
-        return FALSE;
-    }
-    if (!_rootless_check_subid("/etc/subgid", uid_start, uid_count)) {
-        PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless: /etc/subgid missing range %d:%d",
-                     uid_start, uid_count);
-        return FALSE;
-    }
+    return _lock_container_op(name);
+}
 
-                              
-                                                         
-                                                                 
-    gchar *uid_map = g_strdup_printf("u 0 %d %d", uid_start, uid_count);
-    gchar *gid_map = g_strdup_printf("g 0 %d %d", uid_start, uid_count);
-
-    gboolean ok = TRUE;
-                                                                
-    if (!c->set_config_item(c, "lxc.idmap", uid_map)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "rootless: failed to set lxc.idmap (uid)");
-        ok = FALSE;
-    }
-    if (ok && !c->set_config_item(c, "lxc.idmap", gid_map)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "rootless: failed to set lxc.idmap (gid)");
-        ok = FALSE;
-    }
-
-    if (ok) {
-                                                       
-        c->set_config_item(c, "lxc.init.uid", "0");
-        c->set_config_item(c, "lxc.init.gid", "0");
-        PCV_LOG_INFO(LXC_LOG_DOM,
-                     "rootless: applied idmap u/g 0 %d %d", uid_start, uid_count);
-    }
-
-    g_free(uid_map);
-    g_free(gid_map);
-    return ok;
+void
+pcv_lxc_op_unlock(const gchar *name)
+{
+    _unlock_container_op(name);
 }
 
                                                                              
@@ -492,46 +347,6 @@ _lxc_get_ip(struct lxc_container *c)
     return g_strdup("N/A");
 }
 
-   
-                                                           
-  
-                                                           
-                                                          
-  
-                                                               
-                                 
-  
-                      
-                                                               
-                                           
-                                       
-  
-                                                      
-                                                             
-   
-static guint64
-_cgroup_read_u64(const gchar *cgroup_path, const gchar *filename)
-{
-                                                        
-    gchar *path_v2 = g_strdup_printf("/sys/fs/cgroup/lxc/%s/%s",
-                                     cgroup_path, filename);
-                                                               
-    gchar *path_v1 = g_strdup_printf("/sys/fs/cgroup/memory/lxc/%s/%s",
-                                     cgroup_path, filename);
-
-    guint64 value = 0;
-    gchar  *content = nullptr;
-
-    if (g_file_get_contents(path_v2, &content, NULL, NULL) ||
-        g_file_get_contents(path_v1, &content, NULL, NULL)) {
-        value = (guint64)g_ascii_strtoull(g_strstrip(content), NULL, 10);
-        g_free(content);
-    }
-    g_free(path_v2);
-    g_free(path_v1);
-    return value;
-}
-
                      
                                                           
                                                
@@ -655,6 +470,41 @@ _run_argv_capture(const gchar * const *argv, GError **error)
 }
 
                                                                              
+                                                                                          
+                                             
+static void
+_create_rollback(GTask *task, const gchar *zfs_dataset, const gchar *name, const gchar *stage,
+                 GError *cause, gboolean userns)
+{
+    GError *rb_err = nullptr;
+    gboolean removed = pcv_zfs_destroy_locked("-r", zfs_dataset, NULL, &rb_err);
+    if (!removed)
+        PCV_LOG_WARN(LXC_LOG_DOM, "create rollback: zfs destroy -r %s failed: %s",
+                     zfs_dataset, rb_err ? rb_err->message : "unknown");
+    g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s failed for '%s': %s; %s%s",
+                            stage, name, cause ? cause->message : "unknown",
+                            removed ? "container removed" : "rollback of the ZFS dataset failed, remove it manually",
+                            userns ? " (refusing privileged fallback)" : "");
+    g_clear_error(&rb_err);
+    g_clear_error(&cause);
+}
+
+                                                                                     
+                                                                   
+static gboolean
+_lxc_handle_privileged(struct lxc_container *c)
+{
+    int len = c->get_config_item(c, "lxc.idmap", NULL, 0);
+    if (len <= 0)
+        return TRUE;
+    gchar *buf = g_malloc0((gsize)len + 1);
+    gboolean privileged = c->get_config_item(c, "lxc.idmap", buf, len + 1) != len ||
+                          !pcv_lxc_userns_idmap_complete(buf);
+    g_free(buf);
+    return privileged;
+}
+
+                                                                             
          
                                                                                
 
@@ -709,36 +559,62 @@ pcv_lxc_get_state(const gchar *name)
     return result;
 }
 
+                                                                                                     
+                                         
+PcvLxcState
+pcv_lxc_state_of(const gchar *name)
+{
+    g_autofree gchar *s = pcv_lxc_get_state(name);
+    return _str_to_state(s);
+}
+
+                                                                                       
+const gchar *
+pcv_lxc_state_name(PcvLxcState state)
+{
+    return _state_to_str(state);
+}
+
+                                                                                     
+                                                                         
+gboolean
+pcv_lxc_container_privileged(const gchar *name)
+{
+    struct lxc_container *c = name ? lxc_container_new(name, PCV_LXC_PATH) : NULL;
+    gboolean privileged = !c || !c->is_defined(c) || _lxc_handle_privileged(c);
+    if (c) lxc_container_put(c);
+    return privileged;
+}
+
    
                       
                                                
                                          
-  
                                                  
                                                     
-  
-                                                         
+                                                                              
+                                                                  
    
 static void
-_ensure_zfs_mounts(void)
+_ensure_zfs_mounts(PcvPollGuard *g)
 {
     const gchar *mount_argv[] = { "zfs", "mount", "-a", NULL };
     GError *err = nullptr;
-    _run_argv(mount_argv, &err);
-    if (err) g_error_free(err);
+    (void)pcv_poll_guard_spawn(g, mount_argv, NULL, NULL, &err);
+    if (err) g_error_free(err);                                        
 }
 
-
-
-
-
-
-
+                                                                                             
+                                                          
+                                                                                 
+                                                                                                   
+                                                                                     
+                                                                    
 GPtrArray *
-pcv_lxc_list(GError **error)
+pcv_lxc_list_guarded(PcvPollGuard *g, GError **error)
 {
                                  
-    _ensure_zfs_mounts();
+    _ensure_zfs_mounts(g);
 
     GPtrArray *result = g_ptr_array_new_with_free_func(
                             (GDestroyNotify)pcv_lxc_info_free);
@@ -763,6 +639,7 @@ pcv_lxc_list(GError **error)
         info->state         = _str_to_state(raw_st);                         
         info->state_str     = g_strdup(_state_to_str(info->state));                       
         info->ip_addr       = _lxc_get_ip(c);                                
+        info->privileged    = _lxc_handle_privileged(c);                                            
 
                                                                                
         {
@@ -808,36 +685,18 @@ pcv_lxc_get_metrics(const gchar *name, GError **error)
     m->ip_addr   = _lxc_get_ip(c);
     m->init_pid  = c->init_pid(c);
 
-                           
-    m->mem_used_bytes  = _cgroup_read_u64(name, "memory.current");
+    const gchar *cg = pcv_lxc_metrics_cgroup_root();                                                               
+    m->mem_used_bytes  = pcv_lxc_cgroup_read_u64(cg, name, "memory.current");
     if (m->mem_used_bytes == 0)                        
-        m->mem_used_bytes = _cgroup_read_u64(name, "memory.usage_in_bytes");
+        m->mem_used_bytes = pcv_lxc_cgroup_read_u64(cg, name, "memory.usage_in_bytes");
 
-    m->mem_limit_bytes = _cgroup_read_u64(name, "memory.max");
+    m->mem_limit_bytes = pcv_lxc_cgroup_read_u64(cg, name, "memory.max");
     if (m->mem_limit_bytes == 0)
-        m->mem_limit_bytes = _cgroup_read_u64(name, "memory.limit_in_bytes");
+        m->mem_limit_bytes = pcv_lxc_cgroup_read_u64(cg, name, "memory.limit_in_bytes");
 
-                                                               
-    m->cpu_time_ns = _cgroup_read_u64(name, "cpuacct.usage");
-    if (m->cpu_time_ns == 0) {
-                                                           
-        gchar *path = g_strdup_printf("/sys/fs/cgroup/lxc/%s/cpu.stat", name);
-        gchar *content = nullptr;
-        if (g_file_get_contents(path, &content, NULL, NULL)) {
-            gchar **lines = g_strsplit(content, "\n", -1);
-            for (int i = 0; lines[i]; i++) {
-                if (g_str_has_prefix(lines[i], "usage_usec")) {
-                                                                           
-                    guint64 usec = g_ascii_strtoull(lines[i] + 11, NULL, 10);
-                    m->cpu_time_ns = usec * 1000;               
-                    break;
-                }
-            }
-            g_strfreev(lines);
-            g_free(content);
-        }
-        g_free(path);
-    }
+                                                                                                                
+    m->cpu_time_ns = pcv_lxc_cgroup_cpu_time_ns(cg, name);
+    m->cpu_percent = pcv_lxc_cpu_sample_record(name, (gint)m->init_pid, m->cpu_time_ns, g_get_monotonic_time() * 1000);
 
                                                                        
     if (m->init_pid > 0) {                            
@@ -898,8 +757,8 @@ pcv_lxc_get_metrics(const gchar *name, GError **error)
                                       
   
             
-                                                            
-                                 
+                                                                               
+                                                                                      
                                                                                
 
                                                          
@@ -927,7 +786,7 @@ _lxc_create_data_free(LxcCreateData *d)
                                                         
                                                                           
                                                                  
-                                                        
+                                                 
 static void
 _lxc_create_thread(GTask        *task,
                    gpointer      source_object __attribute__((unused)),
@@ -937,14 +796,14 @@ _lxc_create_thread(GTask        *task,
     LxcCreateData *d = (LxcCreateData *)task_data;
     GError *error    = nullptr;
 
-
+                                                                           
     gchar **parts   = g_strsplit(d->image, ":", 2);
     const gchar *distro  = parts[0] ? parts[0] : "ubuntu";
     const gchar *release = (parts[1] && parts[1][0]) ? parts[1] : "jammy";
 
-
-
-
+                                                          
+                                                            
+                                                  
     if (g_strcmp0(distro, "ubuntu") == 0) {
         static const struct { const char *ver; const char *code; } ubuntu_map[] = {
             {"20.04", "focal"}, {"22.04", "jammy"}, {"24.04", "noble"},
@@ -958,62 +817,44 @@ _lxc_create_thread(GTask        *task,
         }
     }
 
-
-
-
-
-
-    gint uid_start = pcv_config_get_int("container", "rootless_uid_start", 100000);
-    gint uid_count = pcv_config_get_int("container", "rootless_uid_count", 65536);
-    gboolean config_rootless;
-    {
-
-        const gchar *cfg = pcv_config_get_string("container", "rootless", "false");
-        config_rootless = (g_ascii_strcasecmp(cfg, "true") == 0 ||
-                           g_ascii_strcasecmp(cfg, "1") == 0 ||
-                           g_ascii_strcasecmp(cfg, "yes") == 0);
-    }
-    gboolean rootless_wanted = d->rootless == 1 || (d->rootless < 0 && config_rootless);
-    gboolean subid_ok = rootless_wanted &&
-        pcv_lxc_rootless_subid_available("/etc/subuid", "/etc/subgid", uid_start, uid_count);
+                                                                    
+                                                                           
+                                                             
+    PcvLxcUsernsSettings us = pcv_lxc_userns_settings_load();
+    gboolean userns_wanted = d->rootless == 1 || (d->rootless < 0 && us.default_on);
+    PcvLxcUsernsHost host = userns_wanted
+        ? pcv_lxc_userns_host_check(PCV_LXC_SUBUID_PATH, PCV_LXC_SUBGID_PATH, us.start, us.count)
+        : PCV_LXC_USERNS_READY;
     PcvLxcRootlessDecision rootless_mode =
-        pcv_lxc_rootless_decide(d->rootless, config_rootless, subid_ok);
+        pcv_lxc_rootless_decide(d->rootless, us.default_on, host == PCV_LXC_USERNS_READY);
     if (rootless_mode == PCV_LXC_ROOTLESS_REJECT) {
-        PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless requested for '%s' but /etc/subuid or /etc/subgid lacks %d:%d "
-                     "— refusing to create a privileged container", d->name, uid_start, uid_count);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "rootless=true requested for '%s' but /etc/subuid or /etc/subgid "
-                                "lacks range %d:%d; container not created (refusing privileged fallback)",
-                                d->name, uid_start, uid_count);
+        gchar *why = pcv_lxc_userns_host_message(host, us.start, us.count);
+        PCV_LOG_WARN(LXC_LOG_DOM, "container '%s' not created: %s", d->name, why);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "%s", why);
+        g_free(why);
         g_strfreev(parts);
         return;
     }
-    if (rootless_wanted && rootless_mode == PCV_LXC_ROOTLESS_OFF) {
+    if (rootless_mode == PCV_LXC_ROOTLESS_OFF)                                         
+        PCV_LOG_WARN(LXC_LOG_DOM, "creating privileged container '%s' (%s)", d->name,
+                     us.default_on ? "rootless:false by admin" : "[container] rootless=false host default or request");
 
-        PCV_LOG_WARN(LXC_LOG_DOM,
-                     "daemon.conf rootless default unavailable for '%s' (subid %d:%d missing), "
-                     "continuing as privileged", d->name, uid_start, uid_count);
-    }
-
-
+                                                                 
     gchar *zfs_dataset  = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, d->name);
     gchar *mountpoint   = g_strdup_printf("%s/%s", PCV_LXC_PATH, d->name);
     {
-
-
-
-
+                                                                 
+                                                   
+                                                   
+                                                   
         const gchar *parent_probe[] = {
             "zfs", "list", "-H", "-o", "name", PCV_LXC_ZFS_BASE, NULL
         };
         GError *parent_error = nullptr;
         if (!_run_argv(parent_probe, &parent_error)) {
             g_clear_error(&parent_error);
-            const gchar *parent_create[] = {
-                "zfs", "create", "-p", PCV_LXC_ZFS_BASE, NULL
-            };
-            if (!_run_argv(parent_create, &parent_error)) {
+            const gchar *parent_options[] = { "-p", NULL };
+            if (!pcv_zfs_create_locked(parent_options, PCV_LXC_ZFS_BASE, NULL, &parent_error)) {
                 g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                         "ZFS container parent create failed for '%s': %s",
                                         PCV_LXC_ZFS_BASE,
@@ -1023,24 +864,19 @@ _lxc_create_thread(GTask        *task,
                 return;
             }
         }
-        const gchar *zfs_argv[] = {
-            "zfs", "create", "-o",
-            g_strdup_printf("mountpoint=%s", mountpoint),
-            zfs_dataset, NULL
-        };
-        if (!_run_argv(zfs_argv, &error)) {
+        g_autofree gchar *mountpoint_opt = g_strdup_printf("mountpoint=%s", mountpoint);
+        const gchar *zfs_options[] = { "-o", mountpoint_opt, NULL };
+        if (!pcv_zfs_create_locked(zfs_options, zfs_dataset, NULL, &error)) {
             g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                     "ZFS create failed for '%s': %s",
                                     d->name,
                                     error ? error->message : "unknown");
             g_error_free(error);
-            g_free((gpointer)zfs_argv[3]);
             g_free(mountpoint); g_free(zfs_dataset); g_strfreev(parts);
             return;
         }
-        g_free((gpointer)zfs_argv[3]);
 
-
+                                                           
         {
             const gchar *mount_argv[] = { "zfs", "mount", zfs_dataset, NULL };
             GError *mnt_err = nullptr;
@@ -1049,106 +885,120 @@ _lxc_create_thread(GTask        *task,
         }
     }
 
+                                                                         
+    guint memory_mb = (d->memory_mb > 0) ? d->memory_mb : 512;
+    guint vcpu = (d->vcpu_count > 0) ? d->vcpu_count : 1;
+    const gchar *bridge = d->bridge ? d->bridge : PCV_LXC_DEFAULT_BRIDGE;
 
-
-
-
-
-
-
-
+                                                                                                  
+                                                                                          
+                                                                                                
     error = nullptr;
+    gchar *userns_dir = nullptr;
+    if (rootless_mode == PCV_LXC_ROOTLESS_ON) {
+        gchar *res = pcv_lxc_userns_resource_lines(bridge, memory_mb, vcpu);
+        userns_dir = res ? pcv_lxc_userns_write_create_config(lxc_get_global_config_item("lxc.default_config"),
+                                                              us.start, us.count, res, &error) : nullptr;
+        g_free(res);
+        if (!userns_dir) {
+            _create_rollback(task, zfs_dataset, d->name, "idmap config", error ? error :
+                             g_error_new_literal(G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "invalid bridge name"), TRUE);
+            g_free(mountpoint); g_free(zfs_dataset); g_strfreev(parts);
+            return;
+        }
+    }
     {
-
-        const gchar *lxc_argv[] = {
-            "lxc-create", "-P", PCV_LXC_PATH,
-            "-n", d->name,
-            "-t", "download",
-            "--", "-d", distro, "-r", release, "-a", "amd64",
-            NULL
+        gchar *userns_conf = userns_dir ? g_build_filename(userns_dir, "config", NULL) : nullptr;
+        const gchar *plain_argv[] = {
+            "lxc-create", "-P", PCV_LXC_PATH, "-n", d->name, "-t", "download",
+            "--", "-d", distro, "-r", release, "-a", "amd64", NULL
         };
-        if (!_run_argv(lxc_argv, &error)) {
+        const gchar *userns_argv[] = {
+            "lxc-create", "-P", PCV_LXC_PATH, "-n", d->name, "-f", userns_conf, "-t", "download",
+            "--", "-d", distro, "-r", release, "-a", "amd64", NULL
+        };
+        gboolean created = _run_argv(userns_conf ? userns_argv : plain_argv, &error);
+        g_free(userns_conf);
+        pcv_lxc_userns_remove_create_config(userns_dir);                               
+        g_free(userns_dir);
+        if (!created) {
             PCV_LOG_WARN("lxc", "Container '%s' lxc-create FAILED (distro=%s release=%s): %s",
-                         d->name, distro, release,
-                         error ? error->message : "(no error)");
-
-            const gchar *rb_argv[] = {
-                "zfs", "destroy", "-r", zfs_dataset, NULL
-            };
-            GError *rb_err = nullptr;
-            _run_argv(rb_argv, &rb_err);
-            if (rb_err) g_error_free(rb_err);
-
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "lxc-create failed for '%s': %s",
-                                    d->name,
-                                    error ? error->message : "unknown");
-            g_error_free(error);
+                         d->name, distro, release, error ? error->message : "(no error)");
+            _create_rollback(task, zfs_dataset, d->name, "lxc-create", error,
+                             rootless_mode == PCV_LXC_ROOTLESS_ON);
             g_free(mountpoint); g_free(zfs_dataset); g_strfreev(parts);
             return;
         }
     }
 
+                                                                                   
+                                                                                   
+                                                                          
+    gboolean fell_back = FALSE;
+    if (rootless_mode == PCV_LXC_ROOTLESS_ON &&
+        (!pcv_lxc_userns_settle_dirs(PCV_LXC_PATH, d->name, &error) ||
+         !pcv_lxc_userns_settle_rootfs(PCV_LXC_PATH, d->name, us.start, us.count, &fell_back, &error) ||
+         !pcv_lxc_userns_check_top(PCV_LXC_PATH, d->name, &error))) {
+        _create_rollback(task, zfs_dataset, d->name, "unprivileged rootfs setup", error, TRUE);
+        g_free(mountpoint); g_free(zfs_dataset); g_strfreev(parts);
+        return;
+    }
 
+                                                                   
+                                                                                                        
+                                                                                         
+    const gboolean userns = rootless_mode == PCV_LXC_ROOTLESS_ON;
+    const gchar *stage = nullptr;
+    g_autoptr(GMutexLocker) cfg_lock = g_mutex_locker_new(pcv_lxc_config_mutex());
     struct lxc_container *c = lxc_container_new(d->name, PCV_LXC_PATH);
     if (!c || !c->is_defined(c)) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Cannot open container '%s' after create", d->name);
-        if (c) lxc_container_put(c);
-        goto cleanup;
-    }
-
-
-
-    guint memory_mb = (d->memory_mb > 0) ? d->memory_mb : 512;
-    gchar *mem_val  = g_strdup_printf("%uM", memory_mb);
-    c->set_config_item(c, "lxc.cgroup.memory.limit_in_bytes", mem_val);
-    c->set_config_item(c, "lxc.cgroup2.memory.max",           mem_val);
-    g_free(mem_val);
-
-
-
-    guint vcpu = (d->vcpu_count > 0) ? d->vcpu_count : 1;
-    gchar *cpu_shares = g_strdup_printf("%u", vcpu * 1024);
-    c->set_config_item(c, "lxc.cgroup.cpu.shares", cpu_shares);
-    g_free(cpu_shares);
-
-
-    c->clear_config_item(c, "lxc.net");                                       
-    c->set_config_item(c, "lxc.net.0.type",    "veth");
-    c->set_config_item(c, "lxc.net.0.link",    d->bridge ? d->bridge : PCV_LXC_DEFAULT_BRIDGE);
-    c->set_config_item(c, "lxc.net.0.flags",   "up");
-
-    c->set_config_item(c, "lxc.net.0.hwaddr",  "00:16:3e:xx:xx:xx");                 
-
-
-
-
-    if (rootless_mode == PCV_LXC_ROOTLESS_ON &&
-        !_rootless_apply_config(c, uid_start, uid_count)) {
-        if (d->rootless == 1) {
-            lxc_container_put(c);
-            const gchar *rb_argv[] = { "zfs", "destroy", "-r", zfs_dataset, NULL };
-            GError *rb_err = nullptr;
-            gboolean removed = _run_argv(rb_argv, &rb_err);
-            if (!removed) {
-                PCV_LOG_WARN(LXC_LOG_DOM, "rootless rollback: zfs destroy -r %s failed: %s",
-                             zfs_dataset, rb_err ? rb_err->message : "unknown");
-            }
-            if (rb_err) g_error_free(rb_err);
-            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                    "rootless setup failed for '%s'; %s (refusing privileged fallback)",
-                                    d->name, removed ? "container removed"
-                                                     : "rollback of the ZFS dataset failed, remove it manually");
-            goto cleanup;
+        stage = "open after create";
+        error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED, "liblxc cannot open the created container");
+    } else if (userns) {
+                                                                       
+        char link[64] = "";
+        if (_lxc_handle_privileged(c)) {
+            stage = "idmap check";
+            error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED, "lxc.idmap u/g missing after create");
+        } else if (c->get_config_item(c, "lxc.net.0.link", link, sizeof(link)) <= 0 || g_strcmp0(link, bridge) != 0) {
+            stage = "config check";
+            error = g_error_new(G_IO_ERROR, G_IO_ERROR_FAILED, "lxc.net.0.link is '%s', expected '%s'", link, bridge);
         }
-        PCV_LOG_WARN(LXC_LOG_DOM,
-                     "rootless setup failed for '%s' (daemon.conf default), continuing as privileged",
-                     d->name);
+    } else {
+                                                                                         
+        gchar *mem_val  = g_strdup_printf("%uM", memory_mb);
+        c->set_config_item(c, "lxc.cgroup.memory.limit_in_bytes", mem_val);
+        c->set_config_item(c, "lxc.cgroup2.memory.max",           mem_val);
+        g_free(mem_val);
+
+                                                                                             
+        gchar *cpu_max = g_strdup_printf("%" G_GUINT64_FORMAT " %d", (guint64)vcpu * PCV_LXC_CPU_PERIOD_US, PCV_LXC_CPU_PERIOD_US);
+        c->set_config_item(c, "lxc.cgroup2.cpu.max", cpu_max);
+        g_free(cpu_max);
+
+                                                                     
+        c->clear_config_item(c, "lxc.net");                                       
+        c->set_config_item(c, "lxc.net.0.type",    "veth");
+        c->set_config_item(c, "lxc.net.0.link",    bridge);
+        c->set_config_item(c, "lxc.net.0.flags",   "up");
+                                                                 
+        c->set_config_item(c, "lxc.net.0.hwaddr",  "00:16:3e:xx:xx:xx");                 
     }
 
+                                                                                   
+                                                                
+    if (!stage && userns && fell_back) {
+        gchar *conf_path = g_build_filename(PCV_LXC_PATH, d->name, "config", NULL), *conf_text = nullptr;
+        const PcvLxcConfigEdit inc[] = { { "lxc.include", PCV_LXC_USERNS_INCLUDE, TRUE } };
+        if (!g_file_get_contents(conf_path, &conf_text, NULL, &error) ||
+            (!pcv_lxc_userns_config_has_include(conf_text) &&
+             !pcv_lxc_userns_config_edit(PCV_LXC_PATH, d->name, inc, G_N_ELEMENTS(inc), &error)))
+            stage = "userns include";
+        g_free(conf_text); g_free(conf_path);
+    }
 
-    {
+                                                 
+    if (!stage) {
         gchar *image_tag = g_strdup_printf("%s:%s", distro, release);
         gchar *meta_path = g_strdup_printf("%s/%s/purecvisor.meta",
                                             PCV_LXC_PATH, d->name);
@@ -1157,24 +1007,27 @@ _lxc_create_thread(GTask        *task,
         g_free(image_tag);
     }
 
-
-    if (!c->save_config(c, NULL)) {
-        g_warning("lxc_driver: save_config failed for '%s' (non-fatal)", d->name);
+                                                                    
+    if (!stage && !userns && !c->save_config(c, NULL)) {
+        stage = "save config";
+        error = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED, "liblxc save_config failed");
     }
 
-    lxc_container_put(c);
-    g_task_return_boolean(task, TRUE);
-
-cleanup:
+    if (c) lxc_container_put(c);
+    g_clear_pointer(&cfg_lock, g_mutex_locker_free);                        
+    if (stage)
+        _create_rollback(task, zfs_dataset, d->name, stage, error, userns);
+    else
+        g_task_return_boolean(task, TRUE);
     g_strfreev(parts);
     g_free(mountpoint);
     g_free(zfs_dataset);
 }
+
+                                                    
+                                                       
+                                                                        
                                                                                           
-
-
-
-
 void
 pcv_lxc_create_async(const gchar        *name,
                      const gchar        *image,
@@ -1234,19 +1087,56 @@ pcv_lxc_create_finish(GAsyncResult *result, GError **error)
                                                     
   
                                                      
-                                                    
-                                                    
+                                                          
+                                               
   
            
                                        
                                              
-                                             
+                                                                              
   
-                         
-                                                
-                                               
-                                  
+                                                                                    
+                                                                                  
+                                                          
                                                                                
+
+                                                                                       
+static gint G_zfs_destroy_interval_ms;
+
+                                                                              
+                               
+                                                            
+void
+pcv_lxc_zfs_destroy_set_interval_for_test(guint ms)
+{
+    g_atomic_int_set(&G_zfs_destroy_interval_ms, (gint)ms);
+}
+
+                                                                                         
+                                                                        
+gboolean
+pcv_lxc_zfs_destroy_retry(const gchar *dataset, GError **error)
+{
+    GError *err = nullptr;
+    for (guint i = 0; i <= PCV_LXC_ZFS_DESTROY_RETRIES; i++) {
+        gint ms = g_atomic_int_get(&G_zfs_destroy_interval_ms);
+        if (i > 0)
+            g_usleep((gulong)(ms > 0 ? ms : PCV_LXC_ZFS_DESTROY_INTERVAL_MS) * 1000);
+        g_clear_error(&err);
+        if (pcv_zfs_destroy_locked("-r", dataset, NULL, &err))                           
+            return TRUE;
+        if (strstr(err->message, "dataset does not exist")) {                           
+            g_error_free(err);
+            return TRUE;
+        }
+        if (g_error_matches(err, G_IO_ERROR, G_IO_ERROR_TIMED_OUT))                                             
+            break;
+        PCV_LOG_WARN(LXC_LOG_DOM, "zfs destroy -r %s failed (try %u of %u): %s",
+                     dataset, i + 1, PCV_LXC_ZFS_DESTROY_RETRIES + 1, err->message);
+    }
+    g_propagate_error(error, err);
+    return FALSE;
+}
 
                                                           
                                                             
@@ -1265,10 +1155,23 @@ _pcv_recursive_unlink_cb(const char *fpath,
     return unlink(fpath);                           
 }
 
+                                                                                                          
+static gboolean (*G_destroy_running_probe)(const gchar *name);
+
+                                                                                                        
+                                                           
+                                                            
+void
+pcv_lxc_destroy_set_running_probe_for_test(gboolean (*fn)(const gchar *name))
+{
+    G_destroy_running_probe = fn;
+}
+
                                                   
                                        
                                                                   
-                                                                
+                                                                     
+                                                                 
 static void
 _lxc_destroy_thread(GTask        *task,
                     gpointer      source_object __attribute__((unused)),
@@ -1293,10 +1196,27 @@ _lxc_destroy_thread(GTask        *task,
             g_warning("lxc_driver: stop failed for '%s', continuing destroy", name);
         }
     }
-    if (c) lxc_container_put(c);
 
-    pcv_lxc_volstage_clear(name);
-    pcv_lxc_runtime_config_remove(name);
+                                                                                             
+                                                                                   
+                                                                
+    const gboolean still_running = G_destroy_running_probe ? G_destroy_running_probe(name)
+                                                          : (!c || (c->is_defined(c) && c->is_running(c)));
+    if (c) lxc_container_put(c);
+    if (still_running) {
+        PCV_LOG_WARN(LXC_LOG_DOM, "container '%s' is still running after the forced stop; skipping leftover volume mount cleanup", name);
+    } else {
+        GError *clear_err = nullptr;
+        if (!pcv_lxc_rootfs_residue_clear(PCV_LXC_PATH, name, NULL, &clear_err)) {
+            _unlock_container_op(name);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+                                    "container '%s' has leftover volume mounts under its rootfs that could not be removed: %s; "
+                                    "nothing was destroyed", name, clear_err ? clear_err->message : "unknown error");
+            g_clear_error(&clear_err);
+            return;
+        }
+    }
+    pcv_lxc_runtime_config_remove(name);                                                        
 
                                                    
     {
@@ -1337,42 +1257,31 @@ _lxc_destroy_thread(GTask        *task,
         }
     }
 
-                                           
+                                                                                   
     {
-        gchar *zfs_target = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, name);
-        const gchar *argv[] = { "zfs", "destroy", "-r", zfs_target, NULL };
+        g_autofree gchar *zfs_target = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, name);
         GError *zfs_err = nullptr;
-        if (!_run_argv(argv, &zfs_err)) {
-                                            
-            g_warning("lxc_driver: ZFS destroy failed for '%s': %s",
-                      name, zfs_err ? zfs_err->message : "unknown");
-            if (zfs_err) g_error_free(zfs_err);
+        if (!pcv_lxc_zfs_destroy_retry(zfs_target, &zfs_err)) {
+            _unlock_container_op(name);
+            g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED, "container '%s' removed but ZFS dataset '%s' "
+                                    "remains: %s; run container.destroy again to finish cleanup",
+                                    name, zfs_target, zfs_err->message);
+            g_error_free(zfs_err);
+            return;
         }
-        g_free(zfs_target);
     }
 
-                                                     
+                                                                                                                                          
     {
-        gchar *container_dir = g_strdup_printf("%s/%s", PCV_LXC_PATH, name);
-        if (g_file_test(container_dir, G_FILE_TEST_IS_DIR) && g_rmdir(container_dir) != 0) {
-                                                               
-            PCV_LOG_WARN(LXC_LOG_DOM,
-                         "Post-destroy rmdir failed for '%s': %s",
-                         container_dir, g_strerror(errno));
-        }
-        g_free(container_dir);
-    }
-
-                                                                     
-                                       
-    {
-        gchar *container_dir = g_strdup_printf("%s/%s", PCV_LXC_PATH, name);
-        if (g_file_test(container_dir, G_FILE_TEST_EXISTS)) {
+        g_autofree gchar *container_dir = g_strdup_printf("%s/%s", PCV_LXC_PATH, name);
+        if (g_file_test(container_dir, G_FILE_TEST_IS_DIR) && g_rmdir(container_dir) != 0)
+            PCV_LOG_WARN(LXC_LOG_DOM, "Post-destroy rmdir failed for '%s': %s", container_dir, g_strerror(errno));
+        if (g_file_test(container_dir, G_FILE_TEST_EXISTS))
             nftw(container_dir, _pcv_recursive_unlink_cb, 16, FTW_DEPTH | FTW_PHYS);
-        }
-        g_free(container_dir);
     }
 
+    pcv_lxc_unit_reset_failed_best_effort(name);                                         
+    pcv_lxc_cpu_sample_forget(name);                                                          
     _unlock_container_op(name);
     g_task_return_boolean(task, TRUE);
 }
@@ -1400,111 +1309,114 @@ pcv_lxc_destroy_finish(GAsyncResult *result, GError **error)
 }
 
                                                                              
-                                       
+                                                                      
   
-                                                    
-                                                    
-                                               
+                                                     
+                                                     
+                                                          
+  
+                                                                        
+                                                                   
+                                                                   
+                                                                  
   
        
-                                                      
-                                         
-  
-       
-                                 
-                                                  
+                                                           
+                                                                                                 
+                                                                                     
                                                                                
 
 typedef struct {
     gchar *source;
     gchar *target;
+    gchar *subject;                                                                       
+    PcvLxcCloneReleaseFunc release_cb;                                                                        
+    gpointer release_data;                                          
 } CloneCtx;
 
-                                                                    
-                                                                   
-                     
-                                                
+                                                                                                      
+                                                    
 static void _clone_ctx_free(gpointer p) {
     CloneCtx *ctx = p;
     g_free(ctx->source);
     g_free(ctx->target);
+    g_free(ctx->subject);
     g_free(ctx);
 }
 
-                                                      
-                                      
-                                                           
-                                                        
+                                                                                              
+                                                                                         
+                                                                                               
+                                            
+                                                                   
+                                                                      
+static void
+_clone_task_return(GTask *task, CloneCtx *ctx, GError *err)
+{
+    PcvLxcCloneReleaseFunc release = ctx->release_cb;
+    ctx->release_cb = NULL;             
+    if (release) release(ctx->release_data);
+    if (err)
+        g_task_return_error(task, err);
+    else
+        g_task_return_boolean(task, TRUE);
+}
+
+                                                                                               
+                                                             
+                                                            
 static void
 _clone_worker(GTask *task, gpointer src, gpointer data, GCancellable *c)
 {
-    (void)src; (void)c;
+    (void)src; (void)c;                                               
     CloneCtx *ctx = data;
-
-
+    if (!ctx->source || !ctx->target || !*ctx->source || !*ctx->target) {                                        
+        _clone_task_return(task, ctx, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT, "source and target are required"));
+        return;
+    }
     if (!_lock_container_op(ctx->source)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "Clone: source '%s' has a concurrent operation in progress",
-                     ctx->source);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_BUSY,
-                                "source container has a concurrent operation in progress");
+        _clone_task_return(task, ctx, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_BUSY,
+                                                          "source container has a concurrent operation in progress"));
         return;
     }
     if (!_lock_container_op(ctx->target)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "Clone: target '%s' has a concurrent operation in progress",
-                     ctx->target);
         _unlock_container_op(ctx->source);
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_BUSY,
-                                "target container has a concurrent operation in progress");
+        _clone_task_return(task, ctx, g_error_new_literal(G_IO_ERROR, G_IO_ERROR_BUSY,
+                                                          "target container has a concurrent operation in progress"));
         return;
     }
-
-    const gchar *argv[] = {
-        "lxc-copy", "-P", PCV_LXC_PATH,
-        "-n", ctx->source, "-N", ctx->target, "-B", "zfs", NULL
-    };
-    gchar *std_out = NULL, *std_err = nullptr;
+    const gboolean src_unpriv = !pcv_lxc_container_privileged(ctx->source);                       
     GError *err = nullptr;
-
-    if (pcv_spawn_sync(argv, &std_out, &std_err, &err)) {
-        PCV_LOG_INFO(LXC_LOG_DOM, "Cloned container '%s' -> '%s'",
-                     ctx->source, ctx->target);
-        g_task_return_boolean(task, TRUE);
-    } else {
-        PCV_LOG_WARN(LXC_LOG_DOM, "Clone failed '%s' -> '%s': %s",
-                     ctx->source, ctx->target,
-                     err ? err->message : (std_err ? std_err : "unknown"));
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "%s", err ? err->message
-                                          : (std_err ? std_err : "unknown"));
-        if (err) g_error_free(err);
-    }
-    g_free(std_out);
-    g_free(std_err);
-
+    gboolean ok = pcv_lxc_clone_run(PCV_LXC_PATH, PCV_LXC_ZFS_BASE, ctx->source, ctx->target, ctx->subject, src_unpriv, &err);
     _unlock_container_op(ctx->target);
-    _unlock_container_op(ctx->source);
+    _unlock_container_op(ctx->source);                                
+    if (!ok && !err)                                              
+        err = g_error_new_literal(G_IO_ERROR, G_IO_ERROR_FAILED, "clone failed");
+    if (ok)
+        PCV_LOG_INFO(LXC_LOG_DOM, "Cloned container '%s' -> '%s'", ctx->source, ctx->target);
+    else
+        PCV_LOG_WARN(LXC_LOG_DOM, "Clone failed '%s' -> '%s': %s", ctx->source, ctx->target, err->message);
+    _clone_task_return(task, ctx, ok ? NULL : err);
 }
 
-
-
-
+                                                    
+                                         
+                                                                                                     
+                                                                                                       
 void
-pcv_lxc_clone_async(const gchar *source, const gchar *target,
+pcv_lxc_clone_async(const gchar *source, const gchar *target, const gchar *subject,
+                    PcvLxcCloneReleaseFunc release_cb, gpointer release_data,
                     GCancellable *cancellable,
                     GAsyncReadyCallback callback,
                     gpointer user_data)
 {
     GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
-    if (!source || !target || !*source || !*target) {                             
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
-                                "source and target are required");
-        g_object_unref(task);
-        return;
-    }
-
     CloneCtx *ctx = g_new0(CloneCtx, 1);
     ctx->source = g_strdup(source);
     ctx->target = g_strdup(target);
+    ctx->subject = g_strdup(subject);
+    ctx->release_cb = release_cb;
+    ctx->release_data = release_data;
     g_task_set_task_data(task, ctx, _clone_ctx_free);
     g_task_run_in_thread(task, _clone_worker);
     g_object_unref(task);
@@ -1524,84 +1436,55 @@ gboolean
 pcv_lxc_clone(const gchar *source, const gchar *target)
 {
     if (!source || !target || !*source || !*target) return FALSE;
-    pcv_lxc_clone_async(source, target, NULL, NULL, NULL);
+    pcv_lxc_clone_async(source, target, NULL, NULL, NULL, NULL, NULL, NULL);                               
     return TRUE;
 }
 
                                                                              
-                                   
+                                                                      
   
-                                                  
-                                                               
+                                                                    
+                                                                              
+                                                            
   
-                                                         
-                                 
-  
-                                                  
-                                                                               
-
-                                                                  
-                                                                          
-                                                                                 
-static void
-_apply_cgroup_limits(const gchar *name, gint cpu_percent, gint64 memory_mb)
-{
-    if (cpu_percent > 0 && cpu_percent <= 100) {                                
-                                                                         
-        gint quota = cpu_percent * 1000;                                       
-        gchar *cpu_val  = g_strdup_printf("%d 100000", quota);
-        gchar *cpu_path = g_strdup_printf("/sys/fs/cgroup/lxc.payload.%s/cpu.max", name);
-
-        if (g_file_test(cpu_path, G_FILE_TEST_EXISTS)) {
-            g_file_set_contents(cpu_path, cpu_val, -1, NULL);
-            PCV_LOG_INFO(LXC_LOG_DOM, "Set CPU limit for '%s': %d%%", name, cpu_percent);
-        }
-        g_free(cpu_val);
-        g_free(cpu_path);
-    }
-
-    if (memory_mb > 0) {
-                                                       
-        gchar *mem_val  = g_strdup_printf("%" G_GINT64_FORMAT, memory_mb * 1024 * 1024);
-        gchar *mem_path = g_strdup_printf("/sys/fs/cgroup/lxc.payload.%s/memory.max", name);
-
-        if (g_file_test(mem_path, G_FILE_TEST_EXISTS)) {
-            g_file_set_contents(mem_path, mem_val, -1, NULL);
-            PCV_LOG_INFO(LXC_LOG_DOM, "Set memory limit for '%s': %" G_GINT64_FORMAT "MB",
-                         name, memory_mb);
-        }
-        g_free(mem_val);
-        g_free(mem_path);
-    }
-}
-
-                                                                             
-                                                     
-  
-                                                     
-                                                         
-                                          
-  
-                                                  
-                                            
-                                                       
-                                   
-  
-                                                    
-                                                
-                                     
-  
-           
-                                                        
-                                               
+                                                                                               
+                                                                                            
   
         
                                                
                                                                                
 
+                                                                                              
+                                                                                         
+gboolean
+pcv_lxc_start_sync(const gchar *name, GError **error)
+{
+    g_autofree gchar *lxc_path = g_strdup(PCV_LXC_PATH);                                         
+    struct lxc_container *c = lxc_container_new(name, lxc_path);
+    const gboolean running = c && c->is_running(c);
+    if (c) lxc_container_put(c);
+    if (running)
+        return TRUE;
+                                                                                                        
+                                                                            
+    if (!pcv_lxc_volume_start_prepare(lxc_path, name, error))
+        return FALSE;
+    if (!pcv_lxc_unit_start(lxc_path, name, error)) {
+        pcv_lxc_volume_start_abort(lxc_path, name);
+        return FALSE;
+    }
+                                                                                 
+    GError *e = nullptr;
+    if (!pcv_lxc_limits_reapply(PCV_LXC_PATH, name, PCV_LXC_CGROUP_ROOT, &e))
+        PCV_LOG_WARN(LXC_LOG_DOM, "container '%s' started but limits were not re-applied: %s", name, e ? e->message : "unknown");
+    g_clear_error(&e);
+    return TRUE;
+}
+
                                             
-                                                            
-                                                             
+                                                                 
+                                                                                  
+                                                                                                
 static void
 _lxc_start_thread(GTask        *task,
                   gpointer      source_object __attribute__((unused)),
@@ -1620,90 +1503,44 @@ _lxc_start_thread(GTask        *task,
         g_task_return_boolean(task, TRUE);
         return;
     }
-    lxc_container_put(c);                                        
+    lxc_container_put(c);                                           
 
-
+                                              
     {
         gchar *zfs_ds = g_strdup_printf("%s/%s", PCV_LXC_ZFS_BASE, name);
         const gchar *mount_argv[] = { "zfs", "mount", zfs_ds, NULL };
         GError *mnt_err = nullptr;
         _run_argv(mount_argv, &mnt_err);
-        if (mnt_err) g_error_free(mnt_err);
+        if (mnt_err) g_error_free(mnt_err);                    
         g_free(zfs_ds);
     }
 
+    pcv_lxc_volume_hook_ensure(PCV_LXC_PATH, name);                                                                    
 
-    gchar *bad_guard = nullptr;
-    if (!pcv_lxc_volume_guard_check(PCV_LXC_PATH, name, &bad_guard)) {
-        g_autofree gchar *gmsg = pcv_lxc_volume_guard_message(bad_guard);
-        g_free(bad_guard);
-        g_set_error_literal(&error, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED, gmsg);
-        g_task_return_error(task, error);
+    g_autofree gchar *bad = nullptr, *bad_msg = nullptr;                                                                                                   
+    if (!pcv_lxc_volume_guard_check_start(PCV_LXC_PATH, name, &bad)) {
+        bad_msg = pcv_lxc_volume_guard_message(bad);
+        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_PERMISSION_DENIED, "%s", bad_msg);                                 
         return;
     }
-    g_free(bad_guard);
-    if (!pcv_lxc_volume_start_prepare(PCV_LXC_PATH, name, &error)) {
-        g_task_return_error(task, error);
-        return;
-    }
-    g_autofree gchar *rtcfg = pcv_lxc_runtime_config_path(name);
-
-    const gchar *start_argv[] = {
-        "lxc-start", "-P", PCV_LXC_PATH, "-n", name, "-f", rtcfg, "-d", NULL
-    };
-    gchar *start_out = nullptr;
-    gchar *start_err = nullptr;
-    if (!pcv_spawn_sync(start_argv, &start_out, &start_err, &error)) {
-        pcv_lxc_volume_start_abort(PCV_LXC_PATH, name);
-
-        const gchar *detail = (start_err && *start_err) ? g_strstrip(start_err)
-                            : (start_out && *start_out) ? g_strstrip(start_out)
-                            : (error ? error->message : "unknown");
-        GError *rich = nullptr;
-        g_set_error(&rich, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "lxc-start failed for '%s': %s", name, detail);
-        if (error) g_error_free(error);
-        g_task_return_error(task, rich);
-    } else {
-
-        struct lxc_container *cc = lxc_container_new(name, PCV_LXC_PATH);
-        if (cc && cc->is_defined(cc)) {
-
-            char mem_buf[64] = {0};
-            gint64 mem_mb = 0;
-            if (cc->get_config_item(cc, "lxc.cgroup2.memory.max", mem_buf, sizeof(mem_buf)) > 0) {
-                gint64 val = g_ascii_strtoll(mem_buf, NULL, 10);
-                if (val > 0) mem_mb = val;                                            
-            }
-
-            char cpu_buf[64] = {0};
-            gint cpu_pct = 0;
-            if (cc->get_config_item(cc, "lxc.cgroup.cpu.shares", cpu_buf, sizeof(cpu_buf)) > 0) {
-                gint shares = (gint)g_ascii_strtoll(cpu_buf, NULL, 10);
-                if (shares > 0) cpu_pct = (shares * 100) / 1024;
-                if (cpu_pct > 100) cpu_pct = 100;
-            }
-            lxc_container_put(cc);
-            if (cpu_pct > 0 || mem_mb > 0)
-                _apply_cgroup_limits(name, cpu_pct, mem_mb);
-        } else {
-            if (cc) lxc_container_put(cc);
-        }
+    if (pcv_lxc_start_sync(name, &error))
         g_task_return_boolean(task, TRUE);
-    }
-    g_free(start_out);
-    g_free(start_err);
+    else
+        g_task_return_error(task, error);                                              
 }
-                                                    
 
-
+                                                                                                     
+                                                                              
 void
 pcv_lxc_start_async(const gchar        *name,
+                    const gchar        *actor,
                     GCancellable       *cancellable,
                     GAsyncReadyCallback callback,
                     gpointer            user_data)
 {
     GTask *task = pcv_drain_task_new(NULL, cancellable, callback, user_data);
+    if (actor)                                                                                          
+        pcv_drain_task_set_actor(task, actor);
     g_task_set_task_data(task, g_strdup(name), (GDestroyNotify)g_free);
     g_task_run_in_thread(task, _lxc_start_thread);
     g_object_unref(task);
@@ -1721,9 +1558,8 @@ gboolean pcv_lxc_start_finish(GAsyncResult *result, GError **error)
                             
   
                    
-                                                                    
-                                                    
-                                                          
+                                                                                                                         
+                                                                                               
   
         
                                             
@@ -1740,6 +1576,44 @@ gboolean pcv_lxc_start_finish(GAsyncResult *result, GError **error)
    
 typedef struct { gchar *name; gboolean force; } LxcStopData;                           
 static void _lxc_stop_data_free(gpointer p) { LxcStopData *d = p; g_free(d->name); g_free(d); }
+
+                                                                                           
+static const PcvLxcStopOps *G_stop_ops;
+
+                                                                                        
+                                                           
+                                                            
+void
+pcv_lxc_stop_set_ops_for_test(const PcvLxcStopOps *ops)
+{
+    G_stop_ops = ops;
+}
+
+                                                                                                                          
+                                                                                                     
+                                                                                                      
+static gboolean
+_lxc_halt(struct lxc_container *c, const gchar *name, guint grace_sec, GError **error)
+{
+    struct lxc_container *own = c ? nullptr : _lxc_get(name, error), *h = c ? c : own;
+    gboolean ok = h && grace_sec > 0 && h->shutdown(h, (int)grace_sec);
+    if (h && !ok && grace_sec > 0)
+        g_warning("lxc_driver: graceful shutdown timed out for '%s', forcing stop", name);
+    if (h && !ok && !(ok = h->stop(h)))                                     
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "liblxc: stop failed for '%s': %s", name,
+                    h->error_string ? h->error_string : "unknown error");
+    if (own)
+        lxc_container_put(own);
+    return ok;
+}
+
+                                                                                                 
+                                               
+gboolean
+pcv_lxc_halt(const gchar *name, guint grace_sec, GError **error)
+{
+    return _lxc_halt(NULL, name, grace_sec, error);
+}
 
                                            
                                                         
@@ -1761,42 +1635,38 @@ _lxc_stop_thread(GTask        *task,
         return;
     }
 
-    struct lxc_container *c = _lxc_get(d->name, &error);
-    if (!c) { _unlock_container_op(d->name); g_task_return_error(task, error); return; }
+    const PcvLxcStopOps *ops = G_stop_ops;                                              
+    struct lxc_container *c = nullptr;
+    if (!ops) {
+        c = _lxc_get(d->name, &error);
+        if (!c) { _unlock_container_op(d->name); g_task_return_error(task, error); return; }
+    }
 
-    if (!c->is_running(c)) {
+    if (!(ops ? ops->is_running(d->name) : c->is_running(c))) {
         g_message("lxc_driver: container '%s' is already stopped", d->name);
-        lxc_container_put(c);
+        if (c) lxc_container_put(c);
         _unlock_container_op(d->name);
         g_task_return_boolean(task, TRUE);
         return;
     }
 
-    gboolean ok;
-    if (d->force) {
-                                              
-        ok = c->stop(c);
-    } else {
-                                                         
-        ok = c->shutdown(c, 30);
-        if (!ok) {
-            g_warning("lxc_driver: graceful shutdown timed out for '%s', forcing stop",
-                      d->name);
-            ok = c->stop(c);                             
-        }
-    }
-
+                                                                                                            
+    const gboolean ok = ops ? ops->stop(d->name, d->force) : _lxc_halt(c, d->name, d->force ? 0 : PCV_LXC_STOP_GRACE_SEC, &error);
     if (!ok) {
-        g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                    "liblxc: stop failed for '%s': %s",
-                    d->name, c->error_string);
+        if (!error)                              
+            g_set_error(&error, G_IO_ERROR, G_IO_ERROR_FAILED, "liblxc: stop failed for '%s': stop ops failed", d->name);
         g_task_return_error(task, error);
     } else {
-        pcv_lxc_volstage_clear(d->name);
-        pcv_lxc_runtime_config_remove(d->name);
+                                                                                                
+        GError *clear_err = nullptr;
+        if (!pcv_lxc_rootfs_residue_clear(PCV_LXC_PATH, d->name, NULL, &clear_err))
+            PCV_LOG_WARN(LXC_LOG_DOM, "container '%s' stopped, but leftover volume mounts remain: %s",
+                         d->name, clear_err ? clear_err->message : "unknown error");
+        g_clear_error(&clear_err);
+        pcv_lxc_runtime_config_remove(d->name);                                                          
         g_task_return_boolean(task, TRUE);
     }
-    lxc_container_put(c);
+    if (c) lxc_container_put(c);
     _unlock_container_op(d->name);
 }
 
@@ -1824,20 +1694,20 @@ gboolean pcv_lxc_stop_finish(GAsyncResult *result, GError **error)
 { return g_task_propagate_boolean(G_TASK(result), error); }
 
                                                                              
-                                          
+                                                         
   
                                                   
-                                                 
-                                                     
+                                                          
+                                      
   
-                                            
-                                                      
-                                                   
-                                             
-  
-                                                         
-                                              
-  
+       
+                                                                                                    
+                                                                           
+                                                                                
+                                                                         
+                                                                              
+                                                                               
+
 typedef struct { gchar *name; gchar **argv; } LxcExecData;                                  
 
 static void
@@ -1846,9 +1716,10 @@ _lxc_exec_data_free(LxcExecData *d)
 
                                                         
                                                    
-                                                   
-                                                             
-                                              
+                                                           
+                                                                      
+                                                                      
+                                                                                 
 static void
 _lxc_exec_thread(GTask        *task,
                  gpointer      source_object __attribute__((unused)),
@@ -1867,7 +1738,7 @@ _lxc_exec_thread(GTask        *task,
                                           &status, &error);
     g_strfreev(argv);
 
-    if (!ran) {
+    if (!ran) {                                                  
         g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
                                 "exec failed (timeout or error): %s",
                                 error ? error->message : "invalid exec request");
@@ -1928,7 +1799,7 @@ pcv_lxc_exec_finish(GAsyncResult *result, GError **error)
   
            
                                             
-                                                                 
+                                                                                                  
                                            
                                                         
                                                                                
@@ -1937,6 +1808,20 @@ typedef struct { gchar *name; gchar *snap; } LxcSnapData;
 
 static void
 _snap_data_free(LxcSnapData *d) { g_free(d->name); g_free(d->snap); g_free(d); }
+
+                                                                                             
+                                        
+static void
+_snap_run(const gchar *name, const gchar *snap_name, GCancellable *c, GAsyncReadyCallback cb,
+          gpointer user_data, GTaskThreadFunc fn)
+{
+    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
+    LxcSnapData *d  = g_new0(LxcSnapData, 1);
+    d->name = g_strdup(name); d->snap = g_strdup(snap_name);
+    g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
+    g_task_run_in_thread(task, fn);
+    g_object_unref(task);
+}
 
                                                                       
 static void
@@ -1958,60 +1843,15 @@ _snap_create_thread(GTask *task, gpointer src __attribute__((unused)),
     g_free(target);
 }
 
-
-
+                                                   
+                                             
 void pcv_lxc_snapshot_create_async(const gchar *name, const gchar *snap_name,
                                     GCancellable *c, GAsyncReadyCallback cb,
                                     gpointer user_data)
-{
-    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
-    LxcSnapData *d  = g_new0(LxcSnapData, 1);
-    d->name = g_strdup(name); d->snap = g_strdup(snap_name);
-    g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
-    g_task_run_in_thread(task, _snap_create_thread);
-    g_object_unref(task);
-}
+{ _snap_run(name, snap_name, c, cb, user_data, _snap_create_thread); }
 
                                                
 gboolean pcv_lxc_snapshot_create_finish(GAsyncResult *r, GError **e)
-{ return g_task_propagate_boolean(G_TASK(r), e); }
-
-                                                                                
-static void
-_snap_rollback_thread(GTask *task, gpointer src __attribute__((unused)),
-                      gpointer td, GCancellable *c __attribute__((unused)))
-{
-    LxcSnapData *d = td;
-    GError *error  = nullptr;
-    gchar *target = g_strdup_printf("%s/%s@%s", PCV_LXC_ZFS_BASE, d->name, d->snap);
-    const gchar *argv[] = { "zfs", "rollback", "-r", target, NULL };
-    if (!_run_argv(argv, &error)) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "snapshot rollback failed: %s",
-                                error ? error->message : "unknown");
-        g_error_free(error);
-    } else {
-        g_task_return_boolean(task, TRUE);
-    }
-    g_free(target);
-}
-
-
-
-void pcv_lxc_snapshot_rollback_async(const gchar *name, const gchar *snap_name,
-                                      GCancellable *c, GAsyncReadyCallback cb,
-                                      gpointer user_data)
-{
-    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
-    LxcSnapData *d  = g_new0(LxcSnapData, 1);
-    d->name = g_strdup(name); d->snap = g_strdup(snap_name);
-    g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
-    g_task_run_in_thread(task, _snap_rollback_thread);
-    g_object_unref(task);
-}
-
-                                           
-gboolean pcv_lxc_snapshot_rollback_finish(GAsyncResult *r, GError **e)
 { return g_task_propagate_boolean(G_TASK(r), e); }
 
                                                                
@@ -2022,9 +1862,8 @@ _snap_delete_thread(GTask *task, gpointer src __attribute__((unused)),
     LxcSnapData *d = td;
     GError *error  = nullptr;
     gchar *target = g_strdup_printf("%s/%s@%s", PCV_LXC_ZFS_BASE, d->name, d->snap);
-    const gchar *argv[] = { "zfs", "destroy", target, NULL };
-    if (!_run_argv(argv, &error)) {
-        g_task_return_new_error(task, G_IO_ERROR, G_IO_ERROR_FAILED,
+    if (!pcv_zfs_destroy_locked_short(NULL, target, NULL, &error)) {                            
+        g_task_return_new_error(task, G_IO_ERROR, error ? error->code : G_IO_ERROR_FAILED,
                                 "snapshot delete failed: %s",
                                 error ? error->message : "unknown");
         g_error_free(error);
@@ -2034,19 +1873,12 @@ _snap_delete_thread(GTask *task, gpointer src __attribute__((unused)),
     g_free(target);
 }
 
-
-
+                                                     
+                                      
 void pcv_lxc_snapshot_delete_async(const gchar *name, const gchar *snap_name,
                                     GCancellable *c, GAsyncReadyCallback cb,
                                     gpointer user_data)
-{
-    GTask *task     = pcv_drain_task_new(NULL, c, cb, user_data);
-    LxcSnapData *d  = g_new0(LxcSnapData, 1);
-    d->name = g_strdup(name); d->snap = g_strdup(snap_name);
-    g_task_set_task_data(task, d, (GDestroyNotify)_snap_data_free);
-    g_task_run_in_thread(task, _snap_delete_thread);
-    g_object_unref(task);
-}
+{ _snap_run(name, snap_name, c, cb, user_data, _snap_delete_thread); }
 
                                            
 gboolean pcv_lxc_snapshot_delete_finish(GAsyncResult *r, GError **e)
@@ -2074,24 +1906,24 @@ _snap_list_thread(GTask *task, gpointer src __attribute__((unused)),
         return;
     }
 
-    GPtrArray *result = g_ptr_array_new_with_free_func(g_free);
+    GPtrArray *result = g_ptr_array_new_with_free_func(g_free);                   
     gchar **lines     = g_strsplit(stdout_out ? stdout_out : "", "\n", -1);
     g_free(stdout_out);
 
     for (int i = 0; lines[i]; i++) {
         gchar *line = g_strstrip(lines[i]);
-        if (!line[0]) continue;
-
+        if (!line[0]) continue;                        
+                                                                       
         const gchar *at = strchr(line, '@');
-        if (at) g_ptr_array_add(result, g_strdup(at + 1));
+        if (at) g_ptr_array_add(result, g_strdup(at + 1));                      
     }
     g_strfreev(lines);
     g_task_return_pointer(task, result,
                           (GDestroyNotify)g_ptr_array_unref);
 }
 
-
-
+                                                   
+                                           
 void pcv_lxc_snapshot_list_async(const gchar *name,
                                    GCancellable *c, GAsyncReadyCallback cb,
                                    gpointer user_data)
@@ -2153,7 +1985,7 @@ _cgroup_write_with_fallback(const gchar *path_v2, const gchar *val_v2,
 {
                                                           
     if (g_file_test(path_v2, G_FILE_TEST_EXISTS)) {
-        if (g_file_set_contents(path_v2, val_v2, -1, error))
+        if (pcv_lxc_cgroup_write(path_v2, val_v2, error))
             return TRUE;
                                        
         return FALSE;
@@ -2161,7 +1993,7 @@ _cgroup_write_with_fallback(const gchar *path_v2, const gchar *val_v2,
 
                                                                   
     if (path_v1 && g_file_test(path_v1, G_FILE_TEST_EXISTS)) {
-        if (g_file_set_contents(path_v1, val_v1 ? val_v1 : val_v2, -1, error))
+        if (pcv_lxc_cgroup_write(path_v1, val_v1 ? val_v1 : val_v2, error))
             return TRUE;
         return FALSE;
     }
@@ -2174,95 +2006,71 @@ _cgroup_write_with_fallback(const gchar *path_v2, const gchar *val_v2,
 
    
                                   
-                                                      
+                                                                                                                   
+                                                                                      
   
                                                      
                                                   
   
                                            
-                                                                
+                                                                            
                                                                              
-                                                    
+                                                                                                
+                                
+                                    
+                                                                                
    
 static gboolean
 _set_limits_config(const gchar *name, gint cpu_percent, gint memory_mb,
                    gint cpu_weight, gint memory_low_mb, gint memory_high_mb,
                    gint64 io_read_bps, gint pids_max, GError **error)
 {
+    g_autoptr(GMutexLocker) cfg_lock = g_mutex_locker_new(pcv_lxc_config_mutex());
     struct lxc_container *c = _lxc_get(name, error);
     if (!c) return FALSE;
 
+                                                                                      
+    g_autofree gchar *cpu  = cpu_percent > 0 ? g_strdup_printf("%" G_GINT64_FORMAT " 100000", (gint64)cpu_percent * 1000) : NULL;
+    g_autofree gchar *mem  = memory_mb > 0 ? g_strdup_printf("%" G_GINT64_FORMAT, (gint64)memory_mb * 1024 * 1024) : NULL;
+    g_autofree gchar *wgt  = cpu_weight > 0 ? g_strdup_printf("%d", cpu_weight) : NULL;
+    g_autofree gchar *low  = memory_low_mb > 0 ? g_strdup_printf("%" G_GINT64_FORMAT, (gint64)memory_low_mb * 1024 * 1024) : NULL;
+    g_autofree gchar *high = memory_high_mb > 0 ? g_strdup_printf("%" G_GINT64_FORMAT, (gint64)memory_high_mb * 1024 * 1024) : NULL;
+    g_autofree gchar *io   = io_read_bps > 0 ? g_strdup_printf("8:0 rbps=%" G_GINT64_FORMAT, io_read_bps) : NULL;
+    g_autofree gchar *pids = pids_max > 0 ? g_strdup_printf("%d", pids_max) : NULL;
+    const PcvLxcConfigEdit all[] = {
+        { "lxc.cgroup2.cpu.max", cpu, FALSE },      { "lxc.cgroup2.memory.max", mem, FALSE },
+        { "lxc.cgroup2.cpu.weight", wgt, FALSE },   { "lxc.cgroup2.memory.low", low, FALSE },
+        { "lxc.cgroup2.memory.high", high, FALSE }, { "lxc.cgroup2.io.max", io, FALSE },
+        { "lxc.cgroup2.pids.max", pids, FALSE },
+    };
     gboolean ok = TRUE;
+    if (!_lxc_handle_privileged(c)) {
+        PcvLxcConfigEdit edits[G_N_ELEMENTS(all)];
+        gsize n = 0;
+        for (gsize i = 0; i < G_N_ELEMENTS(all); i++)
+            if (all[i].value)
+                edits[n++] = all[i];
+        ok = pcv_lxc_userns_config_edit(PCV_LXC_PATH, name, edits, n, error);
+        lxc_container_put(c);
+        return ok;
+    }
 
-    if (cpu_percent > 0) {                                                      
-        gchar *v2_val = g_strdup_printf("%d 100000", cpu_percent * 1000);
-        gchar *v1_val = g_strdup_printf("%d", cpu_percent * 1000);
-        if (!c->set_config_item(c, "lxc.cgroup2.cpu.max", v2_val)) {
-                                           
-            if (!c->set_config_item(c, "lxc.cgroup.cpu.cfs_quota_us", v1_val)) {
-                g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                            "Failed to set CPU config for '%s'", name);
-                ok = FALSE;
-            }
+    if (cpu && !c->set_config_item(c, all[0].key, cpu)) {                                                      
+        gchar *v1_val = g_strdup_printf("%" G_GINT64_FORMAT, (gint64)cpu_percent * 1000);
+        if (!c->set_config_item(c, "lxc.cgroup.cpu.cfs_quota_us", v1_val)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to set CPU config for '%s'", name);
+            ok = FALSE;
         }
-        g_free(v2_val);
         g_free(v1_val);
     }
-
-    if (ok && cpu_weight > 0) {
-        gchar *val = g_strdup_printf("%d", cpu_weight);
-        if (!c->set_config_item(c, "lxc.cgroup2.cpu.weight", val)) {
-            g_warning("Failed to set cpu.weight config for '%s' (v2 only)", name);
-        }
-        g_free(val);
+    if (ok && mem && !c->set_config_item(c, all[1].key, mem) &&
+        !c->set_config_item(c, "lxc.cgroup.memory.limit_in_bytes", mem)) {
+        g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to set memory config for '%s'", name);
+        ok = FALSE;
     }
-
-    if (ok && memory_mb > 0) {
-        gchar *val = g_strdup_printf("%" G_GINT64_FORMAT,
-                                     (gint64)memory_mb * 1024 * 1024);
-        if (!c->set_config_item(c, "lxc.cgroup2.memory.max", val)) {
-            if (!c->set_config_item(c, "lxc.cgroup.memory.limit_in_bytes", val)) {
-                g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                            "Failed to set memory config for '%s'", name);
-                ok = FALSE;
-            }
-        }
-        g_free(val);
-    }
-
-    if (ok && memory_low_mb > 0) {
-        gchar *val = g_strdup_printf("%" G_GINT64_FORMAT,
-                                     (gint64)memory_low_mb * 1024 * 1024);
-        if (!c->set_config_item(c, "lxc.cgroup2.memory.low", val)) {
-            g_warning("Failed to set memory.low config for '%s' (v2 only)", name);
-        }
-        g_free(val);
-    }
-
-    if (ok && memory_high_mb > 0) {
-        gchar *val = g_strdup_printf("%" G_GINT64_FORMAT,
-                                     (gint64)memory_high_mb * 1024 * 1024);
-        if (!c->set_config_item(c, "lxc.cgroup2.memory.high", val)) {
-            g_warning("Failed to set memory.high config for '%s' (v2 only)", name);
-        }
-        g_free(val);
-    }
-
-    if (ok && io_read_bps > 0) {
-        gchar *val = g_strdup_printf("8:0 rbps=%" G_GINT64_FORMAT, io_read_bps);
-        if (!c->set_config_item(c, "lxc.cgroup2.io.max", val)) {
-            g_warning("Failed to set io.max config for '%s' (v2 only)", name);
-        }
-        g_free(val);
-    }
-
-    if (ok && pids_max > 0) {
-        gchar *val = g_strdup_printf("%d", pids_max);
-        if (!c->set_config_item(c, "lxc.cgroup2.pids.max", val)) {
-            g_warning("Failed to set pids.max config for '%s' (v2 only)", name);
-        }
-        g_free(val);
-    }
+    for (gsize i = 2; ok && i < G_N_ELEMENTS(all); i++)                           
+        if (all[i].value && !c->set_config_item(c, all[i].key, all[i].value))
+            g_warning("Failed to set %s config for '%s' (v2 only)", all[i].key + strlen("lxc.cgroup2."), name);
 
     if (ok) {
         gchar *cfg_path = g_strdup_printf("%s/%s/config", PCV_LXC_PATH, name);
@@ -2324,8 +2132,8 @@ pcv_lxc_set_resource_limits(const gchar *name, gint cpu_percent,
             "/sys/fs/cgroup/lxc.payload.%s/cpu.max", name);
         gchar *v1_path = g_strdup_printf(
             "/sys/fs/cgroup/cpu/lxc/%s/cpu.cfs_quota_us", name);
-        gchar *v2_val = g_strdup_printf("%d 100000", cpu_percent * 1000);
-        gchar *v1_val = g_strdup_printf("%d", cpu_percent * 1000);
+        gchar *v2_val = g_strdup_printf("%" G_GINT64_FORMAT " 100000", (gint64)cpu_percent * 1000);
+        gchar *v1_val = g_strdup_printf("%" G_GINT64_FORMAT, (gint64)cpu_percent * 1000);
 
         if (!_cgroup_write_with_fallback(v2_path, v2_val, v1_path, v1_val, error)) {
             g_prefix_error(error, "Failed to set CPU limit for '%s': ", name);
@@ -2430,7 +2238,9 @@ pcv_lxc_set_resource_limits(const gchar *name, gint cpu_percent,
         if (!_set_limits_config(name, cpu_percent, memory_mb, cpu_weight,
                                 memory_low_mb, memory_high_mb,
                                 io_read_bps, pids_max, &cfg_err)) {
-                                                      
+                                                                                           
+            PCV_LOG_WARN(LXC_LOG_DOM, "container '%s' limits applied but config was not saved: %s", name,
+                         cfg_err ? cfg_err->message : "unknown");
             g_clear_error(&cfg_err);
         }
     }
@@ -2522,20 +2332,20 @@ pcv_lxc_nic_list(const gchar *name, GError **error)
         g_ptr_array_add(nics, nic);
     }
 
-                                                                 
-                                                                          
+                                                                                             
+                                                                               
     gchar *out = nullptr;
     if (c->is_running(c) && nics->len > 0 && !pcv_lxc_ns_ip4_query(PCV_LXC_PATH, name, &out, NULL))
         for (guint n = 0; n < nics->len; n++)
             ((PcvLxcNicInfo *)g_ptr_array_index(nics, n))->ipv4_unavailable = TRUE;
     gchar **lines = out ? g_strsplit(out, "\n", -1) : NULL;
-    for (int i = 0; lines && lines[i]; i++) {
+    for (int i = 0; lines && lines[i]; i++) {                                                           
         for (guint n = 0; n < nics->len; n++) {
             PcvLxcNicInfo *ni = g_ptr_array_index(nics, n);
             const gchar *inet = g_strstr_len(lines[i], -1, "inet ");
             if (!g_strstr_len(lines[i], -1, ni->name))
                 continue;
-            if (inet) {
+            if (inet) {                                                  
                 const gchar *sp = strchr(inet + 5, ' ');
                 g_free(ni->ipv4);
                 ni->ipv4 = sp ? g_strndup(inet + 5, (gsize)(sp - inet - 5)) : g_strdup(inet + 5);
@@ -2543,11 +2353,23 @@ pcv_lxc_nic_list(const gchar *name, GError **error)
             break;
         }
     }
-
     g_strfreev(lines);
     g_free(out);
     lxc_container_put(c);
     return nics;
+}
+
+                                                                                                
+typedef void (*NicRmwHook)(const gchar *name);
+static NicRmwHook G_nic_attach_rmw_hook;
+
+                                                                               
+                                             
+                                                            
+void
+pcv_lxc_nic_attach_set_rmw_hook_for_test(void (*fn)(const gchar *name))
+{
+    g_atomic_pointer_set(&G_nic_attach_rmw_hook, fn);
 }
 
    
@@ -2557,12 +2379,16 @@ pcv_lxc_nic_list(const gchar *name, GError **error)
                                      
   
                                                                       
-                                                        
+                                                                                 
+                                                                                  
    
 gboolean
 pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                      const gchar *hwaddr, GError **error)
 {
+                                                                                     
+                                                                                  
+    g_autoptr(GMutexLocker) cfg_lock = g_mutex_locker_new(pcv_lxc_config_mutex());
     struct lxc_container *c = lxc_container_new(name, PCV_LXC_PATH);
     if (!c || !c->is_defined(c)) {
         if (c) lxc_container_put(c);
@@ -2582,40 +2408,53 @@ pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
             break;                        
     }
 
-    gchar k1[64], k2[64], k3[64], k4[64];
+    gchar k1[64], k2[64], k3[64], k4[64], k5[64], ethname[16];
     g_snprintf(k1, sizeof(k1), "lxc.net.%d.type",   idx);
     g_snprintf(k2, sizeof(k2), "lxc.net.%d.link",   idx);
     g_snprintf(k3, sizeof(k3), "lxc.net.%d.flags",  idx);
     g_snprintf(k4, sizeof(k4), "lxc.net.%d.name",   idx);
-
-    c->set_config_item(c, k1, "veth");
-    c->set_config_item(c, k2, br);
-    c->set_config_item(c, k3, "up");
-
-    gchar ethname[16];
+    g_snprintf(k5, sizeof(k5), "lxc.net.%d.hwaddr", idx);
     g_snprintf(ethname, sizeof(ethname), "eth%d", idx);
-    c->set_config_item(c, k4, ethname);
+    const gboolean has_mac = hwaddr && *hwaddr;
+    const PcvLxcConfigEdit edits[] = { { k1, "veth", FALSE }, { k2, br, FALSE }, { k3, "up", FALSE },
+                                       { k4, ethname, FALSE }, { k5, hwaddr, FALSE } };
+    const gsize n_edits = has_mac ? 5 : 4;
+    NicRmwHook hook = g_atomic_pointer_get(&G_nic_attach_rmw_hook);
+    if (hook)
+        hook(name);                                      
 
-    if (hwaddr && *hwaddr) {
-        gchar k5[64];
-        g_snprintf(k5, sizeof(k5), "lxc.net.%d.hwaddr", idx);
-        c->set_config_item(c, k5, hwaddr);
+                                                                                                    
+                                                                                                   
+    gboolean saved;
+    g_autofree gchar *checked = nullptr;
+    if (!_lxc_handle_privileged(c)) {
+        saved = pcv_lxc_userns_config_edit(PCV_LXC_PATH, name, edits, n_edits, error);
+    } else if (!(checked = pcv_lxc_userns_config_apply_edits(NULL, edits, n_edits, error))) {
+        saved = FALSE;
+    } else {
+        for (gsize i = 0; i < n_edits; i++)
+            c->set_config_item(c, edits[i].key, edits[i].value);
+        if (!(saved = c->save_config(c, NULL)))
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to save config for '%s'", name);
     }
+    g_clear_pointer(&cfg_lock, g_mutex_locker_free);                                          
 
-    c->save_config(c, NULL);
-
-                                                          
-                                                      
-                                                                       
-    gboolean wired = TRUE;
-    if (c->is_running(c)) {
-        gchar host_if[24];
-        g_snprintf(host_if, sizeof(host_if), "%s-host", ethname);
-        wired = pcv_lxc_ns_nic_wire(host_if, ethname, br, c->init_pid(c), error);
+                                                                         
+                                                                                 
+                                                                                   
+                                                                                           
+    if (saved && c->is_running(c)) {
+        gchar host_if[16];                                                                         
+        if (!pcv_lxc_ns_host_veth_name(name, (guint)idx, host_if)) {
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
+                        "config saved; live wiring not confirmed: NIC index %d exceeds the limit", idx);
+            saved = FALSE;
+        } else {
+            saved = pcv_lxc_ns_nic_wire(host_if, ethname, br, c->init_pid(c), error);
+        }
     }
-
     lxc_container_put(c);
-    return wired;
+    return saved;
 }
 
    
@@ -2625,12 +2464,17 @@ pcv_lxc_nic_attach(const gchar *name, const gchar *bridge,
                  
   
                                                                         
-                                                             
+                                                                                      
+                                                                                  
+                                                                                                    
+                                                
    
 gboolean
 pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, gchar **warning_out, GError **error)
 {
     if (warning_out) *warning_out = NULL;
+                                                                                                
+    g_autoptr(GMutexLocker) cfg_lock = g_mutex_locker_new(pcv_lxc_config_mutex());
     struct lxc_container *c = lxc_container_new(name, PCV_LXC_PATH);
     if (!c || !c->is_defined(c)) {
         if (c) lxc_container_put(c);
@@ -2661,50 +2505,64 @@ pcv_lxc_nic_detach(const gchar *name, const gchar *nic_name, gchar **warning_out
         return FALSE;
     }
 
-                            
-    const gchar *keys[] = {"type", "link", "flags", "name", "hwaddr",
-                            "ipv4.address", "ipv4.gateway", NULL};
-    for (int i = 0; keys[i]; i++) {
-        gchar key[64];
-        g_snprintf(key, sizeof(key), "lxc.net.%d.%s", target, keys[i]);
-        c->clear_config_item(c, key);
+                                                                               
+                                                                                              
+    gboolean saved;
+    if (!_lxc_handle_privileged(c)) {
+        gchar prefix[32];
+        g_snprintf(prefix, sizeof(prefix), "lxc.net.%d.", target);
+        const PcvLxcConfigEdit edits[] = { { prefix, NULL, FALSE } };
+        saved = pcv_lxc_userns_config_edit(PCV_LXC_PATH, name, edits, G_N_ELEMENTS(edits), error);
+    } else {
+        const gchar *keys[] = {"type", "link", "flags", "name", "hwaddr",
+                                "ipv4.address", "ipv4.gateway", NULL};
+        for (int i = 0; keys[i]; i++) {
+            gchar key[64];
+            g_snprintf(key, sizeof(key), "lxc.net.%d.%s", target, keys[i]);
+            c->clear_config_item(c, key);
+        }
+        if (!(saved = c->save_config(c, NULL)))
+            g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to save config for '%s'", name);
     }
-    c->save_config(c, NULL);
+    g_clear_pointer(&cfg_lock, g_mutex_locker_free);                                          
 
-    gboolean removed = TRUE;
-    if (c->is_running(c))
-        removed = pcv_lxc_ns_nic_remove(PCV_LXC_PATH, name, nic_name, warning_out, error);
+                                                                               
+    if (saved && c->is_running(c)) {
+        saved = pcv_lxc_ns_nic_remove(PCV_LXC_PATH, name, nic_name, warning_out, error);
+        if (!saved)
+            saved = pcv_lxc_ns_nic_detach_host_leftover(name, (guint)target, warning_out, error);
+    }
     lxc_container_put(c);
-    return removed;
+    return saved;
 }
 
-   
-                                    
+                                                                          
   
-                                                    
-                                         
-  
-                                                                                  
+                           
+                                                                                           
+                                                                      
                                                                
+                                                           
+                                                                                     
                                                                    
-   
+                                                                 
+                                                                            
+                                                          
+                                           
+                                                                               
+                                                 
+                                                                 
+  
+                                                        
+                                                        
+                                                                            
 
+#define PCV_LXC_MAX_NETS 16                                                 
 
-
-
-
-
-
-
-
-
-
-#define PCV_LXC_MAX_NETS 16
-
-
-
-
-
+                                                         
+                                                           
+                                                                       
+                                                         
 gint
 pcv_lxc_bw_net_index(const gchar *const *net_names, guint n_nets, const gchar *iface)
 {
@@ -2724,13 +2582,13 @@ pcv_lxc_bw_net_index(const gchar *const *net_names, guint n_nets, const gchar *i
     if (idx >= n_nets)
         return -1;
     if (net_names[idx] && net_names[idx][0])
-        return -1;
+        return -1;                                      
     return (gint)idx;
 }
 
-
-
-
+                                                                                 
+                                                                     
+                                                     
 gchar *
 pcv_lxc_bw_normalize_veth(const gchar *raw)
 {
@@ -2744,8 +2602,8 @@ pcv_lxc_bw_normalize_veth(const gchar *raw)
     return veth;
 }
 
-
-
+                                                                             
+                                                                      
 static gchar *
 _lxc_bw_running_item(struct lxc_container *c, const gchar *key)
 {
@@ -2757,8 +2615,8 @@ _lxc_bw_running_item(struct lxc_container *c, const gchar *key)
     return copy;
 }
 
-
-
+                                                                       
+                                                                   
 static gchar *
 _lxc_bw_resolve_host_veth(struct lxc_container *c, const gchar *name,
                           const gchar *iface, GError **error)
@@ -2809,11 +2667,11 @@ _lxc_bw_resolve_host_veth(struct lxc_container *c, const gchar *name,
     return veth;
 }
 
-
+                                                                                      
 #define PCV_LXC_TBF_TAIL(rate) "root", "tbf", "rate", (rate), "burst", "32kbit", "latency", "50ms"
 
-
-
+                                                                       
+                                                                  
 static gboolean
 _lxc_bw_apply_host(const gchar *veth, guint kbps, GError **error)
 {
@@ -2833,9 +2691,9 @@ _lxc_bw_apply_host(const gchar *veth, guint kbps, GError **error)
     return ok;
 }
 
-
-
-
+                                                                    
+                                                                                         
+                                                        
 static gboolean
 _lxc_bw_apply_in_container(const gchar *name, const gchar *iface, guint kbps, GError **error)
 {
@@ -2859,25 +2717,25 @@ _lxc_bw_apply_in_container(const gchar *name, const gchar *iface, guint kbps, GE
     return ok;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                                                  
+  
+                                                       
+                                                 
+  
+                                                                          
+                                                     
+                                                                   
+                                                             
+                                                                                   
+                                                                   
+   
 gboolean
 pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
                         guint inbound_kbps, guint outbound_kbps,
                         GError **error)
 {
-    const gchar *iface = nic_name ? nic_name : "eth0";
+    const gchar *iface = nic_name ? nic_name : "eth0";                          
     if (!name || !*name || !pcv_validate_vm_name(name)) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                     "Valid container name required");
@@ -2895,8 +2753,8 @@ pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
         return FALSE;
     }
 
-                                                                  
-                                                               
+                                                                 
+                                                       
     gchar *config_path = g_build_filename(PCV_LXC_PATH, name, "config", NULL);
     gboolean defined = g_file_test(config_path, G_FILE_TEST_IS_REGULAR);
     g_free(config_path);
@@ -2921,8 +2779,8 @@ pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
         return FALSE;
     }
 
-                                 
-
+                                                             
+                              
     gchar *host_veth = NULL;
     if (outbound_kbps > 0) {
         host_veth = _lxc_bw_resolve_host_veth(c, name, iface, error);
@@ -2963,10 +2821,7 @@ pcv_lxc_set_bandwidth(const gchar *name, const gchar *nic_name,
   
                                                      
                                                        
-                                                 
-  
-                                                       
-                                      
+                                                                     
                                                                                
 
    
@@ -3022,6 +2877,11 @@ gboolean
 pcv_lxc_restore(const gchar *name, const gchar *checkpoint_dir)
 {
     if (!name || !checkpoint_dir) return FALSE;
+    g_autofree gchar *bad = nullptr;                                                                                 
+    if (!pcv_lxc_volume_guard_check_start(PCV_LXC_PATH, name, &bad)) {
+        PCV_LOG_WARN(LXC_LOG_DOM, "Restore refused for '%s': volume source changed since attach: %s", name, bad);
+        return FALSE;
+    }
 
     const gchar *argv[] = {
         "lxc-checkpoint", "-P", PCV_LXC_PATH,
@@ -3047,79 +2907,11 @@ pcv_lxc_restore(const gchar *name, const gchar *checkpoint_dir)
                                                                              
                         
   
-                                                   
-                                                           
+                                                                    
   
-                               
-                                                               
+                                                                                     
+                                                                            
                                                                                
-
-#define PCV_SECCOMP_DIR "/etc/purecvisor/seccomp"                        
-
-   
-                                                      
-  
-                                                
-                                        
-  
-                                              
-                                   
-  
-                                                                              
-                                                                 
-   
-gboolean
-pcv_lxc_set_seccomp_profile(const gchar *name, const gchar *profile_name)
-{
-    if (!name || !profile_name) return FALSE;
-
-    gchar *profile_path = g_strdup_printf("%s/%s.seccomp", PCV_SECCOMP_DIR, profile_name);
-
-                                                           
-    if (!g_file_test(profile_path, G_FILE_TEST_EXISTS)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "Seccomp profile not found: %s", profile_path);
-        g_free(profile_path);
-        return FALSE;
-    }
-
-                                       
-    gchar *config_path = g_strdup_printf("%s/%s/config", PCV_LXC_PATH, name);
-
-                                  
-    gchar *contents = nullptr;
-    gsize len = 0;
-    if (!g_file_get_contents(config_path, &contents, &len, NULL)) {
-        PCV_LOG_WARN(LXC_LOG_DOM, "Cannot read container config: %s", config_path);
-        g_free(profile_path);
-        g_free(config_path);
-        return FALSE;
-    }
-
-                                                                 
-                                 
-    GString *new_config = g_string_new("");
-    gchar **lines = g_strsplit(contents, "\n", -1);
-    for (gchar **l = lines; *l; l++) {
-        if (!g_str_has_prefix(*l, "lxc.seccomp.profile"))                         
-            g_string_append_printf(new_config, "%s\n", *l);
-    }
-    g_string_append_printf(new_config, "lxc.seccomp.profile = %s\n", profile_path);
-    g_strfreev(lines);
-    g_free(contents);
-
-    gboolean ok = g_file_set_contents(config_path, new_config->str, -1, NULL);
-    g_string_free(new_config, TRUE);
-    g_free(config_path);
-
-    if (ok)
-        PCV_LOG_INFO(LXC_LOG_DOM, "Set seccomp profile '%s' for container '%s'",
-                     profile_name, name);
-    else
-        PCV_LOG_WARN(LXC_LOG_DOM, "Failed to write seccomp config for '%s'", name);
-
-    g_free(profile_path);
-    return ok;
-}
 
    
                                                          

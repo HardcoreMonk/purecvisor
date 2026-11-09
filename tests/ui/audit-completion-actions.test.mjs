@@ -8,7 +8,7 @@ import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
 
 const MODS = ['endpoints', 'api', 'ui', 'filter-state', 'uxlib', 'modal-core',
-  'monitor', 'vm-console', 'vm-lifecycle', 'mobile', 'selfhealing'].map(x => 'ui/modules/' + x + '.js');
+  'monitor', 'vm', 'vm-console', 'vm-lifecycle', 'mobile', 'selfhealing'].map(x => 'ui/modules/' + x + '.js');
 
 async function boot(page) {
   await page.evaluate(() => {
@@ -151,7 +151,7 @@ for (const operation of ['mobile-stop', 'snapshot-create']) {
 
 
 
-const GUEST_MODS = ['ui/i18n.js', ...['endpoints', 'ui', 'uxlib', 'modal-core', 'vm-guest']
+const GUEST_MODS = ['ui/i18n.js', ...['endpoints', 'ui', 'uxlib', 'modal-core', 'vm', 'vm-guest']
   .map(x => 'ui/modules/' + x + '.js')];
 
 async function bootGuest(page) {
@@ -196,7 +196,7 @@ for (const operation of ['blkioGet', 'blkioSet']) {
         const sends = change === 'unchanged' || change === 'reordered';
         assert.equal(result.requests.length, sends ? 1 : 0, change);
         if (sends) {
-          assert.match(result.requests[0].url, /\/vms\/vm-a\/rpc$/);
+          assert.match(result.requests[0].url, /\/api\/v1\/rpc$/);
           assert.equal(result.requests[0].body.params.name, 'vm-a', change);
           if (operation === 'blkioSet') assert.deepEqual(result.requests[0].body.params, {
             name: 'vm-a', read_bytes_sec: 7 * 1048576, write_bytes_sec: 3 * 1048576,
@@ -207,6 +207,37 @@ for (const operation of ['blkioGet', 'blkioSet']) {
     });
   });
 }
+
+test('guest RPC 4종은 /rpc 직통 경로에 JSON-RPC 봉투로 요청한다', async () => {
+  await withPage(GUEST_MODS, async page => {
+    await bootGuest(page);
+    const requests = await page.evaluate(async () => {
+      const seen = [];
+      for (const run of [
+        () => showMemStats(),
+        () => showCpuStats(),
+        () => { showBlkioEditor(); return blkioGet(); },
+        () => { showBlkioEditor(); return blkioSet(); },
+      ]) {
+        closeModal(true);
+        guestRequests.length = 0;
+        await run();
+        seen.push(...guestRequests);
+      }
+      closeModal(true);
+      return { list: seen, hasVmRpc: typeof EP.VM_RPC };
+    });
+    assert.deepEqual(requests.list.map(r => r.body.method),
+      ['vm.memory.stats', 'vm.cpu.stats', 'vm.blkio.get', 'vm.blkio.set']);
+    for (const r of requests.list) {
+      assert.match(r.url, /^\/api\/v1\/rpc$/, r.body.method);
+      assert.equal(r.body.jsonrpc, '2.0', r.body.method);
+      assert.ok(r.body.id, r.body.method);
+      assert.equal(r.body.params.name, 'vm-a', r.body.method);
+    }
+    assert.equal(requests.hasVmRpc, 'undefined');
+  });
+});
 
 for (const late of ['success', 'failure']) {
   test(`memory stats: 이전 창의 늦은 ${late}는 새 VM 결과를 덮지 않는다`, async () => {

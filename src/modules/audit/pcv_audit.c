@@ -71,7 +71,7 @@ static struct {
     sqlite3       *db;
     GAsyncQueue   *queue;
     GThread       *worker;
-    gint           running;
+    gint           running;                                           
     gint64         total_count;
     gint64         dropped_count;                         
     gchar         *node_name;
@@ -486,7 +486,7 @@ pcv_audit_init(const gchar *db_path, GError **error)
 void
 pcv_audit_shutdown(void)
 {
-    g_atomic_int_set(&G.running, FALSE);
+    g_atomic_int_set(&G.running, FALSE);                                                             
     if (G.worker) {
         g_thread_join(G.worker);                                      
         G.worker = NULL;
@@ -541,7 +541,7 @@ pcv_audit_log(const gchar *username, const gchar *method,
                                                                        
                                                       
     pcv_rpc_completion_note_audit(method);
-    if (!g_atomic_int_get(&G.running) || !G.queue) return;
+    if (!g_atomic_int_get(&G.running) || !G.queue) return;                                             
 
                                                       
                                                         
@@ -767,13 +767,14 @@ pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
                                                             
                                                                       
     const gchar *sql =
-        "SELECT ts, username, method, target, result, src_ip, duration_ms, event_ts "
+        "SELECT id, ts, username, method, target, result, src_ip, duration_ms, "
+        "error_code, event_ts "
         "FROM audit_log WHERE 1=1 "
         "AND (? IS NULL OR ts >= ?) "
         "AND (? IS NULL OR ts <= ?) "
         "AND (? IS NULL OR username = ?) "
         "AND (? IS NULL OR method LIKE ?) "
-        "ORDER BY ts DESC LIMIT ?";
+        "ORDER BY ts DESC, id DESC LIMIT ?";                                                   
 
     sqlite3_stmt *stmt;
     if (sqlite3_prepare_v2(G.db, sql, -1, &stmt, NULL) != SQLITE_OK) return arr;
@@ -793,13 +794,14 @@ pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
                                                            
     while (sqlite3_step(stmt) == SQLITE_ROW) {
         JsonObject *obj = json_object_new();
-        const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 0);
-        const gchar *col_user     = (const gchar *)sqlite3_column_text(stmt, 1);
-        const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 2);
-        const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 3);
-        const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 4);
-        const gchar *col_srcip    = (const gchar *)sqlite3_column_text(stmt, 5);
-        const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 7);
+        const gchar *col_ts       = (const gchar *)sqlite3_column_text(stmt, 1);
+        const gchar *col_user     = (const gchar *)sqlite3_column_text(stmt, 2);
+        const gchar *col_method   = (const gchar *)sqlite3_column_text(stmt, 3);
+        const gchar *col_target   = (const gchar *)sqlite3_column_text(stmt, 4);
+        const gchar *col_result   = (const gchar *)sqlite3_column_text(stmt, 5);
+        const gchar *col_srcip    = (const gchar *)sqlite3_column_text(stmt, 6);
+        const gchar *col_event_ts = (const gchar *)sqlite3_column_text(stmt, 9);
+        json_object_set_int_member(obj, "id", sqlite3_column_int64(stmt, 0));
         json_object_set_string_member(obj, "ts",       col_ts     ? col_ts     : "");
         json_object_set_string_member(obj, "event_ts", col_event_ts ? col_event_ts : "");
         json_object_set_string_member(obj, "username", col_user   ? col_user   : "");
@@ -807,7 +809,8 @@ pcv_audit_search(const gchar *from_ts, const gchar *to_ts,
         json_object_set_string_member(obj, "target",   col_target ? col_target : "");
         json_object_set_string_member(obj, "result",   col_result ? col_result : "");
         json_object_set_string_member(obj, "src_ip",   col_srcip  ? col_srcip  : "");
-        json_object_set_int_member(obj, "duration_ms", sqlite3_column_int(stmt, 6));
+        json_object_set_int_member(obj, "duration_ms", sqlite3_column_int(stmt, 7));
+        json_object_set_int_member(obj, "error_code", sqlite3_column_int(stmt, 8));
         json_array_add_object_element(arr, obj);
     }
     sqlite3_finalize(stmt);

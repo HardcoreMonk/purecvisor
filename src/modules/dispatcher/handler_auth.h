@@ -19,6 +19,7 @@
                                                                  
                                                               
                                                              
+                                                                                            
   
                                                                    
                                                      
@@ -149,6 +150,21 @@ void handle_auth_role_set(JsonObject       *params,
                           GSocketConnection *connection);
 
    
+                               
+                                                               
+                                                                     
+  
+                                                                                    
+                                                                                
+                                                                
+                                                                            
+   
+void handle_auth_user_tenant_set(JsonObject       *params,
+                                 const gchar      *rpc_id,
+                                 UdsServer        *server,
+                                 GSocketConnection *connection);
+
+   
                            
                             
                                                 
@@ -220,5 +236,18 @@ void handle_auth_totp_recovery_regenerate(JsonObject       *params,
                                           const gchar      *rpc_id,
                                           UdsServer        *server,
                                           GSocketConnection *connection);
+
+                                                                             
+                           
+void handle_apikey_create(JsonObject *params, const gchar *rpc_id,
+                                   UdsServer *server, GSocketConnection *connection);
+void handle_apikey_list(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection);
+void handle_apikey_revoke(JsonObject *params, const gchar *rpc_id,
+                                   UdsServer *server, GSocketConnection *connection);
+void handle_session_revoke(JsonObject *params, const gchar *rpc_id,
+                                    UdsServer *server, GSocketConnection *connection);
+void handle_user_sessions_revoke(JsonObject *params, const gchar *rpc_id,
+                                         UdsServer *server, GSocketConnection *connection);
 
 #endif                     

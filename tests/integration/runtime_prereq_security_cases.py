@@ -543,6 +543,93 @@ old_sigint = signal.getsignal(signal.SIGINT)
 installer = load_installer_module()
 try:
                                                                 
+    fixed_dir = STATE / "fixed-temp-name"
+    fixed_dir.mkdir()
+    fixed_fd = os.open(fixed_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        fixed_name = installer.write_temp_at(fixed_fd, "manifest.json", b"x", 0o600, False)
+    finally:
+        os.close(fixed_fd)
+    require(
+        fixed_name == ".pcv-install-manifest.json",
+        "fixed_temp_name: temp name must be .pcv-install-<target name>",
+    )
+    require(
+        sorted(item.name for item in fixed_dir.iterdir()) == [".pcv-install-manifest.json"]
+        and (fixed_dir / ".pcv-install-manifest.json").read_bytes() == b"x",
+        "fixed_temp_name: only the fixed temp file must hold the written bytes",
+    )
+
+    unsafe_dir = STATE / "fixed-temp-unsafe"
+    unsafe_dir.mkdir()
+    unsafe_fd = os.open(unsafe_dir, os.O_RDONLY | os.O_DIRECTORY)
+    try:
+        for unsafe_target in ("a/b", "..", "", ".hidden"):
+            unsafe_error = None
+            try:
+                installer.write_temp_at(unsafe_fd, unsafe_target, b"x", 0o600, False)
+            except installer.InstallError as exc:
+                unsafe_error = str(exc)
+            require(
+                unsafe_error == "cannot prepare atomic runtime file",
+                f"fixed_temp_name_rejects_unsafe_target: {unsafe_target!r} must be rejected",
+            )
+            require(
+                not unsafe_target or unsafe_target not in unsafe_error,
+                "fixed_temp_name_rejects_unsafe_target: rejection must not echo the input",
+            )
+    finally:
+        os.close(unsafe_fd)
+    require(
+        not any(unsafe_dir.iterdir()),
+        "fixed_temp_name_rejects_unsafe_target: rejection must create no file",
+    )
+
+    link_sentinel = STATE / "fixed-temp-link-sentinel"
+    link_sentinel.write_bytes(b"sentinel")
+    missing_link_target = STATE / "fixed-temp-missing-target"
+    for entry_kind in ("file", "directory", "symlink", "dangling-symlink"):
+        existing_dir = STATE / f"fixed-temp-existing-{entry_kind}"
+        existing_dir.mkdir()
+        (existing_dir / "manifest.json").write_bytes(b"old-manifest")
+        stale_entry = existing_dir / ".pcv-install-manifest.json"
+        if entry_kind == "file":
+            stale_entry.write_bytes(b"stale-temp")
+        elif entry_kind == "directory":
+            stale_entry.mkdir()
+        elif entry_kind == "symlink":
+            stale_entry.symlink_to(link_sentinel)
+        else:
+            stale_entry.symlink_to(missing_link_target)
+        existing_before = fingerprint(existing_dir)
+        existing_fd = os.open(existing_dir, os.O_RDONLY | os.O_DIRECTORY)
+        existing_error = None
+        try:
+            installer.write_temp_at(
+                existing_fd,
+                "manifest.json",
+                b"new-manifest",
+                0o644,
+                False,
+            )
+        except installer.InstallError as exc:
+            existing_error = str(exc)
+        finally:
+            os.close(existing_fd)
+        require(
+            existing_error
+            == "stale atomic runtime temp file exists: .pcv-install-manifest.json",
+            f"fixed_temp_name_existing_entry_fails: existing {entry_kind} must fail closed",
+        )
+        require(
+            fingerprint(existing_dir) == existing_before,
+            f"fixed_temp_name_existing_entry_fails: existing {entry_kind} must stay untouched",
+        )
+    require(
+        link_sentinel.read_bytes() == b"sentinel" and not missing_link_target.exists(),
+        "fixed_temp_name_existing_entry_fails: symlink targets must stay untouched",
+    )
+
     failure_before = fingerprint(destination)
     failure_manifest_before = (destination / "manifest.json").read_bytes()
     failure_fd = os.open(destination, os.O_RDONLY | os.O_DIRECTORY)

@@ -41,8 +41,10 @@
 #include <glib/gstdio.h>
 #include <errno.h>                                            
 #include <sys/stat.h>
+#include "../src/modules/auth/pcv_rbac.h"
 #include "../src/modules/lxc/lxc_owner.h"
 #include "../src/utils/pcv_config.h"
+#include "api/dispatcher_owner_scope.h"
 
   
                                                                             
@@ -199,6 +201,44 @@ static void test_stamp_missing_dir_fails(void) {
     owner_fixture_teardown(&fx);
 }
 
+static void test_owner_scope_read_methods_in_set(void) {
+    g_assert_true(pcv_disp_container_method_requires_owner_scope("container.memory.stats"));
+    g_assert_true(pcv_disp_container_method_requires_owner_scope("container.health.check"));
+    g_assert_true(pcv_disp_container_method_requires_owner_scope("container.logs"));
+    g_assert_false(pcv_disp_container_method_requires_owner_scope("container.metrics"));
+    g_assert_false(pcv_disp_container_method_requires_owner_scope("container.list"));
+}
+
+static void test_owner_scope_read_methods_gate_decision(void) {
+    OwnerFixture fx = {0};
+    owner_fixture_setup(&fx);
+    make_container_dir(&fx, "mine");
+    make_container_dir(&fx, "theirs");
+    g_assert_true(pcv_lxc_stamp_owner("mine", "alice"));
+    g_assert_true(pcv_lxc_stamp_owner("theirs", "bob"));
+
+    static const gchar *const methods[] = { "container.memory.stats", "container.health.check" };
+    for (guint i = 0; i < G_N_ELEMENTS(methods); i++) {
+        JsonObject *params = json_object_new();
+        json_object_set_string_member(params, "_pcv_caller_sub", "alice");
+
+        json_object_set_string_member(params, "name", "mine");
+        g_assert_true(pcv_disp_container_owner_scoped_method_allowed(
+            methods[i], params, NULL, PCV_ROLE_OPERATOR, NULL));
+
+        json_object_set_string_member(params, "name", "theirs");
+        gchar *deny = NULL;
+        g_assert_false(pcv_disp_container_owner_scoped_method_allowed(
+            methods[i], params, NULL, PCV_ROLE_OPERATOR, &deny));
+        g_assert_cmpstr(deny, ==, "Permission denied: operators can access only containers they created");
+        g_free(deny);
+        g_assert_true(pcv_disp_container_owner_scoped_method_allowed(
+            methods[i], params, NULL, PCV_ROLE_ADMIN, NULL));
+        json_object_unref(params);
+    }
+    owner_fixture_teardown(&fx);
+}
+
 void test_container_owner_scope_register(void) {
     g_test_add_func("/container_owner_scope/owner_match_allows_mismatch_denies",
                     test_owner_match_allows_mismatch_denies);
@@ -208,6 +248,10 @@ void test_container_owner_scope_register(void) {
                     test_empty_owner_sub_not_stamped);
     g_test_add_func("/container_owner_scope/per_container_isolation",
                     test_per_container_isolation);
+    g_test_add_func("/container_owner_scope/read_methods_in_set",
+                    test_owner_scope_read_methods_in_set);
+    g_test_add_func("/container_owner_scope/read_methods_gate_decision",
+                    test_owner_scope_read_methods_gate_decision);
     g_test_add_func("/container_owner_scope/stamp_missing_dir_fails",
                     test_stamp_missing_dir_fails);
 }

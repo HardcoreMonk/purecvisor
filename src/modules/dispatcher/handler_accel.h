@@ -29,9 +29,9 @@
                
                                                                                
              
-
-
-
+                                                                      
+                                                                                  
+                                                 
   
                
                                                             
@@ -62,7 +62,7 @@
                                                           
                                                                    
   
-
+                                                                         
   
                
                                                                                          
@@ -95,7 +95,7 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id, UdsServer *s, GSocketConne
 void handle_dpdk_unbind(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
                                         
 void handle_dpdk_list(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
-
+                                                                                                       
 void handle_dpdk_bridge_create(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
                                                    
 void handle_dpdk_bridge_delete(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
@@ -126,11 +126,18 @@ void handle_sriov_attach(JsonObject *p, const gchar *id, UdsServer *s, GSocketCo
                                                                               
 void handle_sriov_detach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
 
-
-
+                                                                 
+                                                     
 void handle_device_gpu_attach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
 void handle_device_gpu_detach(JsonObject *p, const gchar *id, UdsServer *s, GSocketConnection *c);
 
 G_END_DECLS
+
+                                                                              
+                           
+void handle_gpu_metrics(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection);
+void handle_gpu_list(JsonObject *params, const gchar *rpc_id,
+                              UdsServer *server, GSocketConnection *connection);
 
 #endif                                 

@@ -23,8 +23,8 @@
 <meta name="referrer" content="no-referrer">
 <meta http-equiv="Content-Security-Policy" content="default-src 'self'; script-src 'self' 'unsafe-inline'; style-src 'self' 'unsafe-inline'; font-src 'self'; connect-src 'self' ws: wss: https://purecvisor.example.com; img-src 'self' data: blob:; frame-src 'none'; object-src 'none'; base-uri 'self'; form-action 'self'">
 <base href="/ui/">
-<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=2.0.4">
-<link rel="stylesheet" href="style.css?v=2.0.4">
+<link rel="stylesheet" href="vendor/pretendard/pretendard.css?v=2.1.0">
+<link rel="stylesheet" href="style.css?v=2.1.0">
 <script>
                                                  
                                                     
@@ -298,6 +298,7 @@
         <span id="us-name" class="shell-user-name"></span>
         <button class="btn" onclick="showChangePwModal()" title="비밀번호 변경" style="font-size:11px;padding:4px 10px">PW</button>
         <button class="btn btn-r" onclick="doLogout()" style="font-size:11px;padding:4px 10px" data-i18n="logout">로그아웃</button>
+        <button class="btn" type="button" onclick="doLogoutAll()" title="이 계정의 모든 기기에서 로그아웃" style="font-size:11px;padding:4px 10px" data-i18n="logout.all">모든 기기</button>
       </span>
       <button id="mobile-menu-btn" class="mobile-menu-btn" onclick="toggleMobileSB()" aria-label="사이드바 열기"><svg class="ci-icon" aria-hidden="true"><use href="vendor/coolicons/coolicons.svg#ci-menu-alt-01"></use></svg></button>
     </div>
@@ -318,11 +319,11 @@
                                                                                 
 
                                                            
-<script src="vendor/chart.umd.min.js?v=2.0.4"></script>
-<script src="vendor/qrcode/qrcode.js?v=2.0.4"></script>
-<script src="i18n.js?v=2.0.4"></script>
+<script src="vendor/chart.umd.min.js?v=2.1.0"></script>
+<script src="vendor/qrcode/qrcode.js?v=2.1.0"></script>
+<script src="i18n.js?v=2.1.0"></script>
                                                                                                  
-<script src="app.bundle.js?v=2.0.4"></script>
+<script src="app.bundle.js?v=2.1.0"></script>
                                                                                       
 <script>
                                                       

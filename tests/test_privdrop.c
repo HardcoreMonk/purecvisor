@@ -368,6 +368,10 @@ privdrop1_parent_and_children_body(void)
     g_assert_cmpuint(inh, ==, keep);
     g_assert_cmpuint(bnd, ==, ceiling);
 
+    guint64 trace_mask = keep | PRIVDROP1_CAP_BIT(CAP_BPF) | PRIVDROP1_CAP_BIT(CAP_SYSLOG);
+    g_assert_cmpuint(pcv_privdrop_child_profile_mask(PCV_CHILD_CAP_TRACE), ==, trace_mask);
+    g_assert_cmpuint(eff & (PRIVDROP1_CAP_BIT(CAP_BPF) | PRIVDROP1_CAP_BIT(CAP_SYSLOG)), ==, 0);
+
     const gint permanently_dropped[] = {
         CAP_SYS_MODULE, CAP_SYS_RAWIO, CAP_SYS_TIME, CAP_MAC_OVERRIDE
     };
@@ -452,6 +456,14 @@ privdrop1_parent_and_children_body(void)
     g_assert_cmpint(g_atomic_int_get(&base.failed), ==, 0);
     g_assert_cmpint(g_atomic_int_get(&runtime.failed), ==, 0);
 
+    Privdrop1SpawnThread trace = { PCV_CHILD_CAP_TRACE, 0 };
+    t1 = g_thread_new("privdrop-base-trace", privdrop1_spawn_thread, &base);
+    t2 = g_thread_new("privdrop-trace", privdrop1_spawn_thread, &trace);
+    g_thread_join(t1);
+    g_thread_join(t2);
+    g_assert_cmpint(g_atomic_int_get(&base.failed), ==, 0);
+    g_assert_cmpint(g_atomic_int_get(&trace.failed), ==, 0);
+
     pcv_spawn_launcher_shutdown();
 }
 
@@ -472,7 +484,46 @@ test_privdrop1_parent_and_child_profiles(void)
 
                                                         
 
+static void
+test_trace_setup_fail_closed(void)
+{
+    if (!privdrop1_host_can_apply_ceiling()) {
+        g_test_skip("full spawn ceiling을 가진 소유 root 환경이 필요함");
+        return;
+    }
+    if (!g_test_subprocess()) {
+        g_test_trap_subprocess(NULL, 30 * G_USEC_PER_SEC, G_TEST_SUBPROCESS_DEFAULT);
+        g_test_trap_assert_passed();
+        return;
+    }
+    g_assert_true(pcv_privdrop_capabilities());
+    for (gint fault = 0; fault < 3; fault++) {
+        int pfd[2];
+        g_assert_cmpint(pipe(pfd), ==, 0);
+        pid_t pid = fork();
+        g_assert_cmpint(pid, >=, 0);
+        if (pid == 0) {
+            close(pfd[0]);
+            if (fault == 2)
+                pcv_privdrop_child_setup(GINT_TO_POINTER(PCV_CHILD_CAP_BASE));
+            gint profile = fault == 0 ? -1 : fault == 1 ? PCV_CHILD_CAP_N_PROFILES : PCV_CHILD_CAP_TRACE;
+            pcv_privdrop_child_setup(GINT_TO_POINTER(profile));
+            (void)!write(pfd[1], "unexpected execution", 20);
+            _exit(0);
+        }
+        close(pfd[1]);
+        char got;
+        g_assert_cmpint(read(pfd[0], &got, 1), ==, 0);
+        close(pfd[0]);
+        int status = 0;
+        g_assert_cmpint(waitpid(pid, &status, 0), ==, pid);
+        g_assert_true(WIFEXITED(status));
+        g_assert_cmpint(WEXITSTATUS(status), ==, 126);
+    }
+}
+
 void test_privdrop_register(void) {
+    g_test_add_func("/privdrop/trace_setup_fail_closed", test_trace_setup_fail_closed);
     g_test_add_func("/privdrop/prctl_constants",     test_prctl_constants);
     g_test_add_func("/privdrop/prctl_get_nnp",       test_prctl_get_nnp);
     g_test_add_func("/privdrop/seccomp_mode_readable", test_seccomp_mode_readable);

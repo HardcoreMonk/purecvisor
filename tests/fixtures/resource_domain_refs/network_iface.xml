@@ -1,0 +1,9 @@
+<domain type='kvm'>
+  <name>c</name>
+  <devices>
+    <interface type='network'>
+      <source network='default'/>
+      <model type='virtio'/>
+    </interface>
+  </devices>
+</domain>

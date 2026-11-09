@@ -158,8 +158,12 @@ def main():
     args = parser.parse_args()
     source, output = args.source.resolve(), args.output.resolve()
     output.mkdir(parents=True, exist_ok=False)
-    resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
-    handler = source / 'src/modules/dispatcher/handler_vm_lifecycle.c'
+
+    try:
+        resource.setrlimit(resource.RLIMIT_CORE, (1, 1))
+    except (ValueError, OSError):
+        resource.setrlimit(resource.RLIMIT_CORE, (0, 0))
+    handler = source / 'src/modules/dispatcher/handler_vm_guest.c'
     text, old = handler.read_text(), args.baseline.read_text()
     names = ['_guest_fsinfo_get_int64', '_guest_fsinfo_should_count', *['_guest_' + name + '_worker' for name in WORKERS]]
     result = {'scope': 'actual product worker and RPC formatter; libvirt boundary fixture; no host or VM calls',

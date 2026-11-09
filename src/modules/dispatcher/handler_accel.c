@@ -18,13 +18,15 @@
                                                               
                                                            
                                                     
-                                                             
-                                                
-                                                                    
-                                     
-
-
-
+                                                                  
+                                                       
+                                                                
+                                                                 
+                                                                                
+                          
+                                                                        
+                                                                        
+                                                           
                                                                         
                                                           
   
@@ -51,9 +53,9 @@
                                                                                              
                                                                              
   
-
-
-
+          
+                                                                              
+                            
   
          
                                  
@@ -106,10 +108,13 @@
 #include "modules/network/sriov_manager.h"
 #include "modules/accel/gpu_manager.h"
 #include "modules/audit/pcv_audit.h"
+#include "modules/resource/resource_gate.h"                             
 #include "modules/dispatcher/rpc_utils.h"
+#include "modules/dispatcher/rpc_completion.h"
 #include "purecvisor/pcv_validate.h"
 #include "api/ws_server.h"
 #include "utils/pcv_job_queue.h"
+#include "utils/pcv_spawn.h"
 
 static void
 _handle_gpu_assignment(JsonObject *p, const gchar *id,
@@ -283,9 +288,8 @@ void handle_dpdk_bind(JsonObject *p, const gchar *id,
     g_free(guard_reason);
 
       
-                                                                    
-                                                        
-                                                         
+                                                                                    
+                                               
        
     GError *err = NULL;
     if (!pcv_dpdk_bind(pci, drv, &err)) {
@@ -373,6 +377,7 @@ typedef struct {
     gchar *port;
     guint mtu;
     gchar *job_id;
+    PcvJobRef *job_ref;                                     
     gchar *actor;
     gint64 started_us;
 } DpdkBridgeTask;
@@ -384,6 +389,7 @@ _dpdk_bridge_task_free(DpdkBridgeTask *data)
         return;
     g_free(data->name);
     g_free(data->port);
+    pcv_job_unref(data->job_ref);
     g_free(data->job_id);
     g_free(data->actor);
     g_free(data);
@@ -417,10 +423,10 @@ _dpdk_bridge_result_json(const DpdkBridgeTask *data, gboolean ok,
     return json;
 }
 
-
-
-
-
+                                                                    
+                                                                 
+                                                        
+                                                            
 static void
 _dpdk_bridge_worker(GTask *task, gpointer source_object G_GNUC_UNUSED,
                     gpointer task_data, GCancellable *cancellable G_GNUC_UNUSED)
@@ -429,7 +435,7 @@ _dpdk_bridge_worker(GTask *task, gpointer source_object G_GNUC_UNUSED,
     GError *error = NULL;
     const gchar *method = data->create
         ? "dpdk.bridge.create" : "dpdk.bridge.delete";
-    pcv_job_update_status(data->job_id, PCV_JOB_RUNNING, 10,
+    pcv_job_progress(data->job_ref, 10,
                           data->create ? "DPDK bridge reconcile running"
                                        : "DPDK bridge delete running");
     gboolean ok = data->create
@@ -438,15 +444,11 @@ _dpdk_bridge_worker(GTask *task, gpointer source_object G_GNUC_UNUSED,
 
     gint64 duration_ms = (g_get_monotonic_time() - data->started_us) / 1000;
     gchar *result_json = _dpdk_bridge_result_json(data, ok, error);
-    gboolean result_persisted = pcv_job_set_result(data->job_id,
-                       ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
-                       result_json);
     pcv_audit_log(data->actor, method, data->name, ok ? "ok" : "fail",
                   ok ? 0 : PURE_RPC_ERR_INTERNAL_ERROR,
                   duration_ms, "local");
-    pcv_ws_broadcast_job_complete_tracked_mt(data->job_id, method,
-                                     ok ? "completed" : "failed",
-                                     ok ? NULL : (error ? error->message : "unknown"), result_persisted);
+    pcv_ws_finish_job(data->job_ref, ok ? PCV_JOB_COMPLETED : PCV_JOB_FAILED,
+                       result_json, ok ? NULL : (error ? error->message : "unknown"));
     g_free(result_json);
 
     if (ok) {
@@ -469,17 +471,12 @@ _dpdk_bridge_schedule(gboolean create, const gchar *name, const gchar *port,
     data->name = g_strdup(name);
     data->port = port && *port ? g_strdup(port) : NULL;
     data->mtu = mtu;
-    if (params && json_object_has_member(params, "_pcv_caller_sub")) {
-        JsonNode *actor = json_object_get_member(params, "_pcv_caller_sub");
-        if (actor && JSON_NODE_HOLDS_VALUE(actor) &&
-            json_node_get_value_type(actor) == G_TYPE_STRING)
-            data->actor = g_strdup(json_node_get_string(actor));
-    }
+    data->actor = g_strdup(pcv_rpc_completion_actor());                                           
     data->started_us = g_get_monotonic_time();
 
     const gchar *method = create ? "dpdk.bridge.create" : "dpdk.bridge.delete";
-    data->job_id = pcv_job_create(method, name, NULL);
-    if (!data->job_id) {
+    data->job_ref = pcv_job_admit(method, name, NULL, method);
+    if (!data->job_ref) {
         gchar *response = pure_rpc_build_error_response(
             rpc_id, PURE_RPC_ERR_INTERNAL_ERROR, "DPDK bridge Job creation failed");
         pure_uds_server_send_response(server, connection, response);
@@ -488,6 +485,7 @@ _dpdk_bridge_schedule(gboolean create, const gchar *name, const gchar *port,
         return;
     }
 
+    data->job_id = g_strdup(pcv_job_id(data->job_ref));
     JsonObject *accepted = json_object_new();
     json_object_set_string_member(accepted, "status", "accepted");
     json_object_set_string_member(accepted, "job_id", data->job_id);
@@ -509,23 +507,23 @@ _dpdk_bridge_schedule(gboolean create, const gchar *name, const gchar *port,
 
    
                              
-
+                                                            
                       
                   
                   
   
                           
                                                                         
-
+                                                   
   
                                                
                                       
                                                     
   
-
-
+                                                                           
+                                                            
                                                   
-
+                                                            
    
 void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
                                 UdsServer *s, GSocketConnection *c)
@@ -544,8 +542,8 @@ void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
     }
 
       
-
-
+                                                           
+                                                             
        
     const gchar *port = json_object_has_member(p, "dpdk_port")
         ? json_object_get_string_member(p, "dpdk_port") : NULL;
@@ -555,6 +553,21 @@ void handle_dpdk_bridge_create(JsonObject *p, const gchar *id,
     if (port && *port && !pcv_validate_pci_addr(port)) {
         gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS, "Invalid: dpdk_port");
         pure_uds_server_send_response(s, c, r); g_free(r); return;
+    }
+
+                                                                            
+                                                    
+                                                            
+    if (port && *port) {
+        gchar *guard_reason = NULL;
+        if (pcv_dpdk_nic_is_protected(port, &guard_reason)) {
+            gchar *r = pure_rpc_build_error_response(id, PURE_RPC_ERR_INVALID_PARAMS,
+                guard_reason ? guard_reason : "refusing to bind NIC in use by host");
+            pure_uds_server_send_response(s, c, r);
+            g_free(r); g_free(guard_reason);
+            return;
+        }
+        g_free(guard_reason);
     }
 
     guint mtu = PCV_DPDK_MTU_DEFAULT;
@@ -775,6 +788,10 @@ void handle_sriov_list(JsonObject *p, const gchar *id,
         ? json_object_get_string_member(p, "pf") : NULL;
 
     JsonArray *arr = pcv_sriov_list(pf);
+    PcvResCaller caller = { 0 };
+    pcv_res_caller_init(&caller, p, c);                                     
+    arr = pcv_res_filter_array(&caller, PCV_RES_PCI, arr, "pci_addr");
+    pcv_res_caller_clear(&caller);
     JsonNode *n = json_node_new(JSON_NODE_ARRAY);
     json_node_take_array(n, arr);
     gchar *r = pure_rpc_build_success_response(id, n);
@@ -849,7 +866,7 @@ void handle_sriov_set(JsonObject *p, const gchar *id,
             gint64 value = json_node_get_int(node);
             spoof = (value == 0 || value == 1) ? (gint)value : -2;
         } else if (value_type == G_TYPE_STRING) {
-
+                                                     
             const gchar *value = json_node_get_string(node);
             if (g_strcmp0(value, "on") == 0)
                 spoof = 1;
@@ -984,8 +1001,8 @@ void handle_sriov_attach(JsonObject *p, const gchar *id,
                            
                                                  
   
-
-
+                                                           
+                                                                  
   
                                  
                                                 
@@ -1036,4 +1053,82 @@ void handle_sriov_detach(JsonObject *p, const gchar *id,
     gchar *r = pure_rpc_build_success_response(id, n);
     pure_uds_server_send_response(s, c, r);
     g_free(r);
+}
+
+
+                                                                        
+                                                    
+  
+                                                              
+                                                   
+  
+          
+                                                                 
+                              
+                                                             
+  
+          
+                                                                                 
+  
+              
+                                            
+                                                                          
+void handle_gpu_metrics(JsonObject *params, const gchar *rpc_id,
+                                 UdsServer *server, GSocketConnection *connection)
+{
+    (void)params;
+    const gchar *argv[] = {"nvidia-smi",
+        "--query-gpu=index,name,utilization.gpu,temperature.gpu,memory.used,memory.total,power.draw",
+        "--format=csv,noheader,nounits", NULL};
+    gchar *out = nullptr;
+    gboolean ok = pcv_spawn_sync(argv, &out, NULL, NULL);
+    JsonArray *arr = json_array_new();
+    if (ok && out) {
+        gchar **lines = g_strsplit(g_strstrip(out), "\n", -1);
+        for (gchar **l = lines; *l; l++) {
+            gchar **fields = g_strsplit(*l, ", ", -1);
+            if (g_strv_length(fields) >= 7) {
+                JsonObject *gpu = json_object_new();
+                json_object_set_int_member(gpu, "index", atoi(fields[0]));
+                json_object_set_string_member(gpu, "name", g_strstrip(fields[1]));
+                json_object_set_double_member(gpu, "utilization_pct", atof(fields[2]));
+                json_object_set_double_member(gpu, "temperature_c", atof(fields[3]));
+                json_object_set_int_member(gpu, "memory_used_mb", atoi(fields[4]));
+                json_object_set_int_member(gpu, "memory_total_mb", atoi(fields[5]));
+                json_object_set_double_member(gpu, "power_watts", atof(fields[6]));
+                json_array_add_object_element(arr, gpu);
+            }
+            g_strfreev(fields);
+        }
+        g_strfreev(lines);
+    }
+    g_free(out);
+    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, arr);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
+}
+
+                                                                        
+                                         
+  
+                                                        
+                                              
+  
+                                               
+                                    
+                                                  
+                                                                          
+void handle_gpu_list(JsonObject *params, const gchar *rpc_id,
+                              UdsServer *server, GSocketConnection *connection)
+{
+    JsonArray *arr = pcv_gpu_list();
+    PcvResCaller caller = { 0 };
+    pcv_res_caller_init(&caller, params, connection);                                      
+    arr = pcv_res_filter_array(&caller, PCV_RES_PCI, arr, "pci_addr");
+    pcv_res_caller_clear(&caller);
+    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, arr);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp); g_free(resp);
 }

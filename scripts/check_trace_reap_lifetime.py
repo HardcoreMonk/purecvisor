@@ -15,6 +15,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parents[1]
 TOKENS = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.S)
 
@@ -47,13 +50,20 @@ def require(condition: bool, message: str) -> None:
 
 def check(root: Path = ROOT) -> None:
     trace = code((root / "src/modules/daemons/pcv_trace.c").read_text())
-    rpc = code((root / "src/api/dispatcher.c").read_text())
+    rpc = code(rpc_extract.dispatcher_family_text(root))
     request = body(trace, "_trace_request_stop")
     stop = body(trace, "pcv_trace_stop")
     backstop = body(trace, "_trace_backstop_cb")
     wait = body(trace, "_trace_wait_done")
     final = body(trace, "_trace_finalize")
     status = body(trace, "pcv_trace_status")
+    start = body(trace, "pcv_trace_start")
+    require(re.search(r'pcv_spawn_newv_profile\(\s*\(const gchar \* const \*\)final_argv,\s*'
+                      r'G_SUBPROCESS_FLAGS_STDOUT_SILENCE\s*\|\s*G_SUBPROCESS_FLAGS_STDERR_SILENCE,\s*'
+                      r'PCV_CHILD_CAP_TRACE,\s*&serr\)', start),
+            "Retis collect must use the fixed Trace child profile")
+    require(len(re.findall(r'\bPCV_CHILD_CAP_TRACE\b', trace)) == 1,
+            "Trace child profile must remain collection-only")
     for name, text in (("request", request), ("stop", stop), ("backstop", backstop)):
         require(not re.search(r'\b(?:_trace_finalize|_trace_summarize|pcv_trace_release|'
                               r'g_subprocess_get_\w+|g_remove|g_unlink)\s*\(', text),
@@ -75,7 +85,7 @@ def check(root: Path = ROOT) -> None:
     require(len(re.findall(r'\b_trace_finalize\s*\(', trace)) == 2,
             "wait must be the only caller of finalization")
     require('"stop_requested"' in status, "running status must expose stop_requested")
-    stop_rpc = body(rpc, "_handle_debug_trace_stop")
+    stop_rpc = body(rpc, rpc_extract.current_fn_name(root, "_handle_debug_trace_stop"))
     for field in ("stopped", "stop_requested"):
         require(re.search(r'json_object_set_boolean_member\(res,\s*"' + field + r'",\s*TRUE\)', stop_rpc),
                 f"Trace stop RPC must preserve request ACK field {field}")

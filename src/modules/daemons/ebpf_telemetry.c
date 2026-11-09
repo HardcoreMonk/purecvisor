@@ -73,12 +73,13 @@
                                                                
    
 #include "ebpf_telemetry.h"
-#include <libvirt/libvirt.h>
+#include "modules/virt/pcv_virt_open.h"
 #include <string.h>
 #include <stdio.h>
 #include <sys/statvfs.h>
 #include <sys/sysinfo.h>
 #include <dirent.h>
+#include <time.h>
 #include "utils/pcv_log.h"
 #include "utils/pcv_bpf.h"
 #include "prometheus_exporter.h"
@@ -118,6 +119,7 @@
 #define EBPF_LOG_DOM       "ebpf_telem"
 #define EBPF_INTERVAL_SEC  5
 #define EBPF_MAX_VMS       64
+#define EBPF_HOST_HISTORY_MAX 720
 
                                                              
 
@@ -277,10 +279,15 @@ typedef struct {
    
 static struct {
     GThread      *thread;                                                
-    gint          running;
+    gint          running;                                                 
     VmExtMetrics  vms[EBPF_MAX_VMS];                                     
     gint          vm_count;                                   
     HostMetrics   host;                                                
+    HostMetrics   host_history[EBPF_HOST_HISTORY_MAX];                             
+    gint64        host_history_observed_at[EBPF_HOST_HISTORY_MAX];
+    guint         host_history_count;
+    guint         host_history_index;
+    gint64        host_observed_at;                                           
     GMutex        mu;                                                      
     gboolean      initialized;                                                 
 } G = {0};
@@ -1425,7 +1432,7 @@ _collect_node_misc(void)
 static void
 _collect_vm_metrics(void)
 {
-    virConnectPtr conn = virConnectOpen("qemu:///system");
+    virConnectPtr conn = pcv_virt_open_bounded("qemu:///system", FALSE, PCV_VIRT_OPEN_TIMEOUT_SEC, NULL);
     if (!conn) return;
 
     virDomainStatsRecordPtr *stats = NULL;
@@ -1537,8 +1544,14 @@ _ebpf_thread(gpointer data)
         _collect_host_net(&h);
         _collect_host_disk_io(&h);
 
+        const gint64 observed_at = (gint64)time(NULL);
         g_mutex_lock(&G.mu);
         G.host = h;
+        G.host_observed_at = observed_at;
+        G.host_history[G.host_history_index] = h;
+        G.host_history_observed_at[G.host_history_index] = observed_at;
+        G.host_history_index = (G.host_history_index + 1) % EBPF_HOST_HISTORY_MAX;
+        if (G.host_history_count < EBPF_HOST_HISTORY_MAX) G.host_history_count++;
         g_mutex_unlock(&G.mu);
 
                                                               
@@ -1831,7 +1844,7 @@ _ebpf_thread(gpointer data)
         pcv_bpf_metrics_tick();
 
                                                                   
-
+                                               
         for (guint i = 0; i < EBPF_INTERVAL_SEC * 20U &&
              g_atomic_int_get(&G.running); i++)
             g_usleep(50000);
@@ -1855,6 +1868,9 @@ void
 pcv_ebpf_telemetry_init(void)
 {
     g_mutex_init(&G.mu);
+    G.host_history_count = 0;
+    G.host_history_index = 0;
+    G.host_observed_at = 0;
     g_atomic_int_set(&G.running, TRUE);
     G.initialized = TRUE;
     G.thread = g_thread_new("ebpf-telem", _ebpf_thread, NULL);
@@ -1876,9 +1892,9 @@ pcv_ebpf_telemetry_init(void)
   
                                           
    
-
-
-
+                                                                    
+                                                                 
+                                                     
 void
 pcv_ebpf_telemetry_quiesce(void)
 {
@@ -2027,6 +2043,8 @@ pcv_ebpf_telemetry_get_host(void)
     json_object_set_int_member   (obj, "disk_rd_ios",      G.host.disk_rd_ios);
     json_object_set_int_member   (obj, "disk_wr_ios",      G.host.disk_wr_ios);
     json_object_set_int_member   (obj, "disk_io_ticks_ms", G.host.disk_io_ticks_ms);
+    if (G.host_observed_at > 0)
+        json_object_set_int_member(obj, "observed_at", G.host_observed_at);
 
     g_mutex_unlock(&G.mu);
 
@@ -2041,11 +2059,55 @@ pcv_ebpf_telemetry_get_host(void)
 }
 
   
-
+                                       
                                                            
+                                                                    
+                                        
+                                              
+   
+JsonArray *
+pcv_ebpf_telemetry_get_host_history(void)
+{
+    JsonArray *history = json_array_new();
+    g_mutex_lock(&G.mu);
+    const guint start = G.host_history_count < EBPF_HOST_HISTORY_MAX
+        ? 0 : G.host_history_index;
+    for (guint i = 0; i < G.host_history_count; i++) {
+        const guint index = (start + i) % EBPF_HOST_HISTORY_MAX;
+        const HostMetrics *host = &G.host_history[index];
+        JsonObject *sample = json_object_new();
+        json_object_set_int_member(sample, "observed_at",
+                                   G.host_history_observed_at[index]);
+        json_object_set_double_member(sample, "cpu_percent", host->cpu_percent);
+        const gdouble memory = host->mem_total_kb > 0
+            ? 100.0 * (1.0 - (gdouble)host->mem_avail_kb
+                       / (gdouble)host->mem_total_kb) : 0.0;
+        json_object_set_double_member(sample, "mem_percent", memory);
+        json_object_set_double_member(sample, "load_1m", host->load_1m);
+        json_object_set_double_member(sample, "load_5m", host->load_5m);
+        json_object_set_double_member(sample, "load_15m", host->load_15m);
+        json_object_set_int_member(sample, "net_rx_bytes", host->net_rx_bytes);
+        json_object_set_int_member(sample, "net_tx_bytes", host->net_tx_bytes);
+        json_object_set_int_member(sample, "disk_rd_bytes", host->disk_rd_bytes);
+        json_object_set_int_member(sample, "disk_wr_bytes", host->disk_wr_bytes);
+        json_array_add_object_element(history, sample);
+    }
+    g_mutex_unlock(&G.mu);
+    return history;
+}
 
-
-
+   
+                                                  
+  
+                                                             
+  
+                                                                         
+                                                           
+                      
+  
+                                          
+                                                             
+                                                   
    
 static JsonObject *
 _vm_to_json(const VmExtMetrics *vm)
@@ -2067,21 +2129,21 @@ _vm_to_json(const VmExtMetrics *vm)
     return obj;
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
+   
+                                     
+  
+                                                                   
+  
+                                                        
+                                                      
+  
+                                            
+                                                              
+                                                                 
+  
+                                                
+                            
+   
 JsonObject *
 pcv_ebpf_telemetry_get_vm(const gchar *vm_name)
 {

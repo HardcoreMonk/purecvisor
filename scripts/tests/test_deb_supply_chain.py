@@ -25,10 +25,13 @@
 
                                                  
    
+import shutil
 import subprocess
 import sys
 import tempfile
 from pathlib import Path
+
+import pytest
 
 sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
 from check_deb_supply_chain import (              
@@ -68,6 +71,7 @@ NOTICES_LINE = ('install -m644 THIRD_PARTY_NOTICES.md '
                 '"$STAGE/usr/share/doc/$PKG_NAME/THIRD_PARTY_NOTICES.md"')
 LOGROTATE_LINE = 'install -m644 systemd/purecvisor.logrotate "$STAGE/etc/logrotate.d/purecvisor"'
 CORE_CONF = "/etc/systemd/system/purecvisorsd.service.d/95-coredump-hardening.conf"
+SANDBOX_CONF = "/etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf"
 
 
 def _mutate(src: str, old: str, new: str) -> str:
@@ -234,7 +238,7 @@ def test_logrotate_install_removed_fails():
 
 
 def test_coredump_dropin_conffile_removed_fails():
-    rc, out = _run(_mutate(_src(), CORE_CONF + "\nCF", "CF"))
+    rc, out = _run(_mutate(_src(), CORE_CONF + "\n", ""))
     assert rc == 1 and "불변식11" in out and "conffiles" in out, out
 
 
@@ -245,6 +249,60 @@ def test_coredump_dropin_install_removed_fails():
     rc, out = _run(src[:start] + src[end:])
     assert rc == 1 and "불변식11" in out and "95-coredump" in out, out
 
+
+def test_sandbox_dropin_install_removed_fails():
+    src = _src()
+    start = src.index("install -m644 packaging/systemd/97-sandbox.conf")
+    end = src.index("\n", start)
+    rc, out = _run(src[:start] + src[end:])
+    assert rc == 1 and "불변식11" in out and "97-sandbox" in out, out
+
+def test_sandbox_dropin_conffile_removed_fails():
+    rc, out = _run(_mutate(_src(), SANDBOX_CONF + "\n" + LXC_ETC + "\nCF", LXC_ETC + "\nCF"))
+    assert rc == 1 and "불변식11" in out and "conffiles" in out, out
+
+def test_sandbox_dropin_mount_namespace_option_fails():
+
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "packaging/systemd"
+        dst.mkdir(parents=True)
+        body = (ROOT / "packaging/systemd/97-sandbox.conf").read_text(encoding="utf-8")
+        (dst / "97-sandbox.conf").write_text(body + "ProtectSystem=strict\n", encoding="utf-8")
+        bad, _ = check(_src(), root=Path(d))
+    assert any("불변식12" in b and "하드 요구사항 1" in b for b in bad), bad
+
+def _sandbox_check(body: str):
+    with tempfile.TemporaryDirectory() as d:
+        dst = Path(d) / "packaging/systemd"
+        dst.mkdir(parents=True)
+        (dst / "97-sandbox.conf").write_text(body, encoding="utf-8")
+        return check(_src(), root=Path(d))[0]
+
+def _sandbox_mutations():
+    real = (ROOT / "packaging/systemd/97-sandbox.conf").read_text(encoding="utf-8")
+    return {
+        "invalid-value": real + "LockPersonality=maybe\n",
+        "unknown-syscall-group": real + "SystemCallFilter=~@nosuchgroup\n",
+        "invalid-notify": real + "NotifyAccess=bogus\n",
+        "misspelled-section": real.replace("[Service]", "[Servic]"),
+    }
+
+@pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze 없음")
+def test_sandbox_dropin_ignored_option_fails():
+
+    for name, text in sorted(_sandbox_mutations().items()):
+        bad = _sandbox_check(text)
+        assert any("불변식12" in b and "verify" in b for b in bad), (name, bad)
+
+@pytest.mark.skipif(shutil.which("systemd-analyze") is None, reason="systemd-analyze 없음")
+def test_sandbox_dropin_real_file_verifies_clean():
+    real = (ROOT / "packaging/systemd/97-sandbox.conf").read_text(encoding="utf-8")
+    assert not [b for b in _sandbox_check(real) if "불변식12" in b]
+
+def test_sandbox_dropin_missing_fails():
+    with tempfile.TemporaryDirectory() as d:
+        bad, _ = check(_src(), root=Path(d))
+    assert any("불변식12" in b and "97-sandbox.conf 없음" in b for b in bad), bad
 
 def test_notices_cover_every_vendor_component():
     notices = (ROOT / "THIRD_PARTY_NOTICES.md").read_text(encoding="utf-8")
@@ -259,6 +317,159 @@ def test_logrotate_template_has_no_phantom_unit():
     assert "reload purecvisorsd" in text
 
 
+
+LXC_UNIT_PATH = ROOT / "packaging/systemd/purecvisor-lxc@.service"
+LXC_UNIT_HEADER = ROOT / "src/modules/lxc/lxc_unit.h"
+LXC_ETC = "/etc/systemd/system/purecvisor-lxc@.service"
+
+def _lxc_check(unit_text=None, deploy_text=None, build_text=None, header_text=None):
+
+    with tempfile.TemporaryDirectory(prefix="pcv-lxc-unit-") as d:
+        root = Path(d)
+        (root / "packaging/systemd").mkdir(parents=True)
+        (root / "scripts").mkdir()
+        (root / "src/modules/lxc").mkdir(parents=True)
+        header = LXC_UNIT_HEADER.read_text(encoding="utf-8") if header_text is None else header_text
+        (root / "src/modules/lxc/lxc_unit.h").write_text(header, encoding="utf-8")
+        (root / "packaging/systemd/97-sandbox.conf").write_text(
+            (ROOT / "packaging/systemd/97-sandbox.conf").read_text(encoding="utf-8"), encoding="utf-8")
+        text = LXC_UNIT_PATH.read_text(encoding="utf-8") if unit_text is None else unit_text
+        (root / "packaging/systemd/purecvisor-lxc@.service").write_text(text, encoding="utf-8")
+        deploy = (ROOT / "scripts/deploy.sh").read_text(encoding="utf-8") if deploy_text is None else deploy_text
+        (root / "scripts/deploy.sh").write_text(deploy, encoding="utf-8")
+        bad, _ = check(_src() if build_text is None else build_text, root=root)
+    return [b for b in bad if "불변식13" in b]
+
+def _unit() -> str:
+    return LXC_UNIT_PATH.read_text(encoding="utf-8")
+
+def test_lxc_unit_contract_pass():
+    assert _lxc_check() == []
+    rc, out = _run(_src())
+    assert rc == 0 and "불변식13" not in out, out
+
+def test_red_lxc_unit_execstop_no_dash():
+    bad = _lxc_check(_mutate(_unit(), "ExecStop=-/usr/bin/lxc-stop", "ExecStop=/usr/bin/lxc-stop"))
+    assert any("ExecStop" in b for b in bad), bad
+
+def test_red_lxc_unit_sandbox_option():
+    for extra in ("LockPersonality=yes", "SystemCallFilter=~@swap", "NoNewPrivileges=yes", "Nice=-5"):
+        bad = _lxc_check(_unit() + extra + "\n")
+        assert any("금지 키" in b and extra.split("=")[0] in b for b in bad), (extra, bad)
+
+def test_red_lxc_unit_capital_i():
+    bad = _lxc_check(_mutate(_unit(), "PIDFile=/run/purecvisor-lxc/%i.pid", "PIDFile=/run/purecvisor-lxc/%I.pid"))
+    assert any("%I" in b for b in bad), bad
+
+def test_red_lxc_unit_env_dash():
+    bad = _lxc_check(_mutate(_unit(), "EnvironmentFile=/run/", "EnvironmentFile=-/run/"))
+    assert any("EnvironmentFile" in b for b in bad), bad
+
+def test_red_lxc_unit_not_in_conffiles():
+    bad = _lxc_check(build_text=_mutate(_src(), LXC_ETC + "\nCF", "CF"))
+    assert any("conffiles" in b for b in bad), bad
+    rc, out = _run(_mutate(_src(), LXC_ETC + "\nCF", "CF"))
+    assert rc == 1 and "불변식13" in out and "conffiles" in out, out
+
+def test_red_lxc_unit_install_section():
+    bad = _lxc_check(_unit() + "\n[Install]\nWantedBy=multi-user.target\n")
+    assert any("[Install]" in b for b in bad), bad
+
+def test_red_lxc_unit_start_limit():
+    bad = _lxc_check(_mutate(_unit(), "StartLimitIntervalSec=0\n", ""))
+    assert any("StartLimitIntervalSec" in b for b in bad), bad
+
+def test_red_lxc_unit_stop_timeout_not_longer_than_daemon():
+    bad = _lxc_check(_mutate(_unit(), "\nTimeoutStopSec=90\n", "\nTimeoutStopSec=30\n"))
+    assert any("TimeoutStopSec" in b for b in bad), bad
+
+def test_red_lxc_unit_install_removed_from_deb():
+    src = _src()
+    start = src.index("install -m644 packaging/systemd/purecvisor-lxc@.service")
+    end = src.index("\n", start)
+    rc, out = _run(src[:start] + src[end:])
+    assert rc == 1 and "불변식13" in out and "deb 에 싣지" in out, out
+
+def _header() -> str:
+    return LXC_UNIT_HEADER.read_text(encoding="utf-8")
+
+def test_red_lxc_unit_timeout_order():
+
+    start26 = "#define PCV_LXC_UNIT_START_TIMEOUT_SEC 26"
+    for bad_hdr in (_mutate(_header(), start26, "#define PCV_LXC_UNIT_START_TIMEOUT_SEC 25"),
+                    _mutate(_header(), start26, "#define PCV_LXC_UNIT_START_TIMEOUT_SEC 27"),
+                    _mutate(_header(), "#define PCV_LXC_UNIT_PREP_BUDGET_SEC   4",
+                            "#define PCV_LXC_UNIT_PREP_BUDGET_SEC   5")):
+        bad = _lxc_check(header_text=bad_hdr)
+        assert any("시작 상한 순서" in b for b in bad), bad
+    bad = _lxc_check(_mutate(_unit(), "\nTimeoutStartSec=25\n", "\nTimeoutStartSec=26\n"))
+    assert any("시작 상한 순서" in b for b in bad), bad
+    bad = _lxc_check(header_text=_header().replace(start26, "#define PCV_LXC_UNIT_START_TIMEOUT_SEC_X 26"))
+    assert any("시작 상한을 읽지 못함" in b for b in bad), bad
+
+def test_red_lxc_unit_env_path_or_template_mismatch():
+
+    bad = _lxc_check(header_text=_mutate(_header(), '"/run/purecvisor/lxc-unit.env"', '"/run/purecvisor/lxc.env"'))
+    assert any("PCV_LXC_UNIT_ENV_PATH" in b for b in bad), bad
+    bad = _lxc_check(_mutate(_unit(), "EnvironmentFile=/run/purecvisor/lxc-unit.env",
+                             "EnvironmentFile=/run/purecvisor/other.env"))
+    assert any("PCV_LXC_UNIT_ENV_PATH" in b for b in bad), bad
+    bad = _lxc_check(header_text=_mutate(_header(), '"purecvisor-lxc@"', '"purecvisor-ctr@"'))
+    assert any("PCV_LXC_UNIT_TEMPLATE" in b for b in bad), bad
+    with tempfile.TemporaryDirectory(prefix="pcv-lxc-unit-nohdr-") as d:
+        root = Path(d)
+        (root / "packaging/systemd").mkdir(parents=True)
+        (root / "packaging/systemd/purecvisor-lxc@.service").write_text(_unit(), encoding="utf-8")
+        (root / "scripts").mkdir()
+        (root / "scripts/deploy.sh").write_text((ROOT / "scripts/deploy.sh").read_text(encoding="utf-8"),
+                                                encoding="utf-8")
+        (root / "packaging/systemd/97-sandbox.conf").write_text(
+            (ROOT / "packaging/systemd/97-sandbox.conf").read_text(encoding="utf-8"), encoding="utf-8")
+        bad, _ = check(_src(), root=root)
+    assert any("lxc_unit.h 없음" in b for b in bad), bad
+
+def test_lxc_unit_requires_runtime_config():
+
+    token = " -f /run/purecvisor/lxc-runtime/%i/config"
+    assert token in _unit()
+    bad = _lxc_check(_mutate(_unit(), token, ""))
+    assert any("'-f /run/purecvisor/lxc-runtime/%i/config' 토큰" in b for b in bad), bad
+    assert any("PCV_LXC_RUNTIME_CONFIG_DIR" in b for b in bad), bad
+    bad = _lxc_check(header_text=_mutate(_header(), '"/run/purecvisor/lxc-runtime"', '"/run/purecvisor/lxc-rt"'))
+    assert any("PCV_LXC_RUNTIME_CONFIG_DIR" in b for b in bad), bad
+    bad = _lxc_check(_mutate(_unit(), token, " -f /run/purecvisor/other/%i/config"))
+    assert any("PCV_LXC_RUNTIME_CONFIG_DIR" in b for b in bad), bad
+    bad = _lxc_check(header_text=_header().replace("#define PCV_LXC_RUNTIME_CONFIG_DIR", "#define PCV_LXC_RUNTIME_CONFIG_DIR_X"))
+    assert any("PCV_LXC_RUNTIME_CONFIG_DIR" in b for b in bad), bad
+
+def _deploy() -> str:
+    return (ROOT / "scripts/deploy.sh").read_text(encoding="utf-8")
+
+def test_red_deploy_sh_no_lxc_unit():
+    src = _deploy()
+
+    marker = "            /etc/systemd/system/purecvisor-lxc@.service\n"
+    idx = src.index(marker)
+    line_start = src.rindex("\n        sudo install", 0, idx) + 1
+    mutated = src[:line_start] + src[idx + len(marker):]
+    bad = _lxc_check(deploy_text=mutated)
+    assert any("deploy.sh" in b and "두 경로" in b for b in bad), bad
+    bad = _lxc_check(deploy_text="")
+    assert any("deploy.sh" in b for b in bad), bad
+
+def test_red_deploy_sh_no_daemon_reload():
+    src = _deploy()
+    marker = ("            /etc/systemd/system/purecvisor-lxc@.service\n"
+              "        sudo systemctl daemon-reload\n")
+    bad = _lxc_check(deploy_text=_mutate(src, marker, marker.replace("        sudo systemctl daemon-reload\n", "")))
+    assert any("daemon-reload" in b for b in bad), bad
+
+def test_red_deploy_sh_nonblocking_lxc_unit():
+    src = _deploy()
+    bad = _lxc_check(deploy_text=_mutate(
+        src, "            /etc/systemd/system/purecvisor-lxc@.service\n        sudo systemctl daemon-reload\n",
+        "            /etc/systemd/system/purecvisor-lxc@.service || true\n        sudo systemctl daemon-reload\n"))
+    assert any("비차단" in b for b in bad), bad
 
 def test_missing_build_script_is_exit2():
     proc = subprocess.run(

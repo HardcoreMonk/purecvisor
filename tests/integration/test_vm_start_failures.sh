@@ -94,7 +94,8 @@ fi
                                                        
 echo ""
 echo "[2] /health/recent-errors 엔드포인트 조회"
-RESP=$(curl -s --max-time 5 "${BASE}/health/recent-errors?vm=${NONEXIST_VM}&limit=3")
+                                                                            
+RESP=$(curl -s --max-time 5 -H "$AUTH" "${BASE}/health/recent-errors?vm=${NONEXIST_VM}&limit=3")
 if echo "$RESP" | python3 -c "import sys,json;d=json.load(sys.stdin);print('OK' if any(e.get('target')=='${NONEXIST_VM}' for e in d.get('data',[])) else 'NO')" 2>/dev/null | grep -q OK; then
     pass "/health/recent-errors 에서 ${NONEXIST_VM} 발견"
 else
@@ -102,7 +103,7 @@ else
 fi
 
                     
-RESP=$(curl -s --max-time 5 "${BASE}/health/recent-errors?limit=3")
+RESP=$(curl -s --max-time 5 -H "$AUTH" "${BASE}/health/recent-errors?limit=3")
 COUNT=$(echo "$RESP" | python3 -c "import sys,json;print(len(json.load(sys.stdin).get('data',[])))" 2>/dev/null || echo "0")
 if [ "$COUNT" -gt 0 ]; then
     pass "/health/recent-errors (필터 없음) 응답: ${COUNT}건"

@@ -1,0 +1,43 @@
+                          
+                                                                                   
+                                                                                    
+                                                                                            
+                                                                                            
+                                                                                                     
+                                                                                             
+                                                                         
+                                                                                        
+                                                                                        
+                                                                           
+                                                                                                               
+                                                                                                      
+                                                                                 
+                                                                                           
+                                                                                              
+                                                            
+ 
+                      
+                                                                   
+                                                                                                                                                              
+                                                
+[Unit]
+Description=PureCVisor container %i
+StartLimitIntervalSec=0
+
+[Service]
+Type=forking
+EnvironmentFile=/run/purecvisor/lxc-unit.env
+RuntimeDirectory=purecvisor-lxc
+RuntimeDirectoryPreserve=yes
+PIDFile=/run/purecvisor-lxc/%i.pid
+ExecStart=/usr/bin/lxc-start -d -P ${PCV_LXC_PATH} -n %i -f /run/purecvisor/lxc-runtime/%i/config -p /run/purecvisor-lxc/%i.pid -o ${PCV_LXC_PATH}/%i/%i.log -l INFO
+ExecStop=-/usr/bin/lxc-stop -P ${PCV_LXC_PATH} -n %i
+KillMode=mixed
+Delegate=yes
+Restart=no
+TimeoutStartSec=25
+TimeoutStopSec=90
+LimitNOFILE=1048576
+LimitCORE=0
+UMask=0077
+CapabilityBoundingSet=~CAP_SYS_MODULE CAP_SYS_RAWIO CAP_SYS_TIME CAP_MAC_OVERRIDE

@@ -239,9 +239,10 @@ function showPoolCreate() {
       el('label', { for: 'pc-disks' }, 'Disks (space sep)'),
       el('input', { id: 'pc-disks', placeholder: '/dev/sdb /dev/sdc' })),
     el('div', { class: 'fr' },
-      el('label', { for: 'pc-raid' }, 'RAID Level'),
+      el('label', { for: 'pc-raid' }, _L('구성', 'Layout')),
       el('select', { id: 'pc-raid', style: 'width:100%;padding:6px;background:var(--bg);border:1px solid var(--border);color:var(--fg);border-radius:4px' },
-        el('option', { value: '' }, 'Stripe (default)'),
+        el('option', { value: '' }, _L('— 구성을 고르세요 —', '— Choose a layout —')),
+        el('option', { value: 'stripe' }, _L('Stripe (중복 없음: 디스크 하나가 고장 나면 풀 전체를 잃습니다)', 'Stripe (no redundancy: one failed disk loses the whole pool)')),
         el('option', { value: 'mirror' }, 'Mirror'),
         el('option', { value: 'raidz' }, 'RAIDZ'),
         el('option', { value: 'raidz2' }, 'RAIDZ2'))),
@@ -256,12 +257,16 @@ async function doPoolCreate() {
   var _btn = document.activeElement;
   if (_btn && _btn.tagName === 'BUTTON') { if (_btn.disabled) return; _btn.disabled = true; _btn.setAttribute('aria-busy', 'true'); }
   const name = document.getElementById('pc-name')?.value;
-  const disks = document.getElementById('pc-disks')?.value;
+  const disks = (document.getElementById('pc-disks')?.value || '').trim().split(/\s+/).filter(Boolean);
   const raid = document.getElementById('pc-raid')?.value;
-  if (!name) { toast(t('msg.pool_name_required'), false); if (_btn) { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } return; }
+
+  const invalid = !name ? t('msg.pool_name_required')
+    : !disks.length ? _L('디스크를 하나 이상 넣으세요', 'Enter at least one disk')
+    : !raid ? _L('구성을 고르세요', 'Choose a layout') : '';
+  if (invalid) { toast(invalid, false); if (_btn) { _btn.disabled = false; _btn.removeAttribute('aria-busy'); } return; }
   try {
     var _navGen = PCV.ui.navGen();
-    const r = await fetchPost(EP.STORAGE_POOLS(), { name, disks: disks || '', raid_level: raid || '' });
+    const r = await fetchPost(EP.STORAGE_POOLS(), { name: name, disks: disks, vdev_type: raid === 'stripe' ? '' : raid });
     if (r.error) { toast('Pool create failed: ' + (r.error.message || ''), false); return; }
     toast('Pool created: ' + name); addEvt('Pool created: ' + name);
     closeModal(); if (PCV.ui.navGen() === _navGen) renderStorage(PCV.ui.renderTarget());

@@ -14,7 +14,7 @@
                                                      
                                           
                                           
-
+                                     
                                                  
                              
   
@@ -48,7 +48,7 @@
   
              
                                              
-                                                                                                  
+                                                                                                                 
                                           
                             
   
@@ -69,7 +69,7 @@
                                                                    
                                                                  
                                                      
-
+                                                                     
                                              
                                                                
   
@@ -88,8 +88,11 @@
 #include "api/drain.h"
 #include "backup_scheduler.h"
 #include "backup_send_estimate.h"
+#include "replication_hostkey.h"                                   
 #include "../../utils/pcv_spawn.h"
+#include "../../utils/pcv_zfs_exec.h"
 #include "../../utils/pcv_config.h"
+#include "../../utils/pcv_job_queue.h"                                             
 #include "../../utils/pcv_log.h"
 #include "../../utils/pcv_validate.h"
 #include "../../modules/virt/virt_conn_pool.h"
@@ -118,7 +121,7 @@ static guint      g_timer_id  = 0;
 static GMutex     g_policy_mutex;                            
 
                          
-
+                                                        
                                                           
 static GHashTable *g_vm_inflight = nullptr;
 
@@ -468,23 +471,11 @@ _verify_replication(const gchar *latest,
                     const gchar *peer_ssh,
                     const gchar *ssh_user)
 {
-    gchar *remote = g_strdup_printf("%s@%s", ssh_user, peer_ssh);
-                                                                    
-                                                                   
-                                                   
-                                  
-    const gchar *check_argv[] = {
-        "ssh",
-        "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-i", "/etc/purecvisor/cluster_id_ed25519",
-        remote,
-        "zfs", "list", "-H", "-o", "name", "-t", "snapshot", latest,
-        NULL
-    };
+                                                                                       
+    const gchar *cmd[] = { "zfs", "list", "-H", "-o", "name", "-t", "snapshot", latest, NULL };
+    g_auto(GStrv) check_argv = pcv_repl_ssh_argv(ssh_user, peer_ssh, cmd);
     gchar *out = nullptr;
-    gboolean ok = pcv_spawn_sync(check_argv, &out, NULL, NULL);
+    gboolean ok = check_argv && pcv_spawn_sync((const gchar * const *)check_argv, &out, NULL, NULL);
 
     if (ok && out && *out) {
         PCV_LOG_INFO(BACKUP_LOG_DOM,
@@ -498,7 +489,6 @@ _verify_replication(const gchar *latest,
     }
 
     g_free(out);
-    g_free(remote);
     return ok;
 }
 
@@ -611,13 +601,12 @@ static void _destroy_snapshot(const gchar *vm_name, const gchar *snap_name)
     const gchar *pool = pcv_config_get_zvol_pool();
     gchar *target = g_strdup_printf("%s/%s@%s", pool, vm_name, snap_name);
 
-    const gchar *argv[] = {"zfs", "destroy", target, NULL};
     gchar *stderr_buf = nullptr;
     GError *err = nullptr;
 
                                                                                        
                                                             
-    gboolean ok = pcv_spawn_sync(argv, NULL, &stderr_buf, &err);
+    gboolean ok = pcv_zfs_destroy_locked(NULL, target, &stderr_buf, &err);
     if (!ok) {
                                                                                       
                                                                               
@@ -638,15 +627,15 @@ static void _destroy_snapshot(const gchar *vm_name, const gchar *snap_name)
 
    
                              
-
+                                                           
                      
-
+                                         
   
                                                                 
                                           
                              
   
-
+                                                                 
                                                 
   
                                                             
@@ -700,7 +689,7 @@ static GPtrArray *_list_snapshots_by_prefix(const gchar *vm_name,
                               
                                                               
                              
-
+                                                      
                                                                       
   
                                                                    
@@ -921,13 +910,9 @@ static void _apply_policy_for_vm(const PcvBackupPolicy *policy,
    
                   
                                                              
-                    
-             
-             
-                            
-  
-                                
-                                                       
+                                                                 
+                                                                
+                                                                 
                                          
    
 static void
@@ -965,6 +950,9 @@ _backup_worker(GTask *task, gpointer src, gpointer data, GCancellable *c)
     }
 
     g_ptr_array_unref(snapshot);
+    static gint64 s_last_job_retention = 0;                                                             
+    pcv_job_queue_retention_tick(&s_last_job_retention, (gint64)time(NULL),
+                                 pcv_config_get_int("daemon", "job_retention_days", 30));
 }
 
    
@@ -1022,7 +1010,7 @@ void pcv_backup_scheduler_init(void)
                               
                                                          
    
-
+                                               
 void pcv_backup_scheduler_quiesce(void)
 {
     if (g_timer_id > 0) {
@@ -1268,9 +1256,11 @@ GPtrArray *pcv_backup_history_paged(const gchar *vm_name,
    
                       
                                                         
-                                                   
+                                                     
+                        
                             
                                                              
+                                                               
                             
   
                                                  
@@ -1279,8 +1269,8 @@ GPtrArray *pcv_backup_history_paged(const gchar *vm_name,
                                                               
                                                                       
                             
-                          
-            
+                                                             
+                                                             
   
           
                                   
@@ -1289,8 +1279,10 @@ GPtrArray *pcv_backup_history_paged(const gchar *vm_name,
    
 gboolean pcv_backup_restore(const gchar *vm_name,
                              const gchar *snapshot_name,
+                             gboolean    *was_running,
                              GError     **error)
 {
+    if (was_running) *was_running = FALSE;
     if (!vm_name || !snapshot_name) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                     "vm_name and snapshot_name are required");
@@ -1312,17 +1304,18 @@ gboolean pcv_backup_restore(const gchar *vm_name,
 
                                
                                                       
-    gboolean was_running = FALSE;
+    gboolean running = FALSE;
     virConnectPtr conn = virt_conn_pool_acquire();
     if (conn) {
         virDomainPtr dom = virDomainLookupByName(conn, vm_name);
         if (dom) {
             int state = 0, reason = 0;
             if (virDomainGetState(dom, &state, &reason, 0) == 0) {
-                was_running = (state == VIR_DOMAIN_RUNNING ||
-                               state == VIR_DOMAIN_PAUSED);
+                running = (state == VIR_DOMAIN_RUNNING ||
+                           state == VIR_DOMAIN_PAUSED);
             }
-            if (was_running) {
+            if (was_running) *was_running = running;
+            if (running) {
                 PCV_LOG_INFO(BACKUP_LOG_DOM,
                              "Restore: shutting down VM '%s' before rollback",
                              vm_name);
@@ -1348,7 +1341,7 @@ gboolean pcv_backup_restore(const gchar *vm_name,
             }
             virDomainFree(dom);
         }
-                                           
+        virt_conn_pool_release(conn);
     }
 
     const gchar *argv[] = {"zfs", "rollback", "-r", target, NULL};
@@ -1364,37 +1357,6 @@ gboolean pcv_backup_restore(const gchar *vm_name,
     } else {
         PCV_LOG_INFO(BACKUP_LOG_DOM, "Restore complete: %s", target);
     }
-
-                                                   
-    if (conn && was_running) {
-        gboolean restart_ok = FALSE;
-        virDomainPtr dom = virDomainLookupByName(conn, vm_name);
-        if (dom) {
-            PCV_LOG_INFO(BACKUP_LOG_DOM,
-                         "Restore: restarting VM '%s'", vm_name);
-                                                                          
-            for (int attempt = 0; attempt < 10; attempt++) {
-                if (virDomainCreate(dom) == 0) {
-                    restart_ok = TRUE;
-                    break;
-                }
-                g_usleep(200 * 1000);
-            }
-            if (!restart_ok) {
-                PCV_LOG_WARN(BACKUP_LOG_DOM,
-                             "Restore: failed to restart VM '%s' after rollback",
-                             vm_name);
-                if (ok) {
-                    g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
-                                "Rollback completed but VM '%s' did not restart",
-                                vm_name);
-                    ok = FALSE;
-                }
-            }
-            virDomainFree(dom);
-        }
-    }
-    if (conn) virt_conn_pool_release(conn);
 
     g_free(target);
     g_free(stderr_buf);
@@ -1662,8 +1624,8 @@ JsonObject *pcv_backup_incremental(const gchar *vm_name, GError **error)
   
           
                                      
-
-
+                                                 
+                                                         
   
                                                       
    
@@ -1699,8 +1661,8 @@ JsonObject *pcv_backup_verify(const gchar *vm_name,
     g_free(stderr_buf);
     if (local_err) { g_error_free(local_err); local_err = nullptr; }
 
-
-
+                                                                 
+                                                           
     const gchar *send_argv[] = {
         "zfs", "send", "-n", "-P", snap_full, NULL
     };
@@ -1724,8 +1686,8 @@ JsonObject *pcv_backup_verify(const gchar *vm_name,
     g_free(stderr_buf);
     if (local_err) { g_error_free(local_err); local_err = nullptr; }
 
-
-
+                                                                  
+                                                      
                                              
     const gchar *size_argv[] = {
         "zfs", "get", "-H", "-o", "value", "-p", "referenced", snap_full, NULL
@@ -1771,28 +1733,20 @@ JsonObject *pcv_backup_verify(const gchar *vm_name,
                      
                       
                                
-  
-                                      
+                                                                                       
    
 static gboolean _remote_snapshot_exists(const gchar *ssh_user,
                                          const gchar *target,
-                                         const gchar *snap)
+                                         const gchar *snap,
+                                         GError     **hostkey_error)
 {
-    gchar *remote = g_strdup_printf("%s@%s", ssh_user, target);
-    const gchar *argv[] = {
-        "ssh",
-        "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-i", "/etc/purecvisor/cluster_id_ed25519",
-        remote,
-        "zfs", "list", "-t", "snapshot", "-H", snap,
-        NULL
-    };
-    GError *err = nullptr;
-    gboolean ok = pcv_spawn_sync(argv, NULL, NULL, &err);
-    if (err) g_error_free(err);
-    g_free(remote);
+    const gchar *cmd[] = { "zfs", "list", "-t", "snapshot", "-H", snap, NULL };
+    g_auto(GStrv) argv = pcv_repl_ssh_argv(ssh_user, target, cmd);
+    gchar *err_text = nullptr;
+    gboolean ok = argv && pcv_spawn_sync((const gchar * const *)argv, NULL, &err_text, NULL);
+    if (!ok && pcv_repl_classify_ssh_stderr(err_text) == PCV_REPL_HOSTKEY_ERROR_MISMATCH)
+        pcv_repl_set_ssh_error(hostkey_error, target, err_text);
+    g_free(err_text);
     return ok;
 }
 
@@ -1821,29 +1775,19 @@ _enforce_remote_retention(const gchar *pool, const gchar *vm_name,
 
     gchar *dataset_str = g_strdup_printf("%s/%s", pool, vm_name);
     gchar *dataset_prefix = g_strdup_printf("%s@", dataset_str);
-    gchar *remote = g_strdup_printf("%s@%s", ssh_user, peer_ssh);
-    const gchar *list_argv[] = {
-        "ssh",
-        "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-i", "/etc/purecvisor/cluster_id_ed25519",
-        remote,
-        "zfs", "list", "-H", "-o", "name", "-t", "snapshot",
-        "-S", "creation", dataset_str,
-        NULL
-    };
+    const gchar *list_cmd[] = { "zfs", "list", "-H", "-o", "name", "-t", "snapshot",
+                                "-S", "creation", dataset_str, NULL };
+    g_auto(GStrv) list_argv = pcv_repl_ssh_argv(ssh_user, peer_ssh, list_cmd);
     gchar *out = nullptr;
     GError *err = nullptr;
 
-    if (!pcv_spawn_sync(list_argv, &out, NULL, &err)) {
+    if (!list_argv || !pcv_spawn_sync((const gchar * const *)list_argv, &out, NULL, &err)) {
         PCV_LOG_WARN(BACKUP_LOG_DOM,
                      "Failed to enforce remote retention for %s/%s on %s: %s",
                      pool, vm_name, peer_ssh,
                      err ? err->message : "unknown");
         if (err) g_error_free(err);
         g_free(out);
-        g_free(remote);
         g_free(dataset_prefix);
         g_free(dataset_str);
         return;
@@ -1875,18 +1819,10 @@ _enforce_remote_retention(const gchar *pool, const gchar *vm_name,
         if (seen <= remote_retention)
             continue;
 
-        const gchar *destroy_argv[] = {
-            "ssh",
-            "-o", "ConnectTimeout=10",
-            "-o", "StrictHostKeyChecking=no",
-            "-o", "UserKnownHostsFile=/dev/null",
-            "-i", "/etc/purecvisor/cluster_id_ed25519",
-            remote,
-            "sudo", "zfs", "destroy", snap,
-            NULL
-        };
+        const gchar *destroy_cmd[] = { "sudo", "zfs", "destroy", snap, NULL };
+        g_auto(GStrv) destroy_argv = pcv_repl_ssh_argv(ssh_user, peer_ssh, destroy_cmd);
         GError *destroy_err = nullptr;
-        if (pcv_spawn_sync(destroy_argv, NULL, NULL, &destroy_err)) {
+        if (destroy_argv && pcv_spawn_sync((const gchar * const *)destroy_argv, NULL, NULL, &destroy_err)) {
             destroyed++;
         } else {
             failed++;
@@ -1907,7 +1843,6 @@ _enforce_remote_retention(const gchar *pool, const gchar *vm_name,
     if (err) g_error_free(err);
     g_strfreev(lines);
     g_free(out);
-    g_free(remote);
     g_free(dataset_prefix);
     g_free(dataset_str);
 }
@@ -1922,8 +1857,8 @@ _enforce_remote_retention(const gchar *pool, const gchar *vm_name,
                           
   
                                        
-                 
-                                     
+                                                        
+                                                   
                                                                          
              
   
@@ -1963,6 +1898,12 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
         return FALSE;
     }
 
+                                                                                          
+    if (!pcv_repl_hostkey_probe(user, target_node, error)) {
+        _vm_backup_unlock(vm_name);
+        return FALSE;
+    }
+
     const gchar *pool = pcv_config_get_zvol_pool();
     gchar *dataset = g_strdup_printf("%s/%s", pool, vm_name);
 
@@ -1990,9 +1931,9 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
                      bw_mbps);
     }
 
-                          
-    gboolean incremental = base && _remote_snapshot_exists(user, target_node, base);
-    gchar *remote = g_strdup_printf("%s@%s", user, target_node);
+                                                                    
+    GError *hk_err = nullptr;
+    gboolean incremental = base && _remote_snapshot_exists(user, target_node, base, &hk_err);
     const gchar *producer_full_argv[] = {
         "zfs", "send", latest,
         NULL
@@ -2001,16 +1942,8 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
         "zfs", "send", "-i", base, latest,
         NULL
     };
-    const gchar *consumer_argv[] = {
-        "ssh",
-        "-o", "ConnectTimeout=10",
-        "-o", "StrictHostKeyChecking=no",
-        "-o", "UserKnownHostsFile=/dev/null",
-        "-i", "/etc/purecvisor/cluster_id_ed25519",
-        remote,
-        "sudo", "zfs", "recv", "-F", dataset,
-        NULL
-    };
+    const gchar *recv_cmd[] = { "sudo", "zfs", "recv", "-F", dataset, NULL };
+    g_auto(GStrv) consumer_argv = pcv_repl_ssh_argv(user, target_node, recv_cmd);
     const gchar * const *producer_argv = incremental
                                          ? producer_incremental_argv
                                          : producer_full_argv;
@@ -2021,12 +1954,18 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
 
                                                                              
                                                              
-    gboolean ok = pcv_spawn_pipe_sync(producer_argv, consumer_argv,
+    gboolean ok = !hk_err && consumer_argv &&
+                  pcv_spawn_pipe_sync(producer_argv, (const gchar * const *)consumer_argv,
                                       NULL, &stderr_buf, &local_err);
     gdouble elapsed = g_timer_elapsed(timer, NULL);
     g_timer_destroy(timer);
 
-    if (!ok) {
+    if (hk_err) {
+        g_propagate_error(error, hk_err);
+    } else if (!ok && pcv_repl_classify_ssh_stderr(stderr_buf) == PCV_REPL_HOSTKEY_ERROR_MISMATCH) {
+        pcv_repl_set_ssh_error(error, target_node, stderr_buf);                              
+        g_clear_error(&local_err);
+    } else if (!ok) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED,
                     "%s replication failed for %s → %s: %s",
                     incremental ? "Incremental" : "Full",
@@ -2052,7 +1991,6 @@ gboolean pcv_backup_replicate(const gchar *vm_name,
     }
 
     g_free(stderr_buf);
-    g_free(remote);
     g_free(dataset);
     g_ptr_array_unref(snaps);
     _vm_backup_unlock(vm_name);

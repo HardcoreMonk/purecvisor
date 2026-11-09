@@ -28,7 +28,8 @@
   
                                        
                                                                                       
-                                                         
+                                                                  
+                                                                         
   
          
                                                            
@@ -42,7 +43,7 @@
                                                      
                                                                     
                                                                            
-
+                                                            
   
                                                       
                                                       
@@ -55,27 +56,32 @@
          
                                                               
                                                                 
-                                                                    
-                           
+                                                                              
+                                                                              
                                                       
-
-
+                                                                     
+                                                     
                                                         
                                          
-                                                                         
-                                                     
-                                                                 
+                                                                       
+                                                                       
+                                                                              
+                                                                        
+                                                                                  
+                                                        
                                                                         
                                                                               
-
+                                                                          
                                                                       
    
 #include "api/drain.h"
+#include "api/ws_send.h"
 #include "ws_server.h"
 #include "rest_client_identity.h"
 #include "utils/pcv_log.h"
 #include "utils/pcv_jwt.h"
 #include "utils/pcv_config.h"
+#include "modules/auth/pcv_rbac.h"                                                                     
 #include "../modules/dispatcher/rpc_utils.h"                                           
 #include <json-glib/json-glib.h>
 #include <string.h>
@@ -108,6 +114,10 @@ static void _ws_warn_deprecated_url_token(SoupServerMessage *msg);
 #define WS_DEF_PING_INTERVAL    30                             
 #define WS_DEF_PONG_TIMEOUT     60                                 
 #define WS_DEF_MAX_PENDING      500                                    
+                                                                  
+                                                              
+#define WS_FANOUT_MAX_QUEUED    1024
+#define WS_FANOUT_DROP_WARN_SEC 60                         
 
                                                                                    
                                                                       
@@ -128,23 +138,28 @@ static gint ws_max_pending_msgs  = WS_DEF_MAX_PENDING;
                                           
                                                                 
                                           
-                                                           
+                                                                           
+                                            
                                                            
                                                                   
+                                                                            
+                                                             
    
 static struct {
     GPtrArray  *clients;                                                            
     GHashTable *ip_counts;                                                         
     GMutex      mu;                                 
-    gboolean    initialized;
+    gint        initialized;
+    GSource    *timers[4];                                       
+    GMainContext *ctx;                                                           
 } G = {0};
 
-
-
-
-
-
-
+                                                          
+                                                    
+                           
+                                                             
+                                                             
+                                                                      
 static gboolean
 _ws_conn_is_authed(SoupWebsocketConnection *conn)
 {
@@ -168,6 +183,7 @@ static void
 _on_ws_closed(SoupWebsocketConnection *conn, gpointer data __attribute__((unused)))
 {
     g_mutex_lock(&G.mu);
+    if (!G.clients) { g_mutex_unlock(&G.mu); return; }
                                                       
                                                   
                                                         
@@ -183,9 +199,9 @@ _on_ws_closed(SoupWebsocketConnection *conn, gpointer data __attribute__((unused
             g_hash_table_insert(G.ip_counts, g_strdup(disc_ip),
                                 GINT_TO_POINTER(cnt - 1));
     }
+    guint remaining = G.clients->len;
     g_mutex_unlock(&G.mu);
-    PCV_LOG_INFO(WS_LOG_DOM, "WebSocket client disconnected (total=%d)",
-                 G.clients->len);
+    PCV_LOG_INFO(WS_LOG_DOM, "WebSocket client disconnected (total=%d)", remaining);
     g_free(disc_ip);                            
 }
 
@@ -244,17 +260,23 @@ _on_ws_message(SoupWebsocketConnection *conn,
                     const gchar *token = json_object_get_string_member_with_default(obj, "token", "");
                     GError *jwt_err = NULL;
                     gchar *subject = pcv_jwt_verify(token, &jwt_err);                             
+                                                                                             
+                                                                                
+                                                                                         
+                    if (subject && pcv_rbac_subject_check_token(subject, token, NULL) != PCV_SUBJECT_OK)
+                        g_clear_pointer(&subject, g_free);
                     if (subject) {
-                                                                  
+                                                                      
+                        g_object_set_data_full(G_OBJECT(conn), "pcv-ws-subject", g_strdup(subject), g_free);
                         g_object_set_data(G_OBJECT(conn), "pcv-ws-authed", GINT_TO_POINTER(1));
                         PCV_LOG_INFO(WS_LOG_DOM, "WebSocket protocol-auth OK: user=%s", subject);
-                        soup_websocket_connection_send_text(conn, "{\"type\":\"auth_ok\"}");
+                        pcv_ws_send_text_if_open(conn, "{\"type\":\"auth_ok\"}");
                         g_free(subject);                                      
                     } else {
                                                                        
                         PCV_LOG_WARN(WS_LOG_DOM, "WebSocket protocol-auth failed: %s",
                                      jwt_err ? jwt_err->message : "invalid");
-                        soup_websocket_connection_send_text(conn, "{\"type\":\"auth_fail\"}");
+                        pcv_ws_send_text_if_open(conn, "{\"type\":\"auth_fail\"}");
                         soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_POLICY_VIOLATION,
                                                         "authentication failed");
                         if (jwt_err) g_error_free(jwt_err);                     
@@ -325,8 +347,9 @@ _on_ws_connected(SoupServer *server __attribute__((unused)),
     g_object_set_data(G_OBJECT(conn), "pcv-ws-auth-deadline",
                       GINT_TO_POINTER((gint)time(NULL) + 5));
 
-                                                               
-                                                     
+                                                            
+                                                                 
+                   
                                                          
     const PcvRestClientIdentity *identity =
         pcv_rest_client_identity_get(msg);
@@ -334,6 +357,10 @@ _on_ws_connected(SoupServer *server __attribute__((unused)),
         pcv_rest_client_identity_get_client_ip(identity));
 
     g_mutex_lock(&G.mu);                           
+    if (!g_atomic_int_get(&G.initialized) || pcv_drain_is_shutdown()) {
+        g_mutex_unlock(&G.mu); g_free(client_ip);
+        soup_websocket_connection_close(conn, 1001, "server shutdown"); return;
+    }
                                                              
     if ((gint)G.clients->len >= ws_max_connections) {
         g_mutex_unlock(&G.mu);
@@ -401,300 +428,7 @@ _on_ws_connected(SoupServer *server __attribute__((unused)),
                                                                   
                                                                                
 
-   
-                                               
-  
-                                                      
-                                                
-  
-                                                      
-                                                                   
-  
-        
-                                                                            
-  
-
-
-   
-typedef struct {
-    SoupWebsocketConnection *ws;                                       
-    int                      tcp_fd;                                 
-    GIOChannel              *tcp_chan;                                          
-    GSource                 *tcp_watch;
-    gboolean                 closing;
-} VncProxy;
-
-   
-                                              
-  
-
-
-  
-                
-
-
-                     
-                 
-                       
-                           
-  
-                                  
-   
-static void
-_vnc_proxy_free(VncProxy *vp)
-{
-    if (!vp) return;
-    vp->closing = TRUE;
-    if (vp->ws) g_signal_handlers_disconnect_by_data(vp->ws, vp);
-    if (vp->tcp_watch) {
-        g_source_destroy(vp->tcp_watch);
-        g_clear_pointer(&vp->tcp_watch, g_source_unref);
-    }
-    if (vp->tcp_chan) { g_io_channel_unref(vp->tcp_chan); vp->tcp_chan = NULL; }
-    if (vp->tcp_fd >= 0) { close(vp->tcp_fd); vp->tcp_fd = -1; }
-    if (vp->ws) { g_object_unref(vp->ws); vp->ws = NULL; }
-    g_free(vp);
-}
-
-   
-
-
-
-
-
-
-
-static void
-_vnc_proxy_close(VncProxy *vp, const char *reason)
-{
-    if (!vp || vp->closing) return;
-    SoupWebsocketConnection *ws = g_object_ref(vp->ws);
-    _vnc_proxy_free(vp);
-    if (soup_websocket_connection_get_state(ws) == SOUP_WEBSOCKET_STATE_OPEN)
-        soup_websocket_connection_close(ws, SOUP_WEBSOCKET_CLOSE_GOING_AWAY, reason);
-    g_object_unref(ws);
-}
-
-
-                                                                
-  
-                                                    
-                                       
-  
-                                                               
-                                                   
-                      
-  
-         
-                                                    
-                                 
-                                           
-  
-                                      
-                                                
-                            
-                                                            
-   
-static gboolean
-_vnc_tcp_readable(GIOChannel *chan, GIOCondition cond, gpointer data)
-{
-    VncProxy *vp = (VncProxy *)data;
-    if (vp->closing) return G_SOURCE_REMOVE;                    
-
-                                                          
-    if (cond & (G_IO_HUP | G_IO_ERR | G_IO_NVAL)) {
-        PCV_LOG_INFO(WS_LOG_DOM, "VNC TCP connection closed");
-        _vnc_proxy_close(vp, "VNC disconnected");
-        return G_SOURCE_REMOVE;
-    }
-
-    guint8 buf[65536];                                        
-    ssize_t n = read(vp->tcp_fd, buf, sizeof(buf));
-    if (n <= 0) {                                              
-        if (n == 0) PCV_LOG_INFO(WS_LOG_DOM, "VNC TCP EOF");
-        _vnc_proxy_close(vp, "VNC closed");
-        return G_SOURCE_REMOVE;
-    }
-
-                                                               
-    if (vp->ws && soup_websocket_connection_get_state(vp->ws) == SOUP_WEBSOCKET_STATE_OPEN) {
-        soup_websocket_connection_send_binary(vp->ws, buf, (gsize)n);
-    }
-    return G_SOURCE_CONTINUE;              
-}
-
-   
-                                                         
-  
-                                                    
-                                            
-  
-                                              
-                                               
-                                 
-  
-                           
-                                       
-                              
-  
-                                    
-                                     
-                              
-                              
-   
-static void
-_vnc_ws_message(SoupWebsocketConnection *conn __attribute__((unused)),
-                SoupWebsocketDataType    type,
-                GBytes                  *message,
-                gpointer                 data)
-{
-    VncProxy *vp = (VncProxy *)data;
-    if (vp->closing || vp->tcp_fd < 0) return;                           
-    if (type != SOUP_WEBSOCKET_DATA_BINARY) return;                     
-
-    gsize len = 0;
-    const guint8 *buf = g_bytes_get_data(message, &len);                         
-    if (len == 0) return;                  
-
-                                                               
-    gsize written = 0;
-    while (written < len) {
-        ssize_t w = write(vp->tcp_fd, buf + written, len - written);
-        if (w <= 0) {                                                
-            PCV_LOG_WARN(WS_LOG_DOM, "VNC TCP write failed: %s", strerror(errno));
-            break;
-        }
-        written += (gsize)w;                 
-    }
-}
-
-   
-                                                    
-  
-                                                       
-  
-                               
-
-
-   
-static void
-_vnc_ws_closed(SoupWebsocketConnection *conn __attribute__((unused)), gpointer data)
-{
-    VncProxy *vp = (VncProxy *)data;
-    PCV_LOG_INFO(WS_LOG_DOM, "VNC WebSocket closed");
-    _vnc_proxy_free(vp);
-}
-
-   
-                                                     
-  
-                                                        
-                                                     
-                                       
-  
-                                                           
-                                        
-  
-         
-                                                    
-                                                 
-                                                  
-                                                                    
-                                                              
-                                       
-  
-                                        
-  
-                                      
-                                                     
-                            
-                                    
-                              
-   
-static void
-_on_vnc_connected(SoupServer              *server __attribute__((unused)),
-                  SoupServerMessage        *msg,
-                  const char              *path __attribute__((unused)),
-                  SoupWebsocketConnection *conn,
-                  gpointer                 data __attribute__((unused)))
-{
-                                             
-    GUri *uri = soup_server_message_get_uri(msg);
-    const gchar *query = g_uri_get_query(uri);
-    int vnc_port = 5900;                                     
-    if (query) {
-        GHashTable *params = g_uri_parse_params(query, -1, "&", G_URI_PARAMS_NONE, NULL);
-        if (params) {
-            const gchar *p = g_hash_table_lookup(params, "port");
-            if (p) vnc_port = atoi(p);                                      
-            g_hash_table_unref(params);                 
-        }
-    }
-
-                                                               
-                                                                            
-                                                     
-    if (vnc_port < 5900 || vnc_port > 6100) {
-        PCV_LOG_WARN(WS_LOG_DOM,
-            "VNC proxy: rejected port %d — outside allowed range 5900-6100", vnc_port);
-        soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_POLICY_VIOLATION,
-                                        "VNC port out of range");
-        return;
-    }
-
-    PCV_LOG_INFO(WS_LOG_DOM, "VNC proxy: connecting to localhost:%d", vnc_port);
-
-                                                  
-    int fd = socket(AF_INET, SOCK_STREAM | SOCK_CLOEXEC, 0);                                  
-    if (fd < 0) {
-        PCV_LOG_WARN(WS_LOG_DOM, "VNC proxy: socket() failed: %s", strerror(errno));
-        soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_GOING_AWAY, "socket failed");
-        return;
-    }
-
-    struct sockaddr_in addr = {
-        .sin_family = AF_INET,
-        .sin_port   = htons((uint16_t)vnc_port),                             
-        .sin_addr.s_addr = htonl(INADDR_LOOPBACK),                                                
-    };
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        PCV_LOG_WARN(WS_LOG_DOM, "VNC proxy: connect(:%d) failed: %s", vnc_port, strerror(errno));
-        close(fd);
-        soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_GOING_AWAY, "VNC connect failed");
-        return;
-    }
-
-    PCV_LOG_INFO(WS_LOG_DOM, "VNC proxy: connected to localhost:%d", vnc_port);
-
-                                                                   
-    VncProxy *vp = g_new0(VncProxy, 1);
-    vp->ws     = g_object_ref(conn);                                  
-    vp->tcp_fd = fd;                                                         
-
-      
-                                                                
-      
-                                          
-
-      
-                                            
-                                                   
-       
-    vp->tcp_chan = g_io_channel_unix_new(fd);
-    g_io_channel_set_encoding(vp->tcp_chan, NULL, NULL);             
-    g_io_channel_set_buffered(vp->tcp_chan, FALSE);                       
-    g_io_channel_set_close_on_unref(vp->tcp_chan, FALSE);
-    vp->tcp_watch = g_io_create_watch(vp->tcp_chan, G_IO_IN | G_IO_HUP | G_IO_ERR | G_IO_NVAL);
-    g_source_set_callback(vp->tcp_watch, G_SOURCE_FUNC(_vnc_tcp_readable), vp, NULL);
-
-                                   
-    g_signal_connect(conn, "message", G_CALLBACK(_vnc_ws_message), vp);
-    g_signal_connect(conn, "closed",  G_CALLBACK(_vnc_ws_closed), vp);
-
-    GMainContext *context = g_main_context_ref_thread_default();
-    g_source_attach(vp->tcp_watch, context);
-    g_main_context_unref(context);
-}
+#include "vnc_proxy.h"
 
    
                                                                 
@@ -710,7 +444,8 @@ _on_vnc_connected(SoupServer              *server __attribute__((unused)),
                                                         
                                                               
   
-                                                                          
+                                                                   
+                                       
                                                          
                                             
    
@@ -765,7 +500,7 @@ _ws_warn_deprecated_url_token(SoupServerMessage *msg)
 static gboolean
 _ws_heartbeat_cb(gpointer data __attribute__((unused)))
 {
-    if (!G.initialized) return G_SOURCE_REMOVE;                           
+    if (!g_atomic_int_get(&G.initialized)) return G_SOURCE_REMOVE;                           
 
     time_t now = time(NULL);
     GPtrArray *stale = g_ptr_array_new();                           
@@ -787,12 +522,12 @@ _ws_heartbeat_cb(gpointer data __attribute__((unused)))
             continue;                            
         }
 
-                       
+                                                                          
         if (!_ws_conn_is_authed(conn))
             continue;
 
-
-        soup_websocket_connection_send_text(conn, ping_msg);
+                                                                           
+        pcv_ws_send_text_if_open(conn, ping_msg);
     }
     g_mutex_unlock(&G.mu);
 
@@ -819,7 +554,7 @@ _ws_heartbeat_cb(gpointer data __attribute__((unused)))
 static gboolean
 _ws_auth_deadline_check(gpointer data __attribute__((unused)))
 {
-    if (!G.initialized) return G_SOURCE_REMOVE;                       
+    if (!g_atomic_int_get(&G.initialized)) return G_SOURCE_REMOVE;                       
     time_t now = time(NULL);
     GPtrArray *to_close = g_ptr_array_new();                            
     g_mutex_lock(&G.mu);
@@ -875,7 +610,7 @@ _ws_auth_deadline_check(gpointer data __attribute__((unused)))
 static gboolean
 _ws_idle_cleanup(gpointer data __attribute__((unused)))
 {
-    if (!G.initialized) return G_SOURCE_REMOVE;
+    if (!g_atomic_int_get(&G.initialized)) return G_SOURCE_REMOVE;
 
     time_t now = time(NULL);
     GPtrArray *to_close = g_ptr_array_new();
@@ -944,8 +679,8 @@ extern JsonObject *pcv_ebpf_telemetry_get_host(void);
   
                                                   
                                                      
-                                                    
-                                      
+                                                         
+                                                            
                                                                      
                                                             
                    
@@ -960,7 +695,7 @@ _ws_push_metrics_cb(gpointer user_data __attribute__((unused)))
                                                                       
                                                                
                                                             
-    if (!G.initialized) return G_SOURCE_CONTINUE;
+    if (!g_atomic_int_get(&G.initialized)) return G_SOURCE_CONTINUE;
 
                                
     g_mutex_lock(&G.mu);
@@ -1033,8 +768,9 @@ _ws_push_metrics_cb(gpointer user_data __attribute__((unused)))
                                                            
                                               
                                                
-                                                  
-                                         
+                                                                        
+                                                                    
+                          
                                                 
                                              
                                                           
@@ -1051,13 +787,22 @@ pcv_ws_server_init(SoupServer *soup)
     ws_pong_timeout_sec   = pcv_config_get_int("ws", "pong_timeout_sec",  WS_DEF_PONG_TIMEOUT);
     ws_max_pending_msgs   = pcv_config_get_int("ws", "max_pending_msgs",  WS_DEF_MAX_PENDING);
 
-    g_mutex_init(&G.mu);
+                                            
+    vnc_stopping = FALSE;
+                                                                         
+                                               
+    GMainContext *owner = g_main_context_ref_thread_default();
+    g_mutex_lock(&G.mu);
+    GMainContext *previous = g_steal_pointer(&G.ctx);
+    G.ctx = owner;
+    g_mutex_unlock(&G.mu);
+    if (previous) g_main_context_unref(previous);
                                                              
     G.clients = g_ptr_array_new_with_free_func(g_object_unref);
                                                                      
     G.ip_counts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
                                                                  
-    G.initialized = TRUE;
+    g_atomic_int_set(&G.initialized, TRUE);
 
                                                                       
     soup_server_add_websocket_handler(soup, WS_PATH,
@@ -1065,8 +810,9 @@ pcv_ws_server_init(SoupServer *soup)
                                        _on_ws_connected, NULL, NULL);
 
                                                   
+    char *vnc_protocols[] = { VNC_PROTOCOL, NULL };
     soup_server_add_websocket_handler(soup, VNC_PATH,
-                                       NULL, NULL,
+                                       NULL, vnc_protocols,
                                        _on_vnc_connected, NULL, NULL);
 
                                                                   
@@ -1075,16 +821,24 @@ pcv_ws_server_init(SoupServer *soup)
                                   
 
                                                                                   
-    g_timeout_add_seconds(ws_idle_check_interval, _ws_idle_cleanup, NULL);
+    G.timers[0] = g_timeout_source_new_seconds(ws_idle_check_interval);
+    g_source_set_callback(G.timers[0], _ws_idle_cleanup, NULL, NULL);
+    g_source_attach(G.timers[0], g_main_context_get_thread_default());
 
                                                               
-    g_timeout_add_seconds(1, _ws_auth_deadline_check, NULL);
+    G.timers[1] = g_timeout_source_new_seconds(1);
+    g_source_set_callback(G.timers[1], _ws_auth_deadline_check, NULL, NULL);
+    g_source_attach(G.timers[1], g_main_context_get_thread_default());
 
                                                                                     
-    g_timeout_add_seconds(ws_ping_interval_sec, _ws_heartbeat_cb, NULL);
+    G.timers[2] = g_timeout_source_new_seconds(ws_ping_interval_sec);
+    g_source_set_callback(G.timers[2], _ws_heartbeat_cb, NULL, NULL);
+    g_source_attach(G.timers[2], g_main_context_get_thread_default());
 
                                           
-    g_timeout_add_seconds(10, _ws_push_metrics_cb, NULL);
+    G.timers[3] = g_timeout_source_new_seconds(10);
+    g_source_set_callback(G.timers[3], _ws_push_metrics_cb, NULL, NULL);
+    g_source_attach(G.timers[3], g_main_context_get_thread_default());
 
     PCV_LOG_INFO(WS_LOG_DOM, "WebSocket handler registered at %s, %s (idle timeout=%ds, ping=%ds, metrics push=10s)",
                  WS_PATH, VNC_PATH, ws_idle_timeout_sec, ws_ping_interval_sec);
@@ -1106,13 +860,141 @@ pcv_ws_server_init(SoupServer *soup)
 void
 pcv_ws_server_shutdown(void)
 {
-    if (!G.initialized) return;                             
+    _vnc_shutdown();                                      
+    for (guint i = 0; i < G_N_ELEMENTS(G.timers); i++) _vnc_source_clear(&G.timers[i]);
     g_mutex_lock(&G.mu);
-    g_ptr_array_set_size(G.clients, 0);                               
+    g_atomic_int_set(&G.initialized, FALSE);
+    GPtrArray *clients = g_steal_pointer(&G.clients);
+    g_clear_pointer(&G.ip_counts, g_hash_table_unref);
+    GMainContext *owner = g_steal_pointer(&G.ctx);                            
     g_mutex_unlock(&G.mu);
-    g_ptr_array_unref(G.clients);                   
-    g_mutex_clear(&G.mu);                         
-    G.initialized = FALSE;                                                  
+    if (owner) g_main_context_unref(owner);                                           
+    if (!clients) return;
+                                                         
+                                                  
+    for (guint i = 0; i < clients->len; i++) {
+        SoupWebsocketConnection *ws = g_ptr_array_index(clients, i);
+        g_signal_handlers_disconnect_by_func(ws, G_CALLBACK(_on_ws_closed), NULL);
+        g_signal_handlers_disconnect_by_func(ws, G_CALLBACK(_on_ws_message), NULL);
+        _vnc_transport_close(ws);
+    }
+    g_ptr_array_unref(clients);
+}
+
+                                                                 
+gboolean pcv_ws_server_is_quiescent(void)
+{
+    return g_atomic_int_get(&vnc_sessions) == 0 &&
+           g_atomic_int_get(&vnc_auth_tasks) == 0 &&
+           g_atomic_int_get(&vnc_close_waits) == 0 &&
+           g_atomic_int_get(&vnc_transport_closes) == 0;
+}
+
+                                                                 
+                                                
+                                                          
+                                                                     
+                                                      
+                                                    
+                                                                         
+static gboolean
+_ws_broadcast_fanout(gpointer data)
+{
+    const gchar *msg = data;
+
+                                                 
+    g_mutex_lock(&G.mu);
+    if (!G.clients) { g_mutex_unlock(&G.mu); return G_SOURCE_REMOVE; }                        
+                                                   
+                                                     
+    for (guint i = 0; i < G.clients->len;                      ) {
+        SoupWebsocketConnection *conn = g_ptr_array_index(G.clients, i);
+        if (soup_websocket_connection_get_state(conn) != SOUP_WEBSOCKET_STATE_OPEN) {
+            i++;                                                       
+            continue;
+        }
+                                                                    
+                                                            
+                                                                      
+        if (!_ws_conn_is_authed(conn)) {
+            i++;
+            continue;
+        }
+                                                               
+                                                                         
+                                                                
+        gint *pending = g_object_get_data(G_OBJECT(conn), "pcv-pending");
+        if (pending && g_atomic_int_get(pending) >= ws_max_pending_msgs) {
+            const gchar *bp_ip = g_object_get_data(G_OBJECT(conn), "client-ip");
+            PCV_LOG_WARN(WS_LOG_DOM,
+                "WebSocket backpressure exceeded (%d msgs) for %s, closing",
+                g_atomic_int_get(pending), bp_ip ? bp_ip : "unknown");
+            soup_websocket_connection_close(conn,
+                SOUP_WEBSOCKET_CLOSE_GOING_AWAY, "backpressure");
+                                                                         
+                                                                               
+                                                                    
+            g_ptr_array_remove_index(G.clients, i);
+            continue;
+        }
+        gboolean sent = pcv_ws_send_text_if_open(conn, msg);                 
+        if (sent && pending) g_atomic_int_add(pending, 1);                                    
+                                                                               
+        g_object_set_data(G_OBJECT(conn), "last_active",
+                          GINT_TO_POINTER((gint)time(NULL)));
+        i++;                               
+    }
+    g_mutex_unlock(&G.mu);
+    return G_SOURCE_REMOVE;
+}
+
+                                                             
+static gint ws_fanout_queued;
+static gint ws_fanout_dropped;
+static gint64 ws_fanout_last_warn_us;                                  
+G_LOCK_DEFINE_STATIC(ws_fanout_warn);
+
+                                                                  
+                                                                   
+                                                                              
+static gboolean
+_ws_fanout_slot_take(void)
+{
+    if (g_atomic_int_add(&ws_fanout_queued, 1) < WS_FANOUT_MAX_QUEUED)
+        return TRUE;
+    g_atomic_int_add(&ws_fanout_queued, -1);
+    gint dropped = g_atomic_int_add(&ws_fanout_dropped, 1) + 1;
+    gint64 now = g_get_monotonic_time();
+    G_LOCK(ws_fanout_warn);
+    gboolean warn = now - ws_fanout_last_warn_us >= WS_FANOUT_DROP_WARN_SEC * G_USEC_PER_SEC;
+    if (warn) ws_fanout_last_warn_us = now;
+    G_UNLOCK(ws_fanout_warn);
+    if (warn)
+        PCV_LOG_WARN(WS_LOG_DOM, "WebSocket broadcast queue full (%d queued, REST loop stalled?), dropped %d so far",
+                     WS_FANOUT_MAX_QUEUED, dropped);
+    return FALSE;
+}
+
+                                                              
+static void
+_ws_fanout_queued_free(gpointer data)
+{
+    g_free(data);
+    g_atomic_int_add(&ws_fanout_queued, -1);
+}
+
+                                                          
+                                                       
+                                         
+                                                                
+static GMainContext *
+_ws_owner_ref(void)
+{
+    g_mutex_lock(&G.mu);
+    GMainContext *owner = (g_atomic_int_get(&G.initialized) && G.ctx)
+        ? g_main_context_ref(G.ctx) : NULL;
+    g_mutex_unlock(&G.mu);
+    return owner;
 }
 
    
@@ -1131,16 +1013,22 @@ pcv_ws_server_shutdown(void)
                        
                       
   
-                                     
+                                                     
+                                                                                 
+                                                               
+                                                             
+                                                                       
+                                                                   
+                                                                                                                                      
                                    
   
                                              
-                                                     
+                                                                        
    
 void
 pcv_ws_broadcast(const gchar *type, const gchar *payload_json)
 {
-    if (!G.initialized || !type) return;                                  
+    if (!g_atomic_int_get(&G.initialized) || !type) return;                                  
 
                                           
                                                                   
@@ -1149,52 +1037,62 @@ pcv_ws_broadcast(const gchar *type, const gchar *payload_json)
                                   type, (long)ts,
                                   payload_json ? payload_json : "{}");
 
-                                                 
-                                                           
-                                                            
+                                                                 
+                                                                             
+    GMainContext *owner = _ws_owner_ref();
+    gboolean queued = owner && !g_main_context_is_owner(owner);                           
+    if (queued && !_ws_fanout_slot_take()) {
+        g_free(msg);
+        g_main_context_unref(owner);
+        return;
+    }
+    if (!pcv_ws_dispatch_on_owner(owner, _ws_broadcast_fanout, msg, queued ? _ws_fanout_queued_free : g_free)) {
+        if (queued) g_atomic_int_add(&ws_fanout_queued, -1);
+        g_free(msg);
+    }
+    if (owner) g_main_context_unref(owner);
+}
+
+                                                                           
+                                                
+                                                                                         
+                                                                                          
+                                                                                  
+static gboolean
+_ws_close_subject_on_owner(gpointer data)
+{
+    const gchar *user = data;
+    GPtrArray *victims = g_ptr_array_new();
     g_mutex_lock(&G.mu);
-                                                   
-                                                     
-    for (guint i = 0; i < G.clients->len;                      ) {
+    for (guint i = 0; G.clients && i < G.clients->len; i++) {
         SoupWebsocketConnection *conn = g_ptr_array_index(G.clients, i);
-        if (soup_websocket_connection_get_state(conn) != SOUP_WEBSOCKET_STATE_OPEN) {
-            i++;                                                       
-            continue;
-        }
-                                                               
-                                                                         
-                                                                
-        if (!_ws_conn_is_authed(conn)) {
-            i++;
-            continue;
-        }
-
-
-
-        gint *pending = g_object_get_data(G_OBJECT(conn), "pcv-pending");
-        if (pending && g_atomic_int_get(pending) >= ws_max_pending_msgs) {
-            const gchar *bp_ip = g_object_get_data(G_OBJECT(conn), "client-ip");
-            PCV_LOG_WARN(WS_LOG_DOM,
-                "WebSocket backpressure exceeded (%d msgs) for %s, closing",
-                g_atomic_int_get(pending), bp_ip ? bp_ip : "unknown");
-            soup_websocket_connection_close(conn,
-                SOUP_WEBSOCKET_CLOSE_GOING_AWAY, "backpressure");
-                                                                         
-                                                                               
-                                                                    
-            g_ptr_array_remove_index(G.clients, i);
-            continue;
-        }
-        soup_websocket_connection_send_text(conn, msg);                 
-        if (pending) g_atomic_int_add(pending, 1);                                        
-                                                                               
-        g_object_set_data(G_OBJECT(conn), "last_active",
-                          GINT_TO_POINTER((gint)time(NULL)));
-        i++;                               
+        if (_ws_conn_is_authed(conn) &&
+            g_strcmp0(g_object_get_data(G_OBJECT(conn), "pcv-ws-subject"), user) == 0)
+            g_ptr_array_add(victims, g_object_ref(conn));
     }
     g_mutex_unlock(&G.mu);
+    for (guint i = 0; i < victims->len; i++) {
+        SoupWebsocketConnection *conn = g_ptr_array_index(victims, i);
+        if (soup_websocket_connection_get_state(conn) == SOUP_WEBSOCKET_STATE_OPEN)
+            soup_websocket_connection_close(conn, SOUP_WEBSOCKET_CLOSE_POLICY_VIOLATION, "subject removed");
+        g_object_unref(conn);
+    }
+    PCV_LOG_INFO(WS_LOG_DOM, "Closed %u WebSocket event connection(s) of removed subject", victims->len);
+    g_ptr_array_free(victims, TRUE);
+    _vnc_close_subject(user);
+    return G_SOURCE_REMOVE;
+}
 
-    g_free(msg);
+                                                                
+void
+pcv_ws_close_subject(const gchar *username)
+{
+    if (!username || !*username) return;
+    gchar *user = g_strdup(username);
+    GMainContext *owner = _ws_owner_ref();
+    if (!pcv_ws_dispatch_on_owner(owner, _ws_close_subject_on_owner, user, g_free))
+        g_free(user);                               
+    if (owner) g_main_context_unref(owner);
 }
 
    
@@ -1210,9 +1108,9 @@ pcv_ws_broadcast(const gchar *type, const gchar *payload_json)
 gint
 pcv_ws_client_count(void)
 {
-    if (!G.initialized) return 0;
+    if (!g_atomic_int_get(&G.initialized)) return 0;
     g_mutex_lock(&G.mu);
-    gint n = (gint)G.clients->len;
+    gint n = G.clients ? (gint)G.clients->len : 0;
     g_mutex_unlock(&G.mu);
     return n;
 }
@@ -1223,15 +1121,16 @@ pcv_ws_client_count(void)
                                             
                                                          
                                                         
-                                                                
-                                                 
-
-
-
-
+                                                                  
+                                                            
+                                                              
+                                                    
+                                                                    
+                                                                       
 static void
 _broadcast_job_complete(const gchar *job_id, const gchar *method,
-                        const gchar *status, const gchar *error_msg, gint persistence)
+                        const gchar *status, const gchar *error_msg, gint persistence,
+                        gint recovery, const gchar *reason)
 {
     if (!job_id || !method || !status) return;
     JsonObject *obj = json_object_new();
@@ -1242,6 +1141,8 @@ _broadcast_job_complete(const gchar *job_id, const gchar *method,
         json_object_set_string_member(obj, "error", error_msg);
     if (persistence >= 0)
         json_object_set_boolean_member(obj, "result_persisted", persistence != 0);
+    if (recovery >= 0) json_object_set_boolean_member(obj, "recovery_pending", recovery != 0);
+    if (reason) json_object_set_string_member(obj, "recovery_reason", reason);
     JsonNode *node = json_node_new(JSON_NODE_OBJECT);
     json_node_take_object(node, obj);
     gchar *payload = json_to_string(node, FALSE);
@@ -1256,89 +1157,35 @@ void
 pcv_ws_broadcast_job_complete(const gchar *job_id, const gchar *method,
                                const gchar *status, const gchar *error_msg)
 {
-    _broadcast_job_complete(job_id, method, status, error_msg, -1);
+    _broadcast_job_complete(job_id, method, status, error_msg, -1, -1, NULL);
 }
 
-                                                              
-
-void
-pcv_ws_broadcast_job_complete_tracked(const gchar *job_id, const gchar *method,
-                                       const gchar *status, const gchar *error_msg,
-                                       gboolean result_persisted)
-{
-    _broadcast_job_complete(job_id, method, status, error_msg, result_persisted ? 1 : 0);
-}
-
-                                                               
-                                                          
-                                                     
-                                                   
-                                                                 
-                                                            
-                                                            
-                                                             
-                                                  
-                                               
-
-                                                       
-                                                          
-typedef struct {
-    gchar *job_id;
-    gchar *method;
-    gchar *status;
-    gchar *error_msg;                       
-    gint persistence;
-} WsJobCompleteMt;
-
-                                                         
-static gboolean
-_ws_broadcast_job_complete_mt_cb(gpointer user_data)
-{
-    WsJobCompleteMt *d = user_data;
-                                               
-    _broadcast_job_complete(d->job_id, d->method, d->status, d->error_msg, d->persistence);
-                                                  
-    g_free(d->job_id);
-    g_free(d->method);
-    g_free(d->status);
-    g_free(d->error_msg);
-    g_free(d);
-    return G_SOURCE_REMOVE;                              
-}
-
-                                                        
-static void
-_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
-                           const gchar *status, const gchar *error_msg, gint persistence)
-{
-    if (!job_id || !method || !status) return;                             
-
-                                                      
-    WsJobCompleteMt *d = g_new0(WsJobCompleteMt, 1);
-    d->job_id    = g_strdup(job_id);
-    d->method    = g_strdup(method);
-    d->status    = g_strdup(status);
-    d->error_msg = g_strdup(error_msg);                                           
-    d->persistence = persistence;
-
-                                                                
-    pcv_drain_invoke(NULL, _ws_broadcast_job_complete_mt_cb, d);
-}
-
-
+                                                                               
+                                                                                
+                                                 
 void
 pcv_ws_broadcast_job_complete_mt(const gchar *job_id, const gchar *method,
                                   const gchar *status, const gchar *error_msg)
 {
-    _broadcast_job_complete_mt(job_id, method, status, error_msg, -1);
+    _broadcast_job_complete(job_id, method, status, error_msg, -1, -1, NULL);
 }
 
-
+                                                 
+                                                   
+                                                                              
+                                             
+static void
+_job_result_ready(const PcvJobRef *ref, PcvJobStatus status, const gchar *error,
+                  gboolean persisted, gboolean pending, const gchar *reason,
+                  gpointer data G_GNUC_UNUSED)
+{
+    _broadcast_job_complete(pcv_job_id(ref), pcv_job_method(ref),
+        status == PCV_JOB_COMPLETED ? "completed" : "failed", error,
+        persisted ? 1 : 0, pending ? 1 : 0, reason);
+}
 
 void
-pcv_ws_broadcast_job_complete_tracked_mt(const gchar *job_id, const gchar *method,
-                                          const gchar *status, const gchar *error_msg,
-                                          gboolean result_persisted)
+pcv_ws_finish_job(PcvJobRef *ref, PcvJobStatus status, const gchar *result, const gchar *error)
 {
-    _broadcast_job_complete_mt(job_id, method, status, error_msg, result_persisted ? 1 : 0);
+    pcv_job_finish_async(ref, status, result, error, _job_result_ready, NULL, NULL);
 }

@@ -484,6 +484,19 @@ _m2_get_expires(const gchar *path, const gchar *key_hash, gint64 *val, gboolean 
 }
 
                                                                            
+static gint
+_m2_key_role(const gchar *key)
+{
+    PcvRole role = PCV_ROLE_VIEWER;
+    GError *err = NULL;
+    gchar *client = pcv_rbac_verify_api_key(key, &role, &err);
+    g_clear_error(&err);
+    if (!client)
+        return -1;
+    g_free(client);
+    return (gint)role;
+}
+
 static void
 test_apikey_real_roundtrip(void)
 {
@@ -500,12 +513,12 @@ test_apikey_real_roundtrip(void)
     g_assert_true(g_str_has_prefix(out_key, "pcv_"));
 
                                                
-    g_assert_cmpint(pcv_rbac_apikey_validate(out_key), ==, (gint)PCV_ROLE_OPERATOR);
+    g_assert_cmpint(_m2_key_role(out_key), ==, (gint)PCV_ROLE_OPERATOR);
 
                              
     gchar *bogus = g_strdup(out_key);
     bogus[10] = (bogus[10] == 'a') ? 'b' : 'a';
-    g_assert_cmpint(pcv_rbac_apikey_validate(bogus), ==, -1);
+    g_assert_cmpint(_m2_key_role(bogus), ==, -1);
     g_free(bogus);
 
                    
@@ -520,7 +533,7 @@ test_apikey_real_roundtrip(void)
     GError *rerr = NULL;
     g_assert_true(pcv_rbac_apikey_revoke("ci-bot", &rerr));
     g_assert_no_error(rerr);
-    g_assert_cmpint(pcv_rbac_apikey_validate(out_key), ==, -1);
+    g_assert_cmpint(_m2_key_role(out_key), ==, -1);
 
     g_free(out_key);
     pcv_rbac_shutdown();
@@ -548,7 +561,7 @@ test_apikey_real_migrate_schema1_empty(void)
     GError *err = NULL;
     g_assert_true(pcv_rbac_apikey_create("post-migration", PCV_ROLE_ADMIN, NULL, 0, &out_key, &err));
     g_assert_no_error(err);
-    g_assert_cmpint(pcv_rbac_apikey_validate(out_key), ==, (gint)PCV_ROLE_ADMIN);
+    g_assert_cmpint(_m2_key_role(out_key), ==, (gint)PCV_ROLE_ADMIN);
 
     g_free(out_key);
     pcv_rbac_shutdown();
@@ -605,7 +618,7 @@ test_apikey_real_migration_idempotent(void)
                                                                              
                                                   
     pcv_rbac_init(path);
-    g_assert_cmpint(pcv_rbac_apikey_validate(out_key), ==, (gint)PCV_ROLE_OPERATOR);
+    g_assert_cmpint(_m2_key_role(out_key), ==, (gint)PCV_ROLE_OPERATOR);
     g_assert_false(_m2_table_exists(path, "api_keys_new"));
 
     g_free(out_key);
@@ -671,7 +684,7 @@ test_apikey_real_legacy_null_expires_normalized(void)
 
                                                            
                                                                          
-    g_assert_cmpint(pcv_rbac_apikey_validate(plain), !=, -1);
+    g_assert_cmpint(_m2_key_role(plain), !=, -1);
 
     g_free(hash);
     pcv_rbac_shutdown();

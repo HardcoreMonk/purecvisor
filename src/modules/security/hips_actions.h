@@ -116,7 +116,8 @@ gboolean pcv_hips_action_dismiss(const gchar *event_id,
   
                                                                
                                                       
-                                                                         
+                                                                                                
+                                                      
                                                                  
                                                        
   

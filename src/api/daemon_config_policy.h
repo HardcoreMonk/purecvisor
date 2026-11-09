@@ -36,6 +36,20 @@ gboolean pcv_daemon_config_set_alert_reload_is_fatal(
     const gchar *section, PcvAlertConfigSetResult reload_result);
 
    
+                                   
+                                                       
+                                             
+  
+                                                                                  
+                                                                    
+                                                  
+  
+                                            
+                                                                   
+   
+JsonObject *pcv_alert_config_patch_from_rpc(JsonObject *params);
+
+   
                                                          
   
                                                      

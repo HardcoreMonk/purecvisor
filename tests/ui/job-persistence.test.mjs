@@ -4,6 +4,30 @@ import { test } from 'node:test';
 import assert from 'node:assert/strict';
 import { withPage } from './harness.mjs';
 
+test('interrupted polling은 불명확 사유를 반환하고 성공 처리하지 않는다', async () => {
+  await withPage(['ui/modules/endpoints.js', 'ui/modules/api.js'], async page => {
+    const result = await page.evaluate(async () => {
+      let calls = 0;
+      window.fetch = async () => {
+        calls++;
+        return { ok: true, status: 200, json: async () => ({
+          result: { job_id: 'job-12345678', status: 'interrupted', outcome_known: false,
+            detail: 'Execution interrupted; actual outcome unknown' }
+        }) };
+      };
+      try {
+        await PCV.api.waitForJob('job-12345678', { attempts: 3, interval: 0 });
+        return { completed: true, calls };
+      } catch (error) {
+        return { completed: false, calls, message: error.message };
+      }
+    });
+    assert.equal(result.completed, false);
+    assert.equal(result.calls, 1);
+    assert.match(result.message, /actual outcome unknown/);
+  });
+});
+
 async function deliver(page, payload) {
   return page.evaluate(value => {
     window.authToken = 'fixture';

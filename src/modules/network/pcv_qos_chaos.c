@@ -326,7 +326,7 @@ _chaos_restore_cake(const gchar *vm)
                                                   
                                                            
                                                
-                                                                          
+                                                                           
                                                 
                                                                   
                                 

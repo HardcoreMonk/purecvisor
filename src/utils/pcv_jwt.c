@@ -739,10 +739,12 @@ pcv_jwt_sign_with_ip(const gchar *subject,
                                     
                                                            
                                                           
+                                                                            
                      
   
                                                        
-                                                      
+                                                                                 
+                                                                  
   
                                                                              
                                                     
@@ -754,6 +756,7 @@ pcv_jwt_sign_scoped(const gchar *subject,
                     guint        expires_in,
                     const gchar *client_ip,
                     const gchar *scope,
+                    const gchar *identity_nonce,
                     GError     **error)
 {
     g_return_val_if_fail(subject && *subject, NULL);
@@ -796,6 +799,13 @@ pcv_jwt_sign_scoped(const gchar *subject,
     if (scope && *scope) {
         json_builder_set_member_name(jb, "scope");
         json_builder_add_string_value(jb, scope);
+    }
+
+                                                                              
+                                                                         
+    if (identity_nonce && *identity_nonce) {
+        json_builder_set_member_name(jb, PCV_JWT_IDENTITY_CLAIM);
+        json_builder_add_string_value(jb, identity_nonce);
     }
 
     json_builder_end_object(jb);
@@ -1165,4 +1175,32 @@ pcv_jwt_verify_scoped(const gchar *token_or_bearer,
 
     *out_scope = scope_copy;
     return subject;
+}
+
+   
+                                                                             
+                                                            
+                                                           
+  
+                                                                 
+                                                                       
+                                                                        
+  
+                                                                        
+   
+gchar *
+pcv_jwt_identity_nonce(const gchar *token_or_bearer)
+{
+    if (!token_or_bearer) return NULL;
+
+    JsonObject *obj    = NULL;
+    JsonParser *parser = _verify_core(token_or_bearer, &obj, NULL);
+    if (!parser) return NULL;
+
+    gchar *nonce = NULL;
+    JsonNode *node = json_object_get_member(obj, PCV_JWT_IDENTITY_CLAIM);
+    if (node && JSON_NODE_HOLDS_VALUE(node) && json_node_get_value_type(node) == G_TYPE_STRING)
+        nonce = g_strdup(json_node_get_string(node));                        
+    g_object_unref(parser);
+    return nonce;
 }

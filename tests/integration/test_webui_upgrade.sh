@@ -281,7 +281,9 @@ vm_count=$(echo "$resp" | python3 -c "import sys,json;d=json.load(sys.stdin);pri
 [ "$vm_count" -ge 0 ] && ok "인증된 VM 목록: ${vm_count}개" || fail "VM 목록 조회 실패"
 
 check_http "Public /health" "${API}/health" "200"
-check_http "Public /metrics" "${API}/metrics" "200"
+                                                                            
+check_http "nginx 경유 /metrics 무토큰 → 401" "${API}/metrics" "401"
+check_http_auth "nginx 경유 /metrics 토큰" "${API}/metrics" "200"
 
                                                                                
 section "9. REST API 엔드포인트 (VM/CTR/NET/STG)"
@@ -338,7 +340,7 @@ section "10. Monitoring + 메트릭 수집 (F-3, G-2)"
 
 for i in "${!NODES[@]}"; do
   ip="${NODES[$i]}"; name="${NODE_NAMES[$i]}"
-  metrics=$(curl -s --connect-timeout 5 "http://${ip}:80/api/v1/metrics" 2>/dev/null)
+  metrics=$(curl -s --connect-timeout 5 -H "Authorization: Bearer $TOKEN" "http://${ip}:80/api/v1/metrics" 2>/dev/null)                   
   pcv=$(echo "$metrics" | grep -c "^purecvisor_" 2>/dev/null || echo 0)
   node=$(echo "$metrics" | grep -c "^node_" 2>/dev/null || echo 0)
   cpu=$(echo "$metrics" | grep "^purecvisor_host_cpu_percent " | awk '{print $2}')
@@ -359,7 +361,7 @@ check_http "Chart.js 로컬 vendor 접근" "http://${VIP}:80/ui/vendor/chart.umd
 section "11. Cluster HA (3노드)"
                                                                                
 
-cluster_resp=$(curl -s --connect-timeout 5 "http://${VIP}:80/api/v1/internal/cluster/vms" 2>/dev/null)
+cluster_resp=$(curl -s --connect-timeout 5 -H "Authorization: Bearer $TOKEN" "http://${VIP}:80/api/v1/internal/cluster/vms" 2>/dev/null)          
 cluster_vms=$(echo "$cluster_resp" | python3 -c "
 import sys,json;d=json.load(sys.stdin)
 vms=d if isinstance(d,list) else d.get('result',d.get('data',[]))
@@ -403,7 +405,8 @@ section "14. VIP 통합 접근 테스트"
 check_http "VIP root → /ui/" "http://${VIP}:80/" "302"
 check_http "VIP /ui/" "http://${VIP}:80/ui/" "200"
 check_http "VIP /health" "http://${VIP}:80/api/v1/health" "200"
-check_http "VIP /metrics" "http://${VIP}:80/api/v1/metrics" "200"
+check_http "VIP /metrics 무토큰 → 401" "http://${VIP}:80/api/v1/metrics" "401"
+check_http_auth "VIP /metrics 토큰" "http://${VIP}:80/api/v1/metrics" "200"
 
                                                                                
        

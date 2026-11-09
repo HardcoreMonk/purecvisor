@@ -167,6 +167,27 @@ _require_absent_or_owned(const gchar *table,
     return FALSE;
 }
 
+                                                                      
+                                                                    
+static gboolean
+_port_group_usable(const gchar *name, const gchar *vpc_id, gboolean *absent_out, GError **error)
+{
+    g_autoptr(GError) inspect_error = NULL;
+    PcvOvnResourceOwnership ownership = _resource_ownership(
+        "Port_Group", name, vpc_id, &inspect_error);
+    if (inspect_error) {
+        g_propagate_error(error, g_steal_pointer(&inspect_error));
+        return FALSE;
+    }
+    if (ownership == PCV_OVN_RESOURCE_FOREIGN) {
+        g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_CONFLICT,
+                    "Local VPC 소유가 아닌 OVN Port_Group '%s'와 이름이 충돌합니다", name);
+        return FALSE;
+    }
+    *absent_out = ownership == PCV_OVN_RESOURCE_ABSENT;
+    return TRUE;
+}
+
 static gboolean
 _ensure_port_group(const gchar *name,
                    const gchar *vpc_id,
@@ -403,13 +424,21 @@ pcv_vpc_ovn_set_quarantine(JsonObject *vpc, gboolean enabled, GError **error)
                                
                                                                                 
                                                                  
-                          
+                                                                                                              
+                                                                    
+                                                            
       
-                                                       
+                                                           
+                                    
     g_return_val_if_fail(vpc != NULL, FALSE);
     const gchar *vpc_id = json_object_get_string_member(vpc, "id");
     g_autofree gchar *digest = g_compute_checksum_for_string(G_CHECKSUM_SHA256, vpc_id, -1);
     g_autofree gchar *pg = g_strdup_printf("pcvv_pg_%.*s", 16, digest);
+    gboolean absent = FALSE;
+    if (!_port_group_usable(pg, vpc_id, &absent, error))
+        return FALSE;
+    if (absent)
+        return TRUE;
     const gchar *from_match = "inport == @PLACEHOLDER && (ip || arp)";
     const gchar *to_match = "outport == @PLACEHOLDER && (ip || arp)";
     g_autofree gchar *from = g_strdup(from_match);
@@ -436,8 +465,13 @@ pcv_vpc_ovn_set_quarantine(JsonObject *vpc, gboolean enabled, GError **error)
         "--type=port-group", "acl-del", pg, "from-lport", "30000", from, NULL };
     const gchar *to_del[] = { "ovn-nbctl", "--timeout=10", "--wait=hv",
         "--type=port-group", "acl-del", pg, "to-lport", "30000", to, NULL };
-    return _run(enabled ? from_add : from_del, error) &&
-           _run(enabled ? to_add : to_del, error);
+    if (enabled)
+        return _run(from_add, error) && _run(to_add, error);
+                                                                                               
+                                                                                               
+    const gboolean from_ok = _run(from_del, error);
+    const gboolean to_ok = _run(to_del, from_ok ? error : NULL);
+    return from_ok && to_ok;
 }
 
 static void
@@ -511,8 +545,23 @@ pcv_vpc_ovn_sync_policy(JsonObject *vpc,
     g_autofree gchar *digest = g_compute_checksum_for_string(
         G_CHECKSUM_SHA256, vpc_id, -1);
     g_autofree gchar *pg = g_strdup_printf("pcvv_pg_%.*s", 16, digest);
-    if (!_require_absent_or_owned("Port_Group", pg, vpc_id, error))
+    gboolean absent = FALSE;
+    if (!_port_group_usable(pg, vpc_id, &absent, error))
         return FALSE;
+    if (absent) {
+                                                                               
+                                                                              
+                                                                       
+        for (guint i = 0; i < json_array_get_length(attachments); i++) {
+            if (g_strcmp0(json_object_get_string_member_with_default(
+                    json_array_get_object_element(attachments, i), "state", ""), "ACTIVE") == 0) {
+                g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_PORT_GROUP_MISSING,
+                            "Port_Group %s 없이 ACTIVE attachment가 있어 정책을 적용할 수 없습니다", pg);
+                return FALSE;
+            }
+        }
+        return TRUE;
+    }
 
                                                                 
                                                                

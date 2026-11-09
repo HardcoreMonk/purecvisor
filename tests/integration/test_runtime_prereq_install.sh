@@ -310,6 +310,91 @@ second_tree_checksum="$(
 [[ "$(stat -c '%a' "$FAKE_ROOT/usr/lib/purecvisor/bpf/manifest.json")" == "644" ]] ||
   fail "installed BPF manifest mode must remain 644 after a repeated install"
 
+                                                                          
+                                               
+leftover_transaction_files="$(
+  find "$FAKE_ROOT/etc/purecvisor" "$FAKE_ROOT/usr/lib/purecvisor/bpf" \
+    -name '.pcv-*' -print
+)"
+[[ -z "$leftover_transaction_files" ]] ||
+  fail "two_installs_leave_no_temp: repeated installs must leave no .pcv-* transaction file"
+
+                                                                            
+                                                                    
+                                                                    
+STALE_BPF_ROOT="$STATE/stale-bpf-root"
+mkdir -p "$STALE_BPF_ROOT/etc/purecvisor"
+printf '%s\n' '[daemon]' 'jwt_secret=' >"$STALE_BPF_ROOT/etc/purecvisor/daemon.conf"
+                                                   
+run_helper "$STALE_BPF_ROOT" "stale-bpf-baseline"
+printf 'stale-temp-from-killed-install\n' \
+  >"$STALE_BPF_ROOT/usr/lib/purecvisor/bpf/.pcv-install-manifest.json"
+stale_bpf_tree_checksum="$(tree_checksum "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf")"
+stale_bpf_file_list="$(tree_file_list "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf")"
+stale_bpf_mode_list="$(tree_mode_list "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf")"
+
+set +e
+"$HELPER" --root "$STALE_BPF_ROOT" --bpf-stage "$STAGE/bpf" \
+  >"$STATE/stale-bpf.out" 2>&1
+stale_bpf_rc=$?
+set -e
+
+[[ "$stale_bpf_rc" -ne 0 ]] ||
+  fail "stale_fixed_temp_blocks_bpf_install: a stale BPF temp must stop the install"
+if [[ "$(wc -l <"$STATE/stale-bpf.out")" -ne 1 ]] ||
+  ! grep -Fxq 'error: BPF destination contains an unsafe entry' "$STATE/stale-bpf.out"; then
+  fail "stale_fixed_temp_blocks_bpf_install: failure must keep the existing safe status line"
+fi
+[[ "$stale_bpf_tree_checksum" == "$(
+  tree_checksum "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf"
+)" ]] || fail "stale_fixed_temp_blocks_bpf_install: BPF file content must stay unchanged"
+[[ "$stale_bpf_file_list" == "$(
+  tree_file_list "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf"
+)" ]] || fail "stale_fixed_temp_blocks_bpf_install: BPF file names must stay unchanged"
+[[ "$stale_bpf_mode_list" == "$(
+  tree_mode_list "$STALE_BPF_ROOT/usr/lib/purecvisor/bpf"
+)" ]] || fail "stale_fixed_temp_blocks_bpf_install: BPF file modes must stay unchanged"
+
+                                                                            
+                                                           
+                                                          
+STALE_CONFIG_ROOT="$STATE/stale-config-root"
+mkdir -p "$STALE_CONFIG_ROOT/etc/purecvisor"
+printf '%s\n' '[daemon]' 'rest_port=8080' 'jwt_secret=' \
+  >"$STALE_CONFIG_ROOT/etc/purecvisor/daemon.conf"
+printf 'stale-temp-from-killed-install\n' \
+  >"$STALE_CONFIG_ROOT/etc/purecvisor/.pcv-install-daemon.conf"
+stale_config_checksum="$(
+  file_checksum "$STALE_CONFIG_ROOT/etc/purecvisor/daemon.conf"
+)"
+stale_config_temp_checksum="$(
+  file_checksum "$STALE_CONFIG_ROOT/etc/purecvisor/.pcv-install-daemon.conf"
+)"
+
+set +e
+"$HELPER" --root "$STALE_CONFIG_ROOT" --bpf-stage "$STAGE/bpf" \
+  >"$STATE/stale-config.out" 2>&1
+stale_config_rc=$?
+set -e
+
+[[ "$stale_config_rc" -ne 0 ]] ||
+  fail "stale_fixed_config_temp_blocks_install: a stale config temp must stop the install"
+if [[ "$(wc -l <"$STATE/stale-config.out")" -ne 1 ]] ||
+  ! grep -Fxq 'error: stale atomic runtime temp file exists: .pcv-install-daemon.conf' \
+    "$STATE/stale-config.out"; then
+  fail "stale_fixed_config_temp_blocks_install: failure must name the stale temp in one line"
+fi
+[[ "$stale_config_checksum" == "$(
+  file_checksum "$STALE_CONFIG_ROOT/etc/purecvisor/daemon.conf"
+)" ]] || fail "stale_fixed_config_temp_blocks_install: daemon.conf must stay unchanged"
+[[ "$stale_config_temp_checksum" == "$(
+  file_checksum "$STALE_CONFIG_ROOT/etc/purecvisor/.pcv-install-daemon.conf"
+)" ]] || fail "stale_fixed_config_temp_blocks_install: the stale temp must stay unchanged"
+if [[ -d "$STALE_CONFIG_ROOT/usr/lib/purecvisor/bpf" ]]; then
+  [[ -z "$(find "$STALE_CONFIG_ROOT/usr/lib/purecvisor/bpf" -name '.pcv-*' -print)" ]] ||
+    fail "stale_fixed_config_temp_blocks_install: the BPF destination must get no .pcv-* entry"
+fi
+
 mkdir -p \
   "$PRESERVE_ROOT/etc/purecvisor/pki" \
   "$PRESERVE_ROOT/usr/lib/purecvisor/bpf"

@@ -388,11 +388,16 @@ def check_profile(profile: str):
     if not profile.strip():
         return ["AppArmor 프로필을 찾지 못함"]
     code = strip_comments(profile)
+    bad = []
     if not re.search(r"^\s*/\{usr/,\}bin/ovsdb-client\s+Ux,\s*$", code, re.M):
-        return ["[불변식7] opt-in AppArmor 프로필에 "
-                "`/{usr/,}bin/ovsdb-client Ux,` 규칙이 없다 — "
-                "overlay bulk snapshot 실행이 차단된다"]
-    return []
+        bad.append("[불변식7] opt-in AppArmor 프로필에 "
+                   "`/{usr/,}bin/ovsdb-client Ux,` 규칙이 없다 — "
+                   "overlay bulk snapshot 실행이 차단된다")
+    if not re.search(r"^\s*/usr/local/bin/pcvctl\s+Ux,\s*$", code, re.M):
+        bad.append("[불변식8] opt-in AppArmor 프로필에 "
+                   "`/usr/local/bin/pcvctl Ux,` 규칙이 없다 — "
+                   "실행 중 볼륨 detach의 NS 정리 자식(pcvctl container volume-ns-detach)이 차단된다")
+    return bad
 
 
 def main(argv=None) -> int:
@@ -424,7 +429,7 @@ def main(argv=None) -> int:
               "(docs/adr/0028-*.md 결정 2)", file=sys.stderr)
         return 1
     print("[PASS] 2.0 deb: 프로필 미로드 + disable 심링크 + 로드분 해제 + "
-          "헬퍼 ADR-0028 경고 + opt-in OVS 조회 실행 규칙")
+          "헬퍼 ADR-0028 경고 + opt-in OVS 조회·NS 정리 자식 실행 규칙")
     return 0
 
 

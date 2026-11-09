@@ -191,7 +191,7 @@ section "2. UI STATIC FILES"
 for f in "" "/index.html" "/style.css" "/app.js" "/i18n.js" "/sw.js" \
          "/modules/api.js" "/modules/ui.js" "/modules/vm.js" "/modules/container.js" \
          "/modules/network.js" "/modules/storage.js" \
-         "/modules/monitor.js" "/modules/cloud.js" "/modules/help.js" "/modules/nav.js"; do
+         "/modules/monitor.js" "/modules/help.js" "/modules/nav.js"; do
   code=$(curl -s -o /dev/null -w '%{http_code}' "$BASE_URL/ui$f" 2>/dev/null)
   if [ "$code" = "200" ]; then log_pass "/ui$f ($code)"; else log_fail "/ui$f" "HTTP $code"; fi
 done

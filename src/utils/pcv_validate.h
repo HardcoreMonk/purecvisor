@@ -127,6 +127,29 @@
 [[nodiscard]] gboolean pcv_validate_vm_name(const gchar *name);
 
    
+                             
+                                                                                     
+                                                                                  
+                                                     
+   
+[[nodiscard]] gboolean pcv_validate_is_uuid_like(const gchar *s);
+
+   
+                            
+                                                              
+                                                  
+                                           
+   
+[[nodiscard]] gboolean pcv_validate_new_vm_name(const gchar *name);
+
+   
+                                                                                                 
+                                                                                     
+                                                         
+   
+gboolean pcv_validate_new_container_name(const gchar *name);
+
+   
                           
                                                       
                                  

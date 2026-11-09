@@ -42,8 +42,10 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
-DISPATCHER = ROOT / "src" / "api" / "dispatcher.c"
                                                      
                                                      
                                                 
@@ -63,7 +65,7 @@ def find_dups(text):
 
 
 def run_check():
-    text = DISPATCHER.read_text(encoding="utf-8", errors="replace")
+    text = rpc_extract.dispatcher_route_file(ROOT).read_text(encoding="utf-8", errors="replace")
     total = len(INSERT.findall(text))
     dups = find_dups(text)
     print(f"[check-rpc-route-unique] g_rpc_routes 등록 {total}건 검사")

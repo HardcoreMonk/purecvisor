@@ -18,7 +18,7 @@
                                                      
                                  
        
-                                                             
+                                                                     
                                                       
                                                                  
                                                   
@@ -28,8 +28,9 @@
                                                                      
                                                        
                                                              
-                                                    
-                                                                       
+                                                                              
+                                               
+                                                                                               
                                                                   
                                                                          
                                                                           
@@ -49,17 +50,17 @@
   
                       
                                                                            
-                                                              
+                                                                      
                                                               
                                                                  
   
          
                     
                                                     
-                                                                          
-                                                              
-                                                                  
                                                                               
+                                                                                                  
+                                                                                
+                                                                           
                         
                                                                        
                                                                  
@@ -72,15 +73,16 @@
          
                                                                  
                                                                 
-                                                            
+                                                                         
                                                             
                                     
-                                                                                 
+                                                                                          
   
             
-                                                          
-                                                                  
-                                                         
+                                                                                   
+                                                                                                  
+                                                                              
+                                                                                            
   
         
                                                           
@@ -93,6 +95,8 @@
    
 
 #include "api/drain.h"
+#include "rest_shutdown.h"
+#include "api/rest_login.h"
 #include "rest_server.h"
 #include "rest_middleware.h"
 #include "rest_auth.h"
@@ -143,443 +147,35 @@
 #include "../modules/virt/circuit_breaker.h"
 #include "purecvisor/version.h"
 #include <unistd.h>
+#include "api/rest_internal.h"
+#include "api/rest_response.h"
+#include "api/rest_request.h"
+#include "api/rest_async.h"
+#include "api/rest_transport.h"
+#include "api/rest_request_auth.h"
 
-                                                                              
-
-  
-                                                        
-                                                                
-
-                                             
-  
-
-
-
-  
-
-
-                                                                                 
-
-                                                               
-                                                       
-                                                       
-                                                                   
-PcvRestTlsMode
-pcv_rest_tls_mode_from_config(gboolean https_enabled)
-{
-    return https_enabled ? PCV_REST_TLS_INTERNAL
-                         : PCV_REST_TLS_EXTERNAL_TERMINATION;
-}
-
-   
-                                                      
-  
-                                                  
-                                                         
-                                                            
-  
-                                                  
-                                                 
-                                                
-                                                   
-  
-                                                   
-                                                           
-                                                         
-                  
-                                                                  
-                                               
-                                                     
-                                                        
                                             
-   
-PcvRestTlsHealth
-pcv_rest_tls_health(PcvRestTlsMode mode,
-                    gboolean tls_enabled,
-                    gboolean tls_degraded,
-                    const gchar *degraded_reason)
-{
-    if (mode == PCV_REST_TLS_EXTERNAL_TERMINATION) {
-        return (PcvRestTlsHealth) {
-            .mode = "external_termination",
-            .enabled = FALSE,
-            .degraded = FALSE,
-            .status = "disabled_by_config",
-            .reason = "external TLS termination required",
-        };
-    }
 
-    return (PcvRestTlsHealth) {
-        .mode = "internal",
-        .enabled = tls_enabled,
-        .degraded = tls_degraded,
-        .status = tls_degraded ? "degraded" : "ok",
-        .reason = tls_degraded ? degraded_reason : NULL,
-    };
-}
-
-   
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-PcvRestAuditHealthImpact
-pcv_rest_audit_chain_health_impact(gboolean current_ok,
-                                   gboolean historical_break)
-{
-    if (!current_ok)
-        return PCV_REST_AUDIT_HEALTH_CRITICAL;
-    if (historical_break)
-        return PCV_REST_AUDIT_HEALTH_INFORMATIONAL;
-    return PCV_REST_AUDIT_HEALTH_NONE;
-}
-
-
-                                                                       
-  
-                                              
-                                                  
-                    
-  
-                                            
-                                   
-   
-guint
-pcv_rest_http_status_for_rpc_error(gint64 rpc_error_code)
-{
-    if (rpc_error_code == PURE_RPC_ERR_INVALID_PARAMS)
-        return 400;
-    if (rpc_error_code == PURE_RPC_ERR_METHOD_NOT_FOUND ||
-        rpc_error_code == PURE_RPC_ERR_VM_NOT_FOUND ||
-        rpc_error_code == PURE_RPC_ERR_NOT_FOUND)
-        return 404;
-    if (rpc_error_code == PURE_RPC_ERR_CONFLICT ||
-        rpc_error_code == PURE_RPC_ERR_BUSY)
-        return 409;
-    if (rpc_error_code == PURE_RPC_ERR_TIMEOUT)
-        return 504;
-    if (rpc_error_code == PURE_RPC_ERR_FORBIDDEN)
-        return 403;
-    if (rpc_error_code == PURE_RPC_ERR_TOTP_INVALID_CODE)
-        return 401;
-    if (rpc_error_code == PURE_RPC_ERR_TOTP_LOCKED)
-        return 429;
-    return 500;
-}
-
-   
-                                                            
-  
-                                                
-                                                    
-                                                             
-  
-                                                   
-                                                    
-                    
-  
-                                                          
-                                                                 
-                                                          
-                                              
-                                           
-                                                 
-                                          
-                                                                           
-PcvRestRpcMethodStatus
-pcv_rest_rpc_envelope_method(const gchar *rpc_json, gchar **method_out)
-{
-    g_return_val_if_fail(method_out != NULL, PCV_REST_RPC_METHOD_MALFORMED);
-    *method_out = NULL;
-    if (!rpc_json)
-        return PCV_REST_RPC_METHOD_MALFORMED;
-
-    PcvRestRpcMethodStatus status = PCV_REST_RPC_METHOD_MALFORMED;
-    JsonParser *parser = json_parser_new();
-
-    if (json_parser_load_from_data(parser, rpc_json, -1, NULL)) {
-        JsonNode *root = json_parser_get_root(parser);
-        JsonObject *obj = (root && JSON_NODE_HOLDS_OBJECT(root))
-                          ? json_node_get_object(root) : NULL;
-        JsonNode *member = obj ? json_object_get_member(obj, "method") : NULL;
-        if (obj && !member) {
-            status = PCV_REST_RPC_METHOD_MISSING;
-        } else if (member && JSON_NODE_HOLDS_VALUE(member) &&
-                   json_node_get_value_type(member) == G_TYPE_STRING) {
-            const gchar *method = json_node_get_string(member);
-            if (method && *method) {
-                *method_out = g_strdup(method);
-                status = PCV_REST_RPC_METHOD_OK;
-            }
-        }
-    }
-    g_object_unref(parser);
-    return status;
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-                                   
-   
-PcvRestTransportPlan
-pcv_rest_transport_plan(PcvRestTlsMode mode,
-                        const gchar *configured_plaintext_bind)
-{
-    gboolean internal = mode == PCV_REST_TLS_INTERNAL;
-    const gchar *bind_mode =
-        internal && g_strcmp0(configured_plaintext_bind, "all") == 0
-            ? "all" : "loopback";
-
-    return (PcvRestTransportPlan) {
-        .mode = mode,
-        .initialize_tls = internal,
-        .load_certificate = internal,
-        .create_tls_context = internal,
-        .listen_https = internal,
-        .plaintext_bind_mode = bind_mode,
-        .plaintext_host = g_strcmp0(bind_mode, "all") == 0
-                            ? "0.0.0.0" : "127.0.0.1",
-    };
-}
-
-                                      
-                                                    
-                                            
-                                       
-                                                         
-                                       
-void
-pcv_rest_transport_initialize(const PcvRestTransportPlan *transport,
-                              PcvRestTlsInitFunc init_func)
-{
-    g_return_if_fail(transport != NULL);
-    g_return_if_fail(init_func != NULL);
-
-    if (transport->initialize_tls)
-        init_func();
-}
-
-   
-                                                        
-  
-                                                  
-                                                
-                                   
-  
-                                                    
-                                                  
-                                                          
-                                                   
-  
-                     
-                                                       
-                                    
-                                                          
-                                                    
-                                                                
-                                                            
-                               
-                                                             
-                                                    
-                     
-                           
-                                                                
-                                              
-                                                
-                                 
-                                                        
-                                               
-   
-gboolean
-pcv_rest_transport_start(const PcvRestTransportPlan *transport,
-                         const PcvRestTransportOps *ops,
-                         gpointer context,
-                         PcvRestTransportOutcome *outcome,
-                         GError **error)
-{
-    g_return_val_if_fail(transport != NULL, FALSE);
-    g_return_val_if_fail(ops != NULL, FALSE);
-    g_return_val_if_fail(outcome != NULL, FALSE);
-
-    *outcome = (PcvRestTransportOutcome) {0};
-    GError *step_error = NULL;
-
-    if (transport->load_certificate) {
-        outcome->certificate_loaded =
-            ops->load_certificate(context, NULL, &step_error);
-        g_clear_error(&step_error);
-    }
-    if (transport->create_tls_context && outcome->certificate_loaded) {
-        outcome->tls_context_created =
-            ops->create_tls_context(context, NULL, &step_error);
-        g_clear_error(&step_error);
-    }
-
-    outcome->plaintext_listening =
-        ops->listen_plaintext(context, transport->plaintext_host, error);
-    if (!outcome->plaintext_listening)
-        return FALSE;
-
-    if (transport->listen_https &&
-        outcome->certificate_loaded &&
-        outcome->tls_context_created) {
-        outcome->https_listening =
-            ops->listen_https(context, "0.0.0.0", &step_error);
-        g_clear_error(&step_error);
-    }
-    return TRUE;
-}
-
-                                
-                                                   
-                                                    
-                                                                      
-                                                 
-const gchar *
-pcv_rest_auth_audit_address(SoupServerMessage *message)
-{
-    g_return_val_if_fail(SOUP_IS_SERVER_MESSAGE(message), "unknown");
-
-    const PcvRestClientIdentity *identity =
-        pcv_rest_client_identity_get(message);
-    return pcv_rest_client_identity_get_client_ip(identity);
-}
-
-   
-                                                              
-  
-                                                                 
-                                              
-                                           
-  
-                                                 
-                                    
-                                                    
-                                                           
-                                      
-   
-gchar *
-pcv_rest_rate_limit_key_for_message(SoupServerMessage *message,
-                                    const gchar *path,
-                                    const gchar *http_method)
-{
-    return pcv_build_rate_limit_key(
-        pcv_rest_auth_audit_address(message), path, http_method);
-}
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-JsonObject *
-pcv_rest_container_volume_detach_params(const gchar *name, gchar **segments, JsonObject *body)
-{
-    JsonObject *params = json_object_new();
-    json_object_set_string_member(params, "name", name ? name : "");
-
-    if (segments && segments[0] && *segments[0]) {
-        for (guint i = 0; segments[i]; i++) {
-            if (!*segments[i])
-                return params;
-        }
-        g_autofree gchar *joined = g_strjoinv("/", segments);
-        g_autofree gchar *container_path = g_strconcat("/", joined, NULL);
-        json_object_set_string_member(params, "container_path", container_path);
-        return params;
-    }
-
-    JsonNode *path_node = body ? json_object_get_member(body, "container_path") : NULL;
-    if (path_node && JSON_NODE_HOLDS_VALUE(path_node) &&
-        json_node_get_value_type(path_node) == G_TYPE_STRING)
-        json_object_set_string_member(params, "container_path",
-                                      json_node_get_string(path_node));
-    return params;
-}
-
-#ifndef PCV_REST_TRANSPORT_POLICY_ONLY
-
-#define REST_LOG_DOM   "rest_server"
 
                                                             
                                                                
                                                   
-static gboolean g_hsts_enabled = FALSE;
+gboolean pcv_rest_hsts_enabled = FALSE;
 
                                                         
                                               
-static gboolean g_tls_degraded = FALSE;
-static gchar   *g_tls_degraded_reason = NULL;
+gboolean pcv_rest_tls_degraded = FALSE;
+                                                       
+static GMainContext *self_rest_ctx = nullptr;
+gchar   *pcv_rest_tls_degraded_reason = NULL;
 
                                                          
-#define REST_API_PREFIX "/api/v1"
-constexpr int REST_MAX_BODY = 1 * 1024 * 1024;             
-constexpr int REST_RPC_TIMEOUT_SEC = 8;                                        
-                                                                                         
                                                                        
 
                                                                                       
 
                                                         
 
-                                                                    
-struct _PcvRestServer {
-    GObject      parent_instance;
-    SoupServer  *soup;
-    guint16      port;
-    guint16      https_port;                                                              
-    gboolean     tls_active;                         
-    PcvRestTransportPlan transport;                             
-                                                
-                                                           
-                                                   
-                                                   
-    GThread     *thread;
-    GMainLoop   *rest_loop;
-    GMainContext *rest_ctx;
-};
 
                                         
   
@@ -597,1366 +193,103 @@ struct _PcvRestServer {
    
 G_DEFINE_TYPE(PcvRestServer, pcv_rest_server, G_TYPE_OBJECT)
 
+
                                                                   
-                              
-                                                                
-                                        
-                      
+                 
                                                                      
    
-                                                      
-  
-                                               
-                                              
-                        
-  
-                                                         
-                                                                      
-                                                      
-                                                         
-  
-                                              
-                                                   
-  
-         
-                                                                     
-                                                        
-                            
-                                                
-                                                   
-                                            
                          
   
-                   
-                                                               
-                                    
-                                                 
-  
-                                      
-                                              
-                                             
-   
-static gchar *
-_rpc_over_uds_timeout(const gchar *rpc_json, gint timeout_sec)
-{
-    const gchar *sock_path = pcv_config_get_socket_path();
-
-                                                                   
-      
-                        
-                                                           
-                                      
-                                                              
-      
-                  
-                                                           
-                                           
-                                                                      
-       
-    int fd = socket(AF_UNIX, SOCK_STREAM | SOCK_CLOEXEC, 0);
-    if (fd < 0) {
-        return g_strdup_printf(
-            "{\"error\":{\"code\":\"DAEMON_UNAVAILABLE\","
-             "\"message\":\"socket() failed: %s\"}}", strerror(errno));
-    }
-
-                                                 
-      
-                      
                                                   
-                                                       
-      
-             
-                                  
-                                       
-                                                                    
-                                                                     
-       
-    struct timeval tv = { .tv_sec = timeout_sec, .tv_usec = 0 };
-    setsockopt(fd, SOL_SOCKET, SO_RCVTIMEO, &tv, sizeof(tv));
-    setsockopt(fd, SOL_SOCKET, SO_SNDTIMEO, &tv, sizeof(tv));
-
-                              
-      
-             
-                                                     
-                                                                
-                                           
-                                                 
-       
-    struct sockaddr_un addr;
-    memset(&addr, 0, sizeof(addr));
-    addr.sun_family = AF_UNIX;
-    g_strlcpy(addr.sun_path, sock_path, sizeof(addr.sun_path));
-
-    if (connect(fd, (struct sockaddr *)&addr, sizeof(addr)) < 0) {
-        PCV_LOG_WARN("rest", "connect(%s) failed: %s", sock_path, strerror(errno));
-        gchar *msg = g_strdup(
-            "{\"error\":{\"code\":\"DAEMON_UNAVAILABLE\","
-             "\"message\":\"Daemon temporarily unavailable\"}}");
-        close(fd);
-        return msg;
-    }
-
-                           
-      
-                          
-                                                   
-                                                  
-      
-                                                          
-                                                    
-       
-    {
-        gsize json_len = strlen(rpc_json);
-        struct iovec iov[2] = {
-            { .iov_base = (void *)rpc_json, .iov_len = json_len },
-            { .iov_base = (void *)"\n",     .iov_len = 1        }
-        };
-        gssize total_len = (gssize)(json_len + 1);
-        gssize sent = writev(fd, iov, 2);
-        if (sent != total_len) {
-            close(fd);
-            return g_strdup("{\"error\":{\"code\":\"WRITE_FAILED\","
-                             "\"message\":\"UDS write failed\"}}");
-        }
-    }
-
-      
-                                                           
-                                                      
                                                             
-       
-    shutdown(fd, SHUT_WR);
-
-                         
-      
-                   
+                                                      
+                                                         
+  
                                          
-                                                          
-                                                             
-      
-                     
-                                  
-                                                   
-       
-                                                  
-                                                  
+                                   
+  
+                
+                                                            
+  
+                                 
                                            
-                                          
-    GByteArray *dyn_buf = g_byte_array_new();
-    gchar tmp[8192];
-    for (;;) {
-        gssize n = read(fd, tmp, sizeof(tmp));
-        if (n < 0) {                                        
-                                                   
-                                                                    
-                                                          
-                                                    
-            if (errno == EAGAIN || errno == EWOULDBLOCK) {
-                g_byte_array_free(dyn_buf, TRUE);
-                close(fd);
-                return g_strdup_printf("{\"jsonrpc\":\"2.0\",\"error\":{"
-                    "\"code\":%d,"
-                    "\"message\":\"RPC timeout — daemon did not respond within %ds\"}}",
-                    PURE_RPC_ERR_TIMEOUT, timeout_sec);
-            }
-            break;
-        }
-        if (n == 0) break;
-        g_byte_array_append(dyn_buf, (guint8 *)tmp, (guint)n);
-    }
-    close(fd);
-    gssize total = (gssize)dyn_buf->len;
-
-    if (total <= 0) {
-        g_byte_array_free(dyn_buf, TRUE);
-        return g_strdup_printf("{\"jsonrpc\":\"2.0\",\"error\":{"
-            "\"code\":%d,"
-            "\"message\":\"No response from daemon\"}}", PURE_RPC_ERR_ZFS_OPERATION);
-    }
-
-                         
-    g_byte_array_append(dyn_buf, (guint8 *)"\0", 1);
-    if (total > 0 && dyn_buf->data[total - 1] == '\n')
-        dyn_buf->data[total - 1] = '\0';
-
-    gchar *line = g_strdup((gchar *)dyn_buf->data);
-    g_byte_array_free(dyn_buf, TRUE);
-
-    if (!line) {
-        return g_strdup("{\"error\":{\"code\":\"READ_FAILED\","
-                         "\"message\":\"No response from daemon\"}}");
-    }
-
-    return line;                              
-}
-
-                        
-                                               
+                                        
+  
+                                                     
                                               
-static gchar *
-_rpc_over_uds(const gchar *rpc_json)
-{
-    return _rpc_over_uds_timeout(rpc_json, REST_RPC_TIMEOUT_SEC);
-}
+                                           
+   
+                                                                         
 
+
+
+   
+                                                                               
+  
+                                              
+                                                 
+                                       
+  
+                                                   
+                                                        
+                                                  
+                                              
+  
+                                                                 
+                                                                                    
+                                                       
+                                                                
+                                                             
+                                                             
+                                        
+                                                   
+                                                                       
+                              
+                                               
+                                                                      
+                                                     
+                                                                                  
+                                                            
+                                                       
+                                                             
+                                        
+                                                              
+  
+                                                                       
+                                                                              
+                                                                                   
+                                                          
+  
+                                                            
+                                                                                           
+                                                                     
+                                                                                                    
+                                                                                                          
+                                                                                        
+                                                                                  
+                                                                               
+                                                                                        
+                                                                                         
+                                                                                             
+                                                                
+                                                            
+  
+       
+                                               
+                                                                       
+                               
+                                                
+                                                            
+                                                                  
                                                                            
-                                                             
-                                                      
-                                                         
-                                           
-#define PCV_CSP_POLICY \
-    "default-src 'self'; script-src 'self' 'unsafe-inline'; " \
-    "style-src 'self' 'unsafe-inline'; img-src 'self' data:; " \
-    "font-src 'self'; " \
-    "connect-src 'self' ws: wss:"
-
-                                                                  
-             
-                                                                     
-   
-                     
-  
-                                              
-                                                    
-                                                 
-  
-                                                              
-                                                                  
-                                           
-  
-                               
-                                                    
-                                                       
-                                                  
-  
-                                               
-                                                       
-                               
-   
-static void
-_send_json(SoupServerMessage *msg, guint status, const gchar *body)
-{
-    soup_server_message_set_status(msg, status, NULL);
-    SoupMessageHeaders *hdrs = soup_server_message_get_response_headers(msg);
-    soup_message_headers_replace(hdrs, "Content-Type",
-                                  "application/json; charset=utf-8");
-    soup_message_headers_replace(hdrs, "X-Content-Type-Options", "nosniff");
-
-                                                                       
-                                                        
-                                                        
-                                                       
-    {
-        const gchar *req_method = soup_server_message_get_method(msg);
-        gboolean is_get = (g_strcmp0(req_method, "GET") == 0);
-
-        if (is_get && status == 200 && body) {
-            gsize body_len = strlen(body);
-            gchar *etag = pcv_compute_etag(body, body_len);
-            soup_message_headers_replace(hdrs, "ETag", etag);
-            soup_message_headers_replace(hdrs, "Cache-Control",
-                                          "private, max-age=5, must-revalidate");
-                                                         
-            SoupMessageHeaders *req_hdrs =
-                soup_server_message_get_request_headers(msg);
-            const gchar *if_none_match =
-                soup_message_headers_get_one(req_hdrs, "If-None-Match");
-            if (if_none_match && g_strcmp0(if_none_match, etag) == 0) {
-                soup_server_message_set_status(msg, 304, NULL);
-                g_free(etag);
-                return;                                    
-            }
-            g_free(etag);
-        } else {
-            soup_message_headers_replace(hdrs, "Cache-Control", "no-store");
-        }
-    }
-
-                                                   
-                                                          
-                                                           
-                                             
-    soup_message_headers_replace(hdrs, "Connection", "close");
-                                                       
-                                                     
-                                                               
-    const PcvRestClientIdentity *identity =
-        pcv_rest_client_identity_get(msg);
-    if (g_hsts_enabled ||
-        pcv_rest_client_identity_is_external_https(identity)) {
-        soup_message_headers_replace(hdrs, "Strict-Transport-Security",
-                                      "max-age=31536000; includeSubDomains");
-    }
-    soup_message_headers_replace(hdrs, "Content-Security-Policy", PCV_CSP_POLICY);
-    soup_message_headers_replace(hdrs, "X-Frame-Options", "SAMEORIGIN");
-    soup_message_headers_replace(hdrs, "X-XSS-Protection", "1; mode=block");
-    soup_message_headers_replace(hdrs, "Referrer-Policy",
-                                  "strict-origin-when-cross-origin");
-    soup_message_headers_replace(hdrs, "Permissions-Policy",
-                                  "camera=(), microphone=(), geolocation=()");
-                                                          
-    soup_message_headers_replace(hdrs, "Vary", "Accept-Encoding");
-
-    gsize body_len = strlen(body);
-
-                                                  
-      
-                        
-                                                             
-                                                
-      
-             
-                                                             
-                                                                         
-                              
-                                                    
-                                                        
-      
-                   
-                                                       
-                                         
-       
-    SoupMessageHeaders *req_hdrs = soup_server_message_get_request_headers(msg);
-    const gchar *accept_enc = soup_message_headers_get_one(req_hdrs,
-                                                            "Accept-Encoding");
-    if (accept_enc && strstr(accept_enc, "gzip") != nullptr && body_len > 256) {
-        z_stream zs;
-        memset(&zs, 0, sizeof(zs));
-                                                          
-        int zinit_ret = deflateInit2(&zs, Z_DEFAULT_COMPRESSION, Z_DEFLATED,
-                                     15 + 16, 8, Z_DEFAULT_STRATEGY);
-        if (zinit_ret != Z_OK) {
-                                                               
-            g_warning("rest_server: deflateInit2 failed (ret=%d), sending uncompressed",
-                      zinit_ret);
-        }
-        if (zinit_ret == Z_OK) {
-            gsize max_compressed = deflateBound(&zs, (uLong)body_len);
-            guchar *compressed = g_malloc(max_compressed);
-            zs.next_in  = (Bytef *)body;
-            zs.avail_in = (uInt)body_len;
-            zs.next_out  = compressed;
-            zs.avail_out = (uInt)max_compressed;
-
-            int zret = deflate(&zs, Z_FINISH);
-            if (zret == Z_STREAM_END) {
-                gsize compressed_len = zs.total_out;
-                deflateEnd(&zs);
-                                                                     
-                if (compressed_len < body_len) {
-                    soup_message_headers_replace(hdrs, "Content-Encoding",
-                                                  "gzip");
-                    soup_server_message_set_response(msg, "application/json",
-                                                      SOUP_MEMORY_COPY,
-                                                      (const gchar *)compressed,
-                                                      compressed_len);
-                    g_free(compressed);
-                    return;
-                }
-            } else {
-                deflateEnd(&zs);
-            }
-            g_free(compressed);
-        }
-    }
-
-                               
-    soup_server_message_set_response(msg, "application/json",
-                                      SOUP_MEMORY_COPY,
-                                      body, body_len);
-}
-
-   
-                   
-  
-                                              
-                             
-                                                             
-                                                            
-  
-                                                            
-                                         
-  
-                                  
-                           
-                                                           
-                                   
-   
-static void
-_error(SoupServerMessage *msg, guint status,
-       const gchar *code, const gchar *detail)
-{
-    gchar *body = g_strdup_printf(
-        "{\"error\":{\"code\":\"%s\",\"message\":\"%s\"}}",
-        code, detail);
-    _send_json(msg, status, body);
-    g_free(body);
-}
-
-                                                                  
-                 
-                                                                     
-   
-                         
-  
-                                                  
-                                                            
-                                                      
-                                                         
-  
-                                         
-                                   
-  
-                
-                                                            
-  
-                                 
-                                           
-                                        
-  
-                                                     
-                                              
-                                           
-   
-                                                                         
-
-static gchar *
-_build_rpc(const gchar *method, JsonObject *params)
-{
-    JsonBuilder *jb = json_builder_new();
-    json_builder_begin_object(jb);
-
-    json_builder_set_member_name(jb, "jsonrpc");
-    json_builder_add_string_value(jb, "2.0");
-    json_builder_set_member_name(jb, "method");
-    json_builder_add_string_value(jb, method);
-    json_builder_set_member_name(jb, "params");
-
-    if (params) {
-                                               
-                                            
-                                                       
-                                                                
-        JsonNode *params_node = json_node_new(JSON_NODE_OBJECT);
-        json_node_set_object(params_node, params);
-        json_builder_add_value(jb, params_node);
-    } else {
-                                                          
-        json_builder_begin_object(jb);
-        json_builder_end_object(jb);
-    }
-
-    json_builder_set_member_name(jb, "id");
-    json_builder_add_int_value(jb, 1);
-    json_builder_end_object(jb);
-
-                                     
-                                            
-                                       
-                                                 
-                                                        
-      
-                                            
-    JsonNode *root = json_builder_get_root(jb);
-    gchar *rpc = json_to_string(root, FALSE);
-
-    json_node_free(root);
-    g_object_unref(jb);
-    return rpc;                          
-}
-
-   
-                          
-  
-                                                  
-                       
-                                                                  
-  
-                                              
-                                             
-                                                                                
-  
-                         
-                                               
-                                           
-   
-static gchar *
-_build_rpc_name(const gchar *method, const gchar *name)
-{
-    JsonObject *p = json_object_new();
-    json_object_set_string_member(p, "name", name);
-    gchar *rpc = _build_rpc(method, p);
-    json_object_unref(p);
-    return rpc;
-}
-
-                                      
-  
-                                                               
-                                                                     
-                                                                
-                                   
-static JsonObject *
-_vpc_rest_params(JsonObject *body,
-                 GHashTable *query,
-                 const gchar *id_key,
-                 const gchar *id_value)
-{
-    JsonObject *params = body ? json_object_ref(body) : json_object_new();
-    if (query) {
-        const gchar *tenant = g_hash_table_lookup(query, "tenant");
-        if (tenant && *tenant)
-            json_object_set_string_member(params, "tenant", tenant);
-    }
-    if (id_key && id_value)
-        json_object_set_string_member(params, id_key, id_value);
-    return params;
-}
-
-static gchar *
-_rpc_attach_auth_context(const gchar *rpc_json,
-                         const gchar *subject,
-                         PcvRole      role)
-{
-                
-                                                 
-                                                            
-                                                      
-                                        
-      
-               
-                                                     
-                                                           
-                                                   
-    if (!rpc_json)
-        return NULL;
-
-    JsonParser *parser = json_parser_new();
-    GError *error = NULL;
-                                                                                                                                      
-    if (!json_parser_load_from_data(parser, rpc_json, -1, &error)) {
-        if (error) g_error_free(error);
-        g_object_unref(parser);
-        return g_strdup(rpc_json);
-    }
-
-    JsonNode *root = json_parser_get_root(parser);
-    if (!root || !JSON_NODE_HOLDS_OBJECT(root)) {
-        g_object_unref(parser);
-        return g_strdup(rpc_json);
-    }
-
-    JsonObject *root_obj = json_node_get_object(root);
-    JsonObject *params = NULL;
-    JsonNode *params_node = json_object_get_member(root_obj, "params");
-    if (params_node && JSON_NODE_HOLDS_OBJECT(params_node)) {
-        params = json_node_get_object(params_node);
-    } else {
-        params = json_object_new();
-        json_object_set_object_member(root_obj, "params", params);
-    }
-
-    json_object_remove_member(params, "_pcv_caller_sub");
-    json_object_remove_member(params, "_pcv_caller_role");
-    if (subject && *subject)
-        json_object_set_string_member(params, "_pcv_caller_sub", subject);
-    json_object_set_int_member(params, "_pcv_caller_role", (gint)role);
-
-    gchar *rpc_with_context = json_to_string(root, FALSE);
-    g_object_unref(parser);
-    return rpc_with_context ? rpc_with_context : g_strdup(rpc_json);
-}
-
-                                                                  
-                      
-                                                                     
-   
-                      
-  
-                                                       
-                                                             
-                                                   
-  
-                                                      
-  
-         
-                                                      
-                                                                        
-  
-                                  
-                                              
-                                              
-                                               
-                                               
-                                               
-                                   
-  
-                             
-                                            
-   
-
-                                                      
-
-   
-                                                       
-  
-                                                 
-                                
-                                                               
-                                                    
-  
-                         
-                                      
-  
-                                     
-                           
-                          
-                          
-                                             
-   
-static void
-_add_pagination_headers(SoupServerMessage *msg, gint total, gint offset,
-                        gint limit, const gchar *base_path)
-{
-    SoupMessageHeaders *hdrs = soup_server_message_get_response_headers(msg);
-
-    gchar *total_str = g_strdup_printf("%d", total);
-    soup_message_headers_replace(hdrs, "X-Total-Count", total_str);
-    g_free(total_str);
-
-                                               
-    GString *links = g_string_new("");
-    if (offset + limit < total) {
-        g_string_append_printf(links, "<%s?offset=%d&limit=%d>; rel=\"next\"",
-                               base_path, offset + limit, limit);
-    }
-    if (offset > 0) {
-        if (links->len > 0) g_string_append(links, ", ");
-        gint prev_offset = offset - limit;
-        if (prev_offset < 0) prev_offset = 0;
-        g_string_append_printf(links, "<%s?offset=%d&limit=%d>; rel=\"prev\"",
-                               base_path, prev_offset, limit);
-    }
-    if (links->len > 0)
-        soup_message_headers_replace(hdrs, "Link", links->str);
-    g_string_free(links, TRUE);
-}
-
-   
-                                                               
-  
-                                                  
-                                           
-  
-                                               
-                                               
-                                                    
-               
-  
-                                                                        
-                                                               
-                                                
-                                          
-                                                      
-                                                  
-                                                                   
-                                           
-                                    
-                                                    
-   
-static void
-_send_rpc_result(SoupServerMessage *msg, const gchar *rpc_resp)
-{
-    if (!rpc_resp) {
-        _error(msg, 500, "NO_RESPONSE", "No response from daemon");
-        return;
-    }
-
-                                                           
-                                                    
-                                    
-    JsonParser *p   = json_parser_new();
-    GError     *err = nullptr;
-
-                                                                  
-    if (!json_parser_load_from_data(p, rpc_resp, -1, &err)) {
-        _error(msg, 500, "PARSE_ERROR",
-               err ? err->message : "Invalid JSON from daemon");
-        if (err) g_error_free(err);
-        g_object_unref(p);
-        return;
-    }
-
-    JsonObject    *obj = json_node_get_object(json_parser_get_root(p));
-    gchar         *body_str;
-    guint          status;
-
-                           
-      
-                                                                  
-                                                       
-      
-                                                                                            
-                                                               
-      
-                     
-                                                         
-                                                                    
-       
-    if (json_object_has_member(obj, "result")) {
-                                                     
-        JsonNode *result = json_object_get_member(obj, "result");
-        gchar *r = json_to_string(result, FALSE);
-        body_str = g_strdup_printf("{\"data\":%s}", r);
-        g_free(r);
-        status = 200;
-
-                                         
-        {
-            GUri *uri = soup_server_message_get_uri(msg);
-            const gchar *req_path = uri ? g_uri_get_path(uri) : NULL;
-            const gchar *req_query = uri ? g_uri_get_query(uri) : NULL;
-            if (req_path && JSON_NODE_HOLDS_ARRAY(result)) {
-                gint total = (gint)json_array_get_length(json_node_get_array(result));
-                gint offset = 0, limit = total;
-                if (req_query) {
-                                                 
-                    gchar **pairs = g_strsplit(req_query, "&", -1);
-                    for (gchar **p = pairs; *p; p++) {
-                        if (g_str_has_prefix(*p, "offset="))
-                            offset = (gint)g_ascii_strtoll(*p + 7, NULL, 10);
-                        else if (g_str_has_prefix(*p, "limit="))
-                            limit = (gint)g_ascii_strtoll(*p + 6, NULL, 10);
-                    }
-                    g_strfreev(pairs);
-                }
-                if (limit > 0)
-                    _add_pagination_headers(msg, total, offset, limit, req_path);
-            }
-        }
-    } else if (json_object_has_member(obj, "error")) {
-                                                      
-        JsonObject *e    = json_object_get_object_member(obj, "error");
-        gint64      code = json_object_get_int_member_with_default(e, "code", PURE_RPC_ERR_ZFS_OPERATION);
-        JsonNode   *enode = json_object_get_member(obj, "error");
-        gchar *r = json_to_string(enode, FALSE);
-        body_str = g_strdup_printf("{\"error\":%s}", r);
-        g_free(r);
-        status = pcv_rest_http_status_for_rpc_error(code);
-    } else {
-        body_str = g_strdup(rpc_resp);
-        status   = 200;
-    }
-
-    _send_json(msg, status, body_str);
-    g_free(body_str);
-    g_object_unref(p);
-}
-
-                                                                  
-              
-                                                                     
-   
-                                                      
-  
-                                                    
-                                                   
-                                                      
-  
-                   
-                                        
-                                                    
-                                      
-                                                    
-  
-         
-                        
-                                                    
-                                         
-                         
-                     
-  
-                                                                     
-                                                          
-                                                           
-                                                                        
-  
-                         
-                                                                       
-                                                           
-   
-static gchar *
-_authenticate(SoupServerMessage *msg, gint *out_key_role)
-{
-    if (out_key_role) *out_key_role = -1;                                          
-
-    SoupMessageHeaders *req =
-        soup_server_message_get_request_headers(msg);
-
-                                                           
-      
-                                      
-                                                            
-                                              
-                                        
-                                                                
-      
-                                                            
-                                                                      
-    const gchar *api_key = soup_message_headers_get_one(req, "X-API-Key");
-    if (api_key && *api_key) {
-        GError *aerr = nullptr;
-                                                                              
-                                                                            
-                                                                                   
-                                                         
-                                                          
-        PcvRole stored_role = PCV_ROLE_VIEWER;
-        gchar *user = pcv_rbac_verify_api_key(api_key, &stored_role, &aerr);
-        if (user) {
-            if (out_key_role) *out_key_role = (gint)stored_role;
-            return user;
-        }
-                                    
-        const gchar *rip = pcv_rest_auth_audit_address(msg);
-        PCV_LOG_WARN(REST_LOG_DOM, "AUDIT: auth failed (invalid API key) from %s", rip);
-        pcv_audit_log("-", "auth.failed",
-                      aerr ? aerr->message : "invalid API key", "fail", 401, 0, rip);
-        _error(msg, 401, "UNAUTHORIZED",
-               aerr ? aerr->message : "Invalid API key");
-        if (aerr) g_error_free(aerr);
-        return NULL;
-    }
-
-                                                            
-    const gchar *auth = soup_message_headers_get_one(req, "Authorization");
-
-    if (!auth || !*auth) {
-        const gchar *rip = pcv_rest_auth_audit_address(msg);
-        PCV_LOG_WARN(REST_LOG_DOM, "AUDIT: auth failed (no header) from %s", rip);
-        pcv_audit_log("-", "auth.failed", "no Authorization header", "fail", 401, 0, rip);
-        _error(msg, 401, "UNAUTHORIZED", "Authorization header required");
-        return NULL;
-    }
-
-    GError *err     = nullptr;
-    gchar  *subject = pcv_jwt_verify(auth, &err);
-    if (!subject) {
-        const gchar *rip = pcv_rest_auth_audit_address(msg);
-        PCV_LOG_WARN(REST_LOG_DOM, "AUDIT: auth failed (invalid token) from %s", rip);
-        pcv_audit_log("-", "auth.failed",
-                      err ? err->message : "invalid token", "fail", 401, 0, rip);
-        _error(msg, 401, "UNAUTHORIZED",
-               err ? err->message : "Invalid token");
-        if (err) g_error_free(err);
-    }
-    return subject;
-}
-
-                                                                  
-           
-                                                                     
-   
-                     
-  
-                                                    
-                                                      
-                               
-                                                                
-                                                                      
-  
-                                                
-                                       
-                                    
-  
-          
-                                                        
-                                                             
-  
-                         
-                                                
-   
-static JsonObject *
-_parse_body(SoupServerMessage *msg)
-{
-                                                      
-                                                               
-    SoupMessageBody *body = soup_server_message_get_request_body(msg);
-    if (!body || body->length == 0)
-        return json_object_new();
-
-    const gchar *data = body->data;
-    gsize        len  = (gsize)body->length;
-    if (len > REST_MAX_BODY) return NULL;
-
-                                                                
-                                                              
-                                                         
-                                                                  
-                                                            
-    JsonParser *p = nullptr;
-    GError     *e = nullptr;
-    if (!pcv_rpc_parse_guarded(data, (gssize)len, &p, &e)) {
-        if (e) g_error_free(e);
-        return NULL;
-    }
-
-                             
-      
-                                                               
-                                                               
-      
-                                               
-                                             
-      
-                                                
-                                                         
-                                                
-      
-                                                  
-    JsonNode   *root = json_parser_get_root(p);
-    JsonObject *obj  = JSON_NODE_HOLDS_OBJECT(root)
-                       ? json_object_ref(json_node_get_object(root))
-                       : json_object_new();
-    g_object_unref(p);                                        
-    return obj;
-}
-
-                                                                  
-                 
-                                                                                   
-                                                                     
-   
-                      
-  
-                                                                   
-                                                      
-                                                            
-  
-                                                  
-                                                       
-  
-                                                                  
-                                               
-  
-                                                       
-                                                 
-   
-static gchar **
-_split_path(const gchar *path)
-{
-    const gchar *p = path;
-    if (g_str_has_prefix(p, REST_API_PREFIX))
-        p += strlen(REST_API_PREFIX);
-    if (*p == '/') p++;
-    return g_strsplit(p, "/", -1);
-}
-
-                                                                  
-            
-                                                                     
-   
-                                                  
-  
-                                                      
+                                                                               
                                                                  
-                                                                       
-                                                                       
-                                                          
-                                                               
-                                                         
-  
-                                                               
-                                                                  
-                                                            
-                                                              
-                                                                             
-                                                     
-                                                        
-  
-                                                
-                                                  
-  
-                 
-                                               
-                                
-                                        
-                                     
-                          
-                                                                    
-                 
-                                                    
-  
-            
-                                         
-                                           
-                                                     
-                                                        
-  
-                                         
-                                  
-                                            
-                                     
-                                            
-   
-                                       
-  
-                                                           
-                                                             
-  
-               
-                                                            
-                                                        
-                                                          
-  
-                                                      
-                                                    
-                                                
-                                                             
-                         
-   
-                                              
-  
-                                                 
-                                         
-                                                                 
-                                       
-  
-                             
-                                
-                                            
-                        
-                                            
-                        
-  
-                                         
-                                                     
-                                                 
-  
-       
-                                                      
-                                                   
-                                  
-  
-                                       
-                       
-   
-static void
-_on_msg_finished(SoupServerMessage *msg, gpointer user_data __attribute__((unused)))
-{
-    GSocket *gsock = soup_server_message_get_socket(msg);
-    if (gsock) {
-        int fd = g_socket_get_fd(gsock);
-        if (fd >= 0) shutdown(fd, SHUT_RDWR);                            
-    }
-}
-
-                                                                  
-                                     
-  
-       
-                                                                            
-                                                            
-  
-       
-                                    
-                                                   
-                                                                     
-
-                                                       
-static GMainContext *self_rest_ctx = nullptr;
-
-  
-                          
-  
-                   
-                                             
-                                        
-                                         
-  
-                       
-                                                          
-                                            
-                                                               
-   
-typedef struct {
-    SoupServerMessage *msg;                                                    
-    gchar             *rpc;                                         
-    gchar             *rpc_method;                                           
-    gchar             *vm_delete_name;                                          
-    gboolean           is_vm_delete;                                           
-    GMainContext      *rest_ctx;                                                       
-} _RestAsyncCtx;
-
-   
-                                                            
-  
-                                                 
-                                                          
-                                                                       
-                                 
-  
-                                       
-                                             
-   
-static void
-_rest_async_ctx_free(gpointer p)
-{
-    _RestAsyncCtx *ctx = p;
-    if (!ctx) return;
-    g_free(ctx->rpc);
-    g_free(ctx->rpc_method);
-    g_free(ctx->vm_delete_name);
-    if (ctx->msg) g_object_unref(ctx->msg);
-    g_free(ctx);
-}
-
-  
-                                                             
-  
-                                    
-                                                                 
-                                           
-                                
-                                                                    
-   
-typedef struct {
-    SoupServerMessage *msg;                                      
-    gchar *resp;                                             
-} _RestUnpauseData;
-
-   
-                                      
-  
-                                                     
-                                                       
-                                                    
-                                                                        
-                            
-  
-          
-                                       
-                                                   
-                        
-  
-                                            
-   
-static gboolean
-_rest_unpause_cb(gpointer data)
-{
-    _RestUnpauseData *ud = data;
-    _send_rpc_result(ud->msg, ud->resp);                        
-    soup_server_message_unpause(ud->msg);                                 
-    g_object_unref(ud->msg);                                          
-    g_free(ud->resp);
-    g_free(ud);
-    return G_SOURCE_REMOVE;                                       
-}
-
-   
-                                        
-  
-                                                 
-                                                     
-                                       
-                                                             
-                                                                       
-                                                                   
-  
-                           
-  
-                                
-                                                       
-                               
-                                                
-  
-                                                 
-                                                                     
-                                                           
-  
-                                                       
-                                              
-                                                      
-  
-                
-                                                                    
-                                                       
-                                             
-  
-                                                   
-                               
-                                     
-                                      
-   
-static void
-_rest_async_worker(GTask *task, gpointer src __attribute__((unused)),
-                   gpointer task_data, GCancellable *cancel __attribute__((unused)))
-{
-    _RestAsyncCtx *actx = task_data;
-
-                                                       
-
-    gint timeout = pcv_get_rpc_timeout(actx->rpc_method);
-    gchar *resp = _rpc_over_uds_timeout(actx->rpc, timeout);
-
-                                       
-      
-                                                    
-                                 
-                                      
                                                                          
-                                   
-       
-
-                                                   
-      
-                                     
-                                 
-                                              
-                                               
-                                                             
-                                                               
-                                                     
-      
-                   
-                                                      
-                                                            
-       
-    _RestUnpauseData *ud = g_new0(_RestUnpauseData, 1);
-    ud->msg = actx->msg;                                       
-    ud->resp = resp;                                
-
-    pcv_drain_idle(actx->rest_ctx, _rest_unpause_cb, ud, NULL);
-
-                                             
-                                                                      
-                       
-    g_free(actx->rpc);           actx->rpc = NULL;
-    g_free(actx->rpc_method);    actx->rpc_method = NULL;
-    g_free(actx->vm_delete_name);actx->vm_delete_name = NULL;
-    actx->msg = NULL;                                               
-}
-
-                                                            
-                                                
-                                                   
-                                 
-                                                            
-                                                       
-                                                       
-                                                                       
-                                                                
-                                                 
-                                                     
-                                         
-                                                               
-                                                       
-static gboolean
-_cors_origin_allowed(const gchar *origin, const gchar *host_hdr)
-{
-    if (!origin || origin[0] == '\0')
-        return FALSE;                                               
-    const gchar *sep = strstr(origin, "://");
-    if (!sep)
-        return FALSE;
-    const gchar *oh = sep + 3;                                    
-    gsize oh_len = 0;
-    while (oh[oh_len] && oh[oh_len] != '/' && oh[oh_len] != ':')
-        oh_len++;
-    if (oh_len == 0)
-        return FALSE;
-
-    gchar *origin_host = g_strndup(oh, oh_len);
-    gboolean allow = (g_strcmp0(origin_host, "localhost") == 0 ||
-                      g_strcmp0(origin_host, "127.0.0.1") == 0 ||
-                      g_strcmp0(origin_host, "::1") == 0);
-    if (!allow && host_hdr && host_hdr[0]) {
-        gsize hh_len = 0;
-        while (host_hdr[hh_len] && host_hdr[hh_len] != ':')
-            hh_len++;
-        gchar *host_host = g_strndup(host_hdr, hh_len);
-        allow = (hh_len > 0 && g_strcmp0(origin_host, host_host) == 0);
-        g_free(host_host);
-    }
-    g_free(origin_host);
-    return allow;
-}
-
-                                                       
-                                                             
-                                                  
-                                            
-                                                  
-                                                    
-                                                  
-                                                         
-static gboolean
-_body_has_secret(const gchar *body, gsize len)
-{
-    if (!body || len == 0)
-        return FALSE;
-    static const gchar *const secret_keys[] = {
-        "password", "passwd", "secret", "api_key", "apikey", "token",
-        "chap_password", "jwt_secret", "private_key", "credential",
-        "totp", "recovery_code", nullptr
-    };
-    gsize scan_len = MIN(len, (gsize)4096);                               
-    gchar *lower = g_ascii_strdown(body, (gssize)scan_len);
-    gboolean found = FALSE;
-    for (gsize i = 0; secret_keys[i]; i++) {
-        if (strstr(lower, secret_keys[i])) { found = TRUE; break; }
-    }
-    g_free(lower);
-    return found;
-}
-
-   
-                                                                
-  
-                                              
-                                                 
-                                       
-  
-                                                   
+                                                                     
+                                                                     
+                                                                                 
                                                         
-                                                  
-                                              
-  
-                                          
-                                                                
-                                                             
-                                                             
-                                        
-                                                   
-                                                               
-                              
-                                               
-                                                              
-                                                     
-                                                                              
-                                                    
-                                                       
-                                                             
-                                        
-                                                              
-  
-                                                                       
-                                                     
-                                                    
-                                              
-  
-       
-                                               
                                                 
-                                                
-                                                            
-                                                                  
-                                                                         
-                                                     
-                                                       
-                                                   
                                                               
                                                   
                                                          
@@ -1979,1844 +312,68 @@ _on_request(SoupServer        *server   __attribute__((unused)),
 {
     PcvRestServer *self = PCV_REST_SERVER(user_data);
     const gchar *method = soup_server_message_get_method(msg);
-    gchar *req_id = nullptr;                                                    
-    PcvTraceContext *trace_ctx = nullptr;                                              
-    JsonObject *body = nullptr;
-    gchar **segs = nullptr, *subject = nullptr, *rpc = nullptr, *vm_delete_name = nullptr;
+    PcvRestRequest rq_storage = {0};                                                  
+    PcvRestRequest *rq = &rq_storage;
+    rq->msg = msg;
+    rq->path = path;
+    rq->query = query;
+    rq->self = self;
+    rq->method = method;
+    rq->req_id = nullptr;                                                    
+    rq->trace_ctx = nullptr;                                              
+    JsonObject *body = nullptr;                                                                 
+    gchar **segs = nullptr, *subject = nullptr;
+    rq->rpc = nullptr;
     const gchar *request_client_ip =
         pcv_rest_auth_audit_address(msg);
+    rq->request_client_ip = request_client_ip;
 
-                                                       
-                                                                     
-                                                             
-    soup_message_headers_replace(
-        soup_server_message_get_response_headers(msg), "Connection", "close");
-
-                                                      
-                                                           
-                                                                    
-                                                                
-                                                        
-                                                      
-                                                
-                                                   
-    g_signal_connect(msg, "finished", G_CALLBACK(_on_msg_finished), NULL);
-
+    PCV_REST_RUN(pcv_rest_prelude(rq));
+    PCV_REST_RUN(pcv_rest_ui_static(rq));
+    PCV_REST_RUN(pcv_rest_health(rq));
+    PCV_REST_RUN(pcv_rest_version(rq));
+    PCV_REST_RUN(pcv_rest_internal(rq));
+    PCV_REST_RUN(pcv_rest_metrics(rq));
+    PCV_REST_RUN(pcv_rest_auth_token(rq));
+    PCV_REST_RUN(pcv_rest_auth_refresh(rq));
+    PCV_REST_RUN(pcv_rest_auth_logout(rq));
+    PCV_REST_RUN(pcv_rest_auth_password(rq));
+    PCV_REST_RUN(pcv_rest_auth_register(rq));
+    PCV_REST_RUN(pcv_rest_auth_totp_verify(rq));
+    PCV_REST_RUN(pcv_rest_auth_totp_enroll(rq));
       
-                                                             
+                                                                       
+                             
       
-                                                               
-                                                           
-                                   
-      
-                                                  
-                                             
-                                                         
-      
-                                                        
-                                                        
-                                                             
-       
-    {
-        static GMutex  rate_mu;
-        static GHashTable *rate_counts = nullptr;                                            
-        static gint64  window_start = 0;
-        g_mutex_lock(&rate_mu);
-        if (!rate_counts)
-            rate_counts = g_hash_table_new_full(g_str_hash, g_str_equal, g_free, NULL);
-        gint64 now = g_get_monotonic_time() / G_USEC_PER_SEC;
-        if (now - window_start > 60) {
-            g_hash_table_remove_all(rate_counts);
-            window_start = now;
-        }
-        const gchar *rate_ip = request_client_ip;
-        gchar *rate_key =
-            pcv_rest_rate_limit_key_for_message(msg, path, method);
-        gint count = GPOINTER_TO_INT(g_hash_table_lookup(rate_counts, rate_key)) + 1;
-        g_hash_table_insert(rate_counts, g_strdup(rate_key), GINT_TO_POINTER(count));
-                                                              
-        if (g_hash_table_size(rate_counts) > 1024) {
-            GHashTableIter evict_iter;
-            gpointer evict_key, evict_val;
-            gint removed = 0;
-            gint target = (gint)g_hash_table_size(rate_counts) / 2;
-            g_hash_table_iter_init(&evict_iter, rate_counts);
-            while (g_hash_table_iter_next(&evict_iter, &evict_key, &evict_val) && removed < target) {
-                g_hash_table_iter_remove(&evict_iter);
-                removed++;
-            }
-            PCV_LOG_WARN(REST_LOG_DOM,
-                "Rate limit table overflow: evicted %d/%d bucket entries (LRU approximate)",
-                removed, removed + (gint)g_hash_table_size(rate_counts));
-                                              
-            count = GPOINTER_TO_INT(g_hash_table_lookup(rate_counts, rate_key)) + 1;
-            g_hash_table_insert(rate_counts, g_strdup(rate_key), GINT_TO_POINTER(count));
-        }
-        g_mutex_unlock(&rate_mu);
-                                            
-        gint endpoint_limit = pcv_get_endpoint_rate_limit(path, method);
-        if (count > endpoint_limit) {
-            PCV_LOG_WARN(REST_LOG_DOM,
-                "Rate limit exceeded for %s on %s (%d req/min, limit=%d, key=%s)",
-                rate_ip, path, count, endpoint_limit, rate_key);
-            g_free(rate_key);
-            _error(msg, 429, "RATE_LIMIT", "Too many requests");
-            return;
-        }
-        g_free(rate_key);
-    }
-
-                                                                
-      
-                                                     
-                                             
-                                               
-      
-                                                        
-                                                          
-                                                                      
-    {
-        static GMutex      _user_rl_mu;
-        static GHashTable *_user_rl_map   = nullptr;                                         
-        static gint64      _user_rl_start = 0;
-#define USER_RATE_LIMIT  1200
-
-                                                        
-                                                          
-                                                          
-        SoupMessageHeaders *rl_reqh = soup_server_message_get_request_headers(msg);
-        const gchar *rl_auth = soup_message_headers_get_one(rl_reqh, "Authorization");
-        gchar *rl_user = nullptr;
-        if (rl_auth && g_str_has_prefix(rl_auth, "Bearer ")) {
-            GError *rl_err = nullptr;
-            rl_user = pcv_jwt_verify(rl_auth, &rl_err);
-            if (rl_err) g_error_free(rl_err);
-        }
-
-        if (rl_user && *rl_user) {
-            g_mutex_lock(&_user_rl_mu);
-            if (!_user_rl_map)
-                _user_rl_map = g_hash_table_new_full(g_str_hash, g_str_equal,
-                                                     g_free, NULL);
-            gint64 now_u = g_get_monotonic_time() / G_USEC_PER_SEC;
-            if (now_u - _user_rl_start > 60) {
-                g_hash_table_remove_all(_user_rl_map);
-                _user_rl_start = now_u;
-            }
-            gint ucount = GPOINTER_TO_INT(
-                g_hash_table_lookup(_user_rl_map, rl_user)) + 1;
-            g_hash_table_insert(_user_rl_map, g_strdup(rl_user),
-                                GINT_TO_POINTER(ucount));
-                                             
-            if (g_hash_table_size(_user_rl_map) > 512) {
-                g_hash_table_remove_all(_user_rl_map);
-                ucount = 1;
-            }
-            g_mutex_unlock(&_user_rl_mu);
-            if (ucount > USER_RATE_LIMIT) {
-                PCV_LOG_WARN(REST_LOG_DOM,
-                    "Per-user rate limit exceeded for '%s' (%d req/min)",
-                    rl_user, ucount);
-                g_free(rl_user);
-                _error(msg, 429, "RATE_LIMIT",
-                    "Per-user rate limit exceeded");
-                return;
-            }
-        }
-        g_free(rl_user);
-#undef USER_RATE_LIMIT
-    }
-
-                                                
-                                                            
-                                                  
                                                                  
-    if (g_strcmp0(method, "POST") == 0 || g_strcmp0(method, "PUT") == 0 ||
-        g_strcmp0(method, "DELETE") == 0) {
-        const gchar *remote_str = request_client_ip;
-                                                            
-        SoupMessageBody *audit_body = soup_server_message_get_request_body(msg);
-        const gchar *body_str = audit_body ? audit_body->data : NULL;
-        gsize body_len = audit_body ? (gsize)audit_body->length : 0;
-        gboolean is_auth = (g_strstr_len(path, -1, "/auth/token") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/refresh") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/logout") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/register") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/password") != nullptr) ||
-                            (g_strstr_len(path, -1, "/auth/totp/") != nullptr) ||
+                                                     
+                                                                       
+       
+                                             
+      
+                                                  
+                                                                            
+                                                                
+                                                                       
+      
+                                                 
+                                                                        
+      
+                                                                      
                                                                                      
-                            _body_has_secret(body_str, body_len);
-        if (body_str && body_len > 0 && !is_auth) {
-            gchar *truncated = g_strndup(body_str, MIN(body_len, 200));
-            PCV_LOG_INFO(REST_LOG_DOM, "AUDIT: %s %s from %s body=%.200s",
-                         method, path, remote_str, truncated);
-            g_free(truncated);
-        } else {
-            PCV_LOG_INFO(REST_LOG_DOM, "AUDIT: %s %s from %s%s",
-                         method, path, remote_str,
-                         is_auth ? " body=(credentials masked)" : "");
-        }
-    }
-
-                                                        
-                                        
-                                       
-                                                      
-                                   
-                                                                      
-    req_id = pcv_generate_request_id();
-    {
-        SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
-        soup_message_headers_replace(rh, "X-Request-ID", req_id);
-    }
-    pcv_log_req_id_set(req_id);
-
-                                                                
-                                                   
-                                                  
-                                                                      
-    {
-        SoupMessageHeaders *reqh_tp = soup_server_message_get_request_headers(msg);
-        const gchar *incoming_tp = soup_message_headers_get_one(reqh_tp, "traceparent");
-        trace_ctx = incoming_tp ? pcv_trace_context_parse(incoming_tp)
-                                : NULL;
-        if (!trace_ctx)
-            trace_ctx = pcv_trace_context_new();
-        gchar *tp_out = pcv_trace_context_format(trace_ctx);
-        SoupMessageHeaders *rh_tp = soup_server_message_get_response_headers(msg);
-        soup_message_headers_replace(rh_tp, "traceparent", tp_out);
-        g_free(tp_out);
-    }
-
-    PCV_LOG_INFO(REST_LOG_DOM, "[%s] [trace=%s span=%s] %s %s",
-                 req_id, trace_ctx->trace_id, trace_ctx->span_id, method, path);
-
-      
-                                                                   
-      
-                                                                 
-                                             
-      
-                                                    
-                                         
-                                                                
-      
-                            
-                                                    
-                                                       
-                      
-       
-                                                             
-                                                        
-                                   
-                                                             
-                                                
-                                                        
-                                                           
-                                          
-                                                                      
-    {
-        SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
-        SoupMessageHeaders *reqh = soup_server_message_get_request_headers(msg);
-        const gchar *origin = soup_message_headers_get_one(reqh, "Origin");
-        const gchar *host_hdr = soup_message_headers_get_one(reqh, "Host");
-
-                                                                       
-                                                                      
-                                                           
-        if (origin && origin[0] != '\0' && _cors_origin_allowed(origin, host_hdr)) {
-            soup_message_headers_replace(rh, "Access-Control-Allow-Origin", origin);
-            soup_message_headers_replace(rh, "Access-Control-Allow-Methods",
-                                          "GET, POST, PUT, DELETE, OPTIONS");
-            soup_message_headers_replace(rh, "Access-Control-Allow-Headers",
-                                          "Authorization, Content-Type, X-API-Key");
-            soup_message_headers_replace(rh, "Access-Control-Allow-Credentials", "true");
-                                                              
-            soup_message_headers_replace(rh, "Vary", "Origin");
-        }
-    }
-    if (g_strcmp0(method, "OPTIONS") == 0) {
-        soup_server_message_set_status(msg, 204, NULL);                                  
-        goto cleanup;
-    }
-
-      
-                                                            
-      
-                                                         
-                                              
-      
-                                             
-                                                
-                                                            
-       
-                                                            
-    if (g_strcmp0(path, "/") == 0) {
-        soup_server_message_set_redirect(msg, 302, "/ui/");
-        goto cleanup;
-    }
-
-                                                            
-                                                     
-                                                         
-    if (g_str_has_prefix(path, "/ui")) {
-        const gchar *file_path = path + 3;                            
-        if (!file_path[0] || g_strcmp0(file_path, "/") == 0)
-            file_path = "/index.html";
-
-                                                            
-        if (strstr(file_path, "..")) {
-            _error(msg, 403, "FORBIDDEN", "Path traversal blocked");
-            goto cleanup;
-        }
-
-        static const char *ui_base_dir = "/usr/local/share/purecvisor/ui";
-                                          
-        static char ui_base_resolved[PATH_MAX] = {0};
-        static size_t ui_base_len = 0;
-        if (ui_base_resolved[0] == '\0') {
-            if (!realpath(ui_base_dir, ui_base_resolved)) {
-                _error(msg, 500, "SERVER_ERROR", "UI base dir missing");
-                goto cleanup;
-            }
-            ui_base_len = strlen(ui_base_resolved);
-        }
-
-        gchar *full = g_strdup_printf("%s%s", ui_base_dir, file_path);
-
-                                              
-        char resolved[PATH_MAX];
-        if (!realpath(full, resolved)) {
-            int e = errno;
-            _error(msg, e == ENOENT ? 404 : 403,
-                   e == ENOENT ? "NOT_FOUND" : "FORBIDDEN",
-                   e == ENOENT ? "UI file not found" : "Path traversal blocked");
-            g_free(full);
-            goto cleanup;
-        }
-                                                       
-        if (strncmp(resolved, ui_base_resolved, ui_base_len) != 0 ||
-            (resolved[ui_base_len] != '/' && resolved[ui_base_len] != '\0')) {
-            _error(msg, 403, "FORBIDDEN", "Path traversal blocked");
-            g_free(full);
-            goto cleanup;
-        }
-
-        gchar *content = nullptr;
-        gsize len = 0;
-
-        if (g_file_get_contents(resolved, &content, &len, NULL)) {
-            const gchar *ct = "text/html; charset=utf-8";
-            if (g_str_has_suffix(file_path, ".js"))   ct = "application/javascript";
-            if (g_str_has_suffix(file_path, ".css"))  ct = "text/css";
-            if (g_str_has_suffix(file_path, ".json")) ct = "application/json";
-            if (g_str_has_suffix(file_path, ".md"))   ct = "text/markdown; charset=utf-8";
-            if (g_str_has_suffix(file_path, ".png"))  ct = "image/png";
-            if (g_str_has_suffix(file_path, ".ico"))  ct = "image/x-icon";
-            if (g_str_has_suffix(file_path, ".svg"))  ct = "image/svg+xml";
-            if (g_str_has_suffix(file_path, ".webp")) ct = "image/webp";
-            if (g_str_has_suffix(file_path, ".woff")) ct = "font/woff";
-            if (g_str_has_suffix(file_path, ".woff2")) ct = "font/woff2";
-
-            soup_server_message_set_status(msg, 200, NULL);
-            SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
-            soup_message_headers_replace(rh, "Cache-Control", "no-cache, must-revalidate");
-                                                                      
-                                                             
-                                                                              
-                                                                 
-                                                                           
-            soup_message_headers_replace(rh, "Content-Security-Policy", PCV_CSP_POLICY);
-            soup_message_headers_replace(rh, "X-Frame-Options", "SAMEORIGIN");
-            soup_message_headers_replace(rh, "Referrer-Policy",
-                                          "strict-origin-when-cross-origin");
-            soup_message_headers_replace(rh, "X-Content-Type-Options", "nosniff");
-            soup_server_message_set_response(msg, ct, SOUP_MEMORY_TAKE, content, len);
-        } else {
-            _error(msg, 404, "NOT_FOUND", "UI file not found");
-        }
-        g_free(full);
-        goto cleanup;
-    }
-
-                                                                     
-                                              
-      
-                                                          
-                                                                 
-                                                       
-      
-                    
-                                                     
-                                               
-      
-                     
-                                          
-                                    
-                              
-                                     
-                           
-                                      
-                                                      
-                                              
-      
-                  
-                      
-                                               
-                                                          
-      
-                   
-                                        
-                                                        
                                                  
-                                                                        
-                                                                     
-                                                                   
-      
-                                                         
-                                      
-      
-               
-                                             
-                                    
-      
-                                                                                            
-                                                                        
-    if (g_strcmp0(path, REST_API_PREFIX "/health/recent-errors") == 0) {
-        const gchar *vm_q = NULL;
-        gint lim = 5;
-        if (query) {
-            vm_q = g_hash_table_lookup(query, "vm");
-            const gchar *lim_q = g_hash_table_lookup(query, "limit");
-            if (lim_q) {
-                gint v = atoi(lim_q);
-                if (v > 0 && v <= 50) lim = v;
-            }
-        }
-        JsonArray *failures = pcv_audit_recent_failures(vm_q, lim);
-        JsonObject *root = json_object_new();
-        JsonNode *fnode = json_node_new(JSON_NODE_ARRAY);
-        json_node_take_array(fnode, failures);
-        json_object_set_member(root, "data", fnode);
-        JsonNode *rn = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(rn, root);
-        JsonGenerator *gen = json_generator_new();
-        json_generator_set_root(gen, rn);
-        gchar *body = json_generator_to_data(gen, NULL);
-        _send_json(msg, 200, body);
-        g_free(body);
-        g_object_unref(gen);
-        json_node_free(rn);
-        goto cleanup;
-    }
-
-    if (g_strcmp0(path, REST_API_PREFIX "/health") == 0) {
-                                   
-                                                          
-                                                     
-        static gint64 cache_ts = 0;                                            
-        static gchar *cache_body = nullptr;                        
-        static gint   cache_code = 200;                         
-        static GMutex health_mu;                                      
-        static gboolean mu_init = FALSE;
-        if (!mu_init) { g_mutex_init(&health_mu); mu_init = TRUE; }
-
-        gint64 now = g_get_monotonic_time();
-        g_mutex_lock(&health_mu);
-        if (cache_body && (now - cache_ts) < 5 * G_USEC_PER_SEC) {
-            _send_json(msg, cache_code, cache_body);
-            g_mutex_unlock(&health_mu);
-            goto cleanup;
-        }
-        g_mutex_unlock(&health_mu);
-
-        JsonObject *root = json_object_new();
-        JsonObject *checks = json_object_new();
-        gboolean critical = FALSE;
-        gboolean degraded = FALSE;
-
-                                                 
-          
-                 
-                                                       
-                                                     
-                                                                        
-                                                
-        {
-            JsonObject *c = json_object_new();
-            gint64 t0 = g_get_monotonic_time();                         
-            virConnectPtr conn = virConnectOpenReadOnly("qemu:///system");
-            gint64 dt = (g_get_monotonic_time() - t0) / 1000;
-            if (conn) {
-                json_object_set_boolean_member(c, "ok", TRUE);
-                json_object_set_int_member(c, "latency_ms", dt);
-                const gchar *sla = (dt < 200) ? "ok" : (dt < 500) ? "warn" : "critical";
-                json_object_set_string_member(c, "sla", sla);
-                virConnectClose(conn);
-            } else {
-                json_object_set_boolean_member(c, "ok", FALSE);
-                json_object_set_string_member(c, "error", "connection failed");
-                critical = TRUE;
-            }
-            json_object_set_object_member(checks, "libvirt", c);
-        }
-
-                        
-          
-                                                 
-                                            
-                                                        
-        {
-            JsonObject *c = json_object_new();
-            json_object_set_boolean_member(c, "ok", TRUE);
-            json_object_set_string_member(c, "note", "single_edge build: distributed metadata store not used");
-            json_object_set_object_member(checks, "etcd", c);
-        }
-
-                                            
-          
-                                                         
-                                                  
-                                               
-                                             
-        {
-            JsonObject *c = json_object_new();
-            const gchar *db_path = pcv_config_get_string("daemon", "db_path",
-                                       "/var/lib/purecvisor/vm_state.db");
-            gchar *dir = g_path_get_dirname(db_path);
-            struct statvfs sv;
-            if (statvfs(dir, &sv) == 0) {
-                gdouble avail_gb = (gdouble)sv.f_bavail * sv.f_frsize / (1024.0*1024*1024);
-                json_object_set_boolean_member(c, "ok", avail_gb > 0.1);
-                json_object_set_double_member(c, "avail_gb",
-                    (double)((gint)(avail_gb * 100)) / 100.0);
-                if (avail_gb <= 0.1) critical = TRUE;
-            } else {
-                json_object_set_boolean_member(c, "ok", FALSE);
-                json_object_set_string_member(c, "error", "statvfs failed");
-                critical = TRUE;
-            }
-            g_free(dir);
-            json_object_set_object_member(checks, "disk", c);
-        }
-
-                               
-        {
-            JsonObject *c = json_object_new();
-            const gchar *audit_path = "/var/lib/purecvisor/pcv_audit.db";
-            struct stat st;
-            if (stat(audit_path, &st) == 0) {
-                json_object_set_boolean_member(c, "ok", TRUE);
-                json_object_set_double_member(c, "size_mb",
-                    (double)((gint)(st.st_size / (1024.0*1024) * 10)) / 10.0);
-            } else {
-                json_object_set_boolean_member(c, "ok", TRUE);
-                json_object_set_string_member(c, "note", "no audit db yet");
-            }
-            json_object_set_object_member(checks, "audit_db", c);
-        }
-
-                                                       
-
-
-        {
-            JsonObject *c = json_object_new();
-            PcvAuditChainHealth audit = pcv_audit_get_chain_health();
-            json_object_set_boolean_member(c, "ok", audit.current_ok);
-            json_object_set_int_member(c, "active_epoch", audit.active_epoch);
-            json_object_set_boolean_member(c, "historical_break",
-                                           audit.historical_break);
-            json_object_set_int_member(c, "first_break_rowid",
-                                       audit.first_break_rowid);
-            json_object_set_int_member(c, "last_verified_at",
-                                       audit.last_verified_at);
-            json_object_set_string_member(c, "reason", audit.reason);
-            PcvRestAuditHealthImpact impact =
-                pcv_rest_audit_chain_health_impact(audit.current_ok,
-                                                   audit.historical_break);
-            if (impact == PCV_REST_AUDIT_HEALTH_CRITICAL)
-                critical = TRUE;
-            json_object_set_object_member(checks, "audit_chain", c);
-        }
-
-                    
-        {
-            JsonObject *c = json_object_new();
-            PcvRestTlsHealth tls = pcv_rest_tls_health(self->transport.mode,
-                                                       pcv_tls_is_enabled(),
-                                                       g_tls_degraded,
-                                                       g_tls_degraded_reason);
-            json_object_set_string_member(c, "mode", tls.mode);
-            json_object_set_boolean_member(c, "enabled", tls.enabled);
-            json_object_set_boolean_member(c, "degraded", tls.degraded);
-            json_object_set_string_member(c, "status", tls.status);
-            if (tls.reason)
-                json_object_set_string_member(c, "reason", tls.reason);
-            json_object_set_object_member(checks, "tls", c);
-        }
-
-                                                                  
-        {
-            JsonObject *bpf = json_object_new();
-            PcvBpfHealth h = pcv_bpf_health();
-            json_object_set_string_member(bpf, "status",
-                h == PCV_BPF_OK ? "ok" :
-                h == PCV_BPF_DEGRADED_NO_BTF ? "degraded_no_btf" : "degraded_no_lsm");
-            const char *reason = pcv_bpf_health_reason();
-            if (reason) json_object_set_string_member(bpf, "reason", reason);
-            json_object_set_object_member(checks, "bpf", bpf);
-        }
-
-                                   
-        {
-            JsonObject *c = json_object_new();
-            const gchar *vm_db = pcv_config_get_string("daemon", "db_path",
-                                      "/var/lib/purecvisor/vm_state.db");
-            struct stat st_vm;
-            if (stat(vm_db, &st_vm) == 0) {
-                json_object_set_boolean_member(c, "ok", TRUE);
-                json_object_set_double_member(c, "size_mb",
-                    (double)((gint)(st_vm.st_size / (1024.0*1024) * 10)) / 10.0);
-            } else {
-                json_object_set_boolean_member(c, "ok", TRUE);
-                json_object_set_string_member(c, "note", "no vm_state db yet");
-            }
-            json_object_set_object_member(checks, "vm_state_db", c);
-        }
-
-                               
-        {
-            JsonObject *c = json_object_new();
-            json_object_set_string_member(c, "mode", "single_edge");
-            json_object_set_object_member(checks, "cluster", c);
-        }
-
-                             
-        {
-            JsonObject *cap = json_object_new();
-            json_object_set_boolean_member(cap, "ovn", pcv_ovn_is_available());
-            json_object_set_boolean_member(cap, "dpdk", pcv_dpdk_is_available());
-            json_object_set_boolean_member(cap, "cluster", FALSE);
-            json_object_set_object_member(root, "capabilities", cap);
-        }
-
-                            
-        const gchar *status_str = critical ? "critical" : degraded ? "degraded" : "ok";
-        gint http_code = critical ? 503 : 200;
-
-        json_object_set_string_member(root, "status", status_str);
-        json_object_set_string_member(root, "service", "purecvisorsd");
-        json_object_set_string_member(root, "version", PCV_PRODUCT_VERSION);
-        json_object_set_string_member(root, "node_name", g_get_host_name());
-        json_object_set_int_member(root, "uptime_sec",
-            (gint64)(g_get_monotonic_time() / G_USEC_PER_SEC));
-        json_object_set_object_member(root, "checks", checks);
-
-                       
-        JsonNode *jn = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(jn, root);
-        gchar *body = json_to_string(jn, FALSE);
-        json_node_free(jn);
-
-                                 
-        g_mutex_lock(&health_mu);
-        g_free(cache_body);
-        cache_body = g_strdup(body);
-        cache_code = http_code;
-        cache_ts = g_get_monotonic_time();
-        g_mutex_unlock(&health_mu);
-
-        _send_json(msg, http_code, body);
-        g_free(body);
-        goto cleanup;
-    }
-
-                                                                
-    if (g_strcmp0(path, REST_API_PREFIX "/version") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-        gchar *rpc = _build_rpc("daemon.version", NULL);
-        gchar *resp = _rpc_over_uds(rpc);
-        g_free(rpc);
-        if (resp) {
-            JsonParser *jp = json_parser_new();
-                                                                          
-            if (json_parser_load_from_data(jp, resp, -1, NULL)) {
-                JsonObject *root = json_node_get_object(json_parser_get_root(jp));
-                if (json_object_has_member(root, "result")) {
-                    JsonNode *rn = json_object_dup_member(root, "result");
-                    gchar *body = json_to_string(rn, FALSE);
-                    json_node_unref(rn);
-                    _send_json(msg, 200, body);
-                    g_free(body);
-                } else {
-                    _send_json(msg, 200, resp);
-                }
-            } else {
-                _send_json(msg, 200, resp);
-            }
-            g_object_unref(jp);
-            g_free(resp);
-        } else {
-            _error(msg, 500, "INTERNAL_ERROR", "Version RPC failed");
-        }
-        goto cleanup;
-    }
-
-                                                                        
-    if (g_strcmp0(path, REST_API_PREFIX "/update-check") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-        gchar *rpc = _build_rpc("daemon.update_check", NULL);
-        gchar *resp = _rpc_over_uds(rpc);
-        g_free(rpc);
-        if (resp) {
-            JsonParser *jp = json_parser_new();
-                                                                          
-            if (json_parser_load_from_data(jp, resp, -1, NULL)) {
-                JsonObject *root = json_node_get_object(json_parser_get_root(jp));
-                if (json_object_has_member(root, "result")) {
-                    JsonNode *rn = json_object_dup_member(root, "result");
-                    gchar *body = json_to_string(rn, FALSE);
-                    json_node_unref(rn);
-                    _send_json(msg, 200, body);
-                    g_free(body);
-                } else {
-                    _send_json(msg, 200, resp);
-                }
-            } else {
-                _send_json(msg, 200, resp);
-            }
-            g_object_unref(jp);
-            g_free(resp);
-        } else {
-            _error(msg, 500, "INTERNAL_ERROR", "Update-check RPC failed");
-        }
-        goto cleanup;
-    }
-
-      
-                                                           
-      
-                              
-                                                  
-                             
-      
-                                               
-                                                     
-      
-                                                
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/internal/vms") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-        virConnectPtr vconn = virConnectOpen("qemu:///system");                  
-        JsonArray *arr = json_array_new();
-        if (vconn) {
-            virDomainPtr *domains = nullptr;
-            int n = virConnectListAllDomains(vconn, &domains,
-                VIR_CONNECT_LIST_DOMAINS_ACTIVE | VIR_CONNECT_LIST_DOMAINS_INACTIVE);
-            for (int i = 0; i < n; i++) {
-                JsonObject *vm = json_object_new();
-                const gchar *name = virDomainGetName(domains[i]);
-                json_object_set_string_member(vm, "name", name ? name : "?");
-                int state = 0;
-                virDomainGetState(domains[i], &state, NULL, 0);
-                json_object_set_string_member(vm, "state",
-                    state == 1 ? "running" : state == 5 ? "shutoff" : "other");
-                virDomainInfo info;
-                if (virDomainGetInfo(domains[i], &info) == 0) {
-                    json_object_set_int_member(vm, "vcpu", info.nrVirtCpu);
-                    json_object_set_int_member(vm, "memory_mb", (gint64)info.memory / 1024);
-                }
-                json_array_add_object_element(arr, vm);
-                virDomainFree(domains[i]);
-            }
-            if (domains) free(domains);
-            virConnectClose(vconn);
-        }
-        JsonNode *node = json_node_new(JSON_NODE_ARRAY);
-        json_node_take_array(node, arr);
-        gchar *data = json_to_string(node, FALSE);
-        _send_json(msg, 200, data);
-        g_free(data);
-        json_node_free(node);
-        goto cleanup;
-    }
-
-#if PCV_CLUSTER_ENABLED
-                                                                      
-    if (g_strcmp0(path, REST_API_PREFIX "/internal/cluster/vms") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-        gchar *rpc = g_strdup("{\"jsonrpc\":\"2.0\",\"method\":\"cluster.vm.list\",\"params\":{},\"id\":\"rest\"}");
-        gchar *uds_resp = _rpc_over_uds(rpc);
-        g_free(rpc);
-        _send_json(msg, 200, uds_resp ? uds_resp : "{\"result\":[]}");
-        g_free(uds_resp);
-        goto cleanup;
-    }
-#endif
-
-      
-                                                                   
-      
-                                                   
-                                                                        
-      
-                                                                                                      
-      
-                                                             
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/internal/telemetry") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-        JsonObject *obj = json_object_new();
-                                                                  
-        FILE *cpuf = fopen("/proc/stat", "r");
-        if (cpuf) {
-            char buf[256];
-            if (fgets(buf, sizeof(buf), cpuf)) {
-                guint64 u,n,s,id,io,ir,si,st;
-                if (sscanf(buf,"cpu %lu %lu %lu %lu %lu %lu %lu %lu",&u,&n,&s,&id,&io,&ir,&si,&st)==8) {
-                    guint64 tot=u+n+s+id+io+ir+si+st, idle=id+io;
-                    json_object_set_double_member(obj,"cpu_percent",tot>0?100.0*(1.0-(double)idle/(double)tot):0);
-                }
-            }
-            fclose(cpuf);
-        }
-                    
-        FILE *memf = fopen("/proc/meminfo", "r");
-        if (memf) {
-            char line[128]; guint64 val;
-            while (fgets(line, sizeof(line), memf)) {
-                if (sscanf(line,"MemTotal: %lu kB",&val)==1) json_object_set_int_member(obj,"mem_total_kb",(gint64)val);
-                else if (sscanf(line,"MemAvailable: %lu kB",&val)==1) json_object_set_int_member(obj,"mem_avail_kb",(gint64)val);
-            }
-            fclose(memf);
-        }
-                      
-        virConnectPtr tc = virConnectOpen("qemu:///system");
-        if (tc) {
-            json_object_set_int_member(obj,"vm_count",virConnectNumOfDomains(tc));
-            virConnectClose(tc);
-        }
-        JsonNode *tn = json_node_new(JSON_NODE_OBJECT);
-        json_node_take_object(tn, obj);
-        gchar *td = json_to_string(tn, FALSE);
-        _send_json(msg, 200, td);
-        g_free(td); json_node_free(tn);
-        goto cleanup;
-    }
-
-      
-                                                                
-      
-                                             
-                                                                       
-      
-                 
-                                                     
-                                                
-                                                    
-      
-              
-                                                   
-                                                      
-                                                   
-                                                              
-                                                                           
-      
-                                                                
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/metrics") == 0
-        && g_strcmp0(method, "GET") == 0)
-    {
-                                       
-                                                                       
-                                             
-                                                              
-                                                           
-        const gchar *m_auth = pcv_config_get_string("metrics", "auth", "none");
-        if (g_strcmp0(m_auth, "required") == 0) {
-            gchar *subj = _authenticate(msg, NULL);                           
-            if (!subj) goto cleanup;
-            g_free(subj);
-        }
-
-                                                 
-        gchar *rpc = _build_rpc("monitor.fleet", NULL);
-        gchar *resp = _rpc_over_uds(rpc);
-        g_free(rpc);
-
-        GString *prom = g_string_new("");
-        if (resp) {
-            JsonParser *jp = json_parser_new();
-                                                                          
-            if (json_parser_load_from_data(jp, resp, -1, NULL)) {
-                JsonObject *root = json_node_get_object(json_parser_get_root(jp));
-                if (json_object_has_member(root, "result")) {
-                    JsonObject *res = json_object_get_object_member(root, "result");
-
-                                  
-                    if (json_object_has_member(res, "host")) {
-                        JsonObject *h = json_object_get_object_member(res, "host");
-                        {
-                            gdouble cpu_pct = 0;
-                            if (json_object_has_member(h,"cpu_percent")) {
-                                cpu_pct = json_object_get_double_member(h,"cpu_percent");
-                            } else if (json_object_has_member(h,"cpu_total_ticks") &&
-                                       json_object_has_member(h,"cpu_idle_ticks")) {
-                                                      
-                                static gdouble prev_total = 0, prev_idle = 0;
-                                gdouble total = json_object_get_double_member(h,"cpu_total_ticks");
-                                gdouble idle = json_object_get_double_member(h,"cpu_idle_ticks");
-                                gdouble dt = total - prev_total;
-                                gdouble di = idle - prev_idle;
-                                if (dt > 0 && prev_total > 0)
-                                    cpu_pct = 100.0 * (1.0 - di / dt);
-                                prev_total = total;
-                                prev_idle = idle;
-                            }
-                            g_string_append_printf(prom,
-                                "# HELP purecvisor_host_cpu_percent Host CPU utilization\n"
-                                "# TYPE purecvisor_host_cpu_percent gauge\n"
-                                "purecvisor_host_cpu_percent %.2f\n", cpu_pct);
-                        }
-                        g_string_append_printf(prom,
-                            "# HELP purecvisor_host_memory_percent Host memory utilization\n"
-                            "# TYPE purecvisor_host_memory_percent gauge\n"
-                            "purecvisor_host_memory_percent %.2f\n",
-                            json_object_has_member(h,"mem_percent")
-                                ? json_object_get_double_member(h,"mem_percent") : 0);
-                        g_string_append_printf(prom,
-                            "# HELP purecvisor_host_disk_percent Host disk utilization\n"
-                            "# TYPE purecvisor_host_disk_percent gauge\n"
-                            "purecvisor_host_disk_percent %.2f\n",
-                            json_object_has_member(h,"disk_percent")
-                                ? json_object_get_double_member(h,"disk_percent") : 0);
-                        if (json_object_has_member(h,"mem_total_gb"))
-                            g_string_append_printf(prom,
-                                "# HELP purecvisor_host_memory_total_bytes Host total memory\n"
-                                "# TYPE purecvisor_host_memory_total_bytes gauge\n"
-                                "purecvisor_host_memory_total_bytes %.0f\n",
-                                json_object_get_double_member(h,"mem_total_gb") * 1073741824.0);
-                        if (json_object_has_member(h,"cpu_temp_c"))
-                            g_string_append_printf(prom,
-                                "# HELP purecvisor_host_cpu_temp_celsius CPU temperature\n"
-                                "# TYPE purecvisor_host_cpu_temp_celsius gauge\n"
-                                "purecvisor_host_cpu_temp_celsius %.1f\n",
-                                json_object_get_double_member(h,"cpu_temp_c"));
-                        if (json_object_has_member(h,"load_1"))
-                            g_string_append_printf(prom,
-                                "# HELP purecvisor_host_load1 1-minute load average\n"
-                                "# TYPE purecvisor_host_load1 gauge\n"
-                                "purecvisor_host_load1 %.2f\n",
-                                json_object_get_double_member(h,"load_1"));
-                    }
-
-                                 
-                    if (json_object_has_member(res, "fleet")) {
-                        JsonArray *fleet = json_object_get_array_member(res, "fleet");
-                        guint n = json_array_get_length(fleet);
-
-                        g_string_append(prom,
-                            "# HELP purecvisor_vm_vcpu VM vCPU count\n"
-                            "# TYPE purecvisor_vm_vcpu gauge\n");
-                        for (guint i = 0; i < n; i++) {
-                            JsonObject *vm = json_array_get_object_element(fleet, i);
-                            const gchar *vn = json_object_get_string_member(vm, "name");
-                            g_string_append_printf(prom,
-                                "purecvisor_vm_vcpu{vm=\"%s\"} %ld\n",
-                                vn, (long)json_object_get_int_member(vm, "vcpu"));
-                        }
-
-                        g_string_append(prom,
-                            "# HELP purecvisor_vm_memory_max_mb VM max memory MB\n"
-                            "# TYPE purecvisor_vm_memory_max_mb gauge\n");
-                        for (guint i = 0; i < n; i++) {
-                            JsonObject *vm = json_array_get_object_element(fleet, i);
-                            const gchar *vn = json_object_get_string_member(vm, "name");
-                            g_string_append_printf(prom,
-                                "purecvisor_vm_memory_max_mb{vm=\"%s\"} %.0f\n",
-                                vn, json_object_get_double_member(vm, "mem_max_mb"));
-                        }
-
-                        g_string_append(prom,
-                            "# HELP purecvisor_vm_memory_used_mb VM used memory MB\n"
-                            "# TYPE purecvisor_vm_memory_used_mb gauge\n");
-                        for (guint i = 0; i < n; i++) {
-                            JsonObject *vm = json_array_get_object_element(fleet, i);
-                            const gchar *vn = json_object_get_string_member(vm, "name");
-                            g_string_append_printf(prom,
-                                "purecvisor_vm_memory_used_mb{vm=\"%s\"} %.0f\n",
-                                vn, json_object_get_double_member(vm, "mem_used_mb"));
-                        }
-
-                        g_string_append(prom,
-                            "# HELP purecvisor_vm_running VM running state\n"
-                            "# TYPE purecvisor_vm_running gauge\n");
-                        for (guint i = 0; i < n; i++) {
-                            JsonObject *vm = json_array_get_object_element(fleet, i);
-                            const gchar *vn = json_object_get_string_member(vm, "name");
-                            const gchar *st = json_object_get_string_member(vm, "state");
-                            g_string_append_printf(prom,
-                                "purecvisor_vm_running{vm=\"%s\"} %d\n",
-                                vn, g_strcmp0(st, "RUNNING") == 0 ? 1 : 0);
-                        }
-                    }
-                }
-            }
-            g_object_unref(jp);
-            g_free(resp);
-        }
-
-                                                
-        {
-            gchar *reg_metrics = pcv_prom_render();
-            if (reg_metrics) {
-                g_string_append(prom, "\n# HELP purecvisor_registry PureCVisor Registry Metrics\n");
-                g_string_append(prom, reg_metrics);
-                g_free(reg_metrics);
-            }
-        }
-
-        soup_server_message_set_status(msg, 200, NULL);
-        SoupMessageHeaders *hdrs = soup_server_message_get_response_headers(msg);
-        soup_message_headers_replace(hdrs, "Content-Type",
-            "text/plain; version=0.0.4; charset=utf-8");
-        soup_server_message_set_response(msg,
-            "text/plain; version=0.0.4; charset=utf-8",
-            SOUP_MEMORY_COPY, prom->str, prom->len);
-        g_string_free(prom, TRUE);
-        goto cleanup;
-    }
-
-      
-                                                             
-      
-                                                      
-                                                       
-                                                    
-                                                   
-      
-                                                                           
-                                                                                 
-      
-             
-                                        
-                                                                       
-                                                 
-                                                                 
-                                   
-      
-                                                 
-                                                         
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/token") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        JsonObject  *body     = _parse_body(msg);
-        const gchar *username_in = body
-            ? json_object_get_string_member_with_default(body, "username", "")
-            : "";
-        const gchar *password_in = body
-            ? json_object_get_string_member_with_default(body, "password", "")
-            : "";
-        gchar *username = g_strdup(username_in ? username_in : "");
-        gchar *password = g_strdup(password_in ? password_in : "");
-
-        const gchar *cfg_user = pcv_config_get_admin_user();
-        const gchar *cfg_pass = pcv_config_get_admin_password();
-        gboolean bootstrap_configured = cfg_user && *cfg_user && cfg_pass && *cfg_pass;
-
-        gchar *token = nullptr;
-        GError *err  = nullptr;
-
-        gchar *refresh = nullptr;
-
-                                                     
-        const gchar *client_ip = request_client_ip;
-        {
-            gint ip_lockout = pcv_rbac_get_ip_remaining_lockout(client_ip);
-            if (ip_lockout > 0) {
-                if (body) json_object_unref(body);
-                g_free(username);
-                pcv_secure_free_str(&password);
-                SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
-                gchar retry_buf[32];
-                g_snprintf(retry_buf, sizeof(retry_buf), "%d", ip_lockout);
-                soup_message_headers_replace(rh, "Retry-After", retry_buf);
-                _error(msg, 429, "TOO_MANY_REQUESTS",
-                       "Too many failed login attempts from this IP");
-                goto cleanup;
-            }
-        }
-
-                                                         
-                                                              
-
-        if (pcv_rbac_password_check(username, password, &err)) {
-            PcvTotpStatus totp_st = { 0 };
-            gboolean have_st = pcv_rbac_totp_status(username, &totp_st);
-            gboolean confirmed = have_st && totp_st.confirmed;
-            PcvRole  role = pcv_rbac_get_role(username);
-            gboolean enroll_forced = !confirmed && pcv_rbac_totp_role_required((gint)role);
-
-            if (confirmed || enroll_forced) {
-                GError *pend_err = nullptr;
-                gchar *pending = pcv_jwt_sign_scoped(username, 180, client_ip,
-                                                      "totp", &pend_err);
-                if (!pending) {
-                    if (body) json_object_unref(body);
-                    g_free(username);
-                    pcv_secure_free_str(&password);
-                    _error(msg, 500, "INTERNAL",
-                           pend_err ? pend_err->message : "Failed to issue pending token");
-                    if (pend_err) g_error_free(pend_err);
-                    goto cleanup;
-                }
-                pcv_rbac_ip_record_auth_success(client_ip);
-
-                gchar *pend_resp = confirmed
-                    ? g_strdup_printf(
-                          "{\"totp_required\":true,\"pending_token\":\"%s\"}", pending)
-                    : g_strdup_printf(
-                          "{\"totp_enroll_required\":true,\"pending_token\":\"%s\"}", pending);
-                _send_json(msg, 200, pend_resp);
-                g_free(pend_resp);
-                g_free(pending);
-                PCV_LOG_INFO(REST_LOG_DOM,
-                    "TOTP pending token issued for '%s' (%s)",
-                    username, confirmed ? "totp_required" : "totp_enroll_required");
-                if (body) json_object_unref(body);
-                g_free(username);
-                pcv_secure_free_str(&password);
-                goto cleanup;
-            }
-
-            token = pcv_rbac_issue_tokens(username, &refresh, &err);
-        } else if (bootstrap_configured &&
-                   pcv_rest_auth_should_fallback_bootstrap(username, password,
-                       cfg_user, cfg_pass, pcv_rbac_user_exists(username) != PCV_USER_ABSENT)) {
-
-            g_clear_error(&err);
-            token = pcv_jwt_sign(username, 900, &err);
-            if (token) pcv_audit_log(username, "auth.bootstrap.fallback",
-                                     "bootstrap recovery", "ok", 0, 0, client_ip);
-        }
-
-        if (!token) {
-            g_free(refresh);
-            pcv_rbac_ip_record_auth_failure(client_ip);             
-            pcv_audit_log(username, "auth.failed", "login attempt",
-                          "fail", 401, 0, client_ip);
-
-                         
-                                                 
-                                                                  
-                                                       
-                                                          
-            gint lockout_sec = pcv_rbac_get_remaining_lockout(username);
-            if (lockout_sec > 0) {
-                SoupMessageHeaders *resp_hdrs = soup_server_message_get_response_headers(msg);
-                gchar retry_buf[32];
-                g_snprintf(retry_buf, sizeof(retry_buf), "%d", lockout_sec);
-                soup_message_headers_replace(resp_hdrs, "Retry-After", retry_buf);
-                _error(msg, 429, "TOO_MANY_REQUESTS",
-                       err ? err->message : "Account locked due to too many failed attempts");
-            } else {
-                                                                       
-                                                                                       
-                if (err) {
-                    PCV_LOG_WARN(REST_LOG_DOM, "auth.failed: user=%s reason=%s",
-                                 username, err->message);
-                }
-                _error(msg, 401, "UNAUTHORIZED", "Invalid credentials");
-            }
-            if (err) g_error_free(err);
-            PCV_LOG_WARN(REST_LOG_DOM,
-                         "Auth failed for user '%s'", username);
-            if (body) json_object_unref(body);
-            g_free(username);
-            pcv_secure_free_str(&password);
-            goto cleanup;
-        }
-
-        pcv_rbac_ip_record_auth_success(client_ip);             
-
-        gchar *resp = nullptr;
-        if (refresh) {
-            resp = g_strdup_printf(
-                "{\"access_token\":\"%s\","
-                "\"refresh_token\":\"%s\","
-                "\"token_type\":\"Bearer\","
-                "\"expires_in\":900,"
-                "\"refresh_expires_in\":604800}", token, refresh);
-        } else {
-            resp = g_strdup_printf(
-                "{\"access_token\":\"%s\","
-                "\"token_type\":\"Bearer\","
-                "\"expires_in\":900}", token);
-        }
-        _send_json(msg, 200, resp);
-        g_free(resp);
-        g_free(token);
-        g_free(refresh);
-        PCV_LOG_INFO(REST_LOG_DOM, "Token issued for '%s'", username);
-        if (body) json_object_unref(body);
-        g_free(username);
-        pcv_secure_free_str(&password);
-        goto cleanup;
-    }
-
-      
-                                                                       
-      
-                                             
-                                                                
-                                                                                      
-      
-                                                 
-                                              
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/refresh") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        JsonObject  *body     = _parse_body(msg);
-        const gchar *ref_tok  = body
-            ? json_object_get_string_member_with_default(body, "refresh_token", "")
-            : "";
-
-        if (!ref_tok || !*ref_tok) {
-            if (body) json_object_unref(body);
-            _error(msg, 400, "BAD_REQUEST", "refresh_token is required");
-            goto cleanup;
-        }
-
-        GError *err = nullptr;
-        gchar *new_refresh = nullptr;
-        gchar *new_access = pcv_rbac_refresh_token(ref_tok, &new_refresh, &err);
-
-        if (!new_access) {
-            if (body) json_object_unref(body);
-            g_free(new_refresh);
-            _error(msg, 401, "UNAUTHORIZED",
-                   err ? err->message : "Invalid refresh token");
-            if (err) g_error_free(err);
-            goto cleanup;
-        }
-
-        gchar *resp = nullptr;
-        if (new_refresh) {
-            resp = g_strdup_printf(
-                "{\"access_token\":\"%s\","
-                "\"refresh_token\":\"%s\","
-                "\"token_type\":\"Bearer\","
-                "\"expires_in\":900,"
-                "\"refresh_expires_in\":604800}",
-                new_access, new_refresh);
-        } else {
-            resp = g_strdup_printf(
-                "{\"access_token\":\"%s\","
-                "\"token_type\":\"Bearer\","
-                "\"expires_in\":900}",
-                new_access);
-        }
-        _send_json(msg, 200, resp);
-        g_free(resp);
-        g_free(new_access);
-        g_free(new_refresh);
-        if (body) json_object_unref(body);
-        PCV_LOG_INFO(REST_LOG_DOM, "Token refreshed via /auth/refresh");
-        goto cleanup;
-    }
-
-      
-                                                      
-      
-                                                
-                                                            
-      
-                                               
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/logout") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-                                       
-        SoupMessageHeaders *hdrs = soup_server_message_get_request_headers(msg);
-        const gchar *auth_hdr = soup_message_headers_get_one(hdrs, "Authorization");
-        gchar *sub = nullptr;
-        if (auth_hdr) {
-            GError *verr = nullptr;
-            sub = pcv_jwt_verify(auth_hdr, &verr);
-            if (verr) g_error_free(verr);
-        }
-
-        if (sub) {
-            GError *err = nullptr;
-            pcv_rbac_revoke_session(sub, &err);
-            if (err) g_error_free(err);
-
-                                                                     
-                                                             
-                          
-            if (auth_hdr) {
-                const gchar *tk = auth_hdr;
-                if (g_str_has_prefix(tk, "Bearer ")) tk += 7;
-                if (g_str_has_prefix(tk, "bearer ")) tk += 7;
-                                                     
-                gchar **parts = g_strsplit(tk, ".", 3);
-                if (parts && parts[0] && parts[1]) {
-                    gsize plen = 0;
-                                         
-                    gchar *p1 = g_strdup(parts[1]);
-                    gsize p1len = strlen(p1);
-                                                          
-                    for (gchar *c = p1; *c; c++) {
-                        if (*c == '-') *c = '+';
-                        else if (*c == '_') *c = '/';
-                    }
-                                   
-                    gsize pad = (4 - (p1len % 4)) % 4;
-                    gchar *padded = g_strconcat(p1, pad >= 1 ? "=" : "",
-                                                pad >= 2 ? "=" : "",
-                                                pad >= 3 ? "=" : "", NULL);
-                    guchar *raw = g_base64_decode(padded, &plen);
-                    g_free(padded); g_free(p1);
-                    if (raw && plen > 0) {
-                        gchar *json_str = g_strndup((const gchar *)raw, plen);
-                        JsonParser *parser = json_parser_new();
-                                                                                                                      
-                        if (json_parser_load_from_data(parser, json_str, -1, NULL)) {
-                            JsonObject *o = json_node_get_object(json_parser_get_root(parser));
-                            const gchar *jti = json_object_get_string_member_with_default(o, "jti", NULL);
-                            gint64 exp = json_object_get_int_member_with_default(o, "exp", 0);
-                            if (jti && exp > 0) {
-                                pcv_jwt_blacklist_add(jti, exp);
-                            }
-                        }
-                        g_object_unref(parser);
-                        g_free(json_str);
-                    }
-                    g_free(raw);
-                }
-                g_strfreev(parts);
-            }
-
-            _send_json(msg, 200, "{\"status\":\"ok\",\"message\":\"All sessions revoked\"}");
-            PCV_LOG_INFO(REST_LOG_DOM, "Logout: sessions revoked + access token blacklisted for '%s'", sub);
-            g_free(sub);
-        } else {
-            _error(msg, 401, "UNAUTHORIZED", "Valid token required for logout");
-        }
-        goto cleanup;
-    }
-
-      
-                                                        
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/password") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        SoupMessageHeaders *hdrs = soup_server_message_get_request_headers(msg);
-        const gchar *auth_hdr = soup_message_headers_get_one(hdrs, "Authorization");
-        if (!auth_hdr || !g_str_has_prefix(auth_hdr, "Bearer ")) {
-            _error(msg, 401, "UNAUTHORIZED", "Bearer token required");
-            goto cleanup;
-        }
-        GError *verr = nullptr;
-        gchar *sub = pcv_jwt_verify(auth_hdr, &verr);
-        if (verr) g_error_free(verr);
-        if (!sub) {
-            _error(msg, 401, "UNAUTHORIZED", "Invalid or expired token");
-            goto cleanup;
-        }
-
-        JsonObject *body = _parse_body(msg);
-        const gchar *old_pw = body
-            ? json_object_get_string_member_with_default(body, "old_password", "")
-            : "";
-        const gchar *new_pw = body
-            ? json_object_get_string_member_with_default(body, "new_password", "")
-            : "";
-
-        if (!old_pw || !*old_pw || !new_pw || !*new_pw) {
-            if (body) json_object_unref(body);
-            g_free(sub);
-            _error(msg, 400, "BAD_REQUEST",
-                   "old_password and new_password are required");
-            goto cleanup;
-        }
-
-        GError *err = nullptr;
-        gboolean ok = pcv_rbac_change_password(sub, old_pw, new_pw, &err);
-
-        const gchar *rip = request_client_ip;
-
-        if (!ok) {
-            int code = err && err->code == G_IO_ERROR_PERMISSION_DENIED ? 401 :
-                       err && err->code == G_IO_ERROR_INVALID_ARGUMENT ? 400 : 500;
-            const char *ec = code == 401 ? "UNAUTHORIZED" :
-                             code == 400 ? "BAD_REQUEST" : "SERVER_ERROR";
-            pcv_audit_log(sub, "auth.password.change", "self change",
-                          "fail", code, 0, rip);
-            if (body) json_object_unref(body);
-            _error(msg, code, ec,
-                   err ? err->message : "Failed to change password");
-            if (err) g_error_free(err);
-            g_free(sub);
-            goto cleanup;
-        }
-
-        pcv_audit_log(sub, "auth.password.change", "self change",
-                      "ok", 0, 0, rip);
-        PCV_LOG_INFO(REST_LOG_DOM, "Password changed for '%s' (refresh sessions revoked)", sub);
-        g_free(sub);
-        if (body) json_object_unref(body);
-
-        _send_json(msg, 200,
-                   "{\"status\":\"ok\",\"message\":\"Password changed. Refresh sessions revoked; existing access tokens remain valid until expiry.\"}");
-        goto cleanup;
-    }
-
-      
-                                                         
-      
-                                                         
-                                                                 
-      
-                                                         
-                                                                 
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/register") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        const gchar *enabled = pcv_config_get_string("auth", "allow_self_register", "false");
-        if (g_ascii_strcasecmp(enabled, "true") != 0 &&
-            g_ascii_strcasecmp(enabled, "1")    != 0 &&
-            g_ascii_strcasecmp(enabled, "yes")  != 0) {
-            _error(msg, 403, "FORBIDDEN", "Self-registration is disabled");
-            goto cleanup;
-        }
-
-        JsonObject *body = _parse_body(msg);
-        const gchar *username = body
-            ? json_object_get_string_member_with_default(body, "username", "")
-            : "";
-        const gchar *password = body
-            ? json_object_get_string_member_with_default(body, "password", "")
-            : "";
-
-        size_t ulen = username ? strlen(username) : 0;
-        gboolean uvalid = (ulen >= 3 && ulen <= 32);
-        for (size_t i = 0; uvalid && i < ulen; i++) {
-            char c = username[i];
-            if (!((c >= 'a' && c <= 'z') || (c >= '0' && c <= '9') || c == '_'))
-                uvalid = FALSE;
-        }
-        if (!uvalid) {
-            if (body) json_object_unref(body);
-            _error(msg, 400, "BAD_REQUEST",
-                   "username must be 3-32 chars, lowercase alphanumeric or underscore");
-            goto cleanup;
-        }
-
-        size_t plen = password ? strlen(password) : 0;
-        if (plen < 8) {
-            if (body) json_object_unref(body);
-            _error(msg, 400, "BAD_REQUEST", "password must be at least 8 characters");
-            goto cleanup;
-        }
-        if (g_strcmp0(username, password) == 0) {
-            if (body) json_object_unref(body);
-            _error(msg, 400, "BAD_REQUEST", "password must differ from username");
-            goto cleanup;
-        }
-
-        const gchar *adm = pcv_config_get_admin_user();
-        if (adm && g_strcmp0(username, adm) == 0) {
-            if (body) json_object_unref(body);
-            _error(msg, 409, "CONFLICT", "username is reserved");
-            goto cleanup;
-        }
-
-        GError *err = nullptr;
-        gboolean ok = pcv_rbac_user_create(username, password,
-                                           PCV_ROLE_VIEWER, NULL, &err);
-
-        const gchar *rip = request_client_ip;
-
-        if (!ok) {
-            pcv_audit_log(username, "auth.register", "self register",
-                          "fail", 409, 0, rip);
-            if (body) json_object_unref(body);
-            _error(msg, 409, "CONFLICT",
-                   err ? err->message : "Failed to create user (already exists?)");
-            if (err) g_error_free(err);
-            goto cleanup;
-        }
-
-        pcv_audit_log(username, "auth.register", "self register",
-                      "ok", 0, 0, rip);
-
-        gchar *resp = g_strdup_printf(
-            "{\"status\":\"ok\",\"username\":\"%s\",\"role\":\"viewer\"}", username);
-        _send_json(msg, 201, resp);
-        g_free(resp);
-        if (body) json_object_unref(body);
-        PCV_LOG_INFO(REST_LOG_DOM, "Self-registered user '%s'", username);
-        goto cleanup;
-    }
-
-      
-                                                                              
-      
-                                                         
-                                                         
-                                                    
-                                                            
-                                                  
-      
-                            
-                                                                
-                                                                      
-                                                          
-                                              
-          
-                                               
-                                                      
-                                                                     
-                                                   
-                                                         
-                                                
-                                                                       
-                                                             
-      
-                                                            
-                                                          
-                                                    
-                                                 
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/totp/verify") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        JsonObject  *body = _parse_body(msg);
-        const gchar *pending_tok = body
-            ? json_object_get_string_member_with_default(body, "pending_token", "")
-            : "";
-        const gchar *code = body
-            ? json_object_get_string_member_with_default(body, "code", "")
-            : "";
-        const gchar *client_ip = request_client_ip;
-
-        if (!code || !*code) {
-            if (body) json_object_unref(body);
-            _error(msg, 400, "BAD_REQUEST", "code is required");
-            goto cleanup;
-        }
-
-        gboolean is_pending_path = (pending_tok && *pending_tok);
-        gchar   *username = nullptr;
-
-        if (is_pending_path) {
-                                      
-            GError *verr  = nullptr;
-            gchar  *scope = nullptr;
-            username = pcv_jwt_verify_scoped(pending_tok, client_ip, &scope, &verr);
-            if (!username || g_strcmp0(scope, "totp") != 0) {
-                gboolean expired = verr && verr->code == G_IO_ERROR_TIMED_OUT;
-                if (body) json_object_unref(body);
-                g_free(username);
-                g_free(scope);
-                if (expired) {
-                    _error(msg, 401, "TOTP_PENDING_EXPIRED",
-                           "Pending token expired — please log in again");
-                } else {
-                    _error(msg, 401, "UNAUTHORIZED", "Invalid pending token");
-                }
-                if (verr) g_error_free(verr);
-                goto cleanup;
-            }
-            g_free(scope);
-        } else {
-                                                                         
-            SoupMessageHeaders *hdrs = soup_server_message_get_request_headers(msg);
-            const gchar *auth_hdr = soup_message_headers_get_one(hdrs, "Authorization");
-            if (!auth_hdr || !g_str_has_prefix(auth_hdr, "Bearer ")) {
-                if (body) json_object_unref(body);
-                _error(msg, 401, "UNAUTHORIZED",
-                       "pending_token or Authorization: Bearer token required");
-                goto cleanup;
-            }
-            GError *verr = nullptr;
-            username = pcv_jwt_verify(auth_hdr, &verr);
-            if (!username) {
-                if (body) json_object_unref(body);
-                _error(msg, 401, "UNAUTHORIZED",
-                       verr ? verr->message : "Invalid or expired token");
-                if (verr) g_error_free(verr);
-                goto cleanup;
-            }
-            if (verr) g_error_free(verr);
-        }
-
-        gboolean first_confirm = FALSE;
-        GError  *cerr = nullptr;
-                                                  
-                                               
-        gboolean allow_recovery = is_pending_path;
-        if (!pcv_rbac_totp_verify_code(username, code, allow_recovery, &first_confirm, &cerr)) {
-                                                          
-                                                          
-                                                      
-            pcv_audit_log(username, "auth.totp.verify.failed", username,
-                          "fail", 401, 0, client_ip);
-
-            gint lock_sec = pcv_rbac_totp_get_remaining_lockout(username);
-            if (body) json_object_unref(body);
-            if (lock_sec > 0) {
-                SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
-                gchar retry_buf[32];
-                g_snprintf(retry_buf, sizeof(retry_buf), "%d", lock_sec);
-                soup_message_headers_replace(rh, "Retry-After", retry_buf);
-                _error(msg, 429, "TOTP_LOCKED", "Too many failed TOTP attempts");
-            } else {
-                _error(msg, 401, "TOTP_INVALID_CODE",
-                       cerr ? cerr->message : "Invalid TOTP code");
-            }
-            if (cerr) g_error_free(cerr);
-            g_free(username);
-            goto cleanup;
-        }
-
-                                                  
-                                                              
-                                                
-                        
-        GPtrArray *recovery = nullptr;
-        if (first_confirm) {
-            GError *rerr = nullptr;
-            recovery = pcv_rbac_totp_generate_recovery(username, &rerr);
-            if (!recovery) {
-                PCV_LOG_WARN(REST_LOG_DOM,
-                    "TOTP first-confirm recovery code generation failed for '%s': %s",
-                    username, rerr ? rerr->message : "unknown");
-            }
-            if (rerr) g_error_free(rerr);
-        }
-
-        if (!is_pending_path) {
-                                                      
-                                           
-            pcv_audit_log(username, "auth.totp.verify", username, "ok", 0, 0, client_ip);
-
-            GString *resp = g_string_new(NULL);
-            if (recovery) {
-                g_string_append(resp, "{\"confirmed\":true,\"recovery_codes\":[");
-                for (guint i = 0; i < recovery->len; i++) {
-                    if (i > 0) g_string_append_c(resp, ',');
-                    g_string_append_printf(resp, "\"%s\"",
-                        (const gchar *)g_ptr_array_index(recovery, i));
-                }
-                g_string_append(resp, "]}");
-            } else {
-                g_string_append(resp, "{\"verified\":true}");
-            }
-            _send_json(msg, 200, resp->str);
-            g_string_free(resp, TRUE);
-            if (recovery) g_ptr_array_unref(recovery);
-            if (body) json_object_unref(body);
-            PCV_LOG_INFO(REST_LOG_DOM, "TOTP self-service confirm for '%s'%s",
-                         username, first_confirm ? " (first confirm)" : "");
-            g_free(username);
-            goto cleanup;
-        }
-
-                                                                      
-        gchar  *refresh = nullptr;
-        GError *ierr    = nullptr;
-        gchar  *token   = pcv_rbac_issue_tokens(username, &refresh, &ierr);
-        if (!token) {
-            if (body) json_object_unref(body);
-            _error(msg, 500, "INTERNAL",
-                   ierr ? ierr->message : "Failed to issue tokens");
-            if (ierr) g_error_free(ierr);
-            g_free(refresh);
-            if (recovery) g_ptr_array_unref(recovery);
-            g_free(username);
-            goto cleanup;
-        }
-
-        pcv_audit_log(username, "auth.totp.verify", username, "ok", 0, 0, client_ip);
-
-        GString *resp = g_string_new(NULL);
-        g_string_append_printf(resp, "{\"access_token\":\"%s\",", token);
-        if (refresh) {
-            g_string_append_printf(resp, "\"refresh_token\":\"%s\",", refresh);
-        }
-        g_string_append(resp, "\"token_type\":\"Bearer\",\"expires_in\":900");
-        if (refresh) {
-            g_string_append(resp, ",\"refresh_expires_in\":604800");
-        }
-        if (recovery) {
-            g_string_append(resp, ",\"recovery_codes\":[");
-            for (guint i = 0; i < recovery->len; i++) {
-                if (i > 0) g_string_append_c(resp, ',');
-                g_string_append_printf(resp, "\"%s\"",
-                    (const gchar *)g_ptr_array_index(recovery, i));
-            }
-            g_string_append_c(resp, ']');
-        }
-        g_string_append_c(resp, '}');
-
-        _send_json(msg, 200, resp->str);
-        g_string_free(resp, TRUE);
-        g_free(token);
-        g_free(refresh);
-        if (recovery) g_ptr_array_unref(recovery);
-        if (body) json_object_unref(body);
-        PCV_LOG_INFO(REST_LOG_DOM, "TOTP verify completed login for '%s'%s",
-                     username, first_confirm ? " (first confirm)" : "");
-        g_free(username);
-        goto cleanup;
-    }
-
-      
-                                                                                 
-      
-                                                         
-                                                    
-                                                      
-                                                          
-                                        
-      
-                  
-                                                                             
-                                                                         
-                                                               
-      
-                                                         
-                                                  
-                                                 
-                                                 
-                                                                
-                                                                  
-                                                           
-                                               
-      
-                                           
-                                                      
-       
-    if (g_strcmp0(path, REST_API_PREFIX "/auth/totp/enroll") == 0
-        && g_strcmp0(method, "POST") == 0)
-    {
-        JsonObject  *body = _parse_body(msg);
-        const gchar *pending_tok = body
-            ? json_object_get_string_member_with_default(body, "pending_token", "")
-            : "";
-        const gchar *client_ip = request_client_ip;
-        gboolean     is_pending_path = (pending_tok && *pending_tok);
-        gchar       *username = nullptr;
-
-        if (is_pending_path) {
-                                   
-            GError *verr  = nullptr;
-            gchar  *scope = nullptr;
-            username = pcv_jwt_verify_scoped(pending_tok, client_ip, &scope, &verr);
-            if (!username || g_strcmp0(scope, "totp") != 0) {
-                gboolean expired = verr && verr->code == G_IO_ERROR_TIMED_OUT;
-                if (body) json_object_unref(body);
-                g_free(username);
-                g_free(scope);
-                if (expired) {
-                    _error(msg, 401, "TOTP_PENDING_EXPIRED",
-                           "Pending token expired — please log in again");
-                } else {
-                    _error(msg, 401, "UNAUTHORIZED", "Invalid pending token");
-                }
-                if (verr) g_error_free(verr);
-                goto cleanup;
-            }
-            g_free(scope);
-        } else {
-                                                                          
-            SoupMessageHeaders *hdrs = soup_server_message_get_request_headers(msg);
-            const gchar *auth_hdr = soup_message_headers_get_one(hdrs, "Authorization");
-            if (!auth_hdr || !g_str_has_prefix(auth_hdr, "Bearer ")) {
-                if (body) json_object_unref(body);
-                _error(msg, 401, "UNAUTHORIZED",
-                       "pending_token or Authorization: Bearer token required");
-                goto cleanup;
-            }
-            GError *verr = nullptr;
-            username = pcv_jwt_verify(auth_hdr, &verr);
-            if (!username) {
-                if (body) json_object_unref(body);
-                _error(msg, 401, "UNAUTHORIZED",
-                       verr ? verr->message : "Invalid or expired token");
-                if (verr) g_error_free(verr);
-                goto cleanup;
-            }
-            if (verr) g_error_free(verr);
-        }
-
-        GError *eerr   = nullptr;
-        gchar  *secret = pcv_rbac_totp_enroll(username, &eerr);
-        if (!secret) {
-            if (body) json_object_unref(body);
-            _error(msg, 409, "CONFLICT",
-                   eerr ? eerr->message : "TOTP enrollment failed");
-            if (eerr) g_error_free(eerr);
-            g_free(username);
-            goto cleanup;
-        }
-
-        const gchar *hostname = g_get_host_name();
-        gchar *secret_uri = pcv_totp_build_uri(
-            username, hostname ? hostname : "purecvisor", secret);
-        gchar *secret_response = g_strdup_printf(
-            "{\"secret\":\"%s\",\"otpauth_uri\":\"%s\"}", secret, secret_uri);
-        _send_json(msg, 200, secret_response);
-                                                                     
-                                                  
-        pcv_secure_free_str(&secret_response);
-        pcv_secure_free_str(&secret_uri);
-        pcv_secure_free_str(&secret);                                   
-        if (body) json_object_unref(body);
-        PCV_LOG_INFO(REST_LOG_DOM, "TOTP enroll issued secret for '%s' (%s path)",
-                     username, is_pending_path ? "pending" : "self-service");
-        g_free(username);
-        goto cleanup;
-    }
-
-      
-                                                                       
-                             
-      
-                                                         
-                                                     
-                                                                       
-       
-                                             
-      
-                                          
-                                              
-                                                                       
-      
-                                                 
-                                                
-      
-                                                                         
-                                             
        
                                                                       
                                                                 
                                                    
                                                          
     gint key_role = -1;
-    subject = _authenticate(msg, &key_role);
-    if (!subject) goto cleanup;
+    gint subject_role = 0;                                                                 
+    subject = pcv_rest_authenticate(msg, &key_role, &subject_role);
+    rq->subject = subject;
+    rq->key_role = key_role;
+    rq->subject_role = subject_role;
+    if (!subject) goto cleanup;                                                         
 
                                                             
 
@@ -3836,25 +393,28 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                            
                                                                                
                                                                       
-    body = _parse_body(msg);
-    segs = _split_path(path);
+    body = pcv_rest_parse_body(msg);
+    rq->body = body;
+    segs = pcv_rest_split_path(path);
+    rq->segs = segs;
       
-                  
-                                                                           
-                                                 
-                                                                            
-                                                           
+                                                                  
+                                                               
+                                                      
+                                                            
       
                                               
                                                                            
        
     const guint nseg = g_strv_length(segs);
     const gchar *resource = nseg > 0 ? segs[0] : "";
+    rq->resource = resource;
     const gchar *name     = nseg > 1 ? segs[1] : "";
+    rq->name = name;
     const gchar *action   = nseg > 2 ? segs[2] : "";
+    rq->action = action;
     const gchar *sub      = nseg > 3 ? segs[3] : "";
-
-    gboolean  is_vm_delete   = FALSE;
+    rq->sub = sub;
 
                                                
       
@@ -3882,1354 +442,28 @@ _on_request(SoupServer        *server   __attribute__((unused)),
          g_str_has_prefix(path, REST_API_PREFIX "/cluster/vms") ||
 #endif
          FALSE);
-
-
-
+                                                               
+                                                               
+                                            
     if (needs_libvirt && cb_should_reject_request()) {
         SoupMessageHeaders *rh = soup_server_message_get_response_headers(msg);
         soup_message_headers_replace(rh, "Retry-After", "30");
-        _error(msg, 503, "SERVICE_UNAVAILABLE",
+        pcv_rest_send_error(msg, 503, "SERVICE_UNAVAILABLE",
                "libvirt connection is down (circuit breaker open)");
         goto cleanup;
     }
 
-                                                                     
-                            
-      
-                                                   
-                                                                  
-                                                         
-                                                           
-      
-              
-                                                    
-                                                       
-      
-                                                             
-                                                                                
-      
-                                                   
-                                                    
-      
-                                                                                       
-                                                                    
-                                                                                       
-                                                                                   
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                      
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                     
-                                                                                    
-                                                                                       
-                                                                
-                                                                        
-
-                                                                    
-      
-                                                       
+    PcvRestStep st = pcv_rest_map_compute(rq);
+    if (st == PCV_REST_STEP_UNMATCHED) st = pcv_rest_map_observe(rq);
+    if (st == PCV_REST_STEP_UNMATCHED) st = pcv_rest_map_platform(rq);
+    if (st == PCV_REST_STEP_CLEANUP) goto cleanup;
                                                             
-                                                        
-                                
-      
-                          
-                                                                
-                                                       
-                                               
-      
-              
-                                              
-                                                                              
-                                                        
-      
-                                                 
-                                                  
-                                                      
-      
-                                                          
-                                            
-    if (g_strcmp0(resource, "rpc") == 0 && *name == '\0' &&
-        g_strcmp0(method, "POST") == 0) {
-        if (!body) {
-            _error(msg, 400, "BAD_REQUEST", "JSON body required");
-            goto cleanup;
-        }
-        JsonNode *bn = json_node_new(JSON_NODE_OBJECT);
-        json_node_set_object(bn, body);
-        rpc = json_to_string(bn, FALSE);
-        json_node_free(bn);
-    }
-    else
-                                                       
-    if (g_strcmp0(resource, "vms") == 0) {
-
-        if (*name == '\0') {
-                                                                
-            if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *pg = nullptr;
-                if (query) {
-                    const gchar *q_off = g_hash_table_lookup(query, "offset");
-                    const gchar *q_lim = g_hash_table_lookup(query, "limit");
-                    if (q_off || q_lim) {
-                        pg = json_object_new();
-                        if (q_off) json_object_set_int_member(pg, "offset", g_ascii_strtoll(q_off, NULL, 10));
-                        if (q_lim) json_object_set_int_member(pg, "limit", g_ascii_strtoll(q_lim, NULL, 10));
-                    }
-                }
-                rpc = _build_rpc("vm.list", pg);
-                if (pg) json_object_unref(pg);
-            }
-                                                  
-            else if (g_strcmp0(method, "POST") == 0) {
-                const gchar *req[] = {"name"};
-                if (!pcv_validate_required(msg, body, req, 1)) goto cleanup;
-                rpc = _build_rpc("vm.create", body);
-            }
-
-        } else if (*action == '\0') {
-                                               
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc_name("vm.metrics", name);
-                                                             
-            else if (g_strcmp0(method, "DELETE") == 0) {
-                rpc = _build_rpc_name("vm.delete", name);
-                is_vm_delete = TRUE;
-                vm_delete_name = g_strdup(name);
-            }
-
-        } else if (g_strcmp0(action, "start") == 0) {
-            rpc = _build_rpc_name("vm.start", name);
-
-        } else if (g_strcmp0(action, "stop") == 0) {
-            rpc = _build_rpc_name("vm.stop", name);
-
-        } else if (g_strcmp0(action, "suspend") == 0 || g_strcmp0(action, "pause") == 0) {
-            rpc = _build_rpc_name("vm.pause", name);
-
-        } else if (g_strcmp0(action, "resume") == 0) {
-            rpc = _build_rpc_name("vm.resume", name);
-
-        } else if (g_strcmp0(action, "metrics") == 0) {
-            rpc = _build_rpc_name("vm.metrics", name);
-
-        } else if (g_strcmp0(action, "snapshot") == 0) {
-                                                                 
-            if (*sub == '\0' && g_strcmp0(method, "GET") == 0) {
-                rpc = _build_rpc_name("vm.snapshot.list", name);
-
-                                                                    
-            } else if (g_strcmp0(sub, "create") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                const gchar *sname = nullptr;
-                if (body) {
-                    if (json_object_has_member(body, "snapshot_name"))
-                        sname = json_object_get_string_member(body, "snapshot_name");
-                    else if (json_object_has_member(body, "snap_name"))
-                        sname = json_object_get_string_member(body, "snap_name");
-                }
-                if (sname)
-                    json_object_set_string_member(p, "snapshot_name", sname);
-                rpc = _build_rpc("vm.snapshot.create", p);
-                json_object_unref(p);
-
-                                                 
-            } else if (g_strcmp0(sub, "rollback") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                const gchar *rname = nullptr;
-                if (body) {
-                    if (json_object_has_member(body, "snapshot_name"))
-                        rname = json_object_get_string_member(body, "snapshot_name");
-                    else if (json_object_has_member(body, "snap_name"))
-                        rname = json_object_get_string_member(body, "snap_name");
-                }
-                if (rname)
-                    json_object_set_string_member(p, "snapshot_name", rname);
-                rpc = _build_rpc("vm.snapshot.rollback", p);
-                json_object_unref(p);
-
-                                                                            
-            } else if (g_strcmp0(sub, "delete_all") == 0 && g_strcmp0(method, "POST") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                if (body && json_object_has_member(body, "prefix"))
-                    json_object_set_string_member(p, "prefix",
-                        json_object_get_string_member(body, "prefix"));
-                if (body && json_object_has_member(body, "keep_recent"))
-                    json_object_set_int_member(p, "keep_recent",
-                        json_object_get_int_member(body, "keep_recent"));
-                rpc = _build_rpc("vm.snapshot.delete_all", p);
-                json_object_unref(p);
-
-                                                                
-                                                                           
-                                                                            
-                                                                              
-                                                                 
-            } else if (g_strcmp0(sub, "schedule") == 0) {
-                if (g_strcmp0(method, "POST") == 0) {
-                    JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                    json_object_set_string_member(p, "vm_name", name);
-                    rpc = _build_rpc("vm.snapshot.schedule.set", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "GET") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "vm_name", name);
-                    rpc = _build_rpc("vm.snapshot.schedule.list", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "DELETE") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "vm_name", name);
-                    rpc = _build_rpc("vm.snapshot.schedule.delete", p);
-                    json_object_unref(p);
-                }
-
-                                                 
-            } else if (*sub != '\0' && g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                json_object_set_string_member(p, "snapshot_name", sub);
-                rpc = _build_rpc("vm.snapshot.delete", p);
-                json_object_unref(p);
-            }
-
-                                                           
-                                                              
-                                                               
-                                                               
-                                                                 
-        } else if (g_strcmp0(action, "nics") == 0) {
-            if (*sub == '\0') {
-                if (g_strcmp0(method, "GET") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "vm_id", name);
-                    rpc = _build_rpc("device.nic.list", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "POST") == 0) {
-                                                      
-                    JsonObject *p = body
-                        ? (json_object_ref(body), body)
-                        : json_object_new();
-                    json_object_set_string_member(p, "vm_id", name);
-                    rpc = _build_rpc("device.nic.attach", p);
-                    json_object_unref(p);
-                }
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                                                                     
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                json_object_set_string_member(p, "mac",   sub);
-                rpc = _build_rpc("device.nic.detach", p);
-                json_object_unref(p);
-            }
-
-                                                                
-                                                         
-                                                          
-                                                          
-                                                                 
-        } else if (g_strcmp0(action, "usb") == 0) {
-            if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                rpc = _build_rpc("vm.usb.list", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "POST") == 0) {
-                JsonObject *p = body
-                    ? (json_object_ref(body), body)
-                    : json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                rpc = _build_rpc("vm.usb.attach", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = body
-                    ? (json_object_ref(body), body)
-                    : json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                rpc = _build_rpc("vm.usb.detach", p);
-                json_object_unref(p);
-            }
-
-                                                                
-                                                          
-                                                      
-                                                                 
-                                                              
-                                                                                    
-                                                                  
-                                                                 
-        } else if (g_strcmp0(action, "vcpu") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            gint vcpu_count = 0;
-            if (pcv_rpc_params_get_int_alias(p, "vcpu_count", "vcpu", &vcpu_count) ||
-                pcv_rpc_params_get_int_alias(p, "count", NULL, &vcpu_count)) {
-                json_object_set_int_member(p, "vcpu_count", vcpu_count);
-            }
-            json_object_set_string_member(p, "vm_id", name);
-            rpc = _build_rpc("vm.set_vcpu", p);
-            json_object_unref(p);
-
-        } else if (g_strcmp0(action, "memory") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "vm_id", name);
-            rpc = _build_rpc("vm.set_memory", p);
-            json_object_unref(p);
-
-        } else if (g_strcmp0(action, "delete-status") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc_name("vm.delete.status", name);
-
-        } else if (g_strcmp0(action, "rename") == 0 && g_strcmp0(method, "PUT") == 0) {
-            if (!body || !json_object_has_member(body, "new_name")) {
-                _error(msg, 400, "BAD_REQUEST", "new_name required");
-                goto cleanup;
-            }
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            json_object_set_string_member(p, "new_name",
-                json_object_get_string_member(body, "new_name"));
-            rpc = _build_rpc("vm.rename", p);
-            json_object_unref(p);
-
-        } else if (g_strcmp0(action, "iso") == 0) {
-            if (g_strcmp0(method, "POST") == 0) {
-                JsonObject *p = body ? (json_object_ref(body), body)
-                                     : json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                rpc = _build_rpc("vm.mount_iso", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "vm_id", name);
-                rpc = _build_rpc("vm.eject", p);
-                json_object_unref(p);
-            }
-
-                                                                 
-        } else if (g_strcmp0(action, "clone") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.clone", p);
-            json_object_unref(p);
-
-                                                                 
-        } else if (g_strcmp0(action, "disk") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "vm_id", name);
-            rpc = _build_rpc("vm.resize_disk", p);
-            json_object_unref(p);
-
-                                                                  
-        } else if (g_strcmp0(action, "cpu-pin") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "vm_id", name);
-            rpc = _build_rpc("vm.pin_vcpu", p);
-            json_object_unref(p);
-
-                                                                  
-        } else if (g_strcmp0(action, "bandwidth") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "vm_id", name);
-            rpc = _build_rpc("vm.set_bandwidth", p);
-            json_object_unref(p);
-
-                                                                   
-        } else if (g_strcmp0(action, "export") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc_name("vm.export.ova", name);
-
-                                                                 
-        } else if (g_strcmp0(action, "import") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("vm.import.ova", body);
-
-                                                                   
-        } else if (g_strcmp0(action, "memory-stats") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc_name("vm.memory.stats", name);
-
-                                                                            
-        } else if (g_strcmp0(action, "snapshot-schedule") == 0 && g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("snapshot.schedule.status", p);
-            json_object_unref(p);
-
-                                                                   
-        } else if (g_strcmp0(action, "guest-ping") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc_name("vm.guest.ping", name);
-
-                                                                   
-        } else if (g_strcmp0(action, "guest-agent") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc_name("vm.guest.agent.status", name);
-
-                                                                   
-        } else if (g_strcmp0(action, "guest-agent-channel") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc_name("vm.guest.agent.ensure_channel", name);
-
-                                                                   
-        } else if (g_strcmp0(action, "guest-shutdown") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc_name("vm.guest.shutdown", name);
-
-                                                                  
-        } else if (g_strcmp0(action, "disk-usage") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc_name("vm.guest.fsinfo", name);
-
-                                                                  
-        } else if (g_strcmp0(action, "disk-resize") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.disk.live_resize", p);
-            json_object_unref(p);
-
-                                                                   
-        } else if (g_strcmp0(action, "guest-exec") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("vm.guest.exec", p);
-            json_object_unref(p);
-        }
-    }
-
-                                                                
-    else if (g_strcmp0(resource, "containers") == 0) {
-
-        if (*name == '\0') {
-            if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *pg = nullptr;
-                if (query) {
-                    const gchar *q_off = g_hash_table_lookup(query, "offset");
-                    const gchar *q_lim = g_hash_table_lookup(query, "limit");
-                    if (q_off || q_lim) {
-                        pg = json_object_new();
-                        if (q_off) json_object_set_int_member(pg, "offset", g_ascii_strtoll(q_off, NULL, 10));
-                        if (q_lim) json_object_set_int_member(pg, "limit", g_ascii_strtoll(q_lim, NULL, 10));
-                    }
-                }
-                rpc = _build_rpc("container.list", pg);
-                if (pg) json_object_unref(pg);
-            } else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("container.create", body);
-
-        } else if (*action == '\0' && g_strcmp0(method, "DELETE") == 0) {
-            rpc = _build_rpc_name("container.destroy", name);
-
-        } else if (g_strcmp0(action, "start") == 0) {
-            rpc = _build_rpc_name("container.start", name);
-        } else if (g_strcmp0(action, "stop") == 0) {
-            rpc = _build_rpc_name("container.stop", name);
-        } else if (g_strcmp0(action, "metrics") == 0) {
-            rpc = _build_rpc_name("container.metrics", name);
-        } else if (g_strcmp0(action, "exec") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            if (body && json_object_has_member(body, "command"))
-                json_object_set_string_member(p, "cmd",
-                    json_object_get_string_member(body, "command"));
-            rpc = _build_rpc("container.exec", p);
-            json_object_unref(p);
-
-                                                               
-                                                                                
-                                                                                  
-                                                                                    
-                                                                                  
-                                                                 
-        } else if (g_strcmp0(action, "snapshots") == 0) {
-            if (*sub == '\0') {
-                if (g_strcmp0(method, "GET") == 0) {
-                    rpc = _build_rpc_name("container.snapshot.list", name);
-                } else if (g_strcmp0(method, "POST") == 0) {
-                    JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                    json_object_set_string_member(p, "name", name);
-                    rpc = _build_rpc("container.snapshot.create", p);
-                    json_object_unref(p);
-                }
-            } else if (g_strcmp0(sub, "rollback") == 0 && g_strcmp0(method, "POST") == 0) {
-                JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.snapshot.rollback", p);
-                json_object_unref(p);
-            } else if (*sub != '\0' && g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                json_object_set_string_member(p, "snap_name", sub);
-                rpc = _build_rpc("container.snapshot.delete", p);
-                json_object_unref(p);
-            }
-
-                                                                          
-        } else if (g_strcmp0(action, "limits") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("container.set_limits", p);
-            json_object_unref(p);
-
-                                                                    
-        } else if (g_strcmp0(action, "nics") == 0) {
-            if (*sub == '\0') {
-                if (g_strcmp0(method, "GET") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "name", name);
-                    rpc = _build_rpc("container.nic.list", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "POST") == 0) {
-                    JsonObject *p = body ? (json_object_ref(body), body)
-                                         : json_object_new();
-                    json_object_set_string_member(p, "name", name);
-                    rpc = _build_rpc("container.nic.attach", p);
-                    json_object_unref(p);
-                }
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                json_object_set_string_member(p, "nic_name", sub);
-                rpc = _build_rpc("container.nic.detach", p);
-                json_object_unref(p);
-            }
-
-        } else if (g_strcmp0(action, "bandwidth") == 0 && g_strcmp0(method, "PUT") == 0) {
-            JsonObject *p = body ? (json_object_ref(body), body)
-                                 : json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("container.set_bandwidth", p);
-            json_object_unref(p);
-
-                                                               
-                                                                
-                                                                
-                                                                   
-                                                                  
-        } else if (g_strcmp0(action, "health") == 0) {
-            if (g_strcmp0(method, "PUT") == 0) {
-                JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.health.set", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.health.get", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.health.delete", p);
-                json_object_unref(p);
-            }
-
-                                                               
-                                                                          
-                                                                            
-                                                                             
-                                                                  
-
-
-
-        } else if (g_strcmp0(action, "volumes") == 0) {
-            if (*sub == '\0') {
-                if (g_strcmp0(method, "GET") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "name", name);
-                    rpc = _build_rpc("container.volume.list", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "POST") == 0) {
-                    JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                    json_object_set_string_member(p, "name", name);
-                    rpc = _build_rpc("container.volume.attach", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "DELETE") == 0) {
-
-                    JsonObject *p = pcv_rest_container_volume_detach_params(name, NULL, body);
-                    rpc = _build_rpc("container.volume.detach", p);
-                    json_object_unref(p);
-                }
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-
-
-                JsonObject *p = pcv_rest_container_volume_detach_params(name, segs + 3, body);
-                rpc = _build_rpc("container.volume.detach", p);
-                json_object_unref(p);
-            }
-
-                                                               
-                                                            
-                                                           
-                                                              
-                                                                  
-        } else if (g_strcmp0(action, "env") == 0) {
-            if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.env.list", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "PUT") == 0) {
-                JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.env.set", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("container.env.delete", p);
-                json_object_unref(p);
-            }
-
-                                                                          
-                                                                
-        } else if (g_strcmp0(action, "clone") == 0 && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = body ? json_object_ref(body) : json_object_new();
-            json_object_set_string_member(p, "source", name);
-            rpc = _build_rpc("container.clone", p);
-            json_object_unref(p);
-
-                                                                                          
-        } else if (g_strcmp0(action, "memory-stats") == 0 && g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "name", name);
-            rpc = _build_rpc("container.memory.stats", p);
-            json_object_unref(p);
-        }
-    }
-
-                                                                
-    else if (g_strcmp0(resource, "monitor") == 0) {
-        if (g_strcmp0(method, "GET") != 0) {
-            rpc = NULL;
-        } else if (g_strcmp0(name, "metrics") == 0)
-            rpc = _build_rpc("monitor.metrics", NULL);
-        else if (g_strcmp0(name, "fleet") == 0)
-            rpc = _build_rpc("monitor.fleet", NULL);
-
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "alerts") == 0) {
-        if (g_strcmp0(name, "config") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("alert.config.get", NULL);
-            else if (g_strcmp0(method, "PUT") == 0)
-                rpc = _build_rpc("alert.config.set", body);
-        } else if (g_strcmp0(name, "actions") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("alert.action.list", NULL);
-        } else if (g_strcmp0(name, "silence") == 0) {
-                                                              
-            if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("alert.silence", body);
-        } else if (g_strcmp0(name, "silences") == 0) {
-                                                        
-                                                                     
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("alert.silence.list", NULL);
-        } else if (g_strcmp0(name, "dlq") == 0) {
-                                                                             
-                                                                       
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("alert.dlq.list", NULL);
-        } else if (*name != '\0' && g_strcmp0(action, "ack") == 0
-                   && g_strcmp0(method, "POST") == 0) {
-                                                          
-                                                                   
-                                                         
-                                                                  
-                                        
-            JsonObject *p = json_object_new();
-            json_object_set_int_member(p, "alert_id", g_ascii_strtoll(name, NULL, 10));
-            rpc = _build_rpc("alert.ack", p);
-            json_object_unref(p);
-        } else {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("alert.history", NULL);
-        }
-    }
-
-                                                          
-                                                                   
-                                                                    
-                                                       
-                                                                
-                                                       
-    else if (g_strcmp0(resource, "suricata") == 0) {
-                                                
-                                                       
-        if (g_strcmp0(name, "status") == 0 && *action == '\0' &&
-            g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc("suricata.status", NULL);
-        } else if (g_strcmp0(name, "policy") == 0 && *action == '\0') {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("suricata.policy.get", NULL);
-            else if (g_strcmp0(method, "PUT") == 0)
-                rpc = _build_rpc("suricata.policy.set", body);
-        } else if (g_strcmp0(name, "rules") == 0 &&
-                   g_strcmp0(action, "update") == 0 &&
-                   g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("suricata.rules.update", body);
-        } else if (g_strcmp0(name, "ips") == 0) {
-            if (g_strcmp0(action, "status") == 0 &&
-                g_strcmp0(method, "GET") == 0) {
-                rpc = _build_rpc("suricata.ips.status", NULL);
-            } else if (g_strcmp0(action, "enable") == 0 &&
-                       g_strcmp0(method, "POST") == 0) {
-                rpc = _build_rpc("suricata.ips.enable", body);
-            } else if (g_strcmp0(action, "disable") == 0 &&
-                       g_strcmp0(method, "POST") == 0) {
-                rpc = _build_rpc("suricata.ips.disable", body);
-            } else if (g_strcmp0(action, "drop") == 0) {
-                if (g_strcmp0(method, "GET") == 0)
-                    rpc = _build_rpc("suricata.ips.drop.list", NULL);
-                else if (g_strcmp0(method, "POST") == 0)
-                    rpc = _build_rpc("suricata.ips.drop.add", body);
-                else if (g_strcmp0(method, "DELETE") == 0)
-                    rpc = _build_rpc("suricata.ips.drop.remove", body);
-            }
-        }
-    }
-
-    else if (g_strcmp0(resource, "push") == 0) {
-        if (g_strcmp0(name, "vapid") == 0) {
-                                                                   
-            if (*action == '\0' && g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("push.vapid.get", NULL);
-                                                                          
-            else if (g_strcmp0(action, "rotate") == 0 && g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("push.vapid.rotate", NULL);
-        } else if (g_strcmp0(name, "subscribe") == 0 && g_strcmp0(method, "POST") == 0) {
-                                                                                    
-            rpc = _build_rpc("push.subscribe", body);
-        } else if (g_strcmp0(name, "unsubscribe") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("push.unsubscribe", body);
-        } else if (g_strcmp0(name, "test") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("push.test", body);
-        } else if (g_strcmp0(name, "subscriptions") == 0 && g_strcmp0(method, "GET") == 0) {
-            rpc = _build_rpc("push.list", NULL);
-        } else if (g_strcmp0(name, "mine") == 0 && g_strcmp0(method, "GET") == 0) {
-                                                                   
-                                                            
-                                                            
-            rpc = _build_rpc("push.mine", NULL);
-        }
-    }
-
-                                                              
-    else if (g_strcmp0(resource, "prometheus") == 0) {
-        if (g_strcmp0(name, "sd") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("prometheus.sd", NULL);
-    }
-
-                                                              
-                                                                 
-    else if (g_strcmp0(resource, "health") == 0) {
-        if (g_strcmp0(name, "deep") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("health.deep", NULL);
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "pool") == 0) {
-        if (g_strcmp0(name, "conninfo") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("pool.conninfo", NULL);
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "db") == 0) {
-        if (g_strcmp0(name, "migration") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("db.migration.status", NULL);
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "audit") == 0) {
-        if (g_strcmp0(name, "search") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("audit.search", body);
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "jobs") == 0) {
-        if (*name == '\0' && g_strcmp0(method, "GET") == 0) {
-            JsonObject *pg = nullptr;
-            if (query) {
-                const gchar *q_off = g_hash_table_lookup(query, "offset");
-                const gchar *q_lim = g_hash_table_lookup(query, "limit");
-                if (q_off || q_lim) {
-                    pg = json_object_new();
-                    if (q_off) json_object_set_int_member(pg, "offset", g_ascii_strtoll(q_off, NULL, 10));
-                    if (q_lim) json_object_set_int_member(pg, "limit", g_ascii_strtoll(q_lim, NULL, 10));
-                }
-            }
-            rpc = _build_rpc("jobs.list", pg);
-            if (pg) json_object_unref(pg);
-        } else if (*name != '\0' && g_strcmp0(action, "cancel") == 0
-                   && g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "job_id", name);
-            rpc = _build_rpc("jobs.cancel", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(name, "persistent") == 0 && *action == '\0'
-                   && g_strcmp0(method, "GET") == 0) {
-
-
-        } else if (*name != '\0' && *action == '\0'
-                   && g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = json_object_new();
-            json_object_set_string_member(p, "job_id", name);
-            rpc = _build_rpc("jobs.get", p);
-            json_object_unref(p);
-        }
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "webhook") == 0) {
-        if (g_strcmp0(name, "dlq") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("webhook.dlq.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("webhook.dlq.retry", NULL);
-        }
-    }
-
-                                                               
-    else if (g_strcmp0(resource, "processes") == 0) {
-        if (g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("monitor.processes", NULL);
-    }
-
-                                                           
-    else if (g_strcmp0(resource, "agent") == 0) {
-        if (g_strcmp0(name, "config") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("agent.config.get", NULL);
-            else if (g_strcmp0(method, "PUT") == 0)
-                rpc = _build_rpc("agent.config.set", body);
-        } else if (g_strcmp0(name, "history") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("agent.history", NULL);
-        } else {
-                                                    
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("agent.config.get", NULL);
-        }
-    }
-
-                                                              
-                                                 
-
-                                                 
-                                                   
-                                                   
-                                                                  
-                                                             
-    else if (g_strcmp0(resource, "networks") == 0) {
-        if (*name == '\0') {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("network.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("network.create", body);
-        } else if (g_strcmp0(name, "host-baseline") == 0 && *action == '\0' &&
-                   g_strcmp0(method, "GET") == 0) {
-
-
-            rpc = _build_rpc("network.host.info", NULL);
-        } else if (*name != '\0') {
-
-
-
-                                                                   
-            if (g_strcmp0(action, "mode") == 0 && g_strcmp0(method, "POST") == 0) {
-                                   
-                JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                json_object_set_string_member(p, "name", name);
-                rpc = _build_rpc("network.mode_set", p);
-                json_object_unref(p);
-
-                                                              
-            } else if (g_strcmp0(action, "qos") == 0) {
-                if (g_strcmp0(method, "PUT") == 0) {
-                    JsonObject *p = body ? json_object_ref(body) : json_object_new();
-                    json_object_set_string_member(p, "interface", name);
-                    rpc = _build_rpc("network.qos.set", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "GET") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "interface", name);
-                    rpc = _build_rpc("network.qos.get", p);
-                    json_object_unref(p);
-                } else if (g_strcmp0(method, "DELETE") == 0) {
-                    JsonObject *p = json_object_new();
-                    json_object_set_string_member(p, "interface", name);
-                    rpc = _build_rpc("network.qos.remove", p);
-                    json_object_unref(p);
-                }
-
-            } else if (*action == '\0' &&
-                       g_strcmp0(method, "GET") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "bridge_name", name);
-                rpc = _build_rpc("network.info", p);
-                json_object_unref(p);
-            } else if (*action == '\0' &&
-                       g_strcmp0(method, "DELETE") == 0) {
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "bridge_name", name);
-                rpc = _build_rpc("network.delete", p);
-                json_object_unref(p);
-            }
-        }
-    }
-
-                                                               
-                                                                 
-                                                                    
-                                                           
-      
-                       
-                                
-                              
-                                
-                                 
-                                       
-                                        
-                                                     
-                                   
-                                          
-                                       
-                                                                 
-    else if (g_strcmp0(resource, "vpcs") == 0) {
-        if (*name == '\0') {
-            if (g_strcmp0(method, "GET") == 0) {
-                JsonObject *p = _vpc_rest_params(NULL, query, NULL, NULL);
-                rpc = _build_rpc("vpc.list", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "POST") == 0) {
-                rpc = _build_rpc("vpc.create", body);
-            }
-        } else if (g_strcmp0(name, "status") == 0 && *action == '\0' &&
-                   g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = _vpc_rest_params(NULL, query, NULL, NULL);
-            rpc = _build_rpc("vpc.status", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(name, "backends") == 0 && *action == '\0' &&
-                   g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = _vpc_rest_params(NULL, query, NULL, NULL);
-            rpc = _build_rpc("vpc.backend.list", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(name, "reconcile") == 0 && *action == '\0' &&
-                   g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("vpc.reconcile", body);
-        } else if (*name != '\0' && *action == '\0') {
-            JsonObject *p = _vpc_rest_params(body, query, "vpc_id", name);
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("vpc.get", p);
-            else if (g_strcmp0(method, "DELETE") == 0)
-                rpc = _build_rpc("vpc.delete", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(action, "egress") == 0 &&
-                   g_strcmp0(method, "POST") == 0) {
-            JsonObject *p = _vpc_rest_params(body, query, "vpc_id", name);
-            rpc = _build_rpc("vpc.egress.set", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(action, "subnets") == 0) {
-            JsonObject *p = _vpc_rest_params(body, query, "vpc_id", name);
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("vpc.subnet.list", p);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("vpc.subnet.create", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(action, "attachments") == 0 &&
-                   g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = _vpc_rest_params(NULL, query, "vpc_id", name);
-            rpc = _build_rpc("vpc.attachment.list", p);
-            json_object_unref(p);
-        } else if (g_strcmp0(action, "services") == 0 &&
-                   g_strcmp0(method, "GET") == 0) {
-            JsonObject *p = _vpc_rest_params(NULL, query, "vpc_id", name);
-            rpc = _build_rpc("vpc.service.list", p);
-            json_object_unref(p);
-        }
-    }
-    else if (g_strcmp0(resource, "vpc-subnets") == 0) {
-        if (*name != '\0' &&
-            *action == '\0' &&
-            g_strcmp0(method, "DELETE") == 0) {
-            JsonObject *p = _vpc_rest_params(body, query, "subnet_id", name);
-            rpc = _build_rpc("vpc.subnet.delete", p);
-            json_object_unref(p);
-        }
-    }
-    else if (g_strcmp0(resource, "vpc-attachments") == 0) {
-        if (*name == '\0' &&
-            g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("vpc.attachment.create", body);
-        } else if (*name != '\0' &&
-                   *action == '\0' &&
-                   g_strcmp0(method, "DELETE") == 0) {
-            JsonObject *p = _vpc_rest_params(body, query, "attachment_id", name);
-            rpc = _build_rpc("vpc.attachment.delete", p);
-            json_object_unref(p);
-        }
-    }
-    else if (g_strcmp0(resource, "vpc-services") == 0) {
-        if (*name == '\0' &&
-            g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("vpc.service.publish", body);
-        } else if (*name != '\0' &&
-                   *action == '\0' &&
-                   g_strcmp0(method, "DELETE") == 0) {
-            JsonObject *p = _vpc_rest_params(body, query, "publish_id", name);
-            rpc = _build_rpc("vpc.service.unpublish", p);
-            json_object_unref(p);
-        }
-    }
-
-                                                                
-    else if (g_strcmp0(resource, "storage") == 0) {
-                                                    
-        if (g_strcmp0(name, "pools") == 0) {
-            if (*action == '\0') {
-                if (g_strcmp0(method, "GET") == 0)
-                    rpc = _build_rpc("storage.pool.list", NULL);
-                                                                    
-                else if (g_strcmp0(method, "POST") == 0)
-                    rpc = _build_rpc("storage.pool.create", body);
-                                                                                      
-                else if (g_strcmp0(method, "DELETE") == 0)
-                    rpc = _build_rpc("storage.pool.destroy", body);
-            }
-                                                                     
-            else if (g_strcmp0(action, "scrub") == 0 && g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("storage.pool.scrub", body);
-        }
-        else if (g_strcmp0(name, "zvols") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("storage.zvol.list", body);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("storage.zvol.create", body);
-            else if (g_strcmp0(method, "DELETE") == 0)
-                rpc = _build_rpc("storage.zvol.delete", body);
-        }
-    }
-
-                                                              
-                                                  
-                                                
-                                                  
-                                                
-                                                         
-                                                         
-                                                         
-                                                             
-    else if (g_strcmp0(resource, "dpdk") == 0) {
-        if (g_strcmp0(name, "status") == 0)
-            rpc = _build_rpc("dpdk.status", NULL);
-        else if (g_strcmp0(name, "bind") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("dpdk.bind", body);
-        else if (g_strcmp0(name, "unbind") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("dpdk.unbind", body);
-        else if (g_strcmp0(name, "list") == 0)
-            rpc = _build_rpc("dpdk.list", NULL);
-        else if (g_strcmp0(name, "hugepage") == 0)
-            rpc = _build_rpc("dpdk.hugepage.info", NULL);
-        else if (g_strcmp0(name, "bridge") == 0) {
-            if (g_strcmp0(action, "create") == 0 && g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("dpdk.bridge.create", body);
-            else if (g_strcmp0(action, "delete") == 0 && g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("dpdk.bridge.delete", body);
-        }
-    }
-
-                                                               
-                                                   
-                                                   
-                                                    
-                                                 
-                                                
-                                                   
-                                                   
-                                                             
-    else if (g_strcmp0(resource, "sriov") == 0) {
-        if (g_strcmp0(name, "status") == 0)
-            rpc = _build_rpc("sriov.status", NULL);
-        else if (g_strcmp0(name, "enable") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("sriov.enable", body);
-        else if (g_strcmp0(name, "disable") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("sriov.disable", body);
-        else if (g_strcmp0(name, "list") == 0)
-            rpc = _build_rpc("sriov.list", body);
-        else if (g_strcmp0(name, "set") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("sriov.set", body);
-        else if (g_strcmp0(name, "attach") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("sriov.attach", body);
-        else if (g_strcmp0(name, "detach") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("sriov.detach", body);
-    }
-
-                                                           
-    else if (g_strcmp0(resource, "backup") == 0) {
-        if (g_strcmp0(name, "policies") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("backup.policy.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("backup.policy.set", body);
-            else if (g_strcmp0(method, "DELETE") == 0)
-                rpc = _build_rpc("backup.policy.delete", body);
-        } else if (g_strcmp0(name, "history") == 0) {
-            rpc = _build_rpc("backup.history", body);
-
-                                                               
-                                                         
-                                                    
-                                                       
-                                                                  
-        } else if (g_strcmp0(name, "incremental") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("backup.incremental", body);
-        } else if (g_strcmp0(name, "verify") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("backup.verify", body);
-        } else if (g_strcmp0(name, "replicate") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("backup.replicate", body);
-        }
-    }
-
-                                                           
-    else if (g_strcmp0(resource, "ovn") == 0) {
-        if (g_strcmp0(name, "status") == 0)
-            rpc = _build_rpc("ovn.status", NULL);
-        else if (g_strcmp0(name, "switches") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("ovn.switch.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("ovn.switch.create", body);
-        } else if (g_strcmp0(name, "routers") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("ovn.router.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("ovn.router.create", body);
-        } else if (g_strcmp0(name, "acl") == 0) {
-            if (g_strcmp0(method, "GET") == 0) {
-
-                JsonObject *p = json_object_new();
-                const gchar *sw = query ? g_hash_table_lookup(query, "switch") : NULL;
-                if (sw && *sw)
-                    json_object_set_string_member(p, "switch", sw);
-                rpc = _build_rpc("ovn.acl.list", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("ovn.acl.add", body);
-        } else if (g_strcmp0(name, "nat") == 0) {
-            if (g_strcmp0(method, "GET") == 0) {
-
-                JsonObject *p = json_object_new();
-                const gchar *router = query ? g_hash_table_lookup(query, "router") : NULL;
-                if (router && *router)
-                    json_object_set_string_member(p, "router", router);
-                rpc = _build_rpc("ovn.nat.list", p);
-                json_object_unref(p);
-            } else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("ovn.nat.add", body);
-        }
-    }
-
-                                                        
-    else if (g_strcmp0(resource, "iso") == 0 && g_strcmp0(method, "GET") == 0) {
-        rpc = _build_rpc("iso.list", NULL);
-    }
-
-                                                         
-    else if (g_strcmp0(resource, "iscsi") == 0) {
-        if (g_strcmp0(name, "targets") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("iscsi.target.list", NULL);
-        else if (g_strcmp0(name, "targets") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("iscsi.target.create", body);
-        else if (g_strcmp0(name, "targets") == 0 && g_strcmp0(method, "DELETE") == 0)
-            rpc = _build_rpc("iscsi.target.delete", body);
-        else if (g_strcmp0(name, "connect") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("iscsi.connect", body);
-        else if (g_strcmp0(name, "disconnect") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("iscsi.disconnect", body);
-    }
-
-                                                     
-    else if (g_strcmp0(resource, "overlay") == 0 && g_strcmp0(method, "GET") == 0) {
-        rpc = _build_rpc("overlay.list", NULL);
-    }
-
-                                                        
-    else if (g_strcmp0(resource, "auth") == 0) {
-        if (g_strcmp0(name, "whoami") == 0 && g_strcmp0(method, "GET") == 0) {
-                                                                         
-                                                                       
-            PcvRole role = (key_role >= 0)
-                ? (PcvRole)key_role
-                : pcv_rbac_get_role(subject);
-            const gchar *role_str = pcv_rbac_role_to_str(role);
-            const gchar *tenant = pcv_rbac_get_tenant(subject);
-            gchar *resp = g_strdup_printf(
-                "{\"data\":{\"username\":\"%s\",\"role\":\"%s\",\"tenant\":\"%s\"}}",
-                subject, role_str, tenant ? tenant : "---");
-            _send_json(msg, 200, resp);
-            g_free(resp);
-            goto cleanup;
-        } else if (g_strcmp0(name, "users") == 0) {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("auth.user.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("auth.user.create", body);
-            else if (g_strcmp0(method, "DELETE") == 0)
-                rpc = _build_rpc("auth.user.delete", body);
-        } else if (g_strcmp0(name, "role") == 0 && g_strcmp0(method, "POST") == 0) {
-            rpc = _build_rpc("auth.role.set", body);
-        } else if (g_strcmp0(name, "totp") == 0) {
-                                                                           
-                                                                  
-                                                                  
-                                                              
-                                                          
-                                       
-            if (g_strcmp0(action, "status") == 0 && g_strcmp0(method, "GET") == 0) {
-                                                                         
-                                                                    
-                                                                   
-                rpc = _build_rpc("auth.totp.status", body);
-            } else if (g_strcmp0(action, "disable") == 0 && g_strcmp0(method, "POST") == 0) {
-                                                                                  
-                rpc = _build_rpc("auth.totp.disable", body);
-            } else if (g_strcmp0(action, "reset") == 0 && g_strcmp0(method, "POST") == 0) {
-                                                                                         
-                rpc = _build_rpc("auth.totp.reset", body);
-            } else if (g_strcmp0(action, "recovery") == 0 && g_strcmp0(sub, "regenerate") == 0
-                       && g_strcmp0(method, "POST") == 0) {
-                                                                                      
-                                      
-                rpc = _build_rpc("auth.totp.recovery.regenerate", body);
-            }
-        } else if (g_strcmp0(name, "sessions") == 0
-                   && g_strcmp0(action, "revoke") == 0
-                   && g_strcmp0(method, "POST") == 0) {
-                                                                                          
-            rpc = _build_rpc("auth.session.revoke", body);
-        } else if (g_strcmp0(name, "user-sessions") == 0
-                   && g_strcmp0(action, "revoke") == 0
-                   && g_strcmp0(method, "POST") == 0) {
-                                                                                           
-                                                                                    
-            rpc = _build_rpc("auth.user.sessions.revoke", body);
-        } else if (g_strcmp0(name, "apikeys") == 0) {
-                                                              
-                                                                      
-                                                     
-            if (g_strcmp0(action, "") == 0 && g_strcmp0(method, "GET") == 0) {
-                                                          
-                rpc = _build_rpc("auth.apikey.list", NULL);
-            } else if (g_strcmp0(action, "") == 0 && g_strcmp0(method, "POST") == 0) {
-                                                          
-                                                                                 
-                rpc = _build_rpc("auth.apikey.create", body);
-            } else if (g_strcmp0(sub, "revoke") == 0 && g_strcmp0(method, "POST") == 0) {
-                                                                                  
-                JsonObject *p = json_object_new();
-                json_object_set_string_member(p, "client_name", action);
-                rpc = _build_rpc("auth.apikey.revoke", p);
-                json_object_unref(p);
-            }
-        }
-    }
-
-                                                          
-    else if (g_strcmp0(resource, "config") == 0) {
-        if (g_strcmp0(name, "backup") == 0) {
-            if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("config.backup", body);
-            else if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("config.backup", NULL);
-        }
-        else if (g_strcmp0(name, "history") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("config.history", NULL);
-                                                                       
-        else if (g_strcmp0(name, "reload") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("config.reload", NULL);
-                                                    
-        else if (g_strcmp0(name, "daemon") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("daemon.config.get", body);
-                                                    
-        else if (g_strcmp0(name, "daemon") == 0 && g_strcmp0(method, "PUT") == 0)
-            rpc = _build_rpc("daemon.config.set", body);
-    }
-
-                                                        
-    else if (g_strcmp0(resource, "templates") == 0) {
-        if (g_strcmp0(name, "history") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("template.history", NULL);
-        else if (*name == '\0') {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc("template.list", NULL);
-            else if (g_strcmp0(method, "POST") == 0)
-                rpc = _build_rpc("template.create", body);
-        } else if (*name != '\0') {
-            if (g_strcmp0(method, "GET") == 0)
-                rpc = _build_rpc_name("template.get", name);
-            else if (g_strcmp0(method, "DELETE") == 0)
-                rpc = _build_rpc_name("template.delete", name);
-        }
-    }
-
-
-    else if (g_strcmp0(resource, "gpu") == 0) {
-        if (g_strcmp0(name, "list") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("gpu.list", body);
-        else if (g_strcmp0(name, "metrics") == 0 && g_strcmp0(method, "GET") == 0)
-            rpc = _build_rpc("gpu.metrics", NULL);
-        else if (g_strcmp0(name, "attach") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("device.gpu.attach", body);
-        else if (g_strcmp0(name, "detach") == 0 && g_strcmp0(method, "POST") == 0)
-            rpc = _build_rpc("device.gpu.detach", body);
-    }
-
-                                                                     
-
-                                                            
-    else if (g_strcmp0(resource, "vnc") == 0 && *name != '\0') {
-        JsonObject *p = json_object_new();
-        json_object_set_string_member(p, "vm_id", name);
-        rpc = _build_rpc("get_vnc_info", p);
-        json_object_unref(p);
-    }
-
-                                                            
-    if (!rpc) {
-        _error(msg, 404, "NOT_FOUND",
+    if (!rq->rpc) {
+        pcv_rest_send_error(msg, 404, "NOT_FOUND",
                "Endpoint not found or method not allowed");
         goto cleanup;
     }
 
-    PCV_LOG_INFO(REST_LOG_DOM, "→ RPC %.100s", rpc);
     {
                                                                                  
                                                              
@@ -5237,12 +471,12 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                      
                                                                                  
                                                                      
-        PcvRole caller_role = (key_role >= 0)
-            ? (PcvRole)key_role
-            : pcv_rbac_get_role(subject);
-        gchar *rpc_with_context = _rpc_attach_auth_context(rpc, subject, caller_role);
-        g_free(rpc);
-        rpc = rpc_with_context;
+        PcvRole caller_role = (rq->key_role >= 0)
+            ? (PcvRole)rq->key_role
+            : (PcvRole)rq->subject_role;                                                     
+        gchar *rpc_with_context = pcv_rest_rpc_attach_auth_context(rq->rpc, rq->subject, caller_role);
+        g_free(rq->rpc);
+        rq->rpc = rpc_with_context;
     }
 
                                                           
@@ -5261,9 +495,10 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                                   
       
              
-                                             
-                                                          
-                                  
+                                                                      
+                                                              
+                                                            
+                                                               
       
                                             
                                                             
@@ -5278,18 +513,17 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                        
                                                     
        
-
-    gchar *rpc_method = NULL;
+    gchar *rpc_method = NULL;                                             
     {
-                                                                   
-                                                                                    
+                                                                                 
+                                                               
         PcvRestRpcMethodStatus method_status =
-            pcv_rest_rpc_envelope_method(rpc, &rpc_method);
+            pcv_rest_rpc_envelope_method(rq->rpc, &rpc_method);
         if (method_status == PCV_REST_RPC_METHOD_MISSING) {
             static const char resp_missing_method[] =
                 "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Missing method field\"}}";
             g_message("[RBAC] reject: missing method field in RPC envelope");
-            g_free(rpc); rpc = NULL;
+            g_free(rq->rpc); rq->rpc = NULL;
             soup_server_message_set_status(msg, 400, "Bad Request");
             soup_server_message_set_response(msg, "application/json",
                 SOUP_MEMORY_STATIC,
@@ -5301,7 +535,7 @@ _on_request(SoupServer        *server   __attribute__((unused)),
             static const char resp_malformed_method[] =
                 "{\"error\":{\"code\":\"BAD_REQUEST\",\"message\":\"Malformed method field\"}}";
             g_message("[RBAC] reject: malformed method field in RPC envelope");
-            g_free(rpc); rpc = NULL;
+            g_free(rq->rpc); rq->rpc = NULL;
             soup_server_message_set_status(msg, 400, "Bad Request");
             soup_server_message_set_response(msg, "application/json",
                 SOUP_MEMORY_STATIC,
@@ -5309,15 +543,27 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                 sizeof(resp_malformed_method) - 1);
             goto cleanup;
         }
-        if (!pcv_rbac_check_permission(subject, rpc_method)) {
+                                                                              
+                                                        
+        PCV_LOG_INFO(REST_LOG_DOM, "→ RPC %.100s", rpc_method);
+                                                                                                       
+        gboolean permitted = (rq->key_role >= 0)
+            ? pcv_rbac_role_permits((PcvRole)rq->key_role, rpc_method)
+            : pcv_rbac_check_permission(rq->subject, rpc_method);
+        if (!permitted) {
             static const char resp_forbidden[] =
                 "{\"error\":{\"code\":\"FORBIDDEN\",\"message\":\"Insufficient permissions\"}}";
-            g_message("[RBAC] denied: user=%s method=%s", subject, rpc_method);
-
-
+            g_message("[RBAC] denied: user=%s method=%s", rq->subject, rpc_method);
+                                                                 
+                                                            
+            if (g_strcmp0(rpc_method, "vm.inspect") == 0)
+                pcv_audit_log(rq->subject, "vm.inspect", "", "fail", PURE_RPC_ERR_FORBIDDEN, 0, NULL);
+                                                                                      
+            else if (pcv_rest_method_is_user_admin(rpc_method))
+                pcv_audit_log(rq->subject, rpc_method, "", "denied", PURE_RPC_ERR_FORBIDDEN, 0, "rbac");
             g_free(rpc_method);
-            g_free(rpc);
-            rpc = NULL;
+            g_free(rq->rpc);
+            rq->rpc = NULL;
             soup_server_message_set_status(msg, 403, "Forbidden");
             soup_server_message_set_response(msg, "application/json",
                 SOUP_MEMORY_STATIC,
@@ -5334,12 +580,12 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                        
                                                         
       
-                                                       
+                                                               
                                                    
                                                         
       
                                                        
-                                                    
+                                                            
                                          
                                                     
                                                                         
@@ -5351,12 +597,10 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                                          
         _RestAsyncCtx *actx = g_new0(_RestAsyncCtx, 1);
         actx->msg = g_object_ref(msg);                         
-        actx->rpc = rpc;                                                
-                                           
-                                                                    
+        actx->rpc = rq->rpc;                                                
+                                                              
+                                                        
         actx->rpc_method = g_steal_pointer(&rpc_method);
-        actx->vm_delete_name = vm_delete_name;             
-        actx->is_vm_delete = is_vm_delete;
         actx->rest_ctx = self_rest_ctx;                                        
 
                                                                
@@ -5366,22 +610,22 @@ _on_request(SoupServer        *server   __attribute__((unused)),
         soup_server_message_pause(msg);
 
                                        
-                                                                          
+                                                                             
                                                                 
                                                                         
         GTask *task = pcv_drain_task_new(NULL, NULL, NULL, NULL);
-        g_task_set_task_data(task, actx, _rest_async_ctx_free);
-        g_task_run_in_thread(task, _rest_async_worker);
+        g_task_set_task_data(task, actx, pcv_rest_async_ctx_free);
+        g_task_run_in_thread(task, pcv_rest_async_worker);
         g_object_unref(task);
     }
 
-                                                            
+                                            
     goto cleanup_no_free;
 
                                                             
       
                                                          
-                                                                  
+                                                   
                                                                 
       
                                   
@@ -5390,34 +634,33 @@ _on_request(SoupServer        *server   __attribute__((unused)),
                                      
       
                                    
-                                                                 
-                                                                       
-                                                  
+                                                 
+                                                       
+                                                     
                                                                       
 cleanup:
-    g_strfreev(segs);                                   
-    if (body) json_object_unref(body);                     
-    g_free(subject);                                          
-    g_free(rpc);                                            
-    g_free(vm_delete_name);                          
-    g_free(req_id);                               
-    pcv_trace_context_free(trace_ctx);                            
+    g_strfreev(rq->segs);                                   
+    if (rq->body) json_object_unref(rq->body);                     
+    g_free(rq->subject);                                          
+    g_free(rq->rpc);                                            
+    g_free(rq->req_id);                               
+    pcv_trace_context_free(rq->trace_ctx);                            
     pcv_log_req_id_set(NULL);                                                
     return;
 
 cleanup_no_free:
-    g_strfreev(segs);
-    if (body) json_object_unref(body);
-    g_free(subject);
-                                                      
-    g_free(req_id);
-    pcv_trace_context_free(trace_ctx);
+    g_strfreev(rq->segs);
+    if (rq->body) json_object_unref(rq->body);
+    g_free(rq->subject);
+                                      
+    g_free(rq->req_id);
+    pcv_trace_context_free(rq->trace_ctx);
     pcv_log_req_id_set(NULL);
 }
 
-
-
-
+                                                             
+                                                 
+                                                         
 static void
 _on_request_drained(SoupServer *server, SoupServerMessage *msg, const gchar *path,
             GHashTable *query, gpointer user_data)
@@ -5458,8 +701,8 @@ static void
 pcv_rest_server_finalize(GObject *object)
 {
     PcvRestServer *self = PCV_REST_SERVER(object);
+    pcv_rest_server_stop(self);
     if (self->rest_loop) {
-        g_main_loop_quit(self->rest_loop);
         if (self->thread) {
             g_thread_join(self->thread);
             self->thread = nullptr;
@@ -5509,7 +752,7 @@ static void pcv_rest_server_init(PcvRestServer *self)
                                                                
   
               
-                                                        
+                                                                
                                                    
                             
                                                        
@@ -5560,233 +803,6 @@ pcv_rest_server_new(PureCVisorDispatcher *dispatcher __attribute__((unused)),
     return self;
 }
 
-typedef struct {
-    PcvRestServer   *server;
-    GTlsCertificate *certificate;
-} RestTransportContext;
-
-                                                                         
-                                                           
-                                             
-                                                               
-                                                                              
-
-   
-                                                         
-  
-                                                  
-                                                                 
-                                                 
-  
-                                                 
-                                                 
-                                                  
-  
-                                                             
-                                                               
-                                        
-                                 
-                                                           
-                                                          
-   
-static gboolean
-_transport_load_certificate(gpointer data, const gchar *endpoint,
-                            GError **error)
-{
-    (void)endpoint;
-    (void)error;
-    RestTransportContext *ctx = data;
-    if (!pcv_tls_is_enabled()) {
-        g_free(g_tls_degraded_reason);
-        g_tls_degraded_reason =
-            g_strdup("TLS setup failed (see pcv_tls boot log)");
-        return FALSE;
-    }
-    GError *tls_error = NULL;
-    ctx->certificate = g_tls_certificate_new_from_files(
-        pcv_tls_get_cert_path(), pcv_tls_get_key_path(), &tls_error);
-    if (!ctx->certificate) {
-        g_free(g_tls_degraded_reason);
-        g_tls_degraded_reason = g_strdup_printf(
-            "cert load failed: %s",
-            tls_error ? tls_error->message : "unknown");
-        g_clear_error(&tls_error);
-        return FALSE;
-    }
-    PCV_LOG_INFO(REST_LOG_DOM, "TLS certificate loaded: %s",
-                 pcv_tls_get_cert_path());
-    return TRUE;
-}
-
-   
-                                                                   
-  
-                                            
-                                               
-                                                            
-                                                            
-                                                        
-                                                               
-                                              
-  
-                                                
-                                                 
-                                                   
-  
-                                                               
-                                                              
-                                                         
-                                        
-                                 
-                                                 
-                                                         
-                 
-   
-static gboolean
-_transport_create_tls_context(gpointer data, const gchar *endpoint,
-                              GError **error)
-{
-    (void)endpoint;
-    (void)error;
-    RestTransportContext *ctx = data;
-    soup_server_set_tls_certificate(ctx->server->soup, ctx->certificate);
-
-    const gchar *client_auth =
-        pcv_config_get_string("tls", "client_auth", "none");
-    gboolean want_request = g_strcmp0(client_auth, "request") == 0;
-    gboolean want_require = g_strcmp0(client_auth, "require") == 0;
-    if (!want_request && !want_require)
-        return TRUE;
-
-    const gchar *ca_path = pcv_tls_get_ca_path();
-    if (!ca_path || !*ca_path) {
-        PCV_LOG_ERROR(REST_LOG_DOM,
-            "SECURITY: [tls] client_auth=%s 이지만 ca_path 미설정 — %s",
-            client_auth,
-            want_require
-              ? "mTLS 강제 불가로 HTTPS 미개시(fail-secure)"
-              : "클라이언트 인증서 검증 없이 진행(request)");
-        return !want_require;
-    }
-    GError *db_error = NULL;
-    GTlsDatabase *db = g_tls_file_database_new(ca_path, &db_error);
-    if (!db) {
-        PCV_LOG_ERROR(REST_LOG_DOM,
-            "SECURITY: CA 검증 DB 생성 실패 (%s): %s — %s",
-            ca_path, db_error ? db_error->message : "unknown",
-            want_require
-              ? "mTLS 강제 불가로 HTTPS 미개시(fail-secure)"
-              : "클라이언트 인증서 검증 없이 진행(request)");
-        g_clear_error(&db_error);
-        return !want_require;
-    }
-    soup_server_set_tls_database(ctx->server->soup, db);
-    soup_server_set_tls_auth_mode(
-        ctx->server->soup,
-        want_require ? G_TLS_AUTHENTICATION_REQUIRED
-                     : G_TLS_AUTHENTICATION_REQUESTED);
-    g_object_unref(db);
-    PCV_LOG_INFO(REST_LOG_DOM,
-                 "mTLS 클라이언트 인증서 검증 활성 "
-                 "(client_auth=%s, ca=%s)", client_auth, ca_path);
-    return TRUE;
-}
-
-   
-                                                 
-  
-                                                       
-                                             
-                                                        
-                              
-  
-                                                   
-                                                      
-                                                
-                          
-  
-                                                          
-                                                   
-                                                     
-                                     
-                                        
-                                                            
-                                      
-                         
-   
-static gboolean
-_transport_listen_plaintext(gpointer data, const gchar *endpoint,
-                            GError **error)
-{
-    RestTransportContext *ctx = data;
-    if (g_strcmp0(endpoint, "0.0.0.0") == 0) {
-        return soup_server_listen_all(ctx->server->soup, ctx->server->port,
-                                      SOUP_SERVER_LISTEN_IPV4_ONLY, error);
-    }
-    GInetAddress *lo = g_inet_address_new_loopback(AF_INET);
-    GSocketAddress *addr =
-        g_inet_socket_address_new(lo, ctx->server->port);
-    gboolean ok = soup_server_listen(ctx->server->soup, addr, 0, error);
-    g_object_unref(addr);
-    g_object_unref(lo);
-    return ok;
-}
-
-   
-                                                            
-  
-                                                      
-                                                           
-                                               
-                                             
-  
-                                                  
-                                                  
-                                                  
-                              
-  
-                                                            
-                                                                 
-                                        
-                                                        
-                                                          
-                                                             
-   
-static gboolean
-_transport_listen_https(gpointer data, const gchar *endpoint,
-                        GError **error)
-{
-    (void)endpoint;
-    (void)error;
-    RestTransportContext *ctx = data;
-    GError *listen_error = NULL;
-    gboolean ok = soup_server_listen_all(
-        ctx->server->soup, ctx->server->https_port,
-        SOUP_SERVER_LISTEN_IPV4_ONLY | SOUP_SERVER_LISTEN_HTTPS,
-        &listen_error);
-    if (!ok) {
-        g_free(g_tls_degraded_reason);
-        g_tls_degraded_reason = g_strdup_printf(
-            "HTTPS listen failed on port %u: %s",
-            ctx->server->https_port,
-            listen_error ? listen_error->message : "unknown");
-        g_clear_error(&listen_error);
-        return FALSE;
-    }
-    ctx->server->tls_active = TRUE;
-    const gchar *hsts_cfg =
-        pcv_config_get_string("tls", "hsts", "false");
-    if (g_strcmp0(hsts_cfg, "true") == 0 ||
-        g_strcmp0(hsts_cfg, "1") == 0)
-        g_hsts_enabled = TRUE;
-    PCV_LOG_INFO(REST_LOG_DOM,
-                 "HTTPS listening on https://0.0.0.0:%u (HSTS enabled)",
-                 ctx->server->https_port);
-    PCV_LOG_INFO(REST_LOG_DOM,
-                 "HTTP/2 support enabled (TLS via ALPN negotiation)");
-    return TRUE;
-}
-
    
                                            
   
@@ -5823,7 +839,7 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
                                                           
                                      
        
-                                                             
+                                                                     
                                                    
     self->rest_ctx  = g_main_context_new();
     self->rest_loop = g_main_loop_new(self->rest_ctx, FALSE);
@@ -5857,6 +873,9 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
 
                                                             
     pcv_ws_server_init(self->soup);
+                                                               
+    pcv_rest_proxy_trust_load_config();
+    pcv_rest_collector_auth_log_config();
 
                                                                   
                                                               
@@ -5872,10 +891,10 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
         .certificate = NULL,
     };
     const PcvRestTransportOps transport_ops = {
-        .load_certificate = _transport_load_certificate,
-        .create_tls_context = _transport_create_tls_context,
-        .listen_plaintext = _transport_listen_plaintext,
-        .listen_https = _transport_listen_https,
+        .load_certificate = pcv_rest_transport_load_certificate,
+        .create_tls_context = pcv_rest_transport_create_tls_context,
+        .listen_plaintext = pcv_rest_transport_listen_plaintext,
+        .listen_https = pcv_rest_transport_listen_https,
     };
     PcvRestTransportOutcome transport_outcome = {0};
     gboolean transport_ok = pcv_rest_transport_start(
@@ -5883,6 +902,8 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
         &transport_outcome, error);
     g_clear_object(&transport_context.certificate);
     if (!transport_ok) {
+        pcv_ws_server_shutdown();
+        g_clear_object(&self->soup);
         g_main_context_pop_thread_default(self->rest_ctx);
         g_main_loop_unref(self->rest_loop);
         g_main_context_unref(self->rest_ctx);
@@ -5908,10 +929,10 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
                                                                     
     if (self->transport.listen_https &&
         !self->tls_active) {
-        g_tls_degraded = TRUE;
+        pcv_rest_tls_degraded = TRUE;
         PCV_LOG_ERROR(REST_LOG_DOM,
                       "TLS DEGRADED: %s — 외부 HTTPS 표면 차단, 평문 HTTP(:%u)+UDS만 가용",
-                      g_tls_degraded_reason ? g_tls_degraded_reason : "unknown",
+                      pcv_rest_tls_degraded_reason ? pcv_rest_tls_degraded_reason : "unknown",
                       self->port);
     }
 
@@ -5951,28 +972,27 @@ pcv_rest_server_start(PcvRestServer *self, GError **error)
                    
   
       
-                                       
-                                     
-                                      
+                                                                   
+                                                             
+                                                       
   
-                                               
+                                                       
    
 void
 pcv_rest_server_stop(PcvRestServer *self)
 {
-    if (self->soup) {
+    if (self->thread) {
+                                                      
+                                                                  
+        pcv_rest_shutdown_schedule(self->soup, self->rest_loop);
+        g_thread_join(self->thread);
+        pcv_rest_login_pool_shutdown();                                            
+        self->thread = nullptr;
+    } else if (self->soup) {
         soup_server_disconnect(self->soup);
     }
-    if (self->rest_loop && g_main_loop_is_running(self->rest_loop)) {
-        g_main_loop_quit(self->rest_loop);
-    }
-    if (self->thread) {
-        g_thread_join(self->thread);
-        self->thread = nullptr;
-    }
-    g_clear_pointer(&g_tls_degraded_reason, g_free);
-    g_tls_degraded = FALSE;
+    g_clear_pointer(&pcv_rest_tls_degraded_reason, g_free);
+    pcv_rest_tls_degraded = FALSE;
     PCV_LOG_INFO(REST_LOG_DOM, "REST API server stopped");
 }
 
-#endif                                     

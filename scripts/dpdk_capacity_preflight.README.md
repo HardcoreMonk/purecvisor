@@ -54,6 +54,9 @@ OVS 동적 소비는 별도다. 도구가 충분이라고 해도 실제 시작 �
 이 도구는 `vm.create`/`vm.start`를 호출하지 않는다. 별도 ADR-0063 시작 연동이
 실제 XML 기준 cold-start 사전 검사를 구현했다. 공개 2.0.0 소스
 반영을 완료했으며 실제 OVS/hugepage 동시 인수는 남는다.
+VM 시작 쪽에는 hugepage 시작 직렬화가 있어, 제품이 명시적으로 지원하는 hugepage 시작이 동시에
+들어오면 하나만 진행하고 나머지는 `hugepage start admission busy`로 거절한다. 이 잠금은 제품의 지원
+시작 경로에만 걸리며, 외부 OVS/virsh와 모든 NUMA 배치를 포괄하는 물리 메모리 예약 계약이 아니다.
 
 설계 근거는 [ADR-0062](../docs/adr/0062-dpdk-hugepage-capacity-snapshot.md),
 검증·운영 경계는 로컬 인계를 따른다.

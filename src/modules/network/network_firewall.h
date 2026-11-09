@@ -1,6 +1,6 @@
    
                            
-                                               
+                                                                                 
   
                            
                                                    
@@ -9,15 +9,18 @@
   
                                                
                                  
-                                                   
+                                                                        
                                               
                                                     
-                                            
+                                                                     
+                                                               
+                                                         
   
                                                                        
        
                                                          
-                                              
+                                                                         
+                                                                    
   
                             
                                         
@@ -30,37 +33,40 @@
   
                                        
   
-          
-                                                                      
-                                                                           
-                                                                         
-                                                                     
-                                                                   
+                                             
+                                                                                                 
+                                                                                
+                                                                                               
+                                                                    
+                                                                                                    
+                                                                                                    
+                                                                                       
+                                                                                           
+                                                                          
   
             
-                                             
-                                                    
+                                                                                  
+                                                                                            
                                                          
   
        
                                                 
-                                      
+                                                                       
+                                                                                              
+                                                                             
   
-           
-         
-                                                        
                                                       
-                                         
-                                
-  
-              
-                                                   
+                                                                                       
+                                                               
+         
+                                                            
                                                     
-                           
-  
-            
-                         
+                                         
+              
+                                                                    
                       
+            
+                                                                
                                      
                                                                        
    
@@ -71,61 +77,57 @@
 
 G_BEGIN_DECLS
 
-                                    
+                                                                               
 
    
-                                                        
+                                                                    
   
-                                                    
+                                                                          
   
-                     
-                                                              
-                                     
-                                                                  
-  
-                          
-                                     
-                                   
+                                                                                    
+                                                                               
    
 gboolean network_firewall_setup_nat     (const gchar *bridge_name, const gchar *cidr, GError **error);
 
    
-                                                   
+                                                                              
   
                                                     
   
-                     
-                                                            
-                                                               
+                                                                                       
                                                                  
-  
-                                                  
-                        
    
 gboolean network_firewall_setup_isolated(const gchar *bridge_name, const gchar *cidr, GError **error);
 
    
-                                             
+                                                                          
   
-                                                     
+                                                                        
   
-                                        
-                            
+                                                  
    
 gboolean network_firewall_setup_routed  (const gchar *bridge_name, const gchar *cidr, GError **error);
 
    
+                                                        
+  
                                                   
   
-                                               
-  
-                                        
-                                   
-                      
-  
-                                 
+                                                                       
+                                                       
+                                              
    
 gboolean network_firewall_teardown      (const gchar *bridge_name, GError **error);
+
+   
+                                                                                                  
+                                                   
+  
+                                                                          
+              
+                                                                                                   
+   
+gboolean network_firewall_reconcile     (GError **error);
 
 G_END_DECLS
 

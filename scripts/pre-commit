@@ -3,8 +3,10 @@
                                                                            
                                                           
                                                                    
-                                                                     
-                                                      
+                                                                          
+                                                                        
+                                                                             
+                                                     
  
                       
                                                                           
@@ -23,7 +25,7 @@
  
         
                           
-                                                                   
+                                                                 
 
 set -uo pipefail
 
@@ -65,15 +67,15 @@ HAS_UI_CHANGES=false
 HAS_RBAC_POLICY_CHANGES=false
 
 echo "$STAGED" | grep -qE '\.(c|h)$' && HAS_C_CHANGES=true
-echo "$STAGED" | grep -qE '(rest_server|dispatcher)\.(c|h)$' && HAS_API_CHANGES=true
+echo "$STAGED" | grep -qE '(rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)|dispatcher[^/]*)\.(c|h)$' && HAS_API_CHANGES=true
 echo "$STAGED" | grep -qE '^ui/' && HAS_UI_CHANGES=true
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/auth/pcv_rbac\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/modules/auth/pcv_rbac\.(c|h)|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_rbac_policies\.py)$' && HAS_RBAC_POLICY_CHANGES=true
 HAS_CONTRACT_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/api/rest_server\.c|src/api/grpc_server\.c|src/cli/purecvisorctl\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/api/grpc_server\.c|src/cli/purecvisorctl\.c|ui/.*\.js|scripts/check_rpc_consumers\.py|scripts/check_rpc_param_contract\.py|scripts/rpc_extract\.py|contracts/.*\.json)$' && HAS_CONTRACT_CHANGES=true
 HAS_SYMBOL_CHANGES=false
 echo "$STAGED" | grep -qE '\.(c|h)$|^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt)$' && HAS_SYMBOL_CHANGES=true
 HAS_INGRESS_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc|rest)_server\.c|src/api/dispatcher\.c|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/(ws|uds|grpc)_server\.c|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/modules/dispatcher/rpc_utils\.(c|h)|scripts/check_json_ingress\.py|scripts/json_ingress_baseline\.txt)$' && HAS_INGRESS_CHANGES=true
 HAS_SAFETY_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_safety_controls\.py|contracts/safety_controls(\.json|_baseline\.txt))$' && HAS_SAFETY_CHANGES=true
 HAS_ERROR_CODE_CHANGES=false
@@ -84,10 +86,18 @@ HAS_NETWORK_MODE_CONTRACT_CHANGES=false
 echo "$STAGED" | grep -qE '^(ui/modules/network\.js|src/modules/network/network_manager\.c|src/bootstrap/pcv_bootstrap_single\.c|scripts/check_network_mode_contract\.py|scripts/tests/test_network_mode_contract\.py)$' && HAS_NETWORK_MODE_CONTRACT_CHANGES=true
 HAS_ISCSI_CHAP_ARGV_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/storage/(iscsi_manager|pcv_iscsi_node_db)\.(c|h)|tests/test_iscsi\.c|scripts/check_iscsi_chap_argv\.py|scripts/tests/test_iscsi_chap_argv\.py)$' && HAS_ISCSI_CHAP_ARGV_CHANGES=true
+                                                                          
+                                    
+HAS_REST_CONTRACT_TEST_CHANGES=false
+echo "$STAGED" | grep -qE '^src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|login|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)$' && HAS_REST_CONTRACT_TEST_CHANGES=true
+HAS_VM_NAME_LOCK_TEST_CHANGES=false
+echo "$STAGED" | grep -qE '^src/modules/dispatcher/handler_vm_(create|clone|lifecycle|rename|delete|guest|ova)\.c$' && HAS_VM_NAME_LOCK_TEST_CHANGES=true
+HAS_JOB_SCHEMA_TEST_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/utils/pcv_job_(queue|recovery)\.(c|h)|src/utils/pcv_job_queue_internal\.h|src/utils/pcv_(config|log)\.h|src/api/drain\.(c|h)|src/modules/dispatcher/rpc_completion\.(c|h)|src/modules/dispatcher/rpc_utils\.h|tests/fixtures/(job_legacy_schema_probe\.c|job_queue_legacy\.h|job_recovery_probe\.c))$' && HAS_JOB_SCHEMA_TEST_CHANGES=true
 HAS_CORS_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_cors_anchor\.py|scripts/tests/test_cors_anchor\.py)$' && HAS_CORS_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_cors_anchor\.py|scripts/tests/test_cors_anchor\.py)$' && HAS_CORS_CHANGES=true
 HAS_SECRET_LOG_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_secret_logging\.py|scripts/tests/test_secret_logging\.py)$' && HAS_SECRET_LOG_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_secret_logging\.py|scripts/tests/test_secret_logging\.py)$' && HAS_SECRET_LOG_CHANGES=true
 HAS_SSRF_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_guard\.py|scripts/tests/test_ssrf_guard\.py)$' && HAS_SSRF_CHANGES=true
 HAS_GRPC_AUTHZ_CHANGES=false
@@ -95,21 +105,21 @@ echo "$STAGED" | grep -qE '^(src/api/grpc_server\.c|scripts/check_grpc_authz\.py
 HAS_SSRF_TARGET_CHANGES=false
 echo "$STAGED" | grep -qE '\.c$|^(scripts/check_ssrf_target_guard\.py|scripts/tests/test_ssrf_target_guard\.py)$' && HAS_SSRF_TARGET_CHANGES=true
 HAS_AUDIT_HASHCHAIN_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/modules/audit/pcv_audit\.(c|h)|scripts/check_audit_hashchain\.py|scripts/tests/test_audit_hashchain\.py)$' && HAS_AUDIT_HASHCHAIN_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/modules/audit/pcv_audit\.(c|h)|src/modules/audit/pcv_audit_chain\.c|src/main\.c|src/modules/daemons/ebpf_telemetry\.c|src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_audit_hashchain\.py|scripts/tests/test_audit_hashchain\.py)$' && HAS_AUDIT_HASHCHAIN_CHANGES=true
 HAS_RNG_SAFE_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/auth/pcv_rbac\.c|src/utils/pcv_jwt\.c|scripts/check_rng_safe\.py|scripts/tests/test_rng_safe\.py)$' && HAS_RNG_SAFE_CHANGES=true
 HAS_UDS_AUTHZ_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/api/uds_server\.c|src/utils/pcv_config\.c|scripts/check_uds_authz\.py|scripts/tests/test_uds_authz\.py)$' && HAS_UDS_AUTHZ_CHANGES=true
 HAS_TRANSPORT_BIND_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/main\.c|scripts/check_transport_bind\.py|scripts/tests/test_transport_bind\.py)$' && HAS_TRANSPORT_BIND_CHANGES=true
 HAS_CONTAINER_OWNER_SCOPE_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|src/modules/dispatcher/handler_container\.c|src/modules/lxc/lxc_owner\.(c|h)|scripts/check_container_owner_scope\.py|scripts/tests/test_container_owner_scope\.py)$' && HAS_CONTAINER_OWNER_SCOPE_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|src/modules/dispatcher/handler_container\.c|src/modules/lxc/lxc_owner\.(c|h)|scripts/check_container_owner_scope\.py|scripts/tests/test_container_owner_scope\.py)$' && HAS_CONTAINER_OWNER_SCOPE_CHANGES=true
 HAS_MTLS_WIRING_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|src/utils/pcv_tls\.(c|h)|scripts/check_mtls_wiring\.py|scripts/tests/test_mtls_wiring\.py)$' && HAS_MTLS_WIRING_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|src/utils/pcv_tls\.(c|h)|scripts/check_mtls_wiring\.py|scripts/tests/test_mtls_wiring\.py)$' && HAS_MTLS_WIRING_CHANGES=true
 HAS_TLS_MIN_VERSION_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/utils/pcv_tls\.(c|h)|scripts/check_tls_min_version\.py|scripts/tests/test_tls_min_version\.py)$' && HAS_TLS_MIN_VERSION_CHANGES=true
 HAS_SECURITY_HEADERS_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/rest_server\.c|scripts/check_security_headers\.py|scripts/tests/test_security_headers\.py)$' && HAS_SECURITY_HEADERS_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/rest_(server|policy|response|request|async|transport|request_auth|internal|prelude|public|public_render|auth_endpoints|map_compute|map_observe|map_platform)\.(c|h)|scripts/check_security_headers\.py|scripts/tests/test_security_headers\.py)$' && HAS_SECURITY_HEADERS_CHANGES=true
 HAS_PASSWORD_POLICY_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/dispatcher/handler_auth\.c|src/utils/pcv_validate\.(c|h)|scripts/check_password_policy\.py|scripts/tests/test_password_policy\.py)$' && HAS_PASSWORD_POLICY_CHANGES=true
 HAS_WS_TOKEN_URL_CHANGES=false
@@ -117,41 +127,212 @@ echo "$STAGED" | grep -qE '^(src/api/ws_server\.c|scripts/check_ws_token_url\.py
 HAS_ZPOOL_RECOVER_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/modules/storage/zfs_driver\.(c|h)|src/modules/daemons/ebpf_telemetry\.c|scripts/check_zpool_suspend_recover\.py|scripts/tests/test_zpool_suspend_recover\.py)$' && HAS_ZPOOL_RECOVER_CHANGES=true
 HAS_DEB_APPARMOR_CHANGES=false
-echo "$STAGED" | grep -qE '^(packaging/deb/build-deb\.sh|packaging/apparmor/pcv-apparmor|scripts/check_deb_apparmor\.py|scripts/tests/test_deb_apparmor\.py)$' && HAS_DEB_APPARMOR_CHANGES=true
+echo "$STAGED" | grep -qE '^(packaging/deb/build-deb\.sh|packaging/apparmor/(pcv-apparmor|usr\.local\.bin\.purecvisorsd)|docs/adr/0028-2\.0-host-hardening-hidepid-over-apparmor-confinement\.md|scripts/check_deb_apparmor\.py|scripts/tests/test_deb_apparmor\.py)$' && HAS_DEB_APPARMOR_CHANGES=true
 HAS_SPAWN_CAPABILITY_CHANGES=false
 echo "$STAGED" | grep -qE '^(src/.*\.[ch]|packaging/deb/(purecvisorsd\.service|purecvisor-lio\.conf)|scripts/check_spawn_capability_contract\.py|Makefile)$' && HAS_SPAWN_CAPABILITY_CHANGES=true
 HAS_PUBLIC_COMMENT_CHANGES=true
 
                                                                    
 HAS_HELP_COUNT_CHANGES=false
-echo "$STAGED" | grep -qE '^(src/api/dispatcher\.c|ui/modules/help\.js|ui/app\.js|scripts/check_help_counts\.py)$' && HAS_HELP_COUNT_CHANGES=true
+echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/modules/dispatcher/.*|ui/modules/help\.js|ui/app\.js|scripts/check_help_counts\.py)$' && HAS_HELP_COUNT_CHANGES=true
+
+                                                                                  
+HAS_HELP_CONTRACT_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/api/dispatcher[^/]*\.c|src/api/rest_[^/]*\.c|src/modules/.*\.c|ui/modules/help\.js|docs/GUIDE\.md|ui/guide-content\.md|scripts/(check_help_contract|check_fe_rpc_params|check_rbac_policies|check_help_counts|extract_rest_routes|rpc_extract)\.py|scripts/tests/test_help_contract\.py)$' && HAS_HELP_CONTRACT_CHANGES=true
+
+                                                                          
+                                                                  
+                                                             
+HAS_DEAD_EXPORT_ACCEPT_CHANGES=false
+echo "$STAGED" | grep -qE '^scripts/(check_dead_exports\.py|dead_exports_baseline\.txt|tests/test_dead_exports_acceptance\.py)$' && HAS_DEAD_EXPORT_ACCEPT_CHANGES=true
+$HAS_DEAD_EXPORT_ACCEPT_CHANGES && HAS_SYMBOL_CHANGES=true
+
+                                                             
+                          
+                                                                           
+                                                                              
+                                                               
+                             
+                                                                        
+                                                                                        
+                                                                           
+                                                                        
+                                                                        
+                                                                                
+                                                                           
+                                                                      
+                                                                
+                                                                
+                                                                                        
+PCV_BG_DIR=""
+declare -A PCV_BG_PID=()
+PCV_BG_RC=0
+PCV_BG_OUT=""
+
+pcv_bg_start() {
+                                                                  
+    local name="$1"
+    shift
+    "$@" >"$PCV_BG_DIR/$name.log" 2>&1 </dev/null &
+    PCV_BG_PID[$name]=$!
+}
+
+pcv_bg_collect() {
+                                                                         
+    local name="$1" pid="${PCV_BG_PID[$1]:-}"
+    PCV_BG_RC=125
+    PCV_BG_OUT="백그라운드 작업 '$name'이 시작되지 않았다"
+    [ -n "$pid" ] || return 0
+    wait "$pid"
+    PCV_BG_RC=$?
+    unset "PCV_BG_PID[$name]"
+    PCV_BG_OUT=$(cat -- "$PCV_BG_DIR/$name.log" 2>/dev/null || true)
+}
+
+pcv_bg_cleanup() {
+                                                                             
+    local name pid live tries=0
+    for name in "${!PCV_BG_PID[@]}"; do
+        kill -TERM "${PCV_BG_PID[$name]}" 2>/dev/null || true
+    done
+    while [ "${#PCV_BG_PID[@]}" -gt 0 ] && [ "$tries" -lt 10 ]; do
+        live=0
+        for name in "${!PCV_BG_PID[@]}"; do
+            kill -0 "${PCV_BG_PID[$name]}" 2>/dev/null && live=1
+        done
+        [ "$live" -eq 0 ] && break
+        sleep 0.5
+        tries=$((tries + 1))
+    done
+    for name in "${!PCV_BG_PID[@]}"; do
+        pid="${PCV_BG_PID[$name]}"
+        kill -KILL -- "-$pid" 2>/dev/null || true
+        kill -KILL "$pid" 2>/dev/null || true
+    done
+    PCV_BG_PID=()
+    if [ -n "$PCV_BG_DIR" ]; then
+        rm -rf -- "$PCV_BG_DIR" 2>/dev/null || true
+        PCV_BG_DIR=""
+    fi
+}
+
+trap 'pcv_bg_cleanup' EXIT
+trap 'pcv_bg_cleanup; exit 130' INT
+trap 'pcv_bg_cleanup; exit 143' TERM
+trap 'pcv_bg_cleanup; exit 129' HUP
+                    
+
+PCV_TOP="$(git rev-parse --show-toplevel)"
+PCV_SAN_TREE=""
+PCV_SAN_PREP_ERR=""
+PCV_SAN_STARTED=false
+PCV_FG_TMP=""
+                                                                                                     
+                                                                              
+                                                                                                     
+                                                                            
+                                                                    
+PCV_SKIP_ROOT_SAN=false
+[ "$(git config --get --bool pcv.hook.skipRootSanitize 2>/dev/null)" = "true" ] && PCV_SKIP_ROOT_SAN=true
+                                                                                                   
+                                                                                         
+                                                                               
+                                                                                             
+                                                                                               
+                                                                                 
+                                                         
+PCV_SKIP_LIVE_INTEG=false
+[ "$(git config --get --bool pcv.hook.skipLiveIntegration 2>/dev/null)" = "true" ] && PCV_SKIP_LIVE_INTEG=true
+
+pcv_start_asan() {
+                                                                         
+                                                               
+                                                                             
+                                                              
+    local jobs=$(( $(nproc 2>/dev/null || echo 2) / 2 ))
+    [ "$jobs" -ge 1 ] || jobs=1
+    pcv_bg_start asan env -u GIT_DIR -u GIT_WORK_TREE -u GIT_INDEX_FILE -u GIT_OBJECT_DIRECTORY \
+        -u GIT_ALTERNATE_OBJECT_DIRECTORIES -u GIT_COMMON_DIR -u GIT_PREFIX \
+        MAKEFLAGS="-j$jobs" CCACHE_NOHASHDIR=1 PCV_SANITIZE_DISPOSABLE_TREE=1 \
+        timeout 300 make -C "$PCV_SAN_TREE" --no-print-directory sanitize
+    PCV_SAN_STARTED=true
+}
+
+if $HAS_SYMBOL_CHANGES || $HAS_C_CHANGES; then
+    PCV_BG_DIR=$(mktemp -d "${TMPDIR:-/tmp}/pcv-precommit-bg.XXXXXX") || PCV_BG_DIR=""
+fi
+if [ -n "$PCV_BG_DIR" ]; then
+    if $HAS_SYMBOL_CHANGES; then
+        pcv_bg_start dead_export python3 "$PCV_TOP/scripts/check_dead_exports.py"
+        if $HAS_DEAD_EXPORT_ACCEPT_CHANGES; then
+            pcv_bg_start dead_export_accept python3 "$PCV_TOP/scripts/tests/test_dead_exports_acceptance.py"
+        fi
+    fi
+    if $HAS_C_CHANGES && ! $PCV_SKIP_ROOT_SAN; then
+                                                                                       
+        PCV_SAN_TREE="$PCV_BG_DIR/staged-tree"
+        if PCV_SAN_PREP_ERR=$(git checkout-index -a --prefix="$PCV_SAN_TREE/" 2>&1); then
+                                                                                      
+                                                                                               
+                                                                                           
+                                                                                                            
+                                                                                  
+            PCV_FG_TMP="$PCV_BG_DIR/fg-tmp"
+            mkdir -p "$PCV_FG_TMP" || PCV_FG_TMP=""
+                                                                                                     
+            if [ "${PCV_PRECOMMIT_ROOT_TEST:-0}" != "1" ]; then
+                pcv_start_asan
+            fi
+        else
+            PCV_SAN_TREE=""
+        fi
+    fi
+elif $HAS_SYMBOL_CHANGES || $HAS_C_CHANGES; then
+    PCV_SAN_PREP_ERR="mktemp -d 실패 — 백그라운드 작업 디렉터리를 만들지 못했다"
+fi
+
+pcv_show_build_errors() {
+                                                         
+    echo "$1" | grep -E "error:|undefined reference|\*\*\*" | head -15
+}
 
                                                        
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] 클러스터 빌드 검증 (경고 0)${NC}"
     BUILD_OUT=$(make all 2>&1)
+    BUILD_RC=$?
     WARNINGS=$(echo "$BUILD_OUT" | grep -c "warning:" || true)
+                                                            
+    if [ "$BUILD_RC" -ne 0 ]; then
+        fail "빌드 실패 (make all 종료 코드 $BUILD_RC)"
+        pcv_show_build_errors "$BUILD_OUT"
+    fi
     if [ "$WARNINGS" -gt 0 ]; then
         fail "빌드 경고 ${WARNINGS}건 발견"
         echo "$BUILD_OUT" | grep "warning:" | head -5
-    else
+    elif [ "$BUILD_RC" -eq 0 ]; then
         pass "빌드 경고 0건"
     fi
 else
     skip "[1] C 소스 변경 없음 — 빌드 검증 생략"
 fi
 
-                                                            
+                                                           
 if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] Single Edge 빌드 검증${NC}"
     SINGLE_OUT=$(make clean >/dev/null 2>&1 && make single 2>&1)
+    SINGLE_RC=$?
                                                    
     SINGLE_WARNS=$(echo "$SINGLE_OUT" | grep -c "warning:" || true)
+    if [ "$SINGLE_RC" -ne 0 ]; then
+        fail "Single Edge 빌드 실패 (make clean·single 종료 코드 $SINGLE_RC)"
+        pcv_show_build_errors "$SINGLE_OUT"
+    fi
     if [ "$SINGLE_WARNS" -gt 0 ]; then
         fail "Single Edge 빌드 신규 경고 ${SINGLE_WARNS}건"
-    else
+    elif [ "$SINGLE_RC" -eq 0 ]; then
         pass "Single Edge 빌드 경고 0건"
     fi
                           
@@ -209,12 +390,14 @@ if $HAS_C_CHANGES; then
         TEST_STATUS=1
         fail "root로 커밋 중 — 비root 사용자로 커밋하거나 PCV_PRECOMMIT_ROOT_TEST=1을 명시하십시오"
     else
-        {
+        (
+                                                                         
+            [ -n "$PCV_FG_TMP" ] && export TMPDIR="$PCV_FG_TMP"
             make test_runner tests/audit_startup_test check-q35-hotplug-xml \
                 check-server-defect-contracts check-dpdk-owned-lifecycle &&
             ./test_runner -v &&
             ./tests/audit_startup_test -v
-        } >"$TEST_LOG" 2>&1
+        ) >"$TEST_LOG" 2>&1
         TEST_STATUS=$?
     fi
     if [ "$(id -u)" -ne 0 ] || [ "${PCV_PRECOMMIT_ROOT_TEST:-0}" = "1" ]; then
@@ -223,6 +406,88 @@ if $HAS_C_CHANGES; then
     rm -f "$TEST_LOG"
 else
     skip "[3] C 소스 변경 없음 — 테스트 생략"
+fi
+                                                                                                 
+if [ -n "$PCV_SAN_TREE" ] && ! $PCV_SAN_STARTED; then
+    pcv_start_asan
+fi
+
+                                                                      
+                                                                                        
+                                                                       
+                                                                          
+                                                                        
+                                    
+                                                              
+                  
+HAS_SELECTOR_CONTRACT_CHANGES=false
+echo "$STAGED" | grep -qE '^(tests/test_[^/]*\.c|docs/GUIDE\.md|docs/DEVELOPMENT_VERIFICATION_POLICY\.md|docs/ADR_INDEX\.md|docs/adr/[^/]*\.md|scripts/check_test_runner_selectors\.py)$' && HAS_SELECTOR_CONTRACT_CHANGES=true
+if $HAS_SELECTOR_CONTRACT_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 시험 선택자 계약 (-p leaf / -r suite)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    SEL_OUT=$(python3 "$SCRIPT_DIR/check_test_runner_selectors.py" --self-test 2>&1)
+    SEL_RC=$?
+    if [ $SEL_RC -eq 0 ] && [ ! -x ./test_runner ]; then
+        SEL_OUT="$SEL_OUT
+$(make test_runner 2>&1 | tail -5)"
+        [ -x ./test_runner ] || SEL_RC=2
+    fi
+    if [ $SEL_RC -eq 0 ]; then
+        SEL_OUT=$(python3 "$SCRIPT_DIR/check_test_runner_selectors.py" --test-runner ./test_runner 2>&1)
+        SEL_RC=$?
+    fi
+    if [ $SEL_RC -ne 0 ]; then
+        fail "시험 선택자 계약 위반 (suite prefix는 -r, 단일 leaf만 -p)"
+        echo "$SEL_OUT" | tail -15
+    else
+        pass "$(echo "$SEL_OUT" | grep -E '^\[|PASS' | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 선택자 정본 파일 변경 없음 — 시험 선택자 계약 생략"
+fi
+
+                    
+                                                           
+                                                              
+                                                                    
+HAS_FILE_SIZE_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/.*\.(c|h)|ui/app\.js|ui/modules/[^/]*\.js|scripts/file_size_baseline\.txt|scripts/check_file_size_ratchet\.py)$' && HAS_FILE_SIZE_CHANGES=true
+if $HAS_FILE_SIZE_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 파일 크기 래칫 (상한 1,500줄)${NC}"
+    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
+    FSR_OUT=$(python3 "$SCRIPT_DIR/check_file_size_ratchet.py" 2>&1)
+    FSR_RC=$?
+    if [ $FSR_RC -ne 0 ]; then
+        fail "파일 크기 래칫 위반 (상한 1,500줄, 기준선은 줄이기만)"
+        echo "$FSR_OUT" | tail -15
+    else
+        pass "$(echo "$FSR_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] 소스 파일 변경 없음 — 파일 크기 래칫 생략"
+fi
+
+                                                
+                                                                         
+                                            
+                                                                   
+HAS_TEST_LINK_CHANGES=false
+echo "$STAGED" | grep -qE '^(src/.*\.(c|h)|tests/.*\.(c|h)|Makefile)$' && HAS_TEST_LINK_CHANGES=true
+if $HAS_TEST_LINK_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] 시험 러너 링크 의존 (--no-gc-sections)${NC}"
+    TLD_OUT=$(make -s check-test-link-deps 2>&1)
+    TLD_RC=$?
+    if [ $TLD_RC -ne 0 ]; then
+        fail "시험 러너 링크 의존 누락 (--gc-sections가 가리는 미정의 참조)"
+        echo "$TLD_OUT" | tail -15
+    else
+        pass "$(echo "$TLD_OUT" | tail -1)"
+    fi
+else
+    skip "[$((GATE+1))] C 소스·Makefile 변경 없음 — 시험 러너 링크 의존 생략"
 fi
 
                                                            
@@ -238,7 +503,7 @@ if $HAS_API_CHANGES; then
             echo "$RESULT" | grep "FAIL"
         else
             FAIL_LINE=$(echo "$RESULT" | grep "FAIL:" | head -1)
-            pass "REST↔RPC ��합성 통과 ($FAIL_LINE)"
+            pass "REST↔RPC 정합성 통과 ($FAIL_LINE)"
         fi
     else
         skip "verify_api_consistency.sh 없음"
@@ -280,25 +545,33 @@ else
 fi
 
                                                                        
+                                                           
 if $HAS_SYMBOL_CHANGES; then
     GATE=$((GATE+1))
     echo -e "${CYAN}[$GATE] dead export${NC}"
-    SCRIPT_DIR="$(git rev-parse --show-toplevel)/scripts"
-    DE_OUT=$(python3 "$SCRIPT_DIR/check_dead_exports.py" 2>&1)
-    if [ $? -ne 0 ]; then
-        fail "신규 dead export (헤더 선언 함수 사용처0 — 배선/삭제/waiver 필요)"
+    pcv_bg_collect dead_export
+    DE_RC=$PCV_BG_RC
+    DE_OUT=$PCV_BG_OUT
+    if [ "$DE_RC" -ne 0 ]; then
+        fail "신규 dead export (헤더 선언 함수 사용처0 — 배선/삭제/waiver 필요, 종료 코드 $DE_RC)"
         echo "$DE_OUT" | tail -15
     else
         pass "$(echo "$DE_OUT" | grep -E '^\[' | tail -1)"
-                                                      
-                                                        
-        DE_ACCEPT_OUT=$(python3 "$SCRIPT_DIR/tests/test_dead_exports_acceptance.py" 2>&1)
-        if [ $? -ne 0 ]; then
-            fail "dead export 실트리 오탐 인수 테스트 실패"
+    fi
+                                                                    
+                                                                               
+    if $HAS_DEAD_EXPORT_ACCEPT_CHANGES; then
+        pcv_bg_collect dead_export_accept
+        DE_ACCEPT_RC=$PCV_BG_RC
+        DE_ACCEPT_OUT=$PCV_BG_OUT
+        if [ "$DE_ACCEPT_RC" -ne 0 ]; then
+            fail "dead export 실트리 오탐 인수 테스트 실패 (종료 코드 $DE_ACCEPT_RC)"
             echo "$DE_ACCEPT_OUT" | tail -15
         else
             pass "$(echo "$DE_ACCEPT_OUT" | tail -1)"
         fi
+    else
+        skip "dead export 실트리 인수 시험 — 분석기·기준선·인수 시험 변경 없음 (C만 바뀐 오탐은 위 게이트가 잡는다)"
     fi
 else
     skip "[$((GATE+1))] .c/.h 및 게이트 스크립트 변경 없음 — dead export 검증 생략"
@@ -442,7 +715,26 @@ if $HAS_CORS_CHANGES; then
         pass "$(echo "$CORS_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] rest_server.c/CORS 게이트 변경 없음 — CORS 앵커 게이트 생략"
+    skip "[$((GATE+1))] rest 계열/CORS 게이트 변경 없음 — CORS 앵커 게이트 생략"
+fi
+
+                              
+                                                                                  
+                                                    
+                                                                       
+if $HAS_REST_CONTRACT_TEST_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] REST 요청 경로 계약 시험${NC}"
+    PROJECT_ROOT="$(git rev-parse --show-toplevel)"
+    RCT_OUT=$(python3 "$PROJECT_ROOT/tests/test_rest_cleanup_init_contract.py" 2>&1 && python3 "$PROJECT_ROOT/tests/test_rest_segs_bounds_contract.py" 2>&1)
+    if [ $? -ne 0 ]; then
+        fail "REST cleanup 초기화 또는 segs 경계 계약 회귀 (무인증 요청 크래시 재발 위험)"
+        echo "$RCT_OUT" | tail -15
+    else
+        pass "REST 요청 경로 계약 시험 통과"
+    fi
+else
+    skip "[$((GATE+1))] rest 계열 변경 없음 — REST 요청 경로 계약 시험 생략"
 fi
 
                                                                   
@@ -458,7 +750,7 @@ if $HAS_SECRET_LOG_CHANGES; then
         pass "$(echo "$SL_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] rest_server.c/마스킹 게이트 변경 없음 — 자격증명 마스킹 게이트 생략"
+    skip "[$((GATE+1))] rest 계열/마스킹 게이트 변경 없음 — 자격증명 마스킹 게이트 생략"
 fi
 
                                                          
@@ -522,7 +814,7 @@ if $HAS_AUDIT_HASHCHAIN_CHANGES; then
         pass "$(echo "$AH_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] pcv_audit.*/해시체인 게이트 변경 없음 — 감사 해시체인 게이트 생략"
+    skip "[$((GATE+1))] pcv_audit.*/rest 계열/해시체인 게이트 변경 없음 — 감사 해시체인 게이트 생략"
 fi
 
                                                                     
@@ -570,7 +862,7 @@ if $HAS_TRANSPORT_BIND_CHANGES; then
         pass "$(echo "$TB_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] rest_server.c/transport bind 게이트 변경 없음 — 평문 바인딩 게이트 생략"
+    skip "[$((GATE+1))] rest 계열/transport bind 게이트 변경 없음 — 평문 바인딩 게이트 생략"
 fi
 
                                                                                  
@@ -602,7 +894,7 @@ if $HAS_MTLS_WIRING_CHANGES; then
         pass "$(echo "$MW_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] rest_server.c/pcv_tls.*/mTLS 게이트 변경 없음 — mTLS 배선 게이트 생략"
+    skip "[$((GATE+1))] rest 계열/pcv_tls.*/mTLS 게이트 변경 없음 — mTLS 배선 게이트 생략"
 fi
 
                                                                       
@@ -634,7 +926,7 @@ if $HAS_SECURITY_HEADERS_CHANGES; then
         pass "$(echo "$SH_OUT" | grep -E '^\[' | tail -1)"
     fi
 else
-    skip "[$((GATE+1))] rest_server.c/보안헤더 게이트 변경 없음 — /ui 보안 헤더 게이트 생략"
+    skip "[$((GATE+1))] rest 계열/보안헤더 게이트 변경 없음 — /ui 보안 헤더 게이트 생략"
 fi
 
                                                                           
@@ -755,7 +1047,7 @@ fi
                                                  
 if $HAS_UI_CHANGES; then
     GATE=$((GATE+1))
-    echo -e "${CYAN}[$GATE] 프���트엔드 패턴 검증${NC}"
+    echo -e "${CYAN}[$GATE] 프론트엔드 패턴 검증${NC}"
     UI_DIR="$(git rev-parse --show-toplevel)/ui/modules"
     ISSUES=0
 
@@ -801,18 +1093,6 @@ if $HAS_UI_CHANGES; then
             fi
         else
             skip "ESLint 미설치 — npm install 필요"
-        fi
-    fi
-
-                                                    
-    if echo "$STAGED" | grep -qE "(REST_ENDPOINTS\.md|openapi\.yaml|gen_openapi\.py)"; then
-        GATE=$((GATE+1))
-        echo -e "${CYAN}[$GATE] OpenAPI 동기화${NC}"
-        if python3 scripts/gen_openapi.py --check 2>/tmp/oapi.log; then
-            pass "OpenAPI 동기화 OK"
-        else
-            fail "openapi.yaml가 REST_ENDPOINTS.md와 불일치"
-            cat /tmp/oapi.log
         fi
     fi
 
@@ -871,7 +1151,12 @@ if $HAS_C_CHANGES && command -v cppcheck &>/dev/null; then
         src/ 2>&1)
     CPP_EXIT=$?
     REAL_ERRS=$(echo "$CPP_OUT" | grep '(error)' | grep -v "protoc-c\|preprocessorErrorDirective" | wc -l || true)
-    if [ "$REAL_ERRS" -gt 0 ]; then
+                                                                                 
+                                           
+    if [ "$CPP_EXIT" -ne 0 ] && [ "$CPP_EXIT" -ne 1 ]; then
+        fail "cppcheck 비정상 종료 (종료 코드 $CPP_EXIT)"
+        echo "$CPP_OUT" | tail -5
+    elif [ "$REAL_ERRS" -gt 0 ]; then
         fail "cppcheck 에러 ${REAL_ERRS}건"
         echo "$CPP_OUT" | grep '(error)' | grep -v "protoc-c\|preprocessorErrorDirective" | head -5
     else
@@ -880,20 +1165,38 @@ if $HAS_C_CHANGES && command -v cppcheck &>/dev/null; then
 fi
 
                                                        
-if $HAS_C_CHANGES && [ -f bin/purecvisorsd ]; then
+if $HAS_C_CHANGES; then
     GATE=$((GATE+1))
-    echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3MB 상한)${NC}"
-    SIZE=$(stat -c%s bin/purecvisorsd 2>/dev/null || echo 0)
-    SIZE_KB=$((SIZE / 1024))
-    if [ "$SIZE" -gt 3145728 ]; then
-        fail "바이너리 ${SIZE_KB}KB > 3MB 상한"
+    echo -e "${CYAN}[$GATE] 바이너리 크기 검증 (3MB 상한, 디버그 정보·심볼표 제외)${NC}"
+                                             
+    if [ ! -f bin/purecvisorsd ]; then
+        fail "데몬 바이너리 bin/purecvisorsd 없음 — 빌드 실패로 크기를 잴 수 없다"
     else
-        pass "바이너리 ${SIZE_KB}KB (3MB 이내)"
+                                                                             
+                                                                  
+                                                                                   
+                                                                             
+                                                                                      
+        SIZE_TMP=$(mktemp "${TMPDIR:-/tmp}/pcv-size.XXXXXX")
+        if command -v strip &>/dev/null && strip -s -o "$SIZE_TMP" bin/purecvisorsd 2>/dev/null; then
+            SIZE=$(stat -c%s "$SIZE_TMP" 2>/dev/null || echo 0)
+        else
+            SIZE=$(stat -c%s bin/purecvisorsd 2>/dev/null || echo 0)
+        fi
+        rm -f "$SIZE_TMP"
+        SIZE_KB=$((SIZE / 1024))
+        if [ "$SIZE" -gt 3145728 ]; then
+            fail "바이너리 ${SIZE_KB}KB > 3MB 상한"
+        else
+            pass "바이너리 ${SIZE_KB}KB (3MB 이내)"
+        fi
     fi
 fi
 
                                                      
-if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
+if ($HAS_API_CHANGES || $HAS_UI_CHANGES) && $PCV_SKIP_LIVE_INTEG; then
+    skip "[$((GATE+1))] 운영 겸용 체크아웃(pcv.hook.skipLiveIntegration) — SAFE 통합/보안 스캔은 개발 호스트 Level 2 몫"
+elif $HAS_API_CHANGES || $HAS_UI_CHANGES; then
     if curl -s -o /dev/null -w "%{http_code}" "http://localhost/api/v1/health" 2>/dev/null | grep -q "200"; then
         GATE=$((GATE+1))
         echo -e "${CYAN}[$GATE] SAFE 통합 테스트 (데몬 감지됨)${NC}"
@@ -901,12 +1204,14 @@ if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
         if [ -x "$SCRIPT_DIR/run_auto_tests.sh" ]; then
             INTEG_OUT=$("$SCRIPT_DIR/run_auto_tests.sh" --tier 1 --ci 2>&1)
             INTEG_EXIT=$?
-            INTEG_PASS=$(echo "$INTEG_OUT" | grep "PASS:" | tail -1 | sed 's/.*PASS: \([0-9]*\).*/\1/' || echo 0)
-            INTEG_FAIL=$(echo "$INTEG_OUT" | grep "FAIL:" | tail -1 | sed 's/.*FAIL: \([0-9]*\).*/\1/' || echo 0)
-            if [ "$INTEG_EXIT" -ne 0 ] && [ "${INTEG_FAIL:-0}" -gt 0 ]; then
-                fail "SAFE 통합 테스트 ${INTEG_FAIL}건 실패"
+                                                                                  
+                                                                              
+            INTEG_SUMMARY=$(echo "$INTEG_OUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -E '^ *PASS: *[0-9]+ +FAIL: *[0-9]+' | tail -1 | sed 's/^ *//' || true)
+            if [ "$INTEG_EXIT" -ne 0 ]; then
+                fail "SAFE 통합 테스트 실패 (러너 종료 코드 $INTEG_EXIT${INTEG_SUMMARY:+, $INTEG_SUMMARY})"
+                echo "$INTEG_OUT" | sed 's/\x1b\[[0-9;]*m//g' | grep -E 'FAIL|✗' | tail -15
             else
-                pass "SAFE 통합 테스�� 통과 (${INTEG_PASS}건)"
+                pass "SAFE 통합 테스트 통과 (${INTEG_SUMMARY:-요약 행 없음})"
             fi
         fi
 
@@ -918,8 +1223,16 @@ if $HAS_API_CHANGES || $HAS_UI_CHANGES; then
             SEC_OUT=$(timeout 120 bash "$SEC_SCRIPT" localhost 2>&1)
             SEC_EXIT=$?
             SEC_FAIL=$(echo "$SEC_OUT" | grep -oP 'FAIL: \K[0-9]+' | tail -1 || echo 0)
-            if [ "$SEC_EXIT" -eq 124 ]; then
+            if [ "$SEC_EXIT" -eq 124 ] && echo "$SEC_OUT" | grep -q "\[FAIL\]"; then
+                                                                    
+                fail "보안 스캔 타임아웃 전 실패 발견"
+                echo "$SEC_OUT" | grep "\[FAIL\]" | head -10
+            elif [ "$SEC_EXIT" -eq 124 ]; then
                 warn "보안 스캔 타임아웃 (120s)"
+            elif [ "$SEC_EXIT" -eq 2 ] && echo "$SEC_OUT" | grep -q '^REFUSED:'; then
+                                                                          
+                                                    
+                skip "보안 스캔 미실행 — $(echo "$SEC_OUT" | grep -m1 '^REFUSED:')"
             elif [ "$SEC_EXIT" -ne 0 ]; then
                 fail "보안 스캔 ${SEC_FAIL}건 실패"
                 echo "$SEC_OUT" | grep "\[FAIL\]" | head -10
@@ -985,40 +1298,117 @@ if $HAS_C_CHANGES; then
 fi
 
                                                     
+                                                                
                                               
-                                    
-
-                                                      
+                                                                          
+                                                                                    
+                                                                             
+                                                                                
+                                                                                       
+                                                                           
+                                                                       
+                                                               
+                         
 if $HAS_C_CHANGES && command -v valgrind &>/dev/null && [ -f test_runner ]; then
-    GATE=$((GATE+1))
-    echo -e "${CYAN}[$GATE] Valgrind 빠른 검사${NC}"
-    VG_OUT=$(G_SLICE=always-malloc G_DEBUG=gc-friendly timeout 60 valgrind \
-        --leak-check=full --show-leak-kinds=definite \
-        --errors-for-leak-kinds=definite --error-exitcode=42 \
-        --suppressions=/usr/share/glib-2.0/valgrind/glib.supp \
-        ./test_runner 2>&1)
-    VG_EXIT=$?
-    if [ "$VG_EXIT" -eq 42 ]; then
-        DEFINITE=$(echo "$VG_OUT" | grep "definitely lost:" | grep -v " 0 bytes" | head -1)
-        fail "Valgrind definite leak: $DEFINITE"
-    elif [ "$VG_EXIT" -eq 124 ]; then
-        warn "Valgrind 타임아웃 (60초) — 건너뜀"
+    mapfile -t VG_FILES < <(printf '%s\n' "${STAGED_PATHS[@]}" | grep -E '^tests/[^/]+\.c$' || true)
+    if [ "${#VG_FILES[@]}" -eq 0 ]; then
+        skip "[$((GATE+1))] 스테이징된 tests/*.c 없음 — Valgrind 표적 검사 생략 (전체 memcheck는 make memcheck·Level 2)"
+    elif ! grep -q -- '--paths-for' "$PCV_TOP/scripts/check_test_runner_selectors.py" 2>/dev/null; then
+                                                                                
+                                                                                   
+        GATE=$((GATE+1))
+        warn "[$GATE] Valgrind 표적 검사 생략 — 이 브랜치의 check_test_runner_selectors.py에 --paths-for 없음(main d416d8b5 이전 브랜치, rebase 뒤 동작)"
     else
-        pass "Valgrind definite leak 0건"
+        GATE=$((GATE+1))
+        echo -e "${CYAN}[$GATE] Valgrind 표적 검사 (스테이징된 시험 파일 ${#VG_FILES[@]}개의 등록 경로)${NC}"
+        VG_ERR=$(mktemp "${TMPDIR:-/tmp}/pcv-precommit-vg.XXXXXX")
+        VG_PATHS_OUT=$(python3 "$PCV_TOP/scripts/check_test_runner_selectors.py" \
+            --test-runner ./test_runner --paths-for "${VG_FILES[@]}" 2>"$VG_ERR")
+        VG_SEL_RC=$?
+        mapfile -t VG_PATHS <<<"$VG_PATHS_OUT"
+        VG_SEL_SUMMARY=$(cat -- "$VG_ERR" 2>/dev/null || true)
+        rm -f -- "$VG_ERR"
+        VG_ARGS=()
+        for VG_PATH in "${VG_PATHS[@]}"; do
+            [ -n "$VG_PATH" ] && VG_ARGS+=(-p "$VG_PATH")
+        done
+        if [ "$VG_SEL_RC" -ne 0 ]; then
+            fail "Valgrind 대상 경로 추출 실패 (종료 코드 $VG_SEL_RC)"
+            echo "$VG_SEL_SUMMARY" | tail -5
+        elif [ "${#VG_ARGS[@]}" -eq 0 ]; then
+            skip "스테이징된 시험 파일이 test_runner에 등록한 경로 없음 — Valgrind 표적 검사 생략 ($(echo "$VG_SEL_SUMMARY" | tail -1))"
+        else
+            VG_OUT=$(TMPDIR="${PCV_FG_TMP:-${TMPDIR:-/tmp}}" G_SLICE=always-malloc G_DEBUG=gc-friendly timeout 300 valgrind \
+                --leak-check=full --show-leak-kinds=definite \
+                --errors-for-leak-kinds=definite --error-exitcode=42 \
+                --child-silent-after-fork=yes --show-realloc-size-zero=no \
+                --suppressions=/usr/share/glib-2.0/valgrind/glib.supp \
+                --suppressions=tests/valgrind.supp \
+                ./test_runner "${VG_ARGS[@]}" 2>&1)
+            VG_EXIT=$?
+            VG_COUNT=$(( ${#VG_ARGS[@]} / 2 ))
+            if [ "$VG_EXIT" -eq 42 ]; then
+                DEFINITE=$(echo "$VG_OUT" | grep "definitely lost:" | grep -v " 0 bytes" | head -1)
+                fail "Valgrind 메모리 오류 또는 definite leak (경로 ${VG_COUNT}개) ${DEFINITE}"
+                echo "$VG_OUT" | grep -E "Invalid (read|write|free)|uninitialised|definitely lost|ERROR SUMMARY" | head -10
+            elif [ "$VG_EXIT" -ne 0 ] && echo "$VG_OUT" | grep -qE "^==[0-9]+== .*(Invalid (read|write|free)|uninitialised)"; then
+                                                                         
+                fail "Valgrind 메모리 오류 (종료 코드 $VG_EXIT, 경로 ${VG_COUNT}개)"
+                echo "$VG_OUT" | grep -E "^==[0-9]+== .*(Invalid (read|write|free)|uninitialised)" | head -10
+            elif [ "$VG_EXIT" -eq 124 ]; then
+                warn "Valgrind 타임아웃 (300초, 경로 ${VG_COUNT}개) — 판정 생략"
+            elif [ "$VG_EXIT" -ne 0 ]; then
+                warn "Valgrind 아래 시험 비정상 종료 (종료 코드 $VG_EXIT, 경로 ${VG_COUNT}개) — 메모리 판정 불가"
+                echo "$VG_OUT" | grep -E "^not ok|Bail out!|ERROR SUMMARY" | head -5
+            else
+                pass "Valgrind 메모리 오류·definite leak 0건 (경로 ${VG_COUNT}개)"
+            fi
+        fi
     fi
 fi
 
-                                                           
-if $HAS_C_CHANGES; then
+                                                                
+                                                                               
+                                                                                          
+                                                                               
+                                                                              
+if $HAS_C_CHANGES && $PCV_SKIP_ROOT_SAN; then
     GATE=$((GATE+1))
-    echo -e "${CYAN}[$GATE] ASan/UBSan test_runner${NC}"
-    SAN_OUT=$(timeout 300 make sanitize 2>&1)
-    SAN_EXIT=$?
-    if [ "$SAN_EXIT" -eq 124 ]; then
-        warn "ASan 5분 타임아웃 — 건너뜀"
-    elif echo "$SAN_OUT" | grep -qE "(ERROR: AddressSanitizer|runtime error:|SUMMARY: UndefinedBehaviorSanitizer)"; then
+    skip "[$GATE] ASan/UBSan test_runner — pcv.hook.skipRootSanitize=true(운영 겸용 체크아웃): root 검사는 개발 호스트 Level 2 몫"
+elif $HAS_C_CHANGES; then
+    GATE=$((GATE+1))
+    echo -e "${CYAN}[$GATE] ASan/UBSan test_runner (스테이징된 트리 사본)${NC}"
+    if [ -z "$PCV_SAN_TREE" ]; then
+        SAN_EXIT=125
+        SAN_OUT="스테이징된 트리 사본을 만들지 못했다: $PCV_SAN_PREP_ERR"
+    else
+        pcv_bg_collect asan
+        SAN_EXIT=$PCV_BG_RC
+        SAN_OUT=$PCV_BG_OUT
+                                                                                       
+                                                                              
+        if [ "$SAN_EXIT" -eq 124 ]; then
+            for SAN_TRY in 1 2 3 4 5 6 7 8 9 10 11 12 13 14 15 16 17 18 19 20; do
+                grep -q '^\[sanitize\] result:' "$PCV_SAN_TREE/sanitize_report.txt" 2>/dev/null && break
+                sleep 0.5
+            done
+            SAN_OUT="$SAN_OUT
+$(cat -- "$PCV_SAN_TREE/sanitize_report.txt" 2>/dev/null || true)"
+        fi
+    fi
+                                                                  
+    if echo "$SAN_OUT" | grep -qE "(ERROR: AddressSanitizer|runtime error:|SUMMARY: UndefinedBehaviorSanitizer)"; then
         fail "ASan/UBSan 오류 발견"
         echo "$SAN_OUT" | grep -E "(ERROR|runtime error|SUMMARY)" | head -10
+    elif [ "$SAN_EXIT" -eq 124 ]; then
+        warn "ASan 5분 타임아웃 — 건너뜀"
+    elif [ "$SAN_EXIT" -ne 0 ]; then
+        fail "ASan/UBSan 단계 비정상 종료 (종료 코드 $SAN_EXIT — 사본 준비·빌드·링크·시험 실패)"
+        echo "$SAN_OUT" | grep -E "\*\*\*|error:|Error [0-9]|cannot|denied" | head -10
+        echo "$SAN_OUT" | tail -15
+                                                     
+        SAN_KEEP=$(mktemp "${TMPDIR:-/tmp}/pcv-precommit-asan.XXXXXX.log" 2>/dev/null) &&
+            printf '%s\n' "$SAN_OUT" >"$SAN_KEEP" && echo "전체 ASan 단계 로그: $SAN_KEEP"
     else
         pass "ASan/UBSan 통과"
     fi

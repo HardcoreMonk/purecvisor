@@ -26,10 +26,10 @@
 # (같은 이유로 contracts/rpc_param_baseline.json 의 대응 missing_required 항목도 살아 있다.)
 # → 근본 해소안: 게이트가 alias 전처리를 모델링하거나 레지스트리 optional 에 "name" 을 넣는 것.
 #   둘 다 이번 작업(WARN→FAIL 승격) 범위 밖이라 등재로 남긴다.
-device.nic.list|cli|name          # [정당] purecvisorctl.c:3227 이 "name" 전송, handle_device_nic_list(handler_vm_hotplug.c:1142)는 "vm_id" 읽음. dispatcher.c:7841 aliasing 이 흡수 → 런타임 정상.
-device.nic.attach|cli|name        # [정당] purecvisorctl.c:3292 "name" ↔ handle_device_nic_attach(handler_vm_hotplug.c:1260) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
-device.nic.detach|cli|name        # [정당] purecvisorctl.c:3318 "name" ↔ handle_device_nic_detach(handler_vm_hotplug.c:1347) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
-vm.eject|cli|name                 # [정당] cmd_iso_eject(purecvisorctl.c:3374)가 "name", handle_vm_eject_iso(handler_vm_hotplug.c:800)는 "vm_id". dispatcher.c:7841 aliasing 이 흡수. (cmd_vm_eject:992 는 vm_id 직접 전송)
+device.nic.list|cli|name          # [정당] purecvisorctl.c:3227 이 "name" 전송, handle_device_nic_list(handler_vm_device.c)는 "vm_id" 읽음. dispatcher.c:7841 aliasing 이 흡수 → 런타임 정상.
+device.nic.attach|cli|name        # [정당] purecvisorctl.c:3292 "name" ↔ handle_device_nic_attach(handler_vm_device.c) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
+device.nic.detach|cli|name        # [정당] purecvisorctl.c:3318 "name" ↔ handle_device_nic_detach(handler_vm_device.c) "vm_id". dispatcher.c:7841 aliasing 이 흡수.
+vm.eject|cli|name                 # [정당] cmd_iso_eject(purecvisorctl.c:3374)가 "name", handle_vm_eject_iso(handler_vm_device.c)는 "vm_id". dispatcher.c:7841 aliasing 이 흡수. (cmd_vm_eject:992 는 vm_id 직접 전송)
 #
 # ── 등재하지 않은 것(같은 회차에 닫혔다) ────────────────────────────────────
 # 착수 시점 실측에는 아래 3건도 IGNORED 로 나왔으나, 같은 브랜치의 CLI 시정에서 닫혔다.

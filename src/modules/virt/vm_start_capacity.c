@@ -1,13 +1,14 @@
-
-
-
-
-
-
-
-
-
-
+                           
+                                                                         
+                                                   
+                                                          
+                                                         
+                                                             
+                                                                  
+                       
+                                                 
+                                                        
+                                          
 #include "vm_start_capacity.h"
 #include <errno.h>
 #include <libvirt/virterror.h>
@@ -20,15 +21,44 @@
 #define HUGEPOOL "hugepages-2048kB"
 #define HUGEPAGE_BYTES ((guint64)2097152)
 
+                                                                    
+                                               
+                                                                 
+static GMutex start_admission;
+typedef struct { gboolean locked; } StartAdmission;
+
+                                                                     
+static void admission_clear(StartAdmission *admission)
+{
+    if (admission->locked) {
+        g_mutex_unlock(&start_admission);
+        admission->locked = FALSE;
+    }
+}
+G_DEFINE_AUTO_CLEANUP_CLEAR_FUNC(StartAdmission, admission_clear)
+
+                                                                  
+static gboolean admission_claim(StartAdmission *admission, GError **error)
+{
+    if (admission->locked) return TRUE;
+    if (!g_mutex_trylock(&start_admission)) {
+        g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_BUSY,
+                            "hugepage start admission busy: another supported VM start is in progress; check its state before retrying");
+        return FALSE;
+    }
+    admission->locked = TRUE;
+    return TRUE;
+}
+
 typedef enum { NOT_REQUESTED, DEFERRED, REQUIRED, DENIED } RequirementState;
 typedef struct {
     guint64 pages;
     gint host_node;
-    const gchar *reason;
+    const gchar *reason;                                        
 } Requirement;
 typedef struct { guint64 total, free, reserved, surplus; } Pool;
 
-
+                                                                              
 static xmlNodePtr child(xmlNodePtr parent, const gchar *name)
 {
     for (xmlNodePtr node = parent ? parent->children : NULL; node; node = node->next)
@@ -37,7 +67,7 @@ static xmlNodePtr child(xmlNodePtr parent, const gchar *name)
     return NULL;
 }
 
-
+                                                   
 static guint children_named(xmlNodePtr parent, const gchar *name)
 {
     guint count = 0;
@@ -47,7 +77,7 @@ static guint children_named(xmlNodePtr parent, const gchar *name)
     return count;
 }
 
-
+                                                                
 static gboolean decimal(const gchar *text, guint64 *value)
 {
     if (!text || !*text) return FALSE;
@@ -58,7 +88,7 @@ static gboolean decimal(const gchar *text, guint64 *value)
     return errno != ERANGE && end && !*end;
 }
 
-
+                                                         
 static gboolean size_bytes(const gchar *text, const gchar *unit, guint64 *bytes)
 {
     guint64 value, factor = 0;
@@ -78,7 +108,7 @@ static gboolean size_bytes(const gchar *text, const gchar *unit, guint64 *bytes)
     return TRUE;
 }
 
-
+                                                                           
 static RequirementState requirement(const gchar *xml, Requirement *out, GError **error)
 {
     *out = (Requirement){ .host_node = -1 };
@@ -103,8 +133,8 @@ static RequirementState requirement(const gchar *xml, Requirement *out, GError *
     out->reason = "default or mixed page size";
     if (children_named(huge, "page") != 1) goto done;
     xmlNodePtr page = child(huge, "page");
-
-
+                                                       
+                                                              
     page_size = xmlGetProp(page, (const xmlChar *)"size");
     page_unit = xmlGetProp(page, (const xmlChar *)"unit");
     page_nodes = xmlGetProp(page, (const xmlChar *)"nodeset");
@@ -140,8 +170,8 @@ static RequirementState requirement(const gchar *xml, Requirement *out, GError *
     memory_unit = xmlGetProp(memory_node, (const xmlChar *)"unit");
     if (!memory || !size_bytes(g_strstrip((gchar *)memory), (const gchar *)memory_unit, &bytes))
         goto invalid_memory;
-
-
+                                                                        
+                                                   
     out->pages = bytes / HUGEPAGE_BYTES + (bytes % HUGEPAGE_BYTES != 0);
     state = REQUIRED;
     goto done;
@@ -155,7 +185,7 @@ done:
     return state;
 }
 
-
+                                                                        
 static gboolean counter(const gchar *base, const gchar *name, guint64 *value, GError **error)
 {
     gchar *path = g_build_filename(base, name, NULL), *text = NULL;
@@ -169,7 +199,7 @@ static gboolean counter(const gchar *base, const gchar *name, guint64 *value, GE
     return ok;
 }
 
-
+                                                                    
 static gboolean read_pool(const gchar *base, gboolean global, Pool *out, GError **error)
 {
     *out = (Pool){0};
@@ -185,14 +215,14 @@ static gboolean read_pool(const gchar *base, gboolean global, Pool *out, GError 
     return TRUE;
 }
 
-
+                                       
 static gboolean equal_pool(const Pool *a, const Pool *b)
 {
     return a->total == b->total && a->free == b->free &&
            a->reserved == b->reserved && a->surplus == b->surplus;
 }
 
-
+                                                                     
 static gboolean capacity(const Requirement *req, const gchar *sysfs_root, GError **error)
 {
     gchar *global_path = g_build_filename(sysfs_root, "kernel/mm/hugepages", HUGEPOOL, NULL);
@@ -200,9 +230,9 @@ static gboolean capacity(const Requirement *req, const gchar *sysfs_root, GError
         "devices/system/node/node%d/hugepages", req->host_node) : NULL;
     gchar *node_path = node_relative ? g_build_filename(sysfs_root, node_relative, HUGEPOOL, NULL) : NULL;
     Pool before, after, node_before = {0}, node_after = {0};
-
-
-
+                                        
+                                                     
+                                                        
     gboolean ok = read_pool(global_path, TRUE, &before, error) &&
         (!node_path || (read_pool(node_path, FALSE, &node_before, error) &&
                         read_pool(node_path, FALSE, &node_after, error))) &&
@@ -229,8 +259,9 @@ done:
     return ok;
 }
 
-
-static gboolean check_domain(virDomainPtr domain, const gchar *root, GError **error)
+                                                                    
+static gboolean check_domain(virDomainPtr domain, const gchar *root, GError **error,
+                             StartAdmission *admission)
 {
     char *xml = virDomainGetXMLDesc(domain, VIR_DOMAIN_XML_INACTIVE);
     if (!xml) {
@@ -249,7 +280,7 @@ static gboolean check_domain(virDomainPtr domain, const gchar *root, GError **er
                                 "hugepage preflight: managed-save query failed");
             return FALSE;
         }
-        if (!saved) return capacity(&req, root, error);
+        if (!saved) return admission_claim(admission, error) && capacity(&req, root, error);
         req.reason = "managed-save restore";
         state = DEFERRED;
     }
@@ -258,18 +289,39 @@ static gboolean check_domain(virDomainPtr domain, const gchar *root, GError **er
     return TRUE;
 }
 
+                                                                                                         
+                                                                               
+                                                                                                            
+                                                          
+gboolean pcv_vm_start_info_active(int state)
+{
+    return state != VIR_DOMAIN_SHUTOFF;
+}
 
+                                                                        
+                                                                                 
+guint pcv_vm_start_pin_count(guint requested, guint domain_vcpus)
+{
+    if (requested > 0)
+        return requested;
+    return domain_vcpus > 0 ? domain_vcpus : 1;
+}
+
+                                                                             
 gboolean pcv_vm_start_with_capacity(virDomainPtr *domain_io, const gchar *sysfs_root,
                                      PcvVmStartPrepare prepare, gpointer prepare_data, GError **error)
 {
+                                                                 
+                                                                            
+    g_auto(StartAdmission) admission = {0};
     if (!domain_io || !*domain_io || !sysfs_root || !prepare) {
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                             "hugepage preflight: invalid start arguments");
         return FALSE;
     }
-
-
-    if (!check_domain(*domain_io, sysfs_root, error)) return FALSE;
+                                                                           
+                                                                 
+    if (!check_domain(*domain_io, sysfs_root, error, &admission)) return FALSE;
     if (!prepare(domain_io, prepare_data, error)) {
         if (error && !*error)
             g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "VM start preparation failed");
@@ -279,7 +331,7 @@ gboolean pcv_vm_start_with_capacity(virDomainPtr *domain_io, const gchar *sysfs_
         g_set_error_literal(error, G_IO_ERROR, G_IO_ERROR_FAILED, "VM start preparation lost domain");
         return FALSE;
     }
-    if (!check_domain(*domain_io, sysfs_root, error)) return FALSE;
+    if (!check_domain(*domain_io, sysfs_root, error, &admission)) return FALSE;
     if (virDomainCreate(*domain_io) < 0) {
         virErrorPtr native_error = virGetLastError();
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to start VM: %s",

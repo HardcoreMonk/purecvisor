@@ -20,6 +20,7 @@ for action in \
     status \
     events \
     event \
+    close \
     pending \
     approve \
     dismiss \

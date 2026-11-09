@@ -213,7 +213,31 @@ assert len(requests) == 1
 assert requests[0]["method"] == "ovn.switch.create"
 assert requests[0]["params"] == {"name": "ls-test"}
 
+                                              
+proc, requests = run_fake(
+    [SUCCESS],
+    ["container", "health-set", "c1", "--type", "tcp", "--target", "80", "--timeout", "7"],
+)
+expect(0, proc, "container-health-set-timeout")
+assert requests[0]["method"] == "container.health.set"
+assert requests[0]["params"]["timeout_sec"] == 7, requests[0]["params"]
 
+                                                                               
+proc, requests = run_fake(
+    [{"jsonrpc": "2.0", "result": {"name": "c1", "lines": ["boot ok", "ready"], "total": 2}, "id": 1}],
+    ["container", "logs", "c1"],
+)
+expect(0, proc, "container-logs-lines")
+assert requests[0]["method"] == "container.logs"
+assert proc.stdout == "boot ok\nready\n", repr(proc.stdout)
+proc, requests = run_fake(
+    [{"jsonrpc": "2.0", "result": {"name": "c1", "lines": [], "total": 0}, "id": 1}],
+    ["container", "logs", "c1"],
+)
+expect(0, proc, "container-logs-empty")
+assert proc.stdout == "(no log lines yet)\n", repr(proc.stdout)
+
+                       
 expect(0, invoke(["help"]), "help")
 expect(0, invoke(["version"]), "version")
 
@@ -239,6 +263,55 @@ expect(
     invoke(["--batch"], stdin="vm start 'unterminated\n"),
     "batch-tokenization-failure",
 )
+
+                                                                                                                                
+                                                                                                        
+                                                                                                    
+                                                                               
+def invoke_hook(config_path, lxc_name="ct"):
+    env = {k: v for k, v in os.environ.items() if k not in ("LXC_CONFIG_FILE", "LXC_NAME")}
+    if config_path is not None:
+        env["LXC_CONFIG_FILE"] = config_path
+    if lxc_name is not None:
+        env["LXC_NAME"] = lxc_name
+    return subprocess.run(
+        [cli, "container", "volume-guard-hook", "ct", "lxc", "pre-start"],
+        env=env, text=True, stdout=subprocess.PIPE, stderr=subprocess.PIPE, timeout=10, check=False,
+    )
+
+with tempfile.TemporaryDirectory(prefix="pcv-cli-hook-") as temp:
+    temp = os.path.realpath(temp)
+    cases = {                  
+        "persistent": f"lxc.uts.name = ct\nlxc.mount.entry = proc proc proc nodev 0 0\nlxc.mount.entry = {temp}/src/d mnt/d none bind,ro 0 0\n",
+        "novolume": "lxc.uts.name = ct\nlxc.mount.entry = proc proc proc nodev 0 0\nlxc.mount.entry = rel/x mnt/r none ro 0 0\n",
+        "relative": "lxc.uts.name = ct\nlxc.mount.entry = rel/x mnt/r none bind 0 0\n",
+    }
+    for name, body in cases.items():
+        os.makedirs(os.path.join(temp, name))
+        with open(os.path.join(temp, name, "config"), "w", encoding="utf-8") as handle:
+            handle.write(body)
+        with open(os.path.join(temp, name, "purecvisor.volgen"), "w", encoding="utf-8") as handle:
+            handle.write("0" * 64 + "\n")                         
+    proc = invoke_hook(os.path.join(temp, "novolume", "config"))
+    expect(0, proc, "volume-guard-hook/no-volume-lines")
+    assert proc.stdout == "" and proc.stderr == "", (proc.stdout, proc.stderr)
+    proc = invoke_hook(os.path.join(temp, "persistent", "config"))
+    expect(1, proc, "volume-guard-hook/persistent-config-source")
+    assert proc.stderr == "pcv volume guard: volume source is outside the purecvisor staging area — start it through purecvisor\n", proc.stderr
+    assert temp not in proc.stdout + proc.stderr, "훅 출력에 호스트 경로가 있다"
+    proc = invoke_hook(os.path.join(temp, "relative", "config"))
+    expect(1, proc, "volume-guard-hook/relative-bind-source")
+    assert proc.stderr == "pcv volume guard: bind mount with a relative source is not allowed: mnt/r\n", proc.stderr
+    noname = "pcv volume guard: cannot read the container name (LXC_NAME)\n"
+    for label, lxc_name in (("unset", None), ("empty", ""), ("dotdot", ".."), ("slash", "a/b")):
+        proc = invoke_hook(os.path.join(temp, "novolume", "config"), lxc_name)
+        expect(1, proc, f"volume-guard-hook/name-{label}")
+        assert proc.stderr == noname, (label, proc.stderr)
+    unreadable = "pcv volume guard: cannot read the container config (LXC_CONFIG_FILE)\n"
+    for label, path in (("unset", None), ("empty", ""), ("missing", os.path.join(temp, "nope.conf")), ("directory", temp)):
+        proc = invoke_hook(path)
+        expect(1, proc, f"volume-guard-hook/config-{label}")
+        assert proc.stderr == unreadable, (label, proc.stderr)
 
 if failures:
     raise AssertionError("\n\n".join(failures))

@@ -25,7 +25,7 @@
                
                                                                  
                                                          
-                                                         
+                                                                                   
                                                                   
                                                           
                                                               
@@ -56,7 +56,7 @@
                                                              
                                                             
                                                                     
-                                                 
+                                            
                                                             
                                                                   
                                                                 
@@ -64,7 +64,7 @@
                                                 
                                                    
                                                             
-
+                                                     
                                                   
   
                                                                        
@@ -88,9 +88,9 @@
                                                       
                                                          
                                                              
-
-
-
+                 
+                                                               
+                                             
                                                                     
   
                                                                        
@@ -111,14 +111,14 @@
                                                               
 #include <unistd.h>                                            
 #include <glib.h>                                                    
-#include <glib-unix.h>                                                
+#include <glib-unix.h>                                                                        
 #include <libvirt-gobject/libvirt-gobject.h>                              
 #include <stdio.h>                           
 #include <libvirt/libvirt.h>                               
 
                                                                
 #include "api/uds_server.h"                                           
-#include "api/dispatcher.h"                                      
+#include "api/dispatcher.h"                                               
 #include "api/rest_server.h"                                                  
 #include "api/grpc_server.h"                                         
 #include "modules/virt/vm_manager.h"                               
@@ -126,13 +126,13 @@
 #include "modules/network/pcv_qos_chaos.h"                                                              
 #include "modules/daemons/pcv_trace.h"                                                                       
 #include "api/drain.h"                                                                     
+#include "modules/dispatcher/rpc_offload.h"                                    
 #include "utils/logger.h"                     
 #include "utils/pcv_log.h"                                                
 #include "utils/pcv_config.h"                                              
 #include "utils/pcv_privdrop.h"                                                  
 #include "utils/pcv_validate.h"                                    
 #include "utils/pcv_secure.h"                                                         
-
                                                                  
 #include "modules/core/vm_state.h"                                           
 #include "modules/core/cpu_allocator.h"                             
@@ -149,6 +149,7 @@
                                                                  
 #include "utils/pcv_spawn.h"                                             
 #include "utils/pcv_worker_pool.h"                                               
+#include "utils/pcv_mainloop_guard.h"                                               
 #include "purecvisor/pcv_validate.h"                                       
 #include "purecvisor/version.h"                                       
 #include "utils/pcv_jwt.h"                                          
@@ -156,6 +157,7 @@
 
                                                              
 #include "modules/virt/virt_conn_pool.h"                                         
+#include "modules/virt/pcv_virt_open.h"                           
 #include "modules/virt/cancellable_map.h"                                        
 
                                                                
@@ -172,6 +174,7 @@
 #include "modules/network/security_group.h"                                            
 #include "modules/network/vpc/vpc_manager.h"                                                     
 #include "modules/network/vpc/vpc_model.h"                                       
+#include "modules/network/vpc/vpc_mgmt_guard.h"                                 
 #include "modules/security/security_store.h"                                                      
 #include "modules/security/pcv_suricata.h"                                                   
 #include "modules/security/pcv_suricata_ips.h"                                      
@@ -210,7 +213,7 @@
                                   
                                       
                                                            
-                                                    
+                                                                                     
   
                 
                                                            
@@ -246,11 +249,10 @@ CpuAllocator *global_allocator = NULL;
           
   
                             
-                                                              
-                                                        
-                                                  
-                                                         
-                                                                
+                                                                            
+                                                                      
+                                                                                
+                                                           
                                                                          
 
    
@@ -272,8 +274,8 @@ CpuAllocator *global_allocator = NULL;
                                                       
                                        
   
-                                                         
-                                                   
+                                                                 
+                                                      
    
 
    
@@ -334,10 +336,10 @@ _watchdog_thread_func(gpointer data)
                                                    
                                                                 
                                                       
-
-
-
-
+                                                                   
+                                                          
+                                               
+                                                      
 static GThread *g_shutdown_producers;
 static guint qos_reconcile_timer_id;
 static guint qos_metrics_timer_id;
@@ -346,26 +348,27 @@ static gpointer
 _quiesce_producers(gpointer unused)
 {
     (void)unused;
-    pcv_suricata_ips_shutdown_signal();
+    pcv_suricata_ips_shutdown_signal();                             
     pcv_suricata_health_stop();
     pcv_suricata_eve_tail_stop();
     pcv_bpf_consumer_stop();
-    pcv_ebpf_telemetry_quiesce();
-    pcv_alert_engine_shutdown();
+    pcv_ebpf_telemetry_quiesce();                                              
+    pcv_alert_engine_shutdown();                                                 
     pcv_virt_events_shutdown();
     pcv_telemetry_shutdown();
-    pcv_overlay_reconcile_timer_shutdown();
+    pcv_overlay_reconcile_timer_shutdown();                                  
     pcv_drain_work_release();
     return NULL;
 }
 
 static gboolean on_signal_received(gpointer user_data) {
+    pcv_mainloop_guard_signal_picked_up();                                  
     (void)user_data;                                           
     if (!loop) return G_SOURCE_REMOVE;
     g_message("Signal received, initiating graceful shutdown...");
 
     if (pcv_drain_is_terminating()) return G_SOURCE_REMOVE;
-
+                                                                
     pcv_backup_scheduler_quiesce();
     pcv_security_group_resync_timer_shutdown();
     pcv_qos_reconcile_timer_shutdown();
@@ -377,11 +380,11 @@ static gboolean on_signal_received(gpointer user_data) {
         g_source_remove(qos_metrics_timer_id);
         qos_metrics_timer_id = 0;
     }
-    pcv_drain_work_acquire();
+    pcv_drain_work_acquire();                                       
     pcv_drain_begin(loop, pcv_config_get_drain_timeout());
     g_shutdown_producers = g_thread_new("shutdown-producers", _quiesce_producers, NULL);
 
-    return FALSE;                                             
+    return FALSE;                                                     
 }
 
    
@@ -406,8 +409,8 @@ static gboolean on_sighup_received(gpointer user_data) {
                   "invalid alert daemon config");
     }
     pcv_log_load_module_levels();                     
-
-
+                                                                             
+                                                           
     if (!pcv_log_reopen_audit())
         g_warning("[main] SIGHUP audit log reopen failed; keeping previous handle");
     return TRUE;                             
@@ -804,9 +807,9 @@ int main(int argc, char *argv[]) {
       
                                  
       
-                                                           
-                                                      
-                            
+                                                                                  
+                                                                                  
+                                                            
       
                                                   
                                
@@ -899,7 +902,7 @@ int main(int argc, char *argv[]) {
                                 
        
     virt_conn_pool_init((guint)pcv_config_get_pool_max_conn());
-
+    pcv_vm_state_set_key_resolver(pcv_vm_lock_key_resolve_libvirt);                                        
       
                         
       
@@ -1052,7 +1055,7 @@ int main(int argc, char *argv[]) {
     }
 
                                                            
-
+                                                                        
                                                          
                                                          
                                                             
@@ -1061,8 +1064,8 @@ int main(int argc, char *argv[]) {
                                                        
                                                    
                                                     
-
-
+                                         
+                                                              
                                                   
                     
     {
@@ -1230,7 +1233,7 @@ int main(int argc, char *argv[]) {
                                                                      
                                                                  
                                                                      
-
+                                                          
                                                                   
                                                          
                                                  
@@ -1368,9 +1371,9 @@ int main(int argc, char *argv[]) {
         if (swept || sweep_fail)
             g_message("[ovl5] 고아 endpoint 스윕: 회수 %u, 실패 %u", swept, sweep_fail);
 
-
-
-
+                                                             
+                                                              
+                                                        
         GError *mesh_err = NULL;
         if (!pcv_tenant_overlay_reconcile_mesh(&mesh_err)) {
             g_critical("[ovl6] 부팅 WireGuard mesh 복구 실패: %s",
@@ -1390,45 +1393,40 @@ int main(int argc, char *argv[]) {
                                                                        
 
       
-                                 
+                                        
       
-                                             
-                                                                   
-                                                    
-                                            
-                                                                  
-                                                     
-                                           
+                                 
+                                                                 
+                                                              
+                                                            
+                                                                         
       
                     
-                                                     
+                                                       
                                                    
                                     
                                       
        
     STAGE_BEGIN("libvirt-dispatcher");
-    gboolean libvirt_degraded = FALSE;
-    GVirConnection *conn = gvir_connection_new(pcv_config_get_libvirt_uri());
                                                           
-                                                                 
-    if (!gvir_connection_open(conn, NULL, &error)) {
-        g_warning("libvirt connection failed: %s — entering DEGRADED mode "
-                  "(VM operations unavailable, REST/cluster queries still active)",
-                  error->message);
-        g_error_free(error);
-        error = NULL;
-        libvirt_degraded = TRUE;
-                                            
-                                              
+                                                              
+                                                                       
+    virConnectPtr probe = virt_conn_pool_acquire();
+    gboolean libvirt_degraded = (probe == NULL);
+    if (probe) {
+        virt_conn_pool_release(probe);
+    } else {
+        g_warning("libvirt connection pool unavailable at startup — entering DEGRADED mode "
+                  "(VM operations unavailable, REST/cluster queries still active)");
     }
 
       
-                              
+              
       
                  
                                                   
                                                        
-                                                       
+                                                                                          
       
                      
                                                      
@@ -1436,7 +1434,6 @@ int main(int argc, char *argv[]) {
                                                           
        
     PureCVisorDispatcher *dispatcher = purecvisor_dispatcher_new();
-    purecvisor_dispatcher_set_connection(dispatcher, conn);
 
       
                                
@@ -1478,12 +1475,11 @@ int main(int argc, char *argv[]) {
     init_telemetry_daemon(_mgr);
     STAGE_END("libvirt-dispatcher");
 
-
-
-
-
-
-
+                                                               
+                                                           
+                                                              
+                                                     
+                                                                                    
     STAGE_BEGIN("vpc-reconcile");
     pcv_ovn_init();
     {
@@ -1494,10 +1490,10 @@ int main(int argc, char *argv[]) {
             g_clear_error(&vpc_error);
             return EXIT_FAILURE;
         }
-        if (!pcv_vpc_reconcile(&vpc_error)) {
+        if (!pcv_vpc_mgmt_boot_reconcile(&vpc_error)) {
             if (g_error_matches(vpc_error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE)) {
-
-
+                                                                  
+                                                                  
                 g_warning("[vpc] startup reconcile completed with quarantine: %s",
                           vpc_error->message);
                 g_clear_error(&vpc_error);
@@ -1622,7 +1618,7 @@ int main(int argc, char *argv[]) {
       
                    
                                                         
-
+                                                    
                                                       
       
                 
@@ -1957,7 +1953,7 @@ int main(int argc, char *argv[]) {
        
     {
                                                                 
-                                                
+                                                                  
         extern void pcv_zfs_pool_lock_init(void);
         pcv_zfs_pool_lock_init();
 
@@ -2117,17 +2113,17 @@ int main(int argc, char *argv[]) {
     STAGE_END("scheduler-proxy");
 
                                                                     
-
+                                      
       
-
+                   
                                                            
-
-
+                                                    
+                                                       
                                            
       
-
+              
                                                    
-
+                                                 
                                                                        
     STAGE_BEGIN("overlay-provision");
     pcv_bootstrap_init_runtime_network();
@@ -2203,7 +2199,7 @@ int main(int argc, char *argv[]) {
       
                           
                               
-                                                     
+                                                                           
                            
                                 
                              
@@ -2218,9 +2214,8 @@ int main(int argc, char *argv[]) {
        
     loop = g_main_loop_new(NULL, FALSE);
 
-                                                            
-    g_unix_signal_add(SIGINT, on_signal_received, NULL);
-    g_unix_signal_add(SIGTERM, on_signal_received, NULL);
+                                                                                        
+    pcv_mainloop_guard_start(loop, on_signal_received);
                                                                            
     g_unix_signal_add(SIGHUP, on_sighup_received, NULL);
 
@@ -2327,9 +2322,9 @@ int main(int argc, char *argv[]) {
         g_thread_join(g_shutdown_producers);
         g_shutdown_producers = NULL;
     }
-
-
+                                                                                                     
     pcv_worker_pool_shutdown();
+    pcv_rpc_offload_shutdown();
 
                                                               
                                                                     
@@ -2364,13 +2359,11 @@ int main(int argc, char *argv[]) {
                                                
       
               
-                                                                   
-                                                          
-                       
+                                                   
+                                                   
        
     g_object_unref(server);                                    
-    g_object_unref(dispatcher);                       
-    g_object_unref(conn);                                                       
+    g_object_unref(dispatcher);                                                          
     g_main_loop_unref(loop);                                    
 
                                                  
@@ -2448,7 +2441,7 @@ int main(int argc, char *argv[]) {
                                                                           
        
     pcv_job_queue_shutdown();                         
-    pcv_audit_shutdown();
+    pcv_audit_shutdown();                                                
     pcv_config_shutdown();                                      
     pcv_spawn_launcher_shutdown();                                
     pcv_log_shutdown();                                

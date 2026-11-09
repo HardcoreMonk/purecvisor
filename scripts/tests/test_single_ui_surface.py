@@ -13,9 +13,10 @@ MONITOR = "ui/modules/monitor.js"
 MANIFEST = "packaging/ui-assets.manifest"
 BUNDLE = "ui/app.bundle.js"
 MAP = "ui/app.bundle.js.map"
+REST_SOURCES = tuple(sorted(p.relative_to(ROOT).as_posix() for p in (ROOT / "src/api").glob("rest_*.c")))
 REQUIRED_FILES = (
     GATE, MANIFEST, BUNDLE, "scripts/deploy.sh", "src/api/dispatcher.c",
-    "src/api/rest_server.c", "ui/index.html", "ui/app.js", "ui/i18n.js",
+    *REST_SOURCES, "ui/index.html", "ui/app.js", "ui/i18n.js",
     "ui/modules/endpoints.js", "ui/modules/uxlib.js", "ui/modules/nav.js",
     "ui/modules/help.js", "ui/modules/advanced.js", "ui/modules/vm.js",
     "ui/modules/accounts.js", MONITOR, "ui/modules/shell.js",
@@ -93,6 +94,13 @@ class SingleUISurfaceTests(unittest.TestCase):
         with (self.root / MONITOR).open("a", encoding="utf-8") as source:
             source.write("\nfunction unrelatedEventCard() { " + before + "; }\n")
         self.assert_rejected("operations triage screen must render the actual server event card")
+
+    def test_removed_demo_route_in_split_rest_file_fails(self):
+        self.assertIn("src/api/rest_server.c", REST_SOURCES)
+        target = self.root / "src/api/rest_map_platform.c"
+        with target.open("a", encoding="utf-8") as source:
+            source.write('\nstatic const char *k = REST_API_PREFIX "/demo/ovn-ovs/health";\n')
+        self.assert_rejected("REST server must not route removed public OVN demo health")
 
     def test_public_source_map_file_reintroduced_fails(self):
         (self.root / MAP).write_text('{"version":3,"sources":[]}', encoding="utf-8")

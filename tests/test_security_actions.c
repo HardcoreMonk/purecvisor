@@ -316,6 +316,75 @@ test_hips_action_is_expired_fail_secure_on_db_error(void)
     g_free(path);
 }
 
+static void
+insert_open_event(const gchar *event_id, PcvSecurityStatus status)
+{
+    PcvSecurityEvent ev = {0};
+    g_strlcpy(ev.event_id, event_id, sizeof ev.event_id);
+    ev.timestamp = 1000;
+    ev.type = PCV_SECURITY_EVENT_AUTH_BRUTEFORCE;
+    ev.target_kind = PCV_SECURITY_TARGET_IP;
+    g_strlcpy(ev.target, event_id, sizeof ev.target);
+    ev.status = status;
+    g_assert_true(pcv_security_store_insert_event(&ev, NULL));
+}
+
+static const gchar *
+event_status(const gchar *event_id, gchar *buf, gsize len)
+{
+    JsonObject *obj = pcv_security_store_get_event(event_id);
+    g_assert_nonnull(obj);
+    g_strlcpy(buf, json_object_get_string_member(obj, "status"), len);
+    json_object_unref(obj);
+    return buf;
+}
+
+static void
+test_security_dismiss_after_close_keeps_status(void)
+{
+    gchar *path = g_strdup_printf("%s/pcv-hips-close-%u.db", g_get_tmp_dir(), g_random_int());
+    cleanup_security_db(path);
+    g_assert_true(pcv_security_store_open(path));
+    gchar st[32];
+
+    pcv_security_store_set_now_for_test(1000);
+    insert_open_event("sec-close-1", PCV_SECURITY_STATUS_OPEN);
+    PcvSecurityEvent ev = {0};
+    g_strlcpy(ev.event_id, "sec-close-1", sizeof ev.event_id);
+    g_strlcpy(ev.target, "sec-close-1", sizeof ev.target);
+    g_assert_true(pcv_security_store_upsert_pending_action(&ev, "block_ip", 10, NULL));
+    pcv_security_store_set_now_for_test(2000);
+    GError *err = NULL;
+    g_assert_cmpint(pcv_security_store_close_event("sec-close-1", "admin", "reviewed", &err),
+                    ==, PCV_SEC_CLOSE_OK);
+    g_assert_no_error(err);
+
+    g_assert_true(pcv_hips_action_dismiss("sec-close-1", "op", "noise", &err));
+    g_assert_no_error(err);
+    g_assert_false(pcv_security_store_update_event_status("sec-close-1",
+                                                          PCV_SECURITY_STATUS_SUPPRESSED, &err));
+    g_assert_no_error(err);
+    g_assert_cmpstr(event_status("sec-close-1", st, sizeof st), ==, "resolved");
+    JsonObject *obj = pcv_security_store_get_event("sec-close-1");
+    g_assert_cmpstr(json_object_get_string_member(obj, "closed_reason"), ==, "operator");
+    json_object_unref(obj);
+
+    insert_open_event("sec-open-2", PCV_SECURITY_STATUS_OPEN);
+    insert_open_event("sec-ap-3", PCV_SECURITY_STATUS_ACTION_PENDING);
+    g_assert_true(pcv_security_store_update_event_status("sec-open-2",
+                                                         PCV_SECURITY_STATUS_SUPPRESSED, &err));
+    g_assert_true(pcv_security_store_update_event_status("sec-ap-3",
+                                                         PCV_SECURITY_STATUS_RESOLVED, &err));
+    g_assert_no_error(err);
+    g_assert_cmpstr(event_status("sec-open-2", st, sizeof st), ==, "suppressed");
+    g_assert_cmpstr(event_status("sec-ap-3", st, sizeof st), ==, "resolved");
+
+    pcv_security_store_set_now_for_test(0);
+    pcv_security_store_close();
+    cleanup_security_db(path);
+    g_free(path);
+}
+
 void
 test_security_actions_register(void)
 {
@@ -337,4 +406,6 @@ test_security_actions_register(void)
                     test_hips_expired_pending_blocks_side_effect);
     g_test_add_func("/security_actions/hips_is_expired_fail_secure_on_db_error",
                     test_hips_action_is_expired_fail_secure_on_db_error);
+    g_test_add_func("/security/actions/dismiss_after_close_keeps_status",
+                    test_security_dismiss_after_close_keeps_status);
 }

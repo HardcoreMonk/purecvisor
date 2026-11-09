@@ -13,8 +13,6 @@
 
 ui/app.js|GET|/alerts/dlq#1
 ui/app.js|GET|/auth/whoami#1
-ui/app.js|GET|/gpu/list#1
-ui/app.js|GET|/vms#1
 ui/app.js|GET|EP.OVN_ACL#1
 ui/app.js|GET|url#1
 ui/app.js|POST|/rpc:alert.dlq.list#1
@@ -42,13 +40,6 @@ ui/modules/container.js|GET|EP.CTR_METRICS#1
 ui/modules/container.js|GET|EP.CTR_NICS#1
 ui/modules/container.js|GET|EP.CTR_SNAPSHOTS#1
 ui/modules/container.js|GET|EP.NET_LIST#1
-ui/modules/mobile.js|GET|EP.ALERTS#1
-ui/modules/mobile.js|GET|EP.ALERTS#2
-ui/modules/mobile.js|GET|EP.ALERTS#3
-ui/modules/mobile.js|GET|EP.CTR_LIST#1
-ui/modules/mobile.js|GET|EP.CTR_LIST#2
-ui/modules/mobile.js|GET|EP.VM_LIST#1
-ui/modules/mobile.js|GET|EP.VM_LIST#2
 ui/modules/monitor.js|GET|EP.ALERT_SILENCE_LIST#1
 ui/modules/monitor.js|GET|EP.DPDK_STATUS#1
 ui/modules/monitor.js|GET|EP.POOL_CONNINFO#1
@@ -68,8 +59,6 @@ ui/modules/storage.js|POST|EP.RPC:backup.policy.list#1
 ui/modules/storage.js|POST|EP.RPC:storage.pool.forecast#1
 ui/modules/vm-console.js|GET|EP.VM_DETAIL#1
 ui/modules/vm-console.js|GET|EP.VM_DETAIL#2
-ui/modules/vm-console.js|GET|EP.VM_SNAPSHOT_LIST#1
-ui/modules/vm-console.js|GET|EP.VM_SNAPSHOT_LIST#2
 ui/modules/vm-console.js|GET|EP.VNC#1
 ui/modules/vm-guest.js|GET|EP.VM_GUEST_AGENT#1
 ui/modules/vm-guest.js|POST|EP.VM_RPC:vm.cpu.stats#1

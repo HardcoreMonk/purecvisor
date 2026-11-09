@@ -139,6 +139,53 @@ test_monitor_fleet_preserves_id_and_records_success(void)
     g_assert_cmpint(audit_code, ==, 0);
 }
 
+static gpointer
+other_thread_actor(gpointer data)
+{
+    (void)data;
+    return (gpointer)pcv_rpc_completion_actor();
+}
+
+static void
+test_scope_actor_lifecycle(void)
+{
+    g_assert_null(pcv_rpc_completion_actor());
+    pcv_rpc_completion_set_actor("ghost");
+    g_assert_null(pcv_rpc_completion_actor());
+    pcv_rpc_completion_begin("vm.start");
+    gchar *who = g_strdup("alice");
+    pcv_rpc_completion_set_actor(who);
+    g_free(who);
+    g_assert_cmpstr(pcv_rpc_completion_actor(), ==, "alice");
+    GThread *t = g_thread_new("actor-probe", other_thread_actor, NULL);
+    g_assert_null(g_thread_join(t));
+    pcv_rpc_completion_set_actor("bob");
+    g_assert_cmpstr(pcv_rpc_completion_actor(), ==, "bob");
+    pcv_rpc_completion_begin("vm.stop");
+    g_assert_null(pcv_rpc_completion_actor());
+    (void)pcv_rpc_completion_finish();
+    g_assert_null(pcv_rpc_completion_actor());
+}
+
+static void
+test_should_audit_table(void)
+{
+    const struct { gboolean observed, success, direct, is_async, expect; } rows[] = {
+        { TRUE,  TRUE,  FALSE, FALSE, TRUE  },
+        { TRUE,  TRUE,  TRUE,  FALSE, FALSE },
+        { TRUE,  FALSE, FALSE, TRUE,  TRUE  },
+        { TRUE,  FALSE, TRUE,  TRUE,  FALSE },
+        { TRUE,  TRUE,  FALSE, TRUE,  FALSE },
+        { FALSE, FALSE, FALSE, TRUE,  FALSE },
+    };
+    for (guint i = 0; i < G_N_ELEMENTS(rows); i++) {
+        PcvRpcCompletionResult r = { .response_observed = rows[i].observed, .success = rows[i].success,
+                                     .error_code = rows[i].success ? 0 : PURE_RPC_ERR_INVALID_PARAMS,
+                                     .direct_audit = rows[i].direct };
+        g_assert_cmpint(pcv_rpc_completion_should_audit(r, rows[i].is_async), ==, rows[i].expect);
+    }
+}
+
 void
 test_rpc_completion_register(void)
 {
@@ -154,4 +201,6 @@ test_rpc_completion_register(void)
                     test_dispatch_result_preserves_async_pending_contract);
     g_test_add_func("/rpc_completion/monitor_fleet_exact_id_and_audit_success",
                     test_monitor_fleet_preserves_id_and_records_success);
+    g_test_add_func("/rpc_completion/scope_actor_lifecycle", test_scope_actor_lifecycle);
+    g_test_add_func("/rpc_completion/should_audit_table", test_should_audit_table);
 }

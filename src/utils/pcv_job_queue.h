@@ -11,20 +11,20 @@
                                                              
                                                          
   
-
-
-
+                                                            
+                                                                             
+                                                                             
                                                    
                                                                 
   
           
-
+                                                             
                                            
-
+                                                           
   
             
                                                         
-                                                                        
+                                                                         
                                                              
   
            
@@ -32,7 +32,8 @@
               
                                                               
                                                                
-                                             
+                                                                            
+                                                                   
   
            
                                       
@@ -56,7 +57,8 @@ typedef enum {
     PCV_JOB_RUNNING   = 1,              
     PCV_JOB_COMPLETED = 2,               
     PCV_JOB_FAILED    = 3,            
-    PCV_JOB_CANCELLED = 4              
+    PCV_JOB_CANCELLED = 4,                                  
+    PCV_JOB_INTERRUPTED = 5                         
 } PcvJobStatus;
 
                                                                  
@@ -66,72 +68,49 @@ typedef enum {
                                                
                                    
                                     
-
-
+                                                
+                                                      
    
 void pcv_job_queue_init(void);
 
    
                           
-
+                                                       
+                                                                                   
                                 
    
 void pcv_job_queue_shutdown(void);
 
    
                              
-                                    
+                                                     
+                                                 
                            
                                            
   
-
+                                                                                
    
 void pcv_job_queue_cleanup_old(gint max_age_hours);
 
-                                                       
+                                                                             
+#define PCV_JOB_RETENTION_INTERVAL_SECONDS (24 * 3600)
 
    
-                  
-
-
-
-
+                                
+                                                            
+                                                                          
+                                                                                  
+                                                                   
+                                                 
   
-
-                                       
-                                             
-
-   
-gchar *pcv_job_create(const gchar *type, const gchar *target,
-                       const gchar *params_json);
-
-   
+                                                                                  
                          
-                        
-                                               
-
-  
-                            
-                           
-                                  
-                                          
-   
-gboolean pcv_job_update_status(const gchar *job_id, PcvJobStatus status,
-                            gint progress_pct, const gchar *detail);
-
-   
-                      
-
-                                                       
-
-
-  
-                           
-                                              
                                            
+                                                         
+  
+                                                                       
    
-gboolean pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
-                         const gchar *result_json);
+gboolean pcv_job_queue_retention_tick(gint64 *last_run, gint64 now, gint retention_days);
 
                                                            
 
@@ -140,7 +119,7 @@ gboolean pcv_job_set_result(const gchar *job_id, PcvJobStatus status,
                          
                                                      
   
-
+                                       
                                                   
    
 JsonArray *pcv_job_list(gint limit);
@@ -156,14 +135,24 @@ JsonArray *pcv_job_list(gint limit);
 JsonObject *pcv_job_get(const gchar *job_id);
 
    
+                       
+                                                                  
+                                                          
+  
+                                                                                    
+                                                                          
+   
+gboolean pcv_job_find_latest(const gchar *method, const gchar *target, JsonObject **out);
+
+   
                   
                              
                                                    
   
                       
-
-
-
+                                                       
+                                                  
+                                                       
    
 gboolean pcv_job_cancel(const gchar *job_id);
 

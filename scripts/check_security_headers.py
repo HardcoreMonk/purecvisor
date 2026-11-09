@@ -27,9 +27,9 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 from check_cors_anchor import strip_comments                                  
+import rpc_extract
 
-TARGET_REL = "src/api/rest_server.c"
-TARGET = ROOT / TARGET_REL
+REST_ROOT = ROOT
 
 UI_ANCHOR = 'g_str_has_prefix(path, "/ui")'
 
@@ -75,9 +75,13 @@ def scan_text(text: str):
 
 def main(argv=None) -> int:
     argv = list(sys.argv[1:]) if argv is None else list(argv)
-    target = Path(argv[0]) if argv else TARGET
-    rel = argv[0] if argv else TARGET_REL
-    text = target.read_text(errors="replace")
+    if argv:
+        rel = argv[0]
+        text = Path(argv[0]).read_text(errors="replace")
+    else:
+        rel = "rest 계열(" + ", ".join(p.relative_to(REST_ROOT).as_posix()
+                                        for p in rpc_extract.rest_family(REST_ROOT)) + ")"
+        text = rpc_extract.rest_family_text(REST_ROOT)
     missing, found = scan_text(text)
 
     print(f"[check-security-headers] /ui 정적 블록 {'발견' if found else '미발견'} / "

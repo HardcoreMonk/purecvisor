@@ -1,0 +1,7 @@
+# VM 계열 분할 치환표(ADR-0096): 옛 이름<TAB>새 이름
+free_lifecycle_ctx	pcv_disp_free_lifecycle_ctx
+_guest_get_vm_name	pcv_disp_guest_get_vm_name
+_send_rpc_error	pcv_disp_send_rpc_error
+_xml_direct_child	pcv_disp_xml_direct_child
+_vm_xml_inject_metadata_child	pcv_vm_xml_inject_metadata_child
+_vm_xml_with_owner_metadata	pcv_vm_xml_with_owner_metadata

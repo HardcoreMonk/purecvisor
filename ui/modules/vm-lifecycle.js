@@ -377,8 +377,8 @@ function _confirmVmDelete(subjects, bulk) {
   input.addEventListener('input', function() { go.disabled = input.value !== phrase || submitted; });
   dlg = showModal([
     el('h2', { class: 'color-red' }, title),
-    el('p', null, _L('실행 중인 VM도 강제 종료하며 연결된 디스크를 영구 삭제합니다. 되돌릴 수 없습니다.',
-      'Running VMs will be forcibly stopped and attached disks permanently deleted. This cannot be undone.')),
+    el('p', null, _L('실행 중인 VM도 강제 종료하며 이 VM의 주 디스크(첫 번째 디스크이고 이름이 VM과 같은 것)를 영구 삭제합니다. 따로 붙인 디스크는 지우지 않고 결과에 알려 줍니다. 복제본이나 다른 VM이 주 디스크를 쓰면 삭제가 거절됩니다. 되돌릴 수 없습니다.',
+      'Running VMs will be forcibly stopped and each VM\'s own disk (the first disk, named after the VM) permanently deleted. Other attached disks stay and are listed in the result. The delete is refused if clones or other VMs use the disk. This cannot be undone.')),
     el('ul', { style: 'max-height:28vh;overflow:auto;overflow-wrap:anywhere' },
       subjects.map(function(v) { return el('li', null, v.name); })),
     el('p', null, _L('계속하려면 다음 문구를 정확히 입력하세요: ', 'To continue, type exactly: '), el('strong', null, phrase)),
@@ -406,8 +406,8 @@ async function _deleteVms(subjects) {
       el('p', null, _L('창을 닫으면 아직 보내지 않은 요청은 중단됩니다. 접수된 삭제는 계속됩니다.',
         'Closing stops unsent requests. Accepted deletions continue.')),
       el('ul', { style: 'max-height:50vh;overflow:auto;padding-left:20px' }, rows),
-      el('p', { class: 'text-xs color-muted' }, _L('요청 접수는 삭제 완료를 뜻하지 않습니다. 최종 결과는 감사 로그에서 확인하세요.',
-        'An accepted request does not confirm deletion. Check the audit log for final results.')),
+      el('p', { class: 'text-xs color-muted' }, _L('요청 접수는 삭제 완료를 뜻하지 않습니다. 각 행이 삭제 작업(Job)의 결과를 보여 줍니다.',
+        'An accepted request does not confirm deletion. Each row shows the delete job result.')),
       el('div', { class: 'text-right mt-14' }, close)
     ], { onClose: function() { closed = true; } });
     for (var i = 0; i < subjects.length && !closed; i++) {
@@ -435,7 +435,9 @@ async function _deleteVms(subjects) {
         if (data && data.job_id) {
           var job = await PCV.api.waitForJob(data.job_id);
           if (job.status === 'completed') {
-            status.textContent = '✅ ' + _L('삭제 완료', 'Deleted');
+            var res = null; try { res = typeof job.result === 'string' ? JSON.parse(job.result) : job.result; } catch { res = null; }
+            var warn = res && Array.isArray(res.warnings) && res.warnings.length ? res.warnings.map(String).join(' · ') : '';
+            status.textContent = '✅ ' + _L('삭제 완료', 'Deleted') + (warn ? ' · ' + _L('경고: ', 'Warning: ') + warn : '');
             addEvt(t('vm.deleted') + ': ' + subject.name);
             continue;
           }
@@ -984,6 +986,7 @@ async function doCreate() {
                       
 function showSettings() {
   const v = vmList[selectedVmIndex]; if (!v) return;
+
   var el = PCV.uxlib.el;
   var hwItem = function(cls, icon, label, val, action, role) {
     return el('div', { class: cls, onclick: "setHw(this,'" + action + "')", 'data-role': role || null },
@@ -1005,9 +1008,10 @@ function showSettings() {
           hwItem('hw-item', '💿', 'CD/DVD (SATA)', 'ISO', 'cdrom'),
           hwItem('hw-item', '🌐', 'Network', 'Bridge', 'nic'),
           hwItem('hw-item', '🛡', 'AutoProtect', 'Backup', 'autoprotect', 'ADMIN'))),
-      el('div', { class: 'right' }, el('div', { id: 'hw-edit' }, hwIdentity()))),
+      el('div', { class: 'right' }, el('div', { id: 'hw-edit' }, hwIdentity(v)))),
     el('div', { class: 'text-right mt-12' }, el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
   ]);
+  PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'settings', v);
   if (typeof applyRoleVisibility === 'function') applyRoleVisibility(window.currentUser && window.currentUser.role);
 }
 
@@ -1021,8 +1025,9 @@ function _vmRenameBlocked(v) {
   const st = String((v && (v.state || v.status)) || '').toLowerCase();
   return st === 'running' || st === 'paused';
 }
-function hwIdentity() {
-  const v = vmList[selectedVmIndex];
+function _vmSettingsVm(v) { return v || PCV.vm.pinnedPeek('settings'); }
+function hwIdentity(vm0) {
+  const v = _vmSettingsVm(vm0);
   const blocked = _vmRenameBlocked(v);
   var el = PCV.uxlib.el;
   return [
@@ -1041,7 +1046,7 @@ function hwCpu() {
   var el = PCV.uxlib.el;
   return [
     el('h4', null, 'CPU'),
-    el('div', { class: 'fr' }, el('label', { for: 'sc' }, 'vCPU'), el('input', { id: 'sc', type: 'number', value: String(vmList[selectedVmIndex]?.vcpu || 2) })),
+    el('div', { class: 'fr' }, el('label', { for: 'sc' }, 'vCPU'), el('input', { id: 'sc', type: 'number', value: String(_vmSettingsVm()?.vcpu || 2) })),
     el('button', { class: 'btn', onclick: "doSet('vcpu')" }, t('btn.apply'))
   ];
 }
@@ -1049,7 +1054,7 @@ function hwMem() {
   var el = PCV.uxlib.el;
   return [
     el('h4', null, 'Memory'),
-    el('div', { class: 'fr' }, el('label', { for: 'sm' }, 'MB'), el('input', { id: 'sm', type: 'number', value: String(vmList[selectedVmIndex]?.memory_mb || 2048) })),
+    el('div', { class: 'fr' }, el('label', { for: 'sm' }, 'MB'), el('input', { id: 'sm', type: 'number', value: String(_vmSettingsVm()?.memory_mb || 2048) })),
     el('button', { class: 'btn', onclick: "doSet('memory')" }, t('btn.apply'))
   ];
 }
@@ -1069,7 +1074,7 @@ function _setCdromInput(path) {
 }
 
 function hwCd() {
-  const current = _currentCdromPath(vmList[selectedVmIndex]);
+  const current = _currentCdromPath(_vmSettingsVm());
   var el = PCV.uxlib.el;
   return [
     el('h4', null, 'CD/DVD'),
@@ -1116,7 +1121,7 @@ async function browseISOForMount() {
 }
 
 function hwNic() {
-  const v = vmList[selectedVmIndex];
+  const v = _vmSettingsVm();
   var el = PCV.uxlib.el;
   var nodes = [
     el('h4', null, 'Network'),
@@ -1139,7 +1144,7 @@ function hwNic() {
                                                                   
                                                            
 async function loadNics(n) { if (!n) return; try { const r = await fetchGet(EP.VM_NICS(n)); const l = unwrapList(r); var el = PCV.uxlib.el, clearEl = PCV.uxlib.clearEl; const listEl = document.getElementById('nic-list'); if (!listEl) return; clearEl(listEl); if (!l.length) { listEl.appendChild(el('p', { class: 'color-muted' }, 'No NICs')); return; } var rows = l.map(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); return el('tr', null, el('td', null, c.mac || '-'), el('td', null, c.bridge || c.source || '-'), el('td', null, c.model || 'virtio'), el('td', null, c.ip || '-'), el('td', null, dns), el('td', null, el('button', { class: 'btn btn-r text-9', onclick: "nicDel('" + escapeAttr(n) + "','" + escapeAttr(c.mac) + "')" }, t('btn.delete')))); }); listEl.appendChild(el('table', null, el('thead', null, el('tr', null, el('th', null, 'MAC'), el('th', null, 'Bridge'), el('th', null, 'Model'), el('th', null, 'IP'), el('th', null, 'DNS'), el('th', null))), el('tbody', null, rows))); } catch (e) { if(_DEBUG) console.warn('loadNics:', e.message); } }
-async function nicAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nic-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); loadNics(v.name); } catch (e) { toast(e.message, false); } }
+async function nicAdd() { const v = PCV.vm.pinnedTarget('settings'); if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nic-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); loadNics(v.name); } catch (e) { toast(e.message, false); } }
                                                                       
                                                    
   
@@ -1156,7 +1161,7 @@ function hwAP() {
     el('h4', null, 'AutoProtect (Backup Policy)'),
     el('div', { id: 'bp-list' }, t('loading')),
     el('div', { class: 'mt-8' },
-      el('div', { class: 'fr' }, el('label', { for: 'bp-vm' }, 'VM'), el('input', { id: 'bp-vm', value: vmList[selectedVmIndex]?.name || '*' })),
+      el('div', { class: 'fr' }, el('label', { for: 'bp-vm' }, 'VM'), el('input', { id: 'bp-vm', value: _vmSettingsVm()?.name || '*' })),
       el('div', { class: 'fr' }, el('label', { for: 'bp-int' }, 'Interval (h)'), el('input', { id: 'bp-int', type: 'number', value: '24' })),
       el('div', { class: 'fr' }, el('label', { for: 'bp-ret' }, 'Retention'), el('input', { id: 'bp-ret', type: 'number', value: '7' })),
       el('button', { class: 'btn btn-g', onclick: 'bpSet()', 'data-role': 'ADMIN' }, 'Set Policy'))
@@ -1197,6 +1202,7 @@ function showRenameVm() {
       ' ',
       el('button', { class: 'btn btn-g', onclick: 'doVmRename()', disabled: blocked ? '' : null }, _L('이름 변경', 'Rename')))
   ]);
+  PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'rename', v);
 }
 
    
@@ -1218,7 +1224,7 @@ function showRenameVm() {
                                           
    
 async function doVmRename() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const v = PCV.vm.pinnedTarget(['rename', 'settings']); if (!v) return;
   const statusEl = document.getElementById('rn-status');
   const next = String(document.getElementById('rn-new')?.value || '').trim();
   if (!/^[A-Za-z0-9_-]{1,64}$/.test(next)) {
@@ -1246,10 +1252,14 @@ async function doVmRename() {
     toast(_L('VM 이름이 변경되었습니다.', 'VM renamed.'));
     addEvt('VM renamed: ' + v.name + ' -> ' + next);
     if (typeof invalidateCache === 'function') invalidateCache('vm.list');
-    selectedVmIndex = -1;
     closeModal();
     await loadAll();
-    if (d && d.new_name && typeof render === 'function') render();
+    var renamed = vmList.findIndex(function(x) { return x.name === ((d && d.new_name) || next); });
+    if (renamed >= 0) {
+      selectedVmIndex = window.selectedVmIndex = renamed;
+      if (typeof render === 'function') render();
+      refreshVmDetail();
+    }
   } catch (e) {
     if (statusEl) PCV.uxlib.setMsg(statusEl, null, null, '❌ ' + (e.message || 'Failed'));
     toast(e.message, false);
@@ -1278,7 +1288,7 @@ async function doVmRename() {
                                                      
    
 async function doSet(t2) {
-  const v = vmList[selectedVmIndex];
+  const v = PCV.vm.pinnedTarget('settings');
   if (!v) return;
   const nextValue = t2 === 'vcpu'
     ? +document.getElementById('sc').value
@@ -1335,7 +1345,7 @@ async function doSet(t2) {
         
    
 async function doMnt() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const v = PCV.vm.pinnedTarget('settings'); if (!v) return;
   const isoPath = String(document.getElementById('si')?.value || '').trim();
   if (!isoPath) { toast(t('iso.path_required'), false); return; }
   try {
@@ -1361,7 +1371,7 @@ async function doMnt() {
                                         
    
 async function doEjt() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const v = PCV.vm.pinnedTarget('settings'); if (!v) return;
   try {
     const r = await fetchDelete(EP.VM_ISO(v.name));
     if (r && r.error) { toast(r.error.message || t('error'), false); return; }
@@ -1385,14 +1395,13 @@ async function showNicMgr() { const v = vmList[selectedVmIndex]; if (!v) return;
         el('input', { id: 'nm-br', value: 'pcvbr0' }),
         el('button', { class: 'btn btn-g', onclick: 'nmAdd()' }, '+ Add'))),
     el('div', { class: 'text-right mt-12' }, el('button', { class: 'btn btn-r', onclick: 'closeModal()' }, t('btn.close')))
-  ]);
+  ]); PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'nic', v);
   try { const r = await fetchGet(EP.VM_NICS(v.name)); const l = unwrapList(r); var clearEl = PCV.uxlib.clearEl; const mgr = document.getElementById('nic-mgr'); clearEl(mgr); if (!l.length) { mgr.appendChild(el('p', { class: 'color-muted' }, 'No NICs')); return; } var rows = l.map(c => { const dns = c.dns === 'off' ? 'OFF' : (c.dns || '-'); return el('tr', null, el('td', null, c.mac || '-'), el('td', null, c.bridge || c.source || '-'), el('td', null, c.model || 'virtio'), el('td', null, c.ip || '-'), el('td', null, dns), el('td', null, el('button', { class: 'btn btn-r text-9', onclick: "nmDel('" + escapeAttr(c.mac) + "')" }, t('btn.delete')))); }); mgr.appendChild(el('table', null, el('thead', null, el('tr', null, el('th', null, 'MAC'), el('th', null, 'Bridge'), el('th', null, 'Model'), el('th', null, 'IP'), el('th', null, 'DNS'), el('th', null))), el('tbody', null, rows))); } catch (e) { PCV.uxlib.setMsg('nic-mgr', null, null, t('error')); } }
-async function nmAdd() { const v = vmList[selectedVmIndex]; if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
+async function nmAdd() { const v = PCV.vm.pinnedTarget('nic'); if (!v) return; try { const r = await fetchPost(EP.VM_NICS(v.name), { bridge: document.getElementById('nm-br')?.value || 'pcvbr0' }); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.added')); showNicMgr(); } catch (e) { toast(e.message, false); } }
                                                           
                                                                
                                                   
-                      
-async function nmDel(mac) { const v = vmList[selectedVmIndex]; if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { const r = await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
+async function nmDel(mac) { const v = PCV.vm.pinnedTarget('nic'); if (!v || !await customConfirm(t('btn.delete'), mac + '?')) return; try { const r = await fetchDelete(EP.VM_NIC_DETACH(v.name, mac)); if (r && r.error) { toast(r.error.message || t('error'), false); return; } toast(t('nic.removed')); showNicMgr(); } catch (e) { toast(e.message, false); } }
 
                        
 async function showVnc() { const v = vmList[selectedVmIndex]; if (!v) return; var el = PCV.uxlib.el; showModal([
@@ -1628,7 +1637,7 @@ async function vmClone(idx) {
   ]);
   const defaultModeInput = document.querySelector('input[name="vm-clone-mode-choice"][value="' + defaultMode + '"]');
 
-  PCV.modalCore.currentBody()._pcvCloneSource = { name: v.name, uuid: v.uuid || null };
+  PCV.vm.pinTarget(PCV.modalCore.currentBody(), 'clone', v);
   if (defaultModeInput) defaultModeInput.checked = true;
   document.querySelectorAll('input[name="vm-clone-mode-choice"], input[name="vm-clone-safety"]').forEach(el => {
     el.addEventListener('change', () => _vmCloneRefreshGuard(v));
@@ -1655,8 +1664,7 @@ async function vmClone(idx) {
                                                                             
    
 async function doVmClone() {
-  const source = PCV.modalCore.currentBody()?._pcvCloneSource;
-  const v = source && vmList.find(item => item.name === source.name && (!source.uuid || item.uuid === source.uuid));
+  const v = PCV.vm.pinnedPeek('clone');
   if (!v) { toast(_L('원본 VM이 변경되었거나 없어졌습니다. 복제 창을 다시 여세요.', 'Source VM changed or disappeared. Reopen Clone.'), false); return; }
   const name = (document.getElementById('vm-clone-name')?.value || '').trim();
   const mode = document.querySelector('input[name="vm-clone-mode-choice"]:checked')?.value ||
@@ -1715,7 +1723,7 @@ function hwDisk() {
                         
    
 async function doDiskResize() {
-  const v = vmList[selectedVmIndex]; if (!v) return;
+  const v = PCV.vm.pinnedTarget('settings'); if (!v) return;
   const size = document.getElementById('sd-size')?.value;
   const path = document.getElementById('sd-path')?.value;
 

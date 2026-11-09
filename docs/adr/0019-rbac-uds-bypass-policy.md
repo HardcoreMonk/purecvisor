@@ -144,6 +144,10 @@ RBAC를 생략한다.
 - pcvctl이 어떻게 인증하는지 — 현재 인증 없음. UDS = admin 가정.
 - 마이그레이션: 기존 pcvctl 사용자를 위한 임시 fallback (e.g. `daemon.conf [security] uds_default_role = admin`)
 
+## 후속 결정 (2026-10)
+
+호출자 역할과 함께 **호출자 테넌트**도 서버가 정한다 — gRPC는 클라이언트 값을 지우고 `[grpc] tenant`(없으면 JSON null)를 내부 키 `_pcv_caller_tenant`로 항상 넣고, REST는 본문의 `_pcv_caller_tenant`를 지운 뒤 비ADMIN의 RBAC 사용자 테넌트를 쓴다. UDS 직결 = ADMIN 가정과 이 ADR의 메서드 정책표는 그대로다.
+
 ## 후속 작업
 
 1. **완료**: Option C 채택 및 구현.

@@ -53,6 +53,10 @@ var I18N = {
       'login.totp.expired': '세션 만료 — 다시 로그인',
       'logged.in': '로그인 완료',
       'logged.out': '로그아웃 완료',
+      'logout.all': '모든 기기',
+      'logout.all.confirm.title': '모든 기기에서 로그아웃',
+      'logout.all.confirm.body': '이 계정으로 로그인한 모든 브라우저·탭의 세션을 끝낸다. 다른 곳의 화면은 access 만료(최대 15분) 뒤 로그인으로 돌아간다.',
+      'logged.out.all': '모든 기기에서 로그아웃했습니다',
 
                                                        
       'register.title': '회원가입',
@@ -479,6 +483,10 @@ var I18N = {
       'login.totp.expired': 'Expired — log in again',
       'logged.in': 'Logged in',
       'logged.out': 'Logged out',
+      'logout.all': 'All devices',
+      'logout.all.confirm.title': 'Sign out on all devices',
+      'logout.all.confirm.body': 'This ends the sessions of every browser and tab signed in to this account. Screens elsewhere return to the login page after their access token expires (up to 15 minutes).',
+      'logged.out.all': 'Logged out of all devices',
 
                                                   
       'register.title': 'Register',

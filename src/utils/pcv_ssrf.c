@@ -145,3 +145,33 @@ pcv_url_target_allowed(const gchar *url, GError **error)
     g_free(host_dup);
     return TRUE;
 }
+
+                                                                     
+                                                                                            
+                                                                                    
+static gboolean
+_redact_host_is_clean(const gchar *host)
+{
+    if (strchr(host, ':'))
+        return g_hostname_is_ip_address(host);
+    for (const gchar *p = host; *p; p++) {
+        if (!g_ascii_isalnum(*p) && *p != '.' && *p != '-' && *p != '_')
+            return FALSE;
+    }
+    return TRUE;
+}
+
+                                                                           
+gchar *
+pcv_url_redact_origin(const gchar *url)
+{
+    if (!url || !*url)
+        return g_strdup("");
+    g_autoptr(GUri) uri = g_uri_parse(url, G_URI_FLAGS_NONE, NULL);
+    const gchar *scheme = uri ? g_uri_get_scheme(uri) : NULL;
+    const gchar *host = uri ? g_uri_get_host(uri) : NULL;
+    if (!scheme || !host || !*host || !_redact_host_is_clean(host))
+        return g_strdup("(invalid-url)");
+                                       
+    return g_strdup_printf(strchr(host, ':') ? "%s://[%s]" : "%s://%s", scheme, host);
+}

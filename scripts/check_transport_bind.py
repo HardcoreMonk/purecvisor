@@ -23,6 +23,9 @@ import re
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
+
 ROOT = Path(__file__).resolve().parent.parent
 TARGET_REL = "src/api/rest_server.c"
 TARGET = ROOT / TARGET_REL
@@ -299,6 +302,12 @@ def function_body(code: str, name: str) -> str | None:
     return None if match is None else _balanced_body(code, match.end() - 1)
 
 
+def rest_function_body(code: str, name: str, resolve_in: str | None = None) -> str | None:
+
+    resolved = rpc_extract.rest_fn_name_in(code if resolve_in is None else resolve_in, name)
+    body = rpc_extract.function_body_in(code, resolved)
+    return None if body is None else body[1:-1]
+
 def region(body: str | None, start: str, end: str) -> str | None:
     if body is None:
         return None
@@ -328,12 +337,15 @@ def _require(reasons: list[str], scope: str, text: str | None,
         reasons.append(f"{scope}: {description}")
 
 
-def scan_text(rest_text: str, main_text: str) -> list[str]:
+def scan_text(rest_text: str | list[str], main_text: str) -> list[str]:
                                                        
-    rest_raw = strip_comments(rest_text)
+    rest_texts = [rest_text] if isinstance(rest_text, str) else list(rest_text)
+    rest_raws = [strip_comments(text) for text in rest_texts]
+    rest_raw = "\n".join(rest_raws)
     main_raw = strip_comments(main_text)
-    rest = mask_preprocessor(rest_raw)
+    rest = "\n".join(mask_preprocessor(raw) for raw in rest_raws)
     main = mask_preprocessor(main_raw)
+    listener_name = rpc_extract.rest_fn_name_in(rest, "_transport_listen_plaintext")
     reasons: list[str] = []
 
     transport_mutations = re.findall(
@@ -400,8 +412,8 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
             "main transport wiring: 동일 rest_transport가 유일한 server "
             "constructor에 전달되지 않음")
 
-    plan = function_body(rest, "pcv_rest_transport_plan")
-    plan_raw = function_body(rest_raw, "pcv_rest_transport_plan")
+    plan = rest_function_body(rest, "pcv_rest_transport_plan")
+    plan_raw = rest_function_body(rest_raw, "pcv_rest_transport_plan", rest)
     _reject_directives(reasons, "transport plan", plan_raw)
     plan_statements = _top_level_statements(plan or "")
     normalized_plan_statements = [
@@ -457,8 +469,8 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
         r"[^{}]*\}\s*;$",
         "실제 top-level 반환 plan이 검증된 mode/bind 데이터 흐름을 사용하지 않음")
 
-    orchestration_body = function_body(rest, "pcv_rest_transport_start")
-    orchestration_raw = function_body(rest_raw, "pcv_rest_transport_start")
+    orchestration_body = rest_function_body(rest, "pcv_rest_transport_start")
+    orchestration_raw = rest_function_body(rest_raw, "pcv_rest_transport_start", rest)
     _reject_directives(reasons, "transport orchestration", orchestration_raw)
     orchestration_statements = _top_level_statements(orchestration_body or "")
     plaintext_assignments = [
@@ -509,8 +521,8 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
         reasons.append(
             "transport orchestration: plaintext listener가 HTTPS callback보다 늦음")
 
-    constructor = function_body(rest, "pcv_rest_server_new")
-    constructor_raw = function_body(rest_raw, "pcv_rest_server_new")
+    constructor = rest_function_body(rest, "pcv_rest_server_new")
+    constructor_raw = rest_function_body(rest_raw, "pcv_rest_server_new", rest)
     _reject_directives(reasons, "REST constructor", constructor_raw)
     constructor_statements = _top_level_statements(constructor or "")
     assignments = [
@@ -537,8 +549,8 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
             reasons.append(
                 "REST constructor: transport 저장 뒤 유일한 top-level return이 아님")
 
-    start = function_body(rest, "pcv_rest_server_start")
-    start_raw = function_body(rest_raw, "pcv_rest_server_start")
+    start = rest_function_body(rest, "pcv_rest_server_start")
+    start_raw = rest_function_body(rest_raw, "pcv_rest_server_start", rest)
     _reject_directives(reasons, "REST start", start_raw)
     ops_initializers = [] if start is None else re.findall(
         r"\bconst\s+PcvRestTransportOps\s+transport_ops\s*=\s*"
@@ -553,7 +565,7 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
             r"\.listen_plaintext\s*=\s*([A-Za-z_][A-Za-z0-9_]*)\s*,",
             mapping,
         )
-        if plaintext_mappings != ["_transport_listen_plaintext"]:
+        if plaintext_mappings != [listener_name]:
             reasons.append(
                 "REST start: listen_plaintext가 production scoped listener에 "
                 "정확히 한 번 매핑되지 않음")
@@ -566,8 +578,8 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
             "REST start: 저장 plan과 검증된 transport_ops를 유일한 "
             "orchestration 호출에 전달하지 않음")
 
-    listener = function_body(rest, "_transport_listen_plaintext")
-    listener_raw = function_body(rest_raw, "_transport_listen_plaintext")
+    listener = rest_function_body(rest, "_transport_listen_plaintext")
+    listener_raw = rest_function_body(rest_raw, "_transport_listen_plaintext", rest)
     _reject_directives(reasons, "plaintext listener", listener_raw)
     singular = _calls(listener, "soup_server_listen")
     listen_all = _calls(listener, "soup_server_listen_all")
@@ -596,7 +608,7 @@ def scan_text(rest_text: str, main_text: str) -> list[str]:
 
 
 def main() -> int:
-    rest = TARGET.read_text(errors="replace")
+    rest = [p.read_text(errors="replace") for p in rpc_extract.rest_family(ROOT)]
     main_source = MAIN_TARGET.read_text(errors="replace")
     reasons = scan_text(rest, main_source)
     print("[check-transport-bind] 검증→계획→listener 구조 계약 "

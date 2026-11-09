@@ -33,8 +33,8 @@
                                                                          
                                                                          
                                                                         
-                                                           
-                                
+                                                            
+                                                                          
   
                               
                                                               
@@ -84,8 +84,9 @@
                                                                   
                                                                         
                                                                        
-                                                                       
-                
+                                                                               
+                                                                           
+                            
   
                           
                                                                
@@ -112,7 +113,7 @@
                                                                      
                                                                                      
                                                                         
-
+                                                        
                                                             
                                                                   
   
@@ -125,7 +126,7 @@
 
 #include "vpc_model.h"
 #include "vpc_backend_ovn.h"
-#include "vpc_policy_nft.h"
+#include "vpc_fence.h"
 #include "vpc_store.h"
 #include "modules/network/network_dhcp.h"
 #include "modules/network/network_manager.h"
@@ -171,86 +172,6 @@ _store_ref(GError **error)
                     "VPC subsystem이 초기화되지 않았습니다");
     g_mutex_unlock(&g_lifecycle_mu);
     return store;
-}
-
-static gboolean
-_nft_apply(const gchar *script, GError **error)
-{
-    const gchar *check_argv[] = { "nft", "-c", "-f", "-", NULL };
-    g_autofree gchar *stderr_text = NULL;
-    if (!pcv_spawn_sync_stdin(check_argv, script, -1, NULL, &stderr_text, error)) {
-        if (error && !*error)
-            g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_IO,
-                        "nft policy validation 실패: %s", stderr_text ? stderr_text : "unknown");
-        return FALSE;
-    }
-    const gchar *apply_argv[] = { "nft", "-f", "-", NULL };
-    g_clear_pointer(&stderr_text, g_free);
-    if (!pcv_spawn_sync_stdin(apply_argv, script, -1, NULL, &stderr_text, error)) {
-        if (error && !*error)
-            g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_IO,
-                        "nft policy apply 실패: %s", stderr_text ? stderr_text : "unknown");
-        return FALSE;
-    }
-    return TRUE;
-}
-
-static gboolean
-_apply_quarantine(PcvVpcStore *store, GError **error)
-{
-    g_autoptr(GPtrArray) bridges = pcv_vpc_store_list_managed_bridges(store, error);
-    if (!bridges) return FALSE;
-    if (bridges->len > 0) {
-        g_autofree gchar *script = pcv_vpc_policy_build_quarantine_script(bridges);
-        if (!_nft_apply(script, error)) return FALSE;
-    }
-    g_autoptr(JsonArray) vpcs = pcv_vpc_store_list_vpcs(store, NULL, error);
-    if (!vpcs) return FALSE;
-    for (guint i = 0; i < json_array_get_length(vpcs); i++) {
-        JsonObject *vpc = json_array_get_object_element(vpcs, i);
-        if (g_strcmp0(json_object_get_string_member(vpc, "backend"), "ovn") == 0 &&
-            g_strcmp0(json_object_get_string_member(vpc, "state"), "CREATING") != 0 &&
-            !pcv_vpc_ovn_set_quarantine(vpc, TRUE, error))
-            return FALSE;
-    }
-    return TRUE;
-}
-
-static gboolean
-_apply_full_policy(PcvVpcStore *store, GError **error)
-{
-    g_autoptr(PcvVpcPolicySnapshot) snapshot = pcv_vpc_store_policy_snapshot(store, error);
-    if (!snapshot) return FALSE;
-    g_autofree gchar *script = pcv_vpc_policy_build_script(snapshot);
-    return _nft_apply(script, error);
-}
-
-static gboolean
-_clear_ovn_quarantine(PcvVpcStore *store, GError **error)
-{
-    g_autoptr(JsonArray) vpcs = pcv_vpc_store_list_vpcs(store, NULL, error);
-    if (!vpcs) return FALSE;
-    for (guint i = 0; i < json_array_get_length(vpcs); i++) {
-        JsonObject *vpc = json_array_get_object_element(vpcs, i);
-        if (g_strcmp0(json_object_get_string_member(vpc, "backend"), "ovn") == 0) {
-            g_autoptr(JsonArray) attachments = pcv_vpc_store_list_attachments(
-                store, json_object_get_string_member(vpc, "id"), NULL, error);
-            if (!attachments || !pcv_vpc_ovn_sync_policy(vpc, attachments, FALSE, error))
-                return FALSE;
-        }
-    }
-    return TRUE;
-}
-
-static void
-_managed_bridges_down(PcvVpcStore *store)
-{
-    g_autoptr(GPtrArray) bridges = pcv_vpc_store_list_managed_bridges(store, NULL);
-    for (guint i = 0; bridges && i < bridges->len; i++) {
-        const gchar *bridge = g_ptr_array_index(bridges, i);
-        const gchar *argv[] = { "ip", "link", "set", "dev", bridge, "down", NULL };
-        pcv_spawn_sync(argv, NULL, NULL, NULL);
-    }
 }
 
 static gboolean
@@ -778,10 +699,7 @@ pcv_vpc_security_group_sync_vm(const gchar *vm_name, GError **error)
         ok = vpc && attachments && pcv_vpc_ovn_set_quarantine(vpc, TRUE, error) &&
              pcv_vpc_ovn_sync_policy(vpc, attachments, FALSE, error);
         if (!ok && vpc)
-            (void)pcv_vpc_store_set_resource_state(
-                store, "vpcs", ovn_vpc_id, "DEGRADED",
-                error && *error ? (*error)->message : "OVN Security Group ACL sync failed",
-                NULL);
+            pcv_vpc_fence_policy_sync_failed(store, ovn_vpc_id, error ? *error : NULL);
     }
     g_mutex_unlock(&g_mutation_mu);
     return ok;
@@ -875,14 +793,14 @@ pcv_vpc_status(const gchar *tenant, GError **error)
     json_object_set_int_member(o, "subnet_count", json_array_get_length(subnets));
     json_object_set_int_member(o, "attachment_count", json_array_get_length(attachments));
     json_object_set_int_member(o, "service_publish_count", json_array_get_length(publishes));
-
-
-
-
-
-
-
-
+                                            
+                                                                 
+                                                                          
+                                                            
+                                                                     
+                 
+                                                      
+                                                           
     JsonArray *subnet_cidrs = json_array_new();
     for (guint i = 0; i < json_array_get_length(subnets); i++) {
         JsonObject *subnet = json_array_get_object_element(subnets, i);
@@ -957,7 +875,8 @@ _subnet_create_locked(PcvVpcStore *s, const gchar *vpc_id, const gchar *tenant,
         vpc = pcv_vpc_store_get_vpc(s, vpc_id, tenant, error);
         ok = vpc != NULL;
     }
-    if (ok) ok = _apply_quarantine(s, error);
+    const gboolean quarantined = ok && pcv_vpc_fence_quarantine(s, NULL, error);
+    ok = quarantined;
     g_autoptr(JsonObject) subnet = ok
         ? pcv_vpc_store_get_subnet(s, id, tenant, error) : NULL;
     if (ok && !subnet)
@@ -976,9 +895,8 @@ _subnet_create_locked(PcvVpcStore *s, const gchar *vpc_id, const gchar *tenant,
         ok = binding && pcv_vpc_ovn_ensure_subnet(vpc, binding, subnet, error);
     }
     if (ok) ok = _restart_dhcp(s, subnet, error);
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok && g_strcmp0(backend, "ovn") == 0)
-        ok = _clear_ovn_quarantine(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, vpc_id, error);
     if (ok) ok = pcv_vpc_store_set_resource_state(
         s, "subnets", id, "ACTIVE", NULL, error);
     if (!ok && id) {
@@ -993,7 +911,7 @@ _subnet_create_locked(PcvVpcStore *s, const gchar *vpc_id, const gchar *tenant,
         if (cleaned)
             cleaned = pcv_vpc_store_delete_subnet(s, id, tenant, NULL);
         if (cleaned)
-            cleaned = _apply_full_policy(s, NULL);
+            cleaned = pcv_vpc_fence_full_policy(s, NULL);
         if (!cleaned) {
             if (cleanup_verified_out) *cleanup_verified_out = FALSE;
             (void)pcv_vpc_store_set_resource_state(
@@ -1002,6 +920,7 @@ _subnet_create_locked(PcvVpcStore *s, const gchar *vpc_id, const gchar *tenant,
                 s, "vpcs", vpc_id, "DEGRADED", failure, NULL);
         }
     }
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     if (ok && result_out) {
         JsonObject *o = json_object_new();
         json_object_set_string_member(o, "id", id);
@@ -1070,9 +989,9 @@ pcv_vpc_create(const gchar *name, const gchar *tenant, const gchar *mode,
             &subnet_result, error);
     }
     if (ok && !has_initial_subnet)
-        ok = _apply_full_policy(s, error);
+        ok = pcv_vpc_fence_full_policy(s, error);
     if (ok && g_strcmp0(backend, "ovn") == 0)
-        ok = _clear_ovn_quarantine(s, error);
+        ok = pcv_vpc_fence_clear_ovn(s, id, error);
     if (ok)
         ok = pcv_vpc_store_set_resource_state(s, "vpcs", id, "ACTIVE", NULL, error);
     if (!ok && id) {
@@ -1140,12 +1059,21 @@ pcv_vpc_delete(const gchar *id, const gchar *tenant, GError **error)
         ? json_object_get_string_member_with_default(vpc, "backend", "linux") : "linux";
     g_autoptr(JsonObject) binding = ok && g_strcmp0(backend, "ovn") == 0
         ? pcv_vpc_store_get_backend_binding(s, id, tenant, error) : NULL;
-    if (ok) ok = _apply_quarantine(s, error);
+                                                                                   
+                                                              
+                                                     
+    const gchar *state = vpc ? json_object_get_string_member(vpc, "state") : NULL;
+    gboolean self_unverified = g_strcmp0(state, "DEGRADED") == 0 ||
+                               g_strcmp0(state, "CREATING") == 0;
+    gboolean quarantined = ok &&
+        pcv_vpc_fence_quarantine(s, self_unverified ? id : NULL, error);
+    ok = quarantined;
     if (ok && g_strcmp0(backend, "ovn") == 0)
         ok = binding && pcv_vpc_ovn_remove_vpc(vpc, binding, error);
     if (ok) ok = pcv_vpc_store_delete_vpc(s, id, tenant, error);
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, NULL, error);
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     g_mutex_unlock(&g_mutation_mu);
     return ok;
 }
@@ -1173,11 +1101,8 @@ pcv_vpc_egress_set(const gchar *id, const gchar *tenant, const gchar *mode,
             ok = FALSE;
         }
     }
-    gboolean quarantined = FALSE;
-    if (ok) {
-        ok = _apply_quarantine(s, error);
-        quarantined = ok;
-    }
+    const gboolean quarantined = ok && pcv_vpc_fence_quarantine(s, NULL, error);
+    ok = quarantined;
     gint64 revision = 0;
     gboolean desired_changed = FALSE;
     if (ok) {
@@ -1190,13 +1115,12 @@ pcv_vpc_egress_set(const gchar *id, const gchar *tenant, const gchar *mode,
         vpc = pcv_vpc_store_get_vpc(s, id, tenant, error);
         ok = vpc && pcv_vpc_ovn_set_egress(vpc, binding, error);
     }
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
-    if (!ok && quarantined && !desired_changed)
-        (void)_apply_full_policy(s, NULL);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, id, error);
     if (!ok && desired_changed)
         pcv_vpc_store_set_resource_state(s, "vpcs", id, "DEGRADED",
             error && *error ? (*error)->message : "policy apply failed", NULL);
+    if (!ok && quarantined) pcv_vpc_fence_release(s, desired_changed ? id : NULL);
     g_mutex_unlock(&g_mutation_mu);
     if (ok && result_out) { JsonObject *o = json_object_new();
         json_object_set_string_member(o, "id", id); json_object_set_string_member(o, "egress_mode", mode);
@@ -1230,14 +1154,14 @@ pcv_vpc_subnet_delete(const gchar *id, const gchar *tenant, GError **error)
     g_autoptr(JsonArray) attachments = subnet
         ? pcv_vpc_store_list_attachments(s, vpc_id, tenant, error) : NULL;
     gboolean ok = subnet != NULL && attachments != NULL;
-
-
-
-
-
-
-
-
+                                                                           
+                                                                
+                                                                        
+                                                             
+      
+                                                          
+                                                          
+                   
     for (guint i = 0; ok && i < json_array_get_length(attachments); i++) {
         JsonObject *attachment = json_array_get_object_element(attachments, i);
         if (g_strcmp0(json_object_get_string_member(attachment, "subnet_id"), id) == 0) {
@@ -1253,11 +1177,8 @@ pcv_vpc_subnet_delete(const gchar *id, const gchar *tenant, GError **error)
     g_autoptr(JsonObject) binding = vpc && g_strcmp0(backend, "ovn") == 0
         ? pcv_vpc_store_get_backend_binding(s,
             json_object_get_string_member(vpc, "id"), tenant, error) : NULL;
-    gboolean mutation_started = FALSE;
-    if (ok) {
-        mutation_started = TRUE;
-        ok = _apply_quarantine(s, error);
-    }
+    const gboolean quarantined = ok && pcv_vpc_fence_quarantine(s, NULL, error);
+    ok = quarantined;
     const gchar *bridge = subnet && g_strcmp0(backend, "linux") == 0
         ? json_object_get_string_member(subnet, "bridge_name") : NULL;
     if (ok) ok = pcv_vpc_store_set_resource_state(s, "subnets", id, "DELETING", NULL, error);
@@ -1266,10 +1187,11 @@ pcv_vpc_subnet_delete(const gchar *id, const gchar *tenant, GError **error)
     if (ok && g_strcmp0(backend, "ovn") == 0)
         ok = binding && pcv_vpc_ovn_remove_subnet(vpc, binding, subnet, error);
     if (ok) ok = pcv_vpc_store_delete_subnet(s, id, tenant, error);
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
-    if (!ok && subnet && mutation_started) pcv_vpc_store_set_resource_state(s, "subnets", id, "ERROR",
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, vpc_id, error);
+    if (!ok && quarantined) pcv_vpc_store_set_resource_state(s, "subnets", id, "ERROR",
         error && *error ? (*error)->message : "subnet delete failed", NULL);
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     g_mutex_unlock(&g_mutation_mu); return ok;
 }
 
@@ -1309,7 +1231,8 @@ pcv_vpc_attachment_create(const gchar *subnet_id, const gchar *tenant, const gch
         s, json_object_get_string_member(subnet, "vpc_id"), tenant, error) : NULL;
     const gchar *backend = attachment
         ? json_object_get_string_member_with_default(attachment, "backend", "linux") : "linux";
-    if (ok) ok = _apply_quarantine(s, error);
+    const gboolean quarantined = ok && pcv_vpc_fence_quarantine(s, NULL, error);
+    ok = quarantined;
     gboolean ovn_port_attempted = FALSE;
     if (ok && g_strcmp0(backend, "ovn") == 0) {
         ovn_port_attempted = TRUE;
@@ -1329,8 +1252,8 @@ pcv_vpc_attachment_create(const gchar *subnet_id, const gchar *tenant, const gch
     }
     if (ok) ok = pcv_vpc_store_set_resource_state(s, "attachments", aid, "ACTIVE", NULL, error);
     if (ok) ok = _restart_dhcp(s, subnet, error);
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, json_object_get_string_member(attachment, "vpc_id"), error);
     if (!ok && attachment) {
         gboolean nic_rolled_back = !nic_attached;
         if (nic_attached)
@@ -1348,6 +1271,7 @@ pcv_vpc_attachment_create(const gchar *subnet_id, const gchar *tenant, const gch
         else pcv_vpc_store_set_resource_state(s, "attachments", aid, "QUARANTINED",
             error && *error ? (*error)->message : "attachment create failed", NULL);
     }
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     if (dom)
         virDomainFree(dom);
     if (conn)
@@ -1388,7 +1312,8 @@ pcv_vpc_attachment_delete(const gchar *id, const gchar *tenant, const gchar *act
     if (ok && !dom) { g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_NOT_FOUND, "VM을 찾을 수 없습니다"); ok = FALSE; }
     if (ok && virDomainIsActive(dom) != 0) { g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE,
         "첫 릴리스 VPC detach는 정지 VM에만 허용됩니다"); ok = FALSE; }
-    if (ok) ok = _apply_quarantine(s, error);
+    const gboolean quarantined = ok && pcv_vpc_fence_quarantine(s, NULL, error);
+    ok = quarantined;
     gboolean detaching_marked = FALSE;
     if (ok) {
         ok = pcv_vpc_store_set_resource_state(
@@ -1428,13 +1353,14 @@ pcv_vpc_attachment_delete(const gchar *id, const gchar *tenant, const gchar *act
             a, "backend", "linux"), "ovn") == 0)
         ok = vpc && pcv_vpc_ovn_remove_attachment(vpc, subnet, a, error);
     if (ok) ok = _restart_dhcp(s, subnet, error);
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, json_object_get_string_member(a, "vpc_id"), error);
                                                                  
     if (ok) ok = pcv_vpc_store_delete_attachment(s, id, tenant, error);
     if (!ok && detaching_marked)
         pcv_vpc_store_set_resource_state(s, "attachments", id, "DETACHING",
             error && *error ? (*error)->message : "attachment detach failed", NULL);
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     if (dom)
         virDomainFree(dom);
     if (conn)
@@ -1473,7 +1399,7 @@ pcv_vpc_service_publish(const gchar *attachment_id, const gchar *tenant, const g
                                                 listen_address, listen_port, target_port,
                                                 sources, &id, error);
     if (ok) ok = pcv_vpc_store_set_resource_state(s, "service_publishes", id, "ACTIVE", NULL, error);
-    if (ok) ok = _apply_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
     if (!ok && id) pcv_vpc_store_set_resource_state(s, "service_publishes", id, "ERROR",
         error && *error ? (*error)->message : "publish apply failed", NULL);
     g_mutex_unlock(&g_mutation_mu);
@@ -1488,12 +1414,15 @@ pcv_vpc_service_unpublish(const gchar *id, const gchar *tenant, GError **error)
     PcvVpcStore *s = _store_ref(error); if (!s) return FALSE;
     g_mutex_lock(&g_mutation_mu);
     g_autoptr(JsonObject) p = pcv_vpc_store_get_publish(s, id, tenant, error);
-    gboolean ok = p != NULL && _apply_quarantine(s, error);
+    const gboolean quarantined = p != NULL && pcv_vpc_fence_quarantine(s, NULL, error);
+    gboolean ok = quarantined;
     if (ok) ok = pcv_vpc_store_set_resource_state(s, "service_publishes", id, "DELETING", NULL, error);
-    if (ok) ok = _apply_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_clear_ovn(s, json_object_get_string_member(p, "vpc_id"), error);
     if (ok) ok = pcv_vpc_store_delete_publish(s, id, tenant, error);
-    if (!ok && p) pcv_vpc_store_set_resource_state(s, "service_publishes", id, "DELETING",
+    if (!ok && quarantined) pcv_vpc_store_set_resource_state(s, "service_publishes", id, "DELETING",
         error && *error ? (*error)->message : "unpublish failed", NULL);
+    if (!ok && quarantined) pcv_vpc_fence_release(s, NULL);
     g_mutex_unlock(&g_mutation_mu); return ok;
 }
 
@@ -1663,7 +1592,7 @@ pcv_vpc_reconcile(GError **error)
     if (!bridges) { g_mutex_unlock(&g_mutation_mu); return FALSE; }
     if (bridges->len == 0) {
                                                               
-        gboolean empty_ok = _apply_full_policy(s, error);
+        gboolean empty_ok = pcv_vpc_fence_full_policy(s, error);
         for (guint i = 0; empty_ok && i < json_array_get_length(vpcs); i++)
             empty_ok = pcv_vpc_store_set_resource_state(
                 s, "vpcs", json_object_get_string_member(
@@ -1672,25 +1601,30 @@ pcv_vpc_reconcile(GError **error)
         g_mutex_unlock(&g_mutation_mu);
         return empty_ok;
     }
-    gboolean ok = _apply_quarantine(s, error);
-    if (!ok) { _managed_bridges_down(s); g_mutex_unlock(&g_mutation_mu); return FALSE; }
-    for (guint i = 0; ok && i < json_array_get_length(vpcs); i++) {
-        JsonObject *vpc = json_array_get_object_element(vpcs, i);
-        if (g_strcmp0(json_object_get_string_member_with_default(
-                vpc, "backend", "linux"), "ovn") != 0)
-            continue;
-        g_autoptr(JsonObject) binding = pcv_vpc_store_get_backend_binding(
-            s, json_object_get_string_member(vpc, "id"), NULL, error);
-        ok = binding && pcv_vpc_ovn_require_ready(_ovn_transit_pool(), error) &&
-             pcv_vpc_ovn_ensure_vpc(vpc, binding, error);
-    }
+                                                                                   
+                                                                 
+    g_autoptr(GHashTable) ovn_failed = g_hash_table_new_full(
+        g_str_hash, g_str_equal, g_free, g_free);
+    gboolean ok = pcv_vpc_fence_nft_quarantine(s, error);
+    if (!ok) { pcv_vpc_fence_all_down(s); g_mutex_unlock(&g_mutation_mu); return FALSE; }
+    ok = pcv_vpc_fence_reconcile_ovn_begin(s, vpcs, _ovn_transit_pool(), ovn_failed, error);
     g_autoptr(JsonArray) subnets = pcv_vpc_store_list_subnets(s, NULL, NULL, error);
     if (!subnets) ok = FALSE;
     for (guint i = 0; ok && subnets && i < json_array_get_length(subnets); i++) {
         JsonObject *subnet = json_array_get_object_element(subnets, i);
         const gchar *state = json_object_get_string_member(subnet, "state");
-        if (g_strcmp0(state, "DELETING") == 0) continue;
-        ok = _reconcile_subnet_actual(s, subnet, error);
+        const gchar *subnet_vpc = json_object_get_string_member(subnet, "vpc_id");
+        if (g_strcmp0(state, "DELETING") == 0 ||
+            g_hash_table_contains(ovn_failed, subnet_vpc)) continue;
+        g_autoptr(GError) subnet_error = NULL;
+        if (_reconcile_subnet_actual(s, subnet, &subnet_error)) continue;
+        if (g_strcmp0(json_object_get_string_member_with_default(
+                subnet, "backend", "linux"), "ovn") == 0) {
+            ok = pcv_vpc_fence_ovn_failed(s, ovn_failed, subnet_vpc, subnet_error, error);
+        } else {
+            g_propagate_error(error, g_steal_pointer(&subnet_error));
+            ok = FALSE;
+        }
     }
     gboolean degraded = FALSE;
     g_autofree gchar *degraded_message = NULL;
@@ -1766,14 +1700,19 @@ pcv_vpc_reconcile(GError **error)
                 ok = FALSE;
         }
     }
-    if (ok) ok = _apply_full_policy(s, error);
-    if (ok) ok = _clear_ovn_quarantine(s, error);
+    if (ok) ok = pcv_vpc_fence_full_policy(s, error);
+    if (ok) ok = pcv_vpc_fence_reconcile_ovn_clear(s, ovn_failed, error);
     for (guint i = 0; ok && subnets && i < json_array_get_length(subnets); i++) {
         JsonObject *subnet = json_array_get_object_element(subnets, i);
-        if (g_strcmp0(json_object_get_string_member(subnet, "state"), "DELETING") != 0)
+        if (g_strcmp0(json_object_get_string_member(subnet, "state"), "DELETING") != 0 &&
+            !g_hash_table_contains(ovn_failed, json_object_get_string_member(subnet, "vpc_id")))
             ok = pcv_vpc_store_set_resource_state(
                 s, "subnets", json_object_get_string_member(subnet, "id"),
                 "ACTIVE", NULL, error);
+    }
+    if (g_hash_table_size(ovn_failed) > 0) {
+        degraded = TRUE;
+        if (!degraded_message) degraded_message = g_strdup("일부 OVN VPC 수렴 실패");
     }
                                                              
     for (guint i = 0; ok && !degraded && i < json_array_get_length(vpcs); i++)
@@ -1781,7 +1720,8 @@ pcv_vpc_reconcile(GError **error)
             s, "vpcs", json_object_get_string_member(
                 json_array_get_object_element(vpcs, i), "id"),
             "ACTIVE", NULL, error);
-    if (!ok) _managed_bridges_down(s);
+    if (!ok) pcv_vpc_fence_all_down(s);
+    else pcv_vpc_fence_ovn_failed_edges_down(ovn_failed);
     if (ok && degraded) {
         g_set_error(error, PCV_VPC_ERROR, PCV_VPC_ERROR_STATE,
                     "VPC는 fail-closed로 수렴했지만 일부 attachment가 quarantine 상태입니다: %s",

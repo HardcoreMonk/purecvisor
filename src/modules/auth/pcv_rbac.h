@@ -91,7 +91,7 @@ typedef enum {
 typedef struct {
     gchar  *username;                                       
     PcvRole role;                                            
-    gchar  *tenant;                                              
+    gchar  *tenant;                                                                
     gboolean totp_enrolled;                                     
     gboolean totp_confirmed;                       
 } PcvUser;
@@ -125,7 +125,7 @@ void pcv_rbac_shutdown(void);
                        
                                       
                                                  
-                                   
+                                                              
                        
   
                                        
@@ -167,13 +167,70 @@ typedef enum {
 PcvUserExistence pcv_rbac_user_exists(const gchar *username);
 
    
+                           
+                        
+                                                                                
+                                                                                            
+                                            
+  
+                                                                                   
+                                                                        
+                                                            
+                                                            
+   
+PcvUserExistence pcv_rbac_lookup_subject(const gchar *username, PcvRole *out_role,
+                                         gchar **out_identity_nonce);
+
+   
+                   
+                                                                           
+                                                                 
+                                                        
+                                                             
+   
+typedef enum {
+    PCV_SUBJECT_OK          = 0,
+    PCV_SUBJECT_REJECT      = 1,
+    PCV_SUBJECT_UNAVAILABLE = 2
+} PcvSubjectCheck;
+
+   
+                          
+                               
+                                                        
+                                             
+  
+                                                                               
+                                                                                 
+                                                                              
+                                                     
+   
+PcvSubjectCheck pcv_rbac_subject_check(const gchar *username, const gchar *identity_nonce,
+                                       PcvRole *out_role);
+
+   
+                                
+                                      
+                                                           
+                                             
+  
+                                                                                                
+                                                          
+                                           
+   
+PcvSubjectCheck pcv_rbac_subject_check_token(const gchar *subject, const gchar *verified_token,
+                                             PcvRole *out_role);
+
+   
                         
                      
                        
   
-                                            
+                                                                    
+                                                                                         
+                                                                                            
   
-                         
+                                                      
    
 gboolean pcv_rbac_user_delete(const gchar *username, GError **error);
 
@@ -194,24 +251,26 @@ GPtrArray *pcv_rbac_user_list(void);
                           
                     
                   
+                                                
                        
   
                      
   
-                            
+                                                 
    
 gboolean pcv_rbac_user_set_role(const gchar *username,
                                 PcvRole      role,
+                                PcvRole     *out_previous,
                                 GError     **error);
 
    
                             
                                                  
-
-
+                                                                  
+                                                       
   
                                                                   
-
+                                                                               
    
 gboolean pcv_rbac_change_password(const gchar *username,
                                   const gchar *old_password,
@@ -252,7 +311,7 @@ gchar *pcv_rbac_authenticate(const gchar *username,
   
                                                                
    
-
+                                                                            
 gchar *pcv_rbac_authenticate_v2(const gchar *username,
                                 const gchar *password,
                                 gchar      **out_refresh_token,
@@ -279,8 +338,28 @@ gboolean pcv_rbac_password_check(const gchar *username,
                                  GError     **error);
 
    
+                                   
+                                              
+                                                                                      
+  
+                                                                             
+                                                                  
+                                                                  
+                                                 
+  
+                                                     
+   
+gboolean pcv_rbac_password_check_subject(const gchar *username,
+                                         const gchar *password,
+                                         PcvRole     *out_role,
+                                         gchar      **out_identity_nonce,
+                                         GError     **error);
+
+   
                          
                                                                   
+                                                                                 
+                                                                                    
                                                                                 
                                 
   
@@ -300,6 +379,7 @@ gboolean pcv_rbac_password_check(const gchar *username,
                                      
    
 gchar *pcv_rbac_issue_tokens(const gchar *username,
+                             const gchar *expected_identity_nonce,
                              gchar      **out_refresh_token,
                              GError     **error);
 
@@ -362,18 +442,21 @@ gint pcv_rbac_cleanup_expired_sessions(void);
 JsonArray *pcv_rbac_list_sessions(const gchar *username);
 
    
-                                 
-                               
-                         
+                                    
+                                                      
+                                                               
+                                                                         
   
-                       
+                                                         
+                                                                          
   
-                     
+                                                       
   
-                                                           
+                                                            
    
-gboolean pcv_rbac_revoke_session_by_id(const gchar *username,
-                                       gint64       session_id);
+[[nodiscard]] gint pcv_rbac_revoke_session_by_token(const gchar *refresh_token,
+                                                    const gchar *username,
+                                                    gchar      **out_username);
 
                                                              
 
@@ -382,29 +465,60 @@ gboolean pcv_rbac_revoke_session_by_id(const gchar *username,
                      
                                          
   
-                                      
+                                                                       
+                                                            
   
                                                            
-                                             
+                                                               
    
 [[nodiscard]] gboolean pcv_rbac_check_permission(const gchar *username,
                                    const gchar *method);
 
    
-                     
-                                                       
+                         
+                                      
+                      
   
-                                                             
+                                                                            
+                                                                      
+                                             
    
-PcvRole pcv_rbac_get_role(const gchar *username);
+[[nodiscard]] gboolean pcv_rbac_role_permits(PcvRole role, const gchar *method);
 
    
                        
-                                                                      
+                                                                                           
+                                                                           
+                                                                 
   
                                                               
    
 const gchar *pcv_rbac_get_tenant(const gchar *username);
+
+   
+                                                              
+                                                                      
+                                                                                     
+   
+typedef enum {
+    PCV_RBAC_TENANT_SET,
+    PCV_RBAC_TENANT_ALREADY,
+    PCV_RBAC_TENANT_NO_USER,
+    PCV_RBAC_TENANT_ERROR
+} PcvRbacTenantResult;
+
+   
+                                     
+                    
+                                                                                         
+  
+                                                                             
+                                                                                 
+                                                        
+  
+                                                                              
+   
+PcvRbacTenantResult pcv_rbac_user_set_tenant_if_empty(const gchar *username, const gchar *tenant);
 
                                                   
 
@@ -420,7 +534,7 @@ const gchar *pcv_rbac_get_tenant(const gchar *username);
                                            
   
                                                           
-                                                                  
+                                               
                                                     
   
                                                                
@@ -484,7 +598,7 @@ void pcv_user_free(PcvUser *u);
                                                             
                                                             
                                                                        
-                                                                
+                                                
                                                              
                                                                     
                                                    
@@ -492,7 +606,6 @@ void pcv_user_free(PcvUser *u);
 gboolean   pcv_rbac_apikey_create(const gchar *client_name, PcvRole role,
                                   const gchar *description, gint64 expires_at,
                                   gchar **out_key, GError **error);
-gint       pcv_rbac_apikey_validate(const gchar *api_key);                                                
 JsonArray *pcv_rbac_apikey_list(void);                                                
 gboolean   pcv_rbac_apikey_revoke(const gchar *client_name, GError **error);                          
 
@@ -568,6 +681,9 @@ gboolean   pcv_rbac_totp_status(const gchar *username, PcvTotpStatus *out);
    
                         
                      
+                                                                             
+                                                                                         
+                                                                                
                        
   
                                                      
@@ -577,7 +693,7 @@ gboolean   pcv_rbac_totp_status(const gchar *username, PcvTotpStatus *out);
                                                       
                                                            
    
-gchar     *pcv_rbac_totp_enroll(const gchar *username, GError **error);
+gchar     *pcv_rbac_totp_enroll(const gchar *username, const gchar *identity_nonce, GError **error);
 
    
                              

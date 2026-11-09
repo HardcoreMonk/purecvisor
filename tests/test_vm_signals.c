@@ -68,7 +68,7 @@ static PureCVisorVmManager *
 make_manager(void)
 {
                                              
-    return purecvisor_vm_manager_new(NULL);
+    return purecvisor_vm_manager_new();
 }
 
                                                      

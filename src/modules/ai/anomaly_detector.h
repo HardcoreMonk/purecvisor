@@ -105,6 +105,35 @@ void pcv_anomaly_shutdown(void);
 void pcv_anomaly_evaluate(void);
 
    
+                          
+                                                         
+                     
+  
+                 
+                                                         
+                                                               
+                                                                             
+                                                            
+                                     
+  
+                                                    
+                             
+                                                          
+                           
+   
+gdouble pcv_anomaly_read_value(const gchar *render_text, const gchar *name, const gchar *labels);
+
+                                                                                
+                                                                   
+                         
+   
+                             
+                                                 
+                                                               
+   
+void pcv_anomaly_evaluate_text(const gchar *render_text);
+
+   
                                
                                                    
                                         

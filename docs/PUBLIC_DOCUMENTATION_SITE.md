@@ -10,7 +10,7 @@
 
 ## 목적
 
-PureCVisor 2.0.4 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
+PureCVisor 2.1.0 공개 문서는 public GitHub 저장소에서 Astro와 Starlight로 빌드하고 GitHub
 Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web UI runtime과 분리하면서
 `docs/GUIDE.md`의 숫자형 21개 장을 언어·분류·문서별 Starlight 정적 page로 분할한다.
 `docs/DATABASE_STRUCTURE.md`는 별도 작성 정본을 유지하면서 같은 reader의 독립 데이터베이스
@@ -130,9 +130,10 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   연결을 한 화면에 유지하며 Multi Edge 전용 기능은 표시하지 않는다. 두 DB 노드는
   `vm_state.db`, `pcv_audit.db`, `pcv_jobs.db`, `rbac.db`, `pcv_security.db`,
   `security_groups.db`, `vpc.db`, `pcv_webpush.db`를 모두 명시한다.
-  공개 DB 개수는 공개 소스에 실제 존재하는 이 8개를 정본으로 하며 다른 내부 배포판의
-  저장소 수와 혼용하지 않는다.
-- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.0.4`를 실제 H1으로 두고 범위 문장, action과
+  2.1.0에서 더해진 자원 등록 DB `resource_registry.db`는 이 SVG와 Mermaid 원본에 아직 없다.
+  공개 DB 개수의 정본은 공개 소스에 실제 존재하는 9개(`docs/DATABASE_STRUCTURE.md`와 데이터베이스
+  아키텍처 SVG)이며 다른 내부 배포판의 저장소 수와 혼용하지 않는다.
+- Hero는 별도 version eyebrow 없이 `PURECVISOR 2.1.0`를 실제 H1으로 두고 범위 문장, action과
   배포 note를 이어서 제공한다. 범위 문장은 1024px 이상에서 한 줄, 768px 이하에서 자연
   줄바꿈한다.
 - NGINX 모드 SVG의 Mermaid 원본은
@@ -174,8 +175,8 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
 - 각 운영 가이드와 데이터베이스 아키텍처 page는 Starlight header, 좌측 8개 그룹·22개 문서
   navigation, 중앙 본문,
   우측 현재 page 목차와 하단 이전·다음 navigation을 사용한다.
-- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 8개와
-  영구 테이블 25개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
+- 데이터베이스 아키텍처 page는 공개 소스의 영구 DDL을 기준으로 로컬 SQLite 파일 9개와
+  영구 테이블 28개를 설명한다. 서두에는 4개 핵심 수치의 단일 분할 요약 띠를 두고,
   `site/public/assets/diagrams/purecvisor-single-database-architecture.svg`에서 요청·정책 정본·작업
   상태·감사 및 외부 통합·Linux/KVM actual state의 관계를 보여 준다. SVG는 `<title>`·`<desc>`와
   본문 대체 설명, 원본 확대 link를 제공하고 mobile에서는 page가 아니라 figure canvas 안에서만
@@ -191,7 +192,7 @@ Pages에 정적 artifact로 배포한다. 공개 서비스 landing은 제품 Web
   `6b2918ca11c217aaf8ac8cec81b78d01ef4b70b50370cfb2c2a39286f10a963c`, 배포 파일 SHA-256은
   `093aadbafec9100e2ed8ec82190d0d0324af66697ef13191f8df910830bce2d3`로 고정한다.
   본문만으로도 두 TLS 경계, 부팅 입력, 4개 transport, 동기·비동기 완료, 6개 서비스 도메인,
-  로컬 SQLite DB 8개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
+  로컬 SQLite DB 9개·desired state, Linux/KVM host와 Single Edge 제외 경계를 읽을 수 있어야
   한다. ASCII 아키텍처를 별도 정본으로 유지하지 않는다.
 - TLS 모드 탭은 `button[role=tab]`과 `tabpanel`을 연결하고 `aria-selected`, roving `tabindex`,
   좌우 방향키·Home·End를 지원한다. 선택 상태는 teal 색뿐 아니라 border와 surface로도 구분하며,

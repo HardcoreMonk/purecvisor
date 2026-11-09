@@ -34,8 +34,8 @@ class AsyncShutdownLifetime(unittest.TestCase):
                    "-Wall", "-Wextra", "-Werror", "-Wno-unused-parameter", "-g",
                    "-ffunction-sections", "-fdata-sections", "-I.", "-Isrc",
                    "-Iinclude", "-Iinclude/purecvisor",
-                   "tests/fixtures/async_shutdown_lifetime.c", "src/api/drain.c",
-                   "src/utils/pcv_job_queue.c", "src/utils/pcv_worker_pool.c",
+                   "tests/fixtures/async_shutdown_lifetime.c", "src/api/drain.c", "src/modules/dispatcher/rpc_completion.c",
+                   "src/utils/pcv_job_queue.c", "src/utils/pcv_job_recovery.c", "src/utils/pcv_worker_pool.c",
                    "-Wl,--gc-sections", "-Wl,--wrap=g_thread_pool_push", "-lsqlite3", "-o", str(cls.binary), *flags,
                    *shlex.split(os.environ.get("PCV_ASYNC_TEST_CFLAGS", ""))]
         result = subprocess.run(command, cwd=ROOT, text=True, capture_output=True, timeout=90)
@@ -75,7 +75,9 @@ class AsyncShutdownLifetime(unittest.TestCase):
 
         ignored = re.compile(r'/\*.*?\*/|//[^\n]*|"(?:\\.|[^"\\])*"|\'(?:\\.|[^\'\\])*\'', re.S)
         callsites = []
-        for path in (ROOT / "src").rglob("*.c"):
+        for path in sorted((ROOT / "src").rglob("*")):
+            if path.suffix not in (".c", ".h"):
+                continue
             code = ignored.sub(" ", path.read_text())
             if re.search(r"\bg_task_new\s*\(", code):
                 callsites.append(str(path.relative_to(ROOT)))

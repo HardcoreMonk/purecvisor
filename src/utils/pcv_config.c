@@ -653,7 +653,7 @@ pcv_config_init(void)
             const gchar *known[] = {
                 "socket_path", "rest_port", "drain_timeout", "pool_max_conn",
                 "log_level", "libvirt_uri", "jwt_secret", "db_path",
-                "admin_user", "admin_password", nullptr
+                "admin_user", "admin_password", "job_retention_days", nullptr
             };
             for (gchar **k = keys; *k; k++) {
                 gboolean found = FALSE;

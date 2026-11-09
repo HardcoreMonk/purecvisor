@@ -31,7 +31,9 @@ G_BEGIN_DECLS
                                                             
                                                                
                                                                               
-                                                                                
+                                                                                 
+                                                              
+                                    
 PcvSecuritySeverity pcv_security_policy_normalize_severity(const PcvSecurityEvent *ev);
 
                                              

@@ -51,13 +51,11 @@ pcv_gpu_vgpu_create
 pcv_gpu_vgpu_delete
 pcv_gpu_vgpu_list
 pcv_gpu_vgpu_types
-pcv_healing_get_mode
 pcv_hids_file_integrity_scan
 pcv_hips_action_build_pending
 pcv_hot_reload_get_state
 pcv_hot_reload_get_version
 pcv_hot_reload_prepare
-pcv_job_queue_cleanup_old
 pcv_jwt_blacklist_sweep
 pcv_jwt_sign_with_ip
 pcv_jwt_verify_with_ip
@@ -70,7 +68,6 @@ pcv_lxc_clone
 pcv_lxc_create_async
 pcv_lxc_get_seccomp_profile
 pcv_lxc_restore
-pcv_lxc_set_seccomp_profile
 pcv_nfv_chain_create
 pcv_nfv_chain_delete
 pcv_nfv_chain_list
@@ -94,7 +91,6 @@ pcv_privdrop_no_new_privs
 pcv_prom_gauge_set
 pcv_prom_inc
 pcv_prom_shutdown
-pcv_rbac_apikey_validate
 pcv_rbac_check_quota
 pcv_rbac_check_user_rate
 pcv_rbac_cleanup_expired_sessions
@@ -104,7 +100,6 @@ pcv_rbac_perm_cache_check
 pcv_rbac_perm_cache_init
 pcv_rbac_perm_cache_invalidate
 pcv_rbac_perm_cache_set
-pcv_rbac_revoke_session_by_id
 pcv_rbac_set_quota
 pcv_scheduler_affinity_delete
 pcv_scheduler_affinity_list
@@ -139,11 +134,9 @@ pcv_uring_submit_write
 pcv_validate_disk_size_gb
 pcv_validate_zvol_name
 pcv_vm_clone_build_zvol_plan
-pcv_vm_manager_cleanup
 pcv_vm_state_cleanup_expired
 pcv_vm_state_get_runtime
 pcv_vm_state_runtime_str
-pcv_ws_server_shutdown
 pcv_zfs_pool_get_stats
 pcv_zfs_pool_lock_shutdown
 

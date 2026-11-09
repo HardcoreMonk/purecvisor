@@ -74,6 +74,8 @@ if (!window.eventLog) window.eventLog = [];
 window.PCV = window.PCV || {};
 (function(PCV) {
 
+var _WS_PERIODIC_TYPES = new Set(['metric', 'metrics-update', 'forecast', 'ping']);
+
 var _wsReconnectAttempt = 0;
 var _wsMaxReconnect = 5;
 
@@ -112,6 +114,9 @@ window.pcvSetLoginVisible = pcvSetLoginVisible;
 var _refreshInProgress = null;
 
    
+var _logoutGeneration = 0;
+
+var _lastLogoutAllGeneration = 0;
                                                              
   
                                                    
@@ -129,7 +134,8 @@ async function _tryRefreshToken() {
   var refreshToken = sessionStorage.getItem('pcv_refresh_token');
   if (!refreshToken) return false;
   if (_refreshInProgress) return _refreshInProgress;
-  _refreshInProgress = (async function() {
+  var generation = _logoutGeneration;
+  var pending = (async function() {
     try {
       var r = await fetch(window.API_BASE + '/auth/refresh', {
         method: 'POST',
@@ -138,6 +144,10 @@ async function _tryRefreshToken() {
       });
       if (!r.ok) return false;
       var d = await r.json();
+      if (generation !== _logoutGeneration) {
+        if (d && d.refresh_token) _serverLogout(null, d.refresh_token, _lastLogoutAllGeneration > generation);
+        return false;
+      }
       if (d.access_token) {
         window.authToken = d.access_token;
         sessionStorage.setItem('pcv_token', d.access_token);
@@ -146,9 +156,10 @@ async function _tryRefreshToken() {
       }
       return false;
     } catch (e) { return false; }
-    finally { _refreshInProgress = null; }
+    finally { if (_refreshInProgress === pending) _refreshInProgress = null; }
   })();
-  return _refreshInProgress;
+  _refreshInProgress = pending;
+  return pending;
 }
 
    
@@ -183,6 +194,7 @@ var PCV_FETCH_TIMEOUT_MS = 12000;
                                                                   
                                                              
                                                              
+
 function _fetchWithTimeout(url, opts, timeoutMs) {
   var controller = new AbortController();
   var tid = setTimeout(function() { controller.abort(); }, timeoutMs || PCV_FETCH_TIMEOUT_MS);
@@ -202,6 +214,7 @@ function _fetchWithTimeout(url, opts, timeoutMs) {
                                                                              
                                         
    
+
 async function _fetchWithRefresh(url, opts, timeoutMs) {
   var r = await _fetchWithTimeout(url, opts, timeoutMs);
   if (r.status === 401 && sessionStorage.getItem('pcv_refresh_token')) {
@@ -255,6 +268,7 @@ function fetchGet(u) {
     return r.json();
   });
 }
+
 
 function fetchPost(u, b, timeoutMs) {
   return _fetchWithRefresh(u, {
@@ -513,6 +527,11 @@ function connectWS() {
     }
     try {
       const m = JSON.parse(e.data);
+
+      if (_WS_PERIODIC_TYPES.has(m.type)) {
+        if (m.type === 'ping' && ws.readyState === WebSocket.OPEN) ws.send('{"type":"pong"}');
+        return;
+      }
       window.addEvt('WS Event — type: ' + m.type + (m.name ? ', target: ' + m.name : '') + (m.node ? ', node: ' + m.node : ''));
                                                 
       if (m.name) {
@@ -551,8 +570,7 @@ function connectWS() {
             }
             window.vmListError = null;
             var list = unwrapList(r);
-            window.vmList = list;
-            if (window.selectedVmIndex >= list.length) window.selectedVmIndex = 0;
+            PCV.vm.replaceVmList(list);
             window.lastLoadTime = Date.now();
             if (typeof render === 'function') render(true);
           }).catch(function() {
@@ -653,6 +671,7 @@ function _loginNetworkFailureText(e) {
                                                          
                                             
 function _finishLogin(user, d) {
+  _clearLoginSecret();
   window.authToken = d.access_token;
   sessionStorage.setItem('pcv_token', window.authToken);
   if (d.refresh_token) sessionStorage.setItem('pcv_refresh_token', d.refresh_token);
@@ -889,7 +908,15 @@ async function doLogin() {
                                                                            
                                                           
                                                         
+function _clearLoginSecret() {
+  var pass = document.getElementById('login-pass');
+  if (pass) { pass.value = ''; pass.type = 'password'; }
+  var icon = document.querySelector('.login-pass-toggle use');
+  if (icon) icon.setAttribute('href', '#pcv-i-eye');
+}
+
 function _teardownSession() {
+  _clearLoginSecret();
   window.authToken = '';
   sessionStorage.removeItem('pcv_token');
   sessionStorage.removeItem('pcv_refresh_token');
@@ -899,43 +926,39 @@ function _teardownSession() {
   if (PCV.modalCore && typeof PCV.modalCore.close === 'function') PCV.modalCore.close(true);
 }
 
-
-
-
-
-
-
-
-
-
-
-
-
-
-async function _serverLogout(accessToken, refreshToken) {
-  var post = function(token) {
-    return _fetchWithTimeout(EP.AUTH_LOGOUT(), {
-      method: 'POST',
-      headers: { Authorization: 'Bearer ' + token },
-      keepalive: true
-    });
-  };
+async function _serverLogout(accessToken, refreshToken, all) {
+  if (!accessToken && !refreshToken) return false;
+  var headers = { 'Content-Type': 'application/json' };
+  if (accessToken) headers.Authorization = 'Bearer ' + accessToken;
+  var opts = { method: 'POST', headers: headers, keepalive: true };
+  if (refreshToken) opts.body = JSON.stringify({ refresh_token: refreshToken });
   try {
-    var r = accessToken ? await post(accessToken) : null;
-    if ((!r || r.status === 401) && refreshToken) {
-      var rr = await _fetchWithTimeout(EP.AUTH_REFRESH(), {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ refresh_token: refreshToken }),
-        keepalive: true
-      });
-      var d = rr.ok ? await rr.json().catch(function() { return null; }) : null;
-      if (d && d.access_token) r = await post(d.access_token);
-    }
+    var r = await _fetchWithTimeout(all ? EP.AUTH_LOGOUT_ALL() : EP.AUTH_LOGOUT(), opts);
     return !!(r && r.ok);
   } catch (e) {
     return false;
   }
+}
+
+function _finishLocalLogout(message, all) {
+  _logoutGeneration++;
+  if (all) _lastLogoutAllGeneration = _logoutGeneration;
+  _refreshInProgress = null;
+  _teardownSession();
+  window.vmList = [];
+  window.vmListError = null;
+  pcvSetLoginVisible(true);
+  document.getElementById('la').classList.remove('hidden');
+  document.getElementById('us').classList.add('hidden');
+  document.getElementById('us').style.display = 'none';
+  PCV.uxlib.clearEl(document.getElementById('ws-s'));
+  PCV.uxlib.clearEl(document.getElementById('vl'));
+  PCV.uxlib.clearEl(document.getElementById('cb'));
+  PCV.ui._renderTarget = null;
+  var _vcEl = document.getElementById('vc');
+  if (_vcEl) _vcEl.textContent = '0';
+  window.toast(message);
+  window.addEvt(message);
 }
 
 
@@ -952,26 +975,20 @@ async function _serverLogout(accessToken, refreshToken) {
 
   
                
+function doLogout() {
+  var serverLogout = _serverLogout(window.authToken, sessionStorage.getItem('pcv_refresh_token'), false);
+  _finishLocalLogout(typeof t === 'function' ? t('logged.out') : 'Logged out');
+  return serverLogout;
+}
                                                     
                                            
    
-function doLogout() {
-  var serverLogout = _serverLogout(window.authToken, sessionStorage.getItem('pcv_refresh_token'));
-  _teardownSession();
-  window.vmList = [];
-  window.vmListError = null;
-  pcvSetLoginVisible(true);
-  document.getElementById('la').classList.remove('hidden');
-  document.getElementById('us').classList.add('hidden');
-  document.getElementById('us').style.display = 'none';
-  PCV.uxlib.clearEl(document.getElementById('ws-s'));
-  PCV.uxlib.clearEl(document.getElementById('vl'));
-  PCV.uxlib.clearEl(document.getElementById('cb'));
-  PCV.ui._renderTarget = null;                                          
-  var _vcEl = document.getElementById('vc');                                     
-  if (_vcEl) _vcEl.textContent = '0';
-  window.toast(typeof t === 'function' ? t('logged.out') : 'Logged out');
-  window.addEvt(typeof t === 'function' ? t('logged.out') : 'Logged out');
+async function doLogoutAll() {
+  var tr = typeof t === 'function' ? t : function(k) { return k; };
+  var confirmed = await window.customConfirm(tr('logout.all.confirm.title'), tr('logout.all.confirm.body'));
+  if (!confirmed) return false;
+  var serverLogout = _serverLogout(window.authToken, sessionStorage.getItem('pcv_refresh_token'), true);
+  _finishLocalLogout(tr('logged.out.all'), true);
   return serverLogout;
 }
 
@@ -1149,6 +1166,31 @@ function unwrapList(r) {
 
 
 
+function jobFailureReason(job) {
+  job = job || {};
+  var candidates = [job.result, job.detail, job.status];
+  for (var i = 0; i < candidates.length; i++) {
+    var value = candidates[i];
+    if (value === undefined || value === null) continue;
+    var parsed = value;
+    if (typeof value === 'string') {
+      if (!value.trim()) continue;
+      try { parsed = JSON.parse(value); } catch (_) { return value; }
+    }
+    if (parsed && typeof parsed === 'object') {
+      var keys = ['error', 'message'];
+      for (var k = 0; k < keys.length; k++) {
+        var m = parsed[keys[k]];
+        if (typeof m === 'string' && m.trim()) return m;
+      }
+      continue;
+    }
+    if (typeof parsed === 'string') { if (parsed.trim()) return parsed; continue; }
+    if (typeof parsed === 'number' && isFinite(parsed)) return String(parsed);
+  }
+  return 'Job ' + (job.status || 'failed');
+}
+
 async function waitForJob(jobId, options) {
   var attempts = options && options.attempts || 5;
   var interval = options && options.interval !== undefined ? options.interval : 2000;
@@ -1158,8 +1200,8 @@ async function waitForJob(jobId, options) {
     var response = await fetchGet(EP.JOB(jobId));
     if (response && response.error) throw new Error(response.error.message || 'Unable to read job result');
     job = unwrapData(response) || job;
-    if (['failed', 'cancelled'].includes(job.status))
-      throw new Error(job.detail || job.error || ('Job ' + job.status));
+    if (['failed', 'cancelled', 'interrupted'].includes(job.status))
+      throw new Error(jobFailureReason(job));
     if (job.status === 'completed') return job;
   }
   return job;
@@ -1246,10 +1288,12 @@ PCV.api = {
   unwrapData: unwrapData,
   unwrapList: unwrapList,
   waitForJob: waitForJob,
+  jobFailureReason: jobFailureReason,
   connectWS: connectWS,
   doLoginPage: doLoginPage,
   doLogin: doLogin,
   doLogout: doLogout,
+  doLogoutAll: doLogoutAll,
   restoreSession: restoreSession,
   startSessionWatch: startSessionWatch,
   startAdaptivePolling: startAdaptivePolling,
@@ -1278,6 +1322,7 @@ window.connectWS = connectWS;
 window.doLoginPage = doLoginPage;
 window.doLogin = doLogin;
 window.doLogout = doLogout;
+window.doLogoutAll = doLogoutAll;
                                                                           
 window.doLoginTotpSubmit = _totpSubmitLogin;
 window.doLoginTotpRecoveryToggle = _totpToggleRecovery;

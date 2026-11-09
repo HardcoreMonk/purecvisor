@@ -16,8 +16,8 @@
   
                                                  
                                   
-                                                        
-                                     
+                                                                 
+                                               
                                            
                                        
                                                         
@@ -65,9 +65,10 @@
                                                              
                                                     
                                
-                                            
+                                                 
+                                                         
         
-                            
+                                                    
   
                                      
         
@@ -94,6 +95,7 @@
 #include <dirent.h>
 #include <ctype.h>
 #include <unistd.h>
+#include <time.h>
 
   
                                                                                
@@ -127,6 +129,8 @@
 
                                               
 #define PROC_MAX          512
+#define PROC_SERVICE_SCAN_LIMIT   16384
+#define PROC_SERVICE_RESULT_LIMIT  8192
 
    
                  
@@ -253,6 +257,13 @@ typedef struct {
     ProcType type;
 } ProcInfo;
 
+                                            
+typedef struct {
+    gint  pid;
+    gchar state;
+    gchar cgroup[256];
+} ServiceProcInfo;
+
    
                                  
   
@@ -263,8 +274,19 @@ static struct {
                                                         
     GThread    *thread;
 
-                                                  
+       
+                                                          
+                                  
+       
     gboolean    running;
+
+       
+                                                
+                                                   
+                                                                  
+       
+    GMutex      wait_mu;
+    GCond       wait_cond;
 
                                           
     gboolean    initialized;
@@ -284,6 +306,24 @@ static struct {
 
                                    
     gint        count;
+
+                                                                    
+    gint64      observed_at;
+
+                                                        
+    gboolean    snapshot_truncated;
+
+                                                                            
+    GArray     *service_procs;
+
+                                                  
+    gint        service_source_count;
+
+                                                
+    gint64      service_observed_at;
+
+                                           
+    gboolean    service_snapshot_truncated;
 
        
                         
@@ -346,8 +386,9 @@ static struct {
                             
                             
                        
+                                                         
    
-static void
+static gboolean
 _get_process_cgroup(gint pid, gchar *buf, gsize bufsize)
 {
     gchar path[64];
@@ -356,7 +397,7 @@ _get_process_cgroup(gint pid, gchar *buf, gsize bufsize)
     gchar *content = NULL;
     if (!g_file_get_contents(path, &content, NULL, NULL)) {
         g_strlcpy(buf, "/", bufsize);
-        return;
+        return FALSE;
     }
 
                                           
@@ -373,16 +414,19 @@ _get_process_cgroup(gint pid, gchar *buf, gsize bufsize)
                                        
     if (!found && lines[0]) {
         const gchar *last_colon = strrchr(lines[0], ':');
-        if (last_colon)
+        if (last_colon) {
             g_strlcpy(buf, last_colon + 1, bufsize);
-        else
+            found = TRUE;
+        } else {
             g_strlcpy(buf, "/", bufsize);
+        }
     } else if (!found) {
         g_strlcpy(buf, "/", bufsize);
     }
 
     g_strfreev(lines);
     g_free(content);
+    return found;
 }
 
    
@@ -637,6 +681,70 @@ _sort_by_cpu(gconstpointer a, gconstpointer b)
 }
 
    
+                                                                        
+  
+                                                                    
+                                                             
+                                                       
+   
+static GArray *
+_collect_service_processes(gint64 *observed_at,
+                           gint *source_count,
+                           gboolean *truncated)
+{
+    GArray *items = g_array_sized_new(FALSE, FALSE, sizeof(ServiceProcInfo), 64);
+    DIR *dir = opendir("/proc");
+    if (!dir) {
+        if (observed_at) *observed_at = 0;
+        if (source_count) *source_count = 0;
+        if (truncated) *truncated = TRUE;
+        return items;
+    }
+
+    guint scanned = 0;
+    guint readable = 0;
+    gboolean bounded = FALSE;
+    struct dirent *entry = NULL;
+    while ((entry = readdir(dir)) != NULL) {
+        if (!isdigit((unsigned char)entry->d_name[0])) continue;
+        if (scanned >= PROC_SERVICE_SCAN_LIMIT) {
+            bounded = TRUE;
+            break;
+        }
+        scanned++;
+
+        const gint pid = atoi(entry->d_name);
+        if (pid <= 0) continue;
+        gchar cgroup[256] = {0};
+        if (!_get_process_cgroup(pid, cgroup, sizeof(cgroup))) continue;
+        readable++;
+        if (!strstr(cgroup, ".service")) continue;
+
+        ProcInfo process = {0};
+        _parse_proc_stat(pid, &process);
+        if (process.pid == 0) continue;
+        process.type = _classify_process(cgroup, process.comm);
+        if (process.type != PROC_SYSTEM) continue;
+        if (items->len >= PROC_SERVICE_RESULT_LIMIT) {
+            bounded = TRUE;
+            continue;
+        }
+
+        ServiceProcInfo item = {0};
+        item.pid = process.pid;
+        item.state = process.state;
+        g_strlcpy(item.cgroup, cgroup, sizeof(item.cgroup));
+        g_array_append_val(items, item);
+    }
+    closedir(dir);
+
+    if (observed_at) *observed_at = readable > 0 ? (gint64)time(NULL) : 0;
+    if (source_count) *source_count = (gint)scanned;
+    if (truncated) *truncated = bounded;
+    return items;
+}
+
+   
                                             
   
                                                                               
@@ -712,6 +820,12 @@ _collect_processes(void)
 
                                                              
     gint64 now_us = g_get_monotonic_time();
+
+    gint64 service_observed_at = 0;
+    gint service_source_count = 0;
+    gboolean service_truncated = FALSE;
+    GArray *service_tmp = _collect_service_processes(
+        &service_observed_at, &service_source_count, &service_truncated);
 
       
                                
@@ -807,7 +921,16 @@ _collect_processes(void)
     g_mutex_lock(&G.mu);
     memcpy(G.procs, tmp, count * sizeof(ProcInfo));
     G.count = count;
+    G.observed_at = (gint64)time(NULL);
+    G.snapshot_truncated = count >= PROC_MAX;
+    g_array_set_size(G.service_procs, 0);
+    if (service_tmp->len > 0)
+        g_array_append_vals(G.service_procs, service_tmp->data, service_tmp->len);
+    G.service_source_count = service_source_count;
+    G.service_observed_at = service_observed_at;
+    G.service_snapshot_truncated = service_truncated;
     g_mutex_unlock(&G.mu);
+    g_array_unref(service_tmp);
 
                                        
     G.prev_time_us = now_us;
@@ -819,11 +942,13 @@ _collect_processes(void)
                                                            
                                            
   
-                                        
-                                  
+                                                                  
+                                                                    
+                                                 
   
                                              
-                                                       
+                                                 
+                 
   
                           
                
@@ -834,10 +959,18 @@ _proc_thread(gpointer data)
     (void)data;
     PCV_LOG_INFO(PROC_LOG_DOM, "Process monitor started (interval=%ds)", PROC_INTERVAL_SEC);
 
+    g_mutex_lock(&G.wait_mu);
     while (G.running) {
+        g_mutex_unlock(&G.wait_mu);
         _collect_processes();
-        g_usleep(PROC_INTERVAL_SEC * G_USEC_PER_SEC);
+        g_mutex_lock(&G.wait_mu);
+
+        gint64 deadline = g_get_monotonic_time() + (gint64)PROC_INTERVAL_SEC * G_USEC_PER_SEC;
+        while (G.running && g_cond_wait_until(&G.wait_cond, &G.wait_mu, deadline)) {
+                                                                
+        }
     }
+    g_mutex_unlock(&G.wait_mu);
 
     PCV_LOG_INFO(PROC_LOG_DOM, "Process monitor stopped");
     return NULL;
@@ -929,11 +1062,22 @@ void
 pcv_process_monitor_init(void)
 {
     g_mutex_init(&G.mu);
+    g_mutex_init(&G.wait_mu);
+    g_cond_init(&G.wait_cond);
     G.page_size = sysconf(_SC_PAGESIZE);
     G.clk_tck = sysconf(_SC_CLK_TCK);
     if (G.clk_tck <= 0) G.clk_tck = 100;
+    G.count = 0;
+    G.observed_at = 0;
+    G.snapshot_truncated = FALSE;
+    G.service_procs = g_array_sized_new(FALSE, FALSE, sizeof(ServiceProcInfo), 64);
+    G.service_source_count = 0;
+    G.service_observed_at = 0;
+    G.service_snapshot_truncated = FALSE;
     G.prev_ticks = g_hash_table_new(g_direct_hash, g_direct_equal);
+    g_mutex_lock(&G.wait_mu);
     G.running = TRUE;
+    g_mutex_unlock(&G.wait_mu);
     G.initialized = TRUE;
     G.thread = g_thread_new("proc-monitor", _proc_thread, NULL);
 }
@@ -942,10 +1086,10 @@ pcv_process_monitor_init(void)
                                       
   
          
-                                        
-                                                  
+                                                     
+                                                                                   
                                 
-                 
+                                   
                                               
   
                          
@@ -958,7 +1102,10 @@ void
 pcv_process_monitor_shutdown(void)
 {
     if (!G.initialized) return;
+    g_mutex_lock(&G.wait_mu);
     G.running = FALSE;
+    g_cond_signal(&G.wait_cond);
+    g_mutex_unlock(&G.wait_mu);
     if (G.thread) {
         g_thread_join(G.thread);
         G.thread = NULL;
@@ -967,7 +1114,13 @@ pcv_process_monitor_shutdown(void)
         g_hash_table_destroy(G.prev_ticks);
         G.prev_ticks = NULL;
     }
+    if (G.service_procs) {
+        g_array_unref(G.service_procs);
+        G.service_procs = NULL;
+    }
     g_mutex_clear(&G.mu);
+    g_cond_clear(&G.wait_cond);
+    g_mutex_clear(&G.wait_mu);
     G.initialized = FALSE;
 }
 
@@ -1034,7 +1187,7 @@ _parse_type_filter(const gchar *type_str)
 }
 
    
-                                               
+                                                     
   
                                                 
   
@@ -1044,26 +1197,76 @@ _parse_type_filter(const gchar *type_str)
   
                                              
                                              
+                                                    
+                                                          
+                                              
                                                           
    
 JsonArray *
-pcv_process_monitor_get_filtered(gint n, const gchar *type_str)
+pcv_process_monitor_get_filtered_snapshot(gint n,
+                                          const gchar *type_str,
+                                          gint64 *observed_at,
+                                          gint *source_count,
+                                          gboolean *truncated)
 {
     gint type_filter = _parse_type_filter(type_str);
-
-                          
-    if (type_filter < 0)
-        return (n > 0) ? pcv_process_monitor_get_top(n) : pcv_process_monitor_get_all();
-
     JsonArray *arr = json_array_new();
     g_mutex_lock(&G.mu);
+    const gint64 snapshot_time = G.observed_at;
+    if (observed_at) *observed_at = snapshot_time;
+    if (source_count) *source_count = G.count;
+    if (truncated) *truncated = G.snapshot_truncated;
     gint added = 0;
     for (gint i = 0; i < G.count; i++) {
-        if ((gint)G.procs[i].type != type_filter) continue;
+        if (type_filter >= 0 && (gint)G.procs[i].type != type_filter) continue;
         json_array_add_object_element(arr, _proc_to_json(&G.procs[i]));
         added++;
         if (n > 0 && added >= n) break;
     }
     g_mutex_unlock(&G.mu);
     return arr;
+}
+
+   
+                                                                       
+  
+                                                                      
+                                                                
+                                                                    
+                                                         
+   
+JsonArray *
+pcv_process_monitor_get_service_snapshot(gint64 *observed_at,
+                                         gint *source_count,
+                                         gboolean *truncated)
+{
+    JsonArray *arr = json_array_new();
+    g_mutex_lock(&G.mu);
+    if (observed_at) *observed_at = G.service_observed_at;
+    if (source_count) *source_count = G.service_source_count;
+    if (truncated) *truncated = G.service_snapshot_truncated;
+    for (guint i = 0; i < G.service_procs->len; i++) {
+        const ServiceProcInfo *process = &g_array_index(
+            G.service_procs, ServiceProcInfo, i);
+        JsonObject *item = json_object_new();
+        json_object_set_int_member(item, "pid", process->pid);
+        json_object_set_string_member(item, "cgroup", process->cgroup);
+        gchar state[2] = {process->state, '\0'};
+        json_object_set_string_member(item, "state", state);
+        json_array_add_object_element(arr, item);
+    }
+    g_mutex_unlock(&G.mu);
+    return arr;
+}
+
+JsonArray *
+pcv_process_monitor_get_filtered(gint n, const gchar *type_str)
+{
+    const gint type_filter = _parse_type_filter(type_str);
+    if (type_filter < 0)
+        return n > 0 ? pcv_process_monitor_get_top(n)
+                     : pcv_process_monitor_get_all();
+                                                             
+    return pcv_process_monitor_get_filtered_snapshot(
+        n, type_str, NULL, NULL, NULL);
 }

@@ -22,8 +22,9 @@
                             
                                                                 
                                                                       
-                                                          
-                                                                          
+                                                                                                
+                                                                                                 
+                                                                      
                                                                   
   
             
@@ -55,6 +56,9 @@
 #include "handler_monitor.h"
 #include "host_hardware_inventory.h"
 #include "rpc_utils.h"
+#include "guest_ip.h"
+#include "guest_agent_exec.h"
+#include "utils/pcv_validate.h"                                                
 #include <gio/gio.h>
 #include "api/uds_server.h"
 #include "modules/virt/virt_conn_pool.h"
@@ -72,6 +76,7 @@
 #include <unistd.h>
 #include <stdio.h>
 #include <sys/statvfs.h>                                  
+#include "modules/daemons/process_monitor.h"
 
    
                              
@@ -118,71 +123,101 @@ skip_proc_lines(FILE *stream, char *buf, gsize buf_size, guint lines)
     return TRUE;
 }
 
-
-
-#define PCV_ARP_FLAG_COMPLETE 0x2UL
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-
-gboolean
-pcv_monitor_arp_lookup_ipv4(const gchar *proc_net_arp, const gchar *mac,
-                            gchar *ip_out, gsize ip_out_len)
-{
-    if (!proc_net_arp || !mac || !*mac || !ip_out || ip_out_len == 0)
-        return FALSE;
-
-    gboolean found = FALSE;
-    gchar **lines = g_strsplit(proc_net_arp, "\n", -1);
-    for (gsize i = 0; lines[i] && !found; i++) {
-        char ip[64] = {0}, hwtype[16] = {0}, flags[16] = {0};
-        char hwaddr[32] = {0}, mask[32] = {0}, dev[32] = {0};
-
-        if (sscanf(lines[i], "%63s %15s %15s %31s %31s %31s",
-                   ip, hwtype, flags, hwaddr, mask, dev) != 6)
-            continue;
-        if (!g_hostname_is_ip_address(ip) || strchr(ip, ':'))
-            continue;
-        gchar *end = NULL;
-        guint64 flag_bits = g_ascii_strtoull(flags, &end, 16);
-        if (!end || end == flags || (flag_bits & PCV_ARP_FLAG_COMPLETE) == 0)
-            continue;
-        if (g_ascii_strcasecmp(hwaddr, mac) != 0)
-            continue;
-        if (strlen(ip) >= ip_out_len)
-            break;
-        g_strlcpy(ip_out, ip, ip_out_len);
-        found = TRUE;
-    }
-    g_strfreev(lines);
-    return found;
-}
-
-
-
-
-static gboolean
-_monitor_arp_cache_ipv4(const gchar *mac, gchar *ip_out, gsize ip_out_len)
+                                                                                        
+                                                            
+                                                                               
+static gchar *
+_monitor_proc_net_arp_text(void)
 {
     gchar *contents = NULL;
-
+                                                                     
     if (!g_file_get_contents("/proc/net/arp", &contents, NULL, NULL))
-        return FALSE;
-    gboolean ok = pcv_monitor_arp_lookup_ipv4(contents, mac, ip_out, ip_out_len);
-    g_free(contents);
-    return ok;
+        return NULL;
+    return contents;
+}
+
+                                                                                                      
+                                                                               
+                                                                     
+                                                                       
+static gchar *
+_monitor_lease_bridge(const char *xml)
+{
+    if (!xml)
+        return NULL;
+    const char *b = strstr(xml, "<interface type='bridge'");
+    const char *n = strstr(xml, "<interface type='network'");
+    const char *iface = (b && (!n || b < n)) ? b : n;                           
+    if (!iface)
+        return NULL;
+    const char *end = strstr(iface, "</interface>");
+    const char *src = strstr(iface, "<source ");
+    const char *tag_end = src ? strchr(src, '>') : NULL;
+    if (!src || !tag_end || (end && src > end))
+        return NULL;                                    
+    static const char *const keys[] = { " bridge='", " network='" };
+    for (guint k = 0; k < G_N_ELEMENTS(keys); k++) {
+        const char *v = g_strstr_len(src, tag_end - src, keys[k]);
+        if (!v)
+            continue;
+        v += strlen(keys[k]);
+        const char *q = memchr(v, '\'', (size_t)(tag_end - v));
+        if (q && q > v)
+            return g_strndup(v, (gsize)(q - v));
+    }
+    return NULL;
+}
+
+                                                                                      
+                                                                                       
+                                                                                      
+                                                                  
+                                                                                
+                                                                           
+                      
+                                                                     
+                                                               
+static const gchar *
+_monitor_fleet_vm_ip(virDomainPtr dom, const gchar *uuid, const gchar *mac, const char *xml,
+                     gchar *ip_out, gsize ip_out_len)
+{
+    virDomainInterfacePtr *ifaces = NULL;
+    int n = virDomainInterfaceAddresses(dom, &ifaces, VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE, 0);
+    GPtrArray *lease = pcv_guest_ip_from_virt_ifaces(ifaces, n);
+    for (int k = 0; k < n; k++)
+        if (ifaces[k]) virDomainInterfaceFree(ifaces[k]);
+    free(ifaces);                                                     
+
+    GPtrArray *agent = pcv_guest_agent_cache_lookup(uuid);
+    PcvGuestIpInputs in = { .lease_ifaces = lease, .agent_ifaces = agent, .arp_require_complete = TRUE };
+    const gchar *src = "";
+    gchar *ip = pcv_guest_ip_resolve(&in, mac, PCV_GUEST_IP_ANY_FIRST_IPV4, &src);
+    gchar *lease_text = NULL, *arp_text = NULL;
+    if (!ip) {
+        gchar *bridge = _monitor_lease_bridge(xml);
+        if (bridge) {
+            gchar *path = g_strdup_printf(PCV_NETWORK_RUNDIR "/dnsmasq-%s.leases", bridge);
+            (void)g_file_get_contents(path, &lease_text, NULL, NULL);                          
+            g_free(path);
+            g_free(bridge);
+        }
+        in.lease_file_text = lease_text;
+        in.proc_net_arp_text = arp_text = _monitor_proc_net_arp_text();
+        ip = pcv_guest_ip_resolve(&in, mac, PCV_GUEST_IP_ANY_FIRST_IPV4, &src);
+    }
+    if (!agent && g_strcmp0(src, "lease") != 0)
+        pcv_guest_agent_probe_request(uuid, virDomainGetName(dom));
+    if (ip)
+        g_strlcpy(ip_out, ip, ip_out_len);
+
+    g_free(ip);
+    g_free(lease_text);
+    g_free(arp_text);
+    if (agent)
+        g_ptr_array_unref(agent);
+    if (lease)
+        g_ptr_array_unref(lease);
+    return src;
 }
 
   
@@ -357,7 +392,7 @@ pcv_monitor_fleet_build_success_response(const gchar *rpc_id,
       
   
                         
-                                                                                 
+                                                                                            
                                                                             
                                                                                     
   
@@ -370,10 +405,12 @@ pcv_monitor_fleet_build_success_response(const gchar *rpc_id,
                                                                                         
                                  
   
-                 
-                                              
-                                        
-                                         
+                                                 
+                                                                           
+                                                              
+                                                                          
+                                                                    
+                                                                   
   
               
                           
@@ -381,26 +418,38 @@ pcv_monitor_fleet_build_success_response(const gchar *rpc_id,
   
                                                               
    
-gchar *
-handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
+gboolean
+pcv_monitor_fleet_collect(JsonObject *params,
+                          JsonArray **fleet_out,
+                          JsonObject **host_out,
+                          GError **error)
 {
     (void)params;
+    g_return_val_if_fail(fleet_out != NULL, FALSE);
+    g_return_val_if_fail(host_out != NULL, FALSE);
+    *fleet_out = NULL;
+    *host_out = NULL;
+                                                          
     virSetErrorFunc(NULL, silent_libvirt_error_func);
 
     virConnectPtr conn = virt_conn_pool_acquire();
     if (!conn) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Libvirt connection failed.");
-        return NULL;
+        return FALSE;
     }
 
     virDomainStatsRecordPtr *stats = NULL;
     unsigned int stats_flags = VIR_DOMAIN_STATS_STATE | VIR_DOMAIN_STATS_CPU_TOTAL | VIR_DOMAIN_STATS_VCPU | VIR_DOMAIN_STATS_BALLOON | VIR_DOMAIN_STATS_BLOCK | VIR_DOMAIN_STATS_INTERFACE;
 
-    int count = virConnectGetAllDomainStats(conn, stats_flags, &stats, 0);
+                                                                     
+                                                                 
+                                                                     
+    int count = virConnectGetAllDomainStats(conn, stats_flags, &stats,
+                                            VIR_CONNECT_GET_ALL_DOMAINS_STATS_NOWAIT);
     if (count < 0) {
         virt_conn_pool_release(conn);
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_FAILED, "Failed to fetch fleet stats.");
-        return NULL;
+        return FALSE;
     }
 
     JsonArray *fleet_array = json_array_new();
@@ -459,70 +508,36 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
             ? (double)(mem_curr > mem_unused ? mem_curr - mem_unused : 0) / 1024.0
             : -1.0;
 
-          
-                                              
-                                                               
-                                                                
-           
-                                                              
-                                                             
-                                                            
-        char vm_ip[64] = "N/A";
-        if (state == VIR_DOMAIN_RUNNING) {
-            virDomainInterfacePtr *ifaces = NULL;
-
-                                                          
-            int iface_cnt = virDomainInterfaceAddresses(rec->dom, &ifaces,
-                                VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_LEASE, 0);
-
-                                                         
-            if (iface_cnt <= 0)
-                iface_cnt = virDomainInterfaceAddresses(rec->dom, &ifaces,
-                                VIR_DOMAIN_INTERFACE_ADDRESSES_SRC_AGENT, 0);
-
-            if (iface_cnt > 0 && ifaces) {
-                                                    
-                                                                          
-                                                                        
-                for (int k = 0; k < iface_cnt && vm_ip[0] == 'N'; k++) {
-                    if (!ifaces[k]) continue;
-                    if (g_strcmp0(ifaces[k]->name, "lo") == 0) continue;
-                    for (unsigned int a = 0; a < ifaces[k]->naddrs; a++) {
-                        if (ifaces[k]->addrs[a].type == VIR_IP_ADDR_TYPE_IPV4) {
-                            strncpy(vm_ip, ifaces[k]->addrs[a].addr, sizeof(vm_ip)-1);
-                            break;
-                        }
-                    }
-                }
-                for (int k = 0; k < iface_cnt; k++)
-                    if (ifaces[k]) virDomainInterfaceFree(ifaces[k]);
-                free(ifaces);
-            }
-
-                                                     
-                                          
+                                                                               
                                                                        
-                                                                      
-                                                                  
-                                                             
-                                                                
-                                                                
-
-
-            if (g_strcmp0(vm_ip, "N/A") == 0) {
-                char raw_mac[18] = {0};
-                                                       
-                char *xml_tmp = virDomainGetXMLDesc(rec->dom, 0);
-                if (xml_tmp) {
-                    char *mp = strstr(xml_tmp, "<mac address='");
-                    if (mp) sscanf(mp, "<mac address='%17[^']'", raw_mac);
-                    free(xml_tmp);
-                }
-                if (raw_mac[0])
-                    (void)_monitor_arp_cache_ipv4(raw_mac, vm_ip, sizeof(vm_ip));
-            }
+        char vm_uuid[64]  = "N/A";
+        char mac_addr[32] = "N/A";
+        char uuid_buf[VIR_UUID_STRING_BUFLEN];
+        gboolean uuid_ok = virDomainGetUUIDString(rec->dom, uuid_buf) == 0;
+        if (uuid_ok)
+            strncpy(vm_uuid, uuid_buf, sizeof(vm_uuid)-1);
+        char *xml = virDomainGetXMLDesc(rec->dom, 0);
+        if (xml) {
+                                                                   
+            char *mac_ptr = strstr(xml, "<mac address='");
+            if (mac_ptr) sscanf(mac_ptr, "<mac address='%17[^']'", mac_addr);
         }
+
+          
+                                                                        
+                                                                                        
+                                                                   
+           
+                                                                            
+                                      
+        char vm_ip[64] = "N/A";
+        const gchar *ip_source = "";
+        if (state == VIR_DOMAIN_RUNNING)
+            ip_source = _monitor_fleet_vm_ip(rec->dom, uuid_ok ? uuid_buf : NULL,
+                                             g_strcmp0(mac_addr, "N/A") != 0 ? mac_addr : NULL,
+                                             xml, vm_ip, sizeof(vm_ip));
         json_object_set_string_member(vm_obj, "ip", vm_ip);
+        json_object_set_string_member(vm_obj, "ip_source", ip_source);
 
                                                                             
                                                            
@@ -542,7 +557,6 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
                                                                 
                                                           
                                                                                
-        char mac_addr[32]    = "N/A";
         char net_source[128] = "N/A";
         char net_model[32]   = "N/A";
         char disk_path[256]  = "N/A";
@@ -550,19 +564,8 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
         char disk_bus[16]    = "N/A";
         char cdrom_path[256] = "(empty)";
         char vnc_port[16]    = "N/A";
-        char vm_uuid[64]     = "N/A";
 
-               
-        char uuid_buf[VIR_UUID_STRING_BUFLEN];
-        if (virDomainGetUUIDString(rec->dom, uuid_buf) == 0)
-            strncpy(vm_uuid, uuid_buf, sizeof(vm_uuid)-1);
-
-        char *xml = virDomainGetXMLDesc(rec->dom, 0);
-        if (xml) {
-                        
-            char *mac_ptr = strstr(xml, "<mac address='");
-            if (mac_ptr) sscanf(mac_ptr, "<mac address='%17[^']'", mac_addr);
-
+        if (xml) {                                                       
                               
             char *iface_ptr = strstr(xml, "<interface type='");
             if (iface_ptr) {
@@ -722,9 +725,9 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
                                     
                                                                            
     JsonObject *host_obj = json_object_new();
-
-
-
+                                                            
+                                                             
+                                          
     json_object_set_object_member(host_obj, "hardware_inventory",
                                   pcv_host_hardware_inventory_collect("/"));
 
@@ -1092,5 +1095,77 @@ handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
 
     virt_conn_pool_release(conn);
 
+    *fleet_out = fleet_array;
+    *host_out = host_obj;
+    return TRUE;
+}
+
+gchar *
+handle_monitor_fleet(JsonObject *params, const gchar *rpc_id, GError **error)
+{
+    JsonArray *fleet_array = NULL;
+    JsonObject *host_obj = NULL;
+    if (!pcv_monitor_fleet_collect(params, &fleet_array, &host_obj, error))
+        return NULL;
+
+                                                           
     return pcv_monitor_fleet_build_success_response(rpc_id, fleet_array, host_obj);
+}
+
+
+                                                                       
+                                             
+  
+                                                             
+                                
+                                        
+                                                                                           
+                                                           
+                                                                          
+void handle_monitor_fleet_rpc(JsonObject *params, const gchar *rpc_id,
+                                   UdsServer *server, GSocketConnection *connection)
+{
+    GError *err = nullptr;
+    gchar *response_str = handle_monitor_fleet(params, rpc_id, &err);
+
+    if (err) {
+        gchar *err_resp = pure_rpc_build_error_response(rpc_id, PURE_RPC_ERR_ZFS_OPERATION, err->message);
+        pure_uds_server_send_response(server, connection, err_resp);
+        g_free(err_resp);
+        g_clear_error(&err);
+    } else if (response_str) {
+        pure_uds_server_send_response(server, connection, response_str);
+        g_free(response_str);
+    }
+}
+
+                                                                       
+                                         
+  
+                                                          
+                                     
+                                                                      
+                                                              
+                                                        
+                                                                          
+void handle_monitor_processes(JsonObject *params, const gchar *rpc_id,
+                                       UdsServer *server, GSocketConnection *connection)
+{
+    gint top_n = 0;
+    if (json_object_has_member(params, "top"))
+        top_n = (gint)json_object_get_int_member(params, "top");
+
+                                                        
+    const gchar *type_str = nullptr;
+    if (json_object_has_member(params, "type"))
+        type_str = json_object_get_string_member(params, "type");
+
+                                                    
+    JsonArray *arr = pcv_process_monitor_get_filtered(top_n, type_str);
+    if (!arr) arr = json_array_new();
+    JsonNode *node = json_node_new(JSON_NODE_ARRAY);
+    json_node_take_array(node, arr);
+    gchar *resp = pure_rpc_build_success_response(rpc_id, node);
+    pure_uds_server_send_response(server, connection, resp);
+    g_free(resp);
 }

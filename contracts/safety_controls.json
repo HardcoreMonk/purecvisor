@@ -42,8 +42,8 @@
     "status": "tested"
   },
   "self-healing-restart": {
-    "description": "자가치유 정책이 unresponsive VM을 실제 재시작 (virDomainCreate 실배선)",
-    "effect_assertion": "정지 VM에 restart 액션 실행 시 실제로 도메인이 기동됨 (running-guard로 정상 VM은 skip)",
+    "description": "자가치유 정책이 unresponsive VM을 정식 vm.start 진입점(skip_if_active)으로 재시작",
+    "effect_assertion": "이미 실행 중인 VM은 진입점이 잠금 아래에서 ALREADY_ACTIVE로 판정해 skipped, 정지 VM은 정식 경로로 기동",
     "effect_test": "tests/test_self_healing_restart.c::test_running_guard_skip",
     "status": "tested"
   },
@@ -72,9 +72,9 @@
     "status": "tested"
   },
   "isolated-network-drop": {
-    "description": "network_firewall_setup_isolated가 forward DROP 룰(iifname/oifname drop = 격리의 유일 기제, forward 체인 기본정책 accept)을 실제 적용했을 때만 network.create 성공 — nft 실패 시 격리 안 된 망을 created로 오보하지 않고 FALSE 전파 (NET-2)",
-    "effect_assertion": "mock nft가 non-zero(exit 1) 종료 시 setup_isolated가 FALSE + GError 전파(거짓 성공 아님); exit 0이면 TRUE(항상 FALSE 아님 + _ensure_table 멱등 성공 경로 커버)",
-    "effect_test": "tests/test_network.c::test_firewall_isolated_nft_failure_propagates",
+    "description": "network_firewall.c `_apply_locked`가 isolated forward DROP이 든 nft 트랜잭션을 실제 적용했을 때만 setup 성공 — nft 실패 시 트랜잭션 롤백 + FALSE 전파(NET-2)",
+    "effect_assertion": "mock nft 실패(exit 1·drop 줄 특이) 시 setup_isolated FALSE + GError, 성공 시 TRUE",
+    "effect_test": "tests/test_network_guest_fw.c::test_firewall_isolated_nft_failure_propagates",
     "status": "tested"
   },
   "ips-escape-valve": {
@@ -102,7 +102,7 @@
     "status": "tested"
   },
   "spawn-bounded-group-kill": {
-    "description": "pcv_spawn_sync_bounded가 시간 상한·출력 상한(stdout+stderr 합)·호출자 취소·종료 판정(should_abort) 가운데 하나로 끝날 때 새 프로세스 그룹으로 띄운 자식의 그룹 전체를 spawn 때 저장한 pgid로(리더가 먼저 회수됐어도) SIGKILL하고, 읽기를 취소한 뒤 회수를 최대 5초(PCV_SPAWN_BOUNDED_REAP_WAIT_SEC) 기다렸다가 반환한다 — 상한이 지나면 데몬 쪽에 자식·손자 프로세스와 파이프 fd가 남지 않는다",
+    "description": "pcv_spawn_sync_bounded가 시간 상한·출력 상한(stdout+stderr 합)·호출자 취소·종료 판정(should_abort) 가운데 하나로 끝날 때 새 프로세스 그룹으로 띄운 자식의 그룹 전체를 spawn 때 저장한 pgid로(리더가 먼저 회수됐어도) SIGKILL하고, 읽기를 취소한 뒤 회수를 최대 5초(PCV_SPAWN_BOUNDED_REAP_WAIT_SEC) 기다렸다가 반환한다 — 상한이 지나면 데몬 쪽에 자식·손자 프로세스와 파이프 fd가 남지 않는다. 예외: SIGKILL 뒤 5초 안에 회수되지 않는 D 상태(uninterruptible) 자식은 WARN을 남기고 반환하며 회수는 GLib child watch가 나중에 한다",
     "effect_assertion": "/bin/sh -c 'sleep 60 & …; sleep 60'을 new_process_group=TRUE·1초 상한으로 실행하면 5초 안에 FALSE + G_IO_ERROR_TIMED_OUT이고, 그 뒤 최대 2초 안에 손자 sleep의 /proc/<pid>가 사라지며 /proc/self/fd 항목 수가 실행 전과 같다",
     "effect_test": "tests/test_spawn_launcher.c::test_bounded_timeout_kills_group",
     "status": "tested"
@@ -120,15 +120,69 @@
     "status": "tested"
   },
   "container-health-off-mainloop": {
-    "description": "컨테이너 헬스 순찰(handler_container_health.c)은 1초 tick(메인 루프)이 잠금 안에서 due 슬롯의 사본만 만들고 프로브(lxc-info 5초·nsenter nc/curl t+1초·lxc-attach --clear-env t초, t는 [1,30])와 자동 재시작(VM_OP_STARTING 잠금 아래 lxc-stop -t 20 30초·lxc-start 30초)을 워커 풀에서 상한 실행으로 돌린다 — 진행 중 슬롯은 다시 띄우지 않고 동시 실행은 4개까지, 결과는 이름과 세대 번호가 같은 슬롯에만 반영하며 취소 결과는 세지 않는다. 종료 중이면 tick이 GTask 없이 멈추고 drain(접수 닫힘) 중이면 새 프로브 없이 타이머만 유지한다",
+    "description": "컨테이너 헬스 순찰(handler_container_health.c)은 1초 tick(메인 루프)이 잠금 안에서 due 슬롯의 사본만 만들고 프로브(lxc-info 5초·nsenter nc/curl t+1초·lxc-attach --clear-env t초, t는 [1,30])와 자동 재시작(VM_OP_STARTING 잠금 아래 lxc-stop -t 20 30초·공용 시작 함수 pcv_lxc_start_sync — 전용 유닛 준비 4초 + start 26초)을 워커 풀에서 상한 실행으로 돌린다 — 진행 중 슬롯은 다시 띄우지 않고 동시 실행은 4개까지, 결과는 이름과 세대 번호가 같은 슬롯에만 반영하며 취소 결과는 세지 않는다. 종료 중이면 tick이 GTask 없이 멈추고 drain(접수 닫힘) 중이면 새 프로브 없이 타이머만 유지한다",
     "effect_assertion": "프로브 1개를 run_inline=FALSE로 디스패치한 뒤 다음 간격의 tick 두 번은 due여도 디스패치 0(진행 중), 완료를 흉내 낸 뒤 tick은 다시 1이다",
     "effect_test": "tests/test_container_health.c::test_inflight_skips_redispatch",
     "status": "tested"
   },
+  "container-unit-start": {
+    "description": "컨테이너 시작(container.start 워커·헬스 자동 재시작 — 공용 시작 함수 pcv_lxc_start_sync)은 PID 1의 전용 템플릿 유닛 purecvisor-lxc@<이름>.service를 `systemctl start`(argv, BASE profile, 준비 4초 + start 26초 상한, 데몬 종료 판정)로만 한다(pcv_lxc_unit_start). 유닛이 설치되어 있지 않으면(LoadState=not-found 또는 start stderr의 `not found`) G_IO_ERROR_NOT_SUPPORTED `container runtime unit purecvisor-lxc@.service is not installed`로 닫히고(container.start 감사 코드 −32603), 데몬이 lxc-start를 직접 띄우는 폴백은 없다 — 컨테이너가 데몬 샌드박스(seccomp·LockPersonality)를 물려받아 안의 서비스가 228/SECCOMP로 죽고 LXC 자기 seccomp 정책이 빠지는 경로를 되살리지 않는다. 성공은 start 뒤 liblxc가 RUNNING을 본 때뿐이다",
+    "effect_assertion": "가짜 ops에서 `systemctl show`가 LoadState=not-found를 돌려주면 pcv_lxc_unit_start가 FALSE + G_IO_ERROR_NOT_SUPPORTED + PCV_LXC_UNIT_NOT_INSTALLED이고, systemctl 기록은 `show` 하나뿐(start 없음)이며 어떤 argv에도 `lxc-start`가 없다.",
+    "effect_test": "tests/test_lxc_unit.c::test_start_not_installed_fails_closed",
+    "status": "tested"
+  },
+  "container-config-serialize": {
+    "description": "컨테이너 config를 읽어 고쳐 쓰는 데몬 경로 9곳(생성 4단계·set_limits·nic attach/detach 워커·volume attach/detach·env set/delete·시작 워커 훅 줄 보장)은 전역 잠금 하나(pcv_lxc_config_mutex, lxc_userns.c)를 config 읽기(liblxc 핸들 열기 포함)부터 저장·원자 교체까지 잡는다 — 메인 루프 작성자와 nic 워커가 같은 옛 본문을 고쳐 한쪽 변경(NIC 줄·볼륨 줄·env 줄)이 사라지지 않는다. 잠금 아래에는 파일 I/O만 두고 실행 중 배선·제거·생성 롤백(외부 명령)과 RPC 응답은 잠금을 놓은 뒤 하며, 겹치면 기다린다(새 busy 응답 없음). 원자 교체 도우미는 잠그지 않는다. 정적 순서 게이트: tests/test_lxc_unprivileged_contract.py::test_config_writes_hold_config_lock",
+    "effect_assertion": "임시 lxc_path의 정지 unprivileged 컨테이너에 두 스레드가 동시에 pcv_lxc_nic_attach(name, \"br0\", NULL)를 부르고 시험 훅이 인덱스 계산 뒤·저장 앞에서 100 ms 자면, 둘 다 TRUE이고 config에 lxc.net.1.*·lxc.net.2.*(type·link·name)가 모두 있다.",
+    "effect_test": "tests/test_lxc_driver.c::test_nic_attach_concurrent_no_lost_nic",
+    "status": "tested"
+  },
+  "stop-signal-pickup-deadline": {
+    "description": "SIGINT·SIGTERM은 메인 루프와 무관하게 받는다 — sigaction(SA_RESTART) 처리기가 self-pipe(pipe2 O_CLOEXEC|O_NONBLOCK)에 신호 번호 1바이트만 쓰고(비동기 신호 안전, 스레드 마스크로 막지 않아 자식이 막힌 마스크를 물려받지 않는다 — fork 뒤 exec 전 자식이 받은 신호는 pid 검사로 pipe에 쓰지 않고 그 자식에게 기본 동작을 돌려준다) mainloop-guard 스레드가 받는다. 첫 신호에 신호 인수 기한(pcv_config_get_drain_timeout()초)을 걸고 graceful 처리기(on_signal_received)를 메인 컨텍스트 HIGH idle 소스로 넘기며, 처리기가 첫 문장 pcv_mainloop_guard_signal_picked_up()으로 기한을 풀지 않은 채 기한이 지나면 CRIT `stop signal not handled by main loop within %d s (current RPC: …); exiting unsuccessfully` 한 줄 뒤 _exit(EXIT_FAILURE)로 끝난다 — 메인 루프가 한 RPC에 멈춘 데몬이 systemd TimeoutStopSec(180초) SIGKILL을 기다리지 않는다. 두 번째 이후 신호는 INFO만 남기고 기한을 옮기지 않는다",
+    "effect_assertion": "가짜 시계·가짜 exit_now로 SIGTERM을 기록(처리기 본문 → pipe → tick)한 뒤 picked_up 없이 drain_timeout초 − 1µs tick은 종료 0, drain_timeout초 tick은 exit_now(1) 1회와 `C|stop signal not handled by main loop within <drain_timeout> s (current RPC: none); exiting unsuccessfully` 1줄이다. 실제 sigaction 경로는 g_test_trap_subprocess 자식에서 raise(SIGTERM)→시계 1시간 이동→실패 종료(1)로 따로 확인한다(/mainloop_guard/real_signal_path_exits_unsuccessfully)",
+    "effect_test": "tests/test_mainloop_guard.c::test_deadline_fires_when_not_picked_up",
+    "status": "tested"
+  },
+  "mainloop-reach-ratchet": {
+    "description": "메인 루프·REST 스레드에서 정적으로 도달하는 차단 호출(libvirt 왕복·풀 획득·외부 명령·동기 DNS·동기 HTTP·sleep·join·liblxc·GVir·g_mutation_mu)의 집합은 scripts/mainloop_reach_baseline.txt 행 집합과 같아야 한다 — 새 행은 호출 사슬과 함께 FAIL, 사라진 행도 FAIL(--tighten으로 잠근다). --tighten은 줄이기만 하고 새 행이 있으면 쓰지 않는다. 빈 입력·미해석 라우트·표지 파일 누락은 rc 2라 빈 집합으로 통과하지 않는다. virConnectOpen*은 pcv_virt_open.c 밖에 둘 수 없다",
+    "effect_assertion": "합성 핸들러에 g_usleep 호출을 더하면 check_mainloop_reach.py가 rc 1이고 출력에 `route:a.get\tsleep\thelper\tg_usleep`과 호출 사슬 `helper <- h`가 있다.",
+    "effect_test": "scripts/tests/test_mainloop_reach.py::test_new_sink_fails_with_chain",
+    "status": "tested"
+  },
+  "conn-pool-no-rpc-under-lock": {
+    "description": "libvirt 연결 풀(virt_conn_pool.c)은 전역 mutex 를 쥔 채 libvirt RPC(virConnectGetVersion·virConnectOpen)나 연결 닫기를 부르지 않는다 — 유휴 연결은 큐에서 꺼낸 뒤 mutex 밖에서 is_alive·get_version 으로 검사하고, 죽었으면 mutex 밖에서 닫고 다시 열며, 실패하면 잠깐 잡은 mutex 로 total 만 줄인다. 응답 없는 libvirtd 하나가 모든 획득·반납·stats 를 멈추게 하지 않는다. 풀 연결에는 keepalive(5초×3회)를 걸어 걸린 연결이 약 15초 뒤 끊기고, 30초 메인 루프 reaper 는 죽은 유휴 연결을 닫고 total 만 줄일 뿐 재연결(virConnectOpen)하지 않는다",
+    "effect_assertion": "가짜 ops 의 get_version 이 호출될 때 virt_conn_pool_lock_is_free_for_test() 가 TRUE 여야 한다(풀 잠금이 비어 있음). 죽은 연결 재개통(close·open)도 같은 방식으로 잠금 밖임을 /conn_pool/reconnect_outside_lock 이, reaper 가 open 을 부르지 않음을 /conn_pool/reaper_does_not_reconnect 가 확인한다",
+    "effect_test": "tests/test_conn_pool.c::test_acquire_health_check_outside_lock",
+    "status": "tested"
+  },
+  "vm-delete-owned-storage": {
+    "description": "vm.delete가 VM 소유 저장소만 파괴(첫 device='disk'+이름 일치)하고, 클론·다른 도메인·backing이 쓰는 저장소는 아무것도 바꾸기 전에 거절",
+    "effect_assertion": "붙인 zvol·추가 파일·같은 이름의 무관한 zvol은 남고 경고에 적히며, 클론이 있는 원본·다른 VM이 참조한 저장소는 Job 실패로 정의·포트·저장소 호출 0",
+    "effect_test": "tests/test_vm_delete_plan.c::test_first_block_not_owned",
+    "status": "tested"
+  },
+  "container-rootfs-residue-clear": {
+    "description": "정지 컨테이너의 호스트 NS 잔여 마운트 정리(pcv_lxc_rootfs_residue_clear)는 rootfs(<lxc_path>/<name>/rootfs)와 staging(<S>/<name>) 두 접두를 차례로 열어 fd 경로를 비교 접두로 쓰고, 접두 아래 마운트를 두 단계로 뗀다: ① 부모 ID(mountinfo 필드 2) 사슬로 정한 맨 위(부모가 떼는 몫 밖) 마운트 모두의 하위 트리를 mount_setattr(AT_RECURSIVE, propagation=MS_PRIVATE)로 끊고 — 첫 umount보다 앞 ② 맨 위를 끊은 사슬에서 가장 깊은 것(같은 깊이는 뒤 줄)부터 하나씩 umount2(MNT_DETACH)로 뗀다. 전환·떼기마다 접두 fd에서 링크 없이 걸어 연 fd의 STATX_MNT_ID가 필드 1과 같을 때만 한다 — 걷는 사이 바뀐 자리의 다른 마운트를 바꾸거나 떼지 않고, 업그레이드 전 shared 잔여(호스트 '/'의 peer) 아래로 번진 자식을 떼어도 해제가 부모 peer group을 타고 호스트 원본 아래 마운트로 번지지 않는다. 깊이는 줄 순서가 아니다(mount --move 뒤 자식이 앞 줄). 맨 위 전환이 실패하면 그 사슬을 떼지 않는다. 한 자리에 겹친 마운트는 보이는 맨 위부터 private → 떼기를 차례로 하고, 덮인 것이 shared(업그레이드 전 attach)면 그 겹침은 떼지 않고 'stacked volume mounts at <경로> include a shared mount from before the upgrade and were left in place; … follow the GUIDE procedure …'(손 umount를 지시하지 않는다)로 남긴다. 실패 ID는 다음 떼기 성공 전까지 빼고 접두마다 떼기 64회에서 멈추며 남으면 '<n> volume mount(s) left under the container rootfs could not be removed'로 실패한다. 정지 뒤·정지 상태 detach·시작 앞·삭제 앞·복제 앞 다섯 접점이 같은 함수를 부른다",
+    "effect_assertion": "가짜 ops에서 rootfs 아래 두 마운트(둘 다 사슬 맨 위)가 있으면 pcv_lxc_rootfs_residue_clear가 TRUE·cleared 2이고, umount 순서가 같은 깊이의 뒤 줄부터이며, 모든 make_private 기록이 첫 umount보다 앞이고 private·umount 기록마다 바로 앞이 같은 fd의 mnt_id 대조이며 뗀 마운트마다 그 사슬 위가 private로 바뀌었다. 한 마운트의 mnt_id가 다르면 그 마운트는 private·umount 0회이고 FALSE + '1 volume mount(s) left under the container rootfs could not be removed'.",
+    "effect_test": "tests/test_lxc_volume_mount.c::test_residue_reverse_order_id_match",
+    "status": "tested"
+  },
   "container-volume-start-staging": {
-    "description": "컨테이너 시작 시 데몬이 각 bind 볼륨 원본을 링크 없이 연 fd에서 open_tree로 복제해(ro 줄은 붙이기 전에 MOUNT_ATTR_RDONLY) MS_SLAVE staging 마운트(/run/purecvisor-volstage/<이름>/<자리>)를 만들고, liblxc에는 원본 대신 staging 경로만 적힌 런타임 config(lxc-start -f /run/purecvisor/lxc-runtime/<이름>/config)를 넘긴다 — liblxc가 호스트 원본 문자열을 다시 풀지 않아 unprivileged 컨테이너 안의 ro 사본이 잠긴 읽기 전용(MNT_LOCK_READONLY)을 물려받는다. pre-start 훅(pcvctl container volume-guard-hook)이 원본이 staging 밖이거나 상대 경로면 시작을 거절한다",
-    "effect_assertion": "bind,ro 볼륨 줄이 있는 영속 config로 런타임 config 본문을 만들면 그 줄의 원본 필드가 staging 경로로 바뀌고 호스트 원본 경로는 런타임 config에 남지 않는다",
-    "effect_test": "tests/test_lxc_volume_guard.c::test_runtime_config_replaces_source",
+    "description": "컨테이너 시작 시 데몬이 각 bind 볼륨 원본을 링크 없이 연 fd에서 open_tree로 복제해(ro 줄은 붙이기 전에 MOUNT_ATTR_RDONLY) MS_SLAVE staging 마운트(/run/purecvisor-volstage/<이름>/<자리>)를 만들고, 원본 대신 staging 경로만 적힌 런타임 config(/run/purecvisor/lxc-runtime/<이름>/config)를 써서 전용 유닛 purecvisor-lxc@<이름>.service의 `lxc-start -f`가 그 파일만 읽게 한다 — liblxc가 호스트 원본 문자열을 다시 풀지 않아 unprivileged 컨테이너 안의 ro 사본이 잠긴 읽기 전용(MNT_LOCK_READONLY)을 물려받는다. pre-start 훅(pcvctl container volume-guard-hook)이 원본이 staging 밖이거나 상대 경로면 시작을 거절한다",
+    "effect_assertion": "가짜 ops에서 ro·rbind·파일 볼륨 줄과 비볼륨 줄이 섞인 config로 pcv_lxc_volume_start_prepare가 TRUE이고, 기록이 잔여 정리 → (줄마다) source_open → 컨테이너 안 대상 보장(target walk·leaf) → prepare_dir(<S> 0711 0) → prepare_dir(c1 0700 0) → prepare_slot → mount_clone(그 source_open이 준 fd, ro=RO·rbind=RECURSIVE, 그 순간 런타임 config 없음) 순서이며, 다시 읽은 <rt>/c1/config의 볼륨 원본이 모두 <S>/c1/ 아래 그 줄의 자리이고 호스트 원본 문자열이 본문에 없다.",
+    "effect_test": "tests/test_lxc_volume_mount.c::test_start_prepare_order",
+    "status": "tested"
+  },
+  "container-volume-detach-verified": {
+    "description": "실행 중 볼륨 detach의 최종 확인(pcv_lxc_volume_verify_gone)은 init 하나가 아니라 컨테이너 cgroup <cgroup_root>/lxc.payload.<n>과 그 아래 모든 하위 cgroup을 너비 우선으로 걸어 cgroup.procs의 pid마다 /proc/<pid>/task의 스레드마다 mountinfo를 읽고(ns/mnt 링크로 묶지 않는다 — keep-5에 CAP_SYS_PTRACE 없음), 마운트마다 귀속 규칙(pcv_vol_attribute, 가장 긴 R → container_path)으로 떼는 dest의 줄 몫이거나 가릴 수 없으면 남은 사본으로 본다. init mountinfo에서는 그 줄의 container_path에 붙은 마운트(식별이 어긋난 rename 원본)도 남은 것으로 본다. 볼륨 줄 식별은 staging 자리 마운트의 필드 3·4, 없으면 원본을 링크 없이 연 fd의 마운트 ID 줄에서 계산한다(pcv_lxc_volume_set_load). 떼는 dest의 줄 가운데 식별 없는 줄이 있으면 아무것도 읽지 않고 'cannot identify the volume source on the host'로 확인 불가이고, 루트·마운트 지점·R은 버퍼 없이 정규화 비교해 길이 제한이 없다(4 KiB 넘는 하위 bind 사본도 대상 몫, 판정 못 하는 루트는 가릴 수 없음). 사라진 pid·스레드(ENOENT·ESRCH·EINVAL)와 cgroup.procs의 ENOENT·EOPNOTSUPP(threaded), 하위 cgroup 목록의 ENOENT(지워진 cgroup)만 건너뛰고, 그 밖의 읽기 실패·컨테이너 cgroup 자신·init mountinfo 읽기 실패·pid+tid 4,096 또는 하위 cgroup 1,024 초과·한 번의 확인 전체 5초 예산(PCV_LXC_VERIFY_BUDGET_US — 파일마다·큰 파일 읽기 도중에도 본다) 초과는 'cannot verify that the volume is gone from the container: <사유>; stop the container, then detach again'(−32002), 남은 사본은 'volume is still mounted inside the container: <container_path>; stop the container, then detach again'(−32002)으로 실패한다. mountinfo는 줄 수만큼 칸을 잡아 자르지 않는다",
+    "effect_assertion": "가짜 읽기 ops에서 init(pid 100) mountinfo는 깨끗하고 다른 마운트 NS를 가진 pid 200의 스레드 mountinfo에만 대상 줄(/data mnt/a, staging 식별 0:50 /vol) 몫 사본이 있으면 pcv_lxc_volume_verify_gone이 FALSE + PCV_LXC_VOLUME_ERROR_CONFLICT 'volume is still mounted inside the container: /mnt/a; stop the container, then detach again'다.",
+    "effect_test": "tests/test_lxc_volume_detach.c::test_verify_other_pid_ns_copy_fails",
+    "status": "tested"
+  },
+  "container-rollback-stop-first": {
+    "description": "컨테이너 스냅샷 롤백 워커(_snap_rollback_thread)는 드라이버 작업 잠금(_lock_container_op, 겹치면 BUSY·아무 호출 없음)을 쥔 채 스냅샷 존재(zfs list -H -t snapshot)를 전원 제어보다 먼저 확인하고(없으면 'Snapshot '<s>' not found for container '<n>' (container left untouched)'), 처음 상태가 STOPPED면 정지 없이, RUNNING·FROZEN이면 container.stop과 같은 정지 도우미 _lxc_halt(pcv_lxc_halt)로 정상 정지 PCV_LXC_STOP_GRACE_SEC(30)초 → 실패면 강제 정지한 뒤 상태를 다시 읽어 STOPPED일 때만 잔여 정리(pcv_lxc_rootfs_residue_clear) → zfs rollback -r → 지문 지우기로 간다. 정지가 실패하거나 다시 읽은 상태가 STOPPED가 아니면 잔여 정리·zfs rollback을 부르지 않고 'container '<n>' could not be stopped for the rollback: <사유>; nothing was rolled back'으로 실패하며 재시작을 요청하지 않는다. 처음 상태가 그 밖(STARTING·STOPPING 전이, 읽지 못한 UNKNOWN)이면 정지도 하지 않고 'container '<n>' is <state>; nothing was rolled back (retry when it is running or stopped)'으로 거절한다(재부팅 중 정지와의 경합보다 거절이 덜 위험하다). 워커는 lxc_rollback.c(_snap_rollback_thread). 정지를 확인했으면 되돌림 성공·실패와 무관하게 restart 표시를 돌려주고, 롤백 콜백이 감사·응답·VM_OP_SNAPSHOT 해제 뒤 정식 container.start 요청 단계(pcv_container_start_submit, 행위자 = 롤백 요청자)로 다시 켠다",
+    "effect_assertion": "가짜 PcvLxcRollbackOps에서 처음 상태 RUNNING·정지 뒤 상태 STOPPED이면 호출 기록이 정확히 exists → state(RUNNING) → halt(30) → state(STOPPED) → residue → zfs_rollback → forget이고 결과 TRUE·restart TRUE다.같은 시험에서 처음 상태가 STOPPING이면 기록에 zfs_rollback이 없고 결과 FALSE·restart FALSE다. 같은 묶음의 leaf가 FROZEN 정지, 정지 실패·정지 뒤 RUNNING이면 잔여 정리·zfs rollback 0회·restart FALSE, 스냅샷 없음이면 exists 하나뿐, STARTING·STOPPING·UNKNOWN이면 exists·state 둘뿐(rollback_transitional_state_refused), 잠금을 쥔 채 다시 부르면 BUSY·ops 0회를 고정한다",
+    "effect_test": "tests/test_lxc_driver.c::test_rollback_stops_before_zfs_rollback",
     "status": "tested"
   }
 }

@@ -8,6 +8,10 @@ from pathlib import Path
 import argparse
 import re
 import subprocess
+import sys
+
+sys.path.insert(0, str(Path(__file__).resolve().parent))
+import rpc_extract
 
 ROOT = Path(__file__).resolve().parent.parent
 RETIRED = (
@@ -33,7 +37,7 @@ def check(root: Path, cli: str | None = None) -> list[str]:
                 errors.append(f'{file.relative_to(root)}: 폐기 계약 {token}')
     for name in ('Makefile', 'ui/modules/endpoints.js', 'ui/modules/shell.js',
                  'ui/modules/nav.js', 'ui/modules/help.js', 'ui/modules/advanced.js', 'ui/app.js', 'ui/i18n.js',
-                 'scripts/gen_openapi.py', 'ui/manifest.json', 'ui/guide-content.md', 'docs/GUIDE.md'):
+                 'ui/manifest.json', 'ui/guide-content.md', 'docs/GUIDE.md'):
         text = (root / name).read_text()
         for token in (*RETIRED, 'modules/cloud.js', 'modules/cloud/', 'CLOUD_IMPORT',
                       'CLOUD_EXPORT', 'CLOUD_CANCEL', 'CLOUD_JOBS', 'cloud-migration',
@@ -45,7 +49,7 @@ def check(root: Path, cli: str | None = None) -> list[str]:
                 errors.append(f'{name}: 폐기 표면 {token}')
     if (root / 'ui/modules/cloud.js').exists():
         errors.append('Cloud renderer 잔류')
-    dispatcher = (root / 'src/api/dispatcher.c').read_text()
+    dispatcher = rpc_extract.read(rpc_extract.dispatcher_route_file(root))
     for method in ('vm.import.ova', 'vm.export.ova', 'backup.restore',
                    'backup.incremental', 'backup.verify', 'backup.policy.set', 'backup.policy.list',
                    'jobs.list', 'jobs.get', 'jobs.cancel', 'vm.list'):
@@ -60,7 +64,8 @@ def check(root: Path, cli: str | None = None) -> list[str]:
     profile = (root / 'packaging/apparmor/usr.local.bin.purecvisorsd').read_text()
     if re.search(r'^\s*[^#\n]*bin/aws\s', profile, re.MULTILINE):
         errors.append('AppArmor의 AWS CLI 실행 허용 잔류')
-    rest = (root / 'src/api/rest_server.c').read_text()
+
+    rest = rpc_extract.rest_family_text(root)
     if any(token in rest for token in ('import-ec2', 'export-ec2', 'export-s3')):
         errors.append('폐기 AWS REST 경로 잔류')
     if cli:
