@@ -48,6 +48,7 @@ export default defineConfig({
         }
       ],
       customCss: ["./src/styles/custom.css"],
+      routeMiddleware: "./src/route-data.mjs",
       components: {
         Header: "./src/components/Header.astro",
         PageTitle: "./src/components/PageTitle.astro"

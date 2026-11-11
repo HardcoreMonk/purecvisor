@@ -184,6 +184,10 @@ body {
   max-width: min(100%, var(--pcv-technical-width));
 }
 
+.sl-markdown-content:not(:has(.pcv-landing)) > table:not(.pcv-technical-wide) {
+  min-width: 0;
+}
+
 .sl-markdown-content:not(:has(.pcv-landing)) > :is(figure, .pcv-architecture-wide) {
   width: 100%;
   max-width: var(--pcv-architecture-width);
@@ -394,6 +398,27 @@ button:focus-visible {
 header.header {
   background: color-mix(in srgb, var(--sl-color-black) 92%, transparent);
   backdrop-filter: blur(18px);
+}
+
+:root[lang="ko"] starlight-theme-select select {
+  width: calc(8.75em + 1rem);
+}
+
+.hero:has(+ .sl-markdown-content > .pcv-not-found-note) {
+  padding-bottom: 0;
+}
+
+.sl-markdown-content > p.pcv-not-found-note {
+  margin-top: 0.5rem;
+  color: var(--sl-color-gray-2);
+  font-size: clamp(var(--sl-text-base), calc(0.0625rem + 2vw), var(--sl-text-xl));
+  text-align: center;
+}
+
+@media (min-width: 50rem) {
+  .sl-markdown-content > p.pcv-not-found-note {
+    text-align: start;
+  }
 }
 
 .content-panel:has(.pcv-landing),

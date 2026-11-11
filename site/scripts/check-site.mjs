@@ -166,6 +166,48 @@ const securityGuide = await readFile(
   path.join(distRoot, securityChapter.contentSlug, "index.html"),
   "utf8"
 );
+async function isDistFile(pathname) {
+  const target = pathname.endsWith("/")
+    ? path.join(distRoot, pathname, "index.html")
+    : path.join(distRoot, pathname);
+  try {
+    return (await stat(target)).isFile();
+  } catch {
+    return false;
+  }
+}
+
+let alternateLinkCount = 0;
+for (const file of outputFiles.filter((item) => /\.(?:html|xml)$/.test(item))) {
+  const source = await readFile(file, "utf8");
+  for (const match of source.matchAll(/<(?:xhtml:)?link\b[^>]*\brel="alternate"[^>]*>/g)) {
+    const href = (/\bhref="([^"]+)"/.exec(match[0]) || [])[1];
+    const url = href ? new URL(href, "https://purecvisor.site/") : null;
+    if (!url || url.origin !== "https://purecvisor.site" || !await isDistFile(decodeURI(url.pathname))) {
+      throw new Error(`alternate link target missing: ${path.relative(distRoot, file)} -> ${href}`);
+    }
+    alternateLinkCount += 1;
+  }
+}
+if (alternateLinkCount === 0) throw new Error("no alternate links checked");
+
+for (const [name, source] of [["root", index], ["korean", korean], ["english", english]]) {
+  const menuLinks = [...source.matchAll(/<div class="pcv-nav-menu\b[^"]*"[^>]*>([\s\S]*?)<\/div>/g)]
+    .flatMap((menu) => [...menu[1].matchAll(/<a href="(\/[^"#]*)#([^"]+)"/g)]);
+  if (menuLinks.length < 6) throw new Error(`${name} header menu anchor links missing`);
+  for (const [, page, hash] of menuLinks) {
+    const target = await readFile(path.join(distRoot, page, "index.html"), "utf8");
+    if (!target.includes(`id="${decodeURIComponent(hash)}"`)) {
+      throw new Error(`${name} header menu anchor missing: ${page}#${hash}`);
+    }
+  }
+}
+
+const notFoundPage = await readFile(path.join(distRoot, "404.html"), "utf8");
+if (!notFoundPage.includes('<p class="pcv-not-found-note" lang="en">Page not found.')) {
+  throw new Error("404 English note missing");
+}
+
 const guideSource = await readFile(path.join(siteRoot, "..", "docs", "GUIDE.md"), "utf8");
 const databaseStructureSource = await readFile(
   path.join(siteRoot, "..", "docs", "DATABASE_STRUCTURE.md"),
@@ -257,6 +299,19 @@ for (const [selector, declarations] of [
   for (const declaration of declarations) {
     if (!block.includes(declaration)) {
       throw new Error(`reader width contract missing: ${selector} ${declaration}`);
+    }
+  }
+}
+for (const [selector, declarations] of [
+  [".sl-markdown-content:not(:has(.pcv-landing)) > table:not(.pcv-technical-wide)", ["min-width: 0;"]],
+  [':root[lang="ko"] starlight-theme-select select', ["width: calc(8.75em + 1rem);"]]
+]) {
+  const start = landingStyles.indexOf(`${selector} {`);
+  const end = start < 0 ? -1 : landingStyles.indexOf("}", start);
+  const block = end < 0 ? "" : landingStyles.slice(start, end);
+  for (const declaration of declarations) {
+    if (!block.includes(declaration)) {
+      throw new Error(`site frame style missing: ${selector} ${declaration}`);
     }
   }
 }
@@ -1254,7 +1309,7 @@ for (const [name, source, language, heroTitle, heroCopy, canonical] of [
     throw new Error(`${name} hero copy mismatch`);
   }
   for (const sourceContract of name === "english"
-    ? ["5-minute quickstart", "Installation guide", "Ubuntu Server 26.04.1 LTS · Single Edge · HTTPS :443 by default"]
+    ? ["5-minute quickstart", "Installation guide", "Ubuntu Server 26.04.1 LTS · Single Edge · HTTPS :443 by default", "Documentation is in Korean."]
     : ["5분 퀵스타트", "설치 가이드", "Ubuntu Server 26.04.1 LTS · Single Edge · 기본 HTTPS :443"]) {
     if (!source.includes(sourceContract)) throw new Error(`${name} localized landing content missing: ${sourceContract}`);
   }
