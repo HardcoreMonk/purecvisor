@@ -270,6 +270,8 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 
 ### 1.4 5분 퀵스타트
 
+> **명령 표기**: 데몬에 요청을 보내는 `pcvctl` 명령과 데몬 소켓(`nc -U /var/run/purecvisor/daemon.sock`)을 쓰는 명령은 root 권한이 필요합니다. 데몬은 root(uid 0) 연결만 받고 소켓 디렉터리 권한도 `0700`입니다. 이 가이드의 예시는 대부분 `sudo`를 생략하므로 일반 사용자 계정에서는 명령 앞에 `sudo`를 붙입니다.
+
 ```bash
 # 1. 서비스 시작
 sudo systemctl start purecvisorsd   # Single Edge
@@ -3678,6 +3680,8 @@ VM leaf class에 netem을 삽입해 지연·손실을 인위적으로 주입하�
 
 ### 6.5 OVS VXLAN 오버레이
 
+Web UI 화면은 `인프라 > 오버레이 네트워크`입니다.
+
 > **에디션 경계**: 오버레이 코어(`create/delete/list/info/add_peer/remove_peer`)는 Single Edge 공개 범위에 포함됩니다. 자동 풀메시와 peer discovery는 공개 출시 표면에 포함되지 않습니다.
 
 Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
@@ -3785,6 +3789,8 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
 ```
 
 ### 6.6 OVN SDN
+
+Web UI 화면은 `인프라 > OVN SDN`입니다.
 
 > **에디션 경계**: generic OVN 코어(`status`, switch/port/ACL/router/DHCP/NAT/tenant)는
 > Single Edge 공개 범위에 포함됩니다. 등록된 RPC inventory는 정확히 18개이며 완전한
@@ -3951,6 +3957,8 @@ Linux/OVN 공존, controller/host reboot와 전 단계 fault injection을 대신
 
 ### 6.7 보안 그룹
 
+Web UI 화면은 `인프라 > 보안 그룹`입니다.
+
 Security Group으로 VM의 ingress와 egress 허용 범위를 선언하고, nftables actual rule로 적용합니다.
 CLI는 기본 생성·단일 포트 규칙·VM 연결을 제공하고, source CIDR이나 rule 제거처럼 세부 속성이 필요한 작업은 JSON-RPC를 사용합니다.
 
@@ -3998,6 +4006,8 @@ sudo nft list table inet purecvisor
 
 ### 6.8 DPDK
 
+Web UI 화면은 `인프라 > DPDK`입니다.
+
 고성능 데이터 플레인을 위한 DPDK (Data Plane Development Kit) 통합을 지원합니다.
 이 경로는 NIC를 host kernel network stack에서 분리하므로 out-of-band 복구 수단과 전용 NIC가 준비된 경우에만 사용합니다.
 
@@ -4039,6 +4049,8 @@ pcvctl dpdk unbind 0000:03:00.0
 > 멱등 성공이며, 도구 부재·권한 오류·상태 미변경은 실패로 보고됩니다.
 
 ### 6.9 SR-IOV
+
+Web UI 화면은 `인프라 > SR-IOV`입니다.
 
 SR-IOV를 사용하여 물리 NIC의 가상 기능(VF)을 VM에 직접 할당합니다.
 VF 트래픽은 일반 Linux bridge와 host TC QoS를 우회하므로 switch 정책, IOMMU 격리와 guest driver를 함께 검증해야 합니다.
@@ -4473,6 +4485,23 @@ ADMIN 전용입니다.
 ## 8. 모니터링 & 알림
 
 PureCVisor는 외부 에이전트 없이 자체 메트릭 수집, 알림 엔진, Prometheus 호환 엔드포인트를 내장한다.
+
+Web UI `관제` 메뉴의 화면과 이 가이드에서 그 화면을 다루는 절은 다음과 같다. `감사 로그`는 ADMIN에게만 보인다.
+
+| 관제 화면 | 관련 절 |
+|-----------|---------|
+| 운영 개요 | 8.1 자체 node_exporter, 12.4 승인 큐(자가치유 대기 액션) |
+| 이벤트 센터 | 8.1 자체 node_exporter(호스트·VM 요약), 알림·감사 로그 화면 바로 가기 |
+| 알림 | 8.3 알림 엔진, 8.5 알림 ACK & 에스컬레이션, 8.9 DLQ |
+| 보안 이벤트 | 10.7 Native Host HIDS/HIPS, 10.12 Suricata DPI/IDS/IPS |
+| 감사 로그 (ADMIN) | 10.10 감사 로그 |
+| 활동 로그 | 따로 다루는 절 없음 — 이 브라우저가 보낸 API 요청 기록 |
+| VM 모니터 | 8.1 자체 node_exporter |
+| 스토리지 모니터 | 8.1 자체 node_exporter, 5.6 Prometheus 스토리지 메트릭 |
+| 호스트 모니터 | 8.1 자체 node_exporter |
+| 히트맵 | 따로 다루는 절 없음 — VM 목록의 현재 CPU 조회값 |
+| API 성능 | 따로 다루는 절 없음 — 주요 REST 조회의 응답 시간을 브라우저에서 잰 값 |
+| 자가치유 | 12.3 자가치유 5계층 안전 스택, 12.4 승인 큐 |
 
 ### 8.1 자체 node_exporter
 
@@ -7322,6 +7351,8 @@ ZFS snapshot/clone을 운영 절차로 사용하고 있습니까?
 ### 21.1 리팩토링 개요
 
 대형 파일을 책임별로 분리하여 유지보수성과 증분 빌드 속도를 개선했습니다.
+
+아래 줄 수는 리팩토링 당시 값이며 지금 파일 크기와 다릅니다.
 
 ```
 리팩토링 전:                          리팩토링 후:
