@@ -13,6 +13,14 @@
 - 브라우저 UI 시험 8개를 더했다(`tests/ui/*.test.mjs` 69개 → 77개): API 조회 실패와 빈 결과의 구분, 컨테이너 권한
   표시와 생성 요청, 화면 요청 본문과 서버 계약, API 카탈로그 '실행'의 확인 단계, 작업 실패 사유 표시, 목록이 바뀌거나
   다시 그려질 때 VM 작업 대상 고정(두 파일), 주기 WebSocket 메시지 처리. UI 코드는 바뀌지 않았다.
+- 도움말 화면 모니터링 카드의 "노출 엔드포인트"를 `/metrics`에서 전체 경로 `/api/v1/metrics`로 고쳤다. `/metrics`는
+  토큰 없이 401, 토큰을 붙여도 404다. REST 표는 머리에 보이는 `/api/v1` 기준 상대 경로라 그대로다. 도움말 계약 시험이
+  카드 값을 실제 REST 경로와 대조한다.
+- 시험·게이트 자료를 정리했다. 호스트 격리 게이트의 반사실 시험(`scripts/tests/test_test_hermetic.py`)은 이 저장소
+  이력에 없는 커밋을 읽어 7건을 건너뛰었다 — 고친 시험의 수정 전 leaf를 고정 fixture(`tests/fixtures/test_hermetic_pre_fix/`)로
+  두어 항상 돈다. 분할 대상 설정(`scripts/split/targets/*.toml`)에서 분할 도구가 쓰는 머리 주석 틀과 없는 manifest
+  경로를 지웠다(시험·게이트가 읽는 값은 그대로). `scripts/fe_rpc_params_uncovered.txt` 사유·`contracts/safety_controls_baseline.txt`
+  주석·JSON ingress 통합 시험 출력에서 이 저장소에 없는 시험과 내부 작업 이름을 지웠다(게이트·시험 동작은 그대로).
 - RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.0`을 유지하며 새 버전이나 태그는
   발급하지 않았다.
 
