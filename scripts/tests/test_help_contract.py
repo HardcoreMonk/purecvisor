@@ -141,6 +141,23 @@ def test_unregistered_rpc_helper_fails():
     assert_fails(run_mutated_help("rpc('qos.stats',", "rpc('qos.statz',"), "등록되지 않은 RPC")
 
 
+def test_metrics_card_shows_full_rest_path():
+                                                       
+
+                                                                          
+                                                                                       
+    text = HELP_JS.read_text(encoding="utf-8")
+    card = re.search(r"HN\.row\(_L\('노출 엔드포인트', 'Exposed at'\),\s*el\('code', null, '([^']*)'\)\)", text)
+    assert card, "모니터링 카드의 노출 엔드포인트 행이 help.js 에 없다(시험 갱신 필요)"
+    header = (ROOT / "src" / "api" / "rest_internal.h").read_text(encoding="utf-8")
+    prefix = re.search(r'#define\s+REST_API_PREFIX\s+"([^"]+)"', header)
+    assert prefix, "REST_API_PREFIX 정의를 찾지 못했다(시험 갱신 필요)"
+    rest = (ROOT / "src" / "api" / "rest_public.c").read_text(encoding="utf-8")
+    assert 'REST_API_PREFIX "/metrics"' in rest, "rest_public.c 에 메트릭 분기가 없다(시험 갱신 필요)"
+    assert card.group(1) == prefix.group(1) + "/metrics", \
+        f"카드의 노출 엔드포인트 {card.group(1)!r} 가 실제 경로 {prefix.group(1) + '/metrics'!r} 와 다르다"
+
+
 def test_vacuous_parse_fails():
                                                                  
     text = HELP_JS.read_text(encoding="utf-8")

@@ -72,7 +72,7 @@ function renderHelp(b) {
     HN.card('📈 ' + _L('모니터링', 'Monitoring'), [
       HN.row(_L('Prometheus 메트릭', 'Prometheus Metrics'), METRICS + '+'),
       HN.row(_L('메트릭 접두', 'Metric Prefixes'), 'node_* / purecvisor_*'),
-      HN.row(_L('노출 엔드포인트', 'Exposed at'), el('code', null, '/metrics'))]),
+      HN.row(_L('노출 엔드포인트', 'Exposed at'), el('code', null, '/api/v1/metrics'))]),
     HN.card('💻 ' + _L('인프라', 'Infrastructure'), [
       HN.row(_L('에디션', 'Edition'), window.pcvClusterEnabled ? '3-Node Cluster HA' : _L('Single Edge (단일 노드)', 'Single Edge (single-node)')),
       HN.row(_L('Web UI 페이지', 'Web UI Pages'), '40'),
