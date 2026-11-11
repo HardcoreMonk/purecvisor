@@ -1,4 +1,4 @@
-# PureCvisor Single Edge 데이터베이스 아키텍처 설명서
+# PureCVisor Single Edge 데이터베이스 아키텍처 설명서
 
 > **최신 소스:** [10/8 변경·검증 인계](operations/2026-10-08-public-source-refresh-handoff.md)를 따른다. AWS/S3 제거와 Job 접수·결과 저장 계약 보강을 적용했다.
 
