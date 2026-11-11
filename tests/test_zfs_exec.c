@@ -319,6 +319,45 @@ test_pool_table_is_bounded(void)
 }
 
                                                                        
+typedef struct { gint *go; gboolean got; } RaceJob;
+
+static gpointer
+_race_lock_thread(gpointer p)
+{
+    RaceJob *j = p;
+    while (!g_atomic_int_get(j->go)) g_thread_yield();
+    j->got = pcv_zfs_pool_lock("racepool/x", "race", 0, NULL);
+    return NULL;
+}
+
+static void
+test_lazy_init_is_thread_safe(void)
+{
+    enum { THREADS = 8, ROUNDS = 300 };
+    for (guint r = 0; r < ROUNDS; r++) {
+        pcv_zfs_pool_lock_shutdown();
+        gint go = 0;
+        RaceJob jobs[THREADS] = {0};
+        GThread *threads[THREADS];
+        for (guint i = 0; i < THREADS; i++) {
+            jobs[i].go = &go;
+            threads[i] = g_thread_new("race", _race_lock_thread, &jobs[i]);
+        }
+        g_atomic_int_set(&go, 1);
+        guint won = 0;
+        for (guint i = 0; i < THREADS; i++) {
+            g_thread_join(threads[i]);
+            if (jobs[i].got) won++;
+        }
+        gint registered = 0;
+        pcv_zfs_pool_get_stats(&registered, NULL);
+        g_assert_cmpuint(won, ==, 1);
+        g_assert_cmpint(registered, ==, 1);
+        pcv_zfs_pool_unlock("racepool/x");
+    }
+    pcv_zfs_pool_lock_shutdown();
+}
+
 typedef struct { const gchar *target; gboolean use_short; gboolean ok; GError *error; gint64 elapsed_us; gint done; } WaitJob;
 
 static gpointer
@@ -594,6 +633,7 @@ test_zfs_exec_register(void)
     g_test_add_func("/zfs_exec/main_loop_does_not_wait", test_main_loop_does_not_wait);
     g_test_add_func("/zfs_exec/lock_key_is_pool_head", test_lock_key_is_pool_head);
     g_test_add_func("/zfs_exec/pool_table_is_bounded", test_pool_table_is_bounded);
+    g_test_add_func("/zfs_exec/lazy_init_is_thread_safe", test_lazy_init_is_thread_safe);
     g_test_add_func("/zfs_exec/zvol_create_handler_does_not_block", test_zvol_create_handler_does_not_block);
     g_test_add_func("/zfs_exec/zvol_delete_handler_guard", test_zvol_delete_handler_guard);
     g_test_add_func("/zfs_exec/zvol_handlers_report_pool_busy", test_zvol_handlers_report_pool_busy);

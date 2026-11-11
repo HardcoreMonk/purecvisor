@@ -68,7 +68,8 @@ typedef struct {
 
 static GHashTable *g_pool_mutexes = NULL;                                    
 static GMutex      g_registry_mu;                                        
-static gboolean    g_initialized = FALSE;
+static gint        g_initialized = 0;
+G_LOCK_DEFINE_STATIC(g_init_mu);
 static gint        g_contentions = 0;                                     
 
                                                                        
@@ -92,11 +93,17 @@ _pool_head(const gchar *pool)
 void
 pcv_zfs_pool_lock_init(void)
 {
-    if (g_initialized) return;
+    if (g_atomic_int_get(&g_initialized)) return;
+    G_LOCK(g_init_mu);
+    if (g_atomic_int_get(&g_initialized)) {
+        G_UNLOCK(g_init_mu);
+        return;
+    }
     g_mutex_init(&g_registry_mu);
     g_pool_mutexes = g_hash_table_new_full(g_str_hash, g_str_equal,
                                             g_free, NULL);
-    g_initialized = TRUE;
+    g_atomic_int_set(&g_initialized, 1);
+    G_UNLOCK(g_init_mu);
     PCV_LOG_INFO(ZFS_LOCK_DOM, "ZFS pool lock module initialized");
 }
 
@@ -104,7 +111,8 @@ pcv_zfs_pool_lock_init(void)
 void
 pcv_zfs_pool_lock_shutdown(void)
 {
-    if (!g_initialized) return;
+    G_LOCK(g_init_mu);
+    if (!g_atomic_int_get(&g_initialized)) { G_UNLOCK(g_init_mu); return; }
     g_mutex_lock(&g_registry_mu);
     if (g_pool_mutexes) {
                                                                                       
@@ -121,7 +129,8 @@ pcv_zfs_pool_lock_shutdown(void)
     }
     g_mutex_unlock(&g_registry_mu);
     g_mutex_clear(&g_registry_mu);
-    g_initialized = FALSE;
+    g_atomic_int_set(&g_initialized, 0);
+    G_UNLOCK(g_init_mu);
 }
 
                                                                
@@ -163,7 +172,7 @@ gboolean
 pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
                    gint timeout_ms, GError **error)
 {
-    if (!g_initialized) pcv_zfs_pool_lock_init();                                
+    if (!g_atomic_int_get(&g_initialized)) pcv_zfs_pool_lock_init();
     if (!pool || !*pool) {
         g_set_error(error, G_IO_ERROR, G_IO_ERROR_INVALID_ARGUMENT,
                     "pcv_zfs_pool_lock: pool is NULL/empty");
@@ -223,7 +232,7 @@ pcv_zfs_pool_lock(const gchar *pool, const gchar *op,
 void
 pcv_zfs_pool_unlock(const gchar *pool)
 {
-    if (!g_initialized || !pool || !*pool) return;                       
+    if (!g_atomic_int_get(&g_initialized) || !pool || !*pool) return;
     gchar *head = _pool_head(pool);
                                                    
                                                                          
