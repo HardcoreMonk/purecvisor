@@ -21,6 +21,18 @@
   두어 항상 돈다. 분할 대상 설정(`scripts/split/targets/*.toml`)에서 분할 도구가 쓰는 머리 주석 틀과 없는 manifest
   경로를 지웠다(시험·게이트가 읽는 값은 그대로). `scripts/fe_rpc_params_uncovered.txt` 사유·`contracts/safety_controls_baseline.txt`
   주석·JSON ingress 통합 시험 출력에서 이 저장소에 없는 시험과 내부 작업 이름을 지웠다(게이트·시험 동작은 그대로).
+- 문서 사이트(purecvisor.site)와 사용 가이드(`docs/GUIDE.md`, Web UI 가이드 `ui/guide-content.md` — 두 파일에 같은
+  문장)를 2.2.0 소스와 대조해 고쳤다. 따라 하면 실패하던 명령·옵션·RPC·REST 경로·설정 키·메트릭 이름·출력 예를 바로잡았다
+  (빠른 시작의 VM 생성에 `--qos_min_mbps`·`--qos_max_mbps` 추가, 등록되지 않은 `telemetry.host` 대신 `monitor.fleet`,
+  Ubuntu 26.04에 없는 `lxc-utils` 패키지 삭제, 없는 `completion/`을 설치하는 `make install-completion` 안내를 대화형
+  셸의 Tab 완성으로 교체, `daemon.conf`에 없는 `[cpu]` 절 삭제 등). 2.2.0에서 빠졌거나 낡은 안내(2.1.0→2.2.0과 2.0.4
+  이하의 업그레이드 순서, deb 설치의 BPF 객체, deb 밖 설치의 `purecvisor-lxc@.service`·`97-sandbox.conf`, 릴리스 태그
+  `v2.2.0`)를 보탰고 오타·예시 이름·서식도 고쳤다. 첫 화면의 `16개 검증 영상` 띄어쓰기와 DB 구조 문서 제목의 제품
+  표기(`PureCVisor`)도 고쳤다.
+- 공개 경계를 정리했다. 가이드에 남아 있던 내부 작업 ID, 이 저장소에 없는 ADR 번호, Single Edge에 없는 클러스터 기능
+  안내(STONITH 절·CLI 클러스터 표·`[cluster]` 설정 절 등)를 지웠다. 통합 시험 출력과 `scripts/run_auto_tests.sh` 실행
+  라벨의 내부 작업 ID를 기능 이름으로 바꾸고, JSON ingress 경계 통합 시험 파일 이름도
+  `tests/integration/test_json_ingress_boundary.sh`로 바꿨다(시험 동작과 판정은 그대로).
 - RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.0`을 유지하며 새 버전이나 태그는
   발급하지 않았다.
 
