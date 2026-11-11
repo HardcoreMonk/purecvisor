@@ -1362,14 +1362,14 @@ require(
     "GUIDE daemon.conf contract scope must stop before the next peer section",
 )
 daemon_reference_match = re.search(
-    r"^###\s+16\.2\s+전체 설정 키\s*\n"
+    r"^###\s+16\.2\s+주요 설정 키\s*\n"
     r"(?P<body>.*?)(?=^##\s|\Z)",
     guide,
     re.MULTILINE | re.DOTALL,
 )
 require(
     daemon_reference_match is not None,
-    "GUIDE must retain the scoped full configuration reference",
+    "GUIDE must retain the scoped main configuration reference",
 )
 daemon_reference = daemon_reference_match.group("body")
 

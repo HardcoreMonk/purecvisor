@@ -1344,13 +1344,17 @@ PCV_NODES="" scripts/deploy.sh --nodes local --skip-build
 
 Web UI 배포는 HTML/JS/CSS만 복사하면 끝나지 않습니다. 운영 브라우저는 CSP, PWA manifest, Service Worker 캐시를 함께 검증하므로 다음 자산이 같은 릴리스 단위로 배포되어야 합니다.
 
-- `ui/index.html`, `ui/docs.html`, `ui/guide.html`, `ui/guide-content.md`
+- `ui/index.html`, `ui/docs.html`, `ui/guide.html`, `ui/guide-content.md`, `ui/offline.html`
+- `ui/maintenance.html`, `ui/maintenance-status.json`
 - `ui/samples/design-system-preview.html`, `ui/samples/design-borrowing-mockup.html`과 관련 `ui/samples/*.html`
-- `ui/app.js`, `ui/app.bundle.js`, `ui/i18n.js`, `ui/sw.js`
+- `ui/app.js`, `ui/app.bundle.js`, `ui/i18n.js`, `ui/sw.js`, `ui/vnc-flow.mjs`
+- `ui/style.css`
 - `ui/modules/*.js`
 - `ui/manifest.json`, `ui/icon-192.png`, `ui/icon-512.png`
+- `ui/assets/diagrams/purecvisor-single-full-architecture.svg`
 - `ui/vendor/chart.umd.min.js`
 - `ui/vendor/novnc/novnc.esm.js`
+- `ui/vendor/qrcode/qrcode.js`
 - `ui/vendor/pretendard/pretendard.css`, `ui/vendor/pretendard/woff2/*.woff2`
 - `ui/vendor/coolicons/coolicons.svg`
 
@@ -3114,10 +3118,9 @@ sudo zfs promote pcvpool/vms/web-staging
 #### iSCSI 타겟
 
 > **`pcvctl` 에는 `iscsi` 서브커맨드가 없습니다.** iSCSI 타겟 관리는 RPC(또는 REST·웹 UI)
-> 로만 합니다 — 아래 예시를 쓰세요. (이 자리에 있던 `pcvctl iscsi list/create/delete
-> --name iqn.2026-04.…` 예시는 실제로 존재한 적이 없는 명령이었고 IQN 접두사도 틀렸습니다.
-> 현재 접두사는 `iqn.2026-03.purecvisor` 이며, 타겟은 IQN 이 아니라 **`vm_name` 으로
-> 지정**합니다 — IQN 은 데몬이 조립합니다.)
+> 로만 합니다 — 아래 예시를 쓰세요. IQN 접두사는 `iqn.2026-03.purecvisor` 이며, 타겟은
+> IQN 이 아니라 **`vm_name` 으로 지정**합니다 — IQN(`iqn.2026-03.purecvisor:<vm_name>`)은
+> 데몬이 조립합니다.
 
 RPC 직접 호출:
 
@@ -3195,18 +3198,36 @@ pcvctl storage health
 ### 5.5 ISO 관리
 
 ```bash
-# 설정된 모든 iso_dirs에서 ISO/IMG 파일 스캔
-pcvctl iso list
+# 설정된 모든 iso_dirs에서 ISO/IMG 파일 스캔 (항목 필드는 JSON 출력으로 확인)
+pcvctl --format=json iso list | jq '.result'
 ```
 
 출력 예시:
 
+```json
+[
+  {
+    "name": "ubuntu-24.04-live-server-amd64.iso",
+    "path": "/pcvpool/iso/ubuntu-24.04-live-server-amd64.iso",
+    "dir": "/pcvpool/iso",
+    "size_mb": 2662
+  },
+  {
+    "name": "debian-12.0-amd64-netinst.iso",
+    "path": "/pcvpool/iso/debian-12.0-amd64-netinst.iso",
+    "dir": "/pcvpool/iso",
+    "size_mb": 628
+  },
+  {
+    "name": "cloud-init.img",
+    "path": "/var/lib/libvirt/images/cloud-init.img",
+    "dir": "/var/lib/libvirt/images",
+    "size_mb": 0
+  }
+]
 ```
-PATH                                                    SIZE
-/pcvpool/iso/ubuntu-24.04-live-server-amd64.iso         2.6G
-/pcvpool/iso/debian-12.0-amd64-netinst.iso              628M
-/var/lib/libvirt/images/cloud-init.img                  384K
-```
+
+항목마다 `name`(파일 이름), `path`(전체 경로), `dir`(파일을 찾은 `iso_dirs` 디렉터리), `size_mb`(MiB 단위, 소수점 아래 버림)가 있습니다. 파일 정보를 읽지 못한 항목에는 `size_mb`가 없습니다.
 
 > **다중 ISO 경로**: `daemon.conf [storage] iso_dirs`에 콤마로 구분하여 여러 디렉터리를 지정할 수 있습니다.
 
@@ -4126,7 +4147,11 @@ counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율
 # eno1을 실제 uplink 이름으로 교체한다.
 curl -s http://127.0.0.1:8080/api/v1/metrics | \
   grep -E '^(node_network_(receive|transmit)_(bytes|errs|drop)_total\{device="eno1"\}|node_nf_conntrack_(entries|entries_limit))'
+```
 
+관련 메트릭 이름은 다음과 같습니다.
+
+```text
 # 네트워크 인터페이스 메트릭
 node_network_receive_bytes_total{device="eno1"}
 node_network_transmit_bytes_total{device="eno1"}
@@ -4335,7 +4360,7 @@ echo '{"jsonrpc":"2.0","method":"vpc.service.publish","params":{
   NB 복구 뒤 `vpc delete`로 지우거나 `vpc reconcile`로 복구합니다. Linux 방화벽 적용 실패는 지금도 전체 bridge DOWN입니다.
 
 Linux Local VPC backend와 데이터면은 실제 VM·패킷 효과 검증을 완료했습니다. 전용 CLI는
-17개 action과 create/list/get/delete terminal 왕복을 검증했습니다. 선택형 OVN backend
+당시 17개 action(지금은 `subnet-confirm`·`pool-set`·`pool-list`를 더해 20개)과 create/list/get/delete terminal 왕복을 검증했습니다. 선택형 OVN backend
 후보는 제품 API 생성, inactive VM XML, LSP/chassis packet, NAT/isolated, SG, Service
 Publish, 관리면 차단, daemon restart, schema migration과 cleanup을 검증했습니다. 다만
 부팅 KVM·Linux/OVN 공존·host/controller reboot·
@@ -4576,7 +4601,7 @@ sudo env PCV_R7_ALERT_LIVE=1 \
 이 전용 gate는 `daemon.conf`를 root 전용 백업으로 보존하고 모든 종료 경로에서
 원본 파일과 서비스를 복구한다. VM·스토리지·호스트 네트워크는 변경하지 않는다.
 
-#### DataPool 디스크 모니터링 (v1.0)
+#### DataPool 디스크 모니터링
 
 `[storage] image_dir`가 놓인 파일시스템의 사용률을 `DataPool` 지표로 평가해 `data_pool_warn`/`data_pool_crit`(기본 80/90)를 넘으면 알림을 발생시킨다. ZFS 풀 상태·용량은 따로 `purecvisor_zpool_*` 메트릭으로 나간다.
 
@@ -4614,7 +4639,7 @@ webhook_format=slack
 telegram_chat_id=
 ```
 
-### 8.5 알림 ACK & 에스컬레이션 (v1.0)
+### 8.5 알림 ACK & 에스컬레이션
 
 확인되지 않은 CRIT 알림은 발생 10분 뒤 한 번, `[ESCALATION] Unacknowledged CRIT …` 메시지로 `webhook_crit_url`(없으면 `webhook_url`)과 Web Push에 다시 보낸다. WARN은 다시 보내지 않는다.
 
@@ -4649,7 +4674,7 @@ echo '{"jsonrpc":"2.0","method":"alert.ack","params":{"alert_id":501},"id":"1"}'
 보이지 않는다. 글로벌 statusbar의 Critical 세그먼트는 `+N warn · M unack`으로 미확인 잔량을
 같이 보여주고, 모바일 알림 탭의 각 행에도 같은 확인 버튼이 있다.
 
-### 8.6 SLA 추적 (v1.0)
+### 8.6 SLA 추적
 
 VM별 가동 시간을 추적하여 `uptime_percent`를 계산한다.
 
@@ -4662,7 +4687,7 @@ echo '{"jsonrpc":"2.0","method":"vm.sla.report","params":{"name":"web-prod"},"id
   | nc -U /var/run/purecvisor/daemon.sock
 ```
 
-### 8.7 per-VM 알림 라우팅 (v1.0)
+### 8.7 per-VM 알림 라우팅
 
 VM별 웹훅 대상을 지정하는 RPC·CLI·화면은 없다. 심각도별로 나누려면 `webhook_url`(전체)과 `webhook_crit_url`(CRIT 전용)을 쓴다.
 
@@ -4721,7 +4746,7 @@ Grafana는 위 Prometheus를 데이터 소스로 추가해 대시보드를 직�
 
 `purecvisor_mainloop_stalls_total{level="warn"}`·`{level="crit"}`는 메인 루프 정지 감지 횟수(counter)입니다. 평소 0이 정상이고, 늘면 17.1절의 정지 로그와 `current RPC`를 봅니다.
 
-### 8.11 WebSocket 메트릭 Push (v1.0)
+### 8.11 WebSocket 메트릭 Push
 
 `ws://127.0.0.1:8080/api/v1/ws/events`에 연결한 뒤 5초 안에 `{"type":"auth","token":"<access_token>"}`를 보내야 한다. 성공하면 `{"type":"auth_ok"}`가 오고, 5초 안에 인증하지 않으면 연결을 닫는다(URL의 `?token=`은 무시한다). 이벤트는 `{"type":…,"ts":…,"payload":{…}}` 형식이며 `metric`(텔레메트리 갱신마다, `payload.vm_count`)·`job.complete`·`healing`·`anomaly`·`forecast`가 온다.
 
@@ -4882,11 +4907,11 @@ pcvctl backup list
 pcvctl backup history web-prod
 ```
 
-### 9.2 fsfreeze/thaw (v1.0)
+### 9.2 fsfreeze/thaw
 
 스냅샷 직전에 `virsh domfsfreeze`(Guest Agent)로 VM 파일시스템을 멈추고, 직후 `virsh domfsthaw`로 푼다. Guest Agent가 없거나 동결에 실패하면 경고만 남기고 동결 없이 스냅샷을 만든다.
 
-### 9.3 무결성 검증 (v1.0)
+### 9.3 무결성 검증
 
 백업 완료 후 `zfs list` 명령으로 스냅샷 존재 여부와 크기를 검증한다.
 
@@ -4894,7 +4919,7 @@ pcvctl backup history web-prod
 
 다른 작업 중인 VM은 `-32004`(BUSY)로 바로 거절한다. 원래 켜져 있던 VM은 정식 `vm.start`로 다시 켜고 그 결과로 작업이 끝난다.
 
-### 9.4 GTask 비동기 (v1.0)
+### 9.4 GTask 비동기
 
 백업 작업은 GTask 스레드에서 비동기 실행되어 메인 GMainLoop를 블로킹하지 않는다. fire-and-forget 패턴:
 
@@ -4932,13 +4957,13 @@ pcvctl backup hostkey remove node-b               # 원격 재설치로 키가 �
   ssh는 모듈이 무시하는 줄(같은 대상의 둘째 줄, 주석이 붙은 4필드 줄, 대소문자가 다른 항목)도 일치로 볼 수 있어 모듈의 판정과 어긋난다.
   키를 바꿀 때는 `remove` → `trust`를 쓴다.
 
-### 9.6 원격 보존 정책 (v1.0)
+### 9.6 원격 보존 정책
 
 원격 노드 보존 정책은 Multi 제어면 참고 범위다. Single Edge 공개판에서는 로컬 snapshot 보존 정책을 기준으로 운영한다.
 
 ### 9.7 외부 오브젝트 백업 제거
 
-AWS 미사용 결정에 따라 S3 및 S3 호환 endpoint의 백업 업로드 기능은 제거했습니다.
+S3·S3 호환 오브젝트 스토리지로 백업을 올리는 기능은 제거되었습니다.
 로컬 백업 정책·증분·검증·복구·보존 기능은 유지합니다. 기존 외부 객체·스냅샷과 설정은
 자동으로 삭제하지 않습니다.
 
@@ -4970,7 +4995,7 @@ echo '{"jsonrpc":"2.0","method":"vm.snapshot.delete_all","params":{
 
 ## 10. 보안
 
-PureCVisor는 엔터프라이즈급 다계층 보안 아키텍처를 구현한다. 총 63건의 보안 고도화가 완료되었다.
+PureCVisor는 엔터프라이즈급 다계층 보안 아키텍처를 구현한다.
 
 ### 10.1 인증
 
@@ -4981,7 +5006,7 @@ PureCVisor는 엔터프라이즈급 다계층 보안 아키텍처를 구현한�
 | 알고리즘 | HS256 (HMAC-SHA256) |
 | Access Token 만료 | 15분 |
 | Refresh Token 만료 | 7일 |
-| IP 바인딩 (v1.0) | Access Token에 클라이언트 IP 포함, 불일치 시 거부 |
+| IP 바인딩 | Access Token에 클라이언트 IP 포함, 불일치 시 거부 |
 | 비밀 키 | `PCV_SECRET_AUTH_JWT_SECRET` / `[auth] jwt_secret` 우선, 없으면 배포 helper가 영속화한 `[daemon] jwt_secret` 호환 fallback |
 
 ```bash
@@ -5027,7 +5052,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/auth/logout/all -H "Authorization: 
 
 Bearer만 보내던 스크립트는 이제 access만 무효화된다(`scope:"access"`). 전체 폐기가 필요하면 `/auth/logout/all`을 쓴다.
 
-#### PBKDF2-SHA256 패스워드 해싱 (v1.0)
+#### PBKDF2-SHA256 패스워드 해싱
 
 기본 600,000회 반복(`[auth] pbkdf2_iterations`로 높일 수 있고, 600,000보다 작은 값은 600,000으로 올린다) + 16바이트 랜덤 salt(16진 32자). 옛 형식(이전 해시, 반복수가 낮은 PBKDF2)으로 저장된 비밀번호는 로그인에 성공할 때 현재 반복수로 다시 저장된다.
 
@@ -5153,7 +5178,7 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 ```bash
 # 전용 admin 포함 사용자 관리
 pcvctl auth list
-pcvctl auth create ops-admin strongpass admin
+pcvctl auth create ops-admin "${PCV_NEW_ADMIN_PASSWORD:?설정한 강한 비밀번호 필요}" admin
 pcvctl auth create dev "${PCV_NEW_USER_PASSWORD:?설정한 강한 비밀번호 필요}" operator
 pcvctl auth role dev admin
 pcvctl auth delete dev
@@ -5478,7 +5503,7 @@ bash tests/integration/test_security_cli_surface.sh
 | WebSocket 인증 | JWT 검증 |
 | 플러그인 검증 | 심링크 탐지 차단 |
 | Webhook SSRF 차단 | 내부 IP 대역 필터링 |
-| 시크릿 관리 | `PCV_SECRET_*` 환경변수 / `ENC:base64` daemon.conf 암호화 (v1.0) |
+| 시크릿 관리 | `PCV_SECRET_*` 환경변수 / `ENC:base64` daemon.conf 암호화 |
 
 ### 10.9 노드 펜싱(공개판 범위 밖)
 
@@ -5678,7 +5703,7 @@ PureCVisor AI Agent는 복수의 AI 프로바이더에 동시 질의하여 합�
 | Gemini (Google) | 범용 분석 | API Key |
 | Ollama | 로컬 추론 | 엔드포인트 URL |
 
-#### 가중 쿼럼 (v1.0)
+#### 가중 쿼럼
 
 프로바이더별 가중치를 부여하여, 가중 합산이 60% 이상이면 합의 성립. 가중치는 데몬에 고정된 값(Claude·OpenAI 1.0, Gemini 0.9, Ollama 0.7)이라 설정으로 바꾸지 않습니다.
 
@@ -5705,7 +5730,7 @@ pcvctl agent history
 
 Web UI AI Agent 화면에서 공급자는 API 키가 있으면 켜지고, 키 칸을 비우고 저장하면 꺼집니다. 켜고 끄는 체크박스는 서버에 닿지 않아 없앴습니다. 호출 간격(300초)과 요청 시간 제한(10초)은 데몬 고정값이라 설정 탭에서 읽기만 합니다.
 
-#### per-policy dry-run (v1.0)
+#### per-policy dry-run
 
 정책별로 dry-run 모드를 설정하여 실제 실행 없이 의사결정 결과만 확인.
 
@@ -5723,7 +5748,7 @@ Z = (현재값 - 평균) / 표준편차
 장치 번호 재사용)는 건너뛴다. 누적 지표는 평균보다 큰 증가량만 이상으로 보므로 부하가 끝나 증가량이 줄어들 때는 경보가 나지 않는다. 게이지 지표는 양방향이다. Z-Score는 평상시와 달라지는 전환을 잡는다. 부하가 일정하게 계속되면 증가량도 일정해 Z가
 0에 가까워지므로 **지속 포화 자체로는 `disk-saturated`가 발동하지 않는다.** 포화가 계속되는지는 지표 값을 직접 확인한다.
 
-기준선 리셋 (v1.0): 배포/유지보수 후 기준선을 수동 리셋하여 오탐을 방지.
+기준선 리셋: 배포/유지보수 후 기준선을 수동 리셋하여 오탐을 방지.
 
 ```bash
 # RPC — 기준선 리셋 (ADMIN)
@@ -5763,7 +5788,7 @@ CPU와 메모리는 서로의 쿨다운을 소비하지 않습니다. 이 수정
 가드를 따릅니다. CPU 알림을 자동 vCPU 증설, 메모리 balloon 조정이나 스냅샷 정리 완료로
 해석하지 않습니다.
 
-### 12.4 승인 큐 (v1.0)
+### 12.4 승인 큐
 
 위험도가 높은 자가치유 액션은 자동 실행하지 않고 승인 큐에 등록한다. 승인 대기 칸은 8개이고 시간 만료는 없다. 칸이 차면 가장 오래된 미처리 건이 새 건에 밀려난다.
 
@@ -5783,7 +5808,7 @@ echo '{"jsonrpc":"2.0","method":"ai.healing.reject","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
 
-Web UI에서도 approve/reject 가능 (v1.0).
+Web UI에서도 approve/reject 가능.
 
 승인 예제의 `action_id`는 `healing.pending`에서 읽은 정수로 바꿉니다. 승인/거부 응답의 `true`만으로 실행 성공·실제 대상 변경을 단정하지 않고 목록·이력·actual state를 재조회합니다.
 
@@ -6657,7 +6682,9 @@ CLI는 `pcvctl job list`로 목록을 보고, 조회·취소는 RPC `jobs.get`·
 
 SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_conn`, `drain_timeout`.
 
-### 16.2 전체 설정 키
+### 16.2 주요 설정 키
+
+이 절은 주요 키만 싣고, `[metrics] auth`는 8.10, `[webpush]`는 8.13·14.7, `[ai]`는 12.1·12.3, `[tls] https_port`는 2.4의 TLS 배포 모드 선택, `[network]`·`[update]`는 2.6에서 설명합니다.
 
 #### [daemon]
 
@@ -6858,7 +6885,6 @@ make cppcheck
 
 | 용어 | 설명 |
 |------|------|
-| CAS | Compare-and-Swap. etcd의 원자적 키 갱신 메커니즘 |
 | CB | Circuit Breaker. 장애 전파 차단 패턴 (CLOSED/OPEN/HALF_OPEN) |
 | CSI | Container Storage Interface |
 | DPDK | Data Plane Development Kit. 커널 바이패스 패킷 처리 |
@@ -6868,8 +6894,6 @@ make cppcheck
 | GTask | GLib 비동기 태스크. 스레드 풀에서 실행 |
 | io_uring | Linux 비동기 I/O 인터페이스 |
 | JSON-RPC | JSON Remote Procedure Call. UDS 통신 프로토콜 |
-| keepalived | VRRP 기반 가상 IP 관리 데몬 |
-| Lease TTL | etcd 키의 생존 시간 (Time-To-Live) |
 | mTLS | Mutual TLS. 양방향 인증서 인증 |
 | NFV | Network Functions Virtualization |
 | NUMA | Non-Uniform Memory Access. CPU-메모리 토폴로지 |
@@ -6881,8 +6905,6 @@ make cppcheck
 | SR-IOV | Single Root I/O Virtualization. 하드웨어 NIC 가상화 |
 | STONITH | Shoot The Other Node In The Head. 펜싱 메커니즘 |
 | UDS | Unix Domain Socket |
-| VIP | Virtual IP. keepalived VRRP로 관리 |
-| VRRP | Virtual Router Redundancy Protocol |
 | WAL | Write-Ahead Logging. SQLite 동시성 모드 |
 | VXLAN | Virtual Extensible LAN. 오버레이 터널 프로토콜 |
 | zvol | ZFS Volume. 블록 디바이스 형태의 ZFS 데이터셋 |
