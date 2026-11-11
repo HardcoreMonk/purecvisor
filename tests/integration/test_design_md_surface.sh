@@ -63,7 +63,7 @@ require_file "packaging/deb/purecvisorsd.service"
 
 for guide_surface in docs/GUIDE.md ui/guide-content.md; do
 
-  require_literal '현재 개발 소스에서 제거' "$guide_surface" "guide must explain AWS removal"
+  require_literal '2.0.0 소스 갱신에서' "$guide_surface" "guide must explain AWS removal"
   require_literal '일반 VM·OVA·로컬 백업은 유지' "$guide_surface" "guide must preserve core features"
   require_literal '외부 자원은 삭제하지 않습니다' "$guide_surface" "guide must preserve previous resources"
   require_literal '| `check-aws-manual-removed` |' "$guide_surface" "guide must list the removal gate"
@@ -157,7 +157,7 @@ reject_literal "restguide" "ui/app.js" "retired REST route must not remain in ap
 reject_literal "restguide" "ui/i18n.js" "retired REST menu label must not remain in i18n"
 reject_literal "renderRestGuide" "ui/modules/help.js" "retired REST renderer must be deleted"
 reject_literal ".rest-docs" "ui/style.css" "retired REST reader CSS must be deleted"
-require_literal "### 14.7 브라우저 푸시 (SP2b)" "ui/guide-content.md" "canonical REST chapter must include the browser push section"
+require_literal "### 14.7 브라우저 푸시" "ui/guide-content.md" "canonical REST chapter must include the browser push section"
 require_literal "PushSubscription.toJSON()" "ui/guide-content.md" "canonical REST chapter must include the browser subscription contract"
 require_literal "/api/v1/push/vapid/rotate" "ui/guide-content.md" "canonical REST chapter must include the VAPID rotation example"
 require_literal "### 14.8 2.0 RPC 예제 (RPC 전용)" "ui/guide-content.md" "canonical REST chapter must include RPC-only calls"

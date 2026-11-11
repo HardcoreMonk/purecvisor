@@ -155,14 +155,14 @@ def has_aws_removal_guidance(text: str) -> bool:
         return False
     body = sections[0]
     return all(term in body for term in (
-        "현재 개발 소스에서 제거", "일반 VM·OVA·로컬 백업은 유지", "기존 AWS 작업 DB",
+        "2.0.0 소스 갱신에서", "일반 VM·OVA·로컬 백업은 유지", "기존 AWS 작업 DB",
         "외부 자원은 삭제하지 않습니다", "pcv_jobs.db", "result_persisted: false",
     )) and "pcvctl cloud " not in body
 
 
 def self_test_aws_removal_guidance() -> int:
     heading = "## 11. 비동기 작업 관리\n"
-    body = ("현재 개발 소스에서 제거; 일반 VM·OVA·로컬 백업은 유지; 기존 AWS 작업 DB\n"
+    body = ("2.0.0 소스 갱신에서; 일반 VM·OVA·로컬 백업은 유지; 기존 AWS 작업 DB\n"
             "외부 자원은 삭제하지 않습니다; pcv_jobs.db; result_persisted: false\n")
     fixture = heading + body + "## 12. AI\n"
     cases = (
@@ -730,7 +730,7 @@ def main() -> int:
         "ui/guide-content.md",
         ui_guide,
         (
-            "### 14.7 브라우저 푸시 (SP2b)",
+            "### 14.7 브라우저 푸시",
             "PushSubscription.toJSON()",
             "/api/v1/push/vapid/rotate",
             "### 14.8 2.0 RPC 예제 (RPC 전용)",

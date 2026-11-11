@@ -4470,7 +4470,7 @@ PureCVisor는 외부 에이전트 없이 자체 메트릭 수집, 알림 엔진,
 - `purecvisor_cb_state` / `purecvisor_cb_failures` (서킷 브레이커)
 - `purecvisor_vm_locks_held` (VM 상태 잠금)
 - `purecvisor_tls_cert_expiry_days` (인증서 만료)
-- `purecvisor_zpool_*` (6개: state/errors_read/errors_write/errors_cksum/scrub_age_seconds/capacity_percent)
+- `purecvisor_zpool_*` (6개: state, errors_read, errors_write, errors_cksum, scrub_age_seconds, capacity_percent)
 - `purecvisor_worker_pool_pending` (GTask 큐 깊이)
 - `purecvisor_audit_queue_depth` (감사 큐)
 - `purecvisor_connpool_idle/active/max` (커넥션 풀)
@@ -7020,7 +7020,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | 도움말 표시 | RPC 317·REST 225 (`make check-help-counts`) |
 | 지원 범위 | Single Edge·OVA·로컬 백업, AWS/S3 제거 |
 | 활성 DB | 9개·영구 테이블 28개; 과거 Cloud DB는 자동 삭제하지 않음 |
-| Web UI | `tests/ui/*.test.mjs` 69개 |
+| Web UI | `tests/ui/*.test.mjs` 77개 |
 | 주요 정적 게이트 | `make -j1 check-all` 47개 게이트 |
 | 운영 기능 아티팩트 | 공개 소스 검증과 별도이며 실제 설치본의 source commit으로 확인 |
 

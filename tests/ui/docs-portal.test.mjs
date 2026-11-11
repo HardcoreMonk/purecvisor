@@ -103,7 +103,7 @@ test('docs portal: REST 전체 계약을 canonical 14장에 직접 제공한다'
     '### 14.4 보안',
     '### 14.5 엔드포인트와 응답',
     '### 14.6 curl 예제',
-    '### 14.7 브라우저 푸시 (SP2b)',
+    '### 14.7 브라우저 푸시',
     '### 14.8 2.0 RPC 예제 (RPC 전용)',
   ]) {
     assert.ok(REST_CHAPTER_SOURCE.includes(heading), `${heading} must remain in the canonical reader`);

@@ -2263,7 +2263,7 @@ scope_leak = guide.replace(
     "컴파일 기본값은 설정 파일과 별도로 정의된다",
     1,
 )
-peer_heading = "### 2.7 CLI 자동완성 설치\n"
+peer_heading = "### 2.7 CLI 자동완성\n"
 if scope_leak.count(peer_heading) != 1:
     raise SystemExit("cannot construct GUIDE daemon scope leak mutant")
 scope_leak = scope_leak.replace(
