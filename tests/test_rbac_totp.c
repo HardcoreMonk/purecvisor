@@ -53,31 +53,67 @@ static gchar *g_tmpdir = NULL;
 static gchar *g_dbpath = NULL;
 
                                                         
+static const gchar *
+fx_user(gconstpointer data)
+{
+    return data ? (const gchar *)data : "tuser";
+}
+
 static void
-totp_setup_first(gpointer *fixture __attribute__((unused)),
-                 gconstpointer data __attribute__((unused)))
+totp_setup_fresh(gpointer *fixture __attribute__((unused)),
+                 gconstpointer data)
 {
     g_tmpdir = g_dir_make_tmp("pcv-rbac-totp-XXXXXX", NULL);
     g_dbpath = g_build_filename(g_tmpdir, "rbac.db", NULL);
     pcv_rbac_init(g_dbpath);
 
     GError *err = NULL;
-    gboolean ok = pcv_rbac_user_create("tuser", "pw", PCV_ROLE_VIEWER, NULL, &err);
+    gboolean ok = pcv_rbac_user_create(fx_user(data), "pw", PCV_ROLE_VIEWER, NULL, &err);
     g_assert_true(ok);
     g_assert_no_error(err);
 }
 
                                                      
 static void
-totp_noop(gpointer *fixture __attribute__((unused)),
-          gconstpointer data __attribute__((unused)))
+totp_setup_enrolled(gpointer *fixture, gconstpointer data)
 {
+    totp_setup_fresh(fixture, data);
+    const gchar *user = fx_user(data);
+    GError *err = NULL;
+    g_autofree gchar *idn = NULL;
+    g_assert_cmpint(pcv_rbac_lookup_subject(user, NULL, &idn), ==, PCV_USER_PRESENT);
+    g_autofree gchar *b32 = pcv_rbac_totp_enroll(user, idn, &err);
+    g_assert_no_error(err);
+    g_assert_nonnull(b32);
+    guchar key[64]; gsize klen = 0;
+    pcv_totp_base32_decode(b32, key, &klen);
+    gchar code[8];
+    g_snprintf(code, sizeof code, "%06u",
+               pcv_totp_code_at(key, klen, g_get_real_time()/G_USEC_PER_SEC/30, 6));
+    gboolean first = FALSE;
+    g_assert_true(pcv_rbac_totp_verify_code(user, code, FALSE, &first, &err));
+    g_assert_no_error(err);
+    PcvTotpStatus st;
+    g_assert_true(pcv_rbac_totp_status(user, &st));
+    g_assert_true(st.confirmed);
 }
 
                                                         
 static void
-totp_teardown_last(gpointer *fixture __attribute__((unused)),
-                   gconstpointer data __attribute__((unused)))
+totp_setup_enrolled_with_codes(gpointer *fixture, gconstpointer data)
+{
+    totp_setup_enrolled(fixture, data);
+    const gchar *user = fx_user(data);
+    GError *err = NULL;
+    GPtrArray *codes = pcv_rbac_totp_generate_recovery(user, &err);
+    g_assert_no_error(err);
+    g_assert_cmpuint(codes->len, ==, 10);
+    g_ptr_array_unref(codes);
+}
+
+static void
+totp_teardown(gpointer *fixture __attribute__((unused)),
+              gconstpointer data __attribute__((unused)))
 {
     pcv_rbac_shutdown();
     if (g_dbpath) {
@@ -154,16 +190,17 @@ test_totp_recovery_codes(gpointer *f, gconstpointer d)
 static void
 test_totp_brute_lockout(gpointer *f, gconstpointer d)
 {
-    (void)f; (void)d;
+    (void)f;
+    const gchar *user = fx_user(d);
     GError *err = NULL;
     gboolean first;
     for (int i = 0; i < 5; i++) {
-        g_assert_false(pcv_rbac_totp_verify_code("tuser", "000000", FALSE, &first, &err));
+        g_assert_false(pcv_rbac_totp_verify_code(user, "000000", FALSE, &first, &err));
         g_clear_error(&err);
     }
                                                                 
-    g_assert_true(pcv_rbac_totp_get_remaining_lockout("tuser") > 0);
-    g_assert_cmpint(pcv_rbac_totp_get_remaining_lockout("tuser"), >, 0);
+    g_assert_true(pcv_rbac_totp_get_remaining_lockout(user) > 0);
+    g_assert_cmpint(pcv_rbac_totp_get_remaining_lockout(user), >, 0);
 }
 
                                                           
@@ -434,13 +471,13 @@ void
 test_rbac_totp_register(void)
 {
     g_test_add("/rbac_totp/enroll_confirm_flow", gpointer, NULL,
-               totp_setup_first, test_totp_enroll_confirm_flow, totp_noop);
+               totp_setup_fresh, test_totp_enroll_confirm_flow, totp_teardown);
     g_test_add("/rbac_totp/recovery_codes", gpointer, NULL,
-               totp_noop, test_totp_recovery_codes, totp_noop);
-    g_test_add("/rbac_totp/brute_lockout", gpointer, NULL,
-               totp_noop, test_totp_brute_lockout, totp_noop);
+               totp_setup_enrolled, test_totp_recovery_codes, totp_teardown);
+    g_test_add("/rbac_totp/brute_lockout", gpointer, "tlock",
+               totp_setup_enrolled, test_totp_brute_lockout, totp_teardown);
     g_test_add("/rbac_totp/disable", gpointer, NULL,
-               totp_noop, test_totp_disable, totp_teardown_last);
+               totp_setup_enrolled_with_codes, test_totp_disable, totp_teardown);
 
                                             
     g_test_add_func("/rbac_totp/user_list_includes_totp_state",
