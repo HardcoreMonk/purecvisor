@@ -544,7 +544,7 @@ pcvctl --version
 2.1.0 이하에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
 같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
-- 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 `FSA-PKG-02` 시정 이후 패키지 기준이며 이미 설치된 구형 패키지에는 적용되지 않는다.
+- 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 이 수정이 들어간 패키지의 제거 스크립트 기준이며, 그 이전의 구형 패키지가 설치된 상태에서 제거하면 적용되지 않는다.
 
 #### 방법 B — 소스 빌드
 
@@ -567,7 +567,7 @@ sudo apt update && sudo apt install -y \
 
 > **참고**: `libvirt-glib-1.0-dev`가 `libvirt-gobject-1.0.pc`도 함께 제공합니다.<br>
 별도의 `libvirt-gobject-1.0-dev` 패키지는 존재하지 않습니다.
-> `libbpf-dev` 부재 시 D07 eBPF 경로가 stub 으로 빌드되고(런타임 DEGRADED_NO_BTF 폴백),
+> `libbpf-dev` 부재 시 eBPF 경로가 stub 으로 빌드되고(런타임 DEGRADED_NO_BTF 폴백),
 > `libxml2-dev` 는 `libvirt-gconfig-1.0.pc` 의 전이 의존이라 없으면 pkg-config 해석 전체가
 > 비어 `glib.h` 부터 못 찾는 것처럼 보일 수 있다.<br>
 > 테스트 스위트 실행에는 추가로 `wireguard-tools`·`sqlite3`·`openvswitch-switch`·
@@ -652,7 +652,7 @@ sudo scripts/install-ovn-single.sh --verify-only
 
 ```bash
 # iSCSI 스토리지 — 이니시에이터(클라이언트)만 패키지가 필요하다.
-# 타겟(서버) 측은 D4 전환으로 커널 LIO(configfs)를 직접 쓰므로 `tgt` 패키지가 **불요**하다.
+# 타겟(서버) 측은 커널 LIO(configfs)를 직접 쓰므로 `tgt` 패키지가 **불요**하다.
 sudo apt install -y open-iscsi
 ```
 
@@ -665,27 +665,8 @@ sudo apt install -y open-iscsi
 # iSCSI 타겟용 커널 모듈 로드 — deb 를 설치했다면 이미 깔려 있다(conffile).
 # 아래 블록은 deb 를 쓰지 않는 배포(소스 빌드 + scp)에서만 필요하다.
 # ⚠ 모듈명 행에 주석을 붙이지 말 것 — modules-load.d(5) 는 행 전체를 모듈명으로
-#   읽어 4개 전부 'Failed to find module' 이 되는데도 유닛은 성공으로 끝난다(P13).
+#   읽어 4개 전부 'Failed to find module' 이 되는데도 유닛은 성공으로 끝난다.
 sudo tee /etc/modules-load.d/purecvisor-lio.conf >/dev/null <<'EOF'
-# Developer note — 신입 개발자:
-# 이 modules-load.d 정본은 부팅 시 LIO 3종과 bridge conntrack 모듈을 순서대로 요청한다.
-# LIO가 없으면 iSCSI export가 degraded되고 nf_conntrack_bridge가 없으면 bridge 보안그룹의
-# stateful nft 규칙이 실패한다. 행 끝 주석은 모듈명의 일부가 되므로 설명은 별도 행에 둔다.
-#
-# [쉬운 설명] 운영·플랫폼 엔지니어:
-# iSCSI 디스크 내보내기와 bridge 연결 추적에 필요한 커널 부품을 데몬보다 먼저 준비한다.
-# PRIVDROP-1 시정 뒤 데몬 자식은 CAP_SYS_MODULE을 받지 않으므로 이 파일이 유일한 적재 정본이다.
-# PureCVisor 2.0.0 — 커널 LIO + bridge conntrack 모듈 로드.
-# 이 파일은 deb 패키징 산출물이며 정본은 저장소의
-# packaging/deb/purecvisor-lio.conf 이고 deb 가 /etc/modules-load.d/ 로 설치한다.
-# deb 를 쓰지 않는 배포(소스 빌드 + scp)에서는 운영자가 같은 내용을 손으로 배치한다.
-# ⚠⚠ 행 끝 주석 금지(P13) — modules-load.d(5) 는 행 전체를 모듈명으로 읽는다.
-#     주석을 모듈명 뒤에 붙이면 4개 전부 'Failed to find module' 이 되고,
-#     그런데도 systemd-modules-load.service 는 Finished(성공)로 끝난다 → 조용한 degraded.
-# target_core_mod    : LIO 코어 — configfs `target` 디렉터리를 만든다
-# iscsi_target_mod   : iSCSI 패브릭 — mkdir 을 받아야 <root>/iscsi 를 만든다(지연 생성)
-# target_core_iblock : IBLOCK 백스토어 — zvol 블록 디바이스 export
-# nf_conntrack_bridge: Linux bridge family의 stateful nft conntrack 지원
 target_core_mod
 iscsi_target_mod
 target_core_iblock
@@ -1225,7 +1206,7 @@ webhook_format = slack
 telegram_chat_id =
 
 # ─────────────────────────────────────────────
-# [network] 관리형 기본 네트워크 (VP-1/VP-6, 2026-07)
+# [network] 관리형 기본 네트워크
 # ─────────────────────────────────────────────
 [network]
 # vm create 시 network_bridge 미지정이면 부착되는 기본 NAT 네트워크.
@@ -1687,7 +1668,7 @@ pcvctl vm create \
   --qos_max_mbps 1000
 ```
 
-> **QoS SLA 필수(D09)**: 커널 netdev(tc 셰이핑 가능) 조합 — `network_bridge` 미지정/bridge, 또는
+> **QoS SLA 필수**: 커널 netdev(tc 셰이핑 가능) 조합 — `network_bridge` 미지정/bridge, 또는
 > `tenant-overlay` — 은 `--qos_min_mbps`/`--qos_max_mbps`가 필수다(`nic_type`이 `dpdk`/`sriov`인
 > 경우만 면제). 생략하면 서버가 `vm.create` 자체를 `-32602`로 거부한다. 아래 스토리지 타입
 > 예시들은 지면상 이 두 플래그를 생략했지만 실제 호출에는 포함해야 한다.
@@ -1821,7 +1802,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/vms \
 
 `network_bridge`에 OVS 브릿지를 지정하면, 데몬이 `ovs-vsctl br-exists`로 OVS 여부를 자동 확인하고 VM XML에 `<virtualport type='openvswitch'/>`를 자동 추가합니다.
 
-#### 부팅 디스크 I/O 정책과 메모리 격리 (2.0.0, NXV-F1)
+#### 부팅 디스크 I/O 정책과 메모리 격리 (2.0.0)
 
 `2.0.0`부터 `vm.create`가 만드는 도메인 XML에 다음 정책이 항상 적용됩니다. 켜고 끄는 옵션은 없습니다.
 
@@ -1832,7 +1813,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/vms \
 | 부팅 디스크 discard | `discard=unmap` | 게스트 `fstrim`이 zvol/qcow2 블록을 실제 해제 → 스냅샷 델타·복제 전송량 감소 |
 | 메모리 병합 | `<nosharepages/>` | 호스트 KSM의 page-dedup 측면 채널 차단 |
 
-핫플러그로 붙는 보조 디스크는 이전부터 같은 I/O 정책을 썼습니다. NXV-F1 시정은 부팅 디스크만 QEMU 기본값
+핫플러그로 붙는 보조 디스크는 이전부터 같은 I/O 정책을 썼습니다. 2.0.0 시정은 부팅 디스크만 QEMU 기본값
 (`cache=writeback`, `io=threads`, discard 무시)으로 남아 있던 **두 경로의 정책 비대칭**을 없앤 것입니다.
 전제는 백엔드가 O_DIRECT를 지원한다는 점이며, 지원하지 않는 배치는 비지원입니다.
 
@@ -1856,7 +1837,7 @@ curl -X POST http://127.0.0.1:8080/api/v1/vms \
 
 **vhost-user(DPDK) 공유 메모리**: `nic_type="dpdk"`는 libvirt가 vhost-user 인터페이스에 공유 메모리
 backend를 요구하기 때문에 해당 시정 전에는 **도메인 정의 자체가 거부되던 죽은 경로**였습니다
-(`unsupported configuration: 'interface' requires shared memory`). NXV-F1은 memoryBacking을 조합으로
+(`unsupported configuration: 'interface' requires shared memory`). 2.0.0은 memoryBacking을 조합으로
 조립해 해소했습니다.
 
 | 조합 | memoryBacking |
@@ -1865,7 +1846,7 @@ backend를 요구하기 때문에 해당 시정 전에는 **도메인 정의 자
 | `dpdk`만 | `<source type='memfd'/>` + `<access mode='shared'/>` |
 | `hugepages`만 | 종전과 동일 |
 
-> OVS-DPDK 소켓이 없으면 정의가 통과해도 `vm.start`는 여전히 실패합니다. NXV-F1의 시정 범위는
+> OVS-DPDK 소켓이 없으면 정의가 통과해도 `vm.start`는 여전히 실패합니다. 2.0.0의 시정 범위는
 > "정의조차 되지 않던" 결함까지입니다.
 
 ### 3.2 VM 라이프사이클
@@ -2084,7 +2065,7 @@ pcvctl nic remove web-prod 52:54:00:ab:cd:ef
 > **model 허용목록**: RPC `device.nic.attach`·REST의 `model`은 `virtio` / `e1000` / `e1000e` / `rtl8139`만 허용한다(생략하면 `virtio`,
 > CLI `nic add`는 model을 받지 않는다). 범위 밖 값은 `-32602 INVALID_PARAMS`로 거부된다.
 
-> **MTU 명시(N8)**: NIC XML의 `<mtu>`는 attach 시점 브리지의 실측 MTU(`/sys/class/net/<bridge>/mtu`)를
+> **MTU 명시**: NIC XML의 `<mtu>`는 attach 시점 브리지의 실측 MTU(`/sys/class/net/<bridge>/mtu`)를
 > 1500 포함 항상 명시한다. 자세한 계약은 6.1 절 참조.
 
 #### ISO 관리
@@ -3148,7 +3129,7 @@ echo '{"jsonrpc":"2.0","method":"iscsi.disconnect","params":{
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
-> **타겟 백엔드는 커널 LIO다(D4 전환)**. 데몬은 `tgtadm` 같은 외부 명령을 실행하지 않고
+> **타겟 백엔드는 커널 LIO다.** 데몬은 `tgtadm` 같은 외부 명령을 실행하지 않고
 > `/sys/kernel/config/target` 아래 configfs 트리를 직접 만든다. 따라서 `tgt` 패키지·데몬이
 > 필요 없고, 대신 `target_core_mod`·`iscsi_target_mod`·`target_core_iblock` 커널 모듈이
 > 올라와 있어야 한다(`/etc/modules-load.d/purecvisor-lio.conf` — **deb 가 conffile 로
@@ -3157,7 +3138,7 @@ echo '{"jsonrpc":"2.0","method":"iscsi.disconnect","params":{
 
 > **CHAP 인증**: `daemon.conf` 의 `[iscsi] chap_user`/`chap_password` 를 설정하면 타겟에
 > CHAP 이 적용됩니다. **타겟 측 비밀번호는 프로세스 인자로 나가지 않습니다** — 데몬이
-> configfs `auth/password` 파일에 직접 씁니다(D4 전환의 목적).
+> configfs `auth/password` 파일에 직접 씁니다(LIO 전환의 목적).
 >
 > 데몬은 타겟을 만들기 **전에** 자격을 검증하고, 아래 중 하나라도 걸리면 생성을
 > **거부**합니다(조용히 넘어가지 않습니다):
@@ -3507,7 +3488,7 @@ echo '{"jsonrpc":"2.0","method":"network.list","params":{},"id":"1"}' \
 
 > **멱등 삭제**: `network.delete`는 대상이 없어도 성공을 반환합니다 (재시도 안전).
 
-> **게스트 MTU 계약(N8)**: bridge NIC XML(정의 XML·`vm.start` 라이브 attach·핫플러그, 3경로 모두)은
+> **게스트 MTU 계약**: bridge NIC XML(정의 XML·`vm.start` 라이브 attach·핫플러그, 3경로 모두)은
 > attach/정의 시점 브리지 실측 MTU(`/sys/class/net/<bridge>/mtu` 단일 소스)로 `<mtu size='N'/>`를
 > 1500 포함 항상 명시한다. 유효 대역은 68–9216이며, 읽기 실패나 대역 밖 값은 생략 + 경고로
 > fail-open 한다(attach 자체는 계속 진행). dpdk(vhostuser)·SR-IOV(hostdev) 경로는 범위 밖이다.
@@ -3605,9 +3586,9 @@ pcvctl network qos-get vnet0
 pcvctl network qos-remove vnet0
 ```
 
-> **호환 표면 영속화**: 물리 NIC·브리지의 `network.qos.*` 규칙은 `/var/lib/purecvisor/qos_rules.json`에 저장되어 데몬 재시작과 재부팅 뒤 자동 복원됩니다. `vnet` 뒤가 숫자인 이름(`vnet[0-9]+`)의 규칙은 재부팅 뒤 같은 이름이 다른 VM에 붙을 수 있어 **현재 세션에만** 적용하고 저장하지 않습니다(`vm_name`으로 호출해도 같으며 응답의 `persisted`가 `false`입니다). 파일 쓰기가 실패해도 `persisted`는 `false`입니다. 이전 버전이 저장한 해당 키는 다음 기동 때 WARN을 남기고 파일에서 지워집니다. VM 대역폭을 재시작 뒤에도 유지하려면 `qos.vm.set`을 쓰세요. D09 계층 QoS가 관리하는 인터페이스에는 `network.qos.set`·`network.qos.remove`의 ingress(`all` 포함)가 거부되고 복원도 건너뜁니다. 새 workload SLA의 정본으로 사용하지 않습니다.
+> **호환 표면 영속화**: 물리 NIC·브리지의 `network.qos.*` 규칙은 `/var/lib/purecvisor/qos_rules.json`에 저장되어 데몬 재시작과 재부팅 뒤 자동 복원됩니다. `vnet` 뒤가 숫자인 이름(`vnet[0-9]+`)의 규칙은 재부팅 뒤 같은 이름이 다른 VM에 붙을 수 있어 **현재 세션에만** 적용하고 저장하지 않습니다(`vm_name`으로 호출해도 같으며 응답의 `persisted`가 `false`입니다). 파일 쓰기가 실패해도 `persisted`는 `false`입니다. 이전 버전이 저장한 해당 키는 다음 기동 때 WARN을 남기고 파일에서 지워집니다. VM 대역폭을 재시작 뒤에도 유지하려면 `qos.vm.set`을 쓰세요. 고급 QoS 계층(`qos.vm.*`·`qos.tenant.*`)이 관리하는 인터페이스에는 `network.qos.set`·`network.qos.remove`의 ingress(`all` 포함)가 거부되고 복원도 건너뜁니다. 새 workload SLA의 정본으로 사용하지 않습니다.
 
-#### 고급 QoS — per-VM/tenant SLA (2.0, D09)
+#### 고급 QoS — per-VM/tenant SLA (2.0)
 
 2.0은 위 인터페이스별 tc 셰이핑(`network qos-*`) 위에, VM·테넌트 단위 대역폭 SLA를 강제하는 고급 QoS 계층을 추가했습니다. 단일 IFB 디바이스 `pcvqos0` 위에 단일 HFSC 트리(단일 major `1:`, VM·테넌트별 minor 파생)를 세우고, 각 VM leaf는 Cake(besteffort) qdisc로 성형합니다. class 배정은 이름 기반 결정적 계산이라 데몬을 재시작해도 같은 VM은 같은 class를 다시 씁니다(reconcile). 테넌트 SLA는 `/var/lib/purecvisor/qos_tenants.json`(재부팅 생존)에, tc id 매핑은 `/var/run/purecvisor/qos_ids.json`(tmpfs, 커널 tc 트리와 동일 수명)에 영속화됩니다.
 
@@ -3643,7 +3624,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"qos.stats","params":{"tenant":"acme"},"id":"1"}'
 ```
 
-> **VM 생성 시 SLA 필수(D09)**: 커널 netdev(tc 셰이핑 가능) NIC — `network_bridge` 미지정/bridge 또는 `tenant-overlay` — 을 쓰는 VM은 `vm.create` 시 `--qos_min_mbps`/`--qos_max_mbps`가 필수입니다(§3.1 「기본 생성」의 D09 안내와 상호 참조). `dpdk`/`sriov` NIC만 면제되며, 생략 시 서버가 `vm.create`를 `-32602`로 거부합니다.
+> **VM 생성 시 SLA 필수**: 커널 netdev(tc 셰이핑 가능) NIC — `network_bridge` 미지정/bridge 또는 `tenant-overlay` — 을 쓰는 VM은 `vm.create` 시 `--qos_min_mbps`/`--qos_max_mbps`가 필수입니다(§3.1 「기본 생성」의 QoS SLA 안내와 상호 참조). `dpdk`/`sriov` NIC만 면제되며, 생략 시 서버가 `vm.create`를 `-32602`로 거부합니다.
 
 #### QoS 카오스 주입 (netem, 테스트용)
 
@@ -4734,7 +4715,7 @@ ws.onmessage = (e) => {
 };
 ```
 
-### 8.12 관측성 트레이싱 (retis, 2.0, D10)
+### 8.12 관측성 트레이싱 (retis, 2.0)
 
 2.0은 실 네트워크 경로를 커널 레벨에서 추적·프로파일링하는 `debug.trace.*` 제어면을 추가했습니다. 백엔드는 retis이며, 5-tuple 필터로 특정 VM/테넌트/프로토콜/IP의 패킷 경로와 drop 지점을 잡습니다. 진단(디버그) 용도이므로 강한 안전 가드가 걸립니다.
 
@@ -4777,7 +4758,7 @@ curl -s -H "Authorization: Bearer $TOKEN" -H "Content-Type: application/json" \
         "timebox_sec":30,"vm":"web-prod"},"id":"1"}'
 ```
 
-### 8.13 브라우저 Web Push 알림 (2.0.0, SP2b)
+### 8.13 브라우저 Web Push 알림 (2.0.0)
 
 `2.0.0`부터 데몬이 WARN/CRIT 알림을 **브라우저 구독으로 직접 발송**합니다. 중계 서비스를 두지 않고
 RFC 8030(Web Push 프로토콜)·RFC 8291(aes128gcm 메시지 암호화)·RFC 8292(VAPID)를 데몬이 직접
@@ -5114,7 +5095,7 @@ curl -s -X POST http://127.0.0.1:8080/api/v1/auth/totp/verify \
 |------|------|------|
 | VIEWER | 0 | 읽기 전용 (list, status, metrics) |
 | OPERATOR | 1 | VIEWER + VM/컨테이너 lifecycle. VM 단일 대상 action은 자신이 생성한 VM에 한정 |
-| ADMIN | 2 | 전체 권한 (사용자 관리, 설정 변경, 클러스터 조작) |
+| ADMIN | 2 | 전체 권한 (사용자 관리, 설정 변경, 호스트 자원 등록) |
 
 #### VM owner-scope
 
@@ -5480,9 +5461,9 @@ bash tests/integration/test_security_cli_surface.sh
 | Webhook SSRF 차단 | 내부 IP 대역 필터링 |
 | 시크릿 관리 | `PCV_SECRET_*` 환경변수 / `ENC:base64` daemon.conf 암호화 (v1.0) |
 
-### 10.9 STONITH IPMI 펜싱
+### 10.9 노드 펜싱(공개판 범위 밖)
 
-클러스터 분할(split-brain) 방지를 위해 장애 노드의 전원을 IPMI를 통해 강제 차단한다.
+STONITH·IPMI 펜싱은 여러 노드 클러스터용 기능이라 Single Edge 공개판에는 없습니다.
 
 ### 10.10 감사 로그
 
@@ -5517,9 +5498,9 @@ curl -s -G -H "Authorization: Bearer $TOKEN" \
 
 감사 `username`은 REST 인증 주체, gRPC는 `grpc`, 서버에서 직접 연 pcvctl(UDS)은 `local-admin`, 요청 없이 데몬이 한 일은 `system`이다. `-`는 행위자를 알 수 없는 기록이다.
 
-### 10.11 /proc hidepid 하드닝 (2.0, D08)
+### 10.11 /proc hidepid 하드닝 (2.0)
 
-2.0 고유 호스트 하드닝으로, `/proc`를 `hidepid=2` + `gid=pcvmon`으로 마운트해 프로세스 argv·환경의 무분별한 노출을 차단한다. 이는 iSCSI CHAP 비밀번호가 world-readable `/proc/*/cmdline`으로 새던 노출(D4 target·D7 initiator)을 소거하기 위한 조치이며, 1.0 라인에는 없는 2.0 전용 태세다. 메트릭 수집·프로세스 모니터 등 `/proc`를 읽어야 하는 구성요소는 `pcvmon` 그룹 멤버십으로 접근을 유지한다.
+2.0 고유 호스트 하드닝으로, `/proc`를 `hidepid=2` + `gid=pcvmon`으로 마운트해 프로세스 argv·환경의 무분별한 노출을 차단한다. 이는 iSCSI CHAP 비밀번호가 world-readable `/proc/*/cmdline`으로 새던 노출(target·initiator 양쪽)을 소거하기 위한 조치이며, 1.0 라인에는 없는 2.0 전용 태세다. 메트릭 수집·프로세스 모니터 등 `/proc`를 읽어야 하는 구성요소는 `pcvmon` 그룹 멤버십으로 접근을 유지한다.
 
 > **AppArmor 데몬-confinement 미배포 결정([ADR-0028](../docs/adr/0028-2.0-host-hardening-hidepid-over-apparmor-confinement.md))**: 이 환경(hidepid=2)에서 데몬을 AppArmor 프로필로 confine 하면 libvirt 연결이 파손된다 — `hidepid=2`가 타 프로세스 `/proc/<pid>` 접근을 커널 `ptrace_may_access()`로 게이트하고, 그 경로가 AppArmor ptrace 매개를 발동해 confined libvirtd가 데몬의 `/proc/stat`을 identity로 읽지 못하기 때문이다. 2.0은 실증 소거가 확인된 **hidepid를 유지**하고, **AppArmor 데몬-self-confinement은 배포·enforce 하지 않는다**. AppArmor 프로필 파일 자체는 1.0 라인·참조용으로 패키지에 존치되며, VM(libvirt per-domain)·컨테이너(lxc per-container) 런타임 격리는 그대로 유지된다. 즉 2.0 호스트 통제는 capabilities 축소 + hidepid + 게스트/컨테이너 런타임 격리로 구성된다.
 
@@ -5543,14 +5524,14 @@ Suricata가 `/var/log/suricata/eve.json`에 남기는 alert 라인(`event_type==
 | `suricata.rules.update` | 룰 시그니처 갱신(원자 교체·롤백) |
 | `suricata.policy.get` / `suricata.policy.set` | 탐지 정책 조회/설정 |
 
-#### IPS (인라인, Phase B)
+#### IPS (인라인)
 
 인라인 방지 경로는 nftables `inet purecvisor ips` 체인(forward hook, priority -10)과 `suricata-ips` nfqueue 유닛으로 구성됩니다.
 forward 트래픽을 Suricata로 보내는 규칙 하나가 fail-open/fail-closed 축의 **유일한 표현**입니다 — `queue flags bypass to N`이면 fail-open(큐 리스너가 없을 때 커널이 그대로 ACCEPT), `queue num N`(bypass 없음)이면 fail-closed(리스너가 없으면 드롭)입니다.
 어느 쪽을 걸지는 `daemon.conf`의 `[ips] fail_open`이 정하며, 기본값은 `true`(fail-open)입니다.
 base 체인의 accept는 비종결이라 기존 forward 필터·격리 규칙과 간섭하지 않습니다.
 
-Stage 2부터 엔진은 IDS 원본이 아니라 데몬이 만드는 **파생 룰셋**(`/var/lib/suricata/suricata-ips.rules`)을 읽습니다.
+IPS 엔진은 IDS 원본이 아니라 데몬이 만드는 **파생 룰셋**(`/var/lib/suricata/suricata-ips.rules`)을 읽습니다.
 파생본은 원본을 복사하면서 `suricata.ips.drop.*`로 지정된 SID의 선두 `alert`만 `drop`으로 치환한 것이고, 교체 전에 `suricata -T`로 검증합니다(실패 시 기존 파생본 무변경 — fail-safe).
 **차단 대상 SID의 기본값은 빈 집합**이므로 초기 파생본은 원본과 동일하며, 실제 차단은 운영자가 `drop.add`로 SID를 넣은 뒤부터 시작됩니다.
 
@@ -5558,7 +5539,7 @@ fail-closed에서 엔진이 죽으면 헬스 tick이 규칙을 먼저 걷어 경
 재기동이 연속 3회 실패하면 **fail-open으로 강등**하고(bypass 규칙 재삽입) CRIT 알림을 발화합니다.
 이때 `status`의 `fail_open`은 설정값 그대로 `false`인 채 `degraded`만 `true`가 되므로, 두 필드의 불일치가 "설정은 fail-closed인데 실효 fail-open"을 나타내는 신호입니다.
 
-Stage 2의 설계 전제는 **IDS와 룰셋 원본을 공유한다**는 점입니다.
+파생 룰셋 구조의 설계 전제는 **IDS와 룰셋 원본을 공유한다**는 점입니다.
 ET Open 원본(`/var/lib/suricata/rules/suricata.rules`)은 파생 과정에서 **읽기만 하고 절대 수정하지 않으며**, 새로 쓰는 것은 IPS 전용 파생본뿐입니다.
 그래서 IPS 쪽 조작 실수가 IDS 탐지 범위를 훼손할 수 없고, 원본 갱신(`suricata.rules.update`)과 파생본 재생성이 서로를 덮어쓰지 않습니다.
 원본이 파생본보다 나중에 바뀐 상태(staleness)는 별도로 감지해 부팅 시 WARN으로 드러냅니다.
@@ -5796,7 +5777,7 @@ echo '{"jsonrpc":"2.0","method":"healing.status","params":{},"id":"1"}' \
 
 Web UI의 운영 개요, 자가치유 화면, 모바일은 이 값을 그대로 표시합니다. `ACTIVE`이면 자동 조치가 실제로 실행되고, 조회에 실패하면 `DRY RUN`으로 짐작하지 않고 "알 수 없음"으로 표시합니다. 운영 개요의 대기 목록은 `healing.pending`을 읽습니다.
 
-### 12.5 per-VM 압력(PSI) 연결 (2.0.0, NXV-F1/F2)
+### 12.5 per-VM 압력(PSI) 연결 (2.0.0)
 
 per-VM PSI 연결 전의 이상탐지는 `/proc/pressure/*`의 **노드 전역 PSI**만 봤다. 그래서 VM 한 대가 메모리에
 굶어도 호스트 평균이 낮으면 놓쳤고(미탐), 무관한 부하가 평균을 밀어 올리면 멀쩡한 VM이 범인이
@@ -5918,7 +5899,7 @@ pcvctl --format=json host devices --all
 
 4-테마 시스템 — 2026-04-11 Supanova Taste Layer 도입 후 Supanova 변형만
 남기고, 2026-04-26 접근성 후속으로 고대비 변형을 추가했다. 2026-05-08에는
-대시보드 선택지를 단순화하기 위해 emerald와 light 변형을 제거했으며, R4 데스크톱
+대시보드 선택지를 단순화하기 위해 emerald와 light 변형을 제거했으며, 데스크톱
 리뉴얼에서 승인된 `supanova-mockup` 운영 콘솔 팔레트를 네 번째 변형으로 고정했다.
 [ADR-0016](../docs/adr/0016-supanova-theme-reduction.md)에 따라 localStorage에 영속 저장하고, 새로고침 없이 즉시 전환한다.
 
@@ -6210,7 +6191,7 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 | JWT IP 바인딩 | 선택적 클라이언트 IP 검증 |
 | 테넌트 오버레이 암호화 | per-VM WireGuard netns (fail-closed) |
 | hidepid | `/proc hidepid=2` 하드닝(ADR-0028) |
-| Suricata | IDS/IPS 심층 패킷 검사(D13) |
+| Suricata | IDS/IPS 심층 패킷 검사 |
 
 #### 14.4.1 엔드포인트별 Rate Limit
 
@@ -6247,7 +6228,7 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 | Prometheus | `GET /metrics` | Prometheus 메트릭. 기본(`[metrics] auth=loopback`)은 같은 호스트의 직접 접속만 무인증, 원격은 Bearer 토큰 필요(`required`·`none`으로 조정) |
 | Health | `GET /health` | 인증 없는 심층 프로브. `status`와 `libvirt`, `etcd`, `disk`, `audit_db`, `tls`, `capabilities` 하위 상태 반환 |
 
-Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 마이그레이션 REST 절차를 운영 표면으로 제공하지 않는다. 관련 역사 기록은 `docs/adr/`와 Multi 범위 문서에서만 확인한다.
+Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 마이그레이션 REST 절차를 운영 표면으로 제공하지 않는다. 관련 역사 기록은 `docs/adr/`에서 확인한다.
 
 ### 14.6 curl 예제
 
@@ -6298,7 +6279,7 @@ wscat -c "wss://HOST/api/v1/ws/events"
 # 연결 뒤 첫 메시지로 {"type":"auth","token":"<JWT>"}를 보내 인증한다
 ```
 
-### 14.7 브라우저 푸시 (SP2b)
+### 14.7 브라우저 푸시
 
 > 구독은 3단계다. `GET /push/vapid`로 서버 공개키를 받고, 브라우저가 만든 `PushSubscription.toJSON()`을 `POST /push/subscribe`로 올리고, `POST /push/unsubscribe`로 해지한다. 내 구독은 `GET /push/mine`으로 확인한다.
 >
@@ -6575,22 +6556,6 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `storage pool list` | ZFS 풀 목록 |
 | `storage zvol list` | zvol 목록 |
 
-#### 클러스터 (범위 밖 참고)
-
-다음 항목은 역사 기록 또는 Multi 제어면 참고용이다. Single Edge 공개판의 운영 명령으로 안내하지 않는다.
-
-| 커맨드 | 설명 |
-|--------|------|
-| `cluster status` | 클러스터 상태 |
-| `cluster vms` | 전체 노드 VM |
-| `cluster migrate <name> <dest>` | 라이브 마이그레이션 |
-| `cluster replicate <name>` | ZFS 복제 |
-| `cluster replicate-status` | 복제 상태 |
-| `cluster failover-test` | 페일오버 테스트 |
-| `node drain` | 노드 드레인 |
-| `node resume` | 노드 복귀 |
-| `node version` | 노드 버전 |
-
 #### 인증 & 보안 (10+)
 
 | 커맨드 | 설명 |
@@ -6644,6 +6609,9 @@ CLI는 `pcvctl job list`로 목록을 보고, 조회·취소는 RPC `jobs.get`·
 
 | 커맨드 | 설명 |
 |--------|------|
+| `node drain` | 노드 드레인(새 RPC 접수 중단) |
+| `node resume` | 드레인 뒤 다시 접수 |
+| `node version` | 데몬 버전 |
 | `dpdk bind <pci>` | DPDK 바인드 |
 | `sriov enable <pf> [num_vfs]` | SR-IOV 활성화 |
 | `gpu list` | GPU 목록 |
@@ -6651,7 +6619,6 @@ CLI는 `pcvctl job list`로 목록을 보고, 조회·취소는 RPC `jobs.get`·
 | `gpu attach <vm> <pci>` | 정지 VM에 사전 VFIO GPU group 할당 |
 | `gpu detach <vm> <pci>` | 정지 VM에서 GPU group 제거 |
 | `audit search [--user U] [--from T] [--to T] [--method M] [--limit N]` | 감사 로그 검색 |
-| `federation site join <url>` | 페더레이션 가입 |
 
 ### 15.3 자동완성
 
@@ -6669,7 +6636,7 @@ CLI는 `pcvctl job list`로 목록을 보고, 조회·취소는 RPC `jobs.get`·
 
 설정 우선순위: **환경변수** > **daemon.conf** > **컴파일 기본값**
 
-SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_level`, `pool_max_conn`, `drain_timeout`.
+SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_conn`, `drain_timeout`.
 
 ### 16.2 전체 설정 키
 
@@ -6729,14 +6696,6 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `etcd_timeout`, `log_lev
 | `rootless` | `true` | 기본 격리 방식. `false`/`0`/`no`만 거짓(새 컨테이너 기본이 privileged가 되며 ADMIN 선택)이고 알 수 없는 값은 참으로 보고 경고를 남깁니다 |
 | `rootless_uid_start` | `100000` | unprivileged 컨테이너의 호스트 시작 uid. `/etc/subuid`·`/etc/subgid`에 `root:<start>:<count>` 위임이 필요합니다 |
 | `rootless_uid_count` | `65536` | 매핑 uid 개수. `start ≥ count ≥ 65536`이어야 합니다 |
-
-#### [cluster]
-
-| 키 | 기본값 | 범위 | 설명 |
-|----|--------|------|------|
-| `etcd_endpoints` | (빈 문자열) | URL CSV | etcd 엔드포인트 |
-| `etcd_timeout` | 15 | 2-120 | etcd 타임아웃 (초) |
-| `ssh_user` | `pcvdev` | 문자열 | SSH 사용자명 |
 
 #### [alert]
 
@@ -6997,7 +6956,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | lxc | LXC 컨테이너 런타임(`lxc-attach` 등 도구 포함) |
 | openvswitch-switch | OVS 가상 스위치 |
 | ovn-central / ovn-host | 선택형 Local OVN control plane과 host controller |
-| (패키지 없음 — 커널 LIO) | iSCSI 타겟. D4 전환으로 `tgt` 의존 제거. `/etc/modules-load.d/purecvisor-lio.conf` 로 모듈만 확보한다 — **deb 가 conffile 로 설치한다**(D4-F6 해소). deb 를 쓰지 않는 배포에서만 운영자가 직접 만든다 |
+| (패키지 없음 — 커널 LIO) | iSCSI 타겟. 커널 LIO를 쓰므로 `tgt`에 의존하지 않는다. `/etc/modules-load.d/purecvisor-lio.conf` 로 모듈만 확보한다 — **deb 가 conffile 로 설치한다**. deb 를 쓰지 않는 배포에서만 운영자가 직접 만든다 |
 | open-iscsi | iSCSI 이니시에이터 |
 | dnsmasq | DHCP/DNS |
 | nftables | 방화벽 |
@@ -7565,12 +7524,12 @@ make -j1 check-all
 | `check-aws-manual-removed` | AWS 수동 이관·S3 실행/API/UI 부재·북마크와 VM/OVA/로컬 백업/일반 Job 보존 |
 | `check-help-contract` | help.js RPC 역할 표 = `dispatcher_policy.c`, REST 예시의 경로·본문 키 = 라우팅·핸들러, 예시 이름은 실재하기 어려운 값 |
 | `check-rbac` | ADR-0019 RBAC 정책 계약 |
-| `check-rpc-consumers` | AF-C4 RPC 소비⊆등록 계약 |
+| `check-rpc-consumers` | RPC 소비⊆등록 계약 |
 | `check-dead-exports` | 미소비 공개 심볼(dead export) 차단 |
-| `check-rpc-param-contract` | RPC param-key 계약 (Stage 2) |
+| `check-rpc-param-contract` | RPC param-key 계약 |
 | `check-json-ingress` | JSON 파싱 초크포인트 |
 | `check-safety-controls` | 안전통제 효과 테스트 레지스트리 |
-| `check-error-codes` | raw 에러코드 리터럴 방지 (DISP-6) |
+| `check-error-codes` | raw 에러코드 리터럴 방지 |
 | `check-cli-exit-status` | `pcvctl` 성공·실패·사용법 오류 0/1/2와 VPC terminal Job 효과 |
 | `check-audit-placement` | audit 배치 계약 (ADR-0018). Job 스키마 복원 계약 시험 포함(이전 판 Job 코드는 `tests/fixtures/job_queue_previous/`의 고정 사본으로 빌드해 대조하며, 사본이 없으면 실패) |
 | `check-cors-anchor` | CORS 오리진 앵커 (A05·V3·V13). REST 요청 경로 계약 시험 2종(cleanup 초기화·segs 경계) 포함 |
@@ -7586,7 +7545,7 @@ make -j1 check-all
 | `check-container-owner-scope` | 컨테이너 operator owner-scope (A01) |
 | `check-mtls-wiring` | mTLS 클라이언트 인증서 검증 배선 (A02·V12) |
 | `check-tls-min-version` | TLS 최소 버전 고정 (A02·V11·V12) |
-| `check-secret-wipe` | 시크릿 free-without-wipe 방지 (OVL-1 후속) |
+| `check-secret-wipe` | 시크릿 free-without-wipe 방지 |
 | `check-security-headers` | `/ui` 정적 응답 보안 헤더 (A05) |
 | `check-password-policy` | user-create 비밀번호 복잡도 정책 (A07) |
 | `check-ws-token-url` | WS URL-query 토큰 인증 제거 (A07) |
@@ -7605,10 +7564,10 @@ make -j1 check-all
 | `check-single-ui-surface` | 이벤트·경보·감사·명령 연결, VM 디스크 사용량 표면과 개발판 소스맵 배포 계약 |
 | `check-runtime-prereqs` | 원격 daemon/CLI ABI stop-before-mutation · 배포 런타임 전제 · nginx 종단 · LIO 모듈 패키징 |
 | `check-vnc-proxy-lifetime` | 실제 binary relay·REST context·WS signal/source/FD 종료 수명 (ADR-0065) |
-| `check-vnc-flow-control` | 인증·소유 VM·ACK·bounded queue·inline 경쟁·REST 종료 효과 (ADR-0072/0076) |
-| `check-vm-start-single-entry` | VM 시작 단일 진입점(ADR-0080): start/stop async 직접 참조·virDomainCreate* 허용 목록 밖 호출 차단(래칫). 새 VM 이름 UUID 거부·`vm.rename` 잠금 계약 시험(ADR-0083) 포함 |
-| `check-file-size-ratchet` | 파일 크기 래칫(ADR-0082): 추적 소스 파일 상한 1,500줄, 기준선 파일은 줄이는 방향만 허용 |
-| `check-mainloop-reach` | 메인 루프에서 도달 가능한 차단 호출의 래칫(ADR-0097): 기준선 밖의 새 도달을 막고, 비어 있어야 하는 범주(`g_mutation_mu`·동기 DNS)는 0을 지킨다 |
+| `check-vnc-flow-control` | 인증·소유 VM·ACK·bounded queue·inline 경쟁·REST 종료 효과 |
+| `check-vm-start-single-entry` | VM 시작 단일 진입점: start/stop async 직접 참조·virDomainCreate* 허용 목록 밖 호출 차단(래칫). 새 VM 이름 UUID 거부·`vm.rename` 잠금 계약 시험 포함 |
+| `check-file-size-ratchet` | 파일 크기 래칫: 추적 소스 파일 상한 1,500줄, 기준선 파일은 줄이는 방향만 허용 |
+| `check-mainloop-reach` | 메인 루프에서 도달 가능한 차단 호출의 래칫: 기준선 밖의 새 도달을 막고, 비어 있어야 하는 범주(`g_mutation_mu`·동기 DNS)는 0을 지킨다 |
 
 ### 22.5 품질 게이트 건너뛰기
 
