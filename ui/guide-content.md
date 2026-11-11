@@ -258,7 +258,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 >
 > - 공개 배포 기준 바이너리: `bin/purecvisorsd`
 > - systemd 서비스: `purecvisorsd.service`
-> - `/api/v1/health` 기준 런타임 모드: `cluster=false`, `node_name=standalone`
+> - `/api/v1/health` 기준 런타임 모드: `capabilities.cluster=false`, `checks.cluster.mode=single_edge`, `node_name`은 호스트 이름
 
 이 가이드는 싱글 노드 운영과 출시 범위만 다룹니다.
 
@@ -290,7 +290,7 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
     "status": "ok",
     "service": "purecvisorsd",
     "version": "2.2.0",
-    "node_name": "standalone"
+    "node_name": "purecvisor-edge-01"
 }
 ```
 
@@ -309,14 +309,14 @@ TOKEN=$(curl -s -X POST http://127.0.0.1:8080/api/v1/auth/token \
 
 echo "Token: $TOKEN"
 
-# 4. VM 생성
-pcvctl vm create web-prod --vcpu 2 --memory_mb 2048 --disk_size_gb 20
+# 4. VM 생성 (기본 NIC는 --qos_min_mbps/--qos_max_mbps 필수)
+sudo pcvctl vm create web-prod --vcpu 2 --memory_mb 2048 --disk_size_gb 20 --qos_min_mbps 0 --qos_max_mbps 1000
 
 # 5. VM 시작
-pcvctl vm start web-prod
+sudo pcvctl vm start web-prod
 
 # 6. VM 목록 확인
-pcvctl vm list
+sudo pcvctl vm list
 
 # 7. Web UI 접속
 echo "http://127.0.0.1:8080/ui/ (admin / configured password)"
@@ -326,7 +326,7 @@ echo "http://127.0.0.1:8080/ui/ (admin / configured password)"
 
 | 인터페이스 | 주소 | 인증 |
 |-----------|------|------|
-| UDS 소켓 | `/var/run/purecvisor/daemon.sock` | 없음 (로컬) |
+| UDS 소켓 | `/var/run/purecvisor/daemon.sock` | root 전용 (SO_PEERCRED로 uid 0 확인, 비-root 연결 거부) |
 | REST API | `http://127.0.0.1:8080/api/v1/` | JWT HS256 |
 | HTTPS | `https://localhost:443/api/v1/` | JWT HS256 + TLS |
 | Web UI | `http://127.0.0.1:8080/ui/` | bootstrap admin `admin / configured password` |
@@ -344,11 +344,11 @@ UDS 소켓을 통해 직접 JSON-RPC 요청을 보낼 수 있습니다.
 ```bash
 # VM 목록 조회
 echo '{"jsonrpc":"2.0","method":"vm.list","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+  | sudo nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
-# 호스트 메트릭 조회
-echo '{"jsonrpc":"2.0","method":"telemetry.host","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+# 호스트·VM 메트릭 조회
+echo '{"jsonrpc":"2.0","method":"monitor.fleet","params":{},"id":"1"}' \
+  | sudo nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
 ---
@@ -439,7 +439,7 @@ sudo timedatectl set-timezone Asia/Seoul
 
 sudo apt update
 sudo apt full-upgrade -y
-sudo apt install -y ca-certificates curl git jq cpu-checker libvirt-clients
+sudo apt install -y ca-certificates curl git jq cpu-checker libvirt-clients libvirt-daemon-common
 
 test "$(stat -fc %T /sys/fs/cgroup)" = cgroup2fs
 kvm-ok
@@ -536,11 +536,11 @@ pcvctl --version
 ```
 
 - 설치 위치: 바이너리 `/usr/local/bin/{purecvisorsd,pcvctl}`, UI `/usr/local/share/purecvisor/ui/`, 유닛 `/etc/systemd/system/purecvisorsd.service`, 설정 `/etc/purecvisor/`.
-- 기본 모드는 선택한 관리 IPv4의 데몬 자체 HTTPS `:443`과 loopback HTTP `127.0.0.1:8080`입니다.
+- 기본 모드는 데몬 자체 HTTPS `:443`(모든 IPv4 주소에서 수신 — 관리 IPv4로 접속)과 loopback HTTP `127.0.0.1:8080`입니다.
 - NGINX는 외부 TLS 종료가 필요한 경우에만 별도 설치하며 기본 의존성이 아닙니다.
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
-(conffile prompt 시 `--force-confold`로 유지 또는 `--force-confnew`로 새 유닛 채택).<br>
+(conffile을 묻지 않고 처리하려면 `-o Dpkg::Options::=--force-confold`(기존 유지) 또는 `-o Dpkg::Options::=--force-confnew`(새 파일 채택)를 붙인다).<br>
 2.1.0 이하에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
 같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
@@ -558,7 +558,7 @@ sudo apt update && sudo apt install -y \
     libguestfs-tools \
     libsoup-3.0-dev libjson-glib-dev \
     libvirt-glib-1.0-dev lxc-dev \
-    zfsutils-linux lxc lxc-utils \
+    zfsutils-linux lxc \
     libsqlite3-dev libssl-dev \
     libcap-dev libseccomp-dev libreadline-dev liburing-dev \
     libbpf-dev libxml2-dev \
@@ -595,7 +595,7 @@ OVS, OVN과 ZFS는 package `Recommends`로 설치되며, `--no-install-recommend
 sudo apt install -y libguestfs-tools
 
 # LXC 컨테이너
-sudo apt install -y lxc lxc-utils
+sudo apt install -y lxc
 
 # 선택: ZFS zvol·snapshot·backup 또는 LXC를 사용하는 경우
 sudo apt install -y zfsutils-linux
@@ -1077,6 +1077,9 @@ Vendor 계약은 자동 동기화하지 않는다.
 
 ```bash
 sudo cp packaging/deb/purecvisorsd.service /etc/systemd/system/
+# 컨테이너 시작 유닛과 서비스 샌드박스 드롭인 (deb 설치는 자동)
+sudo install -m 0644 packaging/systemd/purecvisor-lxc@.service /etc/systemd/system/
+sudo install -D -m 0644 packaging/systemd/97-sandbox.conf /etc/systemd/system/purecvisorsd.service.d/97-sandbox.conf
 sudo systemctl daemon-reload
 sudo systemctl enable --now purecvisorsd
 ```
@@ -1252,14 +1255,10 @@ firewall_integration = auto
 resync_interval_sec = 300
 
 # ─────────────────────────────────────────────
-# [cpu] CPU 할당 설정
+# CPU 격리 코어 (daemon.conf 키 없음)
 # ─────────────────────────────────────────────
-[cpu]
-# 오버커밋 허용 여부
-allow_overcommit = false
-
-# 격리 코어 목록 (예: 4-7,12-15)
-# isolated_cores = 4-7
+# CPU 할당과 격리 코어는 daemon.conf로 정하지 않는다. 격리 코어는 커널 부팅 인자
+# isolcpus로 정하고, 데몬은 기동 시 /sys/devices/system/cpu/isolated를 읽는다.
 # vm.start는 vcpu_count가 없으면 도메인의 현재 vCPU 수만큼 격리 코어를 잡고,
 # 모자라면 핀 없이 시작해 WARN을 남긴다.
 # 명시 vcpu_count가 도메인의 현재 vCPU 수보다 크면 −32602로 거절한다
@@ -1306,17 +1305,14 @@ check_interval_hours = 24
 sudo kill -SIGHUP $(pidof purecvisorsd)
 ```
 
-### 2.7 CLI 자동완성 설치
+### 2.7 CLI 자동완성
+
+공개 저장소에는 bash/zsh 자동완성 파일(`completion/`)이 없어 `make install-completion`·`make install-completion-user`는 실패합니다.<br>
+명령 자동완성은 `pcvctl --interactive`(`-i`) 대화형 셸에서 Tab으로 씁니다(`pcvctl --version` 출력이 `readline: enabled`인 빌드).
 
 ```bash
-# 시스템 전체 설치 (bash + zsh)
-make install-completion
-
-# 현재 사용자만 설치
-make install-completion-user
-
-# 적용 확인 (새 셸에서)
-pcvctl <TAB><TAB>
+# 대화형 셸 진입 (UDS는 root 전용)
+sudo pcvctl --interactive
 ```
 
 #### CLI 종료상태 계약
@@ -1420,7 +1416,7 @@ sudo cp systemd/purecvisor.logrotate /etc/logrotate.d/purecvisor
 - `/var/log/purecvisor/*.log`
 - `/var/log/ovn/ovn-controller.log` 별도 보호
   - 일일 회전
-  - `size 50M`, `maxsize 200M`
+  - `maxsize 200M`, 14일 보존
   - `copytruncate` 사용
 
 Single Edge OVN local controller 준비 경로는 `ovn-controller` 재기동 직후
@@ -1641,7 +1637,8 @@ VM은 `storage_type=qcow2` 또는 `raw`로 생성할 수 있습니다. LXC·zvol
 sudo install -m 0644 packaging/deb/purecvisorsd.service /etc/systemd/system/purecvisorsd.service
 sudo install -d -m 0755 /etc/systemd/system/purecvisorsd.service.d
 sudo install -m 0644 packaging/systemd/90-ovl3-netns.conf packaging/systemd/95-coredump-hardening.conf \
-  /etc/systemd/system/purecvisorsd.service.d/
+  packaging/systemd/97-sandbox.conf /etc/systemd/system/purecvisorsd.service.d/
+sudo install -m 0644 packaging/systemd/purecvisor-lxc@.service /etc/systemd/system/purecvisor-lxc@.service
 sudo install -m 0644 packaging/deb/purecvisor-lio.conf /etc/modules-load.d/purecvisor-lio.conf
 for module in target_core_mod iscsi_target_mod target_core_iblock nf_conntrack_bridge; do
   sudo modprobe "$module"
@@ -1750,7 +1747,6 @@ pcvctl vm create \
 | `--storage_type` | 디스크 타입 (`zvol`, `qcow2`, `raw`) |
 | `--storage_pool` | zvol 부모 데이터셋. 예: `tank/vms` |
 | `--image_dir` | qcow2/raw 파일 디스크 저장 디렉터리. 예: `/var/lib/libvirt/images` |
-| `--template` | VM 템플릿 이름 |
 | `--qos_min_mbps` | QoS 보장 대역(Mbit/s). 커널 netdev 셰이핑 대상 VM 은 필수(위 안내 참고) |
 | `--qos_max_mbps` | QoS 상한 대역(Mbit/s). 0 이면 서버가 거부(`> 0` 필수) |
 
@@ -1812,12 +1808,14 @@ curl -X POST http://127.0.0.1:8080/api/v1/vms \
 {
   "result": {
     "accepted": true,
-    "message": "VM creation started in background"
+    "name": "web-prod",
+    "job_id": "job-…",
+    "status": "accepted"
   }
 }
 ```
 
-> **fire-and-forget 패턴**: VM 생성은 즉시 `accepted: true`를 반환하고 백그라운드에서 비동기 실행됩니다. `virDomainDefineXML` 실패 시 zvol/디스크가 자동 롤백됩니다.
+> **fire-and-forget 패턴**: VM 생성은 즉시 `accepted: true`와 `job_id`를 반환하고 백그라운드에서 비동기 실행됩니다. 결과는 `jobs.get`·WebSocket `job.complete`로 확인합니다. `virDomainDefineXML` 실패 시 zvol/디스크가 자동 롤백됩니다.
 
 #### OVS 자동 감지
 
@@ -2076,15 +2074,15 @@ Web UI CPU 핀 화면도 같습니다. vCPU 번호와 물리 CPU 목록(예: `0-
 # NIC 목록
 pcvctl nic list web-prod
 
-# NIC 추가
-pcvctl nic add web-prod --bridge pcvnat0 --model virtio
+# NIC 추가 (CLI는 브리지 이름만 받는다)
+pcvctl nic add web-prod pcvnat0
 
 # NIC 제거 (MAC 주소 지정)
-pcvctl nic remove web-prod --mac 52:54:00:ab:cd:ef
+pcvctl nic remove web-prod 52:54:00:ab:cd:ef
 ```
 
-> **model 허용목록**: `--model`은 `virtio` / `e1000` / `e1000e` / `rtl8139`만 허용한다. 범위 밖 값은
-> `device.nic.attach`에서 `-32602 INVALID_PARAMS`로 거부된다.
+> **model 허용목록**: RPC `device.nic.attach`·REST의 `model`은 `virtio` / `e1000` / `e1000e` / `rtl8139`만 허용한다(생략하면 `virtio`,
+> CLI `nic add`는 model을 받지 않는다). 범위 밖 값은 `-32602 INVALID_PARAMS`로 거부된다.
 
 > **MTU 명시(N8)**: NIC XML의 `<mtu>`는 attach 시점 브리지의 실측 MTU(`/sys/class/net/<bridge>/mtu`)를
 > 1500 포함 항상 명시한다. 자세한 계약은 6.1 절 참조.
@@ -2157,7 +2155,7 @@ pcvctl vm disk-resize web-prod vda 50
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   http://127.0.0.1:8080/api/v1/vms/web-prod/disk-resize \
   -H "Content-Type: application/json" \
-  -d '{"new_size_gb": 50}'
+  -d '{"target": "vda", "new_size_gb": 50}'
 ```
 
 파일 디스크는 VM 정의의 `driver type`을 형식으로 고정해 키웁니다. `driver type`이 없거나 raw·qcow2가 아니면 아무것도 바꾸지 않고 실패합니다.
@@ -2350,12 +2348,16 @@ not found
 
 2026-04-29 KST 운영 서버 검증에서는 위 full clone 경로가 `accepted`, target zvol `origin=-`, source 임시 snapshot 없음, audit `result=ok`로 확인됐다. 이어 Ubuntu 24.04 non-LVM qcow2/raw와 Ubuntu 24.04 LVM qcow2/raw/ZFS zvol clone은 guest reset, hostname/machine-id 재생성, filesystem UUID 분리, LVM PV/VG UUID 분리, `/etc/fstab` UUID 참조 갱신, 수동 boot smoke까지 성공했다.
 
-클론 후 독립 데이터셋으로 전환하려면:
+클론 후 원본 스냅샷 의존을 풀려면(제품 CLI·RPC는 없고 ZFS 명령을 직접 쓴다):
 
 ```bash
-# 원본 snapshot 의존 조회; promote 전용 제품 CLI는 없음
+# 원본 snapshot 의존 조회 (origin이 '-'가 아니면 클론)
 sudo zfs get origin rpool/web-staging
+# 의존 방향 뒤집기
+sudo zfs promote rpool/web-staging
 ```
+
+promote 뒤에는 원본이 클론 쪽 스냅샷에 의존한다.
 
 ### 3.6 OVA 내보내기 / 가져오기
 
@@ -2373,7 +2375,7 @@ pcvctl vm import-ova /tmp/web-prod.ova web-imported
 
 QEMU Guest Agent는 VM 내부 패키지와 libvirt channel이 함께 있어야 사용할 수 있다. **v1.1부터 `vm create`가 생성하는 VM에는 guest-agent channel이 기본 포함**되므로 신규 VM은 별도 보정이 필요 없다(패키지만 VM 내부에서 설치). `guest-agent-ensure-channel`은 채널이 없는 **기존/레거시 VM 보정**용이다. PureCVisor는 상태 진단과 channel 보정을 함께 제공한다.
 
-Web UI에서는 `대시보드 > 요약`에서 VM을 선택한 뒤 Storage 카드의 `디스크 사용량` 버튼으로 게스트 파일시스템 사용량을 확인한다.
+Web UI에서는 `워크로드 > 가상 머신`에서 실행 중인 VM을 선택한 뒤 요약 탭 머리의 `디스크 사용량` 버튼(스토리지 카드 '게스트 사용량' 줄이 이 버튼을 가리킨다)으로 게스트 파일시스템 사용량을 확인한다.
 이 조회는 qemu-guest-agent의 고정 `guest-get-fsinfo` 명령만 사용하며, 임의 guest-exec 명령을 실행하지 않는다.
 
 ```bash
@@ -2499,30 +2501,26 @@ pcvctl template create web \
   --disk_gb 20 \
   --os_variant ubuntu24.04
 
-# 템플릿으로 VM 생성
-pcvctl template apply web --name web-prod-01
-
 # 템플릿 삭제
 pcvctl template delete web
 ```
 
-> **이름 검증**: 템플릿 이름은 `pcv_validate_vm_name()` 규칙을 따릅니다 (영문소문자, 숫자, 하이픈, 최대 64자).
+템플릿을 적용해 VM을 만드는 CLI·RPC는 없습니다(`template`은 list·get·create·delete·history). Web UI `워크로드 > 템플릿`의 'Use' 버튼이 템플릿 값을 VM 생성 마법사에 채웁니다. CLI는 `pcvctl template get web`으로 값을 읽어 `pcvctl vm create`에 넣습니다.
+
+> **이름 검증**: 템플릿 이름은 `pcv_validate_vm_name()` 규칙을 따릅니다 (영문 대소문자, 숫자, 하이픈, 언더스코어, 최대 64자).
 
 ### 3.9 VM 메트릭
 
 ```bash
-# 개별 VM 메트릭
-pcvctl monitor vm web-prod
+# 개별 VM 메트릭 (CPU·메모리 사용률 %)
+pcvctl monitor metrics web-prod
 ```
 
-출력 예시:
+출력 예시(`--format=plain`, 탭 구분. 표 형식은 `REALTIME TELEMETRY` 배너와 CPU·MEMORY 막대):
 
 ```
-VM: web-prod (running)
-  CPU:    15.2%
-  Memory: 1024/2048 MB (50.0%)
-  Disk:   8.5 GB / 20 GB
-  Net RX: 1.2 MB/s  TX: 0.3 MB/s
+vm	cpu	mem
+web-prod	15	50
 ```
 
 ```bash
@@ -2539,7 +2537,7 @@ pcvctl monitor fleet
  fitlog               │ RUNNING    │    50.7s │  17.2%
 ```
 
-PLAIN/CSV(`--format=plain`/`--csv`)는 헤더가 `NAME,STATE,CPU_TIME,MEM%`로 바뀐다. CPU_TIME은 누적
+PLAIN/CSV(`--format=plain`/`--format=csv`)는 헤더가 `NAME,STATE,CPU_TIME,MEM%`로 바뀐다. CPU_TIME은 누적
 CPU 시간(초, 예 `63.0s`, 값 없으면 `-`)이고 MEM%는 `mem_used_mb/mem_max_mb*100`이다(정지 VM 등
 계산 불가 시 `N/A`).
 
@@ -2692,29 +2690,32 @@ pcvctl container metrics app-ctr
 출력 예시:
 
 ```
-Container: app-ctr (RUNNING)
-  CPU:    8.3%
-  Memory: 256/1024 MB
-  PIDs:   42
-  Net:    eth0 RX 15.2MB TX 3.1MB
+ Container Metrics: app-ctr
+  State     : RUNNING
+  CPU %     : 8.3%
+  Mem Used  : 256.0 MB / 1024.0 MB
+  Net RX    : 15.20 MB
+  Net TX    : 3.10 MB
+  IP        : 192.0.2.15
+  Init PID  : 12345
 ```
 
-CPU %는 같은 컨테이너의 직전 `container.metrics` 조회(어느 클라이언트든)와의 차이 — 누적 CPU 시간 증가 ÷ 흐른 시간 × 100(100 = 한 코어를 다 씀, 여러 코어면 100을 넘는다) — 로 계산한다. 그래서 첫 조회와 컨테이너를 다시 켠 뒤 첫 조회는 0이다(직전 조회 때와 컨테이너 init 프로세스가 다르면 직전 값과 견주지 않는다). 응답(`-o json`·REST)에는 누적 CPU 시간 `cpu_time_ns`(정수, 나노초)도 있어 직접 차이를 낼 수 있다.
+CPU %는 같은 컨테이너의 직전 `container.metrics` 조회(어느 클라이언트든)와의 차이 — 누적 CPU 시간 증가 ÷ 흐른 시간 × 100(100 = 한 코어를 다 씀, 여러 코어면 100을 넘는다) — 로 계산한다. 그래서 첫 조회와 컨테이너를 다시 켠 뒤 첫 조회는 0이다(직전 조회 때와 컨테이너 init 프로세스가 다르면 직전 값과 견주지 않는다). 응답(`--format=json`·REST)에는 누적 CPU 시간 `cpu_time_ns`(정수, 나노초)도 있어 직접 차이를 낼 수 있다.
 
 ### 4.6 컨테이너 스냅샷
 
 ```bash
 # 스냅샷 생성
-pcvctl container snap create app-ctr --name v1
+pcvctl container snapshot create app-ctr v1
 
 # 스냅샷 목록
-pcvctl container snap list app-ctr
+pcvctl container snapshot list app-ctr
 
 # 롤백
-pcvctl container snap rollback app-ctr v1
+pcvctl container snapshot rollback app-ctr v1
 
 # 삭제
-pcvctl container snap delete app-ctr v1
+pcvctl container snapshot delete app-ctr v1
 ```
 
 **롤백은 실행 중 컨테이너를 멈췄다가 다시 켭니다.** 실행 중(또는 일시 정지)이면 정상 정지(최대 30초) → 강제 정지 → 정지 확인 → 되돌림 순으로 하고, 응답·감사 뒤 정식 `container.start`로 다시 켭니다(재시작 감사 행위자는 롤백 요청자). 응답은 되돌림 결과이고 재시작 결과는 `container.start` 감사와 `job.complete` 이벤트로 봅니다. 실패 응답 끝에는 다시 켜기를 요청했으면 ` (container restart requested; see container.start result)`가 붙습니다. 정상 정지를 기다리므로 응답이 늦습니다 — 응답 상한은 REST·CLI 75초, Web UI 80초입니다. 되돌림은 스냅샷 뒤의 rootfs·config 변경을 버리지만 붙어 있던 rw 호스트 볼륨의 데이터는 되돌리지 않습니다.
@@ -2915,26 +2916,11 @@ OPERATOR의 `container.logs`·`container.memory.stats`·`container.health.check`
 
 ### 4.12 CRIU 체크포인트/복원
 
-실행 중인 컨테이너의 상태를 저장하고 나중에 복원할 수 있습니다.
-
-```bash
-# 체크포인트 (실행 상태 저장)
-pcvctl container checkpoint app-ctr --dir /tmp/criu-app
-
-# 복원 (체크포인트에서 재개)
-pcvctl container restore app-ctr --dir /tmp/criu-app
-```
+공개판에는 컨테이너 CRIU 체크포인트·복원 명령이 없습니다(CLI·RPC·REST 미제공).
 
 ### 4.13 Seccomp 프로파일
 
-```bash
-# 프로파일 설정
-pcvctl container seccomp-set app-ctr --profile default
-# 프로파일 파일: /etc/purecvisor/seccomp/default.seccomp
-
-# 현재 프로파일 조회
-pcvctl container seccomp-get app-ctr
-```
+공개판에는 컨테이너별 Seccomp 프로파일을 설정·조회하는 명령이 없습니다(CLI·RPC·REST 미제공).
 
 ### 4.14 NIC 관리 (VM 동등 기능)
 
@@ -3013,10 +2999,14 @@ pcvctl storage pool list
 출력 예시:
 
 ```
-NAME       SIZE   USED   AVAIL  CAP  HEALTH
-pcvpool    8.0T   2.1T   5.9T   26%  ONLINE
-datapool   4.0T   1.5T   2.5T   38%  ONLINE
+ POOL_NAME       │ TOTAL      │ ALLOC      │ FREE       │ HEALTH
+─────────────────┼────────────┼────────────┼────────────┼────────────
+ pcvpool         │ 7.27T      │ 2.10T      │ 5.17T      │ ONLINE
+ datapool        │ 3.62T      │ 1.50T      │ 2.12T      │ ONLINE
+─────────────────┴────────────┴────────────┴────────────┴────────────
 ```
+
+`--format=plain`·`--format=csv`의 머리 칸은 `POOL`·`TOTAL`·`ALLOC`·`FREE`·`HEALTH`입니다.
 
 #### 풀 생성
 
@@ -3067,11 +3057,15 @@ pcvctl storage zvol list
 출력 예시:
 
 ```
-NAME                      VOLSIZE   USED   REFER
-pcvpool/vms/web-prod      20.0G     8.5G   8.5G
-pcvpool/vms/db-prod       100.0G    45.2G  45.2G
-pcvpool/vms/web-staging   20.0G     8.5G   8.5G   (clone)
+ ZVOL_PATH                                │ VOL_SIZE   │ USED
+──────────────────────────────────────────┼────────────┼────────────
+ pcvpool/vms/web-prod                     │ 20G        │ 8.50G
+ pcvpool/vms/db-prod                      │ 100G       │ 45.2G
+ pcvpool/vms/web-staging                  │ 20G        │ 1.20G
+──────────────────────────────────────────┴────────────┴────────────
 ```
+
+`--format=plain`·`--format=csv`의 머리 칸은 `ZVOL_PATH`·`VOL_SIZE`·`USED`입니다.
 
 #### Zvol CRUD
 
@@ -3106,10 +3100,13 @@ echo '{"jsonrpc":"2.0","method":"storage.zvol.delete","params":{
 
 #### ZFS 프로모트
 
-클론 데이터셋을 독립 데이터셋으로 전환합니다 (원본 스냅샷 의존 해소).
+클론 데이터셋을 원본 스냅샷 의존에서 풀어 줍니다. 제품 CLI·RPC는 없고 ZFS 명령을 직접 씁니다. promote 뒤에는 원본이 클론 쪽 스냅샷에 의존합니다.
 
 ```bash
+# 원본 snapshot 의존 조회 (origin이 '-'가 아니면 클론)
 sudo zfs get origin pcvpool/vms/web-staging
+# 의존 방향 뒤집기
+sudo zfs promote pcvpool/vms/web-staging
 ```
 
 ### 5.3 iSCSI 관리
@@ -3218,13 +3215,13 @@ PATH                                                    SIZE
 `/api/v1/metrics`에서 다음 스토리지 메트릭을 수집합니다:
 
 ```
-# ZFS 풀 메트릭 (6개)
-purecvisor_zpool_size_bytes{pool="pcvpool"}
-purecvisor_zpool_used_bytes{pool="pcvpool"}
-purecvisor_zpool_free_bytes{pool="pcvpool"}
-purecvisor_zpool_capacity_percent{pool="pcvpool"}
-purecvisor_zpool_fragmentation_percent{pool="pcvpool"}
-purecvisor_zpool_health{pool="pcvpool"}
+# ZFS 풀 메트릭 (6개, daemon.conf [storage] pool 하나, 60초 주기, 라벨 없음)
+purecvisor_zpool_state
+purecvisor_zpool_errors_read
+purecvisor_zpool_errors_write
+purecvisor_zpool_errors_cksum
+purecvisor_zpool_scrub_age_seconds   # 스크럽 기록이 있을 때
+purecvisor_zpool_capacity_percent
 
 # 파일시스템 메트릭
 node_filesystem_size_bytes{mountpoint="/",fstype="ext4"}
@@ -3385,7 +3382,7 @@ Service Publish는 게스트 서비스 시작, Security Group 허용 또는 인�
 | [관리형 방화벽](#62-방화벽-nftables) | NAT와 isolated 네트워크 경계를 자동 생성 | `sudo nft list table inet purecvisor` |
 | [VLAN](#63-vlan-필터링) | VM NIC를 upstream VLAN 100에 연결 | `virsh dumpxml`의 `<vlan>`과 switch port |
 | [QoS](#64-qos-트래픽-제어) | VM·tenant별 최소/최대 대역 SLA 적용 | `qos.vm.get`, `qos.tenant.get`, `qos.stats` |
-| [OVS VXLAN·tenant overlay](#65-ovs-vxlan-오버레이) | 수동 VXLAN peer와 tenant 암호화 격리 | `pcvctl overlay info`, `tenant_overlay.get`, `ovs-vsctl show` |
+| [OVS VXLAN·tenant overlay](#65-ovs-vxlan-오버레이) | 수동 VXLAN peer와 tenant 암호화 격리 | `overlay.info`, `tenant_overlay.get`, `ovs-vsctl show` |
 | [generic OVN](#66-ovn-sdn) | 논리 스위치·라우터·DHCP·ACL·SNAT 구성 | `pcvctl ovn status`, 리소스별 list, 인증 REST 필터 |
 | [Security Group](#67-보안-그룹) | 웹 VM의 80·443과 관리 CIDR의 22만 허용 | 그룹 목록, VM binding, `nft` actual rule |
 | [DPDK](#68-dpdk) | 전용 NIC를 `vfio-pci`에 바인딩해 OVS-DPDK bridge 구성 | `pcvctl dpdk list`, `ovs-vsctl show` |
@@ -3622,7 +3619,7 @@ pcvctl network qos-remove vnet0
 | `qos.vm.get` | VIEWER | `{vm}` | per-VM SLA 조회 |
 | `qos.tenant.set` | ADMIN | `{tenant, min_mbps, max_mbps}` | per-tenant 대역폭 SLA 설정 |
 | `qos.tenant.get` | VIEWER | `{tenant}` | per-tenant SLA 조회 |
-| `qos.stats` | VIEWER | `{[tenant]}` | QoS 강제 통계(테넌트 필터 선택) |
+| `qos.stats` | ADMIN | `{[tenant], [vm]}` | QoS 강제 통계(테넌트·VM 필터 선택) |
 
 ```bash
 # per-VM SLA 설정 (POST /api/v1/rpc 패스스루)
@@ -3676,50 +3673,49 @@ Open vSwitch 기반 VXLAN 오버레이 네트워크를 구성합니다.
   <figcaption id="pcv-network-example-vxlan-caption">수동 peer 구성은 OVS actual port와 두 endpoint 사이의 underlay 도달성을 모두 확인합니다.</figcaption>
 </figure>
 
+오버레이 전용 CLI 명령은 없으므로 JSON-RPC(UDS 직접 `nc -U` 또는 `POST /api/v1/rpc` 패스스루)로 호출합니다.
+오버레이 목록은 REST `GET /api/v1/overlay`와 Web UI `인프라 > 오버레이 네트워크`에서도 확인할 수 있습니다.
+
 ```bash
 # 오버레이 생성
-pcvctl overlay create --name pcvoverlay0 --vni 100 --cidr 10.100.0.1/24
+echo '{"jsonrpc":"2.0","method":"overlay.create","params":{
+  "name":"pcvoverlay0","vni":100,"cidr":"10.100.0.1/24"
+},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
 # 명시적으로 관리하는 endpoint만 peer로 추가
-pcvctl overlay add-peer pcvoverlay0 192.0.2.20
+echo '{"jsonrpc":"2.0","method":"overlay.add_peer","params":{
+  "name":"pcvoverlay0","peer_ip":"192.0.2.20"
+},"id":"2"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 
 # desired state와 OVS actual port 확인
-pcvctl overlay list
-pcvctl overlay info pcvoverlay0
+echo '{"jsonrpc":"2.0","method":"overlay.list","params":{},"id":"3"}' \
+  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+echo '{"jsonrpc":"2.0","method":"overlay.info","params":{
+  "name":"pcvoverlay0"
+},"id":"4"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 sudo ovs-vsctl show
 
 # 사용을 마치면 peer와 overlay를 역순으로 정리
-pcvctl overlay remove-peer pcvoverlay0 192.0.2.20
-
-pcvctl overlay delete pcvoverlay0
-```
-
-RPC 직접 호출:
-
-```bash
-# 오버레이 목록
-echo '{"jsonrpc":"2.0","method":"overlay.list","params":{},"id":"1"}' \
-  | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
-
-# 오버레이 상세
-echo '{"jsonrpc":"2.0","method":"overlay.info","params":{
-  "name": "pcvoverlay0"
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+echo '{"jsonrpc":"2.0","method":"overlay.remove_peer","params":{
+  "name":"pcvoverlay0","peer_ip":"192.0.2.20"
+},"id":"5"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
+echo '{"jsonrpc":"2.0","method":"overlay.delete","params":{
+  "name":"pcvoverlay0"
+},"id":"6"}' | nc -U /var/run/purecvisor/daemon.sock | python3 -m json.tool
 ```
 
 #### 자동 프로비저닝
 
-`daemon.conf [overlay]` 섹션을 설정하면 부팅 시 기본 브리지가 자동 생성됩니다. Single Edge에서는 로컬 브리지 생성과 명시한 peer 적용까지만 사용하며, 자동 peer discovery나 자동 풀메시는 제공하지 않습니다.
+`daemon.conf [overlay]` 섹션에 `default_bridge`를 설정하면 부팅 시 그 이름의 기본 오버레이 브리지가 `default_vni`(기본 100)·`default_cidr`로 자동 생성됩니다. 설정 파일로 peer를 넣는 키는 없으므로 peer는 `overlay.add_peer` RPC로 명시해 추가하며, 자동 peer discovery나 자동 풀메시는 제공하지 않습니다.
 
 Single Edge는 overlay 코어 기능을 지원하지만, `tunnel_ip`는 자동 추론하지 않습니다. 따라서 Single Edge에서 overlay를 활성화하려면 운영자가 `[overlay]` 섹션에 `tunnel_ip`를 명시해야 합니다. 이 값은 로컬 호스트가 VXLAN 터널 소스로 사용할 IP이며, Single Edge에서는 운영 가이드에 따라 명시적으로 관리합니다.
 
 ```ini
 [overlay]
-name = pcvoverlay0
-vni = 100
-cidr = 10.100.0.1/24
+default_bridge = pcvoverlay0
+default_vni = 100
+default_cidr = 10.100.0.1/24
 tunnel_ip = 192.0.2.19
-peers = 192.0.2.20,192.0.2.21
 ```
 
 OVS 상태 확인:
@@ -3734,7 +3730,7 @@ sudo ovs-vsctl show
 
 2.0은 멀티테넌트 VM 트래픽을 per-VM 암호화 오버레이로 격리하는 `tenant_overlay.*` 제어평면을 추가했습니다. 각 VM은 자체 network namespace 안의 per-VM WireGuard 엔드포인트로 배선되며, 공유 브리지 위를 지나는 오버레이 트래픽은 암호문입니다. 오버레이 레지스트리는 영속화되어 데몬 재시작 시 재수화되고, `vm.create`/`vm.start` 오케스트레이션은 fail-closed로 동작합니다(암호 오버레이 준비 실패 시 VM 기동을 막음).
 
-VM을 테넌트 오버레이에 붙이려면 `vm.create` 시 `nic_type`을 `tenant-overlay`로 지정하며, 이 조합은 커널 netdev 셰이핑 대상이라 §3.1의 D09 QoS SLA(`--qos_min_mbps`/`--qos_max_mbps`)가 필수입니다. 서브넷은 오버레이 생성 시 자동 배정되어 응답으로 반환되고, VM attach 시 내부 오버레이 IP가 배정됩니다.
+VM을 테넌트 오버레이에 붙이려면 `vm.create` 시 `network_mode`를 `tenant-overlay`로, `tenant`를 오버레이 테넌트 이름으로 지정하며, 이 조합은 커널 netdev 셰이핑 대상이라 §3.1의 QoS SLA(`--qos_min_mbps`/`--qos_max_mbps`)가 필수입니다. 서브넷은 오버레이 생성 시 자동 배정되어 응답으로 반환되고, VM attach 시 내부 오버레이 IP가 배정됩니다.
 
 > **RPC 전용(2.0)**: `tenant_overlay.*` 네임스페이스는 전용 REST 경로·CLI 서브커맨드·UI 페이지가 없습니다. `POST /api/v1/rpc` JSON-RPC 패스스루(또는 UDS 직접 `nc -U`)로만 호출하며, 모든 메서드는 ADMIN 권한이 필요합니다.
 
@@ -4066,7 +4062,7 @@ detach의 PCI 주소는 `pcvctl sriov list eno2`가 VF 0에 반환한 실제 값
 사용을 모두 마친 뒤에만 `pcvctl sriov disable eno2`로 VF 수를 0으로 되돌립니다.
 
 `vm.create`의 `nic_type=sriov`는 `pci_addr`(`DDDD:BB:SS.F` 또는 `BB:SS.F`)가 필수이고, 없거나 형식이 틀리면 −32602로 거절합니다.
-브리지가 없으면(`network_bridge: "none"` 또는 빈 기본 브리지) −32602 `nic_type=sriov cannot be used without a network bridge (…)`로 거절하고, `network_mode: "tenant-overlay"`와 함께 쓰면 −32602 `nic_type=sriov cannot be combined with network_mode "tenant-overlay" (…)`로 거절합니다. 두 거절 모두 접수 전에 일어나므로 VM·디스크가 만들어지지 않습니다. 이 거절은 테넌트 게이트(−32006)·QoS SLA(−32602)보다 먼저 옵니다. NIC 없는 VM이 목적이면 `nic_type`을 빼고 `"none"`을 씁니다.
+브리지가 없으면(`network_bridge: "none"` 또는 빈 기본 브리지) −32602 `nic_type=sriov cannot be used without a network bridge (…)`로 거절하고, `network_mode: "tenant-overlay"`와 함께 쓰면 −32602 `nic_type=sriov cannot be combined with network_mode "tenant-overlay" (…)`로 거절합니다. 두 거절 모두 접수 전에 일어나므로 VM·디스크가 만들어지지 않습니다. 이 거절은 tenant-overlay 테넌트 판정(−32006)·QoS SLA(−32602)보다 먼저 오지만, 비ADMIN의 호스트 자원 참조 판정(10.2.1, −32006)보다는 뒤입니다. NIC 없는 VM이 목적이면 `nic_type`을 빼고 `network_bridge: "none"`을 씁니다.
 
 > **직접 할당 안전 경계:** `sriov attach`는 PF와 VF의 IOMMU group을 서버에서 모두
 > 확인한 뒤에만 첫 드라이버 변경을 시작합니다. `sriov detach`는 libvirt의 정확한
@@ -4129,13 +4125,13 @@ counter는 누적값이므로 한 번의 숫자보다 일정 구간의 증가율
 ```bash
 # eno1을 실제 uplink 이름으로 교체한다.
 curl -s http://127.0.0.1:8080/api/v1/metrics | \
-  grep -E '^(node_network_(receive|transmit)_(bytes|errors|drop)_total\{device="eno1"\}|node_nf_conntrack_(entries|entries_limit))'
+  grep -E '^(node_network_(receive|transmit)_(bytes|errs|drop)_total\{device="eno1"\}|node_nf_conntrack_(entries|entries_limit))'
 
 # 네트워크 인터페이스 메트릭
 node_network_receive_bytes_total{device="eno1"}
 node_network_transmit_bytes_total{device="eno1"}
-node_network_receive_errors_total{device="eno1"}
-node_network_transmit_errors_total{device="eno1"}
+node_network_receive_errs_total{device="eno1"}
+node_network_transmit_errs_total{device="eno1"}
 node_network_receive_drop_total{device="eno1"}
 node_network_transmit_drop_total{device="eno1"}
 
@@ -4149,7 +4145,7 @@ node_nf_conntrack_entries
 node_nf_conntrack_entries_limit
 ```
 
-`error` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.
+`errs` 또는 `drop` counter가 지속적으로 증가하면 NIC·switch·qdisc를 함께 확인합니다.
 `node_nf_conntrack_entries`가 limit에 가까우면 NAT·Security Group workload의 연결 수와 timeout 정책을 점검합니다.
 
 ### 6.12 Local VPC
@@ -4224,13 +4220,13 @@ REST로 VPC와 첫 subnet을 한 Job에 생성합니다.
 </figure>
 
 ```bash
-curl -sS -X POST https://127.0.0.1:8443/api/v1/vpcs \
+curl -sS -X POST http://127.0.0.1:8080/api/v1/vpcs \
   -H "Authorization: Bearer $TOKEN" \
   -H 'Content-Type: application/json' \
   -d '{"tenant":"acme","name":"prod","backend":"linux","egress_mode":"nat","subnet_name":"web","subnet_cidr":"10.60.10.0/24","subnet_mtu":1500}'
 
 # 응답의 job_id를 terminal까지 확인한다.
-curl -sS https://127.0.0.1:8443/api/v1/jobs/<job-id> \
+curl -sS http://127.0.0.1:8080/api/v1/jobs/<job-id> \
   -H "Authorization: Bearer $TOKEN"
 ```
 
@@ -4319,7 +4315,7 @@ echo '{"jsonrpc":"2.0","method":"vpc.service.publish","params":{
   자동 fallback하지 않으며 generic `ovn.*`는 Local VPC 소유 row 변경을 거부합니다.
 - OVN readiness는 NB/SB/northd/controller/chassis/`br-int`, 기능 parity와 `[ovn]`
   `edge_transit_pool` 충돌을 함께 검사합니다. 기본 `100.64.0.0/16`을 VPC당 `/30`으로 나누면
-  이론상 16,384개지만, `allocatable_count`는 이미 예약한 주소를 뺀 현재값이고
+  이론상 16,384개지만, `allocatable_vpcs`는 이미 예약한 주소를 뺀 현재값이고
   `product_limit=null`은 무제한 보증이 아닙니다.
 - attachment는 정지 VM persistent XML만 변경합니다. 실행 중 VM live attach는 아직
   지원하지 않습니다.
@@ -4381,11 +4377,11 @@ VPC subnet을 만들 때 호스트가 응답하는 **관리 PC 대역**을 가�
 **콘솔 복구 절차** — 특정 대역과만 연결이 안 되고 그 대역의 게이트웨이에는 닿을 때, 호스트 콘솔에서:
 
 1. 증상을 확인합니다. 특정 대역(관리 PC 쪽)과만 불통이고 같은 대역의 게이트웨이는 닿습니다.
-2. `ip route get <관리 PC 주소>`가 `dev pcvse…`처럼 **VPC 브리지**를 가리키는지 봅니다.
+2. `ip route get <관리 PC 주소>`가 `dev pcvs…`(`pcvs` 뒤 16진 11자리)처럼 **VPC 브리지**를 가리키는지 봅니다.
 3. `ip -br addr show type bridge`로 그 브리지에 걸린 게이트웨이 주소(관리 대역과 겹치는 주소)를 확인합니다.
 4. 지웁니다.
-   - (가) 데몬이 살아 있으면: `pcvctl vpc subnet-list <vpc>` → `pcvctl vpc subnet-delete <subnet_id>`
-     (VPC째 지우려면 `pcvctl vpc delete <vpc>`).
+   - (가) 데몬이 살아 있으면: `pcvctl vpc subnet-list <vpc-uuid>` → `pcvctl vpc subnet-delete <subnet-uuid> --tenant <tenant>`
+     (VPC째 지우려면 `pcvctl vpc delete <vpc-uuid> --tenant <tenant>`).
    - (나) 데몬이 기동 때 다시 세우면: `touch /etc/purecvisor/vpc-reconcile.skip`(root 소유 일반 파일이어야 함)
      뒤 재부팅하거나 `systemctl restart purecvisorsd`합니다. 기동 로그에
      `VPC reconcile skipped by /etc/purecvisor/vpc-reconcile.skip — remove it after console recovery`가
@@ -4474,7 +4470,7 @@ PureCVisor는 외부 에이전트 없이 자체 메트릭 수집, 알림 엔진,
 - `purecvisor_cb_state` / `purecvisor_cb_failures` (서킷 브레이커)
 - `purecvisor_vm_locks_held` (VM 상태 잠금)
 - `purecvisor_tls_cert_expiry_days` (인증서 만료)
-- `purecvisor_zpool_*` (6개: size/alloc/free/frag/cap/health)
+- `purecvisor_zpool_*` (6개: state/errors_read/errors_write/errors_cksum/scrub_age_seconds/capacity_percent)
 - `purecvisor_worker_pool_pending` (GTask 큐 깊이)
 - `purecvisor_audit_queue_depth` (감사 큐)
 - `purecvisor_connpool_idle/active/max` (커넥션 풀)
@@ -4582,7 +4578,7 @@ sudo env PCV_R7_ALERT_LIVE=1 \
 
 #### DataPool 디스크 모니터링 (v1.0)
 
-ZFS pool 사용량을 `purecvisor_zpool_*` 메트릭으로 수집하고, disk_warn/disk_crit 임계값 초과 시 알림을 발생시킨다.
+`[storage] image_dir`가 놓인 파일시스템의 사용률을 `DataPool` 지표로 평가해 `data_pool_warn`/`data_pool_crit`(기본 80/90)를 넘으면 알림을 발생시킨다. ZFS 풀 상태·용량은 따로 `purecvisor_zpool_*` 메트릭으로 나간다.
 
 ### 8.4 비동기 웹훅
 
@@ -4626,8 +4622,7 @@ telegram_chat_id=
 # 알림 히스토리 조회
 pcvctl alert list
 
-# 알림 확인(ACK)
-pcvctl alert ack --id <alert-id>
+# 알림 확인(ACK) — CLI에는 ACK 명령이 없다. 아래 REST·RPC나 웹 UI를 쓴다
 
 # REST
 curl -s -H "Authorization: Bearer $TOKEN" \
@@ -4659,40 +4654,34 @@ echo '{"jsonrpc":"2.0","method":"alert.ack","params":{"alert_id":501},"id":"1"}'
 VM별 가동 시간을 추적하여 `uptime_percent`를 계산한다.
 
 ```bash
+# CLI
+pcvctl vm sla web-prod
+
 # RPC
-echo '{"jsonrpc":"2.0","method":"vm.sla","params":{"name":"web-prod"},"id":"1"}' \
+echo '{"jsonrpc":"2.0","method":"vm.sla.report","params":{"name":"web-prod"},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock
 ```
 
 ### 8.7 per-VM 알림 라우팅 (v1.0)
 
-VM별로 별도의 웹훅 대상을 지정할 수 있다.
-
-```bash
-# RPC
-echo '{"jsonrpc":"2.0","method":"alert.set_config","params":{
-  "vm_name":"web-prod",
-  "webhook_url":"https://hooks.slack.com/services/...",
-  "webhook_format":"slack"
-},"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
-```
+VM별 웹훅 대상을 지정하는 RPC·CLI·화면은 없다. 심각도별로 나누려면 `webhook_url`(전체)과 `webhook_crit_url`(CRIT 전용)을 쓴다.
 
 ### 8.8 복합 알림 규칙
 
-AND/OR 조건으로 최대 8개 조건을 조합한 복합 알림 규칙을 생성할 수 있다.
+CPU·Memory·Disk 가운데 두 지표를 AND/OR로 묶은 복합 규칙을 최대 8개까지 `alert.config.set`의 `composite_rules`로 설정한다. `expected_revision`이 필요하고 배열 전체를 바꿔 쓴다. 임계값은 `0..100`, `level`은 `WARN`·`CRIT`이다.
 
 ```json
 {
   "jsonrpc": "2.0",
-  "method": "alert.set_config",
+  "method": "alert.config.set",
   "params": {
-    "compound_rules": [
+    "expected_revision": 7,
+    "composite_rules": [
       {
-        "operator": "AND",
-        "conditions": [
-          {"metric": "cpu_percent", "op": ">", "value": 90},
-          {"metric": "mem_percent", "op": ">", "value": 85}
-        ]
+        "metric_a": "CPU", "thresh_a": 90,
+        "op": "AND",
+        "metric_b": "Memory", "thresh_b": 85,
+        "level": "CRIT"
       }
     ]
   },
@@ -4716,6 +4705,9 @@ scrape_configs:
   - job_name: 'purecvisor'
     scrape_interval: 15s
     metrics_path: '/api/v1/metrics'
+    authorization:
+      type: Bearer
+      credentials_file: /etc/prometheus/purecvisor.token
     static_configs:
       - targets:
         - '192.0.2.19:80'
@@ -4723,7 +4715,7 @@ scrape_configs:
         - '192.0.2.21:80'
 ```
 
-Grafana 대시보드: `192.0.2.61:3000` (Example Operations 통합 대시보드)
+Grafana는 위 Prometheus를 데이터 소스로 추가해 대시보드를 직접 만듭니다(공개판은 대시보드 정의 파일을 제공하지 않습니다).
 
 `[metrics] auth`는 `/metrics`·`/internal/vms`·`/internal/telemetry`·`/health/recent-errors` 넷을 함께 다룹니다. 기본 `loopback`은 호스트에서 데몬 평문 리스너(`127.0.0.1:8080`)로 곧장 온 요청(전달 헤더 없음)만 무인증으로 받고, 원격·nginx 경유 요청에는 토큰을 요구합니다. `required`는 언제나 토큰, `none`은 언제나 무인증(기동 경고)이며 그 밖의 값은 `required`로 봅니다. 원격 Prometheus는 가장 낮은 권한의 API 키(RPC/REST `auth.apikey.create`에 `role: 0`을 명시 — 생략하면 role 1(OPERATOR)이고 `pcvctl`에는 이 명령이 없습니다)를 `authorization: { type: Bearer, credentials_file: … }`로 보냅니다. 전달 헤더를 붙이지 않는 사용자 정의 프록시 뒤 요청은 직접 로컬로 보이므로 그런 프록시는 쓰지 않습니다.
 
@@ -4731,13 +4723,14 @@ Grafana 대시보드: `192.0.2.61:3000` (Example Operations 통합 대시보드)
 
 ### 8.11 WebSocket 메트릭 Push (v1.0)
 
-`ws://127.0.0.1:8080/api/v1/ws/events`로 10초 주기 실시간 메트릭을 push한다.
+`ws://127.0.0.1:8080/api/v1/ws/events`에 연결한 뒤 5초 안에 `{"type":"auth","token":"<access_token>"}`를 보내야 한다. 성공하면 `{"type":"auth_ok"}`가 오고, 5초 안에 인증하지 않으면 연결을 닫는다(URL의 `?token=`은 무시한다). 이벤트는 `{"type":…,"ts":…,"payload":{…}}` 형식이며 `metric`(텔레메트리 갱신마다, `payload.vm_count`)·`job.complete`·`healing`·`anomaly`·`forecast`가 온다.
 
 ```javascript
 const ws = new WebSocket('ws://127.0.0.1:8080/api/v1/ws/events');
+ws.onopen = () => ws.send(JSON.stringify({ type: 'auth', token: TOKEN }));
 ws.onmessage = (e) => {
-    const data = JSON.parse(e.data);
-    // { type: "metrics", cpu: 45.2, mem: 62.1, ... }
+    const ev = JSON.parse(e.data);
+    // { type: "metric", ts: 1762819200, payload: { vm_count: 3 } }
 };
 ```
 
@@ -4951,12 +4944,12 @@ AWS 미사용 결정에 따라 S3 및 S3 호환 endpoint의 백업 업로드 기
 
 <a id="98-히스토리-페이지네이션-v10"></a>
 
-### 9.8 히스토리 페이지네이션 (v1.0)
+### 9.8 백업 히스토리
+
+`backup.history`(OPERATOR 이상, `vm_name` 필수)는 그 VM의 자동 백업 스냅샷 이름 목록을 한 번에 돌려준다. 페이지 인자는 없다.
 
 ```bash
-# REST — 페이지네이션
-curl -s -H "Authorization: Bearer $TOKEN" \
-  "http://127.0.0.1:8080/api/v1/backups/web-prod/history?offset=0&limit=20"
+pcvctl backup history web-prod
 ```
 
 ### 9.9 스냅샷 일괄 삭제
@@ -4964,10 +4957,11 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 prefix 필터와 keep_recent 보존 옵션을 지원하는 일괄 삭제:
 
 ```bash
-# auto- 접두사 스냅샷 중 최근 3개 보존, 나머지 삭제
+# 자동 백업 스냅샷(pcv-auto- 접두사) 중 최근 3개 보존, 나머지 삭제 (ADMIN)
+# CLI: pcvctl vm snapshot-delete-all web-prod --prefix pcv-auto- --keep 3
 echo '{"jsonrpc":"2.0","method":"vm.snapshot.delete_all","params":{
   "name":"web-prod",
-  "prefix":"auto-",
+  "prefix":"pcv-auto-",
   "keep_recent":3
 },"id":"1"}' | nc -U /var/run/purecvisor/daemon.sock
 ```
@@ -5035,7 +5029,7 @@ Bearer만 보내던 스크립트는 이제 access만 무효화된다(`scope:"acc
 
 #### PBKDF2-SHA256 패스워드 해싱 (v1.0)
 
-100,000 iterations + 32바이트 랜덤 salt. 기존 평문 패스워드는 첫 로그인 시 자동 마이그레이션된다.
+기본 600,000회 반복(`[auth] pbkdf2_iterations`로 높일 수 있고, 600,000보다 작은 값은 600,000으로 올린다) + 16바이트 랜덤 salt(16진 32자). 옛 형식(이전 해시, 반복수가 낮은 PBKDF2)으로 저장된 비밀번호는 로그인에 성공할 때 현재 반복수로 다시 저장된다.
 
 #### 로그인 실패와 잠금
 
@@ -5156,8 +5150,6 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 
 > **사용자 삭제와 인증 수단**: 사용자를 삭제하면 그 사용자의 access 토큰·refresh 세션·대기 중 로그인(pending)·WebSocket·VNC 연결이 즉시 무효가 되고, 열려 있던 WebSocket·VNC 연결은 닫힙니다. 같은 이름으로 다시 만든 사용자는 **다른 계정**이며(사용자마다 신원 세대 값이 따로 있음) 옛 토큰·refresh 세션·TOTP 등록을 물려받지 않습니다. 인증된 요청은 매번 주체가 DB에 있는지와 신원 세대가 맞는지 확인하며, 조회 자체가 실패하면 허용하지 않고 503으로 답합니다(예전의 "없는 사용자는 VIEWER" 폴백은 없습니다). API 키는 사용자 역할이 아니라 **키에 저장된 역할**로 판정하고, 업그레이드 때 저장 역할이 사용자 역할보다 높은 키는 한 번 낮춥니다(올리지는 않으며, 낮춘 키 수는 기동 로그에 남습니다). 부트스트랩 비상 토큰 발급은 중지되었습니다: 관리자 계정이 없으면 `pcvctl auth create`(UDS)로 만들거나 데몬을 재기동해 `admin_password`로 다시 시딩합니다. 이 변경을 반영한 뒤에는 모든 사용자가 **한 번 다시 로그인**해야 합니다(옛 refresh 세션은 이관 때 폐기됨).
 
-per-user 쿼터 (v1.0): 사용자별 VM 수, CPU 코어, 메모리 상한 설정 가능.
-
 ```bash
 # 전용 admin 포함 사용자 관리
 pcvctl auth list
@@ -5180,7 +5172,7 @@ REST에서 자기 역할을 바꾸는 `auth.role.set`은 거부된다(`-32602`, 
 
 #### 10.2.1 호스트 자원 등록과 테넌트 허용
 
-ADMIN이 아닌 계정(OPERATOR·VIEWER)은 요청에 넣는 **호스트 자원 참조**를 자기 **테넌트**에 허용된 등록 항목으로만 쓸 수 있다. 경로·장치 주소는 지금처럼 넘기고, 데몬이 그 값이 허용 항목과 맞을 때만 받아들인다. ADMIN은 그대로다(값을 판정하지 않고 원문을 쓴다). 설정 기본 저장 위치(`[storage] image_dir`·`zvol_pool`)와 기본 브리지(`[network] default_bridge`, 생략 기본 `virbr0`)는 등록 없이 모든 테넌트에 허용된다.
+ADMIN이 아닌 계정(OPERATOR·VIEWER)은 요청에 넣는 **호스트 자원 참조**를 자기 **테넌트**에 허용된 등록 항목으로만 쓸 수 있다. 경로·장치 주소는 지금처럼 넘기고, 데몬이 그 값이 허용 항목과 맞을 때만 받아들인다. ADMIN은 그대로다(값을 판정하지 않고 원문을 쓴다). 설정 기본 저장 위치(`[storage] image_dir`·`zvol_pool`), 기본 브리지(`[network] default_bridge`, 생략 기본 `pcvnat0`), 컨테이너 기본 브리지 `virbr0`은 등록 없이 모든 테넌트에 허용된다.
 
 | 종류 | 판정하는 요청 값 | 맞는 기준 |
 |---|---|---|
@@ -5241,14 +5233,17 @@ pcvctl resource import /tmp/resource-import.json
 해시 저장, 만료일 설정, 해지(revoke) 지원.
 
 ```bash
-# API Key 발급
-pcvctl auth apikey create --name "ci-pipeline" --expires 90d
+# API Key 발급 (ADMIN, REST·RPC 전용 — pcvctl에는 apikey 명령이 없다)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8080/api/v1/auth/apikeys \
+  -d '{"name":"ci-pipeline","role":0,"expires_at":"2027-02-09T00:00:00Z"}'
 
-# API Key 해지
-pcvctl auth apikey revoke --key-id "pk_abc123"
+# API Key 해지 (이름으로)
+curl -s -X POST -H "Authorization: Bearer $TOKEN" \
+  http://127.0.0.1:8080/api/v1/auth/apikeys/ci-pipeline/revoke
 
-# API Key로 인증
-curl -s -H "X-API-Key: pk_abc123.secret" \
+# API Key로 인증 (키는 pcv_ + 16진 64자)
+curl -s -H "X-API-Key: pcv_<16진 64자>" \
   http://127.0.0.1:8080/api/v1/vms
 ```
 
@@ -5265,10 +5260,10 @@ PureCVisor REST API는 쿠키 기반 세션을 쓰지 않고 `Authorization: Bea
 | IP 기본 | 600 | 요청/분 |
 | User 기본 | 1,200 | 요청/분 |
 | Auth 엔드포인트 | 60 | 요청/분 |
-| Metrics 엔드포인트 | 3,600 | 요청/시간 |
-| per-endpoint (v1.0) | 설정 가능 | 엔드포인트별 |
+| Metrics·Health 엔드포인트 | 3,600 | 요청/분 |
+| VM 생성(`POST /vms`) | 120 | 요청/분 |
 
-429 응답 시 `Retry-After` 헤더 포함.
+엔드포인트별 한도는 고정값이며 설정 키가 없다. 429 응답 시 `Retry-After` 헤더 포함.
 
 ### 10.6 보안 그룹
 
@@ -5278,15 +5273,12 @@ SQLite 기반 보안 그룹 CRUD + nftables 규칙 자동 적용.
 # 보안 그룹 생성
 pcvctl security-group create web-sg
 
-# 규칙 추가
-pcvctl security-group add-rule web-sg --direction ingress \
-  --protocol tcp --port 80 --source 0.0.0.0/0
-
-pcvctl security-group add-rule web-sg --direction ingress \
-  --protocol tcp --port 443 --source 0.0.0.0/0
+# 규칙 추가 (CLI의 출발지는 0.0.0.0/0 — 다른 출발지는 RPC security_group.rule.add의 source)
+pcvctl security-group rule add web-sg --direction ingress --proto tcp --port 80
+pcvctl security-group rule add web-sg --direction ingress --proto tcp --port 443
 
 # VM에 적용
-pcvctl security-group attach web-sg --vm web-prod
+pcvctl vm security-group web-prod web-sg
 ```
 
 ### 10.7 Native Host HIDS/HIPS
@@ -5504,12 +5496,12 @@ bash tests/integration/test_security_cli_surface.sh
 | 큐 | GAsyncQueue 비동기 |
 
 ```bash
-# 감사 로그 조회
-pcvctl audit list --limit 50
+# 감사 로그 조회 (ADMIN)
+pcvctl audit search --limit 50
 
 # REST
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://127.0.0.1:8080/api/v1/audit?limit=50
+  "http://127.0.0.1:8080/api/v1/audit/search?limit=50"
 ```
 
 REST 검색 조건은 쿼리로 줍니다. 허용 키는 `from_ts`, `to_ts`, `username`, `method`, `limit`, `offset`입니다. `from_ts`·`to_ts`는 감사 시각과 같은 UTC `YYYY-MM-DD HH:MM:SS` 문자열이고, `method`는 SQL LIKE 패턴입니다. `limit`은 1 이상, `offset`은 0 이상 정수입니다. 모르는 키·중복 키·형식이 틀린 값(시각의 숫자 자리에 공백·부호가 든 값 포함)은 필터 없는 결과 대신 400입니다. 응답의 `total`은 전체 일치 수가 아니라 이번에 읽은 행 수(최대 `offset+limit+1`)입니다. 다음 페이지가 있는지 알려고 한 행을 더 읽고, 그 결과가 `has_more`입니다. `items`는 `limit`만큼만 돌려줍니다.
@@ -5734,8 +5726,8 @@ Z = (현재값 - 평균) / 표준편차
 기준선 리셋 (v1.0): 배포/유지보수 후 기준선을 수동 리셋하여 오탐을 방지.
 
 ```bash
-# RPC — 기준선 리셋
-echo '{"jsonrpc":"2.0","method":"ai.baseline.reset","params":{},"id":"1"}' \
+# RPC — 기준선 리셋 (ADMIN)
+echo '{"jsonrpc":"2.0","method":"anomaly.reset_baseline","params":{},"id":"1"}' \
   | nc -U /var/run/purecvisor/daemon.sock
 ```
 
@@ -5773,7 +5765,7 @@ CPU와 메모리는 서로의 쿨다운을 소비하지 않습니다. 이 수정
 
 ### 12.4 승인 큐 (v1.0)
 
-위험도가 높은 자가치유 액션은 자동 실행하지 않고 승인 큐에 등록한다. 1시간 이내에 승인/거부하지 않으면 자동 만료.
+위험도가 높은 자가치유 액션은 자동 실행하지 않고 승인 큐에 등록한다. 승인 대기 칸은 8개이고 시간 만료는 없다. 칸이 차면 가장 오래된 미처리 건이 새 건에 밀려난다.
 
 ```bash
 # 승인 대기 목록
@@ -5870,8 +5862,8 @@ dot·NODE/VERSION/UPTIME·KVM/DISK 점검 2종), 우측에 인증 카드를 배�
 |------|------|
 | (무제) | 운영 대시보드 |
 | 워크로드 | 가상 머신(요약·콘솔·스냅샷·성능·타임라인), 컨테이너, 템플릿 |
-| 인프라 | 네트워크, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, 호스트 장치, GPU 장치, 토폴로지, 비동기 작업 관리, 호스트 상태 |
-| 관제 | 운영 개요, 이벤트 센터, 알림, 보안 이벤트, 감사 로그, 활동 로그, VM/스토리지/호스트 모니터, 히트맵, API 성능, 자가치유 |
+| 인프라 | 네트워크, Local VPC, OVN SDN, 오버레이 네트워크, 보안 그룹, 스토리지, 백업, iSCSI 타깃, DPDK, SR-IOV, 커넥션 풀, 호스트 장치, GPU 장치, 토폴로지, 호스트 상태 |
+| 관제 | 운영 개요, 이벤트 센터, 알림, 보안 이벤트, 감사 로그(ADMIN), 활동 로그, VM/스토리지/호스트 모니터, 히트맵, API 성능, 자가치유 |
 | 시스템 | 계정과 권한(ADMIN), API 관리(ADMIN), 설정 관리 |
 | 도움말 | 도움말, Swagger API |
 
@@ -5972,7 +5964,7 @@ node --check ui/app.bundle.js
 git diff --check
 ```
 
-`DESIGN.md`의 Reference Pattern Borrowing 규칙은 외부 제품의 브랜드를 복제하지 않고 운영 콘솔에 필요한 패턴만 차용하는 기준이다. 현재 샘플은 [`ui/samples/design-borrowing-mockup.html`](../ui/samples/design-borrowing-mockup.html)이며, 실제 적용 화면은 `운영 > 이벤트 센터`의 `ops-triage` 라우트다.
+`DESIGN.md`의 Reference Pattern Borrowing 규칙은 외부 제품의 브랜드를 복제하지 않고 운영 콘솔에 필요한 패턴만 차용하는 기준이다. 현재 샘플은 [`ui/samples/design-borrowing-mockup.html`](../ui/samples/design-borrowing-mockup.html)이며, 실제 적용 화면은 `관제 > 이벤트 센터`의 `ops-triage` 라우트다.
 
 ### 13.5 i18n 국제화
 
@@ -6141,10 +6133,10 @@ JWT Bearer 인증과 RBAC를 사용해 Single Edge의 VM, 컨테이너, 스토�
 
 | 항목 | 값 |
 |------|-----|
-| Base URL | `http://HOST/api/v1` |
-| 포트 | HTTP `80` / HTTPS `443` |
-| REST 엔드포인트 | 229+ |
-| JSON-RPC 메서드 | 304 (`POST /api/v1/rpc`) |
+| Base URL | `https://HOST/api/v1` |
+| 포트 | HTTPS `443`(기본). 평문 HTTP `rest_port`는 기본 `127.0.0.1`에서만 열림(`[server] bind_plaintext=all`일 때만 외부) |
+| REST 엔드포인트 | 225 (도움말 표시 기준) |
+| JSON-RPC 메서드 | 318 (`POST /api/v1/rpc`, 도움말 표시 317) |
 | WebSocket | `/api/v1/ws/events` |
 | 인증 | `Authorization: Bearer {JWT}` · JWT HS256 |
 | CSRF | 쿠키 세션 미사용. `X-CSRF-Token` 헤더 없음 |
@@ -6168,8 +6160,9 @@ PureCVisor REST API는 쿠키 세션 대신 `Authorization` header의 Bearer tok
 설정된 관리자 계정으로 access token을 발급한다.
 
 ```bash
-curl -X POST /api/v1/auth/token \
-  -d '{"username":"admin","password":"<configured-admin-password>"}'
+curl -X POST -H "Content-Type: application/json" \
+  -d '{"username":"admin","password":"<configured-admin-password>"}' \
+  https://HOST/api/v1/auth/token
 ```
 
 #### 14.2.2 토큰 사용
@@ -6178,7 +6171,7 @@ curl -X POST /api/v1/auth/token \
 
 ```bash
 curl -H "Authorization: Bearer eyJ..." \
-  /api/v1/vms
+  https://HOST/api/v1/vms
 ```
 
 #### 14.2.3 쓰기 작업
@@ -6188,7 +6181,7 @@ POST 작업도 같은 Authorization header와 역할 검사를 사용한다.
 ```bash
 curl -X POST \
   -H "Authorization: Bearer eyJ..." \
-  /api/v1/vms/web-prod/start
+  https://HOST/api/v1/vms/web-prod/start
 ```
 
 access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"eyJ..."}`를 전송해 갱신한다.
@@ -6224,19 +6217,24 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 | 엔드포인트 | 제한 |
 |-----------|------|
 | `POST /auth/token` | 60/분 |
-| `GET /metrics` | 3,600/시간 |
+| `GET /metrics`, `GET /health` | 3,600/분 |
 | `GET /vms` | 600/분 |
-| `POST /vms` | 60/분 |
+| `POST /vms` | 120/분 |
 | 기타 | 600/분(IP 기본) |
 
 #### 14.4.2 메서드별 타임아웃
 
 | 유형 | 타임아웃 |
 |------|---------|
-| 읽기(GET) | 8초 |
-| 쓰기(POST/PUT) | 30초 |
+| 기본(읽기·쓰기 공통) | 8초 |
+| `vm.create` | 30초 |
 | `vm.inspect` | 35초 bridge 대기·30초 협력적 수집 deadline |
-| 장기 작업(migrate, backup) | 60초 |
+| `vm.guest.exec` | 20초 |
+| `debug.trace.report` | 40초 |
+| `zfs.*`, `backup.restore` | 60초 |
+| `container.exec` | 65초 |
+| `webhook.dlq.retry` | 70초 |
+| `container.snapshot.rollback` | 75초 |
 
 ### 14.5 엔드포인트와 응답
 
@@ -6245,8 +6243,8 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 | 인증 | `POST /auth/token`, `POST /auth/refresh` | access/refresh token 발급과 갱신 |
 | VM | `GET/POST /vms`, `/vms/{name}/start`, `/stop`, `DELETE /vms/{name}` | 목록·생성·수명주기. 삭제 상태는 `GET /vms/{name}/delete-status` |
 | 컨테이너 | `GET/POST /containers`, `/containers/{name}/exec` | 목록·생성·명령 실행 |
-| 모니터링 | `GET /host/metrics`, `/processes`, `/alerts` | 호스트 메트릭·프로세스·알림 히스토리 |
-| Prometheus | `GET /metrics` | 인증 없는 Prometheus 메트릭 |
+| 모니터링 | `GET /monitor/metrics`, `/monitor/fleet`, `/processes`, `/alerts` | VM 메트릭·플릿 통계·호스트 프로세스·알림 히스토리 |
+| Prometheus | `GET /metrics` | Prometheus 메트릭. 기본(`[metrics] auth=loopback`)은 같은 호스트의 직접 접속만 무인증, 원격은 Bearer 토큰 필요(`required`·`none`으로 조정) |
 | Health | `GET /health` | 인증 없는 심층 프로브. `status`와 `libvirt`, `etcd`, `disk`, `audit_db`, `tls`, `capabilities` 하위 상태 반환 |
 
 Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 마이그레이션 REST 절차를 운영 표면으로 제공하지 않는다. 관련 역사 기록은 `docs/adr/`와 Multi 범위 문서에서만 확인한다.
@@ -6259,7 +6257,7 @@ Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://HOST/api/v1/vms | jq
+  https://HOST/api/v1/vms | jq
 ```
 
 #### 14.6.2 VM 생성
@@ -6268,7 +6266,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"name":"web","vcpu":2,"memory_mb":2048,"disk_size_gb":20}' \
-  http://HOST/api/v1/vms
+  https://HOST/api/v1/vms
 ```
 
 #### 14.6.3 스냅샷 생성
@@ -6276,7 +6274,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{"snap_name":"backup-1"}' \
-  http://HOST/api/v1/vms/web/snapshot/create
+  https://HOST/api/v1/vms/web/snapshot/create
 ```
 
 #### 14.6.4 컨테이너 실행
@@ -6284,19 +6282,20 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{"command":"hostname -I"}' \
-  http://HOST/api/v1/containers/app-ctr/exec
+  https://HOST/api/v1/containers/app-ctr/exec
 ```
 
 #### 14.6.5 비동기 작업 조회
 
 ```bash
-curl -H "Authorization: Bearer $TOKEN" http://HOST/api/v1/jobs
+curl -H "Authorization: Bearer $TOKEN" https://HOST/api/v1/jobs
 ```
 
 #### 14.6.6 WebSocket 이벤트
 
 ```bash
-wscat -c "ws://HOST/api/v1/ws/events?token=$TOKEN"
+wscat -c "wss://HOST/api/v1/ws/events"
+# 연결 뒤 첫 메시지로 {"type":"auth","token":"<JWT>"}를 보내 인증한다
 ```
 
 ### 14.7 브라우저 푸시 (SP2b)
@@ -6313,7 +6312,7 @@ wscat -c "ws://HOST/api/v1/ws/events?token=$TOKEN"
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://HOST/api/v1/push/vapid
+  https://HOST/api/v1/push/vapid
 ```
 
 응답:
@@ -6331,7 +6330,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/cXY..",
        "keys":{"p256dh":"BN1n..","auth":"k9Xz.."}}' \
-  http://HOST/api/v1/push/subscribe
+  https://HOST/api/v1/push/subscribe
 ```
 
 응답:
@@ -6347,7 +6346,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{"endpoint":"https://fcm.googleapis.com/fcm/send/cXY.."}' \
-  http://HOST/api/v1/push/unsubscribe
+  https://HOST/api/v1/push/unsubscribe
 ```
 
 응답:
@@ -6362,7 +6361,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 
 ```bash
 curl -s -H "Authorization: Bearer $TOKEN" \
-  http://HOST/api/v1/push/subscriptions
+  https://HOST/api/v1/push/subscriptions
 ```
 
 응답:
@@ -6379,7 +6378,7 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
-  http://HOST/api/v1/push/vapid/rotate
+  https://HOST/api/v1/push/vapid/rotate
 ```
 
 응답:
@@ -6395,7 +6394,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 ```bash
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -d '{"username":"admin"}' \
-  http://HOST/api/v1/push/test
+  https://HOST/api/v1/push/test
 ```
 
 응답:
@@ -6414,7 +6413,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"tenant_overlay.create","params":{"tenant":"acme"},"id":"1"}' \
-  http://HOST/api/v1/rpc
+  https://HOST/api/v1/rpc
 ```
 
 #### 14.8.2 테넌트 QoS 설정
@@ -6423,7 +6422,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"qos.tenant.set","params":{"tenant":"acme","min_mbps":100,"max_mbps":1000},"id":"1"}' \
-  http://HOST/api/v1/rpc
+  https://HOST/api/v1/rpc
 ```
 
 #### 14.8.3 Suricata IPS 활성화
@@ -6432,7 +6431,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"suricata.ips.enable","params":{},"id":"1"}' \
-  http://HOST/api/v1/rpc
+  https://HOST/api/v1/rpc
 ```
 
 #### 14.8.4 트래픽 트레이스 시작
@@ -6441,7 +6440,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 curl -X POST -H "Authorization: Bearer $TOKEN" \
   -H "Content-Type: application/json" \
   -d '{"jsonrpc":"2.0","method":"debug.trace.start","params":{"timebox_sec":30,"tenant":"acme"},"id":"1"}' \
-  http://HOST/api/v1/rpc
+  https://HOST/api/v1/rpc
 ```
 
 ---
@@ -6455,7 +6454,7 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 | 바이너리 | `bin/pcvctl` |
 | 커맨드 수 | 194 (`routes[]` 기준) |
 | 모드 | readline REPL + 배치 |
-| 자동완성 | bash/zsh (`make install-completion`) |
+| 자동완성 | 대화형 셸(`pcvctl -i`)의 Tab 완성. 공개 소스에는 bash/zsh 자동완성 스크립트가 없음 |
 | 소켓 | `/var/run/purecvisor/daemon.sock` |
 
 ```bash
@@ -6544,9 +6543,9 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | `container start <name>` | 시작 |
 | `container stop <name>` | 중지 |
 | `container destroy <name>` | 삭제 |
-| `container exec <name> -- <cmd>` | 명령 실행 |
+| `container exec <name> "<cmd>"` | 명령 실행 |
 | `container metrics <name>` | 메트릭 |
-| `container snapshot <name> <snap>` | 스냅샷 |
+| `container snapshot create <name> <snap>` | 스냅샷 생성(`list`·`rollback`·`delete`도 같은 형식) |
 
 #### 네트워크 (20+)
 
@@ -6560,9 +6559,6 @@ pcvctl vm create web-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 50 \
 | `network delete <name>` | 브릿지 삭제 |
 | `network mode <name> <nat\|isolated\|routed> <cidr>` | 브릿지 모드·대역 수정(canonical) |
 | `network dhcp <name> --enable\|--disable` | 브릿지 DHCP 토글 |
-| `firewall list` | 방화벽 규칙 |
-| `firewall add --vm <name> --port <port> --action accept` | 규칙 추가 |
-| `overlay list` | OVS 오버레이 |
 | `ovn status` | OVN 상태 |
 | `ovn switch list` | 논리 스위치 |
 | `ovn router list` | 논리 라우터 |
@@ -6578,8 +6574,6 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 |--------|------|
 | `storage pool list` | ZFS 풀 목록 |
 | `storage zvol list` | zvol 목록 |
-| `iscsi target list` | iSCSI 타겟 |
-| `iscsi target create --pool <p> --name <n> --size <s>` | iSCSI 생성 |
 
 #### 클러스터 (범위 밖 참고)
 
@@ -6607,7 +6601,7 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `auth delete <user>` | 사용자 삭제 |
 | (CLI 명령 없음) RPC/REST `auth.apikey.create` | API Key 생성. `role`을 생략하면 1(OPERATOR)이므로 원격 Prometheus용은 `role: 0`(viewer)을 명시해 `Authorization: Bearer`로 사용 |
 | `security-group create <name>` | 보안 그룹 |
-| `security-group add-rule <sg> ...` | 규칙 추가 |
+| `security-group rule add <name> --direction ingress\|egress --proto tcp --port 80` | 규칙 추가 |
 
 #### 모니터링 & 알림 (10+)
 
@@ -6616,7 +6610,7 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `monitor processes --top N` | 프로세스 Top N |
 | `alert list` | 알림 히스토리 |
 | `alert config` | 알림 설정 조회 |
-| `alert set --cpu-warn 80 --cpu-crit 95` | 알림 임계값 |
+| `alert set --cpu_warn 80 --cpu_crit 95` | 알림 임계값 |
 
 #### 백업 (5+)
 
@@ -6628,7 +6622,7 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 
 #### 비동기 작업
 
-`jobs.list/get/cancel`로 공통 작업을 조회·취소합니다. AWS 수동 이관 명령은 제거했습니다.
+CLI는 `pcvctl job list`로 목록을 보고, 조회·취소는 RPC `jobs.get`·`jobs.cancel`을 씁니다. AWS 수동 이관 명령은 제거했습니다.
 
 #### AI Agent (5+)
 
@@ -6656,24 +6650,12 @@ bridge는 live 모드 변경을 지원하지 않으며 안전한 삭제·재생�
 | `host devices [--all]` | 호스트 GPU·USB·블루투스 장치와 VM 할당 표 (`--all` 숨김 행 포함, JSON은 `--format=json`) |
 | `gpu attach <vm> <pci>` | 정지 VM에 사전 VFIO GPU group 할당 |
 | `gpu detach <vm> <pci>` | 정지 VM에서 GPU group 제거 |
-| `audit list --limit N` | 감사 로그 |
+| `audit search [--user U] [--from T] [--to T] [--method M] [--limit N]` | 감사 로그 검색 |
 | `federation site join <url>` | 페더레이션 가입 |
 
-### 15.3 자동완성 설치
+### 15.3 자동완성
 
-```bash
-# 시스템 설치 (root)
-sudo make install-completion
-
-# 사용자 로컬 설치
-make install-completion-user
-
-# 수동 bash
-source completion/pcvctl-completion.bash
-
-# 수동 zsh
-source completion/_pcvctl
-```
+공개 소스에는 자동완성 스크립트가 포함돼 있지 않다. 명령 자동완성은 `sudo pcvctl --interactive`(`-i`) 대화형 셸에서 Tab으로 쓴다.
 
 ---
 
@@ -7012,7 +6994,7 @@ raw 숫자 리터럴로 별도 의미를 만들지 않습니다.
 | qemu-system-x86 / ovmf | QEMU/KVM 하이퍼바이저와 UEFI firmware |
 | libguestfs-tools | 일반 VM 복제 Guest reset 도구 묶음 |
 | zfsutils-linux | ZFS 파일시스템 |
-| lxc / lxc-utils | LXC 컨테이너 런타임 |
+| lxc | LXC 컨테이너 런타임(`lxc-attach` 등 도구 포함) |
 | openvswitch-switch | OVS 가상 스위치 |
 | ovn-central / ovn-host | 선택형 Local OVN control plane과 host controller |
 | (패키지 없음 — 커널 LIO) | iSCSI 타겟. D4 전환으로 `tgt` 의존 제거. `/etc/modules-load.d/purecvisor-lio.conf` 로 모듈만 확보한다 — **deb 가 conffile 로 설치한다**(D4-F6 해소). deb 를 쓰지 않는 배포에서만 운영자가 직접 만든다 |
@@ -7096,7 +7078,7 @@ UI 512 PASS·게이트 40)은 22.8절, 2026-08-31 C 1,375/1,375·게이트 38/38
 |------|--------------------------|
 | 신규 개발자 | 저장소 경계, 핵심 모듈, 먼저 읽을 문서, 최소 빌드/테스트 루틴 |
 | 백엔드 엔지니어 | RPC 추가/변경, RBAC, fire-and-forget, audit, libvirt/ZFS/LXC 연동 규칙 |
-| 프론트엔드 엔지니어 | Vanilla JS 모듈 구조, `PCV.*` 네임스페이스, `EP` 엔드포인트 레지스트리, sanitizer 규칙 |
+| 프론트엔드 엔지니어 | Vanilla JS 모듈 구조, `PCV.*` 네임스페이스, `EP` 엔드포인트 레지스트리, 안전한 DOM 노드 빌더(`PCV.uxlib.el`·`HN`) 규칙 |
 | 운영/SRE | systemd, 로그, 헬스 체크, libvirt/ZFS/OVS 상태 확인, 장애 증거 수집 |
 | 릴리스 담당 | Single Edge 공개 범위, 검증 명령, 문서/배포 산출물 동기화 |
 
@@ -7120,7 +7102,7 @@ UI 512 PASS·게이트 40)은 22.8절, 2026-08-31 C 1,375/1,375·게이트 38/38
 - destructive RPC는 가능하면 멱등성을 유지한다. 실패 경로는 생성된 dataset/file/domain을 best-effort로 정리해야 한다.
 - `system()`과 `popen()`은 사용하지 않는다. 외부 명령은 `pcv_spawn_sync()` 또는 `pcv_spawn_pipe_sync()`에 argv 배열로 넘긴다.
 - VM/템플릿 이름은 핸들러 진입점에서 검증 함수를 거친다.
-- UI 모듈은 `PCV.*` 네임스페이스와 `ui/modules/endpoints.js`의 `EP` 레지스트리를 사용한다. `innerHTML` 대입은 sanitizer 또는 escape helper를 거친다.
+- UI 모듈은 `PCV.*` 네임스페이스와 `ui/modules/endpoints.js`의 `EP` 레지스트리를 사용한다. DOM은 `innerHTML` 없이 `PCV.uxlib.el`·`HN` 노드 빌더와 `textContent`로 조립한다.
 
 ### 19.4 변경 작업 표준 흐름
 
@@ -7253,7 +7235,7 @@ PureCVisor Single Edge는 단일 서버 운영에 필요한 VM, 컨테이너, ZF
 |------|--------|-----------|
 | 인프라 운영자 | 반복 작업과 장애 대응 | VM lifecycle, snapshot, clone, audit, Web UI를 한 콘솔에서 처리한다. |
 | 개발팀 리더 | 테스트 환경 생성 속도 | REST API와 clone/snapshot으로 검증 환경을 반복 생성할 수 있다. |
-| 보안 담당 | 권한과 추적성 | JWT, RBAC, owner-scope, audit log, SSH allow list 같은 운영 통제가 있다. |
+| 보안 담당 | 권한과 추적성 | JWT, RBAC, owner-scope, audit log, 보안 그룹 같은 운영 통제가 있다. |
 | 의사결정자 | 비용과 복잡도 | 단일 서버 운영에 맞춘 경량 제어면으로 과도한 클러스터 도입을 피한다. |
 
 ### 20.6 반론 대응
@@ -7289,7 +7271,7 @@ PureCVisor Single Edge는 단일 서버 운영에 필요한 VM, 컨테이너, ZF
 - 기능 목록: VM, container, ZFS, network, monitoring, backup, REST, Web UI
 - 검증 근거: 현재 가이드와 운영 기록의 날짜 기준
 - 데모 준비: source VM 상태, template prepared 여부, `libguestfs-tools` 설치 여부
-- 보안 설명: RBAC, audit, SSH allow list, 기본 admin 교체 권장
+- 보안 설명: RBAC, audit, 보안 그룹, 기본 admin 교체 권장
 - 후속 질문 대응: 클러스터, guest reset 경계
 
 ### 20.9 고객 질문 스크립트
@@ -7369,10 +7351,10 @@ HTTP 요청 도착
 | 함수 | 역할 | 사용 예시 |
 |------|------|----------|
 | `pcv_compute_etag(body, len)` | 응답 본문의 MD5 ETag 생성 | GET 응답 캐싱 (304 Not Modified) |
-| `pcv_validate_required(params, keys)` | 필수 파라미터 검증 | RPC 파라미터 체크 |
-| `pcv_get_endpoint_rate_limit(path)` | 엔드포인트별 Rate Limit 티어 | `/auth/*` 60, `/metrics` 3600 |
+| `pcv_validate_required(msg, body, fields, count)` | 필수 파라미터 검증 | REST 본문 필드 체크 |
+| `pcv_get_endpoint_rate_limit(path, http_method)` | 엔드포인트별 Rate Limit 티어 | `/auth/*` 60, `/metrics` 3600 |
 | `pcv_get_rpc_timeout(method)` | RPC 메서드별 타임아웃 | `vm.create` 30초, `vm.list` 8초 |
-| `pcv_rest_error(msg, code, status, body)` | REST 에러 응답 생성 | 인증 실패, 파라미터 오류 |
+| `pcv_rest_error(msg, status, code, detail)` | REST 에러 응답 생성 | 인증 실패, 파라미터 오류 |
 
 #### Rate Limit 티어
 
@@ -7401,10 +7383,13 @@ dispatcher.c → handler_vm_lifecycle.c → vm_ops.c
 
 ```c
 typedef struct {
-    gchar    *sock_path;    // UDS 소켓 경로
-    gboolean  color;        // 터미널 색상 출력 여부 (isatty 검사)
-    gboolean  json_mode;    // --json 플래그
-    gboolean  csv_mode;     // --csv 플래그
+    OutputFormat  fmt;              // --format=table|json|plain|csv
+    bool          interactive;      // --interactive, -i
+    bool          batch;            // --batch
+    bool          no_color;         // --no-color
+    bool          verbose;          // --verbose, -v
+    const char   *socket_path;      // --socket=<path>
+    PcvCliExitStatus command_status; // 명령 종료 상태(0/1/2)
 } PcvCtx;
 
 // 글로벌: 모든 CLI 커맨드에서 공유
@@ -7414,8 +7399,8 @@ extern PcvCtx g_ctx;
 #### 색상 조건부 출력
 
 ```c
-// cc()/ce(): 터미널이 아니면 (파이프 출력) 색상 코드를 비활성화
-printf("%sVM 시작됨%s\n", cc(GREEN), ce());  // 터미널: 초록색 / 파이프: 무색
+// cc()는 stdout, ce()는 stderr용: --no-color이거나 터미널이 아니면 (파이프 출력) 빈 문자열
+printf("%sVM 시작됨%s\n", cc(CYBER_GREEN), cc(CYBER_RESET));  // 터미널: 초록색 / 파이프: 무색
 ```
 
 ### 21.4 CLI 출력 포맷터 (`src/cli/cli_output.c`)
@@ -7425,15 +7410,16 @@ CLI의 **구조화된 출력 시스템**입니다.
 #### PcvTable 시스템
 
 ```c
-// 사용 예시: VM 목록 테이블 출력
-PcvTable *t = ptbl_new(4, "NAME", "STATE", "CPU", "MEM");
+// 사용 예시: --format=plain|csv 일 때 VM 목록 출력
+const char *hdrs[] = {"NAME", "STATE", "CPU", "MEM"};
+PcvTable *t = ptbl_new(hdrs, 4);
 ptbl_row(t, "web-prod", "running", "2.5%", "1.2G");
 ptbl_row(t, "db-prod",  "stopped", "-",    "4.0G");
 
-if (g_ctx.csv_mode)
+if (g_ctx.fmt == FMT_CSV)
     ptbl_print_csv(t);    // NAME,STATE,CPU,MEM\nweb-prod,running,...
 else
-    ptbl_print_plain(t);  // 정렬된 컬럼 출력
+    ptbl_print_plain(t);  // 헤더 없는 탭 구분 행
 
 ptbl_free(t);
 ```
@@ -7442,10 +7428,10 @@ ptbl_free(t);
 
 | 모드 | 플래그 | 형식 |
 |------|--------|------|
-| 테이블 | (기본) | 정렬된 컬럼 + 색상 |
-| JSON | `--json` | raw JSON 응답 |
-| CSV | `--csv` | RFC 4180 CSV |
-| Plain | 파이프 시 | 색상 없는 테이블 |
+| 테이블 | (기본) `--format=table` | 정렬된 컬럼 + 색상(터미널이 아니거나 `--no-color`면 색상 없음) |
+| JSON | `--format=json` | raw JSON 응답 |
+| CSV | `--format=csv` | RFC 4180 CSV |
+| Plain | `--format=plain` | 색상·테두리 없는 탭 구분 출력 |
 
 ### 21.5 디스패처 핸들러 시그니처 (`src/api/dispatcher.c`, `src/modules/dispatcher/handler_*.c`)
 
@@ -7586,7 +7572,7 @@ make -j1 check-all
 | `check-safety-controls` | 안전통제 효과 테스트 레지스트리 |
 | `check-error-codes` | raw 에러코드 리터럴 방지 (DISP-6) |
 | `check-cli-exit-status` | `pcvctl` 성공·실패·사용법 오류 0/1/2와 VPC terminal Job 효과 |
-| `check-audit-placement` | audit 배치 계약 (ADR-0018). Job 스키마 복원 계약 시험 포함(이전 revision을 `git show`로 읽으며, 그 이력이 없는 트리·얕은 clone에서는 사유를 남기고 건너뜀) |
+| `check-audit-placement` | audit 배치 계약 (ADR-0018). Job 스키마 복원 계약 시험 포함(이전 판 Job 코드는 `tests/fixtures/job_queue_previous/`의 고정 사본으로 빌드해 대조하며, 사본이 없으면 실패) |
 | `check-cors-anchor` | CORS 오리진 앵커 (A05·V3·V13). REST 요청 경로 계약 시험 2종(cleanup 초기화·segs 경계) 포함 |
 | `check-secret-logging` | 감사 로그 자격증명 마스킹 (A09·V14·V16) |
 | `check-ssrf-guard` | 아웃바운드 리다이렉트 금지 (A10·V4) |
@@ -7637,8 +7623,8 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 1. `handler_xxx.h`에 함수 선언
 2. `handler_xxx.c`에 핸들러 구현
-3. `dispatcher.c` 라우트 등록 (`g_hash_table_insert`)
-4. `Makefile` DAEMON_SRCS에 소스 등록
+3. `dispatcher.c` 라우트 등록(`g_hash_table_insert`)과 `src/api/dispatcher_policy.c` 정책표(`g_method_policies`)에 역할 행 추가 — 정책 행이 없으면 ADMIN 전용으로 잠긴다(ADR-0079)
+4. `Makefile`의 `DAEMON_COMMON_SRCS`에 소스 등록(`DAEMON_SRCS`가 이를 포함)
 5. `make clean && make all` — 경고 0 확인
 6. `nc -U` 수동 RPC 테스트
 7. REST 필요 시 매핑 사슬(`rest_map_compute.c`·`rest_map_observe.c`·`rest_map_platform.c` 중 그 리소스 묶음)에 라우팅 추가
