@@ -47,7 +47,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
 
-skip() { echo -e "${YELLOW}[SKIP]${NC} 게이트#2/DISP-1 E2E: $*"; exit 0; }
+skip() { echo -e "${YELLOW}[SKIP]${NC} 게이트#2 JSON ingress E2E: $*"; exit 0; }
 
                                                              
 command -v bwrap    >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
@@ -233,7 +233,7 @@ post_body_file_code() {
 }
 
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  게이트#2 JSON ingress / DISP-1 크래시0 E2E         ${NC}"
+echo -e "${CYAN}  게이트#2 JSON ingress 크래시0 E2E                  ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
 echo -e "${CYAN}  port=$PORT  ws=$WS_URL${NC}"
 echo -e "${CYAN}  state=$STATE${NC}"
@@ -278,9 +278,9 @@ alive_after_deep=no; hc_after_deep=000
 daemon_alive && alive_after_deep=yes
 hc_after_deep="$(health_code)"
 if [ "$alive_after_deep" = "yes" ] && [ "$hc_after_deep" = "200" ]; then
-    pass "A3(DISP-1 핵심): 깊은 중첩($DEEP_N) 사전인증 WS 프레임 후 데몬 생존(pid alive) + 계속 서빙(health=$hc_after_deep)"
+    pass "A3(핵심): 깊은 중첩($DEEP_N) 사전인증 WS 프레임 후 데몬 생존(pid alive) + 계속 서빙(health=$hc_after_deep)"
 else
-    fail "A3(DISP-1 핵심): deep 프레임 후 데몬 crash 의심 (alive=$alive_after_deep health=$hc_after_deep) — 가드 미적용/스택오버플로우"
+    fail "A3(핵심): deep 프레임 후 데몬 crash 의심 (alive=$alive_after_deep health=$hc_after_deep) — 가드 미적용/스택오버플로우"
     echo "---- daemon.log (마지막 20줄) ----"; tail -20 "$STATE/daemon.log" 2>/dev/null
 fi
 

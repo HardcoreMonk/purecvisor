@@ -6,7 +6,7 @@
 #   EP.NAME[VERB] — REST 본문 호출, NAME 은 ui/modules/endpoints.js 레지스트리 키
 #   a.b.c         — 직접 JSON-RPC 호출의 메서드명
 # 사유는 손으로 적는다. --generate 는 살아남은 항목의 사유를 그대로 옮겨 적는다.
-EP.ALERTS_CONFIG[PUT]            # applyAlertConfig 본문이 _readAlertForm() 반환값이라 키를 못 본다. 화면 본문은 test_sec_consistency.sh 가 격리 데몬에 넣어 본다 (monitor.js)
+EP.ALERTS_CONFIG[PUT]            # applyAlertConfig 본문이 _readAlertForm() 반환값이라 키를 못 본다. 화면 본문 키는 tests/ui/monitor-alerts.test.mjs 가 브라우저에서 잡아 본다 (monitor.js)
 EP.AUTH_APIKEY_REVOKE[POST]      # REST 가 본문 폐기, client_name 은 경로 세그먼트 (rest_map_platform.c)
 EP.AUTH_TOTP_DISABLE[POST]       # 핸들러 auth.totp.disable 가 params 를 _totp_self_scope_resolve 로 통째 전달 (handler_auth.c)
 EP.AUTH_TOTP_ENROLL[POST]        # REST-native 핸들러 — 대응 dispatcher RPC 없음 (rest_auth_endpoints.c)
