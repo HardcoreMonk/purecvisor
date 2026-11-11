@@ -1698,7 +1698,7 @@ pcvctl vm create db-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 100 --storage_
 # ZFS zvol 저장 위치 지정
 pcvctl vm create db-prod --vcpu 4 --memory_mb 8192 --disk_size_gb 100 --storage_type zvol --storage_pool tank/vms
 
-# qcow2 (ZFS 풀 없는 localhost 또는 파일 디스크가 필요한 경우)
+# qcow2 (ZFS 풀이 없는 호스트 또는 파일 디스크가 필요한 경우)
 pcvctl vm create dev-vm --vcpu 2 --memory_mb 4096 --disk_size_gb 50 --storage_type qcow2
 
 # qcow2 저장 디렉터리 지정
@@ -1760,7 +1760,6 @@ echo '{"jsonrpc":"2.0","method":"vm.create","params":{
   "vcpu": 2,
   "memory_mb": 2048,
   "disk_size_gb": 20,
-  "os_variant": "ubuntu24.04",
   "storage_type": "zvol",
   "storage_pool": "tank/vms",
   "network_bridge": "pcvnat0",
@@ -2480,7 +2479,7 @@ sudo systemctl enable --now qemu-guest-agent
 
 #### 에이전트 IP 조회와 `ip_source`
 
-`monitor.fleet`(모니터 화면·`/metrics`)과 `device.nic.list`는 메인 루프에서 게스트 에이전트를 직접 기다리지 않는다. 에이전트가 알려 주는 IP는 데몬이 메인 루프 밖에서 5초 상한으로 조회해 VM별로 캐시하고(60초 동안 신선), 응답하지 않는 에이전트는 60초부터 두 배씩(최대 600초) 간격을 두고 다시 묻는다. 그래서:
+`monitor.fleet`(모니터 화면·`/api/v1/metrics`)과 `device.nic.list`는 메인 루프에서 게스트 에이전트를 직접 기다리지 않는다. 에이전트가 알려 주는 IP는 데몬이 메인 루프 밖에서 5초 상한으로 조회해 VM별로 캐시하고(60초 동안 신선), 응답하지 않는 에이전트는 60초부터 두 배씩(최대 600초) 간격을 두고 다시 묻는다. 그래서:
 
 - libvirt lease가 없고 에이전트만 IP를 아는 VM은 **시작 직후 첫 조회에서 IP가 비거나 ARP 값이 나오고, 한 폴링 주기(약 30초) 늦게** 에이전트 IP가 보인다.
 - `monitor.fleet`의 VM 항목에 `ip_source`가 더해졌다: `lease`(libvirt DHCP lease), `guest-agent`(에이전트 캐시), `lease-file`(dnsmasq lease 파일), `arp`(호스트 ARP 표), 못 찾으면 빈 문자열(이때 `ip`는 `N/A`). `device.nic.list`의 `ip_source`는 값 이름은 같고 `guest-agent`가 캐시에서 온 결과를 뜻한다.
@@ -2534,8 +2533,8 @@ pcvctl monitor fleet
 ```
  ENTITY_ID            │ LIFELINE   │ CPU_TIME │   MEM%
 ──────────────────────┼────────────┼──────────┼────────
- example-vm-source             │ RUNNING    │    63.0s │  26.4%
- fitlog               │ RUNNING    │    50.7s │  17.2%
+ example-vm-source    │ RUNNING    │    63.0s │  26.4%
+ example-vm-app       │ RUNNING    │    50.7s │  17.2%
 ```
 
 PLAIN/CSV(`--format=plain`/`--format=csv`)는 헤더가 `NAME,STATE,CPU_TIME,MEM%`로 바뀐다. CPU_TIME은 누적
@@ -5140,14 +5139,14 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 권장 순서:
 1. `admin_password`를 명시 설정한 뒤 bootstrap admin으로 첫 로그인
 2. **시스템 > 계정과 권한** 화면에서 전용 admin을 생성하고 해당 계정의 로그인을 확인
-3. bootstrap admin 본인으로 로그인해 사용자 메뉴의 **비밀번호 변경**을 사용. API는 `POST /api/v1/auth/password`이며 Bearer 토큰과 `old_password`·`new_password`가 필요
+3. bootstrap admin 본인으로 로그인해 상단 오른쪽 사용자 이름 옆 **PW** 버튼(비밀번호 변경)을 사용. API는 `POST /api/v1/auth/password`이며 Bearer 토큰과 `old_password`·`new_password`가 필요
 4. 이후 일상 운영과 API 사용은 전용 admin으로 수행
 
 비밀번호 변경은 새 해시·salt 저장과 기존 **refresh 세션 폐기**를 하나의 DB 트랜잭션으로 처리합니다. 어느 단계든 실패하면 전체 변경을 취소합니다. 이미 발급된 access 토큰은 원래 만료까지 최대 15분 유효하며, 현재 브라우저는 변경 후 다시 로그인합니다. 등록된 bootstrap admin에도 TOTP 확인·역할별 등록 의무가 동일하게 적용됩니다.
 
 > **초기 설정값 정리(선택)**: 전용 admin의 정상 로그인을 확인한 뒤 `admin_password=`를 비우면 설정에 평문 비밀번호를 남기지 않을 수 있습니다. 이는 새 bootstrap 생성(기동 때 `admin_password`로 관리자 행을 시딩)을 중지하며, **이미 생성된 계정을 삭제하거나 비활성화하지 않습니다**. 예전에 있던 "DB에 계정이 없을 때 설정값으로 비상 토큰을 발급하는 fallback"은 없어졌습니다(아래 "사용자 삭제와 인증 수단"). 비밀번호를 분실한 기존 계정은 설정값을 다시 넣고 재시작해도 초기화되지 않습니다. DB 직접 UPDATE 대신 정상 로그인 상태에서 위 변경 API를 사용합니다.
 >
-> **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 `chmod 600 root:root`** 여야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
+> **⚠️ 파일 권한**: `daemon.conf`는 `admin_password` 등 자격증명을 담으므로 **반드시 소유자 `root:root`, 권한 `0600`**(`chown root:root` + `chmod 600`)이어야 한다(world-readable 금지). `.deb` 설치는 postinst가 자동으로 `0600`을 강제한다. 소스/수동 설치 시 직접 확인할 것.
 
 > **사용자 삭제와 인증 수단**: 사용자를 삭제하면 그 사용자의 access 토큰·refresh 세션·대기 중 로그인(pending)·WebSocket·VNC 연결이 즉시 무효가 되고, 열려 있던 WebSocket·VNC 연결은 닫힙니다. 같은 이름으로 다시 만든 사용자는 **다른 계정**이며(사용자마다 신원 세대 값이 따로 있음) 옛 토큰·refresh 세션·TOTP 등록을 물려받지 않습니다. 인증된 요청은 매번 주체가 DB에 있는지와 신원 세대가 맞는지 확인하며, 조회 자체가 실패하면 허용하지 않고 503으로 답합니다(예전의 "없는 사용자는 VIEWER" 폴백은 없습니다). API 키는 사용자 역할이 아니라 **키에 저장된 역할**로 판정하고, 업그레이드 때 저장 역할이 사용자 역할보다 높은 키는 한 번 낮춥니다(올리지는 않으며, 낮춘 키 수는 기동 로그에 남습니다). 부트스트랩 비상 토큰 발급은 중지되었습니다: 관리자 계정이 없으면 `pcvctl auth create`(UDS)로 만들거나 데몬을 재기동해 `admin_password`로 다시 시딩합니다. 이 변경을 반영한 뒤에는 모든 사용자가 **한 번 다시 로그인**해야 합니다(옛 refresh 세션은 이관 때 폐기됨).
 
@@ -5321,7 +5320,7 @@ HIPS는 자동 차단 제품처럼 동작하지 않는다. v1에서 승인 후 �
 LSM은 열린 경로 문자열만 보므로, 운영 서비스가 아닌 곳(격리 시험 데몬의 샌드박스 등)이 감시 경로와 같은 이름의 파일을 열어도 사건이 만들어졌습니다. 이제 열린 파일이 tmpfs에 있으면 `file_open` 사건에 그 파일시스템의 superblock 장치를 함께 담고, 데몬이 `/proc/self/mountinfo`로 감시 경로가 놓인 장치 집합을 유지합니다. tmpfs 파일의 장치가 그 집합에 없으면(감시 경로와 무관한 tmpfs에 있는 같은 이름 파일) 보안 사건으로 올리지 않고 카운터로만 셉니다. tmpfs는 자기 내용만 담아 호스트 실물을 드러낼 수 없기 때문입니다.
 
 - tmpfs가 아닌 파일시스템(overlay 포함)은 장치를 담지 않고 **그대로 사건**이 됩니다. overlay처럼 아래층의 실물을 드러낼 수 있는 파일시스템을 다른 파일로 치지 않기 위해서입니다.
-- 이 구분에는 2.1.0 릴리스의 선택형 BPF tarball에 든 객체가 필요합니다. 사건 레코드 크기(304바이트)와 경로 위치는 그대로이므로 2.0.4 객체도 그대로 적재되며, 그 객체는 장치 필드를 0으로 채워 모든 열기가 이전처럼 사건으로 제출됩니다.
+- 이 구분에는 2.1.0 이후 릴리스(2.2.0 포함)의 선택형 BPF tarball에 든 객체가 필요합니다. 사건 레코드 크기(304바이트)와 경로 위치는 그대로이므로 2.0.4 객체도 그대로 적재되며, 그 객체는 장치 필드를 0으로 채워 모든 열기가 이전처럼 사건으로 제출됩니다.
 
 - 카운터는 지표 `pcv_bpf_lsm_foreign_fs_total`로 노출됩니다. 첫 건에만 INFO 로그가 한 번 남습니다.
 - 감시 경로 아래에 새 마운트가 생기거나 사라지면(`mountinfo` 변경 통지) 집합을 다시 만듭니다. 장치를 알 수 없는 열기와 `bprm_check_security` 사건은 지금까지처럼 사건으로 제출됩니다.
@@ -5681,7 +5680,7 @@ PureCVisor AI Agent는 복수의 AI 프로바이더에 동시 질의하여 합�
 
 #### 가중 쿼럼 (v1.0)
 
-프로바이더별 가중치를 부여하여, 가중 합산이 60% 초과 시 합의 성립. 가중치는 데몬에 고정된 값(Claude·OpenAI 1.0, Gemini 0.9, Ollama 0.7)이라 설정으로 바꾸지 않습니다.
+프로바이더별 가중치를 부여하여, 가중 합산이 60% 이상이면 합의 성립. 가중치는 데몬에 고정된 값(Claude·OpenAI 1.0, Gemini 0.9, Ollama 0.7)이라 설정으로 바꾸지 않습니다.
 
 ```bash
 # AI Agent 설정
@@ -5975,7 +5974,7 @@ git diff --check
 |------|-----|
 | 지원 언어 | 한국어 (ko), English (en) |
 | 키 수 | 280+ |
-| HTML data-i18n | 86개 요소 |
+| HTML data-i18n | 6개 요소 |
 | 전환 함수 | `t(key)` / `applyI18n()` |
 | 즉시 전환 | 새로고침 불필요 |
 | 전환 위치 | 상단 우측 톱니(⚙) → 설정(Preferences) 모달의 Language |
@@ -6030,7 +6029,6 @@ VM 목록 화면에서는 `j`/`k`(또는 ↑/↓)로 행을 옮기고 `Enter`로
 ```
 ui/
 ├── index.html
-├── login.html
 ├── style.css
 ├── app.js              # 메인 엔트리포인트
 ├── app.bundle.js       # modules/*.js 단일 번들
@@ -6773,7 +6771,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_c
 | noVNC 새 창의 Reconnect 버튼 무응답 | `about:blank` 팝업에 `document.write()`로 만든 문서를 `location.reload()`로 재연결하려는 회귀 | 팝업 내부 `RFB` 객체를 `disconnect()` 후 새 `RFB(container, wsUrl)`로 재생성 |
 | CD/DVD ISO PATH가 비어 보이거나 빈 Mount가 성공 표시됨 | 설정 UI가 `cdrom_path`를 input에 반영하지 않고 `vm.mount_iso`가 빈 경로를 거부하지 않음 | `cdrom_path`를 현재 ISO로 표시하고 빈/상대/없는 ISO path는 RPC에서 거부 |
 | VM `Export OVA` 확인창에 `<br>` 또는 `<b>` 태그가 그대로 보임 | 오래된 UI 번들 또는 `customConfirm()` 호출부가 HTML 조각을 메시지로 전달한 회귀 | 최신 UI 번들을 배포하고 공개 URL의 `app.bundle.js` 해시를 확인한다. 호출부는 plain text와 `\n`만 넘긴다 |
-| `대시보드 > 요약 > VM`에서 `디스크 사용량` 버튼이 보이지 않음 | 공개 도메인이 오래된 UI 번들을 서빙하거나 표준/호환 도메인이 서로 다른 서버를 바라봄 | `purecvisor.example.com`와 `purecvisor-compat.example.com`의 `app.bundle.js`, `sw.js` 해시를 로컬 산출물과 비교하고 두 운영 서버를 같은 릴리스로 재배포한다 |
+| `워크로드 > 가상 머신 > 요약`에서 `디스크 사용량` 버튼이 보이지 않음 | 공개 도메인이 오래된 UI 번들을 서빙하거나 표준/호환 도메인이 서로 다른 서버를 바라봄 | `purecvisor.example.com`와 `purecvisor-compat.example.com`의 `app.bundle.js`, `sw.js` 해시를 로컬 산출물과 비교하고 두 운영 서버를 같은 릴리스로 재배포한다 |
 | `vm.clone` accepted 후 clone VM이 생성되지 않음 | 오래된 배포본이 실제 libvirt disk source 대신 `daemon.conf [storage].zvol_pool` 기본값으로 target zvol을 추정 | 최신 데몬으로 재배포하고 accepted 응답의 `source_disk`/`target_disk`가 실제 XML disk source와 일치하는지 확인 |
 | `vm.clone` 후 worker CPU가 높게 유지됨 | 오래된 MAC 치환 루프가 새로 생성한 `<mac address='...'>`를 다시 매칭해 무한 반복 | one-pass `g_regex_replace_eval()` 기반 수정본을 배포하고 orphan zvol/snapshot을 정리한 뒤 재시도 |
 | 일반 VM `vm.clone`이 libguestfs 도구 없음으로 거부됨 | host에 `libguestfs-tools`가 설치되지 않아 `virt-sysprep`, `virt-customize`, `virt-filesystems`, `guestfish`를 실행할 수 없음 | `libguestfs-tools` 설치 후 재시도하거나, 운영자가 이미 정리한 템플릿이면 `template_prepared=true`로 호출 |
@@ -7318,7 +7316,7 @@ purecvisorctl.c (6,996 LOC)   →     purecvisorctl.c (6,700 LOC)
 
 ### 21.2 REST 미들웨어 (`src/api/rest_middleware.c`)
 
-HTTP 요청 처리 파이프라인에서 **횡단 관심사(cross-cutting concerns)**를 분리한 모듈입니다.
+HTTP 요청 처리 파이프라인에서 **횡단 관심사**(cross-cutting concerns)를 분리한 모듈입니다.
 
 ```
 HTTP 요청 도착
