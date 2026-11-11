@@ -150,7 +150,7 @@ EOF
 }
 
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  DISP-4 효과-테스트: graceful-drain                 ${NC}"
+echo -e "${CYAN}  효과-테스트: graceful-drain                 ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
 

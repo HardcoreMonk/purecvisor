@@ -63,7 +63,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
 
-skip() { echo -e "${YELLOW}[SKIP]${NC} CMP-1 E2E: $*"; exit 0; }
+skip() { echo -e "${YELLOW}[SKIP]${NC} VM 락 교차 unlock E2E: $*"; exit 0; }
 
                                                              
 command -v bwrap    >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
@@ -222,7 +222,7 @@ boot() {
 }
 
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  CMP-1 VM 락 교차 unlock 차단 결정적 E2E            ${NC}"
+echo -e "${CYAN}  VM 락 교차 unlock 차단 결정적 E2E            ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
 echo -e "${CYAN}  state=$STATE  uds=$SOCK${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
@@ -270,9 +270,9 @@ info "S3: vm.limit 응답 = ${lim_resp:-<empty>}"
 sleep 1.5                  
 cnt_core="$(sq "SELECT count(*) FROM vm_locks WHERE vm_id='$VM_LOCKED';")"
 if [ "$cnt_core" = "1" ]; then
-    pass "S4(CMP-1 핵심): vm.limit 후 DELETING 락 잔존 (count=$cnt_core) — 교차 unlock 차단"
+    pass "S4(핵심): vm.limit 후 DELETING 락 잔존 (count=$cnt_core) — 교차 unlock 차단"
 else
-    fail "S4(CMP-1 핵심): vm.limit 후 count=$cnt_core (기대 1) — 락이 교차 삭제됨(수정 미적용/회귀)"
+    fail "S4(핵심): vm.limit 후 count=$cnt_core (기대 1) — 락이 교차 삭제됨(수정 미적용/회귀)"
 fi
 
                                                                  
@@ -337,9 +337,9 @@ case "$clone_a_resp" in *'"error"'*)  a_err=1 ;; esac
 case "$clone_a_resp" in *-32004*)     a_busy=1 ;; esac
 case "$clone_a_resp" in *accepted*)   a_accepted=1 ;; esac
 if [ "$a_err" = "1" ] && [ "$a_busy" = "1" ] && [ "$a_accepted" = "0" ]; then
-    pass "S7(CMP-7 a): source DELETING-locked → vm.clone 동기 busy 거부(-32004), accepted 아님"
+    pass "S7(clone source): source DELETING-locked → vm.clone 동기 busy 거부(-32004), accepted 아님"
 else
-    fail "S7(CMP-7 a): 예상 busy(-32004,accepted아님) 미확인 (err=$a_err busy=$a_busy accepted=$a_accepted) resp='$clone_a_resp'"
+    fail "S7(clone source): 예상 busy(-32004,accepted아님) 미확인 (err=$a_err busy=$a_busy accepted=$a_accepted) resp='$clone_a_resp'"
 fi
 
                                                                  
@@ -361,9 +361,9 @@ case "$clone_b_resp" in *'"error"'*) b_err=1 ;; esac
 case "$clone_b_resp" in *-32004*)    b_busy=1 ;; esac
 if [ "$b_err" = "1" ] && [ "$b_busy" = "1" ] && [ "$pre_src_b" = "0" ] \
    && [ "$src_b_after" = "0" ] && [ "$tgt_b_after" = "1" ]; then
-    pass "S8(CMP-7 b): target 충돌 거부(-32004) + 부분획득 source 락 해제(count=0, 누수없음) + target 락 미교차삭제(count=1)"
+    pass "S8(clone target): target 충돌 거부(-32004) + 부분획득 source 락 해제(count=0, 누수없음) + target 락 미교차삭제(count=1)"
 else
-    fail "S8(CMP-7 b): 예상 busy&src0&tgt1, 실제 err=$b_err busy=$b_busy pre_src=$pre_src_b src_after=$src_b_after tgt_after=$tgt_b_after resp='$clone_b_resp'"
+    fail "S8(clone target): 예상 busy&src0&tgt1, 실제 err=$b_err busy=$b_busy pre_src=$pre_src_b src_after=$src_b_after tgt_after=$tgt_b_after resp='$clone_b_resp'"
 fi
 
                                                                  
@@ -387,9 +387,9 @@ case "$hp_resp" in *'"error"'*)        h_err=1 ;; esac
 case "$hp_resp" in *-32004*)           h_busy=1 ;; esac
 case "$hp_resp" in *"already locked"*) h_locked=1 ;; esac
 if [ "$h_err" = "1" ] && [ "$h_busy" = "1" ] && [ "$h_locked" = "1" ] && [ "$hp_after" = "1" ]; then
-    pass "S9(CMP-10): device.disk.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$hp_after)"
+    pass "S9(hotplug): device.disk.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$hp_after)"
 else
-    fail "S9(CMP-10): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$h_err busy=$h_busy locked=$h_locked after=$hp_after) resp='$hp_resp'"
+    fail "S9(hotplug): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$h_err busy=$h_busy locked=$h_locked after=$hp_after) resp='$hp_resp'"
 fi
 
                                                                  
@@ -419,9 +419,9 @@ case "$usb_resp" in *'"error"'*)        u_err=1 ;; esac
 case "$usb_resp" in *-32004*)           u_busy=1 ;; esac
 case "$usb_resp" in *"already locked"*) u_locked=1 ;; esac
 if [ "$u_err" = "1" ] && [ "$u_busy" = "1" ] && [ "$u_locked" = "1" ] && [ "$usb_after" = "1" ]; then
-    pass "S10(CMP-10): vm.usb.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$usb_after)"
+    pass "S10(hotplug): vm.usb.attach 이 DELETING 락 충돌로 동기 busy 거부(-32004, 'already locked') + DELETING 락 미교차삭제(count=$usb_after)"
 else
-    fail "S10(CMP-10): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$u_err busy=$u_busy locked=$u_locked after=$usb_after) resp='$usb_resp'"
+    fail "S10(hotplug): 예상 busy(-32004,'already locked',락잔존) 미확인 (err=$u_err busy=$u_busy locked=$u_locked after=$usb_after) resp='$usb_resp'"
 fi
 
                                                                  

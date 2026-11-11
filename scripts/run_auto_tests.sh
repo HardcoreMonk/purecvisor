@@ -255,13 +255,13 @@ if $RUN_TIER1; then
                                                                   
                                                       
                                    
-            run_test "CMP-1 VM 락 교차 unlock 차단 (격리 데몬)" \
+            run_test "VM 락 교차 unlock 차단 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_vm_lock_cross_unlock.sh"
 
                                                                 
                                                             
                                    
-            run_test "SEC-1 세션 revoke 강제 로그아웃 실동작 (격리 데몬)" \
+            run_test "세션 revoke 강제 로그아웃 실동작 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_session_revoke.sh"
 
                                                                         
@@ -273,8 +273,8 @@ if $RUN_TIER1; then
                                                                     
                                                              
                                                                          
-            run_test "게이트#2 JSON ingress / DISP-1 크래시0 (격리 데몬)" \
-                "T1" bash "$INTEG_DIR/test_json_ingress_disp1.sh"
+            run_test "JSON ingress 경계 크래시0 (격리 데몬)" \
+                "T1" bash "$INTEG_DIR/test_json_ingress_boundary.sh"
 
                                                                     
                                                                      
@@ -287,7 +287,7 @@ if $RUN_TIER1; then
                                                                        
                                                                         
                                                             
-            run_test "DISP-4 graceful drain 실배선 (격리 데몬)" \
+            run_test "graceful drain 실배선 (격리 데몬)" \
                 "T1" bash "$INTEG_DIR/test_graceful_drain_effect.sh"
 
                                                                                    

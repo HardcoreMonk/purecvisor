@@ -91,7 +91,7 @@ DEEP_N=100000
 OVERSIZE=1258291                                
 
                                                             
-STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-disp1.XXXXXX")"
+STATE="$(mktemp -d "${TMPDIR:-/tmp}/pcv-json-ingress.XXXXXX")"
 mkdir -p "$STATE/var-lib" "$STATE/etc"
 
                                                              
@@ -178,7 +178,7 @@ socket_path = /var/lib/purecvisor/daemon.sock
 rest_port = $PORT
 admin_user = admin
 admin_password = $ADMIN_PW
-jwt_secret = disp1-e2e-fixed-secret-not-for-prod-0001
+jwt_secret = json-ingress-e2e-fixed-secret-not-for-prod-0001
 libvirt_uri = test:///default
 log_level = info
 drain_timeout = 1

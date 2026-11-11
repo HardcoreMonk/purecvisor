@@ -62,7 +62,7 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 REPO="$(cd "$SCRIPT_DIR/../.." && pwd)"
 DAEMON_BIN="$REPO/bin/purecvisorsd"
 
-skip() { echo -e "${YELLOW}[SKIP]${NC} SEC-1 E2E: $*"; exit 0; }
+skip() { echo -e "${YELLOW}[SKIP]${NC} 세션 revoke E2E: $*"; exit 0; }
 
                                                              
 command -v bwrap    >/dev/null 2>&1 || skip "bwrap(bubblewrap) 미설치"
@@ -200,7 +200,7 @@ logout_code() {
 }
 
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
-echo -e "${CYAN}  SEC-1 세션 revoke 강제 로그아웃 실동작 E2E         ${NC}"
+echo -e "${CYAN}  세션 revoke 강제 로그아웃 실동작 E2E         ${NC}"
 echo -e "${CYAN}  binary=$DAEMON_BIN${NC}"
 echo -e "${CYAN}  port=$PORT  state=$STATE${NC}"
 echo -e "${CYAN}════════════════════════════════════════════════════${NC}"
@@ -244,9 +244,9 @@ fi
                                                                  
 code_revoked="$(auth_get_code "$TOK" "auth/whoami")"
 if [ "$code_revoked" = "401" ]; then
-    pass "R3(SEC-1 핵심): revoke 후 같은 토큰 GET /auth/whoami → $code_revoked (거부)"
+    pass "R3(핵심): revoke 후 같은 토큰 GET /auth/whoami → $code_revoked (거부)"
 else
-    fail "R3(SEC-1 핵심): revoke 후 GET /auth/whoami → $code_revoked (기대 401) — 수정 미적용/무동작"
+    fail "R3(핵심): revoke 후 GET /auth/whoami → $code_revoked (기대 401) — 수정 미적용/무동작"
 fi
                                                
 aud=0
