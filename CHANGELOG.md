@@ -33,6 +33,23 @@
   안내(STONITH 절·CLI 클러스터 표·`[cluster]` 설정 절 등)를 지웠다. 통합 시험 출력과 `scripts/run_auto_tests.sh` 실행
   라벨의 내부 작업 ID를 기능 이름으로 바꾸고, JSON ingress 경계 통합 시험 파일 이름도
   `tests/integration/test_json_ingress_boundary.sh`로 바꿨다(시험 동작과 판정은 그대로).
+- 문서 사이트 틀을 다듬었다. 문서 22쪽과 404의 `hreflang` 대체 링크가 만들지 않는 언어판(`/getting-started/…`,
+  `/en/getting-started/…`, `/404/`)을 가리키지 않는다 — 빌드된 페이지만 남기며 첫 화면 `/`·`/ko/`·`/en/`은 그대로다.
+  사이트 검사가 HTML과 sitemap의 모든 `rel=alternate` 대상이 빌드 산출물에 있는지, 헤더 메뉴의 모든 `#앵커`가 대상
+  페이지에 있는지 본다. 헤더 메뉴 `Single Edge 경계`·`서비스 시작 흐름`(영어 `Single Edge boundaries`·
+  `Start the service`)은 1.2.5절과 2.5절(systemd 서비스 설치)로 간다. 영어 첫 화면에 "Documentation is in Korean."
+  한 줄, 404에 영어 문구를 더했다. 한국어 테마 선택 글자가 잘리지 않게 폭을 넓혔고, 내용이 좁은 문서 표는 바깥
+  테두리가 내용 폭에 맞는다(넓은 표는 그대로 가로 스크롤).
+- 사용 가이드(`docs/GUIDE.md`·`ui/guide-content.md`)를 더 고쳤다. ISO 목록 예시를 실제 JSON 항목(`name`·`path`·`dir`·
+  `size_mb`)으로, 사용자 생성 예시의 평문 비밀번호를 환경 변수로 바꿨다. Local VPC CLI 검증 기록은 당시 17개 action
+  (지금은 20개)으로 적고, 16.2 제목을 "주요 설정 키"로 바꿔 다른 장에서 설명하는 설정 절을 가리킨다. 확인할 수 없는
+  누적 숫자("총 63건의 보안 고도화"), 도입 버전 표기 "(v1.0)" 17곳, iSCSI 안내 안의 문서 이력, 용어집의 클러스터
+  용어(CAS·keepalived·Lease TTL·VIP·VRRP)를 지웠다. Web UI 배포 자산 목록에 설치되는 자산(`ui/offline.html`·
+  `ui/maintenance.html`·`ui/maintenance-status.json`·`ui/style.css`·`ui/vnc-flow.mjs`·아키텍처 그림·`ui/vendor/qrcode/qrcode.js`)을
+  더했다. S3 백업 제거 문장을 다듬고 네트워크 메트릭 이름 목록을 명령 블록에서 떼어 냈다.
+- 가이드에 안내를 더했다. 1.4절에 명령 표기(데몬에 요청하는 `pcvctl`과 데몬 소켓 명령은 root 권한이 필요하고 예시는
+  대부분 `sudo`를 생략), 6.5절부터 6.9절까지 첫머리에 Web UI 화면 경로, 8장 첫머리에 관제 메뉴 12개 화면과 관련 절을 잇는 표,
+  21.1절에 줄 수가 리팩토링 당시 값이라는 안내.
 - RPC·REST·DB 스키마·`daemon.conf` 형식 변경은 없다. 제품 버전 문자열은 `2.2.0`을 유지하며 새 버전이나 태그는
   발급하지 않았다.
 
