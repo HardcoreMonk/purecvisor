@@ -29,7 +29,7 @@ import check_test_hermetic as gate
 
 ROOT = Path(__file__).resolve().parents[2]
 GATE = ROOT / "scripts" / "check_test_hermetic.py"
-BASE_COMMIT = "5d19bd31"
+PRE_FIX = ROOT / "tests" / "fixtures" / "test_hermetic_pre_fix"
 
 
 def _violations(source: str, header: str = "") -> list[gate.Violation]:
@@ -193,21 +193,15 @@ def test_pre_fix_test_files_are_red():
         "test_qos_integration.c": ("seam-required", "pcv_qos_tenant_sla_set"),
         "test_tenant_overlay.c": ("sensitive-call", "network_dhcp_reserve_overlay_ip"),
     }
-    with tempfile.TemporaryDirectory() as tmp:
-        macros = gate.production_macros(ROOT / "src")
-        for name, (kind, token) in expected.items():
-            r = subprocess.run(["git", "-C", str(ROOT), "show", f"{BASE_COMMIT}:tests/{name}"],
-                               capture_output=True, text=True)
-            if r.returncode != 0:
-                print(f"SKIP {name}: 기준 커밋 {BASE_COMMIT} 없음")
-                continue
-            path = Path(tmp) / name
-            path.write_text(r.stdout, encoding="utf-8")
-            found = {(v.kind, v.token) for v in gate.analyze_file(path, name, macros)}
-            assert (kind, token) in found, (name, found)
-            current = gate.analyze_file(ROOT / "tests" / name, f"tests/{name}", macros)
-            unallowed = [v for v in current if v.key() not in gate.ALLOWLIST]
-            assert unallowed == [], (name, unallowed)
+    assert sorted(p.name for p in PRE_FIX.glob("*.c")) == sorted(expected), PRE_FIX
+    macros = gate.production_macros(ROOT / "src")
+    for name, (kind, token) in expected.items():
+        path = PRE_FIX / name
+        found = {(v.kind, v.token) for v in gate.analyze_file(path, name, macros)}
+        assert (kind, token) in found, (name, found)
+        current = gate.analyze_file(ROOT / "tests" / name, f"tests/{name}", macros)
+        unallowed = [v for v in current if v.key() not in gate.ALLOWLIST]
+        assert unallowed == [], (name, unallowed)
 
 
 def test_link_seam_contract():
