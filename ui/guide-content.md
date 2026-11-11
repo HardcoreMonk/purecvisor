@@ -258,7 +258,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 >
 > - 공개 배포 기준 바이너리: `bin/purecvisorsd`
 > - systemd 서비스: `purecvisorsd.service`
-> - `/api/v1/health` 기준 런타임 모드: `capabilities.cluster=false`, `checks.cluster.mode=single_edge`, `node_name`은 호스트 이름
+> - `/api/v1/health` 기준 런타임 모드: `capabilities`의 `cluster`는 `false`, `checks`의 `cluster` 항목은 `mode: single_edge`, `node_name`은 호스트 이름
 
 이 가이드는 싱글 노드 운영과 출시 범위만 다룹니다.
 
