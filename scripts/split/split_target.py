@@ -50,7 +50,7 @@ def load(name: str = "dispatcher") -> SplitTarget:
     ident = d.get("identity", {})
     anchor = d["makefile_anchor"]
     return SplitTarget(
-        name=d["name"], source=d["source"], manifest=d["manifest"], rename_map=d["rename_map"],
+        name=d["name"], source=d["source"], manifest=d.get("manifest", ""), rename_map=d["rename_map"],
         family_globs=tuple(d["family_globs"]),
         makefile_anchor=anchor if anchor.endswith("\n") else anchor + "\n",
         internal_header=d.get("internal_header"), header_includes=tuple(d.get("header_includes", [])),

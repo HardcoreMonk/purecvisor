@@ -1,45 +1,10 @@
 name = "dispatcher"
 source = "src/api/dispatcher.c"
-manifest = "scripts/split/dispatcher_manifest.tsv"
 rename_map = "scripts/split/dispatcher_rename_map.tsv"
 family_globs = ["src/api/dispatcher*.c", "src/api/dispatcher*.h", "src/modules/dispatcher/*.c", "src/modules/dispatcher/*.h"]
 makefile_anchor = "    src/api/dispatcher.c \\"
 internal_header = "src/api/dispatcher_internal.h"
 header_includes = ["<glib.h>", "<gio/gio.h>", "<json-glib/json-glib.h>", "\"api/uds_server.h\""]
-                                                                 
-c_prologue = '''/**
- * @file {base}
- * @brief {brief}
- *
- * Developer note — 신입 개발자:
- *   (2026-10-14)으로 {source}에서 옮겨 온 코드다. 함수 본문은 이동 전과
- *   같고(scripts/split_move_identity.py로 확인), RPC 라우트 등록은 dispatcher.c의
- *   dispatcher_init_routes()에 그대로 있다. 여기 RPC를 바꾸면 그 등록·RBAC 정책표
- *   (src/api/dispatcher_policy.c)·시험을 같은 변경에서 고친다.
- *
- * [쉬운 설명] {easy}
- */
-
-{includes}
-'''
-                                                                                                    
-h_prologue = '''/**
- * @file {base}
- * @brief {brief} — 선언
- *
- * Developer note — 신입 개발자:
- *   (2026-10-14)으로 dispatcher.c에서 옮긴 함수의 선언이다. RPC 핸들러 시그니처는
- *   dispatcher.c의 PcvDispatchHandler와 같고, 각 함수의 계약은 정의부 머리 주석을 따른다.
- *
- * [쉬운 설명] {easy}
- */
-               
-               
-
-{includes}
-
-                    
-'''
 group_comment = "dispatcher 라우트 핸들러와 dispatcher 파일끼리 쓰는 함수"
 split_files = ["src/api/dispatcher_policy.c", "src/api/dispatcher_owner_scope.c", "src/modules/dispatcher/dispatcher_shared.c", "src/modules/dispatcher/handler_vm_ova.c", "src/modules/dispatcher/handler_vm_clone.c", "src/modules/dispatcher/handler_vm_create.c", "src/modules/dispatcher/handler_vm_admin.c", "src/modules/dispatcher/handler_suricata.c", "src/modules/dispatcher/handler_alert.c", "src/modules/dispatcher/handler_daemon.c", "src/modules/dispatcher/handler_qos.c", "src/modules/dispatcher/handler_container_net.c", "src/modules/dispatcher/handler_push.c", "src/modules/dispatcher/handler_security_group.c", "src/modules/dispatcher/handler_jobs.c", "src/modules/dispatcher/handler_host_query.c"]
 

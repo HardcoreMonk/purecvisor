@@ -10,20 +10,6 @@ family_globs = [
 ]
 makefile_anchor = "    src/modules/dispatcher/handler_vm_hotplug.c \\"
 internal_header = "src/modules/dispatcher/handler_vm_internal.h"
-c_prologue = '''/**
- * @file {base}
- * @brief {brief}
- *
- * Developer note — 신입 개발자:
- *   (VM 계열 분할, ADR-0096)으로 {source}에서 옮긴 코드다. 본문은 옮기기 전과 같고
- *   (scripts/split_move_identity.py --config vm_hotplug), 파일끼리 함께 쓰는 선언은 src/modules/dispatcher/handler_vm_internal.h에 있다.
- *   실패 시 영향: 옮긴 함수의 계약(인자·소유권·잠금·응답)을 바꾸면 호출부와 어긋나 해당 VM 경로의 응답·정리 동작이 달라진다.
- *
- * [쉬운 설명] {easy}
- */
-
-{includes}
-'''
 group_comment = "handler_vm_hotplug 계열 파일끼리 쓰는 함수"
 split_files = ["src/modules/dispatcher/handler_vm_device.c", "src/modules/dispatcher/handler_vm_diskio.c"]
 
