@@ -366,7 +366,7 @@ for (const marker of [
   "기본 모드입니다.<br>별도 NGINX 프로세스가 없습니다.",
   "선택형 모드입니다.<br>ADR-0029의 host-loopback 신뢰 경계",
   "첫 커밋으로 올립니다.<br> 기존 개발 저장소의 <code dir=\"auto\">.git</code> 이력",
-  "가져가지 않습니다.<br> 공개 URL은 생성 후"
+  "가져가지 않습니다.<br> 공개 저장소 주소는"
 ]) {
   if (!overview.includes(marker)) throw new Error(`overview automatic sentence break missing: ${marker}`);
 }

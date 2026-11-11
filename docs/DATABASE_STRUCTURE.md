@@ -1,6 +1,6 @@
 # PureCVisor Single Edge 데이터베이스 아키텍처 설명서
 
-> **최신 소스:** [10/8 변경·검증 인계](operations/2026-10-08-public-source-refresh-handoff.md)를 따른다. AWS/S3 제거와 Job 접수·결과 저장 계약 보강을 적용했다.
+> **2026-10-08 역사 기준:** [10/8 변경·검증 인계](operations/2026-10-08-public-source-refresh-handoff.md)에서 AWS/S3 제거와 Job 접수·결과 저장 계약 보강을 적용했다.
 
 > **2026-10-02 역사 기준:** 공개 제품 로직을 개발 main에 맞췄다. NVRAM·첫 알림 쿨다운 시정은 유지하며 LXC는 ZFS 전용이다. 공개 전용 Btrfs와 개발 main 미병합 후속 브랜치는 포함하지 않는다. [정합화 인계](operations/2026-10-02-public-main-sync-handoff.md)에서 이번 검증을 구분한다.
 
@@ -423,6 +423,7 @@ Local VPC처럼 이 registry를 사용하는 경로가 있는 반면, VM lifecyc
 | 장애 동작 | SQLite open·WAL·스키마 준비 실패나 지원보다 높은 `user_version`이면 registry 비활성, 신규 추적 Job 접수 거부 |
 | 스키마 버전 | `PRAGMA user_version=2` |
 | 결과 journal | `<db_path>.journal/` 디렉터리(파일 `0600`) |
+| 보존 | 결과가 확정된(`outcome_known=1`) 완료·실패·취소 Job만 `[daemon].job_retention_days`(기본 30일, 0 이하는 끔)를 넘기면 하루 한 번 삭제한다. 대기·실행 중·미확정 Job과 결과 복구 대기·격리 Job은 남긴다 |
 
 ### 접수·결과 복구 계약
 

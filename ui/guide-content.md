@@ -254,7 +254,7 @@ DPDK는 선택형 가속 경로이며 현재 BPF LSM hook은 기존 LSM 결정�
 
 ### 1.3 Single Edge 공개 리포지토리
 
-> 📦 **공개 배포 저장소** — LinkedIn/GitHub 공개 시에는 민감정보 정리가 끝난 HEAD를 `git archive`로 추출해 새 공개 저장소의 첫 커밋으로 올립니다. 기존 개발 저장소의 `.git` 이력은 공개 저장소에 가져가지 않습니다. 공개 URL은 생성 후 `<public-repo-url>`로 확정합니다.
+> 📦 **공개 배포 저장소** — LinkedIn/GitHub 공개 시에는 민감정보 정리가 끝난 HEAD를 `git archive`로 추출해 새 공개 저장소의 첫 커밋으로 올립니다. 기존 개발 저장소의 `.git` 이력은 공개 저장소에 가져가지 않습니다. 공개 저장소 주소는 `https://github.com/HardcoreMonk/purecvisor`입니다.
 >
 > - 공개 배포 기준 바이너리: `bin/purecvisorsd`
 > - systemd 서비스: `purecvisorsd.service`
@@ -294,7 +294,7 @@ curl -s http://127.0.0.1:8080/api/v1/health | python3 -m json.tool
 }
 ```
 
-제품 버전과 canonical Git/GitHub 릴리스 태그는 `2.2.0`이다.<br>
+제품 버전은 `2.2.0`, canonical Git/GitHub 릴리스 태그는 `v2.2.0`이다.<br>
 소스 기준 단일 값은 `include/purecvisor/version.h`의 `PCV_PRODUCT_VERSION`이며, `/api/v1/health`, `/api/v1/version`, `pcvctl --version`, Prometheus `purecvisor_info`,
 Web UI config와 HTML 정적 자산 query string은 같은 릴리스 단위로 맞춘다.<br>
 `/api/v1` 같은 API path, OpenAPI spec version, Prometheus text format version, 라이브러리 ABI symbol은 제품 버전이 아니므로 별도 계약으로 유지한다.
@@ -524,6 +524,10 @@ sha256sum -c SHA256SUMS --ignore-missing
 # 의존성 자동 해결 포함 설치
 sudo apt install -y ./purecvisor-single_2.2.0_amd64.deb
 
+# 선택: 같은 릴리스의 BPF 객체(BPF LSM 감사)
+sudo install -d -m 0755 /usr/lib/purecvisor/bpf
+sudo tar -xzf purecvisor-single-bpf_2.2.0_amd64.tar.gz -C /usr/lib/purecvisor/bpf
+
 # 최초 설치는 sample 기반 daemon.conf를 만들고 서비스는 enable만 한다.
 sudoedit /etc/purecvisor/daemon.conf
 sudo chown root:root /etc/purecvisor/daemon.conf
@@ -541,7 +545,8 @@ pcvctl --version
 - 업그레이드: 새 `.deb`로 같은 명령 재실행.<br>
 기존 `daemon.conf`는 보존된다.<br>
 (conffile을 묻지 않고 처리하려면 `-o Dpkg::Options::=--force-confold`(기존 유지) 또는 `-o Dpkg::Options::=--force-confnew`(새 파일 채택)를 붙인다).<br>
-2.1.0 이하에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다.<br>
+2.1.0에서 2.2.0으로 올릴 때는 같은 명령 뒤 `sudo systemctl restart purecvisorsd`로 실행 중인 데몬을 새 바이너리로 바꾼다(DB 스키마 이관 없음).<br>
+2.0.4 이하에서 올릴 때는 먼저 `sudo systemctl stop purecvisorsd`로 정지하고 `/var/lib/purecvisor/*.db*`(WAL 포함)를 백업한 뒤 설치·시작하며, `CHANGELOG.md` 2.1.0의 '업그레이드 시 확인할 점'(DB 자동 이관·모든 사용자 한 번 재로그인·새 systemd 파일 두 개)도 함께 적용한다.<br>
 패키지 설치는 실행 중인 데몬을 재시작하지 않는다.<br>
 같은 버전을 다시 설치할 때는 `sudo apt install --reinstall ./purecvisor-single_<버전>_amd64.deb`를 사용한다.
 - 제거: `sudo apt remove purecvisor-single`은 설정을 보존한다. `sudo apt purge purecvisor-single`은 자동 생성한 `/etc/purecvisor/daemon.conf`도 제거한다. DB·로그·PKI는 보존하므로 운영 데이터 정리는 별도로 판단한다. 이 동작은 이 수정이 들어간 패키지의 제거 스크립트 기준이며, 그 이전의 구형 패키지가 설치된 상태에서 제거하면 적용되지 않는다.
@@ -2126,6 +2131,21 @@ pcvctl vm usb-detach web-prod 0x1234 0x5678
 - Web UI `인프라 > 호스트 장치` 화면(13.2 '호스트 장치 화면')이 장치마다 할당된 VM과 실행 중·영구 상태를 보이고 이 RPC들로 할당·해제한다. 할당 창의 '영구로 저장' 체크를 끄면 `persistent: false`로 보낸다. CLI 쪽 같은 표는 `pcvctl host devices`다.
 - 한계: 케이블 재연결·펌웨어 업데이트로 장치가 다시 열거되면 실행 중 VM은 장치를 잃는다. 펌웨어가 제품 ID를 바꾸면 영구 정의도 새 ID로 다시 붙여야 한다. VM을 다시 시작하거나 떼고 다시 붙인다. 호스트 장치 화면·`pcvctl host devices`는 live 항목이 가리키는 장치 번호가 호스트에 없으면 '호스트에서 빠짐'(같은 ID가 다른 번호로 있으면 '옛 장치 번호', CLI 토큰 `stale-address`)으로 보이고 '실행 중'으로 보이지 않는다.
 
+#### GPU 할당
+
+```bash
+# GPU 목록
+pcvctl gpu list
+
+# 꺼진 VM에 GPU(IOMMU 그룹) 할당 / 제거
+pcvctl gpu attach web-prod 0000:01:00.0
+pcvctl gpu detach web-prod 0000:01:00.0
+```
+
+- GPU 할당·해제(`device.gpu.attach`·`detach`)는 ADMIN만 하고, 꺼진 VM에만 한다. 실행 중이면 `GPU assignment requires a shut off VM`(해제는 `GPU removal requires a shut off VM`)으로 거절한다.
+- GPU의 IOMMU 그룹 전체를 미리 `vfio-pci`에 묶어 둔다. 그룹 안에 다른 드라이버를 쓰는 장치가 있으면 `IOMMU group member <주소> uses '<드라이버>'; pre-bind the whole GPU group to vfio-pci`로 거절한다. 2.2.0부터 IOMMU 그룹은 장치 깊이와 무관하게 그룹 번호로 찾는다.
+- Web UI는 `인프라 > 호스트 장치` 화면(13.2 '호스트 장치 화면')의 GPU 행에서 할당·해제한다. 'GPU 장치' 화면의 '호스트 장치에서 할당' 버튼은 이 화면으로 옮긴다. 장치별 할당 상태 표는 CLI `pcvctl host devices`다.
+
 #### 디스크 리사이즈
 
 ```bash
@@ -2540,7 +2560,7 @@ PureCVisor는 LXC 컨테이너를 ZFS 백엔드와 통합하여 관리합니다.
 
 > **ZFS 필수 — 컨테이너 생성 전 확인**
 >
-> PureCVisor 2.1.0의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
+> PureCVisor의 LXC 컨테이너 생성에는 **사용 가능한 ZFS 풀과 컨테이너용 파일시스템 데이터셋**이 필요합니다.
 > ZFS 커널 모듈과 `zfs` 명령을 준비하고, `daemon.conf`의 `[storage] container_pool`을 해당 풀 아래의 컨테이너 부모 데이터셋 경로로 설정하세요. 기본값은 `pcvpool/containers`이며 부모 데이터셋이 없으면 생성 과정에서 만들기를 시도합니다.
 > 이 저장소는 파일시스템 데이터셋입니다. VM용 블록 볼륨 `zvol`을 별도로 만드는 절차는 필요하지 않습니다.
 > **LXC 패키지만 설치하거나 Btrfs·ext4 디렉터리만 준비한 상태에서는 현재 PureCVisor의 컨테이너 생성이 실패합니다.** 현재 Btrfs·일반 디렉터리 백엔드와 자동 폴백은 지원하지 않습니다.
@@ -4421,7 +4441,7 @@ CIDR 목록이고, subnet 대역 하나가 풀의 CIDR 하나에 **완전히** �
 VPC 목록·조회도 −32002 `이 작업에는 tenant가 필요합니다`(REST 409)로 거절됩니다(6.12). 두 RPC(`vpc.pool.set`·`vpc.pool.list`)는
 ADMIN 전용입니다.
 
-**업그레이드(2.0.4 이하 → 2.1.0)** — VPC를 쓰는 테넌트의 OPERATOR는 업그레이드 직후 풀이 비어 있어 **새 subnet을 만들 수 없습니다**.
+**업그레이드(2.0.4 이하 → 2.1.0 이상)** — VPC를 쓰는 테넌트의 OPERATOR는 업그레이드 직후 풀이 비어 있어 **새 subnet을 만들 수 없습니다**.
 기존 subnet과 VPC는 그대로 동작합니다. 위 절차로 `vpc_subnets`를 확인하고 풀을 배정하세요(10.2.1 단계 6).
 풀과 자원 등록은 2.1.0에서 새로 생기는 `resource_registry.db`(`user_version` 2)에 저장됩니다. 2.0.4 이하는 이 파일을 쓰지 않으므로
 되돌리면 테넌트 주소 풀과 호스트 자원 경계가 적용되지 않습니다. 파일은 지우지 말고 보존합니다 — 다시 올리면 그대로 열립니다.
@@ -4597,7 +4617,7 @@ telegram_chat_id=
 
 ### 8.5 알림 ACK & 에스컬레이션 (v1.0)
 
-미확인(unacknowledged) 알림은 10분 후 자동 재전송된다.
+확인되지 않은 CRIT 알림은 발생 10분 뒤 한 번, `[ESCALATION] Unacknowledged CRIT …` 메시지로 `webhook_crit_url`(없으면 `webhook_url`)과 Web Push에 다시 보낸다. WARN은 다시 보내지 않는다.
 
 ```bash
 # 알림 히스토리 조회
@@ -4865,7 +4885,7 @@ pcvctl backup history web-prod
 
 ### 9.2 fsfreeze/thaw (v1.0)
 
-Guest Agent가 설치된 VM에서 `fsfreeze --freeze` / `--thaw`를 통해 파일시스템을 정지시킨 후 스냅샷을 생성한다. 애플리케이션 정합성(application-consistent) 스냅샷을 보장한다.
+스냅샷 직전에 `virsh domfsfreeze`(Guest Agent)로 VM 파일시스템을 멈추고, 직후 `virsh domfsthaw`로 푼다. Guest Agent가 없거나 동결에 실패하면 경고만 남기고 동결 없이 스냅샷을 만든다.
 
 ### 9.3 무결성 검증 (v1.0)
 
@@ -5119,7 +5139,7 @@ Single Edge는 관리자 계정을 두 층으로 운영합니다.
 
 권장 순서:
 1. `admin_password`를 명시 설정한 뒤 bootstrap admin으로 첫 로그인
-2. 사용자 관리 화면에서 전용 admin을 생성하고 해당 계정의 로그인을 확인
+2. **시스템 > 계정과 권한** 화면에서 전용 admin을 생성하고 해당 계정의 로그인을 확인
 3. bootstrap admin 본인으로 로그인해 사용자 메뉴의 **비밀번호 변경**을 사용. API는 `POST /api/v1/auth/password`이며 Bearer 토큰과 `old_password`·`new_password`가 필요
 4. 이후 일상 운영과 API 사용은 전용 admin으로 수행
 
@@ -5290,7 +5310,7 @@ HIPS는 자동 차단 제품처럼 동작하지 않는다. v1에서 승인 후 �
 데몬은 `ip`·`virsh`·`zfs` 같은 도구를 직접 실행하고, LSM은 그 실행마다 `process_suspicious` 사건을 남긴다. 이 중 데몬이 직접 쓰는 도구는 `info`로 구분한다.
 
 - 신뢰 디렉터리는 `/usr/sbin`·`/usr/bin`·`/sbin`·`/bin` 4곳이다. target이 `<신뢰 디렉터리>/<알려진 이름>`과 정확히 같을 때만 `info`가 된다. 접두사나 basename만 같은 경로(`/usr/sbin//ip`, `/usr/sbin/../sbin/ip`)는 해당하지 않는다.
-- 정확 경로 `/usr/local/bin/purecvisorsd`(핫 리로드 재실행)도 `info`다.
+- 정확 경로 `/usr/local/bin/purecvisorsd`(핫 리로드 재실행)와 `/usr/local/bin/pcvctl`(LXC 볼륨 시작 검사 훅 `container volume-guard-hook`)도 `info`다.
 - `/usr/local/sbin`·`/usr/local/bin`의 같은 이름 도구는 `warn`으로 남는다. 데몬 PATH는 `/usr/local`이 먼저라 그쪽에 놓인 같은 이름은 가로채기일 수 있다.
 - 이름 표는 데몬이 argv[0]으로 직접 실행하는 도구 이름이다(`security_policy.c`).
 - 절대 낮추지 않는 이름 16개는 데몬이 쓰더라도 표에 넣지 않는다: `sh`·`bash`·`dash`·`zsh`·`busybox`·`curl`·`wget`·`nc`·`ncat`·`socat`·`ssh`·`scp`·`openssl`·`python3`·`perl`·`nsenter`. BPF 사건에는 argv가 없어 데몬의 고정 명령과 다른 주체의 같은 도구를 구분할 수 없기 때문이다.
@@ -5610,9 +5630,9 @@ curl -s -H "Authorization: Bearer $TOKEN" \
 ## 11. 비동기 작업 관리
 
 VM·OVA·백업 등 장시간 작업은 접수와 실제 결과를 구분합니다.
-AWS 수동 Import·Export·Near-Live와 전용 작업 관리는 2026-10-07 사용자 결정으로
-현재 개발 소스에서 제거했습니다. S3 백업도 추가로 제거했습니다. 일반 VM·OVA·로컬 백업은 유지합니다.
-2.1.0은 Job 결과를 별도 journal에 먼저 내구화한 뒤 DB를 갱신합니다(11.1). 2.0.4 이하 공개 패키지에는 이 journal이 없습니다.
+AWS 수동 Import·Export·Near-Live와 전용 작업 관리, S3 백업은 2026-10-08 2.0.0 소스 갱신에서
+제거했습니다. 일반 VM·OVA·로컬 백업은 유지합니다.
+2.1.0부터 Job 결과를 별도 journal에 먼저 내구화한 뒤 DB를 갱신합니다(11.1). 2.0.4 이하 공개 패키지에는 이 journal이 없습니다.
 
 ### 11.1 접수·결과 저장
 
@@ -5622,7 +5642,7 @@ DB 비활성·쓰기 잠금/오류에는 신규 접수를 거부하며 실제 wo
 작업 ID 충돌은 기존 작업을 덮지 않고
 최대 32회 새 번호로 재발급합니다.
 
-실제 작업 결과와 결과 기록의 저장 여부는 별개입니다. 2.1.0은 별도 결과 journal을 내구화한 뒤 DB를 갱신합니다. 완료 WS의 `result_persisted: false`,
+실제 작업 결과와 결과 기록의 저장 여부는 별개입니다. 2.1.0부터는 별도 결과 journal을 내구화한 뒤 DB를 갱신합니다. 완료 WS의 `result_persisted: false`,
 `recovery_pending: true`는 실제 결과는 기록됐지만 조회 반영 재시도가 남았다는 뜻입니다.
 WS가 끊겨도 journal이 남았다면 재시도/재시작 뒤 `jobs.get`으로 결과를 확인할 수 있습니다.
 같은 작업을 바로 재실행하지 말고 Job ID, 실제 리소스 상태와 audit를 대조합니다.
@@ -6093,14 +6113,14 @@ noVNC는 반드시 `/ui/vendor/novnc/novnc.esm.js`에서 로드한다. `app.bund
 
 ### 13.13 VM 메모리·I/O 화면 시정과 확인 범위
 
-2026-09-07 개발선의 지정 시정은 다음 계약을 다룹니다. 목록의 순서와 현재 열린 창이 바뀌어도 작업 대상과 결과 표시가 일치하도록 보완했습니다.
+2026-09-07 시정은 다음 계약을 다룹니다. 목록의 순서와 현재 열린 창이 바뀌어도 작업 대상과 결과 표시가 일치하도록 보완했습니다.
 
 - I/O 조회·적용은 창을 열 때 정한 VM 이름/UUID를 확인합니다. 목록 재정렬, 대상 삭제와 동명 VM 교체를 구분합니다.
 - 메모리 통계·I/O의 늦은 응답은 요청한 창과 최신 요청에만 표시합니다. 이미 닫힌 창의 응답이 새 창을 바꾸지 않습니다.
 - RPC 오류는 정상 빈 결과와 구분합니다. 자동 닫기 timer도 원래 창에 속합니다.
 - 검색 팔레트가 겹쳐 열려 있어도 아래에서 열린 원래 창은 완료 상태를 받습니다.
 
-개발선 UI 전체 60파일 **505 PASS**, 최종 독립 대조 **44 PASS**와 두 운영 노드의 정적 자산·기본 페이지·health 확인을 완료했습니다. 이 수치를 공개 소스의 시험 집계에 합산하거나 모든 실제 VM 변경 효과의 인증으로 사용하지 않습니다. 공개 소스의 시정 포함 여부는 해당 릴리스 diff와 회귀 결과로 별도 확인해야 합니다.
+이 시정의 시험 결과를 공개 소스의 시험 집계에 합산하거나 모든 실제 VM 변경 효과의 인증으로 사용하지 않습니다. 공개 소스의 시정 포함 여부는 해당 릴리스 diff와 회귀 결과로 별도 확인해야 합니다.
 
 공개 스냅샷의 모니터링 차트에도 누적 RX/TX를 속도 단위로 표시하는 경로와 표본 간격을 5초로 고정하는 경로가 남아 있습니다. 해당 차트의 시간·속도 값만으로 운영 임계값을 판단하지 말고 원본 counter의 증가량과 실제 수집 간격을 함께 확인하세요. 관련 시정·독립 재검토는 진행 중입니다.
 
@@ -6227,6 +6247,7 @@ access token 만료 후에는 `POST /api/v1/auth/refresh`에 `{"refresh_token":"
 | 모니터링 | `GET /monitor/metrics`, `/monitor/fleet`, `/processes`, `/alerts` | VM 메트릭·플릿 통계·호스트 프로세스·알림 히스토리 |
 | Prometheus | `GET /metrics` | Prometheus 메트릭. 기본(`[metrics] auth=loopback`)은 같은 호스트의 직접 접속만 무인증, 원격은 Bearer 토큰 필요(`required`·`none`으로 조정) |
 | Health | `GET /health` | 인증 없는 심층 프로브. `status`와 `libvirt`, `etcd`, `disk`, `audit_db`, `tls`, `capabilities` 하위 상태 반환 |
+| 호스트 장치 | `GET /host/devices` | GPU·USB·블루투스 장치와 VM 할당(`host.device.list`, VIEWER). USB 할당·해제는 `POST`·`DELETE /vms/{name}/usb`(`startup_policy`·`persistent`) |
 
 Single Edge 공개판은 클러스터 상태, 클러스터 전체 VM, 라이브 마이그레이션 REST 절차를 운영 표면으로 제공하지 않는다. 관련 역사 기록은 `docs/adr/`에서 확인한다.
 
@@ -6433,18 +6454,18 @@ curl -X POST -H "Authorization: Bearer $TOKEN" \
 | 항목 | 값 |
 |------|-----|
 | 바이너리 | `bin/pcvctl` |
-| 커맨드 수 | 194 (`routes[]` 기준) |
+| 커맨드 수 | 207 (`routes[]` 기준) |
 | 모드 | readline REPL + 배치 |
 | 자동완성 | 대화형 셸(`pcvctl -i`)의 Tab 완성. 공개 소스에는 bash/zsh 자동완성 스크립트가 없음 |
 | 소켓 | `/var/run/purecvisor/daemon.sock` |
 
 ```bash
 # 단계적 도움말
-pcvctl help             # 32개 명령 그룹 요약
+pcvctl help             # 33개 명령 그룹 요약
 pcvctl help vpc         # VPC 그룹 상세
 pcvctl vpc --help       # 같은 VPC 그룹 상세
 pcvctl help guest-agent # object·action·설명 검색
-pcvctl help all         # 전체 194개 명령
+pcvctl help all         # 전체 207개 명령
 
 # REPL 모드
 pcvctl
@@ -6652,6 +6673,7 @@ SIGHUP 시 비파괴적 재로드: `[alert]` 임계값, `log_level`, `pool_max_c
 | `drain_timeout` | 30 | >= 5 | 드레인 타임아웃 (초). **정지 신호 인수 기한도 정한다** — SIGTERM/SIGINT를 받고 이 시간 안에 메인 루프가 정지 처리를 시작하지 않으면 데몬이 실패 코드로 스스로 종료한다. systemd `TimeoutStopSec`(180)보다 작게 둔다(같거나 크면 이 보호가 사라진다) |
 | `rest_port` | 80 | 1-65535 | REST API 포트 컴파일 기본값 |
 | `jwt_secret` | (최초 배포 시 생성) | 32바이트 이상 | deploy helper가 관리하는 영속 JWT 호환 fallback |
+| `job_retention_days` | 30 | 정수 | 종료 Job 기록 보존 일수. 0 이하(0·음수)는 자동 정리를 끈다(11.2) |
 
 #### [auth]
 
@@ -6914,7 +6936,10 @@ make cppcheck
 | -32602 | Invalid params (파라미터 검증 실패) |
 | -32000 | Server error (내부 오류) |
 | -32001 | 대상 없음(VM·Job·보안 사건 등, REST 404) |
+| -32002 | 상태 충돌(설정 revision 불일치, 같은 USB 장치를 다른 `startup_policy`로 다시 붙임 등, REST 409) |
+| -32003 | 시간 초과(REST 504) |
 | -32004 | BUSY (큐 포화·대기 초과·VM 잠금 겹침, 다시 시도, REST 409) |
+| -32005 | 대상 없음(VM 외 일부 자원, REST 404) |
 | -32006 | Permission denied (REST 403) |
 
 `-32602`는 `PureRpcErrorCode`의 canonical invalid-params 값입니다. 예를 들어 인증 REST의
@@ -7434,9 +7459,9 @@ typedef void (*PcvDispatchHandler)(
 
 ### 21.7 감사 후속의 결과·자원 수명 계약
 
-최근 개발선 감사는 기존 단일 프로세스·GMainLoop·GTask 구조 안에서 결과와 자원의 소유권을 재검토합니다. 새로운 프로세스 구조나 프레임워크 도입을 완료한 것으로 해석하지 않습니다.
+2026-09-07 개발선 감사는 기존 단일 프로세스·GMainLoop·GTask 구조 안에서 결과와 자원의 소유권을 재검토했습니다. 새로운 프로세스 구조나 프레임워크 도입을 완료한 것으로 해석하지 않습니다. 이 가운데 공통 Job 접수·결과 영속화와 Trace 자식 회수는 2026-10-08 공개 소스 갱신에서 보강됐습니다(ADR-0060, `CHANGELOG.md`의 2.0.0 소스 갱신).
 
-| 검토 영역 | 확인해야 할 계약 | 현재 상태 |
+| 검토 영역 | 확인해야 할 계약 | 2026-09-07 당시 상태 |
 |---|---|---|
 | Job 결과 | accepted 응답·Job ID·영속 row·실제 작업 결과가 일치하고 SQL 실패와 ID 충돌을 식별해야 함 | 시정·독립 검증 잔여 |
 | Trace 자식 프로세스 | stop 요청, 실제 wait 회수, 실행 guard 해제가 순서대로 확인돼야 함 | 실제 도구·환경 검증 잔여 |
@@ -7617,6 +7642,11 @@ git commit --no-verify -m "fix: 긴급 수정"
 
 ### 22.8 공개 소스·문서 현황
 
+**2026-11-11 이후 공개 main:** 새 릴리스 없이 2.2.0 뒤의 후속 변경을 담습니다. ZFS 풀 잠금 자가 초기화의 스레드 안전성 수정,
+도움말 모니터링 카드의 메트릭 경로 수정, C·브라우저 UI 시험 보강(`tests/ui/*.test.mjs` 69개 → 77개)이 들어 있습니다.
+변경 목록은 `CHANGELOG.md` 맨 위 '2026-11-11 2.2.0 이후 main 변경' 항목을 따릅니다. RPC·REST·DB 스키마·`daemon.conf`
+형식과 제품 버전 문자열 `2.2.0`은 바뀌지 않았습니다.
+
 **2026-11-11 현재 소스 (2.2.0):** 2.1.0 이후의 Single Edge 기능을 담은 기능 릴리스입니다.
 변경 목록은 `CHANGELOG.md`의 2.2.0 항목을 따릅니다.
 게시 전 검증에서 공개판 `make check-all` 47개 게이트, release·debug 빌드 각각의 C 단위 시험
@@ -7666,9 +7696,9 @@ Trace·VNC·OVA·자가 치유 보강을 포함합니다. 버전 2.0.0을 유지
 | 문서 현행화 | 현재 소스·설정·게이트와 문서를 대조하고 문서 링크·사이트 build·공개 자산을 검증. 문서 변경은 제품 시험의 재실행이나 전체 감사 완료를 의미하지 않음 |
 
 지정 Valgrind 통과는 이전 전체 검사 잔여를 닫는 근거가 아닙니다. 미검토 소스,
-결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 전체 감사는
-`FAIL(미완료)`를 유지합니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
-않습니다. 공개 제품 버전은 `2.2.0`입니다.
+결과·자원 회수 계약, 전체 메모리 검사와 지원 환경 인증이 남아 있어 이 회차의 전체 감사는
+`FAIL(미완료)`로 남겼습니다. 개발선의 22.7절 이력과 이 공개 소스 회차의 결과를 합산하지
+않습니다. 지금 공개 제품 버전은 `2.2.0`이며 이 회차는 2.0.0 기준입니다.
 
 ---
 
